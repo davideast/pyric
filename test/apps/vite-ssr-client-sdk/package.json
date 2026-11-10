@@ -3,6 +3,7 @@
   "type": "module",
   "dependencies": {
     "@pyric/cli": "*",
+    "@vitejs/plugin-basic-ssl": "2.1.4",
     "firebase": "12.12.0",
     "firebase-admin": "13.6.0",
     "vite": "7.3.2"

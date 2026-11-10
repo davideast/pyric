@@ -7,7 +7,7 @@ import { initializeApp, getApps } from "firebase/app";
 import { getAuth, signInAnonymously } from "firebase/auth";
 import { getDatabase, ref, set, get } from "firebase/database";
 import { getFirestore, doc, setDoc, getDoc } from "firebase/firestore";
-import { getStorage, ref as storageRef, uploadString, getDownloadURL } from "firebase/storage";
+import { getStorage, ref as storageRef, uploadString, getBytes, getDownloadURL } from "firebase/storage";
 import { getAI, getGenerativeModel, GoogleAIBackend } from "firebase/ai";
 import { getMessaging } from "firebase/messaging";
 import { config } from "./config.js";
@@ -52,6 +52,8 @@ export async function run(tag) {
   const storage = getStorage(app);
   out["storage.ownPath"] = await outcome(async () =>
     (await uploadString(storageRef(storage, `users/${uid}/${tag}.txt`), "ssr")).metadata.fullPath);
+  out["storage.readBack"] = await outcome(async () =>
+    new TextDecoder().decode(await getBytes(storageRef(storage, `users/${uid}/${tag}.txt`))));
   out["storage.url"] = await outcome(async () =>
     new URL(await getDownloadURL(storageRef(storage, `users/${uid}/${tag}.txt`))).pathname);
   out["storage.otherPath"] = await outcome(() => uploadString(storageRef(storage, `users/someone-else/${tag}.txt`), "ssr"));

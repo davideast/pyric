@@ -1,3 +1,4 @@
+import basicSsl from "@vitejs/plugin-basic-ssl";
 import { pyric } from "@pyric/cli/vite";
 import { pyricViteExternals } from "@pyric/cli/bundler";
 
@@ -44,13 +45,15 @@ function ssrRoutes() {
 }
 
 // The scenario starts this dev server in several shapes: the SharedWorker
-// sandbox (PYRIC_TEST_HOSTED=0), and the externalization settings frameworks
-// use (PYRIC_TEST_NO_EXTERNAL=firebase or all). `vite build --ssr` with
+// sandbox (PYRIC_TEST_HOSTED=0), the externalization settings frameworks
+// use (PYRIC_TEST_NO_EXTERNAL=firebase or all), and HTTPS with a generated
+// self-signed certificate (PYRIC_TEST_HTTPS=1). `vite build --ssr` with
 // PYRIC_TEST_NO_EXTERNAL=all bundles every dependency except the Firebase SDKs
 // pyricViteExternals keeps external; that plugin runs in builds only (#1756).
 const noExternal = { firebase: ["firebase"], all: true }[process.env.PYRIC_TEST_NO_EXTERNAL ?? ""];
+const https = process.env.PYRIC_TEST_HTTPS === "1" ? [basicSsl()] : [];
 
 export default {
   ...(noExternal === undefined ? {} : { ssr: { noExternal } }),
-  plugins: [pyric({ hosted: process.env.PYRIC_TEST_HOSTED !== "0" }), ssrRoutes(), pyricViteExternals()],
+  plugins: [...https, pyric({ hosted: process.env.PYRIC_TEST_HOSTED !== "0" }), ssrRoutes(), pyricViteExternals()],
 };

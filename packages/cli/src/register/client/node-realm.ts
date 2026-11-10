@@ -25,6 +25,8 @@
  */
 import { Socket } from 'node:net';
 import { WebSocket as NodeWebSocket } from 'ws';
+import type { HostTrust } from 'pyric/sandbox/internal';
+import { tlsOptionsFor, trustedFetch, type HostFetch } from '../../remote/loopback-tls.js';
 import { MAX_BRIDGE_FRAME_BYTES } from '../../bridge/protocol.js';
 import { outstandingWorkOn } from '../../serve/worker/client/core.js';
 import type { ClientPort } from '../../serve/worker/client/handles.js';
@@ -101,7 +103,16 @@ export interface NodeSocketRealm extends HostedSocketRealm {
   releaseAll(): void;
 }
 
-export function createNodeSocketRealm(options: { onAttached?: (ack: { serveVersion?: unknown }) => void } = {}): NodeSocketRealm {
+export interface NodeSocketRealmOptions {
+  onAttached?: (ack: { serveVersion?: unknown }) => void;
+  /**
+   * The trust a dial to `url` takes: a dev server in this process that serves
+   * HTTPS is trusted for its own origin, with its own certificate (#1220).
+   */
+  trust?: (url: string) => HostTrust | undefined;
+}
+
+export function createNodeSocketRealm(options: NodeSocketRealmOptions = {}): NodeSocketRealm {
   const ports = new Map<ClientPort, PortState>();
   const releasedPorts = new WeakSet<ClientPort>();
   let keepAlive: ReturnType<typeof setInterval> | undefined;
@@ -141,10 +152,22 @@ export function createNodeSocketRealm(options: { onAttached?: (ack: { serveVersi
     return state;
   };
 
+  const fetchers = new WeakMap<HostTrust, HostFetch>();
+  const fetchFor = (trust: HostTrust): HostFetch => {
+    let fetcher = fetchers.get(trust);
+    if (fetcher === undefined) {
+      fetcher = trustedFetch(trust);
+      fetchers.set(trust, fetcher);
+    }
+    return fetcher;
+  };
+
   return {
     platform: 'node',
     createSocket(url) {
-      const socket = new NodeWebSocket(url, { maxPayload: MAX_BRIDGE_FRAME_BYTES });
+      const trust = options.trust?.(url);
+      const tls = trust === undefined ? {} : tlsOptionsFor(trust);
+      const socket = new NodeWebSocket(url, { maxPayload: MAX_BRIDGE_FRAME_BYTES, ...tls });
       releaseUpgradedSocket(socket);
       return socket as unknown as WebSocket;
     },
@@ -171,6 +194,12 @@ export function createNodeSocketRealm(options: { onAttached?: (ack: { serveVersi
     },
     attached(ack) {
       options.onAttached?.(ack);
+    },
+    fetch(input, init) {
+      const trust = options.trust?.(String(input));
+      const isPlainDial = trust === undefined;
+      if (isPlainDial) return fetch(input, init);
+      return fetchFor(trust)(input, init);
     },
     holdsProcess() {
       return keepAlive !== undefined;

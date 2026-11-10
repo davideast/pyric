@@ -11,6 +11,7 @@ import { isServiceWorkerRealm } from '../service-worker-channel.js';
 import { hasValidOutboundEnvelope, hasValidReplyOutcome } from '../outbound-validation.js';
 import { _pending, failInFlightStreams, forgetOnDisconnectCalls, nextId, rawRpc, rejectPendingRequests, restoreAuthSubscriptions, restoreObservationSubscriptions, restoreMessagingSubscriptions, wirePort } from './core.js';
 import { endFailedPort } from './disconnect.js';
+import { httpOriginOf } from './http-origin.js';
 import type { ClientDb, ClientPort } from './handles.js';
 import { createHeldMessages } from './held-messages.js';
 import { watchHostSilence } from './host-silence.js';
@@ -18,12 +19,6 @@ import { settleInFlightAtDrop } from './in-flight-at-drop.js';
 import { closeSendOrder, waitsToSend } from './send-order.js';
 import { announceTabReads, answerTabCall } from './tab-reads.js';
 
-/** The HTTP origin that serves a WebSocket endpoint. */
-function httpOriginOf(socketUrl: string): string {
-  const url = new URL(socketUrl);
-  url.protocol = url.protocol === 'wss:' ? 'https:' : 'http:';
-  return url.origin;
-}
 
 const CONNECTION_LOST = 'The hosted sandbox connection was lost. Requests already sent may have completed; check state before retrying.';
 const CONNECTION_CLOSED = 'The hosted sandbox connection is closed.';
@@ -69,6 +64,8 @@ export interface HostedSocketRealm {
   traffic(port: ClientPort, event: { sent?: InboundMessage; closed?: boolean }): void;
   /** The host's attach acknowledgment, for its version stamp. */
   attached?(ack: { serveVersion?: unknown }): void;
+  /** How HTTP requests reach the host (`init.json`, the Storage byte route), when not the global fetch. */
+  fetch?: (input: string | URL, init?: RequestInit) => Promise<Response>;
 }
 
 /** Own one app's physical connections while retaining its logical SDK port. */
@@ -493,7 +490,7 @@ export function getHostedFirestore(target: {
           const offersByteRoute = capabilities.includes(STORAGE_BYTE_ROUTE_CAPABILITY);
           const sessionToken = target.sessionToken;
           const usesByteRoute = offersByteRoute && sessionToken !== undefined;
-          if (usesByteRoute) port.byteRoute = { baseUrl: httpOriginOf(socketUrl), sessionToken };
+          if (usesByteRoute) port.byteRoute = { baseUrl: httpOriginOf(socketUrl), sessionToken, fetch: realm?.fetch };
           else delete port.byteRoute;
           settleByteRoute();
           realm?.attached?.(message);

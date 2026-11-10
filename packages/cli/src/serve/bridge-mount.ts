@@ -122,9 +122,26 @@ export interface BridgeMount {
   sandboxConnected(): boolean;
   onSandboxPeerConnected(listener: () => void): () => void;
   /** The browser-side WS URL for the init payload (`bridgeUrl`). */
-  wsUrl(origin: { host: string; port: number }): string;
+  wsUrl(origin: BridgeOrigin): string;
   /** The MCP endpoint for the banner. */
-  mcpUrl(origin: { host: string; port: number }): string;
+  mcpUrl(origin: BridgeOrigin): string;
+}
+
+/** Where a host serves: its host and port, and whether it serves HTTPS. */
+export interface BridgeOrigin {
+  host: string;
+  port: number;
+  /** The server serves TLS, so its urls are https and wss. */
+  secure?: boolean;
+}
+
+function schemes(origin: BridgeOrigin): { http: string; ws: string } {
+  return origin.secure === true ? { http: 'https', ws: 'wss' } : { http: 'http', ws: 'ws' };
+}
+
+/** The base url a host at `origin` is opened at. */
+export function originUrl(origin: BridgeOrigin): string {
+  return `${schemes(origin).http}://${urlHost(origin.host)}:${origin.port}`;
 }
 
 /** A host as a URL writes it: an IPv6 literal (`::1`, from `server.host`) in brackets. */
@@ -140,7 +157,7 @@ export interface BridgeHostOptions {
   lifecycleServer?: Server;
   projectDir: string;
   /** Returns null until a stable, externally reachable origin is known. */
-  origin(): { host: string; port: number } | null;
+  origin(): BridgeOrigin | null;
   /** Defaults true. A host with a broader ordered shutdown can opt out and
    *  explicitly close the returned attachment from its own close listener. */
   closeOnServerClose?: boolean;
@@ -655,11 +672,11 @@ export function createBridgeMount(opts: BridgeMountOptions = {}): BridgeMount {
         });
       };
 
-      const writePointer = (currentOrigin: { host: string; port: number }): void => {
+      const writePointer = (currentOrigin: BridgeOrigin): void => {
         try {
           mkdirSync(dirname(pointer), { recursive: true });
           writeFileSync(pointer, JSON.stringify({
-            url: `http://${currentOrigin.host}:${currentOrigin.port}`,
+            url: originUrl(currentOrigin),
             mcpUrl: mount.mcpUrl(currentOrigin),
             port: currentOrigin.port,
             pid: process.pid,
@@ -681,10 +698,10 @@ export function createBridgeMount(opts: BridgeMountOptions = {}): BridgeMount {
        * process can outlive its listener (an orphan whose terminal closed),
        * and a pointer to it would send every client to a dead host (#1641).
        */
-      const settleHeldPointer = async (holder: ServePointer, currentOrigin: { host: string; port: number }): Promise<void> => {
+      const settleHeldPointer = async (holder: ServePointer, currentOrigin: BridgeOrigin): Promise<void> => {
         const holderAnswers = await pointerHostAnswers(holder);
         if (attachmentClosed) return;
-        const here = `http://${urlHost(currentOrigin.host)}:${currentOrigin.port}`;
+        const here = originUrl(currentOrigin);
         const named = `${holder.url ?? 'unknown url'}, pid ${String(holder.pid)}`;
         if (holderAnswers) {
           warnPointer(
@@ -832,8 +849,8 @@ export function createBridgeMount(opts: BridgeMountOptions = {}): BridgeMount {
     },
     sandboxConnected: () => bridge.health().sandboxConnected === true,
     onSandboxPeerConnected: bridge.onSandboxPeerConnected,
-    wsUrl: ({ host, port }) => `ws://${urlHost(host)}:${port}${WS_PATH}`,
-    mcpUrl: ({ host, port }) => `http://${urlHost(host)}:${port}${MCP_PATH}`,
+    wsUrl: (origin) => `${schemes(origin).ws}://${urlHost(origin.host)}:${origin.port}${WS_PATH}`,
+    mcpUrl: (origin) => `${originUrl(origin)}${MCP_PATH}`,
     close(): Promise<void> {
       const closing = closePromise;
       const isClosing = closing !== null;
