@@ -102,7 +102,7 @@ export function scopeClients(clients: readonly LiveClient[], selfClientId?: stri
 export function liveClientEmails(clients: readonly LiveClient[]): Map<string, string> {
   const emails = new Map<string, string>();
   for (const client of clients) {
-    const named = client.user !== null && client.email !== undefined && !emails.has(client.user);
+    const named = client.user !== null && client.email !== undefined && client.email !== '' && !emails.has(client.user);
     if (named) emails.set(client.user!, client.email!);
   }
   return emails;

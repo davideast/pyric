@@ -68,13 +68,22 @@ export function liveCallValues(sandbox: Sandbox): ReadonlyMap<string, VerifyObse
   return store.byEvent;
 }
 
+function defineOwnField(target: Record<string, unknown>, key: string, value: unknown): void {
+  Object.defineProperty(target, key, {
+    value,
+    enumerable: true,
+    configurable: true,
+    writable: true,
+  });
+}
+
 /** The values a call carried for the local rules, or `undefined` for none. */
 function valuesOf(call: ObservedCall): VerifyObservedCallValues | undefined {
-  const values: VerifyObservedCallValues = {};
-  if (call.account?.claims !== undefined) values.claims = call.account.claims;
-  if (call.writeData !== undefined) values.writeData = call.writeData;
-  if (call.document !== undefined) values.document = call.document;
-  return Object.keys(values).length === 0 ? undefined : values;
+  const values: Record<string, unknown> = {};
+  if (call.account?.claims !== undefined) defineOwnField(values, 'claims', call.account.claims);
+  if (call.writeData !== undefined) defineOwnField(values, 'writeData', call.writeData);
+  if (call.document !== undefined) defineOwnField(values, 'document', call.document);
+  return Object.keys(values).length === 0 ? undefined : (values as VerifyObservedCallValues);
 }
 
 function rememberValues(sandbox: Sandbox, eventId: string, call: ObservedCall): void {
@@ -232,8 +241,10 @@ export function handleObserve(ctx: HostCtx, port: PortLike, msg: ObserveMessage)
     if (call.listenerId !== undefined) {
       const scopedId = scopedListenerId(ctx, port, caller, call.listenerId);
       const delivery = observedDeliverySummaryOf(call, msg.sessionData);
-      const detail: Record<string, unknown> = { ...withLocal.detail, listenerId: scopedId };
-      if (delivery !== undefined) detail.delivery = delivery;
+      const detail: Record<string, unknown> = {};
+      for (const [key, entry] of Object.entries(withLocal.detail ?? {})) defineOwnField(detail, key, entry);
+      defineOwnField(detail, 'listenerId', scopedId);
+      if (delivery !== undefined) defineOwnField(detail, 'delivery', delivery);
       event = { ...withLocal, detail };
     }
     // Before the emit, so the capture its event schedules finds them.

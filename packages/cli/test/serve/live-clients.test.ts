@@ -4,6 +4,7 @@
  * the user its last call ran as, and when the host last heard from it.
  */
 import { describe, expect, it } from 'bun:test';
+import { liveClientEmails } from 'pyric/sandbox/internal';
 import type { BridgeMessage } from '../../src/bridge/protocol.js';
 import { createLiveHostState } from '../../src/serve/live-host-state.js';
 import { createReproRecorder } from '../../src/serve/repro/recorder.js';
@@ -233,5 +234,77 @@ describe('the live host clients', () => {
       ['service-worker', '/sw.js'],
       ['node', 'server.mjs'],
     ]);
+  });
+
+  it('clears user attribution on sign-out and prevents cross-account uid/email pairing on account switch', () => {
+    const { live } = host();
+    live.inbound(appConfig('s-page', 'browser', 'profile-1'));
+    live.inbound(register('s-page', '/items', 'user-a@example.test'));
+    live.inbound(observe('s-page', 'browser', 'uid-a'));
+    expect(live.report().clients?.[0]).toMatchObject({ user: 'uid-a', email: 'user-a@example.test' });
+    expect(liveClientEmails(live.report().clients ?? []).get('uid-a')).toBe('user-a@example.test');
+
+    // Sign-out clears both email and user
+    live.inbound(update('s-page', '/items', { email: null }));
+    expect(live.report().clients?.[0]?.user).toBeNull();
+    expect(live.report().clients?.[0]).not.toHaveProperty('email');
+
+    // Account B signs in before making an observed SDK call: uid-a is never paired with user-b
+    live.inbound(update('s-page', '/items', { email: 'user-b@example.test' }));
+    expect(live.report().clients?.[0]).toMatchObject({ user: null, email: 'user-b@example.test' });
+    expect(liveClientEmails(live.report().clients ?? []).has('uid-a')).toBe(false);
+
+    // Account B makes an observed call, then switches directly to Account C without an intermediate null
+    live.inbound(observe('s-page', 'browser', 'uid-b'));
+    expect(liveClientEmails(live.report().clients ?? []).get('uid-b')).toBe('user-b@example.test');
+    live.inbound(update('s-page', '/items', { email: 'user-c@example.test' }));
+    expect(live.report().clients?.[0]).toMatchObject({ user: null, email: 'user-c@example.test' });
+    expect(liveClientEmails(live.report().clients ?? []).has('uid-b')).toBe(false);
+
+    // If an observed call for uid-d arrives before presence updates from user-c, user-c's email is not paired with uid-d
+    live.inbound(observe('s-page', 'browser', 'uid-c'));
+    expect(live.report().clients?.[0]).toMatchObject({ user: 'uid-c', email: 'user-c@example.test' });
+    live.inbound(observe('s-page', 'browser', 'uid-d'));
+    expect(live.report().clients?.[0]?.user).toBe('uid-d');
+    expect(live.report().clients?.[0]).not.toHaveProperty('email');
+    expect(liveClientEmails(live.report().clients ?? []).has('uid-d')).toBe(false);
+    expect(liveClientEmails([{ kind: 'browser', clientId: 'c1', user: 'uid-empty', email: '', lastSeen: 1 }]).has('uid-empty')).toBe(false);
+  });
+
+  it('ignores explicit email: undefined on route updates and clears anonymous uid when switching directly to an email account', () => {
+    const { live } = host();
+    live.inbound(appConfig('s-page', 'browser', 'profile-1'));
+    live.inbound(register('s-page', '/items', 'user-a@example.test'));
+    live.inbound(observe('s-page', 'browser', 'uid-a'));
+    // In-memory presence.update carrying email: undefined must not be treated as email: null sign-out
+    live.inbound(update('s-page', '/checkout', { email: undefined }));
+    expect(live.report().clients?.[0]).toMatchObject({ label: '/checkout', user: 'uid-a', email: 'user-a@example.test' });
+
+    // Anonymous session (no email) switches directly to user-b@example.test without an intermediate email: null
+    live.inbound(update('s-page', '/anon', { email: null }));
+    live.inbound(observe('s-page', 'browser', 'uid-anon'));
+    expect(live.report().clients?.[0]).toMatchObject({ user: 'uid-anon' });
+    expect(live.report().clients?.[0]).not.toHaveProperty('email');
+    live.inbound(update('s-page', '/account', { email: 'user-b@example.test' }));
+    expect(live.report().clients?.[0]).toMatchObject({ user: null, email: 'user-b@example.test' });
+    expect(liveClientEmails(live.report().clients ?? []).has('uid-anon')).toBe(false);
+
+    // Observed call carrying claims.email arriving right before matching presence.update retains uid
+    live.inbound(
+      frame('s-page', 'browser', {
+        t: 'observe',
+        id: 'o-claims',
+        call: {
+          service: 'firestore',
+          method: 'getDoc',
+          at: 2,
+          outcome: { status: 'ok' },
+          account: { uid: 'uid-e', claims: { email: 'user-e@example.test' } },
+        },
+      }),
+    );
+    live.inbound(update('s-page', '/account', { email: 'user-e@example.test' }));
+    expect(live.report().clients?.[0]).toMatchObject({ user: 'uid-e', email: 'user-e@example.test' });
+    expect(liveClientEmails(live.report().clients ?? []).get('uid-e')).toBe('user-e@example.test');
   });
 });

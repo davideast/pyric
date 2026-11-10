@@ -63,6 +63,7 @@ interface ClientRecord {
   label?: string;
   user: string | null;
   email?: string;
+  observedEmail?: string;
   lastSeen: number;
   /** The connections this client has open. */
   sessions: Set<string>;
@@ -165,15 +166,20 @@ function takePresenceEmail(inner: Record<string, unknown>): string | null | unde
   if (!carriesEmail) return undefined;
   const email = inner.email;
   delete inner.email;
+  if (email === undefined) return undefined;
   const isEmail = typeof email === 'string' && email !== '';
   return isEmail ? bounded(email) : null;
 }
 
-/** The uid an observe frame's call ran as, null when signed out, or undefined for another frame or a malformed record. */
-function observedUser(inner: Record<string, unknown>): string | null | undefined {
+/** The uid (and any claim email) an observe frame's call ran as, or undefined for another frame or a malformed record. */
+function observedIdentity(inner: Record<string, unknown>): { user: string | null; email?: string } | undefined {
   if (inner.t !== 'observe') return undefined;
   try {
-    return readObservedCall(inner.call).account?.uid ?? null;
+    const call = readObservedCall(inner.call);
+    const user = call.account?.uid ?? null;
+    const rawEmail = call.account?.claims?.email;
+    const email = typeof rawEmail === 'string' && rawEmail !== '' ? bounded(rawEmail) : undefined;
+    return email === undefined ? { user } : { user, email };
   } catch {
     return undefined;
   }
@@ -249,13 +255,28 @@ export function createLiveClients(now: () => number): LiveClients {
     if (isPage) record.label = pagePath(route);
     const script = scriptLabel(kind, inner);
     if (script !== undefined) record.label = script;
-    const user = observedUser(inner);
-    if (user !== undefined) record.user = user;
+    const identity = observedIdentity(inner);
+    if (identity !== undefined) {
+      if (identity.user !== null && record.user !== null && record.user !== identity.user) delete record.email;
+      record.user = identity.user;
+      if (identity.email !== undefined) record.observedEmail = identity.email;
+      else delete record.observedEmail;
+    }
     const lists = unobservedLists(kind, inner);
     if (lists !== undefined) record.unobserved = lists;
     const isBrowser = kind === 'browser';
-    if (isBrowser && email === null) delete record.email;
-    if (isBrowser && typeof email === 'string') record.email = email;
+    if (isBrowser && email === null) {
+      delete record.email;
+      delete record.observedEmail;
+      record.user = null;
+    }
+    if (isBrowser && typeof email === 'string') {
+      if (record.email !== email && record.observedEmail !== email) {
+        record.user = null;
+        delete record.observedEmail;
+      }
+      record.email = email;
+    }
   };
 
   return {
