@@ -75,13 +75,20 @@ function fsPathOf(url: string): string | null {
   return pathname.startsWith('/@fs/') ? decodeURIComponent(pathname.slice('/@fs'.length)) : null;
 }
 
-/** Waits until the dev server answers `/__pyric/init.json`. */
-async function servesInit(url: string): Promise<void> {
+/** Waits until the dev server answers `/__pyric/init.json` and records its `.pyric` session pointer. */
+async function servesInit(app: App, url: string): Promise<void> {
   const deadline = Date.now() + 60_000;
   for (;;) {
     const ok = await fetch(`${url}/__pyric/init.json`).then((response) => response.ok, () => false);
-    if (ok) return;
-    if (Date.now() > deadline) throw new Error(`${url}/__pyric/init.json did not answer within 60s`);
+    if (ok) {
+      try {
+        sessionHeaders(app, url);
+        return;
+      } catch {
+        // `startHostedSandbox` finishes right before `attachHost` writes `.pyric/serve.json`.
+      }
+    }
+    if (Date.now() > deadline) throw new Error(`${url}/__pyric/init.json and .pyric/serve.json were not ready within 60s`);
     await sleep(250);
   }
 }
@@ -92,7 +99,7 @@ async function startViteDev(app: App) {
   const url = `http://127.0.0.1:${port}`;
   const vite = app.commandProcess('node', ['node_modules/vite/bin/vite.js', 'web', '--host', '127.0.0.1', '--port', String(port), '--strictPort']);
   await vite.waitForLog(new RegExp(`@pyric/live/vite: live mode for the Firebase project ${PROJECT}\\.`));
-  await servesInit(url);
+  await servesInit(app, url);
   for (const specifier of PASSED) {
     assert.ok(vite.output.includes(`@pyric/live/vite: ${passThroughLine(specifier)}`), vite.output);
   }
@@ -108,7 +115,7 @@ async function pyricLiveStartsFromWeb(app: App): Promise<void> {
   const url = `http://127.0.0.1:${port}`;
   const live = app.commandProcess('node', ['../rules/node_modules/.bin/pyric-live', '--no-open', '--host', '127.0.0.1', '--port', String(port)], { cwd: 'web' });
   await live.waitForLog(new RegExp(`pyric-live: live mode for the Firebase project ${PROJECT}\\.`));
-  await servesInit(url);
+  await servesInit(app, url);
   const health = await (await fetch(`${url}/__pyric/health`, { headers: sessionHeaders(app, url) })).json() as { live?: { configProjectId?: string; configSource?: string } };
   assert.equal(health.live?.configProjectId, PROJECT);
   assert.equal(health.live?.configSource, '.firebaserc');

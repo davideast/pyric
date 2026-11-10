@@ -55,6 +55,7 @@ import {
   type ViteSandboxGenerationOptions,
 } from './vite-sandbox-generation.js';
 import { localGenerationSlot, projectGenerationSlot, projectSessionToken } from './vite-generation-registry.js';
+import { writeDurableProjectCapabilityToken } from './local-session-token.js';
 import { attachViteHtmlSessionBootstrap, currentViteHtmlPeerContext } from './vite-generation-middleware.js';
 import { createViteModuleContext, createViteModuleSwap } from './vite-module-swap.js';
 import { createVitePageRuntime } from './vite-page-runtime.js';
@@ -402,15 +403,19 @@ export function createPyricPlugin(options: PyricOptions, supplied?: SuppliedRows
 
       async configureServer(server) {
       const projectDir = resolveFirebaseProjectDir(server.config.root, options.root);
-      const sessionToken = projectSessionToken(projectDir);
+      const stateScope = generationStateScope(options);
+      const ownsProjectState = stateScope !== null;
+      const ownsDurableOfflineState = ownsProjectState && supplied === undefined;
+      const sessionToken = projectSessionToken(projectDir, {
+        durable: ownsDurableOfflineState,
+        fresh: options.fresh === true,
+      });
       activeSessionToken = sessionToken;
       // Before Vite's own middleware, which follows symlinks into `.pyric/` and to `.env`.
       attachViteRealPathDeny(server, projectDir);
       attachViteHtmlSessionBootstrap(server, () => activeSessionToken);
       // Before Vite's too, which drops a `t=` query: a loaded SDK file under another URL is an unwrapped copy.
       if (supplied !== undefined) attachLiveSdkRequestGate(server, supplied);
-      const stateScope = generationStateScope(options);
-      const ownsProjectState = stateScope !== null;
       const slot = ownsProjectState ? projectGenerationSlot(projectDir, stateScope) : instanceSlot;
       await slot.take()?.close();
       owners = await readOwners(projectDir, options.owners);
@@ -447,6 +452,9 @@ export function createPyricPlugin(options: PyricOptions, supplied?: SuppliedRows
         sessionToken,
       };
       const generation = await createViteSandboxGeneration(generationInput);
+      if (ownsDurableOfflineState) {
+        writeDurableProjectCapabilityToken(projectDir, sessionToken);
+      }
       slot.set(generation);
       // Server-rendered firebase/* and firebase-admin/* reach this server's host (#1123).
       const ssrActivation = attachViteSsrActivation(server, options.hosted === true);

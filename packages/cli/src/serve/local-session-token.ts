@@ -4,6 +4,8 @@ import { dirname, join, resolve } from 'node:path';
 const LOOPBACK_HOSTNAMES = new Set(['localhost', '127.0.0.1', '[::1]', '::1']);
 const POINTER_REL = join('.pyric', 'serve.json');
 const SESSION_REL = join('.pyric', 'session.json');
+const CAPABILITY_TOKEN_REL = join('.pyric', 'capability-token');
+const VALID_CAPABILITY_TOKEN_RE = /^[A-Za-z0-9_-]{32,128}$/;
 const CANDIDATE_SUBDIRS = ['', 'web', 'frontend', 'client', 'app', 'ui', 'www'];
 
 const TOKENS_BY_PORT_KEY = Symbol.for('pyric.localSessionTokensByPort');
@@ -77,6 +79,38 @@ export function writeMode600FileSync(filePath: string, content: string): void {
     chmodSync(filePath, 0o600);
   } catch {
     // Best-effort on filesystems without POSIX chmod semantics.
+  }
+}
+
+/**
+ * Reads the owner-only `0o600` project capability secret from `.pyric/capability-token`
+ * for sandboxes that own durable `.pyric/state/` data (`--hosted` / `--persist`), so an
+ * already-open browser tab reconnects seamlessly across a dev-server process restart.
+ */
+export function readDurableProjectCapabilityToken(projectDir: string): string | undefined {
+  const filePath = join(projectDir, CAPABILITY_TOKEN_REL);
+  if (!existsSync(filePath)) return undefined;
+  try {
+    const raw = readFileSync(filePath, 'utf8').trim();
+    if (!VALID_CAPABILITY_TOKEN_RE.test(raw)) return undefined;
+    try {
+      chmodSync(filePath, 0o600);
+    } catch {
+      // Best-effort permission hardening.
+    }
+    return raw;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Writes `.pyric/capability-token` (`0o600`) once a durable offline sandbox owns `.pyric/state/`. */
+export function writeDurableProjectCapabilityToken(projectDir: string, token: string): void {
+  if (!VALID_CAPABILITY_TOKEN_RE.test(token)) return;
+  try {
+    writeMode600FileSync(join(projectDir, CAPABILITY_TOKEN_REL), `${token}\n`);
+  } catch {
+    // Read-only project roots still operate with their in-memory token.
   }
 }
 

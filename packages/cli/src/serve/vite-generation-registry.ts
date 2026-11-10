@@ -1,6 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import { realpathSync } from 'node:fs';
 import type { ProjectStateScope } from './hosted/project-ownership.js';
+import { readDurableProjectCapabilityToken } from './local-session-token.js';
 
 /** The part of a generation the registry needs: its idempotent teardown. */
 export interface RegisteredGeneration {
@@ -37,11 +38,15 @@ function canonicalProjectDir(projectDir: string): string {
 }
 
 /**
- * Per-boot capability token for a Vite project in this OS process. Reused across
- * in-process Vite config-edit restarts so already-open browser tabs reconnect
- * without losing authorization, while a fresh OS process mints a fresh token.
+ * Capability token for a Vite project. Reused across in-process Vite config-edit
+ * restarts (and across OS process restarts via `.pyric/capability-token` when
+ * `durable` is true and `fresh` is false) so already-open browser tabs reconnect
+ * without losing authorization; rotated when `fresh` is true.
  */
-export function projectSessionToken(projectDir: string): string {
+export function projectSessionToken(
+  projectDir: string,
+  options: { durable?: boolean; fresh?: boolean } = {},
+): string {
   const holder = globalThis as unknown as Record<symbol, Map<string, string> | undefined>;
   let tokens = holder[SESSION_TOKEN_KEY];
   if (tokens === undefined) {
@@ -49,6 +54,18 @@ export function projectSessionToken(projectDir: string): string {
     holder[SESSION_TOKEN_KEY] = tokens;
   }
   const key = canonicalProjectDir(projectDir);
+  if (options.fresh === true) {
+    const rotated = randomBytes(24).toString('base64url');
+    tokens.set(key, rotated);
+    return rotated;
+  }
+  if (options.durable === true) {
+    const persisted = readDurableProjectCapabilityToken(key);
+    if (persisted !== undefined) {
+      tokens.set(key, persisted);
+      return persisted;
+    }
+  }
   const existing = tokens.get(key);
   if (existing !== undefined) return existing;
   const created = randomBytes(24).toString('base64url');

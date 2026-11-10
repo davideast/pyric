@@ -51,7 +51,11 @@ import {
   type ServeHandle,
 } from '../serve/server.js';
 import { createBridgeMount } from '../serve/bridge-mount.js';
-import { writeOwnedSessionFile } from '../serve/local-session-token.js';
+import {
+  readDurableProjectCapabilityToken,
+  writeDurableProjectCapabilityToken,
+  writeOwnedSessionFile,
+} from '../serve/local-session-token.js';
 import { createAppPorts } from '../serve/app-ports.js';
 import { openBrowser, shouldAutoOpen } from '../serve/open-browser.js';
 import { readPyricConfig, type PyricConfig } from './pyric-config.js';
@@ -305,7 +309,11 @@ async function startServeRuntime(opts: {
   let beaconsSeen = 0;
   const beaconCount = (): number => beaconsSeen;
   const beaconToken = randomBytes(24).toString('base64url');
-  const sessionToken = randomBytes(24).toString('base64url');
+  const ownsDurableOfflineState = !isLive && Boolean(opts.hosted || opts.persist);
+  const sessionToken =
+    ownsDurableOfflineState && !opts.fresh
+      ? (readDurableProjectCapabilityToken(opts.cwd) ?? randomBytes(24).toString('base64url'))
+      : randomBytes(24).toString('base64url');
 
   const freshWithoutPersistence = Boolean(opts.fresh && !opts.persist && !opts.hosted);
   if (freshWithoutPersistence) {
@@ -631,6 +639,9 @@ async function startServeRuntime(opts: {
         persistence: session.hostedPersistence,
         ownWriteRefusal: liveStart?.writeRefusal,
       });
+    }
+    if (ownsDurableOfflineState) {
+      writeDurableProjectCapabilityToken(opts.cwd, sessionToken);
     }
     bridgeAttachment = mount?.attachHost({
       servers: handle.servers,

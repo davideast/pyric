@@ -13,7 +13,7 @@
  *      `.pyric/serve.json` / `.pyric/session.json` written with `0o600` mode.
  */
 import { afterEach, describe, expect, it } from 'bun:test';
-import { mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { request as httpRequest, type IncomingHttpHeaders } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -554,4 +554,67 @@ describe('loopback route security hardening (ADR 0024 Decision 5)', () => {
     expect(localStudio.body).toContain(token);
     expect(String(localStudio.headers['set-cookie'] ?? '')).toContain('__pyric_session=');
   });
+
+  it('persists a 0o600 project capability token across durable restarts, rotates on --fresh, and skips disk when ephemeral', async () => {
+    const ephemeralCwd = createProject();
+    const eph1 = await startServe({
+      cwd: ephemeralCwd,
+      port: 0,
+      host: '127.0.0.1',
+      cacheRoot: join(ephemeralCwd, '.cache'),
+      capture: false,
+      logger: silentServeLogger(),
+    });
+    await eph1.handle.stop();
+    expect(existsSync(join(ephemeralCwd, '.pyric', 'capability-token'))).toBe(false);
+
+    const durableCwd = createProject();
+    const cacheRoot = join(durableCwd, '.cache');
+    const run1 = await startServe({
+      cwd: durableCwd,
+      port: 0,
+      host: '127.0.0.1',
+      cacheRoot,
+      persist: true,
+      logger: silentServeLogger(),
+    });
+    const token1 = run1.sessionToken;
+    const capPath = join(durableCwd, '.pyric', 'capability-token');
+    expect(existsSync(capPath)).toBe(true);
+    expect(statSync(capPath).mode & 0o777).toBe(0o600);
+    await run1.handle.stop();
+
+    const run2 = await startServe({
+      cwd: durableCwd,
+      port: 0,
+      host: '127.0.0.1',
+      cacheRoot,
+      persist: true,
+      logger: silentServeLogger(),
+    });
+    expect(run2.sessionToken).toBe(token1);
+    const reconnected = await fetch(`${run2.handle.url}/__pyric/init.json`, {
+      headers: { 'x-pyric-session-token': token1 },
+    });
+    expect(reconnected.status).toBe(200);
+    expect(((await reconnected.json()) as { rules?: unknown }).rules).toBeDefined();
+    await run2.handle.stop();
+
+    const runFresh = await startServe({
+      cwd: durableCwd,
+      port: 0,
+      host: '127.0.0.1',
+      cacheRoot,
+      persist: true,
+      fresh: true,
+      logger: silentServeLogger(),
+    });
+    runtimes.push(runFresh);
+    expect(runFresh.sessionToken).not.toBe(token1);
+    expect(statSync(capPath).mode & 0o777).toBe(0o600);
+    const staleAfterFresh = await fetch(`${runFresh.handle.url}/__pyric/state`, {
+      headers: { 'x-pyric-session-token': token1 },
+    });
+    expect(staleAfterFresh.status).toBe(401);
+  }, 60_000);
 });
