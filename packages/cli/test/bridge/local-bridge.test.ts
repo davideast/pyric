@@ -8,9 +8,9 @@
  * that the MCP server wires up.
  */
 import { describe, it, expect } from 'bun:test';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { initializeSandbox } from 'pyric/sandbox';
 import { getFirestore } from 'pyric/firestore';
 import { setRules } from 'pyric/sandbox/firestore';
@@ -40,6 +40,31 @@ describe('in-process local bridge (hybrid MCP, Phase 1)', () => {
     expect(bridge.health().mode).toBe('sandbox');
     expect(bridge.isSandboxConnected()).toBe(true);
     expect(bridge.toolNames()).toEqual([...SANDBOX_TOOL_NAMES]);
+  });
+
+  it('stamps @pyric/cli package version onto bridge health lazily unless overridden', () => {
+    const ownVersion = (
+      JSON.parse(readFileSync(resolve(import.meta.dir, '../../package.json'), 'utf8')) as {
+        version: string;
+      }
+    ).version;
+    expect(createLocalBridge(initializeSandbox()).health().version).toBe(ownVersion);
+    expect(
+      createLocalBridge(initializeSandbox(), { version: '2.3.4-custom' }).health().version,
+    ).toBe('2.3.4-custom');
+
+    const prev = globalThis.__PYRIC_EMBEDDED__;
+    try {
+      globalThis.__PYRIC_EMBEDDED__ = {
+        version: '7.6.5-embedded',
+        workerVersion: 'wv',
+        sdk: async () => ({}),
+        site: async () => ({}),
+      };
+      expect(createLocalBridge(initializeSandbox()).health().version).toBe('7.6.5-embedded');
+    } finally {
+      globalThis.__PYRIC_EMBEDDED__ = prev;
+    }
   });
 
   it('dispatches firestore tools in-process, acting as a distinct user with rules enforced', async () => {

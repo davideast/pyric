@@ -366,4 +366,84 @@ describe('pyric version output', () => {
       expect(stdout).toContain(FIREBASE_TESTED_AGAINST);
     });
   }
+
+  it('--help prints @pyric/cli package version in its banner lazily', async () => {
+    const { code, stdout } = await runDispatch(['--help']);
+    expect(code).toBe(0);
+    expect(stdout.startsWith(`pyric ${ownVersion}\n`)).toBe(true);
+
+    const prev = globalThis.__PYRIC_EMBEDDED__;
+    try {
+      globalThis.__PYRIC_EMBEDDED__ = {
+        version: '5.4.3-embedded',
+        workerVersion: 'wv',
+        sdk: async () => ({}),
+        site: async () => ({}),
+      };
+      const embeddedHelp = await runDispatch(['--help']);
+      expect(embeddedHelp.code).toBe(0);
+      expect(embeddedHelp.stdout.startsWith('pyric 5.4.3-embedded\n')).toBe(true);
+    } finally {
+      globalThis.__PYRIC_EMBEDDED__ = prev;
+    }
+  });
+});
+
+describe('pyric bridge --port validation', () => {
+  async function runBridgeExpectingImmediateExit(
+    args: string[],
+    envPort?: string,
+  ): Promise<{ code: number | 'did-not-exit'; stdout: string; stderr: string }> {
+    const prevPort = process.env.PYRIC_PORT;
+    if (envPort === undefined) {
+      delete process.env.PYRIC_PORT;
+    } else {
+      process.env.PYRIC_PORT = envPort;
+    }
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const raced = await Promise.race([
+        runDispatch(args),
+        new Promise<'did-not-exit'>((resolve) => {
+          timer = setTimeout(() => resolve('did-not-exit'), 1000);
+        }),
+      ]);
+      if (raced === 'did-not-exit') {
+        return { code: 'did-not-exit', stdout: '', stderr: '' };
+      }
+      return raced;
+    } finally {
+      if (timer !== undefined) clearTimeout(timer);
+      if (prevPort === undefined) {
+        delete process.env.PYRIC_PORT;
+      } else {
+        process.env.PYRIC_PORT = prevPort;
+      }
+    }
+  }
+
+  for (const [label, argv, envPort] of [
+    ['negative (--port=-1)', ['bridge', '--port=-1'], undefined],
+    ['negative (--port -1)', ['bridge', '--port', '-1'], undefined],
+    ['negative zero (--port=-0)', ['bridge', '--port=-0'], undefined],
+    ['float (--port 3.14)', ['bridge', '--port', '3.14'], undefined],
+    ['above 65535 (--port 65536)', ['bridge', '--port', '65536'], undefined],
+    ['NaN (--port NaN)', ['bridge', '--port', 'NaN'], undefined],
+    ['non-numeric (--port abc)', ['bridge', '--port', 'abc'], undefined],
+    ['empty string (--port "")', ['bridge', '--port', ''], undefined],
+    ['empty equals (--port=)', ['bridge', '--port='], undefined],
+    ['whitespace (--port "   ")', ['bridge', '--port', '   '], undefined],
+    ['missing value (--port)', ['bridge', '--port'], undefined],
+    ['missing short value (-p)', ['bridge', '-p'], undefined],
+    ['repeated (--port 5174 --port 5175)', ['bridge', '--port', '5174', '--port', '5175'], undefined],
+    ['whitespace PYRIC_PORT', ['bridge'], '   '],
+    ['float PYRIC_PORT', ['bridge'], '3.14'],
+    ['negative PYRIC_PORT', ['bridge'], '-1'],
+  ] as const) {
+    it(`rejects ${label} with exit 1 and invalid --port message`, async () => {
+      const res = await runBridgeExpectingImmediateExit([...argv], envPort);
+      expect(res.code).toBe(1);
+      expect(res.stderr).toContain('pyric: invalid --port');
+    });
+  }
 });

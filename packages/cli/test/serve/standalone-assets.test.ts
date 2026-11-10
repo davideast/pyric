@@ -13,6 +13,7 @@ import { existsSync, readFileSync, rmSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { pathToFileURL } from 'node:url';
+import * as standaloneAssets from '../../src/serve/standalone-assets.js';
 import {
   embeddedWorkerVersion,
   isStandalone,
@@ -179,5 +180,9 @@ describe('embedded() guard', () => {
     globalThis.__PYRIC_EMBEDDED__ = undefined;
     expect(() => embeddedWorkerVersion()).toThrow(/not a standalone build/);
     globalThis.__PYRIC_EMBEDDED__ = saved;
+  });
+
+  it('does not expose a separate pyricVersion fallback alongside cliVersion', () => {
+    expect('pyricVersion' in standaloneAssets).toBe(false);
   });
 });

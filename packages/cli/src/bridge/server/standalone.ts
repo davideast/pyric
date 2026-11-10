@@ -40,7 +40,7 @@ import {
   NO_BROWSER_PEER_CLOSE_CODE,
   NO_BROWSER_PEER_CLOSE_REASON,
 } from '../protocol.js';
-import { pyricVersion } from '../../serve/standalone-assets.js';
+import { cliVersion } from '../../pkg-version.js';
 import {
   isAllowedLoopbackRequest,
   isAllowedSessionToken,
@@ -50,7 +50,6 @@ import {
 import { registerLocalSessionToken } from '../../serve/local-session-token.js';
 import { createAppPorts } from '../../serve/app-ports.js';
 
-const BRIDGE_VERSION = pyricVersion();
 const DEFAULT_SESSION_IDLE_MS = 10 * 60 * 1000; // 10 minutes
 const DEFAULT_MAX_SESSIONS = 50;
 
@@ -116,10 +115,11 @@ export async function startServer(
   const recordsAudit = opts.disableAuditLog !== true;
   if (recordsAudit) auditWriter = opts.auditWriter ?? createAuditWriter(project);
 
+  const version = cliVersion();
   const bridge = createBridge({
     logger,
     project,
-    version: BRIDGE_VERSION,
+    version,
     onToolEvent: (event: BridgeToolEvent) => {
       auditWriter?.write(event);
       const succeeded = event.result.ok;
@@ -363,7 +363,7 @@ export async function startServer(
   const mcpUrl = `${url}${DEFAULT_MCP_PATH}`;
   const unregisterPortToken = registerLocalSessionToken(boundPort, sessionToken);
 
-  logger.info(`bridge ${BRIDGE_VERSION} listening on ${url} — sandbox: ${project}`);
+  logger.info(`bridge ${version} listening on ${url} — sandbox: ${project}`);
 
   return {
     bridge,

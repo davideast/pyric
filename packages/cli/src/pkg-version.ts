@@ -12,9 +12,10 @@
  *   3. `'0.0.0'` when neither resolves (never throws).
  *
  * Node-only (node:fs / node:url) — do NOT import from browser-bundled modules
- * (`bridge/protocol.ts`, the bridge client, worker code). The server
- * (`bridge/server/peer.ts`) and the Node remote client (`remote/index.ts`)
- * are the intended consumers.
+ * (`bridge/protocol.ts`, the bridge client, worker code). CLI banners, bridge
+ * and MCP server metadata (`bridge/server/*`, `serve/bridge-mount.ts`), the
+ * worker relay (`bridge/server/peer.ts`), and the Node remote client
+ * (`remote/index.ts`) are the intended consumers.
  */
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -23,14 +24,13 @@ import { fileURLToPath } from 'node:url';
 let cached: string | null = null;
 
 export function cliVersion(): string {
-  if (cached !== null) return cached;
   const embedded = (
     globalThis as { __PYRIC_EMBEDDED__?: { version?: string } }
   ).__PYRIC_EMBEDDED__;
   if (typeof embedded?.version === 'string' && embedded.version.length > 0) {
-    cached = embedded.version;
-    return cached;
+    return embedded.version;
   }
+  if (cached !== null) return cached;
   try {
     let dir = dirname(fileURLToPath(import.meta.url));
     while (!existsSync(join(dir, 'package.json'))) {

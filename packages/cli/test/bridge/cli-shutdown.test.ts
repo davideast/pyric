@@ -29,11 +29,18 @@
 
 import { describe, expect, test } from 'bun:test';
 import { spawn, type ChildProcess } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { connect, createServer } from 'node:net';
 import WebSocket from 'ws';
 import { NO_BROWSER_PEER_CLOSE_CODE } from '../../src/bridge/protocol.js';
+
+const OWN_VERSION = (
+  JSON.parse(
+    readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'package.json'), 'utf8'),
+  ) as { version: string }
+).version;
 
 const CLEAN_SHUTDOWN_BUDGET_MS = 1500;
 const BRIDGE_READY_TIMEOUT_MS = 7_500;
@@ -217,4 +224,65 @@ describe('pyric bridge SIGINT shutdown', () => {
     expect(code).toBe(0);
     expect(elapsedMs).toBeLessThan(CLEAN_SHUTDOWN_BUDGET_MS);
   }, TEST_TIMEOUT_MS);
+
+  for (const [label, args, portEnv] of [
+    ['--port 0', ['bridge', '--port', '0'], undefined],
+    ['-p 0', ['bridge', '-p', '0'], undefined],
+    ['PYRIC_PORT=0', ['bridge'], '0'],
+  ] as const) {
+    test(`${label} binds an ephemeral port and prints the actual bound URLs and package version`, async () => {
+      const env = { ...process.env };
+      if (portEnv === undefined) {
+        delete env.PYRIC_PORT;
+      } else {
+        env.PYRIC_PORT = portEnv;
+      }
+      const child = spawn('node', [CLI, ...args], {
+        env,
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
+      const stdoutChunks: string[] = [];
+      const allChunks: string[] = [];
+      child.stdout?.on('data', (b: Buffer) => {
+        const text = b.toString('utf8');
+        stdoutChunks.push(text);
+        allChunks.push(text);
+      });
+      child.stderr?.on('data', (b: Buffer) => {
+        allChunks.push(b.toString('utf8'));
+      });
+
+      try {
+        await waitForReady(child, allChunks);
+        const banner = stdoutChunks.join('');
+        expect(banner).toContain(`pyric bridge ${OWN_VERSION} ready`);
+        expect(banner).not.toContain('127.0.0.1:0');
+
+        const healthMatch = banner.match(/health:\s+(http:\/\/127\.0\.0\.1:(\d+)\/health)/);
+        const mcpMatch = banner.match(/mcp:\s+(http:\/\/127\.0\.0\.1:(\d+)\/mcp)/);
+        expect(healthMatch).not.toBeNull();
+        expect(mcpMatch).not.toBeNull();
+
+        const boundPort = Number(healthMatch![2]);
+        expect(Number.isInteger(boundPort)).toBe(true);
+        expect(boundPort).toBeGreaterThan(0);
+        expect(boundPort).toBeLessThanOrEqual(65535);
+        expect(Number(mcpMatch![2])).toBe(boundPort);
+        expect(banner).toContain(`http://127.0.0.1:${boundPort}/mcp`);
+
+        const res = await fetch(healthMatch![1]!);
+        expect(res.status).toBe(200);
+        const health = (await res.json()) as { status: string; version: string };
+        expect(health.status).toBe('ok');
+        expect(health.version).toBe(OWN_VERSION);
+
+        child.kill('SIGTERM');
+        const { code, elapsedMs } = await waitForExit(child);
+        expect(code).toBe(0);
+        expect(elapsedMs).toBeLessThan(CLEAN_SHUTDOWN_BUDGET_MS);
+      } finally {
+        await killChild(child);
+      }
+    }, TEST_TIMEOUT_MS);
+  }
 });

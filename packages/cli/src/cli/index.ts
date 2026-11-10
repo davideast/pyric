@@ -40,8 +40,7 @@
 
 import { realpathSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { parseArgs, type ParsedArgs } from './parse-args.js';
-import { pyricVersion } from '../serve/standalone-assets.js';
+import { parseArgs, type FlagValue, type ParsedArgs } from './parse-args.js';
 import { cliVersion } from '../pkg-version.js';
 import { FIREBASE_TESTED_AGAINST } from '../version/compat-target.js';
 
@@ -74,12 +73,8 @@ async function dispatchServiceCommand(parsed: ParsedArgs): Promise<number | null
   return services.dispatchServiceCommand(parsed);
 }
 
-// The standalone binary bakes the real `pyric` version onto the embedded-assets
-// global; the npm bin has no such global and falls back to '0.0.0'.
-const VERSION = pyricVersion();
-
 function printUsage(): void {
-  process.stdout.write(`pyric ${VERSION}
+  process.stdout.write(`pyric ${cliVersion()}
 Firebase for agents. Bridge an in-browser Pyric sandbox to external MCP
 clients (Claude Code, Cursor, ...).
 
@@ -289,7 +284,8 @@ PROJECT CONFIG (pyric.json)
   sessionToken       Require a per-boot session capability token on all routes.
 
 CORE FLAGS (bridge)
-  --port             Port to bind on 127.0.0.1. Default 5174. Env: PYRIC_PORT.
+  --port             Port to bind on 127.0.0.1 (0 picks an available port).
+                     Default 5174. Env: PYRIC_PORT.
   --project          Project label surfaced in /health + audit output.
                      Env: PYRIC_PROJECT.
   --session-token    Require x-pyric-session-token on /mcp and full /health.
@@ -310,6 +306,19 @@ function printVersion(): void {
   );
 }
 
+function resolveRawBridgePort(
+  flagPort: FlagValue | undefined,
+  envPort: string | undefined,
+): string | undefined {
+  if (flagPort !== undefined) {
+    if (typeof flagPort === 'string') return flagPort;
+    if (Array.isArray(flagPort)) return flagPort.map(String).join(',');
+    return '';
+  }
+  if (envPort !== undefined && envPort !== '') return envPort;
+  return undefined;
+}
+
 async function runBridge(parsed: ParsedArgs): Promise<number> {
   const removedFlags = [
     'mode',
@@ -326,16 +335,21 @@ async function runBridge(parsed: ParsedArgs): Promise<number> {
     }
   }
 
-  const flagPort = parsed.flags.get('port');
-  const port =
-    typeof flagPort === 'string'
-      ? Number(flagPort)
-      : process.env.PYRIC_PORT
-        ? Number(process.env.PYRIC_PORT)
-        : undefined;
-  if (port !== undefined && (!Number.isFinite(port) || port < 1 || port > 65535)) {
-    process.stderr.write(`pyric: invalid --port '${flagPort ?? process.env.PYRIC_PORT}'.\n`);
-    return 1;
+  const rawPort = resolveRawBridgePort(parsed.flags.get('port'), process.env.PYRIC_PORT);
+  let port: number | undefined;
+  if (rawPort !== undefined) {
+    const parsedPort = Number(rawPort);
+    const isValidPort =
+      rawPort.trim().length > 0 &&
+      !Object.is(parsedPort, -0) &&
+      Number.isInteger(parsedPort) &&
+      parsedPort >= 0 &&
+      parsedPort <= 65535;
+    if (!isValidPort) {
+      process.stderr.write(`pyric: invalid --port '${rawPort}'.\n`);
+      return 1;
+    }
+    port = parsedPort;
   }
 
   const flagProject = parsed.flags.get('project');
@@ -407,7 +421,7 @@ async function runBridge(parsed: ParsedArgs): Promise<number> {
     ? ` --header "x-pyric-session-token: ${handle.sessionToken}"`
     : '';
   process.stdout.write(
-    `\npyric bridge ${VERSION} ready\n` +
+    `\npyric bridge ${cliVersion()} ready\n` +
       `  target:  sandbox\n` +
       `  project: ${handle.bridge.project}\n` +
       `  health:  ${handle.url}/health\n` +
