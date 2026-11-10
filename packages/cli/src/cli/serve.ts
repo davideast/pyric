@@ -456,6 +456,7 @@ async function startServeRuntime(opts: {
         projectKey: opts.cwd,
         disableAuditLog: opts.disableAuditLog,
         liveHost,
+        ownWriteRefusal: liveStart?.writeRefusal,
         upgradeGuard: { boundHost: opts.host ?? 'localhost', allowedHosts: opts.allowedHosts },
         learnsProxyPorts: true,
         appPorts,

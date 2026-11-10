@@ -551,5 +551,17 @@ describe('the value an RTDB write sent', () => {
     expect((databaseContext('set', [fakeRef, 'x'.repeat(64 * 1024)], undefined) as { writeData?: unknown }).writeData).toBeUndefined();
     expect((databaseContext('onDisconnect.set', [{}, 'x'], fakeRef) as { writeData?: unknown }).writeData).toBeUndefined();
     expect(observedCallOf({ module: 'firebase/database', name: 'set', outcome: 'resolved', writeData: 'hello' }, 1)?.writeData).toBe('hello');
+    expect(databaseContext('setWithPriority', [fakeRef, 'urgent', 10], undefined)).toMatchObject({
+      writeData: { '.value': 'urgent', '.priority': 10 },
+    });
+    expect(databaseContext('setWithPriority', [fakeRef, { title: 'task' }, 'rank-a'], undefined)).toMatchObject({
+      writeData: { title: 'task', '.priority': 'rank-a' },
+    });
+    expect(databaseContext('setWithPriority', [fakeRef, null, 10], undefined)).toMatchObject({
+      writeData: null,
+    });
+    expect(databaseContext('setWithPriority', [fakeRef, { title: 'task' }, null], undefined)).toMatchObject({
+      writeData: { title: 'task' },
+    });
   });
 });

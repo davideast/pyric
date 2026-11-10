@@ -42,6 +42,7 @@ import type { InitPayload, RulesDestination } from './init-payload.js';
 import type { createHostedRuntime, HostedRuntimeOptions } from './hosted/runtime.js';
 import { HOSTED_METHOD_PATH, HOSTED_METHOD_BODY_LIMIT, HOSTED_REPRO_PATH, hostedMethodRequest, hostedReproRequest } from './hosted/method-protocol.js';
 import { tabCallRoute, runHostedMethod } from './hosted/live-reads.js';
+import type { PyricWrite, PyricWriteRefusal } from './hosted/own-writes.js';
 import { MCP_PROJECT_HEADER, MCP_INSTANCE_HEADER, mcpProjectError } from './mcp-project.js';
 import { proxyTargetsOf } from './vite-proxy-check.js';
 
@@ -92,6 +93,8 @@ export interface BridgeMountOptions {
   appPorts?: AppPorts;
   /** Held only by a host a live seam started (`live-host-state.ts`): its status joins the health report. */
   liveHost?: LiveHostState;
+  /** Live mode's refusal of pyric's own writes (`hosted/own-writes.ts`), applied to MCP in-process mutators too. */
+  ownWriteRefusal?: PyricWriteRefusal;
 }
 
 export interface BridgeMount {
@@ -153,6 +156,15 @@ export interface BridgeHostAttachment {
   close(): Promise<void>;
 }
 
+function fallbackLiveWriteRefusal(write: PyricWrite): Error {
+  return Object.assign(
+    new Error(
+      `[pyric] ${write.action} refused in Live mode: pyric never mutates live projects or local capture/identity state from MCP (${write.writer}).`,
+    ),
+    { code: 'PYRIC_LIVE_REFUSED' },
+  );
+}
+
 export function createBridgeMount(opts: BridgeMountOptions = {}): BridgeMount {
   const peerOptions = { livenessTimeoutMs: testPeerLivenessMs() };
   // The ports a page of this app may name in its Origin (see app-ports.ts).
@@ -163,12 +175,16 @@ export function createBridgeMount(opts: BridgeMountOptions = {}): BridgeMount {
   let hostedStartup: Promise<void> | undefined;
   let disconnectHosted: (() => void) | undefined;
   let captureProjectDir = process.cwd();
+  const isLiveMode = opts.liveHost !== undefined;
+  let activeWriteRefusal: PyricWriteRefusal | undefined =
+    opts.ownWriteRefusal ?? (isLiveMode ? fallbackLiveWriteRefusal : undefined);
   const project = opts.project ?? 'sandbox';
   const disablesAuditLog = Boolean(opts.disableAuditLog);
   const auditWriter = disablesAuditLog ? null : createAuditWriter(project);
   const recordsAudit = auditWriter !== null;
 
   const bridge = createBridge({
+    mode: isLiveMode ? 'live' : 'sandbox',
     project,
     projectKey: opts.projectKey,
     version: BRIDGE_VERSION,
@@ -253,6 +269,8 @@ export function createBridgeMount(opts: BridgeMountOptions = {}): BridgeMount {
     const server = buildMcpServer(bridge, {
       forwarded: surface.forwarded,
       inProcess: surface.inProcess,
+      mode: isLiveMode ? 'live' : 'sandbox',
+      writeRefusal: activeWriteRefusal,
     });
     session.close = () => {
       session.closing ??= (async () => {
@@ -323,6 +341,9 @@ export function createBridgeMount(opts: BridgeMountOptions = {}): BridgeMount {
       const starting = (async () => {
         const { createHostedRuntime } = await import('./hosted/runtime.js');
         const liveHost = opts.liveHost;
+        if (ai?.ownWriteRefusal !== undefined) {
+          activeWriteRefusal = ai.ownWriteRefusal;
+        }
         const fromSandbox = (message: BridgeMessage): void => {
           liveHost?.outbound(message);
           bridge.handleSandboxMessage(message);

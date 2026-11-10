@@ -540,4 +540,36 @@ describe('@pyric/live Firestore sessionData extraction', () => {
       ],
     });
   });
+
+  test('escapes colliding plain user maps while preserving document string fields verbatim', async () => {
+    records.length = 0;
+    await fs.setDoc(
+      makeFirestoreRef('docs/d1') as never,
+      {
+        email: 'ada@example.test',
+        note: 'verbatim-value',
+        coordsMap: { latitude: 12.5, longitude: 42.25 },
+        spanMap: { seconds: 30, nanoseconds: 0 },
+        linkMap: { type: 'document', path: 'orgs/o1', id: 'o1' },
+        escapedMap: { type: 'pyric/map/1.0', fields: { nested: 1 } },
+      } as never,
+    );
+    const setRec = records.find((r) => r.name === 'setDoc' && r.outcome === 'resolved')!;
+    expect(sessionDataOf(setRec)).toEqual({
+      firestore: [
+        {
+          kind: 'set',
+          path: 'docs/d1',
+          data: {
+            email: 'ada@example.test',
+            note: 'verbatim-value',
+            coordsMap: { type: 'pyric/map/1.0', fields: { latitude: 12.5, longitude: 42.25 } },
+            spanMap: { type: 'pyric/map/1.0', fields: { seconds: 30, nanoseconds: 0 } },
+            linkMap: { type: 'pyric/map/1.0', fields: { type: 'document', path: 'orgs/o1', id: 'o1' } },
+            escapedMap: { type: 'pyric/map/1.0', fields: { type: 'pyric/map/1.0', fields: { nested: 1 } } },
+          },
+        },
+      ],
+    });
+  });
 });

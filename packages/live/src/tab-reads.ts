@@ -46,15 +46,167 @@ function readHub(): LiveReadHub {
   return scope[READ_HUB_KEY] ??= { listeners: new Set() };
 }
 
-/** Each service's wrapped module and the newest instance its factory handed the app. */
+/** Each service's wrapped module, its default handle, and handles indexed by normalized resource name. */
 interface Service {
   sdk?: Fields;
   instance?: unknown;
+  defaultInstance?: unknown;
+  readonly byResource: Map<string, unknown>;
 }
 
-const firestore: Service = {};
-const database: Service = {};
-const storage: Service = {};
+const firestore: Service = { byResource: new Map() };
+const database: Service = { byResource: new Map() };
+const storage: Service = { byResource: new Map() };
+
+function defineOwn<T extends Record<string, unknown>>(target: T, key: string, value: unknown): void {
+  Object.defineProperty(target, key, {
+    value,
+    enumerable: true,
+    writable: true,
+    configurable: true,
+  });
+}
+
+function isObjectLike(value: unknown): value is Fields {
+  return (typeof value === 'object' || typeof value === 'function') && value !== null;
+}
+
+function nestedStringAt(value: unknown, keys: readonly string[]): string | undefined {
+  let current: unknown = value;
+  for (const key of keys) {
+    if (!isObjectLike(current)) return undefined;
+    current = current[key];
+  }
+  return typeof current === 'string' && current !== '' ? current : undefined;
+}
+
+function normalizeRtdbSelector(raw: string | undefined): string | undefined {
+  if (typeof raw !== 'string') return undefined;
+  const trimmed = raw.trim();
+  if (trimmed === '') return undefined;
+  if (trimmed.includes('://')) {
+    try {
+      const parsed = new URL(trimmed);
+      const ns = parsed.searchParams.get('ns');
+      if (ns && ns.trim() !== '') return ns.trim().toLowerCase();
+      const host = parsed.hostname.toLowerCase();
+      if (host.endsWith('.firebaseio.com') || host.endsWith('.firebasedatabase.app')) {
+        const firstLabel = host.split('.')[0];
+        if (firstLabel) return firstLabel;
+      }
+      return host;
+    } catch {
+      return undefined;
+    }
+  }
+  return trimmed.replace(/\/+$/, '').toLowerCase();
+}
+
+function normalizeStorageBucketSelector(raw: string | undefined): string | undefined {
+  if (typeof raw !== 'string') return undefined;
+  let cleaned = raw.trim();
+  if (cleaned === '') return undefined;
+  if (/^gs:\/\//i.test(cleaned)) cleaned = cleaned.slice(5);
+  cleaned = cleaned.replace(/\/+$/, '').toLowerCase();
+  if (cleaned === '' || cleaned.includes('/')) return undefined;
+  return cleaned;
+}
+
+function databaseKeysOf(instance: unknown, factoryArgs: readonly unknown[]): { keys: string[]; isDefault: boolean } {
+  const explicitArg = typeof factoryArgs[1] === 'string' && factoryArgs[1].trim() !== '' ? factoryArgs[1] : undefined;
+  const isDefault = explicitArg === undefined;
+  const keys = new Set<string>();
+  const repoNamespace =
+    nestedStringAt(instance, ['_repoInternal', 'repoInfo_', 'namespace']) ??
+    nestedStringAt(instance, ['_repo', 'repoInfo_', 'namespace']) ??
+    nestedStringAt(instance, ['_delegate', '_repoInternal', 'repoInfo_', 'namespace']) ??
+    nestedStringAt(instance, ['instance']);
+  const normalizedRepo = normalizeRtdbSelector(repoNamespace);
+  if (normalizedRepo) keys.add(normalizedRepo);
+  const normalizedExplicit = normalizeRtdbSelector(explicitArg);
+  if (normalizedExplicit) keys.add(normalizedExplicit);
+  if (isDefault) {
+    keys.add('default');
+    const configuredUrl = nestedStringAt(instance, ['app', 'options', 'databaseURL']);
+    const normalizedConfigured = normalizeRtdbSelector(configuredUrl);
+    if (normalizedConfigured) keys.add(normalizedConfigured);
+    const projectId = nestedStringAt(instance, ['app', 'options', 'projectId']);
+    if (projectId) {
+      keys.add(`${projectId.toLowerCase()}-default-rtdb`);
+      if (normalizedConfigured === undefined && normalizedRepo === undefined) {
+        keys.add(projectId.toLowerCase());
+      }
+    }
+  }
+  return { keys: [...keys], isDefault };
+}
+
+function storageKeysOf(sdk: Fields, instance: unknown, factoryArgs: readonly unknown[]): { keys: string[]; isDefault: boolean } {
+  const explicitArg = typeof factoryArgs[1] === 'string' && factoryArgs[1].trim() !== '' ? factoryArgs[1] : undefined;
+  const isDefault = explicitArg === undefined;
+  const keys = new Set<string>();
+  const normalizedExplicit = normalizeStorageBucketSelector(explicitArg);
+  if (normalizedExplicit) keys.add(normalizedExplicit);
+  const internalBucket =
+    nestedStringAt(instance, ['_bucket', 'bucket']) ??
+    nestedStringAt(instance, ['_delegate', '_bucket', 'bucket']) ??
+    nestedStringAt(instance, ['bucket']);
+  const normalizedInternal = normalizeStorageBucketSelector(internalBucket);
+  if (normalizedInternal) keys.add(normalizedInternal);
+  if (keys.size === 0 && typeof sdk.ref === 'function') {
+    try {
+      const rootRef = (sdk.ref as Fn)(instance, '');
+      const refBucket = normalizeStorageBucketSelector(nestedStringAt(rootRef, ['bucket']));
+      if (refBucket && refBucket !== 'bucket-not-read-from-the-sdk-reference') keys.add(refBucket);
+    } catch {
+      // Ignore synthetic mocks whose `ref` requires extra arguments.
+    }
+  }
+  if (isDefault) {
+    keys.add('default');
+    const configuredBucket = normalizeStorageBucketSelector(nestedStringAt(instance, ['app', 'options', 'storageBucket']));
+    if (configuredBucket) keys.add(configuredBucket);
+  }
+  return { keys: [...keys], isDefault };
+}
+
+function resolveServiceInstance(
+  key: LiveModuleKey | undefined,
+  service: Service,
+  args: Fields,
+): { ok: true; instance: unknown } | { ok: false; result: TabReadResult } {
+  if (key === 'live-database' && typeof args.instance === 'string' && args.instance.trim() !== '') {
+    const target = normalizeRtdbSelector(args.instance);
+    const matched = target === undefined ? undefined : service.byResource.get(target);
+    if (matched === undefined) {
+      return {
+        ok: false,
+        result: {
+          ok: false,
+          summary: `Live mode refused database read: Realtime Database instance '${args.instance}' is not open in the app's tab.`,
+          data: { code: 'PYRIC_LIVE_REFUSED' },
+        },
+      };
+    }
+    return { ok: true, instance: matched };
+  }
+  if (key === 'live-storage' && typeof args.bucket === 'string' && args.bucket.trim() !== '') {
+    const target = normalizeStorageBucketSelector(args.bucket);
+    const matched = target === undefined ? undefined : service.byResource.get(target);
+    if (matched === undefined) {
+      return {
+        ok: false,
+        result: {
+          ok: false,
+          summary: `Live mode refused storage read: Storage bucket '${args.bucket}' is not open in the app's tab.`,
+          data: { code: 'PYRIC_LIVE_REFUSED' },
+        },
+      };
+    }
+    return { ok: true, instance: matched };
+  }
+  return { ok: true, instance: service.defaultInstance ?? service.instance };
+}
 
 /** The factories whose result is the service's instance. */
 const FACTORIES: Partial<Record<LiveModuleKey, { service: Service; names: readonly string[] }>> = {
@@ -191,7 +343,7 @@ function crawlNode(value: unknown, path: string, depth: number, maxDepth: number
   const branches: [string, Fields][] = [];
   for (const [key, child] of entries) {
     if (isBranch(child)) branches.push([key, child]);
-    else schema[key] = valueType(child);
+    else defineOwn(schema, key, valueType(child));
   }
   const atDepth = depth >= maxDepth;
   const children = atDepth ? [] : branches.slice(0, maxChildren).map(([key, child]) => crawlNode(child, childPath(path, key), depth + 1, maxDepth, maxChildren));
@@ -234,16 +386,16 @@ async function objectMetadata(sdk: Fields, storage: unknown, args: Fields): Prom
 
 // ─── The reader ──────────────────────────────────────────────────────────
 
-const READS: ReadonlyMap<string, { service: Service; read: Read }> = new Map([
-  ['firestore.getDoc', { service: firestore, read: getDocument }],
-  ['firestore_get_document', { service: firestore, read: getDocument }],
-  ['firestore.getDocs', { service: firestore, read: methodCollection }],
-  ['firestore_list_documents', { service: firestore, read: forwardedCollection }],
-  ['firestore_query_where', { service: firestore, read: forwardedCollection }],
-  ['database.get', { service: database, read: getValue }],
-  ['rtdb_crawl_structure', { service: database, read: crawlStructure }],
-  ['storage.listAll', { service: storage, read: listObjects }],
-  ['storage.getMetadata', { service: storage, read: objectMetadata }],
+const READS: ReadonlyMap<string, { key: LiveModuleKey; service: Service; read: Read }> = new Map([
+  ['firestore.getDoc', { key: 'live-firestore', service: firestore, read: getDocument }],
+  ['firestore_get_document', { key: 'live-firestore', service: firestore, read: getDocument }],
+  ['firestore.getDocs', { key: 'live-firestore', service: firestore, read: methodCollection }],
+  ['firestore_list_documents', { key: 'live-firestore', service: firestore, read: forwardedCollection }],
+  ['firestore_query_where', { key: 'live-firestore', service: firestore, read: forwardedCollection }],
+  ['database.get', { key: 'live-database', service: database, read: getValue }],
+  ['rtdb_crawl_structure', { key: 'live-database', service: database, read: crawlStructure }],
+  ['storage.listAll', { key: 'live-storage', service: storage, read: listObjects }],
+  ['storage.getMetadata', { key: 'live-storage', service: storage, read: objectMetadata }],
 ]);
 
 function isOpen(service: Service): boolean {
@@ -265,16 +417,58 @@ const reader: NonNullable<LiveReadHub['reader']> = {
     const entry = READS.get(name);
     const answers = entry !== undefined && isOpen(entry.service);
     if (!answers) return undefined;
-    const { sdk, instance } = entry.service;
-    return entry.read(sdk!, instance, args).catch((error: unknown) => errorSummary(name, error));
+    const resolved = resolveServiceInstance(entry.key, entry.service, args);
+    if (!resolved.ok) return Promise.resolve(resolved.result);
+    return entry.read(entry.service.sdk!, resolved.instance, args).catch((error: unknown) => errorSummary(name, error));
   },
 };
 
-function noteInstance(service: Service, instance: unknown): void {
-  const isNew = instance !== service.instance && instance !== undefined && instance !== null;
-  if (!isNew) return;
-  service.instance = instance;
-  for (const listener of readHub().listeners) listener();
+function noteInstance(key: LiveModuleKey, sdk: Fields, service: Service, instance: unknown, factoryArgs: readonly unknown[]): void {
+  if (instance === undefined || instance === null) return;
+  const wasOpen = isOpen(service);
+  let changed = false;
+  if (key === 'live-database') {
+    const { keys, isDefault } = databaseKeysOf(instance, factoryArgs);
+    for (const resourceKey of keys) {
+      if (service.byResource.get(resourceKey) !== instance) {
+        service.byResource.set(resourceKey, instance);
+        changed = true;
+      }
+    }
+    if (isDefault && service.defaultInstance !== instance) {
+      service.defaultInstance = instance;
+      changed = true;
+    }
+    const nextPrimary = service.defaultInstance ?? service.instance ?? instance;
+    if (service.instance !== nextPrimary) {
+      service.instance = nextPrimary;
+      changed = true;
+    }
+  } else if (key === 'live-storage') {
+    const { keys, isDefault } = storageKeysOf(sdk, instance, factoryArgs);
+    for (const resourceKey of keys) {
+      if (service.byResource.get(resourceKey) !== instance) {
+        service.byResource.set(resourceKey, instance);
+        changed = true;
+      }
+    }
+    if (isDefault && service.defaultInstance !== instance) {
+      service.defaultInstance = instance;
+      changed = true;
+    }
+    const nextPrimary = service.defaultInstance ?? service.instance ?? instance;
+    if (service.instance !== nextPrimary) {
+      service.instance = nextPrimary;
+      changed = true;
+    }
+  } else if (instance !== service.instance) {
+    service.instance = instance;
+    service.defaultInstance = instance;
+    changed = true;
+  }
+  if (changed || !wasOpen) {
+    for (const listener of readHub().listeners) listener();
+  }
 }
 
 /**
@@ -292,7 +486,7 @@ export function noteReadModule(key: LiveModuleKey, wrapped: Fields): void {
     if (typeof factory !== 'function') continue;
     wrapped[name] = function noted(this: unknown, ...args: unknown[]): unknown {
       const instance = Reflect.apply(factory as Fn, this, args);
-      noteInstance(service, instance);
+      noteInstance(key, wrapped, service, instance, args);
       return instance;
     };
   }

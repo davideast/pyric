@@ -23,6 +23,15 @@ import {
 } from './session-budget.js';
 import type { ObservedFirestoreSessionOp } from './session-data.js';
 
+export function defineOwn<T extends Record<string, unknown>>(target: T, key: string, value: unknown): void {
+  Object.defineProperty(target, key, {
+    value,
+    enumerable: true,
+    writable: true,
+    configurable: true,
+  });
+}
+
 /** The deepest nesting a session copy keeps; the host refuses deeper. */
 export const MAX_SESSION_DEPTH = 20;
 /** The longest document path a session op names. */
@@ -37,6 +46,66 @@ export const DELETE_FIELD_SENTINEL: unique symbol = Symbol('delete-field-sentine
 export const OVER_BUDGET: unique symbol = Symbol('over-budget');
 export const UNSUPPORTED: unique symbol = Symbol('unsupported');
 export const FORBIDDEN_SESSION_KEYS: ReadonlySet<string> = new Set(['__proto__', 'constructor', 'prototype']);
+export const ESCAPED_PLAIN_MAP_TYPE = 'pyric/map/1.0' as const;
+
+/** True when `value` has the exact `{ type: 'pyric/map/1.0', fields: <plainObject> }` escape envelope shape. */
+export function isEscapedPlainMapShape(value: Record<string, unknown>): boolean {
+  return (
+    Object.keys(value).length === 2 &&
+    value.type === ESCAPED_PLAIN_MAP_TYPE &&
+    isPlainObject(value.fields)
+  );
+}
+
+/** True when a plain user map has the exact key signature of a serialized Firestore special value or map envelope. */
+export function collidesWithSessionSpecialShape(value: Record<string, unknown>): boolean {
+  const keys = Object.keys(value);
+  if (
+    keys.length === 2 &&
+    typeof value.seconds === 'number' &&
+    typeof value.nanoseconds === 'number'
+  ) {
+    return true;
+  }
+  if (
+    keys.length === 2 &&
+    typeof value.latitude === 'number' &&
+    typeof value.longitude === 'number'
+  ) {
+    return true;
+  }
+  if (
+    keys.length === 2 &&
+    value.type === 'firestore/bytes/1.0' &&
+    typeof value.bytes === 'string'
+  ) {
+    return true;
+  }
+  if (
+    keys.length === 2 &&
+    value.__type__ === '__vector__' &&
+    Array.isArray(value.value)
+  ) {
+    return true;
+  }
+  if (
+    keys.length === 3 &&
+    value.type === 'document' &&
+    typeof value.path === 'string' &&
+    typeof value.id === 'string'
+  ) {
+    return true;
+  }
+  if (isEscapedPlainMapShape(value)) {
+    return true;
+  }
+  return (
+    value.type === 'firestore/timestamp/1.0' ||
+    value.type === 'firestore/geoPoint/1.0' ||
+    value.type === 'firestore/vectorValue/1.0' ||
+    value.__type === 'reference'
+  );
+}
 
 /** A copied value, or why it was left out. */
 export type SessionCopyResult<T> =
@@ -169,12 +238,18 @@ export function serializedSdkValue(value: object): unknown {
     return { __type__: '__vector__', value: [...arr] };
   }
 
-  // Firestore DocumentReference (`type === 'document'`, `path`, `id`)
+  // Firestore DocumentReference (`type === 'document'`, `path`, `id`, SDK instance or ref handle)
   if (Reflect.get(value, 'type') === 'document') {
-    const refPath: unknown = Reflect.get(value, 'path');
-    const refId: unknown = Reflect.get(value, 'id');
-    if (typeof refPath === 'string' && isValidDocPath(refPath) && typeof refId === 'string') {
-      return { type: 'document', path: normalizeDocPath(refPath), id: refId };
+    const fsHandle: unknown = Reflect.get(value, 'firestore');
+    const isDocRefInstance =
+      !isPlainObject(value) ||
+      (isObject(fsHandle) && ('converter' in value || isObject(Reflect.get(fsHandle, 'app'))));
+    if (isDocRefInstance) {
+      const refPath: unknown = Reflect.get(value, 'path');
+      const refId: unknown = Reflect.get(value, 'id');
+      if (typeof refPath === 'string' && isValidDocPath(refPath) && typeof refId === 'string') {
+        return { type: 'document', path: normalizeDocPath(refPath), id: refId };
+      }
     }
   }
   return undefined;
@@ -293,7 +368,13 @@ function sessionEntriesCopy(
     }
     if (copied === OVER_BUDGET) return OVER_BUDGET;
     if (copied === UNSUPPORTED) return UNSUPPORTED;
-    out[key] = copied;
+    defineOwn(out, key, copied);
+  }
+  const needsEscape =
+    depth > 0 ? collidesWithSessionSpecialShape(out) : isEscapedPlainMapShape(out);
+  if (needsEscape) {
+    if (!chargeString(budget, ESCAPED_PLAIN_MAP_TYPE)) return OVER_BUDGET;
+    return { type: ESCAPED_PLAIN_MAP_TYPE, fields: out };
   }
   return out;
 }
@@ -357,7 +438,7 @@ class UpdateFields {
   add(fieldPath: string, rawValue: unknown): SessionCopyResult<never> | undefined {
     if (isUnsafeFieldPath(fieldPath)) return UNSUPPORTED_RESULT;
     if (!chargeString(this.budget, fieldPath)) return OVERSIZED_RESULT;
-    const copied = sessionValueCopy(rawValue, 0, this.budget, true, this.writeMeta, fieldPath);
+    const copied = sessionValueCopy(rawValue, 1, this.budget, true, this.writeMeta, fieldPath);
     if (copied === DELETE_FIELD_SENTINEL) {
       noteDeleteField(this.writeMeta.deleteFields, fieldPath, this.budget);
       return undefined;
@@ -369,7 +450,7 @@ class UpdateFields {
     }
     if (copied === OVER_BUDGET || this.budget.left < 0) return OVERSIZED_RESULT;
     if (copied === UNSUPPORTED) return UNSUPPORTED_RESULT;
-    this.data[fieldPath] = copied;
+    defineOwn(this.data, fieldPath, copied);
     return undefined;
   }
 

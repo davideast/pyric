@@ -93,4 +93,92 @@ describe('a live page answers Storage reads and crawls to a depth', () => {
       },
     });
   });
+
+  test('routes instance and bucket selectors across multiple handles, refuses unopened selectors, and returns Storage metadata faithfully without ref', async () => {
+    const dbPrimary = { app: { options: { projectId: 'proj-1' } }, _repoInternal: { repoInfo_: { namespace: 'proj-1-default-rtdb' } } };
+    const dbSecondary = { app: { options: { projectId: 'proj-1' } }, _repoInternal: { repoInfo_: { namespace: 'proj-1-secondary' } } };
+    const databaseModule: Record<string, unknown> = {
+      getDatabase: (_app?: unknown, url?: string) => (url ? dbSecondary : dbPrimary),
+      ref: (db: unknown, path: string) => ({ db, path }),
+      get: async (r: { db: unknown; path: string }) => ({
+        exists: () => true,
+        val: () => (r.db === dbSecondary ? { source: 'secondary' } : { source: 'primary' }),
+      }),
+    };
+    noteReadModule('live-database', databaseModule);
+    (databaseModule.getDatabase as (a?: unknown, u?: string) => unknown)(undefined);
+    (databaseModule.getDatabase as (a?: unknown, u?: string) => unknown)(undefined, 'https://proj-1-secondary.firebaseio.com');
+
+    expect((await hub()?.reader?.call('database.get', { path: '/items' }))?.data).toEqual({
+      exists: true,
+      value: { source: 'primary' },
+    });
+    expect((await hub()?.reader?.call('database.get', { path: '/items', instance: 'proj-1-secondary' }))?.data).toEqual({
+      exists: true,
+      value: { source: 'secondary' },
+    });
+    const unopenedDb = await hub()?.reader?.call('database.get', { path: '/items', instance: 'proj-1-missing' });
+    expect(unopenedDb?.ok).toBe(false);
+    expect((unopenedDb?.data as { code?: string })?.code).toBe('PYRIC_LIVE_REFUSED');
+
+    const stDefault = { app: { options: { projectId: 'proj-1', storageBucket: 'proj-1.appspot.com' } }, _bucket: { bucket: 'proj-1.appspot.com' } };
+    const stAssets = { app: { options: { projectId: 'proj-1', storageBucket: 'proj-1.appspot.com' } }, _bucket: { bucket: 'proj-1-assets' } };
+    const storageModule: Record<string, unknown> = {
+      getStorage: (_app?: unknown, url?: string) => (url ? stAssets : stDefault),
+      ref: (st: unknown, path: string) => ({ st, fullPath: path }),
+      listAll: async (folder: { st: unknown; fullPath: string }) => ({
+        items: [{ fullPath: folder.st === stAssets ? 'assets/logo.png' : 'default/doc.txt' }],
+        prefixes: [],
+      }),
+      getMetadata: async (obj: { st: unknown; fullPath: string }) => {
+        if (obj.fullPath === 'fail/missing') {
+          throw Object.assign(new Error('Object does not exist'), { code: 'storage/object-not-found' });
+        }
+        return {
+          fullPath: obj.fullPath,
+          bucket: obj.st === stAssets ? 'proj-1-assets' : 'proj-1.appspot.com',
+          size: 12,
+          contentType: 'text/plain',
+          downloadTokens: 'token-123',
+          customMetadata: {
+            ownerEmail: 'ada@example.test',
+            firebaseStorageDownloadTokens: 'token-123',
+          },
+          ref: obj,
+        };
+      },
+    };
+    noteReadModule('live-storage', storageModule);
+    (storageModule.getStorage as (a?: unknown, u?: string) => unknown)(undefined);
+    (storageModule.getStorage as (a?: unknown, u?: string) => unknown)(undefined, 'gs://proj-1-assets');
+
+    expect((await hub()?.reader?.call('storage.listAll', { prefix: '' }))?.data).toEqual({
+      items: ['default/doc.txt'],
+      prefixes: [],
+    });
+    expect((await hub()?.reader?.call('storage.listAll', { prefix: '', bucket: 'gs://proj-1-assets' }))?.data).toEqual({
+      items: ['assets/logo.png'],
+      prefixes: [],
+    });
+    const unopenedBucket = await hub()?.reader?.call('storage.listAll', { prefix: '', bucket: 'proj-1-unopened' });
+    expect(unopenedBucket?.ok).toBe(false);
+    expect((unopenedBucket?.data as { code?: string })?.code).toBe('PYRIC_LIVE_REFUSED');
+
+    const metaRes = await hub()?.reader?.call('storage.getMetadata', { path: 'docs/d1.txt' });
+    expect(metaRes?.ok).toBe(true);
+    const meta = (metaRes?.data as { metadata: Record<string, unknown> }).metadata;
+    expect(meta.ref).toBeUndefined();
+    expect(meta.downloadTokens).toBe('token-123');
+    expect(meta.customMetadata).toEqual({
+      ownerEmail: 'ada@example.test',
+      firebaseStorageDownloadTokens: 'token-123',
+    });
+
+    const errRes = await hub()?.reader?.call('storage.getMetadata', { path: 'fail/missing' });
+    expect(errRes).toEqual({
+      ok: false,
+      summary: "storage.getMetadata failed in the app's tab: storage/object-not-found: Object does not exist",
+      data: { code: 'storage/object-not-found' },
+    });
+  });
 });

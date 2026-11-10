@@ -3,7 +3,7 @@ import { afterAll, describe, expect, it } from 'bun:test';
 import { EventEmitter } from 'node:events';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
-import { tmpdir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { WebSocket } from 'ws';
 import { startServe, type ServeRuntime } from '../../src/cli/serve.js';
@@ -530,6 +530,211 @@ service cloud.firestore {
     } finally {
       await mount.close();
       rmSync(projectDir, { recursive: true, force: true });
+    }
+  });
+
+  it('refuses inProcess write and identity-switch tools on /__pyric/mcp in Live Mode and stamps mode: live on envelopes and events.ndjson', async () => {
+    const projectDir = fixtureProject();
+    const uniqueProject = `live-audit-test-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const auditProjectDir = join(homedir(), '.pyric', 'projects', uniqueProject);
+    const liveHost = createLiveHostState({
+      configProjectId: uniqueProject,
+      configSource: 'option',
+      optionName: '--project',
+      warn: () => {},
+      unobserved: () => [],
+    });
+    const mount = createBridgeMount({
+      project: uniqueProject,
+      projectKey: projectDir,
+      liveHost,
+    });
+    const httpServer: Server = createServer((req, res) => {
+      void mount.handler(req, res, new URL(req.url ?? '/', 'http://127.0.0.1'));
+    });
+    await new Promise<void>((resolve) => httpServer.listen(0, '127.0.0.1', resolve));
+    const address = httpServer.address();
+    const port = typeof address === 'object' && address !== null ? address.port : 0;
+    const origin = `http://127.0.0.1:${port}`;
+    const attachment = mount.attachHost({
+      servers: [httpServer],
+      projectDir,
+      origin: () => ({ host: '127.0.0.1', port }),
+    });
+    const mcpUrl = `${origin}/__pyric/mcp`;
+    let tabWs: WebSocket | null = null;
+
+    async function callMcpTool(sessionId: string, id: number, name: string, args: Record<string, unknown>) {
+      const response = await fetch(mcpUrl, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          accept: 'application/json, text/event-stream',
+          'mcp-session-id': sessionId,
+        },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          id,
+          method: 'tools/call',
+          params: { name, arguments: args },
+        }),
+      });
+      const text = await response.text();
+      const dataLine = text.split('\n').find((line) => line.startsWith('data: '));
+      const payload = JSON.parse(dataLine ? dataLine.slice(6) : text) as {
+        result: { isError?: boolean; content: Array<{ text: string }> };
+      };
+      const rawContent = payload.result.content[0]!.text;
+      return {
+        isError: payload.result.isError === true,
+        envelope: JSON.parse(rawContent) as Record<string, unknown>,
+      };
+    }
+
+    try {
+      const initRes = await fetch(mcpUrl, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          accept: 'application/json, text/event-stream',
+        },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          id: 1,
+          method: 'initialize',
+          params: {
+            protocolVersion: '2025-03-26',
+            capabilities: {},
+            clientInfo: { name: 'bridge-mount-test', version: '1.0.0' },
+          },
+        }),
+      });
+      const sessionId = initRes.headers.get('mcp-session-id');
+      expect(typeof sessionId).toBe('string');
+
+      const captureFixture = JSON.stringify({
+        schema: 'pyric.rate-capture.v1',
+        createdAt: '2026-09-15T00:00:00Z',
+        frame: {
+          service: { service: 'rtdb', coverage: 'partial', observed: true, untrackedMethods: [], methods: [] },
+          points: [{ second: 10, reads: 1, writes: 1, deletes: 0, deliveries: 0 }],
+          to: 10,
+          duration: 1,
+          clockOffset: 1000,
+          totals: { reads: 1, writes: 1, deletes: 0, deliveries: 0 },
+          peaks: { reads: 1, writes: 1, deletes: 0, deliveries: 0 },
+          from: 10,
+        },
+        thresholds: {},
+      });
+      const refusedTools: Array<[string, Record<string, unknown>]> = [
+        ['auth_impersonate', { uid: 'u-1' }],
+        ['auth_reset', {}],
+        ['sandbox_save_capture', { capture: captureFixture }],
+        ['sandbox_rename_capture', { id: 'cap-1', name: 'cap-2' }],
+        ['sandbox_delete_capture', { id: 'cap-1', confirm: true }],
+      ];
+      let reqId = 2;
+      for (const [toolName, toolArgs] of refusedTools) {
+        const res = await callMcpTool(sessionId!, reqId++, toolName, toolArgs);
+        expect(res.isError).toBe(true);
+        expect(res.envelope.ok).toBe(false);
+        expect((res.envelope.data as { code?: string })?.code).toBe('PYRIC_LIVE_REFUSED');
+        expect((res.envelope._pyric as { mode?: string })?.mode).toBe('live');
+      }
+      expect(existsSync(join(projectDir, '.pyric', 'captures'))).toBe(false);
+
+      tabWs = new WebSocket(`ws://127.0.0.1:${port}/__pyric/sandbox`, {
+        headers: { Origin: origin },
+      });
+      await new Promise<void>((resolve, reject) => {
+        tabWs!.once('open', () => resolve());
+        tabWs!.once('error', reject);
+      });
+      let resolveAck!: () => void;
+      const ackPromise = new Promise<void>((resolve) => {
+        resolveAck = resolve;
+      });
+      tabWs.on('message', (raw) => {
+        const msg = JSON.parse(String(raw)) as { type?: string; id?: string; name?: string };
+        if (msg.type === 'attach-ack') resolveAck();
+        if (msg.type === 'tool-call' && msg.name === 'firestore_get_document') {
+          tabWs!.send(
+            JSON.stringify({
+              type: 'tool-result',
+              id: msg.id,
+              ok: true,
+              result: {
+                ok: true,
+                summary: 'Got users/ada',
+                data: {
+                  path: 'users/ada',
+                  exists: true,
+                  fields: {
+                    email: 'ada@example.test',
+                    role: 'admin',
+                  },
+                },
+              },
+            }),
+          );
+        }
+      });
+      tabWs.send(
+        JSON.stringify({
+          type: 'attach',
+          protocol: 1,
+          transport: 'worker-port',
+          hostInstanceId: mount.instanceId,
+          clientInfo: { platform: 'browser', deviceLabel: 'tab-live' },
+        }),
+      );
+      await ackPromise;
+      tabWs.send(
+        JSON.stringify({
+          type: 'hello',
+          protocol: 1,
+          sandboxId: 'tab-live',
+          tools: ['firestore_get_document'],
+        }),
+      );
+      await new Promise((resolve) => setTimeout(resolve, 20));
+
+      const readRes = await callMcpTool(sessionId!, reqId++, 'firestore_get_document', {
+        path: 'users/ada',
+      });
+      expect(readRes.isError).toBe(false);
+      expect(readRes.envelope.ok).toBe(true);
+      expect((readRes.envelope._pyric as { mode?: string })?.mode).toBe('live');
+
+      const auditFile = join(auditProjectDir, 'events.ndjson');
+      expect(existsSync(auditFile)).toBe(true);
+      const auditLines = readFileSync(auditFile, 'utf8')
+        .trim()
+        .split('\n')
+        .map((line) => JSON.parse(line) as Record<string, unknown>);
+      expect(auditLines.every((entry) => entry.mode === 'live')).toBe(true);
+      const readEvent = auditLines.find((entry) => entry.tool === 'firestore_get_document');
+      expect(readEvent?.result).toEqual({
+        ok: true,
+        summary: 'Got users/ada',
+        data: {
+          path: 'users/ada',
+          exists: true,
+          fields: {
+            email: 'ada@example.test',
+            role: 'admin',
+          },
+        },
+      });
+    } finally {
+      if (tabWs !== null) tabWs.close();
+      await attachment.close();
+      httpServer.closeAllConnections();
+      await new Promise<void>((resolve) => httpServer.close(() => resolve()));
+      await mount.close();
+      rmSync(projectDir, { recursive: true, force: true });
+      rmSync(auditProjectDir, { recursive: true, force: true });
     }
   });
 });

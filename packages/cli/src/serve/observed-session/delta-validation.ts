@@ -25,7 +25,7 @@ export const MAX_PATH_LENGTH = 1024;
 const MAX_DELETE_FIELDS = 256;
 const MAX_SKIP_COUNT = 1_000_000;
 
-export const RTDB_FORBIDDEN_SEGMENT = /[.#$[\]]/;
+export const RTDB_FORBIDDEN_SEGMENT = /[.#$[\]/\u0000-\u001f\u007f]/;
 
 /** Why the host skipped a delta, as the snapshot's `skips` counts it. */
 export type SessionDeltaSkipReason = 'oversized' | 'unsupported';
@@ -57,7 +57,21 @@ function hasPrototypeKey(value: Record<string, unknown>): boolean {
   return [...FORBIDDEN_KEYS].some((key) => Object.prototype.hasOwnProperty.call(value, key));
 }
 
-function sanitizeJsonValue(value: unknown, label: string, depth = 0): unknown {
+function defineOwn(target: Record<string, unknown>, key: string, value: unknown): void {
+  Object.defineProperty(target, key, {
+    value,
+    enumerable: true,
+    writable: true,
+    configurable: true,
+  });
+}
+
+function sanitizeJsonValue(
+  value: unknown,
+  label: string,
+  depth = 0,
+  options: { validateRtdbKeys?: boolean } = {},
+): unknown {
   if (depth > MAX_SESSION_VALUE_DEPTH) {
     throw unsupported(`Invalid ${label}: value is nested deeper than ${MAX_SESSION_VALUE_DEPTH} levels.`);
   }
@@ -67,15 +81,45 @@ function sanitizeJsonValue(value: unknown, label: string, depth = 0): unknown {
     return value;
   }
   if (Array.isArray(value)) {
-    return value.map((item, idx) => sanitizeJsonValue(item, `${label}[${idx}]`, depth + 1));
+    return value.map((item, idx) => sanitizeJsonValue(item, `${label}[${idx}]`, depth + 1, options));
   }
   if (isPlainObject(value)) {
     if (hasPrototypeKey(value)) throw unsupported(`Invalid ${label}: forbidden prototype key.`);
+    const isEscapedMap =
+      !options.validateRtdbKeys &&
+      Object.keys(value).length === 2 &&
+      value.type === 'pyric/map/1.0' &&
+      isPlainObject(value.fields);
+    if (isEscapedMap) {
+      if (hasPrototypeKey(value.fields as Record<string, unknown>)) {
+        throw unsupported(`Invalid ${label}.fields: forbidden prototype key.`);
+      }
+      const innerOut: Record<string, unknown> = {};
+      for (const [key, entry] of Object.entries(value.fields as Record<string, unknown>)) {
+        assertSafeKey(key, `${label}.fields`);
+        if (entry === undefined) continue;
+        defineOwn(
+          innerOut,
+          key,
+          sanitizeJsonValue(entry, `${label}.fields.${key}`, depth + 1, options),
+        );
+      }
+      return { type: 'pyric/map/1.0', fields: innerOut };
+    }
     const out: Record<string, unknown> = {};
     for (const [key, entry] of Object.entries(value)) {
       assertSafeKey(key, label);
+      if (options.validateRtdbKeys) {
+        if (key.length === 0 || RTDB_FORBIDDEN_SEGMENT.test(key)) {
+          throw unsupported(`Invalid ${label}: RTDB key '${key}' contains forbidden characters.`);
+        }
+      }
       if (entry === undefined) continue;
-      out[key] = sanitizeJsonValue(entry, `${label}.${key}`, depth + 1);
+      defineOwn(
+        out,
+        key,
+        sanitizeJsonValue(entry, `${label}.${key}`, depth + 1, options),
+      );
     }
     return out;
   }
@@ -222,12 +266,21 @@ function readFirestoreOp(raw: unknown, index: number): ObservedFirestoreSessionO
 /** An RTDB update's children keyed by their normalized relative path. */
 function readRtdbPatch(raw: unknown, label: string): Record<string, unknown> {
   if (!isPlainObject(raw)) throw unsupported(`Invalid ${label}.value: expected plain object.`);
-  const sanitized = sanitizeJsonValue(raw, `${label}.value`) as Record<string, unknown>;
+  if (hasPrototypeKey(raw)) throw unsupported(`Invalid ${label}.value: forbidden prototype key.`);
   const patch: Record<string, unknown> = {};
-  for (const [relKey, entry] of Object.entries(sanitized)) {
+  for (const [relKey, entry] of Object.entries(raw)) {
+    assertSafeKey(relKey, `${label}.value`);
+    if (entry === undefined) continue;
     const normalizedRel = readRtdbPath(relKey, `${label}.value[${relKey}]`);
     if (normalizedRel === '/') throw unsupported(`Invalid ${label}.value: update key cannot be empty.`);
-    patch[normalizedRel.slice(1)] = entry;
+    const cleanRel = normalizedRel.slice(1);
+    defineOwn(
+      patch,
+      cleanRel,
+      sanitizeJsonValue(entry, `${label}.value[${relKey}]`, 1, {
+        validateRtdbKeys: true,
+      }),
+    );
   }
   return patch;
 }
@@ -244,7 +297,14 @@ function readRtdbOp(raw: unknown, index: number): ObservedRtdbSessionOp {
       return { kind: 'invalidate', instance, path };
     case 'set':
       if (!('value' in raw)) throw unsupported(`Invalid ${label}.value: missing value.`);
-      return { kind: 'set', instance, path, value: sanitizeJsonValue(raw.value, `${label}.value`) };
+      return {
+        kind: 'set',
+        instance,
+        path,
+        value: sanitizeJsonValue(raw.value, `${label}.value`, 0, {
+          validateRtdbKeys: true,
+        }),
+      };
     case 'update':
       return { kind: 'update', instance, path, value: readRtdbPatch(raw.value, label) };
     default:

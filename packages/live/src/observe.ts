@@ -48,7 +48,7 @@ import {
   subscribeWithLifecycle,
   wrapEndingUnsubscribe,
 } from './observe-listener.js';
-import { CALL_TARGET_FIELDS, liveProjectRefusal, type CallTargetField, type LiveClient, type ProjectField } from './refusal.js';
+import { CALL_TARGET_FIELDS, liveCallRefusal, liveProjectRefusal, type CallTargetField, type LiveClient, type ProjectField } from './refusal.js';
 import {
   attachOutcomeSessionData,
   finishWithLease,
@@ -593,6 +593,7 @@ function stringAt(value: unknown, path: readonly string[]): string | undefined {
  */
 const OPTIONS_PATHS = [
   ['firestore', 'app', 'options'],
+  ['auth', 'app', 'options'],
   ['app', 'options'],
   ['options'],
 ] as const;
@@ -750,6 +751,16 @@ function targetProjectsOf(callSite: ObservedSite): NamedProject[] {
   return projects;
 }
 
+const UNREAD_STORAGE_BUCKET = 'bucket-not-read-from-the-sdk-reference';
+
+function rawStorageBucketOf(firstArg: unknown): string | undefined {
+  try {
+    return stringAt(firstArg, ['bucket']);
+  } catch {
+    return undefined;
+  }
+}
+
 /**
  * The refusal of a call whose app, or the instance or bucket it reaches,
  * names another project than the host's, or null when it may run: the
@@ -757,14 +768,29 @@ function targetProjectsOf(callSite: ObservedSite): NamedProject[] {
  * project the app's config and the call's target name, as far as they can
  * be read, is the host's.
  */
-function refusedProject(callSite: ObservedSite): Error | null {
+function refusedProject(callSite: ObservedSite, firstArg?: unknown): Error | null {
   const { hostProjectId, client } = callSite.observer;
   const isUnchecked = hostProjectId === undefined || REQUESTLESS_MODULES.has(callSite.module);
   if (isUnchecked) return null;
   const named = [...appProjectsOf(callSite), ...targetProjectsOf(callSite)];
   const other = named.find((project) => project.projectId !== hostProjectId);
-  if (other === undefined) return null;
-  return liveProjectRefusal(callSite.name, { field: other.field, appProjectId: other.projectId, hostProjectId }, client);
+  if (other !== undefined) {
+    return liveProjectRefusal(callSite.name, { field: other.field, appProjectId: other.projectId, hostProjectId }, client);
+  }
+  if (callSite.module === 'firebase/storage' && callSite.bucket === UNREAD_STORAGE_BUCKET) {
+    const rawBucket = rawStorageBucketOf(firstArg);
+    if (rawBucket !== undefined && rawBucket !== UNREAD_STORAGE_BUCKET) {
+      return liveCallRefusal(
+        {
+          call: callSite.name,
+          reaches: `the malformed Storage bucket ${JSON.stringify(rawBucket)}`,
+          serves: `buckets of '${hostProjectId}'`,
+        },
+        client ?? 'page',
+      );
+    }
+  }
+  return null;
 }
 
 /**
@@ -1090,7 +1116,7 @@ export function observedCall(site: ObservedSite, real: Callback): Callback {
   return function observed(this: unknown, ...args: unknown[]): unknown {
     const callSite = siteFor(site, args, this);
     if (callSite === null) return Reflect.apply(real, this, args);
-    const refusal = refusedProject(callSite);
+    const refusal = refusedProject(callSite, args[0]);
     if (refusal !== null) throw refusal;
     return callReal(callSite, real, this, args);
   };
@@ -1288,7 +1314,7 @@ export function observedListener(site: ObservedSite, real: Callback): Callback {
   return function observed(this: unknown, ...args: unknown[]): unknown {
     const callSite = siteFor(site, args, this);
     if (callSite === null) return Reflect.apply(real, this, args);
-    const refusal = refusedProject(callSite);
+    const refusal = refusedProject(callSite, args[0]);
     if (refusal !== null) throw refusal;
     const activity = openActivity(site.observer, site.name, args);
     const lifecycle = createListenerLifecycle(callSite, args, lifecycleHooks);

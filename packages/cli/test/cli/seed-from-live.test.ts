@@ -1,9 +1,16 @@
 import { describe, expect, it } from 'bun:test';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { Bytes, GeoPoint, Timestamp, doc, getAdminFirestore, getDoc } from 'pyric/firestore';
+import { getAdminDatabase, get as databaseGet, ref as databaseRef } from 'pyric/database';
+import { createSandboxRoot } from 'pyric/sandbox/internal';
+import { applyData, type SandboxSeed } from '../../src/bridge/surface/seed-apply.js';
 import { parseArgs } from '../../src/cli/parse-args.js';
 import { runSeedFromLive } from '../../src/cli/seed-from-live.js';
+import { createSandboxSession } from '../../src/serve/sandbox-session.js';
+import { applyServeInit } from '../../src/serve/worker/serve-init.js';
+import type { HostCtx } from '../../src/serve/worker/host.js';
 import { LIVE_SEED_SANDBOX_PATH, LIVE_SESSION_DATA_PATH } from '../../src/serve/observed-session/wire.js';
 
 describe('runSeedFromLive', () => {
@@ -257,6 +264,115 @@ describe('runSeedFromLive --out with several RTDB instances', () => {
       expect(run.stderr).toContain('holds observed production data inside the project');
       const ignored = await exportTo(dir, ['--out', '.pyric/seed.json']);
       expect(ignored.stderr).not.toContain('inside the project');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('round-trips special Firestore types, escaped plain maps, and RTDB data through sandbox --seed and applyData', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'pyric-seed-roundtrip-'));
+    mkdirSync(join(dir, 'sdk'));
+    try {
+      const typedSnapshot = {
+        revision: 9,
+        updatedAt: 900,
+        projectId: 'demo-live',
+        firestore: {
+          'docs/d1': {
+            ts: { seconds: 1700000000, nanoseconds: 125000000 },
+            loc: { latitude: 37.7749, longitude: -122.4194 },
+            bin: { type: 'firestore/bytes/1.0', bytes: 'AQID' },
+            vec: { __type__: '__vector__', value: [0.5, 1.5] },
+            ref: { type: 'document', path: 'orgs/o1', id: 'o1' },
+            coordsMap: { type: 'pyric/map/1.0', fields: { latitude: 12.5, longitude: 42.25 } },
+            spanMap: { type: 'pyric/map/1.0', fields: { seconds: 30, nanoseconds: 0 } },
+            linkMap: { type: 'pyric/map/1.0', fields: { type: 'document', path: 'orgs/o1', id: 'o1' } },
+          },
+        },
+        rtdb: {
+          'demo-live-default-rtdb': { flags: { enabled: true }, count: 3 },
+        },
+        defaultRtdbInstance: 'demo-live-default-rtdb',
+        stats: { firestoreDocs: 1, rtdbInstances: 1, byteEstimate: 256, truncated: false, droppedCount: 0 },
+      };
+
+      const seedRelPath = '.pyric/roundtrip-seed.json';
+      const code = await runSeedFromLive(parseArgs(['sandbox', 'seed-from-live', '--out', seedRelPath]), {
+        cwd: dir,
+        discover: async () => discoveredHost,
+        fetchImpl: (async () => new Response(JSON.stringify(typedSnapshot), { status: 200 })) as unknown as typeof fetch,
+        stdout: { write: () => {} },
+        stderr: { write: () => {} },
+      });
+      expect(code).toBe(0);
+
+      const exported = JSON.parse(readFileSync(join(dir, seedRelPath), 'utf8')) as SandboxSeed;
+
+      // 1. Round-trip through applyData (sandbox.seed)
+      const directSandbox = createSandboxRoot();
+      await applyData(directSandbox, exported);
+      const directDb = getAdminFirestore(directSandbox);
+      const directSnap = await getDoc(doc(directDb, 'docs/d1'));
+      expect(directSnap.exists()).toBe(true);
+      const directData = directSnap.data()!;
+      expect(directData.ts).toBeInstanceOf(Timestamp);
+      expect(directData.loc).toBeInstanceOf(GeoPoint);
+      expect(directData.bin).toBeInstanceOf(Bytes);
+      expect((directData.vec as { toArray: () => number[] }).toArray()).toEqual([0.5, 1.5]);
+      expect((directData.ref as ReturnType<typeof doc>).path).toBe('orgs/o1');
+      expect(directData.coordsMap).not.toBeInstanceOf(GeoPoint);
+      expect(directData.coordsMap).toEqual({ latitude: 12.5, longitude: 42.25 });
+      expect(directData.spanMap).not.toBeInstanceOf(Timestamp);
+      expect(directData.spanMap).toEqual({ seconds: 30, nanoseconds: 0 });
+      expect(directData.linkMap).toEqual({ type: 'document', path: 'orgs/o1', id: 'o1' });
+      expect((await databaseGet(databaseRef(getAdminDatabase(directSandbox), '/flags/enabled'))).val()).toBe(true);
+
+      // 2. Round-trip through createSandboxSession + applyServeInit (pyric sandbox --seed <FILE>)
+      writeFileSync(join(dir, 'firebase.json'), JSON.stringify({}));
+      const session = await createSandboxSession({
+        projectDir: dir,
+        firebaseConfig: null,
+        sdk: { dir: join(dir, 'sdk') },
+        seedFile: seedRelPath,
+      });
+      try {
+        const initSandbox = createSandboxRoot();
+        const initCtx: HostCtx = {
+          sandbox: initSandbox,
+          db: getAdminFirestore(initSandbox),
+          subs: new Map(),
+          instanceId: 'seed-init-roundtrip',
+        };
+        const initRes = applyServeInit(initCtx, session.payload());
+        expect(initRes.seededDocs).toBe(1);
+        const initDoc = await getDoc(doc(initCtx.db, 'docs/d1'));
+        expect(initDoc.exists()).toBe(true);
+        const initData = initDoc.data()!;
+        expect(initData.ts).toBeInstanceOf(Timestamp);
+        expect(initData.loc).toBeInstanceOf(GeoPoint);
+        expect((initData.ref as ReturnType<typeof doc>).path).toBe('orgs/o1');
+        expect(initData.coordsMap).not.toBeInstanceOf(GeoPoint);
+        expect(initData.coordsMap).toEqual({ latitude: 12.5, longitude: 42.25 });
+        expect((await databaseGet(databaseRef(getAdminDatabase(initSandbox), '/count'))).val()).toBe(3);
+      } finally {
+        await session.close();
+      }
+
+      // 3. Round-trip through persisted createSandboxSession (pyric sandbox --seed <FILE> with persistence)
+      const persistedSession = await createSandboxSession({
+        projectDir: dir,
+        firebaseConfig: null,
+        sdk: { dir: join(dir, 'sdk') },
+        seedFile: seedRelPath,
+        persistence: { fresh: true },
+      });
+      try {
+        expect(persistedSession.summary.persistence).toMatchObject({
+          restoredDocs: 1,
+        });
+      } finally {
+        await persistedSession.close();
+      }
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

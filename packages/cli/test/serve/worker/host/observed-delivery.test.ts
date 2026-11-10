@@ -183,9 +183,21 @@ describe('observedDeliverySummaryOf', () => {
         rtdb: [{ kind: 'set', instance: 'demo-default-rtdb', path: 'bad.$path', value: 1 }],
       }),
     ).toBeUndefined();
+    expect(
+      observedDeliverySummaryOf(rtdbCall('onValue', '/rooms'), {
+        rtdb: [
+          {
+            kind: 'set',
+            instance: 'demo-default-rtdb',
+            path: '/rooms',
+            value: { valid: 1, 'bad.key': 2, 'nested/key': 3 },
+          },
+        ],
+      }),
+    ).toBeUndefined();
   });
 
-  it('ignores failed or admin calls and drops unsafe or overlong RTDB child keys', () => {
+  it('ignores failed or admin calls and drops overlong RTDB child keys', () => {
     const failedCall: ObservedCall = {
       ...rtdbCall('onValue'),
       outcome: { status: 'error', code: 'permission-denied' },
@@ -214,8 +226,6 @@ describe('observedDeliverySummaryOf', () => {
           path: '/rooms',
           value: {
             valid: 1,
-            'bad.key': 2,
-            'nested/key': 3,
             ['x'.repeat(1030)]: 4,
           },
         },
@@ -223,7 +233,7 @@ describe('observedDeliverySummaryOf', () => {
     });
     expect(summary).toEqual({
       mode: 'snapshot',
-      size: 4,
+      size: 2,
       paths: ['rooms/valid'],
     });
   });

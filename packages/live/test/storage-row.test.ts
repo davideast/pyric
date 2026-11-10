@@ -458,6 +458,20 @@ describe('the metadata a Storage call sent or read', () => {
     });
     const stringCtx = storageContext('uploadString', [fakeRef, 'data:image/png;base64,AQIDBA==', 'data_url']);
     expect(stringCtx.writeData).toEqual({ contentType: 'image/png', size: 4 });
+    const paramDataUrlCtx = storageContext('uploadString', [fakeRef, 'data:text/plain;charset=utf-8;base64,aGVsbG8=', 'data_url']);
+    expect(paramDataUrlCtx.writeData).toEqual({ contentType: 'text/plain;charset=utf-8', size: 5 });
+    const upperBase64Ctx = storageContext('uploadString', [fakeRef, 'data:text/plain;BASE64,aGVsbG8=', 'data_url']);
+    expect(upperBase64Ctx.writeData).toEqual({ contentType: 'text/plain;BASE64', size: 8 });
+    const nonTrailingBase64Ctx = storageContext('uploadString', [fakeRef, 'data:text/plain;base64;charset=utf-8,aGVsbG8=', 'data_url']);
+    expect(nonTrailingBase64Ctx.writeData).toEqual({ contentType: 'text/plain;base64;charset=utf-8', size: 8 });
+    const protoMeta = JSON.parse('{"owner":"alice","__proto__":{"polluted":"yes"}}') as Record<string, string>;
+    const protoCtx = storageContext('uploadBytes', [fakeRef, bytes, { customMetadata: protoMeta }]);
+    expect(protoCtx.writeData).toEqual({
+      contentType: 'application/octet-stream',
+      customMetadata: { owner: 'alice' },
+      size: 4,
+    });
+    expect(({} as { polluted?: unknown }).polluted).toBeUndefined();
     const updateCtx = storageContext('updateMetadata', [fakeRef, { cacheControl: 'max-age=60', contentType: null }]);
     expect(updateCtx.writeData).toEqual({ cacheControl: 'max-age=60', contentType: null });
     const metaResult = storageResult(

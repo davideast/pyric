@@ -118,7 +118,12 @@ export function scrubStorageCustomMetadata(
     const scrubbedVal = sanitizeStorageMetadataEntry(key, val);
     const entryBytes = utf8Bytes(key) + utf8Bytes(scrubbedVal) + 6;
     if (totalBytes + entryBytes > MAX_STORAGE_CUSTOM_METADATA_BYTES) break;
-    out[key] = scrubbedVal;
+    Object.defineProperty(out, key, {
+      value: scrubbedVal,
+      enumerable: true,
+      writable: true,
+      configurable: true,
+    });
     totalBytes += entryBytes;
     count += 1;
   }

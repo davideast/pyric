@@ -14,8 +14,12 @@
 import { isObject } from '../database.js';
 import {
   charged,
+  collidesWithSessionSpecialShape,
+  defineOwn,
   DELETE_FIELD_SENTINEL,
+  ESCAPED_PLAIN_MAP_TYPE,
   FORBIDDEN_SESSION_KEYS,
+  isEscapedPlainMapShape,
   isUnsafeFieldPath,
   isValidDocPath,
   itemBudget,
@@ -171,7 +175,13 @@ function copyAdminEntries(
     }
     if (copied === OVER_BUDGET || budget.left < 0) return OVER_BUDGET;
     if (copied === UNSUPPORTED) return UNSUPPORTED;
-    out[key] = copied;
+    defineOwn(out, key, copied);
+  }
+  const needsEscape =
+    depth > 0 ? collidesWithSessionSpecialShape(out) : isEscapedPlainMapShape(out);
+  if (needsEscape) {
+    if (!chargeString(budget, ESCAPED_PLAIN_MAP_TYPE)) return OVER_BUDGET;
+    return { type: ESCAPED_PLAIN_MAP_TYPE, fields: out };
   }
   return out;
 }
@@ -246,14 +256,14 @@ function addUpdateField(
 ): SessionCopyResult<never> | undefined {
   if (isUnsafeFieldPath(fieldPath)) return UNSUPPORTED_RESULT;
   if (!chargeString(acc.budget, fieldPath)) return OVERSIZED_RESULT;
-  const copied = copyAdminValue(rawValue, 0, acc.budget, true, acc.deleteFields, fieldPath);
+  const copied = copyAdminValue(rawValue, 1, acc.budget, true, acc.deleteFields, fieldPath);
   if (copied === DELETE_FIELD_SENTINEL) {
     noteDeleteField(acc.deleteFields, fieldPath, acc.budget);
     return undefined;
   }
   if (copied === OVER_BUDGET || acc.budget.left < 0) return OVERSIZED_RESULT;
   if (copied === UNSUPPORTED) return UNSUPPORTED_RESULT;
-  acc.data[fieldPath] = copied;
+  defineOwn(acc.data, fieldPath, copied);
   return undefined;
 }
 

@@ -29,7 +29,7 @@ import { SERVE_HISTORY_LIMITS } from '../observation-limits.js';
  * loop than the per-tab in-page capture it replaces.
  */
 
-import { getFirestore } from 'pyric/firestore';
+import { doc, getFirestore } from 'pyric/firestore';
 import { seedDocuments, setRules, snapshotDocuments } from 'pyric/sandbox/firestore';
 import { rulesSourceRejection } from 'pyric/rules/internal';
 import { rtdbRulesSourceRejection } from 'pyric/rules/internal/rtdb';
@@ -44,7 +44,7 @@ import {
   type StorageRulesUpdate,
 } from '../storage-rules-install.js';
 import type { PersistenceBackend } from 'pyric/sandbox';
-import { createSandboxRoot, EventHistory } from 'pyric/sandbox/internal';
+import { createSandboxRoot, decodeSnapshotMap, EventHistory } from 'pyric/sandbox/internal';
 import {
   primeEventHistory,
 } from 'pyric/sandbox/internal';
@@ -224,6 +224,43 @@ function sandboxHasExistingData(ctx: HostCtx): boolean {
   return authOps.exportUsers(auth).length > 0;
 }
 
+const SANDBOX_SEED_SECTION_KEYS: ReadonlySet<string> = new Set([
+  'firestore',
+  'database',
+  'users',
+  'storage',
+  'firestoreRules',
+  'databaseRules',
+  'storageRules',
+]);
+
+function isPlainSeedObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function isSandboxSeedEnvelope(seed: Record<string, unknown>): boolean {
+  const keys = Object.keys(seed);
+  return !('version' in seed) && keys.length > 0 && keys.every((key) => SANDBOX_SEED_SECTION_KEYS.has(key));
+}
+
+function decodeSeedDocuments(
+  ctx: HostCtx,
+  rawDocs: Record<string, Record<string, unknown>>,
+): Record<string, Record<string, unknown>> {
+  const referenceDecoder = { create: (refPath: string) => doc(ctx.db, refPath) };
+  const decoded: Record<string, Record<string, unknown>> = {};
+  for (const [docPath, rawDoc] of Object.entries(rawDocs)) {
+    if (!isPlainSeedObject(rawDoc)) continue;
+    Object.defineProperty(decoded, docPath, {
+      value: decodeSnapshotMap(rawDoc, referenceDecoder),
+      writable: true,
+      enumerable: true,
+      configurable: true,
+    });
+  }
+  return decoded;
+}
+
 /**
  * Apply the init payload to the worker's sandbox.
  *
@@ -391,8 +428,24 @@ export function applyServeInit(
 
   // 3. Seed docs — admin-style fixture load (bypasses rules).
   if (!hasExistingData && payload.seed && Object.keys(payload.seed).length > 0) {
-    seedDocuments(ctx.sandbox, payload.seed);
-    result.seededDocs = Object.keys(payload.seed).length;
+    const rawSeed = payload.seed as Record<string, unknown>;
+    if (isSandboxSeedEnvelope(rawSeed)) {
+      const firestoreSection = isPlainSeedObject(rawSeed.firestore)
+        ? (rawSeed.firestore as Record<string, Record<string, unknown>>)
+        : {};
+      const decodedDocs = decodeSeedDocuments(ctx, firestoreSection);
+      if (Object.keys(decodedDocs).length > 0) {
+        seedDocuments(ctx.sandbox, decodedDocs);
+        result.seededDocs = Object.keys(decodedDocs).length;
+      }
+      if (isPlainSeedObject(rawSeed.database)) {
+        rtdbSandbox.setData(rtdb.live, rawSeed.database);
+      }
+    } else {
+      const decodedDocs = decodeSeedDocuments(ctx, payload.seed);
+      seedDocuments(ctx.sandbox, decodedDocs);
+      result.seededDocs = Object.keys(decodedDocs).length;
+    }
   }
 
   // 4. Capture — the write side of the `pyric verify` loop. On every sandbox

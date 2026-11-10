@@ -45,8 +45,16 @@ import {
   type StateStore,
 } from './state-store.js';
 import { restoredStateCounts, stateForSummary } from './state-summary.js';
-import { parseStateFile } from './state-file.js';
+import { parseStateFile, STATE_FILE_VERSION, type PyricStateFile } from './state-file.js';
 import { inlineStorage } from './state-objects.js';
+import { bundleRecords, type PersistenceBackend } from 'pyric/sandbox';
+import { createSandboxRoot } from 'pyric/sandbox/internal';
+import { getAuth, sandbox as authSandbox } from 'pyric/auth';
+import { getDatabase } from 'pyric/database';
+import { getStorageSandbox } from 'pyric/storage';
+import { getStorageService, targetOf, type StorageStateRecord } from 'pyric/storage/internal';
+import { applyData, applyRules, type SandboxSeed } from '../bridge/surface/seed-apply.js';
+import { listStoredPaths } from '../bridge/surface/storage-state.js';
 import type { AppPorts } from './app-ports.js';
 import { createHostedPersistence, formatStorageRepairs, type HostedPersistence } from './hosted/persistence.js';
 import type { GeminiProxyConfig } from './gemini-proxy.js';
@@ -232,6 +240,110 @@ function createAvatarsResolver(
   });
 }
 
+const SANDBOX_SEED_KEYS: ReadonlySet<string> = new Set([
+  'firestore',
+  'database',
+  'users',
+  'storage',
+  'firestoreRules',
+  'databaseRules',
+  'storageRules',
+]);
+
+function isPlainSeedRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function isSandboxSeedEnvelope(record: Record<string, unknown>): boolean {
+  const keys = Object.keys(record);
+  return !('version' in record) && keys.length > 0 && keys.every((key) => SANDBOX_SEED_KEYS.has(key));
+}
+
+function validateSandboxSeedEnvelope(record: Record<string, unknown>, seedPath: string): SandboxSeed {
+  if ('firestore' in record && record.firestore !== undefined) {
+    if (!isPlainSeedRecord(record.firestore)) {
+      throw new SandboxSeedError('shape', seedPath, 'seed.firestore must be a JSON object');
+    }
+    for (const [docPath, rawDoc] of Object.entries(record.firestore)) {
+      if (!isPlainSeedRecord(rawDoc)) {
+        throw new SandboxSeedError('shape', seedPath, `seed.firestore["${docPath}"] must be a JSON object`);
+      }
+    }
+  }
+  if ('database' in record && record.database !== undefined && !isPlainSeedRecord(record.database)) {
+    throw new SandboxSeedError('shape', seedPath, 'seed.database must be a JSON object');
+  }
+  if ('users' in record && record.users !== undefined && !Array.isArray(record.users)) {
+    throw new SandboxSeedError('shape', seedPath, 'seed.users must be an array');
+  }
+  if ('storage' in record && record.storage !== undefined && !Array.isArray(record.storage)) {
+    throw new SandboxSeedError('shape', seedPath, 'seed.storage must be an array');
+  }
+  for (const rulesKey of ['firestoreRules', 'databaseRules', 'storageRules'] as const) {
+    if (rulesKey in record && record[rulesKey] !== undefined && typeof record[rulesKey] !== 'string') {
+      throw new SandboxSeedError('shape', seedPath, `seed.${rulesKey} must be a string`);
+    }
+  }
+  return record as SandboxSeed;
+}
+
+async function materializeSandboxSeedState(seedRecord: SandboxSeed): Promise<PyricStateFile> {
+  const memoryRecords = new Map<string, unknown>();
+  const backend: PersistenceBackend = {
+    async getRecord(_key, recordId) {
+      return memoryRecords.get(recordId) ?? null;
+    },
+    async listRecords(_key) {
+      return [...memoryRecords.keys()];
+    },
+    async putRecords(_key, records) {
+      for (const [recordId, value] of records) memoryRecords.set(recordId, value);
+    },
+    async deleteRecords(_key, recordIds) {
+      for (const recordId of recordIds) memoryRecords.delete(recordId);
+    },
+    async clear(_key) {
+      memoryRecords.clear();
+    },
+  };
+  const tempSandbox = createSandboxRoot();
+  try {
+    await tempSandbox.enablePersistence({ key: 'seed-materialize', injectedBackend: backend });
+    const auth = getAuth(tempSandbox);
+    getDatabase(tempSandbox);
+    await applyRules(tempSandbox, seedRecord);
+    await applyData(tempSandbox, seedRecord);
+    await tempSandbox.flush();
+    const exportedUsers = authSandbox.exportUsers(auth);
+    let storageEntries: StorageStateRecord[] | undefined;
+    if (seedRecord.storage && seedRecord.storage.length > 0) {
+      const storage = getStorageSandbox(tempSandbox);
+      const storageBackend = (await getStorageService(storage)).backend;
+      const { bucket } = targetOf(storage);
+      const paths = await listStoredPaths(storage);
+      const collected: StorageStateRecord[] = [];
+      for (const objectPath of paths) {
+        const stored = await storageBackend.getObject(objectPath, bucket);
+        if (stored === undefined) continue;
+        collected.push({
+          dataBase64: Buffer.from(await stored.blob.arrayBuffer()).toString('base64'),
+          blobType: stored.blob.type,
+          metadata: stored.metadata,
+        });
+      }
+      if (collected.length > 0) storageEntries = collected;
+    }
+    return {
+      version: STATE_FILE_VERSION,
+      firestore: memoryRecords.size > 0 ? JSON.parse(bundleRecords(memoryRecords)) : null,
+      auth: exportedUsers.length > 0 ? { users: exportedUsers } : null,
+      ...(storageEntries === undefined ? {} : { storage: storageEntries }),
+    };
+  } finally {
+    tempSandbox.dispose();
+  }
+}
+
 export async function createSandboxSession(
   options: SandboxSessionOptions,
 ): Promise<SandboxSession> {
@@ -373,6 +485,31 @@ export async function createSandboxSession(
             seedState = fixture.firestore ?? null;
             seedUsers = fixture.auth?.users.map((user) => ({ ...user })) ?? null;
           }
+        }
+      } else if (isSandboxSeedEnvelope(record)) {
+        const seedRecord = validateSandboxSeedEnvelope(record, seedPath);
+        const docCount = seedRecord.firestore ? Object.keys(seedRecord.firestore).length : 0;
+        const userCount = seedRecord.users?.length ?? 0;
+        const hasRtdb = seedRecord.database !== undefined;
+        seedLabel = `${docCount} doc(s)${userCount > 0 ? ` + ${userCount} user(s)` : ''}${hasRtdb ? ' + database' : ''} from seed envelope`;
+        const initializesStateStore = hasStateStore && !state.exists();
+        if (initializesStateStore) {
+          const fixture = await materializeSandboxSeedState(seedRecord);
+          const seedOwner = hostedPersistence;
+          if (seedOwner !== undefined) {
+            await seedOwner.seed(fixture, objectsFrom);
+          } else {
+            if (fixture.firestore != null) await state.writeSection('firestore', fixture.firestore);
+            if (fixture.auth != null) await state.writeSection('auth', fixture.auth);
+            if (fixture.storage !== undefined) await state.writeSection('storage', fixture.storage);
+          }
+          seedApplied = true;
+          persisted = stateForSummary(state, { hosted: options.hosted === true });
+        } else if (!hasStateStore) {
+          seed = record as Record<string, Record<string, unknown>>;
+          seedUsers = Array.isArray(seedRecord.users)
+            ? seedRecord.users.map((user) => ({ ...(user as unknown as Record<string, unknown>) }))
+            : null;
         }
       } else {
         seed = record as Record<string, Record<string, unknown>>;

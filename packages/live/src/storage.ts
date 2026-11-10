@@ -37,6 +37,7 @@ import {
   isValidStorageBucketName,
   sanitizeStorageMetadataEntry,
 } from '@pyric/cli/bridge/client';
+import { defineOwn } from './firestore-session-values.js';
 import { observedCall, type CallContext, type ObservedSite, type ResultReading } from './observe.js';
 import type { ObservedSessionDelta } from './session-data.js';
 import {
@@ -92,11 +93,12 @@ function stringAt(value: unknown, keys: readonly string[]): string | undefined {
   return typeof found === 'string' && found !== '' ? found : undefined;
 }
 
-/** The bucket a reference names, or the unread bucket. */
+/** The bucket a reference names (lowercased), or the unread bucket. */
 function bucketOf(ref: unknown): string {
-  const bucket = stringAt(ref, ['bucket']);
-  const isTaken = bucket !== undefined && isValidStorageBucketName(bucket);
-  return isTaken ? bucket : UNREAD_BUCKET;
+  const raw = stringAt(ref, ['bucket']);
+  if (raw === undefined || raw === UNREAD_BUCKET) return UNREAD_BUCKET;
+  const bucket = raw.toLowerCase();
+  return isValidStorageBucketName(bucket) ? bucket : UNREAD_BUCKET;
 }
 
 const MAX_METADATA_SIZE = 32 * 1024;
@@ -116,7 +118,7 @@ function copyCustomMetadata(value: unknown, budget: { left: number }): Record<st
     const sanitized = sanitizeStorageMetadataEntry(key, entry);
     budget.left -= key.length + sanitized.length + 6;
     if (budget.left < 0) return undefined;
-    copy[key] = sanitized;
+    defineOwn(copy, key, sanitized);
   }
   return copy;
 }
@@ -130,19 +132,19 @@ function copyUploadMetadata(raw: unknown): Record<string, unknown> {
     if (typeof val === 'string') {
       budget.left -= field.length + val.length + 6;
       if (budget.left < 0) return {};
-      out[field] = val;
+      defineOwn(out, field, val);
     } else if (val === null) {
       budget.left -= field.length + 8;
       if (budget.left < 0) return {};
-      out[field] = null;
+      defineOwn(out, field, null);
     }
   }
   if ('customMetadata' in raw) {
     if (raw.customMetadata === null) {
-      out.customMetadata = null;
+      defineOwn(out, 'customMetadata', null);
     } else {
       const copied = copyCustomMetadata(raw.customMetadata, budget);
-      if (copied !== undefined) out.customMetadata = copied;
+      if (copied !== undefined) defineOwn(out, 'customMetadata', copied);
     }
   }
   return out;
@@ -167,15 +169,13 @@ function base64DecodedSize(value: string): number {
 }
 
 function dataUrlInfo(value: string): { size: number; contentType?: string } | undefined {
+  if (!value.startsWith('data:')) return undefined;
   const comma = value.indexOf(',');
   if (comma === -1) return undefined;
-  const header = value.slice(0, comma);
+  const meta = value.slice(5, comma);
   const body = value.slice(comma + 1);
-  if (!header.startsWith('data:')) return undefined;
-  const meta = header.slice(5);
-  const parts = meta.split(';');
-  const mime = parts[0]?.trim();
-  const isBase64 = parts.slice(1).some((p) => p.trim().toLowerCase() === 'base64');
+  const isBase64 = meta.endsWith(';base64');
+  const rawType = isBase64 ? meta.slice(0, -';base64'.length) : meta;
   let size: number;
   if (isBase64) {
     size = base64DecodedSize(body);
@@ -183,11 +183,11 @@ function dataUrlInfo(value: string): { size: number; contentType?: string } | un
     try {
       size = utf8ByteLength(decodeURIComponent(body));
     } catch {
-      size = utf8ByteLength(body);
+      return undefined;
     }
   }
   const info: { size: number; contentType?: string } = { size };
-  if (mime) info.contentType = mime;
+  if (rawType.length > 0) info.contentType = rawType;
   return info;
 }
 
