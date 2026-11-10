@@ -132,4 +132,206 @@ describe("runAuthorizationCampaign", () => {
     expect(report.summary.controlsPassed).toBe(2);
     expect(report.summary.noCounterexamples).toBe(2);
   });
+
+  it("forwards undeployedBucketPolicy='allow' and normalizes gs:// Storage bucket instances", async () => {
+    const ownerRules = `rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /users/{uid}/files/{fileId} {
+      allow read, write: if request.auth != null && request.auth.uid == uid;
+    }
+  }
+}`;
+    const readOnlyBucketRules = `rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /users/{uid}/files/{fileId} {
+      allow read: if request.auth != null && request.auth.uid == uid;
+      allow write: if false;
+    }
+  }
+}`;
+
+    const openPolicyNoDefaultRules = await runAuthorizationCampaign({
+      schema: ASSURANCE_CAMPAIGN_SCHEMA,
+      id: "camp-open-bucket-policy",
+      target: {
+        schema: ASSURANCE_TARGET_SCHEMA,
+        network: "forbid",
+        rules: {
+          storageBuckets: {
+            "ruled-bucket": ownerRules,
+          },
+        },
+        state: {
+          auth: { users: [{ uid: "u1" }] },
+          storageConfig: { undeployedBucketPolicy: "allow" },
+        },
+      },
+      actors: [
+        { id: "owner", label: "Owner", acquisition: { kind: "fixture-user", uid: "u1" } },
+      ],
+      invariants: [
+        {
+          id: "inv-secondary-denied",
+          statement: "Writes to unruled buckets must be denied",
+          service: "storage",
+          expected: "DENY",
+          source: "declared",
+          confidence: "authoritative",
+        },
+      ],
+      probes: [
+        {
+          id: "p-open-undeployed",
+          actorId: "owner",
+          invariantId: "inv-secondary-denied",
+          control: {
+            service: "storage",
+            instance: "ruled-bucket",
+            method: "upload",
+            path: "users/u1/files/f1",
+            dataBase64: "YQ==",
+          },
+          mutation: {
+            dimension: "path",
+            description: "Upload into open undeployed bucket",
+            operation: {
+              service: "storage",
+              instance: "open-secondary-bucket",
+              method: "upload",
+              path: "users/u1/files/f1",
+              dataBase64: "YQ==",
+            },
+          },
+        },
+      ],
+    });
+    expect(openPolicyNoDefaultRules.results[0]?.classification).toBe("local-counterexample");
+
+    const gsUrlReport = await runAuthorizationCampaign({
+      schema: ASSURANCE_CAMPAIGN_SCHEMA,
+      id: "camp-gs-url-bucket",
+      target: {
+        schema: ASSURANCE_TARGET_SCHEMA,
+        network: "forbid",
+        rules: {
+          storage: ownerRules,
+          storageBuckets: {
+            "media-bucket": readOnlyBucketRules,
+          },
+        },
+        state: {
+          auth: { users: [{ uid: "u1" }] },
+          storageBuckets: {
+            "media-bucket": [
+              {
+                path: "users/u1/files/seed.txt",
+                dataBase64: btoa("seed"),
+                contentType: "text/plain",
+              },
+            ],
+          },
+        },
+      },
+      actors: [
+        { id: "owner", label: "Owner", acquisition: { kind: "fixture-user", uid: "u1" } },
+      ],
+      invariants: [
+        {
+          id: "inv-media-readonly",
+          statement: "Media bucket denies writes",
+          service: "storage",
+          expected: "DENY",
+          source: "declared",
+          confidence: "authoritative",
+        },
+      ],
+      probes: [
+        {
+          id: "p-gs-url",
+          actorId: "owner",
+          invariantId: "inv-media-readonly",
+          control: {
+            service: "storage",
+            instance: "gs://media-bucket/",
+            method: "get",
+            path: "users/u1/files/seed.txt",
+          },
+          mutation: {
+            dimension: "operation",
+            description: "Attempt delete via gs:// URL instance",
+            operation: {
+              service: "storage",
+              instance: "gs://media-bucket/",
+              method: "delete",
+              path: "users/u1/files/seed.txt",
+            },
+          },
+        },
+      ],
+    });
+    expect(gsUrlReport.results[0]?.control.decision).toBe("ALLOW");
+    expect(gsUrlReport.results[0]?.mutation.decision).toBe("DENY");
+    expect(gsUrlReport.results[0]?.classification).toBe("no-counterexample");
+  });
+
+  it("formats non-Error Firestore create denial objects cleanly without '[object Object]'", async () => {
+    const report = await runAuthorizationCampaign({
+      schema: ASSURANCE_CAMPAIGN_SCHEMA,
+      id: "camp-create-denial-msg",
+      target: {
+        schema: ASSURANCE_TARGET_SCHEMA,
+        network: "forbid",
+        rules: {
+          firestore: `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /items/{id} {
+      allow create: if request.auth != null && request.resource.data.ownerId == request.auth.uid;
+    }
+  }
+}`,
+        },
+        state: { auth: { users: [{ uid: "u1" }] } },
+      },
+      actors: [{ id: "owner", acquisition: { kind: "fixture-user", uid: "u1" } }],
+      invariants: [
+        {
+          id: "inv-create",
+          statement: "Forged ownerId denied",
+          service: "firestore",
+          expected: "DENY",
+          source: "declared",
+          confidence: "authoritative",
+        },
+      ],
+      probes: [
+        {
+          id: "p-create",
+          actorId: "owner",
+          invariantId: "inv-create",
+          control: {
+            service: "firestore",
+            method: "create",
+            path: "items/i1",
+            data: { ownerId: "u1" },
+          },
+          mutation: {
+            dimension: "payload",
+            description: "Forged ownerId",
+            operation: {
+              service: "firestore",
+              method: "create",
+              path: "items/i1",
+              data: { ownerId: "u2" },
+            },
+          },
+        },
+      ],
+    });
+    expect(report.results[0]?.mutation.decision).toBe("DENY");
+    expect(report.results[0]?.mutation.error?.message).toBeDefined();
+    expect(report.results[0]?.mutation.error?.message).not.toBe("[object Object]");
+  });
 });

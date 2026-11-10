@@ -235,4 +235,62 @@ service firebase.storage {
       expect.objectContaining({ id: "rtdb.rules-load", supported: false }),
     );
   });
+
+  it("refuses over-limit or malformed per-bucket Storage rules as invalid-probe without crashing", async () => {
+    const uploadBucket = (bucket: string, path: string): FirebaseOperation => ({
+      service: "storage",
+      instance: bucket,
+      method: "upload",
+      path,
+      dataBase64: "bWFsbG9yeQ==",
+      contentType: "text/plain",
+    });
+
+    const overLimitReport = await runAuthorizationCampaign(
+      campaign(
+        { storageBuckets: { "media-bucket": STORAGE_PAST_LIMIT } },
+        {},
+        uploadBucket("media-bucket", "rooms/r1/mallory.txt"),
+        uploadBucket("media-bucket", "rooms/r1/alice.txt"),
+        "path",
+      ),
+    );
+    expect(overLimitReport.results[0]!.classification).toBe("invalid-probe");
+    expect(overLimitReport.results[0]!.control.error?.code).toBe("rules-refused");
+    expect(overLimitReport.results[0]!.control.error?.message).toContain(
+      "bucket 'media-bucket': Storage rules did not compile:",
+    );
+
+    const brokenSiblingReport = await runAuthorizationCampaign(
+      campaign(
+        {
+          storage: `rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /rooms/{roomId}/{file} { allow read, write: if request.auth != null; }
+  }
+}`,
+          storageBuckets: {
+            "unused-bucket": "rules_version = '2'; service firebase.storage { BROKEN",
+          },
+        },
+        {},
+        {
+          service: "storage",
+          method: "upload",
+          path: "rooms/r1/mallory.txt",
+          dataBase64: "bWFsbG9yeQ==",
+        },
+        {
+          service: "storage",
+          method: "upload",
+          path: "rooms/r1/alice.txt",
+          dataBase64: "bWFsbG9yeQ==",
+        },
+        "path",
+      ),
+    );
+    expect(brokenSiblingReport.results[0]!.classification).toBe("invalid-probe");
+    expect(brokenSiblingReport.results[0]!.control.error?.code).toBe("rules-refused");
+  });
 });

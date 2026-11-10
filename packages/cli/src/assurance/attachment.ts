@@ -14,6 +14,7 @@ import {
   type LocalFirebaseTarget,
   type StorageObjectFixture,
 } from "./types.js";
+import { normalizeStorageBucketInstance } from "./validation-target.js";
 
 export interface AssuranceAttachmentInput {
   url: string;
@@ -44,8 +45,21 @@ export type {
 interface PyricInitPayload {
   rules?: string | null;
   databaseRules?: { rules: Record<string, unknown> } | null;
+  databaseInstances?: {
+    defaultInstance?: string;
+    projectId?: string;
+    rules?: Record<string, { rules: Record<string, unknown> } | null>;
+  } | null;
   storageRules?: string | null;
+  storageBucketRules?: Record<
+    string,
+    string | { rules: string; rulesHash?: string } | null
+  > | null;
   bridgeUrl?: string | null;
+}
+
+function isUnsafeKey(key: string): boolean {
+  return key === "__proto__" || key === "constructor" || key === "prototype";
 }
 
 export function isLoopbackHost(hostname: string): boolean {
@@ -152,9 +166,84 @@ export function createSandboxAttachmentProvider(
     if (typeof payload.rules === "string" && payload.rules.trim()) {
       rules.firestore = payload.rules;
     }
-    if (payload.databaseRules?.rules) rules.rtdb = payload.databaseRules;
+    if (payload.databaseRules?.rules) {
+      rules.rtdb = { rules: cloneOwnRecord(payload.databaseRules.rules) };
+    }
+    if (
+      payload.databaseInstances &&
+      typeof payload.databaseInstances === "object" &&
+      !Array.isArray(payload.databaseInstances) &&
+      payload.databaseInstances.rules &&
+      typeof payload.databaseInstances.rules === "object" &&
+      !Array.isArray(payload.databaseInstances.rules)
+    ) {
+      const defaultInst =
+        typeof payload.databaseInstances.defaultInstance === "string"
+          ? payload.databaseInstances.defaultInstance
+          : undefined;
+      const rtdbInstances: Record<string, { rules: Record<string, unknown> }> =
+        {};
+      for (const [instName, wrapper] of Object.entries(
+        payload.databaseInstances.rules,
+      )) {
+        if (isUnsafeKey(instName)) continue;
+        if (
+          !wrapper ||
+          typeof wrapper !== "object" ||
+          Array.isArray(wrapper) ||
+          !wrapper.rules ||
+          typeof wrapper.rules !== "object" ||
+          Array.isArray(wrapper.rules)
+        ) {
+          continue;
+        }
+        const cloned = { rules: cloneOwnRecord(wrapper.rules) };
+        if (
+          instName === DEFAULT_SNAPSHOT_RESOURCE ||
+          (defaultInst !== undefined && instName === defaultInst)
+        ) {
+          if (rules.rtdb === undefined) {
+            rules.rtdb = cloned;
+          }
+        } else {
+          setOwn(rtdbInstances, instName, cloned);
+        }
+      }
+      if (Object.keys(rtdbInstances).length > 0) {
+        rules.rtdbInstances = rtdbInstances;
+      }
+    }
     if (typeof payload.storageRules === "string" && payload.storageRules.trim()) {
       rules.storage = payload.storageRules;
+    }
+    if (
+      payload.storageBucketRules &&
+      typeof payload.storageBucketRules === "object" &&
+      !Array.isArray(payload.storageBucketRules)
+    ) {
+      const storageBuckets: Record<string, string> = {};
+      for (const [rawBucket, entry] of Object.entries(
+        payload.storageBucketRules,
+      )) {
+        const rawSource =
+          typeof entry === "string"
+            ? entry
+            : entry && typeof entry === "object" && typeof entry.rules === "string"
+              ? entry.rules
+              : undefined;
+        if (typeof rawSource !== "string" || !rawSource.trim()) continue;
+        const normalizedBucket = normalizeStorageBucketInstance(rawBucket);
+        if (normalizedBucket === undefined) {
+          if (rules.storage === undefined) {
+            rules.storage = rawSource;
+          }
+        } else if (!isUnsafeKey(normalizedBucket)) {
+          setOwn(storageBuckets, normalizedBucket, rawSource);
+        }
+      }
+      if (Object.keys(storageBuckets).length > 0) {
+        rules.storageBuckets = storageBuckets;
+      }
     }
 
     return cloneSandboxTarget(sandbox, rules, {
@@ -419,6 +508,24 @@ async function cloneSandboxTarget(
     }
     if (user.providerId !== undefined) {
       entry.providerId = user.providerId;
+    }
+    if (
+      Array.isArray(user.providerUserInfo) &&
+      user.providerUserInfo.length > 0
+    ) {
+      entry.providerUserInfo = user.providerUserInfo.map((provider) => {
+        const clone: NonNullable<AuthFixtureUser["providerUserInfo"]>[number] = {
+          providerId: provider.providerId,
+        };
+        const raw = provider as unknown as Record<string, unknown>;
+        if (typeof raw.rawId === "string") clone.rawId = raw.rawId;
+        if (typeof raw.uid === "string") clone.uid = raw.uid;
+        if (typeof raw.email === "string") clone.email = raw.email;
+        if (typeof raw.displayName === "string") clone.displayName = raw.displayName;
+        if (typeof raw.photoUrl === "string") clone.photoUrl = raw.photoUrl;
+        if (typeof raw.phoneNumber === "string") clone.phoneNumber = raw.phoneNumber;
+        return clone;
+      });
     }
     if (user.customClaims !== undefined) {
       entry.customClaims = cloneOwnRecord(user.customClaims);

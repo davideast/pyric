@@ -359,4 +359,132 @@ service firebase.storage {
     );
     expect(requests).toBe(0);
   });
+
+  it("preserves linked providerUserInfo across sandbox attachment into campaign replay", async () => {
+    const sandbox = initializeSandbox({ projectId: "demo-proj" });
+    authSandbox.seedUsers(getAuth(sandbox), [
+      {
+        uid: "u-linked",
+        email: "linked@example.test",
+        emailVerified: true,
+        providerId: "google.com",
+        providerUserInfo: [
+          { providerId: "google.com", rawId: "g-100", email: "linked@example.test" },
+          { providerId: "github.com", rawId: "gh-200", email: "linked@example.test" },
+        ],
+      },
+    ]);
+    setRules(
+      sandbox,
+      `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /users/{uid}/docs/{docId} {
+      allow read: if request.auth != null
+        && request.auth.uid == uid
+        && 'github.com' in request.auth.token.firebase.identities;
+    }
+  }
+}`,
+    );
+    seedDocuments(sandbox, {
+      "users/u-linked/docs/d1": { ok: true },
+      "users/other/docs/d1": { ok: true },
+    });
+
+    const attach = createSandboxAttachmentProvider(sandbox, {
+      origin: "http://127.0.0.1:4173",
+      fetchImpl: async () =>
+        new Response(JSON.stringify({ bridgeUrl: "ws://127.0.0.1:4173/b" }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+    });
+    const attached = await attach({ url: "http://127.0.0.1:4173/" });
+    const campaign = createAuthorizationCampaign({
+      id: "camp-linked-identities",
+      target: attached.target,
+    });
+    campaign.addInvariant({
+      id: "inv-linked",
+      statement: "Foreign slot denied",
+      service: "firestore",
+      expected: "DENY",
+      source: "declared",
+      confidence: "authoritative",
+    });
+    campaign.map({
+      actors: [{ id: "linked", acquisition: { kind: "fixture-user", uid: "u-linked" } }],
+      probes: [
+        {
+          id: "p-linked",
+          actorId: "linked",
+          invariantId: "inv-linked",
+          control: { service: "firestore", method: "get", path: "users/u-linked/docs/d1" },
+          mutation: {
+            dimension: "path",
+            description: "Foreign slot",
+            operation: { service: "firestore", method: "get", path: "users/other/docs/d1" },
+          },
+        },
+      ],
+    });
+    const report = await campaign.run();
+    expect(report.results[0]?.control.decision).toBe("ALLOW");
+    expect(report.results[0]?.classification).toBe("no-counterexample");
+  });
+
+  it("ingests databaseInstances.rules and storageBucketRules from init.json in createSandboxAttachmentProvider", async () => {
+    const sandbox = initializeSandbox({ projectId: "demo-proj" });
+    const bucketRules = `rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /docs/{docId} {
+      allow read: if request.auth != null;
+    }
+  }
+}`;
+    const attach = createSandboxAttachmentProvider(sandbox, {
+      origin: "http://127.0.0.1:4200",
+      fetchImpl: async () =>
+        new Response(
+          JSON.stringify({
+            bridgeUrl: "ws://127.0.0.1:4200/__pyric/bridge",
+            databaseInstances: {
+              defaultInstance: "demo-proj-default-rtdb",
+              rules: {
+                "demo-proj-default-rtdb": {
+                  rules: { defaults: { ".read": "auth != null" } },
+                },
+                "inst-secondary": {
+                  rules: { orgs: { ".read": "auth != null" } },
+                },
+              },
+            },
+            storageBucketRules: {
+              "bucket-secondary": bucketRules,
+              "gs://bucket-tertiary/": { rules: bucketRules },
+            },
+          }),
+          {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          },
+        ),
+    });
+
+    const attached = await attach({ url: "http://127.0.0.1:4200" });
+    expect(attached.target.rules.rtdb).toEqual({
+      rules: { defaults: { ".read": "auth != null" } },
+    });
+    expect(attached.target.rules.rtdbInstances?.["inst-secondary"]).toEqual({
+      rules: { orgs: { ".read": "auth != null" } },
+    });
+    expect(attached.target.rules.storageBuckets?.["bucket-secondary"]).toBe(
+      bucketRules,
+    );
+    expect(attached.target.rules.storageBuckets?.["bucket-tertiary"]).toBe(
+      bucketRules,
+    );
+  });
 });

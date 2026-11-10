@@ -361,4 +361,51 @@ service cloud.firestore {
       data: { code: "ASSURANCE_INVALID_INPUT" },
     });
   });
+
+  it("reports storage in services when target rules define only storageBuckets", async () => {
+    const tools = createAssuranceTools({
+      attachmentProvider: async ({ url }) => ({
+        source: {
+          requestedUrl: url,
+          origin: "http://127.0.0.1:5211",
+          transport: "same-origin-shared-worker",
+          readOnly: true,
+          studioUrl: "http://127.0.0.1:5211/__pyric/ui/assurance",
+        },
+        target: {
+          schema: "pyric.assurance.target.v1",
+          network: "forbid",
+          rules: {
+            storageBuckets: {
+              "media-bucket": `rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /docs/{docId} { allow read: if request.auth != null; }
+  }
+}`,
+            },
+          },
+          state: { auth: { users: [] } },
+        },
+        inventory: {
+          firestoreDocuments: 0,
+          rtdbPresent: false,
+          storageObjects: 0,
+          authUsers: 0,
+        },
+        coverageGaps: [],
+      }),
+    });
+
+    const attached = await tool(tools, "firebase_assurance_attach").execute({
+      url: "http://127.0.0.1:5211",
+      campaignId: "named-bucket-only",
+    });
+    expect(attached).toMatchObject({
+      ok: true,
+      data: {
+        services: ["storage"],
+      },
+    });
+  });
 });

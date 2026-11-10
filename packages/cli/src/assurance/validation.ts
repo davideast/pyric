@@ -28,6 +28,7 @@ import {
 import {
   assertPositiveInteger,
   assertTarget,
+  normalizeStorageBucketInstance,
   assertValidBase64,
   enumValue,
   received,
@@ -305,13 +306,21 @@ function assertOperation(
     if (operation.dataBase64 !== undefined) {
       assertValidBase64(operation.dataBase64, `${where}.dataBase64`);
     }
-    if (
-      operation.contentType !== undefined &&
-      typeof operation.contentType !== "string"
-    ) {
-      throw new AssuranceInputError(
-        `${where}.contentType must be a string. ${received(operation.contentType)}.`,
-      );
+    for (const headerField of [
+      "contentType",
+      "cacheControl",
+      "contentDisposition",
+      "contentEncoding",
+      "contentLanguage",
+    ] as const) {
+      if (
+        operation[headerField] !== undefined &&
+        typeof operation[headerField] !== "string"
+      ) {
+        throw new AssuranceInputError(
+          `${where}.${headerField} must be a string. ${received(operation[headerField])}.`,
+        );
+      }
     }
     if (operation.customMetadata !== undefined) {
       requiredRecord(operation.customMetadata, `${where}.customMetadata`);
@@ -363,20 +372,7 @@ function operationResourceKey(operation: FirebaseOperation): string {
     const rawBucket =
       (operation as { instance?: string; bucket?: string }).instance ??
       (operation as { instance?: string; bucket?: string }).bucket;
-    if (!rawBucket) return "(default)";
-    const trimmed = rawBucket
-      .trim()
-      .replace(/^gs:\/\//i, "")
-      .replace(/\/+$/, "");
-    if (
-      !trimmed ||
-      trimmed === "default" ||
-      trimmed === "(default)" ||
-      trimmed === "pyric-default"
-    ) {
-      return "(default)";
-    }
-    return trimmed;
+    return normalizeStorageBucketInstance(rawBucket) ?? "(default)";
   }
   return "(default)";
 }
@@ -386,6 +382,10 @@ function payload(operation: FirebaseOperation): unknown {
     return {
       dataBase64: operation.dataBase64,
       contentType: operation.contentType,
+      cacheControl: operation.cacheControl,
+      contentDisposition: operation.contentDisposition,
+      contentEncoding: operation.contentEncoding,
+      contentLanguage: operation.contentLanguage,
       customMetadata: operation.customMetadata,
     };
   }
@@ -458,6 +458,10 @@ export function assertCampaign(spec: AuthorizationCampaignSpec): void {
     "query",
     "dataBase64",
     "contentType",
+    "cacheControl",
+    "contentDisposition",
+    "contentEncoding",
+    "contentLanguage",
     "customMetadata",
     "instance",
   ]);

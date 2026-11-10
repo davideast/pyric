@@ -678,4 +678,81 @@ service cloud.firestore {
     expect(result!.stateDiff?.changed).toBe(false);
     expect(result!.classification).toBe("no-counterexample");
   });
+
+  it("detects Storage HTTP header mutations in stateDiff and exports local-counterexample security cases", async () => {
+    const campaign = createAuthorizationCampaign({
+      id: "camp-storage-http-headers",
+      target: {
+        schema: "pyric.assurance.target.v1",
+        network: "forbid",
+        rules: {
+          storage: `rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /users/{uid}/files/{fileId} {
+      allow read: if request.auth != null && request.auth.uid == uid;
+      allow write: if request.auth != null;
+    }
+  }
+}`,
+        },
+        state: {
+          auth: { users: [{ uid: "u1" }, { uid: "u2" }] },
+          storage: [
+            {
+              path: "users/u1/files/f1",
+              dataBase64: "c2VjcmV0",
+              contentType: "text/plain",
+              cacheControl: "private, no-store",
+              contentDisposition: 'attachment; filename="report.txt"',
+              contentEncoding: "gzip",
+              contentLanguage: "en",
+            },
+          ],
+        },
+      },
+    });
+    campaign.addInvariant({
+      id: "inv-slot",
+      statement: "Peer must not overwrite owner object or strip HTTP headers",
+      service: "storage",
+      expected: "DENY",
+      source: "declared",
+      confidence: "authoritative",
+    });
+    campaign.map({
+      actors: [{ id: "peer", acquisition: { kind: "fixture-user", uid: "u2" } }],
+      probes: [
+        {
+          id: "p-strip-headers",
+          actorId: "peer",
+          invariantId: "inv-slot",
+          control: {
+            service: "storage",
+            method: "upload",
+            path: "users/u2/files/f1",
+            dataBase64: "c2VjcmV0",
+            contentType: "text/plain",
+          },
+          mutation: {
+            dimension: "path",
+            description: "Overwrite owner object without HTTP headers",
+            operation: {
+              service: "storage",
+              method: "upload",
+              path: "users/u1/files/f1",
+              dataBase64: "c2VjcmV0",
+              contentType: "text/plain",
+            },
+          },
+        },
+      ],
+    });
+
+    const report = await campaign.run();
+    const res = report.results[0]!;
+    expect(res.stateDiff?.changed).toBe(true);
+    expect(res.classification).toBe("local-counterexample");
+    expect(campaign.exportSecurityCases()).toHaveLength(1);
+  });
 });

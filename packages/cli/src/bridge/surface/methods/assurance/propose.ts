@@ -28,7 +28,7 @@ export default {
       .array(probeMutation)
       .min(1)
       .describe(
-        'Each names a dimension of path, query, payload, or operation, a description, and the operation.',
+        'Each names an optional id, a dimension of path, query, payload, or operation, a description, and the operation.',
       ),
   }),
   operation: 'propose_assurance_probes',
@@ -46,6 +46,21 @@ export default {
     ],
   },
   async handler(args, ctx) {
-    return callAssuranceOperation(ctx, 'firebase_assurance_propose', args);
+    const mutations = Array.isArray(args.mutations)
+      ? args.mutations.map((item) => {
+          if (!item || typeof item !== 'object') return item;
+          const entry = item as Record<string, unknown>;
+          return {
+            ...(typeof entry.id === 'string' ? { id: entry.id } : {}),
+            dimension: entry.dimension,
+            description: entry.description,
+            operation: entry.operation,
+          };
+        })
+      : args.mutations;
+    return callAssuranceOperation(ctx, 'firebase_assurance_propose', {
+      ...args,
+      mutations,
+    });
   },
 } satisfies MethodRecord;

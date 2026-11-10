@@ -19,10 +19,12 @@ import {
 import type { RtdbRulesJson } from "pyric/sandbox/database";
 import { seedDocuments, setRules, snapshotDocuments } from "pyric/sandbox/firestore";
 import {
-  DEFAULT_SNAPSHOT_RESOURCE,
+  decodeSnapshotMap,
   decodeSnapshotMapForEnv,
   resolveDatabaseInstance,
+  type ReferenceDecoder,
 } from "pyric/sandbox/internal";
+import { normalizeStorageBucketInstance } from "./validation-target.js";
 import {
   getBlob,
   getMetadata,
@@ -98,8 +100,202 @@ export function targetHash(target: LocalFirebaseTarget): string {
   return `fnv1a32-${hash.toString(16).padStart(8, "0")}`;
 }
 
+export function formatThrownMessage(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  if (
+    error !== null &&
+    typeof error === "object" &&
+    typeof (error as { message?: unknown }).message === "string"
+  ) {
+    return (error as { message: string }).message;
+  }
+  return String(error);
+}
+
 export function normalizeFirestorePath(path: string): string {
   return path.replace(/^\/+|\/+$/g, "");
+}
+
+function toStandardBase64(raw: string): string {
+  const normalized = raw.trim().replace(/-/g, "+").replace(/_/g, "/");
+  const remainder = normalized.length % 4;
+  if (remainder === 0) return normalized;
+  return normalized + "=".repeat(4 - remainder);
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    return false;
+  }
+  const proto = Object.getPrototypeOf(value);
+  return proto === Object.prototype || proto === null;
+}
+
+function isEscapedFirestoreMap(
+  record: Record<string, unknown>,
+): record is { type: "pyric/map/1.0"; fields: Record<string, unknown> } {
+  return (
+    Object.keys(record).length === 2 &&
+    Object.hasOwn(record, "type") &&
+    record.type === "pyric/map/1.0" &&
+    Object.hasOwn(record, "fields") &&
+    isPlainObject(record.fields)
+  );
+}
+
+function canonicalizeFirestoreEnvelopes(value: unknown): unknown {
+  if (value === null || typeof value !== "object") return value;
+  if (Array.isArray(value)) {
+    return value.map((entry) => canonicalizeFirestoreEnvelopes(entry));
+  }
+  if (!isPlainObject(value)) return value;
+
+  if (isEscapedFirestoreMap(value)) {
+    const inner: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value.fields)) {
+      Object.defineProperty(inner, k, {
+        value: canonicalizeFirestoreEnvelopes(v),
+        enumerable: true,
+        writable: true,
+        configurable: true,
+      });
+    }
+    return { type: "pyric/map/1.0", fields: inner };
+  }
+
+  const tag = Object.hasOwn(value, "type") ? value.type : undefined;
+  if (
+    tag === "pyric/geopoint/1.0" ||
+    tag === "pyric/geoPoint/1.0" ||
+    tag === "firestore/geoPoint/1.0"
+  ) {
+    const latitude =
+      typeof value.latitude === "number"
+        ? value.latitude
+        : typeof value.lat === "number"
+          ? value.lat
+          : undefined;
+    const longitude =
+      typeof value.longitude === "number"
+        ? value.longitude
+        : typeof value.lng === "number"
+          ? value.lng
+          : undefined;
+    if (latitude !== undefined && longitude !== undefined) {
+      return { type: "firestore/geoPoint/1.0", latitude, longitude };
+    }
+  }
+  if (tag === "pyric/bytes/1.0" || tag === "firestore/bytes/1.0") {
+    const rawBytes =
+      typeof value.bytes === "string"
+        ? value.bytes
+        : typeof value.base64 === "string"
+          ? value.base64
+          : undefined;
+    if (rawBytes !== undefined) {
+      return { type: "firestore/bytes/1.0", bytes: toStandardBase64(rawBytes) };
+    }
+  }
+  if (
+    tag === "pyric/ref/1.0" ||
+    tag === "pyric/reference/1.0" ||
+    tag === "firestore/documentReference/1.0"
+  ) {
+    if (typeof value.path === "string") {
+      return {
+        __type: "reference",
+        path: value.path,
+        ...(typeof value.databaseId === "string"
+          ? { databaseId: value.databaseId }
+          : {}),
+      };
+    }
+  }
+  if (tag === "pyric/vector/1.0" || tag === "firestore/vectorValue/1.0") {
+    const vectorValues = Array.isArray(value.vectorValues)
+      ? value.vectorValues
+      : Array.isArray(value.values)
+        ? value.values
+        : Array.isArray(value.value)
+          ? value.value
+          : undefined;
+    if (
+      vectorValues !== undefined &&
+      vectorValues.every((item) => typeof item === "number")
+    ) {
+      return {
+        type: "firestore/vectorValue/1.0",
+        vectorValues: [...vectorValues],
+      };
+    }
+  }
+  if (tag === "pyric/timestamp/1.0" || tag === "firestore/timestamp/1.0") {
+    const seconds =
+      typeof value.seconds === "number" ? value.seconds : undefined;
+    const nanoseconds =
+      typeof value.nanoseconds === "number"
+        ? value.nanoseconds
+        : typeof value.nanos === "number"
+          ? value.nanos
+          : tag === "pyric/timestamp/1.0" && seconds !== undefined
+            ? 0
+            : undefined;
+    if (seconds !== undefined && nanoseconds !== undefined) {
+      return { type: "firestore/timestamp/1.0", seconds, nanoseconds };
+    }
+  }
+
+  const next: Record<string, unknown> = {};
+  for (const [key, item] of Object.entries(value)) {
+    Object.defineProperty(next, key, {
+      value: canonicalizeFirestoreEnvelopes(item),
+      enumerable: true,
+      writable: true,
+      configurable: true,
+    });
+  }
+  return next;
+}
+
+function canonicalizeFirestoreMap(
+  data: Record<string, unknown>,
+): Record<string, unknown> {
+  if (isEscapedFirestoreMap(data)) {
+    return canonicalizeFirestoreEnvelopes(data) as Record<string, unknown>;
+  }
+  const next: Record<string, unknown> = {};
+  for (const [key, item] of Object.entries(data)) {
+    Object.defineProperty(next, key, {
+      value: canonicalizeFirestoreEnvelopes(item),
+      enumerable: true,
+      writable: true,
+      configurable: true,
+    });
+  }
+  return next;
+}
+
+export function decodeFirestoreMapForEnv(
+  data: Record<string, unknown>,
+): Record<string, unknown> {
+  return decodeSnapshotMapForEnv(canonicalizeFirestoreMap(data));
+}
+
+export function decodeFirestoreMapForSdk(
+  data: Record<string, unknown>,
+  references: ReferenceDecoder,
+): Record<string, unknown> {
+  return decodeSnapshotMap(canonicalizeFirestoreMap(data), references);
+}
+
+export function decodeFirestoreValueForSdk(
+  value: unknown,
+  references: ReferenceDecoder,
+): unknown {
+  return decodeSnapshotMap(
+    { value: canonicalizeFirestoreEnvelopes(value) },
+    references,
+  ).value;
 }
 
 export function normalizeFirestoreDocuments(
@@ -111,7 +307,7 @@ export function normalizeFirestoreDocuments(
     const cleanPath = normalizeFirestorePath(path);
     if (!cleanPath) continue;
     Object.defineProperty(normalized, cleanPath, {
-      value: decodeSnapshotMapForEnv(data),
+      value: decodeFirestoreMapForEnv(data),
       enumerable: true,
       writable: true,
       configurable: true,
@@ -130,6 +326,11 @@ function authUsers(target: LocalFirebaseTarget): SeedUser[] {
     if (user.phoneNumber !== undefined) record.phoneNumber = user.phoneNumber;
     if (user.tenantId !== undefined) record.tenantId = user.tenantId;
     if (user.providerId !== undefined) record.providerId = user.providerId;
+    if (user.providerUserInfo !== undefined) {
+      record.providerUserInfo = user.providerUserInfo.map((provider) => ({
+        ...provider,
+      }));
+    }
     if (user.customClaims !== undefined) {
       record.customClaims = { ...user.customClaims };
     }
@@ -187,9 +388,12 @@ export function acquireActor(
       }
       case "password": {
         const acqEmail = actor.acquisition.email;
+        const acqEmailLower = acqEmail.toLowerCase();
         const acqPassword = actor.acquisition.password;
         const matchedUser = (target.state.auth?.users ?? []).find(
-          (u) => u.email === acqEmail,
+          (u) =>
+            typeof u.email === "string" &&
+            u.email.toLowerCase() === acqEmailLower,
         );
         const req: {
           kind: "password";
@@ -257,10 +461,7 @@ export function acquireActor(
         };
     }
   } catch (error) {
-    let message = String(error);
-    if (error instanceof Error) {
-      message = error.message;
-    }
+    const message = formatThrownMessage(error);
     return {
       auth: null,
       evidence: {
@@ -356,20 +557,53 @@ export async function createRuntime(
   ]
     .join("-")
     .replace(/[^a-zA-Z0-9_-]/g, "_");
-  const admin = getAdminStorageSandbox(sandbox, {
-    dbName,
-    rules: target.rules.storage!,
-  });
+  const LOCKED_STORAGE_RULES =
+    "rules_version = '2'; service firebase.storage { match /b/{bucket}/o { match /{allPaths=**} { allow read, write: if false; } } }";
+  const defaultBucketRulesFromMap = Object.entries(
+    target.rules.storageBuckets ?? {},
+  ).find(
+    ([bucketName]) => normalizeStorageBucketInstance(bucketName) === undefined,
+  )?.[1];
+  const effectiveDefaultStorageRules =
+    typeof target.rules.storage === "string" &&
+    target.rules.storage.trim().length > 0
+      ? target.rules.storage
+      : defaultBucketRulesFromMap;
+  let admin: FirebaseStorage;
+  try {
+    admin = getAdminStorageSandbox(sandbox, {
+      dbName,
+      ...(typeof effectiveDefaultStorageRules === "string" &&
+      effectiveDefaultStorageRules.trim().length > 0
+        ? { rules: effectiveDefaultStorageRules }
+        : {}),
+    });
+  } catch {
+    admin = getAdminStorageSandbox(sandbox, {
+      dbName,
+      rules: LOCKED_STORAGE_RULES,
+    });
+  }
   for (const [bucketName, bucketRules] of Object.entries(
     target.rules.storageBuckets ?? {},
   )) {
-    deployStorageBucketRules(sandbox, bucketName, bucketRules);
+    const normalizedBucket = normalizeStorageBucketInstance(bucketName);
+    if (normalizedBucket !== undefined) {
+      try {
+        deployStorageBucketRules(sandbox, normalizedBucket, bucketRules);
+      } catch {
+        deployStorageBucketRules(sandbox, normalizedBucket, LOCKED_STORAGE_RULES);
+      }
+    }
   }
   if (target.state.storageConfig?.crossServiceIam !== undefined) {
     await replaceCrossServiceIam(sandbox, target.state.storageConfig.crossServiceIam);
   }
-  if (target.state.storageConfig?.undeployedBucketPolicy === "deny") {
-    lockUndeployedStorageBuckets(sandbox);
+  if (target.state.storageConfig?.undeployedBucketPolicy !== undefined) {
+    lockUndeployedStorageBuckets(
+      sandbox,
+      target.state.storageConfig.undeployedBucketPolicy,
+    );
   }
   const seedBucketObjects = async (
     bucketHandle: FirebaseStorage,
@@ -470,16 +704,51 @@ export async function createRuntime(
   for (const [bucketName, objects] of Object.entries(
     target.state.storageBuckets ?? {},
   )) {
-    const bucketAdmin = getAdminStorageSandbox(sandbox, {
-      dbName,
-      bucket: bucketName,
-    });
+    const normalizedBucket = normalizeStorageBucketInstance(bucketName);
+    const bucketAdmin = normalizedBucket
+      ? getAdminStorageSandbox(sandbox, {
+          dbName,
+          bucket: normalizedBucket,
+        })
+      : admin;
     await seedBucketObjects(bucketAdmin, objects);
   }
   runtime.storageDbName = dbName;
   runtime.storageAdmin = admin;
   runtime.storage = getStorageSandbox(context, { dbName });
   return runtime;
+}
+
+export function projectStorageObject(
+  buffer: ArrayBuffer,
+  metadata: {
+    contentType?: string;
+    cacheControl?: string;
+    contentDisposition?: string;
+    contentEncoding?: string;
+    contentLanguage?: string;
+    customMetadata?: Record<string, string>;
+  },
+): Record<string, unknown> {
+  const projected: Record<string, unknown> = {
+    dataBase64: arrayBufferToBase64(buffer),
+    text: new TextDecoder().decode(buffer),
+    contentType: metadata.contentType,
+    customMetadata: metadata.customMetadata ?? {},
+  };
+  if (metadata.cacheControl !== undefined) {
+    projected.cacheControl = metadata.cacheControl;
+  }
+  if (metadata.contentDisposition !== undefined) {
+    projected.contentDisposition = metadata.contentDisposition;
+  }
+  if (metadata.contentEncoding !== undefined) {
+    projected.contentEncoding = metadata.contentEncoding;
+  }
+  if (metadata.contentLanguage !== undefined) {
+    projected.contentLanguage = metadata.contentLanguage;
+  }
+  return projected;
 }
 
 async function readStorageState(
@@ -499,13 +768,7 @@ async function readStorageState(
       getBlob(target),
       getMetadata(target),
     ]);
-    const buffer = await blob.arrayBuffer();
-    return {
-      dataBase64: arrayBufferToBase64(buffer),
-      text: new TextDecoder().decode(buffer),
-      contentType: metadata.contentType,
-      customMetadata: metadata.customMetadata ?? {},
-    };
+    return projectStorageObject(await blob.arrayBuffer(), metadata);
   } catch (error) {
     const code = (error as { code?: string } | null)?.code;
     if (code === "storage/object-not-found") return null;
@@ -536,20 +799,20 @@ export async function readState(
     }
     return (await getRtdb(rtdbRef(admin, operation.path))).exportVal();
   }
-  if (
-    operation.instance &&
-    operation.instance !== "default" &&
-    operation.instance !== DEFAULT_SNAPSHOT_RESOURCE &&
-    runtime.storageDbName !== undefined
-  ) {
-    runtime.storageAdmin = getAdminStorageSandbox(runtime.sandbox, {
-      dbName: runtime.storageDbName,
-      bucket: operation.instance,
-    });
-    runtime.storage = getStorageSandbox(runtime.context, {
-      dbName: runtime.storageDbName,
-      bucket: operation.instance,
-    });
+  const normalizedBucket = normalizeStorageBucketInstance(operation.instance);
+  if (runtime.storageDbName !== undefined) {
+    runtime.storageAdmin = getAdminStorageSandbox(
+      runtime.sandbox,
+      normalizedBucket
+        ? { dbName: runtime.storageDbName, bucket: normalizedBucket }
+        : { dbName: runtime.storageDbName },
+    );
+    runtime.storage = getStorageSandbox(
+      runtime.context,
+      normalizedBucket
+        ? { dbName: runtime.storageDbName, bucket: normalizedBucket }
+        : { dbName: runtime.storageDbName },
+    );
   }
   return readStorageState(operation, runtime.storageAdmin!);
 }

@@ -247,7 +247,8 @@ export class AuthorizationCampaign {
         `unknown observation '${input.observationId}'.`,
       );
     }
-    if (!this.#invariants.has(input.invariantId)) {
+    const invariant = this.#invariants.get(input.invariantId);
+    if (!invariant) {
       throw new AssuranceInputError(
         `unknown invariant '${input.invariantId}'.`,
       );
@@ -255,8 +256,20 @@ export class AuthorizationCampaign {
     if (input.mutations.length === 0) {
       throw new AssuranceInputError("at least one mutation is required.");
     }
+    if (!this.#actors.has(observation.actorId)) {
+      throw new AssuranceInputError(
+        `observation '${observation.id}' references unknown actor '${observation.actorId}'.`,
+      );
+    }
 
-    return input.mutations.map((mutation, index) => {
+    const seenIds = new Set(this.#probes.keys());
+    const staged: AssuranceProbe[] = [];
+    for (const [index, mutation] of input.mutations.entries()) {
+      if (!mutation || typeof mutation !== "object" || Array.isArray(mutation)) {
+        throw new AssuranceInputError(
+          `proposal mutations[${index}] must be an object.`,
+        );
+      }
       const id =
         mutation.id ??
         `${input.observationId}-${mutation.dimension}-${index + 1}`;
@@ -271,8 +284,29 @@ export class AuthorizationCampaign {
           operation: mutation.operation,
         },
       };
-      return this.addProbe(probe);
-    });
+      assertProbe(probe);
+      if (
+        invariant.service !== "cross-service" &&
+        invariant.service !== probe.control.service
+      ) {
+        throw new AssuranceInputError(
+          `probe '${probe.id}' service does not match invariant '${invariant.id}'.`,
+        );
+      }
+      if (!probe.id.trim()) {
+        throw new AssuranceInputError("probe id is required.");
+      }
+      if (seenIds.has(probe.id)) {
+        throw new AssuranceInputError(`duplicate probe id '${probe.id}'.`);
+      }
+      seenIds.add(probe.id);
+      staged.push(probe);
+    }
+
+    for (const probe of staged) {
+      this.#probes.set(probe.id, probe);
+    }
+    return staged;
   }
 
   spec(probeIds?: string[]): AuthorizationCampaignSpec {

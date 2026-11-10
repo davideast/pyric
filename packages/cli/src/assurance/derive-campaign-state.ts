@@ -483,17 +483,39 @@ export function initializeTargetState(
     );
   }
 
-  const storage: StorageObjectFixture[] = [];
-  for (const item of snapshot?.storage[DEFAULT_SNAPSHOT_RESOURCE] ?? []) {
+  const mapSnapshotStorageItem = (
+    item: NonNullable<SandboxSnapshot["storage"][string]>[number],
+  ): StorageObjectFixture => {
     const entry: StorageObjectFixture = {
       path: item.path,
       dataBase64: item.contentBase64,
     };
     if (item.contentType !== undefined) entry.contentType = item.contentType;
+    if (item.cacheControl !== undefined) entry.cacheControl = item.cacheControl;
+    if (item.contentDisposition !== undefined) {
+      entry.contentDisposition = item.contentDisposition;
+    }
+    if (item.contentEncoding !== undefined) {
+      entry.contentEncoding = item.contentEncoding;
+    }
+    if (item.contentLanguage !== undefined) {
+      entry.contentLanguage = item.contentLanguage;
+    }
+    if (item.timeCreated !== undefined && item.timeCreated !== item.updated) {
+      entry.timeCreated = item.timeCreated;
+    }
+    if (item.updated !== undefined && item.timeCreated !== item.updated) {
+      entry.updated = item.updated;
+    }
     if (item.customMetadata !== undefined) {
       entry.customMetadata = { ...item.customMetadata };
     }
-    storage.push(entry);
+    return entry;
+  };
+
+  const storage: StorageObjectFixture[] = [];
+  for (const item of snapshot?.storage[DEFAULT_SNAPSHOT_RESOURCE] ?? []) {
+    storage.push(mapSnapshotStorageItem(item));
   }
   for (const item of baseState?.storage ?? []) {
     if (!storage.some((s) => s.path === item.path)) {
@@ -508,15 +530,7 @@ export function initializeTargetState(
     }
     const list: StorageObjectFixture[] = [];
     for (const item of items) {
-      const entry: StorageObjectFixture = {
-        path: item.path,
-        dataBase64: item.contentBase64,
-      };
-      if (item.contentType !== undefined) entry.contentType = item.contentType;
-      if (item.customMetadata !== undefined) {
-        entry.customMetadata = { ...item.customMetadata };
-      }
-      list.push(entry);
+      list.push(mapSnapshotStorageItem(item));
     }
     if (list.length > 0) {
       defineOwn(storageBuckets, bucketKey, list);
@@ -552,11 +566,21 @@ export function initializeTargetState(
     if (u.disabled !== undefined) rec.disabled = u.disabled;
     if (u.tenantId !== undefined) rec.tenantId = u.tenantId;
     if (u.providerId !== undefined) rec.providerId = u.providerId;
+    if (Array.isArray(u.providerUserInfo) && u.providerUserInfo.length > 0) {
+      rec.providerUserInfo = u.providerUserInfo.map((provider) => ({
+        ...provider,
+      }));
+    }
     if (u.customClaims !== undefined) rec.customClaims = { ...u.customClaims };
     usersByUid.set(u.uid, rec);
   }
   for (const u of baseState?.auth?.users ?? []) {
-    usersByUid.set(u.uid, { ...u });
+    usersByUid.set(u.uid, {
+      ...u,
+      ...(u.providerUserInfo
+        ? { providerUserInfo: u.providerUserInfo.map((p) => ({ ...p })) }
+        : {}),
+    });
   }
   for (const actor of actors) {
     const existing = usersByUid.get(actor.uid);
@@ -586,13 +610,42 @@ export function initializeTargetState(
     usersByUid.set(actor.uid, merged);
   }
 
+  const mergedProviders: Record<string, boolean> = {};
+  const snapshotHasDisabledProvider = snapshot?.auth.providers
+    ? Object.values(snapshot.auth.providers).some((enabled) => enabled === false)
+    : false;
+  if (snapshotHasDisabledProvider && snapshot?.auth.providers) {
+    for (const [k, v] of Object.entries(snapshot.auth.providers)) {
+      if (!isUnsafeObjectKey(k) && typeof v === "boolean") {
+        defineOwn(mergedProviders, k, v);
+      }
+    }
+  }
+  if (baseState?.auth?.providers !== undefined) {
+    for (const [k, v] of Object.entries(baseState.auth.providers)) {
+      if (!isUnsafeObjectKey(k) && typeof v === "boolean") {
+        defineOwn(mergedProviders, k, v);
+      }
+    }
+  }
+
   const out: LocalFirebaseTarget["state"] = {
-    auth: { users: [...usersByUid.values()] },
+    auth: {
+      users: [...usersByUid.values()],
+      ...(Object.keys(mergedProviders).length > 0
+        ? { providers: mergedProviders }
+        : {}),
+    },
   };
   if (Object.keys(firestore).length > 0) out.firestore = firestore;
   if (rtdb !== undefined) out.rtdb = rtdb;
   if (Object.keys(rtdbInstances).length > 0) out.rtdbInstances = rtdbInstances;
   if (storage.length > 0) out.storage = storage;
   if (Object.keys(storageBuckets).length > 0) out.storageBuckets = storageBuckets;
+  if (baseState?.storageConfig !== undefined) {
+    out.storageConfig = { ...baseState.storageConfig };
+  } else if (snapshot?.storageConfig !== undefined) {
+    out.storageConfig = { ...snapshot.storageConfig };
+  }
   return out;
 }
