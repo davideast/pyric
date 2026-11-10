@@ -33,7 +33,7 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { generateKeyPairSync, sign } from 'node:crypto';
-import { scenario, sleep, type App, type ExpectedCrash } from '../driver.ts';
+import { scenario, sessionHeaders, sleep, type App, type ExpectedCrash } from '../driver.ts';
 
 const PROJECT = 'demo-live-full-stack';
 /** The account capture A's Admin calls name `<uid-1>`, and the one the page signs in as. */
@@ -141,8 +141,9 @@ async function eventually<T>(read: () => Promise<T>, check: (value: T) => boolea
   }
 }
 
-async function hostJson<T>(url: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(url, init);
+async function hostJson<T>(app: App, base: string, path: string): Promise<T> {
+  const url = `${base}${path}`;
+  const response = await fetch(url, { headers: sessionHeaders(app, base) });
   assert.equal(response.status, 200, `${url} answered ${response.status}`);
   return await response.json() as T;
 }
@@ -160,10 +161,9 @@ interface CapturedEvent {
   production?: { outcome?: { status?: string; code?: string } };
 }
 
-/** The host's live call events, from `/__pyric/capture` with the session token `/__pyric/init.json` hands a loopback client. */
-async function liveEvents(base: string): Promise<CapturedEvent[]> {
-  const { sessionToken } = await hostJson<{ sessionToken: string }>(`${base}/__pyric/init.json`);
-  const response = await fetch(`${base}/__pyric/capture`, { headers: { 'x-pyric-session-token': sessionToken } });
+/** The host's live call events, from `/__pyric/capture`. */
+async function liveEvents(app: App, base: string): Promise<CapturedEvent[]> {
+  const response = await fetch(`${base}/__pyric/capture`, { headers: sessionHeaders(app, base) });
   if (response.status === 404) return [];
   assert.equal(response.status, 200, `/__pyric/capture answered ${response.status}`);
   const capture = await response.json() as { events?: CapturedEvent[] };
@@ -206,8 +206,8 @@ function eventClients(events: CapturedEvent[]): string[] {
 }
 
 /** `<kind> <client id>` for each client the health report lists. */
-async function healthClients(base: string): Promise<string[]> {
-  const health = await hostJson<Health>(`${base}/__pyric/health`);
+async function healthClients(app: App, base: string): Promise<string[]> {
+  const health = await hostJson<Health>(app, base, '/__pyric/health');
   return (health.live?.clients ?? []).map((client) => `${client.kind} ${client.clientId}`).sort();
 }
 
@@ -273,7 +273,7 @@ export default scenario(async (app) => {
   });
 
   await app.step('the event stream holds the page\'s calls and the server\'s Admin calls, as one account', async () => {
-    const events = await eventually(() => liveEvents(host.url), (all) => all.filter(isAdmin).length >= ADMIN_EVENTS.length, 'the Admin events');
+    const events = await eventually(() => liveEvents(app, host.url), (all) => all.filter(isAdmin).length >= ADMIN_EVENTS.length, 'the Admin events');
     const pageEvents = events.filter((event) => event.caller?.kind === 'page');
     const pageCalls = pageEvents.map((event) => `${event.service} ${event.method}`);
     assert.ok(pageCalls.includes('auth signInWithEmailAndPassword'), JSON.stringify(pageCalls));
@@ -294,20 +294,20 @@ export default scenario(async (app) => {
   });
 
   await app.step('the health report lists the Admin SDK as observed and the API server as the same mode and project', async () => {
-    const health = await hostJson<Health>(`${host.url}/__pyric/health`);
+    const health = await hostJson<Health>(app, host.url, '/__pyric/health');
     assert.deepEqual(health.live?.admin, { mode: 'observed', observed: true, bypassesRules: true });
-    await eventually(async () => (await hostJson<Health>(`${host.url}/__pyric/health`)).proxyTargets, (targets) => JSON.stringify(targets) === JSON.stringify([{ context: '/api', verdict: 'same' }]), 'the proxy targets');
+    await eventually(async () => (await hostJson<Health>(app, host.url, '/__pyric/health')).proxyTargets, (targets) => JSON.stringify(targets) === JSON.stringify([{ context: '/api', verdict: 'same' }]), 'the proxy targets');
   });
 
   await app.step('the health report lists the page and the API server by the client ids their calls carry', async () => {
-    const named = eventClients(await liveEvents(host.url));
+    const named = eventClients(await liveEvents(app, host.url));
     assert.ok(named.some((line) => line.startsWith('browser ')), JSON.stringify(named));
     assert.ok(named.some((line) => line.startsWith('node ')), JSON.stringify(named));
-    await eventually(() => healthClients(host.url), (listed) => named.every((line) => listed.includes(line)), `the clients ${JSON.stringify(named)}`);
+    await eventually(() => healthClients(app, host.url), (listed) => named.every((line) => listed.includes(line)), `the clients ${JSON.stringify(named)}`);
   });
 
   await app.step('an ID token a pyric sandbox issued is refused by the server\'s token check, by name, and sends nothing', async () => {
-    const before = { received: await replay.received(), admin: (await liveEvents(host.url)).filter(isAdmin).length };
+    const before = { received: await replay.received(), admin: (await liveEvents(app, host.url)).filter(isAdmin).length };
     const response = await fetch(`${host.url}/api/notes`, {
       method: 'POST',
       headers: { authorization: `Bearer ${sandboxIdToken()}`, 'content-type': 'application/json' },
@@ -316,12 +316,12 @@ export default scenario(async (app) => {
     assert.equal(response.status, 401);
     assert.deepEqual(await response.json(), { code: 'auth/argument-error', pyricCode: 'PYRIC_MODE_MISMATCH' });
     assert.equal(await replay.received(), before.received);
-    assert.equal((await liveEvents(host.url)).filter(isAdmin).length, before.admin);
+    assert.equal((await liveEvents(app, host.url)).filter(isAdmin).length, before.admin);
   });
 
   await app.step('the health report bills the page\'s read and the server\'s Admin write', async () => {
     const expected = { reads: 1, writes: 1, deliveries: 0 };
-    await eventually(async () => (await hostJson<Health>(`${host.url}/__pyric/health`)).live?.billed, (count) => JSON.stringify(count) === JSON.stringify(expected), 'the billed count');
+    await eventually(async () => (await hostJson<Health>(app, host.url, '/__pyric/health')).live?.billed, (count) => JSON.stringify(count) === JSON.stringify(expected), 'the billed count');
   });
 
   await app.step('the replay had a recording for every request, and nothing reached any host but loopback', async () => {

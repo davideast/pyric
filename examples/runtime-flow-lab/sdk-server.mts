@@ -5,6 +5,8 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { createIndexConfigStore } from '../../packages/cli/src/serve/index-config-store.ts';
 import { createPyricNamespace } from '../../packages/cli/src/serve/namespace.ts';
+import { canBootstrapHtmlSession, formatSessionCookie } from '../../packages/cli/src/serve/server.ts';
+import { stampHostedTarget } from '../../packages/cli/src/serve/runtime/hosted-target.ts';
 
 const { build } = createRequire(new URL('../../packages/cli/package.json', import.meta.url))('esbuild') as typeof import('esbuild');
 
@@ -32,13 +34,15 @@ export async function startSdkFlowServer(port = 0, projectDir?: string) {
     if (assets.has(path)) { res.setHeader('Content-Type', 'text/javascript'); res.end(assets.get(path)); return; }
     if (path === '/__pyric/flow/manifest.json') { res.setHeader('Content-Type', 'application/json'); res.end('{"treatments":[]}'); return; }
     res.setHeader('Content-Type', 'text/html');
-    res.end(`<!doctype html><html><head><meta name="pyric-session-token" content="${namespace.sessionToken}"><style>
+    const canBootstrap = canBootstrapHtmlSession(req, '127.0.0.1');
+    if (canBootstrap) res.setHeader('Set-Cookie', formatSessionCookie(namespace.sessionToken));
+    res.end(stampHostedTarget(`<!doctype html><html><head><style>
       .security-lab{display:grid;gap:16px;max-width:700px}.security-lab p,.security-lab h2,.security-lab pre{all:unset}.security-lab h2{font-size:24px;font-weight:600}.security-lab pre{font-family:monospace;white-space:pre-wrap;overflow-wrap:anywhere}.security-lab select{font:inherit;min-height:40px}.security-proposed{display:grid;gap:8px}html{color-scheme:dark;font:16px system-ui;background:#101419;color:#e7ebf1}
       body{display:grid;grid-template-columns:32px minmax(0,1fr) 32px;gap:24px}
       #app{grid-column:2;display:grid;gap:24px;min-height:400px;max-width:700px}
       section{display:grid;gap:24px;align-content:start} .controls{display:flex;flex-wrap:wrap;gap:12px}
       button{min-height:36px;min-width:140px} article{min-height:100px;display:grid;align-items:center;border:1px solid #404858}
-      </style></head><body><main id="app"></main><script type="module" src="/sdk-app.js"></script></body></html>`);
+      </style></head><body><main id="app"></main><script type="module" src="/sdk-app.js"></script></body></html>`, undefined, undefined, undefined, canBootstrap ? namespace.sessionToken : undefined));
   });
   await new Promise<void>(resolve => server.listen(port, '127.0.0.1', resolve));
   const address = server.address();

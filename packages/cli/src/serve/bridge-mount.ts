@@ -36,7 +36,7 @@ import {
   getHeader,
   isAllowedHost,
   isAllowedLoopbackRequest,
-  isAllowedOrigin,
+  isAllowedOriginOnPorts,
   isAllowedSessionToken,
   isAllowedUpgrade,
   isForeignFetchWithoutOrigin,
@@ -486,7 +486,7 @@ export function createBridgeMount(opts: BridgeMountOptions = {}): BridgeMount {
         // its creator named. `allowedHosts: true` never bypasses this guard.
         const hostHeader = getHeader(req, 'host');
         const originHeader = getHeader(req, 'origin');
-        const allowedOrigin = isAllowedOrigin(originHeader, boundHost, extraAllowedHosts, req.socket.localPort)
+        const allowedOrigin = isAllowedOriginOnPorts(originHeader, boundHost, extraAllowedHosts, appPorts.forRequest(req))
           || hostedRuntime?.storageAllowsOrigin(url, originHeader) === true;
         const allowed =
           isAllowedHost(hostHeader, boundHost, extraAllowedHosts) &&

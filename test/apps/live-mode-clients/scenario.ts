@@ -41,7 +41,7 @@ import assert from 'node:assert/strict';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import type { Locator, Page } from 'playwright';
-import { guardContext, scenario, sleep, type App } from '../driver.ts';
+import { guardContext, scenario, sessionHeaders, sleep, type App } from '../driver.ts';
 
 const FIXTURE = fileURLToPath(new URL('../replay/fixtures/live-mode-traffic.json', import.meta.url));
 const PROJECT = 'demo-live-traffic';
@@ -112,16 +112,16 @@ async function eventually<T>(read: () => Promise<T>, check: (value: T) => boolea
   }
 }
 
-async function hostJson<T>(url: string): Promise<T> {
-  const response = await fetch(url);
+async function hostJson<T>(app: App, base: string, path: string): Promise<T> {
+  const url = `${base}${path}`;
+  const response = await fetch(url, { headers: sessionHeaders(app, base) });
   assert.equal(response.status, 200, `${url} answered ${response.status}`);
   return await response.json() as T;
 }
 
-/** Every event in the host's capture (`/__pyric/capture`), with the session token `/__pyric/init.json` hands a loopback client. */
-async function allEvents(base: string): Promise<CapturedEvent[]> {
-  const { sessionToken } = await hostJson<{ sessionToken: string }>(`${base}/__pyric/init.json`);
-  const response = await fetch(`${base}/__pyric/capture`, { headers: { 'x-pyric-session-token': sessionToken } });
+/** Every event in the host's capture (`/__pyric/capture`). */
+async function allEvents(app: App, base: string): Promise<CapturedEvent[]> {
+  const response = await fetch(`${base}/__pyric/capture`, { headers: sessionHeaders(app, base) });
   if (response.status === 404) return [];
   assert.equal(response.status, 200, `/__pyric/capture answered ${response.status}`);
   const capture = await response.json() as { events?: CapturedEvent[] };
@@ -129,8 +129,8 @@ async function allEvents(base: string): Promise<CapturedEvent[]> {
 }
 
 /** The host's live Firestore call events. */
-async function liveEvents(base: string): Promise<CapturedEvent[]> {
-  const events = await allEvents(base);
+async function liveEvents(app: App, base: string): Promise<CapturedEvent[]> {
+  const events = await allEvents(app, base);
   return events.filter((event) => event.kind === 'operation' && event.service === 'firestore' && event.production !== undefined);
 }
 
@@ -168,8 +168,8 @@ function ids(events: CapturedEvent[]): string[] {
 }
 
 /** The clients the host's health report lists. */
-async function healthClients(base: string): Promise<HealthClient[]> {
-  const health = await hostJson<{ live?: { clients?: HealthClient[] } }>(`${base}/__pyric/health`);
+async function healthClients(app: App, base: string): Promise<HealthClient[]> {
+  const health = await hostJson<{ live?: { clients?: HealthClient[] } }>(app, base, '/__pyric/health');
   return health.live?.clients ?? [];
 }
 
@@ -237,7 +237,7 @@ export default scenario(async (app) => {
   });
 
   const events = await app.step('the capture names each profile, tab and server process, and each call\'s account', async () => {
-    const all = await eventually(() => liveEvents(host.url), (captured) => {
+    const all = await eventually(() => liveEvents(app, host.url), (captured) => {
       const nodeReads = captured.filter((event) => event.caller?.kind === 'node' && event.method === 'getDoc');
       const pageReads = captured.filter((event) => event.caller?.kind === 'page' && event.method === 'getDoc');
       return nodeReads.length >= 2 && pageReads.length >= 3;
@@ -291,7 +291,7 @@ export default scenario(async (app) => {
   await app.step("profile A's chip scopes Traffic to profile B's client and to the reader, and its Rates follow the scope", async () => {
     const chip = tabs[0]!.locator('[data-pyric-runtime-chip-host]');
     const profileB = events.find((event) => event.caller?.kind === 'page' && event.auth?.uid === WRITER)!.caller!.clientId!;
-    const captured = await allEvents(host.url);
+    const captured = await allEvents(app, host.url);
     const fromProfileB = new Set(ids(captured.filter((event) => event.caller?.kind === 'page' && event.caller.clientId === profileB)));
     const asReader = new Set(ids(captured.filter((event) => event.auth?.uid === READER)));
 
@@ -312,7 +312,7 @@ export default scenario(async (app) => {
     // A fresh read from each profile, so both fall in the Rates window.
     assert.deepEqual(await tabs[0]!.evaluate(() => readLobby()), LOBBY);
     assert.deepEqual(await tabs[2]!.evaluate(() => readLobby()), LOBBY);
-    await eventually(() => liveEvents(host.url), (latest) => latest.length >= events.length + 2, 'the two fresh reads');
+    await eventually(() => liveEvents(app, host.url), (latest) => latest.length >= events.length + 2, 'the two fresh reads');
     await chip.locator('[data-traffic-display=rates]').click();
     await chip.locator('[data-inspect-rates=firestore]').first().click();
     const reads = async (scope: string): Promise<number> => {
@@ -328,7 +328,7 @@ export default scenario(async (app) => {
 
   await app.step("Studio's Traffic scopes its rows with the From select, and an expanded row names its source and account", async () => {
     const profileB = events.find((event) => event.caller?.kind === 'page' && event.auth?.uid === WRITER)!.caller!;
-    const captured = await allEvents(host.url);
+    const captured = await allEvents(app, host.url);
     const fromProfileB = new Set(ids(captured.filter((event) => event.caller?.kind === 'page' && event.caller.clientId === profileB.clientId)));
     const asReader = new Set(ids(captured.filter((event) => event.auth?.uid === READER)));
 
@@ -361,7 +361,7 @@ export default scenario(async (app) => {
     await row.click();
     assert.equal(await row.getAttribute('aria-expanded'), 'true');
     const fact = (name: string) => studio.locator(`[data-pyric-traffic-id="${rowId}"] [data-pyric-row-fact="${name}"] dd`).textContent();
-    const client = (await healthClients(host.url)).find((entry) => entry.kind === 'browser' && entry.clientId === profileB.clientId) as (HealthClient & { email?: string }) | undefined;
+    const client = (await healthClients(app, host.url)).find((entry) => entry.kind === 'browser' && entry.clientId === profileB.clientId) as (HealthClient & { email?: string }) | undefined;
     assert.ok(client, "profile B in the host's clients");
     const source = await fact('source');
     if (client.label !== undefined) assert.ok(source?.includes(client.label), `source ${source} does not name ${client.label}`);
@@ -378,7 +378,7 @@ export default scenario(async (app) => {
     });
     await job.waitForLog(/^RESULT /m, { timeoutMs: 90_000 });
     const named = (clients: HealthClient[]) => labelsOf(clients, 'node').includes('server.mjs') && labelsOf(clients, 'service-worker').includes('/sw.js');
-    const clients = await eventually(() => healthClients(host.url), named, 'the clients\' script labels');
+    const clients = await eventually(() => healthClients(app, host.url), named, 'the clients\' script labels');
     // The worker's label is its script's path: no origin, and no `?backend=` query.
     assert.deepEqual(labelsOf(clients, 'service-worker'), ['/sw.js']);
     assert.deepEqual(labelsOf(clients, 'node'), ['server.mjs']);

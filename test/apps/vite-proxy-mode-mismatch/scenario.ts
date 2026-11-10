@@ -18,7 +18,7 @@
 //
 // The scenario asserts health data only, never the warning lines.
 import assert from 'node:assert/strict';
-import { scenario, sleep, type App, type AppProcess } from '../driver.ts';
+import { scenario, sessionHeaders, sleep, type App, type AppProcess } from '../driver.ts';
 
 const PROJECT = 'demo-proxy-mismatch';
 
@@ -42,8 +42,8 @@ async function startVite(app: App, env: Record<string, string>, config?: string)
   }
 }
 
-async function proxyTargets(url: string): Promise<ProxyTargetReport[] | undefined> {
-  const health = await (await fetch(`${url}/__pyric/health`)).json() as { proxyTargets?: ProxyTargetReport[] };
+async function proxyTargets(app: App, url: string): Promise<ProxyTargetReport[] | undefined> {
+  const health = await (await fetch(`${url}/__pyric/health`, { headers: sessionHeaders(app, url) })).json() as { proxyTargets?: ProxyTargetReport[] };
   return health.proxyTargets;
 }
 
@@ -53,10 +53,10 @@ function verdicts(reports: ProxyTargetReport[] | undefined): Record<string, stri
 }
 
 /** Waits until the host's health lists `expected` as its proxy verdicts. */
-async function waitForVerdicts(host: Host, expected: Record<string, string>): Promise<void> {
+async function waitForVerdicts(app: App, host: Host, expected: Record<string, string>): Promise<void> {
   const deadline = Date.now() + 20_000;
   for (;;) {
-    const listed = verdicts(await proxyTargets(host.url));
+    const listed = verdicts(await proxyTargets(app, host.url));
     const matches = JSON.stringify(listed) === JSON.stringify(expected);
     if (matches) return;
     if (Date.now() > deadline) assert.deepEqual(listed, expected, 'the health proxyTargets verdicts');
@@ -84,7 +84,7 @@ export default scenario(async (app) => {
   const sandbox = await app.step('start the sandbox page, with a ws: proxy context among its four', () => startVite(app, ports));
 
   await app.step('the sandbox host lists /live and /socket as other-mode and /plain as not-pyric, and stays up', async () => {
-    await waitForVerdicts(sandbox, { '/same': 'not-pyric', '/live': 'other-mode', '/plain': 'not-pyric', '/socket': 'other-mode' });
+    await waitForVerdicts(app, sandbox, { '/same': 'not-pyric', '/live': 'other-mode', '/plain': 'not-pyric', '/socket': 'other-mode' });
     assert.ok(sandbox.process.running, sandbox.process.output);
   });
 
@@ -96,7 +96,7 @@ export default scenario(async (app) => {
     const response = await fetch(`${sandbox.url}/same/ping`);
     assert.equal(response.status, 200);
     assert.deepEqual(await response.json(), { backend: 'same', path: '/same/ping' });
-    await waitForVerdicts(sandbox, { '/same': 'same', '/live': 'other-mode', '/plain': 'not-pyric', '/socket': 'other-mode' });
+    await waitForVerdicts(app, sandbox, { '/same': 'same', '/live': 'other-mode', '/plain': 'not-pyric', '/socket': 'other-mode' });
   });
 
   // One hosted dev server owns a project's state, so the live page starts
@@ -105,6 +105,6 @@ export default scenario(async (app) => {
 
   await app.step('the live page lists its proxy to the sandbox backend as other-mode', async () => {
     const live = await startVite(app, { SAME_PORT: ports.SAME_PORT }, 'vite.live.config.js');
-    await waitForVerdicts(live, { '/api': 'other-mode' });
+    await waitForVerdicts(app, live, { '/api': 'other-mode' });
   });
 });

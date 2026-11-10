@@ -31,7 +31,7 @@ import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { scenario, sleep, type App, type ExpectedCrash } from '../driver.ts';
+import { scenario, sessionHeaders, sleep, type App, type ExpectedCrash } from '../driver.ts';
 
 const PROJECT = 'demo-live-admin';
 const EMAIL = 'admin-capture@example.com';
@@ -137,10 +137,9 @@ interface CapturedEvent {
   production?: { outcome?: { status?: string; code?: string } };
 }
 
-/** The host's Admin events, from `/__pyric/capture` with the session token `/__pyric/init.json` hands a loopback client. */
-async function adminEvents(base: string): Promise<CapturedEvent[]> {
-  const { sessionToken } = await hostJson<{ sessionToken: string }>(`${base}/__pyric/init.json`);
-  const response = await fetch(`${base}/__pyric/capture`, { headers: { 'x-pyric-session-token': sessionToken } });
+/** The host's Admin events, from `/__pyric/capture` with the session token from `.pyric/serve.json`. */
+async function adminEvents(app: App, base: string): Promise<CapturedEvent[]> {
+  const response = await fetch(`${base}/__pyric/capture`, { headers: sessionHeaders(app, base) });
   if (response.status === 404) return [];
   assert.equal(response.status, 200, `/__pyric/capture answered ${response.status}`);
   const capture = await response.json() as { events?: CapturedEvent[] };
@@ -224,8 +223,8 @@ interface BilledCount {
   deliveries: number;
 }
 
-async function billed(url: string): Promise<BilledCount | undefined> {
-  const health = await hostJson<{ live?: { billed?: BilledCount } }>(`${url}/__pyric/health`);
+async function billed(app: App, url: string): Promise<BilledCount | undefined> {
+  const health = await hostJson<{ live?: { billed?: BilledCount } }>(`${url}/__pyric/health`, { headers: sessionHeaders(app, url) });
   return health.live?.billed;
 }
 
@@ -272,7 +271,7 @@ export default scenario(async (app) => {
   });
 
   await app.step('the event stream holds one Admin event per call, marked as bypassing Security Rules, with no token, email or password', async () => {
-    const events = await eventually(() => adminEvents(host.url), (all) => all.length >= ADMIN_EVENTS.length, 'the Admin events');
+    const events = await eventually(() => adminEvents(app, host.url), (all) => all.length >= ADMIN_EVENTS.length, 'the Admin events');
     assert.deepEqual(events.map(eventLine), ADMIN_EVENTS);
     for (const event of events) {
       assert.equal(event.caller?.kind, 'node');
@@ -287,7 +286,7 @@ export default scenario(async (app) => {
   });
 
   await app.step('the health report bills each Firestore read and write by its documents', async () => {
-    await eventually(() => billed(host.url), (count) => JSON.stringify(count) === JSON.stringify(BILLED), 'the billed count');
+    await eventually(() => billed(app, host.url), (count) => JSON.stringify(count) === JSON.stringify(BILLED), 'the billed count');
   });
 
   await app.step('a job whose GOOGLE_CLOUD_PROJECT names another project stops at start, and sends nothing', async () => {

@@ -2,17 +2,20 @@ import { resolve } from "node:path";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { build } from "esbuild";
 import { readPyricConfig } from "../cli/pyric-config.js";
+import type { AppPorts } from "./app-ports.js";
 import {
   flowManifest,
   resolveFlowConfig,
   type FlowConfig,
 } from "./flow-config.js";
+import { isAllowedLoopbackRequest, isLocalPeer } from "./server.js";
 
 /** Shared by CLI, framework hosts, and development examples. No config code
  * executes on the host: only explicitly registered browser modules are bundled. */
 export async function createFlowTreatmentHost(
   projectDir: string,
   overrides?: FlowConfig,
+  guard?: { boundHost?: string; allowedHosts?: string[]; appPorts?: AppPorts },
 ) {
   const config = resolveFlowConfig(
     (await readPyricConfig(projectDir)).flow,
@@ -37,6 +40,22 @@ export async function createFlowTreatmentHost(
       if (req.method !== "GET") {
         res.statusCode = 405;
         res.end();
+        return true;
+      }
+      const ports =
+        guard?.appPorts?.forRequest(req) ??
+        (req.socket?.localPort ? [req.socket.localPort] : undefined);
+      if (
+        !isLocalPeer(req) ||
+        !isAllowedLoopbackRequest(
+          req,
+          guard?.boundHost ?? "localhost",
+          Array.isArray(guard?.allowedHosts) ? guard.allowedHosts : [],
+          ports,
+        )
+      ) {
+        res.statusCode = 403;
+        res.end("Forbidden: local loopback route");
         return true;
       }
       if (url.pathname === "/__pyric/flow/manifest.json") {

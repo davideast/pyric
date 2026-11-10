@@ -319,6 +319,36 @@ export function isAllowedLoopbackRequest(
   );
 }
 
+/**
+ * Determines whether an HTML response may stamp `sessionToken` into inline init
+ * scripts and emit `Set-Cookie: __pyric_session`.
+ *
+ * Requires a loopback socket peer AND a loopback/bound `Host` header (ignoring
+ * `--allowed-host` / Vite `allowedHosts: true`, so tunnel/rebound hosts never
+ * receive session capabilities), refuses foreign `Origin` headers (port-aware),
+ * and refuses cross-site / cross-port Fetch Metadata unless the request is a
+ * top-level document navigation (`Sec-Fetch-Mode: navigate` + `Sec-Fetch-Dest: document`).
+ */
+export function canBootstrapHtmlSession(
+  req: IncomingMessage,
+  boundHost = 'localhost',
+  appPorts?: readonly number[],
+): boolean {
+  if (!isLocalPeer(req)) return false;
+  if (!isAllowedHost(getHeader(req, 'host'), boundHost)) return false;
+  const ports = appPorts ?? (req.socket?.localPort ? [req.socket.localPort] : undefined);
+  if (!isAllowedOriginOnPorts(getHeader(req, 'origin'), boundHost, [], ports)) return false;
+  const secFetchSite = getHeader(req, 'sec-fetch-site')?.trim().toLowerCase();
+  if (secFetchSite === 'cross-site' || secFetchSite === 'same-site') {
+    const secFetchMode = getHeader(req, 'sec-fetch-mode')?.trim().toLowerCase();
+    const secFetchDest = getHeader(req, 'sec-fetch-dest')?.trim().toLowerCase();
+    if (secFetchMode !== 'navigate' || secFetchDest !== 'document') {
+      return false;
+    }
+  }
+  return true;
+}
+
 export interface ServeHandle {
   port: number;
   host: string;
@@ -502,13 +532,15 @@ async function handleRequest(
   logger.note(`  • ${req.method} ${url.pathname}`);
 
   if (type.startsWith('text/html')) {
-    const localPeer = isLocalPeer(req);
-    if (opts.sessionToken && localPeer) {
-      appendSetCookieHeader(res, formatSessionCookie(opts.sessionToken));
+    const canBootstrap = canBootstrapHtmlSession(req, opts.host ?? 'localhost');
+    const effectiveSessionToken =
+      opts.sessionToken ?? (opts.namespaceHandler as { sessionToken?: string } | undefined)?.sessionToken;
+    if (effectiveSessionToken && canBootstrap) {
+      appendSetCookieHeader(res, formatSessionCookie(effectiveSessionToken));
     }
     if (opts.transformHtml) {
       const { readFile } = await import('node:fs/promises');
-      const html = opts.transformHtml(await readFile(file, 'utf8'), { localPeer });
+      const html = opts.transformHtml(await readFile(file, 'utf8'), { localPeer: canBootstrap });
       res.writeHead(200, { 'content-type': type, 'cache-control': 'no-store' });
       res.end(req.method === 'HEAD' ? undefined : html);
       return;

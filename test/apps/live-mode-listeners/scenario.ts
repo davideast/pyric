@@ -29,7 +29,7 @@
  */
 import assert from 'node:assert/strict';
 import type { Page } from 'playwright';
-import { scenario, sleep, type App, type AppProcess } from '../driver.ts';
+import { scenario, sessionHeaders, sleep, type App, type AppProcess } from '../driver.ts';
 
 const PROJECT = 'demo-live-listeners';
 const RECORDING = 'listeners-recording.json';
@@ -173,11 +173,9 @@ interface ListenerEvent {
   caller?: { kind?: string };
 }
 
-/** The host's listener events, from `/__pyric/capture` with the session token `/__pyric/init.json` hands a loopback client. */
-async function listenerEvents(base: string): Promise<ListenerEvent[]> {
-  const init = await fetch(`${base}/__pyric/init.json`);
-  const { sessionToken } = await init.json() as { sessionToken: string };
-  const response = await fetch(`${base}/__pyric/capture`, { headers: { 'x-pyric-session-token': sessionToken } });
+/** The host's listener events, from `/__pyric/capture`. */
+async function listenerEvents(app: App, base: string): Promise<ListenerEvent[]> {
+  const response = await fetch(`${base}/__pyric/capture`, { headers: sessionHeaders(app, base) });
   if (response.status === 404) return [];
   assert.equal(response.status, 200, `/__pyric/capture answered ${response.status}`);
   const capture = await response.json() as { events?: ListenerEvent[] };
@@ -252,10 +250,8 @@ interface CallEvent {
 }
 
 /** `<path>` for each `onSnapshotResume` delivery in the host's capture. */
-async function resumedPaths(base: string): Promise<string[]> {
-  const init = await fetch(`${base}/__pyric/init.json`);
-  const { sessionToken } = await init.json() as { sessionToken: string };
-  const response = await fetch(`${base}/__pyric/capture`, { headers: { 'x-pyric-session-token': sessionToken } });
+async function resumedPaths(app: App, base: string): Promise<string[]> {
+  const response = await fetch(`${base}/__pyric/capture`, { headers: sessionHeaders(app, base) });
   if (response.status === 404) return [];
   const capture = await response.json() as { events?: CallEvent[] };
   const resumes = (capture.events ?? []).filter((event) => event.kind === 'operation' && event.method === 'onSnapshotResume');
@@ -344,7 +340,7 @@ export default scenario(async (app) => {
   });
 
   await app.step('the capture holds each attach and detach with the caller that made it', async () => {
-    await eventually(() => listenerEvents(host.url).then(lifecycleCounts), (counts) => JSON.stringify(counts) === JSON.stringify(LIFECYCLE), 'the listener events');
+    await eventually(() => listenerEvents(app, host.url).then(lifecycleCounts), (counts) => JSON.stringify(counts) === JSON.stringify(LIFECYCLE), 'the listener events');
   });
 
   await app.step('pyric sandbox listeners lists the page\'s and the server job\'s active listeners', async () => {
@@ -359,7 +355,7 @@ export default scenario(async (app) => {
   await app.step('the page resumes the halls the server rendered, and the resumed listener\'s rows name the halls collection', async () => {
     const rendered = renderedHalls(server);
     assert.equal(await page.evaluate((json) => resumeHalls(json), rendered), 0);
-    await eventually(() => resumedPaths(host.url), (paths) => paths.length > 0 && paths.every((path) => path === 'halls'), 'the resumed rows');
+    await eventually(() => resumedPaths(app, host.url), (paths) => paths.length > 0 && paths.every((path) => path === 'halls'), 'the resumed rows');
   });
 
   await app.step('pyric sandbox listeners lists the resumed halls listener while it is subscribed, and drops it after unsubscribe', async () => {
@@ -387,7 +383,7 @@ export default scenario(async (app) => {
     const metricValue = async (key: string) => (await studio.locator(`[data-pyric-metric-key="${key}"] [data-pyric-metric-value]`).textContent())?.trim() ?? '';
 
     await studio.locator('[data-pyric-ui="traffic-billable-view"]').waitFor({ timeout: 30_000 });
-    const health = await (await fetch(`${host.url}/__pyric/health`)).json() as { live?: { billed?: { reads: number; deliveries: number } } };
+    const health = await (await fetch(`${host.url}/__pyric/health`, { headers: sessionHeaders(app, host.url) })).json() as { live?: { billed?: { reads: number; deliveries: number } } };
     const firestoreBilled = (health.live?.billed?.reads ?? 0) + (health.live?.billed?.deliveries ?? 0);
     await eventually(
       async () => Number(((await opPanel.locator('[data-pyric-metric-key="reads"] [data-pyric-metric-value]').textContent()) ?? '0').replace(/,/g, '')),

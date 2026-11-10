@@ -14,13 +14,14 @@
  */
 import { afterEach, describe, expect, it } from 'bun:test';
 import { mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { request as httpRequest } from 'node:http';
+import { request as httpRequest, type IncomingHttpHeaders } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createServer as createViteServer, type ViteDevServer } from 'vite';
 import { WebSocket } from 'ws';
 import { startServe, type ServeRuntime } from '../../src/cli/serve.js';
-import { silentServeLogger } from '../../src/serve/server.js';
+import { createPyricNamespace } from '../../src/serve/namespace.js';
+import { silentServeLogger, startStaticServer, type ServeHandle } from '../../src/serve/server.js';
 import { pyric } from '../../src/serve/vite-plugin.js';
 
 function rawHttpRequest(opts: {
@@ -29,7 +30,7 @@ function rawHttpRequest(opts: {
   method?: string;
   headers?: Record<string, string>;
   body?: string;
-}): Promise<{ status: number; body: string }> {
+}): Promise<{ status: number; body: string; headers: IncomingHttpHeaders }> {
   return new Promise((resolve, reject) => {
     const req = httpRequest(
       {
@@ -45,7 +46,7 @@ function rawHttpRequest(opts: {
         res.on('data', (chunk) => {
           data += chunk;
         });
-        res.on('end', () => resolve({ status: res.statusCode ?? 0, body: data }));
+        res.on('end', () => resolve({ status: res.statusCode ?? 0, body: data, headers: res.headers }));
       },
     );
     req.on('error', reject);
@@ -65,12 +66,16 @@ service cloud.firestore {
 `;
 
 const runtimes: ServeRuntime[] = [];
+const staticHandles: ServeHandle[] = [];
 const viteServers: ViteDevServer[] = [];
 const dirs: string[] = [];
 
 afterEach(async () => {
   while (viteServers.length) {
     await viteServers.pop()!.close();
+  }
+  while (staticHandles.length) {
+    await staticHandles.pop()!.stop();
   }
   while (runtimes.length) {
     await runtimes.pop()!.handle.stop();
@@ -357,16 +362,76 @@ describe('loopback route security hardening (ADR 0024 Decision 5)', () => {
     expect(token.length).toBeGreaterThan(10);
     const cookie = setCookie.split(';')[0] ?? '';
 
-    // Vite's public page honors server.allowedHosts: true…
+    // Vite's public page honors server.allowedHosts: true without stamping session capabilities.
     const tunnelPage = await rawHttpRequest({
       port,
       path: '/',
       headers: { host: 'preview.tunnel.example' },
     });
     expect(tunnelPage.status).toBe(200);
+    expect(tunnelPage.body).not.toContain(token);
+    expect(tunnelPage.headers['set-cookie']).toBeUndefined();
+
+    // Foreign iframe and subresource fetches never bootstrap session capabilities on Vite HTML.
+    const crossPortIframe = await rawHttpRequest({
+      port,
+      path: '/',
+      headers: {
+        host: `127.0.0.1:${port}`,
+        'sec-fetch-site': 'same-site',
+        'sec-fetch-mode': 'navigate',
+        'sec-fetch-dest': 'iframe',
+      },
+    });
+    expect(crossPortIframe.status).toBe(200);
+    expect(crossPortIframe.body).not.toContain(token);
+    expect(crossPortIframe.headers['set-cookie']).toBeUndefined();
+
+    const foreignSubresource = await rawHttpRequest({
+      port,
+      path: '/',
+      headers: {
+        host: `127.0.0.1:${port}`,
+        'sec-fetch-site': 'cross-site',
+        'sec-fetch-mode': 'no-cors',
+        'sec-fetch-dest': 'empty',
+      },
+    });
+    expect(foreignSubresource.status).toBe(200);
+    expect(foreignSubresource.body).not.toContain(token);
+    expect(foreignSubresource.headers['set-cookie']).toBeUndefined();
+
+    // Top-level document navigations and same-origin iframes still bootstrap cleanly.
+    const topLevelNav = await rawHttpRequest({
+      port,
+      path: '/',
+      headers: {
+        host: `127.0.0.1:${port}`,
+        'sec-fetch-site': 'cross-site',
+        'sec-fetch-mode': 'navigate',
+        'sec-fetch-dest': 'document',
+      },
+    });
+    expect(topLevelNav.status).toBe(200);
+    expect(topLevelNav.body).toContain(token);
+    expect(String(topLevelNav.headers['set-cookie'] ?? '')).toContain('__pyric_session=');
+
+    const sameOriginIframe = await rawHttpRequest({
+      port,
+      path: '/',
+      headers: {
+        host: `127.0.0.1:${port}`,
+        'sec-fetch-site': 'same-origin',
+        'sec-fetch-mode': 'navigate',
+        'sec-fetch-dest': 'iframe',
+      },
+    });
+    expect(sameOriginIframe.status).toBe(200);
+    expect(sameOriginIframe.body).toContain(token);
+    expect(String(sameOriginIframe.headers['set-cookie'] ?? '')).toContain('__pyric_session=');
 
     // …while Pyric's local surfaces still enforce loopback Host unconditionally.
-    for (const path of ['/__pyric/init.json', '/__pyric/health', '/__pyric/diagnostics', '/__pyric/mcp']) {
+    for (const path of ['/__pyric/init.json', '/__pyric/health', '/__pyric/diagnostics', '/__pyric/mcp', '/__pyric/flow/manifest.json']) {
       const res = await rawHttpRequest({
         port,
         path,
@@ -393,4 +458,100 @@ describe('loopback route security hardening (ADR 0024 Decision 5)', () => {
     });
     expect(reboundOpened).toBe(false);
   }, 30_000);
+
+  it('guards static server and Studio HTML bootstrap against tunnel Hosts and foreign iframes', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'pyric-studio-bootstrap-'));
+    dirs.push(root);
+    const publicDir = join(root, 'public');
+    const sdkDir = join(root, 'sdk');
+    const siteUiDir = join(root, 'site');
+    mkdirSync(publicDir, { recursive: true });
+    mkdirSync(sdkDir, { recursive: true });
+    mkdirSync(join(siteUiDir, 'studio'), { recursive: true });
+    writeFileSync(join(publicDir, 'index.html'), '<!doctype html><html><head></head><body>app</body></html>');
+    writeFileSync(join(sdkDir, 'entry.js'), 'export {};\n');
+    writeFileSync(join(siteUiDir, 'studio-routes.json'), JSON.stringify({ routes: ['studio'] }));
+    writeFileSync(join(siteUiDir, 'studio', 'index.html'), '<!doctype html><html><head></head><body>studio</body></html>');
+
+    const token = 'studio-secret-session-token';
+    const ns = createPyricNamespace({
+      boundHost: '127.0.0.1',
+      allowedHosts: ['preview.tunnel.example'],
+      sdkDir,
+      siteUiDir,
+      workerVersion: '0123456789abcdef',
+      sessionToken: token,
+      initPayload: () => ({
+        rules: null,
+        rulesHash: null,
+        storageRules: null,
+        storageRulesHash: null,
+        bridgeUrl: null,
+      }),
+    });
+    const handle = await startStaticServer({
+      publicDir,
+      port: 0,
+      host: '127.0.0.1',
+      allowedHosts: ['preview.tunnel.example'],
+      namespaceHandler: ns,
+      sessionToken: token,
+      transformHtml: (html, ctx) =>
+        ctx.localPeer ? html.replace('</head>', `<script>window.__TOK=${JSON.stringify(token)}</script></head>`) : html,
+      logger: silentServeLogger(),
+    });
+    staticHandles.push(handle);
+
+    // Allowed tunnel Host serves public/Studio HTML without stamping token or minting cookie.
+    const tunnelApp = await rawHttpRequest({
+      port: handle.port,
+      path: '/',
+      headers: { host: 'preview.tunnel.example' },
+    });
+    expect(tunnelApp.status).toBe(200);
+    expect(tunnelApp.body).not.toContain(token);
+    expect(tunnelApp.headers['set-cookie']).toBeUndefined();
+
+    const tunnelStudio = await rawHttpRequest({
+      port: handle.port,
+      path: '/__pyric/ui/studio/',
+      headers: { host: 'preview.tunnel.example' },
+    });
+    expect(tunnelStudio.status).toBe(200);
+    expect(tunnelStudio.headers['x-frame-options']).toBe('SAMEORIGIN');
+    expect(tunnelStudio.body).not.toContain(token);
+    expect(tunnelStudio.headers['set-cookie']).toBeUndefined();
+
+    // Cross-port iframe on Studio HTML gets SAMEORIGIN framing protection and zero token/cookie.
+    const framedStudio = await rawHttpRequest({
+      port: handle.port,
+      path: '/__pyric/ui/studio/',
+      headers: {
+        host: `127.0.0.1:${handle.port}`,
+        'sec-fetch-site': 'same-site',
+        'sec-fetch-mode': 'navigate',
+        'sec-fetch-dest': 'iframe',
+      },
+    });
+    expect(framedStudio.status).toBe(200);
+    expect(framedStudio.headers['x-frame-options']).toBe('SAMEORIGIN');
+    expect(framedStudio.body).not.toContain(token);
+    expect(framedStudio.headers['set-cookie']).toBeUndefined();
+
+    // Top-level local navigation to Studio HTML stamps token and sets HttpOnly cookie.
+    const localStudio = await rawHttpRequest({
+      port: handle.port,
+      path: '/__pyric/ui/studio/',
+      headers: {
+        host: `127.0.0.1:${handle.port}`,
+        'sec-fetch-site': 'none',
+        'sec-fetch-mode': 'navigate',
+        'sec-fetch-dest': 'document',
+      },
+    });
+    expect(localStudio.status).toBe(200);
+    expect(localStudio.headers['x-frame-options']).toBe('SAMEORIGIN');
+    expect(localStudio.body).toContain(token);
+    expect(String(localStudio.headers['set-cookie'] ?? '')).toContain('__pyric_session=');
+  });
 });

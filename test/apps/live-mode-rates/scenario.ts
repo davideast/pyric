@@ -25,7 +25,7 @@
 import assert from 'node:assert/strict';
 import { fileURLToPath } from 'node:url';
 import type { Page } from 'playwright';
-import { scenario, sleep, type App } from '../driver.ts';
+import { scenario, sessionHeaders, sleep, type App } from '../driver.ts';
 
 const FIXTURES = ['live-mode-traffic.json', 'live-mode-rates.json'].map((name) => fileURLToPath(new URL(`../replay/fixtures/${name}`, import.meta.url)));
 const PROJECT = 'demo-live-traffic';
@@ -140,10 +140,9 @@ interface CapturedEvent {
   observation?: { ai?: { usageSource?: string; totalTokens?: number } };
 }
 
-/** The host's live call events, from `/__pyric/capture` with the session token `/__pyric/init.json` hands a loopback client. */
-async function liveEvents(base: string): Promise<CapturedEvent[]> {
-  const { sessionToken } = await hostJson<{ sessionToken: string }>(`${base}/__pyric/init.json`);
-  const response = await fetch(`${base}/__pyric/capture`, { headers: { 'x-pyric-session-token': sessionToken } });
+/** The host's live call events, from `/__pyric/capture` with the `.pyric` session capability token. */
+async function liveEvents(app: App, base: string): Promise<CapturedEvent[]> {
+  const response = await fetch(`${base}/__pyric/capture`, { headers: sessionHeaders(app, base) });
   if (response.status === 404) return [];
   assert.equal(response.status, 200, `/__pyric/capture answered ${response.status}`);
   const capture = await response.json() as { events?: CapturedEvent[] };
@@ -175,8 +174,8 @@ interface BilledCount {
 }
 
 /** The host's billed-call count, as its health report carries it. */
-async function billed(url: string): Promise<BilledCount | undefined> {
-  const health = await hostJson<{ live?: { billed?: BilledCount } }>(`${url}/__pyric/health`);
+async function billed(app: App, url: string): Promise<BilledCount | undefined> {
+  const health = await hostJson<{ live?: { billed?: BilledCount } }>(`${url}/__pyric/health`, { headers: sessionHeaders(app, url) });
   return health.live?.billed;
 }
 
@@ -232,7 +231,7 @@ export default scenario(async (app) => {
     // The AI call is the page's last and carries no usage, so wait for its
     // event as well as the usage lines; it can reach the capture after them.
     const events = await eventually(
-      () => liveEvents(host.url),
+      () => liveEvents(app, host.url),
       (all) => usageLines(all, 'page').length >= PAGE_USAGE.length && pageAi(all).length >= 1,
       'the page\'s measured calls and its AI call',
     );
@@ -249,7 +248,7 @@ export default scenario(async (app) => {
 
   await app.step('the health report bills the query as three reads, the read as one, and the write as one', async () => {
     const expected = { reads: BOOKINGS.length + 1, writes: 1, deliveries };
-    await eventually(() => billed(host.url), (count) => JSON.stringify(count) === JSON.stringify(expected), 'the billed count');
+    await eventually(() => billed(app, host.url), (count) => JSON.stringify(count) === JSON.stringify(expected), 'the billed count');
   });
 
   await app.step('the server job under @pyric/live/register lists the bookings, reporting to the dev server', async () => {
@@ -262,10 +261,10 @@ export default scenario(async (app) => {
   });
 
   await app.step('the capture holds the server job\'s query with its usage, and the health report adds its three reads', async () => {
-    const events = await eventually(() => liveEvents(host.url), (all) => usageLines(all, 'node').length >= NODE_USAGE.length, 'the server job\'s measured call');
+    const events = await eventually(() => liveEvents(app, host.url), (all) => usageLines(all, 'node').length >= NODE_USAGE.length, 'the server job\'s measured call');
     assert.deepEqual(usageLines(events, 'node'), NODE_USAGE);
     const expected = { reads: 2 * BOOKINGS.length + 1, writes: 1, deliveries };
-    await eventually(() => billed(host.url), (count) => JSON.stringify(count) === JSON.stringify(expected), 'the billed count');
+    await eventually(() => billed(app, host.url), (count) => JSON.stringify(count) === JSON.stringify(expected), 'the billed count');
   });
 
   await app.step('the chip\'s Rates control and the Firestore rates it lists are visible and clickable', async () => {

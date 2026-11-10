@@ -682,7 +682,14 @@ export function createPyricNamespace(opts: NamespaceOptions): PyricNamespaceHand
   const siteUiDir = opts.siteUiDir;
   const hasSiteTree = siteUiDir !== undefined && siteUiDir.length > 0;
   const siteTree = hasSiteTree
-    ? createSiteTreeHandler(siteUiDir, opts.workerVersion, hostedStudioProject(opts), sessionToken)
+    ? createSiteTreeHandler(
+        siteUiDir,
+        opts.workerVersion,
+        hostedStudioProject(opts),
+        sessionToken,
+        opts.boundHost,
+        opts.appPorts,
+      )
     : null;
   const denialThrottle = createDenialThrottle();
   const geminiProxy = createGeminiProxy(opts.aiGemini, denialThrottle, opts.logger);
@@ -905,9 +912,13 @@ export function createPyricNamespace(opts: NamespaceOptions): PyricNamespaceHand
       }
       const isSourceMap = file.endsWith('.map');
       const type = isSourceMap ? 'application/json' : 'text/javascript; charset=utf-8';
-      // Same-origin module/worker loads from a local peer also bootstrap the
-      // HttpOnly session cookie, covering apps whose HTML was built offline.
-      if (isLocalPeer(req) && getHeader(req, 'sec-fetch-site')?.toLowerCase() === 'same-origin') {
+      // Same-origin module/worker loads from a local peer on a loopback Host also
+      // bootstrap the HttpOnly session cookie, covering apps whose HTML was built offline.
+      if (
+        isLocalPeer(req) &&
+        isAllowedHost(getHeader(req, 'host'), opts.boundHost ?? 'localhost') &&
+        getHeader(req, 'sec-fetch-site')?.trim().toLowerCase() === 'same-origin'
+      ) {
         appendSetCookieHeader(res, formatSessionCookie(sessionToken));
       }
       // Immutable-friendly: bundle filenames are content-hashed chunks or

@@ -4,7 +4,13 @@ import { extname } from 'node:path';
 import type { ViteDevServer } from 'vite';
 import { answerMountClosed, HEALTH_PATH, type BridgeMount } from './bridge-mount.js';
 import type { SandboxSession } from './sandbox-session.js';
-import { appendSetCookieHeader, formatSessionCookie, isAllowedHost, isLocalPeer } from './server.js';
+import {
+  appendSetCookieHeader,
+  canBootstrapHtmlSession,
+  formatSessionCookie,
+  getHeader,
+  isAllowedHost,
+} from './server.js';
 
 const viteHtmlPeerStorage = new AsyncLocalStorage<{ localPeer: boolean }>();
 
@@ -15,28 +21,32 @@ export function currentViteHtmlPeerContext(): { localPeer: boolean } | undefined
 
 /**
  * Wraps Vite dev page navigations in `viteHtmlPeerStorage` and sets the
- * `HttpOnly; SameSite=Strict; Path=/__pyric` session cookie on local-peer HTML requests.
+ * `HttpOnly; SameSite=Strict; Path=/__pyric` session cookie on eligible local HTML navigations.
  */
 export function attachViteHtmlSessionBootstrap(
-  server: Pick<ViteDevServer, 'middlewares'>,
+  server: Pick<ViteDevServer, 'middlewares'> & { config?: { server?: { host?: string | boolean } } },
   getSessionToken: () => string | undefined,
 ): void {
   server.middlewares.use((req: IncomingMessage & { originalUrl?: string }, res: ServerResponse, next: () => void) => {
-    const localPeer = isLocalPeer(req);
+    const boundHost = typeof server.config?.server?.host === 'string' ? server.config.server.host : 'localhost';
+    const canBootstrap = canBootstrapHtmlSession(req, boundHost);
     const token = getSessionToken();
     const method = req.method ?? 'GET';
-    if (localPeer && token && (method === 'GET' || method === 'HEAD')) {
+    if (canBootstrap && token && (method === 'GET' || method === 'HEAD')) {
       const path = requestPath(req);
       const ext = extname(path).toLowerCase();
       const accept = typeof req.headers.accept === 'string' ? req.headers.accept : '';
+      const secFetchDest = getHeader(req, 'sec-fetch-dest')?.trim().toLowerCase();
+      const isDocumentDest = secFetchDest === undefined || secFetchDest === 'document' || secFetchDest === 'iframe';
       const isHtmlNavigation =
         !path.startsWith('/__pyric/') &&
+        isDocumentDest &&
         (accept.includes('text/html') || ext === '' || ext === '.html' || ext === '.htm');
       if (isHtmlNavigation) {
         appendSetCookieHeader(res, formatSessionCookie(token));
       }
     }
-    viteHtmlPeerStorage.run({ localPeer }, next);
+    viteHtmlPeerStorage.run({ localPeer: canBootstrap }, next);
   });
 }
 

@@ -2,12 +2,13 @@ import { stampHostedTarget } from './runtime/hosted-target.js';
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { extname, join } from 'node:path';
+import type { AppPorts } from './app-ports.js';
 import {
   appendSetCookieHeader,
+  canBootstrapHtmlSession,
   contentTypeFor,
   decodeStaticPathname,
   formatSessionCookie,
-  isLocalPeer,
   pipeFileToResponse,
   resolveStaticFile,
   resolveStaticPath,
@@ -98,6 +99,8 @@ export function createSiteTreeHandler(
   workerVersion?: string,
   hostedProjectKey?: string,
   sessionToken?: string,
+  boundHost?: string,
+  appPorts?: AppPorts,
 ) {
   const studioRoutes = studioRoutesFromSite(root);
 
@@ -176,11 +179,17 @@ export function createSiteTreeHandler(
 
     const contentType = contentTypeFor(resolvedFile);
     const isStudioHtml = studioRequest && contentType.includes('text/html');
-    const localPeer = isLocalPeer(req);
-    if (isStudioHtml && localPeer && sessionToken) {
+    const canBootstrap =
+      isStudioHtml &&
+      canBootstrapHtmlSession(req, boundHost ?? 'localhost', appPorts?.forRequest(req));
+    if (canBootstrap && sessionToken) {
       appendSetCookieHeader(res, formatSessionCookie(sessionToken));
     }
-    res.writeHead(200, { 'content-type': contentType, 'cache-control': 'no-store' });
+    res.writeHead(200, {
+      'content-type': contentType,
+      'cache-control': 'no-store',
+      ...(isStudioHtml ? { 'x-frame-options': 'SAMEORIGIN' } : {}),
+    });
     if (isStudioHtml) {
       res.end(
         stampHostedTarget(
@@ -188,7 +197,7 @@ export function createSiteTreeHandler(
           hostedProjectKey,
           undefined,
           undefined,
-          localPeer ? sessionToken : undefined,
+          canBootstrap ? sessionToken : undefined,
         ),
       );
     } else {

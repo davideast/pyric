@@ -279,6 +279,25 @@ function parseSseOrJson(rawText, contentType) {
   return JSON.parse(text);
 }
 
+function readSandboxSessionToken(dir, port) {
+  for (const filename of ['serve.json', 'session.json']) {
+    const filePath = path.join(dir, '.pyric', filename);
+    if (!fs.existsSync(filePath)) continue;
+    try {
+      const parsed = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+      const token = parsed?.token ?? parsed?.sessionToken;
+      if (typeof token === 'string' && token.length > 0) {
+        if (!port || !parsed.port || Number(parsed.port) === Number(port)) {
+          return token;
+        }
+      }
+    } catch {
+      // Ignore transient/partial pointer read
+    }
+  }
+  return null;
+}
+
 /**
  * Manages an ephemeral, isolated Pyric hosted sandbox running against a temporary
  * workspace directory without mutating the target project's `.pyric/` directory or rules.
@@ -292,6 +311,7 @@ export class IsolatedSandbox {
     this.port = config.port;
     this.uiUrl = config.uiUrl ?? null;
     this.mcpUrl = config.mcpUrl ?? `${config.url}/__pyric/mcp`;
+    this.sessionToken = config.sessionToken ?? null;
     this.rulesHash = config.rulesHash ?? null;
     this.databaseRulesHash = config.databaseRulesHash ?? null;
     this.storageRulesHash = config.storageRulesHash ?? null;
@@ -748,7 +768,16 @@ export class IsolatedSandbox {
       });
 
       const baseUrl = String(startupInfo.url).replace(/\/+$/, '');
-      const healthRes = await fetch(`${baseUrl}/__pyric/health`);
+      const resolvedPort = Number(startupInfo.port ?? new URL(baseUrl).port);
+      const sessionToken =
+        startupInfo.sessionToken ??
+        startupInfo.token ??
+        readSandboxSessionToken(tempDir, resolvedPort);
+      const tokenHeaders = sessionToken ? { 'x-pyric-session-token': sessionToken } : {};
+
+      const healthRes = await fetch(`${baseUrl}/__pyric/health`, {
+        headers: tokenHeaders,
+      });
       if (!healthRes.ok) {
         throw new Error(`Pyric health check failed with status ${healthRes.status}`);
       }
@@ -756,7 +785,9 @@ export class IsolatedSandbox {
 
       let initMeta = {};
       try {
-        const initRes = await fetch(`${baseUrl}/__pyric/init.json`);
+        const initRes = await fetch(`${baseUrl}/__pyric/init.json`, {
+          headers: tokenHeaders,
+        });
         if (initRes.ok) {
           initMeta = await initRes.json();
         }
@@ -771,9 +802,10 @@ export class IsolatedSandbox {
 
       const sandbox = new IsolatedSandbox({
         url: baseUrl,
-        port: Number(startupInfo.port ?? new URL(baseUrl).port),
+        port: resolvedPort,
         uiUrl: startupInfo.uiUrl ?? null,
         mcpUrl: startupInfo.mcpUrl ?? `${baseUrl}/__pyric/mcp`,
+        sessionToken,
         rulesHash: startupInfo.rulesHash ?? initMeta.rulesHash ?? null,
         databaseRulesHash: startupInfo.databaseRulesHash ?? initMeta.databaseRulesHash ?? null,
         storageRulesHash: initMeta.storageRulesHash ?? null,
@@ -808,8 +840,17 @@ export class IsolatedSandbox {
     }
   }
 
+  _sessionHeaders() {
+    if (!this.sessionToken && this.tempDir) {
+      this.sessionToken = readSandboxSessionToken(this.tempDir, this.port);
+    }
+    return this.sessionToken ? { 'x-pyric-session-token': this.sessionToken } : {};
+  }
+
   async _refreshInstanceId() {
-    const res = await fetch(`${this.url}/__pyric/health`);
+    const res = await fetch(`${this.url}/__pyric/health`, {
+      headers: this._sessionHeaders(),
+    });
     if (res.ok) {
       const health = await res.json();
       if (health?.instanceId) {
@@ -836,6 +877,7 @@ export class IsolatedSandbox {
             headers: {
               'content-type': 'application/json',
               connection: 'close',
+              ...this._sessionHeaders(),
             },
             body: payload,
           });
@@ -903,6 +945,7 @@ export class IsolatedSandbox {
       accept: 'application/json, text/event-stream',
       'x-pyric-project-dir': this.tempDir,
       'x-pyric-instance-id': this.instanceId,
+      ...this._sessionHeaders(),
       ...(this._mcpSessionId ? { 'mcp-session-id': this._mcpSessionId } : {}),
     });
 
@@ -1405,7 +1448,9 @@ export class IsolatedSandbox {
       }
 
       try {
-        const initRes = await fetch(`${this.url}/__pyric/init.json`);
+        const initRes = await fetch(`${this.url}/__pyric/init.json`, {
+          headers: this._sessionHeaders(),
+        });
         if (initRes.ok) {
           const initMeta = await initRes.json();
           if (initMeta.rulesHash !== undefined) this.rulesHash = initMeta.rulesHash;

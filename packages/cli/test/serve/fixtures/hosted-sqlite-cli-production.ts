@@ -32,7 +32,7 @@ async function run(flags: string[], env: NodeJS.ProcessEnv = {}) {
       url: base,
       base,
       mcpUrl: mount.mcpUrl({ host: '127.0.0.1', port: address.port }),
-      sessionToken: mount.sessionToken,
+      token: mount.sessionToken,
       instanceId: mount.instanceId,
       source: 'pointer .pyric/serve.json',
     }),

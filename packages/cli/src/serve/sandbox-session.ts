@@ -394,7 +394,11 @@ export async function createSandboxSession(
       options.logger?.note('  ⚠ no database.rules.json found — client RTDB reads/writes default to DENY (matching production Firebase). Use --permissive for open prototyping.');
     }
   }
-  const flowTreatments = await createFlowTreatmentHost(options.projectDir, options.flow);
+  const flowTreatments = await createFlowTreatmentHost(options.projectDir, options.flow, {
+    boundHost: options.boundHost,
+    allowedHosts: options.allowedHosts,
+    appPorts: options.appPorts,
+  });
   const events = createEventHub();
   const sessionToken = options.sessionToken ?? randomBytes(24).toString('base64url');
   // A background generation that lands in the cache is broadcast on the same

@@ -33,7 +33,7 @@ import { spawnSync } from 'node:child_process';
 import { readFileSync, realpathSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import type { Locator, Page } from 'playwright';
-import { scenario, sleep, type App } from '../driver.ts';
+import { scenario, sessionHeaders, sleep, type App } from '../driver.ts';
 
 const FIXTURE = fileURLToPath(new URL('../replay/fixtures/live-mode-traffic.json', import.meta.url));
 const REFUSED = 'PYRIC_LIVE_REFUSED';
@@ -190,8 +190,8 @@ interface BilledCount {
 }
 
 /** The host's billed-call count, as its health report carries it. */
-async function billed(url: string): Promise<BilledCount | undefined> {
-  const health = await (await fetch(`${url}/__pyric/health`)).json() as { live?: { billed?: BilledCount } };
+async function billed(app: App, url: string): Promise<BilledCount | undefined> {
+  const health = await (await fetch(`${url}/__pyric/health`, { headers: sessionHeaders(app, url) })).json() as { live?: { billed?: BilledCount } };
   return health.live?.billed;
 }
 
@@ -289,13 +289,13 @@ export default scenario(async (app) => {
 
   await app.step('the host reports the project and counts billed calls, and the chip shows each call as production\'s from its client and account', async () => {
     const chip = await openChip(page);
-    const health = await (await fetch(`${host.url}/__pyric/health`)).json() as { live?: { projectId?: string } };
+    const health = await (await fetch(`${host.url}/__pyric/health`, { headers: sessionHeaders(app, host.url) })).json() as { live?: { projectId?: string } };
     assert.equal(health.live?.projectId, project);
     // Each client's ok read and write, and each document its listener's snapshots changed, at least one for the first.
     // The acknowledgement of each client's write only changes metadata and counts nothing.
     const delivered = await page.evaluate(() => billedDocumentCount()) + serverJob.billedDocuments;
     const expected = { reads: 2, writes: 2, deliveries: delivered };
-    await eventually(() => billed(host.url), (count) => JSON.stringify(count) === JSON.stringify(expected), 'the billed count');
+    await eventually(() => billed(app, host.url), (count) => JSON.stringify(count) === JSON.stringify(expected), 'the billed count');
     const rows = await trafficRows(chip);
     // The page signed in as the reader and the server job as the writer: each row names its client's account.
     const accounts = { page: reader, node: writer } as const;
@@ -349,7 +349,7 @@ export default scenario(async (app) => {
     const metricValue = async (key: string) => (await studio.locator(`[data-pyric-metric-key="${key}"] [data-pyric-metric-value]`).textContent())?.trim() ?? '';
 
     await studio.locator('[data-pyric-ui="traffic-billable-view"]').waitFor({ timeout: 30_000 });
-    const healthCounts = await billed(host.url);
+    const healthCounts = await billed(app, host.url);
     const expectedBillableReads = (healthCounts?.reads ?? 0) + (healthCounts?.deliveries ?? 0);
     await eventually(async () => ({
       reads: Number(await opMetric('reads')),
@@ -524,10 +524,10 @@ export default scenario(async (app) => {
     assert.equal(result.uid, writer);
     const hosting = await app.page(`${live.url}/`);
     const chip = await openChip(hosting);
-    const health = await (await fetch(`${live.url}/__pyric/health`)).json() as { live?: { projectId?: string } };
+    const health = await (await fetch(`${live.url}/__pyric/health`, { headers: sessionHeaders(app, live.url) })).json() as { live?: { projectId?: string } };
     assert.equal(health.live?.projectId, project);
     const expected = { reads: 1, writes: 1, deliveries: result.billedDocuments };
-    await eventually(() => billed(live.url), (count) => JSON.stringify(count) === JSON.stringify(expected), 'the billed count');
+    await eventually(() => billed(app, live.url), (count) => JSON.stringify(count) === JSON.stringify(expected), 'the billed count');
     const rows = await trafficRows(chip);
     await expectRow(rows, 'firestore.getDoc', 'node', 'succeeded', writer);
     await expectRow(rows, 'firestore.getDoc', 'node', 'denied', writer);
@@ -537,15 +537,15 @@ export default scenario(async (app) => {
 
   await app.step('pyric\'s own writes against the pyric-live host, from an MCP tool and a pyric command, are refused and send nothing', async () => {
     await sendsNothing(app, replay, async () => {
-      const mcp = mcpClient(live.url);
+      const mcp = mcpClient(app, live.url);
       await mcp(1, 'initialize', { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'live-mode-traffic', version: '0' } });
       await mcp(null, 'notifications/initialized');
       const call = await mcp(2, 'tools/call', { name: 'firestore_create_document', arguments: { path: 'rooms/agent', data: { open: true } } });
       assert.match(JSON.stringify(call), /firestore_create_document from an MCP tool is refused in live mode/);
-      const health = await (await fetch(`${live.url}/__pyric/health`)).json() as { instanceId: string };
+      const health = await (await fetch(`${live.url}/__pyric/health`, { headers: sessionHeaders(app, live.url) })).json() as { instanceId: string };
       const method = await fetch(`${live.url}/__pyric/hosted/method`, {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        headers: { 'content-type': 'application/json', ...sessionHeaders(app, live.url) },
         body: JSON.stringify({ instanceId: health.instanceId, projectDir: app.dir, key: 'firestore.setDoc', args: { path: 'rooms/cli', data: { open: true } } }),
       });
       const result = await method.json() as { ok: boolean; summary: string; data?: { code?: string } };
@@ -562,10 +562,14 @@ export default scenario(async (app) => {
 });
 
 /** One JSON-RPC request to the host's MCP route, keeping the session it opened. */
-function mcpClient(base: string) {
+function mcpClient(app: App, base: string) {
   let sessionId: string | null = null;
   return async (id: number | null, method: string, params: Record<string, unknown> = {}): Promise<Record<string, unknown> | null> => {
-    const headers: Record<string, string> = { 'content-type': 'application/json', accept: 'application/json, text/event-stream' };
+    const headers: Record<string, string> = {
+      'content-type': 'application/json',
+      accept: 'application/json, text/event-stream',
+      ...sessionHeaders(app, base),
+    };
     if (sessionId !== null) headers['mcp-session-id'] = sessionId;
     const body: Record<string, unknown> = { jsonrpc: '2.0', method, params };
     if (id !== null) body.id = id;

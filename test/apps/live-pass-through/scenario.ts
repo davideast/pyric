@@ -33,7 +33,7 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import type { Page } from 'playwright';
-import { scenario, sleep, type App, type ExpectedCrash } from '../driver.ts';
+import { scenario, sessionHeaders, sleep, type App, type ExpectedCrash } from '../driver.ts';
 
 const ENTRY = '@pyric/live/vite';
 const PASSED = ['firebase/functions', 'firebase/remote-config'];
@@ -77,8 +77,8 @@ function blockedLines(app: App): string[] {
   return app.browserLog.filter((line) => line.includes('[blocked external'));
 }
 
-async function liveHealth(url: string): Promise<Record<string, unknown>> {
-  const health = await (await fetch(`${url}/__pyric/health`)).json() as { live?: Record<string, unknown> };
+async function liveHealth(app: App, url: string): Promise<Record<string, unknown>> {
+  const health = await (await fetch(`${url}/__pyric/health`, { headers: sessionHeaders(app, url) })).json() as { live?: Record<string, unknown> };
   assert.ok(health.live, 'the dev server reports live status');
   return health.live;
 }
@@ -126,7 +126,7 @@ export default scenario(async (app) => {
   });
 
   await app.step('the health report lists the passed-through services', async () => {
-    const live = await liveHealth(host.url);
+    const live = await liveHealth(app, host.url);
     assert.deepEqual(live.passThrough, PASSED);
   });
 
@@ -161,7 +161,7 @@ export default scenario(async (app) => {
   await app.step('the chip opens on the live project, and the health report still lists each passed-through service', async () => {
     const chip = await openChip(page);
     await chip.locator('.panel-header [data-chip-live]').waitFor({ timeout: 20_000 });
-    const live = await liveHealth(host.url);
+    const live = await liveHealth(app, host.url);
     assert.equal(live.projectId, 'demo-live-pass-through');
     assert.deepEqual(live.passThrough, PASSED);
     assert.deepEqual(live.observed, ['firebase/app', 'firebase/auth']);

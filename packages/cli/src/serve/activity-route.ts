@@ -1,5 +1,6 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { answerAndClose } from '../bridge/server/peer.js';
+import { getHeader, isLocalPeer, timingSafeTokenMatch } from './server.js';
 import {
   hasGeneratedActivitySemantics,
   type ActivityIncident,
@@ -25,12 +26,12 @@ export async function handleActivity(
       .end('content-type must be application/json');
     return;
   }
-  if (!hasTrustedOrigin(req)) {
+  if (!isLocalPeer(req) || !hasTrustedOrigin(req)) {
     res.writeHead(403, { 'content-type': 'text/plain; charset=utf-8' })
       .end('cross-origin activity reports are not allowed');
     return;
   }
-  if (req.headers['x-pyric-activity-token'] !== activityToken) {
+  if (!timingSafeTokenMatch(getHeader(req, 'x-pyric-activity-token'), activityToken)) {
     res.writeHead(403, { 'content-type': 'text/plain; charset=utf-8' })
       .end('invalid activity capability');
     return;

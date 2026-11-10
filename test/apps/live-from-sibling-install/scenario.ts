@@ -45,7 +45,7 @@ import { existsSync, mkdirSync, realpathSync, renameSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { scenario, sleep, type App } from '../driver.ts';
+import { scenario, sessionHeaders, sleep, type App } from '../driver.ts';
 
 const PROJECT = 'demo-live-sibling';
 const PASSED = ['firebase/functions'];
@@ -109,7 +109,7 @@ async function pyricLiveStartsFromWeb(app: App): Promise<void> {
   const live = app.commandProcess('node', ['../rules/node_modules/.bin/pyric-live', '--no-open', '--host', '127.0.0.1', '--port', String(port)], { cwd: 'web' });
   await live.waitForLog(new RegExp(`pyric-live: live mode for the Firebase project ${PROJECT}\\.`));
   await servesInit(url);
-  const health = await (await fetch(`${url}/__pyric/health`)).json() as { live?: { configProjectId?: string; configSource?: string } };
+  const health = await (await fetch(`${url}/__pyric/health`, { headers: sessionHeaders(app, url) })).json() as { live?: { configProjectId?: string; configSource?: string } };
   assert.equal(health.live?.configProjectId, PROJECT);
   assert.equal(health.live?.configSource, '.firebaserc');
   await live.stop();
@@ -179,14 +179,14 @@ export default scenario(async (app) => {
     const header = chip.locator('.panel-header [data-chip-live]');
     if (await header.count() === 0) await chip.locator('[data-expand]').click();
     await header.waitFor({ timeout: 20_000 });
-    const health = await (await fetch(`${host.url}/__pyric/health`)).json() as { live?: { projectId?: string; passThrough?: string[] } };
+    const health = await (await fetch(`${host.url}/__pyric/health`, { headers: sessionHeaders(app, host.url) })).json() as { live?: { projectId?: string; passThrough?: string[] } };
     assert.equal(health.live?.projectId, PROJECT);
     assert.deepEqual(health.live?.passThrough, PASSED);
     await page.close();
   });
 
   await app.step('the health report lists only firebase/functions as passed through', async () => {
-    const health = await (await fetch(`${host.url}/__pyric/health`)).json() as { live?: { passThrough?: string[] } };
+    const health = await (await fetch(`${host.url}/__pyric/health`, { headers: sessionHeaders(app, host.url) })).json() as { live?: { passThrough?: string[] } };
     assert.deepEqual(health.live?.passThrough, PASSED);
   });
 

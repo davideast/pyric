@@ -24,7 +24,7 @@
  */
 import assert from 'node:assert/strict';
 import type { Locator, Page } from 'playwright';
-import { scenario, sleep, type App } from '../driver.ts';
+import { scenario, sessionHeaders, sleep, type App } from '../driver.ts';
 
 const PROJECT = 'demo-live-ai';
 const MODEL = 'gemini-flash-lite-latest';
@@ -164,8 +164,8 @@ interface BilledCount {
 }
 
 /** The host's billed-call count, as its health report carries it. */
-async function billed(url: string): Promise<BilledCount | undefined> {
-  const health = await (await fetch(`${url}/__pyric/health`)).json() as { live?: { billed?: BilledCount } };
+async function billed(app: App, url: string): Promise<BilledCount | undefined> {
+  const health = await (await fetch(`${url}/__pyric/health`, { headers: sessionHeaders(app, url) })).json() as { live?: { billed?: BilledCount } };
   return health.live?.billed;
 }
 
@@ -307,9 +307,9 @@ export default scenario(async (app) => {
     assert.equal(status, 'Ready', `the page's client code did not load\nconsole:\n${app.browserLog.join('\n')}`);
     const openedChip = await openChip(opened);
     await openedChip.locator('.panel-header [data-chip-live]').waitFor({ timeout: 20_000 });
-    const health = await (await fetch(`${host.url}/__pyric/health`)).json() as { live?: { projectId?: string } };
+    const health = await (await fetch(`${host.url}/__pyric/health`, { headers: sessionHeaders(app, host.url) })).json() as { live?: { projectId?: string } };
     assert.equal(health.live?.projectId, PROJECT);
-    assert.deepEqual(await billed(host.url), BILLED_NONE);
+    assert.deepEqual(await billed(app, host.url), BILLED_NONE);
     return { page: opened, chip: openedChip };
   });
 
@@ -331,7 +331,7 @@ export default scenario(async (app) => {
 
   await app.step('the host\'s event stream carries no prompt or envelope text, and AI calls add nothing to the billed count', async () => {
     await expectNoEnvelopeText(app, expectedAiCalls().length);
-    assert.deepEqual(await billed(host.url), BILLED_NONE);
+    assert.deepEqual(await billed(app, host.url), BILLED_NONE);
   });
 
   await app.step('the server job under @pyric/live/register makes the same calls, reporting to the dev server', async () => {
@@ -349,7 +349,7 @@ export default scenario(async (app) => {
     const sources = await chip.locator('[data-traffic-rows] [data-traffic-row-source]').evaluateAll((elements) => elements.map((element) => element.getAttribute('data-traffic-row-source')));
     assert.deepEqual([...new Set(sources)].sort(), ['node', 'page'], 'the All view marks the page\'s rows and the server job\'s');
     await expectNoEnvelopeText(app, 2 * expectedAiCalls().length);
-    assert.deepEqual(await billed(host.url), BILLED_NONE);
+    assert.deepEqual(await billed(app, host.url), BILLED_NONE);
   });
 
   await app.step('nothing reached any host but loopback', async () => {

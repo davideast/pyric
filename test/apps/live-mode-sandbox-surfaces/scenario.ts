@@ -24,7 +24,7 @@
 import assert from 'node:assert/strict';
 import { fileURLToPath } from 'node:url';
 import type { Locator, Page } from 'playwright';
-import { scenario, sleep, type App } from '../driver.ts';
+import { scenario, sessionHeaders, sleep, type App } from '../driver.ts';
 
 const FIXTURE = fileURLToPath(new URL('../replay/fixtures/live-mode-traffic.json', import.meta.url));
 const PROJECT = 'demo-live-traffic';
@@ -77,11 +77,15 @@ function answerOf(result: ToolResult): Answer {
 }
 
 /** One JSON-RPC session with the host's MCP route, as an agent's editor holds it. */
-async function mcpSession(base: string): Promise<(name: string, args: Record<string, unknown>) => Promise<ToolResult>> {
+async function mcpSession(app: App, base: string): Promise<(name: string, args: Record<string, unknown>) => Promise<ToolResult>> {
   let sessionId: string | null = null;
   let nextId = 1;
   const post = async (body: Record<string, unknown>): Promise<Record<string, unknown> | null> => {
-    const headers: Record<string, string> = { 'content-type': 'application/json', accept: 'application/json, text/event-stream' };
+    const headers: Record<string, string> = {
+      'content-type': 'application/json',
+      accept: 'application/json, text/event-stream',
+      ...sessionHeaders(app, base),
+    };
     if (sessionId !== null) headers['mcp-session-id'] = sessionId;
     const response = await fetch(`${base}/__pyric/mcp`, { method: 'POST', headers, body: JSON.stringify({ jsonrpc: '2.0', ...body }) });
     sessionId = response.headers.get('mcp-session-id') ?? sessionId;
@@ -103,10 +107,10 @@ async function mcpSession(base: string): Promise<(name: string, args: Record<str
 
 /** One direct command through `/__pyric/hosted/method`, as a pyric command sends it. */
 async function hostedMethod(app: App, base: string, key: string, args: Record<string, unknown>): Promise<Answer> {
-  const health = await (await fetch(`${base}/__pyric/health`)).json() as { instanceId: string };
+  const health = await (await fetch(`${base}/__pyric/health`, { headers: sessionHeaders(app, base) })).json() as { instanceId: string };
   const response = await fetch(`${base}/__pyric/hosted/method`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json', ...sessionHeaders(app, base) },
     body: JSON.stringify({ instanceId: health.instanceId, projectDir: app.dir, key, args }),
   });
   return await response.json() as Answer;
@@ -159,7 +163,7 @@ export default scenario(async (app) => {
     return started;
   });
 
-  const mcp = await mcpSession(host.url);
+  const mcp = await mcpSession(app, host.url);
 
   await app.step('with no tab open, MCP Firestore and Realtime Database reads and a command\'s read are refused, never answered from the sandbox', async () => {
     await sendsNothing(app, replay, async () => {
@@ -244,7 +248,7 @@ export default scenario(async (app) => {
     for (const selector of ['.auth-sub__add', '[data-pyric-ui="auth-user-list"]', '[data-pyric-ui="auth-user-form"]', '[data-pyric-ui="auth-create-user"]']) {
       assert.equal(await studio.locator(selector).count(), 0, selector);
     }
-    const health = await (await fetch(`${host.url}/__pyric/health`)).json() as { live?: { clients?: Array<{ kind: string; label?: string }> } };
+    const health = await (await fetch(`${host.url}/__pyric/health`, { headers: sessionHeaders(app, host.url) })).json() as { live?: { clients?: Array<{ kind: string; label?: string }> } };
     const clientLabels = (health.live?.clients ?? []).map((client) => client.label);
     assert.ok(!clientLabels.some((label) => label?.startsWith('/__pyric/ui')), `Studio appeared in live.clients: ${JSON.stringify(health.live?.clients)}`);
     await studio.close();
