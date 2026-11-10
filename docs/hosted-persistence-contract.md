@@ -112,10 +112,12 @@ The Node host serves object bytes over HTTP at
 `/__pyric/storage/v0/b/<bucket>/o/<path>?alt=media` and advertises the
 `storage-byte-route` capability in `attach-ack`. A `GET` or `HEAD` answers with
 the object's content type and honours one `Range` (206 with `content-range`, or
-416 past the end), streaming from the object's file. It is authorized by the
-session token, in the `x-pyric-session-token` header or the `token` query
-parameter, or by a `token` listed in the object's `downloadTokens`. Only a page
-this server serves, or a process that sends no `Origin`, reaches it.
+416 past the end), streaming from the object's file. A download URL request is
+authorized by a `token` query parameter listed in the object's `downloadTokens`.
+An SDK byte-route read is authorized by `x-pyric-session-token` in live mode (or
+under `--session-token`), and by an explicit SDK byte-route header in default
+sandbox mode; session tokens are never passed in the `token` query parameter.
+Only a page this server serves, or a process that sends no `Origin`, reaches it.
 
 `storage.beginUpload` returns an `uploadUrl` carrying a token bound to that one
 upload. A `PUT` to it appends at the offset the host holds, given as
