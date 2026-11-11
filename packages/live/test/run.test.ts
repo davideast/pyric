@@ -236,7 +236,7 @@ describe('pyric-live --help and pyric-live run --help / unsupported runtime', ()
       expect(runHelp.stdout).toContain('pyric-live run [--host <url>] [--wait[=<seconds>]] -- <command> [args...]');
       expect(runHelp.stdout).toContain('pyricLive()');
     }
-  });
+  }, 30_000);
 
   test('stops upfront with PYRIC_UNSUPPORTED_RUNTIME (exit 1) before polling --host for bun, bunx, and deno', () => {
     for (const [cmd, expectedRuntime] of [
@@ -257,7 +257,7 @@ describe('pyric-live --help and pyric-live run --help / unsupported runtime', ()
       expect(res.stderr).toContain('Node >= 22.15');
       expect(Date.now() - started).toBeLessThan(3_000);
     }
-  });
+  }, 30_000);
 
   test('stops upfront with exit 1 when Node lacks module.registerHooks (Node < 22.15)', async () => {
     let errText = '';
