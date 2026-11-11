@@ -2,7 +2,25 @@ export {
   DisconnectOperationQueue,
   type DisconnectOperation,
 } from './disconnect-operation-queue.js';
-export { queryIdentifier } from './query-shape.js';
+export { isDefaultQuerySpec, queryIdentifier } from './query-shape.js';
+export {
+  applyConstraint,
+  emptySpec,
+  type Bound,
+  type Constraint,
+  type LimitKind,
+  type OrderBy,
+  type Priority,
+  type QueryRow,
+  type QuerySpec,
+} from './sandbox/query.js';
+export {
+  normalizeOptionalEndpointValue,
+  validateCursorKey,
+  validateLimit,
+  validateOrderByChildPath,
+  validateQuerySpec,
+} from './query-validation.js';
 export { jsonEqual } from '@pyric/rules/internal/rtdb';
 export { executeQuery } from './internal/query-projection.js';
 export { listenIndexWarning } from './listen-index-warning.js';

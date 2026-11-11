@@ -365,13 +365,13 @@ describe('pyric-admin remote dispatch — RTDB', () => {
     expect(b).toHaveLength(1);
   });
 
-  it('non-value listeners / transactions / queries keep throwing "not implemented"', () => {
+  it('non-value listeners / transactions / onDisconnect keep throwing "not implemented"', () => {
     const { app } = makeStack();
     const db = getDatabase(app);
     const ref = db.ref('x');
     expect(() => ref.on('child_added', () => {})).toThrow(/not implemented/);
     expect(() => ref.transaction(() => null)).toThrow(/not implemented/);
-    expect(() => ref.orderByChild('y')).toThrow(/not implemented/);
+    expect(ref.orderByChild('y').ref.isEqual(ref)).toBe(true);
     expect(() => ref.onDisconnect()).toThrow(/not implemented/);
   });
 });

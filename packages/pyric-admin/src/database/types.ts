@@ -5,6 +5,11 @@
 
 export type EventType = 'value' | 'child_added' | 'child_changed' | 'child_removed' | 'child_moved';
 
+export type SnapshotCallback = (
+  snapshot: DataSnapshot,
+  previousChildKey?: string | null,
+) => unknown;
+
 export interface Database {
   ref(path?: string): Reference;
   refFromURL(url: string): Reference;
@@ -23,7 +28,7 @@ export interface DataSnapshot {
   exists(): boolean;
   child(path: string): DataSnapshot;
   hasChild(path: string): boolean;
-  hasChildren(children?: string[]): boolean;
+  hasChildren(): boolean;
   numChildren(): number;
   forEach(action: (child: DataSnapshot) => boolean | void): boolean;
   exportVal(): unknown;
@@ -31,14 +36,11 @@ export interface DataSnapshot {
   toJSON(): unknown;
 }
 
-export interface Reference {
-  readonly key: string | null;
-  readonly parent: Reference | null;
-  readonly root: Reference;
-  readonly database: Database;
+export interface Query {
   readonly ref: Reference;
   toString(): string;
   toJSON(): string;
+  isEqual(other: Query | null): boolean;
   get(): Promise<DataSnapshot>;
   once<T = unknown>(
     eventType: EventType,
@@ -46,27 +48,60 @@ export interface Reference {
     failureCallbackOrContext?: ((this: T, error: Error) => unknown) | T | null,
     context?: T | null,
   ): Promise<DataSnapshot>;
+  on(
+    eventType: EventType,
+    callback: SnapshotCallback,
+    cancelCallbackOrContext?: ((error: Error) => unknown) | object | null,
+    context?: object | null,
+  ): SnapshotCallback;
+  off(
+    eventType?: EventType,
+    callback?: SnapshotCallback,
+    context?: object | null,
+  ): void;
+  orderByChild(path: string): Query;
+  orderByKey(): Query;
+  orderByPriority(): Query;
+  orderByValue(): Query;
+  startAt(value?: number | string | boolean | object | null, key?: string): Query;
+  startAfter(value: number | string | boolean | object | null | undefined, key?: string): Query;
+  endAt(value?: number | string | boolean | object | null, key?: string): Query;
+  endBefore(value: number | string | boolean | object | null | undefined, key?: string): Query;
+  equalTo(value: number | string | boolean | object | null | undefined, key?: string): Query;
+  limitToFirst(limit: number): Query;
+  limitToLast(limit: number): Query;
+}
+
+export interface Reference extends Query {
+  readonly key: string | null;
+  readonly parent: Reference | null;
+  readonly root: Reference;
+  readonly database: Database;
   set(value: unknown, onComplete?: (error: Error | null) => void): Promise<void>;
   update(values: object, onComplete?: (error: Error | null) => void): Promise<void>;
   remove(onComplete?: (error: Error | null) => void): Promise<void>;
   push(value?: unknown, onComplete?: (error: Error | null) => void): ThenableReference;
   child(path: string): Reference;
-  on(
-    eventType: EventType,
-    callback: (snapshot: DataSnapshot, previousChildKey?: string | null) => unknown,
-    cancelCallbackOrContext?: ((error: Error) => unknown) | object | null,
-    context?: object | null,
-  ): unknown;
-  off(
-    eventType?: EventType,
-    callback?: (snapshot: DataSnapshot, previousChildKey?: string | null) => unknown,
-    context?: object | null,
-  ): void;
+  onDisconnect(): OnDisconnect;
+  transaction(
+    transactionUpdate: (currentData: unknown) => unknown,
+    onComplete?: (error: Error | null, committed: boolean, snapshot: DataSnapshot | null) => unknown,
+    applyLocally?: boolean,
+  ): Promise<{ committed: boolean; snapshot: DataSnapshot }>;
+  setPriority(
+    priority: string | number | null,
+    onComplete: (error: Error | null) => unknown,
+  ): Promise<void>;
+  setWithPriority(
+    newVal: unknown,
+    newPriority: string | number | null,
+    onComplete?: (error: Error | null) => unknown,
+  ): Promise<void>;
   [key: string]: unknown;
 }
 
 export type ThenableReference = Reference & PromiseLike<Reference>;
-export type Query = Reference;
+
 export interface OnDisconnect {
   [key: string]: unknown;
 }
@@ -96,6 +131,7 @@ export function resolveOnceCallbacks(
       boundContext: context,
     };
   }
-  const boundContext = context !== undefined ? context : failureCallbackOrContext;
+  const hasExplicitContext = context !== undefined;
+  const boundContext = hasExplicitContext ? context : failureCallbackOrContext;
   return { failureCb: undefined, boundContext };
 }

@@ -84,9 +84,7 @@ interface Probe {
 }
 
 const fs = (arm: Arm) => firestoreEntry.getFirestore(arm.app);
-const db = (arm: Arm) => databaseEntry.getDatabase(arm.app) as unknown as {
-  ref(path?: string): { get(): Promise<unknown> };
-};
+const db = (arm: Arm) => databaseEntry.getDatabase(arm.app);
 
 const PROBES: readonly Probe[] = [
   // Root namespace: `admin.firestore.FieldValue`, `admin.credential.cert`, ...
@@ -110,6 +108,12 @@ const PROBES: readonly Probe[] = [
 
   { entry: 'database', owner: 'Database', path: ['getDatabase'], make: (arm) => databaseEntry.getDatabase(arm.app) },
   { entry: 'database', owner: 'Reference', path: ['getDatabase', 'ref'], make: (arm) => db(arm).ref('surface') },
+  {
+    entry: 'database',
+    owner: 'Query',
+    path: ['getDatabase', 'ref', 'orderByKey'],
+    make: (arm) => db(arm).ref('surface').orderByKey(),
+  },
   {
     entry: 'database',
     owner: 'DataSnapshot',

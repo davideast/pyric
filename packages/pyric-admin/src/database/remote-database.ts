@@ -13,7 +13,11 @@ import {
   type DatabaseInstance,
   type DatabaseInstanceRegistry,
 } from 'pyric/sandbox/internal';
-import { normalizeNode } from 'pyric/database/internal';
+import {
+  emptySpec,
+  normalizeNode,
+  type QuerySpec,
+} from 'pyric/database/internal';
 import type { PyricAdminApp } from '../app/index.js';
 import {
   buildDatabaseShell,
@@ -21,6 +25,7 @@ import {
   type DatabaseUrlMetadata,
 } from './database-shell.js';
 import { buildSandboxSnap } from './data-snapshot.js';
+import { createQuerySurface, toWireQuerySpec, type WireQuerySpec } from './query.js';
 import {
   generatePushId,
   joinPath,
@@ -36,16 +41,25 @@ import {
   type DataSnapshot,
   type EventType,
   type Reference,
+  type SnapshotCallback,
   type ThenableReference,
 } from './types.js';
 
 const REMOTE_ADMIN_LENS = { mode: 'admin' } as const;
+
+interface RemoteWireEntry {
+  key: string;
+  value: unknown;
+  priority?: string | number | null;
+  exportValue?: unknown;
+}
 
 interface RemoteWireSnapshot {
   key: string | null;
   exists: boolean;
   value: unknown;
   exportValue?: unknown;
+  entries?: RemoteWireEntry[];
   size: number;
 }
 
@@ -88,18 +102,37 @@ export function getRemoteDatabase(
 
 type RemoteRtdbOp = { method: `rtdb.${string}`; path: string } & Record<string, unknown>;
 
+function normalizeRelayedError(error: unknown): never {
+  const isCodedError = error instanceof Error && 'code' in error;
+  if (isCodedError && (error as { code?: unknown }).code === 'unknown') {
+    delete (error as { code?: unknown }).code;
+  }
+  throw error;
+}
+
 function relayRtdbOp(state: RemoteDbState, op: RemoteRtdbOp): Promise<unknown> {
-  return state.channel.op({ ...op, instance: state.instance, actAs: REMOTE_ADMIN_LENS });
+  return state.channel
+    .op({ ...op, instance: state.instance, actAs: REMOTE_ADMIN_LENS })
+    .catch(normalizeRelayedError);
 }
 
 function subscribeRtdbValue(
   state: RemoteDbState,
   path: string,
+  wireQuery: WireQuerySpec | undefined,
   onSnap: (value: unknown) => void,
   onError: (err: Error & { code: string }) => void,
 ): () => void {
+  const target: Record<string, unknown> = {
+    service: 'rtdb',
+    instance: state.instance,
+    path,
+  };
+  if (wireQuery !== undefined) {
+    target.query = wireQuery;
+  }
   return state.channel.subscribe(
-    { target: { service: 'rtdb', instance: state.instance, path }, actAs: REMOTE_ADMIN_LENS },
+    { target, actAs: REMOTE_ADMIN_LENS },
     onSnap,
     onError,
   );
@@ -114,11 +147,163 @@ function buildRemoteRef(
   const canonical = joinPath(pathSegments(path));
   const segs = pathSegments(canonical);
   const key = segs.length === 0 ? null : segs[segs.length - 1]!;
+  const formattedUrl = formatReferenceUrl(urlMeta.originUrl, segs);
   const refAt = (p: string): Reference => buildRemoteRef(state, db, p, urlMeta);
-  const snapFromWire = (wire: RemoteWireSnapshot): DataSnapshot =>
-    buildSandboxSnap(refAt, canonical, normalizeNode(wire.value ?? null), wire.exportValue);
+  const snapFromWire = (wire: RemoteWireSnapshot): DataSnapshot => {
+    const orderedEntries = wire.entries?.map((entry) => ({
+      key: entry.key,
+      value: normalizeNode(entry.value ?? null),
+      exportValue: entry.exportValue,
+    }));
+    return buildSandboxSnap(
+      refAt,
+      canonical,
+      normalizeNode(wire.value ?? null),
+      wire.exportValue,
+      orderedEntries,
+    );
+  };
+
+  const querySurface = createQuerySurface(
+    {
+      repoToken: state,
+      canonicalPath: canonical,
+      formattedUrl,
+      getBaseRef: () => ref as unknown as Reference,
+      async get(spec: QuerySpec): Promise<DataSnapshot> {
+        const wireQuery = toWireQuerySpec(spec);
+        const opPayload: RemoteRtdbOp = {
+          method: 'rtdb.get',
+          path: canonical,
+        };
+        if (wireQuery !== undefined) {
+          opPayload.query = wireQuery;
+        }
+        const wire = (await relayRtdbOp(state, opPayload)) as RemoteWireSnapshot;
+        return snapFromWire(wire);
+      },
+      once(
+        spec: QuerySpec,
+        eventType: EventType,
+        successCb?: unknown,
+        failureCallbackOrContext?: unknown,
+        context?: unknown,
+      ): Promise<DataSnapshot> {
+        if (eventType !== 'value') {
+          throw notImplemented(`once('${eventType}')`);
+        }
+        const wireQuery = toWireQuerySpec(spec);
+        const { failureCb, boundContext } = resolveOnceCallbacks(failureCallbackOrContext, context);
+        return new Promise<DataSnapshot>((resolve, reject) => {
+          let detach: (() => void) | null = null;
+          let isSettled = false;
+          const failOnce = (err: Error) => {
+            if (isSettled) return;
+            isSettled = true;
+            if (failureCb !== undefined) {
+              try {
+                failureCb.call(boundContext, err);
+              } catch {
+                // Ignore secondary callback throw before rejecting with the read error.
+              }
+            }
+            reject(err);
+            if (detach) detach();
+          };
+          try {
+            detach = subscribeRtdbValue(
+              state,
+              canonical,
+              wireQuery,
+              (value) => {
+                if (isSettled) return;
+                isSettled = true;
+                const snap = snapFromWire(value as RemoteWireSnapshot);
+                if (typeof successCb === 'function') {
+                  try {
+                    (successCb as (s: DataSnapshot) => unknown).call(boundContext, snap);
+                  } catch {
+                    // Callback error does not reject the once() promise once snapshot arrived.
+                  }
+                }
+                resolve(snap);
+                if (detach) detach();
+              },
+              (err) => {
+                failOnce(err);
+              },
+            );
+            if (isSettled) detach();
+          } catch (err) {
+            failOnce(err as Error);
+          }
+        });
+      },
+      on(
+        spec: QuerySpec,
+        eventType: EventType,
+        callback: SnapshotCallback,
+        cancelCallbackOrContext?: ((err: Error) => unknown) | object | null,
+        context?: object | null,
+      ): SnapshotCallback {
+        if (eventType !== 'value') {
+          throw notImplemented(`on('${eventType}')`);
+        }
+        const wireQuery = toWireQuerySpec(spec);
+        const { failureCb, boundContext } = resolveOnceCallbacks(cancelCallbackOrContext, context);
+        const normalizedContext = boundContext ?? undefined;
+        let erroredSynchronously = false;
+        const entry: RemoteValueListenerEntry = {
+          callback,
+          context: normalizedContext,
+          detach: () => {},
+        };
+        let atPath = state.listeners.get(canonical);
+        if (atPath === undefined) {
+          atPath = [];
+          state.listeners.set(canonical, atPath);
+        }
+        atPath.push(entry);
+        const detach = subscribeRtdbValue(
+          state,
+          canonical,
+          wireQuery,
+          (value) => {
+            callback.call(normalizedContext, snapFromWire(value as RemoteWireSnapshot), null);
+          },
+          (err) => {
+            erroredSynchronously = true;
+            detachExactListener(state, canonical, entry);
+            if (failureCb) failureCb.call(normalizedContext, err);
+            else console.error(`pyric-admin/database: on('value') subscription failed at ${canonical}:`, err);
+          },
+        );
+        entry.detach = detach;
+        if (erroredSynchronously) detach();
+        return callback;
+      },
+      off(
+        _spec: QuerySpec,
+        eventType?: EventType,
+        callback?: SnapshotCallback,
+        context?: object | null,
+      ): void {
+        if (eventType !== undefined && eventType !== 'value') return;
+        if (callback !== undefined) {
+          detachMatchingListeners(state, canonical, callback, context ?? undefined);
+          return;
+        }
+        const atPath = state.listeners.get(canonical);
+        if (atPath === undefined) return;
+        state.listeners.delete(canonical);
+        for (const entry of atPath) entry.detach();
+      },
+    },
+    emptySpec(),
+  );
 
   const ref = {
+    ...querySurface,
     key,
     get parent(): Reference | null {
       if (segs.length === 0) return null;
@@ -130,9 +315,6 @@ function buildRemoteRef(
     get path(): string {
       return canonical;
     },
-    toString(): string {
-      return formatReferenceUrl(urlMeta.originUrl, segs);
-    },
 
     set(value: unknown, onComplete?: (err: Error | null) => void): Promise<void> {
       return withOnComplete(
@@ -143,69 +325,6 @@ function buildRemoteRef(
         }).then(() => undefined),
         onComplete,
       );
-    },
-
-    async get(): Promise<DataSnapshot> {
-      const wire = (await relayRtdbOp(state, {
-        method: 'rtdb.get',
-        path: canonical,
-      })) as RemoteWireSnapshot;
-      return snapFromWire(wire);
-    },
-
-    once(
-      eventType: EventType,
-      successCb?: unknown,
-      failureCallbackOrContext?: unknown,
-      context?: unknown,
-    ): Promise<DataSnapshot> {
-      if (eventType !== 'value') {
-        throw notImplemented(`once('${eventType}')`);
-      }
-      const { failureCb, boundContext } = resolveOnceCallbacks(failureCallbackOrContext, context);
-      return new Promise<DataSnapshot>((resolve, reject) => {
-        let detach: (() => void) | null = null;
-        let settled = false;
-        const failOnce = (err: Error) => {
-          if (settled) return;
-          settled = true;
-          if (failureCb !== undefined) {
-            try {
-              failureCb.call(boundContext, err);
-            } catch {
-              // Ignore secondary callback throw before rejecting with the read error.
-            }
-          }
-          reject(err);
-          if (detach) detach();
-        };
-        try {
-          detach = subscribeRtdbValue(
-            state,
-            canonical,
-            (value) => {
-              if (settled) return;
-              settled = true;
-              const snap = snapFromWire(value as RemoteWireSnapshot);
-              if (typeof successCb === 'function') {
-                try {
-                  (successCb as (s: DataSnapshot) => unknown).call(boundContext, snap);
-                } catch {
-                  // Callback error does not reject the once() promise once snapshot arrived.
-                }
-              }
-              resolve(snap);
-              if (detach) detach();
-            },
-            (err) => {
-              failOnce(err);
-            },
-          );
-          if (settled) detach();
-        } catch (err) {
-          failOnce(err as Error);
-        }
-      });
     },
 
     update(values: object, onComplete?: (err: Error | null) => void): Promise<void> {
@@ -266,63 +385,6 @@ function buildRemoteRef(
       return refAt(joinPath([...segs, ...pathSegments(p)]));
     },
 
-    on(
-      eventType: EventType,
-      callback: (snap: DataSnapshot, prevChildKey?: string | null) => unknown,
-      cancelCallbackOrContext?: ((err: Error) => unknown) | object | null,
-      context?: object | null,
-    ): (snap: DataSnapshot, prevChildKey?: string | null) => unknown {
-      if (eventType !== 'value') {
-        throw notImplemented(`on('${eventType}')`);
-      }
-      const { failureCb, boundContext } = resolveOnceCallbacks(cancelCallbackOrContext, context);
-      const normalizedContext = boundContext ?? undefined;
-      let erroredSynchronously = false;
-      const entry: RemoteValueListenerEntry = {
-        callback,
-        context: normalizedContext,
-        detach: () => {},
-      };
-      let atPath = state.listeners.get(canonical);
-      if (atPath === undefined) {
-        atPath = [];
-        state.listeners.set(canonical, atPath);
-      }
-      atPath.push(entry);
-      const detach = subscribeRtdbValue(
-        state,
-        canonical,
-        (value) => {
-          callback.call(normalizedContext, snapFromWire(value as RemoteWireSnapshot), null);
-        },
-        (err) => {
-          erroredSynchronously = true;
-          detachExactListener(state, canonical, entry);
-          if (failureCb) failureCb.call(normalizedContext, err);
-          else console.error(`pyric-admin/database: on('value') subscription failed at ${canonical}:`, err);
-        },
-      );
-      entry.detach = detach;
-      if (erroredSynchronously) detach();
-      return callback;
-    },
-
-    off(
-      eventType?: EventType,
-      callback?: (snap: DataSnapshot, prevChildKey?: string | null) => unknown,
-      context?: object | null,
-    ): void {
-      if (eventType !== undefined && eventType !== 'value') return;
-      if (callback !== undefined) {
-        detachMatchingListeners(state, canonical, callback, context ?? undefined);
-        return;
-      }
-      const atPath = state.listeners.get(canonical);
-      if (atPath === undefined) return;
-      state.listeners.delete(canonical);
-      for (const entry of atPath) entry.detach();
-    },
-
     onDisconnect(): never {
       throw notImplemented('onDisconnect');
     },
@@ -334,49 +396,6 @@ function buildRemoteRef(
     },
     setWithPriority(..._args: unknown[]): never {
       throw notImplemented('setWithPriority');
-    },
-    orderByChild(..._args: unknown[]): never {
-      throw notImplemented('orderByChild');
-    },
-    orderByKey(..._args: unknown[]): never {
-      throw notImplemented('orderByKey');
-    },
-    orderByValue(..._args: unknown[]): never {
-      throw notImplemented('orderByValue');
-    },
-    orderByPriority(..._args: unknown[]): never {
-      throw notImplemented('orderByPriority');
-    },
-    startAt(..._args: unknown[]): never {
-      throw notImplemented('startAt');
-    },
-    startAfter(..._args: unknown[]): never {
-      throw notImplemented('startAfter');
-    },
-    endAt(..._args: unknown[]): never {
-      throw notImplemented('endAt');
-    },
-    endBefore(..._args: unknown[]): never {
-      throw notImplemented('endBefore');
-    },
-    equalTo(..._args: unknown[]): never {
-      throw notImplemented('equalTo');
-    },
-    limitToFirst(..._args: unknown[]): never {
-      throw notImplemented('limitToFirst');
-    },
-    limitToLast(..._args: unknown[]): never {
-      throw notImplemented('limitToLast');
-    },
-    isEqual(other: unknown): boolean {
-      return (
-        other !== null &&
-        typeof other === 'object' &&
-        (other as { path?: string }).path === canonical
-      );
-    },
-    toJSON(): string {
-      return formatReferenceUrl(urlMeta.originUrl, segs);
     },
     get database(): Database {
       return db;
