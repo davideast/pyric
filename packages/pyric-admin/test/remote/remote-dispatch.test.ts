@@ -214,8 +214,11 @@ describe('pyric-admin remote dispatch — arm selection', () => {
     const db = getDatabase(app);
     await db.ref('local/probe').set({ via: 'local-arm' });
     expect((await db.ref('local/probe').get()).val()).toEqual({ via: 'local-arm' });
-    // Local-arm signature: listeners are still not implemented there.
-    expect(() => db.ref('local/probe').on('value', () => {})).toThrow(/not implemented/);
+    // Local-arm listeners deliver synchronously on the in-process tree and detach via off().
+    const localSeen: unknown[] = [];
+    const localCb = db.ref('local/probe').on('value', (s) => localSeen.push(s.val()));
+    expect(localSeen).toEqual([{ via: 'local-arm' }]);
+    db.ref('local/probe').off('value', localCb);
     // Awaiting a local ThenableReference resolves (regression for the
     // self-resolving-thenable unwrap loop fixed alongside the remote arm).
     const pushed = await db.ref('local/list').push({ v: 1 });
