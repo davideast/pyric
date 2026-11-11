@@ -19,9 +19,11 @@ import { pyricLive } from '@pyric/live/vite';
 export default defineConfig({ plugins: [pyricLive()] });
 ```
 
-For a Node process:
+For a Node process against a running live host:
 
 ```sh
+npx pyric-live run --wait -- node server.js
+# or directly:
 node --import @pyric/live/register server.js
 ```
 

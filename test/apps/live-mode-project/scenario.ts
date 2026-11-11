@@ -24,7 +24,10 @@
  * Both planes learn the host's project from the seam that resolved it: the
  * Vite plugin and the register each hand it to the rows they serve
  * (`serveHostProject`). Without that hand-off the second app's read reaches
- * production and the health report lists its project.
+ * production and the health report lists its project. When `.firebaserc` holds
+ * multi-environment `targets` with `"projects": {}`, both
+ * `node --import @pyric/live/register` and `pyric-live run` inherit the
+ * running live host's project and enforce the same refusal.
  *
  * Production is a replay server this scenario starts (`../replay/`), playing
  * `live-mode-traffic.json`, recorded in the host's project. The app reaches
@@ -267,6 +270,46 @@ export default scenario(async (app) => {
     assert.deepEqual(health.live.appProjectIds, [project]);
     assert.equal(health.live.configProjectId, project);
     assert.equal(health.live.projectId, project);
+  });
+
+  await app.step('with empty .firebaserc projects, both @pyric/live/register and pyric-live run inherit the live host\'s project', async () => {
+    app.writeFile(
+      '.firebaserc',
+      `${JSON.stringify({ projects: {}, targets: { [project]: { hosting: { web: ['demo-site'] } } } })}\n`,
+    );
+    const env = { ROOMS_AUTH_URL: replay.origin, ROOMS_FIRESTORE_HOST: replay.grpc };
+
+    const direct = await app.command('node', ['--import', '@pyric/live/register', 'server.mjs'], {
+      env,
+      timeoutMs: 90_000,
+    });
+    assert.equal(direct.code, 0, direct.output);
+    assert.match(direct.output, new RegExp(`@pyric/live/register: live mode for the Firebase project ${project}\\.`));
+    const directResult = resultOf(direct.output);
+    assert.deepEqual(directResult.signIn, { ok: true, value: writer });
+    assert.deepEqual(directResult.host, { ok: true, value: { name: 'Lobby', open: true, seats: 12 } });
+    expectRefused(directResult.other!, project, 'server job with empty .firebaserc');
+
+    const viaCli = await app.command('node', ['node_modules/.bin/pyric-live', 'run', '--wait=10', '--', 'node', 'server.mjs'], {
+      env,
+      timeoutMs: 90_000,
+    });
+    assert.equal(viaCli.code, 0, viaCli.output);
+    assert.match(viaCli.output, new RegExp(`@pyric/live/register: live mode for the Firebase project ${project}\\.`));
+    const cliResult = resultOf(viaCli.output);
+    assert.deepEqual(cliResult.signIn, { ok: true, value: writer });
+    assert.deepEqual(cliResult.host, { ok: true, value: { name: 'Lobby', open: true, seats: 12 } });
+    expectRefused(cliResult.other!, project, 'pyric-live run child');
+
+    assert.deepEqual(await receivedForOther(replay), [], 'production received an other-project read');
+    assert.deepEqual(await replay.unmatched(), []);
+    await eventually(
+      () => firestoreEvents(app, host.url),
+      (events) => readsByClient(events).length >= 4,
+      'four getDoc events on the host after empty-.firebaserc runs',
+    );
+    const events = await eventually(() => firestoreEvents(app, host.url), (all) => all !== null, 'the host\'s capture');
+    assert.deepEqual(readsByClient(events), ['node', 'node', 'node', 'page']);
   });
 
   await app.step('nothing reached any host but loopback', async () => {

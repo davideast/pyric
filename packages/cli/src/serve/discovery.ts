@@ -299,7 +299,7 @@ export async function servesViteClient(base: string): Promise<boolean> {
 }
 
 /** The port a URL names, or its scheme's default when it names none. */
-function urlPort(parsed: URL): number {
+export function urlPort(parsed: URL): number {
   const defaultPort = parsed.protocol === 'https:' ? 443 : 80;
   return parsed.port === '' ? defaultPort : Number(parsed.port);
 }
@@ -599,6 +599,20 @@ async function waitForPointerHost(pointerPath: string): Promise<PointerOutcome> 
     outcome = await probePointer(pointerPath);
   }
   return outcome;
+}
+
+/**
+ * One non-waiting look at the project's `.pyric/serve.json` candidates in `cwd`
+ * (no {@link LIVE_POINTER_WAIT_MS} retry loop and no blind port scan).
+ */
+export async function discoverPointerOnce(cwd: string): Promise<Discovered | null> {
+  for (const pointerPath of candidatePointerPaths(cwd)) {
+    const outcome = await probePointer(pointerPath);
+    if (outcome.kind === 'found') return outcome.host;
+    if (outcome.kind === 'unusable') continue;
+    if (outcome.expectedId !== null) return null;
+  }
+  return null;
 }
 
 /** Find the running serve: pointer first (in `cwd`), then a port scan. The

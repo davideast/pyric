@@ -577,7 +577,11 @@ export async function activateWithSuppliedRows(input: SuppliedRowsActivation = {
   registerHooks({ resolve: resolveWithRows(env, adminUnobserved, cjsState), load: loadWithRows(rows) });
   // Its servers say this is a live process, so a proxy check can catch a sandbox page in front of it,
   // and list what no row observed.
-  const projectId = projectIdOrNull(installed.projectRoot) ?? undefined;
-  installProcessHealth(() => ({ mode: 'live', projectId, ...unobservedFields(adminUnobserved) }));
+  let projectId = projectIdOrNull(installed.projectRoot) ?? undefined;
+  installProcessHealth(() => ({
+    mode: 'live',
+    projectId: (projectId ??= projectIdOrNull(installed.projectRoot) ?? undefined),
+    ...unobservedFields(adminUnobserved),
+  }));
   markLiveRegisterActive();
 }
