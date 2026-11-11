@@ -133,11 +133,14 @@ test('an update of a missing document records not-found, and a create of an exis
 test('Query.onSnapshot makes one record per delivery, each with its billed documents', async () => {
   const from = records.length;
   const query = ((db.collection as AnyFunction).call(db, 'notes') as Instance).where!('n', '>=', 5) as Instance;
+  // The listener can deliver `notes/d` before the set's commit answers, so the
+  // set's record lands when the test awaits it, not in the next test's window.
+  let written: Promise<unknown> | undefined;
   const seen = await new Promise<string[][]>((done, fail) => {
     const delivered: string[][] = [];
     const stop = query.onSnapshot!((snapshot: { docs: { id: string }[] }) => {
       delivered.push(snapshot.docs.map((entry) => entry.id));
-      if (delivered.length === 1) void doc('notes/d').set!({ n: 6 });
+      if (delivered.length === 1) written = doc('notes/d').set!({ n: 6 }) as Promise<unknown>;
       if (delivered.length === 2) {
         (stop as () => void)();
         done(delivered);
@@ -146,6 +149,7 @@ test('Query.onSnapshot makes one record per delivery, each with its billed docum
     expect(typeof stop).toBe('function');
   });
   expect(seen).toEqual([['b'], ['b', 'd']]);
+  await written;
   const made = await recordsSince(from);
   const listened = made.filter((record) => record.name === 'Query.onSnapshot');
   expect(listened.map(({ outcome, billedDocuments, path }) => ({ outcome, billedDocuments, path }))).toEqual([
