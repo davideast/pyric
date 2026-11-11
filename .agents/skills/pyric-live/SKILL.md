@@ -147,16 +147,20 @@ comes after a call has already reached it. Check before starting:
      with `pyricLive()`, imported from `@pyric/live/vite`, and move its options over. Never keep
      both: each registers `pyric:sandbox` with `enforce: 'pre'`. Start the existing dev script.
      The dev server is the live host.
-   - **Node process:** `node --import @pyric/live/register server.js`. It reports its calls to the
-     live host for the same project, so start a host first. When pyric sits in a package beside
-     the app, point `--import` at that package's file:
+   - **Node process:** `npx --no-install pyric-live run --wait -- node server.js`, or
+     `node --import @pyric/live/register server.js`. It reports its calls to the live host for the
+     same project, so start a host first (or pass `--wait` to `pyric-live run`). `pyric-live run`
+     resolves `@pyric/live/register` by file URL and passes the host's project via `PYRIC_PROJECT`
+     when none is set. When running `--import` directly with pyric in a sibling package, point
+     `--import` at that package's file:
      `node --import ../rules/node_modules/@pyric/live/dist/register.js server.js`.
    - **No Vite dev server:** `npx --no-install pyric-live --no-open`, with `--port` (default
-     3473), `--host` and `--project <id>`. It starts no child command; start the Node process in
-     another terminal.
+     3473), `--host` and `--project <id>`. Host mode starts no child command; start the Node
+     process in another terminal with `npx --no-install pyric-live run -- node server.js`.
 3. The settings project comes from, in order: `--project` (or the plugin's `project` option),
-   `PYRIC_PROJECT`, `firebase use`, then `.firebaserc`. Live mode does not read `pyric.json`. The
-   app's own Firebase config decides where its calls go.
+   `PYRIC_PROJECT`, `firebase use`, then `.firebaserc` (and under `@pyric/live/register`, the
+   reachable live host's project when none of those is set). Live mode does not read `pyric.json`.
+   The app's own Firebase config decides where its calls go.
 4. Keep the process running in the background. Stop it with an interrupt signal, not a kill.
 
 ## Verify before testing

@@ -29,11 +29,16 @@ const ENTRY = 'pyric-live';
 const LIVE_ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 
 const USAGE = `Usage: pyric-live [options]
+       pyric-live run [--host <url>] [--wait[=<seconds>]] -- <command> [args...]
 
 Starts the pyric Node host in live mode for the Firebase project in this
 folder, or in the nearest folder above it with .firebaserc or firebase.json.
 Your app talks to its real Firebase project, and the chip and Studio show each
 call with production's answer.
+
+Subcommands:
+  run               Run a Node command under @pyric/live/register against a
+                    running live host (see \`pyric-live run --help\`).
 
 Options:
   --port <port>     Port to serve on. Default 3473.
@@ -44,6 +49,10 @@ Options:
 `;
 
 async function main(argv: readonly string[]): Promise<number> {
+  if (argv[0] === 'run') {
+    const { runLiveRun } = await import('./run.js');
+    return runLiveRun(argv.slice(1));
+  }
   const asksForHelp = argv.includes('--help') || argv.includes('-h');
   if (asksForHelp) {
     process.stdout.write(USAGE);

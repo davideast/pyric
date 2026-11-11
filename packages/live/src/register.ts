@@ -48,6 +48,7 @@ import {
   liveProjectRoot,
   reachLiveHost,
   recordedPassThrough,
+  type LiveHostReach,
 } from '@pyric/cli/register/internal/supplied-rows';
 import { refuseAdminWithoutHostProject, serveHostProject } from './node-modules.js';
 import { ADMIN_PASS_THROUGH, adminRowsNodeProblem, passThroughOption } from './refusal.js';
@@ -68,6 +69,22 @@ function childProject(projectRoot: string): string | undefined {
     return liveProjectId(projectRoot);
   } catch {
     return undefined;
+  }
+}
+
+/**
+ * The project a first process serves: local Firebase config first, else the
+ * reachable live host's project when local config names none.
+ */
+function registerProjectId(projectRoot: string, reach: LiveHostReach): string {
+  try {
+    return liveProjectId(projectRoot);
+  } catch (error) {
+    const isMissingProject = (error as { code?: string })?.code === 'PYRIC_LIVE_NO_PROJECT';
+    if (isMissingProject && reach.kind === 'live' && reach.projectId !== '') {
+      return reach.projectId;
+    }
+    throw error;
   }
 }
 
@@ -127,7 +144,10 @@ const projectRoot = process.env[LIVE_PROJECT_ROOT_VARIABLE];
 const startsLive = reach !== null && projectRoot !== undefined;
 const isChild = !isFirstProcess && projectRoot !== undefined;
 const servedChildProject = isChild ? childProject(projectRoot) : undefined;
-if (servedChildProject !== undefined) serveHostProject(servedChildProject, configuredDatabaseInstances(projectRoot!, servedChildProject));
+if (servedChildProject !== undefined) {
+  if ((process.env.GOOGLE_CLOUD_PROJECT ?? '') === '') process.env.GOOGLE_CLOUD_PROJECT = servedChildProject;
+  serveHostProject(servedChildProject, configuredDatabaseInstances(projectRoot!, servedChildProject));
+}
 // A child whose first process recorded a root with no project: no Admin call could be gated, so the rows refuse firebase-admin.
 const isChildWithoutProject = isChild && servedChildProject === undefined;
 if (isChildWithoutProject) refuseAdminWithoutHostProject(projectRoot);
@@ -138,12 +158,14 @@ if (startsLive) {
   const appDirs = liveAppDirs(process.argv[1], process.cwd());
   const refusal = liveStartRefusal(projectRoot, appDirs) ?? adminStartRefusal(appDirs, projectRoot);
   if (refusal !== null) throw new Error(`${ENTRY}: ${refusal}`);
-  const projectId = liveProjectId(projectRoot);
+  const projectId = registerProjectId(projectRoot, reach);
   const hasAdmin = installedAdminVersion(appDirs, projectRoot) !== null;
   // Only a process whose Admin rows are on checks the Admin project variables; a client-only process starts as before.
   const checksAdminEnv = hasAdmin && adminRows;
   const envRefusal = checksAdminEnv ? adminEnvRefusal(process.env, projectId) : null;
   if (envRefusal !== null) throw envRefusal;
+  // Children and workers resolve the same project when local config names none.
+  if ((process.env.PYRIC_PROJECT ?? '') === '') process.env.PYRIC_PROJECT = projectId;
   // firebase-admin and @google-cloud/storage read the project from here when the app names none, as a functions child does.
   if ((process.env.GOOGLE_CLOUD_PROJECT ?? '') === '') process.env.GOOGLE_CLOUD_PROJECT = projectId;
   serveHostProject(projectId, configuredDatabaseInstances(projectRoot, projectId));

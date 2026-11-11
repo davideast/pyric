@@ -33,13 +33,15 @@ import { pyricLive } from '@pyric/live/vite';
 export default defineConfig({ plugins: [pyricLive()] });
 ```
 
-For a Node process, such as a server, import the register entry:
+For a Node process, such as a server, run it against a live host with `pyric-live run` (or import the register entry directly):
 
 ```sh
+npx pyric-live run --wait -- node server.js
+# or directly:
 node --import @pyric/live/register server.js
 ```
 
-A Node process reports its calls to the live host for the same project. A backend that uses `firebase-admin` runs the same way: see [Run a backend with the Admin SDK](#run-a-backend-with-the-admin-sdk). Without a Vite dev server, start a live host with the command:
+`pyric-live run` accepts `--host <url>` and `--wait[=<seconds>]` (default 30s), resolves `@pyric/live/register` by file URL, and passes the live host's project when `PYRIC_PROJECT` isn't already set. A Node process reports its calls to the live host for the same project. A backend that uses `firebase-admin` runs the same way: see [Run a backend with the Admin SDK](#run-a-backend-with-the-admin-sdk). Without a Vite dev server, start a live host with the command:
 
 ```sh
 npx pyric-live
@@ -55,6 +57,7 @@ The project is the first of these that is set:
 2. The `PYRIC_PROJECT` environment variable.
 3. The project `firebase use` made active for your Firebase project folder or a folder above it.
 4. The only `.firebaserc` alias, else `.firebaserc` `projects.default`.
+5. Under `@pyric/live/register`, the reachable live host's project when none of the above is set.
 
 A value that names a `.firebaserc` alias resolves to that alias's project id. Live mode doesn't read the `project` in `pyric.json`. When none of these is set, live mode doesn't start and says how to set one.
 

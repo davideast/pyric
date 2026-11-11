@@ -16,7 +16,14 @@ import ts from 'typescript';
 import { parseArgs } from '../src/cli/parse-args.js';
 // Imported here, before any test changes the working directory: the serve
 // modules it loads read the working directory once, as they load.
-import { LiveProjectMissingError, liveHostProject, runLiveHost } from '../src/serve/live-host.js';
+import {
+  LiveProjectMissingError,
+  checkLiveRunRuntime,
+  discoverLiveHost,
+  liveHostProject,
+  probeLiveHostUrl,
+  runLiveHost,
+} from '../src/serve/live-host.js';
 import { LIVE_PROJECT_ROOT_VARIABLE, LIVE_SDK_ROOT_VARIABLE, loadInstalledLiveRegister } from '../src/register/live-package.js';
 
 const cliDir = fileURLToPath(new URL('../', import.meta.url));
@@ -205,6 +212,21 @@ describe('the live host seam', () => {
     writeFileSync(join(root, '.firebaserc'), JSON.stringify({ projects: { default: 'no-live' } }));
     process.chdir(root);
     await expect(runLiveHost(['--no-open'])).rejects.toThrow('live rows need @pyric/live installed in the project');
+    await expect(probeLiveHostUrl('http://localhost:3473', root)).rejects.toThrow(
+      'live rows need @pyric/live installed in the project',
+    );
+    await expect(discoverLiveHost(root)).rejects.toThrow('live rows need @pyric/live installed in the project');
+    expect(() => checkLiveRunRuntime(['node', 'a.js'], root)).toThrow(
+      'live rows need @pyric/live installed in the project',
+    );
+  });
+
+  it('refuses non-loopback URLs before probing or reading local tokens', async () => {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), 'pyric-non-loopback-')));
+    roots.push(root);
+    await expect(probeLiveHostUrl('http://example.com:3473', root, { liveRoot: liveDir })).rejects.toThrow(
+      'loopback origins',
+    );
   });
 
   it('names the project the app\'s Firebase config sets, and refuses to start without one', () => {
