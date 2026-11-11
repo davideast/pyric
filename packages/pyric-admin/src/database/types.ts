@@ -103,7 +103,15 @@ export interface Reference extends Query {
 export type ThenableReference = Reference & PromiseLike<Reference>;
 
 export interface OnDisconnect {
-  [key: string]: unknown;
+  cancel(onComplete?: (error: Error | null) => unknown): Promise<void>;
+  remove(onComplete?: (error: Error | null) => unknown): Promise<void>;
+  set(value: unknown, onComplete?: (error: Error | null) => unknown): Promise<void>;
+  setWithPriority(
+    value: unknown,
+    priority: number | string | null,
+    onComplete?: (error: Error | null) => unknown,
+  ): Promise<void>;
+  update(values: object, onComplete?: (error: Error | null) => unknown): Promise<void>;
 }
 
 /** Minimum JSON value shape stored in the in-memory tree. */

@@ -116,6 +116,12 @@ const PROBES: readonly Probe[] = [
   },
   {
     entry: 'database',
+    owner: 'OnDisconnect',
+    path: ['getDatabase', 'ref', 'onDisconnect'],
+    make: (arm) => db(arm).ref('surface').onDisconnect(),
+  },
+  {
+    entry: 'database',
     owner: 'DataSnapshot',
     path: ['getDatabase', 'ref', { awaited: 'get' }],
     make: (arm) => db(arm).ref('surface').get(),

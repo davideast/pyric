@@ -30,6 +30,15 @@ export { heldDatabaseInstances } from './sandbox/backend-for.js';
 export { assertGettablePath } from './info-read.js';
 export { isInfoPath, validateUpdatePaths, validateWritablePath } from './writable-path.js';
 export { valueAtChildPath, valueChildren, type ValueChild } from './internal/value-children.js';
-export { coerceArrays, errorPrefix, inlinePriorities, normalizeNode, validateUpdate, validateWrite, withPriorities } from './sandbox/normalize.js';
+export {
+  coerceArrays,
+  errorPrefix,
+  inlinePriorities,
+  normalizeNode,
+  validatePriorityArg,
+  validateUpdate,
+  validateWrite,
+  withPriorities,
+} from './sandbox/normalize.js';
 export { resolveSentinels } from './sandbox/sentinels.js';
 export { exportDatabaseVal } from './internal/export-val.js';

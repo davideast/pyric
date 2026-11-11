@@ -21,6 +21,10 @@ import {
   type DatabaseUrlMetadata,
 } from './database-shell.js';
 import { AdminListenerTable } from './listener-table.js';
+import {
+  buildRemoteOnDisconnect,
+  remoteDatabaseConnectionControls,
+} from './on-disconnect.js';
 import { createQuerySurface, toWireQuerySpec } from './query.js';
 import {
   attachRemoteListener,
@@ -42,6 +46,7 @@ import {
   notImplemented,
   type Database,
   type DataSnapshot,
+  type OnDisconnect,
   type Reference,
   type ThenableReference,
 } from './types.js';
@@ -74,8 +79,11 @@ export function getRemoteDatabase(
     listeners: new AdminListenerTable(),
   };
   const state = entry.state;
-  return buildDatabaseShell(app, urlMeta, (dbHandle, path, meta) =>
-    buildRemoteRef(state, dbHandle, path, meta),
+  return buildDatabaseShell(
+    app,
+    urlMeta,
+    (dbHandle, path, meta) => buildRemoteRef(state, dbHandle, path, meta),
+    remoteDatabaseConnectionControls(state.channel, state.instance),
   );
 }
 
@@ -225,8 +233,8 @@ function buildRemoteRef(
       return refAt(joinPath([...segs, ...pathSegments(p)]));
     },
 
-    onDisconnect(): never {
-      throw notImplemented('onDisconnect');
+    onDisconnect(): OnDisconnect {
+      return buildRemoteOnDisconnect(canonical, (op) => relayRtdbOp(state, op));
     },
     transaction(..._args: unknown[]): never {
       throw notImplemented('transaction');

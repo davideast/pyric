@@ -38,6 +38,10 @@ import {
   type LocalListenBackend,
   type LocalListenTarget,
 } from './local-listeners.js';
+import {
+  buildLocalOnDisconnect,
+  localDatabaseConnectionControls,
+} from './on-disconnect.js';
 import { createQuerySurface } from './query.js';
 import {
   joinPath,
@@ -51,6 +55,7 @@ import {
   type Database,
   type DataSnapshot,
   type JsonValue,
+  type OnDisconnect,
   type Reference,
   type ThenableReference,
 } from './types.js';
@@ -113,8 +118,11 @@ export function getLocalDatabase(
     entry.backend = resolved.backend;
   }
   const instanceState = entry as Required<LocalInstance>;
-  return buildDatabaseShell(app, urlMeta, (handle, path, meta) =>
-    buildSandboxRef(instanceState, handle, path, meta),
+  return buildDatabaseShell(
+    app,
+    urlMeta,
+    (handle, path, meta) => buildSandboxRef(instanceState, handle, path, meta),
+    localDatabaseConnectionControls(instanceState.adminDb),
   );
 }
 
@@ -230,8 +238,8 @@ function buildSandboxRef(
       return refAt(joinPath(absSegs));
     },
 
-    onDisconnect(): never {
-      throw notImplemented('onDisconnect');
+    onDisconnect(): OnDisconnect {
+      return buildLocalOnDisconnect(adminDb, canonical);
     },
     transaction(..._args: unknown[]): never {
       throw notImplemented('transaction');
