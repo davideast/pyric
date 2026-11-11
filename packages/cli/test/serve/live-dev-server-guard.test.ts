@@ -5,7 +5,7 @@
  *
  * - opens a connection to Google's token endpoint, as app code in the dev
  *   server could, which goes out unimpeded (to a closed loopback port, by its
- *   own lookup);
+ *   own lookup, to a port bound and closed for it);
  * - sends `storage.provision` and `assurance.testRulesHosted` with
  *   `allowProduction` and `confirm: true` to the hosted method route, as
  *   `pyric storage provision --allow-production` does, and `storage.status`
@@ -21,6 +21,7 @@ import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, 
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
+import { closedPort } from '../closed-port.js';
 
 const cliDir = resolve(import.meta.dir, '../..');
 const repoRoot = resolve(cliDir, '../..');
@@ -55,7 +56,7 @@ const toLoopback = (_host, options, callback) => {
 };
 outcome.token = await new Promise((resolve) => {
   try {
-    const socket = net.connect({ host: 'oauth2.googleapis.com', port: 9, lookup: toLoopback });
+    const socket = net.connect({ host: 'oauth2.googleapis.com', port: Number(process.env.CLOSED_PORT), lookup: toLoopback });
     socket.on('connect', () => { socket.destroy(); resolve('connected'); });
     socket.on('error', (error) => resolve(error.code ?? String(error)));
   } catch (error) {
@@ -88,8 +89,10 @@ process.exit(0);
 `;
 
 let projectDir: string;
+let refusingPort: number;
 
-beforeAll(() => {
+beforeAll(async () => {
+  refusingPort = await closedPort();
   for (const built of [join(cliDir, 'dist/serve/vite-supplied-entry.js'), join(liveDir, 'dist/vite.js')]) {
     if (!existsSync(built)) throw new Error(`${built} missing: build @pyric/cli and @pyric/live first`);
   }
@@ -132,6 +135,7 @@ describe('a live dev server process with pyricLive()', () => {
         GOOGLE_APPLICATION_CREDENTIALS: join(projectDir, 'no-credentials.json'),
         CLOUDSDK_CONFIG: join(projectDir, 'no-gcloud'),
         PYRIC_PROJECT: '',
+        CLOSED_PORT: String(refusingPort),
       },
     });
     const line = result.stdout.split('\n').find((entry) => entry.startsWith('OUTCOME '));
