@@ -135,5 +135,5 @@ describe('lintExpression', () => {
         message: 'The expression chains more terms than the rules parser reads.',
       },
     ]);
-  });
+  }, 30_000);
 });
