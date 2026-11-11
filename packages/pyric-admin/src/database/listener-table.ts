@@ -20,6 +20,24 @@ export interface AdminListenerEntry {
 type ByEventMap = Map<EventType, AdminListenerEntry[]>;
 type ByQueryMap = Map<string, ByEventMap>;
 
+function resolveCandidateQueryIds(queriesAtPath: ByQueryMap, spec: QuerySpec): string[] {
+  const targetQueryId = queryIdentifier(spec);
+  if (targetQueryId === 'default') {
+    return [...queriesAtPath.keys()];
+  }
+  return [targetQueryId];
+}
+
+function resolveCandidateEvents(
+  eventsForQuery: ByEventMap,
+  eventType: EventType | undefined,
+): EventType[] {
+  if (eventType === undefined) {
+    return [...eventsForQuery.keys()];
+  }
+  return [eventType];
+}
+
 export class AdminListenerTable {
   private readonly byPath = new Map<string, ByQueryMap>();
 
@@ -97,11 +115,7 @@ export class AdminListenerTable {
     // `ref.off(...)` on a default unconstrained reference searches every query
     // view at `path`; `query.off(...)` on a constrained/ordered query removes
     // only registrations from that specific query view.
-    const targetQueryId = queryIdentifier(spec);
-    const matchesEveryQueryAtPath = targetQueryId === 'default';
-    const candidateQueryIds = matchesEveryQueryAtPath
-      ? [...queriesAtPath.keys()]
-      : [targetQueryId];
+    const candidateQueryIds = resolveCandidateQueryIds(queriesAtPath, spec);
 
     const removed: AdminListenerEntry[] = [];
 
@@ -109,9 +123,7 @@ export class AdminListenerTable {
       const eventsForQuery = queriesAtPath.get(qId);
       if (eventsForQuery === undefined) continue;
 
-      const candidateEvents = eventType === undefined
-        ? [...eventsForQuery.keys()]
-        : [eventType];
+      const candidateEvents = resolveCandidateEvents(eventsForQuery, eventType);
 
       for (const ev of candidateEvents) {
         const list = eventsForQuery.get(ev);
@@ -151,6 +163,24 @@ export class AdminListenerTable {
 
     // Mark every removed entry inactive first so synchronous teardown or
     // in-turn sibling fanout cannot deliver to a detached observer.
+    for (const entry of removed) {
+      entry.active = false;
+    }
+    for (const entry of removed) {
+      entry.detach();
+    }
+  }
+
+  detachAll(): void {
+    const removed: AdminListenerEntry[] = [];
+    for (const queriesAtPath of this.byPath.values()) {
+      for (const eventsForQuery of queriesAtPath.values()) {
+        for (const list of eventsForQuery.values()) {
+          removed.push(...list);
+        }
+      }
+    }
+    this.byPath.clear();
     for (const entry of removed) {
       entry.active = false;
     }

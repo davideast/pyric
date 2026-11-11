@@ -39,7 +39,7 @@ export function assertValidEventType(
 ): asserts eventType is EventType {
   if (!VALID_EVENT_TYPES.has(eventType)) {
     throw new Error(
-      `Query.${method} failed: First argument must be a valid event type = ` +
+      `Query.${method} failed: eventType argument must be a valid event type = ` +
         '"value", "child_added", "child_removed", "child_changed", or "child_moved".',
     );
   }

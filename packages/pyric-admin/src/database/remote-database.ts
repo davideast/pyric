@@ -6,7 +6,6 @@
 import type {
   RemoteSandbox,
   RemoteSandboxChannel,
-  Sandbox,
 } from 'pyric/sandbox';
 import {
   createDatabaseInstanceRegistry,
@@ -15,6 +14,7 @@ import {
 } from 'pyric/sandbox/internal';
 import { emptySpec, type QuerySpec } from 'pyric/database/internal';
 import type { PyricAdminApp } from '../app/index.js';
+import { onAdminAppDeleted } from '../app/lifecycle.js';
 import {
   buildDatabaseShell,
   formatReferenceUrl,
@@ -24,6 +24,7 @@ import { AdminListenerTable } from './listener-table.js';
 import {
   buildRemoteOnDisconnect,
   remoteDatabaseConnectionControls,
+  type RemoteConnectionState,
 } from './on-disconnect.js';
 import { createQuerySurface, toWireQuerySpec } from './query.js';
 import {
@@ -57,9 +58,29 @@ interface RemoteDbState {
   channel: RemoteSandboxChannel;
   instance: string | undefined;
   listeners: AdminListenerTable;
+  connection: RemoteConnectionState;
 }
 
-const remoteStatesBySandbox = new WeakMap<Sandbox, DatabaseInstanceRegistry<{ state?: RemoteDbState }>>();
+const remoteStatesByApp = new WeakMap<
+  PyricAdminApp,
+  DatabaseInstanceRegistry<{ state?: RemoteDbState }>
+>();
+
+function remoteStatesForApp(
+  app: PyricAdminApp,
+): DatabaseInstanceRegistry<{ state?: RemoteDbState }> {
+  const existing = remoteStatesByApp.get(app);
+  if (existing !== undefined) return existing;
+  const registry: DatabaseInstanceRegistry<{ state?: RemoteDbState }> =
+    createDatabaseInstanceRegistry({ create: () => ({}) });
+  remoteStatesByApp.set(app, registry);
+  onAdminAppDeleted(app, () => {
+    for (const [, entry] of registry.entries()) {
+      entry.state?.listeners.detachAll();
+    }
+  });
+  return registry;
+}
 
 export function getRemoteDatabase(
   app: PyricAdminApp,
@@ -67,23 +88,20 @@ export function getRemoteDatabase(
   instance: DatabaseInstance | undefined,
   urlMeta: DatabaseUrlMetadata,
 ): Database {
-  let registry = remoteStatesBySandbox.get(sandbox);
-  if (registry === undefined) {
-    registry = createDatabaseInstanceRegistry({ create: () => ({}) });
-    remoteStatesBySandbox.set(sandbox, registry);
-  }
+  const registry = remoteStatesForApp(app);
   const entry = registry.getOrCreate(registry.keyOf(instance));
   entry.state ??= {
     channel: sandbox.channel,
     instance: instance?.name,
     listeners: new AdminListenerTable(),
+    connection: { barrier: Promise.resolve(), pending: 0 },
   };
   const state = entry.state;
   return buildDatabaseShell(
     app,
     urlMeta,
     (dbHandle, path, meta) => buildRemoteRef(state, dbHandle, path, meta),
-    remoteDatabaseConnectionControls(state.channel, state.instance),
+    remoteDatabaseConnectionControls(state.channel, state.instance, state.connection),
   );
 }
 
@@ -98,9 +116,12 @@ function normalizeRelayedError(error: unknown): never {
 }
 
 function relayRtdbOp(state: RemoteDbState, op: RemoteRtdbOp): Promise<unknown> {
-  return state.channel
-    .op({ ...op, instance: state.instance, actAs: REMOTE_ADMIN_LENS })
-    .catch(normalizeRelayedError);
+  const dispatch = (): Promise<unknown> =>
+    state.channel.op({ ...op, instance: state.instance, actAs: REMOTE_ADMIN_LENS });
+  if (state.connection.pending > 0) {
+    return state.connection.barrier.then(dispatch).catch(normalizeRelayedError);
+  }
+  return dispatch().catch(normalizeRelayedError);
 }
 
 function buildRemoteRef(
@@ -120,6 +141,10 @@ function buildRemoteRef(
     listeners: state.listeners,
     canonical,
     refAt,
+    waitConnectionBarrier: () => {
+      if (state.connection.pending > 0) return state.connection.barrier;
+      return null;
+    },
   };
 
   const querySurface = createQuerySurface(

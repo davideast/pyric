@@ -122,7 +122,7 @@ describe.each(ARMS)('pyric-admin/database child listeners [$name]', ({ make }) =
 
     expect(() => db.ref('bad').on('invalid' as EventType, () => {})).toThrow(/valid event type/);
     expect(() => db.ref('bad').off('invalid' as EventType)).toThrow(/valid event type/);
-    await expect(db.ref('bad').once('invalid' as EventType)).rejects.toThrow(/valid event type/);
+    expect(() => db.ref('bad').once('invalid' as EventType)).toThrow(/valid event type/);
 
     // Empty collection emits zero initial child_added events.
     const emptySeen: string[] = [];

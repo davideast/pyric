@@ -22,6 +22,7 @@ import {
   type QuerySpec,
 } from 'pyric/database/internal';
 import type { PyricAdminApp } from '../app/index.js';
+import { onAdminAppDeleted } from '../app/lifecycle.js';
 import {
   buildDatabaseShell,
   formatReferenceUrl,
@@ -76,7 +77,24 @@ interface LocalInstance {
   readonly sandbox: Sandbox;
 }
 
-const localInstancesBySandbox = new WeakMap<Sandbox, DatabaseInstanceRegistry<LocalInstance>>();
+const localInstancesByApp = new WeakMap<PyricAdminApp, DatabaseInstanceRegistry<LocalInstance>>();
+const resetBackendsBySandbox = new WeakMap<Sandbox, Set<SharedRtdbBackend>>();
+
+function registerBackendForReset(sandbox: Sandbox, backend: SharedRtdbBackend): void {
+  let tracked = resetBackendsBySandbox.get(sandbox);
+  if (tracked === undefined) {
+    tracked = new Set();
+    resetBackendsBySandbox.set(sandbox, tracked);
+    sandbox.onEvent((event) => {
+      if (event.kind === 'session_boundary' && event.phase === 'reset') {
+        for (const registered of tracked!) {
+          registered.resetTree(true);
+        }
+      }
+    });
+  }
+  tracked.add(backend);
+}
 
 function resolveSharedHandle(
   sandbox: Sandbox,
@@ -86,19 +104,23 @@ function resolveSharedHandle(
   const { backend } = (adminDb as unknown as {
     [TARGET_SYMBOL]: { backend: SharedRtdbBackend };
   })[TARGET_SYMBOL];
+  registerBackendForReset(sandbox, backend);
   return { adminDb, backend };
 }
 
-function localInstances(sandbox: Sandbox): DatabaseInstanceRegistry<LocalInstance> {
-  const existing = localInstancesBySandbox.get(sandbox);
+function localInstances(
+  app: PyricAdminApp,
+  sandbox: Sandbox,
+): DatabaseInstanceRegistry<LocalInstance> {
+  const existing = localInstancesByApp.get(app);
   if (existing !== undefined) return existing;
   const registry: DatabaseInstanceRegistry<LocalInstance> = createDatabaseInstanceRegistry({
     create: () => ({ sandbox, listeners: new AdminListenerTable() }),
   });
-  localInstancesBySandbox.set(sandbox, registry);
-  sandbox.onEvent((event) => {
-    if (event.kind === 'session_boundary' && event.phase === 'reset') {
-      for (const [, entry] of registry.entries()) entry.backend?.resetTree(true);
+  localInstancesByApp.set(app, registry);
+  onAdminAppDeleted(app, () => {
+    for (const [, entry] of registry.entries()) {
+      entry.listeners.detachAll();
     }
   });
   return registry;
@@ -110,7 +132,7 @@ export function getLocalDatabase(
   instance: DatabaseInstance | undefined,
   urlMeta: DatabaseUrlMetadata,
 ): Database {
-  const registry = localInstances(sandbox);
+  const registry = localInstances(app, sandbox);
   const entry = registry.getOrCreate(registry.keyOf(instance));
   if (entry.backend === undefined || entry.adminDb === undefined) {
     const resolved = resolveSharedHandle(sandbox, instance);
@@ -148,7 +170,7 @@ function buildSandboxRef(
 
   const querySurface = createQuerySurface(
     {
-      repoToken: backend,
+      repoToken: instanceState,
       canonicalPath: canonical,
       formattedUrl,
       getBaseRef: () => ref as unknown as Reference,

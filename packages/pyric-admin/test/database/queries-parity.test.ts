@@ -368,11 +368,13 @@ describe('pyric-admin/database — queries and one-shot reads parity', () => {
       const shard = getDatabaseWithUrl('https://demo-proj-shard.firebaseio.com', app);
       expect(base.isEqual(shard.ref('tasks'))).toBe(false);
 
+      expect(base.isEqual(getDatabase(app).ref('tasks'))).toBe(true);
+
       const secondAppSameSandbox = initializeApp(
         { sandbox: app.sandbox, projectId: app.options.projectId },
         `same-sandbox-${label}`,
       );
-      expect(base.isEqual(getDatabase(secondAppSameSandbox).ref('tasks'))).toBe(true);
+      expect(base.isEqual(getDatabase(secondAppSameSandbox).ref('tasks'))).toBe(false);
 
       const otherApp = inProcessApp();
       expect(base.isEqual(getDatabase(otherApp).ref('tasks'))).toBe(false);
@@ -423,9 +425,15 @@ describe('pyric-admin/database — queries and one-shot reads parity', () => {
       expect(() => ref.orderByKey().startAt('a', 'b')).toThrow(/only pass one argument/);
       expect(() => ref.startAt('a', 'b').orderByKey()).toThrow(/only pass one argument/);
 
-      // Undefined and non-primitive endpoint rules.
-      expect(() => ref.startAfter(undefined)).toThrow(/contains undefined/);
-      expect(() => ref.endBefore(undefined)).toThrow(/contains undefined/);
+      // Optional/undefined vs required endpoint rules matching firebase-admin.
+      expect(() => ref.startAfter()).not.toThrow();
+      expect(() => ref.startAfter(undefined)).not.toThrow();
+      expect(() => ref.endBefore()).not.toThrow();
+      expect(() => ref.endBefore(undefined)).not.toThrow();
+      expect(() => ref.orderByKey().startAfter()).toThrow(/must be a string/);
+      expect(() => ref.orderByKey().startAfter(undefined)).toThrow(/must be a string/);
+      expect(() => ref.orderByKey().endBefore()).toThrow(/must be a string/);
+      expect(() => ref.orderByKey().endBefore(undefined)).toThrow(/must be a string/);
       expect(() => ref.equalTo(undefined)).toThrow(/contains undefined/);
       expect(() => ref.orderByChild('x').startAt({ nested: 1 })).toThrow(/cannot be an object/);
       expect(() => ref.orderByValue().endAt({ nested: 1 })).toThrow(/cannot be an object/);

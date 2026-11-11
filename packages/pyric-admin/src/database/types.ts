@@ -3,6 +3,8 @@
  * mirror of `firebase-admin/database`.
  */
 
+import { errorPrefix } from 'pyric/database/internal';
+
 export type EventType = 'value' | 'child_added' | 'child_changed' | 'child_removed' | 'child_moved';
 
 export type SnapshotCallback = (
@@ -64,9 +66,9 @@ export interface Query {
   orderByPriority(): Query;
   orderByValue(): Query;
   startAt(value?: number | string | boolean | object | null, key?: string): Query;
-  startAfter(value: number | string | boolean | object | null | undefined, key?: string): Query;
+  startAfter(value?: number | string | boolean | object | null, key?: string): Query;
   endAt(value?: number | string | boolean | object | null, key?: string): Query;
-  endBefore(value: number | string | boolean | object | null | undefined, key?: string): Query;
+  endBefore(value?: number | string | boolean | object | null, key?: string): Query;
   equalTo(value: number | string | boolean | object | null | undefined, key?: string): Query;
   limitToFirst(limit: number): Query;
   limitToLast(limit: number): Query;
@@ -128,18 +130,73 @@ export function notImplemented(method: string): Error {
   return new Error(`pyric-admin/database sandbox: ${method} not implemented`);
 }
 
-/** Resolve the 3-arg `(eventType, successCb, context)` vs 4-arg `(..., failureCb, context)` `once` overload. */
-export function resolveOnceCallbacks(
-  failureCallbackOrContext?: unknown,
+function isContextObject(candidate: unknown): candidate is object {
+  return candidate !== null && typeof candidate === 'object' && !Array.isArray(candidate);
+}
+
+/** Validate a required or optional listener / completion callback synchronously. */
+export function validateCallbackArg(
+  fnName: string,
+  argumentName: string,
+  callback: unknown,
+  optional: boolean,
+): void {
+  const isOmitted = callback === undefined || callback === null;
+  if (optional && isOmitted) return;
+  if (typeof callback !== 'function') {
+    throw new Error(`${errorPrefix(fnName, argumentName)}must be a valid function.`);
+  }
+}
+
+/** Validate an optional `this`-binding context argument synchronously. */
+export function validateContextArg(
+  fnName: string,
+  argumentName: string,
+  context: unknown,
+): void {
+  const isOmitted = context === undefined || context === null;
+  if (isOmitted) return;
+  if (!isContextObject(context)) {
+    throw new Error(`${errorPrefix(fnName, argumentName)}must be a valid context object.`);
+  }
+}
+
+/**
+ * Validate and resolve the 3-arg `(eventType, cb, cancelOrContext)` vs 4-arg
+ * `(eventType, cb, cancelCb, context)` overloads shared by `Query#on` and
+ * `Query#once`.
+ */
+export function resolveListenerArgs(
+  fnName: 'Query.on' | 'Query.once',
+  cancelOrContext?: unknown,
   context?: unknown,
 ): { failureCb: ((error: Error) => unknown) | undefined; boundContext: unknown } {
-  if (typeof failureCallbackOrContext === 'function') {
-    return {
-      failureCb: failureCallbackOrContext as (error: Error) => unknown,
-      boundContext: context,
-    };
+  const hasCancelOrContext = cancelOrContext !== undefined && cancelOrContext !== null;
+  const hasContext = context !== undefined && context !== null;
+  if (hasContext) {
+    if (hasCancelOrContext) {
+      validateCallbackArg(fnName, 'cancel', cancelOrContext, false);
+    }
+    validateContextArg(fnName, 'context', context);
+    let failureCb: ((error: Error) => unknown) | undefined;
+    if (hasCancelOrContext) {
+      failureCb = cancelOrContext as (error: Error) => unknown;
+    }
+    return { failureCb, boundContext: context };
   }
-  const hasExplicitContext = context !== undefined;
-  const boundContext = hasExplicitContext ? context : failureCallbackOrContext;
-  return { failureCb: undefined, boundContext };
+  if (hasCancelOrContext) {
+    if (typeof cancelOrContext === 'function') {
+      return {
+        failureCb: cancelOrContext as (error: Error) => unknown,
+        boundContext: undefined,
+      };
+    }
+    if (isContextObject(cancelOrContext)) {
+      return { failureCb: undefined, boundContext: cancelOrContext };
+    }
+    throw new Error(
+      `${errorPrefix(fnName, 'cancelOrContext')} must either be a cancel callback or a context object.`,
+    );
+  }
+  return { failureCb: undefined, boundContext: undefined };
 }

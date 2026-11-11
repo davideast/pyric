@@ -27,11 +27,16 @@ import {
 } from 'pyric/database/internal';
 import type { DatabaseConnectionControls } from './database-shell.js';
 import { pathSegments, withOnComplete } from './tree-store.js';
-import type { JsonValue, OnDisconnect } from './types.js';
+import { validateCallbackArg, type JsonValue, type OnDisconnect } from './types.js';
 
 const REMOTE_ADMIN_LENS = { mode: 'admin' } as const;
 
-type DisconnectCompleteCallback = ((a: Error | null) => unknown) | undefined;
+type DisconnectCompleteCallback = ((a: Error | null) => unknown) | null | undefined;
+
+export interface RemoteConnectionState {
+  barrier: Promise<void>;
+  pending: number;
+}
 
 export type RemoteDisconnectRelay = (
   op: { method: `rtdb.${string}`; path: string } & Record<string, unknown>,
@@ -72,10 +77,10 @@ function settleDisconnectPromise(
   promise: Promise<void>,
   onComplete: DisconnectCompleteCallback,
 ): Promise<void> {
-  return withOnComplete(
-    promise,
-    onComplete as ((err: Error | null) => void) | undefined,
-  );
+  const normalizedCallback = (onComplete ?? undefined) as
+    | ((err: Error | null) => void)
+    | undefined;
+  return withOnComplete(promise, normalizedCallback);
 }
 
 export function buildLocalOnDisconnect(
@@ -85,13 +90,16 @@ export function buildLocalOnDisconnect(
   const handle = modularOnDisconnect(modularRef(adminDb, canonical));
   return {
     cancel(onComplete?: DisconnectCompleteCallback): Promise<void> {
+      validateCallbackArg('OnDisconnect.cancel', 'onComplete', onComplete, true);
       return settleDisconnectPromise(handle.cancel(), onComplete);
     },
     remove(onComplete?: DisconnectCompleteCallback): Promise<void> {
+      validateCallbackArg('OnDisconnect.remove', 'onComplete', onComplete, true);
       validateWritablePath('OnDisconnect.remove', canonical);
       return settleDisconnectPromise(handle.remove(), onComplete);
     },
     set(value: unknown, onComplete?: DisconnectCompleteCallback): Promise<void> {
+      validateCallbackArg('OnDisconnect.set', 'onComplete', onComplete, true);
       const stored = validateDisconnectSetValue('OnDisconnect.set', canonical, value);
       return settleDisconnectPromise(handle.set(stored), onComplete);
     },
@@ -100,6 +108,7 @@ export function buildLocalOnDisconnect(
       priority: number | string | null,
       onComplete?: DisconnectCompleteCallback,
     ): Promise<void> {
+      validateCallbackArg('OnDisconnect.setWithPriority', 'onComplete', onComplete, true);
       const stored = validateDisconnectSetValue(
         'OnDisconnect.setWithPriority',
         canonical,
@@ -109,6 +118,7 @@ export function buildLocalOnDisconnect(
       return settleDisconnectPromise(handle.set(stored), onComplete);
     },
     update(values: object, onComplete?: DisconnectCompleteCallback): Promise<void> {
+      validateCallbackArg('OnDisconnect.update', 'onComplete', onComplete, true);
       const patch = validateDisconnectUpdateValues(canonical, values);
       return settleDisconnectPromise(handle.update(patch), onComplete);
     },
@@ -134,12 +144,14 @@ export function buildRemoteOnDisconnect(
 ): OnDisconnect {
   return {
     cancel(onComplete?: DisconnectCompleteCallback): Promise<void> {
+      validateCallbackArg('OnDisconnect.cancel', 'onComplete', onComplete, true);
       return settleDisconnectPromise(
         relayOp({ method: 'rtdb.onDisconnectCancel', path: canonical }).then(() => undefined),
         onComplete,
       );
     },
     remove(onComplete?: DisconnectCompleteCallback): Promise<void> {
+      validateCallbackArg('OnDisconnect.remove', 'onComplete', onComplete, true);
       validateWritablePath('OnDisconnect.remove', canonical);
       return settleDisconnectPromise(
         relayOp({ method: 'rtdb.onDisconnectRemove', path: canonical }).then(() => undefined),
@@ -147,6 +159,7 @@ export function buildRemoteOnDisconnect(
       );
     },
     set(value: unknown, onComplete?: DisconnectCompleteCallback): Promise<void> {
+      validateCallbackArg('OnDisconnect.set', 'onComplete', onComplete, true);
       const stored = validateDisconnectSetValue('OnDisconnect.set', canonical, value);
       return settleDisconnectPromise(
         relayOp({ method: 'rtdb.onDisconnectSet', path: canonical, value: stored }).then(
@@ -160,6 +173,7 @@ export function buildRemoteOnDisconnect(
       priority: number | string | null,
       onComplete?: DisconnectCompleteCallback,
     ): Promise<void> {
+      validateCallbackArg('OnDisconnect.setWithPriority', 'onComplete', onComplete, true);
       const stored = validateDisconnectSetValue(
         'OnDisconnect.setWithPriority',
         canonical,
@@ -174,6 +188,7 @@ export function buildRemoteOnDisconnect(
       );
     },
     update(values: object, onComplete?: DisconnectCompleteCallback): Promise<void> {
+      validateCallbackArg('OnDisconnect.update', 'onComplete', onComplete, true);
       const patch = validateDisconnectUpdateValues(canonical, values);
       return settleDisconnectPromise(
         relayOp({ method: 'rtdb.onDisconnectUpdate', path: canonical, values: patch }).then(
@@ -185,20 +200,39 @@ export function buildRemoteOnDisconnect(
   };
 }
 
+function enqueueRemoteConnectionOp(
+  channel: RemoteSandboxChannel,
+  instance: string | undefined,
+  connection: RemoteConnectionState,
+  method: 'rtdb.goOffline' | 'rtdb.goOnline',
+): void {
+  connection.pending += 1;
+  const run = (): Promise<unknown> =>
+    channel.op({ method, instance, actAs: REMOTE_ADMIN_LENS });
+  let next: Promise<unknown>;
+  if (connection.pending === 1) {
+    // Dispatch immediately on the current tick while still gating follow-up ops.
+    next = run();
+  } else {
+    next = connection.barrier.then(run);
+  }
+  const settle = (): void => {
+    connection.pending -= 1;
+  };
+  connection.barrier = next.then(settle, settle);
+}
+
 export function remoteDatabaseConnectionControls(
   channel: RemoteSandboxChannel,
   instance: string | undefined,
+  connection: RemoteConnectionState,
 ): DatabaseConnectionControls {
   return {
     goOffline(): void {
-      void channel
-        .op({ method: 'rtdb.goOffline', instance, actAs: REMOTE_ADMIN_LENS })
-        .catch(() => undefined);
+      enqueueRemoteConnectionOp(channel, instance, connection, 'rtdb.goOffline');
     },
     goOnline(): void {
-      void channel
-        .op({ method: 'rtdb.goOnline', instance, actAs: REMOTE_ADMIN_LENS })
-        .catch(() => undefined);
+      enqueueRemoteConnectionOp(channel, instance, connection, 'rtdb.goOnline');
     },
   };
 }

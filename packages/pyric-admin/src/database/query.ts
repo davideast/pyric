@@ -73,6 +73,11 @@ export interface QueryExecutionHooks {
   ) => void;
 }
 
+function defaultNullEndpoint(value: unknown): JsonValue {
+  if (value === undefined) return null;
+  return value as JsonValue;
+}
+
 function readQueryMetadata(candidate: unknown): AdminQueryMetadata | undefined {
   const isObject = candidate !== null && typeof candidate === 'object';
   if (!isObject) return undefined;
@@ -191,11 +196,12 @@ export function createQuerySurface(
       });
     },
 
-    startAfter(value: unknown, key?: string): Query {
+    startAfter(value?: unknown, key?: string): Query {
       validateCursorKey('startAfter', key);
+      const normalized = defaultNullEndpoint(value);
       return extendQuery(hooks, spec, {
         kind: 'bound',
-        bound: { kind: 'startAfter', value: value as JsonValue, key },
+        bound: { kind: 'startAfter', value: normalized, key },
       });
     },
 
@@ -208,11 +214,12 @@ export function createQuerySurface(
       });
     },
 
-    endBefore(value: unknown, key?: string): Query {
+    endBefore(value?: unknown, key?: string): Query {
       validateCursorKey('endBefore', key);
+      const normalized = defaultNullEndpoint(value);
       return extendQuery(hooks, spec, {
         kind: 'bound',
-        bound: { kind: 'endBefore', value: value as JsonValue, key },
+        bound: { kind: 'endBefore', value: normalized, key },
       });
     },
 
