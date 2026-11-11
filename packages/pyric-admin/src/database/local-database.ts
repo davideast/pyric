@@ -35,6 +35,7 @@ import {
   detachLocalListener,
   exportedLocalValueAt,
   onceLocalListener,
+  type LocalListenBackend,
   type LocalListenTarget,
 } from './local-listeners.js';
 import { createQuerySurface } from './query.js';
@@ -54,14 +55,8 @@ import {
   type ThenableReference,
 } from './types.js';
 
-interface SharedRtdbBackend {
-  adminGet(path: string): JsonValue;
+interface SharedRtdbBackend extends LocalListenBackend {
   adminGetQuery(path: string, spec: QuerySpec): QueryRow[];
-  adminOnValue(
-    path: string,
-    cb: (snap: { val: JsonValue; exists: boolean; key: string | null; rows?: QueryRow[] }) => void,
-    query?: QuerySpec,
-  ): () => void;
   adminSet(path: string, value: JsonValue): void;
   adminUpdate(path: string, patch: Record<string, JsonValue>): void;
   adminRemove(path: string): void;

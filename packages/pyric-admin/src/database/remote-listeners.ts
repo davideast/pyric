@@ -5,11 +5,16 @@
 
 import type { RemoteSandboxChannel } from 'pyric/sandbox';
 import { normalizeNode, type QuerySpec } from 'pyric/database/internal';
+import {
+  assertValidEventType,
+  ChildWindowDiffer,
+  isChildEventType,
+} from './child-diff.js';
 import { buildSandboxSnap } from './data-snapshot.js';
 import type { AdminListenerTable } from './listener-table.js';
 import { toWireQuerySpec, type WireQuerySpec } from './query.js';
+import { joinPath, pathSegments } from './tree-store.js';
 import {
-  notImplemented,
   resolveOnceCallbacks,
   type DataSnapshot,
   type EventType,
@@ -62,9 +67,10 @@ export function hydrateRemoteWireSnapshot(
   );
 }
 
-function subscribeRemoteRtdbValue(
+function subscribeRemoteRtdb(
   target: RemoteListenTarget,
   wireQuery: WireQuerySpec | undefined,
+  eventType: EventType,
   onSnap: (value: unknown) => void,
   onError: (err: Error & { code: string }) => void,
 ): () => void {
@@ -76,6 +82,9 @@ function subscribeRemoteRtdbValue(
   if (wireQuery !== undefined) {
     subTarget.query = wireQuery;
   }
+  if (eventType !== 'value') {
+    subTarget.event = eventType;
+  }
   return target.channel.subscribe(
     { target: subTarget, actAs: REMOTE_ADMIN_LENS },
     onSnap,
@@ -83,7 +92,7 @@ function subscribeRemoteRtdbValue(
   );
 }
 
-export function onceRemoteListener(
+export async function onceRemoteListener(
   target: RemoteListenTarget,
   spec: QuerySpec,
   eventType: EventType,
@@ -91,11 +100,12 @@ export function onceRemoteListener(
   failureCallbackOrContext?: unknown,
   context?: unknown,
 ): Promise<DataSnapshot> {
-  if (eventType !== 'value') {
-    throw notImplemented(`once('${eventType}')`);
-  }
+  assertValidEventType('once', eventType);
+  const segs = pathSegments(target.canonical);
   const wireQuery = toWireQuerySpec(spec);
   const { failureCb, boundContext } = resolveOnceCallbacks(failureCallbackOrContext, context);
+  const differ = isChildEventType(eventType) ? new ChildWindowDiffer(spec, eventType) : null;
+
   return new Promise<DataSnapshot>((resolve, reject) => {
     let detach: (() => void) | null = null;
     let isSettled = false;
@@ -112,33 +122,56 @@ export function onceRemoteListener(
       reject(err);
       if (detach) detach();
     };
+    const resolveOnce = (snap: DataSnapshot, prevKey: string | null) => {
+      isSettled = true;
+      if (detach) {
+        const fn = detach;
+        detach = null;
+        fn();
+      }
+      if (typeof successCb === 'function') {
+        try {
+          (successCb as SnapshotCallback).call(boundContext, snap, prevKey);
+        } catch {
+          // Callback error does not reject the once() promise once snapshot arrived.
+        }
+      }
+      resolve(snap);
+    };
     try {
-      detach = subscribeRemoteRtdbValue(
+      detach = subscribeRemoteRtdb(
         target,
         wireQuery,
+        eventType,
         (value) => {
           if (isSettled) return;
-          isSettled = true;
-          const snap = hydrateRemoteWireSnapshot(
-            target.refAt,
-            target.canonical,
-            value as RemoteWireSnapshot,
-          );
-          if (typeof successCb === 'function') {
-            try {
-              (successCb as (s: DataSnapshot) => unknown).call(boundContext, snap);
-            } catch {
-              // Callback error does not reject the once() promise once snapshot arrived.
-            }
+          const wire = value as RemoteWireSnapshot;
+          if (differ !== null) {
+            const deltas = differ.consume(wire);
+            if (deltas.length === 0) return;
+            const first = deltas[0]!;
+            const childPath = joinPath([...segs, first.key]);
+            const childSnap = buildSandboxSnap(
+              target.refAt,
+              childPath,
+              first.value,
+              first.exportValue,
+            );
+            resolveOnce(childSnap, first.previousChildName);
+            return;
           }
-          resolve(snap);
-          if (detach) detach();
+          const snap = hydrateRemoteWireSnapshot(target.refAt, target.canonical, wire);
+          resolveOnce(snap, null);
         },
         (err) => {
           failOnce(err);
         },
       );
-      if (isSettled) detach();
+      if (isSettled && detach) {
+        const fn = detach;
+        detach = null;
+        fn();
+      }
     } catch (err) {
       failOnce(err as Error);
     }
@@ -153,12 +186,12 @@ export function attachRemoteListener(
   cancelCallbackOrContext?: ((error: Error) => unknown) | object | null,
   context?: object | null,
 ): SnapshotCallback {
-  if (eventType !== 'value') {
-    throw notImplemented(`on('${eventType}')`);
-  }
+  assertValidEventType('on', eventType);
+  const segs = pathSegments(target.canonical);
   const wireQuery = toWireQuerySpec(spec);
   const { failureCb, boundContext } = resolveOnceCallbacks(cancelCallbackOrContext, context);
   const normalizedContext = boundContext ?? undefined;
+  const differ = isChildEventType(eventType) ? new ChildWindowDiffer(spec, eventType) : null;
 
   const entry = target.listeners.register(
     target.canonical,
@@ -177,16 +210,33 @@ export function attachRemoteListener(
   };
 
   let erroredSynchronously = false;
-  const attachedUnsub = subscribeRemoteRtdbValue(
+  const attachedUnsub = subscribeRemoteRtdb(
     target,
     wireQuery,
+    eventType,
     (value) => {
       if (!entry.active) return;
-      const snap = hydrateRemoteWireSnapshot(
-        target.refAt,
-        target.canonical,
-        value as RemoteWireSnapshot,
-      );
+      const wire = value as RemoteWireSnapshot;
+      if (differ !== null) {
+        const deltas = differ.consume(wire);
+        for (const delta of deltas) {
+          if (!entry.active) break;
+          const childPath = joinPath([...segs, delta.key]);
+          const childSnap = buildSandboxSnap(
+            target.refAt,
+            childPath,
+            delta.value,
+            delta.exportValue,
+          );
+          try {
+            callback.call(normalizedContext, childSnap, delta.previousChildName);
+          } catch {
+            // Isolate listener callback errors across multi-child window batches.
+          }
+        }
+        return;
+      }
+      const snap = hydrateRemoteWireSnapshot(target.refAt, target.canonical, wire);
       callback.call(normalizedContext, snap, null);
     },
     (err) => {
@@ -202,7 +252,8 @@ export function attachRemoteListener(
       }
     },
   );
-  if (entry.active && !erroredSynchronously) {
+  const shouldRetainUnsub = entry.active && !erroredSynchronously;
+  if (shouldRetainUnsub) {
     unsub = attachedUnsub;
   } else {
     attachedUnsub();
@@ -217,6 +268,9 @@ export function detachRemoteListener(
   callback?: SnapshotCallback,
   context?: object | null,
 ): void {
+  if (eventType !== undefined) {
+    assertValidEventType('off', eventType);
+  }
   const normalizedContext = context ?? undefined;
   target.listeners.detachMatching(
     target.canonical,

@@ -1,6 +1,7 @@
 /**
  * Local in-process RTDB listener registration (`on`, `off`, `once`) backed by
- * the shared `RtdbBackend#adminOnValue` plane and `AdminListenerTable`.
+ * `RtdbBackend#adminOnValue` / `RtdbBackend#adminOnChild` and
+ * `AdminListenerTable`.
  */
 
 import type { Database as ModularDatabase } from 'pyric/database';
@@ -9,14 +10,19 @@ import {
   exportDatabaseVal,
   isDefaultQuerySpec,
   valueAtChildPath,
+  type Priority,
   type QueryRow,
   type QuerySpec,
 } from 'pyric/database/internal';
+import {
+  assertValidEventType,
+  isChildEventType,
+  type ChildEventType,
+} from './child-diff.js';
 import { buildSandboxSnap, type SnapshotChildEntry } from './data-snapshot.js';
 import type { AdminListenerTable } from './listener-table.js';
-import { pathSegments } from './tree-store.js';
+import { joinPath, pathSegments } from './tree-store.js';
 import {
-  notImplemented,
   resolveOnceCallbacks,
   type DataSnapshot,
   type EventType,
@@ -25,12 +31,25 @@ import {
   type SnapshotCallback,
 } from './types.js';
 
+export interface LocalChildRawEvent {
+  key: string;
+  val: JsonValue;
+  previousChildName: string | null;
+  priorities?: Record<string, Priority>;
+}
+
 export interface LocalListenBackend {
   adminGet(path: string): JsonValue;
   adminOnValue(
     path: string,
     cb: (snap: { val: JsonValue; exists: boolean; key: string | null; rows?: QueryRow[] }) => void,
     query?: QuerySpec,
+  ): () => void;
+  adminOnChild(
+    event: ChildEventType,
+    path: string,
+    cb: (snap: LocalChildRawEvent) => void,
+    spec?: QuerySpec,
   ): () => void;
 }
 
@@ -50,6 +69,41 @@ export function exportedLocalValueAt(
   if (val === null) return null;
   const rootExported = exportDatabaseVal(adminDb);
   return segs.length === 0 ? rootExported : valueAtChildPath(rootExported, segs);
+}
+
+function exportFromRecordedPriorities(
+  path: string,
+  val: JsonValue,
+  priorities: Readonly<Record<string, Priority>>,
+): JsonValue {
+  if (val === null) return null;
+  const priority = priorities[path] ?? null;
+  const isLeaf = typeof val !== 'object' || Array.isArray(val);
+  if (isLeaf) {
+    return priority === null ? val : { '.value': val, '.priority': priority };
+  }
+  const out: Record<string, JsonValue> = {};
+  for (const [key, childVal] of Object.entries(val as Record<string, JsonValue>)) {
+    const childPath = path === '/' ? `/${key}` : `${path}/${key}`;
+    out[key] = exportFromRecordedPriorities(childPath, childVal, priorities);
+  }
+  if (priority !== null) {
+    out['.priority'] = priority;
+  }
+  return out;
+}
+
+function hydrateLocalChildSnap(
+  target: LocalListenTarget,
+  parentSegs: readonly string[],
+  raw: LocalChildRawEvent,
+): DataSnapshot {
+  const childSegs = [...parentSegs, raw.key];
+  const childPath = joinPath(childSegs);
+  const exported = raw.priorities !== undefined
+    ? exportFromRecordedPriorities(childPath, raw.val, raw.priorities)
+    : exportedLocalValueAt(target.adminDb, childSegs, raw.val);
+  return buildSandboxSnap(target.refAt, childPath, raw.val, exported);
 }
 
 export function buildLocalQuerySnapshot(
@@ -112,6 +166,63 @@ function hydrateLocalValueSnap(
   );
 }
 
+function onceLocalChildListener(
+  target: LocalListenTarget,
+  segs: readonly string[],
+  spec: QuerySpec,
+  eventType: ChildEventType,
+  successCb: unknown,
+  failureCb: ((error: Error) => unknown) | undefined,
+  boundContext: unknown,
+): Promise<DataSnapshot> {
+  const isQuery = !isDefaultQuerySpec(spec);
+  return new Promise<DataSnapshot>((resolve, reject) => {
+    let detach: (() => void) | undefined;
+    let isSettled = false;
+    try {
+      assertGettablePath(target.canonical);
+      const attachedUnsub = target.backend.adminOnChild(
+        eventType,
+        target.canonical,
+        (raw) => {
+          if (isSettled) return;
+          isSettled = true;
+          if (detach !== undefined) {
+            const fn = detach;
+            detach = undefined;
+            fn();
+          }
+          const snap = hydrateLocalChildSnap(target, segs, raw);
+          const prevKey = eventType === 'child_removed' ? null : raw.previousChildName;
+          if (typeof successCb === 'function') {
+            try {
+              (successCb as SnapshotCallback).call(boundContext, snap, prevKey);
+            } catch {
+              // Callback error does not reject the once() promise once snapshot arrived.
+            }
+          }
+          resolve(snap);
+        },
+        isQuery ? spec : undefined,
+      );
+      if (isSettled) {
+        attachedUnsub();
+      } else {
+        detach = attachedUnsub;
+      }
+    } catch (err) {
+      if (failureCb !== undefined) {
+        try {
+          failureCb.call(boundContext, err as Error);
+        } catch {
+          // Ignore secondary callback throw before rejecting with the read error.
+        }
+      }
+      reject(err);
+    }
+  });
+}
+
 export async function onceLocalListener(
   target: LocalListenTarget,
   spec: QuerySpec,
@@ -120,11 +231,12 @@ export async function onceLocalListener(
   failureCallbackOrContext?: unknown,
   context?: unknown,
 ): Promise<DataSnapshot> {
-  if (eventType !== 'value') {
-    throw notImplemented(`once('${eventType}')`);
-  }
+  assertValidEventType('once', eventType);
   const segs = pathSegments(target.canonical);
   const { failureCb, boundContext } = resolveOnceCallbacks(failureCallbackOrContext, context);
+  if (isChildEventType(eventType)) {
+    return onceLocalChildListener(target, segs, spec, eventType, successCb, failureCb, boundContext);
+  }
   let snap: DataSnapshot;
   try {
     assertGettablePath(target.canonical);
@@ -176,9 +288,7 @@ export function attachLocalListener(
   cancelCallbackOrContext?: ((error: Error) => unknown) | object | null,
   context?: object | null,
 ): SnapshotCallback {
-  if (eventType !== 'value') {
-    throw notImplemented(`on('${eventType}')`);
-  }
+  assertValidEventType('on', eventType);
   const segs = pathSegments(target.canonical);
   const { failureCb, boundContext } = resolveOnceCallbacks(cancelCallbackOrContext, context);
   const normalizedContext = boundContext ?? undefined;
@@ -201,15 +311,30 @@ export function attachLocalListener(
   };
 
   try {
-    const attachedUnsub = target.backend.adminOnValue(
-      target.canonical,
-      (raw) => {
-        if (!entry.active) return;
-        const snap = hydrateLocalValueSnap(target, segs, isQuery, raw);
-        callback.call(normalizedContext, snap, null);
-      },
-      isQuery ? spec : undefined,
-    );
+    let attachedUnsub: () => void;
+    if (isChildEventType(eventType)) {
+      attachedUnsub = target.backend.adminOnChild(
+        eventType,
+        target.canonical,
+        (raw) => {
+          if (!entry.active) return;
+          const snap = hydrateLocalChildSnap(target, segs, raw);
+          const prevKey = eventType === 'child_removed' ? null : raw.previousChildName;
+          callback.call(normalizedContext, snap, prevKey);
+        },
+        isQuery ? spec : undefined,
+      );
+    } else {
+      attachedUnsub = target.backend.adminOnValue(
+        target.canonical,
+        (raw) => {
+          if (!entry.active) return;
+          const snap = hydrateLocalValueSnap(target, segs, isQuery, raw);
+          callback.call(normalizedContext, snap, null);
+        },
+        isQuery ? spec : undefined,
+      );
+    }
     if (entry.active) {
       unsub = attachedUnsub;
     } else {
@@ -235,6 +360,9 @@ export function detachLocalListener(
   callback?: SnapshotCallback,
   context?: object | null,
 ): void {
+  if (eventType !== undefined) {
+    assertValidEventType('off', eventType);
+  }
   const normalizedContext = context ?? undefined;
   target.listeners.detachMatching(
     target.canonical,

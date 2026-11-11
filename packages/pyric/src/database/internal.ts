@@ -6,6 +6,7 @@ export { isDefaultQuerySpec, queryIdentifier } from './query-shape.js';
 export {
   applyConstraint,
   emptySpec,
+  extractOrderValue,
   type Bound,
   type Constraint,
   type LimitKind,
