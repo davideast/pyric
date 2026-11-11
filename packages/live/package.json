@@ -1,6 +1,6 @@
 {
   "name": "@pyric/live",
-  "version": "0.1.0-alpha.34",
+  "version": "0.1.0-alpha.35",
   "type": "module",
   "bin": {
     "pyric-live": "./dist/cli.js"
