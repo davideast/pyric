@@ -1,7 +1,7 @@
 /**
  * The public `pyric/rules` front door.
  *
- * Exercises both constructors, the tolerant free `lint`, the assertion
+ * Exercises the three constructors, the tolerant free `lint`, the assertion
  * adapter, and the structured trace shapes — the whole curated surface a
  * consumer sees. Uses the owner's canonical two-case `notes/n1` scenario:
  * an owner-scoped notes collection where the owner may read and a stranger
@@ -10,6 +10,7 @@
 import { describe, test, expect } from 'bun:test';
 import {
   firestoreRules,
+  storageRules,
   rtdbRules,
   lint,
   assertCase,
@@ -24,6 +25,8 @@ import {
   deny,
   expr,
   type FirestoreCase,
+  type StorageCase,
+  type StorageRuleset,
   type RtdbCase,
   type RuleIssue,
 } from '@pyric/rules';
@@ -204,6 +207,40 @@ service firebase.storage {
 }`;
     expect(() => firestoreRules(storageSource)).toThrow(RulesCompileError);
     expect(() => firestoreRules(storageSource)).toThrow("Expected 'service cloud.firestore', got 'service firebase.storage'.");
+  });
+});
+
+describe('storageRules constructor', () => {
+  const PHOTOS_RULES = `rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /photos/{uid}/{file} {
+      allow read: if request.auth != null && request.auth.uid == uid;
+    }
+  }
+}`;
+  const OWNER_READ: StorageCase = {
+    description: 'owner reads their photo',
+    expectation: 'ALLOW',
+    method: 'get',
+    bucket: 'demo-app.appspot.com',
+    path: 'photos/alice/a.png',
+    auth: { uid: 'alice' },
+    resource: { size: 5, contentType: 'image/png' },
+  };
+
+  test('compiles Storage source and simulates, explains and asserts cases', () => {
+    const ruleset: StorageRuleset = storageRules(PHOTOS_RULES);
+    const stranger: StorageCase = { ...OWNER_READ, description: 'stranger reads it', expectation: 'DENY', auth: { uid: 'mallory' } };
+    const summary = ruleset.simulate([OWNER_READ, stranger]);
+    expect(summary).toMatchObject({ passed: 2, failed: 0, unsupported: 0 });
+    expect(ruleset.explain(stranger).decision).toBe('DENY');
+    expect(() => assertCase(ruleset, OWNER_READ)).not.toThrow();
+    expect(Array.isArray(ruleset.lint())).toBe(true);
+  });
+
+  test('rejects service cloud.firestore rulesets with RulesCompileError', () => {
+    expect(() => storageRules(NOTES_RULES)).toThrow(RulesCompileError);
   });
 });
 

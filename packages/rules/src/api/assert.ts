@@ -16,6 +16,7 @@
 import { firestoreRules } from './firestore.js';
 import type { FirestoreRuleset } from './firestore.js';
 import type { RtdbRuleset } from './rtdb.js';
+import type { StorageRuleset } from './storage.js';
 import { RulesAssertionError, RulesUnsupportedError } from './errors.js';
 import type { RuleEvaluation } from '../test/spec.js';
 import type {
@@ -24,10 +25,18 @@ import type {
   RtdbCase,
   RtdbCaseResult,
   RtdbRuleEvaluation,
+  StorageCase,
+  StorageCaseResult,
 } from './case-types.js';
 
-function isRtdbResult(r: CaseResult | RtdbCaseResult): r is RtdbCaseResult {
+type AnyCaseResult = CaseResult | RtdbCaseResult | StorageCaseResult;
+
+function isRtdbResult(r: AnyCaseResult): r is RtdbCaseResult {
   return 'matchedRule' in r;
+}
+
+function isStorageResult(r: AnyCaseResult): r is StorageCaseResult {
+  return 'service' in r && r.service === 'storage';
 }
 
 // ─── Trace rendering ─────────────────────────────────────────────────
@@ -98,18 +107,35 @@ function renderRtdb(r: RtdbCaseResult): string {
   return lines.join('\n');
 }
 
+function renderStorage(r: StorageCaseResult): string {
+  const status = r.unsupported ? 'UNSUPPORTED' : r.passed ? 'PASS' : 'FAIL';
+  const bucket = r.bucket === undefined ? '' : ` in ${r.bucket}`;
+  const lines: string[] = [
+    `${status}: ${r.description}`,
+    `  ${r.case.method} ${r.case.path}${bucket} (expected ${r.expectation}, got ${r.decision})`,
+  ];
+  if (r.decidingRule !== undefined) {
+    const line = r.decidingRule.line === undefined ? '' : ` (line ${r.decidingRule.line})`;
+    lines.push(`  deciding rule: ${r.decidingRule.path}${line}`);
+  }
+  for (const reason of r.reasons) lines.push(`  reason: ${reason}`);
+  return lines.join('\n');
+}
+
 /**
  * Render a case result as a human-readable trace. The single sanctioned
  * trace renderer — used as the message of the error `assertCase` throws, and
  * available directly for logging a result without asserting.
  */
-export function explainCase(result: CaseResult | RtdbCaseResult): string {
-  return isRtdbResult(result) ? renderRtdb(result) : renderFirestore(result);
+export function explainCase(result: AnyCaseResult): string {
+  if (isRtdbResult(result)) return renderRtdb(result);
+  if (isStorageResult(result)) return renderStorage(result);
+  return renderFirestore(result);
 }
 
 // ─── assertCase ──────────────────────────────────────────────────────
 
-function assertResult(result: CaseResult | RtdbCaseResult): void {
+function assertResult(result: AnyCaseResult): void {
   if (result.unsupported) {
     throw new RulesUnsupportedError(explainCase(result));
   }
@@ -124,27 +150,28 @@ function assertResult(result: CaseResult | RtdbCaseResult): void {
  * {@link RulesAssertionError}. Both carry the {@link explainCase} trace as
  * their message. Returns `void` on a passing result.
  */
-export function assertCase(result: CaseResult | RtdbCaseResult): void;
+export function assertCase(result: AnyCaseResult): void;
 /**
  * Simulate one case against a ruleset and throw on a miss — the runner
  * form: `for (const c of cases) test(c.description, () => assertCase(ruleset, c))`.
  */
 export function assertCase(ruleset: FirestoreRuleset, oneCase: FirestoreCase): void;
 export function assertCase(ruleset: RtdbRuleset, oneCase: RtdbCase): void;
+export function assertCase(ruleset: StorageRuleset, oneCase: StorageCase): void;
 /** Convenience: compile Firestore source and assert one case against it. */
 export function assertCase(source: string, oneCase: FirestoreCase): void;
 export function assertCase(
-  first: CaseResult | RtdbCaseResult | FirestoreRuleset | RtdbRuleset | string,
-  oneCase?: FirestoreCase | RtdbCase,
+  first: AnyCaseResult | FirestoreRuleset | RtdbRuleset | StorageRuleset | string,
+  oneCase?: FirestoreCase | RtdbCase | StorageCase,
 ): void {
   if (oneCase === undefined) {
-    assertResult(first as CaseResult | RtdbCaseResult);
+    assertResult(first as AnyCaseResult);
     return;
   }
-  const ruleset: FirestoreRuleset | RtdbRuleset =
+  const ruleset: FirestoreRuleset | RtdbRuleset | StorageRuleset =
     typeof first === 'string'
       ? firestoreRules(first)
-      : (first as FirestoreRuleset | RtdbRuleset);
+      : (first as FirestoreRuleset | RtdbRuleset | StorageRuleset);
   // `simulate` on either ruleset accepts a one-element array of the matching
   // case type and returns one result.
   const summary = (ruleset as FirestoreRuleset).simulate([oneCase as FirestoreCase]);

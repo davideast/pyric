@@ -2,10 +2,11 @@
  * `pyric/rules` — author, lint, simulate, and assert Firebase security
  * rules, in process, without a deployment.
  *
- * The surface is small on purpose. Two named constructors return deep,
+ * The surface is small on purpose. Three named constructors return deep,
  * safe-by-default handles:
  *
  *   firestoreRules(source) → lint() · simulate(cases) · explain(case) · toJSON()
+ *   storageRules(source, { bucket }) → lint() · simulate(cases) · explain(case)
  *   rtdbRules(defOrDocOrJson) → lint() · simulate(cases) · explain(case) · toJSON()
  *
  * Compiling unparseable source throws {@link RulesCompileError}; past that,
@@ -20,14 +21,16 @@
  * the value helpers (`serverTimestamp`, `timestamp`, …) are re-exported here
  * as siblings.
  *
- * Storage rules are not covered here (yet). The lower-level engine —
- * simulator handlers, parser/AST, resolver, wrappers — is engine-internal;
- * package-internal consumers reach it through `pyric/rules/internal`.
+ * The lower-level engine (simulator handlers, parser/AST, resolver,
+ * wrappers, the Storage evaluator) is engine-internal; package-internal
+ * consumers reach it through `@pyric/rules/internal*`.
  */
 
 // ─── Constructors ────────────────────────────────────────────────────
 export { firestoreRules } from './api/firestore.js';
 export type { FirestoreRuleset } from './api/firestore.js';
+export { storageRules } from './api/storage.js';
+export type { StorageRuleset, StorageRulesOptions } from './api/storage.js';
 export { rtdbRules } from './api/rtdb.js';
 export type { RtdbRuleset, RtdbRulesConstructor } from './api/rtdb.js';
 export type { RtdbFirebaseJsonOptions } from './api/rtdb-firebase-json.js';
@@ -52,7 +55,7 @@ export type {
   RuleIssueOrigin,
 } from './api/issue.js';
 
-// ─── Case + result vocabulary (Firestore and RTDB kept distinct) ─────
+// ─── Case + result vocabulary (each service kept distinct) ───────────
 export type {
   FirestoreCase,
   CaseResult,
@@ -65,7 +68,18 @@ export type {
   RtdbExplanation,
   RtdbRuleEvaluation,
   RtdbSimulationSummary,
+  StorageCase,
+  StorageCaseMethod,
+  StorageCaseResult,
+  StorageExplanation,
+  StorageSimulationSummary,
 } from './api/case-types.js';
+export type {
+  StorageAuth,
+  StorageRequestResource,
+  StorageResource,
+} from './storage/rules.js';
+export type { StorageMatchedRule } from './storage/rules-evaluator.js';
 
 // ─── RTDB rule coverage ──────────────────────────────────────────────
 export { renderRtdbCoverage } from './rtdb/coverage.js';
