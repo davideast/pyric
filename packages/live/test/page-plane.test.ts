@@ -169,6 +169,54 @@ describe('the modules a page gets for the live rows', () => {
     expect(source).toContain('{ journal: journalLiveListener, hostProjectId: "live-a", client: "page" }');
   });
 
+  test('isolates hostProjectId per pyricLive plugin instance and never injects sandboxStorageFetch into service workers', async () => {
+    const { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } = await import('node:fs');
+    const { createRequire } = await import('node:module');
+    const { tmpdir } = await import('node:os');
+    const { dirname, join, resolve } = await import('node:path');
+    const { pyricLive } = await import('../src/vite.js');
+    const repoRoot = resolve(import.meta.dir, '../../..');
+    const realFirebaseDir = dirname(createRequire(join(repoRoot, 'package.json')).resolve('firebase/package.json'));
+    const dirA = mkdtempSync(join(tmpdir(), 'pyric-live-iso-a-'));
+    const dirB = mkdtempSync(join(tmpdir(), 'pyric-live-iso-b-'));
+    try {
+      for (const dir of [dirA, dirB]) {
+        mkdirSync(join(dir, 'node_modules'), { recursive: true });
+        symlinkSync(realFirebaseDir, join(dir, 'node_modules', 'firebase'), 'dir');
+        writeFileSync(join(dir, 'package.json'), JSON.stringify({ name: 'app', type: 'module' }));
+        writeFileSync(join(dir, 'sw.js'), "self.addEventListener('install', () => {});\n");
+      }
+      const logger = { info: () => {}, warn: () => {}, error: () => {} };
+      const pluginA = pyricLive({ project: 'org-alpha', ...({ serviceWorker: './sw.js' } as Record<string, unknown>) });
+      const pluginB = pyricLive({ project: 'org-beta' });
+      (pluginA.config as ((...args: unknown[]) => unknown) | undefined)?.(
+        { root: dirA },
+        { command: 'serve', mode: 'development' },
+      );
+      (pluginB.config as ((...args: unknown[]) => unknown) | undefined)?.(
+        { root: dirB },
+        { command: 'serve', mode: 'development' },
+      );
+      await (pluginA.configResolved as (cfg: unknown) => Promise<void>)({ root: dirA, command: 'serve', logger, server: { fs: { allow: [] } } });
+      await (pluginB.configResolved as (cfg: unknown) => Promise<void>)({ root: dirB, command: 'serve', logger, server: { fs: { allow: [] } } });
+
+      const obsA = await (pluginA.load as (id: string) => Promise<string | null>)(OBSERVER_MODULE_ID);
+      const obsB = await (pluginB.load as (id: string) => Promise<string | null>)(OBSERVER_MODULE_ID);
+      expect(obsA).toContain('hostProjectId: "org-alpha"');
+      expect(obsA).not.toContain('hostProjectId: "org-beta"');
+      expect(obsB).toContain('hostProjectId: "org-beta"');
+
+      const swTransformed = await (pluginA.transform as (code: string, id: string) => unknown)?.(
+        "self.addEventListener('install', () => {});\n",
+        join(dirA, 'sw.js'),
+      );
+      expect(String(swTransformed ?? '')).not.toContain('sandboxStorageFetch');
+    } finally {
+      rmSync(dirA, { recursive: true, force: true });
+      rmSync(dirB, { recursive: true, force: true });
+    }
+  });
+
   test('exist only for the live rows', () => {
     expect(liveModuleSource(rowId('firebase/functions'), '/sender.js')).toBeNull();
     expect(liveModuleSource('/src/main.ts', '/sender.js')).toBeNull();

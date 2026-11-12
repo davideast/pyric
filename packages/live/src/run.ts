@@ -272,6 +272,9 @@ export function buildLiveChildEnv(
   }
   delete env.PYRIC_WORKER_INIT;
   delete env.PYRIC_WORKER_INIT_HOST;
+  delete env.PYRIC_LIVE_PROJECT_ROOT;
+  delete env.PYRIC_LIVE_SDK_ROOT;
+  delete env.PYRIC_LIVE_PASS_THROUGH;
   return env;
 }
 
@@ -339,6 +342,24 @@ function splitLeadingEnvAssignments(argv: readonly string[]): {
   return { inlineEnv, commandArgv };
 }
 
+function quoteLiveShellWord(word: string): string {
+  if (word.length > 0 && /^[A-Za-z0-9_./:@=-]+$/.test(word)) return word;
+  return `'${word.replace(/'/g, "'\\''")}'`;
+}
+
+function formatLiveShellCommand(tokens: readonly string[]): string {
+  return tokens
+    .map((token) => {
+      if (SHELL_OPERATORS.has(token) || token === '(' || token === ')') return token;
+      const envMatch = /^([A-Za-z_][A-Za-z0-9_]*=)(.*)$/.exec(token);
+      if (envMatch) {
+        return `${envMatch[1]}${quoteLiveShellWord(envMatch[2]!)}`;
+      }
+      return quoteLiveShellWord(token);
+    })
+    .join(' ');
+}
+
 function spawnLiveChild(
   commandArgv: readonly string[],
   label: string,
@@ -347,7 +368,7 @@ function spawnLiveChild(
   const hasShellOperators = commandArgv.some((token) => SHELL_OPERATORS.has(token));
   const [command, ...args] = commandArgv;
   const child = hasShellOperators
-    ? spawn(commandArgv.join(' '), [], { cwd: opts.cwd, env: opts.env, stdio: 'inherit', shell: true })
+    ? spawn(formatLiveShellCommand(commandArgv), [], { cwd: opts.cwd, env: opts.env, stdio: 'inherit', shell: true })
     : spawn(command!, args, { cwd: opts.cwd, env: opts.env, stdio: 'inherit', shell: process.platform === 'win32' });
 
   const exited = new Promise<number>((resolveExit) => {

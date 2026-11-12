@@ -11,6 +11,7 @@ interface RewriteRule {
   source: string;
   destination: string;
   basePath?: false;
+  locale?: false;
 }
 
 interface RewritesObject {
@@ -27,15 +28,16 @@ function shouldSkipRewrites(options?: PyricNextOptions): boolean {
   return options.rewrites === false;
 }
 
-function assembleRewriteRule(options?: PyricNextOptions): RewriteRule {
+function assembleRewriteRule(options?: PyricNextOptions, hasI18n = false): RewriteRule {
   const targetUrl = resolveSandboxTargetUrl(options);
   const destinationUrl = `${targetUrl}${PYRIC_PROXY_PATH}`;
   const rule: RewriteRule = {
     source: PYRIC_PROXY_SOURCE,
     destination: destinationUrl,
     // The browser runtime requests `/__pyric/*` at the origin root. Without
-    // this, Next prefixes the source with a configured basePath.
+    // these flags, Next prefixes the source with a configured basePath or i18n locale.
     basePath: false,
+    ...(hasI18n ? { locale: false as const } : {}),
   };
   return rule;
 }
@@ -61,7 +63,8 @@ export function augmentDevRewrites(config: NextConfigObject, options?: PyricNext
   }
 
   const updatedConfig: NextConfigObject = Object.assign({}, config);
-  const pyricRule = assembleRewriteRule(options);
+  const hasI18n = typeof updatedConfig.i18n === 'object' && updatedConfig.i18n !== null;
+  const pyricRule = assembleRewriteRule(options, hasI18n);
   const originalRewrites = updatedConfig.rewrites;
 
   updatedConfig.rewrites = async () => {

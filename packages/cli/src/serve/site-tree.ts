@@ -9,7 +9,13 @@ import {
   contentTypeFor,
   decodeStaticPathname,
   formatSessionCookie,
+  getHeader,
+  isAllowedHost,
+  isAllowedOriginOnPorts,
+  isAllowedSessionToken,
+  isLocalPeer,
   pipeFileToResponse,
+  requestSocketScheme,
   resolveStaticFile,
   resolveStaticPath,
 } from './server.js';
@@ -101,6 +107,8 @@ export function createSiteTreeHandler(
   sessionToken?: string,
   boundHost?: string,
   appPorts?: AppPorts,
+  allowedHosts?: string[],
+  requireSessionToken?: boolean,
 ) {
   const studioRoutes = studioRoutesFromSite(root);
 
@@ -118,6 +126,44 @@ export function createSiteTreeHandler(
     const isOutsideSite = !isSiteTreePath(rawPathname);
     if (isOutsideSite) {
       return false;
+    }
+    const effectiveBoundHost = boundHost ?? 'localhost';
+    const hasPeerContext =
+      req.socket !== undefined || getHeader(req, 'x-pyric-remote-peer') !== undefined;
+    if (hasPeerContext && !isLocalPeer(req)) {
+      res.writeHead(403, { 'content-type': 'text/plain' }).end('Forbidden: local loopback route');
+      return true;
+    }
+    const authenticated = isAllowedSessionToken(req, url, sessionToken);
+    const requiresToken = requireSessionToken === true;
+    const siteAllowedHosts =
+      requiresToken && authenticated ? (allowedHosts ?? []) : [];
+    const hostHeader = getHeader(req, 'host');
+    const originHeader = getHeader(req, 'origin');
+    const ports =
+      appPorts?.forRequest(req) ??
+      (req.socket?.localPort ? [req.socket.localPort] : undefined);
+    if (
+      !isAllowedHost(hostHeader, effectiveBoundHost, siteAllowedHosts) ||
+      !isAllowedOriginOnPorts(
+        originHeader,
+        effectiveBoundHost,
+        siteAllowedHosts,
+        ports,
+        requestSocketScheme(req),
+      )
+    ) {
+      res.writeHead(403, { 'content-type': 'text/plain' }).end('Forbidden: invalid host or origin');
+      return true;
+    }
+    const secFetchSite = getHeader(req, 'sec-fetch-site')?.trim().toLowerCase();
+    const secFetchMode = getHeader(req, 'sec-fetch-mode')?.trim().toLowerCase();
+    if (
+      (secFetchSite === 'cross-site' || secFetchSite === 'same-site') &&
+      secFetchMode !== 'navigate'
+    ) {
+      res.writeHead(403, { 'content-type': 'text/plain' }).end('Forbidden: cross-site request rejected');
+      return true;
     }
     const rawSearch = rawRequestSearch(req, url);
     const isMountRoot = rawPathname === SITE_TREE_MOUNT_PATH;
@@ -181,7 +227,11 @@ export function createSiteTreeHandler(
     const isStudioHtml = studioRequest && contentType.includes('text/html');
     const canBootstrap =
       isStudioHtml &&
-      canBootstrapHtmlSession(req, boundHost ?? 'localhost', appPorts?.forRequest(req));
+      canBootstrapHtmlSession(req, effectiveBoundHost, appPorts?.forRequest(req));
+    if (requiresToken && !authenticated && !canBootstrap) {
+      res.writeHead(401, { 'content-type': 'text/plain' }).end('Unauthorized: invalid session capability token');
+      return true;
+    }
     if (canBootstrap && sessionToken) {
       appendSetCookieHeader(res, formatSessionCookie(sessionToken));
     }
@@ -194,7 +244,7 @@ export function createSiteTreeHandler(
       res.end(
         stampHostedTarget(
           withWorkerVersion(readFileSync(resolvedFile, 'utf8'), workerVersion),
-          hostedProjectKey,
+          canBootstrap || authenticated ? hostedProjectKey : undefined,
           undefined,
           undefined,
           canBootstrap ? sessionToken : undefined,

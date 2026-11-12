@@ -44,7 +44,13 @@ import {
   type HostTrust,
   type ProcessActivation,
 } from 'pyric/sandbox/internal';
-import { connectRemoteSandbox, createLazyRemoteSandbox, type LazyRemoteSandbox } from '../remote/index.js';
+import {
+  connectRemoteSandbox,
+  createLazyRemoteSandbox,
+  createRemoteSandboxHandle,
+  type LazyRemoteSandbox,
+  type RemoteSandboxChannel,
+} from '../remote/index.js';
 import { honorsCertificatePin, hostTrustFor, isTrustedOrigin } from '../remote/loopback-tls.js';
 import { servesHttps } from './vite-https.js';
 import { VITE_SSR_ISSUE_URL } from './vite-ssr-routing.js';
@@ -56,6 +62,8 @@ interface ServerInForce {
   readonly hosted: boolean;
   /** Its certificate's trust, read once it listens over HTTPS. */
   trust?: HostTrust;
+  /** Lazy remote sandbox bound specifically to this server generation. */
+  sandbox?: LazyRemoteSandbox;
   /** Whether this runtime checks the certificate pin (Node does, Bun does not). */
   readonly honorsPin: boolean;
 }
@@ -139,21 +147,65 @@ function hostTrust(url: string): HostTrust | undefined {
   return isCovered ? trust : undefined;
 }
 
-function refusedSandbox(): Sandbox {
-  return createLazyRemoteSandbox(() => Promise.reject(viteSsrRefusal()));
+function serverSandbox(current: ServerInForce | undefined): LazyRemoteSandbox {
+  if (current === undefined) {
+    return createLazyRemoteSandbox(() => Promise.reject(new Error('pyric: the Vite dev server has closed.')));
+  }
+  if (!current.hosted) {
+    current.sandbox ??= createLazyRemoteSandbox(() => Promise.reject(viteSsrRefusal()));
+    return current.sandbox;
+  }
+  current.sandbox ??= createLazyRemoteSandbox((onConnectionLost) =>
+    trustFor(current)
+      .then(() => listeningBase(current.server))
+      .then((url) =>
+        connectRemoteSandbox({
+          url,
+          trust: current.trust !== undefined && isTrustedOrigin(current.trust, url) ? current.trust : undefined,
+          onConnectionLost,
+        }),
+      ),
+  );
+  return current.sandbox;
 }
 
-function hostedSandbox(): Sandbox {
-  adminSandbox ??= createLazyRemoteSandbox((onConnectionLost) =>
-    currentHost().then((url) => connectRemoteSandbox({ url, trust: hostTrust(url), onConnectionLost })));
-  return adminSandbox;
+function processAdminSandbox(): Sandbox {
+  if (adminSandbox !== undefined) return adminSandbox;
+  const channel: RemoteSandboxChannel = {
+    op(payload) {
+      return serverSandbox(inForce).channel.op(payload);
+    },
+    byteRoute() {
+      return serverSandbox(inForce).channel.byteRoute?.() ?? Promise.resolve(undefined);
+    },
+    subscribe(sub, onSnap, onError) {
+      return serverSandbox(inForce).channel.subscribe(sub, onSnap, onError);
+    },
+  };
+  const handle = createRemoteSandboxHandle({
+    channel,
+    serveUrl: '<pyric sandbox url (pending discovery)>',
+    close() {
+      inForce?.sandbox?.close();
+      if (inForce !== undefined) {
+        inForce.sandbox = undefined;
+      }
+    },
+  }) as LazyRemoteSandbox;
+  Object.defineProperty(handle, 'ready', {
+    get: (): Promise<void> => serverSandbox(inForce).ready,
+    enumerable: true,
+    configurable: true,
+  });
+  adminSandbox = handle;
+  return handle;
 }
 
 const activation: ProcessActivation = {
   label: LABEL,
   host: currentHost,
   offHostError: (detail) => viteSsrRefusal(detail),
-  adminSandbox: () => (inForce?.hosted === true ? hostedSandbox() : refusedSandbox()),
+  adminSandbox: () => processAdminSandbox(),
   hostTrust,
 };
 
@@ -175,10 +227,17 @@ export function attachViteSsrActivation(
   const isActivatedFromOutside = (env.PYRIC_SANDBOX ?? '').trim().length > 0;
   if (isActivatedFromOutside) return { close: () => {} };
   const attached: ServerInForce = { server, hosted, honorsPin: runtime.honorsCertificatePin() };
+  const previous = inForce;
   inForce = attached;
+  if (previous !== undefined && previous !== attached) {
+    previous.sandbox?.close();
+    previous.sandbox = undefined;
+  }
   installProcessActivation(activation);
   return {
     close() {
+      attached.sandbox?.close();
+      attached.sandbox = undefined;
       const isReplaced = inForce !== attached;
       if (isReplaced) return;
       inForce = undefined;

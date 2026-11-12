@@ -586,4 +586,38 @@ process.exit(0);
     },
     60_000,
   );
+
+  it(
+    'runs CommonJS eval workers under @pyric/live/register without top-level await failure and enforces the SDK stop',
+    async () => {
+      const evalWorkerScript = `
+import { Worker } from 'node:worker_threads';
+
+const workerCode = [
+  "const { parentPort } = require('node:worker_threads');",
+  "let directGcp = 'loaded';",
+  "try { require('@google-cloud/firestore'); } catch (e) { directGcp = e.code || 'ERR'; }",
+  "parentPort.postMessage({ ok: true, directGcp });",
+].join('\\n');
+
+const w = new Worker(workerCode, { eval: true });
+const outcome = await new Promise((resolve) => {
+  w.once('message', (msg) => resolve(msg));
+  w.once('error', (err) => resolve({ ok: false, code: err.code ?? null, message: err.message }));
+});
+console.log('EVAL_WORKER ' + JSON.stringify(outcome));
+process.exit(0);
+`;
+      const res = await runNode(['@pyric/live/register'], 'eval-worker-probe.mjs', evalWorkerScript);
+      expect(res.status, res.stderr).toBe(0);
+      const line = res.stdout.split('\n').find((l) => l.startsWith('EVAL_WORKER '))!;
+      const outcome = JSON.parse(line.slice('EVAL_WORKER '.length)) as {
+        ok: boolean;
+        directGcp?: string;
+        code?: string | null;
+      };
+      expect(outcome).toEqual({ ok: true, directGcp: 'PYRIC_REAL_SDK_STOPPED' });
+    },
+    60_000,
+  );
 });

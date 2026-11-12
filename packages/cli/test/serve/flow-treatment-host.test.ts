@@ -84,6 +84,37 @@ it("serves the shared project manifest and lazily bundles only registered browse
           })
         ).status,
       ).toBe(403);
+      const tokenGuarded = await createFlowTreatmentHost(root, undefined, {
+        boundHost: "127.0.0.1",
+        sessionToken: "flow-cap-token",
+        requireSessionToken: true,
+      });
+      const tokenServer = createServer(async (req, res) => {
+        if (!(await tokenGuarded.handle(req, res, new URL(req.url!, "http://localhost")))) {
+          res.statusCode = 404;
+          res.end();
+        }
+      });
+      await new Promise<void>((resolve) => tokenServer.listen(0, "127.0.0.1", resolve));
+      const tokenAddr = tokenServer.address();
+      if (!tokenAddr || typeof tokenAddr === "string") throw new Error("No test port");
+      try {
+        expect(
+          (await fetch(`http://127.0.0.1:${tokenAddr.port}/__pyric/flow/manifest.json`)).status,
+        ).toBe(401);
+        expect(
+          (await fetch(`http://127.0.0.1:${tokenAddr.port}${manifest.treatments[0].url}`)).status,
+        ).toBe(401);
+        expect(
+          (
+            await fetch(`http://127.0.0.1:${tokenAddr.port}${manifest.treatments[0].url}`, {
+              headers: { "x-pyric-session-token": "flow-cap-token" },
+            })
+          ).status,
+        ).toBe(200);
+      } finally {
+        await new Promise<void>((resolve) => tokenServer.close(() => resolve()));
+      }
     } finally {
       await new Promise<void>((resolve) => guardedServer.close(() => resolve()));
     }

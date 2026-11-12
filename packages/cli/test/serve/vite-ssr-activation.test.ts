@@ -148,6 +148,17 @@ describe('attachViteSsrActivation', () => {
     expect(processActivation()!.adminSandbox()).toBe(first);
   });
 
+  it('switches the held firebase-admin handle immediately when a replacement server is SharedWorker-hosted', async () => {
+    attach(fakeServer(ipv4('127.0.0.1', 5001)), true);
+    const held = processActivation()!.adminSandbox() as unknown as {
+      ready: Promise<void>;
+      channel: { op: (payload: { method: string }) => Promise<unknown> };
+    };
+    attach(fakeServer(ipv4('127.0.0.1', 5002)), false);
+    await expect(held.ready).rejects.toMatchObject({ code: 'failed-precondition' });
+    await expect(held.channel.op({ method: 'firestore.get' })).rejects.toMatchObject({ code: 'failed-precondition' });
+  });
+
   it('installs nothing when PYRIC_SANDBOX already activates the process', () => {
     attach(fakeServer(ipv4('127.0.0.1')), true, { PYRIC_SANDBOX: 'remote:http://127.0.0.1:9000' });
     expect(processActivation()).toBeUndefined();

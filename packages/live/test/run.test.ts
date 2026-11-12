@@ -202,6 +202,25 @@ describe('buildLiveChildEnv', () => {
     expect(env.PYRIC_SESSION_TOKEN).toBeUndefined();
     expect(env.NODE_OPTIONS).toBe(`--import ${registerUrl}`);
   });
+
+  test('clears inherited PYRIC_LIVE_PROJECT_ROOT, PYRIC_LIVE_SDK_ROOT, and PYRIC_LIVE_PASS_THROUGH so child queries target host policy', () => {
+    const registerUrl = liveRegisterModuleUrl();
+    const env = buildLiveChildEnv(
+      {
+        PYRIC_LIVE_PROJECT_ROOT: '/other/root',
+        PYRIC_LIVE_SDK_ROOT: '/other/sdk',
+        PYRIC_LIVE_PASS_THROUGH: 'firebase/functions',
+      },
+      {
+        serveUrl: 'http://127.0.0.1:3473',
+        registerUrl,
+        projectId: 'acme-live',
+      },
+    );
+    expect(env.PYRIC_LIVE_PROJECT_ROOT).toBeUndefined();
+    expect(env.PYRIC_LIVE_SDK_ROOT).toBeUndefined();
+    expect(env.PYRIC_LIVE_PASS_THROUGH).toBeUndefined();
+  });
 });
 
 describe('actionable refusal messages', () => {

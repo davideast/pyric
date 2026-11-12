@@ -9,8 +9,13 @@
  * the process then passes through too.
  */
 import { parsePyricSandbox, readLiveHostStatus, type LiveHostStatus } from 'pyric/sandbox/internal';
-import { resolveRemoteHost } from '../remote/resolve-host.js';
-import { resolveSessionTokenForTarget } from '../serve/local-session-token.js';
+import { discoverProjectPointer, resolveRemoteHost } from '../remote/resolve-host.js';
+import {
+  discoverHttpsPointer,
+  fetchLoopbackTarget,
+  probeHttpsHostUrl,
+  resolveSessionTokenForTarget,
+} from '../serve/local-session-token.js';
 
 export type LiveHostReach =
   /**
@@ -32,11 +37,15 @@ export type LiveHostReach =
 
 const HEALTH_TIMEOUT_MS = 2_000;
 
-async function healthOf(base: string, sessionToken?: string): Promise<unknown> {
-  const response = await fetch(`${base.replace(/\/$/, '')}/__pyric/health`, {
-    ...(sessionToken !== undefined ? { headers: { 'x-pyric-session-token': sessionToken } } : {}),
-    signal: AbortSignal.timeout(HEALTH_TIMEOUT_MS),
-  });
+async function healthOf(base: string, sessionToken: string | undefined, cwd: string): Promise<unknown> {
+  const response = await fetchLoopbackTarget(
+    `${base.replace(/\/$/, '')}/__pyric/health`,
+    {
+      ...(sessionToken !== undefined ? { headers: { 'x-pyric-session-token': sessionToken } } : {}),
+      signal: AbortSignal.timeout(HEALTH_TIMEOUT_MS),
+    },
+    cwd,
+  );
   if (!response.ok) return null;
   return response.json();
 }
@@ -46,14 +55,23 @@ export async function reachLiveHost(projectRoot: string, env: NodeJS.ProcessEnv 
   try {
     const activation = parsePyricSandbox(env.PYRIC_SANDBOX);
     const configuredUrl = activation.mode === 'remote' ? activation.url : undefined;
-    const host = await resolveRemoteHost({ cwd: projectRoot, configuredUrl, instanceId: env.PYRIC_SANDBOX_INSTANCE, warn: () => {} });
+    const host = await resolveRemoteHost({
+      cwd: projectRoot,
+      configuredUrl,
+      instanceId: env.PYRIC_SANDBOX_INSTANCE,
+      discover: async (dir) => (await discoverHttpsPointer(dir)) ?? (await discoverProjectPointer(dir)),
+      probe: configuredUrl?.startsWith('https://')
+        ? (url) => probeHttpsHostUrl(url, projectRoot)
+        : undefined,
+      warn: () => {},
+    });
     const token = resolveSessionTokenForTarget({
       explicitToken: host.token,
       url: host.wsBase,
       cwd: projectRoot,
       env,
     });
-    const live = readLiveHostStatus(await healthOf(host.wsBase, token));
+    const live = readLiveHostStatus(await healthOf(host.wsBase, token, projectRoot));
     if (live === null) return { kind: 'sandbox', url: host.serveUrl };
     // The project the host was started for, which this process's own start resolves the same way.
     const admin = live.admin === undefined ? {} : { admin: live.admin };

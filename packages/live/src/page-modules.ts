@@ -57,17 +57,29 @@ export function serveHostProject(projectId: string): void {
 }
 
 /** How the observer module imports, with the host's project once it is known. */
-function observerImports(): RowImports {
-  if (hostProjectId === undefined) return PAGE_IMPORTS;
-  return { ...PAGE_IMPORTS, hostProjectId };
+function observerImports(projectId: string | undefined = hostProjectId): RowImports {
+  if (projectId === undefined) return PAGE_IMPORTS;
+  return { ...PAGE_IMPORTS, hostProjectId: projectId };
+}
+
+/**
+ * Stamps `projectId` onto an observer module's source so concurrent `pyricLive`
+ * plugin instances in one process never overwrite each other's `hostProjectId`.
+ */
+export function withObserverProject(source: string, projectId: string): string {
+  const field = `hostProjectId: ${JSON.stringify(projectId)}`;
+  if (/hostProjectId:\s*"(?:\\.|[^"\\])*"/.test(source)) {
+    return source.replace(/hostProjectId:\s*"(?:\\.|[^"\\])*"/, field);
+  }
+  return source.replace(/,\s*client:\s*"page"\s*\}/, `, ${field}, client: "page" }`);
 }
 
 /**
  * The source of a module this plugin serves, or null for any other id.
  * `senderFile` is `@pyric/cli`'s observed-call sender, on disk.
  */
-export function liveModuleSource(id: string, senderFile: string): string | null {
-  if (id === OBSERVER_MODULE_ID) return observerModuleSource(`/@fs${senderFile}`, observerImports());
+export function liveModuleSource(id: string, senderFile: string, projectId?: string): string | null {
+  if (id === OBSERVER_MODULE_ID) return observerModuleSource(`/@fs${senderFile}`, observerImports(projectId ?? hostProjectId));
   const specifier = rowOf(id);
   return specifier === undefined ? null : rowModuleSource(specifier, PAGE_IMPORTS);
 }

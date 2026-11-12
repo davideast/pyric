@@ -23,7 +23,8 @@
  * `PYRIC_LIVE_PASS_THROUGH`, so its children and workers pass the same ones
  * through. The list is checked again wherever it is read.
  */
-import { realpathSync } from 'node:fs';
+import { existsSync, realpathSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { dirname, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { findFirebaseProjectDir } from '../cli/firebase-project.js';
@@ -63,9 +64,16 @@ export interface InstalledLiveRegister {
   readonly rows: RegisterRowPackage;
   /** The installed `@pyric/live/register`, by file URL. */
   readonly entryUrl: string;
+  /** The installed `@pyric/live` synchronous CJS eval-worker entry, by file URL. */
+  readonly evalEntryUrl: string;
   readonly projectRoot: string;
   /** The folder the rows resolve the app's `firebase` from (`liveSdkRoot`). */
   readonly sdkRoot: string;
+}
+
+function liveEvalEntryUrl(entry: string): string {
+  const evalEntry = join(dirname(entry), 'register-eval-worker.js');
+  return pathToFileURL(existsSync(evalEntry) ? evalEntry : entry).href;
 }
 
 /** The file the live rows' observer imports `sendObservedCall` from. */
@@ -181,5 +189,67 @@ export async function loadInstalledLiveRegister(
     refusal: refusals.fn as unknown as SuppliedRowsRefusal,
     moduleSource: (url) => source(url, senderUrl),
   };
-  return { rows, entryUrl: pathToFileURL(entry).href, projectRoot, sdkRoot };
+  return {
+    rows,
+    entryUrl: pathToFileURL(entry).href,
+    evalEntryUrl: liveEvalEntryUrl(entry),
+    projectRoot,
+    sdkRoot,
+  };
+}
+
+export interface InstalledLiveRegisterSync extends InstalledLiveRegister {
+  readonly serveHostProject?: (projectId: string, databaseInstances?: readonly string[]) => void;
+  readonly refuseAdminWithoutHostProject?: (projectRoot: string) => void;
+}
+
+/**
+ * Synchronous counterpart of {@link loadInstalledLiveRegister} for CommonJS
+ * `new Worker(code, { eval: true })` threads under Node >= 22.15 (`require(esm)`).
+ */
+export function loadInstalledLiveRegisterSync(
+  projectRoot: string,
+  liveRoot?: string,
+  appDirs: string | readonly string[] = liveAppDirs(process.argv[1], process.cwd()),
+  env: Record<string, string | undefined> = process.env,
+): InstalledLiveRegisterSync {
+  const from = liveResolutionRoot(projectRoot, liveRoot);
+  const entry = installedLiveFile(from, REGISTER_SUBPATH);
+  const nodeModulesFile = installedLiveFile(from, NODE_MODULES_SUBPATH);
+  if (entry === null || nodeModulesFile === null) {
+    throw liveNotInstalled(projectRoot, NOT_STARTED);
+  }
+  const req = createRequire(import.meta.url);
+  const loaded = req(nodeModulesFile) as Record<string, unknown>;
+  if (
+    typeof loaded?.liveRegisterModuleSource !== 'function' ||
+    typeof loaded?.liveRefusal !== 'function' ||
+    typeof loaded?.liveRegisterSdkRoot !== 'function'
+  ) {
+    throw liveNotInstalled(projectRoot, NOT_STARTED);
+  }
+  const source = loaded.liveRegisterModuleSource as ModuleSource;
+  const appFolders = typeof appDirs === 'string' ? [appDirs] : appDirs;
+  const sdkRoot = liveSdkRoot(env, () => (loaded.liveRegisterSdkRoot as SdkRoot)(appFolders, projectRoot));
+  const senderUrl = observedCallSenderUrl();
+  const rows: RegisterRowPackage = {
+    projectUrl: pathToFileURL(join(sdkRoot, 'package.json')).href,
+    refusal: loaded.liveRefusal as SuppliedRowsRefusal,
+    moduleSource: (url) => source(url, senderUrl),
+  };
+  return {
+    rows,
+    entryUrl: pathToFileURL(entry).href,
+    evalEntryUrl: liveEvalEntryUrl(entry),
+    projectRoot,
+    sdkRoot,
+    serveHostProject:
+      typeof loaded.serveHostProject === 'function'
+        ? (loaded.serveHostProject as (projectId: string, databaseInstances?: readonly string[]) => void)
+        : undefined,
+    refuseAdminWithoutHostProject:
+      typeof loaded.refuseAdminWithoutHostProject === 'function'
+        ? (loaded.refuseAdminWithoutHostProject as (projectRoot: string) => void)
+        : undefined,
+  };
 }

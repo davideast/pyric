@@ -46,6 +46,11 @@ describe('detectUnsupportedRuntime', () => {
     expect(detectUnsupportedRuntime(['pnpm', 'dlx', 'deno', 'run', 'x.ts'])).toBe('deno');
     expect(detectUnsupportedRuntime(['yarn', 'dlx', 'bun', 'run', 'dev.ts'])).toBe('bun');
     expect(detectUnsupportedRuntime(['sh', '-c', 'bun run dev.ts'])).toBe('bun');
+    expect(detectUnsupportedRuntime(['sh', '-c', 'true\nbun run dev.ts'])).toBe('bun');
+    expect(detectUnsupportedRuntime(['sh', '-cx', 'bun run dev.ts'])).toBe('bun');
+    expect(detectUnsupportedRuntime(['npm', 'exec', '--', 'bun', 'app.ts'])).toBe('bun');
+    expect(detectUnsupportedRuntime(['pnpm', 'bun', 'app.ts'])).toBe('bun');
+    expect(detectUnsupportedRuntime(['yarn', 'deno', 'run', 'app.ts'])).toBe('deno');
     expect(detectUnsupportedRuntime(['/bin/bash', '-lc', 'echo ready && deno task dev'])).toBe('deno');
     expect(detectUnsupportedRuntime(['zsh', '-c', 'env FOO="a b" bun server.ts'])).toBe('bun');
   });

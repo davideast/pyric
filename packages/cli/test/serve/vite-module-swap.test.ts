@@ -351,4 +351,68 @@ describe('a real Firebase SDK load the swap does not serve stops (ADR 0022)', ()
     expect(prodSwap.resolveId('firebase/ai', userImporter)).toBeNull();
     expect(prodSwap.resolveId('firebase/installations', userImporter)).toStartWith(STOP_PREFIX);
   });
+
+  it('swaps query-suffixed served firebase/* imports and stops query-suffixed unserved subpaths', () => {
+    expect(swap.resolveId('firebase/firestore?raw', userImporter)).toBe(`${context.entries.firestore}?raw`);
+    expect(swap.resolveId('firebase/firestore?url', userImporter)).toBe(`${context.entries.firestore}?url`);
+    expect(swap.resolveId('firebase/firestore?worker', userImporter)).toBe(`${context.entries.firestore}?worker`);
+    expect(swap.resolveId('firebase/installations?raw', userImporter)).toStartWith(STOP_PREFIX);
+
+    const config = swap.config({ devServer: true });
+    const alias = (config.resolve?.alias as Array<{ find: RegExp; replacement: string }>)[0]!;
+    expect('firebase/firestore?raw'.replace(alias.find, alias.replacement)).toBe(aliased('firebase/firestore?raw'));
+    expect('firebase-admin/app?url'.replace(alias.find, alias.replacement)).toBe(aliased('firebase-admin/app?url'));
+  });
+
+  it('stops bare firebase, @firebase/*, and direct /node_modules/firebase/*?raw client loads', async () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'pyric-client-sdk-stop-'));
+    scratch.push(root);
+    mkdirSync(path.join(root, 'node_modules', 'firebase', 'firestore'), { recursive: true });
+    writeFileSync(
+      path.join(root, 'node_modules', 'firebase', 'package.json'),
+      JSON.stringify({
+        name: 'firebase',
+        version: '12.0.0',
+        type: 'module',
+        exports: { '.': './index.js', './firestore': './firestore/index.js' },
+      }),
+    );
+    writeFileSync(path.join(root, 'node_modules', 'firebase', 'index.js'), 'export const ROOT_MARKER = 1;\n');
+    const realFirestoreIndex = path.join(root, 'node_modules', 'firebase', 'firestore', 'index.js');
+    writeFileSync(realFirestoreIndex, 'export const REAL_MARKER = 1;\n');
+    mkdirSync(path.join(root, 'node_modules', '@firebase', 'firestore'), { recursive: true });
+    writeFileSync(
+      path.join(root, 'node_modules', '@firebase', 'firestore', 'package.json'),
+      JSON.stringify({ name: '@firebase/firestore', version: '4.0.0', type: 'module', exports: { '.': './index.js' } }),
+    );
+    writeFileSync(
+      path.join(root, 'node_modules', '@firebase', 'firestore', 'index.js'),
+      'export const SCOPED_MARKER = 1;\n',
+    );
+    writeFileSync(path.join(root, 'package.json'), JSON.stringify({ name: 'test-app', type: 'module' }));
+
+    const localSwap = createViteModuleSwap(context);
+    localSwap.configResolved({ root } as never);
+    const appMain = path.join(root, 'src', 'main.js');
+
+    const bareStop = localSwap.resolveId('firebase', appMain);
+    expect(bareStop).toStartWith(STOP_PREFIX);
+    const scopedStop = localSwap.resolveId('@firebase/firestore', appMain);
+    expect(scopedStop).toStartWith(STOP_PREFIX);
+
+    const scopedSource = await localSwap.loadPluginModule(scopedStop as string);
+    expect(scopedSource).toContain('__pyricStopped as SCOPED_MARKER');
+    expect((await thrownBy(scopedSource)).code).toBe('PYRIC_REAL_SDK_STOPPED');
+
+    const diskContext: SwapResolveContext = {
+      environment: clientEnvironment,
+      resolve: async () => ({ id: `${realFirestoreIndex}?raw` }),
+    };
+    const pathStop = await localSwap.resolvePluginId(
+      diskContext,
+      '/node_modules/firebase/firestore/index.js?raw',
+      undefined,
+    );
+    expect(pathStop).toStartWith(STOP_PREFIX);
+  });
 });

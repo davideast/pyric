@@ -79,6 +79,7 @@ export async function bootPluginInstance(
   root: string,
 ): Promise<{ handler: PyricMiddleware; plugin: ReturnType<typeof pyric> }> {
   let handler: PyricMiddleware | undefined;
+  const globalMiddlewares: PyricMiddleware[] = [];
   const plugin = pyric(options);
   const stub = {
     async close() {},
@@ -88,9 +89,13 @@ export async function bootPluginInstance(
       server: { allowedHosts: [], host: 'localhost' },
     },
     middlewares: {
-      use(route: string, middleware: PyricMiddleware) {
+      use(route: string | PyricMiddleware, middleware?: PyricMiddleware) {
+        if (typeof route === 'function') {
+          globalMiddlewares.push(route);
+          return;
+        }
         const isPyricRoute = route === '/__pyric';
-        if (isPyricRoute) handler = middleware;
+        if (isPyricRoute && middleware) handler = middleware;
       },
     },
     watcher: { add() {}, on() {} },
@@ -99,9 +104,28 @@ export async function bootPluginInstance(
   await (plugin.configureServer as (server: unknown) => Promise<void>)(stub);
   const hasNoHandler = handler === undefined;
   if (hasNoHandler) throw new Error('plugin did not mount the /__pyric middleware');
-  const transformed = (plugin.transformIndexHtml as ((html: string) => string) | undefined)?.(
-    '<html><head></head></html>',
-  );
+  let transformed: string | undefined;
+  const runTransform = () => {
+    transformed = (plugin.transformIndexHtml as ((html: string) => string) | undefined)?.(
+      '<html><head></head></html>',
+    );
+  };
+  const localReq: PyricReq = {
+    method: 'GET',
+    url: '/',
+    originalUrl: '/',
+    headers: { host: 'localhost', accept: 'text/html' },
+    socket: { remoteAddress: '127.0.0.1' },
+  };
+  const localRes = new MockRes();
+  const dispatchGlobal = (idx: number): void => {
+    if (idx >= globalMiddlewares.length) {
+      runTransform();
+      return;
+    }
+    globalMiddlewares[idx]!(localReq, localRes, () => dispatchGlobal(idx + 1));
+  };
+  dispatchGlobal(0);
   const tokenMatch = transformed?.match(/"sessionToken":"([^"]+)"/);
   if (tokenMatch?.[1]) {
     handlerTokens.set(handler, tokenMatch[1]);

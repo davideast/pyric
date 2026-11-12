@@ -2,7 +2,7 @@
  * Turbopack configuration augmentation for Next.js client SDK aliases.
  */
 import type { NextConfigObject } from './types.js';
-import { getClientAliases } from './client-aliases.js';
+import { clientStopTurbopackTarget, getClientAliases, getClientStopSpecifiers } from './client-aliases.js';
 import { BRIDGE_IMPORT_LOADER, bridgeModuleFileNames, productionBridgeOptions, type BridgeImportOptions } from './bridge-imports.js';
 
 /** The Turbopack rule that runs the bridge import loader on one wrapper. */
@@ -31,7 +31,14 @@ function assembleBridgeRules(existingRules: Record<string, unknown> | undefined)
 function assembleTurbopackAliases(existingTurbo: Record<string, any> | undefined): Record<string, any> {
   const turboSection = existingTurbo !== undefined ? Object.assign({}, existingTurbo) : {};
   const currentAliases = turboSection.resolveAlias !== undefined ? Object.assign({}, turboSection.resolveAlias) : {};
-  const pyricAliases = getClientAliases();
+  const pyricAliases: Record<string, { browser: string }> = {};
+  for (const [source, target] of Object.entries(getClientAliases())) {
+    pyricAliases[source] = { browser: target };
+  }
+  const stopTarget = clientStopTurbopackTarget();
+  for (const unserved of getClientStopSpecifiers()) {
+    pyricAliases[unserved] = { browser: stopTarget };
+  }
   turboSection.resolveAlias = Object.assign(currentAliases, pyricAliases);
   const rules = assembleBridgeRules(turboSection.rules);
   if (rules !== undefined) turboSection.rules = rules;

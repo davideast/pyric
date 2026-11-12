@@ -8,14 +8,29 @@ import {
   resolveFlowConfig,
   type FlowConfig,
 } from "./flow-config.js";
-import { isAllowedLoopbackRequest, isLocalPeer } from "./server.js";
+import {
+  inProcessSessionTokenForPort,
+  isSessionTokenRequired,
+  projectSessionPolicyFor,
+} from "./local-session-token.js";
+import {
+  isAllowedLoopbackRequest,
+  isAllowedSessionToken,
+  isLocalPeer,
+} from "./server.js";
 
 /** Shared by CLI, framework hosts, and development examples. No config code
  * executes on the host: only explicitly registered browser modules are bundled. */
 export async function createFlowTreatmentHost(
   projectDir: string,
   overrides?: FlowConfig,
-  guard?: { boundHost?: string; allowedHosts?: string[]; appPorts?: AppPorts },
+  guard?: {
+    boundHost?: string;
+    allowedHosts?: string[];
+    appPorts?: AppPorts;
+    sessionToken?: string;
+    requireSessionToken?: boolean;
+  },
 ) {
   const config = resolveFlowConfig(
     (await readPyricConfig(projectDir)).flow,
@@ -37,25 +52,42 @@ export async function createFlowTreatmentHost(
     ): Promise<boolean> {
       if (!url.pathname.startsWith("/__pyric/flow/")) return false;
       res.setHeader("Cache-Control", "no-store");
-      if (req.method !== "GET") {
-        res.statusCode = 405;
-        res.end();
-        return true;
-      }
       const ports =
         guard?.appPorts?.forRequest(req) ??
         (req.socket?.localPort ? [req.socket.localPort] : undefined);
+      const portToken = inProcessSessionTokenForPort(req.socket?.localPort);
+      const projectPolicy = projectSessionPolicyFor(projectDir);
+      const expectedToken =
+        guard?.sessionToken ?? portToken ?? projectPolicy?.token;
+      const requiresToken =
+        guard?.requireSessionToken ??
+        (portToken !== undefined
+          ? isSessionTokenRequired(portToken)
+          : projectPolicy?.requireSessionToken === true);
+      const authenticated = isAllowedSessionToken(req, url, expectedToken);
+      const allowedExtraHosts =
+        requiresToken && authenticated ? (guard?.allowedHosts ?? []) : [];
       if (
         !isLocalPeer(req) ||
         !isAllowedLoopbackRequest(
           req,
           guard?.boundHost ?? "localhost",
-          [],
+          allowedExtraHosts,
           ports,
         )
       ) {
         res.statusCode = 403;
         res.end("Forbidden: local loopback route");
+        return true;
+      }
+      if (requiresToken && !authenticated) {
+        res.statusCode = 401;
+        res.end("Unauthorized: invalid session capability token");
+        return true;
+      }
+      if (req.method !== "GET") {
+        res.statusCode = 405;
+        res.end();
         return true;
       }
       if (url.pathname === "/__pyric/flow/manifest.json") {

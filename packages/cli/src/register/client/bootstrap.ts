@@ -32,8 +32,13 @@ import {
   type ProcessActivation,
 } from 'pyric/sandbox/internal';
 import { installNodeRuntimeOrigin } from '../../serve/entries/runtime-origin.js';
-import { resolveSessionTokenForTarget } from '../../serve/local-session-token.js';
-import { resolveRemoteHost } from '../../remote/resolve-host.js';
+import {
+  discoverHttpsPointer,
+  probeHttpsHostUrl,
+  resolveLoopbackTlsTrustForTarget,
+  resolveSessionTokenForTarget,
+} from '../../serve/local-session-token.js';
+import { discoverProjectPointer, resolveRemoteHost } from '../../remote/resolve-host.js';
 import { versionSkewGuidance } from '../../remote/version-skew.js';
 import { createNodeSocketRealm } from './node-realm.js';
 import { offHostRefusal } from './off-host-refusal.js';
@@ -48,10 +53,15 @@ function inProcessActivation(): ProcessActivation | undefined {
 function resolveHost(): Promise<string> {
   const activation = parsePyricSandbox(process.env.PYRIC_SANDBOX);
   const configuredUrl = activation.mode === 'remote' ? activation.url : undefined;
+  const cwd = process.env.PYRIC_LIVE_PROJECT_ROOT || process.cwd();
   return resolveRemoteHost({
-    cwd: process.cwd(),
+    cwd,
     configuredUrl,
     instanceId: process.env.PYRIC_SANDBOX_INSTANCE,
+    discover: async (dir) => (await discoverHttpsPointer(dir)) ?? (await discoverProjectPointer(dir)),
+    probe: configuredUrl?.startsWith('https://')
+      ? (url) => probeHttpsHostUrl(url, cwd)
+      : undefined,
   }).then(({ wsBase }) => wsBase);
 }
 
@@ -95,8 +105,12 @@ function forgetHost(): void {
 
 const socketRealm = createNodeSocketRealm({
   onAttached: ack => reportVersionSkew(ack.serveVersion),
-  // Only a host in this process can name a certificate to trust, and only for its own origin.
-  trust: url => inProcessActivation()?.hostTrust?.(url),
+  trust: url =>
+    inProcessActivation()?.hostTrust?.(url) ??
+    resolveLoopbackTlsTrustForTarget({
+      url,
+      cwd: process.env.PYRIC_LIVE_PROJECT_ROOT || process.cwd(),
+    }),
   sessionToken: url => resolveSessionTokenForTarget({
     url,
     cwd: process.env.PYRIC_LIVE_PROJECT_ROOT || process.cwd(),
