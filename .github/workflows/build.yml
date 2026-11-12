@@ -59,6 +59,8 @@ jobs:
     outputs:
       check-set: ${{ steps.plan.outputs.check-set }}
       predicted-check-set: ${{ steps.plan.outputs.predicted-check-set }}
+      # Recorded only: no job reads it until the rules-only set is enforced (#1521 E4).
+      shadow-check-set: ${{ steps.plan.outputs.shadow-check-set }}
       packaging: ${{ steps.plan.outputs.packaging }}
       release-proof: ${{ steps.plan.outputs.release-proof }}
       rtdb-differential: ${{ steps.plan.outputs.rtdb-differential }}
@@ -116,7 +118,9 @@ jobs:
         # test/apps/<name>/ the diff changes and the test/apps/<name> paths
         # the body names, as the body read when this run started; an edit to
         # the body later does not start a run. plan.ts writes the selection to
-        # test-results/app-selection.json for the shard planner below.
+        # test-results/app-selection.json for the shard planner below. It also
+        # records the shadow check set (rules-only or none) in the job summary
+        # and the shadow-check-set output; no job's condition reads it.
         id: plan
         env:
           CI_EVENT_NAME: ${{ github.event_name }}

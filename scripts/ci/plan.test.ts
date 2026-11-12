@@ -10,6 +10,7 @@ import {
   parseNameStatus,
   scenariosNamedIn,
   selectAppScenarios,
+  shadowSummary,
   SMOKE_SCENARIOS,
   type AppScenarioSelection,
 } from './plan.ts';
@@ -252,5 +253,28 @@ describe('release proof selection (install matrix and standalone smoke)', () => 
     for (const event of ['push', 'schedule', 'workflow_dispatch'] as const) {
       expect(determineReleaseProof({ event, labels: [] })).toBe(false);
     }
+  });
+});
+
+describe('shadow check set record', () => {
+  type Job = { outputs?: Record<string, string> };
+  const workflow = Bun.YAML.parse(readFileSync(resolve(import.meta.dir, '../../.github/workflows/build.yml'), 'utf8')) as { jobs: Record<string, Job> };
+
+  test('the plan job exposes the shadow selection as an output', () => {
+    expect(workflow.jobs.plan?.outputs?.['shadow-check-set']).toBe('${{ steps.plan.outputs.shadow-check-set }}');
+  });
+
+  test('nothing in the workflow reads the shadow selection, so it gates nothing', () => {
+    const text = readFileSync(resolve(import.meta.dir, '../../.github/workflows/build.yml'), 'utf8');
+    const uses = text.split('\n').filter((line) => line.includes('shadow-check-set') && !line.trimStart().startsWith('#'));
+    expect(uses).toEqual(['      shadow-check-set: ${{ steps.plan.outputs.shadow-check-set }}']);
+  });
+
+  test('the job summary names the shadow selection and the set that gates', () => {
+    const rulesOnly = shadowSummary({ shadowCheckSet: 'rules-only', checkSet: 'full' });
+    expect(rulesOnly).toContain('`rules-only`');
+    expect(rulesOnly).toContain('bun test --cwd packages/rules');
+    expect(rulesOnly).toContain('`full`');
+    expect(shadowSummary({ shadowCheckSet: 'none', checkSet: 'docs-only' })).not.toContain('packages/rules');
   });
 });
