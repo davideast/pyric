@@ -3,6 +3,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import {
   requiresPackagingProof,
+  RULES_DATA_READERS_OUTSIDE_PACKAGES,
   RULES_ONLY_PROOF,
   selectPrCheckSet,
   selectShadowCheckSet,
@@ -132,7 +133,7 @@ describe('rules-only shadow selection', () => {
   const pr = (paths: ChangedPath[], labels: string[] = []): CheckSetInput => ({ event: 'pull_request', labels, paths });
   const rulesOnlySets: Array<[string, ChangedPath[]]> = [
     ['rules engine source', [changed('packages/rules/src/simulator/evaluation-builtins.ts')]],
-    ['rules package tests and manifest', [changed('packages/rules/test/simulator/lookup-path.test.ts'), changed('packages/rules/package.json')]],
+    ['rules package test', [changed('packages/rules/test/simulator/lookup-path.test.ts')]],
     ['rules-language snapshot', [changed('packages/conformance/rules-language/firestore.json')]],
     ['rules corpus case', [changed('packages/conformance/rules-corpus/firestore/astral-range-matches.ts')]],
     ['rules observations', [
@@ -166,6 +167,15 @@ describe('rules-only shadow selection', () => {
   ])('does not pick rules-only when the change also touches %s', (_name, path) => {
     const paths = [changed('packages/rules/src/simulator/evaluation-builtins.ts'), changed(path)];
     expect(selectShadowCheckSet(pr(paths))).toBe('none');
+  });
+
+  test('a rules package manifest needs the packaging proof, so it is not rules-only', () => {
+    expect(selectShadowCheckSet(pr([changed('packages/rules/package.json')]))).toBe('none');
+    expect(selectShadowCheckSet(pr([changed('packages/rules/src/index.ts'), changed('packages/rules/package.json')]))).toBe('none');
+  });
+
+  test('a lockfile change beside a rules change is not rules-only', () => {
+    expect(selectShadowCheckSet(pr([changed('packages/rules/src/index.ts'), changed('bun.lock')]))).toBe('none');
   });
 
   test('a rename into the rules package from outside it is not rules-only', () => {
@@ -214,7 +224,25 @@ describe('rules-only shadow selection', () => {
     const files = RULES_ONLY_PROOF.flatMap((command) => command.split(' ').filter((word) => word.endsWith('.ts')));
     expect(files.length).toBeGreaterThan(0);
     for (const file of files) expect(existsSync(resolve(root, file))).toBe(true);
-    const manifest = JSON.parse(readFileSync(resolve(root, 'package.json'), 'utf8')) as { scripts: Record<string, string> };
-    expect(manifest.scripts['compat:rules-score']).toBeDefined();
+    const scriptsOf = (dir: string) =>
+      (JSON.parse(readFileSync(resolve(root, dir, 'package.json'), 'utf8')) as { scripts: Record<string, string> }).scripts;
+    expect(scriptsOf('.')['compat:rules-score']).toBeDefined();
+    expect(scriptsOf('packages/rules').typecheck).toBeDefined();
+    expect(scriptsOf('packages/rules').build).toBeDefined();
+  });
+
+  test('every test outside the rules and conformance packages that reads rules data is in the proof', () => {
+    const root = resolve(import.meta.dir, '../..');
+    // An import or path literal naming the rules corpus or language data, or
+    // a path joined from 'observations' and a '<service>-rules' segment.
+    const namesRulesData = /['"`][^'"`]*(rules-corpus|rules-language|storage-rules-exceptions|rules-scorecard\.json)[^'"`]*['"`]/;
+    const joinsRulesObservations = /'observations',\s*'(firestore|storage|rtdb)-rules'/;
+    const isComment = (line: string) => /^\s*(\/\/|\*|\/\*)/.test(line);
+    const readers = [...new Bun.Glob('packages/*/test/**/*.test.ts').scanSync({ cwd: root })]
+      .filter((file) => !/^packages\/(rules|conformance)\//.test(file))
+      .filter((file) => readFileSync(resolve(root, file), 'utf8').split('\n')
+        .some((line) => !isComment(line) && (namesRulesData.test(line) || joinsRulesObservations.test(line))))
+      .sort();
+    expect(readers).toEqual([...RULES_DATA_READERS_OUTSIDE_PACKAGES].sort());
   });
 });

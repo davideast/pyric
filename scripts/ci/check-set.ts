@@ -96,19 +96,39 @@ function isRulesOnlyPath(path: string): boolean {
   return RULES_ONLY_PATHS.some((pattern) => pattern.test(path));
 }
 
-/** What `rules-only` would run once enforced: the rules package tests, the
- *  rules scorecards (compat:rules-score also runs the Firestore rules oracle
- *  replay) and the replay gates. Recorded beside the selection. */
+/** The tests outside packages/rules and packages/conformance that read the
+ *  rules data above: the rules corpus and the committed rules observations. */
+export const RULES_DATA_READERS_OUTSIDE_PACKAGES: readonly string[] = [
+  'packages/pyric/test/rules/parity/credential.test.ts',
+  'packages/pyric/test/rules/parity/parity-stress.test.ts',
+  'packages/pyric/test/rules/parity/round-fix-classes.test.ts',
+  'packages/pyric/test/rules/rtdb/argument-and-operand-sandbox.test.ts',
+  'packages/pyric/test/rules/rtdb/stdlib/corpus-lock.test.ts',
+  'packages/pyric/test/rules/simulator/re2-size-limits.test.ts',
+  'packages/pyric/test/rules/simulator/replace-linear-re2.test.ts',
+  'packages/pyric/test/storage/request-resource-real-replay.test.ts',
+];
+
+/** What `rules-only` would run once enforced: the rules package typecheck,
+ *  build and tests; the rules scorecards (compat:rules-score also runs the
+ *  Firestore rules oracle replay); every conformance package test, which holds
+ *  the scorecard and replay gates and every other reader of the rules data
+ *  (node counts, data loaders, ledger, source locks); and the readers outside
+ *  both packages. Recorded beside the selection. */
 export const RULES_ONLY_PROOF: readonly string[] = [
+  'bun run --cwd packages/rules typecheck',
+  'bun run --cwd packages/rules build',
   'bun test --cwd packages/rules',
   'bun run compat:rules-score',
-  'bun test packages/conformance/test/src/rules-scorecard-gate.test.ts packages/conformance/test/src/firestore-rules-scorecard-gate.test.ts packages/conformance/test/src/storage-rules-scorecard-gate.test.ts packages/conformance/test/src/rtdb-rules-scorecard-gate.test.ts',
-  'bun test packages/conformance/test/src/firestore-rules-oracle-replay.test.ts packages/conformance/test/src/storage-stdlib-real-replay.test.ts',
+  'bun test --cwd packages/conformance',
+  `bun test ${RULES_DATA_READERS_OUTSIDE_PACKAGES.join(' ')}`,
 ];
 
 /** The shadow selection (#1521 E1). It never changes what selectPrCheckSet
  *  gates; plan.ts records it beside the set that runs. */
 export function selectShadowCheckSet(input: CheckSetInput): ShadowCheckSet {
   if (!mayTakeFastPath(input)) return 'none';
+  // A published manifest needs the packaging proof, which rules-only skips.
+  if (requiresPackagingProof(input.paths)) return 'none';
   return everyPathMatches(input.paths, isRulesOnlyPath) ? 'rules-only' : 'none';
 }
