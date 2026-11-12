@@ -56,4 +56,50 @@ describe('DataSnapshot', () => {
     const root = new DataSnapshot({ a: 1 });
     expect(() => root.parent()).toThrow(RtdbRuleRuntimeError);
   });
+
+  it('short-circuits exists, hasChildren, type predicates, and getPriority without cloning uninspected subtrees', () => {
+    let coldReads = 0;
+    const raw: Record<string, unknown> = {
+      active: { flag: true },
+      '.priority': 7,
+    };
+    Object.defineProperty(raw, 'coldSubtree', {
+      enumerable: true,
+      get() {
+        coldReads += 1;
+        return { big: 'payload' };
+      },
+    });
+
+    const reads: string[] = [];
+    const snap = new DataSnapshot(raw, '/rootNode', undefined, (p) => reads.push(p));
+
+    expect(snap.exists()).toBe(true);
+    expect(snap.hasChildren()).toBe(true);
+    expect(snap.isString()).toBe(false);
+    expect(snap.isNumber()).toBe(false);
+    expect(snap.isBoolean()).toBe(false);
+    expect(snap.getPriority()).toBe(7);
+    expect(coldReads).toBe(0);
+    expect(reads).toEqual([
+      '/rootNode',
+      '/rootNode',
+      '/rootNode',
+      '/rootNode',
+      '/rootNode',
+      '/rootNode',
+    ]);
+
+    // Priority-only or empty wrapper nodes still report absent (capture rules-rtdb-r20).
+    const priorityOnly = new DataSnapshot({ '.priority': 5 }, '/empty');
+    expect(priorityOnly.exists()).toBe(false);
+    expect(priorityOnly.hasChildren()).toBe(false);
+    expect(priorityOnly.getPriority()).toBeNull();
+
+    const wrappedLeaf = new DataSnapshot({ '.value': 'hello', '.priority': 3 }, '/leaf');
+    expect(wrappedLeaf.exists()).toBe(true);
+    expect(wrappedLeaf.hasChildren()).toBe(false);
+    expect(wrappedLeaf.isString()).toBe(true);
+    expect(wrappedLeaf.getPriority()).toBe(3);
+  });
 });

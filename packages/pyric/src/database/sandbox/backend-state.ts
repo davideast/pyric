@@ -4,6 +4,7 @@ import { getClock } from 'pyric/sandbox/internal';
 import { sdkActivity } from '../../sandbox/internal/sdk-activity.js';
 import { DataTree, joinPath, pathSegments, type JsonValue } from './data-tree.js';
 import { withPriorities, type InlinePriority } from './normalize.js';
+import { priorityBucketIdForSegments } from '../../sandbox/persistence/rtdb-records.js';
 import type { QuerySpec } from '../internal/query-projection.js';
 import { loadsAllData, logDatabaseWarning, unspecifiedIndexWarning } from './query-index.js';
 import type { ChildListener, ValueListener } from './listener-types.js';
@@ -11,6 +12,57 @@ import { MutationHistory } from './mutation-history.js';
 import { OperationEvents } from './operation-events.js';
 import { PriorityState } from './priority-state.js';
 import { RulesEvaluator } from './rules-eval.js';
+
+function defineOwn(target: Record<string, unknown>, key: string, value: unknown): void {
+  if (key === '__proto__') {
+    Object.defineProperty(target, key, {
+      value,
+      enumerable: true,
+      writable: true,
+      configurable: true,
+    });
+  } else {
+    target[key] = value;
+  }
+}
+
+function shallowCloneWithKey(source: Record<string, unknown>, key: string, value: unknown): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(source)) {
+    defineOwn(out, k, v);
+  }
+  defineOwn(out, key, value);
+  return Object.freeze(out);
+}
+
+function attachOwnPriority(node: unknown, priority: string | number): unknown {
+  if (typeof node === 'object' && node !== null && !Array.isArray(node)) {
+    return shallowCloneWithKey(node as Record<string, unknown>, '.priority', priority);
+  }
+  return Object.freeze({ '.value': node, '.priority': priority });
+}
+
+function attachSpinePriority(
+  node: unknown,
+  segments: readonly string[],
+  index: number,
+  priority: string | number,
+): unknown {
+  if (index === segments.length) {
+    return attachOwnPriority(node, priority);
+  }
+  if (typeof node !== 'object' || node === null || Array.isArray(node) || Object.hasOwn(node, '.value')) {
+    return node;
+  }
+  const record = node as Record<string, unknown>;
+  const seg = segments[index]!;
+  if (!Object.hasOwn(record, seg)) return node;
+  const child = record[seg];
+  if (child === null) return node;
+  const nextChild = attachSpinePriority(child, segments, index + 1, priority);
+  if (nextChild === child) return node;
+  return shallowCloneWithKey(record, seg, nextChild);
+}
 
 export class BackendState {
   readonly tree = new DataTree();
@@ -23,6 +75,9 @@ export class BackendState {
   readonly events: OperationEvents;
   readonly writeSubscribers = new Set<() => void>();
   resetGeneration = 0;
+  private cachedRulesTreeGen = -1;
+  private cachedRulesPriorityGen = -1;
+  private cachedRulesView: Record<string, unknown> | null = null;
   /**
    * The sandbox's clock. Every server-set time this backend produces reads it:
    * `ServerValue.TIMESTAMP`, the rules engine's `now`, push-id keys, and the
@@ -39,10 +94,31 @@ export class BackendState {
   /**
    * The stored tree as rules read it: each stored priority is on its node as a
    * `.priority` key, so `data.getPriority()` and `root` lookups report it.
+   *
+   * Shares untouched subtrees directly from `DataTree` (the rules simulator
+   * never mutates `mockData`) and caches the spine-cloned priority view until
+   * either the tree or priority state advances its generation.
    */
   rulesSnapshot(): Record<string, unknown> {
-    const entries = [...this.priorities.entries()].map(([path, priority]) => ({ segments: pathSegments(path), priority }));
-    return withPriorities(this.tree.snapshot(), entries) as Record<string, unknown>;
+    const treeGen = this.tree.generation;
+    const prioGen = this.priorities.generation;
+    if (
+      this.cachedRulesView !== null
+      && this.cachedRulesTreeGen === treeGen
+      && this.cachedRulesPriorityGen === prioGen
+    ) {
+      return this.cachedRulesView;
+    }
+    let view: unknown = this.tree.peekRoot();
+    if (view !== null && this.priorities.size > 0) {
+      for (const [path, priority] of this.priorities.entries()) {
+        view = attachSpinePriority(view, pathSegments(path), 0, priority);
+      }
+    }
+    this.cachedRulesTreeGen = treeGen;
+    this.cachedRulesPriorityGen = prioGen;
+    this.cachedRulesView = view as Record<string, unknown>;
+    return this.cachedRulesView;
   }
 
   /**
@@ -60,22 +136,25 @@ export class BackendState {
    * leaf before a non-null descendant write promotes that ancestor to an object.
    */
   clearPromotedAncestorPriorities(path: string, value: JsonValue): void {
-    if (value === null) return;
+    if (value === null || this.priorities.size === 0) return;
     const segments = pathSegments(path);
     for (let depth = 0; depth < segments.length; depth += 1) {
-      const ancestor = joinPath(segments.slice(0, depth));
-      const current = this.tree.read(ancestor);
-      if (current !== null && typeof current !== 'object') {
-        this.priorities.set(ancestor, null);
+      const ancestorSegs = segments.slice(0, depth);
+      const current = this.tree.peekSegments(ancestorSegs);
+      if (current !== undefined && current !== null && typeof current !== 'object') {
+        this.priorities.set(joinPath(ancestorSegs), null);
       }
     }
   }
 
   /** The stored priorities strictly below `path`, relative to it. */
   prioritiesBelow(path: string): InlinePriority[] {
+    if (this.priorities.size === 0) return [];
     const base = pathSegments(path);
+    const bucketId = priorityBucketIdForSegments(base);
+    const source = bucketId !== null ? this.priorities.entriesInBucket(bucketId) : this.priorities.entries();
     const below: InlinePriority[] = [];
-    for (const [stored, priority] of this.priorities.entries()) {
+    for (const [stored, priority] of source) {
       const segments = pathSegments(stored);
       const isBelow = segments.length > base.length && base.every((segment, i) => segments[i] === segment);
       if (isBelow) below.push({ segments: segments.slice(base.length), priority });

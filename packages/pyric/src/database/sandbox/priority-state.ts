@@ -43,6 +43,10 @@ export class PriorityState {
     return this.bucketValues.keys();
   }
 
+  entriesInBucket(bucketId: string): Iterable<[string, Exclude<Priority, null>]> {
+    return this.bucketValues.get(bucketId)?.entries() ?? [];
+  }
+
   shallowRecord(): PriorityRecord {
     const out: PriorityRecord = {};
     const keys = [...this.shallowValues.keys()].sort();
