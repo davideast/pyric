@@ -18,6 +18,7 @@ import { defineOwn, getOwn, isUnsafeObjectKey } from "./derive-campaign-state.js
 import {
   AssuranceInputError,
   type AuthFixtureUser,
+  type AuthProviderUserInfo,
 } from "./types.js";
 
 type RtdbJsonInput = Parameters<typeof withPriorities>[0];
@@ -156,6 +157,28 @@ function decodePersistedRtdbTree(rawRtdb: unknown): {
   return out;
 }
 
+export function cloneProviderUserInfoList(
+  raw: unknown,
+): AuthProviderUserInfo[] | undefined {
+  if (!Array.isArray(raw) || raw.length === 0) return undefined;
+  const out: AuthProviderUserInfo[] = [];
+  for (const item of raw) {
+    if (!isPlainRecord(item)) continue;
+    if (typeof item.providerId !== "string" || item.providerId.length === 0) {
+      continue;
+    }
+    const entry: AuthProviderUserInfo = { providerId: item.providerId };
+    if (typeof item.rawId === "string") entry.rawId = item.rawId;
+    if (typeof item.uid === "string") entry.uid = item.uid;
+    if (typeof item.email === "string") entry.email = item.email;
+    if (typeof item.displayName === "string") entry.displayName = item.displayName;
+    if (typeof item.photoUrl === "string") entry.photoUrl = item.photoUrl;
+    if (typeof item.phoneNumber === "string") entry.phoneNumber = item.phoneNumber;
+    out.push(entry);
+  }
+  return out.length > 0 ? out : undefined;
+}
+
 function normalizeUserList(rawUsers: readonly unknown[]): {
   snapshotUsers: SnapshotUserRecord[];
   fixtureUsers: AuthFixtureUser[];
@@ -180,6 +203,9 @@ function normalizeUserList(rawUsers: readonly unknown[]): {
       customClaims?: Record<string, unknown>;
       tenantId?: string;
       providerId?: string;
+      providerUserInfo?: AuthProviderUserInfo[];
+      createdAt?: string;
+      lastLoginAt?: string | null;
     } = { uid };
     const fixUser: AuthFixtureUser = { uid };
 
@@ -220,6 +246,17 @@ function normalizeUserList(rawUsers: readonly unknown[]): {
     if (typeof candidate.providerId === "string") {
       snapUser.providerId = candidate.providerId;
       fixUser.providerId = candidate.providerId;
+    }
+    const providerInfo = cloneProviderUserInfoList(candidate.providerUserInfo);
+    if (providerInfo !== undefined) {
+      snapUser.providerUserInfo = providerInfo.map((p) => ({ ...p }));
+      fixUser.providerUserInfo = providerInfo.map((p) => ({ ...p }));
+    }
+    if (typeof candidate.createdAt === "string") {
+      snapUser.createdAt = candidate.createdAt;
+    }
+    if (typeof candidate.lastLoginAt === "string" || candidate.lastLoginAt === null) {
+      snapUser.lastLoginAt = candidate.lastLoginAt;
     }
     if (isPlainRecord(candidate.customClaims)) {
       snapUser.customClaims = { ...candidate.customClaims };

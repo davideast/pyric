@@ -501,10 +501,10 @@ export function initializeTargetState(
     if (item.contentLanguage !== undefined) {
       entry.contentLanguage = item.contentLanguage;
     }
-    if (item.timeCreated !== undefined && item.timeCreated !== item.updated) {
+    if (item.timeCreated !== undefined) {
       entry.timeCreated = item.timeCreated;
     }
-    if (item.updated !== undefined && item.timeCreated !== item.updated) {
+    if (item.updated !== undefined) {
       entry.updated = item.updated;
     }
     if (item.customMetadata !== undefined) {

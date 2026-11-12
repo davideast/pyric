@@ -291,4 +291,42 @@ service firebase.storage {
       world.dispose();
     }
   });
+
+  test('binds defaultBucket onto default-bucket Storage handles so concrete /b/<defaultBucket>/o rules evaluate accurately', async () => {
+    const concreteDefaultRules = `rules_version = '2';
+service firebase.storage {
+  match /b/demo-app.firebasestorage.app/o {
+    match /users/{uid}/{name} {
+      allow read, write: if request.auth != null && request.auth.uid == uid;
+    }
+  }
+}`;
+    const world = new ProbeWorld(
+      { storage: concreteDefaultRules },
+      ACTORS,
+      { defaultBucket: 'demo-app.firebasestorage.app' },
+    );
+    try {
+      const ownerUpload = await world.run({
+        actor: 'owner',
+        service: 'storage',
+        method: 'create',
+        path: 'users/u-alice/doc.txt',
+        data: 'hello',
+        contentType: 'text/plain',
+      });
+      const peerUpload = await world.run({
+        actor: 'peer',
+        service: 'storage',
+        method: 'create',
+        path: 'users/u-alice/doc.txt',
+        data: 'forged',
+        contentType: 'text/plain',
+      });
+      expect(ownerUpload.decision).toBe('allow');
+      expect(peerUpload.decision).toBe('deny');
+    } finally {
+      world.dispose();
+    }
+  });
 });

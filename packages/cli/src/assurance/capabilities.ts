@@ -599,7 +599,10 @@ function resolveStorageRulesForOperation(
         ? matchedBucketSource
         : undefined);
     if (source !== undefined) return { configured: true, source };
-    if (undeployedPolicy === "allow") return { configured: true };
+    if (undeployedPolicy !== undefined) return { configured: true };
+    if (bucketRules && Object.keys(bucketRules).length > 0) {
+      return { configured: true };
+    }
     return { configured: false };
   }
 

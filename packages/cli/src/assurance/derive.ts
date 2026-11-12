@@ -7,6 +7,7 @@
 import type { LocalSandbox } from "pyric/sandbox";
 import {
   DEFAULT_SNAPSHOT_RESOURCE,
+  isDefaultDatabaseInstance,
   sortAssuranceDiagnostics,
   type AssuranceDiagnostic,
   type AssuranceService,
@@ -248,6 +249,7 @@ export function runStaticAssurancePasses(
 
   const rtdbReqs = rtdbIndexPass(project.usage).requirements;
   if (rtdbReqs.length > 0) {
+    const defaultRtdbSuffixRe = /^[a-z0-9-]+-default-rtdb$/i;
     const rtdbRulesByInstance: Record<string, Record<string, unknown>> = {};
     for (const [instanceId, rulesObj] of Object.entries(project.rtdbInstances)) {
       defineOwn(rtdbRulesByInstance, instanceId, rulesObj);
@@ -263,7 +265,19 @@ export function runStaticAssurancePasses(
       }
     }
     for (const [instanceId, rulesObj] of Object.entries(rtdbRulesByInstance)) {
-      const instReqs = rtdbReqs.filter((r) => r.resourceId === instanceId);
+      const instReqs = rtdbReqs.filter((r) => {
+        if (r.resourceId === instanceId) return true;
+        if (
+          instanceId === DEFAULT_SNAPSHOT_RESOURCE &&
+          !Object.hasOwn(rtdbRulesByInstance, r.resourceId) &&
+          (isDefaultDatabaseInstance(r.resourceId, project.projectId) ||
+            (project.projectId === undefined &&
+              defaultRtdbSuffixRe.test(r.resourceId)))
+        ) {
+          return true;
+        }
+        return false;
+      });
       if (instReqs.length > 0) {
         diagnostics.push(...checkRtdbIndexes(rulesObj, instReqs));
       }
@@ -274,12 +288,20 @@ export function runStaticAssurancePasses(
     const runtimeInput: {
       snapshot?: NonNullable<LiveRuntimeClone["snapshot"]>;
       history?: LiveRuntimeClone["history"];
+      defaultBucket?: string;
+      projectId?: string;
     } = {};
     if (runtime?.snapshot !== undefined) {
       runtimeInput.snapshot = runtime.snapshot;
     }
     if (runtime !== undefined && runtime.history.length > 0) {
       runtimeInput.history = runtime.history;
+    }
+    if (project.defaultBucket !== undefined) {
+      runtimeInput.defaultBucket = project.defaultBucket;
+    }
+    if (project.projectId !== undefined) {
+      runtimeInput.projectId = project.projectId;
     }
     diagnostics.push(
       ...coverageMatrixPass(
@@ -401,7 +423,15 @@ export async function deriveAssurance(
     });
   }
   const conditions = ownerConditionsFrom(probeScopedSources);
-  const ownerBindings = inferOwnerBindings(conditions, mutableSites);
+  const ownerBindingOptions =
+    project.defaultBucket !== undefined
+      ? { defaultBucket: project.defaultBucket }
+      : undefined;
+  const ownerBindings = inferOwnerBindings(
+    conditions,
+    mutableSites,
+    ownerBindingOptions,
+  );
   const seedInput = buildProbeSeedInput(runtime);
 
   const runProbesInput: {
@@ -411,6 +441,7 @@ export async function deriveAssurance(
     sources: typeof probeScopedSources;
     state?: WorldState;
     users?: ProbeUser[];
+    defaultBucket?: string;
   } = {
     accessSites: mutableSites,
     ownerBindings,
@@ -419,6 +450,9 @@ export async function deriveAssurance(
   };
   if (seedInput.state !== undefined) runProbesInput.state = seedInput.state;
   if (seedInput.users !== undefined) runProbesInput.users = seedInput.users;
+  if (project.defaultBucket !== undefined) {
+    runProbesInput.defaultBucket = project.defaultBucket;
+  }
 
   const probeReport = await runProbes(runProbesInput);
 

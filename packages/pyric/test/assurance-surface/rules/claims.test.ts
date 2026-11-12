@@ -163,4 +163,42 @@ service firebase.storage {
       staff: true,
     });
   });
+
+  test('extracts Map.get(key, default) and keys().hasAll / hasAny / in claims commutatively across Firestore and Storage', () => {
+    const fsRules = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /users/{uid} {
+      allow write: if request.auth != null
+        && request.auth.uid == uid
+        && request.auth.token.keys().hasAll(['role', 'orgMember'])
+        && request.auth.token.get('role', '') == 'editor'
+        && request.auth.token.get(['scope', 'tier'], 'free') == 'pro'
+        && 'featureFlag' in request.auth.token.keys();
+    }
+  }
+}`;
+    expect(firestoreRequiredClaims(fsRules, { path: 'users/u1', op: 'create' })).toEqual({
+      role: 'editor',
+      orgMember: true,
+      scope: { tier: 'pro' },
+      featureFlag: true,
+    });
+
+    const stRules = `rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /users/{uid}/doc.txt {
+      allow write: if request.auth != null
+        && request.auth.uid == uid
+        && request.auth.token.get('role', '') in ['reviewer', 'admin']
+        && request.auth.token.keys().hasAny(['workspaceMember', 'staff']);
+    }
+  }
+}`;
+    expect(storageRequiredClaims(stRules, { path: 'users/u1/doc.txt', op: 'create' })).toEqual({
+      role: 'reviewer',
+      workspaceMember: true,
+    });
+  });
 });

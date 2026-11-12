@@ -103,7 +103,16 @@ function effectiveStorageRulePattern(
   wildcardBucket: boolean | undefined,
   sitePattern: ResourcePattern,
   explicitStorageBuckets: ReadonlySet<string>,
+  defaultBucket?: string,
 ): ResourcePattern {
+  if (
+    rule.service === 'storage'
+    && sitePattern.resourceId === '(default)'
+    && defaultBucket !== undefined
+    && rule.resourceId === defaultBucket
+  ) {
+    return { ...rule, resourceId: '(default)' };
+  }
   if (
     rule.service === 'storage'
     && wildcardBucket === true
@@ -121,6 +130,7 @@ function supportFor(
   facts: CodeFact[],
   sites: AccessSite[],
   explicitStorageBuckets: ReadonlySet<string>,
+  defaultBucket?: string,
 ): { support: CodeFact[]; governed: AccessSite[] } {
   const rule = parseResourcePattern(c.service, c.path);
   const cascadeRule = cascades(c);
@@ -132,6 +142,7 @@ function supportFor(
       c.wildcardBucket,
       sitePattern,
       explicitStorageBuckets,
+      defaultBucket,
     );
     return coversPattern(effectiveRule, sitePattern, { cascade: cascadeRule });
   });
@@ -145,6 +156,7 @@ function supportFor(
         c.wildcardBucket,
         sitePattern,
         explicitStorageBuckets,
+        defaultBucket,
       );
       if (
         c.varIndex !== undefined
@@ -154,7 +166,7 @@ function supportFor(
         support.push(fact);
       }
     } else if ((c.kind === 'storedField' || c.kind === 'incomingField') && fact.kind === 'field' && c.location) {
-      if (fieldMatches(c, fact, explicitStorageBuckets)) support.push(fact);
+      if (fieldMatches(c, fact, explicitStorageBuckets, defaultBucket)) support.push(fact);
     } else if (c.kind === 'lookup' && fact.kind === 'pathVar') {
       const lookup = parseResourcePattern(c.service, c.field.split('#')[0]!);
       const authIndex = lookup.segments.findIndex((s) => s.kind === 'var' && s.name === 'auth.uid');
@@ -168,6 +180,7 @@ function fieldMatches(
   c: OwnerCondition,
   fact: CodeFact,
   explicitStorageBuckets: ReadonlySet<string>,
+  defaultBucket?: string,
 ): boolean {
   if (c.service === 'firestore' || c.service === 'storage') {
     const [docPath, field] = c.location!.split('#');
@@ -178,6 +191,7 @@ function fieldMatches(
       c.wildcardBucket,
       sitePattern,
       explicitStorageBuckets,
+      defaultBucket,
     );
     return coversPattern(docPattern, sitePattern);
   }
@@ -195,8 +209,17 @@ function depthOf(service: AccessService, decidedAt: string, written: string[]): 
   };
 }
 
+export interface InferOwnerBindingsOptions {
+  readonly defaultBucket?: string;
+}
+
 /** Infer owner bindings from rule conditions and access sites. */
-export function inferOwnerBindings(conditions: OwnerCondition[], sites: AccessSite[]): OwnerBinding[] {
+export function inferOwnerBindings(
+  conditions: OwnerCondition[],
+  sites: AccessSite[],
+  options?: InferOwnerBindingsOptions,
+): OwnerBinding[] {
+  const defaultBucket = options?.defaultBucket;
   const explicitStorageBuckets = new Set<string>();
   for (const cond of conditions) {
     if (cond.service !== 'storage' || cond.wildcardBucket) continue;
@@ -209,7 +232,7 @@ export function inferOwnerBindings(conditions: OwnerCondition[], sites: AccessSi
   const used = new Set<string>();
   const byKey = new Map<string, OwnerBinding>();
   for (const c of conditions) {
-    const found = supportFor(c, facts, sites, explicitStorageBuckets);
+    const found = supportFor(c, facts, sites, explicitStorageBuckets, defaultBucket);
     const support = found.support;
     const governed = guardsWrites(c) ? found.governed : [];
     for (const f of support) used.add(f.id);

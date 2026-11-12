@@ -144,6 +144,7 @@ function createRulesResolver(
       source: parsed.source,
       file,
       ast: normalizeDatabaseRootAst(parsed.ast, resourceId),
+      resourceId,
     };
     cache.set(resourceId, resolved);
     return resolved;

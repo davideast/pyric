@@ -41,6 +41,35 @@ const STRING_FORMAT_NAMES: Readonly<Record<string, StringEncodingFormat>> = {
 
 const BASE64_RE = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
 const BASE64URL_RE = /^[A-Za-z0-9_-]*={0,2}$/;
+const BASE64_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+const MAX_TRACKED_QUERY_BYTES = 1024;
+const UINT8_LITERAL_BYTES = new WeakMap<Extract<AVal, { k: 'obj' }>, readonly number[]>();
+
+export function literalUint8Bytes(val: AVal): readonly number[] | undefined {
+  return val.k === 'obj' ? UINT8_LITERAL_BYTES.get(val) : undefined;
+}
+
+export function decodeBase64Bytes(raw: string): number[] | undefined {
+  const clean = raw.replace(/[\t\n\r ]+/g, '');
+  if (clean.length === 0) return [];
+  if (clean.length % 4 !== 0 || !BASE64_RE.test(clean)) return undefined;
+  const out: number[] = [];
+  for (let i = 0; i < clean.length; i += 4) {
+    const c0 = BASE64_ALPHABET.indexOf(clean[i]!);
+    const c1 = BASE64_ALPHABET.indexOf(clean[i + 1]!);
+    const ch2 = clean[i + 2]!;
+    const ch3 = clean[i + 3]!;
+    const c2 = ch2 === '=' ? 0 : BASE64_ALPHABET.indexOf(ch2);
+    const c3 = ch3 === '=' ? 0 : BASE64_ALPHABET.indexOf(ch3);
+    if (c0 < 0 || c1 < 0 || c2 < 0 || c3 < 0) return undefined;
+    const triple = (c0 << 18) | (c1 << 12) | (c2 << 6) | c3;
+    out.push((triple >> 16) & 0xff);
+    if (ch2 !== '=') out.push((triple >> 8) & 0xff);
+    if (ch3 !== '=') out.push(triple & 0xff);
+    if (out.length > MAX_TRACKED_QUERY_BYTES) return undefined;
+  }
+  return out;
+}
 
 export interface ExtractedUploadInfo {
   readonly storageUpload?: StorageUploadMetadata;
@@ -515,6 +544,32 @@ function hasUnknownArraySpread(ev: Evaluator, expr: ts.Expression, env: Env | un
   return false;
 }
 
+function attachUint8Bytes(
+  obj: AVal,
+  bytes: readonly number[] | undefined,
+): AVal {
+  if (bytes !== undefined && obj.k === 'obj') {
+    UINT8_LITERAL_BYTES.set(obj, bytes);
+  }
+  return obj;
+}
+
+function extractUint8ArrayBytes(
+  ev: Evaluator,
+  items: readonly AVal[],
+): number[] | undefined {
+  if (items.length > MAX_TRACKED_QUERY_BYTES) return undefined;
+  const bytes: number[] = [];
+  for (const item of items) {
+    const forced = ev.force(item);
+    if (forced.k !== 'num' || forced.value === undefined || !Number.isFinite(forced.value)) {
+      return undefined;
+    }
+    bytes.push(((Math.trunc(forced.value) % 256) + 256) % 256);
+  }
+  return bytes;
+}
+
 function evalTypedArrayOrBuffer(
   ev: Evaluator,
   name: string,
@@ -545,37 +600,55 @@ function evalTypedArrayOrBuffer(
   const elemBytes = ownRecordValue(TYPED_ARRAY_ELEMENT_BYTES, name);
   if (elemBytes === undefined) return undefined;
   if (args.length === 0) {
-    return closedObj([
-      ['byteLength', { k: 'num', value: 0 }],
-      ['length', { k: 'num', value: 0 }],
-    ]);
+    return attachUint8Bytes(
+      closedObj([
+        ['byteLength', { k: 'num', value: 0 }],
+        ['length', { k: 'num', value: 0 }],
+      ]),
+      name === 'Uint8Array' ? [] : undefined,
+    );
   }
   const firstExpr = args[0]!;
   if (!ts.isSpreadElement(firstExpr)) {
     const first = ev.force(ev.eval(firstExpr, env));
     const exactCount = exactNonNegativeInt(first);
     if (exactCount !== undefined) {
-      return closedObj([
-        ['byteLength', { k: 'num', value: exactCount * elemBytes }],
-        ['length', { k: 'num', value: exactCount }],
-      ]);
+      const zeroBytes =
+        name === 'Uint8Array' && exactCount <= MAX_TRACKED_QUERY_BYTES
+          ? new Array<number>(exactCount).fill(0)
+          : undefined;
+      return attachUint8Bytes(
+        closedObj([
+          ['byteLength', { k: 'num', value: exactCount * elemBytes }],
+          ['length', { k: 'num', value: exactCount }],
+        ]),
+        zeroBytes,
+      );
     }
     if (first.k === 'arr' && !first.open && !hasUnknownArraySpread(ev, firstExpr, env)) {
       const count = first.items.length;
-      return closedObj([
-        ['byteLength', { k: 'num', value: count * elemBytes }],
-        ['length', { k: 'num', value: count }],
-      ]);
+      const arrBytes = name === 'Uint8Array' ? extractUint8ArrayBytes(ev, first.items) : undefined;
+      return attachUint8Bytes(
+        closedObj([
+          ['byteLength', { k: 'num', value: count * elemBytes }],
+          ['length', { k: 'num', value: count }],
+        ]),
+        arrBytes,
+      );
     }
     if (args.length === 1 && first.k === 'obj') {
       const bufLen = first.props.get('byteLength');
       let exactBuf: number | undefined;
       if (bufLen) exactBuf = exactNonNegativeInt(ev.force(bufLen));
       if (exactBuf !== undefined) {
-        return closedObj([
-          ['byteLength', { k: 'num', value: exactBuf }],
-          ['length', { k: 'num', value: Math.floor(exactBuf / elemBytes) }],
-        ]);
+        const copiedBytes = name === 'Uint8Array' ? literalUint8Bytes(first) : undefined;
+        return attachUint8Bytes(
+          closedObj([
+            ['byteLength', { k: 'num', value: exactBuf }],
+            ['length', { k: 'num', value: Math.floor(exactBuf / elemBytes) }],
+          ]),
+          copiedBytes,
+        );
       }
     }
   }

@@ -8,12 +8,16 @@ import ts from 'typescript';
 import type { AssuranceService } from '../../sandbox/internal/resource-pattern.js';
 import type { Evaluator } from './evaluator.js';
 import { unwrapExpr } from './operators.js';
+import { mergeAuth } from './paths.js';
 import { authOf } from './payload.js';
 import type {
   ConstraintOperand,
   ConstraintSpec,
   SdkQueryConstraint,
+  WrapperOperandSegment,
+  WrapperOperandValue,
 } from './service-models/types.js';
+import { literalUint8Bytes } from './storage-upload.js';
 import {
   alternatives,
   literalText,
@@ -79,6 +83,56 @@ function isParameterOperand(
   return false;
 }
 
+function refToWrapperOperand(
+  ref: RefVal,
+): Extract<WrapperOperandValue, { wrapperKind: 'reference' }> | undefined {
+  if (
+    ref.service !== 'firestore'
+    || ref.refKind !== 'doc'
+    || ref.notes.length > 0
+    || ref.segments.length < 2
+    || ref.segments.length % 2 !== 0
+  ) {
+    return undefined;
+  }
+  const segments: WrapperOperandSegment[] = [];
+  for (const seg of ref.segments) {
+    const text = literalText({ k: 'str', parts: seg });
+    if (text !== null) {
+      if (text.length === 0) return undefined;
+      segments.push({ kind: 'lit', text });
+      continue;
+    }
+    if (seg.length === 1 && seg[0]!.kind === 'hole') {
+      const hole = seg[0]!;
+      if (hole.auth.length === 0 || !hole.auth.every((m) => m.exact)) {
+        return undefined;
+      }
+      const merged = mergeAuth(hole.auth, true);
+      if (!merged || merged.length === 0) return undefined;
+      segments.push({ kind: 'auth', auth: merged });
+      continue;
+    }
+    const allExactUidHoles = seg.every(
+      (part) =>
+        part.kind === 'lit'
+        || (part.auth.length === 1 && part.auth[0]!.source === 'auth.uid' && part.auth[0]!.exact),
+    );
+    if (!allExactUidHoles) return undefined;
+    const pattern = seg.map((part) => (part.kind === 'lit' ? part.text : '{auth.uid}')).join('');
+    segments.push({
+      kind: 'auth',
+      auth: [{ source: 'auth.uid', certainty: 'exact' }],
+      pattern,
+    });
+  }
+  return {
+    wrapperKind: 'reference',
+    databaseId: ref.resourceId,
+    segments,
+  };
+}
+
 /** Classify a filter or cursor argument into a {@link ConstraintOperand}. */
 export function operandOf(
   ev: Evaluator,
@@ -89,6 +143,19 @@ export function operandOf(
   const auth = authOf(forced);
   if (auth && auth.length > 0) {
     return { kind: 'auth', auth };
+  }
+  if (forced.k === 'wrapper') {
+    return { kind: 'wrapper', wrapper: forced.value };
+  }
+  const uint8Bytes = literalUint8Bytes(forced);
+  if (uint8Bytes !== undefined) {
+    return { kind: 'wrapper', wrapper: { wrapperKind: 'bytes', bytes: uint8Bytes } };
+  }
+  if (forced.k === 'ref') {
+    const refWrapper = refToWrapperOperand(forced);
+    if (refWrapper !== undefined) {
+      return { kind: 'wrapper', wrapper: refWrapper };
+    }
   }
   if (forced.k === 'null') {
     return { kind: 'literal', literal: null };
@@ -249,6 +316,9 @@ function isConcreteValueAlt(ev: Evaluator, alt: AVal): boolean {
   if (f.k === 'null') return true;
   if (f.k === 'bool') return f.value !== undefined;
   if (f.k === 'num') return f.value !== undefined;
+  if (f.k === 'wrapper') return true;
+  if (literalUint8Bytes(f) !== undefined) return true;
+  if (f.k === 'ref' && refToWrapperOperand(f) !== undefined) return true;
   if (literalText(f) !== null) return true;
   if (f.k === 'arr') {
     return f.items.every((item) => isConcreteValueAlt(ev, item));

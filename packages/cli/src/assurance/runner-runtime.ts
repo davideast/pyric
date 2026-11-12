@@ -41,6 +41,7 @@ import {
   getAdminStorageSandbox,
   getStorageService,
   lockUndeployedStorageBuckets,
+  nameStorageBucket,
   replaceCrossServiceIam,
   targetOf,
   type StoredMetadata,
@@ -68,6 +69,7 @@ export interface ServiceRuntime {
   storage?: FirebaseStorage;
   storageAdmin?: FirebaseStorage;
   storageDbName?: string;
+  storageDefaultBucket?: string;
 }
 
 let storageRunSequence = 0;
@@ -621,13 +623,26 @@ export async function createRuntime(
     target.rules.storage.trim().length > 0
       ? target.rules.storage
       : defaultBucketRulesFromMap;
+  const hasNamedBucketRules =
+    Object.keys(target.rules.storageBuckets ?? {}).length > 0;
+  const lockUndeployedDefault =
+    effectiveDefaultStorageRules === undefined &&
+    target.state.storageConfig?.undeployedBucketPolicy !== "allow" &&
+    (hasNamedBucketRules ||
+      target.state.storageConfig?.undeployedBucketPolicy === "deny");
+  const initialDefaultStorageRules =
+    typeof effectiveDefaultStorageRules === "string" &&
+    effectiveDefaultStorageRules.trim().length > 0
+      ? effectiveDefaultStorageRules
+      : lockUndeployedDefault
+        ? LOCKED_STORAGE_RULES
+        : undefined;
   let admin: FirebaseStorage;
   try {
     admin = getAdminStorageSandbox(sandbox, {
       dbName,
-      ...(typeof effectiveDefaultStorageRules === "string" &&
-      effectiveDefaultStorageRules.trim().length > 0
-        ? { rules: effectiveDefaultStorageRules }
+      ...(initialDefaultStorageRules !== undefined
+        ? { rules: initialDefaultStorageRules }
         : {}),
     });
   } catch {
@@ -765,9 +780,32 @@ export async function createRuntime(
       : admin;
     await seedBucketObjects(bucketAdmin, objects);
   }
+  const concreteDefaultBucket = (() => {
+    if (
+      typeof effectiveDefaultStorageRules !== "string" ||
+      effectiveDefaultStorageRules.length === 0
+    ) {
+      return undefined;
+    }
+    if (/match\s+\/b\/\{[^}]+\}\/o\b/.test(effectiveDefaultStorageRules)) {
+      return undefined;
+    }
+    const concreteMatches = [
+      ...effectiveDefaultStorageRules.matchAll(/match\s+\/b\/([^/\s{]+)\/o\b/g),
+    ];
+    return concreteMatches[0]?.[1];
+  })();
+  if (concreteDefaultBucket !== undefined) {
+    admin = nameStorageBucket(admin, concreteDefaultBucket);
+    runtime.storageDefaultBucket = concreteDefaultBucket;
+  }
   runtime.storageDbName = dbName;
   runtime.storageAdmin = admin;
-  runtime.storage = getStorageSandbox(context, { dbName });
+  let userStorage = getStorageSandbox(context, { dbName });
+  if (concreteDefaultBucket !== undefined) {
+    userStorage = nameStorageBucket(userStorage, concreteDefaultBucket);
+  }
+  runtime.storage = userStorage;
   return runtime;
 }
 
@@ -851,20 +889,30 @@ export async function readState(
     }
     return (await getRtdb(rtdbRef(admin, operation.path))).exportVal();
   }
-  const normalizedBucket = normalizeStorageBucketInstance(operation.instance);
+  const rawBucket = normalizeStorageBucketInstance(operation.instance);
+  const normalizedBucket =
+    rawBucket !== undefined && rawBucket === runtime.storageDefaultBucket
+      ? undefined
+      : rawBucket;
   if (runtime.storageDbName !== undefined) {
-    runtime.storageAdmin = getAdminStorageSandbox(
+    let nextAdmin = getAdminStorageSandbox(
       runtime.sandbox,
       normalizedBucket
         ? { dbName: runtime.storageDbName, bucket: normalizedBucket }
         : { dbName: runtime.storageDbName },
     );
-    runtime.storage = getStorageSandbox(
+    let nextUser = getStorageSandbox(
       runtime.context,
       normalizedBucket
         ? { dbName: runtime.storageDbName, bucket: normalizedBucket }
         : { dbName: runtime.storageDbName },
     );
+    if (normalizedBucket === undefined && runtime.storageDefaultBucket !== undefined) {
+      nextAdmin = nameStorageBucket(nextAdmin, runtime.storageDefaultBucket);
+      nextUser = nameStorageBucket(nextUser, runtime.storageDefaultBucket);
+    }
+    runtime.storageAdmin = nextAdmin;
+    runtime.storage = nextUser;
   }
   return readStorageState(operation, runtime.storageAdmin!);
 }

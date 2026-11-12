@@ -43,10 +43,12 @@ import type { AssuranceAttachmentProvider } from "./attachment.js";
 import type { AuthorizationCampaign } from "./campaign.js";
 import { defineOwn, isUnsafeObjectKey } from "./derive-campaign-state.js";
 import { cloneLoopbackSandboxHttp } from "./derive-live-http.js";
+import { cloneProviderUserInfoList } from "./derive-live-state.js";
 import type { AssuranceCampaignStore } from "./tools.js";
 import {
   AssuranceInputError,
   type AssuranceCampaignContext,
+  type AuthProviderUserInfo,
   type LocalFirebaseTarget,
   type StorageObjectFixture,
 } from "./types.js";
@@ -61,6 +63,7 @@ export interface ProjectRuleProblem {
 
 export interface LoadedAssuranceProject {
   readonly root: string;
+  readonly projectId?: string;
   readonly usage: SdkUsageIndex;
   readonly sources: RuleSources;
   readonly ruleSurface: RuleSurface;
@@ -138,7 +141,13 @@ export function resolveDeriveRoot(
   return realpathSync(base);
 }
 
+interface ConfiguredRuleTarget {
+  readonly service: AssuranceService;
+  readonly resourceId: string;
+}
+
 interface ParsedFirebaseConfig {
+  readonly projectId: string | undefined;
   readonly configuredBuckets: string[];
   readonly defaultBucket: string | undefined;
   readonly rtdbInstances: Record<string, { rules: Record<string, unknown> }>;
@@ -146,7 +155,9 @@ interface ParsedFirebaseConfig {
   readonly hasDatabaseConfig: boolean;
   readonly hasStorageConfig: boolean;
   readonly hasInvalidFirebaseJson: boolean;
-  readonly configuredRuleServices: Readonly<Record<string, AssuranceService>>;
+  readonly configuredRuleTargets: Readonly<
+    Record<string, readonly ConfiguredRuleTarget[]>
+  >;
 }
 
 function isWithinRootDir(baseDir: string, targetPath: string): boolean {
@@ -208,18 +219,127 @@ function normalizeConfigRuleRel(absRoot: string, rawFile: string): string {
   return relative(absRoot, absFile).split(sep).join("/");
 }
 
-function collectConfiguredRuleServices(
+function appendRuleTarget(
+  into: Record<string, ConfiguredRuleTarget[]>,
+  relFile: string,
+  service: AssuranceService,
+  resourceId: string,
+): void {
+  if (isUnsafeObjectKey(relFile)) return;
+  let list = Object.hasOwn(into, relFile) ? into[relFile] : undefined;
+  if (list === undefined) {
+    list = [];
+    defineOwn(into, relFile, list);
+  }
+  if (!list.some((t) => t.service === service && t.resourceId === resourceId)) {
+    list.push({ service, resourceId });
+  }
+}
+
+export function normalizeConfiguredResourceId(
+  service: AssuranceService,
+  rawId: string | undefined,
+  projectId: string | undefined,
+): string {
+  if (rawId === undefined) return DEFAULT_SNAPSHOT_RESOURCE;
+  const trimmed = rawId.trim();
+  if (
+    trimmed.length === 0 ||
+    trimmed === DEFAULT_SNAPSHOT_RESOURCE ||
+    trimmed === "default"
+  ) {
+    return DEFAULT_SNAPSHOT_RESOURCE;
+  }
+  if (service === "firestore") {
+    return trimmed;
+  }
+  if (service === "storage") {
+    const bucketId = /^https?:\/\//i.test(trimmed)
+      ? parseResourcePattern("storage", trimmed).resourceId
+      : trimmed.replace(/^gs:\/\//i, "").replace(/^\/+|\/+$/g, "");
+    if (
+      bucketId.length === 0 ||
+      bucketId === DEFAULT_SNAPSHOT_RESOURCE ||
+      bucketId === "default" ||
+      bucketId === "pyric-default" ||
+      bucketId === "default-bucket" ||
+      bucketId === DEFAULT_BUCKET
+    ) {
+      return DEFAULT_SNAPSHOT_RESOURCE;
+    }
+    return bucketId;
+  }
+  const instId = parseResourcePattern("rtdb", "ref", trimmed).resourceId;
+  if (
+    instId === DEFAULT_SNAPSHOT_RESOURCE ||
+    instId === "default" ||
+    isDefaultDatabaseInstance(instId, projectId) ||
+    (projectId === undefined && DEFAULT_RTDB_SUFFIX_RE.test(instId))
+  ) {
+    return DEFAULT_SNAPSHOT_RESOURCE;
+  }
+  return instId;
+}
+
+function collectConfiguredRuleTargets(
   absRoot: string,
   section: unknown,
   service: AssuranceService,
-  into: Record<string, AssuranceService>,
+  projectId: string | undefined,
+  projectTargets: Readonly<Record<string, Readonly<Record<string, readonly string[]>>>> | undefined,
+  into: Record<string, ConfiguredRuleTarget[]>,
 ): void {
   const entries = Array.isArray(section) ? section : [section];
+  const rcServiceKey = service === "rtdb" ? "database" : service;
+  const targetMap =
+    projectTargets && Object.hasOwn(projectTargets, rcServiceKey)
+      ? projectTargets[rcServiceKey]
+      : undefined;
+
   for (const item of entries) {
     if (!item || typeof item !== "object") continue;
-    const rules = (item as { rules?: unknown }).rules;
-    if (typeof rules === "string" && rules.length > 0) {
-      defineOwn(into, normalizeConfigRuleRel(absRoot, rules), service);
+    const entry = item as {
+      rules?: unknown;
+      database?: unknown;
+      bucket?: unknown;
+      instance?: unknown;
+      target?: unknown;
+    };
+    if (typeof entry.rules !== "string" || entry.rules.length === 0) continue;
+    const relFile = normalizeConfigRuleRel(absRoot, entry.rules);
+
+    const rawIds: Array<string | undefined> = [];
+    if (typeof entry.target === "string" && entry.target.trim().length > 0) {
+      const mapped =
+        targetMap && Object.hasOwn(targetMap, entry.target.trim())
+          ? targetMap[entry.target.trim()]
+          : undefined;
+      if (Array.isArray(mapped) && mapped.length > 0) {
+        for (const candidate of mapped) {
+          if (typeof candidate === "string" && candidate.trim().length > 0) {
+            rawIds.push(candidate);
+          }
+        }
+      }
+    } else if (service === "firestore" && typeof entry.database === "string") {
+      rawIds.push(entry.database);
+    } else if (service === "storage" && typeof entry.bucket === "string") {
+      rawIds.push(entry.bucket);
+    } else if (service === "rtdb" && typeof entry.instance === "string") {
+      rawIds.push(entry.instance);
+    }
+
+    if (rawIds.length === 0) {
+      appendRuleTarget(into, relFile, service, DEFAULT_SNAPSHOT_RESOURCE);
+    } else {
+      for (const rawId of rawIds) {
+        appendRuleTarget(
+          into,
+          relFile,
+          service,
+          normalizeConfiguredResourceId(service, rawId, projectId),
+        );
+      }
     }
   }
 }
@@ -235,7 +355,7 @@ function readFirebaseProjectConfig(absRoot: string): ParsedFirebaseConfig {
   const configuredBuckets: string[] = [];
   let defaultBucket: string | undefined;
   const rtdbInstances: Record<string, { rules: Record<string, unknown> }> = {};
-  const configuredRuleServices: Record<string, AssuranceService> = {};
+  const configuredRuleTargets: Record<string, ConfiguredRuleTarget[]> = {};
 
   const fbPath = resolve(absRoot, "firebase.json");
   const fbExists = pathExistsIncludingBrokenSymlink(fbPath);
@@ -244,28 +364,6 @@ function readFirebaseProjectConfig(absRoot: string): ParsedFirebaseConfig {
     storage?: unknown;
     database?: unknown;
   }>(absRoot, realRoot, "firebase.json");
-
-  if (raw === null || typeof raw !== "object" || Array.isArray(raw)) {
-    return {
-      configuredBuckets,
-      defaultBucket,
-      rtdbInstances,
-      hasFirestoreConfig: false,
-      hasDatabaseConfig: false,
-      hasStorageConfig: false,
-      hasInvalidFirebaseJson: fbExists,
-      configuredRuleServices,
-    };
-  }
-
-  const hasFirestoreConfig =
-    raw.firestore !== undefined && raw.firestore !== null;
-  const hasDatabaseConfig = raw.database !== undefined && raw.database !== null;
-  const hasStorageConfig = raw.storage !== undefined && raw.storage !== null;
-
-  collectConfiguredRuleServices(absRoot, raw.firestore, "firestore", configuredRuleServices);
-  collectConfiguredRuleServices(absRoot, raw.database, "rtdb", configuredRuleServices);
-  collectConfiguredRuleServices(absRoot, raw.storage, "storage", configuredRuleServices);
 
   const rc = readContainedJsonFile<FirebaseRc>(absRoot, realRoot, ".firebaserc");
   const pyricCfg = readContainedJsonFile<{ project?: unknown }>(
@@ -286,6 +384,28 @@ function readFirebaseProjectConfig(absRoot: string): ParsedFirebaseConfig {
     resolveInput.configProject = configProject;
   }
   const projectId = resolveFirebaseProject(resolveInput).projectId;
+  if (projectId !== undefined) {
+    defaultBucket = `${projectId}.firebasestorage.app`;
+  }
+
+  if (raw === null || typeof raw !== "object" || Array.isArray(raw)) {
+    return {
+      projectId,
+      configuredBuckets,
+      defaultBucket,
+      rtdbInstances,
+      hasFirestoreConfig: false,
+      hasDatabaseConfig: false,
+      hasStorageConfig: false,
+      hasInvalidFirebaseJson: fbExists,
+      configuredRuleTargets,
+    };
+  }
+
+  const hasFirestoreConfig =
+    raw.firestore !== undefined && raw.firestore !== null;
+  const hasDatabaseConfig = raw.database !== undefined && raw.database !== null;
+  const hasStorageConfig = raw.storage !== undefined && raw.storage !== null;
 
   const projectTargets =
     projectId !== undefined &&
@@ -294,6 +414,31 @@ function readFirebaseProjectConfig(absRoot: string): ParsedFirebaseConfig {
       ? rc.targets[projectId]
       : undefined;
 
+  collectConfiguredRuleTargets(
+    absRoot,
+    raw.firestore,
+    "firestore",
+    projectId,
+    projectTargets as Readonly<Record<string, Readonly<Record<string, readonly string[]>>>> | undefined,
+    configuredRuleTargets,
+  );
+  collectConfiguredRuleTargets(
+    absRoot,
+    raw.database,
+    "rtdb",
+    projectId,
+    projectTargets as Readonly<Record<string, Readonly<Record<string, readonly string[]>>>> | undefined,
+    configuredRuleTargets,
+  );
+  collectConfiguredRuleTargets(
+    absRoot,
+    raw.storage,
+    "storage",
+    projectId,
+    projectTargets as Readonly<Record<string, Readonly<Record<string, readonly string[]>>>> | undefined,
+    configuredRuleTargets,
+  );
+
   try {
     let storageEntries: unknown[] = [];
     if (Array.isArray(raw.storage)) {
@@ -301,7 +446,6 @@ function readFirebaseProjectConfig(absRoot: string): ParsedFirebaseConfig {
     } else if (raw.storage && typeof raw.storage === "object") {
       storageEntries = [raw.storage];
     }
-    let hasUnnamedStorageEntry = false;
     for (const item of storageEntries) {
       if (!item || typeof item !== "object") continue;
       const entry = item as { bucket?: unknown; target?: unknown };
@@ -336,14 +480,13 @@ function readFirebaseProjectConfig(absRoot: string): ParsedFirebaseConfig {
         if (!configuredBuckets.includes(normalized)) {
           configuredBuckets.push(normalized);
         }
-      } else {
-        hasUnnamedStorageEntry = true;
       }
     }
-    if (!hasUnnamedStorageEntry) {
-      defaultBucket =
-        configuredBuckets.find((b) => isFirebaseDefaultBucketName(b, projectId)) ??
-        (configuredBuckets.length === 1 ? configuredBuckets[0] : undefined);
+    const configuredDefaultBucket = configuredBuckets.find((b) =>
+      isFirebaseDefaultBucketName(b, projectId),
+    );
+    if (configuredDefaultBucket !== undefined) {
+      defaultBucket = configuredDefaultBucket;
     }
 
     let databaseEntries: unknown[] = [];
@@ -396,7 +539,8 @@ function readFirebaseProjectConfig(absRoot: string): ParsedFirebaseConfig {
       ) {
         const rulesObj = (parsedRtdb as { rules?: unknown }).rules;
         if (rulesObj && typeof rulesObj === "object" && !Array.isArray(rulesObj)) {
-          for (const instName of instanceNames) {
+          for (const rawInstName of instanceNames) {
+            const instName = parseResourcePattern("rtdb", "ref", rawInstName).resourceId;
             if (
               instName === DEFAULT_SNAPSHOT_RESOURCE ||
               isUnsafeObjectKey(instName) ||
@@ -414,6 +558,7 @@ function readFirebaseProjectConfig(absRoot: string): ParsedFirebaseConfig {
     }
   } catch {
     return {
+      projectId,
       configuredBuckets,
       defaultBucket,
       rtdbInstances,
@@ -421,11 +566,12 @@ function readFirebaseProjectConfig(absRoot: string): ParsedFirebaseConfig {
       hasDatabaseConfig,
       hasStorageConfig,
       hasInvalidFirebaseJson: false,
-      configuredRuleServices,
+      configuredRuleTargets,
     };
   }
 
   return {
+    projectId,
     configuredBuckets,
     defaultBucket,
     rtdbInstances,
@@ -433,7 +579,7 @@ function readFirebaseProjectConfig(absRoot: string): ParsedFirebaseConfig {
     hasDatabaseConfig,
     hasStorageConfig,
     hasInvalidFirebaseJson: false,
-    configuredRuleServices,
+    configuredRuleTargets,
   };
 }
 
@@ -507,38 +653,49 @@ export function buildRuleSurfaceFromSources(
 
 function classifyRuleProblem(
   problemText: string,
-  configuredServices: Readonly<Record<string, AssuranceService>>,
-): ProjectRuleProblem {
+  configuredTargets: Readonly<Record<string, readonly ConfiguredRuleTarget[]>>,
+): ProjectRuleProblem[] {
   const colonIdx = problemText.indexOf(": ");
   const source = colonIdx > 0 ? problemText.slice(0, colonIdx) : "firebase.json";
   if (source === "firebase.json") {
-    return {
+    return [
+      {
+        source,
+        message: problemText,
+        isGlobalConfig: true,
+      },
+    ];
+  }
+  const matched = Object.hasOwn(configuredTargets, source)
+    ? configuredTargets[source]
+    : undefined;
+  if (matched !== undefined && matched.length > 0) {
+    return matched.map((target) => ({
       source,
       message: problemText,
-      isGlobalConfig: true,
-    };
+      service: target.service,
+      resourceId: target.resourceId,
+    }));
   }
-  let service: AssuranceService | undefined = Object.hasOwn(configuredServices, source)
-    ? configuredServices[source]
-    : undefined;
-  if (service === undefined) {
-    if (source.endsWith(".json")) {
-      service = "rtdb";
-    } else if (
-      source.includes("storage") ||
-      problemText.includes("firebase.storage")
-    ) {
-      service = "storage";
-    } else {
-      service = "firestore";
-    }
+  let service: AssuranceService;
+  if (source.endsWith(".json")) {
+    service = "rtdb";
+  } else if (
+    source.includes("storage") ||
+    problemText.includes("firebase.storage")
+  ) {
+    service = "storage";
+  } else {
+    service = "firestore";
   }
-  return {
-    source,
-    message: problemText,
-    service,
-    resourceId: DEFAULT_SNAPSHOT_RESOURCE,
-  };
+  return [
+    {
+      source,
+      message: problemText,
+      service,
+      resourceId: DEFAULT_SNAPSHOT_RESOURCE,
+    },
+  ];
 }
 
 export function loadAssuranceProject(absRoot: string): LoadedAssuranceProject {
@@ -698,19 +855,39 @@ export function loadAssuranceProject(absRoot: string): LoadedAssuranceProject {
 
   const sources = withEmbeddedRules(loadedRules, [...usage.embeddedRules]);
   problems.push(...sources.problems);
-  const configProblems = problems.map((p) =>
-    classifyRuleProblem(p, fbConfig.configuredRuleServices),
+  const configProblems = problems.flatMap((p) =>
+    classifyRuleProblem(p, fbConfig.configuredRuleTargets),
   );
 
   const ruleSurface = buildRuleSurfaceFromSources(sources, fbConfig.rtdbInstances);
+  let resolvedDefaultBucket = fbConfig.defaultBucket;
+  if (
+    fbConfig.projectId !== undefined &&
+    resolvedDefaultBucket === `${fbConfig.projectId}.firebasestorage.app` &&
+    !fbConfig.configuredBuckets.includes(resolvedDefaultBucket)
+  ) {
+    const legacyAppspot = `${fbConfig.projectId}.appspot.com`;
+    const unnamedStorageSources = (sources.storage ?? []).filter(
+      (s) => s.bucket === undefined || s.bucket === DEFAULT_SNAPSHOT_RESOURCE,
+    );
+    const usesAppspotHeader =
+      unnamedStorageSources.some((s) => s.text.includes(`/b/${legacyAppspot}/o`)) &&
+      !unnamedStorageSources.some((s) =>
+        s.text.includes(`/b/${fbConfig.projectId}.firebasestorage.app/o`),
+      );
+    if (usesAppspotHeader) {
+      resolvedDefaultBucket = legacyAppspot;
+    }
+  }
 
   return {
     root: absRoot,
+    ...(fbConfig.projectId !== undefined ? { projectId: fbConfig.projectId } : {}),
     usage,
     sources,
     ruleSurface,
     configuredBuckets: fbConfig.configuredBuckets,
-    defaultBucket: fbConfig.defaultBucket,
+    defaultBucket: resolvedDefaultBucket,
     rtdbInstances: fbConfig.rtdbInstances,
     problems,
     configProblems,
@@ -730,6 +907,12 @@ function toSnapshotStorageObjects(
       contentBase64: string;
       size: number;
       contentType?: string;
+      cacheControl?: string;
+      contentDisposition?: string;
+      contentEncoding?: string;
+      contentLanguage?: string;
+      timeCreated?: string;
+      updated?: string;
       customMetadata?: Record<string, string>;
     } = {
       path: item.path,
@@ -737,8 +920,24 @@ function toSnapshotStorageObjects(
       size: decodeBase64ToBytes(item.dataBase64).byteLength,
     };
     if (item.contentType !== undefined) snap.contentType = item.contentType;
+    if (item.cacheControl !== undefined) snap.cacheControl = item.cacheControl;
+    if (item.contentDisposition !== undefined) {
+      snap.contentDisposition = item.contentDisposition;
+    }
+    if (item.contentEncoding !== undefined) {
+      snap.contentEncoding = item.contentEncoding;
+    }
+    if (item.contentLanguage !== undefined) {
+      snap.contentLanguage = item.contentLanguage;
+    }
+    if (item.timeCreated !== undefined) snap.timeCreated = item.timeCreated;
+    if (item.updated !== undefined) snap.updated = item.updated;
     if (item.customMetadata !== undefined) {
-      snap.customMetadata = { ...item.customMetadata };
+      const customCopy: Record<string, string> = {};
+      for (const [k, v] of Object.entries(item.customMetadata)) {
+        if (typeof v === "string") defineOwn(customCopy, k, v);
+      }
+      snap.customMetadata = { ...customCopy };
     }
     return snap;
   });
@@ -872,41 +1071,102 @@ function snapshotFromTarget(target: LocalFirebaseTarget): SandboxSnapshot {
     snapshotRules.storage = storageRuleMap;
   }
 
-  return {
+  const authProviders: Record<string, boolean> = {};
+  if (target.state.auth?.providers !== undefined) {
+    for (const [providerId, enabled] of Object.entries(target.state.auth.providers)) {
+      if (!isUnsafeObjectKey(providerId) && typeof enabled === "boolean") {
+        defineOwn(authProviders, providerId, enabled);
+      }
+    }
+  }
+  const authSnapshot: {
+    users: Array<{
+      uid: string;
+      email?: string;
+      password?: string;
+      displayName?: string;
+      photoUrl?: string;
+      phoneNumber?: string;
+      emailVerified?: boolean;
+      disabled?: boolean;
+      tenantId?: string;
+      providerId?: string;
+      providerUserInfo?: AuthProviderUserInfo[];
+      customClaims?: Record<string, unknown>;
+    }>;
+    providers?: Record<string, boolean>;
+  } = {
+    users: (target.state.auth?.users ?? []).map((u) => {
+      const rec: {
+        uid: string;
+        email?: string;
+        password?: string;
+        displayName?: string;
+        photoUrl?: string;
+        phoneNumber?: string;
+        emailVerified?: boolean;
+        disabled?: boolean;
+        tenantId?: string;
+        providerId?: string;
+        providerUserInfo?: AuthProviderUserInfo[];
+        customClaims?: Record<string, unknown>;
+      } = { uid: u.uid };
+      if (typeof u.email === "string") rec.email = u.email;
+      if (u.password !== undefined) rec.password = u.password;
+      if (u.displayName !== undefined) rec.displayName = u.displayName;
+      if (u.photoUrl !== undefined) rec.photoUrl = u.photoUrl;
+      if (u.phoneNumber !== undefined) rec.phoneNumber = u.phoneNumber;
+      if (u.emailVerified !== undefined) rec.emailVerified = u.emailVerified;
+      if (u.disabled !== undefined) rec.disabled = u.disabled;
+      if (u.tenantId !== undefined) rec.tenantId = u.tenantId;
+      if (u.providerId !== undefined) rec.providerId = u.providerId;
+      const providerInfo = cloneProviderUserInfoList(u.providerUserInfo);
+      if (providerInfo !== undefined) {
+        rec.providerUserInfo = providerInfo;
+      }
+      if (u.customClaims !== undefined) rec.customClaims = { ...u.customClaims };
+      return rec;
+    }),
+  };
+  if (Object.keys(authProviders).length > 0) {
+    authSnapshot.providers = authProviders;
+  }
+
+  const snapshot: {
+    version: 1;
+    rules: typeof snapshotRules;
+    auth: typeof authSnapshot;
+    firestore: { [DEFAULT_SNAPSHOT_RESOURCE]: typeof firestoreDocs };
+    rtdb: typeof rtdbMap;
+    storage: typeof storageMap;
+    storageConfig?: {
+      crossServiceIam?: "granted" | "denied";
+      undeployedBucketPolicy?: "allow" | "deny";
+    };
+  } = {
     version: 1,
     rules: snapshotRules,
-    auth: {
-      users: (target.state.auth?.users ?? []).map((u) => {
-        const rec: {
-          uid: string;
-          email?: string;
-          password?: string;
-          displayName?: string;
-          photoUrl?: string;
-          phoneNumber?: string;
-          emailVerified?: boolean;
-          disabled?: boolean;
-          tenantId?: string;
-          providerId?: string;
-          customClaims?: Record<string, unknown>;
-        } = { uid: u.uid };
-        if (typeof u.email === "string") rec.email = u.email;
-        if (u.password !== undefined) rec.password = u.password;
-        if (u.displayName !== undefined) rec.displayName = u.displayName;
-        if (u.photoUrl !== undefined) rec.photoUrl = u.photoUrl;
-        if (u.phoneNumber !== undefined) rec.phoneNumber = u.phoneNumber;
-        if (u.emailVerified !== undefined) rec.emailVerified = u.emailVerified;
-        if (u.disabled !== undefined) rec.disabled = u.disabled;
-        if (u.tenantId !== undefined) rec.tenantId = u.tenantId;
-        if (u.providerId !== undefined) rec.providerId = u.providerId;
-        if (u.customClaims !== undefined) rec.customClaims = { ...u.customClaims };
-        return rec;
-      }),
-    },
+    auth: authSnapshot,
     firestore: { [DEFAULT_SNAPSHOT_RESOURCE]: firestoreDocs },
     rtdb: rtdbMap,
     storage: storageMap,
   };
+  if (target.state.storageConfig !== undefined) {
+    const cfg: {
+      crossServiceIam?: "granted" | "denied";
+      undeployedBucketPolicy?: "allow" | "deny";
+    } = {};
+    if (target.state.storageConfig.crossServiceIam !== undefined) {
+      cfg.crossServiceIam = target.state.storageConfig.crossServiceIam;
+    }
+    if (target.state.storageConfig.undeployedBucketPolicy !== undefined) {
+      cfg.undeployedBucketPolicy = target.state.storageConfig.undeployedBucketPolicy;
+    }
+    if (Object.keys(cfg).length > 0) {
+      snapshot.storageConfig = cfg;
+    }
+  }
+  return snapshot;
 }
 
 function buildExistingCampaignClone(

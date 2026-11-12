@@ -3,10 +3,17 @@
  * operand projection, and copy-paste client remediation rendering for
  * {@link staticQueryProofPass}.
  */
-import type {
-  QueryConstraints,
-  QueryProofResidual,
-  QueryWhereConstraint,
+import {
+  Bytes,
+  Duration,
+  formatQueryScalarForRemediation,
+  LatLng,
+  Reference,
+  Timestamp,
+  type QueryConstraints,
+  type QueryProofResidual,
+  type QueryWhereConstraint,
+  type RulesScalar,
 } from '@pyric/rules/internal';
 import { renderResourcePattern } from '../../sandbox/internal/resource-pattern.js';
 import type {
@@ -14,6 +21,7 @@ import type {
   SdkQuery,
   SdkQueryConstraint,
   SdkRef,
+  WrapperOperandValue,
 } from '../code/usage-index.js';
 
 export const SYNTH_UID = '__pyric_synth_uid__';
@@ -26,6 +34,7 @@ export interface ExpandedQueryArms {
 }
 
 export type ScalarValue = string | number | boolean | null;
+export type ProofScalarValue = RulesScalar;
 
 export interface UnresolvedWhereSlot {
   readonly field: string;
@@ -38,6 +47,7 @@ export interface ProjectedQueryArm {
   readonly unresolvedWheres: readonly UnresolvedWhereSlot[];
   readonly hasUnknownConstraint: boolean;
   readonly hasDynamicLimit: boolean;
+  readonly hasDynamicOrderBy: boolean;
   readonly usesSynthUidInWhere: boolean;
 }
 
@@ -260,18 +270,10 @@ function defineOwn<V>(target: Record<string, V>, key: string, value: V): void {
   });
 }
 
-function resolveScalarOperand(
-  operand: ConstraintOperand | undefined,
+function resolveAuthSources(
+  sources: readonly string[],
   token: Record<string, unknown>,
-): { resolved: true; value: ScalarValue; usedSynthUid: boolean } | { resolved: false } {
-  if (!operand) return { resolved: false };
-  if (operand.kind === 'literal' && operand.literal !== undefined) {
-    return { resolved: true, value: operand.literal, usedSynthUid: false };
-  }
-  if (operand.kind !== 'auth') {
-    return { resolved: false };
-  }
-  const sources = (operand.auth ?? []).map((a) => a.source);
+): { resolved: true; value: string; usedSynthUid: boolean } | { resolved: false } {
   if (sources.includes('auth.uid')) {
     return { resolved: true, value: SYNTH_UID, usedSynthUid: true };
   }
@@ -302,14 +304,102 @@ function resolveScalarOperand(
   return { resolved: false };
 }
 
-export function projectConstraintArm(arm: readonly SdkQueryConstraint[]): ProjectedQueryArm {
+function resolveWrapperOperand(
+  wrapper: WrapperOperandValue,
+  token: Record<string, unknown>,
+  targetDatabaseId: string,
+): { resolved: true; value: ProofScalarValue; usedSynthUid: boolean } | { resolved: false } {
+  switch (wrapper.wrapperKind) {
+    case 'reference': {
+      const resolvedSegments: string[] = [];
+      let usedSynthUid = false;
+      for (const seg of wrapper.segments) {
+        if (seg.kind === 'lit') {
+          resolvedSegments.push(seg.text);
+          continue;
+        }
+        if (seg.pattern !== undefined) {
+          resolvedSegments.push(seg.pattern.split('{auth.uid}').join(SYNTH_UID));
+          usedSynthUid = true;
+          continue;
+        }
+        const resolvedSeg = resolveAuthSources(
+          seg.auth.map((a) => a.source),
+          token,
+        );
+        if (!resolvedSeg.resolved) return { resolved: false };
+        if (resolvedSeg.usedSynthUid) usedSynthUid = true;
+        resolvedSegments.push(resolvedSeg.value);
+      }
+      const effectiveDatabaseId =
+        wrapper.databaseId === targetDatabaseId ? '(default)' : wrapper.databaseId;
+      return {
+        resolved: true,
+        value: new Reference(resolvedSegments.join('/'), effectiveDatabaseId),
+        usedSynthUid,
+      };
+    }
+    case 'timestamp':
+      return {
+        resolved: true,
+        value: new Timestamp(wrapper.seconds, wrapper.nanoseconds),
+        usedSynthUid: false,
+      };
+    case 'bytes':
+      return {
+        resolved: true,
+        value: new Bytes(new Uint8Array(wrapper.bytes)),
+        usedSynthUid: false,
+      };
+    case 'latlng':
+      return {
+        resolved: true,
+        value: new LatLng(wrapper.latitude, wrapper.longitude),
+        usedSynthUid: false,
+      };
+    case 'duration':
+      return {
+        resolved: true,
+        value: new Duration(wrapper.seconds, wrapper.nanoseconds),
+        usedSynthUid: false,
+      };
+  }
+}
+
+function resolveScalarOperand(
+  operand: ConstraintOperand | undefined,
+  token: Record<string, unknown>,
+  targetDatabaseId: string,
+): { resolved: true; value: ProofScalarValue; usedSynthUid: boolean } | { resolved: false } {
+  if (!operand) return { resolved: false };
+  if (operand.kind === 'literal' && operand.literal !== undefined) {
+    return { resolved: true, value: operand.literal, usedSynthUid: false };
+  }
+  if (operand.kind === 'wrapper' && operand.wrapper !== undefined) {
+    return resolveWrapperOperand(operand.wrapper, token, targetDatabaseId);
+  }
+  if (operand.kind !== 'auth') {
+    return { resolved: false };
+  }
+  return resolveAuthSources(
+    (operand.auth ?? []).map((a) => a.source),
+    token,
+  );
+}
+
+export function projectConstraintArm(
+  arm: readonly SdkQueryConstraint[],
+  targetDatabaseId = '(default)',
+): ProjectedQueryArm {
   const token: Record<string, unknown> = {};
   const wheres: QueryWhereConstraint[] = [];
   const unresolvedWheres: UnresolvedWhereSlot[] = [];
   let limit: number | undefined;
-  let orderBy: string | undefined;
+  const orderByMap: Record<string, 'ASC' | 'DESC'> = {};
+  let hasOrderBy = false;
   let hasUnknownConstraint = false;
   let hasDynamicLimit = false;
+  let hasDynamicOrderBy = false;
   let usesSynthUidInWhere = false;
 
   for (const constraint of arm) {
@@ -324,10 +414,10 @@ export function projectConstraintArm(arm: readonly SdkQueryConstraint[]): Projec
       }
       if (constraint.operand?.kind === 'array') {
         const items = constraint.operand.items ?? [];
-        const scalars: ScalarValue[] = [];
+        const scalars: ProofScalarValue[] = [];
         let allResolved = items.length > 0;
         for (const item of items) {
-          const resolved = resolveScalarOperand(item, token);
+          const resolved = resolveScalarOperand(item, token, targetDatabaseId);
           if (!resolved.resolved) {
             allResolved = false;
             break;
@@ -342,7 +432,7 @@ export function projectConstraintArm(arm: readonly SdkQueryConstraint[]): Projec
         }
         continue;
       }
-      const scalar = resolveScalarOperand(constraint.operand, token);
+      const scalar = resolveScalarOperand(constraint.operand, token, targetDatabaseId);
       if (scalar.resolved) {
         if (scalar.usedSynthUid) usesSynthUidInWhere = true;
         wheres.push({ field: constraint.field, op: constraint.op, value: scalar.value });
@@ -359,11 +449,13 @@ export function projectConstraintArm(arm: readonly SdkQueryConstraint[]): Projec
       }
       continue;
     }
-    if (constraint.kind === 'orderBy' && constraint.field !== undefined && orderBy === undefined) {
-      if (constraint.direction === 'desc') {
-        orderBy = `${constraint.field} DESC`;
+    if (constraint.kind === 'orderBy') {
+      if (constraint.field !== undefined) {
+        const dir = constraint.direction === 'desc' ? 'DESC' : 'ASC';
+        defineOwn(orderByMap, constraint.field, dir);
+        hasOrderBy = true;
       } else {
-        orderBy = constraint.field;
+        hasDynamicOrderBy = true;
       }
     }
   }
@@ -371,11 +463,11 @@ export function projectConstraintArm(arm: readonly SdkQueryConstraint[]): Projec
   const constraints: {
     where?: readonly QueryWhereConstraint[];
     limit?: number;
-    orderBy?: string;
+    orderBy?: Readonly<Record<string, 'ASC' | 'DESC'>>;
   } = {};
   if (wheres.length > 0) constraints.where = wheres;
   if (limit !== undefined) constraints.limit = limit;
-  if (orderBy !== undefined) constraints.orderBy = orderBy;
+  if (hasOrderBy) constraints.orderBy = orderByMap;
 
   return {
     constraints,
@@ -383,16 +475,23 @@ export function projectConstraintArm(arm: readonly SdkQueryConstraint[]): Projec
     unresolvedWheres,
     hasUnknownConstraint,
     hasDynamicLimit,
+    hasDynamicOrderBy,
     usesSynthUidInWhere,
   };
 }
 
-function sanitizeDisplayValue(value: unknown): string {
-  if (typeof value === 'string' && value.startsWith('__pyric_')) {
-    if (value === SYNTH_UID) return 'currentUser.uid';
+export function sanitizeDisplayValue(value: unknown): string {
+  if (
+    typeof value === 'string'
+    && value.includes('__pyric_')
+    && !value.includes(SYNTH_UID)
+  ) {
     return 'a dynamic value';
   }
-  return JSON.stringify(value);
+  return formatQueryScalarForRemediation(value, {
+    uidExpression: 'currentUser.uid',
+    dynamicExpression: 'a dynamic value',
+  });
 }
 
 export function renderClientQueryRemediation(input: ClientRemediationInput): string {

@@ -24,7 +24,8 @@ import type { ValueHint } from './value-hints.js';
 
 interface ConstraintSummary {
   readonly impossible: boolean;
-  readonly contentTypes?: string[];
+  readonly contentTypeConjuncts?: readonly (readonly string[])[];
+  readonly minSizeBytes?: number;
   readonly maxSizeBytes?: number;
   readonly requiredKeys: Set<string>;
 }
@@ -59,22 +60,79 @@ function formatContentTypePatterns(patterns: readonly string[]): string {
   return `^(?:${patterns.map(stripOuterAnchors).join('|')})$`;
 }
 
-function conjoinContentTypePatterns(left: readonly string[], right: readonly string[]): string[] {
-  const leftPattern = formatContentTypePatterns(left);
-  const rightPattern = formatContentTypePatterns(right);
-  if (leftPattern === rightPattern) return [leftPattern];
-  return [`^(?=(?:${stripOuterAnchors(leftPattern)})$)(?:${stripOuterAnchors(rightPattern)})$`];
+const MAX_DISTRIBUTED_CONJUNCTS = 64;
+
+function mergeConjunctLists(
+  left: readonly (readonly string[])[],
+  right: readonly (readonly string[])[],
+): (readonly string[])[] {
+  const out: (readonly string[])[] = left.map((c) => [...c]);
+  for (const c of right) {
+    const sig = c.join('||');
+    if (!out.some((existing) => existing.join('||') === sig)) {
+      out.push([...c]);
+    }
+  }
+  return out;
+}
+
+function distributeOrConjunctLists(
+  arms: readonly (readonly (readonly string[])[])[],
+): (readonly string[])[] {
+  const uniqueBySig = new Map<string, readonly (readonly string[])[]>();
+  for (const arm of arms) {
+    if (arm.length === 0) return [];
+    const sig = arm.map((c) => c.join('||')).join('&&');
+    if (!uniqueBySig.has(sig)) uniqueBySig.set(sig, arm);
+  }
+  const uniqueArms = [...uniqueBySig.values()];
+  if (uniqueArms.length === 0) return [];
+  if (uniqueArms.length === 1) return uniqueArms[0]!.map((c) => [...c]);
+
+  let acc: (readonly string[])[] = uniqueArms[0]!.map((c) => [...c]);
+  for (let i = 1; i < uniqueArms.length; i += 1) {
+    const nextArm = uniqueArms[i]!;
+    if (acc.length * nextArm.length > MAX_DISTRIBUTED_CONJUNCTS) {
+      const nextSigs = new Set(nextArm.map((c) => c.join('||')));
+      acc = acc.filter((c) => nextSigs.has(c.join('||')));
+      if (acc.length === 0) return [];
+      continue;
+    }
+    const distributed: (readonly string[])[] = [];
+    const seenSigs = new Set<string>();
+    for (const aDisjuncts of acc) {
+      for (const bDisjuncts of nextArm) {
+        const merged = [...new Set([...aDisjuncts, ...bDisjuncts])];
+        const sig = merged.join('||');
+        if (!seenSigs.has(sig)) {
+          seenSigs.add(sig);
+          distributed.push(merged);
+        }
+      }
+    }
+    acc = distributed;
+  }
+  return acc;
 }
 
 function andSummary(left: ConstraintSummary, right: ConstraintSummary): ConstraintSummary {
   if (left.impossible || right.impossible) return impossibleSummary();
-  let contentTypes: string[] | undefined;
-  if (left.contentTypes && right.contentTypes) {
-    contentTypes = conjoinContentTypePatterns(left.contentTypes, right.contentTypes);
-  } else if (left.contentTypes) {
-    contentTypes = [...left.contentTypes];
-  } else if (right.contentTypes) {
-    contentTypes = [...right.contentTypes];
+  let contentTypeConjuncts: (readonly string[])[] | undefined;
+  if (left.contentTypeConjuncts && right.contentTypeConjuncts) {
+    contentTypeConjuncts = mergeConjunctLists(left.contentTypeConjuncts, right.contentTypeConjuncts);
+  } else if (left.contentTypeConjuncts) {
+    contentTypeConjuncts = left.contentTypeConjuncts.map((c) => [...c]);
+  } else if (right.contentTypeConjuncts) {
+    contentTypeConjuncts = right.contentTypeConjuncts.map((c) => [...c]);
+  }
+
+  let minSizeBytes: number | undefined;
+  if (left.minSizeBytes !== undefined && right.minSizeBytes !== undefined) {
+    minSizeBytes = Math.max(left.minSizeBytes, right.minSizeBytes);
+  } else if (left.minSizeBytes !== undefined) {
+    minSizeBytes = left.minSizeBytes;
+  } else if (right.minSizeBytes !== undefined) {
+    minSizeBytes = right.minSizeBytes;
   }
 
   let maxSizeBytes: number | undefined;
@@ -86,14 +144,26 @@ function andSummary(left: ConstraintSummary, right: ConstraintSummary): Constrai
     maxSizeBytes = right.maxSizeBytes;
   }
 
+  if (
+    minSizeBytes !== undefined
+    && maxSizeBytes !== undefined
+    && minSizeBytes > maxSizeBytes
+  ) {
+    return impossibleSummary();
+  }
+
   const requiredKeys = new Set<string>([...left.requiredKeys, ...right.requiredKeys]);
   const out: {
     impossible: boolean;
-    contentTypes?: string[];
+    contentTypeConjuncts?: readonly (readonly string[])[];
+    minSizeBytes?: number;
     maxSizeBytes?: number;
     requiredKeys: Set<string>;
   } = { impossible: false, requiredKeys };
-  if (contentTypes !== undefined) out.contentTypes = contentTypes;
+  if (contentTypeConjuncts !== undefined && contentTypeConjuncts.length > 0) {
+    out.contentTypeConjuncts = contentTypeConjuncts;
+  }
+  if (minSizeBytes !== undefined) out.minSizeBytes = minSizeBytes;
   if (maxSizeBytes !== undefined) out.maxSizeBytes = maxSizeBytes;
   return out;
 }
@@ -103,9 +173,18 @@ function orSummary(left: ConstraintSummary, right: ConstraintSummary): Constrain
   if (left.impossible) return right;
   if (right.impossible) return left;
 
-  let contentTypes: string[] | undefined;
-  if (left.contentTypes && right.contentTypes) {
-    contentTypes = [...new Set([...left.contentTypes, ...right.contentTypes])];
+  let contentTypeConjuncts: (readonly string[])[] | undefined;
+  if (left.contentTypeConjuncts && right.contentTypeConjuncts) {
+    const distributed = distributeOrConjunctLists([
+      left.contentTypeConjuncts,
+      right.contentTypeConjuncts,
+    ]);
+    if (distributed.length > 0) contentTypeConjuncts = distributed;
+  }
+
+  let minSizeBytes: number | undefined;
+  if (left.minSizeBytes !== undefined && right.minSizeBytes !== undefined) {
+    minSizeBytes = Math.min(left.minSizeBytes, right.minSizeBytes);
   }
 
   let maxSizeBytes: number | undefined;
@@ -120,11 +199,13 @@ function orSummary(left: ConstraintSummary, right: ConstraintSummary): Constrain
 
   const out: {
     impossible: boolean;
-    contentTypes?: string[];
+    contentTypeConjuncts?: readonly (readonly string[])[];
+    minSizeBytes?: number;
     maxSizeBytes?: number;
     requiredKeys: Set<string>;
   } = { impossible: false, requiredKeys };
-  if (contentTypes !== undefined) out.contentTypes = contentTypes;
+  if (contentTypeConjuncts !== undefined) out.contentTypeConjuncts = contentTypeConjuncts;
+  if (minSizeBytes !== undefined) out.minSizeBytes = minSizeBytes;
   if (maxSizeBytes !== undefined) out.maxSizeBytes = maxSizeBytes;
   return out;
 }
@@ -321,16 +402,26 @@ function summarizeBinaryComparison(
         return impossibleSummary();
       }
       if (isRequestResourceProp(e.left, s, 'contentType') && typeof rightLit === 'string') {
-        return { impossible: false, contentTypes: [`^${escapeRegexLiteral(rightLit)}$`], requiredKeys: new Set() };
+        return { impossible: false, contentTypeConjuncts: [[`^${escapeRegexLiteral(rightLit)}$`]], requiredKeys: new Set() };
       }
       if (isRequestResourceProp(e.right, s, 'contentType') && typeof leftLit === 'string') {
-        return { impossible: false, contentTypes: [`^${escapeRegexLiteral(leftLit)}$`], requiredKeys: new Set() };
+        return { impossible: false, contentTypeConjuncts: [[`^${escapeRegexLiteral(leftLit)}$`]], requiredKeys: new Set() };
       }
       let exactSize: number | undefined;
       if (isRequestResourceProp(e.left, s, 'size')) exactSize = evalNumericExpr(e.right, s);
       else if (isRequestResourceProp(e.right, s, 'size')) exactSize = evalNumericExpr(e.left, s);
-      if (exactSize !== undefined && Number.isInteger(exactSize) && exactSize >= 0) {
-        return { impossible: false, maxSizeBytes: exactSize, requiredKeys: new Set() };
+      if (exactSize !== undefined && Number.isFinite(exactSize)) {
+        if (!Number.isInteger(exactSize) || exactSize < 0) {
+          return impossibleSummary();
+        }
+        const exactOut: {
+          impossible: false;
+          minSizeBytes?: number;
+          maxSizeBytes: number;
+          requiredKeys: Set<string>;
+        } = { impossible: false, maxSizeBytes: exactSize, requiredKeys: new Set() };
+        if (exactSize > 0) exactOut.minSizeBytes = exactSize;
+        return exactOut;
       }
 
       const leftKey = incomingMetadataDirectKey(e.left, s);
@@ -354,18 +445,37 @@ function summarizeBinaryComparison(
 
   let op = e.op;
   if (negated) op = negateComparisonOp(e.op);
+  let sizeBound: number | undefined;
+  let sizeOp = op;
   if (isRequestResourceProp(e.left, s, 'size')) {
-    const bound = evalNumericExpr(e.right, s);
-    if (bound !== undefined && Number.isFinite(bound)) {
-      if (op === '<') return { impossible: false, maxSizeBytes: Math.ceil(bound) - 1, requiredKeys: new Set() };
-      if (op === '<=') return { impossible: false, maxSizeBytes: Math.floor(bound), requiredKeys: new Set() };
-    }
+    sizeBound = evalNumericExpr(e.right, s);
+  } else if (isRequestResourceProp(e.right, s, 'size')) {
+    sizeBound = evalNumericExpr(e.left, s);
+    if (op === '<') sizeOp = '>';
+    else if (op === '<=') sizeOp = '>=';
+    else if (op === '>') sizeOp = '<';
+    else if (op === '>=') sizeOp = '<=';
   }
-  if (isRequestResourceProp(e.right, s, 'size')) {
-    const bound = evalNumericExpr(e.left, s);
-    if (bound !== undefined && Number.isFinite(bound)) {
-      if (op === '>') return { impossible: false, maxSizeBytes: Math.ceil(bound) - 1, requiredKeys: new Set() };
-      if (op === '>=') return { impossible: false, maxSizeBytes: Math.floor(bound), requiredKeys: new Set() };
+  if (sizeBound !== undefined && Number.isFinite(sizeBound)) {
+    if (sizeOp === '<') {
+      const max = Math.ceil(sizeBound) - 1;
+      if (max < 0) return impossibleSummary();
+      return { impossible: false, maxSizeBytes: max, requiredKeys: new Set() };
+    }
+    if (sizeOp === '<=') {
+      const max = Math.floor(sizeBound);
+      if (max < 0) return impossibleSummary();
+      return { impossible: false, maxSizeBytes: max, requiredKeys: new Set() };
+    }
+    if (sizeOp === '>') {
+      const min = Math.floor(sizeBound) + 1;
+      if (min > 0) return { impossible: false, minSizeBytes: min, requiredKeys: new Set() };
+      return out;
+    }
+    if (sizeOp === '>=') {
+      const min = Math.ceil(sizeBound);
+      if (min > 0) return { impossible: false, minSizeBytes: min, requiredKeys: new Set() };
+      return out;
     }
   }
   const leftResolved = resolveRuleExpr(e.left, s);
@@ -436,7 +546,7 @@ function summarizeConstraints(
     if (e.method === 'matches' && isRequestResourceProp(e.object, s, 'contentType') && e.args[0]) {
       const pattern = scalarLiteral(e.args[0], s);
       if (typeof pattern === 'string') {
-        return { impossible: false, contentTypes: [pattern], requiredKeys: new Set() };
+        return { impossible: false, contentTypeConjuncts: [[pattern]], requiredKeys: new Set() };
       }
     }
     if ((e.method === 'hasAll' || e.method === 'hasAny') && isRequestResourceMetadataKeys(e.object, s) && e.args[0]) {
@@ -465,7 +575,7 @@ function summarizeConstraints(
       if (mimes && mimes.length > 0) {
         return {
           impossible: false,
-          contentTypes: mimes.map((m) => `^${escapeRegexLiteral(m)}$`),
+          contentTypeConjuncts: [mimes.map((m) => `^${escapeRegexLiteral(m)}$`)],
           requiredKeys: new Set(),
         };
       }
@@ -490,24 +600,28 @@ const MAX_STORAGE_DNF_ARMS = 16;
 
 interface ConstraintArm {
   readonly contentTypeConjuncts: readonly (readonly string[])[];
+  readonly minSizeBytes?: number;
   readonly maxSizeBytes?: number;
   readonly requiredKeys: ReadonlySet<string>;
 }
 
 function armFromSummary(summary: ConstraintSummary): ConstraintArm[] {
   if (summary.impossible) return [];
-  const conjuncts: (readonly string[])[] = [];
-  if (summary.contentTypes && summary.contentTypes.length > 0) {
-    conjuncts.push([...summary.contentTypes]);
-  }
+  const conjuncts: (readonly string[])[] = summary.contentTypeConjuncts
+    ? summary.contentTypeConjuncts.map((c) => [...c])
+    : [];
   const arm: {
     contentTypeConjuncts: readonly (readonly string[])[];
+    minSizeBytes?: number;
     maxSizeBytes?: number;
     requiredKeys: ReadonlySet<string>;
   } = {
     contentTypeConjuncts: conjuncts,
     requiredKeys: new Set(summary.requiredKeys),
   };
+  if (summary.minSizeBytes !== undefined) {
+    arm.minSizeBytes = summary.minSizeBytes;
+  }
   if (summary.maxSizeBytes !== undefined) {
     arm.maxSizeBytes = summary.maxSizeBytes;
   }
@@ -516,9 +630,10 @@ function armFromSummary(summary: ConstraintSummary): ConstraintArm[] {
 
 function armSignature(arm: ConstraintArm): string {
   const ct = arm.contentTypeConjuncts.map((c) => c.join('||')).join('&&');
-  const sz = arm.maxSizeBytes !== undefined ? String(arm.maxSizeBytes) : '';
+  const minSz = arm.minSizeBytes !== undefined ? String(arm.minSizeBytes) : '';
+  const maxSz = arm.maxSizeBytes !== undefined ? String(arm.maxSizeBytes) : '';
   const keys = [...arm.requiredKeys].sort().join(',');
-  return `${ct}#${sz}#${keys}`;
+  return `${ct}#${minSz}:${maxSz}#${keys}`;
 }
 
 function dedupeArms(arms: readonly ConstraintArm[]): ConstraintArm[] {
@@ -537,28 +652,26 @@ function dedupeArms(arms: readonly ConstraintArm[]): ConstraintArm[] {
 function collapseArms(arms: readonly ConstraintArm[]): ConstraintArm {
   const first = arms[0]!;
   let allHaveCt = first.contentTypeConjuncts.length > 0;
-  let allHaveSize = first.maxSizeBytes !== undefined;
+  let allHaveMinSize = first.minSizeBytes !== undefined;
+  let minSize = first.minSizeBytes ?? Number.POSITIVE_INFINITY;
+  let allHaveMaxSize = first.maxSizeBytes !== undefined;
   let maxSize = first.maxSizeBytes ?? 0;
   const sharedKeys = new Set<string>(first.requiredKeys);
-  const unionDisjuncts: string[] = [];
+  const armConjunctLists: (readonly (readonly string[])[])[] = [];
 
   for (const arm of arms) {
     if (arm.contentTypeConjuncts.length === 0) {
       allHaveCt = false;
     } else if (allHaveCt) {
-      const formatted = arm.contentTypeConjuncts.map((d) => formatContentTypePatterns(d));
-      if (formatted.length === 1) {
-        unionDisjuncts.push(formatted[0]!);
-      } else {
-        let acc: readonly string[] = [formatted[0]!];
-        for (let i = 1; i < formatted.length; i += 1) {
-          acc = conjoinContentTypePatterns(acc, [formatted[i]!]);
-        }
-        unionDisjuncts.push(...acc);
-      }
+      armConjunctLists.push(arm.contentTypeConjuncts);
+    }
+    if (arm.minSizeBytes === undefined) {
+      allHaveMinSize = false;
+    } else if (arm.minSizeBytes < minSize) {
+      minSize = arm.minSizeBytes;
     }
     if (arm.maxSizeBytes === undefined) {
-      allHaveSize = false;
+      allHaveMaxSize = false;
     } else if (arm.maxSizeBytes > maxSize) {
       maxSize = arm.maxSizeBytes;
     }
@@ -569,14 +682,18 @@ function collapseArms(arms: readonly ConstraintArm[]): ConstraintArm {
 
   const out: {
     contentTypeConjuncts: readonly (readonly string[])[];
+    minSizeBytes?: number;
     maxSizeBytes?: number;
     requiredKeys: ReadonlySet<string>;
   } = {
     contentTypeConjuncts:
-      allHaveCt && unionDisjuncts.length > 0 ? [[...new Set(unionDisjuncts)]] : [],
+      allHaveCt && armConjunctLists.length > 0
+        ? distributeOrConjunctLists(armConjunctLists)
+        : [],
     requiredKeys: sharedKeys,
   };
-  if (allHaveSize) out.maxSizeBytes = maxSize;
+  if (allHaveMinSize && Number.isFinite(minSize)) out.minSizeBytes = minSize;
+  if (allHaveMaxSize) out.maxSizeBytes = maxSize;
   return out;
 }
 
@@ -592,12 +709,14 @@ function andConstraintArms(
   const combined: ConstraintArm[] = [];
   for (const a of lhs) {
     for (const b of rhs) {
-      const conjuncts: (readonly string[])[] = [...a.contentTypeConjuncts];
-      for (const c of b.contentTypeConjuncts) {
-        const sig = c.join('||');
-        if (!conjuncts.some((existing) => existing.join('||') === sig)) {
-          conjuncts.push(c);
-        }
+      const conjuncts = mergeConjunctLists(a.contentTypeConjuncts, b.contentTypeConjuncts);
+      let minSizeBytes: number | undefined;
+      if (a.minSizeBytes !== undefined && b.minSizeBytes !== undefined) {
+        minSizeBytes = Math.max(a.minSizeBytes, b.minSizeBytes);
+      } else if (a.minSizeBytes !== undefined) {
+        minSizeBytes = a.minSizeBytes;
+      } else if (b.minSizeBytes !== undefined) {
+        minSizeBytes = b.minSizeBytes;
       }
       let maxSizeBytes: number | undefined;
       if (a.maxSizeBytes !== undefined && b.maxSizeBytes !== undefined) {
@@ -607,15 +726,24 @@ function andConstraintArms(
       } else if (b.maxSizeBytes !== undefined) {
         maxSizeBytes = b.maxSizeBytes;
       }
+      if (
+        minSizeBytes !== undefined
+        && maxSizeBytes !== undefined
+        && minSizeBytes > maxSizeBytes
+      ) {
+        continue;
+      }
       const requiredKeys = new Set<string>([...a.requiredKeys, ...b.requiredKeys]);
       const arm: {
         contentTypeConjuncts: readonly (readonly string[])[];
+        minSizeBytes?: number;
         maxSizeBytes?: number;
         requiredKeys: ReadonlySet<string>;
       } = {
         contentTypeConjuncts: conjuncts,
         requiredKeys,
       };
+      if (minSizeBytes !== undefined) arm.minSizeBytes = minSizeBytes;
       if (maxSizeBytes !== undefined) arm.maxSizeBytes = maxSizeBytes;
       combined.push(arm);
     }
@@ -701,11 +829,8 @@ function formatConjunctsPattern(
   conjuncts: readonly (readonly string[])[],
 ): string | undefined {
   if (conjuncts.length === 0) return undefined;
-  let acc: readonly string[] = conjuncts[0]!;
-  for (let i = 1; i < conjuncts.length; i += 1) {
-    acc = conjoinContentTypePatterns(acc, conjuncts[i]!);
-  }
-  return formatContentTypePatterns(acc);
+  if (conjuncts.length === 1) return formatContentTypePatterns(conjuncts[0]!);
+  return conjuncts.map((c) => formatContentTypePatterns(c)).join(' && ');
 }
 
 export function extractStorageMetadataConstraintArms(
@@ -723,6 +848,7 @@ export function extractStorageMetadataConstraintArms(
     const out: {
       contentTypePattern?: string;
       contentTypeConjuncts?: readonly (readonly string[])[];
+      minSizeBytes?: number;
       maxSizeBytes?: number;
       requiredCustomMetadataKeys?: readonly string[];
       ownerMetadataKey?: string;
@@ -731,6 +857,9 @@ export function extractStorageMetadataConstraintArms(
       const pat = formatConjunctsPattern(arm.contentTypeConjuncts);
       if (pat !== undefined) out.contentTypePattern = pat;
       out.contentTypeConjuncts = arm.contentTypeConjuncts.map((c) => [...c]);
+    }
+    if (arm.minSizeBytes !== undefined) {
+      out.minSizeBytes = arm.minSizeBytes;
     }
     if (arm.maxSizeBytes !== undefined) {
       out.maxSizeBytes = arm.maxSizeBytes;
@@ -747,6 +876,7 @@ export function extractStorageMetadataConstraintArms(
   const anyConstrained = formattedArms.some(
     (a) =>
       a.contentTypePattern !== undefined
+      || a.minSizeBytes !== undefined
       || a.maxSizeBytes !== undefined
       || a.requiredCustomMetadataKeys !== undefined
       || a.ownerMetadataKey !== undefined,
@@ -767,14 +897,23 @@ export function extractStorageMetadataConstraint(
 
   const out: {
     contentTypePattern?: string;
+    contentTypeConjuncts?: readonly (readonly string[])[];
+    minSizeBytes?: number;
     maxSizeBytes?: number;
     requiredCustomMetadataKeys?: readonly string[];
     ownerMetadataKey?: string;
   } = {};
 
   if (!summary.impossible) {
-    if (summary.contentTypes && summary.contentTypes.length > 0) {
-      out.contentTypePattern = formatContentTypePatterns(summary.contentTypes);
+    if (summary.contentTypeConjuncts && summary.contentTypeConjuncts.length > 0) {
+      const pat = formatConjunctsPattern(summary.contentTypeConjuncts);
+      if (pat !== undefined) out.contentTypePattern = pat;
+      if (summary.contentTypeConjuncts.length > 1) {
+        out.contentTypeConjuncts = summary.contentTypeConjuncts.map((c) => [...c]);
+      }
+    }
+    if (summary.minSizeBytes !== undefined) {
+      out.minSizeBytes = summary.minSizeBytes;
     }
     if (summary.maxSizeBytes !== undefined) {
       out.maxSizeBytes = summary.maxSizeBytes;
@@ -789,6 +928,7 @@ export function extractStorageMetadataConstraint(
 
   if (
     out.contentTypePattern === undefined
+    && out.minSizeBytes === undefined
     && out.maxSizeBytes === undefined
     && out.requiredCustomMetadataKeys === undefined
     && out.ownerMetadataKey === undefined

@@ -254,13 +254,12 @@ function buildTargetRules(
     rules.storageBuckets = storageBuckets;
   }
 
-  const defaultSt =
-    storageSources.find(
-      (s) =>
-        s.bucket === undefined ||
-        s.bucket === DEFAULT_SNAPSHOT_RESOURCE ||
-        (project.defaultBucket !== undefined && s.bucket === project.defaultBucket),
-    ) ?? storageSources[0];
+  const defaultSt = storageSources.find(
+    (s) =>
+      s.bucket === undefined ||
+      s.bucket === DEFAULT_SNAPSHOT_RESOURCE ||
+      (project.defaultBucket !== undefined && s.bucket === project.defaultBucket),
+  );
   if (defaultSt !== undefined) {
     rules.storage = bundleCampaignRulesString(
       defaultSt.text,
@@ -282,11 +281,6 @@ function buildTargetRules(
       "storage.rules",
       "firebase.storage",
     );
-  } else {
-    const firstBucketRules = Object.values(storageBuckets)[0];
-    if (firstBucketRules !== undefined) {
-      rules.storage = firstBucketRules;
-    }
   }
 
   return rules;

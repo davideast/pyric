@@ -2,6 +2,7 @@
  * Resource probe collection, Storage bucket fallback matching, and owner-write
  * provenance helpers for `coverageMatrixPass`.
  */
+import { isDefaultDatabaseInstance } from '@pyric/rules/internal/rtdb';
 import { DEFAULT_RESOURCE_ID } from '../../sandbox/internal/resource-pattern-header.js';
 import {
   overlapsPattern,
@@ -45,9 +46,34 @@ export function appendChildWildcard(pattern: ResourcePattern, varName: string): 
   };
 }
 
+const DEFAULT_RTDB_SUFFIX_RE = /^[a-z0-9-]+-default-rtdb$/i;
+
+export function isDefaultRtdbResourceId(
+  resourceId: string,
+  projectId: string | undefined,
+): boolean {
+  if (resourceId === DEFAULT_RESOURCE_ID) return false;
+  return (
+    isDefaultDatabaseInstance(resourceId, projectId)
+    || (projectId === undefined && DEFAULT_RTDB_SUFFIX_RE.test(resourceId))
+  );
+}
+
+export function hasExplicitRtdbInstanceRules(
+  surface: RuleSurface | undefined,
+  instanceId: string,
+): boolean {
+  if (!surface) return false;
+  return surface.entries.some(
+    (entry) => entry.pattern.service === 'rtdb' && entry.pattern.resourceId === instanceId,
+  );
+}
+
 export function normalizeSitePattern(
   site: AccessSite,
   defaultBucket: string | undefined,
+  projectId?: string,
+  surface?: RuleSurface,
 ): ResourcePattern {
   const parsed = siteResourcePattern(site);
   if (
@@ -56,6 +82,13 @@ export function normalizeSitePattern(
     && defaultBucket !== undefined
   ) {
     return { ...parsed, resourceId: defaultBucket };
+  }
+  if (
+    site.service === 'rtdb'
+    && isDefaultRtdbResourceId(parsed.resourceId, projectId)
+    && !hasExplicitRtdbInstanceRules(surface, parsed.resourceId)
+  ) {
+    return { ...parsed, resourceId: DEFAULT_RESOURCE_ID };
   }
   return parsed;
 }
@@ -132,6 +165,8 @@ export function collectExercisedProbes(
   usage: SdkUsageIndex,
   observations: readonly RuntimePathObservation[],
   defaultBucket: string | undefined,
+  projectId?: string,
+  surface?: RuleSurface,
 ): ExercisedProbe[] {
   const probes: ExercisedProbe[] = [];
 
@@ -164,7 +199,7 @@ export function collectExercisedProbes(
 
   for (const site of usage.operations) {
     if (site.resolution === 'unresolved' && site.path.length === 0) continue;
-    const base = normalizeSitePattern(site, defaultBucket);
+    const base = normalizeSitePattern(site, defaultBucket, projectId, surface);
     let candidates: ResourcePattern[] = [base];
     if (site.resolution === 'partial') {
       const concretized = concretizeSitePatterns(base, observations, Boolean(site.reason));
@@ -198,6 +233,12 @@ export function collectExercisedProbes(
     let pat = ref.pattern;
     if (pat.service === 'storage' && pat.resourceId === DEFAULT_RESOURCE_ID && defaultBucket !== undefined) {
       pat = { ...pat, resourceId: defaultBucket };
+    } else if (
+      pat.service === 'rtdb'
+      && isDefaultRtdbResourceId(pat.resourceId, projectId)
+      && !hasExplicitRtdbInstanceRules(surface, pat.resourceId)
+    ) {
+      pat = { ...pat, resourceId: DEFAULT_RESOURCE_ID };
     }
     if (pat.service === 'firestore') {
       pushFirestorePattern(pat, ref.refKind);

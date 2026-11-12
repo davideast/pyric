@@ -28,13 +28,22 @@ const CANDIDATE_MIMES = [
   'image/jpeg',
   'image/webp',
   'image/gif',
+  'image/tiff',
+  'image/avif',
+  'image/bmp',
   'image/svg+xml',
+  'image/x-icon',
   'application/pdf',
   'text/plain',
   'text/csv',
+  'text/html',
   'application/json',
+  'application/xml',
   'video/mp4',
+  'video/webm',
   'audio/mpeg',
+  'audio/wav',
+  'audio/ogg',
   'application/zip',
   'application/octet-stream',
 ];
@@ -82,12 +91,20 @@ function safeMatchesContentType(pattern: string, subject: string): boolean | nul
   try {
     return re2FullMatch(pattern, subject);
   } catch {
-    try {
-      return new RegExp(`^(?:${pattern})$`).test(subject);
-    } catch {
-      return null;
-    }
+    return null;
   }
+}
+
+function normalizeContentTypeConjuncts(
+  pattern: string | undefined,
+  conjuncts?: readonly (readonly string[])[],
+): readonly (readonly string[])[] {
+  if (conjuncts !== undefined && conjuncts.length > 0) return conjuncts;
+  if (pattern === undefined || pattern.length === 0) return [];
+  if (pattern.includes(' && ')) {
+    return pattern.split(' && ').map((part) => [part]);
+  }
+  return [[pattern]];
 }
 
 function sampleCharClass(charClass: string): string {
@@ -108,13 +125,17 @@ function clampRepeatCount(raw: string): number {
   return Math.min(parsed, 64);
 }
 
-/** True when `contentType` matches the Storage `.matches(...)` pattern (or when no pattern is set). */
+/** True when `contentType` matches the Storage `.matches(...)` pattern/conjuncts (or when none are set). */
 export function contentTypeMatchesPattern(
   contentType: string,
   pattern: string | undefined,
+  conjuncts?: readonly (readonly string[])[],
 ): boolean {
-  if (pattern === undefined || pattern.length === 0) return true;
-  return safeMatchesContentType(pattern, contentType) === true;
+  const norm = normalizeContentTypeConjuncts(pattern, conjuncts);
+  if (norm.length === 0) return true;
+  return norm.every((disjuncts) =>
+    disjuncts.some((pat) => safeMatchesContentType(pat, contentType) === true),
+  );
 }
 
 function expandContentTypePatternVariant(
@@ -176,12 +197,45 @@ function expandContentTypePatternVariant(
     .replace(/\\([./\-+?*()])/g, '$1');
 }
 
-/** Synthesize a concrete MIME `contentType` string satisfying a Storage `.matches(...)` regex. */
-export function synthesizeMatchingContentType(pattern: string | undefined): string {
-  if (pattern === undefined || pattern.length === 0) return 'application/octet-stream';
-  if (safeMatchesContentType(pattern, '') === null) return 'application/octet-stream';
+const MAX_PROBE_ALLOCATION_BYTES = 64 * 1024 * 1024;
+
+function extractLiteralPrefix(rawPattern: string): string | undefined {
+  const stripped = rawPattern
+    .replace(/^(?:\\A|\^)+/, '')
+    .replace(/(?:\\z|\$)+$/, '');
+  const m = /^([A-Za-z0-9.+/-]+?)\.[+*]$/.exec(stripped);
+  if (!m) return undefined;
+  return m[1]!.replace(/\\([./\-+])/g, '$1');
+}
+
+function extractLiteralSuffix(rawPattern: string): string | undefined {
+  const stripped = rawPattern
+    .replace(/^(?:\\A|\^)+/, '')
+    .replace(/(?:\\z|\$)+$/, '');
+  const m = /^\.[+*]([A-Za-z0-9.+/-]+)$/.exec(stripped);
+  if (!m) return undefined;
+  return m[1]!.replace(/\\([./\-+])/g, '$1');
+}
+
+/** Synthesize a concrete MIME `contentType` string satisfying a Storage `.matches(...)` regex or conjunct set. */
+export function synthesizeMatchingContentType(
+  pattern: string | undefined,
+  conjuncts?: readonly (readonly string[])[],
+): string {
+  const norm = normalizeContentTypeConjuncts(pattern, conjuncts);
+  if (norm.length === 0) return 'application/octet-stream';
+  for (const disjuncts of norm) {
+    if (disjuncts.every((p) => safeMatchesContentType(p, '') === null)) {
+      return 'application/octet-stream';
+    }
+  }
+  const matchesAll = (candidate: string): boolean =>
+    norm.every((disjuncts) =>
+      disjuncts.some((p) => safeMatchesContentType(p, candidate) === true),
+    );
+
   for (const candidate of CANDIDATE_MIMES) {
-    if (safeMatchesContentType(pattern, candidate) === true) return candidate;
+    if (matchesAll(candidate)) return candidate;
   }
   const variants: Array<{ dropOptionalGroups: boolean; spaceStarAsSpace: boolean }> = [
     { dropOptionalGroups: false, spaceStarAsSpace: true },
@@ -189,30 +243,87 @@ export function synthesizeMatchingContentType(pattern: string | undefined): stri
     { dropOptionalGroups: false, spaceStarAsSpace: false },
     { dropOptionalGroups: true, spaceStarAsSpace: false },
   ];
-  for (const variant of variants) {
-    const candidate = expandContentTypePatternVariant(pattern, variant);
-    if (safeMatchesContentType(pattern, candidate) === true) return candidate;
+  for (const disjuncts of norm) {
+    for (const pat of disjuncts) {
+      for (const variant of variants) {
+        const candidate = expandContentTypePatternVariant(pat, variant);
+        if (matchesAll(candidate)) return candidate;
+      }
+    }
+  }
+  if (norm.length > 1) {
+    const prefixes: string[] = [];
+    const suffixes: string[] = [];
+    for (const disjuncts of norm) {
+      for (const pat of disjuncts) {
+        const pfx = extractLiteralPrefix(pat);
+        if (pfx !== undefined && !prefixes.includes(pfx)) prefixes.push(pfx);
+        const sfx = extractLiteralSuffix(pat);
+        if (sfx !== undefined && !suffixes.includes(sfx)) suffixes.push(sfx);
+      }
+    }
+    for (const pfx of prefixes) {
+      for (const sfx of suffixes) {
+        for (const sep of ['', 'x', 'x-', '/']) {
+          const candidate = `${pfx}${sep}${sfx}`;
+          if (matchesAll(candidate)) return candidate;
+        }
+      }
+    }
   }
   return 'application/octet-stream';
 }
 
-export function compliantByteSize(maxSizeBytes: number | undefined): number {
-  if (maxSizeBytes === undefined) return 16;
+export function compliantByteSize(
+  maxSizeBytes: number | undefined,
+  minSizeBytes?: number,
+): number {
+  const minFloor =
+    minSizeBytes !== undefined && Number.isFinite(minSizeBytes)
+      ? Math.max(0, Math.ceil(minSizeBytes))
+      : undefined;
+  if (maxSizeBytes === undefined) {
+    if (minFloor !== undefined) {
+      return Math.min(MAX_PROBE_ALLOCATION_BYTES, Math.max(16, minFloor));
+    }
+    return 16;
+  }
   if (maxSizeBytes <= 0) return 0;
-  return Math.max(1, Math.min(16, Math.floor(maxSizeBytes)));
+  const maxCeil = Math.floor(maxSizeBytes);
+  const desired = Math.max(minFloor ?? 1, Math.min(Math.max(16, minFloor ?? 1), maxCeil));
+  return Math.min(MAX_PROBE_ALLOCATION_BYTES, desired);
 }
 
 export function mergedStorageConstraint(entries: readonly RuleSurfaceEntry[]): StorageMetadataConstraint {
   let contentTypePattern: string | undefined;
+  const contentTypeConjuncts: (readonly string[])[] = [];
+  let minSizeBytes: number | undefined;
   let maxSizeBytes: number | undefined;
   const requiredKeys = new Set<string>();
   let ownerMetadataKey: string | undefined;
+
+  const pushConjunct = (disjuncts: readonly string[]): void => {
+    const sig = disjuncts.join('||');
+    if (!contentTypeConjuncts.some((existing) => existing.join('||') === sig)) {
+      contentTypeConjuncts.push([...disjuncts]);
+    }
+  };
 
   for (const entry of entries) {
     const meta = entry.storageMetadata;
     if (!meta) continue;
     if (contentTypePattern === undefined && meta.contentTypePattern !== undefined) {
       contentTypePattern = meta.contentTypePattern;
+    }
+    if (meta.contentTypeConjuncts && meta.contentTypeConjuncts.length > 0) {
+      for (const c of meta.contentTypeConjuncts) pushConjunct(c);
+    } else if (meta.contentTypePattern !== undefined) {
+      for (const c of normalizeContentTypeConjuncts(meta.contentTypePattern)) pushConjunct(c);
+    }
+    if (meta.minSizeBytes !== undefined) {
+      if (minSizeBytes === undefined || meta.minSizeBytes > minSizeBytes) {
+        minSizeBytes = meta.minSizeBytes;
+      }
     }
     if (meta.maxSizeBytes !== undefined) {
       if (maxSizeBytes === undefined || meta.maxSizeBytes < maxSizeBytes) {
@@ -227,11 +338,19 @@ export function mergedStorageConstraint(entries: readonly RuleSurfaceEntry[]): S
 
   const out: {
     contentTypePattern?: string;
+    contentTypeConjuncts?: readonly (readonly string[])[];
+    minSizeBytes?: number;
     maxSizeBytes?: number;
     requiredCustomMetadataKeys?: readonly string[];
     ownerMetadataKey?: string;
   } = {};
-  if (contentTypePattern !== undefined) out.contentTypePattern = contentTypePattern;
+  if (contentTypeConjuncts.length > 1) {
+    out.contentTypeConjuncts = contentTypeConjuncts;
+    out.contentTypePattern = contentTypeConjuncts.map((c) => c.join('||')).join(' && ');
+  } else if (contentTypePattern !== undefined) {
+    out.contentTypePattern = contentTypePattern;
+  }
+  if (minSizeBytes !== undefined) out.minSizeBytes = minSizeBytes;
   if (maxSizeBytes !== undefined) out.maxSizeBytes = maxSizeBytes;
   if (requiredKeys.size > 0) out.requiredCustomMetadataKeys = [...requiredKeys];
   if (ownerMetadataKey !== undefined) out.ownerMetadataKey = ownerMetadataKey;
@@ -274,6 +393,7 @@ export function storageBindingsAt(
   site: AccessSite,
   bindings: readonly OwnerBinding[],
   surface?: RuleSurface,
+  defaultBucket?: string,
 ): OwnerBinding[] {
   const sitePattern = parseResourcePattern('storage', site.path, site.resourceId);
   const hasExplicitBucket =
@@ -289,7 +409,13 @@ export function storageBindingsAt(
   return bindings.filter((b) => {
     if (b.service !== 'storage') return false;
     let bp = parseResourcePattern('storage', b.path);
-    if (!hasExplicitBucket && b.wildcardBucket && sitePattern.resourceId !== '(default)') {
+    if (
+      sitePattern.resourceId === '(default)'
+      && defaultBucket !== undefined
+      && bp.resourceId === defaultBucket
+    ) {
+      bp = { ...bp, resourceId: '(default)' };
+    } else if (!hasExplicitBucket && b.wildcardBucket && sitePattern.resourceId !== '(default)') {
       bp = { ...bp, resourceId: sitePattern.resourceId };
     }
     return coversPattern(bp, sitePattern, { cascade: true }) || coversPattern(sitePattern, bp, { cascade: true });
@@ -472,11 +598,18 @@ export function buildCompliantUploadStep(
   metadataOverrides: Readonly<Record<string, string>> = {},
   surface?: RuleSurface,
 ): ProbeStep {
-  let contentType = synthesizeMatchingContentType(constraint.contentTypePattern);
+  let contentType = synthesizeMatchingContentType(
+    constraint.contentTypePattern,
+    constraint.contentTypeConjuncts,
+  );
   const clientMime = site.storageUpload?.contentType;
   if (
     clientMime !== undefined
-    && contentTypeMatchesPattern(clientMime, constraint.contentTypePattern)
+    && contentTypeMatchesPattern(
+      clientMime,
+      constraint.contentTypePattern,
+      constraint.contentTypeConjuncts,
+    )
   ) {
     contentType = clientMime;
   }
@@ -486,7 +619,7 @@ export function buildCompliantUploadStep(
     method: 'create',
     path,
     data: 'probe-bytes',
-    sizeBytes: compliantByteSize(constraint.maxSizeBytes),
+    sizeBytes: compliantByteSize(constraint.maxSizeBytes, constraint.minSizeBytes),
     contentType,
   };
   if (actorRole === 'admin') step.method = 'set';
@@ -544,12 +677,23 @@ export function buildCompliantUpdateStep(
     method: 'update',
     path,
   };
-  if (constraint.contentTypePattern !== undefined || site.storageUpload?.contentType !== undefined) {
-    let contentType = synthesizeMatchingContentType(constraint.contentTypePattern);
+  if (
+    constraint.contentTypePattern !== undefined
+    || constraint.contentTypeConjuncts !== undefined
+    || site.storageUpload?.contentType !== undefined
+  ) {
+    let contentType = synthesizeMatchingContentType(
+      constraint.contentTypePattern,
+      constraint.contentTypeConjuncts,
+    );
     const clientMime = site.storageUpload?.contentType;
     if (
       clientMime !== undefined
-      && contentTypeMatchesPattern(clientMime, constraint.contentTypePattern)
+      && contentTypeMatchesPattern(
+        clientMime,
+        constraint.contentTypePattern,
+        constraint.contentTypeConjuncts,
+      )
     ) {
       contentType = clientMime;
     }

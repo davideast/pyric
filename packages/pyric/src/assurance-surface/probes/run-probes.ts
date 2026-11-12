@@ -33,6 +33,11 @@ export interface ProbeUser {
   uid: string;
   email?: string;
   displayName?: string;
+  photoUrl?: string;
+  phoneNumber?: string;
+  tenantId?: string;
+  providerId?: string;
+  providerUserInfo?: readonly { providerId: string }[];
   customClaims?: Record<string, unknown>;
   emailVerified?: boolean;
   disabled?: boolean;
@@ -150,6 +155,8 @@ export interface RunProbesInput {
   state?: WorldState;
   /** Known users in that seed; probes act as two of them. */
   users?: ProbeUser[];
+  /** Resolved default Cloud Storage bucket ID (e.g. `<projectId>.firebasestorage.app`). */
+  defaultBucket?: string;
 }
 
 /** Known users ordered by how much of the seed they own (their uid appearing as a value or key), most first. */
@@ -174,6 +181,7 @@ function collectStepClaims(
   stepOp: string,
   sources: RuleSources,
   into: Record<string, unknown>,
+  defaultBucket?: string,
 ): void {
   if (step.service === 'firestore') {
     for (const source of sources.firestore) {
@@ -192,7 +200,7 @@ function collectStepClaims(
         continue;
       }
       let bucket = step.resourceId;
-      if (bucket === undefined) bucket = source.bucket;
+      if (bucket === undefined) bucket = source.bucket ?? defaultBucket;
       storageRequiredClaims(source.text, { path: step.path, op: stepOp, bucket }, into);
     }
     return;
@@ -218,12 +226,19 @@ function initialFirestoreDocPaths(state: WorldState | undefined): Set<string> {
 }
 
 function seedUsersFromInput(input: RunProbesInput): ProbeUser[] {
-  const snapshotUsers = input.state?.snapshot?.auth.users;
+  const snapshotUsers = input.state?.snapshot?.auth.users ?? input.state?.users;
   if (snapshotUsers && snapshotUsers.length > 0) {
     const mappedSnapshotUsers = snapshotUsers.map((user): ProbeUser => {
       const entry: ProbeUser = { uid: user.uid, emailVerified: user.emailVerified === true };
       if (user.email !== undefined) entry.email = user.email;
       if (user.displayName !== undefined) entry.displayName = user.displayName;
+      if (user.photoUrl !== undefined) entry.photoUrl = user.photoUrl;
+      if (user.phoneNumber !== undefined) entry.phoneNumber = user.phoneNumber;
+      if (user.tenantId !== undefined) entry.tenantId = user.tenantId;
+      if (user.providerId !== undefined) entry.providerId = user.providerId;
+      if (user.providerUserInfo !== undefined) {
+        entry.providerUserInfo = user.providerUserInfo.map((p) => ({ ...p }));
+      }
       if (user.disabled !== undefined) entry.disabled = user.disabled;
       if (user.customClaims !== undefined) {
         entry.customClaims = { ...user.customClaims };
@@ -241,15 +256,26 @@ function seedUsersFromInput(input: RunProbesInput): ProbeUser[] {
 function buildProbeStorageRules(
   storageSources: readonly StorageRuleSource[] | undefined,
   state: WorldState | undefined,
+  defaultBucket?: string,
 ): WorldStorageRules | undefined {
   if (storageSources && storageSources.length > 0) {
-    if (storageSources.length === 1 && storageSources[0]!.bucket === undefined) {
+    if (
+      storageSources.length === 1 &&
+      (storageSources[0]!.bucket === undefined ||
+        (defaultBucket !== undefined && storageSources[0]!.bucket === defaultBucket))
+    ) {
       return storageSources[0]!.text;
     }
     const map: Record<string, string> = {};
     for (const src of storageSources) {
       let key = '(default)';
-      if (src.bucket !== undefined && src.bucket.length > 0) key = src.bucket;
+      if (
+        src.bucket !== undefined &&
+        src.bucket.length > 0 &&
+        !(defaultBucket !== undefined && src.bucket === defaultBucket)
+      ) {
+        key = src.bucket;
+      }
       Object.defineProperty(map, key, {
         value: src.text,
         enumerable: true,
@@ -287,6 +313,7 @@ function extractProbeClaims(
   probe: Probe,
   sources: RuleSources,
   state: WorldState | undefined,
+  defaultBucket: string | undefined,
 ): { ownerClaims: Record<string, unknown>; peerClaims: Record<string, unknown> } {
   const existingFirestoreDocs = initialFirestoreDocPaths(state);
   for (const seedStep of probe.seed) {
@@ -303,9 +330,9 @@ function extractProbeClaims(
   for (const step of [...probe.setup, probe.attack]) {
     const stepOp = classifyStepOp(step, existingFirestoreDocs);
     if (step.actor === 'owner') {
-      collectStepClaims(step, stepOp, sources, ownerClaims);
+      collectStepClaims(step, stepOp, sources, ownerClaims, defaultBucket);
     } else if (step.actor === 'peer') {
-      collectStepClaims(step, stepOp, sources, peerClaims);
+      collectStepClaims(step, stepOp, sources, peerClaims, defaultBucket);
     }
     if (step.service === 'firestore') {
       if (stepOp === 'delete') existingFirestoreDocs.delete(step.path);
@@ -317,14 +344,24 @@ function extractProbeClaims(
 
 /** Plan and run every probe; findings come only from reproduced hits. */
 export async function runProbes(input: RunProbesInput): Promise<ProbeReport> {
-  const allUsers = byPresence(seedUsersFromInput(input), input.state);
+  const normalizedDefaultBucket = normalizeStorageBucketKey(
+    input.defaultBucket ?? input.state?.defaultBucket,
+  );
+  let effectiveState: WorldState | undefined = input.state;
+  if (normalizedDefaultBucket !== undefined) {
+    effectiveState = { ...(effectiveState ?? {}), defaultBucket: normalizedDefaultBucket };
+  }
+  if (input.users && input.users.length > 0 && effectiveState?.users === undefined) {
+    effectiveState = { ...(effectiveState ?? {}), users: input.users };
+  }
+  const allUsers = byPresence(seedUsersFromInput(input), effectiveState);
   const chosenUsers = selectTwoUsers(allUsers);
   const selectedUsers: ProbeUser[] = [];
   if (!chosenUsers.first.synthetic) selectedUsers.push(chosenUsers.first.user);
   if (!chosenUsers.second.synthetic) selectedUsers.push(chosenUsers.second.user);
   const names = namesFromState(
     input.accessSites,
-    input.state,
+    effectiveState,
     selectedUsers.map((user) => user.uid),
   );
   const { owner, peer } = probeActors({}, allUsers, names);
@@ -344,7 +381,7 @@ export async function runProbes(input: RunProbesInput): Promise<ProbeReport> {
   const rules: ProbeRules = {
     firestore: defaultFirestoreSources[0]?.text,
     rtdb: defaultRtdbSources.map((source) => source.json),
-    storage: buildProbeStorageRules(storageSources, input.state),
+    storage: buildProbeStorageRules(storageSources, effectiveState, normalizedDefaultBucket),
   };
   const hints = [
     ...defaultRtdbSources.flatMap((source) => rtdbValueHints(source.json)),
@@ -369,33 +406,45 @@ export async function runProbes(input: RunProbesInput): Promise<ProbeReport> {
   );
   const hasFirestoreClientWrite = sites.some((site) => site.service === 'firestore' && isWriteOp(site.op));
   if (rules.firestore && !hasFirestoreClientWrite) {
-    sites = [...sites, ...sitesFromState(input.state, knownUids)];
+    sites = [...sites, ...sitesFromState(effectiveState, knownUids)];
   }
   const hasRtdbState =
-    Boolean(input.state?.rtdb) ||
-    Boolean(input.state?.snapshot && Object.hasOwn(input.state.snapshot.rtdb, '(default)'));
+    Boolean(effectiveState?.rtdb) ||
+    Boolean(effectiveState?.snapshot && Object.hasOwn(effectiveState.snapshot.rtdb, '(default)'));
   if (rules.rtdb.length > 0 && hasRtdbState) {
-    sites = [...sites, ...rtdbReadOnlySitesFromState(sites, input.state, knownUids)];
+    sites = [...sites, ...rtdbReadOnlySitesFromState(sites, effectiveState, knownUids)];
   }
 
-  const probes = planProbes({
+  const planInput: {
+    sites: typeof sites;
+    bindings: typeof input.ownerBindings;
+    conditions: typeof input.conditions;
+    owner: typeof owner;
+    peer: typeof peer;
+    hints: typeof hints;
+    state?: WorldState;
+    surface: typeof surface;
+    defaultBucket?: string;
+  } = {
     sites,
     bindings: input.ownerBindings,
     conditions: input.conditions,
     owner,
     peer,
     hints,
-    state: input.state,
+    state: effectiveState,
     surface,
-  });
+  };
+  if (normalizedDefaultBucket !== undefined) planInput.defaultBucket = normalizedDefaultBucket;
+  const probes = planProbes(planInput);
 
   const seededOwner = chosenUsers.first.synthetic ? undefined : chosenUsers.first.user;
   const seededPeer = chosenUsers.second.synthetic ? undefined : chosenUsers.second.user;
   const storageCrossServiceDenied =
-    input.state?.snapshot?.storageConfig?.crossServiceIam === 'denied' &&
+    effectiveState?.snapshot?.storageConfig?.crossServiceIam === 'denied' &&
     (
       storageSources.some((source) => /\bfirestore\s*\.\s*(?:get|exists)\s*\(/.test(source.text)) ||
-      Object.values(input.state?.snapshot?.rules.storage ?? {}).some((text) =>
+      Object.values(effectiveState?.snapshot?.rules.storage ?? {}).some((text) =>
         /\bfirestore\s*\.\s*(?:get|exists)\s*\(/.test(text),
       )
     );
@@ -406,7 +455,7 @@ export async function runProbes(input: RunProbesInput): Promise<ProbeReport> {
     { ownerClaims: Record<string, unknown>; peerClaims: Record<string, unknown> }
   >();
   for (const probe of probes) {
-    const extracted = extractProbeClaims(probe, scopedSources, input.state);
+    const extracted = extractProbeClaims(probe, scopedSources, effectiveState, normalizedDefaultBucket);
     let effectiveProbe = probe;
     if (
       probe.kind === 'must-allow-denied' &&
@@ -435,7 +484,7 @@ export async function runProbes(input: RunProbesInput): Promise<ProbeReport> {
       mergeActorClaims(owner, extracted.ownerClaims, seededOwner),
       mergeActorClaims(peer, extracted.peerClaims, seededPeer),
     ];
-    const result = await runProbe(effectiveProbe, rules, scopedActors, input.state ?? {});
+    const result = await runProbe(effectiveProbe, rules, scopedActors, effectiveState ?? {});
     if (result) results.push({ ...result, actors: scopedActors });
   }
 

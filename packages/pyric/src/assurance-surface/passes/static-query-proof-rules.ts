@@ -2,27 +2,37 @@
  * Firestore Rules AST projection and inspection helpers for
  * {@link staticQueryProofPass}.
  */
-import { assembleExpression } from '@pyric/rules/internal';
-import type {
-  AllowRule,
-  Expression,
-  FirestoreRules,
-  FunctionDef,
-  MatchBlock,
-  PathSegment,
-} from '@pyric/rules/internal';
-import { topLevelMatches } from '@pyric/rules/internal';
 import {
   analyzeListRulePathInvariance,
+  assembleExpression,
+  attachOrBudgetStep,
   buildListRuleFunctionScope,
-} from '@pyric/rules/internal';
-import { indexRulesetScopes } from '@pyric/rules/internal';
-import { substituteIdentifiers } from '@pyric/rules/internal';
-import {
+  Bytes,
   collectRootMatches,
+  Duration,
+  evaluateQueryProof,
+  getListBlockSteps,
+  getOrBudgetSteps,
+  indexRulesetScopes,
+  isQueryProofScalar,
+  LatLng,
+  queryProofScalarsEqual,
+  Reference,
   resolveRootBlockMatch,
   rootBlockGovernsEveryDocument,
   rootGovernsEveryDocument,
+  setListBlockSteps,
+  substituteIdentifiers,
+  Timestamp,
+  topLevelMatches,
+  type AllowRule,
+  type Expression,
+  type FirestoreRules,
+  type FunctionDef,
+  type ListBlockStep,
+  type MatchBlock,
+  type PathSegment,
+  type RulesScalar,
 } from '@pyric/rules/internal';
 import { SYNTH_UID, type ScalarValue } from './static-query-proof-args.js';
 
@@ -158,29 +168,223 @@ function groupBindings(
   return null;
 }
 
-function projectInvariantAllows(
+function worstCasePathBudgetBranch(
+  expr: Expression,
+  bound: ReadonlySet<string>,
+  functions: ReadonlyMap<string, FunctionDef>,
+  ambiguousNames: ReadonlySet<string>,
+): { expr: Expression; requiredFunctionDefs: ReadonlySet<FunctionDef> } {
+  const analysis = analyzeListRulePathInvariance(expr, bound, functions, ambiguousNames);
+  if (analysis.pathInvariant) {
+    return { expr, requiredFunctionDefs: analysis.requiredFunctionDefs };
+  }
+  if (expr.type === 'unaryOp' && expr.op === '!') {
+    const inner = expr.operand;
+    if (inner.type === 'binaryOp' && (inner.op === '&&' || inner.op === '||')) {
+      return worstCasePathBudgetBranch(
+        {
+          type: 'binaryOp',
+          op: inner.op === '&&' ? '||' : '&&',
+          left: { type: 'unaryOp', op: '!', operand: inner.left },
+          right: { type: 'unaryOp', op: '!', operand: inner.right },
+        },
+        bound,
+        functions,
+        ambiguousNames,
+      );
+    }
+    const sub = worstCasePathBudgetBranch(inner, bound, functions, ambiguousNames);
+    return {
+      expr: sub.expr === inner ? expr : { ...expr, operand: sub.expr },
+      requiredFunctionDefs: sub.requiredFunctionDefs,
+    };
+  }
+  if (expr.type === 'binaryOp' && (expr.op === '&&' || expr.op === '||')) {
+    const left = worstCasePathBudgetBranch(expr.left, bound, functions, ambiguousNames);
+    const right = worstCasePathBudgetBranch(expr.right, bound, functions, ambiguousNames);
+    const defs = new Set([...left.requiredFunctionDefs, ...right.requiredFunctionDefs]);
+    const leftInvariant = analyzeListRulePathInvariance(
+      expr.left,
+      bound,
+      functions,
+      ambiguousNames,
+    ).pathInvariant;
+    if (!leftInvariant) {
+      return {
+        expr: attachOrBudgetStep(right.expr, {
+          operator: expr,
+          side: 'before',
+          branch: left.expr,
+        }),
+        requiredFunctionDefs: defs,
+      };
+    }
+    return {
+      expr: { ...expr, left: left.expr, right: right.expr },
+      requiredFunctionDefs: defs,
+    };
+  }
+  return { expr, requiredFunctionDefs: analysis.requiredFunctionDefs };
+}
+
+function projectPathInvariantCondition(
+  expr: Expression,
+  bound: ReadonlySet<string>,
+  functions: ReadonlyMap<string, FunctionDef>,
+  ambiguousNames: ReadonlySet<string>,
+): { condition: Expression; requiredFunctionDefs: ReadonlySet<FunctionDef> } | null {
+  const analysis = analyzeListRulePathInvariance(expr, bound, functions, ambiguousNames);
+  if (analysis.pathInvariant) {
+    return { condition: expr, requiredFunctionDefs: analysis.requiredFunctionDefs };
+  }
+  if (expr.type === 'unaryOp' && expr.op === '!') {
+    const inner = expr.operand;
+    if (inner.type === 'binaryOp' && inner.op === '&&') {
+      return projectPathInvariantCondition(
+        {
+          type: 'binaryOp',
+          op: '||',
+          left: { type: 'unaryOp', op: '!', operand: inner.left },
+          right: { type: 'unaryOp', op: '!', operand: inner.right },
+        },
+        bound,
+        functions,
+        ambiguousNames,
+      );
+    }
+    if (inner.type === 'binaryOp' && inner.op === '||') {
+      return projectPathInvariantCondition(
+        {
+          type: 'binaryOp',
+          op: '&&',
+          left: { type: 'unaryOp', op: '!', operand: inner.left },
+          right: { type: 'unaryOp', op: '!', operand: inner.right },
+        },
+        bound,
+        functions,
+        ambiguousNames,
+      );
+    }
+    if (inner.type === 'unaryOp' && inner.op === '!') {
+      const sub = projectPathInvariantCondition(inner.operand, bound, functions, ambiguousNames);
+      if (!sub) return null;
+      return {
+        condition: {
+          type: 'unaryOp',
+          op: '!',
+          operand: { type: 'unaryOp', op: '!', operand: sub.condition },
+        },
+        requiredFunctionDefs: sub.requiredFunctionDefs,
+      };
+    }
+  }
+  if (expr.type === 'binaryOp' && (expr.op === '&&' || expr.op === '||')) {
+    const left = projectPathInvariantCondition(expr.left, bound, functions, ambiguousNames);
+    const right = projectPathInvariantCondition(expr.right, bound, functions, ambiguousNames);
+    if (left && right) {
+      return {
+        condition: { ...expr, left: left.condition, right: right.condition },
+        requiredFunctionDefs: new Set([
+          ...left.requiredFunctionDefs,
+          ...right.requiredFunctionDefs,
+        ]),
+      };
+    }
+    if (expr.op === '||') {
+      if (!left && right) {
+        const dropped = worstCasePathBudgetBranch(expr.left, bound, functions, ambiguousNames);
+        return {
+          condition: attachOrBudgetStep(right.condition, {
+            operator: expr,
+            side: 'before',
+            branch: dropped.expr,
+          }),
+          requiredFunctionDefs: new Set([
+            ...right.requiredFunctionDefs,
+            ...dropped.requiredFunctionDefs,
+          ]),
+        };
+      }
+      if (left && !right) {
+        const dropped = worstCasePathBudgetBranch(expr.right, bound, functions, ambiguousNames);
+        return {
+          condition: attachOrBudgetStep(left.condition, {
+            operator: expr,
+            side: 'after',
+            branch: dropped.expr,
+          }),
+          requiredFunctionDefs: new Set([
+            ...left.requiredFunctionDefs,
+            ...dropped.requiredFunctionDefs,
+          ]),
+        };
+      }
+    }
+  }
+  return null;
+}
+
+interface ProjectedBlockAllows {
+  readonly allows: AllowRule[];
+  readonly blockSteps: ListBlockStep[];
+  readonly requiredDefs: Set<FunctionDef>;
+}
+
+function projectAllowsWithBudget(
   allows: readonly AllowRule[],
   bound: ReadonlySet<string>,
   scopeFunctions: ReadonlyMap<string, FunctionDef>,
   ambiguousNames: ReadonlySet<string>,
-  requiredFunctions: Set<string>,
-): AllowRule[] {
+): ProjectedBlockAllows {
   const retained: AllowRule[] = [];
-  for (const rule of allows) {
+  const blockSteps: ListBlockStep[] = [];
+  const requiredDefs = new Set<FunctionDef>();
+  const budgetDefs = new Set<FunctionDef>();
+
+  for (let ruleIndex = 0; ruleIndex < allows.length; ruleIndex += 1) {
+    const rule = allows[ruleIndex]!;
     const hasListOrRead = rule.operations.some((op) => op === 'list' || op === 'read');
     if (!hasListOrRead) continue;
-    const analysis = analyzeListRulePathInvariance(
+    const projected = projectPathInvariantCondition(
       rule.condition,
       bound,
       scopeFunctions,
       ambiguousNames,
     );
-    if (analysis.pathInvariant) {
-      for (const fnName of analysis.requiredFunctions) requiredFunctions.add(fnName);
-      retained.push(rule);
+    if (!projected) {
+      const budgetBranch = worstCasePathBudgetBranch(
+        rule.condition,
+        bound,
+        scopeFunctions,
+        ambiguousNames,
+      );
+      const budgetRule =
+        budgetBranch.expr === rule.condition
+          ? rule
+          : { ...rule, condition: budgetBranch.expr };
+      blockSteps.push({ kind: 'budget', rule: budgetRule, index: ruleIndex });
+      for (const fnDef of budgetBranch.requiredFunctionDefs) {
+        budgetDefs.add(fnDef);
+      }
+      continue;
+    }
+    for (const fnDef of projected.requiredFunctionDefs) {
+      requiredDefs.add(fnDef);
+    }
+    const projectedRule =
+      projected.condition === rule.condition
+        ? rule
+        : { ...rule, condition: projected.condition };
+    retained.push(projectedRule);
+    blockSteps.push({ kind: 'grant', rule: projectedRule, index: ruleIndex });
+  }
+
+  if (retained.length > 0 && blockSteps.some((step) => step.kind === 'budget')) {
+    for (const fnDef of budgetDefs) {
+      requiredDefs.add(fnDef);
     }
   }
-  return retained;
+  return { allows: retained, blockSteps, requiredDefs };
 }
 
 function projectGroupBlock(
@@ -189,26 +393,39 @@ function projectGroupBlock(
   underRecursiveRoot: boolean,
   extraBound: ReadonlySet<string>,
   outerFunctions: readonly FunctionDef[],
-  requiredFunctions: Set<string>,
+  requiredFunctionDefs: Set<FunctionDef>,
 ): MatchBlock | null {
   const localBound = groupBindings(block, collectionId, underRecursiveRoot);
   if (!localBound) return null;
   const bound = new Set([...extraBound, ...localBound]);
   const scope = buildListRuleFunctionScope([...outerFunctions, ...block.functions]);
-  const allows = projectInvariantAllows(
+  const projected = projectAllowsWithBudget(
     block.allows,
     bound,
     scope.functions,
     scope.ambiguousNames,
-    requiredFunctions,
   );
-  if (allows.length === 0) return null;
-  return {
+  if (projected.allows.length === 0) return null;
+
+  const blockRequiredDefs = new Set<FunctionDef>();
+  for (const fnDef of projected.requiredDefs) {
+    if (block.functions.includes(fnDef)) {
+      blockRequiredDefs.add(fnDef);
+    } else {
+      requiredFunctionDefs.add(fnDef);
+    }
+  }
+
+  const projectedBlock: MatchBlock = {
     ...block,
-    functions: block.functions.filter((fn) => requiredFunctions.has(fn.name)),
-    allows,
+    functions: block.functions.filter((fn) => blockRequiredDefs.has(fn)),
+    allows: projected.allows,
     children: [],
   };
+  if (projected.blockSteps.some((step) => step.kind === 'budget')) {
+    setListBlockSteps(projectedBlock, projected.blockSteps);
+  }
+  return projectedBlock;
 }
 
 export function projectCollectionGroupAst(
@@ -218,7 +435,7 @@ export function projectCollectionGroupAst(
   indexRulesetScopes(ast);
   if (!rootGovernsEveryDocument(ast)) return null;
 
-  const globalRequiredFunctions = new Set<string>();
+  const requiredFunctionDefs = new Set<FunctionDef>();
   const projectedRoots: MatchBlock[] = [];
 
   for (const rootBlock of topLevelMatches(ast.service)) {
@@ -231,7 +448,7 @@ export function projectCollectionGroupAst(
       ...(ast.service.functions ?? []),
       ...rootBlock.functions,
     ];
-    const blockRequiredFunctions = new Set<string>();
+    const blockRequiredDefs = new Set<FunctionDef>();
     const underRecursiveRoot = rootMatch.recursiveTail !== undefined;
     const extraBound = new Set<string>(rootMatch.recursiveVariables ?? []);
     if (rootMatch.recursiveTail !== undefined) {
@@ -239,15 +456,22 @@ export function projectCollectionGroupAst(
     }
 
     let rootAllows: AllowRule[] = [];
+    let rootSteps: ListBlockStep[] = [];
     if (underRecursiveRoot && rootBlock.allows.length > 0) {
       const rootScope = buildListRuleFunctionScope(outerFunctions);
-      rootAllows = projectInvariantAllows(
+      const projectedRootAllows = projectAllowsWithBudget(
         rootBlock.allows,
         extraBound,
         rootScope.functions,
         rootScope.ambiguousNames,
-        blockRequiredFunctions,
       );
+      rootAllows = projectedRootAllows.allows;
+      rootSteps = projectedRootAllows.blockSteps;
+      if (rootAllows.length > 0) {
+        for (const fnDef of projectedRootAllows.requiredDefs) {
+          blockRequiredDefs.add(fnDef);
+        }
+      }
     }
 
     const children: MatchBlock[] = [];
@@ -258,27 +482,33 @@ export function projectCollectionGroupAst(
         underRecursiveRoot,
         extraBound,
         outerFunctions,
-        blockRequiredFunctions,
+        blockRequiredDefs,
       );
       if (projected) children.push(projected);
     }
 
     if (rootAllows.length === 0 && children.length === 0) continue;
-    for (const fnName of blockRequiredFunctions) {
-      globalRequiredFunctions.add(fnName);
+    for (const fnDef of blockRequiredDefs) {
+      if (!rootBlock.functions.includes(fnDef)) {
+        requiredFunctionDefs.add(fnDef);
+      }
     }
-    projectedRoots.push({
+    const projectedRoot: MatchBlock = {
       ...rootBlock,
-      functions: rootBlock.functions.filter((fn) => blockRequiredFunctions.has(fn.name)),
+      functions: rootBlock.functions.filter((fn) => blockRequiredDefs.has(fn)),
       allows: rootAllows,
       children,
-    });
+    };
+    if (rootAllows.length > 0 && rootSteps.some((step) => step.kind === 'budget')) {
+      setListBlockSteps(projectedRoot, rootSteps);
+    }
+    projectedRoots.push(projectedRoot);
   }
 
   if (projectedRoots.length === 0) return null;
   const retainGlobal = (fns: readonly FunctionDef[] | undefined): FunctionDef[] | undefined => {
     if (!fns) return undefined;
-    return fns.filter((fn) => globalRequiredFunctions.has(fn.name));
+    return fns.filter((fn) => requiredFunctionDefs.has(fn));
   };
   return {
     ...ast,
@@ -331,9 +561,15 @@ function isRequestAuthTokenClaim(expr: Expression, claim: string): boolean {
 }
 
 function isResourceDataField(expr: Expression, field: string): boolean {
-  const step = memberStep(expr);
-  if (!step || step.property !== field) return false;
-  const dataStep = memberStep(step.object);
+  const parts = field.split('.').filter((p) => p.length > 0);
+  if (parts.length === 0) return false;
+  let cur: Expression = expr;
+  for (let i = parts.length - 1; i >= 0; i -= 1) {
+    const step = memberStep(cur);
+    if (!step || step.property !== parts[i]) return false;
+    cur = step.object;
+  }
+  const dataStep = memberStep(cur);
   if (!dataStep || dataStep.property !== 'data') return false;
   return dataStep.object.type === 'identifier' && dataStep.object.name === 'resource';
 }
@@ -546,17 +782,9 @@ export function inspectRetainedRules(
   for (const match of matches) {
     const scope = buildListRuleFunctionScope(match.functions);
     const matchWildcardNames = new Set(Object.getOwnPropertyNames(match.pathVariables));
-    for (const rule of match.block.allows) {
-      if (!rule.operations.some((op) => op === 'list' || op === 'read')) continue;
-      if (!primaryRule) {
-        const info: { line?: number; expression: string } = {
-          expression: assembleExpression(rule.condition),
-        };
-        if (rule.loc?.line !== undefined) info.line = rule.loc.line;
-        primaryRule = info;
-      }
+    const inspectExpr = (expr: Expression): void => {
       walkRuleExpression(
-        rule.condition,
+        expr,
         scope.functions,
         new Set(),
         (node, parent, grandparent) => {
@@ -599,6 +827,26 @@ export function inspectRetainedRules(
           }
         },
       );
+      for (const orStep of getOrBudgetSteps(expr) ?? []) {
+        inspectExpr(orStep.branch);
+      }
+    };
+
+    for (const rule of match.block.allows) {
+      if (!rule.operations.some((op) => op === 'list' || op === 'read')) continue;
+      if (!primaryRule) {
+        const info: { line?: number; expression: string } = {
+          expression: assembleExpression(rule.condition),
+        };
+        if (rule.loc?.line !== undefined) info.line = rule.loc.line;
+        primaryRule = info;
+      }
+      inspectExpr(rule.condition);
+    }
+    for (const blockStep of getListBlockSteps(match.block) ?? []) {
+      if (blockStep.kind === 'budget') {
+        inspectExpr(blockStep.rule.condition);
+      }
     }
   }
 
@@ -670,36 +918,101 @@ export function collectClaimCandidateScalars(
   return out;
 }
 
+function tryEvaluateOptimisticOperand(
+  expr: Expression,
+  scopeFunctions: ReadonlyMap<string, FunctionDef>,
+  pathVariables: Readonly<Record<string, string>>,
+  functionScopes: Parameters<typeof evaluateQueryProof>[5],
+): RulesScalar | undefined {
+  let readsLookupOrDoc = false;
+  walkRuleExpression(expr, scopeFunctions, new Set(), (node) => {
+    if (isAnyResourceDataAccess(node)) {
+      readsLookupOrDoc = true;
+    } else if (
+      node.type === 'functionCall'
+      && !scopeFunctions.has(node.name)
+      && LOOKUP_BUILTINS.has(node.name)
+    ) {
+      readsLookupOrDoc = true;
+    }
+  });
+  if (readsLookupOrDoc) return undefined;
+  const probeCondition: Expression = {
+    type: 'binaryOp',
+    op: '==',
+    left: {
+      type: 'memberAccess',
+      object: {
+        type: 'memberAccess',
+        object: { type: 'identifier', name: 'resource' },
+        property: 'data',
+      },
+      property: '__pyric_optimistic_probe__',
+    },
+    right: expr,
+  };
+  const proof = evaluateQueryProof(
+    probeCondition,
+    {},
+    scopeFunctions,
+    SYNTH_UID,
+    pathVariables,
+    functionScopes,
+  );
+  if (!proof.provable && proof.kind === 'constraints-not-satisfied') {
+    const expected = proof.residual.missing[0]?.expectedValue;
+    if (isQueryProofScalar(expected)) return expected;
+  }
+  return undefined;
+}
+
 export function collectOptimisticFieldScalars(
   evaluationAst: FirestoreRules,
   placeholderPath: string,
   field: string,
-): ScalarValue[] {
+): RulesScalar[] {
   indexRulesetScopes(evaluationAst);
   const rootFunctions = [
     ...(evaluationAst.functions ?? []),
     ...(evaluationAst.service.functions ?? []),
   ];
   const matches = collectRootMatches(evaluationAst, placeholderPath, rootFunctions);
-  const out: ScalarValue[] = [];
-  const addScalar = (value: ScalarValue): void => {
-    if (!out.some((existing) => Object.is(existing, value))) {
+  const out: RulesScalar[] = [];
+  let fieldReferencedInRule = false;
+  const addScalar = (value: RulesScalar): void => {
+    if (!out.some((existing) => queryProofScalarsEqual(existing, value))) {
       out.push(value);
     }
   };
 
   for (const match of matches) {
     const scope = buildListRuleFunctionScope(match.functions);
+    const addEvaluated = (candidateExpr: Expression): void => {
+      const lit = asScalarLiteral(candidateExpr);
+      if (lit.ok) {
+        addScalar(lit.value);
+        return;
+      }
+      const evaluated = tryEvaluateOptimisticOperand(
+        candidateExpr,
+        scope.functions,
+        match.pathVariables,
+        match.functionScopes,
+      );
+      if (evaluated !== undefined) addScalar(evaluated);
+    };
+
     for (const rule of match.block.allows) {
       if (!rule.operations.some((op) => op === 'list' || op === 'read')) continue;
       walkRuleExpression(rule.condition, scope.functions, new Set(), (node) => {
+        if (isResourceDataField(node, field)) {
+          fieldReferencedInRule = true;
+        }
         if (node.type === 'binaryOp' && node.op === '==') {
           if (isResourceDataField(node.left, field)) {
-            const lit = asScalarLiteral(node.right);
-            if (lit.ok) addScalar(lit.value);
+            addEvaluated(node.right);
           } else if (isResourceDataField(node.right, field)) {
-            const lit = asScalarLiteral(node.left);
-            if (lit.ok) addScalar(lit.value);
+            addEvaluated(node.left);
           }
         } else if (
           node.type === 'inExpr'
@@ -707,8 +1020,21 @@ export function collectOptimisticFieldScalars(
           && node.collection.type === 'listLiteral'
         ) {
           for (const item of node.collection.elements) {
-            const lit = asScalarLiteral(item);
-            if (lit.ok) addScalar(lit.value);
+            addEvaluated(item);
+          }
+        } else if (
+          node.type === 'inExpr'
+          && isResourceDataField(node.collection, field)
+        ) {
+          addEvaluated(node.element);
+        } else if (
+          node.type === 'methodCall'
+          && (node.method === 'hasAny' || node.method === 'hasAll')
+          && isResourceDataField(node.object, field)
+          && node.args[0]?.type === 'listLiteral'
+        ) {
+          for (const item of node.args[0].elements) {
+            addEvaluated(item);
           }
         }
       });
@@ -717,5 +1043,12 @@ export function collectOptimisticFieldScalars(
 
   addScalar(SYNTH_UID);
   addScalar(`__pyric_optimistic_${field}__`);
+  if (fieldReferencedInRule) {
+    addScalar(new Reference('__pyric_ref_col__/__pyric_ref_id__'));
+    addScalar(Timestamp.fromMillis(1_700_000_000_000));
+    addScalar(new Bytes(new Uint8Array([1])));
+    addScalar(new LatLng(0, 0));
+    addScalar(new Duration(60, 0));
+  }
   return out;
 }

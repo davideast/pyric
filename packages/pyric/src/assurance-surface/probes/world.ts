@@ -15,6 +15,7 @@ import {
 } from 'pyric/sandbox';
 import {
   DEFAULT_SNAPSHOT_RESOURCE,
+  accountTokenClaims,
   decodeSnapshotMapForEnv,
   encodeSnapshotMap,
   getInternalEnv,
@@ -23,6 +24,7 @@ import {
   type SandboxSnapshot,
   type SnapshotStorageObject,
   type SnapshotUserRecord,
+  type TokenClaimAccount,
 } from 'pyric/sandbox/internal';
 import { getAdminStorageSandbox } from 'pyric/storage/internal';
 import {
@@ -58,6 +60,7 @@ import type { ProbeActor, ProbeStep, StepResult } from './types.js';
 import {
   executeWorldStorageStep,
   nextProbeWorldStorageDbName,
+  normalizeStorageBucketKey,
   populateWorldStorageRules,
   type WorldStorageRules,
 } from './world-storage.js';
@@ -72,7 +75,9 @@ export interface WorldState {
   rtdb?: unknown;
   firestore?: Record<string, Record<string, unknown>>;
   storage?: readonly SnapshotStorageObject[];
+  users?: readonly SnapshotUserRecord[];
   snapshot?: SandboxSnapshot;
+  defaultBucket?: string;
 }
 
 interface Handles {
@@ -171,10 +176,19 @@ function buildWorldSnapshot(rules: WorldRules, state: WorldState): SandboxSnapsh
     storage[DEFAULT_SNAPSHOT_RESOURCE] = state.storage;
   }
 
+  const usersByUid = new Map<string, SnapshotUserRecord>();
+  for (const u of base?.auth.users ?? []) {
+    usersByUid.set(u.uid, u);
+  }
+  for (const u of state.users ?? []) {
+    const prev = usersByUid.get(u.uid);
+    usersByUid.set(u.uid, prev ? { ...prev, ...u } : u);
+  }
+  const mergedUsers = [...usersByUid.values()];
   const auth: SandboxSnapshot['auth'] =
     base?.auth.providers !== undefined
-      ? { users: base.auth.users, providers: base.auth.providers }
-      : { users: base?.auth.users ?? [] };
+      ? { users: mergedUsers, providers: base.auth.providers }
+      : { users: mergedUsers };
 
   return {
     version: 1,
@@ -203,11 +217,11 @@ function buildActorAuth(
   let name = actor.displayName;
   if (!name && matched?.displayName) name = matched.displayName;
 
-  const token: Record<string, unknown> = {};
+  const customClaims: Record<string, unknown> = {};
   if (matched?.customClaims !== undefined) {
     for (const key of Object.getOwnPropertyNames(matched.customClaims)) {
       defineOwnWorldField(
-        token,
+        customClaims,
         key,
         Object.getOwnPropertyDescriptor(matched.customClaims, key)?.value,
       );
@@ -215,33 +229,99 @@ function buildActorAuth(
   }
   for (const key of Object.getOwnPropertyNames(actor.token)) {
     defineOwnWorldField(
-      token,
+      customClaims,
       key,
       Object.getOwnPropertyDescriptor(actor.token, key)?.value,
+    );
+  }
+
+  const providerIds: string[] = [];
+  if (matched !== undefined) {
+    for (const info of matched.providerUserInfo ?? []) {
+      if (typeof info.providerId === 'string' && info.providerId.length > 0) {
+        if (!providerIds.includes(info.providerId)) providerIds.push(info.providerId);
+      }
+    }
+    if (typeof matched.providerId === 'string' && matched.providerId.length > 0) {
+      if (!providerIds.includes(matched.providerId)) providerIds.push(matched.providerId);
+    } else if (email && providerIds.length === 0) {
+      providerIds.push('password');
+    }
+  } else if (email) {
+    providerIds.push('password');
+  }
+  const signInProvider =
+    matched?.providerId ??
+    matched?.providerUserInfo?.[0]?.providerId ??
+    (email ? 'password' : 'anonymous');
+  const account: TokenClaimAccount = {
+    uid: actor.uid,
+    email: email ?? null,
+    emailVerified,
+    displayName: name ?? null,
+    photoUrl: matched?.photoUrl ?? null,
+    phoneNumber: matched?.phoneNumber ?? null,
+    isAnonymous: signInProvider === 'anonymous',
+    providerIds,
+  };
+
+  const token: Record<string, unknown> = {};
+  const projected = accountTokenClaims(actor.uid, account, customClaims, signInProvider);
+  for (const key of Object.getOwnPropertyNames(projected)) {
+    defineOwnWorldField(token, key, Object.getOwnPropertyDescriptor(projected, key)?.value);
+  }
+  for (const key of Object.getOwnPropertyNames(customClaims)) {
+    defineOwnWorldField(
+      token,
+      key,
+      Object.getOwnPropertyDescriptor(customClaims, key)?.value,
     );
   }
   defineOwnWorldField(token, 'email', email);
   defineOwnWorldField(token, 'email_verified', emailVerified);
   defineOwnWorldField(token, 'name', name);
 
-  if (matched?.tenantId !== undefined || matched?.providerId !== undefined) {
-    let existingFirebase: Record<string, unknown> = {};
-    if (
-      token.firebase !== null &&
-      typeof token.firebase === 'object' &&
-      !Array.isArray(token.firebase)
-    ) {
-      existingFirebase = token.firebase as Record<string, unknown>;
-    }
-    const firebaseClaim: Record<string, unknown> = { ...existingFirebase };
-    if (matched.tenantId !== undefined && firebaseClaim.tenant === undefined) {
-      firebaseClaim.tenant = matched.tenantId;
-    }
-    if (matched.providerId !== undefined && firebaseClaim.sign_in_provider === undefined) {
-      firebaseClaim.sign_in_provider = matched.providerId;
-    }
-    token.firebase = firebaseClaim;
+  const projectedFirebase = (accountTokenClaims(actor.uid, account, {}, signInProvider)
+    .firebase ?? {}) as Record<string, unknown>;
+  let callerFirebase: Record<string, unknown> = {};
+  if (
+    customClaims.firebase !== null &&
+    typeof customClaims.firebase === 'object' &&
+    !Array.isArray(customClaims.firebase)
+  ) {
+    callerFirebase = customClaims.firebase as Record<string, unknown>;
   }
+  const firebaseClaim: Record<string, unknown> = {
+    ...projectedFirebase,
+    ...callerFirebase,
+  };
+  if (
+    callerFirebase.identities !== undefined &&
+    projectedFirebase.identities !== undefined &&
+    typeof callerFirebase.identities === 'object' &&
+    callerFirebase.identities !== null &&
+    !Array.isArray(callerFirebase.identities) &&
+    typeof projectedFirebase.identities === 'object' &&
+    projectedFirebase.identities !== null &&
+    !Array.isArray(projectedFirebase.identities)
+  ) {
+    firebaseClaim.identities = {
+      ...(projectedFirebase.identities as Record<string, unknown>),
+      ...(callerFirebase.identities as Record<string, unknown>),
+    };
+  } else if (
+    callerFirebase.identities === undefined &&
+    projectedFirebase.identities !== undefined
+  ) {
+    firebaseClaim.identities = projectedFirebase.identities;
+  }
+  if (matched?.tenantId !== undefined && firebaseClaim.tenant === undefined) {
+    firebaseClaim.tenant = matched.tenantId;
+  }
+  if (matched?.providerId !== undefined && callerFirebase.sign_in_provider === undefined) {
+    firebaseClaim.sign_in_provider = matched.providerId;
+  }
+  defineOwnWorldField(token, 'firebase', firebaseClaim);
 
   return { uid: actor.uid, token };
 }
@@ -253,6 +333,7 @@ export class ProbeWorld {
   private readonly disabledRoles = new Set<string>();
   private readonly admin: Handles = {};
   private readonly hasStorage: boolean;
+  private readonly defaultBucket: string | undefined;
   private readonly initOutcome: Promise<Error | null>;
 
   constructor(
@@ -261,6 +342,7 @@ export class ProbeWorld {
     state: WorldState = {},
   ) {
     this.sandbox = initializeSandbox();
+    this.defaultBucket = normalizeStorageBucketKey(state.defaultBucket);
     const snapshot = buildWorldSnapshot(rules, state);
     const hasFirestore =
       Boolean(rules.firestore) ||
@@ -417,7 +499,13 @@ export class ProbeWorld {
   }
 
   private async runStorage(step: ProbeStep): Promise<void> {
-    await executeWorldStorageStep(this.sandbox, this.actorContexts, this.hasStorage, step);
+    await executeWorldStorageStep(
+      this.sandbox,
+      this.actorContexts,
+      this.hasStorage,
+      step,
+      this.defaultBucket,
+    );
   }
 }
 

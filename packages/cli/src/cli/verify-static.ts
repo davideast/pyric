@@ -8,10 +8,12 @@ import { existsSync, lstatSync, readFileSync } from 'node:fs';
 import { relative, resolve } from 'node:path';
 import {
   DEFAULT_SNAPSHOT_RESOURCE,
+  isDefaultDatabaseInstance,
   parseResourcePattern,
   type AssuranceDiagnostic,
   type AssuranceService,
 } from 'pyric/sandbox/internal';
+import { DEFAULT_BUCKET } from 'pyric/storage/internal';
 import {
   bundleRulesSource,
   parseRtdbRulesText,
@@ -113,12 +115,25 @@ function parseRulesPrefix(
     return { ok: true, value: { service: 'firestore', target: targetPart } };
   }
   if (svcPart === 'rtdb' || svcPart === 'database') {
-    const instanceId = parseResourcePattern('rtdb', 'ref', targetPart).resourceId;
-    return { ok: true, value: { service: 'rtdb', target: instanceId } };
+    if (/^(?:https?|wss?):\/\/\/?$/i.test(targetPart)) {
+      return {
+        ok: false,
+        message: `empty target in --rules prefix '${rawPrefix}' in '${spec}'`,
+      };
+    }
+    return { ok: true, value: { service: 'rtdb', target: targetPart } };
   }
   if (svcPart === 'storage') {
-    const bucketId = parseResourcePattern('storage', 'object', targetPart).resourceId;
-    return { ok: true, value: { service: 'storage', target: bucketId } };
+    if (!/^https?:\/\//i.test(targetPart)) {
+      const stripped = targetPart.replace(/^gs:\/\//i, '').replace(/^\/+|\/+$/g, '');
+      if (stripped.length === 0 || stripped.includes('/')) {
+        return {
+          ok: false,
+          message: `invalid Storage bucket target '${targetPart}' in '${spec}'`,
+        };
+      }
+    }
+    return { ok: true, value: { service: 'storage', target: targetPart } };
   }
   return {
     ok: false,
@@ -143,7 +158,51 @@ function applyRulesFlagOverrides(
     defineOwn(rtdbInstances, instId, instRules);
   }
 
-  const overriddenDefaultServices = new Set<AssuranceService>();
+  const overriddenTargets = new Set<string>();
+  const defaultRtdbSuffixRe = /^[a-z0-9-]+-default-rtdb$/i;
+  const normalizeOverrideTarget = (
+    service: AssuranceService,
+    rawTarget: string | undefined,
+  ): string => {
+    if (rawTarget === undefined) return DEFAULT_SNAPSHOT_RESOURCE;
+    const trimmed = rawTarget.trim();
+    if (
+      trimmed.length === 0
+      || trimmed === DEFAULT_SNAPSHOT_RESOURCE
+      || trimmed === 'default'
+    ) {
+      return DEFAULT_SNAPSHOT_RESOURCE;
+    }
+    if (service === 'storage') {
+      const bucketId = /^https?:\/\//i.test(trimmed)
+        ? parseResourcePattern('storage', trimmed).resourceId
+        : trimmed.replace(/^gs:\/\//i, '').replace(/^\/+|\/+$/g, '');
+      if (
+        bucketId.length === 0
+        || bucketId === DEFAULT_SNAPSHOT_RESOURCE
+        || bucketId === 'default'
+        || bucketId === 'pyric-default'
+        || bucketId === 'default-bucket'
+        || bucketId === DEFAULT_BUCKET
+      ) {
+        return DEFAULT_SNAPSHOT_RESOURCE;
+      }
+      return bucketId;
+    }
+    if (service === 'rtdb') {
+      const instId = parseResourcePattern('rtdb', 'ref', trimmed).resourceId;
+      if (
+        instId === DEFAULT_SNAPSHOT_RESOURCE
+        || instId === 'default'
+        || isDefaultDatabaseInstance(instId, project.projectId)
+        || (project.projectId === undefined && defaultRtdbSuffixRe.test(instId))
+      ) {
+        return DEFAULT_SNAPSHOT_RESOURCE;
+      }
+      return instId;
+    }
+    return trimmed;
+  };
 
   for (const spec of specs) {
     const eq = spec.indexOf('=');
@@ -199,10 +258,8 @@ function applyRulesFlagOverrides(
       if (!syntax.ok) {
         return { ok: false, message: `invalid Firestore rules in ${fileArg}: ${syntax.message}` };
       }
-      const effectiveTarget = targetId ?? DEFAULT_SNAPSHOT_RESOURCE;
-      if (effectiveTarget === DEFAULT_SNAPSHOT_RESOURCE) {
-        overriddenDefaultServices.add('firestore');
-      }
+      const effectiveTarget = normalizeOverrideTarget('firestore', targetId);
+      overriddenTargets.add(`firestore:${effectiveTarget}`);
       const entry: FirestoreRuleSource = { source: sourceLabel, text: bundledText };
       if (effectiveTarget !== DEFAULT_SNAPSHOT_RESOURCE) {
         entry.database = effectiveTarget;
@@ -231,9 +288,14 @@ function applyRulesFlagOverrides(
       if (!syntax.ok) {
         return { ok: false, message: `invalid Storage rules in ${fileArg}: ${syntax.message}` };
       }
-      const effectiveTarget = targetId ?? DEFAULT_SNAPSHOT_RESOURCE;
-      if (effectiveTarget === DEFAULT_SNAPSHOT_RESOURCE) {
-        overriddenDefaultServices.add('storage');
+      const effectiveTarget = normalizeOverrideTarget('storage', targetId);
+      overriddenTargets.add(`storage:${effectiveTarget}`);
+      if (project.defaultBucket !== undefined) {
+        if (effectiveTarget === DEFAULT_SNAPSHOT_RESOURCE) {
+          overriddenTargets.add(`storage:${project.defaultBucket}`);
+        } else if (effectiveTarget === project.defaultBucket) {
+          overriddenTargets.add(`storage:${DEFAULT_SNAPSHOT_RESOURCE}`);
+        }
       }
       const entry: StorageRuleSource = { source: sourceLabel, text: bundledText };
       if (effectiveTarget !== DEFAULT_SNAPSHOT_RESOURCE) {
@@ -261,10 +323,8 @@ function applyRulesFlagOverrides(
           message: `invalid RTDB rules JSON in ${fileArg}: expected a JSON object`,
         };
       }
-      const effectiveTarget = targetId ?? DEFAULT_SNAPSHOT_RESOURCE;
-      if (effectiveTarget === DEFAULT_SNAPSHOT_RESOURCE) {
-        overriddenDefaultServices.add('rtdb');
-      }
+      const effectiveTarget = normalizeOverrideTarget('rtdb', targetId);
+      overriddenTargets.add(`rtdb:${effectiveTarget}`);
       const entry: RtdbRuleSource = { source: sourceLabel, json: parsedRtdb };
       if (effectiveTarget !== DEFAULT_SNAPSHOT_RESOURCE) {
         entry.instance = effectiveTarget;
@@ -284,12 +344,11 @@ function applyRulesFlagOverrides(
     }
   }
 
-  const remainingConfigProblems = (project.configProblems ?? []).filter(
-    (p) =>
-      p.isGlobalConfig === true
-      || p.service === undefined
-      || !overriddenDefaultServices.has(p.service),
-  );
+  const remainingConfigProblems = (project.configProblems ?? []).filter((p) => {
+    if (p.isGlobalConfig === true || p.service === undefined) return true;
+    const resId = p.resourceId ?? DEFAULT_SNAPSHOT_RESOURCE;
+    return !overriddenTargets.has(`${p.service}:${resId}`);
+  });
   const remainingProblems = remainingConfigProblems.map((p) => p.message);
 
   const nextSources: RuleSources = {

@@ -216,6 +216,7 @@ export function coverageMatrixPass(
 ): AssuranceDiagnostic[] {
   const surface = resolveRuleSurface(ruleSurface);
   const defaultBucket = normalizeExplicitResourceId('storage', runtime?.defaultBucket);
+  const projectId = runtime?.projectId;
   const observations = collectRuntimeObservations(runtime);
   const diagnostics: AssuranceDiagnostic[] = [];
   const usedIds = new Set<string>();
@@ -226,7 +227,7 @@ export function coverageMatrixPass(
     if (site.admin) continue;
     if (site.op === 'ref' || site.resolution === 'unresolved') continue;
 
-    const rawPattern = normalizeSitePattern(site, defaultBucket);
+    const rawPattern = normalizeSitePattern(site, defaultBucket, projectId, surface);
     const hasPatternVars = rawPattern.segments.some((seg) => seg.kind !== 'lit');
     const clientOp = effectiveClientOp(site);
 
@@ -312,7 +313,7 @@ export function coverageMatrixPass(
     }
   }
 
-  const exercisedProbes = collectExercisedProbes(usage, observations, defaultBucket);
+  const exercisedProbes = collectExercisedProbes(usage, observations, defaultBucket, projectId, surface);
   for (const entry of surface.entries) {
     if (entry.alwaysDeny) continue;
     if (entry.ops.length === 0) continue;

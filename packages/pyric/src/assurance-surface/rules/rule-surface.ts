@@ -53,16 +53,17 @@ export interface CrossServiceLookup {
 
 export interface StorageMetadataConstraint {
   readonly contentTypePattern?: string;
-  /** Inclusive maximum allowed object size in bytes (`< N` -> `N - 1`, `<= N` -> `N`). */
+  /** Conjoined per-clause RE2 disjunctions (`&&` outer, `||` / `in [...]` inner). */
+  readonly contentTypeConjuncts?: readonly (readonly string[])[];
+  /** Inclusive minimum allowed object size in bytes (`> N` -> `N + 1`, `>= N` -> `N`, `== N` -> `N`). */
+  readonly minSizeBytes?: number;
+  /** Inclusive maximum allowed object size in bytes (`< N` -> `N - 1`, `<= N` -> `N`, `== N` -> `N`). */
   readonly maxSizeBytes?: number;
   readonly requiredCustomMetadataKeys?: readonly string[];
   readonly ownerMetadataKey?: string;
 }
 
-export interface StorageMetadataConstraintArm extends StorageMetadataConstraint {
-  /** Conjoined per-clause RE2 disjunctions (`&&` outer, `||` / `in [...]` inner). */
-  readonly contentTypeConjuncts?: readonly (readonly string[])[];
-}
+export interface StorageMetadataConstraintArm extends StorageMetadataConstraint {}
 
 export interface RuleSurfaceEntry {
   readonly pattern: ResourcePattern;
