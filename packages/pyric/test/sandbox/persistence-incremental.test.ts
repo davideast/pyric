@@ -270,3 +270,91 @@ test('concurrent flush() calls while one commit is in flight share a single queu
   expect(reopened.admin.getDocument('items/three')).toEqual({ v: 3 });
   expect(reopened.admin.getDocument('items/four')).toEqual({ v: 4 });
 });
+
+test('flush reads a service snapshot once without a redundant clone and passes pre-serialized JSON to applyChanges', async () => {
+  const storage = createMemoryBackend();
+  let propertyReads = 0;
+  let capturedSerialized: ReadonlyMap<string, string> | undefined;
+
+  const backend: PersistenceBackend = {
+    ...storage,
+    async applyChanges(key, changed, removed, serialized) {
+      capturedSerialized = serialized;
+      // Store by parsing the pre-serialized bytes so we verify the serialized payload round-trips cleanly.
+      const fromSerialized = new Map<string, unknown>();
+      for (const [id] of changed) {
+        const text = serialized?.get(id);
+        expect(typeof text).toBe('string');
+        fromSerialized.set(id, JSON.parse(text!) as unknown);
+      }
+      await storage.putRecords(key, fromSerialized);
+      await storage.deleteRecords(key, removed);
+    },
+  };
+
+  const sandbox = createSandbox();
+  sandbox.registerPersistableService('metrics', {
+    snapshot: () => ({
+      get count() {
+        propertyReads += 1;
+        return 42;
+      },
+    }),
+    restore: () => {},
+    subscribe: () => () => {},
+  });
+
+  await sandbox.enablePersistence({ key: 'single-serialize', injectedBackend: backend, flushIntervalMs: 60_000 });
+  propertyReads = 0;
+  await sandbox.flush();
+
+  expect(propertyReads).toBe(1);
+  expect(capturedSerialized?.has('meta')).toBe(true);
+
+  const reopened = createSandbox();
+  let restored: unknown;
+  reopened.registerPersistableService('metrics', {
+    snapshot: () => restored,
+    restore: (value) => { restored = value; },
+  });
+  await reopened.enablePersistence({ key: 'single-serialize', injectedBackend: storage });
+  expect(restored).toEqual({ count: 42 });
+});
+
+test('in-place mutation of a service state object after flush does not alias records held by a non-cloning backend', async () => {
+  const rawRecords = new Map<string, unknown>();
+  const nonCloningBackend: PersistenceBackend = {
+    async getRecord(_key, id) { return rawRecords.get(id) ?? null; },
+    async listRecords() { return [...rawRecords.keys()]; },
+    async putRecords(_key, records) {
+      for (const [id, rec] of records) rawRecords.set(id, rec);
+    },
+    async deleteRecords(_key, ids) {
+      for (const id of ids) rawRecords.delete(id);
+    },
+    async clear() { rawRecords.clear(); },
+  };
+
+  const liveState = { nested: { theme: 'dark' } };
+  let notify = () => {};
+  const sandbox = createSandbox();
+  sandbox.registerPersistableService('mutable-svc', {
+    snapshot: () => liveState,
+    restore: () => {},
+    subscribe: (cb) => { notify = cb; return () => {}; },
+  });
+
+  await sandbox.enablePersistence({ key: 'no-alias', injectedBackend: nonCloningBackend, flushIntervalMs: 60_000 });
+  await sandbox.flush();
+
+  // Mutate `liveState` in place WITHOUT notifying or flushing: stored backend record must stay 'dark',
+  // and once notified + flushed, the change must still be detected rather than masked by shared-ref caching.
+  liveState.nested.theme = 'mutated-in-place';
+  const metaBeforeNotify = rawRecords.get('meta') as { services: { 'mutable-svc': { nested: { theme: string } } } };
+  expect(metaBeforeNotify.services['mutable-svc'].nested.theme).toBe('dark');
+
+  notify();
+  await sandbox.flush();
+  const metaAfterNotify = rawRecords.get('meta') as { services: { 'mutable-svc': { nested: { theme: string } } } };
+  expect(metaAfterNotify.services['mutable-svc'].nested.theme).toBe('mutated-in-place');
+});
