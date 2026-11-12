@@ -1,0 +1,11 @@
+{
+  "rules": {
+    "profiles": {
+      "$uid": {
+        ".read": "auth != null",
+        ".write": "auth != null && auth.uid == $uid",
+        ".validate": "newData.hasChildren(['name'])"
+      }
+    }
+  }
+}
