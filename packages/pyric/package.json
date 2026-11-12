@@ -18,14 +18,12 @@
     "./dist/app/registry.js",
     "./dist/app/runtime.js",
     "./dist/firestore/sandbox/write-runtime.js",
-    "./dist/rules/grammar/FirestoreParser.js",
     "./dist/sandbox/admin-firestore/listeners.js",
     "./dist/sandbox/internal/firebase-error.js",
     "./src/app/register.ts",
     "./src/app/registry.ts",
     "./src/app/runtime.ts",
     "./src/firestore/sandbox/write-runtime.ts",
-    "./src/rules/grammar/FirestoreParser.ts",
     "./src/sandbox/admin-firestore/listeners.ts",
     "./src/sandbox/internal/firebase-error.ts"
   ],
@@ -207,18 +205,13 @@
     "LICENSE"
   ],
   "scripts": {
-    "inline-grammar": "bun run scripts/inline-grammar-rules.ts",
-    "inline-stdlib": "bun run scripts/inline-stdlib.ts",
-    "prebuild": "(bun run inline-grammar 2>/dev/null || true) && bun run inline-stdlib",
-    "build": "tsc && bun run scripts/copy-assets.ts 2>/dev/null || tsc",
+    "build": "tsc",
     "test": "bun test",
-    "typecheck": "bun x tsc -p tsconfig.json --noEmit && bun x tsc -p tsconfig.types.json",
-    "bench:rules": "bun bench/rules/run.ts",
-    "bench:rules:capture": "bun bench/rules/capture.ts"
+    "typecheck": "bun x tsc -p tsconfig.json --noEmit && bun x tsc -p tsconfig.types.json"
   },
   "dependencies": {
+    "@pyric/rules": "workspace:*",
     "fake-indexeddb": "^6.0.0",
-    "ohm-js": "^17.1.0",
     "typescript": "^5.7.0",
     "zod": "^3.23.0"
   },

@@ -2,9 +2,9 @@
 /**
  * Writes the rules benchmark fixtures under ./fixtures.
  *
- *   bun bench/rules/capture.ts chess
- *   bun bench/rules/capture.ts corpus
- *   bun bench/rules/capture.ts arcade --games /path/to/pyric-games
+ *   bun bench/capture.ts chess
+ *   bun bench/capture.ts corpus
+ *   bun bench/capture.ts arcade --games /path/to/pyric-games
  *
  * Each fixture records where its rules and requests came from in its
  * `source` field. The arcade capture reads a local pyric-games checkout and
@@ -17,7 +17,7 @@ import { spawnSync } from 'node:child_process';
 
 const HERE = import.meta.dir;
 const FIXTURES = join(HERE, 'fixtures');
-const REPO = resolve(HERE, '../../../..');
+const REPO = resolve(HERE, '../../..');
 
 type Data = Record<string, unknown>;
 
@@ -422,6 +422,6 @@ else if (what === 'arcade') {
   if (!games) throw new Error('pass --games <path to a pyric-games checkout>');
   await captureArcade(resolve(games));
 } else {
-  console.error('usage: bun bench/rules/capture.ts chess | corpus | arcade --games <path>');
+  console.error('usage: bun bench/capture.ts chess | corpus | arcade --games <path>');
   process.exitCode = 2;
 }

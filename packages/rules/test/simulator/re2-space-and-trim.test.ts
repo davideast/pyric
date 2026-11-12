@@ -26,7 +26,7 @@ type Capture = {
   readonly data?: Record<string, unknown>;
 };
 
-const OBSERVATIONS = join(import.meta.dir, '..', '..', '..', '..', 'conformance', 'observations', 'firestore-rules');
+const OBSERVATIONS = join(import.meta.dir, '..', '..', '..', 'conformance', 'observations', 'firestore-rules');
 
 /** Production's verdict for one case of a committed observation. */
 function captured(scenario: string) {

@@ -40,7 +40,7 @@ describe('parseLog', () => {
 });
 
 describe('isInsideBoundary', () => {
-  test('holds the package-to-be and the rules conformance data', () => {
+  test('holds the rules package and the rules conformance data', () => {
     for (const path of [
       'packages/rules/src/simulator/handler.ts',
       'packages/rules/test/boundary.test.ts',
@@ -60,6 +60,8 @@ describe('isInsideBoundary', () => {
     for (const path of [
       'packages/pyric/src/storage/sandbox/rules-evaluator.ts',
       'packages/pyric/src/rules-tools/tools.ts',
+      'packages/pyric/src/rules/index.ts',
+      'packages/pyric/test/rules/api/case-shape.test.ts',
       'packages/pyric/test/database/sandbox/rules-eval.test.ts',
       'packages/conformance/baselines/firestore-rules-scorecard.json',
       'packages/conformance/observations/rtdb/capture.json',
@@ -74,7 +76,7 @@ describe('isInsideBoundary', () => {
 
 describe('measure and formatReport', () => {
   const commits = [
-    commit('a'.repeat(40), ['packages/rules/src/a.ts', 'packages/pyric/test/rules/a.test.ts']),
+    commit('a'.repeat(40), ['packages/rules/src/a.ts', 'packages/rules/test/a.test.ts']),
     commit('b'.repeat(40), ['packages/rules/src/b.ts', 'packages/cli/src/b.ts', 'packages/conformance/registry/rules.ts']),
     commit('c'.repeat(40), ['packages/rules/src/c.ts']),
     commit('d'.repeat(40), ['packages/rules/src/d.ts']),
@@ -135,7 +137,7 @@ describe('the report against a real repository', () => {
   git(['init', '-q', '-b', 'main']);
   commitFiles('chore: seed', { 'packages/rules/src/a.ts': '1', 'packages/pyric/src/sandbox/s.ts': '1' }, '2026-09-01T12:00:00Z');
   commitFiles('fix(rules): early on the first day in UTC', { 'packages/rules/src/a.ts': '1b' }, '2026-10-01T03:00:00Z');
-  commitFiles('fix(rules): inside only', { 'packages/rules/src/a.ts': '2', 'packages/pyric/test/rules/a.test.ts': '2' }, '2026-10-10T12:00:00Z');
+  commitFiles('fix(rules): inside only', { 'packages/rules/src/a.ts': '2', 'packages/rules/test/a.test.ts': '2' }, '2026-10-10T12:00:00Z');
   commitFiles('fix(rules): crosses into sandbox', { 'packages/rules/src/a.ts': '3', 'packages/pyric/src/sandbox/s.ts': '3' }, '2026-10-12T12:00:00Z');
   commitFiles('fix(sandbox): outside only', { 'packages/pyric/src/sandbox/s.ts': '4' }, '2026-10-13T12:00:00Z');
   git(['checkout', '-q', '-b', 'topic']);

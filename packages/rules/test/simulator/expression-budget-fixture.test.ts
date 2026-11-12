@@ -44,7 +44,7 @@ import type { FirestoreCase } from '../../src/api/case-types.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const FIXTURES = join(HERE, '..', 'linter', 'fixtures', 'expression-cost');
-const REPO_ROOT = join(HERE, '..', '..', '..', '..', '..');
+const REPO_ROOT = join(HERE, '..', '..', '..', '..');
 
 interface Threshold { below: number; at: number }
 interface Position { line: number; column: number }

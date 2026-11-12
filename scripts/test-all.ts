@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 // `bun run test`: every suite in the serial chain (package.json `test:serial`),
-// run as parallel processes. The CLI and pyric suites, the two long ones, split
+// run as parallel processes. The CLI, pyric and rules suites, the long ones, split
 // into shards with scripts/ci/test-shard.ts. How many jobs run at once comes
 // from how busy the machine is when the run starts; a machine with no room for
 // a second job, or `--serial`, runs the chain's commands one at a time with

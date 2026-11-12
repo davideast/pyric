@@ -1,5 +1,5 @@
 // AUTO-GENERATED — do not edit by hand. Regenerate via:
-//   bun run inline-grammar (packages/pyric)
+//   bun run inline-grammar (packages/rules)
 // Source: FirestoreRules.ohm
 
 export const FIRESTORE_RULES_OHM_SOURCE = `FirestoreRules {

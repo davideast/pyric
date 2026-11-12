@@ -28,7 +28,7 @@ import {
 } from '../../src/modules/stdlib-cost.js';
 import { findModuleByKey } from '../../src/stdlib-modules.js';
 
-const STDLIB_DIR = join(import.meta.dir, '..', '..', '..', 'src', 'rules', 'modules', 'stdlib');
+const STDLIB_DIR = join(import.meta.dir, '..', '..', 'src', 'modules', 'stdlib');
 const CAPTURE = JSON.parse(readFileSync(join(import.meta.dir, 'fixtures', 'stdlib-cost-capture.json'), 'utf8')) as {
   functions: { module: string; function: string; cost: { min: number; max: number }; reads: number }[];
 };

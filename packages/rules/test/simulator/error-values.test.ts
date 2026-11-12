@@ -22,7 +22,7 @@ import type { TestCase, TestResult } from '../../src/test/spec.js';
 const HERE = dirname(fileURLToPath(import.meta.url));
 const scenario = ALL_RULES_FIRESTORE_SCENARIOS.find((s) => s.id === 'error-absorption-and-or')!;
 const observation = JSON.parse(readFileSync(join(
-  HERE, '..', '..', '..', '..', 'conformance', 'observations', 'firestore-rules', 'rules-firestore-error-absorption-and-or.json',
+  HERE, '..', '..', '..', 'conformance', 'observations', 'firestore-rules', 'rules-firestore-error-absorption-and-or.json',
 ), 'utf8')) as { behavior: Record<string, string>; diagnostics: Record<string, { notes: string[] }> };
 
 function simulate(tc: TestCase): TestResult {

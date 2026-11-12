@@ -248,6 +248,11 @@ jobs:
       - name: Install
         if: steps.secret-check.outputs.available == 'true'
         run: bun install --frozen-lockfile --filter '!@pyric/playground'
+      # pyric's sources import the engine from @pyric/rules, which resolves
+      # to its built dist (#1521); the rules rigs load them.
+      - name: Build the rules engine
+        if: steps.secret-check.outputs.available == 'true'
+        run: bun run build:rules
       - name: Re-capture ${{ matrix.rig }} against production
         if: steps.secret-check.outputs.available == 'true'
         env:

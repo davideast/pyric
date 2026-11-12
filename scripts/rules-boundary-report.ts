@@ -11,14 +11,15 @@
  * boundary crosses it. Every crossing commit is listed with the paths that
  * crossed. Run it by hand once a week and post the output to #1521.
  *
- * Until the package exists the engine is packages/rules/src, and the
- * boundary is the package-to-be: src/rules, test/rules and bench/rules in
- * packages/pyric, plus the rules conformance data, which moves with the repo.
- * When packages/rules lands, ENGINE_SOURCE and BOUNDARY change with it.
+ * The engine is packages/rules/src, and the boundary is the whole
+ * packages/rules package plus the rules conformance data, which moves with
+ * the repo. The tests left in packages/pyric/test/rules test the engine
+ * through pyric, so they sit outside: a commit that changes them with the
+ * engine crosses.
  *
- * All of packages/pyric/test/rules counts as inside, although about 37 of its
- * files test the rules engine through the sandbox and stay in pyric when the
- * rest moves (#1521 PR 12). Those files cross once the package exists.
+ * Engine commits from before the package existed changed
+ * packages/pyric/src/rules, which this report no longer reads, so a window
+ * that starts before the move (#1521 PR 12) undercounts them.
  *
  * Usage: bun scripts/rules-boundary-report.ts [--ref=origin/main] [--days=30]
  *        bun scripts/rules-boundary-report.ts --since=2026-09-28 --until=2026-10-28
@@ -33,7 +34,7 @@ const ENGINE_SOURCE = 'packages/rules/src';
 
 /** Path prefixes inside the boundary, and the conformance data patterns that move with it. */
 const BOUNDARY: readonly RegExp[] = [
-  /^packages\/pyric\/(src|test|bench)\/rules\//,
+  /^packages\/rules\//,
   /^packages\/conformance\/rules-corpus\//,
   /^packages\/conformance\/rules-language\//,
   /^packages\/conformance\/observations\/[^/]+-rules\//,

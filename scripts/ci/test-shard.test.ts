@@ -38,7 +38,13 @@ describe('CLI test shards', () => {
     expect(Math.max(...sizes) - Math.min(...sizes)).toBeLessThanOrEqual(1);
   });
 
-  for (const name of ['cli', 'pyric'] as const) {
+  test('the rules list covers the engine suite that moved out of packages/pyric', () => {
+    const rules = listTests(shardedPackages.rules);
+    expect(rules.length).toBeGreaterThan(100);
+    expect(rules.every((file) => file.endsWith('.test.ts') || file.endsWith('.spec.ts'))).toBe(true);
+  });
+
+  for (const name of ['cli', 'pyric', 'rules'] as const) {
     const suite = listTests(shardedPackages[name]);
     const seconds = slowFiles[name];
 

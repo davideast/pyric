@@ -10,7 +10,7 @@ const CORPUS = join(__dirname, 'corpus');
 // Pre-mortem M1 / X4 — derive the repo root once instead of
 // repeating `../../../../` at every call site. Anchors test fixtures
 // to a single point so a package-layout move only updates one line.
-const REPO_ROOT = join(__dirname, '../../../../..');
+const REPO_ROOT = join(__dirname, '../../../..');
 const GAME_RULE_FIXTURES = join(REPO_ROOT, 'packages/pyric/test/fixtures/firestore-game-rules');
 
 function readCorpus(filename: string): string {

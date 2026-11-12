@@ -16,8 +16,9 @@
  * --margin <fraction>, --floor-us <n>,
  * --out <file>.
  *
- * The harness loads the built package (packages/pyric/dist), the same code
- * the test suite runs. Build first: `bun run build` in packages/pyric.
+ * The harness loads the built engine (packages/rules/dist) and pyric's
+ * built Storage rules and SDK (packages/pyric/dist), the same code the test
+ * suites run. Build first: `bun run build` at the repository root.
  */
 import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
@@ -33,8 +34,9 @@ import {
 } from './gate.ts';
 
 const HERE = import.meta.dir;
-const PKG = join(HERE, '../..');
+const PKG = join(HERE, '..');
 const DIST = join(PKG, 'dist');
+const PYRIC_DIST = join(PKG, '../pyric/dist');
 const FIXTURES = join(HERE, 'fixtures');
 const BASELINE = join(HERE, 'baseline.json');
 
@@ -70,7 +72,7 @@ const only = new Set(values('--fixture'));
 // the parser module (which builds the Ohm grammar) and parse the source
 // once, then print the nanoseconds. Nothing from the engine is loaded before
 // this point.
-//   bun bench/rules/run.ts --cold-parse <firestore|storage|rtdb> <rules file>
+//   bun bench/run.ts --cold-parse <firestore|storage|rtdb> <rules file>
 if (has('--cold-parse')) {
   const service = value('--cold-parse');
   const file = argv[argv.indexOf('--cold-parse') + 2];
@@ -78,7 +80,7 @@ if (has('--cold-parse')) {
   const source = readFileSync(file, 'utf8');
   const start = Bun.nanoseconds();
   if (service === 'rtdb') {
-    const { parseExpression } = await import(join(DIST, 'rules/rtdb/grammar/RtdbExprParser.js'));
+    const { parseExpression } = await import(join(DIST, 'rtdb/grammar/RtdbExprParser.js'));
     const walk = (node: Record<string, unknown>) => {
       for (const [key, v] of Object.entries(node)) {
         if ((key === '.read' || key === '.write' || key === '.validate') && typeof v === 'string') {
@@ -88,7 +90,7 @@ if (has('--cold-parse')) {
     };
     walk((JSON.parse(source) as { rules: Record<string, unknown> }).rules);
   } else {
-    const { parseToASTOrError } = await import(join(DIST, 'rules/grammar/FirestoreParser.js'));
+    const { parseToASTOrError } = await import(join(DIST, 'grammar/FirestoreParser.js'));
     if (!parseToASTOrError(source).ok) throw new Error('does not parse');
   }
   process.stdout.write(`${Bun.nanoseconds() - start}\n`);
@@ -108,12 +110,12 @@ if (has('--profile')) {
 
 // ─── Build check ────────────────────────────────────────────────────────
 
-if (!existsSync(join(DIST, 'rules/grammar/FirestoreParser.js'))) {
-  console.error('packages/pyric/dist is missing. Build first: bun run build (in packages/pyric).');
+if (!existsSync(join(DIST, 'grammar/FirestoreParser.js'))) {
+  console.error('packages/rules/dist is missing. Build first: bun run build (at the repository root).');
   process.exit(2);
 }
 {
-  const built = statSync(join(DIST, 'rules/grammar/FirestoreParser.js')).mtimeMs;
+  const built = statSync(join(DIST, 'grammar/FirestoreParser.js')).mtimeMs;
   const newer: string[] = [];
   const walk = (dir: string) => {
     for (const entry of readdirSync(dir, { withFileTypes: true })) {
@@ -131,19 +133,19 @@ if (!existsSync(join(DIST, 'rules/grammar/FirestoreParser.js'))) {
 // ─── Engine modules (from dist) ─────────────────────────────────────────
 
 const load = (path: string) => import(join(DIST, path));
-const parser = await load('rules/grammar/FirestoreParser.js');
-const resolverBrowser = await load('rules/modules/resolver-browser.js');
-const resolverCore = await load('rules/modules/resolver-core.js');
-const handlerModule = await load('rules/simulator/handler.js');
-const matchResolution = await load('rules/simulator/match-resolution.js');
-const requestPath = await load('rules/simulator/request-path.js');
-const wrappers = await load('rules/simulator/wrappers/timestamp.js');
-const rtdbCompiled = await load('rules/rtdb/compiled-rules.js');
-const rtdbParser = await load('rules/rtdb/grammar/RtdbExprParser.js');
-const rtdbSpec = await load('rules/rtdb/simulation/spec.js');
-const storageRules = await load('storage/sandbox/rules.js');
-const storageEvaluator = await load('storage/sandbox/rules-evaluator.js');
-const storageResolution = await load('storage/rules-resolution.js');
+const parser = await load('grammar/FirestoreParser.js');
+const resolverBrowser = await load('modules/resolver-browser.js');
+const resolverCore = await load('modules/resolver-core.js');
+const handlerModule = await load('simulator/handler.js');
+const matchResolution = await load('simulator/match-resolution.js');
+const requestPath = await load('simulator/request-path.js');
+const wrappers = await load('simulator/wrappers/timestamp.js');
+const rtdbCompiled = await load('rtdb/compiled-rules.js');
+const rtdbParser = await load('rtdb/grammar/RtdbExprParser.js');
+const rtdbSpec = await load('rtdb/simulation/spec.js');
+const storageRules = await import(join(PYRIC_DIST, 'storage/sandbox/rules.js'));
+const storageEvaluator = await import(join(PYRIC_DIST, 'storage/sandbox/rules-evaluator.js'));
+const storageResolution = await import(join(PYRIC_DIST, 'storage/rules-resolution.js'));
 
 const sandboxApi = await import('pyric/sandbox');
 const firestoreControls = await import('pyric/sandbox/firestore');

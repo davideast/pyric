@@ -101,6 +101,9 @@ const ENGINE_PACKAGE_SPECIFIERS: Record<string, string> = {
   'pyric/rules/internal/node': '@pyric/rules/internal/node',
 };
 
+/** Node builtins a test may name without the `node:` prefix. */
+const NODE_BUILTINS = new Set(['fs', 'path', 'url', 'os', 'crypto', 'child_process', 'util', 'assert']);
+
 const CODE_EXTENSIONS = new Set(['.ts', '.tsx', '.mts', '.cts', '.js', '.mjs', '.cjs']);
 const TEXT_EXTENSIONS = new Set([...CODE_EXTENSIONS, '.md', '.mdx', '.json', '.yml', '.yaml', '.sh', '.astro', '.swift', '.kt', '.dart', '.txt', '.html']);
 const THIS_FILE = 'scripts/codemods/1521-rules-package.ts';
@@ -147,6 +150,8 @@ interface Specifier {
   end: number;
   /** The import or export statement, when the specifier belongs to one. */
   statement?: ts.ImportDeclaration | ts.ExportDeclaration;
+  /** For `import('...').Name` in a type, the name it reads. */
+  typeQualifier?: string;
 }
 
 function sourceFile(path: string, text: string): ts.SourceFile {
@@ -158,14 +163,18 @@ function sourceFile(path: string, text: string): ts.SourceFile {
 function specifiersOf(path: string, text: string): Specifier[] {
   const file = sourceFile(path, text);
   const found: Specifier[] = [];
-  const add = (node: ts.Node | undefined, statement?: Specifier['statement']): void => {
+  const add = (node: ts.Node | undefined, statement?: Specifier['statement'], typeQualifier?: string): void => {
     if (node === undefined || !ts.isStringLiteralLike(node)) return;
-    found.push({ text: node.text, start: node.getStart(file) + 1, end: node.getEnd() - 1, statement });
+    found.push({ text: node.text, start: node.getStart(file) + 1, end: node.getEnd() - 1, statement, typeQualifier });
+  };
+  const firstName = (name: ts.EntityName | undefined): string | undefined => {
+    if (name === undefined) return undefined;
+    return ts.isIdentifier(name) ? name.text : firstName(name.left);
   };
   const visit = (node: ts.Node): void => {
     if (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) add(node.moduleSpecifier, node);
     else if (ts.isImportEqualsDeclaration(node) && ts.isExternalModuleReference(node.moduleReference)) add(node.moduleReference.expression);
-    else if (ts.isImportTypeNode(node) && ts.isLiteralTypeNode(node.argument)) add(node.argument.literal);
+    else if (ts.isImportTypeNode(node) && ts.isLiteralTypeNode(node.argument)) add(node.argument.literal, undefined, firstName(node.qualifier));
     else if (ts.isCallExpression(node)) {
       const callee = node.expression;
       const isImport = callee.kind === ts.SyntaxKind.ImportKeyword;
@@ -201,31 +210,82 @@ function relativeSpecifier(fromFile: string, target: string, original: string): 
 
 // ─── step 1: moves ────────────────────────────────────────────────────
 
+/** The names pyric's entry files export from its own modules, not the engine's. */
+function pyricOwnEntryNames(files: ReadonlySet<string>): Set<string> {
+  const names = new Set<string>();
+  for (const entry of Object.keys(ENTRIES)) {
+    const path = `${OLD_SRC}/${entry}`;
+    if (!files.has(path)) continue;
+    const file = sourceFile(path, read(path));
+    for (const statement of file.statements) {
+      if (!ts.isExportDeclaration(statement) || !statement.moduleSpecifier || !ts.isStringLiteral(statement.moduleSpecifier)) continue;
+      const target = resolveRelative(path, statement.moduleSpecifier.text, files);
+      const isPyricOwn = target !== undefined && under(target, OLD_SRC) && KEPT_SOURCE.has(target.slice(OLD_SRC.length + 1));
+      const clause = statement.exportClause;
+      if (isPyricOwn && clause && ts.isNamedExports(clause)) for (const element of clause.elements) names.add(element.name.text);
+    }
+  }
+  return names;
+}
+
+/** The names an import statement takes. */
+function importedNames(statement: Specifier['statement']): string[] {
+  if (!statement || !ts.isImportDeclaration(statement)) return [];
+  const bindings = statement.importClause?.namedBindings;
+  if (!bindings || ts.isNamespaceImport(bindings)) return [];
+  return bindings.elements.map((element) => (element.propertyName ?? element.name).text);
+}
+
+/** The packages a test in `packages/rules` can import: the engine's own dependencies. */
+function rulesDependencies(): Set<string> {
+  const manifest = JSON.parse(read(`${RULES}/package.json`)) as { dependencies?: object; devDependencies?: object };
+  return new Set([...Object.keys(manifest.dependencies ?? {}), ...Object.keys(manifest.devDependencies ?? {})]);
+}
+
+function packageName(specifier: string): string {
+  const parts = specifier.split('/');
+  return specifier.startsWith('@') ? parts.slice(0, 2).join('/') : parts[0];
+}
+
 /**
  * A test stays in pyric if it imports pyric outside the engine: a relative
  * path into `packages/pyric` outside `src/rules` and `test/rules`, a kept
- * shim, a `pyric*` or `@pyric/*` package other than the four engine entries,
- * or the Firebase SDK. A test importing a staying helper stays too, and a
- * helper only staying tests import stays with them.
+ * shim, one of pyric's own names from an engine entry, or a package that is
+ * not one of the engine's dependencies (any other `pyric*` or `@pyric/*`
+ * package, the Firebase SDK, pyric's dev dependencies). A test that loads
+ * pyric's built output outside the engine by path (`dist/storage/...`) stays
+ * too. A test importing a
+ * staying helper stays too, and a helper only staying tests import stays
+ * with them.
  */
+/** A path string into pyric's build outside the engine, such as `'dist/storage/index.js'`. */
+const LOADS_PYRIC_DIST = /['"`/]dist\/(?!rules\/)[\w-]+\/[\w./-]*\.js['"`]/;
+
 function classifyTests(files: ReadonlySet<string>): { moving: string[]; staying: string[] } {
+  const ownNames = pyricOwnEntryNames(files);
+  const dependencies = rulesDependencies();
+  const takesOwnName = (statement: Specifier['statement']): boolean => importedNames(statement).some((name) => ownNames.has(name));
   const tests = [...files].filter((file) => under(file, OLD_TEST) && !under(file, OLD_FRIENDLYEATS));
   const code = tests.filter(isCode);
   const reachesPyric = new Set<string>();
   const imports = new Map<string, string[]>();
   for (const file of code) {
     const local: string[] = [];
-    for (const { text } of specifiersOf(file, read(file))) {
+    for (const { text, statement } of specifiersOf(file, read(file))) {
       if (text.startsWith('.')) {
         const target = resolveRelative(file, text, files) ?? posix.normalize(posix.join(posix.dirname(file), text));
         if (under(target, OLD_TEST)) local.push(target);
         else if (under(target, OLD_SRC)) {
-          if (KEPT_SOURCE.has(target.slice(OLD_SRC.length + 1))) reachesPyric.add(file);
+          const inside = target.slice(OLD_SRC.length + 1);
+          if (KEPT_SOURCE.has(inside) || (inside in ENTRIES && takesOwnName(statement))) reachesPyric.add(file);
         } else if (under(target, PYRIC) && target !== `${PYRIC}/package.json`) reachesPyric.add(file);
-      } else if (/^(pyric|pyric-admin|create-pyric|@pyric|firebase|firebase-admin)(\/|$)/.test(text) && !(text in ENGINE_PACKAGE_SPECIFIERS)) {
+      } else if (text in ENGINE_PACKAGE_SPECIFIERS) {
+        if (takesOwnName(statement)) reachesPyric.add(file);
+      } else if (!text.startsWith('node:') && !text.startsWith('bun:') && !dependencies.has(packageName(text)) && !NODE_BUILTINS.has(packageName(text))) {
         reachesPyric.add(file);
       }
     }
+    if (LOADS_PYRIC_DIST.test(read(file))) reachesPyric.add(file);
     imports.set(file, local);
   }
   const staying = new Set(reachesPyric);
@@ -251,11 +311,33 @@ function classifyTests(files: ReadonlySet<string>): { moving: string[]; staying:
   return { moving: tests.filter((file) => !staying.has(file)), staying: [...staying].filter((file) => under(file, OLD_TEST)) };
 }
 
+/** Engine modules a pyric entry file still exports from by relative path. */
+function enginePathsNamed(entry: string, files: ReadonlySet<string>): string[] {
+  const named: string[] = [];
+  for (const { text } of specifiersOf(entry, read(entry))) {
+    if (!text.startsWith('.')) continue;
+    const target = resolveRelative(entry, text, files);
+    const isEngine = target !== undefined && under(target, OLD_SRC) && !KEPT_SOURCE.has(target.slice(OLD_SRC.length + 1));
+    if (isEngine) named.push(target);
+  }
+  return named;
+}
+
 function planMoves(files: ReadonlySet<string>): Map<string, string> {
   const moves = new Map<string, string>();
   for (const file of files) {
     if (under(file, OLD_FRIENDLYEATS)) moves.set(file, `${NEW_FRIENDLYEATS}/${file.slice(OLD_FRIENDLYEATS.length + 1)}`);
-    else if (under(file, OLD_SRC) && !KEPT_SOURCE.has(file.slice(OLD_SRC.length + 1))) moves.set(file, `${NEW_SRC}/${file.slice(OLD_SRC.length + 1)}`);
+    else if (under(file, OLD_SRC) && !KEPT_SOURCE.has(file.slice(OLD_SRC.length + 1))) {
+      const inside = file.slice(OLD_SRC.length + 1);
+      const target = `${NEW_SRC}/${inside}`;
+      // After the first run pyric's entries are re-exports; the engine's are in place.
+      if (inside in ENTRIES && files.has(target)) {
+        const engineModules = enginePathsNamed(file, files);
+        if (engineModules.length > 0) report(`${file}: exports from ${engineModules.join(', ')}; move those exports into ${target} by hand`);
+        continue;
+      }
+      moves.set(file, target);
+    }
     else if (under(file, OLD_BENCH)) moves.set(file, `${NEW_BENCH}/${file.slice(OLD_BENCH.length + 1)}`);
     else if (file in MOVED_FILES) moves.set(file, MOVED_FILES[file]);
   }
@@ -481,6 +563,11 @@ function rewriteImports(moves: Map<string, string>, beforeFiles: ReadonlySet<str
       }
       if (importsEngineByPackage(file) && under(newTarget, NEW_SRC)) {
         const statement = specifier.statement;
+        if (!statement && specifier.typeQualifier !== undefined) {
+          const subpath = barrelFor(barrelIndex(), newTarget, specifier.typeQualifier, file);
+          if (subpath !== undefined) edits.push({ start: specifier.start, end: specifier.end, text: subpath });
+          continue;
+        }
         if (!statement) {
           report(`${file}: '${specifier.text}' is not an import or export statement; point it at a barrel by hand`);
           continue;
@@ -546,6 +633,8 @@ function writeBarrelAdditions(index: BarrelIndex): void {
 // ─── step 4: path strings ─────────────────────────────────────────────
 
 const PATH_PATTERN = /packages\/pyric\/(src|test|bench)\/rules(?![A-Za-z0-9_-])((?:\/[A-Za-z0-9_.*{},@-]+)*\/?)/g;
+/** Sentence punctuation after a path, which is not part of it. */
+const TRAILING_PUNCTUATION = /[.,]+$/;
 const SEGMENT_PATTERN = /'packages',\s*'pyric',\s*'(src|test|bench)',\s*'rules'((?:,\s*'[^']+')*)/g;
 const SCRIPT_PATTERN = /packages\/pyric\/(scripts\/(?:inline-grammar-rules|inline-stdlib|stdlib-service-contract|copy-assets)\.ts|test\/scripts\/stdlib-service-contract\.test\.ts)/g;
 
@@ -587,7 +676,7 @@ function rewritePaths(moves: Map<string, string>, afterFiles: ReadonlySet<string
     if (!text.includes('packages/pyric/') && !text.includes("'packages', 'pyric'")) continue;
     let out = text.replace(PATH_PATTERN, (match, tree: string, rawRest: string) => {
       // A sentence's full stop is not part of the path.
-      const trail = /\.+$/.exec(rawRest)?.[0] ?? '';
+      const trail = TRAILING_PUNCTUATION.exec(rawRest)?.[0] ?? '';
       const rest = rawRest.slice(0, rawRest.length - trail.length);
       const mapped = mapPath(tree, rest, moves, afterFiles, file);
       return mapped === undefined ? match : `${mapped}${trail}`;

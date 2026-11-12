@@ -44,6 +44,7 @@ function write(cwd: string, relPath: string, contents: string): void {
  */
 const ENGINE_SEED_FILES = [
   'packages/rules/src/evaluate.ts',
+  'packages/pyric/src/rules/index.ts',
   'packages/pyric/src/firestore/sandbox/local-state.ts',
   'packages/pyric/src/database/sandbox/read.ts',
   'packages/pyric/src/database/sandbox-controls.ts',
@@ -117,6 +118,7 @@ describe('conformance coupling gate', () => {
   test('every engine trigger path is covered, including the single-file entries', () => {
     for (const file of [
       'packages/rules/src/evaluate.ts',
+      'packages/pyric/src/rules/index.ts',
       'packages/pyric/src/firestore/sandbox/local-state.ts',
       'packages/pyric/src/database/sandbox/read.ts',
       'packages/pyric/src/database/sandbox-controls.ts',

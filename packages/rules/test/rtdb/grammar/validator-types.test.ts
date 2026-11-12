@@ -28,7 +28,7 @@ interface Capture {
 
 const fixture = (JSON.parse(
   readFileSync(
-    join(import.meta.dir, '..', '..', '..', '..', '..', 'conformance', 'observations', 'rtdb', 'rtdb-rules-type-check.json'),
+    join(import.meta.dir, '..', '..', '..', '..', 'conformance', 'observations', 'rtdb', 'rtdb-rules-type-check.json'),
     'utf8',
   ),
 ) as { behavior: { probes: Capture[] } }).behavior;

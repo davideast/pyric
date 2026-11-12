@@ -1,13 +1,13 @@
 #!/usr/bin/env bun
 /**
- * Inline every `.rules` file under `src/rules/modules/stdlib/` as a TypeScript
+ * Inline every `.rules` file under `src/modules/stdlib/` as a TypeScript
  * string map so the resolver can run in the browser without
  * `readFileSync`. The on-disk priority-5 fallback in
- * `rules/modules/resolver.ts` stays for Node consumers; this generator is
+ * `modules/resolver.ts` stays for Node consumers; this generator is
  * what makes `resolver-browser.ts` work.
  *
- * Recursively reads `src/rules/modules/stdlib/<name>.rules` for every file and
- * writes a single `src/rules/modules/stdlib-content.ts` that exports:
+ * Recursively reads `src/modules/stdlib/<name>.rules` for every file and
+ * writes a single `src/modules/stdlib-content.ts` that exports:
  *
  *   export const STDLIB_INLINE: Record<string, string> = {
  *     auth: `...`,
@@ -35,9 +35,9 @@ import {
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PACKAGE_ROOT = dirname(__dirname);
-const STDLIB_DIR = join(PACKAGE_ROOT, 'src', 'rules', 'modules', 'stdlib');
-const OUT_PATH = join(PACKAGE_ROOT, 'src', 'rules', 'modules', 'stdlib-content.ts');
-const SERVICE_OUT_PATH = join(PACKAGE_ROOT, 'src', 'rules', 'modules', 'stdlib-services.generated.ts');
+const STDLIB_DIR = join(PACKAGE_ROOT, 'src', 'modules', 'stdlib');
+const OUT_PATH = join(PACKAGE_ROOT, 'src', 'modules', 'stdlib-content.ts');
+const SERVICE_OUT_PATH = join(PACKAGE_ROOT, 'src', 'modules', 'stdlib-services.generated.ts');
 
 function rulesFiles(dir: string, prefix = ''): string[] {
   return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
@@ -70,7 +70,7 @@ const lines: string[] = [
   ' * Regenerate via `bun run inline-stdlib` (or `bun run build`, which',
   ' * runs the generator as part of `prebuild`).',
   ' *',
-  ' * Mirror of every `.rules` file under `src/rules/modules/stdlib/`,',
+  ' * Mirror of every `.rules` file under `src/modules/stdlib/`,',
   ' * inlined as TypeScript string literals so the resolver can run',
   ' * in the browser. See `scripts/inline-stdlib.ts`.',
   ' */',

@@ -43,7 +43,7 @@ const KNOWN_BUILTIN_METHODS = [
 // test until it's mirrored here.
 const STDLIB_MD_PATH = resolve(
   dirname(fileURLToPath(import.meta.url)),
-  '../../../site-docs/src/content/trust/rules-standard-library.md',
+  '../../site-docs/src/content/trust/rules-standard-library.md',
 );
 
 function readDocumentedModuleNames(): string[] {

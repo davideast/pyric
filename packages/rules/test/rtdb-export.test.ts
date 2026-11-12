@@ -56,7 +56,7 @@ describe('pyric/rules/rtdb facade', () => {
 
   test('exposes the RTDB engine on the internal node seam, not a public subpath', () => {
     const pkg = JSON.parse(
-      readFileSync(resolve(import.meta.dir, '../../package.json'), 'utf-8'),
+      readFileSync(resolve(import.meta.dir, '../../pyric/package.json'), 'utf-8'),
     ) as { exports: Record<string, unknown> };
 
     // The engine lives on the internal seam; the constraints DSL is

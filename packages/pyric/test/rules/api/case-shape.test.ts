@@ -18,8 +18,8 @@ import {
   timestamp,
   vector,
   type FirestoreCase,
-} from '../../src/index.js';
-import { createFirestoreRulesTools } from '../../src/internal/node.js';
+} from '../../../src/rules/index.js';
+import { createFirestoreRulesTools } from '../../../src/rules/internal/node.js';
 
 const SOURCE = `rules_version = '2';
 service cloud.firestore {

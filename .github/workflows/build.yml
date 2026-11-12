@@ -465,8 +465,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # pyric-1 to pyric-3 are the timed shards of packages/pyric; rest is
-        # test:ci:libraries:rest.
+        # pyric-1 to pyric-3 each run one timed shard of packages/pyric and
+        # the same shard of packages/rules; rest is test:ci:libraries:rest.
         part: [pyric-1, pyric-2, pyric-3, rest]
     steps:
       - uses: actions/checkout@v4
@@ -510,7 +510,9 @@ jobs:
         # test:ci:libraries stays the canonical serial form for local runs and
         # the release gates; scripts/ci/library-split.test.ts pins
         # core = libraries minus conformance and rest = core minus
-        # packages/pyric, so the split cannot drift.
+        # packages/pyric and packages/rules, so the split cannot drift. The
+        # engine suite moved from packages/pyric to packages/rules (#1521), so
+        # each pyric leg runs one shard of each and fails if either fails.
         # --quarantine applies quarantine only in these CI test steps; every
         # other caller of the runners, publish included, keeps its exit code.
         env:
@@ -520,7 +522,10 @@ jobs:
           if [ "$PART" = "rest" ]; then
             bun run test:ci:libraries:rest && bun run test:plugin:unit
           else
-            bun scripts/ci/test-shard.ts --package=pyric --shard="${PART#pyric-}/3" --quarantine
+            status=0
+            bun scripts/ci/test-shard.ts --package=pyric --shard="${PART#pyric-}/3" --quarantine || status=1
+            bun scripts/ci/test-shard.ts --package=rules --shard="${PART#pyric-}/3" --quarantine || status=1
+            exit "$status"
           fi
 
       - name: Upload the quarantine report

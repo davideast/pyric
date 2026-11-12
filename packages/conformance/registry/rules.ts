@@ -394,7 +394,7 @@ export const rulesRegistry = {
           conformanceTests: [
             "packages/pyric/test/rules/oracle-conformance.test.ts",
             "packages/rules/test/test/case-wire-capture.test.ts",
-            "packages/rules/test/api/case-shape.test.ts",
+            "packages/pyric/test/rules/api/case-shape.test.ts",
             "packages/pyric/test/rules/test/api-wire.test.ts",
           ],
           constructs: ["firestore.operator.and","firestore.operator.or","firestore.operator.ternary","firestore.binding.resource","firestore.binding.request.resource","firestore.binding.request.resource.data"],

@@ -48,7 +48,7 @@ import { parseStdlibTestFile } from '../../src/modules/stdlib-cost.js';
 
 const STDLIB_DIR = join(
   dirname(fileURLToPath(import.meta.url)),
-  '../../../src/rules/modules/stdlib',
+  '../../src/modules/stdlib',
 );
 
 interface WrapCase {

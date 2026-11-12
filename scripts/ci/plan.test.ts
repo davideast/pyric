@@ -181,6 +181,7 @@ describe('RTDB differential selection', () => {
     for (const path of [
       'packages/cli/src/serve/worker/host/rtdb.ts',
       'packages/pyric/src/database/listeners.ts',
+      'packages/pyric/src/rules/internal/rtdb.ts',
       'packages/rules/src/internal/rtdb.ts',
       'packages/cli/test/serve/rtdb-differential/generator.ts',
     ]) {

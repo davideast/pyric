@@ -18,6 +18,7 @@ BASE_REF="${BASE_REF:-origin/main}"
 # the escape hatch, not a heuristic.
 ENGINE_PATHS=(
   'packages/rules/src/'
+  'packages/pyric/src/rules/'
   'packages/pyric/src/firestore/sandbox/'
   'packages/pyric/src/database/sandbox/'
   'packages/pyric/src/database/sandbox-controls.ts'

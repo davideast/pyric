@@ -4,38 +4,16 @@ import { tmpdir } from 'node:os';
 import { dirname, join, relative, resolve, sep } from 'node:path';
 import ts from 'typescript';
 
-// The rules engine becomes @pyric/rules, the lowest layer, so nothing in
-// src/rules may import the rest of pyric (#1521). Each edge that does today is
-// listed below as `<file under src/rules> -> <specifier>`, one entry per import
-// statement. The list only shrinks: a new edge fails this test, and so does an
-// entry whose import is gone, so a PR that removes an edge removes its entry.
-// Adding an entry is a boundary change for review in #1521, not a fix.
-const ALLOWED_EDGES: readonly string[] = [
-  // One-line shims left at the old paths after the production Rules API
-  // handlers moved to src/rules-production.
-  'inspect/handler.ts -> ../../rules-production/inspect/handler.js',
-  'test/handler.ts -> ../../rules-production/test/handler.js',
-  'write/handler.ts -> ../../rules-production/write/handler.js',
-  // One-line shims left at the old paths after the agent tools moved to
-  // src/rules-tools.
-  'inspect/tools.ts -> ../../rules-tools/inspect/tools.js',
-  'stdlib-tools.ts -> ../rules-tools/stdlib-tools.js',
-  'tools.ts -> ../rules-tools/tools.js',
-  // One-line shims left at the old paths after the simulator tools moved to
-  // src/rules-tools.
-  'simulator-tools-impl.ts -> ../rules-tools/simulator-tools-impl.js',
-  'simulator.ts -> ../rules-tools/simulator.js',
-  // One-line shims left at the old paths after index extraction moved to
-  // src/indexes.
-  'indexes/extract/composite.ts -> ../../../indexes/extract/composite.js',
-  'indexes/extract/extractor.ts -> ../../../indexes/extract/extractor.js',
-  'indexes/extract/types.ts -> ../../../indexes/extract/types.js',
-  'indexes/extractHandler.ts -> ../../indexes/extractHandler.js',
-  'indexes/extractTool.ts -> ../../indexes/extractTool.js',
-  'indexes/types.ts -> ../../indexes/types.js',
-];
+// The rules engine is @pyric/rules, the lowest layer, so nothing in src may
+// import pyric or any other workspace package above it (#1521). An edge that
+// has to exist is listed below as `<file under src> -> <specifier>`, one entry
+// per import statement. The list only shrinks: a new edge fails this test, and
+// so does an entry whose import is gone. Adding an entry is a boundary change
+// for review, not a fix. The shims that used to be listed here stayed in
+// pyric's src/rules when the engine moved into this package.
+const ALLOWED_EDGES: readonly string[] = [];
 
-const RULES_ROOT = resolve(import.meta.dir, '../../src/rules');
+const RULES_ROOT = resolve(import.meta.dir, '../src');
 
 /**
  * Marks a statement the guard cannot place, so it fails closed: an `import()`
@@ -132,10 +110,10 @@ function compareToAllowlist(edges: readonly string[], allowed: readonly string[]
   return { added: withoutEach(edges, allowed), stale: withoutEach(allowed, edges) };
 }
 
-describe('src/rules import boundary (#1521)', () => {
-  test('imports nothing from outside src/rules beyond the allowlist', () => {
+describe('@pyric/rules import boundary (#1521)', () => {
+  test('imports nothing from outside src beyond the allowlist', () => {
     const { added } = compareToAllowlist(boundaryEdges(RULES_ROOT), ALLOWED_EDGES);
-    expect(added, 'new imports out of src/rules; the engine is the lowest layer').toEqual([]);
+    expect(added, 'new imports out of src; the engine is the lowest layer').toEqual([]);
   });
 
   test('the allowlist names only imports that still exist, so it can only shrink', () => {

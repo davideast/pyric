@@ -24,7 +24,7 @@ import packageJson from '../package.json';
 
 const STDLIB_DIR = resolve(
   dirname(fileURLToPath(import.meta.url)),
-  '../../src/rules/modules/stdlib',
+  '../src/modules/stdlib',
 );
 
 describe('STDLIB_INLINE — drift check against disk', () => {

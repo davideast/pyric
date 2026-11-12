@@ -135,4 +135,4 @@ examples/**/macos/Runner.xcworkspace/
 
 
 # Rules benchmark CPU profiles (bench:rules --profile).
-packages/pyric/bench/rules/profiles/
+packages/rules/bench/profiles/

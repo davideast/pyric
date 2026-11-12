@@ -27,9 +27,9 @@ import { pathToFileURL } from 'node:url';
 import { ALL_RULES_RTDB_DEPLOY_SCENARIOS } from '../../../conformance/rules-corpus/rtdb/index.ts';
 
 const R51_ID = 'r51-deploy-anchor-index-and-length-probes';
-const pyricRoot = resolve(import.meta.dir, '../../..');
-const rulesDist = join(pyricRoot, 'dist/rules/index.js');
-const observationPath = resolve(pyricRoot, `../conformance/observations/rtdb-rules/rules-rtdb-${R51_ID}.json`);
+const rulesRoot = resolve(import.meta.dir, '../..');
+const rulesDist = join(rulesRoot, 'dist/index.js');
+const observationPath = resolve(rulesRoot, `../conformance/observations/rtdb-rules/rules-rtdb-${R51_ID}.json`);
 
 /** The r51 deploy cases that chain `||` terms. */
 const CHAIN_CASES = (ALL_RULES_RTDB_DEPLOY_SCENARIOS.find((scenario) => scenario.id === R51_ID)?.deployCases ?? [])
@@ -75,7 +75,7 @@ function runInNode(ruleset: string): NodeOutcome {
 let outcomes: NodeOutcome[];
 let recorded: Record<string, { verdict?: string }>;
 beforeAll(() => {
-  if (!existsSync(rulesDist)) throw new Error(`dist/rules/index.js missing, run \`bun run build\` first (${rulesDist})`);
+  if (!existsSync(rulesDist)) throw new Error(`dist/index.js missing, run \`bun run build\` first (${rulesDist})`);
   recorded = (JSON.parse(readFileSync(observationPath, 'utf8')) as { behavior: Record<string, { verdict?: string }> }).behavior;
   outcomes = CHAIN_CASES.map((deployCase) => runInNode(deployCase.rules));
 }, NODE_PROBES_TIMEOUT_MS);
@@ -95,7 +95,7 @@ describe('RTDB rules under Node: || chains production deploys (r51)', () => {
   // rules-diff canonicalizes both sides of a changed rule. A chain that lints
   // and simulates must canonicalize too, or two equivalent rules read as a change.
   test('canonical form reads an 18,000-term chain compared with ==', () => {
-    const canonicalDist = join(pyricRoot, 'dist/rules/rtdb/grammar/canonical.js');
+    const canonicalDist = join(rulesRoot, 'dist/rtdb/grammar/canonical.js');
     const script = `
       const { canonicalRtdbExpression } = await import(${JSON.stringify(pathToFileURL(canonicalDist).href)});
       const operand = '(' + Array.from({ length: 18000 }, () => 'f').join(' || ') + ')';

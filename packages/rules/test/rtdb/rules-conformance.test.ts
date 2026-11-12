@@ -54,7 +54,7 @@ import { replayRtdbScenario } from '../../../conformance/src/rules-rtdb-replay.t
 
 // rules-rtdb-* observations live under the 'rtdb-rules' surface subdirectory
 // (surfaces/rtdb-rules.ts owns the prefix), NOT the SDK-plane 'rtdb' one.
-const OBS_DIR = join(import.meta.dir, '..', '..', '..', '..', '..', 'packages', 'conformance', 'observations', 'rtdb-rules');
+const OBS_DIR = join(import.meta.dir, '..', '..', '..', '..', 'packages', 'conformance', 'observations', 'rtdb-rules');
 
 /**
  * Recorded simulator-vs-production divergences, pinned per the Firestore/Storage

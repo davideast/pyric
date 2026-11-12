@@ -10,10 +10,12 @@
 #      packages/conformance/docs/how-to-run-the-conformance-system.md has the
 #      one-time GCP setup.
 #
-# Post-mirror layout: simulator + grammar live under
-# packages/pyric/src/{firestore/sandbox,rules/{grammar,simulator}}/.
-# The suite itself is at packages/pyric/test/{sandbox/firestore/simulator,
-# rules/simulator}/; the live parity packs at packages/pyric/test/rules/parity/.
+# Layout: the grammar and simulator live in the engine package at
+# packages/rules/src/{grammar,simulator}/ (#1521), the sandbox side at
+# packages/pyric/src/firestore/sandbox/. The suite is at
+# packages/rules/test/simulator/ and packages/pyric/test/{sandbox/firestore/simulator,
+# rules/simulator}/ (the simulator tests that use pyric stayed there); the live
+# parity packs at packages/pyric/test/rules/parity/.
 
 name: Simulator Parity
 
@@ -26,6 +28,7 @@ on:
       - 'packages/pyric/src/rules-tools/**'
       - 'packages/pyric/test/sandbox/firestore/simulator/**'
       - 'packages/pyric/test/rules/**'
+      - 'packages/rules/test/simulator/**'
       - 'packages/pyric/test/rules-tools/**'
       - '.github/workflows/simulator-parity.yml'
   push:
@@ -37,6 +40,7 @@ on:
       - 'packages/pyric/src/rules-tools/**'
       - 'packages/pyric/test/sandbox/firestore/simulator/**'
       - 'packages/pyric/test/rules/**'
+      - 'packages/rules/test/simulator/**'
       - 'packages/pyric/test/rules-tools/**'
       - '.github/workflows/simulator-parity.yml'
   workflow_dispatch:
@@ -67,11 +71,14 @@ jobs:
             ${{ runner.os }}-bun-
       - name: Install
         run: bun install --frozen-lockfile
-      - name: Build pyric
-        run: bun run build:pyric
+      - name: Build the rules engine and pyric
+        run: |
+          bun run build:rules
+          bun run build:pyric
       - name: Run simulator tests
         run: |
           bun test packages/pyric/test/sandbox/firestore/simulator
+          bun test packages/rules/test/simulator
           bun test packages/pyric/test/rules/simulator
           bun test packages/pyric/test/rules-tools/simulator-tools
 
@@ -133,7 +140,12 @@ jobs:
             ${{ runner.os }}-bun-
       - name: Install
         if: steps.wif-check.outputs.available == 'true'
-        run: bun install --frozen-lockfile --filter pyric
+        run: bun install --frozen-lockfile --filter pyric --filter @pyric/rules
+      # pyric imports the engine from @pyric/rules, which resolves to its
+      # built dist (#1521).
+      - name: Build the rules engine
+        if: steps.wif-check.outputs.available == 'true'
+        run: bun run build:rules
       # PARITY_REQUIRE_CREDENTIAL=1 makes the packs fail, not skip, when no
       # credential resolves. A credential that cannot mint a token fails the
       # first scenario.

@@ -5,6 +5,7 @@
 #   3. Full tsc build in topological order
 #
 # After ADR-001 cutover (Wave 9), packages are:
+#   @pyric/rules    — the rules engine; the lowest layer, built first
 #   pyric           — modular SDK adapters + sandbox + rules (umbrella)
 #   pyric-admin     — admin-shape adapters (umbrella)
 #   create-pyric    — `npm create pyric` scaffolder (no Firebase SDK deps)
@@ -85,6 +86,9 @@ done
 # ── Phase 1: Declaration stubs (all packages) ──────────────────────────
 echo ""
 echo "━━━ Phase 1: Declaration stubs ━━━"
+# pyric imports @pyric/rules by package name, so its declarations need the
+# engine built first.
+build_pkg "rules"
 emit_stubs "pyric"
 emit_stubs "pyric-admin"
 emit_stubs "create-pyric"

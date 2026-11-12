@@ -11,7 +11,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { resolveModules } from '../../src/modules/resolver.js';
 
-const GUIDE = join(import.meta.dir, '../../../../site-docs/src/content/secure/rules-standard-library.md');
+const GUIDE = join(import.meta.dir, '../../../site-docs/src/content/secure/rules-standard-library.md');
 
 function rulesBlocks(markdown: string): string[] {
   return [...markdown.matchAll(/```rules\n([\s\S]*?)```/g)].map((m) => m[1]);

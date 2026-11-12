@@ -17,7 +17,7 @@ import { SimulateFirestoreRulesHandler } from '../../src/simulator/handler.js';
  */
 const SCENARIO = 're2-pattern-semantics';
 const OBSERVATION = join(
-  import.meta.dir, '..', '..', '..', '..', 'conformance', 'observations', 'firestore-rules',
+  import.meta.dir, '..', '..', '..', 'conformance', 'observations', 'firestore-rules',
   `rules-firestore-${SCENARIO}.json`,
 );
 
