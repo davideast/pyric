@@ -50,6 +50,22 @@ describe('embedded tarball coverage (issue #369, defect 2)', () => {
     }
   });
 
+  it('embeds every workspace:* runtime dep of an embedded package too, such as pyric on @pyric/rules', () => {
+    const embedded = new Set(EMBEDDED_WORKSPACE_PACKAGES.map((p) => p.name));
+    const missing: string[] = [];
+    for (const pkg of EMBEDDED_WORKSPACE_PACKAGES) {
+      const manifest = JSON.parse(
+        readFileSync(join(import.meta.dir, '../../../..', pkg.dir, 'package.json'), 'utf8'),
+      ) as Record<string, Record<string, string> | undefined>;
+      for (const field of ['dependencies', 'peerDependencies', 'optionalDependencies'] as const) {
+        for (const [name, spec] of Object.entries(manifest[field] ?? {})) {
+          if (spec.startsWith('workspace:') && !embedded.has(name)) missing.push(`${pkg.name} -> ${name}`);
+        }
+      }
+    }
+    expect(missing).toEqual([]);
+  });
+
   it('gives every embedded package a stable, unique tarball filename', () => {
     const files = EMBEDDED_WORKSPACE_PACKAGES.map((p) => p.tarball);
     expect(new Set(files).size).toBe(files.length);

@@ -16,8 +16,11 @@ V="${1:?usage: bash scripts/release-smoke.sh <version>}"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 WORK="${TMPDIR:-/tmp}/pyric-release-smoke"
 FAILED=0
+# @pyric/rules versions on its own line (0.1.0), so its tarball is named for
+# the version in its manifest, not the release version.
+RULES_V="$(node -p "require('$ROOT/packages/rules/package.json').version")"
 
-for t in "pyric-${V}.tgz" "pyric-admin-${V}.tgz" "create-pyric-${V}.tgz" "pyric-cli-${V}.tgz" "pyric-live-${V}.tgz"; do
+for t in "pyric-rules-${RULES_V}.tgz" "pyric-${V}.tgz" "pyric-admin-${V}.tgz" "create-pyric-${V}.tgz" "pyric-cli-${V}.tgz" "pyric-live-${V}.tgz"; do
   if [ ! -f "$ROOT/dist/packages/$t" ]; then
     echo "release-smoke: missing $ROOT/dist/packages/$t — run scripts/pack-packages.sh first" >&2
     exit 1
@@ -28,10 +31,12 @@ rm -rf "$WORK"
 mkdir -p "$WORK"
 cd "$WORK"
 npm init -y > /dev/null 2>&1
-# cli pulls pyric/pyric-admin/create-pyric as real deps, and @pyric/live pulls
-# cli; feed npm all five tarballs so workspace-derived ranges resolve locally,
-# not from the registry. npm installs @pyric/live's firebase peer itself.
+# cli pulls pyric/pyric-admin/create-pyric as real deps, pyric pulls
+# @pyric/rules, and @pyric/live pulls cli; feed npm all six tarballs so
+# workspace-derived ranges resolve locally, not from the registry. npm
+# installs @pyric/live's firebase peer itself.
 npm install --no-audit --no-fund --silent \
+  "$ROOT/dist/packages/pyric-rules-${RULES_V}.tgz" \
   "$ROOT/dist/packages/pyric-${V}.tgz" \
   "$ROOT/dist/packages/pyric-admin-${V}.tgz" \
   "$ROOT/dist/packages/create-pyric-${V}.tgz" \

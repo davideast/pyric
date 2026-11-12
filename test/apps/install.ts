@@ -18,8 +18,9 @@ export interface CommandTiming {
 
 const DEFAULT_COMMAND_TIMING: CommandTiming = { exit: DEFAULT_EXIT_TIMING, leftoverTermMs: 1000 };
 
-/** The packages scripts/pack-packages.sh packs, in its order: the published ones. */
+/** The packages scripts/pack-packages.sh packs, in its order: the published ones and the @pyric/rules engine pyric depends on. */
 const PUBLISHED_PACKAGE_DIRS = [
+  'packages/rules',
   'packages/pyric',
   'packages/pyric-admin',
   'packages/create-pyric',

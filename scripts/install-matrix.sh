@@ -40,7 +40,7 @@ if [ -n "${PYRIC_PACKAGE_ARTIFACT_DIR:-}" ]; then
   done < <(ARTIFACT_DIR="$PYRIC_PACKAGE_ARTIFACT_DIR" node -e "
 const path = require('path');
 const fs = require('fs');
-const packages = ['packages/pyric', 'packages/pyric-admin', 'packages/create-pyric', 'packages/cli', 'packages/ui'];
+const packages = ['packages/pyric', 'packages/pyric-admin', 'packages/create-pyric', 'packages/cli', 'packages/ui', 'packages/rules'];
 for (const dir of packages) {
   const manifest = require(path.join(process.cwd(), dir, 'package.json'));
   const file = manifest.name.replace(/^@/, '').replaceAll('/', '-') + '-' + manifest.version + '.tgz';
@@ -58,7 +58,7 @@ else
   done < <(node -e "
 const path = require('path');
 const manifest = require(path.join(process.cwd(), 'dist/packages/manifest.json'));
-const names = ['pyric', 'pyric-admin', 'create-pyric', '@pyric/cli', '@pyric/ui'];
+const names = ['pyric', 'pyric-admin', 'create-pyric', '@pyric/cli', '@pyric/ui', '@pyric/rules'];
 for (const name of names) {
   const entry = manifest.packages.find((p) => p.name === name);
   if (!entry) {
@@ -73,7 +73,8 @@ for tb in "${TARBALLS[@]}"; do
   [ -f "$tb" ] || { echo "✗ missing tarball $tb (run: npm run pack)" >&2; exit 1; }
 done
 
-# 2. Fresh consumer. The five packages are declared as `file:` tarball deps, and the
+# 2. Fresh consumer. The five packages and the @pyric/rules engine pyric
+#    depends on are declared as `file:` tarball deps, and the
 #    SAME local tarballs are pinned via every manager's override channel
 #    (overrides / resolutions / pnpm.overrides). Without this, the inter-package
 #    deps can resolve differently per manager. Pinning makes the matrix test OUR
@@ -88,8 +89,8 @@ CONSUMER_DIR="$CONSUMER" node -e '
 const fs = require("fs");
 const path = require("path");
 const dir = process.env.CONSUMER_DIR;
-const [pyric, admin, create, tools, ui] = process.argv.slice(1).map((p) => "file:" + p);
-const pin = { "pyric": pyric, "pyric-admin": admin, "create-pyric": create, "@pyric/cli": tools, "@pyric/ui": ui };
+const [pyric, admin, create, tools, ui, rules] = process.argv.slice(1).map((p) => "file:" + p);
+const pin = { "pyric": pyric, "pyric-admin": admin, "create-pyric": create, "@pyric/cli": tools, "@pyric/ui": ui, "@pyric/rules": rules };
 const pkg = {
   name: "pyric-install-matrix-consumer", private: true, version: "1.0.0", type: "module",
   dependencies: {
@@ -117,7 +118,7 @@ fs.writeFileSync(path.join(dir, "pnpm-workspace.yaml"), yaml);
 ' "${TARBALLS[@]}"
 
 # 3. Install — file: deps + overrides drive everything to the local tarballs.
-echo "▸ $PM install (5 file: tarballs + peers, inter-deps pinned local)…"
+echo "▸ $PM install (6 file: tarballs + peers, inter-deps pinned local)…"
 cd "$CONSUMER"
 case "$PM" in
   npm)  npm install --no-audit --no-fund --loglevel=error ;;
@@ -129,12 +130,12 @@ case "$PM" in
   bun)  bun install ;;
 esac
 
-# 4. Resolve EVERY advertised subpath of all five packages, derived from the INSTALLED
+# 4. Resolve EVERY advertised subpath of all six packages, derived from the INSTALLED
 #    manifests (drift-free — no hardcoded list to fall out of sync).
 cat > "$CONSUMER/__matrix-resolve.mjs" <<'NODECHECK'
 import { existsSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-const PKGS = ['pyric', 'pyric-admin', 'create-pyric', '@pyric/cli', '@pyric/ui'];
+const PKGS = ['pyric', 'pyric-admin', 'create-pyric', '@pyric/cli', '@pyric/ui', '@pyric/rules'];
 // The browser modules `withPyric` aliases client `firebase/*` imports to. They
 // start the browser runtime on import, which keeps a Node process alive, so
 // each one is resolved to an installed file without running it.
@@ -216,8 +217,8 @@ VITE_APP_DIR="$VITE_APP" node -e '
 const fs = require("fs");
 const path = require("path");
 const dir = process.env.VITE_APP_DIR;
-const [pyric, admin, create, tools, ui] = process.argv.slice(1).map((p) => "file:" + p);
-const pin = { "pyric": pyric, "pyric-admin": admin, "create-pyric": create, "@pyric/cli": tools, "@pyric/ui": ui };
+const [pyric, admin, create, tools, ui, rules] = process.argv.slice(1).map((p) => "file:" + p);
+const pin = { "pyric": pyric, "pyric-admin": admin, "create-pyric": create, "@pyric/cli": tools, "@pyric/ui": ui, "@pyric/rules": rules };
 const pkg = {
   name: "pyric-install-matrix-vite-app", private: true, version: "1.0.0", type: "module",
   dependencies: { pyric: pyric, "@pyric/cli": tools, firebase: "^12", vite: "^6" },

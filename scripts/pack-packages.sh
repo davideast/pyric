@@ -75,6 +75,7 @@ fi
 # readability; the actual pack order does not matter since each tarball
 # is self-contained after the workspace:* rewrite.
 PACKAGES=(
+  "packages/rules"
   "packages/pyric"
   "packages/pyric-admin"
   "packages/create-pyric"
