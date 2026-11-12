@@ -29,6 +29,8 @@ export interface PlanInput {
   state?: WorldState;
   /** Projected unified `RuleSurface` (provides Cloud Storage constraints and cross-service lookups). */
   surface?: RuleSurface;
+  /** Resolved default Cloud Storage bucket ID (e.g. `<projectId>.firebasestorage.app`). */
+  defaultBucket?: string;
 }
 
 function bindingsAt(site: AccessSite, bindings: OwnerBinding[]): OwnerBinding[] {

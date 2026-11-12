@@ -246,4 +246,65 @@ describe("deriveAssurance and firebase_assurance_derive", () => {
       },
     ]);
   });
+
+  test("resolves defaultBucket from .firebaserc across storageContractPass, coverageMatrixPass, ProbeWorld, and campaign replay for concrete /b/<bucket>/o rules", async () => {
+    for (const suffix of ["firebasestorage.app", "appspot.com"] as const) {
+      const root = makeTempDir(`derive-default-bucket-${suffix}-`);
+      mkdirSync(join(root, "src"), { recursive: true });
+      writeFileSync(
+        join(root, ".firebaserc"),
+        JSON.stringify({ projects: { default: "demo-app" } }),
+      );
+      writeFileSync(
+        join(root, "firebase.json"),
+        JSON.stringify({ storage: { rules: "storage.rules" } }),
+      );
+      writeFileSync(
+        join(root, "storage.rules"),
+        `rules_version = '2';
+service firebase.storage {
+  match /b/demo-app.${suffix}/o {
+    match /users/{uid}/files/{name} {
+      allow read: if request.auth != null && request.auth.uid == uid;
+      allow write: if request.auth != null && request.resource.contentType.matches('image/.*');
+      allow delete: if request.auth != null && request.auth.uid == uid;
+    }
+  }
+}
+`,
+      );
+      writeFileSync(
+        join(root, "src/app.ts"),
+        `import { getAuth } from 'firebase/auth';
+import { getStorage, ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+
+export async function syncAvatar() {
+  const uid = getAuth().currentUser!.uid;
+  const st = getStorage();
+  await uploadBytes(ref(st, \`users/\${uid}/files/avatar.png\`), new Uint8Array([1, 2, 3]), {
+    contentType: 'image/png',
+  });
+  await getDownloadURL(ref(st, \`users/\${uid}/files/avatar.png\`));
+}
+`,
+      );
+
+      const store = new AssuranceCampaignStore();
+      const campaignId = `concrete-bucket-${suffix}`;
+      const derived = await deriveAssurance({ root, campaignId }, { store });
+      const codes = derived.diagnostics.map((d) => d.code);
+
+      expect(codes).not.toContain("uncovered-client-operation");
+      expect(codes).not.toContain("orphaned-security-rule");
+      expect(codes).not.toContain("assurance-must-allow-denied");
+      expect(codes).toContain("assurance-foreign-slot-write");
+
+      const campaign = store.get(campaignId)!;
+      const report = campaign.report ?? (await campaign.run());
+      expect(report.summary.invalidProbes).toBe(0);
+      expect(
+        report.summary.candidateSignals + report.summary.localCounterexamples,
+      ).toBeGreaterThan(0);
+    }
+  });
 });

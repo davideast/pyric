@@ -480,4 +480,198 @@ service cloud.firestore {
     expect(wildcardDiags[0]?.resourceId).toBe('analytics');
     expect(wildcardDiags[0]?.certainty).toBe('static-proof');
   });
+
+  it('projects multiple orderBy clauses into request.query.orderBy and downgrades dynamic orderBy fields to heuristic', () => {
+    const rules = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /items/{id} {
+      allow list: if request.query.orderBy.priority == 'DESC' && request.query.orderBy.createdAt == 'DESC';
+    }
+    match /docs/{docId} {
+      allow list: if request.query.orderBy.updatedAt == 'DESC';
+    }
+  }
+}`;
+    const usage = extractSdkUsage({
+      root: '/app',
+      files: {
+        'src/queries.ts': `
+          import { collection, getDocs, getFirestore, orderBy, query } from 'firebase/firestore';
+          declare function pickSortField(): string;
+          const db = getFirestore();
+
+          export async function loadValidMultiOrder() {
+            return getDocs(query(collection(db, 'items'), orderBy('priority', 'desc'), orderBy('createdAt', 'desc')));
+          }
+
+          export async function loadWrongMultiOrder() {
+            return getDocs(query(collection(db, 'items'), orderBy('priority', 'asc'), orderBy('createdAt', 'desc')));
+          }
+
+          export async function loadDynamicOrder() {
+            return getDocs(query(collection(db, 'docs'), orderBy(pickSortField(), 'desc')));
+          }
+        `,
+      },
+    });
+
+    const diagnostics = staticQueryProofPass(usage, rules);
+    expect(diagnostics.filter((d) => d.codeSite?.source === 'src/queries.ts:7')).toEqual([]);
+
+    const wrongDiag = diagnostics.find((d) => d.codeSite?.source === 'src/queries.ts:11');
+    expect(wrongDiag?.certainty).toBe('static-proof');
+
+    const dynamicDiag = diagnostics.find((d) => d.codeSite?.source === 'src/queries.ts:15');
+    expect(dynamicDiag?.certainty).toBe('heuristic');
+  });
+
+  it('proves typed wrapper scalar constraints, downgrades dynamic wrapper refs to heuristic, and formats client SDK remediations without raw wrapper blobs', () => {
+    const rules = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /projects/{projectId} {
+      allow list: if resource.data.orgRef == /databases/$(database)/documents/orgs/acme;
+    }
+    match /profiles/{profileId} {
+      allow list: if request.auth != null && resource.data.userRef == /databases/$(database)/documents/users/$(request.auth.uid);
+    }
+    match /snapshots/{snapId} {
+      allow list: if resource.data.publishedAt == timestamp.date(2026, 1, 1);
+    }
+    match /packets/{pktId} {
+      allow list: if resource.data.header == b'\\x01\\x02';
+    }
+    match /beacons/{beaconId} {
+      allow list: if resource.data.coords == latlng.value(37.5, -122.0);
+    }
+  }
+}`;
+
+    const usage = extractSdkUsage({
+      root: '/app',
+      files: {
+        'src/wrappers.ts': `
+          import { getAuth } from 'firebase/auth';
+          import {
+            Bytes,
+            GeoPoint,
+            Timestamp,
+            collection,
+            doc,
+            getDocs,
+            getFirestore,
+            query,
+            where,
+          } from 'firebase/firestore';
+
+          const auth = getAuth();
+          const db = getFirestore();
+
+          export async function runValidWrappers() {
+            const uid = auth.currentUser!.uid;
+            await getDocs(query(collection(db, 'projects'), where('orgRef', '==', doc(db, 'orgs', 'acme'))));
+            await getDocs(query(collection(db, 'profiles'), where('userRef', '==', doc(db, 'users', uid))));
+            await getDocs(query(collection(db, 'snapshots'), where('publishedAt', '==', Timestamp.fromDate(new Date('2026-01-01T00:00:00.000Z')))));
+            await getDocs(query(collection(db, 'packets'), where('header', '==', Bytes.fromUint8Array(new Uint8Array([1, 2])))));
+            await getDocs(query(collection(db, 'beacons'), where('coords', '==', new GeoPoint(37.5, -122.0))));
+          }
+
+          export async function runMismatchedOrgRef() {
+            return getDocs(query(collection(db, 'projects'), where('orgRef', '==', doc(db, 'orgs', 'other'))));
+          }
+
+          export async function runUnfilteredProfiles() {
+            return getDocs(collection(db, 'profiles'));
+          }
+
+          export async function runDynamicOrgRef(orgId: string) {
+            return getDocs(query(collection(db, 'projects'), where('orgRef', '==', doc(db, 'orgs', orgId))));
+          }
+        `,
+      },
+    });
+
+    const diagnostics = staticQueryProofPass(usage, rules);
+    expect(diagnostics).toHaveLength(3);
+
+    const mismatchDiag = diagnostics.find((d) => d.codeSite?.source === 'src/wrappers.ts:28');
+    expect(mismatchDiag?.certainty).toBe('static-proof');
+    expect(mismatchDiag?.remediation).toContain("doc(db, 'orgs', 'acme')");
+    expect(mismatchDiag?.remediation).not.toContain('__type');
+    expect(mismatchDiag?.remediation).not.toContain('__pyric_');
+
+    const unfilteredProfileDiag = diagnostics.find((d) => d.codeSite?.source === 'src/wrappers.ts:32');
+    expect(unfilteredProfileDiag?.certainty).toBe('static-proof');
+    expect(unfilteredProfileDiag?.remediation).toContain("doc(db, 'users', currentUser.uid)");
+    expect(unfilteredProfileDiag?.remediation).not.toContain('__type');
+    expect(unfilteredProfileDiag?.remediation).not.toContain('__pyric_synth_uid__');
+
+    const dynamicOrgRefDiag = diagnostics.find((d) => d.codeSite?.source === 'src/wrappers.ts:36');
+    expect(dynamicOrgRefDiag?.certainty).toBe('heuristic');
+    expect(shouldFailOnDiagnostic(dynamicOrgRefDiag!)).toBe(false);
+  });
+
+  it('projects path-invariant branches of mixed collection-group || disjunctions and enforces OrBudgetStep lookup budgets', () => {
+    const mixedRules = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{path=**}/comments/{id} {
+      allow list: if id == 'pinned' || resource.data.public == true;
+    }
+  }
+}`;
+    const usage = extractSdkUsage({
+      root: '/app',
+      files: {
+        'src/cg.ts': `
+          import { collectionGroup, getDocs, getFirestore, query, where } from 'firebase/firestore';
+          const db = getFirestore();
+
+          export async function loadPublicComments() {
+            return getDocs(query(collectionGroup(db, 'comments'), where('public', '==', true)));
+          }
+
+          export async function loadAllComments() {
+            return getDocs(collectionGroup(db, 'comments'));
+          }
+        `,
+      },
+    });
+
+    const mixedDiags = staticQueryProofPass(usage, mixedRules);
+    expect(mixedDiags).toHaveLength(1);
+    expect(mixedDiags[0]?.codeSite?.source).toBe('src/cg.ts:10');
+    expect(mixedDiags[0]?.certainty).toBe('static-proof');
+    expect(mixedDiags[0]?.remediation).toContain(".where('public', '==', true)");
+    expect(mixedDiags[0]?.remediation).not.toContain('match /{path=**}/comments');
+
+    const lookupChain = Array.from(
+      { length: 11 },
+      (_, idx) => `exists(/databases/$(database)/documents/flags/f${idx + 1})`,
+    ).join(' || ');
+    const overBudgetRules = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{path=**}/comments/{id} {
+      allow list: if (id == 'pinned' && (${lookupChain})) || resource.data.public == true;
+    }
+  }
+}`;
+    const publicOnlyUsage = extractSdkUsage({
+      root: '/app',
+      files: {
+        'src/budget.ts': `
+          import { collectionGroup, getDocs, getFirestore, query, where } from 'firebase/firestore';
+          const db = getFirestore();
+          export async function loadPublic() {
+            return getDocs(query(collectionGroup(db, 'comments'), where('public', '==', true)));
+          }
+        `,
+      },
+    });
+    const budgetDiags = staticQueryProofPass(publicOnlyUsage, overBudgetRules);
+    expect(budgetDiags).toHaveLength(1);
+    expect(budgetDiags[0]?.code).toBe('firestore-unprovable-list-query');
+  });
 });

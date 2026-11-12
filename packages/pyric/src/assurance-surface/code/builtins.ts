@@ -7,8 +7,32 @@ import ts from 'typescript';
 import type { Evaluator } from './evaluator.js';
 import { expressionName, hole } from './paths.js';
 import { ReferenceIndex } from './references.js';
+import type { WrapperOperandValue } from './service-models/types.js';
 import { evalBinaryBuiltin } from './storage-upload.js';
-import { alternatives, authMarksOf, concatParts, definiteTruthiness, lit, literalText, union, type AVal, type Env, type StrPart } from './values.js';
+import { alternatives, authMarksOf, concatParts, definiteTruthiness, lit, literalText, unknown, union, type AVal, type Env, type StrPart } from './values.js';
+
+const MIN_TIMESTAMP_SECONDS = -62_135_596_800;
+const MAX_TIMESTAMP_SECONDS = 253_402_300_799;
+
+export function timestampWrapperFromMillis(
+  ms: number,
+): Extract<WrapperOperandValue, { wrapperKind: 'timestamp' }> | undefined {
+  if (!Number.isFinite(ms)) return undefined;
+  const seconds = Math.floor(ms / 1_000);
+  const remainderMs = ms - seconds * 1_000;
+  const micros = Math.floor((Math.round(remainderMs * 1_000_000)) / 1_000) * 1_000;
+  let adjSec = seconds;
+  let adjNanos = micros;
+  if (adjNanos >= 1_000_000_000) {
+    adjSec += 1;
+    adjNanos -= 1_000_000_000;
+  } else if (adjNanos < 0) {
+    adjSec -= 1;
+    adjNanos += 1_000_000_000;
+  }
+  if (adjSec < MIN_TIMESTAMP_SECONDS || adjSec > MAX_TIMESTAMP_SECONDS) return undefined;
+  return { wrapperKind: 'timestamp', seconds: adjSec, nanoseconds: adjNanos };
+}
 
 const MAX_OBJECT_ENTRIES = 25;
 
@@ -41,7 +65,21 @@ export function builtinCall(ev: Evaluator, node: ts.CallExpression | ts.NewExpre
       }
       return { k: 'bool' };
     }
-    if (callee.text === 'Date' && ts.isNewExpression(node)) return { k: 'num' };
+    if (callee.text === 'Date' && ts.isNewExpression(node)) {
+      if (args.length === 1 && !ts.isSpreadElement(args[0]!)) {
+        const arg0 = ev.force(ev.eval(args[0]!, env));
+        const text = literalText(arg0);
+        if (text !== null) {
+          const ms = Date.parse(text);
+          const wrapped = timestampWrapperFromMillis(ms);
+          if (wrapped !== undefined) return { k: 'wrapper', value: wrapped };
+        } else if (arg0.k === 'num' && arg0.value !== undefined && Number.isFinite(arg0.value)) {
+          const wrapped = timestampWrapperFromMillis(Math.trunc(arg0.value));
+          if (wrapped !== undefined) return { k: 'wrapper', value: wrapped };
+        }
+      }
+      return unknown('new Date()');
+    }
     const binary = evalBinaryBuiltin(ev, node, env);
     if (binary) return binary;
     if (STRING_RESULTS.has(callee.text)) return { k: 'str', parts: [hole(callee.text)] };

@@ -497,4 +497,89 @@ describe('storageContractPass', () => {
       },
     ]);
   });
+
+  it('enforces conjoined contentType.matches(...) across >16 collapsed DNF arms without PCRE lookahead fail-open and enforces lower/exact request.resource.size bounds', () => {
+    const manyOrBranches = Array.from(
+      { length: 18 },
+      (_, i) =>
+        `(request.resource.metadata.tag${i} == 'v' && request.resource.contentType.matches('image/.*') && request.resource.contentType.matches('.*png'))`,
+    ).join(' || ');
+    const rules = `
+      rules_version = '2';
+      service firebase.storage {
+        match /b/{bucket}/o {
+          match /collapsed/{itemId} {
+            allow write: if request.auth != null && (${manyOrBranches});
+          }
+          match /bounded/{itemId} {
+            allow write: if request.auth != null
+              && request.resource.size >= 100
+              && request.resource.size <= 1000;
+          }
+          match /strict-lower/{itemId} {
+            allow write: if request.auth != null
+              && 64 == request.resource.size;
+          }
+        }
+      }
+    `;
+
+    const usage = extractSdkUsage({
+      root: '/app',
+      files: {
+        'src/bounds.ts': `
+          import { getStorage, ref, uploadBytes, uploadString } from 'pyric/storage';
+          const st = getStorage();
+
+          export async function run() {
+            await uploadString(ref(st, 'collapsed/i1'), 'hello', 'raw', {
+              contentType: 'application/pdf',
+              customMetadata: { tag: 'v0' },
+            });
+            await uploadString(ref(st, 'collapsed/i2'), 'hello', 'raw', {
+              contentType: 'image/png',
+              customMetadata: { tag: 'v0' },
+            });
+            await uploadString(ref(st, 'bounded/tiny'), 'hello');
+            await uploadBytes(ref(st, 'bounded/ok'), new Uint8Array(100));
+            await uploadBytes(ref(st, 'strict-lower/under'), new Uint8Array(63));
+            await uploadBytes(ref(st, 'strict-lower/exact'), new Uint8Array(64));
+            await uploadBytes(ref(st, 'strict-lower/over'), new Uint8Array(65));
+          }
+        `,
+      },
+    });
+
+    const diagnostics = storageContractPass(usage, rules);
+    expect(
+      diagnostics.map((d) => ({
+        code: d.code,
+        certainty: d.certainty,
+        path: d.resource
+          ? d.resource.segments.map((s) => (s.kind === 'lit' ? s.text : `{${s.name}}`)).join('/')
+          : '',
+      })),
+    ).toEqual([
+      {
+        code: 'storage-content-type-mismatch',
+        certainty: 'static-proof',
+        path: 'collapsed/i1',
+      },
+      {
+        code: 'storage-max-size-exceeded',
+        certainty: 'static-proof',
+        path: 'strict-lower/over',
+      },
+      {
+        code: 'storage-min-size-not-met',
+        certainty: 'static-proof',
+        path: 'bounded/tiny',
+      },
+      {
+        code: 'storage-min-size-not-met',
+        certainty: 'static-proof',
+        path: 'strict-lower/under',
+      },
+    ]);
+  });
 });

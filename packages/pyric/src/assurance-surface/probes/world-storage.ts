@@ -24,6 +24,7 @@ import {
 import {
   DEFAULT_BUCKET,
   getAdminStorageSandbox,
+  nameStorageBucket,
   seedStorageObject,
 } from 'pyric/storage/internal';
 import { lowerModularRulesInMemory } from '../rules/rules-ast-utils.js';
@@ -110,8 +111,25 @@ export function populateWorldStorageRules(
   }
 }
 
-function adminStorageForBucket(sandbox: LocalSandbox, bucketKey: string | undefined): FirebaseStorage {
-  if (bucketKey === undefined) return getAdminStorageSandbox(sandbox);
+function resolveEffectiveBucketKey(
+  resourceId: string | undefined,
+  defaultBucket: string | undefined,
+): string | undefined {
+  const normalized = normalizeStorageBucketKey(resourceId);
+  if (normalized !== undefined && defaultBucket !== undefined && normalized === defaultBucket) {
+    return undefined;
+  }
+  return normalized;
+}
+
+function adminStorageForBucket(
+  sandbox: LocalSandbox,
+  bucketKey: string | undefined,
+  defaultBucket: string | undefined,
+): FirebaseStorage {
+  if (bucketKey === undefined) {
+    return nameStorageBucket(getAdminStorageSandbox(sandbox), defaultBucket);
+  }
   return getAdminStorageSandbox(sandbox, { bucket: bucketKey });
 }
 
@@ -120,19 +138,22 @@ function actorStorageForStep(
   actorContexts: ReadonlyMap<string, SandboxContext>,
   hasStorage: boolean,
   step: ProbeStep,
+  defaultBucket: string | undefined,
 ): FirebaseStorage {
   if (!hasStorage) {
     throw new Error('no Cloud Storage rules in this world');
   }
-  const bucketKey = normalizeStorageBucketKey(step.resourceId);
+  const bucketKey = resolveEffectiveBucketKey(step.resourceId, defaultBucket);
   if (step.actor === 'admin') {
-    return adminStorageForBucket(sandbox, bucketKey);
+    return adminStorageForBucket(sandbox, bucketKey, defaultBucket);
   }
   const ctx = actorContexts.get(step.actor);
   if (!ctx) {
     throw new Error(`unknown probe actor: ${step.actor}`);
   }
-  if (bucketKey === undefined) return getStorageSandbox(ctx);
+  if (bucketKey === undefined) {
+    return nameStorageBucket(getStorageSandbox(ctx), defaultBucket);
+  }
   return getStorageSandbox(ctx, { bucket: bucketKey });
 }
 
@@ -177,10 +198,11 @@ export async function executeWorldStorageStep(
   actorContexts: ReadonlyMap<string, SandboxContext>,
   hasStorage: boolean,
   step: ProbeStep,
+  defaultBucket?: string,
 ): Promise<void> {
-  const storage = actorStorageForStep(sandbox, actorContexts, hasStorage, step);
-  const bucketKey = normalizeStorageBucketKey(step.resourceId);
-  const adminStorage = adminStorageForBucket(sandbox, bucketKey);
+  const storage = actorStorageForStep(sandbox, actorContexts, hasStorage, step, defaultBucket);
+  const bucketKey = resolveEffectiveBucketKey(step.resourceId, defaultBucket);
+  const adminStorage = adminStorageForBucket(sandbox, bucketKey, defaultBucket);
   const cleanPath = step.path.replace(/^\/+/, '');
   const objectRef = storageRef(storage, cleanPath);
   const metadata = toStorageMetadata(step);

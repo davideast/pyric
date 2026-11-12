@@ -6,6 +6,7 @@ import ts from 'typescript';
 import type { AssuranceService } from '../../sandbox/internal/resource-pattern.js';
 import { DEFAULT_RESOURCE_ID } from '../../sandbox/internal/resource-pattern-header.js';
 import type { Evaluator } from './evaluator.js';
+import { timestampWrapperFromMillis } from './builtins.js';
 import { expressionName, hole, segmentsOf } from './paths.js';
 import { evalConstraintCall, evalQueryCall } from './query-constraints.js';
 import {
@@ -16,6 +17,7 @@ import {
 } from './resource-headers.js';
 import { AUTH_USER_FUNCTION } from './sdk-imports.js';
 import type { RefConstructorSpec, SdkServiceModel } from './service-models/types.js';
+import { decodeBase64Bytes, literalUint8Bytes } from './storage-upload.js';
 import {
   alternatives,
   lit,
@@ -384,6 +386,22 @@ function evalRefConstructor(
   return buildRefsFromBases(ev, bases, service, spec.refKind, call, arg, name, 1, end, false, append);
 }
 
+const MIN_TIMESTAMP_SECONDS = -62_135_596_800;
+const MAX_TIMESTAMP_SECONDS = 253_402_300_799;
+
+function finiteNumberArg(
+  ev: Evaluator,
+  argExpr: ts.Expression | undefined,
+  env: Env | undefined,
+): number | undefined {
+  if (!argExpr || ts.isSpreadElement(argExpr)) return undefined;
+  const forced = ev.force(ev.eval(argExpr, env));
+  if (forced.k === 'num' && forced.value !== undefined && Number.isFinite(forced.value)) {
+    return forced.value;
+  }
+  return undefined;
+}
+
 /** Evaluate `new Export(...)` on an SDK export (such as `new FieldPath('a', 'b')`). */
 export function apiNew(ev: Evaluator, api: Api, node: ts.NewExpression, env: Env | undefined): AVal {
   if (api.name === 'FieldPath' && node.arguments && node.arguments.length > 0) {
@@ -395,6 +413,46 @@ export function apiNew(ev: Evaluator, api: Api, node: ts.NewExpression, env: Env
       segments.push(text);
     }
     return lit(segments.join('.'));
+  }
+  if (api.module === 'firestore' && api.name === 'Timestamp' && node.arguments?.length === 2) {
+    const seconds = finiteNumberArg(ev, node.arguments[0], env);
+    const nanoseconds = finiteNumberArg(ev, node.arguments[1], env);
+    if (
+      seconds !== undefined
+      && nanoseconds !== undefined
+      && Number.isInteger(seconds)
+      && Number.isInteger(nanoseconds)
+      && seconds >= MIN_TIMESTAMP_SECONDS
+      && seconds <= MAX_TIMESTAMP_SECONDS
+      && nanoseconds >= 0
+      && nanoseconds < 1_000_000_000
+    ) {
+      return {
+        k: 'wrapper',
+        value: {
+          wrapperKind: 'timestamp',
+          seconds,
+          nanoseconds: Math.floor(nanoseconds / 1_000) * 1_000,
+        },
+      };
+    }
+  }
+  if (api.module === 'firestore' && api.name === 'GeoPoint' && node.arguments?.length === 2) {
+    const latitude = finiteNumberArg(ev, node.arguments[0], env);
+    const longitude = finiteNumberArg(ev, node.arguments[1], env);
+    if (
+      latitude !== undefined
+      && longitude !== undefined
+      && latitude >= -90
+      && latitude <= 90
+      && longitude >= -180
+      && longitude <= 180
+    ) {
+      return {
+        k: 'wrapper',
+        value: { wrapperKind: 'latlng', latitude, longitude },
+      };
+    }
   }
   return unknown(`new ${api.name}()`);
 }
@@ -454,6 +512,34 @@ function serviceCall(
   const constraintSpec = ownRecordValue(model.constraints, name);
   if (constraintSpec) {
     return evalConstraintCall(ev, constraintSpec, call, arg, env);
+  }
+  if (model.service === 'firestore') {
+    if (name === 'Timestamp.fromMillis' && call.arguments.length === 1) {
+      const ms = finiteNumberArg(ev, call.arguments[0], env);
+      const wrapped = ms !== undefined ? timestampWrapperFromMillis(ms) : undefined;
+      if (wrapped !== undefined) return { k: 'wrapper', value: wrapped };
+    }
+    if (name === 'Timestamp.fromDate' && call.arguments.length === 1) {
+      const forcedDate = ev.force(arg(0));
+      if (forcedDate.k === 'wrapper' && forcedDate.value.wrapperKind === 'timestamp') {
+        return forcedDate;
+      }
+    }
+    if (name === 'Bytes.fromUint8Array' && call.arguments.length === 1) {
+      const bytes = literalUint8Bytes(ev.force(arg(0)));
+      if (bytes !== undefined) {
+        return { k: 'wrapper', value: { wrapperKind: 'bytes', bytes } };
+      }
+    }
+    if (name === 'Bytes.fromBase64String' && call.arguments.length === 1) {
+      const b64 = literalText(ev.force(arg(0)));
+      if (b64 !== null) {
+        const bytes = decodeBase64Bytes(b64);
+        if (bytes !== undefined) {
+          return { k: 'wrapper', value: { wrapperKind: 'bytes', bytes } };
+        }
+      }
+    }
   }
   return unknown(`result of ${model.service} ${name}()`);
 }

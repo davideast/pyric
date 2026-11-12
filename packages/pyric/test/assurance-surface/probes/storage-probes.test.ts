@@ -579,4 +579,60 @@ service firebase.storage {
       ),
     ).toBe(true);
   });
+
+  test('synthesizes compliant witnesses for conjoined contentType.matches(...) and lower-bounded request.resource.size without false must-allow-denied hits', async () => {
+    const clientCode = `
+import { getAuth } from 'firebase/auth';
+import { getBytes, getStorage, ref, uploadBytes } from 'firebase/storage';
+
+export async function readTiffPhoto() {
+  const uid = getAuth().currentUser!.uid;
+  return getBytes(ref(getStorage(), \`users/\${uid}/photo\`));
+}
+
+export async function uploadBoundedBundle(payload: Uint8Array) {
+  const uid = getAuth().currentUser!.uid;
+  return uploadBytes(ref(getStorage(), \`users/\${uid}/bundle.bin\`), payload);
+}
+`;
+    const storageRules = `rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /users/{uid}/photo {
+      allow read: if request.auth != null
+        && request.auth.uid == uid
+        && resource.contentType.matches('image/.*')
+        && resource.contentType.matches('.*tiff');
+      allow write: if request.auth != null
+        && request.auth.uid == uid
+        && request.resource.contentType.matches('image/.*')
+        && request.resource.contentType.matches('.*tiff');
+    }
+    match /users/{uid}/bundle.bin {
+      allow read: if request.auth != null && request.auth.uid == uid;
+      allow write: if request.auth != null
+        && request.auth.uid == uid
+        && request.resource.size >= 100
+        && request.resource.size <= 1000;
+    }
+  }
+}`;
+    const accessSites = extractClientSites(clientCode);
+    const sources: RuleSources = {
+      firestore: [],
+      rtdb: [],
+      storage: [{ source: 'storage.rules', text: storageRules }],
+      problems: [],
+    };
+    const conditions = ownerConditionsFrom(sources);
+    const ownerBindings = inferOwnerBindings(conditions, accessSites);
+
+    const report = await runProbes({
+      accessSites,
+      ownerBindings,
+      conditions,
+      sources,
+    });
+    expect(report.findings.filter((f) => f.kind === 'must-allow-denied')).toEqual([]);
+  });
 });

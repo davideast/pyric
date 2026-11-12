@@ -25,6 +25,7 @@ export interface CoverageMatrixRuntimeInput {
   readonly snapshot?: SandboxSnapshot;
   readonly history?: readonly SandboxHistoryEvent[];
   readonly defaultBucket?: string;
+  readonly projectId?: string;
 }
 
 export interface RuntimePathObservation {

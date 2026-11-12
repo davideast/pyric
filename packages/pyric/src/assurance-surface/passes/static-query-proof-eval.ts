@@ -2,14 +2,29 @@
  * Per-arm Firestore list-query proof, residual simulation, and optimistic
  * runtime-parameter completion for {@link staticQueryProofPass}.
  */
-import type { FirestoreRules } from '@pyric/rules/internal';
+import type { FirestoreRules, ListBlockStep, MatchBlock } from '@pyric/rules/internal';
 import type { SimulateFirestoreRulesHandler } from '@pyric/rules/internal';
 import {
+  attachOrBudgetStep,
+  Bytes,
+  Duration,
+  getListBlockSteps,
+  getOrBudgetSteps,
+  isQueryProofScalar,
+  LatLng,
   listQueryFromConstraints,
+  Path,
   proveListQuery,
+  queryProofScalarsEqual,
+  Reference,
+  replaceTokenInQueryScalar,
+  setListBlockSteps,
+  Timestamp,
+  topLevelMatches,
   type QueryConstraints,
   type QueryProofFailure,
   type QueryWhereConstraint,
+  type RulesScalar,
 } from '@pyric/rules/internal';
 import type { TestCase } from '@pyric/rules/internal';
 import type { DiagnosticCertainty } from '../../sandbox/internal/assurance-diagnostic.js';
@@ -31,13 +46,14 @@ import {
   projectCollectionGroupAst,
 } from './static-query-proof-rules.js';
 
-const MAX_OPTIMISTIC_COMBINATIONS = 12;
+const MAX_OPTIMISTIC_COMBINATIONS = 24;
 const MAX_UNIFIED_ACTORS = 12;
 
 export interface ResolvedDatabaseRules {
   readonly source: string;
   readonly file: string;
   readonly ast: FirestoreRules;
+  readonly resourceId?: string;
 }
 
 export interface ArmFailure {
@@ -63,6 +79,87 @@ interface ProofCheckFailure {
 
 type ProofCheckOutcome = ProofCheckFailure | { readonly failed: false };
 
+interface ResidualSimOutcome {
+  readonly allowed: boolean;
+  readonly hitResourceLimit: boolean;
+}
+
+function preserveBlockAndConditionBudgets(
+  sourceAst: FirestoreRules,
+  projectedAst: FirestoreRules,
+): void {
+  const walkPair = (srcBlock: MatchBlock, dstBlock: MatchBlock): void => {
+    const srcSteps = getListBlockSteps(srcBlock);
+    const dstSteps = getListBlockSteps(dstBlock);
+
+    let dstAllowIdx = 0;
+    for (const srcRule of srcBlock.allows) {
+      const dstRule = dstBlock.allows[dstAllowIdx];
+      if (!dstRule) break;
+      if (dstRule.loc === srcRule.loc && dstRule.operations === srcRule.operations) {
+        const priorOrSteps = getOrBudgetSteps(srcRule.condition);
+        if (
+          priorOrSteps
+          && priorOrSteps.length > 0
+          && dstRule.condition !== srcRule.condition
+          && !getOrBudgetSteps(dstRule.condition)
+        ) {
+          let wrapped = dstRule.condition;
+          for (let i = priorOrSteps.length - 1; i >= 0; i -= 1) {
+            wrapped = attachOrBudgetStep(wrapped, priorOrSteps[i]!);
+          }
+          dstRule.condition = wrapped;
+        }
+        dstAllowIdx += 1;
+      }
+    }
+
+    if (srcSteps && srcSteps.some((step) => step.kind === 'budget')) {
+      const mergedSteps: ListBlockStep[] = [];
+      let grantOrdinal = 0;
+      let retainedGrantIdx = 0;
+      for (const step of srcSteps) {
+        if (step.kind === 'budget') {
+          mergedSteps.push(step);
+          continue;
+        }
+        const subStep = dstSteps?.[grantOrdinal];
+        grantOrdinal += 1;
+        if (subStep) {
+          mergedSteps.push({ ...subStep, index: step.index });
+          if (subStep.kind === 'grant') retainedGrantIdx += 1;
+        } else {
+          const retainedRule = dstBlock.allows[retainedGrantIdx];
+          if (retainedRule) {
+            mergedSteps.push({ kind: 'grant', rule: retainedRule, index: step.index });
+            retainedGrantIdx += 1;
+          }
+        }
+      }
+      setListBlockSteps(dstBlock, mergedSteps);
+    }
+
+    const childCount = Math.min(srcBlock.children.length, dstBlock.children.length);
+    for (let i = 0; i < childCount; i += 1) {
+      walkPair(srcBlock.children[i]!, dstBlock.children[i]!);
+    }
+  };
+
+  const srcRoots = topLevelMatches(sourceAst.service);
+  const dstRoots = topLevelMatches(projectedAst.service);
+  if (
+    sourceAst.functions !== undefined
+    && projectedAst.functions === undefined
+    && srcRoots.length === dstRoots.length
+  ) {
+    // Keep enclosing functions untouched.
+  }
+  const rootCount = Math.min(srcRoots.length, dstRoots.length);
+  for (let i = 0; i < rootCount; i += 1) {
+    walkPair(srcRoots[i]!, dstRoots[i]!);
+  }
+}
+
 function simulateResidualDecision(
   simulator: SimulateFirestoreRulesHandler,
   evaluationAst: FirestoreRules,
@@ -71,7 +168,8 @@ function simulateResidualDecision(
   auth: { uid: string; token?: Record<string, unknown> } | null,
   syntheticResource: Record<string, unknown>,
   constraints: QueryConstraints,
-): boolean {
+  getDoc?: (path: string) => Record<string, unknown> | null,
+): ResidualSimOutcome {
   const query = listQueryFromConstraints(constraints);
   const testCase: TestCase = {
     description: 'static-query-proof-residual',
@@ -82,10 +180,18 @@ function simulateResidualDecision(
     expectation: 'ALLOW',
   };
   if (query !== undefined) testCase.query = query;
-  const sim = simulator.simulateParsed(evaluationAst, rulesSource, [testCase], {
-    skipQueryProof: true,
-  });
-  return sim.success && sim.data.results[0]?.decision === 'ALLOW';
+  const simOpts: {
+    skipQueryProof: true;
+    getDoc?: (path: string) => Record<string, unknown> | null;
+  } = { skipQueryProof: true };
+  if (getDoc !== undefined) simOpts.getDoc = getDoc;
+  const sim = simulator.simulateParsed(evaluationAst, rulesSource, [testCase], simOpts);
+  if (!sim.success) return { allowed: false, hitResourceLimit: false };
+  const result = sim.data.results[0];
+  return {
+    allowed: result?.decision === 'ALLOW',
+    hitResourceLimit: result?.resourceLimit !== undefined,
+  };
 }
 
 function selectPrimaryFailure(failures: readonly QueryProofFailure[]): QueryProofFailure {
@@ -130,10 +236,22 @@ function defineOwn<V>(target: Record<string, V>, key: string, value: V): void {
   });
 }
 
+function replaceTokenInScalar(
+  value: RulesScalar,
+  fromToken: string,
+  toValue: RulesScalar,
+): RulesScalar {
+  if (value === fromToken) return toValue;
+  if (typeof toValue === 'string') {
+    return replaceTokenInQueryScalar(value, fromToken, toValue);
+  }
+  return value;
+}
+
 function replaceTokenInConstraints(
   constraints: QueryConstraints,
   fromToken: string,
-  toValue: ScalarValue,
+  toValue: RulesScalar,
 ): QueryConstraints {
   if (!constraints.where) return constraints;
   let changed = false;
@@ -141,19 +259,19 @@ function replaceTokenInConstraints(
     if (Array.isArray(w.value)) {
       let arrChanged = false;
       const nextArr = w.value.map((item) => {
-        if (item === fromToken) {
-          arrChanged = true;
-          return toValue;
-        }
-        return item;
+        const nextItem = replaceTokenInScalar(item, fromToken, toValue);
+        if (nextItem !== item) arrChanged = true;
+        return nextItem;
       });
       if (!arrChanged) return w;
       changed = true;
       return { ...w, value: nextArr };
     }
-    if (w.value === fromToken) {
+    const singleVal = w.value as RulesScalar;
+    const nextSingle = replaceTokenInScalar(singleVal, fromToken, toValue);
+    if (nextSingle !== singleVal) {
       changed = true;
-      return { ...w, value: toValue };
+      return { ...w, value: nextSingle };
     }
     return w;
   });
@@ -164,7 +282,7 @@ function replaceTokenInConstraints(
 function replaceTokenInSyntheticResource(
   syntheticResource: Record<string, unknown>,
   fromToken: string,
-  toValue: ScalarValue,
+  toValue: RulesScalar,
 ): Record<string, unknown> {
   let changed = false;
   const next: Record<string, unknown> = {};
@@ -174,6 +292,14 @@ function replaceTokenInSyntheticResource(
     if (raw === fromToken) {
       defineOwn(next, key, toValue);
       changed = true;
+    } else if (typeof toValue === 'string' && isQueryProofScalar(raw)) {
+      const replaced = replaceTokenInQueryScalar(raw, fromToken, toValue);
+      if (replaced !== raw) {
+        defineOwn(next, key, replaced);
+        changed = true;
+      } else {
+        defineOwn(next, key, raw);
+      }
     } else {
       defineOwn(next, key, raw);
     }
@@ -190,67 +316,56 @@ function allowsResidualForAnyActor(
   projected: ProjectedQueryArm,
   syntheticResource: Record<string, unknown>,
   constraints: QueryConstraints,
-): boolean {
-  if (
-    simulateResidualDecision(
+  getDoc?: (path: string) => Record<string, unknown> | null,
+): ResidualSimOutcome {
+  let hitResourceLimit = false;
+  const check = (
+    path: string,
+    auth: { uid: string; token?: Record<string, unknown> } | null,
+    res: Record<string, unknown>,
+    c: QueryConstraints,
+  ): boolean => {
+    const out = simulateResidualDecision(
       simulator,
       evaluationAst,
       rulesSource,
-      placeholderPath,
-      projected.auth,
-      syntheticResource,
-      constraints,
-    )
-  ) {
-    return true;
+      path,
+      auth,
+      res,
+      c,
+      getDoc,
+    );
+    if (out.hitResourceLimit) hitResourceLimit = true;
+    return out.allowed;
+  };
+
+  if (check(placeholderPath, projected.auth, syntheticResource, constraints)) {
+    return { allowed: true, hitResourceLimit: false };
   }
-  if (
-    simulateResidualDecision(
-      simulator,
-      evaluationAst,
-      rulesSource,
-      placeholderPath,
-      null,
-      syntheticResource,
-      constraints,
-    )
-  ) {
-    return true;
+  if (check(placeholderPath, null, syntheticResource, constraints)) {
+    return { allowed: true, hitResourceLimit: false };
   }
   if (!projected.usesSynthUidInWhere) {
     const altUids = [...target.nonAuthSegmentValues, ...target.literalDocIdValues];
     for (const altUid of altUids) {
       if (
-        simulateResidualDecision(
-          simulator,
-          evaluationAst,
-          rulesSource,
+        check(
           placeholderPath,
           { uid: altUid, token: projected.auth.token },
           syntheticResource,
           constraints,
         )
       ) {
-        return true;
+        return { allowed: true, hitResourceLimit: false };
       }
     }
-    return false;
+    return { allowed: false, hitResourceLimit };
   }
   if (target.nonAuthSegmentValues.length > 0) {
     for (const segToken of target.nonAuthSegmentValues) {
       const singleAligned = placeholderPath.split(segToken).join(projected.auth.uid);
-      if (
-        simulateResidualDecision(
-          simulator,
-          evaluationAst,
-          rulesSource,
-          singleAligned,
-          projected.auth,
-          syntheticResource,
-          constraints,
-        )
-      ) {
-        return true;
+      if (check(singleAligned, projected.auth, syntheticResource, constraints)) {
+        return { allowed: true, hitResourceLimit: false };
       }
     }
     if (target.nonAuthSegmentValues.length > 1) {
@@ -258,18 +373,8 @@ function allowsResidualForAnyActor(
       for (const segToken of target.nonAuthSegmentValues) {
         alignedPath = alignedPath.split(segToken).join(projected.auth.uid);
       }
-      if (
-        simulateResidualDecision(
-          simulator,
-          evaluationAst,
-          rulesSource,
-          alignedPath,
-          projected.auth,
-          syntheticResource,
-          constraints,
-        )
-      ) {
-        return true;
+      if (check(alignedPath, projected.auth, syntheticResource, constraints)) {
+        return { allowed: true, hitResourceLimit: false };
       }
     }
   }
@@ -287,21 +392,18 @@ function allowsResidualForAnyActor(
         litDocId,
       );
       if (
-        simulateResidualDecision(
-          simulator,
-          evaluationAst,
-          rulesSource,
+        check(
           alignedPath,
           { uid: litDocId, token: projected.auth.token },
           alignedResource,
           alignedConstraints,
         )
       ) {
-        return true;
+        return { allowed: true, hitResourceLimit: false };
       }
     }
   }
-  return false;
+  return { allowed: false, hitResourceLimit };
 }
 
 function tryUnifiedActorAndClaimProofs(
@@ -384,6 +486,9 @@ function tryUnifiedActorAndClaimProofs(
         rulesSource,
       );
       if (unifiedProof.kind !== 'provable') continue;
+      if (unifiedProof.evaluationAst !== evaluationAst) {
+        preserveBlockAndConditionBudgets(evaluationAst, unifiedProof.evaluationAst);
+      }
       if (
         allowsResidualForAnyActor(
           simulator,
@@ -394,7 +499,7 @@ function tryUnifiedActorAndClaimProofs(
           unifiedProjected,
           unifiedProof.syntheticResource,
           unifiedConstraints,
-        )
+        ).allowed
       ) {
         return true;
       }
@@ -446,18 +551,22 @@ function checkProofAndResidual(
     }
     return buildUnprovableFailure(proof.failures, false);
   }
-  if (
-    allowsResidualForAnyActor(
-      simulator,
-      proof.evaluationAst,
-      rulesSource,
-      placeholderPath,
-      target,
-      projected,
-      proof.syntheticResource,
-      constraints,
-    )
-  ) {
+
+  if (proof.evaluationAst !== evaluationAst) {
+    preserveBlockAndConditionBudgets(evaluationAst, proof.evaluationAst);
+  }
+
+  const residualOutcome = allowsResidualForAnyActor(
+    simulator,
+    proof.evaluationAst,
+    rulesSource,
+    placeholderPath,
+    target,
+    projected,
+    proof.syntheticResource,
+    constraints,
+  );
+  if (residualOutcome.allowed) {
     return { failed: false };
   }
   if (
@@ -476,8 +585,25 @@ function checkProofAndResidual(
 
   const populatedClaims = new Set(Object.keys(projected.auth.token));
   const retained = inspectRetainedRules(proof.evaluationAst, placeholderPath, populatedClaims);
+  let hasUnseededFallbackRule = false;
   if (retained.usesUnseededContext && proof.failures.length === 0) {
-    return { failed: false };
+    if (!residualOutcome.hitResourceLimit) {
+      return { failed: false };
+    }
+    const seededDocsOutcome = allowsResidualForAnyActor(
+      simulator,
+      proof.evaluationAst,
+      rulesSource,
+      placeholderPath,
+      target,
+      projected,
+      proof.syntheticResource,
+      constraints,
+      () => ({}),
+    );
+    if (seededDocsOutcome.allowed || !seededDocsOutcome.hitResourceLimit) {
+      hasUnseededFallbackRule = true;
+    }
   }
   if (proof.failures.length > 0) {
     return buildUnprovableFailure(proof.failures, retained.usesUnseededContext);
@@ -485,7 +611,9 @@ function checkProofAndResidual(
 
   let kind: ClientRemediationInput['kind'] = 'always-denied';
   let reason = `matching allow list rules unconditionally deny '/${target.renderedPattern}/{docId}'`;
-  if (retained.usesRequestQuery) {
+  if (residualOutcome.hitResourceLimit) {
+    reason = `matching allow list rules exceed per-request evaluation budget on '/${target.renderedPattern}/{docId}'`;
+  } else if (retained.usesRequestQuery) {
     kind = 'query-clause-denied';
     reason = `query does not satisfy the list rule's request.query constraint`;
   }
@@ -497,14 +625,14 @@ function checkProofAndResidual(
     ruleLine?: number;
     ruleExpression?: string;
     usedRequestQuery: boolean;
-    hasUnseededFallbackRule: false;
+    hasUnseededFallbackRule: boolean;
   } = {
     failed: true,
     kind,
     reason,
     failures: [],
     usedRequestQuery: retained.usesRequestQuery,
-    hasUnseededFallbackRule: false,
+    hasUnseededFallbackRule,
   };
   if (retained.primaryRule?.line !== undefined) out.ruleLine = retained.primaryRule.line;
   if (retained.primaryRule?.expression !== undefined) {
@@ -515,7 +643,7 @@ function checkProofAndResidual(
 
 function slotToWhereConstraint(
   slot: UnresolvedWhereSlot,
-  value: ScalarValue,
+  value: RulesScalar,
 ): QueryWhereConstraint | null {
   if (slot.op === '==' || slot.op === 'array-contains') {
     return { field: slot.field, op: slot.op, value };
@@ -539,15 +667,10 @@ function canSucceedWithOptimisticParams(
   let combinations: QueryWhereConstraint[][] = [[]];
 
   for (const slot of projected.unresolvedWheres) {
-    const candidates: ScalarValue[] = [];
+    const candidates: RulesScalar[] = [];
     const pushCandidate = (v: unknown): void => {
-      if (
-        v === null
-        || typeof v === 'string'
-        || typeof v === 'boolean'
-        || (typeof v === 'number' && Number.isFinite(v))
-      ) {
-        if (!candidates.some((existing) => Object.is(existing, v))) {
+      if (isQueryProofScalar(v)) {
+        if (!candidates.some((existing) => queryProofScalarsEqual(existing, v))) {
           candidates.push(v);
         }
       }
@@ -631,14 +754,31 @@ function witnessValueForWhere(op: string, raw: QueryWhereConstraint['value']): u
   if (op === 'array-contains-any') {
     return Array.isArray(raw) && raw.length > 0 ? [raw[0]] : [];
   }
-  if (op === '>' && typeof raw === 'number') return raw + 1;
-  if (op === '>=' && typeof raw === 'number') return raw;
-  if (op === '<' && typeof raw === 'number') return raw - 1;
-  if (op === '<=' && typeof raw === 'number') return raw;
+  if (op === '>') {
+    if (typeof raw === 'number') return raw + 1;
+    if (raw instanceof Timestamp) return new Timestamp(raw.seconds + 1, raw.nanos);
+    if (raw instanceof Duration) return new Duration(raw.seconds + 1, raw.nanos);
+  }
+  if (op === '>=' || op === '<=') {
+    if (typeof raw === 'number' || isQueryProofScalar(raw)) return raw;
+  }
+  if (op === '<') {
+    if (typeof raw === 'number') return raw - 1;
+    if (raw instanceof Timestamp) return new Timestamp(raw.seconds - 1, raw.nanos);
+    if (raw instanceof Duration) return new Duration(raw.seconds - 1, raw.nanos);
+  }
   if (op === '!=') {
     if (typeof raw === 'number') return raw + 1;
     if (typeof raw === 'boolean') return !raw;
     if (typeof raw === 'string') return `${raw}_alt`;
+    if (raw instanceof Reference) return new Reference(`${raw.path}_alt`, raw.databaseId);
+    if (raw instanceof Path) {
+      return new Path([...raw.segments.slice(0, -1), `${raw.segments.at(-1) ?? 'doc'}_alt`]);
+    }
+    if (raw instanceof Timestamp) return new Timestamp(raw.seconds + 1, raw.nanos);
+    if (raw instanceof Bytes) return new Bytes(new Uint8Array([...raw.data, 1]));
+    if (raw instanceof LatLng) return new LatLng(raw.lat === 0 ? 1 : 0, raw.lng);
+    if (raw instanceof Duration) return new Duration(raw.seconds + 1, raw.nanos);
     return 'non-null';
   }
   return undefined;
@@ -686,7 +826,7 @@ function canSucceedAgainstUnsupportedPredicate(
     projected,
     candidateResource,
     projected.constraints,
-  );
+  ).allowed;
 }
 
 export function evaluateCandidateArm(
@@ -695,7 +835,8 @@ export function evaluateCandidateArm(
   target: ConcretizedQueryTarget,
   arm: readonly SdkQueryConstraint[],
 ): ArmFailure | null {
-  const projected = projectConstraintArm(arm);
+  const targetDbId = dbRules.resourceId ?? '(default)';
+  const projected = projectConstraintArm(arm, targetDbId);
   let evaluationAst: FirestoreRules | null = dbRules.ast;
   if (target.isCollectionGroup) {
     evaluationAst = projectCollectionGroupAst(dbRules.ast, target.collectionPath);
@@ -728,10 +869,24 @@ export function evaluateCandidateArm(
   );
   if (!check.failed) return null;
 
+  if (targetDbId !== '(default)') {
+    const unnormalizedProjected = projectConstraintArm(arm, '(default)');
+    const unnormalizedCheck = checkProofAndResidual(
+      simulator,
+      evaluationAst,
+      dbRules.source,
+      placeholderPath,
+      target,
+      unnormalizedProjected,
+      unnormalizedProjected.constraints,
+    );
+    if (!unnormalizedCheck.failed) return null;
+  }
+
   let certainty: DiagnosticCertainty = 'static-proof';
   if (target.hasPartialPath || projected.hasUnknownConstraint || check.hasUnseededFallbackRule) {
     certainty = 'heuristic';
-  } else if (check.usedRequestQuery && projected.hasDynamicLimit) {
+  } else if (check.usedRequestQuery && (projected.hasDynamicLimit || projected.hasDynamicOrderBy)) {
     certainty = 'heuristic';
   } else if (
     canSucceedAgainstUnsupportedPredicate(
@@ -785,7 +940,7 @@ export function evaluateCandidateArm(
   } = {
     kind: check.kind,
     certainty,
-    reason: check.reason.split('\u2014').join('--'),
+    reason: check.reason.split(SYNTH_UID).join('<uid>').split('\u2014').join('--'),
     remediation: renderClientQueryRemediation(remInput),
     witnessArm: projected.constraints,
   };

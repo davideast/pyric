@@ -50,6 +50,8 @@ export type {
   SdkQueryConstraint,
   SdkServiceModel,
   UploadPayloadSpec,
+  WrapperOperandSegment,
+  WrapperOperandValue,
 } from './service-models/types.js';
 
 export type ExtractSdkUsageOptions = ExtractAccessSitesOptions;

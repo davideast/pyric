@@ -262,4 +262,111 @@ export async function saveBoth(docId: string) {
     const report = campaign.report ?? (await campaign.run());
     expect(report.summary.invalidProbes).toBe(0);
   });
+
+  test("isolates named-only Storage buckets without leaking rules or false counterexamples onto the undeployed default bucket", async () => {
+    const root = makeTempDir("derive-named-only-storage-");
+    mkdirSync(join(root, "src"), { recursive: true });
+    writeFileSync(
+      join(root, ".firebaserc"),
+      JSON.stringify({ projects: { default: "demo-app" } }),
+    );
+    writeFileSync(
+      join(root, "firebase.json"),
+      JSON.stringify({
+        storage: [{ bucket: "archive-bucket", rules: "archive.rules" }],
+      }),
+    );
+    writeFileSync(
+      join(root, "archive.rules"),
+      `rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /users/{uid}/files/{name} {
+      allow read, write: if request.auth != null && request.auth.uid == uid;
+    }
+  }
+}
+`,
+    );
+    writeFileSync(
+      join(root, "src/app.ts"),
+      `import { getApp } from 'firebase/app';
+import { getAuth } from 'firebase/auth';
+import { getStorage, ref, uploadBytes } from 'firebase/storage';
+
+export async function uploadArchiveAndUnconfiguredDefault() {
+  const uid = getAuth().currentUser!.uid;
+  const archive = getStorage(getApp(), 'gs://archive-bucket');
+  await uploadBytes(ref(archive, \`users/\${uid}/files/doc.txt\`), new Uint8Array([1, 2]), {
+    contentType: 'text/plain',
+  });
+  const unconfiguredDefault = getStorage();
+  await uploadBytes(ref(unconfiguredDefault, \`users/\${uid}/files/leak.txt\`), new Uint8Array([1, 2]), {
+    contentType: 'text/plain',
+  });
+}
+`,
+    );
+
+    const store = new AssuranceCampaignStore();
+    const derived = await deriveAssurance(
+      { root, campaignId: "named-only-bucket" },
+      { store },
+    );
+
+    const codes = derived.diagnostics.map((d) => d.code);
+    expect(codes).toContain("storage-unconfigured-bucket");
+    expect(
+      derived.diagnostics.filter((d) => d.certainty === "proven-counterexample" && d.code !== "assurance-must-allow-denied"),
+    ).toEqual([]);
+
+    const campaign = store.get("named-only-bucket")!;
+    const spec = campaign.spec();
+    expect(spec.target.rules.storage).toBeUndefined();
+    expect(spec.target.rules.storageBuckets?.["archive-bucket"]).toContain(
+      "service firebase.storage",
+    );
+
+    campaign.addActor({
+      id: "owner-check",
+      label: "Owner",
+      acquisition: { kind: "synthetic", uid: "u-alice", token: {} },
+    });
+    campaign.addInvariant({
+      id: "inv-undeployed-default-denied",
+      statement: "Undeployed default bucket denies writes",
+      service: "storage",
+      expected: "DENY",
+      source: "declared",
+      confidence: "authoritative",
+    });
+    campaign.addProbe({
+      id: "probe-undeployed-default",
+      actorId: "owner-check",
+      invariantId: "inv-undeployed-default-denied",
+      control: {
+        service: "storage",
+        instance: "archive-bucket",
+        method: "upload",
+        path: "users/u-alice/files/ok.txt",
+        dataBase64: "YWJj",
+        contentType: "text/plain",
+      },
+      mutation: {
+        dimension: "path",
+        description: "Write to undeployed default bucket",
+        operation: {
+          service: "storage",
+          method: "upload",
+          path: "users/u-alice/files/ok.txt",
+          dataBase64: "YWJj",
+          contentType: "text/plain",
+        },
+      },
+    });
+    const report = await campaign.run();
+    const checkResult = report.results.find((r) => r.probeId === "probe-undeployed-default");
+    expect(checkResult?.control.decision).toBe("ALLOW");
+    expect(checkResult?.mutation.decision).toBe("DENY");
+  });
 });

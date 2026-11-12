@@ -576,5 +576,65 @@ service cloud.firestore {
       world.dispose();
     }
   });
+
+  test('projects request.auth.token.firebase.identities from seeded providerUserInfo, email, and phoneNumber matching authSandbox.mintSession', async () => {
+    const source = initializeSandbox();
+    try {
+      authSandbox.seedUsers(getAuth(source), [
+        {
+          uid: 'u-owner',
+          email: 'owner@probe.local',
+          emailVerified: true,
+          phoneNumber: '+15555550199',
+          providerId: 'google.com',
+          providerUserInfo: [
+            { providerId: 'google.com', rawId: 'g-owner', email: 'owner@probe.local' },
+          ],
+        },
+        {
+          uid: 'u-peer',
+          email: 'peer@probe.local',
+          emailVerified: true,
+          providerId: 'password',
+        },
+      ]);
+      const snapshot = await captureSandboxSnapshot(source);
+      const rules = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /users/{uid} {
+      allow read, write: if request.auth != null
+        && request.auth.uid == uid
+        && 'google.com' in request.auth.token.firebase.identities
+        && 'email' in request.auth.token.firebase.identities
+        && 'phone' in request.auth.token.firebase.identities;
+    }
+  }
+}`;
+      const world = new ProbeWorld({ firestore: rules }, ACTORS, { snapshot });
+      try {
+        const ownerWrite = await world.run({
+          actor: 'owner',
+          service: 'firestore',
+          method: 'set',
+          path: 'users/u-owner',
+          data: { name: 'Owner' },
+        });
+        const peerWrite = await world.run({
+          actor: 'peer',
+          service: 'firestore',
+          method: 'set',
+          path: 'users/u-peer',
+          data: { name: 'Peer' },
+        });
+        expect(ownerWrite.decision).toBe('allow');
+        expect(peerWrite.decision).toBe('deny');
+      } finally {
+        world.dispose();
+      }
+    } finally {
+      source.dispose();
+    }
+  });
 });
 

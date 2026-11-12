@@ -59,6 +59,12 @@ function splitSegments(path: string): string[] {
   return path.split('/').filter(Boolean);
 }
 
+const EXISTENCE_CLAIMS = new WeakMap<Claims, Set<string>>();
+
+function isPlainClaimMap(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value) && !(value instanceof Uint8Array);
+}
+
 function setClaimOwn(target: Claims, key: string, value: unknown): void {
   Object.defineProperty(target, key, {
     value,
@@ -74,16 +80,77 @@ function singleClaim(key: string, value: unknown): Claims {
   return out;
 }
 
+function presenceClaim(key: string): Claims {
+  const out = singleClaim(key, true);
+  EXISTENCE_CLAIMS.set(out, new Set([key]));
+  return out;
+}
+
+function nestedClaim(path: readonly string[], value: unknown, existenceOnly = false): Claims {
+  if (path.length === 0 || STANDARD_CLAIMS.has(path[0]!)) return {};
+  if (path.length === 1) {
+    return existenceOnly ? presenceClaim(path[0]!) : singleClaim(path[0]!, value);
+  }
+  let cur: Record<string, unknown> = {};
+  setClaimOwn(cur, path[path.length - 1]!, value);
+  for (let i = path.length - 2; i >= 1; i -= 1) {
+    const wrapper: Record<string, unknown> = {};
+    setClaimOwn(wrapper, path[i]!, cur);
+    cur = wrapper;
+  }
+  return singleClaim(path[0]!, cur);
+}
+
+function mergeClaimMaps(left: Record<string, unknown>, right: Record<string, unknown>): Record<string, unknown> {
+  const merged: Record<string, unknown> = {};
+  for (const k of Object.getOwnPropertyNames(left)) {
+    setClaimOwn(merged, k, Object.getOwnPropertyDescriptor(left, k)?.value);
+  }
+  for (const k of Object.getOwnPropertyNames(right)) {
+    const rVal = Object.getOwnPropertyDescriptor(right, k)?.value;
+    if (!Object.hasOwn(merged, k)) {
+      setClaimOwn(merged, k, rVal);
+      continue;
+    }
+    const lVal = Object.getOwnPropertyDescriptor(merged, k)?.value;
+    if (isPlainClaimMap(lVal) && isPlainClaimMap(rVal)) {
+      setClaimOwn(merged, k, mergeClaimMaps(lVal, rVal));
+    }
+  }
+  return merged;
+}
+
 function unionClaims(left: Claims, right: Claims): Claims {
   const out: Claims = {};
+  const outExistence = new Set<string>();
+  const leftExistence = EXISTENCE_CLAIMS.get(left);
+  const rightExistence = EXISTENCE_CLAIMS.get(right);
   for (const key of Object.getOwnPropertyNames(left)) {
     if (STANDARD_CLAIMS.has(key)) continue;
     setClaimOwn(out, key, Object.getOwnPropertyDescriptor(left, key)?.value);
+    if (leftExistence?.has(key)) outExistence.add(key);
   }
   for (const key of Object.getOwnPropertyNames(right)) {
-    if (STANDARD_CLAIMS.has(key) || Object.hasOwn(out, key)) continue;
-    setClaimOwn(out, key, Object.getOwnPropertyDescriptor(right, key)?.value);
+    if (STANDARD_CLAIMS.has(key)) continue;
+    const rightVal = Object.getOwnPropertyDescriptor(right, key)?.value;
+    const rightIsExistence = rightExistence?.has(key) === true;
+    if (!Object.hasOwn(out, key)) {
+      setClaimOwn(out, key, rightVal);
+      if (rightIsExistence) outExistence.add(key);
+      continue;
+    }
+    if (outExistence.has(key) && !rightIsExistence) {
+      setClaimOwn(out, key, rightVal);
+      outExistence.delete(key);
+      continue;
+    }
+    const existingVal = Object.getOwnPropertyDescriptor(out, key)?.value;
+    if (isPlainClaimMap(existingVal) && isPlainClaimMap(rightVal)) {
+      setClaimOwn(out, key, mergeClaimMaps(existingVal, rightVal));
+      outExistence.delete(key);
+    }
   }
+  if (outExistence.size > 0) EXISTENCE_CLAIMS.set(out, outExistence);
   return out;
 }
 
@@ -91,6 +158,8 @@ function intersectClaimList(list: Claims[]): Claims {
   if (list.length === 0) return {};
   const first = list[0];
   const out: Claims = {};
+  const outExistence = new Set<string>();
+  const firstExistence = EXISTENCE_CLAIMS.get(first);
   for (const key of Object.getOwnPropertyNames(first)) {
     if (STANDARD_CLAIMS.has(key)) continue;
     const value = Object.getOwnPropertyDescriptor(first, key)?.value;
@@ -99,10 +168,16 @@ function intersectClaimList(list: Claims[]): Claims {
       .every(
         (item) =>
           Object.hasOwn(item, key)
-          && Object.getOwnPropertyDescriptor(item, key)?.value === value,
+          && JSON.stringify(Object.getOwnPropertyDescriptor(item, key)?.value) === JSON.stringify(value),
       );
-    if (inAll) setClaimOwn(out, key, value);
+    if (inAll) {
+      setClaimOwn(out, key, value);
+      if (firstExistence?.has(key) && list.slice(1).every((item) => EXISTENCE_CLAIMS.get(item)?.has(key))) {
+        outExistence.add(key);
+      }
+    }
   }
+  if (outExistence.size > 0) EXISTENCE_CLAIMS.set(out, outExistence);
   return out;
 }
 
@@ -537,18 +612,56 @@ function isFsAuthToken(
   return req.type === 'identifier' && req.name === 'request';
 }
 
-function fsTokenClaim(
+function isFsAuthTokenKeys(
   expr: Expression,
   functions: FunctionDef[],
   lets: ReadonlyMap<string, Expression>,
   declScopes: WeakMap<FunctionDef, FunctionDef[]>,
   depth: number,
-): string | undefined {
+): boolean {
   const unwrapped = resolveValueExpr(expr, functions, lets, declScopes, depth);
+  if (unwrapped.type !== 'methodCall' || unwrapped.method !== 'keys' || unwrapped.args.length !== 0) {
+    return false;
+  }
+  return isFsAuthToken(unwrapped.object, functions, lets, declScopes, depth);
+}
+
+function fsTokenClaimPath(
+  expr: Expression,
+  functions: FunctionDef[],
+  lets: ReadonlyMap<string, Expression>,
+  declScopes: WeakMap<FunctionDef, FunctionDef[]>,
+  depth: number,
+): readonly string[] | undefined {
+  const unwrapped = resolveValueExpr(expr, functions, lets, declScopes, depth);
+  if (
+    unwrapped.type === 'methodCall'
+    && unwrapped.method === 'get'
+    && unwrapped.args.length >= 1
+    && unwrapped.args.length <= 2
+    && isFsAuthToken(unwrapped.object, functions, lets, declScopes, depth)
+  ) {
+    const keyArg = resolveValueExpr(unwrapped.args[0]!, functions, lets, declScopes, depth);
+    if (keyArg.type === 'literal' && typeof keyArg.value === 'string' && keyArg.value.length > 0) {
+      return [keyArg.value];
+    }
+    if (keyArg.type === 'listLiteral' && keyArg.elements.length > 0) {
+      const segs: string[] = [];
+      for (const rawEl of keyArg.elements) {
+        const el = resolveValueExpr(rawEl, functions, lets, declScopes, depth);
+        if (el.type !== 'literal' || typeof el.value !== 'string' || el.value.length === 0) {
+          return undefined;
+        }
+        segs.push(el.value);
+      }
+      return segs;
+    }
+    return undefined;
+  }
   const access = fsMemberOrStringKey(unwrapped, functions, lets, declScopes, depth);
   if (!access) return undefined;
   if (isFsAuthToken(access.object, functions, lets, declScopes, depth)) {
-    return access.key;
+    return [access.key];
   }
   return undefined;
 }
@@ -610,19 +723,19 @@ function fsExprClaims(
     return intersectClaimList([thenBranch, elseBranch]);
   }
   if (expr.type === 'binaryOp' && (expr.op === '==' || expr.op === '!=')) {
-    const leftClaim = fsTokenClaim(expr.left, functions, lets, declScopes, depth);
-    const claim = leftClaim ?? fsTokenClaim(expr.right, functions, lets, declScopes, depth);
-    if (claim) {
-      if (STANDARD_CLAIMS.has(claim)) return {};
+    const leftClaim = fsTokenClaimPath(expr.left, functions, lets, declScopes, depth);
+    const claimPath = leftClaim ?? fsTokenClaimPath(expr.right, functions, lets, declScopes, depth);
+    if (claimPath && claimPath.length > 0) {
+      if (STANDARD_CLAIMS.has(claimPath[0]!)) return {};
       let otherExpr = expr.left;
       if (leftClaim) otherExpr = expr.right;
       const other = resolveValueExpr(otherExpr, functions, lets, declScopes, depth);
       if (other.type !== 'literal') return {};
       const isPosEq = (expr.op === '==' && !negated) || (expr.op === '!=' && negated);
       const isPosNeq = (expr.op === '!=' && !negated) || (expr.op === '==' && negated);
-      if (isPosNeq && other.value === null) return singleClaim(claim, true);
+      if (isPosNeq && other.value === null) return nestedClaim(claimPath, true, true);
       if (isPosEq && other.value !== null && !(other.value instanceof Uint8Array)) {
-        return singleClaim(claim, other.value);
+        return nestedClaim(claimPath, other.value, false);
       }
       return {};
     }
@@ -639,30 +752,59 @@ function fsExprClaims(
   }
   if (expr.type === 'inExpr') {
     if (!negated) {
-      const elemClaim = fsTokenClaim(expr.element, functions, lets, declScopes, depth);
-      if (elemClaim && !STANDARD_CLAIMS.has(elemClaim)) {
+      const elemClaim = fsTokenClaimPath(expr.element, functions, lets, declScopes, depth);
+      if (elemClaim && elemClaim.length > 0 && !STANDARD_CLAIMS.has(elemClaim[0]!)) {
         const col = resolveValueExpr(expr.collection, functions, lets, declScopes, depth);
         if (col.type === 'listLiteral') {
           for (const rawItem of col.elements) {
             const item = resolveValueExpr(rawItem, functions, lets, declScopes, depth);
             if (item.type === 'literal' && item.value !== null && !(item.value instanceof Uint8Array)) {
-              return singleClaim(elemClaim, item.value);
+              return nestedClaim(elemClaim, item.value, false);
             }
           }
         }
       }
-      if (isFsAuthToken(expr.collection, functions, lets, declScopes, depth)) {
+      if (
+        isFsAuthToken(expr.collection, functions, lets, declScopes, depth)
+        || isFsAuthTokenKeys(expr.collection, functions, lets, declScopes, depth)
+      ) {
         const keyExpr = resolveValueExpr(expr.element, functions, lets, declScopes, depth);
         if (
           keyExpr.type === 'literal'
           && typeof keyExpr.value === 'string'
           && !STANDARD_CLAIMS.has(keyExpr.value)
         ) {
-          return singleClaim(keyExpr.value, true);
+          return presenceClaim(keyExpr.value);
         }
       }
     }
     return {};
+  }
+  if (expr.type === 'methodCall') {
+    if (
+      !negated
+      && (expr.method === 'hasAll' || expr.method === 'hasAny')
+      && expr.args.length === 1
+      && isFsAuthTokenKeys(expr.object, functions, lets, declScopes, depth)
+    ) {
+      const listArg = resolveValueExpr(expr.args[0]!, functions, lets, declScopes, depth);
+      if (listArg.type === 'listLiteral') {
+        let acc: Claims = {};
+        for (const rawEl of listArg.elements) {
+          const el = resolveValueExpr(rawEl, functions, lets, declScopes, depth);
+          if (
+            el.type === 'literal'
+            && typeof el.value === 'string'
+            && el.value.length > 0
+            && !STANDARD_CLAIMS.has(el.value)
+          ) {
+            acc = unionClaims(acc, presenceClaim(el.value));
+            if (expr.method === 'hasAny') return acc;
+          }
+        }
+        return acc;
+      }
+    }
   }
   if (expr.type === 'functionCall' && depth < MAX_INLINE_DEPTH) {
     const fn = findInScope(functions, expr.name);
@@ -681,9 +823,9 @@ function fsExprClaims(
     return {};
   }
   if (!negated) {
-    const bare = fsTokenClaim(expr, functions, lets, declScopes, depth);
-    if (bare && !STANDARD_CLAIMS.has(bare)) {
-      return singleClaim(bare, true);
+    const bare = fsTokenClaimPath(expr, functions, lets, declScopes, depth);
+    if (bare && bare.length > 0 && !STANDARD_CLAIMS.has(bare[0]!)) {
+      return nestedClaim(bare, true, true);
     }
   }
   return {};

@@ -1,4 +1,6 @@
+import { execFileSync, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
@@ -357,5 +359,246 @@ describe("derive-live-http", () => {
     expect(cloned.snapshot.auth.providers?.anonymous).toBe(false);
     expect(cloned.target.state.storage?.some((o) => o.path === "docs/doc-1")).toBe(true);
     expect(cloned.target.rules.storageBuckets?.["demo-proj.firebasestorage.app"]).toBeUndefined();
+  });
+
+  test("preserves Storage HTTP metadata and Auth providerUserInfo across both snapshot and target on loopback HTTP clone", async () => {
+    const records = serializeToBuckets(
+      {},
+      {
+        auth: {
+          users: [
+            {
+              uid: "u-alice",
+              email: "alice@example.test",
+              emailVerified: true,
+              providerUserInfo: [
+                {
+                  providerId: "google.com",
+                  rawId: "goog-sub-99",
+                  uid: "goog-sub-99",
+                  email: "alice@example.test",
+                  displayName: "Alice",
+                },
+              ],
+            },
+          ],
+          providers: { "google.com": true, password: false },
+        },
+      },
+      1_700_000_000_000,
+    );
+    const v3FirestoreSection = JSON.parse(bundleRecords(records)) as unknown;
+    const mockFetch: typeof fetch = (async (rawUrl: string | URL | Request) => {
+      const url = String(rawUrl);
+      if (url.endsWith("/__pyric/init.json")) {
+        return new Response(
+          JSON.stringify({ sessionToken: "tok-rich", instanceId: "inst-rich" }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      if (url.endsWith("/__pyric/state")) {
+        return new Response(
+          JSON.stringify({
+            version: 1,
+            firestore: v3FirestoreSection,
+            auth: null,
+            storage: [
+              {
+                dataBase64: "AQID",
+                blobType: "image/svg+xml",
+                metadata: {
+                  bucket: "demo-proj.firebasestorage.app",
+                  fullPath: "assets/logo.svg",
+                  name: "logo.svg",
+                  size: 3,
+                  generation: "7",
+                  metageneration: "2",
+                  timeCreated: "2026-01-01T00:00:00.000Z",
+                  updated: "2026-01-03T00:00:00.000Z",
+                  md5Hash: "ICy5YqxZB1uWSwcVLSNLcA==",
+                  contentType: "image/svg+xml",
+                  cacheControl: "public, max-age=86400",
+                  contentDisposition: "inline",
+                  contentEncoding: "br",
+                  contentLanguage: "en",
+                  downloadTokens: "tok-dl-1",
+                  customMetadata: { ownerId: "u-alice" },
+                },
+              },
+            ],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      if (url.endsWith(HOSTED_METHOD_PATH)) {
+        return new Response(JSON.stringify({ ok: true, data: { events: [] } }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      return new Response("not found", { status: 404 });
+    }) as typeof fetch;
+
+    const cloned = await cloneLoopbackSandboxHttp("http://127.0.0.1:3473", {
+      fetchImpl: mockFetch,
+      defaultBucket: "demo-proj.firebasestorage.app",
+    });
+
+    expect(cloned.snapshot.storage["(default)"]?.[0]).toMatchObject({
+      path: "assets/logo.svg",
+      size: 3,
+      contentType: "image/svg+xml",
+      cacheControl: "public, max-age=86400",
+      contentDisposition: "inline",
+      contentEncoding: "br",
+      contentLanguage: "en",
+      timeCreated: "2026-01-01T00:00:00.000Z",
+      updated: "2026-01-03T00:00:00.000Z",
+      generation: "7",
+      metageneration: "2",
+      md5Hash: "ICy5YqxZB1uWSwcVLSNLcA==",
+      downloadTokens: "tok-dl-1",
+      customMetadata: { ownerId: "u-alice" },
+    });
+    expect(cloned.target.state.storage?.[0]).toMatchObject({
+      path: "assets/logo.svg",
+      contentType: "image/svg+xml",
+      cacheControl: "public, max-age=86400",
+      contentDisposition: "inline",
+      contentEncoding: "br",
+      contentLanguage: "en",
+      timeCreated: "2026-01-01T00:00:00.000Z",
+      updated: "2026-01-03T00:00:00.000Z",
+      customMetadata: { ownerId: "u-alice" },
+    });
+    expect(cloned.snapshot.auth.users[0]?.providerUserInfo).toEqual([
+      {
+        providerId: "google.com",
+        rawId: "goog-sub-99",
+        uid: "goog-sub-99",
+        email: "alice@example.test",
+        displayName: "Alice",
+      },
+    ]);
+    expect(cloned.target.state.auth?.users?.[0]?.providerUserInfo).toEqual([
+      {
+        providerId: "google.com",
+        rawId: "goog-sub-99",
+        uid: "goog-sub-99",
+        email: "alice@example.test",
+        displayName: "Alice",
+      },
+    ]);
+  });
+
+  test("resolves session token from process.cwd() when options.projectDir is omitted", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "pyric-derive-cwd-"));
+    const prevCwd = process.cwd();
+    try {
+      mkdirSync(join(dir, ".pyric"), { recursive: true });
+      writeFileSync(join(dir, "firebase.json"), "{}");
+      writeFileSync(
+        join(dir, ".pyric", "serve.json"),
+        JSON.stringify({
+          pid: process.pid,
+          port: 43199,
+          url: "http://127.0.0.1:43199",
+          token: "tok-from-cwd",
+        }),
+      );
+
+      const seenTokens: Array<string | undefined> = [];
+      const mockFetch: typeof fetch = (async (
+        rawUrl: string | URL | Request,
+        init?: RequestInit,
+      ) => {
+        const url = String(rawUrl);
+        const headers = (init?.headers ?? {}) as Record<string, string>;
+        const tok = headers["x-pyric-session-token"];
+        seenTokens.push(tok);
+        if (tok !== "tok-from-cwd") {
+          return new Response("unauthorized", { status: 401 });
+        }
+        if (url.endsWith("/__pyric/init.json")) {
+          return new Response(
+            JSON.stringify({
+              rules: "rules_version = '2'; service cloud.firestore {}",
+              instanceId: "inst-cwd",
+            }),
+            { status: 200, headers: { "content-type": "application/json" } },
+          );
+        }
+        if (url.endsWith("/__pyric/state")) {
+          return new Response(
+            JSON.stringify({
+              version: 1,
+              firestore: null,
+              auth: { users: [{ uid: "u-cwd" }], providers: {} },
+              storage: [],
+            }),
+            { status: 200, headers: { "content-type": "application/json" } },
+          );
+        }
+        return new Response("not found", { status: 404 });
+      }) as typeof fetch;
+
+      process.chdir(dir);
+      const cloned = await cloneLoopbackSandboxHttp("http://127.0.0.1:43199", {
+        fetchImpl: mockFetch,
+      });
+
+      expect(cloned.snapshot.auth.users.map((u) => u.uid)).toEqual(["u-cwd"]);
+      expect(seenTokens).toEqual(["tok-from-cwd", "tok-from-cwd"]);
+    } finally {
+      process.chdir(prevCwd);
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("pins self-signed HTTPS loopback certificates from .pyric/serve.json under Node and rejects unpinned impostors", () => {
+    const dir = mkdtempSync(join(tmpdir(), "pyric-derive-https-"));
+    try {
+      for (const name of ["own", "impostor"]) {
+        execFileSync(
+          "openssl",
+          [
+            "req",
+            "-x509",
+            "-newkey",
+            "rsa:2048",
+            "-nodes",
+            "-days",
+            "1",
+            "-subj",
+            "/CN=localhost",
+            "-keyout",
+            join(dir, `${name}.key`),
+            "-out",
+            join(dir, `${name}.pem`),
+          ],
+          { stdio: "ignore" },
+        );
+      }
+      const run = spawnSync(
+        process.env.PYRIC_TEST_NODE ?? "node",
+        [join(import.meta.dir, "fixtures", "derive-live-https-node.mjs"), dir],
+        { encoding: "utf8", timeout: 20_000 },
+      );
+      expect(run.status, run.stderr).toBe(0);
+      const parsed = JSON.parse(run.stdout.trim()) as {
+        ownClone: { ok: boolean; value?: { origin: string; users: string[] }; message?: string };
+        impostorClone: { ok: boolean; message?: string };
+      };
+      expect(parsed.ownClone).toEqual({
+        ok: true,
+        value: {
+          origin: expect.stringMatching(/^https:\/\/127\.0\.0\.1:\d+$/),
+          users: ["u-https"],
+        },
+      });
+      expect(parsed.impostorClone.ok).toBe(false);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

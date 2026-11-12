@@ -13,6 +13,7 @@ import type {
   FieldValueName,
   RefKind,
   SdkQueryConstraint,
+  WrapperOperandValue,
 } from './service-models/types.js';
 import type { AccessService, AuthSource } from './types.js';
 
@@ -80,6 +81,7 @@ export type AVal =
       queryCall?: ts.CallExpression;
     }
   | { k: 'constraint'; value: ConstraintValue }
+  | { k: 'wrapper'; value: WrapperOperandValue }
   | { k: 'receiver'; service: AccessService; receiverKind: string; ref?: AVal; admin?: boolean }
   | { k: 'fieldValue'; name: FieldValueName }
   | { k: 'obj'; props: Map<string, AVal>; computed: { key: AVal; value: AVal }[]; open: boolean; optional: Set<string> }
@@ -213,6 +215,9 @@ function operandKey(op: ConstraintOperand | undefined): string {
   if (op.kind === 'auth') {
     return `auth:${(op.auth ?? []).map((a) => `${a.source}:${a.certainty}`).join(',')}`;
   }
+  if (op.kind === 'wrapper' && op.wrapper !== undefined) {
+    return `wrap:${JSON.stringify(op.wrapper)}`;
+  }
   if (op.kind === 'array') {
     return `arr:[${(op.items ?? []).map(operandKey).join(',')}]`;
   }
@@ -255,6 +260,8 @@ function leafKey(v: AVal): string | null {
       return `${v.k}:${v.exact}`;
     case 'constraint':
       return `constraint:${constraintKey(v.value)}`;
+    case 'wrapper':
+      return `wrapper:${JSON.stringify(v.value)}`;
     case 'unknown':
       return `unknown:${v.reason}`;
     case 'ref': {
@@ -338,6 +345,7 @@ function leafTruthiness(a: AVal): boolean | undefined {
     case 'api':
     case 'ns':
     case 'constraint':
+    case 'wrapper':
       return true;
     default:
       return undefined;

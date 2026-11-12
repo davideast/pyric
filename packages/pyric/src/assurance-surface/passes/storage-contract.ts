@@ -244,6 +244,8 @@ interface EntryContractEvaluation {
   readonly entry: RuleSurfaceEntry;
   readonly arm: StorageMetadataConstraintArm;
   readonly ctOk: boolean;
+  readonly minSizeOk: boolean;
+  readonly maxSizeOk: boolean;
   readonly sizeOk: boolean;
   readonly metaOk: boolean;
   readonly missingMeta: MissingMetadataEvaluation;
@@ -277,19 +279,23 @@ function evaluateEntryArmContract(
       ctOk = matchesCelRegex(contentType, arm.contentTypePattern);
     }
   }
-  let sizeOk = true;
+  let minSizeOk = true;
+  let maxSizeOk = true;
   if (sizeBytes !== undefined) {
-    const maxBytes = arm.maxSizeBytes;
-    if (maxBytes !== undefined) {
-      sizeOk = sizeBytes <= maxBytes;
+    if (arm.minSizeBytes !== undefined) {
+      minSizeOk = sizeBytes >= arm.minSizeBytes;
+    }
+    if (arm.maxSizeBytes !== undefined) {
+      maxSizeOk = sizeBytes <= arm.maxSizeBytes;
     }
   }
+  const sizeOk = minSizeOk && maxSizeOk;
   const missingMeta = evaluateMissingMetadata(site, entry, arm);
   let metaOk = true;
   if (shouldCheckCustomMeta) {
     metaOk = missingMeta.missingKeys.length === 0;
   }
-  return { entry, arm, ctOk, sizeOk, metaOk, missingMeta };
+  return { entry, arm, ctOk, minSizeOk, maxSizeOk, sizeOk, metaOk, missingMeta };
 }
 
 function emitContentTypeMismatch(
@@ -380,6 +386,77 @@ function emitMaxSizeExceeded(
     remediation:
       `Reduce the payload size below ${maxCeiling} bytes before uploading to '${renderedPath}' or raise the request.resource.size bound in ${ceilingRule.source}.`,
   });
+}
+
+function emitMinSizeNotMet(
+  site: AccessSite,
+  pattern: ResourcePattern,
+  effectiveBucket: string,
+  sizeBytes: number,
+  candidates: readonly EntryContractEvaluation[],
+  usedIds: Set<string>,
+  diagnostics: AssuranceDiagnostic[],
+): void {
+  let minFloor = Number.POSITIVE_INFINITY;
+  let floorRule = candidates[0]!.entry;
+  for (const candidate of candidates) {
+    const bound = candidate.arm.minSizeBytes;
+    if (bound !== undefined && bound < minFloor) {
+      minFloor = bound;
+      floorRule = candidate.entry;
+    }
+  }
+  if (!Number.isFinite(minFloor)) minFloor = 1;
+  const renderedPath = renderResourcePattern(pattern);
+  const { certainty, severity } = siteCertaintyAndSeverity(site);
+  const id = allocateDiagnosticId(
+    `storage-min-size-not-met:${effectiveBucket}:${renderedPath}:${site.source}`,
+    usedIds,
+  );
+  diagnostics.push({
+    id,
+    code: 'storage-min-size-not-met',
+    service: 'storage',
+    resourceId: effectiveBucket,
+    severity,
+    certainty,
+    message:
+      `Cloud Storage upload to '${renderedPath}' writes ${sizeBytes} bytes, below the ${minFloor}-byte minimum in ${floorRule.source}.`,
+    resource: pattern,
+    codeSite: buildCodeSite(site.source, site.through),
+    ruleSite: {
+      source: floorRule.source,
+      expression: `request.resource.size >= ${minFloor}`,
+    },
+    witness: [{ sizeBytes, minSizeBytes: minFloor }],
+    remediation:
+      `Ensure the payload size is at least ${minFloor} bytes before uploading to '${renderedPath}' or lower the request.resource.size bound in ${floorRule.source}.`,
+  });
+}
+
+function emitSizeViolation(
+  site: AccessSite,
+  pattern: ResourcePattern,
+  effectiveBucket: string,
+  sizeBytes: number,
+  candidates: readonly EntryContractEvaluation[],
+  usedIds: Set<string>,
+  diagnostics: AssuranceDiagnostic[],
+): void {
+  if (!candidates.some((c) => c.minSizeOk)) {
+    emitMinSizeNotMet(site, pattern, effectiveBucket, sizeBytes, candidates, usedIds, diagnostics);
+    return;
+  }
+  if (!candidates.some((c) => c.maxSizeOk)) {
+    emitMaxSizeExceeded(site, pattern, effectiveBucket, sizeBytes, candidates, usedIds, diagnostics);
+    return;
+  }
+  const minFailed = candidates.filter((c) => !c.minSizeOk);
+  if (minFailed.length > 0) {
+    emitMinSizeNotMet(site, pattern, effectiveBucket, sizeBytes, minFailed, usedIds, diagnostics);
+  } else {
+    emitMaxSizeExceeded(site, pattern, effectiveBucket, sizeBytes, candidates, usedIds, diagnostics);
+  }
 }
 
 function emitMissingCustomMetadata(
@@ -548,7 +625,7 @@ export function storageContractPass(
           );
         }
         if (sizeBytes !== undefined && !evals.some((ev) => ev.sizeOk)) {
-          emitMaxSizeExceeded(
+          emitSizeViolation(
             site,
             pattern,
             effectiveBucket,
@@ -564,7 +641,7 @@ export function storageContractPass(
       } else {
         const sizeViolated = sizeBytes !== undefined && !ctCompatible.some((ev) => ev.sizeOk);
         if (sizeViolated) {
-          emitMaxSizeExceeded(
+          emitSizeViolation(
             site,
             pattern,
             effectiveBucket,

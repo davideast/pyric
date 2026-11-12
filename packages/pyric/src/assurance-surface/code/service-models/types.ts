@@ -129,9 +129,44 @@ export interface SdkServiceModel {
   readonly queryBaseRefKind?: RefKind;
 }
 
+export type WrapperOperandSegment =
+  | { readonly kind: 'lit'; readonly text: string }
+  | {
+      readonly kind: 'auth';
+      readonly auth: readonly AuthProvenance[];
+      readonly pattern?: string;
+    };
+
+export type WrapperOperandValue =
+  | {
+      readonly wrapperKind: 'reference';
+      readonly databaseId: string;
+      readonly segments: readonly WrapperOperandSegment[];
+    }
+  | {
+      readonly wrapperKind: 'timestamp';
+      readonly seconds: number;
+      readonly nanoseconds: number;
+    }
+  | {
+      readonly wrapperKind: 'bytes';
+      readonly bytes: readonly number[];
+    }
+  | {
+      readonly wrapperKind: 'latlng';
+      readonly latitude: number;
+      readonly longitude: number;
+    }
+  | {
+      readonly wrapperKind: 'duration';
+      readonly seconds: number;
+      readonly nanoseconds: number;
+    };
+
 export interface ConstraintOperand {
-  readonly kind: 'literal' | 'auth' | 'array' | 'param' | 'unknown';
+  readonly kind: 'literal' | 'auth' | 'wrapper' | 'array' | 'param' | 'unknown';
   readonly literal?: string | number | boolean | null;
+  readonly wrapper?: WrapperOperandValue;
   readonly items?: readonly ConstraintOperand[];
   readonly auth?: readonly AuthProvenance[];
 }

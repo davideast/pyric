@@ -182,4 +182,129 @@ describe("derive-project", () => {
 
     expect(cloned.snapshot?.storage["(default)"]?.[0]?.size).toBe(3);
   });
+
+  test("snapshotFromTarget round-trips Storage HTTP metadata, Auth providerUserInfo and providers, and storageConfig without field loss", async () => {
+    const store = new AssuranceCampaignStore();
+    const cloned = await cloneLiveRuntime({
+      url: "http://127.0.0.1:3473",
+      store,
+      attachmentProvider: async ({ url }) => ({
+        target: {
+          schema: "pyric.assurance.target.v1",
+          network: "forbid",
+          rules: {},
+          state: {
+            storage: [
+              {
+                path: "assets/banner.svg",
+                dataBase64: "AQID",
+                contentType: "image/svg+xml",
+                cacheControl: "public, max-age=3600",
+                contentDisposition: "inline; filename=\"banner.svg\"",
+                contentEncoding: "gzip",
+                contentLanguage: "en-US",
+                timeCreated: "2026-01-01T00:00:00.000Z",
+                updated: "2026-01-02T00:00:00.000Z",
+                customMetadata: { ownerId: "u-alice" },
+              },
+            ],
+            storageBuckets: {
+              "archive-bucket": [
+                {
+                  path: "backups/snap.tar",
+                  dataBase64: "BAUG",
+                  contentType: "application/x-tar",
+                  cacheControl: "private, no-store",
+                  timeCreated: "2026-02-01T00:00:00.000Z",
+                  updated: "2026-02-01T00:00:00.000Z",
+                },
+              ],
+            },
+            storageConfig: {
+              crossServiceIam: "denied",
+              undeployedBucketPolicy: "deny",
+            },
+            auth: {
+              users: [
+                {
+                  uid: "u-alice",
+                  email: "alice@example.test",
+                  emailVerified: true,
+                  tenantId: "tenant-1",
+                  providerId: "google.com",
+                  providerUserInfo: [
+                    {
+                      providerId: "google.com",
+                      rawId: "goog-sub-42",
+                      uid: "goog-sub-42",
+                      email: "alice@example.test",
+                      displayName: "Alice",
+                    },
+                  ],
+                  customClaims: { role: "owner" },
+                },
+              ],
+              providers: {
+                "google.com": true,
+                password: false,
+              },
+            },
+          },
+        },
+        source: {
+          requestedUrl: url,
+          origin: url,
+          transport: "same-origin-shared-worker",
+          readOnly: true,
+          studioUrl: `${url}/__pyric/ui/assurance`,
+        },
+        inventory: {
+          rules: { firestore: false, rtdb: false, storage: false },
+          authUsers: 1,
+          firestoreDocuments: 0,
+          rtdbPopulated: false,
+          storageObjects: 2,
+        },
+        coverageGaps: [],
+      }),
+    });
+
+    const defaultObj = cloned.snapshot?.storage["(default)"]?.[0];
+    expect(defaultObj).toMatchObject({
+      path: "assets/banner.svg",
+      size: 3,
+      contentType: "image/svg+xml",
+      cacheControl: "public, max-age=3600",
+      contentDisposition: "inline; filename=\"banner.svg\"",
+      contentEncoding: "gzip",
+      contentLanguage: "en-US",
+      timeCreated: "2026-01-01T00:00:00.000Z",
+      updated: "2026-01-02T00:00:00.000Z",
+      customMetadata: { ownerId: "u-alice" },
+    });
+    const archiveObj = cloned.snapshot?.storage["archive-bucket"]?.[0];
+    expect(archiveObj).toMatchObject({
+      path: "backups/snap.tar",
+      cacheControl: "private, no-store",
+      timeCreated: "2026-02-01T00:00:00.000Z",
+      updated: "2026-02-01T00:00:00.000Z",
+    });
+    expect(cloned.snapshot?.storageConfig).toEqual({
+      crossServiceIam: "denied",
+      undeployedBucketPolicy: "deny",
+    });
+    expect(cloned.snapshot?.auth.providers).toEqual({
+      "google.com": true,
+      password: false,
+    });
+    expect(cloned.snapshot?.auth.users[0]?.providerUserInfo).toEqual([
+      {
+        providerId: "google.com",
+        rawId: "goog-sub-42",
+        uid: "goog-sub-42",
+        email: "alice@example.test",
+        displayName: "Alice",
+      },
+    ]);
+  });
 });

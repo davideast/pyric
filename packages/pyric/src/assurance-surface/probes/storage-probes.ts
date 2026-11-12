@@ -8,7 +8,7 @@
  */
 import type { SnapshotStorageObject } from 'pyric/sandbox/internal';
 import { parseResourcePattern, resourceShapeKey } from '../../sandbox/internal/resource-pattern.js';
-import type { RuleSurfaceEntry, StorageMetadataConstraint } from '../rules/rule-surface.js';
+import type { RuleSurface, RuleSurfaceEntry, StorageMetadataConstraint } from '../rules/rule-surface.js';
 import { uidFields } from './fixtures.js';
 import type { PlanInput } from './plan.js';
 import { crossServiceLookupSeeds } from './prerequisites.js';
@@ -66,14 +66,18 @@ function hasCompatibleSeededStorageObject(
     (obj) => obj.path.replace(/^\/+|\/+$/g, '') === cleanTarget,
   );
   if (!existing) return false;
+  if (constraint.minSizeBytes !== undefined && existing.size < constraint.minSizeBytes) {
+    return false;
+  }
   if (constraint.maxSizeBytes !== undefined && existing.size > constraint.maxSizeBytes) {
     return false;
   }
   if (
-    constraint.contentTypePattern !== undefined &&
+    (constraint.contentTypePattern !== undefined || constraint.contentTypeConjuncts !== undefined) &&
     !contentTypeMatchesPattern(
       existing.contentType ?? 'application/octet-stream',
       constraint.contentTypePattern,
+      constraint.contentTypeConjuncts,
     )
   ) {
     return false;
@@ -95,21 +99,47 @@ function hasCompatibleSeededStorageObject(
   return true;
 }
 
+function matchingStorageSurfaceEntries(
+  surface: RuleSurface | undefined,
+  sitePattern: ReturnType<typeof parseResourcePattern>,
+  op: string | undefined,
+  defaultBucket: string | undefined,
+): RuleSurfaceEntry[] {
+  if (!surface) return [];
+  const seen = new Set<RuleSurfaceEntry>();
+  const out: RuleSurfaceEntry[] = [];
+  const pushAll = (items: readonly RuleSurfaceEntry[]): void => {
+    for (const item of items) {
+      if (!seen.has(item)) {
+        seen.add(item);
+        out.push(item);
+      }
+    }
+  };
+  pushAll(surface.matching(sitePattern, op));
+  if (sitePattern.resourceId === '(default)' && defaultBucket !== undefined) {
+    pushAll(surface.matching({ ...sitePattern, resourceId: defaultBucket }, op));
+  }
+  return out;
+}
+
 /** Plan Cloud Storage assurance probes from extracted Storage sites and projected `RuleSurface`. */
 export function planStorageProbes(
   input: PlanInput,
   add: (probe: Omit<Probe, 'id'>) => void,
 ): void {
   const { owner, peer, surface } = input;
+  const defaultBucket = normalizeStorageBucketKey(input.defaultBucket);
   const hints = input.hints ?? [];
   const storageSites = dedupeStorageSites(input.sites.filter(isProbeableStorageSite));
   if (storageSites.length === 0) return;
 
   for (const site of storageSites) {
     const sitePattern = parseResourcePattern('storage', site.path, site.resourceId);
-    const matchingEntries = surface?.matching(sitePattern, site.op) ?? [];
-    const allPathEntries = surface?.matching(sitePattern) ?? [];
-    const createEntries = surface?.matching(sitePattern, 'uploadBytes') ?? allPathEntries;
+    const matchingEntries = matchingStorageSurfaceEntries(surface, sitePattern, site.op, defaultBucket);
+    const allPathEntries = matchingStorageSurfaceEntries(surface, sitePattern, undefined, defaultBucket);
+    const createMatched = matchingStorageSurfaceEntries(surface, sitePattern, 'uploadBytes', defaultBucket);
+    const createEntries = createMatched.length > 0 ? createMatched : allPathEntries;
 
     let createSource: readonly RuleSurfaceEntry[] = allPathEntries;
     if (createEntries.length > 0) createSource = createEntries;
@@ -149,9 +179,12 @@ export function planStorageProbes(
     if (!site.source.startsWith('seed:')) {
       if (STORAGE_UPLOAD_OPS.has(site.op)) {
         const clientMeta = buildClientCustomMetadata(site, sitePattern, opConstraint, hints, owner, surface);
-        let contentType = synthesizeMatchingContentType(opConstraint.contentTypePattern);
+        let contentType = synthesizeMatchingContentType(
+          opConstraint.contentTypePattern,
+          opConstraint.contentTypeConjuncts,
+        );
         if (site.storageUpload?.contentType !== undefined) contentType = site.storageUpload.contentType;
-        let sizeBytes = compliantByteSize(opConstraint.maxSizeBytes);
+        let sizeBytes = compliantByteSize(opConstraint.maxSizeBytes, opConstraint.minSizeBytes);
         if (site.storageUpload?.sizeBytes !== undefined) sizeBytes = site.storageUpload.sizeBytes;
 
         const attackStep: ProbeStep = attachResourceId(
@@ -177,9 +210,19 @@ export function planStorageProbes(
           mustAllowUpload.inconclusiveOnDeny = 'client customMetadata map is open and may carry required keys at runtime';
         } else if (
           site.storageUpload?.contentType === undefined &&
-          !contentTypeMatchesPattern(contentType, opConstraint.contentTypePattern)
+          !contentTypeMatchesPattern(
+            contentType,
+            opConstraint.contentTypePattern,
+            opConstraint.contentTypeConjuncts,
+          )
         ) {
           mustAllowUpload.inconclusiveOnDeny = 'client upload contentType is supplied at runtime and could not be synthesized for rule regex';
+        } else if (
+          site.storageUpload?.sizeBytes === undefined &&
+          ((opConstraint.minSizeBytes !== undefined && sizeBytes < opConstraint.minSizeBytes) ||
+            (opConstraint.maxSizeBytes !== undefined && sizeBytes > opConstraint.maxSizeBytes))
+        ) {
+          mustAllowUpload.inconclusiveOnDeny = 'client upload size is supplied at runtime and could not be synthesized for rule bounds';
         }
         add(mustAllowUpload);
       } else {
@@ -189,9 +232,17 @@ export function planStorageProbes(
           else seedObjectPath = `${ownerPath}/item-1`;
         }
         const seedMimePattern = createConstraint.contentTypePattern ?? opConstraint.contentTypePattern;
+        const seedMimeConjuncts = createConstraint.contentTypeConjuncts ?? opConstraint.contentTypeConjuncts;
         let opSeedConstraint: StorageMetadataConstraint = createConstraint;
-        if (seedMimePattern !== undefined && createConstraint.contentTypePattern === undefined) {
-          opSeedConstraint = { ...createConstraint, contentTypePattern: seedMimePattern };
+        if (
+          (seedMimePattern !== undefined && createConstraint.contentTypePattern === undefined) ||
+          (seedMimeConjuncts !== undefined && createConstraint.contentTypeConjuncts === undefined)
+        ) {
+          opSeedConstraint = {
+            ...createConstraint,
+            ...(seedMimePattern !== undefined ? { contentTypePattern: seedMimePattern } : {}),
+            ...(seedMimeConjuncts !== undefined ? { contentTypeConjuncts: seedMimeConjuncts } : {}),
+          };
         }
         const reuseSeededObject =
           !STORAGE_LIST_OPS.has(site.op) &&
@@ -204,12 +255,12 @@ export function planStorageProbes(
             uidFields(site.payload),
           );
         const seedSteps: ProbeStep[] = [...ownerCrossSeeds];
+        let seededStep: ProbeStep | undefined;
         if (!reuseSeededObject) {
-          seedSteps.push(
-            buildCompliantUploadStep(
-              site, sitePattern, 'admin', owner, seedObjectPath, opSeedConstraint, hints, {}, surface,
-            ),
+          seededStep = buildCompliantUploadStep(
+            site, sitePattern, 'admin', owner, seedObjectPath, opSeedConstraint, hints, {}, surface,
           );
+          seedSteps.push(seededStep);
         }
 
         let attackMethod: ProbeStep['method'] = 'get';
@@ -234,6 +285,17 @@ export function planStorageProbes(
             inconclusiveReason = 'client customMetadata map is open and may carry required keys at runtime';
           }
         }
+        if (
+          inconclusiveReason === undefined &&
+          seededStep?.contentType !== undefined &&
+          !contentTypeMatchesPattern(
+            seededStep.contentType,
+            opSeedConstraint.contentTypePattern,
+            opSeedConstraint.contentTypeConjuncts,
+          )
+        ) {
+          inconclusiveReason = 'seeded object contentType could not be synthesized for rule regex';
+        }
 
         const mustAllowOp: Omit<Probe, 'id'> = {
           kind: 'must-allow-denied',
@@ -253,7 +315,7 @@ export function planStorageProbes(
       }
     }
 
-    const siteBindings = storageBindingsAt(site, input.bindings, surface);
+    const siteBindings = storageBindingsAt(site, input.bindings, surface, defaultBucket);
     const uidVars = (site.pathVariables ?? []).filter((v) => v.auth?.some((a) => a.source === 'auth.uid'));
     const hasPathBinding = siteBindings.some((b) => b.kind === 'pathVar');
 

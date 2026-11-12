@@ -15,7 +15,10 @@ import type { SandboxHistoryEvent } from "pyric/rules/internal/usage";
 import { DEFAULT_BUCKET } from "pyric/storage/internal";
 import { boundedFetch } from "../bounded-request.js";
 import { HOSTED_METHOD_PATH } from "../serve/hosted/method-protocol.js";
-import { resolveSessionTokenForTarget } from "../serve/local-session-token.js";
+import {
+  fetchLoopbackTarget,
+  resolveSessionTokenForTarget,
+} from "../serve/local-session-token.js";
 import {
   isStorageReference,
   parseStateFile,
@@ -91,6 +94,7 @@ async function requestLoopback(
     method?: "GET" | "POST";
     headers?: Record<string, string>;
     body?: string;
+    cwd?: string;
     customFetch?: typeof fetch;
   },
 ): Promise<Response> {
@@ -107,6 +111,23 @@ async function requestLoopback(
       init.body = options.body;
     }
     return options.customFetch(targetUrl, init);
+  }
+
+  if (targetUrl.startsWith("https://")) {
+    const init: RequestInit = {
+      method,
+      headers,
+      redirect: "error",
+      signal: AbortSignal.timeout(LOOPBACK_DEADLINE_MS),
+    };
+    if (options.body !== undefined) {
+      init.body = options.body;
+    }
+    const res = await fetchLoopbackTarget(targetUrl, init, options.cwd);
+    if (res.status >= 300 && res.status < 400) {
+      throw new TypeError(`fetch failed: ${targetUrl} redirected`);
+    }
+    return res;
   }
 
   const boundedOpts: {
@@ -133,6 +154,7 @@ async function fetchHostedEvents(
   origin: string,
   instanceId: string | null | undefined,
   projectDir: string | undefined,
+  effectiveCwd: string,
   customFetch: typeof fetch | undefined,
   sessionToken: string | undefined,
 ): Promise<SandboxHistoryEvent[]> {
@@ -146,6 +168,7 @@ async function fetchHostedEvents(
       method: "POST";
       headers: Record<string, string>;
       body: string;
+      cwd: string;
       customFetch?: typeof fetch;
     } = {
       method: "POST",
@@ -157,6 +180,7 @@ async function fetchHostedEvents(
         args: { limit: 500 },
         allowProduction: false,
       }),
+      cwd: effectiveCwd,
     };
     if (customFetch !== undefined) {
       reqOpts.customFetch = customFetch;
@@ -223,10 +247,11 @@ export async function cloneLoopbackSandboxHttp(
   const parsedUrl = parseLoopbackOrigin(rawUrl);
   const origin = parsedUrl.origin;
   const customFetch = options.fetchImpl;
+  const effectiveCwd = options.projectDir ?? process.cwd();
   const initialToken = resolveSessionTokenForTarget({
     explicitToken: options.sessionToken,
     url: origin,
-    cwd: options.projectDir,
+    cwd: effectiveCwd,
   });
   const getLoopback = async (
     targetUrl: string,
@@ -235,10 +260,12 @@ export async function cloneLoopbackSandboxHttp(
     const reqOpts: {
       method: "GET";
       headers: Record<string, string>;
+      cwd: string;
       customFetch?: typeof fetch;
     } = {
       method: "GET",
       headers,
+      cwd: effectiveCwd,
     };
     if (customFetch !== undefined) {
       reqOpts.customFetch = customFetch;
@@ -538,7 +565,18 @@ export async function cloneLoopbackSandboxHttp(
       path: string;
       contentBase64: string;
       size: number;
+      generation?: string;
+      metageneration?: string;
       contentType?: string;
+      blobType?: string;
+      cacheControl?: string;
+      contentDisposition?: string;
+      contentEncoding?: string;
+      contentLanguage?: string;
+      timeCreated?: string;
+      updated?: string;
+      downloadTokens?: string;
+      md5Hash?: string;
       customMetadata?: Record<string, string>;
     } = {
       path: fullPath,
@@ -549,13 +587,59 @@ export async function cloneLoopbackSandboxHttp(
       path: fullPath,
       dataBase64: base64,
     };
+    if (typeof entry.metadata.generation === "string") {
+      snapObj.generation = entry.metadata.generation;
+    }
+    if (typeof entry.metadata.metageneration === "string") {
+      snapObj.metageneration = entry.metadata.metageneration;
+    }
     if (typeof entry.metadata.contentType === "string") {
       snapObj.contentType = entry.metadata.contentType;
       fixObj.contentType = entry.metadata.contentType;
     }
+    if (
+      typeof entry.blobType === "string" &&
+      entry.blobType !== (entry.metadata.contentType ?? "")
+    ) {
+      snapObj.blobType = entry.blobType;
+    }
+    if (typeof entry.metadata.cacheControl === "string") {
+      snapObj.cacheControl = entry.metadata.cacheControl;
+      fixObj.cacheControl = entry.metadata.cacheControl;
+    }
+    if (typeof entry.metadata.contentDisposition === "string") {
+      snapObj.contentDisposition = entry.metadata.contentDisposition;
+      fixObj.contentDisposition = entry.metadata.contentDisposition;
+    }
+    if (typeof entry.metadata.contentEncoding === "string") {
+      snapObj.contentEncoding = entry.metadata.contentEncoding;
+      fixObj.contentEncoding = entry.metadata.contentEncoding;
+    }
+    if (typeof entry.metadata.contentLanguage === "string") {
+      snapObj.contentLanguage = entry.metadata.contentLanguage;
+      fixObj.contentLanguage = entry.metadata.contentLanguage;
+    }
+    if (typeof entry.metadata.timeCreated === "string") {
+      snapObj.timeCreated = entry.metadata.timeCreated;
+      fixObj.timeCreated = entry.metadata.timeCreated;
+    }
+    if (typeof entry.metadata.updated === "string") {
+      snapObj.updated = entry.metadata.updated;
+      fixObj.updated = entry.metadata.updated;
+    }
+    if (typeof entry.metadata.downloadTokens === "string") {
+      snapObj.downloadTokens = entry.metadata.downloadTokens;
+    }
+    if (typeof entry.metadata.md5Hash === "string") {
+      snapObj.md5Hash = entry.metadata.md5Hash;
+    }
     if (entry.metadata.customMetadata) {
-      snapObj.customMetadata = { ...entry.metadata.customMetadata };
-      fixObj.customMetadata = { ...entry.metadata.customMetadata };
+      const customCopy: Record<string, string> = {};
+      for (const [k, v] of Object.entries(entry.metadata.customMetadata)) {
+        if (typeof v === "string") defineOwn(customCopy, k, v);
+      }
+      snapObj.customMetadata = { ...customCopy };
+      fixObj.customMetadata = { ...customCopy };
     }
     let bucketSnapshots = getOwn(storageSnapshotsByBucket, bucketKey);
     if (bucketSnapshots === undefined) {
@@ -645,6 +729,7 @@ export async function cloneLoopbackSandboxHttp(
     origin,
     initPayload.instanceId,
     options.projectDir,
+    effectiveCwd,
     customFetch,
     headers["x-pyric-session-token"],
   );
