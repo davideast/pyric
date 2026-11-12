@@ -32,10 +32,12 @@
 // quotes the header, token included (#1737). The page's error and the dev
 // server's terminal must both read `***` in place of the token.
 //
-// A base URL with userinfo, `http://user:password@host`, is refused by Node's
-// fetch, and its error quotes the whole URL (#1766). On the SharedWorker and
-// on `hosted: true`, the page's error, the gemini proxy's 502 and the dev
-// server's terminal must name the host without the userinfo.
+// A base URL with userinfo, `http://user:password@host` (#1766): the gemini
+// proxy sends the userinfo as Basic auth, so a refusal that quotes the URL
+// comes from the gateway. On `hosted: true` the engine's fetch refuses the URL
+// and its error quotes the whole URL. Either way, the page's error, the gemini
+// proxy's answer and the dev server's terminal must name the host without the
+// userinfo or its Basic form.
 //
 // Vite serves every `VITE_`-prefixed variable to any module that reads
 // `import.meta.env`. The page never reads it, so no module the dev server
@@ -187,7 +189,9 @@ function geminiStandIn(): Promise<{ url: string; seen: Seen[]; echoed: Echoed[];
 async function workerRouteAnswer(host: DevServer): Promise<{ status: number; text: string }> {
   const boot = await fetch(host.url);
   await boot.text();
-  const cookie = boot.headers.getSetCookie().find((entry) => entry.startsWith('__pyric_session='))?.split(';', 1)[0];
+  // The page's session cookie, named for the dev server's port (`__pyric_session_<port>`).
+  const cookie = boot.headers.getSetCookie().find((entry) => /^__pyric_session(_\d+)?=/.test(entry))?.split(';', 1)[0];
+  assert.ok(cookie !== undefined, 'the dev server set no session cookie on the page');
   const response = await fetch(new URL(`/__pyric/ai-proxy/gemini/v1beta/models/${ECHO_MODEL}:generateContent`, host.url), {
     method: 'POST',
     headers: {
@@ -253,6 +257,9 @@ async function assertMaskedFetchError(result: { ok: boolean; message?: string },
  */
 const USERINFO = `gateway-user:gateway-secret-1766 "q'`;
 
+/** USERINFO as the Basic credentials the gemini proxy sends for it. */
+const USERINFO_BASIC = Buffer.from(USERINFO).toString('base64');
+
 /** The stand-in's base URL with USERINFO in it. */
 function withUserinfo(url: string): string {
   return url.replace('http://', `http://${USERINFO}@`);
@@ -263,25 +270,26 @@ function assertNoUserinfo(texts: string[], host: string): void {
   for (const text of texts) {
     assert.ok(!text.includes('gateway-secret-1766'), text.slice(0, 400));
     assert.ok(!text.includes('gateway-user'), text.slice(0, 400));
+    assert.ok(!text.includes(USERINFO_BASIC), text.slice(0, 400));
   }
   assert.ok(texts[0]!.includes(`http://${host}/v1beta/models/`), texts[0]);
 }
 
-/** A dev server whose gemini base URL carries userinfo: served assets, the page, the proxy's 502 and the terminal drop it. */
+/** A dev server whose gemini base URL carries userinfo: served assets, the page, the proxy's answer and the terminal drop it. */
 async function assertUserinfoDropped(app: App, standInUrl: string, name: string, hosted: boolean): Promise<void> {
   const env = { GEMINI_API_KEY: SERVER_KEY, GEMINI_STAND_IN_URL: withUserinfo(standInUrl), ...(hosted ? { HOSTED: '1' } : {}) };
   const server = await app.devServer({ name, env });
   const page = await openPage(app, server);
   const since = server.process.mark();
-  const result = await page.evaluate((tag) => runGeminiError(tag, 'gemini-2.5-flash'), name);
+  // The proxy reaches the stand-in, so the SharedWorker asks for the model whose refusal quotes the URL.
+  const model = hosted ? 'gemini-2.5-flash' : ECHO_MODEL;
+  const result = await page.evaluate(({ tag, model }) => runGeminiError(tag, model), { tag: name, model });
   assert.equal(result.ok, false);
   const texts = [result.message ?? ''];
-  if (hosted) {
-    await server.process.waitForLog(/ai request rejected: /, { since });
-  } else {
-    await server.process.waitForLog(/upstream unreachable: /, { since });
+  await server.process.waitForLog(/ai request rejected: /, { since });
+  if (!hosted) {
     const answer = await workerRouteAnswer(server);
-    assert.equal(answer.status, 502, answer.text);
+    assert.equal(answer.status, 400, answer.text);
     texts.push(answer.text);
   }
   const paths = hosted ? ['/', '/main.js', '/__pyric/init.json'] : SERVED_PATHS;
@@ -429,7 +437,7 @@ export default scenario(async (app) => {
       assert.deepEqual(standIn.seen, answeredAt(2), 'nothing reached the stand-in');
     });
 
-    await app.step('SharedWorker: a base URL with userinfo reaches the page, the 502 and the terminal without it', async () => {
+    await app.step('SharedWorker: a base URL with userinfo reaches the page, the proxy\'s answer and the terminal without it', async () => {
       await assertUserinfoDropped(app, standIn.url, 'userinfo-dev-server', false);
       assert.deepEqual(standIn.seen, answeredAt(2), 'nothing reached the stand-in');
     });
