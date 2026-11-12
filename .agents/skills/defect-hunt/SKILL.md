@@ -1,6 +1,15 @@
 ---
 name: defect-hunt
-description: Defect hunt on a pyric surface, in rounds, against a referee (production Firebase, a written contract such as an ADR, or sibling planes that must agree). Use when asked to hunt for bugs in a pyric engine, SDK surface or host, run another hunt round, verify or re-verify a batch of findings, capture production to settle a disputed finding, or plan and land a fix campaign from confirmed findings. For pyric's rules engines, load rules-engine-defect-hunt as well. Not for auditing an app's own rules or code.
+description: >-
+  Plans, prioritizes, and runs multi-round defect hunts on pyric surfaces
+  against a referee (production Firebase, a written contract such as an ADR, or
+  sibling planes that must agree). Use when asked to plan when to do defect
+  hunts, decide or rank which surfaces to hunt next from git history churn,
+  coverage thinness, and criticality, hunt for bugs in a pyric engine, SDK
+  surface or host, verify or re-verify a batch of findings, capture production
+  to settle a disputed finding, or plan and land a fix campaign from confirmed
+  findings. For pyric's rules engines, load rules-engine-defect-hunt as well.
+  Not for auditing an app's own rules or code.
 ---
 
 # Defect hunt
@@ -13,6 +22,36 @@ It runs in rounds. One round on the RTDB rules engine (#1247) started from a
 green suite (2,436 of 2,436) and a 91/91 score, used four hunters, five
 verifiers and seven production captures, and confirmed 29 defects; 12 were
 refuted (6 by production) and 3 waited on runtime evidence.
+
+## When to hunt, and what goes first
+
+Before starting a round, rank candidate surfaces across three axes
+([references/triage.md](references/triage.md)):
+
+1. **Criticality sets the floor.** Security Rules always go first: a simulator,
+   list-query prover, deploy validator, sandbox enforcement path, live
+   local-rules check, or assurance pass that says allow where production says
+   deny ships a hole. Isolation and refusal boundaries (Swap-or-Stop, live
+   write refusals, credential redaction) come next, then stateful SDK/Admin and
+   host data planes, then CLI, MCP, and UI wrappers. Small unhunted changes on
+   Security Rules outrank large changes on UI.
+2. **Unhunted runtime churn.** Measure runtime `src` changes since the commit
+   the surface was last hunted at (`<last-hunt-sha>..origin/main`), separated
+   from test edits: commits, share of `src` files touched, lines added and
+   deleted, new `src` files, `fix(...)` density (hand-found bugs cluster next
+   to unfound siblings), and large fix waves landed *after* the last hunt.
+3. **Coverage and referee thinness.** Check `test` to `src` line ratio, `src`
+   files with no direct `.test` counterpart, `unverified` or `bug` registry
+   rows, and referee strength. A surface backed only by a written contract or
+   sibling planes hides shared-assumption bugs that a production oracle would
+   catch.
+
+**Trigger now** when Security Rules or an isolation guard changes behavior or
+drops a safety layer, when a new surface lands with contract-only evidence,
+when `fix(...)` commits cluster on one subsystem, or after a multi-hundred-line
+fix wave lands. **Wait** when a surface still has unmerged `REAL` findings from
+its last round: land that backlog first so hunters do not rediscover known
+bugs, then hunt the post-fix delta.
 
 ## Where defects are
 
@@ -68,6 +107,26 @@ A repro asserts the correct behavior and prints `OPEN` or `FIXED`
 "bug" is not evidence. A uniform batch (9 of 9 `REAL`) means you re-check a
 sample yourself before accepting it.
 
+## Defect classes and standing checks
+
+Every finding carries four classification tags from
+[references/defect-classes.md](references/defect-classes.md):
+
+- **Class:** one of the 7 primary classes (`SEMANTICS-DIVERGENCE`,
+  `STATE-ROUNDTRIP`, `BACKEND-PARITY`, `ENTRYPOINT-PARITY`, `GUARD-BYPASS`,
+  `FAIL-OPEN`, `REDACTION-LEAK`), a normalized `OTHER:*` class, or
+  `NEW:<SHORT-NAME>` when a defect fits none of them.
+- **Sub-Class:** required `SD:*` sub-class when `Class` is
+  `SEMANTICS-DIVERGENCE`, else `n/a`.
+- **Mechanism:** short `kebab-case` name of the exact failure mechanism.
+- **Novelty:** `new-class`, `new-mechanism`, or `repeat-mechanism (<prior ID>)`.
+
+**Escalation rule.** When a class (or `SD:*` sub-class) repeats across
+consecutive rounds or reaches `>= 3` confirmed `REAL` findings in one round,
+point fixes per repro are no longer enough: the fix campaign must add or extend
+a class-level standing mechanical check (property roundtrip, cross-plane matrix,
+differential oracle, or canary sweep) so sibling consumers fail CI immediately.
+
 ## A round
 
 You are the coordinator. Workers hunt, verify and fix; you route work, keep
@@ -92,14 +151,17 @@ shared board, briefs from [templates/](templates/). Start a ledger from
 4. **Hunt by angle.** One hunter per angle from
    [references/workstreams.md](references/workstreams.md): contract sweep,
    differential, metamorphic, fault injection. Brief each with
-   [templates/hunter-brief.md](templates/hunter-brief.md). Repros go in a
+   [templates/hunter-brief.md](templates/hunter-brief.md). Every finding carries
+   `Class`, `Sub-Class`, `Mechanism`, and `Novelty` from
+   [references/defect-classes.md](references/defect-classes.md). Repros go in a
    scratch directory, never the repo. Done when every hunter has posted
    findings and clean results with counts.
 5. **Verify independently.** Agents that did not hunt re-run every repro on a
-   clean checkout ([templates/verifier-brief.md](templates/verifier-brief.md))
-   and give each sub-claim a verdict. You spot-check the highest-severity
-   findings and any whose expected value rests on production. Done when every
-   finding has a verdict and a citation or `NEEDS_RUNTIME`.
+   clean checkout ([templates/verifier-brief.md](templates/verifier-brief.md)),
+   give each sub-claim a verdict, and audit its `Class`, `Sub-Class`,
+   `Mechanism`, and `Novelty` tag. You spot-check the highest-severity findings
+   and any whose expected value rests on production. Done when every finding has
+   a verdict, verified class label, and a citation or `NEEDS_RUNTIME`.
 6. **Settle disputes by capture.** For each `NEEDS_RUNTIME` that matters, and
    each finding a verifier disputes, author a scenario and capture production
    through the runbook. Production may refute a finding: record that as
@@ -108,11 +170,17 @@ shared board, briefs from [templates/](templates/). Start a ledger from
 7. **Run the fix campaign.** Pins first, then red to green, disjoint ownership,
    two-axis review, one-at-a-time merges:
    [references/fix-campaign.md](references/fix-campaign.md), then
-   [references/shipping.md](references/shipping.md) for PRs and issues.
-8. **Record the yield.** Add the round's row to the ledger: reported, confirmed
-   (`REAL`), false, and new (confirmed and not in an earlier round, an open
-   issue or the pins). Run another round on an angle while it still yields new
-   findings; an angle whose round yields none is done for that surface.
+   [references/shipping.md](references/shipping.md) for PRs and issues. Attach
+   or extend a class-level standing check for any repeat class (`>= 3` findings
+   or consecutive-round repeat).
+8. **Record the yield.** Add the round's row and `Yield by class` breakdown to
+   the ledger: target commit, `src` paths hunted (so the next triage diffs
+   `<last-hunt-sha>..origin/main` mechanically), reported, confirmed (`REAL`),
+   false, new, new mechanisms, and repeat mechanisms. Score the round on new
+   mechanisms uncovered and repeat-mechanism rate, not raw count alone. Run
+   another round on an angle while it still yields new findings; if a round is
+   dominated by repeats of one class, land that class's standing check before
+   spending another hunter sweep on the same surface.
 
 ## Captures run in a scratch worktree
 

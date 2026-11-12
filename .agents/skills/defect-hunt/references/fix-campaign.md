@@ -12,15 +12,19 @@ The published score drops honestly. In #1247 this was stream S0 (#1248).
 
 ## 2. Stream plan
 
-Group findings by root cause and by the files the fix must touch. Write the
-table before anyone starts:
+Group findings by defect class, mechanism ([defect-classes.md](defect-classes.md)),
+and the files the fix must touch. Write the table before anyone starts:
 
-| Stream | Findings | Owns (may edit) | Must not edit | Depends on |
-|---|---|---|---|---|
-| S0 evidence | none | corpus, observations, registry, baselines, pin tables | source | none |
-| S1 … | … | the source files for this root cause | other streams' files | S0 |
+| Stream | Findings | Class / Mechanism | Owns (may edit) | Must not edit | Depends on |
+|---|---|---|---|---|---|
+| S0 evidence | none | pins & observations | corpus, observations, registry, baselines, pin tables | source | none |
+| S1 ... | ... | `STATE-ROUNDTRIP` (`...`) | the source files for this root cause | other streams' files | S0 |
 
 - **Disjoint ownership.** No two streams own the same file.
+- **Standing checks for repeat classes.** If a stream fixes a repeat mechanism
+  or a class with `>= 3` findings in the round, it must add or extend that
+  class's standing mechanical check ([defect-classes.md](defect-classes.md#5-repeat-class-escalation-rule))
+  rather than relying on per-finding regression pins alone.
 - **Exceptions are written down.** When a stream needs a file it does not own
   (a one-token export, a test that asserted non-production behavior), it asks;
   the coordinator approves on the board, naming the file and the reason.

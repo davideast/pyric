@@ -4,7 +4,8 @@
 
 You verify findings from a defect hunt on pyric's **<surface>**. You did not
 write them; your job is to judge them. Read
-`.agents/skills/defect-hunt/SKILL.md` ("Verdicts") first.
+`.agents/skills/defect-hunt/SKILL.md` ("Verdicts" and "Defect classes and
+standing checks") and `references/defect-classes.md` first.
 
 **Target.** A clean checkout of `<sha>` in `<worktree path>`, built.
 Read-only. No captures: if a verdict needs production, say so.
@@ -24,8 +25,11 @@ For each finding, and for each sub-claim of a multi-part finding:
 4. Give one verdict: `REAL`, `FALSE` (say whether it never held or is already
    fixed, and name the commit if you can), or `NEEDS_RUNTIME` (name the
    production fact a capture must answer).
+5. Audit the finding's `Class` (`Sub-Class`), `Mechanism`, and `Novelty` tag
+   against `references/defect-classes.md` and prior round ledgers; correct any
+   mislabeled class or unflagged repeat mechanism.
 
-Report a table: ID | verdict | observed output | evidence for expected | repro
-path. If every verdict in your batch is the same, re-check three at random
-before posting and say you did. Post `@coordinator VERIFY DONE` and wait. File
-nothing.
+Report a table: ID | verdict | severity | class (sub-class) | mechanism |
+novelty | observed output | evidence for expected | repro path. If every
+verdict in your batch is the same, re-check three at random before posting and
+say you did. Post `@coordinator VERIFY DONE` and wait. File nothing.

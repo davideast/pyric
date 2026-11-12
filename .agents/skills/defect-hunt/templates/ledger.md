@@ -1,8 +1,9 @@
 # <Surface> defect hunt: ledger
 
 **Target:** `origin/main` @ `<sha>`. Suite before the hunt: <pass>/<total>.
+**Scope:** `<packages/.../src/... paths hunted>`.
 **Team:** <hunters>, <verifiers>; coordinator: <who>.
-**Referees:** <surface → production oracle (instance or project) | contract
+**Referees:** <surface -> production oracle (instance or project) | contract
 (ADR) | planes>. Live access verified: <control capture and result, or "none:
 committed observations only">.
 
@@ -16,18 +17,26 @@ committed observations only">.
 
 ## Yield by round
 
-| Round | Date | Angles | Reported | Confirmed (`REAL`) | False | New |
-|---|---|---|---|---|---|---|
-| 1 | | | | | | |
+| Round | Date | Angles | Reported | Confirmed (`REAL`) | False | New | New Mechanisms | Repeat Mechanisms |
+|---|---|---|---|---|---|---|---|---|
+| 1 | | | | | | | | |
 
 New means confirmed and not found in an earlier round, an open issue, or the
-pins. An angle with no new findings in a round is done for this surface.
+pins. Track **New Mechanisms** vs **Repeat Mechanisms** (`references/defect-classes.md`)
+to detect when a class needs a standing mechanical check rather than another
+hunter sweep. An angle with no new findings in a round is done for this surface.
+
+## Yield by class
+
+| Class | Sub-Class | Confirmed (`REAL`) | `Sev-1` | Repeat Mechanisms | Standing Check Action |
+|---|---|---|---|---|---|
+| | | | | | none / extend existing / build new (`>= 3` or repeat) |
 
 ## Findings
 
-| ID | Round | Severity | Defect | Verdict | Evidence for expected | Repro | Status |
-|---|---|---|---|---|---|---|---|
-| | | | | | | | open / pinned / fixed in <sha> / filed #<n> / refuted |
+| ID | Round | Severity | Class (Sub-Class) | Mechanism | Novelty | Defect | Verdict | Evidence for expected | Repro | Status |
+|---|---|---|---|---|---|---|---|---|---|---|
+| | | | | | | | | | | open / pinned / fixed in <sha> / filed #<n> / refuted |
 
 ## Clean results
 
