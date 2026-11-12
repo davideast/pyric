@@ -10,10 +10,9 @@ describe('CLI test shards', () => {
     expect([...files].sort()).toEqual(files);
   });
 
-  test('the pyric list covers its suite, the .spec.ts files bun test also discovers included', () => {
+  test('the pyric list covers its suite', () => {
     const pyric = listTests(shardedPackages.pyric);
     expect(pyric.length).toBeGreaterThan(600);
-    expect(pyric.some((file) => file.endsWith('.spec.ts'))).toBe(true);
     expect(pyric.every((file) => file.endsWith('.test.ts') || file.endsWith('.spec.ts'))).toBe(true);
   });
 
@@ -38,9 +37,10 @@ describe('CLI test shards', () => {
     expect(Math.max(...sizes) - Math.min(...sizes)).toBeLessThanOrEqual(1);
   });
 
-  test('the rules list covers the engine suite that moved out of packages/pyric', () => {
+  test('the rules list covers the engine suite, the .spec.ts files bun test also discovers included', () => {
     const rules = listTests(shardedPackages.rules);
     expect(rules.length).toBeGreaterThan(100);
+    expect(rules.some((file) => file.endsWith('.spec.ts'))).toBe(true);
     expect(rules.every((file) => file.endsWith('.test.ts') || file.endsWith('.spec.ts'))).toBe(true);
   });
 
