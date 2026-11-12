@@ -139,7 +139,59 @@ export function evaluateFunctionCall(
         if (projected === null) {
           throw new EvalError(`getAfter() of non-existent document '${pathStr}' (guard with existsAfter() first)`);
         }
-        return makeGetResource(normalized, projected);
+        const unescapedTag = Symbol.for('pyric.unescapedMap');
+        const isPlainObj = (v: unknown): v is Record<string, unknown> => {
+          if (v === null || typeof v !== 'object' || Array.isArray(v)) return false;
+          const p = Object.getPrototypeOf(v);
+          return p === Object.prototype || p === null;
+        };
+        const resolveProjected = (val: unknown): unknown => {
+          if (Array.isArray(val)) return val.map(resolveProjected);
+          if (val === null || typeof val !== 'object' || val instanceof RulesValue) return val;
+          const rec = val as Record<string, unknown>;
+          const isUnescaped = (val as Record<symbol, unknown>)[unescapedTag] === true;
+          if (
+            !isUnescaped &&
+            (rec.__type === 'serverTimestamp' ||
+              rec._methodName === 'serverTimestamp' ||
+              rec._methodName === 'FieldValue.serverTimestamp')
+          ) {
+            return ctx.request.time;
+          }
+          if (!isPlainObj(val)) return val;
+          if (
+            !isUnescaped &&
+            Object.keys(rec).length === 2 &&
+            Object.hasOwn(rec, 'type') &&
+            rec.type === 'pyric/map/1.0' &&
+            isPlainObj(rec.fields)
+          ) {
+            const fieldsOut: Record<string, unknown> = {};
+            for (const [fk, fv] of Object.entries(rec.fields)) {
+              Object.defineProperty(fieldsOut, fk, {
+                value: resolveProjected(fv),
+                enumerable: true,
+                writable: true,
+                configurable: true,
+              });
+            }
+            return { type: 'pyric/map/1.0', fields: fieldsOut };
+          }
+          const out: Record<string, unknown> = {};
+          for (const [k, v] of Object.entries(rec)) {
+            Object.defineProperty(out, k, {
+              value: resolveProjected(v),
+              enumerable: true,
+              writable: true,
+              configurable: true,
+            });
+          }
+          if (isUnescaped) {
+            return { type: 'pyric/map/1.0', fields: out };
+          }
+          return out;
+        };
+        return makeGetResource(normalized, resolveProjected(projected) as Record<string, unknown>);
       }
       return resolveGet(pathStr, ctx);
     }

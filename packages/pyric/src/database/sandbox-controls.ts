@@ -50,6 +50,9 @@ export function setData(
 }
 
 /** Snapshot the complete RTDB tree without applying security rules. */
-export function snapshotState(target: RtdbTarget): JsonValue {
-  return backendOf(target).snapshotState();
+export function snapshotState(
+  target: RtdbTarget,
+  options?: { includePriorities?: boolean },
+): JsonValue {
+  return backendOf(target).snapshotState(options);
 }

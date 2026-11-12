@@ -41,6 +41,7 @@
  *   (`computeTransformOperationBaseValue`, `coercedFieldValuesArray`).
  */
 import { KEEP, DELETE_MARKER, type ValueConverter, type ResolveContext } from '../value-resolver.js';
+import { isUnescapedUserMap, markFieldValueSentinel } from '../unescaped-map.js';
 import { firestoreValuesEqual } from '../value-equality.js';
 
 // ═══ Sentinel shapes ═══
@@ -52,36 +53,40 @@ interface DeleteFieldSentinel { __type: 'deleteField' }
 
 function isIncrement(v: unknown): v is IncrementSentinel {
   return typeof v === 'object' && v !== null
+    && !isUnescapedUserMap(v)
     && (v as Record<string, unknown>).__type === 'increment'
     && typeof (v as Record<string, unknown>).value === 'number';
 }
 function isArrayUnion(v: unknown): v is ArrayUnionSentinel {
   return typeof v === 'object' && v !== null
+    && !isUnescapedUserMap(v)
     && (v as Record<string, unknown>).__type === 'arrayUnion'
     && Array.isArray((v as Record<string, unknown>).values);
 }
 function isArrayRemove(v: unknown): v is ArrayRemoveSentinel {
   return typeof v === 'object' && v !== null
+    && !isUnescapedUserMap(v)
     && (v as Record<string, unknown>).__type === 'arrayRemove'
     && Array.isArray((v as Record<string, unknown>).values);
 }
 function isDeleteField(v: unknown): v is DeleteFieldSentinel {
   return typeof v === 'object' && v !== null
+    && !isUnescapedUserMap(v)
     && (v as Record<string, unknown>).__type === 'deleteField';
 }
 
 // ═══ Sentinel constructors (canonical producers) ═══
 
 export function INCREMENT(value: number): IncrementSentinel {
-  return { __type: 'increment', value };
+  return markFieldValueSentinel({ __type: 'increment', value });
 }
 export function ARRAY_UNION(...values: unknown[]): ArrayUnionSentinel {
-  return { __type: 'arrayUnion', values };
+  return markFieldValueSentinel({ __type: 'arrayUnion', values });
 }
 export function ARRAY_REMOVE(...values: unknown[]): ArrayRemoveSentinel {
-  return { __type: 'arrayRemove', values };
+  return markFieldValueSentinel({ __type: 'arrayRemove', values });
 }
-export const DELETE_FIELD: DeleteFieldSentinel = { __type: 'deleteField' };
+export const DELETE_FIELD: DeleteFieldSentinel = markFieldValueSentinel({ __type: 'deleteField' });
 
 // ═══ Prior lookup ═══
 

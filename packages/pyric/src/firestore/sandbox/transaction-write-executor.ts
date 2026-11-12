@@ -447,6 +447,22 @@ export class TransactionWriteExecutor {
 
     const isAllowed = evaluated.state === 'PASSED';
     if (isAllowed) {
+      const allowedRequest: EmitRequestInput = {
+        at: evalAt,
+        evalMs,
+        method: 'get',
+        path,
+        auth: options.auth,
+        result: 'allow',
+        debugMessages,
+        evaluatedRule: projectEvaluatedRule(evaluated),
+        resourceBefore: { data: prior, exists: priorExists },
+        origin: 'transaction',
+        groupId: txId,
+        rulesEvidence: this.runtime.captureEvidence(evaluated),
+      };
+      if (options.provenance !== undefined) allowedRequest.provenance = options.provenance;
+      this.runtime.emitRequest(allowedRequest);
       return null;
     }
 

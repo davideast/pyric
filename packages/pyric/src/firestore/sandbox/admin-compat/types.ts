@@ -291,21 +291,23 @@ export type FieldValueSentinel =
   | { __type: 'arrayRemove'; values: unknown[] }
   | { __type: 'deleteField' };
 
+import { markFieldValueSentinel } from '../unescaped-map.js';
+
 export class FieldValue {
   static serverTimestamp(): FieldValueSentinel {
-    return { __type: 'serverTimestamp' };
+    return markFieldValueSentinel({ __type: 'serverTimestamp' });
   }
   static increment(n: number): FieldValueSentinel {
-    return { __type: 'increment', value: n };
+    return markFieldValueSentinel({ __type: 'increment', value: n });
   }
   static arrayUnion(...values: unknown[]): FieldValueSentinel {
-    return { __type: 'arrayUnion', values };
+    return markFieldValueSentinel({ __type: 'arrayUnion', values });
   }
   static arrayRemove(...values: unknown[]): FieldValueSentinel {
-    return { __type: 'arrayRemove', values };
+    return markFieldValueSentinel({ __type: 'arrayRemove', values });
   }
   static delete(): FieldValueSentinel {
-    return { __type: 'deleteField' };
+    return markFieldValueSentinel({ __type: 'deleteField' });
   }
 }
 

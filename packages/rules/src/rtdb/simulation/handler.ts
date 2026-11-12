@@ -240,7 +240,7 @@ export class SimulateHandler {
         buildContext,
         evaluateTracedRule,
         trace,
-        pathToWrite: pathSegments,
+        pathToWrite: rawPathSegments,
         updates,
       };
 

@@ -10,6 +10,7 @@ import {
   FieldPath as ChainFieldPath,
   type DocumentData,
 } from 'pyric/sandbox/admin-firestore';
+import { markUserWriteValue } from './sandbox/unescaped-map.js';
 import { parseUpdateArguments } from './sandbox/update-fields.js';
 
 export type ChainUpdateArguments = [DocumentData | ChainFieldPath, ...unknown[]];
@@ -25,6 +26,8 @@ export function parseChainUpdate(
   // An empty data object still requires the document to exist.
   if (fields.length === 0) return [{}];
   const args: unknown[] = [];
-  for (const field of fields) args.push(new ChainFieldPath(...field.path), field.value);
+  for (const field of fields) {
+    args.push(new ChainFieldPath(...field.path), markUserWriteValue(field.value));
+  }
   return args as ChainUpdateArguments;
 }

@@ -26,6 +26,7 @@ import { applyConverterToDocSnap, tagSnapshotRefs, wrapSandboxDocSnap } from './
 import { requireDocumentData } from './internal/document-data.js';
 import { registerAtomicWriterCreate } from './internal/atomic-create.js';
 import { parseChainUpdate } from './chain-update.js';
+import { markUserWriteValue } from './sandbox/unescaped-map.js';
 import type { DocumentData, DocumentReference, DocumentSnapshot, Firestore, FirestoreDataConverter, Transaction, TransactionOptions, WriteBatch } from './types.js';
 
 // ─── Transactions + batches ───────────────────────────────────────────
@@ -36,7 +37,7 @@ function convertSetData(ref: DocumentReference<unknown>, data: unknown): Documen
   const hasConverter = converter !== undefined && converter !== null;
   let payload = data;
   if (hasConverter) payload = converter.toFirestore(data);
-  return requireDocumentData(payload);
+  return markUserWriteValue(requireDocumentData(payload)) as DocumentData;
 }
 
 export async function runTransaction<R>(

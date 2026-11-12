@@ -466,7 +466,7 @@ export function applyServeInit(
       const rtdb = rtdbInstance(ctx).live;
       const rtdbState =
         payload.databaseRules || ctx.sandbox.history().some((event) => event.service === 'rtdb')
-          ? rtdbSandbox.snapshotState(rtdb)
+          ? rtdbSandbox.snapshotState(rtdb, { includePriorities: true })
           : undefined;
       const defaultInstance = defaultInstanceNameOf(ctx);
       const auth = ensureAuth(ctx);

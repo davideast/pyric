@@ -27,6 +27,7 @@
  * Both converters preserve unrelated values via {@link KEEP}.
  */
 import { KEEP, type ValueConverter } from '../value-resolver.js';
+import { isUnescapedUserMap } from '../unescaped-map.js';
 import { Timestamp } from 'pyric/rules/internal';
 
 /**
@@ -38,6 +39,7 @@ function isServerTimestampSentinel(value: unknown): boolean {
   return (
     typeof value === 'object' &&
     value !== null &&
+    !isUnescapedUserMap(value) &&
     (value as Record<string, unknown>).__type === 'serverTimestamp'
   );
 }

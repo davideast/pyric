@@ -1,5 +1,6 @@
 import type { DocumentData } from './document-store.js';
 import { isPlainObject } from './value-resolver.js';
+import { copyUnescapedUserMapTag } from './unescaped-map.js';
 import { Timestamp } from '../timestamp.js';
 import { registeredReferenceQueryValuePath } from './query-value-registry.js';
 
@@ -14,7 +15,7 @@ export function cloneDoc(data: DocumentData): DocumentData {
       configurable: true,
     });
   }
-  return copy;
+  return copyUnescapedUserMapTag(data, copy);
 }
 
 function cloneValue(value: unknown): unknown {

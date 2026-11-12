@@ -369,7 +369,7 @@ if (!useWorker) try {
     const flushCapture = (): void => {
       const rtdbState =
         payload.databaseRules || sandbox.history().some((event) => event.service === 'rtdb')
-          ? rtdbSandbox.snapshotState(getDatabase(sandbox))
+          ? rtdbSandbox.snapshotState(getDatabase(sandbox), { includePriorities: true })
           : undefined;
       const auth = getAuth(sandbox);
       const defaultInstance = databaseRules.defaultName();

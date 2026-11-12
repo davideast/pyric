@@ -14,6 +14,12 @@
 
 import type { ToolHandler } from '../sandbox/internal/tool-handler.js';
 import { QUERY_WHERE_OPERATORS } from './sandbox/query-operators.js';
+import {
+  copyUnescapedUserMapTag,
+  isRegisteredFieldValueSentinel,
+  isUnescapedUserMap,
+  markFieldValueSentinel,
+} from './sandbox/unescaped-map.js';
 import type { LocalSandbox } from 'pyric/sandbox';
 import { inspect } from './sandbox-controls.js';
 import type { Firestore } from './index.js';
@@ -105,6 +111,47 @@ export interface FirestoreInspectToolDeps {
   resolveSandbox(): Promise<LocalSandbox> | LocalSandbox;
 }
 
+function rehydrateToolWriteData(value: unknown): unknown {
+  if (value === null || typeof value !== 'object') return value;
+  if (Array.isArray(value)) return value.map(rehydrateToolWriteData);
+  if (isRegisteredFieldValueSentinel(value)) return value;
+  const proto = Object.getPrototypeOf(value);
+  if (proto !== Object.prototype && proto !== null) return value;
+  const rec = value as Record<string, unknown>;
+  if (!isUnescapedUserMap(rec)) {
+    const keys = Object.keys(rec);
+    if (rec.__type === 'serverTimestamp' && keys.length === 1) {
+      return markFieldValueSentinel({ __type: 'serverTimestamp' });
+    }
+    if (rec.__type === 'deleteField' && keys.length === 1) {
+      return markFieldValueSentinel({ __type: 'deleteField' });
+    }
+    if (rec.__type === 'increment' && keys.length === 2 && typeof rec.value === 'number') {
+      return markFieldValueSentinel({ __type: 'increment', value: rec.value });
+    }
+    if (
+      (rec.__type === 'arrayUnion' || rec.__type === 'arrayRemove') &&
+      keys.length === 2 &&
+      Array.isArray(rec.values)
+    ) {
+      return markFieldValueSentinel({
+        __type: rec.__type,
+        values: rec.values.map(rehydrateToolWriteData),
+      });
+    }
+  }
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(rec)) {
+    Object.defineProperty(out, k, {
+      value: rehydrateToolWriteData(v),
+      enumerable: true,
+      writable: true,
+      configurable: true,
+    });
+  }
+  return copyUnescapedUserMapTag(rec, out);
+}
+
 /**
  * Modular Web-SDK-shaped Firestore data tools — get, list, create,
  * update, delete. Each tool's `auth` arg is forwarded to the
@@ -180,7 +227,7 @@ export function createFirestoreDataTools(deps: FirestoreDataToolDeps): ToolHandl
       async execute(args) {
         const a = args as { path: string; data: Record<string, unknown>; as?: As };
         const db = await resolveDb(a.as);
-        await setDoc(doc(db, a.path), a.data);
+        await setDoc(doc(db, a.path), rehydrateToolWriteData(a.data) as Record<string, unknown>);
         return { ok: true, summary: `Created ${a.path}` };
       },
     },
@@ -199,7 +246,10 @@ export function createFirestoreDataTools(deps: FirestoreDataToolDeps): ToolHandl
       async execute(args) {
         const a = args as { collection: string; data: Record<string, unknown>; as?: As };
         const db = await resolveDb(a.as);
-        const ref = await addDoc(collection(db, a.collection), a.data);
+        const ref = await addDoc(
+          collection(db, a.collection),
+          rehydrateToolWriteData(a.data) as Record<string, unknown>,
+        );
         return { ok: true, summary: `Created ${ref.path}`, data: { path: ref.path, id: ref.id } };
       },
     },
@@ -218,7 +268,7 @@ export function createFirestoreDataTools(deps: FirestoreDataToolDeps): ToolHandl
       async execute(args) {
         const a = args as { path: string; data: Record<string, unknown>; as?: As };
         const db = await resolveDb(a.as);
-        await updateDoc(doc(db, a.path), a.data);
+        await updateDoc(doc(db, a.path), rehydrateToolWriteData(a.data) as Record<string, unknown>);
         return { ok: true, summary: `Updated ${a.path}` };
       },
     },
@@ -281,9 +331,13 @@ export function createFirestoreDataTools(deps: FirestoreDataToolDeps): ToolHandl
         // typesafe and is fine for the seed / bulk-edit use case.)
         for (const o of a.operations) {
           const ref = doc(db, o.path);
-          if (o.op === 'set') await setDoc(ref, o.data ?? {});
-          else if (o.op === 'update') await updateDoc(ref, o.data ?? {});
-          else await deleteDoc(ref);
+          if (o.op === 'set') {
+            await setDoc(ref, rehydrateToolWriteData(o.data ?? {}) as Record<string, unknown>);
+          } else if (o.op === 'update') {
+            await updateDoc(ref, rehydrateToolWriteData(o.data ?? {}) as Record<string, unknown>);
+          } else {
+            await deleteDoc(ref);
+          }
         }
         return { ok: true, summary: `Applied ${a.operations.length} write(s)`, data: { count: a.operations.length } };
       },

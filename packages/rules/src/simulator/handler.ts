@@ -317,6 +317,68 @@ function newEntry(rule: AllowRule, index: number, sourceMap?: AuthoredSourceMap)
 /** Reads a case's values into the simulator's value model. */
 type CaseReviver = (value: unknown) => unknown;
 
+function isPlainCaseObject(value: unknown): value is Record<string, unknown> {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return false;
+  const proto = Object.getPrototypeOf(value);
+  return proto === Object.prototype || proto === null;
+}
+
+function resolveCaseServerTimestamps(
+  value: unknown,
+  serverTime: Timestamp,
+  wrapUnescapedAsEnvelope: boolean,
+): unknown {
+  if (Array.isArray(value)) {
+    return value.map((item) => resolveCaseServerTimestamps(item, serverTime, wrapUnescapedAsEnvelope));
+  }
+  if (value === null || typeof value !== 'object') return value;
+  const unescapedTag = Symbol.for('pyric.unescapedMap');
+  const isUnescaped = (value as Record<symbol, unknown>)[unescapedTag] === true;
+  const rec = value as Record<string, unknown>;
+  if (
+    !isUnescaped &&
+    (rec.__type === 'serverTimestamp' ||
+      rec._methodName === 'serverTimestamp' ||
+      rec._methodName === 'FieldValue.serverTimestamp')
+  ) {
+    return serverTime;
+  }
+  if (!isPlainCaseObject(value)) return value;
+  if (
+    !isUnescaped &&
+    wrapUnescapedAsEnvelope &&
+    Object.keys(rec).length === 2 &&
+    Object.hasOwn(rec, 'type') &&
+    rec.type === 'pyric/map/1.0' &&
+    isPlainCaseObject(rec.fields)
+  ) {
+    const fieldsOut: Record<string, unknown> = {};
+    for (const [fk, fv] of Object.entries(rec.fields)) {
+      Object.defineProperty(fieldsOut, fk, {
+        value: resolveCaseServerTimestamps(fv, serverTime, wrapUnescapedAsEnvelope),
+        enumerable: true,
+        writable: true,
+        configurable: true,
+      });
+    }
+    return { type: 'pyric/map/1.0', fields: fieldsOut };
+  }
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(rec)) {
+    Object.defineProperty(out, k, {
+      value: resolveCaseServerTimestamps(v, serverTime, wrapUnescapedAsEnvelope),
+      enumerable: true,
+      writable: true,
+      configurable: true,
+    });
+  }
+  if (isUnescaped) {
+    if (wrapUnescapedAsEnvelope) return { type: 'pyric/map/1.0', fields: out };
+    Object.defineProperty(out, unescapedTag, { value: true });
+  }
+  return out;
+}
+
 function bindPathVariables(
   pathVariables: Record<string, string>,
   recursiveVariables?: readonly string[],
@@ -446,8 +508,9 @@ function buildContext(
         break;
     }
   }
+  const wrapUnescapedAsEnvelope = revive === reviveFirestoreNumbers;
   const projectedAfter = afterState !== null
-    ? revive(resolveServerTimestamps(afterState, serverTime)) as Record<string, unknown>
+    ? revive(resolveCaseServerTimestamps(afterState, serverTime, wrapUnescapedAsEnvelope)) as Record<string, unknown>
     : null;
 
   // request.resource is populated on create/update (from projectedAfter ?? {})
@@ -460,7 +523,7 @@ function buildContext(
     reqResource = { data: projectedAfter ?? {} };
   } else if (tc.data !== undefined) {
     const revivedTcData = revive(
-      resolveServerTimestamps(tc.data, serverTime),
+      resolveCaseServerTimestamps(tc.data, serverTime, wrapUnescapedAsEnvelope),
     ) as Record<string, unknown>;
     reqResource = { data: revivedTcData };
   }

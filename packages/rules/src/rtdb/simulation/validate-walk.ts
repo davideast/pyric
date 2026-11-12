@@ -156,20 +156,27 @@ export function findFailingValidate(input: ValidateWalkInput): ValidateFailure |
   } = input;
   let firstUnsupported: ValidateFailure | null = null;
 
-  const writePathStrings = new Set<string>();
+  const dataWritePathStrings = new Set<string>();
+  const allTargetPathStrings = new Set<string>();
   if (updates && updates.length > 0) {
     for (const u of updates) {
       const segs = u.path.split('/').filter(Boolean);
-      const effective = segs[segs.length - 1] === '.priority' ? segs.slice(0, -1) : segs;
-      writePathStrings.add(effective.join('/'));
+      const isPriorityOnly = segs[segs.length - 1] === '.priority';
+      const effective = isPriorityOnly ? segs.slice(0, -1) : segs;
+      const joined = effective.join('/');
+      allTargetPathStrings.add(joined);
+      if (!isPriorityOnly) dataWritePathStrings.add(joined);
     }
   } else {
-    const effective = pathToWrite[pathToWrite.length - 1] === '.priority'
-      ? pathToWrite.slice(0, -1)
-      : pathToWrite;
-    writePathStrings.add(effective.filter(Boolean).join('/'));
+    const clean = pathToWrite.filter(Boolean);
+    const isPriorityOnly = clean[clean.length - 1] === '.priority';
+    const effective = isPriorityOnly ? clean.slice(0, -1) : clean;
+    const joined = effective.join('/');
+    allTargetPathStrings.add(joined);
+    if (!isPriorityOnly) dataWritePathStrings.add(joined);
   }
-  const allWritePaths = Array.from(writePathStrings).map((p) => p.split('/').filter(Boolean));
+  const dataWritePaths = Array.from(dataWritePathStrings).map((p) => p.split('/').filter(Boolean));
+  const allWritePaths = Array.from(allTargetPathStrings).map((p) => p.split('/').filter(Boolean));
 
   /** The next key of every write path that passes through `currentSegments`. */
   function writeKeysBelow(currentSegments: readonly string[]): Set<string> {
@@ -212,10 +219,11 @@ export function findFailingValidate(input: ValidateWalkInput): ValidateFailure |
       }
     }
 
-    // At or below a write location the written value is present in full, so
-    // every child it carries is visited. Above one, only the children on a
-    // write path are: a sibling the write does not carry is never validated.
-    const isAtOrBelowWriteTarget = allWritePaths.some(
+    // At or below a data write location the written value is present in full,
+    // so every child it carries is visited. Above one (or at a `.priority`-only
+    // target), only the children on a write path are: an untouched child or
+    // sibling the write does not carry is never validated.
+    const isAtOrBelowWriteTarget = dataWritePaths.some(
       (wp) => wp.length <= currentSegments.length && wp.every((seg, idx) => seg === currentSegments[idx]),
     );
     const childKeys = isAtOrBelowWriteTarget

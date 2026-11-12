@@ -179,7 +179,8 @@ function buildTestCase(
   // A create's rules see no existing resource, as the simulator and the
   // bridge bind it, even when the recorded create hit an existing document.
   // The Rules Test API would bind one, so a case carrying it is refused.
-  const existing = event.resourceBefore?.exists ? event.resourceBefore.data : null;
+  const rawExisting = event.resourceBefore?.exists ? event.resourceBefore.data : null;
+  const existing = rawExisting !== null ? (unwrapEscapedCaseValue(rawExisting) as Record<string, unknown>) : null;
   const bindsExisting = existing !== null && method !== 'create';
   if (bindsExisting) testCase.resource = existing;
 
@@ -193,12 +194,15 @@ function buildTestCase(
         !isRolledBackGroupRequest &&
         isFirestoreWriteData(event.resourceAfter?.data);
       if (hasResolvedAfter) {
-        testCase.data = event.resourceAfter!.data!;
+        testCase.data = unwrapEscapedCaseValue(event.resourceAfter!.data!) as Record<string, unknown>;
         if (method !== 'update') {
           testCase.writeMode = writeModeForEvent(event, method);
         }
       } else {
-        const rawData = event.request?.resourceData ?? event.resourceAfter?.data;
+        const sourceRawData = event.request?.resourceData ?? event.resourceAfter?.data;
+        const rawData = isFirestoreWriteData(sourceRawData)
+          ? (unwrapEscapedCaseValue(sourceRawData) as Record<string, unknown>)
+          : sourceRawData;
         const reqObj = event.request as { updateMask?: unknown; merge?: unknown } | undefined;
         const updateMask = reqObj?.updateMask;
         const reqMerge = reqObj?.merge;
@@ -311,16 +315,68 @@ function maskHasLiteralDotSegment(mask: readonly unknown[]): boolean {
   );
 }
 
-function isPlainFirestoreMap(value: unknown): value is Record<string, unknown> {
+const UNESCAPED_MAP_TAG = Symbol.for('pyric.unescapedMap');
+
+function isUnescapedCaseMap(value: unknown): boolean {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    (value as Record<symbol, unknown>)[UNESCAPED_MAP_TAG] === true
+  );
+}
+
+function copyUnescapedTag<T extends Record<string, unknown>>(source: unknown, target: T): T {
+  if (isUnescapedCaseMap(source)) {
+    Object.defineProperty(target, UNESCAPED_MAP_TAG, { value: true });
+  }
+  return target;
+}
+
+function isPlainObjectProto(value: unknown): value is Record<string, unknown> {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) return false;
   if (value instanceof RulesValue) return false;
   const proto = Object.getPrototypeOf(value);
-  if (proto !== Object.prototype && proto !== null) return false;
+  return proto === Object.prototype || proto === null;
+}
+
+function unwrapEscapedCaseValue(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(unwrapEscapedCaseValue);
+  if (!isPlainObjectProto(value)) return value;
+  const alreadyUnescaped = isUnescapedCaseMap(value);
+  if (
+    !alreadyUnescaped &&
+    Object.keys(value).length === 2 &&
+    Object.hasOwn(value, 'type') &&
+    value.type === 'pyric/map/1.0' &&
+    isPlainObjectProto(value.fields)
+  ) {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value.fields)) {
+      defineOwnProperty(out, k, unwrapEscapedCaseValue(v));
+    }
+    Object.defineProperty(out, UNESCAPED_MAP_TAG, { value: true });
+    return out;
+  }
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(value)) {
+    defineOwnProperty(out, k, unwrapEscapedCaseValue(v));
+  }
+  return copyUnescapedTag(value, out);
+}
+
+function isPlainFirestoreMap(value: unknown): value is Record<string, unknown> {
+  if (!isPlainObjectProto(value)) return false;
+  if (isUnescapedCaseMap(value)) return true;
   const obj = value as Record<string, unknown>;
   if (typeof obj.__type === 'string') return false;
   if (typeof obj._methodName === 'string') return false;
   if (obj.__type__ === '__vector__') return false;
-  if (typeof obj.type === 'string' && obj.type.startsWith('firestore/')) return false;
+  if (
+    typeof obj.type === 'string' &&
+    (obj.type.startsWith('firestore/') || obj.type.startsWith('pyric/'))
+  ) {
+    return false;
+  }
   return true;
 }
 
@@ -329,11 +385,12 @@ function containsNonPassthroughSentinel(value: unknown): boolean {
   if (Array.isArray(value)) return value.some(containsNonPassthroughSentinel);
   const obj = value as Record<string, unknown>;
   if (
-    obj.__type === 'deleteField' ||
-    obj.__type === 'increment' ||
-    obj.__type === 'arrayUnion' ||
-    obj.__type === 'arrayRemove' ||
-    typeof obj._methodName === 'string'
+    !isUnescapedCaseMap(value) &&
+    (obj.__type === 'deleteField' ||
+      obj.__type === 'increment' ||
+      obj.__type === 'arrayUnion' ||
+      obj.__type === 'arrayRemove' ||
+      typeof obj._methodName === 'string')
   ) {
     return true;
   }
@@ -420,69 +477,72 @@ function resolveFieldTree(
       .filter((item) => item !== DELETE_FIELD_SYM);
   }
   const obj = value as Record<string, unknown>;
-  const methodName = typeof obj._methodName === 'string' ? obj._methodName : undefined;
-  if (
-    obj.__type === 'deleteField' ||
-    methodName === 'deleteField' ||
-    methodName === 'FieldValue.deleteField'
-  ) {
-    return DELETE_FIELD_SYM;
-  }
-  if (
-    obj.__type === 'serverTimestamp' ||
-    methodName === 'serverTimestamp' ||
-    methodName === 'FieldValue.serverTimestamp'
-  ) {
-    return { __type: 'serverTimestamp' };
-  }
-  if (
-    (obj.__type === 'increment' && typeof obj.value === 'number') ||
-    ((methodName === 'increment' || methodName === 'FieldValue.increment') &&
-      typeof obj._operand === 'number')
-  ) {
-    const delta = typeof obj.value === 'number' ? obj.value : (obj._operand as number);
-    const priorVal = readBySegments(priorRoot, fieldSegments);
-    const base = numericValueOf(priorVal) ?? 0;
-    return base + delta;
-  }
-  if (
-    (obj.__type === 'arrayUnion' && Array.isArray(obj.values)) ||
-    ((methodName === 'arrayUnion' || methodName === 'FieldValue.arrayUnion') &&
-      Array.isArray(obj._elements))
-  ) {
-    const rawItems = (Array.isArray(obj.values) ? obj.values : (obj._elements as unknown[])).map(
-      (item) => resolveFieldTree(item, priorRoot, fieldSegments),
-    );
-    const priorVal = readBySegments(priorRoot, fieldSegments);
-    const base = Array.isArray(priorVal) ? priorVal.slice() : [];
-    for (const item of rawItems) {
-      if (item === DELETE_FIELD_SYM) continue;
-      if (!base.some((existing) => deepFirestoreEqual(existing, item))) {
-        base.push(item);
-      }
+  const isUnescaped = isUnescapedCaseMap(value);
+  if (!isUnescaped) {
+    const methodName = typeof obj._methodName === 'string' ? obj._methodName : undefined;
+    if (
+      obj.__type === 'deleteField' ||
+      methodName === 'deleteField' ||
+      methodName === 'FieldValue.deleteField'
+    ) {
+      return DELETE_FIELD_SYM;
     }
-    return base;
-  }
-  if (
-    (obj.__type === 'arrayRemove' && Array.isArray(obj.values)) ||
-    ((methodName === 'arrayRemove' || methodName === 'FieldValue.arrayRemove') &&
-      Array.isArray(obj._elements))
-  ) {
-    const rawItems = (Array.isArray(obj.values) ? obj.values : (obj._elements as unknown[])).map(
-      (item) => resolveFieldTree(item, priorRoot, fieldSegments),
-    );
-    const priorVal = readBySegments(priorRoot, fieldSegments);
-    if (!Array.isArray(priorVal)) return [];
-    return priorVal.filter(
-      (existing) => !rawItems.some((item) => deepFirestoreEqual(existing, item)),
-    );
+    if (
+      obj.__type === 'serverTimestamp' ||
+      methodName === 'serverTimestamp' ||
+      methodName === 'FieldValue.serverTimestamp'
+    ) {
+      return { __type: 'serverTimestamp' };
+    }
+    if (
+      (obj.__type === 'increment' && typeof obj.value === 'number') ||
+      ((methodName === 'increment' || methodName === 'FieldValue.increment') &&
+        typeof obj._operand === 'number')
+    ) {
+      const delta = typeof obj.value === 'number' ? obj.value : (obj._operand as number);
+      const priorVal = readBySegments(priorRoot, fieldSegments);
+      const base = numericValueOf(priorVal) ?? 0;
+      return base + delta;
+    }
+    if (
+      (obj.__type === 'arrayUnion' && Array.isArray(obj.values)) ||
+      ((methodName === 'arrayUnion' || methodName === 'FieldValue.arrayUnion') &&
+        Array.isArray(obj._elements))
+    ) {
+      const rawItems = (Array.isArray(obj.values) ? obj.values : (obj._elements as unknown[])).map(
+        (item) => resolveFieldTree(item, priorRoot, fieldSegments),
+      );
+      const priorVal = readBySegments(priorRoot, fieldSegments);
+      const base = Array.isArray(priorVal) ? priorVal.slice() : [];
+      for (const item of rawItems) {
+        if (item === DELETE_FIELD_SYM) continue;
+        if (!base.some((existing) => deepFirestoreEqual(existing, item))) {
+          base.push(item);
+        }
+      }
+      return base;
+    }
+    if (
+      (obj.__type === 'arrayRemove' && Array.isArray(obj.values)) ||
+      ((methodName === 'arrayRemove' || methodName === 'FieldValue.arrayRemove') &&
+        Array.isArray(obj._elements))
+    ) {
+      const rawItems = (Array.isArray(obj.values) ? obj.values : (obj._elements as unknown[])).map(
+        (item) => resolveFieldTree(item, priorRoot, fieldSegments),
+      );
+      const priorVal = readBySegments(priorRoot, fieldSegments);
+      if (!Array.isArray(priorVal)) return [];
+      return priorVal.filter(
+        (existing) => !rawItems.some((item) => deepFirestoreEqual(existing, item)),
+      );
+    }
   }
   if (!isPlainFirestoreMap(value)) return value;
   const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(obj)) {
     defineOwnProperty(out, k, resolveFieldTree(v, priorRoot, [...fieldSegments, k]));
   }
-  return out;
+  return copyUnescapedTag(value, out);
 }
 
 function stripDeleteSymbols(value: unknown): unknown {
@@ -495,7 +555,7 @@ function stripDeleteSymbols(value: unknown): unknown {
     if (v === DELETE_FIELD_SYM) continue;
     defineOwnProperty(out, k, stripDeleteSymbols(v));
   }
-  return out;
+  return copyUnescapedTag(value, out);
 }
 
 function clonePlainMap(src: Record<string, unknown>): Record<string, unknown> {
@@ -507,7 +567,7 @@ function clonePlainMap(src: Record<string, unknown>): Record<string, unknown> {
       isPlainFirestoreMap(v) ? clonePlainMap(v) : Array.isArray(v) ? v.slice() : v,
     );
   }
-  return out;
+  return copyUnescapedTag(src, out);
 }
 
 function applyPathLeaf(
@@ -533,6 +593,15 @@ function applyPathLeaf(
     if (Object.hasOwn(cursor, leaf)) delete cursor[leaf];
   } else {
     defineOwnProperty(cursor, leaf, stripDeleteSymbols(value));
+  }
+  if (
+    segments.length > 1 &&
+    (Object.hasOwn(cursor, '__type') ||
+      Object.hasOwn(cursor, 'type') ||
+      Object.hasOwn(cursor, '__type__') ||
+      (Object.hasOwn(cursor, 'id') && Object.hasOwn(cursor, 'path')))
+  ) {
+    Object.defineProperty(cursor, UNESCAPED_MAP_TAG, { value: true });
   }
 }
 

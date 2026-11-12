@@ -15,6 +15,7 @@ import {
   type CompiledStorageRules,
   requestResourceFor,
   resourceFromStored,
+  rulesBucketName,
   type StoredMetadata,
 } from 'pyric/storage/internal';
 import { rtdbRulesSourceRejection, type RtdbRulesDocument } from 'pyric/rules/internal/rtdb';
@@ -28,8 +29,11 @@ import type { ObservedCall } from 'pyric/sandbox';
 import { definedOnly } from '../serve/worker/host/observe-local-evaluation.js';
 import { evaluateFirestoreCall, type FirestoreSimulate } from '../serve/worker/host/observe-local-firestore.js';
 import {
+  parseToASTOrError,
+  resolveModulesBrowser,
   rulesSourceRejection,
   SimulateFirestoreRulesHandler,
+  Timestamp,
   type ExpressionReportLevel,
   type TestCase,
   type TestResult,
@@ -400,7 +404,13 @@ function verifyFirestoreSandbox(
       proj = new Map();
       batchProjectionByGroupId.set(groupId, proj);
     }
-    proj.set(tc.path, tc.method === 'delete' ? null : (tc.data ?? null));
+    const resolvedTime = tc.requestTime ? Timestamp.fromIsoString(tc.requestTime) : Timestamp.fromMillis(Date.now());
+    proj.set(
+      tc.path,
+      tc.method === 'delete' || tc.data === undefined
+        ? null
+        : (resolveProjectedServerTimestamps(tc.data, resolvedTime) as Record<string, unknown>),
+    );
   }
   const readCases = derivation.testCases.filter(
     (tc) => tc.method === 'get' || tc.method === 'list',
@@ -423,7 +433,7 @@ function verifyFirestoreSandbox(
       const batchProjection = groupId ? batchProjectionByGroupId.get(groupId) : undefined;
       const simulated = simulator.simulate(rules, [tc], {
         getDoc: (docPath) => pointInTimeDocs[docPath] ?? null,
-        ...(batchProjection ? { batchProjection } : {}),
+        ...(!isRead && batchProjection ? { batchProjection } : {}),
       });
       if (!simulated.success) {
         mapped.push({
@@ -676,6 +686,62 @@ function buildPointInTimeFirestoreDocs(
     }
   }
   return docsByEventId;
+}
+
+function isPlainProjectedObject(value: unknown): value is Record<string, unknown> {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return false;
+  const proto = Object.getPrototypeOf(value);
+  return proto === Object.prototype || proto === null;
+}
+
+function resolveProjectedServerTimestamps(value: unknown, serverTime: Timestamp): unknown {
+  if (Array.isArray(value)) {
+    return value.map((item) => resolveProjectedServerTimestamps(item, serverTime));
+  }
+  if (value === null || typeof value !== 'object') return value;
+  const unescapedTag = Symbol.for('pyric.unescapedMap');
+  const isUnescaped = (value as Record<symbol, unknown>)[unescapedTag] === true;
+  const rec = value as Record<string, unknown>;
+  if (
+    !isUnescaped &&
+    (rec.__type === 'serverTimestamp' ||
+      rec._methodName === 'serverTimestamp' ||
+      rec._methodName === 'FieldValue.serverTimestamp')
+  ) {
+    return serverTime;
+  }
+  if (!isPlainProjectedObject(value)) return value;
+  if (
+    !isUnescaped &&
+    Object.keys(rec).length === 2 &&
+    Object.hasOwn(rec, 'type') &&
+    rec.type === 'pyric/map/1.0' &&
+    isPlainProjectedObject(rec.fields)
+  ) {
+    const fieldsOut: Record<string, unknown> = {};
+    for (const [fk, fv] of Object.entries(rec.fields)) {
+      Object.defineProperty(fieldsOut, fk, {
+        value: resolveProjectedServerTimestamps(fv, serverTime),
+        enumerable: true,
+        writable: true,
+        configurable: true,
+      });
+    }
+    return { type: 'pyric/map/1.0', fields: fieldsOut };
+  }
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(rec)) {
+    Object.defineProperty(out, k, {
+      value: resolveProjectedServerTimestamps(v, serverTime),
+      enumerable: true,
+      writable: true,
+      configurable: true,
+    });
+  }
+  if (isUnescaped) {
+    Object.defineProperty(out, unescapedTag, { value: true });
+  }
+  return out;
 }
 
 function isProtectedFirestoreWrite(event: PyricVerifyFixture['events'][number]): boolean {
@@ -966,14 +1032,39 @@ async function verifyStorage(
     if (isUnchecked) continue;
 
     const objectPath = (opEvent.path ?? '').replace(/^\/+/, '');
+    const opBucket = storageOperationBucket(opEvent);
     let pairedMutation: ServiceMutationEvent | undefined;
     if (opEvent.result === 'allow' && isStorageWriteMethod(opEvent.method)) {
       for (let j = i + 1; j < fixture.events.length; j++) {
         if (consumedMutationIndices.has(j)) continue;
         const next = fixture.events[j]!;
         if (next.service !== 'storage') continue;
-        if (next.kind === 'service_mutation' && next.path === opEvent.path) {
-          pairedMutation = next as ServiceMutationEvent;
+        if (next.kind !== 'operation' && next.kind !== 'service_mutation') continue;
+        const nextPath = (next.path ?? '').replace(/^\/+/, '');
+        if (nextPath !== objectPath) continue;
+        if (next.kind === 'operation') {
+          const nextOp = next as SandboxOperationEvent;
+          const nextBucket = storageOperationBucket(nextOp);
+          const sameBucket =
+            opBucket === undefined || nextBucket === undefined || nextBucket === opBucket;
+          if (
+            sameBucket &&
+            nextOp.result === 'allow' &&
+            isStorageWriteMethod(nextOp.method) &&
+            nextOp.method !== opEvent.method
+          ) {
+            break;
+          }
+          continue;
+        }
+        if (next.kind === 'service_mutation') {
+          const candidate = next as ServiceMutationEvent;
+          const mutBucket = storageMutationBucket(candidate);
+          if (opBucket !== undefined && mutBucket !== opBucket) continue;
+          if (!isMatchingStorageMutationOp(opEvent.method, candidate.op)) {
+            break;
+          }
+          pairedMutation = candidate;
           consumedMutationIndices.add(j);
           break;
         }
@@ -1144,6 +1235,23 @@ function isStorageWriteMethod(method: string | undefined): boolean {
   return method === 'create' || method === 'update' || method === 'delete' || method === 'write';
 }
 
+function isMatchingStorageMutationOp(
+  method: string | undefined,
+  mutationOp: string | undefined,
+): boolean {
+  if (method === 'create') return mutationOp === 'object_put';
+  if (method === 'update') return mutationOp === 'metadata_update';
+  if (method === 'delete') return mutationOp === 'object_delete';
+  if (method === 'write') {
+    return (
+      mutationOp === 'object_put' ||
+      mutationOp === 'metadata_update' ||
+      mutationOp === 'object_delete'
+    );
+  }
+  return false;
+}
+
 function storageOperationBucket(opEvent: SandboxOperationEvent): string | undefined {
   const directBucket = (opEvent as { bucket?: unknown }).bucket;
   if (typeof directBucket === 'string' && directBucket.length > 0) return directBucket;
@@ -1270,7 +1378,7 @@ function addEngineDrift(
 
 function requireFirestoreRules(input: VerifyRulesInput): string {
   const rules = input.firestore;
-  const source =
+  let source =
     typeof rules === 'string'
       ? rules
       : rules && typeof rules.source === 'string'
@@ -1281,6 +1389,25 @@ function requireFirestoreRules(input: VerifyRulesInput): string {
   }
   if (source.trim().length === 0) {
     throw new VerifyInputError('candidate Firestore rules would not deploy: empty rules source.');
+  }
+  if (new TextEncoder().encode(source).length < 262_144) {
+    const parsed = parseToASTOrError(source);
+    if (
+      parsed.ok &&
+      parsed.ast.version === '2+modules' &&
+      (parsed.ast.service === undefined || parsed.ast.service.name === 'cloud.firestore')
+    ) {
+      const resolved = resolveModulesBrowser(source, { targetService: 'cloud.firestore' });
+      if (!resolved.success) {
+        if (!resolved.error.message.includes('requires basePath for relative imports')) {
+          throw new VerifyInputError(
+            `candidate Firestore rules would not deploy: Firestore rules module resolution failed (${resolved.error.code}): ${resolved.error.message}`,
+          );
+        }
+      } else {
+        source = resolved.data.resolved;
+      }
+    }
   }
   const rejection = rulesSourceRejection(source);
   if (rejection !== null) {
@@ -1314,9 +1441,13 @@ function storageCandidateRuleset(input: VerifyRulesInput, fixture: PyricVerifyFi
   const defaultRules = defaultSource === undefined ? undefined : compileCandidateStorageRules(defaultSource);
   if (byBucket === undefined) return { ...(defaultRules === undefined ? {} : { defaultRules }) };
   const buckets = new Map<string, CompiledStorageRules['rules']>();
-  for (const [bucket, rules] of Object.entries(byBucket)) {
+  for (const [rawBucket, rules] of Object.entries(byBucket)) {
+    const bucket = rulesBucketName(rawBucket, rawBucket);
+    if (buckets.has(bucket)) {
+      throw new VerifyInputError(`duplicate candidate Storage rules for bucket "${bucket}".`);
+    }
     const source = storageSourceText(rules);
-    if (source === undefined) throw new VerifyInputError(`missing candidate Storage rules for bucket "${bucket}".`);
+    if (source === undefined) throw new VerifyInputError(`missing candidate Storage rules for bucket "${rawBucket}".`);
     buckets.set(bucket, compileCandidateStorageRules(source, bucket));
   }
   return { ...(defaultRules === undefined ? {} : { defaultRules }), buckets };

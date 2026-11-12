@@ -18,13 +18,19 @@ import {
   checkRulesSource,
   DUPLICATE_SERVICE_REASON,
   duplicateServiceRejection,
+  sourceSizeViolation,
   wrongServiceReason,
   type RulesSourceRejection,
 } from '../grammar/source-compile-limits.js';
 import { lintFirestoreRules } from '../linter/linter.js';
 import { validateFirestoreRules } from '../grammar/FirestoreValidator.js';
 import { SimulateFirestoreRulesHandler } from '../simulator/handler.js';
-import { readAuthoredSourceMap, type AuthoredSourceMap } from '../modules/resolver-core.js';
+import {
+  isLocalRelativeModuleSpecifier,
+  readAuthoredSourceMap,
+  resolveModulesBrowser,
+  type AuthoredSourceMap,
+} from '../modules/resolver-browser.js';
 import { projectEvaluatedRule } from '../test/spec.js';
 import type { TestCase, TestResult } from '../test/spec.js';
 import { RulesCompileError } from './errors.js';
@@ -192,9 +198,36 @@ function toEngineResult(r: CaseResult) {
  *   compile-blocking issues on `.issues`.
  */
 export function firestoreRules(source: string): FirestoreRuleset {
-  const checked = checkRulesSource(source);
-  if (!checked.ok) throw compileError(source, checked.rejection);
-  return new FirestoreRulesetImpl(source, checked.ast);
+  let effectiveSource = source;
+  if (sourceSizeViolation(source) === null) {
+    const initial = parseToASTOrError(source);
+    if (
+      initial.ok &&
+      initial.ast.version === '2+modules' &&
+      (initial.ast.service === undefined || initial.ast.service.name === 'cloud.firestore') &&
+      duplicateServiceRejection(initial.ast) === null &&
+      !initial.ast.imports?.some((imp) => isLocalRelativeModuleSpecifier(imp.module))
+    ) {
+      const resolved = resolveModulesBrowser(source, { targetService: 'cloud.firestore' });
+      if (!resolved.success) {
+        const issue: RuleIssue = {
+          code: resolved.error.code,
+          severity: 'error',
+          message: resolved.error.message,
+          line: 1,
+          origin: 'parse',
+        };
+        throw new RulesCompileError(
+          `Firestore rules module resolution failed (${resolved.error.code}): ${resolved.error.message}`,
+          [issue],
+        );
+      }
+      effectiveSource = resolved.data.resolved;
+    }
+  }
+  const checked = checkRulesSource(effectiveSource);
+  if (!checked.ok) throw compileError(effectiveSource, checked.rejection);
+  return new FirestoreRulesetImpl(effectiveSource, checked.ast);
 }
 
 /**
