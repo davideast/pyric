@@ -162,15 +162,30 @@ assert_no_sdk_runtime_deps() {
 assert_no_sdk_runtime_deps "$TARBALL_RULES" "@pyric/rules"
 assert_no_sdk_runtime_deps "$TARBALL_PYRIC" "pyric"
 
-# pyric loads its rules engine from @pyric/rules, so its packed manifest must
-# depend on the version packed beside it.
+# pyric loads its rules engine from @pyric/rules, including its internal
+# paths, so its packed manifest must depend on exactly the version packed
+# beside it. A caret would let a later rules publish break an installed pyric.
 RULES_VERSION=$(jq -r '.version' "$ROOT/packages/rules/package.json")
-PYRIC_RULES_RANGE=$(tar -xzOf "$TARBALL_PYRIC" package/package.json | jq -r '.dependencies["@pyric/rules"] // ""')
-if [ "$PYRIC_RULES_RANGE" != "^$RULES_VERSION" ]; then
-  echo "  ✗ pyric packed manifest depends on @pyric/rules '$PYRIC_RULES_RANGE', expected '^$RULES_VERSION'" >&2
+PYRIC_RULES_SPEC=$(tar -xzOf "$TARBALL_PYRIC" package/package.json | jq -r '.dependencies["@pyric/rules"] // ""')
+if [ "$PYRIC_RULES_SPEC" != "$RULES_VERSION" ]; then
+  echo "  ✗ pyric packed manifest depends on @pyric/rules '$PYRIC_RULES_SPEC', expected exactly '$RULES_VERSION'" >&2
   exit 1
 fi
-echo "  ✓ pyric packed manifest depends on @pyric/rules ^$RULES_VERSION"
+echo "  ✓ pyric packed manifest depends on @pyric/rules $RULES_VERSION exactly"
+
+# No packed manifest may give a pinned workspace package (see
+# PINNED_WORKSPACE_PACKAGES in scripts/lib/rewrite-workspace-deps.mjs) a range.
+assert_pinned_workspace_deps_exact() {
+  local tarball="$1" tmp
+  tmp=$(mktemp -d)
+  tar -xzOf "$tarball" package/package.json > "$tmp/package.json"
+  node "$ROOT/scripts/lib/rewrite-workspace-deps.mjs" --check "$tmp/package.json" "$ROOT"
+  rm -rf "$tmp"
+}
+for tarball in "$TARBALL_RULES" "$TARBALL_PYRIC" "$TARBALL_PYRIC_ADMIN" "$TARBALL_CREATE_PYRIC" "$TARBALL_PYRIC_CLI" "$TARBALL_UI" "$TARBALL_LIVE"; do
+  assert_pinned_workspace_deps_exact "$tarball"
+done
+echo "  ✓ no packed manifest gives a pinned workspace package a range"
 assert_no_sdk_runtime_deps "$TARBALL_PYRIC_ADMIN" "pyric-admin"
 assert_no_sdk_runtime_deps "$TARBALL_PYRIC_CLI" "@pyric/cli"
 assert_no_sdk_runtime_deps "$TARBALL_LIVE" "@pyric/live"
