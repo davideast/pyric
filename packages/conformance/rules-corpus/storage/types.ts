@@ -15,7 +15,7 @@
  * production Rules Test API client or the in-process `evaluateStorageRules`.
  */
 import type { Scenario } from '../firestore/types.ts';
-import type { StorageTestCase } from '../../../../packages/pyric/src/rules/test/spec.ts';
+import type { StorageTestCase } from '../../../rules/src/test/spec.ts';
 
 /**
  * A Storage rules conformance scenario. Same provenance fields as the Firestore

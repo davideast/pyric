@@ -4,13 +4,13 @@
  * Test API compile-limit capture.
  */
 import { describe, expect, test } from 'bun:test';
-import { firestoreRules } from '../../../src/rules/api/firestore.js';
-import { RulesCompileError } from '../../../src/rules/api/errors.js';
-import { SimulateFirestoreRulesHandler } from '../../../src/rules/simulator/handler.js';
+import { firestoreRules } from '@pyric/rules';
+import { RulesCompileError } from '@pyric/rules';
+import { SimulateFirestoreRulesHandler } from '@pyric/rules/internal';
 import { RulesState } from '../../../src/firestore/sandbox/rules-state.js';
 import { simulateDeployedRules } from '../../../src/firestore/sandbox/rules-simulator.js';
-import type { TestCase } from '../../../src/rules/test/spec.js';
-import { compileLimitProbes } from '../compile-limits-probes.js';
+import type { TestCase } from '@pyric/rules/internal';
+import { compileLimitProbes } from '../../../../rules/test/compile-limits-probes.js';
 
 const probes = compileLimitProbes().filter((p) => p.service === 'firestore');
 

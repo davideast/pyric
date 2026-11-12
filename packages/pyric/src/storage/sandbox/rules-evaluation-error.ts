@@ -1,4 +1,4 @@
-import type { ExpressionPosition } from '../../rules/grammar/expression-positions.js';
+import type { ExpressionPosition } from '@pyric/rules/internal';
 
 /** Fatal evaluator misuse caught at the allow boundary and converted to a deny. */
 export class RuleEvalError extends Error {}

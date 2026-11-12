@@ -2,7 +2,7 @@
  * Step construction, MIME/constraint synthesis, and path binding helpers for
  * Cloud Storage assurance probes.
  */
-import { re2FullMatch } from '../../rules/simulator/rules-type.js';
+import { re2FullMatch } from '@pyric/rules/internal';
 import type { AccessSite } from '../code/types.js';
 import {
   coversPattern,

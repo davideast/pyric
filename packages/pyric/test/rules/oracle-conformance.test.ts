@@ -22,7 +22,7 @@ describe('oracle conformance (rules-firestore)', () => {
 });
 
 import { LocalEnvironment } from 'pyric/sandbox/internal';
-import { lintFirestoreRules } from '../../src/rules/linter/linter.js';
+import { lintFirestoreRules } from '@pyric/rules/internal';
 
 describe('unit-backed rules-firestore rows (standard behavior assertions)', () => {
   it('firestore-rules#190: getAfter() keeps fields a batch update does not name', () => {

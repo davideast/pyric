@@ -10,9 +10,9 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const PYRIC = join(HERE, '..', '..', '..', 'pyric');
-const STDLIB = join(PYRIC, 'src', 'rules', 'modules', 'stdlib');
-const FIXTURES = join(PYRIC, 'test', 'rules', 'modules', 'fixtures');
+const RULES = join(HERE, '..', '..', '..', 'rules');
+const STDLIB = join(RULES, 'src', 'modules', 'stdlib');
+const FIXTURES = join(RULES, 'test', 'modules', 'fixtures');
 
 interface ReplayObservation {
   schema: string;

@@ -10,7 +10,7 @@ import {
 import {
   normalizeStoragePath,
   type StorageTestCase,
-} from '../../pyric/src/rules/test/spec.ts';
+} from '../../rules/src/test/spec.ts';
 import {
   parseStorageRules,
   type EvaluationInput,

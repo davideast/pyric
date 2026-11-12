@@ -15,11 +15,11 @@
  * stdlib pair for free.
  */
 import type { ToolHandler } from '../sandbox/internal/tool-handler.js';
-import { parseToAST } from '../rules/grammar/FirestoreParser.js';
-import { validateFirestoreRules } from '../rules/grammar/FirestoreValidator.js';
-import { lintFirestoreRules } from '../rules/linter/linter.js';
-import { resolveModulesBrowser } from '../rules/modules/resolver-browser.js';
-import { closestKey } from '../rules/closest-key.js';
+import { parseToAST } from '@pyric/rules/internal';
+import { validateFirestoreRules } from '@pyric/rules/internal';
+import { lintFirestoreRules } from '@pyric/rules/internal';
+import { resolveModulesBrowser } from '@pyric/rules/internal';
+import { closestKey } from '@pyric/rules/internal';
 import {
   STDLIB_MODULES,
   findModuleByKey,
@@ -27,13 +27,13 @@ import {
   modulesForService,
   suggestKey,
   type RulesService,
-} from '../rules/stdlib-modules.js';
+} from '@pyric/rules/internal';
 import {
   RTDB_STDLIB_IMPORT,
   RTDB_STDLIB_MODULES,
   findRtdbStdlibModule,
   rtdbImportLineFor,
-} from '../rules/rtdb/stdlib/catalog.js';
+} from '@pyric/rules/internal/rtdb';
 
 function expectedServiceName(service: RulesService): string {
   return service === 'storage' ? 'firebase.storage' : 'cloud.firestore';

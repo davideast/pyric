@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'bun:test';
 import { parseStorageRules } from '../../../src/storage/sandbox/rules.js';
 import { evaluateStorageRules } from '../../../src/storage/sandbox/rules-evaluator.js';
-import { SimulateFirestoreRulesHandler } from '../../../src/rules/simulator/handler.js';
-import { EXPRESSION_LIMIT, EXPRESSION_LIMIT_MESSAGE } from '../../../src/rules/simulator/expression-budget.js';
+import { SimulateFirestoreRulesHandler } from '@pyric/rules/internal';
+import { EXPRESSION_LIMIT, EXPRESSION_LIMIT_MESSAGE } from '@pyric/rules/internal';
 
 // ─── The 1000-expression budget in Storage rules ─────────────────
 //

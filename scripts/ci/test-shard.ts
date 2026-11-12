@@ -8,7 +8,7 @@
 // With --quarantine, which only CI passes, a failure of quarantined tests
 // alone is reported and does not fail the shard (scripts/lib/quarantine).
 //
-//   bun scripts/ci/test-shard.ts [--package=pyric] --shard=1/2 [--list] [--quarantine] [-- <extra bun test args>]
+//   bun scripts/ci/test-shard.ts [--package=pyric|rules] --shard=1/2 [--list] [--quarantine] [-- <extra bun test args>]
 
 import { Glob } from 'bun';
 import { resolve } from 'node:path';
@@ -19,11 +19,13 @@ import { takeQuarantineFlag } from '../lib/quarantine/source.ts';
 export const shardedPackages = {
   cli: resolve(import.meta.dir, '../../packages/cli'),
   pyric: resolve(import.meta.dir, '../../packages/pyric'),
+  rules: resolve(import.meta.dir, '../../packages/rules'),
 } as const;
 
 /**
  * Seconds the slowest files took on CI (pull request run 42329320713,
- * 2026-11-07). Every other file counts as DEFAULT_FILE_SECONDS. A stale entry
+ * 2026-11-07; the rules entries moved with their files into packages/rules
+ * in #1521). Every other file counts as DEFAULT_FILE_SECONDS. A stale entry
  * only unbalances the shards; it never drops a file from one.
  */
 export const slowFiles: Record<keyof typeof shardedPackages, Readonly<Record<string, number>>> = {
@@ -54,19 +56,21 @@ export const slowFiles: Record<keyof typeof shardedPackages, Readonly<Record<str
     './eval/test/rederive.test.ts': 5,
   },
   pyric: {
-    './test/rules/rtdb/grammar/canonical.test.ts': 67,
-    './test/rules/simulator/expression-budget-fixture.test.ts': 60,
-    './test/rules/rtdb/rules-diff.test.ts': 43,
-    './test/rules/generators/game-rules-limits.test.ts': 38,
     './test/rules/rtdb/stdlib/corpus-lock.test.ts': 26,
-    './test/rules/linter/expression-cost.test.ts': 19,
-    './test/rules/grammar/source-segments.test.ts': 17,
-    './test/rules/rtdb/node-stack.test.ts': 10,
-    './test/rules/rtdb/grammar/expression-nesting.test.ts': 8,
     './test/firestore/ledger/a14-collection-query-types.test.ts': 7,
     './test/ai/types.test.ts': 6,
     './test/rules/simulator/re2-size-limits.test.ts': 6,
-    './test/rules/modules/stdlib-cases.test.ts': 5,
+  },
+  rules: {
+    './test/rtdb/grammar/canonical.test.ts': 67,
+    './test/simulator/expression-budget-fixture.test.ts': 60,
+    './test/rtdb/rules-diff.test.ts': 43,
+    './test/generators/game-rules-limits.test.ts': 38,
+    './test/linter/expression-cost.test.ts': 19,
+    './test/grammar/source-segments.test.ts': 17,
+    './test/rtdb/node-stack.test.ts': 10,
+    './test/rtdb/grammar/expression-nesting.test.ts': 8,
+    './test/modules/stdlib-cases.test.ts': 5,
   },
 };
 

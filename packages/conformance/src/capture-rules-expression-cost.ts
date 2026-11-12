@@ -17,7 +17,7 @@
  *  - simulator: the decision, granting rule and `evaluatedExpressions`, the
  *    count Pyric's simulator enforces the same limit with.
  *
- * Output: packages/pyric/test/rules/linter/fixtures/expression-cost/
+ * Output: packages/rules/test/linter/fixtures/expression-cost/
  *   captures.json and one `<suite>.rules` per suite.
  *
  * Credentials: the same contract as the Firestore rules oracle
@@ -41,9 +41,9 @@ import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { ProjectScope } from '../../pyric/src/project-scope.ts';
-import type { MatchBlock } from '../../pyric/src/rules/grammar/FirestoreAST.ts';
-import { parseToAST } from '../../pyric/src/rules/grammar/FirestoreParser.ts';
-import type { TestCase } from '../../pyric/src/rules/test/spec.ts';
+import type { MatchBlock } from '../../rules/src/grammar/FirestoreAST.ts';
+import { parseToAST } from '../../rules/src/grammar/FirestoreParser.ts';
+import type { TestCase } from '../../rules/src/test/spec.ts';
 import {
   EXPRESSION_LIMIT,
   LIMIT_POSITION_STEPS,
@@ -70,7 +70,7 @@ import {
   type ExpressionCostSuite,
 } from './rules-expression-cost-suites.ts';
 
-const FIXTURE_DIR = join(REPO_ROOT, 'packages', 'pyric', 'test', 'rules', 'linter', 'fixtures', 'expression-cost');
+const FIXTURE_DIR = join(REPO_ROOT, 'packages', 'rules', 'test', 'linter', 'fixtures', 'expression-cost');
 const CAPTURES = join(FIXTURE_DIR, 'captures.json');
 const POINTS_PER_ROUND = 5;
 const MAX_ROUNDS = 8;
@@ -240,7 +240,7 @@ function suiteHeader(suite: ExpressionCostSuite) {
 async function tools() {
   const { parityScope } = await import('../../pyric/test/rules/parity/harness.ts');
   const { TestFirestoreRulesHandler } = await import('../../pyric/src/rules/test/handler.ts');
-  const { SimulateFirestoreRulesHandler } = await import('../../pyric/src/rules/simulator/handler.ts');
+  const { SimulateFirestoreRulesHandler } = await import('../../rules/src/simulator/handler.ts');
   const simulator = new SimulateFirestoreRulesHandler();
   return {
     scope: parityScope() as ProjectScope,

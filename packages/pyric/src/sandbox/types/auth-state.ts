@@ -1,1 +1,1 @@
-export type { AuthState } from '../../rules/auth/auth-state.js';
+export type { AuthState } from '@pyric/rules/internal';

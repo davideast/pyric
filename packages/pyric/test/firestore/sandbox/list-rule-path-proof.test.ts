@@ -3,7 +3,7 @@ import {
   analyzeListRulePathInvariance,
   buildListRuleFunctionScope,
 } from '../../../src/firestore/sandbox/list-rule-path-proof.js';
-import { parseToAST } from '../../../src/rules/grammar/FirestoreParser.js';
+import { parseToAST } from '@pyric/rules/internal';
 
 function analyze(condition: string, helpers = '') {
   const ast = parseToAST(`rules_version = '2'; service cloud.firestore {

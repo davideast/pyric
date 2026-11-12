@@ -1,7 +1,7 @@
 /** The Realtime Database rules engine behind the `rules` tool. */
 import { rtdbRules } from 'pyric/rules';
 import { locateRtdbTrace } from 'pyric/rules/internal/rtdb';
-import type { RtdbCase, RtdbRulesJson } from 'pyric/rules';
+import type { RtdbCase, RtdbCaseResult, RtdbRulesJson } from 'pyric/rules';
 import { resolveDatabaseInstance } from 'pyric/sandbox/internal';
 import { getActiveRules, setRules, snapshotState } from 'pyric/sandbox/database';
 import { rtdbRulesSourceRejection } from 'pyric/rules/internal/rtdb';
@@ -77,7 +77,7 @@ export function simulateAgainst(
   request: Omit<RulesRequest, 'data'> & { data?: unknown },
   auth: { uid: string; claims: Record<string, unknown> } | null,
   selector?: string,
-) {
+): RtdbCaseResult {
   const tree =
     selector === undefined
       ? snapshotState(ctx.sandbox)

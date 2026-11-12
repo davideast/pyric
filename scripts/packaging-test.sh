@@ -43,6 +43,7 @@ while [ "$#" -gt 0 ]; do
 done
 
 # Publishable packages, in dependency order (dependencies first).
+# - @pyric/rules is the rules engine, the lowest layer; pyric depends on it
 # - pyric is foundational (everyone else workspace:* it)
 # - pyric-admin depends on pyric
 # - create-pyric is standalone (scaffolder; no Firebase SDK deps)
@@ -50,6 +51,7 @@ done
 # - @pyric/ui peer-depends on pyric
 # - @pyric/live depends on @pyric/cli and peer-depends on firebase
 PACKAGES=(
+  "packages/rules"         # @pyric/rules
   "packages/pyric"         # pyric
   "packages/pyric-admin"   # pyric-admin
   "packages/create-pyric"  # create-pyric (bin: create-pyric)
@@ -80,6 +82,7 @@ exported_subpaths() {
   ' "$ROOT/$pkg_dir/package.json"
 }
 
+RULES_SUBPATHS=( @pyric/rules $(exported_subpaths packages/rules) )
 PYRIC_SUBPATHS=( $(exported_subpaths packages/pyric) )
 PYRIC_ADMIN_SUBPATHS=( $(exported_subpaths packages/pyric-admin) )
 PYRIC_CLI_SUBPATHS=( $(exported_subpaths packages/cli) )
@@ -130,6 +133,7 @@ tarball_of() {
   fi
   printf '%s' "$file"
 }
+TARBALL_RULES=$(tarball_of packages/rules)
 TARBALL_PYRIC=$(tarball_of packages/pyric)
 TARBALL_PYRIC_ADMIN=$(tarball_of packages/pyric-admin)
 TARBALL_CREATE_PYRIC=$(tarball_of packages/create-pyric)
@@ -155,7 +159,18 @@ assert_no_sdk_runtime_deps() {
   fi
   echo "  ✓ $name packed manifest has no Firebase SDK runtime dependency"
 }
+assert_no_sdk_runtime_deps "$TARBALL_RULES" "@pyric/rules"
 assert_no_sdk_runtime_deps "$TARBALL_PYRIC" "pyric"
+
+# pyric loads its rules engine from @pyric/rules, so its packed manifest must
+# depend on the version packed beside it.
+RULES_VERSION=$(jq -r '.version' "$ROOT/packages/rules/package.json")
+PYRIC_RULES_RANGE=$(tar -xzOf "$TARBALL_PYRIC" package/package.json | jq -r '.dependencies["@pyric/rules"] // ""')
+if [ "$PYRIC_RULES_RANGE" != "^$RULES_VERSION" ]; then
+  echo "  ✗ pyric packed manifest depends on @pyric/rules '$PYRIC_RULES_RANGE', expected '^$RULES_VERSION'" >&2
+  exit 1
+fi
+echo "  ✓ pyric packed manifest depends on @pyric/rules ^$RULES_VERSION"
 assert_no_sdk_runtime_deps "$TARBALL_PYRIC_ADMIN" "pyric-admin"
 assert_no_sdk_runtime_deps "$TARBALL_PYRIC_CLI" "@pyric/cli"
 assert_no_sdk_runtime_deps "$TARBALL_LIVE" "@pyric/live"
@@ -171,6 +186,7 @@ assert_declaration_deps_declared() {
   node "$ROOT/scripts/lib/check-declaration-deps.mjs" "$tmp/package"
   rm -rf "$tmp"
 }
+assert_declaration_deps_declared "$TARBALL_RULES"
 assert_declaration_deps_declared "$TARBALL_PYRIC"
 assert_declaration_deps_declared "$TARBALL_PYRIC_ADMIN"
 assert_declaration_deps_declared "$TARBALL_PYRIC_CLI"
@@ -225,6 +241,7 @@ assert_tar_lacks() {
   fi
   echo "  ✓ $desc"
 }
+packset_check "$TARBALL_RULES" @pyric/rules
 packset_check "$TARBALL_PYRIC" pyric
 packset_check "$TARBALL_PYRIC_ADMIN" pyric-admin
 packset_check "$TARBALL_CREATE_PYRIC" create-pyric
@@ -232,9 +249,9 @@ packset_check "$TARBALL_PYRIC_CLI" @pyric/cli
 packset_check "$TARBALL_UI" @pyric/ui
 packset_check "$TARBALL_LIVE" @pyric/live
 # Load-bearing runtime assets — pass import() but break at first use if dropped.
-assert_tar_has "$TARBALL_PYRIC" 'package/dist/rules/grammar/FirestoreRules\.ohm$' "pyric ships the Firestore rules grammar (.ohm)"
-assert_tar_has "$TARBALL_PYRIC" 'package/dist/rules/rtdb/grammar/RtdbExpr\.ohm$' "pyric ships the RTDB rules grammar (.ohm)"
-assert_tar_has "$TARBALL_PYRIC" 'package/dist/rules/modules/stdlib/.*\.rules$' "pyric ships the rules stdlib modules (.rules)"
+assert_tar_has "$TARBALL_RULES" 'package/dist/grammar/FirestoreRules\.ohm$' "@pyric/rules ships the Firestore rules grammar (.ohm)"
+assert_tar_has "$TARBALL_RULES" 'package/dist/rtdb/grammar/RtdbExpr\.ohm$' "@pyric/rules ships the RTDB rules grammar (.ohm)"
+assert_tar_has "$TARBALL_RULES" 'package/dist/modules/stdlib/.*\.rules$' "@pyric/rules ships the rules stdlib modules (.rules)"
 assert_tar_has "$TARBALL_CREATE_PYRIC" 'package/dist/bin\.js$' "create-pyric ships the create-pyric bin"
 assert_tar_has "$TARBALL_CREATE_PYRIC" 'package/templates/chat/src/ui/chat/chat-page\.tsx$' "create-pyric ships the canonical chat app source"
 assert_tar_has "$TARBALL_CREATE_PYRIC" 'package/templates/chat/src/firebase-messaging-sw\.ts$' "create-pyric ships the chat notification worker"
@@ -287,6 +304,7 @@ cat > package.json <<JSON
   "type": "module",
   "private": true,
   "dependencies": {
+    "@pyric/rules": "file:${TARBALL_RULES}",
     "pyric": "file:${TARBALL_PYRIC}",
     "pyric-admin": "file:${TARBALL_PYRIC_ADMIN}",
     "create-pyric": "file:${TARBALL_CREATE_PYRIC}",
@@ -334,6 +352,7 @@ cat > "$SDK_FREE_CONSUMER/package.json" <<JSON
   "type": "module",
   "private": true,
   "dependencies": {
+    "@pyric/rules": "file:${TARBALL_RULES}",
     "pyric": "file:${TARBALL_PYRIC}",
     "pyric-admin": "file:${TARBALL_PYRIC_ADMIN}",
     "create-pyric": "file:${TARBALL_CREATE_PYRIC}",
@@ -416,6 +435,9 @@ if (failed) process.exit(1);
 CHECKJS
   (cd "$WORK/consumer" && node __subpath-check.mjs)
 }
+
+echo "▸ @pyric/rules subpaths"
+run_subpath_check "${RULES_SUBPATHS[@]}"
 
 echo "▸ pyric subpaths"
 run_subpath_check "${PYRIC_SUBPATHS[@]}"
@@ -933,9 +955,9 @@ echo ""
 echo "━━━ Phase 6: cleanup ━━━"
 if [ -n "${PYRIC_PACKAGING_ARTIFACT_DIR:-}" ]; then
   mkdir -p "$PYRIC_PACKAGING_ARTIFACT_DIR"
-  cp "$TARBALL_PYRIC" "$TARBALL_PYRIC_ADMIN" "$TARBALL_CREATE_PYRIC" \
+  cp "$TARBALL_RULES" "$TARBALL_PYRIC" "$TARBALL_PYRIC_ADMIN" "$TARBALL_CREATE_PYRIC" \
     "$TARBALL_PYRIC_CLI" "$TARBALL_UI" "$TARBALL_LIVE" "$PYRIC_PACKAGING_ARTIFACT_DIR/"
-  echo "  ✓ exported the six proven tarballs to $PYRIC_PACKAGING_ARTIFACT_DIR"
+  echo "  ✓ exported the seven proven tarballs to $PYRIC_PACKAGING_ARTIFACT_DIR"
 fi
 rm -rf "$WORK"
 

@@ -9,11 +9,11 @@ import { scenario as commonScenario } from '../../rules-corpus/storage/common-au
 import { scenario } from '../../rules-corpus/storage/stdlib-storage-modules.ts';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const STDLIB = join(HERE, '..', '..', '..', 'pyric', 'src', 'rules', 'modules', 'stdlib');
+const STDLIB = join(HERE, '..', '..', '..', 'rules', 'src', 'modules', 'stdlib');
 const STORAGE_STDLIB = join(STDLIB, 'storage');
 const LOCKS = join(HERE, '..', '..', 'probe-source-locks');
 const OBSERVATIONS = join(HERE, '..', '..', 'observations');
-const REPLAYS = join(HERE, '..', '..', '..', 'pyric', 'test', 'rules', 'modules', 'fixtures');
+const REPLAYS = join(HERE, '..', '..', '..', 'rules', 'test', 'modules', 'fixtures');
 const MODULES = ['uploads', 'metadata', 'objects', 'time'] as const;
 
 function comparable(functions: ReturnType<typeof parseFunctions>) {

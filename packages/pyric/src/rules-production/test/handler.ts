@@ -9,9 +9,9 @@ import type {
   TestCase,
   TestFirestoreRulesResult,
   TestResult,
-} from '../../rules/test/spec.js';
-import { buildApiTestCase, buildStorageApiTestCase } from '../../rules/test/spec.js';
-import { caseShapeRefusal } from '../../rules/test/case-shape.js';
+} from '@pyric/rules/internal';
+import { buildApiTestCase, buildStorageApiTestCase } from '@pyric/rules/internal';
+import { caseShapeRefusal } from '@pyric/rules/internal';
 
 const RULES_API = 'https://firebaserules.googleapis.com/v1';
 

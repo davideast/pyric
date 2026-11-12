@@ -29,7 +29,7 @@ cd "$ROOT"
 
 # The six publishable packages. @pyric/studio is embedded into @pyric/cli for
 # `pyric sandbox --ui`, not published as part of this pack gate.
-PACKAGES=(pyric pyric-admin cli ui create-pyric live)
+PACKAGES=(rules pyric pyric-admin cli ui create-pyric live)
 
 PACKAGES_DIR=""
 while [ "$#" -gt 0 ]; do

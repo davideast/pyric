@@ -26,7 +26,7 @@ import type { AuthLens, OperationContext } from './types/events.js';
 import { SandboxError } from './types/errors.js';
 import type { Sandbox } from './types/service.js';
 import { immutableOperationContext } from './operation-record.js';
-import { normalizeAuthState } from '../rules/auth/auth-state.js';
+import { normalizeAuthState } from '@pyric/rules/internal';
 
 export { normalizeAuthState };
 

@@ -22,9 +22,9 @@ import { join } from 'node:path';
 import { initializeSandbox } from 'pyric/sandbox';
 import { setRules } from 'pyric/sandbox/firestore';
 import { doc, getFirestore, setDoc } from 'pyric/firestore';
-import { MAX_REGEX_STATES, STATES_MESSAGE, sizeProblem, stateCount } from '../../../src/rules/rtdb/grammar/regex-limits.js';
-import { parseRe2Ast, re2FullMatch, re2SizeRefusal, replaceRe2 } from '../../../src/rules/simulator/rules-type.js';
-import { splitRe2 } from '../../../src/rules/simulator/string-split.js';
+import { MAX_REGEX_STATES, STATES_MESSAGE, sizeProblem, stateCount } from '@pyric/rules/internal/rtdb';
+import { parseRe2Ast, re2FullMatch, re2SizeRefusal, replaceRe2 } from '@pyric/rules/internal';
+import { splitRe2 } from '@pyric/rules/internal';
 
 type Verdict = 'ALLOW' | 'DENY';
 

@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { STDLIB_MODULE_EVIDENCE } from '../../../pyric/src/rules/modules/stdlib-services.generated.ts';
+import { STDLIB_MODULE_EVIDENCE } from '../../../rules/src/modules/stdlib-services.generated.ts';
 import { loadObservations } from '../../observations/load.ts';
 import { allCompatibilityRows } from '../../registry/index.ts';
 import { validateStdlibModuleEvidence } from '../../src/stdlib-module-evidence.ts';

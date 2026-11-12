@@ -246,7 +246,7 @@ export { assertNoReservedCustomClaims, RESERVED_CUSTOM_CLAIMS } from './auth-tok
 export {
   accountTokenClaims, idTokenAudience, SANDBOX_PROJECT_ID, tokenClaimAccount, rulesTokenFromIdToken, withIdTokenClaims,
   type TokenClaimAccount, type TokenClaimRecord,
-} from '../../rules/auth/token-claims.js';
+} from '@pyric/rules/internal';
 export { providerVerifiesEmail } from './provider-email-verification.js';
 // Realtime Database replay: re-applies recorded sandbox events to a fresh
 // instance and reports where the replayed tree drifts from the recorded one.

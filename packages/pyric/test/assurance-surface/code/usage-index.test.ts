@@ -461,7 +461,7 @@ describe('extractSdkUsage (Slice 2.4 - operands, composite filters, and query br
   });
 
   test('preserves all conditional filter and sort branches on uncalled functions with default initializers', () => {
-    const fixtureUrl = new URL('../../rules/fixtures/firestore-indexes/friendlyeats/source.original.js', import.meta.url);
+    const fixtureUrl = new URL('../../indexes/fixtures/friendlyeats/source.original.js', import.meta.url);
     const fixtureSource = readFileSync(fixtureUrl, 'utf8');
     const usage = extractSdkUsage({
       root: '/virtual/app',

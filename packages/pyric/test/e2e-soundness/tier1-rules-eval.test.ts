@@ -1,10 +1,10 @@
 import 'fake-indexeddb/auto';
 import { describe, test, expect } from 'bun:test';
-import { SimulateFirestoreRulesHandler } from '../../src/rules/simulator/handler.js';
+import { SimulateFirestoreRulesHandler } from '@pyric/rules/internal';
 import { evaluateStorageRules } from '../../src/storage/sandbox/rules-evaluator.js';
 import { parseStorageRules } from '../../src/storage/sandbox/rules.js';
 import { RuleEvalError } from '../../src/storage/sandbox/rules-evaluation-error.js';
-import { DataSnapshot, evaluateRtdbExpression, RtdbRuleRuntimeError } from '../../src/rules/rtdb/grammar/simulator.js';
+import { DataSnapshot, evaluateRtdbExpression, RtdbRuleRuntimeError } from '@pyric/rules/internal/rtdb';
 
 describe('Tier 1: Feature Coverage (Evaluation Rules)', () => {
   // ─── F1: Strict Unary NOT Type Checking ───────────────────────

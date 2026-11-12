@@ -35,18 +35,19 @@
  *   - `core/snap/nodeFromJSON.ts:40-132`
  *   - `core/snap/ChildrenNode.ts:194-230` (val array coercion)
  */
-import { normalizeNode } from '../../rules/rtdb/data/normalize.js';
+import { normalizeNode } from '@pyric/rules/internal/rtdb';
 import { validateUpdatePaths } from '../writable-path.js';
 import {
   errorPrefix,
   isInvalidJSONNumber,
   validateData,
   validateWrite,
-} from '../../rules/rtdb/data/write-validation.js';
+} from '@pyric/rules/internal/rtdb';
 import { pathSegments, type JsonValue } from './data-tree.js';
 
-export * from '../../rules/rtdb/data/normalize.js';
-export { errorPrefix, validateWrite } from '../../rules/rtdb/data/write-validation.js';
+export { normalizeNode, inlinePriorities, writePriority, withPriorities, normalizeRuleWrite } from '@pyric/rules/internal/rtdb';
+export type { InlinePriority } from '@pyric/rules/internal/rtdb';
+export { errorPrefix, validateWrite } from '@pyric/rules/internal/rtdb';
 
 /** The start of the SDK's error for a refused transaction result. */
 export const TRANSACTION_ERROR_PREFIX = 'transaction failed: Data returned ';

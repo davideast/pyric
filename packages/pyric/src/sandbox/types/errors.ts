@@ -148,7 +148,7 @@ export interface RtdbDenialContext {
   errorCode?: string;
   /** Every `.read`, `.write` and `.validate` rule evaluated for the request, in
    *  evaluation order; the same trace the operation event carries. */
-  rtdbTrace?: import('../../rules/rtdb/simulation/spec.js').RtdbRuleEvaluation[];
+  rtdbTrace?: import('@pyric/rules/internal/rtdb').RtdbRuleEvaluation[];
 }
 
 /** A sandbox denial context from either rules engine, discriminated by `engine`. */

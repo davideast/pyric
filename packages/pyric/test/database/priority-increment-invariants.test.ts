@@ -15,7 +15,7 @@ import {
 import {
   compileRtdbRules,
   simulateRtdbRules,
-} from '../../src/rules/rtdb/compiled-rules.js';
+} from '@pyric/rules/internal/rtdb';
 import { rtdbRules } from 'pyric/rules';
 import { initializeSandbox } from 'pyric/sandbox';
 import { setRules } from 'pyric/sandbox/database';

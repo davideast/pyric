@@ -1,0 +1,139 @@
+import { describe, test, expect } from 'bun:test';
+import { compileRtdbRules } from '../../../src/rtdb/compiled-rules.js';
+import { checkRtdbRules } from '../../../src/rtdb/constraints/document.js';
+import { lintExpression } from '../../../src/rtdb/grammar/linter.js';
+
+describe('lintExpression', () => {
+  test('no warnings for standard equality', () => {
+    const warnings = lintExpression('auth.uid == "abc"', 'read');
+    expect(warnings.filter(w => w.code === 'LOOSE_EQUALITY')).toHaveLength(0);
+  });
+
+  test('no LOOSE_EQUALITY warning for ==', () => {
+    const warnings = lintExpression('auth.uid == "abc"', 'read');
+    const codes = warnings.map(w => w.code);
+    expect(codes).not.toContain('LOOSE_EQUALITY');
+  });
+
+  test('no LOOSE_INEQUALITY warning for !=', () => {
+    const warnings = lintExpression('auth != null != false', 'read');
+    const warnings2 = lintExpression('auth.uid != null', 'read');
+    expect(warnings2.map(w => w.code)).not.toContain('LOOSE_INEQUALITY');
+  });
+
+  test('HARDCODED_TRUE warning for literal true expression', () => {
+    const warnings = lintExpression('true', 'read');
+    expect(warnings.map(w => w.code)).toContain('HARDCODED_TRUE');
+  });
+
+  test('HARDCODED_FALSE warning for literal false expression', () => {
+    const warnings = lintExpression('false', 'write');
+    expect(warnings.map(w => w.code)).toContain('HARDCODED_FALSE');
+  });
+
+  test('DATA_IN_WRITE when write rule has data but not newData', () => {
+    const warnings = lintExpression('data.exists()', 'write');
+    expect(warnings.map(w => w.code)).toContain('DATA_IN_WRITE');
+  });
+
+  test('no DATA_IN_WRITE when write rule has both data and newData', () => {
+    const warnings = lintExpression('data.exists() && newData.exists()', 'write');
+    expect(warnings.filter(w => w.code === 'DATA_IN_WRITE')).toHaveLength(0);
+  });
+
+  test('no DATA_IN_WRITE for read context', () => {
+    const warnings = lintExpression('data.exists()', 'read');
+    expect(warnings.filter(w => w.code === 'DATA_IN_WRITE')).toHaveLength(0);
+  });
+
+  test('returns empty array for invalid expression', () => {
+    const warnings = lintExpression('auth ===', 'read');
+    expect(warnings).toHaveLength(0);
+  });
+
+  test('no warnings for clean expression', () => {
+    const warnings = lintExpression('auth != null && newData.exists()', 'write');
+    expect(warnings).toHaveLength(0);
+  });
+
+  test('no DATA_IN_WRITE when data.child() is used for comparison', () => {
+    const warnings = lintExpression(
+      'auth != null && (data.child("lastWrite").val() == null || now - data.child("lastWrite").val() > 60000)',
+      'write',
+    );
+    expect(warnings.filter(w => w.code === 'DATA_IN_WRITE')).toHaveLength(0);
+  });
+
+  test('DATA_IN_WRITE still fires for data.exists() without child access', () => {
+    const warnings = lintExpression('data.exists()', 'write');
+    expect(warnings.map(w => w.code)).toContain('DATA_IN_WRITE');
+  });
+
+  test('isolates state across interleaved lintExpression calls', () => {
+    const first = lintExpression('data.exists()', 'write');
+    const second = lintExpression('data.exists()', 'read');
+    const third = lintExpression('data.exists()', 'write');
+
+    expect(first.map(w => w.code)).toContain('DATA_IN_WRITE');
+    expect(second).toHaveLength(0);
+    expect(third.map(w => w.code)).toContain('DATA_IN_WRITE');
+  });
+
+  test('LNT-7: member names .data and .newData do not count as root data or newData', () => {
+    const claimData = lintExpression('auth.token.data == true', 'write');
+    expect(claimData.map(w => w.code)).not.toContain('DATA_IN_WRITE');
+
+    const claimNewData = lintExpression('data.val() != null && auth.token.newData == true', 'write');
+    expect(claimNewData.map(w => w.code)).toContain('DATA_IN_WRITE');
+  });
+
+  test('LNT-7: data.parent()...child() and (data).child() suppress DATA_IN_WRITE', () => {
+    const parentChild = lintExpression("data.parent().child('owner').val() == auth.uid", 'write');
+    expect(parentChild.map(w => w.code)).not.toContain('DATA_IN_WRITE');
+
+    const r34Pattern = lintExpression(
+      "auth != null && data.parent().parent().child('members').child(auth.uid).exists()",
+      'write',
+    );
+    expect(r34Pattern.map(w => w.code)).not.toContain('DATA_IN_WRITE');
+
+    const parenDataChild = lintExpression("(data).child('owner').val() == auth.uid", 'write');
+    expect(parenDataChild.map(w => w.code)).not.toContain('DATA_IN_WRITE');
+  });
+
+  test('crash guards: catches SyntaxError from string literals and RangeError from deeply chained terms', () => {
+    for (const expr of ['"\\\'" == "\\\'"', '"\\x41" == "\\x41"']) {
+      expect(lintExpression(expr, 'read').map(w => w.code)).toEqual(['HARDCODED_TRUE']);
+    }
+    expect(lintExpression('auth.uid == "a\nb"', 'read')).toEqual([
+      {
+        code: 'PARSE_ERROR',
+        message: 'unterminated string literal',
+      },
+    ]);
+    for (const expr of ['auth.uid == "\\\'"', 'auth.uid == "\\x41"', 'auth.uid == "a\tb"']) {
+      expect(lintExpression(expr, 'read')).toEqual([]);
+      const checkResult = checkRtdbRules(() =>
+        compileRtdbRules({ rules: { p: { '.read': expr } } }),
+      );
+      expect(checkResult.ok).toBe(true);
+      expect(checkResult.errors).toEqual([]);
+      expect(checkResult.warnings).toEqual([]);
+    }
+
+    // A 6,000-term chain used to overflow the stack and lint as PARSE_ERROR.
+    // Production deploys a 2,000-term || chain (r51, "LD-7: a 2000-term ||
+    // chain": ACCEPTED), and && and || chains now read at any length (LD-7, #1247).
+    const deeplyChained = Array.from({ length: 6000 }, () => 'auth != null').join(' && ');
+    expect(lintExpression(deeplyChained, 'read')).toEqual([]);
+    // A long chain of another binary operator still overflows, and is still a parse error.
+    const deeplyAdded = `${Array.from({ length: 20_000 }, () => '1').join(' + ')} > 0`;
+    expect(() => lintExpression(deeplyAdded, 'read')).not.toThrow();
+    expect(lintExpression(deeplyAdded, 'read')).toEqual([
+      {
+        code: 'PARSE_ERROR',
+        message: 'The expression chains more terms than the rules parser reads.',
+      },
+    ]);
+  }, 30_000);
+});

@@ -20,7 +20,7 @@
  * `fitPadCost` solves for the linear model below from their thresholds.
  */
 
-import { EXPRESSION_LIMIT } from '../../pyric/src/rules/linter/expression-cost.ts';
+import { EXPRESSION_LIMIT } from '../../rules/src/linter/expression-cost.ts';
 
 export { EXPRESSION_LIMIT };
 export const PAD_TOKEN = 'pyric_pad';

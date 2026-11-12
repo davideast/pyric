@@ -1,7 +1,7 @@
-import { RulesValue } from '../../rules/simulator/wrappers/base.js';
-import { RulesFloat } from '../../rules/simulator/wrappers/float.js';
-import { LatLng } from '../../rules/simulator/wrappers/latlng.js';
-import { rulesNumberAsDouble } from '../../rules/simulator/rules-int.js';
+import { RulesValue } from '@pyric/rules/internal';
+import { RulesFloat } from '@pyric/rules/internal';
+import { LatLng } from '@pyric/rules/internal';
+import { rulesNumberAsDouble } from '@pyric/rules/internal';
 import type { EvalCtx } from './rules-evaluator.js';
 import { RuleEvalError } from './rules-evaluation-error.js';
 import {

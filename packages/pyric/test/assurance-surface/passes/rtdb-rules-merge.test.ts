@@ -3,7 +3,7 @@ import { extractSdkUsage } from '../../../src/assurance-surface/code/usage-index
 import { rtdbIndexPass } from '../../../src/assurance-surface/passes/rtdb-indexes.js';
 import { checkRtdbIndexes } from '../../../src/assurance-surface/passes/rtdb-rules-check.js';
 import { mergeRtdbIndexes } from '../../../src/assurance-surface/passes/rtdb-rules-merge.js';
-import { compileRtdbRules } from '../../../src/rules/rtdb/compiled-rules.js';
+import { compileRtdbRules } from '@pyric/rules/internal/rtdb';
 
 function collectAllStructuralFindings(
   node: ReturnType<typeof compileRtdbRules>,

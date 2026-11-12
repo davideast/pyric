@@ -12,8 +12,8 @@ import { rulesSourceRejection } from 'pyric/rules/internal';
 import {
   checkRulesSource,
   rulesGrammarRejection,
-} from '../../../src/rules/grammar/source-compile-limits.js';
-import { SimulateFirestoreRulesHandler } from '../../../src/rules/simulator/handler.js';
+} from '@pyric/rules/internal';
+import { SimulateFirestoreRulesHandler } from '@pyric/rules/internal';
 import type { TestCase } from 'pyric/rules/internal';
 import { firestoreRules, RulesCompileError } from '../../../src/rules/index.js';
 import { getFirestore, doc, getDoc, setDoc } from '../../../src/firestore/index.js';

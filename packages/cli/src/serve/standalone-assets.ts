@@ -38,7 +38,8 @@ export interface EmbeddedAssets {
   /** Lazy: unified Astro site relpath (posix) -> base64 bytes. */
   site: () => Promise<Record<string, string>>;
   /** Lazy: packed npm tarballs of the unpublished workspace packages
-   *  (`pyric.tgz`, `pyric-admin.tgz`, `create-pyric.tgz`, `pyric-cli.tgz`)
+   *  (`pyric-rules.tgz`, `pyric.tgz`, `pyric-admin.tgz`, `create-pyric.tgz`,
+   *  `pyric-cli.tgz`)
    *  -> base64. Used by `pyric init` / `pyric vendor` to vendor them into a
    *  project so `bun install` resolves them offline instead of 404-ing on the
    *  registry. Optional so a binary built before this existed degrades
@@ -79,9 +80,15 @@ export function hasEmbeddedTarballs(): boolean {
   return typeof globalThis.__PYRIC_EMBEDDED__?.tarballs === 'function';
 }
 
+/** The scoped packages among the embedded tarballs, by tarball filename. Every other tarball is named for its package. */
+const SCOPED_TARBALL_PACKAGES: Readonly<Record<string, string>> = {
+  'pyric-cli.tgz': '@pyric/cli',
+  'pyric-rules.tgz': '@pyric/rules',
+};
+
 /**
- * Vendor every embedded workspace tarball (`pyric`, `pyric-admin`,
- * `create-pyric`, `@pyric/cli`) into `<projectDir>/vendor/` and return the
+ * Vendor every embedded workspace tarball (`@pyric/rules`, `pyric`,
+ * `pyric-admin`, `create-pyric`, `@pyric/cli`) into `<projectDir>/vendor/` and return the
  * `package.json` dep spec for each (`file:vendor/<name>.tgz`). The scaffold's
  * `.gitignore` ignores `.pyric/`, so we use `vendor/` to keep the tarballs
  * committable — a clone then `bun install`s offline. Filenames are stable
@@ -99,7 +106,7 @@ export async function materializeVendorTarballs(
   const specs: Record<string, string> = {};
   for (const [filename, b64] of Object.entries(await e.tarballs())) {
     writeFileSync(join(vendorDir, filename), Buffer.from(b64, 'base64'));
-    const pkg = filename === 'pyric-cli.tgz' ? '@pyric/cli' : filename.replace(/\.tgz$/, '');
+    const pkg = SCOPED_TARBALL_PACKAGES[filename] ?? filename.replace(/\.tgz$/, '');
     specs[pkg] = `file:vendor/${filename}`;
   }
   return specs;

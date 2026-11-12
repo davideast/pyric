@@ -1,5 +1,5 @@
-import { parseToASTOrError } from '../../pyric/src/rules/grammar/FirestoreParser.ts';
-import type { Expression, FirestoreRules, MatchBlock } from '../../pyric/src/rules/grammar/FirestoreAST.ts';
+import { parseToASTOrError } from '../../rules/src/grammar/FirestoreParser.ts';
+import type { Expression, FirestoreRules, MatchBlock } from '../../rules/src/grammar/FirestoreAST.ts';
 import type { AnalyzeResult } from './rules-language-analyzer.ts';
 import { loadSnapshot } from '../rules-language/load.ts';
 

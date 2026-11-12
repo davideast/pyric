@@ -250,7 +250,7 @@ describe('diffFullStates', () => {
   });
 
   it('compares Date instances by epoch milliseconds in jsonEqual', async () => {
-    const { jsonEqual } = await import('../../../src/rules/rtdb/data/json-equal.js');
+    const { jsonEqual } = await import('@pyric/rules/internal/rtdb');
     expect(jsonEqual(new Date(1_000), new Date(1_000))).toBe(true);
     expect(jsonEqual(new Date(1_000), new Date(2_000))).toBe(false);
     expect(jsonEqual(new Date(1_000), {})).toBe(false);

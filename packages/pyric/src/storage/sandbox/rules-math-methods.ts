@@ -1,4 +1,4 @@
-import { MathFailure, applyMath } from '../../rules/simulator/math-builtins.js';
+import { MathFailure, applyMath } from '@pyric/rules/internal';
 import type { EvalCtx } from './rules-evaluator.js';
 import { evalNamespaceArguments, type MethodCall } from './rules-method-calls.js';
 import { RuleError, isRuleError as isErr } from './rules-values.js';

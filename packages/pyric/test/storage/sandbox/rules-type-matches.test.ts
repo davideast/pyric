@@ -1,7 +1,7 @@
 import { describe, test, expect } from 'bun:test';
 import { typeMatches } from '../../../src/storage/sandbox/rules-operators.js';
-import { Path } from '../../../src/rules/simulator/wrappers/path.js';
-import { LatLng } from '../../../src/rules/simulator/wrappers/latlng.js';
+import { Path } from '@pyric/rules/internal';
+import { LatLng } from '@pyric/rules/internal';
 
 describe('07-storage-type-match-latlng-path-and-null', () => {
   test('typeMatches supports null type check', () => {

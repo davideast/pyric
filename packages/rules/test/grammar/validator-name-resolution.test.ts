@@ -1,0 +1,505 @@
+/**
+ * Validator name resolution against production's compiler.
+ *
+ * `fixtures/name-resolution/captures.json` records, per ruleset, the issues
+ * the Rules Test API reported: "Invalid function name: s." for a call no
+ * visible scope declares (SEM-4), "Invalid variable name: d." for an
+ * unbound identifier (SEM-5), and "Unused function: f." for a function no
+ * rule or function calls (QUA-4). Each ruleset compiled; the unresolved
+ * names are errors at evaluation, so the rules that reach them deny.
+ */
+import { describe, test, expect } from 'bun:test';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { validateFirestoreRules, type ValidationFinding } from '../../src/grammar/FirestoreValidator.js';
+import { parseToAST } from '../../src/grammar/FirestoreParser.js';
+import { callChainDepths, collectRulesetScopes } from '../../src/grammar/function-scopes.js';
+import { countDocumentAccessCalls } from '../../src/grammar/document-access-count.js';
+import { lintFirestoreRules } from '../../src/linter/linter.js';
+
+interface Probe {
+  name: string;
+  source: string;
+  compiles: boolean;
+  issues: { severity: string; description: string }[];
+  cases: { description: string; decision: 'ALLOW' | 'DENY' }[];
+}
+
+const captured = JSON.parse(readFileSync(join(__dirname, 'fixtures/name-resolution/captures.json'), 'utf-8')) as { probes: Probe[] };
+
+function validate(source: string): ValidationFinding[] {
+  const ast = parseToAST(source);
+  if (!ast) throw new Error('Failed to parse');
+  return validateFirestoreRules(ast);
+}
+
+/** The `code: name` pairs a finding list reports for the three name checks. */
+function nameFindings(findings: ValidationFinding[]): string[] {
+  const out: string[] = [];
+  for (const f of findings) {
+    const name = /'([^']+)'/.exec(f.message)?.[1];
+    if (f.code === 'SEM-4') out.push(`SEM-4: ${/undefined function '([^']+)'/.exec(f.message)?.[1]}`);
+    else if (f.code === 'SEM-5') out.push(`SEM-5: ${/unbound variable '([^']+)'/.exec(f.message)?.[1]}`);
+    else if (f.code === 'QUA-4') out.push(`QUA-4: ${name}`);
+  }
+  return out.sort();
+}
+
+/** The same pairs from production's issue list. */
+function productionNames(probe: Probe): string[] {
+  const out: string[] = [];
+  for (const issue of probe.issues) {
+    const fn = /^Invalid function name: (.+)\.$/.exec(issue.description);
+    const variable = /^Invalid variable name: (.+)\.$/.exec(issue.description);
+    const unused = /^Unused function: (.+)\.$/.exec(issue.description);
+    if (fn) out.push(`SEM-4: ${fn[1]}`);
+    else if (variable) out.push(`SEM-5: ${variable[1]}`);
+    else if (unused) out.push(`QUA-4: ${unused[1]}`);
+  }
+  return out.sort();
+}
+
+function probe(name: string): Probe {
+  const p = captured.probes.find(x => x.name === name);
+  if (!p) throw new Error(`no captured probe ${name}`);
+  return p;
+}
+
+describe('name resolution matches the captured compiler issues', () => {
+  test('every captured ruleset compiled', () => {
+    expect(captured.probes.filter(p => !p.compiles).map(p => p.name)).toEqual([]);
+  });
+
+  // In these two rulesets the function declared out of the caller's reach
+  // is unused, and production also reports `request` in its body as an
+  // invalid variable. A function reachable from a rule reads `request`
+  // without that issue (every other probe), so the validator does not
+  // report it.
+  const unusedBodyReadsRequest = new Set(['service-function-calls-match-function', 'global-function-calls-service-function']);
+
+  for (const p of captured.probes) {
+    test(p.name, () => {
+      const expected = productionNames(p).filter(n => !(unusedBodyReadsRequest.has(p.name) && n === 'SEM-5: request'));
+      expect(nameFindings(validate(p.source))).toEqual(expected);
+    });
+  }
+
+  test('an unresolved name denies the request that reaches it', () => {
+    for (const name of ['sibling-match-function', 'unbound-variable-in-rule', 'unbound-variable-in-function', 'service-function-reads-capture', 'parent-function-reads-child-capture']) {
+      expect(probe(name).cases.map(c => c.decision)).toEqual(['DENY', 'DENY']);
+    }
+  });
+});
+
+const wrap = (body: string, service = '') => `rules_version = '2';
+service cloud.firestore {
+${service}
+  match /databases/{database}/documents {
+    match /{d=**} { allow read, write: if false; }
+${body}
+  }
+}`;
+
+describe('SEM-4: undefined function, resolved by scope', () => {
+  test('a call inside a function body to an undeclared function is reported', () => {
+    const findings = validate(wrap(`    match /p/{id} {
+      function f() { return request.auth != null && notDeclared(); }
+      allow read: if f();
+    }`));
+    expect(findings.filter(f => f.code === 'SEM-4').map(f => f.message)).toEqual([
+      "Function 'f' in /p/{id} calls undefined function 'notDeclared'",
+    ]);
+  });
+
+  test('a call inside a function body to a declared function is not reported', () => {
+    const findings = validate(wrap(`    match /p/{id} {
+      function g() { return request.auth != null; }
+      function f() { return g(); }
+      allow read: if f();
+    }`));
+    expect(findings.filter(f => f.code === 'SEM-4')).toEqual([]);
+  });
+
+  test('a call to a function declared only in a sibling match is reported', () => {
+    const findings = validate(wrap(`    match /q/{e} {
+      function s() { return request.auth != null; }
+      allow read: if s();
+    }
+    match /p/{id} {
+      allow read: if s();
+    }`));
+    expect(findings.filter(f => f.code === 'SEM-4').map(f => f.message)).toEqual([
+      "Rule at /p/{id} calls undefined function 's'",
+    ]);
+  });
+
+  test('a call to a function declared in an enclosing match is not reported', () => {
+    const findings = validate(wrap(`    match /p/{id} {
+      function s() { return request.auth != null; }
+      match /c/{cid} {
+        allow read: if s();
+      }
+    }`));
+    expect(findings.filter(f => f.code === 'SEM-4')).toEqual([]);
+  });
+
+  test('a service function calling a match function is reported', () => {
+    const findings = validate(wrap(`    function inner() { return request.auth != null; }
+    match /p/{id} {
+      allow read: if outer();
+    }`, `  function outer() { return inner(); }`));
+    expect(findings.filter(f => f.code === 'SEM-4').map(f => f.message)).toEqual([
+      "Function 'outer' in service cloud.firestore calls undefined function 'inner'",
+    ]);
+  });
+
+  test('global conversions, lookups, and path resolve', () => {
+    const findings = validate(wrap(`    match /p/{id} {
+      allow read: if int('1') == 1 && string(1) == '1' && float(1) == 1.0 && path('/a/b') != null
+        && existsAfter(/databases/$(database)/documents/p/$(id)) && request.auth != null;
+    }`));
+    expect(findings.filter(f => f.code === 'SEM-4')).toEqual([]);
+  });
+});
+
+describe('SEM-5: unbound variable', () => {
+  test('an allow condition reading an unbound name is an error-severity finding', () => {
+    const findings = validate(wrap(`    match /games/{id} {
+      allow create: if request.auth != null && d.a1 == 'R';
+    }`));
+    const sem5 = findings.filter(f => f.code === 'SEM-5');
+    expect(sem5.map(f => [f.severity, f.operation, f.message])).toEqual([
+      ['high', 'create', "Rule at /games/{id} reads unbound variable 'd'. No let binding, function parameter, path capture, or rules global has that name, so evaluating it is an error and the request is denied"],
+    ]);
+  });
+
+  test('let bindings, parameters, path captures, and globals resolve', () => {
+    const findings = validate(wrap(`    match /games/{id} {
+      function isStartingBoard(board) {
+        let d = board;
+        let firstRow = d.a1;
+        return firstRow == 'R' && id != '' && database != '';
+      }
+      allow create: if request.auth != null && isStartingBoard(request.resource.data)
+        && math.abs(-1) == 1 && request.time > timestamp.value(0) && duration.value(1, 's') != null
+        && latlng.value(0, 0) != null && hashing.sha256('a') != null
+        && get(/databases/$(database)/documents/games/$(id)).data.x == resource.data.x;
+    }`));
+    expect(findings.filter(f => f.code === 'SEM-5')).toEqual([]);
+  });
+
+  test('a service function reading a path capture is reported', () => {
+    const findings = validate(wrap(`    match /p/{id} {
+      allow read: if f();
+    }`, `  function f() { return request.auth != null && database != ''; }`));
+    expect(findings.filter(f => f.code === 'SEM-5').map(f => f.message)).toEqual([
+      "Function 'f' in service cloud.firestore reads unbound variable 'database'. No let binding, function parameter, path capture, or rules global has that name, so evaluating it is an error and the request is denied",
+    ]);
+  });
+});
+
+describe('QUA-4: unused function at every scope', () => {
+  test('the arcade repro: a function in the root match that no rule calls', () => {
+    const findings = validate(`rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function neverCalled() { return request.auth != null; }
+    match /games/{id} {
+      allow create: if request.auth != null && d.a1 == 'R';
+    }
+  }
+}`);
+    expect(findings.filter(f => f.code === 'QUA-4').map(f => [f.severity, f.path, f.message])).toEqual([
+      ['low', '/databases/{database}/documents', "Unused function 'neverCalled': no rule or function calls it"],
+    ]);
+    expect(findings.filter(f => f.code === 'SEM-5').map(f => /'([^']+)'/.exec(f.message)?.[1])).toEqual(['d']);
+  });
+
+  test('unused global and service functions are reported', () => {
+    const findings = validate(`rules_version = '2';
+function g0() { return true; }
+service cloud.firestore {
+  function s0() { return true; }
+  match /databases/{database}/documents {
+    match /{d=**} { allow read, write: if false; }
+  }
+}`);
+    expect(findings.filter(f => f.code === 'QUA-4').map(f => f.path)).toEqual(['global scope', 'service cloud.firestore']);
+  });
+
+  test('a function called only by an unused function is not reported, as in production', () => {
+    const findings = validate(wrap('', `  function s0() { return s2(); }\n  function s2() { return true; }`));
+    expect(findings.filter(f => f.code === 'QUA-4').map(f => /'([^']+)'/.exec(f.message)?.[1])).toEqual(['s0']);
+  });
+
+  test('a call that resolves to a shadowing declaration leaves the outer one unused', () => {
+    const findings = validate(wrap(`    match /p/{id} {
+      function s() { return request.auth != null; }
+      allow read: if s();
+    }`, `  function s() { return true; }`));
+    expect(findings.filter(f => f.code === 'QUA-4').map(f => f.path)).toEqual(['service cloud.firestore']);
+  });
+});
+
+// The `2+modules` resolver writes imported functions at service scope; a
+// rule reaches them through a match-scope helper, as in the chess showcase.
+describe('resolved-module shape stays clean', () => {
+  test('service functions reached through a match helper: no SEM-4, SEM-5, or QUA-4', () => {
+    const findings = validate(`rules_version = '2';
+service cloud.firestore {
+  function isAuthenticated() { return request.auth != null; }
+  function isMyTurn() { return resource.data.turn == request.auth.uid; }
+  function turnFlipped() { return request.resource.data.turn != resource.data.turn; }
+  match /databases/{database}/documents {
+    match /{d=**} { allow read, write: if false; }
+    match /games/{gameId} {
+      function cfg() { return get(/databases/$(database)/documents/config/$(gameId)).data; }
+      function baseMoveChecks() { return isAuthenticated() && isMyTurn() && turnFlipped() && cfg().open == true; }
+      allow update: if baseMoveChecks() && request.resource.data.move is string;
+    }
+  }
+}`);
+    expect(findings.filter(f => ['SEM-4', 'SEM-5', 'QUA-4'].includes(f.code))).toEqual([]);
+  });
+});
+
+describe('FS-COV-5b/5c and FS-FUZ-4 regressions', () => {
+  test('FS-COV-5b: debug() is reported as undefined function (SEM-4)', () => {
+    const findings = validate(wrap(`    match /items/{id} {
+      allow read: if debug(request.auth != null);
+    }`));
+    expect(findings.filter(f => f.code === 'SEM-4').map(f => f.message)).toEqual([
+      "Rule at /items/{id} calls undefined function 'debug'",
+    ]);
+  });
+
+  test('FS-COV-5c: forward reference between let bindings is reported as unbound variable (SEM-5)', () => {
+    const findings = validate(wrap(`    function forwardRef() {
+      let a = b;
+      let b = true;
+      return a && b;
+    }
+    match /items/{id} {
+      allow read: if forwardRef();
+    }`));
+    expect(findings.filter(f => f.code === 'SEM-5').map(f => f.message)).toEqual([
+      "Function 'forwardRef' in /databases/{database}/documents reads unbound variable 'b'. No let binding, function parameter, path capture, or rules global has that name, so evaluating it is an error and the request is denied",
+    ]);
+  });
+
+  test('FS-FUZ-4: callChainDepths does not poison depths across cyclic subgraphs', () => {
+    const chain = Array.from(
+      { length: 20 },
+      (_, i) => `function c${i + 1}() { return ${i + 1 < 20 ? `c${i + 2}()` : 'true'}; }`,
+    ).join('\n    ');
+    const ast = parseToAST(wrap(`    function a() { return b() && c1(); }
+    function b() { return a(); }
+    ${chain}
+    function start() { return b(); }
+    match /items/{id} { allow read: if start(); }`))!;
+    const scopes = collectRulesetScopes(ast);
+    const depths = callChainDepths(scopes);
+    const byName = new Map([...depths.entries()].map(([fn, d]) => [fn.name, d]));
+    expect(byName.get('b')!).toBeGreaterThanOrEqual(22);
+    expect(byName.get('start')!).toBeGreaterThanOrEqual(23);
+  });
+
+  test('FS-FUZ-4: countDocumentAccessCalls memoizes DAG nodes in linear time', () => {
+    const depth = 21;
+    const fns: string[] = [];
+    for (let i = 1; i < depth; i++) {
+      fns.push(`function f${i}() { return f${i + 1}() && f${i + 1}() && f${i + 1}(); }`);
+    }
+    fns.push(`function f${depth}() { return get(/databases/$(database)/documents/cfg/one).data.ok == true; }`);
+    const ast = parseToAST(wrap(`    ${fns.join('\n    ')}
+    match /items/{id} { allow read: if f1(); }`))!;
+    const scopes = collectRulesetScopes(ast);
+    const rule = scopes.rules[1]!;
+    const t0 = performance.now();
+    const count = countDocumentAccessCalls(rule.rule.condition, rule.functions);
+    const elapsed = performance.now() - t0;
+    expect(count).toBe(3 ** (depth - 1));
+    expect(elapsed).toBeLessThan(250);
+  });
+});
+
+describe('ST-LNT-3, ST-LNT-4a, ST-LNT-6a: service firebase.storage and 2+modules imports', () => {
+  test('ST-LNT-3: valid Storage ruleset with firestore.exists(), /b/{bucket}/o root, and request.resource.size has no false SEM-5, SEC-6, or STR-2', () => {
+    const validStorage = `rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+    match /users/{uid}/avatar.png {
+      allow read: if request.auth != null && request.auth.uid == uid;
+      allow create: if request.auth != null
+        && request.auth.uid == uid
+        && request.resource.size < 1048576
+        && request.resource.contentType == 'image/png'
+        && firestore.exists(/databases/(default)/documents/users/$(request.auth.uid));
+    }
+  }
+}`;
+    const findings = validate(validStorage);
+    expect(findings.some(i => i.code === 'SEM-5' && i.message.includes("'firestore'"))).toBe(false);
+    expect(findings.some(i => i.code === 'SEC-6')).toBe(false);
+    expect(findings.some(i => i.code === 'STR-2')).toBe(false);
+    expect(findings.some(i => i.code === 'SEC-4')).toBe(false);
+  });
+
+  test('ST-LNT-3b: bare exists() or get() in Storage rules emits SEM-4', () => {
+    const bareExists = `rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /users/{uid}/avatar.png {
+      allow read: if request.auth != null && exists(/databases/(default)/documents/users/$(request.auth.uid));
+    }
+  }
+}`;
+    const findings = validate(bareExists);
+    expect(findings.some(i => i.code === 'SEM-4' && i.message.includes("'exists'"))).toBe(true);
+  });
+
+  test('ST-LNT-4a: Storage ruleset exceeding 2 firestore.get/exists calls emits SEM-3', () => {
+    const overStorageBudget = `rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    function docRole(id) {
+      return firestore.get(/databases/(default)/documents/users/$(id)).data.role;
+    }
+    match /files/{fileId} {
+      allow read: if request.auth != null
+        && docRole(request.auth.uid) == 'admin'
+        && firestore.exists(/databases/(default)/documents/orgs/a)
+        && firestore.exists(/databases/(default)/documents/orgs/b);
+    }
+  }
+}`;
+    const findings = validate(overStorageBudget);
+    const sem3 = findings.find(i => i.code === 'SEM-3');
+    expect(sem3).toBeDefined();
+    expect(sem3!.message).toContain('exceeds the 2-call budget');
+  });
+
+  test('ST-LNT-6a: 2+modules imported auth helpers resolve without false SEM-4 or SEC-3', () => {
+    const modularRules = `rules_version = '2+modules';
+import { isOwner } from 'auth';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /users/{uid} {
+      allow read: if isOwner(uid);
+      allow create: if isOwner(uid) && request.resource.data.name is string;
+    }
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}`;
+    const findings = validate(modularRules);
+    expect(findings.some(i => i.code === 'SEM-4')).toBe(false);
+    expect(findings.some(i => i.code === 'SEC-3')).toBe(false);
+  });
+
+  test('shadowed inner helper delegating via mid() to outer helper counts outer document accesses and request.time', () => {
+    const elevenExists = Array.from(
+      { length: 11 },
+      (_, idx) => `exists(/databases/$(database)/documents/cfg/d${idx})`,
+    ).join(' && ');
+    const shadowedBudgetSource = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function helper() {
+      return ${elevenExists} && request.time != null;
+    }
+    function mid() {
+      return helper();
+    }
+    match /items/{id} {
+      function helper() {
+        return mid();
+      }
+      allow read: if helper() && helper();
+    }
+  }
+}`;
+    const findings = validate(shadowedBudgetSource);
+    expect(findings.some(i => i.code === 'SEM-3')).toBe(true);
+
+    const lint = lintFirestoreRules(shadowedBudgetSource, {
+      testCases: [
+        {
+          description: 'read item without requestTime',
+          expectation: 'ALLOW',
+          method: 'get',
+          path: 'items/i1',
+        },
+      ],
+    });
+    expect(lint.warnings.some(w => w.rule === 'GET_COUNT')).toBe(true);
+    expect(lint.warnings.some(w => w.rule === 'GET_DUPLICATION')).toBe(true);
+    expect(lint.warnings.some(w => w.rule === 'REQUEST_TIME_NOT_PINNED')).toBe(true);
+  });
+
+  test('service cloud.storage with two top-level bucket match blocks validates and lints the second block', () => {
+    const previousSource = `rules_version = '2';
+service cloud.storage {
+  match /b/bucket-one/o {
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+  match /b/bucket-two/o {
+    match /items/{id} {
+      allow write: if request.auth != null && request.resource.size < 1024;
+    }
+  }
+}`;
+    const currentSource = `rules_version = '2';
+service cloud.storage {
+  match /b/bucket-one/o {
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+  match /b/bucket-two/o {
+    match /{allPaths=**} {
+      allow read, write: if true;
+    }
+    match /items/{id} {
+      allow write: if request.resource.size < 1024;
+      allow read: if resource.data.owner == request.auth.uid;
+    }
+  }
+}`;
+    const findings = validate(currentSource);
+    expect(findings.some(f => f.code === 'SEC-1' && f.path === '/{allPaths=**}')).toBe(true);
+
+    const lint = lintFirestoreRules(currentSource, { previousSource });
+    expect(lint.warnings.some(w => w.rule === 'PERMISSIVE_RULE')).toBe(true);
+    expect(lint.warnings.some(w => w.rule === 'RECURSIVE_WILDCARD_OPEN')).toBe(true);
+    expect(lint.warnings.some(w => w.rule === 'RULES_WEAKENED')).toBe(true);
+    expect(lint.warnings.some(w => w.rule === 'WRONG_CONTEXT_PATH')).toBe(true);
+  });
+
+  test('service cloud.storage with three firestore.exists calls triggers 2-read Storage SEM-3 and GET_COUNT', () => {
+    const threeReads = `rules_version = '2';
+service cloud.storage {
+  match /b/{bucket}/o {
+    match /items/{id} {
+      allow read: if request.auth != null
+        && firestore.exists(/databases/(default)/documents/orgs/a)
+        && firestore.exists(/databases/(default)/documents/orgs/b)
+        && firestore.exists(/databases/(default)/documents/orgs/c);
+    }
+  }
+}`;
+    const findings = validate(threeReads);
+    const sem3 = findings.find(f => f.code === 'SEM-3');
+    expect(sem3).toBeDefined();
+    expect(sem3?.message).toContain('exceeds the 2-call budget');
+
+    const lint = lintFirestoreRules(threeReads);
+    expect(lint.warnings.some(w => w.rule === 'GET_COUNT')).toBe(true);
+  });
+});

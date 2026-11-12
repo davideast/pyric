@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'bun:test';
 import { rtdbRules } from 'pyric/rules';
-import { compileRtdbRules, simulateRtdbRules } from '../../../src/rules/rtdb/compiled-rules.js';
-import { validateExpression } from '../../../src/rules/rtdb/grammar/validator.js';
+import { compileRtdbRules, simulateRtdbRules } from '@pyric/rules/internal/rtdb';
+import { validateExpression } from '@pyric/rules/internal/rtdb';
 import {
   getDatabase,
   ref,

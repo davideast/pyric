@@ -20,9 +20,9 @@
  * int64, or with a fraction, is a bare number that reads as a float.
  */
 import { describe, expect, test } from 'bun:test';
-import { SimulateFirestoreRulesHandler } from '../../../src/rules/simulator/handler.js';
-import { hostNumber, isHostIntNumber } from '../../../src/rules/simulator/rules-int.js';
-import { RulesFloat } from '../../../src/rules/simulator/wrappers/float.js';
+import { SimulateFirestoreRulesHandler } from '@pyric/rules/internal';
+import { hostNumber, isHostIntNumber } from '@pyric/rules/internal';
+import { RulesFloat } from '@pyric/rules/internal';
 import { parseStorageRules } from '../../../src/storage/sandbox/rules.js';
 import { evaluateStorageRules } from '../../../src/storage/sandbox/rules-evaluator.js';
 import { encodeValue } from '../../../src/firestore/sandbox/wire-encoder.js';

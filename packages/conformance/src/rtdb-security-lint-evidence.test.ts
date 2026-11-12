@@ -9,11 +9,11 @@
 import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { compileRtdbRules } from '../../pyric/src/rules/rtdb/compiled-rules.ts';
+import { compileRtdbRules } from '../../rules/src/rtdb/compiled-rules.ts';
 import {
   lintRtdbRuleset,
   type RtdbSecurityCode,
-} from '../../pyric/src/rules/rtdb/grammar/ruleset-lint.ts';
+} from '../../rules/src/rtdb/grammar/ruleset-lint.ts';
 import { ALL_RULES_RTDB_SCENARIOS, rtdbObservationName } from '../rules-corpus/rtdb/index.ts';
 
 const OBSERVATIONS = join(import.meta.dir, '..', 'observations', 'rtdb-rules');

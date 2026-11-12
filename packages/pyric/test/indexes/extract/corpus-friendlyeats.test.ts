@@ -11,7 +11,7 @@ import { extractIndexes } from '../../../src/indexes/extract/extractor.js';
 import type { IndexesConfig, IndexesConfigEntry } from '../../../src/indexes/types.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
-const fixtureDir = resolve(here, '../../rules/fixtures/firestore-indexes/friendlyeats');
+const fixtureDir = resolve(here, '../fixtures/friendlyeats');
 
 function loadFixture(name: string): string {
   return readFileSync(resolve(fixtureDir, name), 'utf8');

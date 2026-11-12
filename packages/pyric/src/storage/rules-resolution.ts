@@ -1,5 +1,5 @@
 import { parseStorageRules, type Expr, type MatchBlock, type StorageRules } from './sandbox/rules.js';
-import { resolveModulesBrowser } from '../rules/modules/resolver-browser.js';
+import { resolveModulesBrowser } from '@pyric/rules/internal';
 
 export interface StorageRulesResolution {
   readonly targetService: 'firebase.storage';

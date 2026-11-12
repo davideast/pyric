@@ -1,7 +1,7 @@
 import { describe, test, expect, afterEach } from 'bun:test';
 import { TestFirestoreRulesHandler, TestStorageRulesHandler } from '../../../src/rules-production/test/handler.js';
 import type { ProjectScope } from '../../../src/project-scope.js';
-import type { StorageTestCase, TestCase } from '../../../src/rules/test/spec.js';
+import type { StorageTestCase, TestCase } from '@pyric/rules/internal';
 
 const originalFetch = global.fetch;
 afterEach(() => { global.fetch = originalFetch; });

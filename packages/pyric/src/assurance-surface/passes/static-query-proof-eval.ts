@@ -2,16 +2,16 @@
  * Per-arm Firestore list-query proof, residual simulation, and optimistic
  * runtime-parameter completion for {@link staticQueryProofPass}.
  */
-import type { FirestoreRules } from '../../rules/grammar/FirestoreAST.js';
-import type { SimulateFirestoreRulesHandler } from '../../rules/simulator/handler.js';
+import type { FirestoreRules } from '@pyric/rules/internal';
+import type { SimulateFirestoreRulesHandler } from '@pyric/rules/internal';
 import {
   listQueryFromConstraints,
   proveListQuery,
   type QueryConstraints,
   type QueryProofFailure,
   type QueryWhereConstraint,
-} from '../../rules/simulator/list-query-proof.js';
-import type { TestCase } from '../../rules/test/spec.js';
+} from '@pyric/rules/internal';
+import type { TestCase } from '@pyric/rules/internal';
 import type { DiagnosticCertainty } from '../../sandbox/internal/assurance-diagnostic.js';
 import type { SdkQueryConstraint } from '../code/usage-index.js';
 import {

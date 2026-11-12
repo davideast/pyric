@@ -1,5 +1,5 @@
-import { evaluateHashingMethod } from '../../rules/simulator/hashing-builtins.js';
-import { Bytes } from '../../rules/simulator/wrappers/bytes.js';
+import { evaluateHashingMethod } from '@pyric/rules/internal';
+import { Bytes } from '@pyric/rules/internal';
 import type { EvalCtx } from './rules-evaluator.js';
 import { RuleEvalError, RuleUnsupportedError } from './rules-evaluation-error.js';
 import {
@@ -8,7 +8,7 @@ import {
   type MethodCall,
   type ReceiverMethods,
 } from './rules-method-calls.js';
-import { describeRulesType as describeType } from '../../rules/simulator/rules-type.js';
+import { describeRulesType as describeType } from '@pyric/rules/internal';
 import { isRuleError as isErr } from './rules-values.js';
 
 /** The digests the `hashing` namespace defines. */

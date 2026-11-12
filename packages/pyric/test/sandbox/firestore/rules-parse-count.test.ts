@@ -9,7 +9,7 @@ import { beforeEach, describe, expect, mock, test } from 'bun:test';
 
 const parserPath = new URL(
   '../grammar/FirestoreParser.js',
-  import.meta.resolve('pyric/rules/internal'),
+  import.meta.resolve('@pyric/rules/internal'),
 ).pathname;
 const parser = await import(parserPath);
 const parseToASTOrError = parser.parseToASTOrError as (source: string) => unknown;

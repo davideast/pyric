@@ -1,6 +1,6 @@
-import { ValueRangeError } from '../../rules/simulator/wrappers/base.js';
-import { Duration } from '../../rules/simulator/wrappers/duration.js';
-import { Timestamp } from '../../rules/simulator/wrappers/timestamp.js';
+import { ValueRangeError } from '@pyric/rules/internal';
+import { Duration } from '@pyric/rules/internal';
+import { Timestamp } from '@pyric/rules/internal';
 import type { EvalCtx } from './rules-evaluator.js';
 import { RuleEvalError } from './rules-evaluation-error.js';
 import {
@@ -10,7 +10,7 @@ import {
   type ReceiverMethods,
 } from './rules-method-calls.js';
 import { isRuleError as isErr } from './rules-values.js';
-import { isRulesInt, rulesInt } from '../../rules/simulator/rules-int.js';
+import { isRulesInt, rulesInt } from '@pyric/rules/internal';
 
 /** The units `duration.value(magnitude, unit)` accepts, per the rules language. */
 const DURATION_UNITS = ['w', 'd', 'h', 'm', 's', 'ms', 'ns'];

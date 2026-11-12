@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { buildApiTestCase } from '../../pyric/src/rules/test/spec.ts';
+import { buildApiTestCase } from '../../rules/src/test/spec.ts';
 import type { Scenario, TestCase } from '../rules-corpus/firestore/types.ts';
 
 export interface FirestoreScenarioInputDigest {

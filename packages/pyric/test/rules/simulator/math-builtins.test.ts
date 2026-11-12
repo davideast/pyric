@@ -9,7 +9,7 @@
  */
 import { describe, expect, test } from 'bun:test';
 import { MATH_CASES } from '../../../../conformance/src/rules-math-cases.ts';
-import { SimulateFirestoreRulesHandler } from '../../../src/rules/simulator/handler.js';
+import { SimulateFirestoreRulesHandler } from '@pyric/rules/internal';
 import { parseStorageRules } from '../../../src/storage/sandbox/rules.js';
 import { evaluateStorageRules } from '../../../src/storage/sandbox/rules-evaluator.js';
 

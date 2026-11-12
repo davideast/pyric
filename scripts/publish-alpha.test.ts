@@ -162,7 +162,7 @@ describe('alpha publish safety contract', () => {
     });
     expect(result.status).toBe(1);
     expect(result.stdout).toContain(`build and pack skipped: testing the tarballs in ${packages}`);
-    expect(result.stderr).toContain('names no packed pyric@');
+    expect(result.stderr).toContain('names no packed @pyric/rules@');
     const commands = readFileSync(log, 'utf8');
     expect(commands).not.toContain('scripts/build.sh');
     expect(commands).not.toContain('pack-packages.sh');

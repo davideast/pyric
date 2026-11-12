@@ -23,7 +23,7 @@
  * `SUCCESS` means it agrees with the case and `FAILURE` means it decided the
  * other way.
  *
- * Output: packages/pyric/test/rules/modules/fixtures/stdlib-replay-<module>.json,
+ * Output: packages/rules/test/modules/fixtures/stdlib-replay-<module>.json,
  * with `/` in the module name written as `-`.
  *
  * Credentials: as in `measure-stdlib-cost.ts`. GOOGLE_APPLICATION_CREDENTIALS
@@ -36,14 +36,14 @@
  */
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { resolveModulesBrowser } from '../../pyric/src/rules/modules/resolver-browser.ts';
-import { parseStdlibTestFile } from '../../pyric/src/rules/modules/stdlib-cost.ts';
+import { resolveModulesBrowser } from '../../rules/src/modules/resolver-browser.ts';
+import { parseStdlibTestFile } from '../../rules/src/modules/stdlib-cost.ts';
 import {
   buildApiTestCase,
   buildStorageApiTestCase,
   type StorageTestCase,
   type TestCase,
-} from '../../pyric/src/rules/test/spec.ts';
+} from '../../rules/src/test/spec.ts';
 import { REPO_ROOT } from './rules-expression-cost-suites.ts';
 import { STDLIB_DIR, apiValue } from './measure-stdlib-cost.ts';
 
@@ -191,7 +191,7 @@ const disagreements = rows
   .map((row, n) => ({ ...row, notes: states[n]!.debugMessages ?? [] }))
   .filter((r) => r.state !== 'SUCCESS');
 const out = join(
-  REPO_ROOT, 'packages', 'pyric', 'test', 'rules', 'modules', 'fixtures',
+  REPO_ROOT, 'packages', 'rules', 'test', 'modules', 'fixtures',
   `stdlib-replay-${moduleName.replace(/\//g, '-')}.json`,
 );
 writeFileSync(out, JSON.stringify({

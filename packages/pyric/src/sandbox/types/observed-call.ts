@@ -366,7 +366,7 @@ export interface LocalRtdbEvaluation {
   pathVariableBindings?: Record<string, string>;
   reason?: string;
   errorCode?: string;
-  rtdbTrace?: import('../../rules/rtdb/simulation/spec.js').RtdbRuleEvaluation[];
+  rtdbTrace?: import('@pyric/rules/internal/rtdb').RtdbRuleEvaluation[];
 }
 
 /**

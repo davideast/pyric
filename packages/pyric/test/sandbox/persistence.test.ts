@@ -20,12 +20,12 @@ import { afterEach, beforeAll, describe, expect, it } from 'bun:test';
 // DISTINCT class identity from the src wrappers — mixing the two would break
 // the `instanceof` checks. Production code is all-dist, so identity holds
 // there; this keeps the unit test internally consistent (all-src).
-import { Bytes } from '../../src/rules/simulator/wrappers/bytes.js';
-import { Duration } from '../../src/rules/simulator/wrappers/duration.js';
-import { LatLng } from '../../src/rules/simulator/wrappers/latlng.js';
-import { Reference } from '../../src/rules/simulator/wrappers/reference.js';
-import { Timestamp } from '../../src/rules/simulator/wrappers/timestamp.js';
-import { Vector } from '../../src/rules/simulator/wrappers/vector.js';
+import { Bytes } from '@pyric/rules/internal';
+import { Duration } from '@pyric/rules/internal';
+import { LatLng } from '@pyric/rules/internal';
+import { Reference } from '@pyric/rules/internal';
+import { Timestamp } from '@pyric/rules/internal';
+import { Vector } from '@pyric/rules/internal';
 import {
   createIndexedDBBackend,
   createMemoryBackend,

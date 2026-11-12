@@ -197,7 +197,7 @@ export interface RequestEvent {
    *  deciding line and render the evaluation step-through ("show the work").
    *  Absent on an implicit deny (no rule evaluated), a simulator-error deny,
    *  and unsupported results. */
-  evaluatedRule?: import('../../rules/test/spec.js').EvaluatedRuleInfo;
+  evaluatedRule?: import('@pyric/rules/internal').EvaluatedRuleInfo;
   origin: 'user' | 'listener' | 'transaction' | 'batch';
   /** Shared across ops in one batch or transaction. Opaque to consumers. */
   groupId?: string;
@@ -525,7 +525,7 @@ export interface SandboxOperationEvent {
     errorCode?: string;
     /** RTDB only: every `.read`, `.write` and `.validate` rule the engine
      *  evaluated for the request, in evaluation order. */
-    rtdbTrace?: import('../../rules/rtdb/simulation/spec.js').RtdbRuleEvaluation[];
+    rtdbTrace?: import('@pyric/rules/internal/rtdb').RtdbRuleEvaluation[];
   };
   request?: {
     data?: unknown;

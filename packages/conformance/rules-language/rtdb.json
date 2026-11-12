@@ -4,7 +4,7 @@
   "sources": [
     "Firebase Realtime Database Security Rules language reference (firebase.google.com/docs/reference/security/database)",
     "RTDB security rules core-syntax + conditions guides",
-    "Repo ground truth: src/rules/rtdb/grammar/RtdbExpr.ohm, src/rules/rtdb/grammar/validator.ts (DATASNAPSHOT_METHODS, STRING_METHODS, ALLOWED_IDENTIFIERS), src/rules/rtdb/types.ts (RtdbNode)"
+    "Repo ground truth: packages/rules/src/rtdb/grammar/RtdbExpr.ohm, packages/rules/src/rtdb/grammar/validator.ts (DATASNAPSHOT_METHODS, STRING_METHODS, ALLOWED_IDENTIFIERS), packages/rules/src/rtdb/types.ts (RtdbNode)"
   ],
   "constructs": [
     {

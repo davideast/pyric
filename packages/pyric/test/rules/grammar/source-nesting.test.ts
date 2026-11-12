@@ -5,13 +5,13 @@
  * parser's bracket depth bound it reports a parse error.
  */
 import { describe, expect, test } from 'bun:test';
-import { parseExpression, parseRulesFile, parseToASTOrError } from '../../../src/rules/grammar/FirestoreParser.js';
-import { MAX_BRACKET_DEPTH } from '../../../src/rules/grammar/bracket-scan.js';
-import { NESTING_MESSAGE, compileLimitViolations } from '../../../src/rules/grammar/compile-limits.js';
-import { checkRulesSource } from '../../../src/rules/grammar/source-compile-limits.js';
-import { lintFirestoreRules } from '../../../src/rules/linter/linter.js';
-import { firestoreRules } from '../../../src/rules/api/firestore.js';
-import { RulesCompileError } from '../../../src/rules/api/errors.js';
+import { parseExpression, parseRulesFile, parseToASTOrError } from '@pyric/rules/internal';
+import { MAX_BRACKET_DEPTH } from '@pyric/rules/internal';
+import { NESTING_MESSAGE, compileLimitViolations } from '@pyric/rules/internal';
+import { checkRulesSource } from '@pyric/rules/internal';
+import { lintFirestoreRules } from '@pyric/rules/internal';
+import { firestoreRules } from '@pyric/rules';
+import { RulesCompileError } from '@pyric/rules';
 import { parseStorageRules } from '../../../src/storage/sandbox/rules.js';
 
 function firestore(condition: string, extra = ''): string {

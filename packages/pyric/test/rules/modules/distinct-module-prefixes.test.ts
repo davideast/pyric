@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { firestoreRules } from '../../../src/rules/index.js';
-import { resolveModules } from '../../../src/rules/modules/resolver.js';
+import { resolveModules } from '@pyric/rules/internal/node';
 import { evaluateStorageRules, parseStorageRules } from '../../../src/storage/index.js';
 
 describe('2+modules distinct module path private helper isolation', () => {

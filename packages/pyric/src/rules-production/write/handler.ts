@@ -1,8 +1,8 @@
 import type { ProjectScope } from '../../project-scope.js';
-import type { WriteFirestoreRulesResult } from '../../rules/write/spec.js';
-import { parseToASTOrError } from '../../rules/grammar/FirestoreParser.js';
-import { validateFirestoreRules } from '../../rules/grammar/FirestoreValidator.js';
-import { lintFirestoreRules } from '../../rules/linter/linter.js';
+import type { WriteFirestoreRulesResult } from '@pyric/rules/internal';
+import { parseToASTOrError } from '@pyric/rules/internal';
+import { validateFirestoreRules } from '@pyric/rules/internal';
+import { lintFirestoreRules } from '@pyric/rules/internal';
 
 const RULES_API = 'https://firebaserules.googleapis.com/v1';
 

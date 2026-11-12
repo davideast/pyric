@@ -36,7 +36,7 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { hasParityCredential, NO_CREDENTIAL_MESSAGE } from '../../../packages/pyric/test/rules/parity/credential.ts';
 import { fileURLToPath } from 'node:url';
-import type { TestFirestoreRulesResult, TestResult } from '../../../packages/pyric/src/rules/test/spec.ts';
+import type { TestFirestoreRulesResult, TestResult } from '../../rules/src/test/spec.ts';
 import {
   ALL_RULES_STORAGE_SCENARIOS,
   RULES_STORAGE_OBSERVATION_PREFIX,

@@ -2,8 +2,8 @@ import { describe, expect, it } from 'bun:test';
 import { extractSdkUsage } from '../../../src/assurance-surface/code/usage-index.js';
 import { concretizeQueryTarget } from '../../../src/assurance-surface/passes/static-query-proof-args.js';
 import { evaluateCandidateArm } from '../../../src/assurance-surface/passes/static-query-proof-eval.js';
-import { parseToAST } from '../../../src/rules/grammar/FirestoreParser.js';
-import { SimulateFirestoreRulesHandler } from '../../../src/rules/simulator/handler.js';
+import { parseToAST } from '@pyric/rules/internal';
+import { SimulateFirestoreRulesHandler } from '@pyric/rules/internal';
 
 describe('static-query-proof-eval', () => {
   it('downgrades unprovable user rules to heuristic when an unseeded admin fallback rule exists', () => {

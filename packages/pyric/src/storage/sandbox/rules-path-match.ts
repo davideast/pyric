@@ -1,6 +1,6 @@
 import type { PathSegment } from './rules.js';
 import { StoragePath } from './rules-path.js';
-import { recursiveWildcardMinimum } from '../../rules/grammar/recursive-wildcard-minimum.js';
+import { recursiveWildcardMinimum } from '@pyric/rules/internal';
 
 export type PathParamValue = string | string[] | StoragePath;
 

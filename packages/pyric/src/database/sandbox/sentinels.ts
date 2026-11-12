@@ -16,9 +16,10 @@
  * `import { serverTimestamp } from 'pyric/database'` produces the same
  * literal on either backend.
  */
-import type { IncrementSentinel, ServerTimestampSentinel } from '../../rules/rtdb/data/sentinels.js';
+import type { IncrementSentinel, ServerTimestampSentinel } from '@pyric/rules/internal/rtdb';
 
-export * from '../../rules/rtdb/data/sentinels.js';
+export { isServerTimestampSentinel, isIncrementSentinel, resolveSentinels } from '@pyric/rules/internal/rtdb';
+export type { ServerTimestampSentinel, IncrementSentinel } from '@pyric/rules/internal/rtdb';
 
 const SERVER_TIMESTAMP_MARKER = '{".sv":"timestamp"}';
 

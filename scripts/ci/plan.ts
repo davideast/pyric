@@ -84,6 +84,7 @@ const RTDB_DIFFERENTIAL_INPUTS = [
   /^packages\/cli\/src\/rtdb\//,
   /^packages\/pyric\/src\/database\//,
   /^packages\/pyric\/src\/rules\//,
+  /^packages\/rules\/src\//,
   /^packages\/cli\/test\/serve\/rtdb-differential\//,
   /^\.github\/workflows\/build\.yml$/,
 ];

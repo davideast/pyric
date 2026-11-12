@@ -14,7 +14,7 @@
  * stay in lockstep.
  */
 
-import { resolveModulesBrowser } from '../rules/modules/resolver-browser.js';
+import { resolveModulesBrowser } from '@pyric/rules/internal';
 import {
   createFirestoreSimulatorTools as createFirestoreSimulatorToolsImpl,
   type FirestoreSimulatorToolDeps as FirestoreSimulatorToolDepsImpl,

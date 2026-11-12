@@ -29,7 +29,7 @@
  * fewer than four hexadecimal digits or none, `'\u{41}'`, `'\U0001F600'`, and
  * a raw line feed or carriage return inside the quotes. The shared grammar
  * rejects the same forms, pinned by
- * packages/pyric/test/rules/grammar/string-escape-strict.test.ts.
+ * packages/rules/test/grammar/string-escape-strict.test.ts.
  */
 import type { ScenarioRecord } from './types.ts';
 

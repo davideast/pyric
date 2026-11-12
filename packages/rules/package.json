@@ -1,0 +1,69 @@
+{
+  "name": "@pyric/rules",
+  "version": "0.1.0",
+  "private": true,
+  "license": "Apache-2.0",
+  "homepage": "https://pyric.dev",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/davideast/pyric.git",
+    "directory": "packages/rules"
+  },
+  "bugs": {
+    "url": "https://github.com/davideast/pyric/issues"
+  },
+  "description": "Firebase Security Rules for Firestore, Storage and Realtime Database, evaluated in-process: parse, lint, simulate and explain rules with no emulator.",
+  "type": "module",
+  "sideEffects": [
+    "./dist/grammar/FirestoreParser.js",
+    "./src/grammar/FirestoreParser.ts"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./internal": {
+      "types": "./dist/internal/index.d.ts",
+      "import": "./dist/internal/index.js"
+    },
+    "./internal/node": {
+      "types": "./dist/internal/node.d.ts",
+      "import": "./dist/internal/node.js"
+    },
+    "./internal/rtdb": {
+      "types": "./dist/internal/rtdb.d.ts",
+      "import": "./dist/internal/rtdb.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "src",
+    "LICENSE"
+  ],
+  "scripts": {
+    "inline-grammar": "bun run scripts/inline-grammar-rules.ts",
+    "inline-stdlib": "bun run scripts/inline-stdlib.ts",
+    "prebuild": "(bun run inline-grammar 2>/dev/null || true) && bun run inline-stdlib",
+    "build": "tsc && bun run scripts/copy-assets.ts 2>/dev/null || tsc",
+    "test": "bun test",
+    "typecheck": "bun x tsc -p tsconfig.json --noEmit",
+    "bench:rules": "bun bench/run.ts",
+    "bench:rules:capture": "bun bench/capture.ts"
+  },
+  "dependencies": {
+    "ohm-js": "^17.1.0",
+    "zod": "^3.23.0"
+  },
+  "devDependencies": {
+    "@types/bun": "1.3.14",
+    "typescript": "^5.7.0"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

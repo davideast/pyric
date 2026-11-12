@@ -11,7 +11,7 @@ import PyricFirestore
 enum ConnectionInfo {
 
     /// Whether the first segment of `path` is `.info`, the test `isInfoPath`
-    /// in `packages/pyric/src/rules/rtdb/data/writable-path.ts` applies.
+    /// in `packages/rules/src/rtdb/data/writable-path.ts` applies.
     static func isInfoPath(_ path: String) -> Bool {
         segments(of: path).first == ".info"
     }

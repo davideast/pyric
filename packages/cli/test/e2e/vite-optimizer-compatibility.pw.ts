@@ -59,7 +59,10 @@ for (const version of ['7.3.6', '8.3.0']) {
       // finds pyric's own dependencies only after the page starts loading,
       // re-optimizes, and sends a full reload that Vite 7 drops when its HMR
       // client has not connected yet, leaving the page at "Starting".
-      copyBuiltPackage(realpathSync(join(cliRoot, 'node_modules/pyric')), 'pyric', root);
+      // pyric depends on @pyric/rules (#1521); copy it first, for the same reason.
+      const pyricSource = realpathSync(join(cliRoot, 'node_modules/pyric'));
+      copyBuiltPackage(realpathSync(join(pyricSource, 'node_modules/@pyric/rules')), '@pyric/rules', root);
+      copyBuiltPackage(pyricSource, 'pyric', root);
       copyBuiltPackage(cliRoot, '@pyric/cli', root, ['firebase']);
       const reader = join(root, 'node_modules/sandbox-reader');
       mkdirSync(reader);

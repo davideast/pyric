@@ -1,0 +1,274 @@
+// AUTO-GENERATED — do not edit by hand. Regenerate via:
+//   bun run inline-grammar (packages/rules)
+// Source: FirestoreRules.ohm
+
+export const FIRESTORE_RULES_OHM_SOURCE = `FirestoreRules {
+  // === Top-level ===
+  // Syntactic rules (capitalized) auto-skip spaces between terms.
+  // Lexical rules (lowercase) do NOT skip spaces.
+
+  // Two accepted orderings. Real \`firestore.rules\` files put
+  // \`rules_version\` at line 1 (Firebase convention), so the
+  // \`versionFirst\` branch matches that natural shape. The
+  // \`importsFirst\` branch keeps legacy samples that put \`import\`
+  // declarations above the version line working. The semantic
+  // action below normalizes both into the same AST shape, so
+  // downstream code doesn't have to care which path matched.
+  // Declaration order is STRICT: imports, then functions (#347 probe,
+  // 2026-07-17): the production Rules Test API rejects \`import\` after a
+  // \`function\` ("Unexpected 'import'") and any declaration before
+  // \`rules_version\` ("Unexpected 'rules_version'"), under both
+  // rules_version '2' and '2+modules'. Pinned by
+  // test/rules/corpus/invalid/009-/010-.
+  // A file may hold more than one service block (#1900): production
+  // compiles a \`service firebase.storage\` block before the
+  // \`service cloud.firestore\` one and evaluates the Firestore block
+  // (capture c5a-two-services-storage-first). The parser takes the
+  // Firestore block as the ruleset's service; the load check refuses two
+  // blocks for one service ("Duplicate service name declaration.", c5b).
+  RulesFile = RulesVersion? ImportDecl* FunctionDef* ServiceBlock+  -- versionFirst
+            | ImportDecl* RulesVersion FunctionDef* ServiceBlock+   -- importsFirst
+
+  ImportDecl = "import" "{" ListOf<ident, ","> ","? "}" "from" string ";"
+
+  RulesVersion = "rules_version" "=" string ";"
+
+  ServiceBlock = "service" serviceName "{" FunctionDef* (DocumentsMatch FunctionDef*)+ "}"
+
+  DocumentsMatch = "match" matchPath "{" MatchBody "}"
+
+  MatchBody = MatchBodyItem*
+
+  MatchBodyItem
+    = FunctionDef
+    | MatchBlock
+    | AllowStatement
+
+  MatchBlock = "match" matchPath "{" MatchBody "}"
+
+  // === Statements ===
+
+  AllowStatement = "allow" OperationList ":" "if" Expr ";"
+
+  OperationList = Operation ("," Operation)*
+
+  FunctionDef = "export"? "function" ident "(" ParameterList ")" "{" FunctionBody "}"
+
+  ParameterList = ListOf<ident, ",">
+
+  FunctionBody = LetBinding* ReturnStatement
+
+  LetBinding = "let" ident "=" Expr ";"
+
+  ReturnStatement = "return" Expr ";"
+
+  // === Lexical: operations and service name ===
+
+  Operation
+    = "read" ~identChar
+    | "write" ~identChar
+    | "get" ~identChar
+    | "list" ~identChar
+    | "create" ~identChar
+    | "update" ~identChar
+    | "delete" ~identChar
+
+  serviceName = letter (letter | ".")*
+
+  // === Lexical: match paths ===
+
+  matchPath = "/" matchPathSegment ("/" matchPathSegment)*
+
+  matchPathSegment
+    = "{" matchWildcard "}"    -- wildcard
+    | pathIdent                -- literal
+
+  matchWildcard
+    = identStart identChar* "=" "**"  -- recursive
+    | identStart identChar*           -- single
+
+  pathIdent = (letter | digit | "_" | "-" | ".")+
+
+  // === Expressions ===
+
+  Expr = Ternary
+
+  Ternary
+    = LogicalOr "?" Ternary ":" Ternary  -- ternary
+    | LogicalOr
+
+  LogicalOr
+    = LogicalOr "||" LogicalAnd  -- or
+    | LogicalAnd
+
+  LogicalAnd
+    = LogicalAnd "&&" InIsExpr  -- and
+    | InIsExpr
+
+  InIsExpr
+    = InIsExpr in Equality   -- in
+    | Equality
+
+  in = "in" ~identChar
+  is = "is" ~identChar
+
+  Equality
+    = Equality "==" Comparison  -- eq
+    | Equality "!=" Comparison  -- neq
+    | Comparison
+
+  Comparison
+    = Comparison ">=" Additive  -- gte
+    | Comparison "<=" Additive  -- lte
+    | Comparison ">" Additive   -- gt
+    | Comparison "<" Additive   -- lt
+    | Comparison is typeName    -- is
+    | Additive
+
+  Additive
+    = Additive "+" Multiplicative  -- add
+    | Additive "-" Multiplicative  -- sub
+    | Multiplicative
+
+  Multiplicative
+    = Multiplicative "*" UnaryExpr  -- mul
+    | Multiplicative "/" UnaryExpr  -- div
+    | Multiplicative "%" UnaryExpr  -- mod
+    | UnaryExpr
+
+  UnaryExpr
+    = "!" UnaryExpr  -- not
+    | "-" UnaryExpr  -- neg
+    | PostfixExpr
+
+  PostfixExpr
+    = PostfixExpr "." memberName "(" ListOf<Expr, ","> ")"  -- methodCall
+    | PostfixExpr "." memberName                             -- memberAccess
+    | PostfixExpr "[" Expr ":" Expr "]"                      -- sliceAccess
+    | PostfixExpr "[" Expr "]"                               -- bracketAccess
+    | Primary
+
+  memberName = identStart identChar*
+
+  Primary
+    = "(" Expr ")"       -- paren
+    | PathLiteral        -- path
+    | ListLiteral        -- list
+    | MapLiteral         -- map
+    | ident "(" ListOf<Expr, ","> ")"  -- functionCall
+    | literal
+    | ident
+
+  // === Path literals ===
+
+  PathLiteral = "/" PathLitContSegment* PathLitSegment
+
+  PathLitContSegment
+    = "$(" Expr closeParenSlash   -- interpolation
+    | "{" ident closeBraceSlash   -- captureRef
+    | parenLiteralSlash           -- parenLiteral
+    | pathIdentSlash              -- literal
+
+  closeParenSlash = ")" "/"
+  closeBraceSlash = "}" "/"
+  parenLiteralSlash = "(" pathIdent ")" "/"
+  pathIdentSlash = pathIdent "/"
+
+  PathLitSegment
+    = "$(" Expr ")"          -- interpolation
+    | "{" ident "}"          -- captureRef
+    | "(" pathIdent ")"      -- parenLiteral
+    | pathIdent              -- literal
+
+  // === Literals ===
+
+  literal
+    = number
+    | bytes
+    | string
+    | bool
+    | null
+
+  number
+    = digit+ "." digit+  -- float
+    | digit+              -- int
+
+  // String and bytes literals share one body rule and one escape rule. A raw
+  // line feed or carriage return inside the quotes is a parse error, as in
+  // production; a raw tab is a plain character.
+  string
+    = "'" literalChar<"'", stringEscape>* "'"      -- single
+    | "\\"" literalChar<"\\"", stringEscape>* "\\""   -- double
+
+  // Bytes literal: a \`b\` or \`B\` prefix directly before a quoted body. A plain
+  // character is its UTF-8 encoding and a hex or octal escape is one byte.
+  bytes
+    = ("b" | "B") "'" literalChar<"'", literalEscape>* "'"      -- single
+    | ("b" | "B") "\\"" literalChar<"\\"", literalEscape>* "\\""   -- double
+
+  literalChar<quote, escape>
+    = "\\\\" escape                    -- escape
+    | ~"\\\\" ~quote ~"\\n" ~"\\r" any  -- char
+
+  // \`\\u\` with exactly four hexadecimal digits is one UTF-16 code unit. Only a
+  // string literal takes it; production rejects it in a bytes literal.
+  stringEscape
+    = "u" hexDigit hexDigit hexDigit hexDigit  -- unicode
+    | literalEscape
+
+  // The escapes production accepts in both string and bytes literals. \`\\x\`
+  // takes exactly two hexadecimal digits and \`\\\` takes three octal digits up
+  // to \`\\377\`. In a string each is the code point of that value; in bytes
+  // each is one byte. Production rejects every other escape, including \`\\/\`,
+  // \`\\a\`, \`\\v\`, \`\\?\`, \`\\0\`, \`\\U\`, and \`\\X\`.
+  literalEscape
+    = "x" hexDigit hexDigit          -- hex
+    | "0".."3" "0".."7" "0".."7"     -- octal
+    | ("\\\\" | "'" | "\\"" | "n" | "r" | "t" | "b" | "f")  -- simple
+
+  ListLiteral = "[" ListOf<Expr, ","> ","? "]"
+
+  MapLiteral = "{" ListOf<MapEntry, ","> ","? "}"
+
+  MapEntry = (string | ident) ":" Expr
+
+  bool
+    = "true" ~identChar   -- true
+    | "false" ~identChar  -- false
+
+  null = "null" ~identChar
+
+  typeName
+    = "string" ~identChar
+    | "int" ~identChar
+    | "float" ~identChar
+    | "number" ~identChar
+    | "bool" ~identChar
+    | "list" ~identChar
+    | "set" ~identChar
+    | "map" ~identChar
+    | "timestamp" ~identChar
+    | "path" ~identChar
+    | "bytes" ~identChar
+    | "duration" ~identChar
+    | "latlng" ~identChar
+    | "reference" ~identChar
+
+  ident = ~keyword identStart identChar*
+
+  keyword
+    = ("true" | "false" | "null" | "in" | "is" | "if" | "return" | "let") ~identChar
+
+  identStart = letter | "_"
+
+  identChar = alnum | "_"
+
+  // === Whitespace and comments ===
+
+  space += comment
+
+  comment
+    = "//" (~"\\n" any)* &("\\n" | end)  -- singleLine
+    | "/*" (~"*/" any)* "*/"            -- multiLine
+}
+`;

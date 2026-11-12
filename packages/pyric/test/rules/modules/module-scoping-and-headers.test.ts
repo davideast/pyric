@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { firestoreRules } from '../../../src/rules/index.js';
-import { resolveModules } from '../../../src/rules/modules/resolver.js';
+import { resolveModules } from '@pyric/rules/internal/node';
 import { evaluateStorageRules, parseStorageRules } from '../../../src/storage/index.js';
 
 describe('2+modules export scoping, .rules diamond canonicalization, and commented module headers', () => {

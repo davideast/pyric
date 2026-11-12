@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test';
-import { parseToAST } from '../../../src/rules/grammar/FirestoreParser.js';
+import { parseToAST } from '@pyric/rules/internal';
 import {
   collectOptimisticFieldScalars,
   inspectRetainedRules,

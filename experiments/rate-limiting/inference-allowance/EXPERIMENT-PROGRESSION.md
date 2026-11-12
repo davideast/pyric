@@ -47,7 +47,7 @@ so the caller cannot choose a misleading last-operation time.
 That is a minimum-spacing policy. It does not itself provide a refillable balance,
 separate chat and agent budgets, or a burst allowance. The subsequent experiment
 therefore moved to a token bucket. The cooldown discussion was not a measured
-Rules-only version of the hosted LLM gateway. [Timing implementation](../../../packages/pyric/src/rules/modules/stdlib/timing.rules).
+Rules-only version of the hosted LLM gateway. [Timing implementation](../../../packages/rules/src/modules/stdlib/timing.rules).
 
 This distinction also corrects a recurring description of the work: the measured
 allowance mechanism was **gateway-owned transactional code using the Admin SDK**.

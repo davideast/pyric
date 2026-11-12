@@ -98,17 +98,18 @@ were given a branch or commit, and pull before you pack.
    bash <pyric>/.agents/skills/pyric-live/scripts/pack-local.sh <pyric> .pyric-local
    ```
 
-   It builds the checkout, packs `pyric`, `pyric-admin`, `create-pyric`, `@pyric/cli` and
-   `@pyric/live`, rewrites their `workspace:*` ranges, and prints the five tarball paths.
-2. Install all five together as development dependencies, by relative path, with the project's
+   It builds the checkout, packs `@pyric/rules`, `pyric`, `pyric-admin`, `create-pyric`, `@pyric/cli`
+   and `@pyric/live`, rewrites their `workspace:*` ranges, and prints the six tarball paths.
+2. Install all six together as development dependencies, by relative path, with the project's
    package manager. With npm:
 
    ```sh
    npm install --save-dev ./.pyric-local/pyric-*.tgz ./.pyric-local/create-pyric-*.tgz
    ```
 
-   All five must be installed in one command. `@pyric/live` depends on `@pyric/cli`, and
-   `@pyric/cli` on the other three, at a version that exists only in these tarballs.
+   All six must be installed in one command. `@pyric/live` depends on `@pyric/cli`, `@pyric/cli`
+   on `pyric`, `pyric-admin` and `create-pyric`, and `pyric` on `@pyric/rules`, at a version that
+   exists only in these tarballs.
 3. Run `npm ls pyric @pyric/cli`. If either resolves to a registry copy, add `overrides` to
    `package.json` that point each one at its tarball, then install again:
 

@@ -2,7 +2,7 @@
  * Firestore Rules AST projection and inspection helpers for
  * {@link staticQueryProofPass}.
  */
-import { assembleExpression } from '../../rules/grammar/FirestoreAssembler.js';
+import { assembleExpression } from '@pyric/rules/internal';
 import type {
   AllowRule,
   Expression,
@@ -10,20 +10,20 @@ import type {
   FunctionDef,
   MatchBlock,
   PathSegment,
-} from '../../rules/grammar/FirestoreAST.js';
-import { topLevelMatches } from '../../rules/grammar/service-blocks.js';
+} from '@pyric/rules/internal';
+import { topLevelMatches } from '@pyric/rules/internal';
 import {
   analyzeListRulePathInvariance,
   buildListRuleFunctionScope,
-} from '../../rules/simulator/list-rule-path-proof.js';
-import { indexRulesetScopes } from '../../rules/simulator/match-resolution.js';
-import { substituteIdentifiers } from '../../rules/simulator/query-proof-scope.js';
+} from '@pyric/rules/internal';
+import { indexRulesetScopes } from '@pyric/rules/internal';
+import { substituteIdentifiers } from '@pyric/rules/internal';
 import {
   collectRootMatches,
   resolveRootBlockMatch,
   rootBlockGovernsEveryDocument,
   rootGovernsEveryDocument,
-} from '../../rules/simulator/root-match.js';
+} from '@pyric/rules/internal';
 import { SYNTH_UID, type ScalarValue } from './static-query-proof-args.js';
 
 export interface RetainedRulesInspection {

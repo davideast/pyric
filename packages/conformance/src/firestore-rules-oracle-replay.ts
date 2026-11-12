@@ -194,7 +194,7 @@ export async function replayFirestoreRulesObservations(): Promise<FirestoreOracl
     return observation;
   });
 
-  const { SimulateFirestoreRulesHandler } = await import('../../pyric/src/rules/simulator/handler.ts');
+  const { SimulateFirestoreRulesHandler } = await import('../../rules/src/simulator/handler.ts');
   const simulator = new SimulateFirestoreRulesHandler();
   const registryProblems = firestoreOracleRegistryProblems(observations, firestoreRows);
   const replays: FirestoreOracleReplayResult[] = registryProblems.length === 0 ? [] : [{

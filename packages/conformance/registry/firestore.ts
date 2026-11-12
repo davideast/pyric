@@ -571,7 +571,7 @@ export const firestoreRegistry = {
           behavior: "Query-proof scope remains conservative. Equality and finite scalar in filters can pin candidate fields; array-contains proves the corresponding membership fact, not the whole array. Helpers and positive OR branches reduce to sufficient, candidate-independent residuals. Every finite combination (up to 30) must pass auth, query limits, and any lookup whose path is pinned by the query. Unpinned fields, candidate identity, dynamic document-dependent collections, unbounded range guarantees, and unsupported syntax remain deny-only gaps. Queries are never authorized by filtering stored rows. A collection-group query is authorized only by a top-level `list` or `read` rule at `match /{path=**}/<collectionId>/{id}` or `match /{document=**}` whose condition reads no path binding; any other shape, including a match nested in `match /{document=**}`, denies the query. This expanded local support has unit evidence and upstream documented semantics, but no new hosted observation.",
           status: "diverged-documented",
           evidence: "Local query support: `unit:firestore/query-proof-application.test.ts` covers finite membership, guardian array membership, pinned lookup paths, auth and limit controls, and adversarial array/lookup cases. Upstream semantics: firebase.google.com/docs/firestore/security/rules-query and firebase.google.com/docs/firestore/query-data/queries. Local diagnostic contract (#583): `unit:firestore/query-proof-diagnostics.test.ts` pins dynamic membership rejection, fallback attribution, constraint/residual distinctions, modular listener context, captured lifecycle errors, and immutable operation-summary proof metadata; this adds no production observation. `unit:rules/simulator/query-proof.test.ts` (function-inlining provable cases; full-accounting rejections for mixed equality + `in`/`get`/`hasOnly`/range/`is` shapes in inline and helper form; fail-closed classifier probes: bracket-access `resource['data']`, `exists()` keyed by `resource.data` through path-literal segments, slice access, `resource.id`, and an unrecognized node shape), `unit:firestore/query-proof-enforcement.test.ts` (seeded end-to-end denials of the demonstrated attacks: forbidden-field absence check in member and bracket form, banned-owner `exists()` lookup, slice conjunct, each returning zero documents). Collection-group scope: `unit:firestore/collection-group-rules.test.ts` authorizes `getDocs(collectionGroup(db, 'items'))` under `match /{path=**}/items/{id}`, proves a data-gated rule from the query's equality, and denies under a rule for another collection id, a rule that reads the recursive binding, and concrete collection rules; `unit:firestore/sandbox/collection-group-rule-proof.test.ts` pins the projection. Upstream semantics: firebase.google.com/docs/firestore/security/rules-query#secure_and_query_documents_based_on_collection_groups. No hosted collection-group query is captured; the production matcher verdicts for the same rule shape, from the Rules Test API, live in `oracle:rules-firestore-hierarchical-match-cascade`.",
-          conformanceTests: ["packages/pyric/test/firestore/query-proof-application.test.ts","packages/pyric/test/firestore/query-proof-diagnostics.test.ts","packages/pyric/test/rules/simulator/query-proof.test.ts","packages/pyric/test/firestore/query-proof-enforcement.test.ts","packages/pyric/test/firestore/collection-group-rules.test.ts","packages/pyric/test/firestore/sandbox/collection-group-rule-proof.test.ts"],
+          conformanceTests: ["packages/pyric/test/firestore/query-proof-application.test.ts","packages/pyric/test/firestore/query-proof-diagnostics.test.ts","packages/rules/test/simulator/query-proof.test.ts","packages/pyric/test/firestore/query-proof-enforcement.test.ts","packages/pyric/test/firestore/collection-group-rules.test.ts","packages/pyric/test/firestore/sandbox/collection-group-rule-proof.test.ts"],
           rowNumber: 24,
         }),
         row4({
@@ -2260,7 +2260,7 @@ export const firestoreRegistry = {
           riskScore: 1,
           riskReasons: ["asserts a specific field/property value"],
           automation: "unit-backed",
-          conformanceTests: ["packages/pyric/test/rules/simulator/evaluator.test.ts"],
+          conformanceTests: ["packages/rules/test/simulator/evaluator.test.ts"],
           exceptionReason: "playground / preview behavior — no firebase-js-sdk counterpart to observe",
         }),
         row22({
@@ -2272,7 +2272,7 @@ export const firestoreRegistry = {
           riskScore: 1,
           riskReasons: ["asserts a specific field/property value"],
           automation: "unit-backed",
-          conformanceTests: ["packages/pyric/test/rules/simulator/evaluator.test.ts"],
+          conformanceTests: ["packages/rules/test/simulator/evaluator.test.ts"],
           exceptionReason: "playground / preview behavior — no firebase-js-sdk counterpart to observe",
         }),
         row22({
@@ -2284,7 +2284,7 @@ export const firestoreRegistry = {
           riskScore: 1,
           riskReasons: ["asserts a specific field/property value"],
           automation: "unit-backed",
-          conformanceTests: ["packages/pyric/test/rules/simulator/evaluator.test.ts"],
+          conformanceTests: ["packages/rules/test/simulator/evaluator.test.ts"],
           exceptionReason: "playground / preview behavior — no firebase-js-sdk counterpart to observe",
         }),
         row22({
@@ -2305,7 +2305,7 @@ export const firestoreRegistry = {
           evidence: "`unit:rules/simulator/evaluator.test.ts` (RULES-B2 / RULES-B3 / RULES-B8 blocks) covers dotted and index access, null access, undefined variables, `get()` of a missing document and error absorption. Production capture, 2026-09-28: `oracle:rules-firestore-undefined-field-access` records production denying index access of a missing key on `resource.data`, `request.resource.data` and `request.auth.token` under `==`, `!=`, `== null`, `!`, `is`, `in`, `.size()`, a nested map, a computed key, a path variable key and a `let` that is used; allowing under `|| true`, `!(... && false)`, an unused `let`, an `in` guard, a key present with null and `get(key, null)`; and denying a list index past either end and a string key on a list. The simulator returned null for a missing index key and allowed 16 of those denials; it now reads index access through `rules/simulator/index-access.ts`, shared with the Storage evaluator, and matches production on all 41 cases (replayed by `unit:rules/oracle-conformance.test.ts`; `unit:rules/index-access.test.ts` runs each shape through both engines).",
           automation: "unit-backed",
           conformanceTests: [
-            "packages/pyric/test/rules/simulator/evaluator.test.ts",
+            "packages/rules/test/simulator/evaluator.test.ts",
             "packages/pyric/test/rules/oracle-conformance.test.ts",
             "packages/pyric/test/rules/index-access.test.ts",
           ],
@@ -2316,7 +2316,7 @@ export const firestoreRegistry = {
           status: "conforms",
           evidence: "`unit:rules/simulator/evaluator.test.ts` (RULES-B4 block)",
           automation: "unit-backed",
-          conformanceTests: ["packages/pyric/test/rules/simulator/evaluator.test.ts"],
+          conformanceTests: ["packages/rules/test/simulator/evaluator.test.ts"],
         }),
         row22({
           rowRef: "135",
@@ -2324,7 +2324,7 @@ export const firestoreRegistry = {
           status: "conforms",
           evidence: "`unit:rules/simulator/evaluator.test.ts` (RULES-B7 block)",
           automation: "unit-backed",
-          conformanceTests: ["packages/pyric/test/rules/simulator/evaluator.test.ts"],
+          conformanceTests: ["packages/rules/test/simulator/evaluator.test.ts"],
         }),
         row22({
           rowRef: "136",
@@ -2332,7 +2332,7 @@ export const firestoreRegistry = {
           status: "conforms",
           evidence: "`unit:rules/simulator/evaluator.test.ts` (RULES-B6 / B9 / B12 blocks)",
           automation: "unit-backed",
-          conformanceTests: ["packages/pyric/test/rules/simulator/evaluator.test.ts"],
+          conformanceTests: ["packages/rules/test/simulator/evaluator.test.ts"],
         }),
         row22({
           rowRef: "136b",
@@ -2340,7 +2340,7 @@ export const firestoreRegistry = {
           status: "conforms",
           evidence: "`unit:rules/simulator/set-equality.test.ts`; live validation: 10/10 both engines",
           automation: "unit-backed",
-          conformanceTests: ["packages/pyric/test/rules/simulator/set-equality.test.ts"],
+          conformanceTests: ["packages/rules/test/simulator/set-equality.test.ts"],
           rowNumber: 136,
         }),
         row22({
@@ -2349,7 +2349,7 @@ export const firestoreRegistry = {
           status: "conforms",
           evidence: "`unit:rules/simulator/handler.test.ts` (RULES-B10 block)",
           automation: "unit-backed",
-          conformanceTests: ["packages/pyric/test/rules/simulator/handler.test.ts"],
+          conformanceTests: ["packages/rules/test/simulator/handler.test.ts"],
         }),
         row22({
           rowRef: "137a",
@@ -2379,7 +2379,7 @@ export const firestoreRegistry = {
           status: "conforms",
           evidence: "`unit:rules/simulator/evaluator.test.ts` (RULES-B5 + \"RULES-B6 remainder\" blocks); `unit:rules/simulator/handler.test.ts` (\"RULES-B5 end-to-end\" block). Production's missing `bool()` is recorded by Firestore Rules row `firestore-rules#191`, whose capture `rules-firestore-ast-strictness-and-unsupported-casts` shows the error.",
           automation: "unit-backed",
-          conformanceTests: ["packages/pyric/test/rules/simulator/evaluator.test.ts","packages/pyric/test/rules/simulator/handler.test.ts"],
+          conformanceTests: ["packages/rules/test/simulator/evaluator.test.ts","packages/rules/test/simulator/handler.test.ts"],
         }),
         row22({
           rowRef: "138a",
@@ -2390,7 +2390,7 @@ export const firestoreRegistry = {
           riskScore: 3,
           riskReasons: ["asserts 1 specific value(s)","asserts a specific field/property value"],
           automation: "unit-backed",
-          conformanceTests: ["packages/pyric/test/rules/simulator/evaluator.test.ts","packages/pyric/test/rules/simulator/handler.test.ts"],
+          conformanceTests: ["packages/rules/test/simulator/evaluator.test.ts","packages/rules/test/simulator/handler.test.ts"],
           rowNumber: 138,
         }),
         row22({
@@ -2399,7 +2399,7 @@ export const firestoreRegistry = {
           status: "conforms",
           evidence: "`unit:rules/simulator/query-proof.test.ts`",
           automation: "unit-backed",
-          conformanceTests: ["packages/pyric/test/rules/simulator/query-proof.test.ts"],
+          conformanceTests: ["packages/rules/test/simulator/query-proof.test.ts"],
         }),
         row22({
           rowRef: "139a",

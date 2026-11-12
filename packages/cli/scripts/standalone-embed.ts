@@ -29,6 +29,7 @@ export interface EmbeddedWorkspacePackage {
  * whole set).
  */
 export const EMBEDDED_WORKSPACE_PACKAGES: readonly EmbeddedWorkspacePackage[] = [
+  { name: '@pyric/rules', dir: 'packages/rules', tarball: 'pyric-rules.tgz' },
   { name: 'pyric', dir: 'packages/pyric', tarball: 'pyric.tgz' },
   { name: 'pyric-admin', dir: 'packages/pyric-admin', tarball: 'pyric-admin.tgz' },
   { name: 'create-pyric', dir: 'packages/create-pyric', tarball: 'create-pyric.tgz' },

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build a Pyric checkout and pack the five packages live mode needs into
+# Build a Pyric checkout and pack the six packages live mode needs into
 # installable tarballs. @pyric/live is not on npm yet, so a project that
 # tests it installs these instead.
 #
@@ -27,8 +27,8 @@ fi
 echo "Building $checkout" >&2
 (cd "$checkout" && bun install --frozen-lockfile >&2 && bash scripts/build.sh --packages-only >&2)
 
-# Order does not matter for packing; all five are installed together.
-for package in packages/pyric packages/pyric-admin packages/create-pyric packages/cli packages/live; do
+# Order does not matter for packing; all six are installed together.
+for package in packages/rules packages/pyric packages/pyric-admin packages/create-pyric packages/cli packages/live; do
   name="$(node -p "require('$checkout/$package/package.json').name")"
   echo "Packing $name" >&2
   tarball="$(cd "$checkout/$package" && npm pack --silent --pack-destination "$output")"

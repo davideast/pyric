@@ -24,9 +24,9 @@ import {
   compileRtdbRules,
   simulateRtdbRules,
   type CompiledRtdbRules,
-} from '../../rules/rtdb/compiled-rules.js';
-import { nodesDeclaringIndex } from '../../rules/rtdb/index-lookup.js';
-import type { RtdbRuleEvaluation, SimulationInput } from '../../rules/rtdb/simulation/spec.js';
+} from '@pyric/rules/internal/rtdb';
+import { nodesDeclaringIndex } from '@pyric/rules/internal/rtdb';
+import type { RtdbRuleEvaluation, SimulationInput } from '@pyric/rules/internal/rtdb';
 import type { AuthState, RtdbDenialContext } from 'pyric/sandbox';
 import { SandboxClock } from 'pyric/sandbox';
 import type { QuerySpec } from './query.js';

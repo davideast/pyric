@@ -1,6 +1,6 @@
 import { FirebaseError } from '../sandbox/internal/firebase-error.js';
 
-export { SDK_VERSION } from '../rules/rtdb/data/sdk-version.js';
+export { SDK_VERSION } from '@pyric/rules/internal/rtdb';
 
 export type LogLevel = 'debug' | 'verbose' | 'info' | 'warn' | 'error' | 'silent';
 

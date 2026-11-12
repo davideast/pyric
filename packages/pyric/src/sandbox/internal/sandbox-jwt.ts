@@ -17,7 +17,7 @@
  * The digest is the rules engine's synchronous SHA-256, so an Auth ID token
  * can be minted inside a synchronous sign-in, as the token cache needs.
  */
-import { sha256 } from '../../rules/simulator/hashing-builtins.js';
+import { sha256 } from '@pyric/rules/internal';
 import { decodeBase64url, encodeBase64url } from './base64url.js';
 
 const SIGNATURE_BLOCKS = 8;

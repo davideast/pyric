@@ -4,7 +4,7 @@
  * {@link proveListQuery} and residual simulation, emitting deterministic
  * {@link AssuranceDiagnostic} items with copy-paste `.where(...)` remediation.
  */
-import { SimulateFirestoreRulesHandler } from '../../rules/simulator/handler.js';
+import { SimulateFirestoreRulesHandler } from '@pyric/rules/internal';
 import {
   sortAssuranceDiagnostics,
   type AssuranceDiagnostic,

@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { resolveModules } from '../../../src/rules/modules/resolver.js';
+import { resolveModules } from '@pyric/rules/internal/node';
 import {
   evaluateStorageRules,
   parseStorageRules,

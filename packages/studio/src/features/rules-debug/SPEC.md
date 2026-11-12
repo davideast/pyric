@@ -15,7 +15,7 @@ already put on the wire; it never invents a parallel denial shape.
 ### Firestore
 
 The in-process simulator (`SimulateFirestoreRulesHandler`,
-`packages/pyric/src/rules/simulator/`) runs per op and stamps
+`packages/rules/src/simulator/`) runs per op and stamps
 `RequestEvent.reasons[]` (`Rule #N (ops) → deny`, plus get()/exists() context
 lines) and `matchedRule { ruleIndex, operations }`. `explainDenial` reads that
 trace: the matched `allow` rule, or an implicit deny when nothing matched.
@@ -107,7 +107,7 @@ Previously `renderLegacyDebugMessages` flattened the simulator's structured
 `expressionTrace`. Two additive, internal-only changes carry them through (no
 mirrored Firebase API touched):
 
-- `packages/pyric/src/rules/test/spec.ts` gains `projectEvaluatedRule(result)`
+- `packages/rules/src/test/spec.ts` gains `projectEvaluatedRule(result)`
   → `EvaluatedRuleInfo { verdict, line?, expression?, expressionTrace? }`. For
   an ALLOW it picks the `→ ALLOW` trace entry (evaluation short-circuits on the
   first allowing rule); for a DENY the first `DENY`/`ERROR` entry (fallback:
@@ -152,7 +152,7 @@ never as an empty object.
 
 ### RTDB
 
-`SimulateHandler.execute` (`packages/pyric/src/rules/rtdb/simulation/handler.ts`)
+`SimulateHandler.execute` (`packages/rules/src/rtdb/simulation/handler.ts`)
 walks the rule tree via `collectAncestors()` with first-true-wins cascade for
 `.read`/`.write`, and for a write ALSO walks `.validate` at and below the
 write location (`findFailingValidate()` — it knows WHICH rule node failed).

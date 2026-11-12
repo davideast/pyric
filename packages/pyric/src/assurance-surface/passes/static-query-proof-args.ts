@@ -7,7 +7,7 @@ import type {
   QueryConstraints,
   QueryProofResidual,
   QueryWhereConstraint,
-} from '../../rules/simulator/list-query-proof.js';
+} from '@pyric/rules/internal';
 import { renderResourcePattern } from '../../sandbox/internal/resource-pattern.js';
 import type {
   ConstraintOperand,

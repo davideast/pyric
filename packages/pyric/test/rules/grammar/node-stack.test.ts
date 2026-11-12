@@ -10,7 +10,7 @@
  * the CLI and published package run it.
  *
  * Evidence: production's limits in
- * `test/rules/linter/fixtures/compile-limits/captures.json` (Rules Test API,
+ * `packages/rules/test/linter/fixtures/compile-limits/captures.json` (Rules Test API,
  * 2026-09-27), each probe generated as `probeBlock()` in
  * `packages/conformance/src/capture-rules-compile-limits.ts` generates it:
  * `paren-nesting` n=97 compiles (uid a ALLOW, uid b DENY) and n=98 is
@@ -22,14 +22,16 @@
 import { beforeAll, describe, expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { createRequire } from 'node:module';
+import { dirname, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 const pyricRoot = resolve(import.meta.dir, '../../..');
 const rulesDist = join(pyricRoot, 'dist/rules/index.js');
 const storageDist = join(pyricRoot, 'dist/storage/index.js');
-const parserDist = join(pyricRoot, 'dist/rules/grammar/FirestoreParser.js');
-const capturesPath = join(pyricRoot, 'test/rules/linter/fixtures/compile-limits/captures.json');
+const rulesRoot = dirname(createRequire(import.meta.url).resolve('@pyric/rules/package.json'));
+const parserDist = join(rulesRoot, 'dist/grammar/FirestoreParser.js');
+const capturesPath = join(rulesRoot, 'test/linter/fixtures/compile-limits/captures.json');
 
 const NESTING_MESSAGE = 'Expression is too complex to evaluate safely.';
 const LEAF = "request.auth.uid == 'a'";

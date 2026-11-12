@@ -37,7 +37,7 @@
 import { getOrCreateBackend } from '../../database/sandbox/backend-for.js';
 import type { JsonValue } from '../../database/sandbox/data-tree.js';
 import type { Priority } from '../../database/sandbox/query.js';
-import { toStrictRulesJson } from '../../rules/rtdb/rules-text.js';
+import { toStrictRulesJson } from '@pyric/rules/internal/rtdb';
 import { getAdminStorageSandbox, replaceStorageRules } from '../../storage/internal.js';
 import { Timestamp } from 'pyric/rules/internal';
 import { enginePayloadOf } from '../../firestore/sandbox/update-fields.js';
