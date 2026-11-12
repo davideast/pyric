@@ -61,7 +61,11 @@ export function signInWithCredentialPayload(
 /** Sign in as the staged identity: find or create its uid and link the provider, as `auth.acceptIdentity` does. */
 function signInAsStaged(auth: Auth, staged: ResolvedIdentity, scope: CredentialSignInScope): CredentialSignIn {
   const { photoURL, ...identity } = staged;
-  const { uid, isNewUser } = resolveOAuthCredentialUser(auth, { ...identity, photoURL: photoURL ?? undefined });
+  const { uid, isNewUser } = resolveOAuthCredentialUser(auth, {
+    ...identity,
+    photoURL: photoURL ?? undefined,
+    tenantId: scope.tenantId,
+  });
   const session = sandbox.mintSession(auth, { kind: 'provider', uid, providerId: staged.providerId, ...scope });
   return { session, providerId: staged.providerId, isNewUser };
 }

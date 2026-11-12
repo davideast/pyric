@@ -7,11 +7,11 @@ import { createReproRecorder } from '../../src/serve/repro/recorder.js';
 import { buildReproFile, captureReproBase } from '../../src/serve/repro/capture.js';
 import { replayRepro } from '../../src/serve/repro/replay.js';
 import { runServeReproCapture, runServeReproReplay } from '../../src/cli/serve-repro.js';
-import { handleMessage, type HostCtx, type PortLike } from '../../src/serve/worker/host.js';
+import { ensureAuth, handleMessage, type HostCtx, type PortLike } from '../../src/serve/worker/host.js';
 import { initializeSandbox } from 'pyric/sandbox';
 import { captureCheckpoint } from 'pyric/sandbox/checkpoints';
 import { setRules } from 'pyric/sandbox/firestore';
-import { createUserWithEmailAndPassword, getAuth, sandbox as authSandbox } from 'pyric/auth';
+import { sandbox as authSandbox } from 'pyric/auth';
 import { getFirestore } from 'pyric/firestore';
 import { getAdminDatabase, ref, set } from 'pyric/database';
 import { getStorageSandbox } from 'pyric/storage';
@@ -372,7 +372,7 @@ describe('the repro recorder and observed session data', () => {
     expect(log).not.toContain('sessionData');
   });
 
-  test('replays non-custom sessions with recorded unrefreshed customClaims and preserves own __proto__ keys in parseRepro', async () => {
+  test('replays non-custom sessions with recorded unrefreshed customClaims without emitting user_update history events and preserves own __proto__ keys in parseRepro', async () => {
     const firestoreRules = `rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
@@ -383,67 +383,144 @@ service cloud.firestore {
 }
 `;
     const sb = initializeSandbox();
+    installStorageBackend(sb, emptyReferencedStorage());
+    const verifySb = initializeSandbox();
     try {
       setRules(sb, firestoreRules);
-      const auth = getAuth(sb);
-      const cred = await createUserWithEmailAndPassword(auth, 'member@example.com', 'password123');
-      const uid = cred.user.uid;
-      authSandbox.updateUser(auth, uid, { customClaims: { role: 'admin' } });
-      await cred.user.getIdToken(true);
-      authSandbox.updateUser(auth, uid, { customClaims: {} });
-
-      const checkpoint = await captureCheckpoint(sb);
-      const repro = {
-        schema: REPRO_SCHEMA,
-        createdAt: '2026-01-01T00:00:00.000Z',
-        recordedBy: '0.1.0-alpha.35',
-        truncated: true,
-        base: {
-          at: 1000,
-          checkpoint,
-          databaseInstances: {},
-          rules: {
-            firestore: firestoreRules,
-            database: { '(default)': checkpoint.state.rules.database },
-            storage: checkpoint.state.rules.storage,
+      const ctx: HostCtx = {
+        db: getFirestore(sb),
+        sandbox: sb,
+        flushPersistence: async () => {},
+        instanceId: 'repro-unrefreshed-claims',
+        subs: new Map(),
+        activeRules: {
+          firestore: {
+            source: firestoreRules,
+            updatedAt: Date.now(),
+            status: 'active',
+            messages: [],
           },
-          defaultInstance: '(default)',
-          permissive: false,
-          appOptions: { projectId: 'proj-1' },
-          messaging: false,
-          sessions: {
-            's-1': {
-              uid,
-              tenantId: null,
-              signInProvider: 'password',
-              customClaims: { role: 'admin' },
-            },
-          },
-          subscriptions: {},
         },
-        entries: [
-          {
-            kind: 'in' as const,
-            at: 1001,
-            session: 's-1',
-            frame: { t: 'op', id: 'op-read-1', method: 'getDoc', path: 'items/item-1' } as InboundMessage,
-          },
-          {
-            kind: 'out' as const,
-            at: 1002,
-            session: 's-1',
-            frame: {
-              t: 'res',
-              id: 'op-read-1',
-              ok: true,
-              value: { exists: false, id: 'item-1', path: 'items/item-1' },
-            },
-          },
-        ],
+        appOptions: { projectId: 'proj-1' },
       };
 
+      const sendHostOp = async (
+        targetCtx: HostCtx,
+        session: string,
+        id: string,
+        payload: Record<string, unknown>,
+        recorder?: ReturnType<typeof createReproRecorder>,
+        portRegistry?: Map<string, PortLike>,
+      ): Promise<OutboundMessage> => {
+        const inbound = { t: 'op', id, ...payload } as InboundMessage;
+        if (recorder) await recorder.inbound(session, inbound);
+        return await new Promise<OutboundMessage>((resolve) => {
+          let port = portRegistry?.get(session);
+          let currentResolve: ((msg: OutboundMessage) => void) | null = resolve;
+          if (!port) {
+            const listeners = new Set<(msg: OutboundMessage) => void>();
+            port = {
+              postMessage(msg: OutboundMessage) {
+                for (const fn of listeners) fn(msg);
+              },
+            };
+            (port as unknown as { __listeners: Set<(msg: OutboundMessage) => void> }).__listeners = listeners;
+            portRegistry?.set(session, port);
+          }
+          const listeners = (port as unknown as { __listeners: Set<(msg: OutboundMessage) => void> }).__listeners;
+          const onMsg = (msg: OutboundMessage) => {
+            if (recorder) recorder.outbound(session, msg);
+            if (msg.t === 'res' && msg.id === id && currentResolve) {
+              const r = currentResolve;
+              currentResolve = null;
+              listeners.delete(onMsg);
+              r(msg);
+            }
+          };
+          listeners.add(onMsg);
+          void handleMessage(targetCtx, port, inbound);
+        });
+      };
+
+      const ports = new Map<string, PortLike>();
+      const uid = 'u-member-1';
+      authSandbox.createUser(ensureAuth(ctx), {
+        uid,
+        email: 'member@example.com',
+        password: 'password123',
+        customClaims: { role: 'admin' },
+      });
+      const signedIn = await sendHostOp(ctx, 's-1', 'setup-signin-1', {
+        method: 'auth.signInEmail',
+        email: 'member@example.com',
+        password: 'password123',
+      }, undefined, ports);
+      expect(signedIn.t === 'res' && signedIn.ok).toBe(true);
+
+      // Revoke customClaims in the Auth pool while leaving port s-1 with its unrefreshed admin token.
+      authSandbox.updateUser(ensureAuth(ctx), uid, { customClaims: {} });
+
+      const recorder = createReproRecorder({
+        capture: async () => captureReproBase(ctx, ports.entries()),
+      });
+
+      const allowedBeforeRefresh = await sendHostOp(ctx, 's-1', 'op-read-1', {
+        method: 'getDoc',
+        path: 'items/item-1',
+      }, recorder, ports);
+      expect(allowedBeforeRefresh.t === 'res' && allowedBeforeRefresh.ok).toBe(true);
+
+      const refreshedCleared = await sendHostOp(ctx, 's-1', 'op-refresh-1', {
+        method: 'auth.getIdTokenResult',
+        forceRefresh: true,
+      }, recorder, ports);
+      expect(refreshedCleared.t === 'res' && refreshedCleared.ok).toBe(true);
+      const clearedClaims = ((refreshedCleared as Extract<OutboundMessage, { t: 'res'; ok: true }>).value as { claims: Record<string, unknown> }).claims;
+      expect(clearedClaims.role).toBeUndefined();
+
+      const deniedAfterRefresh = await sendHostOp(ctx, 's-1', 'op-read-2', {
+        method: 'getDoc',
+        path: 'items/item-1',
+      }, recorder, ports);
+      expect(deniedAfterRefresh.t === 'res' && !deniedAfterRefresh.ok).toBe(true);
+
+      const repro = await buildReproFile(await recorder.log(), () => undefined);
+      expect(repro.base.sessions['s-1']?.customClaims).toEqual({ role: 'admin' });
+
       const report = await replayRepro(repro, { planes: ['worker'] });
+      expect(report.planes.worker?.firstDivergence).toBeNull();
       expect(report.ok).toBe(true);
+      expect(report.planes.worker?.ok).toBe(true);
+      expect(report.planes.worker?.checked).toBe(3);
+
+      // Verify restoring the recorded session emits zero synthetic user_update events into sandbox.history().
+      const verifyCtx: HostCtx = {
+        db: getFirestore(verifySb),
+        sandbox: verifySb,
+        flushPersistence: async () => {},
+        instanceId: 'repro-verify-history',
+        subs: new Map(),
+      };
+      const verifyPorts = new Map<string, PortLike>();
+      const imported = await sendHostOp(verifyCtx, '__repro_setup', 'verify-import-1', {
+        method: 'importState',
+        bundle: JSON.stringify(repro.base.checkpoint),
+      }, undefined, verifyPorts);
+      expect(imported.t === 'res' && imported.ok).toBe(true);
+      const historyBeforeRestore = verifySb.history().length;
+      const restored = await sendHostOp(verifyCtx, 's-1', 'verify-restore-1', {
+        method: 'auth.restorePortSession',
+        uid,
+        tenantId: null,
+        customClaims: { role: 'admin' },
+        signInProvider: 'password',
+      }, undefined, verifyPorts);
+      expect(restored.t === 'res' && restored.ok).toBe(true);
+      const eventsDuringRestore = verifySb.history().slice(historyBeforeRestore);
+      const userUpdateEvents = eventsDuringRestore.filter(
+        (ev) => ev.kind === 'service-mutation' && ev.service === 'auth' && ev.op === 'user_update',
+      );
+      expect(userUpdateEvents).toEqual([]);
 
       const protoSample = structuredClone(repro);
       protoSample.base.sessions['s-1']!.customClaims = JSON.parse('{"__proto__":{"role":"viewer"}}') as Record<string, unknown>;
@@ -452,6 +529,7 @@ service cloud.firestore {
       expect(Object.hasOwn(parsedClaims, '__proto__')).toBe(true);
       expect(Object.getPrototypeOf(parsedClaims)).toBe(Object.prototype);
     } finally {
+      verifySb.dispose();
       sb.dispose();
     }
   });

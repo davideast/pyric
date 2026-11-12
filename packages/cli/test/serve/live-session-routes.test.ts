@@ -30,7 +30,9 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createBridgeMount } from ${JSON.stringify(pathToFileURL(join(cliDist, 'serve/bridge-mount.js')).href)};
+import { loadHostedSnapshot } from ${JSON.stringify(pathToFileURL(join(cliDist, 'serve/hosted/persistence.js')).href)};
 import { createLiveHostState } from ${JSON.stringify(pathToFileURL(join(cliDist, 'serve/live-host-state.js')).href)};
+import { firestoreDocCount } from ${JSON.stringify(pathToFileURL(join(cliDist, 'serve/state-summary.js')).href)};
 import { liveWriteRefusal } from ${JSON.stringify(pathToFileURL(join(liveDist, 'refusal.js')).href)};
 
 const OPEN_RULES = "rules_version = '2';\\nservice cloud.firestore { match /databases/{db}/documents { match /{p=**} { allow read, write: if true; } } }";
@@ -187,6 +189,9 @@ const callHostedMethod = async (key, args) => {
   return res.json();
 };
 
+const readPersistedDocCount = async () => firestoreDocCount((await loadHostedSnapshot(dir))?.firestore);
+
+const docsBeforeSeed = await readPersistedDocCount();
 const inspectBefore = await callHostedMethod('sandbox.inspect', {});
 const liveReadBefore = await callHostedMethod('firestore.getDoc', { path: 'rooms/alpha' });
 const directWriteBefore = await callHostedMethod('firestore.setDoc', { path: 'rooms/beta', data: { x: 1 } });
@@ -204,7 +209,7 @@ const unconfirmedRes = await fetch(baseUrl + '/__pyric/live/seed-sandbox', {
   body: JSON.stringify({ mode: 'merge' }),
 });
 const unconfirmedBody = await unconfirmedRes.json();
-const inspectAfterUnconfirmed = await callHostedMethod('sandbox.inspect', {});
+const docsAfterUnconfirmed = await readPersistedDocCount();
 
 // 4. Explicit opt-in seed WITH confirm:true (mode: 'merge') adds rooms/alpha alongside rooms/stale (total 2 docs).
 const mergeRes = await fetch(baseUrl + '/__pyric/live/seed-sandbox', {
@@ -213,7 +218,7 @@ const mergeRes = await fetch(baseUrl + '/__pyric/live/seed-sandbox', {
   body: JSON.stringify({ confirm: true, mode: 'merge', instanceId: mount.instanceId, projectDir: dir }),
 });
 const mergeBody = await mergeRes.json();
-const inspectAfterMerge = await callHostedMethod('sandbox.inspect', {});
+const docsAfterMerge = await readPersistedDocCount();
 
 // 5. Explicit opt-in seed WITH confirm:true (mode: 'replace') replaces local sandbox with ONLY observed data (total 1 doc).
 const replaceRes = await fetch(baseUrl + '/__pyric/live/seed-sandbox', {
@@ -222,7 +227,8 @@ const replaceRes = await fetch(baseUrl + '/__pyric/live/seed-sandbox', {
   body: JSON.stringify({ confirm: true, mode: 'replace', instanceId: mount.instanceId, projectDir: dir }),
 });
 const replaceBody = await replaceRes.json();
-const inspectAfterReplace = await callHostedMethod('sandbox.inspect', {});
+const docsAfterReplace = await readPersistedDocCount();
+const inspectAfter = await callHostedMethod('sandbox.inspect', {});
 
 // Normal Live-mode reads (without a connected tab) and writes MUST STILL be refused with PYRIC_LIVE_REFUSED!
 const liveReadAfter = await callHostedMethod('firestore.getDoc', { path: 'rooms/alpha' });
@@ -289,10 +295,12 @@ console.log('E2E_OUTCOME ' + JSON.stringify({
   unauthSeedStatus: unauthSeedRes.status,
   sessionFirestoreKeys: Object.keys(sessionSnap.firestore),
   sessionRtdb: sessionSnap.rtdb,
-  docsBeforeSeed: inspectBefore.data?.documents?.totalCount ?? null,
-  docsAfterUnconfirmed: inspectAfterUnconfirmed.data?.documents?.totalCount ?? null,
-  docsAfterMerge: inspectAfterMerge.data?.documents?.totalCount ?? null,
-  docsAfterReplace: inspectAfterReplace.data?.documents?.totalCount ?? null,
+  docsBeforeSeed,
+  docsAfterUnconfirmed,
+  docsAfterMerge,
+  docsAfterReplace,
+  inspectBeforeCode: inspectBefore.data?.code ?? null,
+  inspectAfterCode: inspectAfter.data?.code ?? null,
   gitignoreBefore,
   liveReadBeforeCode: liveReadBefore.data?.code ?? null,
   liveReadAfterCode: liveReadAfter.data?.code ?? null,
@@ -342,6 +350,8 @@ describe('Live host observed-session-data & opt-in seeding end-to-end (Node sqli
       expect(outcome.docsAfterUnconfirmed).toBe(1);
       expect(outcome.gitignoreBefore).toBe(false);
       // Normal Live-mode service reads (without a connected tab) and writes remain refused with PYRIC_LIVE_REFUSED before AND after seeding.
+      expect(outcome.inspectBeforeCode).toBe('PYRIC_LIVE_REFUSED');
+      expect(outcome.inspectAfterCode).toBe('PYRIC_LIVE_REFUSED');
       expect(outcome.liveReadBeforeCode).toBe('PYRIC_LIVE_REFUSED');
       expect(outcome.liveReadAfterCode).toBe('PYRIC_LIVE_REFUSED');
       expect(outcome.directWriteBeforeCode).toBe('PYRIC_LIVE_REFUSED');

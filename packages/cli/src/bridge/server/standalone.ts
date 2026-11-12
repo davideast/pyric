@@ -164,8 +164,17 @@ export async function startServer(
     }, sessionIdleMs);
   }
 
+  async function closeSession(session: Session): Promise<void> {
+    const sessionId = session.sessionId;
+    if (sessionId !== null && sessionId.length > 0) {
+      sessions.delete(sessionId);
+    }
+    pendingSessions.delete(session);
+    await session.close();
+  }
+
   async function newSession(): Promise<Session> {
-    const isAtSessionCap = sessions.size >= maxSessions;
+    const isAtSessionCap = sessions.size + pendingSessions.size >= maxSessions;
     if (isAtSessionCap) {
       const err = new Error(
         `pyric bridge: refusing new session — at session cap (${maxSessions}). Existing sessions: ${sessions.size}.`,
@@ -184,21 +193,41 @@ export async function startServer(
       },
     });
     const server = buildMcpServer(bridge, { forwarded: [], inProcess });
+    let closing: Promise<void> | null = null;
     const session: Session = {
       transport,
       idleTimer: null,
       sessionId: null,
-      async close() {
-        const idleTimer = session.idleTimer;
-        const hasIdleTimer = idleTimer !== null;
-        if (hasIdleTimer) clearTimeout(idleTimer);
-        session.idleTimer = null;
-        await server.close().catch(() => {});
-        await transport.close().catch(() => {});
+      close() {
+        closing ??= (async () => {
+          const idleTimer = session.idleTimer;
+          const hasIdleTimer = idleTimer !== null;
+          if (hasIdleTimer) clearTimeout(idleTimer);
+          session.idleTimer = null;
+          await server.close().catch(() => {});
+          await transport.close().catch(() => {});
+        })();
+        return closing;
       },
     };
+    session.transport.onclose = () => {
+      const sessionId = session.sessionId;
+      if (sessionId !== null && sessionId.length > 0) {
+        sessions.delete(sessionId);
+      }
+      pendingSessions.delete(session);
+      if (session.idleTimer !== null) {
+        clearTimeout(session.idleTimer);
+        session.idleTimer = null;
+      }
+    };
     pendingSessions.add(session);
-    await server.connect(session.transport);
+    try {
+      await server.connect(session.transport);
+    } catch (err) {
+      await closeSession(session);
+      throw err;
+    }
     return session;
   }
 
@@ -243,10 +272,9 @@ export async function startServer(
       res.end(req.method === 'HEAD' ? undefined : body);
       return;
     }
-    const supportsMcpMethod = req.method === 'POST' || req.method === 'GET' || req.method === 'DELETE';
-    const requestsMcp = parsedUrl.pathname === DEFAULT_MCP_PATH && supportsMcpMethod;
-    if (requestsMcp) {
-      const mcpAllowedHosts = requiresSessionToken ? opts.allowedHosts : [];
+    if (parsedUrl.pathname === DEFAULT_MCP_PATH) {
+      const authenticated = isAllowedSessionToken(req, parsedUrl, sessionToken);
+      const mcpAllowedHosts = requiresSessionToken && authenticated ? opts.allowedHosts : [];
       const refusesOrigin =
         !isLocalPeer(req) ||
         !isAllowedLoopbackRequest(req, '127.0.0.1', mcpAllowedHosts, mcpPorts.forRequest(req));
@@ -255,32 +283,50 @@ export async function startServer(
         res.end(JSON.stringify({ error: 'Forbidden: invalid host or origin' }));
         return;
       }
-      if (requiresSessionToken && !isAllowedSessionToken(req, parsedUrl, sessionToken)) {
+      if (requiresSessionToken && !authenticated) {
         res.writeHead(401, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
         res.end(JSON.stringify({ error: 'Unauthorized: missing or invalid session capability token' }));
+        return;
+      }
+      const supportsMcpMethod = req.method === 'POST' || req.method === 'GET' || req.method === 'DELETE';
+      if (!supportsMcpMethod) {
+        res.writeHead(405, { 'Content-Type': 'application/json', Allow: 'POST, GET, DELETE' });
+        res.end(JSON.stringify({ error: 'method not allowed' }));
         return;
       }
       try {
         const sessionId = req.headers['mcp-session-id'] ?? req.headers['Mcp-Session-Id'];
         const hasSessionId = typeof sessionId === 'string' && sessionId.length > 0;
-        let session: Session | undefined;
-        if (hasSessionId) session = sessions.get(sessionId);
-        const retainedSession = session;
-        const needsSession = retainedSession === undefined;
-        if (needsSession) session = await newSession();
-        else {
-          session = retainedSession;
+        let session: Session;
+        let created = false;
+        if (hasSessionId) {
+          const existing = sessions.get(sessionId);
+          if (existing === undefined) {
+            res.writeHead(404, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'pyric bridge: MCP session not found' }));
+            return;
+          }
+          session = existing;
           bumpIdle(session);
+        } else {
+          session = await newSession();
+          created = true;
         }
         const deletesSession = req.method === 'DELETE' && hasSessionId;
         if (deletesSession) {
-          await session.close();
-          sessions.delete(sessionId);
+          await closeSession(session);
           res.writeHead(204);
           res.end();
           return;
         }
-        await session.transport.handleRequest(req, res);
+        try {
+          await session.transport.handleRequest(req, res);
+        } finally {
+          const failedToInitialize = created && session.sessionId === null;
+          if (failedToInitialize) {
+            await closeSession(session);
+          }
+        }
       } catch (err) {
         let statusCode = 500;
         const hasStatusCode = typeof err === 'object' && err !== null && 'statusCode' in err;

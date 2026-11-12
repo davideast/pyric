@@ -349,7 +349,6 @@ async function applyBase(plane: Plane, base: ReproBase, timeoutMs: number): Prom
   if (base.rules.firestore !== null) await setup(SETUP_SESSION, { method: 'setFirestoreRules', source: base.rules.firestore });
   else plane.clearActiveFirestoreRules();
   if (base.rules.storage !== null) await plane.deployRules('storage', base.rules.storage);
-  let poolUsers: Array<{ uid?: unknown; tenantId?: unknown; customClaims?: Record<string, unknown> }> | undefined;
   for (const [session, identity] of Object.entries(base.sessions)) {
     if (identity.signInProvider === 'custom') {
       await setup(session, {
@@ -358,27 +357,6 @@ async function applyBase(plane: Plane, base: ReproBase, timeoutMs: number): Prom
         ...(identity.tenantId !== null ? { tenantId: identity.tenantId } : {}),
       });
     } else {
-      let restorePoolClaims: Record<string, unknown> | undefined;
-      if (identity.customClaims !== undefined) {
-        if (poolUsers === undefined) {
-          const listed = await setup(SETUP_SESSION, { method: 'auth.listUsers' });
-          poolUsers = Array.isArray(listed) ? listed : [];
-        }
-        const poolUser = poolUsers.find(
-          (u) => u.uid === identity.uid && (u.tenantId ?? null) === identity.tenantId,
-        );
-        if (poolUser !== undefined) {
-          const currentPoolClaims = poolUser.customClaims ?? {};
-          if (JSON.stringify(currentPoolClaims) !== JSON.stringify(identity.customClaims)) {
-            restorePoolClaims = currentPoolClaims;
-            await setup(SETUP_SESSION, {
-              method: 'auth.adminUpdateUser',
-              uid: identity.uid,
-              request: { customClaims: identity.customClaims },
-            });
-          }
-        }
-      }
       await setup(session, {
         method: 'auth.restorePortSession',
         uid: identity.uid,
@@ -386,13 +364,6 @@ async function applyBase(plane: Plane, base: ReproBase, timeoutMs: number): Prom
         ...(identity.customClaims !== undefined ? { customClaims: identity.customClaims } : {}),
         ...(identity.signInProvider !== undefined ? { signInProvider: identity.signInProvider } : {}),
       });
-      if (restorePoolClaims !== undefined) {
-        await setup(SETUP_SESSION, {
-          method: 'auth.adminUpdateUser',
-          uid: identity.uid,
-          request: { customClaims: restorePoolClaims },
-        });
-      }
     }
   }
   for (const [session, subscriptions] of Object.entries(base.subscriptions)) {

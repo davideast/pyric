@@ -308,8 +308,12 @@ export const STORAGE_ROUTES: DiscriminatorRoute[] = [
     tool: 'manage_storage_files',
     action: 'list',
     selects: on('action', 'list'),
-    operation: 'get_storage_metadata',
-    translate: (args) => ({ path: args.path }),
+    operation: 'list_storage_files',
+    translate: (args) => {
+      const translated: Args = {};
+      assign(translated, 'prefix', text(args, 'path'));
+      return translated;
+    },
   },
   {
     tool: 'manage_storage_files',

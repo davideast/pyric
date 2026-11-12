@@ -45,6 +45,7 @@ import {
 import { signInWithCredentialPayload, type CredentialPayload } from './host/auth-credential-sign-in.js';
 import { authAccountsFor, getClock, isPastIdTokenRefreshPoint, rulesTokenFromIdToken } from 'pyric/sandbox/internal';
 import { sessionKeyOf } from 'pyric/auth/internal';
+import { isPlainRecord, STANDARD_TOKEN_CLAIMS } from '../repro/token-claims.js';
 
 import { linkSessionProvider } from './host/auth-linking.js';
 import { reauthenticateSession } from './host/auth-reauthentication.js';
@@ -379,15 +380,64 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
     case 'auth.restorePortSession': {
       try {
         const tenantId = resolveSignInTenant(ctx, port, msg.tenantId);
+        const rawRestore = msg as unknown as Record<string, unknown>;
+        const hasRecordedClaims =
+          (Object.hasOwn(rawRestore, 'customClaims') && rawRestore.customClaims !== undefined)
+          || rawRestore.hasCustomClaims === true;
+        const recordedClaims: Record<string, unknown> = isPlainRecord(rawRestore.customClaims)
+          ? rawRestore.customClaims
+          : {};
+        const recordedProvider =
+          typeof rawRestore.signInProvider === 'string' && rawRestore.signInProvider.length > 0
+            ? rawRestore.signInProvider
+            : undefined;
         let session: MintedSession | null = null;
         try {
           // A reload hands back the key of the session the page held, which
-          // resumes it with the authentication time it had (#1950).
+          // resumes it with the authentication time it had (#1950). Repro
+          // replay also passes the recorded unrefreshed customClaims snapshot.
           session = authSandboxOps.mintSession(auth, {
-            kind: 'uid', uid: msg.uid, tenantId, restore: { sessionKey: msg.sessionKey }, ...portOriginScope(port),
+            kind: 'uid',
+            uid: msg.uid,
+            tenantId,
+            restore: {
+              sessionKey: msg.sessionKey,
+              ...(hasRecordedClaims ? { customClaims: recordedClaims } : {}),
+              ...(recordedProvider !== undefined ? { signInProvider: recordedProvider } : {}),
+            } as { sessionKey?: string },
+            ...portOriginScope(port),
           });
         } catch {
           session = null;
+        }
+        if (session !== null && (hasRecordedClaims || recordedProvider !== undefined) && session.state.token) {
+          const nextToken: Record<string, unknown> = {};
+          for (const [claimKey, claimVal] of Object.entries(session.state.token)) {
+            if (STANDARD_TOKEN_CLAIMS.has(claimKey)) {
+              Object.defineProperty(nextToken, claimKey, {
+                value: claimVal,
+                writable: true,
+                enumerable: true,
+                configurable: true,
+              });
+            }
+          }
+          if (recordedProvider !== undefined && isPlainRecord(nextToken.firebase)) {
+            nextToken.firebase = { ...nextToken.firebase, sign_in_provider: recordedProvider };
+          }
+          if (hasRecordedClaims) {
+            for (const [claimKey, claimVal] of Object.entries(recordedClaims)) {
+              if (!STANDARD_TOKEN_CLAIMS.has(claimKey)) {
+                Object.defineProperty(nextToken, claimKey, {
+                  value: claimVal,
+                  writable: true,
+                  enumerable: true,
+                  configurable: true,
+                });
+              }
+            }
+          }
+          session.state.token = nextToken;
         }
         setPortSession(ctx, port, session);
         const restoredSession = session;
@@ -641,7 +691,7 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
         const tenantId = resolveSignInTenant(ctx, port, msg.tenantId);
         const { providerId, photoURL, ...identity } = msg.identity;
         const { uid, isNewUser } = resolveOAuthCredentialUser(auth, {
-          ...identity, providerId, photoURL: photoURL ?? undefined,
+          ...identity, providerId, photoURL: photoURL ?? undefined, tenantId,
         });
         const session = authSandboxOps.mintSession(auth, {
           kind: 'provider', uid, providerId, tenantId, ...portOriginScope(port),

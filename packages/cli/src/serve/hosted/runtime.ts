@@ -38,13 +38,22 @@ import { sandbox as authSandbox } from 'pyric/auth';
 import { FirebaseError } from 'pyric/app';
 import { DEFAULT_BUCKET, installStorageBackend } from 'pyric/storage/internal';
 import { applyStorageRulesUpdate, storageRulesUpdateFor } from '../storage-rules-install.js';
-import { assertJsonSafeRelayValue, MAX_MOUNTED_MCP_SESSIONS, type BridgeMessage, type ToolCallRequest, type WorkerResFrame } from '../../bridge/protocol.js';
+import {
+  assertJsonSafeRelayValue,
+  FUNCTIONS_RTDB_CHILD_DEVICE_LABEL,
+  MAX_MOUNTED_MCP_SESSIONS,
+  type BridgeMessage,
+  type ToolCallRequest,
+  type WorkerResFrame,
+} from '../../bridge/protocol.js';
 import { dispatchSandboxTool, SANDBOX_TOOL_NAMES } from '../../bridge/client/dispatch.js';
 import { sandboxToolEffect } from '../../bridge/tool-families.js';
 import { createSurfaceContext } from '../../bridge/surface/context.js';
+import { accountLookupFor } from '../../bridge/surface/app-session.js';
+import { CALLER_IDENTITY_ARG, SurfaceIdentity, type IdentityInput } from '../../bridge/surface/identity.js';
 import { callMethod } from '../../bridge/surface/method-call.js';
 import { methodByKey } from '../../bridge/surface/methods/registry.js';
-import type { OperationResult } from '../../bridge/surface/types.js';
+import type { OperationResult, SurfaceContext } from '../../bridge/surface/types.js';
 import type { InitPayload, RulesDestination } from '../init-payload.js';
 import { applyServeInit } from '../worker/serve-init.js';
 import { cleanupPortWithDisconnect, handleMessage, type HostCtx, type PortLike } from '../worker/host.js';
@@ -287,6 +296,11 @@ export async function createHostedRuntime(
     const named = ctx.appOptions?.storageBucket;
     return typeof named === 'string' ? named : undefined;
   };
+  surfaceContext.functionsHost = {
+    serveUrl: () => (typeof baseUrl === 'function' ? baseUrl() : baseUrl),
+    instanceId,
+    ...(payload.sessionToken !== undefined ? { sessionToken: payload.sessionToken } : {}),
+  };
   const ports = new Map<string, HostedPort>();
   const uploadPartCounts = new Map<string, number>();
   const recordedUploadFiles = new Map<string, string>();
@@ -317,6 +331,8 @@ export async function createHostedRuntime(
     };
   }
   const closingPorts = new Set<Promise<void>>();
+  const backgroundFunctionsSessions = new Set<string>();
+  const suppressedRelaySnapshotCounts = new Map<string, number>();
   const methodWork = new Map<object, OperationQueue>();
   const toolWork = new Map<string, OperationQueue>();
   let closed = false;
@@ -466,6 +482,7 @@ export async function createHostedRuntime(
     }
     const isSnapshot = message.t === 'snap';
     if (isSnapshot) {
+      if ((suppressedRelaySnapshotCounts.get(clientSessionId) ?? 0) > 0) return;
       let value = message.value;
       try {
         assertJsonSafeRelayValue('hosted subscription', value);
@@ -760,8 +777,18 @@ export async function createHostedRuntime(
     /** The admitted transport connection owns command ordering; JSON cannot choose another caller. */
     runMethod(call: HostedMethodRequest, connection: object): Promise<OperationResult> {
       if (closed) return Promise.resolve({ ok: false, summary: 'The hosted sandbox is closed.' });
-      const { key, args, projectDir: callerProjectDir } = call;
+      const { key, args: rawArgs, projectDir: callerProjectDir } = call;
       if (!isInOwnedProject(callerProjectDir)) return Promise.resolve({ ok: false, summary: 'The discovered host belongs to another project.' });
+      const hasCallerIdentity = Object.hasOwn(rawArgs, CALLER_IDENTITY_ARG);
+      const callerIdentity = hasCallerIdentity
+        ? (rawArgs[CALLER_IDENTITY_ARG] as IdentityInput | undefined)
+        : undefined;
+      let args = rawArgs;
+      if (hasCallerIdentity) {
+        const stripped = { ...rawArgs };
+        delete stripped[CALLER_IDENTITY_ARG];
+        args = stripped;
+      }
       const method = methodByKey(key);
       const existing = methodWork.get(connection);
       const needsQueue = existing === undefined;
@@ -772,32 +799,68 @@ export async function createHostedRuntime(
         });
       }
       const owned = existing ?? { pending: Promise.resolve(), budget: createOperationBudget() };
-      const reservation = owned.budget.reserve(call);
+      const reservation = owned.budget.reserve({ ...call, args });
       const isRefused = !reservation.accepted;
       if (isRefused) return Promise.resolve({ ok: false, summary: reservation.error.message });
       const result = owned.pending.then(async () => {
         const hasMutationEffect = method.effect === 'write' || method.effect === 'destructive';
-        // Switching the held identity is a memory-only control.
+        // Switching the held identity is a memory-only control, and local
+        // Assurance methods write local campaign files rather than sandbox state.
         const changesHeldIdentity = method.operation === 'switch_auth_identity';
-        const changesDurableState = hasMutationEffect && !changesHeldIdentity;
+        const isLocalAssuranceArtifact = method.tool === 'assurance' && method.effect !== 'production';
+        const changesDurableState = hasMutationEffect && !changesHeldIdentity && !isLocalAssuranceArtifact;
         // In live mode pyric reaches no production project and acts as no one
         // on its own: a production effect (storage.status, storage.provision,
         // assurance.testRulesHosted) and an identity switch are refused with
-        // every write.
+        // every sandbox write, while local Assurance tooling stays available.
         const reachesProduction = method.effect === 'production';
-        const isPyricOwnAction = hasMutationEffect || reachesProduction;
+        const isPyricOwnAction = (hasMutationEffect && !isLocalAssuranceArtifact) || reachesProduction;
         const refusal = isPyricOwnAction ? ownWriteRefusalOf(key) : null;
         if (refusal !== null) return refusal;
         if (changesDurableState) requireHealthyPersistence();
         if (changesDurableState && key !== 'rules.set') {
           recorder?.note({ kind: 'external', at: Date.now(), source: 'command', name: key });
         }
+        let callContext: SurfaceContext = surfaceContext;
+        if (callerIdentity !== undefined && typeof callerIdentity.mode === 'string') {
+          const scopedIdentity = new SurfaceIdentity(accountLookupFor(sandbox));
+          scopedIdentity.switchTo(callerIdentity);
+          callContext = { ...surfaceContext, identity: scopedIdentity };
+        }
         let outcome: OperationResult;
         if (key === 'sandbox.reset') {
           const scope = typeof args.scope === 'string' ? args.scope : 'all';
-          outcome = await resetHostSandbox(ctx, scope, () => callMethod(method, args, surfaceContext, call.allowProduction));
+          outcome = await resetHostSandbox(ctx, scope, () => callMethod(method, args, callContext, call.allowProduction));
+          if (outcome.ok && scope === 'storage') {
+            await persistence.storage.reset();
+          }
+        } else if (key === 'functions.fire') {
+          // Suppress RTDB relay snapshots only to pre-existing background
+          // Functions trigger-runner children during a synthetic `functions.fire`
+          // run so live triggers do not cascade on or overwrite the synthetic
+          // handler's writes, while normal `connectRemoteSandbox()` consumers
+          // continue receiving live snapshots without interruption.
+          const suppressedSessions: string[] = [];
+          for (const [sessionId, ownedPort] of ports) {
+            if (ownedPort.transport !== 'worker-relay') continue;
+            if (!backgroundFunctionsSessions.has(sessionId)) continue;
+            suppressedSessions.push(sessionId);
+            suppressedRelaySnapshotCounts.set(
+              sessionId,
+              (suppressedRelaySnapshotCounts.get(sessionId) ?? 0) + 1,
+            );
+          }
+          try {
+            outcome = await callMethod(method, args, callContext, call.allowProduction);
+          } finally {
+            for (const sessionId of suppressedSessions) {
+              const nextCount = (suppressedRelaySnapshotCounts.get(sessionId) ?? 1) - 1;
+              if (nextCount <= 0) suppressedRelaySnapshotCounts.delete(sessionId);
+              else suppressedRelaySnapshotCounts.set(sessionId, nextCount);
+            }
+          }
         } else {
-          outcome = await callMethod(method, args, surfaceContext, call.allowProduction);
+          outcome = await callMethod(method, args, callContext, call.allowProduction);
         }
         if (outcome.ok) {
           if (key === 'sandbox.reset') {
@@ -897,7 +960,17 @@ export async function createHostedRuntime(
           if (hasSession) enqueue(clientSessionId, { t: 'unsub', subId: message.subId }, 'worker-relay');
           return;
         }
+        case 'consumer-presence': {
+          backgroundFunctionsSessions.clear();
+          for (const consumer of message.consumers) {
+            if (consumer.deviceLabel === FUNCTIONS_RTDB_CHILD_DEVICE_LABEL) {
+              backgroundFunctionsSessions.add(consumer.clientSessionId);
+            }
+          }
+          return;
+        }
         case 'worker-client-disconnect':
+          backgroundFunctionsSessions.delete(message.clientSessionId);
           void closePort(message.clientSessionId);
           return;
         case 'worker-client-interrupted':

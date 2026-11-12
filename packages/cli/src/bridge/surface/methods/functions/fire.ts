@@ -5,18 +5,13 @@
  * wildcard params, and `value` carried as the delta a create event never had
  * a "before" for. Nothing is written to the database; the handler runs
  * against an event that only claims the write happened.
+ *
+ * Executes inside an isolated `@pyric/cli/register`-guarded child process
+ * (`functions-runtime.ts`) so user Functions code runs under Swap-or-Stop with
+ * `GOOGLE_APPLICATION_CREDENTIALS` stripped, ambient `pyric-admin` connected to
+ * `ctx.sandbox`, and fresh module exports on every edit.
  */
-import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
-import { getClock } from 'pyric/sandbox';
-import { resolveChildDatabaseHost } from '../../../../functions/spawn.js';
-import { resolveFirebaseProject } from '../../../../cli/firebase-project.js';
-import {
-  executeOnValueCreated,
-  type CreatedEventOptions,
-  type CreatedExecutionResult,
-} from '../../../../functions/rtdb/event.js';
-import type { DiscoveredOnValueCreated } from '../../../../functions/rtdb/discovery.js';
 import {
   emitExecutionFinished,
   emitHandlerFired,
@@ -26,64 +21,15 @@ import {
   executionIdFor,
   type FunctionExecutionRecord,
 } from '../../../../functions/execution-log.js';
-import { matchRtdbReference, normalizeRtdbReference } from '../../../../functions/rtdb/reference-pattern.js';
+import { normalizeRtdbReference } from '../../../../functions/rtdb/reference-pattern.js';
 import { pathArgument, timeoutMsArgument, triggerArgument, valueArgument } from '../../arguments/functions.js';
 import { operationFailure } from '../../context.js';
-import { discoverFunctionsTriggers } from '../../functions-runtime.js';
+import { fireFunctionsTriggerIsolated } from '../../functions-runtime.js';
 import type { MethodRecord } from '../../method-types.js';
 import type { SurfaceContext } from '../../types.js';
 
-const DEFAULT_LOCATION = 'us-central1';
-
 /** The bound `fire` applies when the caller does not name a `timeoutMs`. */
 const DEFAULT_TIMEOUT_MS = 10_000;
-
-/** A value distinct from any `CreatedExecutionResult`, returned when the timer wins the race. */
-const TIMED_OUT = Symbol('functions-fire-timed-out');
-
-/**
- * Race a handler's execution against a timer. `executeOnValueCreated` never
- * rejects, its own try/catch turns a thrown handler into a `rejected` result,
- * so the only two outcomes here are the execution settling or the timer
- * winning first. The handler keeps running after a timeout; there is no way
- * to cancel in-process code, so its eventual result is only ever discarded.
- */
-function raceAgainstTimeout(
-  execution: Promise<CreatedExecutionResult>,
-  timeoutMs: number,
-): Promise<CreatedExecutionResult | typeof TIMED_OUT> {
-  return new Promise((resolve) => {
-    const timer = setTimeout(() => resolve(TIMED_OUT), timeoutMs);
-    execution.then((result) => {
-      clearTimeout(timer);
-      resolve(result);
-    });
-  });
-}
-
-/** The trigger error a thrown handler value reads as. */
-function describeError(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
-
-/** The instant, database instance, region, and host a synthetic event stamps. */
-function eventOptionsFor(
-  ctx: SurfaceContext,
-  trigger: DiscoveredOnValueCreated,
-): CreatedEventOptions {
-  // The project the functions child runs as, so a wildcard trigger's event
-  // names the instance the child's handlers see.
-  const projectId = resolveFirebaseProject({ projectDir: ctx.projectDir }).projectId ?? 'demo-project';
-  let instance = trigger.instance;
-  if (instance === '*') instance = `${projectId}-default-rtdb`;
-  return {
-    id: randomUUID(),
-    time: new Date(getClock(ctx.sandbox).now()).toISOString(),
-    instance,
-    location: trigger.location ?? DEFAULT_LOCATION,
-    databaseHost: resolveChildDatabaseHost(),
-  };
-}
 
 /** Report a run that never settled onto the stream, and read back its record. */
 function reportTimeout(
@@ -122,7 +68,11 @@ function reportExecution(
   params: Record<string, string>,
   startedAt: number,
   durationMs: number,
-  result: CreatedExecutionResult,
+  outcome: {
+    status: 'fulfilled' | 'rejected';
+    result?: unknown;
+    errorMessage?: string;
+  },
 ): FunctionExecutionRecord {
   const id = executionIdFor(ctx.sandbox);
   const record: FunctionExecutionRecord = {
@@ -131,10 +81,10 @@ function reportExecution(
     cause: { ref, params },
     startedAt,
     durationMs,
-    status: result.status,
+    status: outcome.status,
   };
-  if (result.status === 'fulfilled') record.result = result.result;
-  if (result.status === 'rejected') record.error = describeError(result.error);
+  if (outcome.status === 'fulfilled') record.result = outcome.result;
+  if (outcome.status === 'rejected') record.error = outcome.errorMessage ?? 'Unknown error';
   emitExecutionFinished(ctx.sandbox, {
     trigger: triggerName,
     ref,
@@ -168,49 +118,65 @@ export default {
   async handler(args, ctx) {
     const triggerName = String(args.trigger);
     const path = String(args.path);
-    const discovered = await discoverFunctionsTriggers(ctx.projectDir);
-    const trigger = discovered.triggers.find((candidate) => candidate.exportName === triggerName);
-    if (trigger === undefined) {
+    const ref = normalizeRtdbReference(path);
+    const timeoutMs = (args.timeoutMs as number | undefined) ?? DEFAULT_TIMEOUT_MS;
+
+    const outcome = await fireFunctionsTriggerIsolated(ctx, {
+      triggerName,
+      path,
+      ref,
+      value: args.value,
+      timeoutMs,
+      onFiring(trigger, params) {
+        emitTriggerDiscovered(ctx.sandbox, trigger);
+        emitHandlerFired(ctx.sandbox, { trigger: triggerName, ref, params });
+      },
+    });
+
+    if (outcome.kind === 'not-found') {
       return operationFailure(
         `functions.fire: '${triggerName}' does not name a discovered trigger. Call functions' listTriggers method to see the triggers this project defines.`,
       );
     }
-    const params = matchRtdbReference(trigger.reference, path);
-    if (params === null) {
+    if (outcome.kind === 'mismatch') {
       return operationFailure(
-        `functions.fire: '${path}' does not match ${triggerName}'s reference pattern '${trigger.reference}'.`,
+        `functions.fire: '${path}' does not match ${triggerName}'s reference pattern '${outcome.trigger.reference}'.`,
       );
     }
-    emitTriggerDiscovered(ctx.sandbox, trigger);
-    const ref = normalizeRtdbReference(path);
-    const timeoutMs = (args.timeoutMs as number | undefined) ?? DEFAULT_TIMEOUT_MS;
-    emitHandlerFired(ctx.sandbox, { trigger: triggerName, ref, params });
-    const startedAt = getClock(ctx.sandbox).now();
-    const startedMonotonic = performance.now();
-    const raced = await raceAgainstTimeout(
-      executeOnValueCreated(trigger, { ref, params, value: args.value }, eventOptionsFor(ctx, trigger)),
-      timeoutMs,
-    );
-    const durationMs = performance.now() - startedMonotonic;
-    if (raced === TIMED_OUT) {
-      const record = reportTimeout(ctx, triggerName, ref, params, startedAt, durationMs);
+    if (outcome.kind === 'timed-out') {
+      const record = reportTimeout(
+        ctx,
+        triggerName,
+        ref,
+        outcome.params,
+        outcome.startedAt,
+        outcome.durationMs,
+      );
       return operationFailure(
         `functions.fire: ${triggerName} did not settle within ${timeoutMs}ms and was refused as timed out.`,
         { executionId: record.id },
       );
     }
-    const result = raced;
-    const record = reportExecution(ctx, triggerName, ref, params, startedAt, durationMs, result);
-    if (result.status === 'rejected') {
+
+    const record = reportExecution(
+      ctx,
+      triggerName,
+      ref,
+      outcome.params,
+      outcome.startedAt,
+      outcome.durationMs,
+      outcome,
+    );
+    if (outcome.status === 'rejected') {
       return operationFailure(`functions.fire: ${triggerName} threw: ${record.error}`, {
         executionId: record.id,
-        event: result.event,
+        event: outcome.event,
       });
     }
     return {
       ok: true,
       summary: `Ran ${triggerName} on a synthetic event at ${ref}; ${path} was not written.`,
-      data: { executionId: record.id, event: result.event, result: result.result },
+      data: { executionId: record.id, event: outcome.event, result: outcome.result },
     };
   },
 } satisfies MethodRecord;

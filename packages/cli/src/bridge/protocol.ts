@@ -186,6 +186,9 @@ export interface ToolCallResponse {
 /** Peer capability flag: "I can relay worker-op / worker-sub frames". */
 export const WORKER_RELAY_CAPABILITY = 'worker-relay';
 
+/** Device label attached by isolated background Functions RTDB trigger children (`PYRIC_FUNCTIONS_RTDB_CHILD=1`). */
+export const FUNCTIONS_RTDB_CHILD_DEVICE_LABEL = 'functions-rtdb-child';
+
 /**
  * Peer capability flag: "Storage bytes travel over the HTTP byte route at
  * `/__pyric/storage/v0/b/`". Only the Node host has one.

@@ -34,6 +34,9 @@ function isRecord(value: unknown): value is Record<string, unknown> {
  */
 export type IdentityMode = 'admin' | 'uid' | 'anonymous' | 'default';
 
+/** Internal wire key carrying caller identity from `TargetRouter` to `runtime.runMethod`. */
+export const CALLER_IDENTITY_ARG = '__pyricCallerIdentity' as const;
+
 export interface IdentityInput {
   mode: IdentityMode;
   uid?: string;
@@ -116,12 +119,40 @@ export class SurfaceIdentity {
       const next: IdentityInput = { mode: 'uid', uid: projected.uid, claims: projected.token };
       if (projected.tenant !== undefined) next.tenant = projected.tenant;
       this.held = next;
-      this.heldInput = { uid: input.uid };
+      this.heldInput = {
+        uid: input.uid,
+        ...(input.tenant !== undefined ? { tenant: input.tenant } : {}),
+        ...(input.claims !== undefined ? { claims: { ...input.claims } } : {}),
+      };
       return next;
     }
     this.held = { mode: input.mode };
     this.heldInput = null;
     return this.held;
+  }
+
+  /** The raw caller identity input before account projection, for forwarding to a host. */
+  rawInput(): IdentityInput {
+    if (this.held.mode === 'uid' && this.heldInput !== null) {
+      const out: IdentityInput = { mode: 'uid', uid: this.heldInput.uid };
+      if (this.heldInput.tenant !== undefined) out.tenant = this.heldInput.tenant;
+      if (this.heldInput.claims !== undefined) out.claims = { ...this.heldInput.claims };
+      return out;
+    }
+    return { ...this.held };
+  }
+
+  /** Build an isolated `SurfaceIdentity` sharing this instance's account lookup and remembered users. */
+  cloneWith(input: IdentityInput): SurfaceIdentity {
+    const copy = new SurfaceIdentity(this.accounts);
+    for (const [uid, entry] of this.known) {
+      copy.known.set(uid, {
+        ...(entry.tenant !== undefined ? { tenant: entry.tenant } : {}),
+        ...(entry.claims !== undefined ? { claims: { ...entry.claims } } : {}),
+      });
+    }
+    copy.switchTo(input);
+    return copy;
   }
 
   /** The identity as it stands. */

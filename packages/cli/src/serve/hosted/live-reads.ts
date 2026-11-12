@@ -20,27 +20,32 @@ import type { HostedMethodRequest } from './method-protocol.js';
 const LIVE_REFUSED = 'PYRIC_LIVE_REFUSED';
 
 /** The services whose read methods return the project's data. */
-const DATA_SERVICES: ReadonlySet<string> = new Set(['firestore', 'database', 'storage', 'auth']);
+const DATA_SERVICES: ReadonlySet<string> = new Set(['firestore', 'database', 'storage', 'auth', 'messaging']);
 
 /** Reads of a data service that need no production data, and so stay local. */
 const LOCAL_READS: ReadonlySet<string> = new Set([
   'firestore.extractIndexes',
   'database.extractIndexes',
-  'auth.whoami',
-  'auth.sessions',
 ]);
 
 /** Data reads outside the data services. */
-const OTHER_DATA_READS: ReadonlySet<string> = new Set(['ai_logic.status']);
+const OTHER_DATA_READS: ReadonlySet<string> = new Set([
+  'ai_logic.status',
+  'ai_logic.scripts',
+  'sandbox.inspect',
+]);
 
 /** Forwarded tools on `/__pyric/mcp` that read the project's data. */
 const FORWARDED_DATA_READS: ReadonlySet<string> = new Set([
   'firestore_get_document',
   'firestore_list_documents',
   'firestore_query_where',
+  'firestore_simulator_read',
   'rtdb_crawl_structure',
   'auth_get_user',
   'auth_list_users',
+  'sandbox_inspect',
+  'messaging_deliveries',
 ]);
 
 /** Reads that need the Admin credential, which no tab holds: refused, never routed. */

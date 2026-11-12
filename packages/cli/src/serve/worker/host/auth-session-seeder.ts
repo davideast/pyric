@@ -26,6 +26,7 @@ export interface OAuthCredentialPayload {
   readonly photoURL?: string | null;
   readonly uid?: string | null;
   readonly customClaims?: Record<string, unknown>;
+  readonly tenantId?: string | null;
   /**
    * The caller's flag for a staged result: it decides a new account's
    * `emailVerified`, and an existing account keeps its own. Absent for a
@@ -135,14 +136,20 @@ export function resolveOAuthCredentialUser(
   credential: OAuthCredentialPayload,
 ): { uid: string; isNewUser: boolean } {
   authSandboxOps.assertAuthProviderEnabled(auth, credential.providerId);
+  const targetTenant = credential.tenantId ?? null;
   const existingUsers = authSandboxOps.listUsers(auth);
-  let targetUid = credential.uid ?? null;
+  let targetUid = credential.uid && credential.uid.length > 0 ? credential.uid : null;
   if (!targetUid && credential.email) {
-    const byEmail = existingUsers.find((u) => u.email === credential.email);
+    const lowerEmail = credential.email.toLowerCase();
+    const byEmail = existingUsers.find(
+      (u) => u.email?.toLowerCase() === lowerEmail && (u.tenantId ?? null) === targetTenant,
+    );
     if (byEmail) targetUid = byEmail.uid;
   }
   if (!targetUid) {
-    targetUid = `oauth-${credential.providerId}-${credential.email || 'user'}`;
+    targetUid = targetTenant
+      ? `oauth-${targetTenant}-${credential.providerId}-${credential.email || 'user'}`
+      : `oauth-${credential.providerId}-${credential.email || 'user'}`;
   }
 
   const existing = existingUsers.find((u) => u.uid === targetUid);
@@ -171,7 +178,8 @@ export function resolveOAuthCredentialUser(
       customClaims: credential.customClaims,
       providerUserInfo: [{ providerId: credential.providerId }],
       emailVerified: credential.emailVerified,
-    });
+      ...(targetTenant !== null ? { tenantId: targetTenant } : {}),
+    } as Parameters<typeof authSandboxOps.createUser>[1]);
     // Without a caller's flag, the provider sign-in, not the admin create,
     // decides what the provider vouches for, such as a new Google identity's
     // verified email.

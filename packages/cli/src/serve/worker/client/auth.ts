@@ -133,13 +133,51 @@ function makeClientUser(port: ClientPort, raw: SerializedUser): ClientUser {
     },
   };
   Object.defineProperty(user, CLIENT_USER_PORT, { value: port, enumerable: false });
-  Object.defineProperty(user, CLIENT_USER_SESSION_KEY, { value: raw.sessionKey, enumerable: false });
+  Object.defineProperty(user, CLIENT_USER_SESSION_KEY, {
+    value: raw.sessionKey,
+    enumerable: false,
+    configurable: true,
+  });
   return user;
 }
 
-/** Convert a wire SerializedUser|null to a ClientUser|null. */
-function toClientUser(port: ClientPort, raw: SerializedUser | null): ClientUser | null {
-  return raw ? makeClientUser(port, raw) : null;
+function applySerializedUserFields(target: ClientUser, raw: SerializedUser): ClientUser {
+  const mutable = target as { -readonly [K in keyof ClientUser]: ClientUser[K] };
+  mutable.email = raw.email;
+  mutable.emailVerified = raw.emailVerified;
+  mutable.displayName = raw.displayName;
+  mutable.photoURL = absolutePhotoUrl(raw.photoURL, realmOrigin());
+  mutable.phoneNumber = raw.phoneNumber;
+  mutable.isAnonymous = raw.isAnonymous;
+  mutable.tenantId = raw.tenantId ?? null;
+  mutable.providerId = raw.providerId;
+  mutable.providerData = raw.providerData;
+  Object.defineProperty(target, CLIENT_USER_SESSION_KEY, {
+    value: raw.sessionKey,
+    enumerable: false,
+    configurable: true,
+  });
+  return target;
+}
+
+/**
+ * Reconcile a wire `SerializedUser | null` against `auth.currentUser` so
+ * same-UID snapshots, multi-listener deliveries, and forced token refreshes
+ * preserve object reference identity (`===`), matching `@firebase/auth` and
+ * in-process `SandboxAuthBackend`.
+ */
+function reconcileClientUser(auth: ClientAuth, raw: SerializedUser | null): ClientUser | null {
+  if (raw === null) {
+    auth.currentUser = null;
+    return null;
+  }
+  const existing = auth.currentUser;
+  if (existing !== null && existing.uid === raw.uid) {
+    return applySerializedUserFields(existing, raw);
+  }
+  const created = makeClientUser(auth.port, raw);
+  auth.currentUser = created;
+  return created;
 }
 
 /**
@@ -197,7 +235,7 @@ export function getAuth(source: ClientDb | string | URL, name?: string): ClientA
   openSnapshotSubscription(port, subId, {
     port,
     next: (raw) => {
-      auth.currentUser = toClientUser(port, raw as SerializedUser | null);
+      reconcileClientUser(auth, raw as SerializedUser | null);
     },
   }, { t: 'sub', subId, target: 'idToken' } satisfies InboundMessage);
 
@@ -350,14 +388,11 @@ export async function restorePortSession(
     t: 'op', id: nextId(), method: 'auth.restorePortSession', uid,
     tenantId, ...(sessionKey === undefined ? {} : { sessionKey }),
   })) as SerializedUser | null;
-  const user = toClientUser(auth.port, raw);
-  auth.currentUser = user;
-  return user;
+  return reconcileClientUser(auth, raw);
 }
 
 export function hydrateCred(auth: ClientAuth, raw: SerializedUserCredential): ClientUserCredential {
-  const user = makeClientUser(auth.port, raw.user);
-  auth.currentUser = user;
+  const user = reconcileClientUser(auth, raw.user)!;
   return {
     user,
     providerId: raw.providerId,
@@ -418,8 +453,7 @@ function openAuthSub(
   openSnapshotSubscription(port, subId, {
     port,
     next: (raw) => {
-      const user = toClientUser(port, raw as SerializedUser | null);
-      auth.currentUser = user;
+      const user = reconcileClientUser(auth, raw as SerializedUser | null);
       try {
         if (typeof callback === 'function') {
           callback(user);
@@ -522,7 +556,11 @@ export async function updateCurrentUser(
     tenantId: user?.tenantId ?? auth.tenantId ?? null,
     ...(user === null ? {} : sessionKeyField(user)),
   })) as SerializedUser | null;
-  auth.currentUser = toClientUser(auth.port, raw);
+  if (raw !== null && user !== null && user.uid === raw.uid) {
+    auth.currentUser = applySerializedUserFields(user, raw);
+    return;
+  }
+  reconcileClientUser(auth, raw);
 }
 
 /** The fields of an `AuthCredential` the served client reads. */
@@ -548,6 +586,7 @@ export async function signInWithCredential(
     id: nextId(),
     method: 'auth.signInWithCredential',
     credential: credentialWire(credential),
+    tenantId: auth.tenantId,
   })) as SerializedUserCredential;
   return hydrateCred(auth, raw);
 }

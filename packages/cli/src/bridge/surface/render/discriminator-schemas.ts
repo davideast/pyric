@@ -205,7 +205,7 @@ export const manageStorageFilesSchema = z.object({
     .string()
     .optional()
     .describe('Storage bucket name (defaults to default sandbox bucket).'),
-  path: z.string().describe('Object full path within the bucket.'),
+  path: z.string().optional().describe('Object full path within the bucket (or optional prefix for list).'),
   base64Content: z.string().optional().describe("Base64-encoded file payload for 'upload'."),
   sourcePath: z
     .string()

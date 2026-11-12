@@ -395,6 +395,9 @@ export function createBridge(opts: BridgeOptions): Bridge {
         } catch {}
       }
     }
+    if (consumers.list().length > 0) {
+      consumers.broadcastPresence(myPeer.send);
+    }
     for (const listener of peerListeners) {
       try { listener(); } catch { /* An observer cannot prevent peer registration. */ }
     }
