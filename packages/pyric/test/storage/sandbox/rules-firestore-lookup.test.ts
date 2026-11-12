@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'bun:test';
 import { parseStorageRules } from '../../../src/storage/sandbox/rules.js';
 import { evaluateStorageRules } from '../../../src/storage/sandbox/rules-evaluator.js';
-import { Reference } from '../../../src/rules/simulator/wrappers/reference.js';
+import { Reference } from '@pyric/rules/internal';
 
 // ─── firestore.get() / firestore.exists() cross-service lookups ───
 //

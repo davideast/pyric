@@ -1,1 +1,2 @@
-export * from '../../rules/rtdb/data/instances.js';
+export { undeployedInstanceNotice, defaultDatabaseInstanceName, isDefaultDatabaseInstance, defaultDatabaseInstance, parseDatabaseUrl, parseDatabaseLocationUrl, isCustomDatabaseHost, databaseInstanceNamed, resolveDatabaseInstance, databaseInstanceKey, createDatabaseInstanceRegistry, UNNAMED_DEFAULT_DATABASE_INSTANCE, LOCKED_DATABASE_RULES } from '@pyric/rules/internal/rtdb';
+export type { DatabaseInstance, DatabaseLocationUrl, DatabaseInstanceRegistry } from '@pyric/rules/internal/rtdb';

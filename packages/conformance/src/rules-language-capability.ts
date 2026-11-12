@@ -30,8 +30,8 @@ import {
   compileRtdbRules,
   simulateRtdbRules,
   type CompiledRtdbRules,
-} from '../../../packages/pyric/src/rules/rtdb/compiled-rules.ts';
-import type { SimulationInput } from '../../../packages/pyric/src/rules/rtdb/simulation/spec.ts';
+} from '../../rules/src/rtdb/compiled-rules.ts';
+import type { SimulationInput } from '../../rules/src/rtdb/simulation/spec.ts';
 import { loadSnapshot, type LanguageConstruct, type RulesEngine } from '../rules-language/load.ts';
 import { ALL_RULES_RTDB_DEPLOY_SCENARIOS, type RtdbCaseQuery } from '../rules-corpus/rtdb/index.ts';
 import { localDeployVerdict } from './rules-rtdb-replay.ts';

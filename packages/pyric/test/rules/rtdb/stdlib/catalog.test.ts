@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { rtdbStdlib } from 'pyric/rules';
-import { RTDB_STDLIB_MODULES } from '../../../../src/rules/rtdb/stdlib/catalog.js';
-import { buildRuleExpression } from '../../../../src/rules/rtdb/compiled-rules.js';
+import { RTDB_STDLIB_MODULES } from '@pyric/rules/internal/rtdb';
+import { buildRuleExpression } from '@pyric/rules/internal/rtdb';
 import { createFirestoreRulesStdlibTools } from '../../../../src/rules/stdlib-tools.js';
 
 const tool = (name: string) => {

@@ -21,9 +21,9 @@
  * The CI identity holds only `firebaserules.rulesets.test`.
  */
 import type { ProjectScope } from '../../../src/project-scope.js';
-import { SimulateFirestoreRulesHandler } from '../../../src/rules/simulator/handler.js';
+import { SimulateFirestoreRulesHandler } from '@pyric/rules/internal';
 import { TestFirestoreRulesHandler } from '../../../src/rules/test/handler.js';
-import type { TestCase, TestFirestoreRulesResult } from '../../../src/rules/test/spec.js';
+import type { TestCase, TestFirestoreRulesResult } from '@pyric/rules/internal';
 
 // ─── Scenario types ────────────────────────────────────────────────────────────
 //

@@ -38,7 +38,7 @@ describe('docs claims pinned against production captures', () => {
     expect(page).toContain('&& check98() && check99();');
 
     const fixture = json<{ boundaries: { service: string; shape: string; largestPass: number; smallestFail: number }[] }>(
-      'packages/pyric/test/rules/linter/fixtures/compile-limits/captures.json',
+      'packages/rules/test/linter/fixtures/compile-limits/captures.json',
     );
     const bound = (shape: string) => fixture.boundaries.find((b) => b.service === 'firestore' && b.shape === shape);
     // Zero-argument calls, the page's sample: 99 compile, 100 fail.

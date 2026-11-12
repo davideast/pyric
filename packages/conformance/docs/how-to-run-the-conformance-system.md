@@ -1096,7 +1096,7 @@ each of `LIMIT_POSITION_STEPS`, and for the rule ladder; the simulator must
 stop at the same positions, which fixes the order it charges expressions in.
 It sends 27 test cases. The suites live in
 `rules-expression-cost-suites.ts`; the output is
-`packages/pyric/test/rules/linter/fixtures/expression-cost/`, which the
+`packages/rules/test/linter/fixtures/expression-cost/`, which the
 linter's EXPRESSION_BUDGET test reads. A full run sends about 500 test cases.
 Review the diff of `captures.json` before committing it, as with any
 observation.

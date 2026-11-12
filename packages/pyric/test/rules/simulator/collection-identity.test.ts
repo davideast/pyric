@@ -33,16 +33,16 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { ALL_RULES_FIRESTORE_SCENARIOS } from '../../../../conformance/rules-corpus/firestore/index.ts';
 import { ALL_RULES_STORAGE_SCENARIOS } from '../../../../conformance/rules-corpus/storage/index.ts';
-import type { TestCase } from '../../../src/rules/test/spec.js';
-import { SimulateFirestoreRulesHandler } from '../../../src/rules/simulator/handler.js';
-import { FirestoreSet } from '../../../src/rules/simulator/firestore-set.js';
-import { mapKeys, mapLiteral, mapValues } from '../../../src/rules/simulator/map-keys.js';
+import type { TestCase } from '@pyric/rules/internal';
+import { SimulateFirestoreRulesHandler } from '@pyric/rules/internal';
+import { FirestoreSet } from '@pyric/rules/internal';
+import { mapKeys, mapLiteral, mapValues } from '@pyric/rules/internal';
 import {
   listElementsEqual,
   rulesValuesEqual,
   setElementsEqual,
-} from '../../../src/rules/simulator/value-equality.js';
-import { RulesFloat } from '../../../src/rules/simulator/wrappers/float.js';
+} from '@pyric/rules/internal';
+import { RulesFloat } from '@pyric/rules/internal';
 import { parseStorageRules } from '../../../src/storage/sandbox/rules.js';
 import { evaluateStorageRules } from '../../../src/storage/sandbox/rules-evaluator.js';
 

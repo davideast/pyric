@@ -17,7 +17,7 @@
  *   - `string-sniffing`: plain strings and maps the Rules Test API reads as
  *     typed values, so a case can't send them as the string or map they are.
  *
- * Output: packages/pyric/test/rules/test/fixtures/case-wire/captures.json
+ * Output: packages/rules/test/test/fixtures/case-wire/captures.json
  *
  * Credentials: the same contract as `capture-rules-compile-limits.ts`.
  *
@@ -29,7 +29,7 @@ import { join } from 'node:path';
 import { REPO_ROOT } from './rules-expression-cost-suites.ts';
 
 const RULES_API = 'https://firebaserules.googleapis.com/v1';
-const OUT_DIR = join(REPO_ROOT, 'packages', 'pyric', 'test', 'rules', 'test', 'fixtures', 'case-wire');
+const OUT_DIR = join(REPO_ROOT, 'packages', 'rules', 'test', 'test', 'fixtures', 'case-wire');
 const OUT = join(OUT_DIR, 'captures.json');
 const DOCS = '/databases/(default)/documents';
 

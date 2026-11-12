@@ -14,7 +14,7 @@ import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { ALL_RULES_STORAGE_SCENARIOS } from '../../../../conformance/rules-corpus/storage/index.ts';
-import { SimulateFirestoreRulesHandler } from '../../../src/rules/simulator/handler.js';
+import { SimulateFirestoreRulesHandler } from '@pyric/rules/internal';
 import { parseStorageRules } from '../../../src/storage/sandbox/rules.js';
 import { evaluateStorageRules } from '../../../src/storage/sandbox/rules-evaluator.js';
 

@@ -1,6 +1,6 @@
-import { Duration } from '../../rules/simulator/wrappers/duration.js';
-import { RulesFloat } from '../../rules/simulator/wrappers/float.js';
-import { IntFailure, negateInt, rulesFloatValue, rulesInt } from '../../rules/simulator/rules-int.js';
+import { Duration } from '@pyric/rules/internal';
+import { RulesFloat } from '@pyric/rules/internal';
+import { IntFailure, negateInt, rulesFloatValue, rulesInt } from '@pyric/rules/internal';
 import {
   expandVerb,
   type EvaluationInput,
@@ -30,16 +30,16 @@ import {
   RuleUnsupportedError,
   isAbsorbableEvalError,
 } from './rules-evaluation-error.js';
-import { EXPRESSION_LIMIT, ExpressionBudget, describeExpressionLimit } from '../../rules/simulator/expression-budget.js';
-import type { ExpressionPosition } from '../../rules/grammar/expression-positions.js';
+import { EXPRESSION_LIMIT, ExpressionBudget, describeExpressionLimit } from '@pyric/rules/internal';
+import type { ExpressionPosition } from '@pyric/rules/internal';
 import { StoragePath, interpolationSegments } from './rules-path.js';
-import { ConversionFailure, applyConversion, conversionFor } from '../../rules/simulator/conversions.js';
-import { describeRulesType as describeType, isRulesMap } from '../../rules/simulator/rules-type.js';
-import { sliceBoundsError } from '../../rules/simulator/slice-bounds.js';
-import { IndexAccessFailure, indexValue, readMember } from '../../rules/simulator/index-access.js';
-import { mapLiteral } from '../../rules/simulator/map-keys.js';
-import { MembershipFailure, membership } from '../../rules/simulator/membership.js';
-import { rulesValuesEqual } from '../../rules/simulator/value-equality.js';
+import { ConversionFailure, applyConversion, conversionFor } from '@pyric/rules/internal';
+import { describeRulesType as describeType, isRulesMap } from '@pyric/rules/internal';
+import { sliceBoundsError } from '@pyric/rules/internal';
+import { IndexAccessFailure, indexValue, readMember } from '@pyric/rules/internal';
+import { mapLiteral } from '@pyric/rules/internal';
+import { MembershipFailure, membership } from '@pyric/rules/internal';
+import { rulesValuesEqual } from '@pyric/rules/internal';
 import {
   RuleError,
   isRuleError as isErr,

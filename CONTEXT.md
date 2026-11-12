@@ -474,20 +474,20 @@ Its internal seams, named by ADR-0009 and used only by the engine's own tests:
 - **RulesState** — the deployed rules source and parsed AST, invalidated by
   seed and rules deploys, shared by the read and write engines.
 
-The **Rules engine** (`packages/pyric/src/rules/`) compiles, lints, and
+The **Rules engine** (`packages/rules/src/`) compiles, lints, and
 simulates Firestore (`rules_version = '2'` and `'2+modules'`), Storage, and
 Realtime Database rules. Firestore and Storage rules share CEL-aligned
 evaluation semantics (commutative `RuleError` absorption, strict type
 comparisons, production compile limits, and the 1,000-expression evaluation
 budget `EXPRESSION_BUDGET` with production-measured per-call stdlib costs) and
 ship 18 `2+modules` standard-library user modules under
-`packages/pyric/src/rules/modules/stdlib/` (`atomic`, `auth`, `content`,
+`packages/rules/src/modules/stdlib/` (`atomic`, `auth`, `content`,
 `counters`, `fairness`, `geometry`, `joining`, `lifecycle`, `lobby`,
 `membership`, `results`, `spaces`, `state`, `storage/objects`, `timing`,
 `transitions`, `turns`, `validation`).
 
 RTDB rules have no functions, so their standard library is TypeScript instead:
-`rtdbStdlib` from `pyric/rules` (`packages/pyric/src/rules/rtdb/stdlib/`)
+`rtdbStdlib` from `pyric/rules` (`packages/rules/src/rtdb/stdlib/`)
 groups constraint builders into modules (`auth`, `collections`, `counters`,
 `lifecycle`, `lobby`, `membership`, `presence`, `results`, `timing`, `turns`,
 `validation`) that return whole `.write` or `.validate` expressions for

@@ -21,7 +21,7 @@ import {
   buildApiTestCase,
   buildStorageApiTestCase,
   type StorageTestCase,
-} from '../../../packages/pyric/src/rules/test/spec.ts';
+} from '../../rules/src/test/spec.ts';
 
 type ProbeId = 'p0' | 'p1' | 'p2';
 type Engine = 'firestore' | 'storage';

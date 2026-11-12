@@ -11,8 +11,8 @@ import { fileURLToPath } from 'node:url';
 import { ALL_RULES_STORAGE_SCENARIOS } from '../../../../conformance/rules-corpus/storage/index.ts';
 import { parseStorageRules } from '../../../src/storage/sandbox/rules.js';
 import { evaluateStorageRules } from '../../../src/storage/sandbox/rules-evaluator.js';
-import { DIVIDE_BY_ZERO_MESSAGE } from '../../../src/rules/simulator/eval-error.js';
-import { normalizeStoragePath, type StorageTestCase } from '../../../src/rules/test/spec.js';
+import { DIVIDE_BY_ZERO_MESSAGE } from '@pyric/rules/internal';
+import { normalizeStoragePath, type StorageTestCase } from '@pyric/rules/internal';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const OBSERVATIONS = join(HERE, '..', '..', '..', '..', 'conformance', 'observations', 'storage-rules');

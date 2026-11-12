@@ -1,5 +1,5 @@
-import { isRulesMap } from '../../rules/simulator/rules-type.js';
-import { RulesValue } from '../../rules/simulator/wrappers/base.js';
+import { isRulesMap } from '@pyric/rules/internal';
+import { RulesValue } from '@pyric/rules/internal';
 import type { EvalCtx } from './rules-evaluator.js';
 import { RuleEvalError } from './rules-evaluation-error.js';
 import {

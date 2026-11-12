@@ -1,8 +1,8 @@
 import 'fake-indexeddb/auto';
 import { describe, test, expect } from 'bun:test';
 import { initializeSandbox } from 'pyric/sandbox';
-import { SimulateFirestoreRulesHandler } from '../../src/rules/simulator/handler.js';
-import { normalizeDocumentPath } from '../../src/rules/simulator/document-lookups.js';
+import { SimulateFirestoreRulesHandler } from '@pyric/rules/internal';
+import { normalizeDocumentPath } from '@pyric/rules/internal';
 import { evaluateStorageRules } from '../../src/storage/sandbox/rules-evaluator.js';
 import { parseStorageRules } from '../../src/storage/sandbox/rules.js';
 import {
@@ -11,9 +11,9 @@ import {
   uploadBytes,
   getBlob,
 } from '../../src/storage/index.js';
-import { DataSnapshot, evaluateRtdbExpression } from '../../src/rules/rtdb/grammar/simulator.js';
-import { SimulateHandler } from '../../src/rules/rtdb/simulation/handler.js';
-import { compileRtdbRules } from '../../src/rules/rtdb/compiled-rules.js';
+import { DataSnapshot, evaluateRtdbExpression } from '@pyric/rules/internal/rtdb';
+import { SimulateHandler } from '@pyric/rules/internal/rtdb';
+import { compileRtdbRules } from '@pyric/rules/internal/rtdb';
 import {
   getDatabase,
   getAdminDatabase,

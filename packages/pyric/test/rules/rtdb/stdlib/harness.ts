@@ -23,7 +23,7 @@ import {
   update,
 } from 'pyric/database';
 import { defineRtdbRules, rtdbRules, type PathDef } from 'pyric/rules';
-import { compileRtdbRules, simulateRtdbRules } from '../../../../src/rules/rtdb/compiled-rules.js';
+import { compileRtdbRules, simulateRtdbRules } from '@pyric/rules/internal/rtdb';
 
 export type Verdict = 'ALLOW' | 'DENY';
 

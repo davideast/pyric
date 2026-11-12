@@ -21,8 +21,8 @@ on:
   pull_request:
     paths:
       - 'packages/pyric/src/firestore/sandbox/**'
-      - 'packages/pyric/src/rules/grammar/**'
-      - 'packages/pyric/src/rules/simulator/**'
+      - 'packages/rules/src/grammar/**'
+      - 'packages/rules/src/simulator/**'
       - 'packages/pyric/src/rules-tools/**'
       - 'packages/pyric/test/sandbox/firestore/simulator/**'
       - 'packages/pyric/test/rules/**'
@@ -32,8 +32,8 @@ on:
     branches: [main]
     paths:
       - 'packages/pyric/src/firestore/sandbox/**'
-      - 'packages/pyric/src/rules/grammar/**'
-      - 'packages/pyric/src/rules/simulator/**'
+      - 'packages/rules/src/grammar/**'
+      - 'packages/rules/src/simulator/**'
       - 'packages/pyric/src/rules-tools/**'
       - 'packages/pyric/test/sandbox/firestore/simulator/**'
       - 'packages/pyric/test/rules/**'

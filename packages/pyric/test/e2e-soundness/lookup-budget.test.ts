@@ -1,8 +1,8 @@
 import { describe, test, expect } from 'bun:test';
-import { SimulateFirestoreRulesHandler } from '../../src/rules/simulator/handler.js';
-import { parseToAST } from '../../src/rules/grammar/FirestoreParser.js';
-import { validateFirestoreRules } from '../../src/rules/grammar/FirestoreValidator.js';
-import { lintFirestoreRules } from '../../src/rules/linter/linter.js';
+import { SimulateFirestoreRulesHandler } from '@pyric/rules/internal';
+import { parseToAST } from '@pyric/rules/internal';
+import { validateFirestoreRules } from '@pyric/rules/internal';
+import { lintFirestoreRules } from '@pyric/rules/internal';
 
 // ═══════════════════════════════════════════════════════════════
 // Firestore 10-read document-lookup budget

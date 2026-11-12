@@ -12,7 +12,7 @@ import {
   resolveModulesWithFiles,
 } from '../../rules/internal/index.js';
 import { toStrictRulesJson } from '../../rules/internal/rtdb.js';
-import { isDefaultDatabaseInstance } from '../../rules/rtdb/data/instances.js';
+import { isDefaultDatabaseInstance } from '@pyric/rules/internal/rtdb';
 import {
   expandBareModuleImports,
   isHeaderOnlyRulesVersionStub,

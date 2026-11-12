@@ -1,5 +1,5 @@
-import { functionNotFoundMessage } from '../../rules/simulator/eval-error.js';
-import { NO_OP, RulesValue } from '../../rules/simulator/wrappers/base.js';
+import { functionNotFoundMessage } from '@pyric/rules/internal';
+import { NO_OP, RulesValue } from '@pyric/rules/internal';
 import type { Expr } from './rules.js';
 import { evalOperands, type EvalCtx } from './rules-evaluator.js';
 import { RuleEvalError } from './rules-evaluation-error.js';

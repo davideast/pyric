@@ -25,7 +25,7 @@
 import { describe, test, beforeAll, expect } from 'bun:test';
 import type { ProjectScope } from '../../../src/project-scope.js';
 import { TestFirestoreRulesHandler } from '../../../src/rules/test/handler.js';
-import type { TestCase } from '../../../src/rules/test/spec.js';
+import type { TestCase } from '@pyric/rules/internal';
 import { hasParityCredential, parityScope } from './harness.js';
 
 // ─── Probe scenarios ───────────────────────────────────────────────────────

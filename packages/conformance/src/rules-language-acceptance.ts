@@ -68,7 +68,7 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { StorageFunctionMock, TestCase } from '../../../packages/pyric/src/rules/test/spec.ts';
+import type { StorageFunctionMock, TestCase } from '../../rules/src/test/spec.ts';
 import type { EvaluationInput } from '../../../packages/pyric/src/storage/sandbox/rules.ts';
 import {
   resolveFirestoreConstructProbe,

@@ -6,8 +6,8 @@ import {
   buildStorageApiTestCase,
   buildFunctionMock,
   renderLegacyDebugMessages,
-} from '../../../src/rules/test/spec.js';
-import type { TestCase, StorageTestCase, FunctionMock, TestResult } from '../../../src/rules/test/spec.js';
+} from '@pyric/rules/internal';
+import type { TestCase, StorageTestCase, FunctionMock, TestResult } from '@pyric/rules/internal';
 import { evaluateStorageRules, parseStorageRules } from '../../../src/storage/rules.js';
 
 describe('normalizeDocPath', () => {

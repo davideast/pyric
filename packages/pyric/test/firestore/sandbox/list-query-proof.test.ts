@@ -4,8 +4,8 @@ import {
   renderQueryRemediation,
   type ListProofVerdict,
 } from '../../../src/firestore/sandbox/list-query-proof.js';
-import { parseToAST } from '../../../src/rules/grammar/FirestoreParser.js';
-import { SimulateFirestoreRulesHandler } from '../../../src/rules/simulator/handler.js';
+import { parseToAST } from '@pyric/rules/internal';
+import { SimulateFirestoreRulesHandler } from '@pyric/rules/internal';
 
 function rules(children: string, outer = '') {
   return parseToAST(`rules_version = '2';

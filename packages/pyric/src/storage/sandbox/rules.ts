@@ -87,28 +87,28 @@
  * the parser + evaluator.
  */
 
-import { parseToASTOrError } from '../../rules/grammar/FirestoreParser.js';
-import { parseErrorWording } from '../../rules/grammar/parse-error-wording.js';
-import { compileLimitViolations, describeCompileLimitViolations } from '../../rules/grammar/compile-limits.js';
-import { DUPLICATE_SERVICE_REASON, duplicateServiceRejection } from '../../rules/grammar/source-compile-limits.js';
-import { copyExpressionPosition, expressionPosition } from '../../rules/grammar/expression-positions.js';
-import { re2PatternProblem } from '../../rules/simulator/re2-pattern-check.js';
+import { parseToASTOrError } from '@pyric/rules/internal';
+import { parseErrorWording } from '@pyric/rules/internal';
+import { compileLimitViolations, describeCompileLimitViolations } from '@pyric/rules/internal';
+import { DUPLICATE_SERVICE_REASON, duplicateServiceRejection } from '@pyric/rules/internal';
+import { copyExpressionPosition, expressionPosition } from '@pyric/rules/internal';
+import { re2PatternProblem } from '@pyric/rules/internal';
 // RULES-B5 float model, shared with the Firestore simulator: a FLOAT value is
 // tagged with this wrapper while an INT is a bigint, or a bare integral JS
 // number from a host value (see `rules-int.ts`). The storage evaluator
 // adopts the same model so `1.0 is float`, truncating int division, and
 // int-vs-float promotion match production instead of JS numerics.
-import { RulesFloat } from '../../rules/simulator/wrappers/float.js';
-import { numericLiteralValue } from '../../rules/simulator/rules-int.js';
-import { Bytes } from '../../rules/simulator/wrappers/bytes.js';
-import type { RulesResourceLimit } from '../../rules/test/spec.js';
+import { RulesFloat } from '@pyric/rules/internal';
+import { numericLiteralValue } from '@pyric/rules/internal';
+import { Bytes } from '@pyric/rules/internal';
+import type { RulesResourceLimit } from '@pyric/rules';
 import type {
   FirestoreRules as SharedRules,
   MatchBlock as SharedMatchBlock,
   PathSegment as SharedPathSegment,
   FunctionDef as SharedFunctionDef,
   Expression as SharedExpression,
-} from '../../rules/grammar/FirestoreAST.js';
+} from '@pyric/rules/internal';
 
 // ═══════════════════════════════════════════════════════════════
 // Public types

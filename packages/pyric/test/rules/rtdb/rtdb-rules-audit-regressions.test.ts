@@ -18,17 +18,17 @@ import { rtdbRules } from '../../../src/rules/index.js';
 import {
   compileRtdbRules,
   simulateRtdbRules,
-} from '../../../src/rules/rtdb/compiled-rules.js';
+} from '@pyric/rules/internal/rtdb';
 import {
   defineRtdbRules,
   expr,
-} from '../../../src/rules/rtdb/constraints/index.js';
+} from '@pyric/rules/internal/rtdb';
 import {
   DataSnapshot,
   evaluateRtdbExpression,
   type EvalContext,
-} from '../../../src/rules/rtdb/grammar/simulator.js';
-import { validateExpression } from '../../../src/rules/rtdb/grammar/validator.js';
+} from '@pyric/rules/internal/rtdb';
+import { validateExpression } from '@pyric/rules/internal/rtdb';
 
 function makeEvalContext(overrides: Partial<EvalContext> = {}): EvalContext {
   return {

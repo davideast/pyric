@@ -1,5 +1,5 @@
 import * as ohm from 'ohm-js';
-import { createRtdbExpressionSemantics, matchRtdbExpression } from '../../pyric/src/rules/rtdb/expression-engine.ts';
+import { createRtdbExpressionSemantics, matchRtdbExpression } from '../../rules/src/rtdb/expression-engine.ts';
 import type { AnalyzeResult } from './rules-language-analyzer.ts';
 
 const RTDB_BINDINGS = new Set(['auth', 'data', 'newData', 'root', 'now', 'query']);

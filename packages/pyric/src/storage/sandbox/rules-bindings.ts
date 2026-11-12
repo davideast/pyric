@@ -1,9 +1,9 @@
-import { Timestamp } from '../../rules/simulator/wrappers/timestamp.js';
+import { Timestamp } from '@pyric/rules/internal';
 import type { EvaluationInput, StorageResource } from './rules.js';
 import { RuleError } from './rules-values.js';
 import { StoragePath } from './rules-path.js';
 import { normalizeAuthState } from '../../sandbox/sandbox-context.js';
-import { typeClaimNumbers } from '../../rules/simulator/rules-int.js';
+import { typeClaimNumbers } from '@pyric/rules/internal';
 
 /**
  * Build the `resource.*` binding from the existing-object record, converting

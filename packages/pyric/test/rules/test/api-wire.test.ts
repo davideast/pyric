@@ -14,7 +14,7 @@ import {
   timestamp,
   vector,
 } from '../../../src/rules/index.js';
-import { buildApiTestCase, normalizeDocPath, type TestCase } from '../../../src/rules/test/spec.js';
+import { buildApiTestCase, normalizeDocPath, type TestCase } from '@pyric/rules/internal';
 import { TestFirestoreRulesHandler } from '../../../src/rules/test/handler.js';
 
 function wire(over: Partial<TestCase>) {

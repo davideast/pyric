@@ -2,7 +2,7 @@
 
 The rules benchmark times each stage of the Security Rules pipeline on its own, for Firestore, Realtime Database and Storage. Run it before and after a change to the rules engine and compare the two runs against the committed baseline.
 
-The harness lives in `packages/pyric/bench/rules/`. It loads the built package (`packages/pyric/dist`), the same code the test suite runs.
+The harness lives in `packages/rules/bench/`. It loads the built package (`packages/pyric/dist`), the same code the test suite runs.
 
 ## Run the benchmark
 
@@ -80,7 +80,7 @@ Why 25 percent: on a laptop with other work running, single rounds of unchanged 
 
 ## Fixtures
 
-The fixtures are checked in under `packages/pyric/bench/rules/fixtures/`. Each `fixture.json` records its source. `bun run bench:rules:capture` rewrites them:
+The fixtures are checked in under `packages/rules/bench/fixtures/`. Each `fixture.json` records its source. `bun run bench:rules:capture` rewrites them:
 
 ```sh
 bun run bench:rules:capture chess
@@ -102,7 +102,7 @@ bun run bench:rules:capture arcade --games <path to the arcade checkout>
 bun run bench:rules -- --profile --fixture arcade-rtdb
 ```
 
-The flag reruns the harness as `bun --cpu-prof --cpu-prof-dir=<dir> --cpu-prof-md bench/rules/run.ts --no-cold`, with your other flags. Profiles land in `packages/pyric/bench/rules/profiles/`, which git ignores. Open the `.cpuprofile` file in Chrome DevTools, or read the `.md` summary of hot functions.
+The flag reruns the harness as `bun --cpu-prof --cpu-prof-dir=<dir> --cpu-prof-md bench/rules/run.ts --no-cold`, with your other flags. Profiles land in `packages/rules/bench/profiles/`, which git ignores. Open the `.cpuprofile` file in Chrome DevTools, or read the `.md` summary of hot functions.
 
 A profile covers every stage in the run, so parse and compile time mixes with evaluation. To profile one stage, pass `--fixture` and read the functions under the stage you care about.
 

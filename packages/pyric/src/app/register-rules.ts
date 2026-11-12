@@ -37,7 +37,7 @@ import {
   storageRulesConfig,
   unservedFirestoreDatabaseWarnings,
 } from 'pyric/sandbox/internal';
-import { loadFirebaseJsonRules } from '../rules/api/rtdb-firebase-json.js';
+import { loadFirebaseJsonRules } from '@pyric/rules/internal';
 
 interface RulesEntry {
   rules?: unknown;

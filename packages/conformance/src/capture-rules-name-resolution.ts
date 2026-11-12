@@ -10,7 +10,7 @@
  * and position, and the decision for a get by uid a (granted when the ruleset
  * works) and by uid b (denied).
  *
- * Output: packages/pyric/test/rules/grammar/fixtures/name-resolution/captures.json
+ * Output: packages/rules/test/grammar/fixtures/name-resolution/captures.json
  *
  * Credentials: the same contract as `capture-rules-compile-limits.ts`.
  *
@@ -22,7 +22,7 @@ import { join } from 'node:path';
 import { REPO_ROOT } from './rules-expression-cost-suites.ts';
 import { tools, type Issue, type ProbeCase } from './capture-rules-compile-limits.ts';
 
-const OUT_DIR = join(REPO_ROOT, 'packages', 'pyric', 'test', 'rules', 'grammar', 'fixtures', 'name-resolution');
+const OUT_DIR = join(REPO_ROOT, 'packages', 'rules', 'test', 'grammar', 'fixtures', 'name-resolution');
 const OUT = join(OUT_DIR, 'captures.json');
 
 const LEAF = "request.auth.uid == 'a'";

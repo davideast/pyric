@@ -42,7 +42,7 @@ const row3 = defineRows({
     api: "Rules simulator",
     status: "conforms",
     automation: "oracle-backed",
-    conformanceTests: ["packages/pyric/test/rules/rtdb/rules-conformance.test.ts"],
+    conformanceTests: ["packages/rules/test/rtdb/rules-conformance.test.ts"],
   },
 });
 
@@ -76,10 +76,10 @@ export const rulesRegistry = {
           oracleObservations: ["rules-firestore-bytes-toutf8-and-hashing"],
           conformanceTests: [
             "packages/pyric/test/rules/oracle-conformance.test.ts",
-            "packages/pyric/test/rules/simulator/hashing-builtins.test.ts",
-            "packages/pyric/test/rules/simulator/wrappers/bytes.test.ts",
-            "packages/pyric/test/rules/grammar/bytes-literal.test.ts",
-            "packages/pyric/test/rules/simulator/bytes-literal.test.ts",
+            "packages/rules/test/simulator/hashing-builtins.test.ts",
+            "packages/rules/test/simulator/wrappers/bytes.test.ts",
+            "packages/rules/test/grammar/bytes-literal.test.ts",
+            "packages/rules/test/simulator/bytes-literal.test.ts",
           ],
           constructs: ["firestore.method.string.toUtf8","firestore.function.hashing.md5","firestore.function.hashing.sha256","firestore.function.hashing.crc32","firestore.function.hashing.crc32c","firestore.method.bytes.size","firestore.method.bytes.toBase64","firestore.method.bytes.toHexString"],
         }),
@@ -92,7 +92,7 @@ export const rulesRegistry = {
           oracleObservations: ["rules-firestore-cross-type-operator-overloads"],
           conformanceTests: [
             "packages/pyric/test/rules/oracle-conformance.test.ts",
-            "packages/pyric/test/rules/simulator/evaluator.test.ts",
+            "packages/rules/test/simulator/evaluator.test.ts",
           ],
         }),
         row1({
@@ -104,8 +104,8 @@ export const rulesRegistry = {
           oracleObservations: ["rules-firestore-error-absorption-and-or"],
           conformanceTests: [
             "packages/pyric/test/rules/oracle-conformance.test.ts",
-            "packages/pyric/test/rules/simulator/expression-budget.test.ts",
-            "packages/pyric/test/rules/simulator/error-values.test.ts",
+            "packages/rules/test/simulator/expression-budget.test.ts",
+            "packages/rules/test/simulator/error-values.test.ts",
           ],
           constructs: ["firestore.semantic.error-absorption-and","firestore.semantic.error-absorption-or","firestore.operator.and","firestore.operator.or"],
         }),
@@ -204,7 +204,7 @@ export const rulesRegistry = {
           oracleObservations: ["rules-firestore-prototype-chain-keys"],
           conformanceTests: [
             "packages/pyric/test/rules/oracle-conformance.test.ts",
-            "packages/pyric/test/rules/simulator/in-operand-errors.test.ts",
+            "packages/rules/test/simulator/in-operand-errors.test.ts",
             "packages/pyric/test/rules/membership.test.ts",
           ],
         }),
@@ -237,9 +237,9 @@ export const rulesRegistry = {
           oracleObservations: ["rules-firestore-string-literals-and-regex"],
           conformanceTests: [
             "packages/pyric/test/rules/oracle-conformance.test.ts",
-            "packages/pyric/test/rules/grammar/string-escape-strict.test.ts",
-            "packages/pyric/test/rules/simulator/string-escapes.test.ts",
-            "packages/pyric/test/rules/grammar/assembler-literal-roundtrip.test.ts",
+            "packages/rules/test/grammar/string-escape-strict.test.ts",
+            "packages/rules/test/simulator/string-escapes.test.ts",
+            "packages/rules/test/grammar/assembler-literal-roundtrip.test.ts",
           ],
         }),
         row1({
@@ -268,7 +268,7 @@ export const rulesRegistry = {
           conformanceTests: [
             "packages/pyric/test/rules/oracle-conformance.test.ts",
             "packages/pyric/test/rules/map-keys-list.test.ts",
-            "packages/pyric/test/rules/modules/service-compatibility.test.ts",
+            "packages/rules/test/modules/service-compatibility.test.ts",
             "packages/pyric/test/rules/simulator/collection-identity.test.ts",
           ],
         }),
@@ -306,11 +306,11 @@ export const rulesRegistry = {
           oracleObservations: ["rules-firestore-functions-verbs-and-recursive"],
           conformanceTests: [
             "packages/pyric/test/rules/oracle-conformance.test.ts",
-            "packages/pyric/test/rules/grammar/validator-bugbash.test.ts",
-            "packages/pyric/test/rules/modules/service-compatibility.test.ts",
-            "packages/pyric/test/rules/modules/resolver-call-sites.test.ts",
-            "packages/pyric/test/rules/modules/source-map-files.test.ts",
-            "packages/pyric/test/rules/grammar/validator.test.ts",
+            "packages/rules/test/grammar/validator-bugbash.test.ts",
+            "packages/rules/test/modules/service-compatibility.test.ts",
+            "packages/rules/test/modules/resolver-call-sites.test.ts",
+            "packages/rules/test/modules/source-map-files.test.ts",
+            "packages/rules/test/grammar/validator.test.ts",
             "packages/pyric/test/rules/simulator/compile-limits.test.ts",
           ],
           constructs: ["firestore.semantic.type-dispatch"],
@@ -350,19 +350,19 @@ export const rulesRegistry = {
           featureKeys: [],
           behavior: "Function declarations at GLOBAL and SERVICE scope in a Firestore ruleset, with match-scope shadowing, including a flat `&&` or `||` chain of up to 98 operands in a function at either scope. The linter and validator check functions at every scope, and the NESTING_DEPTH error fires above 98 operands",
           status: "conforms",
-          evidence: "RECAPTURED, 2026-09-26: `oracle:rules-firestore-global-and-service-scope-functions` records 9 production Firestore Rules Test API verdicts: the 5 scope and shadowing cases, plus a 98-operand `&&` chain declared at global scope and a 98-operand `||` chain declared at service scope, each compiling and evaluating to ALLOW and DENY. The simulator seeds each match walk with global, then service, then match functions, so an inner declaration shadows an outer one, and `unit:rules/oracle-conformance.test.ts` replays all 9 verdicts. The same day, the Rules Test API rejected a 99-operand `&&` or `||` chain in a function at global, service, or match scope with \"Expression is too complex to evaluate safely.\" and compiled the 98-operand chain at each scope. A rejected ruleset returns no verdicts, so the 99-operand bound is not a replayable case. `unit:rules/linter/linter.test.ts` pins the lint side: functions at all three scopes count toward `functionCount` and `maxEstimatedExpressions`, NESTING_DEPTH counts each operator on the left-associative spine as one level, 99 operands raise the limit error at every scope, 98 raise none, and a match-scope function shadows a service-scope one. `unit:rules/grammar/validator.test.ts` pins that a call to a global-scope or service-scope function is not reported as undefined and that SEC-3 follows the call into it. Extended 2026-09-27: the Rules Test API compile-limit capture in `packages/pyric/test/rules/linter/fixtures/compile-limits/captures.json` records the other structural limits for Firestore and Storage rulesets. A call chain of 21 functions compiles and 22 is rejected with \"Maximum allowed call depth of 20 is reached\", also when no rule calls the chain; 11 `let` bindings compile and 12 are rejected with \"Maximum allowed variable count of 10 for a given function has been reached.\"; a right-nested `&&` chain of 49 terms and 97 parentheses around one comparison compile, and 50 terms or 98 parentheses are rejected with \"Expression is too complex to evaluate safely.\". `unit:rules/linter/linter.test.ts` reads that fixture and pins the CALL_DEPTH error above 21 functions, for a chain no rule calls as well, and the LET_LIMIT boundary. The runtime limit of 1000 evaluated expressions per request, measured by padding in `packages/pyric/test/rules/linter/fixtures/expression-cost/captures.json`, is enforced by `simulate` and by Storage rules evaluation: each request counts its expressions in production's unit across every allow rule and match block it reaches, and a request past the limit is DENY with production's message \"Unable to evaluate the expression as the maximum of 1000 expressions to evaluate has been reached.\". `unit:rules/simulator/expression-budget-fixture.test.ts` replays production's padding thresholds through the simulator: the count lies inside production's window on 33 of the 34 captured requests, and the chess queen move production stopped at the limit is denied at the limit. `unit:rules/simulator/expression-budget.test.ts` and `unit:storage/sandbox/rules-expression-budget.test.ts` pin the unit and the limit boundary in each service. Extended 2026-09-27: the Rules Test API name-resolution capture in `packages/pyric/test/rules/grammar/fixtures/name-resolution/captures.json` records that production resolves function and variable names by declaration scope. A call to a function declared only in a sibling match, or from a service or global function to a function in an inner scope, compiles with \"Invalid function name: s.\"; an identifier that is no let binding, parameter, enclosing path capture, or global compiles with \"Invalid variable name: d.\"; both deny the request that evaluates them; and a function no resolved call reaches, at global, service, or match scope, draws \"Unused function: f.\". `unit:rules/grammar/validator-name-resolution.test.ts` replays each captured ruleset through the validator: SEM-4 reports each unresolved call, SEM-5 each unbound variable, and QUA-4 each unused function, in rule conditions and function bodies at every scope. The Firestore simulator and the Storage evaluator enforce all three limits when a ruleset loads (`packages/pyric/src/rules/grammar/compile-limits.ts`) and refuse a ruleset over one with production's messages: `unit:rules/grammar/compile-limits.test.ts` matches the reported messages to every probe in the fixture; `unit:rules/simulator/compile-limits.test.ts` pins that `firestoreRules`, `simulate` and the sandbox's deployed rules refuse each rejected Firestore probe and evaluate each compiling one, including the 21-function chain, to production's verdicts; and `unit:rules/linter/linter.test.ts` pins the NESTING_DEPTH error at the same boundary. Extended 2026-09-28: the compile-limit capture adds two `member-chain` probes, a member chain `request.auth.token.m.m...` behind a comparison that grants uid a. A 100-term chain compiles; a ruleset holding a 4,900-term chain drew `500 INTERNAL: Internal error encountered.` from the Rules Test API on every attempt instead of a compile result, recorded as the probe's `apiError`; the length between them is not measured. `unit:rules/linter/linter.test.ts` pins that the linter reports MEMBER_CHAIN_LENGTH as an error for the 4,900-term probe and nothing for the 100-term one, that a chain deeper through the functions it calls than the linter's recursive checks can walk is reported as EXPRESSION_TOO_DEEP rather than thrown, and that the linter reports SLASH_STARTS_PATH with production's message \"Missing 'match' keyword before path.\" for the rejected `slash-divisor` probe and nothing for the compiling one. Extended 2026-10-07: the compile-limit capture adds the `glob-in-path` and `glob-nested` probes. A match declaration path holds at most one recursive wildcard, counted across the block's path and the paths of the blocks it is nested in: `match /{g1=**}/p/{g2=**}`, and `match /{rest=**}` nested in `match /{g=**}/p/{gid}`, are rejected with \"Invalid glob match expression. Only one glob match is permitted in a match declaration path.\" on the line of the declaration that holds the second one, while `match /{g1=**}/p/{d}`, and `match /{rest=**}` nested in `match /p/{gid}`, compile. The compile-limit module reports it with that text, so `firestoreRules()`, `simulate`, the sandbox's deployed rules and the served rules loader refuse the ruleset; `unit:rules/grammar/compile-limits.test.ts` pins the message and line, `unit:rules/simulator/compile-limits.test.ts` the refusal and the compiling probes' verdicts, and `cli:serve/rules.test.ts` the served refusal. The compiling `glob-nested` probe also showed production matching a nested `match /{rest=**}` with zero segments after a block that consumed the whole path, which the Firestore matcher now does; `unit:rules/simulator/match-resolution.test.ts` pins it. Extended 2026-10-27: the compile-limit capture adds the `and-chain` and `and-chain-calls` probes, flat chains with no parentheses. 98 comparisons compile and 99 are rejected, while 99 zero-argument function calls compile and 100 are rejected, each with \"Expression is too complex to evaluate safely.\"; `unit:rules/linter/linter.test.ts` and `unit:rules/simulator/compile-limits.test.ts` replay all six probes.",
+          evidence: "RECAPTURED, 2026-09-26: `oracle:rules-firestore-global-and-service-scope-functions` records 9 production Firestore Rules Test API verdicts: the 5 scope and shadowing cases, plus a 98-operand `&&` chain declared at global scope and a 98-operand `||` chain declared at service scope, each compiling and evaluating to ALLOW and DENY. The simulator seeds each match walk with global, then service, then match functions, so an inner declaration shadows an outer one, and `unit:rules/oracle-conformance.test.ts` replays all 9 verdicts. The same day, the Rules Test API rejected a 99-operand `&&` or `||` chain in a function at global, service, or match scope with \"Expression is too complex to evaluate safely.\" and compiled the 98-operand chain at each scope. A rejected ruleset returns no verdicts, so the 99-operand bound is not a replayable case. `unit:rules/linter/linter.test.ts` pins the lint side: functions at all three scopes count toward `functionCount` and `maxEstimatedExpressions`, NESTING_DEPTH counts each operator on the left-associative spine as one level, 99 operands raise the limit error at every scope, 98 raise none, and a match-scope function shadows a service-scope one. `unit:rules/grammar/validator.test.ts` pins that a call to a global-scope or service-scope function is not reported as undefined and that SEC-3 follows the call into it. Extended 2026-09-27: the Rules Test API compile-limit capture in `packages/rules/test/linter/fixtures/compile-limits/captures.json` records the other structural limits for Firestore and Storage rulesets. A call chain of 21 functions compiles and 22 is rejected with \"Maximum allowed call depth of 20 is reached\", also when no rule calls the chain; 11 `let` bindings compile and 12 are rejected with \"Maximum allowed variable count of 10 for a given function has been reached.\"; a right-nested `&&` chain of 49 terms and 97 parentheses around one comparison compile, and 50 terms or 98 parentheses are rejected with \"Expression is too complex to evaluate safely.\". `unit:rules/linter/linter.test.ts` reads that fixture and pins the CALL_DEPTH error above 21 functions, for a chain no rule calls as well, and the LET_LIMIT boundary. The runtime limit of 1000 evaluated expressions per request, measured by padding in `packages/rules/test/linter/fixtures/expression-cost/captures.json`, is enforced by `simulate` and by Storage rules evaluation: each request counts its expressions in production's unit across every allow rule and match block it reaches, and a request past the limit is DENY with production's message \"Unable to evaluate the expression as the maximum of 1000 expressions to evaluate has been reached.\". `unit:rules/simulator/expression-budget-fixture.test.ts` replays production's padding thresholds through the simulator: the count lies inside production's window on 33 of the 34 captured requests, and the chess queen move production stopped at the limit is denied at the limit. `unit:rules/simulator/expression-budget.test.ts` and `unit:storage/sandbox/rules-expression-budget.test.ts` pin the unit and the limit boundary in each service. Extended 2026-09-27: the Rules Test API name-resolution capture in `packages/rules/test/grammar/fixtures/name-resolution/captures.json` records that production resolves function and variable names by declaration scope. A call to a function declared only in a sibling match, or from a service or global function to a function in an inner scope, compiles with \"Invalid function name: s.\"; an identifier that is no let binding, parameter, enclosing path capture, or global compiles with \"Invalid variable name: d.\"; both deny the request that evaluates them; and a function no resolved call reaches, at global, service, or match scope, draws \"Unused function: f.\". `unit:rules/grammar/validator-name-resolution.test.ts` replays each captured ruleset through the validator: SEM-4 reports each unresolved call, SEM-5 each unbound variable, and QUA-4 each unused function, in rule conditions and function bodies at every scope. The Firestore simulator and the Storage evaluator enforce all three limits when a ruleset loads (`packages/rules/src/grammar/compile-limits.ts`) and refuse a ruleset over one with production's messages: `unit:rules/grammar/compile-limits.test.ts` matches the reported messages to every probe in the fixture; `unit:rules/simulator/compile-limits.test.ts` pins that `firestoreRules`, `simulate` and the sandbox's deployed rules refuse each rejected Firestore probe and evaluate each compiling one, including the 21-function chain, to production's verdicts; and `unit:rules/linter/linter.test.ts` pins the NESTING_DEPTH error at the same boundary. Extended 2026-09-28: the compile-limit capture adds two `member-chain` probes, a member chain `request.auth.token.m.m...` behind a comparison that grants uid a. A 100-term chain compiles; a ruleset holding a 4,900-term chain drew `500 INTERNAL: Internal error encountered.` from the Rules Test API on every attempt instead of a compile result, recorded as the probe's `apiError`; the length between them is not measured. `unit:rules/linter/linter.test.ts` pins that the linter reports MEMBER_CHAIN_LENGTH as an error for the 4,900-term probe and nothing for the 100-term one, that a chain deeper through the functions it calls than the linter's recursive checks can walk is reported as EXPRESSION_TOO_DEEP rather than thrown, and that the linter reports SLASH_STARTS_PATH with production's message \"Missing 'match' keyword before path.\" for the rejected `slash-divisor` probe and nothing for the compiling one. Extended 2026-10-07: the compile-limit capture adds the `glob-in-path` and `glob-nested` probes. A match declaration path holds at most one recursive wildcard, counted across the block's path and the paths of the blocks it is nested in: `match /{g1=**}/p/{g2=**}`, and `match /{rest=**}` nested in `match /{g=**}/p/{gid}`, are rejected with \"Invalid glob match expression. Only one glob match is permitted in a match declaration path.\" on the line of the declaration that holds the second one, while `match /{g1=**}/p/{d}`, and `match /{rest=**}` nested in `match /p/{gid}`, compile. The compile-limit module reports it with that text, so `firestoreRules()`, `simulate`, the sandbox's deployed rules and the served rules loader refuse the ruleset; `unit:rules/grammar/compile-limits.test.ts` pins the message and line, `unit:rules/simulator/compile-limits.test.ts` the refusal and the compiling probes' verdicts, and `cli:serve/rules.test.ts` the served refusal. The compiling `glob-nested` probe also showed production matching a nested `match /{rest=**}` with zero segments after a block that consumed the whole path, which the Firestore matcher now does; `unit:rules/simulator/match-resolution.test.ts` pins it. Extended 2026-10-27: the compile-limit capture adds the `and-chain` and `and-chain-calls` probes, flat chains with no parentheses. 98 comparisons compile and 99 are rejected, while 99 zero-argument function calls compile and 100 are rejected, each with \"Expression is too complex to evaluate safely.\"; `unit:rules/linter/linter.test.ts` and `unit:rules/simulator/compile-limits.test.ts` replay all six probes.",
           oracleObservations: ["rules-firestore-global-and-service-scope-functions"],
           conformanceTests: [
             "packages/pyric/test/rules/oracle-conformance.test.ts",
-            "packages/pyric/test/rules/linter/linter.test.ts",
-            "packages/pyric/test/rules/grammar/validator.test.ts",
-            "packages/pyric/test/rules/simulator/expression-budget-fixture.test.ts",
-            "packages/pyric/test/rules/simulator/expression-budget.test.ts",
+            "packages/rules/test/linter/linter.test.ts",
+            "packages/rules/test/grammar/validator.test.ts",
+            "packages/rules/test/simulator/expression-budget-fixture.test.ts",
+            "packages/rules/test/simulator/expression-budget.test.ts",
             "packages/pyric/test/storage/sandbox/rules-expression-budget.test.ts",
-            "packages/pyric/test/rules/grammar/validator-name-resolution.test.ts",
-            "packages/pyric/test/rules/grammar/compile-limits.test.ts",
+            "packages/rules/test/grammar/validator-name-resolution.test.ts",
+            "packages/rules/test/grammar/compile-limits.test.ts",
             "packages/pyric/test/rules/simulator/compile-limits.test.ts",
-            "packages/pyric/test/rules/simulator/match-resolution.test.ts",
+            "packages/rules/test/simulator/match-resolution.test.ts",
             "packages/cli/test/serve/rules.test.ts",
           ],
           constructs: ["firestore.rule-kind.function"],
@@ -376,7 +376,7 @@ export const rulesRegistry = {
           oracleObservations: ["rules-firestore-hierarchical-match-cascade"],
           conformanceTests: [
             "packages/pyric/test/rules/oracle-conformance.test.ts",
-            "packages/pyric/test/rules/simulator/match-resolution.test.ts",
+            "packages/rules/test/simulator/match-resolution.test.ts",
             "packages/pyric/test/firestore/collection-group-rules.test.ts",
           ],
           constructs: ["firestore.semantic.hierarchical-match-cascade"],
@@ -386,15 +386,15 @@ export const rulesRegistry = {
           featureKeys: [],
           behavior: "Strict boolean operands for `&&`, `||`, and ternary control flow, plus create-time `resource` / `request.resource` semantics. A rules case is one request in `simulate()`, the MCP `firestore_simulate_rules` tool and the Rules Test API wire: a `create` case that names an existing `resource`, a case with an unknown method or field or no path, and a `requestTime` that is not ISO-8601 with an offset are refused with the reason; value helpers reach the wire in the form production reads as their type, and a plain map with a `__type` key is a map in both engines",
           status: "conforms",
-          evidence: "`oracle:rules-firestore-strict-boolean-control-flow` captures three direct non-boolean DENYs, three tautological error discriminators that still DENY, a boolean ALLOW control, create-time `resource == null` DENY, and incoming `request.resource.data` ALLOW; replayed verdict-for-verdict by `packages/pyric/test/rules/oracle-conformance.test.ts`. RECAPTURED, 2026-09-27: 9 allow-condition cases (18 in all) show the allow condition itself must be a bool. Production compiles `allow create: if 'ab';` and the conditions `1`, `0`, `1.0`, `null`, `[]`, `request.resource.data` (a map), and a string field, then denies each with `Type error. Received: [<type>] Expected: [bool].`; `if true` allows. The simulator decided an allow by JavaScript truthiness, so a non-empty string, a nonzero number, a list, or a map allowed; it now raises the same type error as an ERROR verdict for that rule and matches all 18 verdicts. Extended 2026-10-28 (#1338): the Rules Test API capture in `packages/pyric/test/rules/test/fixtures/case-wire/captures.json` (`packages/conformance/src/capture-rules-case-wire.ts`, 4 calls, no deploy) records production binding a `create` case's `resource`, which no real create has (`resource.data.x == 1` and `resource != null` ALLOW, FS2-CON-12), and reading `{__type: 'timestamp', seconds, nanos}` as a map (FS2-CON-5). It also records the JSON forms production reads as typed values, each keeping its value: an ISO-8601 string with an offset as a timestamp, `{latitude, longitude}` as a latlng, `-1.500000000s` as a duration, and a `/databases/(default)/documents/...` string as a path, while a base64 string stays a string. `unit:rules/test/case-wire-capture.test.ts` replays it: `simulate()` and `buildApiTestCase` refuse each create case with a resource, a create without one gets production's verdicts, `simulate()` reads the `__type` map as a map, and `buildApiTestCase` sends each value helper in the captured form, which `simulate()` reads as production does for timestamp, latlng and duration. `unit:rules/api/case-shape.test.ts` pins the refusals through `simulate()` and the MCP tool and the value helpers' range checks, and `unit:rules/test/api-wire.test.ts` pins the built request for a merge set, a replacing set, a dotted update, a full-form path and each value helper, and that `TestFirestoreRulesHandler` refuses a malformed case before calling the API.",
+          evidence: "`oracle:rules-firestore-strict-boolean-control-flow` captures three direct non-boolean DENYs, three tautological error discriminators that still DENY, a boolean ALLOW control, create-time `resource == null` DENY, and incoming `request.resource.data` ALLOW; replayed verdict-for-verdict by `packages/pyric/test/rules/oracle-conformance.test.ts`. RECAPTURED, 2026-09-27: 9 allow-condition cases (18 in all) show the allow condition itself must be a bool. Production compiles `allow create: if 'ab';` and the conditions `1`, `0`, `1.0`, `null`, `[]`, `request.resource.data` (a map), and a string field, then denies each with `Type error. Received: [<type>] Expected: [bool].`; `if true` allows. The simulator decided an allow by JavaScript truthiness, so a non-empty string, a nonzero number, a list, or a map allowed; it now raises the same type error as an ERROR verdict for that rule and matches all 18 verdicts. Extended 2026-10-28 (#1338): the Rules Test API capture in `packages/rules/test/test/fixtures/case-wire/captures.json` (`packages/conformance/src/capture-rules-case-wire.ts`, 4 calls, no deploy) records production binding a `create` case's `resource`, which no real create has (`resource.data.x == 1` and `resource != null` ALLOW, FS2-CON-12), and reading `{__type: 'timestamp', seconds, nanos}` as a map (FS2-CON-5). It also records the JSON forms production reads as typed values, each keeping its value: an ISO-8601 string with an offset as a timestamp, `{latitude, longitude}` as a latlng, `-1.500000000s` as a duration, and a `/databases/(default)/documents/...` string as a path, while a base64 string stays a string. `unit:rules/test/case-wire-capture.test.ts` replays it: `simulate()` and `buildApiTestCase` refuse each create case with a resource, a create without one gets production's verdicts, `simulate()` reads the `__type` map as a map, and `buildApiTestCase` sends each value helper in the captured form, which `simulate()` reads as production does for timestamp, latlng and duration. `unit:rules/api/case-shape.test.ts` pins the refusals through `simulate()` and the MCP tool and the value helpers' range checks, and `unit:rules/test/api-wire.test.ts` pins the built request for a merge set, a replacing set, a dotted update, a full-form path and each value helper, and that `TestFirestoreRulesHandler` refuses a malformed case before calling the API.",
           risk: ["rules-denial","specific-field"],
           riskScore: 3,
           riskReasons: ["asserts rules-denial behavior","asserts a specific field/property value"],
           oracleObservations: ["rules-firestore-strict-boolean-control-flow"],
           conformanceTests: [
             "packages/pyric/test/rules/oracle-conformance.test.ts",
-            "packages/pyric/test/rules/test/case-wire-capture.test.ts",
-            "packages/pyric/test/rules/api/case-shape.test.ts",
+            "packages/rules/test/test/case-wire-capture.test.ts",
+            "packages/rules/test/api/case-shape.test.ts",
             "packages/pyric/test/rules/test/api-wire.test.ts",
           ],
           constructs: ["firestore.operator.and","firestore.operator.or","firestore.operator.ternary","firestore.binding.resource","firestore.binding.request.resource","firestore.binding.request.resource.data"],
@@ -440,7 +440,7 @@ export const rulesRegistry = {
           oracleObservations: ["rules-firestore-ast-strictness-and-unsupported-casts"],
           conformanceTests: [
             "packages/pyric/test/rules/oracle-conformance.test.ts",
-            "packages/pyric/test/rules/linter/hallucinations.test.ts",
+            "packages/rules/test/linter/hallucinations.test.ts",
           ],
           constructs: [
             "firestore.function.cast.bool",
@@ -461,7 +461,7 @@ export const rulesRegistry = {
           oracleObservations: ["rules-firestore-timestamp-component-accessors"],
           conformanceTests: [
             "packages/pyric/test/rules/oracle-conformance.test.ts",
-            "packages/pyric/test/rules/simulator/wrappers/timestamp.test.ts",
+            "packages/rules/test/simulator/wrappers/timestamp.test.ts",
           ],
           constructs: ["firestore.method.timestamp.seconds", "firestore.method.timestamp.nanos", "firestore.method.timestamp.toMillis"],
         }),
@@ -478,9 +478,9 @@ export const rulesRegistry = {
           oracleObservations: ["rules-firestore-simulator-language-semantics"],
           conformanceTests: [
             "packages/pyric/test/rules/oracle-conformance.test.ts",
-            "packages/pyric/test/rules/simulator/evaluation-builtins.test.ts",
-            "packages/pyric/test/rules/simulator/document-lookups.test.ts",
-            "packages/pyric/test/rules/simulator/wrappers/latlng.test.ts",
+            "packages/rules/test/simulator/evaluation-builtins.test.ts",
+            "packages/rules/test/simulator/document-lookups.test.ts",
+            "packages/rules/test/simulator/wrappers/latlng.test.ts",
           ],
           constructs: [
             "firestore.operator.sub",
@@ -510,7 +510,7 @@ export const rulesRegistry = {
           oracleObservations: ["rules-firestore-simcase-mock-and-path-fidelity"],
           conformanceTests: [
             "packages/pyric/test/rules/oracle-conformance.test.ts",
-            "packages/pyric/test/rules/simulator/simcase-fidelity.test.ts",
+            "packages/rules/test/simulator/simcase-fidelity.test.ts",
           ],
           constructs: [
             "firestore.function.get",
@@ -530,7 +530,7 @@ export const rulesRegistry = {
           oracleObservations: ["rules-firestore-int64-and-duration-range"],
           conformanceTests: [
             "packages/pyric/test/rules/oracle-conformance.test.ts",
-            "packages/pyric/test/rules/simulator/int64.test.ts",
+            "packages/rules/test/simulator/int64.test.ts",
             "packages/pyric/test/rules/simulator/time-range.test.ts",
           ],
           constructs: [
@@ -555,8 +555,8 @@ export const rulesRegistry = {
           oracleObservations: ["rules-firestore-re2-pattern-semantics"],
           conformanceTests: [
             "packages/pyric/test/rules/oracle-conformance.test.ts",
-            "packages/pyric/test/rules/simulator/re2-space-and-trim.test.ts",
-            "packages/pyric/test/rules/simulator/re2-dot-property-and-flags.test.ts",
+            "packages/rules/test/simulator/re2-space-and-trim.test.ts",
+            "packages/rules/test/simulator/re2-dot-property-and-flags.test.ts",
             "packages/pyric/test/rules/simulator/split-and-replace.test.ts",
           ],
           constructs: [
@@ -599,7 +599,7 @@ export const rulesRegistry = {
           oracleObservations: ["rules-firestore-split-and-trim-edges"],
           conformanceTests: [
             "packages/pyric/test/rules/oracle-conformance.test.ts",
-            "packages/pyric/test/rules/simulator/re2-space-and-trim.test.ts",
+            "packages/rules/test/simulator/re2-space-and-trim.test.ts",
             "packages/pyric/test/rules/simulator/split-and-replace.test.ts",
           ],
           constructs: ["firestore.method.string.split"],
@@ -906,7 +906,7 @@ export const rulesRegistry = {
           featureKeys: ["function","let","lexicalScope"],
           behavior: "User-defined `function` definitions — `let` bindings, functions calling functions, and match-block-scoped helper functions (lexical scoping)",
           status: "conforms",
-          evidence: "STALE ROW, corrected 2026-07-10: production capture proves the evaluator supports user-defined functions with `let` bindings, nested function calls, and block-scoped helpers. `oracle:rules-storage-functions-let-scope` matches production verdict-for-verdict on all 5 cases. CORRECTED, 2026-09-27: a call to an undefined function is not a compile-time rejection. Production compiles the ruleset with the warning `Invalid function name: notDeclared.` and reports `Function not found error: Name: [notDeclared].` at evaluation; the recapture adds 2 cases (7 in all) in which `request.auth.uid == 'a' || notDeclared()` inside a function allows uid a and denies uid b, and the evaluator matches both. A match-block function with the same name as a service-level function compiles with the warning `Unused function: f.` for the outer one and shadows it (`oracle:rules-storage-function-scopes-and-shadowing` pins the same resolution for a global function). Only a second definition of one name in the same scope is a compile-time rejection: `Function f is already defined.` Extended 2026-09-27: the Rules Test API compile-limit capture in `packages/pyric/test/rules/linter/fixtures/compile-limits/captures.json` records production's structural limits for Storage rulesets: 21 functions on one call stack compile and 22 are rejected, also when no rule calls the chain; 11 `let` bindings compile and 12 are rejected; and nesting past 99 levels is rejected with \"Expression is too complex to evaluate safely.\". The Storage evaluator enforces them when `parseStorageRules` loads a ruleset and has no runtime call depth cap, so a 21-function chain evaluates as production does. `unit:storage/sandbox/compile-limits.test.ts` pins that each rejected Storage probe is refused with production's messages and each compiling one, including the 21-function chain, evaluates to production's verdicts. `parseStorageRules` rejects a second definition of one function name in one scope through the same module with `Function f is already defined.`, pinned by `unit:storage/sandbox/rules.test.ts`. A second 2026-09-27 recapture adds 7 cases (14 in all): an argument or `let` whose value errors (`1 / request.resource.size` of 0, or a method an int does not define) is bound and the function body runs, so a function that never reads it allows, also through two calls, and one that reads it denies; `unit:storage/sandbox/rules-error-values.test.ts` pins each verdict. The compile-limit capture adds the `slash-divisor` probe: `(4/2)` is rejected with \"Missing 'match' keyword before path.\", production reading a slash directly followed by a path segment as the start of a path, and `(4/ 2)` compiles. Extended 2026-10-07: the `glob-in-path` and `glob-nested` probes show Storage rejecting a second recursive wildcard in one match declaration path, counted across nested blocks, with \"Invalid glob match expression. Only one glob match is permitted in a match declaration path.\", as Firestore does; `parseStorageRules` refuses both rejected probes through the same module and evaluates both compiling ones to production's verdicts, pinned by `unit:storage/sandbox/compile-limits.test.ts`.",
+          evidence: "STALE ROW, corrected 2026-07-10: production capture proves the evaluator supports user-defined functions with `let` bindings, nested function calls, and block-scoped helpers. `oracle:rules-storage-functions-let-scope` matches production verdict-for-verdict on all 5 cases. CORRECTED, 2026-09-27: a call to an undefined function is not a compile-time rejection. Production compiles the ruleset with the warning `Invalid function name: notDeclared.` and reports `Function not found error: Name: [notDeclared].` at evaluation; the recapture adds 2 cases (7 in all) in which `request.auth.uid == 'a' || notDeclared()` inside a function allows uid a and denies uid b, and the evaluator matches both. A match-block function with the same name as a service-level function compiles with the warning `Unused function: f.` for the outer one and shadows it (`oracle:rules-storage-function-scopes-and-shadowing` pins the same resolution for a global function). Only a second definition of one name in the same scope is a compile-time rejection: `Function f is already defined.` Extended 2026-09-27: the Rules Test API compile-limit capture in `packages/rules/test/linter/fixtures/compile-limits/captures.json` records production's structural limits for Storage rulesets: 21 functions on one call stack compile and 22 are rejected, also when no rule calls the chain; 11 `let` bindings compile and 12 are rejected; and nesting past 99 levels is rejected with \"Expression is too complex to evaluate safely.\". The Storage evaluator enforces them when `parseStorageRules` loads a ruleset and has no runtime call depth cap, so a 21-function chain evaluates as production does. `unit:storage/sandbox/compile-limits.test.ts` pins that each rejected Storage probe is refused with production's messages and each compiling one, including the 21-function chain, evaluates to production's verdicts. `parseStorageRules` rejects a second definition of one function name in one scope through the same module with `Function f is already defined.`, pinned by `unit:storage/sandbox/rules.test.ts`. A second 2026-09-27 recapture adds 7 cases (14 in all): an argument or `let` whose value errors (`1 / request.resource.size` of 0, or a method an int does not define) is bound and the function body runs, so a function that never reads it allows, also through two calls, and one that reads it denies; `unit:storage/sandbox/rules-error-values.test.ts` pins each verdict. The compile-limit capture adds the `slash-divisor` probe: `(4/2)` is rejected with \"Missing 'match' keyword before path.\", production reading a slash directly followed by a path segment as the start of a path, and `(4/ 2)` compiles. Extended 2026-10-07: the `glob-in-path` and `glob-nested` probes show Storage rejecting a second recursive wildcard in one match declaration path, counted across nested blocks, with \"Invalid glob match expression. Only one glob match is permitted in a match declaration path.\", as Firestore does; `parseStorageRules` refuses both rejected probes through the same module and evaluates both compiling ones to production's verdicts, pinned by `unit:storage/sandbox/compile-limits.test.ts`.",
           automation: "oracle-backed",
           oracleObservations: ["rules-storage-functions-let-scope"],
           conformanceTests: ["packages/pyric/test/storage/rules-oracle-conformance.test.ts", "packages/pyric/test/storage/sandbox/compile-limits.test.ts", "packages/pyric/test/storage/sandbox/rules.test.ts", "packages/pyric/test/storage/sandbox/rules-error-values.test.ts"],
@@ -1098,7 +1098,7 @@ export const rulesRegistry = {
           conformanceTests: [
             "packages/conformance/test/src/storage-stdlib-source-lock.test.ts",
             "packages/pyric/test/storage/rules-oracle-conformance.test.ts",
-            "packages/pyric/test/rules/modules/resolver.test.ts",
+            "packages/rules/test/modules/resolver.test.ts",
             "packages/pyric/test/storage/enforce.test.ts",
           ],
           constructs: [
@@ -1155,7 +1155,7 @@ export const rulesRegistry = {
           conformanceTests: [
             "packages/pyric/test/storage/rules-oracle-conformance.test.ts",
             "packages/pyric/test/rules/map-keys-list.test.ts",
-            "packages/pyric/test/rules/modules/service-compatibility.test.ts",
+            "packages/rules/test/modules/service-compatibility.test.ts",
             "packages/pyric/test/rules/simulator/list-methods.test.ts",
             "packages/pyric/test/rules/simulator/collection-identity.test.ts",
           ],
@@ -1383,7 +1383,7 @@ export const rulesRegistry = {
             "packages/pyric/test/storage/rules-oracle-conformance.test.ts",
             "packages/pyric/test/storage/sandbox/rules-string-methods.test.ts",
             "packages/pyric/test/storage/sandbox/rules-string-escapes.test.ts",
-            "packages/pyric/test/rules/grammar/string-escape-strict.test.ts",
+            "packages/rules/test/grammar/string-escape-strict.test.ts",
           ],
           constructs: ["storage.method.string.matches", "storage.method.size"],
         }),
@@ -1401,9 +1401,9 @@ export const rulesRegistry = {
           conformanceTests: [
             "packages/pyric/test/storage/rules-oracle-conformance.test.ts",
             "packages/pyric/test/storage/sandbox/rules-hashing-methods.test.ts",
-            "packages/pyric/test/rules/simulator/hashing-builtins.test.ts",
+            "packages/rules/test/simulator/hashing-builtins.test.ts",
             "packages/pyric/test/storage/sandbox/rules-bytes-literal.test.ts",
-            "packages/pyric/test/rules/grammar/bytes-literal.test.ts",
+            "packages/rules/test/grammar/bytes-literal.test.ts",
           ],
           constructs: ["storage.method.size", "storage.operator.eq"],
         }),
@@ -1761,7 +1761,7 @@ export const rulesRegistry = {
           rowRef: "1",
           featureKeys: ["auth"],
           behavior: "`auth != null` gate on `.read`/`.write` — authed ops allow, signed-out ops deny",
-          evidence: "`oracle:rules-rtdb-r1-auth-only` — production verdicts captured by deploy-observe-restore against the live oracle database (RTDB has no server-side rules test API), replayed verdict-for-verdict against the in-process simulator by `packages/pyric/test/rules/rtdb/rules-conformance.test.ts`; all 4 cases match production.",
+          evidence: "`oracle:rules-rtdb-r1-auth-only` — production verdicts captured by deploy-observe-restore against the live oracle database (RTDB has no server-side rules test API), replayed verdict-for-verdict against the in-process simulator by `packages/rules/test/rtdb/rules-conformance.test.ts`; all 4 cases match production.",
           oracleObservations: ["rules-rtdb-r1-auth-only"],
         }),
         row3({
@@ -1771,9 +1771,9 @@ export const rulesRegistry = {
           evidence: "`oracle:rules-rtdb-r2-own-uid`: production verdicts captured by deploy-observe-restore, replayed verdict-for-verdict against the in-process simulator; all 5 cases match production, so the simulator binds the path variable against `auth.uid` exactly as production does. `oracle:rules-rtdb-r22-strict-equality-types` (captured 2026-09-27) deploys the same ownership rule as `$uid === auth.uid` and a `$name !== 'nobody'` key guard: production allows the owner read and write, denies a foreign uid and an anonymous read, and denies the sentinel key. It also records strict typing: `newData.val() === 5` denies the string `'5'`, and `newData.val() !== '5'` allows the number 5. The expression grammar parses `===` and `!==`, the simulator evaluates them without type conversion, and all 11 cases match production.",
           oracleObservations: ["rules-rtdb-r2-own-uid", "rules-rtdb-r22-strict-equality-types"],
           conformanceTests: [
-            "packages/pyric/test/rules/rtdb/rules-conformance.test.ts",
-            "packages/pyric/test/rules/rtdb/grammar/RtdbExprParser.test.ts",
-            "packages/pyric/test/rules/rtdb/grammar/simulator.test.ts",
+            "packages/rules/test/rtdb/rules-conformance.test.ts",
+            "packages/rules/test/rtdb/grammar/RtdbExprParser.test.ts",
+            "packages/rules/test/rtdb/grammar/simulator.test.ts",
             "packages/pyric/test/database/sandbox-controls.test.ts",
           ],
         }),
@@ -1808,7 +1808,7 @@ export const rulesRegistry = {
           evidence: "`oracle:rules-rtdb-r6-deny-everything`: production verdicts captured by deploy-observe-restore, replayed verdict-for-verdict; all 3 cases DENY in production and in the simulator. `oracle:rules-rtdb-r24-deny-without-rule` (captured 2026-09-27) deploys a subtree whose root `.read` and `.write` are false: production denies a write under a node with only a `.validate` when the room `.write` is false, a write under a node with only a `.read`, and a read and a write of a node with only children, and allows the room-granted write and reads. All 7 cases match production, and `simulate` reports each denial as DENY naming the deepest `.read` or `.write` rule on the path, the verdict the sandbox returns for the same request.",
           oracleObservations: ["rules-rtdb-r6-deny-everything", "rules-rtdb-r24-deny-without-rule"],
           conformanceTests: [
-            "packages/pyric/test/rules/rtdb/rules-conformance.test.ts",
+            "packages/rules/test/rtdb/rules-conformance.test.ts",
             "packages/pyric/test/rules/rtdb/simulation/handler.test.ts",
             "packages/pyric/test/rules/rtdb/simulate-sandbox-agreement.test.ts",
           ],
@@ -1826,7 +1826,7 @@ export const rulesRegistry = {
           behavior: "`data` and `newData` are bound at the RULE node, not the written path — an ancestor `.write` sees the pre-write subtree in `data` and the merged post-write subtree in `newData` across descendant sets, deep creates, leaf deletes, and multi-path updates",
           evidence: "`oracle:rules-rtdb-r8-combined-check` — production verdicts captured by deploy-observe-restore, replayed verdict-for-verdict. Production DENIES all three writes, including the \"matching owner\" case whose `owner` field lives under `/item` rather than at the rule node; only the auth-gated read allows. All 4 cases match, so the simulator projects `newData` at the same node production does — rule placement relative to the written path decides the outcome. Extended 2026-11-07: `oracle:rules-rtdb-r63-ancestor-write-data-newdata` captures an ancestor `$m` `.write` reading both `data.child('speaker').child('uid')` and `newData.child('speaker').child('uid')`: production ALLOWS an owner deep-writing `content` (merged `newData` retains `speaker`), ALLOWS an owner leaf-deleting `content/text`, and ALLOWS creating `/msgs/m2` with own `speaker`, while DENYING a non-owner deep write, a non-owner rewriting `speaker/uid` to self (`data` at `$m` remains pre-write), a deep create at `/msgs/m3/content` without `speaker` (`newData` at `$m` lacks `speaker`), and a non-owner multi-path update from `/msgs`. All 7 cases match production.",
           oracleObservations: ["rules-rtdb-r8-combined-check", "rules-rtdb-r63-ancestor-write-data-newdata"],
-          conformanceTests: ["packages/pyric/test/rules/rtdb/rules-conformance.test.ts"],
+          conformanceTests: ["packages/rules/test/rtdb/rules-conformance.test.ts"],
           constructs: ["rtdb.semantic.read-cascade", "rtdb.semantic.write-cascade", "rtdb.binding.data", "rtdb.binding.newData"],
         }),
         row3({
@@ -1836,8 +1836,8 @@ export const rulesRegistry = {
           evidence: "NEW ROW, 2026-07-12: production capture proves the simulator evaluates every arithmetic and ordering operator as production does, across increment-only counters, doubling and halving deltas, a parity check, inclusive and exclusive range caps, a negative sentinel, loose equality against zero, a disjunction, and a ternary tier bound. `oracle:rules-rtdb-r9-quota-arithmetic` matches production verdict-for-verdict on all 23 cases. The corpus rules are the ones that capture deployed, with `===` and `!==` in the delta, parity, sentinel, and disjunction checks. `oracle:rules-rtdb-r22-strict-equality-types` adds mixed-type operands: production treats the number 5 and the string `'5'` as unequal under both `===` and `!==`, and the simulator agrees. `oracle:rules-rtdb-r25-loose-equality-types` (captured 2026-09-27) records that `==` and `!=` do not convert types either: production denies `newData.val() == '5'` for the number 5, `newData.val() == true` for the number 1, `newData.val() == 0` and `newData.val() == ''` for false, and `newData.val() == '1'` for true, and allows the matching `!=` writes. It also records that `data.val() == null` holds for a missing node and not for a stored value, and that the number 1 equals the literal `1.0`. The simulator evaluates `==` and `!=` without type conversion, and all 19 cases match production. `oracle:rules-rtdb-r35-operator-precedence` (captured 2026-10-07) deploys one `.read` of literals per node and records production DENYING `!(true || false && false)`, `false == 1 < 2`, `true || false ? false : true`, `true ? false : true ? true : true`, `true ? false : true || true` and `!false && false`, and ALLOWING `false && false || true`, `true || false && false`, `true == 1 < 2`, `1 < 2 == 2 < 3`, `1 + 2 * 3 == 7`, `true || false && false ? true : false`, `-1 + 2 == 1`, `10 - 4 - 3 == 3`, `8 / 4 / 2 == 1` and `7 % 4 * 2 == 6`. Each case separates two groupings, so `&&` binds tighter than `||`, the relational operators tighter than the equality operators, and the ternary condition takes the whole `||`. The expression grammar has one level per group in that order, and the simulator matches all 16 cases.",
           oracleObservations: ["rules-rtdb-r9-quota-arithmetic", "rules-rtdb-r22-strict-equality-types", "rules-rtdb-r25-loose-equality-types", "rules-rtdb-r35-operator-precedence"],
           conformanceTests: [
-            "packages/pyric/test/rules/rtdb/rules-conformance.test.ts",
-            "packages/pyric/test/rules/rtdb/grammar/simulator.test.ts",
+            "packages/rules/test/rtdb/rules-conformance.test.ts",
+            "packages/rules/test/rtdb/grammar/simulator.test.ts",
             "packages/pyric/test/rules/rtdb/simulate-sandbox-agreement.test.ts",
           ],
         }),
@@ -1855,7 +1855,7 @@ export const rulesRegistry = {
           behavior: "String methods on a snapshot value: `beginsWith`, `contains`, `endsWith`, `matches` with a regex literal, `.length`, `toLowerCase`, `toUpperCase`, and replace-ALL `replace`, whose pattern is a string matched as text, so `replace('/a/g', 'z')` replaces the text `/a/g`. `matches` takes only a regular expression literal, whose only flag is `i`; a string argument fails the rule",
           evidence: "NEW ROW, 2026-07-12: production capture proves `String.replace` substitutes EVERY occurrence of the substring, not only the first: production ALLOWS the write whose rule is `newData.val().replace('_', '-') === 'a-b-c'` for the value `a_b_c`, which holds only under replace-all. The simulator delegated to JavaScript's `String.prototype.replace`, which given a string pattern substitutes only the first occurrence, and DENIED that write; the substitution now replaces every occurrence and the two-underscore case guards the regression. The same capture proves `toUpperCase` is a valid production rule method that the simulator's validator previously rejected outright as unknown. `oracle:rules-rtdb-r11-string-validation` matches production verdict-for-verdict on all 18 cases. `oracle:rules-rtdb-r32-method-argument-types` (captured 2026-10-07) records production ALLOWING `newData.val().replace('/a/g', 'z') == 'z'` for the value `/a/g` and DENYING it for `a`: a slash-delimited string pattern is text, not a regular expression. The simulator's `replace` takes only string arguments and matches both cases. Production refuses to deploy `matches('^a')` and `matches(/^A/g)` (`oracle:rtdb-rules-deploy-refusals`, row rtdb#89); `unit:rules/rtdb/grammar/regex-literals-and-constant-comparisons.test.ts` pins that a string given to `matches` fails the rule when it runs.",
           oracleObservations: ["rules-rtdb-r11-string-validation", "rules-rtdb-r32-method-argument-types"],
-          conformanceTests: ["packages/pyric/test/rules/rtdb/grammar/regex-literals-and-constant-comparisons.test.ts"],
+          conformanceTests: ["packages/rules/test/rtdb/grammar/regex-literals-and-constant-comparisons.test.ts"],
         }),
         row3({
           rowRef: "12",
@@ -1864,7 +1864,7 @@ export const rulesRegistry = {
           evidence: "NEW ROW, 2026-07-12: production capture proves the simulator resolves the server clock and the decoded ID-token claims as production does, through both access forms. The subscript's receiver is load-bearing: production's rules compiler ACCEPTS `auth.token[...]`, a map indexed by key, but REJECTS the same subscript applied to a snapshot value: `newData.val()['kind']` fails to compile with \"No such method/property\", so `[]` is a map accessor, not a general indexing operator. `oracle:rules-rtdb-r12-server-time-and-token` matches production verdict-for-verdict on all 7 cases. Extended 2026-10-07: `oracle:rules-rtdb-r27-stdlib-core-patterns` records production ALLOWING a written `{ \".sv\": \"timestamp\" }` under `newData.val() == now` and DENYING a client clock time there: the server resolves the server value before the rules run. `simulate` resolves a written `{ \".sv\": \"timestamp\" }` to its `now` and `{ \".sv\": { \"increment\": n } }` to the stored value plus n before it evaluates, as the sandbox does at its write boundary (`unit:rules/rtdb/simulate-sandbox-agreement.test.ts`), and the replay of that capture passes the client value through unchanged. Extended 2026-10-07: `oracle:rules-rtdb-r28-stdlib-presence-timing` records production ALLOWING a written `serverTimestamp()` under `newData.val() == now` as a set of the node, as a child in a set, and in a root multi-path update next to the data it stamps, and DENYING a client clock time in each place. The sandbox resolves a write's server timestamps and evaluates its rules at one instant of its clock for set, update, multi-path update, onDisconnect registration and transactions (`unit:database/server-timestamp-now.test.ts`, which advances the clock on every read); before, it read the clock twice and could deny the write. Production verdicts for a server timestamp in an onDisconnect write or a transaction are not captured. The simulator and the sandbox match production on all 28 cases of that capture. Extended 2026-10-07: `oracle:rules-rtdb-r34-stdlib-auth-membership-quota` signs in as Auth users the capture creates, through custom tokens, and records production reading the account's `auth.token.email_verified` and `auth.token.email` (ALLOWING a verified email and a verified email at the required domain, DENYING an unverified email, an email at another domain and an anonymous token without an email) and developer claims (ALLOWING `role` of 'admin' or 'editor' and `beta == true`, DENYING 'viewer', a missing claim and the string 'true'). The claim set follows `oracle:auth-id-token-standard-claims`. A token without a tenant fails `auth.token.firebase.tenant == 'acme'`; a tenant sign-in is not captured. The simulator and the sandbox match production on all 36 cases of that capture, which also cover roles and member lists stored in the database and a windowed quota.",
           oracleObservations: ["rules-rtdb-r12-server-time-and-token", "rules-rtdb-r27-stdlib-core-patterns", "rules-rtdb-r28-stdlib-presence-timing", "rules-rtdb-r34-stdlib-auth-membership-quota"],
           conformanceTests: [
-            "packages/pyric/test/rules/rtdb/rules-conformance.test.ts",
+            "packages/rules/test/rtdb/rules-conformance.test.ts",
             "packages/pyric/test/rules/rtdb/simulate-sandbox-agreement.test.ts",
             "packages/pyric/test/database/server-timestamp-now.test.ts",
             "packages/pyric/test/rules/rtdb/stdlib/corpus-lock.test.ts",
@@ -1894,9 +1894,9 @@ export const rulesRegistry = {
           riskReasons: ["asserts rules-denial behavior"],
           oracleObservations: ["rules-rtdb-r15-validate-ancestor-scope", "rules-rtdb-r23-validate-sibling-scope", "rules-rtdb-r27-stdlib-core-patterns"],
           conformanceTests: [
-            "packages/pyric/test/rules/rtdb/rules-conformance.test.ts",
+            "packages/rules/test/rtdb/rules-conformance.test.ts",
             "packages/pyric/test/rules/rtdb/simulation/handler.test.ts",
-            "packages/pyric/test/rules/rtdb/case-update-query.test.ts",
+            "packages/rules/test/rtdb/case-update-query.test.ts",
             "packages/pyric/test/rules/rtdb/simulate-sandbox-agreement.test.ts",
           ],
           constructs: ["rtdb.semantic.validate-non-cascade"],
@@ -1922,10 +1922,10 @@ export const rulesRegistry = {
           riskReasons: ["asserts rules-denial behavior"],
           oracleObservations: ["rules-rtdb-r17-validate-runtime-error", "rules-rtdb-r26-rule-runtime-error", "rules-rtdb-r32-method-argument-types", "rules-rtdb-r41-error-and-false-short-circuit"],
           conformanceTests: [
-            "packages/pyric/test/rules/rtdb/rules-conformance.test.ts",
+            "packages/rules/test/rtdb/rules-conformance.test.ts",
             "packages/pyric/test/rules/rtdb/simulation/handler.test.ts",
             "packages/pyric/test/rules/rtdb/simulate-sandbox-agreement.test.ts",
-            "packages/pyric/test/rules/rtdb/grammar/method-argument-types.test.ts",
+            "packages/rules/test/rtdb/grammar/method-argument-types.test.ts",
             "packages/pyric/test/rules/rtdb/argument-and-operand-sandbox.test.ts",
           ],
           constructs: ["rtdb.rule-kind.validate"],
@@ -1961,7 +1961,7 @@ export const rulesRegistry = {
           riskScore: 2,
           riskReasons: ["asserts 2 specific value(s)"],
           oracleObservations: ["rules-rtdb-r20-priority-values"],
-          conformanceTests: ["packages/pyric/test/rules/rtdb/rules-conformance.test.ts", "packages/pyric/test/rules/rtdb/argument-and-operand-sandbox.test.ts"],
+          conformanceTests: ["packages/rules/test/rtdb/rules-conformance.test.ts", "packages/pyric/test/rules/rtdb/argument-and-operand-sandbox.test.ts"],
           constructs: ["rtdb.method.snapshot.getPriority", "rtdb.method.snapshot.val"],
         }),
         row3({
@@ -1985,7 +1985,7 @@ export const rulesRegistry = {
           queryable: false,
           exceptionReason: "source-position tooling; production rules results carry no file position",
           conformanceTests: [
-            "packages/pyric/test/rules/rtdb/source-locations.test.ts",
+            "packages/rules/test/rtdb/source-locations.test.ts",
             "packages/studio/src/features/rules-debug/rules-debug.test.ts",
             "packages/cli/src/cli/cli.test.ts",
             "packages/studio/test/features/rules-debug/RtdbTrace.test.tsx",
@@ -2002,10 +2002,10 @@ export const rulesRegistry = {
           riskReasons: ["asserts rules-denial behavior"],
           oracleObservations: ["rules-rtdb-r27-stdlib-core-patterns", "rules-rtdb-r33-null-operands"],
           conformanceTests: [
-            "packages/pyric/test/rules/rtdb/rules-conformance.test.ts",
+            "packages/rules/test/rtdb/rules-conformance.test.ts",
             "packages/pyric/test/rules/rtdb/stdlib/corpus-lock.test.ts",
             "packages/pyric/test/rules/rtdb/argument-and-operand-sandbox.test.ts",
-            "packages/pyric/test/rules/rtdb/grammar/method-argument-types.test.ts",
+            "packages/rules/test/rtdb/grammar/method-argument-types.test.ts",
           ],
           constructs: ["rtdb.operator.add", "rtdb.operator.sub", "rtdb.operator.mul", "rtdb.operator.div", "rtdb.operator.mod", "rtdb.operator.neg", "rtdb.operator.lt", "rtdb.operator.lte", "rtdb.operator.gt", "rtdb.operator.gte"],
         }),
@@ -2018,7 +2018,7 @@ export const rulesRegistry = {
           riskScore: 2,
           riskReasons: ["asserts which rulesets load and which are refused"],
           oracleObservations: ["rules-rtdb-r29-deploy-rejections", "rtdb-rules-text-dialect"],
-          conformanceTests: ["packages/pyric/test/rules/rtdb/rules-conformance.test.ts", "packages/conformance/src/rules-rtdb-replay.test.ts", "packages/pyric/test/database/oracle-conformance.test.ts"],
+          conformanceTests: ["packages/rules/test/rtdb/rules-conformance.test.ts", "packages/conformance/src/rules-rtdb-replay.test.ts", "packages/pyric/test/database/oracle-conformance.test.ts"],
           constructs: [
             "rtdb.binding.unknown-variable", "rtdb.binding.newData-in-read", "rtdb.method.snapshot.unknown",
             "rtdb.method.string.unknown", "rtdb.semantic.parse-error", "rtdb.operator.dynamic-operand",
@@ -2061,7 +2061,7 @@ export const rulesRegistry = {
           riskScore: 3,
           riskReasons: ["asserts query-gated read allow/deny behavior for orderByKey and orderByPriority"],
           oracleObservations: ["rules-rtdb-r30-query-rules", "rules-rtdb-r45-not-operator-runtime"],
-          conformanceTests: ["packages/pyric/test/rules/rtdb/rules-conformance.test.ts", "packages/pyric/test/rules/rtdb/simulation/handler.test.ts"],
+          conformanceTests: ["packages/rules/test/rtdb/rules-conformance.test.ts", "packages/pyric/test/rules/rtdb/simulation/handler.test.ts"],
           constructs: ["rtdb.binding.query.orderByKey", "rtdb.binding.query.orderByPriority"],
         }),
         row3({
@@ -2073,7 +2073,7 @@ export const rulesRegistry = {
           riskScore: 3,
           riskReasons: ["asserts which rulesets load and which are refused"],
           oracleObservations: ["rules-rtdb-r29-deploy-rejections"],
-          conformanceTests: ["packages/pyric/test/rules/rtdb/source-rejection.test.ts", "packages/pyric/test/rules/rtdb/rules-conformance.test.ts", "packages/conformance/src/rules-rtdb-replay.test.ts"],
+          conformanceTests: ["packages/rules/test/rtdb/source-rejection.test.ts", "packages/rules/test/rtdb/rules-conformance.test.ts", "packages/conformance/src/rules-rtdb-replay.test.ts"],
           constructs: [
             "rtdb.rule-kind.sibling-wildcards", "rtdb.rule-kind.unknown-key", "rtdb.rule-kind.non-expression-value",
             "rtdb.rule-kind.indexOn-non-string", "rtdb.rule-kind.invalid-key", "rtdb.rule-kind.non-object-child",
@@ -2093,7 +2093,7 @@ export const rulesRegistry = {
           riskScore: 3,
           riskReasons: ["asserts runtime type-mismatch expressions fail the rule even under || true and ! (FUZ-3, MET-2)"],
           oracleObservations: ["rules-rtdb-r36-runtime-arithmetic-types", "rules-rtdb-r37-runtime-comparison-and-length-types"],
-          conformanceTests: ["packages/pyric/test/rules/rtdb/rules-conformance.test.ts", "packages/pyric/test/rules/rtdb/grammar/simulator.test.ts"],
+          conformanceTests: ["packages/rules/test/rtdb/rules-conformance.test.ts", "packages/rules/test/rtdb/grammar/simulator.test.ts"],
           constructs: [
             "rtdb.operator.sub", "rtdb.operator.mul", "rtdb.operator.div", "rtdb.operator.mod", "rtdb.operator.neg",
             "rtdb.operator.add", "rtdb.operator.lt", "rtdb.operator.gt", "rtdb.operator.gte", "rtdb.method.string.length",
@@ -2109,7 +2109,7 @@ export const rulesRegistry = {
           riskScore: 3,
           riskReasons: ["asserts division and modulo by zero semantics (COV-2)"],
           oracleObservations: ["rules-rtdb-r38-div-mod-by-zero"],
-          conformanceTests: ["packages/pyric/test/rules/rtdb/rules-conformance.test.ts", "packages/pyric/test/rules/rtdb/grammar/simulator.test.ts"],
+          conformanceTests: ["packages/rules/test/rtdb/rules-conformance.test.ts", "packages/rules/test/rtdb/grammar/simulator.test.ts"],
           constructs: ["rtdb.operator.div", "rtdb.operator.mod"],
         }),
         row3({
@@ -2122,7 +2122,7 @@ export const rulesRegistry = {
           riskScore: 3,
           riskReasons: ["asserts root.parent() fails the rule at runtime (COV-1)"],
           oracleObservations: ["rules-rtdb-r39-root-parent-runtime"],
-          conformanceTests: ["packages/pyric/test/rules/rtdb/rules-conformance.test.ts", "packages/pyric/test/rules/rtdb/grammar/simulator.test.ts", "packages/pyric/test/rules/rtdb/grammar/validator-types.test.ts"],
+          conformanceTests: ["packages/rules/test/rtdb/rules-conformance.test.ts", "packages/rules/test/rtdb/grammar/simulator.test.ts", "packages/rules/test/rtdb/grammar/validator-types.test.ts"],
           constructs: ["rtdb.binding.root", "rtdb.method.snapshot.parent"],
         }),
         row3({
@@ -2135,7 +2135,7 @@ export const rulesRegistry = {
           riskScore: 3,
           riskReasons: ["asserts dynamic auth.token[null] indexing fails the rule (FUZ-4)"],
           oracleObservations: ["rules-rtdb-r40-auth-token-dynamic-index"],
-          conformanceTests: ["packages/pyric/test/rules/rtdb/rules-conformance.test.ts", "packages/pyric/test/rules/rtdb/grammar/simulator.test.ts"],
+          conformanceTests: ["packages/rules/test/rtdb/rules-conformance.test.ts", "packages/rules/test/rtdb/grammar/simulator.test.ts"],
           constructs: ["rtdb.operator.index", "rtdb.binding.auth.token"],
         }),
         row3({
@@ -2148,7 +2148,7 @@ export const rulesRegistry = {
           riskScore: 3,
           riskReasons: ["asserts standard auth.token claims are populated on custom-token sign-in (COV-3)"],
           oracleObservations: ["rules-rtdb-r42-custom-token-standard-claims"],
-          conformanceTests: ["packages/pyric/test/rules/rtdb/rules-conformance.test.ts", "packages/pyric/test/rules/rtdb/simulation/handler.test.ts", "packages/pyric/test/auth/rules-token-claims.test.ts"],
+          conformanceTests: ["packages/rules/test/rtdb/rules-conformance.test.ts", "packages/pyric/test/rules/rtdb/simulation/handler.test.ts", "packages/pyric/test/auth/rules-token-claims.test.ts"],
           constructs: ["rtdb.binding.auth.token", "rtdb.binding.auth.token.custom-claim"],
         }),
         row3({
@@ -2161,7 +2161,7 @@ export const rulesRegistry = {
           riskScore: 3,
           riskReasons: ["asserts deploy-time expression, structure, string-escape, and regex validation matches production across r43 and r44"],
           oracleObservations: ["rules-rtdb-r43-deploy-expression-and-structure-probes", "rules-rtdb-r44-deploy-string-and-regex-probes"],
-          conformanceTests: ["packages/pyric/test/rules/rtdb/source-rejection.test.ts", "packages/pyric/test/rules/rtdb/grammar/regex-literals-and-constant-comparisons.test.ts", "packages/pyric/test/rules/rtdb/grammar/validator-types.test.ts", "packages/pyric/test/rules/rtdb/grammar/simulator.test.ts", "packages/conformance/src/rules-rtdb-replay.test.ts"],
+          conformanceTests: ["packages/rules/test/rtdb/source-rejection.test.ts", "packages/rules/test/rtdb/grammar/regex-literals-and-constant-comparisons.test.ts", "packages/rules/test/rtdb/grammar/validator-types.test.ts", "packages/rules/test/rtdb/grammar/simulator.test.ts", "packages/conformance/src/rules-rtdb-replay.test.ts"],
           constructs: [
             "rtdb.rule-kind.unknown-key", "rtdb.rule-kind.non-object-child", "rtdb.rule-kind.non-expression-value",
             "rtdb.operator.index", "rtdb.operator.looseEq", "rtdb.semantic.regex-literal",
@@ -2177,7 +2177,7 @@ export const rulesRegistry = {
           riskScore: 4,
           riskReasons: ["asserts matches() grants and denies as production does under lookahead, backreference, \\b and . against line terminators"],
           oracleObservations: ["rules-rtdb-r47-regex-runtime", "rules-rtdb-r50-regex-unsupported-semantics"],
-          conformanceTests: ["packages/pyric/test/rules/rtdb/rules-conformance.test.ts", "packages/pyric/test/rules/rtdb/grammar/regex-dialect.test.ts", "packages/pyric/test/database/sandbox/rules-regex-dialect.test.ts"],
+          conformanceTests: ["packages/rules/test/rtdb/rules-conformance.test.ts", "packages/rules/test/rtdb/grammar/regex-dialect.test.ts", "packages/pyric/test/database/sandbox/rules-regex-dialect.test.ts"],
           constructs: ["rtdb.method.string.matches", "rtdb.semantic.regex-literal"],
         }),
         row3({
@@ -2190,7 +2190,7 @@ export const rulesRegistry = {
           riskScore: 3,
           riskReasons: ["asserts the load-time check refuses the regular expressions production refuses at deploy, with production's error text"],
           oracleObservations: ["rules-rtdb-r46-deploy-regex-constructs", "rules-rtdb-r51-deploy-anchor-index-and-length-probes"],
-          conformanceTests: ["packages/conformance/src/rules-rtdb-replay.test.ts", "packages/pyric/test/rules/rtdb/grammar/regex-dialect.test.ts"],
+          conformanceTests: ["packages/conformance/src/rules-rtdb-replay.test.ts", "packages/rules/test/rtdb/grammar/regex-dialect.test.ts"],
           constructs: ["rtdb.semantic.regex-literal"],
         }),
         row3({
@@ -2214,7 +2214,7 @@ export const rulesRegistry = {
           riskScore: 3,
           riskReasons: ["asserts a write at a key named __proto__ runs its .validate as production does"],
           oracleObservations: ["rules-rtdb-r52-prototype-named-keys"],
-          conformanceTests: ["packages/pyric/test/rules/rtdb/simulation/prototype-named-keys.test.ts"],
+          conformanceTests: ["packages/rules/test/rtdb/simulation/prototype-named-keys.test.ts"],
           constructs: ["rtdb.rule-kind.location-wildcard"],
         }),
         row3({
@@ -2238,7 +2238,7 @@ export const rulesRegistry = {
           riskScore: 2,
           riskReasons: ["rules production deploys report a lint error and an UNSUPPORTED verdict locally"],
           oracleObservations: ["rules-rtdb-r51-deploy-anchor-index-and-length-probes"],
-          conformanceTests: ["packages/pyric/test/rules/rtdb/node-stack.test.ts"],
+          conformanceTests: ["packages/rules/test/rtdb/node-stack.test.ts"],
           constructs: ["rtdb.operator.or"],
         }),
         row3({
@@ -2273,7 +2273,7 @@ export const rulesRegistry = {
           riskScore: 2,
           riskReasons: ["asserts malformed regular expressions fail at load with production's deploy text and position"],
           oracleObservations: ["rules-rtdb-r53-deploy-regex-paren"],
-          conformanceTests: ["packages/conformance/src/rules-rtdb-replay.test.ts", "packages/pyric/test/rules/rtdb/grammar/regex-dialect.test.ts"],
+          conformanceTests: ["packages/conformance/src/rules-rtdb-replay.test.ts", "packages/rules/test/rtdb/grammar/regex-dialect.test.ts"],
           constructs: ["rtdb.semantic.regex-literal"],
         }),
         row3({
@@ -2286,7 +2286,7 @@ export const rulesRegistry = {
           riskScore: 3,
           riskReasons: ["asserts matches() over a top-level alternation allows and denies as production does, not as JavaScript does"],
           oracleObservations: ["rules-rtdb-r54-regex-alternation-runtime"],
-          conformanceTests: ["packages/pyric/test/rules/rtdb/rules-conformance.test.ts", "packages/pyric/test/rules/rtdb/grammar/regex-dialect.test.ts"],
+          conformanceTests: ["packages/rules/test/rtdb/rules-conformance.test.ts", "packages/rules/test/rtdb/grammar/regex-dialect.test.ts"],
           constructs: ["rtdb.method.string.matches", "rtdb.semantic.regex-literal"],
         }),
         row3({
@@ -2299,7 +2299,7 @@ export const rulesRegistry = {
           riskScore: 2,
           riskReasons: ["asserts empty regular expressions load as production loads them"],
           oracleObservations: ["rules-rtdb-r55-deploy-regex-empty"],
-          conformanceTests: ["packages/conformance/src/rules-rtdb-replay.test.ts", "packages/pyric/test/rules/rtdb/grammar/regex-dialect.test.ts"],
+          conformanceTests: ["packages/conformance/src/rules-rtdb-replay.test.ts", "packages/rules/test/rtdb/grammar/regex-dialect.test.ts"],
           constructs: ["rtdb.semantic.regex-literal"],
         }),
         row3({
@@ -2312,7 +2312,7 @@ export const rulesRegistry = {
           riskScore: 3,
           riskReasons: ["asserts matches() over whitespace and word classes, case folding and dk.brics operator characters allows and denies as production does"],
           oracleObservations: ["rules-rtdb-r56-regex-classes-runtime"],
-          conformanceTests: ["packages/pyric/test/rules/rtdb/rules-conformance.test.ts", "packages/pyric/test/rules/rtdb/grammar/regex-dialect.test.ts"],
+          conformanceTests: ["packages/rules/test/rtdb/rules-conformance.test.ts", "packages/rules/test/rtdb/grammar/regex-dialect.test.ts"],
           constructs: ["rtdb.method.string.matches", "rtdb.semantic.regex-literal"],
         }),
         row3({
@@ -2338,7 +2338,7 @@ export const rulesRegistry = {
           riskScore: 2,
           riskReasons: ["asserts an oversized repeat count fails at load with production's text"],
           oracleObservations: ["rules-rtdb-r58-deploy-regex-count-past-int"],
-          conformanceTests: ["packages/conformance/src/rules-rtdb-replay.test.ts", "packages/pyric/test/rules/rtdb/grammar/regex-limits.test.ts"],
+          conformanceTests: ["packages/conformance/src/rules-rtdb-replay.test.ts", "packages/rules/test/rtdb/grammar/regex-limits.test.ts"],
           constructs: ["rtdb.semantic.regex-literal"],
         }),
         row3({
@@ -2351,7 +2351,7 @@ export const rulesRegistry = {
           riskScore: 2,
           riskReasons: ["asserts a pattern too large to determinize fails at load with production's text"],
           oracleObservations: ["rules-rtdb-r59-deploy-regex-count-100000"],
-          conformanceTests: ["packages/conformance/src/rules-rtdb-replay.test.ts", "packages/pyric/test/rules/rtdb/grammar/regex-limits.test.ts"],
+          conformanceTests: ["packages/conformance/src/rules-rtdb-replay.test.ts", "packages/rules/test/rtdb/grammar/regex-limits.test.ts"],
           constructs: ["rtdb.semantic.regex-literal"],
         }),
         row3({
@@ -2364,7 +2364,7 @@ export const rulesRegistry = {
           riskScore: 2,
           riskReasons: ["asserts a nested repeat too large to determinize fails at load with production's text"],
           oracleObservations: ["rules-rtdb-r60-deploy-regex-repeat-of-repeat"],
-          conformanceTests: ["packages/conformance/src/rules-rtdb-replay.test.ts", "packages/pyric/test/rules/rtdb/grammar/regex-limits.test.ts"],
+          conformanceTests: ["packages/conformance/src/rules-rtdb-replay.test.ts", "packages/rules/test/rtdb/grammar/regex-limits.test.ts"],
           constructs: ["rtdb.semantic.regex-literal"],
         }),
         row3({
@@ -2377,7 +2377,7 @@ export const rulesRegistry = {
           queryable: false,
           exceptionReason: "test-suite tooling; production rules results carry no per-rule evaluation record",
           conformanceTests: [
-            "packages/pyric/test/rules/rtdb/coverage.test.ts",
+            "packages/rules/test/rtdb/coverage.test.ts",
             "packages/conformance/src/rules-rtdb-replay.test.ts",
           ],
         }),

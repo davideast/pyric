@@ -39,9 +39,9 @@ import { describe, it, expect } from 'bun:test';
 import { join } from 'node:path';
 import { createObservationGate } from '../../../../packages/conformance/src/observation-gate.ts';
 import { RULES_DEPLOY_REFUSAL_CASES } from '../../../../packages/conformance/src/capture/rtdb-climb/rules-deploy-refusals.cases.ts';
-import { rtdbRules } from '../../src/rules/api/rtdb.js';
-import { buildRuleExpression } from '../../src/rules/rtdb/compiled-rules.js';
-import { rtdbRulesSourceRejection } from '../../src/rules/rtdb/source-rejection.js';
+import { rtdbRules } from '@pyric/rules';
+import { buildRuleExpression } from '@pyric/rules/internal/rtdb';
+import { rtdbRulesSourceRejection } from '@pyric/rules/internal/rtdb';
 import { toStrictRulesJson } from '../../src/database/sandbox-controls.js';
 import { initializeSandbox } from 'pyric/sandbox';
 import {

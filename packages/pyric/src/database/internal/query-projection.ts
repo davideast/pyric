@@ -1,7 +1,7 @@
 import type { JsonValue } from '../sandbox/data-tree.js';
-import type { Bound, OrderBy, QuerySpec } from '../../rules/rtdb/data/query-spec.js';
+import type { Bound, OrderBy, QuerySpec } from '@pyric/rules/internal/rtdb';
 
-export type { Bound, LimitKind, OrderBy, QuerySpec } from '../../rules/rtdb/data/query-spec.js';
+export type { Bound, LimitKind, OrderBy, QuerySpec } from '@pyric/rules/internal/rtdb';
 
 export type Priority = string | number | null;
 

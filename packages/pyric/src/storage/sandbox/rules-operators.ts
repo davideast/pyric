@@ -1,7 +1,7 @@
-import { NO_OP, RulesValue, ValueRangeError } from '../../rules/simulator/wrappers/base.js';
-import { RulesFloat } from '../../rules/simulator/wrappers/float.js';
-import { FirestoreSet } from '../../rules/simulator/firestore-set.js';
-import { describeRulesType as describeType, isRulesMap } from '../../rules/simulator/rules-type.js';
+import { NO_OP, RulesValue, ValueRangeError } from '@pyric/rules/internal';
+import { RulesFloat } from '@pyric/rules/internal';
+import { FirestoreSet } from '@pyric/rules/internal';
+import { describeRulesType as describeType, isRulesMap } from '@pyric/rules/internal';
 import { RuleError } from './rules-values.js';
 import {
   IntFailure,
@@ -13,7 +13,7 @@ import {
   rulesFloatValue,
   rulesInt,
   rulesNumberAsDouble,
-} from '../../rules/simulator/rules-int.js';
+} from '@pyric/rules/internal';
 
 /** The value types whose `is` test reads the value's own type name. */
 const VALUE_TYPE_NAMES = new Set(['timestamp', 'duration', 'bytes', 'latlng', 'path']);

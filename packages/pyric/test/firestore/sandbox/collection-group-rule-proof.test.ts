@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { proveCollectionGroupRules } from '../../../src/firestore/sandbox/collection-group-rule-proof.js';
-import { parseToAST } from '../../../src/rules/grammar/FirestoreParser.js';
+import { parseToAST } from '@pyric/rules/internal';
 
 function project(source: string) {
   return proveCollectionGroupRules(parseToAST(source), 'items');

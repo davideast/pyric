@@ -7,16 +7,16 @@ import {
 } from './rules-evaluation-error.js';
 import { StorageLatLng } from './rules-latlng.js';
 import { StoragePath, interpolationSegments, isPathValue, pathValueSegments } from './rules-path.js';
-import { describeRulesType as describeType } from '../../rules/simulator/rules-type.js';
-import { lookupAccessKey, slashedSegment, slashedSegmentReason } from '../../rules/simulator/lookup-path.js';
-import { RulesValue } from '../../rules/simulator/wrappers/base.js';
-import { Bytes } from '../../rules/simulator/wrappers/bytes.js';
-import { reviveFirestoreNumbers } from '../../rules/simulator/firestore-values.js';
-import { hostNumber } from '../../rules/simulator/rules-int.js';
-import { LatLng } from '../../rules/simulator/wrappers/latlng.js';
-import { Path } from '../../rules/simulator/wrappers/path.js';
-import { Reference } from '../../rules/simulator/wrappers/reference.js';
-import { Timestamp } from '../../rules/simulator/wrappers/timestamp.js';
+import { describeRulesType as describeType } from '@pyric/rules/internal';
+import { lookupAccessKey, slashedSegment, slashedSegmentReason } from '@pyric/rules/internal';
+import { RulesValue } from '@pyric/rules/internal';
+import { Bytes } from '@pyric/rules/internal';
+import { reviveFirestoreNumbers } from '@pyric/rules/internal';
+import { hostNumber } from '@pyric/rules/internal';
+import { LatLng } from '@pyric/rules/internal';
+import { Path } from '@pyric/rules/internal';
+import { Reference } from '@pyric/rules/internal';
+import { Timestamp } from '@pyric/rules/internal';
 import {
   RuleError,
   isRuleError as isErr,

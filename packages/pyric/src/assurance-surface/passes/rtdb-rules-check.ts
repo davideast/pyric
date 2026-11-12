@@ -2,9 +2,9 @@
  * Static missing-index and literal-sibling wildcard-shadowing verifier
  * (`checkRtdbIndexes`) over compiled Realtime Database security rules.
  */
-import { compileRtdbRules } from '../../rules/rtdb/compiled-rules.js';
-import { findMatchingNodesAtPath, nodesDeclaringIndex } from '../../rules/rtdb/index-lookup.js';
-import type { RtdbNode } from '../../rules/rtdb/types.js';
+import { compileRtdbRules } from '@pyric/rules/internal/rtdb';
+import { findMatchingNodesAtPath, nodesDeclaringIndex } from '@pyric/rules/internal/rtdb';
+import type { RtdbNode } from '@pyric/rules/internal/rtdb';
 import {
   sortAssuranceDiagnostics,
   type AssuranceDiagnostic,

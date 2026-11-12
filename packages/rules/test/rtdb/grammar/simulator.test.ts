@@ -1,0 +1,391 @@
+import { describe, test, expect } from 'bun:test';
+import { DataSnapshot, evaluateRtdbExpression, RtdbRuleRuntimeError } from '../../../src/rtdb/grammar/simulator.js';
+import { rtdbRules } from '../../../src/api/rtdb.js';
+
+function evalExpr(raw: string, ctx: Parameters<typeof evaluateRtdbExpression>[1]) {
+  return evaluateRtdbExpression(raw, ctx);
+}
+
+const baseCtx = {
+  auth: null,
+  data: new DataSnapshot(null),
+  newData: new DataSnapshot(null),
+  root: new DataSnapshot({}),
+  now: Date.now(),
+  pathVariableBindings: {},
+};
+
+describe('DataSnapshot', () => {
+  test('val() returns the underlying value', () => {
+    const snap = new DataSnapshot({ name: 'Alice' });
+    expect(snap.val()).toEqual({ name: 'Alice' });
+  });
+
+  test('exists() returns true when value is not null', () => {
+    expect(new DataSnapshot('hello').exists()).toBe(true);
+    expect(new DataSnapshot(null).exists()).toBe(false);
+  });
+
+  test('child() returns a DataSnapshot for the child path', () => {
+    const snap = new DataSnapshot({ users: { alice: { age: 30 } } });
+    expect(snap.child('users/alice/age').val()).toBe(30);
+  });
+
+  test('child() returns null DataSnapshot for missing path', () => {
+    const snap = new DataSnapshot({ users: {} });
+    expect(snap.child('users/bob').exists()).toBe(false);
+  });
+
+  test('hasChild() returns true when child exists', () => {
+    const snap = new DataSnapshot({ name: 'Alice' });
+    expect(snap.hasChild('name')).toBe(true);
+    expect(snap.hasChild('age')).toBe(false);
+  });
+
+  test('isString() returns true for string values', () => {
+    expect(new DataSnapshot('hello').isString()).toBe(true);
+    expect(new DataSnapshot(42).isString()).toBe(false);
+  });
+
+  test('isNumber() returns true for number values', () => {
+    expect(new DataSnapshot(42).isNumber()).toBe(true);
+    expect(new DataSnapshot('42').isNumber()).toBe(false);
+  });
+
+  test('isBoolean() returns true for boolean values', () => {
+    expect(new DataSnapshot(true).isBoolean()).toBe(true);
+    expect(new DataSnapshot('true').isBoolean()).toBe(false);
+  });
+
+  test('hasChildren() returns true when object has keys', () => {
+    expect(new DataSnapshot({ a: 1 }).hasChildren()).toBe(true);
+    expect(new DataSnapshot({}).hasChildren()).toBe(false);
+    expect(new DataSnapshot(null).hasChildren()).toBe(false);
+  });
+
+  test('hasChildren(keys) requires ALL listed keys to be present', () => {
+    const snap = new DataSnapshot({ title: 't', body: 'b' });
+    expect(snap.hasChildren(['title', 'body'])).toBe(true);
+    expect(snap.hasChildren(['title'])).toBe(true);
+    // Missing `body` — prod denies; the sandbox previously dropped the arg
+    // and returned "has any children" (true), the bug this closes.
+    expect(new DataSnapshot({ title: 't' }).hasChildren(['title', 'body'])).toBe(false);
+    // No children at all.
+    expect(new DataSnapshot(null).hasChildren(['title'])).toBe(false);
+  });
+});
+
+describe('evaluateRtdbExpression', () => {
+  test('auth.uid == "abc" with matching auth returns true', () => {
+    const ctx = {
+      ...baseCtx,
+      auth: { uid: 'abc', token: {} },
+    };
+    expect(evalExpr('auth.uid == "abc"', ctx)).toBe(true);
+  });
+
+  test('auth.uid == "abc" with non-matching auth returns false', () => {
+    const ctx = {
+      ...baseCtx,
+      auth: { uid: 'xyz', token: {} },
+    };
+    expect(evalExpr('auth.uid == "abc"', ctx)).toBe(false);
+  });
+
+  test('auth != null with null auth returns false', () => {
+    expect(evalExpr('auth != null', baseCtx)).toBe(false);
+  });
+
+  test('auth != null with auth returns true', () => {
+    const ctx = { ...baseCtx, auth: { uid: 'user1', token: {} } };
+    expect(evalExpr('auth != null', ctx)).toBe(true);
+  });
+
+  test('now > 0 returns true', () => {
+    expect(evalExpr('now > 0', { ...baseCtx, now: Date.now() })).toBe(true);
+  });
+
+  test('data.exists() returns true when data exists', () => {
+    const ctx = { ...baseCtx, data: new DataSnapshot({ name: 'Alice' }) };
+    expect(evalExpr('data.exists()', ctx)).toBe(true);
+  });
+
+  test('data.exists() returns false when data is null', () => {
+    expect(evalExpr('data.exists()', baseCtx)).toBe(false);
+  });
+
+  test('regex .matches() returns true for matching string', () => {
+    const ctx = {
+      ...baseCtx,
+      data: new DataSnapshot('hello123'),
+    };
+    expect(evalExpr('data.val().matches(/^[a-z0-9]+$/)', ctx)).toBe(true);
+  });
+
+  test('regex .matches() returns false for non-matching string', () => {
+    const ctx = {
+      ...baseCtx,
+      data: new DataSnapshot('UPPERCASE'),
+    };
+    expect(evalExpr('data.val().matches(/^[a-z0-9]+$/)', ctx)).toBe(false);
+  });
+
+  test('ternary short-circuits', () => {
+    const ctx = { ...baseCtx, auth: { uid: 'user1', token: {} } };
+    expect(evalExpr('auth != null ? true : false', ctx)).toBe(true);
+    expect(evalExpr('auth != null ? false : true', ctx)).toBe(false);
+  });
+
+  test('logical AND short-circuits on false', () => {
+    expect(evalExpr('false && auth != null', baseCtx)).toBe(false);
+  });
+
+  test('logical OR short-circuits on true', () => {
+    expect(evalExpr('true || auth != null', baseCtx)).toBe(true);
+  });
+
+  test('evaluates comparison operators', () => {
+    expect(evalExpr('5 > 3', baseCtx)).toBe(true);
+    expect(evalExpr('3 >= 3', baseCtx)).toBe(true);
+    expect(evalExpr('2 < 1', baseCtx)).toBe(false);
+    expect(evalExpr('1 <= 1', baseCtx)).toBe(true);
+  });
+
+  test('=== and !== compare without type conversion', () => {
+    expect(evalExpr('5 === 5', baseCtx)).toBe(true);
+    expect(evalExpr("5 === '5'", baseCtx)).toBe(false);
+    expect(evalExpr("5 !== '5'", baseCtx)).toBe(true);
+    expect(evalExpr("'a' !== 'a'", baseCtx)).toBe(false);
+    expect(evalExpr('auth === null', baseCtx)).toBe(true);
+  });
+
+  test('== and != compare without type conversion', () => {
+    expect(evalExpr("5 == '5'", baseCtx)).toBe(false);
+    expect(evalExpr("5 != '5'", baseCtx)).toBe(true);
+    expect(evalExpr('1 == true', baseCtx)).toBe(false);
+    expect(evalExpr('1 != true', baseCtx)).toBe(true);
+    expect(evalExpr('0 == false', baseCtx)).toBe(false);
+    expect(evalExpr("'' == false", baseCtx)).toBe(false);
+    expect(evalExpr("true == '1'", baseCtx)).toBe(false);
+    expect(evalExpr("true != '1'", baseCtx)).toBe(true);
+    expect(evalExpr("'5' == '5'", baseCtx)).toBe(true);
+    expect(evalExpr("'5' != '5'", baseCtx)).toBe(false);
+    expect(evalExpr('true == true', baseCtx)).toBe(true);
+    expect(evalExpr('0 == 0', baseCtx)).toBe(true);
+    expect(evalExpr('1 == 1.0', baseCtx)).toBe(true);
+  });
+
+  test('== and != compare data.val() with null for missing data and for a stored value', () => {
+    expect(evalExpr('auth == null', baseCtx)).toBe(true);
+    expect(evalExpr('data.val() == null', baseCtx)).toBe(true);
+    expect(evalExpr('data.val() != null', baseCtx)).toBe(false);
+    const stored = { ...baseCtx, data: new DataSnapshot('stored') };
+    expect(evalExpr('data.val() == null', stored)).toBe(false);
+    expect(evalExpr('data.val() != null', stored)).toBe(true);
+  });
+
+  test('$uid === auth.uid binds the path variable against the signed-in uid', () => {
+    const ctx = { ...baseCtx, auth: { uid: 'alice', token: {} }, pathVariableBindings: { $uid: 'alice' } };
+    expect(evalExpr('$uid === auth.uid', ctx)).toBe(true);
+    expect(evalExpr('$uid !== "nobody" && $uid == auth.uid', ctx)).toBe(true);
+    const foreign = { ...ctx, pathVariableBindings: { $uid: 'bob' } };
+    expect(evalExpr('$uid === auth.uid', foreign)).toBe(false);
+  });
+
+  test('evaluates unary not', () => {
+    expect(evalExpr('!false', baseCtx)).toBe(true);
+    expect(evalExpr('!true', baseCtx)).toBe(false);
+  });
+
+  test('null auth does not throw when accessing .uid', () => {
+    // auth.uid when auth is null returns null (member access on null)
+    expect(() => evalExpr('auth.uid == "x"', baseCtx)).not.toThrow();
+  });
+
+  test('array literal evaluates to a JS array', () => {
+    expect(evalExpr("['a', 'b']", baseCtx)).toEqual(['a', 'b']);
+    expect(evalExpr('[]', baseCtx)).toEqual([]);
+    expect(evalExpr('[1, 2, 3]', baseCtx)).toEqual([1, 2, 3]);
+  });
+
+  test('newData.hasChildren([...]) enforces all-keys-present through the grammar', () => {
+    const withBody = { ...baseCtx, newData: new DataSnapshot({ title: 't', body: 'b' }) };
+    expect(evalExpr("newData.hasChildren(['title', 'body'])", withBody)).toBe(true);
+
+    const missingBody = { ...baseCtx, newData: new DataSnapshot({ title: 't' }) };
+    expect(evalExpr("newData.hasChildren(['title', 'body'])", missingBody)).toBe(false);
+  });
+
+  describe('scientific notation evaluation', () => {
+    test('evaluates scientific notation comparisons correctly', () => {
+      const under1k = { ...baseCtx, data: new DataSnapshot(500) };
+      const over1k = { ...baseCtx, data: new DataSnapshot(1500) };
+      expect(evalExpr('data.val() < 1e3', under1k)).toBe(true);
+      expect(evalExpr('data.val() < 1e3', over1k)).toBe(false);
+    });
+
+    test('evaluates scientific notation with decimals and negative exponents', () => {
+      const smallVal = { ...baseCtx, data: new DataSnapshot(0.015) };
+      expect(evalExpr('data.val() == 1.5e-2', smallVal)).toBe(true);
+    });
+
+    test('preserves subtraction precedence with scientific notation', () => {
+      const fiveHundred = { ...baseCtx, data: new DataSnapshot(500) };
+      expect(evalExpr('data.val() == 1e3 - 500', fiveHundred)).toBe(true);
+    });
+  });
+
+  describe('single-quoted string escape resolution', () => {
+    test('resolves newline and tab escapes', () => {
+      const newlineData = { ...baseCtx, data: new DataSnapshot('hello\nworld') };
+      expect(evalExpr("data.val() == 'hello\\nworld'", newlineData)).toBe(true);
+
+      const tabData = { ...baseCtx, data: new DataSnapshot('col1\tcol2') };
+      expect(evalExpr("data.val() == 'col1\\tcol2'", tabData)).toBe(true);
+    });
+
+    test('resolves escaped single quotes and backslashes', () => {
+      const apostropheData = { ...baseCtx, data: new DataSnapshot("it's a test") };
+      expect(evalExpr("data.val() == 'it\\'s a test'", apostropheData)).toBe(true);
+
+      const slashData = { ...baseCtx, data: new DataSnapshot('a\\b') };
+      expect(evalExpr("data.val() == 'a\\\\b'", slashData)).toBe(true);
+    });
+
+    test('resolves carriage return and double quotes', () => {
+      const crData = { ...baseCtx, data: new DataSnapshot('line1\r\nline2') };
+      expect(evalExpr("data.val() == 'line1\\r\\nline2'", crData)).toBe(true);
+
+      const quoteData = { ...baseCtx, data: new DataSnapshot('he said "hi"') };
+      expect(evalExpr("data.val() == 'he said \\\"hi\\\"'", quoteData)).toBe(true);
+    });
+
+    test('single-quoted and double-quoted string literals evaluate to identical values', () => {
+      expect(evalExpr("'a\\nb\\tc'", baseCtx)).toBe(evalExpr('"a\\nb\\tc"', baseCtx));
+    });
+
+    test('unescapes unrecognized escape sequences to the escaped character in both quote styles', () => {
+      const unrecognized = { ...baseCtx, data: new DataSnapshot('z') };
+      expect(evalExpr("data.val() == '\\z'", unrecognized)).toBe(true);
+      expect(evalExpr('data.val() == "\\z"', unrecognized)).toBe(true);
+    });
+
+    test('FUZ-1: evaluates single-quote escapes, hex escapes, unicode escapes, and raw tabs consistently with validator', () => {
+      expect(evalExpr('"\\\'" == "\\\'"', baseCtx)).toBe(true);
+      expect(evalExpr('"\\\'" == "\'"', baseCtx)).toBe(true);
+      expect(evalExpr('"\\x41" == "A"', baseCtx)).toBe(true);
+      expect(evalExpr("'\\x41' == 'A'", baseCtx)).toBe(true);
+      expect(evalExpr("'\\u0041' == \"\\u0041\"", baseCtx)).toBe(true);
+      expect(evalExpr("'\\u0041' == 'A'", baseCtx)).toBe(true);
+      expect(evalExpr('"col1\tcol2" == "col1\\tcol2"', baseCtx)).toBe(true);
+      expect(
+        evalExpr('query["orderBy\\u004b\\u0065\\u0079"] == true', {
+          ...baseCtx,
+          query: { orderByKey: true },
+        }),
+      ).toBe(true);
+      expect(
+        evalExpr("query['\\orderByKey'] == true", {
+          ...baseCtx,
+          query: { orderByKey: true },
+        }),
+      ).toBe(true);
+      expect(() => evalExpr('"line1\nline2"', baseCtx)).toThrow(SyntaxError);
+    });
+  });
+});
+
+describe('rtdbRules().simulate with strict equality', () => {
+  const ownerRules = [
+    '$uid == auth.uid',
+    '$uid === auth.uid',
+    '$uid !== "nobody" && $uid == auth.uid',
+  ];
+
+  for (const rule of ownerRules) {
+    test(`the owner writes /users/alice under ${JSON.stringify(rule)}`, () => {
+      const rules = { rules: { users: { $uid: { '.read': rule, '.write': rule } } } };
+      const { cases } = rtdbRules(rules).simulate([
+        { expectation: 'ALLOW', operation: 'write', path: '/users/alice', auth: 'alice', newData: { name: 'Alice' } },
+        { expectation: 'DENY', operation: 'write', path: '/users/bob', auth: 'alice', newData: { name: 'Bob' } },
+      ]);
+      expect(cases.map((c) => c.decision)).toEqual(['ALLOW', 'DENY']);
+    });
+  }
+});
+
+describe('rtdbRules().simulate with == and != across types', () => {
+  // Production verdicts from a deploy-observe-restore capture: a `.validate`
+  // that compares newData with a literal of another type denies the write.
+  const cases: Array<[validate: string, value: unknown, expected: 'ALLOW' | 'DENY']> = [
+    ["newData.val() == '5'", 5, 'DENY'],
+    ["newData.val() == '5'", '5', 'ALLOW'],
+    ["newData.val() != '5'", 5, 'ALLOW'],
+    ["newData.val() != '5'", '5', 'DENY'],
+    ['newData.val() == true', 1, 'DENY'],
+    ['newData.val() == true', true, 'ALLOW'],
+    ['newData.val() != true', 1, 'ALLOW'],
+    ['newData.val() == 0', false, 'DENY'],
+    ["newData.val() == ''", false, 'DENY'],
+    ["newData.val() == '1'", true, 'DENY'],
+    ["newData.val() != '1'", true, 'ALLOW'],
+    ['newData.val() == 1.0', 1, 'ALLOW'],
+  ];
+
+  for (const [validate, value, expected] of cases) {
+    test(`${validate} with ${JSON.stringify(value)} is ${expected}`, () => {
+      const rules = { rules: { a: { '.write': 'auth != null', '.validate': validate } } };
+      const [result] = rtdbRules(rules).simulate([
+        { expectation: expected, operation: 'write', path: '/a', auth: 'u', newData: value },
+      ]).cases;
+      expect(result.decision).toBe(expected);
+    });
+  }
+});
+
+describe('runtime production parity (FUZ-3, MET-2, COV-1, COV-2, FUZ-4)', () => {
+  test('FUZ-3 / MET-2: runtime arithmetic and comparison on booleans, numeric strings, or objects throw RtdbRuleRuntimeError even under || true, while string + number concatenation succeeds', () => {
+    const ctx = {
+      ...baseCtx,
+      auth: { uid: 'u1', token: {} },
+      data: new DataSnapshot({
+        numStr: '5',
+        boolTrue: true,
+        obj: { length: 10 },
+      }),
+    };
+    expect(evalExpr("data.child('numStr').val() + 1 == '51'", ctx)).toBe(true);
+    expect(() => evalExpr("(data.child('numStr').val() - 1 == 4) || true", ctx)).toThrow(RtdbRuleRuntimeError);
+    expect(() => evalExpr("(-data.child('boolTrue').val() == -1) || true", ctx)).toThrow(RtdbRuleRuntimeError);
+    expect(() => evalExpr("(data.child('numStr').val() < 2) || true", ctx)).toThrow(RtdbRuleRuntimeError);
+    expect(() => evalExpr("(data.child('obj').val().length > 2) || true", ctx)).toThrow(RtdbRuleRuntimeError);
+  });
+
+  test('COV-1: root.parent() throws RtdbRuleRuntimeError even in ternary or under || true', () => {
+    expect(() => evalExpr('(true ? root.parent() : null) == null', baseCtx)).toThrow(RtdbRuleRuntimeError);
+    expect(() => evalExpr('((true ? root.parent() : 1) == 1) || true', baseCtx)).toThrow(RtdbRuleRuntimeError);
+  });
+
+  test('COV-2: runtime division and modulo by zero return NaN without throwing', () => {
+    const ctx = {
+      ...baseCtx,
+      data: new DataSnapshot({ zero: 0, pos: 10 }),
+    };
+    expect(evalExpr("data.child('pos').val() / data.child('zero').val() > 100", ctx)).toBe(false);
+    expect(evalExpr("(data.child('pos').val() / data.child('zero').val() == 0) || true", ctx)).toBe(true);
+    expect(evalExpr("!(data.child('pos').val() % data.child('zero').val() == 0)", ctx)).toBe(true);
+  });
+
+  test('FUZ-4: indexing with null or non-string/non-number throws RtdbRuleRuntimeError instead of coercing to "null"', () => {
+    const ctx = {
+      ...baseCtx,
+      auth: { uid: 'u1', token: { null: true, '5': true, ok: true } },
+      data: new DataSnapshot({ n: 5, s: 'ok' }),
+    };
+    expect(evalExpr("auth.token[data.child('n').val()] == true", ctx)).toBe(true);
+    expect(evalExpr("auth.token[data.child('s').val()] == true", ctx)).toBe(true);
+    expect(() => evalExpr("auth.token[data.child('missing').val()] == true || true", ctx)).toThrow(
+      RtdbRuleRuntimeError,
+    );
+  });
+});

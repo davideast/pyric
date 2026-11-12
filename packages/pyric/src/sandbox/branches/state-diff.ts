@@ -23,7 +23,7 @@ import type {
 } from '../full-state.js';
 import type { Divergence } from '../replay/index.js';
 import { decodeStateDocument } from '../internal/state-values.js';
-import { jsonEqual } from '../../rules/rtdb/data/json-equal.js';
+import { jsonEqual } from '@pyric/rules/internal/rtdb';
 
 export { jsonEqual };
 

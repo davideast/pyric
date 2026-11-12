@@ -2,7 +2,7 @@ import { afterEach, expect, test } from 'bun:test';
 import { initializeSandbox as initializePackagedSandbox } from 'pyric/sandbox';
 import { createMemoryBackend, initializeSandbox, type Sandbox, type PersistenceBackend } from '../../src/sandbox/index.js';
 import { doc, getFirestore, runTransaction, writeBatch } from '../../src/firestore/index.js';
-import { Bytes } from '../../src/rules/simulator/wrappers/bytes.js';
+import { Bytes } from '@pyric/rules/internal';
 
 const sandboxes: Sandbox[] = [];
 function createSandbox() {

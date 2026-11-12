@@ -1,7 +1,7 @@
 import { describe, test, expect } from 'bun:test';
-import { SimulateHandler } from '../../../../src/rules/rtdb/simulation/handler.js';
-import type { RtdbNode } from '../../../../src/rules/rtdb/types.js';
-import { compileRtdbRules } from '../../../../src/rules/rtdb/compiled-rules.js';
+import { SimulateHandler } from '@pyric/rules/internal/rtdb';
+import type { RtdbNode } from '@pyric/rules/internal/rtdb';
+import { compileRtdbRules } from '@pyric/rules/internal/rtdb';
 import { initializeSandbox } from '../../../../src/sandbox/index.js';
 import { getAuth, signInWithCustomToken } from '../../../../src/auth/index.js';
 import { mintCustomTokenFor } from '../../../../src/auth/internal.js';

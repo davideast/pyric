@@ -12,7 +12,7 @@
  * compiled, the verbatim issues with severity and position, and each case's
  * decision.
  *
- * Output: packages/pyric/test/rules/linter/fixtures/compile-limits/captures.json
+ * Output: packages/rules/test/linter/fixtures/compile-limits/captures.json
  *
  * Credentials: the same contract as `capture-rules-expression-cost.ts`:
  * GOOGLE_APPLICATION_CREDENTIALS, a firebase-tools login, or the gcloud ADC
@@ -25,10 +25,10 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { ProjectScope } from '../../pyric/src/project-scope.ts';
-import type { StorageTestCase, TestCase } from '../../pyric/src/rules/test/spec.ts';
+import type { StorageTestCase, TestCase } from '../../rules/src/test/spec.ts';
 import { REPO_ROOT } from './rules-expression-cost-suites.ts';
 
-const OUT_DIR = join(REPO_ROOT, 'packages', 'pyric', 'test', 'rules', 'linter', 'fixtures', 'compile-limits');
+const OUT_DIR = join(REPO_ROOT, 'packages', 'rules', 'test', 'linter', 'fixtures', 'compile-limits');
 const OUT = join(OUT_DIR, 'captures.json');
 const RULES_API = 'https://firebaserules.googleapis.com/v1';
 
@@ -146,7 +146,7 @@ export type Execute = (service: Service, source: string, cases: ProbeCase[]) => 
 
 export async function tools(): Promise<{ run: Execute; projectId: string }> {
   const { parityScope } = await import('../../pyric/test/rules/parity/harness.ts');
-  const { buildApiTestCase, buildStorageApiTestCase } = await import('../../pyric/src/rules/test/spec.ts');
+  const { buildApiTestCase, buildStorageApiTestCase } = await import('../../rules/src/test/spec.ts');
   const scope = parityScope() as ProjectScope;
   const run: Execute = async (service, source, cases) => {
     const testCases = service === 'firestore'

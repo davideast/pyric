@@ -4,7 +4,7 @@ import {
   type FirestoreLookup,
 } from '../../../packages/pyric/src/storage/sandbox/rules.ts';
 import { evaluateStorageRules } from '../../../packages/pyric/src/storage/sandbox/rules-evaluator.ts';
-import type { StorageTestCase, StorageFunctionMock } from '../../../packages/pyric/src/rules/test/spec.ts';
+import type { StorageTestCase, StorageFunctionMock } from '../../rules/src/test/spec.ts';
 import type { LanguageConstruct } from '../rules-language/load.ts';
 import type { Classification } from './rules-language-capability.ts';
 import { storageRulesTestInputDigest, type StorageScenarioInputDigest } from './storage-rules-input-digest.ts';

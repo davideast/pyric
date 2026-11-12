@@ -10,12 +10,12 @@
  * same verdict and text for every shape.
  */
 import { describe, expect, test } from 'bun:test';
-import { MembershipFailure, membership } from '../../src/rules/simulator/membership.js';
-import { rulesValuesEqual } from '../../src/rules/simulator/value-equality.js';
-import { FirestoreSet } from '../../src/rules/simulator/firestore-set.js';
-import { RulesFloat } from '../../src/rules/simulator/wrappers/float.js';
-import { SimulateFirestoreRulesHandler } from '../../src/rules/simulator/handler.js';
-import type { TestCase } from '../../src/rules/test/spec.js';
+import { MembershipFailure, membership } from '@pyric/rules/internal';
+import { rulesValuesEqual } from '@pyric/rules/internal';
+import { FirestoreSet } from '@pyric/rules/internal';
+import { RulesFloat } from '@pyric/rules/internal';
+import { SimulateFirestoreRulesHandler } from '@pyric/rules/internal';
+import type { TestCase } from '@pyric/rules/internal';
 import { parseStorageRules } from '../../src/storage/sandbox/rules.js';
 import { evaluateStorageRules } from '../../src/storage/sandbox/rules-evaluator.js';
 

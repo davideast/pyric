@@ -1,6 +1,6 @@
-import { compileRtdbRules, simulateRtdbRules } from '../../pyric/src/rules/rtdb/compiled-rules.ts';
-import { checkRtdbRules } from '../../pyric/src/rules/rtdb/constraints/document.ts';
-import type { SimulateResult, SimulationInput, SimulationResult } from '../../pyric/src/rules/rtdb/simulation/spec.ts';
+import { compileRtdbRules, simulateRtdbRules } from '../../rules/src/rtdb/compiled-rules.ts';
+import { checkRtdbRules } from '../../rules/src/rtdb/constraints/document.ts';
+import type { SimulateResult, SimulationInput, SimulationResult } from '../../rules/src/rtdb/simulation/spec.ts';
 import type { RtdbCaseIdentity, RtdbDeployScenario, RtdbScenario, RtdbTestCase } from '../rules-corpus/rtdb/types.ts';
 
 const REPLAY_UID = 'THP041EPnYbzh9c8GGBniSDoUKc2';

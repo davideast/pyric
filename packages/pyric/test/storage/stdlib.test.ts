@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test';
-import { resolveModulesBrowser } from '../../src/rules/modules/resolver-browser.ts';
+import { resolveModulesBrowser } from '@pyric/rules/internal';
 import { parseStorageRules, type EvaluationInput } from '../../src/storage/sandbox/rules.ts';
 import { evaluateStorageRules } from '../../src/storage/sandbox/rules-evaluator.ts';
 

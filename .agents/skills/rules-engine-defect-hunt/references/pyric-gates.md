@@ -25,7 +25,7 @@ bun run build            # scripts/build.sh; or build:pyric for the engine alone
 | Conformance | `bun run compat:check` | Fails on stale *generated* projections (gitignored) after switching branches: run `bun run compat:conformance` and re-check before calling it a regression |
 | Rules score | `bun run compat:rules-score` | Prints `RTDB Rules conformance: N/91`; scores, denominators and per-construct facts must match committed baselines |
 | Coupling | `BASE_REF=origin/main bash scripts/ci/conformance-coupling-gate.sh` | Engine change without evidence change needs a `Conformance-Exempt: <reason>` commit trailer |
-| One file, often | `bun test <path>` | e.g. `packages/pyric/test/rules/rtdb/rules-conformance.test.ts` |
+| One file, often | `bun test <path>` | e.g. `packages/rules/test/rtdb/rules-conformance.test.ts` |
 
 ## Where evidence and pins live
 
@@ -37,8 +37,8 @@ bun run build            # scripts/build.sh; or build:pyric for the engine alone
 | Node counts | `packages/conformance/assurance-node-counts/<service>/`; a registry row added or removed adds one `{ "delta": n }` file there, named for the PR number, in the same change (AGENTS.md boundary 6) |
 | Scorecards / baselines | `packages/conformance/baselines/*-scorecard.json`; coverage compares with the base commit's report, and a deliberate row demotion or removal adds `packages/conformance/coverage-acceptances/<row-id>.md` (or `<row-id>.<pr-or-issue>.md` when the row was accepted before) |
 | Score pins in tests | `packages/conformance/test/src/{conformance-model,generate-docs-scoreboard,rules-language-coverage,rules-scorecard-gate}.test.ts` |
-| RTDB runtime pins | `KNOWN_DIVERGENCES` in `packages/pyric/test/rules/rtdb/rules-conformance.test.ts` |
-| Static validator pins | `KNOWN_CORPUS_VALIDATOR_GAPS` in `packages/pyric/test/rules/rtdb/grammar/validator-types.test.ts` |
+| RTDB runtime pins | `KNOWN_DIVERGENCES` in `packages/rules/test/rtdb/rules-conformance.test.ts` |
+| Static validator pins | `KNOWN_CORPUS_VALIDATOR_GAPS` in `packages/rules/test/rtdb/grammar/validator-types.test.ts` |
 | Firestore replay gate | `packages/pyric/test/rules/oracle-conformance.test.ts` |
 | Storage replay gate | `packages/pyric/test/storage/rules-oracle-conformance.test.ts` |
 | Served-plane RTDB pins | `packages/cli/test/serve/rtdb-differential/known-divergences.ts` |

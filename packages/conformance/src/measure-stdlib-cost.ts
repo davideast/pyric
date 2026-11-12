@@ -40,7 +40,7 @@
  *     is not the path a signed-out client takes.
  *
  * Output
- *  - packages/pyric/test/rules/modules/fixtures/stdlib-cost-capture.json:
+ *  - packages/rules/test/modules/fixtures/stdlib-cost-capture.json:
  *    calibration, every probe's measured X, and per-function min and max.
  *    A full run replaces it. A run with --module replaces its modules' rows
  *    in place and keeps the full run's totals, date and calibration; its own
@@ -66,22 +66,22 @@ import { existsSync, readFileSync, readdirSync, writeFileSync, mkdirSync } from 
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import type { ProjectScope } from '../../pyric/src/project-scope.ts';
-import { parseToAST } from '../../pyric/src/rules/grammar/FirestoreParser.ts';
-import type { FunctionDef } from '../../pyric/src/rules/grammar/FirestoreAST.ts';
-import { countDocumentAccessCalls } from '../../pyric/src/rules/grammar/document-access-count.ts';
-import { estimateExpressionCosts } from '../../pyric/src/rules/linter/expression-cost.ts';
-import { resolveModulesBrowser } from '../../pyric/src/rules/modules/resolver-browser.ts';
+import { parseToAST } from '../../rules/src/grammar/FirestoreParser.ts';
+import type { FunctionDef } from '../../rules/src/grammar/FirestoreAST.ts';
+import { countDocumentAccessCalls } from '../../rules/src/grammar/document-access-count.ts';
+import { estimateExpressionCosts } from '../../rules/src/linter/expression-cost.ts';
+import { resolveModulesBrowser } from '../../rules/src/modules/resolver-browser.ts';
 import {
   applyCostLines,
   parseStdlibTestFile,
   type StdlibCostRecord,
-} from '../../pyric/src/rules/modules/stdlib-cost.ts';
-import type { StorageTestCase, TestCase } from '../../pyric/src/rules/test/spec.ts';
+} from '../../rules/src/modules/stdlib-cost.ts';
+import type { StorageTestCase, TestCase } from '../../rules/src/test/spec.ts';
 import { PAD_MAX, isLimitMessage, padFunctions } from './rules-expression-cost-pad.ts';
 import { REPO_ROOT } from './rules-expression-cost-suites.ts';
 
-export const STDLIB_DIR = join(REPO_ROOT, 'packages', 'pyric', 'src', 'rules', 'modules', 'stdlib');
-export const CAPTURE_PATH = join(REPO_ROOT, 'packages', 'pyric', 'test', 'rules', 'modules', 'fixtures', 'stdlib-cost-capture.json');
+export const STDLIB_DIR = join(REPO_ROOT, 'packages', 'rules', 'src', 'modules', 'stdlib');
+export const CAPTURE_PATH = join(REPO_ROOT, 'packages', 'rules', 'test', 'modules', 'fixtures', 'stdlib-cost-capture.json');
 
 type Service = 'firestore' | 'storage';
 const DEFAULT_TIME = '2026-07-21T00:00:00Z';
@@ -434,7 +434,7 @@ async function testRules(
   rules: string,
   cases: (TestCase | StorageTestCase)[],
 ): Promise<{ ok: true; results: { notes: string[] }[] } | { ok: false; status: number; message: string }> {
-  const { buildApiTestCase, buildStorageApiTestCase } = await import('../../pyric/src/rules/test/spec.ts');
+  const { buildApiTestCase, buildStorageApiTestCase } = await import('../../rules/src/test/spec.ts');
   const testCases = cases.map((tc) => {
     const api: any = service === 'storage' ? buildStorageApiTestCase(tc as StorageTestCase) : buildApiTestCase(tc as TestCase);
     if (tc.auth === null || tc.auth === undefined) api.request.auth = null;

@@ -44,7 +44,7 @@ describe('Firestore real-probe rules lifecycle', () => {
   });
 
   test('grants the transaction-contention documents the capture writes, and nothing beside them', async () => {
-    const { SimulateFirestoreRulesHandler } = await import('../../../pyric/src/rules/simulator/handler.ts');
+    const { SimulateFirestoreRulesHandler } = await import('../../../rules/src/simulator/handler.ts');
     const rules = injectFirestoreProbeRules(selectFirestoreRulesFile(ruleset).content, 'run123');
     const signedIn = { uid: 'pyric-cdd-run123' };
     const cases = [

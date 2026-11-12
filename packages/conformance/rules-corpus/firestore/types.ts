@@ -16,7 +16,7 @@
  * scenario can be handed straight to either the simulator or the production
  * Rules Test API without a translation layer.
  */
-import type { TestCase } from '../../../../packages/pyric/src/rules/test/spec.ts';
+import type { TestCase } from '../../../rules/src/test/spec.ts';
 
 export interface Scenario {
   /** Stable identifier. Doubles as the observation filename stem:

@@ -17,7 +17,7 @@ BASE_REF="${BASE_REF:-origin/main}"
 # engine. Docs/test-only edits under these paths still count — the trailer is
 # the escape hatch, not a heuristic.
 ENGINE_PATHS=(
-  'packages/pyric/src/rules/'
+  'packages/rules/src/'
   'packages/pyric/src/firestore/sandbox/'
   'packages/pyric/src/database/sandbox/'
   'packages/pyric/src/database/sandbox-controls.ts'
@@ -76,7 +76,7 @@ MERGE_BASE="$(git merge-base "$BASE_REF" HEAD)"
 engine_changed=()
 evidence_changed=0
 # core.quotePath=false plus NUL-delimited output: a default `diff --name-only`
-# C-quotes any non-ASCII path ("packages/pyric/src/rules/\303\251valuate.ts"),
+# C-quotes any non-ASCII path ("packages/rules/src/\303\251valuate.ts"),
 # which matches no case arm and would let a renamed-to-Unicode engine file slip
 # past the gate entirely.
 while IFS= read -r -d '' file; do

@@ -20,11 +20,11 @@
 
 import type { ToolHandler } from '../sandbox/internal/tool-handler.js';
 import type { ProjectScope } from '../project-scope.js';
-import { resolveModules } from '../rules/modules/resolver.js';
-import { SimulateFirestoreRulesHandler } from '../rules/simulator/handler.js';
+import { resolveModules } from '@pyric/rules/internal/node';
+import { SimulateFirestoreRulesHandler } from '@pyric/rules/internal';
 import { createFirestoreRulesStdlibTools } from './stdlib-tools.js';
 import { TestFirestoreRulesHandler } from '../rules-production/test/handler.js';
-import type { TestCase } from '../rules/test/spec.js';
+import type { TestCase } from '@pyric/rules/internal';
 import {
   createFirestoreSimulatorTools as createFirestoreSimulatorToolsImpl,
   type FirestoreSimulatorToolDeps as FirestoreSimulatorToolDepsImpl,

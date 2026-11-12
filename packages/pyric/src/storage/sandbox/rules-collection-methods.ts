@@ -1,4 +1,4 @@
-import { FirestoreSet, SET_ALGEBRA_NAMES, SetMethodFailure, setMethod } from '../../rules/simulator/firestore-set.js';
+import { FirestoreSet, SET_ALGEBRA_NAMES, SetMethodFailure, setMethod } from '@pyric/rules/internal';
 import {
   ListMethodFailure,
   listConcat,
@@ -6,9 +6,9 @@ import {
   listMembership,
   listRemoveAll,
   type ListMembershipMethod,
-} from '../../rules/simulator/list-methods.js';
-import { MapMethodFailure, mapList, type MapListMethod } from '../../rules/simulator/map-keys.js';
-import { MapDiff } from '../../rules/simulator/mapdiff.js';
+} from '@pyric/rules/internal';
+import { MapMethodFailure, mapList, type MapListMethod } from '@pyric/rules/internal';
+import { MapDiff } from '@pyric/rules/internal';
 import { noteMapEnumerationRead, noteMapGetRead, type EvalCtx } from './rules-evaluator.js';
 import { RuleEvalError } from './rules-evaluation-error.js';
 import {
@@ -20,7 +20,7 @@ import {
   type ReceiverMethod,
   type ReceiverMethods,
 } from './rules-method-calls.js';
-import { describeRulesType as describeType, isRulesMap } from '../../rules/simulator/rules-type.js';
+import { describeRulesType as describeType, isRulesMap } from '@pyric/rules/internal';
 import { isRuleError as isErr } from './rules-values.js';
 
 const MAP_DIFF_KEY_SETS = ['addedKeys', 'affectedKeys', 'changedKeys', 'removedKeys', 'unchangedKeys'] as const;

@@ -3,4 +3,4 @@ export {
   buildListRuleFunctionScope,
   type ListRuleFunctionScope,
   type ListRulePathAnalysis,
-} from '../../rules/simulator/list-rule-path-proof.js';
+} from '@pyric/rules/internal';

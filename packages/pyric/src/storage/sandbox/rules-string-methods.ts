@@ -1,8 +1,8 @@
-import { re2FullMatch, replaceRe2 } from '../../rules/simulator/rules-type.js';
-import { lowerRulesString, upperRulesString } from '../../rules/simulator/string-case.js';
-import { splitRe2 } from '../../rules/simulator/string-split.js';
-import { trimRulesString } from '../../rules/simulator/string-trim.js';
-import { Bytes } from '../../rules/simulator/wrappers/bytes.js';
+import { re2FullMatch, replaceRe2 } from '@pyric/rules/internal';
+import { lowerRulesString, upperRulesString } from '@pyric/rules/internal';
+import { splitRe2 } from '@pyric/rules/internal';
+import { trimRulesString } from '@pyric/rules/internal';
+import { Bytes } from '@pyric/rules/internal';
 import type { EvalCtx } from './rules-evaluator.js';
 import { RuleEvalError } from './rules-evaluation-error.js';
 import {

@@ -20,7 +20,7 @@ import {
   renderResourcePattern,
   type ResourcePattern,
 } from '../../sandbox/internal/resource-pattern.js';
-import { re2FullMatch } from '../../rules/simulator/rules-type.js';
+import { re2FullMatch } from '@pyric/rules/internal';
 import type { AccessSite, PayloadField } from '../code/types.js';
 import type { SdkUsageIndex } from '../code/usage-index.js';
 import { siteResourcePattern } from '../code/usage-records.js';

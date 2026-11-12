@@ -1,1 +1,1 @@
-export * from '../rules/rtdb/data/writable-path.js';
+export { isInfoPath, validateWritablePath, invalidInfoWrite, validateUpdatePaths, validateReferencePath } from '@pyric/rules/internal/rtdb';

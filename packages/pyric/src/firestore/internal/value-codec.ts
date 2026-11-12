@@ -11,13 +11,13 @@
  * Legacy unknown markers remain maps. Complete validation and write-intent
  * handling are still required by the wire contract.
  */
-import { Bytes as RulesBytes } from '../../rules/simulator/wrappers/bytes.js';
-import { Duration } from '../../rules/simulator/wrappers/duration.js';
-import { LatLng } from '../../rules/simulator/wrappers/latlng.js';
-import { Path } from '../../rules/simulator/wrappers/path.js';
-import { Reference } from '../../rules/simulator/wrappers/reference.js';
-import { Timestamp as RulesTimestamp } from '../../rules/simulator/wrappers/timestamp.js';
-import { Vector } from '../../rules/simulator/wrappers/vector.js';
+import { Bytes as RulesBytes } from '@pyric/rules/internal';
+import { Duration } from '@pyric/rules/internal';
+import { LatLng } from '@pyric/rules/internal';
+import { Path } from '@pyric/rules/internal';
+import { Reference } from '@pyric/rules/internal';
+import { Timestamp as RulesTimestamp } from '@pyric/rules/internal';
+import { Vector } from '@pyric/rules/internal';
 import { Timestamp } from '../timestamp.js';
 import { Bytes } from '../bytes.js';
 import { GeoPoint } from '../geo-point.js';

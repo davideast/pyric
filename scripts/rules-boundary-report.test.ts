@@ -20,12 +20,12 @@ function commit(hash: string, paths: string[]): Commit {
 describe('parseLog', () => {
   test('reads hash, date, subject and every path of each record', () => {
     const output = [
-      '\x1eaaa\x1f2026-10-28\x1ffix(rules): one\0\npackages/pyric/src/rules/a.ts\0packages/cli/src/b.ts\0',
-      '\x1ebbb\x1f2026-10-27\x1ffeat: two\0\npackages/pyric/src/rules/c.ts\0',
+      '\x1eaaa\x1f2026-10-28\x1ffix(rules): one\0\npackages/rules/src/a.ts\0packages/cli/src/b.ts\0',
+      '\x1ebbb\x1f2026-10-27\x1ffeat: two\0\npackages/rules/src/c.ts\0',
     ].join('');
     expect(parseLog(output)).toEqual([
-      { hash: 'aaa', date: '2026-10-28', subject: 'fix(rules): one', paths: ['packages/pyric/src/rules/a.ts', 'packages/cli/src/b.ts'] },
-      { hash: 'bbb', date: '2026-10-27', subject: 'feat: two', paths: ['packages/pyric/src/rules/c.ts'] },
+      { hash: 'aaa', date: '2026-10-28', subject: 'fix(rules): one', paths: ['packages/rules/src/a.ts', 'packages/cli/src/b.ts'] },
+      { hash: 'bbb', date: '2026-10-27', subject: 'feat: two', paths: ['packages/rules/src/c.ts'] },
     ]);
   });
 
@@ -42,9 +42,9 @@ describe('parseLog', () => {
 describe('isInsideBoundary', () => {
   test('holds the package-to-be and the rules conformance data', () => {
     for (const path of [
-      'packages/pyric/src/rules/simulator/handler.ts',
-      'packages/pyric/test/rules/boundary.test.ts',
-      'packages/pyric/bench/rules/eval.bench.ts',
+      'packages/rules/src/simulator/handler.ts',
+      'packages/rules/test/boundary.test.ts',
+      'packages/rules/bench/eval.bench.ts',
       'packages/conformance/rules-corpus/firestore/case.json',
       'packages/conformance/rules-language/firestore.json',
       'packages/conformance/observations/storage-rules/capture.json',
@@ -74,12 +74,12 @@ describe('isInsideBoundary', () => {
 
 describe('measure and formatReport', () => {
   const commits = [
-    commit('a'.repeat(40), ['packages/pyric/src/rules/a.ts', 'packages/pyric/test/rules/a.test.ts']),
-    commit('b'.repeat(40), ['packages/pyric/src/rules/b.ts', 'packages/cli/src/b.ts', 'packages/conformance/registry/rules.ts']),
-    commit('c'.repeat(40), ['packages/pyric/src/rules/c.ts']),
-    commit('d'.repeat(40), ['packages/pyric/src/rules/d.ts']),
-    commit('e'.repeat(40), ['packages/pyric/src/rules/e.ts']),
-    commit('f'.repeat(40), ['packages/pyric/src/rules/f.ts']),
+    commit('a'.repeat(40), ['packages/rules/src/a.ts', 'packages/pyric/test/rules/a.test.ts']),
+    commit('b'.repeat(40), ['packages/rules/src/b.ts', 'packages/cli/src/b.ts', 'packages/conformance/registry/rules.ts']),
+    commit('c'.repeat(40), ['packages/rules/src/c.ts']),
+    commit('d'.repeat(40), ['packages/rules/src/d.ts']),
+    commit('e'.repeat(40), ['packages/rules/src/e.ts']),
+    commit('f'.repeat(40), ['packages/rules/src/f.ts']),
   ];
   const reportWindow = { ref: 'origin/main', head: '1'.repeat(40), since: '2026-10-01T00:00:00', until: '2026-10-30T23:59:59' };
 
@@ -133,17 +133,17 @@ describe('the report against a real repository', () => {
   }
 
   git(['init', '-q', '-b', 'main']);
-  commitFiles('chore: seed', { 'packages/pyric/src/rules/a.ts': '1', 'packages/pyric/src/sandbox/s.ts': '1' }, '2026-09-01T12:00:00Z');
-  commitFiles('fix(rules): early on the first day in UTC', { 'packages/pyric/src/rules/a.ts': '1b' }, '2026-10-01T03:00:00Z');
-  commitFiles('fix(rules): inside only', { 'packages/pyric/src/rules/a.ts': '2', 'packages/pyric/test/rules/a.test.ts': '2' }, '2026-10-10T12:00:00Z');
-  commitFiles('fix(rules): crosses into sandbox', { 'packages/pyric/src/rules/a.ts': '3', 'packages/pyric/src/sandbox/s.ts': '3' }, '2026-10-12T12:00:00Z');
+  commitFiles('chore: seed', { 'packages/rules/src/a.ts': '1', 'packages/pyric/src/sandbox/s.ts': '1' }, '2026-09-01T12:00:00Z');
+  commitFiles('fix(rules): early on the first day in UTC', { 'packages/rules/src/a.ts': '1b' }, '2026-10-01T03:00:00Z');
+  commitFiles('fix(rules): inside only', { 'packages/rules/src/a.ts': '2', 'packages/pyric/test/rules/a.test.ts': '2' }, '2026-10-10T12:00:00Z');
+  commitFiles('fix(rules): crosses into sandbox', { 'packages/rules/src/a.ts': '3', 'packages/pyric/src/sandbox/s.ts': '3' }, '2026-10-12T12:00:00Z');
   commitFiles('fix(sandbox): outside only', { 'packages/pyric/src/sandbox/s.ts': '4' }, '2026-10-13T12:00:00Z');
   git(['checkout', '-q', '-b', 'topic']);
-  git(['mv', 'packages/pyric/src/sandbox/s.ts', 'packages/pyric/src/rules/s.ts']);
+  git(['mv', 'packages/pyric/src/sandbox/s.ts', 'packages/rules/src/s.ts']);
   git(['commit', '-q', '-m', 'refactor: move s into rules'], '2026-10-14T12:00:00Z');
   git(['checkout', '-q', 'main']);
   git(['merge', '-q', '--no-ff', '-m', 'Merge topic', 'topic']);
-  commitFiles('fix(rules): after the window', { 'packages/pyric/src/rules/a.ts': '5', 'packages/cli/c.ts': '5' }, '2026-11-20T12:00:00Z');
+  commitFiles('fix(rules): after the window', { 'packages/rules/src/a.ts': '5', 'packages/cli/c.ts': '5' }, '2026-11-20T12:00:00Z');
 
   test('counts non-merge commits in the window that touch the engine, with both sides of a rename', () => {
     const reportWindow = resolveWindow(['--ref=main', '--since=2026-10-01', '--until=2026-10-31'], repo);

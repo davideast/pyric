@@ -28,14 +28,14 @@ Baseline validation:
 
 ```sh
 bun run --cwd packages/pyric build
-bun test packages/pyric/test/rules/simulator/query-proof.test.ts packages/pyric/test/firestore/sandbox/list-query-proof.test.ts packages/pyric/test/firestore/sandbox/rules-read-engine.test.ts packages/pyric/test/firestore/query-proof-enforcement.test.ts
+bun test packages/rules/test/simulator/query-proof.test.ts packages/pyric/test/firestore/sandbox/list-query-proof.test.ts packages/pyric/test/firestore/sandbox/rules-read-engine.test.ts packages/pyric/test/firestore/query-proof-enforcement.test.ts
 ```
 
 Build passed; **101 tests passed, 0 failed**. Existing tests therefore do not catch this diagnostic regression. The full original application, Vite worker transport, and hosted Firebase were not exercised during this analysis.
 
 ## Root cause and contract
 
-1. `packages/pyric/src/rules/simulator/query-proof.ts` deliberately rejects document-dependent membership and disjunctions. A constant `false` expression is document-independent and therefore *provable*: proof success does not mean residual evaluation allows it.
+1. `packages/rules/src/simulator/query-proof.ts` deliberately rejects document-dependent membership and disjunctions. A constant `false` expression is document-independent and therefore *provable*: proof success does not mean residual evaluation allows it.
 2. `packages/pyric/src/firestore/sandbox/list-query-proof.ts` collects rejected rules in `failures`, but its `provable` return carries only a projected AST and synthetic resource. If any sibling is provable, rejected-rule diagnostics are discarded. The fallback makes this branch run.
 3. `packages/pyric/src/firestore/sandbox/rules-list-authorizer.ts` evaluates that projected AST. The unsupported membership rule has correctly been removed from authorization, so only the fallback remains to explain the denial. Re-evaluating the original AST would undo an intentional safety boundary documented in ADR-0009.
 4. Even without fallback, the authorizer's early unprovable branch adds `proof.rule` to the error but omits attribution from the request event. Studio consumes request events, so fixing error text alone is insufficient.

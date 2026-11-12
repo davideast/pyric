@@ -279,10 +279,10 @@ C1 shows production does the same.
 The places that hard-code one database today, each of which takes the
 evaluating database's id:
 
-- `packages/pyric/src/rules/grammar/FirestoreRules.ohm`: `ServiceBlock` accepts
+- `packages/rules/src/grammar/FirestoreRules.ohm`: `ServiceBlock` accepts
   exactly one `DocumentsMatch`. It must accept several root blocks, because
   C1 shows production compiles a file with one literal root per database.
-- `packages/pyric/src/rules/simulator/handler.ts`:
+- `packages/rules/src/simulator/handler.ts`:
   - around line 580, the root match is skipped and matching starts at its
     children. A root with a literal database segment must match only that
     database. C1: a literal `(default)` root denies a `probes` request. Today
@@ -292,17 +292,17 @@ evaluating database's id:
   - lines 561 to 575, the root bindings. Every root wildcard, whatever its
     name, binds the id. Under a literal root, `database` stays unbound, as C1
     shows. Pyric binds it today for `(default)` too, which #1432 fixes.
-- `packages/pyric/src/rules/simulator/request-path.ts`: `documentRelativePath`
+- `packages/rules/src/simulator/request-path.ts`: `documentRelativePath`
   strips any `databases/<name>/documents` prefix. It must refuse a name other
   than the evaluating database, so a full-path case can't run against the wrong
   ruleset.
-- `packages/pyric/src/rules/simulator/document-lookups.ts`:
+- `packages/rules/src/simulator/document-lookups.ts`:
   - `normalizeDocumentPath` replaces `$(database)` with `(default)` and strips
     only the `/databases/(default)/documents` prefix;
   - `makeGetResource` builds `__name__` under `(default)`.
-- `packages/pyric/src/rules/simulator/evaluation-builtins.ts`: `afterLookupPath`
+- `packages/rules/src/simulator/evaluation-builtins.ts`: `afterLookupPath`
   (for `getAfter` and `existsAfter`) goes through `normalizeDocumentPath`.
-- `packages/pyric/src/rules/simulator/wrappers/reference.ts`:
+- `packages/rules/src/simulator/wrappers/reference.ts`:
   - `equals` compares path strings only ("project/database not significant").
     It must compare the database. Otherwise
     `request.resource.data.owner == /databases/(default)/documents/users/$(uid)`
@@ -310,7 +310,7 @@ evaluating database's id:
     reference to another database on each side of `==` and `!=`;
   - `referenceToResourceName` defaults `databaseId` to `(default)`; its callers
     pass the stored reference's database.
-- `packages/pyric/src/rules/test/spec.ts`: `DB_PREFIX` hard-codes
+- `packages/rules/src/test/spec.ts`: `DB_PREFIX` hard-codes
   `/databases/(default)/documents/`, so `pyric rules test` specs gain a
   `database` field.
 - `packages/pyric/src/storage/sandbox/rules-firestore-lookup.ts`: refuses any
@@ -702,7 +702,7 @@ when it is, so `(default)`-only output is unchanged:
   - Replay drives each request through a handle for that database.
   - `pyric verify` evaluates each request against that database's rules from
     `firebase.json` (decision 6).
-  - Replay case types in `packages/pyric/src/rules/api/case-types.ts` gain
+  - Replay case types in `packages/rules/src/api/case-types.ts` gain
     `database?`.
   - `pyric verify` takes `--rules firestore=<path>` and `--rules
     rtdb:<instance>=<path>` today, but not a per-database Firestore override.
@@ -828,7 +828,7 @@ production-capture lock.
   linked from MD4.
 
   The `run-rules.ts` corpus can't express this capture: `normalizeDocPath` in
-  `packages/pyric/src/rules/test/spec.ts` always prefixes
+  `packages/rules/src/test/spec.ts` always prefixes
   `/databases/(default)/documents/`. So the script's `rules-api` mode posts its
   own test cases, with the credential `run-rules.ts` uses. Each probe is a `get`
   of `p/d1` as uid `a`, expecting ALLOW. A first attempt with the oracle

@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'bun:test';
-import { SimulateFirestoreRulesHandler } from '../../src/rules/simulator/handler.js';
+import { SimulateFirestoreRulesHandler } from '@pyric/rules/internal';
 import { parseStorageRules } from '../../src/storage/sandbox/rules.js';
 import { evaluateStorageRules } from '../../src/storage/sandbox/rules-evaluator.js';
 

@@ -1,5 +1,5 @@
-import { SimulateFirestoreRulesHandler } from '../../pyric/src/rules/simulator/handler.ts';
-import type { TestCase } from '../../pyric/src/rules/test/spec.ts';
+import { SimulateFirestoreRulesHandler } from '../../rules/src/simulator/handler.ts';
+import type { TestCase } from '../../rules/src/test/spec.ts';
 import { firestoreRulesTestInputDigest } from './firestore-rules-input-digest.ts';
 import type { Classification, ConstructCapability } from './rules-language-capability.ts';
 

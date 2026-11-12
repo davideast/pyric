@@ -4,13 +4,13 @@ import {
   trustedWireActivityValue,
 } from '../../../src/firestore/sandbox/activity-value-registry.js';
 import { rehydrateDocValue } from '../../../src/firestore/internal/value-codec.js';
-import { Bytes } from '../../../src/rules/simulator/wrappers/bytes.js';
-import { Duration } from '../../../src/rules/simulator/wrappers/duration.js';
-import { LatLng } from '../../../src/rules/simulator/wrappers/latlng.js';
-import { Path } from '../../../src/rules/simulator/wrappers/path.js';
-import { Reference } from '../../../src/rules/simulator/wrappers/reference.js';
-import { Timestamp } from '../../../src/rules/simulator/wrappers/timestamp.js';
-import { Vector } from '../../../src/rules/simulator/wrappers/vector.js';
+import { Bytes } from '@pyric/rules/internal';
+import { Duration } from '@pyric/rules/internal';
+import { LatLng } from '@pyric/rules/internal';
+import { Path } from '@pyric/rules/internal';
+import { Reference } from '@pyric/rules/internal';
+import { Timestamp } from '@pyric/rules/internal';
+import { Vector } from '@pyric/rules/internal';
 
 describe('rehydrateDocValue', () => {
   it('rehydrates every Pyric marker into its wrapper type', () => {

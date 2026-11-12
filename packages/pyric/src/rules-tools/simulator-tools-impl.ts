@@ -22,17 +22,17 @@
 
 import type { ToolHandler } from '../sandbox/internal/tool-handler.js';
 import type { LocalEnvironment } from 'pyric/sandbox/internal';
-import type { ResolveResult } from '../rules/modules/resolver.js';
+import type { ResolveResult } from '@pyric/rules/internal/node';
 import {
   resolveExpressionsInData,
   ExpressionWalkError,
-} from '../rules/simulator/expression/walk-data.js';
+} from '@pyric/rules/internal';
 import {
   ExpressionLexError,
   ExpressionParseError,
-} from '../rules/simulator/expression/types.js';
-import { EvalError } from '../rules/simulator/expression/eval-errors.js';
-import { rulesSourceRejection } from '../rules/grammar/source-compile-limits.js';
+} from '@pyric/rules/internal';
+import { EvalError } from '@pyric/rules/internal';
+import { rulesSourceRejection } from '@pyric/rules/internal';
 
 export interface FirestoreSimulatorToolDeps {
   /**

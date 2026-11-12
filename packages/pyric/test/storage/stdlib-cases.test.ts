@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'bun:test';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { resolveModulesBrowser } from '../../src/rules/modules/resolver-browser.ts';
+import { resolveModulesBrowser } from '@pyric/rules/internal';
 import {
   parseStorageRules,
   type FirestoreLookup,
@@ -10,7 +10,7 @@ import {
   type StorageResource,
 } from '../../src/storage/sandbox/rules.ts';
 import { evaluateStorageRules } from '../../src/storage/sandbox/rules-evaluator.ts';
-import { parseStdlibTestFile } from '../../src/rules/modules/stdlib-cost.ts';
+import { parseStdlibTestFile } from '@pyric/rules/internal';
 
 const FIXTURE_DIR = join(import.meta.dir, '..', '..', 'src', 'rules', 'modules', 'stdlib', 'storage');
 

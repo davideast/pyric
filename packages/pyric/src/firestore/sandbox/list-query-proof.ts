@@ -13,4 +13,4 @@ export {
   type QueryProofResidual,
   type QueryRepro,
   type QueryWhereConstraint,
-} from '../../rules/simulator/list-query-proof.js';
+} from '@pyric/rules/internal';

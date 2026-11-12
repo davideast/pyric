@@ -26,9 +26,9 @@
  * `local-environment.ts`. The tree just stores bytes.
  */
 
-import { jsonEqual } from '../../rules/rtdb/data/json-equal.js';
-import type { JsonValue } from '../../rules/rtdb/data/json-value.js';
-import { pathSegments } from '../../rules/rtdb/data/paths.js';
+import { jsonEqual } from '@pyric/rules/internal/rtdb';
+import type { JsonValue } from '@pyric/rules/internal/rtdb';
+import { pathSegments } from '@pyric/rules/internal/rtdb';
 
 export { pathSegments };
 export type { JsonValue };

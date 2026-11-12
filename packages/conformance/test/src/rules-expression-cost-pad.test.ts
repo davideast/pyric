@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
-import { parseToAST } from '../../../pyric/src/rules/grammar/FirestoreParser.ts';
-import { SimulateFirestoreRulesHandler } from '../../../pyric/src/rules/simulator/handler.ts';
+import { parseToAST } from '../../../rules/src/grammar/FirestoreParser.ts';
+import { SimulateFirestoreRulesHandler } from '../../../rules/src/simulator/handler.ts';
 import {
   EXPRESSION_LIMIT,
   PAD_MAX,

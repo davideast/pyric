@@ -1,4 +1,4 @@
-import type { TestCase } from '../../pyric/src/rules/test/spec.ts';
+import type { TestCase } from '../../rules/src/test/spec.ts';
 import type { LanguageConstruct } from '../rules-language/load.ts';
 
 export const FS_RULESET = (expr: string, verb = 'read') => `rules_version = '2';

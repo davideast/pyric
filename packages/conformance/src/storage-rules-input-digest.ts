@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { buildStorageApiTestCase, type StorageTestCase } from '../../pyric/src/rules/test/spec.ts';
+import { buildStorageApiTestCase, type StorageTestCase } from '../../rules/src/test/spec.ts';
 
 export interface StorageScenarioInputDigest {
   algorithm: 'sha256';

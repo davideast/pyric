@@ -18,8 +18,8 @@
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { TestCase } from '../../pyric/src/rules/test/spec.ts';
-import { resolveModulesBrowser } from '../../pyric/src/rules/modules/resolver-browser.ts';
+import type { TestCase } from '../../rules/src/test/spec.ts';
+import { resolveModulesBrowser } from '../../rules/src/modules/resolver-browser.ts';
 import {
   createChessGame,
   createEmptyChessGame,

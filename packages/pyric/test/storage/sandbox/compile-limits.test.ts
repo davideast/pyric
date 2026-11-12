@@ -7,7 +7,7 @@ import { describe, expect, test } from 'bun:test';
 import { parseStorageRules } from '../../../src/storage/sandbox/rules.js';
 import { evaluateStorageRules } from '../../../src/storage/sandbox/rules-evaluator.js';
 import { compileStorageRules } from '../../../src/storage/rules-resolution.js';
-import { compileLimitProbes } from '../../rules/compile-limits-probes.js';
+import { compileLimitProbes } from '../../../../rules/test/compile-limits-probes.js';
 
 const probes = compileLimitProbes().filter((p) => p.service === 'storage');
 

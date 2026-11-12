@@ -9,8 +9,8 @@
 import { describe, expect, test } from 'bun:test';
 import { SimulateFirestoreRulesHandler, type TestCase } from 'pyric/rules/internal';
 import { initializeSandbox } from 'pyric/sandbox';
-import { parseToAST } from '../../../src/rules/grammar/FirestoreParser.js';
-import { collectRootMatches, rootGovernsEveryDocument } from '../../../src/rules/simulator/root-match.js';
+import { parseToAST } from '@pyric/rules/internal';
+import { collectRootMatches, rootGovernsEveryDocument } from '@pyric/rules/internal';
 import { seedDocuments, setRules } from 'pyric/sandbox/firestore';
 import {
   collection,

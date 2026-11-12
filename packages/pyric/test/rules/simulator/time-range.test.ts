@@ -11,9 +11,9 @@
  * evaluator a NaN timestamp that is unequal to itself.
  */
 import { describe, expect, test } from 'bun:test';
-import { SimulateFirestoreRulesHandler } from '../../../src/rules/simulator/handler.js';
-import { Duration } from '../../../src/rules/simulator/wrappers/duration.js';
-import { Timestamp } from '../../../src/rules/simulator/wrappers/timestamp.js';
+import { SimulateFirestoreRulesHandler } from '@pyric/rules/internal';
+import { Duration } from '@pyric/rules/internal';
+import { Timestamp } from '@pyric/rules/internal';
 import { parseStorageRules } from '../../../src/storage/sandbox/rules.js';
 import { evaluateStorageRules } from '../../../src/storage/sandbox/rules-evaluator.js';
 

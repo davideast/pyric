@@ -43,7 +43,7 @@ function write(cwd: string, relPath: string, contents: string): void {
  * this list honest against the script's.
  */
 const ENGINE_SEED_FILES = [
-  'packages/pyric/src/rules/evaluate.ts',
+  'packages/rules/src/evaluate.ts',
   'packages/pyric/src/firestore/sandbox/local-state.ts',
   'packages/pyric/src/database/sandbox/read.ts',
   'packages/pyric/src/database/sandbox-controls.ts',
@@ -103,12 +103,12 @@ describe('conformance coupling gate', () => {
 
   test('an engine-only change fails and names the offending files', () => {
     const repo = makeRepo();
-    write(repo, 'packages/pyric/src/rules/evaluate.ts', 'export const v = 1;\n');
+    write(repo, 'packages/rules/src/evaluate.ts', 'export const v = 1;\n');
     commit(repo, 'fix(rules): tighten evaluation');
 
     const { status, output } = runGate(repo);
     expect(status).toBe(1);
-    expect(output).toContain('packages/pyric/src/rules/evaluate.ts');
+    expect(output).toContain('packages/rules/src/evaluate.ts');
     expect(output).toContain('compat:conformance');
     expect(output).toContain('compat:rules-score');
     expect(output).toContain('Conformance-Exempt:');
@@ -116,7 +116,7 @@ describe('conformance coupling gate', () => {
 
   test('every engine trigger path is covered, including the single-file entries', () => {
     for (const file of [
-      'packages/pyric/src/rules/evaluate.ts',
+      'packages/rules/src/evaluate.ts',
       'packages/pyric/src/firestore/sandbox/local-state.ts',
       'packages/pyric/src/database/sandbox/read.ts',
       'packages/pyric/src/database/sandbox-controls.ts',
@@ -136,7 +136,7 @@ describe('conformance coupling gate', () => {
 
   test('an engine change paired with conformance evidence passes', () => {
     const repo = makeRepo();
-    write(repo, 'packages/pyric/src/rules/evaluate.ts', 'export const v = 1;\n');
+    write(repo, 'packages/rules/src/evaluate.ts', 'export const v = 1;\n');
     write(repo, 'packages/conformance/matrix.json', '{"rows":1}\n');
     commit(repo, 'fix(rules): tighten evaluation and regenerate evidence');
 
@@ -147,7 +147,7 @@ describe('conformance coupling gate', () => {
 
   test('an engine-only change with a Conformance-Exempt trailer passes with a notice', () => {
     const repo = makeRepo();
-    write(repo, 'packages/pyric/src/rules/evaluate.ts', 'export const v = 1;\n');
+    write(repo, 'packages/rules/src/evaluate.ts', 'export const v = 1;\n');
     git(repo, 'add', '-A');
     git(
       repo,
@@ -163,7 +163,7 @@ describe('conformance coupling gate', () => {
     expect(status).toBe(0);
     expect(output).toContain('EXEMPT');
     expect(output).toContain('pure rename, no observable behavior change');
-    expect(output).toContain('packages/pyric/src/rules/evaluate.ts');
+    expect(output).toContain('packages/rules/src/evaluate.ts');
   });
 
   test('the trailer counts when it rides on any commit in the range', () => {
@@ -171,7 +171,7 @@ describe('conformance coupling gate', () => {
     write(repo, 'packages/pyric/src/sandbox/session.ts', 'export const v = 1;\n');
     git(repo, 'add', '-A');
     git(repo, 'commit', '--quiet', '-m', 'chore: waive', '-m', 'Conformance-Exempt: infra only');
-    write(repo, 'packages/pyric/src/rules/evaluate.ts', 'export const v = 2;\n');
+    write(repo, 'packages/rules/src/evaluate.ts', 'export const v = 2;\n');
     commit(repo, 'refactor(rules): follow-up');
 
     const { status, output } = runGate(repo);
@@ -181,18 +181,18 @@ describe('conformance coupling gate', () => {
 
   test('a Conformance-Exempt trailer with an empty reason still fails', () => {
     const repo = makeRepo();
-    write(repo, 'packages/pyric/src/rules/evaluate.ts', 'export const v = 1;\n');
+    write(repo, 'packages/rules/src/evaluate.ts', 'export const v = 1;\n');
     git(repo, 'add', '-A');
     git(repo, 'commit', '--quiet', '-m', 'refactor(rules): rename internals', '-m', 'Conformance-Exempt:   ');
 
     const { status, output } = runGate(repo);
     expect(status).toBe(1);
-    expect(output).toContain('packages/pyric/src/rules/evaluate.ts');
+    expect(output).toContain('packages/rules/src/evaluate.ts');
   });
 
   test('the notice is appended to GITHUB_STEP_SUMMARY when the environment sets it', () => {
     const repo = makeRepo();
-    write(repo, 'packages/pyric/src/rules/evaluate.ts', 'export const v = 1;\n');
+    write(repo, 'packages/rules/src/evaluate.ts', 'export const v = 1;\n');
     git(repo, 'add', '-A');
     git(repo, 'commit', '--quiet', '-m', 'refactor(rules): rename', '-m', 'Conformance-Exempt: rename only');
 
@@ -207,7 +207,7 @@ describe('conformance coupling gate', () => {
   // git's own trailer block may waive the gate.
   test('a body that only quotes the trailer token mid-message does not waive the gate', () => {
     const repo = makeRepo();
-    write(repo, 'packages/pyric/src/rules/evaluate.ts', 'export const v = 1;\n');
+    write(repo, 'packages/rules/src/evaluate.ts', 'export const v = 1;\n');
     git(repo, 'add', '-A');
     git(
       repo,
@@ -222,13 +222,13 @@ describe('conformance coupling gate', () => {
     const { status, output } = runGate(repo);
     expect(status).toBe(1);
     expect(output).toContain('FAILED');
-    expect(output).toContain('packages/pyric/src/rules/evaluate.ts');
+    expect(output).toContain('packages/rules/src/evaluate.ts');
     expect(output).not.toContain('EXEMPT');
   });
 
   test('a genuine trailer still waives even when the body also quotes the token in prose', () => {
     const repo = makeRepo();
-    write(repo, 'packages/pyric/src/rules/evaluate.ts', 'export const v = 1;\n');
+    write(repo, 'packages/rules/src/evaluate.ts', 'export const v = 1;\n');
     git(repo, 'add', '-A');
     git(
       repo,
@@ -249,11 +249,11 @@ describe('conformance coupling gate', () => {
   });
 
   // Default `diff --name-only` C-quotes non-ASCII paths
-  // ("packages/pyric/src/rules/\303\251valuate.ts"), which matches no prefix
+  // ("packages/rules/src/\303\251valuate.ts"), which matches no prefix
   // and would let the file through as if it were not an engine file at all.
   test('a non-ASCII engine path is still recognized (no C-quoting bypass)', () => {
     const repo = makeRepo();
-    write(repo, 'packages/pyric/src/rules/évaluate.ts', 'export const v = 1;\n');
+    write(repo, 'packages/rules/src/évaluate.ts', 'export const v = 1;\n');
     commit(repo, 'feat(rules): add an accented module');
 
     const { status, output } = runGate(repo);
@@ -292,7 +292,7 @@ describe('conformance coupling gate', () => {
   // An unreachable base in CI means a broken checkout, not a clean branch.
   test('an unresolvable merge base fails closed under GITHUB_ACTIONS', () => {
     const repo = makeRepo();
-    write(repo, 'packages/pyric/src/rules/evaluate.ts', 'export const v = 1;\n');
+    write(repo, 'packages/rules/src/evaluate.ts', 'export const v = 1;\n');
     commit(repo, 'fix(rules): tighten evaluation');
 
     const { status, output } = runGate(repo, { BASE_REF: 'origin/nonexistent', GITHUB_ACTIONS: 'true' });
@@ -304,7 +304,7 @@ describe('conformance coupling gate', () => {
 
   test('an unresolvable merge base only warns on a local run', () => {
     const repo = makeRepo();
-    write(repo, 'packages/pyric/src/rules/evaluate.ts', 'export const v = 1;\n');
+    write(repo, 'packages/rules/src/evaluate.ts', 'export const v = 1;\n');
     commit(repo, 'fix(rules): tighten evaluation');
 
     const { status, output } = runGate(repo, { BASE_REF: 'origin/nonexistent' });

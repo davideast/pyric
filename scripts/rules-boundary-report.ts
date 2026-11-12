@@ -11,7 +11,7 @@
  * boundary crosses it. Every crossing commit is listed with the paths that
  * crossed. Run it by hand once a week and post the output to #1521.
  *
- * Until the package exists the engine is packages/pyric/src/rules, and the
+ * Until the package exists the engine is packages/rules/src, and the
  * boundary is the package-to-be: src/rules, test/rules and bench/rules in
  * packages/pyric, plus the rules conformance data, which moves with the repo.
  * When packages/rules lands, ENGINE_SOURCE and BOUNDARY change with it.
@@ -29,7 +29,7 @@
 import { execFileSync } from 'node:child_process';
 import { parseArgs } from 'node:util';
 
-const ENGINE_SOURCE = 'packages/pyric/src/rules';
+const ENGINE_SOURCE = 'packages/rules/src';
 
 /** Path prefixes inside the boundary, and the conformance data patterns that move with it. */
 const BOUNDARY: readonly RegExp[] = [

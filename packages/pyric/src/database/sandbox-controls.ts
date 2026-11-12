@@ -6,7 +6,7 @@ import type { RtdbBackend } from './sandbox/backend.js';
 import type { JsonValue } from './sandbox/data-tree.js';
 import { TARGET_SYMBOL, targetOf } from './routing.js';
 
-export { stripJsonComments, toStrictRulesJson } from '../rules/rtdb/rules-text.js';
+export { stripJsonComments, toStrictRulesJson } from '@pyric/rules/internal/rtdb';
 
 export type RtdbRulesJson = { rules: Record<string, unknown> };
 

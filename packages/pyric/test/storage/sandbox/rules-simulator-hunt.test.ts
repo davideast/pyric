@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
-import { Bytes } from '../../../src/rules/simulator/wrappers/bytes.js';
-import { Timestamp } from '../../../src/rules/simulator/wrappers/timestamp.js';
+import { Bytes } from '@pyric/rules/internal';
+import { Timestamp } from '@pyric/rules/internal';
 import { parseStorageRules } from '../../../src/storage/sandbox/rules.js';
 import { evaluateStorageRules } from '../../../src/storage/sandbox/rules-evaluator.js';
 import { requestResourceFor } from '../../../src/storage/sandbox/rules-resources.js';

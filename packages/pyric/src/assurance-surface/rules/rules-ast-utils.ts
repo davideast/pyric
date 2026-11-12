@@ -4,7 +4,7 @@
  * lexical helper-function inlining with cycle guards, verb expansion, and
  * overbroad auth-only write guard detection.
  */
-import type { ServiceBlock } from '../../rules/grammar/FirestoreAST.js';
+import type { ServiceBlock } from '@pyric/rules/internal';
 import {
   parseToASTOrError,
   resolveModulesBrowser,

@@ -1,9 +1,9 @@
 import type { ProjectScope } from '../../project-scope.js';
-import type { InspectFirestoreRulesResult, RulesSummary } from '../../rules/inspect/spec.js';
-import type { MatchBlock, AllowRule, Expression } from '../../rules/grammar/FirestoreAST.js';
-import { parseToASTOrError } from '../../rules/grammar/FirestoreParser.js';
-import { topLevelMatches } from '../../rules/grammar/service-blocks.js';
-import { validateFirestoreRules } from '../../rules/grammar/FirestoreValidator.js';
+import type { InspectFirestoreRulesResult, RulesSummary } from '@pyric/rules/internal';
+import type { MatchBlock, AllowRule, Expression } from '@pyric/rules/internal';
+import { parseToASTOrError } from '@pyric/rules/internal';
+import { topLevelMatches } from '@pyric/rules/internal';
+import { validateFirestoreRules } from '@pyric/rules/internal';
 
 const RULES_API = 'https://firebaserules.googleapis.com/v1';
 

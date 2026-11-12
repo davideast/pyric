@@ -13,8 +13,8 @@
  */
 import { describe, test, expect } from 'bun:test';
 import { SimulateFirestoreRulesHandler } from 'pyric/rules/internal';
-import { Path } from '../../../../src/rules/simulator/wrappers/path.js';
-import { IndexAccessFailure, indexValue, readMember } from '../../../../src/rules/simulator/index-access.js';
+import { Path } from '@pyric/rules/internal';
+import { IndexAccessFailure, indexValue, readMember } from '@pyric/rules/internal';
 import type { TestCase } from 'pyric/rules/internal';
 
 const sim = new SimulateFirestoreRulesHandler();
