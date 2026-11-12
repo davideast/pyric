@@ -7,9 +7,8 @@ export const RULES_MODULE_CAPABILITIES_PATH = join(
   HERE,
   '..',
   '..',
-  'pyric',
-  'src',
   'rules',
+  'src',
   'modules',
   'rules-capabilities.generated.ts',
 );

@@ -12,7 +12,7 @@ import {
 import { evaluateStorageRules } from '../../src/storage/sandbox/rules-evaluator.ts';
 import { parseStdlibTestFile } from '@pyric/rules/internal';
 
-const FIXTURE_DIR = join(import.meta.dir, '..', '..', 'src', 'rules', 'modules', 'stdlib', 'storage');
+const FIXTURE_DIR = join(import.meta.dir, '..', '..', '..', 'rules', 'src', 'modules', 'stdlib', 'storage');
 
 interface StorageStdlibCase {
   description: string;

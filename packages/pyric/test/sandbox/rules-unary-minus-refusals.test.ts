@@ -31,7 +31,7 @@ interface Probe {
 }
 
 const fixture = JSON.parse(
-  readFileSync(new URL('../rules/grammar/fixtures/unary-minus/captures.json', import.meta.url), 'utf8'),
+  readFileSync(new URL('../../../rules/test/grammar/fixtures/unary-minus/captures.json', import.meta.url), 'utf8'),
 ) as { probes: Probe[] };
 
 /** Probes whose first production issue pyric reports verbatim. */
