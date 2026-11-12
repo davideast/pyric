@@ -10,7 +10,12 @@
  */
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { ServeLogger } from './server.js';
-import { redactUpstreamText, redactUpstreamUrl, urlCredentials } from 'pyric/ai/internal';
+import {
+  redactUpstreamError,
+  redactUpstreamText,
+  redactUpstreamUrl,
+  urlCredentials,
+} from 'pyric/ai/internal';
 import { sanitizeForTerminal } from './ai-terminal-text.js';
 import { HOSTED_METHOD_BODY_LIMIT } from './hosted/method-protocol.js';
 import { answerAndClose, collectRawBody, isBodyTooLarge } from '../bridge/server/peer.js';
@@ -244,6 +249,66 @@ function requestCredentials(input: Parameters<typeof fetch>[0], init: RequestIni
   return found.filter((value): value is string => value !== null && value !== '');
 }
 
+function safeDecodeURIComponent(value: string): string {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
+
+function stripFetchUserinfo(
+  input: Parameters<typeof fetch>[0],
+  init: RequestInit | undefined,
+): {
+  fetchInput: Parameters<typeof fetch>[0];
+  fetchInit: RequestInit | undefined;
+  extraCredentials: string[];
+} {
+  if (input instanceof Request) {
+    return { fetchInput: input, fetchInit: init, extraCredentials: [] };
+  }
+  let parsed: URL;
+  try {
+    parsed = new URL(String(input));
+  } catch {
+    return { fetchInput: input, fetchInit: init, extraCredentials: [] };
+  }
+  if (
+    (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') ||
+    (parsed.username === '' && parsed.password === '')
+  ) {
+    return { fetchInput: input, fetchInit: init, extraCredentials: [] };
+  }
+  const decodedUser = safeDecodeURIComponent(parsed.username);
+  const decodedPass = safeDecodeURIComponent(parsed.password);
+  const basicToken = Buffer.from(`${decodedUser}:${decodedPass}`, 'utf8').toString('base64');
+  parsed.username = '';
+  parsed.password = '';
+  const entries = headerEntries(init?.headers);
+  const hasAuthorization = headerValue(entries, 'authorization') !== null;
+  let nextHeaders: HeadersInit | undefined = init?.headers;
+  if (!hasAuthorization) {
+    if (init?.headers instanceof Headers) {
+      const clone = new Headers(init.headers);
+      clone.set('authorization', `Basic ${basicToken}`);
+      nextHeaders = clone;
+    } else if (Array.isArray(init?.headers)) {
+      nextHeaders = [...init.headers, ['authorization', `Basic ${basicToken}`]];
+    } else {
+      nextHeaders = {
+        ...((init?.headers as Record<string, string> | undefined) ?? {}),
+        authorization: `Basic ${basicToken}`,
+      };
+    }
+  }
+  return {
+    fetchInput: parsed.toString(),
+    fetchInit: { ...(init ?? {}), ...(nextHeaders !== undefined ? { headers: nextHeaders } : {}) },
+    extraCredentials: [basicToken],
+  };
+}
+
 /** Shared upstream I/O for the browser proxy and the direct Node engine.
  * Responses remain incremental; cancellation stops reading without a warning.
  */
@@ -256,14 +321,16 @@ export async function fetchAiUpstream(
 ): Promise<Response> {
   const isRequest = input instanceof Request;
   const target = isRequest ? input.url : String(input);
+  const { fetchInput, fetchInit, extraCredentials } = stripFetchUserinfo(input, init);
+  const credentials = [...requestCredentials(input, init), ...extraCredentials];
   const startedAt = Date.now();
   const note = (failure: AiProxyFailure): void => noteAiProxyFailure(failure, throttle, logger, source);
   let upstream: Response;
   try {
-    upstream = await fetch(input, init);
+    upstream = await fetch(fetchInput, fetchInit);
   } catch (error) {
     note({ kind: 'unreachable', target, latencyMs: Date.now() - startedAt,
-      cause: error instanceof Error ? error.message : String(error), credentials: requestCredentials(input, init) });
+      cause: error instanceof Error ? error.message : String(error), credentials });
     throw error;
   }
   const failed = !upstream.ok;
@@ -274,7 +341,7 @@ export async function fetchAiUpstream(
       target,
       latencyMs: Date.now() - startedAt,
       status: upstream.status,
-      credentials: requestCredentials(input, init),
+      credentials,
       ...(retryAfter !== null ? { retryAfter } : {}),
     });
   }
@@ -293,7 +360,7 @@ export async function fetchAiUpstream(
       } catch (error) {
         if (cancelled) return;
         note({ kind: 'stream-abort', target, latencyMs: Date.now() - startedAt,
-          cause: error instanceof Error ? error.message : String(error), credentials: requestCredentials(input, init) });
+          cause: error instanceof Error ? error.message : String(error), credentials });
         controller.error(error);
       }
     },
@@ -380,6 +447,12 @@ export async function handleAiProxy(
     headers[key] = Array.isArray(value) ? value.join(', ') : value;
   }
 
+  const { extraCredentials } = stripFetchUserinfo(target, { headers });
+  const credentials = [
+    ...urlCredentials(upstreamBase),
+    ...requestCredentials(target, { headers }),
+    ...extraCredentials,
+  ];
   let upstream: Response;
   try {
     upstream = await fetchAiUpstream(target, { method: 'POST', headers, body }, throttle, logger);
@@ -388,13 +461,23 @@ export async function handleAiProxy(
     // The 502 body quotes the same two strings the terminal block does, so it
     // gets the same masking: the target carries the page's own query string,
     // a fetch error routinely echoes the URL back, and it can quote a header.
-    const credentials = [...urlCredentials(upstreamBase), ...requestCredentials(target, { headers })];
     res.writeHead(502, { 'content-type': 'text/plain' });
     res.end(
       `pyric dev ai-proxy: upstream ${redactUpstreamText(target, credentials)} unreachable: ${redactUpstreamText(cause, credentials)}\n` +
         'Set PYRIC_AI_PROXY_UPSTREAM to an OpenAI-compatible base URL ' +
         `(default ${AI_PROXY_DEFAULT_UPSTREAM}).`,
     );
+    return;
+  }
+
+  if (!upstream.ok) {
+    const rawError = await upstream.text().catch(() => '');
+    const redactedError = redactUpstreamError(rawError, credentials);
+    const responseHeaders: Record<string, string> = { 'cache-control': 'no-store' };
+    const contentType = upstream.headers.get('content-type');
+    if (contentType) responseHeaders['content-type'] = contentType;
+    res.writeHead(upstream.status, responseHeaders);
+    res.end(redactedError);
     return;
   }
 

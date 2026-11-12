@@ -40,10 +40,16 @@ import type { FlowConfig } from './flow-config.js';
  * to the in-page sandbox (single-tab, ephemeral).
  */
 import type { Plugin, ResolvedConfig, UserConfig } from 'vite';
+import Module from 'node:module';
 import { createViteWorkerRuntime } from './vite-worker-runtime.js';
 import { findFirebaseProjectDir } from '../cli/firebase-project.js';
 import { readPyricConfig } from '../cli/pyric-config.js';
+import { UNSUPPORTED_RUNTIME_CODE } from '../cli/unsupported-runtime.js';
+import { isLiveRegisterActive, isRegisterActive } from '../register/activation.js';
 import { warnDeprecatedGuardEnvOnce } from '../register/deprecated-guard-env.js';
+import { canonicalFirebaseSpecifier } from '../register/mapping.js';
+import { requireRegisterHooks } from '../register/node-version-stop.js';
+import { createStopReporter, suppliedRowsStopFor } from '../register/swap-or-stop.js';
 import { resolveOwnersConfig, type OwnersConfig } from './owners-config.js';
 import type { PyricAiOptions } from './vite-ai-config.js';
 import type { PyricAvatarsOptions } from './avatars-config.js';
@@ -55,12 +61,13 @@ import {
   type ViteSandboxGenerationOptions,
 } from './vite-sandbox-generation.js';
 import { localGenerationSlot, projectGenerationSlot, projectSessionToken } from './vite-generation-registry.js';
+import { registerProjectSessionPolicy } from './local-session-token.js';
 import { attachViteHtmlSessionBootstrap, currentViteHtmlPeerContext } from './vite-generation-middleware.js';
 import { createViteModuleContext, createViteModuleSwap } from './vite-module-swap.js';
 import { createVitePageRuntime } from './vite-page-runtime.js';
 import { stampHostedTarget } from './runtime/hosted-target.js';
 import { attachLiveSdkRequestGate } from './vite-live-sdk-requests.js';
-import { installViteProcessStop } from './vite-process-stop.js';
+import { installViteProcessStop, type SyncResolve } from './vite-process-stop.js';
 import { attachViteSsrActivation } from './vite-ssr-activation.js';
 import { createServiceWorkerWiring, type ServiceWorkerWiringContext } from './vite-service-worker.js';
 import type { SwapEnvironment, SwapResolveContext } from './vite-module-swap.js';
@@ -258,6 +265,83 @@ async function openSuppliedRows(supplied: SuppliedRows, resolved: ResolvedConfig
   if (needsAllowance) allow.push(found.root);
 }
 
+const VITE_LIVE_PROCESS_STOP = Symbol.for('pyric.viteLiveProcessStop');
+const BUN_TEST_ENTRYPOINT = /\.(?:test|spec)\.[cm]?[jt]sx?$/;
+const liveStopModuleApi = Module as unknown as {
+  registerHooks?: (hooks: { resolve: SyncResolve }) => void;
+};
+
+interface LiveProcessStopState {
+  supplied: SuppliedRows | undefined;
+}
+
+function isInProcessBunTest(): boolean {
+  const bunGlobal = (globalThis as { Bun?: { main?: unknown } }).Bun;
+  return typeof bunGlobal?.main === 'string' && BUN_TEST_ENTRYPOINT.test(bunGlobal.main);
+}
+
+function clearViteLiveProcessStop(): void {
+  const slot = globalThis as unknown as Record<symbol, unknown>;
+  const installed = slot[VITE_LIVE_PROCESS_STOP] as LiveProcessStopState | undefined;
+  if (installed !== undefined) {
+    installed.supplied = undefined;
+  }
+}
+
+function installViteLiveProcessStop(supplied: SuppliedRows): void {
+  if (isRegisterActive() || isLiveRegisterActive()) return;
+  const slot = globalThis as unknown as Record<symbol, unknown>;
+  const installed = slot[VITE_LIVE_PROCESS_STOP] as LiveProcessStopState | undefined;
+  if (installed !== undefined) {
+    installed.supplied = supplied;
+    return;
+  }
+  const write = (line: string): void => void process.stderr.write(line);
+  if (typeof process.versions.bun === 'string') {
+    if (isInProcessBunTest()) return;
+    const message =
+      `@pyric/live/vite: Bun ${process.versions.bun} does not run Node module.registerHooks [${UNSUPPORTED_RUNTIME_CODE}].\n` +
+      '  Without synchronous module.registerHooks, externalized server imports of firebase and firebase-admin cannot be refused in live mode.\n' +
+      '  Run Vite under Node >= 22.15 (for example `npx vite dev`).\n' +
+      `  code: ${UNSUPPORTED_RUNTIME_CODE}`;
+    const error = Object.assign(new Error(message), { code: UNSUPPORTED_RUNTIME_CODE });
+    write(`${error.message}\n`);
+    throw error;
+  }
+  const registerHooks = requireRegisterHooks(
+    liveStopModuleApi.registerHooks?.bind(Module),
+    '@pyric/live/vite',
+    process.versions.node,
+    write,
+  );
+  const state: LiveProcessStopState = { supplied };
+  const report = createStopReporter(write);
+  registerHooks({
+    resolve(specifier, context, nextResolve) {
+      const result = nextResolve(specifier, context);
+      const activeSupplied = state.supplied;
+      if (activeSupplied === undefined || isRegisterActive() || isLiveRegisterActive()) {
+        return result;
+      }
+      const stopped = suppliedRowsStopFor(
+        {
+          specifier,
+          canonical: canonicalFirebaseSpecifier(specifier),
+          importer: context.parentURL,
+          url: result.url,
+        },
+        new Set(),
+        { isRowImport: false, isEsmImport: false },
+      );
+      if (stopped === null) return result;
+      const refusal = activeSupplied.refusal(specifier, 'server');
+      report(Object.assign(new Error(refusal.message), { url: result.url, specifier }));
+      throw refusal;
+    },
+  });
+  slot[VITE_LIVE_PROCESS_STOP] = state;
+}
+
 /**
  * Live mode's refusal of pyric's own writes, for a plugin with live rows; none
  * for `pyric()`. The rows opened in `configResolved`, so shut rows here mean
@@ -334,15 +418,18 @@ export function createPyricPlugin(options: PyricOptions, supplied?: SuppliedRows
     enforce: 'pre',
 
     config(config, env) {
-      if (supplied === undefined) {
-        warnDeprecatedGuardEnvOnce(process.env);
-      }
+      warnDeprecatedGuardEnvOnce(process.env);
       // Only the dev server: a build or a preview runs no server-rendered app
       // code. The stop hook covers what Node loads itself in this process,
       // such as an externalized package that imports firebase-admin (ADR 0022).
       const isDevServer = env.command === 'serve' && env.isPreview !== true;
-      if (isDevServer && supplied === undefined) {
-        installViteProcessStop({ getAiMode: () => pageRuntime.ai().mode });
+      if (isDevServer) {
+        if (supplied === undefined) {
+          clearViteLiveProcessStop();
+          installViteProcessStop({ getAiMode: () => pageRuntime.ai().mode });
+        } else {
+          installViteLiveProcessStop(supplied);
+        }
       }
       serviceWorkerContext = { ...serviceWorkerContext, devServer: isDevServer };
       const moduleConfig = moduleSwap.config({ devServer: isDevServer, userConfig: config });
@@ -394,8 +481,10 @@ export function createPyricPlugin(options: PyricOptions, supplied?: SuppliedRows
 
       transform(code, id, transformOptions) {
         if (transformOptions?.ssr === true) return null;
-        const wiredServiceWorker = serviceWorkerWiring.transform(code, id, serviceWorkerContext);
-        if (wiredServiceWorker !== null) return wiredServiceWorker;
+        if (supplied === undefined) {
+          const wiredServiceWorker = serviceWorkerWiring.transform(code, id, serviceWorkerContext);
+          if (wiredServiceWorker !== null) return wiredServiceWorker;
+        }
         if (hostedInstanceId === undefined) return null;
         const cleanId = id.split('?')[0];
         if (cleanId === entries.app || cleanId === entries['messaging-sw']) {
@@ -412,11 +501,21 @@ export function createPyricPlugin(options: PyricOptions, supplied?: SuppliedRows
         fresh: options.fresh === true,
       });
       activeSessionToken = sessionToken;
+      const middlewareStack = (server.middlewares as { stack?: unknown[] }).stack;
+      const stackBeforePyricPre = Array.isArray(middlewareStack) ? middlewareStack.length : 0;
       // Before Vite's own middleware, which follows symlinks into `.pyric/` and to `.env`.
       attachViteRealPathDeny(server, projectDir);
       attachViteHtmlSessionBootstrap(server, () => activeSessionToken);
       // Before Vite's too, which drops a `t=` query: a loaded SDK file under another URL is an unwrapped copy.
       if (supplied !== undefined) attachLiveSdkRequestGate(server, supplied);
+      if (
+        Array.isArray(middlewareStack) &&
+        stackBeforePyricPre > 0 &&
+        middlewareStack.length > stackBeforePyricPre
+      ) {
+        const added = middlewareStack.splice(stackBeforePyricPre);
+        middlewareStack.unshift(...added);
+      }
       const slot = ownsProjectState ? projectGenerationSlot(projectDir, stateScope) : instanceSlot;
       await slot.take()?.close();
       const pyricConfig = await readPyricConfig(projectDir);
@@ -425,6 +524,10 @@ export function createPyricPlugin(options: PyricOptions, supplied?: SuppliedRows
         supplied !== undefined ||
         options.sessionToken === true ||
         (options.sessionToken === undefined && pyricConfig.sessionToken === true);
+      const unregisterProjectPolicy = registerProjectSessionPolicy(projectDir, {
+        token: sessionToken,
+        requireSessionToken,
+      });
 
       const uiEnabled = options.ui ?? true;
       const functionsOptions = resolveFunctionsOptions(options.functions);
@@ -458,7 +561,13 @@ export function createPyricPlugin(options: PyricOptions, supplied?: SuppliedRows
         ai,
         sessionToken,
       };
-      const generation = await createViteSandboxGeneration(generationInput);
+      let generation: Awaited<ReturnType<typeof createViteSandboxGeneration>>;
+      try {
+        generation = await createViteSandboxGeneration(generationInput);
+      } catch (error) {
+        unregisterProjectPolicy();
+        throw error;
+      }
       slot.set(generation);
       // Server-rendered firebase/* and firebase-admin/* reach this server's host (#1123).
       const ssrActivation = attachViteSsrActivation(server, options.hosted === true);
@@ -476,6 +585,7 @@ export function createPyricPlugin(options: PyricOptions, supplied?: SuppliedRows
       const closeServer = server.close.bind(server);
       server.close = async () => {
         slot.release(generation);
+        unregisterProjectPolicy();
         ssrActivation.close();
         stopProxyReport();
         try {
@@ -500,10 +610,14 @@ export function createPyricPlugin(options: PyricOptions, supplied?: SuppliedRows
 
     transformIndexHtml(html) {
       const peerContext = currentViteHtmlPeerContext();
-      const stampToken = peerContext?.localPeer === false ? undefined : activeSessionToken;
+      const stampToken = peerContext?.localPeer === true ? activeSessionToken : undefined;
+      const stampProject =
+        activeSessionToken === undefined || peerContext?.localPeer === true
+          ? hostedProjectKey
+          : undefined;
       return stampHostedTarget(
         pageRuntime.transformIndexHtml(html),
-        hostedProjectKey,
+        stampProject,
         owners,
         hostedInstanceId,
         stampToken,

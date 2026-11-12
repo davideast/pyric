@@ -114,6 +114,12 @@ function tokenizeShellScript(script: string): string[] {
 
   while (i < script.length) {
     const ch = script[i]!;
+    if (ch === '\n' || ch === '\r') {
+      flush();
+      tokens.push(';');
+      i++;
+      continue;
+    }
     if (/\s/.test(ch)) {
       flush();
       i++;
@@ -172,6 +178,7 @@ type ScanState =
   | { readonly kind: 'command' }
   | { readonly kind: 'args' }
   | { readonly kind: 'env'; readonly acceptFlags: boolean }
+  | { readonly kind: 'npm' }
   | { readonly kind: 'npx' }
   | { readonly kind: 'pkg-manager' }
   | { readonly kind: 'dlx' }
@@ -189,6 +196,7 @@ function enterCommandToken(token: string): { readonly hit: string | null; readon
   const direct = UNSUPPORTED_RUNTIME_BINARIES.get(base);
   if (direct !== undefined) return { hit: direct, next: { kind: 'args' } };
   if (base === 'env') return { hit: null, next: { kind: 'env', acceptFlags: true } };
+  if (base === 'npm') return { hit: null, next: { kind: 'npm' } };
   if (base === 'npx') return { hit: null, next: { kind: 'npx' } };
   if (base === 'pnpm' || base === 'yarn') return { hit: null, next: { kind: 'pkg-manager' } };
   if (SHELL_BINARIES.has(base)) return { hit: null, next: { kind: 'shell' } };
@@ -269,6 +277,25 @@ function detectInTokens(rawArgv: readonly string[], depth: number): string | nul
         }
         break;
       }
+      case 'npm': {
+        if (token === 'exec' || token === 'x') {
+          state = { kind: 'npx' };
+        } else if (
+          token === '--prefix' ||
+          token === '-C' ||
+          token === '--workspace' ||
+          token === '-w' ||
+          token === '--userconfig' ||
+          token === '--cache'
+        ) {
+          state = { kind: 'skip-one', next: state };
+        } else if (token.startsWith('-')) {
+          // Other npm global flags (--silent, --workspaces, --yes)
+        } else {
+          state = { kind: 'args' };
+        }
+        break;
+      }
       case 'npx': {
         if (token === '--') {
           state = { kind: 'runner-target' };
@@ -297,6 +324,8 @@ function detectInTokens(rawArgv: readonly string[], depth: number): string | nul
       case 'pkg-manager': {
         if (token === 'dlx' || token === 'exec') {
           state = { kind: 'dlx' };
+        } else if (token === '--') {
+          // `pnpm -- bun app.ts` or `yarn -- deno ...`
         } else if (
           token === '--dir' ||
           token === '-C' ||
@@ -308,6 +337,8 @@ function detectInTokens(rawArgv: readonly string[], depth: number): string | nul
         } else if (token.startsWith('-')) {
           // Other pnpm/yarn flags (--silent, -s, -w, --workspace-root)
         } else {
+          const hit = runtimeFromPackageSpec(token);
+          if (hit !== undefined) return hit;
           state = { kind: 'args' };
         }
         break;
@@ -334,7 +365,7 @@ function detectInTokens(rawArgv: readonly string[], depth: number): string | nul
         break;
       }
       case 'shell': {
-        if (/^-[A-Za-z]*c$/.test(token) || token === '--command') {
+        if (/^-[A-Za-ln-np-z]*c[A-Za-ln-np-z]*$/.test(token) || token === '--command') {
           state = { kind: 'script-next', after: { kind: 'args' } };
         } else if (token === '-o' || token === '+o') {
           state = { kind: 'skip-one', next: state };

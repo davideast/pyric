@@ -39,13 +39,14 @@
 import { dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
+  OBSERVER_MODULE_ID,
   livePassThroughLine,
   liveProjectFor,
   pyricWithSuppliedRows,
   type PyricOptions,
   type SuppliedRowsPlane,
 } from '@pyric/cli/vite/internal/supplied-rows';
-import { serveHostProject } from './page-modules.js';
+import { serveHostProject, withObserverProject } from './page-modules.js';
 import { canPassThrough, liveRefusal, passThroughOption, refusedImportsLine, withPassThroughHint } from './refusal.js';
 import { liveStartLine, passThroughLines } from './start-line.js';
 import { liveStartRefusal } from './start-checks.js';
@@ -53,11 +54,12 @@ import { liveStartRefusal } from './start-checks.js';
 type PyricPlugin = ReturnType<typeof pyricWithSuppliedRows>;
 type ConfigResolvedHook = Extract<PyricPlugin['configResolved'], (...args: never[]) => unknown>;
 type ConfigureServerHook = Extract<PyricPlugin['configureServer'], (...args: never[]) => unknown>;
+type LoadHook = Extract<PyricPlugin['load'], (...args: never[]) => unknown>;
 type ResolvedConfig = Parameters<ConfigResolvedHook>[0];
 type DevServer = Parameters<ConfigureServerHook>[0];
 
 /** The plugin options live mode takes: `@pyric/cli`'s, always on the Node host, and the imports that pass through. */
-export type PyricLiveOptions = Omit<PyricOptions, 'hosted' | 'swapInBuild' | 'sessionToken'> & {
+export type PyricLiveOptions = Omit<PyricOptions, 'hosted' | 'swapInBuild' | 'sessionToken' | 'serviceWorker'> & {
   /**
    * Firebase imports live mode does not serve, such as `firebase/functions`
    * or `firebase/remote-config`, that load the app's installed SDK unwrapped. Their
@@ -107,13 +109,19 @@ function isDevServer(_config: unknown, env: { command: string; isPreview?: boole
 
 /** Live mode for `vite dev`. */
 export function pyricLive(options: PyricLiveOptions = {}): PyricPlugin {
-  const { passThrough: listed, ...pyricOptions } = options;
+  const {
+    passThrough: listed,
+    serviceWorker: _ignoredServiceWorker,
+    ...pyricOptions
+  } = options as PyricLiveOptions & { serviceWorker?: unknown };
+  void _ignoredServiceWorker;
   const passThrough = passThroughOption(ENTRY, listed);
   let logError: LogLine | undefined;
   const refusal = pageRefusal(() => logError);
   const hosted = pyricWithSuppliedRows({ ...pyricOptions, hosted: true }, { refusal, liveRoot: LIVE_ROOT, passThrough });
   const configResolved = hosted.configResolved as ConfigResolvedHook | undefined;
   const configureServer = hosted.configureServer as ConfigureServerHook | undefined;
+  const load = hosted.load as LoadHook | undefined;
   let projectId = '';
   return {
     ...hosted,
@@ -125,6 +133,17 @@ export function pyricLive(options: PyricLiveOptions = {}): PyricPlugin {
       serveHostProject(projectId);
       logError = (line) => resolved.logger.error(line, { timestamp: true });
       await configResolved?.call(this as never, resolved);
+    },
+    async load(this: unknown, id: string, ...rest: unknown[]) {
+      const source = await (load as ((this: unknown, id: string, ...args: unknown[]) => unknown) | undefined)?.call(
+        this,
+        id,
+        ...rest,
+      );
+      if (id === OBSERVER_MODULE_ID && typeof source === 'string' && projectId !== '') {
+        return withObserverProject(source, projectId);
+      }
+      return source;
     },
     async configureServer(this: unknown, server: DevServer) {
       await configureServer?.call(this as never, server);

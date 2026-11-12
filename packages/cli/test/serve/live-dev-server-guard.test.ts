@@ -83,6 +83,12 @@ outcome.testRulesHosted = await method('assurance.testRulesHosted', {
 }, true);
 outcome.status = await method('storage.status', { confirm: true }, true);
 outcome.impersonate = await method('auth.impersonate', { uid: 'alice' }, false);
+try {
+  await server.ssrLoadModule('/ssr-entry.mjs');
+  outcome.externalSsrAdmin = 'loaded-unstopped';
+} catch (err) {
+  outcome.externalSsrAdmin = (err?.code ?? 'no-code');
+}
 await server.close();
 console.log('OUTCOME ' + JSON.stringify(outcome));
 process.exit(0);
@@ -115,6 +121,22 @@ beforeAll(async () => {
   // The Firebase project live mode names; every live start refuses without one.
   writeFileSync(join(projectDir, '.firebaserc'), JSON.stringify({ projects: { default: 'live-guard' } }));
   writeFileSync(join(projectDir, 'index.html'), '<p>live</p>');
+  mkdirSync(join(projectDir, 'node_modules/firebase-admin'), { recursive: true });
+  writeFileSync(
+    join(projectDir, 'node_modules/firebase-admin/package.json'),
+    JSON.stringify({ name: 'firebase-admin', version: '13.6.0', type: 'module', exports: { './app': './app.js' } }),
+  );
+  writeFileSync(join(projectDir, 'node_modules/firebase-admin/app.js'), 'export const REAL_ADMIN = true;\n');
+  mkdirSync(join(projectDir, 'node_modules/ssr-helper'), { recursive: true });
+  writeFileSync(
+    join(projectDir, 'node_modules/ssr-helper/package.json'),
+    JSON.stringify({ name: 'ssr-helper', version: '1.0.0', type: 'module', exports: './index.js' }),
+  );
+  writeFileSync(
+    join(projectDir, 'node_modules/ssr-helper/index.js'),
+    "export { REAL_ADMIN } from 'firebase-admin/app';\n",
+  );
+  writeFileSync(join(projectDir, 'ssr-entry.mjs'), "export { REAL_ADMIN } from 'ssr-helper';\n");
   writeFileSync(join(projectDir, 'scenario.mjs'), SCENARIO);
 });
 
@@ -150,6 +172,7 @@ describe('a live dev server process with pyricLive()', () => {
       testRulesHosted: refusedCommand('assurance.testRulesHosted'),
       status: refusedCommand('storage.status'),
       impersonate: refusedCommand('auth.impersonate'),
+      externalSsrAdmin: 'PYRIC_LIVE_REFUSED',
     });
     expect(result.stderr).not.toContain('unobserved call to');
   }, 70_000);

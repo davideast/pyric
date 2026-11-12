@@ -14,6 +14,7 @@
 import { createServer, type IncomingHttpHeaders, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { timingSafeEqual } from 'node:crypto';
 import { createReadStream, existsSync, statSync } from 'node:fs';
+import { Socket } from 'node:net';
 import { pipeline } from 'node:stream';
 import { extname, join, normalize, resolve, sep } from 'node:path';
 import { isHostingIgnoredPathname, isHostingIgnoredRealFile } from './hosting-ignore.js';
@@ -98,8 +99,11 @@ export function isAllowedHost(
   if (!hostHeader) return true; // no Host → not a browser rebinding attack
   const hostname = hostHeader.replace(/:\d+$/, '').replace(/^\[|\]$/g, '').toLowerCase();
   const boundHostname = boundHost.replace(/:\d+$/, '').replace(/^\[|\]$/g, '').toLowerCase();
+  if (hostname === 'localhost' || isLoopbackAddress(hostname) || hostname === boundHostname) {
+    return true;
+  }
   const allowed = new Set(
-    ['localhost', '127.0.0.1', '::1', '0.0.0.0', boundHostname, ...extra.map((h) => h.replace(/:\d+$/, '').replace(/^\[|\]$/g, '').toLowerCase())],
+    extra.map((h) => h.replace(/:\d+$/, '').replace(/^\[|\]$/g, '').toLowerCase()),
   );
   return allowed.has(hostname);
 }
@@ -108,19 +112,56 @@ export { isLocalPeer, isLoopbackAddress };
 
 export const PYRIC_SESSION_COOKIE_NAME = '__pyric_session';
 
-export function formatSessionCookie(sessionToken: string): string {
-  return `${PYRIC_SESSION_COOKIE_NAME}=${encodeURIComponent(sessionToken)}; HttpOnly; SameSite=Strict; Path=/__pyric`;
+export function sessionCookieNameForPort(port?: number): string {
+  return port !== undefined && Number.isInteger(port) && port > 0
+    ? `${PYRIC_SESSION_COOKIE_NAME}_${port}`
+    : PYRIC_SESSION_COOKIE_NAME;
+}
+
+export function formatSessionCookie(
+  sessionToken: string,
+  options?: { port?: number; secure?: boolean },
+): string {
+  const cookieName = sessionCookieNameForPort(options?.port);
+  const secureAttr = options?.secure === true ? '; Secure' : '';
+  return `${cookieName}=${encodeURIComponent(sessionToken)}; HttpOnly; SameSite=Strict; Path=/__pyric${secureAttr}`;
 }
 
 export function appendSetCookieHeader(res: ServerResponse, cookie: string): void {
+  let effectiveCookie = cookie;
+  const socket = res.socket as (Socket & { encrypted?: boolean }) | null | undefined;
+  if (effectiveCookie.startsWith(`${PYRIC_SESSION_COOKIE_NAME}=`)) {
+    const localPort = socket?.localPort;
+    if (localPort !== undefined && Number.isInteger(localPort) && localPort > 0) {
+      effectiveCookie = `${sessionCookieNameForPort(localPort)}=${effectiveCookie.slice(PYRIC_SESSION_COOKIE_NAME.length + 1)}`;
+    }
+  }
+  if (
+    socket?.encrypted === true &&
+    effectiveCookie.startsWith(PYRIC_SESSION_COOKIE_NAME) &&
+    !/;\s*secure\b/i.test(effectiveCookie)
+  ) {
+    effectiveCookie = `${effectiveCookie}; Secure`;
+  }
   const existing = res.getHeader('set-cookie');
   if (existing === undefined) {
-    res.setHeader('set-cookie', cookie);
+    res.setHeader('set-cookie', effectiveCookie);
   } else if (Array.isArray(existing)) {
-    res.setHeader('set-cookie', [...existing.map(String), cookie]);
+    res.setHeader('set-cookie', [...existing.map(String), effectiveCookie]);
   } else {
-    res.setHeader('set-cookie', [String(existing), cookie]);
+    res.setHeader('set-cookie', [String(existing), effectiveCookie]);
   }
+}
+
+export function requestSocketScheme(
+  req: { socket?: object | null } | undefined,
+): 'http:' | 'https:' | undefined {
+  const socket = req?.socket as { encrypted?: boolean } | null | undefined;
+  if (!socket) return undefined;
+  if (socket.encrypted === true) return 'https:';
+  if (socket.encrypted === false) return 'http:';
+  if (socket instanceof Socket) return 'http:';
+  return undefined;
 }
 
 /**
@@ -133,8 +174,9 @@ export function appendSetCookieHeader(res: ServerResponse, cookie: string): void
  * port is known (from `boundPort`, or as `:port` on `boundHost`), that the
  * Origin's port, or its scheme's default, is that port: another app on another
  * local port is a different origin. A hostname allowed only through `extra`
- * (a tunnel, say) reaches the server on a public port of its own, so its port
- * is not compared.
+ * (a tunnel, say) reaches the server on its default public port (`originUrl.port === ''`),
+ * while an explicit non-default port on that hostname must match `boundPort` or an
+ * explicit `host:port` entry in `extra`.
  *
  * A missing `Origin` is allowed: non-browser clients (curl, CLI peers, tests)
  * are not the cross-origin hijack vector.
@@ -144,6 +186,7 @@ export function isAllowedOrigin(
   boundHost: string,
   extra: string[] = [],
   boundPort?: number,
+  expectedScheme?: 'http:' | 'https:',
 ): boolean {
   if (!originHeader) return true; // no Origin → non-browser client, not a hijack
   let originUrl: URL;
@@ -152,13 +195,27 @@ export function isAllowedOrigin(
   } catch {
     return false; // malformed Origin → reject
   }
+  if (originUrl.protocol !== 'http:' && originUrl.protocol !== 'https:') {
+    return false;
+  }
   const hostname = originUrl.hostname; // may be `[::1]` — isAllowedHost strips brackets
   const allowedHost = isAllowedHost(hostname, boundHost, extra);
   if (!allowedHost) return false;
+  const normalizedHost = hostname.replace(/^\[|\]$/g, '').toLowerCase();
   const allowedByName = !isAllowedHost(hostname, boundHost) && isAllowedHost(hostname, boundHost, extra);
-  if (allowedByName) return true;
   const portOnHost = /:(\d+)$/.exec(boundHost)?.[1];
   const expectedPort = boundPort ?? (portOnHost === undefined ? undefined : Number(portOnHost));
+  if (allowedByName) {
+    if (originUrl.port === '' || expectedPort === undefined) return true;
+    const explicitHostPort = `${normalizedHost}:${originUrl.port}`;
+    const hasExplicitExtraPort = extra.some(
+      (entry) => entry.replace(/^\[|\]$/g, '').toLowerCase() === explicitHostPort,
+    );
+    return hasExplicitExtraPort || Number(originUrl.port) === expectedPort;
+  }
+  if (expectedScheme !== undefined && originUrl.protocol !== expectedScheme) {
+    return false;
+  }
   const portUnknown = expectedPort === undefined;
   if (portUnknown) return true;
   const defaultPort = originUrl.protocol === 'https:' ? 443 : 80;
@@ -177,10 +234,39 @@ export function isAllowedOriginOnPorts(
   boundHost: string,
   extra: string[],
   appPorts: readonly number[] | undefined,
+  expectedScheme?: 'http:' | 'https:',
 ): boolean {
   const portsUnknown = appPorts === undefined || appPorts.length === 0;
-  if (portsUnknown) return isAllowedOrigin(originHeader, boundHost, extra);
-  return appPorts.some((port) => isAllowedOrigin(originHeader, boundHost, extra, port));
+  if (portsUnknown) return isAllowedOrigin(originHeader, boundHost, extra, undefined, expectedScheme);
+  return appPorts.some((port) => isAllowedOrigin(originHeader, boundHost, extra, port, expectedScheme));
+}
+
+/**
+ * Rejects browser fetches marked `Sec-Fetch-Site: cross-site | same-site`, whether
+ * `Origin` is omitted or present, unless `Origin` names a learned secondary local
+ * proxy port in `appPorts` (such as Next.js `3000` connecting to `3473`).
+ */
+export function isForeignFetchSite(
+  req: {
+    headers?: IncomingHttpHeaders | Record<string, string | string[] | undefined> | Headers;
+    socket?: object | null;
+  },
+  boundHost = 'localhost',
+  appPorts?: readonly number[],
+): boolean {
+  const secFetchSite = getHeader(req, 'sec-fetch-site')?.trim().toLowerCase();
+  if (secFetchSite !== 'cross-site' && secFetchSite !== 'same-site') {
+    return false;
+  }
+  const originHeader = getHeader(req, 'origin');
+  if (!originHeader) return true;
+  const learnedSecondaryPorts =
+    appPorts !== undefined && appPorts.length > 1 ? appPorts.slice(1) : [];
+  if (learnedSecondaryPorts.length === 0) return true;
+  const scheme = requestSocketScheme(req);
+  return !learnedSecondaryPorts.some((port) =>
+    isAllowedOrigin(originHeader, boundHost, [], port, scheme),
+  );
 }
 
 /**
@@ -199,12 +285,13 @@ export function isAllowedUpgrade(
   boundHost: string,
   extra: string[] = [],
   appPorts?: readonly number[],
+  expectedScheme?: 'http:' | 'https:',
 ): boolean {
   const req = { headers };
   return (
     isAllowedHost(getHeader(req, 'host'), boundHost, extra) &&
-    isAllowedOriginOnPorts(getHeader(req, 'origin'), boundHost, extra, appPorts) &&
-    !isForeignFetchWithoutOrigin(req)
+    isAllowedOriginOnPorts(getHeader(req, 'origin'), boundHost, extra, appPorts, expectedScheme) &&
+    !isForeignFetchSite(req, boundHost, appPorts)
   );
 }
 
@@ -226,18 +313,14 @@ export function getHeader(
 }
 
 /**
- * Rejects browser fetches that omit `Origin` (`GET` navigation, `<script>`, `<img>`,
- * `EventSource`, or `no-cors` fetches) when Fetch Metadata marks the initiator as
+ * Rejects browser fetches when Fetch Metadata marks the initiator as
  * `cross-site` or `same-site` (including another local port). Non-browser CLI/MCP/SDK
  * requests carry neither `Origin` nor `Sec-Fetch-Site` and return false here.
  */
 export function isForeignFetchWithoutOrigin(
   req: { headers?: IncomingHttpHeaders | Record<string, string | string[] | undefined> | Headers },
 ): boolean {
-  const originHeader = getHeader(req, 'origin');
-  if (originHeader) return false;
-  const secFetchSite = getHeader(req, 'sec-fetch-site')?.trim().toLowerCase();
-  return secFetchSite === 'cross-site' || secFetchSite === 'same-site';
+  return isForeignFetchSite(req);
 }
 
 /**
@@ -255,14 +338,23 @@ export function timingSafeTokenMatch(
   return timingSafeEqual(a, b);
 }
 
-function extractSessionCookies(cookieHeader: string | undefined): string[] {
+function extractSessionCookies(cookieHeader: string | undefined, expectedPort?: number): string[] {
   if (!cookieHeader) return [];
+  const portCookieName =
+    expectedPort !== undefined && Number.isInteger(expectedPort) && expectedPort > 0
+      ? sessionCookieNameForPort(expectedPort)
+      : undefined;
   const out: string[] = [];
   for (const part of cookieHeader.split(';')) {
     const eq = part.indexOf('=');
     if (eq === -1) continue;
     const name = part.slice(0, eq).trim();
-    if (name !== PYRIC_SESSION_COOKIE_NAME) continue;
+    const matchesCookieName =
+      name === PYRIC_SESSION_COOKIE_NAME ||
+      (portCookieName !== undefined
+        ? name === portCookieName
+        : /^__pyric_session_\d+$/.test(name));
+    if (!matchesCookieName) continue;
     const raw = part.slice(eq + 1).trim();
     try {
       out.push(decodeURIComponent(raw));
@@ -275,13 +367,16 @@ function extractSessionCookies(cookieHeader: string | undefined): string[] {
 
 /**
  * Validates a session capability token from the `x-pyric-session-token` header
- * or the `__pyric_session` HttpOnly cookie using constant-time comparison.
+ * or the `__pyric_session` / `__pyric_session_<port>` HttpOnly cookie using constant-time comparison.
  * Query-string `?token=` parameters are ignored. Fails closed if `expectedToken`
  * is omitted or empty.
  */
 export function isAllowedSessionToken(
-  req: { headers?: IncomingHttpHeaders | Record<string, string | string[] | undefined> | Headers },
-  _url: URL | undefined,
+  req: {
+    headers?: IncomingHttpHeaders | Record<string, string | string[] | undefined> | Headers;
+    socket?: { localPort?: number } | null;
+  },
+  url: URL | undefined,
   expectedToken: string | undefined,
 ): boolean {
   if (!expectedToken) return false;
@@ -289,7 +384,11 @@ export function isAllowedSessionToken(
   if (headerToken !== undefined && timingSafeTokenMatch(headerToken, expectedToken)) {
     return true;
   }
-  const cookies = extractSessionCookies(getHeader(req, 'cookie'));
+  const socketPort = req?.socket?.localPort;
+  const urlPort = url?.port ? Number(url.port) : undefined;
+  const expectedPort =
+    socketPort !== undefined && socketPort > 0 ? socketPort : urlPort;
+  const cookies = extractSessionCookies(getHeader(req, 'cookie'), expectedPort);
   return cookies.some((cookie) => timingSafeTokenMatch(cookie, expectedToken));
 }
 
@@ -302,29 +401,34 @@ export function isAllowedSessionToken(
  * Origin's hostname is compared.
  */
 export function isAllowedLoopbackRequest(
-  req: { headers?: IncomingHttpHeaders | Record<string, string | string[] | undefined> | Headers },
+  req: {
+    headers?: IncomingHttpHeaders | Record<string, string | string[] | undefined> | Headers;
+    socket?: object | null;
+  },
   boundHost: string,
   extra: string[] = [],
   appPorts?: readonly number[],
 ): boolean {
   const hostHeader = getHeader(req, 'host');
   const originHeader = getHeader(req, 'origin');
+  const scheme = requestSocketScheme(req);
   return (
     isAllowedHost(hostHeader, boundHost, extra) &&
-    isAllowedOriginOnPorts(originHeader, boundHost, extra, appPorts) &&
-    !isForeignFetchWithoutOrigin(req)
+    isAllowedOriginOnPorts(originHeader, boundHost, extra, appPorts, scheme) &&
+    !isForeignFetchSite(req, boundHost, appPorts)
   );
 }
 
 /**
  * Determines whether an HTML response may stamp `sessionToken` into inline init
- * scripts and emit `Set-Cookie: __pyric_session`.
+ * scripts and emit `Set-Cookie: __pyric_session_<port>`.
  *
  * Requires a loopback socket peer AND a loopback/bound `Host` header (ignoring
- * `--allowed-host` / Vite `allowedHosts: true`, so tunnel/rebound hosts never
- * receive session capabilities), refuses foreign `Origin` headers (port-aware),
- * and refuses cross-site / cross-port Fetch Metadata unless the request is a
- * top-level document navigation (`Sec-Fetch-Mode: navigate` + `Sec-Fetch-Dest: document`).
+ * `--allowed-host` / Vite `allowedHosts: true` and rejecting wildcard `0.0.0.0` / `::`,
+ * so tunnel/rebound hosts never receive session capabilities), refuses foreign
+ * `Origin` headers (port-aware), and refuses cross-site / cross-port Fetch Metadata
+ * unless the request is a top-level document navigation
+ * (`Sec-Fetch-Mode: navigate` + `Sec-Fetch-Dest: document`).
  */
 export function canBootstrapHtmlSession(
   req: IncomingMessage,
@@ -332,9 +436,13 @@ export function canBootstrapHtmlSession(
   appPorts?: readonly number[],
 ): boolean {
   if (!isLocalPeer(req)) return false;
-  if (!isAllowedHost(getHeader(req, 'host'), boundHost)) return false;
+  const hostHeader = getHeader(req, 'host');
+  const hostname = hostHeader?.replace(/:\d+$/, '').replace(/^\[|\]$/g, '').toLowerCase();
+  if (hostname === '0.0.0.0' || hostname === '::') return false;
+  if (!isAllowedHost(hostHeader, boundHost)) return false;
   const ports = appPorts ?? (req.socket?.localPort ? [req.socket.localPort] : undefined);
-  if (!isAllowedOriginOnPorts(getHeader(req, 'origin'), boundHost, [], ports)) return false;
+  const scheme = requestSocketScheme(req);
+  if (!isAllowedOriginOnPorts(getHeader(req, 'origin'), boundHost, [], ports, scheme)) return false;
   const secFetchSite = getHeader(req, 'sec-fetch-site')?.trim().toLowerCase();
   if (secFetchSite === 'cross-site' || secFetchSite === 'same-site') {
     const secFetchMode = getHeader(req, 'sec-fetch-mode')?.trim().toLowerCase();

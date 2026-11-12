@@ -686,6 +686,76 @@ describe('/__pyric/ai-proxy terminal diagnostics', () => {
     });
     expect(res.status).toBe(502);
   });
+
+  it('redacts configured query, header, and userinfo credentials from non-2xx upstream error bodies and forwards URL userinfo via Basic Authorization', async () => {
+    const configuredKey = 'provider-key-secret-value';
+    const bearerSecret = 'bearer-secret-token-value';
+    let seenAuthHeader: string | null = null;
+
+    const upstream = Bun.serve({
+      port: 0,
+      hostname: '127.0.0.1',
+      fetch(req) {
+        const reqUrl = new URL(req.url);
+        if (reqUrl.searchParams.has('key')) {
+          return new Response(
+            JSON.stringify({
+              error: {
+                message: `Upstream rejected ${req.url} with auth ${req.headers.get('authorization') ?? ''} and encoded ${encodeURIComponent(configuredKey)}`,
+              },
+            }),
+            { status: 401, headers: { 'content-type': 'application/json' } },
+          );
+        }
+        seenAuthHeader = req.headers.get('authorization');
+        return Response.json({ id: 'cmpl-basic', choices: [] });
+      },
+    });
+    upstreams.push(upstream);
+
+    const hKey = await startServe(
+      `http://127.0.0.1:${upstream.port}/v1/chat/completions?key=${configuredKey}`,
+    );
+    const errRes = await fetch(`${hKey.url}/__pyric/ai-proxy`, {
+      method: 'POST',
+      headers: authHeaders({
+        'content-type': 'application/json',
+        authorization: `Bearer ${bearerSecret}`,
+      }),
+      body: JSON.stringify({ model: 'demo-model', messages: [] }),
+    });
+    expect(errRes.status).toBe(401);
+    const errBody = await errRes.text();
+    expect(errBody).not.toContain(configuredKey);
+    expect(errBody).not.toContain(encodeURIComponent(configuredKey));
+    expect(errBody).not.toContain(bearerSecret);
+    expect(() => JSON.parse(errBody)).not.toThrow();
+
+    // Simulate Node/Undici fetch rejecting URLs that still carry embedded userinfo.
+    const realFetch = globalThis.fetch;
+    const strictFetch = async (input: Parameters<typeof fetch>[0], init?: RequestInit) => {
+      const url = String(input instanceof Request ? input.url : input);
+      if (/^https?:\/\/[^/?#]+@/.test(url)) {
+        throw new TypeError(`Request cannot be constructed from a URL that includes credentials: ${url}`);
+      }
+      return realFetch(input, init);
+    };
+    globalThis.fetch = Object.assign(strictFetch, { preconnect: realFetch.preconnect });
+    try {
+      const hBasic = await startServe(`http://svc-user:svc-pass@127.0.0.1:${upstream.port}/v1`);
+      const okRes = await realFetch(`${hBasic.url}/__pyric/ai-proxy/chat/completions`, {
+        method: 'POST',
+        headers: authHeaders({ 'content-type': 'application/json' }),
+        body: JSON.stringify({ model: 'demo-model', messages: [] }),
+      });
+      expect(okRes.status).toBe(200);
+      expect(seenAuthHeader as string | null).toBe(
+        `Basic ${Buffer.from('svc-user:svc-pass', 'utf8').toString('base64')}`,
+      );
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+  });
 });
 
 describe('formatAiProxyWarning', () => {

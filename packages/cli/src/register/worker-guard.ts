@@ -26,7 +26,7 @@
  */
 import Module, { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
-import { isSandboxParent, withInheritedSandbox } from './child-process-guard.js';
+import { isSandboxParent, loadsRegister, withInheritedSandbox } from './child-process-guard.js';
 
 type Env = Record<string, string | undefined>;
 
@@ -66,17 +66,25 @@ export function guardWorkerArguments(
   registerUrl: string,
   parentEnv: Env = process.env,
   parentActive: boolean = isSandboxParent(),
+  evalRegisterUrl: string = registerUrl,
 ): [unknown, WorkerOptionsLike | undefined] {
   let guardedSource = source;
   let guardedOptions = options;
   if (options?.eval === true && typeof source === 'string') {
-    guardedSource = withRegisterPrefix(source, registerUrl);
+    guardedSource = withRegisterPrefix(source, evalRegisterUrl);
   }
   if (Array.isArray(options?.execArgv) && !options.execArgv.includes(registerUrl)) {
     guardedOptions = { ...options, execArgv: [...options.execArgv, '--import', registerUrl] };
   }
   if (isOwnEnv(options?.env)) {
-    guardedOptions = { ...guardedOptions, env: withInheritedSandbox(options.env, parentEnv, parentActive) };
+    const inherited = withInheritedSandbox(options.env, parentEnv, parentActive);
+    const parentNodeOptions = parentEnv.NODE_OPTIONS ?? '';
+    const childNodeOptions = inherited.NODE_OPTIONS ?? '';
+    if (loadsRegister(parentNodeOptions, registerUrl) && !loadsRegister(childNodeOptions, registerUrl)) {
+      const importFlag = `--import ${registerUrl}`;
+      inherited.NODE_OPTIONS = childNodeOptions.trim() === '' ? importFlag : `${childNodeOptions} ${importFlag}`;
+    }
+    guardedOptions = { ...guardedOptions, env: inherited };
   }
   return [guardedSource, guardedOptions];
 }
@@ -99,14 +107,18 @@ function withRegisterPrefix(source: string, registerUrl: string): string {
  * {@link guardWorkerArguments}. A subclass keeps `instanceof Worker` true.
  * `workerThreads` defaults to `node:worker_threads`; tests pass a stand-in.
  */
-export function installWorkerGuard(registerUrl: string, workerThreads?: { Worker: unknown }): void {
+export function installWorkerGuard(
+  registerUrl: string,
+  workerThreads?: { Worker: unknown },
+  evalRegisterUrl: string = registerUrl,
+): void {
   const target = workerThreads ?? (createRequire(import.meta.url)('node:worker_threads') as { Worker: unknown });
   const Original = target.Worker as (WorkerConstructor & { [GUARDED_WORKER]?: true }) | undefined;
   if (typeof Original !== 'function' || Original[GUARDED_WORKER] === true) return;
   class GuardedWorker extends Original {
     static readonly [GUARDED_WORKER] = true;
     constructor(source: unknown, options?: WorkerOptionsLike) {
-      super(...guardWorkerArguments(source, options, registerUrl));
+      super(...guardWorkerArguments(source, options, registerUrl, process.env, isSandboxParent(), evalRegisterUrl));
     }
   }
   Object.defineProperty(GuardedWorker, 'name', { value: Original.name });

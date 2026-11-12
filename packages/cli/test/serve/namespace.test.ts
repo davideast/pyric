@@ -111,7 +111,7 @@ describe('namespace over the real server', () => {
     // Authenticated init.json reflects LIVE state and stamps sessionToken + cookie
     const authHeaders = { 'x-pyric-session-token': token };
     const authInit = await fetch(h.url + '/__pyric/init.json', { headers: authHeaders });
-    expect(authInit.headers.get('set-cookie')).toContain(`__pyric_session=${token}`);
+    expect(authInit.headers.get('set-cookie')).toContain(`__pyric_session_${h.port}=${token}`);
     expect(await authInit.json()).toEqual(
       expect.objectContaining({ rules: null, rulesHash: null, bridgeUrl: null, sessionToken: token }),
     );
@@ -134,7 +134,7 @@ describe('namespace over the real server', () => {
       headers: { 'sec-fetch-site': 'same-origin' },
     });
     expect(sameOriginSdk.status).toBe(200);
-    expect(sameOriginSdk.headers.get('set-cookie')).toContain(`__pyric_session=${token}`);
+    expect(sameOriginSdk.headers.get('set-cookie')).toContain(`__pyric_session_${h.port}=${token}`);
     const database = await fetch(h.url + '/__pyric/sdk/database.js');
     expect(database.status).toBe(200);
     expect(database.headers.get('content-type')).toContain('javascript');
@@ -147,7 +147,7 @@ describe('namespace over the real server', () => {
 
     // served HTML carries the injection and bootstraps the HttpOnly session cookie
     const pageRes = await fetch(h.url + '/');
-    expect(pageRes.headers.get('set-cookie')).toContain(`__pyric_session=${token}`);
+    expect(pageRes.headers.get('set-cookie')).toContain(`__pyric_session_${h.port}=${token}`);
     const html = await pageRes.text();
     expect(html).toContain('type="importmap"');
     expect(html).toContain('/__pyric/sdk/init.js');
@@ -636,7 +636,7 @@ describe('namespace over the real server', () => {
       headers: { 'sec-fetch-site': 'same-origin' },
     });
     const setCookie = sdkLoad.headers.get('set-cookie') ?? '';
-    expect(setCookie).toContain('__pyric_session=');
+    expect(setCookie).toContain(`__pyric_session_${h.port}=`);
     const cookieHeader = setCookie.split(';')[0]!;
 
     const authedWorkspace = await fetch(`${h.url}/__pyric/workspace?path=index.html`, {

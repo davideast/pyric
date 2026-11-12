@@ -226,6 +226,47 @@ describe('buildChildEnv', () => {
     const env = buildChildEnv({}, { serveUrl: 'http://h:1', registerUrl: 'file:///r.js' });
     expect('PYRIC_BEACON_TOKEN' in env).toBe(false);
   });
+
+  it('preserves register --import in spawnSandboxChild when leading inline NODE_OPTIONS= is present', async () => {
+    const { spawnSandboxChild } = await import('../../src/cli/sandbox-runner.js');
+    const registerUrl = registerModuleUrl();
+    const baseEnv = buildChildEnv(
+      { ...process.env, PYRIC_SESSION_TOKEN: 'cap-token-123' },
+      {
+        serveUrl: 'http://127.0.0.1:3473',
+        registerUrl,
+        sessionToken: 'cap-token-123',
+      },
+    );
+    const lines: string[] = [];
+    const origWrite = process.stdout.write.bind(process.stdout);
+    process.stdout.write = ((chunk: string | Uint8Array) => {
+      lines.push(String(chunk));
+      return true;
+    }) as typeof process.stdout.write;
+    try {
+      const handle = spawnSandboxChild(
+        {
+          argv: [
+            'NODE_OPTIONS=--max-old-space-size=256',
+            process.execPath,
+            '-e',
+            'console.log(JSON.stringify({ nodeOptions: process.env.NODE_OPTIONS, token: process.env.PYRIC_SESSION_TOKEN }))',
+          ],
+          label: 'probe',
+        },
+        { cwd: process.cwd(), env: baseEnv, json: false },
+      );
+      expect(await handle.exited).toBe(0);
+    } finally {
+      process.stdout.write = origWrite;
+    }
+    const rawLine = lines.join('').replace(/^\[dev\]\s*/gm, '').trim().split('\n').pop() ?? '{}';
+    const parsed = JSON.parse(rawLine) as { nodeOptions?: string; token?: string };
+    expect(parsed.nodeOptions).toContain('--max-old-space-size=256');
+    expect(parsed.nodeOptions).toContain(`--import ${registerUrl}`);
+    expect(parsed.token).toBe('cap-token-123');
+  });
 });
 
 describe('registerModuleUrl', () => {

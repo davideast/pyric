@@ -17,6 +17,7 @@ import {
   type SandboxChildPlan,
 } from './sandbox-runner.js';
 import { discoverServe, probeHostUrlAnswer, servesViteClient } from '../serve/discovery.js';
+import { fetchLoopbackTarget, resolveSessionTokenForTarget } from '../serve/local-session-token.js';
 import { viteConfigIn } from './public-dir-hint.js';
 import { checkSandboxChildLaunch } from './unsupported-runtime.js';
 
@@ -112,6 +113,38 @@ export function notAHostMessage(hostUrl: string, isVite: boolean, viteConfig: st
   );
 }
 
+export function liveHostRefusalMessage(hostUrl: string): string {
+  return (
+    `pyric run: the host at ${hostUrl} is a live host, not a sandbox host, so it cannot run this command in sandbox mode.\n` +
+    '  Run the command with `npx pyric-live run -- ...` instead, or start a sandbox host with `pyric sandbox --hosted`.\n'
+  );
+}
+
+async function isLiveHostAt(base: string, sessionToken: string | undefined, cwd: string): Promise<boolean> {
+  try {
+    const res = await fetchLoopbackTarget(
+      `${base.replace(/\/$/, '')}/__pyric/health`,
+      {
+        headers: {
+          accept: 'application/json',
+          ...(sessionToken !== undefined ? { 'x-pyric-session-token': sessionToken } : {}),
+        },
+        signal: AbortSignal.timeout(1_500),
+      },
+      cwd,
+    );
+    if (!res.ok) return false;
+    const body: unknown = await res.json();
+    if (typeof body !== 'object' || body === null || !('live' in body) || body.live === null) {
+      return false;
+    }
+    const { readLiveHostStatus } = await import('pyric/sandbox/internal');
+    return readLiveHostStatus(body) !== null;
+  } catch {
+    return false;
+  }
+}
+
 export async function runRun(parsed: ParsedArgs): Promise<number> {
   const invocation = parseRunInvocation(parsed, process.env);
   if (typeof invocation === 'string') {
@@ -123,6 +156,7 @@ export async function runRun(parsed: ParsedArgs): Promise<number> {
   const cwd = process.cwd();
   let serveUrl: string;
   let instanceId: string | null;
+  let discoveredToken: string | undefined;
   if (invocation.hostUrl !== null) {
     const hostUrl = invocation.hostUrl;
     // A server that answers but is not a sandbox host will not become one, so only silence is waited out.
@@ -151,11 +185,23 @@ export async function runRun(parsed: ParsedArgs): Promise<number> {
     }
     serveUrl = host.base;
     instanceId = host.instanceId;
+    discoveredToken = host.token;
+  }
+  const sessionToken = resolveSessionTokenForTarget({
+    explicitToken: discoveredToken,
+    url: serveUrl,
+    cwd,
+    env: process.env,
+  });
+  if (await isLiveHostAt(serveUrl, sessionToken, cwd)) {
+    process.stderr.write(liveHostRefusalMessage(invocation.hostUrl ?? serveUrl));
+    return 2;
   }
   const env = buildChildEnv(process.env, {
     serveUrl,
     registerUrl: registerModuleUrl(),
     instanceId: instanceId ?? undefined,
+    sessionToken,
   });
   const child = spawnSandboxChild(invocation.plan, { cwd, env, json: false });
   const forward = (signal: NodeJS.Signals): void => child.signal(signal);

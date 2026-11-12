@@ -204,8 +204,11 @@ describe('isAllowedHost (DNS-rebinding guard)', () => {
   it('allows loopback hostnames + the bound host, with/without port', () => {
     expect(isAllowedHost('localhost:5000', 'localhost')).toBe(true);
     expect(isAllowedHost('127.0.0.1:8080', 'localhost')).toBe(true);
+    expect(isAllowedHost('127.0.0.2:8080', 'localhost')).toBe(true);
     expect(isAllowedHost('[::1]:5000', 'localhost')).toBe(true);
     expect(isAllowedHost('0.0.0.0', '0.0.0.0')).toBe(true);
+    expect(isAllowedHost('0.0.0.0:5000', 'localhost')).toBe(false);
+    expect(isAllowedHost('0.0.0.0:5000', '127.0.0.1')).toBe(false);
     expect(isAllowedHost('my-box.local', 'my-box.local')).toBe(true); // bound host
     expect(isAllowedHost(undefined, 'localhost')).toBe(true); // non-browser, no Host
   });
@@ -246,8 +249,11 @@ describe('isAllowedOrigin (WS cross-origin hijack guard)', () => {
     // An Origin with no port has its scheme's default.
     expect(isAllowedOrigin('http://localhost', 'localhost', [], 80)).toBe(true);
     expect(isAllowedOrigin('http://localhost', 'localhost', [], 5173)).toBe(false);
-    // A host the user allowed by name (a tunnel, say) reaches the server on a different public port.
+    // A host the user allowed by name (a tunnel, say) reaches the server on its default public port,
+    // while an explicit non-matching sibling port on that hostname is rejected.
     expect(isAllowedOrigin('https://box.example.dev', 'localhost', ['box.example.dev'], 5173)).toBe(true);
+    expect(isAllowedOrigin('http://box.example.dev:5173', 'localhost', ['box.example.dev'], 5173)).toBe(true);
+    expect(isAllowedOrigin('http://box.example.dev:9999', 'localhost', ['box.example.dev'], 5173)).toBe(false);
   });
 
   it('rejects a cross-origin or malformed Origin', () => {
@@ -334,6 +340,33 @@ describe('isAllowedLoopbackRequest (combined Host + Origin guard for HTTP contro
         [5000],
       ),
     ).toBe(true);
+    expect(
+      isAllowedLoopbackRequest(
+        { headers: { host: 'localhost:5000', origin: 'http://localhost:5000', 'sec-fetch-site': 'cross-site' } },
+        'localhost',
+        [],
+        [5000],
+      ),
+    ).toBe(false);
+    expect(
+      isAllowedLoopbackRequest(
+        { headers: { host: 'box.example.dev:5000', origin: 'http://box.example.dev:9999', 'sec-fetch-site': 'same-site' } },
+        '127.0.0.1',
+        ['box.example.dev'],
+        [5000],
+      ),
+    ).toBe(false);
+    expect(
+      isAllowedLoopbackRequest(
+        {
+          headers: { host: '127.0.0.1:5000', origin: 'https://127.0.0.1:5000', 'sec-fetch-site': 'cross-site' },
+          socket: { encrypted: false } as never,
+        },
+        '127.0.0.1',
+        [],
+        [5000],
+      ),
+    ).toBe(false);
     expect(
       isAllowedUpgrade(
         { host: 'localhost:5000', 'sec-fetch-site': 'cross-site' },
@@ -430,7 +463,7 @@ describe('isAllowedSessionToken & session cookie bootstrap', () => {
     const htmlRes = await fetch(h.url + '/');
     expect(htmlRes.status).toBe(200);
     expect(htmlRes.headers.get('set-cookie')).toContain(
-      '__pyric_session=html_boot_secret; HttpOnly; SameSite=Strict; Path=/__pyric',
+      `__pyric_session_${h.port}=html_boot_secret; HttpOnly; SameSite=Strict; Path=/__pyric`,
     );
     expect(await htmlRes.text()).toContain('content="true"');
     expect(seenPeers).toEqual([true]);

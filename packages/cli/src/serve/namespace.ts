@@ -28,6 +28,7 @@ import { handleIndexConfig } from './index-config-route.js';
 import { StateFileError, type StateSection, type StateStore } from './state-store.js';
 import { createWriterLock, type WriterLock } from './writer-lock.js';
 import { createStudioRoutes, type StudioRouteOptions } from './studio/index.js';
+import { registerSessionTokenRequirement } from './local-session-token.js';
 import {
   appendSetCookieHeader,
   formatSessionCookie,
@@ -35,9 +36,10 @@ import {
   isAllowedHost,
   isAllowedOrigin,
   isAllowedSessionToken,
-  isForeignFetchWithoutOrigin,
+  isForeignFetchSite,
   isLocalPeer,
   pipeFileToResponse,
+  requestSocketScheme,
   type ServeLogger,
 } from './server.js';
 import type { InitPayload } from './init-payload.js';
@@ -598,7 +600,8 @@ function isAppOrigin(
   const boundHost = opts.boundHost ?? 'localhost';
   const extra = allowExtraHosts ? opts.allowedHosts : undefined;
   const ports = opts.appPorts?.forRequest(req) ?? [req.socket.localPort];
-  return ports.some((port) => isAllowedOrigin(originHeader, boundHost, extra, port));
+  const scheme = requestSocketScheme(req);
+  return ports.some((port) => isAllowedOrigin(originHeader, boundHost, extra, port, scheme));
 }
 
 type GuardOptions = Pick<NamespaceOptions, 'boundHost' | 'allowedHosts' | 'appPorts'>;
@@ -645,7 +648,8 @@ function guardLoopback(
     res.writeHead(403, { 'content-type': 'text/plain' }).end('Forbidden: origin mismatch');
     return false;
   }
-  if (isForeignFetchWithoutOrigin(req)) {
+  const ports = opts.appPorts?.forRequest(req) ?? (req.socket?.localPort ? [req.socket.localPort] : undefined);
+  if (isForeignFetchSite(req, opts.boundHost ?? 'localhost', ports)) {
     res.writeHead(403, { 'content-type': 'text/plain' }).end('Forbidden: cross-site request rejected');
     return false;
   }
@@ -693,6 +697,8 @@ export function createPyricNamespace(opts: NamespaceOptions): PyricNamespaceHand
     };
     studioRoutes = createStudioRoutes(studioOptions);
   }
+  const requiresSessionToken = opts.requireSessionToken === true;
+  registerSessionTokenRequirement(sessionToken, requiresSessionToken);
   const siteUiDir = opts.siteUiDir;
   const hasSiteTree = siteUiDir !== undefined && siteUiDir.length > 0;
   const siteTree = hasSiteTree
@@ -703,6 +709,8 @@ export function createPyricNamespace(opts: NamespaceOptions): PyricNamespaceHand
         sessionToken,
         opts.boundHost,
         opts.appPorts,
+        opts.allowedHosts,
+        requiresSessionToken,
       )
     : null;
   const denialThrottle = createDenialThrottle();
@@ -714,7 +722,6 @@ export function createPyricNamespace(opts: NamespaceOptions): PyricNamespaceHand
   const activityEndpoint = hasActivity
     ? { sink: activity, token: randomBytes(24).toString('base64url') }
     : undefined;
-  const requiresSessionToken = opts.requireSessionToken === true;
   const handler = (req: IncomingMessage, res: ServerResponse, url: URL): boolean | Promise<boolean> => {
     const isDiagnostics = url.pathname === DIAGNOSTICS_PATH;
     if (isDiagnostics) {
@@ -866,19 +873,19 @@ export function createPyricNamespace(opts: NamespaceOptions): PyricNamespaceHand
     }
     const isInitRequest = url.pathname === '/__pyric/init.json';
     if (isInitRequest) {
+      const isRemotePeer = !isLocalPeer(req);
+      const authenticated = !isRemotePeer && isAllowedSessionToken(req, url, sessionToken);
+      if (!isRemotePeer && !guardLoopback(req, res, opts, authenticated)) return true;
       if (req.method !== 'GET' && req.method !== 'HEAD') {
         res.writeHead(405, { allow: 'GET, HEAD', 'content-type': 'text/plain' }).end('method not allowed');
         return true;
       }
       const isHead = req.method === 'HEAD';
-      const isRemotePeer = !isLocalPeer(req);
       if (isRemotePeer) {
         res.writeHead(200, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
         res.end(isHead ? undefined : JSON.stringify(remotePeerInitPayload(opts.initPayload())));
         return true;
       }
-      const authenticated = isAllowedSessionToken(req, url, sessionToken);
-      if (!guardLoopback(req, res, opts, authenticated)) return true;
       const raw = opts.initPayload();
       if (!authenticated) {
         res.writeHead(200, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
@@ -953,6 +960,7 @@ export function createPyricNamespace(opts: NamespaceOptions): PyricNamespaceHand
     const requestsStudio = url.pathname === '/__pyric/ui' || url.pathname.startsWith('/__pyric/ui/');
     const hasMissingStudioAssets = opts.studio !== undefined && !siteTree && requestsStudio;
     if (hasMissingStudioAssets) {
+      if (!guardLoopback(req, res, opts, isAllowedSessionToken(req, url, sessionToken))) return true;
       res.writeHead(503, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' });
       res.end('<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Studio is unavailable</title></head><body><main><h1>Studio is unavailable</h1><p>The Studio assets are missing from this Pyric installation.</p><p>In a source checkout, run the full build with <code>bash scripts/build.sh</code>. Otherwise, reinstall <code>@pyric/cli</code>. Restart the development server afterward.</p><a href="/">Return to app</a></main></body></html>');
       return true;

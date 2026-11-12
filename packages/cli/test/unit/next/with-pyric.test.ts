@@ -257,11 +257,37 @@ describe('withPyric Next.js configuration wrapper', () => {
     }) as Record<string, any>;
 
     expect(res.turbopack.resolveAlias.modern).toBe('alias');
-    expect(res.turbopack.resolveAlias['firebase/app']).toBe('@pyric/cli/next/internal/app');
+    expect(res.turbopack.resolveAlias['firebase/app']).toEqual({ browser: '@pyric/cli/next/internal/app' });
     expect(res.turbo.resolveAlias.existing).toBe('alias');
-    expect(res.turbo.resolveAlias['firebase/app']).toBe('@pyric/cli/next/internal/app');
+    expect(res.turbo.resolveAlias['firebase/app']).toEqual({ browser: '@pyric/cli/next/internal/app' });
     expect(res.experimental.turbo.resolveAlias.legacy).toBe('alias');
-    expect(res.experimental.turbo.resolveAlias['firebase/firestore']).toBe('@pyric/cli/next/internal/firestore');
+    expect(res.experimental.turbo.resolveAlias['firebase/firestore']).toEqual({ browser: '@pyric/cli/next/internal/firestore' });
+  });
+
+  it('aliases unserved firebase/* subpaths, bare firebase, firebase-admin, and @firebase/* to browser stops', async () => {
+    const res = await resolveWith({}) as Record<string, any>;
+    const clientResult = res.webpack({}, { isServer: false });
+    const wpAlias = clientResult.resolve.alias;
+    const turboAlias = res.turbopack.resolveAlias;
+
+    for (const unstopped of ['firebase/installations', 'firebase/compat/app', 'firebase', '@firebase/firestore', 'firebase-admin']) {
+      expect(wpAlias[`${unstopped}$`], `webpack ${unstopped}`).toBeDefined();
+      expect(turboAlias[unstopped], `turbopack ${unstopped}`).toEqual({ browser: expect.any(String) });
+    }
+    expect(Object.keys(wpAlias).filter((key) => key.startsWith('firebase/') && !key.endsWith('$'))).toEqual([]);
+  });
+
+  it('adds locale: false to the /__pyric/:path* rewrite when Next.js i18n is configured', async () => {
+    const res = await resolveWith({
+      i18n: { locales: ['en', 'fr'], defaultLocale: 'en' },
+    }) as Record<string, any>;
+    const rewrites = await res.rewrites();
+    expect(rewrites[0]).toEqual({
+      source: '/__pyric/:path*',
+      destination: 'http://127.0.0.1:4000/__pyric/:path*',
+      basePath: false,
+      locale: false,
+    });
   });
 
   it('configures dev-time rewrites to proxy /__pyric/:path* to sandbox target url', async () => {

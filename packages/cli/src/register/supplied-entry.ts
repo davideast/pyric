@@ -21,7 +21,17 @@ import { canonicalFileUrl, packageNameOf, packageRootDirOf } from './package-ide
 import { liveProjectId } from '../serve/live-project.js';
 import { isLiveRegisterActive, isRegisterActive, markLiveRegisterActive } from './activation.js';
 import { installChildProcessGuard } from './child-process-guard.js';
-import { LIVE_PASS_THROUGH_VARIABLE, LIVE_PROJECT_ROOT_VARIABLE, LIVE_SDK_ROOT_VARIABLE, liveProjectRoot, loadInstalledLiveRegister, recordedPassThrough } from './live-package.js';
+import {
+  LIVE_PASS_THROUGH_VARIABLE,
+  LIVE_PROJECT_ROOT_VARIABLE,
+  LIVE_SDK_ROOT_VARIABLE,
+  liveProjectRoot,
+  loadInstalledLiveRegister,
+  loadInstalledLiveRegisterSync,
+  recordedPassThrough,
+  type InstalledLiveRegister,
+  type InstalledLiveRegisterSync,
+} from './live-package.js';
 import { ADMIN_PASS_THROUGH, passThroughSdkPackages, passThroughSet } from '../serve/vite-supplied-rows.js';
 import { createStopReporter, suppliedRowsStopFor } from './swap-or-stop.js';
 import { isRegisterLiveModule } from './live-row.js';
@@ -36,7 +46,13 @@ export { REGISTER_OBSERVER_URL, REGISTER_ROW_URLS } from './live-row.js';
 export { ADMIN_ROW_LOADS, ADMIN_ROW_URLS, adminRowOfUrl, type AdminRowName } from './admin-row.js';
 export { reachLiveHost, type LiveHostReach } from './live-host-reach.js';
 export { liveProjectId } from '../serve/live-project.js';
-export { LIVE_PROJECT_ROOT_VARIABLE, liveAppDirs, liveProjectRoot, recordedPassThrough } from './live-package.js';
+export {
+  LIVE_PROJECT_ROOT_VARIABLE,
+  liveAppDirs,
+  liveProjectRoot,
+  recordedPassThrough,
+  type InstalledLiveRegisterSync,
+} from './live-package.js';
 export { idTokenIssuer, livePassThroughLine } from 'pyric/sandbox/internal';
 export { swappedFirebaseEntries } from '../serve/firebase-module-swap.js';
 export type { FirebaseRowSet, ServedFirebaseSpecifier } from '../serve/firebase-module-swap.js';
@@ -522,23 +538,22 @@ export interface SuppliedRowsActivation {
   readonly adminRows?: boolean;
 }
 
-/**
- * Starts the live rows in this thread: the installed `@pyric/live` opens
- * them, then the hooks go in, and every worker thread and child process this
- * process starts loads the installed register, for the same project root and
- * the same pass-through imports.
- * Throws, leaving the process unhooked, when the rows cannot open:
- * `@pyric/live` not installed beside the entry or in the project, Node
- * without `module.registerHooks`, `@pyric/cli/register` already active, or
- * a pass-through entry that cannot pass through.
- */
-export async function activateWithSuppliedRows(input: SuppliedRowsActivation = {}): Promise<void> {
-  if (isLiveRegisterActive()) return;
+interface PreparedSuppliedRows {
+  readonly registerHooks: (hooks: { resolve: Resolve; load: Load }) => void;
+  readonly adminRows: boolean;
+  readonly passThrough: ReturnType<typeof passThroughSet>;
+  readonly allowedUrls: Set<string>;
+  readonly adminTree: AdminTree;
+  readonly adminUnobserved: AdminUnobserved;
+}
+
+function prepareSuppliedRowsActivation(input: SuppliedRowsActivation): PreparedSuppliedRows | null {
+  if (isLiveRegisterActive()) return null;
   if (isRefusedInProduction()) {
     process.stderr.write(
       `${LOG_PREFIX}: refusing to activate under NODE_ENV=production. Set PYRIC_SANDBOX_FORCE=1 to override (dev only).\n`,
     );
-    return;
+    return null;
   }
   const registerHooks = moduleApi.registerHooks;
   if (typeof registerHooks !== 'function') {
@@ -551,7 +566,9 @@ export async function activateWithSuppliedRows(input: SuppliedRowsActivation = {
     );
   }
   const adminRows = input.adminRows === true;
-  const passThrough = passThroughSet(input.passThrough ?? adminPassesWithRows(recordedPassThrough(process.env), adminRows));
+  const passThrough = passThroughSet(
+    input.passThrough ?? adminPassesWithRows(recordedPassThrough(process.env), adminRows),
+  );
   // Each unobserved Admin list is sent to the live host when it first gains an entry and on each change, so the host's health lists them.
   let forwarder: UnobservedForwarder | undefined;
   const changed = (): void => forwarder?.changed();
@@ -562,26 +579,71 @@ export async function activateWithSuppliedRows(input: SuppliedRowsActivation = {
   const adminUnobserved = createAdminUnobserved((line) => void process.stderr.write(line), changed);
   const send = liveHostSender(() => forwarder?.reconnected());
   forwarder = createUnobservedForwarder({ read: () => unobservedFields(adminUnobserved), send });
-  const installed = await loadInstalledLiveRegister(liveProjectRoot(process.env, process.cwd()), input.liveRoot);
-  const rows = registerRows(passThrough, adminRows);
+  return { registerHooks, adminRows, passThrough, allowedUrls, adminTree, adminUnobserved };
+}
+
+function finishSuppliedRowsActivation(installed: InstalledLiveRegister, prepared: PreparedSuppliedRows): void {
+  const rows = registerRows(prepared.passThrough, prepared.adminRows);
   rows.open(installed.rows);
   // Children and workers open the rows for this process's project and its checked firebase, wherever they start.
   process.env[LIVE_PROJECT_ROOT_VARIABLE] = installed.projectRoot;
   process.env[LIVE_SDK_ROOT_VARIABLE] = installed.sdkRoot;
-  process.env[LIVE_PASS_THROUGH_VARIABLE] = [...passThrough].join(',');
-  installWorkerGuard(installed.entryUrl);
+  process.env[LIVE_PASS_THROUGH_VARIABLE] = [...prepared.passThrough].join(',');
+  installWorkerGuard(installed.entryUrl, undefined, installed.evalEntryUrl);
   installChildProcessGuard(installed.entryUrl);
   const report = createStopReporter((line) => void process.stderr.write(line));
-  const env: SuppliedResolveEnv = { rows, allowedUrls, adminTree, realFiles: new Map(), report };
+  const env: SuppliedResolveEnv = {
+    rows,
+    allowedUrls: prepared.allowedUrls,
+    adminTree: prepared.adminTree,
+    realFiles: new Map(),
+    report,
+  };
   const cjsState = installCjsResolveState({ directResolveGuard: createDirectResolveGuard(env) });
-  registerHooks({ resolve: resolveWithRows(env, adminUnobserved, cjsState), load: loadWithRows(rows) });
+  prepared.registerHooks({
+    resolve: resolveWithRows(env, prepared.adminUnobserved, cjsState),
+    load: loadWithRows(rows),
+  });
   // Its servers say this is a live process, so a proxy check can catch a sandbox page in front of it,
   // and list what no row observed.
   let projectId = projectIdOrNull(installed.projectRoot) ?? undefined;
   installProcessHealth(() => ({
     mode: 'live',
     projectId: (projectId ??= projectIdOrNull(installed.projectRoot) ?? undefined),
-    ...unobservedFields(adminUnobserved),
+    ...unobservedFields(prepared.adminUnobserved),
   }));
   markLiveRegisterActive();
+}
+
+/**
+ * Starts the live rows in this thread: the installed `@pyric/live` opens
+ * them, then the hooks go in, and every worker thread and child process this
+ * process starts loads the installed register, for the same project root and
+ * the same pass-through imports.
+ * Throws, leaving the process unhooked, when the rows cannot open:
+ * `@pyric/live` not installed beside the entry or in the project, Node
+ * without `module.registerHooks`, `@pyric/cli/register` already active, or
+ * a pass-through entry that cannot pass through.
+ */
+export async function activateWithSuppliedRows(input: SuppliedRowsActivation = {}): Promise<void> {
+  const prepared = prepareSuppliedRowsActivation(input);
+  if (prepared === null) return;
+  const installed = await loadInstalledLiveRegister(
+    liveProjectRoot(process.env, process.cwd()),
+    input.liveRoot,
+  );
+  finishSuppliedRowsActivation(installed, prepared);
+}
+
+export function activateWithSuppliedRowsSync(
+  input: SuppliedRowsActivation = {},
+): InstalledLiveRegisterSync | null {
+  const prepared = prepareSuppliedRowsActivation(input);
+  if (prepared === null) return null;
+  const installed = loadInstalledLiveRegisterSync(
+    liveProjectRoot(process.env, process.cwd()),
+    input.liveRoot,
+  );
+  finishSuppliedRowsActivation(installed, prepared);
+  return installed;
 }

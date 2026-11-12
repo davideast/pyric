@@ -49,10 +49,10 @@ const GUARDED = Symbol.for('pyric.guardedChildProcess');
 const SANDBOX_VARIABLE = /^PYRIC_/;
 
 /** The register, named by its package rather than its file. */
-const REGISTER_BY_NAME = /(^|\s)--import[= ]?["']?@pyric\/cli\/register(["'\s]|$)/;
+const REGISTER_BY_NAME = /(^|\s)--import[= ]?["']?@pyric\/(?:cli|live)\/register(["'\s]|$)/;
 
 /** Whether `nodeOptions` already loads the register. */
-function loadsRegister(nodeOptions: string, registerUrl: string): boolean {
+export function loadsRegister(nodeOptions: string, registerUrl: string): boolean {
   return nodeOptions.includes(registerUrl) || REGISTER_BY_NAME.test(nodeOptions);
 }
 

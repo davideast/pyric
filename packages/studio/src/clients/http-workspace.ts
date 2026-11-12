@@ -27,9 +27,33 @@ function joinUrl(baseUrl: string, path: string): string {
 
 const tokenCache = new Map<string, Promise<string | null>>();
 let defaultTabWriterId: string | null = null;
+const TOKENS_BY_PORT_KEY = Symbol.for('pyric.localSessionTokensByPort');
+const LOOPBACK_IPV4 = /^127(\.\d{1,3}){3}$/;
 
 export function resetSessionTokenCache(): void {
   tokenCache.clear();
+}
+
+export function registerStudioSessionToken(baseUrl: string, token: string | undefined): void {
+  if (!token) return;
+  tokenCache.set(baseUrl.replace(/\/$/, ''), Promise.resolve(token));
+}
+
+function inProcessLoopbackTokenForBaseUrl(baseUrl: string): string | undefined {
+  if (!baseUrl) return undefined;
+  let parsed: URL;
+  try {
+    parsed = new URL(baseUrl);
+  } catch {
+    return undefined;
+  }
+  const host = parsed.hostname.replace(/^\[|\]$/g, '').toLowerCase();
+  const isLoopback = host === 'localhost' || host === '::1' || LOOPBACK_IPV4.test(host);
+  if (!isLoopback) return undefined;
+  const port = parsed.port === '' ? (parsed.protocol === 'https:' ? 443 : 80) : Number(parsed.port);
+  if (!Number.isInteger(port) || port <= 0) return undefined;
+  const holder = globalThis as unknown as Record<symbol, Map<number, string> | undefined>;
+  return holder[TOKENS_BY_PORT_KEY]?.get(port);
 }
 
 export function getTabWriterId(explicitWriterId?: string): string {
@@ -59,7 +83,7 @@ export async function resolveSessionToken(baseUrl: string, explicitToken?: strin
   const cached = tokenCache.get(key);
   if (cached) return cached;
 
-  const stamped = stampedStudioSessionToken();
+  const stamped = stampedStudioSessionToken() ?? inProcessLoopbackTokenForBaseUrl(key);
   const initRequest = stamped
     ? fetch(joinUrl(key, '/__pyric/init.json'), { headers: { 'x-pyric-session-token': stamped } })
     : fetch(joinUrl(key, '/__pyric/init.json'));
@@ -160,11 +184,20 @@ export function httpWorkspace(
         }
       };
 
-      resolveSessionToken(base, explicitToken).then(() => {
-        if (closed) return;
-        source = new EventSource(joinUrl(base, '/__pyric/workspace/watch'));
-        source.addEventListener('change', onChange);
-      });
+      resolveSessionToken(base, explicitToken)
+        .then(async (token) => {
+          if (closed) return;
+          if (token && explicitToken) {
+            await fetch(joinUrl(base, '/__pyric/init.json'), {
+              headers: { 'x-pyric-session-token': token },
+              credentials: 'same-origin',
+            }).catch(() => {});
+          }
+          if (closed) return;
+          source = new EventSource(joinUrl(base, '/__pyric/workspace/watch'));
+          source.addEventListener('change', onChange);
+        })
+        .catch(() => {});
 
       return () => {
         closed = true;

@@ -29,6 +29,7 @@ import { getBridgeToolSurface } from '../bridge/server/mcp-contract.js';
 import { createAuditWriter } from '../bridge/server/audit.js';
 import { answerAndClose, attachPeer, collectBody, isBodyTooLarge } from '../bridge/server/peer.js';
 import { pointerHeldByAnotherHost, pointerHostAnswers, type ServePointer } from './discovery.js';
+import { hostTrustFor } from '../remote/loopback-tls.js';
 import { registerLocalSessionToken, writeMode600FileSync } from './local-session-token.js';
 import { boundedFetch } from '../bounded-request.js';
 import { cliVersion } from '../pkg-version.js';
@@ -39,8 +40,9 @@ import {
   isAllowedOriginOnPorts,
   isAllowedSessionToken,
   isAllowedUpgrade,
-  isForeignFetchWithoutOrigin,
+  isForeignFetchSite,
   isLocalPeer,
+  requestSocketScheme,
 } from './server.js';
 import { createAppPorts, type AppPorts } from './app-ports.js';
 import { MAX_BRIDGE_FRAME_BYTES, MAX_MOUNTED_MCP_SESSIONS, STORAGE_BYTE_ROUTE_CAPABILITY, WORKER_PORT_CAPABILITY, WORKER_RELAY_CAPABILITY } from '../bridge/protocol.js';
@@ -495,15 +497,24 @@ export function createBridgeMount(opts: BridgeMountOptions = {}): BridgeMount {
         // object bytes. An upload session also takes its bytes from the origin
         // its creator named. `allowedHosts: true` never bypasses this guard, and
         // `--allowed-host` never reaches unauthenticated sandbox byte routes.
-        const byteAllowedHosts = requiresSessionToken ? extraAllowedHosts : [];
+        const authenticatedSession = isAllowedSessionToken(req, url, sessionToken);
+        const hasByteToken =
+          url.searchParams.has('token') || url.searchParams.has('upload_token');
+        const byteAllowedHosts =
+          requiresSessionToken && (authenticatedSession || hasByteToken)
+            ? extraAllowedHosts
+            : [];
         const hostHeader = getHeader(req, 'host');
         const originHeader = getHeader(req, 'origin');
-        const allowedOrigin = isAllowedOriginOnPorts(originHeader, boundHost, byteAllowedHosts, appPorts.forRequest(req))
-          || hostedRuntime?.storageAllowsOrigin(url, originHeader) === true;
+        const ports = appPorts.forRequest(req);
+        const allowsSessionOrigin = hostedRuntime?.storageAllowsOrigin(url, originHeader) === true;
+        const allowedOrigin =
+          isAllowedOriginOnPorts(originHeader, boundHost, byteAllowedHosts, ports, requestSocketScheme(req)) ||
+          allowsSessionOrigin;
         const allowed =
           isAllowedHost(hostHeader, boundHost, byteAllowedHosts) &&
           allowedOrigin &&
-          !isForeignFetchWithoutOrigin(req);
+          (allowsSessionOrigin || !isForeignFetchSite(req, boundHost, ports));
         if (!allowed) {
           res.writeHead(403, { 'content-type': 'text/plain' }).end('Forbidden: invalid host or origin');
           return true;
@@ -699,7 +710,7 @@ export function createBridgeMount(opts: BridgeMountOptions = {}): BridgeMount {
         const extra = requiresSessionToken && Array.isArray(allowedHosts) ? allowedHosts : [];
         const acceptsProxiedPage = opts.learnsProxyPorts === true;
         const ports = acceptsProxiedPage ? appPorts.forUpgrade(req) : appPorts.forRequest(req);
-        if (!isAllowedUpgrade(req.headers, boundHost, extra, ports)) {
+        if (!isAllowedUpgrade(req.headers, boundHost, extra, ports, requestSocketScheme(req))) {
           socket.destroy();
           return;
         }
@@ -717,16 +728,27 @@ export function createBridgeMount(opts: BridgeMountOptions = {}): BridgeMount {
 
       const writePointer = (currentOrigin: BridgeOrigin): void => {
         try {
+          const url = originUrl(currentOrigin);
+          const tlsCarrier = (lifecycleServer ?? servers[0]) as
+            | { cert?: unknown; ca?: unknown }
+            | undefined;
+          const tlsTrust =
+            currentOrigin.secure === true && tlsCarrier !== undefined
+              ? hostTrustFor(url, { cert: tlsCarrier.cert, ca: tlsCarrier.ca })
+              : null;
           writeMode600FileSync(
             pointer,
             JSON.stringify({
-              url: originUrl(currentOrigin),
+              url,
               mcpUrl: mount.mcpUrl(currentOrigin),
               port: currentOrigin.port,
               pid: process.pid,
               instanceId: bridge.instanceId,
               project,
               token: sessionToken,
+              ...(tlsTrust !== null
+                ? { tls: { ca: tlsTrust.ca, fingerprint256: tlsTrust.fingerprint256 } }
+                : {}),
             }, null, 2) + '\n',
           );
         } catch {

@@ -186,4 +186,68 @@ describe('httpWorkspace client & token resolution', () => {
       g.EventSource = prevEventSource;
     }
   });
+
+  it('resolves loopback sessionToken from in-process port registry when init.json omits sessionToken and exchanges explicit token before watch()', async () => {
+    let initAuthHeader: string | null = null;
+    const server = Bun.serve({
+      port: 0,
+      fetch(req) {
+        const url = new URL(req.url);
+        if (url.pathname === '/__pyric/init.json') {
+          initAuthHeader = req.headers.get('x-pyric-session-token');
+          return new Response(
+            JSON.stringify(initAuthHeader ? { sessionToken: initAuthHeader } : { rulesHash: null }),
+            { headers: { 'content-type': 'application/json' } },
+          );
+        }
+        if (url.pathname === '/__pyric/workspace/list') {
+          if (req.headers.get('x-pyric-session-token') !== 'in-process-port-secret') {
+            return new Response('unauthorized', { status: 401 });
+          }
+          return new Response(JSON.stringify([{ path: 'items.txt', kind: 'file' }]), {
+            headers: { 'content-type': 'application/json' },
+          });
+        }
+        return new Response('not found', { status: 404 });
+      },
+    });
+    servers.push(server);
+
+    const registryKey = Symbol.for('pyric.localSessionTokensByPort');
+    const holder = globalThis as unknown as Record<symbol, Map<number, string> | undefined>;
+    const map = holder[registryKey] ?? new Map<number, string>();
+    holder[registryKey] = map;
+    map.set(server.port!, 'in-process-port-secret');
+
+    const g = globalThis as Record<string, unknown>;
+    const prevEventSource = g.EventSource;
+    const openedUrls: string[] = [];
+    class FakeEventSource {
+      constructor(public url: string) {
+        openedUrls.push(url);
+      }
+      addEventListener() {}
+      removeEventListener() {}
+      close() {}
+    }
+    g.EventSource = FakeEventSource;
+
+    try {
+      const base = `http://127.0.0.1:${server.port}`;
+      const client = httpWorkspace(base);
+      const entries = await client.list();
+      expect(entries).toEqual([{ path: 'items.txt', kind: 'file' }]);
+
+      initAuthHeader = null;
+      const explicitClient = httpWorkspace(base, { token: 'explicit-watch-token' });
+      const stop = explicitClient.watch(() => {});
+      await new Promise((r) => setTimeout(r, 25));
+      stop();
+      expect(initAuthHeader as string | null).toBe('explicit-watch-token');
+      expect(openedUrls).toEqual([`${base}/__pyric/workspace/watch`]);
+    } finally {
+      map.delete(server.port!);
+      g.EventSource = prevEventSource;
+    }
+  });
 });

@@ -357,6 +357,24 @@ export async function sandboxMethodHint(command: string): Promise<string | null>
   );
 }
 
+function quoteShellWord(word: string): string {
+  if (word.length > 0 && /^[A-Za-z0-9_./:@=-]+$/.test(word)) return word;
+  return `'${word.replace(/'/g, "'\\''")}'`;
+}
+
+export function formatShellCommand(tokens: readonly string[]): string {
+  return tokens
+    .map((token) => {
+      if (SHELL_OPERATORS.has(token) || token === '(' || token === ')') return token;
+      const envMatch = /^([A-Za-z_][A-Za-z0-9_]*=)(.*)$/.exec(token);
+      if (envMatch) {
+        return `${envMatch[1]}${quoteShellWord(envMatch[2]!)}`;
+      }
+      return quoteShellWord(token);
+    })
+    .join(' ');
+}
+
 /**
  * Spawn the child with inherited stdin and `[dev]`-prefixed stdout/stderr.
  * In `--json` mode ALL child output goes to stderr — stdout carries exactly
@@ -368,6 +386,9 @@ export function spawnSandboxChild(
 ): SandboxChildHandle {
   const parts = [...plan.argv];
   const env: NodeJS.ProcessEnv = { ...opts.env };
+  const registerImportMatch = /--import\s+\S+register\S*/.exec(opts.env.NODE_OPTIONS ?? '');
+  const registerImportFlag = registerImportMatch?.[0] ?? `--import ${registerModuleUrl()}`;
+  let inlineForceSet = false;
 
   // 1. Extract leading KEY=VAL assignments (e.g. PORT=8080 node server.js)
   while (parts.length > 0 && /^[A-Za-z_][A-Za-z0-9_]*=/.test(parts[0]!)) {
@@ -375,7 +396,21 @@ export function spawnSandboxChild(
     const eq = token.indexOf('=');
     const key = token.slice(0, eq);
     const val = token.slice(eq + 1);
+    if (key === 'PYRIC_SANDBOX_FORCE' && val !== '') {
+      inlineForceSet = true;
+    }
+    if (key === 'NODE_OPTIONS' && opts.env.PYRIC_SANDBOX) {
+      env.NODE_OPTIONS = val.includes(registerImportFlag)
+        ? val
+        : val.trim() === ''
+          ? registerImportFlag
+          : `${val} ${registerImportFlag}`;
+      continue;
+    }
     env[key] = val;
+  }
+  if (env.NODE_ENV === 'production' && opts.env.PYRIC_SANDBOX && !inlineForceSet) {
+    env.PYRIC_SANDBOX_FORCE = '1';
   }
 
   // 2. Check for discrete shell operators (&&, ||, |, ;) among top-level tokens
@@ -384,7 +419,7 @@ export function spawnSandboxChild(
   const [command, ...args] = parts;
   let child: ChildProcess;
   if (hasShellOperators) {
-    child = spawn(plan.label, [], {
+    child = spawn(formatShellCommand(parts), [], {
       cwd: opts.cwd,
       env,
       stdio: ['inherit', 'pipe', 'pipe'],

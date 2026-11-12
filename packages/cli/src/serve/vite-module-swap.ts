@@ -44,7 +44,14 @@ import { installedFirebaseSdkNames } from '../bundler/externals.js';
 
 const FIREBASE_SPECIFIER = /^firebase\/([a-z-]+(?:\/[a-z-]+)*)$/;
 const SDK_PACKAGE_SPECIFIER = /^@firebase\//;
+const DIRECT_SDK_STOP_SPECIFIER = /^(?:firebase|firebase-admin(?:\/.+)?|@firebase\/[^/]+(?:\/.+)?)$/;
 const NODE_SHIM_PREFIX = '\0pyric:node-shim:';
+
+function splitSpecifierQuery(source: string): { bare: string; query: string } {
+  const queryIndex = source.indexOf('?');
+  if (queryIndex === -1) return { bare: source, query: '' };
+  return { bare: source.slice(0, queryIndex), query: source.slice(queryIndex) };
+}
 /** The SDK package the served entries import; one instance per page. */
 const PYRIC_PACKAGE = 'pyric';
 /**
@@ -301,21 +308,35 @@ export function createViteModuleSwap(
   }
 
   function resolveId(source: string, importer: string | undefined): string | null {
-    if (isBypassedBridgeImport(source, importer)) return null;
-    if (isObserverImport(source, importer)) return OBSERVER_MODULE_ID;
+    const { bare, query } = splitSpecifierQuery(source);
+    if (isBypassedBridgeImport(bare, importer)) return null;
+    if (isObserverImport(bare, importer)) return OBSERVER_MODULE_ID;
 
     const supplied = options?.supplied;
-    const isSuppliedImport = supplied !== undefined && isSuppliedRowsImport(source);
-    if (isSuppliedImport) return resolveSupplied(supplied, source, importer);
-    const isFirebaseSpecifier = FIREBASE_SPECIFIER.test(source);
+    const isSuppliedImport = supplied !== undefined && isSuppliedRowsImport(bare);
+    if (isSuppliedImport) return resolveSupplied(supplied, bare, importer);
+    const isFirebaseSpecifier = FIREBASE_SPECIFIER.test(bare);
     if (isFirebaseSpecifier) {
       const swapped = swappedFirebaseEntries(aiMode());
-      const key = swapped.get(source as ServedFirebaseSpecifier);
+      const key = swapped.get(bare as ServedFirebaseSpecifier);
       const isServed = key !== undefined;
-      return isServed ? entries[key] ?? null : stopIdFor(source, importer);
+      if (isServed) {
+        const entry = entries[key];
+        return entry !== undefined ? `${entry}${query}` : null;
+      }
+      return stopIdFor(bare, importer);
     }
 
-    const nodeMatch = NODE_BUILTIN_RE.exec(source);
+    if (supplied === undefined && !isOurCode(importer) && DIRECT_SDK_STOP_SPECIFIER.test(bare)) {
+      const importerUrl = importer === undefined ? undefined : realFileUrlOf(importer) ?? importer;
+      const fromAllowedRealSdk = aiMode() === 'production' && importerUrl !== undefined && allowedUrls.has(importerUrl);
+      if (!fromAllowedRealSdk) {
+        const stopId = stopIdFor(bare, importerUrl);
+        if (stopId !== null) return stopId;
+      }
+    }
+
+    const nodeMatch = NODE_BUILTIN_RE.exec(bare);
     const isNodeBuiltin = nodeMatch !== null && nodeMatch[2] !== undefined;
     const isOwnedImporter = isOurCode(importer);
     const shouldShimNodeBuiltin = isNodeBuiltin && isOwnedImporter;
@@ -409,6 +430,53 @@ export function createViteModuleSwap(
     return environment === undefined ? resolveOptions?.ssr === true : environment.config.consumer === 'server';
   }
 
+  function stoppedSandboxFileIdFor(specifier: string, file: string, error: Error): string {
+    const id = `${STOP_PREFIX}file:${JSON.stringify([specifier, file])}`;
+    if (!stops.has(id)) {
+      stops.set(id, { error, specifier: file, resolveDir: path.dirname(file) });
+    }
+    return id;
+  }
+
+  function shouldInspectSandboxTarget(bare: string, importer: string | undefined): boolean {
+    if (
+      bare.startsWith('/') ||
+      bare.startsWith('.') ||
+      bare.startsWith('file:') ||
+      bare.includes('/node_modules/')
+    ) {
+      return true;
+    }
+    if (aiMode() === 'production') {
+      return bare === 'firebase/ai' || isBypassedBridgeImport(bare, importer) || DIRECT_SDK_STOP_SPECIFIER.test(bare);
+    }
+    return false;
+  }
+
+  async function gateSandboxSdkFile(
+    context: SwapResolveContext,
+    source: string,
+    importer: string | undefined,
+    resolveOptions: { ssr?: boolean } | undefined,
+    routed: string | { id: string } | null,
+  ): Promise<string | { id: string } | null> {
+    if (typeof routed === 'string') return routed;
+    const rawUnaliased = unaliasedSpecifier(source) ?? source;
+    const { bare } = splitSpecifierQuery(rawUnaliased);
+    if (routed === null && !shouldInspectSandboxTarget(bare, importer)) {
+      return null;
+    }
+    const target = routed ?? await context.resolve(bare, importer, { ...resolveOptions, skipSelf: true });
+    if (target === null) return routed;
+    const url = realFileUrlOf(target.id);
+    if (url === null) return routed;
+    if (importer === undefined && allowedUrls.has(url)) return routed;
+    const importerUrl = importer === undefined ? undefined : realFileUrlOf(importer) ?? importer;
+    const stopped = stopFor({ specifier: bare, importer: importerUrl, url, aiMode: aiMode() }, allowedUrls);
+    if (stopped === null) return routed;
+    return stoppedSandboxFileIdFor(bare, fileURLToPath(url), stopped);
+  }
+
   async function resolvePluginId(
     context: SwapResolveContext,
     source: string,
@@ -416,8 +484,12 @@ export function createViteModuleSwap(
     resolveOptions?: { ssr?: boolean },
   ): Promise<string | { id: string } | null> {
     const routed = await routePluginId(context, source, importer, resolveOptions);
+    const isPage = !isServerResolve(context, resolveOptions);
     const supplied = options?.supplied;
-    const isOpenOnPage = supplied !== undefined && supplied.package() !== null && !isServerResolve(context, resolveOptions);
+    if (supplied === undefined) {
+      return isPage ? gateSandboxSdkFile(context, source, importer, resolveOptions, routed) : routed;
+    }
+    const isOpenOnPage = supplied.package() !== null && isPage;
     if (!isOpenOnPage) return routed;
     return gateLiveSdkFile(context, supplied, source, importer, resolveOptions, routed);
   }
@@ -431,13 +503,14 @@ export function createViteModuleSwap(
     const original = unaliasedSpecifier(source);
     const isUnaliased = original === null;
     if (isUnaliased) return resolveId(source, importer);
+    const { bare: originalBare } = splitSpecifierQuery(original);
     const environment = context.environment;
     const isServer = environment === undefined
       ? resolveOptions?.ssr === true
       : environment.config.consumer === 'server';
     // Supplied rows serve pages only: server code gets no row of either kind.
     const supplied = options?.supplied;
-    if (isServer && supplied !== undefined) return refusalIdFor(original, 'server', supplied.refusal(original, 'server'));
+    if (isServer && supplied !== undefined) return refusalIdFor(originalBare, 'server', supplied.refusal(originalBare, 'server'));
     const routed = isServer
       ? routeServerImport({
         specifier: original,
@@ -449,13 +522,13 @@ export function createViteModuleSwap(
       : resolveId(original, importer);
     const isRouted = routed !== null;
     if (isRouted) return routed;
-    const suppliedKind = supplied === undefined ? null : suppliedRowsResolution(supplied, original, importer).kind;
+    const suppliedKind = supplied === undefined ? null : suppliedRowsResolution(supplied, originalBare, importer).kind;
     // A row module's own import, or a passed-through one: the installed SDK, which the gate then checks.
     const isInstalledSdkImport = suppliedKind === 'installed-sdk' || suppliedKind === 'pass-through';
     if (isInstalledSdkImport) return context.resolve(original, importer, { ...resolveOptions, skipSelf: true });
     // Not swapped here. firebase-admin in browser code, and any other load of
     // the real SDK the swap does not choose, gets the stop module.
-    const stopId = stopIdFor(original, importer);
+    const stopId = stopIdFor(originalBare, importer);
     if (stopId !== null) return stopId;
     // The real firebase/ai in production AI mode, or a shadow app's own
     // firebase/app: resolve it as Vite would have. The alias is in the skip
@@ -527,8 +600,9 @@ export function createViteModuleSwap(
         return isUnchanged ? null : { path: args.path, external: true };
       };
       build.onResolve({ filter: FIREBASE_SPECIFIER }, keepFirebaseExternal);
-      // Under live rows a dependency's `@firebase/*` import stays external too, so the page refuses it.
+      // Under live rows and sandbox mode, `@firebase/*`, bare `firebase`, and `firebase-admin` stay external so the page stops them.
       build.onResolve({ filter: SDK_PACKAGE_SPECIFIER }, keepFirebaseExternal);
+      build.onResolve({ filter: DIRECT_SDK_STOP_SPECIFIER }, keepFirebaseExternal);
       build.onResolve({ filter: NODE_BUILTIN_RE }, (args) => {
         const isForeignImporter = !isOurCode(args.importer);
         if (isForeignImporter) {

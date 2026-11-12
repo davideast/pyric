@@ -119,14 +119,18 @@ export function createStorageByteRoute(opts: StorageByteRouteOptions) {
   async function serveObject(req: IncomingMessage, res: ServerResponse, url: URL, bucket: string, path: string): Promise<void> {
     const reads = req.method === 'GET' || req.method === 'HEAD';
     if (!reads) return refuse(res, 405, 'An object is read with GET.', { allow: 'GET, HEAD' });
+    const sdkAuthorized = presentsSdkHeader(req);
+    const presented = url.searchParams.get('token') ?? undefined;
+    if (!sdkAuthorized && !presented) {
+      return refuse(res, 403, 'This URL carries no token that grants this object.');
+    }
     const object = await opts.storage.objectFile(opts.bucketOf?.(bucket) ?? bucket, path);
     const missing = object === undefined;
     if (missing) return refuse(res, 404, 'No such object.');
-    const presented = url.searchParams.get('token') ?? undefined;
     const rawTokens = object.metadata.downloadTokens ?? object.metadata.customMetadata?.firebaseStorageDownloadTokens ?? '';
     const downloadTokens = rawTokens.split(',').filter(token => token !== '');
     const byDownloadToken = downloadTokens.some(token => timingSafeTokenMatch(presented, token));
-    const authorized = presentsSdkHeader(req) || byDownloadToken;
+    const authorized = sdkAuthorized || byDownloadToken;
     if (!authorized) return refuse(res, 403, 'This URL carries no token that grants this object.');
     // A client that checked read rules on one generation asks for exactly that one.
     const pinned = url.searchParams.get('generation');

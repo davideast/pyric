@@ -30,6 +30,7 @@ import type {
   WorkspaceStore,
 } from './ports.js';
 import { httpProjectStore, httpPersistence, httpWorkspace } from './clients/index.js';
+import { registerStudioSessionToken } from './clients/http-workspace.js';
 import { createMemoryProjectStore } from './clients/memory-project-store.js';
 import {
   connectWorkerLive,
@@ -151,6 +152,8 @@ export interface StudioEnvironmentOptions {
    * keep the env worker-free even where a `SharedWorker` global is shimmed.
    */
   disableLive?: boolean;
+  /** `local`: explicit session capability token for `/__pyric/workspace|projects|state`. */
+  token?: string;
 }
 
 /**
@@ -169,6 +172,7 @@ export function createStudioEnvironment(
     // Default to same-origin: `pyric dev --ui` serves Studio AND the routes
     // from one server, so an empty base resolves `/__pyric/*` against it.
     const baseUrl = options.baseUrl ?? '';
+    registerStudioSessionToken(baseUrl, options.token);
     const staticBuild = isStudioStatic();
     const usesMemory = options.persistence === 'memory' || staticBuild;
     const persistence: PersistenceBackend = usesMemory
@@ -209,7 +213,9 @@ export function createStudioEnvironment(
 
     const environment: StudioEnvironment = {
       mode,
-      projects: staticBuild ? createMemoryProjectStore() : httpProjectStore(baseUrl),
+      projects: staticBuild
+        ? createMemoryProjectStore()
+        : httpProjectStore(baseUrl, options.token ? { token: options.token } : undefined),
       persistence,
 
       dispose() {
@@ -225,7 +231,12 @@ export function createStudioEnvironment(
     if (hasLivePlane) environment.live = live;
     if (hasBridge) environment.bridge = bridge;
     const hasWorkspaceServer = !staticBuild;
-    if (hasWorkspaceServer) environment.workspace = httpWorkspace(baseUrl);
+    if (hasWorkspaceServer) {
+      environment.workspace = httpWorkspace(
+        baseUrl,
+        options.token ? { token: options.token } : undefined,
+      );
+    }
     return environment;
   }
 

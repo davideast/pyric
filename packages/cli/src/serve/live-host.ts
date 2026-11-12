@@ -38,8 +38,12 @@ import {
 } from './discovery.js';
 import type { PyricWriteRefusal } from './hosted/own-writes.js';
 import { installedLiveFile, liveNotInstalled, loadInstalledLiveExport } from './installed-live-package.js';
-import { requireLiveProject } from './live-project.js';
-import { inProcessSessionTokenForPort } from './local-session-token.js';
+import { readPyricConfigProjectSync, requireLiveProject } from './live-project.js';
+import {
+  discoverHttpsPointer,
+  fetchLoopbackTarget,
+  inProcessSessionTokenForPort,
+} from './local-session-token.js';
 
 export { LiveProjectMissingError, liveProjectId } from './live-project.js';
 
@@ -58,7 +62,12 @@ const CHILD_COMMAND_REFUSAL =
 
 function liveHostResolution(argv: readonly string[], projectRoot: string): FirebaseProjectResolution {
   const flag = parseArgs(['sandbox', ...argv]).flags.get('project');
-  return resolveFirebaseProject({ projectDir: projectRoot, option: typeof flag === 'string' ? flag : undefined });
+  const configProject = readPyricConfigProjectSync(projectRoot);
+  return resolveFirebaseProject({
+    projectDir: projectRoot,
+    option: typeof flag === 'string' ? flag : undefined,
+    configProject,
+  });
 }
 
 function requireInstalledLive(projectRoot: string, liveRoot: string | undefined, action: string): string {
@@ -301,21 +310,46 @@ async function probeLiveHostAtBase(input: {
     explicitToken: input.explicitToken,
     expectedInstanceId: input.expectedInstanceId,
   });
-  const response = await boundedRequest(`${input.base}/__pyric/health`, {
-    headers: {
-      accept: 'application/json',
-      ...(token !== undefined ? { 'x-pyric-session-token': token } : {}),
-    },
-    deadlineMs: HEALTH_PROBE_DEADLINE_MS,
-  });
-  if (response === null || response.status === 503) return { kind: 'no-answer' };
+  let status: number;
+  let rawBody: string;
+  if (input.base.startsWith('https://')) {
+    try {
+      const httpsRes = await fetchLoopbackTarget(
+        `${input.base}/__pyric/health`,
+        {
+          headers: {
+            accept: 'application/json',
+            ...(token !== undefined ? { 'x-pyric-session-token': token } : {}),
+          },
+          signal: AbortSignal.timeout(HEALTH_PROBE_DEADLINE_MS),
+        },
+        input.cwd,
+      );
+      status = httpsRes.status;
+      rawBody = await httpsRes.text();
+    } catch {
+      return { kind: 'no-answer' };
+    }
+  } else {
+    const response = await boundedRequest(`${input.base}/__pyric/health`, {
+      headers: {
+        accept: 'application/json',
+        ...(token !== undefined ? { 'x-pyric-session-token': token } : {}),
+      },
+      deadlineMs: HEALTH_PROBE_DEADLINE_MS,
+    });
+    if (response === null) return { kind: 'no-answer' };
+    status = response.status;
+    rawBody = response.body.toString('utf8');
+  }
+  if (status === 503) return { kind: 'no-answer' };
   const viteConfig = resolveViteConfigName(input.cwd, input.projectRoot);
-  if (response.status !== 200) {
+  if (status !== 200) {
     return { kind: 'not-a-host', base: input.base, isVite: await servesViteClient(input.base), viteConfig };
   }
   let body: unknown;
   try {
-    body = JSON.parse(response.body.toString('utf8'));
+    body = JSON.parse(rawBody);
   } catch {
     return { kind: 'not-a-host', base: input.base, isVite: await servesViteClient(input.base), viteConfig };
   }
@@ -400,7 +434,9 @@ export async function discoverLiveHost(
 ): Promise<LiveHostProbeAnswer> {
   const projectRoot = liveHostProjectRoot(cwd);
   requireInstalledLive(projectRoot, options.liveRoot, 'pyric-live run did not start.');
-  const discovered = selectProjectHost(await discoverPointerOnce(cwd), () => {});
+  const httpsDiscovered = await discoverHttpsPointer(cwd);
+  const rawDiscovered = httpsDiscovered ?? (await discoverPointerOnce(cwd));
+  const discovered = selectProjectHost(rawDiscovered, () => {});
   if (discovered === null) return { kind: 'no-answer' };
   const parsed = parseLoopbackHostOrigin(discovered.base);
   const probed = await probeLiveHostAtBase({

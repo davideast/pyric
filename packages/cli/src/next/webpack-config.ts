@@ -2,7 +2,12 @@
  * Webpack configuration augmentation for Next.js client component builds.
  */
 import type { NextConfigObject } from './types.js';
-import { getClientAliases, getNodeBuiltinFallbacks } from './client-aliases.js';
+import {
+  CLIENT_STOP_MODULE,
+  getClientAliases,
+  getClientStopSpecifiers,
+  getNodeBuiltinFallbacks,
+} from './client-aliases.js';
 import { BRIDGE_IMPORT_LOADER, productionBridgeOptions, type BridgeImportOptions } from './bridge-imports.js';
 
 interface WebpackOptions {
@@ -23,6 +28,9 @@ function assembleClientResolveSection(existingResolve: Record<string, any> | und
   const newAliases: Record<string, string> = {};
   for (const [source, target] of Object.entries(getClientAliases())) {
     newAliases[`${source}$`] = target;
+  }
+  for (const unserved of getClientStopSpecifiers()) {
+    newAliases[`${unserved}$`] = CLIENT_STOP_MODULE;
   }
   resolveSection.alias = Object.assign(currentAliases, newAliases);
 

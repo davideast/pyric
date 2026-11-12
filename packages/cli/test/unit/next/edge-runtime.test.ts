@@ -97,6 +97,25 @@ describe('Edge runtime detection', () => {
     expect(findEdgeRuntimeFiles(root)).toEqual([]);
     expect(findEdgeRuntimeFiles(join(root, 'absent'))).toEqual([]);
   });
+
+  it('detects named export clauses, re-exported segment configs, multi-declarator exports, and typed config annotations', () => {
+    write('app/api/named/route.ts', "const runtime = 'edge';\nexport { runtime };\n");
+    write('lib/segment-config.ts', "export const runtime = 'edge';\n");
+    write('app/api/reexport/route.ts', "export { runtime } from '../../../lib/segment-config';\n");
+    write('app/api/multi/route.ts', "export const dynamic = 'force-dynamic', runtime = 'edge';\n");
+    write('pages/api/typed-edge.ts', "export const config: { runtime: 'edge' } = { runtime: 'edge' };\n");
+    write(
+      'middleware.ts',
+      "export const config: { runtime: 'nodejs' } = { runtime: 'nodejs' };\nexport function middleware() {}\n",
+    );
+
+    expect(findEdgeRuntimeFiles(root).sort()).toEqual([
+      'app/api/multi/route.ts',
+      'app/api/named/route.ts',
+      'app/api/reexport/route.ts',
+      'pages/api/typed-edge.ts',
+    ]);
+  });
 });
 
 describe('withPyric Edge runtime stop (PYRIC_EDGE_RUNTIME_UNSUPPORTED)', () => {

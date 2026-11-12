@@ -49,6 +49,23 @@ describe('guardWorkerArguments', () => {
     expect(options).toEqual({ env: { PATH: '/usr/bin', PYRIC_SANDBOX: 'local', PYRIC_SANDBOX_INSTANCE: 'abc' } });
   });
 
+  it('preserves NODE_OPTIONS register import when parent loaded register via NODE_OPTIONS and worker passes custom env', () => {
+    const parentEnv = {
+      PATH: '/bin',
+      PYRIC_SANDBOX: 'local',
+      NODE_OPTIONS: `--import ${REGISTER_URL}`,
+    };
+    const [, options] = guardWorkerArguments('/app/worker.js', { env: { PATH: '/usr/bin' } }, REGISTER_URL, parentEnv, true);
+    expect(options).toEqual({
+      env: {
+        PATH: '/usr/bin',
+        PYRIC_SANDBOX: 'local',
+        PYRIC_SANDBOX_FORCE: '1',
+        NODE_OPTIONS: `--import ${REGISTER_URL}`,
+      },
+    });
+  });
+
   it('keeps a sandbox variable the caller set for the worker', () => {
     const parentEnv = { PYRIC_SANDBOX: 'local', PYRIC_AI_MODE: 'sandbox' };
     const [, options] = guardWorkerArguments('/app/worker.js', { env: { PYRIC_AI_MODE: 'production' } }, REGISTER_URL, parentEnv, false);

@@ -50,14 +50,14 @@ function escapeForPattern(text: string): string {
   return text.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&');
 }
 
-/** The served `firebase/*` specifiers and every `firebase-admin` subpath. */
+/** The served `firebase/*` specifiers and every `firebase-admin` subpath, with optional Vite query. */
 const ROUTED_SPECIFIER = new RegExp(
-  `^(${SDK_MODULES.map(escapeForPattern).join('|')}|firebase-admin(?:\\/[a-z-]+)?)$`,
+  `^(${SDK_MODULES.map(escapeForPattern).join('|')}|firebase-admin(?:\\/[a-z-]+)?)(\\?.*)?$`,
 );
 
 /** The alias that carries each routed specifier past Vite's SSR externalization. */
 export function ssrSwapAlias(): { find: RegExp; replacement: string } {
-  return { find: ROUTED_SPECIFIER, replacement: `${SSR_SWAP_PREFIX}$1` };
+  return { find: ROUTED_SPECIFIER, replacement: `${SSR_SWAP_PREFIX}$1$2` };
 }
 
 /** The original specifier of an aliased id, or null for any other id. */
@@ -78,9 +78,10 @@ export interface ServerRouteInput {
 
 /** A routed module id, or null when the specifier keeps its own resolution (the real SDK). */
 export function routeServerImport(input: ServerRouteInput): string | null {
+  const bareSpecifier = input.specifier.split('?')[0]!;
   const runsElsewhere = !input.runsInProcess;
-  if (runsElsewhere) return `${OUTSIDE_PREFIX}${input.environmentName}:${input.specifier}`;
-  const target = mapFirebaseSpecifier(input.specifier, input.importer, { sandbox: 'remote', aiMode: input.aiMode });
+  if (runsElsewhere) return `${OUTSIDE_PREFIX}${input.environmentName}:${bareSpecifier}`;
+  const target = mapFirebaseSpecifier(bareSpecifier, input.importer, { sandbox: 'remote', aiMode: input.aiMode });
   return target === null ? null : `${TARGET_PREFIX}${target}`;
 }
 
