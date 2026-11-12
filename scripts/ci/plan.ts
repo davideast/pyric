@@ -5,9 +5,13 @@ import { dirname, resolve } from 'node:path';
 import { discoverScenarios, type Scenario } from '../../test/apps/shard-plan.ts';
 import {
   requiresPackagingProof,
+  RULES_ONLY_PROOF,
   selectPrCheckSet,
+  selectShadowCheckSet,
   type ChangedPath,
   type CheckSetInput,
+  type PrCheckSet,
+  type ShadowCheckSet,
 } from './check-set.ts';
 
 export function parseNameStatus(output: string): ChangedPath[] {
@@ -223,6 +227,25 @@ export function appSelectionFile(selection: AppScenarioSelection): string {
   return `${JSON.stringify({ apps })}\n`;
 }
 
+/**
+ * The job summary section for the shadow selection: the set it would pick,
+ * what that set would run, and the set that runs and gates this run.
+ */
+export function shadowSummary(input: { shadowCheckSet: ShadowCheckSet; checkSet: PrCheckSet }): string {
+  const wouldRun = input.shadowCheckSet === 'rules-only'
+    ? ['', 'It would run:', ...RULES_ONLY_PROOF.map((command) => `- \`${command}\``)]
+    : [];
+  return [
+    '## Shadow check set',
+    '',
+    `Shadow selection: \`${input.shadowCheckSet}\` (recorded only, it gates nothing)`,
+    ...wouldRun,
+    '',
+    `Check set that runs and gates: \`${input.checkSet}\``,
+    '',
+  ].join('\n');
+}
+
 function main(): void {
   const event = env('CI_EVENT_NAME') as CheckSetInput['event'];
   const paths = event === 'pull_request'
@@ -233,6 +256,8 @@ function main(): void {
     : [];
   const prLabels = labels();
   const checkSet = selectPrCheckSet({ event, labels: prLabels, paths });
+  // Recorded beside the selection, never used to pick jobs (#1521 E1).
+  const shadowCheckSet = selectShadowCheckSet({ event, labels: prLabels, paths });
   const mode = process.env.CI_SELECTION_MODE === 'enforce' ? 'enforce' : 'shadow';
   const effectiveCheckSet = mode === 'shadow' ? 'full' : checkSet;
   // The packaging gate answers a question about published artifacts, which is
@@ -251,7 +276,7 @@ function main(): void {
   mkdirSync(dirname(selectionFile), { recursive: true });
   writeFileSync(selectionFile, appSelectionFile(appSelection));
   const summary = JSON.stringify(
-    { mode, predictedCheckSet: checkSet, checkSet: effectiveCheckSet, packaging, releaseProof, rtdbDifferential, appScenarios, appSelection, paths },
+    { mode, predictedCheckSet: checkSet, checkSet: effectiveCheckSet, shadowCheckSet, packaging, releaseProof, rtdbDifferential, appScenarios, appSelection, paths },
     null,
     2,
   );
@@ -260,12 +285,15 @@ function main(): void {
   if (output) {
     appendFileSync(output, `check-set=${effectiveCheckSet}\n`);
     appendFileSync(output, `predicted-check-set=${checkSet}\n`);
+    appendFileSync(output, `shadow-check-set=${shadowCheckSet}\n`);
     appendFileSync(output, `packaging=${String(packaging)}\n`);
     appendFileSync(output, `release-proof=${String(releaseProof)}\n`);
     appendFileSync(output, `rtdb-differential=${String(rtdbDifferential)}\n`);
     appendFileSync(output, `app-scenarios=${String(appScenarios)}\n`);
     appendFileSync(output, `paths-json=${JSON.stringify(paths)}\n`);
   }
+  const stepSummary = process.env.GITHUB_STEP_SUMMARY;
+  if (stepSummary) appendFileSync(stepSummary, shadowSummary({ shadowCheckSet, checkSet: effectiveCheckSet }));
 }
 
 if (import.meta.main) main();

@@ -59,13 +59,56 @@ function everyPathMatches(
   );
 }
 
+const FULL_PROOF_LABELS = new Set(['ci-full', 'ci-packaging']);
+
+function mayTakeFastPath(input: CheckSetInput): boolean {
+  const asksForFullProof = input.labels.some((label) => FULL_PROOF_LABELS.has(label));
+  return input.event === 'pull_request' && !asksForFullProof;
+}
+
 /** Selects one of two deliberately tiny fast paths. Everything else fails
  * closed to the full suite; this is not a codebase dependency classifier. */
 export function selectPrCheckSet(input: CheckSetInput): PrCheckSet {
-  if (input.event !== 'pull_request' || input.labels.some((label) => label === 'ci-full' || label === 'ci-packaging')) {
-    return 'full';
-  }
+  if (!mayTakeFastPath(input)) return 'full';
   if (everyPathMatches(input.paths, (path) => RELEASE_WRAPPERS.has(path))) return 'release-only';
   if (everyPathMatches(input.paths, isDocMarkdown)) return 'docs-only';
   return 'full';
+}
+
+/** A check set the planner computes and records but does not run yet. */
+export type ShadowCheckSet = 'rules-only' | 'none';
+
+/** The rules package and the conformance data only the rules scorecards and
+ *  replay gates read: the language snapshots and acceptance evidence, the
+ *  rules corpus, the committed rules observations, the Storage rules
+ *  exceptions and the scorecard baselines. Code under packages/conformance/src
+ *  and the assurance node counts stay out, so they fail closed. */
+const RULES_ONLY_PATHS = [
+  /^packages\/rules\//,
+  /^packages\/conformance\/rules-language\//,
+  /^packages\/conformance\/rules-corpus\//,
+  /^packages\/conformance\/observations\/(firestore|storage|rtdb)-rules\//,
+  /^packages\/conformance\/storage-rules-exceptions\//,
+  /^packages\/conformance\/baselines\/(firestore|storage|rtdb)-rules-scorecard\.json$/,
+];
+
+function isRulesOnlyPath(path: string): boolean {
+  return RULES_ONLY_PATHS.some((pattern) => pattern.test(path));
+}
+
+/** What `rules-only` would run once enforced: the rules package tests, the
+ *  rules scorecards (compat:rules-score also runs the Firestore rules oracle
+ *  replay) and the replay gates. Recorded beside the selection. */
+export const RULES_ONLY_PROOF: readonly string[] = [
+  'bun test --cwd packages/rules',
+  'bun run compat:rules-score',
+  'bun test packages/conformance/test/src/rules-scorecard-gate.test.ts packages/conformance/test/src/firestore-rules-scorecard-gate.test.ts packages/conformance/test/src/storage-rules-scorecard-gate.test.ts packages/conformance/test/src/rtdb-rules-scorecard-gate.test.ts',
+  'bun test packages/conformance/test/src/firestore-rules-oracle-replay.test.ts packages/conformance/test/src/storage-stdlib-real-replay.test.ts',
+];
+
+/** The shadow selection (#1521 E1). It never changes what selectPrCheckSet
+ *  gates; plan.ts records it beside the set that runs. */
+export function selectShadowCheckSet(input: CheckSetInput): ShadowCheckSet {
+  if (!mayTakeFastPath(input)) return 'none';
+  return everyPathMatches(input.paths, isRulesOnlyPath) ? 'rules-only' : 'none';
 }
