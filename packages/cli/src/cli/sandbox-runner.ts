@@ -388,17 +388,15 @@ export function spawnSandboxChild(
   const env: NodeJS.ProcessEnv = { ...opts.env };
   const registerImportMatch = /--import\s+\S+register\S*/.exec(opts.env.NODE_OPTIONS ?? '');
   const registerImportFlag = registerImportMatch?.[0] ?? `--import ${registerModuleUrl()}`;
-  let inlineForceSet = false;
 
   // 1. Extract leading KEY=VAL assignments (e.g. PORT=8080 node server.js)
+  // NODE_ENV=production passes through as given: the register refuses it unless
+  // the developer sets PYRIC_SANDBOX_FORCE=1 (#1625), so nothing here adds a force.
   while (parts.length > 0 && /^[A-Za-z_][A-Za-z0-9_]*=/.test(parts[0]!)) {
     const token = parts.shift()!;
     const eq = token.indexOf('=');
     const key = token.slice(0, eq);
     const val = token.slice(eq + 1);
-    if (key === 'PYRIC_SANDBOX_FORCE' && val !== '') {
-      inlineForceSet = true;
-    }
     if (key === 'NODE_OPTIONS' && opts.env.PYRIC_SANDBOX) {
       env.NODE_OPTIONS = val.includes(registerImportFlag)
         ? val
@@ -408,9 +406,6 @@ export function spawnSandboxChild(
       continue;
     }
     env[key] = val;
-  }
-  if (env.NODE_ENV === 'production' && opts.env.PYRIC_SANDBOX && !inlineForceSet) {
-    env.PYRIC_SANDBOX_FORCE = '1';
   }
 
   // 2. Check for discrete shell operators (&&, ||, |, ;) among top-level tokens
