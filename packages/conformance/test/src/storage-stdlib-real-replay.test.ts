@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { parseStorageRules } from '../../../rules/src/storage/rules.ts';
-import type { FirestoreLookup } from '../../../rules/src/storage/rules.ts';
-import { evaluateStorageRules } from '../../../rules/src/storage/rules-evaluator.ts';
+// Through pyric's facade, so the evaluator is the same engine instance
+// `enforce.ts` throws its RuleEvalError from (`@pyric/rules/internal/storage`).
+import { evaluateStorageRules, parseStorageRules, type FirestoreLookup } from '../../../pyric/src/storage/rules.ts';
 import { crossServiceIamDeniedLookup } from '../../../pyric/src/storage/enforce.ts';
 import {
   injectProbeRules,

@@ -49,13 +49,13 @@ const ALLOWED_SITES: readonly string[] = [
   'packages/cli/src/bridge/surface/rules-simulation.ts',
   'packages/cli/src/serve/worker/host/observe-local-firestore.ts',
   'packages/cli/src/verify/cases.ts',
-  // Storage: in-page operations and the evaluator's binding (D6, D7).
+  // Storage: in-page operations (D7). The evaluator's binding moved to
+  // @pyric/rules (packages/rules/src/storage), outside this scan.
   'packages/pyric/src/storage/download.ts',
   'packages/pyric/src/storage/download.ts',
   'packages/pyric/src/storage/list.ts',
   'packages/pyric/src/storage/metadata.ts',
   'packages/pyric/src/storage/metadata.ts',
-  'packages/pyric/src/storage/sandbox/rules-bindings.ts',
   'packages/pyric/src/storage/upload.ts',
   // Storage: the worker, the CLI engine and verify (D8).
   'packages/cli/src/bridge/surface/rules-engines/storage.ts',
