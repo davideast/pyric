@@ -267,6 +267,46 @@ describe('buildChildEnv', () => {
     expect(parsed.nodeOptions).toContain(`--import ${registerUrl}`);
     expect(parsed.token).toBe('cap-token-123');
   });
+
+  // #2609: `NODE_ENV=production pyric sandbox -- next dev` must reach the
+  // register's production refusal; the runner never chooses the override.
+  for (const [label, inherited, inline] of [
+    ['inherited', { NODE_ENV: 'production' }, []],
+    ['inline', {}, ['NODE_ENV=production']],
+  ] as const) {
+    it(`never adds PYRIC_SANDBOX_FORCE for ${label} NODE_ENV=production`, async () => {
+      const { spawnSandboxChild } = await import('../../src/cli/sandbox-runner.js');
+      const baseEnv = buildChildEnv(
+        { ...process.env, ...inherited, PYRIC_SANDBOX_FORCE: undefined },
+        { serveUrl: 'http://127.0.0.1:3473', registerUrl: registerModuleUrl() },
+      );
+      const lines: string[] = [];
+      const origWrite = process.stdout.write.bind(process.stdout);
+      process.stdout.write = ((chunk: string | Uint8Array) => {
+        lines.push(String(chunk));
+        return true;
+      }) as typeof process.stdout.write;
+      try {
+        const handle = spawnSandboxChild(
+          {
+            argv: [
+              ...inline,
+              process.execPath,
+              '-e',
+              'console.log(JSON.stringify({ nodeEnv: process.env.NODE_ENV, force: process.env.PYRIC_SANDBOX_FORCE ?? null }))',
+            ],
+            label: 'probe',
+          },
+          { cwd: process.cwd(), env: baseEnv, json: false },
+        );
+        expect(await handle.exited).toBe(0);
+      } finally {
+        process.stdout.write = origWrite;
+      }
+      const rawLine = lines.join('').replace(/^\[dev\]\s*/gm, '').trim().split('\n').pop() ?? '{}';
+      expect(JSON.parse(rawLine)).toEqual({ nodeEnv: 'production', force: null });
+    });
+  }
 });
 
 describe('registerModuleUrl', () => {
