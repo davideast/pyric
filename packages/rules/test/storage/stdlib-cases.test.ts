@@ -1,0 +1,88 @@
+import { describe, expect, it } from 'bun:test';
+import { readFileSync, readdirSync } from 'node:fs';
+import { join } from 'node:path';
+import { resolveModulesBrowser } from '../../src/modules/resolver-browser.js';
+import {
+  parseStorageRules,
+  type FirestoreLookup,
+  type StorageAuth,
+  type StorageRequestResource,
+  type StorageResource,
+} from '../../src/storage/rules.ts';
+import { evaluateStorageRules } from '../../src/storage/rules-evaluator.ts';
+import { parseStdlibTestFile } from '../../src/modules/stdlib-cost.js';
+
+const FIXTURE_DIR = join(import.meta.dir, '..', '..', '..', 'rules', 'src', 'modules', 'stdlib', 'storage');
+
+interface StorageStdlibCase {
+  description: string;
+  expectation: 'ALLOW' | 'DENY';
+  method: 'get' | 'list' | 'create' | 'update' | 'delete';
+  path: string;
+  auth?: StorageAuth | null;
+  resource?: StorageRequestResource;
+  existingResource?: StorageResource | null;
+  requestTime?: string;
+  functionMocks?: Array<{ function: 'get' | 'exists'; path: string; result: Record<string, unknown> | boolean }>;
+  wrapFunction: string;
+  wrapCallExpr?: string;
+  /** The match path the case's rule sits under; defaults to `/test/{file}`. */
+  wrapMatch?: string;
+}
+
+/** A Firestore lookup that answers only the case's mocks, as the Rules Test
+ *  API does: an unmocked get is a missing document and an unmocked exists is
+ *  false. */
+function mockLookup(mocks: StorageStdlibCase['functionMocks'] = []): FirestoreLookup {
+  const find = (fn: 'get' | 'exists', path: string) => mocks.find((m) => m.function === fn && m.path === path);
+  return {
+    get: (path) => {
+      const mock = find('get', path);
+      return mock && typeof mock.result === 'object' ? mock.result : null;
+    },
+    exists: (path) => find('exists', path)?.result === true,
+  };
+}
+
+const fixtureFiles = readdirSync(FIXTURE_DIR).filter((file) => file.endsWith('.test.json')).sort();
+
+it('discovers every shipped Storage stdlib module fixture', () => {
+  expect(fixtureFiles).toEqual(['metadata.test.json', 'objects.test.json', 'time.test.json', 'uploads.test.json']);
+});
+
+for (const file of fixtureFiles) {
+  const moduleName = `storage/${file.replace(/\.test\.json$/, '')}`;
+  const { cases } = parseStdlibTestFile<StorageStdlibCase>(readFileSync(join(FIXTURE_DIR, file), 'utf8'), file);
+  describe(`Storage stdlib semantics: ${moduleName}`, () => {
+    for (const testCase of cases) {
+      it(testCase.description, () => {
+        const source = `rules_version = '2+modules';
+import { ${testCase.wrapFunction} } from '${moduleName}';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match ${testCase.wrapMatch ?? '/test/{file}'} {
+      allow ${testCase.method}: if ${testCase.wrapCallExpr ?? `${testCase.wrapFunction}()`};
+    }
+  }
+}`;
+        const resolved = resolveModulesBrowser(source);
+        if (!resolved.success) throw new Error(`${resolved.error.code}: ${resolved.error.message}`);
+        const result = evaluateStorageRules(
+          parseStorageRules(resolved.data.resolved),
+          {
+            request: {
+              auth: testCase.auth ?? null,
+              method: testCase.method,
+              path: `b/test/o/${testCase.path}`,
+              ...(testCase.resource ? { resource: testCase.resource } : {}),
+            },
+            resource: testCase.existingResource ?? null,
+          },
+          testCase.requestTime ? new Date(testCase.requestTime) : new Date('2026-07-21T00:00:00Z'),
+          mockLookup(testCase.functionMocks),
+        );
+        expect(result.allowed).toBe(testCase.expectation === 'ALLOW');
+      });
+    }
+  });
+}

@@ -56,16 +56,16 @@ import {
   type StorageService,
   type Target,
 } from './service.js';
-import { evaluateStorageRules } from './sandbox/rules-evaluator.js';
-import { RuleEvalError } from './sandbox/rules-evaluation-error.js';
+import { evaluateStorageRules } from '@pyric/rules/internal/storage';
+import { RuleEvalError } from '@pyric/rules/internal/storage';
 import type {
   EvaluationInput,
   FirestoreLookup,
   StorageRequestResource,
   StorageResource,
-} from './sandbox/rules.js';
+} from '@pyric/rules/internal/storage';
 import { unauthorized } from './errors.js';
-import { bindRulesBucket, rulesBucketName } from './sandbox/rules-bucket-name.js';
+import { bindRulesBucket, rulesBucketName } from '@pyric/rules/internal/storage';
 
 /**
  * `request.resource` and existing `resource` bindings captured beside a denied

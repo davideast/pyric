@@ -35,6 +35,10 @@
       "types": "./dist/internal/rtdb.d.ts",
       "import": "./dist/internal/rtdb.js"
     },
+    "./internal/storage": {
+      "types": "./dist/internal/storage.d.ts",
+      "import": "./dist/internal/storage.js"
+    },
     "./package.json": "./package.json"
   },
   "files": [

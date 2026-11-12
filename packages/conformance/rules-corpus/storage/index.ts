@@ -7,7 +7,7 @@
  * aggregate — `ALL_RULES_STORAGE_SCENARIOS` is computed from the loaded
  * directory. Adding a scenario is adding a file. Consumers:
  *   - packages/conformance/src/run-rules-storage.ts                       (capture runner)
- *   - packages/pyric/test/storage/rules-oracle-conformance.test.ts (replay)
+ *   - packages/rules/test/storage/rules-oracle-conformance.test.ts (replay)
  *
  * The observation filename for a scenario is `rules-storage-<scenario.id>.json`
  * (see `storageObservationName`). Keep scenario ids stable — they are the join

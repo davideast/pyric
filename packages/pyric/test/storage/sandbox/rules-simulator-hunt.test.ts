@@ -1,8 +1,8 @@
 import { describe, expect, test } from 'bun:test';
 import { Bytes } from '@pyric/rules/internal';
 import { Timestamp } from '@pyric/rules/internal';
-import { parseStorageRules } from '../../../src/storage/sandbox/rules.js';
-import { evaluateStorageRules } from '../../../src/storage/sandbox/rules-evaluator.js';
+import { parseStorageRules } from '@pyric/rules/internal/storage';
+import { evaluateStorageRules } from '@pyric/rules/internal/storage';
 import { requestResourceFor } from '../../../src/storage/sandbox/rules-resources.js';
 
 function evalCondition(

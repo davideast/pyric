@@ -22,7 +22,7 @@ import {
   targetOf,
 } from '../../src/storage/service.js';
 import { storageFirestoreLookup } from '../../src/storage/enforce.js';
-import { evaluateStorageRules } from '../../src/storage/sandbox/rules-evaluator.js';
+import { evaluateStorageRules } from '@pyric/rules/internal/storage';
 import { getStorageRulesResolution } from '../../src/storage/internal.js';
 
 function uniqueDbName(label: string): string {

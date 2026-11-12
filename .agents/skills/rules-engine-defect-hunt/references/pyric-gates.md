@@ -40,7 +40,7 @@ bun run build            # scripts/build.sh; or build:pyric for the engine alone
 | RTDB runtime pins | `KNOWN_DIVERGENCES` in `packages/rules/test/rtdb/rules-conformance.test.ts` |
 | Static validator pins | `KNOWN_CORPUS_VALIDATOR_GAPS` in `packages/rules/test/rtdb/grammar/validator-types.test.ts` |
 | Firestore replay gate | `packages/pyric/test/rules/oracle-conformance.test.ts` |
-| Storage replay gate | `packages/pyric/test/storage/rules-oracle-conformance.test.ts` |
+| Storage replay gate | `packages/rules/test/storage/rules-oracle-conformance.test.ts` |
 | Served-plane RTDB pins | `packages/cli/test/serve/rtdb-differential/known-divergences.ts` |
 
 Shared generated files (scorecards, baselines, score pins) are where parallel

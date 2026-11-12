@@ -1,6 +1,6 @@
 /** Public Storage Rules family facade. Backend concepts remain private under sandbox/. */
-export { parseStorageRules } from './sandbox/rules.js';
-export { evaluateStorageRules } from './sandbox/rules-evaluator.js';
+export { parseStorageRules } from '@pyric/rules/internal/storage';
+export { evaluateStorageRules } from '@pyric/rules/internal/storage';
 export type {
   StorageRules,
   StorageMethod,
@@ -13,4 +13,4 @@ export type {
   EvaluationInput,
   EvaluationResult,
   FirestoreLookup,
-} from './sandbox/rules.js';
+} from '@pyric/rules/internal/storage';

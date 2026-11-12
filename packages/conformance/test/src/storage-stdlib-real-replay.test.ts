@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { parseStorageRules } from '../../../pyric/src/storage/sandbox/rules.ts';
-import type { FirestoreLookup } from '../../../pyric/src/storage/sandbox/rules.ts';
-import { evaluateStorageRules } from '../../../pyric/src/storage/sandbox/rules-evaluator.ts';
+import { parseStorageRules } from '../../../rules/src/storage/rules.ts';
+import type { FirestoreLookup } from '../../../rules/src/storage/rules.ts';
+import { evaluateStorageRules } from '../../../rules/src/storage/rules-evaluator.ts';
 import { crossServiceIamDeniedLookup } from '../../../pyric/src/storage/enforce.ts';
 import {
   injectProbeRules,

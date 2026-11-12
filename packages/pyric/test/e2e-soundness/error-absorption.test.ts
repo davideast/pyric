@@ -1,7 +1,7 @@
 import { describe, test, expect } from 'bun:test';
 import { SimulateFirestoreRulesHandler } from '@pyric/rules/internal';
-import { parseStorageRules } from '../../src/storage/sandbox/rules.js';
-import { evaluateStorageRules } from '../../src/storage/sandbox/rules-evaluator.js';
+import { parseStorageRules } from '@pyric/rules/internal/storage';
+import { evaluateStorageRules } from '@pyric/rules/internal/storage';
 
 // ═══════════════════════════════════════════════════════════════
 // CEL commutative error absorption for && and ||
@@ -18,7 +18,7 @@ import { evaluateStorageRules } from '../../src/storage/sandbox/rules-evaluator.
 // Both local engines must agree:
 //   - Firestore simulator (rules/simulator/evaluator.ts), the
 //     reference: tri-state via evaluate-both-sides
-//   - Storage evaluator (storage/sandbox/rules-evaluator.ts)
+//   - Storage evaluator (@pyric/rules storage/rules-evaluator.ts)
 //
 // Top-level `error && false` is DENY either way (false also denies), so
 // every distinguishing case CONSUMES the operator result: `!(...)` or
