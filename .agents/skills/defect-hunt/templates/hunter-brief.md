@@ -5,8 +5,9 @@ Copy, fill the angle brackets, post as the worker's assignment.
 ---
 
 You hunt the **<angle>** angle of a defect hunt on pyric's **<surface>**.
-Read `.agents/skills/defect-hunt/SKILL.md` and
-`references/workstreams.md` (section <n>) first<, and
+Read `.agents/skills/defect-hunt/SKILL.md`,
+`references/workstreams.md` (section <n>), and
+`references/defect-classes.md` first<, and
 `.agents/skills/<domain skill>/SKILL.md` for the surface map>.
 
 **Target.** `origin/main` @ `<sha>`, checked out in your own worktree
@@ -28,9 +29,11 @@ ADR path, differential fixtures>.
   with the observed values.
 - Post each finding to the board as: ID (`<PREFIX>-<n>`), one-line defect,
   severity (1 fail-open or data exposed, 2 false confidence, 3 deploy or
-  load-time disagreement, 4 cosmetic), observed vs expected, the evidence for
-  expected (observation field and probe line, docs quote, or contract clause),
-  repro path.
+  load-time disagreement, 4 cosmetic), **Class** (`Sub-Class` if
+  `SEMANTICS-DIVERGENCE`), **Mechanism** (`kebab-case`), **Novelty**
+  (`new-class` / `new-mechanism` / `repeat-mechanism (<prior ID>)`), observed vs
+  expected, the evidence for expected (observation field and probe line, docs
+  quote, or contract clause), repro path.
 - Post clean results too: what you ran that found nothing, with counts.
 
 **Rules.** Every expected value cites its source, or the finding is marked
