@@ -1,11 +1,12 @@
 /**
- * The public case and result vocabulary for both rules languages.
+ * The public case and result vocabulary for Firestore, Storage and RTDB.
  *
- * Firestore and RTDB cases are deliberately NOT unified — the two rules
- * languages take different request shapes (Firestore is method + document
- * path + resource/data; RTDB is operation + tree path + data/newData), and
- * collapsing them into one shape would force every field to be optional and
- * every reader to guess which half applies. They share the assertion
+ * The cases are deliberately not unified — each service takes a different
+ * request shape (Firestore is method + document path + resource/data;
+ * Storage is method + bucket + object path + object metadata; RTDB is
+ * operation + tree path + data/newData), and collapsing them into one shape
+ * would force every field to be optional and every reader to guess which
+ * part applies. They share the assertion
  * adapter (`assertCase`, with `explainCase` as its renderer) and the unified
  * {@link RuleIssue}, nothing more.
  */
@@ -24,6 +25,12 @@ import type { EvaluatedRuleInfo } from '../test/spec.js';
 import type { ListQueryProofReport } from '../simulator/list-query-proof.js';
 import type { RtdbCoverageSummary } from '../rtdb/coverage.js';
 import type { RtdbRuleEvaluation } from '../rtdb/simulation/spec.js';
+import type {
+  StorageAuth,
+  StorageRequestResource,
+  StorageResource,
+} from '../storage/rules.js';
+import type { StorageMatchedRule } from '../storage/rules-evaluator.js';
 
 export type { RtdbRuleEvaluation };
 
@@ -122,6 +129,92 @@ export interface SimulationSummary {
   failed: number;
   unsupported: number;
   cases: CaseResult[];
+}
+
+// ─── Storage ─────────────────────────────────────────────────────────
+
+/**
+ * The rules verb a Storage case evaluates, as `request.method` reads it.
+ * `read` evaluates `get` and then `list`, and allows when either does. There
+ * is no `write`: production binds one granular verb to each write (an upload
+ * is a `create`, a metadata update an `update`), so a case names that verb.
+ */
+export type StorageCaseMethod = 'read' | 'get' | 'list' | 'create' | 'update' | 'delete';
+
+/**
+ * One Storage rules case: a single request plus the outcome it should
+ * produce, in the shape of the Rules Test API's Storage test case. Every
+ * binding is taken as given; nothing is filled in.
+ */
+export interface StorageCase {
+  /** Human-readable description of what this case verifies. */
+  description: string;
+  /** Expected outcome. */
+  expectation: 'ALLOW' | 'DENY';
+  /** The verb `request.method` is bound to. */
+  method: StorageCaseMethod;
+  /**
+   * The bucket name the rules see in `match /b/{bucket}/o`, such as
+   * `demo-app.appspot.com`. A `gs://` URL reads as its bucket name. Omit it
+   * to use the ruleset's `bucket` option.
+   */
+  bucket?: string;
+  /** The object's path within the bucket, such as `users/alice/a.txt`. */
+  path: string;
+  /** `request.auth`; `null` or omitted for an unauthenticated request. */
+  auth?: StorageAuth | null;
+  /** `request.resource`, the object a write would store. Omit it for reads
+   *  and deletes, where production leaves `request.resource` unset. */
+  requestResource?: StorageRequestResource;
+  /** `resource`, the stored object. Omit it when no object exists. */
+  resource?: StorageResource | null;
+  /**
+   * The documents `firestore.get()` and `firestore.exists()` read, keyed by
+   * path relative to the database (`users/alice`). A missing key is a
+   * missing document. Omit it when the rules read no Firestore document: a
+   * case whose rules read one without it is UNSUPPORTED.
+   */
+  firestore?: Record<string, Record<string, unknown>>;
+  /** Override for `request.time` (ISO-8601). Defaults to wallclock. */
+  requestTime?: string;
+}
+
+/** The outcome of running one Storage case through `simulate`. */
+export interface StorageCaseResult {
+  /** The case that produced this result. */
+  case: StorageCase;
+  description: string;
+  expectation: 'ALLOW' | 'DENY';
+  /** The bucket name the rules saw, or absent when the case named none. */
+  bucket?: string;
+  /** The engine's absolute verdict, independent of expectation. */
+  decision: 'ALLOW' | 'DENY' | 'UNSUPPORTED';
+  /** `true` when `decision` matched `expectation`. */
+  passed: boolean;
+  /** `true` when the case could not be evaluated as given. */
+  unsupported: boolean;
+  /** The allow rule that allowed the request, or the last one checked on a
+   *  denial. Absent when no allow rule covered the request. */
+  decidingRule?: StorageMatchedRule;
+  /** Why the request was denied, one entry per allow rule that did not
+   *  allow it, or why the case could not be evaluated. */
+  reasons: string[];
+  /** Expressions the request evaluated, in the unit of production's
+   *  per-request limit of 1000. */
+  evaluatedExpressions: number;
+  /** The per-request limit that stopped the request, when one did. */
+  resourceLimit?: RulesResourceLimit;
+}
+
+/** The structured account of why one Storage case resolved as it did. */
+export type StorageExplanation = Omit<StorageCaseResult, 'case' | 'description'>;
+
+/** Aggregate of a Storage `simulate(cases)` run. Counts partition the cases. */
+export interface StorageSimulationSummary {
+  passed: number;
+  failed: number;
+  unsupported: number;
+  cases: StorageCaseResult[];
 }
 
 // ─── RTDB ────────────────────────────────────────────────────────────
