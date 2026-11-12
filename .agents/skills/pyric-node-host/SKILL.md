@@ -48,17 +48,17 @@ Never install `@pyric/cli@latest` for this. The published package has no Node ho
    bash <pyric>/.agents/skills/pyric-node-host/scripts/pack-local.sh <pyric> .pyric-local
    ```
 
-   It builds the checkout, packs `pyric`, `pyric-admin`, `create-pyric`, and `@pyric/cli`, rewrites
-   their `workspace:*` ranges, and prints the four tarball paths.
-2. Install all four together as development dependencies, by relative path, with the project's
+   It builds the checkout, packs `@pyric/rules`, `pyric`, `pyric-admin`, `create-pyric`, and
+   `@pyric/cli`, rewrites their `workspace:*` ranges, and prints the five tarball paths.
+2. Install all five together as development dependencies, by relative path, with the project's
    package manager. With npm:
 
    ```sh
    npm install --save-dev ./.pyric-local/pyric-*.tgz ./.pyric-local/create-pyric-*.tgz
    ```
 
-   All four must be installed in one command. `@pyric/cli` depends on the other three at a version
-   that exists only in these tarballs.
+   All five must be installed in one command. `@pyric/cli` depends on the other three, and `pyric`
+   on `@pyric/rules`, at a version that exists only in these tarballs.
 3. Add `.pyric-local/` and `.pyric/` to `.gitignore`. Do not commit the tarballs or the
    `file:` dependency lines; this install is for testing.
 4. Confirm the version: `npx --no-install pyric --version` prints a version newer than npm's
