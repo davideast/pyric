@@ -12,7 +12,7 @@ test('a real packed CLI installs with Vite 8 without overriding peer checks', ()
   const root = mkdtempSync(join(tmpdir(), 'pyric-vite-peer-'));
   try {
     const dependencies: Record<string, string> = { vite: '8.3.0' };
-    for (const name of ['pyric', 'pyric-admin', 'create-pyric', 'cli']) {
+    for (const name of ['rules', 'pyric', 'pyric-admin', 'create-pyric', 'cli']) {
       const packageRoot = join(repoRoot, 'packages', name);
       const manifest = JSON.parse(readFileSync(join(packageRoot, 'package.json'), 'utf8'));
       const packed = JSON.parse(execFileSync('npm', ['pack', '--json', '--pack-destination', root], {

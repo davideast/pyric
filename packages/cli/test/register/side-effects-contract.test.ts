@@ -57,6 +57,7 @@ import { fileURLToPath } from 'node:url';
 
 const CLI_ROOT = fileURLToPath(new URL('../../', import.meta.url));
 const PYRIC_ROOT = fileURLToPath(new URL('../../../pyric/', import.meta.url));
+const RULES_ROOT = fileURLToPath(new URL('../../../rules/', import.meta.url));
 
 interface Manifest {
   readonly name: string;
@@ -107,12 +108,19 @@ const PYRIC_SIDE_EFFECT_STEMS = [
   'app/runtime',
   // `registerDefaultConverters()` at module scope.
   'firestore/sandbox/write-runtime',
-  // `semantics.addOperation('toAST', ...)` at module scope.
-  'rules/grammar/FirestoreParser',
   // `registerOnSnapshotImpl` / `registerRemoteOnSnapshotImpl` at module scope.
   'sandbox/admin-firestore/listeners',
   // `Object.defineProperty(FirebaseError, 'name', ...)` at module scope.
   'sandbox/internal/firebase-error',
+];
+
+/**
+ * The one place `@pyric/rules`'s allowlist is written down. The Firestore
+ * parser moved here from pyric with the engine (#1521).
+ */
+const RULES_SIDE_EFFECT_STEMS = [
+  // `semantics.addOperation('toAST', ...)` at module scope.
+  'grammar/FirestoreParser',
 ];
 
 /** Externalize everything the bundled entry pulls in, so the bundle is the
@@ -191,14 +199,18 @@ describe('sideEffects manifest contract', () => {
     expect([...sideEffectsOf(PYRIC_ROOT)].sort()).toEqual(bothLayouts(PYRIC_SIDE_EFFECT_STEMS));
   });
 
+  it('@pyric/rules declares exactly the parser that registers its AST operation', () => {
+    expect([...sideEffectsOf(RULES_ROOT)].sort()).toEqual(bothLayouts(RULES_SIDE_EFFECT_STEMS));
+  });
+
   it('never regresses to the blanket "sideEffects": false', () => {
-    for (const root of [CLI_ROOT, PYRIC_ROOT]) {
+    for (const root of [CLI_ROOT, PYRIC_ROOT, RULES_ROOT]) {
       expect(manifestAt(root).sideEffects).not.toBe(false);
     }
   });
 
   it('lists no dead paths: every declared glob matches a real file', () => {
-    for (const root of [CLI_ROOT, PYRIC_ROOT]) {
+    for (const root of [CLI_ROOT, PYRIC_ROOT, RULES_ROOT]) {
       for (const pattern of sideEffectsOf(root)) {
         expect(pattern.startsWith('./')).toBe(true);
         const relative = pattern.slice(2);

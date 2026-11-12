@@ -274,9 +274,11 @@ describe('quarantine is off unless the runner is given --quarantine', () => {
   test('only the four CI test steps pass --quarantine', () => {
     const build = readFileSync(resolve(import.meta.dir, '../../../.github/workflows/build.yml'), 'utf8');
     const commands = build.split('\n').map((line) => line.trim()).filter((line) => line.includes('bun ') && line.includes('--quarantine'));
+    // The library step runs one pyric shard and one rules shard (#1521).
     expect(commands).toEqual([
       'run: bun scripts/ci/test-shard.ts --shard=${{ matrix.shard }}/3 --quarantine',
-      'bun scripts/ci/test-shard.ts --package=pyric --shard="${PART#pyric-}/3" --quarantine',
+      'bun scripts/ci/test-shard.ts --package=pyric --shard="${PART#pyric-}/3" --quarantine || status=1',
+      'bun scripts/ci/test-shard.ts --package=rules --shard="${PART#pyric-}/3" --quarantine || status=1',
       'run: bun test/apps/run.ts --packages dist/packages --skip-slow --shard-plan test-results/app-plan.json --shard ${{ matrix.shard.index }} --quarantine',
       'run: bun scripts/ci/quarantine-test.ts --cwd packages/conformance --suite conformance --quarantine',
     ]);

@@ -10,7 +10,7 @@ import { beforeEach, describe, expect, mock, test } from 'bun:test';
 
 const enginePath = new URL(
   '../rtdb/expression-engine.js',
-  import.meta.resolve('pyric/rules/internal'),
+  import.meta.resolve('@pyric/rules/internal'),
 ).pathname;
 const engine = await import(enginePath);
 const matchRtdbExpression = engine.matchRtdbExpression as (raw: string) => unknown;
