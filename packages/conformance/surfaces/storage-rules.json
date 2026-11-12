@@ -10,7 +10,7 @@
   ],
   "coverage": true,
   "scopeNote": "native (no upstream): the Storage rules engine (parseStorageRules / evaluateStorageRules), measured against the production Rules Test API engine.",
-  "conformanceSuite": "packages/pyric/test/storage/rules-oracle-conformance.test.ts",
+  "conformanceSuite": "packages/rules/test/storage/rules-oracle-conformance.test.ts",
   "captureRigs": [
     "rules-storage",
     "storage-stdlib-discovery",

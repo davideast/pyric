@@ -29,12 +29,12 @@ import {
 import { getAuthLens } from '../sandbox/internal/auth-lens.js';
 import { openStorageBackend, storageDbName, type StorageBackend } from './persistence.js';
 import { StorageService, type CrossServiceIam } from './sandbox/running-service.js';
-import type { StorageRules } from './sandbox/rules.js';
+import type { StorageRules } from '@pyric/rules/internal/storage';
 import {
   compileStorageRules,
   type StorageRulesResolution,
-} from './rules-resolution.js';
-import { rulesBucketName } from './sandbox/rules-bucket-name.js';
+} from '@pyric/rules/internal/storage';
+import { rulesBucketName } from '@pyric/rules/internal/storage';
 
 /**
  * Default sandbox bucket identifier. v1 has a single implicit
@@ -64,7 +64,7 @@ export interface SandboxTarget {
   readonly bucket: string;
   /**
    * The name the caller knows this bucket by, which Storage rules see in place
-   * of the store key `bucket` (see `sandbox/rules-bucket-name.ts`). Absent when
+   * of the store key `bucket` (see `@pyric/rules` `storage/rules-bucket-name.ts`). Absent when
    * the caller named none, and the rules then see the store key.
    */
   readonly bucketName?: string;

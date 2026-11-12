@@ -1,9 +1,9 @@
 import 'fake-indexeddb/auto';
 import { describe, test, expect } from 'bun:test';
 import { SimulateFirestoreRulesHandler } from '@pyric/rules/internal';
-import { evaluateStorageRules } from '../../src/storage/sandbox/rules-evaluator.js';
-import { parseStorageRules } from '../../src/storage/sandbox/rules.js';
-import { RuleEvalError } from '../../src/storage/sandbox/rules-evaluation-error.js';
+import { evaluateStorageRules } from '@pyric/rules/internal/storage';
+import { parseStorageRules } from '@pyric/rules/internal/storage';
+import { RuleEvalError } from '@pyric/rules/internal/storage';
 import { DataSnapshot, evaluateRtdbExpression, RtdbRuleRuntimeError } from '@pyric/rules/internal/rtdb';
 
 describe('Tier 1: Feature Coverage (Evaluation Rules)', () => {

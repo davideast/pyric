@@ -16,9 +16,9 @@
  * --margin <fraction>, --floor-us <n>,
  * --out <file>.
  *
- * The harness loads the built engine (packages/rules/dist) and pyric's
- * built Storage rules and SDK (packages/pyric/dist), the same code the test
- * suites run. Build first: `bun run build` at the repository root.
+ * The harness loads the built engine, Storage rules included
+ * (packages/rules/dist), and pyric's built SDK (packages/pyric/dist), the
+ * same code the test suites run. Build first: `bun run build` at the repository root.
  */
 import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
@@ -36,7 +36,6 @@ import {
 const HERE = import.meta.dir;
 const PKG = join(HERE, '..');
 const DIST = join(PKG, 'dist');
-const PYRIC_DIST = join(PKG, '../pyric/dist');
 const FIXTURES = join(HERE, 'fixtures');
 const BASELINE = join(HERE, 'baseline.json');
 
@@ -143,9 +142,9 @@ const wrappers = await load('simulator/wrappers/timestamp.js');
 const rtdbCompiled = await load('rtdb/compiled-rules.js');
 const rtdbParser = await load('rtdb/grammar/RtdbExprParser.js');
 const rtdbSpec = await load('rtdb/simulation/spec.js');
-const storageRules = await import(join(PYRIC_DIST, 'storage/sandbox/rules.js'));
-const storageEvaluator = await import(join(PYRIC_DIST, 'storage/sandbox/rules-evaluator.js'));
-const storageResolution = await import(join(PYRIC_DIST, 'storage/rules-resolution.js'));
+const storageRules = await load('storage/rules.js');
+const storageEvaluator = await load('storage/rules-evaluator.js');
+const storageResolution = await load('storage/rules-resolution.js');
 
 const sandboxApi = await import('pyric/sandbox');
 const firestoreControls = await import('pyric/sandbox/firestore');

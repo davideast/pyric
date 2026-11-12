@@ -4,7 +4,7 @@ import { rulesSourceRejection } from '../../rules/internal/index.js';
 import { rtdbRulesSourceRejection } from '../../rules/internal/rtdb.js';
 import { base64ToBytes } from '../../storage/base64.js';
 import { normalizePath } from '../../storage/reference.js';
-import { compileStorageRules } from '../../storage/rules-resolution.js';
+import { compileStorageRules } from '@pyric/rules/internal/storage';
 import type { FullSandboxState, StorageObjectState } from '../full-state.js';
 import { seedUserSchema, storedMetadataSchema } from '../internal/state-schemas.js';
 import { decodeStateDocument } from '../internal/state-values.js';

@@ -69,7 +69,7 @@ import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { StorageFunctionMock, TestCase } from '../../rules/src/test/spec.ts';
-import type { EvaluationInput } from '../../../packages/pyric/src/storage/sandbox/rules.ts';
+import type { EvaluationInput } from '../../rules/src/storage/rules.ts';
 import {
   resolveFirestoreConstructProbe,
 } from './rules-language-capability.ts';

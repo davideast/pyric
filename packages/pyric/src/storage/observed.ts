@@ -1,5 +1,5 @@
 import { observeStorageOperation } from '../sandbox/internal/storage-activity.js';
-import { rulesBucketName } from './sandbox/rules-bucket-name.js';
+import { rulesBucketName } from '@pyric/rules/internal/storage';
 import { TARGET_SYMBOL, type Target } from './service.js';
 import { uploadBytes as rawuploadBytes, uploadString as rawuploadString } from './upload.js';
 import { uploadBytesResumable as rawuploadBytesResumable } from './resumable.js';

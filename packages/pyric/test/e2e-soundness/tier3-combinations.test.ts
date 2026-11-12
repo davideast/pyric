@@ -3,8 +3,8 @@ import { describe, test, expect } from 'bun:test';
 import { initializeSandbox } from 'pyric/sandbox';
 import { SimulateFirestoreRulesHandler } from '@pyric/rules/internal';
 import { normalizeDocumentPath } from '@pyric/rules/internal';
-import { evaluateStorageRules } from '../../src/storage/sandbox/rules-evaluator.js';
-import { parseStorageRules } from '../../src/storage/sandbox/rules.js';
+import { evaluateStorageRules } from '@pyric/rules/internal/storage';
+import { parseStorageRules } from '@pyric/rules/internal/storage';
 import {
   getStorageSandbox,
   ref as storageRef,

@@ -10,7 +10,7 @@
  * needs the factory's caching to say it.
  */
 import type { StorageBackend } from '../persistence.js';
-import type { StorageRules } from './rules.js';
+import type { StorageRules } from '@pyric/rules/internal/storage';
 
 /**
  * Cross-service IAM posture for `firestore.get()/exists()` in Storage rules.

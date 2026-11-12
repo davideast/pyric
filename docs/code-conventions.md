@@ -219,14 +219,14 @@ this section removes.
 | firestore | `firestore/index.ts` barrel + per-family modules | `sandbox/firestore/` (engine) + `sandbox/admin-firestore/` (Admin chainable face) + `sandbox/admin-compat.ts` | central, one concept per file | central. the outlier |
 | auth | `auth/index.ts` | `auth/sandbox-backend.ts` | surface-local, one 2173-line file | surface-local |
 | database | `database/index.ts` | `database/sandbox/` (backend, data-tree, normalize, query, rules-eval, sentinels, push-id) | surface-local dir, one concept per file | surface-local. conforms |
-| storage | `storage/index.ts` (+ `storage/internal`) | rules engine in `storage/sandbox/rules*.ts`; remaining backend across `storage/service.ts`, `enforce.ts`, `persistence.ts`, `internal.ts` | surface-local, partially migrated into `sandbox/` | surface-local |
+| storage | `storage/index.ts` (+ `storage/internal`) | rules engine in `@pyric/rules` (`packages/rules/src/storage/`); remaining backend across `storage/service.ts`, `enforce.ts`, `persistence.ts`, `internal.ts` | surface-local, partially migrated into `sandbox/` | surface-local |
 | messaging | `messaging/index.ts` (+ `sw`, `internal`) | `messaging/broker/` | surface-local dir | surface-local. conforms |
 | ai | `ai/index.ts` (+ `scripting`) | `ai/broker/` + `ai/backend.ts` + `ai/sandbox-plane.ts` | surface-local dir | surface-local. conforms |
 
 Read the last column top to bottom. The newest surfaces (ai, messaging) and the
 database surface already keep the backend inside the surface directory. Auth
 keeps it surface-local but in one oversized file. Storage is midway through its
-surface-local split: rules evaluation is isolated under `storage/sandbox/`,
+surface-local split: rules evaluation moved to `@pyric/rules`,
 while service and persistence pieces remain at the surface root. Firestore,
 the oldest, is the only surface that puts its backend in central `sandbox/`.
 
@@ -477,7 +477,7 @@ its own commit, export path unchanged).
 | shared sandbox runtime | cross-surface `sandbox/internal/sandbox-impl.ts` facade remains above the class/file triggers | `SandboxImpl` lifecycle facade with persistence/service-registry and event-history collaborators | dedicated mechanical follow-up before the next shared-runtime behavior climb ([ADR 0007](decisions/0007-firestore-runtime-splits-follow-up.md)) | extract collaborators without changing the `Sandbox` contract, service-registration ordering, or persistence lifecycle |
 | auth | one file `auth/sandbox-backend.ts`, 2173 lines (over the 600 trigger) | `auth/sandbox/backend.ts` facade + one concept per file | the next auth climb (blocking-function / before-state work) | `auth/sandbox-backend.ts` splits into `auth/sandbox/*`. Location is already correct (surface-local); the split only deepens it. The `auth-backend-split` branch target conforms (8.8) |
 | database | `database/sandbox/*`, one concept per file | unchanged. this is the reference example | no move | RTDB rule evaluation delegates through `database/sandbox/rules-eval.ts` to the native engine; no parser/compiler lives under the mirror |
-| storage | rules engine split under `storage/sandbox/rules*.ts`; service, enforcement, persistence, and host seam remain at the surface root | finish extracting the backend into `storage/sandbox/` (StorageService and IDB store), keep `storage/internal` as the host seam | the next Storage service/persistence climb | remaining non-public backend logic moves to `storage/sandbox/*`; family and `internal` files stay; `pyric/storage/internal` subpath unchanged |
+| storage | rules engine in `@pyric/rules` (`packages/rules/src/storage/rules*.ts`); service, enforcement, persistence, and host seam remain at the surface root | finish extracting the backend into `storage/sandbox/` (StorageService and IDB store), keep `storage/internal` as the host seam | the next Storage service/persistence climb | remaining non-public backend logic moves to `storage/sandbox/*`; family and `internal` files stay; `pyric/storage/internal` subpath unchanged |
 | messaging | `messaging/broker/*` | unchanged. reference example | no move | nothing |
 | ai | `ai/broker/*` + `ai/backend.ts` + `ai/sandbox-plane.ts` | conforms. optional tidy: fold `backend.ts` and `sandbox-plane.ts` under `ai/sandbox/` for symmetry | opportunistic, next time ai backend is touched | low priority; not blocking |
 | rules | Firestore engine under `rules/*`; RTDB engine historically under `database/{grammar,constraints,simulation}` | both native engines under `rules/`, with RTDB isolated in `rules/rtdb/` | RTDB pure-engine relocation | move the RTDB grammar, constraints compiler, compiled tree, simulator, and their tests under `rules/rtdb/`; keep `pyric/rules` and `pyric/rules/internal/rtdb` import paths stable |

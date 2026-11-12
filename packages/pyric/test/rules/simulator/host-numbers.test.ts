@@ -23,8 +23,8 @@ import { describe, expect, test } from 'bun:test';
 import { SimulateFirestoreRulesHandler } from '@pyric/rules/internal';
 import { hostNumber, isHostIntNumber } from '@pyric/rules/internal';
 import { RulesFloat } from '@pyric/rules/internal';
-import { parseStorageRules } from '../../../src/storage/sandbox/rules.js';
-import { evaluateStorageRules } from '../../../src/storage/sandbox/rules-evaluator.js';
+import { parseStorageRules } from '@pyric/rules/internal/storage';
+import { evaluateStorageRules } from '@pyric/rules/internal/storage';
 import { encodeValue } from '../../../src/firestore/sandbox/wire-encoder.js';
 
 const SAFE_MAX = Number.MAX_SAFE_INTEGER;

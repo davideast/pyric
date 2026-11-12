@@ -2,8 +2,8 @@ import {
   parseStorageRules,
   type EvaluationInput,
   type FirestoreLookup,
-} from '../../../packages/pyric/src/storage/sandbox/rules.ts';
-import { evaluateStorageRules } from '../../../packages/pyric/src/storage/sandbox/rules-evaluator.ts';
+} from '../../rules/src/storage/rules.ts';
+import { evaluateStorageRules } from '../../rules/src/storage/rules-evaluator.ts';
 import type { StorageTestCase, StorageFunctionMock } from '../../rules/src/test/spec.ts';
 import type { LanguageConstruct } from '../rules-language/load.ts';
 import type { Classification } from './rules-language-capability.ts';

@@ -2307,7 +2307,7 @@ export const firestoreRegistry = {
           conformanceTests: [
             "packages/rules/test/simulator/evaluator.test.ts",
             "packages/pyric/test/rules/oracle-conformance.test.ts",
-            "packages/pyric/test/rules/index-access.test.ts",
+            "packages/rules/test/index-access.test.ts",
           ],
         }),
         row22({

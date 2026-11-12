@@ -10,7 +10,7 @@ import {
   type AppFirebaseStorage,
   type FirebaseStorage,
 } from './service.js';
-import { rulesBucketName } from './sandbox/rules-bucket-name.js';
+import { rulesBucketName } from '@pyric/rules/internal/storage';
 
 /** Whether `getStorage`'s bucket URL names a bucket other than the app's `storageBucket`. */
 function namesOtherBucket(bucketUrl: string | undefined, appBucket: string | undefined): boolean {

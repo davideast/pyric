@@ -20,7 +20,7 @@ import { isDocumentPath, normalizeDocumentPath } from './document-lookups.js';
 //     different paths are not."
 //   - rules/stdlib-modules.ts spaces guidance: "get() is cached per request,
 //     so all rules on the request share a single read of the 10-get budget."
-//   - The Storage sibling limit (storage/sandbox/rules-methods.ts) uses a
+//   - The Storage sibling limit (storage/rules-methods.ts) uses a
 //     per-request distinct-path set, verified by real-resource capture.
 //
 // What is implemented, exactly: the budget keys on (kind, path), where kind

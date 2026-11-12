@@ -10,7 +10,7 @@ import { initializeSandbox } from 'pyric/sandbox';
 import { createAppForSandbox } from '../../../src/app/internal.js';
 import { getMetadata, getStorage, ref, uploadBytes } from '../../../src/storage/index.js';
 import { getStorageSandbox } from '../../../src/storage/service.js';
-import { rulesBucketName } from '../../../src/storage/sandbox/rules-bucket-name.js';
+import { rulesBucketName } from '@pyric/rules/internal/storage';
 
 const BUCKET = 'demo-app.appspot.com';
 
