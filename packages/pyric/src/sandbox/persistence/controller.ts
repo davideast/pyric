@@ -199,18 +199,23 @@ export async function attachPersistence(
     } catch (error) { prepared?.retry(); throw error; }
   };
 
-  // Serialize flushes on a single chain so two never overlap. Without this, a
-  // newer flush that fails while an older one succeeds could adopt a stale
-  // snapshot's hashes and silently drop the newer write. Each run waits for the
-  // previous (success OR failure) and re-derives changes from current state.
+  // Serialize flushes on a single chain so two never overlap, and coalesce
+  // concurrent callers onto one queued flush behind any in-flight flush.
   let flushChain: Promise<void> = Promise.resolve();
+  let queuedFlush: Promise<void> | null = null;
   const flushNow = (): Promise<void> => {
     if (pendingFlush) {
       clearTimeout(pendingFlush);
       pendingFlush = null;
     }
-    flushChain = flushChain.then(realFlush, realFlush);
-    return flushChain;
+    if (queuedFlush !== null) return queuedFlush;
+    const next = flushChain.then(() => {
+      queuedFlush = null;
+      return realFlush();
+    });
+    queuedFlush = next;
+    flushChain = next.then(() => {}, () => {});
+    return next;
   };
 
   const scheduleFlush = (): void => {

@@ -199,3 +199,74 @@ test('SDK batches and transactions persist through the same mutation boundary', 
   expect(reopened.admin.getDocument('items/first')).toEqual({ value: 3 });
   expect(reopened.admin.getDocument('items/second')).toBeNull();
 });
+
+test('concurrent flush() calls while one commit is in flight share a single queued commit and propagate failure', async () => {
+  const storage = createMemoryBackend();
+  const gates: Array<{ release: () => void }> = [];
+  let holdCommits = false;
+  let failQueued = false;
+  let commits = 0;
+
+  const backend: PersistenceBackend = {
+    ...storage,
+    async applyChanges(key, changed, removed) {
+      commits += 1;
+      if (holdCommits) {
+        const gate = Promise.withResolvers<void>();
+        gates.push({ release: gate.resolve });
+        await gate.promise;
+      }
+      if (failQueued) throw new Error('Backend commit failed');
+      await storage.putRecords(key, changed);
+      await storage.deleteRecords(key, removed);
+    },
+  };
+
+  const sandbox = createSandbox();
+  await sandbox.enablePersistence({ key: 'coalesce-flush', injectedBackend: backend, flushIntervalMs: 60_000 });
+  holdCommits = true;
+
+  sandbox.admin.setDocument('items/one', { v: 1 });
+  const first = sandbox.flush();
+  while (gates.length < 1) await new Promise(resolve => setTimeout(resolve, 1));
+
+  // Three mutations + three flush() calls arrive while the first commit is in flight.
+  sandbox.admin.setDocument('items/two', { v: 2 });
+  const secondA = sandbox.flush();
+  sandbox.admin.setDocument('items/three', { v: 3 });
+  const secondB = sandbox.flush();
+  sandbox.admin.setDocument('items/four', { v: 4 });
+  const secondC = sandbox.flush();
+
+  let anyQueuedSettled = false;
+  void secondA.then(() => { anyQueuedSettled = true; }, () => { anyQueuedSettled = true; });
+  gates[0]!.release();
+  await first;
+
+  while (gates.length < 2) await new Promise(resolve => setTimeout(resolve, 1));
+  expect(anyQueuedSettled).toBe(false);
+
+  // Fail the shared queued commit: all three callers receive the rejection.
+  failQueued = true;
+  const settled = Promise.allSettled([secondA, secondB, secondC]);
+  gates[1]!.release();
+  const outcomes = await settled;
+  for (const outcome of outcomes) {
+    expect(outcome.status).toBe('rejected');
+    expect((outcome as PromiseRejectedResult).reason).toMatchObject({ message: 'Backend commit failed' });
+  }
+  expect(commits).toBe(2);
+
+  // Dirty marks were retained on failure; one retry flush persists all three documents.
+  holdCommits = false;
+  failQueued = false;
+  await sandbox.flush();
+  expect(commits).toBe(3);
+
+  const reopened = createSandbox();
+  await reopened.enablePersistence({ key: 'coalesce-flush', injectedBackend: storage });
+  expect(reopened.admin.getDocument('items/one')).toEqual({ v: 1 });
+  expect(reopened.admin.getDocument('items/two')).toEqual({ v: 2 });
+  expect(reopened.admin.getDocument('items/three')).toEqual({ v: 3 });
+  expect(reopened.admin.getDocument('items/four')).toEqual({ v: 4 });
+});

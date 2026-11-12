@@ -163,10 +163,18 @@ export async function createHostedRuntime(
     throw error;
   }
   const persistenceIsHealthy = () => persistence.status().state === 'healthy';
+  const nextTurn = () => new Promise<void>(resolve => setImmediate(resolve));
   let persistenceWork = Promise.resolve();
+  let queuedFlush: Promise<void> | null = null;
   function flushPersistence(): Promise<void> {
-    // An older asynchronous snapshot must finish before the next one starts.
-    const flushed = persistenceWork.then(persistState);
+    if (queuedFlush !== null) return queuedFlush;
+    // An older asynchronous snapshot must finish before the next one starts;
+    // yielding one I/O turn coalesces concurrent callers into one commit.
+    const flushed = persistenceWork.then(nextTurn).then(() => {
+      queuedFlush = null;
+      return persistState();
+    });
+    queuedFlush = flushed;
     // The requesting caller receives failures; later accepted work still drains.
     persistenceWork = flushed.catch(() => {});
     return flushed;

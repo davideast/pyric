@@ -9,7 +9,7 @@ import { describe, expect, it } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createMemoryBackend } from 'pyric/sandbox';
+import { createMemoryBackend, type PersistenceBackend } from 'pyric/sandbox';
 import { recordCheckpointBackend } from 'pyric/sandbox/checkpoints';
 import { openStorageBackend } from '../../../../pyric/src/storage/persistence.js';
 import type { BridgeMessage } from '../../../src/bridge/protocol.js';
@@ -338,6 +338,343 @@ describe('createHostedRuntime RTDB active rules sync', () => {
       );
       expect(afterRestoreResetWrite.ok).toBe(false);
     } finally {
+      await runtime.close();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('createHostedRuntime group commit', () => {
+  it('coalesces concurrent RTDB writes into at most one in-flight and one queued commit without early acks', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'pyric-hosted-group-commit-'));
+    const frames: BridgeMessage[] = [];
+    const storage = createMemoryBackend();
+    const gates: Array<{ release: () => void }> = [];
+    let holdCommits = false;
+    let commitCount = 0;
+
+    const backend: PersistenceBackend = {
+      ...storage,
+      retryFailedFlush: false,
+      async applyChanges(key, changed, removed) {
+        commitCount += 1;
+        if (holdCommits) {
+          const gate = Promise.withResolvers<void>();
+          gates.push({ release: gate.resolve });
+          await gate.promise;
+        }
+        await storage.putRecords(key, changed);
+        await storage.deleteRecords(key, removed);
+      },
+    };
+
+    const makePersistence = () => ({
+      backend,
+      storage: undefined as never,
+      checkpoints: recordCheckpointBackend(createMemoryBackend()),
+      state: { seed: async () => false },
+      repairedObjects: [],
+      sweep: Promise.resolve({ removed: 0, bytesRemoved: 0 }),
+      close() {},
+      status: () => ({ state: 'healthy' as const }),
+      onFailure: () => () => {},
+      markUnhealthy() {},
+    });
+
+    const storageBackend = await openStorageBackend(`mem-hosted-gc-${Math.random()}`);
+    const initPayload = {
+      rules: null,
+      rulesHash: null,
+      databaseRules: { rules: { '.read': true, '.write': true } },
+      databaseRulesHash: null,
+      bridgeUrl: null,
+      seed: null,
+      capture: false,
+      hosted: true,
+      permissive: true,
+      projectKey: 'hosted-group-commit',
+      sessionToken: 'tok-hosted-gc',
+      appOptions: { projectId: 'demo-project' },
+    };
+
+    const runtime = await createHostedRuntime(
+      initPayload,
+      'http://127.0.0.1:4400',
+      (msg) => frames.push(msg),
+      dir,
+      { persistence: { ...makePersistence(), storage: storageBackend } as never, record: false },
+    );
+
+    const findReply = (id: string) =>
+      frames.find(
+        (f) =>
+          f.type === 'worker-message-result' &&
+          (f.message as { t?: string; id?: string }).t === 'res' &&
+          (f.message as { id?: string }).id === id,
+      ) as { message: { ok: boolean; value?: unknown; error?: { code?: string } } } | undefined;
+
+    const waitForReply = async (id: string) => {
+      const deadline = Date.now() + 3_000;
+      while (Date.now() < deadline) {
+        const hit = findReply(id);
+        if (hit !== undefined) return hit.message;
+        await new Promise((resolve) => setTimeout(resolve, 5));
+      }
+      throw new Error(`Timed out waiting for ${id}`);
+    };
+
+    const waitUntil = async (predicate: () => boolean) => {
+      const deadline = Date.now() + 3_000;
+      while (Date.now() < deadline) {
+        if (predicate()) return;
+        await new Promise((resolve) => setImmediate(resolve));
+      }
+      throw new Error('Timed out waiting for condition');
+    };
+
+    try {
+      // 1. Same-turn burst of 4 writes across 4 sessions coalesces into fewer than 4 commits.
+      for (let i = 1; i <= 4; i++) {
+        runtime.receive({
+          type: 'worker-message',
+          clientSessionId: `burst-${i}`,
+          message: { t: 'op', id: `b-${i}`, method: 'rtdb.set', path: `/burst/k${i}`, value: i },
+        } as unknown as BridgeMessage);
+      }
+      for (let i = 1; i <= 4; i++) {
+        expect((await waitForReply(`b-${i}`)).ok).toBe(true);
+      }
+      expect(commitCount).toBeLessThan(4);
+
+      // 2. While 1 commit is held in flight, 4 concurrent writes queue into a single 2nd commit.
+      commitCount = 0;
+      holdCommits = true;
+
+      runtime.receive({
+        type: 'worker-message',
+        clientSessionId: 's-1',
+        message: { t: 'op', id: 'w-1', method: 'rtdb.set', path: '/items/one', value: { v: 1 } },
+      } as unknown as BridgeMessage);
+
+      await waitUntil(() => gates.length === 1);
+      expect(findReply('w-1')).toBeUndefined();
+
+      for (let i = 2; i <= 5; i++) {
+        runtime.receive({
+          type: 'worker-message',
+          clientSessionId: `s-${i}`,
+          message: { t: 'op', id: `w-${i}`, method: 'rtdb.set', path: `/items/k${i}`, value: { v: i } },
+        } as unknown as BridgeMessage);
+      }
+      for (let turn = 0; turn < 5; turn++) {
+        await new Promise((resolve) => setImmediate(resolve));
+      }
+
+      // Only 1 commit in flight; none of w-1..w-5 acknowledged yet.
+      expect(gates.length).toBe(1);
+      for (let i = 1; i <= 5; i++) {
+        expect(findReply(`w-${i}`)).toBeUndefined();
+      }
+
+      // Release commit #1: w-1 acks; w-2..w-5 wait on single queued commit #2.
+      gates[0]!.release();
+      expect((await waitForReply('w-1')).ok).toBe(true);
+      await waitUntil(() => gates.length === 2);
+      for (let i = 2; i <= 5; i++) {
+        expect(findReply(`w-${i}`)).toBeUndefined();
+      }
+
+      // Release commit #2: all of w-2..w-5 ack; total commits === 2 (not 5).
+      gates[1]!.release();
+      for (let i = 2; i <= 5; i++) {
+        expect((await waitForReply(`w-${i}`)).ok).toBe(true);
+      }
+      for (let turn = 0; turn < 5; turn++) {
+        await new Promise((resolve) => setImmediate(resolve));
+      }
+      expect(commitCount).toBe(2);
+      holdCommits = false;
+    } finally {
+      holdCommits = false;
+      for (const gate of gates) gate.release();
+      await runtime.close();
+    }
+
+    // 3. Cold reload reproduces all acknowledged writes.
+    const reloadFrames: BridgeMessage[] = [];
+    const reloaded = await createHostedRuntime(
+      initPayload,
+      'http://127.0.0.1:4400',
+      (msg) => reloadFrames.push(msg),
+      dir,
+      {
+        persistence: {
+          ...makePersistence(),
+          backend: storage,
+          storage: await openStorageBackend(`mem-hosted-gc-reload-${Math.random()}`),
+        } as never,
+        record: false,
+      },
+    );
+    try {
+      reloaded.receive({
+        type: 'worker-message',
+        clientSessionId: 'reader',
+        message: { t: 'op', id: 'read-items', method: 'rtdb.get', path: '/items' },
+      } as unknown as BridgeMessage);
+      const deadline = Date.now() + 3_000;
+      let reply: { ok: boolean; value?: { value?: unknown } } | undefined;
+      while (Date.now() < deadline && reply === undefined) {
+        const hit = reloadFrames.find(
+          (f) =>
+            f.type === 'worker-message-result' &&
+            (f.message as { id?: string }).id === 'read-items',
+        );
+        if (hit !== undefined) reply = (hit as { message: typeof reply }).message;
+        else await new Promise((resolve) => setTimeout(resolve, 5));
+      }
+      expect(reply?.ok).toBe(true);
+      expect(reply?.value?.value).toEqual({
+        one: { v: 1 },
+        k2: { v: 2 },
+        k3: { v: 3 },
+        k4: { v: 4 },
+        k5: { v: 5 },
+      });
+    } finally {
+      await reloaded.close();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('reports a failed shared flush to every caller it covered and latches persistence unhealthy', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'pyric-hosted-gc-fail-'));
+    const frames: BridgeMessage[] = [];
+    const storage = createMemoryBackend();
+    const gates: Array<{ release: () => void }> = [];
+    let holdFirst = true;
+    let failSecond = false;
+    let healthy = true;
+    let markedUnhealthyCount = 0;
+
+    const backend: PersistenceBackend = {
+      ...storage,
+      retryFailedFlush: false,
+      async applyChanges(key, changed, removed) {
+        if (holdFirst) {
+          holdFirst = false;
+          const gate = Promise.withResolvers<void>();
+          gates.push({ release: gate.resolve });
+          await gate.promise;
+        } else if (failSecond) {
+          throw new Error('simulated sqlite ioerr');
+        }
+        await storage.putRecords(key, changed);
+        await storage.deleteRecords(key, removed);
+      },
+    };
+
+    const persistence = {
+      backend,
+      storage: await openStorageBackend(`mem-hosted-gc-fail-${Math.random()}`),
+      checkpoints: recordCheckpointBackend(createMemoryBackend()),
+      state: { seed: async () => false },
+      repairedObjects: [],
+      sweep: Promise.resolve({ removed: 0, bytesRemoved: 0 }),
+      close() {},
+      status: () => ({ state: (healthy ? 'healthy' : 'unhealthy') as 'healthy' | 'unhealthy' }),
+      onFailure: () => () => {},
+      markUnhealthy() {
+        healthy = false;
+        markedUnhealthyCount += 1;
+      },
+    };
+
+    const runtime = await createHostedRuntime(
+      {
+        rules: null,
+        rulesHash: null,
+        databaseRules: { rules: { '.read': true, '.write': true } },
+        databaseRulesHash: null,
+        bridgeUrl: null,
+        seed: null,
+        capture: false,
+        hosted: true,
+        permissive: true,
+        projectKey: 'hosted-gc-fail',
+        sessionToken: 'tok-hosted-gc-fail',
+        appOptions: { projectId: 'demo-project' },
+      },
+      'http://127.0.0.1:4400',
+      (msg) => frames.push(msg),
+      dir,
+      { persistence: persistence as never, record: false },
+    );
+
+    const waitForReply = async (id: string) => {
+      const deadline = Date.now() + 3_000;
+      while (Date.now() < deadline) {
+        const reply = frames.find(
+          (f) =>
+            f.type === 'worker-message-result' &&
+            (f.message as { t?: string; id?: string }).t === 'res' &&
+            (f.message as { id?: string }).id === id,
+        ) as { message: { ok: boolean; error?: { code?: string } } } | undefined;
+        if (reply !== undefined) return reply.message;
+        await new Promise((resolve) => setTimeout(resolve, 5));
+      }
+      throw new Error(`Timed out waiting for ${id}`);
+    };
+
+    const originalConsoleError = console.error;
+    console.error = () => {};
+    try {
+      runtime.receive({
+        type: 'worker-message',
+        clientSessionId: 's-1',
+        message: { t: 'op', id: 'ok-1', method: 'rtdb.set', path: '/items/a', value: 1 },
+      } as unknown as BridgeMessage);
+
+      const deadline = Date.now() + 3_000;
+      while (Date.now() < deadline && gates.length === 0) {
+        await new Promise((resolve) => setImmediate(resolve));
+      }
+      expect(gates.length).toBe(1);
+
+      failSecond = true;
+      for (const idx of [2, 3, 4]) {
+        runtime.receive({
+          type: 'worker-message',
+          clientSessionId: `s-${idx}`,
+          message: { t: 'op', id: `fail-${idx}`, method: 'rtdb.set', path: `/items/k${idx}`, value: idx },
+        } as unknown as BridgeMessage);
+      }
+      for (let turn = 0; turn < 5; turn++) {
+        await new Promise((resolve) => setImmediate(resolve));
+      }
+
+      gates[0]!.release();
+      expect((await waitForReply('ok-1')).ok).toBe(true);
+
+      for (const idx of [2, 3, 4]) {
+        const res = await waitForReply(`fail-${idx}`);
+        expect(res.ok).toBe(false);
+        expect(res.error?.code).toBe('committed-but-not-durable');
+      }
+      expect(markedUnhealthyCount).toBe(1);
+      expect(healthy).toBe(false);
+
+      runtime.receive({
+        type: 'worker-message',
+        clientSessionId: 's-5',
+        message: { t: 'op', id: 'after-unhealthy', method: 'rtdb.set', path: '/items/k5', value: 5 },
+      } as unknown as BridgeMessage);
+      const blocked = await waitForReply('after-unhealthy');
+      expect(blocked.ok).toBe(false);
+      expect(blocked.error?.code).toBe('persistence-unhealthy');
+    } finally {
+      console.error = originalConsoleError;
+      for (const gate of gates) gate.release();
       await runtime.close();
       rmSync(dir, { recursive: true, force: true });
     }
