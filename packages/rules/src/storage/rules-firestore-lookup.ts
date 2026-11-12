@@ -62,6 +62,19 @@ function wrapFirestoreValue(val: unknown): unknown {
       return val.map(wrapFirestoreValue);
     }
     const obj = val as Record<string, unknown>;
+    const unescapedTag = Symbol.for('pyric.unescapedMap');
+    if ((obj as Record<symbol, unknown>)[unescapedTag] === true) {
+      const out: Record<string, unknown> = {};
+      for (const [k, v] of Object.entries(obj)) {
+        Object.defineProperty(out, k, {
+          value: wrapFirestoreValue(v),
+          enumerable: true,
+          configurable: true,
+          writable: true,
+        });
+      }
+      return out;
+    }
     const keys = Object.keys(obj);
     if (obj.__type === 'path') {
       if (Array.isArray(obj.segments)) {
@@ -78,15 +91,27 @@ function wrapFirestoreValue(val: unknown): unknown {
       }
     }
     if ((obj.__type === 'reference' || obj.__type === 'ref') && typeof obj.path === 'string') {
-      return storagePathFromReferenceString(obj.path);
+      return storagePathFromReferenceString(
+        obj.path,
+        typeof obj.databaseId === 'string' && obj.databaseId.length > 0
+          ? obj.databaseId
+          : undefined,
+      );
     }
     if (
       typeof obj.__type === 'string' ||
-      (typeof obj.type === 'string' && obj.type.startsWith('firestore/')) ||
-      obj.__type__ === '__vector__'
+      (typeof obj.type === 'string' &&
+        (obj.type.startsWith('firestore/') || obj.type.startsWith('pyric/'))) ||
+      obj.__type__ === '__vector__' ||
+      (typeof obj.id === 'string' && typeof obj.path === 'string')
     ) {
       const revived = reviveFirestoreNumbers(obj);
-      if (revived instanceof RulesValue) {
+      if (
+        revived instanceof RulesValue ||
+        (typeof revived === 'object' &&
+          revived !== null &&
+          (revived as Record<symbol, unknown>)[unescapedTag] === true)
+      ) {
         return wrapFirestoreValue(revived);
       }
     }
@@ -112,7 +137,7 @@ function wrapFirestoreValue(val: unknown): unknown {
   return val;
 }
 
-function storagePathFromReferenceString(rawPath: string): StoragePath {
+function storagePathFromReferenceString(rawPath: string, databaseId: string = '(default)'): StoragePath {
   let trimmed = rawPath.replace(/^\/+|\/+$/g, '');
   const projectsMatch = /^projects\/[^/]+\/(databases(?:\/.*)?)$/.exec(trimmed);
   if (projectsMatch) trimmed = projectsMatch[1]!;
@@ -121,8 +146,8 @@ function storagePathFromReferenceString(rawPath: string): StoragePath {
   }
   return new StoragePath(
     trimmed.length > 0
-      ? `/databases/(default)/documents/${trimmed}`
-      : '/databases/(default)/documents',
+      ? `/databases/${databaseId}/documents/${trimmed}`
+      : `/databases/${databaseId}/documents`,
   );
 }
 

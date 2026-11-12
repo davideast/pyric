@@ -943,4 +943,81 @@ service cloud.firestore {
       ),
     ).toMatchObject({ result: 'allow' });
   });
+
+  it('retains named-database Reference.databaseId when rehydrating observedSession documents for rules evaluation', () => {
+    const sandbox = initializeSandbox();
+    const observedSession = createObservedSessionDataStore({ projectId: 'demo-project' });
+    const ctx: HostCtx = {
+      db: getFirestore(sandbox),
+      sandbox,
+      instanceId: 'fs-named-ref-session-test',
+      subs: new Map(),
+      rtdbProjectId: 'demo-project',
+      observedSession,
+    };
+    expect(
+      deployFirestoreRulesToHost(
+        ctx,
+        `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /items/{id} {
+      allow get: if resource.data.analyticsRef == /databases/analytics/documents/orgs/org-1
+                 && resource.data.analyticsRef != /databases/(default)/documents/orgs/org-1
+                 && resource.data.analyticsDocRef == /databases/analytics/documents/orgs/org-2
+                 && resource.data.defaultRef == /databases/(default)/documents/orgs/org-1;
+      allow delete: if resource.data.analyticsRef == /databases/(default)/documents/orgs/org-1;
+    }
+  }
+}`,
+      ).ok,
+    ).toBe(true);
+
+    observedSession.apply({
+      firestore: [
+        {
+          kind: 'set',
+          path: 'items/item-named-ref',
+          data: {
+            analyticsRef: { __type: 'reference', path: 'orgs/org-1', databaseId: 'analytics' },
+            analyticsDocRef: {
+              type: 'document',
+              path: 'orgs/org-2',
+              id: 'org-2',
+              databaseId: 'analytics',
+            },
+            defaultRef: { __type: 'reference', path: 'orgs/org-1' },
+          },
+        },
+      ],
+    });
+
+    expect(
+      firestoreVerdict(
+        ctx,
+        {
+          service: 'firestore',
+          method: 'getDoc',
+          path: 'items/item-named-ref',
+          at: 90,
+          outcome: OK,
+        },
+        'get',
+      ),
+    ).toMatchObject({ result: 'allow' });
+
+    expect(
+      firestoreVerdict(
+        ctx,
+        {
+          service: 'firestore',
+          method: 'deleteDoc',
+          path: 'items/item-named-ref',
+          at: 91,
+          outcome: DENIED,
+        },
+        'delete',
+      ),
+    ).toMatchObject({ result: 'deny' });
+  });
 });

@@ -18,12 +18,15 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   return proto === Object.prototype || proto === null;
 }
 
-const DOC_REF_KEYS = new Set(['id', 'path', 'bypassRules', 'auth', 'env']);
+const DOC_REF_KEYS = new Set(['id', 'path', 'databaseId', 'bypassRules', 'auth', 'env']);
 
-function isSerializedDocRef(obj: Record<string, unknown>): obj is { id: string; path: string } {
+function isSerializedDocRef(
+  obj: Record<string, unknown>,
+): obj is { id: string; path: string; databaseId?: string } {
   const keys = Object.keys(obj);
   if (keys.length < 2 || !keys.every((k) => DOC_REF_KEYS.has(k))) return false;
   if (typeof obj.id !== 'string' || typeof obj.path !== 'string') return false;
+  if (obj.databaseId !== undefined && typeof obj.databaseId !== 'string') return false;
   const segments = obj.path.split('/');
   return (
     segments.length >= 2
@@ -124,7 +127,10 @@ export function reviveFirestoreNumbers(value: unknown): unknown {
           break;
         case 'reference':
           if (typeof value.path === 'string') {
-            return new Reference(value.path);
+            return new Reference(
+              value.path,
+              typeof value.databaseId === 'string' ? value.databaseId : undefined,
+            );
           }
           break;
         case 'path':
@@ -189,7 +195,10 @@ export function reviveFirestoreNumbers(value: unknown): unknown {
       }
     }
     if (isSerializedDocRef(value)) {
-      return new Reference(value.path);
+      const dbId = typeof (value as Record<string, unknown>).databaseId === 'string'
+        ? ((value as Record<string, unknown>).databaseId as string)
+        : undefined;
+      return new Reference(value.path, dbId);
     }
     return Object.fromEntries(
       Object.entries(value).map(([key, child]) => [key, reviveFirestoreNumbers(child)]),

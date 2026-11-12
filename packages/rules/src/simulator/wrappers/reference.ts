@@ -42,19 +42,30 @@ export class Reference extends RulesValue {
   /** Relative document path, e.g. 'users/u1' or 'users/u1/posts/p1'. */
   readonly path: string;
 
-  readonly #databaseId: string;
+  readonly bindings: Readonly<Record<string, string>> = {};
 
-  constructor(path: string) {
+  /** Database identifier from a fully-qualified path, defaulting to `'(default)'`. */
+  readonly databaseId: string;
+
+  constructor(path: string, databaseId?: string) {
     super();
-    this.#databaseId = extractDatabaseId(path);
+    this.databaseId = databaseId !== undefined && databaseId.length > 0
+      ? databaseId
+      : extractDatabaseId(path);
     // Normalize: strip any leading slash, trailing slash, or fully-qualified
     // `projects/.../documents/` prefix so internal compares are uniform.
     this.path = normalizeRelativePath(path);
   }
 
-  /** Database identifier from a fully-qualified path, defaulting to `'(default)'`. */
-  get databaseId(): string {
-    return this.#databaseId;
+  /** Full rules.Path segments (`/databases/<databaseId>/documents/<path>`). */
+  get segments(): readonly string[] {
+    const relativeSegments = this.path.length > 0 ? this.path.split('/') : [];
+    return ['databases', this.databaseId, 'documents', ...relativeSegments];
+  }
+
+  /** Equivalent `Path` wrapper representing `/databases/<databaseId>/documents/<path>`. */
+  toPath(): Path {
+    return new Path(this.segments, { ...this.bindings });
   }
 
   /**
@@ -103,29 +114,20 @@ export class Reference extends RulesValue {
   }
 
   toJSON(): unknown {
+    if (this.databaseId !== '(default)') {
+      return { __type: 'reference', path: this.path, databaseId: this.databaseId };
+    }
     return { __type: 'reference', path: this.path };
   }
 
   equals(other: unknown): boolean {
     if (other instanceof Reference) {
-      return this.#databaseId === other.#databaseId && this.path === other.path;
+      return this.databaseId === other.databaseId && this.path === other.path;
     }
     if (other instanceof Path) {
-      return this.#matchesPathSegments(other.segments);
+      return matchesPathSegments(this.databaseId, this.path, other.segments);
     }
     return false;
-  }
-
-  #matchesPathSegments(segments: readonly string[]): boolean {
-    const relativeSegments = this.path.length > 0 ? this.path.split('/') : [];
-    if (segments.length !== 3 + relativeSegments.length) return false;
-    if (segments[0] !== 'databases' || segments[1] !== this.#databaseId || segments[2] !== 'documents') {
-      return false;
-    }
-    for (let i = 0; i < relativeSegments.length; i++) {
-      if (segments[3 + i] !== relativeSegments[i]) return false;
-    }
-    return true;
   }
 
   /**
@@ -142,16 +144,31 @@ export class Reference extends RulesValue {
     }
   }
 
-  callMethod(_method: string, _args: unknown[]): unknown | NoOp {
-    // References have no callable methods in the rules language — the
-    // admin SDK's get/set/update aren't exposed to rules. Returning
-    // NO_OP triggers UnsupportedError so a rule like `ref.get()` fails
-    // loudly rather than silently denying.
+  callMethod(method: string, args: unknown[]): unknown | NoOp {
+    if (method === 'bind') {
+      return this.toPath().callMethod(method, args);
+    }
     return NO_OP;
   }
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────
+
+function matchesPathSegments(
+  databaseId: string,
+  relPath: string,
+  segments: readonly string[],
+): boolean {
+  const relativeSegments = relPath.length > 0 ? relPath.split('/') : [];
+  if (segments.length !== 3 + relativeSegments.length) return false;
+  if (segments[0] !== 'databases' || segments[1] !== databaseId || segments[2] !== 'documents') {
+    return false;
+  }
+  for (let i = 0; i < relativeSegments.length; i++) {
+    if (segments[3 + i] !== relativeSegments[i]) return false;
+  }
+  return true;
+}
 
 /**
  * Strip leading slash and any `projects/<p>/databases/<d>/documents/`

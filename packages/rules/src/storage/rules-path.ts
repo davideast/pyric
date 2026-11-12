@@ -70,14 +70,18 @@ export class StoragePath extends RulesValue {
   toJSON(): unknown {
     return { __type: 'path', path: this.toString() };
   }
-  // Equality and `string()` use the joined form, so `['users', 'a/b']`
-  // equals `path('/users/a/b')`. No capture shows production comparing a
-  // slashed segment; this stays until one does.
+  // Segment-by-segment equality, matching Firestore `Path.equals`: an
+  // interpolated string containing `/` stays one segment and does not equal
+  // a multi-segment path literal with the same joined text.
   equals(other: unknown): boolean {
-    return (
-      (other instanceof StoragePath || (other instanceof RulesValue && other.typeName === 'path')) &&
-      String(other) === this.toString()
-    );
+    if (!isPathValue(other)) return false;
+    const ours = this.segments;
+    const theirs = pathValueSegments(other);
+    if (ours.length !== theirs.length) return false;
+    for (let i = 0; i < ours.length; i++) {
+      if (ours[i] !== theirs[i]) return false;
+    }
+    return true;
   }
   toString(): string {
     return this.path.startsWith('/') ? this.path : `/${this.path}`;
@@ -92,6 +96,8 @@ export function isPathValue(value: unknown): value is RulesValue {
 /** A path value's segments, as built. */
 export function pathValueSegments(value: RulesValue): string[] {
   if (value instanceof StoragePath) return value.segments;
+  const segs = (value as { segments?: unknown }).segments;
+  if (Array.isArray(segs)) return segs.map(String);
   return String(value).split('/').filter(Boolean);
 }
 

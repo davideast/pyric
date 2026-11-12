@@ -69,12 +69,12 @@ import type { AppFirestore, Firestore } from './types.js';
  * const db = getFirestore(app);
  * ```
  */
-export function getFirestore(ctx: SandboxContext): Firestore;
-export function getFirestore(sandbox: Sandbox): Firestore;
-export function getFirestore(app: FirebaseApp): AppFirestore;
+export function getFirestore(ctx: SandboxContext, databaseId?: string): Firestore;
+export function getFirestore(sandbox: Sandbox, databaseId?: string): Firestore;
+export function getFirestore(app: FirebaseApp, databaseId?: string): AppFirestore;
 export function getFirestore(): AppFirestore;
-export function getFirestore(target?: SandboxContext | Sandbox | FirebaseApp): Firestore;
-export function getFirestore(target?: SandboxContext | Sandbox | FirebaseApp): Firestore {
+export function getFirestore(target?: SandboxContext | Sandbox | FirebaseApp, databaseId?: string): Firestore;
+export function getFirestore(target?: SandboxContext | Sandbox | FirebaseApp, databaseId?: string): Firestore {
   if (target === undefined) return getFirestore(defaultClientApp() as FirebaseApp);
   // Package resolution already selected the sandbox mirror before this code
   // loaded, so a recognized FirebaseApp resolves to its private Sandbox.
@@ -107,6 +107,7 @@ export function getFirestore(target?: SandboxContext | Sandbox | FirebaseApp): F
       return { [TARGET_SYMBOL]: t, app: target as FirebaseApp };
     });
   }
+  const namedDb = typeof databaseId === 'string' && databaseId.length > 0 ? databaseId : undefined;
   if (isSandboxContext(target)) {
     const chainable = getChainableFirestore(target);
     const t: SandboxTarget = {
@@ -114,6 +115,7 @@ export function getFirestore(target?: SandboxContext | Sandbox | FirebaseApp): F
       activityApp: target,
       db: chainable,
       sandbox: target.sandbox,
+      ...(namedDb !== undefined ? { databaseId: namedDb } : {}),
       ...createFirestoreTargetLifecycle(),
     };
     return { [TARGET_SYMBOL]: t };
@@ -139,6 +141,7 @@ export function getFirestore(target?: SandboxContext | Sandbox | FirebaseApp): F
       activityApp: target,
       sandbox: target,
       getDb: makeGetDb(target),
+      ...(namedDb !== undefined ? { databaseId: namedDb } : {}),
       ...lifecycle,
     };
     return { [TARGET_SYMBOL]: t };

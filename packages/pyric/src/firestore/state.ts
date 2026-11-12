@@ -42,6 +42,7 @@ export const TARGET_SYMBOL: unique symbol = Symbol('pyric/firestore/target');
 interface FirestoreTargetLifecycle {
   app?: object;
   activityApp?: object;
+  databaseId?: string;
   own?: (cleanup: () => void) => () => void;
   assertUsable?: () => void;
   terminate?: () => void;

@@ -1,6 +1,20 @@
 import { describe, test, expect } from 'bun:test';
 import { evaluateQueryProof, type QueryConstraints } from '../../src/simulator/query-proof.js';
+import { renderQueryRemediation } from '../../src/simulator/list-query-proof.js';
+import {
+  formatQueryScalarForRemediation,
+  isQueryProofScalar,
+  queryProofScalarsEqual,
+  replaceTokenInQueryScalar,
+} from '../../src/simulator/query-proof-residual.js';
 import { isProvablyDocIndependent, referencesResourceData } from '../../src/simulator/query-proof-scope.js';
+import { Bytes } from '../../src/simulator/wrappers/bytes.js';
+import { Duration } from '../../src/simulator/wrappers/duration.js';
+import { RulesFloat } from '../../src/simulator/wrappers/float.js';
+import { LatLng } from '../../src/simulator/wrappers/latlng.js';
+import { Path } from '../../src/simulator/wrappers/path.js';
+import { Reference } from '../../src/simulator/wrappers/reference.js';
+import { Timestamp } from '../../src/simulator/wrappers/timestamp.js';
 import { parseToAST } from '../../src/grammar/FirestoreParser.js';
 import { collectAllRules, collectAllFunctions } from '../../src/linter/ast-utils.js';
 import type { Expression, FunctionDef } from '../../src/grammar/FirestoreAST.js';
@@ -589,6 +603,105 @@ service cloud.firestore {
           { field: 'owner', op: '==', value: 'alice' },
         ]).provable,
       ).toBe(true);
+    });
+  });
+
+  describe('typed RulesScalar constraints and remediation formatting', () => {
+    test('accepts RulesScalar wrappers, RulesFloat, and safe bigint in QueryWhereConstraint without casts', () => {
+      const { condition, fnMap } = listConditionOf(
+        rules(
+          'allow list: if resource.data.orgRef == /databases/(default)/documents/orgs/acme'
+            + ' && resource.data.ratio == 1.5'
+            + ' && resource.data.count == 42;',
+        ),
+      );
+      const res = evaluateQueryProof(
+        condition,
+        {
+          where: [
+            { field: 'orgRef', op: '==', value: new Reference('orgs/acme') },
+            { field: 'ratio', op: '==', value: new RulesFloat(1.5) },
+            { field: 'count', op: '==', value: 42n },
+          ],
+        },
+        fnMap,
+      );
+      expect(res.provable).toBe(true);
+
+      expect(isQueryProofScalar(new Reference('orgs/acme'))).toBe(true);
+      expect(isQueryProofScalar(Path.fromString('/databases/(default)/documents/orgs/acme'))).toBe(true);
+      expect(queryProofScalarsEqual(
+        new Reference('orgs/acme'),
+        Path.fromString('/databases/(default)/documents/orgs/acme'),
+      )).toBe(true);
+      expect(queryProofScalarsEqual(
+        new Reference('orgs/acme', 'analytics'),
+        Path.fromString('/databases/(default)/documents/orgs/acme'),
+      )).toBe(false);
+    });
+
+    test('formats wrapper scalars as valid client expressions and substitutes <uid> for __pyric_synth_uid__', () => {
+      const { condition, fnMap } = listConditionOf(
+        rules(
+          'allow list: if resource.data.orgRef == /databases/(default)/documents/orgs/acme'
+            + ' && resource.data.ownerRef == /databases/$(database)/documents/users/$(request.auth.uid)'
+            + ' && resource.data.dueAt == timestamp.date(2026, 1, 1)'
+            + " && resource.data.tagBytes == b'ab'"
+            + ' && resource.data.loc == latlng.value(10.0, 20.0)'
+            + " && resource.data.ttl == duration.value(30, 's');",
+        ),
+      );
+      const proof = evaluateQueryProof(
+        condition,
+        {
+          where: [{ field: 'orgRef', op: '==', value: new Reference('orgs/other') }],
+        },
+        fnMap,
+        '__pyric_synth_uid__',
+        { database: '(default)' },
+      );
+      expect(proof.provable).toBe(false);
+      if (proof.provable) throw new Error('expected unprovable');
+
+      expect(proof.reason).not.toContain('__type');
+      expect(proof.reason).not.toContain('__pyric_synth_uid__');
+      expect(proof.reason).toContain("doc(db, 'orgs', 'acme')");
+      expect(proof.reason).toContain("doc(db, 'orgs', 'other')");
+      expect(proof.reason).toContain("doc(db, 'users', <uid>)");
+
+      const remediation = renderQueryRemediation(proof.residual);
+      expect(remediation).toBeDefined();
+      expect(remediation).not.toContain('__type');
+      expect(remediation).not.toContain('__pyric_synth_uid__');
+      expect(remediation).toContain(".where('orgRef', '==', doc(db, 'orgs', 'acme'))");
+      expect(remediation).toContain("the query pins doc(db, 'orgs', 'other')");
+      expect(remediation).toContain(".where('ownerRef', '==', doc(db, 'users', <uid>))");
+      expect(remediation).toContain(
+        ".where('dueAt', '==', Timestamp.fromDate(new Date('2026-01-01T00:00:00.000Z')))",
+      );
+      expect(remediation).toContain(
+        ".where('tagBytes', '==', Bytes.fromUint8Array(new Uint8Array([97, 98])))",
+      );
+      expect(remediation).toContain(".where('loc', '==', new GeoPoint(10, 20))");
+      expect(remediation).toContain(".where('ttl', '==', duration.value(30, 's'))");
+
+      expect(
+        formatQueryScalarForRemediation(
+          Path.fromString('/databases/(default)/documents/users/__pyric_synth_uid__'),
+          { uidExpression: 'currentUser.uid' },
+        ),
+      ).toBe("doc(db, 'users', currentUser.uid)");
+      expect(
+        formatQueryScalarForRemediation(new Reference('orgs/acme', 'analytics')),
+      ).toBe("doc(getFirestore(app, 'analytics'), 'orgs', 'acme')");
+
+      const substitutedPath = replaceTokenInQueryScalar(
+        Path.fromString('/databases/(default)/documents/users/__pyric_synth_uid__'),
+        '__pyric_synth_uid__',
+        'u-42',
+      );
+      expect(substitutedPath).toBeInstanceOf(Path);
+      expect(String(substitutedPath)).toBe('/databases/(default)/documents/users/u-42');
     });
   });
 });

@@ -36,8 +36,9 @@ import { getValidFunctionLexicalScope, type FunctionScopeBindings } from './matc
 import {
   computeFieldFilterSets,
   computeWhereDomains,
+  formatQueryScalarForRemediation,
   isSafePrecisionRulesScalar,
-  isScalar,
+  normalizeQueryConstraintScalar,
   queryResidual,
   resolveStaticRulesOperand,
   rulesScalarToJsScalar,
@@ -57,11 +58,13 @@ import {
 } from './query-proof-scope.js';
 import { rulesValuesEqual } from './value-equality.js';
 
+export type QueryWhereValue = RulesScalar | readonly RulesScalar[];
+
 /** A single `where(field, op, value)` constraint carried by the query. */
 export interface QueryWhereConstraint {
   readonly field: string;
   readonly op: string;
-  readonly value: string | number | boolean | null | readonly (string | number | boolean | null)[];
+  readonly value: QueryWhereValue;
 }
 
 /** The query constraints relevant to the proof. `where` is the load-bearing
@@ -272,15 +275,14 @@ function evaluateEqualityQueryProof(
       if ((domain?.length ?? 0) !== 1) needsResidualProjection = true;
       continue;
     }
-    const conflict = wheres.find(
-      (w) =>
-        w.field === req.field &&
-        w.op === '==' &&
-        isScalar(w.value) &&
-        !rulesValuesEqual(toRulesQueryScalar(w.value), req.rulesValue),
-    );
+    const conflict = wheres.find((w) => {
+      if (w.field !== req.field || w.op !== '==' || Array.isArray(w.value)) return false;
+      const normalized = normalizeQueryConstraintScalar(w.value);
+      return normalized !== undefined && !rulesValuesEqual(toRulesQueryScalar(normalized), req.rulesValue);
+    });
     if (conflict) {
-      mismatched.push({ field: req.field, expectedValue: req.value, actualValue: conflict.value });
+      const actual = normalizeQueryConstraintScalar(conflict.value) ?? conflict.value;
+      mismatched.push({ field: req.field, expectedValue: req.value, actualValue: actual });
     } else {
       missing.push({ field: req.field, expectedValue: req.value, fromAuthUid: req.fromAuthUid });
     }
@@ -311,7 +313,7 @@ function buildResidualReason(missing: QueryProofMissing[], mismatched: QueryProo
   if (missing.length > 0) {
     const list = missing
       .map((m) => {
-        let expected = JSON.stringify(m.expectedValue);
+        let expected = formatQueryScalarForRemediation(m.expectedValue);
         if (m.fromAuthUid) expected = 'request.auth.uid';
         return `resource.data.${m.field} == ${expected}`;
       })
@@ -320,7 +322,11 @@ function buildResidualReason(missing: QueryProofMissing[], mismatched: QueryProo
   }
   if (mismatched.length > 0) {
     const list = mismatched
-      .map((m) => `resource.data.${m.field} == ${JSON.stringify(m.expectedValue)} but the query pins ${JSON.stringify(m.actualValue)}`)
+      .map(
+        (m) =>
+          `resource.data.${m.field} == ${formatQueryScalarForRemediation(m.expectedValue)} ` +
+          `but the query pins ${formatQueryScalarForRemediation(m.actualValue)}`,
+      )
       .join(', ');
     parts.push(`the query where(...) value does not match [${list}]`);
   }

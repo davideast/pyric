@@ -169,9 +169,15 @@ export class AtomicWritePipeline {
         }
         intraBatchExists.set(input.path, true);
       } else if (input.method === 'create') {
-        if (!existsBeforeOp) intraBatchExists.set(input.path, true);
+        if (deletesDocument) {
+          ruleMethod = 'delete';
+        } else if (!existsBeforeOp) {
+          intraBatchExists.set(input.path, true);
+        }
       } else if (input.method === 'update') {
-        if (existsBeforeOp && !existedPreCommit && !deletesDocument) {
+        if (deletesDocument) {
+          ruleMethod = 'delete';
+        } else if (existsBeforeOp && !existedPreCommit) {
           ruleMethod = 'create';
         }
       } else if (input.method === 'delete') {

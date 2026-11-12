@@ -107,6 +107,57 @@ describe('collection-group query under match /{path=**}/<collectionId>/{id}', ()
       code: 'permission-denied',
     });
   });
+
+  it('charges lookup budgets for stripped path-dependent || branches and preceding allow rules', async () => {
+    const elevenLookups = Array.from(
+      { length: 11 },
+      (_, i) => `exists(/databases/$(database)/documents/configs/k${i})`,
+    ).join(' || ');
+    const twoLookups = Array.from(
+      { length: 2 },
+      (_, i) => `exists(/databases/$(database)/documents/configs/k${i})`,
+    ).join(' || ');
+
+    const { db: dbOrExceeded } = setup(
+      `match /{path=**}/items/{id} { allow read: if (id != '' && (${elevenLookups})) || request.auth != null; }`,
+      'alice',
+    );
+    await expect(getDocs(collectionGroup(dbOrExceeded, 'items'))).rejects.toMatchObject({
+      code: 'permission-denied',
+    });
+
+    const { db: dbSpecificIdExceeded } = setup(
+      `match /{path=**}/items/{id} { allow read: if (id == 'a' && (${elevenLookups})) || request.auth != null; }`,
+      'alice',
+    );
+    await expect(getDocs(collectionGroup(dbSpecificIdExceeded, 'items'))).rejects.toMatchObject({
+      code: 'permission-denied',
+    });
+
+    const { db: dbPrecedingRuleExceeded } = setup(
+      [
+        'match /{path=**}/items/{id} {',
+        `  allow read: if id != '' && (${elevenLookups});`,
+        '  allow read: if request.auth != null;',
+        '}',
+      ].join('\n'),
+      'alice',
+    );
+    await expect(getDocs(collectionGroup(dbPrecedingRuleExceeded, 'items'))).rejects.toMatchObject({
+      code: 'permission-denied',
+    });
+
+    const { db: dbWithinBudget } = setup(
+      `match /{path=**}/items/{id} { allow read: if (id != '' && (${twoLookups})) || request.auth != null; }`,
+      'alice',
+    );
+    const snap = await getDocs(collectionGroup(dbWithinBudget, 'items'));
+    expect(snap.docs.map((d) => d.ref.path).sort()).toEqual([
+      'items/c',
+      'users/u1/items/a',
+      'users/u2/items/b',
+    ]);
+  });
 });
 
 const LISTEN_RULES = `

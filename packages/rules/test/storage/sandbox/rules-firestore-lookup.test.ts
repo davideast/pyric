@@ -217,4 +217,34 @@ describe('evaluateStorageRules — firestore.get / firestore.exists', () => {
     );
     expect(r.allowed).toBe(true);
   });
+
+  it('revives pyric/map/1.0 escaped maps, pyric/number/1.0 special floats, and serialized named-DB references in firestore.get()', () => {
+    const r = evalFs(
+      "firestore.get(/databases/(default)/documents/items/i1).data.coordsMap is map"
+        + " && firestore.get(/databases/(default)/documents/items/i1).data.coordsMap.latitude == 12.5"
+        + " && firestore.get(/databases/(default)/documents/items/i1).data.refLikeMap is map"
+        + " && firestore.get(/databases/(default)/documents/items/i1).data.refLikeMap.__type == 'reference'"
+        + " && firestore.get(/databases/(default)/documents/items/i1).data.negZero is float"
+        + " && !(firestore.get(/databases/(default)/documents/items/i1).data.negZero is int)"
+        + " && firestore.get(/databases/(default)/documents/items/i1).data.nanVal is float"
+        + " && firestore.get(/databases/(default)/documents/items/i1).data.analyticsRef == /databases/analytics/documents/orgs/org-1"
+        + " && firestore.get(/databases/(default)/documents/items/i1).data.analyticsRef != /databases/(default)/documents/orgs/org-1",
+      {
+        'items/i1': {
+          coordsMap: {
+            type: 'pyric/map/1.0',
+            fields: { latitude: 12.5, longitude: 42.25 },
+          },
+          refLikeMap: {
+            type: 'pyric/map/1.0',
+            fields: { __type: 'reference', path: 'orgs/org-1' },
+          },
+          negZero: { type: 'pyric/number/1.0', value: '-0' },
+          nanVal: { type: 'pyric/number/1.0', value: 'NaN' },
+          analyticsRef: { id: 'org-1', path: 'orgs/org-1', databaseId: 'analytics' },
+        },
+      },
+    );
+    expect(r.allowed).toBe(true);
+  });
 });

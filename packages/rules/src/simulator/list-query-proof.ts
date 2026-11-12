@@ -26,7 +26,11 @@ import type {
 } from '../grammar/FirestoreAST.js';
 import { topLevelMatches } from '../grammar/service-blocks.js';
 import { resolveAuthoredSourceLoc } from '../modules/resolver-core.js';
-import type { EvaluatedRuleInfo, ListQuery } from '../test/spec.js';
+import type {
+  EvaluatedRuleInfo,
+  ListQuery,
+  SerializedListQueryWrapper,
+} from '../test/spec.js';
 import { indexRulesetScopes, type MatchResult } from './match-resolution.js';
 import { setListBlockSteps, type ListBlockStep } from './list-proof-budget.js';
 import { collectRootMatches } from './root-match.js';
@@ -35,11 +39,25 @@ import {
   type QueryConstraints,
   type QueryProofResidual,
   type QueryWhereConstraint,
+  type QueryWhereValue,
 } from './query-proof.js';
-import { computeWhereDomains } from './query-proof-residual.js';
+import {
+  computeWhereDomains,
+  formatQueryScalarForRemediation,
+  type FormatQueryScalarOptions,
+  type RulesScalar,
+} from './query-proof-residual.js';
+import { reviveFirestoreNumbers } from './firestore-values.js';
 import { buildListRuleFunctionScope } from './list-rule-path-proof.js';
+import { RulesValue } from './wrappers/base.js';
 
-export type { QueryConstraints, QueryProofResidual, QueryWhereConstraint };
+export type {
+  FormatQueryScalarOptions,
+  QueryConstraints,
+  QueryProofResidual,
+  QueryWhereConstraint,
+  QueryWhereValue,
+};
 
 /** Local proof evidence. These categories do not claim a Firebase decision. */
 export interface QueryProofFailure {
@@ -322,11 +340,46 @@ function syntheticResourceFromWheres(constraints: QueryConstraints): Record<stri
 
 // ─── Query shape conversions ─────────────────────────────────────────────
 
+function reviveWhereScalar(val: unknown): RulesScalar {
+  if (
+    val !== null &&
+    typeof val === 'object' &&
+    !(val instanceof RulesValue) &&
+    typeof (val as { __type?: unknown }).__type === 'string'
+  ) {
+    const revived = reviveFirestoreNumbers(val);
+    if (revived instanceof RulesValue) return revived as RulesScalar;
+  }
+  return val as RulesScalar;
+}
+
+function isWhereScalarArray(value: QueryWhereValue): value is readonly RulesScalar[] {
+  return Array.isArray(value);
+}
+
+function toListQueryScalar(
+  val: RulesScalar,
+): string | number | boolean | null | SerializedListQueryWrapper {
+  if (typeof val === 'bigint') return Number(val);
+  if (val instanceof RulesValue) return val.toJSON() as SerializedListQueryWrapper;
+  return val;
+}
+
 /** Convert a `ListQuery` from a `TestCase` / `FirestoreCase` into `QueryConstraints`. */
 export function listQueryToConstraints(query?: ListQuery): QueryConstraints {
   if (!query) return {};
   return {
-    ...(query.where !== undefined ? { where: query.where } : {}),
+    ...(query.where !== undefined
+      ? {
+          where: query.where.map((w) => ({
+            field: w.field,
+            op: w.op,
+            value: Array.isArray(w.value)
+              ? w.value.map(reviveWhereScalar)
+              : reviveWhereScalar(w.value),
+          })),
+        }
+      : {}),
     ...(query.limit !== undefined ? { limit: query.limit } : {}),
     ...(query.offset !== undefined ? { offset: query.offset } : {}),
     ...(query.orderBy !== undefined ? { orderBy: query.orderBy } : {}),
@@ -345,7 +398,9 @@ export function listQueryFromConstraints(structured: QueryConstraints): ListQuer
           where: structured.where!.map((w) => ({
             field: w.field,
             op: w.op,
-            value: Array.isArray(w.value) ? [...w.value] : (w.value as string | number | boolean | null),
+            value: isWhereScalarArray(w.value)
+              ? w.value.map(toListQueryScalar)
+              : toListQueryScalar(w.value),
           })),
         }
       : {}),
@@ -371,15 +426,19 @@ export function renderQueryRemediation(residual: QueryProofResidual): string | u
   const lines: string[] = [];
   for (const m of residual.missing) {
     if (m.fromAuthUid) {
-      lines.push(`  .where('${m.field}', '==', request.auth.uid)   // request.auth.uid is ${JSON.stringify(m.expectedValue)}`);
+      lines.push(
+        `  .where('${m.field}', '==', request.auth.uid)   // request.auth.uid is ${formatQueryScalarForRemediation(m.expectedValue)}`,
+      );
     } else {
-      lines.push(`  .where('${m.field}', '==', ${JSON.stringify(m.expectedValue)})`);
+      lines.push(`  .where('${m.field}', '==', ${formatQueryScalarForRemediation(m.expectedValue)})`);
     }
   }
   for (const m of residual.mismatched) {
+    const expectedText = formatQueryScalarForRemediation(m.expectedValue);
+    const actualText = formatQueryScalarForRemediation(m.actualValue);
     lines.push(
-      `  .where('${m.field}', '==', ${JSON.stringify(m.expectedValue)})   ` +
-      `// the query pins ${JSON.stringify(m.actualValue)}, but the rule requires ${JSON.stringify(m.expectedValue)}`,
+      `  .where('${m.field}', '==', ${expectedText})   ` +
+      `// the query pins ${actualText}, but the rule requires ${expectedText}`,
     );
   }
   if (lines.length === 0) return undefined;

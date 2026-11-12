@@ -133,8 +133,8 @@ function canonicalize(
     };
   }
   if (value instanceof InternalReference) {
-    const ref = new InternalReference(value.path);
-    registerReferenceQueryValue(ref, ref.path);
+    const ref = new InternalReference(value.path, value.databaseId);
+    registerReferenceQueryValue(ref, ref.path, undefined, ref, ref.databaseId);
     return {
       comparison: { type: 'registered-firestore-value', value: registeredQueryValue(ref) },
       execution: ref,

@@ -94,4 +94,29 @@ describe('document lookups', () => {
       { path: 'projects/partial-1', kind: 'get', sameTrace: true },
     ]);
   });
+
+  test('rejects non-default database lookup paths explicitly including degenerate 1-segment collection paths', () => {
+    const context = {
+      mockDocuments: new Map([
+        ['databases/analytics/documents/orgs', { name: 'spoofed' }],
+        ['orgs/org-1', { name: 'default-org' }],
+      ]),
+    } as unknown as SimulationContext;
+
+    expect(() => resolveExists('/databases/analytics/documents/orgs', context)).toThrow(EvalError);
+    expect(() => resolveGet('/databases/analytics/documents/orgs', context)).toThrow(EvalError);
+    expect(() => resolveExists('/databases/analytics/documents/orgs/org-1', context)).toThrow(EvalError);
+    expect(() => resolveGet('/databases/analytics/documents/orgs/org-1', context)).toThrow(EvalError);
+    expect(() => resolveExists('/databases/analytics/documents', context)).toThrow(EvalError);
+
+    // A subcollection literally named `databases/...` inside `(default)` still resolves normally.
+    const defaultNestedContext = {
+      mockDocuments: new Map([
+        ['databases/analytics/documents/orgs', { ok: true }],
+      ]),
+    } as unknown as SimulationContext;
+    expect(
+      resolveExists('/databases/(default)/documents/databases/analytics/documents/orgs', defaultNestedContext),
+    ).toBe(true);
+  });
 });

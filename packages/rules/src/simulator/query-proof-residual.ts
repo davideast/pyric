@@ -5,7 +5,7 @@
 import type { Expression, FunctionDef } from "../grammar/FirestoreAST.js";
 import type { SimulationContext } from "./evaluation-context.js";
 import { evaluate, requireBoolean } from "./evaluator.js";
-import { attachOrBudgetStep } from "./list-proof-budget.js";
+import { attachOrBudgetStep, getOrBudgetSteps } from "./list-proof-budget.js";
 import { analyzeListRulePathInvariance } from "./list-rule-path-proof.js";
 import {
   getValidFunctionLexicalScope,
@@ -24,20 +24,226 @@ import {
 } from "./query-proof-scope.js";
 import { hostNumber, inInt64, isHostIntNumber } from "./rules-int.js";
 import { listElementsEqual, rulesValuesEqual } from "./value-equality.js";
+import { Bytes } from "./wrappers/bytes.js";
+import { Duration } from "./wrappers/duration.js";
 import { RulesFloat } from "./wrappers/float.js";
+import { LatLng } from "./wrappers/latlng.js";
 import { Path } from "./wrappers/path.js";
+import { Reference } from "./wrappers/reference.js";
 import { Timestamp } from "./wrappers/timestamp.js";
 
-export type Scalar = string | number | boolean | null;
-export type RulesScalar = string | number | bigint | boolean | null | RulesFloat;
+export type RulesWrapperScalar = Reference | Path | Timestamp | Bytes | LatLng | Duration;
+export type Scalar = string | number | boolean | null | RulesWrapperScalar;
+export type RulesScalar = string | number | bigint | boolean | null | RulesFloat | RulesWrapperScalar;
+
+function isRulesWrapperScalar(value: unknown): value is RulesWrapperScalar {
+  return (
+    value instanceof Reference ||
+    value instanceof Path ||
+    value instanceof Timestamp ||
+    value instanceof Bytes ||
+    value instanceof LatLng ||
+    value instanceof Duration
+  );
+}
 
 export const isScalar = (value: unknown): value is Scalar =>
   value === null ||
   typeof value === "string" ||
   typeof value === "boolean" ||
-  (typeof value === "number" && Number.isFinite(value));
+  (typeof value === "number" && Number.isFinite(value)) ||
+  isRulesWrapperScalar(value);
 
-function literalRaw(value: Scalar): string {
+export function normalizeQueryConstraintScalar(value: unknown): Scalar | undefined {
+  if (isScalar(value)) return value;
+  if (value instanceof RulesFloat && Number.isFinite(value.value)) return value.value;
+  if (
+    typeof value === "bigint" &&
+    value >= BigInt(Number.MIN_SAFE_INTEGER) &&
+    value <= BigInt(Number.MAX_SAFE_INTEGER)
+  ) {
+    return Number(value);
+  }
+  return undefined;
+}
+
+export function isQueryProofScalar(value: unknown): value is RulesScalar {
+  return normalizeQueryConstraintScalar(value) !== undefined;
+}
+
+export interface FormatQueryScalarOptions {
+  readonly uidExpression?: string;
+  readonly dynamicExpression?: string;
+}
+
+function quoteSingleJsString(raw: string): string {
+  return `'${raw
+    .replace(/\\/g, "\\\\")
+    .replace(/'/g, "\\'")
+    .replace(/\r/g, "\\r")
+    .replace(/\n/g, "\\n")}'`;
+}
+
+function escapeTemplateChunk(raw: string): string {
+  return raw
+    .replace(/\\/g, "\\\\")
+    .replace(/`/g, "\\`")
+    .replace(/\$\{/g, "\\${");
+}
+
+function formatPathSegmentForRemediation(
+  seg: string,
+  uidExpr: string,
+  dynamicExpr?: string,
+): string {
+  if (seg === "__pyric_synth_uid__") return uidExpr;
+  const claimMatch = /^__pyric_claim_(.+)__$/.exec(seg);
+  if (claimMatch) return dynamicExpr ?? `<${claimMatch[1]}>`;
+  const tokenMatch = /^__pyric_(?:seg|var|param)_(.+)__$/.exec(seg);
+  if (tokenMatch) return dynamicExpr ?? `<${tokenMatch[1]}>`;
+  if (seg.startsWith("__pyric_")) return dynamicExpr ?? "<id>";
+  if (seg.includes("__pyric_synth_uid__")) {
+    const chunks = seg.split("__pyric_synth_uid__").map(escapeTemplateChunk);
+    return `\`${chunks.join(`\${${uidExpr}}`)}\``;
+  }
+  return quoteSingleJsString(seg);
+}
+
+function formatDocPathSegmentsForRemediation(
+  databaseId: string,
+  relSegments: readonly string[],
+  uidExpr: string,
+  dynamicExpr?: string,
+): string {
+  const dbArg =
+    databaseId === "(default)"
+      ? "db"
+      : `getFirestore(app, ${formatPathSegmentForRemediation(databaseId, uidExpr, dynamicExpr)})`;
+  const segArgs = relSegments.map((s) =>
+    formatPathSegmentForRemediation(s, uidExpr, dynamicExpr),
+  );
+  return `doc(${[dbArg, ...segArgs].join(", ")})`;
+}
+
+export function formatQueryScalarForRemediation(
+  value: unknown,
+  options?: FormatQueryScalarOptions,
+): string {
+  const uidExpr = options?.uidExpression ?? "<uid>";
+  const dynamicExpr = options?.dynamicExpression;
+  if (typeof value === "string") {
+    if (value === "__pyric_synth_uid__") return uidExpr;
+    const claimMatch = /^__pyric_claim_(.+)__$/.exec(value);
+    if (claimMatch) return dynamicExpr ?? `<${claimMatch[1]}>`;
+    if (value.startsWith("__pyric_")) return dynamicExpr ?? "<value>";
+    if (value.includes("__pyric_synth_uid__")) {
+      const chunks = value.split("__pyric_synth_uid__").map(escapeTemplateChunk);
+      return `\`${chunks.join(`\${${uidExpr}}`)}\``;
+    }
+    return JSON.stringify(value);
+  }
+  if (typeof value === "number") {
+    if (Object.is(value, -0)) return "-0";
+    return Number.isFinite(value) ? JSON.stringify(value) : String(value);
+  }
+  if (typeof value === "bigint") {
+    const asNum = Number(value);
+    return Number.isSafeInteger(asNum) ? String(asNum) : `${value.toString()}n`;
+  }
+  if (value instanceof RulesFloat) {
+    if (Object.is(value.value, -0)) return "-0";
+    return Number.isFinite(value.value) ? JSON.stringify(value.value) : String(value.value);
+  }
+  if (typeof value === "boolean" || value === null) {
+    return JSON.stringify(value);
+  }
+  if (value instanceof Reference) {
+    const rel = value.path.length > 0 ? value.path.split("/") : [];
+    if (rel.length >= 2 && rel.length % 2 === 0) {
+      return formatDocPathSegmentsForRemediation(value.databaseId, rel, uidExpr, dynamicExpr);
+    }
+    const rendered = rel.map((s) =>
+      s === "__pyric_synth_uid__" ? uidExpr : s.replace(/__pyric_synth_uid__/g, uidExpr),
+    );
+    return quoteSingleJsString(rendered.join("/"));
+  }
+  if (value instanceof Path) {
+    const segs = value.segments;
+    if (
+      segs.length >= 5 &&
+      segs[0] === "databases" &&
+      segs[2] === "documents" &&
+      (segs.length - 3) % 2 === 0
+    ) {
+      return formatDocPathSegmentsForRemediation(
+        segs[1]!,
+        segs.slice(3),
+        uidExpr,
+        dynamicExpr,
+      );
+    }
+    const rendered = segs.map((s) =>
+      s === "__pyric_synth_uid__" ? uidExpr : s.replace(/__pyric_synth_uid__/g, uidExpr),
+    );
+    return `path(${quoteSingleJsString(`/${rendered.join("/")}`)})`;
+  }
+  if (value instanceof Timestamp) {
+    if (value.nanos % 1_000_000 === 0) {
+      const ms = value.seconds * 1000 + value.nanos / 1_000_000;
+      const date = new Date(ms);
+      if (Number.isFinite(date.getTime())) {
+        return `Timestamp.fromDate(new Date(${quoteSingleJsString(date.toISOString())}))`;
+      }
+    }
+    return `new Timestamp(${value.seconds}, ${value.nanos})`;
+  }
+  if (value instanceof Bytes) {
+    return `Bytes.fromUint8Array(new Uint8Array([${Array.from(value.data).join(", ")}]))`;
+  }
+  if (value instanceof LatLng) {
+    return `new GeoPoint(${value.lat}, ${value.lng})`;
+  }
+  if (value instanceof Duration) {
+    if (value.nanos === 0) {
+      return `duration.value(${value.seconds}, 's')`;
+    }
+    return `duration.time(0, 0, ${value.seconds}, ${value.nanos})`;
+  }
+  return JSON.stringify(value);
+}
+
+export function replaceTokenInQueryScalar<T extends RulesScalar>(
+  value: T,
+  fromToken: string,
+  toValue: string,
+): T | string {
+  if (value === fromToken) return toValue;
+  if (typeof value === "string" && value.includes(fromToken)) {
+    return value.split(fromToken).join(toValue);
+  }
+  if (value instanceof Path && value.segments.some((seg) => seg.includes(fromToken))) {
+    const nextSegments = value.segments.map((seg) => seg.split(fromToken).join(toValue));
+    const nextBindings: Record<string, string> = {};
+    for (const [k, v] of Object.entries(value.bindings)) {
+      nextBindings[k] = v.split(fromToken).join(toValue);
+    }
+    return new Path(nextSegments, nextBindings) as T;
+  }
+  if (
+    value instanceof Reference &&
+    (value.path.includes(fromToken) || value.databaseId.includes(fromToken))
+  ) {
+    return new Reference(
+      value.path.split(fromToken).join(toValue),
+      value.databaseId.split(fromToken).join(toValue),
+    ) as T;
+  }
+  return value;
+}
+
+type PrimitiveScalar = string | number | boolean | null;
+
+function literalRaw(value: PrimitiveScalar): string {
   if (typeof value !== "number") return JSON.stringify(value);
   if (Object.is(value, -0)) return "-0.0";
   const serialized = JSON.stringify(value);
@@ -52,11 +258,25 @@ function literalRaw(value: Scalar): string {
   return serialized;
 }
 
-const literal = (value: Scalar): Expression => ({
+const literal = (value: PrimitiveScalar): Expression => ({
   type: "literal",
   value,
   raw: literalRaw(value),
 });
+
+function sameQueryDomainScalar(a: Scalar, b: Scalar): boolean {
+  if (typeof a === "number" && typeof b === "number") {
+    return Object.is(a, b);
+  }
+  return listElementsEqual(toRulesQueryScalar(a), toRulesQueryScalar(b));
+}
+
+export function queryProofScalarsEqual(a: unknown, b: unknown): boolean {
+  const sa = normalizeQueryConstraintScalar(a);
+  const sb = normalizeQueryConstraintScalar(b);
+  if (sa === undefined || sb === undefined) return false;
+  return sameQueryDomainScalar(sa, sb);
+}
 
 /**
  * Collect the list of per-filter scalar sets (`==` or finite `in`) for each
@@ -68,22 +288,32 @@ export function computeFieldFilterSets(
   const filterSets = new Map<string, Scalar[][]>();
   for (const filter of constraints.where ?? []) {
     let filterValues: Scalar[] | undefined;
-    if (filter.op === "==" && isScalar(filter.value)) {
-      filterValues = filter.value === 0 ? [0, -0] : [filter.value];
+    if (filter.op === "==" && !Array.isArray(filter.value)) {
+      const normalized = normalizeQueryConstraintScalar(filter.value);
+      if (normalized !== undefined) {
+        filterValues = normalized === 0 ? [0, -0] : [normalized];
+      }
     } else if (
       filter.op === "in" &&
       Array.isArray(filter.value) &&
       filter.value.length > 0 &&
-      filter.value.length <= 30 &&
-      filter.value.every(isScalar)
+      filter.value.length <= 30
     ) {
       const deduped: Scalar[] = [];
+      let allValid = true;
       for (const item of filter.value) {
-        if (!deduped.some((existing) => Object.is(existing, item))) {
-          deduped.push(item);
+        const normalized = normalizeQueryConstraintScalar(item);
+        if (normalized === undefined) {
+          allValid = false;
+          break;
+        }
+        if (!deduped.some((existing) => sameQueryDomainScalar(existing, normalized))) {
+          deduped.push(normalized);
         }
       }
-      filterValues = deduped;
+      if (allValid) {
+        filterValues = deduped;
+      }
     }
     if (filterValues === undefined) continue;
     const existing = filterSets.get(filter.field);
@@ -110,7 +340,7 @@ export function computeWhereDomains(
     for (let i = 1; i < sets.length; i++) {
       const next = sets[i]!;
       intersected = intersected.filter((v) =>
-        next.some((candidate) => Object.is(candidate, v)),
+        next.some((candidate) => sameQueryDomainScalar(candidate, v)),
       );
     }
     domains.set(field, intersected);
@@ -133,7 +363,8 @@ function isRulesScalar(value: unknown): value is RulesScalar {
     typeof value === "boolean" ||
     typeof value === "bigint" ||
     (typeof value === "number" && Number.isFinite(value)) ||
-    (value instanceof RulesFloat && Number.isFinite(value.value))
+    (value instanceof RulesFloat && Number.isFinite(value.value)) ||
+    isRulesWrapperScalar(value)
   );
 }
 
@@ -159,6 +390,53 @@ export function rulesScalarToJsScalar(value: RulesScalar): Scalar {
   return value;
 }
 
+function substituteRequestAuthUid(expr: Expression, authUid: string): Expression {
+  if (isRequestAuthUid(expr)) return literal(authUid);
+  const sub = (child: Expression): Expression => substituteRequestAuthUid(child, authUid);
+  switch (expr.type) {
+    case "literal":
+    case "identifier":
+      return expr;
+    case "unaryOp":
+      return { ...expr, operand: sub(expr.operand) };
+    case "binaryOp":
+      return { ...expr, left: sub(expr.left), right: sub(expr.right) };
+    case "ternary":
+      return {
+        ...expr,
+        condition: sub(expr.condition),
+        consequent: sub(expr.consequent),
+        alternate: sub(expr.alternate),
+      };
+    case "inExpr":
+      return { ...expr, element: sub(expr.element), collection: sub(expr.collection) };
+    case "isExpr":
+      return { ...expr, value: sub(expr.value) };
+    case "listLiteral":
+      return { ...expr, elements: expr.elements.map(sub) };
+    case "mapLiteral":
+      return {
+        ...expr,
+        entries: expr.entries.map((entry) => ({ key: sub(entry.key), value: sub(entry.value) })),
+      };
+    case "memberAccess":
+      return { ...expr, object: sub(expr.object) };
+    case "bracketAccess":
+      return { ...expr, object: sub(expr.object), index: sub(expr.index) };
+    case "sliceAccess":
+      return { ...expr, object: sub(expr.object), start: sub(expr.start), end: sub(expr.end) };
+    case "pathLiteral":
+      return {
+        ...expr,
+        segments: expr.segments.map((seg) => (typeof seg === "string" ? seg : sub(seg))),
+      };
+    case "methodCall":
+      return { ...expr, object: sub(expr.object), args: expr.args.map(sub) };
+    case "functionCall":
+      return { ...expr, args: expr.args.map(sub) };
+  }
+}
+
 export function resolveStaticRulesOperand(
   expr: Expression,
   userFunctions: ReadonlyMap<string, FunctionDef>,
@@ -175,13 +453,26 @@ export function resolveStaticRulesOperand(
   ) {
     return pathVariables[inlined.name];
   }
-  if (isClosedConstantExpr(inlined, userFunctions)) {
-    const value = evalConstValue(inlined, userFunctions);
-    if (isRulesScalar(value)) return value;
-    return undefined;
-  }
   if (isRequestAuthUid(inlined)) {
     return authUid;
+  }
+  let candidate = inlined;
+  if (pathVariables !== undefined) {
+    const pathVarEntries = Object.entries(pathVariables);
+    if (pathVarEntries.length > 0) {
+      const bindings = new Map<string, Expression>(
+        pathVarEntries.map(([name, val]) => [name, literal(val)]),
+      );
+      candidate = substituteIdentifiers(candidate, bindings);
+    }
+  }
+  if (authUid !== undefined) {
+    candidate = substituteRequestAuthUid(candidate, authUid);
+  }
+  if (isClosedConstantExpr(candidate, userFunctions)) {
+    const value = evalConstValue(candidate, userFunctions);
+    if (isRulesScalar(value)) return value;
+    return undefined;
   }
   return undefined;
 }
@@ -203,13 +494,13 @@ function resolveGuaranteedArrayContains(
     functionScopes,
   );
   if (ruleVal === undefined) return undefined;
-  const matched = (constraints.where ?? []).some(
-    (filter) =>
-      filter.field === arrayField &&
-      filter.op === "array-contains" &&
-      isScalar(filter.value) &&
-      listElementsEqual(ruleVal, toRulesQueryScalar(filter.value)),
-  );
+  const matched = (constraints.where ?? []).some((filter) => {
+    if (filter.field !== arrayField || filter.op !== "array-contains" || Array.isArray(filter.value)) {
+      return false;
+    }
+    const normalized = normalizeQueryConstraintScalar(filter.value);
+    return normalized !== undefined && listElementsEqual(ruleVal, toRulesQueryScalar(normalized));
+  });
   return matched ? ruleVal : undefined;
 }
 
@@ -449,21 +740,83 @@ function int64LiteralExpr(value: bigint): Expression {
   };
 }
 
+function floatLiteralExpr(value: number): Expression {
+  if (Object.is(value, -0)) return { type: "literal", value: -0, raw: "-0.0" };
+  const serialized = JSON.stringify(value);
+  let raw = serialized;
+  if (!serialized.includes(".") && !serialized.includes("e") && !serialized.includes("E")) {
+    raw = `${serialized}.0`;
+  }
+  return { type: "literal", value, raw };
+}
+
+function bytesLiteralRaw(data: Uint8Array): string {
+  let inner = "";
+  for (const byte of data) {
+    inner += `\\x${byte.toString(16).padStart(2, "0")}`;
+  }
+  return `b'${inner}'`;
+}
+
 function rulesScalarExpression(value: RulesScalar): Expression {
   if (typeof value === "bigint") return int64LiteralExpr(value);
-  if (value instanceof RulesFloat) {
-    if (Object.is(value.value, -0)) return { type: "literal", value: -0, raw: "-0.0" };
-    const serialized = JSON.stringify(value.value);
-    let raw = serialized;
-    if (!serialized.includes(".") && !serialized.includes("e") && !serialized.includes("E")) {
-      raw = `${serialized}.0`;
-    }
-    return { type: "literal", value: value.value, raw };
+  if (value instanceof RulesFloat) return floatLiteralExpr(value.value);
+  if (value instanceof Path) {
+    return { type: "pathLiteral", raw: value.toString(), segments: [...value.segments] };
+  }
+  if (value instanceof Reference) {
+    return { type: "pathLiteral", raw: value.toPath().toString(), segments: [...value.segments] };
+  }
+  if (value instanceof Bytes) {
+    return { type: "literal", value: value.data, raw: bytesLiteralRaw(value.data) };
+  }
+  if (value instanceof LatLng) {
+    return {
+      type: "methodCall",
+      object: { type: "identifier", name: "latlng" },
+      method: "value",
+      args: [floatLiteralExpr(value.lat), floatLiteralExpr(value.lng)],
+    };
+  }
+  if (value instanceof Timestamp) {
+    const baseMillis = {
+      type: "methodCall" as const,
+      object: { type: "identifier" as const, name: "timestamp" },
+      method: "value",
+      args: [int64LiteralExpr(BigInt(value.seconds) * 1000n)],
+    };
+    if (value.nanos === 0) return baseMillis;
+    const nanosOffset = {
+      type: "methodCall" as const,
+      object: { type: "identifier" as const, name: "duration" },
+      method: "value",
+      args: [int64LiteralExpr(BigInt(value.nanos)), literal("ns")],
+    };
+    return join(baseMillis, nanosOffset, "+");
+  }
+  if (value instanceof Duration) {
+    const secsPart = {
+      type: "methodCall" as const,
+      object: { type: "identifier" as const, name: "duration" },
+      method: "value",
+      args: [int64LiteralExpr(BigInt(value.seconds)), literal("s")],
+    };
+    if (value.nanos === 0) return secsPart;
+    const nanosPart = {
+      type: "methodCall" as const,
+      object: { type: "identifier" as const, name: "duration" },
+      method: "value",
+      args: [int64LiteralExpr(BigInt(value.nanos)), literal("ns")],
+    };
+    return join(secsPart, nanosPart, "+");
   }
   return literal(value);
 }
 
 function pinCandidateExpressions(value: Scalar): Expression[] {
+  if (isRulesWrapperScalar(value)) {
+    return [rulesScalarExpression(value)];
+  }
   const primary = literal(value);
   if (
     typeof value === "number" &&
@@ -846,8 +1199,15 @@ export function queryResidual(
       return undefined;
     }
   }
+  let combinedCondition = residuals.reduce((left, right) => join(left, right, "&&"));
+  const priorSteps = getOrBudgetSteps(condition);
+  if (priorSteps && priorSteps.length > 0 && combinedCondition !== condition) {
+    for (let i = priorSteps.length - 1; i >= 0; i--) {
+      combinedCondition = attachOrBudgetStep(combinedCondition, priorSteps[i]!);
+    }
+  }
   return {
-    condition: residuals.reduce((left, right) => join(left, right, "&&")),
+    condition: combinedCondition,
     partial,
   };
 }

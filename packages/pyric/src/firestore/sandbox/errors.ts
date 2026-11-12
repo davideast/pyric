@@ -23,6 +23,7 @@
  * `unauthenticated`) are reserved so adding their wiring later is a
  * pure callsite change, no error-set churn.
  */
+import type { QueryWhereConstraint } from 'pyric/rules/internal';
 import type { QueryProofDiagnostic, QueryRepro } from '../../sandbox/types/query-proof.js';
 
 export const FIRESTORE_ERROR_CODES = [
@@ -127,11 +128,7 @@ export interface FirestoreSimError {
  * denial site carries the exact query it rejected.
  */
 export interface QueryDenialDescriptor {
-  readonly where?: readonly {
-    readonly field: string;
-    readonly op: string;
-    readonly value: string | number | boolean | null | readonly (string | number | boolean | null)[];
-  }[];
+  readonly where?: readonly QueryWhereConstraint[];
   readonly limit?: number | null;
   readonly offset?: number | null;
   readonly orderBy?: string | null;

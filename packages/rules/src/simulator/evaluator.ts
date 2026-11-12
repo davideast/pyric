@@ -378,7 +378,7 @@ function evaluateNode(expr: Expression, ctx: SimulationContext, scope: Record<st
         } else {
           try {
             const val = evaluate(seg, ctx, scope);
-            if (val instanceof Path) {
+            if (val instanceof Path || val instanceof Reference) {
               parts.push(...val.segments);
               continue;
             }

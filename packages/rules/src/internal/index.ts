@@ -100,7 +100,20 @@ export type {
   QueryConstraints,
   QueryProofResidual,
   QueryWhereConstraint,
+  QueryWhereValue,
 } from '../simulator/query-proof.js';
+export {
+  formatQueryScalarForRemediation,
+  isQueryProofScalar,
+  queryProofScalarsEqual,
+  replaceTokenInQueryScalar,
+} from '../simulator/query-proof-residual.js';
+export type {
+  FormatQueryScalarOptions,
+  RulesScalar,
+  RulesWrapperScalar,
+  Scalar as QueryProofScalar,
+} from '../simulator/query-proof-residual.js';
 export {
   buildQueryRepro,
   listQueryFromConstraints,
@@ -267,6 +280,8 @@ export { evaluateHashingMethod, sha256 } from '../simulator/hashing-builtins.js'
 export { IndexAccessFailure, indexList, indexMap, indexValue, readMember } from '../simulator/index-access.js';
 export { ListMethodFailure, listConcat, listJoin, listMembership, listRemoveAll } from '../simulator/list-methods.js';
 export type { ListMembershipMethod } from '../simulator/list-methods.js';
+export { attachOrBudgetStep, getListBlockSteps, getOrBudgetSteps, setListBlockSteps } from '../simulator/list-proof-budget.js';
+export type { ListBlockStep, OrBudgetStep } from '../simulator/list-proof-budget.js';
 export { lookupAccessKey, slashedSegment, slashedSegmentReason } from '../simulator/lookup-path.js';
 export { MapMethodFailure, mapKeys, mapList, mapLiteral, mapValues } from '../simulator/map-keys.js';
 export type { MapListMethod } from '../simulator/map-keys.js';

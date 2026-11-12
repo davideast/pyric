@@ -3,12 +3,15 @@ import type {
   Expression,
   FirestoreRules,
   FunctionDef,
+  ListBlockStep,
   MatchBlock,
 } from 'pyric/rules/internal';
 import {
+  attachOrBudgetStep,
   indexRulesetScopes,
   rootBlockGovernsEveryDocument,
   rootGovernsEveryDocument,
+  setListBlockSteps,
   topLevelMatches,
 } from 'pyric/rules/internal';
 import {
@@ -96,6 +99,65 @@ function groupBindings(block: MatchBlock, collectionId: string): Set<string> | n
   return null;
 }
 
+function worstCasePathBudgetBranch(
+  expr: Expression,
+  bound: ReadonlySet<string>,
+  functions: ReadonlyMap<string, FunctionDef>,
+  ambiguousNames: ReadonlySet<string>,
+): { expr: Expression; requiredFunctionDefs: ReadonlySet<FunctionDef> } {
+  const analysis = analyzeListRulePathInvariance(expr, bound, functions, ambiguousNames);
+  if (analysis.pathInvariant) {
+    return { expr, requiredFunctionDefs: analysis.requiredFunctionDefs };
+  }
+  if (expr.type === 'unaryOp' && expr.op === '!') {
+    const inner = expr.operand;
+    if (inner.type === 'binaryOp' && (inner.op === '&&' || inner.op === '||')) {
+      return worstCasePathBudgetBranch(
+        {
+          type: 'binaryOp',
+          op: inner.op === '&&' ? '||' : '&&',
+          left: { type: 'unaryOp', op: '!', operand: inner.left },
+          right: { type: 'unaryOp', op: '!', operand: inner.right },
+        },
+        bound,
+        functions,
+        ambiguousNames,
+      );
+    }
+    const sub = worstCasePathBudgetBranch(inner, bound, functions, ambiguousNames);
+    return {
+      expr: sub.expr === inner ? expr : { ...expr, operand: sub.expr },
+      requiredFunctionDefs: sub.requiredFunctionDefs,
+    };
+  }
+  if (expr.type === 'binaryOp' && (expr.op === '&&' || expr.op === '||')) {
+    const left = worstCasePathBudgetBranch(expr.left, bound, functions, ambiguousNames);
+    const right = worstCasePathBudgetBranch(expr.right, bound, functions, ambiguousNames);
+    const defs = new Set([...left.requiredFunctionDefs, ...right.requiredFunctionDefs]);
+    const leftInvariant = analyzeListRulePathInvariance(
+      expr.left,
+      bound,
+      functions,
+      ambiguousNames,
+    ).pathInvariant;
+    if (!leftInvariant) {
+      return {
+        expr: attachOrBudgetStep(right.expr, {
+          operator: expr,
+          side: 'before',
+          branch: left.expr,
+        }),
+        requiredFunctionDefs: defs,
+      };
+    }
+    return {
+      expr: { ...expr, left: left.expr, right: right.expr },
+      requiredFunctionDefs: defs,
+    };
+  }
+  return { expr, requiredFunctionDefs: analysis.requiredFunctionDefs };
+}
+
 function projectPathInvariantCondition(
   expr: Expression,
   bound: ReadonlySet<string>,
@@ -153,7 +215,34 @@ function projectPathInvariantCondition(
       };
     }
     if (expr.op === '||') {
-      return left ?? right;
+      if (!left && right) {
+        const dropped = worstCasePathBudgetBranch(expr.left, bound, functions, ambiguousNames);
+        return {
+          condition: attachOrBudgetStep(right.condition, {
+            operator: expr,
+            side: 'before',
+            branch: dropped.expr,
+          }),
+          requiredFunctionDefs: new Set([
+            ...right.requiredFunctionDefs,
+            ...dropped.requiredFunctionDefs,
+          ]),
+        };
+      }
+      if (left && !right) {
+        const dropped = worstCasePathBudgetBranch(expr.right, bound, functions, ambiguousNames);
+        return {
+          condition: attachOrBudgetStep(left.condition, {
+            operator: expr,
+            side: 'after',
+            branch: dropped.expr,
+          }),
+          requiredFunctionDefs: new Set([
+            ...left.requiredFunctionDefs,
+            ...dropped.requiredFunctionDefs,
+          ]),
+        };
+      }
     }
   }
   return null;
@@ -170,9 +259,12 @@ function projectGroupBlock(
 
   const functionScope = buildListRuleFunctionScope([...outerFunctions, ...block.functions]);
   const blockRequiredDefs = new Set<FunctionDef>();
+  const budgetDefs = new Set<FunctionDef>();
   const allows: AllowRule[] = [];
+  const blockSteps: ListBlockStep[] = [];
 
-  for (const rule of block.allows) {
+  for (let ruleIndex = 0; ruleIndex < block.allows.length; ruleIndex++) {
+    const rule = block.allows[ruleIndex]!;
     if (!rule.operations.some((operation) => operation === 'list' || operation === 'read')) {
       continue;
     }
@@ -182,7 +274,22 @@ function projectGroupBlock(
       functionScope.functions,
       functionScope.ambiguousNames,
     );
-    if (!projected) continue;
+    if (!projected) {
+      const budgetBranch = worstCasePathBudgetBranch(
+        rule.condition,
+        bound,
+        functionScope.functions,
+        functionScope.ambiguousNames,
+      );
+      const budgetRule = budgetBranch.expr === rule.condition
+        ? rule
+        : { ...rule, condition: budgetBranch.expr };
+      blockSteps.push({ kind: 'budget', rule: budgetRule, index: ruleIndex });
+      for (const fnDef of budgetBranch.requiredFunctionDefs) {
+        budgetDefs.add(fnDef);
+      }
+      continue;
+    }
     for (const fnDef of projected.requiredFunctionDefs) {
       if (block.functions.includes(fnDef)) {
         blockRequiredDefs.add(fnDef);
@@ -190,18 +297,32 @@ function projectGroupBlock(
         requiredFunctionDefs.add(fnDef);
       }
     }
-    if (projected.condition === rule.condition) {
-      allows.push(rule);
-    } else {
-      allows.push({ ...rule, condition: projected.condition });
-    }
+    const projectedRule = projected.condition === rule.condition
+      ? rule
+      : { ...rule, condition: projected.condition };
+    allows.push(projectedRule);
+    blockSteps.push({ kind: 'grant', rule: projectedRule, index: ruleIndex });
   }
   if (allows.length === 0) return null;
 
-  return {
+  if (blockSteps.some((step) => step.kind === 'budget')) {
+    for (const fnDef of budgetDefs) {
+      if (block.functions.includes(fnDef)) {
+        blockRequiredDefs.add(fnDef);
+      } else {
+        requiredFunctionDefs.add(fnDef);
+      }
+    }
+  }
+
+  const projectedBlock: MatchBlock = {
     ...block,
     functions: block.functions.filter((fn) => blockRequiredDefs.has(fn)),
     allows,
     children: [],
   };
+  if (blockSteps.some((step) => step.kind === 'budget')) {
+    setListBlockSteps(projectedBlock, blockSteps);
+  }
+  return projectedBlock;
 }
