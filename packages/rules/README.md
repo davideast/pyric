@@ -4,6 +4,9 @@ Unit-test Firebase Security Rules for Firestore, Cloud Storage and Realtime
 Database in plain Node, without an emulator and without the rest of pyric.
 It parses, lints and simulates your rules files in process.
 
+It is not published to npm yet. Until it is, it ships inside `pyric` as
+`pyric/rules`, with the same API.
+
 ```sh
 npm install --save-dev @pyric/rules
 ```
@@ -72,8 +75,10 @@ test('nobody writes another user\'s profile', () => assertCase(rules, {
 Each ruleset also has `simulate(cases)`, which returns every result as data
 with pass, fail and unsupported counts, `explain(case)` for one decision, and
 `lint()`. `lint(source)` reads any text and returns its issues without
-throwing. A case pyric cannot evaluate as production would is `UNSUPPORTED`,
-never a pass, and `assertCase` throws `RulesUnsupportedError` for it.
+throwing. A case the engine cannot evaluate is `UNSUPPORTED`, never a pass,
+and `assertCase` throws `RulesUnsupportedError` for it. A case's `auth` and
+`resource` become `request.auth` and `resource` exactly as given: nothing is
+filled in, such as token claims or object metadata.
 
 ## Entry points
 

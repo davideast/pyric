@@ -8,11 +8,17 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { existsSync, lstatSync, readFileSync } from 'node:fs';
+import { builtinModules } from 'node:module';
 import { basename, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { scenario } from '../driver.ts';
 
 const PACKAGE = '@pyric/rules';
 const NOT_INSTALLED = ['pyric', 'firebase', 'firebase-admin', 'typescript'];
+/** Everything the install may hold: the package and its two dependencies. */
+const INSTALLED = ['@pyric/rules', 'ohm-js', 'zod'];
+/** A literal dynamic import, which the resolve hook sees only when it runs. */
+const DYNAMIC_IMPORT = /\bimport\(\s*['"`]([^'"`]+)['"`]\s*\)/g;
 const USER_TESTS = 12;
 
 /** A test that expects ALLOW for a request the rules deny: it must fail. */
@@ -73,6 +79,19 @@ function lockName(path: string): string {
   return path.slice(path.lastIndexOf(marker) + marker.length);
 }
 
+function isBuiltin(specifier: string): boolean {
+  return specifier.startsWith('node:') || builtinModules.includes(specifier.split('/')[0] ?? specifier);
+}
+
+/** The literal dynamic imports of a built-in in `file`, as `<specifier> in <file>`. */
+function lazyBuiltinImports(file: string): string[] {
+  const source = readFileSync(file, 'utf8');
+  return [...source.matchAll(DYNAMIC_IMPORT)]
+    .map((match) => match[1] ?? '')
+    .filter(isBuiltin)
+    .map((specifier) => `import('${specifier}') in ${file}`);
+}
+
 function sha512(file: string): string {
   return `sha512-${createHash('sha512').update(readFileSync(file)).digest('base64')}`;
 }
@@ -94,10 +113,9 @@ export default scenario(async (app) => {
     assert.equal(lstatSync(installed).isSymbolicLink(), false, `node_modules/${PACKAGE} is a directory, not a link`);
   });
 
-  await app.step('the install holds no pyric, firebase, firebase-admin or typescript', () => {
+  await app.step('the install holds only @pyric/rules, ohm-js and zod', () => {
     const names = Object.keys(lockfile().packages).filter((path) => path !== '').map(lockName);
-    const unwanted = names.filter((name) => NOT_INSTALLED.includes(name) || name.startsWith('@firebase/'));
-    assert.deepEqual(unwanted, [], `installed: ${[...new Set(names)].sort().join(', ')}`);
+    assert.deepEqual([...new Set(names)].sort(), INSTALLED);
     for (const name of NOT_INSTALLED) {
       assert.equal(existsSync(join(app.dir, 'node_modules', name)), false, `node_modules/${name} exists`);
     }
@@ -130,5 +148,10 @@ export default scenario(async (app) => {
     }
     const builtins = fromInstall.filter((entry) => entry.url.startsWith('node:'));
     assert.deepEqual(builtins.map((entry) => `${entry.specifier} imported by ${entry.parent}`), []);
+    // A lazy import('node:...') resolves only when its code runs, so the hook
+    // misses it. Every file the graph reached is scanned for one instead.
+    const installedUrls = new Set(imports.map((entry) => entry.url).filter((url) => url.startsWith('file:') && url.includes('/node_modules/')));
+    const files = [...installedUrls].map((url) => fileURLToPath(url));
+    assert.deepEqual(files.flatMap(lazyBuiltinImports), []);
   });
 });
