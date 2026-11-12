@@ -27,7 +27,7 @@ import { claimNamesOf } from '../account.js';
 import type { CallContext, LiveAccount, LiveObserver, ResultReading } from '../observe.js';
 import { liveModeMismatch } from '../refusal.js';
 import { keepShape, patchAdminClass, type AdminMethod, type AdminRow } from './patch.js';
-import type { AdminApp, AdminProjectGate } from './project-gate.js';
+import { failClosedGate, UNREAD_APP, type AdminApp, type AdminProjectGate } from './project-gate.js';
 
 /** The module an Admin Auth record names, which the page observer maps to the `auth` service. */
 export const ADMIN_AUTH_MODULE = 'firebase-admin/auth';
@@ -55,14 +55,11 @@ function adminAppOf(self: unknown): unknown {
   return isObject(app) ? app : undefined;
 }
 
-/** Stands in for an Auth whose app cannot be read: it names no project, so the gate lets it run. */
-const NO_APP: AdminApp = { options: {} };
-
-/** The app the gate checks: firebase-admin's own `App`, whose options and credential resolve its project. */
+/** The app the gate checks: firebase-admin's own `App`, or `UNREAD_APP` so `failClosedGate` refuses an unreadable receiver. */
 function appOf(self: unknown): AdminApp {
   const app = adminAppOf(self);
   const hasOptions = isObject(app) && isObject(Reflect.get(app, 'options'));
-  return hasOptions ? (app as AdminApp) : NO_APP;
+  return hasOptions ? (app as AdminApp) : UNREAD_APP;
 }
 
 /** The project the app was given, without asking its credential to resolve one. */
@@ -74,14 +71,23 @@ function projectIdOf(self: unknown): string | undefined {
 }
 
 /** The methods whose first argument is the uid of the one user they act on. */
-const TARGET_ARGUMENT: ReadonlySet<string> = new Set(['getUser', 'updateUser', 'deleteUser', 'setCustomUserClaims', 'revokeRefreshTokens']);
+const TARGET_ARGUMENT: ReadonlySet<string> = new Set([
+  'getUser',
+  'updateUser',
+  'deleteUser',
+  'setCustomUserClaims',
+  'revokeRefreshTokens',
+  'createCustomToken',
+]);
 
 /** One call's context: its project, and the account it names so far. */
 function contextOf(name: string, args: readonly unknown[], self: unknown): CallContext {
   const target: Target = {};
   const method = name.slice(name.indexOf('.') + 1);
   if (TARGET_ARGUMENT.has(method) && isUid(args[0])) target.uid = args[0];
-  if (method === 'verifyIdToken') target.claimNames = claimNamesOf(args[0]);
+  if (method === 'verifyIdToken' || method === 'verifySessionCookie') {
+    target.claimNames = claimNamesOf(args[0]);
+  }
   const projectId = projectIdOf(self);
   return projectId === undefined ? { subject: target } : { subject: target, projectId };
 }
@@ -109,8 +115,40 @@ function calls(names: readonly string[], extra: Partial<AdminMethod> = {}): Admi
 }
 
 const METHODS: readonly AdminMethod[] = [
-  ...calls(['getUser', 'updateUser', 'deleteUser', 'setCustomUserClaims', 'revokeRefreshTokens', 'getUsers', 'listUsers', 'deleteUsers']),
-  ...calls(['verifyIdToken', 'getUserByEmail', 'getUserByPhoneNumber', 'createUser'], { resultOf: resultUid }),
+  ...calls([
+    'getUser',
+    'updateUser',
+    'deleteUser',
+    'setCustomUserClaims',
+    'revokeRefreshTokens',
+    'createCustomToken',
+    'createSessionCookie',
+    'getUsers',
+    'listUsers',
+    'deleteUsers',
+    'importUsers',
+    'generatePasswordResetLink',
+    'generateEmailVerificationLink',
+    'generateVerifyAndChangeEmailLink',
+    'generateSignInWithEmailLink',
+    'listProviderConfigs',
+    'getProviderConfig',
+    'deleteProviderConfig',
+    'updateProviderConfig',
+    'createProviderConfig',
+    '_verifyAuthBlockingToken',
+  ]),
+  ...calls(
+    [
+      'verifyIdToken',
+      'verifySessionCookie',
+      'getUserByEmail',
+      'getUserByPhoneNumber',
+      'getUserByProviderUid',
+      'createUser',
+    ],
+    { resultOf: resultUid },
+  ),
 ];
 
 /** Where the records go, which gate the calls pass, and the live host's project a mode mismatch names. */
@@ -158,7 +196,12 @@ function refuseSandboxTokens(prototype: object, hostProjectId: string): void {
 export function observeAdminAuth(baseAuth: unknown, row: AdminAuthRow): void {
   const defined: unknown = isObject(baseAuth) ? Reflect.get(baseAuth, 'BaseAuth') : undefined;
   const prototype: unknown = typeof defined === 'function' ? Reflect.get(defined, 'prototype') : undefined;
-  const adminRow: AdminRow = { module: ADMIN_AUTH_MODULE, observer: row.observer, gate: row.gate, appOf };
+  const adminRow: AdminRow = {
+    module: ADMIN_AUTH_MODULE,
+    observer: row.observer,
+    gate: failClosedGate(row.gate, 'Auth'),
+    appOf,
+  };
   const target = isObject(prototype) ? prototype : undefined;
   const isFirstPatch = patchAdminClass(target, 'Auth', METHODS, adminRow);
   if (isFirstPatch && target !== undefined) refuseSandboxTokens(target, row.hostProjectId);

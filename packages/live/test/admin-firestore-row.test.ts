@@ -335,29 +335,34 @@ test('captures sessionData across real gRPC reads, listeners, writes, add, getAl
   await doc('notes/a').delete!();
 
   const made = await recordsSince(from);
-  expect(made.map((record) => ({ name: record.name, outcome: record.outcome, session: sessionDataOf(record) }))).toEqual([
+  expect(made.map((record) => ({ name: record.name, path: record.path, outcome: record.outcome, session: sessionDataOf(record) }))).toEqual([
     {
       name: 'DocumentReference.set',
+      path: 'notes/a',
       outcome: 'resolved',
       session: { firestore: [{ kind: 'set', path: 'notes/a', data: { n: 1, title: 'first' } }] },
     },
     {
       name: 'DocumentReference.get',
+      path: 'notes/missing',
       outcome: 'resolved',
       session: { firestore: [{ kind: 'delete', path: 'notes/missing' }] },
     },
     {
       name: 'DocumentReference.update',
+      path: 'notes/a',
       outcome: 'resolved',
       session: { firestore: [{ kind: 'update', path: 'notes/a', data: { n: 2 } }] },
     },
     {
       name: 'CollectionReference.add',
+      path: 'notes',
       outcome: 'resolved',
       session: { firestore: [{ kind: 'set', path: added.path, data: { n: 4 } }] },
     },
     {
       name: 'WriteBatch.commit',
+      path: undefined,
       outcome: 'resolved',
       session: {
         firestore: [
@@ -368,6 +373,7 @@ test('captures sessionData across real gRPC reads, listeners, writes, add, getAl
     },
     {
       name: 'Firestore.getAll',
+      path: undefined,
       outcome: 'resolved',
       session: {
         firestore: [
@@ -378,6 +384,7 @@ test('captures sessionData across real gRPC reads, listeners, writes, add, getAl
     },
     {
       name: 'Firestore.runTransaction',
+      path: undefined,
       outcome: 'resolved',
       session: {
         firestore: [
@@ -388,11 +395,13 @@ test('captures sessionData across real gRPC reads, listeners, writes, add, getAl
     },
     {
       name: 'Firestore.runTransaction',
+      path: undefined,
       outcome: 'rejected',
       session: undefined,
     },
     {
       name: 'DocumentReference.delete',
+      path: 'notes/a',
       outcome: 'resolved',
       session: { firestore: [{ kind: 'delete', path: 'notes/a' }] },
     },
@@ -400,5 +409,44 @@ test('captures sessionData across real gRPC reads, listeners, writes, add, getAl
 
   expect(JSON.stringify(records)).not.toContain('first');
   expect(records.some((record) => record.writeData !== undefined || record.document !== undefined)).toBe(false);
+  expect(state.unmatched).toEqual([]);
+});
+
+test('gates Firestore.listCollections, Firestore.recursiveDelete, BulkWriter, unreadable receivers, and refuses named Firestore databases before any request or session capture', async () => {
+  const from = records.length;
+  const other = new sdk.Firestore({ projectId: 'other-project' });
+  expect(await codeOf((other.listCollections as AnyFunction).call(other))).toBe('PYRIC_LIVE_REFUSED');
+  expect(
+    await codeOf((other.recursiveDelete as AnyFunction).call(other, (other.collection as AnyFunction).call(other, 'notes'))),
+  ).toBe('PYRIC_LIVE_REFUSED');
+  await (other.terminate as AnyFunction).call(other);
+
+  const otherWithBulk = new sdk.Firestore({ projectId: 'other-project' });
+  const otherBulk = (otherWithBulk.bulkWriter as AnyFunction).call(otherWithBulk) as Instance;
+  expect(await codeOf(otherBulk.set!(doc('notes/a', otherWithBulk), { n: 1 }))).toBe('PYRIC_LIVE_REFUSED');
+  expect(await codeOf(otherBulk.flush!())).toBe('PYRIC_LIVE_REFUSED');
+
+  // Named Firestore database on the host project is refused with PYRIC_LIVE_REFUSED before any request or sessionData capture.
+  const admin = createRequire(import.meta.url)('firebase-admin') as { initializeApp(options: object, name: string): object };
+  const { getFirestore } = createRequire(import.meta.url)('firebase-admin/firestore') as {
+    getFirestore(app: object, databaseId?: string): Instance;
+  };
+  const namedApp = admin.initializeApp({ projectId: PROJECT }, 'admin-firestore-named-db');
+  const namedDb = getFirestore(namedApp, 'analytics');
+  expect(await codeOf(doc('notes/a', namedDb).get!())).toBe('PYRIC_LIVE_REFUSED');
+  expect(await codeOf(doc('notes/a', namedDb).set!({ n: 99 }))).toBe('PYRIC_LIVE_REFUSED');
+  expect(await codeOf((namedDb.listCollections as AnyFunction).call(namedDb))).toBe('PYRIC_LIVE_REFUSED');
+
+  // Unreadable Firestore receiver fails closed instead of defaulting to `{ options: {} }`.
+  const orphanDoc = Object.create(
+    (
+      (createRequire(createRequire(import.meta.url).resolve('firebase-admin/firestore'))(
+        '@google-cloud/firestore',
+      ) as { DocumentReference: { prototype: object } }).DocumentReference.prototype
+    ),
+  ) as Instance;
+  expect(await codeOf(orphanDoc.get!())).toBe('PYRIC_LIVE_REFUSED');
+
+  expect(await recordsSince(from)).toEqual([]);
   expect(state.unmatched).toEqual([]);
 });

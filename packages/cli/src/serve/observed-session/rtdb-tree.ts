@@ -51,17 +51,32 @@ function normalizeRtdbNode(value: unknown): unknown {
     return value.map((item) => normalizeRtdbNode(item));
   }
   if (isPlainObject(value)) {
+    if (Object.prototype.hasOwnProperty.call(value, '.value')) {
+      const rawScalar = value['.value'];
+      if (rawScalar === null || rawScalar === undefined) return null;
+      const rawPri = value['.priority'];
+      if (typeof rawPri === 'string' || (typeof rawPri === 'number' && Number.isFinite(rawPri))) {
+        return { '.value': rawScalar, '.priority': rawPri };
+      }
+      return rawScalar;
+    }
     const out: Record<string, unknown> = {};
-    let count = 0;
+    let childCount = 0;
     for (const [k, v] of Object.entries(value)) {
       if (FORBIDDEN_KEYS.has(k)) continue;
+      if (k === '.priority') {
+        if (typeof v === 'string' || (typeof v === 'number' && Number.isFinite(v))) {
+          out['.priority'] = v;
+        }
+        continue;
+      }
       const normalized = normalizeRtdbNode(v);
       if (normalized !== null) {
         out[k] = normalized;
-        count += 1;
+        childCount += 1;
       }
     }
-    return count === 0 ? null : out;
+    return childCount === 0 ? null : out;
   }
   return null;
 }
@@ -80,7 +95,7 @@ export function setRtdbAtSegments(current: unknown, segments: readonly string[],
         base[String(i)] = current[i];
       }
     }
-  } else if (isPlainObject(current)) {
+  } else if (isPlainObject(current) && !Object.prototype.hasOwnProperty.call(current, '.value')) {
     base = { ...current };
   } else {
     base = {};
@@ -91,7 +106,8 @@ export function setRtdbAtSegments(current: unknown, segments: readonly string[],
   } else {
     base[head] = nextChild;
   }
-  return Object.keys(base).length === 0 ? null : base;
+  const remainingDataKeys = Object.keys(base).filter((k) => k !== '.priority');
+  return remainingDataKeys.length === 0 ? null : base;
 }
 
 /**
@@ -103,10 +119,20 @@ export function mergeRtdbTrees(existing: unknown, incoming: unknown): unknown {
   const normalizedIncoming = normalizeRtdbNode(incoming);
   if (normalizedIncoming === null) return normalizeRtdbNode(existing);
   const normalizedExisting = normalizeRtdbNode(existing);
-  if (isPlainObject(normalizedExisting) && isPlainObject(normalizedIncoming)) {
+  const existingIsMap =
+    isPlainObject(normalizedExisting) &&
+    !Object.prototype.hasOwnProperty.call(normalizedExisting, '.value');
+  const incomingIsMap =
+    isPlainObject(normalizedIncoming) &&
+    !Object.prototype.hasOwnProperty.call(normalizedIncoming, '.value');
+  if (existingIsMap && incomingIsMap) {
     const merged: Record<string, unknown> = { ...normalizedExisting };
     for (const [key, val] of Object.entries(normalizedIncoming)) {
-      merged[key] = mergeRtdbTrees(merged[key], val);
+      if (key === '.priority') {
+        merged['.priority'] = val;
+      } else {
+        merged[key] = mergeRtdbTrees(merged[key], val);
+      }
     }
     return merged;
   }

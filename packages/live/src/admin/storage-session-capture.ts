@@ -512,10 +512,11 @@ export function adminStorageSessionContext(
   }
   const needsResultCapture =
     methodName === 'save' ||
-    methodName === 'getMetadata' ||
-    methodName === 'setMetadata' ||
+    ((methodName === 'getMetadata' || methodName === 'setMetadata') && path !== undefined) ||
     methodName === 'copy' ||
     methodName === 'move' ||
+    methodName === 'moveFileAtomic' ||
+    methodName === 'rename' ||
     methodName === 'upload' ||
     methodName === 'getFiles';
   if (!needsResultCapture) return {};
@@ -528,7 +529,12 @@ export function adminStorageSessionContext(
     saveOptionsMeta = extractAdminWriteOptionsMetadata(args[1]);
   }
   let copyTargetHint: CopyTargetHint | undefined;
-  if (methodName === 'copy' || methodName === 'move') {
+  if (
+    methodName === 'copy' ||
+    methodName === 'move' ||
+    methodName === 'moveFileAtomic' ||
+    methodName === 'rename'
+  ) {
     copyTargetHint = extractCopyTargetHint(args[0], bucket, path);
   }
   let getFilesQueryHint: GetFilesQueryHint | undefined;
@@ -568,6 +574,8 @@ export function adminStorageResult(site: ObservedSite, value: unknown): ResultRe
       sessionData = captureCopyOrMove(pending, value, false);
       break;
     case 'move':
+    case 'moveFileAtomic':
+    case 'rename':
       sessionData = captureCopyOrMove(pending, value, true);
       break;
     case 'upload':

@@ -106,7 +106,27 @@ describe('admin/firestore-session-values', () => {
       readonly title = 'x';
     }
     expect(adminDocFields({ nested: new CustomModel() })).toEqual({ ok: false, reason: 'unsupported' });
-    expect(adminDocFields({ badNumber: Number.NaN })).toEqual({ ok: false, reason: 'unsupported' });
+    expect(
+      adminDocFields({
+        negZero: -0,
+        nanVal: Number.NaN,
+        posInf: Number.POSITIVE_INFINITY,
+        negInf: Number.NEGATIVE_INFINITY,
+        collidingNumMap: { type: 'pyric/number/1.0', value: 'NaN' },
+      }),
+    ).toEqual({
+      ok: true,
+      value: {
+        negZero: { type: 'pyric/number/1.0', value: '-0' },
+        nanVal: { type: 'pyric/number/1.0', value: 'NaN' },
+        posInf: { type: 'pyric/number/1.0', value: 'Infinity' },
+        negInf: { type: 'pyric/number/1.0', value: '-Infinity' },
+        collidingNumMap: {
+          type: 'pyric/map/1.0',
+          fields: { type: 'pyric/number/1.0', value: 'NaN' },
+        },
+      },
+    });
 
     expect(adminDocFields({ huge: 'x'.repeat(270 * 1024) })).toEqual({
       ok: false,
@@ -173,6 +193,7 @@ describe('admin/firestore-session-values', () => {
         kind: 'update',
         path: 'items/a',
         data: { keep: 'yes', 'nested.fresh': 3 },
+        merge: true,
         deleteFields: ['nested.stale'],
       },
     });

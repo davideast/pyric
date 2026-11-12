@@ -125,8 +125,32 @@ describe('firestore-session-values', () => {
         kind: 'update',
         path: 'items/a',
         data: { title: 'Alpha' },
+        merge: true,
         deleteFields: ['stats.hits'],
         partial: true,
+      },
+    });
+  });
+
+  test('preserves IEEE-754 special floats (-0, NaN, +-Infinity) and escapes colliding plain maps', () => {
+    const copied = sessionDocFields({
+      negZero: -0,
+      nanVal: Number.NaN,
+      posInf: Number.POSITIVE_INFINITY,
+      negInf: Number.NEGATIVE_INFINITY,
+      collidingNumMap: { type: 'pyric/number/1.0', value: '-0' },
+    });
+    expect(copied).toEqual({
+      ok: true,
+      value: {
+        negZero: { type: 'pyric/number/1.0', value: '-0' },
+        nanVal: { type: 'pyric/number/1.0', value: 'NaN' },
+        posInf: { type: 'pyric/number/1.0', value: 'Infinity' },
+        negInf: { type: 'pyric/number/1.0', value: '-Infinity' },
+        collidingNumMap: {
+          type: 'pyric/map/1.0',
+          fields: { type: 'pyric/number/1.0', value: '-0' },
+        },
       },
     });
   });

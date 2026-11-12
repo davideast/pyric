@@ -608,4 +608,339 @@ service cloud.firestore {
       ),
     ).toMatchObject({ result: 'deny' });
   });
+
+  it('denies unprovable unconstrained collection list queries without leaking __hypothetical_doc__ and abstains when filters could discharge predicates', () => {
+    const sandbox = initializeSandbox();
+    const observedSession = createObservedSessionDataStore({ projectId: 'demo-project' });
+    const ctx: HostCtx = {
+      db: getFirestore(sandbox),
+      sandbox,
+      instanceId: 'fs-collection-list-proof-test',
+      subs: new Map(),
+      rtdbProjectId: 'demo-project',
+      observedSession,
+    };
+    expect(
+      deployFirestoreRulesToHost(
+        ctx,
+        `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /items/{id} {
+      allow read: if id != 'blocked';
+    }
+    match /docs/{docId} {
+      allow read: if request.path[4] != 'blocked';
+    }
+    match /orgs/{orgId} {
+      allow read: if exists(/databases/$(database)/documents/teams/$(orgId));
+    }
+    match /publicItems/{id} {
+      allow read: if true;
+    }
+    match /ownedItems/{id} {
+      allow read: if request.auth != null && resource.data.ownerId == request.auth.uid;
+    }
+  }
+}`,
+      ).ok,
+    ).toBe(true);
+
+    const itemsVerdict = firestoreVerdict(
+      ctx,
+      {
+        service: 'firestore',
+        method: 'getDocs',
+        path: 'items',
+        query: { scope: 'collection' },
+        at: 60,
+        outcome: DENIED,
+      },
+      'list',
+    );
+    expect(itemsVerdict).toMatchObject({ result: 'deny' });
+
+    const docsVerdict = firestoreVerdict(
+      ctx,
+      {
+        service: 'firestore',
+        method: 'getDocs',
+        path: 'docs',
+        query: { scope: 'collection' },
+        at: 61,
+        outcome: DENIED,
+      },
+      'list',
+    );
+    expect(docsVerdict).toMatchObject({ result: 'deny' });
+
+    const orgsVerdict = firestoreVerdict(
+      ctx,
+      {
+        service: 'firestore',
+        method: 'getDocs',
+        path: 'orgs',
+        query: { scope: 'collection' },
+        at: 62,
+        outcome: DENIED,
+      },
+      'list',
+    );
+    expect(orgsVerdict).toMatchObject({ result: 'deny' });
+    expect(orgsVerdict?.missingPaths ?? []).toEqual([]);
+
+    const publicVerdict = firestoreVerdict(
+      ctx,
+      {
+        service: 'firestore',
+        method: 'getDocs',
+        path: 'publicItems',
+        query: { scope: 'collection' },
+        at: 63,
+        outcome: OK,
+      },
+      'list',
+    );
+    expect(publicVerdict).toMatchObject({ result: 'allow' });
+
+    const filteredVerdict = firestoreVerdict(
+      ctx,
+      {
+        service: 'firestore',
+        method: 'getDocs',
+        path: 'ownedItems',
+        query: { scope: 'collection', filters: [{ field: 'ownerId', op: '==' }] },
+        account: { uid: 'u-1' },
+        at: 64,
+        outcome: OK,
+      },
+      'list',
+    );
+    expect(filteredVerdict).toMatchObject({
+      result: 'unevaluated',
+      needs: expect.arrayContaining(['query']),
+    });
+  });
+
+  it('tracks input gaps through ternary conditional receivers on both branches', () => {
+    const sandbox = initializeSandbox();
+    const observedSession = createObservedSessionDataStore({ projectId: 'demo-project' });
+    const ctx: HostCtx = {
+      db: getFirestore(sandbox),
+      sandbox,
+      instanceId: 'fs-ternary-gaps-test',
+      subs: new Map(),
+      rtdbProjectId: 'demo-project',
+      observedSession,
+    };
+    expect(
+      deployFirestoreRulesToHost(
+        ctx,
+        `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /items/{id} {
+      allow list: if (request.auth != null ? request : request).query.limit <= 10;
+      allow update: if (request.auth != null ? request : request).resource.data.ownerId == request.auth.uid;
+    }
+    match /docs/{docId} {
+      allow list: if (request.auth == null ? resource : request).query.limit == null;
+    }
+  }
+}`,
+      ).ok,
+    ).toBe(true);
+
+    expect(
+      firestoreVerdict(
+        ctx,
+        {
+          service: 'firestore',
+          method: 'getDocs',
+          path: 'items',
+          query: { scope: 'collection', limit: true },
+          account: { uid: 'u-1', claimNames: ['sub'], claims: { sub: 'u-1' } },
+          at: 70,
+          outcome: OK,
+        },
+        'list',
+      ),
+    ).toMatchObject({
+      result: 'unevaluated',
+      needs: expect.arrayContaining(['query']),
+    });
+
+    expect(
+      firestoreVerdict(
+        ctx,
+        {
+          service: 'firestore',
+          method: 'updateDoc',
+          path: 'items/item-1',
+          writeData: { title: 'updated' },
+          account: { uid: 'u-1', claimNames: ['sub'], claims: { sub: 'u-1' } },
+          at: 71,
+          outcome: OK,
+        },
+        'update',
+      ),
+    ).toMatchObject({
+      result: 'unevaluated',
+      needs: expect.arrayContaining(['stored-document']),
+      missingPaths: ['items/item-1'],
+    });
+
+    expect(
+      firestoreVerdict(
+        ctx,
+        {
+          service: 'firestore',
+          method: 'getDocs',
+          path: 'docs',
+          query: { scope: 'collection', limit: true },
+          account: { uid: 'u-1', claimNames: ['sub'], claims: { sub: 'u-1' } },
+          at: 72,
+          outcome: DENIED,
+        },
+        'list',
+      ),
+    ).toMatchObject({
+      result: 'unevaluated',
+      needs: expect.arrayContaining(['query']),
+    });
+  });
+
+  it('rehydrates session-observed Timestamp, GeoPoint, Bytes, VectorValue, DocumentReference, escaped maps, and IEEE-754 floats in resource and get()', () => {
+    const sandbox = initializeSandbox();
+    const observedSession = createObservedSessionDataStore({ projectId: 'demo-project' });
+    const ctx: HostCtx = {
+      db: getFirestore(sandbox),
+      sandbox,
+      instanceId: 'fs-typed-session-test',
+      subs: new Map(),
+      rtdbProjectId: 'demo-project',
+      observedSession,
+    };
+    expect(
+      deployFirestoreRulesToHost(
+        ctx,
+        `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /items/{id} {
+      allow delete: if resource.data.ts is timestamp
+                    && resource.data.loc is latlng
+                    && resource.data.bin is bytes
+                    && !(resource.data.vec is map)
+                    && resource.data.ref is path
+                    && resource.data.plainTs.seconds == 5
+                    && resource.data.plainGeo.latitude == 12.5
+                    && resource.data.plainVec is map
+                    && resource.data.plainVec.__type__ == '__vector__'
+                    && resource.data.plainRef.type == 'document'
+                    && resource.data.plainNum.type == 'pyric/number/1.0'
+                    && get(/databases/$(database)/documents/docs/doc-num).data.negZero is float
+                    && !(get(/databases/$(database)/documents/docs/doc-num).data.negZero is int);
+    }
+    match /docs/{docId} {
+      allow delete: if resource.data.negZero is float
+                    && !(resource.data.negZero is int)
+                    && resource.data.posInf is float
+                    && resource.data.negInf is float
+                    && resource.data.nanVal is float;
+    }
+    match /notes/{noteId} {
+      allow delete: if resource.data.title == 'v2';
+    }
+  }
+}`,
+      ).ok,
+    ).toBe(true);
+
+    observedSession.apply({
+      firestore: [
+        {
+          kind: 'set',
+          path: 'items/item-1',
+          data: {
+            ts: { seconds: 1_700_000_000, nanoseconds: 0 },
+            loc: { latitude: 37.7, longitude: -122.4 },
+            bin: { type: 'firestore/bytes/1.0', bytes: 'AQID' },
+            vec: { __type__: '__vector__', value: [0.5, 1.5] },
+            ref: { type: 'document', path: 'users/u-1', id: 'u-1' },
+            plainTs: { type: 'pyric/map/1.0', fields: { seconds: 5, nanoseconds: 0 } },
+            plainGeo: { type: 'pyric/map/1.0', fields: { latitude: 12.5, longitude: 42.25 } },
+            plainVec: { type: 'pyric/map/1.0', fields: { __type__: '__vector__', value: [0.5, 1.5] } },
+            plainRef: {
+              type: 'pyric/map/1.0',
+              fields: { type: 'document', path: 'users/u-1', id: 'u-1' },
+            },
+            plainNum: {
+              type: 'pyric/map/1.0',
+              fields: { type: 'pyric/number/1.0', value: '-0' },
+            },
+          },
+        },
+        {
+          kind: 'set',
+          path: 'docs/doc-num',
+          data: {
+            negZero: { type: 'pyric/number/1.0', value: '-0' },
+            posInf: { type: 'pyric/number/1.0', value: 'Infinity' },
+            negInf: { type: 'pyric/number/1.0', value: '-Infinity' },
+            nanVal: { type: 'pyric/number/1.0', value: 'NaN' },
+          },
+        },
+        { kind: 'delete', path: 'notes/note-absent' },
+        {
+          kind: 'update',
+          path: 'notes/note-absent',
+          data: { title: 'v2' },
+          merge: true,
+        },
+      ],
+    });
+
+    expect(
+      firestoreVerdict(
+        ctx,
+        {
+          service: 'firestore',
+          method: 'deleteDoc',
+          path: 'items/item-1',
+          at: 80,
+          outcome: OK,
+        },
+        'delete',
+      ),
+    ).toMatchObject({ result: 'allow' });
+
+    expect(
+      firestoreVerdict(
+        ctx,
+        {
+          service: 'firestore',
+          method: 'deleteDoc',
+          path: 'docs/doc-num',
+          at: 81,
+          outcome: OK,
+        },
+        'delete',
+      ),
+    ).toMatchObject({ result: 'allow' });
+
+    expect(
+      firestoreVerdict(
+        ctx,
+        {
+          service: 'firestore',
+          method: 'deleteDoc',
+          path: 'notes/note-absent',
+          at: 82,
+          outcome: OK,
+        },
+        'delete',
+      ),
+    ).toMatchObject({ result: 'allow' });
+  });
 });

@@ -237,7 +237,7 @@ describe('createObservedSessionDataStore', () => {
       data: { title: 'Beta' },
     });
     const rtdbLookup = store.getRtdbInstance('demo-default-rtdb');
-    expect(rtdbLookup.mockData).toEqual({ rooms: { r1: { name: 'Lobby', closedAt: 10 } } });
+    expect(rtdbLookup.mockData).toEqual({ rooms: { r1: { name: 'Lobby' } } });
     expect(rtdbLookup.isPathKnown('/rooms/r1')).toBe(false);
     expect(rtdbLookup.isPathKnown('/rooms/r1/name')).toBe(false);
     expect(rtdbLookup.isPathKnown('/rooms/r1/closedAt')).toBe(false);

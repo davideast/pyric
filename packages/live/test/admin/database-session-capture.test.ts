@@ -67,7 +67,26 @@ describe('admin/database-session-capture', () => {
     expect(
       adminDatabaseSessionContext('Reference.setWithPriority', [{ rank: 2 }, 10], INSTANCE, '/queues/q1').sessionData,
     ).toEqual({
-      rtdb: [{ kind: 'set', instance: INSTANCE, path: '/queues/q1', value: { rank: 2 } }],
+      rtdb: [{ kind: 'set', instance: INSTANCE, path: '/queues/q1', value: { rank: 2, '.priority': 10 } }],
+    });
+
+    expect(
+      adminDatabaseSessionContext('Reference.setWithPriority', [true, 'high'], INSTANCE, '/flags/f1').sessionData,
+    ).toEqual({
+      rtdb: [
+        {
+          kind: 'set',
+          instance: INSTANCE,
+          path: '/flags/f1',
+          value: { '.value': true, '.priority': 'high' },
+        },
+      ],
+    });
+
+    expect(
+      adminDatabaseSessionContext('Reference.setPriority', [10], INSTANCE, '/queues/q1').sessionData,
+    ).toEqual({
+      rtdb: [{ kind: 'invalidate', instance: INSTANCE, path: '/queues/q1' }],
     });
 
     expect(
@@ -378,5 +397,23 @@ describe('admin/database-session-capture', () => {
         snapshot: makeCompatSnap('/counter', 8),
       }),
     ).toEqual({});
+
+    expect(
+      adminDatabaseResult(makeSite('Query.get', { path: '/docs/doc-1' }), {
+        ...makeCompatSnap('/docs/doc-1', { title: 'v1' }),
+        exportVal: () => ({ title: 'v1', '.priority': 10 }),
+      }),
+    ).toEqual({
+      sessionData: {
+        rtdb: [
+          {
+            kind: 'set',
+            instance: INSTANCE,
+            path: '/docs/doc-1',
+            value: { title: 'v1', '.priority': 10 },
+          },
+        ],
+      },
+    });
   });
 });

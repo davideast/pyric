@@ -137,7 +137,7 @@ export function parseRepro(value: unknown): ReproFile {
     const where = issue.path.join('.') || '(root)';
     throw new Error(`Not a ${REPRO_SCHEMA} file: ${where}: ${issue.message}`);
   }
-  return result.data as unknown as ReproFile;
+  return cloneReproValue(value) as ReproFile;
 }
 
 // ─── JSON cloning & JWT inspection ─────────────────────────────────────────

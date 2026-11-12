@@ -146,4 +146,33 @@ describe('buildObservedSeedPayload', () => {
     expect('database' in buildObservedSeedPayload(snapshot, 'scalar')).toBe(false);
     expect('database' in buildObservedSeedPayload(snapshot, 'missing')).toBe(false);
   });
+
+  it('converts session-observed typed values, escaped maps, and IEEE-754 floats into canonical SandboxSeed markers', () => {
+    const typedSnapshot = {
+      ...EMPTY_OBSERVED_SNAPSHOT,
+      firestore: {
+        'docs/doc-1': {
+          ts: { seconds: 1700000000, nanoseconds: 0 },
+          loc: { latitude: 37.7, longitude: -122.4 },
+          bin: { type: 'firestore/bytes/1.0', bytes: 'AQID' },
+          vec: { __type__: '__vector__', value: [0.5, 1.5] },
+          ref: { type: 'document', path: '/users/u-1', id: 'u-1' },
+          negZero: { type: 'pyric/number/1.0', value: '-0' },
+          coordsMap: { type: 'pyric/map/1.0', fields: { latitude: 12.5, longitude: 42.25 } },
+          linkMap: { type: 'pyric/map/1.0', fields: { type: 'document', path: 'users/u-1', id: 'u-1' } },
+        },
+      },
+    };
+    const seed = buildObservedSeedPayload(typedSnapshot);
+    expect(seed.firestore['docs/doc-1']).toEqual({
+      ts: { type: 'firestore/timestamp/1.0', seconds: 1700000000, nanoseconds: 0 },
+      loc: { type: 'firestore/geoPoint/1.0', latitude: 37.7, longitude: -122.4 },
+      bin: { type: 'firestore/bytes/1.0', bytes: 'AQID' },
+      vec: { type: 'firestore/vectorValue/1.0', vectorValues: [0.5, 1.5] },
+      ref: { __type: 'reference', path: 'users/u-1' },
+      negZero: { type: 'pyric/number/1.0', value: '-0' },
+      coordsMap: { latitude: 12.5, longitude: 42.25 },
+      linkMap: { type: 'pyric/map/1.0', fields: { type: 'document', path: 'users/u-1', id: 'u-1' } },
+    });
+  });
 });

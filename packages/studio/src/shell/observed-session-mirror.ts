@@ -82,8 +82,35 @@ function isDocumentReferenceShape(value: Record<string, unknown>, keys: string[]
   );
 }
 
+function defineOwn(target: Record<string, unknown>, key: string, value: unknown): void {
+  Object.defineProperty(target, key, {
+    value,
+    enumerable: true,
+    writable: true,
+    configurable: true,
+  });
+}
+
+function rehydrateEntries(db: Firestore, entries: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(entries)) {
+    if (FORBIDDEN_KEYS.has(k)) continue;
+    defineOwn(out, k, rehydrateFirestoreValue(db, v));
+  }
+  return out;
+}
+
 function rehydrateRecord(db: Firestore, value: Record<string, unknown>): unknown {
   const keys = Object.keys(value);
+  if (keys.length === 2 && value.type === 'pyric/map/1.0' && isPlainRecord(value.fields)) {
+    return rehydrateEntries(db, value.fields);
+  }
+  if (keys.length === 2 && value.type === 'pyric/number/1.0') {
+    if (value.value === 'NaN') return Number.NaN;
+    if (value.value === 'Infinity') return Number.POSITIVE_INFINITY;
+    if (value.value === '-Infinity') return Number.NEGATIVE_INFINITY;
+    if (value.value === '-0') return -0;
+  }
   if (isTimestampShape(value, keys)) {
     return rehydrateOrCopy(value, () => new Timestamp(value.seconds as number, value.nanoseconds as number));
   }
@@ -101,12 +128,7 @@ function rehydrateRecord(db: Firestore, value: Record<string, unknown>): unknown
     const normalizedPath = path.startsWith('/') ? path.slice(1) : path;
     return rehydrateOrCopy(value, () => doc(db, normalizedPath));
   }
-  const out: Record<string, unknown> = {};
-  for (const [k, v] of Object.entries(value)) {
-    if (FORBIDDEN_KEYS.has(k)) continue;
-    out[k] = rehydrateFirestoreValue(db, v);
-  }
-  return out;
+  return rehydrateEntries(db, value);
 }
 
 function rehydrateFirestoreValue(db: Firestore, value: unknown): unknown {
@@ -123,7 +145,11 @@ export function rehydrateObservedFirestoreDoc(
   db: Firestore,
   data: Record<string, unknown>,
 ): Record<string, unknown> {
-  return rehydrateFirestoreValue(db, data) as Record<string, unknown>;
+  const keys = Object.keys(data);
+  if (keys.length === 2 && data.type === 'pyric/map/1.0' && isPlainRecord(data.fields)) {
+    return rehydrateEntries(db, data.fields);
+  }
+  return rehydrateEntries(db, data);
 }
 
 export const readOnlyFirestoreApi: FirestoreApi = {

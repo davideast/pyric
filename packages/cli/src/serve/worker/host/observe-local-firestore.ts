@@ -10,17 +10,22 @@
 import {
   analyzeListRulePathInvariance,
   buildListRuleFunctionScope,
+  Bytes,
   checkRulesSource,
   EXISTS_ONLY_DOC,
   indexRulesetScopes,
+  LatLng,
   normalizeDocumentPath,
   projectEvaluatedRule,
   readAuthoredSourceMap,
+  Reference,
   renderMatchBlockPath,
   rootBlockGovernsEveryDocument,
   rootGovernsEveryDocument,
   SimulateFirestoreRulesHandler,
+  Timestamp,
   topLevelMatches,
+  Vector,
   type AllowRule,
   type AuthoredSourceMap,
   type DocumentLookupMeta,
@@ -56,6 +61,10 @@ import {
 } from './observe-local-evaluation.js';
 
 const LOCAL_TRACE_VERSION = 'local-rules';
+const SYNTHETIC_LIST_DOC_SEGMENTS: ReadonlySet<string> = new Set([
+  '__hypothetical_doc__',
+  '__listPlaceholder__',
+]);
 
 const RESOURCE_READ = /(?<![\w.])resource\b/;
 const AFTER_LOOKUP = /(?<![.\w])(?:getAfter|existsAfter)\s*\(/;
@@ -331,6 +340,130 @@ function projectCollectionGroupRules(ast: FirestoreRules, collectionId: string):
   };
 }
 
+const FORBIDDEN_SESSION_DOC_KEYS: ReadonlySet<string> = new Set(['__proto__', 'constructor', 'prototype']);
+
+function defineOwnDocField(target: Record<string, unknown>, key: string, value: unknown): void {
+  Object.defineProperty(target, key, {
+    value,
+    enumerable: true,
+    writable: true,
+    configurable: true,
+  });
+}
+
+function decodeStandardBase64(encoded: string): Uint8Array {
+  const bin = atob(encoded);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+
+function rehydrateSessionEntriesForRules(entries: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(entries)) {
+    if (FORBIDDEN_SESSION_DOC_KEYS.has(k)) continue;
+    defineOwnDocField(out, k, rehydrateSessionValueForRules(v));
+  }
+  return out;
+}
+
+function rehydrateSessionValueForRules(value: unknown): unknown {
+  if (value === null || typeof value !== 'object') return value;
+  if (Array.isArray(value)) {
+    return value.map((item) => rehydrateSessionValueForRules(item));
+  }
+  if (!isPlainRecord(value)) return value;
+  const keys = Object.keys(value);
+  if (keys.length === 2 && value.type === 'pyric/map/1.0' && isPlainRecord(value.fields)) {
+    return { type: 'pyric/map/1.0', fields: rehydrateSessionEntriesForRules(value.fields) };
+  }
+  if (keys.length === 2 && value.type === 'pyric/number/1.0') {
+    if (value.value === 'NaN') return Number.NaN;
+    if (value.value === 'Infinity') return Number.POSITIVE_INFINITY;
+    if (value.value === '-Infinity') return Number.NEGATIVE_INFINITY;
+    if (value.value === '-0') return -0;
+  }
+  if (
+    (keys.length === 2 || (keys.length === 3 && value.type === 'firestore/timestamp/1.0')) &&
+    typeof value.seconds === 'number' &&
+    typeof value.nanoseconds === 'number'
+  ) {
+    try {
+      return new Timestamp(Math.trunc(value.seconds), Math.trunc(value.nanoseconds));
+    } catch {
+      return rehydrateSessionEntriesForRules(value);
+    }
+  }
+  if (
+    (keys.length === 2 || (keys.length === 3 && value.type === 'firestore/geoPoint/1.0')) &&
+    typeof value.latitude === 'number' &&
+    typeof value.longitude === 'number'
+  ) {
+    try {
+      return new LatLng(value.latitude, value.longitude);
+    } catch {
+      return rehydrateSessionEntriesForRules(value);
+    }
+  }
+  if (keys.length === 2 && value.type === 'firestore/bytes/1.0' && typeof value.bytes === 'string') {
+    try {
+      return new Bytes(decodeStandardBase64(value.bytes));
+    } catch {
+      return rehydrateSessionEntriesForRules(value);
+    }
+  }
+  if (
+    keys.length === 2 &&
+    value.__type__ === '__vector__' &&
+    Array.isArray(value.value) &&
+    value.value.every((n) => typeof n === 'number')
+  ) {
+    try {
+      return new Vector(value.value as number[]);
+    } catch {
+      return rehydrateSessionEntriesForRules(value);
+    }
+  }
+  if (
+    keys.length === 2 &&
+    value.type === 'firestore/vectorValue/1.0' &&
+    Array.isArray(value.vectorValues) &&
+    value.vectorValues.every((n) => typeof n === 'number')
+  ) {
+    try {
+      return new Vector(value.vectorValues as number[]);
+    } catch {
+      return rehydrateSessionEntriesForRules(value);
+    }
+  }
+  if (
+    (keys.length === 3 &&
+      value.type === 'document' &&
+      typeof value.path === 'string' &&
+      typeof value.id === 'string') ||
+    ((keys.length === 2 || keys.length === 3) &&
+      value.__type === 'reference' &&
+      typeof value.path === 'string')
+  ) {
+    try {
+      const rawPath = value.path as string;
+      const normalizedPath = rawPath.startsWith('/') ? rawPath.slice(1) : rawPath;
+      return new Reference(normalizedPath);
+    } catch {
+      return rehydrateSessionEntriesForRules(value);
+    }
+  }
+  return rehydrateSessionEntriesForRules(value);
+}
+
+function rehydrateSessionDocForRules(data: Record<string, unknown>): Record<string, unknown> {
+  const keys = Object.keys(data);
+  if (keys.length === 2 && data.type === 'pyric/map/1.0' && isPlainRecord(data.fields)) {
+    return { type: 'pyric/map/1.0', fields: rehydrateSessionEntriesForRules(data.fields) };
+  }
+  return rehydrateSessionEntriesForRules(data);
+}
+
 interface ResolvedTargetDoc {
   readonly status: ObservedFirestoreDocLookup['status'];
   readonly data?: Record<string, unknown>;
@@ -348,7 +481,11 @@ function resolveTargetDoc(
   if (method === 'list' || observedSession === undefined) {
     return { status: 'unobserved' };
   }
-  return observedSession.getFirestoreDoc(path);
+  const resolved = observedSession.getFirestoreDoc(path);
+  if (resolved.status === 'complete') {
+    return { status: 'complete', data: rehydrateSessionDocForRules(resolved.data) };
+  }
+  return resolved;
 }
 
 function isKnownFirestoreUpdate(
@@ -637,6 +774,17 @@ function evaluatedExpressionsOfEntry(
         return lastCanon;
       }
 
+      case 'ternary': {
+        const condChild = children[0];
+        if (condChild !== undefined) walk(condChild, aliases, functions);
+        let branchCanon: string | undefined;
+        for (const branchIdx of children.slice(1)) {
+          const canon = walk(branchIdx, aliases, functions);
+          if (canon !== undefined) branchCanon = canon;
+        }
+        return branchCanon;
+      }
+
       default: {
         for (const childIdx of children) walk(childIdx, aliases, functions);
         return undefined;
@@ -729,12 +877,18 @@ function evaluateFirestore(
 
   const getDoc: NonNullable<SimulationContext['getDoc']> = (rawLookupPath, lookup) => {
     const normalized = normalizeDocumentPath(rawLookupPath);
+    if (
+      method === 'list' &&
+      normalized.split('/').some((seg) => SYNTHETIC_LIST_DOC_SEGMENTS.has(seg))
+    ) {
+      return null;
+    }
     if (observedSession === undefined) {
       recordMissing(normalized, lookup);
       return null;
     }
     const resolved = observedSession.getFirestoreDoc(normalized);
-    if (resolved.status === 'complete') return resolved.data;
+    if (resolved.status === 'complete') return rehydrateSessionDocForRules(resolved.data);
     if (resolved.status === 'absent') return null;
     if (resolved.status === 'partial' && lookup?.kind === 'exists') {
       return EXISTS_ONLY_DOC;
@@ -751,7 +905,9 @@ function evaluateFirestore(
   const result = simulated.data.results[0];
   if (result === undefined || result.decision === 'UNSUPPORTED') return undefined;
 
-  const allowed = result.decision === 'ALLOW';
+  const listUnprovable =
+    method === 'list' && !isCollectionGroup && result.queryProof?.provable === false;
+  const allowed = !listUnprovable && result.decision === 'ALLOW';
   const entries = decidingTraceEntries(result, allowed);
   const expressions = evaluatedExpressionsOf(entries, parsed);
 
@@ -779,7 +935,12 @@ function evaluateFirestore(
   if (lookupMissing.length > 0) {
     needs = unionOf(['stored-document'], exprGaps);
   }
-  const deciding = projectEvaluatedRule(result);
+  const hasUncapturedListFilters =
+    call.query === undefined || (call.query.filters?.length ?? 0) > 0;
+  if (listUnprovable && result.queryProof?.kind !== 'no-rule' && hasUncapturedListFilters) {
+    needs = unionOf(['query'], needs);
+  }
+  const deciding = projectEvaluatedRule(result) ?? result.queryProof?.rule;
   let rule: Evaluation['rule'];
   if (deciding !== undefined) {
     rule = definedOnly({ line: deciding.line, expression: deciding.expression });

@@ -34,6 +34,7 @@ import {
   resultOf,
   serializedBuiltIn,
   serializedSdkValue,
+  serializedSpecialNumber,
   UNSUPPORTED,
   UNSUPPORTED_RESULT,
   type SessionCopyResult,
@@ -103,8 +104,8 @@ function adminFieldValueSentinel(value: object): typeof DELETE_FIELD_SENTINEL | 
   return UNSUPPORTED;
 }
 
-function isScalarJsonValue(value: unknown): value is null | boolean | number {
-  return value === null || typeof value === 'boolean' || (typeof value === 'number' && Number.isFinite(value));
+function isScalarJsonValue(value: unknown): value is null | boolean {
+  return value === null || typeof value === 'boolean';
 }
 
 function copyAdminValue(
@@ -117,6 +118,12 @@ function copyAdminValue(
 ): unknown {
   if (typeof value === 'string') {
     if (!chargeString(budget, value)) return OVER_BUDGET;
+    return value;
+  }
+  if (typeof value === 'number') {
+    const specialNumber = serializedSpecialNumber(value);
+    if (specialNumber !== undefined) return charged(budget, specialNumber);
+    if (!chargeScalar(budget, value)) return OVER_BUDGET;
     return value;
   }
   if (isScalarJsonValue(value)) {
@@ -270,13 +277,21 @@ function addUpdateField(
 function finalizeUpdateOp(
   acc: AdminUpdateAccumulator,
   path: string,
+  merge = false,
 ): SessionCopyResult<ObservedFirestoreSessionOp> {
   if (acc.budget.left < 0) return OVERSIZED_RESULT;
-  const op: { kind: 'update'; path: string; data: Record<string, unknown>; deleteFields?: string[] } = {
+  const op: {
+    kind: 'update';
+    path: string;
+    data: Record<string, unknown>;
+    merge?: boolean;
+    deleteFields?: string[];
+  } = {
     kind: 'update',
     path,
     data: acc.data,
   };
+  if (merge) op.merge = true;
   if (acc.deleteFields.length > 0) op.deleteFields = acc.deleteFields;
   return { ok: true, value: op };
 }
@@ -298,7 +313,7 @@ function adminMergeFieldsOp(
     const stop = addUpdateField(acc, fieldPath, lookup.value);
     if (stop !== undefined) return stop;
   }
-  return finalizeUpdateOp(acc, path);
+  return finalizeUpdateOp(acc, path, true);
 }
 
 /** Bounded `set` or `update` op for `DocumentReference.set` / `WriteBatch.set` / `Transaction.set`. */

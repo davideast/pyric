@@ -34,6 +34,7 @@ const FIRESTORE_METHOD_ROLES: Readonly<Record<string, SessionCallRole>> = {
   getAggregateFromServer: 'passive',
   'DocumentReference.listCollections': 'passive',
   'CollectionReference.listDocuments': 'passive',
+  'Firestore.listCollections': 'passive',
   onSnapshot: 'read',
   onSnapshotResume: 'read',
   'DocumentReference.get': 'read',
@@ -46,6 +47,8 @@ const FIRESTORE_METHOD_ROLES: Readonly<Record<string, SessionCallRole>> = {
   'WriteBatch.commit': 'unscoped-mutation',
   'Firestore.runTransaction': 'unscoped-mutation',
   'Firestore.recursiveDelete': 'unscoped-mutation',
+  'BulkWriter.flush': 'unscoped-mutation',
+  'BulkWriter.close': 'unscoped-mutation',
 };
 
 const RTDB_METHOD_ROLES: Readonly<Record<string, SessionCallRole>> = {

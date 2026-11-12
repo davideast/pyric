@@ -43,6 +43,12 @@ function rehydrateFirestoreValue(db: Firestore, value: unknown): unknown {
     ) {
       return rehydrateEntries(db, value.fields);
     }
+    if (keys.length === 2 && value.type === 'pyric/number/1.0') {
+      if (value.value === 'NaN') return Number.NaN;
+      if (value.value === 'Infinity') return Number.POSITIVE_INFINITY;
+      if (value.value === '-Infinity') return Number.NEGATIVE_INFINITY;
+      if (value.value === '-0') return -0;
+    }
     if (
       (keys.length === 2 || (keys.length === 3 && value.type === 'firestore/timestamp/1.0')) &&
       typeof value.seconds === 'number' &&

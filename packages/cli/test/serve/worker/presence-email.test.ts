@@ -70,4 +70,34 @@ describe('page presence email', () => {
     await settle();
     expect(presenceFrames(sent).every((frame) => !('email' in frame))).toBe(true);
   });
+
+  it('emits presence.update when non-email users (anonymous/phone/custom) sign in, switch uids, or sign out', async () => {
+    const { db, sent } = fakeDb();
+    let current: { uid: string; email: string | null } | null = null;
+    const listeners = new Set<(user: { uid: string; email: string | null } | null) => void>();
+    const identity = {
+      current: () => current,
+      subscribe(listener: (user: { uid: string; email: string | null } | null) => void) {
+        listeners.add(listener);
+        return () => listeners.delete(listener);
+      },
+      set(next: { uid: string; email: string | null } | null) {
+        current = next;
+        for (const listener of listeners) listener(current);
+      },
+    };
+    const session = startPresence({ db, kind: 'app', identity });
+    await settle();
+    identity.set({ uid: 'u-anon-1', email: null });
+    identity.set({ uid: 'u-anon-2', email: null });
+    identity.set(null);
+    await settle();
+    expect(presenceFrames(sent).map((f) => [f.method, f.uid, f.email])).toEqual([
+      ['presence.register', null, null],
+      ['presence.update', 'u-anon-1', null],
+      ['presence.update', 'u-anon-2', null],
+      ['presence.update', null, null],
+    ]);
+    session.stop();
+  });
 });

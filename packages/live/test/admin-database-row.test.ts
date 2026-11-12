@@ -577,7 +577,7 @@ test('attaches bounded sessionData to resolved and delivered Admin RTDB records 
 
   const prioRecord = records.find((record) => record.name === 'Reference.setWithPriority' && record.outcome === 'resolved');
   expect(sessionDataOf(prioRecord!)).toEqual({
-    rtdb: [{ kind: 'set', instance: INSTANCE, path: '/notes/c', value: { n: 7 } }],
+    rtdb: [{ kind: 'set', instance: INSTANCE, path: '/notes/c', value: { n: 7, '.priority': 1 } }],
   });
 
   const txRecord = records.find((record) => record.name === 'Reference.transaction' && record.outcome === 'resolved');

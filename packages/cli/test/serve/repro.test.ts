@@ -2,7 +2,7 @@ import 'fake-indexeddb/auto';
 import { describe, expect, test } from 'bun:test';
 import { mintIdToken } from 'pyric/sandbox/internal';
 import { IdBindings, matchRecorded, normalize, TIME } from '../../src/serve/repro/compare.js';
-import { cloneReproValue, parseRepro } from '../../src/serve/repro/format.js';
+import { cloneReproValue, parseRepro, REPRO_SCHEMA } from '../../src/serve/repro/format.js';
 import { createReproRecorder } from '../../src/serve/repro/recorder.js';
 import { buildReproFile, captureReproBase } from '../../src/serve/repro/capture.js';
 import { replayRepro } from '../../src/serve/repro/replay.js';
@@ -10,6 +10,8 @@ import { runServeReproCapture, runServeReproReplay } from '../../src/cli/serve-r
 import { handleMessage, type HostCtx, type PortLike } from '../../src/serve/worker/host.js';
 import { initializeSandbox } from 'pyric/sandbox';
 import { captureCheckpoint } from 'pyric/sandbox/checkpoints';
+import { setRules } from 'pyric/sandbox/firestore';
+import { createUserWithEmailAndPassword, getAuth, sandbox as authSandbox } from 'pyric/auth';
 import { getFirestore } from 'pyric/firestore';
 import { getAdminDatabase, ref, set } from 'pyric/database';
 import { getStorageSandbox } from 'pyric/storage';
@@ -368,5 +370,89 @@ describe('the repro recorder and observed session data', () => {
     const log = JSON.stringify(await recorder.log());
     expect(log).not.toContain('should-be-stripped');
     expect(log).not.toContain('sessionData');
+  });
+
+  test('replays non-custom sessions with recorded unrefreshed customClaims and preserves own __proto__ keys in parseRepro', async () => {
+    const firestoreRules = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /items/{id} {
+      allow read: if request.auth != null && request.auth.token.role == 'admin';
+    }
+  }
+}
+`;
+    const sb = initializeSandbox();
+    try {
+      setRules(sb, firestoreRules);
+      const auth = getAuth(sb);
+      const cred = await createUserWithEmailAndPassword(auth, 'member@example.com', 'password123');
+      const uid = cred.user.uid;
+      authSandbox.updateUser(auth, uid, { customClaims: { role: 'admin' } });
+      await cred.user.getIdToken(true);
+      authSandbox.updateUser(auth, uid, { customClaims: {} });
+
+      const checkpoint = await captureCheckpoint(sb);
+      const repro = {
+        schema: REPRO_SCHEMA,
+        createdAt: '2026-01-01T00:00:00.000Z',
+        recordedBy: '0.1.0-alpha.35',
+        truncated: true,
+        base: {
+          at: 1000,
+          checkpoint,
+          databaseInstances: {},
+          rules: {
+            firestore: firestoreRules,
+            database: { '(default)': checkpoint.state.rules.database },
+            storage: checkpoint.state.rules.storage,
+          },
+          defaultInstance: '(default)',
+          permissive: false,
+          appOptions: { projectId: 'proj-1' },
+          messaging: false,
+          sessions: {
+            's-1': {
+              uid,
+              tenantId: null,
+              signInProvider: 'password',
+              customClaims: { role: 'admin' },
+            },
+          },
+          subscriptions: {},
+        },
+        entries: [
+          {
+            kind: 'in' as const,
+            at: 1001,
+            session: 's-1',
+            frame: { t: 'op', id: 'op-read-1', method: 'getDoc', path: 'items/item-1' } as InboundMessage,
+          },
+          {
+            kind: 'out' as const,
+            at: 1002,
+            session: 's-1',
+            frame: {
+              t: 'res',
+              id: 'op-read-1',
+              ok: true,
+              value: { exists: false, id: 'item-1', path: 'items/item-1' },
+            },
+          },
+        ],
+      };
+
+      const report = await replayRepro(repro, { planes: ['worker'] });
+      expect(report.ok).toBe(true);
+
+      const protoSample = structuredClone(repro);
+      protoSample.base.sessions['s-1']!.customClaims = JSON.parse('{"__proto__":{"role":"viewer"}}') as Record<string, unknown>;
+      const parsedSample = parseRepro(protoSample);
+      const parsedClaims = parsedSample.base.sessions['s-1']?.customClaims ?? {};
+      expect(Object.hasOwn(parsedClaims, '__proto__')).toBe(true);
+      expect(Object.getPrototypeOf(parsedClaims)).toBe(Object.prototype);
+    } finally {
+      sb.dispose();
+    }
   });
 });

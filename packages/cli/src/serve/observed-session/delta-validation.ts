@@ -107,14 +107,35 @@ function sanitizeJsonValue(
       return { type: 'pyric/map/1.0', fields: innerOut };
     }
     const out: Record<string, unknown> = {};
+    const definedKeys = options.validateRtdbKeys
+      ? Object.keys(value).filter((k) => value[k] !== undefined)
+      : [];
+    const allowsScalarValueKey =
+      options.validateRtdbKeys === true &&
+      definedKeys.length > 0 &&
+      definedKeys.every((k) => k === '.value' || k === '.priority');
     for (const [key, entry] of Object.entries(value)) {
       assertSafeKey(key, label);
+      if (entry === undefined) continue;
       if (options.validateRtdbKeys) {
-        if (key.length === 0 || RTDB_FORBIDDEN_SEGMENT.test(key)) {
-          throw unsupported(`Invalid ${label}: RTDB key '${key}' contains forbidden characters.`);
+        const isPriorityMeta =
+          key === '.priority' &&
+          (entry === null ||
+            typeof entry === 'string' ||
+            (typeof entry === 'number' && Number.isFinite(entry)));
+        const isScalarValueMeta =
+          key === '.value' &&
+          allowsScalarValueKey &&
+          (entry === null ||
+            typeof entry === 'boolean' ||
+            typeof entry === 'string' ||
+            (typeof entry === 'number' && Number.isFinite(entry)));
+        if (!isPriorityMeta && !isScalarValueMeta) {
+          if (key.length === 0 || RTDB_FORBIDDEN_SEGMENT.test(key)) {
+            throw unsupported(`Invalid ${label}: RTDB key '${key}' contains forbidden characters.`);
+          }
         }
       }
-      if (entry === undefined) continue;
       defineOwn(
         out,
         key,
@@ -222,6 +243,7 @@ function readFirestoreSet(raw: Record<string, unknown>, label: string, path: str
 
 function readFirestoreUpdate(raw: Record<string, unknown>, label: string, path: string): ObservedFirestoreSessionOp {
   const data = readFirestoreData(raw, label);
+  const merge = readOptionalBoolean(raw.merge, `${label}.merge`);
   const partial = readOptionalBoolean(raw.partial, `${label}.partial`);
   for (const fieldPath of Object.keys(data)) {
     if (isBadFieldPath(fieldPath)) throw unsupported(`Invalid ${label}.data: invalid field path '${fieldPath}'.`);
@@ -230,6 +252,7 @@ function readFirestoreUpdate(raw: Record<string, unknown>, label: string, path: 
     kind: 'update';
     path: string;
     data: Record<string, unknown>;
+    merge?: boolean;
     deleteFields?: string[];
     partial?: boolean;
   } = {
@@ -237,6 +260,7 @@ function readFirestoreUpdate(raw: Record<string, unknown>, label: string, path: 
     path,
     data,
   };
+  if (merge === true) op.merge = true;
   const deleteFields = readDeleteFields(raw.deleteFields, `${label}.deleteFields`);
   if (deleteFields !== undefined) op.deleteFields = deleteFields;
   if (partial === true) op.partial = true;

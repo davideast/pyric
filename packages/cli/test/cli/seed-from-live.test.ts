@@ -287,6 +287,11 @@ describe('runSeedFromLive --out with several RTDB instances', () => {
             coordsMap: { type: 'pyric/map/1.0', fields: { latitude: 12.5, longitude: 42.25 } },
             spanMap: { type: 'pyric/map/1.0', fields: { seconds: 30, nanoseconds: 0 } },
             linkMap: { type: 'pyric/map/1.0', fields: { type: 'document', path: 'orgs/o1', id: 'o1' } },
+            negZero: { type: 'pyric/number/1.0', value: '-0' },
+            nanVal: { type: 'pyric/number/1.0', value: 'NaN' },
+            posInf: { type: 'pyric/number/1.0', value: 'Infinity' },
+            negInf: { type: 'pyric/number/1.0', value: '-Infinity' },
+            numMap: { type: 'pyric/map/1.0', fields: { type: 'pyric/number/1.0', value: '-0' } },
           },
         },
         rtdb: {
@@ -325,6 +330,11 @@ describe('runSeedFromLive --out with several RTDB instances', () => {
       expect(directData.spanMap).not.toBeInstanceOf(Timestamp);
       expect(directData.spanMap).toEqual({ seconds: 30, nanoseconds: 0 });
       expect(directData.linkMap).toEqual({ type: 'document', path: 'orgs/o1', id: 'o1' });
+      expect(Object.is(directData.negZero, -0)).toBe(true);
+      expect(Number.isNaN(directData.nanVal)).toBe(true);
+      expect(directData.posInf).toBe(Number.POSITIVE_INFINITY);
+      expect(directData.negInf).toBe(Number.NEGATIVE_INFINITY);
+      expect(directData.numMap).toEqual({ type: 'pyric/number/1.0', value: '-0' });
       expect((await databaseGet(databaseRef(getAdminDatabase(directSandbox), '/flags/enabled'))).val()).toBe(true);
 
       // 2. Round-trip through createSandboxSession + applyServeInit (pyric sandbox --seed <FILE>)
