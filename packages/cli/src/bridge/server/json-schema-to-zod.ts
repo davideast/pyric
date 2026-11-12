@@ -97,7 +97,7 @@ function jsonSchemaToZod(schema: JsonSchemaObject): ZodTypeAny {
         return z.record(z.any());
       }
       const inner = jsonSchemaToZodShape(schema);
-      return z.object(inner);
+      return z.object(inner).passthrough();
     }
     default:
       // Untyped (e.g. the `auth` field that pyric tools accept as

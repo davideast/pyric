@@ -84,7 +84,17 @@ describe('live host reads', () => {
   it('refuses a read no connected tab handles, and never answers from the sandbox', async () => {
     const bridge = newBridge();
     fakeTab(bridge, ['firestore.getDoc']);
-    for (const key of ['database.get', 'storage.listAll', 'firestore.getDocs']) {
+    for (const key of [
+      'database.get',
+      'storage.listAll',
+      'firestore.getDocs',
+      'auth.whoami',
+      'auth.sessions',
+      'sandbox.inspect',
+      'ai_logic.scripts',
+      'messaging.tokens',
+      'messaging.deliveries',
+    ]) {
       const result = await runHostedMethod(bridge.tabTools, call(key), async () => SANDBOX_ANSWER);
       expect(result.ok).toBe(false);
       expect(result.data).toEqual({ code: 'PYRIC_LIVE_REFUSED' });
@@ -103,7 +113,7 @@ describe('live host reads', () => {
   it('keeps rules tooling, local logs and writes on their own path', async () => {
     const bridge = newBridge();
     const local = ['rules.simulate', 'rules.explainDenial', 'rules.lint', 'firestore.extractIndexes', 'database.extractIndexes', 'firestore.setDoc', 'sandbox.events',
-      'functions.executions', 'functions.listTriggers', 'messaging.tokens', 'messaging.deliveries'];
+      'functions.executions', 'functions.listTriggers'];
     for (const key of local) {
       const result = await runHostedMethod(bridge.tabTools, call(key), async () => SANDBOX_ANSWER);
       expect(result).toEqual(SANDBOX_ANSWER);
@@ -129,6 +139,9 @@ describe('live host reads', () => {
     const routed = await callTool('firestore_get_document', { path: 'rooms/a' });
     expect(routed).toContain('tab answered firestore_get_document');
     expect(await callTool('firestore_list_documents', { collection: 'rooms' })).toContain('PYRIC_LIVE_REFUSED');
+    expect(await callTool('firestore_simulator_read', { path: 'rooms/a' })).toContain('PYRIC_LIVE_REFUSED');
+    expect(await callTool('sandbox_inspect', {})).toContain('PYRIC_LIVE_REFUSED');
+    expect(await callTool('messaging_deliveries', {})).toContain('PYRIC_LIVE_REFUSED');
     expect(tab.received.map((frame) => frame.name)).toEqual(['firestore_get_document']);
     expect(asked).toEqual([]);
   });

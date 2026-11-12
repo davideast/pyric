@@ -55,9 +55,9 @@ export const DISCRIMINATOR_RESOURCES: readonly DiscriminatorResource[] = [
     description: 'List all user records registered in the sandbox Authentication user pool.',
   },
   {
-    uriTemplate: 'pyric://storage/objects/{bucket}',
+    uriTemplate: 'pyric://storage/objects/{path}',
     name: 'storage_objects',
-    description: 'List all stored files and metadata in the specified Cloud Storage bucket.',
+    description: 'Read metadata for a stored Cloud Storage object by slash-separated path.',
   },
   {
     uriTemplate: 'pyric://stdlib/rules/{module}',
@@ -98,10 +98,10 @@ export const RESOURCE_ROUTES: readonly ResourceRoute[] = [
     translate: () => ({}),
   },
   {
-    uriTemplate: 'pyric://storage/objects/{bucket}',
+    uriTemplate: 'pyric://storage/objects/{path}',
     selects: () => true,
-    operation: 'list_storage_files',
-    translate: () => ({}),
+    operation: 'get_storage_metadata',
+    translate: (params) => ({ path: params.path }),
   },
   {
     uriTemplate: 'pyric://stdlib/rules/{module}',

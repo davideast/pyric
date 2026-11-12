@@ -1612,6 +1612,7 @@ export class SandboxBackend {
     const identityPhotoUrl = user.photoURL ?? null;
     let stored = this.usersByUid.get(user.uid);
     if (!stored) {
+      const tenantId = user.tenantId ?? this.tenantId ?? null;
       stored = this.makeStored({
         uid: user.uid,
         email: user.email,
@@ -1620,9 +1621,15 @@ export class SandboxBackend {
         isAnonymous: user.isAnonymous,
         // A staged or resolver-supplied user keeps the caller's flag.
         emailVerified: user.emailVerified === true,
+        tenantId,
       }, providerId);
       this.usersByUid.set(user.uid, stored);
-      if (user.email) this.usersByEmail.set(user.email.toLowerCase(), stored);
+      if (user.email) {
+        const lower = user.email.toLowerCase();
+        if (!this.usersByEmail.has(lower) || tenantId === null) {
+          this.usersByEmail.set(lower, stored);
+        }
+      }
       changed = true;
     } else if (refreshStoredPhoto(stored, identityPhotoUrl)) {
       changed = true;
@@ -1818,6 +1825,8 @@ export class SandboxBackend {
    *  add-user flow / admin SDK semantics. */
   createUser(req: CreateUserRequest): AuthUserRecord {
     if (req.customClaims !== undefined) assertNoReservedCustomClaims(req.customClaims);
+    const rawTenantId = (req as CreateUserRequest & { tenantId?: string | null }).tenantId;
+    const tenantId = typeof rawTenantId === 'string' && rawTenantId.length > 0 ? rawTenantId : null;
     const uid = req.uid ?? this.nextAvailableAdminUid();
     if (this.usersByUid.has(uid)) {
       throw makeAuthError(
@@ -1827,7 +1836,11 @@ export class SandboxBackend {
     }
     if (req.email !== undefined) {
       validateEmailFormat(req.email);
-      if (this.usersByEmail.has(req.email.toLowerCase())) {
+      const lowerEmail = req.email.toLowerCase();
+      const emailTakenInTenant = [...this.usersByUid.values()].some(
+        (u) => u.email?.toLowerCase() === lowerEmail && (u.tenantId ?? null) === tenantId,
+      );
+      if (emailTakenInTenant) {
         throw makeAuthError(
           'auth/email-already-in-use',
           `An account already exists for ${req.email}.`,
@@ -1853,6 +1866,7 @@ export class SandboxBackend {
       customClaims: req.customClaims ?? {},
       disabled: req.disabled ?? false,
       emailVerified: req.emailVerified ?? false,
+      tenantId,
       providerUserInfo: this.sanitizeLinkedProviders(
         req.providerUserInfo ?? [],
         req.password !== undefined,
@@ -1860,7 +1874,12 @@ export class SandboxBackend {
       ),
     });
     this.usersByUid.set(uid, record);
-    if (record.email) this.usersByEmail.set(record.email.toLowerCase(), record);
+    if (record.email) {
+      const lowerEmail = record.email.toLowerCase();
+      if (!this.usersByEmail.has(lowerEmail) || tenantId === null) {
+        this.usersByEmail.set(lowerEmail, record);
+      }
+    }
     this.notifyUsersChanged();
     const created = this.toRecord(record);
     this.emitAuthEvent('user_create', { path: uid, auth: null, after: created });
@@ -1881,16 +1900,23 @@ export class SandboxBackend {
     if (update.email !== undefined) {
       validateEmailFormat(update.email);
       const key = update.email.toLowerCase();
-      const existing = this.usersByEmail.get(key);
-      if (existing && existing !== stored) {
+      const targetTenant = stored.tenantId ?? null;
+      const emailTakenInTenant = [...this.usersByUid.values()].some(
+        (u) => u !== stored && u.email?.toLowerCase() === key && (u.tenantId ?? null) === targetTenant,
+      );
+      if (emailTakenInTenant) {
         throw makeAuthError(
           'auth/email-already-in-use',
           `An account already exists for ${update.email}.`,
         );
       }
-      if (stored.email) this.usersByEmail.delete(stored.email.toLowerCase());
+      if (stored.email && this.usersByEmail.get(stored.email.toLowerCase()) === stored) {
+        this.usersByEmail.delete(stored.email.toLowerCase());
+      }
       stored.email = update.email;
-      this.usersByEmail.set(key, stored);
+      if (!this.usersByEmail.has(key) || targetTenant === null) {
+        this.usersByEmail.set(key, stored);
+      }
     }
     if (update.password !== undefined) {
       validatePasswordStrength(update.password);
@@ -2108,11 +2134,31 @@ export class SandboxBackend {
         // A page reload hands back the key of the session it held, and resumes
         // it with the authentication time it had. A restore no key matches has
         // no sign-in time of its own.
-        const restore = request.kind === 'uid' ? request.restore : undefined;
+        const restore = request.kind === 'uid'
+          ? (request.restore as {
+              sessionKey?: string;
+              customClaims?: Record<string, unknown> | null;
+              signInProvider?: string | null;
+            } | undefined)
+          : undefined;
+        if (typeof restore?.signInProvider === 'string' && restore.signInProvider.length > 0) {
+          providerId = restore.signInProvider;
+        }
         const sessionKey = restore?.sessionKey;
         const resumesSession = !remintsSession && sessionKey !== undefined && this.sessions.resume(user, sessionKey);
         const continues = remintsSession || resumesSession;
-        const minted = this.establishDetachedSession(user, providerId, tenantId, authenticates && !continues, request.origin);
+        const claimsOverride =
+          restore !== undefined && Object.hasOwn(restore, 'customClaims') && restore.customClaims !== undefined
+            ? (restore.customClaims ?? {})
+            : undefined;
+        const minted = this.establishDetachedSession(
+          user,
+          providerId,
+          tenantId,
+          authenticates && !continues,
+          request.origin,
+          claimsOverride,
+        );
         const restoresWithoutKey = restore !== undefined && !resumesSession;
         if (restoresWithoutKey) this.sessions.withoutSignIn(user);
         return minted;
@@ -2129,6 +2175,7 @@ export class SandboxBackend {
     tenantId: string | null,
     authenticates = true,
     origin?: string,
+    claimsOverride?: Record<string, unknown>,
   ): MintedSession {
     this.signInProviderByUid.set(user.uid, signInProvider);
     if (signInProvider !== 'custom') {
@@ -2138,7 +2185,7 @@ export class SandboxBackend {
     if (authenticates) this.recordAuthentication(user.uid, user);
     this.sessions.adopt(user);
     const stored = this.usersByUid.get(user.uid);
-    const claims = SandboxBackend.getEffectiveClaims(this, user.uid);
+    const claims = claimsOverride ?? SandboxBackend.getEffectiveClaims(this, user.uid);
     const hasStoredUser = stored !== undefined;
     if (hasStoredUser) (user as Mutable<User>).photoURL = readPhotoUrl(stored, this.photoOriginByUid);
     if (hasStoredUser && authenticates) {

@@ -59,12 +59,15 @@
  * is found, or the pointed server's identity can't be matched, we report it
  * and never hang.
  */
+import { realpathSync } from 'node:fs';
+import { resolve } from 'node:path';
 import type { JSONRPCMessage, JSONRPCRequest } from '@modelcontextprotocol/sdk/types.js';
 import type { ParsedArgs } from './parse-args.js';
 import { allowProductionFrom } from '../bridge/surface/method-effects.js';
 import { discoverServe, SCAN_PORTS, selectProjectHost, type Discovered } from '../serve/discovery.js';
 import { resolveSessionTokenForTarget } from '../serve/local-session-token.js';
 import { MCP_PROJECT_HEADER, MCP_INSTANCE_HEADER } from '../serve/mcp-project.js';
+import { isPathInside } from '../serve/path-inside.js';
 
 // Discovery (pointer + identity-pinned health probing) lives in
 // `serve/discovery.ts` — shared with the Node remote-sandbox client
@@ -222,10 +225,35 @@ export async function runMcpProxy(
     return await runInProcess(cwd, selection);
   }
 
-  const discovered = await (deps.discover ?? discoverServe)(cwd, log);
+  const searchDir = selection.projectDir === undefined ? cwd : resolve(cwd, selection.projectDir);
+  const canonicalSearchDir = (() => {
+    try {
+      return realpathSync(searchDir);
+    } catch {
+      return searchDir;
+    }
+  })();
+  const matchesSelectedProject = (candidate: Discovered | null): Discovered | null => {
+    if (candidate === null) return null;
+    if (selection.projectDir === undefined || candidate.pointerProjectDir === undefined) {
+      return candidate;
+    }
+    let pointerDir = candidate.pointerProjectDir;
+    try {
+      pointerDir = realpathSync(pointerDir);
+    } catch {
+      // Keep raw pointerProjectDir if it does not exist on disk (e.g. injected stub).
+    }
+    const related =
+      isPathInside(canonicalSearchDir, pointerDir) ||
+      isPathInside(pointerDir, canonicalSearchDir);
+    return related ? candidate : null;
+  };
+
+  const discovered = await (deps.discover ?? discoverServe)(searchDir, log);
   // Only a pointer selects a host. Its directory is then verified by the MCP
   // endpoint; the pointer's contents alone do not establish project ownership.
-  const found = selectProjectHost(discovered, log);
+  const found = matchesSelectedProject(selectProjectHost(discovered, log));
   const hasNoHost = found === null;
   const requiresMissingHost = hasNoHost && requiresRunningServe(parsed);
   if (requiresMissingHost) {
@@ -236,17 +264,21 @@ export async function runMcpProxy(
     );
     return USAGE_ERROR;
   }
-  if (hasNoHost) {
-    // Hybrid mode (design rationale): no dev server to attach to, so host the
-    // sandbox IN this process. Zero setup, no browser tab required. A running
-    // `pyric sandbox --bridge` upgrades to the shared session on reconnect.
-    log(
-      'no running `pyric sandbox --bridge` found (looked for .pyric/serve.json and ports ' +
-        `${SCAN_PORTS.join(', ')}); starting an in-process sandbox (zero-setup).\n` +
-        '  Data persists to .pyric/state/in-process.json. For a shared-live Studio\n' +
-        '  session, start `pyric sandbox --bridge` before connecting the agent (a sandbox host\n' +
-        '  started mid-session keeps its own state; this session stays on the in-process file).',
-    );
+  const requestsRenderedSurface =
+    selection.surface !== undefined || selection.allowProduction === true;
+  if (hasNoHost || requestsRenderedSurface) {
+    if (hasNoHost) {
+      // Hybrid mode (design rationale): no dev server to attach to, so host the
+      // sandbox IN this process. Zero setup, no browser tab required. A running
+      // `pyric sandbox --bridge` upgrades to the shared session on reconnect.
+      log(
+        'no running `pyric sandbox --bridge` found (looked for .pyric/serve.json and ports ' +
+          `${SCAN_PORTS.join(', ')}); starting an in-process sandbox (zero-setup).\n` +
+          '  Data persists to .pyric/state/in-process.json. For a shared-live Studio\n' +
+          '  session, start `pyric sandbox --bridge` before connecting the agent (a sandbox host\n' +
+          '  started mid-session keeps its own state; this session stays on the in-process file).',
+      );
+    }
     return await runInProcess(cwd, selection);
   }
   log(`relaying stdio ↔ ${found.mcpUrl} (via ${found.source}; attached to a running serve)`);
@@ -374,8 +406,8 @@ export async function runMcpProxy(
      * interrupted tool call is replayed.
      */
     const replaceSession = async (): Promise<string | null> => {
-      const discoveredAgain = await (deps.discover ?? discoverServe)(cwd, log);
-      const target = selectProjectHost(discoveredAgain, log);
+      const discoveredAgain = await (deps.discover ?? discoverServe)(searchDir, log);
+      const target = matchesSelectedProject(selectProjectHost(discoveredAgain, log));
       if (target === null) {
         return (
           'no running sandbox for this project is reachable (looked for the .pyric/serve.json ' +

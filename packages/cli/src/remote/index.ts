@@ -55,11 +55,18 @@ import {
   type SandboxContext,
 } from 'pyric/sandbox';
 import type {
+  AttachFromConsumer,
   BridgeMessage,
   WorkerOpPayload,
   WorkerSubPayload,
 } from '../bridge/protocol.js';
-import { isBridgeMessage, MAX_BRIDGE_FRAME_BYTES, NO_SANDBOX_ERROR_MESSAGE, STORAGE_BYTE_ROUTE_CAPABILITY } from '../bridge/protocol.js';
+import {
+  FUNCTIONS_RTDB_CHILD_DEVICE_LABEL,
+  isBridgeMessage,
+  MAX_BRIDGE_FRAME_BYTES,
+  NO_SANDBOX_ERROR_MESSAGE,
+  STORAGE_BYTE_ROUTE_CAPABILITY,
+} from '../bridge/protocol.js';
 import { encodeBridgeMessage } from '../bridge/frame-output.js';
 import { createOperationBudget } from '../bridge/operation-budget.js';
 import { watchHostLiveness, type HostLiveness } from './host-liveness.js';
@@ -351,7 +358,7 @@ function fateAtDrop(payload: WorkerOpPayload): DropFate {
  */
 export function createRemoteSandboxCore(
   transport: RemoteTransport,
-  opts: { serveUrl: string; opTimeoutMs?: number },
+  opts: { serveUrl: string; opTimeoutMs?: number; clientInfo?: AttachFromConsumer['clientInfo'] },
 ): RemoteSandboxCore {
   const serveUrl = opts.serveUrl;
   const opTimeoutMs = opts.opTimeoutMs ?? DEFAULT_OP_TIMEOUT_MS;
@@ -636,10 +643,21 @@ export function createRemoteSandboxCore(
     }
   }
 
+  const attachClientInfo: AttachFromConsumer['clientInfo'] =
+    opts.clientInfo ??
+    (process.env.PYRIC_FUNCTIONS_RTDB_CHILD === '1'
+      ? { platform: 'node', deviceLabel: FUNCTIONS_RTDB_CHILD_DEVICE_LABEL }
+      : undefined);
+
   return {
     handleMessage,
     fail,
-    start: () => send({ type: 'attach', protocol: 1 }),
+    start: () =>
+      send({
+        type: 'attach',
+        protocol: 1,
+        ...(attachClientInfo !== undefined ? { clientInfo: attachClientInfo } : {}),
+      }),
     capabilities: () => advertised,
     ready,
     channel: { op, subscribe },

@@ -37,7 +37,9 @@ export default {
   operation: 'list_functions_triggers',
   example: {},
   async handler(_args, ctx) {
-    const discovered = await discoverFunctionsTriggers(ctx.projectDir);
+    const discovered = await discoverFunctionsTriggers(ctx.projectDir, {
+      functionsHost: ctx.functionsHost,
+    });
     if (discovered.triggers.length === 0 && discovered.unsupported.length === 0) {
       return {
         ok: true,

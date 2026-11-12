@@ -25,6 +25,7 @@ import {
 import { heldDatabaseInstances } from 'pyric/database/internal';
 import { deleteObject, ref as storageRef } from 'pyric/storage';
 import {
+  DEFAULT_BUCKET,
   deployStorageBucketRules,
   getAdminStorageSandbox,
   getStorageRulesResolution,
@@ -36,6 +37,18 @@ import { getAuth, sandbox as authSandbox } from 'pyric/auth';
 import { listStoredPaths } from '../../storage-state.js';
 import type { MethodRecord } from '../../method-types.js';
 import type { SandboxSurfaceContext } from '../../types.js';
+
+const STORAGE_SERVICE_CACHES_KEY = Symbol.for('pyric.storage.service-caches');
+
+function heldNamedStorageBuckets(sandbox: SandboxSurfaceContext['sandbox']): string[] {
+  const holder = globalThis as {
+    [STORAGE_SERVICE_CACHES_KEY]?: {
+      scopedServices?: WeakMap<object, Map<string, unknown>>;
+    };
+  };
+  const scoped = holder[STORAGE_SERVICE_CACHES_KEY]?.scopedServices?.get(sandbox);
+  return scoped ? [...scoped.keys()] : [];
+}
 
 /** The services a reset can be narrowed to, and `all` for every one of them. */
 export const RESET_SCOPES = ['all', 'firestore', 'database', 'storage', 'auth'] as const;
@@ -62,6 +75,17 @@ async function resetScope(scope: Scope, ctx: SandboxSurfaceContext): Promise<voi
     const storage = getAdminStorageSandbox(ctx.sandbox);
     for (const path of await listStoredPaths(storage)) {
       await deleteObject(storageRef(storage, path));
+    }
+    const namedBuckets = new Set([
+      ...storageBucketsWithRules(ctx.sandbox),
+      ...heldNamedStorageBuckets(ctx.sandbox),
+    ]);
+    for (const bucket of namedBuckets) {
+      if (!bucket || bucket === DEFAULT_BUCKET) continue;
+      const namedStorage = getAdminStorageSandbox(ctx.sandbox, { bucket });
+      for (const path of await listStoredPaths(namedStorage)) {
+        await deleteObject(storageRef(namedStorage, path));
+      }
     }
     return;
   }

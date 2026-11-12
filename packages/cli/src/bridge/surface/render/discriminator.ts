@@ -63,13 +63,12 @@ async function runUnderCallIdentity(
   if (override === null) {
     return runCanonicalOperation(operation, translated, ctx, allowProduction);
   }
-  const held = ctx.identity.describe();
-  ctx.identity.switchTo(override);
-  try {
-    return await runCanonicalOperation(operation, translated, ctx, allowProduction);
-  } finally {
-    ctx.identity.switchTo(held);
-  }
+  const scopedCtx: SurfaceContext = {
+    ...ctx,
+    identity: ctx.identity.cloneWith(override),
+    callIdentityOverride: override,
+  };
+  return runCanonicalOperation(operation, translated, scopedCtx, allowProduction);
 }
 
 function routeFor(toolName: string, args: Args) {

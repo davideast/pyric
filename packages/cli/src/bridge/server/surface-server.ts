@@ -16,11 +16,12 @@
  * the scorer share, and it is stamped here because this is the only layer that
  * sees both the name the client sent and the operation it reached.
  */
+import { z } from 'zod';
 import { createOperationBudget } from '../operation-budget.js';
 import { McpServer, ResourceTemplate } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { Bridge, BridgeToolEvent } from './bridge.js';
 import { jsonSchemaToZodShape } from './json-schema-to-zod.js';
-import { observeRejectedCalls, toMcpResult, type RegisterMcpTool, type RejectedToolCall } from './mcp.js';
+import { observeRejectedCalls, toMcpResult, type RejectedToolCall } from './mcp.js';
 import {
   DENIED_BY_RULES_CODE,
   LINT_FINDINGS_CODE,
@@ -124,11 +125,12 @@ function recordCall(
     startedAtMs: number;
     operation: string | null;
     action: string | null;
+    mode: 'sandbox' | 'live';
   },
 ): void {
   const event: BridgeToolEvent = {
     timestamp: new Date(fields.startedAtMs).toISOString(),
-    mode: 'sandbox',
+    mode: fields.mode,
     project: bridge.project,
     tool: fields.tool,
     args: fields.args,
@@ -164,6 +166,12 @@ async function executeAdmitted(
   }
 }
 
+type RegisterPassthroughMcpTool = (
+  name: string,
+  config: { description?: string; inputSchema?: unknown },
+  run: (args: Record<string, unknown>, extra: object | undefined) => Promise<ReturnType<typeof toMcpResult>>,
+) => unknown;
+
 function registerTool(
   server: McpServer,
   bridge: Bridge,
@@ -175,16 +183,14 @@ function registerTool(
   budget: ReturnType<typeof createOperationBudget>,
 ): void {
   const shape = jsonSchemaToZodShape(tool.inputSchema as never);
-  // The SDK's `tool()` overloads have a generic tree deep enough to trip
-  // `Type instantiation is excessively deep` on the variadic shape argument.
-  // The cast collapses the inference; the runtime contract is unchanged, and
-  // `buildMcpServer` registers its own tools the same way.
-  const register = server.tool as RegisterMcpTool;
+  // Preserve unknown/renamed/guard top-level keys into `tool.execute` (`callMethod`
+  // / `validateArguments`) while letting the SDK validate declared property types.
+  const inputSchema = z.object(shape).passthrough();
+  const register = server.registerTool as unknown as RegisterPassthroughMcpTool;
   register.call(
     server,
     tool.name,
-    tool.description,
-    shape,
+    { description: tool.description, inputSchema },
     async (args: Record<string, unknown>, extra: object | undefined) => {
       markHandlerRan(extra);
       const startedAtMs = Date.now();
@@ -193,6 +199,8 @@ function registerTool(
         budget, tool.name, callArgs, () => tool.execute(callArgs, ctx),
       );
       const resolved = surface.resolve(tool.name, callArgs);
+      const target = ctx.targetRouter?.getCurrentTarget() ?? 'in-process';
+      const mode = ctx.targetRouter?.getCurrentMode?.() ?? 'sandbox';
       recordCall(bridge, {
         tool: tool.name,
         args: callArgs,
@@ -200,10 +208,10 @@ function registerTool(
         startedAtMs,
         operation: resolved.operation,
         action: resolved.action,
+        mode,
       });
       options.onAfterCall?.();
-      const target = ctx.targetRouter?.getCurrentTarget() ?? 'in-process';
-      return toMcpResult(result, bridge.project, target);
+      return toMcpResult(result, bridge.project, target, mode);
     },
   );
 }
@@ -232,6 +240,8 @@ function registerResource(
         budget, resource.name, args, () => resource.read(requested, ctx),
       );
       const resolved = surface.resolve(resource.name, args);
+      const target = ctx.targetRouter?.getCurrentTarget() ?? 'in-process';
+      const mode = ctx.targetRouter?.getCurrentMode?.() ?? 'sandbox';
       recordCall(bridge, {
         tool: resource.name,
         args,
@@ -239,10 +249,10 @@ function registerResource(
         startedAtMs,
         operation: resolved.operation,
         action: resolved.action,
+        mode,
       });
       options.onAfterCall?.();
-      const target = ctx.targetRouter?.getCurrentTarget() ?? 'in-process';
-      const body = { ...result, _pyric: { mode: 'sandbox', project: bridge.project, target } };
+      const body = { ...result, _pyric: { mode, project: bridge.project, target } };
       return {
         contents: [
           { uri: requested, mimeType: RESOURCE_MIME_TYPE, text: JSON.stringify(body, null, 2) },

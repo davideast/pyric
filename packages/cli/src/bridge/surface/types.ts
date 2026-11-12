@@ -21,6 +21,7 @@ export interface OperationResult {
 
 export interface SurfaceTargetRouter {
   getCurrentTarget(): 'host' | 'in-process';
+  getCurrentMode?(): 'sandbox' | 'live';
   dispatch(
     method: import('./method-types.js').Method,
     args: import('./method-types.js').Args,
@@ -72,6 +73,14 @@ export interface SurfaceContext extends SandboxSurfaceContext {
   checkpoints?: import('pyric/sandbox/checkpoints').CheckpointBackend;
   /** Dynamic target router for hosted following (ADR 0016). */
   targetRouter?: SurfaceTargetRouter;
+  /** Per-call caller identity override carried by `--surface discriminator`. */
+  callIdentityOverride?: import('./identity.js').IdentityInput;
+  /** Running host endpoint details for spawning isolated Functions children. */
+  functionsHost?: {
+    serveUrl(): string;
+    instanceId: string;
+    sessionToken?: string;
+  };
 }
 
 /** One tool as an MCP client sees it. */
