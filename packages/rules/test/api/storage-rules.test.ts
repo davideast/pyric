@@ -165,6 +165,93 @@ service cloud.firestore { match /databases/{d}/documents { allow read: if true; 
     expect(() => assertCase(summary.cases[0])).toThrow(RulesUnsupportedError);
   });
 
+  test('reports a read or delete case that carries requestResource as UNSUPPORTED, naming the field and method', () => {
+    const sizeGate = `rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /{file} {
+      allow read, delete: if request.resource.size < 10;
+    }
+  }
+}`;
+    const base = { expectation: 'DENY', bucket: BUCKET, path: 'a.txt', requestResource: { size: 1 } } as const;
+    const summary = storageRules(sizeGate).simulate([
+      { ...base, description: 'get', method: 'get' },
+      { ...base, description: 'list', method: 'list' },
+      { ...base, description: 'read', method: 'read' },
+      { ...base, description: 'delete', method: 'delete' },
+      { description: 'get without it', expectation: 'DENY', method: 'get', bucket: BUCKET, path: 'a.txt' },
+    ]);
+    expect(summary.cases.map((r) => r.decision)).toEqual(['UNSUPPORTED', 'UNSUPPORTED', 'UNSUPPORTED', 'UNSUPPORTED', 'DENY']);
+    expect(summary.cases[0].reasons).toEqual([
+      'requestResource is set on a get case. Production leaves request.resource unset for get, so omit it.',
+    ]);
+  });
+
+  test('reports a bucket holding a "/" as UNSUPPORTED rather than rewriting the path', () => {
+    const anyBucket = `rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /evil/{file} { allow read: if true; }
+  }
+}`;
+    const [result] = storageRules(anyBucket).simulate([
+      { description: 'slash bucket', expectation: 'DENY', method: 'get', bucket: 'x/o/evil', path: 'a.txt' },
+    ]).cases;
+    expect(result.decision).toBe('UNSUPPORTED');
+    expect(result.reasons).toEqual(['Bucket "x/o/evil" holds a "/". A bucket name has none.']);
+  });
+
+  test('keeps running the batch past a malformed case', () => {
+    const noPath = { description: 'no path', expectation: 'ALLOW', method: 'get', bucket: BUCKET } as unknown as StorageCase;
+    const summary = storageRules(AVATAR_RULES).simulate([noPath, { ...UPLOAD }]);
+    expect(summary).toMatchObject({ passed: 1, unsupported: 1 });
+    expect(summary.cases[0].reasons).toEqual(['The case has no path. Pass the object path within the bucket as path.']);
+  });
+
+  test('accepts only an ISO-8601 time with an offset as requestTime', () => {
+    const timed = (requestTime: string): StorageCase => ({ ...UPLOAD, description: requestTime, requestTime });
+    const summary = storageRules(AVATAR_RULES).simulate([
+      timed('2026-01-02T03:04:05Z'),
+      timed('2026-01-02T03:04:05.123+01:00'),
+      timed('2026-01-02'),
+      timed('Jan 2, 2026'),
+      timed('1700000000000'),
+    ]);
+    expect(summary.cases.map((r) => r.decision)).toEqual(['ALLOW', 'ALLOW', 'UNSUPPORTED', 'UNSUPPORTED', 'UNSUPPORTED']);
+  });
+
+  test('binds list and update to their own grants', () => {
+    const docs = `rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /docs/{file} {
+      allow list: if request.auth != null;
+      allow update: if request.auth.uid == resource.metadata.owner
+        && request.resource.metadata.owner == resource.metadata.owner;
+    }
+  }
+}`;
+    const stored = { size: 5, metadata: { owner: 'alice' } };
+    const base = { bucket: BUCKET, path: 'docs/a.txt', auth: { uid: 'alice' } } as const;
+    const summary = storageRules(docs).simulate([
+      { ...base, description: 'list', expectation: 'ALLOW', method: 'list' },
+      { ...base, description: 'get has no grant', expectation: 'DENY', method: 'get' },
+      { ...base, description: 'owner keeps owner', expectation: 'ALLOW', method: 'update', resource: stored,
+        requestResource: { size: 5, metadata: { owner: 'alice' } } },
+      { ...base, description: 'owner hands it over', expectation: 'DENY', method: 'update', resource: stored,
+        requestResource: { size: 5, metadata: { owner: 'mallory' } } },
+    ]);
+    expect(summary.cases.map((r) => r.decision)).toEqual(['ALLOW', 'DENY', 'ALLOW', 'DENY']);
+    expect(summary.passed).toBe(4);
+  });
+
+  test('marks each result as a Storage one', () => {
+    const [result] = storageRules(AVATAR_RULES).simulate([UPLOAD]).cases;
+    expect(result.service).toBe('storage');
+    expect(storageRules(AVATAR_RULES).explain(UPLOAD).service).toBe('storage');
+  });
+
   test('lint() reports the findings the free lint() reports for the same source', () => {
     const issues = storageRules(AVATAR_RULES).lint();
     expect(issues).toEqual(lint(AVATAR_RULES));

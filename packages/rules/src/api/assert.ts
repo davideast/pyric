@@ -36,7 +36,7 @@ function isRtdbResult(r: AnyCaseResult): r is RtdbCaseResult {
 }
 
 function isStorageResult(r: AnyCaseResult): r is StorageCaseResult {
-  return 'reasons' in r;
+  return 'service' in r && r.service === 'storage';
 }
 
 // ─── Trace rendering ─────────────────────────────────────────────────

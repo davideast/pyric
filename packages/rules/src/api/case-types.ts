@@ -163,8 +163,9 @@ export interface StorageCase {
   path: string;
   /** `request.auth`; `null` or omitted for an unauthenticated request. */
   auth?: StorageAuth | null;
-  /** `request.resource`, the object a write would store. Omit it for reads
-   *  and deletes, where production leaves `request.resource` unset. */
+  /** `request.resource`, the object a `create` or `update` would store.
+   *  Production leaves `request.resource` unset for `read`, `get`, `list`
+   *  and `delete`, so a case of those that carries it is UNSUPPORTED. */
   requestResource?: StorageRequestResource;
   /** `resource`, the stored object. Omit it when no object exists. */
   resource?: StorageResource | null;
@@ -185,6 +186,8 @@ export interface StorageCaseResult {
   case: StorageCase;
   description: string;
   expectation: 'ALLOW' | 'DENY';
+  /** Names the result a Storage one, apart from Firestore and RTDB results. */
+  service: 'storage';
   /** The bucket name the rules saw, or absent when the case named none. */
   bucket?: string;
   /** The engine's absolute verdict, independent of expectation. */
