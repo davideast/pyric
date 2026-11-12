@@ -12,7 +12,7 @@
     "declaration": true,
     "declarationMap": true,
     "sourceMap": true,
-    "types": ["bun-types"]
+    "types": ["bun"]
   },
   "include": ["src/**/*.ts"],
   "exclude": ["node_modules", "dist", "test", "**/*.test.ts", "**/*.spec.ts"]
