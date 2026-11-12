@@ -8,20 +8,6 @@ Pyric is the dev tools for vibe coding. Someone with an idea for an app builds i
 
 This is not a priority and has no test yet. It is the lens for reading the priorities below.
 
-## @pyric/rules as its own package
-
-**Test:** Does this move the rules engine to `@pyric/rules`, a package people can install and use to unit-test Firebase Security Rules without the rest of pyric, along the plan in #1521?
-
-As of 2026-11-11 this is one of the top priorities. The engine becomes the lowest layer, with nothing in it importing pyric, and ships its own npm release on its own version line. It stays in this monorepo until the boundary test in #1521 passes.
-
-**Counts:** the package move (`packages/rules`), the Storage evaluator moving in, the operation form (`check()`) for Firestore, Storage and Realtime Database that every plane calls, the `rules-only` CI path, the release package selector and tarball check, the `rules-standalone` app scenario and README, moving callers to `@pyric/rules/internal*`.
-**Doesn't count:** a separate GitHub repo before the boundary test passes; rules features that fail the rules fidelity test below.
-
-**Now:**
-- Create `packages/rules` (#1521 PR 12)
-- Move the Storage evaluator in (PR 13)
-- `storageRules()`, one `request.auth` builder, and the operation forms (PRs 14 to 18)
-
 ## App Check
 
 **Test:** Does this get App Check working in pyric, end to end, and shipped in a release, or watch and verify that pyric behaves like production on a project that enforces App Check for AI Logic?
