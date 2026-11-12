@@ -135,7 +135,7 @@ Source: track 3, reading main's tools. Almost every tool today reads the sandbox
 | Listener chip, listeners page | Adapt (unchanged in principle once wrapped) | Wrappers report to the same SDK activity journal (`pyric/src/sandbox/internal/sdk-activity.ts:7-60`). Suppressed deliveries and re-evaluation causes have no live source |
 | Denial overlay, owner frames | Works unchanged | Page-side facts |
 | Denial terminal block, `pyric serve denials` | Adapt | Production's code is the fact; any rule line is a labeled prediction |
-| `rules.explainDenial`, `rules.simulate` | Adapt | The engine already runs standalone (`pyric/src/rules/simulator/handler.ts:491-500`); the bridge caller hardwires the sandbox as the source of `resource` and `get()` (`cli/src/bridge/surface/rules-simulation.ts:87,105`) |
+| `rules.explainDenial`, `rules.simulate` | Adapt | The engine already runs standalone (`rules/src/simulator/handler.ts:491-500`); the bridge caller hardwires the sandbox as the source of `resource` and `get()` (`cli/src/bridge/surface/rules-simulation.ts:87,105`) |
 | `pyric verify` | Adapt, large | Becomes the shadow-comparison tool. Its strict refusal of cases with unmocked `get()` reads (`cli/src/verify/cases.ts:96-107`) is the right model for "undetermined" |
 | MCP data reads (Firestore, RTDB, Storage) | Adapt, shapes by default | The MCP process does not hold the app's token (inferred), so reads come from what the session observed. Values only by human opt-in (section 9) |
 | MCP data writes, Auth admin, `createCustomToken`, sandbox state control, `functions.fire`, `messaging.*`, `rules.set` | Does not work | Each writes production, mints a real credential, reaches real devices, or has no production meaning. Refuse per method |
@@ -149,7 +149,7 @@ Shadow evaluation runs pyric's evaluator on each observed request with the deplo
 
 - Has: the request's uid and claims, incoming write data (from wrapper arguments), batch siblings, query shape, the client's clock, and documents the app already received.
 - Lacks without Admin: prior resource data for a denied read or for a write the client never read, and `get()`/`exists()` targets the user cannot read. These are often exactly the cases that most need explaining.
-- Engine gaps: named databases are hardcoded to `(default)` (`pyric/src/rules/simulator/document-lookups.ts:18-21`), so a prediction for a named database would bind the wrong `database`; nothing in the Firestore simulator models App Check; and the evaluator has no "unknown input" outcome, so a missing lookup reads as a missing document and yields deny.
+- Engine gaps: named databases are hardcoded to `(default)` (`rules/src/simulator/document-lookups.ts:18-21`), so a prediction for a named database would bind the wrong `database`; nothing in the Firestore simulator models App Check; and the evaluator has no "unknown input" outcome, so a missing lookup reads as a missing document and yields deny.
 
 Labeling rules (track 3, section 4), to be fixed before any live UI ships:
 

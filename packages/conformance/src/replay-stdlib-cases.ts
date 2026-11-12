@@ -23,7 +23,7 @@
  * `SUCCESS` means it agrees with the case and `FAILURE` means it decided the
  * other way.
  *
- * Output: packages/pyric/test/rules/modules/fixtures/stdlib-replay-<module>.json,
+ * Output: packages/rules/test/modules/fixtures/stdlib-replay-<module>.json,
  * with `/` in the module name written as `-`.
  *
  * Credentials: as in `measure-stdlib-cost.ts`. GOOGLE_APPLICATION_CREDENTIALS
