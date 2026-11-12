@@ -192,15 +192,22 @@ describe('pyric-admin/database — sandbox backend (Phase 4b)', () => {
     expect(seen).toContainEqual({ key: 'c', val: 3 });
   });
 
-  it('listeners (on/off) and transactions throw "not implemented"', async () => {
+  it('supports value listeners and onDisconnect while transactions keep throwing "not implemented"', async () => {
     const sandbox = initializeSandbox();
     const db = getDatabase(sandboxApp(sandbox));
     const ref = db.ref('/x');
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    expect(() => (ref as any).on('value', () => {})).toThrow(/not implemented/);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    expect(() => (ref as any).transaction(() => 1)).toThrow(/not implemented/);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    expect(() => (ref as any).onDisconnect()).toThrow(/not implemented/);
+    await ref.set({ v: 1 });
+    const seen: unknown[] = [];
+    const cb = ref.on('value', (snap) => {
+      seen.push(snap.val());
+    });
+    expect(seen).toEqual([{ v: 1 }]);
+    ref.off('value', cb);
+    await ref.onDisconnect().set({ v: 0 });
+    await ref.onDisconnect().cancel();
+    db.goOffline();
+    expect((await ref.get()).val()).toEqual({ v: 1 });
+    db.goOnline();
+    expect(() => ref.transaction(() => 1)).toThrow(/not implemented/);
   });
 });

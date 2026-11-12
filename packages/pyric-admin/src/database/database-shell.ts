@@ -14,6 +14,11 @@ export interface DatabaseUrlMetadata {
   originUrl: string;
 }
 
+export interface DatabaseConnectionControls {
+  readonly goOffline?: () => void;
+  readonly goOnline?: () => void;
+}
+
 export function originOfDatabaseUrl(rootUrl: string): string {
   const withoutQuery = rootUrl.split('?')[0]!;
   return withoutQuery.endsWith('/') ? withoutQuery.slice(0, -1) : withoutQuery;
@@ -28,6 +33,7 @@ export function buildDatabaseShell(
   app: PyricAdminApp,
   urlMeta: DatabaseUrlMetadata,
   refFactory: (db: Database, path: string, urlMeta: DatabaseUrlMetadata) => Reference,
+  connection?: DatabaseConnectionControls,
 ): Database {
   const db = {
     ref(path?: string): Reference {
@@ -60,10 +66,10 @@ export function buildDatabaseShell(
       // No-op: the sandbox IS a local emulator.
     },
     goOffline(): void {
-      // No-op: sandbox has no network connection to drop.
+      connection?.goOffline?.();
     },
     goOnline(): void {
-      // No-op: sandbox has no network connection to reopen.
+      connection?.goOnline?.();
     },
     app,
   };

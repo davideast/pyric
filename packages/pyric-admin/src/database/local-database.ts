@@ -16,16 +16,34 @@ import {
 } from 'pyric/database';
 import {
   assertGettablePath,
-  exportDatabaseVal,
-  valueAtChildPath,
+  emptySpec,
+  isDefaultQuerySpec,
+  type QueryRow,
+  type QuerySpec,
 } from 'pyric/database/internal';
 import type { PyricAdminApp } from '../app/index.js';
+import { onAdminAppDeleted } from '../app/lifecycle.js';
 import {
   buildDatabaseShell,
   formatReferenceUrl,
   type DatabaseUrlMetadata,
 } from './database-shell.js';
 import { buildSandboxSnap } from './data-snapshot.js';
+import { AdminListenerTable } from './listener-table.js';
+import {
+  attachLocalListener,
+  buildLocalQuerySnapshot,
+  detachLocalListener,
+  exportedLocalValueAt,
+  onceLocalListener,
+  type LocalListenBackend,
+  type LocalListenTarget,
+} from './local-listeners.js';
+import {
+  buildLocalOnDisconnect,
+  localDatabaseConnectionControls,
+} from './on-disconnect.js';
+import { createQuerySurface } from './query.js';
 import {
   joinPath,
   pathSegments,
@@ -35,17 +53,16 @@ import {
 } from './tree-store.js';
 import {
   notImplemented,
-  resolveOnceCallbacks,
   type Database,
   type DataSnapshot,
-  type EventType,
   type JsonValue,
+  type OnDisconnect,
   type Reference,
   type ThenableReference,
 } from './types.js';
 
-interface SharedRtdbBackend {
-  adminGet(path: string): JsonValue;
+interface SharedRtdbBackend extends LocalListenBackend {
+  adminGetQuery(path: string, spec: QuerySpec): QueryRow[];
   adminSet(path: string, value: JsonValue): void;
   adminUpdate(path: string, patch: Record<string, JsonValue>): void;
   adminRemove(path: string): void;
@@ -56,10 +73,28 @@ interface SharedRtdbBackend {
 interface LocalInstance {
   adminDb?: ModularDatabase;
   backend?: SharedRtdbBackend;
-  sandbox: Sandbox;
+  readonly listeners: AdminListenerTable;
+  readonly sandbox: Sandbox;
 }
 
-const localInstancesBySandbox = new WeakMap<Sandbox, DatabaseInstanceRegistry<LocalInstance>>();
+const localInstancesByApp = new WeakMap<PyricAdminApp, DatabaseInstanceRegistry<LocalInstance>>();
+const resetBackendsBySandbox = new WeakMap<Sandbox, Set<SharedRtdbBackend>>();
+
+function registerBackendForReset(sandbox: Sandbox, backend: SharedRtdbBackend): void {
+  let tracked = resetBackendsBySandbox.get(sandbox);
+  if (tracked === undefined) {
+    tracked = new Set();
+    resetBackendsBySandbox.set(sandbox, tracked);
+    sandbox.onEvent((event) => {
+      if (event.kind === 'session_boundary' && event.phase === 'reset') {
+        for (const registered of tracked!) {
+          registered.resetTree(true);
+        }
+      }
+    });
+  }
+  tracked.add(backend);
+}
 
 function resolveSharedHandle(
   sandbox: Sandbox,
@@ -69,32 +104,26 @@ function resolveSharedHandle(
   const { backend } = (adminDb as unknown as {
     [TARGET_SYMBOL]: { backend: SharedRtdbBackend };
   })[TARGET_SYMBOL];
+  registerBackendForReset(sandbox, backend);
   return { adminDb, backend };
 }
 
-function localInstances(sandbox: Sandbox): DatabaseInstanceRegistry<LocalInstance> {
-  const existing = localInstancesBySandbox.get(sandbox);
+function localInstances(
+  app: PyricAdminApp,
+  sandbox: Sandbox,
+): DatabaseInstanceRegistry<LocalInstance> {
+  const existing = localInstancesByApp.get(app);
   if (existing !== undefined) return existing;
   const registry: DatabaseInstanceRegistry<LocalInstance> = createDatabaseInstanceRegistry({
-    create: () => ({ sandbox }),
+    create: () => ({ sandbox, listeners: new AdminListenerTable() }),
   });
-  localInstancesBySandbox.set(sandbox, registry);
-  sandbox.onEvent((event) => {
-    if (event.kind === 'session_boundary' && event.phase === 'reset') {
-      for (const [, entry] of registry.entries()) entry.backend?.resetTree(true);
+  localInstancesByApp.set(app, registry);
+  onAdminAppDeleted(app, () => {
+    for (const [, entry] of registry.entries()) {
+      entry.listeners.detachAll();
     }
   });
   return registry;
-}
-
-function exportedValueAt(
-  adminDb: ModularDatabase,
-  segs: readonly string[],
-  val: JsonValue,
-): unknown {
-  if (val === null) return null;
-  const rootExported = exportDatabaseVal(adminDb);
-  return segs.length === 0 ? rootExported : valueAtChildPath(rootExported, segs);
 }
 
 export function getLocalDatabase(
@@ -103,32 +132,69 @@ export function getLocalDatabase(
   instance: DatabaseInstance | undefined,
   urlMeta: DatabaseUrlMetadata,
 ): Database {
-  const registry = localInstances(sandbox);
+  const registry = localInstances(app, sandbox);
   const entry = registry.getOrCreate(registry.keyOf(instance));
   if (entry.backend === undefined || entry.adminDb === undefined) {
     const resolved = resolveSharedHandle(sandbox, instance);
     entry.adminDb = resolved.adminDb;
     entry.backend = resolved.backend;
   }
-  const instanceState = entry as Required<Pick<LocalInstance, 'adminDb' | 'backend' | 'sandbox'>>;
-  return buildDatabaseShell(app, urlMeta, (handle, path, meta) =>
-    buildSandboxRef(instanceState, handle, path, meta),
+  const instanceState = entry as Required<LocalInstance>;
+  return buildDatabaseShell(
+    app,
+    urlMeta,
+    (handle, path, meta) => buildSandboxRef(instanceState, handle, path, meta),
+    localDatabaseConnectionControls(instanceState.adminDb),
   );
 }
 
 function buildSandboxRef(
-  instanceState: { adminDb: ModularDatabase; backend: SharedRtdbBackend; sandbox: Sandbox },
+  instanceState: Required<LocalInstance>,
   db: Database,
   path: string,
   urlMeta: DatabaseUrlMetadata,
 ): Reference {
-  const { adminDb, backend } = instanceState;
+  const { adminDb, backend, listeners } = instanceState;
   const canonical = joinPath(pathSegments(path));
   const segs = pathSegments(canonical);
   const key = segs.length === 0 ? null : segs[segs.length - 1]!;
+  const formattedUrl = formatReferenceUrl(urlMeta.originUrl, segs);
   const refAt = (p: string): Reference => buildSandboxRef(instanceState, db, p, urlMeta);
+  const listenTarget: LocalListenTarget = {
+    adminDb,
+    backend,
+    listeners,
+    canonical,
+    refAt,
+  };
+
+  const querySurface = createQuerySurface(
+    {
+      repoToken: instanceState,
+      canonicalPath: canonical,
+      formattedUrl,
+      getBaseRef: () => ref as unknown as Reference,
+      async get(spec: QuerySpec): Promise<DataSnapshot> {
+        assertGettablePath(canonical);
+        if (!isDefaultQuerySpec(spec)) {
+          const rows = backend.adminGetQuery(canonical, spec);
+          return buildLocalQuerySnapshot(refAt, adminDb, canonical, segs, rows);
+        }
+        const val = backend.adminGet(canonical);
+        return buildSandboxSnap(refAt, canonical, val, exportedLocalValueAt(adminDb, segs, val));
+      },
+      once: (spec, eventType, successCb, failureCallbackOrContext, context) =>
+        onceLocalListener(listenTarget, spec, eventType, successCb, failureCallbackOrContext, context),
+      on: (spec, eventType, callback, cancelCallbackOrContext, context) =>
+        attachLocalListener(listenTarget, spec, eventType, callback, cancelCallbackOrContext, context),
+      off: (spec, eventType, callback, context) =>
+        detachLocalListener(listenTarget, spec, eventType, callback, context),
+    },
+    emptySpec(),
+  );
 
   const ref = {
+    ...querySurface,
     key,
     get parent(): Reference | null {
       if (segs.length === 0) return null;
@@ -140,56 +206,12 @@ function buildSandboxRef(
     get path(): string {
       return canonical;
     },
-    toString(): string {
-      return formatReferenceUrl(urlMeta.originUrl, segs);
-    },
 
     set(value: unknown, onComplete?: (err: Error | null) => void): Promise<void> {
       const stored = validateValueArg('set', segs, value);
       return settled(() => {
         backend.adminSet(canonical, stored);
       }, onComplete);
-    },
-
-    async get(): Promise<DataSnapshot> {
-      assertGettablePath(canonical);
-      const val = backend.adminGet(canonical);
-      return buildSandboxSnap(refAt, canonical, val, exportedValueAt(adminDb, segs, val));
-    },
-
-    async once(
-      eventType: EventType,
-      successCb?: unknown,
-      failureCallbackOrContext?: unknown,
-      context?: unknown,
-    ): Promise<DataSnapshot> {
-      if (eventType !== 'value') {
-        throw notImplemented(`once('${eventType}')`);
-      }
-      const { failureCb, boundContext } = resolveOnceCallbacks(failureCallbackOrContext, context);
-      let snap: DataSnapshot;
-      try {
-        assertGettablePath(canonical);
-        const val = backend.adminGet(canonical);
-        snap = buildSandboxSnap(refAt, canonical, val, exportedValueAt(adminDb, segs, val));
-      } catch (err) {
-        if (failureCb !== undefined) {
-          try {
-            failureCb.call(boundContext, err as Error);
-          } catch {
-            // Ignore secondary callback throw before rejecting with the read error.
-          }
-        }
-        throw err;
-      }
-      if (typeof successCb === 'function') {
-        try {
-          (successCb as (s: DataSnapshot) => unknown).call(boundContext, snap);
-        } catch {
-          // Callback error does not reject the once() promise once snapshot arrived.
-        }
-      }
-      return snap;
     },
 
     update(values: object, onComplete?: (err: Error | null) => void): Promise<void> {
@@ -238,14 +260,8 @@ function buildSandboxRef(
       return refAt(joinPath(absSegs));
     },
 
-    on(_eventType: EventType, ..._rest: unknown[]): never {
-      throw notImplemented('on');
-    },
-    off(_eventType?: EventType, ..._rest: unknown[]): never {
-      throw notImplemented('off');
-    },
-    onDisconnect(): never {
-      throw notImplemented('onDisconnect');
+    onDisconnect(): OnDisconnect {
+      return buildLocalOnDisconnect(adminDb, canonical);
     },
     transaction(..._args: unknown[]): never {
       throw notImplemented('transaction');
@@ -255,49 +271,6 @@ function buildSandboxRef(
     },
     setWithPriority(..._args: unknown[]): never {
       throw notImplemented('setWithPriority');
-    },
-    orderByChild(..._args: unknown[]): never {
-      throw notImplemented('orderByChild');
-    },
-    orderByKey(..._args: unknown[]): never {
-      throw notImplemented('orderByKey');
-    },
-    orderByValue(..._args: unknown[]): never {
-      throw notImplemented('orderByValue');
-    },
-    orderByPriority(..._args: unknown[]): never {
-      throw notImplemented('orderByPriority');
-    },
-    startAt(..._args: unknown[]): never {
-      throw notImplemented('startAt');
-    },
-    startAfter(..._args: unknown[]): never {
-      throw notImplemented('startAfter');
-    },
-    endAt(..._args: unknown[]): never {
-      throw notImplemented('endAt');
-    },
-    endBefore(..._args: unknown[]): never {
-      throw notImplemented('endBefore');
-    },
-    equalTo(..._args: unknown[]): never {
-      throw notImplemented('equalTo');
-    },
-    limitToFirst(..._args: unknown[]): never {
-      throw notImplemented('limitToFirst');
-    },
-    limitToLast(..._args: unknown[]): never {
-      throw notImplemented('limitToLast');
-    },
-    isEqual(other: unknown): boolean {
-      return (
-        other !== null &&
-        typeof other === 'object' &&
-        (other as { path?: string }).path === canonical
-      );
-    },
-    toJSON(): string {
-      return formatReferenceUrl(urlMeta.originUrl, segs);
     },
     get database(): Database {
       return db;

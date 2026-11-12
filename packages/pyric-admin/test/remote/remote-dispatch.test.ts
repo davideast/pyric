@@ -214,8 +214,11 @@ describe('pyric-admin remote dispatch — arm selection', () => {
     const db = getDatabase(app);
     await db.ref('local/probe').set({ via: 'local-arm' });
     expect((await db.ref('local/probe').get()).val()).toEqual({ via: 'local-arm' });
-    // Local-arm signature: listeners are still not implemented there.
-    expect(() => db.ref('local/probe').on('value', () => {})).toThrow(/not implemented/);
+    // Local-arm listeners deliver synchronously on the in-process tree and detach via off().
+    const localSeen: unknown[] = [];
+    const localCb = db.ref('local/probe').on('value', (s) => localSeen.push(s.val()));
+    expect(localSeen).toEqual([{ via: 'local-arm' }]);
+    db.ref('local/probe').off('value', localCb);
     // Awaiting a local ThenableReference resolves (regression for the
     // self-resolving-thenable unwrap loop fixed alongside the remote arm).
     const pushed = await db.ref('local/list').push({ v: 1 });
@@ -365,14 +368,22 @@ describe('pyric-admin remote dispatch — RTDB', () => {
     expect(b).toHaveLength(1);
   });
 
-  it('non-value listeners / transactions / queries keep throwing "not implemented"', () => {
+  it('transactions keep throwing "not implemented"', async () => {
     const { app } = makeStack();
     const db = getDatabase(app);
     const ref = db.ref('x');
-    expect(() => ref.on('child_added', () => {})).toThrow(/not implemented/);
+    const seenChildKeys: Array<string | null> = [];
+    const onAdded = ref.on('child_added', (snap) => {
+      seenChildKeys.push(snap.key);
+    });
+    await ref.child('c1').set(1);
+    await tick();
+    expect(seenChildKeys).toEqual(['c1']);
+    ref.off('child_added', onAdded);
     expect(() => ref.transaction(() => null)).toThrow(/not implemented/);
-    expect(() => ref.orderByChild('y')).toThrow(/not implemented/);
-    expect(() => ref.onDisconnect()).toThrow(/not implemented/);
+    expect(ref.orderByChild('y').ref.isEqual(ref)).toBe(true);
+    await ref.onDisconnect().set({ status: 'away' });
+    await ref.onDisconnect().cancel();
   });
 });
 
