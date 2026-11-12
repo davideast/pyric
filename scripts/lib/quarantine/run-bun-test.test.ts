@@ -150,7 +150,9 @@ describe('the quarantine runner on real bun test runs', () => {
       'PYRIC_QUARANTINE_BASE_ENTRIES=[]', '',
     ].join('\n');
     const run = suite({ 'flaky.test.ts': FLAKY, '.env': switches, '.env.local': switches, '.env.development': switches, 'drive.ts': '' });
-    const entries = [entry(run.id('flaky.test.ts', 'flaky > fails'))];
+    // The child judges expiry against the real date, not TODAY, so the entry expires relative to it.
+    const realToday = new Date().toISOString().slice(0, 10);
+    const entries = [entry(run.id('flaky.test.ts', 'flaky > fails'), addDays(realToday, 14))];
     const drive = [
       `const { main } = await import(${JSON.stringify(join(REPO_ROOT, 'scripts/ci/quarantine-test.ts'))});`,
       `console.log('switch', process.env.PYRIC_QUARANTINE, process.env.GITHUB_REF);`,
