@@ -39,6 +39,7 @@ import {
   copyQueryValueRegistration,
   registerReferenceQueryValue,
 } from './sandbox/query-value-registry.js';
+import { markUserWriteValue } from './sandbox/unescaped-map.js';
 
 // ─── Writes ───────────────────────────────────────────────────────────
 
@@ -72,9 +73,10 @@ export async function setDoc<T = DocumentData>(
   const target = targetOf(ref);
   return runSdkWrite(beginFirestoreActivity(target, ref, 'setDoc', 'operation'), async () => {
     const conv = converterOf(ref);
-    const payload = conv
+    const rawPayload = conv
       ? (conv as FirestoreDataConverter<T>).toFirestore(data)
       : (data as unknown as DocumentData);
+    const payload = markUserWriteValue(rawPayload) as DocumentData;
     return clientStateFor(target).runWrite(
       () => withFirestoreFirebaseError(() =>
         chainDocFor(target, ref).set(payload, options as ChainSetOptions | undefined),
@@ -136,9 +138,10 @@ export async function addDoc<T = DocumentData>(
   const target = targetOf(coll);
   return runSdkWrite(beginFirestoreActivity(target, coll, 'addDoc', 'operation'), async () => {
     const conv = converterOf(coll);
-    const payload = conv
+    const rawPayload = conv
       ? (conv as FirestoreDataConverter<T>).toFirestore(data)
       : (data as unknown as DocumentData);
+    const payload = markUserWriteValue(rawPayload) as DocumentData;
     const ref = await clientStateFor(target).runWrite(async () => {
       const created = await withFirestoreFirebaseError(() => chainCollFor(target, coll).add(payload));
       clientStateFor(target).cachePath(created.path);

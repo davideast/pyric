@@ -32,7 +32,7 @@ export function captureRtdbInstances(
     const database = getAdminDatabase(sandbox, name);
     instances[name] = {
       rules: { format: 'rtdb.rules.json', json: getActiveRules(database) ?? { rules: {} } },
-      state: { tree: snapshotState(database) },
+      state: { tree: snapshotState(database, { includePriorities: true }) },
     };
   }
   return instances;

@@ -40,6 +40,11 @@ import {
 } from './value-resolver.js';
 import { FirebaseError } from '../../sandbox/internal/firebase-error.js';
 import { cloneDoc } from './document-copy.js';
+import {
+  copyUnescapedUserMapTag,
+  hasCollidingFirestoreMarkerShape,
+  stampUnescapedUserMap,
+} from './unescaped-map.js';
 import { fieldPathArgumentSegments, fieldPathKeySegments } from './update-fields.js';
 
 /** Field-path segments that must never be walked or written. The merge
@@ -90,6 +95,9 @@ function setLeaf(root: DocumentData, segments: string[], value: unknown): void {
     delete cursor[leaf];
   } else {
     cursor[leaf] = stripMarkers(value);
+  }
+  if (segments.length > 1 && hasCollidingFirestoreMarkerShape(cursor)) {
+    stampUnescapedUserMap(cursor);
   }
 }
 
@@ -220,7 +228,7 @@ function collectLeaves(
   const keys = Object.keys(data);
   if (keys.length === 0 && prefix.length > 0) {
     // Empty map at a nested path — set it as an empty-map leaf.
-    out.push({ segments: prefix, value: {} });
+    out.push({ segments: prefix, value: copyUnescapedUserMapTag(data, {}) });
     return;
   }
   for (const key of keys) {

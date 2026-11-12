@@ -66,9 +66,10 @@ export const sandbox = {
   },
 
   /** Snapshot the full sandbox tree (rule-bypass read). Usually a keyed
-   *  object; may be a primitive when the root holds one (DB-B13). */
-  snapshotState(db: Database): JsonValue {
+   *  object; may be a primitive when the root holds one (DB-B13). Pass
+   *  `{ includePriorities: true }` to export `.priority` / `.value` metadata. */
+  snapshotState(db: Database, options?: { includePriorities?: boolean }): JsonValue {
     const target = targetOf(db);
-    return target.backend.snapshotState();
+    return target.backend.snapshotState(options);
   },
 };

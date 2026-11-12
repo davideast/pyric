@@ -672,7 +672,7 @@ function ensureService(
   else {
     backendPromise = openStorageBackend(
       options.dbName ?? storageDbName(options.projectId),
-      options.bucket ?? DEFAULT_BUCKET,
+      options.bucket !== undefined ? rulesBucketName(options.bucket, options.bucket) : DEFAULT_BUCKET,
     );
   }
   const servicePromise = backendPromise.then(
@@ -730,7 +730,9 @@ export function getStorageSandbox(
   // cache fast-path — so a late, differing `rules` option throws instead of
   // being silently discarded (see ensureService).
   const rootServicePromise = ensureService(sandbox, options, 'getStorageSandbox');
-  const bucket = options.bucket ?? DEFAULT_BUCKET;
+  const bucket = options.bucket !== undefined
+    ? rulesBucketName(options.bucket, options.bucket)
+    : DEFAULT_BUCKET;
 
   // Fast path: a repeat bare-`Sandbox` call returns the cached
   // anonymous handle for the requested bucket.
@@ -801,7 +803,9 @@ export function getAdminStorageSandbox(
   const sandbox = isContext(target) ? target.sandbox : target;
   // Service first (late differing `rules` must throw, even on a cache hit).
   const rootServicePromise = ensureService(sandbox, options, 'getAdminStorageSandbox');
-  const bucket = options.bucket ?? DEFAULT_BUCKET;
+  const bucket = options.bucket !== undefined
+    ? rulesBucketName(options.bucket, options.bucket)
+    : DEFAULT_BUCKET;
 
   if (fromBareSandbox) {
     const cachedBare = BARE_ADMIN_HANDLES.get(sandbox)?.get(bucket);

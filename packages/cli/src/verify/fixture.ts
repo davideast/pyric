@@ -1,9 +1,11 @@
 import {
   assertCompleteHistory,
   observedDeliveryOf,
+  resolveDatabaseInstance,
   type ObservedWriteValue,
 } from 'pyric/sandbox/internal';
 import type { EventService, Sandbox, SandboxEvent } from 'pyric/sandbox';
+import { inlinePriorities, jsonEqual, normalizeNode, withPriorities } from 'pyric/database/internal';
 import { getStorageSandbox } from 'pyric/storage';
 import { storageDeniedWrites, type RecordedStorageDeniedWrite } from 'pyric/storage/internal';
 import { isRtdbRulesJson } from '../rtdb/rules-json.js';
@@ -169,8 +171,90 @@ function storageDeniedWritesIn(
  * Preserves `{ mode, size, paths: [] }` so listener delivery counts and
  * cardinality remain intact on capture hydration.
  */
+const FIXTURE_UNESCAPED_MAP_TAG = Symbol.for('pyric.unescapedMap');
+
+function encodeUnescapedEventValue(value: unknown): unknown {
+  if (value === null || typeof value !== 'object') return value;
+  if (Array.isArray(value)) {
+    let changed = false;
+    const next = value.map((item) => {
+      const encoded = encodeUnescapedEventValue(item);
+      if (encoded !== item) changed = true;
+      return encoded;
+    });
+    return changed ? next : value;
+  }
+  const proto = Object.getPrototypeOf(value);
+  if (proto !== Object.prototype && proto !== null) return value;
+  const rec = value as Record<string, unknown>;
+  const isUnescaped = (value as Record<symbol, unknown>)[FIXTURE_UNESCAPED_MAP_TAG] === true;
+  let childChanged = false;
+  const entries = Object.entries(rec).map(([k, v]) => {
+    const encoded = encodeUnescapedEventValue(v);
+    if (encoded !== v) childChanged = true;
+    return [k, encoded] as const;
+  });
+  if (!childChanged && !isUnescaped) return value;
+  const fields: Record<string, unknown> = {};
+  for (const [k, v] of entries) {
+    Object.defineProperty(fields, k, {
+      value: v,
+      enumerable: true,
+      writable: true,
+      configurable: true,
+    });
+  }
+  return isUnescaped ? { type: 'pyric/map/1.0', fields } : fields;
+}
+
 function sanitizeCapturedEvents(events: SandboxEvent[]): SandboxEvent[] {
   return events.map((event) => {
+    if (event.kind === 'request' && eventService(event) === 'firestore') {
+      const reqData = event.request?.resourceData;
+      const encReqData = reqData !== undefined ? (encodeUnescapedEventValue(reqData) as Record<string, unknown>) : undefined;
+      const beforeData = event.resourceBefore?.data;
+      const encBeforeData =
+        beforeData !== undefined && beforeData !== null
+          ? (encodeUnescapedEventValue(beforeData) as Record<string, unknown>)
+          : beforeData;
+      const afterData = event.resourceAfter?.data;
+      const encAfterData =
+        afterData !== undefined && afterData !== null
+          ? (encodeUnescapedEventValue(afterData) as Record<string, unknown>)
+          : afterData;
+      if (encReqData !== reqData || encBeforeData !== beforeData || encAfterData !== afterData) {
+        return {
+          ...event,
+          ...(event.request && encReqData !== reqData
+            ? { request: { ...event.request, resourceData: encReqData } }
+            : {}),
+          ...(event.resourceBefore && encBeforeData !== beforeData
+            ? { resourceBefore: { ...event.resourceBefore, data: encBeforeData ?? null } }
+            : {}),
+          ...(event.resourceAfter && encAfterData !== afterData
+            ? { resourceAfter: { ...event.resourceAfter, data: encAfterData ?? null } }
+            : {}),
+        };
+      }
+      return event;
+    }
+    if (event.kind === 'write' && eventService(event) === 'firestore') {
+      const encData =
+        event.data !== undefined ? (encodeUnescapedEventValue(event.data) as Record<string, unknown>) : undefined;
+      const encPrior =
+        event.priorState !== null ? (encodeUnescapedEventValue(event.priorState) as Record<string, unknown>) : null;
+      const encNext =
+        event.nextState !== null ? (encodeUnescapedEventValue(event.nextState) as Record<string, unknown>) : null;
+      if (encData !== event.data || encPrior !== event.priorState || encNext !== event.nextState) {
+        return {
+          ...event,
+          ...(encData !== undefined ? { data: encData } : {}),
+          priorState: encPrior,
+          nextState: encNext,
+        };
+      }
+      return event;
+    }
     if (event.kind !== 'operation' || event.detail === undefined) return event;
     const delivery = observedDeliveryOf(event);
     if (delivery === undefined) return event;
@@ -208,7 +292,24 @@ export function buildVerifyFixture(input: BuildVerifyFixtureInput): PyricVerifyF
     };
   }
 
-  const rtdbInstances = input.rtdbInstances ?? {};
+  const rawRtdbInstances = input.rtdbInstances ?? {};
+  const rtdbServiceSnap = (snapshot as { services?: Record<string, unknown> }).services?.rtdb;
+  const rtdbInstances: Record<string, VerifyRtdbInstanceCapture> = Object.fromEntries(
+    Object.entries(rawRtdbInstances).map(([name, inst]) => [
+      name,
+      {
+        ...inst,
+        state: {
+          tree: enrichRtdbTreeWithPriorities(
+            inst.state.tree,
+            isVerifyFixtureObject(rtdbServiceSnap) && isVerifyFixtureObject(rtdbServiceSnap.instances)
+              ? rtdbServiceSnap.instances[name]
+              : undefined,
+          ),
+        },
+      },
+    ]),
+  );
   const holdsInstances = Object.keys(rtdbInstances).length > 0;
   if (
     input.rtdbRules != null ||
@@ -216,12 +317,27 @@ export function buildVerifyFixture(input: BuildVerifyFixtureInput): PyricVerifyF
     holdsInstances ||
     events.some((event) => eventService(event) === 'rtdb')
   ) {
+    const defaultInstanceName = input.rtdbDatabaseUrl
+      ? resolveDatabaseInstance(input.rtdbDatabaseUrl)?.name
+      : undefined;
+    const defaultEnvelope =
+      defaultInstanceName !== undefined &&
+      isVerifyFixtureObject(rtdbServiceSnap) &&
+      isVerifyFixtureObject(rtdbServiceSnap.instances) &&
+      rtdbServiceSnap.instances[defaultInstanceName] !== undefined
+        ? rtdbServiceSnap.instances[defaultInstanceName]
+        : rtdbServiceSnap;
     services.rtdb = {
       rules: {
         format: 'rtdb.rules.json',
         json: input.rtdbRules ?? { rules: {} },
       },
-      state: { tree: input.rtdbState ?? null },
+      state: {
+        tree:
+          input.rtdbState === undefined
+            ? null
+            : enrichRtdbTreeWithPriorities(input.rtdbState, defaultEnvelope),
+      },
       ...(input.rtdbDatabaseUrl ? { databaseUrl: input.rtdbDatabaseUrl } : {}),
       ...(holdsInstances ? { instances: rtdbInstances } : {}),
     };
@@ -404,6 +520,29 @@ function eventService(event: SandboxEvent): EventService {
     return event.service as EventService;
   }
   return 'firestore';
+}
+
+function enrichRtdbTreeWithPriorities(tree: unknown, envelope: unknown): unknown {
+  if (tree === null || tree === undefined) return tree;
+  if (!isVerifyFixtureObject(envelope) || envelope['.pyricRtdbPersistence'] !== 1) return tree;
+  const rawPriorities = envelope.priorities;
+  if (!isVerifyFixtureObject(rawPriorities)) return tree;
+  const entries: Array<{ segments: string[]; priority: string | number }> = [];
+  for (const [path, priority] of Object.entries(rawPriorities)) {
+    if (typeof priority === 'string' || (typeof priority === 'number' && Number.isFinite(priority))) {
+      entries.push({ segments: path.split('/').filter(Boolean), priority });
+    }
+  }
+  if (entries.length === 0) return tree;
+  try {
+    if (inlinePriorities(tree).length > 0) return tree;
+  } catch {
+    return tree;
+  }
+  if (!jsonEqual(normalizeNode(tree), normalizeNode(envelope.data ?? null))) {
+    return tree;
+  }
+  return withPriorities(tree as never, entries);
 }
 
 function isVerifyFixtureObject(value: unknown): value is Record<string, unknown> {

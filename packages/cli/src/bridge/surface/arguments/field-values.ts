@@ -69,9 +69,19 @@ const DELETE_FIELD_PLACEMENT =
   '$deleteField removes a key from a document that already exists, so it is accepted by ' +
   'updateDoc and by a writeBatch entry of type update.';
 
-/** A plain object, as opposed to an array or a null. */
+const SENTINEL_REGISTRY_KEY = Symbol.for('pyric.firestore.field-value-sentinels');
+const UNESCAPED_MAP_TAG = Symbol.for('pyric.unescapedMap');
+
+function isRegisteredSentinel(value: object): boolean {
+  const store = (globalThis as { [SENTINEL_REGISTRY_KEY]?: WeakSet<object> })[SENTINEL_REGISTRY_KEY];
+  return store?.has(value) === true;
+}
+
+/** A plain object, as opposed to an array, class instance, or null. */
 function isPlainObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+  const proto = Object.getPrototypeOf(value);
+  return proto === Object.prototype || proto === null;
 }
 
 /** How this value reads back in a refusal. */
@@ -183,6 +193,7 @@ function walk(value: unknown, path: string, scope: FieldValueScope): FieldValueD
     return { ok: true, value: decoded };
   }
   if (!isPlainObject(value)) return { ok: true, value };
+  if (isRegisteredSentinel(value)) return { ok: true, value };
   if (isSpellingAttempt(value)) {
     return decodeSpelling(path, value, scope.deleteFieldAccepted, scope.method);
   }
@@ -190,7 +201,21 @@ function walk(value: unknown, path: string, scope: FieldValueScope): FieldValueD
   for (const [key, entry] of Object.entries(value)) {
     const one = walk(entry, `${path}.${key}`, scope);
     if (!one.ok) return one;
-    decoded[key] = one.value;
+    Object.defineProperty(decoded, key, {
+      value: one.value,
+      enumerable: true,
+      writable: true,
+      configurable: true,
+    });
+  }
+  if (
+    (value as Record<symbol, unknown>)[UNESCAPED_MAP_TAG] === true ||
+    Object.hasOwn(decoded, '__type') ||
+    Object.hasOwn(decoded, 'type') ||
+    Object.hasOwn(decoded, '__type__') ||
+    (Object.hasOwn(decoded, 'id') && Object.hasOwn(decoded, 'path'))
+  ) {
+    Object.defineProperty(decoded, UNESCAPED_MAP_TAG, { value: true });
   }
   return { ok: true, value: decoded };
 }

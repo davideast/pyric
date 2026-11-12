@@ -9,7 +9,7 @@
  * ruleset governs every bucket, as the sandbox does until a host deploys per
  * bucket.
  */
-import { DEFAULT_BUCKET, type CompiledStorageRules } from 'pyric/storage/internal';
+import { DEFAULT_BUCKET, rulesBucketName, type CompiledStorageRules } from 'pyric/storage/internal';
 import type { SandboxOperationEvent } from 'pyric/sandbox';
 
 type StorageRules = CompiledStorageRules['rules'];
@@ -30,7 +30,10 @@ export interface StorageCandidateRuleset {
 /** The bucket name an operation's rules saw, as its event recorded it; the store key for an event from before it was recorded. */
 export function recordedBucketName(opEvent: SandboxOperationEvent, bucket: string): string {
   const named = (opEvent.detail as { bucketName?: unknown } | undefined)?.bucketName;
-  return typeof named === 'string' && named !== '' ? named : bucket;
+  const normalizedBucket = rulesBucketName(bucket, bucket);
+  return typeof named === 'string' && named !== ''
+    ? rulesBucketName(normalizedBucket, named)
+    : normalizedBucket;
 }
 
 /** The rules a request on the bucket stored under `stored`, known as `name`, replays under. */

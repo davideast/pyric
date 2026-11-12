@@ -627,17 +627,55 @@ function incomingDocument(tc: TestCase): Record<string, unknown> | undefined {
 function containsServerTimestamp(value: unknown): boolean {
   if (value === null || typeof value !== 'object') return false;
   if (Array.isArray(value)) return value.some(containsServerTimestamp);
+  const unescapedTag = Symbol.for('pyric.unescapedMap');
+  const isUnescaped = (value as Record<symbol, unknown>)[unescapedTag] === true;
   const record = value as Record<string, unknown>;
   if (
-    record.__type === 'serverTimestamp'
-    || record._methodName === 'serverTimestamp'
-    || record._methodName === 'FieldValue.serverTimestamp'
+    !isUnescaped
+    && (
+      record.__type === 'serverTimestamp'
+      || record._methodName === 'serverTimestamp'
+      || record._methodName === 'FieldValue.serverTimestamp'
+    )
   ) {
     return true;
   }
   const proto = Object.getPrototypeOf(value);
   if (proto !== Object.prototype && proto !== null) return false;
   return Object.values(record).some(containsServerTimestamp);
+}
+
+function resolveWireServerTimestamps(value: unknown, serverTime: Timestamp): unknown {
+  if (Array.isArray(value)) return value.map((item) => resolveWireServerTimestamps(item, serverTime));
+  if (value === null || typeof value !== 'object') return value;
+  const unescapedTag = Symbol.for('pyric.unescapedMap');
+  const isUnescaped = (value as Record<symbol, unknown>)[unescapedTag] === true;
+  const record = value as Record<string, unknown>;
+  if (
+    !isUnescaped
+    && (
+      record.__type === 'serverTimestamp'
+      || record._methodName === 'serverTimestamp'
+      || record._methodName === 'FieldValue.serverTimestamp'
+    )
+  ) {
+    return serverTime;
+  }
+  const proto = Object.getPrototypeOf(value);
+  if (proto !== Object.prototype && proto !== null) return value;
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(record)) {
+    Object.defineProperty(out, k, {
+      value: resolveWireServerTimestamps(v, serverTime),
+      enumerable: true,
+      writable: true,
+      configurable: true,
+    });
+  }
+  if (isUnescaped) {
+    Object.defineProperty(out, unescapedTag, { value: true });
+  }
+  return out;
 }
 
 /**
@@ -674,7 +712,10 @@ export function buildApiTestCase(tc: TestCase, opts: BuildApiTestCaseOptions = {
         ? Timestamp.fromIsoString(tc.requestTime)
         : Timestamp.fromMillis(Date.now());
       request.resource = {
-        data: encodeWireDocument(resolveServerTimestamps(incoming, resolvedServerTime), 'data'),
+        data: encodeWireDocument(
+          resolveWireServerTimestamps(incoming, resolvedServerTime) as Record<string, unknown>,
+          'data',
+        ),
       };
     } else {
       request.resource = { data: encodeWireDocument(incoming, 'data') };

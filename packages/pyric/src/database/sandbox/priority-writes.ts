@@ -1,8 +1,6 @@
 import type { AuthState } from 'pyric/sandbox';
 import type { BackendState } from './backend-state.js';
 import type { ChildListeners } from './child-listeners.js';
-import type { JsonValue } from './data-tree.js';
-import { withPriorities } from './normalize.js';
 import { canonicalPath, denyResultFor, rtdbDenialContext } from './operation-events.js';
 import { validatePriority } from './priority-state.js';
 import type { Priority } from './query.js';
@@ -68,11 +66,12 @@ export class PriorityWrites {
 
   /** The write rules' decision on setting `path`'s priority, its value unchanged. */
   private evaluation(auth: AuthState, path: string, priority: Priority, now: number) {
-    const current = this.state.tree.read(path);
-    return this.state.rules.evaluate('write', path === '/' ? '/' : path, {
+    const canonical = canonicalPath(path);
+    const priorityPath = canonical === '/' ? '/.priority' : `${canonical}/.priority`;
+    return this.state.rules.evaluate('write', priorityPath, {
       auth,
       mockData: this.state.rulesSnapshot(),
-      newData: withPriorities(current as JsonValue, [{ segments: [], priority }, ...this.state.prioritiesBelow(path)]),
+      newData: priority,
       now,
     });
   }

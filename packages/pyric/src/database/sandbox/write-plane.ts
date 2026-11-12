@@ -218,8 +218,14 @@ export class WritePlane {
     return result;
   }
 
-  snapshotState(): JsonValue {
-    return this.state.tree.snapshot();
+  snapshotState(options?: { includePriorities?: boolean }): JsonValue {
+    const raw = this.state.tree.snapshot();
+    if (options?.includePriorities !== true) return raw;
+    const entries = [...this.state.priorities.entries()].map(([path, priority]) => ({
+      segments: pathSegments(path),
+      priority,
+    }));
+    return withPriorities(raw, entries);
   }
 
   adminGet(path: string): JsonValue {

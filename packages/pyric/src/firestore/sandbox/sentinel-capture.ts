@@ -23,6 +23,7 @@
  */
 
 import { registeredQueryValue } from './query-value-registry.js';
+import { isUnescapedUserMap } from './unescaped-map.js';
 
 export interface SentinelHit {
   /** Dotted path with bracket-array-indices. */
@@ -49,10 +50,12 @@ export function walkForSentinels(value: unknown, prefix = ''): SentinelHit[] {
       return;
     }
     const obj = v as Record<string, unknown>;
-    const kind = detect(obj);
-    if (kind) {
-      hits.push({ field: p, kind });
-      return;
+    if (!isUnescapedUserMap(v)) {
+      const kind = detect(obj);
+      if (kind) {
+        hits.push({ field: p, kind });
+        return;
+      }
     }
     for (const [k, child] of Object.entries(obj)) {
       const next = p ? `${p}.${k}` : k;

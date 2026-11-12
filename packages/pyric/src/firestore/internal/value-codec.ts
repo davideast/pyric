@@ -241,9 +241,18 @@ function rehydrateValue(value: unknown, registerRootIdentity: boolean, construct
     const fields = obj.fields;
     const hasInvalidMapFields = fields === null || typeof fields !== 'object' || Array.isArray(fields);
     if (hasInvalidMapFields) throw new TypeError('Invalid encoded map fields.');
-    const hydrated = Object.fromEntries(
-      Object.entries(fields).map(([key, item]) => [key, rehydrateValue(item, false, constructors, allowsEscapedMaps)]),
-    );
+    const hydrated: Record<string, unknown> = {};
+    for (const [key, item] of Object.entries(fields)) {
+      Object.defineProperty(hydrated, key, {
+        value: rehydrateValue(item, false, constructors, allowsEscapedMaps),
+        enumerable: true,
+        writable: true,
+        configurable: true,
+      });
+    }
+    if (constructors === rulesValues) {
+      Object.defineProperty(hydrated, Symbol.for('pyric.unescapedMap'), { value: true });
+    }
     return withActivityIdentity(hydrated);
   }
 

@@ -108,10 +108,21 @@ function patchProblem(c: RtdbCase): string | null {
  * send it. The case path is checked as `ref()` checks a path (capture
  * rtdb-modular-reference-shape-url, `referenceValidation.invalidRefPaths`).
  */
+function caseReferencePathProblem(c: RtdbCase, path: string): string | null {
+  const allowsTrailingPriority = c.operation === 'write' || c.operation === 'validate';
+  if (allowsTrailingPriority && /(?:^|\/)\.priority\/?$/.test(path)) {
+    const stripped = path.replace(/\/?\.priority\/?$/, '');
+    const ownerPath = stripped.length === 0 ? '/' : stripped;
+    const problem = thrownMessage(() => validateReferencePath(ownerPath, false));
+    return problem === null ? null : problem.replace(`= "${ownerPath}"`, `= "${path}"`);
+  }
+  return thrownMessage(() => validateReferencePath(path, false));
+}
+
 export function rtdbCaseProblem(c: RtdbCase): string | null {
   const path: unknown = c.path;
   if (typeof path !== 'string') return "a case needs 'path' to be a string, such as '/users/alice'.";
-  return thrownMessage(() => validateReferencePath(path, false))
+  return caseReferencePathProblem(c, path)
     ?? writableProblem(c)
     ?? queryProblem(c)
     ?? updatesProblem(c)

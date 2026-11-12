@@ -57,7 +57,7 @@ export class RtdbBackend {
   setRules(rules: { rules: Record<string, unknown> } | null): void { this.writes.setRules(rules); }
   setDefaultPolicy(policy: 'allow' | 'deny'): void { this.writes.setDefaultPolicy(policy); }
   getActiveRules(): { rules: Record<string, unknown> } | null { return this.writes.getActiveRules(); }
-  snapshotState(): JsonValue { return this.writes.snapshotState(); }
+  snapshotState(options?: { includePriorities?: boolean }): JsonValue { return this.writes.snapshotState(options); }
 
   adminGet(path: string): JsonValue { return this.writes.adminGet(path); }
   adminGetQuery(path: string, spec: QuerySpec): QueryRow[] { return this.writes.adminGetQuery(path, spec); }

@@ -17,6 +17,7 @@ import { describe, expect, it } from 'bun:test';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { serverTimestamp } from 'pyric/firestore';
 import { initializeSandbox } from 'pyric/sandbox';
 import { setRules } from 'pyric/sandbox/firestore';
 
@@ -415,5 +416,36 @@ describe('the Realtime Database server timestamp is Firebase\'s own wire form', 
     const got = await call(ctx, 'database.get', { path: 'rooms/lobby' });
     expect((got.data as { value: { audit: { at: number } } }).value.audit.at)
       .toBe(Date.parse(PINNED));
+  });
+});
+
+describe('SDK sentinels and literal marker-shaped maps stay distinct', () => {
+  it('resolves serverTimestamp() and $serverTimestamp while storing literal { __type } maps unchanged', async () => {
+    const ctx = freshContext();
+    await call(ctx, 'sandbox.setClock', { isoTime: PINNED });
+
+    const written = await call(ctx, 'firestore.setDoc', {
+      path: 'items/i1',
+      data: {
+        sdkAt: serverTimestamp(),
+        jsonAt: { $serverTimestamp: true },
+        payload: { __type: 'serverTimestamp' },
+      },
+    });
+    expect(written.ok).toBe(true);
+
+    const got = await call(ctx, 'firestore.getDoc', { path: 'items/i1' });
+    const docData = (
+      got.data as {
+        data: {
+          sdkAt: { seconds: number };
+          jsonAt: { seconds: number };
+          payload: Record<string, unknown>;
+        };
+      }
+    ).data;
+    expect(docData.sdkAt.seconds).toBe(Date.parse(PINNED) / 1000);
+    expect(docData.jsonAt.seconds).toBe(Date.parse(PINNED) / 1000);
+    expect(docData.payload).toEqual({ __type: 'serverTimestamp' });
   });
 });
