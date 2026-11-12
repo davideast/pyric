@@ -85,6 +85,29 @@ if (errors.length > 0) process.exit(1);
 ```
 A hallucinated method is always an error, because the named method literally does not exist. Blocking on it is never a false alarm.
 
+## Simulate and lint Cloud Storage rules
+
+`storageRules` takes the text of `storage.rules`. A case names the rules verb, the bucket and the object's path within it, and gives `request.auth`, `request.resource` and `resource` as the rules read them:
+```ts
+import { storageRules } from 'pyric/rules';
+
+const rules = storageRules(source, { bucket: 'demo-app.appspot.com' });
+
+const result = rules.simulate([
+  {
+    description: 'alice uploads her avatar',
+    expectation: 'ALLOW',
+    method: 'create',
+    path: 'avatars/alice/me.png',
+    auth: { uid: 'alice' },
+    requestResource: { size: 2048, contentType: 'image/png' },
+  },
+]);
+```
+The method is one of `read`, `get`, `list`, `create`, `update` or `delete`. An upload is a `create`, even over an existing object, and a metadata update is an `update`. `{bucket}` in `match /b/{bucket}/o` binds to the case's `bucket`, or to the `bucket` option when the case names none. When the rules call `firestore.get()` or `firestore.exists()`, pass the documents they read as `firestore`, keyed by path, such as `{ 'shares/a.txt': { open: true } }`.
+
+Each result has a `decision`, the `decidingRule` with its line, and `reasons` for a denial. `rules.explain(oneCase)` returns the same account for one case, and `rules.lint()` returns the issues `lint(source)` finds. Source that does not compile throws a `RulesCompileError`.
+
 ## Simulate and lint Realtime Database rules
 
 Realtime Database rules use the same two steps with a different entry point. `rtdbRules` accepts the text of `database.rules.json`, its `{ rules }` JSON, or a ruleset you wrote in TypeScript. See [write Realtime Database rules in TypeScript](./rtdb-rules-in-typescript.md) for the authoring side.
