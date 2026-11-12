@@ -229,9 +229,14 @@ const built: string[] = [];
 for (const t of selected) {
   const outfile = join(OUT, t.name);
   process.stdout.write(`▸ compiling ${t.name} (${t.target})…\n`);
+  // --compile-autoload-package-json: without it the executable reads no
+  // package.json at run time, so a module it loads from disk (a project's
+  // database.rules.ts) resolves packages by directory index only, and
+  // pyric's `import '@pyric/rules'` finds nothing behind the exports map
+  // (#1521).
   const r = spawnSync(
     bun,
-    ['build', entry, rtdbWorkerEntry, '--compile', `--target=${t.target}`, `--outfile=${outfile}`],
+    ['build', entry, rtdbWorkerEntry, '--compile', '--compile-autoload-package-json', `--target=${t.target}`, `--outfile=${outfile}`],
     { stdio: ['ignore', 'inherit', 'inherit'], cwd: PKG_ROOT },
   );
   if (r.status !== 0) die(`bun build --compile failed for ${t.target} (exit ${r.status})`);
