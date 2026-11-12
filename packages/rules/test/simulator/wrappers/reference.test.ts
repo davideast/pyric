@@ -164,4 +164,75 @@ describe('Reference path parity in Firestore rules', () => {
 
     expect(report.cases.map((c) => c.decision)).toEqual(['ALLOW', 'ALLOW', 'DENY']);
   });
+
+  test('supports full rules.Path operations: get, exists, getAfter, existsAfter, segment index, string(), path interpolation, and bind()', () => {
+    const rules = firestoreRules(`
+      rules_version = '2';
+      service cloud.firestore {
+        match /databases/{database}/documents {
+          match /items/{id} {
+            allow get: if get(resource.data.orgRef).data.ownerId == request.auth.uid
+              && exists(resource.data.orgRef)
+              && resource.data.orgRef[0] == 'databases'
+              && resource.data.orgRef[1] == '(default)'
+              && resource.data.orgRef[3] == 'orgs'
+              && resource.data.orgRef[4] == 'org-1'
+              && string(resource.data.orgRef) == '/databases/(default)/documents/orgs/org-1'
+              && /$(resource.data.orgRef) == /databases/(default)/documents/orgs/org-1
+              && resource.data.orgRef.bind({}) == /databases/(default)/documents/orgs/org-1;
+            allow create: if existsAfter(request.resource.data.selfRef)
+              && getAfter(request.resource.data.selfRef).data.ownerId == request.auth.uid;
+          }
+        }
+      }
+    `);
+
+    const report = rules.simulate([
+      {
+        description: 'get, exists, indexing, string(), interpolation, and bind() on Reference',
+        expectation: 'ALLOW',
+        method: 'get',
+        path: 'items/i1',
+        auth: { uid: 'u1' },
+        resource: { orgRef: reference('orgs/org-1') },
+        functionMocks: [
+          { function: 'get', path: 'orgs/org-1', result: { ownerId: 'u1' } },
+          { function: 'exists', path: 'orgs/org-1', result: true },
+        ],
+      },
+      {
+        description: 'getAfter and existsAfter on Reference',
+        expectation: 'ALLOW',
+        method: 'create',
+        path: 'items/i2',
+        auth: { uid: 'u1' },
+        data: { ownerId: 'u1', selfRef: reference('items/i2') },
+      },
+    ]);
+
+    expect(report.cases[0]?.decision).toBe('ALLOW');
+    expect(report.cases[1]?.decision).toBe('ALLOW');
+
+    const oobRules = firestoreRules(`
+      rules_version = '2';
+      service cloud.firestore {
+        match /databases/{database}/documents {
+          match /items/{id} {
+            allow get: if resource.data.orgRef[99] == 'orgs';
+          }
+        }
+      }
+    `);
+    const oobReport = oobRules.simulate([
+      {
+        description: 'out-of-bounds index on Reference',
+        expectation: 'DENY',
+        method: 'get',
+        path: 'items/i1',
+        auth: { uid: 'u1' },
+        resource: { orgRef: reference('orgs/org-1') },
+      },
+    ]);
+    expect(oobReport.cases[0]?.decision).toBe('DENY');
+  });
 });

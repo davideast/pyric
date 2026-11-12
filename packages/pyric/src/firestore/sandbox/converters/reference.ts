@@ -28,7 +28,7 @@
  */
 import { KEEP, type ValueConverter } from '../value-resolver.js';
 import { Reference } from 'pyric/rules/internal';
-import { registeredReferenceQueryValuePath } from '../query-value-registry.js';
+import { registeredReferenceQueryValue } from '../query-value-registry.js';
 
 /** Minimal duck-type for admin SDK DocumentReference. */
 interface AdminDocumentReferenceLike {
@@ -36,6 +36,7 @@ interface AdminDocumentReferenceLike {
   readonly id: string;
   readonly _path: unknown;
   readonly _firestore: unknown;
+  readonly formattedName?: unknown;
 }
 
 function isAdminDocumentReference(v: unknown): v is AdminDocumentReferenceLike {
@@ -51,14 +52,31 @@ function isAdminDocumentReference(v: unknown): v is AdminDocumentReferenceLike {
   );
 }
 
+function extractAdminDatabaseId(ref: AdminDocumentReferenceLike): string | undefined {
+  if (typeof ref.formattedName === 'string' && ref.formattedName.length > 0) {
+    return new Reference(ref.formattedName).databaseId;
+  }
+  const fs = ref._firestore as Record<string, unknown> | null | undefined;
+  if (fs && typeof fs === 'object') {
+    if (typeof fs.databaseId === 'string' && fs.databaseId.length > 0) {
+      return fs.databaseId;
+    }
+    const inner = fs._databaseId as Record<string, unknown> | null | undefined;
+    if (inner && typeof inner === 'object' && typeof inner.database === 'string' && inner.database.length > 0) {
+      return inner.database;
+    }
+  }
+  return undefined;
+}
+
 export const documentReferenceConverter: ValueConverter = {
   name: 'document-reference',
   convert(value) {
     if (typeof value === 'object' && value !== null) {
-      const registeredPath = registeredReferenceQueryValuePath(value);
-      if (registeredPath !== undefined) return new Reference(registeredPath);
+      const registered = registeredReferenceQueryValue(value);
+      if (registered !== undefined) return new Reference(registered.path, registered.databaseId);
     }
     if (!isAdminDocumentReference(value)) return KEEP;
-    return new Reference(value.path);
+    return new Reference(value.path, extractAdminDatabaseId(value));
   },
 };

@@ -1,6 +1,7 @@
 import { describeRulesType } from './rules-type.js';
 import { RulesValue } from './wrappers/base.js';
 import { formatRulesFloat, RulesFloat } from './wrappers/float.js';
+import { Reference } from './wrappers/reference.js';
 import { inInt64, rulesFloatValue, rulesInt, rulesNumberAsDouble, truncateToInt } from './rules-int.js';
 
 /**
@@ -110,6 +111,7 @@ const STRING: Conversion = {
     if (value === null) return 'null';
     // Both evaluators' path values print as `/seg/seg`.
     if (value instanceof RulesValue && value.typeName === 'path') return value.toString();
+    if (value instanceof Reference) return value.toPath().toString();
     return unsupported('string', value, this.overloads);
   },
 };

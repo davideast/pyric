@@ -2,8 +2,9 @@ import { z } from 'zod';
 import type { ExprTraceEntry } from '../simulator/evaluator.js';
 import type { ListQueryProofReport } from '../simulator/list-query-proof.js';
 import { documentRelativePath } from '../simulator/request-path.js';
-import { resolveServerTimestamps } from '../simulator/firestore-values.js';
+import { resolveServerTimestamps, reviveFirestoreNumbers } from '../simulator/firestore-values.js';
 import { projectAfterState } from '../simulator/project-after-state.js';
+import { RulesValue } from '../simulator/wrappers/base.js';
 import { Timestamp } from '../simulator/wrappers/timestamp.js';
 import { normalizeAuthState } from '../auth/auth-state.js';
 import { createResourceRefusal, isIsoInstant, ISO_INSTANT_FORM, requestTimeRefusal } from './case-refusals.js';
@@ -77,7 +78,33 @@ export const WriteModeSchema = z.discriminatedUnion('kind', [
 
 export type WriteMode = z.infer<typeof WriteModeSchema>;
 
-const ListQueryScalarSchema = z.union([z.string(), z.number(), z.boolean(), z.null()]);
+export type SerializedListQueryWrapper =
+  | { readonly __type: 'reference'; readonly path: string; readonly databaseId?: string }
+  | { readonly __type: 'path'; readonly segments: readonly string[] }
+  | { readonly __type: 'timestamp'; readonly seconds: number; readonly nanos: number }
+  | { readonly __type: 'bytes'; readonly base64: string }
+  | { readonly __type: 'latlng'; readonly lat: number; readonly lng: number }
+  | { readonly __type: 'duration'; readonly seconds: number; readonly nanos: number }
+  | { readonly __type: 'float'; readonly value: number };
+
+const ListQueryWrapperSchema = z.custom<SerializedListQueryWrapper>((val) => {
+  if (val instanceof RulesValue) return true;
+  if (val !== null && typeof val === 'object' && !Array.isArray(val)) {
+    const rec = val as Record<string, unknown>;
+    if (typeof rec.__type === 'string') {
+      return reviveFirestoreNumbers(rec) instanceof RulesValue;
+    }
+  }
+  return false;
+});
+
+const ListQueryScalarSchema = z.union([
+  z.string(),
+  z.number(),
+  z.boolean(),
+  z.null(),
+  ListQueryWrapperSchema,
+]);
 
 export const ListQueryWhereConstraintSchema = z.object({
   field: z.string(),

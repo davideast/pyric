@@ -18,7 +18,9 @@
  */
 import {
   checkRulesSource,
+  parseToAST,
   readAuthoredSourceMap,
+  resolveModulesBrowser,
   type AuthoredSourceMap,
   type FirestoreRules,
 } from 'pyric/rules/internal';
@@ -31,6 +33,16 @@ import type { RulesEvidence } from '../../sandbox/types/rules-evidence.js';
 function rulesVersion(): string {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') return crypto.randomUUID();
   return `rules-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+}
+
+const MODULAR_RULES_VERSION_RE = /rules_version\s*=\s*['"]2\+modules['"]/;
+
+function lowerModularFirestoreRules(source: string): string {
+  if (!MODULAR_RULES_VERSION_RE.test(source)) return source;
+  const ast = parseToAST(source);
+  if (!ast || ast.version !== '2+modules') return source;
+  const resolved = resolveModulesBrowser(source, { targetService: 'cloud.firestore' });
+  return resolved.success ? resolved.data.resolved : source;
 }
 
 export class RulesState {
@@ -59,7 +71,7 @@ export class RulesState {
   private sourceMapCache: { source: string; sourceMap: AuthoredSourceMap } | null = null;
 
   constructor(initialSource: string) {
-    this.currentSource = initialSource;
+    this.currentSource = lowerModularFirestoreRules(initialSource);
   }
 
   /** The currently deployed rules source. */
@@ -74,8 +86,9 @@ export class RulesState {
    * cached AST warm.
    */
   set(source: string): void {
-    if (this.currentSource !== source) this.version = rulesVersion();
-    this.currentSource = source;
+    const lowered = lowerModularFirestoreRules(source);
+    if (this.currentSource !== lowered) this.version = rulesVersion();
+    this.currentSource = lowered;
   }
 
   /**

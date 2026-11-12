@@ -66,6 +66,13 @@ export function normalizeRe2ForJsRegExp(source: string): string {
       continue;
     }
     if (inClass) {
+      const posix = re2PosixClassAt(source, i);
+      if (posix !== null) {
+        out += source.slice(i, i + posix.length);
+        i += posix.length;
+        classStart = false;
+        continue;
+      }
       if (ch === ']' && classStart) {
         out += '\\]';
         i++;
@@ -152,6 +159,12 @@ export function spellRe2SpaceClasses(source: string, unicode: boolean): string {
       i += 2;
       continue;
     }
+    const posix = inClass ? re2PosixClassAt(source, i) : null;
+    if (posix !== null) {
+      out += source.slice(i, i + posix.length);
+      i += posix.length;
+      continue;
+    }
     if (ch === '[') inClass = true;
     else if (ch === ']') inClass = false;
     out += ch;
@@ -208,6 +221,12 @@ export function scanRe2Pattern(pattern: string): {
       continue;
     }
     if (inClass) {
+      const posix = re2PosixClassAt(pattern, i);
+      if (posix !== null) {
+        i += posix.length;
+        classStart = false;
+        continue;
+      }
       if (ch === ']' && !classStart) {
         inClass = false;
       }

@@ -75,7 +75,11 @@ export interface IndexablePath {
 }
 
 function isPath(value: unknown): value is RulesValue & IndexablePath {
-  return value instanceof RulesValue && value.typeName === 'path';
+  return (
+    value instanceof RulesValue &&
+    (value.typeName === 'path' || value.typeName === 'reference') &&
+    Array.isArray((value as Partial<IndexablePath>).segments)
+  );
 }
 
 /** Production's error for indexing a value that has no index operator, such as a duration. */

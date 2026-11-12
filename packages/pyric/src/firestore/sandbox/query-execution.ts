@@ -1,5 +1,18 @@
 import type { QueryWhereFilterOp } from './query-operators.js';
+import {
+  Bytes as RulesBytes,
+  Duration as RulesDuration,
+  LatLng as RulesLatLng,
+  Path as RulesPath,
+  Reference as RulesReference,
+  Timestamp as RulesTimestamp,
+  type RulesScalar,
+} from 'pyric/rules/internal';
 import { activityValue } from './activity-query-value.js';
+import {
+  registeredQueryValue,
+  registeredReferenceQueryValue,
+} from './query-value-registry.js';
 import { fieldPathKeySegments } from './update-fields.js';
 import { isPlainObject } from './value-resolver.js';
 import { topK } from './topk.js';
@@ -181,6 +194,173 @@ function assertQueryDisjunctionLimits(filters: readonly QueryFilter[]): void {
   }
 }
 
+function toProofScalarOperand(value: unknown): RulesScalar | undefined {
+  if (
+    value === null ||
+    typeof value === 'string' ||
+    typeof value === 'boolean' ||
+    (typeof value === 'number' && Number.isFinite(value))
+  ) {
+    return value;
+  }
+  if (typeof value !== 'object') return undefined;
+
+  const regRef = registeredReferenceQueryValue(value);
+  if (regRef !== undefined) {
+    return new RulesReference(regRef.path, regRef.databaseId);
+  }
+  const regVal = registeredQueryValue(value);
+  if (typeof regVal === 'object' && regVal !== null) {
+    const snap = regVal as Record<string, unknown>;
+    if (
+      snap.type === 'timestamp' &&
+      typeof snap.seconds === 'number' &&
+      typeof snap.nanoseconds === 'number'
+    ) {
+      const micros = Math.floor(snap.nanoseconds / 1_000) * 1_000;
+      return new RulesTimestamp(snap.seconds, micros);
+    }
+    if (snap.type === 'bytes' && Array.isArray(snap.values)) {
+      return new RulesBytes(new Uint8Array(snap.values as number[]));
+    }
+    if (
+      snap.type === 'geo-point' &&
+      typeof snap.latitude === 'number' &&
+      typeof snap.longitude === 'number'
+    ) {
+      return new RulesLatLng(snap.latitude, snap.longitude);
+    }
+  }
+  if (ArrayBuffer.isView(value)) {
+    if (value instanceof Uint8Array) {
+      return new RulesBytes(Uint8Array.prototype.slice.call(value));
+    }
+    return undefined;
+  }
+  try {
+    const ms = Date.prototype.getTime.call(value);
+    return Number.isFinite(ms) ? RulesTimestamp.fromMillis(ms) : undefined;
+  } catch {
+    // Not a Date instance (checked via internal [[DateValue]] slot without invoking property traps).
+  }
+  try {
+    if (
+      value instanceof RulesReference ||
+      value instanceof RulesPath ||
+      value instanceof RulesTimestamp ||
+      value instanceof RulesBytes ||
+      value instanceof RulesLatLng ||
+      value instanceof RulesDuration
+    ) {
+      return value;
+    }
+  } catch {
+    return undefined;
+  }
+  return undefined;
+}
+
+function toProofWhereConstraint(
+  filter: Extract<QueryFilter, { kind: 'where' }>,
+): QueryWhereConstraint | undefined {
+  // `__name__` constrains document identity during execution; it never
+  // proves a predicate on a user data field with the same spelling.
+  // Escaped literal-dot field paths (`fieldPathKey`) address literal keys
+  // rather than nested map paths, so skip conservative map-rule proof.
+  if (filter.field === KEY_FIELD || filter.field.includes('`')) return undefined;
+  const raw = filter.value;
+  if (filter.op === 'in' && Array.isArray(raw) && raw.length > 0 && raw.length <= 30) {
+    const mapped: RulesScalar[] = [];
+    for (const item of raw) {
+      const converted = toProofScalarOperand(item);
+      if (converted === undefined) return undefined;
+      mapped.push(converted);
+    }
+    return Object.freeze({
+      field: filter.field,
+      op: filter.op,
+      value: Object.freeze(mapped),
+    });
+  }
+  // Keep raw numeric `NaN` / `Infinity` behavior identical to legacy check for `where(..., op, number)`
+  if (typeof raw === 'number') {
+    return Object.freeze({ field: filter.field, op: filter.op, value: raw });
+  }
+  const scalar = toProofScalarOperand(raw);
+  if (scalar !== undefined) {
+    return Object.freeze({
+      field: filter.field,
+      op: filter.op,
+      value: scalar,
+    });
+  }
+  return undefined;
+}
+
+function buildProofOrderBy(
+  orders: readonly QueryOrderClause[],
+): Readonly<Record<string, 'ASC' | 'DESC'>> | null {
+  if (orders.length === 0) return null;
+  const orderMap: Record<string, 'ASC' | 'DESC'> = {};
+  for (const order of orders) {
+    orderMap[order.field] = order.direction === 'desc' ? 'DESC' : 'ASC';
+  }
+  return Object.freeze(orderMap);
+}
+
+type WhereFilterLeaf = Extract<QueryFilter, { kind: 'where' }>;
+
+function expandFilterConjunctions(filter: QueryFilter): WhereFilterLeaf[][] {
+  if (filter.kind === 'where') return [[filter]];
+  if (filter.kind === 'and') {
+    let arms: WhereFilterLeaf[][] = [[]];
+    for (const child of filter.filters) {
+      const childArms = expandFilterConjunctions(child);
+      arms = arms.flatMap((arm) => childArms.map((sub) => [...arm, ...sub]));
+    }
+    return arms;
+  }
+  if (filter.filters.length === 0) return [[]];
+  return filter.filters.flatMap(expandFilterConjunctions);
+}
+
+/**
+ * Expand `execution.filters` into disjunctive normal form (DNF) conjunction arms
+ * for list-query authorization. Every returned arm must independently pass
+ * `proveListQuery` and residual simulation.
+ */
+export function queryConstraintArmsForProof(
+  execution: QueryExecutionSpec,
+): readonly QueryConstraints[] {
+  let conjunctionArms: WhereFilterLeaf[][] = [[]];
+  for (const filter of execution.filters) {
+    const filterArms = expandFilterConjunctions(filter);
+    conjunctionArms = conjunctionArms.flatMap((arm) =>
+      filterArms.map((sub) => [...arm, ...sub]),
+    );
+    if (conjunctionArms.length > 30) {
+      return Object.freeze([queryConstraintsForProof(execution)]);
+    }
+  }
+  const orderBy = buildProofOrderBy(execution.orders);
+  const limit = execution.limitCount ?? null;
+  return Object.freeze(
+    conjunctionArms.map((armFilters) => {
+      const where: QueryWhereConstraint[] = [];
+      for (const leaf of armFilters) {
+        const projected = toProofWhereConstraint(leaf);
+        if (projected !== undefined) where.push(projected);
+      }
+      return Object.freeze({
+        where: Object.freeze(where),
+        limit,
+        offset: null,
+        orderBy,
+      });
+    }),
+  );
+}
+
 /** Derive the conservative rules-proof projection from the executable plan.
  * Keeping this derivation beside execution prevents authorization from ever
  * proving a different query than the engine subsequently runs. */
@@ -188,44 +368,19 @@ export function queryConstraintsForProof(execution: QueryExecutionSpec): QueryCo
   const where: QueryWhereConstraint[] = [];
   const visit = (filter: QueryFilter): void => {
     if (filter.kind === 'where') {
-      // `__name__` constrains document identity during execution; it never
-      // proves a predicate on a user data field with the same spelling.
-      // Escaped literal-dot field paths (`fieldPathKey`) address literal keys
-      // rather than nested map paths, so skip conservative map-rule proof.
-      if (filter.field === KEY_FIELD || filter.field.includes('`')) return;
-      const value = filter.value;
-      if (
-        value === null || typeof value === 'string' ||
-        typeof value === 'number' || typeof value === 'boolean' ||
-        (filter.op === 'in' && Array.isArray(value) && value.length > 0 && value.length <= 30 && value.every(item =>
-          item === null || typeof item === 'string' || typeof item === 'boolean' ||
-          (typeof item === 'number' && Number.isFinite(item))))
-      ) {
-        where.push(Object.freeze({
-          field: filter.field,
-          op: filter.op,
-          value: Array.isArray(value) ? Object.freeze([...value]) : value,
-        }));
-      }
+      const projected = toProofWhereConstraint(filter);
+      if (projected !== undefined) where.push(projected);
       return;
     }
     if (filter.kind === 'and') filter.filters.forEach(visit);
     // OR branches guarantee no individual predicate for every result.
   };
   execution.filters.forEach(visit);
-  let orderBy: Readonly<Record<string, 'ASC' | 'DESC'>> | null = null;
-  if (execution.orders.length > 0) {
-    const orderMap: Record<string, 'ASC' | 'DESC'> = {};
-    for (const order of execution.orders) {
-      orderMap[order.field] = order.direction === 'desc' ? 'DESC' : 'ASC';
-    }
-    orderBy = Object.freeze(orderMap);
-  }
   return Object.freeze({
     where: Object.freeze(where),
     limit: execution.limitCount ?? null,
     offset: null,
-    orderBy,
+    orderBy: buildProofOrderBy(execution.orders),
   });
 }
 

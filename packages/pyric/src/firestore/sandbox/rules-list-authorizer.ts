@@ -1,11 +1,27 @@
-import { queryExecutionDiagnostic, type QueryExecutionSpec } from './query-execution.js';
-import type { EvaluatedRuleInfo } from 'pyric/rules/internal';
-import type { QueryProofDiagnostic } from '../../sandbox/types/query-proof.js';
+import {
+  queryConstraintArmsForProof,
+  queryExecutionDiagnostic,
+  type QueryExecutionSpec,
+} from './query-execution.js';
 import type {
+  EvaluatedRuleInfo,
+  FirestoreRules,
+  ListBlockStep,
+  MatchBlock,
   SimulateFirestoreRulesHandler,
   TestCase,
 } from 'pyric/rules/internal';
-import { projectEvaluatedRule,renderLegacyDebugMessages, Timestamp } from 'pyric/rules/internal';
+import type { QueryProofDiagnostic } from '../../sandbox/types/query-proof.js';
+import {
+  attachOrBudgetStep,
+  getListBlockSteps,
+  getOrBudgetSteps,
+  projectEvaluatedRule,
+  renderLegacyDebugMessages,
+  setListBlockSteps,
+  Timestamp,
+  topLevelMatches,
+} from 'pyric/rules/internal';
 import { proveCollectionGroupRules } from './collection-group-rule-proof.js';
 import type { FirestoreEventBus } from './event-bus.js';
 import { makeError, type FirestoreSimError, type QueryDenialDescriptor } from './errors.js';
@@ -132,85 +148,119 @@ export class RulesListAuthorizer {
     }
 
     const placeholderPath = `${path}/__listPlaceholder__`;
+    const constraintArms = request.execution
+      ? queryConstraintArmsForProof(request.execution)
+      : [constraints];
     const evalStart = performance.now();
-    const proof = proveListQuery(evaluationAst, placeholderPath, auth, constraints, this.rules.source);
-    const isUnprovable = proof.kind === 'unprovable';
-    if (isUnprovable) {
-      return this.denyQuery(request, proof, evalAt, performance.now() - evalStart, detail);
-    }
-
-    // The residual runs on the proof's projected AST (or the collection-group
-    // projection) directly. Rule locations in that AST are the deployed
-    // source's, so the deployed source map resolves them to authored ones.
-    const residualAst = proof.kind === 'provable' ? proof.evaluationAst : evaluationAst;
-
-    const testCase = buildRulesTestCase(
-      this.host.state,
-      { method: 'list', path: placeholderPath, auth },
-      requestTime!,
-    );
-    this.applyProof(testCase, proof, constraints);
     const getDoc = (documentPath: string) => this.host.state.get(documentPath);
-    const simulation = residualAst
-      ? this.simulator.simulateParsed(residualAst, this.rules.source, [testCase], {
-        getDoc,
-        sourceMap: this.rules.sourceMap(),
-        skipQueryProof: true,
-      })
-      : this.simulator.simulate(this.rules.source, [testCase], { getDoc });
-    const evalMs = performance.now() - evalStart;
-    if (!simulation.success) {
-      this.emitRequest({
-        at: evalAt,
-        evalMs,
-        method: 'list',
-        path,
-        auth,
-        result: 'deny',
-        debugMessages: [`Simulation error: ${simulation.error.message}`],
-        origin,
-        ...(detail ? { detail } : {}),
-        ...(triggeredBy ? { triggeredBy } : {}),
-      });
-      return {
-        allowed: false,
-        error: makeError('permission-denied', `list ${path} simulator error`, {
-          request: { method: 'list', path, auth },
-        }),
-      };
-    }
 
-    const result = simulation.data.results[0]!;
-    const rulesEvidence = this.rules.captureEvidence(result, 'query-residual');
-    const debugMessages = renderLegacyDebugMessages(result);
-    if (result.state === 'UNSUPPORTED') {
-      this.emitRequest({
-        at: evalAt,
-        evalMs,
-        method: 'list',
-        path,
+    let lastRulesEvidence: EmitRequestInput['rulesEvidence'];
+    let lastDebugMessages: string[] = [];
+    let lastEvaluatedRule: EvaluatedRuleInfo | undefined;
+
+    for (const armConstraints of constraintArms) {
+      const proof = proveListQuery(
+        evaluationAst,
+        placeholderPath,
         auth,
-        result: 'unsupported',
-        rulesEvidence,
-        debugMessages,
-        origin,
-        ...(detail ? { detail } : {}),
-        ...(triggeredBy ? { triggeredBy } : {}),
-      });
-      throw new SimulatorUnsupportedError(
-        unsupportedMessage('list', path, debugMessages),
-        'list',
-        path,
-        debugMessages,
+        armConstraints,
+        this.rules.source,
       );
+      if (proof.kind === 'unprovable') {
+        return this.denyQuery(
+          { ...request, constraints: armConstraints },
+          proof,
+          evalAt,
+          performance.now() - evalStart,
+          detail,
+        );
+      }
+
+      // The residual runs on the proof's projected AST (or the collection-group
+      // projection) directly. Rule locations in that AST are the deployed
+      // source's, so the deployed source map resolves them to authored ones.
+      const residualAst = proof.kind === 'provable' ? proof.evaluationAst : evaluationAst;
+      if (evaluationAst && residualAst && residualAst !== evaluationAst) {
+        preserveBlockAndConditionBudgets(evaluationAst, residualAst);
+      }
+
+      const testCase = buildRulesTestCase(
+        this.host.state,
+        { method: 'list', path: placeholderPath, auth },
+        requestTime!,
+      );
+      this.applyProof(testCase, proof, armConstraints);
+      const simulation = residualAst
+        ? this.simulator.simulateParsed(residualAst, this.rules.source, [testCase], {
+          getDoc,
+          sourceMap: this.rules.sourceMap(),
+          skipQueryProof: true,
+        })
+        : this.simulator.simulate(this.rules.source, [testCase], { getDoc });
+      const evalMs = performance.now() - evalStart;
+      if (!simulation.success) {
+        this.emitRequest({
+          at: evalAt,
+          evalMs,
+          method: 'list',
+          path,
+          auth,
+          result: 'deny',
+          debugMessages: [`Simulation error: ${simulation.error.message}`],
+          origin,
+          ...(detail ? { detail } : {}),
+          ...(triggeredBy ? { triggeredBy } : {}),
+        });
+        return {
+          allowed: false,
+          error: makeError('permission-denied', `list ${path} simulator error`, {
+            request: { method: 'list', path, auth },
+          }),
+        };
+      }
+
+      const result = simulation.data.results[0]!;
+      const rulesEvidence = this.rules.captureEvidence(result, 'query-residual');
+      const debugMessages = renderLegacyDebugMessages(result);
+      if (result.state === 'UNSUPPORTED') {
+        this.emitRequest({
+          at: evalAt,
+          evalMs,
+          method: 'list',
+          path,
+          auth,
+          result: 'unsupported',
+          rulesEvidence,
+          debugMessages,
+          origin,
+          ...(detail ? { detail } : {}),
+          ...(triggeredBy ? { triggeredBy } : {}),
+        });
+        throw new SimulatorUnsupportedError(
+          unsupportedMessage('list', path, debugMessages),
+          'list',
+          path,
+          debugMessages,
+        );
+      }
+
+      if (result.state !== 'PASSED') {
+        return this.denyQuery(
+          { ...request, constraints: armConstraints },
+          proof,
+          evalAt,
+          evalMs,
+          detail,
+          { reasons: debugMessages, rule: projectEvaluatedRule(result), evidence: rulesEvidence },
+        );
+      }
+
+      lastRulesEvidence = rulesEvidence;
+      lastDebugMessages = debugMessages;
+      lastEvaluatedRule = projectEvaluatedRule(result);
     }
 
-    const isNotPassed = result.state !== 'PASSED';
-    if (isNotPassed) {
-      return this.denyQuery(request, proof, evalAt, evalMs, detail,
-         { reasons: debugMessages, rule: projectEvaluatedRule(result), evidence: rulesEvidence });
-    }
-
+    const evalMs = performance.now() - evalStart;
     this.emitRequest({
       at: evalAt,
       evalMs,
@@ -218,9 +268,9 @@ export class RulesListAuthorizer {
       path,
       auth,
       result: 'allow',
-      debugMessages,
-      evaluatedRule: projectEvaluatedRule(result),
-      rulesEvidence,
+      debugMessages: lastDebugMessages,
+      evaluatedRule: lastEvaluatedRule,
+      rulesEvidence: lastRulesEvidence,
       origin,
       ...(detail ? { detail } : {}),
       ...(triggeredBy ? { triggeredBy } : {}),
@@ -309,6 +359,76 @@ export class RulesListAuthorizer {
 
   private emitUserDenial(origin: ListAuthorizationRequest['origin'], error: FirestoreSimError): void {
     if (origin === 'user') this.events.denial.emit(error);
+  }
+}
+
+function preserveBlockAndConditionBudgets(
+  sourceAst: FirestoreRules,
+  projectedAst: FirestoreRules,
+): void {
+  const walkPair = (srcBlock: MatchBlock, dstBlock: MatchBlock): void => {
+    const srcSteps = getListBlockSteps(srcBlock);
+    const dstSteps = getListBlockSteps(dstBlock);
+
+    // Copy any OrBudgetSteps from srcBlock rules whose condition was rewritten by proveListQuery.
+    let dstAllowIdx = 0;
+    for (const srcRule of srcBlock.allows) {
+      const dstRule = dstBlock.allows[dstAllowIdx];
+      if (!dstRule) break;
+      if (dstRule.loc === srcRule.loc && dstRule.operations === srcRule.operations) {
+        const priorOrSteps = getOrBudgetSteps(srcRule.condition);
+        if (
+          priorOrSteps &&
+          priorOrSteps.length > 0 &&
+          dstRule.condition !== srcRule.condition &&
+          !getOrBudgetSteps(dstRule.condition)
+        ) {
+          let wrapped = dstRule.condition;
+          for (let i = priorOrSteps.length - 1; i >= 0; i--) {
+            wrapped = attachOrBudgetStep(wrapped, priorOrSteps[i]!);
+          }
+          dstRule.condition = wrapped;
+        }
+        dstAllowIdx++;
+      }
+    }
+
+    if (srcSteps && srcSteps.some((step) => step.kind === 'budget')) {
+      const mergedSteps: ListBlockStep[] = [];
+      let grantOrdinal = 0;
+      let retainedGrantIdx = 0;
+      for (const step of srcSteps) {
+        if (step.kind === 'budget') {
+          mergedSteps.push(step);
+          continue;
+        }
+        const subStep = dstSteps?.[grantOrdinal];
+        grantOrdinal++;
+        if (subStep) {
+          mergedSteps.push({ ...subStep, index: step.index });
+          if (subStep.kind === 'grant') retainedGrantIdx++;
+        } else {
+          const retainedRule = dstBlock.allows[retainedGrantIdx];
+          if (retainedRule) {
+            mergedSteps.push({ kind: 'grant', rule: retainedRule, index: step.index });
+            retainedGrantIdx++;
+          }
+        }
+      }
+      setListBlockSteps(dstBlock, mergedSteps);
+    }
+
+    const childCount = Math.min(srcBlock.children.length, dstBlock.children.length);
+    for (let i = 0; i < childCount; i++) {
+      walkPair(srcBlock.children[i]!, dstBlock.children[i]!);
+    }
+  };
+
+  const srcRoots = topLevelMatches(sourceAst.service);
+  const dstRoots = topLevelMatches(projectedAst.service);
+  const rootCount = Math.min(srcRoots.length, dstRoots.length);
+  for (let i = 0; i < rootCount; i++) {
+    walkPair(srcRoots[i]!, dstRoots[i]!);
   }
 }
 

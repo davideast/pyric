@@ -277,4 +277,37 @@ describe('evaluation built-ins', () => {
     expect(decisionOf(rules(`match /u/{id} { allow read: if {'1': 'ok'}.get([1], 'd') == 'ok' || true; }`), { method: 'get', path: 'u/1' })).toBe('ALLOW');
     expect(decisionOf(rules(`match /u/{id} { allow read: if !({'1': 'ok'}.get([1], 'd') == 'ok' && false); }`), { method: 'get', path: 'u/1' })).toBe('ALLOW');
   });
+
+  test('get/exists/getAfter/existsAfter fail closed with EvalError on non-default database paths including 1-segment collection paths', () => {
+    expect(
+      decisionOf(
+        rules(`match /u/{id} { allow read: if !exists(path('/databases/analytics/documents/orgs')); }`),
+        { method: 'get', path: 'u/1' },
+      ),
+    ).toBe('DENY');
+    expect(
+      decisionOf(
+        rules(`match /u/{id} { allow read: if exists(path('/databases/analytics/documents/orgs')) || true; }`),
+        { method: 'get', path: 'u/1' },
+      ),
+    ).toBe('ALLOW');
+    expect(
+      decisionOf(
+        rules(`match /u/{id} { allow read: if get(path('/databases/analytics/documents/orgs')).data != null; }`),
+        { method: 'get', path: 'u/1' },
+      ),
+    ).toBe('DENY');
+    expect(
+      decisionOf(
+        rules(`match /u/{id} { allow write: if !existsAfter(path('/databases/analytics/documents/orgs')); }`),
+        { method: 'create', path: 'u/1', data: {} },
+      ),
+    ).toBe('DENY');
+    expect(
+      decisionOf(
+        rules(`match /u/{id} { allow write: if getAfter(path('/databases/analytics/documents/orgs')).data != null; }`),
+        { method: 'create', path: 'u/1', data: {} },
+      ),
+    ).toBe('DENY');
+  });
 });

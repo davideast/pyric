@@ -24,6 +24,24 @@ export function isDocumentPath(segmentsOrPath: string | readonly string[]): bool
   return !segments.some((seg) => /^\{.*\}$/.test(seg));
 }
 
+export function nonDefaultDatabaseInLookupPath(
+  rawPath: string,
+  expectedDatabase?: string,
+): string | undefined {
+  const targetDb = expectedDatabase && expectedDatabase.length > 0 ? expectedDatabase : '(default)';
+  const cleaned = rawPath.replace(/\$\(database\)/g, targetDb);
+  const segments = cleaned.split('/').filter((s) => s.length > 0 && s !== '.');
+  if (
+    segments.length >= 3 &&
+    segments[0] === 'databases' &&
+    segments[2] === 'documents' &&
+    segments[1] !== targetDb
+  ) {
+    return segments[1];
+  }
+  return undefined;
+}
+
 export function normalizeDocumentPath(rawPath: string): string {
   let cleaned = rawPath.replace(/\$\(database\)/g, '(default)');
   const dbPrefix = '/databases/(default)/documents/';
@@ -64,6 +82,12 @@ export function makeGetResource(relPath: string, data: Record<string, unknown>):
 }
 
 export function resolveGet(rawPath: string, context: SimulationContext): SimResource {
+  const foreignDb = nonDefaultDatabaseInLookupPath(rawPath, context.database);
+  if (foreignDb !== undefined) {
+    throw new EvalError(
+      `get() cannot access non-default database '${foreignDb}' in path '${rawPath}'`,
+    );
+  }
   const path = normalizeDocumentPath(rawPath);
   const segments = path.split('/').filter(Boolean);
   if (!isDocumentPath(segments)) {
@@ -91,6 +115,12 @@ export function resolveGet(rawPath: string, context: SimulationContext): SimReso
 }
 
 export function resolveExists(rawPath: string, context: SimulationContext): boolean {
+  const foreignDb = nonDefaultDatabaseInLookupPath(rawPath, context.database);
+  if (foreignDb !== undefined) {
+    throw new EvalError(
+      `exists() cannot access non-default database '${foreignDb}' in path '${rawPath}'`,
+    );
+  }
   const path = normalizeDocumentPath(rawPath);
   const segments = path.split('/').filter(Boolean);
   if (!isDocumentPath(segments)) {

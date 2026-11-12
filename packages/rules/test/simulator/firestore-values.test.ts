@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { reviveFirestoreNumbers } from '../../src/simulator/firestore-values.js';
 import { RulesFloat } from '../../src/simulator/wrappers/float.js';
+import { Reference } from '../../src/simulator/wrappers/reference.js';
 
 describe('reviveFirestoreNumbers', () => {
   test('restores non-integral JSON numbers as Firestore floats', () => {
@@ -32,5 +33,30 @@ describe('reviveFirestoreNumbers', () => {
     const instance = new Date(0);
 
     expect(reviveFirestoreNumbers(instance)).toBe(instance);
+  });
+
+  test('revives serialized DocumentReference objects carrying databaseId while preserving escaped plain maps', () => {
+    const namedRef = reviveFirestoreNumbers({
+      id: 'org-1',
+      path: 'orgs/org-1',
+      databaseId: 'analytics',
+    });
+    expect(namedRef).toBeInstanceOf(Reference);
+    expect((namedRef as Reference).path).toBe('orgs/org-1');
+    expect((namedRef as Reference).databaseId).toBe('analytics');
+
+    const defaultRef = reviveFirestoreNumbers({
+      id: 'org-1',
+      path: 'orgs/org-1',
+    });
+    expect(defaultRef).toBeInstanceOf(Reference);
+    expect((defaultRef as Reference).databaseId).toBe('(default)');
+
+    const escapedMap = reviveFirestoreNumbers({
+      type: 'pyric/map/1.0',
+      fields: { id: 'org-1', path: 'orgs/org-1', databaseId: 'analytics' },
+    });
+    expect(escapedMap).not.toBeInstanceOf(Reference);
+    expect(escapedMap).toEqual({ id: 'org-1', path: 'orgs/org-1', databaseId: 'analytics' });
   });
 });

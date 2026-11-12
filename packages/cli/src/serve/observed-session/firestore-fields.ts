@@ -89,11 +89,11 @@ export function isSerializedFirestoreLeafObject(value: Record<string, unknown>):
     return true;
   }
   if (
-    (keys.length === 3 &&
+    ((keys.length === 3 || (keys.length === 4 && typeof value.databaseId === 'string')) &&
       value.type === 'document' &&
       typeof value.path === 'string' &&
       typeof value.id === 'string') ||
-    ((keys.length === 2 || keys.length === 3) &&
+    ((keys.length === 2 || (keys.length === 3 && typeof value.databaseId === 'string')) &&
       value.__type === 'reference' &&
       typeof value.path === 'string')
   ) {

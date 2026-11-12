@@ -193,8 +193,8 @@ service cloud.firestore {
 service cloud.firestore {
   match /databases/{database}/documents {
     match /docs/{id} {
-      allow update: if existsAfter(/databases/$(database)/documents/docs/$(id));
-      allow delete: if true;
+      allow update: if true;
+      allow delete: if existsAfter(/databases/$(database)/documents/docs/$(id));
     }
   }
 }`,

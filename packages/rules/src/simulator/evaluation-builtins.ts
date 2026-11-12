@@ -12,6 +12,7 @@ import { Duration } from './wrappers/duration.js';
 import { Timestamp } from './wrappers/timestamp.js';
 import { Bytes } from './wrappers/bytes.js';
 import { Path } from './wrappers/path.js';
+import { Reference } from './wrappers/reference.js';
 import { RulesFloat } from './wrappers/float.js';
 import { EvalError, functionNotFoundMessage } from './eval-error.js';
 import { isRulesInt, rulesNumberAsDouble } from './rules-int.js';
@@ -19,7 +20,7 @@ import { ConversionFailure, applyConversion, conversionFor } from './conversions
 import { MathFailure, applyMath } from './math-builtins.js';
 import { LIST_METHOD_NAMES, ListMethodFailure, listConcat, listJoin, listMembership, listRemoveAll } from './list-methods.js';
 import { UnsupportedError } from './unsupported-error.js';
-import { isDocumentPath, makeGetResource, normalizeDocumentPath, resolveExists, resolveGet } from './document-lookups.js';
+import { isDocumentPath, makeGetResource, nonDefaultDatabaseInLookupPath, normalizeDocumentPath, resolveExists, resolveGet } from './document-lookups.js';
 import { chargeLookup } from './lookup-budget.js';
 import { lookupAccessKey, slashedSegment, slashedSegmentReason } from './lookup-path.js';
 import type { SimulationContext } from './evaluation-context.js';
@@ -54,15 +55,21 @@ function requireLookupPath(
     throw new EvalError(`Incorrect number of arguments. Received: ${args.length}. Expected: ${name}(path).`);
   }
   const argVal = evaluate(args[0]!, ctx, scope);
-  if (!(argVal instanceof Path) || argVal.segments.some((seg) => /^\{.*\}$/.test(seg))) {
+  const pathVal = argVal instanceof Reference ? argVal.toPath() : argVal;
+  if (!(pathVal instanceof Path) || pathVal.segments.some((seg) => /^\{.*\}$/.test(seg))) {
     throw new EvalError(`Function not found error: Name: [${name}].`);
   }
-  const slashed = slashedSegment(argVal.segments);
+  const slashed = slashedSegment(pathVal.segments);
   if (slashed !== undefined) {
-    chargeLookup(ctx, LOOKUP_KIND[name], `/${lookupAccessKey(argVal.segments)}`);
+    chargeLookup(ctx, LOOKUP_KIND[name], `/${lookupAccessKey(pathVal.segments)}`);
     throw new EvalError(`${name}(): ${slashedSegmentReason(slashed)}`);
   }
-  return String(argVal);
+  const lookupPath = String(pathVal);
+  const foreignDb = nonDefaultDatabaseInLookupPath(lookupPath, ctx.database);
+  if (foreignDb !== undefined) {
+    throw new EvalError(`${name}() cannot access non-default database '${foreignDb}' in path '${lookupPath}'`);
+  }
+  return lookupPath;
 }
 
 /**

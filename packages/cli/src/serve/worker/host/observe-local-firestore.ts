@@ -437,18 +437,19 @@ function rehydrateSessionValueForRules(value: unknown): unknown {
     }
   }
   if (
-    (keys.length === 3 &&
+    ((keys.length === 3 || (keys.length === 4 && typeof value.databaseId === 'string')) &&
       value.type === 'document' &&
       typeof value.path === 'string' &&
       typeof value.id === 'string') ||
-    ((keys.length === 2 || keys.length === 3) &&
+    ((keys.length === 2 || (keys.length === 3 && typeof value.databaseId === 'string')) &&
       value.__type === 'reference' &&
       typeof value.path === 'string')
   ) {
     try {
       const rawPath = value.path as string;
       const normalizedPath = rawPath.startsWith('/') ? rawPath.slice(1) : rawPath;
-      return new Reference(normalizedPath);
+      const databaseId = typeof value.databaseId === 'string' ? value.databaseId : undefined;
+      return new Reference(normalizedPath, databaseId);
     } catch {
       return rehydrateSessionEntriesForRules(value);
     }
