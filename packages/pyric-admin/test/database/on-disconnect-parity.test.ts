@@ -11,8 +11,11 @@ import { mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
+  getAdminDatabase,
   getDatabase as getModularDatabase,
+  ref as modularRef,
   sandbox as databaseSandbox,
+  setWithPriority as modularSetWithPriority,
 } from 'pyric/database';
 import { initializeSandbox, type Sandbox } from 'pyric/sandbox';
 import { deleteApp, getApps, initializeApp, type PyricAdminApp } from '../../src/app/index.js';
@@ -152,9 +155,10 @@ describe.each(ARMS)('pyric-admin/database onDisconnect & goOffline/goOnline [$na
     });
   });
 
-  test('validates priority synchronously in setWithPriority and drops valid priorities consistently with AS1', async () => {
-    const { app } = make();
+  test('validates priority synchronously in setWithPriority, forwards priorities on disconnect, and clears priority when set to null', async () => {
+    const { app, host } = make();
     const db = getDatabase(app);
+    const presenceRef = db.ref('presence/ranked-node');
     const itemRef = db.ref('items/p1');
 
     expect(() => itemRef.onDisconnect().setWithPriority('v', true as unknown as number)).toThrow(/Firebase priority/);
@@ -163,35 +167,63 @@ describe.each(ARMS)('pyric-admin/database onDisconnect & goOffline/goOnline [$na
     expect(() => itemRef.onDisconnect().setWithPriority('v', { bad: 1 } as unknown as string)).toThrow(/Firebase priority/);
     expect(() => itemRef.onDisconnect().setWithPriority('v', undefined as unknown as null)).toThrow(/Firebase priority/);
 
-    await itemRef.onDisconnect().setWithPriority({ label: 'dropped-prio', '.priority': 9 }, 42);
+    await modularSetWithPriority(
+      modularRef(getAdminDatabase(host), 'presence/ranked-node'),
+      { state: 'online' },
+      10,
+    );
+    expect((await presenceRef.get()).getPriority()).toBe(10);
+
+    await presenceRef.onDisconnect().setWithPriority({ state: 'offline' }, 99);
+    await itemRef.onDisconnect().setWithPriority({ label: 'arg-priority', '.priority': 9 }, 42);
     await db.ref('items/p2').onDisconnect().setWithPriority('scalar-val', 'alpha');
     await db.ref('items/p3').onDisconnect().update({ tag: 'u', '.priority': 5 });
+    const beforeOffline = Date.now();
     await db
       .ref('items/p4')
       .onDisconnect()
-      .setWithPriority('ts-prio-dropped', ServerValue.TIMESTAMP as unknown as number);
+      .setWithPriority('ts-priority', ServerValue.TIMESTAMP as unknown as number);
 
     db.goOffline();
     await tick();
     db.goOnline();
     await tick();
 
+    const offlineSnap = await presenceRef.get();
+    expect(offlineSnap.val()).toEqual({ state: 'offline' });
+    expect(offlineSnap.getPriority()).toBe(99);
+    expect(offlineSnap.exportVal()).toEqual({ state: 'offline', '.priority': 99 });
+
     const s1 = await itemRef.get();
-    expect(s1.val()).toEqual({ label: 'dropped-prio' });
-    expect(s1.exportVal()).toEqual({ label: 'dropped-prio' });
-    expect(s1.getPriority()).toBeNull();
+    expect(s1.val()).toEqual({ label: 'arg-priority' });
+    expect(s1.exportVal()).toEqual({ label: 'arg-priority', '.priority': 42 });
+    expect(s1.getPriority()).toBe(42);
 
     const s2 = await db.ref('items/p2').get();
     expect(s2.val()).toBe('scalar-val');
-    expect(s2.getPriority()).toBeNull();
+    expect(s2.exportVal()).toEqual({ '.value': 'scalar-val', '.priority': 'alpha' });
+    expect(s2.getPriority()).toBe('alpha');
 
     const s3 = await db.ref('items/p3').get();
     expect(s3.exportVal()).toEqual({ tag: 'u' });
     expect(s3.getPriority()).toBeNull();
 
     const s4 = await db.ref('items/p4').get();
-    expect(s4.val()).toBe('ts-prio-dropped');
-    expect(s4.getPriority()).toBeNull();
+    expect(s4.val()).toBe('ts-priority');
+    expect(typeof s4.getPriority()).toBe('number');
+    expect(s4.getPriority() as number).toBeGreaterThanOrEqual(beforeOffline);
+
+    // Subsequent setWithPriority(..., null) clears existing priority metadata on disconnect.
+    await presenceRef.onDisconnect().setWithPriority({ state: 'plain' }, null);
+    db.goOffline();
+    await tick();
+    db.goOnline();
+    await tick();
+
+    const clearedSnap = await presenceRef.get();
+    expect(clearedSnap.val()).toEqual({ state: 'plain' });
+    expect(clearedSnap.getPriority()).toBeNull();
+    expect(clearedSnap.exportVal()).toEqual({ state: 'plain' });
   });
 
   test('bypasses .read/.write: false security rules and resolves ServerValue.TIMESTAMP and increment at drain time', async () => {

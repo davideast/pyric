@@ -3,9 +3,10 @@
  * wiring for `pyric-admin/database` `Reference#onDisconnect()` and
  * `Database#goOffline()` / `Database#goOnline()`.
  *
- * Priorities in `setWithPriority`, inline `.priority` values, and `.priority`
- * update keys are validated synchronously and dropped consistently with
- * `Reference#set` / `Reference#update` (conformance row `AS1`) until Slice 6.
+ * `setWithPriority` validates `priority` synchronously and forwards it across
+ * both local and remote sandboxes; inline `.priority` values and `.priority`
+ * update keys remain validated and dropped consistently with `Reference#set` /
+ * `Reference#update` (conformance row `AS1`).
  */
 
 import type { RemoteSandboxChannel } from 'pyric/sandbox';
@@ -115,7 +116,7 @@ export function buildLocalOnDisconnect(
         value,
       );
       validatePriorityArg('OnDisconnect.setWithPriority', priority);
-      return settleDisconnectPromise(handle.set(stored), onComplete);
+      return settleDisconnectPromise(handle.setWithPriority(stored, priority), onComplete);
     },
     update(values: object, onComplete?: DisconnectCompleteCallback): Promise<void> {
       validateCallbackArg('OnDisconnect.update', 'onComplete', onComplete, true);
@@ -181,7 +182,7 @@ export function buildRemoteOnDisconnect(
       );
       validatePriorityArg('OnDisconnect.setWithPriority', priority);
       return settleDisconnectPromise(
-        relayOp({ method: 'rtdb.onDisconnectSet', path: canonical, value: stored }).then(
+        relayOp({ method: 'rtdb.onDisconnectSet', path: canonical, value: stored, priority }).then(
           () => undefined,
         ),
         onComplete,
