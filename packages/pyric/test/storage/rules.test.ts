@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test';
 import { evaluateStorageRules, parseStorageRules } from '../../src/storage/rules.ts';
-import { compileStorageRules } from '../../src/storage/rules-resolution.js';
+import { compileStorageRules } from '@pyric/rules/internal/storage';
 
 test('public Storage Rules family exposes parser and evaluator through one facade', () => {
   const rules = parseStorageRules(`service firebase.storage {

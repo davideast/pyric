@@ -1,5 +1,5 @@
 import { clientContentEncoding, uploadContentDisposition } from '../content-defaults.js';
-import type { StorageRequestResource, StorageResource } from './rules.js';
+import type { StorageRequestResource, StorageResource } from '@pyric/rules/internal/storage';
 
 function omitUndefined<T extends object>(obj: T): T {
   const out: Record<string, unknown> = {};

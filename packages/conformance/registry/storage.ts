@@ -264,7 +264,7 @@ export const storageRegistry = {
           behavior: "`options.rules` parsed eagerly — malformed rules throw `SyntaxError` at config time",
           status: "conforms",
           evidence: "`unit:storage/sandbox/rules.test.ts` (parse errors propagate from `parseStorageRules`)",
-          conformanceTests: ["packages/pyric/test/storage/sandbox/rules.test.ts"],
+          conformanceTests: ["packages/rules/test/storage/sandbox/rules.test.ts"],
         }),
         row1({
           rowRef: "9",

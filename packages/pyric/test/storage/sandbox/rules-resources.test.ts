@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'bun:test';
-import { parseStorageRules } from '../../../src/storage/sandbox/rules.js';
-import { evaluateStorageRules } from '../../../src/storage/sandbox/rules-evaluator.js';
+import { parseStorageRules } from '@pyric/rules/internal/storage';
+import { evaluateStorageRules } from '@pyric/rules/internal/storage';
 import { requestResourceFor, resourceFromStored } from '../../../src/storage/sandbox/rules-resources.js';
 
 const METADATA_RULES = `

@@ -74,7 +74,7 @@ copies that shape wherever Firestore allows it, and names the places it can't.
    Storage rule `firestore.get(/databases/probes/documents/...).data.allow == true`
    was denied both when the `probes` document held `true` and when it held
    `false` (registry row `storage-rules#131`). Pyric's refusal in
-   `packages/pyric/src/storage/sandbox/rules-firestore-lookup.ts` ("Storage
+   `packages/rules/src/storage/rules-firestore-lookup.ts` ("Storage
    rules may access only the default Firestore database") matches it and stays.
 4. **A missing database has no verdict of its own for the client** (C3,
    2026-10-28). Every request to a database the project lacks gets `NOT_FOUND:
@@ -313,7 +313,7 @@ evaluating database's id:
 - `packages/rules/src/test/spec.ts`: `DB_PREFIX` hard-codes
   `/databases/(default)/documents/`, so `pyric rules test` specs gain a
   `database` field.
-- `packages/pyric/src/storage/sandbox/rules-firestore-lookup.ts`: refuses any
+- `packages/rules/src/storage/rules-firestore-lookup.ts`: refuses any
   database but `(default)`. This stays, on the evidence of `storage-rules#131`.
   The lookup reads the `(default)` environment by name, never "the current one."
 

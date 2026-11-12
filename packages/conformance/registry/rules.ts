@@ -205,7 +205,7 @@ export const rulesRegistry = {
           conformanceTests: [
             "packages/pyric/test/rules/oracle-conformance.test.ts",
             "packages/rules/test/simulator/in-operand-errors.test.ts",
-            "packages/pyric/test/rules/membership.test.ts",
+            "packages/rules/test/membership.test.ts",
           ],
         }),
         row1({
@@ -267,9 +267,9 @@ export const rulesRegistry = {
           oracleObservations: ["rules-firestore-required-fields-and-mapdiff"],
           conformanceTests: [
             "packages/pyric/test/rules/oracle-conformance.test.ts",
-            "packages/pyric/test/rules/map-keys-list.test.ts",
+            "packages/rules/test/map-keys-list.test.ts",
             "packages/rules/test/modules/service-compatibility.test.ts",
-            "packages/pyric/test/rules/simulator/collection-identity.test.ts",
+            "packages/rules/test/simulator/collection-identity.test.ts",
           ],
         }),
         row1({
@@ -358,7 +358,7 @@ export const rulesRegistry = {
             "packages/rules/test/grammar/validator.test.ts",
             "packages/rules/test/simulator/expression-budget-fixture.test.ts",
             "packages/rules/test/simulator/expression-budget.test.ts",
-            "packages/pyric/test/storage/sandbox/rules-expression-budget.test.ts",
+            "packages/rules/test/storage/sandbox/rules-expression-budget.test.ts",
             "packages/rules/test/grammar/validator-name-resolution.test.ts",
             "packages/rules/test/grammar/compile-limits.test.ts",
             "packages/pyric/test/rules/simulator/compile-limits.test.ts",
@@ -531,7 +531,7 @@ export const rulesRegistry = {
           conformanceTests: [
             "packages/pyric/test/rules/oracle-conformance.test.ts",
             "packages/rules/test/simulator/int64.test.ts",
-            "packages/pyric/test/rules/simulator/time-range.test.ts",
+            "packages/rules/test/simulator/time-range.test.ts",
           ],
           constructs: [
             "firestore.operator.add",
@@ -557,7 +557,7 @@ export const rulesRegistry = {
             "packages/pyric/test/rules/oracle-conformance.test.ts",
             "packages/rules/test/simulator/re2-space-and-trim.test.ts",
             "packages/rules/test/simulator/re2-dot-property-and-flags.test.ts",
-            "packages/pyric/test/rules/simulator/split-and-replace.test.ts",
+            "packages/rules/test/simulator/split-and-replace.test.ts",
           ],
           constructs: [
             "firestore.method.string.matches",
@@ -600,7 +600,7 @@ export const rulesRegistry = {
           conformanceTests: [
             "packages/pyric/test/rules/oracle-conformance.test.ts",
             "packages/rules/test/simulator/re2-space-and-trim.test.ts",
-            "packages/pyric/test/rules/simulator/split-and-replace.test.ts",
+            "packages/rules/test/simulator/split-and-replace.test.ts",
           ],
           constructs: ["firestore.method.string.split"],
         }),
@@ -813,7 +813,7 @@ export const rulesRegistry = {
           status: "conforms",
           evidence: "`unit:storage/sandbox/rules.test.ts` (\"parses the canonical session-archive ruleset\")",
           automation: "unit-backed",
-          conformanceTests: ["packages/pyric/test/storage/sandbox/rules.test.ts"],
+          conformanceTests: ["packages/rules/test/storage/sandbox/rules.test.ts"],
         }),
         row2({
           rowRef: "95",
@@ -822,7 +822,7 @@ export const rulesRegistry = {
           status: "conforms",
           evidence: "`unit:storage/sandbox/rules.test.ts` (\"rejects unknown service header\")",
           automation: "unit-backed",
-          conformanceTests: ["packages/pyric/test/storage/sandbox/rules.test.ts"],
+          conformanceTests: ["packages/rules/test/storage/sandbox/rules.test.ts"],
         }),
         row2({
           rowRef: "96",
@@ -832,7 +832,7 @@ export const rulesRegistry = {
           evidence: "STALE ROW, corrected 2026-07-10: production capture proves the evaluator already supports the full six-verb grant surface (umbrella read→{get,list}, write→{create,update,delete}, single granular grants, comma-separated grants, per-verb deny-by-default), matching production verdict-for-verdict on 12 of the scenario's 13 non-existence cases. `oracle:rules-storage-verbs-umbrella-granular` (all `read`/`write`/`get`/comma-verb cases). One related existence-semantics case in the same scenario diverges over-permissively and is carried by `#118 Rules` (the `resource == null` create-if-absent guard), not by this granular-verb row.",
           automation: "oracle-backed",
           oracleObservations: ["rules-storage-verbs-umbrella-granular"],
-          conformanceTests: ["packages/pyric/test/storage/rules-oracle-conformance.test.ts"],
+          conformanceTests: ["packages/rules/test/storage/rules-oracle-conformance.test.ts"],
           constructs: ["storage.rule-kind.allow-read","storage.rule-kind.allow-write","storage.rule-kind.allow-get","storage.rule-kind.allow-list","storage.rule-kind.allow-create","storage.rule-kind.allow-update","storage.rule-kind.allow-delete","storage.semantic.read-umbrella","storage.semantic.write-umbrella","storage.semantic.deny-by-default"],
         }),
         row2({
@@ -842,7 +842,7 @@ export const rulesRegistry = {
           status: "conforms",
           evidence: "`unit:storage/sandbox/rules.test.ts` (\"rejects unterminated strings\")",
           automation: "unit-backed",
-          conformanceTests: ["packages/pyric/test/storage/sandbox/rules.test.ts"],
+          conformanceTests: ["packages/rules/test/storage/sandbox/rules.test.ts"],
         }),
         row2({
           rowRef: "98",
@@ -851,7 +851,7 @@ export const rulesRegistry = {
           status: "conforms",
           evidence: "`unit:storage/sandbox/rules-evaluator.test.ts` (\"allows authenticated reads of /sessions/{id}\")",
           automation: "unit-backed",
-          conformanceTests: ["packages/pyric/test/storage/sandbox/rules-evaluator.test.ts"],
+          conformanceTests: ["packages/rules/test/storage/sandbox/rules-evaluator.test.ts"],
         }),
         row2({
           rowRef: "99",
@@ -860,7 +860,7 @@ export const rulesRegistry = {
           status: "conforms",
           evidence: "`unit:storage/sandbox/rules-evaluator.test.ts` (\"denies anonymous reads\")",
           automation: "unit-backed",
-          conformanceTests: ["packages/pyric/test/storage/sandbox/rules-evaluator.test.ts"],
+          conformanceTests: ["packages/rules/test/storage/sandbox/rules-evaluator.test.ts"],
         }),
         row2({
           rowRef: "100",
@@ -869,7 +869,7 @@ export const rulesRegistry = {
           status: "conforms",
           evidence: "`unit:storage/sandbox/rules-evaluator.test.ts` (\"allows JSON writes under 10MB\")",
           automation: "unit-backed",
-          conformanceTests: ["packages/pyric/test/storage/sandbox/rules-evaluator.test.ts"],
+          conformanceTests: ["packages/rules/test/storage/sandbox/rules-evaluator.test.ts"],
         }),
         row2({
           rowRef: "101",
@@ -881,7 +881,7 @@ export const rulesRegistry = {
           riskScore: 1,
           riskReasons: ["asserts metadata shape"],
           automation: "unit-backed",
-          conformanceTests: ["packages/pyric/test/storage/sandbox/rules-evaluator.test.ts"],
+          conformanceTests: ["packages/rules/test/storage/sandbox/rules-evaluator.test.ts"],
         }),
         row2({
           rowRef: "102",
@@ -890,7 +890,7 @@ export const rulesRegistry = {
           status: "conforms",
           evidence: "`unit:storage/sandbox/rules-evaluator.test.ts` (parser + evaluator both honor the `**` form)",
           automation: "unit-backed",
-          conformanceTests: ["packages/pyric/test/storage/sandbox/rules-evaluator.test.ts"],
+          conformanceTests: ["packages/rules/test/storage/sandbox/rules-evaluator.test.ts"],
         }),
         row2({
           rowRef: "103",
@@ -899,7 +899,7 @@ export const rulesRegistry = {
           status: "conforms",
           evidence: "`unit:storage/sandbox/rules-evaluator.test.ts`",
           automation: "unit-backed",
-          conformanceTests: ["packages/pyric/test/storage/sandbox/rules-evaluator.test.ts"],
+          conformanceTests: ["packages/rules/test/storage/sandbox/rules-evaluator.test.ts"],
         }),
         row2({
           rowRef: "104",
@@ -909,7 +909,7 @@ export const rulesRegistry = {
           evidence: "STALE ROW, corrected 2026-07-10: production capture proves the evaluator supports user-defined functions with `let` bindings, nested function calls, and block-scoped helpers. `oracle:rules-storage-functions-let-scope` matches production verdict-for-verdict on all 5 cases. CORRECTED, 2026-09-27: a call to an undefined function is not a compile-time rejection. Production compiles the ruleset with the warning `Invalid function name: notDeclared.` and reports `Function not found error: Name: [notDeclared].` at evaluation; the recapture adds 2 cases (7 in all) in which `request.auth.uid == 'a' || notDeclared()` inside a function allows uid a and denies uid b, and the evaluator matches both. A match-block function with the same name as a service-level function compiles with the warning `Unused function: f.` for the outer one and shadows it (`oracle:rules-storage-function-scopes-and-shadowing` pins the same resolution for a global function). Only a second definition of one name in the same scope is a compile-time rejection: `Function f is already defined.` Extended 2026-09-27: the Rules Test API compile-limit capture in `packages/rules/test/linter/fixtures/compile-limits/captures.json` records production's structural limits for Storage rulesets: 21 functions on one call stack compile and 22 are rejected, also when no rule calls the chain; 11 `let` bindings compile and 12 are rejected; and nesting past 99 levels is rejected with \"Expression is too complex to evaluate safely.\". The Storage evaluator enforces them when `parseStorageRules` loads a ruleset and has no runtime call depth cap, so a 21-function chain evaluates as production does. `unit:storage/sandbox/compile-limits.test.ts` pins that each rejected Storage probe is refused with production's messages and each compiling one, including the 21-function chain, evaluates to production's verdicts. `parseStorageRules` rejects a second definition of one function name in one scope through the same module with `Function f is already defined.`, pinned by `unit:storage/sandbox/rules.test.ts`. A second 2026-09-27 recapture adds 7 cases (14 in all): an argument or `let` whose value errors (`1 / request.resource.size` of 0, or a method an int does not define) is bound and the function body runs, so a function that never reads it allows, also through two calls, and one that reads it denies; `unit:storage/sandbox/rules-error-values.test.ts` pins each verdict. The compile-limit capture adds the `slash-divisor` probe: `(4/2)` is rejected with \"Missing 'match' keyword before path.\", production reading a slash directly followed by a path segment as the start of a path, and `(4/ 2)` compiles. Extended 2026-10-07: the `glob-in-path` and `glob-nested` probes show Storage rejecting a second recursive wildcard in one match declaration path, counted across nested blocks, with \"Invalid glob match expression. Only one glob match is permitted in a match declaration path.\", as Firestore does; `parseStorageRules` refuses both rejected probes through the same module and evaluates both compiling ones to production's verdicts, pinned by `unit:storage/sandbox/compile-limits.test.ts`.",
           automation: "oracle-backed",
           oracleObservations: ["rules-storage-functions-let-scope"],
-          conformanceTests: ["packages/pyric/test/storage/rules-oracle-conformance.test.ts", "packages/pyric/test/storage/sandbox/compile-limits.test.ts", "packages/pyric/test/storage/sandbox/rules.test.ts", "packages/pyric/test/storage/sandbox/rules-error-values.test.ts"],
+          conformanceTests: ["packages/rules/test/storage/rules-oracle-conformance.test.ts", "packages/rules/test/storage/sandbox/compile-limits.test.ts", "packages/rules/test/storage/sandbox/rules.test.ts", "packages/rules/test/storage/sandbox/rules-error-values.test.ts"],
         }),
         row2({
           rowRef: "112",
@@ -919,7 +919,7 @@ export const rulesRegistry = {
           evidence: "NEW ROW, 2026-07-10: production capture proves the evaluator supports `request.time` comparisons against both timestamp constructors. `oracle:rules-storage-request-time-timestamp` matches production verdict-for-verdict on all 4 cases (deadline-before/after via `timestamp.date()`, epoch-bound before/after via `timestamp.value()`).",
           automation: "oracle-backed",
           oracleObservations: ["rules-storage-request-time-timestamp"],
-          conformanceTests: ["packages/pyric/test/storage/rules-oracle-conformance.test.ts"],
+          conformanceTests: ["packages/rules/test/storage/rules-oracle-conformance.test.ts"],
         }),
         row2({
           rowRef: "113",
@@ -929,7 +929,7 @@ export const rulesRegistry = {
           evidence: "NEW ROW, 2026-07-10: production capture proves `matches()` is whole-string anchored, matching a RE2 pattern only when it covers the entire string. `oracle:rules-storage-matches-regex` matches production verdict-for-verdict on all 3 cases. RE2-inexpressible patterns are rejected at ruleset compile time by production and are covered by evaluator unit tests instead.",
           automation: "oracle-backed",
           oracleObservations: ["rules-storage-matches-regex"],
-          conformanceTests: ["packages/pyric/test/storage/rules-oracle-conformance.test.ts"],
+          conformanceTests: ["packages/rules/test/storage/rules-oracle-conformance.test.ts"],
         }),
         row2({
           rowRef: "114",
@@ -942,7 +942,7 @@ export const rulesRegistry = {
           riskReasons: ["asserts metadata shape"],
           automation: "oracle-backed",
           oracleObservations: ["rules-storage-metadata-access"],
-          conformanceTests: ["packages/pyric/test/storage/rules-oracle-conformance.test.ts"],
+          conformanceTests: ["packages/rules/test/storage/rules-oracle-conformance.test.ts"],
         }),
         row2({
           rowRef: "115",
@@ -952,7 +952,7 @@ export const rulesRegistry = {
           evidence: "NEW ROW, 2026-07-10: production capture proves the evaluator resolves cross-service Firestore lookups from Storage rules, including interpolated document paths and both the map-returning `get()` and bool-returning `exists()` forms. `oracle:rules-storage-firestore-lookup` matches production verdict-for-verdict on all 4 cases.",
           automation: "oracle-backed",
           oracleObservations: ["rules-storage-firestore-lookup"],
-          conformanceTests: ["packages/pyric/test/storage/rules-oracle-conformance.test.ts"],
+          conformanceTests: ["packages/rules/test/storage/rules-oracle-conformance.test.ts"],
         }),
         row2({
           rowRef: "116",
@@ -965,7 +965,7 @@ export const rulesRegistry = {
           riskReasons: ["asserts 2 specific value(s)"],
           automation: "oracle-backed",
           oracleObservations: ["rules-storage-resource-object-identity"],
-          conformanceTests: ["packages/pyric/test/storage/rules-oracle-conformance.test.ts"],
+          conformanceTests: ["packages/rules/test/storage/rules-oracle-conformance.test.ts"],
           constructs: ["storage.binding.request.resource.name","storage.binding.resource.name","storage.binding.resource.timeCreated","storage.binding.resource.updated","storage.binding.resource.bucket","storage.function.duration.value"],
         }),
         row2({
@@ -973,10 +973,10 @@ export const rulesRegistry = {
           featureKeys: ["request.resource","resource","request.method","request.path"],
           behavior: "`request.resource.size` arithmetic bounds (`+`/`-`/`*`/`/`, `>=`/`<=`), request/existing content-type and custom `metadata` checks, `request.method`/`request.path`, a `request.auth.token` custom-claim branch, granular `allow list`, and a recursive `{allPaths=**}` public read tree",
           status: "conforms",
-          evidence: "NEW ROW, 2026-07-12: production capture proves the evaluator matches the production Storage Rules Test API verdict-for-verdict on all 8 cases (owner-scoped size-bounded upload, immutable-content-type update, list grant, public recursive read). `oracle:rules-storage-metadata-verbs-and-arithmetic` — replayed by `packages/pyric/test/storage/rules-oracle-conformance.test.ts`.",
+          evidence: "NEW ROW, 2026-07-12: production capture proves the evaluator matches the production Storage Rules Test API verdict-for-verdict on all 8 cases (owner-scoped size-bounded upload, immutable-content-type update, list grant, public recursive read). `oracle:rules-storage-metadata-verbs-and-arithmetic` — replayed by `packages/rules/test/storage/rules-oracle-conformance.test.ts`.",
           automation: "oracle-backed",
           oracleObservations: ["rules-storage-metadata-verbs-and-arithmetic"],
-          conformanceTests: ["packages/pyric/test/storage/rules-oracle-conformance.test.ts"],
+          conformanceTests: ["packages/rules/test/storage/rules-oracle-conformance.test.ts"],
         }),
         row2({
           rowRef: "118",
@@ -989,7 +989,7 @@ export const rulesRegistry = {
           riskReasons: ["asserts 1 specific value(s)","asserts rules-denial behavior"],
           automation: "oracle-backed",
           oracleObservations: ["rules-storage-verbs-umbrella-granular"],
-          conformanceTests: ["packages/pyric/test/storage/rules-oracle-conformance.test.ts"],
+          conformanceTests: ["packages/rules/test/storage/rules-oracle-conformance.test.ts"],
           constructs: ["storage.binding.resource"],
         }),
         row2({
@@ -1003,7 +1003,7 @@ export const rulesRegistry = {
           riskReasons: ["asserts rules-denial behavior"],
           automation: "oracle-backed",
           oracleObservations: ["rules-storage-ternary-and-error-absorption"],
-          conformanceTests: ["packages/pyric/test/storage/rules-oracle-conformance.test.ts"],
+          conformanceTests: ["packages/rules/test/storage/rules-oracle-conformance.test.ts"],
           constructs: ["storage.operator.ternary","storage.operator.or","storage.operator.div"],
         }),
         row2({
@@ -1017,7 +1017,7 @@ export const rulesRegistry = {
           riskReasons: ["asserts rules-denial behavior"],
           automation: "oracle-backed",
           oracleObservations: ["rules-storage-in-membership-and-proto-keys"],
-          conformanceTests: ["packages/pyric/test/storage/rules-oracle-conformance.test.ts", "packages/pyric/test/rules/membership.test.ts"],
+          conformanceTests: ["packages/rules/test/storage/rules-oracle-conformance.test.ts", "packages/rules/test/membership.test.ts"],
           constructs: ["storage.operator.in"],
         }),
         row2({
@@ -1031,7 +1031,7 @@ export const rulesRegistry = {
           riskReasons: ["asserts rules-denial behavior"],
           automation: "oracle-backed",
           oracleObservations: ["rules-storage-type-checks-is"],
-          conformanceTests: ["packages/pyric/test/storage/rules-oracle-conformance.test.ts"],
+          conformanceTests: ["packages/rules/test/storage/rules-oracle-conformance.test.ts"],
           constructs: ["storage.operator.is"],
         }),
         row2({
@@ -1045,7 +1045,7 @@ export const rulesRegistry = {
           riskReasons: ["asserts rules-denial behavior"],
           automation: "oracle-backed",
           oracleObservations: ["rules-storage-list-map-literals-and-slice"],
-          conformanceTests: ["packages/pyric/test/storage/rules-oracle-conformance.test.ts", "packages/pyric/test/rules/slice-bounds.test.ts", "packages/pyric/test/rules/simulator/collection-identity.test.ts"],
+          conformanceTests: ["packages/rules/test/storage/rules-oracle-conformance.test.ts", "packages/rules/test/slice-bounds.test.ts", "packages/rules/test/simulator/collection-identity.test.ts"],
           constructs: ["storage.operator.slice","storage.operator.eq","storage.method.string.split","storage.method.size"],
         }),
         row2({
@@ -1059,7 +1059,7 @@ export const rulesRegistry = {
           riskReasons: ["asserts 1 specific value(s)"],
           automation: "oracle-backed",
           oracleObservations: ["rules-storage-float-modulo-unary-minus","rules-storage-arithmetic-operand-types","rules-storage-ordering-operand-types"],
-          conformanceTests: ["packages/pyric/test/storage/rules-oracle-conformance.test.ts"],
+          conformanceTests: ["packages/rules/test/storage/rules-oracle-conformance.test.ts"],
           constructs: ["storage.operator.mod","storage.operator.unary-minus","storage.operator.div","storage.operator.mul","storage.operator.add","storage.operator.sub","storage.operator.lt","storage.operator.gt","storage.operator.lte","storage.operator.gte","storage.operator.neq"],
         }),
         row2({
@@ -1071,9 +1071,9 @@ export const rulesRegistry = {
           automation: "oracle-backed",
           oracleObservations: ["rules-storage-function-scopes-and-shadowing", "rules-storage-conversion-functions", "rules-storage-bool-function", "rules-storage-math-namespace"],
           conformanceTests: [
-            "packages/pyric/test/storage/rules-oracle-conformance.test.ts",
-            "packages/pyric/test/rules/simulator/math-builtins.test.ts",
-            "packages/pyric/test/storage/sandbox/rules.test.ts",
+            "packages/rules/test/storage/rules-oracle-conformance.test.ts",
+            "packages/rules/test/simulator/math-builtins.test.ts",
+            "packages/rules/test/storage/sandbox/rules.test.ts",
           ],
           constructs: [
             "storage.rule-kind.function",
@@ -1097,7 +1097,7 @@ export const rulesRegistry = {
           oracleObservations: ["rules-storage-common-auth-membership"],
           conformanceTests: [
             "packages/conformance/test/src/storage-stdlib-source-lock.test.ts",
-            "packages/pyric/test/storage/rules-oracle-conformance.test.ts",
+            "packages/rules/test/storage/rules-oracle-conformance.test.ts",
             "packages/rules/test/modules/resolver.test.ts",
             "packages/pyric/test/storage/enforce.test.ts",
           ],
@@ -1118,7 +1118,7 @@ export const rulesRegistry = {
           automation: "oracle-backed",
           oracleObservations: ["rules-storage-upload-primitives-boundaries", "stdlib-realstorage-request-resource-fields"],
           conformanceTests: [
-            "packages/pyric/test/storage/rules-oracle-conformance.test.ts",
+            "packages/rules/test/storage/rules-oracle-conformance.test.ts",
             "packages/pyric/test/storage/request-resource-real-replay.test.ts",
             "packages/pyric/test/storage/enforce.test.ts",
             "packages/pyric/test/storage/resumable-upload.test.ts",
@@ -1153,11 +1153,11 @@ export const rulesRegistry = {
           automation: "oracle-backed",
           oracleObservations: ["rules-storage-upload-primitives-boundaries"],
           conformanceTests: [
-            "packages/pyric/test/storage/rules-oracle-conformance.test.ts",
-            "packages/pyric/test/rules/map-keys-list.test.ts",
+            "packages/rules/test/storage/rules-oracle-conformance.test.ts",
+            "packages/rules/test/map-keys-list.test.ts",
             "packages/rules/test/modules/service-compatibility.test.ts",
-            "packages/pyric/test/rules/simulator/list-methods.test.ts",
-            "packages/pyric/test/rules/simulator/collection-identity.test.ts",
+            "packages/rules/test/simulator/list-methods.test.ts",
+            "packages/rules/test/simulator/collection-identity.test.ts",
           ],
           constructs: [
             "storage.method.map.keys",
@@ -1183,7 +1183,7 @@ export const rulesRegistry = {
           riskReasons: ["asserts rules-denial behavior"],
           automation: "oracle-backed",
           oracleObservations: ["rules-storage-upload-primitives-boundaries"],
-          conformanceTests: ["packages/pyric/test/storage/rules-oracle-conformance.test.ts"],
+          conformanceTests: ["packages/rules/test/storage/rules-oracle-conformance.test.ts"],
           constructs: ["storage.binding.request.resource"],
         }),
         row2({
@@ -1197,7 +1197,7 @@ export const rulesRegistry = {
           riskReasons: ["documents a hosted-mock versus real-resource rules-denial mismatch"],
           automation: "oracle-backed",
           oracleObservations: ["rules-storage-firestore-lookup-budget"],
-          conformanceTests: ["packages/pyric/test/storage/rules-oracle-conformance.test.ts"],
+          conformanceTests: ["packages/rules/test/storage/rules-oracle-conformance.test.ts"],
           constructs: ["storage.function.firestore.get", "storage.function.firestore.exists"],
         }),
         row2({
@@ -1211,7 +1211,7 @@ export const rulesRegistry = {
           riskReasons: ["asserts rules-denial behavior"],
           automation: "oracle-backed",
           oracleObservations: ["rules-storage-firestore-lookup-budget"],
-          conformanceTests: ["packages/pyric/test/storage/rules-oracle-conformance.test.ts"],
+          conformanceTests: ["packages/rules/test/storage/rules-oracle-conformance.test.ts"],
           constructs: ["storage.binding.request.auth", "storage.operator.ternary"],
         }),
         row2({
@@ -1252,9 +1252,9 @@ export const rulesRegistry = {
           oracleObservations: ["rules-storage-stdlib-storage-modules"],
           conformanceTests: [
             "packages/conformance/test/src/storage-stdlib-source-lock.test.ts",
-            "packages/pyric/test/storage/rules-oracle-conformance.test.ts",
-            "packages/pyric/test/storage/stdlib-cases.test.ts",
-            "packages/pyric/test/storage/stdlib.test.ts",
+            "packages/rules/test/storage/rules-oracle-conformance.test.ts",
+            "packages/rules/test/storage/stdlib-cases.test.ts",
+            "packages/rules/test/storage/stdlib.test.ts",
           ],
           constructs: [
             "storage.binding.request.auth",
@@ -1286,9 +1286,9 @@ export const rulesRegistry = {
           automation: "oracle-backed",
           oracleObservations: ["rules-storage-error-absorption-and-direction"],
           conformanceTests: [
-            "packages/pyric/test/storage/rules-oracle-conformance.test.ts",
-            "packages/pyric/test/storage/sandbox/rules-expression-budget.test.ts",
-            "packages/pyric/test/storage/sandbox/rules-error-values.test.ts",
+            "packages/rules/test/storage/rules-oracle-conformance.test.ts",
+            "packages/rules/test/storage/sandbox/rules-expression-budget.test.ts",
+            "packages/rules/test/storage/sandbox/rules-error-values.test.ts",
           ],
           constructs: ["storage.operator.and", "storage.operator.or"],
         }),
@@ -1321,8 +1321,8 @@ export const rulesRegistry = {
           riskReasons: ["asserts rules-denial behavior"],
           oracleObservations: ["rules-storage-strict-boolean-allow-and-ternary"],
           conformanceTests: [
-            "packages/pyric/test/storage/rules-oracle-conformance.test.ts",
-            "packages/pyric/test/storage/sandbox/rules-evaluator.test.ts",
+            "packages/rules/test/storage/rules-oracle-conformance.test.ts",
+            "packages/rules/test/storage/sandbox/rules-evaluator.test.ts",
           ],
         }),
         row2({
@@ -1337,8 +1337,8 @@ export const rulesRegistry = {
           riskReasons: ["asserts rules-denial behavior"],
           oracleObservations: ["rules-storage-strict-boolean-allow-and-ternary"],
           conformanceTests: [
-            "packages/pyric/test/storage/rules-oracle-conformance.test.ts",
-            "packages/pyric/test/storage/sandbox/rules-evaluator.test.ts",
+            "packages/rules/test/storage/rules-oracle-conformance.test.ts",
+            "packages/rules/test/storage/sandbox/rules-evaluator.test.ts",
           ],
         }),
         row2({
@@ -1353,10 +1353,10 @@ export const rulesRegistry = {
           riskReasons: ["asserts 3 specific value(s)", "asserts rules-denial behavior"],
           oracleObservations: ["rules-storage-stdlib-timestamp-duration"],
           conformanceTests: [
-            "packages/pyric/test/storage/rules-oracle-conformance.test.ts",
-            "packages/pyric/test/storage/sandbox/rules-time-methods.test.ts",
-            "packages/pyric/test/storage/sandbox/rules-operators.test.ts",
-            "packages/pyric/test/storage/sandbox/rules-bindings.test.ts",
+            "packages/rules/test/storage/rules-oracle-conformance.test.ts",
+            "packages/rules/test/storage/sandbox/rules-time-methods.test.ts",
+            "packages/rules/test/storage/sandbox/rules-operators.test.ts",
+            "packages/rules/test/storage/sandbox/rules-bindings.test.ts",
           ],
           constructs: [
             "storage.binding.request.time",
@@ -1380,9 +1380,9 @@ export const rulesRegistry = {
           riskReasons: ["asserts 2 specific value(s)", "asserts rules-denial behavior"],
           oracleObservations: ["rules-storage-stdlib-string-bytes-hashing"],
           conformanceTests: [
-            "packages/pyric/test/storage/rules-oracle-conformance.test.ts",
-            "packages/pyric/test/storage/sandbox/rules-string-methods.test.ts",
-            "packages/pyric/test/storage/sandbox/rules-string-escapes.test.ts",
+            "packages/rules/test/storage/rules-oracle-conformance.test.ts",
+            "packages/rules/test/storage/sandbox/rules-string-methods.test.ts",
+            "packages/rules/test/storage/sandbox/rules-string-escapes.test.ts",
             "packages/rules/test/grammar/string-escape-strict.test.ts",
           ],
           constructs: ["storage.method.string.matches", "storage.method.size"],
@@ -1399,10 +1399,10 @@ export const rulesRegistry = {
           riskReasons: ["asserts 4 specific value(s)", "asserts rules-denial behavior"],
           oracleObservations: ["rules-storage-stdlib-string-bytes-hashing", "rules-storage-bytes-literal"],
           conformanceTests: [
-            "packages/pyric/test/storage/rules-oracle-conformance.test.ts",
-            "packages/pyric/test/storage/sandbox/rules-hashing-methods.test.ts",
+            "packages/rules/test/storage/rules-oracle-conformance.test.ts",
+            "packages/rules/test/storage/sandbox/rules-hashing-methods.test.ts",
             "packages/rules/test/simulator/hashing-builtins.test.ts",
-            "packages/pyric/test/storage/sandbox/rules-bytes-literal.test.ts",
+            "packages/rules/test/storage/sandbox/rules-bytes-literal.test.ts",
             "packages/rules/test/grammar/bytes-literal.test.ts",
           ],
           constructs: ["storage.method.size", "storage.operator.eq"],
@@ -1419,9 +1419,9 @@ export const rulesRegistry = {
           riskReasons: ["asserts rules-denial behavior"],
           oracleObservations: ["rules-storage-stdlib-sets-and-mapdiff"],
           conformanceTests: [
-            "packages/pyric/test/storage/rules-oracle-conformance.test.ts",
-            "packages/pyric/test/storage/sandbox/rules-collection-methods.test.ts",
-            "packages/pyric/test/rules/simulator/collection-identity.test.ts",
+            "packages/rules/test/storage/rules-oracle-conformance.test.ts",
+            "packages/rules/test/storage/sandbox/rules-collection-methods.test.ts",
+            "packages/rules/test/simulator/collection-identity.test.ts",
           ],
           constructs: ["storage.method.set.hasAll", "storage.method.size", "storage.operator.in", "storage.operator.eq"],
         }),
@@ -1437,8 +1437,8 @@ export const rulesRegistry = {
           riskReasons: ["asserts rules-denial behavior"],
           oracleObservations: ["rules-storage-stdlib-sets-and-mapdiff"],
           conformanceTests: [
-            "packages/pyric/test/storage/rules-oracle-conformance.test.ts",
-            "packages/pyric/test/storage/sandbox/rules-collection-methods.test.ts",
+            "packages/rules/test/storage/rules-oracle-conformance.test.ts",
+            "packages/rules/test/storage/sandbox/rules-collection-methods.test.ts",
           ],
           constructs: ["storage.binding.request.resource.metadata", "storage.binding.resource.metadata"],
         }),
@@ -1454,8 +1454,8 @@ export const rulesRegistry = {
           riskReasons: ["a whitespace or class guard built on matches() allows or denies differently from production"],
           oracleObservations: ["rules-storage-h1-regex-re2-classes"],
           conformanceTests: [
-            "packages/pyric/test/storage/rules-oracle-conformance.test.ts",
-            "packages/pyric/test/storage/sandbox/rules-string-methods.test.ts",
+            "packages/rules/test/storage/rules-oracle-conformance.test.ts",
+            "packages/rules/test/storage/sandbox/rules-string-methods.test.ts",
           ],
           constructs: ["storage.method.string.matches"],
         }),
@@ -1470,7 +1470,7 @@ export const rulesRegistry = {
           riskScore: 2,
           riskReasons: ["the evaluator denies reads and writes production allows on these fields"],
           oracleObservations: ["rules-storage-h1-resource-unmodeled-fields"],
-          conformanceTests: ["packages/pyric/test/storage/rules-oracle-conformance.test.ts"],
+          conformanceTests: ["packages/rules/test/storage/rules-oracle-conformance.test.ts"],
           constructs: [
             "storage.binding.resource.md5Hash",
             "storage.binding.resource.crc32c",
@@ -1493,8 +1493,8 @@ export const rulesRegistry = {
           riskReasons: ["asserts rules-denial behavior"],
           oracleObservations: ["rules-storage-h1-v1-recursive-wildcard"],
           conformanceTests: [
-            "packages/pyric/test/storage/rules-oracle-conformance.test.ts",
-            "packages/pyric/test/storage/sandbox/rules-v1-recursive-wildcard.test.ts",
+            "packages/rules/test/storage/rules-oracle-conformance.test.ts",
+            "packages/rules/test/storage/sandbox/rules-v1-recursive-wildcard.test.ts",
           ],
           constructs: ["storage.rule-kind.rules_version", "storage.semantic.recursive-wildcard"],
         }),
@@ -1510,8 +1510,8 @@ export const rulesRegistry = {
           riskReasons: ["asserts rules-denial behavior"],
           oracleObservations: ["rules-storage-h1-int64-precision"],
           conformanceTests: [
-            "packages/pyric/test/storage/rules-oracle-conformance.test.ts",
-            "packages/pyric/test/storage/sandbox/rules-int64.test.ts",
+            "packages/rules/test/storage/rules-oracle-conformance.test.ts",
+            "packages/rules/test/storage/sandbox/rules-int64.test.ts",
           ],
           constructs: ["storage.operator.add", "storage.operator.sub", "storage.function.cast.int", "storage.function.cast.string"],
         }),
@@ -1526,7 +1526,7 @@ export const rulesRegistry = {
           riskScore: 2,
           riskReasons: ["pyric refuses a ruleset production deploys"],
           oracleObservations: ["rules-storage-h1-in-is-precedence-deploy"],
-          conformanceTests: ["packages/pyric/test/storage/rules-oracle-conformance.test.ts"],
+          conformanceTests: ["packages/rules/test/storage/rules-oracle-conformance.test.ts"],
           constructs: ["storage.operator.in", "storage.operator.is"],
         }),
         row2({
@@ -1540,7 +1540,7 @@ export const rulesRegistry = {
           riskScore: 2,
           riskReasons: ["asserts rules-denial behavior"],
           oracleObservations: ["rules-storage-h1-in-is-precedence"],
-          conformanceTests: ["packages/pyric/test/storage/rules-oracle-conformance.test.ts"],
+          conformanceTests: ["packages/rules/test/storage/rules-oracle-conformance.test.ts"],
         }),
         row2({
           rowRef: "210",
@@ -1553,7 +1553,7 @@ export const rulesRegistry = {
           riskScore: 2,
           riskReasons: ["the evaluator denies requests production allows"],
           oracleObservations: ["rules-storage-h1-auth-token-default"],
-          conformanceTests: ["packages/pyric/test/storage/rules-oracle-conformance.test.ts"],
+          conformanceTests: ["packages/rules/test/storage/rules-oracle-conformance.test.ts"],
           constructs: ["storage.binding.request.auth.token"],
         }),
         row2({
@@ -1568,8 +1568,8 @@ export const rulesRegistry = {
           riskReasons: ["asserts rules-denial behavior"],
           oracleObservations: ["rules-storage-h1-unknown-method-absorption"],
           conformanceTests: [
-            "packages/pyric/test/storage/rules-oracle-conformance.test.ts",
-            "packages/pyric/test/storage/sandbox/rules-evaluator-semantics.test.ts",
+            "packages/rules/test/storage/rules-oracle-conformance.test.ts",
+            "packages/rules/test/storage/sandbox/rules-evaluator-semantics.test.ts",
           ],
           constructs: ["storage.operator.or", "storage.operator.and"],
         }),
@@ -1585,8 +1585,8 @@ export const rulesRegistry = {
           riskReasons: ["asserts rules-denial behavior"],
           oracleObservations: ["rules-storage-h1-lookup-interpolated-slash"],
           conformanceTests: [
-            "packages/pyric/test/storage/rules-oracle-conformance.test.ts",
-            "packages/pyric/test/storage/sandbox/rules-firestore-lookup-paths.test.ts",
+            "packages/rules/test/storage/rules-oracle-conformance.test.ts",
+            "packages/rules/test/storage/sandbox/rules-firestore-lookup-paths.test.ts",
           ],
           constructs: ["storage.function.firestore.get", "storage.function.firestore.exists"],
         }),
@@ -1601,7 +1601,7 @@ export const rulesRegistry = {
           riskScore: 1,
           riskReasons: ["asserts rules-denial behavior"],
           oracleObservations: ["rules-storage-h1-string-ordering"],
-          conformanceTests: ["packages/pyric/test/storage/rules-oracle-conformance.test.ts"],
+          conformanceTests: ["packages/rules/test/storage/rules-oracle-conformance.test.ts"],
         }),
         row2({
           rowRef: "214",
@@ -1614,7 +1614,7 @@ export const rulesRegistry = {
           riskScore: 1,
           riskReasons: ["pyric refuses a ruleset production deploys"],
           oracleObservations: ["rules-storage-h1-deploy-cloud-storage-service"],
-          conformanceTests: ["packages/pyric/test/storage/rules-oracle-conformance.test.ts"],
+          conformanceTests: ["packages/rules/test/storage/rules-oracle-conformance.test.ts"],
           constructs: ["storage.rule-kind.match"],
         }),
         row2({
@@ -1629,8 +1629,8 @@ export const rulesRegistry = {
           riskReasons: ["asserts rules-denial behavior"],
           oracleObservations: ["rules-storage-storage-lookup-path-interpolation"],
           conformanceTests: [
-            "packages/pyric/test/storage/rules-oracle-conformance.test.ts",
-            "packages/pyric/test/storage/sandbox/rules-firestore-lookup-paths.test.ts",
+            "packages/rules/test/storage/rules-oracle-conformance.test.ts",
+            "packages/rules/test/storage/sandbox/rules-firestore-lookup-paths.test.ts",
           ],
           constructs: ["storage.function.firestore.exists"],
         }),
@@ -1645,7 +1645,7 @@ export const rulesRegistry = {
           riskScore: 2,
           riskReasons: ["asserts rules-denial behavior"],
           oracleObservations: ["rules-storage-storage-named-bucket-binding"],
-          conformanceTests: ["packages/pyric/test/storage/rules-oracle-conformance.test.ts"],
+          conformanceTests: ["packages/rules/test/storage/rules-oracle-conformance.test.ts"],
         }),
         row2({
           rowRef: "217",
@@ -1658,7 +1658,7 @@ export const rulesRegistry = {
           riskScore: 2,
           riskReasons: ["pyric refuses a ruleset production deploys"],
           oracleObservations: ["rules-storage-storage-two-top-level-bucket-matches"],
-          conformanceTests: ["packages/pyric/test/storage/rules-oracle-conformance.test.ts"],
+          conformanceTests: ["packages/rules/test/storage/rules-oracle-conformance.test.ts"],
           constructs: ["storage.rule-kind.match"],
         }),
         row2({
@@ -1672,7 +1672,7 @@ export const rulesRegistry = {
           riskScore: 3,
           riskReasons: ["asserts rules-denial behavior at the bucket boundary"],
           oracleObservations: ["rules-storage-xref-root-literal-bucket"],
-          conformanceTests: ["packages/pyric/test/storage/rules-oracle-conformance.test.ts"],
+          conformanceTests: ["packages/rules/test/storage/rules-oracle-conformance.test.ts"],
         }),
         row2({
           rowRef: "219",
@@ -1686,12 +1686,12 @@ export const rulesRegistry = {
           riskReasons: ["asserts rules-denial behavior"],
           oracleObservations: ["rules-storage-xref-shared-language-semantics"],
           conformanceTests: [
-            "packages/pyric/test/storage/rules-oracle-conformance.test.ts",
-            "packages/pyric/test/storage/sandbox/rules-int64.test.ts",
-            "packages/pyric/test/storage/sandbox/rules-string-methods.test.ts",
-            "packages/pyric/test/rules/simulator/split-and-replace.test.ts",
-            "packages/pyric/test/rules/simulator/time-range.test.ts",
-            "packages/pyric/test/storage/sandbox/rules-evaluator-semantics.test.ts",
+            "packages/rules/test/storage/rules-oracle-conformance.test.ts",
+            "packages/rules/test/storage/sandbox/rules-int64.test.ts",
+            "packages/rules/test/storage/sandbox/rules-string-methods.test.ts",
+            "packages/rules/test/simulator/split-and-replace.test.ts",
+            "packages/rules/test/simulator/time-range.test.ts",
+            "packages/rules/test/storage/sandbox/rules-evaluator-semantics.test.ts",
           ],
           constructs: [
             "storage.method.string.split",
@@ -1712,7 +1712,7 @@ export const rulesRegistry = {
           riskReasons: ["a rule that case-folds user text with a non-ASCII letter, such as an email or a file name, compares a different value from production's"],
           oracleObservations: ["rules-storage-st3-case-mapping", "rules-storage-st3-case-mapping-ascii"],
           conformanceTests: [
-            "packages/pyric/test/storage/rules-oracle-conformance.test.ts",
+            "packages/rules/test/storage/rules-oracle-conformance.test.ts",
             "packages/pyric/test/storage/sandbox/rules-ascii-case.test.ts",
           ],
           constructs: ["storage.method.string.lower", "storage.method.string.upper"],
@@ -1729,7 +1729,7 @@ export const rulesRegistry = {
           riskReasons: ["a ruleset that names a wildcard request or resource reads the global instead, so pyric can allow what production denies"],
           oracleObservations: ["rules-storage-st3-wildcard-shadows-global"],
           conformanceTests: [
-            "packages/pyric/test/storage/rules-oracle-conformance.test.ts",
+            "packages/rules/test/storage/rules-oracle-conformance.test.ts",
             "packages/pyric/test/storage/sandbox/rules-wildcard-shadows-global.test.ts",
           ],
           constructs: ["storage.binding.request", "storage.binding.resource"],
@@ -1746,7 +1746,7 @@ export const rulesRegistry = {
           riskReasons: ["a simulated overwrite that production denies predicted ALLOW under an `allow update` grant"],
           oracleObservations: ["stdlib-realstorage-request-resource-fields"],
           conformanceTests: [
-            "packages/pyric/test/storage/sandbox/rules-evaluator-semantics.test.ts",
+            "packages/rules/test/storage/sandbox/rules-evaluator-semantics.test.ts",
             "packages/cli/test/bridge/surface/rules-engines/storage.test.ts",
           ],
           constructs: ["storage.binding.request.method", "storage.rule-kind.allow-write"],

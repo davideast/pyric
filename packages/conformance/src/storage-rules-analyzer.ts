@@ -1,4 +1,4 @@
-import { parseStorageRules } from '../../pyric/src/storage/sandbox/rules.ts';
+import { parseStorageRules } from '../../rules/src/storage/rules.ts';
 import type { AnalyzeResult } from './rules-language-analyzer.ts';
 import { loadSnapshot } from '../rules-language/load.ts';
 
