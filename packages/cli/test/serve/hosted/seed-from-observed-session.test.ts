@@ -35,7 +35,14 @@ describe('seedFromObservedSession Storage zero-byte invariant', () => {
       revision: 3,
       updatedAt: 1000,
       projectId: 'demo-proj',
-      firestore: { 'docs/doc-1': { title: 'Hello' } },
+      firestore: {
+        'docs/doc-1': {
+          title: 'Hello',
+          negZero: { type: 'pyric/number/1.0', value: '-0' },
+          nanVal: { type: 'pyric/number/1.0', value: 'NaN' },
+          numMap: { type: 'pyric/map/1.0', fields: { type: 'pyric/number/1.0', value: '-0' } },
+        },
+      },
       rtdb: { default: { items: { a: true } } },
       defaultRtdbInstance: 'default',
       storage: {
@@ -74,7 +81,11 @@ describe('seedFromObservedSession Storage zero-byte invariant', () => {
 
       const docSnap = await getDoc(doc(ctx.db, 'docs/doc-1'));
       expect(docSnap.exists()).toBe(true);
-      expect(docSnap.data()).toEqual({ title: 'Hello' });
+      const seededData = docSnap.data()!;
+      expect(seededData.title).toBe('Hello');
+      expect(Object.is(seededData.negZero, -0)).toBe(true);
+      expect(Number.isNaN(seededData.nanVal)).toBe(true);
+      expect(seededData.numMap).toEqual({ type: 'pyric/number/1.0', value: '-0' });
 
       const rootListing = await listAll(ref(adminStorage));
       expect(rootListing.items).toHaveLength(0);

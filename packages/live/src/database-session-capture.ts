@@ -43,9 +43,84 @@ export const OVERSIZED_RTDB_SESSION: unique symbol = Symbol('oversized-rtdb-sess
 const OMIT_RTDB_SENTINEL: unique symbol = Symbol('omit-rtdb-sentinel');
 const FORBIDDEN_RTDB_KEYS: ReadonlySet<string> = new Set(['__proto__', 'constructor', 'prototype']);
 const FORBIDDEN_RTDB_PATH_CHARS = /[.#$[\]]/;
-const RTDB_WRITES: ReadonlySet<string> = new Set(['remove', 'set', 'setWithPriority', 'update', 'push']);
+const RTDB_WRITES: ReadonlySet<string> = new Set([
+  'remove',
+  'set',
+  'setWithPriority',
+  'setPriority',
+  'update',
+  'push',
+]);
 
 type Fields = Record<string, unknown>;
+
+export function isValidRtdbPriorityValue(value: unknown): value is null | string | number {
+  return (
+    value === null ||
+    typeof value === 'string' ||
+    (typeof value === 'number' && Number.isFinite(value))
+  );
+}
+
+function isValidRtdbScalarValue(value: unknown): value is null | boolean | string | number {
+  return (
+    value === null ||
+    typeof value === 'boolean' ||
+    typeof value === 'string' ||
+    (typeof value === 'number' && Number.isFinite(value))
+  );
+}
+
+export function attachRtdbPriority(copied: unknown, priority: string | number): unknown {
+  if (copied === null) return null;
+  if (Array.isArray(copied)) {
+    const indexed: Fields = {};
+    for (let i = 0; i < copied.length; i++) {
+      if (copied[i] !== null && copied[i] !== undefined) indexed[String(i)] = copied[i];
+    }
+    if (Object.keys(indexed).length === 0) return null;
+    indexed['.priority'] = priority;
+    return indexed;
+  }
+  if (isPlainObject(copied)) {
+    if (Object.keys(copied).length === 0) return null;
+    return { ...copied, '.priority': priority };
+  }
+  return { '.value': copied, '.priority': priority };
+}
+
+export function readSnapshotValueWithPriority(
+  snap: Fields & { val: (...args: unknown[]) => unknown },
+): unknown {
+  const exportValFn: unknown = Reflect.get(snap, 'exportVal');
+  if (typeof exportValFn === 'function') {
+    return Reflect.apply(exportValFn, snap, []);
+  }
+  const rawVal = Reflect.apply(snap.val, snap, []);
+  if (rawVal !== null) {
+    const getPriorityFn: unknown = Reflect.get(snap, 'getPriority');
+    if (typeof getPriorityFn === 'function') {
+      const pri: unknown = Reflect.apply(getPriorityFn, snap, []);
+      if (typeof pri === 'string' || (typeof pri === 'number' && Number.isFinite(pri))) {
+        return attachRtdbPriority(rawVal, pri);
+      }
+    }
+  }
+  return rawVal;
+}
+
+export function stripFilteredQueryRootPriority(
+  value: Record<string, unknown>,
+): Record<string, unknown> | undefined {
+  if (Object.prototype.hasOwnProperty.call(value, '.value')) return undefined;
+  if (!Object.prototype.hasOwnProperty.call(value, '.priority')) return value;
+  const out: Fields = {};
+  for (const [k, v] of Object.entries(value)) {
+    if (k === '.priority') continue;
+    out[k] = v;
+  }
+  return out;
+}
 
 export function isForbiddenRtdbKey(key: string): boolean {
   return FORBIDDEN_RTDB_KEYS.has(key) || FORBIDDEN_RTDB_PATH_CHARS.test(key);
@@ -127,9 +202,18 @@ function copyRtdbEntries(
   prefix: readonly string[],
 ): unknown {
   const out: Fields = {};
+  const definedKeys = Object.keys(fields).filter((k) => fields[k] !== undefined);
+  const allowsScalarValueKey =
+    definedKeys.length > 0 && definedKeys.every((k) => k === '.value' || k === '.priority');
   for (const [key, entry] of Object.entries(fields)) {
-    if (isForbiddenRtdbKey(key)) return INVALID_RTDB_SESSION;
     if (entry === undefined) continue;
+    const isPriorityMeta = key === '.priority' && isValidRtdbPriorityValue(entry);
+    const isScalarValueMeta =
+      key === '.value' && allowsScalarValueKey && isValidRtdbScalarValue(entry);
+    if (!isPriorityMeta && !isScalarValueMeta && isForbiddenRtdbKey(key)) {
+      return INVALID_RTDB_SESSION;
+    }
+    if (key === '.priority' && entry === null) continue;
     if (!chargeString(budget, key)) return OVERSIZED_RTDB_SESSION;
     const entryPrefix = [...prefix, key];
     const copied = copyRtdbSessionValue(entry, depth + 1, budget, stripSentinels, omittedOut, entryPrefix);
@@ -262,7 +346,23 @@ export function databaseWriteSession(
   if (name === 'remove') {
     return withWriteStarter(onCallStart, { sessionData: opDelta({ kind: 'remove', instance, path }) });
   }
+  if (name === 'setPriority') {
+    return withWriteStarter(onCallStart, { sessionData: opDelta({ kind: 'invalidate', instance, path }) });
+  }
   if (name === 'set' || name === 'setWithPriority') {
+    let validPriority: string | number | null = null;
+    if (name === 'setWithPriority') {
+      const rawPriority = args[2];
+      if (isPlainObject(rawPriority) && Object.prototype.hasOwnProperty.call(rawPriority, '.sv')) {
+        return withWriteStarter(onCallStart, {
+          sessionData: { rtdb: [{ kind: 'invalidate', instance, path }], skipped: { unsupported: 1 } },
+        });
+      }
+      if (!isValidRtdbPriorityValue(rawPriority)) {
+        return withWriteStarter(onCallStart, { sessionData: skipDeltaOf('unsupported') });
+      }
+      validPriority = rawPriority;
+    }
     const copied = copiedValue(args[1], true);
     if ('skipped' in copied) return withWriteStarter(onCallStart, { sessionData: copied.skipped });
     if ('rootSentinel' in copied) {
@@ -270,8 +370,20 @@ export function databaseWriteSession(
         sessionData: { rtdb: [{ kind: 'invalidate', instance, path }], skipped: { unsupported: 1 } },
       });
     }
+    let nextValue = copied.value;
+    if (validPriority !== null) {
+      const priorityBudget: SessionBudget = { left: MAX_SESSION_ITEM_BYTES };
+      const chargedPriority =
+        typeof validPriority === 'string'
+          ? chargeString(priorityBudget, validPriority)
+          : chargeScalar(priorityBudget, validPriority);
+      if (!chargedPriority) {
+        return withWriteStarter(onCallStart, { sessionData: skipDeltaOf('oversized') });
+      }
+      nextValue = attachRtdbPriority(nextValue, validPriority);
+    }
     return withWriteStarter(onCallStart, {
-      sessionData: setOpsWithInvalidations(instance, path, copied.value, copied.omittedPaths),
+      sessionData: setOpsWithInvalidations(instance, path, nextValue, copied.omittedPaths),
     });
   }
   if (name === 'update') {
@@ -341,13 +453,15 @@ function valueSnapshotDelta(
     return opDelta({ kind: 'invalidate', instance, path });
   }
   if (!isPlainObject(copied.value)) return skipDeltaOf('unsupported');
-  if (Object.keys(copied.value).length === 0) {
+  const patch = stripFilteredQueryRootPriority(copied.value);
+  if (patch === undefined) return skipDeltaOf('unsupported');
+  if (Object.keys(patch).length === 0) {
     return opDelta({ kind: 'invalidate', instance, path });
   }
   return {
     rtdb: [
       { kind: 'invalidate', instance, path },
-      { kind: 'update', instance, path, value: copied.value },
+      { kind: 'update', instance, path, value: patch },
     ],
   };
 }
@@ -377,7 +491,7 @@ export function databaseResult(site: ObservedSite, value: unknown): ResultReadin
     const readPath = snapshotPathOf(value, site.path);
     if (readPath === undefined) return { sessionData: skipDeltaOf('unsupported') };
     const sessionData = rtdbInFlightWrites().applyDeliveryGuard(instance, readPath, () =>
-      valueSnapshotDelta(site, value, () => Reflect.apply(value.val, value, [])),
+      valueSnapshotDelta(site, value, () => readSnapshotValueWithPriority(value)),
     );
     if (sessionData === undefined) return {};
     return { sessionData };
@@ -405,7 +519,7 @@ export function databaseDelivery(site: ObservedSite, value: unknown): ObservedSe
         if (isFilteredRead(site, value)) return opDelta({ kind: 'invalidate', instance, path: childPath });
         return opDelta({ kind: 'remove', instance, path: childPath });
       }
-      const copied = copiedValue(Reflect.apply(value.val, value, []), false);
+      const copied = copiedValue(readSnapshotValueWithPriority(value), false);
       if ('skipped' in copied || 'rootSentinel' in copied) return skipDeltaOf('unsupported');
       return opDelta({ kind: 'set', instance, path: childPath, value: copied.value });
     });
@@ -414,7 +528,7 @@ export function databaseDelivery(site: ObservedSite, value: unknown): ObservedSe
     const deliveryPath = snapshotPathOf(value, site.path);
     if (deliveryPath === undefined) return skipDeltaOf('unsupported');
     return rtdbInFlightWrites().applyDeliveryGuard(instance, deliveryPath, () =>
-      valueSnapshotDelta(site, value, () => Reflect.apply(value.val, value, [])),
+      valueSnapshotDelta(site, value, () => readSnapshotValueWithPriority(value)),
     );
   }
   return undefined;

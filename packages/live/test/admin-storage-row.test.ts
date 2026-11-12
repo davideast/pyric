@@ -282,3 +282,52 @@ test('no record carries a token, password, email, object bytes or metadata value
   for (const secret of ['hello replay', 'capture', 'owner', 'Bearer', 'token', 'password', 'text/plain']) expect(text).not.toContain(secret);
   expect(text).not.toMatch(/[\w.-]+@[\w-]+\.[\w.]+/);
 });
+
+test('refuses cross-project buckets on File.createWriteStream, File.createReadStream, File.copy/move, Bucket.combine, and unreadable receivers before any request', async () => {
+  const from = records.length;
+  const receivedBefore = (await replay.receivedBy(server.origin)).length;
+  const scopedObserver = observer as LiveObserver & { hostProjectId?: string; client?: 'node' };
+  scopedObserver.hostProjectId = PROJECT;
+  scopedObserver.client = 'node';
+  try {
+    const app = admin.initializeApp(
+      { projectId: PROJECT, storageBucket: BUCKET },
+      'admin-storage-cross-bucket',
+    );
+    const crossBucket = getStorage(app).bucket('other-project.appspot.com');
+    const crossFile = file('notes/cross.txt', crossBucket);
+
+    const writeStreamCode = await new Promise<string | undefined>((resolve) => {
+      const ws = crossFile.createWriteStream!() as NodeJS.WritableStream;
+      ws.on('error', (err: { code?: string }) => resolve(err.code));
+      ws.on('finish', () => resolve('ok'));
+      ws.end(Buffer.from('blocked'));
+    });
+    expect(writeStreamCode).toBe('PYRIC_LIVE_REFUSED');
+
+    const readStreamCode = await new Promise<string | undefined>((resolve) => {
+      const rs = crossFile.createReadStream!() as NodeJS.ReadableStream;
+      rs.on('error', (err: { code?: string }) => resolve(err.code));
+      rs.on('end', () => resolve('ok'));
+      rs.resume();
+    });
+    expect(readStreamCode).toBe('PYRIC_LIVE_REFUSED');
+
+    expect(await refusalOf(file('notes/a.txt').copy!(crossFile))).toBe('PYRIC_LIVE_REFUSED');
+    expect(await refusalOf(file('notes/a.txt').move!('gs://other-project.firebasestorage.app/dest.txt'))).toBe(
+      'PYRIC_LIVE_REFUSED',
+    );
+    expect(await refusalOf((bucket.combine as AnyFunction).call(bucket, [file('notes/a.txt')], crossFile))).toBe(
+      'PYRIC_LIVE_REFUSED',
+    );
+
+    const orphanFile = Object.create(sdk.File.prototype) as Instance;
+    expect(await refusalOf(orphanFile.save!('x'))).toBe('PYRIC_LIVE_REFUSED');
+
+    expect(await recordsSince(from)).toEqual([]);
+    expect((await replay.receivedBy(server.origin)).length).toBe(receivedBefore);
+  } finally {
+    delete scopedObserver.hostProjectId;
+    delete scopedObserver.client;
+  }
+}, 30_000);

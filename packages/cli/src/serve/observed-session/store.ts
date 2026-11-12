@@ -16,7 +16,7 @@ import {
 import { MAX_SINGLE_ITEM_BYTES } from './delta-validation.js';
 import { deepMergeFirestoreMap, deleteDottedField, setDottedField } from './firestore-fields.js';
 import { byteLengthOf } from './json-values.js';
-import { rtdbPathSegments, setRtdbAtSegments, toRtdbMockData } from './rtdb-tree.js';
+import { canonicalRtdbPath, rtdbPathSegments, setRtdbAtSegments, toRtdbMockData } from './rtdb-tree.js';
 import { createObservedStorageCatalog } from './storage-catalog.js';
 import {
   UNREAD_RTDB_INSTANCE,
@@ -216,12 +216,12 @@ export function createObservedSessionDataStore(
   }
 
   function pruneRtdbSegments(instance: string, segmentsList: readonly (readonly string[])[]): boolean {
-    coverage.invalidateRtdbSegments(instance, segmentsList);
+    const invalidated = coverage.invalidateRtdbSegments(instance, segmentsList);
     const existing = rtdb.get(instance);
-    if (existing === undefined) return false;
+    if (existing === undefined) return invalidated;
     let tree = existing.tree;
     for (const segments of segmentsList) tree = setRtdbAtSegments(tree, segments, null);
-    if (tree === existing.tree) return false;
+    if (tree === existing.tree) return invalidated;
     let nextBytes = 0;
     if (tree !== null) nextBytes = byteLengthOf(instance) + byteLengthOf(tree);
     storeTree(instance, tree, existing.bytes, nextBytes);
@@ -245,10 +245,13 @@ export function createObservedSessionDataStore(
     return totalBytes() + deltaBytes <= maxBytes;
   }
 
-  function applyRtdbOp(op: ObservedRtdbSessionOp): boolean {
+  function applyRtdbOp(op: ObservedRtdbSessionOp, pruneOnInvalidate = true): boolean {
     const instance = resolveInstanceName(op.instance);
     if (op.kind === 'invalidate') {
-      return coverage.invalidateRtdbSegments(instance, [rtdbPathSegments(op.path)]);
+      if (!pruneOnInvalidate) {
+        return coverage.invalidateRtdbSegments(instance, [rtdbPathSegments(op.path)]);
+      }
+      return pruneRtdbSegments(instance, [rtdbPathSegments(op.path)]);
     }
     const existing = rtdb.get(instance);
     if (existing === undefined && rtdb.size >= maxRtdbInstances) {
@@ -332,8 +335,16 @@ export function createObservedSessionDataStore(
       for (const op of delta.firestore ?? []) {
         if (applyFirestoreOp(op)) changed = true;
       }
-      for (const op of delta.rtdb ?? []) {
-        if (applyRtdbOp(op)) changed = true;
+      const rtdbOps = delta.rtdb ?? [];
+      for (let i = 0; i < rtdbOps.length; i++) {
+        const op = rtdbOps[i]!;
+        const next = rtdbOps[i + 1];
+        const isFilteredWindowRefresh =
+          op.kind === 'invalidate' &&
+          next?.kind === 'update' &&
+          resolveInstanceName(op.instance) === resolveInstanceName(next.instance) &&
+          canonicalRtdbPath(op.path) === canonicalRtdbPath(next.path);
+        if (applyRtdbOp(op, !isFilteredWindowRefresh)) changed = true;
       }
       if (storageCatalog.applyAll(delta.storage)) changed = true;
       let sourceAdded = false;

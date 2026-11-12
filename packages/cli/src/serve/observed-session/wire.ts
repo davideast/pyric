@@ -43,6 +43,7 @@ export type ObservedFirestoreSessionOp =
       readonly kind: 'update';
       readonly path: string;
       readonly data: Record<string, unknown>;
+      readonly merge?: boolean;
       readonly deleteFields?: readonly string[];
       readonly partial?: boolean;
     }

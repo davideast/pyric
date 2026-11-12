@@ -204,7 +204,7 @@ describe('@pyric/live RTDB sessionData extraction', () => {
           kind: 'set',
           instance: 'demo-session-extract-default-rtdb',
           path: '/flags/beta',
-          value: true,
+          value: { '.value': true, '.priority': 100 },
         },
       ],
     });
@@ -548,5 +548,100 @@ describe('@pyric/live RTDB sessionData extraction', () => {
     });
     pushSettle();
     await pendingPush;
+  });
+
+  test('preserves RTDB .priority and scalar .value across setWithPriority, exportVal() reads/listeners, and filtered queries', async () => {
+    const inst = 'demo-session-extract-default-rtdb';
+    const localRecords: LiveCallRecord[] = [];
+    const localCallbacks: Record<string, (snap: unknown) => void> = {};
+    const wrapped = wrapLiveModule(
+      'live-database',
+      'firebase/database',
+      {
+        setWithPriority: async (_ref: unknown, _value: unknown, _priority: unknown) => undefined,
+        setPriority: async (_ref: unknown, _priority: unknown) => undefined,
+        get: async (refArg: { _queryIdentifier: string }) => {
+          const ref = makeDbRef('docs/doc-1', refArg._queryIdentifier);
+          return {
+            key: ref.key,
+            ref,
+            _query: ref,
+            val: () => (refArg._queryIdentifier !== 'default' ? { childA: 'x' } : { title: 'v1' }),
+            exportVal: () =>
+              refArg._queryIdentifier !== 'default'
+                ? { childA: { '.value': 'x', '.priority': 3 }, '.priority': 99 }
+                : { title: 'v1', '.priority': 10 },
+          };
+        },
+        onChildAdded: (_q: unknown, cb: (snap: unknown) => void) => {
+          localCallbacks.onChildAdded = cb;
+          return () => {};
+        },
+      },
+      {
+        observer: (r) => localRecords.push(r),
+        sdkVersion: realApp.SDK_VERSION,
+        client: 'node',
+      },
+    );
+
+    await wrapped.setWithPriority(makeDbRef('items/item-1') as never, { title: 'v1' }, 10);
+    expect(sessionDataOf(localRecords.at(-1)!)).toEqual({
+      rtdb: [{ kind: 'set', instance: inst, path: '/items/item-1', value: { title: 'v1', '.priority': 10 } }],
+    });
+
+    await wrapped.setWithPriority(makeDbRef('items/item-null-pri') as never, { title: 'v1' }, null);
+    expect(sessionDataOf(localRecords.at(-1)!)).toEqual({
+      rtdb: [{ kind: 'set', instance: inst, path: '/items/item-null-pri', value: { title: 'v1' } }],
+    });
+
+    await wrapped.setWithPriority(makeDbRef('items/item-sv-pri') as never, { title: 'v1' }, { '.sv': 'timestamp' });
+    expect(sessionDataOf(localRecords.at(-1)!)).toEqual({
+      rtdb: [{ kind: 'invalidate', instance: inst, path: '/items/item-sv-pri' }],
+      skipped: { unsupported: 1 },
+    });
+
+    await wrapped.setPriority(makeDbRef('items/item-1') as never, 20);
+    expect(sessionDataOf(localRecords.at(-1)!)).toEqual({
+      rtdb: [{ kind: 'invalidate', instance: inst, path: '/items/item-1' }],
+    });
+
+    await wrapped.get(makeDbRef('docs/doc-1') as never);
+    expect(sessionDataOf(localRecords.at(-1)!)).toEqual({
+      rtdb: [{ kind: 'set', instance: inst, path: '/docs/doc-1', value: { title: 'v1', '.priority': 10 } }],
+    });
+
+    await wrapped.get(makeDbRef('docs/doc-1', '{"ep":"x"}') as never);
+    expect(sessionDataOf(localRecords.at(-1)!)).toEqual({
+      rtdb: [
+        { kind: 'invalidate', instance: inst, path: '/docs/doc-1' },
+        {
+          kind: 'update',
+          instance: inst,
+          path: '/docs/doc-1',
+          value: { childA: { '.value': 'x', '.priority': 3 } },
+        },
+      ],
+    });
+
+    wrapped.onChildAdded(makeDbRef('scalars') as never, () => {});
+    const childRef = makeDbRef('scalars/s1');
+    localCallbacks.onChildAdded!({
+      key: 's1',
+      ref: childRef,
+      _query: childRef,
+      val: () => 'pinned',
+      exportVal: () => ({ '.value': 'pinned', '.priority': 'alpha' }),
+    });
+    expect(sessionDataOf(localRecords.at(-1)!)).toEqual({
+      rtdb: [
+        {
+          kind: 'set',
+          instance: inst,
+          path: '/scalars/s1',
+          value: { '.value': 'pinned', '.priority': 'alpha' },
+        },
+      ],
+    });
   });
 });

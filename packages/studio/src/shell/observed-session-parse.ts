@@ -158,6 +158,140 @@ export function parseObservedSessionSnapshot(raw: unknown): ObservedSessionDataS
   return withObservedStorageSection(snapshot, raw);
 }
 
+function setOwn(target: Record<string, unknown>, key: string, value: unknown): void {
+  Object.defineProperty(target, key, {
+    value,
+    writable: true,
+    enumerable: true,
+    configurable: true,
+  });
+}
+
+function isEscapedSessionMap(
+  value: Record<string, unknown>,
+): value is { type: 'pyric/map/1.0'; fields: Record<string, unknown> } {
+  const keys = Object.keys(value);
+  return (
+    keys.length === 2 &&
+    Object.hasOwn(value, 'type') &&
+    value.type === 'pyric/map/1.0' &&
+    isPlainRecord(value.fields)
+  );
+}
+
+function needsSeedMapEscape(record: Record<string, unknown>): boolean {
+  return (
+    Object.hasOwn(record, 'type') ||
+    Object.hasOwn(record, '__type') ||
+    Object.hasOwn(record, '__type__') ||
+    Object.hasOwn(record, '__proto__')
+  );
+}
+
+function sessionValueToSeedValue(value: unknown, depth: number): unknown {
+  if (Array.isArray(value)) return value.map((item) => sessionValueToSeedValue(item, depth + 1));
+  if (!isPlainRecord(value)) return value;
+
+  if (isEscapedSessionMap(value)) {
+    const converted: Record<string, unknown> = {};
+    for (const [key, item] of Object.entries(value.fields)) {
+      if (FORBIDDEN_KEYS.has(key)) continue;
+      setOwn(converted, key, sessionValueToSeedValue(item, depth + 1));
+    }
+    if (depth === 0) {
+      return isEscapedSessionMap(converted) ? { type: 'pyric/map/1.0', fields: converted } : converted;
+    }
+    return needsSeedMapEscape(converted) ? { type: 'pyric/map/1.0', fields: converted } : converted;
+  }
+
+  const keys = Object.keys(value);
+  if (depth > 0) {
+    if (
+      keys.length === 2 &&
+      typeof value.seconds === 'number' &&
+      Number.isFinite(value.seconds) &&
+      typeof value.nanoseconds === 'number' &&
+      Number.isFinite(value.nanoseconds)
+    ) {
+      return {
+        type: 'firestore/timestamp/1.0',
+        seconds: Math.trunc(value.seconds),
+        nanoseconds: Math.trunc(value.nanoseconds),
+      };
+    }
+    if (
+      keys.length === 2 &&
+      typeof value.latitude === 'number' &&
+      Number.isFinite(value.latitude) &&
+      typeof value.longitude === 'number' &&
+      Number.isFinite(value.longitude)
+    ) {
+      return {
+        type: 'firestore/geoPoint/1.0',
+        latitude: value.latitude,
+        longitude: value.longitude,
+      };
+    }
+    if (keys.length === 2 && value.type === 'firestore/bytes/1.0' && typeof value.bytes === 'string') {
+      return { type: 'firestore/bytes/1.0', bytes: value.bytes };
+    }
+    if (
+      keys.length === 2 &&
+      value.type === 'pyric/number/1.0' &&
+      (value.value === 'NaN' ||
+        value.value === 'Infinity' ||
+        value.value === '-Infinity' ||
+        value.value === '-0')
+    ) {
+      return { type: 'pyric/number/1.0', value: value.value };
+    }
+    if (
+      keys.length === 2 &&
+      value.__type__ === '__vector__' &&
+      Array.isArray(value.value) &&
+      value.value.every((n) => typeof n === 'number' && Number.isFinite(n))
+    ) {
+      return { type: 'firestore/vectorValue/1.0', vectorValues: [...value.value] };
+    }
+    if (
+      keys.length === 3 &&
+      value.type === 'document' &&
+      typeof value.path === 'string' &&
+      value.path.length > 0 &&
+      typeof value.id === 'string'
+    ) {
+      return {
+        __type: 'reference',
+        path: value.path.startsWith('/') ? value.path.slice(1) : value.path,
+      };
+    }
+  }
+
+  const converted: Record<string, unknown> = {};
+  for (const [key, item] of Object.entries(value)) {
+    if (FORBIDDEN_KEYS.has(key)) continue;
+    setOwn(converted, key, sessionValueToSeedValue(item, depth + 1));
+  }
+  if (depth > 0 && needsSeedMapEscape(converted)) {
+    return { type: 'pyric/map/1.0', fields: converted };
+  }
+  if (depth === 0 && isEscapedSessionMap(converted)) {
+    return { type: 'pyric/map/1.0', fields: converted };
+  }
+  return converted;
+}
+
+function sessionFirestoreToSeedDocs(
+  docs: Record<string, Record<string, unknown>>,
+): Record<string, Record<string, unknown>> {
+  const out: Record<string, Record<string, unknown>> = {};
+  for (const [docPath, rawDoc] of Object.entries(docs)) {
+    if (FORBIDDEN_KEYS.has(docPath)) continue;
+    setOwn(out, docPath, sessionValueToSeedValue(rawDoc, 0) as Record<string, unknown>);
+  }
+  return out;
+}
+
 /**
  * Build a portable `pyric sandbox --seed <file>` JSON object from the current
  * observed session snapshot without writing anything on the host. The RTDB
@@ -168,7 +302,9 @@ export function buildObservedSeedPayload(
   snapshot: ObservedSessionDataSnapshot,
   rtdbInstance?: string | null,
 ): ObservedSeedPayload {
-  const payload: ObservedSeedPayload = { firestore: snapshot.firestore };
+  const payload: ObservedSeedPayload = {
+    firestore: sessionFirestoreToSeedDocs(snapshot.firestore),
+  };
   const chosenInstance = rtdbInstance ?? snapshot.defaultRtdbInstance;
   if (!chosenInstance) return payload;
   const database = snapshot.rtdb[chosenInstance];

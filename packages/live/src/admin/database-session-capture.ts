@@ -9,18 +9,23 @@
  */
 import { isObject, pathOf, queryIdOf, UNREAD_INSTANCE } from '../database.js';
 import {
+  attachRtdbPriority,
   copyRtdbSessionValue,
   INVALID_RTDB_SESSION,
   isForbiddenRtdbKey,
+  isValidRtdbPriorityValue,
   isValidRtdbSessionPath,
   opDelta,
   OVERSIZED_RTDB_SESSION,
+  readSnapshotValueWithPriority,
   rtdbInFlightWrites,
+  stripFilteredQueryRootPriority,
 } from '../database-session-capture.js';
 import { isPlainObject } from '../json-copy.js';
 import type { CallContext, ObservedSite, ResultReading } from '../observe.js';
 import {
   chargeContainer,
+  chargeScalar,
   chargeString,
   MAX_SESSION_ITEM_BYTES,
   type SessionBudget,
@@ -32,6 +37,7 @@ const ADMIN_RTDB_WRITES: ReadonlySet<string> = new Set([
   'Reference.remove',
   'Reference.set',
   'Reference.setWithPriority',
+  'Reference.setPriority',
   'Reference.update',
   'Reference.push',
 ]);
@@ -151,11 +157,34 @@ export function adminDatabaseSessionContext(
   if (name === 'Reference.remove') {
     return withAdminWriteStarter(onCallStart, { sessionData: opDelta({ kind: 'remove', instance, path }) });
   }
+  if (name === 'Reference.setPriority') {
+    return withAdminWriteStarter(onCallStart, { sessionData: opDelta({ kind: 'invalidate', instance, path }) });
+  }
   if (name === 'Reference.set' || name === 'Reference.setWithPriority') {
+    let validPriority: string | number | null = null;
+    if (name === 'Reference.setWithPriority') {
+      const rawPriority = args[1];
+      if (!isValidRtdbPriorityValue(rawPriority) || containsRtdbServerSentinel(rawPriority)) {
+        return withAdminWriteStarter(onCallStart, { sessionData: skipDeltaOf('unsupported') });
+      }
+      validPriority = rawPriority;
+    }
     const copied = copiedAdminRtdbValue(args[0], true);
     if ('skipped' in copied) return withAdminWriteStarter(onCallStart, { sessionData: copied.skipped });
+    let nextValue = copied.value;
+    if (validPriority !== null) {
+      const priorityBudget: SessionBudget = { left: MAX_SESSION_ITEM_BYTES };
+      const chargedPriority =
+        typeof validPriority === 'string'
+          ? chargeString(priorityBudget, validPriority)
+          : chargeScalar(priorityBudget, validPriority);
+      if (!chargedPriority) {
+        return withAdminWriteStarter(onCallStart, { sessionData: skipDeltaOf('oversized') });
+      }
+      nextValue = attachRtdbPriority(nextValue, validPriority);
+    }
     return withAdminWriteStarter(onCallStart, {
-      sessionData: opDelta({ kind: 'set', instance, path, value: copied.value }),
+      sessionData: opDelta({ kind: 'set', instance, path, value: nextValue }),
     });
   }
   if (name === 'Reference.update') {
@@ -206,7 +235,7 @@ function valueSnapshotDelta(
   const instance = site.instance ?? UNREAD_INSTANCE;
   const path = snapshotPathOf(snap, site.path);
   if (path === undefined) return skipDeltaOf('unsupported');
-  const copied = copiedAdminRtdbValue(Reflect.apply(snap.val, snap, []), false);
+  const copied = copiedAdminRtdbValue(readSnapshotValueWithPriority(snap), false);
   if ('skipped' in copied) return copied.skipped;
   if (forceUnfiltered || !isFilteredSnap(site, snap)) {
     return opDelta({ kind: 'set', instance, path, value: copied.value });
@@ -215,13 +244,15 @@ function valueSnapshotDelta(
     return opDelta({ kind: 'invalidate', instance, path });
   }
   if (!isPlainObject(copied.value)) return skipDeltaOf('unsupported');
-  if (Object.keys(copied.value).length === 0) {
+  const patch = stripFilteredQueryRootPriority(copied.value);
+  if (patch === undefined) return skipDeltaOf('unsupported');
+  if (Object.keys(patch).length === 0) {
     return opDelta({ kind: 'invalidate', instance, path });
   }
   return {
     rtdb: [
       { kind: 'invalidate', instance, path },
-      { kind: 'update', instance, path, value: copied.value },
+      { kind: 'update', instance, path, value: patch },
     ],
   };
 }
@@ -239,7 +270,7 @@ function childEventDelta(
     if (isFilteredSnap(site, snap)) return opDelta({ kind: 'invalidate', instance, path: childPath });
     return opDelta({ kind: 'remove', instance, path: childPath });
   }
-  const copied = copiedAdminRtdbValue(Reflect.apply(snap.val, snap, []), false);
+  const copied = copiedAdminRtdbValue(readSnapshotValueWithPriority(snap), false);
   if ('skipped' in copied) return copied.skipped;
   return opDelta({ kind: 'set', instance, path: childPath, value: copied.value });
 }

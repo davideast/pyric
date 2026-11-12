@@ -301,7 +301,7 @@ export default scenario(async (app) => {
       assert.deepEqual(snapshot.rtdb[INSTANCE], {
         queues: {
           'q-1': { region: 'us', state: 'ready', workers: 3 },
-          'priority-q': { state: 'prio' },
+          'priority-q': { '.priority': 10, state: 'prio' },
           items: { [jobOutcome.pushedKey]: { job: 'sync' } },
           extra: { state: 'loaded' },
           'by-region': {

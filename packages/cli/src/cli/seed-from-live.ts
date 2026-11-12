@@ -125,6 +125,16 @@ function sessionValueToSeedValue(value: unknown, depth: number): unknown {
     }
     if (
       keys.length === 2 &&
+      value.type === 'pyric/number/1.0' &&
+      (value.value === 'NaN' ||
+        value.value === 'Infinity' ||
+        value.value === '-Infinity' ||
+        value.value === '-0')
+    ) {
+      return { type: 'pyric/number/1.0', value: value.value };
+    }
+    if (
+      keys.length === 2 &&
       value.__type__ === '__vector__' &&
       Array.isArray(value.value) &&
       value.value.every((n) => typeof n === 'number' && Number.isFinite(n))

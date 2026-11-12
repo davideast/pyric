@@ -354,6 +354,7 @@ describe('@pyric/live Firestore sessionData extraction', () => {
           kind: 'update',
           path: 'rooms/r1',
           data: { 'profile.name': 'Lobby 2', keep: true },
+          merge: true,
         },
       ],
     });

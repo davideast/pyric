@@ -93,6 +93,10 @@ export function reviveFirestoreNumbers(value: unknown): unknown {
   if (typeof value === 'number') return hostNumber(value);
   if (Array.isArray(value)) return value.map(reviveFirestoreNumbers);
   if (isPlainObject(value)) {
+    const unescapedTag = Symbol.for('pyric.unescapedMap');
+    if ((value as Record<symbol, unknown>)[unescapedTag] === true) {
+      return value;
+    }
     if (typeof value.__type === 'string') {
       switch (value.__type) {
         case 'float':
@@ -130,11 +134,38 @@ export function reviveFirestoreNumbers(value: unknown): unknown {
           break;
       }
     }
-    if (value.__type__ === '__vector__' && Array.isArray(value.value)) {
+    if (
+      value.__type__ === '__vector__' &&
+      Array.isArray(value.value) &&
+      value.value.every((n) => typeof n === 'number')
+    ) {
       return new Vector(Object.freeze((value.value as number[]).slice()));
     }
     if (typeof value.type === 'string') {
       switch (value.type) {
+        case 'pyric/map/1.0':
+          if (Object.keys(value).length === 2 && isPlainObject(value.fields)) {
+            const out: Record<string, unknown> = {};
+            for (const [key, child] of Object.entries(value.fields)) {
+              Object.defineProperty(out, key, {
+                value: reviveFirestoreNumbers(child),
+                enumerable: true,
+                writable: true,
+                configurable: true,
+              });
+            }
+            Object.defineProperty(out, unescapedTag, { value: true });
+            return out;
+          }
+          break;
+        case 'pyric/number/1.0':
+          if (Object.keys(value).length === 2) {
+            if (value.value === 'NaN') return new RulesFloat(Number.NaN);
+            if (value.value === 'Infinity') return new RulesFloat(Number.POSITIVE_INFINITY);
+            if (value.value === '-Infinity') return new RulesFloat(Number.NEGATIVE_INFINITY);
+            if (value.value === '-0') return new RulesFloat(-0);
+          }
+          break;
         case 'firestore/timestamp/1.0':
           if (typeof value.seconds === 'number' && typeof value.nanoseconds === 'number') {
             return new Timestamp(value.seconds, value.nanoseconds);

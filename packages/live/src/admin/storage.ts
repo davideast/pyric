@@ -18,18 +18,20 @@
  * A record never carries an object's bytes.
  */
 import { basename } from 'node:path';
-import { Writable } from 'node:stream';
+import { PassThrough, Readable, Writable } from 'node:stream';
 import type { CallContext, LiveCallRecord, LiveObserver } from '../observe.js';
+import { liveProjectRefusal } from '../refusal.js';
 import { attachSessionData, type ObservedSessionDelta } from '../session-data.js';
 import {
   isObservingAdminCall,
   keepShape,
+  nodeCallbackOf,
   patchAdminClass,
   runInsideAdminCall,
   type AdminMethod,
   type AdminRow,
 } from './patch.js';
-import type { AdminApp, AdminProjectGate } from './project-gate.js';
+import { failClosedGate, UNREAD_APP, type AdminApp, type AdminProjectGate } from './project-gate.js';
 import {
   adminStorageRejection,
   adminStorageResult,
@@ -43,6 +45,9 @@ import {
 export const ADMIN_STORAGE_MODULE = '@google-cloud/storage';
 
 const WRITE_STREAM_PATCHED = Symbol.for('pyric.live.admin.storage.writeStream');
+const READ_STREAM_PATCHED = Symbol.for('pyric.live.admin.storage.readStream');
+const EXTRA_TARGETS_PATCHED = Symbol.for('pyric.live.admin.storage.extraTargets');
+const DEFAULT_BUCKET = /^(?:gs:\/\/)?([a-z0-9-]+)\.(?:appspot\.com|firebasestorage\.app)\/?$/i;
 
 /** The project a client holds until one is given or resolved (`nodejs-common/service.js`). */
 const UNRESOLVED_PROJECT = '{{projectId}}';
@@ -150,10 +155,83 @@ function calls(...names: string[]): AdminMethod[] {
 const CLASSES: readonly { readonly className: string; readonly methods: readonly AdminMethod[] }[] = [
   {
     className: 'File',
-    methods: calls('save', 'download', 'delete', 'exists', 'getMetadata', 'setMetadata', 'copy', 'move'),
+    methods: calls(
+      'save',
+      'download',
+      'delete',
+      'exists',
+      'getMetadata',
+      'setMetadata',
+      'copy',
+      'move',
+      'moveFileAtomic',
+      'rename',
+      'createResumableUpload',
+      'makePublic',
+      'makePrivate',
+      'isPublic',
+      'restore',
+    ),
   },
-  { className: 'Bucket', methods: calls('getFiles', 'upload', 'deleteFiles') },
+  {
+    className: 'Bucket',
+    methods: calls('getFiles', 'upload', 'deleteFiles', 'combine', 'delete', 'exists', 'getMetadata', 'setMetadata'),
+  },
 ];
+
+function bucketProjectRefusal(
+  callName: string,
+  bucketName: string | undefined,
+  observer: LiveObserver,
+): Error | null {
+  const hostProjectId = observer.hostProjectId;
+  if (hostProjectId === undefined || bucketName === undefined) return null;
+  const matched = DEFAULT_BUCKET.exec(bucketName.trim())?.[1]?.toLowerCase();
+  if (matched === undefined || matched === hostProjectId) return null;
+  return liveProjectRefusal(
+    callName,
+    { field: 'bucket', appProjectId: matched, hostProjectId },
+    observer.client ?? 'node',
+  );
+}
+
+function isStorageEntity(value: unknown): boolean {
+  if (!isObject(value)) return false;
+  return isObject(Reflect.get(value, 'bucket')) || isObject(Reflect.get(value, 'storage'));
+}
+
+function targetBucketName(target: unknown): string | undefined {
+  if (typeof target === 'string') {
+    if (!target.startsWith('gs://')) return undefined;
+    const rest = target.slice('gs://'.length);
+    const slash = rest.indexOf('/');
+    return slash === -1 ? rest : rest.slice(0, slash);
+  }
+  if (isStorageEntity(target)) {
+    return stringAt(bucketOf(target), 'name');
+  }
+  return undefined;
+}
+
+async function checkExtraStorageTargets(
+  className: string,
+  methodName: string,
+  args: readonly unknown[],
+  adminRow: AdminRow,
+): Promise<void> {
+  const callName = `${className}.${methodName}`;
+  const targets =
+    className === 'Bucket' && methodName === 'combine'
+      ? [...(Array.isArray(args[0]) ? args[0] : []), args[1]]
+      : [args[0]];
+  for (const target of targets) {
+    const refusal = bucketProjectRefusal(callName, targetBucketName(target), adminRow.observer);
+    if (refusal !== null) throw refusal;
+    if (isStorageEntity(target)) {
+      await adminRow.gate(adminRow.appOf(target), () => undefined);
+    }
+  }
+}
 
 /** Where the records go and which gate the calls pass. */
 export interface AdminStorageRow {
@@ -173,7 +251,7 @@ const apps = new WeakMap<object, AdminApp>();
  */
 function appOf(self: unknown): AdminApp {
   const client = clientOf(self);
-  if (!isObject(client)) return { options: {} };
+  if (!isObject(client)) return UNREAD_APP;
   const known = apps.get(client);
   if (known !== undefined) return known;
   const projectId = projectIdOf(client);
@@ -192,11 +270,12 @@ function appOf(self: unknown): AdminApp {
   return app;
 }
 
-function emitWriteStreamRecord(
+function emitStreamRecord(
   observer: LiveObserver,
+  name: 'File.createWriteStream' | 'File.createReadStream',
   base: { projectId?: string; bucket?: string; path?: string },
   outcome: 'resolved' | 'rejected',
-  writtenBytes: number,
+  usage: { uploadedBytes: number } | { downloadedBytes: number } | undefined,
   sessionData: ObservedSessionDelta | undefined,
   error?: unknown,
 ): void {
@@ -209,18 +288,18 @@ function emitWriteStreamRecord(
     bucket?: string;
     path?: string;
     code?: string;
-    usage?: { uploadedBytes: number };
+    usage?: { uploadedBytes?: number; downloadedBytes?: number };
   } = {
     module: ADMIN_STORAGE_MODULE,
     sdk: 'admin',
-    name: 'File.createWriteStream',
+    name,
     outcome,
   };
   if (base.projectId !== undefined) record.projectId = base.projectId;
   if (base.bucket !== undefined) record.bucket = base.bucket;
   if (base.path !== undefined) record.path = base.path;
   if (outcome === 'resolved') {
-    record.usage = { uploadedBytes: writtenBytes };
+    if (usage !== undefined) record.usage = usage;
   } else {
     record.code = adminCodeOf(error);
   }
@@ -283,7 +362,15 @@ function patchCreateWriteStream(prototype: object | undefined, adminRow: AdminRo
       if (outcome === 'resolved') {
         delta = captureAdminWriteStreamDelta(bucket, path, self, writtenBytes, optionsMeta);
       }
-      emitWriteStreamRecord(adminRow.observer, base, outcome, writtenBytes, delta, error);
+      emitStreamRecord(
+        adminRow.observer,
+        'File.createWriteStream',
+        base,
+        outcome,
+        { uploadedBytes: writtenBytes },
+        delta,
+        error,
+      );
     };
 
     const toError = (err: unknown): Error => {
@@ -352,8 +439,10 @@ function patchCreateWriteStream(prototype: object | undefined, adminRow: AdminRo
     let openPromise: Promise<Writable> | undefined;
     function ensureUnderlying(): Promise<Writable> {
       if (openPromise !== undefined) return openPromise;
-      openPromise = adminRow.gate(adminRow.appOf(self), () =>
-        runInsideAdminCall(() => {
+      openPromise = adminRow.gate(adminRow.appOf(self), () => {
+        const refusal = bucketProjectRefusal('File.createWriteStream', bucket, adminRow.observer);
+        if (refusal !== null) throw refusal;
+        return runInsideAdminCall(() => {
           const created = Reflect.apply(realFn, self, args);
           reachedSdk = true;
           underlying = created;
@@ -367,8 +456,8 @@ function patchCreateWriteStream(prototype: object | undefined, adminRow: AdminRo
             }
           });
           return created;
-        }),
-      );
+        });
+      });
       return openPromise;
     }
 
@@ -384,6 +473,143 @@ function patchCreateWriteStream(prototype: object | undefined, adminRow: AdminRo
 
   Object.defineProperty(prototype, 'createWriteStream', { ...descriptor, value: wrapped });
   Object.defineProperty(prototype, WRITE_STREAM_PATCHED, { value: true });
+}
+
+function patchCreateReadStream(prototype: object | undefined, adminRow: AdminRow): void {
+  if (prototype === undefined || Object.hasOwn(prototype, READ_STREAM_PATCHED)) return;
+  const descriptor = Object.getOwnPropertyDescriptor(prototype, 'createReadStream');
+  const real = descriptor?.value as unknown;
+  if (typeof real !== 'function') return;
+  const realFn = real as (this: unknown, ...args: unknown[]) => Readable;
+
+  const wrapped = keepShape(function adminCreateReadStream(this: unknown, ...args: unknown[]): unknown {
+    if (isObservingAdminCall()) {
+      return Reflect.apply(realFn, this, args);
+    }
+    const self = this;
+    const projectId = projectIdOf(clientOf(self));
+    const bucket = stringAt(bucketOf(self), 'name');
+    const path = pathOf('createReadStream', args, self);
+    const base: { projectId?: string; bucket?: string; path?: string } = {};
+    if (projectId !== undefined) base.projectId = projectId;
+    if (bucket !== undefined) base.bucket = bucket;
+    if (path !== undefined) base.path = path;
+
+    let downloadedBytes = 0;
+    let reachedSdk = false;
+    let settled = false;
+    let underlying: Readable | undefined;
+
+    const toError = (err: unknown): Error => {
+      if (err instanceof Error) return err;
+      return new Error(String(err));
+    };
+
+    const recordOnce = (outcome: 'resolved' | 'rejected', error?: unknown): void => {
+      if (settled) return;
+      settled = true;
+      if (outcome === 'rejected' && !reachedSdk) return;
+      emitStreamRecord(
+        adminRow.observer,
+        'File.createReadStream',
+        base,
+        outcome,
+        { downloadedBytes },
+        undefined,
+        error,
+      );
+    };
+
+    const proxy = new PassThrough();
+    proxy.on('close', () => {
+      if (underlying !== undefined && !underlying.destroyed) {
+        underlying.destroy();
+      }
+    });
+
+    adminRow
+      .gate(adminRow.appOf(self), () => {
+        const refusal = bucketProjectRefusal('File.createReadStream', bucket, adminRow.observer);
+        if (refusal !== null) throw refusal;
+        if (proxy.destroyed) return undefined;
+        return runInsideAdminCall(() => {
+          const created = Reflect.apply(realFn, self, args);
+          reachedSdk = true;
+          underlying = created;
+          created.on('response', (...eventArgs: unknown[]) => {
+            proxy.emit('response', ...eventArgs);
+          });
+          created.on('data', (chunk: unknown) => {
+            const chunkLen = numericByteLengthOf(chunk);
+            if (chunkLen !== undefined) downloadedBytes += chunkLen;
+          });
+          created.on('end', () => {
+            recordOnce('resolved');
+          });
+          created.on('error', (err: unknown) => {
+            recordOnce('rejected', err);
+            if (!proxy.destroyed) {
+              proxy.destroy(toError(err));
+            }
+          });
+          created.pipe(proxy);
+          return created;
+        });
+      })
+      .catch((err: unknown) => {
+        if (!proxy.destroyed) {
+          proxy.destroy(toError(err));
+        }
+      });
+
+    return proxy;
+  }, real as (this: unknown, ...args: unknown[]) => unknown);
+
+  Object.defineProperty(prototype, 'createReadStream', { ...descriptor, value: wrapped });
+  Object.defineProperty(prototype, READ_STREAM_PATCHED, { value: true });
+}
+
+function patchExtraStorageTargets(
+  prototype: object | undefined,
+  className: string,
+  methodNames: readonly string[],
+  adminRow: AdminRow,
+): void {
+  if (prototype === undefined || Object.hasOwn(prototype, EXTRA_TARGETS_PATCHED)) return;
+  for (const methodName of methodNames) {
+    const descriptor = Object.getOwnPropertyDescriptor(prototype, methodName);
+    const patched = descriptor?.value as unknown;
+    if (typeof patched !== 'function') continue;
+    const patchedFn = patched as (this: unknown, ...args: unknown[]) => unknown;
+    const guarded = keepShape(function adminExtraTargetsCall(this: unknown, ...args: unknown[]): unknown {
+      if (isObservingAdminCall()) {
+        return Reflect.apply(patchedFn, this, args);
+      }
+      const cb = nodeCallbackOf(args);
+      if (cb !== undefined) {
+        const pending = checkExtraStorageTargets(className, methodName, cb.before, adminRow).then(() =>
+          Reflect.apply(patchedFn, this, cb.before),
+        );
+        pending.then(
+          (value: unknown) => {
+            let results: unknown[] = [];
+            if (Array.isArray(value)) results = value;
+            else if (value !== undefined) results = [value];
+            process.nextTick(() => Reflect.apply(cb.callback, undefined, [null, ...results]));
+          },
+          (error: unknown) => {
+            process.nextTick(() => Reflect.apply(cb.callback, undefined, [error]));
+          },
+        );
+        return undefined;
+      }
+      return checkExtraStorageTargets(className, methodName, args, adminRow).then(() =>
+        Reflect.apply(patchedFn, this, args),
+      );
+    }, patchedFn);
+    Object.defineProperty(prototype, methodName, { ...descriptor, value: guarded });
+  }
+  Object.defineProperty(prototype, EXTRA_TARGETS_PATCHED, { value: true });
 }
 
 /**
@@ -417,12 +643,17 @@ function prototypeOf(sdk: unknown, className: string): object | undefined {
  * change nothing. `_entryFile` is where it loaded from, as the other rows take it.
  */
 export function observeAdminStorage(sdk: unknown, _entryFile: string, row: AdminStorageRow): void {
-  const adminRow: AdminRow = { module: ADMIN_STORAGE_MODULE, observer: row.observer, gate: row.gate, appOf };
+  const gate = failClosedGate(row.gate, 'Storage');
+  const adminRow: AdminRow = { module: ADMIN_STORAGE_MODULE, observer: row.observer, gate, appOf };
   const filePrototype = prototypeOf(sdk, 'File');
+  const bucketPrototype = prototypeOf(sdk, 'Bucket');
   patchCreateWriteStream(filePrototype, adminRow);
+  patchCreateReadStream(filePrototype, adminRow);
   for (const { className, methods } of CLASSES) {
     const prototype = prototypeOf(sdk, className);
     if (prototype !== undefined) ownInherited(prototype, methods.map((method) => method.name));
     patchAdminClass(prototype, className, methods, adminRow);
   }
+  patchExtraStorageTargets(filePrototype, 'File', ['copy', 'move', 'moveFileAtomic', 'rename'], adminRow);
+  patchExtraStorageTargets(bucketPrototype, 'Bucket', ['combine'], adminRow);
 }

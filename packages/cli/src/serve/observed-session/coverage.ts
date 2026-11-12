@@ -110,8 +110,9 @@ export function createObservedSessionCoverage(options: {
       absentDocs.delete(norm);
       const isUnmergedSet = op.kind === 'set' && op.merge !== true;
       const isMergeOntoKnown = op.kind === 'set' && op.merge === true && (priorWasComplete || priorWasAbsent);
-      const isUpdateOntoComplete = op.kind === 'update' && priorWasComplete;
-      const isComplete = op.partial !== true && (isUnmergedSet || isMergeOntoKnown || isUpdateOntoComplete);
+      const isUpdateOntoKnown =
+        op.kind === 'update' && (priorWasComplete || (op.merge === true && priorWasAbsent));
+      const isComplete = op.partial !== true && (isUnmergedSet || isMergeOntoKnown || isUpdateOntoKnown);
       docState.set(norm, isComplete ? 'complete' : 'partial');
     },
 

@@ -322,7 +322,7 @@ async function sendAndWait(plane: Plane, session: string, frame: InboundMessage,
 /** Put a plane in the starting state: data, rules, signed-in ports and open listeners. */
 async function applyBase(plane: Plane, base: ReproBase, timeoutMs: number): Promise<void> {
   let sequence = 0;
-  const setup = async (session: string, frame: Record<string, unknown>): Promise<void> => {
+  const setup = async (session: string, frame: Record<string, unknown>): Promise<unknown> => {
     const id = `repro-setup-${++sequence}`;
     const reply = await sendAndWait(plane, session, { t: 'op', id, ...frame } as InboundMessage, timeoutMs);
     const succeeded = reply?.t === 'res' && reply.ok;
@@ -330,6 +330,7 @@ async function applyBase(plane: Plane, base: ReproBase, timeoutMs: number): Prom
       const error = reply?.t === 'res' && !reply.ok ? reply.error.message : 'no reply';
       throw new Error(`Replay could not apply the starting state (${String(frame.method)}): ${error}`);
     }
+    return reply.value;
   };
   if (base.appOptions) {
     for (const session of [SETUP_SESSION, ...Object.keys(base.sessions)]) {
@@ -348,6 +349,7 @@ async function applyBase(plane: Plane, base: ReproBase, timeoutMs: number): Prom
   if (base.rules.firestore !== null) await setup(SETUP_SESSION, { method: 'setFirestoreRules', source: base.rules.firestore });
   else plane.clearActiveFirestoreRules();
   if (base.rules.storage !== null) await plane.deployRules('storage', base.rules.storage);
+  let poolUsers: Array<{ uid?: unknown; tenantId?: unknown; customClaims?: Record<string, unknown> }> | undefined;
   for (const [session, identity] of Object.entries(base.sessions)) {
     if (identity.signInProvider === 'custom') {
       await setup(session, {
@@ -356,7 +358,41 @@ async function applyBase(plane: Plane, base: ReproBase, timeoutMs: number): Prom
         ...(identity.tenantId !== null ? { tenantId: identity.tenantId } : {}),
       });
     } else {
-      await setup(session, { method: 'auth.restorePortSession', uid: identity.uid, tenantId: identity.tenantId });
+      let restorePoolClaims: Record<string, unknown> | undefined;
+      if (identity.customClaims !== undefined) {
+        if (poolUsers === undefined) {
+          const listed = await setup(SETUP_SESSION, { method: 'auth.listUsers' });
+          poolUsers = Array.isArray(listed) ? listed : [];
+        }
+        const poolUser = poolUsers.find(
+          (u) => u.uid === identity.uid && (u.tenantId ?? null) === identity.tenantId,
+        );
+        if (poolUser !== undefined) {
+          const currentPoolClaims = poolUser.customClaims ?? {};
+          if (JSON.stringify(currentPoolClaims) !== JSON.stringify(identity.customClaims)) {
+            restorePoolClaims = currentPoolClaims;
+            await setup(SETUP_SESSION, {
+              method: 'auth.adminUpdateUser',
+              uid: identity.uid,
+              request: { customClaims: identity.customClaims },
+            });
+          }
+        }
+      }
+      await setup(session, {
+        method: 'auth.restorePortSession',
+        uid: identity.uid,
+        tenantId: identity.tenantId,
+        ...(identity.customClaims !== undefined ? { customClaims: identity.customClaims } : {}),
+        ...(identity.signInProvider !== undefined ? { signInProvider: identity.signInProvider } : {}),
+      });
+      if (restorePoolClaims !== undefined) {
+        await setup(SETUP_SESSION, {
+          method: 'auth.adminUpdateUser',
+          uid: identity.uid,
+          request: { customClaims: restorePoolClaims },
+        });
+      }
     }
   }
   for (const [session, subscriptions] of Object.entries(base.subscriptions)) {

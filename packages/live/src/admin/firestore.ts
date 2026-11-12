@@ -18,6 +18,7 @@
  */
 import Module, { createRequire } from 'node:module';
 import type { CallContext, LiveObserver } from '../observe.js';
+import { liveCallRefusal } from '../refusal.js';
 import {
   adminFirestoreDelivery,
   adminFirestoreResult,
@@ -28,7 +29,7 @@ import {
   patchAdminFirestoreWriteBatch,
 } from './firestore-session-staging.js';
 import { patchAdminClass, type AdminMethod, type AdminRow } from './patch.js';
-import type { AdminApp, AdminProjectGate } from './project-gate.js';
+import { failClosedGate, UNREAD_APP, type AdminApp, type AdminProjectGate } from './project-gate.js';
 
 /** The module an Admin Firestore record names: the load the row patches. */
 export const ADMIN_FIRESTORE_MODULE = '@google-cloud/firestore';
@@ -58,16 +59,35 @@ function adminCodeOf(error: unknown): string {
   return stringAt(error, 'name') ?? 'unknown';
 }
 
+function isFirestoreClient(value: unknown): value is object {
+  if (!isObject(value)) return false;
+  return (
+    '_settings' in value ||
+    '_databaseId' in value ||
+    typeof Reflect.get(value, 'initializeIfNeeded') === 'function'
+  );
+}
+
 /**
- * The Firestore a reference, query, batch or the Firestore itself belongs
- * to. An aggregate query holds none of its own: it reaches it through its query.
+ * The Firestore a reference, query, batch, BulkWriter, or the Firestore itself
+ * belongs to. An aggregate query holds none of its own: it reaches it through its query.
  */
-function firestoreOf(self: unknown): unknown {
+export function firestoreOf(self: unknown): object | undefined {
   if (!isObject(self)) return undefined;
-  const owner: unknown = Reflect.get(self, '_firestore');
-  if (owner !== undefined) return owner;
+  const owner: unknown = Reflect.get(self, '_firestore') ?? Reflect.get(self, 'firestore');
+  if (isFirestoreClient(owner)) return owner;
   const aggregated: unknown = Reflect.get(self, '_query');
-  return isObject(aggregated) ? firestoreOf(aggregated) : self;
+  if (isObject(aggregated)) return firestoreOf(aggregated);
+  return isFirestoreClient(self) ? self : undefined;
+}
+
+/** The Firestore database id (`'(default)'` when unset or empty). */
+export function databaseIdOf(self: unknown): string {
+  const firestore = firestoreOf(self);
+  const raw =
+    stringAt(firestore, '_databaseId') ??
+    stringAt(isObject(firestore) ? Reflect.get(firestore, '_settings') : undefined, 'databaseId');
+  return raw === undefined || raw === '' ? '(default)' : raw;
 }
 
 /** The project the Firestore was given, or resolved, without asking it to resolve one. */
@@ -85,19 +105,38 @@ function queryPath(query: unknown): string | undefined {
   return parent === undefined || parent === '' ? collectionId : `${parent}/${collectionId}`;
 }
 
-/** The path a reference, query or aggregate query names; none for a batch or the Firestore. */
-function pathOf(self: unknown): string | undefined {
+const FIRST_ARG_PATH_CALLS: ReadonlySet<string> = new Set([
+  'Firestore.recursiveDelete',
+  'BulkWriter.create',
+  'BulkWriter.set',
+  'BulkWriter.update',
+  'BulkWriter.delete',
+]);
+
+/** The path a reference, query, aggregate query, BulkWriter op, or recursiveDelete names; none for getAll, a batch, or the Firestore. */
+function pathOf(name: string, self: unknown, args: readonly unknown[]): string | undefined {
   const own = stringAt(self, 'path');
   if (own !== undefined) return own;
   const aggregated: unknown = isObject(self) ? Reflect.get(self, '_query') : undefined;
-  return queryPath(aggregated ?? self);
+  const fromQuery = queryPath(aggregated ?? self);
+  if (fromQuery !== undefined) return fromQuery;
+  if (FIRST_ARG_PATH_CALLS.has(name)) {
+    const firstArg = args[0];
+    if (isObject(firstArg)) {
+      const argPath = stringAt(firstArg, 'path');
+      if (argPath !== undefined) return argPath;
+      return queryPath(firstArg);
+    }
+  }
+  return undefined;
 }
 
 /** One call's context, read off the SDK's own objects: its project, path, and session delta. */
 function contextOf(name: string, args: readonly unknown[], self: unknown): CallContext {
   const projectId = projectIdOf(self);
-  const path = pathOf(self);
-  const session = adminFirestoreSessionContext(name, args, self, path);
+  const path = pathOf(name, self, args);
+  const isDefaultDb = databaseIdOf(self) === '(default)';
+  const session = isDefaultDb ? adminFirestoreSessionContext(name, args, self, path) : {};
   const context: { -readonly [K in keyof CallContext]: CallContext[K] } = {};
   if (projectId !== undefined) context.projectId = projectId;
   if (path !== undefined) context.path = path;
@@ -132,7 +171,8 @@ const CLASSES: readonly { readonly className: string; readonly methods: readonly
   { className: 'Query', methods: [...calls('get'), LISTENER] },
   { className: 'AggregateQuery', methods: calls('get') },
   { className: 'WriteBatch', methods: calls('commit') },
-  { className: 'Firestore', methods: calls('getAll', 'runTransaction') },
+  { className: 'BulkWriter', methods: calls('create', 'set', 'update', 'delete', 'flush', 'close') },
+  { className: 'Firestore', methods: calls('getAll', 'runTransaction', 'listCollections', 'recursiveDelete') },
 ];
 
 /** Where the records go and which gate the calls pass. */
@@ -141,8 +181,10 @@ export interface AdminFirestoreRow {
   readonly gate: AdminProjectGate;
 }
 
-/** Each Firestore's stand-in Admin app, as the gate reads it: the project firebase-admin gave it. */
-const apps = new WeakMap<object, AdminApp>();
+type FirestoreAdminApp = AdminApp & { readonly databaseId?: string };
+
+/** Each Firestore's stand-in Admin app, as the gate reads it: the project and databaseId firebase-admin gave it. */
+const apps = new WeakMap<object, FirestoreAdminApp>();
 
 /** The tag the Firestore's own project lookup logs under. */
 const GATE_REQUEST_TAG = 'pyric-admin-gate';
@@ -164,20 +206,20 @@ function resolvingCredential(firestore: object): { getProjectId(): Promise<unkno
 }
 
 /**
- * The Admin app a call belongs to, for the gate. firebase-admin hands
- * `@google-cloud/firestore` its app's explicit project (`options.projectId`,
- * a `cert()` credential's, or the project variables), so the Firestore's
- * settings carry the project the gate checks. An app with none, such as one
- * on application default credentials with no project set, gets a credential
- * that resolves the project the Firestore would use, before any request.
+ * The Admin app a call belongs to, for the gate, or `UNREAD_APP` so
+ * `failClosedGate` refuses an unreadable receiver.
  */
-function appOf(self: unknown): AdminApp {
+function appOf(self: unknown): FirestoreAdminApp {
   const firestore = firestoreOf(self);
-  if (!isObject(firestore)) return { options: {} };
+  if (firestore === undefined) return UNREAD_APP;
   const known = apps.get(firestore);
   if (known !== undefined) return known;
   const projectId = stringAt(Reflect.get(firestore, '_settings'), 'projectId');
-  const app: AdminApp = { options: projectId === undefined ? { credential: resolvingCredential(firestore) } : { projectId } };
+  const databaseId = databaseIdOf(firestore);
+  const app: FirestoreAdminApp = {
+    options: projectId === undefined ? { credential: resolvingCredential(firestore) } : { projectId },
+    databaseId,
+  };
   apps.set(firestore, app);
   return app;
 }
@@ -220,6 +262,22 @@ function prototypeOf(sdk: unknown, className: string, entryFile: string): object
 export function observeAdminFirestore(sdk: unknown, entryFile: string, row: AdminFirestoreRow): void {
   patchAdminFirestoreWriteBatch(prototypeOf(sdk, 'WriteBatch', entryFile));
   patchAdminFirestoreTransaction(prototypeOf(sdk, 'Transaction', entryFile));
-  const adminRow: AdminRow = { module: ADMIN_FIRESTORE_MODULE, observer: row.observer, gate: row.gate, appOf };
+  const baseGate = failClosedGate(row.gate, 'Firestore');
+  const gate: AdminProjectGate = (app, call) =>
+    baseGate(app, () => {
+      const databaseId = (app as FirestoreAdminApp).databaseId;
+      if (databaseId !== undefined && databaseId !== '(default)') {
+        throw liveCallRefusal(
+          {
+            call: 'firebase-admin/firestore',
+            reaches: `the Firestore database ${JSON.stringify(databaseId)}`,
+            serves: 'only the (default) database',
+          },
+          row.observer.client ?? 'node',
+        );
+      }
+      return call();
+    });
+  const adminRow: AdminRow = { module: ADMIN_FIRESTORE_MODULE, observer: row.observer, gate, appOf };
   for (const { className, methods } of CLASSES) patchAdminClass(prototypeOf(sdk, className, entryFile), className, methods, adminRow);
 }

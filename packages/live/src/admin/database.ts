@@ -38,7 +38,7 @@ import {
 } from './database-session-capture.js';
 import { keepShape, outsideScope, patchAdminClass, type AdminMethod, type AdminRow } from './patch.js';
 import { liveAdminInstanceRefusal, liveAdminInstanceUnreadable, liveAdminProjectRefusal, type AdminProjectSource } from '../refusal.js';
-import type { AdminApp, AdminProjectGate } from './project-gate.js';
+import { failClosedGate, UNREAD_APP, type AdminApp, type AdminProjectGate } from './project-gate.js';
 
 /** The module an Admin RTDB record names: the load the row patches. */
 export const ADMIN_DATABASE_MODULE = '@firebase/database-compat/standalone';
@@ -60,7 +60,6 @@ function delegateOf(self: unknown): unknown {
 
 /** Each firebase-admin app's stand-in for the gate, read once: its project and its own credential. */
 const apps = new WeakMap<object, AdminApp>();
-const NO_APP: AdminApp = { options: {} };
 
 /**
  * The Admin app a call belongs to, for the gate: the firebase-admin app the
@@ -74,9 +73,9 @@ function appOf(self: unknown): AdminApp {
   return adminAppOf(fieldOf(fieldOf(self, 'database'), 'app'));
 }
 
-/** The gate's stand-in for one firebase-admin app, made once. */
+/** The gate's stand-in for one firebase-admin app, made once, or `UNREAD_APP` when absent. */
 function adminAppOf(app: unknown): AdminApp {
-  if (!isObject(app)) return NO_APP;
+  if (!isObject(app)) return UNREAD_APP;
   const known = apps.get(app);
   if (known !== undefined) return known;
   const options = fieldOf(app, 'options');
@@ -464,18 +463,20 @@ function gateRulesCalls(prototype: object, row: AdminDatabaseRow): void {
  * Later calls change nothing.
  */
 export function observeAdminDatabase(sdk: unknown, row: AdminDatabaseRow): void {
-  const adminRow: AdminRow = { module: ADMIN_DATABASE_MODULE, observer: row.observer, gate: row.gate, appOf };
+  const closedGate = failClosedGate(row.gate, 'Database');
+  const gatedRow: AdminDatabaseRow = { ...row, gate: closedGate };
+  const adminRow: AdminRow = { module: ADMIN_DATABASE_MODULE, observer: row.observer, gate: closedGate, appOf };
   const database = prototypeOf(sdk, 'Database');
   const goOnline = database?.goOnline;
   const goOffline = database?.goOffline;
   const hasConnection = typeof goOnline === 'function' && typeof goOffline === 'function';
   if (database !== undefined && hasConnection && patchAdminClass(database, 'Database', [], adminRow)) {
-    const connectionRow: ConnectionRow = { ...row, goOnline: goOnline as Method, goOffline: goOffline as Method };
+    const connectionRow: ConnectionRow = { ...gatedRow, goOnline: goOnline as Method, goOffline: goOffline as Method };
     replace(database, 'ref', (real) => gatedRef(connectionRow, real));
     replace(database, 'refFromURL', (real) => gatedRef(connectionRow, real));
     replace(database, 'goOnline', () => gatedGoOnline(connectionRow));
     replace(database, 'goOffline', () => trackedGoOffline(connectionRow));
-    gateRulesCalls(database, row);
+    gateRulesCalls(database, gatedRow);
   }
   const query = prototypeOf(sdk, 'Query');
   const queryMethods = [...calls(['get']), ...calls(['once'], onceFailure)];
@@ -485,7 +486,10 @@ export function observeAdminDatabase(sdk: unknown, row: AdminDatabaseRow): void 
   }
   const reference = prototypeOf(sdk, 'Reference');
   const realSet = reference?.set;
-  const referenceMethods = [...calls(['set', 'update', 'remove', 'setWithPriority'], writeCompletion), ...calls(['transaction'], transactionCompletion)];
+  const referenceMethods = [
+    ...calls(['set', 'update', 'remove', 'setWithPriority', 'setPriority'], writeCompletion),
+    ...calls(['transaction'], transactionCompletion),
+  ];
   if (reference !== undefined && patchAdminClass(reference, 'Reference', referenceMethods, adminRow)) {
     replace(reference, 'push', (real) => gatedPush(adminRow, real, realSet as Method));
   }

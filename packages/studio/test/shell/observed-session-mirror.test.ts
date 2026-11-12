@@ -39,4 +39,29 @@ describe('rehydrateObservedFirestoreDoc', () => {
     expect(out.nested).toEqual({ n: 1 });
     expect(out.plain).toEqual({ seconds: 1 });
   });
+
+  it('unwraps pyric/map/1.0 envelopes without coercing colliding shapes and restores IEEE-754 special floats', () => {
+    const handles = createEphemeralHandles();
+    const out = rehydrateObservedFirestoreDoc(handles.adminFirestore, {
+      type: 'pyric/map/1.0',
+      fields: {
+        coordsMap: { type: 'pyric/map/1.0', fields: { latitude: 12.5, longitude: 42.25 } },
+        spanMap: { type: 'pyric/map/1.0', fields: { seconds: 30, nanoseconds: 0 } },
+        negZero: { type: 'pyric/number/1.0', value: '-0' },
+        nanVal: { type: 'pyric/number/1.0', value: 'NaN' },
+        posInf: { type: 'pyric/number/1.0', value: 'Infinity' },
+        negInf: { type: 'pyric/number/1.0', value: '-Infinity' },
+        numMap: { type: 'pyric/map/1.0', fields: { type: 'pyric/number/1.0', value: '-0' } },
+      },
+    });
+    expect(out.coordsMap).not.toBeInstanceOf(GeoPoint);
+    expect(out.coordsMap).toEqual({ latitude: 12.5, longitude: 42.25 });
+    expect(out.spanMap).not.toBeInstanceOf(Timestamp);
+    expect(out.spanMap).toEqual({ seconds: 30, nanoseconds: 0 });
+    expect(Object.is(out.negZero, -0)).toBe(true);
+    expect(Number.isNaN(out.nanVal)).toBe(true);
+    expect(out.posInf).toBe(Number.POSITIVE_INFINITY);
+    expect(out.negInf).toBe(Number.NEGATIVE_INFINITY);
+    expect(out.numMap).toEqual({ type: 'pyric/number/1.0', value: '-0' });
+  });
 });

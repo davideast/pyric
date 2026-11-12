@@ -496,7 +496,7 @@ describe('observe-local-rtdb with observedSession (#2540)', () => {
     ).toMatchObject({
       result: 'unevaluated',
       needs: ['stored-document'],
-      missingPaths: ['/claims/c1', '/claims/c1/owner'],
+      missingPaths: ['/claims/c1'],
     });
 
     // N1: a filtered `onValue` re-delivery emits `[invalidate, update]`, clearing children that left the query window.
@@ -627,7 +627,7 @@ describe('observe-local-rtdb with observedSession (#2540)', () => {
     ).toMatchObject({
       result: 'unevaluated',
       needs: ['stored-document'],
-      missingPaths: ['/claims/c1', '/claims/c1/owner'],
+      missingPaths: ['/claims/c1'],
     });
 
     // H-B: filtered one-shot `get` emits `[invalidate, update]`, clearing rules coverage for departed `/queues/east`
@@ -802,7 +802,7 @@ describe('observe-local-rtdb with observedSession (#2540)', () => {
         expect(rtdbVerdict(ctx, ownerWrite(), 'set')).toMatchObject({
           result: 'unevaluated',
           needs: ['stored-document'],
-          missingPaths: ['/slots/s1', '/slots/s1/owner'],
+          missingPaths: ['/slots/s1'],
         });
       } finally {
         Date.now = realNow;
@@ -840,7 +840,7 @@ describe('observe-local-rtdb with observedSession (#2540)', () => {
         expect(rtdbVerdict(ctx, ownerWrite(), 'set')).toMatchObject({
           result: 'unevaluated',
           needs: ['stored-document'],
-          missingPaths: ['/slots/s1', '/slots/s1/owner'],
+          missingPaths: ['/slots/s1'],
         });
       } finally {
         lease.release();
@@ -1315,5 +1315,142 @@ describe('observe-local-rtdb with observedSession (#2540)', () => {
         'set',
       ),
     ).toMatchObject({ result: 'allow' });
+  });
+
+  it('validates and preserves RTDB .priority and scalar .value in observedSession and prunes invalidated subtrees from snapshot().rtdb', () => {
+    const liveHost = createLiveHostState({
+      configProjectId: 'demo-project',
+      configSource: 'option',
+      optionName: '--project',
+      warn: () => {},
+      unobserved: () => [],
+    });
+    const sandbox = initializeSandbox();
+    const ctx: HostCtx = {
+      db: getFirestore(sandbox),
+      sandbox,
+      instanceId: 'rtdb-priority-and-prune-test',
+      subs: new Map(),
+      rtdbProjectId: 'demo-project',
+      observedSession: liveHost.sessionData,
+    };
+    const instance = 'demo-project-default-rtdb';
+    expect(
+      setDatabaseRules(ctx, undefined, {
+        rules: {
+          items: {
+            $id: {
+              '.read': 'true',
+              '.write': '!data.exists() || data.getPriority() === null',
+            },
+          },
+          docs: {
+            $docId: {
+              '.read': 'true',
+              '.write': '!data.exists() || data.getPriority() === 10',
+            },
+          },
+          scalars: {
+            $s: {
+              '.read': 'true',
+              '.write': "!data.exists() || (data.val() === 'pinned' && data.getPriority() === 'high')",
+            },
+          },
+        },
+      }).ok,
+    ).toBe(true);
+
+    const validated = readObservedSessionDelta({
+      rtdb: [
+        { kind: 'set', instance, path: '/items/item-1', value: { title: 'v1', '.priority': 10 } },
+        { kind: 'set', instance, path: '/docs/doc-1', value: { title: 'v1', '.priority': 10 } },
+        { kind: 'set', instance, path: '/scalars/s-1', value: { '.value': 'pinned', '.priority': 'high' } },
+      ],
+    });
+    liveHost.sessionData.apply(validated);
+
+    // Arbitrary dotted keys or malformed `.value` / `.priority` envelopes still reject.
+    expect(() =>
+      readObservedSessionDelta({
+        rtdb: [{ kind: 'set', instance, path: '/items/bad', value: { 'bad.key': 1 } }],
+      }),
+    ).toThrow();
+    expect(() =>
+      readObservedSessionDelta({
+        rtdb: [{ kind: 'set', instance, path: '/items/bad', value: { '.value': 1, extra: 2 } }],
+      }),
+    ).toThrow();
+    expect(() =>
+      readObservedSessionDelta({
+        rtdb: [{ kind: 'set', instance, path: '/items/bad', value: { a: 1, '.priority': { nested: 1 } } }],
+      }),
+    ).toThrow();
+
+    expect(
+      rtdbVerdict(
+        ctx,
+        {
+          service: 'rtdb',
+          method: 'set',
+          path: '/items/item-1',
+          instance,
+          projectId: 'demo-project',
+          writeData: { title: 'v2' },
+          at: 500,
+          outcome: DENIED,
+        },
+        'set',
+      ),
+    ).toMatchObject({ result: 'deny' });
+
+    expect(
+      rtdbVerdict(
+        ctx,
+        {
+          service: 'rtdb',
+          method: 'set',
+          path: '/docs/doc-1',
+          instance,
+          projectId: 'demo-project',
+          writeData: { title: 'v2' },
+          at: 501,
+          outcome: OK,
+        },
+        'set',
+      ),
+    ).toMatchObject({ result: 'allow' });
+
+    expect(
+      rtdbVerdict(
+        ctx,
+        {
+          service: 'rtdb',
+          method: 'set',
+          path: '/scalars/s-1',
+          instance,
+          projectId: 'demo-project',
+          writeData: 'updated',
+          at: 502,
+          outcome: OK,
+        },
+        'set',
+      ),
+    ).toMatchObject({ result: 'allow' });
+
+    // `invalidate` prunes unconfirmed or stale values from `snapshot().rtdb`, not just coverage.
+    liveHost.sessionData.apply({
+      rtdb: [
+        { kind: 'set', instance, path: '/orgs/org-1', value: { name: 'TeamOrg', role: 'admin' } },
+        { kind: 'invalidate', instance, path: '/orgs/org-1/role' },
+        { kind: 'set', instance, path: '/counters/c-1', value: { count: 5, label: 'v1' } },
+        { kind: 'invalidate', instance, path: '/counters/c-1/count' },
+        { kind: 'update', instance, path: '/counters/c-1', value: { label: 'v2' } },
+      ],
+    });
+
+    const snap = liveHost.sessionData.snapshot();
+    const tree = snap.rtdb[instance] as Record<string, Record<string, Record<string, unknown>>>;
+    expect(tree.orgs?.['org-1']).toEqual({ name: 'TeamOrg' });
+    expect(tree.counters?.['c-1']).toEqual({ label: 'v2' });
   });
 });

@@ -206,3 +206,40 @@ test('a sandbox-issued token is refused by name at verifyIdToken and verifySessi
   expect(await recordsSince(from)).toEqual([]);
   expect(server.received.length).toBe(sent);
 });
+
+test('gates verifySessionCookie, importUsers, token/cookie minting, action-link generators, provider configs, and unreadable Auth receivers before any request', async () => {
+  const from = records.length;
+  const sent = server.received.length;
+  const other = getAuth(initializeApp({ projectId: 'other-project-las1' }, 'admin-auth-other-las1'));
+  const prodCookieJwt = [
+    Buffer.from(JSON.stringify({ alg: 'RS256', typ: 'JWT' })).toString('base64url'),
+    Buffer.from(
+      JSON.stringify({
+        iss: 'https://session.firebase.google.com/other-project-las1',
+        aud: 'other-project-las1',
+        sub: 'user-a',
+      }),
+    ).toString('base64url'),
+    'sig',
+  ].join('.');
+
+  expect(await codeOf(other.verifySessionCookie!(prodCookieJwt))).toBe('PYRIC_LIVE_REFUSED');
+  expect(await codeOf(other.importUsers!([{ uid: 'user-a' }]))).toBe('PYRIC_LIVE_REFUSED');
+  expect(await codeOf(other.createSessionCookie!(emulatorToken('user-a'), { expiresIn: 300_000 }))).toBe(
+    'PYRIC_LIVE_REFUSED',
+  );
+  expect(await codeOf(other.generatePasswordResetLink!(EMAIL))).toBe('PYRIC_LIVE_REFUSED');
+  expect(await codeOf(other.generateEmailVerificationLink!(EMAIL))).toBe('PYRIC_LIVE_REFUSED');
+  expect(await codeOf(other.generateSignInWithEmailLink!(EMAIL, { url: 'https://example.com' }))).toBe(
+    'PYRIC_LIVE_REFUSED',
+  );
+  expect(await codeOf(other.listProviderConfigs!({ type: 'oidc' }))).toBe('PYRIC_LIVE_REFUSED');
+  expect(await codeOf(other.getUserByProviderUid!('google.com', 'prov-1'))).toBe('PYRIC_LIVE_REFUSED');
+
+  // Unreadable Auth receiver (missing authRequestHandler.app) fails closed instead of bypassing the project gate.
+  const orphanAuth = Object.create(baseAuthModule.BaseAuth.prototype) as Auth;
+  expect(await codeOf(orphanAuth.getUser!('user-a'))).toBe('PYRIC_LIVE_REFUSED');
+
+  expect(await recordsSince(from)).toEqual([]);
+  expect(server.received.length).toBe(sent);
+});

@@ -47,6 +47,17 @@ export const OVER_BUDGET: unique symbol = Symbol('over-budget');
 export const UNSUPPORTED: unique symbol = Symbol('unsupported');
 export const FORBIDDEN_SESSION_KEYS: ReadonlySet<string> = new Set(['__proto__', 'constructor', 'prototype']);
 export const ESCAPED_PLAIN_MAP_TYPE = 'pyric/map/1.0' as const;
+export const SPECIAL_NUMBER_TYPE = 'pyric/number/1.0' as const;
+
+export function serializedSpecialNumber(
+  value: number,
+): { readonly type: typeof SPECIAL_NUMBER_TYPE; readonly value: 'NaN' | 'Infinity' | '-Infinity' | '-0' } | undefined {
+  if (Number.isNaN(value)) return { type: SPECIAL_NUMBER_TYPE, value: 'NaN' };
+  if (value === Number.POSITIVE_INFINITY) return { type: SPECIAL_NUMBER_TYPE, value: 'Infinity' };
+  if (value === Number.NEGATIVE_INFINITY) return { type: SPECIAL_NUMBER_TYPE, value: '-Infinity' };
+  if (Object.is(value, -0)) return { type: SPECIAL_NUMBER_TYPE, value: '-0' };
+  return undefined;
+}
 
 /** True when `value` has the exact `{ type: 'pyric/map/1.0', fields: <plainObject> }` escape envelope shape. */
 export function isEscapedPlainMapShape(value: Record<string, unknown>): boolean {
@@ -100,10 +111,12 @@ export function collidesWithSessionSpecialShape(value: Record<string, unknown>):
     return true;
   }
   return (
+    value.type === SPECIAL_NUMBER_TYPE ||
     value.type === 'firestore/timestamp/1.0' ||
     value.type === 'firestore/geoPoint/1.0' ||
     value.type === 'firestore/vectorValue/1.0' ||
-    value.__type === 'reference'
+    typeof value.__type === 'string' ||
+    (keys.length >= 2 && typeof value.id === 'string' && typeof value.path === 'string')
   );
 }
 
@@ -293,7 +306,13 @@ function sessionValueCopy(
     if (!chargeString(budget, value)) return OVER_BUDGET;
     return value;
   }
-  if (value === null || typeof value === 'boolean' || (typeof value === 'number' && Number.isFinite(value))) {
+  if (typeof value === 'number') {
+    const specialNumber = serializedSpecialNumber(value);
+    if (specialNumber !== undefined) return charged(budget, specialNumber);
+    if (!chargeScalar(budget, value)) return OVER_BUDGET;
+    return value;
+  }
+  if (value === null || typeof value === 'boolean') {
     if (!chargeScalar(budget, value)) return OVER_BUDGET;
     return value;
   }
@@ -455,12 +474,13 @@ class UpdateFields {
   }
 
   /** The finished `update` op for a document path. */
-  op(path: string): SessionCopyResult<ObservedFirestoreSessionOp> {
+  op(path: string, merge = false): SessionCopyResult<ObservedFirestoreSessionOp> {
     if (this.budget.left < 0) return OVERSIZED_RESULT;
     const op: {
       kind: 'update';
       path: string;
       data: Record<string, unknown>;
+      merge?: boolean;
       deleteFields?: string[];
       partial?: boolean;
     } = {
@@ -468,6 +488,7 @@ class UpdateFields {
       path,
       data: this.data,
     };
+    if (merge) op.merge = true;
     if (this.writeMeta.deleteFields.length > 0) op.deleteFields = this.writeMeta.deleteFields;
     if (this.writeMeta.omittedSentinel) op.partial = true;
     return { ok: true, value: op };
@@ -500,7 +521,7 @@ function sessionMergeFieldsOp(
     const stop = fields.add(fieldPath, lookup.value);
     if (stop !== undefined) return stop;
   }
-  return fields.op(path);
+  return fields.op(path, true);
 }
 
 /** The op a `setDoc` or batch `set` names: a `set` (with `merge`), or an `update` for `mergeFields`. */

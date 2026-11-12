@@ -307,4 +307,63 @@ describe('the live host clients', () => {
     expect(live.report().clients?.[0]).toMatchObject({ user: 'uid-e', email: 'user-e@example.test' });
     expect(liveClientEmails(live.report().clients ?? []).get('uid-e')).toBe('user-e@example.test');
   });
+
+  it('preserves non-email uids across email:null presence frames, clears stale email on unauthenticated observe, tracks uid switches/sign-out, and strips presence uid from frames', async () => {
+    const { live } = host();
+    live.inbound(appConfig('s-page', 'browser', 'profile-1'));
+
+    // 1. Anonymous user ('u-anon', no email) runs an observed call and navigates with email: null
+    live.inbound(observe('s-page', 'browser', 'u-anon'));
+    live.inbound(update('s-page', '/items', { email: null }));
+    expect(live.report().clients?.[0]).toMatchObject({ label: '/items', user: 'u-anon' });
+    expect(live.report().clients?.[0]).not.toHaveProperty('email');
+
+    // 2. Presence carrying uid: 'u-anon-2' (switching anonymous accounts) clears stale 'u-anon' without leaking uid onto frame
+    const anonSwitchFrame = frame('s-page', 'browser', {
+      t: 'op',
+      id: 'p-anon-2',
+      method: 'presence.update',
+      route: '/items',
+      email: null,
+      uid: 'u-anon-2',
+    });
+    live.inbound(anonSwitchFrame);
+    expect(live.report().clients?.[0]?.user).toBeNull();
+    expect(JSON.stringify(anonSwitchFrame)).not.toContain('u-anon-2');
+
+    // 3. Anonymous user 'u-anon-2' makes an observed call, then signs out explicitly via presence uid: null
+    live.inbound(observe('s-page', 'browser', 'u-anon-2'));
+    expect(live.report().clients?.[0]?.user).toBe('u-anon-2');
+    live.inbound(
+      frame('s-page', 'browser', {
+        t: 'op',
+        id: 'p-anon-out',
+        method: 'presence.update',
+        route: '/items',
+        email: null,
+        uid: null,
+      }),
+    );
+    expect(live.report().clients?.[0]?.user).toBeNull();
+
+    // 4. Email user signs in, runs an observed call, then runs an unauthenticated observed call: stale email is cleared
+    live.inbound(update('s-page', '/items', { email: 'member@example.com' }));
+    live.inbound(
+      frame('s-page', 'browser', {
+        t: 'observe',
+        id: 'obs-member',
+        call: {
+          service: 'firestore',
+          method: 'getDoc',
+          at: 10,
+          outcome: { status: 'ok' },
+          account: { uid: 'u-member', claims: { email: 'member@example.com' } },
+        },
+      }),
+    );
+    expect(live.report().clients?.[0]).toMatchObject({ user: 'u-member', email: 'member@example.com' });
+    live.inbound(observe('s-page', 'browser'));
+    expect(live.report().clients?.[0]?.user).toBeNull();
+    expect(live.report().clients?.[0]).not.toHaveProperty('email');
+  });
 });

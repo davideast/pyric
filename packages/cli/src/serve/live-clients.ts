@@ -157,18 +157,32 @@ function isPresenceDisconnect(inner: Record<string, unknown>): boolean {
 }
 
 /**
- * The email a presence frame carries, taken off the frame: a string, null
- * for signed out, or undefined when the frame carries none.
+ * The email and uid a presence frame carries, taken off the frame so neither
+ * reaches the Node sandbox, call records, event stream, or repro captures.
  */
-function takePresenceEmail(inner: Record<string, unknown>): string | null | undefined {
+function takePresenceIdentity(inner: Record<string, unknown>): {
+  email: string | null | undefined;
+  uid: string | null | undefined;
+} {
   const isPresence = inner.t === 'op' && (inner.method === 'presence.register' || inner.method === 'presence.update');
-  const carriesEmail = isPresence && 'email' in inner;
-  if (!carriesEmail) return undefined;
-  const email = inner.email;
-  delete inner.email;
-  if (email === undefined) return undefined;
-  const isEmail = typeof email === 'string' && email !== '';
-  return isEmail ? bounded(email) : null;
+  if (!isPresence) return { email: undefined, uid: undefined };
+  let email: string | null | undefined;
+  if ('email' in inner) {
+    const rawEmail = inner.email;
+    delete inner.email;
+    if (rawEmail !== undefined) {
+      email = typeof rawEmail === 'string' && rawEmail !== '' ? bounded(rawEmail) : null;
+    }
+  }
+  let uid: string | null | undefined;
+  if ('uid' in inner) {
+    const rawUid = inner.uid;
+    delete inner.uid;
+    if (rawUid !== undefined) {
+      uid = typeof rawUid === 'string' && rawUid !== '' ? bounded(rawUid) : null;
+    }
+  }
+  return { email, uid };
 }
 
 /** The uid (and any claim email) an observe frame's call ran as, or undefined for another frame or a malformed record. */
@@ -243,7 +257,7 @@ export function createLiveClients(now: () => number): LiveClients {
   };
 
   const noteFrame = (clientSessionId: string, platform: string | undefined, inner: Record<string, unknown>): void => {
-    const email = takePresenceEmail(inner);
+    const { email, uid: presenceUid } = takePresenceIdentity(inner);
     if (isPresenceDisconnect(inner)) return forget(clientSessionId);
     const kind = platform === undefined ? undefined : KINDS.get(platform);
     if (kind === undefined) return;
@@ -257,25 +271,54 @@ export function createLiveClients(now: () => number): LiveClients {
     if (script !== undefined) record.label = script;
     const identity = observedIdentity(inner);
     if (identity !== undefined) {
-      if (identity.user !== null && record.user !== null && record.user !== identity.user) delete record.email;
-      record.user = identity.user;
-      if (identity.email !== undefined) record.observedEmail = identity.email;
-      else delete record.observedEmail;
+      if (identity.user === null) {
+        record.user = null;
+        delete record.email;
+        delete record.observedEmail;
+      } else {
+        if (record.user !== null && record.user !== identity.user) delete record.email;
+        record.user = identity.user;
+        if (identity.email !== undefined) record.observedEmail = identity.email;
+        else delete record.observedEmail;
+      }
     }
     const lists = unobservedLists(kind, inner);
     if (lists !== undefined) record.unobserved = lists;
     const isBrowser = kind === 'browser';
-    if (isBrowser && email === null) {
-      delete record.email;
-      delete record.observedEmail;
-      record.user = null;
-    }
-    if (isBrowser && typeof email === 'string') {
-      if (record.email !== email && record.observedEmail !== email) {
-        record.user = null;
+    if (isBrowser) {
+      if (presenceUid === null) {
+        delete record.email;
         delete record.observedEmail;
+        record.user = null;
+      } else if (typeof presenceUid === 'string') {
+        if (record.user !== null && record.user !== presenceUid) {
+          record.user = null;
+          delete record.observedEmail;
+        }
+        if (email === null) {
+          delete record.email;
+          delete record.observedEmail;
+        } else if (typeof email === 'string') {
+          if (record.email !== email && record.observedEmail !== email && record.user !== presenceUid) {
+            record.user = null;
+            delete record.observedEmail;
+          }
+          record.email = email;
+        }
+      } else {
+        if (email === null) {
+          const hadEmail = record.email !== undefined || record.observedEmail !== undefined;
+          delete record.email;
+          delete record.observedEmail;
+          if (hadEmail) record.user = null;
+        } else if (typeof email === 'string') {
+          if (record.email !== email && record.observedEmail !== email) {
+            record.user = null;
+            delete record.observedEmail;
+          }
+          record.email = email;
+        }
       }
-      record.email = email;
     }
   };
 
