@@ -59,6 +59,9 @@ const rtdbRulesPath = join(work, 'database.rules.ts');
 const rtdbOutPath = join(work, 'database.rules.json');
 mkdirSync(join(work, 'node_modules', 'pyric'), { recursive: true });
 symlinkSync(resolve(PKG_ROOT, '..', 'pyric', 'dist', 'rules'), join(work, 'node_modules', 'pyric', 'rules'), 'dir');
+// pyric/rules re-exports @pyric/rules (#1521), which an install puts beside pyric.
+mkdirSync(join(work, 'node_modules', '@pyric'), { recursive: true });
+symlinkSync(resolve(PKG_ROOT, '..', 'rules'), join(work, 'node_modules', '@pyric', 'rules'), 'dir');
 writeFileSync(
   rtdbRulesPath,
   "import { allow, deny, defineRtdbRules } from 'pyric/rules';\n" +

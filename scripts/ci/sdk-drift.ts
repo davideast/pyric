@@ -170,6 +170,7 @@ export interface DriftResult {
 const STEPS: Step[] = [
   { name: 'Build packages', command: ['bash', 'scripts/build.sh', '--packages-only'], gates: true, required: true },
   { name: 'packages/pyric', command: ['bun', 'test', '--cwd', 'packages/pyric'], gates: true },
+  { name: 'packages/rules', command: ['bun', 'test', '--cwd', 'packages/rules'], gates: true },
   { name: 'packages/pyric-admin', command: ['bun', 'test', '--cwd', 'packages/pyric-admin'], gates: true },
   { name: 'packages/conformance', command: ['bun', 'test', '--cwd', 'packages/conformance'], gates: true },
   { name: 'packages/cli', command: ['bun', 'test', '--cwd', 'packages/cli'], gates: true },

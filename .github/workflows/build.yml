@@ -289,13 +289,6 @@ jobs:
         # of this job's build, conformance, or test commands enter that workspace.
         run: bun install --frozen-lockfile --filter '!@pyric/playground'
 
-      - name: Oracle observation version guard
-        # Fails if any packages/conformance/observations/*.json was captured against
-        # a firebase version other than the one bun.lock currently resolves —
-        # i.e. a `firebase` bump without re-capturing the prod-behavior record
-        # the COMPAT matrices cite (INF-3/INF-4). Cheap, deterministic.
-        run: bun run packages/conformance/src/check-observation-versions.ts
-
       - name: Build packages (site omitted)
         # Content-keyed: restores the previous build when no build input
         # changed (scripts/ci/build-input-key.sh), otherwise runs
@@ -304,6 +297,15 @@ jobs:
         uses: ./.github/actions/restore-dist
         with:
           flavor: packages
+
+      - name: Oracle observation version guard
+        # Fails if any packages/conformance/observations/*.json was captured against
+        # a firebase version other than the one bun.lock currently resolves —
+        # i.e. a `firebase` bump without re-capturing the prod-behavior record
+        # the COMPAT matrices cite (INF-3/INF-4). Cheap, deterministic. It runs
+        # after the build because pyric's sources import @pyric/rules, which
+        # resolves to the engine's built dist (#1521).
+        run: bun run packages/conformance/src/check-observation-versions.ts
 
       - name: Agent tool exposure contract
         # Every tool visible through the default MCP bridge, Playground agent,
