@@ -635,13 +635,13 @@ describe('state-roundtrip standing coverage for replay and verifyFixture', () =>
 
     const persistMem = createMemoryBackend();
     const persistSource = initializeSandbox();
-    await persistSource.enablePersistence({ key: 'fsq8-persist', injectedBackend: persistMem });
+    await persistSource.enablePersistence({ key: 'colliding-maps-persist', injectedBackend: persistMem });
     persistSource.loadSnapshot(sb.snapshot());
     await persistSource.flush();
     persistSource.dispose();
 
     const persistRestored = initializeSandbox();
-    await persistRestored.enablePersistence({ key: 'fsq8-persist', injectedBackend: persistMem });
+    await persistRestored.enablePersistence({ key: 'colliding-maps-persist', injectedBackend: persistMem });
     setRules(persistRestored, ENVELOPE_MAP_RULES);
     const persistDb = getFirestore(persistRestored.withAuth({ uid: 'u1', token: {} }));
     const persistKitchen = await getDoc(doc(persistDb, 'items', 'kitchen'));
