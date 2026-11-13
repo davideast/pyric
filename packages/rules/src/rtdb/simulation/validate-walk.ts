@@ -85,9 +85,7 @@ export function traceEntry(
 
 /** Own-enumerable keys of a snapshot's object value; empty for non-objects. */
 function snapshotChildKeys(snap: DataSnapshot): string[] {
-  const value = snap.val();
-  if (value === null || typeof value !== 'object') return [];
-  return Object.keys(value as object);
+  return snap.childKeys();
 }
 
 /** The last segment of a rule node's path: its key, or `$name` for a wildcard. */

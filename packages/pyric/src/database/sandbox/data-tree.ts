@@ -55,6 +55,19 @@ export function lastSegment(path: string): string {
   return segs[segs.length - 1] ?? '';
 }
 
+function setOwnProperty<V>(target: Record<string, V>, key: string, value: V): void {
+  if (key === '__proto__') {
+    Object.defineProperty(target, key, {
+      value,
+      enumerable: true,
+      writable: true,
+      configurable: true,
+    });
+  } else {
+    target[key] = value;
+  }
+}
+
 /** Deep-clone a JSON value. Used to keep stored state from sharing
  *  identity with caller-held references (so mutating the returned
  *  value doesn't corrupt storage). */
@@ -63,9 +76,71 @@ export function cloneJson<T extends JsonValue>(v: T): T {
   if (Array.isArray(v)) return v.map((x) => cloneJson(x as JsonValue)) as T;
   const out: Record<string, JsonValue> = {};
   for (const [k, val] of Object.entries(v as Record<string, JsonValue>)) {
-    out[k] = cloneJson(val);
+    setOwnProperty(out, k, cloneJson(val));
   }
   return out as T;
+}
+
+const EMPTY_FROZEN_OBJECT: Record<string, JsonValue> = Object.freeze({});
+
+/** Deep-clone and freeze a JSON value for persistent copy-on-write tree storage. */
+function cloneFrozenJson<T extends JsonValue>(v: T): T {
+  if (v === null || typeof v !== 'object') return v;
+  if (Array.isArray(v)) {
+    return Object.freeze(v.map((x) => cloneFrozenJson(x as JsonValue))) as T;
+  }
+  const entries = Object.entries(v as Record<string, JsonValue>);
+  if (entries.length === 0) return EMPTY_FROZEN_OBJECT as T;
+  const out: Record<string, JsonValue> = {};
+  for (const [k, val] of entries) {
+    setOwnProperty(out, k, cloneFrozenJson(val));
+  }
+  return Object.freeze(out) as T;
+}
+
+function writeFrozenAt(
+  parent: Record<string, JsonValue>,
+  segs: readonly string[],
+  idx: number,
+  value: JsonValue,
+): Record<string, JsonValue> | null {
+  const targetKey = segs[idx]!;
+  let nextChild: JsonValue | null;
+  if (idx === segs.length - 1) {
+    nextChild = value === null ? null : cloneFrozenJson(value);
+  } else {
+    const existing = Object.hasOwn(parent, targetKey) ? parent[targetKey] : undefined;
+    const childObj =
+      existing !== undefined && existing !== null && typeof existing === 'object' && !Array.isArray(existing)
+        ? (existing as Record<string, JsonValue>)
+        : EMPTY_FROZEN_OBJECT;
+    nextChild = writeFrozenAt(childObj, segs, idx + 1, value);
+  }
+
+  if (nextChild === null) {
+    if (!Object.hasOwn(parent, targetKey)) {
+      return Object.keys(parent).length === 0 ? null : parent;
+    }
+    const out: Record<string, JsonValue> = {};
+    let count = 0;
+    for (const [k, v] of Object.entries(parent)) {
+      if (k === targetKey) continue;
+      setOwnProperty(out, k, v);
+      count += 1;
+    }
+    return count === 0 ? null : Object.freeze(out);
+  }
+
+  const out: Record<string, JsonValue> = {};
+  let wrote = false;
+  for (const [k, v] of Object.entries(parent)) {
+    setOwnProperty(out, k, k === targetKey ? nextChild : v);
+    if (k === targetKey) wrote = true;
+  }
+  if (!wrote) {
+    setOwnProperty(out, targetKey, nextChild);
+  }
+  return Object.freeze(out);
 }
 
 /** True for RTDB JSON object nodes. Arrays are ordered values in RTDB,
@@ -99,7 +174,10 @@ export class DataTree {
   // Root is usually a keyed object, but RTDB also permits a primitive
   // (or array, coerced upstream) at the root (DB-B13:
   // `set(ref(db), 'hello')` is legal in prod).
-  private root: JsonValue = {};
+  // Stored nodes are persistent (copy-on-write spine) and deeply frozen so
+  // read-only consumers (such as rules evaluation) can neither mutate storage
+  // nor observe post-write mutations through a previously captured reference.
+  private root: JsonValue = EMPTY_FROZEN_OBJECT;
   private _generation = 0;
 
   /** Monotonic counter incremented on every tree mutation or restore. */
@@ -142,7 +220,7 @@ export class DataTree {
   /** Restore — overwrite the tree with the given root. */
   restore(root: JsonValue): void {
     this._generation += 1;
-    this.root = cloneJson(root);
+    this.root = cloneFrozenJson(root);
   }
 
   /**
@@ -194,44 +272,16 @@ export class DataTree {
       // A primitive at the root is legal (DB-B13:
       // `set(ref(db), 'hello')`). Arrays are coerced to integer-keyed
       // objects upstream by the write-boundary normalizer.
-      if (value === null) {
-        this.root = {};
-        return prior;
-      }
-      this.root = cloneJson(value);
+      this.root = value === null ? EMPTY_FROZEN_OBJECT : cloneFrozenJson(value);
       return prior;
     }
     // A non-root write into a tree whose root is a primitive replaces the
     // root with a fresh object — "writes win" (the primitive is gone).
-    if (this.root === null || typeof this.root !== 'object' || Array.isArray(this.root)) {
-      this.root = {};
-    }
-    // Walk to parent, creating intermediate objects as needed. If a
-    // primitive sits at an intermediate path, it becomes an object —
-    // RTDB's "writes win" semantics.
-    let cursor: Record<string, JsonValue> = this.root as Record<string, JsonValue>;
-    for (let i = 0; i < segs.length - 1; i++) {
-      const k = segs[i]!;
-      // Own-property read only: bare `cursor[k]` would resolve an
-      // unvalidated `__proto__` segment to the shared object prototype.
-      const next = Object.hasOwn(cursor, k) ? cursor[k] : undefined;
-      if (next === undefined || next === null || typeof next !== 'object' || Array.isArray(next)) {
-        const fresh: Record<string, JsonValue> = {};
-        cursor[k] = fresh;
-        cursor = fresh;
-      } else {
-        cursor = next as Record<string, JsonValue>;
-      }
-    }
-    const lastKey = segs[segs.length - 1]!;
-    if (value === null) {
-      delete cursor[lastKey];
-      // Trim now-empty parents up the chain. Only structural emptiness
-      // counts (no keys); a primitive sibling at a parent keeps it alive.
-      this.trim(segs);
-    } else {
-      cursor[lastKey] = cloneJson(value);
-    }
+    const baseRoot =
+      this.root !== null && typeof this.root === 'object' && !Array.isArray(this.root)
+        ? (this.root as Record<string, JsonValue>)
+        : EMPTY_FROZEN_OBJECT;
+    this.root = writeFrozenAt(baseRoot, segs, 0, value) ?? EMPTY_FROZEN_OBJECT;
     return prior;
   }
 
@@ -294,35 +344,5 @@ export class DataTree {
       trace.push({ path: sub, prior });
     }
     return trace;
-  }
-
-  /** Internal: trim empty-object ancestors of `segs` after a delete. */
-  private trim(segs: string[]): void {
-    // Walk every ancestor from the deleted segment upward; remove any
-    // that's now an empty object. Stop at the first non-empty ancestor.
-    if (this.root === null || typeof this.root !== 'object' || Array.isArray(this.root)) {
-      return;
-    }
-    for (let depth = segs.length - 1; depth >= 1; depth--) {
-      const parentSegs = segs.slice(0, depth);
-      const lastKey = segs[depth - 1]!;
-      let parent: Record<string, JsonValue> = this.root as Record<string, JsonValue>;
-      for (let i = 0; i < parentSegs.length - 1; i++) {
-        const next = parent[parentSegs[i]!];
-        if (next === undefined || next === null || typeof next !== 'object' || Array.isArray(next)) {
-          return;
-        }
-        parent = next as Record<string, JsonValue>;
-      }
-      const child = parent[lastKey];
-      if (child !== undefined && typeof child === 'object' && child !== null && !Array.isArray(child)) {
-        const obj = child as Record<string, JsonValue>;
-        if (Object.keys(obj).length === 0) {
-          delete parent[lastKey];
-          continue;
-        }
-      }
-      return;
-    }
   }
 }

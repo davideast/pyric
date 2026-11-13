@@ -46,9 +46,56 @@ function exportedValue(raw: unknown): unknown {
   return Object.keys(out).length === 0 ? null : out;
 }
 
+/** Whether `raw` yields a non-null `exportedValue` without allocating copies. */
+function hasExportedValue(raw: unknown): boolean {
+  if (Array.isArray(raw)) {
+    for (let i = 0; i < raw.length; i++) {
+      if (i in raw && hasExportedValue(raw[i])) return true;
+    }
+    return false;
+  }
+  if (!isObjectNode(raw)) return raw !== null && raw !== undefined;
+  if (Object.hasOwn(raw, '.value')) return hasExportedValue(raw['.value']);
+  for (const key of Object.keys(raw)) {
+    if (key === '.priority') continue;
+    if (hasExportedValue(raw[key])) return true;
+  }
+  return false;
+}
+
+/** Whether `raw` exports as a non-empty child map (the zero-arg `hasChildren()` contract). */
+function hasExportedChildren(raw: unknown): boolean {
+  let current = raw;
+  while (isObjectNode(current) && Object.hasOwn(current, '.value')) {
+    current = current['.value'];
+  }
+  if (Array.isArray(current)) {
+    for (let i = 0; i < current.length; i++) {
+      if (i in current && hasExportedValue(current[i])) return true;
+    }
+    return false;
+  }
+  if (!isObjectNode(current)) return false;
+  for (const key of Object.keys(current)) {
+    if (key === '.priority') continue;
+    if (hasExportedValue(current[key])) return true;
+  }
+  return false;
+}
+
+/** Unwrap `{ .value }` wrappers when inspecting primitive leaf types; objects/arrays return null. */
+function unwrappedLeafPrimitive(raw: unknown): unknown {
+  let current = raw;
+  while (isObjectNode(current) && Object.hasOwn(current, '.value')) {
+    current = current['.value'];
+  }
+  if (Array.isArray(current) || isObjectNode(current)) return null;
+  return current ?? null;
+}
+
 /** A node's priority: its `.priority` number or string when the node exists, else null. */
 function priorityOf(raw: unknown): number | string | null {
-  if (!isObjectNode(raw) || exportedValue(raw) === null) return null;
+  if (!isObjectNode(raw) || !hasExportedValue(raw)) return null;
   const priority = raw['.priority'];
   const isPriority = typeof priority === 'number' || typeof priority === 'string';
   return isPriority ? priority : null;
@@ -73,7 +120,8 @@ export class DataSnapshot {
   }
 
   exists(): boolean {
-    return this.val() !== null;
+    this._onRead?.(this._path);
+    return hasExportedValue(this._value);
   }
 
   hasChild(path: string): boolean {
@@ -87,19 +135,46 @@ export class DataSnapshot {
     if (keys !== undefined) {
       return keys.every((key) => this.hasChild(key));
     }
-    return isObjectNode(this.val());
+    this._onRead?.(this._path);
+    return hasExportedChildren(this._value);
+  }
+
+  /** Immediate non-empty child keys without materializing deep subtree copies, reporting the snapshot read. */
+  childKeys(): string[] {
+    this._onRead?.(this._path);
+    let current = this._value;
+    while (isObjectNode(current) && Object.hasOwn(current, '.value')) {
+      current = current['.value'];
+    }
+    if (Array.isArray(current)) {
+      const keys: string[] = [];
+      for (let i = 0; i < current.length; i++) {
+        if (i in current && hasExportedValue(current[i])) keys.push(String(i));
+      }
+      return keys;
+    }
+    if (!isObjectNode(current)) return [];
+    const keys: string[] = [];
+    for (const key of Object.keys(current)) {
+      if (key === '.priority') continue;
+      if (hasExportedValue(current[key])) keys.push(key);
+    }
+    return keys;
   }
 
   isString(): boolean {
-    return typeof this.val() === 'string';
+    this._onRead?.(this._path);
+    return typeof unwrappedLeafPrimitive(this._value) === 'string';
   }
 
   isNumber(): boolean {
-    return typeof this.val() === 'number';
+    this._onRead?.(this._path);
+    return typeof unwrappedLeafPrimitive(this._value) === 'number';
   }
 
   isBoolean(): boolean {
-    return typeof this.val() === 'boolean';
+    this._onRead?.(this._path);
+    return typeof unwrappedLeafPrimitive(this._value) === 'boolean';
   }
 
   child(path: string): DataSnapshot {
