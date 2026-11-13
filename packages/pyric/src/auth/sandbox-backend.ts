@@ -120,6 +120,76 @@ const RECENT_LOGIN_WINDOW_MS = 5 * 60 * 1000;
  * listeners, tokens, flow staging, or persistence mode.
  */
 
+function emptyClaimRecord(source: object): Record<string, unknown> {
+  if (Object.getPrototypeOf(source) === null) {
+    return Object.create(null) as Record<string, unknown>;
+  }
+  return {};
+}
+
+function isDateClaim(value: object): value is Date {
+  return value instanceof Date || Object.prototype.toString.call(value) === '[object Date]';
+}
+
+function isUint8ArrayClaim(value: object): value is Uint8Array {
+  return value instanceof Uint8Array || Object.prototype.toString.call(value) === '[object Uint8Array]';
+}
+
+/**
+ * Deep-clone claim and token structures into realm-local plain values so
+ * cross-realm inputs or host globals (e.g. `vm`, `iframe`, or Service Worker
+ * realms) never leak foreign-prototype objects into rules token normalization
+ * or alias caller-held claim objects.
+ */
+function cloneClaimData<T>(value: T, seen = new WeakMap<object, unknown>()): T {
+  if (
+    value === null ||
+    value === undefined ||
+    typeof value === 'boolean' ||
+    typeof value === 'number' ||
+    typeof value === 'string' ||
+    typeof value === 'bigint'
+  ) {
+    return value;
+  }
+  if (typeof value !== 'object') {
+    return value;
+  }
+  const obj: object = value;
+  if (seen.has(obj)) {
+    return seen.get(obj) as T;
+  }
+  if (isDateClaim(obj)) {
+    const copy = new Date(Date.prototype.getTime.call(obj));
+    seen.set(obj, copy);
+    return copy as T;
+  }
+  if (isUint8ArrayClaim(obj)) {
+    const copy = new Uint8Array(obj);
+    seen.set(obj, copy);
+    return copy as T;
+  }
+  if (Array.isArray(obj)) {
+    const copy: unknown[] = [];
+    seen.set(obj, copy);
+    for (const item of obj) {
+      copy.push(cloneClaimData(item, seen));
+    }
+    return copy as T;
+  }
+  const copy = emptyClaimRecord(obj);
+  seen.set(obj, copy);
+  for (const [key, entry] of Object.entries(obj)) {
+    Object.defineProperty(copy, key, {
+      value: cloneClaimData(entry, seen),
+      enumerable: true,
+      writable: true,
+      configurable: true,
+    });
+  }
+  return copy as T;
+}
+
 /**
  * The claims rules see on `auth.token` for a signed-in data context: the
  * minted ID token's claim set (custom claims, the account's standard claims,
@@ -127,7 +197,7 @@ const RECENT_LOGIN_WINDOW_MS = 5 * 60 * 1000;
  * `tenant` for a tenant sign-in) with the JWT registered claims.
  */
 function rulesTokenClaims(minted: IdTokenResult): Record<string, unknown> {
-  return rulesTokenFromIdToken(minted.claims);
+  return cloneClaimData(rulesTokenFromIdToken(minted.claims));
 }
 
 export class SandboxBackend {
@@ -563,13 +633,16 @@ export class SandboxBackend {
     init: Partial<StoredUser> & { uid: string },
     signInProviderId: string | null = null,
   ): StoredUser {
+    let customClaims: Record<string, unknown> = {};
+    if (init.customClaims !== undefined) {
+      customClaims = cloneClaimData(init.customClaims);
+    }
     const record: StoredUser = {
       email: null,
       password: null,
       displayName: null,
       phoneNumber: null,
       photoUrl: null,
-      customClaims: {},
       isAnonymous: false,
       providerUserInfo: [],
       disabled: false,
@@ -578,6 +651,7 @@ export class SandboxBackend {
       lastLoginAt: null,
       tenantId: null,
       ...init,
+      customClaims,
     };
     const providerId = creationProviderId(record, signInProviderId);
     if (mintsDefaultPhoto(record, providerId)) {
@@ -940,7 +1014,7 @@ export class SandboxBackend {
         const seed: SeedUser = { uid: u.uid, providerId: 'anonymous', createdAt: u.createdAt, lastLoginAt: u.lastLoginAt };
         if (hasDisplayName) seed.displayName = displayName;
         if (hasPhotoUrl) seed.photoUrl = photoUrl;
-        if (hasCustomClaims) seed.customClaims = structuredClone(u.customClaims);
+        if (hasCustomClaims) seed.customClaims = cloneClaimData(u.customClaims);
         if (disabled) seed.disabled = true;
         if (hasTenant) seed.tenantId = tenantId;
         out.push(seed);
@@ -963,7 +1037,7 @@ export class SandboxBackend {
       if (hasPhotoUrl) seed.photoUrl = photoUrl;
       const hasPhoneNumber = phoneNumber !== null;
       if (hasPhoneNumber) seed.phoneNumber = phoneNumber;
-      if (hasCustomClaims) seed.customClaims = u.customClaims;
+      if (hasCustomClaims) seed.customClaims = cloneClaimData(u.customClaims);
       if (emailVerified) seed.emailVerified = true;
       if (disabled) seed.disabled = true;
       if (hasTenant) seed.tenantId = tenantId;
@@ -1748,9 +1822,9 @@ export class SandboxBackend {
       providerId: u.isAnonymous
         ? 'anonymous'
         : u.providerUserInfo[0]?.providerId ?? 'password',
-      providerUserInfo: [...u.providerUserInfo],
+      providerUserInfo: u.providerUserInfo.map((p) => ({ ...p })),
       isAnonymous: u.isAnonymous,
-      customClaims: u.customClaims,
+      customClaims: cloneClaimData(u.customClaims),
     }));
   }
 
@@ -1765,7 +1839,7 @@ export class SandboxBackend {
       displayName: u.displayName,
       phoneNumber: u.phoneNumber,
       photoUrl: u.photoUrl,
-      customClaims: { ...u.customClaims },
+      customClaims: cloneClaimData(u.customClaims),
       providerUserInfo: u.providerUserInfo.map((p) => ({ ...p })),
       isAnonymous: u.isAnonymous,
       disabled: u.disabled,
@@ -1939,7 +2013,7 @@ export class SandboxBackend {
     }
     if (update.displayName !== undefined) stored.displayName = update.displayName;
     if (update.customClaims !== undefined) {
-      stored.customClaims = { ...update.customClaims };
+      stored.customClaims = cloneClaimData(update.customClaims);
     }
     if (update.disabled !== undefined) stored.disabled = update.disabled;
     if (update.emailVerified !== undefined) stored.emailVerified = update.emailVerified;
@@ -2147,10 +2221,14 @@ export class SandboxBackend {
         const sessionKey = restore?.sessionKey;
         const resumesSession = !remintsSession && sessionKey !== undefined && this.sessions.resume(user, sessionKey);
         const continues = remintsSession || resumesSession;
-        const claimsOverride =
-          restore !== undefined && Object.hasOwn(restore, 'customClaims') && restore.customClaims !== undefined
-            ? (restore.customClaims ?? {})
-            : undefined;
+        let claimsOverride: Record<string, unknown> | undefined;
+        const hasRestoreClaimsOverride =
+          restore !== undefined &&
+          Object.hasOwn(restore, 'customClaims') &&
+          restore.customClaims !== undefined;
+        if (hasRestoreClaimsOverride) {
+          claimsOverride = cloneClaimData(restore.customClaims ?? {});
+        }
         const minted = this.establishDetachedSession(
           user,
           providerId,
@@ -2358,11 +2436,11 @@ export class SandboxBackend {
         }
       }
       this.fanOut('id-token');
-      return fresh.result;
+      return cloneClaimData(fresh.result);
     }
-    if (hasCachedToken) return cached.result;
+    if (hasCachedToken) return cloneClaimData(cached.result);
     const fresh = this.mintToken(uid, claims, tenantId);
-    return fresh.result;
+    return cloneClaimData(fresh.result);
   }
 
   /**
@@ -2385,6 +2463,7 @@ export class SandboxBackend {
     /** Tenant this identity authenticated under. Absent means untenanted. */
     tenantId?: string | null;
   }): User {
+    const fallbackClaims = cloneClaimData(args.claims);
     const photoURL = args.photoURL ?? null;
     const phoneNumber = args.phoneNumber ?? null;
     // Sandbox has no email-verification flow; default to false unless the
@@ -2446,9 +2525,9 @@ export class SandboxBackend {
       // Falls back to the closed-over claims for users not in the DB
       // (anonymous / popup), matching how they were minted.
       getIdToken: (forceRefresh?: boolean) => logoutIfInvalidated(signOutIfCurrent, () =>
-        this.getIdTokenFor(args.uid, this.liveClaims(args.uid, args.claims), forceRefresh === true, user.tenantId, user)),
+        this.getIdTokenFor(args.uid, this.liveClaims(args.uid, fallbackClaims), forceRefresh === true, user.tenantId, user)),
       getIdTokenResult: (forceRefresh?: boolean) => logoutIfInvalidated(signOutIfCurrent, () =>
-        this.getIdTokenResultFor(args.uid, this.liveClaims(args.uid, args.claims), forceRefresh === true, user.tenantId, user)),
+        this.getIdTokenResultFor(args.uid, this.liveClaims(args.uid, fallbackClaims), forceRefresh === true, user.tenantId, user)),
     };
     // Stamp the backend-dispatch hook non-enumerably so the top-level
     // `updateProfile(user, …)` free function can update THIS user (and the
@@ -2620,7 +2699,7 @@ export class SandboxBackend {
   static setCustomTokenClaims(backend: SandboxBackend, uid: string, claims: Record<string, unknown> | undefined): void {
     if (claims !== undefined) {
       assertNoReservedCustomClaims(claims);
-      backend.customTokenClaimsByUid.set(uid, { ...claims });
+      backend.customTokenClaimsByUid.set(uid, cloneClaimData(claims));
     } else {
       backend.customTokenClaimsByUid.delete(uid);
     }
@@ -2637,9 +2716,9 @@ export class SandboxBackend {
     const base = backend.usersByUid.get(uid)?.customClaims ?? fallback;
     const tokenClaims = backend.customTokenClaimsByUid.get(uid);
     if (tokenClaims !== undefined) {
-      return { ...base, ...tokenClaims };
+      return cloneClaimData({ ...base, ...tokenClaims });
     }
-    return base;
+    return cloneClaimData(base);
   }
 
   /**

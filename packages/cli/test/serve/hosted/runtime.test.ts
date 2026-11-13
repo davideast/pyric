@@ -6,7 +6,7 @@
  */
 import 'fake-indexeddb/auto';
 import { describe, expect, it } from 'bun:test';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { bundleRecords, createMemoryBackend, serializeToBuckets, type PersistenceBackend } from 'pyric/sandbox';
@@ -1063,6 +1063,114 @@ describe('createHostedRuntime state import and checkpoint rule preservation', ()
         actAs: { mode: 'as', uid: 'alice' },
       });
       expect(secLockedAfterRaw.ok).toBe(false);
+    } finally {
+      await runtime.close();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('preserves promoted named RTDB instance rules across sandbox.reset and simulates scalar root RTDB trees', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'pyric-hosted-promote-named-rtdb-'));
+    const memBackend = createMemoryBackend();
+    const persistence = {
+      backend: memBackend,
+      storage: await openStorageBackend(`mem-hosted-promote-${Math.random()}`),
+      checkpoints: recordCheckpointBackend(memBackend),
+      state: { seed: async () => false },
+      repairedObjects: [],
+      sweep: Promise.resolve({ removed: 0, bytesRemoved: 0 }),
+      close() {},
+      status: () => ({ state: 'healthy' as const }),
+      onFailure: () => () => {},
+      markUnhealthy() {},
+    };
+
+    const runtime = await createHostedRuntime(
+      {
+        rules: FIRESTORE_RULES,
+        rulesHash: null,
+        databaseRules: { rules: { '.read': true, '.write': true } },
+        databaseRulesHash: null,
+        bridgeUrl: null,
+        seed: null,
+        capture: false,
+        hosted: true,
+        permissive: false,
+        projectKey: 'hosted-promote-named-rtdb',
+        sessionToken: 'tok-hosted-promote-named-rtdb',
+        appOptions: { projectId: 'demo-project' },
+      },
+      'http://127.0.0.1:4400',
+      () => {},
+      dir,
+      { persistence: persistence as never, record: false },
+    );
+
+    try {
+      await runtime.deployRules('database', JSON.stringify({ rules: { '.read': true, '.write': true } }), 'secondary-rtdb');
+
+      const forkRes = await runtime.runMethod(
+        { key: 'sandbox.fork', args: { branch: 'lockdown' }, projectDir: dir },
+        {},
+      );
+      expect(forkRes.ok, forkRes.summary).toBe(true);
+
+      const branchRulesPath = join(dir, '.pyric/state/branches/lockdown/state/rules.json');
+      const branchRules = JSON.parse(readFileSync(branchRulesPath, 'utf8')) as {
+        database: unknown;
+        databaseInstances?: Record<string, unknown>;
+      };
+      branchRules.database = { rules: { '.read': "data.val() === 'scalar-root'", '.write': false } };
+      branchRules.databaseInstances = {
+        ...(branchRules.databaseInstances ?? {}),
+        'secondary-rtdb': { rules: { '.read': false, '.write': false } },
+        'newly-promoted-rtdb': { rules: { '.read': "auth != null && auth.uid === 'alice'", '.write': false } },
+      };
+      writeFileSync(branchRulesPath, JSON.stringify(branchRules, null, 2));
+
+      const promoteRes = await runtime.runMethod(
+        { key: 'sandbox.promote', args: { branch: 'lockdown', confirm: true }, projectDir: dir },
+        {},
+      );
+      expect(promoteRes.ok, promoteRes.summary).toBe(true);
+
+      const resetRes = await runtime.runMethod(
+        { key: 'sandbox.reset', args: { confirm: true }, projectDir: dir },
+        {},
+      );
+      expect(resetRes.ok, resetRes.summary).toBe(true);
+
+      const simSecondaryAfterReset = await runtime.runMethod(
+        {
+          key: 'rules.simulate',
+          args: { service: 'database', operation: 'read', path: '/items/1', instance: 'secondary-rtdb' },
+          projectDir: dir,
+        },
+        {},
+      );
+      expect((simSecondaryAfterReset.data as { decision?: string })?.decision).toBe('DENY');
+
+      const simNewlyPromotedDeny = await runtime.runMethod(
+        {
+          key: 'rules.simulate',
+          args: { service: 'database', operation: 'read', path: '/items/1', instance: 'newly-promoted-rtdb' },
+          projectDir: dir,
+        },
+        {},
+      );
+      expect((simNewlyPromotedDeny.data as { decision?: string })?.decision).toBe('DENY');
+
+      const setScalarRes = await runtime.runMethod(
+        { key: 'database.set', args: { path: '/', value: 'scalar-root' }, projectDir: dir },
+        {},
+      );
+      expect(setScalarRes.ok, setScalarRes.summary).toBe(true);
+
+      const simScalarRootAllow = await runtime.runMethod(
+        { key: 'rules.simulate', args: { service: 'database', operation: 'read', path: '/' }, projectDir: dir },
+        {},
+      );
+      expect((simScalarRootAllow.data as { decision?: string })?.decision).toBe('ALLOW');
     } finally {
       await runtime.close();
       rmSync(dir, { recursive: true, force: true });

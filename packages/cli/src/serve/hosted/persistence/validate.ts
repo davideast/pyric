@@ -1,8 +1,10 @@
 import { bundleRecords } from 'pyric/sandbox';
-import { decodeImportBundle, storedMetadataSchema, validatePersistedService } from 'pyric/sandbox/internal';
+import { CHECKPOINT_FORMAT, CHECKPOINT_NAME_PATTERN, isCheckpointEnvelope } from 'pyric/sandbox/checkpoints';
+import { assertCheckpointState, decodeImportBundle, storedMetadataSchema, validatePersistedService } from 'pyric/sandbox/internal';
 import { createHash } from 'node:crypto';
 import type { StoredMetadata } from 'pyric/storage/internal';
 import type { openHostedDatabase } from './database.js';
+import { sqlText } from './sqlite.js';
 import { storedObjects, type StoredObjectRow, type StoredObjects } from './stored-objects.js';
 import { MAX_STORAGE_OBJECT_BYTES } from '../../worker/protocol/storage.js';
 
@@ -56,6 +58,39 @@ export function validateHostedDatabase(database: Awaited<ReturnType<typeof openH
     if (recordsTheBytes) continue;
     repairs.push({ bucket: row.bucket, path: row.path, recordedSize: metadata.size, actualSize: row.size });
     repairedRows.push(row);
+  }
+  const hasCheckpointsTable =
+    database.connection.prepare("SELECT 1 AS present FROM sqlite_master WHERE type='table' AND name='checkpoints'").get() !== undefined;
+  if (hasCheckpointsTable) {
+    const checkpointRows = database.connection.prepare('SELECT name, at, counts, state FROM checkpoints ORDER BY name').all();
+    for (const row of checkpointRows) {
+      const name = sqlText(row, 'name');
+      const at = Number(row.at);
+      const validEnvelope =
+        CHECKPOINT_NAME_PATTERN.test(name)
+        && (typeof row.at === 'number' || typeof row.at === 'bigint')
+        && Number.isFinite(at);
+      if (!validEnvelope) {
+        throw new Error(`Persisted checkpoint '${name}' has invalid metadata.`);
+      }
+      const counts: unknown = JSON.parse(sqlText(row, 'counts'));
+      const state: unknown = JSON.parse(sqlText(row, 'state'));
+      const candidate = { format: CHECKPOINT_FORMAT, at, counts, state };
+      if (!isCheckpointEnvelope(candidate)) {
+        throw new Error(`Persisted checkpoint '${name}' is not a valid checkpoint envelope.`);
+      }
+      assertCheckpointState(candidate.state);
+      for (const entry of candidate.state.storage) {
+        if ('sha256' in entry) {
+          const fileSize = database.objects.size(entry.sha256);
+          if (fileSize !== entry.size) {
+            throw new Error(
+              `Persisted checkpoint '${name}' object '${entry.path}' ${fileSize === undefined ? 'has no file' : 'has a file of the wrong size'}.`,
+            );
+          }
+        }
+      }
+    }
   }
   // A read-only export reports the repair its next writable startup performs.
   const writesRepairs = repairs.length > 0 && !database.readOnly;

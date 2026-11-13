@@ -250,9 +250,8 @@ export async function issueOp(sandbox: Sandbox, denial: Denial): Promise<RerunRe
         message: 'No RTDB rules are loaded in the local sandbox.',
       };
     }
-    const state = snapshotState(localSandbox);
-    const isRecordState = state !== null && typeof state === 'object' && !Array.isArray(state);
-    const data = isRecordState ? (state as Record<string, unknown>) : {};
+    const state = snapshotState(localSandbox, { includePriorities: true });
+    const data: RtdbCase['data'] = state ?? {};
     const isReadMethod = denial.method === 'get' || denial.method === 'list' || denial.method === 'listen';
     const operation = isReadMethod ? 'read' : 'write';
     const uid = denial.auth?.uid;

@@ -4,8 +4,9 @@ import { basename, dirname, join, relative, resolve, sep, isAbsolute } from 'nod
 import { tmpdir } from 'node:os';
 import { z } from 'zod';
 import { bundleRecords, serializeToBuckets } from 'pyric/sandbox';
-import { CHECKPOINT_NAME_PATTERN } from 'pyric/sandbox/checkpoints';
+import { CHECKPOINT_FORMAT, CHECKPOINT_NAME_PATTERN, isCheckpointEnvelope } from 'pyric/sandbox/checkpoints';
 import {
+  assertCheckpointState,
   CHUNK_FORMAT_VERSION,
   decodeImportBundle,
   deserializeRtdbRecords,
@@ -42,8 +43,6 @@ const SHA256_HEX = /^[0-9a-f]{64}$/;
 
 const metadataShape = z.object({ version: z.literal(CHUNK_FORMAT_VERSION), services: z.record(z.unknown()) });
 const bucketShape = z.object({ docs: z.record(z.unknown()), encoding: z.string().optional(), checksum: z.number().optional() });
-const checkpointCountsShape = z.record(z.number().int().nonnegative());
-const checkpointStateShape = z.object({ storage: z.array(z.unknown()).optional() }).passthrough();
 const emptyMeta = { version: CHUNK_FORMAT_VERSION, savedAt: 0, services: {} };
 
 function contains(parent: string, child: string): boolean {
@@ -274,20 +273,26 @@ export async function salvageHostedState(sourceInput: string, outputInput: strin
               report.excluded.push({ namespace: 'checkpoints', id: name, reason: 'Invalid JSON' });
               continue;
             }
-            const parsedCounts = checkpointCountsShape.safeParse(rawCounts);
-            const parsedState = checkpointStateShape.safeParse(rawState);
-            const validPayload = parsedCounts.success && parsedState.success;
-            if (!validPayload) {
+            const candidate = { format: CHECKPOINT_FORMAT, at, counts: rawCounts, state: rawState };
+            let validCheckpointState = isCheckpointEnvelope(candidate);
+            if (validCheckpointState) {
+              try {
+                assertCheckpointState(rawState);
+              } catch {
+                validCheckpointState = false;
+              }
+            }
+            if (!validCheckpointState || !isCheckpointEnvelope(candidate)) {
               report.excluded.push({ namespace: 'checkpoints', id: name, reason: 'Checkpoint validation failed' });
               continue;
             }
             const entriesByHash = new Map<string, { bucket: string; path: string; size?: number }>();
             const hashes = new Set<string>();
             let invalidReference = false;
-            for (const entry of parsedState.data.storage ?? []) {
+            for (const entry of candidate.state.storage) {
               const isEntryObject = entry !== null && typeof entry === 'object' && !Array.isArray(entry);
               if (!isEntryObject) { invalidReference = true; break; }
-              const record = entry as Record<string, unknown>;
+              const record = entry as unknown as Record<string, unknown>;
               const hasHash = 'sha256' in record;
               if (!hasHash) continue;
               const hash = record.sha256;
@@ -352,7 +357,7 @@ export async function salvageHostedState(sourceInput: string, outputInput: strin
               if (missingInOutput) recovered.objects.importFile(verified.file, { sha256: verified.sha256, size: verified.size });
             }
             const sortedHashes = [...hashes].sort();
-            recovered.commit(() => writeCheckpointRow(recovered.connection, name, at, parsedCounts.data, parsedState.data, sortedHashes));
+            recovered.commit(() => writeCheckpointRow(recovered.connection, name, at, candidate.counts, candidate.state, sortedHashes));
             report.recoveredCheckpoints++;
           }
         }

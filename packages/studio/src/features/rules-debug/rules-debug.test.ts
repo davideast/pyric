@@ -874,6 +874,43 @@ describe('rules inspector: RTDB listener error events', () => {
       expect(explanation.ruleExpression).toContain('auth != null');
     }
   });
+
+  it('re-runs RTDB denials against scalar roots and root/node priorities via issueOp and rerunAgainstRules', async () => {
+    const sandbox = initializeSandbox();
+    const adminDb = rtdbSandbox.setRules;
+    const { getAdminDatabase, setWithPriority, ref: dbRef } = await import('pyric/database');
+    const admin = getAdminDatabase(sandbox);
+    await setWithPriority(dbRef(admin, '/'), 'active-banner', 15);
+    adminDb(admin, {
+      rules: {
+        '.read': "auth != null && data.val() === 'wrong-banner' && data.getPriority() === 15",
+        '.write': false,
+      },
+    });
+
+    const events: SandboxEvent[] = [];
+    sandbox.onEvent((e) => events.push(e));
+    const clientDb = getDatabase(sandbox.withAuth({ uid: 'alice' }));
+    const { get } = await import('pyric/database');
+    await expect(get(dbRef(clientDb, '/'))).rejects.toThrow();
+
+    const denial = selectDenials(events).find((d) => d.service === 'rtdb' && d.path === '/');
+    expect(denial).toBeDefined();
+
+    // Still denied under original rules
+    const beforeFlip = await issueOp(sandbox, denial!);
+    expect(beforeFlip.outcome).toBe('deny');
+
+    // Edited ruleset checking both scalar root val() and getPriority() === 15 flips to allow
+    const candidateRules = JSON.stringify({
+      rules: {
+        '.read': "auth != null && data.isString() && data.val() === 'active-banner' && data.getPriority() === 15",
+        '.write': false,
+      },
+    });
+    const rerun = await rerunAgainstRules(sandbox.snapshot(), denial!, candidateRules, sandbox);
+    expect(rerun.result).toEqual({ outcome: 'allow' });
+  });
 });
 
 it('attributes a query proof limitation to its authored rule, preserving fallback evaluation separately', () => {

@@ -47,3 +47,7 @@ test('salvageHostedState recovers valid checkpoints and verified object blobs wh
 test('SQLite chunked upload errors match worker Storage FirebaseError codes and messages without plane divergence', async () => {
   expect(await runNodeHuntFixture('upload-errors')).toBe('Upload error parity passed');
 });
+
+test('maximal hosted state roundtrip preserves scalar roots, promoted named RTDB rules, and checkpoints while quarantining corrupt rules and checkpoints on salvage', async () => {
+  expect(await runNodeHuntFixture('state-roundtrip')).toBe('Maximal hosted state roundtrip passed');
+});

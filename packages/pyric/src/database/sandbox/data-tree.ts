@@ -55,7 +55,7 @@ export function lastSegment(path: string): string {
   return segs[segs.length - 1] ?? '';
 }
 
-function setOwnProperty<V>(target: Record<string, V>, key: string, value: V): void {
+export function setOwnProperty<V>(target: Record<string, V>, key: string, value: V): void {
   if (key === '__proto__') {
     Object.defineProperty(target, key, {
       value,
