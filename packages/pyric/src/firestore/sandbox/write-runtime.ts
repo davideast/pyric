@@ -18,6 +18,11 @@ import type { SentinelHit } from './sentinel-capture.js';
 import { buildRulesTestCase } from './rules-test-case.js';
 import { simulateRules } from './rules-simulator.js';
 import { partitionDeletes, registerDefaultConverters } from './value-resolver.js';
+import {
+  collectUnescapedUserMapPaths,
+  copyUnescapedUserMapTag,
+  stripUnescapedUserMapTag,
+} from './unescaped-map.js';
 import { SandboxClock } from '../../sandbox/clock.js';
 
 registerDefaultConverters();
@@ -75,6 +80,18 @@ export class WriteRuntime {
   }): void {
     const hasNoSubscribers = !this.events.write.hasSubscribers;
     if (hasNoSubscribers) return;
+    let priorUnescaped: (string | number)[][] = [];
+    let priorState: DocumentData | null = null;
+    if (input.priorState !== null) {
+      priorUnescaped = collectUnescapedUserMapPaths(input.priorState);
+      priorState = stripUnescapedUserMapTag(input.priorState) as DocumentData;
+    }
+    let nextUnescaped: (string | number)[][] = [];
+    let nextState: DocumentData | null = null;
+    if (input.nextState !== null) {
+      nextUnescaped = collectUnescapedUserMapPaths(input.nextState);
+      nextState = stripUnescapedUserMapTag(input.nextState) as DocumentData;
+    }
     const event: WriteSandboxEvent = {
       kind: 'write',
       id: nextRequestEventId().replace(/^req-/, 'wr-'),
@@ -82,10 +99,12 @@ export class WriteRuntime {
       method: input.method,
       path: input.path,
       auth: null,
-      priorState: input.priorState,
-      nextState: input.nextState,
+      priorState,
+      nextState,
       requestTime: { seconds: input.requestTime.seconds, nanoseconds: input.requestTime.nanos },
     };
+    if (priorUnescaped.length > 0) event.priorUnescapedPaths = priorUnescaped;
+    if (nextUnescaped.length > 0) event.nextUnescapedPaths = nextUnescaped;
     const { auth } = input;
     const hasAuth = auth !== null;
     if (hasAuth) {
@@ -94,7 +113,11 @@ export class WriteRuntime {
       if (hasToken) event.auth.token = auth.token;
     }
     const hasData = input.data !== undefined;
-    if (hasData) event.data = input.data;
+    if (hasData) {
+      const dataUnescaped = collectUnescapedUserMapPaths(input.data);
+      event.data = stripUnescapedUserMapTag(input.data) as DocumentData;
+      if (dataUnescaped.length > 0) event.dataUnescapedPaths = dataUnescaped;
+    }
     const hasUpdateMask = input.updateMask !== undefined;
     if (hasUpdateMask) event.updateMask = input.updateMask;
     // Replay re-issues a merge set with its merge (FS-MET-2).
@@ -119,7 +142,12 @@ export class WriteRuntime {
     for (const path of paths) {
       const prior = this.state.get(path);
       const documentExists = prior !== null;
-      priors[path] = documentExists ? { ...prior } : null;
+      Object.defineProperty(priors, path, {
+        value: documentExists ? copyUnescapedUserMapTag(prior, { ...prior }) : null,
+        enumerable: true,
+        writable: true,
+        configurable: true,
+      });
     }
     return priors;
   }
@@ -185,7 +213,7 @@ export class WriteRuntime {
     projection = new Map<string, DocumentData | null>(),
   ): Map<string, DocumentData | null> {
     for (const operation of operations) {
-      const isReplacement = operation.method === 'set';
+      const isReplacement = operation.method === 'set' || operation.method === 'create';
       if (isReplacement) {
         projection.set(operation.path, partitionDeletes(operation.data ?? {}).writes);
         continue;

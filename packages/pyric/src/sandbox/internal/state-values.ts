@@ -1,5 +1,10 @@
-import { assertEncodedDocValueDepth, encodeDocValue, rehydrateEncodedDocValue, requireDocumentData,
-  type DocValueEncoding } from '../../firestore/internal/value-codec.js';
+import {
+  assertEncodedDocValueDepth,
+  encodeDocValue,
+  rehydrateEncodedDocValue,
+  requireDocumentData,
+  type DocValueEncoding,
+} from '../../firestore/internal/value-codec.js';
 
 /** Preserve SDK values and escape ordinary marker-shaped maps before JSON removes their identity. */
 export function encodeStateDocument(document: Record<string, unknown>): Record<string, unknown> {

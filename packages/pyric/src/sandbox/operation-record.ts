@@ -163,6 +163,21 @@ export function rulesDispositionFor(event: OperationEvent): RulesDisposition {
   if (event.detail?.admin === true) {
     return { kind: 'bypassed', reason: 'admin' };
   }
+  if (
+    event.kind === 'request' &&
+    event.rulesEvidence === undefined &&
+    event.evaluatedRule === undefined &&
+    Array.isArray(event.reasons) &&
+    event.reasons.some(
+      (reason) =>
+        typeof reason === 'string' &&
+        (reason.startsWith('Write preparation error:') ||
+          reason.startsWith('FieldValue resolve error:') ||
+          reason.startsWith('Simulation error:')),
+    )
+  ) {
+    return { kind: 'not-evaluated', reason: 'runtime-error' };
+  }
   if (isPermissionDeniedError(event)) {
     return { kind: 'evaluated', verdict: 'deny' };
   }

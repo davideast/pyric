@@ -325,7 +325,7 @@ export function vectorValuesOf(value: unknown): number[] | null {
  */
 export function finalizeSandboxValue(value: unknown, references?: ReferenceDecoder): unknown {
   const isReference = value instanceof RulesReference;
-  if (isReference) return references?.create(value.path) ?? value;
+  if (isReference) return references?.create(value.path, value.databaseId) ?? value;
   const isBytes = value instanceof RulesBytes;
   if (isBytes) {
     return Bytes.fromUint8Array(value.data);

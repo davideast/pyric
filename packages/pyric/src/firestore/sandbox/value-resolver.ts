@@ -47,7 +47,7 @@ import {
 import { documentReferenceConverter } from './converters/reference.js';
 import { vectorValueConverter } from './converters/vector.js';
 import { bytesConverter, geoPointConverter } from './converters/bytes-geopoint.js';
-import { copyUnescapedUserMapTag, isUnescapedUserMap } from './unescaped-map.js';
+import { copyUnescapedUserMapTag, isUnescapedUserMap, stampUnescapedUserMap } from './unescaped-map.js';
 import { isPlainObject } from '../plain-object.js';
 import { fieldPathKeySegments } from './update-fields.js';
 export { isPlainObject } from '../plain-object.js';
@@ -257,7 +257,11 @@ export function resolveValueTree(
     const fieldSegments = isUpdate ? fieldPathKeySegments(key) : [key];
     defineOwnField(out, key, resolveValue(value, { ...ctx, fieldPath: key, fieldSegments }));
   }
-  return copyUnescapedUserMapTag(data, out);
+  copyUnescapedUserMapTag(data, out);
+  if (Object.hasOwn(out, 'type') && out.type === 'pyric/map/1.0') {
+    stampUnescapedUserMap(out);
+  }
+  return out;
 }
 
 /**
@@ -283,7 +287,11 @@ export function resolveValue(value: unknown, ctx: ResolveContext): unknown {
       const childPath = ctx.fieldPath ? `${ctx.fieldPath}.${k}` : k;
       defineOwnField(inner, k, resolveValue(v, { ...ctx, fieldPath: childPath, fieldSegments: [...ctx.fieldSegments, k] }));
     }
-    return copyUnescapedUserMapTag(value, inner);
+    copyUnescapedUserMapTag(value, inner);
+    if (Object.hasOwn(inner, 'type') && inner.type === 'pyric/map/1.0') {
+      stampUnescapedUserMap(inner);
+    }
+    return inner;
   }
   // Primitives, Dates, class instances, functions, etc. — identity.
   return value;

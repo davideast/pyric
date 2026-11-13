@@ -549,13 +549,19 @@ service firebase.storage {
       rawBytes: new RulesBytes(new Uint8Array([9, 8, 7])),
       coords: new RulesLatLng(37.7749, -122.4194),
       pointer: new RulesReference('items/envelope'),
+      namedPointer: new RulesReference('orgs/o1', 'tenant-db'),
       embedding: new RulesVector([0.25, -0.5, 1.0]),
+      nestedEnvelope: { type: 'pyric/map/1.0', fields: { nestedKey: 'val' } },
       nested: { tags: ['alpha', 'beta'], meta: { count: 2 } },
     });
     env.adminSetDocument('items/envelope', {
       type: 'pyric/map/1.0',
       fields: { a: 1 },
       sibling: 'kept',
+    });
+    env.adminSetDocument('items/exact-envelope', {
+      type: 'pyric/map/1.0',
+      fields: { a: 1 },
     });
 
     const defaultRtdb = getOrCreateBackend(sandbox);

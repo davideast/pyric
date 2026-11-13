@@ -17,11 +17,13 @@ import type { DocumentData } from './document-store.js';
 import { makeError } from './errors.js';
 import { FirestoreCompatError } from './firestore-compat-error.js';
 import type { LocalEnvironment } from './local-environment.js';
+import { markUserWriteValue } from './unescaped-map.js';
 import type { OperationResult } from './writes.js';
 
 /** Replace the document at `path`, rules off, recorded as an admin `set`. */
 export function recordedAdminSet(env: LocalEnvironment, path: string, data: DocumentData): void {
-  const result = env.execute({ method: 'set', path, data: data ?? {}, auth: null, bypassRules: true });
+  const markedData = markUserWriteValue(data ?? {}) as DocumentData;
+  const result = env.execute({ method: 'set', path, data: markedData, auth: null, bypassRules: true });
   if (!result.allowed) throwRefusal(result, path);
 }
 

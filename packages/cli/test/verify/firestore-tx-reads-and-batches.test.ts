@@ -1,11 +1,16 @@
 import { describe, expect, it } from 'bun:test';
 import { getClock, initializeSandbox } from 'pyric/sandbox';
 import {
+  arrayUnion,
+  deleteField,
   doc,
+  getDoc,
   getFirestore,
+  increment,
   runTransaction,
   serverTimestamp,
   setDoc,
+  updateDoc,
   writeBatch,
 } from 'pyric/firestore';
 import { seedDocuments, setRules } from 'pyric/sandbox/firestore';
@@ -305,6 +310,244 @@ describe('verifyFixture rolled-back atomic batch getAfter() serverTimestamp() re
       expect(verifySame.services.firestore?.divergences).toEqual([]);
       expect(verifySame.ok).toBe(true);
     }
+  });
+
+  it('round-trips user maps shaped like pyric/map/1.0 envelopes across snapshot, getDoc, and verifyFixture without unwrapping', async () => {
+    const ENVELOPE_USER_MAP_RULES = [
+      "rules_version = '2';",
+      'service cloud.firestore {',
+      '  match /databases/{database}/documents {',
+      '    match /items/{id} {',
+      '      allow create, update: if request.auth != null',
+      '        && request.resource.data.wrapped is map',
+      "        && request.resource.data.wrapped['type'] == 'pyric/map/1.0'",
+      '        && request.resource.data.wrapped.fields.k == 1',
+      "        && request.resource.data.wrapped.fields.inner['type'] == 'pyric/map/1.0'",
+      '        && request.resource.data.wrapped.fields.orgRef == /databases/analytics/documents/orgs/org-1;',
+      '      allow get: if request.auth != null',
+      '        && resource.data.wrapped is map',
+      "        && resource.data.wrapped['type'] == 'pyric/map/1.0'",
+      '        && resource.data.wrapped.fields.k == 1',
+      "        && resource.data.wrapped.fields.inner['type'] == 'pyric/map/1.0'",
+      '        && resource.data.wrapped.fields.orgRef == /databases/analytics/documents/orgs/org-1;',
+      '    }',
+      '    match /envelopes/{id} {',
+      '      allow create, update, get: if request.auth != null',
+      "        && (request.method == 'get' ? resource.data['type'] : request.resource.data['type']) == 'pyric/map/1.0';",
+      '    }',
+      '  }',
+      '}',
+    ].join('\n');
+
+    const sb = initializeSandbox();
+    setRules(sb, ENVELOPE_USER_MAP_RULES);
+    const authed = sb.withAuth({ uid: 'u1', token: {} });
+    const db = getFirestore(authed);
+    const dbAnalytics = getFirestore(authed, 'analytics');
+
+    await setDoc(doc(db, 'items', 'i1'), {
+      wrapped: {
+        type: 'pyric/map/1.0',
+        fields: {
+          k: 1,
+          inner: { type: 'pyric/map/1.0', fields: { m: 2 } },
+          orgRef: doc(dbAnalytics, 'orgs', 'org-1'),
+        },
+      },
+    });
+    await getDoc(doc(db, 'items', 'i1'));
+
+    await setDoc(doc(db, 'envelopes', 'top'), {
+      type: 'pyric/map/1.0',
+      fields: { direct: true },
+    });
+    await updateDoc(doc(db, 'envelopes', 'top'), { 'fields.extra': 2 });
+    await getDoc(doc(db, 'envelopes', 'top'));
+
+    const persistedFixture = JSON.parse(
+      JSON.stringify(buildVerifyFixture({ sandbox: sb, firestoreRules: ENVELOPE_USER_MAP_RULES })),
+    );
+    const verified = await verifyFixture(persistedFixture, {
+      rules: { firestore: ENVELOPE_USER_MAP_RULES },
+    });
+    expect(verified.services.firestore?.divergences).toEqual([]);
+    expect(verified.ok).toBe(true);
+  });
+
+  it('preserves sequential intra-batch projections for same-path multi-writes in committed and rolled-back batches', async () => {
+    const MULTI_WRITE_RULES = [
+      "rules_version = '2';",
+      'service cloud.firestore {',
+      '  match /databases/{database}/documents {',
+      '    match /items/{id} {',
+      '      allow create: if request.auth != null',
+      '        && request.resource.data.ownerId == request.auth.uid',
+      '        && request.resource.data.count == 15',
+      "        && request.resource.data.tags == ['x', 'y']",
+      "        && !('temp' in request.resource.data);",
+      '      allow delete: if request.auth != null;',
+      '    }',
+      '    match /audits/{id} {',
+      '      allow create: if getAfter(/databases/$(database)/documents/items/a).data.ownerId == request.auth.uid',
+      '        && getAfter(/databases/$(database)/documents/items/a).data.count == 15',
+      '        && !existsAfter(/databases/$(database)/documents/items/ephemeral);',
+      '    }',
+      '    match /locked/{id} {',
+      '      allow create: if false;',
+      '    }',
+      '  }',
+      '}',
+    ].join('\n');
+
+    const sbCommitted = initializeSandbox();
+    setRules(sbCommitted, MULTI_WRITE_RULES);
+    const dbCommitted = getFirestore(sbCommitted.withAuth({ uid: 'u1', token: {} }));
+    const committedBatch = writeBatch(dbCommitted);
+    committedBatch.set(doc(dbCommitted, 'items', 'a'), {
+      ownerId: 'u1',
+      count: 10,
+      tags: ['x'],
+      temp: 'drop',
+    });
+    committedBatch.update(doc(dbCommitted, 'items', 'a'), {
+      count: increment(5),
+      tags: arrayUnion('y'),
+      temp: deleteField(),
+    });
+    committedBatch.set(doc(dbCommitted, 'items', 'ephemeral'), { ownerId: 'u1' });
+    committedBatch.delete(doc(dbCommitted, 'items', 'ephemeral'));
+    committedBatch.set(doc(dbCommitted, 'audits', 'a1'), { ok: true });
+    await committedBatch.commit();
+
+    const committedFix = JSON.parse(
+      JSON.stringify(buildVerifyFixture({ sandbox: sbCommitted, firestoreRules: MULTI_WRITE_RULES })),
+    );
+    const verCommitted = await verifyFixture(committedFix, {
+      rules: { firestore: MULTI_WRITE_RULES },
+    });
+    expect(verCommitted.services.firestore?.divergences).toEqual([]);
+    expect(verCommitted.ok).toBe(true);
+
+    const sbRolledBack = initializeSandbox();
+    setRules(sbRolledBack, MULTI_WRITE_RULES);
+    const dbRolledBack = getFirestore(sbRolledBack.withAuth({ uid: 'u1', token: {} }));
+    const rolledBackBatch = writeBatch(dbRolledBack);
+    rolledBackBatch.set(doc(dbRolledBack, 'items', 'a'), {
+      ownerId: 'u1',
+      count: 10,
+      tags: ['x'],
+      temp: 'drop',
+    });
+    rolledBackBatch.update(doc(dbRolledBack, 'items', 'a'), {
+      count: increment(5),
+      tags: arrayUnion('y'),
+      temp: deleteField(),
+    });
+    rolledBackBatch.set(doc(dbRolledBack, 'items', 'ephemeral'), { ownerId: 'u1' });
+    rolledBackBatch.delete(doc(dbRolledBack, 'items', 'ephemeral'));
+    rolledBackBatch.set(doc(dbRolledBack, 'audits', 'a1'), { ok: true });
+    rolledBackBatch.set(doc(dbRolledBack, 'locked', 'l1'), { ok: true });
+    await expect(rolledBackBatch.commit()).rejects.toThrow();
+
+    const rolledBackFix = JSON.parse(
+      JSON.stringify(buildVerifyFixture({ sandbox: sbRolledBack, firestoreRules: MULTI_WRITE_RULES })),
+    );
+    const derivedRolledBack = deriveRulesTestCases(rolledBackFix, { mockReads: 'omit' });
+    expect(derivedRolledBack.ok).toBe(true);
+    const itemACases = derivedRolledBack.testCases.filter((tc) => tc.path === 'items/a');
+    expect(itemACases).toHaveLength(2);
+    for (const tc of itemACases) {
+      expect(tc.data).toEqual({ ownerId: 'u1', count: 15, tags: ['x', 'y'] });
+    }
+
+    const verRolledBack = await verifyFixture(rolledBackFix, {
+      rules: { firestore: MULTI_WRITE_RULES },
+    });
+    expect(verRolledBack.services.firestore?.divergences).toEqual([]);
+    expect(verRolledBack.ok).toBe(true);
+  });
+
+  it('distinguishes structural write-preparation errors from Security Rules denials in history, deriveRulesTestCases, and verifyFixture', async () => {
+    const PREP_VS_DENY_RULES = [
+      "rules_version = '2';",
+      'service cloud.firestore {',
+      '  match /databases/{database}/documents {',
+      '    match /items/{id} {',
+      '      allow create, update, delete: if request.auth != null;',
+      '    }',
+      '    match /locked/{id} {',
+      '      allow create, update, delete: if false;',
+      '    }',
+      '  }',
+      '}',
+    ].join('\n');
+
+    const OPENED_LOCKED_RULES = PREP_VS_DENY_RULES.replace(
+      'allow create, update, delete: if false;',
+      'allow create, update, delete: if request.auth != null;',
+    );
+
+    const sb = initializeSandbox();
+    setRules(sb, PREP_VS_DENY_RULES);
+    const db = getFirestore(sb.withAuth({ uid: 'u1', token: {} }));
+    await setDoc(doc(db, 'items', 'i1'), { count: 1 });
+
+    const badBatch = writeBatch(db);
+    badBatch.delete(doc(db, 'items', 'i1'));
+    badBatch.update(doc(db, 'items', 'i1'), { count: 2 });
+    await expect(badBatch.commit()).rejects.toMatchObject({ code: 'invalid-argument' });
+
+    await expect(
+      runTransaction(db, async (tx) => {
+        tx.delete(doc(db, 'items', 'i1'));
+        tx.update(doc(db, 'items', 'i1'), { count: 3 });
+      }),
+    ).rejects.toMatchObject({ code: 'invalid-argument' });
+
+    const deniedBatch = writeBatch(db);
+    deniedBatch.set(doc(db, 'locked', 'l1'), { count: 1 });
+    await expect(deniedBatch.commit()).rejects.toMatchObject({ code: 'permission-denied' });
+
+    const persisted = JSON.parse(
+      JSON.stringify(buildVerifyFixture({ sandbox: sb, firestoreRules: PREP_VS_DENY_RULES })),
+    );
+
+    const prepEvents = persisted.events.filter(
+      (e: { kind?: string; path?: string; result?: string }) =>
+        e.kind === 'request' && e.path === 'items/i1' && e.result === 'deny',
+    );
+    expect(prepEvents.length).toBeGreaterThanOrEqual(2);
+    for (const prep of prepEvents) {
+      expect(prep.rulesDisposition).toEqual({
+        kind: 'not-evaluated',
+        reason: 'runtime-error',
+      });
+    }
+
+    const derived = deriveRulesTestCases(persisted);
+    expect(derived.ok).toBe(true);
+    expect(derived.testCases.map((tc) => `${tc.expectation}:${tc.method}:${tc.path}`)).toEqual([
+      'ALLOW:create:items/i1',
+      'DENY:create:locked/l1',
+    ]);
+
+    const sameVerify = await verifyFixture(persisted, {
+      rules: { firestore: PREP_VS_DENY_RULES },
+    });
+    expect(sameVerify.services.firestore?.divergences).toEqual([]);
+    expect(sameVerify.ok).toBe(true);
+
+    const openedVerify = await verifyFixture(persisted, {
+      rules: { firestore: OPENED_LOCKED_RULES },
+    });
+    expect(openedVerify.ok).toBe(false);
+    expect(openedVerify.services.firestore?.divergences).toContainEqual(
+      expect.objectContaining({
+        service: 'firestore',
+        kind: 'now-allowed',
+        path: 'locked/l1',
+      }),
+    );
   });
 });
 

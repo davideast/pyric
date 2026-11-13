@@ -177,4 +177,15 @@ export interface SandboxSnapshot {
    * does not silently revert Firestore rules to default open rules.
    */
   firestoreRules?: string;
+  /**
+   * Per-document paths holding genuine Firestore `RulesValue` wrappers so
+   * `loadSnapshot` can restore both `structuredClone` and `JSON.stringify`
+   * snapshots without mistaking user maps for wrappers (omitted when empty).
+   */
+  firestoreWrappers?: Record<string, (string | number)[][]>;
+  /**
+   * Per-document paths holding plain user maps whose keys collide with
+   * internal Firestore wrapper/sentinel shapes (omitted when empty).
+   */
+  firestoreUnescapedMaps?: Record<string, (string | number)[][]>;
 }

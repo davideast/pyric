@@ -1,10 +1,18 @@
 import {
   assertCompleteHistory,
+  encodeSnapshotMap,
   observedDeliveryOf,
+  rehydrateSnapshotDocument,
   resolveDatabaseInstance,
   type ObservedWriteValue,
 } from 'pyric/sandbox/internal';
-import type { EventService, Sandbox, SandboxEvent } from 'pyric/sandbox';
+import {
+  isOperationEvent,
+  rulesDispositionFor,
+  type EventService,
+  type Sandbox,
+  type SandboxEvent,
+} from 'pyric/sandbox';
 import { inlinePriorities, jsonEqual, normalizeNode, withPriorities } from 'pyric/database/internal';
 import { getStorageSandbox } from 'pyric/storage';
 import { storageDeniedWrites, type RecordedStorageDeniedWrite } from 'pyric/storage/internal';
@@ -48,27 +56,13 @@ export interface PyricVerifyFixture {
   schema: typeof VERIFY_FIXTURE_SCHEMA;
   description?: string;
   createdAt?: string;
-  /** Opaque id of the sandbox instance that produced this capture (the served
-   *  SharedWorker's `instanceId`). Purely additive: `pyric verify` ignores it.
-   *  Present only on captures written by the worker's capture flush; used by
-   *  boot-time event hydration to SKIP priming a capture that belongs to a
-   *  DIFFERENT instance (e.g. another browser profile sharing one `pyric sandbox`),
-   *  so someone else's session never shows up as yours. Absent on older /
-   *  standalone captures → hydration primes best-effort. */
+  /** Opaque id of the sandbox instance that produced this capture (used by
+   *  boot-time event hydration to skip captures from a different instance). */
   capturedBy?: string;
   events: SandboxEvent[];
-  /**
-   * The values each live call carried, by its event's id. A live call's
-   * event holds production's answer and the local verdict; `pyric verify`
-   * replays it with these against the candidate rules. Absent when the
-   * session observed no call that carried any.
-   */
+  /** Live call values (`claims`, `writeData`, `document`) keyed by event id. */
   observedCalls?: Record<string, VerifyObservedCallValues>;
-  /**
-   * Redacted `request.resource` and existing `resource` bindings for denied
-   * Storage operations, keyed by operation event id so `SandboxOperationEvent`
-   * stays narrow on the Traffic chip and Studio event stream.
-   */
+  /** Redacted `request.resource` and `resource` bindings for denied Storage ops. */
   storageDeniedWrites?: Record<string, RecordedStorageDeniedWrite>;
   services: {
     firestore?: {
@@ -171,14 +165,19 @@ function storageDeniedWritesIn(
  * Preserves `{ mode, size, paths: [] }` so listener delivery counts and
  * cardinality remain intact on capture hydration.
  */
-const FIXTURE_UNESCAPED_MAP_TAG = Symbol.for('pyric.unescapedMap');
-
-function encodeUnescapedEventValue(value: unknown): unknown {
+function encodeFixtureNumbers(value: unknown): unknown {
+  if (typeof value === 'number') {
+    if (Number.isNaN(value)) return { type: 'pyric/number/1.0', value: 'NaN' };
+    if (value === Number.POSITIVE_INFINITY) return { type: 'pyric/number/1.0', value: 'Infinity' };
+    if (value === Number.NEGATIVE_INFINITY) return { type: 'pyric/number/1.0', value: '-Infinity' };
+    if (Object.is(value, -0)) return { type: 'pyric/number/1.0', value: '-0' };
+    return value;
+  }
   if (value === null || typeof value !== 'object') return value;
   if (Array.isArray(value)) {
     let changed = false;
     const next = value.map((item) => {
-      const encoded = encodeUnescapedEventValue(item);
+      const encoded = encodeFixtureNumbers(item);
       if (encoded !== item) changed = true;
       return encoded;
     });
@@ -186,74 +185,56 @@ function encodeUnescapedEventValue(value: unknown): unknown {
   }
   const proto = Object.getPrototypeOf(value);
   if (proto !== Object.prototype && proto !== null) return value;
-  const rec = value as Record<string, unknown>;
-  const isUnescaped = (value as Record<symbol, unknown>)[FIXTURE_UNESCAPED_MAP_TAG] === true;
+  const entries = Object.entries(value as Record<string, unknown>);
   let childChanged = false;
-  const entries = Object.entries(rec).map(([k, v]) => {
-    const encoded = encodeUnescapedEventValue(v);
+  const mapped = entries.map(([k, v]) => {
+    const encoded = encodeFixtureNumbers(v);
     if (encoded !== v) childChanged = true;
     return [k, encoded] as const;
   });
-  if (!childChanged && !isUnescaped) return value;
-  const fields: Record<string, unknown> = {};
-  for (const [k, v] of entries) {
-    Object.defineProperty(fields, k, {
-      value: v,
-      enumerable: true,
-      writable: true,
-      configurable: true,
-    });
+  if (!childChanged) return value;
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of mapped) {
+    Object.defineProperty(out, k, { value: v, enumerable: true, writable: true, configurable: true });
   }
-  return isUnescaped ? { type: 'pyric/map/1.0', fields } : fields;
+  return out;
+}
+
+function encodeOptionalDoc(data: Record<string, unknown> | null | undefined): Record<string, unknown> | null | undefined {
+  if (data === undefined || data === null) return data;
+  return encodeFixtureNumbers(data) as Record<string, unknown>;
 }
 
 function sanitizeCapturedEvents(events: SandboxEvent[]): SandboxEvent[] {
   return events.map((event) => {
     if (event.kind === 'request' && eventService(event) === 'firestore') {
       const reqData = event.request?.resourceData;
-      const encReqData = reqData !== undefined ? (encodeUnescapedEventValue(reqData) as Record<string, unknown>) : undefined;
+      const encReqData = encodeOptionalDoc(reqData) as Record<string, unknown> | undefined;
       const beforeData = event.resourceBefore?.data;
-      const encBeforeData =
-        beforeData !== undefined && beforeData !== null
-          ? (encodeUnescapedEventValue(beforeData) as Record<string, unknown>)
-          : beforeData;
+      const encBeforeData = encodeOptionalDoc(beforeData);
       const afterData = event.resourceAfter?.data;
-      const encAfterData =
-        afterData !== undefined && afterData !== null
-          ? (encodeUnescapedEventValue(afterData) as Record<string, unknown>)
-          : afterData;
-      if (encReqData !== reqData || encBeforeData !== beforeData || encAfterData !== afterData) {
-        return {
-          ...event,
-          ...(event.request && encReqData !== reqData
-            ? { request: { ...event.request, resourceData: encReqData } }
-            : {}),
-          ...(event.resourceBefore && encBeforeData !== beforeData
-            ? { resourceBefore: { ...event.resourceBefore, data: encBeforeData ?? null } }
-            : {}),
-          ...(event.resourceAfter && encAfterData !== afterData
-            ? { resourceAfter: { ...event.resourceAfter, data: encAfterData ?? null } }
-            : {}),
-        };
+      const encAfterData = encodeOptionalDoc(afterData);
+      if (encReqData === reqData && encBeforeData === beforeData && encAfterData === afterData) return event;
+      const copy = { ...event };
+      if (event.request && encReqData !== reqData) {
+        copy.request = { ...event.request, resourceData: encReqData };
       }
-      return event;
+      if (event.resourceBefore && encBeforeData !== beforeData) {
+        copy.resourceBefore = { ...event.resourceBefore, data: encBeforeData ?? null };
+      }
+      if (event.resourceAfter && encAfterData !== afterData) {
+        copy.resourceAfter = { ...event.resourceAfter, data: encAfterData ?? null };
+      }
+      return copy;
     }
     if (event.kind === 'write' && eventService(event) === 'firestore') {
-      const encData =
-        event.data !== undefined ? (encodeUnescapedEventValue(event.data) as Record<string, unknown>) : undefined;
-      const encPrior =
-        event.priorState !== null ? (encodeUnescapedEventValue(event.priorState) as Record<string, unknown>) : null;
-      const encNext =
-        event.nextState !== null ? (encodeUnescapedEventValue(event.nextState) as Record<string, unknown>) : null;
-      if (encData !== event.data || encPrior !== event.priorState || encNext !== event.nextState) {
-        return {
-          ...event,
-          ...(encData !== undefined ? { data: encData } : {}),
-          priorState: encPrior,
-          nextState: encNext,
-        };
-      }
-      return event;
+      const encData = encodeOptionalDoc(event.data) as Record<string, unknown> | undefined;
+      const encPrior = encodeOptionalDoc(event.priorState) ?? null;
+      const encNext = encodeOptionalDoc(event.nextState) ?? null;
+      if (encData === event.data && encPrior === event.priorState && encNext === event.nextState) return event;
+      const copy = { ...event, priorState: encPrior, nextState: encNext };
+      if (encData !== undefined) copy.data = encData;
+      return copy;
     }
     if (event.kind !== 'operation' || event.detail === undefined) return event;
     const delivery = observedDeliveryOf(event);
@@ -275,7 +256,21 @@ function sanitizeCapturedEvents(events: SandboxEvent[]): SandboxEvent[] {
 export function buildVerifyFixture(input: BuildVerifyFixtureInput): PyricVerifyFixture {
   const events = sanitizeCapturedEvents(input.sandbox.history());
   const snapshot = input.sandbox.snapshot();
-  const firestoreDocuments = snapshot.firestore;
+  const rawFirestoreDocuments = snapshot.firestore;
+  const firestoreDocuments: Record<string, Record<string, unknown>> = {};
+  for (const [docPath, docData] of Object.entries(rawFirestoreDocuments)) {
+    const hydratedDoc = rehydrateSnapshotDocument(
+      docData,
+      snapshot.firestoreWrappers?.[docPath],
+      snapshot.firestoreUnescapedMaps?.[docPath],
+    );
+    Object.defineProperty(firestoreDocuments, docPath, {
+      value: encodeSnapshotMap(hydratedDoc) as Record<string, unknown>,
+      enumerable: true,
+      writable: true,
+      configurable: true,
+    });
+  }
   const services: PyricVerifyFixture['services'] = {};
 
   if (
@@ -432,11 +427,48 @@ export function parseVerifyFixture(value: unknown): PyricVerifyFixture {
   return { ...value, schema: VERIFY_FIXTURE_SCHEMA, events: events as SandboxEvent[], services: services as PyricVerifyFixture['services'] };
 }
 
+function isVerifiableFirestoreFixtureEvent(event: SandboxEvent): boolean {
+  if (eventService(event) !== 'firestore') return false;
+  if (event.kind === 'write') {
+    const disposition = rulesDispositionFor({
+      kind: 'operation',
+      id: event.id,
+      at: event.at,
+      service: 'firestore',
+      origin: event.groupKind ?? 'user',
+      method: event.method,
+      path: event.path,
+      auth: event.auth,
+      result: 'allow',
+      detail: event.detail,
+    });
+    return (
+      disposition.kind === 'evaluated' ||
+      (disposition.kind === 'not-evaluated' && disposition.reason === 'unsupported')
+    );
+  }
+  if (!isOperationEvent(event)) return false;
+  const disposition = rulesDispositionFor(event);
+  if (disposition.kind === 'bypassed') return false;
+  if (disposition.kind === 'not-evaluated' && disposition.reason !== 'unsupported') {
+    return false;
+  }
+  return true;
+}
+
 export function fixtureVerifiableServices(
   fixture: PyricVerifyFixture,
 ): Array<'firestore' | 'rtdb' | 'storage'> {
   const services: Array<'firestore' | 'rtdb' | 'storage'> = [];
-  if (fixture.services.firestore) services.push('firestore');
+  const firestore = fixture.services.firestore;
+  if (
+    firestore &&
+    (firestore.rules.source.trim().length > 0 ||
+      fixture.events.some(isVerifiableFirestoreFixtureEvent) ||
+      (!fixture.services.rtdb && !fixture.services.storage))
+  ) {
+    services.push('firestore');
+  }
   if (fixture.services.rtdb) services.push('rtdb');
   if (fixture.services.storage) services.push('storage');
   return services;

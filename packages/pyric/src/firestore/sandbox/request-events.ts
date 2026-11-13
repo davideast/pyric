@@ -6,7 +6,8 @@
 import type { QueryProofDiagnostic } from '../../sandbox/types/query-proof.js';
 import type { EvaluatedRuleInfo } from 'pyric/rules/internal';
 import type { DocumentData } from './local-state.js';
-import type { EventProvenance } from '../../sandbox/types/events.js';
+import type { EventProvenance, RulesDisposition } from '../../sandbox/types/events.js';
+import { collectUnescapedUserMapPaths, stripUnescapedUserMapTag } from './unescaped-map.js';
 import type { Operation } from './writes.js';
 
 // ─── RequestEvent emission (issue #307) ───────────────────────────────
@@ -42,6 +43,7 @@ export interface EmitRequestInput {
   groupId?: string;
   triggeredBy?: { method: string; path: string };
   detail?: { admin?: boolean } & Record<string, unknown>;
+  rulesDisposition?: RulesDisposition;
   provenance?: EventProvenance;
 }
 
@@ -96,17 +98,43 @@ export function buildRequestEvent(input: EmitRequestInput): import('../../sandbo
     origin: input.origin,
   };
   if (input.resourceData !== undefined) {
-    out.request = { resourceData: input.resourceData };
+    const reqUnescaped = collectUnescapedUserMapPaths(input.resourceData);
+    out.request = { resourceData: stripUnescapedUserMapTag(input.resourceData) as DocumentData };
     if (input.updateMask !== undefined) out.request.updateMask = input.updateMask;
     if (input.merge !== undefined) out.request.merge = input.merge;
+    if (reqUnescaped.length > 0) out.request.unescapedPaths = reqUnescaped;
   }
   if (input.resourceBefore !== undefined) {
-    out.resourceBefore = input.resourceBefore;
+    const beforeData = input.resourceBefore.data;
+    let beforeUnescaped: (string | number)[][] = [];
+    let sanitizedBefore: DocumentData | null = null;
+    if (beforeData !== null) {
+      beforeUnescaped = collectUnescapedUserMapPaths(beforeData);
+      sanitizedBefore = stripUnescapedUserMapTag(beforeData) as DocumentData;
+    }
+    out.resourceBefore = {
+      data: sanitizedBefore,
+      exists: input.resourceBefore.exists,
+    };
+    if (beforeUnescaped.length > 0) out.resourceBefore.unescapedPaths = beforeUnescaped;
   }
   if (input.resourceAfter !== undefined) {
-    out.resourceAfter = input.resourceAfter;
+    const afterData = input.resourceAfter.data;
+    let afterUnescaped: (string | number)[][] = [];
+    let sanitizedAfter: DocumentData | null = null;
+    if (afterData !== null) {
+      afterUnescaped = collectUnescapedUserMapPaths(afterData);
+      sanitizedAfter = stripUnescapedUserMapTag(afterData) as DocumentData;
+    }
+    out.resourceAfter = {
+      data: sanitizedAfter,
+      exists: input.resourceAfter.exists,
+    };
+    if (afterUnescaped.length > 0) out.resourceAfter.unescapedPaths = afterUnescaped;
   }
-  if (input.rulesEvidence !== undefined) out.rulesEvidence = input.rulesEvidence;
+  if (input.rulesEvidence !== undefined) {
+    out.rulesEvidence = stripUnescapedUserMapTag(input.rulesEvidence) as typeof input.rulesEvidence;
+  }
   if (input.queryProof !== undefined) out.queryProof = input.queryProof;
   const matched = parseMatchedRule(input.debugMessages, input.result);
   if (matched) out.matchedRule = matched;
@@ -115,7 +143,7 @@ export function buildRequestEvent(input: EmitRequestInput): import('../../sandbo
   // the allowing rule on an allow, the denying rule on a deny. Unsupported
   // results have no deciding rule (the simulator abstained).
   if (input.result !== 'unsupported' && input.evaluatedRule) {
-    out.evaluatedRule = input.evaluatedRule;
+    out.evaluatedRule = stripUnescapedUserMapTag(input.evaluatedRule) as typeof input.evaluatedRule;
   }
   if (input.groupId !== undefined) {
     out.groupId = input.groupId;
@@ -126,6 +154,7 @@ export function buildRequestEvent(input: EmitRequestInput): import('../../sandbo
   }
   if (input.triggeredBy !== undefined) out.triggeredBy = input.triggeredBy;
   if (input.detail !== undefined) out.detail = input.detail;
+  if (input.rulesDisposition !== undefined) out.rulesDisposition = input.rulesDisposition;
   if (input.provenance !== undefined) Object.assign(out, input.provenance);
   return out;
 }

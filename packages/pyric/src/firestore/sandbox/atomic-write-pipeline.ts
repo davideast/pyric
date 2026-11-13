@@ -87,9 +87,8 @@ export class AtomicWritePipeline {
         if (updatesDeletedDocument) {
           throw new Error(`Cannot delete then update document '${input.path}' in the same atomic write.`);
         }
-        const hasData = input.data !== undefined;
         let data = input.data;
-        if (hasData) {
+        if (data !== undefined) {
           const hasEarlierWrite = projection.has(input.path);
           let prior: DocumentData | null;
           if (hasEarlierWrite) {
@@ -97,7 +96,7 @@ export class AtomicWritePipeline {
           } else {
             prior = this.runtime.state.get(input.path);
           }
-          data = resolveValueTree({ ...input.data }, {
+          data = resolveValueTree(data, {
             path: input.path,
             method: input.method as ResolveMethod,
             prior,
@@ -125,6 +124,7 @@ export class AtomicWritePipeline {
           path: input.path,
           auth: context.auth,
           result: 'deny',
+          rulesDisposition: { kind: 'not-evaluated', reason: 'runtime-error' },
           debugMessages: [`Write preparation error: ${message}`],
           resourceBefore: { data: prior, exists: prior !== null },
           origin: context.origin,
@@ -215,21 +215,23 @@ export class AtomicWritePipeline {
       const simulationFailed = !simulation.success;
       if (simulationFailed) {
         const error = makeError('invalid-argument', simulation.error.message);
+        const simFailedRequest = this.request(
+          prepared,
+          input,
+          prior,
+          evalAt,
+          evalMs,
+          'deny',
+          [`Simulation error: ${simulation.error.message}`],
+        );
+        simFailedRequest.rulesDisposition = { kind: 'not-evaluated', reason: 'runtime-error' };
         outcomes.push({
           path: input.path,
           method: input.ruleMethod,
           allowed: false,
           debugMessages: [simulation.error.message],
           error,
-          request: this.request(
-            prepared,
-            input,
-            prior,
-            evalAt,
-            evalMs,
-            'deny',
-            [`Simulation error: ${simulation.error.message}`],
-          ),
+          request: simFailedRequest,
         });
         allowed = false;
         continue;
@@ -355,13 +357,11 @@ export class AtomicWritePipeline {
       const committed = decision.allowed && outcome.allowed;
       const prior = context.snapshot[input.path] ?? null;
       if (committed) {
-        const isDelete = input.ruleMethod === 'delete';
-        outcome.request.resourceAfter = isDelete
-          ? { data: null, exists: false }
-          : {
-              data: this.runtime.state.get(input.path),
-              exists: this.runtime.state.get(input.path) !== null,
-            };
+        const finalData = this.runtime.state.get(input.path);
+        outcome.request.resourceAfter = {
+          data: finalData,
+          exists: finalData !== null,
+        };
       } else {
         outcome.request.resourceAfter = { data: prior, exists: prior !== null };
       }

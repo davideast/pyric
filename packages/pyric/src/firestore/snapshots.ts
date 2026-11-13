@@ -216,7 +216,7 @@ export function recordQuerySnapshot(
     const rawDoc = rawDocumentSnapshotForCursor(doc as object);
     return {
       path: rawDoc.ref?.path ?? doc.ref?.path ?? '',
-      data: captureQueryOperand(rawDoc.data?.() ?? doc.data?.(), target),
+      data: captureQueryOperand(rawDoc.data?.() ?? doc.data?.()),
     };
   };
   const docs = Object.freeze((raw.docs ?? []).map(captureDoc));
@@ -271,6 +271,27 @@ function mergedSnapshotMetadata(snap: object, target: Target, path: string): Sna
   });
 }
 
+function normalizeSnapshotDatabaseId(raw: string | undefined): string | undefined {
+  if (typeof raw === 'string' && raw.length > 0 && raw !== '(default)') {
+    return raw;
+  }
+  return undefined;
+}
+
+function createSnapshotReferenceDecoder(target: Target): ReferenceDecoder {
+  return {
+    create: (path, databaseId) => {
+      const normalizedDbId = normalizeSnapshotDatabaseId(databaseId);
+      const currentDbId = normalizeSnapshotDatabaseId(target.databaseId);
+      if (normalizedDbId === currentDbId) {
+        return doc({ [TARGET_SYMBOL]: target }, path);
+      }
+      const rebasedTarget: Target = { ...target, databaseId: normalizedDbId };
+      return doc({ [TARGET_SYMBOL]: rebasedTarget }, path);
+    },
+  };
+}
+
 export function wrapSandboxDocSnap<T>(snap: object, target?: Target): DocumentSnapshot<T> & { exists(): boolean } {
   const s = snap as {
     data: () => DocumentData | undefined;
@@ -283,7 +304,7 @@ export function wrapSandboxDocSnap<T>(snap: object, target?: Target): DocumentSn
   const hasTarget = target !== undefined;
   let references: ReferenceDecoder | undefined;
   if (hasTarget) {
-    references = { create: (path) => doc({ [TARGET_SYMBOL]: target }, path) };
+    references = createSnapshotReferenceDecoder(target);
   }
   Object.defineProperty(s, 'data', {
     value: () => finalizeSandboxData(original(), references),
@@ -320,7 +341,7 @@ export function applyConverterToDocSnap<AppModel>(
 ): DocumentSnapshot<AppModel> & { exists(): boolean } {
   const rawReference = doc({ [TARGET_SYMBOL]: target }, snap.ref.path);
   const reference = rawReference.withConverter(conv);
-  const references: ReferenceDecoder = { create: (path) => doc({ [TARGET_SYMBOL]: target }, path) };
+  const references = createSnapshotReferenceDecoder(target);
   const readRawField = (fieldPath: SnapshotFieldPath): unknown => {
     const isMissing = !snapshotExists(snap);
     const rawData = isMissing ? undefined : (snap.data() as DocumentData);
@@ -392,7 +413,7 @@ export function applyConverterToDeliveredSnap(
   const path = s.ref?.path ?? '';
   const readRaw = s.data.bind(snapshot);
   const rawReference = doc({ [TARGET_SYMBOL]: target }, path);
-  const references: ReferenceDecoder = { create: (p) => doc({ [TARGET_SYMBOL]: target }, p) };
+  const references = createSnapshotReferenceDecoder(target);
   let readRawField: (fieldPath: SnapshotFieldPath) => unknown;
   if (typeof s.get === 'function') {
     readRawField = s.get.bind(snapshot);

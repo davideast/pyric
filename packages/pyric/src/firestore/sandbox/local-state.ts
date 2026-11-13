@@ -21,6 +21,7 @@
  *   safe — every converter is required to no-op on its own output.
  */
 import { resolveValueTree, partitionDeletes } from './value-resolver.js';
+import { copyUnescapedUserMapTag } from './unescaped-map.js';
 import { applyUpdate, applyMerge } from './field-merge.js';
 import { applyAtomicBatch } from './atomic-state.js';
 import type {
@@ -57,7 +58,7 @@ export class LocalState implements DocStore {
     this.documents = backing ?? new Map();
     for (const [path, data] of Object.entries(seed)) {
       // Seed pass: no prior state, method='seed' so converters can branch.
-      const resolved = resolveValueTree({ ...data }, {
+      const resolved = resolveValueTree(data, {
         path,
         method: 'seed',
         prior: null,
@@ -221,7 +222,12 @@ export class LocalState implements DocStore {
   snapshot(): Record<string, DocumentData> {
     const snap: Record<string, DocumentData> = {};
     for (const [path, data] of this.documents) {
-      snap[path] = { ...data };
+      Object.defineProperty(snap, path, {
+        value: copyUnescapedUserMapTag(data, { ...data }),
+        enumerable: true,
+        writable: true,
+        configurable: true,
+      });
     }
     return snap;
   }
@@ -244,7 +250,7 @@ export class LocalState implements DocStore {
     }
     let writes: DocumentData;
     try {
-      const resolved = resolveValueTree({ ...data }, {
+      const resolved = resolveValueTree(data, {
         path,
         method: 'create',
         prior: null,
@@ -273,7 +279,7 @@ export class LocalState implements DocStore {
     }
     let merged: DocumentData;
     try {
-      const resolved = resolveValueTree({ ...data }, {
+      const resolved = resolveValueTree(data, {
         path,
         method: 'update',
         prior: existing,
@@ -288,7 +294,7 @@ export class LocalState implements DocStore {
     }
     this.documents.set(path, merged);
     this.bumpVersion(path);
-    return { success: true, priorData: { ...existing } };
+    return { success: true, priorData: copyUnescapedUserMapTag(existing, { ...existing }) };
   }
 
   /**
@@ -305,8 +311,11 @@ export class LocalState implements DocStore {
   ): SetResult {
     const documentExists = this.documents.has(path);
     let priorData: DocumentData | null = null;
-    if (documentExists) priorData = { ...this.documents.get(path) };
-    const resolved = resolveValueTree({ ...data }, {
+    if (documentExists) {
+      const current = this.documents.get(path)!;
+      priorData = copyUnescapedUserMapTag(current, { ...current });
+    }
+    const resolved = resolveValueTree(data, {
       path,
       method: 'set',
       prior: priorData,
@@ -324,8 +333,11 @@ export class LocalState implements DocStore {
   set(path: string, data: DocumentData): SetResult {
     const documentExists = this.documents.has(path);
     let priorData: DocumentData | null = null;
-    if (documentExists) priorData = { ...this.documents.get(path) };
-    const resolved = resolveValueTree({ ...data }, {
+    if (documentExists) {
+      const current = this.documents.get(path)!;
+      priorData = copyUnescapedUserMapTag(current, { ...current });
+    }
+    const resolved = resolveValueTree(data, {
       path,
       method: 'set',
       prior: priorData,
@@ -353,7 +365,7 @@ export class LocalState implements DocStore {
     }
     this.documents.delete(path);
     this.bumpVersion(path);
-    return { success: true, priorData: { ...existing } };
+    return { success: true, priorData: copyUnescapedUserMapTag(existing, { ...existing }) };
   }
 
   // ═══ Batch operations ═══
@@ -378,7 +390,7 @@ export class LocalState implements DocStore {
     const touched = new Set([...this.documents.keys(), ...Object.keys(snapshot)]);
     this.documents.clear();
     for (const [path, data] of Object.entries(snapshot)) {
-      this.documents.set(path, { ...data });
+      this.documents.set(path, copyUnescapedUserMapTag(data, { ...data }));
     }
     for (const path of touched) this.bumpVersion(path);
   }
@@ -393,7 +405,7 @@ export class LocalState implements DocStore {
     for (const [path, data] of Object.entries(priorDocs)) {
       const documentMissing = data === null;
       if (documentMissing) this.documents.delete(path);
-      else this.documents.set(path, { ...data });
+      else this.documents.set(path, copyUnescapedUserMapTag(data, { ...data }));
       this.bumpVersion(path);
     }
   }

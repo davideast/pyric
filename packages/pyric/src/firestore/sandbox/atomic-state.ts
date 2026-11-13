@@ -1,6 +1,7 @@
 import type { BatchOperation, BatchResult, DocBacking, DocumentData } from './document-store.js';
 import { resolveValueTree, partitionDeletes } from './value-resolver.js';
 import { applyUpdate } from './field-merge.js';
+import { copyUnescapedUserMapTag } from './unescaped-map.js';
 
 /** Validate the ordered writes, apply them, and report each committed version change. */
 export function applyAtomicBatch(
@@ -55,7 +56,10 @@ export function applyAtomicBatch(
     if (isFirstWrite) {
       const documentExists = documents.has(op.path);
       let priorData: DocumentData | null = null;
-      if (documentExists) priorData = { ...documents.get(op.path) };
+      if (documentExists) {
+        const current = documents.get(op.path)!;
+        priorData = copyUnescapedUserMapTag(current, { ...current });
+      }
       priorStates.set(op.path, priorData);
     }
   }
@@ -68,7 +72,7 @@ export function applyAtomicBatch(
   for (const op of operations) {
     switch (op.method) {
       case 'create': {
-        const resolved = resolveValueTree({ ...op.data }, {
+        const resolved = resolveValueTree(op.data ?? {}, {
           path: op.path,
           method: 'create',
           prior: null,
@@ -81,7 +85,7 @@ export function applyAtomicBatch(
         const existing = documents.get(op.path);
         const documentMissing = existing === undefined;
         if (documentMissing) throw new Error(`Validated document '${op.path}' disappeared during atomic application`);
-        const resolved = resolveValueTree({ ...op.data }, {
+        const resolved = resolveValueTree(op.data ?? {}, {
           path: op.path,
           method: 'update',
           prior: existing,
@@ -92,7 +96,7 @@ export function applyAtomicBatch(
       }
       case 'set': {
         const priorForSet = priorStates.get(op.path) ?? null;
-        const resolved = resolveValueTree({ ...op.data }, {
+        const resolved = resolveValueTree(op.data ?? {}, {
           path: op.path,
           method: 'set',
           prior: priorForSet,

@@ -58,6 +58,7 @@ import {
   type WriteSandboxEvent,
 } from '../index.js';
 import { getInternalEnv } from '../internal/sandbox-impl.js';
+import { reviveStructuredClonedRulesValue } from '../internal/snapshot-firestore-docs.js';
 import { getClock } from '../clock.js';
 import {
   Bytes,
@@ -69,6 +70,14 @@ import {
   Vector,
 } from 'pyric/rules/internal';
 import { enginePayloadOf } from '../../firestore/sandbox/update-fields.js';
+import { registeredReferenceQueryValue } from '../../firestore/sandbox/query-value-registry.js';
+import {
+  applyUnescapedUserMapPaths,
+  isRegisteredUnescapedUserMap,
+  isUnescapedUserMap,
+  stampUnescapedUserMap,
+  stripUnescapedUserMapTag,
+} from '../../firestore/sandbox/unescaped-map.js';
 import type { BatchOperationInput } from '../../firestore/sandbox/writes.js';
 
 type DocData = Record<string, unknown>;
@@ -147,13 +156,8 @@ export function replay(
   // Each write's payload comes from the `request` event paired with it (the
   // pre-resolution `request.resourceData`), or else from the write's own
   // `data` (post-resolution).
-  const dataFor = (wEv: WriteSandboxEvent): DocData | undefined => {
-    const requested = preResolutionDataFor(wEv, events, consumedRequestIndices);
-    const raw = requested !== undefined
-      ? requested
-      : (enginePayloadOf({ resourceData: wEv.data, updateMask: wEv.updateMask }) as DocData | undefined);
-    return raw !== undefined ? (rehydrateReplayValue(raw) as DocData) : undefined;
-  };
+  const dataFor = (wEv: WriteSandboxEvent): DocData | undefined =>
+    resolveReplayWriteData(wEv, events, consumedRequestIndices);
   const remap = aliasRemapper(pathAliases);
 
   for (let index = 0; index < writes.length;) {
@@ -252,12 +256,15 @@ function isPlainRecord(value: unknown): value is Record<string, unknown> {
   return proto === Object.prototype || proto === null;
 }
 
-const DOC_REF_KEYS = new Set(['id', 'path', 'bypassRules', 'auth', 'env']);
+const DOC_REF_KEYS = new Set(['id', 'path', 'databaseId', 'bypassRules', 'auth', 'env']);
 
-function isSerializedDocRef(obj: Record<string, unknown>): obj is { id: string; path: string } {
+function isSerializedDocRef(
+  obj: Record<string, unknown>,
+): obj is { id: string; path: string; databaseId?: string } {
   const keys = Object.keys(obj);
   if (keys.length < 2 || !keys.every((k) => DOC_REF_KEYS.has(k))) return false;
   if (typeof obj.id !== 'string' || typeof obj.path !== 'string') return false;
+  if (obj.databaseId !== undefined && typeof obj.databaseId !== 'string') return false;
   const segments = obj.path.split('/');
   return (
     segments.length >= 2
@@ -283,19 +290,27 @@ function base64StdDecode(s: string): Uint8Array {
   return out;
 }
 
+function nonEmptyString(value: unknown): string | undefined {
+  if (typeof value === 'string' && value.length > 0) return value;
+  return undefined;
+}
+
 /**
  * Rehydrate JSON-roundtripped Firestore values (`Timestamp`, `Bytes`,
  * `GeoPoint`/`LatLng`, `Vector`, `Reference`, `Duration`, `Path`) and
  * preserve/normalize FieldValue sentinels so rules evaluation and state
  * diffing operate on canonical rules wrapper instances.
  */
-export function rehydrateReplayValue(value: unknown): unknown {
+function rehydrateReplayValue(value: unknown): unknown {
   if (value === null || typeof value !== 'object') return value;
+  const registeredRef = registeredReferenceQueryValue(value);
+  if (registeredRef !== undefined) {
+    return new Reference(registeredRef.path, registeredRef.databaseId);
+  }
   if (Array.isArray(value)) return value.map(rehydrateReplayValue);
   if (!isPlainRecord(value)) return value;
 
-  const unescapedTag = Symbol.for('pyric.unescapedMap');
-  if ((value as Record<symbol, unknown>)[unescapedTag] === true) {
+  if (isUnescapedUserMap(value) || isRegisteredUnescapedUserMap(value)) {
     const out: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(value)) {
       Object.defineProperty(out, k, {
@@ -305,9 +320,11 @@ export function rehydrateReplayValue(value: unknown): unknown {
         configurable: true,
       });
     }
-    Object.defineProperty(out, unescapedTag, { value: true });
-    return out;
+    return stampUnescapedUserMap(out);
   }
+
+  const revivedClone = reviveStructuredClonedRulesValue(value);
+  if (revivedClone !== undefined) return revivedClone;
 
   if (typeof value._methodName === 'string') {
     switch (value._methodName) {
@@ -356,7 +373,7 @@ export function rehydrateReplayValue(value: unknown): unknown {
       case 'duration':
         return new Duration(value.seconds as number, value.nanos as number);
       case 'reference':
-        return new Reference(value.path as string);
+        return new Reference(value.path as string, nonEmptyString(value.databaseId));
       case 'path':
         return new Path(value.segments as string[]);
     }
@@ -379,8 +396,7 @@ export function rehydrateReplayValue(value: unknown): unknown {
               configurable: true,
             });
           }
-          Object.defineProperty(out, unescapedTag, { value: true });
-          return out;
+          return stampUnescapedUserMap(out);
         }
         break;
       case 'pyric/number/1.0':
@@ -405,7 +421,7 @@ export function rehydrateReplayValue(value: unknown): unknown {
   }
 
   if (isSerializedDocRef(value)) {
-    return new Reference(value.path);
+    return new Reference(value.path, nonEmptyString(value.databaseId));
   }
 
   const out: Record<string, unknown> = {};
@@ -453,8 +469,24 @@ function groupAt(writes: readonly WriteSandboxEvent[], index: number): WriteSand
  * with neither a field mask nor a merge was a replacing `set` over an
  * existing document.
  */
-function batchMethodOf(event: WriteSandboxEvent): BatchOperationInput['method'] {
-  const isSet = event.merge !== undefined || (event.method === 'update' && event.updateMask === undefined);
+export function batchMethodOf(
+  event: WriteSandboxEvent,
+  targetPath: string,
+  existsInGroup: Map<string, boolean>,
+): BatchOperationInput['method'] {
+  if (event.method === 'delete') {
+    existsInGroup.set(targetPath, false);
+    return 'delete';
+  }
+  if (event.updateMask !== undefined) {
+    existsInGroup.set(targetPath, true);
+    return 'update';
+  }
+  const isSet =
+    event.merge !== undefined ||
+    event.method === 'update' ||
+    existsInGroup.get(targetPath) === true;
+  existsInGroup.set(targetPath, true);
   return isSet ? 'set' : event.method;
 }
 
@@ -466,8 +498,13 @@ function replayGroup(
   remap: (path: string) => string,
   deniedWrites: Array<{ path: string; before: unknown; event?: WriteSandboxEvent }>,
 ): void {
+  const existsInGroup = new Map<string, boolean>();
   const operations = group.map((event) => {
-    const operation: BatchOperationInput = { method: batchMethodOf(event), path: remap(event.path) };
+    const targetPath = remap(event.path);
+    const operation: BatchOperationInput = {
+      method: batchMethodOf(event, targetPath, existsInGroup),
+      path: targetPath,
+    };
     if (event.method !== 'delete') {
       const data = dataFor(event);
       if (data !== undefined) operation.data = data;
@@ -508,6 +545,39 @@ function replayGroup(
  * fall back to the write's post-resolution `data` (which won't have
  * sentinel markers but is structurally correct for plain writes).
  */
+function rehydrateReplayPayload(
+  payload:
+    | {
+        resourceData?: DocData;
+        updateMask?: readonly (readonly string[])[];
+        unescapedPaths?: readonly (readonly (string | number)[])[];
+      }
+    | undefined,
+): DocData | undefined {
+  const resourceData = payload?.resourceData;
+  if (resourceData === undefined) return undefined;
+  const prepared = applyUnescapedUserMapPaths(resourceData, payload?.unescapedPaths);
+  const hydratedTree = rehydrateReplayValue(prepared) as DocData;
+  return enginePayloadOf({
+    resourceData: hydratedTree,
+    updateMask: payload?.updateMask,
+  }) as DocData | undefined;
+}
+
+export function resolveReplayWriteData(
+  wEv: WriteSandboxEvent,
+  allEvents: readonly SandboxEvent[],
+  consumedRequestIndices: Set<number>,
+): DocData | undefined {
+  const requested = preResolutionDataFor(wEv, allEvents, consumedRequestIndices);
+  if (requested !== undefined) return requested;
+  return rehydrateReplayPayload({
+    resourceData: wEv.data,
+    updateMask: wEv.updateMask,
+    unescapedPaths: wEv.dataUnescapedPaths,
+  });
+}
+
 function preResolutionDataFor(
   wEv: WriteSandboxEvent,
   allEvents: readonly SandboxEvent[],
@@ -532,7 +602,7 @@ function preResolutionDataFor(
     const methodMatches = e.method === wEv.method || e.method === 'set' || wEv.method === 'set';
     if (!methodMatches) continue;
     consumedRequestIndices.add(i);
-    return enginePayloadOf(e.request) as DocData | undefined;
+    return rehydrateReplayPayload(e.request);
   }
   return undefined;
 }
@@ -580,7 +650,17 @@ function computeDivergences(
 
   type SentinelKind = 'serverTimestamp' | 'increment' | 'arrayUnion' | 'arrayRemove' | 'delete';
   const sentinelsByPath = new Map<string, Map<string, SentinelKind>>();
+  const unescapedByPath = new Map<string, (string | number)[][]>();
   for (const w of writes) {
+    if (!deniedEventSet.has(w)) {
+      if (w.method === 'delete' || w.nextState === null) {
+        unescapedByPath.delete(w.path);
+      } else if (w.nextUnescapedPaths && w.nextUnescapedPaths.length > 0) {
+        unescapedByPath.set(w.path, w.nextUnescapedPaths);
+      } else {
+        unescapedByPath.delete(w.path);
+      }
+    }
     if (!w.sentinels || w.sentinels.length === 0) continue;
     if (deniedEventSet.has(w)) {
       const existing = sentinelsByPath.get(w.path);
@@ -609,18 +689,29 @@ function computeDivergences(
     const replDoc = replayedState[replayedPath];
 
     if (origDoc === undefined && replDoc !== undefined) {
-      out.push({ kind: 'real-divergence', path, before: undefined, after: replDoc });
+      out.push({
+        kind: 'real-divergence',
+        path,
+        before: undefined,
+        after: stripUnescapedUserMapTag(replDoc),
+      });
       continue;
     }
     if (origDoc !== undefined && replDoc === undefined) {
-      out.push({ kind: 'real-divergence', path, before: origDoc, after: undefined });
+      out.push({
+        kind: 'real-divergence',
+        path,
+        before: stripUnescapedUserMapTag(origDoc),
+        after: undefined,
+      });
       continue;
     }
     if (origDoc === undefined || replDoc === undefined) continue;
 
+    const preparedOrig = applyUnescapedUserMapPaths(origDoc, unescapedByPath.get(path));
     diffDoc(
       path,
-      rehydrateReplayValue(origDoc),
+      rehydrateReplayValue(preparedOrig),
       rehydrateReplayValue(replDoc),
       sentinelsByPath.get(path) ?? new Map(),
       out,
@@ -635,8 +726,8 @@ function computeDivergences(
       out.push({
         kind: 'real-divergence',
         path: denied.path,
-        before: denied.before,
-        after: replayedState[remap(denied.path)],
+        before: stripUnescapedUserMapTag(denied.before),
+        after: stripUnescapedUserMapTag(replayedState[remap(denied.path)]),
       });
     }
   }
@@ -662,10 +753,12 @@ function diffDoc(
       const kind = sentinelByField.get(fieldPath);
       if (kind) {
         if (JSON.stringify(a) === JSON.stringify(b)) return;
+        const cleanBefore = stripUnescapedUserMapTag(a);
+        const cleanAfter = stripUnescapedUserMapTag(b);
         if (kind === 'serverTimestamp') {
-          out.push({ kind: 'time-drift', path, field: fieldPath, before: a, after: b });
+          out.push({ kind: 'time-drift', path, field: fieldPath, before: cleanBefore, after: cleanAfter });
         } else {
-          out.push({ kind: 'sentinel-drift', path, field: fieldPath, sentinelKind: kind, before: a, after: b });
+          out.push({ kind: 'sentinel-drift', path, field: fieldPath, sentinelKind: kind, before: cleanBefore, after: cleanAfter });
         }
         return;
       }
@@ -692,6 +785,12 @@ function diffDoc(
 
     if (JSON.stringify(a) === JSON.stringify(b)) return;
 
-    out.push({ kind: 'real-divergence', path, field: fieldPath || undefined, before: a, after: b });
+    out.push({
+      kind: 'real-divergence',
+      path,
+      field: fieldPath || undefined,
+      before: stripUnescapedUserMapTag(a),
+      after: stripUnescapedUserMapTag(b),
+    });
   }
 }
