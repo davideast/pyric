@@ -49,7 +49,7 @@ function resolveRelativeSegments(rawSegments: readonly string[]): string {
 function inspectLookupPath(rawPath: string, expectedDatabase?: string): LookupPathInspection {
   const targetDb = expectedDatabase && expectedDatabase.length > 0 ? expectedDatabase : '(default)';
   const cleaned = rawPath.replace(/\$\(database\)/g, targetDb);
-  const beginsWithDatabases = /^\/?databases(?:\/|$)/.test(cleaned);
+  const beginsWithDatabases = /^\/*databases(?:\/|$)/.test(cleaned);
   const rawSegments = cleaned.split('/').filter((s) => s.length > 0);
 
   if (beginsWithDatabases) {

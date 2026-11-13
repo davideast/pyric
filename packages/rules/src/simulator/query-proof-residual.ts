@@ -1280,13 +1280,14 @@ export function queryResidual(
       return undefined;
     }
   }
+  const variantConjunction = residuals.reduce((left, right) => join(left, right, "&&"));
   const combinedCondition =
     residuals.length === 1
-      ? residuals[0]!
-      : attachOrBudgetStep(
-          { type: "literal", value: true, raw: "true" },
-          { kind: "variants", branches: residuals },
-        );
+      ? variantConjunction
+      : attachOrBudgetStep(variantConjunction, {
+          kind: "variants",
+          branches: residuals,
+        });
   return {
     condition: combinedCondition,
     partial,
@@ -1399,6 +1400,9 @@ export function buildRuleBudgetCondition(
       }
       const nextVisiting = new Set([...visiting, fn]);
       for (const binding of fn.lets) {
+        if (budget < 0) {
+          return { ...expr, args: rewrittenArgs };
+        }
         const rewrittenLet = rewritePinned(
           substituteIdentifiers(binding.value, bindings),
           nextFunctions,

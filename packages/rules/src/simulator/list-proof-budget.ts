@@ -58,7 +58,47 @@ const orBudgetStepsMap = new WeakMap<Expression, readonly OrBudgetStep[]>();
 const listBlockStepsMap = new WeakMap<MatchBlock, readonly ListBlockStep[]>();
 const LOOKUP_BUILTINS = new Set(['get', 'exists', 'getAfter', 'existsAfter']);
 const EMPTY_STRING_SET: ReadonlySet<string> = new Set();
+const LOCAL_TOKEN_PATTERN = /__pyric_local_\d+__/g;
+const MAX_INLINE_CANONICAL_KEY_LEN = 256;
+const MAX_CANONICAL_CACHE_ENTRIES = 50_000;
+const localCanonicalKeyMap = new Map<string, string>();
 let nextBudgetLocalId = 0;
+
+function fnv1aHex(input: string, seed: bigint): string {
+  let h = seed;
+  for (let i = 0; i < input.length; i++) {
+    h ^= BigInt(input.charCodeAt(i));
+    h = BigInt.asUintN(64, h * 0x100000001b3n);
+  }
+  return h.toString(16).padStart(16, '0');
+}
+
+function compactCanonicalKey(raw: string): string {
+  if (raw.length <= MAX_INLINE_CANONICAL_KEY_LEN) return raw;
+  const h1 = fnv1aHex(raw, 0xcbf29ce484222325n);
+  const h2 = fnv1aHex(raw, 0x84222325cbf29ce4n);
+  return `#digest:${raw.length}:${h1}${h2}#`;
+}
+
+function canonicalKeyForExpr(expr: Expression): string {
+  if (expr.type === 'identifier') {
+    const mapped = localCanonicalKeyMap.get(expr.name);
+    if (mapped !== undefined) return mapped;
+  }
+  const raw = assembleExpression(expr);
+  const expanded = raw.replace(LOCAL_TOKEN_PATTERN, (match) => {
+    const mapped = localCanonicalKeyMap.get(match);
+    return mapped !== undefined ? `(${mapped})` : match;
+  });
+  return compactCanonicalKey(expanded);
+}
+
+function recordLocalCanonicalKey(localName: string, boundExpr: Expression): void {
+  if (localCanonicalKeyMap.size >= MAX_CANONICAL_CACHE_ENTRIES) {
+    localCanonicalKeyMap.clear();
+  }
+  localCanonicalKeyMap.set(localName, canonicalKeyForExpr(boundExpr));
+}
 
 export function attachOrBudgetStep(target: Expression, step: OrBudgetStep): Expression {
   const existing = orBudgetStepsMap.get(target) ?? [];
@@ -273,7 +313,7 @@ function mentionsAnyIdentifier(expr: Expression, names: ReadonlySet<string>): bo
 }
 
 function budgetTokenForExpr(expr: Expression): string {
-  return `__pyric_budget_${encodeURIComponent(assembleExpression(expr))}__`;
+  return `__pyric_budget_${encodeURIComponent(canonicalKeyForExpr(expr))}__`;
 }
 
 /**
@@ -437,6 +477,7 @@ export function projectWorstCaseBudgetExpr(
         const argInvariant = checkInvariance(argExpr, currentFunctions, currentCandidateVars).invariant;
         const projectedArg = project(argExpr, currentFunctions, currentCandidateVars, visiting);
         const localName = `__pyric_local_${++nextBudgetLocalId}__`;
+        recordLocalCanonicalKey(localName, argExpr);
         if (!argInvariant) {
           nonInvariantLocals.add(localName);
         }
@@ -465,6 +506,7 @@ export function projectWorstCaseBudgetExpr(
         const letInvariant = checkInvariance(boundLet, nextFunctions, nextCandidateVars).invariant;
         const projectedLet = project(boundLet, nextFunctions, nextCandidateVars, nextVisiting);
         const localName = `__pyric_local_${++nextBudgetLocalId}__`;
+        recordLocalCanonicalKey(localName, boundLet);
         if (!letInvariant) {
           nonInvariantLocals.add(localName);
         }

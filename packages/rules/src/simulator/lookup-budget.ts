@@ -87,6 +87,18 @@ function isSubsetOf(smaller: ReadonlySet<string>, larger: ReadonlySet<string>): 
   return true;
 }
 
+function throwLookupLimitExceeded(limit: number): never {
+  const isSingleRequestLimit = limit === DOCUMENT_LOOKUP_LIMIT;
+  let scopeDescription = `multi-document batch/transaction (${limit} allowed across the atomic operation)`;
+  if (isSingleRequestLimit) {
+    scopeDescription = 'request (production allows 10 per request; the 11th distinct access fails the evaluation)';
+  }
+  throw new LookupBudgetError(
+    `document access limit exceeded: already read ${limit} distinct documents `
+    + `via get()/exists()/getAfter()/existsAfter() in this ${scopeDescription}`,
+  );
+}
+
 function pruneLookupFrontiers(sets: Set<string>[], limit: number): Set<string>[] {
   if (sets.length <= 1) return sets.length === 0 ? [new Set()] : sets;
   // Sort largest-first so superset checks reject dominated subsets quickly.
@@ -103,10 +115,20 @@ function pruneLookupFrontiers(sets: Set<string>[], limit: number): Set<string>[]
   }
   const kept = maximal.slice(0, MAX_LOOKUP_FRONTIERS);
   for (let i = MAX_LOOKUP_FRONTIERS; i < maximal.length; i++) {
-    const merged = new Set([...kept[0]!, ...maximal[i]!]);
-    if (merged.size <= limit) {
-      kept[0] = merged;
+    const extra = maximal[i]!;
+    let bestIdx = 0;
+    let bestMerged = new Set([...kept[0]!, ...extra]);
+    for (let j = 1; j < kept.length; j++) {
+      const candidateMerged = new Set([...kept[j]!, ...extra]);
+      if (candidateMerged.size < bestMerged.size) {
+        bestMerged = candidateMerged;
+        bestIdx = j;
+      }
     }
+    if (bestMerged.size > limit) {
+      throwLookupLimitExceeded(limit);
+    }
+    kept[bestIdx] = bestMerged;
   }
   return kept;
 }
@@ -132,18 +154,10 @@ export class LookupBudget {
    */
   charge(kind: 'doc' | 'after', normalizedPath: string): void {
     const key = `${kind}:${normalizedPath}`;
-    const isSingleRequestLimit = this.limit === DOCUMENT_LOOKUP_LIMIT;
     for (const accessed of this.frontiers) {
       if (accessed.has(key)) continue; // cached on this execution frontier
       if (accessed.size >= this.limit) {
-        let scopeDescription = `multi-document batch/transaction (${this.limit} allowed across the atomic operation)`;
-        if (isSingleRequestLimit) {
-          scopeDescription = 'request (production allows 10 per request; the 11th distinct access fails the evaluation)';
-        }
-        throw new LookupBudgetError(
-          `document access limit exceeded: already read ${this.limit} distinct documents `
-          + `via get()/exists()/getAfter()/existsAfter() in this ${scopeDescription}`,
-        );
+        throwLookupLimitExceeded(this.limit);
       }
       accessed.add(key);
     }

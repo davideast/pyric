@@ -229,6 +229,8 @@ describe('Firestore list-query prover counterexample-universe soundness', () => 
     seedDocuments(sb, {
       'items/poison': {
         flag: true,
+        mode: 'B',
+        cfgId: 'cfg-1',
         visibility: 'public',
         k0: 'a0',
         k1: 'a1',
@@ -255,6 +257,8 @@ describe('Firestore list-query prover counterexample-universe soundness', () => 
 
     const poisonResource = {
       flag: true,
+      mode: 'B',
+      cfgId: 'cfg-1',
       visibility: 'public',
       k0: 'a0',
       k1: 'a1',
@@ -535,6 +539,44 @@ describe('Firestore list-query prover counterexample-universe soundness', () => 
         runList: () =>
           getDocs(query(collection(db, 'items'), where('visibility', 'in', ['draft', 'public']))),
       },
+      {
+        name: 'frontier overflow past 64 incomparable ternary sets never drops smaller disjoint frontier',
+        rules: `
+          rules_version = '2';
+          service cloud.firestore {
+            match /databases/{database}/documents {
+              match /items/{id} {
+                allow get, list: if (
+                  (
+                    resource.data.get('mode', 'A') == 'A'
+                      ? (
+                          exists(/databases/$(database)/documents/shared/s1)
+                          || exists(/databases/$(database)/documents/shared/s2)
+                          || (${Array.from(
+                            { length: 6 },
+                            (_, i) =>
+                              `(('b${i}' in resource.data) ? exists(/databases/$(database)/documents/p/a${i}) : exists(/databases/$(database)/documents/p/b${i}))`,
+                          ).join(' || ')})
+                        )
+                      : (${Array.from(
+                          { length: 7 },
+                          (_, i) => `exists(/databases/$(database)/documents/z/z${i})`,
+                        ).join(' || ')})
+                  )
+                  || exists(/databases/$(database)/documents/shared/s1)
+                  || exists(/databases/$(database)/documents/shared/s2)
+                  || exists(/databases/$(database)/documents/extra/e1)
+                  || exists(/databases/$(database)/documents/extra/e2)
+                ) && false || request.auth != null;
+              }
+            }
+          }
+        `,
+        counterexamplePath: 'items/poison',
+        counterexampleResource: poisonResource,
+        simListPath: 'items',
+        runList: () => getDocs(collection(db, 'items')),
+      },
     ];
 
     for (const scenario of budgetBypassCorpus) {
@@ -636,18 +678,27 @@ describe('Firestore list-query prover counterexample-universe soundness', () => 
       ]).cases[0]?.decision,
     ).toBe('ALLOW');
 
-    // 3) 10-level chained lets stay well within 1000-expression budget on getDoc, getDocs, and simulate().
-    const chainedLets = Array.from(
-      { length: 10 },
+    // 3) 18-level chained lets across two helpers (9 lets + 1 param = 10 vars per function)
+    // stay O(k) in both expression budget and canonical key size on getDoc, getDocs, and simulate().
+    const chainedLetsA = Array.from(
+      { length: 9 },
       (_, i) => (i === 0 ? 'let s1 = v + v;' : `let s${i + 1} = s${i} + s${i};`),
+    ).join('\n');
+    const chainedLetsB = Array.from(
+      { length: 9 },
+      (_, i) => (i === 0 ? 'let t1 = u + u;' : `let t${i + 1} = t${i} + t${i};`),
     ).join('\n');
     const chainedLetRules = `
       rules_version = '2';
       service cloud.firestore {
         match /databases/{database}/documents {
+          function chainB(u) {
+            ${chainedLetsB}
+            return exists(/databases/$(database)/documents/configs/$(t9));
+          }
           function chain(v) {
-            ${chainedLets}
-            return s10 == 'x';
+            ${chainedLetsA}
+            return chainB(s9);
           }
           match /items/{id} {
             allow get, list: if chain(resource.data.get('v', 'a')) || request.auth != null;
@@ -662,6 +713,35 @@ describe('Firestore list-query prover counterexample-universe soundness', () => 
     expect(
       firestoreRules(chainedLetRules).simulate([
         { description: 'chained lets list simulate', expectation: 'ALLOW', method: 'list', path: 'items', auth: { uid: 'u1' } },
+      ]).cases[0]?.decision,
+    ).toBe('ALLOW');
+
+    // 4) Repeated helper calls with identical dynamic lookup argument share one lookup cache slot (1 lookup + 10 cache hits).
+    const elevenSameHelperClauses = Array.from(
+      { length: 11 },
+      (_, i) => `(hasCfg(resource.data.get('cfgId', 'default')) && resource.data.get('f${i}', false) == true)`,
+    ).join(' || ');
+    const cachedHelperRules = `
+      rules_version = '2';
+      service cloud.firestore {
+        match /databases/{database}/documents {
+          function hasCfg(cfgId) {
+            return exists(/databases/$(database)/documents/configs/$(cfgId));
+          }
+          match /items/{id} {
+            allow get, list: if ${elevenSameHelperClauses};
+            allow get, list: if request.auth != null;
+          }
+        }
+      }
+    `;
+    setRules(sb, cachedHelperRules);
+    expect((await getDoc(doc(db, 'items/poison'))).exists()).toBe(true);
+    const cachedHelperSnap = await getDocs(collection(db, 'items'));
+    expect(cachedHelperSnap.docs.map((d) => d.id).sort()).toEqual(['clean', 'poison']);
+    expect(
+      firestoreRules(cachedHelperRules).simulate([
+        { description: 'repeated identical helper arg shares cache slot', expectation: 'ALLOW', method: 'list', path: 'items', auth: { uid: 'u1' } },
       ]).cases[0]?.decision,
     ).toBe('ALLOW');
   });
