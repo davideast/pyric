@@ -3,21 +3,21 @@
  * plus Firebase Auth, auth hooks, and React state/memo/context helpers.
  */
 import ts from 'typescript';
-import type { AssuranceService } from '../../sandbox/internal/resource-pattern.js';
-import { DEFAULT_RESOURCE_ID } from '../../sandbox/internal/resource-pattern-header.js';
-import type { Evaluator } from './evaluator.js';
+import { decodeBase64Bytes, literalUint8Bytes } from './binary-constructors.js';
 import { timestampWrapperFromMillis } from './builtins.js';
-import { expressionName, hole, segmentsOf } from './paths.js';
+import type { Evaluator } from './evaluator.js';
+import { hole } from './paths.js';
 import { evalConstraintCall, evalQueryCall } from './query-constraints.js';
-import {
-  containsCallerSymbol,
-  evalHandleFactory,
-  splitHeaderAlternatives,
-  type HeaderAlternative,
-} from './resource-headers.js';
+import { evalHandleFactory } from './resource-headers.js';
 import { AUTH_USER_FUNCTION } from './sdk-imports.js';
-import type { RefConstructorSpec, SdkServiceModel } from './service-models/types.js';
-import { decodeBase64Bytes, literalUint8Bytes } from './storage-upload.js';
+import {
+  applyRefPassthrough,
+  buildRefsFromBases,
+  evalCollectionGroupFromBases,
+  evalRefConstructor,
+  type BaseRefOrigin,
+} from './sdk-ref-builders.js';
+import type { ConstraintSpec, SdkServiceModel } from './service-models/types.js';
 import {
   alternatives,
   lit,
@@ -27,24 +27,15 @@ import {
   unknown,
   type AVal,
   type Env,
-  type RefKind,
   type Segment,
 } from './values.js';
 
 type Api = Extract<AVal, { k: 'api' }>;
 type RefVal = Extract<AVal, { k: 'ref' }>;
 
-interface BaseRefOrigin {
-  prefix: Segment[];
-  resourceId: string;
-  built: ts.Node[];
-  notes: string[];
-  refKind?: RefKind;
-  fromCallers?: boolean;
-  admin?: boolean;
-}
-
 const SIGN_IN_CALLS = /^(?:signIn\w*|createUserWithEmailAndPassword|getRedirectResult|link\w*|reauthenticate\w*)$/;
+const MIN_TIMESTAMP_SECONDS = -62_135_596_800;
+const MAX_TIMESTAMP_SECONDS = 253_402_300_799;
 
 /** Evaluate a call to an SDK export. */
 export function apiCall(ev: Evaluator, api: Api, call: ts.CallExpression, env: Env | undefined): AVal {
@@ -115,279 +106,6 @@ function reactCall(ev: Evaluator, name: string, call: ts.CallExpression, arg: (i
       return unknown(`result of React ${name}()`);
   }
 }
-
-/** Root of a ref built from a base argument: a parent ref, or a service handle. */
-function baseRefs(
-  ev: Evaluator,
-  base: AVal,
-  service: AssuranceService,
-  fnName: string,
-  admin = false,
-): BaseRefOrigin[] {
-  const callerBase = containsCallerSymbol(base);
-  const forcedAlts = alternatives(ev.force(base));
-  const hasConcreteBase = forcedAlts.some(
-    (b) =>
-      (b.k === 'ref' && b.service === service)
-      || (b.k === 'db' && b.service === service)
-      || b.k === 'instance',
-  );
-  const out: BaseRefOrigin[] = [];
-  for (const b of forcedAlts) {
-    if (b.k === 'ref' && b.service === service) {
-      out.push({
-        prefix: b.segments,
-        resourceId: b.resourceId,
-        built: b.built,
-        notes: b.notes,
-        refKind: b.refKind,
-        fromCallers: Boolean(b.fromCallers || callerBase),
-        admin: Boolean(b.admin || admin),
-      });
-    } else if (b.k === 'db' && b.service === service) {
-      out.push({
-        prefix: [],
-        resourceId: b.resourceId,
-        built: [],
-        notes: b.notes ?? [],
-        fromCallers: Boolean(b.fromCallers || callerBase),
-        admin: Boolean(b.admin || admin),
-      });
-    } else if (b.k === 'instance') {
-      out.push({ prefix: [], resourceId: DEFAULT_RESOURCE_ID, built: [], notes: [], admin });
-    } else if (b.k === 'unknown') {
-      if (hasConcreteBase && b.reason.startsWith('no in-project caller of ')) {
-        continue;
-      }
-      out.push({
-        prefix: [],
-        resourceId: DEFAULT_RESOURCE_ID,
-        built: [],
-        notes: [`first argument of ${fnName}() was not traced (${b.reason}); assumed to be the database`],
-        fromCallers: callerBase,
-        admin,
-      });
-    }
-  }
-  return out;
-}
-
-function pathProducts(
-  ev: Evaluator,
-  service: AssuranceService,
-  fnName: string,
-  baseResourceId: string,
-  isRootBase: boolean,
-  forceUrlHeader: boolean,
-  call: ts.CallExpression,
-  from: number,
-  to: number,
-  arg: (i: number) => AVal,
-): { resourceId: string; segments: Segment[]; notes: string[]; fromCallers?: boolean }[] {
-  let acc: { resourceId: string; segments: Segment[]; notes: string[]; fromCallers?: boolean }[] = [
-    { resourceId: baseResourceId, segments: [], notes: [] },
-  ];
-  const count = to - from;
-  for (let i = from; i < to; i++) {
-    const next: { resourceId: string; segments: Segment[]; notes: string[]; fromCallers?: boolean }[] = [];
-    for (const a of acc) {
-      const checkHeader = (isRootBase && i === from) || forceUrlHeader;
-      let splitInputs: HeaderAlternative[];
-      if (checkHeader) {
-        splitInputs = splitHeaderAlternatives(
-          service,
-          fnName,
-          arg(i),
-          a.resourceId,
-          (v) => ev.force(v),
-          forceUrlHeader,
-        );
-      } else {
-        splitInputs = [{ resourceId: a.resourceId, value: arg(i) }];
-      }
-      for (const input of splitInputs) {
-        const alts = segmentsOf(input.value, call.arguments[i], count === 1, (v) => ev.force(v));
-        for (const s of alts) {
-          let notes = a.notes;
-          if (input.note !== undefined || s.note !== undefined) {
-            notes = [...a.notes];
-            if (input.note !== undefined) notes.push(input.note);
-            if (s.note !== undefined) notes.push(s.note);
-          }
-          next.push({
-            resourceId: input.resourceId,
-            segments: [...a.segments, ...s.segments],
-            notes,
-            fromCallers: a.fromCallers || s.fromCallers || input.fromCallers,
-          });
-        }
-      }
-    }
-    acc = next.slice(0, 32);
-  }
-  return acc;
-}
-
-function buildRefsFromBases(
-  ev: Evaluator,
-  bases: readonly BaseRefOrigin[],
-  service: AssuranceService,
-  refKind: RefKind,
-  call: ts.CallExpression,
-  arg: (i: number) => AVal,
-  fnName: string,
-  fromArg: number,
-  pathArgsEnd: number,
-  forceUrlHeader: boolean,
-  append?: Segment,
-): AVal {
-  const out: AVal[] = [];
-  for (const base of bases) {
-    const products = pathProducts(
-      ev,
-      service,
-      fnName,
-      base.resourceId,
-      base.prefix.length === 0,
-      forceUrlHeader,
-      call,
-      fromArg,
-      pathArgsEnd,
-      arg,
-    );
-    for (const p of products) {
-      const segments = [...base.prefix, ...p.segments];
-      if (append) segments.push(append);
-      const ref: RefVal = {
-        k: 'ref',
-        service,
-        resourceId: p.resourceId,
-        refKind,
-        segments,
-        built: [...base.built, call],
-        notes: [...base.notes, ...p.notes],
-      };
-      if (p.fromCallers || base.fromCallers) ref.fromCallers = true;
-      if (base.admin) ref.admin = true;
-      out.push(ref);
-    }
-  }
-  if (out.length === 0) return unknown(`${fnName}() on a value that is not a ${service} ref`);
-  return union(out);
-}
-
-function applyRefPassthrough(
-  ev: Evaluator,
-  targetVal: AVal,
-  service: AssuranceService,
-  name: string,
-  call: ts.CallExpression,
-  admin = false,
-): AVal {
-  const out: AVal[] = [];
-  for (const alt of alternatives(ev.force(targetVal))) {
-    if (alt.k === 'ref' && alt.service === service) {
-      const next: RefVal = {
-        ...alt,
-        built: [...alt.built, call],
-      };
-      if (admin || alt.admin) next.admin = true;
-      if (alt.baseRef && (admin || alt.baseRef.admin)) {
-        next.baseRef = { ...alt.baseRef, admin: true };
-      }
-      out.push(next);
-    } else if (alt.k === 'unknown') {
-      out.push(unknown(`${name}() base was not traced: ${alt.reason}`));
-    }
-  }
-  if (out.length === 0) return unknown(`${name}() on a value that is not a ${service} ref`);
-  return union(out);
-}
-
-function evalCollectionGroupFromBases(
-  ev: Evaluator,
-  bases: readonly BaseRefOrigin[],
-  service: AssuranceService,
-  name: string,
-  spec: RefConstructorSpec,
-  call: ts.CallExpression,
-  rawId: AVal,
-  idExpr: ts.Expression | undefined,
-): AVal {
-  const idFromCallers = containsCallerSymbol(rawId);
-  const idAlts = alternatives(ev.force(rawId)).slice(0, 32);
-  const effectiveIdAlts: AVal[] = idAlts.length > 0 ? idAlts : [unknown('empty collection group id')];
-  const fallbackId = expressionName(idExpr);
-  const out: AVal[] = [];
-  for (const base of bases) {
-    for (const idAlt of effectiveIdAlts) {
-      const litId = literalText(idAlt);
-      const leafSeg: Segment =
-        litId !== null && litId.length > 0 ? [{ kind: 'lit', text: litId }] : [hole(fallbackId)];
-      const segments: Segment[] = [[hole('path=**')], leafSeg];
-      const notes = [...base.notes];
-      if (litId === null || litId.length === 0) {
-        notes.push(`collection group id '${fallbackId}' was not traced`);
-      }
-      const ref: RefVal = {
-        k: 'ref',
-        service,
-        resourceId: base.resourceId,
-        refKind: spec.refKind,
-        segments,
-        built: [...base.built, call],
-        notes,
-      };
-      if (base.fromCallers || idFromCallers) ref.fromCallers = true;
-      if (base.admin) ref.admin = true;
-      out.push(ref);
-    }
-  }
-  if (out.length === 0) return unknown(`${name}() on a value that is not a ${service} handle`);
-  return union(out);
-}
-
-function evalRefConstructor(
-  ev: Evaluator,
-  service: AssuranceService,
-  name: string,
-  spec: RefConstructorSpec,
-  call: ts.CallExpression,
-  arg: (i: number) => AVal,
-  admin = false,
-): AVal {
-  if (spec.mode === 'passthrough') {
-    return applyRefPassthrough(ev, arg(0), service, name, call, admin);
-  }
-  if (spec.mode === 'collectionGroup') {
-    const bases = baseRefs(ev, arg(0), service, name, admin);
-    return evalCollectionGroupFromBases(ev, bases, service, name, spec, call, arg(1), call.arguments[1]);
-  }
-  if (spec.mode === 'url') {
-    if (call.arguments.length === 1) {
-      const defaultBase: BaseRefOrigin = { prefix: [], resourceId: DEFAULT_RESOURCE_ID, built: [], notes: [], admin };
-      return buildRefsFromBases(ev, [defaultBase], service, spec.refKind, call, arg, name, 0, 1, true);
-    }
-    const bases = baseRefs(ev, arg(0), service, name, admin);
-    return buildRefsFromBases(ev, bases, service, spec.refKind, call, arg, name, 1, Math.min(2, call.arguments.length), true);
-  }
-  const bases = baseRefs(ev, arg(0), service, name, admin);
-  if (call.arguments.length === 1 && spec.singleArgAppendHole) {
-    return buildRefsFromBases(ev, bases, service, spec.refKind, call, arg, name, 1, 1, false, [hole(spec.singleArgAppendHole)]);
-  }
-  let append: Segment | undefined;
-  if (spec.appendHole) {
-    append = [hole(spec.appendHole)];
-  }
-  let end = call.arguments.length;
-  if (spec.pathArgsEnd !== undefined) {
-    end = Math.min(call.arguments.length, spec.pathArgsEnd);
-  }
-  return buildRefsFromBases(ev, bases, service, spec.refKind, call, arg, name, 1, end, false, append);
-}
-
-const MIN_TIMESTAMP_SECONDS = -62_135_596_800;
-const MAX_TIMESTAMP_SECONDS = 253_402_300_799;
 
 function finiteNumberArg(
   ev: Evaluator,
@@ -490,7 +208,8 @@ function serviceCall(
   if (receiverSpec) {
     let ref: AVal | undefined;
     if (receiverSpec.refArgIndex !== undefined) ref = arg(receiverSpec.refArgIndex);
-    const firstArgAlts = call.arguments.length > 0 ? alternatives(ev.force(arg(0))) : [];
+    let firstArgAlts: AVal[] = [];
+    if (call.arguments.length > 0) firstArgAlts = alternatives(ev.force(arg(0)));
     const argIsAdmin = firstArgAlts.some((a) => (a.k === 'db' || a.k === 'ref') && Boolean(a.admin));
     const outReceiver: Extract<AVal, { k: 'receiver' }> = {
       k: 'receiver',
@@ -516,7 +235,8 @@ function serviceCall(
   if (model.service === 'firestore') {
     if (name === 'Timestamp.fromMillis' && call.arguments.length === 1) {
       const ms = finiteNumberArg(ev, call.arguments[0], env);
-      const wrapped = ms !== undefined ? timestampWrapperFromMillis(ms) : undefined;
+      let wrapped: ReturnType<typeof timestampWrapperFromMillis>;
+      if (ms !== undefined) wrapped = timestampWrapperFromMillis(ms);
       if (wrapped !== undefined) return { k: 'wrapper', value: wrapped };
     }
     if (name === 'Timestamp.fromDate' && call.arguments.length === 1) {
@@ -675,14 +395,15 @@ export function serviceMemberCall(
         );
         continue;
       }
-      const constraintSpec =
-        model?.chainedConstraints && !methodName.includes('.')
-          ? ownRecordValue(model.constraints, methodName)
-          : undefined;
+      let constraintSpec: ConstraintSpec | undefined;
+      if (model?.chainedConstraints && !methodName.includes('.')) {
+        constraintSpec = ownRecordValue(model.constraints, methodName);
+      }
       if (constraintSpec) {
         const cVal = evalConstraintCall(ev, constraintSpec, call, arg, env);
         for (const cAlt of alternatives(ev.force(cVal))) {
-          const c = cAlt.k === 'constraint' ? cAlt.value : { kind: 'unknown' };
+          let c: NonNullable<RefVal['constraints']>[number] = { kind: 'unknown' };
+          if (cAlt.k === 'constraint') c = cAlt.value;
           out.push({
             ...r,
             built: [...r.built, call],
@@ -738,7 +459,8 @@ export function memberCallbackParameter(
       out.push(unknown('current value inside a transaction'));
     }
   }
-  return out.length > 0 ? union(out) : undefined;
+  if (out.length === 0) return undefined;
+  return union(out);
 }
 
 /** The value an SDK passes to a callback's parameter. */

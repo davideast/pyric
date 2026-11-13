@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'bun:test';
 import { parseToAST } from '@pyric/rules/internal';
+import { inspectRetainedRules } from '../../../src/assurance-surface/passes/static-query-proof-inspection.js';
 import {
-  collectOptimisticFieldScalars,
-  inspectRetainedRules,
   normalizeDatabaseRootAst,
   projectCollectionGroupAst,
 } from '../../../src/assurance-surface/passes/static-query-proof-rules.js';
+import { collectOptimisticFieldScalars } from '../../../src/assurance-surface/passes/static-query-proof-scalars.js';
 
 describe('static-query-proof-rules', () => {
   it('normalizes literal named-database root matches only when matching resourceId', () => {

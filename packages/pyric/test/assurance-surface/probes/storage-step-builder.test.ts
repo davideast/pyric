@@ -1,10 +1,12 @@
 import { describe, expect, test } from 'bun:test';
 import {
   buildCompliantCustomMetadata,
+  storageBindingsAt,
+} from '../../../src/assurance-surface/probes/storage-metadata-materializer.js';
+import {
   compliantByteSize,
   isProbeableStorageSite,
   mergedStorageConstraint,
-  storageBindingsAt,
   storageOpCategory,
   synthesizeMatchingContentType,
 } from '../../../src/assurance-surface/probes/storage-step-builder.js';
