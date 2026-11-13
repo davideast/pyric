@@ -17,11 +17,30 @@ import {
   substituteIdentifiers,
 } from './query-proof-scope.js';
 
-export interface OrBudgetStep {
-  readonly operator: Expression;
-  readonly side: 'before' | 'after';
-  readonly branch: Expression;
-}
+export type OrBudgetStep =
+  | {
+      readonly kind?: 'linear';
+      readonly operator: Expression;
+      readonly side: 'before' | 'after';
+      readonly branch: Expression;
+    }
+  | {
+      readonly kind: 'bind';
+      readonly operator: Expression;
+      readonly name: string;
+      readonly branch: Expression;
+      readonly isLet?: boolean;
+    }
+  | {
+      readonly kind: 'fork';
+      readonly operator: Expression;
+      readonly condition?: Expression;
+      readonly branches: readonly Expression[];
+    }
+  | {
+      readonly kind: 'variants';
+      readonly branches: readonly Expression[];
+    };
 
 export type ListBlockStep =
   | { readonly kind: 'budget'; readonly rule: AllowRule; readonly index: number }
@@ -39,6 +58,7 @@ const orBudgetStepsMap = new WeakMap<Expression, readonly OrBudgetStep[]>();
 const listBlockStepsMap = new WeakMap<MatchBlock, readonly ListBlockStep[]>();
 const LOOKUP_BUILTINS = new Set(['get', 'exists', 'getAfter', 'existsAfter']);
 const EMPTY_STRING_SET: ReadonlySet<string> = new Set();
+let nextBudgetLocalId = 0;
 
 export function attachOrBudgetStep(target: Expression, step: OrBudgetStep): Expression {
   const existing = orBudgetStepsMap.get(target) ?? [];
@@ -51,6 +71,39 @@ export function getOrBudgetSteps(expr: Expression): readonly OrBudgetStep[] | un
   return orBudgetStepsMap.get(expr);
 }
 
+export function getOrBudgetStepExpressions(step: OrBudgetStep): readonly Expression[] {
+  if (step.kind === 'fork') {
+    return step.condition ? [step.condition, ...step.branches] : step.branches;
+  }
+  if (step.kind === 'variants') {
+    return step.branches;
+  }
+  return [step.branch];
+}
+
+export function mapOrBudgetStepExpressions(
+  step: OrBudgetStep,
+  mapExpr: (expr: Expression) => Expression,
+): OrBudgetStep {
+  if (step.kind === 'fork') {
+    return {
+      ...step,
+      ...(step.condition ? { condition: mapExpr(step.condition) } : {}),
+      branches: step.branches.map(mapExpr),
+    };
+  }
+  if (step.kind === 'variants') {
+    return {
+      ...step,
+      branches: step.branches.map(mapExpr),
+    };
+  }
+  return {
+    ...step,
+    branch: mapExpr(step.branch),
+  };
+}
+
 export function setListBlockSteps(block: MatchBlock, steps: readonly ListBlockStep[]): void {
   listBlockStepsMap.set(block, steps);
 }
@@ -59,44 +112,110 @@ export function getListBlockSteps(block: MatchBlock): readonly ListBlockStep[] |
   return listBlockStepsMap.get(block);
 }
 
+/** Visit direct child expressions of `expr` (excluding string path segments). */
+export function forEachChildExpression(
+  expr: Expression,
+  visit: (child: Expression) => void,
+): void {
+  switch (expr.type) {
+    case 'literal':
+    case 'identifier':
+      return;
+    case 'memberAccess':
+      visit(expr.object);
+      return;
+    case 'bracketAccess':
+      visit(expr.object);
+      visit(expr.index);
+      return;
+    case 'sliceAccess':
+      visit(expr.object);
+      visit(expr.start);
+      visit(expr.end);
+      return;
+    case 'binaryOp':
+      visit(expr.left);
+      visit(expr.right);
+      return;
+    case 'unaryOp':
+      visit(expr.operand);
+      return;
+    case 'ternary':
+      visit(expr.condition);
+      visit(expr.consequent);
+      visit(expr.alternate);
+      return;
+    case 'inExpr':
+      visit(expr.element);
+      visit(expr.collection);
+      return;
+    case 'isExpr':
+      visit(expr.value);
+      return;
+    case 'listLiteral':
+      for (const el of expr.elements) visit(el);
+      return;
+    case 'mapLiteral':
+      for (const entry of expr.entries) {
+        visit(entry.key);
+        visit(entry.value);
+      }
+      return;
+    case 'pathLiteral':
+      for (const seg of expr.segments) {
+        if (typeof seg !== 'string') visit(seg);
+      }
+      return;
+    case 'methodCall':
+      visit(expr.object);
+      for (const arg of expr.args) visit(arg);
+      return;
+    case 'functionCall':
+      for (const arg of expr.args) visit(arg);
+      return;
+  }
+}
+
+/** True when `expr` is a single literal or identifier with no side effects or budget steps. */
+export function isTrivialPureExpr(expr: Expression): boolean {
+  if (getOrBudgetSteps(expr)?.length) return false;
+  return expr.type === 'literal' || expr.type === 'identifier';
+}
+
+/**
+ * True when evaluating `expr` is guaranteed to evaluate identifier `name` at
+ * least once regardless of runtime operand values (not behind the right arm of
+ * `&&`/`||` or the branches of `ternary`).
+ */
+export function isUnconditionallyEvaluatedInExpr(name: string, expr: Expression): boolean {
+  if (expr.type === 'identifier') return expr.name === name;
+  if (expr.type === 'literal') return false;
+  if (expr.type === 'binaryOp' && (expr.op === '&&' || expr.op === '||')) {
+    return isUnconditionallyEvaluatedInExpr(name, expr.left);
+  }
+  if (expr.type === 'ternary') {
+    return isUnconditionallyEvaluatedInExpr(name, expr.condition);
+  }
+  let found = false;
+  forEachChildExpression(expr, (child) => {
+    if (!found && isUnconditionallyEvaluatedInExpr(name, child)) {
+      found = true;
+    }
+  });
+  return found;
+}
+
 function hasAttachedBudgetSteps(expr: Expression): boolean {
   const seen = new Set<Expression>();
   const walk = (node: Expression): boolean => {
     if (seen.has(node)) return false;
     seen.add(node);
-    const steps = getOrBudgetSteps(node);
-    if (steps && steps.length > 0) return true;
-    switch (node.type) {
-      case 'literal':
-      case 'identifier':
-        return false;
-      case 'memberAccess':
-        return walk(node.object);
-      case 'bracketAccess':
-        return walk(node.object) || walk(node.index);
-      case 'sliceAccess':
-        return walk(node.object) || walk(node.start) || walk(node.end);
-      case 'binaryOp':
-        return walk(node.left) || walk(node.right);
-      case 'unaryOp':
-        return walk(node.operand);
-      case 'ternary':
-        return walk(node.condition) || walk(node.consequent) || walk(node.alternate);
-      case 'inExpr':
-        return walk(node.element) || walk(node.collection);
-      case 'isExpr':
-        return walk(node.value);
-      case 'listLiteral':
-        return node.elements.some(walk);
-      case 'mapLiteral':
-        return node.entries.some((entry) => walk(entry.key) || walk(entry.value));
-      case 'pathLiteral':
-        return node.segments.some((seg) => typeof seg !== 'string' && walk(seg));
-      case 'methodCall':
-        return walk(node.object) || node.args.some(walk);
-      case 'functionCall':
-        return node.args.some(walk);
-    }
+    if (getOrBudgetSteps(node)?.length) return true;
+    let found = false;
+    forEachChildExpression(node, (child) => {
+      if (!found && walk(child)) found = true;
+    });
+    return found;
   };
   return walk(expr);
 }
@@ -110,210 +229,47 @@ function collectReachableFunctionDefs(
   const steps = getOrBudgetSteps(expr);
   if (steps) {
     for (const step of steps) {
-      collectReachableFunctionDefs(step.branch, currentFunctions, out, visiting);
+      for (const sub of getOrBudgetStepExpressions(step)) {
+        collectReachableFunctionDefs(sub, currentFunctions, out, visiting);
+      }
     }
   }
-  switch (expr.type) {
-    case 'literal':
-    case 'identifier':
-      return;
-    case 'memberAccess':
-      collectReachableFunctionDefs(expr.object, currentFunctions, out, visiting);
-      return;
-    case 'bracketAccess':
-      collectReachableFunctionDefs(expr.object, currentFunctions, out, visiting);
-      collectReachableFunctionDefs(expr.index, currentFunctions, out, visiting);
-      return;
-    case 'sliceAccess':
-      collectReachableFunctionDefs(expr.object, currentFunctions, out, visiting);
-      collectReachableFunctionDefs(expr.start, currentFunctions, out, visiting);
-      collectReachableFunctionDefs(expr.end, currentFunctions, out, visiting);
-      return;
-    case 'binaryOp':
-      collectReachableFunctionDefs(expr.left, currentFunctions, out, visiting);
-      collectReachableFunctionDefs(expr.right, currentFunctions, out, visiting);
-      return;
-    case 'unaryOp':
-      collectReachableFunctionDefs(expr.operand, currentFunctions, out, visiting);
-      return;
-    case 'ternary':
-      collectReachableFunctionDefs(expr.condition, currentFunctions, out, visiting);
-      collectReachableFunctionDefs(expr.consequent, currentFunctions, out, visiting);
-      collectReachableFunctionDefs(expr.alternate, currentFunctions, out, visiting);
-      return;
-    case 'inExpr':
-      collectReachableFunctionDefs(expr.element, currentFunctions, out, visiting);
-      collectReachableFunctionDefs(expr.collection, currentFunctions, out, visiting);
-      return;
-    case 'isExpr':
-      collectReachableFunctionDefs(expr.value, currentFunctions, out, visiting);
-      return;
-    case 'listLiteral':
-      for (const el of expr.elements) {
-        collectReachableFunctionDefs(el, currentFunctions, out, visiting);
-      }
-      return;
-    case 'mapLiteral':
-      for (const entry of expr.entries) {
-        collectReachableFunctionDefs(entry.key, currentFunctions, out, visiting);
-        collectReachableFunctionDefs(entry.value, currentFunctions, out, visiting);
-      }
-      return;
-    case 'pathLiteral':
-      for (const seg of expr.segments) {
-        if (typeof seg !== 'string') {
-          collectReachableFunctionDefs(seg, currentFunctions, out, visiting);
-        }
-      }
-      return;
-    case 'methodCall':
-      collectReachableFunctionDefs(expr.object, currentFunctions, out, visiting);
-      for (const arg of expr.args) {
-        collectReachableFunctionDefs(arg, currentFunctions, out, visiting);
-      }
-      return;
-    case 'functionCall': {
-      for (const arg of expr.args) {
-        collectReachableFunctionDefs(arg, currentFunctions, out, visiting);
-      }
-      const fn = currentFunctions.get(expr.name);
-      if (!fn) return;
-      out.add(fn);
-      if (visiting.has(fn)) return;
-      visiting.add(fn);
-      const nextFunctions = getValidFunctionLexicalScope(fn, currentFunctions) ?? currentFunctions;
-      for (const b of fn.lets) {
-        collectReachableFunctionDefs(b.value, nextFunctions, out, visiting);
-      }
-      collectReachableFunctionDefs(fn.body, nextFunctions, out, visiting);
-      visiting.delete(fn);
+  forEachChildExpression(expr, (child) => {
+    collectReachableFunctionDefs(child, currentFunctions, out, visiting);
+  });
+  if (expr.type === 'functionCall') {
+    const fn = currentFunctions.get(expr.name);
+    if (!fn) return;
+    out.add(fn);
+    if (visiting.has(fn)) return;
+    visiting.add(fn);
+    const nextFunctions = getValidFunctionLexicalScope(fn, currentFunctions) ?? currentFunctions;
+    for (const b of fn.lets) {
+      collectReachableFunctionDefs(b.value, nextFunctions, out, visiting);
     }
+    collectReachableFunctionDefs(fn.body, nextFunctions, out, visiting);
+    visiting.delete(fn);
   }
 }
 
-function mentionsIdentifier(expr: Expression, name: string): boolean {
-  switch (expr.type) {
-    case 'literal':
-      return false;
-    case 'identifier':
-      return expr.name === name;
-    case 'memberAccess':
-      return mentionsIdentifier(expr.object, name);
-    case 'bracketAccess':
-      return mentionsIdentifier(expr.object, name) || mentionsIdentifier(expr.index, name);
-    case 'sliceAccess':
-      return (
-        mentionsIdentifier(expr.object, name)
-        || mentionsIdentifier(expr.start, name)
-        || mentionsIdentifier(expr.end, name)
-      );
-    case 'binaryOp':
-      return mentionsIdentifier(expr.left, name) || mentionsIdentifier(expr.right, name);
-    case 'unaryOp':
-      return mentionsIdentifier(expr.operand, name);
-    case 'ternary':
-      return (
-        mentionsIdentifier(expr.condition, name)
-        || mentionsIdentifier(expr.consequent, name)
-        || mentionsIdentifier(expr.alternate, name)
-      );
-    case 'inExpr':
-      return mentionsIdentifier(expr.element, name) || mentionsIdentifier(expr.collection, name);
-    case 'isExpr':
-      return mentionsIdentifier(expr.value, name);
-    case 'listLiteral':
-      return expr.elements.some((el) => mentionsIdentifier(el, name));
-    case 'mapLiteral':
-      return expr.entries.some((en) => mentionsIdentifier(en.key, name) || mentionsIdentifier(en.value, name));
-    case 'pathLiteral':
-      return expr.segments.some((seg) => typeof seg !== 'string' && mentionsIdentifier(seg, name));
-    case 'methodCall':
-      return mentionsIdentifier(expr.object, name) || expr.args.some((arg) => mentionsIdentifier(arg, name));
-    case 'functionCall':
-      return expr.args.some((arg) => mentionsIdentifier(arg, name));
-  }
-}
-
-function mayPerformDocumentLookup(
-  expr: Expression,
-  currentFunctions: ReadonlyMap<string, FunctionDef>,
-  visiting: ReadonlySet<FunctionDef> = new Set(),
-): boolean {
+function mentionsAnyIdentifier(expr: Expression, names: ReadonlySet<string>): boolean {
+  if (names.size === 0) return false;
+  let found = expr.type === 'identifier' && names.has(expr.name);
+  if (found) return true;
   const steps = getOrBudgetSteps(expr);
-  if (steps?.some((step) => mayPerformDocumentLookup(step.branch, currentFunctions, visiting))) {
-    return true;
-  }
-  switch (expr.type) {
-    case 'literal':
-    case 'identifier':
-      return false;
-    case 'memberAccess':
-      return mayPerformDocumentLookup(expr.object, currentFunctions, visiting);
-    case 'bracketAccess':
-      return (
-        mayPerformDocumentLookup(expr.object, currentFunctions, visiting)
-        || mayPerformDocumentLookup(expr.index, currentFunctions, visiting)
-      );
-    case 'sliceAccess':
-      return (
-        mayPerformDocumentLookup(expr.object, currentFunctions, visiting)
-        || mayPerformDocumentLookup(expr.start, currentFunctions, visiting)
-        || mayPerformDocumentLookup(expr.end, currentFunctions, visiting)
-      );
-    case 'binaryOp':
-      return (
-        mayPerformDocumentLookup(expr.left, currentFunctions, visiting)
-        || mayPerformDocumentLookup(expr.right, currentFunctions, visiting)
-      );
-    case 'unaryOp':
-      return mayPerformDocumentLookup(expr.operand, currentFunctions, visiting);
-    case 'ternary':
-      return (
-        mayPerformDocumentLookup(expr.condition, currentFunctions, visiting)
-        || mayPerformDocumentLookup(expr.consequent, currentFunctions, visiting)
-        || mayPerformDocumentLookup(expr.alternate, currentFunctions, visiting)
-      );
-    case 'inExpr':
-      return (
-        mayPerformDocumentLookup(expr.element, currentFunctions, visiting)
-        || mayPerformDocumentLookup(expr.collection, currentFunctions, visiting)
-      );
-    case 'isExpr':
-      return mayPerformDocumentLookup(expr.value, currentFunctions, visiting);
-    case 'listLiteral':
-      return expr.elements.some((el) => mayPerformDocumentLookup(el, currentFunctions, visiting));
-    case 'mapLiteral':
-      return expr.entries.some(
-        (en) =>
-          mayPerformDocumentLookup(en.key, currentFunctions, visiting)
-          || mayPerformDocumentLookup(en.value, currentFunctions, visiting),
-      );
-    case 'pathLiteral':
-      return expr.segments.some(
-        (seg) => typeof seg !== 'string' && mayPerformDocumentLookup(seg, currentFunctions, visiting),
-      );
-    case 'methodCall':
-      return (
-        mayPerformDocumentLookup(expr.object, currentFunctions, visiting)
-        || expr.args.some((arg) => mayPerformDocumentLookup(arg, currentFunctions, visiting))
-      );
-    case 'functionCall': {
-      if (expr.args.some((arg) => mayPerformDocumentLookup(arg, currentFunctions, visiting))) {
-        return true;
+  if (steps) {
+    for (const step of steps) {
+      for (const sub of getOrBudgetStepExpressions(step)) {
+        if (mentionsAnyIdentifier(sub, names)) return true;
       }
-      const fn = currentFunctions.get(expr.name);
-      if (!fn) {
-        return LOOKUP_BUILTINS.has(expr.name);
-      }
-      if (visiting.has(fn)) return true;
-      const nextVisiting = new Set(visiting).add(fn);
-      const nextFunctions = getValidFunctionLexicalScope(fn, currentFunctions) ?? currentFunctions;
-      if (fn.lets.some((b) => mayPerformDocumentLookup(b.value, nextFunctions, nextVisiting))) {
-        return true;
-      }
-      return mayPerformDocumentLookup(fn.body, nextFunctions, nextVisiting);
     }
   }
+  forEachChildExpression(expr, (child) => {
+    if (!found && mentionsAnyIdentifier(child, names)) {
+      found = true;
+    }
+  });
+  return found;
 }
 
 function budgetTokenForExpr(expr: Expression): string {
@@ -325,7 +281,9 @@ function budgetTokenForExpr(expr: Expression): string {
  * residual list evaluation charges the worst-case document-lookup and
  * expression budgets across unconstrained document fields and candidate
  * path variables without short-circuiting on `syntheticResource = {}` or
- * placeholder document IDs.
+ * placeholder document IDs, while evaluating mutually exclusive ternary
+ * arms under forked budgets and binding call-by-value arguments and `let`s
+ * once in lexical scope to prevent exponential AST duplication.
  */
 export function projectWorstCaseBudgetExpr(
   expr: Expression,
@@ -339,6 +297,7 @@ export function projectWorstCaseBudgetExpr(
     checkResourceDependence = false,
   } = options;
   const requiredDefs = new Set<FunctionDef>();
+  const nonInvariantLocals = new Set<string>();
   let expansionBudget = 2000;
 
   const checkInvariance = (
@@ -347,6 +306,9 @@ export function projectWorstCaseBudgetExpr(
     currentCandidateVars: ReadonlySet<string> | undefined,
   ): { invariant: boolean; pathAnalysis?: ListRulePathAnalysis } => {
     if (hasAttachedBudgetSteps(node)) {
+      return { invariant: false };
+    }
+    if (mentionsAnyIdentifier(node, nonInvariantLocals)) {
       return { invariant: false };
     }
     if (!callsResolveInOuterScope(node, currentFunctions, outerFunctions)) {
@@ -384,12 +346,22 @@ export function projectWorstCaseBudgetExpr(
 
     const priorSteps = getOrBudgetSteps(node);
     if (priorSteps && priorSteps.length > 0) {
+      // Project prior steps in execution order first so any bound locals whose
+      // values become non-invariant (e.g. resource-dependent in stage 2) mark
+      // `nonInvariantLocals` before `stripped` is projected.
+      const projectedSteps = priorSteps.map((step) => {
+        if (
+          step.kind === 'bind'
+          && !checkInvariance(step.branch, currentFunctions, currentCandidateVars).invariant
+        ) {
+          nonInvariantLocals.add(step.name);
+        }
+        return mapOrBudgetStepExpressions(step, (sub) =>
+          project(sub, currentFunctions, currentCandidateVars, visiting),
+        );
+      });
       const stripped: Expression = { ...node };
       let projectedTarget = project(stripped, currentFunctions, currentCandidateVars, visiting);
-      const projectedSteps = priorSteps.map((step) => ({
-        ...step,
-        branch: project(step.branch, currentFunctions, currentCandidateVars, visiting),
-      }));
       for (let i = projectedSteps.length - 1; i >= 0; i--) {
         projectedTarget = attachOrBudgetStep(projectedTarget, projectedSteps[i]!);
       }
@@ -458,8 +430,24 @@ export function projectWorstCaseBudgetExpr(
       }
 
       const bindings = lexicalCaptureLiteralBindings(fn, functionScopes);
+      const bindSteps: OrBudgetStep[] = [];
       for (let i = 0; i < fn.parameters.length; i++) {
-        bindings.set(fn.parameters[i]!, expandedArgs[i]!);
+        const paramName = fn.parameters[i]!;
+        const argExpr = expandedArgs[i]!;
+        const argInvariant = checkInvariance(argExpr, currentFunctions, currentCandidateVars).invariant;
+        const projectedArg = project(argExpr, currentFunctions, currentCandidateVars, visiting);
+        const localName = `__pyric_local_${++nextBudgetLocalId}__`;
+        if (!argInvariant) {
+          nonInvariantLocals.add(localName);
+        }
+        bindSteps.push({
+          kind: 'bind',
+          operator: node,
+          name: localName,
+          branch: projectedArg,
+          isLet: false,
+        });
+        bindings.set(paramName, { type: 'identifier', name: localName });
       }
 
       let nextCandidateVars = currentCandidateVars;
@@ -472,17 +460,22 @@ export function projectWorstCaseBudgetExpr(
       }
 
       const nextVisiting = new Set(visiting).add(fn);
-      const eagerSteps: Expression[] = [];
-      for (let i = 0; i < fn.lets.length; i++) {
-        const binding = fn.lets[i]!;
+      for (const binding of fn.lets) {
         const boundLet = substituteIdentifiers(binding.value, bindings);
-        const referencedLater =
-          fn.lets.slice(i + 1).some((later) => mentionsIdentifier(later.value, binding.name))
-          || mentionsIdentifier(fn.body, binding.name);
-        if (!referencedLater || mayPerformDocumentLookup(boundLet, nextFunctions)) {
-          eagerSteps.push(project(boundLet, nextFunctions, nextCandidateVars, nextVisiting));
+        const letInvariant = checkInvariance(boundLet, nextFunctions, nextCandidateVars).invariant;
+        const projectedLet = project(boundLet, nextFunctions, nextCandidateVars, nextVisiting);
+        const localName = `__pyric_local_${++nextBudgetLocalId}__`;
+        if (!letInvariant) {
+          nonInvariantLocals.add(localName);
         }
-        bindings.set(binding.name, boundLet);
+        bindSteps.push({
+          kind: 'bind',
+          operator: node,
+          name: localName,
+          branch: projectedLet,
+          isLet: true,
+        });
+        bindings.set(binding.name, { type: 'identifier', name: localName });
       }
 
       let projectedBody = project(
@@ -491,12 +484,8 @@ export function projectWorstCaseBudgetExpr(
         nextCandidateVars,
         nextVisiting,
       );
-      for (let i = eagerSteps.length - 1; i >= 0; i--) {
-        projectedBody = attachOrBudgetStep(projectedBody, {
-          operator: node,
-          side: 'before',
-          branch: eagerSteps[i]!,
-        });
+      for (let i = bindSteps.length - 1; i >= 0; i--) {
+        projectedBody = attachOrBudgetStep(projectedBody, bindSteps[i]!);
       }
       return projectedBody;
     }
@@ -558,16 +547,15 @@ export function projectWorstCaseBudgetExpr(
       const alternate = project(node.alternate, currentFunctions, currentCandidateVars, visiting);
       const condInvariant = checkInvariance(node.condition, currentFunctions, currentCandidateVars).invariant;
       if (!condInvariant) {
-        const withConsequent = attachOrBudgetStep(alternate, {
-          operator: node,
-          side: 'before',
-          branch: consequent,
-        });
-        return attachOrBudgetStep(withConsequent, {
-          operator: node,
-          side: 'before',
-          branch: condition,
-        });
+        return attachOrBudgetStep(
+          { type: 'literal', value: false, raw: 'false' },
+          {
+            kind: 'fork',
+            operator: node,
+            condition,
+            branches: [consequent, alternate],
+          },
+        );
       }
       return condition === node.condition && consequent === node.consequent && alternate === node.alternate
         ? node

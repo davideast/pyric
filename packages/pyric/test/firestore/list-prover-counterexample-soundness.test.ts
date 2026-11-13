@@ -431,11 +431,116 @@ describe('Firestore list-query prover counterexample-universe soundness', () => 
         counterexampleResource: { flag: true, visibility: 'public' },
         runList: () => getDocs(collectionGroup(db, 'entries')),
       },
+      {
+        name: 'collectionGroup inner OrBudgetStep preserved across multi-value in queryResidual',
+        rules: `
+          rules_version = '2';
+          service cloud.firestore {
+            match /databases/{database}/documents {
+              match /{path=**}/entries/{id} {
+                allow get, list: if (resource.data.visibility == 'public' || resource.data.visibility == 'shared')
+                  && ((id == 'e1' && (${lookups(11)})) || request.auth != null);
+              }
+            }
+          }
+        `,
+        counterexamplePath: 'orgs/o1/entries/e1',
+        counterexampleResource: { flag: true, visibility: 'public' },
+        runList: () =>
+          getDocs(query(collectionGroup(db, 'entries'), where('visibility', 'in', ['public', 'shared']))),
+      },
+      {
+        name: 'multi-variant in query where second variant reaches 11-lookup branch',
+        rules: `
+          rules_version = '2';
+          service cloud.firestore {
+            match /databases/{database}/documents {
+              match /items/{id} {
+                allow get, list: if resource.data.visibility == 'draft'
+                  || (resource.data.visibility == 'public' && 'flag' in resource.data && (${lookups(11)}))
+                  || resource.data.visibility == 'public';
+              }
+            }
+          }
+        `,
+        counterexamplePath: 'items/poison',
+        counterexampleResource: poisonResource,
+        simListPath: 'items',
+        simListWhere: [{ field: 'visibility', op: 'in' as const, value: ['draft', 'public'] }],
+        runList: () =>
+          getDocs(query(collection(db, 'items'), where('visibility', 'in', ['draft', 'public']))),
+      },
+      {
+        name: 'call-by-value unused helper parameter in unprovable branch',
+        rules: `
+          rules_version = '2';
+          service cloud.firestore {
+            match /databases/{database}/documents {
+              function checkUnusedArg(sideEffect, flag) {
+                return flag == true;
+              }
+              match /items/{id} {
+                allow get, list: if checkUnusedArg((${lookups(11)}), resource.data.flag) || request.auth != null;
+              }
+            }
+          }
+        `,
+        counterexamplePath: 'items/poison',
+        counterexampleResource: poisonResource,
+        simListPath: 'items',
+        runList: () => getDocs(collection(db, 'items')),
+      },
+      {
+        name: 'call-by-value unused helper parameter in queryResidual',
+        rules: `
+          rules_version = '2';
+          service cloud.firestore {
+            match /databases/{database}/documents {
+              function checkStatusArg(sideEffect, vis) {
+                return vis == 'draft' || vis == 'public';
+              }
+              match /items/{id} {
+                allow get, list: if checkStatusArg((${lookups(11)}), resource.data.visibility);
+              }
+            }
+          }
+        `,
+        counterexamplePath: 'items/poison',
+        counterexampleResource: poisonResource,
+        simListPath: 'items',
+        simListWhere: [{ field: 'visibility', op: 'in' as const, value: ['draft', 'public'] }],
+        runList: () =>
+          getDocs(query(collection(db, 'items'), where('visibility', 'in', ['draft', 'public']))),
+      },
+      {
+        name: 'unused helper let binding in queryResidual',
+        rules: `
+          rules_version = '2';
+          service cloud.firestore {
+            match /databases/{database}/documents {
+              function checkStatusLet(vis) {
+                let sideEffect = (${lookups(11)});
+                return vis == 'draft' || vis == 'public';
+              }
+              match /items/{id} {
+                allow get, list: if checkStatusLet(resource.data.visibility);
+              }
+            }
+          }
+        `,
+        counterexamplePath: 'items/poison',
+        counterexampleResource: poisonResource,
+        simListPath: 'items',
+        simListWhere: [{ field: 'visibility', op: 'in' as const, value: ['draft', 'public'] }],
+        runList: () =>
+          getDocs(query(collection(db, 'items'), where('visibility', 'in', ['draft', 'public']))),
+      },
     ];
 
     for (const scenario of budgetBypassCorpus) {
       setRules(sb, scenario.rules);
-      const sim = firestoreRules(scenario.rules).simulate([
+      const ruleset = firestoreRules(scenario.rules);
+      const sim = ruleset.simulate([
         {
           description: scenario.name,
           expectation: 'DENY',
@@ -447,6 +552,34 @@ describe('Firestore list-query prover counterexample-universe soundness', () => 
       ]);
       expect(sim.cases[0]?.decision).toBe('DENY');
       expect(sim.cases[0]?.resourceLimit?.kind).toBe('document-lookups');
+      if ('simListPath' in scenario && scenario.simListPath) {
+        const listSim = ruleset.simulate([
+          {
+            description: `${scenario.name} (list simulate)`,
+            expectation: 'DENY',
+            method: 'list',
+            path: scenario.simListPath,
+            auth: { uid: 'u1' },
+            ...(scenario.simListWhere ? { query: { where: scenario.simListWhere } } : {}),
+          },
+        ]);
+        expect(listSim.cases[0]?.decision).toBe('DENY');
+        expect(listSim.cases[0]?.resourceLimit?.kind).toBe('document-lookups');
+        expect(listSim.cases[0]?.queryProof?.verdict).toBe('UNPROVABLE');
+      } else if (scenario.counterexamplePath.startsWith('items/')) {
+        const listSim = ruleset.simulate([
+          {
+            description: `${scenario.name} (unconstrained list simulate)`,
+            expectation: 'DENY',
+            method: 'list',
+            path: 'items',
+            auth: { uid: 'u1' },
+          },
+        ]);
+        expect(listSim.cases[0]?.decision).toBe('DENY');
+        expect(listSim.cases[0]?.resourceLimit?.kind).toBe('document-lookups');
+        expect(listSim.cases[0]?.queryProof?.verdict).toBe('UNPROVABLE');
+      }
       await expect(getDoc(doc(db, scenario.counterexamplePath))).rejects.toMatchObject({
         code: 'permission-denied',
       });
@@ -455,8 +588,8 @@ describe('Firestore list-query prover counterexample-universe soundness', () => 
       });
     }
 
-    // Positive control: when query pins flag == false, the poison document is outside the query domain
-    // and the 11-lookup branch is provably unreachable on every matching document.
+    // Positive controls:
+    // 1) Query-pinned flag == false excludes poison doc and genuinely short-circuits 11 lookups.
     setRules(
       sb,
       `
@@ -472,6 +605,65 @@ describe('Firestore list-query prover counterexample-universe soundness', () => 
     );
     const pinnedSnap = await getDocs(query(collection(db, 'items'), where('flag', '==', false)));
     expect(pinnedSnap.docs.map((d) => d.id)).toEqual(['clean']);
+
+    // 2) Mutually exclusive 6-vs-6 ternary arms stay within 10 lookups on both getDoc and getDocs.
+    const sixA = Array.from(
+      { length: 6 },
+      (_, i) => `exists(/databases/$(database)/documents/configs/a${i})`,
+    ).join(' || ');
+    const sixB = Array.from(
+      { length: 6 },
+      (_, i) => `exists(/databases/$(database)/documents/configs/b${i})`,
+    ).join(' || ');
+    const ternarySixRules = `
+      rules_version = '2';
+      service cloud.firestore {
+        match /databases/{database}/documents {
+          match /items/{id} {
+            allow get, list: if ('flag' in resource.data ? (${sixA}) : (${sixB})) || request.auth != null;
+          }
+        }
+      }
+    `;
+    setRules(sb, ternarySixRules);
+    expect((await getDoc(doc(db, 'items/poison'))).exists()).toBe(true);
+    expect((await getDoc(doc(db, 'items/clean'))).exists()).toBe(true);
+    const ternarySnap = await getDocs(collection(db, 'items'));
+    expect(ternarySnap.docs.map((d) => d.id).sort()).toEqual(['clean', 'poison']);
+    expect(
+      firestoreRules(ternarySixRules).simulate([
+        { description: '6-vs-6 list simulate', expectation: 'ALLOW', method: 'list', path: 'items', auth: { uid: 'u1' } },
+      ]).cases[0]?.decision,
+    ).toBe('ALLOW');
+
+    // 3) 10-level chained lets stay well within 1000-expression budget on getDoc, getDocs, and simulate().
+    const chainedLets = Array.from(
+      { length: 10 },
+      (_, i) => (i === 0 ? 'let s1 = v + v;' : `let s${i + 1} = s${i} + s${i};`),
+    ).join('\n');
+    const chainedLetRules = `
+      rules_version = '2';
+      service cloud.firestore {
+        match /databases/{database}/documents {
+          function chain(v) {
+            ${chainedLets}
+            return s10 == 'x';
+          }
+          match /items/{id} {
+            allow get, list: if chain(resource.data.get('v', 'a')) || request.auth != null;
+          }
+        }
+      }
+    `;
+    setRules(sb, chainedLetRules);
+    expect((await getDoc(doc(db, 'items/poison'))).exists()).toBe(true);
+    const chainedSnap = await getDocs(collection(db, 'items'));
+    expect(chainedSnap.docs.map((d) => d.id).sort()).toEqual(['clean', 'poison']);
+    expect(
+      firestoreRules(chainedLetRules).simulate([
+        { description: 'chained lets list simulate', expectation: 'ALLOW', method: 'list', path: 'items', auth: { uid: 'u1' } },
+      ]).cases[0]?.decision,
+    ).toBe('ALLOW');
   });
 
   test('SD:FS-LIST-PROVER standing check: Reference pins and prototype-chain keys maintain getDoc/getDocs/simulate parity', async () => {

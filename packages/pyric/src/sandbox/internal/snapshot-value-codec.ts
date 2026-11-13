@@ -77,19 +77,12 @@ function defineOwnProperty(
   });
 }
 
-const RESOURCE_DOCUMENTS_PREFIX = /^(?:projects\/[^/]+\/)?databases\/([^/]+)\/documents(?:\/|$)/;
-
 function normalizeRelativeRefPath(rawPath: string): string {
-  const trimmed = rawPath.replace(/^\/+|\/+$/g, '');
-  const match = RESOURCE_DOCUMENTS_PREFIX.exec(trimmed);
-  return match ? trimmed.slice(match[0].length).replace(/^\/+/, '') : trimmed;
+  return new RulesReference(rawPath).path;
 }
 
 function extractRefDatabaseId(rawPath: string): string {
-  const trimmed = rawPath.replace(/^\/+|\/+$/g, '');
-  const match = RESOURCE_DOCUMENTS_PREFIX.exec(trimmed);
-  if (match !== null) return match[1]!;
-  return DEFAULT_DB_ID;
+  return new RulesReference(rawPath).databaseId || DEFAULT_DB_ID;
 }
 
 interface DuckDocumentReference {

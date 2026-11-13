@@ -793,26 +793,40 @@ export class SimulateFirestoreRulesHandler {
             ...(primary.rule ? { rule: { ...primary.rule, verdict: 'deny' as const } } : {}),
           };
         } else {
-          // `rawProof.kind === 'provable'`. When some rules were rejected by
-          // static proof (`rawProof.failures.length > 0`) and only a subset
-          // (such as a fallback `allow read: if false;` or an admin rule) was
-          // statically doc-independent, check whether those provable rules
-          // actually grant for this request. If they deny, no provable rule
-          // granted and the query failed because of `rawProof.failures`.
-          let fallbackDenied = false;
-          if (rawProof.failures.length > 0) {
-            const residualCheck = this.simulateParsed(
-              rawProof.evaluationAst,
-              source,
-              [{ ...tc, path: proofPath, resource: rawProof.syntheticResource, expectation: 'ALLOW' }],
-              { ...opts, sourceMap, skipQueryProof: true },
-            );
-            const residualResult = residualCheck.success ? residualCheck.data.results[0] : undefined;
-            if (residualResult && residualResult.decision !== 'ALLOW' && residualResult.resourceLimit === undefined) {
-              fallbackDenied = true;
-            }
-          }
-          if (fallbackDenied) {
+          // `rawProof.kind === 'provable'`. Run residual evaluation against
+          // `rawProof.evaluationAst` so per-request lookup/expression budgets
+          // and fallback-rule denials are reflected in `queryProof` as well.
+          const mergedResource =
+            tc.resource !== undefined
+              ? { ...rawProof.syntheticResource, ...tc.resource }
+              : rawProof.syntheticResource;
+          const residualCheck = this.simulateParsed(
+            rawProof.evaluationAst,
+            source,
+            [{ ...tc, path: proofPath, resource: mergedResource, expectation: 'ALLOW' }],
+            { ...opts, sourceMap, skipQueryProof: true },
+          );
+          const residualResult = residualCheck.success ? residualCheck.data.results[0] : undefined;
+          const hitResourceLimit = residualResult?.resourceLimit !== undefined;
+          const fallbackDenied =
+            rawProof.failures.length > 0 &&
+            residualResult !== undefined &&
+            residualResult.decision !== 'ALLOW';
+
+          if (hitResourceLimit) {
+            const primary = rawProof.failures.find((f) => f.kind !== 'constraints-not-satisfied') ?? rawProof.failures[0];
+            const remediation = primary ? renderQueryRemediation(primary.residual) : undefined;
+            queryProof = {
+              verdict: 'UNPROVABLE',
+              provable: false,
+              kind: primary?.kind ?? 'unsupported-predicate',
+              failures: rawProof.failures,
+              reason: residualResult!.resourceLimit!.message,
+              residual: primary?.residual ?? { missing: [], mismatched: [], outOfScope: true },
+              ...(remediation ? { remediation } : {}),
+              ...(primary?.rule ? { rule: { ...primary.rule, verdict: 'deny' as const } } : {}),
+            };
+          } else if (fallbackDenied) {
             const primary = rawProof.failures.find((f) => f.kind !== 'constraints-not-satisfied') ?? rawProof.failures[0]!;
             const remediation = renderQueryRemediation(primary.residual);
             queryProof = {
@@ -833,12 +847,12 @@ export class SimulateFirestoreRulesHandler {
               failures: rawProof.failures,
             };
           }
-          // When the caller did not mock a single document (`tc.resource === undefined`)
-          // and supplied `query.where` constraints that proved the query, evaluate
-          // the residual rules against the query-pinned synthetic resource.
-          if (tc.resource === undefined && (tc.query?.where?.length ?? 0) > 0) {
+          // On collection-level `list` cases or cases without a concrete mocked
+          // document, evaluate against the projected AST and synthetic resource
+          // so unprovable sibling rules cannot grant and budget steps execute.
+          if (isCollectionPath || tc.resource === undefined) {
             evalAst = rawProof.evaluationAst;
-            evalTc = { ...tc, resource: rawProof.syntheticResource };
+            evalTc = { ...tc, resource: mergedResource };
           }
         }
       }

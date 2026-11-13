@@ -283,6 +283,7 @@ export type { ListMembershipMethod } from '../simulator/list-methods.js';
 export {
   attachOrBudgetStep,
   getListBlockSteps,
+  getOrBudgetStepExpressions,
   getOrBudgetSteps,
   projectWorstCaseBudgetExpr,
   setListBlockSteps,

@@ -153,7 +153,7 @@ export function evaluateFunctionCall(
         if (ctx.afterState === null) {
           throw new EvalError(`getAfter() of non-existent document '${pathStr}' (guard with existsAfter() first)`);
         }
-        return makeGetResource(normalized, ctx.afterState);
+        return makeGetResource(normalized, ctx.afterState, ctx.database);
       }
       if (ctx.batchProjection?.has(normalized)) {
         const projected = ctx.batchProjection.get(normalized)!;
@@ -212,7 +212,7 @@ export function evaluateFunctionCall(
           }
           return out;
         };
-        return makeGetResource(normalized, resolveProjected(projected) as Record<string, unknown>);
+        return makeGetResource(normalized, resolveProjected(projected) as Record<string, unknown>, ctx.database);
       }
       return resolveGet(pathStr, ctx);
     }

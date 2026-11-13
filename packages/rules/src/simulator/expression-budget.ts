@@ -123,6 +123,22 @@ export class ExpressionBudget {
     this.charge(at === undefined ? undefined : expressionPosition(at));
   }
 
+  /** Clone running expression count for a mutually exclusive branch or query variant. */
+  fork(): ExpressionBudget {
+    const child = new ExpressionBudget(this.exhausted, this.limit);
+    child.evaluated = this.evaluated;
+    return child;
+  }
+
+  /** Advance running expression count to the worst-case count across mutually exclusive forks. */
+  mergeForks(branches: readonly ExpressionBudget[]): void {
+    for (const branch of branches) {
+      if (branch.evaluated > this.evaluated) {
+        this.evaluated = branch.evaluated;
+      }
+    }
+  }
+
   /** @param position where production reports the limit when this unit reaches it. */
   private charge(position: ExpressionPosition | undefined): void {
     // A request may evaluate `limit` expressions; the next one stops it.

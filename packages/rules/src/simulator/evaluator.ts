@@ -71,6 +71,15 @@ function evaluateCore(expr: Expression, ctx: SimulationContext, scope: Record<st
   return ctx.trace.capture(expr, () => evaluateExpr(expr, ctx, scope));
 }
 
+function forkSimulationContext(ctx: SimulationContext): SimulationContext {
+  return {
+    ...ctx,
+    lookupBudget: ctx.lookupBudget?.fork(),
+    expressionBudget: ctx.expressionBudget?.fork(),
+    trace: undefined,
+  };
+}
+
 function runOrBudgetSteps(
   steps: readonly OrBudgetStep[],
   idx: number,
@@ -82,6 +91,61 @@ function runOrBudgetSteps(
     return evaluateCore(expr, ctx, scope);
   }
   const step = steps[idx]!;
+  if (step.kind === 'bind') {
+    const boundVal = evaluateBinding(step.branch, ctx, scope);
+    if (step.isLet) ctx.expressionBudget?.letBinding(step.operator);
+    const nextScope: Record<string, unknown> = Object.assign(Object.create(null), scope);
+    Object.defineProperty(nextScope, step.name, {
+      value: boundVal,
+      enumerable: true,
+      writable: true,
+      configurable: true,
+    });
+    return runOrBudgetSteps(steps, idx + 1, expr, ctx, nextScope);
+  }
+  if (step.kind === 'fork') {
+    ctx.expressionBudget?.ternary(step.operator);
+    if (step.condition) {
+      evaluateBudgetOnly(step.condition, ctx, scope);
+    }
+    const lookupForks = [];
+    const exprForks = [];
+    for (let bIdx = 0; bIdx < step.branches.length; bIdx++) {
+      const forkedCtx = forkSimulationContext(ctx);
+      if (bIdx === 1) {
+        forkedCtx.expressionBudget?.ternaryElse(step.operator);
+      }
+      evaluateBudgetOnly(step.branches[bIdx]!, forkedCtx, scope);
+      if (forkedCtx.lookupBudget) lookupForks.push(forkedCtx.lookupBudget);
+      if (forkedCtx.expressionBudget) exprForks.push(forkedCtx.expressionBudget);
+    }
+    ctx.lookupBudget?.mergeForks(lookupForks);
+    ctx.expressionBudget?.mergeForks(exprForks);
+    return runOrBudgetSteps(steps, idx + 1, expr, ctx, scope);
+  }
+  if (step.kind === 'variants') {
+    const lookupForks = [];
+    const exprForks = [];
+    let sawFalse = false;
+    let firstErr: unknown;
+    for (const variantExpr of step.branches) {
+      const forkedCtx = forkSimulationContext(ctx);
+      try {
+        const v = requireBoolean(evaluate(variantExpr, forkedCtx, scope), variantExpr);
+        if (!v) sawFalse = true;
+      } catch (e) {
+        if (e instanceof ResourceLimitError || e instanceof UnsupportedError) throw e;
+        if (firstErr === undefined) firstErr = e;
+      }
+      if (forkedCtx.lookupBudget) lookupForks.push(forkedCtx.lookupBudget);
+      if (forkedCtx.expressionBudget) exprForks.push(forkedCtx.expressionBudget);
+    }
+    ctx.lookupBudget?.mergeForks(lookupForks);
+    ctx.expressionBudget?.mergeForks(exprForks);
+    if (sawFalse) return false;
+    if (firstErr !== undefined) throw firstErr;
+    return true;
+  }
   if (step.side === 'before') {
     evaluateBudgetOnly(step.branch, ctx, scope);
     ctx.expressionBudget?.logicalRight(step.operator);

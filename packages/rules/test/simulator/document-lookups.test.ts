@@ -149,5 +149,14 @@ describe('document lookups', () => {
     expect(() => resolveGet('/databases/(default)', context)).toThrow(EvalError);
     expect(() => resolveExists('/databases', context)).toThrow(EvalError);
     expect(() => resolveExists('/databases/analytics/documentsadmins/u1', context)).toThrow(EvalError);
+    expect(() => resolveExists('databases/(default)/documents_extra/u1', context)).toThrow(EvalError);
+    expect(() => resolveGet('databases/(default)/documents_extra/u1', context)).toThrow(EvalError);
+    expect(() => resolveExists('/databases/./(default)/documents/admins', context)).toThrow(EvalError);
+    expect(() => resolveGet('/databases/./(default)/documents/admins', context)).toThrow(EvalError);
+    expect(() => resolveExists('/databases//(default)//documents/admins', context)).toThrow(EvalError);
+
+    expect(normalizeDocumentPath('/databases//(default)//documents/admins')).toBe('admins');
+    const namedGetResource = makeGetResource('orgs/o1', { name: 'acme' }, 'analytics');
+    expect(String(namedGetResource.__name__)).toBe('/databases/analytics/documents/orgs/o1');
   });
 });

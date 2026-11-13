@@ -8,6 +8,9 @@ import { evaluate, requireBoolean } from "./evaluator.js";
 import {
   attachOrBudgetStep,
   getOrBudgetSteps,
+  isTrivialPureExpr,
+  isUnconditionallyEvaluatedInExpr,
+  mapOrBudgetStepExpressions,
   projectWorstCaseBudgetExpr,
 } from "./list-proof-budget.js";
 import { analyzeListRulePathInvariance } from "./list-rule-path-proof.js";
@@ -874,10 +877,15 @@ export function queryResidual(
       pinExprs.map((pinExpr) => new Map([...variant, [name, pinExpr]])),
     );
   }
+  const budgetOpts = {
+    outerFunctions: functions,
+    functionScopes,
+    candidateVariables: pathInvariance?.candidateVariables,
+    ambiguousNames: pathInvariance?.ambiguousNames,
+    checkResourceDependence: true,
+  };
   const residuals: Expression[] = [];
-  let variantIndex = 0;
   for (const pins of variants) {
-    const includeBudgetBranches = variantIndex++ === 0;
     let budget = 2000;
     function rewrite(
       expr: Expression,
@@ -885,6 +893,20 @@ export function queryResidual(
       visiting: ReadonlySet<FunctionDef> = new Set(),
     ): Expression {
       if (--budget < 0) throw new Error("proof expansion budget");
+      const attachedSteps = getOrBudgetSteps(expr);
+      if (attachedSteps && attachedSteps.length > 0) {
+        const stripped: Expression = { ...expr };
+        let rewrittenTarget = rewrite(stripped, currentFunctions, visiting);
+        const projectedSteps = attachedSteps.map((step) =>
+          mapOrBudgetStepExpressions(step, (sub) =>
+            projectWorstCaseBudgetExpr(rewrite(sub, currentFunctions, visiting), budgetOpts).expr,
+          ),
+        );
+        for (let i = projectedSteps.length - 1; i >= 0; i--) {
+          rewrittenTarget = attachOrBudgetStep(rewrittenTarget, projectedSteps[i]!);
+        }
+        return rewrittenTarget;
+      }
       const directKey = dataFieldPath(expr);
       if (directKey !== null && pins.has(directKey)) {
         return pins.get(directKey)!;
@@ -923,25 +945,59 @@ export function queryResidual(
           }
           return rewrittenArg;
         });
-        const bindings = lexicalCaptureLiteralBindings(fn, functionScopes);
-        for (let i = 0; i < fn.parameters.length; i++) {
-          bindings.set(fn.parameters[i]!, rewrittenArgs[i]!);
-        }
-        const nextVisiting = new Set([...visiting, fn]);
-        for (const binding of fn.lets)
-          bindings.set(
-            binding.name,
-            rewrite(
+        const savedBudget = budget;
+        budget = Math.min(budget, 400);
+        try {
+          const bindings = lexicalCaptureLiteralBindings(fn, functionScopes);
+          const callByValueSteps: Expression[] = [];
+          for (let i = 0; i < fn.parameters.length; i++) {
+            const paramName = fn.parameters[i]!;
+            const argVal = rewrittenArgs[i]!;
+            bindings.set(paramName, argVal);
+            if (!isTrivialPureExpr(argVal) && !isUnconditionallyEvaluatedInExpr(paramName, fn.body)) {
+              callByValueSteps.push(projectWorstCaseBudgetExpr(argVal, budgetOpts).expr);
+            }
+          }
+          const nextVisiting = new Set([...visiting, fn]);
+          for (const binding of fn.lets) {
+            const rewrittenLet = rewrite(
               substituteIdentifiers(binding.value, bindings),
               nextFunctions,
               nextVisiting,
-            ),
+            );
+            if (!isTrivialPureExpr(rewrittenLet) && !isUnconditionallyEvaluatedInExpr(binding.name, fn.body)) {
+              callByValueSteps.push(projectWorstCaseBudgetExpr(rewrittenLet, budgetOpts).expr);
+            }
+            bindings.set(binding.name, rewrittenLet);
+          }
+          let inlinedBody = rewrite(
+            substituteIdentifiers(fn.body, bindings),
+            nextFunctions,
+            nextVisiting,
           );
-        return rewrite(
-          substituteIdentifiers(fn.body, bindings),
-          nextFunctions,
-          nextVisiting,
-        );
+          for (let i = callByValueSteps.length - 1; i >= 0; i--) {
+            inlinedBody = attachOrBudgetStep(inlinedBody, {
+              operator: expr,
+              side: "before",
+              branch: callByValueSteps[i]!,
+            });
+          }
+          const consumed = Math.min(savedBudget, 400) - budget;
+          budget = savedBudget - consumed;
+          return inlinedBody;
+        } catch (err) {
+          budget = savedBudget - 400;
+          if (
+            budget >= 0 &&
+            err instanceof Error &&
+            err.message === "proof expansion budget" &&
+            callsResolveInOuterScope(expr, currentFunctions, functions) &&
+            rewrittenArgs.every((arg) => callsResolveInOuterScope(arg, currentFunctions, functions))
+          ) {
+            return { ...expr, args: rewrittenArgs };
+          }
+          throw err;
+        }
       }
       if (expr.type === "inExpr") {
         const element = rewrite(expr.element, currentFunctions, visiting);
@@ -1132,6 +1188,16 @@ export function queryResidual(
     // may be discarded only in monotone positive OR (including De Morgan duals),
     // never under an unpushed NOT or ternary.
     function sufficient(expr: Expression): Expression | undefined {
+      const nodeSteps = getOrBudgetSteps(expr);
+      if (nodeSteps && nodeSteps.length > 0) {
+        const innerSuff = sufficient({ ...expr });
+        if (!innerSuff) return undefined;
+        let wrapped = innerSuff;
+        for (let i = nodeSteps.length - 1; i >= 0; i--) {
+          wrapped = attachOrBudgetStep(wrapped, nodeSteps[i]!);
+        }
+        return wrapped;
+      }
       if (expr.type === "unaryOp" && expr.op === "!") {
         const inner = expr.operand;
         if (inner.type === "binaryOp" && inner.op === "&&") {
@@ -1172,15 +1238,8 @@ export function queryResidual(
         if (expr.op === "||") {
           if (!left && !right) return undefined;
           partial = true;
-          if (!includeBudgetBranches) return left ?? right;
           if (!left && right) {
-            const projectedLeft = projectWorstCaseBudgetExpr(expr.left, {
-              outerFunctions: functions,
-              functionScopes,
-              candidateVariables: pathInvariance?.candidateVariables,
-              ambiguousNames: pathInvariance?.ambiguousNames,
-              checkResourceDependence: true,
-            }).expr;
+            const projectedLeft = projectWorstCaseBudgetExpr(expr.left, budgetOpts).expr;
             return attachOrBudgetStep(right, {
               operator: expr,
               side: "before",
@@ -1188,13 +1247,7 @@ export function queryResidual(
             });
           }
           if (left && !right) {
-            const projectedRight = projectWorstCaseBudgetExpr(expr.right, {
-              outerFunctions: functions,
-              functionScopes,
-              candidateVariables: pathInvariance?.candidateVariables,
-              ambiguousNames: pathInvariance?.ambiguousNames,
-              checkResourceDependence: true,
-            }).expr;
+            const projectedRight = projectWorstCaseBudgetExpr(expr.right, budgetOpts).expr;
             return attachOrBudgetStep(left, {
               operator: expr,
               side: "after",
@@ -1227,26 +1280,13 @@ export function queryResidual(
       return undefined;
     }
   }
-  let combinedCondition = residuals.reduce((left, right) => join(left, right, "&&"));
-  const priorSteps = getOrBudgetSteps(condition);
-  if (priorSteps && priorSteps.length > 0) {
-    if (combinedCondition === condition) {
-      combinedCondition = { ...combinedCondition };
-    }
-    for (let i = priorSteps.length - 1; i >= 0; i--) {
-      const projectedPriorBranch = buildRuleBudgetCondition(
-        priorSteps[i]!.branch,
-        constraints,
-        functions,
-        functionScopes,
-        pathInvariance,
-      );
-      combinedCondition = attachOrBudgetStep(combinedCondition, {
-        ...priorSteps[i]!,
-        branch: projectedPriorBranch,
-      });
-    }
-  }
+  const combinedCondition =
+    residuals.length === 1
+      ? residuals[0]!
+      : attachOrBudgetStep(
+          { type: "literal", value: true, raw: "true" },
+          { kind: "variants", branches: residuals },
+        );
   return {
     condition: combinedCondition,
     partial,
@@ -1275,6 +1315,14 @@ export function buildRuleBudgetCondition(
     }
   }
 
+  const budgetOpts = {
+    outerFunctions: functions,
+    functionScopes,
+    candidateVariables: pathInvariance?.candidateVariables,
+    ambiguousNames: pathInvariance?.ambiguousNames,
+    checkResourceDependence: true,
+  };
+
   let budget = 2000;
   const rewritePinned = (
     expr: Expression,
@@ -1286,10 +1334,9 @@ export function buildRuleBudgetCondition(
     if (priorSteps && priorSteps.length > 0) {
       const stripped: Expression = { ...expr };
       let target = rewritePinned(stripped, currentFunctions, visiting);
-      const rewrittenSteps = priorSteps.map((step) => ({
-        ...step,
-        branch: rewritePinned(step.branch, currentFunctions, visiting),
-      }));
+      const rewrittenSteps = priorSteps.map((step) =>
+        mapOrBudgetStepExpressions(step, (sub) => rewritePinned(sub, currentFunctions, visiting)),
+      );
       for (let i = rewrittenSteps.length - 1; i >= 0; i--) {
         target = attachOrBudgetStep(target, rewrittenSteps[i]!);
       }
@@ -1341,17 +1388,36 @@ export function buildRuleBudgetCondition(
         return { ...expr, args: expr.args.map((arg) => rewritePinned(arg, currentFunctions, visiting)) };
       }
       const bindings = lexicalCaptureLiteralBindings(fn, functionScopes);
+      const callByValueSteps: Expression[] = [];
       for (let i = 0; i < fn.parameters.length; i++) {
-        bindings.set(fn.parameters[i]!, rewrittenArgs[i]!);
+        const paramName = fn.parameters[i]!;
+        const argVal = rewrittenArgs[i]!;
+        bindings.set(paramName, argVal);
+        if (!isTrivialPureExpr(argVal) && !isUnconditionallyEvaluatedInExpr(paramName, fn.body)) {
+          callByValueSteps.push(argVal);
+        }
       }
       const nextVisiting = new Set([...visiting, fn]);
       for (const binding of fn.lets) {
-        bindings.set(
-          binding.name,
-          rewritePinned(substituteIdentifiers(binding.value, bindings), nextFunctions, nextVisiting),
+        const rewrittenLet = rewritePinned(
+          substituteIdentifiers(binding.value, bindings),
+          nextFunctions,
+          nextVisiting,
         );
+        if (!isTrivialPureExpr(rewrittenLet) && !isUnconditionallyEvaluatedInExpr(binding.name, fn.body)) {
+          callByValueSteps.push(rewrittenLet);
+        }
+        bindings.set(binding.name, rewrittenLet);
       }
-      return rewritePinned(substituteIdentifiers(fn.body, bindings), nextFunctions, nextVisiting);
+      let inlinedBody = rewritePinned(substituteIdentifiers(fn.body, bindings), nextFunctions, nextVisiting);
+      for (let i = callByValueSteps.length - 1; i >= 0; i--) {
+        inlinedBody = attachOrBudgetStep(inlinedBody, {
+          operator: expr,
+          side: "before",
+          branch: callByValueSteps[i]!,
+        });
+      }
+      return inlinedBody;
     }
     const sub = (child: Expression) => rewritePinned(child, currentFunctions, visiting);
     switch (expr.type) {
@@ -1407,11 +1473,5 @@ export function buildRuleBudgetCondition(
   };
 
   const pinned = rewritePinned(condition);
-  return projectWorstCaseBudgetExpr(pinned, {
-    outerFunctions: functions,
-    functionScopes,
-    candidateVariables: pathInvariance?.candidateVariables,
-    ambiguousNames: pathInvariance?.ambiguousNames,
-    checkResourceDependence: true,
-  }).expr;
+  return projectWorstCaseBudgetExpr(pinned, budgetOpts).expr;
 }

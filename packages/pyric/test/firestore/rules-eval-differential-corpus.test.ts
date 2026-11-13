@@ -270,8 +270,18 @@ describe('Firestore rules evaluation differential corpus', () => {
         expected: 'DENY',
       },
       {
-        name: 'foreign named database lookup inFirestore rules fails closed',
+        name: 'foreign named database lookup in Firestore rules fails closed',
         condition: '!exists(/databases/archive/documents/orgs/org-1/documents/doc-1)',
+        expected: 'DENY',
+      },
+      {
+        name: 'dot segment inside /databases/./(default)/documents/admins fails closed',
+        condition: '!exists(path("/databases/./(default)/documents/admins"))',
+        expected: 'DENY',
+      },
+      {
+        name: 'double slashes inside /databases//(default)//documents/admins collection path fails closed',
+        condition: '!exists(path("/databases//(default)//documents/admins"))',
         expected: 'DENY',
       },
     ];
@@ -281,6 +291,7 @@ describe('Firestore rules evaluation differential corpus', () => {
       { function: 'get' as const, path: 'admins/u1', result: { isAdmin: true } },
       { function: 'exists' as const, path: '_extra/u1', result: true },
       { function: 'exists' as const, path: 'documents/d1', result: true },
+      { function: 'exists' as const, path: 'databases/(default)/documents/admins', result: true },
       { function: 'get' as const, path: 'orgs/documents/members/u1', result: { role: 'member' } },
     ];
     const simResource = {

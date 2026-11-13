@@ -103,20 +103,6 @@ function groupBindings(block: MatchBlock, collectionId: string): Set<string> | n
   return null;
 }
 
-function worstCasePathBudgetBranch(
-  expr: Expression,
-  bound: ReadonlySet<string>,
-  functions: ReadonlyMap<string, FunctionDef>,
-  ambiguousNames: ReadonlySet<string>,
-): { expr: Expression; requiredFunctionDefs: ReadonlySet<FunctionDef> } {
-  return projectWorstCaseBudgetExpr(expr, {
-    outerFunctions: functions,
-    candidateVariables: bound,
-    ambiguousNames,
-    checkResourceDependence: false,
-  });
-}
-
 function projectPathInvariantCondition(
   expr: Expression,
   bound: ReadonlySet<string>,
@@ -175,7 +161,12 @@ function projectPathInvariantCondition(
     }
     if (expr.op === '||') {
       if (!left && right) {
-        const dropped = worstCasePathBudgetBranch(expr.left, bound, functions, ambiguousNames);
+        const dropped = projectWorstCaseBudgetExpr(expr.left, {
+          outerFunctions: functions,
+          candidateVariables: bound,
+          ambiguousNames,
+          checkResourceDependence: false,
+        });
         return {
           condition: attachOrBudgetStep(right.condition, {
             operator: expr,
@@ -189,7 +180,12 @@ function projectPathInvariantCondition(
         };
       }
       if (left && !right) {
-        const dropped = worstCasePathBudgetBranch(expr.right, bound, functions, ambiguousNames);
+        const dropped = projectWorstCaseBudgetExpr(expr.right, {
+          outerFunctions: functions,
+          candidateVariables: bound,
+          ambiguousNames,
+          checkResourceDependence: false,
+        });
         return {
           condition: attachOrBudgetStep(left.condition, {
             operator: expr,
@@ -234,12 +230,12 @@ function projectGroupBlock(
       functionScope.ambiguousNames,
     );
     if (!projected) {
-      const budgetBranch = worstCasePathBudgetBranch(
-        rule.condition,
-        bound,
-        functionScope.functions,
-        functionScope.ambiguousNames,
-      );
+      const budgetBranch = projectWorstCaseBudgetExpr(rule.condition, {
+        outerFunctions: functionScope.functions,
+        candidateVariables: bound,
+        ambiguousNames: functionScope.ambiguousNames,
+        checkResourceDependence: false,
+      });
       const budgetRule = budgetBranch.expr === rule.condition
         ? rule
         : { ...rule, condition: budgetBranch.expr };
