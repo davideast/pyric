@@ -24,6 +24,19 @@ export function isDocumentPath(segmentsOrPath: string | readonly string[]): bool
   return !segments.some((seg) => /^\{.*\}$/.test(seg));
 }
 
+export function isMalformedDatabaseLookupPath(
+  rawPath: string,
+  expectedDatabase?: string,
+): boolean {
+  const targetDb = expectedDatabase && expectedDatabase.length > 0 ? expectedDatabase : '(default)';
+  const cleaned = rawPath.replace(/\$\(database\)/g, targetDb);
+  if (cleaned !== '/databases' && !cleaned.startsWith('/databases/')) {
+    return false;
+  }
+  const segments = cleaned.split('/').filter((s) => s.length > 0 && s !== '.');
+  return segments.length < 3 || segments[0] !== 'databases' || segments[2] !== 'documents';
+}
+
 export function nonDefaultDatabaseInLookupPath(
   rawPath: string,
   expectedDatabase?: string,
@@ -42,13 +55,15 @@ export function nonDefaultDatabaseInLookupPath(
   return undefined;
 }
 
-export function normalizeDocumentPath(rawPath: string): string {
-  let cleaned = rawPath.replace(/\$\(database\)/g, '(default)');
-  const dbPrefix = '/databases/(default)/documents/';
+export function normalizeDocumentPath(rawPath: string, expectedDatabase?: string): string {
+  const targetDb = expectedDatabase && expectedDatabase.length > 0 ? expectedDatabase : '(default)';
+  let cleaned = rawPath.replace(/\$\(database\)/g, targetDb);
+  const dbRoot = `/databases/${targetDb}/documents`;
+  const dbPrefix = `${dbRoot}/`;
   if (cleaned.startsWith(dbPrefix)) {
     cleaned = cleaned.slice(dbPrefix.length);
-  } else if (cleaned.startsWith('/databases/(default)/documents')) {
-    cleaned = cleaned.slice('/databases/(default)/documents'.length);
+  } else if (cleaned === dbRoot) {
+    cleaned = '';
   }
   if (cleaned.startsWith('/')) {
     cleaned = cleaned.slice(1);
@@ -82,13 +97,18 @@ export function makeGetResource(relPath: string, data: Record<string, unknown>):
 }
 
 export function resolveGet(rawPath: string, context: SimulationContext): SimResource {
+  if (isMalformedDatabaseLookupPath(rawPath, context.database)) {
+    throw new EvalError(
+      `get() requires a path rooted at '/databases/<database>/documents/...', got '${rawPath}'`,
+    );
+  }
   const foreignDb = nonDefaultDatabaseInLookupPath(rawPath, context.database);
   if (foreignDb !== undefined) {
     throw new EvalError(
       `get() cannot access non-default database '${foreignDb}' in path '${rawPath}'`,
     );
   }
-  const path = normalizeDocumentPath(rawPath);
+  const path = normalizeDocumentPath(rawPath, context.database);
   const segments = path.split('/').filter(Boolean);
   if (!isDocumentPath(segments)) {
     throw new EvalError(
@@ -115,13 +135,18 @@ export function resolveGet(rawPath: string, context: SimulationContext): SimReso
 }
 
 export function resolveExists(rawPath: string, context: SimulationContext): boolean {
+  if (isMalformedDatabaseLookupPath(rawPath, context.database)) {
+    throw new EvalError(
+      `exists() requires a path rooted at '/databases/<database>/documents/...', got '${rawPath}'`,
+    );
+  }
   const foreignDb = nonDefaultDatabaseInLookupPath(rawPath, context.database);
   if (foreignDb !== undefined) {
     throw new EvalError(
       `exists() cannot access non-default database '${foreignDb}' in path '${rawPath}'`,
     );
   }
-  const path = normalizeDocumentPath(rawPath);
+  const path = normalizeDocumentPath(rawPath, context.database);
   const segments = path.split('/').filter(Boolean);
   if (!isDocumentPath(segments)) {
     throw new EvalError(

@@ -54,18 +54,18 @@ export function copyQueryValueRegistration(source: object, target: object): void
 
 const REFERENCE_QUERY_VALUE_KEY = Symbol.for('pyric.firestore.reference-query-value');
 const DEFAULT_DATABASE_ID = '(default)';
+const RESOURCE_DOCUMENTS_PREFIX = /^(?:projects\/[^/]+\/)?databases\/([^/]+)\/documents(?:\/|$)/;
 
 function extractRefDatabaseId(rawPath: string): string {
   const trimmed = rawPath.replace(/^\/+|\/+$/g, '');
-  const match = /^(?:projects\/[^/]+\/)?databases\/([^/]+)\/documents(?:\/|$)/.exec(trimmed);
+  const match = RESOURCE_DOCUMENTS_PREFIX.exec(trimmed);
   return match ? match[1]! : DEFAULT_DATABASE_ID;
 }
 
 function normalizeRelativeRefPath(rawPath: string): string {
-  const marker = '/documents/';
-  const idx = rawPath.indexOf(marker);
-  const sliced = idx === -1 ? rawPath : rawPath.slice(idx + marker.length);
-  return sliced.replace(/^\/+|\/+$/g, '');
+  const trimmed = rawPath.replace(/^\/+|\/+$/g, '');
+  const match = RESOURCE_DOCUMENTS_PREFIX.exec(trimmed);
+  return match ? trimmed.slice(match[0].length).replace(/^\/+/, '') : trimmed;
 }
 
 class ReferenceQueryValue {

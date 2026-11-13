@@ -393,26 +393,18 @@ function preserveBlockAndConditionBudgets(
       }
     }
 
-    if (srcSteps && srcSteps.some((step) => step.kind === 'budget')) {
+    if (!dstSteps && srcSteps && srcSteps.some((step) => step.kind === 'budget')) {
       const mergedSteps: ListBlockStep[] = [];
-      let grantOrdinal = 0;
       let retainedGrantIdx = 0;
       for (const step of srcSteps) {
         if (step.kind === 'budget') {
           mergedSteps.push(step);
           continue;
         }
-        const subStep = dstSteps?.[grantOrdinal];
-        grantOrdinal++;
-        if (subStep) {
-          mergedSteps.push({ ...subStep, index: step.index });
-          if (subStep.kind === 'grant') retainedGrantIdx++;
-        } else {
-          const retainedRule = dstBlock.allows[retainedGrantIdx];
-          if (retainedRule) {
-            mergedSteps.push({ kind: 'grant', rule: retainedRule, index: step.index });
-            retainedGrantIdx++;
-          }
+        const retainedRule = dstBlock.allows[retainedGrantIdx];
+        if (retainedRule) {
+          mergedSteps.push({ kind: 'grant', rule: retainedRule, index: step.index });
+          retainedGrantIdx++;
         }
       }
       setListBlockSteps(dstBlock, mergedSteps);

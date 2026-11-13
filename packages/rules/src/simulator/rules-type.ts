@@ -1,4 +1,5 @@
 import {
+  findInvalidRe2CharClassRange,
   normalizeRe2ForJsRegExp,
   re2PosixClassAt,
   scanRe2Pattern,
@@ -148,6 +149,8 @@ export function re2PatternCompiles(pattern: string): boolean {
 
 /** Why JavaScript refuses `pattern` both ways, as the code-unit RegExp's message, or null. */
 function re2PatternCompileError(pattern: string): string | null {
+  const rangeError = findInvalidRe2CharClassRange(pattern);
+  if (rangeError !== null) return rangeError;
   const normalized = normalizeRe2ForJsRegExp(pattern);
   const codeUnitError = jsRegExpError(`^(?:${normalized})$`, '');
   if (codeUnitError === null) return null;
@@ -240,6 +243,10 @@ export interface ParsedRe2Pattern {
  * (`ug0`, `ug1`) shows production reads `(?U)` so (#1891).
  */
 export function parseRe2Pattern(pattern: string): ParsedRe2Pattern {
+  const rangeError = findInvalidRe2CharClassRange(pattern);
+  if (rangeError !== null) {
+    throw new Error(`Invalid regex '${pattern}': ${rangeError}`);
+  }
   let pos = 0;
   let ignoreCase = false;
   let multiline = false;

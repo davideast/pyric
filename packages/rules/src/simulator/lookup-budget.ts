@@ -1,6 +1,11 @@
 import type { SimulationContext } from './evaluation-context.js';
 import { ResourceLimitError } from './eval-error.js';
-import { isDocumentPath, nonDefaultDatabaseInLookupPath, normalizeDocumentPath } from './document-lookups.js';
+import {
+  isDocumentPath,
+  isMalformedDatabaseLookupPath,
+  nonDefaultDatabaseInLookupPath,
+  normalizeDocumentPath,
+} from './document-lookups.js';
 
 // ═══ Per-request document-lookup budget ═══
 //
@@ -117,8 +122,9 @@ export class LookupBudget {
  */
 export function chargeLookup(ctx: SimulationContext, kind: 'doc' | 'after', rawPath: string): void {
   if (!ctx.lookupBudget) return;
+  if (isMalformedDatabaseLookupPath(rawPath, ctx.database)) return;
   if (nonDefaultDatabaseInLookupPath(rawPath, ctx.database) !== undefined) return;
-  const normalized = normalizeDocumentPath(rawPath);
+  const normalized = normalizeDocumentPath(rawPath, ctx.database);
   if (!isDocumentPath(normalized)) return;
   const isPreWriteLookup = kind === 'doc';
   if (isPreWriteLookup) {

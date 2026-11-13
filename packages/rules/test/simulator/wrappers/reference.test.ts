@@ -235,4 +235,64 @@ describe('Reference path parity in Firestore rules', () => {
     ]);
     expect(oobReport.cases[0]?.decision).toBe('DENY');
   });
+
+  test('preserves collection and document ID segments named documents while stripping anchored resource prefixes', () => {
+    expect(new Reference('documents/doc-1').path).toBe('documents/doc-1');
+    expect(new Reference('/documents/doc-1').path).toBe('documents/doc-1');
+    expect(new Reference('orgs/documents/members/u1').path).toBe('orgs/documents/members/u1');
+    expect(new Reference('orgs/org-1/documents/doc-1').path).toBe('orgs/org-1/documents/doc-1');
+    expect(
+      new Reference('projects/p/databases/(default)/documents/orgs/org-1/documents/doc-1').path,
+    ).toBe('orgs/org-1/documents/doc-1');
+    const namedWithDocsSegment = new Reference(
+      '/databases/analytics/documents/orgs/documents/members/u1',
+    );
+    expect(namedWithDocsSegment.databaseId).toBe('analytics');
+    expect(namedWithDocsSegment.path).toBe('orgs/documents/members/u1');
+
+    const rules = firestoreRules(`
+      rules_version = '2';
+      service cloud.firestore {
+        match /databases/{database}/documents {
+          match /items/{id} {
+            allow create: if request.resource.data.memberRef == /databases/$(database)/documents/members/$(request.auth.uid);
+          }
+          match /links/{id} {
+            allow update: if request.resource.data.docRef == resource.data.docRef;
+          }
+        }
+      }
+    `);
+
+    const report = rules.simulate([
+      {
+        description: 'doc ID named documents does not spoof root /members/{uid}',
+        expectation: 'DENY',
+        method: 'create',
+        path: 'items/i1',
+        auth: { uid: 'u1' },
+        data: { memberRef: reference('orgs/documents/members/u1') },
+      },
+      {
+        description: 'cross-org subcollections named documents do not compare equal',
+        expectation: 'DENY',
+        method: 'update',
+        path: 'links/l1',
+        auth: { uid: 'u1' },
+        resource: { docRef: reference('orgs/org-1/documents/doc-1') },
+        data: { docRef: reference('orgs/org-2/documents/doc-1') },
+      },
+      {
+        description: 'same-org subcollection named documents compares equal',
+        expectation: 'ALLOW',
+        method: 'update',
+        path: 'links/l2',
+        auth: { uid: 'u1' },
+        resource: { docRef: reference('orgs/org-1/documents/doc-1') },
+        data: { docRef: reference('orgs/org-1/documents/doc-1') },
+      },
+    ]);
+
+    expect(report.cases.map((c) => c.decision)).toEqual(['DENY', 'DENY', 'ALLOW']);
+  });
 });

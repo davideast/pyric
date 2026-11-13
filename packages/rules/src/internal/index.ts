@@ -280,8 +280,18 @@ export { evaluateHashingMethod, sha256 } from '../simulator/hashing-builtins.js'
 export { IndexAccessFailure, indexList, indexMap, indexValue, readMember } from '../simulator/index-access.js';
 export { ListMethodFailure, listConcat, listJoin, listMembership, listRemoveAll } from '../simulator/list-methods.js';
 export type { ListMembershipMethod } from '../simulator/list-methods.js';
-export { attachOrBudgetStep, getListBlockSteps, getOrBudgetSteps, setListBlockSteps } from '../simulator/list-proof-budget.js';
-export type { ListBlockStep, OrBudgetStep } from '../simulator/list-proof-budget.js';
+export {
+  attachOrBudgetStep,
+  getListBlockSteps,
+  getOrBudgetSteps,
+  projectWorstCaseBudgetExpr,
+  setListBlockSteps,
+} from '../simulator/list-proof-budget.js';
+export type {
+  ListBlockStep,
+  OrBudgetStep,
+  WorstCaseBudgetOptions,
+} from '../simulator/list-proof-budget.js';
 export { lookupAccessKey, slashedSegment, slashedSegmentReason } from '../simulator/lookup-path.js';
 export { MapMethodFailure, mapKeys, mapList, mapLiteral, mapValues } from '../simulator/map-keys.js';
 export type { MapListMethod } from '../simulator/map-keys.js';

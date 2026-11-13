@@ -310,4 +310,71 @@ describe('evaluation built-ins', () => {
       ),
     ).toBe('DENY');
   });
+
+  test('get/exists/getAfter/existsAfter reject malformed /databases/<db>/<non-documents> lookup paths with EvalError', () => {
+    const malformedRules = rules(`
+      match /items/{id} {
+        allow get: if exists(/databases/$(database)/documentsadmins/$(request.auth.uid));
+        allow list: if !exists(/databases/$(database)/documents_extra/$(request.auth.uid));
+        allow create: if existsAfter(/databases/$(database)/documentsadmins/$(request.auth.uid))
+          && getAfter(/databases/$(database)/documentsadmins/$(request.auth.uid)).data.isAdmin == true;
+        allow update: if !existsAfter(/databases/$(database)/documents_extra/$(request.auth.uid));
+        allow delete: if exists(/databases/$(database)/documentsadmins/$(request.auth.uid)) || true;
+      }
+    `);
+
+    const mockAdmins = [
+      { function: 'exists' as const, path: 'admins/u1', result: true },
+      { function: 'get' as const, path: 'admins/u1', result: { isAdmin: true } },
+      { function: 'exists' as const, path: '_extra/u1', result: true },
+    ];
+
+    expect(
+      decisionOf(malformedRules, {
+        method: 'get',
+        path: 'items/1',
+        auth: { uid: 'u1' },
+        resource: {},
+        functionMocks: mockAdmins,
+      }),
+    ).toBe('DENY');
+    expect(
+      decisionOf(malformedRules, {
+        method: 'list',
+        path: 'items/1',
+        auth: { uid: 'u1' },
+        resource: {},
+        functionMocks: mockAdmins,
+      }),
+    ).toBe('DENY');
+    expect(
+      decisionOf(malformedRules, {
+        method: 'create',
+        path: 'items/1',
+        auth: { uid: 'u1' },
+        data: {},
+        functionMocks: mockAdmins,
+      }),
+    ).toBe('DENY');
+    expect(
+      decisionOf(malformedRules, {
+        method: 'update',
+        path: 'items/1',
+        auth: { uid: 'u1' },
+        resource: {},
+        data: {},
+        functionMocks: mockAdmins,
+      }),
+    ).toBe('DENY');
+    // Error value participates in || true absorption without tripping a budget limit.
+    expect(
+      decisionOf(malformedRules, {
+        method: 'delete',
+        path: 'items/1',
+        auth: { uid: 'u1' },
+        resource: {},
+        functionMocks: mockAdmins,
+      }),
+    ).toBe('ALLOW');
+  });
 });

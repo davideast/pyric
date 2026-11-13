@@ -32,7 +32,7 @@ import type {
   SerializedListQueryWrapper,
 } from '../test/spec.js';
 import { indexRulesetScopes, type MatchResult } from './match-resolution.js';
-import { setListBlockSteps, type ListBlockStep } from './list-proof-budget.js';
+import { getListBlockSteps, setListBlockSteps, type ListBlockStep } from './list-proof-budget.js';
 import { collectRootMatches } from './root-match.js';
 import {
   evaluateQueryProof,
@@ -42,6 +42,7 @@ import {
   type QueryWhereValue,
 } from './query-proof.js';
 import {
+  buildRuleBudgetCondition,
   computeWhereDomains,
   formatQueryScalarForRemediation,
   type FormatQueryScalarOptions,
@@ -188,29 +189,36 @@ export function proveListQuery(
   for (const match of matches) {
     const functionScope = buildListRuleFunctionScope(match.functions);
     const fnMap = functionScope.functions;
-    const blockSteps: ListBlockStep[] = [];
-    for (let ruleIndex = 0; ruleIndex < match.block.allows.length; ruleIndex++) {
-      const rule = match.block.allows[ruleIndex]!;
-      const hasListOrRead = rule.operations.some((op) => {
-        const isList = op === 'list';
-        if (isList) {
-          return true;
-        }
-        const isRead = op === 'read';
-        return isRead;
-      });
+    const candidateVariables = new Set(match.candidateVariables);
+    const recursiveVariables = new Set(match.recursiveVariables ?? []);
+    const parentPathVariables: Record<string, string> = Object.create(null);
+    for (const [k, v] of Object.entries(match.pathVariables)) {
+      if (!candidateVariables.has(k) && !recursiveVariables.has(k)) {
+        parentPathVariables[k] = v;
+      }
+    }
+    const pathInvariance = {
+      candidateVariables,
+      ambiguousNames: functionScope.ambiguousNames,
+    };
+    const projectBudgetRule = (rule: AllowRule): AllowRule => {
+      const projectedCondition = buildRuleBudgetCondition(
+        rule.condition,
+        constraints,
+        fnMap,
+        match.functionScopes,
+        pathInvariance,
+      );
+      return projectedCondition === rule.condition
+        ? rule
+        : { ...rule, condition: projectedCondition };
+    };
+    const evaluateGrantCandidate = (rule: AllowRule, ruleIndex: number, blockSteps: ListBlockStep[]): void => {
+      const hasListOrRead = rule.operations.some((op) => op === 'list' || op === 'read');
       if (hasListOrRead === false) {
-        continue;
+        return;
       }
       applicableRuleCount++;
-      const candidateVariables = new Set(match.candidateVariables);
-      const recursiveVariables = new Set(match.recursiveVariables ?? []);
-      const parentPathVariables: Record<string, string> = Object.create(null);
-      for (const [k, v] of Object.entries(match.pathVariables)) {
-        if (!candidateVariables.has(k) && !recursiveVariables.has(k)) {
-          parentPathVariables[k] = v;
-        }
-      }
       // `auth.uid` is threaded into the proof so the canonical owner pattern
       // can be discharged by a matching query equality. Residual simulation
       // still evaluates the real auth value against the synthetic resource.
@@ -221,10 +229,7 @@ export function proveListQuery(
         auth?.uid,
         parentPathVariables,
         match.functionScopes,
-        {
-          candidateVariables,
-          ambiguousNames: functionScope.ambiguousNames,
-        },
+        pathInvariance,
       );
       const isProvable = result.provable === true;
       if (isProvable) {
@@ -232,7 +237,7 @@ export function proveListQuery(
         provableRules.set(rule, projectedRule);
         blockSteps.push({ kind: 'grant', rule: projectedRule, index: ruleIndex });
       } else {
-        blockSteps.push({ kind: 'budget', rule, index: ruleIndex });
+        blockSteps.push({ kind: 'budget', rule: projectBudgetRule(rule), index: ruleIndex });
       }
       const failure = result.provable ? result.proofFailure : result;
       if (failure) {
@@ -243,6 +248,26 @@ export function proveListQuery(
             failure.residual.predicate, failure.residual.predicateLoc ?? rule.loc, sourceString,
           ) } : {}),
         });
+      }
+    };
+
+    const blockSteps: ListBlockStep[] = [];
+    const priorBlockSteps = getListBlockSteps(match.block);
+    if (priorBlockSteps) {
+      for (const priorStep of priorBlockSteps) {
+        if (priorStep.kind === 'budget') {
+          blockSteps.push({
+            kind: 'budget',
+            rule: projectBudgetRule(priorStep.rule),
+            index: priorStep.index,
+          });
+        } else {
+          evaluateGrantCandidate(priorStep.rule, priorStep.index, blockSteps);
+        }
+      }
+    } else {
+      for (let ruleIndex = 0; ruleIndex < match.block.allows.length; ruleIndex++) {
+        evaluateGrantCandidate(match.block.allows[ruleIndex]!, ruleIndex, blockSteps);
       }
     }
     if (!evaluatedBlocks.has(match.block)) {
@@ -332,7 +357,12 @@ function syntheticResourceFromWheres(constraints: QueryConstraints): Record<stri
   const out: Record<string, unknown> = {};
   for (const [field, values] of computeWhereDomains(constraints)) {
     if (values.length === 1) {
-      out[field] = values[0];
+      Object.defineProperty(out, field, {
+        value: values[0],
+        enumerable: true,
+        writable: true,
+        configurable: true,
+      });
     }
   }
   return out;

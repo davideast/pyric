@@ -20,7 +20,15 @@ import { ConversionFailure, applyConversion, conversionFor } from './conversions
 import { MathFailure, applyMath } from './math-builtins.js';
 import { LIST_METHOD_NAMES, ListMethodFailure, listConcat, listJoin, listMembership, listRemoveAll } from './list-methods.js';
 import { UnsupportedError } from './unsupported-error.js';
-import { isDocumentPath, makeGetResource, nonDefaultDatabaseInLookupPath, normalizeDocumentPath, resolveExists, resolveGet } from './document-lookups.js';
+import {
+  isDocumentPath,
+  isMalformedDatabaseLookupPath,
+  makeGetResource,
+  nonDefaultDatabaseInLookupPath,
+  normalizeDocumentPath,
+  resolveExists,
+  resolveGet,
+} from './document-lookups.js';
 import { chargeLookup } from './lookup-budget.js';
 import { lookupAccessKey, slashedSegment, slashedSegmentReason } from './lookup-path.js';
 import type { SimulationContext } from './evaluation-context.js';
@@ -65,6 +73,9 @@ function requireLookupPath(
     throw new EvalError(`${name}(): ${slashedSegmentReason(slashed)}`);
   }
   const lookupPath = String(pathVal);
+  if (isMalformedDatabaseLookupPath(lookupPath, ctx.database)) {
+    throw new EvalError(`${name}() requires a path rooted at '/databases/<database>/documents/...', got '${lookupPath}'`);
+  }
   const foreignDb = nonDefaultDatabaseInLookupPath(lookupPath, ctx.database);
   if (foreignDb !== undefined) {
     throw new EvalError(`${name}() cannot access non-default database '${foreignDb}' in path '${lookupPath}'`);
@@ -80,11 +91,14 @@ function requireLookupPath(
  * document. A `.` or `..` segment errors: Firestore rejects both as document
  * ids, so such a path names no document.
  */
-function afterLookupPath(name: 'getAfter' | 'existsAfter', pathStr: string): string {
+function afterLookupPath(name: 'getAfter' | 'existsAfter', pathStr: string, expectedDatabase?: string): string {
   if (pathStr.split('/').some((seg) => seg === '.' || seg === '..')) {
     throw new EvalError(`${name}() path '${pathStr}' has a '.' or '..' segment, which is not a valid document id`);
   }
-  const normalized = normalizeDocumentPath(pathStr);
+  if (isMalformedDatabaseLookupPath(pathStr, expectedDatabase)) {
+    throw new EvalError(`${name}() requires a path rooted at '/databases/<database>/documents/...', got '${pathStr}'`);
+  }
+  const normalized = normalizeDocumentPath(pathStr, expectedDatabase);
   if (!isDocumentPath(normalized.split('/').filter(Boolean))) {
     throw new EvalError(
       `${name}() requires a path pointing to a document (even segment count), got '${normalized}'`,
@@ -95,7 +109,7 @@ function afterLookupPath(name: 'getAfter' | 'existsAfter', pathStr: string): str
 
 /** The request target in {@link afterLookupPath}'s normalized form. */
 function afterTargetPath(ctx: SimulationContext): string {
-  return normalizeDocumentPath(ctx.afterStatePath.toString());
+  return normalizeDocumentPath(ctx.afterStatePath.toString(), ctx.database);
 }
 
 // ═══ Function calls ═══
@@ -126,7 +140,7 @@ export function evaluateFunctionCall(
     }
     case 'getAfter': {
       const pathStr = requireLookupPath('getAfter', args, ctx, scope);
-      const normalized = afterLookupPath('getAfter', pathStr);
+      const normalized = afterLookupPath('getAfter', pathStr, ctx.database);
       // getAfter() is a document access call and counts against the
       // per-request budget. 'after' keying: the post-write projection is a
       // different snapshot than get()'s pre-write read, so a path read by
@@ -204,7 +218,7 @@ export function evaluateFunctionCall(
     }
     case 'existsAfter': {
       const pathStr = requireLookupPath('existsAfter', args, ctx, scope);
-      const normalized = afterLookupPath('existsAfter', pathStr);
+      const normalized = afterLookupPath('existsAfter', pathStr, ctx.database);
       // existsAfter() counts against the per-request lookup budget and
       // shares getAfter()'s post-write slot for the same path.
       chargeLookup(ctx, 'after', normalized);

@@ -77,19 +77,17 @@ function defineOwnProperty(
   });
 }
 
+const RESOURCE_DOCUMENTS_PREFIX = /^(?:projects\/[^/]+\/)?databases\/([^/]+)\/documents(?:\/|$)/;
+
 function normalizeRelativeRefPath(rawPath: string): string {
-  const marker = '/documents/';
-  const index = rawPath.indexOf(marker);
-  let relative = rawPath;
-  if (index !== -1) {
-    relative = rawPath.slice(index + marker.length);
-  }
-  return relative.replace(/^\/+|\/+$/g, '');
+  const trimmed = rawPath.replace(/^\/+|\/+$/g, '');
+  const match = RESOURCE_DOCUMENTS_PREFIX.exec(trimmed);
+  return match ? trimmed.slice(match[0].length).replace(/^\/+/, '') : trimmed;
 }
 
 function extractRefDatabaseId(rawPath: string): string {
   const trimmed = rawPath.replace(/^\/+|\/+$/g, '');
-  const match = /^(?:projects\/[^/]+\/)?databases\/([^/]+)\/documents(?:\/|$)/.exec(trimmed);
+  const match = RESOURCE_DOCUMENTS_PREFIX.exec(trimmed);
   if (match !== null) return match[1]!;
   return DEFAULT_DB_ID;
 }

@@ -405,6 +405,9 @@ function evaluateNode(expr: Expression, ctx: SimulationContext, scope: Record<st
         }
       }
       if (error) throw error;
+      if (expr.isReference && parts.length >= 3 && parts[0] === 'databases' && parts[2] === 'documents') {
+        return new Reference(parts.slice(3).join('/'), parts[1]);
+      }
       return new Path(parts);
     }
 

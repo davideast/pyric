@@ -141,7 +141,7 @@ function storagePathFromReferenceString(rawPath: string, databaseId: string = '(
   let trimmed = rawPath.replace(/^\/+|\/+$/g, '');
   const projectsMatch = /^projects\/[^/]+\/(databases(?:\/.*)?)$/.exec(trimmed);
   if (projectsMatch) trimmed = projectsMatch[1]!;
-  if (trimmed === 'databases' || trimmed.startsWith('databases/')) {
+  if (/^databases\/[^/]+\/documents(?:\/|$)/.test(trimmed)) {
     return new StoragePath(`/${trimmed}`);
   }
   return new StoragePath(

@@ -379,3 +379,138 @@ function classMember(codePoint: number, unicode: boolean): string {
   if (unicode) return `\\u{${codePoint.toString(16)}}`;
   return `\\u${Math.min(codePoint, 0xffff).toString(16).padStart(4, '0')}`;
 }
+
+type Re2ClassAtom =
+  | { kind: 'class'; raw: string; next: number }
+  | { kind: 'char'; codePoint: number; next: number }
+  | { kind: 'incomplete'; next: number };
+
+function readRe2ClassAtom(pattern: string, pos: number): Re2ClassAtom {
+  const posix = re2PosixClassAt(pattern, pos);
+  if (posix !== null) {
+    return { kind: 'class', raw: pattern.slice(pos, pos + posix.length), next: pos + posix.length };
+  }
+  if (pattern[pos] === '\\') {
+    if (pos + 1 >= pattern.length) return { kind: 'incomplete', next: pattern.length };
+    const esc = pattern[pos + 1]!;
+    if (esc === 'd' || esc === 'D' || esc === 's' || esc === 'S' || esc === 'w' || esc === 'W') {
+      return { kind: 'class', raw: pattern.slice(pos, pos + 2), next: pos + 2 };
+    }
+    if (esc === 'p' || esc === 'P') {
+      if (pattern[pos + 2] === '{') {
+        const close = pattern.indexOf('}', pos + 3);
+        if (close === -1) return { kind: 'incomplete', next: pattern.length };
+        return { kind: 'class', raw: pattern.slice(pos, close + 1), next: close + 1 };
+      }
+      if (/^[A-Za-z]$/.test(pattern[pos + 2] ?? '')) {
+        return { kind: 'class', raw: pattern.slice(pos, pos + 3), next: pos + 3 };
+      }
+    }
+    if (esc === 'a') return { kind: 'char', codePoint: 0x07, next: pos + 2 };
+    if (esc === 'f') return { kind: 'char', codePoint: 0x0c, next: pos + 2 };
+    if (esc === 'n') return { kind: 'char', codePoint: 0x0a, next: pos + 2 };
+    if (esc === 'r') return { kind: 'char', codePoint: 0x0d, next: pos + 2 };
+    if (esc === 't') return { kind: 'char', codePoint: 0x09, next: pos + 2 };
+    if (esc === 'v') return { kind: 'char', codePoint: 0x0b, next: pos + 2 };
+    if ((esc === 'x' || esc === 'u') && pattern[pos + 2] === '{') {
+      const close = pattern.indexOf('}', pos + 3);
+      if (close !== -1) {
+        const hex = pattern.slice(pos + 3, close);
+        if (/^[0-9A-Fa-f]+$/.test(hex)) {
+          const cp = parseInt(hex, 16);
+          if (cp <= 0x10ffff) return { kind: 'char', codePoint: cp, next: close + 1 };
+        }
+      }
+    }
+    if (esc === 'x' && /^[0-9A-Fa-f]{2}/.test(pattern.slice(pos + 2, pos + 4))) {
+      return { kind: 'char', codePoint: parseInt(pattern.slice(pos + 2, pos + 4), 16), next: pos + 4 };
+    }
+    if (esc === 'u' && /^[0-9A-Fa-f]{4}/.test(pattern.slice(pos + 2, pos + 6))) {
+      return { kind: 'char', codePoint: parseInt(pattern.slice(pos + 2, pos + 6), 16), next: pos + 6 };
+    }
+    const oct3 = /^[0-3][0-7]{2}/.exec(pattern.slice(pos + 1));
+    if (oct3) {
+      return { kind: 'char', codePoint: parseInt(oct3[0], 8), next: pos + 1 + oct3[0].length };
+    }
+    const octShort = /^[0-7]{1,2}/.exec(pattern.slice(pos + 1));
+    if (octShort) {
+      return { kind: 'char', codePoint: parseInt(octShort[0], 8), next: pos + 1 + octShort[0].length };
+    }
+    const cp = pattern.codePointAt(pos + 1)!;
+    return { kind: 'char', codePoint: cp, next: pos + 1 + (cp > 0xffff ? 2 : 1) };
+  }
+  const cp = pattern.codePointAt(pos)!;
+  return { kind: 'char', codePoint: cp, next: pos + (cp > 0xffff ? 2 : 1) };
+}
+
+/**
+ * Validate RE2 character-class ranges inside `[...]`. RE2 rejects any `lo-hi`
+ * range where either endpoint is a multi-character class (`\d`, `\D`, `\s`,
+ * `\S`, `\w`, `\W`, `\p...`, `\P...`, `[:name:]`) or where `lo > hi`, while
+ * permitting escaped `\-` and leading/trailing literal `-` (`[-\d]`, `[\d-]`).
+ */
+export function findInvalidRe2CharClassRange(pattern: string): string | null {
+  let i = 0;
+  while (i < pattern.length) {
+    const ch = pattern[i]!;
+    if (ch === '\\') {
+      const next = pattern[i + 1];
+      if (next === undefined) break;
+      if (next === 'Q') {
+        const close = pattern.indexOf('\\E', i + 2);
+        i = close === -1 ? pattern.length : close + 2;
+        continue;
+      }
+      if ((next === 'x' || next === 'u' || next === 'p' || next === 'P') && pattern[i + 2] === '{') {
+        const close = pattern.indexOf('}', i + 3);
+        i = close === -1 ? pattern.length : close + 1;
+        continue;
+      }
+      if (/^[0-3][0-7]{2}/.test(pattern.slice(i + 1))) {
+        i += 4;
+        continue;
+      }
+      const cp = pattern.codePointAt(i + 1)!;
+      i += 1 + (cp > 0xffff ? 2 : 1);
+      continue;
+    }
+    if (ch !== '[') {
+      const cp = pattern.codePointAt(i)!;
+      i += cp > 0xffff ? 2 : 1;
+      continue;
+    }
+    i++;
+    if (pattern[i] === '^') i++;
+    let atClassStart = true;
+    while (i < pattern.length) {
+      if (!atClassStart && pattern[i] === ']') {
+        i++;
+        break;
+      }
+      atClassStart = false;
+      const first = readRe2ClassAtom(pattern, i);
+      i = first.next;
+      if (first.kind === 'incomplete') break;
+      const hasRangeDash =
+        i < pattern.length &&
+        pattern[i] === '-' &&
+        i + 1 < pattern.length &&
+        pattern[i + 1] !== ']';
+      if (!hasRangeDash) continue;
+      if (first.kind === 'class') {
+        return `Invalid character class range starting with ${first.raw}`;
+      }
+      i++;
+      const second = readRe2ClassAtom(pattern, i);
+      i = second.next;
+      if (second.kind === 'incomplete') break;
+      if (second.kind === 'class') {
+        return `Invalid character class range ending with ${second.raw}`;
+      }
+      if (first.codePoint > second.codePoint) {
+        return 'Character class range out of order';
+      }
+    }
+  }
+  return null;
+}
