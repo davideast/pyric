@@ -76,7 +76,7 @@ export function timestamp(
 /**
  * A `bytes` value.
  *   - string     → UTF-8 encoded
- *   - Uint8Array → used verbatim
+ *   - Uint8Array → defensively copied
  */
 export function bytes(input: string | Uint8Array): Bytes {
   return typeof input === 'string' ? Bytes.fromUtf8(input) : new Bytes(new Uint8Array(input));
