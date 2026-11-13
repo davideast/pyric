@@ -202,4 +202,161 @@ describe('Firestore rules evaluation differential corpus', () => {
     expect((await getDoc(doc(db, 'items', 'b-create-upd'))).data()).toEqual({ ownerId: 'u1', stage: 'final' });
     expect((await getDoc(doc(db, 'items', 'b-upd-upd'))).data()).toEqual({ ownerId: 'u1', stage: 'final' });
   });
+
+  test('SD:FS-RULES-EVAL standing corpus: lookup and Reference path normalization boundaries agree across simulate() and Sandbox', async () => {
+    const sb = initializeSandbox();
+    const db = getFirestore(sb.withAuth({ uid: 'u1', token: {} }));
+    const dbArchive = getFirestore(sb.withAuth({ uid: 'u1', token: {} }), 'archive');
+
+    seedDocuments(sb, {
+      'admins/u1': { isAdmin: true },
+      '_extra/u1': { isAdmin: true },
+      'documents/d1': { ok: true },
+      'orgs/documents/members/u1': { role: 'member' },
+      'orgs/org-1/documents/doc-1': { tenant: 'org-1' },
+      'orgs/org-2/documents/doc-1': { tenant: 'org-2' },
+      'items/target': {
+        topDocsRef: doc(db, 'documents', 'd1'),
+        docIdDocsRef: doc(db, 'orgs', 'documents', 'members', 'u1'),
+        org1DocsRef: doc(db, 'orgs', 'org-1', 'documents', 'doc-1'),
+        org2DocsRef: doc(db, 'orgs', 'org-2', 'documents', 'doc-1'),
+        archiveDocsRef: doc(dbArchive, 'orgs', 'org-1', 'documents', 'doc-1'),
+      },
+    });
+
+    const corpus: Array<{
+      name: string;
+      condition: string;
+      expected: 'ALLOW' | 'DENY';
+    }> = [
+      {
+        name: 'canonical /databases/$(database)/documents/admins/$(uid) lookup',
+        condition: 'exists(/databases/$(database)/documents/admins/$(request.auth.uid)) && get(/databases/$(database)/documents/admins/$(request.auth.uid)).data.isAdmin == true',
+        expected: 'ALLOW',
+      },
+      {
+        name: 'user collection named documents at root',
+        condition: 'exists(/databases/$(database)/documents/documents/d1) && resource.data.topDocsRef == /databases/$(database)/documents/documents/d1',
+        expected: 'ALLOW',
+      },
+      {
+        name: 'document ID named documents preserves full prefix and does not spoof root',
+        condition: 'resource.data.docIdDocsRef == /databases/$(database)/documents/orgs/documents/members/u1 && resource.data.docIdDocsRef != /databases/$(database)/documents/members/u1 && get(resource.data.docIdDocsRef).data.role == "member"',
+        expected: 'ALLOW',
+      },
+      {
+        name: 'subcollection named documents isolates cross-tenant references and named databases',
+        condition: 'resource.data.org1DocsRef != resource.data.org2DocsRef && resource.data.org1DocsRef != resource.data.archiveDocsRef && resource.data.archiveDocsRef == /databases/archive/documents/orgs/org-1/documents/doc-1',
+        expected: 'ALLOW',
+      },
+      {
+        name: 'concatenated /databases/$(database)/documentsadmins/... boundary prefix fails closed',
+        condition: 'exists(/databases/$(database)/documentsadmins/$(request.auth.uid))',
+        expected: 'DENY',
+      },
+      {
+        name: 'negated !exists on /databases/$(database)/documents_extra/... fails closed (EvalError, not false)',
+        condition: '!exists(/databases/$(database)/documents_extra/$(request.auth.uid))',
+        expected: 'DENY',
+      },
+      {
+        name: 'exact /databases/$(database)/documents root without document segments fails closed',
+        condition: '!exists(path("/databases/(default)/documents"))',
+        expected: 'DENY',
+      },
+      {
+        name: 'truncated /databases/(default) two-segment path fails closed',
+        condition: '!exists(path("/databases/(default)"))',
+        expected: 'DENY',
+      },
+      {
+        name: 'foreign named database lookup in Firestore rules fails closed',
+        condition: '!exists(/databases/archive/documents/orgs/org-1/documents/doc-1)',
+        expected: 'DENY',
+      },
+      {
+        name: 'dot segment inside /databases/./(default)/documents/admins fails closed',
+        condition: '!exists(path("/databases/./(default)/documents/admins"))',
+        expected: 'DENY',
+      },
+      {
+        name: 'double slashes inside /databases//(default)//documents/admins collection path fails closed',
+        condition: '!exists(path("/databases//(default)//documents/admins"))',
+        expected: 'DENY',
+      },
+    ];
+
+    const simMocks = [
+      { function: 'exists' as const, path: 'admins/u1', result: true },
+      { function: 'get' as const, path: 'admins/u1', result: { isAdmin: true } },
+      { function: 'exists' as const, path: '_extra/u1', result: true },
+      { function: 'exists' as const, path: 'documents/d1', result: true },
+      { function: 'exists' as const, path: 'databases/(default)/documents/admins', result: true },
+      { function: 'get' as const, path: 'orgs/documents/members/u1', result: { role: 'member' } },
+    ];
+    const simResource = {
+      topDocsRef: reference('documents/d1'),
+      docIdDocsRef: reference('orgs/documents/members/u1'),
+      org1DocsRef: reference('orgs/org-1/documents/doc-1'),
+      org2DocsRef: reference('orgs/org-2/documents/doc-1'),
+      archiveDocsRef: reference('/databases/archive/documents/orgs/org-1/documents/doc-1'),
+    };
+
+    for (const entry of corpus) {
+      const rulesSource = [
+        "rules_version = '2';",
+        'service cloud.firestore {',
+        '  match /databases/{database}/documents {',
+        '    match /items/{id} {',
+        `      allow get: if ${entry.condition};`,
+        '    }',
+        '  }',
+        '}',
+      ].join('\n');
+
+      const simResult = firestoreRules(rulesSource).simulate([
+        {
+          description: entry.name,
+          expectation: entry.expected,
+          method: 'get',
+          path: 'items/target',
+          auth: { uid: 'u1' },
+          resource: simResource,
+          functionMocks: simMocks,
+        },
+      ]);
+      expect(simResult.cases[0]?.decision).toBe(entry.expected);
+
+      setRules(sb, rulesSource);
+      if (entry.expected === 'ALLOW') {
+        expect((await getDoc(doc(db, 'items', 'target'))).exists()).toBe(true);
+      } else {
+        await expect(getDoc(doc(db, 'items', 'target'))).rejects.toMatchObject({
+          code: 'permission-denied',
+        });
+      }
+    }
+
+    // Batch getAfter / existsAfter on malformed /databases/$(database)/documentsadmins/... also fails closed.
+    setRules(
+      sb,
+      [
+        "rules_version = '2';",
+        'service cloud.firestore {',
+        '  match /databases/{database}/documents {',
+        '    match /admins/{uid} { allow create: if true; }',
+        '    match /batchItems/{id} {',
+        '      allow create: if existsAfter(/databases/$(database)/documentsadmins/$(request.auth.uid))',
+        '        && getAfter(/databases/$(database)/documentsadmins/$(request.auth.uid)).data.isAdmin == true;',
+        '    }',
+        '  }',
+        '}',
+      ].join('\n'),
+    );
+    const dbU2 = getFirestore(sb.withAuth({ uid: 'u2', token: {} }));
+    const batch = writeBatch(dbU2);
+    batch.set(doc(dbU2, 'admins', 'u2'), { isAdmin: true });
+    batch.set(doc(dbU2, 'batchItems', 'b1'), { ok: true });
+    await expect(batch.commit()).rejects.toMatchObject({ code: 'permission-denied' });
+  });
 });

@@ -158,6 +158,98 @@ describe('collection-group query under match /{path=**}/<collectionId>/{id}', ()
       'users/u2/items/b',
     ]);
   });
+
+  it('charges lookup budgets through helper functions, let bindings, ternaries, resource guards, and overlapping blocks', async () => {
+    const elevenLookups = Array.from(
+      { length: 11 },
+      (_, i) => `exists(/databases/$(database)/documents/configs/k${i})`,
+    ).join(' || ');
+    const twoLookups = Array.from(
+      { length: 2 },
+      (_, i) => `exists(/databases/$(database)/documents/configs/k${i})`,
+    ).join(' || ');
+
+    const { db: dbHelperOr } = setup(
+      [
+        'function specialItem(docId) {',
+        '  let target = docId;',
+        `  return target == 'a' && (${elevenLookups});`,
+        '}',
+        'match /{path=**}/items/{id} {',
+        '  allow read: if specialItem(id) || request.auth != null;',
+        '}',
+      ].join('\n'),
+      'alice',
+    );
+    await expect(getDocs(collectionGroup(dbHelperOr, 'items'))).rejects.toMatchObject({
+      code: 'permission-denied',
+    });
+
+    const { db: dbUnusedLetHelper } = setup(
+      [
+        'function unusedLetItem(docId) {',
+        `  let sideCheck = (${elevenLookups});`,
+        "  return docId == 'a';",
+        '}',
+        'match /{path=**}/items/{id} {',
+        '  allow read: if unusedLetItem(id) || request.auth != null;',
+        '}',
+      ].join('\n'),
+      'alice',
+    );
+    await expect(getDocs(collectionGroup(dbUnusedLetHelper, 'items'))).rejects.toMatchObject({
+      code: 'permission-denied',
+    });
+
+    const { db: dbTernary } = setup(
+      `match /{path=**}/items/{id} { allow read: if (id == 'a' ? (${elevenLookups}) : false) || request.auth != null; }`,
+      'alice',
+    );
+    await expect(getDocs(collectionGroup(dbTernary, 'items'))).rejects.toMatchObject({
+      code: 'permission-denied',
+    });
+
+    const { db: dbPathAndResource } = setup(
+      `match /{path=**}/items/{id} { allow read: if (id == 'a' && 'visibility' in resource.data && (${elevenLookups})) || request.auth != null; }`,
+      'alice',
+    );
+    await expect(getDocs(collectionGroup(dbPathAndResource, 'items'))).rejects.toMatchObject({
+      code: 'permission-denied',
+    });
+
+    const { db: dbOverlappingBlock } = setup(
+      [
+        'match /{path=**}/items/{id} {',
+        `  allow read: if id == 'a' && (${elevenLookups});`,
+        '}',
+        'match /{document=**} {',
+        '  allow read: if request.auth != null;',
+        '}',
+      ].join('\n'),
+      'alice',
+    );
+    await expect(getDocs(collectionGroup(dbOverlappingBlock, 'items'))).rejects.toMatchObject({
+      code: 'permission-denied',
+    });
+
+    const { db: dbHelperWithinBudget } = setup(
+      [
+        'function specialItem(docId) {',
+        `  return docId == 'a' && (${twoLookups});`,
+        '}',
+        'match /{path=**}/items/{id} {',
+        '  allow read: if specialItem(id) || request.auth != null;',
+        '}',
+      ].join('\n'),
+      'alice',
+    );
+    const snap = await getDocs(collectionGroup(dbHelperWithinBudget, 'items'));
+    expect(snap.docs.map((d) => d.ref.path).sort()).toEqual([
+      'items/c',
+      'users/u1/items/a',
+      'users/u2/items/b',
+    ]);
+  });
 });
 
 const LISTEN_RULES = `

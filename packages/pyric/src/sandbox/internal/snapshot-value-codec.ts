@@ -78,20 +78,11 @@ function defineOwnProperty(
 }
 
 function normalizeRelativeRefPath(rawPath: string): string {
-  const marker = '/documents/';
-  const index = rawPath.indexOf(marker);
-  let relative = rawPath;
-  if (index !== -1) {
-    relative = rawPath.slice(index + marker.length);
-  }
-  return relative.replace(/^\/+|\/+$/g, '');
+  return new RulesReference(rawPath).path;
 }
 
 function extractRefDatabaseId(rawPath: string): string {
-  const trimmed = rawPath.replace(/^\/+|\/+$/g, '');
-  const match = /^(?:projects\/[^/]+\/)?databases\/([^/]+)\/documents(?:\/|$)/.exec(trimmed);
-  if (match !== null) return match[1]!;
-  return DEFAULT_DB_ID;
+  return new RulesReference(rawPath).databaseId || DEFAULT_DB_ID;
 }
 
 interface DuckDocumentReference {

@@ -119,4 +119,46 @@ describe('document lookups', () => {
       resolveExists('/databases/(default)/documents/databases/analytics/documents/orgs', defaultNestedContext),
     ).toBe(true);
   });
+
+  test('does not strip /databases/(default)/documents without a segment boundary and rejects malformed /databases/... lookup paths', () => {
+    expect(normalizeDocumentPath('/databases/(default)/documents')).toBe('');
+    expect(normalizeDocumentPath('/databases/(default)/documents/')).toBe('');
+    expect(normalizeDocumentPath('/databases/(default)/documents/admins/u1')).toBe('admins/u1');
+    expect(normalizeDocumentPath('/databases/(default)/documentsadmins/u1')).toBe(
+      'databases/(default)/documentsadmins/u1',
+    );
+    expect(normalizeDocumentPath('/databases/(default)/documents_extra/u1')).toBe(
+      'databases/(default)/documents_extra/u1',
+    );
+    expect(normalizeDocumentPath('/databases/analytics/documents/orgs/o1', 'analytics')).toBe('orgs/o1');
+    expect(normalizeDocumentPath('/databases/analytics/documents', 'analytics')).toBe('');
+
+    const context = {
+      mockDocuments: new Map([
+        ['admins/u1', { isAdmin: true }],
+        ['databases/(default)/documentsadmins/u1', { isAdmin: true }],
+        ['databases/(default)', { isAdmin: true }],
+      ]),
+    } as unknown as SimulationContext;
+
+    expect(() => resolveExists('/databases/(default)/documentsadmins/u1', context)).toThrow(EvalError);
+    expect(() => resolveGet('/databases/(default)/documentsadmins/u1', context)).toThrow(EvalError);
+    expect(() => resolveExists('/databases/(default)/documents_extra/u1', context)).toThrow(EvalError);
+    expect(() => resolveGet('/databases/(default)/documents_extra/u1', context)).toThrow(EvalError);
+    expect(() => resolveExists('/databases/(default)', context)).toThrow(EvalError);
+    expect(() => resolveGet('/databases/(default)', context)).toThrow(EvalError);
+    expect(() => resolveExists('/databases', context)).toThrow(EvalError);
+    expect(() => resolveExists('/databases/analytics/documentsadmins/u1', context)).toThrow(EvalError);
+    expect(() => resolveExists('databases/(default)/documents_extra/u1', context)).toThrow(EvalError);
+    expect(() => resolveGet('databases/(default)/documents_extra/u1', context)).toThrow(EvalError);
+    expect(() => resolveExists('//databases/(default)/documents_extra/u1', context)).toThrow(EvalError);
+    expect(() => resolveGet('//databases/(default)/documents_extra/u1', context)).toThrow(EvalError);
+    expect(() => resolveExists('/databases/./(default)/documents/admins', context)).toThrow(EvalError);
+    expect(() => resolveGet('/databases/./(default)/documents/admins', context)).toThrow(EvalError);
+    expect(() => resolveExists('/databases//(default)//documents/admins', context)).toThrow(EvalError);
+
+    expect(normalizeDocumentPath('/databases//(default)//documents/admins')).toBe('admins');
+    const namedGetResource = makeGetResource('orgs/o1', { name: 'acme' }, 'analytics');
+    expect(String(namedGetResource.__name__)).toBe('/databases/analytics/documents/orgs/o1');
+  });
 });

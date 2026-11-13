@@ -12,10 +12,12 @@ import {
   Duration,
   evaluateQueryProof,
   getListBlockSteps,
+  getOrBudgetStepExpressions,
   getOrBudgetSteps,
   indexRulesetScopes,
   isQueryProofScalar,
   LatLng,
+  projectWorstCaseBudgetExpr,
   queryProofScalarsEqual,
   Reference,
   resolveRootBlockMatch,
@@ -168,65 +170,6 @@ function groupBindings(
   return null;
 }
 
-function worstCasePathBudgetBranch(
-  expr: Expression,
-  bound: ReadonlySet<string>,
-  functions: ReadonlyMap<string, FunctionDef>,
-  ambiguousNames: ReadonlySet<string>,
-): { expr: Expression; requiredFunctionDefs: ReadonlySet<FunctionDef> } {
-  const analysis = analyzeListRulePathInvariance(expr, bound, functions, ambiguousNames);
-  if (analysis.pathInvariant) {
-    return { expr, requiredFunctionDefs: analysis.requiredFunctionDefs };
-  }
-  if (expr.type === 'unaryOp' && expr.op === '!') {
-    const inner = expr.operand;
-    if (inner.type === 'binaryOp' && (inner.op === '&&' || inner.op === '||')) {
-      return worstCasePathBudgetBranch(
-        {
-          type: 'binaryOp',
-          op: inner.op === '&&' ? '||' : '&&',
-          left: { type: 'unaryOp', op: '!', operand: inner.left },
-          right: { type: 'unaryOp', op: '!', operand: inner.right },
-        },
-        bound,
-        functions,
-        ambiguousNames,
-      );
-    }
-    const sub = worstCasePathBudgetBranch(inner, bound, functions, ambiguousNames);
-    return {
-      expr: sub.expr === inner ? expr : { ...expr, operand: sub.expr },
-      requiredFunctionDefs: sub.requiredFunctionDefs,
-    };
-  }
-  if (expr.type === 'binaryOp' && (expr.op === '&&' || expr.op === '||')) {
-    const left = worstCasePathBudgetBranch(expr.left, bound, functions, ambiguousNames);
-    const right = worstCasePathBudgetBranch(expr.right, bound, functions, ambiguousNames);
-    const defs = new Set([...left.requiredFunctionDefs, ...right.requiredFunctionDefs]);
-    const leftInvariant = analyzeListRulePathInvariance(
-      expr.left,
-      bound,
-      functions,
-      ambiguousNames,
-    ).pathInvariant;
-    if (!leftInvariant) {
-      return {
-        expr: attachOrBudgetStep(right.expr, {
-          operator: expr,
-          side: 'before',
-          branch: left.expr,
-        }),
-        requiredFunctionDefs: defs,
-      };
-    }
-    return {
-      expr: { ...expr, left: left.expr, right: right.expr },
-      requiredFunctionDefs: defs,
-    };
-  }
-  return { expr, requiredFunctionDefs: analysis.requiredFunctionDefs };
-}
-
 function projectPathInvariantCondition(
   expr: Expression,
   bound: ReadonlySet<string>,
@@ -292,7 +235,12 @@ function projectPathInvariantCondition(
     }
     if (expr.op === '||') {
       if (!left && right) {
-        const dropped = worstCasePathBudgetBranch(expr.left, bound, functions, ambiguousNames);
+        const dropped = projectWorstCaseBudgetExpr(expr.left, {
+          outerFunctions: functions,
+          candidateVariables: bound,
+          ambiguousNames,
+          checkResourceDependence: false,
+        });
         return {
           condition: attachOrBudgetStep(right.condition, {
             operator: expr,
@@ -306,7 +254,12 @@ function projectPathInvariantCondition(
         };
       }
       if (left && !right) {
-        const dropped = worstCasePathBudgetBranch(expr.right, bound, functions, ambiguousNames);
+        const dropped = projectWorstCaseBudgetExpr(expr.right, {
+          outerFunctions: functions,
+          candidateVariables: bound,
+          ambiguousNames,
+          checkResourceDependence: false,
+        });
         return {
           condition: attachOrBudgetStep(left.condition, {
             operator: expr,
@@ -352,12 +305,12 @@ function projectAllowsWithBudget(
       ambiguousNames,
     );
     if (!projected) {
-      const budgetBranch = worstCasePathBudgetBranch(
-        rule.condition,
-        bound,
-        scopeFunctions,
+      const budgetBranch = projectWorstCaseBudgetExpr(rule.condition, {
+        outerFunctions: scopeFunctions,
+        candidateVariables: bound,
         ambiguousNames,
-      );
+        checkResourceDependence: false,
+      });
       const budgetRule =
         budgetBranch.expr === rule.condition
           ? rule
@@ -379,7 +332,7 @@ function projectAllowsWithBudget(
     blockSteps.push({ kind: 'grant', rule: projectedRule, index: ruleIndex });
   }
 
-  if (retained.length > 0 && blockSteps.some((step) => step.kind === 'budget')) {
+  if (blockSteps.some((step) => step.kind === 'budget')) {
     for (const fnDef of budgetDefs) {
       requiredDefs.add(fnDef);
     }
@@ -405,7 +358,8 @@ function projectGroupBlock(
     scope.functions,
     scope.ambiguousNames,
   );
-  if (projected.allows.length === 0) return null;
+  const hasBudgetSteps = projected.blockSteps.some((step) => step.kind === 'budget');
+  if (projected.allows.length === 0 && !hasBudgetSteps) return null;
 
   const blockRequiredDefs = new Set<FunctionDef>();
   for (const fnDef of projected.requiredDefs) {
@@ -422,7 +376,7 @@ function projectGroupBlock(
     allows: projected.allows,
     children: [],
   };
-  if (projected.blockSteps.some((step) => step.kind === 'budget')) {
+  if (hasBudgetSteps) {
     setListBlockSteps(projectedBlock, projected.blockSteps);
   }
   return projectedBlock;
@@ -467,7 +421,7 @@ export function projectCollectionGroupAst(
       );
       rootAllows = projectedRootAllows.allows;
       rootSteps = projectedRootAllows.blockSteps;
-      if (rootAllows.length > 0) {
+      if (rootAllows.length > 0 || rootSteps.some((step) => step.kind === 'budget')) {
         for (const fnDef of projectedRootAllows.requiredDefs) {
           blockRequiredDefs.add(fnDef);
         }
@@ -487,7 +441,8 @@ export function projectCollectionGroupAst(
       if (projected) children.push(projected);
     }
 
-    if (rootAllows.length === 0 && children.length === 0) continue;
+    const hasRootBudgets = rootSteps.some((step) => step.kind === 'budget');
+    if (rootAllows.length === 0 && !hasRootBudgets && children.length === 0) continue;
     for (const fnDef of blockRequiredDefs) {
       if (!rootBlock.functions.includes(fnDef)) {
         requiredFunctionDefs.add(fnDef);
@@ -499,13 +454,16 @@ export function projectCollectionGroupAst(
       allows: rootAllows,
       children,
     };
-    if (rootAllows.length > 0 && rootSteps.some((step) => step.kind === 'budget')) {
+    if (hasRootBudgets) {
       setListBlockSteps(projectedRoot, rootSteps);
     }
     projectedRoots.push(projectedRoot);
   }
 
-  if (projectedRoots.length === 0) return null;
+  const hasAnyGrant = projectedRoots.some(
+    (root) => root.allows.length > 0 || root.children.some((child) => child.allows.length > 0),
+  );
+  if (!hasAnyGrant) return null;
   const retainGlobal = (fns: readonly FunctionDef[] | undefined): FunctionDef[] | undefined => {
     if (!fns) return undefined;
     return fns.filter((fn) => requiredFunctionDefs.has(fn));
@@ -782,12 +740,20 @@ export function inspectRetainedRules(
   for (const match of matches) {
     const scope = buildListRuleFunctionScope(match.functions);
     const matchWildcardNames = new Set(Object.getOwnPropertyNames(match.pathVariables));
+    const walkedBudgetExprs = new Set<Expression>();
     const inspectExpr = (expr: Expression): void => {
+      if (walkedBudgetExprs.has(expr)) return;
+      walkedBudgetExprs.add(expr);
       walkRuleExpression(
         expr,
         scope.functions,
         new Set(),
         (node, parent, grandparent) => {
+          for (const orStep of getOrBudgetSteps(node) ?? []) {
+            for (const sub of getOrBudgetStepExpressions(orStep)) {
+              inspectExpr(sub);
+            }
+          }
           if (
             node.type === 'functionCall'
             && !scope.functions.has(node.name)
@@ -828,7 +794,9 @@ export function inspectRetainedRules(
         },
       );
       for (const orStep of getOrBudgetSteps(expr) ?? []) {
-        inspectExpr(orStep.branch);
+        for (const sub of getOrBudgetStepExpressions(orStep)) {
+          inspectExpr(sub);
+        }
       }
     };
 

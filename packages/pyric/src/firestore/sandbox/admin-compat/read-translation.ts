@@ -32,8 +32,8 @@ function translateValue(value: unknown): unknown {
   }
   const isReference = value instanceof InternalReference;
   if (isReference) {
-    // Stored values have reference identity but no client connection owner.
-    registerReferenceQueryValue(value, value.path);
+    // Stored values have reference identity (including databaseId) but no client connection owner.
+    registerReferenceQueryValue(value, value.path, undefined, value, value.databaseId);
     return value;
   }
   // Bytes + LatLng wrappers (rules-internal) ride through the read path

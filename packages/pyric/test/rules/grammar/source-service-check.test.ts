@@ -57,6 +57,39 @@ ${lets}
 
 const SERVICE_REASON = "rules did not compile: Expected 'service cloud.firestore', got 'service firebase.storage'.";
 
+const STORAGE_MODULES = `rules_version = '2+modules';
+import { isSignedIn } from './helpers.rules';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /{allPaths=**} {
+      allow read: if isSignedIn();
+    }
+  }
+}`;
+
+const FIRESTORE_MODULES = `rules_version = '2+modules';
+import { isSignedIn } from './helpers.rules';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /notes/{id} {
+      allow read: if isSignedIn();
+    }
+  }
+}`;
+
+const DUPLICATE_FIRESTORE_MODULES = `rules_version = '2+modules';
+import { isSignedIn } from './helpers.rules';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /notes/{id} { allow read: if isSignedIn(); }
+  }
+}
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /notes/{id} { allow read: if false; }
+  }
+}`;
+
 describe('checkRulesSource refuses a ruleset for another service', () => {
   test('a service firebase.storage source is a parse rejection at the service keyword', () => {
     const checked = checkRulesSource(STORAGE_ALLOW_ALL);
@@ -65,6 +98,44 @@ describe('checkRulesSource refuses a ruleset for another service', () => {
       rejection: { kind: 'parse', line: 2, column: 1, message: SERVICE_REASON, otherService: 'firebase.storage' },
     });
     expect(rulesSourceRejection(STORAGE_ALLOW_ALL)).toEqual({ kind: 'parse', line: 2, column: 1, message: SERVICE_REASON, otherService: 'firebase.storage' });
+  });
+
+  test('checks service identity and duplicate declarations before module compile limits', () => {
+    const expectedWrongService = {
+      kind: 'parse' as const,
+      line: 3,
+      column: 1,
+      message: SERVICE_REASON,
+      otherService: 'firebase.storage',
+    };
+    expect(checkRulesSource(STORAGE_MODULES)).toEqual({
+      ok: false,
+      rejection: expectedWrongService,
+    });
+    expect(rulesSourceRejection(STORAGE_MODULES)).toEqual(expectedWrongService);
+
+    expect(rulesGrammarRejection(STORAGE_MODULES)).toMatchObject({
+      kind: 'compile',
+      violations: [expect.objectContaining({ code: 'UNRESOLVED_MODULES' })],
+    });
+
+    expect(checkRulesSource(FIRESTORE_MODULES)).toMatchObject({
+      ok: false,
+      rejection: {
+        kind: 'compile',
+        violations: [expect.objectContaining({ code: 'UNRESOLVED_MODULES' })],
+      },
+    });
+
+    expect(checkRulesSource(DUPLICATE_FIRESTORE_MODULES)).toEqual({
+      ok: false,
+      rejection: {
+        kind: 'parse',
+        line: 8,
+        column: 1,
+        message: 'rules did not compile: Duplicate service name declaration.',
+      },
+    });
   });
 
   test('a cloud.firestore source loads, and parse and compile rejections read as before', () => {

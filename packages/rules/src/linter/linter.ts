@@ -34,7 +34,7 @@ import {
 import { checkSyntaxHints, checkHallucinations } from './hallucinations.js';
 import { countDocumentAccessCalls } from '../grammar/document-access-count.js';
 import { recursiveScope, type RecursiveScope } from '../grammar/recursive-scope.js';
-import { isStorageServiceName, topLevelMatches } from '../grammar/service-blocks.js';
+import { allServiceBlocks, isStorageServiceName, topLevelMatches, withSingleService } from '../grammar/service-blocks.js';
 import {
   analyzeCallChains,
   collectRulesetScopes,
@@ -43,7 +43,10 @@ import {
 } from '../grammar/function-scopes.js';
 import { EXPRESSION_LIMIT, estimateExpressionCosts, type RuleCostEstimate } from './expression-cost.js';
 import { ruleLibraryCalls } from './library-calls.js';
-import { resolveBundledModulesForAnalysis } from '../modules/resolver-browser.js';
+import {
+  resolveBundledModulesForAnalysis,
+  resolveBundledModulesWithDiagnostics,
+} from '../modules/resolver-browser.js';
 import {
   CALL_DEPTH_LIMIT,
   LET_LIMIT,
@@ -973,6 +976,8 @@ export interface LintOptions {
    * inferred from other options.
    */
   allowDebug?: boolean;
+  /** Optional service filter (`'all'` lints every service block in multi-service files). */
+  targetService?: 'cloud.firestore' | 'firebase.storage' | 'all';
 }
 
 /**
@@ -1005,9 +1010,90 @@ export function lintFirestoreRules(source: string, options: LintOptions = {}): L
   if (!parsed.ok) {
     return { warnings, metrics: sourceOnlyMetrics(source), parseError: parsed.error };
   }
+  const duplicateService = duplicateServiceRejection(parsed.ast);
+  if (duplicateService !== null) {
+    warnings.push({
+      rule: 'DUPLICATE_SERVICE',
+      severity: 'error',
+      message: DUPLICATE_SERVICE_REASON,
+      location: { line: duplicateService.line },
+      fix: 'Declare each service block at most once per rules file and place every match block for that service inside it.',
+    });
+  }
+  const allServices = allServiceBlocks(parsed.ast);
+  const servicesToAnalyze =
+    options.targetService === 'all'
+      ? allServices
+      : options.targetService !== undefined
+        ? allServices.filter((s) =>
+            options.targetService === 'firebase.storage'
+              ? isStorageServiceName(s.name)
+              : s.name === options.targetService,
+          )
+        : parsed.ast.service
+          ? [parsed.ast.service]
+          : [];
+  if (servicesToAnalyze.length === 0) {
+    return { warnings, metrics: sourceOnlyMetrics(source) };
+  }
   try {
-    const astForAnalysis = resolveBundledModulesForAnalysis(parsed.ast, source);
-    return analyzeParsedRules(astForAnalysis, source, options, warnings);
+    const emittedResolutionKeys = new Set<string>();
+    const combinedMetrics: RulesMetrics = sourceOnlyMetrics(source);
+    for (let serviceIndex = 0; serviceIndex < servicesToAnalyze.length; serviceIndex++) {
+      const service = servicesToAnalyze[serviceIndex]!;
+      const svcTarget: 'cloud.firestore' | 'firebase.storage' = isStorageServiceName(service.name)
+        ? 'firebase.storage'
+        : 'cloud.firestore';
+      const { ast: astForAnalysis, resolutionError } = resolveBundledModulesWithDiagnostics(
+        withSingleService(parsed.ast, service),
+        source,
+        { targetService: svcTarget },
+      );
+      if (resolutionError !== undefined) {
+        const key = `${resolutionError.code}:${resolutionError.line}:${resolutionError.message}`;
+        if (!emittedResolutionKeys.has(key)) {
+          emittedResolutionKeys.add(key);
+          pushWarning(
+            warnings,
+            {
+              rule: resolutionError.code,
+              severity: 'error',
+              message: resolutionError.message,
+            },
+            { line: resolutionError.line },
+          );
+        }
+      }
+      const svcResult = analyzeParsedRules(
+        astForAnalysis,
+        source,
+        options,
+        warnings,
+        serviceIndex > 0,
+        svcTarget,
+      );
+      const globalFnCount = serviceIndex > 0 ? (astForAnalysis.functions?.length ?? 0) : 0;
+      combinedMetrics.functionCount += Math.max(0, svcResult.metrics.functionCount - globalFnCount);
+      combinedMetrics.allowRuleCount += svcResult.metrics.allowRuleCount;
+      if (svcResult.metrics.maxChainDepth > combinedMetrics.maxChainDepth) {
+        combinedMetrics.maxChainDepth = svcResult.metrics.maxChainDepth;
+        combinedMetrics.maxChainOp = svcResult.metrics.maxChainOp;
+      }
+      if (svcResult.metrics.maxLetBindings > combinedMetrics.maxLetBindings) {
+        combinedMetrics.maxLetBindings = svcResult.metrics.maxLetBindings;
+        combinedMetrics.maxLetBindingsFunction = svcResult.metrics.maxLetBindingsFunction;
+      }
+      if (svcResult.metrics.maxCallDepth > combinedMetrics.maxCallDepth) {
+        combinedMetrics.maxCallDepth = svcResult.metrics.maxCallDepth;
+      }
+      if (svcResult.metrics.maxEstimatedExpressions > combinedMetrics.maxEstimatedExpressions) {
+        combinedMetrics.maxEstimatedExpressions = svcResult.metrics.maxEstimatedExpressions;
+      }
+      if (svcResult.metrics.getCallCount > combinedMetrics.getCallCount) {
+        combinedMetrics.getCallCount = svcResult.metrics.getCallCount;
+      }
+    }
+    return { warnings, metrics: combinedMetrics };
   } catch (error) {
     // The checks walk each expression recursively, following the functions
     // it calls. A chain the parser reads can still be deeper, through those
@@ -1051,10 +1137,16 @@ function analyzeParsedRules(
   source: string,
   options: LintOptions,
   warnings: LintWarning[],
+  isSecondaryService = false,
+  svcTarget: 'cloud.firestore' | 'firebase.storage' = isStorageServiceName(ast.service?.name)
+    ? 'firebase.storage'
+    : 'cloud.firestore',
 ): LintResult {
   // Collect all functions and rules from the AST
   const isStorage = isStorageServiceName(ast.service?.name);
   const allFunctions = collectDeclaredFunctions(ast);
+  const serviceOnlyAst: FirestoreRules = isSecondaryService ? { ...ast, functions: [] } : ast;
+  const ownFunctions = isSecondaryService ? collectDeclaredFunctions(serviceOnlyAst) : allFunctions;
   const allRules = collectServiceRules(ast.service);
   const scopes = collectRulesetScopes(ast);
   const fnScopes = new Map<FunctionDef, ReadonlyMap<string, FunctionDef>>(
@@ -1067,27 +1159,25 @@ function analyzeParsedRules(
   // Rule 1.5: A member chain as long as one production failed to compile.
   // First, and without recursion, so a chain too deep for the recursive
   // checks below is still reported by length.
-  checkMemberChainLength(ast, allFunctions, warnings);
+  checkMemberChainLength(serviceOnlyAst, ownFunctions, warnings);
 
   // Rules 2 and 2b: Nesting depth, slash starts path, recursive glob count, and other compile rejections
-  const duplicateService = duplicateServiceRejection(ast);
-  if (duplicateService !== null) {
-    warnings.push({
-      rule: 'DUPLICATE_SERVICE',
-      severity: 'error',
-      message: DUPLICATE_SERVICE_REASON,
-      location: { line: duplicateService.line },
-      fix: 'Declare each service block at most once per rules file and place every match block for that service inside it.',
-    });
-  }
-  const violations = compileLimitViolations(ast);
+  const rawViolations = compileLimitViolations(
+    serviceOnlyAst,
+    isSecondaryService ? { allowUnresolvedImports: true } : undefined,
+  );
+  const violations = isSecondaryService
+    ? rawViolations.filter(
+        (v) => v.code !== 'UNSUPPORTED_RULES_VERSION' && v.code !== 'UNRESOLVED_MODULES',
+      )
+    : rawViolations;
   checkNestingDepth(violations, warnings);
   checkSlashStartsPath(violations, warnings);
   checkGlobMatchCount(violations, warnings);
   checkAdditionalCompileRejections(ast, violations, warnings);
 
   // Rule 3: Let bindings
-  checkLetBindings(allFunctions, warnings);
+  checkLetBindings(ownFunctions, warnings);
 
   // Rule 4: Shared gates
   checkSharedGates(allRules, warnings);
@@ -1100,7 +1190,13 @@ function analyzeParsedRules(
   checkLibraryCalls(ast, warnings);
 
   // Rule 6: Call depth
-  const callDepths = checkCallDepth(scopes, warnings);
+  const callDepthScopes = isSecondaryService
+    ? {
+        functions: scopes.functions.filter((s) => s.label !== 'global scope'),
+        rules: scopes.rules,
+      }
+    : scopes;
+  const callDepths = checkCallDepth(callDepthScopes, warnings);
 
   // Rule 7: Get count
   checkGetCount(allRules, ruleScopes, fnScopes, warnings, isStorage);
@@ -1109,14 +1205,7 @@ function analyzeParsedRules(
   checkGetDuplication(allRules, ruleScopes, fnScopes, warnings, isStorage);
 
   // Rule 9: Hallucinations, JS-style code that parses but fails at runtime.
-  // `allowDebug` is an EXPLICIT caller opt-in only. It used to be implied by
-  // a non-empty `testCases` array, which silently disabled the debug()
-  // rejection in any lint run that also carried a test suite, exactly the
-  // authoring path that feeds the write gate. Production rejects debug() at
-  // compile time (`Function not found error: Name: [debug]`), so the default
-  // must reject; a caller linting a ruleset that will never deploy can still
-  // pass `allowDebug: true`.
-  warnings.push(...checkHallucinations(ast, { allowDebug: options.allowDebug }));
+  warnings.push(...checkHallucinations(serviceOnlyAst, { allowDebug: options.allowDebug }));
 
   // Rule 9.5: Always-true predicates and recursive-wildcard open rules.
   // Severity: error so deployRules refuses to swap. The agent's #1
@@ -1147,8 +1236,17 @@ function analyzeParsedRules(
   if (options.previousSource) {
     const prev = parseToASTOrError(options.previousSource);
     if (prev.ok) {
-      const prevAst = resolveBundledModulesForAnalysis(prev.ast, options.previousSource);
-      checkRulesWeakened(topLevelMatches(ast.service), topLevelMatches(prevAst.service), warnings);
+      const prevService = allServiceBlocks(prev.ast).find((s) =>
+        svcTarget === 'firebase.storage' ? isStorageServiceName(s.name) : s.name === svcTarget,
+      );
+      if (prevService) {
+        const prevAst = resolveBundledModulesForAnalysis(
+          withSingleService(prev.ast, prevService),
+          options.previousSource,
+          { targetService: svcTarget },
+        );
+        checkRulesWeakened(topLevelMatches(ast.service), topLevelMatches(prevAst.service), warnings);
+      }
     }
   }
 

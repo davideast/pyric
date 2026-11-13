@@ -1,4 +1,5 @@
 import { describe, test, expect } from 'bun:test';
+import { firestoreRules, reference } from '../../src/index.js';
 import { evaluateQueryProof, type QueryConstraints } from '../../src/simulator/query-proof.js';
 import { renderQueryRemediation } from '../../src/simulator/list-query-proof.js';
 import {
@@ -702,6 +703,516 @@ service cloud.firestore {
       );
       expect(substitutedPath).toBeInstanceOf(Path);
       expect(String(substitutedPath)).toBe('/databases/(default)/documents/users/u-42');
+    });
+
+    test('preserves Reference type and .id/.path/.parent members on Reference equality and finite-in pins', () => {
+      const refRules = firestoreRules(`
+        rules_version = '2';
+        service cloud.firestore {
+          match /databases/{database}/documents {
+            match /items/{id} {
+              allow read: if resource.data.ownerRef is reference
+                && resource.data.ownerRef is path
+                && resource.data.ownerRef.id == request.auth.uid
+                && resource.data.ownerRef.parent == 'users'
+                && resource.data.ownerRef.path == 'users/' + request.auth.uid
+                && resource.data.ownerRef == /databases/$(database)/documents/users/$(request.auth.uid);
+            }
+          }
+        }
+      `);
+
+      const simReport = refRules.simulate([
+        {
+          description: 'matching Reference equality pin satisfies is reference and .id/.parent/.path',
+          expectation: 'ALLOW',
+          method: 'list',
+          path: 'items',
+          auth: { uid: 'u1' },
+          query: {
+            where: [{ field: 'ownerRef', op: '==', value: reference('users/u1') }],
+          },
+        },
+        {
+          description: 'Reference equality pin with mismatched .id denies',
+          expectation: 'DENY',
+          method: 'list',
+          path: 'items',
+          auth: { uid: 'u1' },
+          query: {
+            where: [{ field: 'ownerRef', op: '==', value: reference('users/u2') }],
+          },
+        },
+      ]);
+
+      expect(simReport.cases[0]?.queryProof?.verdict).toBe('PROVABLE');
+      expect(simReport.cases[0]?.decision).toBe('ALLOW');
+      expect(simReport.cases[1]?.decision).toBe('DENY');
+    });
+
+    test('preserves __proto__, constructor, toString, and valueOf equality pins as own properties in syntheticResource', () => {
+      for (const protoKey of ['__proto__', 'constructor', 'toString', 'valueOf']) {
+        const protoRules = firestoreRules(`
+          rules_version = '2';
+          service cloud.firestore {
+            match /databases/{database}/documents {
+              match /items/{id} {
+                allow get, list: if resource.data['${protoKey}'] == 'safe';
+              }
+            }
+          }
+        `);
+
+        const res = protoRules.simulate([
+          {
+            description: `pinned ${protoKey} equality allows list`,
+            expectation: 'ALLOW',
+            method: 'list',
+            path: 'items',
+            auth: { uid: 'u1' },
+            query: {
+              where: [{ field: protoKey, op: '==', value: 'safe' }],
+            },
+          },
+          {
+            description: `unpinned ${protoKey} rejects list`,
+            expectation: 'DENY',
+            method: 'list',
+            path: 'items',
+            auth: { uid: 'u1' },
+            query: {
+              where: [{ field: 'other', op: '==', value: 'safe' }],
+            },
+          },
+        ]);
+
+        expect(res.cases[0]?.queryProof?.verdict).toBe('PROVABLE');
+        expect(res.cases[0]?.decision).toBe('ALLOW');
+        expect(res.cases[1]?.queryProof?.verdict).toBe('UNPROVABLE');
+        expect(res.cases[1]?.decision).toBe('DENY');
+      }
+    });
+
+    test('enforces 10-lookup budget on unprovable || branches, preceding allow rules, helpers, ternaries, and dynamic lookup paths', () => {
+      const lookups = (count: number, offset = 0) =>
+        Array.from(
+          { length: count },
+          (_, i) => `exists(/databases/$(database)/documents/configs/k${offset + i})`,
+        ).join(' || ');
+
+      const cases: Array<{
+        name: string;
+        rules: string;
+        where: Array<{ field: string; op: '=='; value: string | boolean }>;
+        expectedDecision: 'ALLOW' | 'DENY';
+        expectedLimit?: 'document-lookups';
+      }> = [
+        {
+          name: 'unprovable || branch guarded by in resource.data exceeding 10 lookups',
+          rules: `
+            rules_version = '2';
+            service cloud.firestore {
+              match /databases/{database}/documents {
+                match /items/{id} {
+                  allow get, list: if ('flag' in resource.data && (${lookups(11)}))
+                    || resource.data.visibility == 'public';
+                }
+              }
+            }
+          `,
+          where: [{ field: 'visibility', op: '==', value: 'public' }],
+          expectedDecision: 'DENY',
+          expectedLimit: 'document-lookups',
+        },
+        {
+          name: 'unprovable || branch guarded by negated membership short-circuiting ||',
+          rules: `
+            rules_version = '2';
+            service cloud.firestore {
+              match /databases/{database}/documents {
+                match /items/{id} {
+                  allow get, list: if (!('flag' in resource.data) ? false : (${lookups(11)}))
+                    || resource.data.visibility == 'public';
+                }
+              }
+            }
+          `,
+          where: [{ field: 'visibility', op: '==', value: 'public' }],
+          expectedDecision: 'DENY',
+          expectedLimit: 'document-lookups',
+        },
+        {
+          name: 'preceding allow rule guarded by resource.data.get exceeding 10 lookups',
+          rules: `
+            rules_version = '2';
+            service cloud.firestore {
+              match /databases/{database}/documents {
+                match /items/{id} {
+                  allow get, list: if resource.data.get('flag', false) == true && (${lookups(11)});
+                  allow get, list: if resource.data.visibility == 'public';
+                }
+              }
+            }
+          `,
+          where: [{ field: 'visibility', op: '==', value: 'public' }],
+          expectedDecision: 'DENY',
+          expectedLimit: 'document-lookups',
+        },
+        {
+          name: 'helper-wrapped candidate wildcard guard exceeding 10 lookups',
+          rules: `
+            rules_version = '2';
+            service cloud.firestore {
+              match /databases/{database}/documents {
+                function specialItem(docId) {
+                  return docId == 'special' && (${lookups(11)});
+                }
+                match /items/{id} {
+                  allow get, list: if specialItem(id) || resource.data.visibility == 'public';
+                }
+              }
+            }
+          `,
+          where: [{ field: 'visibility', op: '==', value: 'public' }],
+          expectedDecision: 'DENY',
+          expectedLimit: 'document-lookups',
+        },
+        {
+          name: 'dynamic lookup path segments reading unconstrained resource.data fields exceeding 10 lookups',
+          rules: `
+            rules_version = '2';
+            service cloud.firestore {
+              match /databases/{database}/documents {
+                match /items/{id} {
+                  allow get, list: if (${Array.from(
+                    { length: 11 },
+                    (_, i) => `exists(/databases/$(database)/documents/configs/$(resource.data.k${i}))`,
+                  ).join(' || ')}) || resource.data.visibility == 'public';
+                }
+              }
+            }
+          `,
+          where: [{ field: 'visibility', op: '==', value: 'public' }],
+          expectedDecision: 'DENY',
+          expectedLimit: 'document-lookups',
+        },
+        {
+          name: 'positive control: resource-guarded branch within 10-lookup budget allows',
+          rules: `
+            rules_version = '2';
+            service cloud.firestore {
+              match /databases/{database}/documents {
+                match /items/{id} {
+                  allow get, list: if ('flag' in resource.data && (${lookups(10)}))
+                    || resource.data.visibility == 'public';
+                }
+              }
+            }
+          `,
+          where: [{ field: 'visibility', op: '==', value: 'public' }],
+          expectedDecision: 'ALLOW',
+        },
+        {
+          name: 'positive control: repeated read of identical dynamic lookup path shares cache slot',
+          rules: `
+            rules_version = '2';
+            service cloud.firestore {
+              match /databases/{database}/documents {
+                match /items/{id} {
+                  allow get, list: if (
+                    exists(/databases/$(database)/documents/configs/$(resource.data.k0))
+                    && get(/databases/$(database)/documents/configs/$(resource.data.k0)).data.ok == true
+                    && (${lookups(9, 1)})
+                  ) || resource.data.visibility == 'public';
+                }
+              }
+            }
+          `,
+          where: [{ field: 'visibility', op: '==', value: 'public' }],
+          expectedDecision: 'ALLOW',
+        },
+        {
+          name: 'positive control: query-pinned false guard genuinely short-circuits 11 lookups',
+          rules: `
+            rules_version = '2';
+            service cloud.firestore {
+              match /databases/{database}/documents {
+                match /items/{id} {
+                  allow get, list: if (resource.data.flag == true && (${lookups(11)}))
+                    || resource.data.visibility == 'public';
+                }
+              }
+            }
+          `,
+          where: [
+            { field: 'flag', op: '==', value: false },
+            { field: 'visibility', op: '==', value: 'public' },
+          ],
+          expectedDecision: 'ALLOW',
+        },
+      ];
+
+      for (const entry of cases) {
+        const report = firestoreRules(entry.rules).simulate([
+          {
+            description: entry.name,
+            expectation: entry.expectedDecision,
+            method: 'list',
+            path: 'items',
+            auth: { uid: 'u1' },
+            query: { where: entry.where },
+          },
+        ]);
+        expect(report.cases[0]?.decision).toBe(entry.expectedDecision);
+        expect(report.cases[0]?.resourceLimit?.kind).toBe(entry.expectedLimit);
+        if (entry.expectedLimit) {
+          expect(report.cases[0]?.queryProof?.verdict).toBe('UNPROVABLE');
+          expect(report.cases[0]?.queryProof?.provable).toBe(false);
+        }
+      }
+    });
+
+    test('enforces budgets on unconstrained simulate(list), multi-variant in queries, and call-by-value helpers without false denials on mutually exclusive ternaries or chained lets', () => {
+      const lookups = (count: number, offset = 0, prefix = 'k') =>
+        Array.from(
+          { length: count },
+          (_, i) => `exists(/databases/$(database)/documents/configs/${prefix}${offset + i})`,
+        ).join(' || ');
+
+      // Unconstrained simulate({ method: 'list' }) without query.where (with and without resource: {})
+      const unconstrainedDenialRules = [
+        `
+          rules_version = '2';
+          service cloud.firestore {
+            match /databases/{database}/documents {
+              match /items/{id} {
+                allow get, list: if resource.data.get('flag', false) == true && (${lookups(11)});
+                allow get, list: if request.auth != null;
+              }
+            }
+          }
+        `,
+        `
+          rules_version = '2';
+          service cloud.firestore {
+            match /databases/{database}/documents {
+              match /items/{id} {
+                allow get, list: if ('flag' in resource.data ? (${lookups(11)}) : false) || request.auth != null;
+              }
+            }
+          }
+        `,
+        `
+          rules_version = '2';
+          service cloud.firestore {
+            match /databases/{database}/documents {
+              function isPoison(docId) {
+                return docId == 'poison' && (${lookups(11)});
+              }
+              match /items/{id} {
+                allow get, list: if isPoison(id) || request.auth != null;
+              }
+            }
+          }
+        `,
+      ];
+
+      for (const src of unconstrainedDenialRules) {
+        const report = firestoreRules(src).simulate([
+          {
+            description: 'unconstrained list without resource',
+            expectation: 'DENY',
+            method: 'list',
+            path: 'items',
+            auth: { uid: 'u1' },
+          },
+          {
+            description: 'unconstrained list with empty resource',
+            expectation: 'DENY',
+            method: 'list',
+            path: 'items',
+            auth: { uid: 'u1' },
+            resource: {},
+          },
+        ]);
+        for (const c of report.cases) {
+          expect(c.decision).toBe('DENY');
+          expect(c.resourceLimit?.kind).toBe('document-lookups');
+          expect(c.queryProof?.verdict).toBe('UNPROVABLE');
+          expect(c.queryProof?.provable).toBe(false);
+        }
+      }
+
+      // Multi-variant where('status', 'in', ['open', 'closed']): variant 1 reaches 11-lookup branch
+      const multiVariantExceeds = firestoreRules(`
+        rules_version = '2';
+        service cloud.firestore {
+          match /databases/{database}/documents {
+            match /items/{id} {
+              allow get, list: if resource.data.status == 'open'
+                || (resource.data.status == 'closed' && 'flag' in resource.data && (${lookups(11)}))
+                || resource.data.status == 'closed';
+            }
+          }
+        }
+      `).simulate([
+        {
+          description: 'variant 1 closed exceeds 10 lookups',
+          expectation: 'DENY',
+          method: 'list',
+          path: 'items',
+          auth: { uid: 'u1' },
+          query: { where: [{ field: 'status', op: 'in', value: ['open', 'closed'] }] },
+        },
+      ]);
+      expect(multiVariantExceeds.cases[0]?.decision).toBe('DENY');
+      expect(multiVariantExceeds.cases[0]?.resourceLimit?.kind).toBe('document-lookups');
+      expect(multiVariantExceeds.cases[0]?.queryProof?.verdict).toBe('UNPROVABLE');
+
+      // Multi-variant positive control: 6 lookups on 'open' and 6 disjoint lookups on 'closed' stay within 10 per variant
+      const multiVariantWithin = firestoreRules(`
+        rules_version = '2';
+        service cloud.firestore {
+          match /databases/{database}/documents {
+            match /items/{id} {
+              allow get, list: if (resource.data.status == 'open' && ((${lookups(6, 0, 'a')}) || request.auth != null))
+                || (resource.data.status == 'closed' && ((${lookups(6, 0, 'b')}) || request.auth != null));
+            }
+          }
+        }
+      `).simulate([
+        {
+          description: '6 lookups per disjoint variant stays within 10-lookup limit',
+          expectation: 'ALLOW',
+          method: 'list',
+          path: 'items',
+          auth: { uid: 'u1' },
+          query: { where: [{ field: 'status', op: 'in', value: ['open', 'closed'] }] },
+        },
+      ]);
+      expect(multiVariantWithin.cases[0]?.decision).toBe('ALLOW');
+      expect(multiVariantWithin.cases[0]?.queryProof?.verdict).toBe('PROVABLE');
+
+      // Call-by-value unused helper arguments and unused let bindings
+      const callByValueRules = [
+        `
+          rules_version = '2';
+          service cloud.firestore {
+            match /databases/{database}/documents {
+              function check(sideEffect, st) {
+                return st == 'open' || st == 'closed';
+              }
+              match /items/{id} {
+                allow get, list: if check((${lookups(11)}), resource.data.status);
+              }
+            }
+          }
+        `,
+        `
+          rules_version = '2';
+          service cloud.firestore {
+            match /databases/{database}/documents {
+              function check(st) {
+                let sideEffect = (${lookups(11)});
+                return st == 'open' || st == 'closed';
+              }
+              match /items/{id} {
+                allow get, list: if check(resource.data.status);
+              }
+            }
+          }
+        `,
+      ];
+      for (const src of callByValueRules) {
+        const res = firestoreRules(src).simulate([
+          {
+            description: 'call-by-value / unused let exceeds 10 lookups',
+            expectation: 'DENY',
+            method: 'list',
+            path: 'items',
+            auth: { uid: 'u1' },
+            query: { where: [{ field: 'status', op: 'in', value: ['open', 'closed'] }] },
+          },
+        ]);
+        expect(res.cases[0]?.decision).toBe('DENY');
+        expect(res.cases[0]?.resourceLimit?.kind).toBe('document-lookups');
+      }
+
+      // Mutually exclusive ternary arms: 6 vs 6 distinct lookups ALLOWS, 6 vs 6 + 5 sequential DENIES
+      const ternarySixVsSix = firestoreRules(`
+        rules_version = '2';
+        service cloud.firestore {
+          match /databases/{database}/documents {
+            match /items/{id} {
+              allow get, list: if ('flag' in resource.data ? (${lookups(6, 0, 'a')}) : (${lookups(6, 0, 'b')}))
+                || request.auth != null;
+            }
+          }
+        }
+      `).simulate([
+        {
+          description: '6-vs-6 ternary stays within 10-lookup budget',
+          expectation: 'ALLOW',
+          method: 'list',
+          path: 'items',
+          auth: { uid: 'u1' },
+        },
+      ]);
+      expect(ternarySixVsSix.cases[0]?.decision).toBe('ALLOW');
+
+      const ternarySixPlusFive = firestoreRules(`
+        rules_version = '2';
+        service cloud.firestore {
+          match /databases/{database}/documents {
+            match /items/{id} {
+              allow get, list: if (
+                (('flag' in resource.data ? (${lookups(6, 0, 'a')}) : (${lookups(6, 0, 'b')})) || (${lookups(5, 0, 'c')}))
+                && false
+              ) || request.auth != null;
+            }
+          }
+        }
+      `).simulate([
+        {
+          description: '6-vs-6 ternary followed by 5 distinct lookups exceeds 10-lookup budget',
+          expectation: 'DENY',
+          method: 'list',
+          path: 'items',
+          auth: { uid: 'u1' },
+        },
+      ]);
+      expect(ternarySixPlusFive.cases[0]?.decision).toBe('DENY');
+      expect(ternarySixPlusFive.cases[0]?.resourceLimit?.kind).toBe('document-lookups');
+
+      // Chained lets (10 levels) do not blow up 2^10 expressions
+      const chainedLets = Array.from(
+        { length: 10 },
+        (_, i) => (i === 0 ? 'let s1 = v + v;' : `let s${i + 1} = s${i} + s${i};`),
+      ).join('\n');
+      const chainedLetReport = firestoreRules(`
+        rules_version = '2';
+        service cloud.firestore {
+          match /databases/{database}/documents {
+            function chain(v) {
+              ${chainedLets}
+              return s10 == 'x';
+            }
+            match /items/{id} {
+              allow get, list: if chain(resource.data.get('v', 'a')) || request.auth != null;
+            }
+          }
+        }
+      `).simulate([
+        {
+          description: '10-level chained lets stay well within 1000-expression budget',
+          expectation: 'ALLOW',
+          method: 'list',
+          path: 'items',
+          auth: { uid: 'u1' },
+        },
+      ]);
+      expect(chainedLetReport.cases[0]?.decision).toBe('ALLOW');
+      expect(chainedLetReport.cases[0]?.resourceLimit).toBeUndefined();
     });
   });
 });

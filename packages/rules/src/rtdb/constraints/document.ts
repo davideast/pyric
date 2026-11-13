@@ -8,6 +8,7 @@ import { structuralFindings } from '../structure.js';
 import type { RtdbNode, RtdbRuleExpression } from '../types.js';
 import { assertKnownPathKeys, ruleset } from './ruleset.js';
 import type { PathDef, RulesetContext } from './types.js';
+import { safeErrorMessage } from '../../test/case-refusals.js';
 
 export interface RtdbRulesDefinition {
   paths: Record<string, PathDef> | ((ctx: RulesetContext) => void);
@@ -178,7 +179,7 @@ export function checkRtdbRules(compile: () => CompiledRtdbRules): RtdbRulesCheck
         path: '/',
         rule: 'ruleset',
         code: 'COMPILE_ERROR',
-        message: e instanceof Error ? e.message : String(e),
+        message: safeErrorMessage(e),
       }],
       warnings: [],
     };
@@ -204,10 +205,96 @@ function attachStructuralFindings(node: RtdbNode): CompiledRtdbRules {
   return node;
 }
 
+function clonePathDef(def: PathDef): PathDef {
+  if (typeof def !== 'object' || def === null || Array.isArray(def)) return def;
+  const copy: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(def as Record<string, unknown>)) {
+    let cloned: unknown = value;
+    if (key === 'indexOn' && Array.isArray(value)) {
+      cloned = [...value];
+    } else if (key === 'fieldConstraints' && typeof value === 'object' && value !== null && !Array.isArray(value)) {
+      const constraintsCopy: Record<string, unknown> = {};
+      for (const [fieldKey, exprs] of Object.entries(value as Record<string, unknown>)) {
+        Object.defineProperty(constraintsCopy, fieldKey, {
+          value: Array.isArray(exprs) ? [...exprs] : exprs,
+          enumerable: true,
+          writable: true,
+          configurable: true,
+        });
+      }
+      cloned = constraintsCopy;
+    } else if (key === 'children' && typeof value === 'object' && value !== null && !Array.isArray(value)) {
+      cloned = clonePathsMap(value as Record<string, PathDef>);
+    }
+    Object.defineProperty(copy, key, {
+      value: cloned,
+      enumerable: true,
+      writable: true,
+      configurable: true,
+    });
+  }
+  return copy as PathDef;
+}
+
+function clonePathsMap(paths: Record<string, PathDef>): Record<string, PathDef> {
+  const copy: Record<string, PathDef> = {};
+  for (const [pathKey, def] of Object.entries(paths)) {
+    Object.defineProperty(copy, pathKey, {
+      value: clonePathDef(def),
+      enumerable: true,
+      writable: true,
+      configurable: true,
+    });
+  }
+  return copy;
+}
+
+function cloneDefinition(definition: RtdbRulesDefinition): RtdbRulesDefinition {
+  if (typeof definition !== 'object' || definition === null) {
+    return definition;
+  }
+  if (typeof definition.paths === 'function') {
+    const snapshot: Array<[string, PathDef]> = [];
+    try {
+      definition.paths({
+        path(p, def) {
+          snapshot.push([p, clonePathDef(def)]);
+        },
+      });
+    } catch (err) {
+      return {
+        ...definition,
+        paths() {
+          throw err;
+        },
+      };
+    }
+    return {
+      ...definition,
+      paths(ctx) {
+        for (const [p, def] of snapshot) {
+          ctx.path(p, clonePathDef(def));
+        }
+      },
+    };
+  }
+  if (
+    typeof definition.paths !== 'object' ||
+    definition.paths === null ||
+    Array.isArray(definition.paths)
+  ) {
+    return definition;
+  }
+  return { ...definition, paths: clonePathsMap(definition.paths) };
+}
+
 class DefinedRtdbRulesDocument implements RtdbRulesDocumentInternal {
+  private readonly definition: RtdbRulesDefinition;
   private compiled: CompiledRtdbRules | undefined;
 
-  constructor(private readonly definition: RtdbRulesDefinition) {}
+  constructor(definition: RtdbRulesDefinition) {
+    this.definition = cloneDefinition(definition);
+  }
 
   /** Compiles the definition on first use; lint, simulate, and toJSON share the tree. */
   compile(): CompiledRtdbRules {

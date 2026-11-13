@@ -1,6 +1,11 @@
 import type { SimulationContext } from './evaluation-context.js';
 import { ResourceLimitError } from './eval-error.js';
-import { isDocumentPath, nonDefaultDatabaseInLookupPath, normalizeDocumentPath } from './document-lookups.js';
+import {
+  isDocumentPath,
+  isMalformedDatabaseLookupPath,
+  nonDefaultDatabaseInLookupPath,
+  normalizeDocumentPath,
+} from './document-lookups.js';
 
 // ═══ Per-request document-lookup budget ═══
 //
@@ -72,6 +77,62 @@ export class LookupBudgetError extends ResourceLimitError {
   }
 }
 
+const MAX_LOOKUP_FRONTIERS = 64;
+
+function isSubsetOf(smaller: ReadonlySet<string>, larger: ReadonlySet<string>): boolean {
+  if (smaller.size > larger.size) return false;
+  for (const key of smaller) {
+    if (!larger.has(key)) return false;
+  }
+  return true;
+}
+
+function throwLookupLimitExceeded(limit: number): never {
+  const isSingleRequestLimit = limit === DOCUMENT_LOOKUP_LIMIT;
+  let scopeDescription = `multi-document batch/transaction (${limit} allowed across the atomic operation)`;
+  if (isSingleRequestLimit) {
+    scopeDescription = 'request (production allows 10 per request; the 11th distinct access fails the evaluation)';
+  }
+  throw new LookupBudgetError(
+    `document access limit exceeded: already read ${limit} distinct documents `
+    + `via get()/exists()/getAfter()/existsAfter() in this ${scopeDescription}`,
+  );
+}
+
+function pruneLookupFrontiers(sets: Set<string>[], limit: number): Set<string>[] {
+  if (sets.length <= 1) return sets.length === 0 ? [new Set()] : sets;
+  // Sort largest-first so superset checks reject dominated subsets quickly.
+  sets.sort((a, b) => b.size - a.size);
+  const maximal: Set<string>[] = [];
+  for (const candidate of sets) {
+    if (maximal.some((existing) => isSubsetOf(candidate, existing))) {
+      continue;
+    }
+    maximal.push(candidate);
+  }
+  if (maximal.length <= MAX_LOOKUP_FRONTIERS) {
+    return maximal;
+  }
+  const kept = maximal.slice(0, MAX_LOOKUP_FRONTIERS);
+  for (let i = MAX_LOOKUP_FRONTIERS; i < maximal.length; i++) {
+    const extra = maximal[i]!;
+    let bestIdx = 0;
+    let bestMerged = new Set([...kept[0]!, ...extra]);
+    for (let j = 1; j < kept.length; j++) {
+      const candidateMerged = new Set([...kept[j]!, ...extra]);
+      if (candidateMerged.size < bestMerged.size) {
+        bestMerged = candidateMerged;
+        bestIdx = j;
+      }
+    }
+    if (bestMerged.size > limit) {
+      throwLookupLimitExceeded(limit);
+    }
+    kept[bestIdx] = bestMerged;
+  }
+  return kept;
+}
+
 /**
  * Per-request lookup counter. The handler creates ONE per test case
  * (request evaluation) and every match block and allow rule evaluated for
@@ -80,7 +141,7 @@ export class LookupBudgetError extends ResourceLimitError {
  * budget exhaustion" hazard).
  */
 export class LookupBudget {
-  private readonly accessed = new Set<string>();
+  private frontiers: Set<string>[] = [new Set()];
 
   constructor(private readonly limit: number = DOCUMENT_LOOKUP_LIMIT) {}
 
@@ -93,19 +154,32 @@ export class LookupBudget {
    */
   charge(kind: 'doc' | 'after', normalizedPath: string): void {
     const key = `${kind}:${normalizedPath}`;
-    if (this.accessed.has(key)) return; // cached, does not count against the budget
-    const isSingleRequestLimit = this.limit === DOCUMENT_LOOKUP_LIMIT;
-    if (this.accessed.size >= this.limit) {
-      let scopeDescription = `multi-document batch/transaction (${this.limit} allowed across the atomic operation)`;
-      if (isSingleRequestLimit) {
-        scopeDescription = 'request (production allows 10 per request; the 11th distinct access fails the evaluation)';
+    for (const accessed of this.frontiers) {
+      if (accessed.has(key)) continue; // cached on this execution frontier
+      if (accessed.size >= this.limit) {
+        throwLookupLimitExceeded(this.limit);
       }
-      throw new LookupBudgetError(
-        `document access limit exceeded: already read ${this.limit} distinct documents `
-        + `via get()/exists()/getAfter()/existsAfter() in this ${scopeDescription}`,
-      );
+      accessed.add(key);
     }
-    this.accessed.add(key);
+  }
+
+  /** Clone active accessed-path frontiers for a mutually exclusive branch or query variant. */
+  fork(): LookupBudget {
+    const child = new LookupBudget(this.limit);
+    child.frontiers = this.frontiers.map((s) => new Set(s));
+    return child;
+  }
+
+  /** Merge mutually exclusive forked budgets, pruning dominated subsets losslessly. */
+  mergeForks(branches: readonly LookupBudget[]): void {
+    if (branches.length === 0) return;
+    const combined: Set<string>[] = [];
+    for (const branch of branches) {
+      for (const s of branch.frontiers) {
+        combined.push(new Set(s));
+      }
+    }
+    this.frontiers = pruneLookupFrontiers(combined, this.limit);
   }
 }
 
@@ -117,8 +191,9 @@ export class LookupBudget {
  */
 export function chargeLookup(ctx: SimulationContext, kind: 'doc' | 'after', rawPath: string): void {
   if (!ctx.lookupBudget) return;
+  if (isMalformedDatabaseLookupPath(rawPath, ctx.database)) return;
   if (nonDefaultDatabaseInLookupPath(rawPath, ctx.database) !== undefined) return;
-  const normalized = normalizeDocumentPath(rawPath);
+  const normalized = normalizeDocumentPath(rawPath, ctx.database);
   if (!isDocumentPath(normalized)) return;
   const isPreWriteLookup = kind === 'doc';
   if (isPreWriteLookup) {

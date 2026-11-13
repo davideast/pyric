@@ -39,6 +39,9 @@ export function typeMatches(v: unknown, typeName: string): boolean | RuleError {
     case 'map': return isRulesMap(v);
     case 'null': return v === null;
   }
+  if (typeName === 'path') {
+    return v instanceof RulesValue && (v.typeName === 'path' || v.typeName === 'reference');
+  }
   if (VALUE_TYPE_NAMES.has(typeName)) {
     return v instanceof RulesValue && v.typeName === typeName;
   }

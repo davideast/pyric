@@ -42,7 +42,7 @@ export function bindRulesBucket(input: EvaluationInput, stored: string, name: st
     request: {
       ...input.request,
       path: objectPath === '' ? `b/${name}/o` : `b/${name}/o/${objectPath}`,
-      ...(requestResource === undefined ? {} : { resource: named(requestResource, stored, name) }),
+      ...(requestResource == null ? {} : { resource: named(requestResource, stored, name) }),
     },
     ...(input.resource == null ? {} : { resource: named(input.resource, stored, name) }),
   };

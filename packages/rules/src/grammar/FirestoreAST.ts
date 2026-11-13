@@ -110,6 +110,13 @@ export type Expression =
   | { type: 'isExpr'; value: Expression; typeName: string; loc?: SourceLoc }
   | { type: 'listLiteral'; elements: Expression[]; loc?: SourceLoc }
   | { type: 'mapLiteral'; entries: Array<{ key: Expression; value: Expression }>; loc?: SourceLoc }
-  | { type: 'pathLiteral'; raw: string; segments: Array<string | Expression>; loc?: SourceLoc }
+  | {
+    type: 'pathLiteral';
+    raw: string;
+    segments: Array<string | Expression>;
+    /** Set when this path literal represents a substituted DocumentReference value in residual proof. */
+    isReference?: true;
+    loc?: SourceLoc;
+  }
   | { type: 'functionCall'; name: string; args: Expression[]; loc?: SourceLoc };
 

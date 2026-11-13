@@ -20,6 +20,11 @@ import {
   RulesUnsupportedError,
   serverTimestamp,
   timestamp,
+  bytes,
+  duration,
+  latlng,
+  reference,
+  vector,
   defineRtdbRules,
   allow,
   deny,
@@ -839,6 +844,87 @@ describe('rtdbRules constructor', () => {
     expect(badPath.decision).toBe('UNSUPPORTED');
     expect(badPath.unsupported).toBe(true);
   });
+
+  test('isolates compiled ruleset from caller input mutations and toJSON() return mutations', () => {
+    const rawJson = {
+      rules: {
+        users: {
+          '.indexOn': ['email'],
+          $uid: {
+            '.read': 'auth != null && auth.uid == $uid',
+            '.write': false,
+          },
+        },
+      },
+    };
+    const fromJson = rtdbRules(rawJson);
+
+    // Mutate caller input BEFORE first compile / simulate / toJSON.
+    rawJson.rules.users.$uid['.read'] = 'true';
+    rawJson.rules.users.$uid['.write'] = true;
+    rawJson.rules.users['.indexOn'].push('role');
+
+    const snapshot1 = fromJson.toJSON() as typeof rawJson;
+    expect(snapshot1.rules.users.$uid['.read']).toBe('auth != null && auth.uid == $uid');
+    expect(snapshot1.rules.users.$uid['.write']).toBe(false);
+    expect(snapshot1.rules.users['.indexOn']).toEqual(['email']);
+
+    // Mutate toJSON() return value BEFORE simulate().
+    snapshot1.rules.users.$uid['.read'] = 'true';
+    snapshot1.rules.users.$uid['.write'] = true;
+    snapshot1.rules.users['.indexOn'].push('injected');
+
+    const summary = fromJson.simulate([
+      {
+        description: 'anonymous read stays denied after input and toJSON mutation',
+        expectation: 'DENY',
+        operation: 'read',
+        path: '/users/u1',
+        auth: null,
+      },
+      {
+        description: 'write stays denied after input and toJSON mutation',
+        expectation: 'DENY',
+        operation: 'write',
+        path: '/users/u1',
+        auth: { uid: 'u1' },
+        newData: { name: 'u1' },
+      },
+    ]);
+    expect(summary.cases.map((c) => c.decision)).toEqual(['DENY', 'DENY']);
+    expect(summary.passed).toBe(2);
+
+    const snapshot2 = fromJson.toJSON() as typeof rawJson;
+    expect(snapshot2.rules.users.$uid['.read']).toBe('auth != null && auth.uid == $uid');
+    expect(snapshot2.rules.users.$uid['.write']).toBe(false);
+    expect(snapshot2.rules.users['.indexOn']).toEqual(['email']);
+
+    // Text and definition handles also return fresh clones on every toJSON(), including .indexOn arrays.
+    const fromText = rtdbRules(JSON.stringify({
+      rules: { items: { '.indexOn': ['createdAt'], $id: { '.read': false } } },
+    }));
+    const textSnap = fromText.toJSON() as { rules: { items: { '.indexOn': string[]; $id: { '.read': boolean } } } };
+    textSnap.rules.items['.indexOn'].push('mutated');
+    textSnap.rules.items.$id['.read'] = true;
+    expect(fromText.toJSON()).toEqual({
+      rules: { items: { '.indexOn': ['createdAt'], $id: { '.read': false } } },
+    });
+
+    const defInput = {
+      paths: {
+        '/items': { indexOn: ['createdAt'] },
+        '/items/$id': { read: deny(), write: deny() },
+      },
+    };
+    const fromDef = rtdbRules(defInput);
+    defInput.paths['/items']!.indexOn!.push('mutatedBeforeCompile');
+    defInput.paths['/items/$id']!.read = allow();
+    const defSnap1 = fromDef.toJSON() as { rules: { items: { '.indexOn': string[]; $id: { '.read': boolean } } } };
+    expect(defSnap1.rules.items['.indexOn']).toEqual(['createdAt']);
+    expect(defSnap1.rules.items.$id['.read']).toBe(false);
+    defSnap1.rules.items['.indexOn'].push('mutatedFromSnapshot');
+    expect((fromDef.toJSON() as typeof defSnap1).rules.items['.indexOn']).toEqual(['createdAt']);
+  });
 });
 
 describe('value helpers', () => {
@@ -908,5 +994,169 @@ service cloud.firestore {
     ]);
     expect(summary.cases.map((c) => c.decision)).toEqual(['ALLOW', 'ALLOW', 'ALLOW']);
     expect(summary.passed).toBe(3);
+  });
+
+  test('rejects calendar-invalid and out-of-range ISO-8601 instants across timestamp(), firestoreRules(), and storageRules()', () => {
+    const invalidInstants = [
+      '2026-02-31T00:00:00Z',
+      '2026-02-30T00:00:00Z',
+      '2025-02-29T00:00:00Z',
+      '1900-02-29T00:00:00Z',
+      '2026-04-31T00:00:00Z',
+      '2026-06-31T00:00:00Z',
+      '2026-09-31T00:00:00Z',
+      '2026-11-31T00:00:00Z',
+      '2026-13-01T00:00:00Z',
+      '2026-00-10T00:00:00Z',
+      '2026-01-00T00:00:00Z',
+      '2026-01-15T24:00:00Z',
+      '0000-01-01T00:00:00Z',
+      '0001-01-01T00:00:00+02:00',
+      '9999-12-31T23:59:59-02:00',
+    ];
+
+    for (const invalid of invalidInstants) {
+      expect(() => timestamp(invalid)).toThrow(TypeError);
+    }
+
+    // Valid leap-year and range-boundary instants succeed.
+    expect(timestamp('2024-02-29T12:00:00Z').seconds).toBe(1709208000);
+    expect(timestamp('2000-02-29T00:00:00Z').seconds).toBe(951782400);
+    expect(timestamp('0001-01-01T00:00:00Z').seconds).toBe(-62135596800);
+    expect(timestamp('9999-12-31T23:59:59Z').seconds).toBe(253402300799);
+
+    const fsRules = firestoreRules(`rules_version = '2';
+service cloud.firestore {
+  match /databases/{db}/documents {
+    match /docs/{docId} {
+      allow get: if request.time < timestamp.date(2030, 1, 1);
+    }
+  }
+}`);
+    const fsSummary = fsRules.simulate([
+      ...invalidInstants.map((requestTime): FirestoreCase => ({
+        description: `invalid ${requestTime}`,
+        expectation: 'ALLOW',
+        method: 'get',
+        path: 'docs/d1',
+        requestTime,
+      })),
+      {
+        description: 'valid leap-day requestTime',
+        expectation: 'ALLOW',
+        method: 'get',
+        path: 'docs/d1',
+        requestTime: '2024-02-29T12:00:00Z',
+      },
+    ]);
+    expect(fsSummary.unsupported).toBe(invalidInstants.length);
+    expect(fsSummary.passed).toBe(1);
+
+    const stRules = storageRules(
+      `rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /items/{id} {
+      allow get: if request.time < timestamp.date(2030, 1, 1);
+    }
+  }
+}`,
+      { bucket: 'test-bucket' },
+    );
+    const stSummary = stRules.simulate([
+      ...invalidInstants.map((requestTime): StorageCase => ({
+        description: `invalid ${requestTime}`,
+        expectation: 'ALLOW',
+        method: 'get',
+        path: 'items/i1',
+        requestTime,
+      })),
+      {
+        description: 'valid leap-day requestTime',
+        expectation: 'ALLOW',
+        method: 'get',
+        path: 'items/i1',
+        requestTime: '2024-02-29T12:00:00Z',
+      },
+    ]);
+    expect(stSummary.unsupported).toBe(invalidInstants.length);
+    expect(stSummary.passed).toBe(1);
+  });
+
+  test('preserves Rules value wrapper prototypes inside auth.token across firestoreRules() and storageRules()', () => {
+    const rawBytes = new Uint8Array([0x68, 0x69]);
+    const tokenClaims = {
+      expAt: timestamp('2030-01-01T00:00:00Z'),
+      ttl: duration(60, 's'),
+      loc: latlng(37, -122),
+      orgRef: reference('orgs/o1'),
+      sig: bytes(rawBytes),
+      emb: vector([1, 2]),
+      quota: 10,
+      ratio: 0.5,
+      nested: {
+        checkpoints: [timestamp('2026-06-01T00:00:00Z')],
+      },
+    };
+
+    const condition = [
+      'request.auth != null',
+      'request.auth.token.expAt is timestamp',
+      'request.auth.token.expAt == timestamp.date(2030, 1, 1)',
+      'request.auth.token.ttl is duration',
+      "request.auth.token.ttl == duration.value(60, 's')",
+      'request.auth.token.loc is latlng',
+      'request.auth.token.loc == latlng.value(37.0, -122.0)',
+      'request.auth.token.orgRef is path',
+      'request.auth.token.orgRef == /databases/(default)/documents/orgs/o1',
+      'request.auth.token.sig is bytes',
+      'request.auth.token.sig.size() == 2',
+      'request.auth.token.quota is int',
+      'request.auth.token.ratio is float',
+      'request.auth.token.nested.checkpoints[0] is timestamp',
+    ].join(' && ');
+
+    const fsRules = firestoreRules(`rules_version = '2';
+service cloud.firestore {
+  match /databases/{db}/documents {
+    match /docs/{docId} {
+      allow get: if ${condition};
+    }
+  }
+}`);
+    const fsResult = fsRules.simulate([
+      {
+        description: 'typed wrappers in Firestore auth.token',
+        expectation: 'ALLOW',
+        method: 'get',
+        path: 'docs/d1',
+        auth: { uid: 'u1', tenant: 't1', token: tokenClaims },
+      },
+    ]).cases[0]!;
+    expect(fsResult.decision).toBe('ALLOW');
+    expect(fsResult.passed).toBe(true);
+
+    const stRules = storageRules(
+      `rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /items/{id} {
+      allow get: if ${condition};
+    }
+  }
+}`,
+      { bucket: 'test-bucket' },
+    );
+    const stResult = stRules.simulate([
+      {
+        description: 'typed wrappers in Storage auth.token',
+        expectation: 'ALLOW',
+        method: 'get',
+        path: 'items/i1',
+        auth: { uid: 'u1', tenant: 't1', token: tokenClaims },
+      },
+    ]).cases[0]!;
+    expect(stResult.decision).toBe('ALLOW');
+    expect(stResult.passed).toBe(true);
   });
 });

@@ -57,6 +57,7 @@ import type { Expression, FirestoreRules, FunctionDef, MatchBlock } from './Fire
 import { parenthesizedGroups } from './paren-groups.js';
 import { expressionPosition } from './expression-positions.js';
 import { MAX_BRACKET_DEPTH, scanBrackets } from './bracket-scan.js';
+import { allServiceBlocks, isStorageServiceName, topLevelMatches } from './service-blocks.js';
 import { re2PatternProblem } from '../simulator/re2-pattern-check.js';
 import { invalidNumberLiteralMessage, outOfRangeLiteral } from '../simulator/rules-int.js';
 
@@ -111,21 +112,38 @@ export interface CompileLimitViolation {
   scope?: string;
 }
 
+export interface CompileLimitOptions {
+  /** Skip `UNRESOLVED_MODULES` when low-level callers (such as `parseStorageRules`) stub imports explicitly. */
+  allowUnresolvedImports?: boolean;
+}
+
 /**
  * Every compile rejection production reports for the ruleset, in source
  * order. Empty when the ruleset is within every limit.
  */
-export function compileLimitViolations(ast: FirestoreRules): CompileLimitViolation[] {
-  const graph = buildCallGraph(ast);
+export function compileLimitViolations(
+  ast: FirestoreRules,
+  options?: CompileLimitOptions,
+): CompileLimitViolation[] {
+  const services = allServiceBlocks(ast);
+  const graph = buildCallGraph(ast, services);
   const out: CompileLimitViolation[] = [];
-  const isFirestore = ast.service.name !== 'firebase.storage' && ast.service.name !== 'cloud.storage';
   if (ast.version !== '1' && ast.version !== '2' && ast.version !== '2+modules') {
     out.push({ code: 'UNSUPPORTED_RULES_VERSION', message: `Unsupported rules version ${ast.version}.`, line: ast.loc?.line ?? 1 });
-  } else if (isFirestore && (ast.version === '2+modules' || (ast.imports?.length ?? 0) > 0)) {
-    out.push({ code: 'UNRESOLVED_MODULES', message: "Rules source uses '2+modules' or import statements that must be resolved before compilation.", line: ast.loc?.line ?? 1 });
+  } else if (
+    !options?.allowUnresolvedImports &&
+    (ast.version === '2+modules' || (ast.imports?.length ?? 0) > 0)
+  ) {
+    const importLine = ast.imports?.[0]?.loc?.line ?? ast.loc?.line ?? 1;
+    out.push({
+      code: 'UNRESOLVED_MODULES',
+      message: "Rules source uses '2+modules' or import statements that must be resolved before compilation.",
+      line: importLine,
+    });
   }
   for (const node of graph) {
     const fn = node.fn;
+    const isFirestore = node.isFirestore;
     if (fn.lets.length > LET_LIMIT) {
       // Production reports this at the return expression.
       const at = fn.returnLoc ?? fn.loc;
@@ -144,20 +162,25 @@ export function compileLimitViolations(ast: FirestoreRules): CompileLimitViolati
     pushNesting(out, fn.body, fn.loc?.line, fn.name);
     pushExpressionViolations(out, fn.body, fn.returnLoc?.line ?? fn.loc?.line, isFirestore, fn.name);
   }
-  const visitRules = (match: MatchBlock) => {
+  const visitRules = (match: MatchBlock, isFirestore: boolean) => {
     for (const rule of match.allows) {
       pushNesting(out, rule.condition, rule.loc?.line);
       pushExpressionViolations(out, rule.condition, rule.loc?.line, isFirestore);
     }
-    for (const child of match.children) visitRules(child);
+    for (const child of match.children) visitRules(child, isFirestore);
   };
-  for (const root of ast.service.matches ?? [ast.service.match]) {
-    visitRules(root);
+  for (const service of services) {
+    const svcIsFirestore = !isStorageServiceName(service.name);
+    for (const root of topLevelMatches(service)) {
+      visitRules(root, svcIsFirestore);
+    }
   }
   out.push(...callDepthViolations(graph));
-  out.push(...redefinedFunctions(ast));
-  for (const root of ast.service.matches ?? [ast.service.match]) {
-    out.push(...secondGlobMatches(root, 0));
+  out.push(...redefinedFunctions(ast, services));
+  for (const service of services) {
+    for (const root of topLevelMatches(service)) {
+      out.push(...secondGlobMatches(root, 0));
+    }
   }
   return out.sort((a, b) => (a.line ?? 0) - (b.line ?? 0));
 }
@@ -178,7 +201,10 @@ function secondGlobMatches(match: MatchBlock, enclosing: number): CompileLimitVi
   return out;
 }
 
-function redefinedFunctions(ast: FirestoreRules): CompileLimitViolation[] {
+function redefinedFunctions(
+  ast: FirestoreRules,
+  services = allServiceBlocks(ast),
+): CompileLimitViolation[] {
   const out: CompileLimitViolation[] = [];
   const inScope = (fns: readonly FunctionDef[], scope: string) => {
     const declared = new Set<string>();
@@ -200,9 +226,11 @@ function redefinedFunctions(ast: FirestoreRules): CompileLimitViolation[] {
     for (const child of match.children) inMatch(child);
   };
   inScope(ast.functions ?? [], 'global scope');
-  inScope(ast.service.functions ?? [], `service ${ast.service.name}`);
-  for (const root of ast.service.matches ?? [ast.service.match]) {
-    inMatch(root);
+  for (const service of services) {
+    inScope(service.functions ?? [], `service ${service.name}`);
+    for (const root of topLevelMatches(service)) {
+      inMatch(root);
+    }
   }
   return out;
 }
@@ -278,7 +306,7 @@ function pushExpressionViolations(
       ...(functionName === undefined ? {} : { functionName }),
     });
   }
-  if (isFirestore && expr.type === 'methodCall' && expr.method === 'matches' && expr.args.length === 1) {
+  if (expr.type === 'methodCall' && expr.method === 'matches' && expr.args.length === 1) {
     const arg = expr.args[0];
     const problem = arg?.type === 'literal' && typeof arg.value === 'string' ? re2PatternProblem(arg.value) : null;
     if (problem !== null) {
@@ -529,6 +557,7 @@ function children(expr: Expression): Expression[] {
 
 interface CallNode {
   fn: FunctionDef;
+  isFirestore: boolean;
   /** The declared functions this function calls, in call order. */
   callees: CallNode[];
 }
@@ -540,27 +569,36 @@ interface CallNode {
  * declaration winning. A name no scope declares is a built-in or an
  * undefined function and is not an edge.
  */
-function buildCallGraph(ast: FirestoreRules): CallNode[] {
+function buildCallGraph(ast: FirestoreRules, services = allServiceBlocks(ast)): CallNode[] {
   interface Scope { names: Map<string, CallNode>; parent: Scope | undefined }
   const nodes: CallNode[] = [];
   const pending: { node: CallNode; scope: Scope }[] = [];
-  const declare = (fns: readonly FunctionDef[], parent: Scope | undefined): Scope => {
+  const declare = (
+    fns: readonly FunctionDef[],
+    parent: Scope | undefined,
+    isFirestore: boolean,
+  ): Scope => {
     const scope: Scope = { names: new Map(), parent };
     for (const fn of fns) {
-      const node: CallNode = { fn, callees: [] };
+      const node: CallNode = { fn, isFirestore, callees: [] };
       nodes.push(node);
       scope.names.set(fn.name, node);
       pending.push({ node, scope });
     }
     return scope;
   };
-  const serviceScope = declare(ast.service.functions ?? [], declare(ast.functions ?? [], undefined));
-  const walk = (match: MatchBlock, parent: Scope) => {
-    const scope = declare(match.functions, parent);
-    for (const child of match.children) walk(child, scope);
+  const globalIsFirestore = services.length === 0 || services.some((s) => !isStorageServiceName(s.name));
+  const globalScope = declare(ast.functions ?? [], undefined, globalIsFirestore);
+  const walk = (match: MatchBlock, parent: Scope, isFirestore: boolean) => {
+    const scope = declare(match.functions, parent, isFirestore);
+    for (const child of match.children) walk(child, scope, isFirestore);
   };
-  for (const root of ast.service.matches ?? [ast.service.match]) {
-    walk(root, serviceScope);
+  for (const service of services) {
+    const svcIsFirestore = !isStorageServiceName(service.name);
+    const serviceScope = declare(service.functions ?? [], globalScope, svcIsFirestore);
+    for (const root of topLevelMatches(service)) {
+      walk(root, serviceScope, svcIsFirestore);
+    }
   }
 
   for (const { node, scope } of pending) {

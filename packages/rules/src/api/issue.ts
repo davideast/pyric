@@ -88,6 +88,14 @@ const COMPILE_LIMIT_LINT_CODES: ReadonlySet<string> = new Set([
   'DOUBLE_MINUS',
   'FUNCTION_REDEFINED',
   'DUPLICATE_SERVICE',
+  'NOT_MODULE_SOURCE',
+  'PARSE_FAILED',
+  'UNKNOWN_MODULE',
+  'UNSUPPORTED_SERVICE',
+  'DUPLICATE_FUNCTION',
+  'UNKNOWN_FUNCTION',
+  'INCOMPATIBLE_FUNCTION',
+  'CIRCULAR_DEPENDENCY',
 ]);
 
 export function lintWarningToIssue(warning: LintWarning): RuleIssue {

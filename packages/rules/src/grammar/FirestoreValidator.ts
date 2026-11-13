@@ -1,10 +1,10 @@
 import type {
-  FirestoreRules, MatchBlock, AllowRule, FunctionDef, Expression, Operation, PathSegment,
+  FirestoreRules, MatchBlock, AllowRule, FunctionDef, Expression, Operation, PathSegment, ServiceBlock,
 } from './FirestoreAST.js';
 import { countDocumentAccessCalls } from './document-access-count.js';
 import { compileLimitViolations } from './compile-limits.js';
 import { recursiveScope } from './recursive-scope.js';
-import { isStorageServiceName, topLevelMatches } from './service-blocks.js';
+import { allServiceBlocks, isStorageServiceName, topLevelMatches, withSingleService } from './service-blocks.js';
 import {
   collectRulesetScopes, expandFunctionBody, exprContains, exprDepth,
   functionReferences, ruleReferences, walkExpr,
@@ -24,37 +24,105 @@ const WRITE_OPS: Set<Operation> = new Set(['write', 'create', 'update', 'delete'
 const READ_OPS: Set<Operation> = new Set(['read', 'get', 'list']);
 const DATA_WRITE_OPS: Set<Operation> = new Set(['write', 'create', 'update']);
 
-export function validateFirestoreRules(inputAst: FirestoreRules): ValidationFinding[] {
-  const ast = resolveBundledModulesForAnalysis(inputAst);
-  const findings: ValidationFinding[] = [];
-  const rootMatches = topLevelMatches(ast.service);
-  const isStorage = isStorageServiceName(ast.service?.name);
+export interface ValidateRulesOptions {
+  targetService?: 'cloud.firestore' | 'firebase.storage' | 'all';
+  rawSource?: string;
+}
 
-  // Global and service scope functions are visible in every match block.
-  const outerScope = [...(ast.functions ?? []), ...(ast.service.functions ?? [])];
-  const scopes = collectRulesetScopes(ast);
-  const fnScopes = new Map<FunctionDef, ReadonlyMap<string, FunctionDef>>(
-    scopes.functions.map(s => [s.fn, s.functions]),
-  );
+export function validateFirestoreRules(
+  inputAst: FirestoreRules,
+  options?: ValidateRulesOptions,
+): ValidationFinding[] {
+  const allServices = allServiceBlocks(inputAst);
+  const selectedServices =
+    options?.targetService === 'all'
+      ? allServices
+      : options?.targetService !== undefined
+        ? allServices.filter((s) =>
+            options.targetService === 'firebase.storage'
+              ? isStorageServiceName(s.name)
+              : s.name === options.targetService,
+          )
+        : inputAst.service
+          ? [inputAst.service]
+          : [];
 
-  // SEC-4: Check for default deny
-  checkDefaultDeny(rootMatches, findings, outerScope, fnScopes);
+  if (selectedServices.length === 0) return [];
 
-  // QUA-3: Duplicate function names in one scope (production compile
-  // rejection, so critical). Nested shadowing is legal and is not flagged.
-  checkDuplicateFunctions(ast, findings);
+  const preparedByService = new Map<
+    ServiceBlock,
+    { ast: FirestoreRules; scopes: RulesetScopes; globalFns: Set<FunctionDef> }
+  >();
+  const prepareService = (service: ServiceBlock) => {
+    const cached = preparedByService.get(service);
+    if (cached !== undefined) return cached;
+    const svcTarget: 'cloud.firestore' | 'firebase.storage' = isStorageServiceName(service.name)
+      ? 'firebase.storage'
+      : 'cloud.firestore';
+    const ast = resolveBundledModulesForAnalysis(
+      withSingleService(inputAst, service),
+      options?.rawSource,
+      { targetService: svcTarget },
+    );
+    const entry = {
+      ast,
+      scopes: collectRulesetScopes(ast),
+      globalFns: new Set(ast.functions ?? []),
+    };
+    preparedByService.set(service, entry);
+    return entry;
+  };
 
-  // SEM-4, SEM-5, QUA-4: names resolved by declaration scope
-  checkNameResolution(scopes, findings);
+  const prepared = selectedServices.map(prepareService);
 
-  // STR-3: Overlapping match paths
-  for (const rootMatch of rootMatches) {
-    checkOverlappingPaths(rootMatch.children, findings);
+  // Track global functions called across any service block so multi-service files
+  // do not falsely report QUA-4 on a global helper used only by a sibling service.
+  const calledGlobalFnNames = new Set<string>();
+  if (allServices.length > 1) {
+    const allPrepared = options?.targetService !== undefined ? allServices.map(prepareService) : prepared;
+    for (const { scopes, globalFns } of allPrepared) {
+      for (const scoped of scopes.rules) {
+        for (const callee of ruleReferences(scoped).callees) {
+          if (globalFns.has(callee)) calledGlobalFnNames.add(callee.name);
+        }
+      }
+      for (const scoped of scopes.functions) {
+        for (const callee of functionReferences(scoped).callees) {
+          if (globalFns.has(callee)) calledGlobalFnNames.add(callee.name);
+        }
+      }
+    }
   }
 
-  // Walk all match blocks
-  for (const rootMatch of rootMatches) {
-    walkMatch(rootMatch, findings, outerScope, fnScopes, null, isStorage);
+  const findings: ValidationFinding[] = [];
+  for (let serviceIndex = 0; serviceIndex < prepared.length; serviceIndex++) {
+    const { ast, scopes } = prepared[serviceIndex]!;
+    const isSecondaryService = serviceIndex > 0;
+    const rootMatches = topLevelMatches(ast.service);
+    const isStorage = isStorageServiceName(ast.service?.name);
+    const outerScope = [...(ast.functions ?? []), ...(ast.service.functions ?? [])];
+    const fnScopes = new Map<FunctionDef, ReadonlyMap<string, FunctionDef>>(
+      scopes.functions.map((s) => [s.fn, s.functions]),
+    );
+
+    // SEC-4: Check for default deny
+    checkDefaultDeny(rootMatches, findings, outerScope, fnScopes);
+
+    // QUA-3: Duplicate function names in one scope
+    checkDuplicateFunctions(ast, findings, isSecondaryService);
+
+    // SEM-4, SEM-5, QUA-4: names resolved by declaration scope
+    checkNameResolution(scopes, findings, isSecondaryService, calledGlobalFnNames);
+
+    // STR-3: Overlapping match paths
+    for (const rootMatch of rootMatches) {
+      checkOverlappingPaths(rootMatch.children, findings);
+    }
+
+    // Walk all match blocks
+    for (const rootMatch of rootMatches) {
+      walkMatch(rootMatch, findings, outerScope, fnScopes, null, isStorage);
+    }
   }
 
   return findings;
@@ -538,9 +606,14 @@ function referencesResourceDataAnyTransitive(
 // Detection is the compile-limit module's FUNCTION_REDEFINED rejection, which
 // the Firestore simulator and the Storage parser also enforce at load.
 
-function checkDuplicateFunctions(ast: FirestoreRules, findings: ValidationFinding[]) {
-  for (const violation of compileLimitViolations(ast)) {
+function checkDuplicateFunctions(
+  ast: FirestoreRules,
+  findings: ValidationFinding[],
+  isSecondaryService = false,
+) {
+  for (const violation of compileLimitViolations(ast, { allowUnresolvedImports: true })) {
     if (violation.code !== 'FUNCTION_REDEFINED') continue;
+    if (isSecondaryService && violation.scope === 'global scope') continue;
     findings.push({
       code: 'QUA-3', severity: 'critical', path: violation.scope ?? '',
       message: `${violation.message} Function '${violation.functionName}' is declared twice in ${violation.scope}, and production rejects the ruleset at compile time`,
@@ -560,10 +633,22 @@ function checkDuplicateFunctions(ast: FirestoreRules, findings: ValidationFindin
 // at any scope: QUA-4 is low. A call from an unused function still counts,
 // as it does in production.
 
-function checkNameResolution(scopes: RulesetScopes, findings: ValidationFinding[]) {
+function checkNameResolution(
+  scopes: RulesetScopes,
+  findings: ValidationFinding[],
+  isSecondaryService = false,
+  calledGlobalFnNames?: ReadonlySet<string>,
+) {
   const called = new Set<FunctionDef>();
-  const report = (refs: NameReferences, subject: string, path: string, operation?: string) => {
+  const report = (
+    refs: NameReferences,
+    subject: string,
+    path: string,
+    operation?: string,
+    emitFindings = true,
+  ) => {
     for (const callee of refs.callees) called.add(callee);
+    if (!emitFindings) return;
     const op = operation === undefined ? {} : { operation };
     for (const name of refs.undefinedCalls) {
       findings.push({
@@ -582,10 +667,13 @@ function checkNameResolution(scopes: RulesetScopes, findings: ValidationFinding[
     report(ruleReferences(scoped), `Rule at ${scoped.label}`, scoped.label, scoped.rule.operations.join(', '));
   }
   for (const scoped of scopes.functions) {
-    report(functionReferences(scoped), `Function '${scoped.fn.name}' in ${scoped.label}`, scoped.label);
+    const emit = !(isSecondaryService && scoped.label === 'global scope');
+    report(functionReferences(scoped), `Function '${scoped.fn.name}' in ${scoped.label}`, scoped.label, undefined, emit);
   }
   for (const scoped of scopes.functions) {
+    if (isSecondaryService && scoped.label === 'global scope') continue;
     if (called.has(scoped.fn)) continue;
+    if (scoped.label === 'global scope' && calledGlobalFnNames?.has(scoped.fn.name)) continue;
     findings.push({
       code: 'QUA-4', severity: 'low', path: scoped.label,
       message: `Unused function '${scoped.fn.name}': no rule or function calls it`,

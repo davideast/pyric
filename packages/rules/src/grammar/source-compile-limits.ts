@@ -70,13 +70,13 @@ export function checkRulesSource(
 ): { ok: true; ast: FirestoreRules } | { ok: false; rejection: RulesSourceRejection } {
   const tooLarge = sourceSizeRejection(source);
   if (tooLarge !== null) return { ok: false, rejection: tooLarge };
-  const checked = checkRulesGrammar(source);
-  if (!checked.ok) return checked;
-  const service = checked.ast.service;
+  const parsed = parseOrRejection(source);
+  if (!parsed.ok) return parsed;
+  const service = parsed.ast.service;
   if (isOtherService(service)) return { ok: false, rejection: wrongServiceRejection(service) };
-  const duplicate = duplicateServiceRejection(checked.ast);
+  const duplicate = duplicateServiceRejection(parsed.ast);
   if (duplicate !== null) return { ok: false, rejection: duplicate };
-  return checked;
+  return checkCompileLimits(parsed.ast);
 }
 
 const FIRESTORE_SERVICE = 'cloud.firestore';
@@ -188,27 +188,44 @@ export function wrongServiceReason(name: string): string {
   return `Expected 'service ${FIRESTORE_SERVICE}', got 'service ${name}'.`;
 }
 
+/** The parsed ruleset, or why `source` does not parse. */
+function parseOrRejection(
+  source: string,
+): { ok: true; ast: FirestoreRules } | { ok: false; rejection: RulesSourceRejection } {
+  const parsed = parseToASTOrError(source);
+  if (parsed.ok) return { ok: true, ast: parsed.ast };
+  const { line, column } = parsed.error;
+  return {
+    ok: false,
+    rejection: {
+      kind: 'parse',
+      line,
+      column,
+      message: `rules did not parse at line ${line}, column ${column}: ${parseErrorWording(parsed.error, source)}.`,
+    },
+  };
+}
+
+function checkCompileLimits(
+  ast: FirestoreRules,
+): { ok: true; ast: FirestoreRules } | { ok: false; rejection: RulesSourceRejection } {
+  const violations = compileLimitViolations(ast);
+  if (violations.length === 0) return { ok: true, ast };
+  return {
+    ok: false,
+    rejection: {
+      kind: 'compile',
+      violations,
+      message: `rules did not compile: ${describeCompileLimitViolations(violations)}`,
+    },
+  };
+}
+
 /** The parsed ruleset, or why it does not parse or breaks a compile limit, whatever its service. */
 function checkRulesGrammar(
   source: string,
 ): { ok: true; ast: FirestoreRules } | { ok: false; rejection: RulesSourceRejection } {
-  const parsed = parseToASTOrError(source);
-  if (!parsed.ok) {
-    const { line, column } = parsed.error;
-    return {
-      ok: false,
-      rejection: {
-        kind: 'parse',
-        line,
-        column,
-        message: `rules did not parse at line ${line}, column ${column}: ${parseErrorWording(parsed.error, source)}.`,
-      },
-    };
-  }
-  const violations = compileLimitViolations(parsed.ast);
-  if (violations.length === 0) return { ok: true, ast: parsed.ast };
-  return {
-    ok: false,
-    rejection: { kind: 'compile', violations, message: `rules did not compile: ${describeCompileLimitViolations(violations)}` },
-  };
+  const parsed = parseOrRejection(source);
+  if (!parsed.ok) return parsed;
+  return checkCompileLimits(parsed.ast);
 }

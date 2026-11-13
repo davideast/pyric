@@ -17,10 +17,18 @@ import type {
   PathResolutionTrace,
   RulesResourceLimit,
 } from '../test/spec.js';
-import type { FirestoreRules, MatchBlock, AllowRule, FunctionDef, Expression } from '../grammar/FirestoreAST.js';
+import type {
+  FirestoreRules,
+  MatchBlock,
+  AllowRule,
+  FunctionDef,
+  Expression,
+  ImportDecl,
+} from '../grammar/FirestoreAST.js';
 import { checkRulesSource } from '../grammar/source-compile-limits.js';
 import { assembleExpression } from '../grammar/FirestoreAssembler.js';
 import { readAuthoredSourceMap, resolveAuthoredLoc, type AuthoredSourceMap } from '../modules/resolver-core.js';
+import { AUTHORED_ROOT_SOURCE_FILE, findModuleErrorImportLine } from '../modules/resolver-browser.js';
 import { evaluate, requireBoolean, UnsupportedError, TraceRecorder, type SimulationContext } from './evaluator.js';
 
 import { Timestamp } from './wrappers/timestamp.js';
@@ -40,7 +48,7 @@ import {
 import { typeClaimNumbers } from './rules-int.js';
 import { normalizeAuthState } from '../auth/auth-state.js';
 import { caseShapeRefusal } from '../test/case-shape.js';
-import { requestTimeRefusal } from '../test/case-refusals.js';
+import { requestTimeRefusal, safeErrorMessage, safeReadProp } from '../test/case-refusals.js';
 export { SERVER_TIMESTAMP, resolveServerTimestamps, reviveFirestoreNumbers } from './firestore-values.js';
 import { collectRootMatches, noMatchNotes } from './root-match.js';
 import { getListBlockSteps, type ListBlockStep } from './list-proof-budget.js';
@@ -141,6 +149,7 @@ function evaluateRules(
   operation: string,
   ctx: SimulationContext,
   sourceMap?: AuthoredSourceMap,
+  authoredImports?: readonly ImportDecl[],
 ): RuleBlockOutcome {
   const ops = methodToOperations(operation);
   const trace: RuleEvaluation[] = [];
@@ -185,6 +194,17 @@ function evaluateRules(
     record(entry);
     ctx.trace = priorRecorder;
     const resourceLimit = describeResourceLimit(err);
+    if (sourceMap && sourceMap.size > 0 && resourceLimit.line !== undefined) {
+      const mapped = sourceMap.get(resourceLimit.line);
+      if (mapped !== undefined) {
+        if (mapped.authoredFile === AUTHORED_ROOT_SOURCE_FILE) {
+          resourceLimit.line = mapped.authoredLine;
+        } else if (authoredImports !== undefined) {
+          resourceLimit.line = findModuleErrorImportLine(authoredImports, `'${mapped.authoredFile}'`, 1);
+          delete resourceLimit.column;
+        }
+      }
+    }
     // Production reports the expression limit at the expression the
     // budget ran out on, so the note cites that position.
     let position: { line: number; column: number } | undefined;
@@ -642,10 +662,11 @@ function intakeRefusal(tc: TestCase, publicCases: boolean): string | undefined {
 
 /** The result for a case intake refused: UNSUPPORTED, with the reason. */
 function refusedResult(tc: TestCase, reason: string): TestResult {
-  const shape = (typeof tc === 'object' && tc !== null ? tc : {}) as Partial<TestCase>;
+  const desc = safeReadProp(tc, 'description');
+  const exp = safeReadProp(tc, 'expectation');
   return {
-    description: typeof shape.description === 'string' ? shape.description : '',
-    expectation: shape.expectation === 'ALLOW' ? 'ALLOW' : 'DENY',
+    description: typeof desc === 'string' ? desc : '',
+    expectation: exp === 'ALLOW' ? 'ALLOW' : 'DENY',
     state: 'UNSUPPORTED',
     decision: 'UNSUPPORTED',
     evaluatedExpressions: 0,
@@ -712,6 +733,8 @@ export class SimulateFirestoreRulesHandler {
     opts?: SimulateOptions & {
       /** The source map read from `source`, when the caller keeps it. */
       sourceMap?: AuthoredSourceMap;
+      /** Authored `2+modules` imports when `source` was lowered in-process from `2+modules`. */
+      authoredImports?: readonly ImportDecl[];
       /** Internal flag to skip re-running static query proof during residual evaluation. */
       skipQueryProof?: boolean;
     },
@@ -733,6 +756,7 @@ export class SimulateFirestoreRulesHandler {
     const publicCases = opts?.publicCases === true;
     const revive: CaseReviver = publicCases ? reviveCaseLiterals : reviveFirestoreNumbers;
     for (const tc of testCases) {
+      try {
       // A case either engine would read as a different request, or one with
       // an instant that is not ISO-8601 with an offset, is refused here
       // rather than answered (FS2-CON-2, FS2-CON-3, FS2-CON-12).
@@ -793,26 +817,40 @@ export class SimulateFirestoreRulesHandler {
             ...(primary.rule ? { rule: { ...primary.rule, verdict: 'deny' as const } } : {}),
           };
         } else {
-          // `rawProof.kind === 'provable'`. When some rules were rejected by
-          // static proof (`rawProof.failures.length > 0`) and only a subset
-          // (such as a fallback `allow read: if false;` or an admin rule) was
-          // statically doc-independent, check whether those provable rules
-          // actually grant for this request. If they deny, no provable rule
-          // granted and the query failed because of `rawProof.failures`.
-          let fallbackDenied = false;
-          if (rawProof.failures.length > 0) {
-            const residualCheck = this.simulateParsed(
-              rawProof.evaluationAst,
-              source,
-              [{ ...tc, path: proofPath, resource: rawProof.syntheticResource, expectation: 'ALLOW' }],
-              { ...opts, sourceMap, skipQueryProof: true },
-            );
-            const residualResult = residualCheck.success ? residualCheck.data.results[0] : undefined;
-            if (residualResult && residualResult.decision !== 'ALLOW' && residualResult.resourceLimit === undefined) {
-              fallbackDenied = true;
-            }
-          }
-          if (fallbackDenied) {
+          // `rawProof.kind === 'provable'`. Run residual evaluation against
+          // `rawProof.evaluationAst` so per-request lookup/expression budgets
+          // and fallback-rule denials are reflected in `queryProof` as well.
+          const mergedResource =
+            tc.resource !== undefined
+              ? { ...rawProof.syntheticResource, ...tc.resource }
+              : rawProof.syntheticResource;
+          const residualCheck = this.simulateParsed(
+            rawProof.evaluationAst,
+            source,
+            [{ ...tc, path: proofPath, resource: mergedResource, expectation: 'ALLOW' }],
+            { ...opts, sourceMap, skipQueryProof: true },
+          );
+          const residualResult = residualCheck.success ? residualCheck.data.results[0] : undefined;
+          const hitResourceLimit = residualResult?.resourceLimit !== undefined;
+          const fallbackDenied =
+            rawProof.failures.length > 0 &&
+            residualResult !== undefined &&
+            residualResult.decision !== 'ALLOW';
+
+          if (hitResourceLimit) {
+            const primary = rawProof.failures.find((f) => f.kind !== 'constraints-not-satisfied') ?? rawProof.failures[0];
+            const remediation = primary ? renderQueryRemediation(primary.residual) : undefined;
+            queryProof = {
+              verdict: 'UNPROVABLE',
+              provable: false,
+              kind: primary?.kind ?? 'unsupported-predicate',
+              failures: rawProof.failures,
+              reason: residualResult!.resourceLimit!.message,
+              residual: primary?.residual ?? { missing: [], mismatched: [], outOfScope: true },
+              ...(remediation ? { remediation } : {}),
+              ...(primary?.rule ? { rule: { ...primary.rule, verdict: 'deny' as const } } : {}),
+            };
+          } else if (fallbackDenied) {
             const primary = rawProof.failures.find((f) => f.kind !== 'constraints-not-satisfied') ?? rawProof.failures[0]!;
             const remediation = renderQueryRemediation(primary.residual);
             queryProof = {
@@ -833,12 +871,12 @@ export class SimulateFirestoreRulesHandler {
               failures: rawProof.failures,
             };
           }
-          // When the caller did not mock a single document (`tc.resource === undefined`)
-          // and supplied `query.where` constraints that proved the query, evaluate
-          // the residual rules against the query-pinned synthetic resource.
-          if (tc.resource === undefined && (tc.query?.where?.length ?? 0) > 0) {
+          // On collection-level `list` cases or cases without a concrete mocked
+          // document, evaluate against the projected AST and synthetic resource
+          // so unprovable sibling rules cannot grant and budget steps execute.
+          if (isCollectionPath || tc.resource === undefined) {
             evalAst = rawProof.evaluationAst;
-            evalTc = { ...tc, resource: rawProof.syntheticResource };
+            evalTc = { ...tc, resource: mergedResource };
           }
         }
       }
@@ -961,7 +999,7 @@ export class SimulateFirestoreRulesHandler {
         const ctx = buildContext(evalTc, match.functions, pathVars, opts?.getDoc, opts?.batchProjection, lookupBudget, expressionBudget, revive, match.recursiveVariables, match.functionScopes, rootBindings);
 
         const blockPath = renderMatchBlockPath(match.block);
-        const res = evaluateRules(match.block, tc.method, ctx, sourceMap);
+        const res = evaluateRules(match.block, tc.method, ctx, sourceMap, opts?.authoredImports);
         for (const entry of res.trace) {
           entry.matchPath = blockPath;
         }
@@ -1050,6 +1088,15 @@ export class SimulateFirestoreRulesHandler {
         notes,
         pathResolution,
       });
+      } catch (error) {
+        unsupported++;
+        results.push(
+          refusedResult(
+            tc,
+            `Case refused: ${safeErrorMessage(error)}`,
+          ),
+        );
+      }
     }
 
     return { success: true, data: { passed, failed, unsupported, results } };

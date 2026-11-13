@@ -17,6 +17,7 @@ import { LatLng } from '../simulator/wrappers/latlng.js';
 import { Path } from '../simulator/wrappers/path.js';
 import { Reference } from '../simulator/wrappers/reference.js';
 import { Timestamp } from '../simulator/wrappers/timestamp.js';
+import { isUnresolvedWriteSentinel } from '../test/case-refusals.js';
 import {
   RuleError,
   isRuleError as isErr,
@@ -76,6 +77,11 @@ function wrapFirestoreValue(val: unknown): unknown {
       return out;
     }
     const keys = Object.keys(obj);
+    if (isUnresolvedWriteSentinel(obj)) {
+      throw new RuleUnsupportedError(
+        'Stored Firestore documents cannot contain unresolved write FieldValue sentinels.',
+      );
+    }
     if (obj.__type === 'path') {
       if (Array.isArray(obj.segments)) {
         const bindings =
@@ -141,7 +147,7 @@ function storagePathFromReferenceString(rawPath: string, databaseId: string = '(
   let trimmed = rawPath.replace(/^\/+|\/+$/g, '');
   const projectsMatch = /^projects\/[^/]+\/(databases(?:\/.*)?)$/.exec(trimmed);
   if (projectsMatch) trimmed = projectsMatch[1]!;
-  if (trimmed === 'databases' || trimmed.startsWith('databases/')) {
+  if (/^databases\/[^/]+\/documents(?:\/|$)/.test(trimmed)) {
     return new StoragePath(`/${trimmed}`);
   }
   return new StoragePath(

@@ -87,7 +87,12 @@ export class Path extends RulesValue {
         }
         const sv = String(v);
         next.push(sv);
-        nextBindings[name] = sv;
+        Object.defineProperty(nextBindings, name, {
+          value: sv,
+          enumerable: true,
+          writable: true,
+          configurable: true,
+        });
       } else {
         // Unbound — preserve the placeholder. get/exists will see the
         // literal `{name}` and the resolver will return null.

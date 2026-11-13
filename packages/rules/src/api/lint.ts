@@ -11,6 +11,7 @@
 import { lintFirestoreRules } from '../linter/linter.js';
 import { parseToAST } from '../grammar/FirestoreParser.js';
 import { validateFirestoreRules } from '../grammar/FirestoreValidator.js';
+import { safeErrorMessage } from '../test/case-refusals.js';
 import type { RuleIssue } from './issue.js';
 import {
   parseErrorToIssue,
@@ -18,16 +19,15 @@ import {
   validationFindingToIssue,
 } from './issue.js';
 
-/**
- * Lint Firestore rules source. Accepts anything — including empty or
- * syntactically broken source — and always returns an issue list.
- */
-export function lint(source: string): RuleIssue[] {
+export function lintSource(
+  source: string,
+  targetService: 'cloud.firestore' | 'firebase.storage' | 'all' = 'all',
+): RuleIssue[] {
   const issues: RuleIssue[] = [];
 
   let lintResult: ReturnType<typeof lintFirestoreRules>;
   try {
-    lintResult = lintFirestoreRules(source);
+    lintResult = lintFirestoreRules(source, { targetService });
   } catch (e) {
     // The linter itself should not throw, but a tolerant front door must
     // survive one that does — surface it as an issue rather than propagate.
@@ -35,7 +35,7 @@ export function lint(source: string): RuleIssue[] {
       {
         code: 'LINT_INTERNAL_ERROR',
         severity: 'error',
-        message: e instanceof Error ? e.message : String(e),
+        message: safeErrorMessage(e),
         origin: 'lint',
       },
     ];
@@ -59,7 +59,10 @@ export function lint(source: string): RuleIssue[] {
   try {
     const ast = parseToAST(source);
     if (ast) {
-      for (const finding of validateFirestoreRules(ast)) {
+      for (const finding of validateFirestoreRules(ast, {
+        rawSource: source,
+        targetService,
+      })) {
         issues.push(validationFindingToIssue(finding));
       }
     }
@@ -69,4 +72,12 @@ export function lint(source: string): RuleIssue[] {
   }
 
   return issues;
+}
+
+/**
+ * Lint Firestore or Storage rules source. Accepts anything — including empty or
+ * syntactically broken source — and always returns an issue list.
+ */
+export function lint(source: string): RuleIssue[] {
+  return lintSource(source);
 }

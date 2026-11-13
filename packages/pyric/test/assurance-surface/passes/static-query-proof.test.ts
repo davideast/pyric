@@ -673,5 +673,35 @@ service cloud.firestore {
     const budgetDiags = staticQueryProofPass(publicOnlyUsage, overBudgetRules);
     expect(budgetDiags).toHaveLength(1);
     expect(budgetDiags[0]?.code).toBe('firestore-unprovable-list-query');
+
+    const innerOrOverBudgetRules = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function specialComment(docId) {
+      return docId == 'pinned' && (${lookupChain});
+    }
+    match /{path=**}/comments/{id} {
+      allow list: if (resource.data.status == 'open' || resource.data.status == 'closed')
+        && (specialComment(id) || request.auth != null);
+    }
+  }
+}`;
+    const inDomainUsage = extractSdkUsage({
+      root: '/app',
+      files: {
+        'src/inner-budget.ts': `
+          import { collectionGroup, getDocs, getFirestore, query, where } from 'firebase/firestore';
+          const db = getFirestore();
+          export async function loadByStatus() {
+            return getDocs(query(collectionGroup(db, 'comments'), where('status', 'in', ['open', 'closed'])));
+          }
+        `,
+      },
+    });
+    const innerBudgetDiags = staticQueryProofPass(inDomainUsage, innerOrOverBudgetRules, {
+      auth: { uid: 'u1' },
+    });
+    expect(innerBudgetDiags).toHaveLength(1);
+    expect(innerBudgetDiags[0]?.code).toBe('firestore-unprovable-list-query');
   });
 });

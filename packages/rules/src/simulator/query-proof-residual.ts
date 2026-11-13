@@ -5,7 +5,14 @@
 import type { Expression, FunctionDef } from "../grammar/FirestoreAST.js";
 import type { SimulationContext } from "./evaluation-context.js";
 import { evaluate, requireBoolean } from "./evaluator.js";
-import { attachOrBudgetStep, getOrBudgetSteps } from "./list-proof-budget.js";
+import {
+  attachOrBudgetStep,
+  getOrBudgetSteps,
+  isTrivialPureExpr,
+  isUnconditionallyEvaluatedInExpr,
+  mapOrBudgetStepExpressions,
+  projectWorstCaseBudgetExpr,
+} from "./list-proof-budget.js";
 import { analyzeListRulePathInvariance } from "./list-rule-path-proof.js";
 import {
   getValidFunctionLexicalScope,
@@ -225,7 +232,12 @@ export function replaceTokenInQueryScalar<T extends RulesScalar>(
     const nextSegments = value.segments.map((seg) => seg.split(fromToken).join(toValue));
     const nextBindings: Record<string, string> = {};
     for (const [k, v] of Object.entries(value.bindings)) {
-      nextBindings[k] = v.split(fromToken).join(toValue);
+      Object.defineProperty(nextBindings, k, {
+        value: v.split(fromToken).join(toValue),
+        enumerable: true,
+        writable: true,
+        configurable: true,
+      });
     }
     return new Path(nextSegments, nextBindings) as T;
   }
@@ -765,7 +777,12 @@ function rulesScalarExpression(value: RulesScalar): Expression {
     return { type: "pathLiteral", raw: value.toString(), segments: [...value.segments] };
   }
   if (value instanceof Reference) {
-    return { type: "pathLiteral", raw: value.toPath().toString(), segments: [...value.segments] };
+    return {
+      type: "pathLiteral",
+      raw: value.toPath().toString(),
+      segments: [...value.segments],
+      isReference: true,
+    };
   }
   if (value instanceof Bytes) {
     return { type: "literal", value: value.data, raw: bytesLiteralRaw(value.data) };
@@ -860,10 +877,15 @@ export function queryResidual(
       pinExprs.map((pinExpr) => new Map([...variant, [name, pinExpr]])),
     );
   }
+  const budgetOpts = {
+    outerFunctions: functions,
+    functionScopes,
+    candidateVariables: pathInvariance?.candidateVariables,
+    ambiguousNames: pathInvariance?.ambiguousNames,
+    checkResourceDependence: true,
+  };
   const residuals: Expression[] = [];
-  let variantIndex = 0;
   for (const pins of variants) {
-    const includeBudgetBranches = variantIndex++ === 0;
     let budget = 2000;
     function rewrite(
       expr: Expression,
@@ -871,6 +893,20 @@ export function queryResidual(
       visiting: ReadonlySet<FunctionDef> = new Set(),
     ): Expression {
       if (--budget < 0) throw new Error("proof expansion budget");
+      const attachedSteps = getOrBudgetSteps(expr);
+      if (attachedSteps && attachedSteps.length > 0) {
+        const stripped: Expression = { ...expr };
+        let rewrittenTarget = rewrite(stripped, currentFunctions, visiting);
+        const projectedSteps = attachedSteps.map((step) =>
+          mapOrBudgetStepExpressions(step, (sub) =>
+            projectWorstCaseBudgetExpr(rewrite(sub, currentFunctions, visiting), budgetOpts).expr,
+          ),
+        );
+        for (let i = projectedSteps.length - 1; i >= 0; i--) {
+          rewrittenTarget = attachOrBudgetStep(rewrittenTarget, projectedSteps[i]!);
+        }
+        return rewrittenTarget;
+      }
       const directKey = dataFieldPath(expr);
       if (directKey !== null && pins.has(directKey)) {
         return pins.get(directKey)!;
@@ -909,25 +945,59 @@ export function queryResidual(
           }
           return rewrittenArg;
         });
-        const bindings = lexicalCaptureLiteralBindings(fn, functionScopes);
-        for (let i = 0; i < fn.parameters.length; i++) {
-          bindings.set(fn.parameters[i]!, rewrittenArgs[i]!);
-        }
-        const nextVisiting = new Set([...visiting, fn]);
-        for (const binding of fn.lets)
-          bindings.set(
-            binding.name,
-            rewrite(
+        const savedBudget = budget;
+        budget = Math.min(budget, 400);
+        try {
+          const bindings = lexicalCaptureLiteralBindings(fn, functionScopes);
+          const callByValueSteps: Expression[] = [];
+          for (let i = 0; i < fn.parameters.length; i++) {
+            const paramName = fn.parameters[i]!;
+            const argVal = rewrittenArgs[i]!;
+            bindings.set(paramName, argVal);
+            if (!isTrivialPureExpr(argVal) && !isUnconditionallyEvaluatedInExpr(paramName, fn.body)) {
+              callByValueSteps.push(projectWorstCaseBudgetExpr(argVal, budgetOpts).expr);
+            }
+          }
+          const nextVisiting = new Set([...visiting, fn]);
+          for (const binding of fn.lets) {
+            const rewrittenLet = rewrite(
               substituteIdentifiers(binding.value, bindings),
               nextFunctions,
               nextVisiting,
-            ),
+            );
+            if (!isTrivialPureExpr(rewrittenLet) && !isUnconditionallyEvaluatedInExpr(binding.name, fn.body)) {
+              callByValueSteps.push(projectWorstCaseBudgetExpr(rewrittenLet, budgetOpts).expr);
+            }
+            bindings.set(binding.name, rewrittenLet);
+          }
+          let inlinedBody = rewrite(
+            substituteIdentifiers(fn.body, bindings),
+            nextFunctions,
+            nextVisiting,
           );
-        return rewrite(
-          substituteIdentifiers(fn.body, bindings),
-          nextFunctions,
-          nextVisiting,
-        );
+          for (let i = callByValueSteps.length - 1; i >= 0; i--) {
+            inlinedBody = attachOrBudgetStep(inlinedBody, {
+              operator: expr,
+              side: "before",
+              branch: callByValueSteps[i]!,
+            });
+          }
+          const consumed = Math.min(savedBudget, 400) - budget;
+          budget = savedBudget - consumed;
+          return inlinedBody;
+        } catch (err) {
+          budget = savedBudget - 400;
+          if (
+            budget >= 0 &&
+            err instanceof Error &&
+            err.message === "proof expansion budget" &&
+            callsResolveInOuterScope(expr, currentFunctions, functions) &&
+            rewrittenArgs.every((arg) => callsResolveInOuterScope(arg, currentFunctions, functions))
+          ) {
+            return { ...expr, args: rewrittenArgs };
+          }
+          throw err;
+        }
       }
       if (expr.type === "inExpr") {
         const element = rewrite(expr.element, currentFunctions, visiting);
@@ -1118,6 +1188,16 @@ export function queryResidual(
     // may be discarded only in monotone positive OR (including De Morgan duals),
     // never under an unpushed NOT or ternary.
     function sufficient(expr: Expression): Expression | undefined {
+      const nodeSteps = getOrBudgetSteps(expr);
+      if (nodeSteps && nodeSteps.length > 0) {
+        const innerSuff = sufficient({ ...expr });
+        if (!innerSuff) return undefined;
+        let wrapped = innerSuff;
+        for (let i = nodeSteps.length - 1; i >= 0; i--) {
+          wrapped = attachOrBudgetStep(wrapped, nodeSteps[i]!);
+        }
+        return wrapped;
+      }
       if (expr.type === "unaryOp" && expr.op === "!") {
         const inner = expr.operand;
         if (inner.type === "binaryOp" && inner.op === "&&") {
@@ -1158,19 +1238,20 @@ export function queryResidual(
         if (expr.op === "||") {
           if (!left && !right) return undefined;
           partial = true;
-          if (!includeBudgetBranches) return left ?? right;
           if (!left && right) {
+            const projectedLeft = projectWorstCaseBudgetExpr(expr.left, budgetOpts).expr;
             return attachOrBudgetStep(right, {
               operator: expr,
               side: "before",
-              branch: expr.left,
+              branch: projectedLeft,
             });
           }
           if (left && !right) {
+            const projectedRight = projectWorstCaseBudgetExpr(expr.right, budgetOpts).expr;
             return attachOrBudgetStep(left, {
               operator: expr,
               side: "after",
-              branch: expr.right,
+              branch: projectedRight,
             });
           }
         }
@@ -1199,15 +1280,202 @@ export function queryResidual(
       return undefined;
     }
   }
-  let combinedCondition = residuals.reduce((left, right) => join(left, right, "&&"));
-  const priorSteps = getOrBudgetSteps(condition);
-  if (priorSteps && priorSteps.length > 0 && combinedCondition !== condition) {
-    for (let i = priorSteps.length - 1; i >= 0; i--) {
-      combinedCondition = attachOrBudgetStep(combinedCondition, priorSteps[i]!);
-    }
-  }
+  const variantConjunction = residuals.reduce((left, right) => join(left, right, "&&"));
+  const combinedCondition =
+    residuals.length === 1
+      ? variantConjunction
+      : attachOrBudgetStep(variantConjunction, {
+          kind: "variants",
+          branches: residuals,
+        });
   return {
     condition: combinedCondition,
     partial,
   };
+}
+
+/**
+ * Substitutes single-value query equality pins into an unprovable rule or
+ * prior budget branch and projects unconstrained guards for worst-case
+ * lookup/expression budget evaluation.
+ */
+export function buildRuleBudgetCondition(
+  condition: Expression,
+  constraints: QueryConstraints,
+  functions: ReadonlyMap<string, FunctionDef>,
+  functionScopes?: ReadonlyMap<FunctionDef, FunctionScopeBindings>,
+  pathInvariance?: PathInvarianceContext,
+): Expression {
+  const singlePins = new Map<string, Expression>();
+  for (const [field, values] of computeWhereDomains(constraints)) {
+    if (values.length === 1) {
+      const exprs = pinCandidateExpressions(values[0]!);
+      if (exprs.length > 0) {
+        singlePins.set(field, exprs[0]!);
+      }
+    }
+  }
+
+  const budgetOpts = {
+    outerFunctions: functions,
+    functionScopes,
+    candidateVariables: pathInvariance?.candidateVariables,
+    ambiguousNames: pathInvariance?.ambiguousNames,
+    checkResourceDependence: true,
+  };
+
+  let budget = 2000;
+  const rewritePinned = (
+    expr: Expression,
+    currentFunctions: ReadonlyMap<string, FunctionDef> = functions,
+    visiting: ReadonlySet<FunctionDef> = new Set(),
+  ): Expression => {
+    if (singlePins.size === 0 || --budget < 0) return expr;
+    const priorSteps = getOrBudgetSteps(expr);
+    if (priorSteps && priorSteps.length > 0) {
+      const stripped: Expression = { ...expr };
+      let target = rewritePinned(stripped, currentFunctions, visiting);
+      const rewrittenSteps = priorSteps.map((step) =>
+        mapOrBudgetStepExpressions(step, (sub) => rewritePinned(sub, currentFunctions, visiting)),
+      );
+      for (let i = rewrittenSteps.length - 1; i >= 0; i--) {
+        target = attachOrBudgetStep(target, rewrittenSteps[i]!);
+      }
+      return target;
+    }
+    const directKey = dataFieldPath(expr);
+    if (directKey !== null && singlePins.has(directKey)) {
+      return singlePins.get(directKey)!;
+    }
+    if (expr.type === "functionCall" && currentFunctions.has(expr.name)) {
+      if (
+        callsResolveInOuterScope(expr, currentFunctions, functions) &&
+        isProvablyDocIndependent(expr, currentFunctions)
+      ) {
+        return expr;
+      }
+      const fn = currentFunctions.get(expr.name)!;
+      const nextFunctions = getValidFunctionLexicalScope(fn, currentFunctions);
+      if (
+        visiting.has(fn) ||
+        fn.parameters.length !== expr.args.length ||
+        !nextFunctions
+      ) {
+        return { ...expr, args: expr.args.map((arg) => rewritePinned(arg, currentFunctions, visiting)) };
+      }
+      const rewrittenArgs: Expression[] = [];
+      let crossScopeFailed = false;
+      for (const arg of expr.args) {
+        const rewrittenArg = rewritePinned(arg, currentFunctions, visiting);
+        if (
+          currentFunctions !== nextFunctions &&
+          !callsResolveInOuterScope(rewrittenArg, currentFunctions, nextFunctions)
+        ) {
+          const expandedArg = inlineFunctionsInExpr(rewrittenArg, currentFunctions, visiting, functionScopes);
+          if (
+            !expandedArg ||
+            !callsResolveInOuterScope(expandedArg, currentFunctions, nextFunctions) ||
+            !callsResolveInOuterScope(expandedArg, currentFunctions, functions)
+          ) {
+            crossScopeFailed = true;
+            break;
+          }
+          rewrittenArgs.push(expandedArg);
+        } else {
+          rewrittenArgs.push(rewrittenArg);
+        }
+      }
+      if (crossScopeFailed) {
+        return { ...expr, args: expr.args.map((arg) => rewritePinned(arg, currentFunctions, visiting)) };
+      }
+      const bindings = lexicalCaptureLiteralBindings(fn, functionScopes);
+      const callByValueSteps: Expression[] = [];
+      for (let i = 0; i < fn.parameters.length; i++) {
+        const paramName = fn.parameters[i]!;
+        const argVal = rewrittenArgs[i]!;
+        bindings.set(paramName, argVal);
+        if (!isTrivialPureExpr(argVal) && !isUnconditionallyEvaluatedInExpr(paramName, fn.body)) {
+          callByValueSteps.push(argVal);
+        }
+      }
+      const nextVisiting = new Set([...visiting, fn]);
+      for (const binding of fn.lets) {
+        if (budget < 0) {
+          return { ...expr, args: rewrittenArgs };
+        }
+        const rewrittenLet = rewritePinned(
+          substituteIdentifiers(binding.value, bindings),
+          nextFunctions,
+          nextVisiting,
+        );
+        if (!isTrivialPureExpr(rewrittenLet) && !isUnconditionallyEvaluatedInExpr(binding.name, fn.body)) {
+          callByValueSteps.push(rewrittenLet);
+        }
+        bindings.set(binding.name, rewrittenLet);
+      }
+      let inlinedBody = rewritePinned(substituteIdentifiers(fn.body, bindings), nextFunctions, nextVisiting);
+      for (let i = callByValueSteps.length - 1; i >= 0; i--) {
+        inlinedBody = attachOrBudgetStep(inlinedBody, {
+          operator: expr,
+          side: "before",
+          branch: callByValueSteps[i]!,
+        });
+      }
+      return inlinedBody;
+    }
+    const sub = (child: Expression) => rewritePinned(child, currentFunctions, visiting);
+    switch (expr.type) {
+      case "literal":
+      case "identifier":
+        return expr;
+      case "memberAccess": {
+        const rewritten: Expression = { ...expr, object: sub(expr.object) };
+        const key = dataFieldPath(rewritten);
+        if (key !== null && singlePins.has(key)) return singlePins.get(key)!;
+        return rewritten;
+      }
+      case "bracketAccess": {
+        const rewritten: Expression = { ...expr, object: sub(expr.object), index: sub(expr.index) };
+        const key = dataFieldPath(rewritten);
+        if (key !== null && singlePins.has(key)) return singlePins.get(key)!;
+        return rewritten;
+      }
+      case "sliceAccess":
+        return { ...expr, object: sub(expr.object), start: sub(expr.start), end: sub(expr.end) };
+      case "binaryOp":
+        return { ...expr, left: sub(expr.left), right: sub(expr.right) };
+      case "unaryOp":
+        return { ...expr, operand: sub(expr.operand) };
+      case "ternary":
+        return {
+          ...expr,
+          condition: sub(expr.condition),
+          consequent: sub(expr.consequent),
+          alternate: sub(expr.alternate),
+        };
+      case "inExpr":
+        return { ...expr, element: sub(expr.element), collection: sub(expr.collection) };
+      case "isExpr":
+        return { ...expr, value: sub(expr.value) };
+      case "listLiteral":
+        return { ...expr, elements: expr.elements.map(sub) };
+      case "mapLiteral":
+        return {
+          ...expr,
+          entries: expr.entries.map((entry) => ({ key: sub(entry.key), value: sub(entry.value) })),
+        };
+      case "pathLiteral":
+        return {
+          ...expr,
+          segments: expr.segments.map((seg) => (typeof seg === "string" ? seg : sub(seg))),
+        };
+      case "methodCall":
+        return { ...expr, object: sub(expr.object), args: expr.args.map(sub) };
+      case "functionCall":
+        return { ...expr, args: expr.args.map(sub) };
+    }
+  };
+
+  const pinned = rewritePinned(condition);
+  return projectWorstCaseBudgetExpr(pinned, budgetOpts).expr;
 }

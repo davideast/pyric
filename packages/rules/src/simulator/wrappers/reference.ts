@@ -127,6 +127,12 @@ export class Reference extends RulesValue {
     if (other instanceof Path) {
       return matchesPathSegments(this.databaseId, this.path, other.segments);
     }
+    if (other instanceof RulesValue && other.typeName === 'path') {
+      const segs = (other as { segments?: unknown }).segments;
+      if (Array.isArray(segs)) {
+        return matchesPathSegments(this.databaseId, this.path, segs.map(String));
+      }
+    }
     return false;
   }
 
@@ -170,28 +176,22 @@ function matchesPathSegments(
   return true;
 }
 
+const RESOURCE_DOCUMENTS_PREFIX = /^(?:projects\/[^/]+\/)?databases\/([^/]+)\/documents(?:\/|$)/;
+
 /**
  * Strip leading slash and any `projects/<p>/databases/<d>/documents/`
  * prefix to produce the relative path. Tolerates both forms because
  * agents may seed either shape.
  */
 function normalizeRelativePath(path: string): string {
-  let p = stripDocumentsPrefix(path);
-  if (p.startsWith('/')) p = p.slice(1);
-  if (p.endsWith('/')) p = p.slice(0, -1);
-  return p;
-}
-
-function stripDocumentsPrefix(s: string): string {
-  const marker = '/documents/';
-  const idx = s.indexOf(marker);
-  if (idx === -1) return s;
-  return s.slice(idx + marker.length);
+  const trimmed = path.replace(/^\/+|\/+$/g, '');
+  const match = RESOURCE_DOCUMENTS_PREFIX.exec(trimmed);
+  return match ? trimmed.slice(match[0].length).replace(/^\/+/, '') : trimmed;
 }
 
 function extractDatabaseId(s: string): string {
   const trimmed = s.replace(/^\/+|\/+$/g, '');
-  const match = /^(?:projects\/[^/]+\/)?databases\/([^/]+)\/documents(?:\/|$)/.exec(trimmed);
+  const match = RESOURCE_DOCUMENTS_PREFIX.exec(trimmed);
   return match ? match[1]! : '(default)';
 }
 

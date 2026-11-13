@@ -10,7 +10,99 @@
  */
 import type { ZodIssue } from 'zod';
 import { TestCaseSchema } from './spec.js';
-import { createResourceRefusal, ISO_INSTANT_FORM } from './case-refusals.js';
+import {
+  createResourceRefusal,
+  ISO_INSTANT_FORM,
+  isUnresolvedWriteSentinel,
+  isValidRulesDate,
+  safeErrorMessage,
+} from './case-refusals.js';
+import { normalizeAuthState } from '../auth/auth-state.js';
+import { RulesValue } from '../simulator/wrappers/base.js';
+import { FirestoreSet } from '../simulator/firestore-set.js';
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return false;
+  const proto = Object.getPrototypeOf(value);
+  return proto === Object.prototype || proto === null;
+}
+
+export interface CasePayloadValidationOptions {
+  /** Allow `undefined` property values (defaults to `true` for optional `FirestoreCase` fields). */
+  allowUndefined?: boolean;
+  /** Refuse unresolved write `FieldValue` sentinels (`serverTimestamp`, `deleteField`, `arrayUnion`, `arrayRemove`, `increment`). */
+  rejectStoredWriteSentinels?: boolean;
+}
+
+export function validateCasePayloadValue(
+  value: unknown,
+  field: string,
+  options?: CasePayloadValidationOptions,
+  ancestors = new WeakSet<object>(),
+): string | undefined {
+  if (
+    value === null ||
+    typeof value === 'boolean' ||
+    typeof value === 'number' ||
+    typeof value === 'string' ||
+    typeof value === 'bigint'
+  ) {
+    return undefined;
+  }
+  if (value === undefined) {
+    return options?.allowUndefined === false
+      ? `Case refused: ${field} cannot be undefined.`
+      : undefined;
+  }
+  if (typeof value === 'function' || typeof value === 'symbol') {
+    return `Case refused: ${field} cannot contain ${typeof value} values.`;
+  }
+  if (value instanceof Date) {
+    if (!isValidRulesDate(value)) {
+      return `Case refused: ${field} carries an invalid or out-of-range Date.`;
+    }
+    return undefined;
+  }
+  if (
+    value instanceof RulesValue ||
+    value instanceof FirestoreSet ||
+    value instanceof Uint8Array
+  ) {
+    return undefined;
+  }
+  const obj = value as object;
+  if (ancestors.has(obj)) {
+    return `Case refused: ${field} cannot contain circular references.`;
+  }
+  if (Array.isArray(value)) {
+    ancestors.add(obj);
+    try {
+      for (let i = 0; i < value.length; i++) {
+        const err = validateCasePayloadValue(value[i], `${field}[${i}]`, options, ancestors);
+        if (err !== undefined) return err;
+      }
+      return undefined;
+    } finally {
+      ancestors.delete(obj);
+    }
+  }
+  if (!isPlainObject(value)) {
+    return `Case refused: ${field} must contain plain objects, arrays, primitives, or Rules value wrappers.`;
+  }
+  if (options?.rejectStoredWriteSentinels && isUnresolvedWriteSentinel(value)) {
+    return `Case refused: ${field} holds an unresolved write FieldValue sentinel; stored Firestore documents hold resolved values.`;
+  }
+  ancestors.add(obj);
+  try {
+    for (const [k, v] of Object.entries(value)) {
+      const err = validateCasePayloadValue(v, `${field}.${k}`, options, ancestors);
+      if (err !== undefined) return err;
+    }
+    return undefined;
+  } finally {
+    ancestors.delete(obj);
+  }
+}
 
 function describeIssue(issue: ZodIssue): string {
   if (issue.code === 'unrecognized_keys') {
@@ -29,9 +121,45 @@ function describeIssue(issue: ZodIssue): string {
  * `undefined` when it is.
  */
 export function caseShapeRefusal(value: unknown): string | undefined {
-  const parsed = TestCaseSchema.safeParse(value);
+  let parsed: ReturnType<typeof TestCaseSchema.safeParse>;
+  try {
+    parsed = TestCaseSchema.safeParse(value);
+  } catch (error) {
+    return `Case refused: ${safeErrorMessage(error)}`;
+  }
   if (!parsed.success) {
     return `Case refused: ${parsed.error.issues.map(describeIssue).join(' ')}`;
   }
-  return createResourceRefusal(parsed.data);
+  const createRefusal = createResourceRefusal(parsed.data);
+  if (createRefusal !== undefined) return createRefusal;
+
+  if (parsed.data.auth !== undefined && parsed.data.auth !== null) {
+    try {
+      normalizeAuthState(parsed.data.auth);
+    } catch (error) {
+      return `Case refused: auth.token: ${safeErrorMessage(error)}`;
+    }
+  }
+  if (parsed.data.data !== undefined) {
+    const err = validateCasePayloadValue(parsed.data.data, 'data');
+    if (err !== undefined) return err;
+  }
+  if (parsed.data.resource !== undefined) {
+    const err = validateCasePayloadValue(parsed.data.resource, 'resource', {
+      rejectStoredWriteSentinels: true,
+    });
+    if (err !== undefined) return err;
+  }
+  if (parsed.data.functionMocks !== undefined) {
+    for (let i = 0; i < parsed.data.functionMocks.length; i++) {
+      const mock = parsed.data.functionMocks[i]!;
+      if (typeof mock.result !== 'boolean') {
+        const err = validateCasePayloadValue(mock.result, `functionMocks[${i}].result`, {
+          rejectStoredWriteSentinels: true,
+        });
+        if (err !== undefined) return err;
+      }
+    }
+  }
+  return undefined;
 }

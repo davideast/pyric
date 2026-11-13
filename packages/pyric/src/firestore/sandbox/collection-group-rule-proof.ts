@@ -9,6 +9,7 @@ import type {
 import {
   attachOrBudgetStep,
   indexRulesetScopes,
+  projectWorstCaseBudgetExpr,
   rootBlockGovernsEveryDocument,
   rootGovernsEveryDocument,
   setListBlockSteps,
@@ -70,7 +71,10 @@ export function proveCollectionGroupRules(
       children,
     });
   }
-  if (projectedRoots.length === 0) return null;
+  const hasAnyGrant = projectedRoots.some((root) =>
+    root.children.some((child) => child.allows.length > 0),
+  );
+  if (!hasAnyGrant) return null;
 
   return {
     ...ast,
@@ -97,65 +101,6 @@ function groupBindings(block: MatchBlock, collectionId: string): Set<string> | n
     return new Set([first.name, third.name]);
   }
   return null;
-}
-
-function worstCasePathBudgetBranch(
-  expr: Expression,
-  bound: ReadonlySet<string>,
-  functions: ReadonlyMap<string, FunctionDef>,
-  ambiguousNames: ReadonlySet<string>,
-): { expr: Expression; requiredFunctionDefs: ReadonlySet<FunctionDef> } {
-  const analysis = analyzeListRulePathInvariance(expr, bound, functions, ambiguousNames);
-  if (analysis.pathInvariant) {
-    return { expr, requiredFunctionDefs: analysis.requiredFunctionDefs };
-  }
-  if (expr.type === 'unaryOp' && expr.op === '!') {
-    const inner = expr.operand;
-    if (inner.type === 'binaryOp' && (inner.op === '&&' || inner.op === '||')) {
-      return worstCasePathBudgetBranch(
-        {
-          type: 'binaryOp',
-          op: inner.op === '&&' ? '||' : '&&',
-          left: { type: 'unaryOp', op: '!', operand: inner.left },
-          right: { type: 'unaryOp', op: '!', operand: inner.right },
-        },
-        bound,
-        functions,
-        ambiguousNames,
-      );
-    }
-    const sub = worstCasePathBudgetBranch(inner, bound, functions, ambiguousNames);
-    return {
-      expr: sub.expr === inner ? expr : { ...expr, operand: sub.expr },
-      requiredFunctionDefs: sub.requiredFunctionDefs,
-    };
-  }
-  if (expr.type === 'binaryOp' && (expr.op === '&&' || expr.op === '||')) {
-    const left = worstCasePathBudgetBranch(expr.left, bound, functions, ambiguousNames);
-    const right = worstCasePathBudgetBranch(expr.right, bound, functions, ambiguousNames);
-    const defs = new Set([...left.requiredFunctionDefs, ...right.requiredFunctionDefs]);
-    const leftInvariant = analyzeListRulePathInvariance(
-      expr.left,
-      bound,
-      functions,
-      ambiguousNames,
-    ).pathInvariant;
-    if (!leftInvariant) {
-      return {
-        expr: attachOrBudgetStep(right.expr, {
-          operator: expr,
-          side: 'before',
-          branch: left.expr,
-        }),
-        requiredFunctionDefs: defs,
-      };
-    }
-    return {
-      expr: { ...expr, left: left.expr, right: right.expr },
-      requiredFunctionDefs: defs,
-    };
-  }
-  return { expr, requiredFunctionDefs: analysis.requiredFunctionDefs };
 }
 
 function projectPathInvariantCondition(
@@ -216,7 +161,12 @@ function projectPathInvariantCondition(
     }
     if (expr.op === '||') {
       if (!left && right) {
-        const dropped = worstCasePathBudgetBranch(expr.left, bound, functions, ambiguousNames);
+        const dropped = projectWorstCaseBudgetExpr(expr.left, {
+          outerFunctions: functions,
+          candidateVariables: bound,
+          ambiguousNames,
+          checkResourceDependence: false,
+        });
         return {
           condition: attachOrBudgetStep(right.condition, {
             operator: expr,
@@ -230,7 +180,12 @@ function projectPathInvariantCondition(
         };
       }
       if (left && !right) {
-        const dropped = worstCasePathBudgetBranch(expr.right, bound, functions, ambiguousNames);
+        const dropped = projectWorstCaseBudgetExpr(expr.right, {
+          outerFunctions: functions,
+          candidateVariables: bound,
+          ambiguousNames,
+          checkResourceDependence: false,
+        });
         return {
           condition: attachOrBudgetStep(left.condition, {
             operator: expr,
@@ -275,12 +230,12 @@ function projectGroupBlock(
       functionScope.ambiguousNames,
     );
     if (!projected) {
-      const budgetBranch = worstCasePathBudgetBranch(
-        rule.condition,
-        bound,
-        functionScope.functions,
-        functionScope.ambiguousNames,
-      );
+      const budgetBranch = projectWorstCaseBudgetExpr(rule.condition, {
+        outerFunctions: functionScope.functions,
+        candidateVariables: bound,
+        ambiguousNames: functionScope.ambiguousNames,
+        checkResourceDependence: false,
+      });
       const budgetRule = budgetBranch.expr === rule.condition
         ? rule
         : { ...rule, condition: budgetBranch.expr };
@@ -303,9 +258,10 @@ function projectGroupBlock(
     allows.push(projectedRule);
     blockSteps.push({ kind: 'grant', rule: projectedRule, index: ruleIndex });
   }
-  if (allows.length === 0) return null;
+  const hasBudgetSteps = blockSteps.some((step) => step.kind === 'budget');
+  if (allows.length === 0 && !hasBudgetSteps) return null;
 
-  if (blockSteps.some((step) => step.kind === 'budget')) {
+  if (hasBudgetSteps) {
     for (const fnDef of budgetDefs) {
       if (block.functions.includes(fnDef)) {
         blockRequiredDefs.add(fnDef);
@@ -321,7 +277,7 @@ function projectGroupBlock(
     allows,
     children: [],
   };
-  if (blockSteps.some((step) => step.kind === 'budget')) {
+  if (hasBudgetSteps) {
     setListBlockSteps(projectedBlock, blockSteps);
   }
   return projectedBlock;

@@ -7,7 +7,13 @@ import { projectAfterState } from '../simulator/project-after-state.js';
 import { RulesValue } from '../simulator/wrappers/base.js';
 import { Timestamp } from '../simulator/wrappers/timestamp.js';
 import { normalizeAuthState } from '../auth/auth-state.js';
-import { createResourceRefusal, isIsoInstant, ISO_INSTANT_FORM, requestTimeRefusal } from './case-refusals.js';
+import {
+  createResourceRefusal,
+  isIsoInstant,
+  ISO_INSTANT_FORM,
+  isUnescapedServerTimestampSentinel,
+  requestTimeRefusal,
+} from './case-refusals.js';
 import { encodeWireDocument } from './wire-values.js';
 
 // ---- Canonical shared primitives ----
@@ -627,40 +633,19 @@ function incomingDocument(tc: TestCase): Record<string, unknown> | undefined {
 function containsServerTimestamp(value: unknown): boolean {
   if (value === null || typeof value !== 'object') return false;
   if (Array.isArray(value)) return value.some(containsServerTimestamp);
-  const unescapedTag = Symbol.for('pyric.unescapedMap');
-  const isUnescaped = (value as Record<symbol, unknown>)[unescapedTag] === true;
-  const record = value as Record<string, unknown>;
-  if (
-    !isUnescaped
-    && (
-      record.__type === 'serverTimestamp'
-      || record._methodName === 'serverTimestamp'
-      || record._methodName === 'FieldValue.serverTimestamp'
-    )
-  ) {
-    return true;
-  }
+  if (isUnescapedServerTimestampSentinel(value)) return true;
   const proto = Object.getPrototypeOf(value);
   if (proto !== Object.prototype && proto !== null) return false;
-  return Object.values(record).some(containsServerTimestamp);
+  return Object.values(value as Record<string, unknown>).some(containsServerTimestamp);
 }
 
 function resolveWireServerTimestamps(value: unknown, serverTime: Timestamp): unknown {
   if (Array.isArray(value)) return value.map((item) => resolveWireServerTimestamps(item, serverTime));
   if (value === null || typeof value !== 'object') return value;
+  if (isUnescapedServerTimestampSentinel(value)) return serverTime;
   const unescapedTag = Symbol.for('pyric.unescapedMap');
   const isUnescaped = (value as Record<symbol, unknown>)[unescapedTag] === true;
   const record = value as Record<string, unknown>;
-  if (
-    !isUnescaped
-    && (
-      record.__type === 'serverTimestamp'
-      || record._methodName === 'serverTimestamp'
-      || record._methodName === 'FieldValue.serverTimestamp'
-    )
-  ) {
-    return serverTime;
-  }
   const proto = Object.getPrototypeOf(value);
   if (proto !== Object.prototype && proto !== null) return value;
   const out: Record<string, unknown> = {};

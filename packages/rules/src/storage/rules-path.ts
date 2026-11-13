@@ -90,7 +90,10 @@ export class StoragePath extends RulesValue {
 
 /** Whether a rules value has the rules type `path`. */
 export function isPathValue(value: unknown): value is RulesValue {
-  return value instanceof StoragePath || (value instanceof RulesValue && value.typeName === 'path');
+  return (
+    value instanceof StoragePath ||
+    (value instanceof RulesValue && (value.typeName === 'path' || value.typeName === 'reference'))
+  );
 }
 
 /** A path value's segments, as built. */
@@ -118,7 +121,7 @@ export function interpolationSegments(value: unknown): string[] | undefined {
 }
 
 function evalPathBind(receiver: unknown, expr: MethodCall, ctx: EvalCtx): unknown {
-  if (!(receiver instanceof StoragePath)) throw functionNotFound('bind');
+  if (!isPathValue(receiver)) throw functionNotFound('bind');
   const args = evalArguments(expr, ctx);
   if (isErr(args)) return args;
   if (args.length !== 1) {
@@ -129,7 +132,8 @@ function evalPathBind(receiver: unknown, expr: MethodCall, ctx: EvalCtx): unknow
     return new RuleError('path.bind() requires a map argument');
   }
   try {
-    return receiver.bind(m);
+    const pathReceiver = receiver instanceof StoragePath ? receiver : StoragePath.fromSegments(pathValueSegments(receiver));
+    return pathReceiver.bind(m);
   } catch (err) {
     return new RuleError((err as Error).message);
   }

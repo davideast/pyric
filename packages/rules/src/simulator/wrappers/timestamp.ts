@@ -26,6 +26,7 @@
  */
 import { RulesValue, NO_OP, ValueRangeError, type NoOp } from './base.js';
 import { Duration } from './duration.js';
+import { parseStrictIsoMillis } from '../../test/case-refusals.js';
 
 const NANOS_PER_SECOND = 1_000_000_000;
 const MS_PER_DAY = 86_400_000;
@@ -110,7 +111,9 @@ export class Timestamp extends RulesValue {
    * (no nanosecond precision test exists for it).
    */
   static fromIsoString(iso: string): Timestamp {
-    return Timestamp.fromMillis(Date.parse(iso));
+    const ms = parseStrictIsoMillis(iso);
+    if (ms === null) throw new ValueRangeError(TIMESTAMP_NOT_VALID);
+    return Timestamp.fromMillis(ms);
   }
 
   toMillis(): number {
