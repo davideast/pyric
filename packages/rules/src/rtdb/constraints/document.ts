@@ -107,11 +107,12 @@ function normalizeSimulationValue(value: unknown): unknown {
 }
 
 export function normalizeSimulationInput(input: RtdbRulesSimulationInput): SimulationInput {
-  const mockData = input.mockData !== undefined
-    ? input.mockData
-    : input.data !== undefined
-      ? input.data
-      : {};
+  let mockData: SimulationInput['mockData'] = {};
+  if (input.mockData !== undefined) {
+    mockData = input.mockData;
+  } else if (input.data !== undefined) {
+    mockData = input.data;
+  }
   const simulation: SimulationInput = {
     operation: input.operation,
     path: input.path,

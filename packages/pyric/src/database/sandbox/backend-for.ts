@@ -122,6 +122,9 @@ function backendsFor(sandbox: Sandbox): DatabaseInstanceRegistry<RtdbBackend> {
         const target = registry.getOrCreate(key);
         target.markActive();
         target.restoreTree(state as JsonValue);
+        if (!target.hasDurableState()) {
+          target.markDormant();
+        }
       }
     },
     subscribe: (onChange: () => void) => {

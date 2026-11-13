@@ -1071,7 +1071,6 @@ describe('createHostedRuntime state import and checkpoint rule preservation', ()
 
   it('preserves promoted named RTDB instance rules across sandbox.reset and simulates scalar root RTDB trees', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'pyric-hosted-promote-named-rtdb-'));
-    const frames: BridgeMessage[] = [];
     const memBackend = createMemoryBackend();
     const persistence = {
       backend: memBackend,
@@ -1102,7 +1101,7 @@ describe('createHostedRuntime state import and checkpoint rule preservation', ()
         appOptions: { projectId: 'demo-project' },
       },
       'http://127.0.0.1:4400',
-      (msg) => frames.push(msg),
+      () => {},
       dir,
       { persistence: persistence as never, record: false },
     );

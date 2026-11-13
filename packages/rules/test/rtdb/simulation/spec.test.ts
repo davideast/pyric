@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'bun:test';
-import { rtdbRules } from '../../../src/api/rtdb.js';
+import { rtdbRules, type RtdbTreeData } from '../../../src/index.js';
 import {
   SimulateErrorCode,
   SimulationInputSchema,
@@ -93,13 +93,25 @@ describe('SimulationInputSchema', () => {
   });
 
   test('accepts scalar primitive and null root mockData values', () => {
-    for (const mockData of ['beta', 42, false, null, { '.value': 'alpha', '.priority': 10 }]) {
+    const validRoots: RtdbTreeData[] = ['beta', 42, false, null, ['x', 'y'], { '.value': 'alpha', '.priority': 10 }];
+    for (const mockData of validRoots) {
       const result = SimulationInputSchema.safeParse({
         ...BASE,
         path: '/',
         mockData,
       });
       expect(result.success).toBe(true);
+    }
+  });
+
+  test('rejects non-finite numeric root mockData values', () => {
+    for (const mockData of [Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY]) {
+      const result = SimulationInputSchema.safeParse({
+        ...BASE,
+        path: '/',
+        mockData,
+      });
+      expect(result.success).toBe(false);
     }
   });
 });

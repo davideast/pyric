@@ -77,7 +77,7 @@ export function simulationQueryProblem(query: unknown): string | null {
   return thrownMessage(() => validateQuerySpec({ orderBy: orderByOf(q), bounds: boundsOf(q), limit: null }));
 }
 
-export const SimulationMockDataSchema = z.union([
+const SimulationMockDataSchema = z.union([
   z.record(z.unknown()),
   z.array(z.unknown()),
   z.string(),

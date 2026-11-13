@@ -127,7 +127,7 @@ const RECENT_LOGIN_WINDOW_MS = 5 * 60 * 1000;
  * `tenant` for a tenant sign-in) with the JWT registered claims.
  */
 function rulesTokenClaims(minted: IdTokenResult): Record<string, unknown> {
-  return rulesTokenFromIdToken(minted.claims);
+  return structuredClone(rulesTokenFromIdToken(minted.claims));
 }
 
 export class SandboxBackend {
@@ -2149,7 +2149,7 @@ export class SandboxBackend {
         const continues = remintsSession || resumesSession;
         const claimsOverride =
           restore !== undefined && Object.hasOwn(restore, 'customClaims') && restore.customClaims !== undefined
-            ? (restore.customClaims ?? {})
+            ? structuredClone(restore.customClaims ?? {})
             : undefined;
         const minted = this.establishDetachedSession(
           user,
@@ -2358,11 +2358,11 @@ export class SandboxBackend {
         }
       }
       this.fanOut('id-token');
-      return fresh.result;
+      return structuredClone(fresh.result);
     }
-    if (hasCachedToken) return cached.result;
+    if (hasCachedToken) return structuredClone(cached.result);
     const fresh = this.mintToken(uid, claims, tenantId);
-    return fresh.result;
+    return structuredClone(fresh.result);
   }
 
   /**
@@ -2385,6 +2385,7 @@ export class SandboxBackend {
     /** Tenant this identity authenticated under. Absent means untenanted. */
     tenantId?: string | null;
   }): User {
+    const fallbackClaims = structuredClone(args.claims);
     const photoURL = args.photoURL ?? null;
     const phoneNumber = args.phoneNumber ?? null;
     // Sandbox has no email-verification flow; default to false unless the
@@ -2446,9 +2447,9 @@ export class SandboxBackend {
       // Falls back to the closed-over claims for users not in the DB
       // (anonymous / popup), matching how they were minted.
       getIdToken: (forceRefresh?: boolean) => logoutIfInvalidated(signOutIfCurrent, () =>
-        this.getIdTokenFor(args.uid, this.liveClaims(args.uid, args.claims), forceRefresh === true, user.tenantId, user)),
+        this.getIdTokenFor(args.uid, this.liveClaims(args.uid, fallbackClaims), forceRefresh === true, user.tenantId, user)),
       getIdTokenResult: (forceRefresh?: boolean) => logoutIfInvalidated(signOutIfCurrent, () =>
-        this.getIdTokenResultFor(args.uid, this.liveClaims(args.uid, args.claims), forceRefresh === true, user.tenantId, user)),
+        this.getIdTokenResultFor(args.uid, this.liveClaims(args.uid, fallbackClaims), forceRefresh === true, user.tenantId, user)),
     };
     // Stamp the backend-dispatch hook non-enumerably so the top-level
     // `updateProfile(user, …)` free function can update THIS user (and the

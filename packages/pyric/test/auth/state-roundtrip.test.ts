@@ -279,6 +279,58 @@ describe('sandbox.exportUsers', () => {
       sb.dispose();
     }
   });
+
+  it('isolates getIdTokenResult().claims from cached tokens and live sandbox.currentUser.token', async () => {
+    const sb = initializeSandbox();
+    try {
+      const auth = getAuth(sb);
+      authSandbox.seedUsers(auth, [
+        {
+          uid: 'u-viewer',
+          email: 'viewer@example.com',
+          password: 'password123',
+          customClaims: { roles: ['viewer'], org: { id: 'o1' } },
+        },
+      ]);
+
+      const { getDatabase, getAdminDatabase, ref, set, get, sandbox: rtdbSandbox } = await import('../../src/database/index.js');
+      const adminDb = getAdminDatabase(sb);
+      await set(ref(adminDb, 'items/secret'), 'classified');
+      rtdbSandbox.setRules(adminDb, {
+        rules: {
+          items: {
+            secret: {
+              '.read': "auth != null && auth.token.roles[1] === 'admin' && auth.token.org.id === 'tampered'",
+              '.write': false,
+            },
+          },
+        },
+      });
+
+      const cred = await signInWithEmailAndPassword(auth, 'viewer@example.com', 'password123');
+      const clientDb = getDatabase(sb);
+      await expect(get(ref(clientDb, 'items/secret'))).rejects.toThrow(/PERMISSION_DENIED/);
+
+      const firstTokenResult = await cred.user.getIdTokenResult();
+      (firstTokenResult.claims.roles as string[]).push('admin');
+      (firstTokenResult.claims.org as { id: string }).id = 'tampered';
+      firstTokenResult.claims.extraTopLevel = 'leaked';
+
+      const secondTokenResult = await cred.user.getIdTokenResult(false);
+      expect(secondTokenResult.claims.roles).toEqual(['viewer']);
+      expect(secondTokenResult.claims.org).toEqual({ id: 'o1' });
+      expect(secondTokenResult.claims.extraTopLevel).toBeUndefined();
+
+      const forcedTokenResult = await cred.user.getIdTokenResult(true);
+      (forcedTokenResult.claims.roles as string[]).push('admin');
+      (forcedTokenResult.claims.org as { id: string }).id = 'tampered';
+
+      // Mutating returned IdTokenResult.claims must NEVER elevate live rules privileges
+      await expect(get(ref(clientDb, 'items/secret'))).rejects.toThrow(/PERMISSION_DENIED/);
+    } finally {
+      sb.dispose();
+    }
+  });
 });
 
 describe('sandbox.restoreSession', () => {

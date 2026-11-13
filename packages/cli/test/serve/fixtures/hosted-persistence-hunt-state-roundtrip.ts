@@ -79,11 +79,13 @@ try {
   );
   assert.equal(promoteRes.ok, true);
 
-  // Save a valid checkpoint before reset
+  // Save a valid checkpoint and two checkpoints to corrupt in distinct ways before reset
   const cpGood = await runtime.runMethod({ key: 'sandbox.checkpoint', args: { name: 'cp-good' }, projectDir }, {});
   assert.equal(cpGood.ok, true);
   const cpBad = await runtime.runMethod({ key: 'sandbox.checkpoint', args: { name: 'cp-corrupt' }, projectDir }, {});
   assert.equal(cpBad.ok, true);
+  const cpBadCounts = await runtime.runMethod({ key: 'sandbox.checkpoint', args: { name: 'cp-bad-counts' }, projectDir }, {});
+  assert.equal(cpBadCounts.ok, true);
 
   // Reset preserves promoted named-instance deny rules
   const resetRes = await runtime.runMethod({ key: 'sandbox.reset', args: { confirm: true }, projectDir }, {});
@@ -130,15 +132,46 @@ const badCpRow = rawDb.prepare("SELECT state FROM checkpoints WHERE name = 'cp-c
 const badCpState = JSON.parse(badCpRow.state);
 badCpState.rules.databaseInstances = { 'secondary-rtdb': { rules: { '.read': 'auth.uid ===' } } };
 rawDb.prepare("UPDATE checkpoints SET state = ? WHERE name = 'cp-corrupt'").run(JSON.stringify(badCpState));
+rawDb.prepare("UPDATE checkpoints SET counts = '{}' WHERE name = 'cp-bad-counts'").run();
+
+// Also seed a Storage row with a stale recorded size to verify failed startup validation does NOT mutate SQLite beforehand
+const contentBytes = Buffer.from('standing-blob-bytes');
+const sha256 = (await import('node:crypto')).createHash('sha256').update(contentBytes).digest('hex');
+const blobStore = (await import('../../../src/serve/hosted/persistence/blob-store.js')).createBlobStore(join(hostedDir, 'objects'));
+blobStore.write(contentBytes);
+const staleMeta = JSON.stringify({
+  bucket: 'pyric-default',
+  fullPath: 'items/stale-size.txt',
+  name: 'stale-size.txt',
+  size: 999,
+  generation: '1',
+  metageneration: '1',
+  timeCreated: '2026-01-01T00:00:00.000Z',
+  updated: '2026-01-01T00:00:00.000Z',
+  contentDisposition: 'inline',
+  contentType: 'text/plain',
+});
+rawDb
+  .prepare(
+    "INSERT INTO storage_objects (bucket, path, sha256, size, mime, metadata) VALUES ('pyric-default', 'items/stale-size.txt', ?, ?, 'text/plain', ?)",
+  )
+  .run(sha256, contentBytes.byteLength, staleMeta);
 rawDb.close();
 
-// Un-salvaged corrupt store fails strict startup validation
+// Un-salvaged corrupt store fails strict startup validation WITHOUT mutating storage_objects before checkpoint failure
 await assert.rejects(() => createHostedPersistence(projectDir));
+const checkDb = new DatabaseSync(join(hostedDir, 'state.sqlite'), { readOnly: true });
+const postFailMeta = JSON.parse(
+  (checkDb.prepare("SELECT metadata FROM storage_objects WHERE path = 'items/stale-size.txt'").get() as { metadata: string }).metadata,
+) as { size: number };
+checkDb.close();
+assert.equal(postFailMeta.size, 999);
 
 const report = await salvageHostedState(hostedDir, salvagedDir);
 assert.equal(report.recoveredCheckpoints, 1);
 assert.equal(report.excluded.some((e) => e.id === 'rtdb:i:corrupt-rtdb'), true);
 assert.equal(report.excluded.some((e) => e.namespace === 'checkpoints' && e.id === 'cp-corrupt'), true);
+assert.equal(report.excluded.some((e) => e.namespace === 'checkpoints' && e.id === 'cp-bad-counts'), true);
 
 const reopenedSalvaged = await openHostedDatabase(salvagedDir, { readOnly: true });
 try {

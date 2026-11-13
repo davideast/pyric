@@ -488,7 +488,7 @@ export class ChangedRtdbRecords {
       }
       return {
         records,
-        removed,
+        removed: removed.filter((id) => !records.has(id)),
         retry: () => {
           for (const r of retries) r();
         },

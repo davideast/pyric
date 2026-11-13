@@ -94,6 +94,13 @@ const SCALAR_ROOT_RULES = {
   },
 };
 
+const BARE_SCALAR_ROOT_RULES = {
+  rules: {
+    '.read': "auth != null && data.isString() && data.val() === 'plain-scalar-banner' && data.getPriority() === null",
+    '.write': 'auth != null',
+  },
+};
+
 const RULES_ONLY_INSTANCE_RULES = {
   rules: {
     users: {
@@ -157,6 +164,11 @@ async function buildMaximalSandbox(backend?: PersistenceBackend, persistKey?: st
   rtdbSandbox.setRules(scalarAdmin, SCALAR_ROOT_RULES);
   await setWithPriority(ref(scalarAdmin, '/'), 'active-banner', 15);
 
+  // 4b. Named RTDB instance 1b (`bare-scalar-rtdb`): bare scalar root WITHOUT priority + rules
+  const bareScalarAdmin = getAdminDatabase(sb, 'https://bare-scalar-rtdb.firebaseio.com');
+  rtdbSandbox.setRules(bareScalarAdmin, BARE_SCALAR_ROOT_RULES);
+  await set(ref(bareScalarAdmin, '/'), 'plain-scalar-banner');
+
   // 5. Named RTDB instance 2 (`rules-only-rtdb`): empty data tree + deployed rules
   const rulesOnlyAdmin = getAdminDatabase(sb, 'https://rules-only-rtdb.firebaseio.com');
   rtdbSandbox.setRules(rulesOnlyAdmin, RULES_ONLY_INSTANCE_RULES);
@@ -182,12 +194,19 @@ async function assertMaximalCapabilities(sb: LocalSandbox): Promise<void> {
     meta: { active: true },
   });
 
-  // Sign in non-anonymous user and verify customClaims reach minted token and RTDB rules
+  // Sign in non-anonymous user and verify customClaims reach minted token and RTDB rules without aliasing
   const auth = getAuth(sb);
   const cred = await signInWithEmailAndPassword(auth, 'editor@example.com', 'password123');
   const tokenResult = await cred.user.getIdTokenResult();
   expect(tokenResult.claims.roles).toEqual(['editor']);
   expect(tokenResult.claims.org).toEqual({ id: 'o1', tiers: [1, 2] });
+  (tokenResult.claims.roles as string[]).push('tampered-role');
+  (tokenResult.claims.org as { id: string }).id = 'tampered-org';
+  tokenResult.claims.extraTopLevel = 'leaked';
+  const rereadToken = await cred.user.getIdTokenResult(false);
+  expect(rereadToken.claims.roles).toEqual(['editor']);
+  expect(rereadToken.claims.org).toEqual({ id: 'o1', tiers: [1, 2] });
+  expect(rereadToken.claims.extraTopLevel).toBeUndefined();
 
   const clientDefault = getDatabase(sb);
   const item0 = await get(ref(clientDefault, 'items/0'));
@@ -205,11 +224,17 @@ async function assertMaximalCapabilities(sb: LocalSandbox): Promise<void> {
   expect(deepSnap.val()).toEqual({ role: 'lead' });
   expect(deepSnap.priority).toBe('p-lead');
 
-  // Scalar root named instance read under rules
+  // Scalar root named instance read under rules (with priority)
   const clientScalar = getDatabase(sb, 'https://scalar-rtdb.firebaseio.com');
   const scalarSnap = await get(ref(clientScalar, '/'));
   expect(scalarSnap.val()).toBe('active-banner');
   expect(scalarSnap.priority).toBe(15);
+
+  // Bare scalar root named instance read under rules (without priority)
+  const clientBareScalar = getDatabase(sb, 'https://bare-scalar-rtdb.firebaseio.com');
+  const bareScalarSnap = await get(ref(clientBareScalar, '/'));
+  expect(bareScalarSnap.val()).toBe('plain-scalar-banner');
+  expect(bareScalarSnap.priority).toBeNull();
 
   // Rules-only named instance enforces uid-scoped rules
   const clientRulesOnly = getDatabase(sb, 'https://rules-only-rtdb.firebaseio.com');
@@ -224,12 +249,23 @@ describe('STATE-ROUNDTRIP standing kitchen-sink harness', () => {
     const sb = await buildMaximalSandbox(persistBackend, 'standing-snap');
     try {
       const snap = sb.snapshot();
+      const cleanSnap = structuredClone(snap);
 
-      // Mutate caller's exported snapshot in-place (including unnormalized JSON array injection for loadSnapshot)
+      // Mutate caller's exported snapshot in-place (including unnormalized JSON array + orphaned priorities + pruned-empty instance)
       const snapCloneForRestore = structuredClone(snap);
-      (
-        (snapCloneForRestore.services.rtdb as Record<string, unknown>).data as Record<string, unknown>
-      ).items = ['alpha', 'beta'];
+      const rtdbRestore = snapCloneForRestore.services.rtdb as {
+        data: Record<string, unknown>;
+        priorities: Record<string, number | string>;
+        instances: Record<string, unknown>;
+      };
+      rtdbRestore.data.items = ['alpha', 'beta'];
+      rtdbRestore.data.sparse = [null, 'kept'];
+      rtdbRestore.priorities['/sparse/0'] = 99;
+      rtdbRestore.instances['pruned-empty-rtdb'] = {
+        '.pyricRtdbPersistence': 1,
+        data: { gone: [null] },
+        priorities: { '/gone': 5, '/': 11 },
+      };
 
       const authSnap = snap.services.auth as {
         users: Array<{ uid: string; customClaims?: { roles: string[]; org?: { id: string } } }>;
@@ -265,12 +301,32 @@ describe('STATE-ROUNDTRIP standing kitchen-sink harness', () => {
       for (const u of restoreAuthUsers) u.customClaims?.roles.push('post-load-tamper');
       await sb.flush();
 
-      // Ghost named instance is evicted from snapshot(), heldDatabaseInstances(), and persisted headers
-      expect(heldDatabaseInstances(sb).sort()).toEqual(['rules-only-rtdb', 'scalar-rtdb']);
+      // Reading from pre-existing dormant handle returns null while staying dormant until written
+      expect((await get(ref(ghostNamed, 'items/g1'))).val()).toBeNull();
+      expect(heldDatabaseInstances(sb).sort()).toEqual(['bare-scalar-rtdb', 'rules-only-rtdb', 'scalar-rtdb']);
       const postLoadRtdb = sb.snapshot().services.rtdb as { instances?: Record<string, unknown> };
-      expect(Object.keys(postLoadRtdb.instances ?? {}).sort()).toEqual(['rules-only-rtdb', 'scalar-rtdb']);
+      expect(Object.keys(postLoadRtdb.instances ?? {}).sort()).toEqual([
+        'bare-scalar-rtdb',
+        'rules-only-rtdb',
+        'scalar-rtdb',
+      ]);
       expect(await persistBackend.listRecords('standing-snap')).not.toContain('rtdb:i:ghost-ephemeral-rtdb');
+      expect(await persistBackend.listRecords('standing-snap')).not.toContain('rtdb:i:pruned-empty-rtdb');
       expect(sb.admin.getDocument('docs/ghost')).toBeNull();
+
+      // Orphaned priority on pruned /sparse/0 must not resurrect on subsequent write
+      const adminDefault = getAdminDatabase(sb);
+      await set(ref(adminDefault, 'sparse/0/nested'), 'fresh');
+      expect((await get(ref(adminDefault, 'sparse/0'))).priority).toBeNull();
+      await set(ref(adminDefault, 'sparse'), null);
+      await sb.flush();
+
+      // Waking the pre-existing dormant handle via write re-activates the instance cleanly
+      await set(ref(ghostNamed, 'items/g2'), 'rewoken');
+      expect(heldDatabaseInstances(sb)).toContain('ghost-ephemeral-rtdb');
+      sb.loadSnapshot(cleanSnap);
+      await sb.flush();
+      expect(heldDatabaseInstances(sb).sort()).toEqual(['bare-scalar-rtdb', 'rules-only-rtdb', 'scalar-rtdb']);
 
       await assertMaximalCapabilities(sb);
 
@@ -282,10 +338,47 @@ describe('STATE-ROUNDTRIP standing kitchen-sink harness', () => {
           injectedBackend: persistBackend,
           flushIntervalMs: 60_000,
         });
-        expect(heldDatabaseInstances(reopened).sort()).toEqual(['rules-only-rtdb', 'scalar-rtdb']);
+        expect(heldDatabaseInstances(reopened).sort()).toEqual([
+          'bare-scalar-rtdb',
+          'rules-only-rtdb',
+          'scalar-rtdb',
+        ]);
         await assertMaximalCapabilities(reopened);
       } finally {
         reopened.dispose();
+      }
+
+      // Late getDatabase registration AFTER unregistered loadSnapshot + flush must not orphan-wipe named instances
+      const lateBackend = createMemoryBackend();
+      const unregLoader = initializeSandbox();
+      try {
+        await unregLoader.enablePersistence({
+          key: 'standing-late-reg',
+          injectedBackend: lateBackend,
+          flushIntervalMs: 60_000,
+        });
+        unregLoader.loadSnapshot(cleanSnap);
+        await unregLoader.flush();
+        getAdminDatabase(unregLoader);
+        await unregLoader.flush();
+      } finally {
+        unregLoader.dispose();
+      }
+      const afterLate = initializeSandbox();
+      try {
+        await afterLate.enablePersistence({
+          key: 'standing-late-reg',
+          injectedBackend: lateBackend,
+          flushIntervalMs: 60_000,
+        });
+        expect(heldDatabaseInstances(afterLate).sort()).toEqual([
+          'bare-scalar-rtdb',
+          'rules-only-rtdb',
+          'scalar-rtdb',
+        ]);
+        await assertMaximalCapabilities(afterLate);
+      } finally {
+        afterLate.dispose();
       }
     } finally {
       sb.dispose();
@@ -305,7 +398,11 @@ describe('STATE-ROUNDTRIP standing kitchen-sink harness', () => {
       await restoreCheckpoint(target, cp);
 
       expect(getClock(target).now()).toBe(1_700_000_000_000);
-      expect(heldDatabaseInstances(target).sort()).toEqual(['rules-only-rtdb', 'scalar-rtdb']);
+      expect(heldDatabaseInstances(target).sort()).toEqual([
+        'bare-scalar-rtdb',
+        'rules-only-rtdb',
+        'scalar-rtdb',
+      ]);
       await assertMaximalCapabilities(target);
       const bytes = await getBytes(storageRef(getAdminStorageSandbox(target), 'items/blob-1.txt'));
       expect(new TextDecoder().decode(bytes)).toBe('maximal-payload');
@@ -399,6 +496,13 @@ describe('STATE-ROUNDTRIP standing kitchen-sink harness', () => {
       rules: RULES_ONLY_INSTANCE_RULES,
     };
     expect(persistedServiceHasData('rtdb', rulesOnlyEnvelope)).toBe(true);
+    expect(
+      persistedServiceHasData('rtdb', {
+        '.pyricRtdbPersistence': 1 as const,
+        data: {},
+        priorities: { '/items/orphan': 10 },
+      }),
+    ).toBe(false);
     expect(() => validatePersistedService('rtdb', rulesOnlyEnvelope)).not.toThrow();
 
     const parsedV4 = deserializeFromBuckets(parseBundle(bundleRecords(new Map([

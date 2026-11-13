@@ -379,7 +379,7 @@ export async function createHostedRuntime(
     ctx.activeRules.firestore = enforcedFirestoreRulesState(source, ctx.activeRules.firestore);
   }
 
-  /** Synchronize the default RTDB instance's tracked active rules from the sandbox, and re-apply named instance rules after checkpoint restore. */
+  /** Synchronize the default RTDB instance's tracked active rules from the sandbox, and re-apply named instance rules after checkpoint restore or branch promote. */
   function syncDatabaseActiveRulesFromSandbox(reapplyNamedInstances = false): void {
     const defaultRtdb = rtdbInstance(ctx);
     const active = getActiveDatabaseRules(defaultRtdb.live);

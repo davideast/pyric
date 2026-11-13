@@ -68,10 +68,9 @@ export function persistedServiceHasData(name: string, value: unknown): boolean {
   if (isDatabase) {
     const database = databaseState.parse(value);
     const hasData = containsDatabaseData(database.data);
-    const hasPriorities = Object.keys(database.priorities).length > 0;
     const hasRules = database.rules !== undefined;
     const hasInstanceData = Object.values(database.instances ?? {}).some(instance => persistedServiceHasData('rtdb', instance));
-    return hasData || hasPriorities || hasRules || hasInstanceData;
+    return hasData || hasRules || hasInstanceData;
   }
   const isMessaging = name === 'messaging' && isMessagingSnapshot(value);
   if (isMessaging) return value.tokens.length > 0 || value.topics.length > 0;
