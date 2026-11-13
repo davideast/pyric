@@ -1,6 +1,12 @@
 import { MAX_STORAGE_OP_BYTES, storagePayloadTooLarge } from '../../worker/protocol/storage.js';
 import { bundleRecords, parseBundle, serializeToBuckets } from 'pyric/sandbox';
-import { decodeImportBundle, seedUserSchema, storedMetadataSchema } from 'pyric/sandbox/internal';
+import {
+  decodeImportBundle,
+  isRtdbRecordId,
+  seedUserSchema,
+  serializeRtdbServiceToRecords,
+  storedMetadataSchema,
+} from 'pyric/sandbox/internal';
 import { z } from 'zod';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
@@ -63,16 +69,26 @@ export function createHostedStateView(projectDir: string, directory: string, dat
     const isFirestore = section === 'firestore';
     if (isFirestore) {
       const existing = database.readRecords(namespace);
-      const parsedMeta = z.object({ services: z.record(z.unknown()) }).safeParse(existing.get('meta'));
-      const existingServices = parsedMeta.success ? parsedMeta.data.services : {};
+      const existingServices = existing.size > 0 ? decodeImportBundle(bundleRecords(existing)).services : {};
       let records = new Map<string, unknown>();
       const hasValue = value !== null;
       if (hasValue) {
         records = parseBundle(JSON.stringify(value));
         const incoming = decodeImportBundle(bundleRecords(records));
         const mergedServices = { ...existingServices, ...incoming.services };
+        for (const id of [...records.keys()]) {
+          if (isRtdbRecordId(id)) records.delete(id);
+        }
+        const metaServices = { ...mergedServices };
+        if ('rtdb' in metaServices) {
+          const rtdbRecords = serializeRtdbServiceToRecords(metaServices.rtdb);
+          delete metaServices.rtdb;
+          if (rtdbRecords !== null) {
+            for (const [id, rec] of rtdbRecords) records.set(id, rec);
+          }
+        }
         const meta = records.get('meta') as Record<string, unknown>;
-        records.set('meta', { ...meta, services: mergedServices });
+        records.set('meta', { ...meta, services: metaServices });
       } else {
         const hasServices = Object.keys(existingServices).length > 0;
         if (hasServices) records = serializeToBuckets({}, existingServices, Date.now());
@@ -125,7 +141,8 @@ export function createHostedStateView(projectDir: string, directory: string, dat
         providers,
       };
       const next = serializeToBuckets(snapshot.firestore, { ...snapshot.services, auth: nextAuth }, Date.now());
-      database.commitChanges(namespace, next, []);
+      const removed = [...records.keys()].filter(id => !next.has(id));
+      database.commitChanges(namespace, next, removed);
       return;
     }
     const objects = storageEntries(value);

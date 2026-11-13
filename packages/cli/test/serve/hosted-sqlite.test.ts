@@ -282,3 +282,7 @@ test('the denials a multi-instance host recorded list by instance, with their co
 test('an onDisconnect re-armed on the session an interruption just drained survives the drain, and a later interruption runs it (#990)', async () => {
   expect(await runNodeFixture('rearm-after-interrupt', 30_000)).toBe('Re-arm after interrupt passed');
 }, 45_000);
+
+test('the Node host persists partitioned RTDB records incrementally, rejects legacy inline state, and preserves RTDB across export/import, section clear, repro, and salvage', async () => {
+  expect(await runNodeFixture('rtdb-dirty-records', 30_000)).toBe('Hosted RTDB dirty records passed');
+}, 45_000);

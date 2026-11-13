@@ -1,12 +1,12 @@
 import { expect, test } from 'bun:test';
 import { createMemoryBackend, initializeSandbox } from '../../src/sandbox/index.js';
-import { bundleRecords, checksumDocs, META_RECORD_ID } from '../../src/sandbox/persistence/chunk-format.js';
+import { bundleRecords, checksumDocs, CHUNK_FORMAT_VERSION, META_RECORD_ID } from '../../src/sandbox/persistence/chunk-format.js';
 import { decodeImportBundle } from '../../src/sandbox/persistence/import-bundle.js';
 
 function recordsWith(data: unknown, encoding?: string): Map<string, unknown> {
   const docs = { 'notes/first': { title: 'first' }, 'notes/bad': data, 'notes/last': { title: 'last' } };
   return new Map<string, unknown>([
-    [META_RECORD_ID, { version: 3, savedAt: 0, services: {} }],
+    [META_RECORD_ID, { version: CHUNK_FORMAT_VERSION, savedAt: 0, services: {} }],
     ['00', { docs, checksum: checksumDocs(docs), encoding }],
     ['01', { docs: { 'notes/other': { title: 'other' } } }],
   ]);

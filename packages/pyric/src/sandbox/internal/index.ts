@@ -25,7 +25,14 @@ export {
 } from './auth-lens.js';
 export { authAccountsFor, refreshRefusal, registerAuthAccounts, type AuthAccounts, type AuthAccountStanding, type RefreshRefusalCode } from './auth-accounts.js';
 export type { ToolContext, ToolHandler, ToolParameters, ToolResult } from './tool-handler.js';
+export { CHUNK_FORMAT_VERSION } from '../persistence/chunk-format.js';
 export { decodeImportBundle, validatePersistenceEncoding } from '../persistence/import-bundle.js';
+export {
+  deserializeRtdbRecords,
+  isRtdbRecordId,
+  serializeRtdbServiceToRecords,
+  validateRtdbImportRecord,
+} from '../persistence/rtdb-records.js';
 export { validatePersistedService, persistedServiceHasData, UnsupportedPersistedServiceError } from '../persistence/validate-services.js';
 export { seedUserSchema, storedMetadataSchema } from './state-schemas.js';
 export {

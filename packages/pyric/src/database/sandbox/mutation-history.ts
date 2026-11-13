@@ -9,6 +9,7 @@ export class MutationHistory {
   private version = 0;
   private readonly activeVersions: number[] = [];
   private readonly mutations: Array<{ version: number; paths: string[] }> = [];
+  private readonly listeners = new Set<(paths: readonly string[]) => void>();
 
   get entries(): Array<{ version: number; paths: string[] }> {
     return this.mutations;
@@ -16,6 +17,11 @@ export class MutationHistory {
 
   get currentVersion(): number {
     return this.version;
+  }
+
+  onMark(listener: (paths: readonly string[]) => void): () => void {
+    this.listeners.add(listener);
+    return () => { this.listeners.delete(listener); };
   }
 
   begin(): number {
@@ -26,11 +32,16 @@ export class MutationHistory {
 
   mark(paths: string | string[] = '/'): void {
     this.version += 1;
+    if (this.activeVersions.length === 0 && this.listeners.size === 0) return;
+    const canonicalPaths = (Array.isArray(paths) ? paths : [paths]).map((path) => joinPath(pathSegments(path)));
     if (this.activeVersions.length > 0) {
       this.mutations.push({
         version: this.version,
-        paths: (Array.isArray(paths) ? paths : [paths]).map((path) => joinPath(pathSegments(path))),
+        paths: canonicalPaths,
       });
+    }
+    for (const listener of this.listeners) {
+      listener(canonicalPaths);
     }
   }
 

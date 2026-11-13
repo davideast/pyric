@@ -11,7 +11,7 @@ const directory = process.argv[2];
 const source = join(directory, 'crashed');
 const original = await openHostedDatabase(source);
 await original.records.putRecords('hosted', new Map<string, unknown>([
-  ['meta', { version: 3, savedAt: 0, services: {} }],
+  ['meta', { version: 4, savedAt: 0, services: {} }],
   ['00', { docs: { 'notes/acknowledged': { revision: 1 } } }],
 ]));
 original.close();

@@ -24,6 +24,10 @@
  */
 import { describe, expect, it } from 'bun:test';
 import {
+  CHUNK_FORMAT_VERSION,
+  META_RECORD_ID,
+} from '../../src/sandbox/persistence/chunk-format.js';
+import {
   createMemoryBackend,
   deserializeFromBuckets,
   initializeSandbox,
@@ -296,5 +300,206 @@ describe('rtdb persistence — snapshotState after restore', () => {
     await sandbox2.enablePersistence({ key: 'rtdb:snapstate', injectedBackend: backend });
     const db2 = getDatabase(sandbox2);
     expect(rtdbSandbox.snapshotState(db2)).toEqual({ a: { b: 1 } });
+  });
+});
+
+// ─── Incremental dirty-record RTDB persistence (Slice C) ───────────────
+
+describe('rtdb persistence — incremental dirty-tracked records', () => {
+  it('rewrites only the dirtied RTDB bucket record on a small write and round-trips instances, rules, and priorities', async () => {
+    const storage = createMemoryBackend();
+    const flushes: Array<{ changed: string[]; removed: string[] }> = [];
+    const backend: PersistenceBackend = {
+      ...storage,
+      async applyChanges(key, changed, removed) {
+        flushes.push({ changed: [...changed.keys()], removed: [...removed] });
+        await storage.putRecords(key, changed);
+        await storage.deleteRecords(key, removed);
+      },
+    };
+
+    const sandbox1 = initializeSandbox();
+    await sandbox1.enablePersistence({ key: 'rtdb:dirty', injectedBackend: backend, flushIntervalMs: 60_000 });
+    const defaultDb = baseGetDatabase(sandbox1);
+    const secondaryDb = baseGetDatabase(sandbox1, 'https://secondary-inst.firebaseio.com');
+
+    const defaultRules = {
+      rules: {
+        workspaces: { '.read': true, '.write': true },
+        locked: { '.read': false, '.write': false },
+      },
+    };
+    const secondaryRules = {
+      rules: {
+        counters: { '.read': true, '.write': true },
+        locked: { '.read': false, '.write': false },
+      },
+    };
+    rtdbSandbox.setRules(defaultDb, defaultRules);
+    rtdbSandbox.setRules(secondaryDb, secondaryRules);
+
+    for (let i = 0; i < 24; i++) {
+      await set(ref(defaultDb, `/workspaces/w-${i}/records/r-0`), { index: i, payload: `seed-${i}` });
+    }
+    await setWithPriority(ref(defaultDb, '/workspaces/w-0/cursors/u-1'), { x: 1, y: 2 }, 42);
+    await setWithPriority(ref(secondaryDb, '/counters/c-1'), { hits: 10 }, 'p-sec');
+    await sandbox1.flush();
+
+    const metaAfterSeed = (await storage.getRecord('rtdb:dirty', META_RECORD_ID)) as { services: Record<string, unknown> };
+    expect(metaAfterSeed.services).not.toHaveProperty('rtdb');
+
+    // Small write to one leaf on the default instance: only its single RTDB bucket record is written.
+    flushes.length = 0;
+    await set(ref(defaultDb, '/workspaces/w-0/cursors/u-1'), { x: 9, y: 8 });
+    await sandbox1.flush();
+
+    expect(flushes).toHaveLength(1);
+    const rtdbChanged = flushes[0]!.changed.filter((id) => id.startsWith('rtdb:'));
+    expect(rtdbChanged).toHaveLength(1);
+    expect(rtdbChanged[0]).toMatch(/^rtdb:b:\(default\):[0-9a-f]{2}$/);
+    expect(flushes[0]!.removed).toEqual([]);
+
+    // Priority survives on another node and secondary instance stays untouched; cold reload reproduces everything.
+    await setWithPriority(ref(defaultDb, '/workspaces/w-0/cursors/u-2'), { x: 3, y: 4 }, 77);
+    await sandbox1.flush();
+
+    const sandbox2 = initializeSandbox();
+    await sandbox2.enablePersistence({ key: 'rtdb:dirty', injectedBackend: storage, flushIntervalMs: 60_000 });
+    // Note: baseGetDatabase starts in default-deny mode, so allowed reads below
+    // succeed ONLY because each instance's deployed rules survived persistence.
+    const restoredDefault = baseGetDatabase(sandbox2);
+    const restoredSecondary = baseGetDatabase(sandbox2, 'https://secondary-inst.firebaseio.com');
+
+    expect((await get(ref(restoredDefault, '/workspaces/w-0/cursors/u-1'))).val()).toEqual({ x: 9, y: 8 });
+    const cursor2Snap = await get(ref(restoredDefault, '/workspaces/w-0/cursors/u-2'));
+    expect(cursor2Snap.val()).toEqual({ x: 3, y: 4 });
+    expect(cursor2Snap.priority).toBe(77);
+    expect((await get(ref(restoredDefault, '/workspaces/w-23/records/r-0'))).val()).toEqual({ index: 23, payload: 'seed-23' });
+    await expect(get(ref(restoredDefault, '/locked'))).rejects.toThrow(/permission/i);
+
+    const secSnap = await get(ref(restoredSecondary, '/counters/c-1'));
+    expect(secSnap.val()).toEqual({ hits: 10 });
+    expect(secSnap.priority).toBe('p-sec');
+    await expect(get(ref(restoredSecondary, '/locked'))).rejects.toThrow(/permission/i);
+
+    // Resetting clears persisted RTDB bucket records so a subsequent cold reload starts empty.
+    await sandbox2.resetAll();
+    await sandbox2.flush();
+
+    const sandbox3 = initializeSandbox();
+    await sandbox3.enablePersistence({ key: 'rtdb:dirty', injectedBackend: storage, flushIntervalMs: 60_000 });
+    const emptyDefault = getDatabase(sandbox3);
+    expect((await get(ref(emptyDefault, '/workspaces'))).exists()).toBe(false);
+
+    sandbox1.dispose();
+    sandbox2.dispose();
+    sandbox3.dispose();
+  });
+
+  it('retains dirty RTDB buckets and removals across a failed flush and promotes shallow primitives cleanly', async () => {
+    const storage = createMemoryBackend();
+    let failNext = false;
+    const backend: PersistenceBackend = {
+      ...storage,
+      async applyChanges(key, changed, removed) {
+        if (failNext) throw new Error('Transient disk error');
+        await storage.putRecords(key, changed);
+        await storage.deleteRecords(key, removed);
+      },
+    };
+
+    const sandbox1 = initializeSandbox();
+    await sandbox1.enablePersistence({ key: 'rtdb:retry-promote', injectedBackend: backend, flushIntervalMs: 60_000 });
+    const db1 = getDatabase(sandbox1);
+
+    await setWithPriority(ref(db1, '/shallow/leaf'), 'primitive-seed', 11);
+    await set(ref(db1, '/ephemeral/a/b/c'), { doomed: true });
+    await sandbox1.flush();
+
+    // Promote shallow primitive `/shallow/leaf` via a deep write and delete `/ephemeral/a/b/c`,
+    // then fail the commit and verify a subsequent retry persists both mutations.
+    await set(ref(db1, '/shallow/leaf/deep/node/item'), { ok: true });
+    await remove(ref(db1, '/ephemeral/a/b/c'));
+    failNext = true;
+    await expect(sandbox1.flush()).rejects.toThrow('Transient disk error');
+
+    failNext = false;
+    await sandbox1.flush();
+
+    const sandbox2 = initializeSandbox();
+    await sandbox2.enablePersistence({ key: 'rtdb:retry-promote', injectedBackend: storage, flushIntervalMs: 60_000 });
+    const db2 = getDatabase(sandbox2);
+
+    const promoted = await get(ref(db2, '/shallow/leaf'));
+    expect(promoted.val()).toEqual({ deep: { node: { item: { ok: true } } } });
+    expect(promoted.priority).toBeNull();
+    expect((await get(ref(db2, '/ephemeral/a/b/c'))).exists()).toBe(false);
+
+    sandbox1.dispose();
+    sandbox2.dispose();
+  });
+
+  it('skips incompatible v3 metadata records on restore with a warning and ignores inline meta.services.rtdb', async () => {
+    const storage = createMemoryBackend();
+    await storage.putRecords('rtdb:v3-rejected', new Map<string, unknown>([
+      [META_RECORD_ID, {
+        version: 3,
+        savedAt: 100,
+        services: {
+          rtdb: {
+            '.pyricRtdbPersistence': 1,
+            data: { items: { legacy: 1 } },
+            priorities: {},
+          },
+        },
+      }],
+      ['aa', { docs: { 'notes/stale': { title: 'v3' } } }],
+    ]));
+
+    const warnings: string[] = [];
+    const originalWarn = console.warn;
+    console.warn = (...args: unknown[]) => {
+      warnings.push(args.map(String).join(' '));
+    };
+
+    const sandbox1 = initializeSandbox();
+    try {
+      await sandbox1.enablePersistence({ key: 'rtdb:v3-rejected', injectedBackend: storage, flushIntervalMs: 60_000 });
+      expect(warnings.some((line) => line.includes('unsupported persistence format version 3'))).toBe(true);
+      expect(sandbox1.admin.getDocument('notes/stale')).toBeNull();
+      const db1 = getDatabase(sandbox1);
+      expect((await get(ref(db1, '/items/legacy'))).exists()).toBe(false);
+
+      // Flushing fresh v4 state removes stale v3 records so a subsequent reopen stays clean.
+      await set(ref(db1, '/items/fresh'), 'v4');
+      await sandbox1.flush();
+      expect(await storage.getRecord('rtdb:v3-rejected', 'aa')).toBeNull();
+      const v4Meta = (await storage.getRecord('rtdb:v3-rejected', META_RECORD_ID)) as { version: number; services: Record<string, unknown> };
+      expect(v4Meta.version).toBe(CHUNK_FORMAT_VERSION);
+      expect(v4Meta.services).not.toHaveProperty('rtdb');
+    } finally {
+      console.warn = originalWarn;
+      sandbox1.dispose();
+    }
+
+    // Even at CHUNK_FORMAT_VERSION, inline meta.services.rtdb is ignored rather than loaded.
+    await storage.putRecords('rtdb:inline-ignored', new Map<string, unknown>([
+      [META_RECORD_ID, {
+        version: CHUNK_FORMAT_VERSION,
+        savedAt: 200,
+        services: {
+          rtdb: {
+            '.pyricRtdbPersistence': 1,
+            data: { items: { inline: 'ignored' } },
+            priorities: {},
+          },
+        },
+      }],
+    ]));
+    const sandbox2 = initializeSandbox();
+    await sandbox2.enablePersistence({ key: 'rtdb:inline-ignored', injectedBackend: storage, flushIntervalMs: 60_000 });
+    const db2 = getDatabase(sandbox2);
+    expect((await get(ref(db2, '/items/inline'))).exists()).toBe(false);
+    sandbox2.dispose();
   });
 });

@@ -60,6 +60,22 @@ export interface PersistableService {
   subscribe?: (onChange: () => void) => () => void;
 
   /**
+   * Optional: incremental record-level persistence for services whose state is
+   * partitioned across multiple backend records (such as RTDB shard buckets)
+   * rather than embedded inside the single `meta` record.
+   */
+  records?: {
+    readonly prefix: string;
+    init?(persistedIds: Iterable<string>): void;
+    markAll?(): void;
+    prepare(): {
+      records: Map<string, unknown>;
+      removed: string[];
+      retry(): void;
+    };
+  };
+
+  /**
    * Optional: session-level persistence hooks. When provided, the
    * persistence controller uses these to save and restore the CURRENTLY
    * SIGNED-IN user (not the user database — that's `snapshot`/`restore`).

@@ -3,6 +3,7 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
 import { readFileSync, readdirSync } from 'node:fs';
+import { CHUNK_FORMAT_VERSION } from 'pyric/sandbox/internal';
 import { openHostedDatabase } from '../../../src/serve/hosted/persistence/database.js';
 import { salvageHostedState } from '../../../src/serve/hosted/persistence/salvage.js';
 
@@ -10,7 +11,7 @@ const source = join(process.argv[2], 'damaged');
 const output = join(process.argv[2], 'repaired');
 const database = await openHostedDatabase(source);
 await database.records.putRecords('hosted', new Map<string, unknown>([
-  ['meta', { version: 3, savedAt: 0, services: {} }],
+  ['meta', { version: CHUNK_FORMAT_VERSION, savedAt: 0, services: {} }],
   ['00', { docs: { 'shared/valid': { answer: 42 }, 'shared/broken': null } }],
 ]));
 database.close();
@@ -41,7 +42,7 @@ await assert.rejects(salvageHostedState(source, join(process.argv[2], 'invalid-f
 const emptySource = join(process.argv[2], 'empty-recovery');
 const emptyStore = await openHostedDatabase(emptySource);
 await emptyStore.records.putRecords('hosted', new Map<string, unknown>([
-  ['meta', { version: 3, savedAt: 0, services: { auth: { users: [], providers: {} } } }],
+  ['meta', { version: CHUNK_FORMAT_VERSION, savedAt: 0, services: { auth: { users: [], providers: {} } } }],
   ['00', { docs: { 'notes/broken': null } }],
 ]));
 emptyStore.close();
@@ -49,7 +50,7 @@ await assert.rejects(salvageHostedState(emptySource, join(process.argv[2], 'no-r
 const futureSource = join(process.argv[2], 'future-format');
 const future = await openHostedDatabase(futureSource);
 await future.records.putRecords('hosted', new Map<string, unknown>([
-  ['meta', { version: 3, savedAt: 0, services: {} }],
+  ['meta', { version: CHUNK_FORMAT_VERSION, savedAt: 0, services: {} }],
   ['00', { docs: { 'notes/valid': { value: 1 } } }],
   ['01', { docs: {}, encoding: 'pyric/firestore-values/999' }],
 ]));
