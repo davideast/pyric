@@ -69,6 +69,7 @@ import {
   Vector,
 } from 'pyric/rules/internal';
 import { enginePayloadOf } from '../../firestore/sandbox/update-fields.js';
+import { registeredReferenceQueryValue } from '../../firestore/sandbox/query-value-registry.js';
 import type { BatchOperationInput } from '../../firestore/sandbox/writes.js';
 
 type DocData = Record<string, unknown>;
@@ -252,12 +253,15 @@ function isPlainRecord(value: unknown): value is Record<string, unknown> {
   return proto === Object.prototype || proto === null;
 }
 
-const DOC_REF_KEYS = new Set(['id', 'path', 'bypassRules', 'auth', 'env']);
+const DOC_REF_KEYS = new Set(['id', 'path', 'databaseId', 'bypassRules', 'auth', 'env']);
 
-function isSerializedDocRef(obj: Record<string, unknown>): obj is { id: string; path: string } {
+function isSerializedDocRef(
+  obj: Record<string, unknown>,
+): obj is { id: string; path: string; databaseId?: string } {
   const keys = Object.keys(obj);
   if (keys.length < 2 || !keys.every((k) => DOC_REF_KEYS.has(k))) return false;
   if (typeof obj.id !== 'string' || typeof obj.path !== 'string') return false;
+  if (obj.databaseId !== undefined && typeof obj.databaseId !== 'string') return false;
   const segments = obj.path.split('/');
   return (
     segments.length >= 2
@@ -291,6 +295,10 @@ function base64StdDecode(s: string): Uint8Array {
  */
 export function rehydrateReplayValue(value: unknown): unknown {
   if (value === null || typeof value !== 'object') return value;
+  const registeredRef = registeredReferenceQueryValue(value);
+  if (registeredRef !== undefined) {
+    return new Reference(registeredRef.path, registeredRef.databaseId);
+  }
   if (Array.isArray(value)) return value.map(rehydrateReplayValue);
   if (!isPlainRecord(value)) return value;
 
@@ -356,7 +364,12 @@ export function rehydrateReplayValue(value: unknown): unknown {
       case 'duration':
         return new Duration(value.seconds as number, value.nanos as number);
       case 'reference':
-        return new Reference(value.path as string);
+        return new Reference(
+          value.path as string,
+          typeof value.databaseId === 'string' && value.databaseId.length > 0
+            ? value.databaseId
+            : undefined,
+        );
       case 'path':
         return new Path(value.segments as string[]);
     }
@@ -405,7 +418,12 @@ export function rehydrateReplayValue(value: unknown): unknown {
   }
 
   if (isSerializedDocRef(value)) {
-    return new Reference(value.path);
+    return new Reference(
+      value.path,
+      typeof value.databaseId === 'string' && value.databaseId.length > 0
+        ? value.databaseId
+        : undefined,
+    );
   }
 
   const out: Record<string, unknown> = {};
@@ -453,8 +471,24 @@ function groupAt(writes: readonly WriteSandboxEvent[], index: number): WriteSand
  * with neither a field mask nor a merge was a replacing `set` over an
  * existing document.
  */
-function batchMethodOf(event: WriteSandboxEvent): BatchOperationInput['method'] {
-  const isSet = event.merge !== undefined || (event.method === 'update' && event.updateMask === undefined);
+function batchMethodOf(
+  event: WriteSandboxEvent,
+  targetPath: string,
+  existsInGroup: Map<string, boolean>,
+): BatchOperationInput['method'] {
+  if (event.method === 'delete') {
+    existsInGroup.set(targetPath, false);
+    return 'delete';
+  }
+  if (event.updateMask !== undefined) {
+    existsInGroup.set(targetPath, true);
+    return 'update';
+  }
+  const isSet =
+    event.merge !== undefined ||
+    event.method === 'update' ||
+    existsInGroup.get(targetPath) === true;
+  existsInGroup.set(targetPath, true);
   return isSet ? 'set' : event.method;
 }
 
@@ -466,8 +500,13 @@ function replayGroup(
   remap: (path: string) => string,
   deniedWrites: Array<{ path: string; before: unknown; event?: WriteSandboxEvent }>,
 ): void {
+  const existsInGroup = new Map<string, boolean>();
   const operations = group.map((event) => {
-    const operation: BatchOperationInput = { method: batchMethodOf(event), path: remap(event.path) };
+    const targetPath = remap(event.path);
+    const operation: BatchOperationInput = {
+      method: batchMethodOf(event, targetPath, existsInGroup),
+      path: targetPath,
+    };
     if (event.method !== 'delete') {
       const data = dataFor(event);
       if (data !== undefined) operation.data = data;

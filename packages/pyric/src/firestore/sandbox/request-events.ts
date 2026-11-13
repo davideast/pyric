@@ -6,7 +6,7 @@
 import type { QueryProofDiagnostic } from '../../sandbox/types/query-proof.js';
 import type { EvaluatedRuleInfo } from 'pyric/rules/internal';
 import type { DocumentData } from './local-state.js';
-import type { EventProvenance } from '../../sandbox/types/events.js';
+import type { EventProvenance, RulesDisposition } from '../../sandbox/types/events.js';
 import type { Operation } from './writes.js';
 
 // ─── RequestEvent emission (issue #307) ───────────────────────────────
@@ -42,6 +42,7 @@ export interface EmitRequestInput {
   groupId?: string;
   triggeredBy?: { method: string; path: string };
   detail?: { admin?: boolean } & Record<string, unknown>;
+  rulesDisposition?: RulesDisposition;
   provenance?: EventProvenance;
 }
 
@@ -126,6 +127,7 @@ export function buildRequestEvent(input: EmitRequestInput): import('../../sandbo
   }
   if (input.triggeredBy !== undefined) out.triggeredBy = input.triggeredBy;
   if (input.detail !== undefined) out.detail = input.detail;
+  if (input.rulesDisposition !== undefined) out.rulesDisposition = input.rulesDisposition;
   if (input.provenance !== undefined) Object.assign(out, input.provenance);
   return out;
 }

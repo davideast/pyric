@@ -268,12 +268,27 @@ export class VerifyInputError extends Error {
   }
 }
 
+function defaultSelectedServices(
+  fixture: PyricVerifyFixture,
+  rules: VerifyRulesInput,
+): VerifiableService[] {
+  const services = fixtureVerifiableServices(fixture);
+  if (
+    rules.firestore !== undefined &&
+    fixture.services.firestore &&
+    !services.includes('firestore')
+  ) {
+    return ['firestore', ...services];
+  }
+  return services;
+}
+
 export async function verifyFixture(
   fixtureInput: PyricVerifyFixture | unknown,
   opts: VerifyFixtureOptions,
 ): Promise<VerifyResult> {
   const fixture = parseVerifyFixture(fixtureInput);
-  const selected = opts.services ?? fixtureVerifiableServices(fixture);
+  const selected = opts.services ?? defaultSelectedServices(fixture, opts.rules);
   const engines = normalizeEngines(opts.engines);
   if (selected.length === 0) {
     throw new VerifyInputError(

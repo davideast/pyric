@@ -22,8 +22,18 @@
  * re-executes the update rebuilds the payload with
  * {@link updatePayloadFromTree}.
  */
+import { Reference } from 'pyric/rules/internal';
 import { FirebaseError } from '../../sandbox/internal/firebase-error.js';
 import { isPlainObject } from '../plain-object.js';
+import { registeredReferenceQueryValue } from './query-value-registry.js';
+import {
+  copyUnescapedUserMapTag,
+  hasCollidingFirestoreMarkerShape,
+  isRegisteredFieldValueSentinel,
+  isUnescapedUserMap,
+  markFieldValueSentinel,
+  stampUnescapedUserMap,
+} from './unescaped-map.js';
 
 type DocumentData = Record<string, unknown>;
 
@@ -159,13 +169,20 @@ export function updatePayloadTree(data: DocumentData): DocumentData {
   const tree: DocumentData = {};
   for (const [key, value] of Object.entries(data)) {
     const segments = fieldPathKeySegments(key);
+    const ancestors: DocumentData[] = [tree];
     let cursor = tree;
     for (const segment of segments.slice(0, -1)) {
       const next = Object.hasOwn(cursor, segment) ? cursor[segment] : undefined;
       if (!isPlainObject(next)) setOwn(cursor, segment, {});
       cursor = cursor[segment] as DocumentData;
+      ancestors.push(cursor);
     }
-    setOwn(cursor, segments[segments.length - 1], value);
+    setOwn(cursor, segments[segments.length - 1], normalizePublicWriteValue(value));
+    for (const ancestor of ancestors) {
+      if (hasCollidingFirestoreMarkerShape(ancestor)) {
+        stampUnescapedUserMap(ancestor);
+      }
+    }
   }
   return tree;
 }
@@ -206,6 +223,79 @@ export function isFieldPathUpdate(write: { method: string; merge?: unknown }): b
   return write.method === 'update' && (write.merge === undefined || write.merge === false);
 }
 
+function extractDuckAdminRefDatabaseId(value: Record<string, unknown>): string | undefined {
+  if (typeof value.formattedName === 'string' && value.formattedName.length > 0) {
+    return new Reference(value.formattedName).databaseId;
+  }
+  const fs = value._firestore as Record<string, unknown> | null | undefined;
+  if (fs && typeof fs === 'object') {
+    if (typeof fs.databaseId === 'string' && fs.databaseId.length > 0) return fs.databaseId;
+    const inner = fs._databaseId as Record<string, unknown> | null | undefined;
+    if (inner && typeof inner === 'object' && typeof inner.database === 'string' && inner.database.length > 0) {
+      return inner.database;
+    }
+  }
+  return undefined;
+}
+
+function normalizePublicWriteValue(value: unknown): unknown {
+  if (value === null || typeof value !== 'object') return value;
+  if (value instanceof Reference) return value;
+  const registeredRef = registeredReferenceQueryValue(value);
+  if (registeredRef !== undefined) {
+    return new Reference(registeredRef.path, registeredRef.databaseId);
+  }
+  if (Array.isArray(value)) {
+    let changed = false;
+    const mapped = value.map((item) => {
+      const next = normalizePublicWriteValue(item);
+      if (next !== item) changed = true;
+      return next;
+    });
+    return changed ? mapped : value;
+  }
+  if (isRegisteredFieldValueSentinel(value)) {
+    if (
+      (value.__type === 'arrayUnion' || value.__type === 'arrayRemove') &&
+      Array.isArray(value.values)
+    ) {
+      let changed = false;
+      const values = value.values.map((item) => {
+        const next = normalizePublicWriteValue(item);
+        if (next !== item) changed = true;
+        return next;
+      });
+      return changed ? markFieldValueSentinel({ __type: value.__type, values }) : value;
+    }
+    return value;
+  }
+  const rec = value as Record<string, unknown>;
+  if (
+    !isUnescapedUserMap(value) &&
+    typeof rec.path === 'string' &&
+    typeof rec.id === 'string' &&
+    rec._path !== undefined &&
+    rec._firestore !== undefined
+  ) {
+    return new Reference(rec.path, extractDuckAdminRefDatabaseId(rec));
+  }
+  if (!isPlainObject(value)) return value;
+  const needsEnvelopeStamp =
+    !isUnescapedUserMap(value) && Object.hasOwn(rec, 'type') && rec.type === 'pyric/map/1.0';
+  let changed = false;
+  const entries = Object.entries(rec).map(([key, item]) => {
+    const next = normalizePublicWriteValue(item);
+    if (next !== item) changed = true;
+    return [key, next] as const;
+  });
+  if (!changed && !needsEnvelopeStamp) return value;
+  const out: DocumentData = {};
+  for (const [key, item] of entries) setOwn(out, key, item);
+  copyUnescapedUserMapTag(value, out);
+  if (needsEnvelopeStamp) stampUnescapedUserMap(out);
+  return out;
+}
+
 /**
  * The public view of a write payload: a non-merge update's decoded tree
  * with its field paths, any other write's data unchanged.
@@ -214,7 +304,9 @@ export function publicWritePayload(
   write: { method: string; merge?: unknown },
   data: DocumentData,
 ): { resourceData: DocumentData; updateMask?: string[][] } {
-  if (!isFieldPathUpdate(write)) return { resourceData: data };
+  if (!isFieldPathUpdate(write)) {
+    return { resourceData: normalizePublicWriteValue(data) as DocumentData };
+  }
   return { resourceData: updatePayloadTree(data), updateMask: updatePayloadMask(data) };
 }
 

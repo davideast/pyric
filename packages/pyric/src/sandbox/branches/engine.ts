@@ -251,12 +251,27 @@ export function apply(branch: Branch, events: readonly SandboxEvent[]): Branch {
       const group = groupAt(replayable, index);
       if (group.length > 0) {
         pinClockTo(write);
+        const existsInGroup = new Map<string, boolean>();
         const operations: BatchOperationInput[] = group.map((event) => {
+          const targetPath = remap(event.path);
           let method: BatchOperationInput['method'] = event.method;
-          if (event.merge !== undefined || (event.method === 'update' && event.updateMask === undefined)) {
+          if (event.method === 'delete') {
+            existsInGroup.set(targetPath, false);
+            method = 'delete';
+          } else if (event.updateMask !== undefined) {
+            existsInGroup.set(targetPath, true);
+            method = 'update';
+          } else if (
+            event.merge !== undefined ||
+            event.method === 'update' ||
+            existsInGroup.get(targetPath) === true
+          ) {
+            existsInGroup.set(targetPath, true);
             method = 'set';
+          } else {
+            existsInGroup.set(targetPath, true);
           }
-          const operation: BatchOperationInput = { method, path: remap(event.path) };
+          const operation: BatchOperationInput = { method, path: targetPath };
           if (event.method !== 'delete') {
             const data = dataFor(event);
             if (data !== undefined) operation.data = data;

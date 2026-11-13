@@ -69,6 +69,8 @@ function makeSandboxEventId(): string {
   return `sbe-${seq}-${rnd}`;
 }
 
+const UNESCAPED_MAP_TAG = Symbol.for('pyric.unescapedMap');
+
 function cloneFirestoreSnapshotValue(value: unknown): unknown {
   if (value === null || typeof value !== 'object') return value;
   if (Array.isArray(value)) return value.map(cloneFirestoreSnapshotValue);
@@ -84,6 +86,9 @@ function cloneFirestoreSnapshotValue(value: unknown): unknown {
         writable: true,
         configurable: true,
       });
+    }
+    if ((value as Record<symbol, unknown>)[UNESCAPED_MAP_TAG] === true) {
+      Object.defineProperty(copy, UNESCAPED_MAP_TAG, { value: true });
     }
     return copy;
   }

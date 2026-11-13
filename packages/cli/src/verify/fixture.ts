@@ -275,7 +275,16 @@ function sanitizeCapturedEvents(events: SandboxEvent[]): SandboxEvent[] {
 export function buildVerifyFixture(input: BuildVerifyFixtureInput): PyricVerifyFixture {
   const events = sanitizeCapturedEvents(input.sandbox.history());
   const snapshot = input.sandbox.snapshot();
-  const firestoreDocuments = snapshot.firestore;
+  const rawFirestoreDocuments = snapshot.firestore;
+  const firestoreDocuments: Record<string, Record<string, unknown>> = {};
+  for (const [docPath, docData] of Object.entries(rawFirestoreDocuments)) {
+    Object.defineProperty(firestoreDocuments, docPath, {
+      value: encodeUnescapedEventValue(docData) as Record<string, unknown>,
+      enumerable: true,
+      writable: true,
+      configurable: true,
+    });
+  }
   const services: PyricVerifyFixture['services'] = {};
 
   if (
@@ -432,11 +441,37 @@ export function parseVerifyFixture(value: unknown): PyricVerifyFixture {
   return { ...value, schema: VERIFY_FIXTURE_SCHEMA, events: events as SandboxEvent[], services: services as PyricVerifyFixture['services'] };
 }
 
+function isVerifiableFirestoreFixtureEvent(event: SandboxEvent): boolean {
+  if (eventService(event) !== 'firestore') return false;
+  if (
+    event.kind !== 'request' &&
+    event.kind !== 'write' &&
+    event.kind !== 'operation' &&
+    event.kind !== 'listener'
+  ) {
+    return false;
+  }
+  if ((event as { detail?: { admin?: unknown } }).detail?.admin === true) return false;
+  if ((event as { origin?: unknown }).origin === 'admin') return false;
+  if ((event as { rulesDisposition?: { kind?: unknown } }).rulesDisposition?.kind === 'bypassed') {
+    return false;
+  }
+  return true;
+}
+
 export function fixtureVerifiableServices(
   fixture: PyricVerifyFixture,
 ): Array<'firestore' | 'rtdb' | 'storage'> {
   const services: Array<'firestore' | 'rtdb' | 'storage'> = [];
-  if (fixture.services.firestore) services.push('firestore');
+  const firestore = fixture.services.firestore;
+  if (
+    firestore &&
+    (firestore.rules.source.trim().length > 0 ||
+      fixture.events.some(isVerifiableFirestoreFixtureEvent) ||
+      (!fixture.services.rtdb && !fixture.services.storage))
+  ) {
+    services.push('firestore');
+  }
   if (fixture.services.rtdb) services.push('rtdb');
   if (fixture.services.storage) services.push('storage');
   return services;

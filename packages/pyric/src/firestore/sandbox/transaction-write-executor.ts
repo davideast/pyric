@@ -405,6 +405,7 @@ export class TransactionWriteExecutor {
         path,
         auth: options.auth,
         result: 'deny',
+        rulesDisposition: { kind: 'not-evaluated', reason: 'runtime-error' },
         debugMessages: [`Simulation error: ${simulation.error.message}`],
         resourceBefore: { data: prior, exists: priorExists },
         origin: 'transaction',

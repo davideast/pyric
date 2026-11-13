@@ -1,5 +1,17 @@
 import type { RequestEvent } from 'pyric/sandbox';
-import { RulesValue, type FirestoreMethod, type FunctionMock, type TestCase } from 'pyric/rules/internal';
+import {
+  parseToASTOrError,
+  resolveModulesBrowser,
+  reviveFirestoreNumbers,
+  RulesValue,
+  type Expression,
+  type FirestoreMethod,
+  type FirestoreRules,
+  type FunctionDef,
+  type FunctionMock,
+  type MatchBlock,
+  type TestCase,
+} from 'pyric/rules/internal';
 import {
   parseVerifyFixture,
   type PyricVerifyFixture,
@@ -63,6 +75,13 @@ export function deriveRulesTestCases(
       committedGroupIds.add(event.groupId);
     }
   }
+  const uncommittedGroupProjections = buildUncommittedGroupProjections(
+    fixture.events,
+    committedGroupIds,
+  );
+  const fixtureRulesUsesLookups = rulesSourceUsesLookups(
+    fixture.services.firestore?.rules?.source,
+  );
 
   for (const event of fixture.events) {
     if (!isFirestoreRequestEvent(event)) continue;
@@ -73,7 +92,7 @@ export function deriveRulesTestCases(
         (event as { triggeredBy?: unknown }).triggeredBy === undefined;
       if (!isInitialListenerRead) continue;
     }
-    if (event.detail?.admin === true) continue;
+    if (isNonRulesFirestoreRequestEvent(event)) continue;
     if (event.result === 'allow' && !includeAllowed) continue;
     if (event.result === 'deny' && !includeDenied) continue;
 
@@ -100,7 +119,7 @@ export function deriveRulesTestCases(
       continue;
     }
 
-    const functionMocks = extractFunctionMocks(event, fixture);
+    const functionMocks = extractFunctionMocks(event, fixtureRulesUsesLookups);
     if (mockReads === 'strict' && functionMocks === null) {
       unsupportedEvents.push({
         service: 'firestore',
@@ -112,7 +131,7 @@ export function deriveRulesTestCases(
       });
       continue;
     }
-    if (mockReads === 'omit' && eventMayNeedFunctionMocks(event, fixture)) {
+    if (mockReads === 'omit' && eventMayNeedFunctionMocks(event, fixtureRulesUsesLookups)) {
       warnings.push({
         service: 'firestore',
         eventId: event.id,
@@ -126,7 +145,13 @@ export function deriveRulesTestCases(
 
     derived.push({
       eventId: event.id,
-      testCase: buildTestCase(event, method, functionMocks ?? [], committedGroupIds),
+      testCase: buildTestCase(
+        event,
+        method,
+        functionMocks ?? [],
+        committedGroupIds,
+        uncommittedGroupProjections,
+      ),
     });
   }
 
@@ -161,11 +186,99 @@ function lowerFirestoreMethod(event: RequestEvent): FirestoreMethod | null {
   return null;
 }
 
+function isNonRulesFirestoreRequestEvent(event: RequestEvent): boolean {
+  if (event.detail?.admin === true) return true;
+  if (event.rulesDisposition?.kind === 'bypassed') return true;
+  if (
+    event.rulesDisposition?.kind === 'not-evaluated' &&
+    event.rulesDisposition.reason !== 'unsupported'
+  ) {
+    return true;
+  }
+  if (
+    event.result === 'deny' &&
+    event.rulesEvidence === undefined &&
+    event.evaluatedRule === undefined &&
+    event.reasons.some(
+      (reason) =>
+        reason.startsWith('Write preparation error:') ||
+        reason.startsWith('FieldValue resolve error:') ||
+        reason.startsWith('Simulation error:'),
+    )
+  ) {
+    return true;
+  }
+  return false;
+}
+
+function buildUncommittedGroupProjections(
+  events: readonly PyricVerifyFixture['events'][number][],
+  committedGroupIds: ReadonlySet<string>,
+): Map<string, Map<string, Record<string, unknown> | null>> {
+  const byGroup = new Map<string, Map<string, Record<string, unknown> | null>>();
+  for (const event of events) {
+    if (!isFirestoreRequestEvent(event)) continue;
+    if (isNonRulesFirestoreRequestEvent(event)) continue;
+    const groupId = (event as { groupId?: unknown }).groupId;
+    if (typeof groupId !== 'string' || committedGroupIds.has(groupId)) continue;
+    const method = lowerFirestoreMethod(event);
+    if (!method || !isWriteMethod(method)) continue;
+
+    let proj = byGroup.get(groupId);
+    if (!proj) {
+      proj = new Map();
+      byGroup.set(groupId, proj);
+    }
+
+    const rawExisting = event.resourceBefore?.exists ? event.resourceBefore.data : null;
+    const preBatchExisting =
+      rawExisting !== null
+        ? (unwrapEscapedCaseValue(rawExisting) as Record<string, unknown>)
+        : null;
+    const intraPrior = proj.has(event.path)
+      ? (proj.get(event.path) ?? null)
+      : (method === 'create' ? null : preBatchExisting);
+
+    const sourceRawData = event.request?.resourceData;
+    if (event.method === 'delete' && sourceRawData === undefined) {
+      proj.set(event.path, null);
+      continue;
+    }
+
+    const rawData = isFirestoreWriteData(sourceRawData)
+      ? (unwrapEscapedCaseValue(sourceRawData) as Record<string, unknown>)
+      : undefined;
+    if (!rawData) {
+      if (method === 'delete') proj.set(event.path, null);
+      continue;
+    }
+
+    const reqObj = event.request as { updateMask?: unknown; merge?: unknown } | undefined;
+    const updateMask = reqObj?.updateMask;
+    const reqMerge = reqObj?.merge;
+    const mergeFields = extractMergeFields(reqMerge);
+    const effectiveMethod: FirestoreMethod =
+      method === 'delete' ? (intraPrior !== null ? 'update' : 'create') : method;
+    const projected = projectDeniedWriteCandidate(
+      rawData,
+      intraPrior,
+      effectiveMethod,
+      event.method,
+      reqMerge,
+      mergeFields,
+      updateMask,
+    );
+    proj.set(event.path, projected);
+  }
+  return byGroup;
+}
+
 function buildTestCase(
   event: RequestEvent,
   method: FirestoreMethod,
   functionMocks: FunctionMock[],
   committedGroupIds: ReadonlySet<string>,
+  uncommittedGroupProjections: ReadonlyMap<string, ReadonlyMap<string, Record<string, unknown> | null>>,
 ): TestCase {
   const testCase: TestCase = {
     description: `${event.result === 'allow' ? 'allow' : 'deny'} ${method} ${event.path}`,
@@ -185,10 +298,29 @@ function buildTestCase(
   if (bindsExisting) testCase.resource = existing;
 
   if (isWriteMethod(method)) {
-    if (method !== 'delete') {
-      const eventGroupId = (event as { groupId?: unknown }).groupId;
-      const isRolledBackGroupRequest =
-        typeof eventGroupId === 'string' && !committedGroupIds.has(eventGroupId);
+    const eventGroupId = (event as { groupId?: unknown }).groupId;
+    const isRolledBackGroupRequest =
+      typeof eventGroupId === 'string' && !committedGroupIds.has(eventGroupId);
+    const groupProjection =
+      isRolledBackGroupRequest && typeof eventGroupId === 'string'
+        ? uncommittedGroupProjections.get(eventGroupId)
+        : undefined;
+
+    if (isRolledBackGroupRequest && groupProjection?.has(event.path)) {
+      const projectedFinal = groupProjection.get(event.path) ?? null;
+      if (method === 'delete') {
+        if (projectedFinal !== null) {
+          testCase.data = clonePlainMap(projectedFinal);
+        }
+        testCase.writeMode = writeModeForEvent(event, method);
+      } else if (projectedFinal !== null) {
+        testCase.data = clonePlainMap(projectedFinal);
+        testCase.writeMode =
+          method === 'create' ? { kind: 'create' } : { kind: 'set', merge: false };
+      } else {
+        testCase.writeMode = writeModeForEvent(event, method);
+      }
+    } else if (method !== 'delete') {
       const hasResolvedAfter =
         event.result === 'allow' &&
         !isRolledBackGroupRequest &&
@@ -297,6 +429,35 @@ function rebuildUpdateMaskPayload(
   return out;
 }
 
+function parseEncodedFieldSegments(field: string): string[] {
+  if (!field.includes('`')) return field.split('.');
+  const segments: string[] = [];
+  let current = '';
+  let quoted = false;
+  for (let i = 0; i < field.length; i++) {
+    const ch = field[i]!;
+    if (quoted) {
+      if (ch === '\\' && i + 1 < field.length) {
+        current += field[++i]!;
+      } else if (ch === '`') {
+        quoted = false;
+      } else {
+        current += ch;
+      }
+      continue;
+    }
+    if (ch === '`') {
+      quoted = true;
+    } else if (ch === '.') {
+      segments.push(current);
+      current = '';
+    } else {
+      current += ch;
+    }
+  }
+  segments.push(current);
+  return segments;
+}
 const DELETE_FIELD_SYM: unique symbol = Symbol('verify:deleteField');
 const ABSENT_SYM: unique symbol = Symbol('verify:absent');
 
@@ -339,8 +500,32 @@ function isPlainObjectProto(value: unknown): value is Record<string, unknown> {
   return proto === Object.prototype || proto === null;
 }
 
-function unwrapEscapedCaseValue(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(unwrapEscapedCaseValue);
+function isSerializedScalarMarker(value: Record<string, unknown>): boolean {
+  if (typeof value.__type === 'string') {
+    return (
+      value.__type === 'reference' ||
+      value.__type === 'timestamp' ||
+      value.__type === 'bytes' ||
+      value.__type === 'latlng' ||
+      value.__type === 'duration' ||
+      value.__type === 'path' ||
+      value.__type === 'float'
+    );
+  }
+  if (value.__type__ === '__vector__' && Array.isArray(value.value)) return true;
+  if (typeof value.type === 'string') {
+    return (
+      value.type === 'pyric/number/1.0' ||
+      value.type.startsWith('firestore/')
+    );
+  }
+  return false;
+}
+
+function unwrapEscapedCaseValue(value: unknown, insideUnescaped = false): unknown {
+  if (Array.isArray(value)) {
+    return value.map((item) => unwrapEscapedCaseValue(item, insideUnescaped));
+  }
   if (!isPlainObjectProto(value)) return value;
   const alreadyUnescaped = isUnescapedCaseMap(value);
   if (
@@ -352,14 +537,18 @@ function unwrapEscapedCaseValue(value: unknown): unknown {
   ) {
     const out: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(value.fields)) {
-      defineOwnProperty(out, k, unwrapEscapedCaseValue(v));
+      defineOwnProperty(out, k, unwrapEscapedCaseValue(v, true));
     }
     Object.defineProperty(out, UNESCAPED_MAP_TAG, { value: true });
     return out;
   }
+  if (!alreadyUnescaped && insideUnescaped && isSerializedScalarMarker(value)) {
+    return reviveFirestoreNumbers(value);
+  }
+  const childInsideUnescaped = insideUnescaped || alreadyUnescaped;
   const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(value)) {
-    defineOwnProperty(out, k, unwrapEscapedCaseValue(v));
+    defineOwnProperty(out, k, unwrapEscapedCaseValue(v, childInsideUnescaped));
   }
   return copyUnescapedTag(value, out);
 }
@@ -656,7 +845,7 @@ function projectDeniedWriteCandidate(
   if (mergeFields !== undefined) {
     const out = clonePlainMap(prior ?? {});
     for (const field of mergeFields) {
-      const segments = field.split('.');
+      const segments = parseEncodedFieldSegments(field);
       const rawLeaf = readBySegments(rawData, segments);
       if (rawLeaf === ABSENT_SYM) continue;
       const resolvedLeaf = resolveFieldTree(rawLeaf, prior, segments);
@@ -687,17 +876,266 @@ function isWriteMethod(method: FirestoreMethod): boolean {
   return method === 'create' || method === 'update' || method === 'delete';
 }
 
-const RULE_LOOKUP_PATTERN = /\b(get|exists|getAfter|existsAfter)\s*\(/;
+const DOCUMENT_LOOKUP_NAMES = new Set(['get', 'exists', 'getAfter', 'existsAfter']);
+
+function isLookupIdentStart(ch: string): boolean {
+  const code = ch.charCodeAt(0);
+  return (
+    (code >= 65 && code <= 90) ||
+    (code >= 97 && code <= 122) ||
+    code === 95 ||
+    code === 36
+  );
+}
+
+function isLookupIdentPart(ch: string): boolean {
+  return isLookupIdentStart(ch) || (ch.charCodeAt(0) >= 48 && ch.charCodeAt(0) <= 57);
+}
+
+function nextNonTriviaChar(source: string, start: number): string | undefined {
+  let i = start;
+  while (i < source.length) {
+    const ch = source[i]!;
+    if (ch === ' ' || ch === '\t' || ch === '\n' || ch === '\r' || ch === '\f' || ch === '\v') {
+      i++;
+      continue;
+    }
+    if (ch === '/' && source[i + 1] === '/') {
+      i += 2;
+      while (i < source.length && source[i] !== '\n' && source[i] !== '\r') i++;
+      continue;
+    }
+    if (ch === '/' && source[i + 1] === '*') {
+      i += 2;
+      while (i < source.length && !(source[i] === '*' && source[i + 1] === '/')) i++;
+      i += 2;
+      continue;
+    }
+    return ch;
+  }
+  return undefined;
+}
+
+type LookupScanToken =
+  | { kind: 'ident'; value: string }
+  | { kind: 'dot' }
+  | { kind: 'other' };
+
+function textContainsDocumentLookupCall(source: string): boolean {
+  let prev3: LookupScanToken | undefined;
+  let prev2: LookupScanToken | undefined;
+  let prev1: LookupScanToken | undefined;
+  const pushToken = (tok: LookupScanToken): void => {
+    prev3 = prev2;
+    prev2 = prev1;
+    prev1 = tok;
+  };
+
+  let i = 0;
+  while (i < source.length) {
+    const ch = source[i]!;
+    if (ch === ' ' || ch === '\t' || ch === '\n' || ch === '\r' || ch === '\f' || ch === '\v') {
+      i++;
+      continue;
+    }
+    if (ch === '/' && source[i + 1] === '/') {
+      i += 2;
+      while (i < source.length && source[i] !== '\n' && source[i] !== '\r') i++;
+      continue;
+    }
+    if (ch === '/' && source[i + 1] === '*') {
+      i += 2;
+      while (i < source.length && !(source[i] === '*' && source[i + 1] === '/')) i++;
+      i += 2;
+      continue;
+    }
+    if (ch === "'" || ch === '"') {
+      const quote = ch;
+      i++;
+      while (i < source.length && source[i] !== quote) {
+        if (source[i] === '\\') i += 2;
+        else i++;
+      }
+      if (i < source.length) i++;
+      pushToken({ kind: 'other' });
+      continue;
+    }
+    if (isLookupIdentStart(ch)) {
+      const start = i;
+      i++;
+      while (i < source.length && isLookupIdentPart(source[i]!)) i++;
+      const word = source.slice(start, i);
+      if (DOCUMENT_LOOKUP_NAMES.has(word) && nextNonTriviaChar(source, i) === '(') {
+        const isFnDecl = prev1?.kind === 'ident' && prev1.value === 'function';
+        if (!isFnDecl) {
+          if (prev1?.kind !== 'dot') {
+            return true;
+          }
+          const isTopLevelFirestoreReceiver =
+            prev2?.kind === 'ident' &&
+            prev2.value === 'firestore' &&
+            prev3?.kind !== 'dot' &&
+            !(prev3?.kind === 'ident' && prev3.value === 'function');
+          if (isTopLevelFirestoreReceiver) {
+            return true;
+          }
+        }
+      }
+      pushToken({ kind: 'ident', value: word });
+      continue;
+    }
+    if (ch === '.') {
+      pushToken({ kind: 'dot' });
+      i++;
+      continue;
+    }
+    pushToken({ kind: 'other' });
+    i++;
+  }
+  return false;
+}
+
+function expressionUsesDocumentLookup(
+  expr: Expression,
+  shadowedLocals: ReadonlySet<string>,
+): boolean {
+  switch (expr.type) {
+    case 'literal':
+    case 'identifier':
+      return false;
+    case 'functionCall':
+      if (DOCUMENT_LOOKUP_NAMES.has(expr.name)) return true;
+      return expr.args.some((arg) => expressionUsesDocumentLookup(arg, shadowedLocals));
+    case 'methodCall':
+      if (
+        DOCUMENT_LOOKUP_NAMES.has(expr.method) &&
+        expr.object.type === 'identifier' &&
+        expr.object.name === 'firestore' &&
+        !shadowedLocals.has('firestore')
+      ) {
+        return true;
+      }
+      return (
+        expressionUsesDocumentLookup(expr.object, shadowedLocals) ||
+        expr.args.some((arg) => expressionUsesDocumentLookup(arg, shadowedLocals))
+      );
+    case 'memberAccess':
+      return expressionUsesDocumentLookup(expr.object, shadowedLocals);
+    case 'bracketAccess':
+      return (
+        expressionUsesDocumentLookup(expr.object, shadowedLocals) ||
+        expressionUsesDocumentLookup(expr.index, shadowedLocals)
+      );
+    case 'sliceAccess':
+      return (
+        expressionUsesDocumentLookup(expr.object, shadowedLocals) ||
+        expressionUsesDocumentLookup(expr.start, shadowedLocals) ||
+        expressionUsesDocumentLookup(expr.end, shadowedLocals)
+      );
+    case 'binaryOp':
+      return (
+        expressionUsesDocumentLookup(expr.left, shadowedLocals) ||
+        expressionUsesDocumentLookup(expr.right, shadowedLocals)
+      );
+    case 'unaryOp':
+      return expressionUsesDocumentLookup(expr.operand, shadowedLocals);
+    case 'ternary':
+      return (
+        expressionUsesDocumentLookup(expr.condition, shadowedLocals) ||
+        expressionUsesDocumentLookup(expr.consequent, shadowedLocals) ||
+        expressionUsesDocumentLookup(expr.alternate, shadowedLocals)
+      );
+    case 'inExpr':
+      return (
+        expressionUsesDocumentLookup(expr.element, shadowedLocals) ||
+        expressionUsesDocumentLookup(expr.collection, shadowedLocals)
+      );
+    case 'isExpr':
+      return expressionUsesDocumentLookup(expr.value, shadowedLocals);
+    case 'listLiteral':
+      return expr.elements.some((el) => expressionUsesDocumentLookup(el, shadowedLocals));
+    case 'mapLiteral':
+      return expr.entries.some(
+        (entry) =>
+          expressionUsesDocumentLookup(entry.key, shadowedLocals) ||
+          expressionUsesDocumentLookup(entry.value, shadowedLocals),
+      );
+    case 'pathLiteral':
+      return expr.segments.some(
+        (seg) => typeof seg !== 'string' && expressionUsesDocumentLookup(seg, shadowedLocals),
+      );
+  }
+}
+
+function functionDefUsesDocumentLookup(
+  fn: FunctionDef,
+  parentLocals: ReadonlySet<string>,
+): boolean {
+  const locals = new Set(parentLocals);
+  for (const param of fn.parameters) locals.add(param);
+  for (const binding of fn.lets) {
+    if (expressionUsesDocumentLookup(binding.value, locals)) return true;
+    locals.add(binding.name);
+  }
+  return expressionUsesDocumentLookup(fn.body, locals);
+}
+
+function matchBlockUsesDocumentLookup(
+  block: MatchBlock,
+  locals: ReadonlySet<string>,
+): boolean {
+  if (block.functions.some((fn) => functionDefUsesDocumentLookup(fn, locals))) return true;
+  if (block.allows.some((allow) => expressionUsesDocumentLookup(allow.condition, locals))) {
+    return true;
+  }
+  return block.children.some((child) => matchBlockUsesDocumentLookup(child, locals));
+}
+
+function astUsesDocumentLookups(ast: FirestoreRules): boolean {
+  const emptyLocals = new Set<string>();
+  if ((ast.functions ?? []).some((fn) => functionDefUsesDocumentLookup(fn, emptyLocals))) {
+    return true;
+  }
+  const services = ast.services ?? (ast.service ? [ast.service] : []);
+  for (const svc of services) {
+    if ((svc.functions ?? []).some((fn) => functionDefUsesDocumentLookup(fn, emptyLocals))) {
+      return true;
+    }
+    const matches = svc.matches ?? (svc.match ? [svc.match] : []);
+    if (matches.some((m) => matchBlockUsesDocumentLookup(m, emptyLocals))) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function rulesSourceUsesLookups(source: string | undefined): boolean {
+  if (typeof source !== 'string' || source.trim().length === 0) return false;
+  let candidate = source;
+  const parsedInitial = parseToASTOrError(candidate);
+  if (parsedInitial.ok) {
+    if (parsedInitial.ast.version === '2+modules' && parsedInitial.ast.imports.length > 0) {
+      const resolved = resolveModulesBrowser(candidate, { targetService: 'cloud.firestore' });
+      if (resolved.success) {
+        candidate = resolved.data.resolved;
+        const parsedResolved = parseToASTOrError(candidate);
+        if (parsedResolved.ok) return astUsesDocumentLookups(parsedResolved.ast);
+      }
+    }
+    return astUsesDocumentLookups(parsedInitial.ast);
+  }
+  return textContainsDocumentLookupCall(source);
+}
 
 function extractFunctionMocks(
   event: RequestEvent,
-  fixture?: PyricVerifyFixture,
+  fixtureRulesUsesLookups: boolean,
 ): FunctionMock[] | null {
   const detail = event.detail as { functionMocks?: unknown } | undefined;
   if (Array.isArray(detail?.functionMocks)) {
     return detail.functionMocks.filter(isFunctionMock);
   }
-  return eventMayNeedFunctionMocks(event, fixture) ? null : [];
+  return eventMayNeedFunctionMocks(event, fixtureRulesUsesLookups) ? null : [];
 }
 
 function isFunctionMock(value: unknown): value is FunctionMock {
@@ -733,14 +1171,14 @@ function isListQuery(value: unknown): value is NonNullable<TestCase['query']> {
 
 function eventMayNeedFunctionMocks(
   event: RequestEvent,
-  fixture?: PyricVerifyFixture,
+  fixtureRulesUsesLookups: boolean,
 ): boolean {
-  if (event.reasons.some((reason) => RULE_LOOKUP_PATTERN.test(reason))) {
+  if (event.reasons.some((reason) => textContainsDocumentLookupCall(reason))) {
     return true;
   }
   if (
     typeof event.evaluatedRule?.expression === 'string' &&
-    RULE_LOOKUP_PATTERN.test(event.evaluatedRule.expression)
+    textContainsDocumentLookupCall(event.evaluatedRule.expression)
   ) {
     return true;
   }
@@ -752,7 +1190,7 @@ function eventMayNeedFunctionMocks(
           : typeof (entry as { expression?: unknown }).expression === 'string'
             ? ((entry as { expression?: string }).expression ?? '')
             : '';
-      return exprText.length > 0 && RULE_LOOKUP_PATTERN.test(exprText);
+      return exprText.length > 0 && textContainsDocumentLookupCall(exprText);
     })
   ) {
     return true;
@@ -760,24 +1198,20 @@ function eventMayNeedFunctionMocks(
   if (
     event.rulesEvidence?.rules?.some(
       (rule) =>
-        RULE_LOOKUP_PATTERN.test(rule.expression) ||
-        rule.checks.some((check) => RULE_LOOKUP_PATTERN.test(check.expression)),
+        textContainsDocumentLookupCall(rule.expression) ||
+        rule.checks.some((check) => textContainsDocumentLookupCall(check.expression)),
     )
   ) {
     return true;
   }
   const rulesObj = (event as { rules?: { expression?: unknown; reason?: unknown } }).rules;
   if (
-    (typeof rulesObj?.expression === 'string' && RULE_LOOKUP_PATTERN.test(rulesObj.expression)) ||
-    (typeof rulesObj?.reason === 'string' && RULE_LOOKUP_PATTERN.test(rulesObj.reason))
+    (typeof rulesObj?.expression === 'string' && textContainsDocumentLookupCall(rulesObj.expression)) ||
+    (typeof rulesObj?.reason === 'string' && textContainsDocumentLookupCall(rulesObj.reason))
   ) {
     return true;
   }
-  const rulesSource = fixture?.services.firestore?.rules?.source;
-  if (typeof rulesSource === 'string' && RULE_LOOKUP_PATTERN.test(rulesSource)) {
-    return true;
-  }
-  return false;
+  return fixtureRulesUsesLookups;
 }
 
 function isCapturedRequestEvent(value: unknown): value is Record<string, unknown> {

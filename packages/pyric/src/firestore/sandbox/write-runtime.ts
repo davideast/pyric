@@ -18,6 +18,7 @@ import type { SentinelHit } from './sentinel-capture.js';
 import { buildRulesTestCase } from './rules-test-case.js';
 import { simulateRules } from './rules-simulator.js';
 import { partitionDeletes, registerDefaultConverters } from './value-resolver.js';
+import { copyUnescapedUserMapTag } from './unescaped-map.js';
 import { SandboxClock } from '../../sandbox/clock.js';
 
 registerDefaultConverters();
@@ -119,7 +120,12 @@ export class WriteRuntime {
     for (const path of paths) {
       const prior = this.state.get(path);
       const documentExists = prior !== null;
-      priors[path] = documentExists ? { ...prior } : null;
+      Object.defineProperty(priors, path, {
+        value: documentExists ? copyUnescapedUserMapTag(prior, { ...prior }) : null,
+        enumerable: true,
+        writable: true,
+        configurable: true,
+      });
     }
     return priors;
   }

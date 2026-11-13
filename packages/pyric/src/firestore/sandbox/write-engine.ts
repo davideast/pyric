@@ -158,7 +158,7 @@ export class WriteEngine {
     try {
       assertServerWriteLimits(path, method, data);
       resolvedData = data
-        ? resolveValueTree({ ...data }, {
+        ? resolveValueTree(data, {
             path,
             method: method as ResolveMethod,
             prior: this.runtime.state.get(path),
@@ -186,6 +186,7 @@ export class WriteEngine {
       // because no simulate call happened.
       this.runtime.emitRequest({
         at: this.runtime.clock.now(), evalMs: 0, method, path, auth, result: 'deny',
+        rulesDisposition: { kind: 'not-evaluated', reason: 'runtime-error' },
         debugMessages: [`FieldValue resolve error: ${msg}`],
         ...(requestPayload ?? {}),
         resourceBefore: { data: snapshot[path] ?? null, exists: (snapshot[path] ?? null) !== null },
@@ -218,6 +219,7 @@ export class WriteEngine {
       });
       this.runtime.emitRequest({
         at: evalAt, evalMs, method, path, auth, result: 'deny',
+        rulesDisposition: { kind: 'not-evaluated', reason: 'runtime-error' },
         debugMessages: [`Simulation error: ${simResult.error.message}`],
         ...(requestPayload ?? {}),
         resourceBefore: { data: snapshot[path] ?? null, exists: (snapshot[path] ?? null) !== null },

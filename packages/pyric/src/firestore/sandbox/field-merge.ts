@@ -74,6 +74,7 @@ function assertSafeSegment(seg: string): void {
  * delete the leaf. Mirrors `ObjectValue.getFieldsMap` + `applyChanges`.
  */
 function setLeaf(root: DocumentData, segments: string[], value: unknown): void {
+  const ancestors: DocumentData[] = [root];
   let cursor = root;
   for (let i = 0; i < segments.length - 1; i++) {
     const seg = segments[i];
@@ -88,6 +89,7 @@ function setLeaf(root: DocumentData, segments: string[], value: unknown): void {
       cursor[seg] = {};
     }
     cursor = cursor[seg] as DocumentData;
+    ancestors.push(cursor);
   }
   const leaf = segments[segments.length - 1];
   assertSafeSegment(leaf);
@@ -96,8 +98,10 @@ function setLeaf(root: DocumentData, segments: string[], value: unknown): void {
   } else {
     cursor[leaf] = stripMarkers(value);
   }
-  if (segments.length > 1 && hasCollidingFirestoreMarkerShape(cursor)) {
-    stampUnescapedUserMap(cursor);
+  for (const ancestor of ancestors) {
+    if (hasCollidingFirestoreMarkerShape(ancestor)) {
+      stampUnescapedUserMap(ancestor);
+    }
   }
 }
 

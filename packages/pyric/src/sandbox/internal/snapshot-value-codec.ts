@@ -106,7 +106,10 @@ function extractDocumentReference(
     };
   }
 
-  const candidate = value as Partial<DuckDocumentReference> & { readonly type?: unknown };
+  const candidate = value as Partial<DuckDocumentReference> & {
+    readonly type?: unknown;
+    readonly databaseId?: unknown;
+  };
   const hasPathAndId = typeof candidate.path === 'string' && typeof candidate.id === 'string';
   if (!hasPathAndId) return undefined;
   const hasFirestoreOwner =
@@ -114,9 +117,20 @@ function extractDocumentReference(
     candidate._firestore !== undefined ||
     candidate.type === 'document';
   if (!hasFirestoreOwner) return undefined;
+  const fsOwner = (candidate.firestore ?? candidate._firestore) as
+    | { databaseId?: unknown; _databaseId?: { database?: unknown } }
+    | undefined;
+  const explicitDatabaseId =
+    typeof candidate.databaseId === 'string' && candidate.databaseId.length > 0
+      ? candidate.databaseId
+      : typeof fsOwner?.databaseId === 'string' && fsOwner.databaseId.length > 0
+        ? fsOwner.databaseId
+        : typeof fsOwner?._databaseId?.database === 'string' && fsOwner._databaseId.database.length > 0
+          ? fsOwner._databaseId.database
+          : undefined;
   return {
     path: normalizeRelativeRefPath(candidate.path),
-    databaseId: extractRefDatabaseId(candidate.path),
+    databaseId: explicitDatabaseId ?? extractRefDatabaseId(candidate.path),
   };
 }
 

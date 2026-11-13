@@ -28,6 +28,7 @@ import {
   deleteDoc as fsDeleteDoc,
   deleteField as fsDeleteField,
   doc as fsDoc,
+  getDoc as fsGetDoc,
   getDocs as fsGetDocs,
   getFirestore as getClientFirestore,
   increment as fsIncrement,
@@ -375,6 +376,60 @@ describe('verifyFixture', () => {
 
     expect(result.ok).toBe(false);
     expect(result.unsupportedEvents[0]?.reason).toContain('exact rule-read mocks');
+  });
+
+  it('distinguishes map.get() method calls, comments, and strings from real document lookups in deriveRulesTestCases', async () => {
+    const mapMethodRules = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Comment mentioning get(/databases/$(database)/documents/users/alice)
+    /* Block comment mentioning existsAfter(/databases/$(database)/documents/users/alice) */
+    match /items/{id} {
+      allow create: if request.auth != null
+        && request.resource.data.get('visibility', 'public') == 'public'
+        && request.resource.data.get('note', '') != 'get(/databases/(default)/documents/x/y)';
+      allow get: if request.auth != null
+        && resource.data
+          .get('visibility', 'public') == 'public';
+    }
+  }
+}`;
+    const sbMap = initializeSandbox();
+    setFirestoreRules(sbMap, mapMethodRules);
+    const clientMap = getClientFirestore(sbMap.withAuth({ uid: 'alice' }));
+    await fsSetDoc(fsDoc(clientMap, 'items', 'i1'), { title: 'hello' });
+    await fsGetDoc(fsDoc(clientMap, 'items', 'i1'));
+    const fixtureMap = parseVerifyFixture(
+      JSON.parse(JSON.stringify(buildVerifyFixture({ sandbox: sbMap, firestoreRules: mapMethodRules }))),
+    );
+    const derivedMap = deriveRulesTestCases(fixtureMap);
+    expect(derivedMap.ok).toBe(true);
+    expect(derivedMap.unsupportedEvents).toEqual([]);
+    expect(derivedMap.testCases).toHaveLength(2);
+
+    const helperLookupRules = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function orgDefaultVisibility() {
+      return get(/databases/$(database)/documents/orgs/o1).data.defaultVisibility;
+    }
+    match /items/{id} {
+      allow create: if request.auth != null
+        && request.resource.data.get('visibility', orgDefaultVisibility()) == 'public';
+    }
+  }
+}`;
+    const sbLookup = initializeSandbox();
+    setFirestoreRules(sbLookup, helperLookupRules);
+    seedFirestoreDocuments(sbLookup, { 'orgs/o1': { defaultVisibility: 'public' } });
+    const clientLookup = getClientFirestore(sbLookup.withAuth({ uid: 'alice' }));
+    await fsSetDoc(fsDoc(clientLookup, 'items', 'i1'), { title: 'hello' });
+    const fixtureLookup = parseVerifyFixture(
+      JSON.parse(JSON.stringify(buildVerifyFixture({ sandbox: sbLookup, firestoreRules: helperLookupRules }))),
+    );
+    const derivedLookup = deriveRulesTestCases(fixtureLookup);
+    expect(derivedLookup.ok).toBe(false);
+    expect(derivedLookup.unsupportedEvents.length).toBeGreaterThan(0);
   });
 
   it('runs Firestore fixture verification through the hosted Rules Test API engine', async () => {
@@ -963,6 +1018,70 @@ service firebase.storage {
       'now-denied',
       'now-denied',
     ]);
+  });
+
+  it('verifies a Storage-only session using cross-service firestore.get() and firestore.exists() over seeded Firestore documents without requiring candidate Firestore rules', async () => {
+    const crossServiceStorageRules = `rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /uploads/{fileName} {
+      allow write: if request.auth != null
+        && firestore.exists(/databases/(default)/documents/members/$(request.auth.uid))
+        && firestore.get(/databases/(default)/documents/orgs/o1).data.canUpload == true;
+    }
+  }
+}`;
+    const tightenedStorageRules = crossServiceStorageRules.replace(
+      'canUpload == true',
+      "tier == 'enterprise'",
+    );
+
+    const sandbox = initializeSandbox();
+    seedFirestoreDocuments(sandbox, { 'orgs/o1': { canUpload: true, tier: 'starter' } });
+    await getAdminFirestore(sandbox).doc('members/alice').set({ active: true });
+    await getStorageSandbox(sandbox, {
+      dbName: uniqueDbName('verify-storage-cross-service'),
+      rules: crossServiceStorageRules,
+    });
+    await uploadBytes(
+      storageRef(getStorageSandbox(sandbox.withAuth({ uid: 'alice' })), 'uploads/report.txt'),
+      new Blob(['ok']),
+      { contentType: 'text/plain' },
+    );
+
+    const fixture = parseVerifyFixture(
+      JSON.parse(
+        JSON.stringify(buildVerifyFixture({ sandbox, storageRules: crossServiceStorageRules })),
+      ),
+    );
+    expect(fixtureVerifiableServices(fixture)).toEqual(['storage']);
+
+    const sameResult = await verifyFixture(fixture, {
+      rules: { storage: crossServiceStorageRules },
+    });
+    expect(sameResult.ok).toBe(true);
+    expect(sameResult.services.firestore).toBeUndefined();
+    expect(sameResult.services.storage?.checkedEvents).toBe(1);
+    expect(sameResult.services.storage?.divergences).toEqual([]);
+
+    const tightenedResult = await verifyFixture(fixture, {
+      rules: { storage: tightenedStorageRules },
+    });
+    expect(tightenedResult.ok).toBe(false);
+    expect(tightenedResult.services.storage?.divergences).toEqual([
+      expect.objectContaining({
+        service: 'storage',
+        kind: 'now-denied',
+        path: 'uploads/report.txt',
+      }),
+    ]);
+
+    const explicitBothResult = await verifyFixture(fixture, {
+      rules: { storage: crossServiceStorageRules, firestore: ALICE_RULES },
+    });
+    expect(explicitBothResult.ok).toBe(true);
+    expect(explicitBothResult.services.firestore?.ok).toBe(true);
+    expect(explicitBothResult.services.storage?.ok).toBe(true);
   });
 });
 

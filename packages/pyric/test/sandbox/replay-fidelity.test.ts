@@ -13,10 +13,27 @@
  *   the missing document.
  */
 import { describe, it, expect } from 'bun:test';
-import { getClock, initializeSandbox, replay, type WriteSandboxEvent } from 'pyric/sandbox';
+import {
+  applyFullState,
+  captureFullState,
+  getClock,
+  initializeSandbox,
+  replay,
+  type WriteSandboxEvent,
+} from 'pyric/sandbox';
 import { getInternalEnv } from 'pyric/sandbox/internal';
 import { setRules, snapshotDocuments } from 'pyric/sandbox/firestore';
-import { addDoc, collection, doc, getFirestore, runTransaction, setDoc, updateDoc, writeBatch } from 'pyric/firestore';
+import {
+  addDoc,
+  collection,
+  doc,
+  getDoc,
+  getFirestore,
+  runTransaction,
+  setDoc,
+  updateDoc,
+  writeBatch,
+} from 'pyric/firestore';
 
 function realDivergences(history: ReturnType<ReturnType<typeof initializeSandbox>['history']>, rules: string, original: Record<string, Record<string, unknown>>) {
   const result = replay(history, rules, {}, original);
@@ -217,3 +234,64 @@ service cloud.firestore {
     expect(real[0]).toMatchObject({ kind: 'real-divergence', after: undefined });
   });
 });
+
+describe('replay and full-state preserve named-database DocumentReference identity', () => {
+  const analyticsRefRules = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /items/{id} {
+      allow create: if request.auth != null
+        && request.resource.data.orgRef == /databases/analytics/documents/orgs/org-1;
+      allow get: if request.auth != null
+        && resource.data.orgRef == /databases/analytics/documents/orgs/org-1;
+    }
+  }
+}`;
+
+  const defaultRefRules = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /items/{id} {
+      allow create: if request.auth != null
+        && request.resource.data.orgRef == /databases/(default)/documents/orgs/org-1;
+      allow get: if request.auth != null
+        && resource.data.orgRef == /databases/(default)/documents/orgs/org-1;
+    }
+  }
+}`;
+
+  it('round-trips named-database references across replay and full-state without collapsing to (default)', async () => {
+    const sb = initializeSandbox();
+    setRules(sb, analyticsRefRules);
+    const authed = sb.withAuth({ uid: 'u1', token: {} });
+    const dbMain = getFirestore(authed);
+    const dbAnalytics = getFirestore(authed, 'analytics');
+
+    await setDoc(doc(dbMain, 'items', 'i1'), { orgRef: doc(dbAnalytics, 'orgs', 'org-1') });
+    const initialSnap = await getDoc(doc(dbMain, 'items', 'i1'));
+    expect(initialSnap.exists()).toBe(true);
+
+    const persistedEvents = JSON.parse(JSON.stringify(sb.history()));
+    const persistedState = JSON.parse(JSON.stringify(sb.snapshot().firestore));
+
+    const sameRulesReplay = replay(persistedEvents, analyticsRefRules, {}, persistedState);
+    expect(sameRulesReplay.divergences).toEqual([]);
+    expect('items/i1' in sameRulesReplay.sandbox.snapshot().firestore).toBe(true);
+
+    const defaultRulesReplay = replay(persistedEvents, defaultRefRules, {}, persistedState);
+    expect(defaultRulesReplay.divergences.some((d) => d.kind === 'real-divergence' && d.path === 'items/i1')).toBe(true);
+    expect('items/i1' in defaultRulesReplay.sandbox.snapshot().firestore).toBe(false);
+
+    const fullState = JSON.parse(JSON.stringify(await captureFullState(sb)));
+    const restored = initializeSandbox();
+    await applyFullState(restored, fullState);
+    const restoredSnap = await getDoc(doc(getFirestore(restored.withAuth({ uid: 'u1', token: {} })), 'items', 'i1'));
+    expect(restoredSnap.exists()).toBe(true);
+
+    setRules(restored, defaultRefRules);
+    await expect(
+      getDoc(doc(getFirestore(restored.withAuth({ uid: 'u1', token: {} })), 'items', 'i1')),
+    ).rejects.toMatchObject({ code: 'permission-denied' });
+  });
+});
+
