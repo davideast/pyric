@@ -17,6 +17,7 @@ import { LatLng } from '../simulator/wrappers/latlng.js';
 import { Path } from '../simulator/wrappers/path.js';
 import { Reference } from '../simulator/wrappers/reference.js';
 import { Timestamp } from '../simulator/wrappers/timestamp.js';
+import { isUnresolvedWriteSentinel } from '../test/case-refusals.js';
 import {
   RuleError,
   isRuleError as isErr,
@@ -76,13 +77,9 @@ function wrapFirestoreValue(val: unknown): unknown {
       return out;
     }
     const keys = Object.keys(obj);
-    if (
-      obj.__type === 'serverTimestamp' ||
-      obj._methodName === 'serverTimestamp' ||
-      obj._methodName === 'FieldValue.serverTimestamp'
-    ) {
+    if (isUnresolvedWriteSentinel(obj)) {
       throw new RuleUnsupportedError(
-        'Stored Firestore documents cannot contain unresolved serverTimestamp() sentinels.',
+        'Stored Firestore documents cannot contain unresolved write FieldValue sentinels.',
       );
     }
     if (obj.__type === 'path') {

@@ -14,18 +14,107 @@ export function safeReadProp(obj: unknown, key: string): unknown {
   }
 }
 
+/** Format any thrown value into a string without throwing on `Object.create(null)` or hostile `toString()`. */
+export function safeErrorMessage(error: unknown): string {
+  if (error instanceof Error) {
+    try {
+      return String(error.message);
+    } catch {
+      return 'unreadable error';
+    }
+  }
+  try {
+    return String(error);
+  } catch {
+    return 'non-Error value thrown';
+  }
+}
+
 /** An ISO-8601 instant with an explicit offset or `Z`, to the nanosecond. */
 const ISO_INSTANT =
   /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,9}))?(Z|([+-])(\d{2}):(\d{2}))$/;
 
-/** An ISO-8601 instant allowing omitted seconds (`HH:MM`) or arbitrary fractional digits. */
-const ISO_INSTANT_RELAXED_PRECISION =
-  /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2})(?:\.(\d+))?)?(Z|([+-])(\d{2}):(\d{2}))$/;
-
 /** 0001-01-01T00:00:00.000Z in epoch milliseconds. */
-const MIN_ISO_TIMESTAMP_MILLIS = -62_135_596_800_000;
+export const MIN_ISO_TIMESTAMP_MILLIS = -62_135_596_800_000;
 /** 9999-12-31T23:59:59.999Z in epoch milliseconds. */
-const MAX_ISO_TIMESTAMP_MILLIS = 253_402_300_799_999;
+export const MAX_ISO_TIMESTAMP_MILLIS = 253_402_300_799_999;
+
+/** Whether a JavaScript `Date` represents a finite instant within `[0001-01-01T00:00:00Z, 9999-12-31T23:59:59.999Z]`. */
+export function isValidRulesDate(value: Date): boolean {
+  const ms = value.getTime();
+  return (
+    Number.isFinite(ms) &&
+    ms >= MIN_ISO_TIMESTAMP_MILLIS &&
+    ms <= MAX_ISO_TIMESTAMP_MILLIS
+  );
+}
+
+const UNESCAPED_MAP_TAG = Symbol.for('pyric.unescapedMap');
+const SENTINEL_REGISTRY_KEY = Symbol.for('pyric.firestore.field-value-sentinels');
+
+const WRITE_SENTINEL_TYPES: ReadonlySet<string> = new Set([
+  'serverTimestamp',
+  'deleteField',
+  'arrayUnion',
+  'arrayRemove',
+  'increment',
+]);
+
+const WRITE_SENTINEL_METHOD_NAMES: ReadonlySet<string> = new Set([
+  'serverTimestamp',
+  'FieldValue.serverTimestamp',
+  'deleteField',
+  'FieldValue.delete',
+  'arrayUnion',
+  'FieldValue.arrayUnion',
+  'arrayRemove',
+  'FieldValue.arrayRemove',
+  'increment',
+  'FieldValue.increment',
+]);
+
+/** Whether `value` is an unescaped `serverTimestamp()` sentinel object. */
+export function isUnescapedServerTimestampSentinel(value: unknown): boolean {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return false;
+  if ((value as Record<symbol, unknown>)[UNESCAPED_MAP_TAG] === true) return false;
+  const record = value as Record<string, unknown>;
+  return (
+    record.__type === 'serverTimestamp' ||
+    record._methodName === 'serverTimestamp' ||
+    record._methodName === 'FieldValue.serverTimestamp'
+  );
+}
+
+/**
+ * Whether `value` is an unresolved Firestore write `FieldValue` sentinel
+ * (`serverTimestamp`, `deleteField`, `arrayUnion`, `arrayRemove`, `increment`,
+ * or an instance registered in the shared sentinel WeakSet) that cannot appear
+ * in a stored document. Plain user maps tagged with `pyric.unescapedMap` and
+ * user maps like `{ __type: 'timestamp', ... }` return `false`.
+ */
+export function isUnresolvedWriteSentinel(
+  value: unknown,
+  options?: { includeServerTimestamp?: boolean },
+): boolean {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return false;
+  if ((value as Record<symbol, unknown>)[UNESCAPED_MAP_TAG] === true) return false;
+  const includeServerTs = options?.includeServerTimestamp !== false;
+  const record = value as Record<string, unknown>;
+  const registry = (globalThis as { [SENTINEL_REGISTRY_KEY]?: WeakSet<object> })[SENTINEL_REGISTRY_KEY];
+  if (registry?.has(value)) {
+    if (!includeServerTs && isUnescapedServerTimestampSentinel(value)) return false;
+    return true;
+  }
+  if (typeof record.__type === 'string' && WRITE_SENTINEL_TYPES.has(record.__type)) {
+    if (!includeServerTs && record.__type === 'serverTimestamp') return false;
+    return true;
+  }
+  if (typeof record._methodName === 'string' && WRITE_SENTINEL_METHOD_NAMES.has(record._methodName)) {
+    if (!includeServerTs && isUnescapedServerTimestampSentinel(value)) return false;
+    return true;
+  }
+  return false;
+}
 
 function isGregorianLeapYear(year: number): boolean {
   return (year % 4 === 0 && year % 100 !== 0) || year % 400 === 0;
@@ -38,17 +127,13 @@ function daysInGregorianMonth(year: number, month: number): number {
 }
 
 /**
- * Parse an ISO-8601 instant string with strict calendar and range checks,
- * returning epoch milliseconds or `null` when the date, time, offset, or
- * resulting UTC instant is invalid or outside `[0001-01-01T00:00:00Z,
- * 9999-12-31T23:59:59.999999999Z]`.
+ * Parse an ISO-8601 instant string with strict calendar, nanosecond-digit, and
+ * range checks, returning epoch milliseconds or `null` when the date, time,
+ * offset, or resulting UTC instant is invalid or outside
+ * `[0001-01-01T00:00:00Z, 9999-12-31T23:59:59.999999999Z]`.
  */
-export function parseStrictIsoMillis(
-  value: string,
-  options?: { allowShortSeconds?: boolean },
-): number | null {
-  const pattern = options?.allowShortSeconds ? ISO_INSTANT_RELAXED_PRECISION : ISO_INSTANT;
-  const match = pattern.exec(value);
+export function parseStrictIsoMillis(value: string): number | null {
+  const match = ISO_INSTANT.exec(value);
   if (!match) return null;
 
   const year = Number(match[1]);
@@ -56,7 +141,7 @@ export function parseStrictIsoMillis(
   const day = Number(match[3]);
   const hour = Number(match[4]);
   const minute = Number(match[5]);
-  const second = match[6] !== undefined ? Number(match[6]) : 0;
+  const second = Number(match[6]);
 
   if (year < 1 || year > 9999) return null;
   if (month < 1 || month > 12) return null;

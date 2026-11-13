@@ -7,6 +7,7 @@
 import { RulesValue } from '../simulator/wrappers/base.js';
 import { Bytes } from '../simulator/wrappers/bytes.js';
 import { FirestoreSet } from '../simulator/firestore-set.js';
+import { isValidRulesDate } from '../test/case-refusals.js';
 
 /**
  * A signed-in identity for a rules request or a sandbox operation. `null` is anonymous.
@@ -58,6 +59,9 @@ function cloneAuthClaim(value: unknown, ancestors = new WeakSet<object>()): unkn
     return new FirestoreSet(value.toArray().map((item) => cloneAuthClaim(item, ancestors)));
   }
   if (value instanceof Date) {
+    if (!isValidRulesDate(value)) {
+      throw new TypeError('Auth token claims cannot contain an invalid or out-of-range Date.');
+    }
     return new Date(value.getTime());
   }
   if (value instanceof Uint8Array) {

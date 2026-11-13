@@ -1,5 +1,5 @@
 import type {
-  FirestoreRules, MatchBlock, AllowRule, FunctionDef, Expression, Operation, PathSegment,
+  FirestoreRules, MatchBlock, AllowRule, FunctionDef, Expression, Operation, PathSegment, ServiceBlock,
 } from './FirestoreAST.js';
 import { countDocumentAccessCalls } from './document-access-count.js';
 import { compileLimitViolations } from './compile-limits.js';
@@ -49,7 +49,13 @@ export function validateFirestoreRules(
 
   if (selectedServices.length === 0) return [];
 
-  const prepared = selectedServices.map((service) => {
+  const preparedByService = new Map<
+    ServiceBlock,
+    { ast: FirestoreRules; scopes: RulesetScopes; globalFns: Set<FunctionDef> }
+  >();
+  const prepareService = (service: ServiceBlock) => {
+    const cached = preparedByService.get(service);
+    if (cached !== undefined) return cached;
     const svcTarget: 'cloud.firestore' | 'firebase.storage' = isStorageServiceName(service.name)
       ? 'firebase.storage'
       : 'cloud.firestore';
@@ -58,29 +64,22 @@ export function validateFirestoreRules(
       options?.rawSource,
       { targetService: svcTarget },
     );
-    const scopes = collectRulesetScopes(ast);
-    const globalFns = new Set(ast.functions ?? []);
-    return { ast, scopes, globalFns };
-  });
+    const entry = {
+      ast,
+      scopes: collectRulesetScopes(ast),
+      globalFns: new Set(ast.functions ?? []),
+    };
+    preparedByService.set(service, entry);
+    return entry;
+  };
+
+  const prepared = selectedServices.map(prepareService);
 
   // Track global functions called across any service block so multi-service files
   // do not falsely report QUA-4 on a global helper used only by a sibling service.
   const calledGlobalFnNames = new Set<string>();
   if (allServices.length > 1) {
-    const allPrepared =
-      options?.targetService !== undefined
-        ? allServices.map((service) => {
-            const svcTarget: 'cloud.firestore' | 'firebase.storage' = isStorageServiceName(service.name)
-              ? 'firebase.storage'
-              : 'cloud.firestore';
-            const ast = resolveBundledModulesForAnalysis(
-              withSingleService(inputAst, service),
-              options?.rawSource,
-              { targetService: svcTarget },
-            );
-            return { scopes: collectRulesetScopes(ast), globalFns: new Set(ast.functions ?? []) };
-          })
-        : prepared;
+    const allPrepared = options?.targetService !== undefined ? allServices.map(prepareService) : prepared;
     for (const { scopes, globalFns } of allPrepared) {
       for (const scoped of scopes.rules) {
         for (const callee of ruleReferences(scoped).callees) {

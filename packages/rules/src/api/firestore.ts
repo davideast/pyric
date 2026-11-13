@@ -22,8 +22,6 @@ import {
   wrongServiceReason,
   type RulesSourceRejection,
 } from '../grammar/source-compile-limits.js';
-import { lintFirestoreRules } from '../linter/linter.js';
-import { validateFirestoreRules } from '../grammar/FirestoreValidator.js';
 import { SimulateFirestoreRulesHandler } from '../simulator/handler.js';
 import {
   AUTHORED_ROOT_SOURCE_FILE,
@@ -40,9 +38,8 @@ import type { RuleIssue } from './issue.js';
 import {
   compileLimitViolationToIssue,
   parseErrorToIssue,
-  lintWarningToIssue,
-  validationFindingToIssue,
 } from './issue.js';
+import { lintSource } from './lint.js';
 import type {
   FirestoreCase,
   CaseResult,
@@ -96,25 +93,42 @@ function unrunnableResult(fc: FirestoreCase, message: string): CaseResult {
   };
 }
 
+function cloneAstValue<T>(value: T): T {
+  if (value === null || typeof value !== 'object') return value;
+  if (value instanceof Uint8Array) return new Uint8Array(value) as T;
+  if (Array.isArray(value)) {
+    return value.map((item) => cloneAstValue(item)) as T;
+  }
+  const proto = Object.getPrototypeOf(value);
+  if (proto !== Object.prototype && proto !== null) return value;
+  const copy: Record<string, unknown> = proto === null ? Object.create(null) : {};
+  for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
+    Object.defineProperty(copy, key, {
+      value: cloneAstValue(child),
+      enumerable: true,
+      writable: true,
+      configurable: true,
+    });
+  }
+  return copy as T;
+}
+
 class FirestoreRulesetImpl implements FirestoreRuleset {
   private readonly handler = new SimulateFirestoreRulesHandler();
   private readonly sourceMap: AuthoredSourceMap;
   constructor(
+    private readonly rawSource: string,
     private readonly source: string,
     private readonly ast: FirestoreRules,
+    private readonly authoredImports?: readonly ImportDecl[],
   ) {
     this.sourceMap = readAuthoredSourceMap(source);
   }
 
   lint(): RuleIssue[] {
-    const issues: RuleIssue[] = [];
-    for (const warning of lintFirestoreRules(this.source).warnings) {
-      issues.push(lintWarningToIssue(warning));
-    }
-    for (const finding of validateFirestoreRules(this.ast)) {
-      issues.push(validationFindingToIssue(finding));
-    }
-    return issues;
+    return lintSource(this.rawSource, 'cloud.firestore').filter(
+      (issue) => issue.origin !== 'parse',
+    );
   }
 
   simulate(cases: FirestoreCase[]): SimulationSummary {
@@ -123,6 +137,7 @@ class FirestoreRulesetImpl implements FirestoreRuleset {
     // different request.
     const result = this.handler.simulateParsed(this.ast, this.source, cases as TestCase[], {
       sourceMap: this.sourceMap,
+      authoredImports: this.authoredImports,
       publicCases: true,
     });
     if (!result.success) {
@@ -171,7 +186,7 @@ class FirestoreRulesetImpl implements FirestoreRuleset {
   }
 
   toJSON(): FirestoreRules {
-    return this.ast;
+    return cloneAstValue(this.ast);
   }
 }
 
@@ -274,7 +289,7 @@ export function firestoreRules(source: string): FirestoreRuleset {
         : checked.rejection;
     throw compileError(effectiveSource, rejection);
   }
-  return new FirestoreRulesetImpl(effectiveSource, checked.ast);
+  return new FirestoreRulesetImpl(source, effectiveSource, checked.ast, authoredImports);
 }
 
 /**

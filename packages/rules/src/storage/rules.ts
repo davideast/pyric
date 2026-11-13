@@ -449,14 +449,15 @@ function allowLine(allow: SharedMatchBlock['allows'][number]): number | undefine
 function remapConvertedPosition(node: object, sourceMap: AuthoredSourceMap): void {
   if (sourceMap.size === 0) return;
   const pos = expressionPosition(node);
+  const comp = completionPosition(node);
+  const hasDistinctCompletion = comp !== undefined && comp !== pos;
   if (pos !== undefined) {
     const mapped = resolveAuthoredLoc(sourceMap, pos.line, pos.column);
     if (mapped !== undefined && mapped.line !== pos.line) {
       setExpressionPosition(node, { line: mapped.line, column: pos.column });
     }
   }
-  const comp = completionPosition(node);
-  if (comp !== undefined && comp !== pos) {
+  if (hasDistinctCompletion) {
     const mapped = resolveAuthoredLoc(sourceMap, comp.line, comp.column);
     if (mapped !== undefined && mapped.line !== comp.line) {
       setCompletionPosition(node, { line: mapped.line, column: comp.column });
@@ -611,13 +612,22 @@ export function parseStorageRules(source: string): StorageRules {
     );
   }
   const ast: SharedRules = withSingleService(parsed.ast, storageService);
+  const sourceMap = readAuthoredSourceMap(source);
   // Production rejects a ruleset past its compile limits (call depth, `let`
   // count, nesting) before evaluating any request. Regex patterns are checked
   // below by validateMatchRegexes so low-level callers keep the exact message.
-  const violations = compileLimitViolations(ast, { allowUnresolvedImports: true }).filter(
+  const rawViolations = compileLimitViolations(ast, { allowUnresolvedImports: true }).filter(
     (v) => v.code !== 'INVALID_REGEX_PATTERN',
   );
-  if (violations.length > 0) {
+  if (rawViolations.length > 0) {
+    const violations =
+      sourceMap.size > 0
+        ? rawViolations.map((v) => {
+            if (v.line === undefined) return v;
+            const mapped = resolveAuthoredLoc(sourceMap, v.line)?.line;
+            return mapped === undefined ? v : { ...v, line: mapped };
+          })
+        : rawViolations;
     throw new SyntaxError(`Storage rules do not compile: ${describeCompileLimitViolations(violations)}`);
   }
   // The service's own DocumentsMatch (`match /b/{bucket}/o`) becomes a child
@@ -628,7 +638,6 @@ export function parseStorageRules(source: string): StorageRules {
   // root visibility equals everywhere-in-service visibility, and the array
   // order (global, then service, then none of root's own) preserves
   // inner-shadows-outer resolution in `resolveFunctions`.
-  const sourceMap = readAuthoredSourceMap(source);
   const importStubs: FunctionDef[] = (ast.imports ?? []).flatMap((imp) =>
     imp.functions.map((name): FunctionDef => ({
       name,

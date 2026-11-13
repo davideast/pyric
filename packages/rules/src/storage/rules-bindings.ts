@@ -49,7 +49,7 @@ export function buildResourceObject(resource: StorageResource): Record<string, u
  *  (→ absent-property error → deny) rather than becoming a NaN timestamp. */
 function isoToTimestamp(iso: string | undefined): Timestamp | undefined {
   if (iso === undefined) return undefined;
-  const ms = parseStrictIsoMillis(iso, { allowShortSeconds: true });
+  const ms = parseStrictIsoMillis(iso);
   if (ms === null) return undefined;
   return Timestamp.fromMillis(ms);
 }

@@ -17,10 +17,18 @@ import type {
   PathResolutionTrace,
   RulesResourceLimit,
 } from '../test/spec.js';
-import type { FirestoreRules, MatchBlock, AllowRule, FunctionDef, Expression } from '../grammar/FirestoreAST.js';
+import type {
+  FirestoreRules,
+  MatchBlock,
+  AllowRule,
+  FunctionDef,
+  Expression,
+  ImportDecl,
+} from '../grammar/FirestoreAST.js';
 import { checkRulesSource } from '../grammar/source-compile-limits.js';
 import { assembleExpression } from '../grammar/FirestoreAssembler.js';
 import { readAuthoredSourceMap, resolveAuthoredLoc, type AuthoredSourceMap } from '../modules/resolver-core.js';
+import { AUTHORED_ROOT_SOURCE_FILE, findModuleErrorImportLine } from '../modules/resolver-browser.js';
 import { evaluate, requireBoolean, UnsupportedError, TraceRecorder, type SimulationContext } from './evaluator.js';
 
 import { Timestamp } from './wrappers/timestamp.js';
@@ -40,7 +48,7 @@ import {
 import { typeClaimNumbers } from './rules-int.js';
 import { normalizeAuthState } from '../auth/auth-state.js';
 import { caseShapeRefusal } from '../test/case-shape.js';
-import { requestTimeRefusal, safeReadProp } from '../test/case-refusals.js';
+import { requestTimeRefusal, safeErrorMessage, safeReadProp } from '../test/case-refusals.js';
 export { SERVER_TIMESTAMP, resolveServerTimestamps, reviveFirestoreNumbers } from './firestore-values.js';
 import { collectRootMatches, noMatchNotes } from './root-match.js';
 import { getListBlockSteps, type ListBlockStep } from './list-proof-budget.js';
@@ -141,6 +149,7 @@ function evaluateRules(
   operation: string,
   ctx: SimulationContext,
   sourceMap?: AuthoredSourceMap,
+  authoredImports?: readonly ImportDecl[],
 ): RuleBlockOutcome {
   const ops = methodToOperations(operation);
   const trace: RuleEvaluation[] = [];
@@ -185,6 +194,17 @@ function evaluateRules(
     record(entry);
     ctx.trace = priorRecorder;
     const resourceLimit = describeResourceLimit(err);
+    if (sourceMap && sourceMap.size > 0 && resourceLimit.line !== undefined) {
+      const mapped = sourceMap.get(resourceLimit.line);
+      if (mapped !== undefined) {
+        if (mapped.authoredFile === AUTHORED_ROOT_SOURCE_FILE) {
+          resourceLimit.line = mapped.authoredLine;
+        } else if (authoredImports !== undefined) {
+          resourceLimit.line = findModuleErrorImportLine(authoredImports, `'${mapped.authoredFile}'`, 1);
+          delete resourceLimit.column;
+        }
+      }
+    }
     // Production reports the expression limit at the expression the
     // budget ran out on, so the note cites that position.
     let position: { line: number; column: number } | undefined;
@@ -713,6 +733,8 @@ export class SimulateFirestoreRulesHandler {
     opts?: SimulateOptions & {
       /** The source map read from `source`, when the caller keeps it. */
       sourceMap?: AuthoredSourceMap;
+      /** Authored `2+modules` imports when `source` was lowered in-process from `2+modules`. */
+      authoredImports?: readonly ImportDecl[];
       /** Internal flag to skip re-running static query proof during residual evaluation. */
       skipQueryProof?: boolean;
     },
@@ -977,7 +999,7 @@ export class SimulateFirestoreRulesHandler {
         const ctx = buildContext(evalTc, match.functions, pathVars, opts?.getDoc, opts?.batchProjection, lookupBudget, expressionBudget, revive, match.recursiveVariables, match.functionScopes, rootBindings);
 
         const blockPath = renderMatchBlockPath(match.block);
-        const res = evaluateRules(match.block, tc.method, ctx, sourceMap);
+        const res = evaluateRules(match.block, tc.method, ctx, sourceMap, opts?.authoredImports);
         for (const entry of res.trace) {
           entry.matchPath = blockPath;
         }
@@ -1071,7 +1093,7 @@ export class SimulateFirestoreRulesHandler {
         results.push(
           refusedResult(
             tc,
-            `Case refused: ${error instanceof Error ? error.message : String(error)}`,
+            `Case refused: ${safeErrorMessage(error)}`,
           ),
         );
       }

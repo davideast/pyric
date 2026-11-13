@@ -45,7 +45,7 @@ import { RulesCompileError } from './errors.js';
 import type { RuleIssue } from './issue.js';
 import { rtdbFindingToIssue, rtdbSecurityFindingToIssue } from './issue.js';
 import { lintRtdbRuleset } from '../rtdb/grammar/ruleset-lint.js';
-import { safeReadProp } from '../test/case-refusals.js';
+import { safeErrorMessage, safeReadProp } from '../test/case-refusals.js';
 import type {
   RtdbCase,
   RtdbCaseResult,
@@ -180,7 +180,7 @@ class DocumentRtdbRuleset implements RtdbRuleset {
         unsupported: true,
         matchedPath: typeof rawPath === 'string' ? rawPath : '',
         matchedRule: '',
-        reason: error instanceof Error ? error.message : String(error),
+        reason: safeErrorMessage(error),
         trace: [],
       };
     }

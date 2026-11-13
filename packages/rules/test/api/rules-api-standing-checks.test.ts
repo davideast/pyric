@@ -9,6 +9,7 @@
 import { describe, expect, test } from 'bun:test';
 import {
   allow,
+  assertCase,
   bytes,
   defineRtdbRules,
   deny,
@@ -21,6 +22,7 @@ import {
   reference,
   rtdbRules,
   RulesCompileError,
+  RulesUnsupportedError,
   serverTimestamp,
   storageRules,
   timestamp,
@@ -57,8 +59,12 @@ describe('standing check: strict Gregorian calendar and timestamp range parity',
     '2026-01-15T23:59:60Z',
     '2026-01-15T12:00:00+24:00',
     '2026-01-15T12:00:00+00:60',
-    // Missing timezone offset
+    // Missing timezone offset, omitted seconds, or >9 fractional digits (beyond nanosecond precision)
     '2026-01-15T12:00:00',
+    '2026-01-01T00:00Z',
+    '2026-01-01T00:00+02:00',
+    '2026-01-01T00:00:00.1234567890Z',
+    '2026-01-01T00:00:00.0000000001+00:00',
     // Year 0000 and UTC offset underflow / overflow past [0001..9999]
     '0000-01-01T00:00:00Z',
     '0000-12-31T23:59:59Z',
@@ -236,8 +242,19 @@ service firebase.storage {
       ).toBe(1);
     }
 
-    // Mutating rawBuf after bytes() construction does not corrupt fresh bytes(new Uint8Array(...)) clones in auth.token.
+    // Mutating rawBuf after bytes(rawBuf) and mutating claims / normalizeAuthState output does not corrupt caller or subsequent runs.
+    rawBuf[0] = 0xff;
     expect('firebase' in claims).toBe(false);
+    expect((claims.bag as { list: unknown[] }).list).toHaveLength(3);
+    expect(
+      stRules.simulate([
+        { description: 'post-rawBuf-mutation st wrapper claims', expectation: 'ALLOW', method: 'get', path: 'docs/d1', auth: { uid: 'u1', token: claims } },
+      ]).passed,
+    ).toBe(1);
+
+    // Mutate claims in place and verify normalized tenant projection never wrote back to caller claims.
+    (claims.bag as { list: unknown[] }).list.push('mutated');
+    expect((claims.bag as { list: unknown[] }).list).toHaveLength(4);
   });
 });
 
@@ -297,6 +314,13 @@ service firebase.storage {
       { description: 'null doc', expectation: 'DENY', method: 'get', path: 'items/i1', firestore: { 'orgs/o1': null as unknown as Record<string, unknown> } },
       { description: 'array doc', expectation: 'DENY', method: 'get', path: 'items/i1', firestore: { 'orgs/o1': [] as unknown as Record<string, unknown> } },
       { description: 'serverTimestamp in doc', expectation: 'DENY', method: 'get', path: 'items/i1', firestore: { 'orgs/o1': { tier: 'pro', at: serverTimestamp() } } },
+      { description: 'deleteField __type sentinel in doc', expectation: 'DENY', method: 'get', path: 'items/i1', firestore: { 'orgs/o1': { tier: 'pro', gone: { __type: 'deleteField' } } } },
+      { description: 'arrayUnion __type sentinel in doc', expectation: 'DENY', method: 'get', path: 'items/i1', firestore: { 'orgs/o1': { tier: 'pro', tags: { __type: 'arrayUnion', values: ['x'] } } } },
+      { description: 'arrayRemove __type sentinel in doc', expectation: 'DENY', method: 'get', path: 'items/i1', firestore: { 'orgs/o1': { tier: 'pro', tags: { __type: 'arrayRemove', values: ['x'] } } } },
+      { description: 'increment __type sentinel in doc', expectation: 'DENY', method: 'get', path: 'items/i1', firestore: { 'orgs/o1': { tier: 'pro', count: { __type: 'increment', value: 1 } } } },
+      { description: 'SDK _methodName deleteField sentinel in doc', expectation: 'DENY', method: 'get', path: 'items/i1', firestore: { 'orgs/o1': { tier: 'pro', gone: { _methodName: 'FieldValue.delete' } } } },
+      { description: 'SDK _methodName arrayUnion sentinel in doc', expectation: 'DENY', method: 'get', path: 'items/i1', firestore: { 'orgs/o1': { tier: 'pro', tags: { _methodName: 'FieldValue.arrayUnion', _elements: ['x'] } } } },
+      { description: 'SDK _methodName increment sentinel in doc', expectation: 'DENY', method: 'get', path: 'items/i1', firestore: { 'orgs/o1': { tier: 'pro', count: { _methodName: 'FieldValue.increment', _operand: 1 } } } },
       { description: 'trailing slash doc path', expectation: 'DENY', method: 'get', path: 'items/i1', firestore: { 'orgs/o1/': { tier: 'pro' } } },
       { description: 'collection path in firestore', expectation: 'DENY', method: 'get', path: 'items/i1', firestore: { orgs: { tier: 'pro' } } },
       { description: 'named database in firestore', expectation: 'DENY', method: 'get', path: 'items/i1', firestore: { '/databases/analytics/documents/orgs/o1': { tier: 'pro' } } },
@@ -307,6 +331,55 @@ service firebase.storage {
     expect(summary.unsupported).toBe(badCases.length);
     expect(summary.passed).toBe(0);
     expect(summary.failed).toBe(0);
+  });
+
+  test('refuses unresolved write sentinels in stored FirestoreCase.resource and functionMocks while preserving plain __type user maps', () => {
+    const fsRules = firestoreRules(`rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /items/{id} {
+      allow get: if resource.data.tier == 'pro';
+      allow create: if request.resource.data.v is map && request.resource.data.v.__type == 'timestamp';
+      allow update: if get(/databases/(default)/documents/orgs/o1).data.tier == 'pro';
+    }
+  }
+}`);
+
+    const sentinelRegistryKey = Symbol.for('pyric.firestore.field-value-sentinels');
+    const g = globalThis as { [sentinelRegistryKey]?: WeakSet<object> };
+    const registry = g[sentinelRegistryKey] ?? (g[sentinelRegistryKey] = new WeakSet<object>());
+    const registeredSentinel = registry.add({ customSentinel: true });
+
+    const refusedStoredCases: FirestoreCase[] = [
+      { description: 'serverTimestamp in resource', expectation: 'ALLOW', method: 'get', path: 'items/i1', resource: { tier: 'pro', ts: serverTimestamp() } },
+      { description: 'deleteField in resource', expectation: 'ALLOW', method: 'get', path: 'items/i1', resource: { tier: 'pro', f: { __type: 'deleteField' } } },
+      { description: 'arrayUnion in resource', expectation: 'ALLOW', method: 'get', path: 'items/i1', resource: { tier: 'pro', tags: { __type: 'arrayUnion', values: ['a'] } } },
+      { description: 'increment in resource', expectation: 'ALLOW', method: 'get', path: 'items/i1', resource: { tier: 'pro', count: { _methodName: 'FieldValue.increment', _operand: 1 } } },
+      { description: 'registered sentinel in resource', expectation: 'ALLOW', method: 'get', path: 'items/i1', resource: { tier: 'pro', s: registeredSentinel } },
+      {
+        description: 'deleteField in functionMocks result',
+        expectation: 'ALLOW',
+        method: 'update',
+        path: 'items/i1',
+        resource: { tier: 'pro' },
+        data: { tier: 'pro' },
+        functionMocks: [{ function: 'get', args: ['/databases/(default)/documents/orgs/o1'], result: { data: { tier: 'pro', f: { __type: 'deleteField' } } } }],
+      },
+    ];
+    const refusedSummary = fsRules.simulate(refusedStoredCases);
+    expect(refusedSummary.unsupported).toBe(refusedStoredCases.length);
+
+    // Plain user map with `{ __type: 'timestamp', ... }` in FirestoreCase continues to read as a map.
+    const plainMapSummary = fsRules.simulate([
+      {
+        description: 'plain __type timestamp map stays a map',
+        expectation: 'ALLOW',
+        method: 'create',
+        path: 'items/i1',
+        data: { v: { __type: 'timestamp', seconds: 1767225600, nanos: 0 } },
+      },
+    ]);
+    expect(plainMapSummary.passed).toBe(1);
   });
 });
 
@@ -529,6 +602,92 @@ describe('standing check: compile blockers, multi-service AST passes, and 2+modu
     ]).cases;
     expect(denied.decidingRule?.line).toBe(6);
     expect(explainCase(denied)).toContain('(line 6)');
+
+    // firestoreRules(modular).lint() and runtime resourceLimit.line report authored lines, matching Storage.
+    const chainDefs = Array.from({ length: 18 }, (_, idx) => {
+      const n = idx + 1;
+      const body = n === 18 ? 'isAuthenticated()' : `h${n + 1}()`;
+      return `  function h${n}() { return ${body}; }`; // h1 is on authored line 4
+    });
+    const fsModularCallDepth = [
+      "rules_version = '2+modules';",
+      "import { isAuthenticated } from 'auth';",
+      'service cloud.firestore {',
+      ...chainDefs,
+      '  match /databases/{database}/documents {',
+      '    match /items/{id} {',
+      '      allow get: if h1();',
+      "      allow write: if id.includes('a');", // authored line 25 (HALLUCINATED_METHOD)
+      '    }',
+      '  }',
+      '}',
+    ].join('\n');
+    const fsHandleIssues = firestoreRules(fsModularCallDepth).lint();
+    const freeIssues = lint(fsModularCallDepth);
+    expect(fsHandleIssues.find((i) => i.code === 'CALL_DEPTH')?.line).toBe(4);
+    expect(freeIssues.find((i) => i.code === 'CALL_DEPTH')?.line).toBe(4);
+    expect(fsHandleIssues).toEqual(freeIssues);
+
+    // 1000-expression runtime resource limit inside helper on authored line 4 (both Firestore and Storage)
+    const burnBody = 'x + x + x + x + x + x + x + x + x + x';
+    const b1Body = 'step1(x) + step1(x) + step1(x) + step1(x) + step1(x) + step1(x) + step1(x) + step1(x)';
+    const b2Body = 'b1(x) + b1(x) + b1(x) + b1(x) + b1(x) + b1(x) + b1(x) + b1(x)';
+    const fsModularBurn = [
+      "rules_version = '2+modules';",
+      "import { isAuthenticated } from 'auth';",
+      'service cloud.firestore {',
+      `  function step1(x) { return ${burnBody}; }`, // authored line 4
+      `  function b1(x) { return ${b1Body}; }`,
+      `  function b2(x) { return ${b2Body}; }`,
+      '  match /databases/{database}/documents {',
+      '    match /items/{id} { allow get: if isAuthenticated() && b2(1) > 0; }',
+      '  }',
+      '}',
+    ].join('\n');
+    const [fsBurnCase] = firestoreRules(fsModularBurn).simulate([
+      { description: 'hits expression limit', expectation: 'DENY', method: 'get', path: 'items/i1', auth: { uid: 'u1' } },
+    ]).cases;
+    expect(fsBurnCase.resourceLimit?.line).toBe(4);
+    expect(fsBurnCase.notes[0]).toContain('line 4');
+
+    const stModularBurn = [
+      "rules_version = '2+modules';",
+      "import { isAuthenticated } from 'auth';",
+      'service firebase.storage {',
+      `  function step1(x) { return ${burnBody}; }`, // authored line 4
+      `  function b1(x) { return ${b1Body}; }`,
+      `  function b2(x) { return ${b2Body}; }`,
+      '  match /b/{bucket}/o {',
+      '    match /items/{id} { allow get: if isAuthenticated() && b2(1) > 0; }',
+      '  }',
+      '}',
+    ].join('\n');
+    const [stBurnCase] = storageRules(stModularBurn, { bucket: BUCKET }).simulate([
+      { description: 'hits expression limit', expectation: 'DENY', method: 'get', path: 'items/i1', auth: { uid: 'u1' } },
+    ]).cases;
+    expect(stBurnCase.resourceLimit?.line).toBe(4);
+
+    // Storage 2+modules compile-limit error text and .issues[0].line both cite authored line
+    const stModularGlob = [
+      "rules_version = '2+modules';",
+      "import { isAuthenticated } from 'auth';",
+      'service firebase.storage {',
+      '  match /b/{bucket}/o {',
+      '    match /{a=**}/items/{b=**} {', // authored line 5
+      '      allow get: if isAuthenticated();',
+      '    }',
+      '  }',
+      '}',
+    ].join('\n');
+    let stGlobErr: unknown;
+    try {
+      storageRules(stModularGlob, { bucket: BUCKET });
+    } catch (e) {
+      stGlobErr = e;
+    }
+    expect(stGlobErr).toBeInstanceOf(RulesCompileError);
+    expect((stGlobErr as RulesCompileError).issues[0]?.line).toBe(5);
+    expect((stGlobErr as RulesCompileError).message).toContain('Line 5:');
   });
 });
 
@@ -601,6 +760,46 @@ describe('standing check: rtdbRules() deep-clone immutability and __proto__ pres
     expect(defSim.passed).toBe(1);
     const defJson = defHandle.toJSON() as { rules: { orgs: { $orgId: { items: { '.indexOn': string[] } } } } };
     expect(defJson.rules.orgs.$orgId.items['.indexOn']).toEqual(['rank']);
+
+    // Callback-form defineRtdbRules({ paths(ctx) { ... } }) also isolates PathDef mutations immediately
+    const sharedCbDef = { read: expr('auth != null'), indexOn: ['handle'] };
+    const cbDoc = defineRtdbRules({
+      paths(ctx) {
+        ctx.path('/users/$uid', sharedCbDef);
+      },
+    });
+    const cbHandle = rtdbRules(cbDoc);
+    sharedCbDef.read = allow();
+    sharedCbDef.indexOn.push('corrupted');
+
+    expect(
+      cbHandle.simulate([
+        { description: 'anon cb read denied', expectation: 'DENY', operation: 'read', path: '/users/u1', auth: null },
+      ]).passed,
+    ).toBe(1);
+    expect(((cbHandle.toJSON().rules.users as Record<string, unknown>)['.indexOn'])).toEqual(['handle']);
+
+    // Sibling firestoreRules().toJSON() returns a fresh deep clone so mutating AST nodes never alters live evaluation
+    const fsImmut = firestoreRules(`rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /users/{uid} {
+      allow get: if request.auth != null && request.auth.uid == uid;
+    }
+  }
+}`);
+    const astSnap = fsImmut.toJSON();
+    astSnap.service.match.children[0]!.allows[0]!.condition = {
+      type: 'literal',
+      value: true,
+      raw: 'true',
+    };
+    expect(
+      fsImmut.simulate([
+        { description: 'anon still denied after AST mutation', expectation: 'DENY', method: 'get', path: 'users/u1', auth: null },
+      ]).passed,
+    ).toBe(1);
+    expect(fsImmut.toJSON().service.match.children[0]!.allows[0]!.condition.type).not.toBe('literal');
   });
 });
 
@@ -672,6 +871,56 @@ service firebase.storage {
     expect(dbSummary.unsupported).toBe(2);
     expect(dbSummary.passed).toBe(2);
     expect(() => dbRs.explain(throwingCase as unknown as RtdbCase)).not.toThrow();
+
+    // Hostile Proxy throwing Object.create(null) + explainCase / assertCase on refused null/Proxy cases + invalid Date objects
+    const nullProtoThrowingProxy = new Proxy(
+      {},
+      {
+        get() {
+          throw Object.create(null);
+        },
+      },
+    );
+
+    const fsNullProto = fsRs.simulate([
+      null as unknown as FirestoreCase,
+      nullProtoThrowingProxy as unknown as FirestoreCase,
+      { description: 'invalid Date in data', expectation: 'DENY', method: 'create', path: 'items/i1', auth: { uid: 'u1' }, data: { at: new Date('invalid') } },
+      { description: 'year 0000 Date in resource', expectation: 'DENY', method: 'get', path: 'items/i1', auth: { uid: 'u1' }, resource: { at: new Date('0000-01-01T00:00:00Z') } },
+      { description: 'year 10000 Date in auth.token', expectation: 'DENY', method: 'get', path: 'items/i1', auth: { uid: 'u1', token: { exp: new Date('+010000-01-01T00:00:00Z') } } },
+      { description: 'valid allow after null-proto throw', expectation: 'ALLOW', method: 'get', path: 'items/i1', auth: { uid: 'u1' } },
+    ]);
+    expect(fsNullProto.unsupported).toBe(5);
+    expect(fsNullProto.passed).toBe(1);
+    for (const c of fsNullProto.cases.slice(0, 5)) {
+      expect(typeof explainCase(c)).toBe('string');
+      expect(() => assertCase(c)).toThrow(RulesUnsupportedError);
+    }
+
+    const stNullProto = stRs.simulate([
+      null as unknown as StorageCase,
+      nullProtoThrowingProxy as unknown as StorageCase,
+      { description: 'invalid Date in auth.token', expectation: 'DENY', method: 'get', path: 'items/i1', auth: { uid: 'u1', token: { exp: new Date('invalid') } } },
+      { description: 'valid allow after null-proto throw', expectation: 'ALLOW', method: 'get', path: 'items/i1', auth: { uid: 'u1' } },
+    ]);
+    expect(stNullProto.unsupported).toBe(3);
+    expect(stNullProto.passed).toBe(1);
+    for (const c of stNullProto.cases.slice(0, 3)) {
+      expect(typeof explainCase(c)).toBe('string');
+      expect(() => assertCase(c)).toThrow(RulesUnsupportedError);
+    }
+
+    const dbNullProto = dbRs.simulate([
+      null as unknown as RtdbCase,
+      nullProtoThrowingProxy as unknown as RtdbCase,
+      { description: 'valid allow after null-proto throw', expectation: 'ALLOW', operation: 'read', path: '/items/i1', auth: { uid: 'u1' } },
+    ]);
+    expect(dbNullProto.unsupported).toBe(2);
+    expect(dbNullProto.passed).toBe(1);
+    for (const c of dbNullProto.cases.slice(0, 2)) {
+      expect(typeof explainCase(c)).toBe('string');
+      expect(() => assertCase(c)).toThrow(RulesUnsupportedError);
+    }
   });
 
   test('executes cleanly in a browser-like environment with Buffer absent', () => {

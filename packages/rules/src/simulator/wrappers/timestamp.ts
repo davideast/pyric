@@ -111,7 +111,7 @@ export class Timestamp extends RulesValue {
    * (no nanosecond precision test exists for it).
    */
   static fromIsoString(iso: string): Timestamp {
-    const ms = parseStrictIsoMillis(iso, { allowShortSeconds: true });
+    const ms = parseStrictIsoMillis(iso);
     if (ms === null) throw new ValueRangeError(TIMESTAMP_NOT_VALID);
     return Timestamp.fromMillis(ms);
   }

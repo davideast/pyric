@@ -79,7 +79,7 @@ export function timestamp(
  *   - Uint8Array → used verbatim
  */
 export function bytes(input: string | Uint8Array): Bytes {
-  return typeof input === 'string' ? Bytes.fromUtf8(input) : new Bytes(input);
+  return typeof input === 'string' ? Bytes.fromUtf8(input) : new Bytes(new Uint8Array(input));
 }
 
 /**

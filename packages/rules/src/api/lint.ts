@@ -11,6 +11,7 @@
 import { lintFirestoreRules } from '../linter/linter.js';
 import { parseToAST } from '../grammar/FirestoreParser.js';
 import { validateFirestoreRules } from '../grammar/FirestoreValidator.js';
+import { safeErrorMessage } from '../test/case-refusals.js';
 import type { RuleIssue } from './issue.js';
 import {
   parseErrorToIssue,
@@ -34,7 +35,7 @@ export function lintSource(
       {
         code: 'LINT_INTERNAL_ERROR',
         severity: 'error',
-        message: e instanceof Error ? e.message : String(e),
+        message: safeErrorMessage(e),
         origin: 'lint',
       },
     ];

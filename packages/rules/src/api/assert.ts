@@ -18,6 +18,7 @@ import type { FirestoreRuleset } from './firestore.js';
 import type { RtdbRuleset } from './rtdb.js';
 import type { StorageRuleset } from './storage.js';
 import { RulesAssertionError, RulesUnsupportedError } from './errors.js';
+import { safeReadProp } from '../test/case-refusals.js';
 import type { RuleEvaluation } from '../test/spec.js';
 import type {
   FirestoreCase,
@@ -50,11 +51,18 @@ function renderRuleEvaluation(entry: RuleEvaluation): string {
   return `    #${entry.ruleIndex} (${ops})${block}${loc} -> ${entry.verdict}${cond}${msg}`;
 }
 
+function safeCaseString(caseValue: unknown, key: string, fallback = '<unknown>'): string {
+  const raw = safeReadProp(caseValue, key);
+  return typeof raw === 'string' ? raw : fallback;
+}
+
 function renderFirestore(r: CaseResult): string {
   const status = r.unsupported ? 'UNSUPPORTED' : r.passed ? 'PASS' : 'FAIL';
+  const method = safeCaseString(r.case, 'method');
+  const path = safeCaseString(r.case, 'path', '');
   const lines: string[] = [
     `${status}: ${r.description}`,
-    `  ${r.case.method} ${r.case.path} (expected ${r.expectation}, got ${r.decision})`,
+    `  ${method} ${path} (expected ${r.expectation}, got ${r.decision})`,
   ];
   if (r.queryProof) {
     const detail = r.queryProof.reason ? ` (${r.queryProof.reason})` : '';
@@ -93,10 +101,12 @@ function renderRtdbRuleEvaluation(entry: RtdbRuleEvaluation): string {
 
 function renderRtdb(r: RtdbCaseResult): string {
   const status = r.unsupported ? 'UNSUPPORTED' : r.passed ? 'PASS' : 'FAIL';
-  const name = r.description ?? `${r.case.operation} ${r.case.path}`;
+  const operation = safeCaseString(r.case, 'operation');
+  const path = safeCaseString(r.case, 'path', '');
+  const name = r.description ?? `${operation} ${path}`;
   const lines: string[] = [
     `${status}: ${name}`,
-    `  ${r.case.operation} ${r.case.path}${r.instance === undefined ? '' : ` on ${r.instance}`} (expected ${r.expectation}, got ${r.decision})`,
+    `  ${operation} ${path}${r.instance === undefined ? '' : ` on ${r.instance}`} (expected ${r.expectation}, got ${r.decision})`,
     `  matched ${r.matchedRule} @ ${r.matchedPath}`,
     `  reason: ${r.reason}`,
   ];
@@ -109,10 +119,12 @@ function renderRtdb(r: RtdbCaseResult): string {
 
 function renderStorage(r: StorageCaseResult): string {
   const status = r.unsupported ? 'UNSUPPORTED' : r.passed ? 'PASS' : 'FAIL';
+  const method = safeCaseString(r.case, 'method');
+  const path = safeCaseString(r.case, 'path', '');
   const bucket = r.bucket === undefined ? '' : ` in ${r.bucket}`;
   const lines: string[] = [
     `${status}: ${r.description}`,
-    `  ${r.case.method} ${r.case.path}${bucket} (expected ${r.expectation}, got ${r.decision})`,
+    `  ${method} ${path}${bucket} (expected ${r.expectation}, got ${r.decision})`,
   ];
   if (r.decidingRule !== undefined) {
     const line = r.decidingRule.line === undefined ? '' : ` (line ${r.decidingRule.line})`;

@@ -8,6 +8,7 @@ import { structuralFindings } from '../structure.js';
 import type { RtdbNode, RtdbRuleExpression } from '../types.js';
 import { assertKnownPathKeys, ruleset } from './ruleset.js';
 import type { PathDef, RulesetContext } from './types.js';
+import { safeErrorMessage } from '../../test/case-refusals.js';
 
 export interface RtdbRulesDefinition {
   paths: Record<string, PathDef> | ((ctx: RulesetContext) => void);
@@ -178,7 +179,7 @@ export function checkRtdbRules(compile: () => CompiledRtdbRules): RtdbRulesCheck
         path: '/',
         rule: 'ruleset',
         code: 'COMPILE_ERROR',
-        message: e instanceof Error ? e.message : String(e),
+        message: safeErrorMessage(e),
       }],
       warnings: [],
     };
@@ -249,9 +250,35 @@ function clonePathsMap(paths: Record<string, PathDef>): Record<string, PathDef> 
 }
 
 function cloneDefinition(definition: RtdbRulesDefinition): RtdbRulesDefinition {
+  if (typeof definition !== 'object' || definition === null) {
+    return definition;
+  }
+  if (typeof definition.paths === 'function') {
+    const snapshot: Array<[string, PathDef]> = [];
+    try {
+      definition.paths({
+        path(p, def) {
+          snapshot.push([p, clonePathDef(def)]);
+        },
+      });
+    } catch (err) {
+      return {
+        ...definition,
+        paths() {
+          throw err;
+        },
+      };
+    }
+    return {
+      ...definition,
+      paths(ctx) {
+        for (const [p, def] of snapshot) {
+          ctx.path(p, clonePathDef(def));
+        }
+      },
+    };
+  }
   if (
-    typeof definition !== 'object' ||
-    definition === null ||
     typeof definition.paths !== 'object' ||
     definition.paths === null ||
     Array.isArray(definition.paths)

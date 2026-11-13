@@ -27,9 +27,13 @@ import { lintSource } from './lint.js';
 import { normalizeAuthState } from '../auth/auth-state.js';
 import { parseToAST } from '../grammar/FirestoreParser.js';
 import { findModuleErrorImportLine } from '../modules/resolver-browser.js';
-import { FirestoreSet } from '../simulator/firestore-set.js';
-import { RulesValue } from '../simulator/wrappers/base.js';
-import { ISO_INSTANT_FORM, parseStrictIsoMillis, safeReadProp } from '../test/case-refusals.js';
+import {
+  ISO_INSTANT_FORM,
+  parseStrictIsoMillis,
+  safeErrorMessage,
+  safeReadProp,
+} from '../test/case-refusals.js';
+import { validateCasePayloadValue } from '../test/case-shape.js';
 import type {
   StorageCase,
   StorageCaseMethod,
@@ -181,7 +185,7 @@ function lookupFor(documents: Record<string, Record<string, unknown>> | undefine
 function requestInstant(oneCase: StorageCase): Date | null {
   if (oneCase.requestTime === undefined) return new Date();
   if (typeof oneCase.requestTime !== 'string') return null;
-  const ms = parseStrictIsoMillis(oneCase.requestTime, { allowShortSeconds: true });
+  const ms = parseStrictIsoMillis(oneCase.requestTime);
   return ms === null ? null : new Date(ms);
 }
 
@@ -277,7 +281,7 @@ function validateStoredResource(value: unknown): string | null {
   for (const tsKey of ['timeCreated', 'updated'] as const) {
     const ts = value[tsKey];
     if (ts !== undefined) {
-      if (typeof ts !== 'string' || parseStrictIsoMillis(ts, { allowShortSeconds: true }) === null) {
+      if (typeof ts !== 'string' || parseStrictIsoMillis(ts) === null) {
         return `Case refused: resource.${tsKey} is ${JSON.stringify(ts)}, which is not ${ISO_INSTANT_FORM}.`;
       }
     }
@@ -345,7 +349,7 @@ function validateStorageCaseShape(oneCase: StorageCase): string | null {
     try {
       normalizeAuthState(oneCase.auth);
     } catch (error) {
-      return `Case refused: auth.token: ${error instanceof Error ? error.message : String(error)}`;
+      return `Case refused: auth.token: ${safeErrorMessage(error)}`;
     }
   }
   if (oneCase.requestResource !== undefined) {
@@ -357,74 +361,6 @@ function validateStorageCaseShape(oneCase: StorageCase): string | null {
     if (err !== null) return err;
   }
   return null;
-}
-
-function validateStoredFirestoreField(
-  value: unknown,
-  location: string,
-  ancestors = new WeakSet<object>(),
-): string | null {
-  if (
-    value === null ||
-    typeof value === 'boolean' ||
-    typeof value === 'number' ||
-    typeof value === 'string' ||
-    typeof value === 'bigint'
-  ) {
-    return null;
-  }
-  if (value === undefined || typeof value === 'function' || typeof value === 'symbol') {
-    return `Case refused: ${location} cannot be ${typeof value}.`;
-  }
-  if (value instanceof Date) {
-    const ms = value.getTime();
-    if (!Number.isFinite(ms) || ms < -62_135_596_800_000 || ms > 253_402_300_799_999) {
-      return `Case refused: ${location} carries an invalid or out-of-range Date.`;
-    }
-    return null;
-  }
-  if (value instanceof RulesValue || value instanceof FirestoreSet || value instanceof Uint8Array) {
-    return null;
-  }
-  const obj = value as object;
-  if (ancestors.has(obj)) {
-    return `Case refused: ${location} cannot contain circular references.`;
-  }
-  if (Array.isArray(value)) {
-    ancestors.add(obj);
-    try {
-      for (let i = 0; i < value.length; i++) {
-        const err = validateStoredFirestoreField(value[i], `${location}[${i}]`, ancestors);
-        if (err !== null) return err;
-      }
-      return null;
-    } finally {
-      ancestors.delete(obj);
-    }
-  }
-  if (!isPlainRecord(value)) {
-    return `Case refused: ${location} must be a plain object, array, primitive, or Rules value wrapper.`;
-  }
-  const unescapedTag = Symbol.for('pyric.unescapedMap');
-  const isUnescaped = (value as Record<symbol, unknown>)[unescapedTag] === true;
-  if (
-    !isUnescaped &&
-    (value.__type === 'serverTimestamp' ||
-      value._methodName === 'serverTimestamp' ||
-      value._methodName === 'FieldValue.serverTimestamp')
-  ) {
-    return `Case refused: ${location} holds an unresolved serverTimestamp() sentinel; stored Firestore documents hold resolved timestamp() values.`;
-  }
-  ancestors.add(obj);
-  try {
-    for (const [k, child] of Object.entries(value)) {
-      const err = validateStoredFirestoreField(child, `${location}.${k}`, ancestors);
-      if (err !== null) return err;
-    }
-    return null;
-  } finally {
-    ancestors.delete(obj);
-  }
 }
 
 function normalizeFirestoreDocKey(rawKey: string): { ok: true; key: string } | { ok: false; reason: string } {
@@ -488,8 +424,11 @@ function normalizeStorageFirestoreDocs(
         reason: `Case refused: firestore[${JSON.stringify(rawKey)}] must be a document object; omit a key to model a missing document.`,
       };
     }
-    const fieldErr = validateStoredFirestoreField(docValue, `firestore[${JSON.stringify(rawKey)}]`);
-    if (fieldErr !== null) return { ok: false, reason: fieldErr };
+    const fieldErr = validateCasePayloadValue(docValue, `firestore[${JSON.stringify(rawKey)}]`, {
+      allowUndefined: false,
+      rejectStoredWriteSentinels: true,
+    });
+    if (fieldErr !== undefined) return { ok: false, reason: fieldErr };
     Object.defineProperty(normalized, keyResult.key, {
       value: docValue,
       enumerable: true,
@@ -574,7 +513,7 @@ class StorageRulesetImpl implements StorageRuleset {
     } catch (error) {
       return unsupportedResult(
         oneCase ?? ({} as StorageCase),
-        `Case refused: ${error instanceof Error ? error.message : String(error)}`,
+        `Case refused: ${safeErrorMessage(error)}`,
         resolvedBucket,
       );
     }
@@ -604,7 +543,7 @@ const MODULE_RESOLUTION_ERROR_PREFIX = /^Storage rules module resolution failed 
 
 /** The error `storageRules()` throws, with the parse-stage errors lint finds, or the compiler's message as one. */
 function compileError(source: string, error: unknown): RulesCompileError {
-  const message = error instanceof Error ? error.message : String(error);
+  const message = safeErrorMessage(error);
   const scopedParseIssues = lintSource(source, 'firebase.storage').filter(
     (issue) => issue.origin === 'parse' && issue.severity === 'error',
   );
