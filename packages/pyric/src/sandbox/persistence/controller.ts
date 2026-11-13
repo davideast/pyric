@@ -472,7 +472,10 @@ export async function attachPersistence(
   const unsubscribeDocuments = localSandbox?.onDocumentChange(path => {
     changedBuckets?.mark(path);
     const replacesState = path === null;
-    if (replacesState) serviceSnapshots.clear();
+    if (replacesState) {
+      serviceSnapshots.clear();
+      pendingServices.clear();
+    }
     scheduleFlush();
   });
   const unsubscribe = sandbox.onEvent((event) => {

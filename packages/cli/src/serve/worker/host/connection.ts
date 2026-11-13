@@ -127,7 +127,7 @@ export async function handleConnectionOp(
         if (imported.kind === 'checkpoint') {
           syncHostRulesAfterCheckpointRestore(ctx, imported.rules);
         } else {
-          reapplyActiveHostRulesAfterReset(ctx);
+          reapplyActiveHostRulesAfterReset(ctx, imported.rtdbRules);
         }
         restoreFirestoreSubscriptions(ctx);
         await bestEffortFlush(ctx, msg.method);

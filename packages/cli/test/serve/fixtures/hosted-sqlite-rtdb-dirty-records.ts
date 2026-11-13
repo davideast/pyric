@@ -363,4 +363,119 @@ const root = process.argv[2]!;
   }
 }
 
+// 5. Real SQLite hosted store seeds v4 partitioned records and restores a checkpoint row with named-instance rules enforced
+{
+  const seedProject = join(root, 'sqlite-v4-seed-and-cp');
+  const persistence = await createHostedPersistence(seedProject);
+  try {
+    const v4SeedRecords = serializeToBuckets(
+      {},
+      {
+        rtdb: {
+          '.pyricRtdbPersistence': 1,
+          data: { items: { seeded1: { label: 'Seeded' } } },
+          priorities: { '/items/seeded1': 12 },
+          rules: { rules: { items: { '.read': "auth != null && auth.uid === 'alice'", '.write': false } } },
+          instances: {
+            'secondary-db': {
+              '.pyricRtdbPersistence': 1,
+              data: { metrics: { m1: { v: 5 } } },
+              priorities: { '/metrics/m1': 'p-m1' },
+              rules: { rules: { metrics: { '.read': "auth != null && auth.uid === 'alice'", '.write': false } } },
+            },
+          },
+        },
+      },
+      100,
+    );
+    await persistence.seed({
+      version: 1,
+      firestore: JSON.parse(bundleRecords(v4SeedRecords)),
+      auth: null,
+    });
+  } finally {
+    persistence.close();
+  }
+
+  const rawSqlite = new DatabaseSync(join(hostedStateDirectory(seedProject), 'state.sqlite'));
+  rawSqlite
+    .prepare('INSERT INTO checkpoints (name, at, counts, state) VALUES (?, ?, ?, ?)')
+    .run(
+      'sqlite-cp-rules',
+      1700000005000,
+      JSON.stringify({ firestore: 0, database: 2, storage: 0, auth: 0 }),
+      JSON.stringify({
+        firestore: {},
+        database: {
+          '.pyricRtdbPersistence': 1,
+          data: { items: { cp1: { label: 'FromCheckpoint' } } },
+          priorities: { '/items/cp1': 'cp-prio' },
+          instances: {
+            'secondary-db': {
+              '.pyricRtdbPersistence': 1,
+              data: { metrics: { cpMetric: { v: 99 } } },
+              priorities: { '/metrics/cpMetric': 88 },
+            },
+          },
+        },
+        storage: [],
+        auth: { users: [], providers: { password: true, anonymous: true } },
+        rules: {
+          firestore: '',
+          database: { rules: { items: { '.read': "auth != null && auth.uid === 'alice'", '.write': false } } },
+          databaseInstances: {
+            'secondary-db': { rules: { metrics: { '.read': "auth != null && auth.uid === 'alice'", '.write': false } } },
+          },
+          storage: null,
+        },
+      }),
+    );
+  rawSqlite.close();
+
+  const host = await openHost(seedProject);
+  try {
+    const seededDef = await host.request('s1', {
+      method: 'rtdb.get',
+      path: 'items/seeded1',
+      actAs: { mode: 'as', uid: 'alice' },
+    });
+    assert.equal(seededDef.ok, true);
+    assert.equal((seededDef.value as { priority: unknown }).priority, 12);
+
+    const seededSec = await host.request('s1', {
+      method: 'rtdb.get',
+      instance: 'secondary-db',
+      path: 'metrics/m1',
+      actAs: { mode: 'as', uid: 'alice' },
+    });
+    assert.equal(seededSec.ok, true);
+    assert.equal((seededSec.value as { priority: unknown }).priority, 'p-m1');
+
+    const restoreRes = await host.runtime.runMethod(
+      { key: 'sandbox.restore', args: { name: 'sqlite-cp-rules', confirm: true }, projectDir: seedProject },
+      {},
+    );
+    assert.equal(restoreRes.ok, true, restoreRes.summary);
+
+    const cpSec = await host.request('s1', {
+      method: 'rtdb.get',
+      instance: 'secondary-db',
+      path: 'metrics/cpMetric',
+      actAs: { mode: 'as', uid: 'alice' },
+    });
+    assert.equal(cpSec.ok, true);
+    assert.equal((cpSec.value as { priority: unknown }).priority, 88);
+
+    const cpSecDenied = await host.request('s1', {
+      method: 'rtdb.get',
+      instance: 'secondary-db',
+      path: 'metrics/cpMetric',
+      actAs: { mode: 'as', uid: 'bob' },
+    });
+    assert.equal(cpSecDenied.ok, false);
+  } finally {
+    await host.runtime.close();
+  }
+}
+
 console.log('Hosted RTDB dirty records passed');
