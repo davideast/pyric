@@ -446,10 +446,13 @@ function verifyFirestoreSandbox(
       const pointInTimeDocs = docsByEventId.get(eventId) ?? firestore.state.documents;
       const groupId = groupIdByEventId.get(eventId);
       const batchProjection = groupId ? batchProjectionByGroupId.get(groupId) : undefined;
-      const simulated = simulator.simulate(rules, [tc], {
-        getDoc: (docPath) => pointInTimeDocs[docPath] ?? null,
-        ...(!isRead && batchProjection ? { batchProjection } : {}),
-      });
+      const simOpts: Parameters<SimulateFirestoreRulesHandler['simulate']>[2] = {
+        getDoc: (docPath) => readOwnDocument(pointInTimeDocs, docPath),
+      };
+      if (!isRead && batchProjection) {
+        simOpts.batchProjection = batchProjection;
+      }
+      const simulated = simulator.simulate(rules, [tc], simOpts);
       if (!simulated.success) {
         mapped.push({
           service: 'firestore',
@@ -1232,17 +1235,22 @@ function evaluateReplayedStorageRequest(
   );
 }
 
-/** The captured Firestore documents a Storage rule's `firestore.get()` reads, when the capture holds any. */
+function readOwnDocument(
+  docs: Record<string, Record<string, unknown>>,
+  docPath: string,
+): Record<string, unknown> | null {
+  if (!Object.hasOwn(docs, docPath)) return null;
+  return docs[docPath] ?? null;
+}
+
+/** The captured Firestore documents a Storage rule's `firestore.get()` / `firestore.exists()` reads. */
 function fixtureFirestoreLookup(
-  fixture: PyricVerifyFixture,
+  _fixture: PyricVerifyFixture,
   pointInTimeFirestoreDocs: Record<string, Record<string, unknown>>,
 ): Parameters<typeof evaluateStorageRules>[3] {
-  if (!fixture.services.firestore && Object.keys(pointInTimeFirestoreDocs).length === 0) {
-    return undefined;
-  }
   return {
-    get: (docPath) => pointInTimeFirestoreDocs[docPath] ?? null,
-    exists: (docPath) => (pointInTimeFirestoreDocs[docPath] ?? null) !== null,
+    get: (docPath) => readOwnDocument(pointInTimeFirestoreDocs, docPath),
+    exists: (docPath) => readOwnDocument(pointInTimeFirestoreDocs, docPath) !== null,
   };
 }
 

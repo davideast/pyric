@@ -551,6 +551,3 @@ describe('verifyFixture rolled-back atomic batch getAfter() serverTimestamp() re
   });
 });
 
-
-
-

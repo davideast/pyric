@@ -57,6 +57,12 @@ import {
   stampProvenance,
 } from './provenance.js';
 import { primedHistoryEvents } from './primed-history.js';
+import {
+  rehydrateSnapshotDocument,
+  sanitizeAdminListedDocuments,
+  sanitizeAdminReadDocument,
+  snapshotFirestoreDocuments,
+} from './snapshot-firestore-docs.js';
 
 // Kept for internal import compatibility; the implementation lives in the
 // focused provenance module so this class remains an orchestration shell.
@@ -67,32 +73,6 @@ function makeSandboxEventId(): string {
   const seq = (nextSandboxEventId++).toString(36);
   const rnd = Math.random().toString(36).slice(2, 7);
   return `sbe-${seq}-${rnd}`;
-}
-
-const UNESCAPED_MAP_TAG = Symbol.for('pyric.unescapedMap');
-
-function cloneFirestoreSnapshotValue(value: unknown): unknown {
-  if (value === null || typeof value !== 'object') return value;
-  if (Array.isArray(value)) return value.map(cloneFirestoreSnapshotValue);
-  if (value instanceof Date) return new Date(value.getTime());
-  if (value instanceof Uint8Array) return value.slice();
-  const proto = Object.getPrototypeOf(value);
-  if (proto === Object.prototype || proto === null) {
-    const copy: Record<string, unknown> = proto === null ? Object.create(null) : {};
-    for (const key of Object.keys(value as Record<string, unknown>)) {
-      Object.defineProperty(copy, key, {
-        value: cloneFirestoreSnapshotValue((value as Record<string, unknown>)[key]),
-        enumerable: true,
-        writable: true,
-        configurable: true,
-      });
-    }
-    if ((value as Record<symbol, unknown>)[UNESCAPED_MAP_TAG] === true) {
-      Object.defineProperty(copy, UNESCAPED_MAP_TAG, { value: true });
-    }
-    return copy;
-  }
-  return value;
 }
 
 /**
@@ -429,8 +409,8 @@ export class SandboxImpl implements LocalSandbox {
    */
   get admin(): SandboxAdmin {
     return {
-      getDocument: (path: string) => this._env.getDocument(path),
-      listDocuments: (prefix: string) => this._env.listDocuments(prefix),
+      getDocument: (path: string) => sanitizeAdminReadDocument(this._env.getDocument(path)),
+      listDocuments: (prefix: string) => sanitizeAdminListedDocuments(this._env.listDocuments(prefix)),
       setDocument: (path: string, data: Record<string, unknown>) =>
         recordedAdminSet(this._env, path, data),
       deleteDocument: (path: string) => recordedAdminDelete(this._env, path),
@@ -552,11 +532,7 @@ export class SandboxImpl implements LocalSandbox {
     for (const [name, svc] of this.serviceRegistry) {
       services[name] = svc.snapshot();
     }
-    const rawFirestore = this._env.snapshot();
-    const firestore: Record<string, Record<string, unknown>> = {};
-    for (const [path, docData] of Object.entries(rawFirestore)) {
-      firestore[path] = cloneFirestoreSnapshotValue(docData) as Record<string, unknown>;
-    }
+    const firestore = snapshotFirestoreDocuments(this._env.snapshot());
     const firestoreRules = this._env.getRules();
     return { firestore, services, firestoreRules };
   }
@@ -575,10 +551,7 @@ export class SandboxImpl implements LocalSandbox {
       this._env.deployRules(data.firestoreRules);
     }
     for (const [path, docData] of Object.entries(data.firestore)) {
-      this._env.adminSetDocument(
-        path,
-        cloneFirestoreSnapshotValue(docData) as Record<string, unknown>,
-      );
+      this._env.adminSetDocument(path, rehydrateSnapshotDocument(docData));
     }
     // Restore registered services immediately and hold unconsumed service blobs
     // for services (e.g. RTDB, Auth) that register lazily on first handle access.

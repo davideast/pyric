@@ -25,6 +25,7 @@ import {
   Timestamp as RulesTimestamp,
   Vector as RulesVector,
 } from '../../rules/internal/index.js';
+import { extractDuckReferenceDatabaseId } from '../../firestore/sandbox/admin-reference-database.js';
 
 export type EncodedMap = Readonly<Record<string, unknown>>;
 
@@ -109,6 +110,7 @@ function extractDocumentReference(
   const candidate = value as Partial<DuckDocumentReference> & {
     readonly type?: unknown;
     readonly databaseId?: unknown;
+    readonly formattedName?: unknown;
   };
   const hasPathAndId = typeof candidate.path === 'string' && typeof candidate.id === 'string';
   if (!hasPathAndId) return undefined;
@@ -117,17 +119,7 @@ function extractDocumentReference(
     candidate._firestore !== undefined ||
     candidate.type === 'document';
   if (!hasFirestoreOwner) return undefined;
-  const fsOwner = (candidate.firestore ?? candidate._firestore) as
-    | { databaseId?: unknown; _databaseId?: { database?: unknown } }
-    | undefined;
-  const explicitDatabaseId =
-    typeof candidate.databaseId === 'string' && candidate.databaseId.length > 0
-      ? candidate.databaseId
-      : typeof fsOwner?.databaseId === 'string' && fsOwner.databaseId.length > 0
-        ? fsOwner.databaseId
-        : typeof fsOwner?._databaseId?.database === 'string' && fsOwner._databaseId.database.length > 0
-          ? fsOwner._databaseId.database
-          : undefined;
+  const explicitDatabaseId = extractDuckReferenceDatabaseId(candidate);
   return {
     path: normalizeRelativeRefPath(candidate.path),
     databaseId: explicitDatabaseId ?? extractRefDatabaseId(candidate.path),
@@ -403,11 +395,8 @@ function guardMalformedHandAuthoredMarkers(value: unknown, mode: DecodeTargetMod
     if (typeof explicitDb === 'string' && explicitDb.length > 0) {
       databaseId = explicitDb;
     }
-    if (mode === 'env' && databaseId !== DEFAULT_DB_ID) {
-      return {
-        __type: 'reference',
-        path: `projects/_/databases/${databaseId}/documents/${relPath}`,
-      };
+    if (databaseId !== DEFAULT_DB_ID) {
+      return { __type: 'reference', path: relPath, databaseId };
     }
     return { __type: 'reference', path: relPath };
   }

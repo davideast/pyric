@@ -11,6 +11,10 @@ import {
   toOperationRecord,
 } from 'pyric/sandbox';
 import {
+  decodeSnapshotMap,
+  encodeSnapshotMap,
+} from 'pyric/sandbox/internal';
+import {
   arrayUnion,
   Bytes,
   deleteField,
@@ -27,6 +31,7 @@ import {
   VectorValue,
   writeBatch,
 } from 'pyric/firestore';
+import { firestoreRules } from 'pyric/rules';
 import { seedDocuments, setRules, snapshotDocuments } from 'pyric/sandbox/firestore';
 import {
   getBytes,
@@ -39,16 +44,38 @@ import {
   deriveRulesTestCases,
   fixtureVerifiableServices,
   parseVerifyFixture,
+  useHostedRulesTester,
   verifyFixture,
 } from '../../src/verify/index.js';
+import { SimulateFirestoreRulesHandler, buildApiTestCase } from 'pyric/rules/internal';
 
 let nextStorageSeq = 1;
 function uniqueStorageDb(prefix: string): string {
   return `state-roundtrip-${prefix}:${nextStorageSeq++}`;
 }
 
-describe('STATE-ROUNDTRIP standing coverage for replay and verifyFixture', () => {
-  it('round-trips DocumentReference values with named databaseId and default database across codecs, replay, and verifyFixture', async () => {
+function collectOwnSymbolsDeep(value: unknown, seen = new WeakSet<object>()): symbol[] {
+  if (value === null || typeof value !== 'object') return [];
+  if (seen.has(value)) return [];
+  seen.add(value);
+  const found = [...Object.getOwnPropertySymbols(value)];
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      found.push(...collectOwnSymbolsDeep(item, seen));
+    }
+    return found;
+  }
+  const proto = Object.getPrototypeOf(value);
+  if (proto === Object.prototype || proto === null) {
+    for (const key of Object.keys(value)) {
+      found.push(...collectOwnSymbolsDeep((value as Record<string, unknown>)[key], seen));
+    }
+  }
+  return found;
+}
+
+describe('state-roundtrip standing coverage for replay and verifyFixture', () => {
+  it('round-trips DocumentReference values with named databaseId and default database across codecs, persistence, getDoc readback, deriveRulesTestCases, replay, and verifyFixture', async () => {
     const NAMED_REF_RULES = [
       "rules_version = '2';",
       'service cloud.firestore {',
@@ -74,7 +101,12 @@ describe('STATE-ROUNDTRIP standing coverage for replay and verifyFixture', () =>
       '/databases/other-db/documents/orgs/o1',
     );
 
+    const persistKey = `named-ref-persist-${nextStorageSeq++}`;
     const sb = initializeSandbox();
+    await sb.enablePersistence({
+      key: persistKey,
+      backend: 'indexedDB',
+    });
     setRules(sb, NAMED_REF_RULES);
     const authed = sb.withAuth({ uid: 'u1', token: {} });
     const defaultDb = getFirestore(authed);
@@ -86,7 +118,7 @@ describe('STATE-ROUNDTRIP standing coverage for replay and verifyFixture', () =>
     const analyticsRef = doc(analyticsDb, 'docs', 'd1');
     const altAnalyticsRef = doc(analyticsDb, 'docs', 'd1');
 
-    // Single write + update + read
+    // Single write + update + read + client getDoc() readback round-trip into setDoc()
     await setDoc(doc(defaultDb, 'items', 'single'), {
       tenantRef,
       defaultRef,
@@ -97,8 +129,9 @@ describe('STATE-ROUNDTRIP standing coverage for replay and verifyFixture', () =>
     });
     const singleSnap = await getDoc(doc(defaultDb, 'items', 'single'));
     expect(singleSnap.exists()).toBe(true);
+    await setDoc(doc(defaultDb, 'items', 'copiedFromReadback'), singleSnap.data()!);
 
-    // Atomic batch write with named-DB references
+    // Atomic batch write + Transaction write with named-DB references
     const batch = writeBatch(defaultDb);
     batch.set(doc(defaultDb, 'items', 'batched'), {
       tenantRef,
@@ -107,7 +140,6 @@ describe('STATE-ROUNDTRIP standing coverage for replay and verifyFixture', () =>
     });
     await batch.commit();
 
-    // Transaction write with named-DB references
     await runTransaction(defaultDb, async (tx) => {
       tx.set(doc(defaultDb, 'items', 'transacted'), {
         tenantRef,
@@ -116,12 +148,50 @@ describe('STATE-ROUNDTRIP standing coverage for replay and verifyFixture', () =>
       });
     });
 
-    // 1. JSON-serialized replay() preserves named databaseId without state drift
+    await sb.flush();
+
+    // 1. Persistence flush + restore onto a fresh sandbox preserves named databaseId
+    const sbRestoredPersist = initializeSandbox();
+    await sbRestoredPersist.enablePersistence({
+      key: persistKey,
+      backend: 'indexedDB',
+    });
+    setRules(sbRestoredPersist, NAMED_REF_RULES);
+    const restoredPersistSnap = await getDoc(
+      doc(getFirestore(sbRestoredPersist.withAuth({ uid: 'u1', token: {} })), 'items', 'single'),
+    );
+    expect(restoredPersistSnap.exists()).toBe(true);
+    sbRestoredPersist.dispose();
+
+    // 2. decodeSnapshotMap ('sdk' mode) forwards databaseId to ReferenceDecoder.create
+    const encodedMap = JSON.parse(
+      JSON.stringify(
+        encodeSnapshotMap({
+          tenantRef,
+          defaultRef,
+          nested: { analyticsRef },
+        }),
+      ),
+    );
+    const decodedRefs: Array<{ path: string; databaseId?: string }> = [];
+    decodeSnapshotMap(encodedMap, {
+      create: (path, databaseId) => {
+        decodedRefs.push({ path, databaseId });
+        return { path, databaseId };
+      },
+    });
+    expect(decodedRefs).toEqual([
+      { path: 'orgs/o1', databaseId: 'tenant-db' },
+      { path: 'users/u1', databaseId: undefined },
+      { path: 'docs/d1', databaseId: 'analytics-db' },
+    ]);
+
+    // 3. JSON-serialized replay() preserves named databaseId without state drift
     const wireHistory = JSON.parse(JSON.stringify(sb.history()));
     const replayed = replay(wireHistory, NAMED_REF_RULES, {}, snapshotDocuments(sb));
     expect(replayed.divergences).toEqual([]);
 
-    // 2. captureFullState -> JSON -> applyFullState preserves named databaseId for subsequent reads
+    // 4. captureFullState -> JSON -> applyFullState preserves named databaseId for subsequent reads
     const capturedFull = JSON.parse(JSON.stringify(await captureFullState(sb)));
     const restoredFull = initializeSandbox();
     await applyFullState(restoredFull, capturedFull);
@@ -130,7 +200,7 @@ describe('STATE-ROUNDTRIP standing coverage for replay and verifyFixture', () =>
     );
     expect(restoredSnap.exists()).toBe(true);
 
-    // 3. buildVerifyFixture -> JSON -> parseVerifyFixture -> deriveRulesTestCases + verifyFixture
+    // 5. buildVerifyFixture -> JSON -> parseVerifyFixture -> deriveRulesTestCases + public simulate() + wire-values + verifyFixture
     const fixture = parseVerifyFixture(
       JSON.parse(
         JSON.stringify(
@@ -142,7 +212,45 @@ describe('STATE-ROUNDTRIP standing coverage for replay and verifyFixture', () =>
       ),
     );
     const derived = deriveRulesTestCases(fixture);
-    expect(derived.testCases.length).toBeGreaterThanOrEqual(4);
+    expect(derived.testCases.length).toBeGreaterThanOrEqual(5);
+
+    const publicSim = firestoreRules(NAMED_REF_RULES).simulate(derived.testCases);
+    expect(publicSim.failed).toBe(0);
+    expect(publicSim.passed).toBe(derived.testCases.length);
+
+    const firstWriteCase = derived.testCases.find((tc) => tc.path === 'items/single' && tc.data !== undefined)!;
+    const wireCase = buildApiTestCase(firstWriteCase);
+    const wireDoc = wireCase.request.resource!.data;
+    expect(wireDoc.tenantRef).toBe('/databases/tenant-db/documents/orgs/o1');
+    expect(wireDoc.defaultRef).toBe('/databases/(default)/documents/users/u1');
+    expect((wireDoc.nested as Record<string, unknown>).analyticsRef).toBe(
+      '/databases/analytics-db/documents/docs/d1',
+    );
+
+    let hostedCasesCount = 0;
+    const restoreHosted = useHostedRulesTester(() => async (_scope, rulesSource, cases) => {
+      hostedCasesCount = cases.length;
+      for (const tc of cases) {
+        buildApiTestCase(tc);
+      }
+      return new SimulateFirestoreRulesHandler().simulate(rulesSource, cases);
+    });
+    try {
+      const hostedVerify = await verifyFixture(fixture, {
+        engines: ['rulesTestApi'],
+        rules: { firestore: NAMED_REF_RULES },
+        rulesTestApi: {
+          scope: {
+            projectId: 'demo-test',
+            getAccessToken: async () => 'token',
+          },
+        },
+      });
+      expect(hostedVerify.ok).toBe(true);
+      expect(hostedCasesCount).toBe(derived.testCases.length);
+    } finally {
+      restoreHosted();
+    }
 
     const sameVerify = await verifyFixture(fixture, {
       rules: { firestore: NAMED_REF_RULES },
@@ -159,7 +267,7 @@ describe('STATE-ROUNDTRIP standing coverage for replay and verifyFixture', () =>
     );
   });
 
-  it('round-trips arbitrary user maps shaped like pyric/map/1.0 envelopes alongside real wrappers and marker-shaped maps verbatim', async () => {
+  it('round-trips arbitrary user maps shaped like pyric/map/1.0 envelopes alongside real wrappers, float -0 / >=2^53, JSON/structuredClone boundaries, and zero public symbol leaks', async () => {
     const ENVELOPE_MAP_RULES = [
       "rules_version = '2';",
       'service cloud.firestore {',
@@ -167,10 +275,14 @@ describe('STATE-ROUNDTRIP standing coverage for replay and verifyFixture', () =>
       '    match /items/top {',
       '      allow create, update: if request.auth != null',
       "        && request.resource.data['type'] == 'pyric/map/1.0'",
-      '        && request.resource.data.fields.count == 7;',
+      '        && request.resource.data.fields.count == 7',
+      '        && request.resource.data.fields.ratio is float',
+      '        && request.resource.data.fields.hugeIntFloat is float;',
       '      allow get: if request.auth != null',
       "        && resource.data['type'] == 'pyric/map/1.0'",
-      '        && resource.data.fields.count == 7;',
+      '        && resource.data.fields.count == 7',
+      '        && resource.data.fields.ratio is float',
+      '        && resource.data.fields.hugeIntFloat is float;',
       '    }',
       '    match /items/seeded {',
       '      allow get: if request.auth != null',
@@ -186,6 +298,7 @@ describe('STATE-ROUNDTRIP standing coverage for replay and verifyFixture', () =>
       '      allow create, update: if request.auth != null',
       "        && request.resource.data.wrapped['type'] == 'pyric/map/1.0'",
       '        && request.resource.data.wrapped.fields.k == 1',
+      '        && request.resource.data.wrapped.fields.ratio is float',
       "        && request.resource.data.wrapped.fields.inner['type'] == 'pyric/map/1.0'",
       "        && request.resource.data.wrapped.fields.inner.fields.deep == 'yes'",
       "        && request.resource.data.list[0]['type'] == 'pyric/map/1.0'",
@@ -197,12 +310,18 @@ describe('STATE-ROUNDTRIP standing coverage for replay and verifyFixture', () =>
       '        && request.resource.data.namedRef == /databases/tenant-db/documents/orgs/o9;',
       '      allow get: if request.auth != null',
       "        && resource.data.wrapped['type'] == 'pyric/map/1.0'",
+      '        && resource.data.wrapped.fields.ratio is float',
       "        && resource.data.wrapped.fields.inner['type'] == 'pyric/map/1.0'",
       "        && resource.data.list[0]['type'] == 'pyric/map/1.0'",
       "        && resource.data.sentinelLookalike['__type'] == 'serverTimestamp'",
       "        && resource.data.tsLookalike['type'] == 'firestore/timestamp/1.0'",
       '        && resource.data.realTs is timestamp',
       '        && resource.data.namedRef == /databases/tenant-db/documents/orgs/o9;',
+      '    }',
+      '    match /items/deniedDotted {',
+      '      allow update: if request.auth != null',
+      "        && request.resource.data['type'] == 'pyric/map/1.0'",
+      '        && request.resource.data.fields.allowed == true;',
       '    }',
       '  }',
       '}',
@@ -217,34 +336,89 @@ describe('STATE-ROUNDTRIP standing coverage for replay and verifyFixture', () =>
         fields: { origin: 'seed' },
       },
     });
+    const baseBranchState = await captureFullState(sb);
+    const postSeedIdx = sb.history().length;
+
     sb.admin.setDocument('items/adminDoc', {
       type: 'pyric/map/1.0',
       fields: { origin: 'admin' },
+    });
+    sb.admin.setDocument('items/deniedDotted', {
+      fields: { allowed: false },
     });
 
     const authed = sb.withAuth({ uid: 'u1', token: {} });
     const db = getFirestore(authed);
     const tenantDb = getFirestore(authed, 'tenant-db');
 
-    // Exact 2-key top-level pyric/map/1.0 user document
+    // Dedicated -0 and >=2^53 float typing check inside pyric/map/1.0 user map across setDoc, getDoc, structuredClone, captureFullState, and verifyFixture
+    const negZeroSb = initializeSandbox();
+    setRules(
+      negZeroSb,
+      [
+        "rules_version = '2';",
+        'service cloud.firestore {',
+        '  match /databases/{database}/documents {',
+        '    match /items/{id} {',
+        '      allow create: if request.resource.data.wrapped.fields.v is float && request.resource.data.wrapped.fields.huge is float;',
+        '      allow get: if resource.data.wrapped.fields.v is float && resource.data.wrapped.fields.huge is float;',
+        '    }',
+        '  }',
+        '}',
+      ].join('\n'),
+    );
+    const negZeroDb = getFirestore(negZeroSb.withAuth({ uid: 'u1', token: {} }));
+    await setDoc(doc(negZeroDb, 'items', 'neg0'), {
+      wrapped: { type: 'pyric/map/1.0', fields: { v: -0, huge: 2 ** 53 } },
+    });
+    const negZeroSnap = await getDoc(doc(negZeroDb, 'items', 'neg0'));
+    expect(negZeroSnap.exists()).toBe(true);
+    expect(
+      Object.is(
+        ((negZeroSnap.data()?.wrapped as Record<string, unknown>).fields as Record<string, unknown>).v,
+        -0,
+      ),
+    ).toBe(true);
+    const negZeroFixture = parseVerifyFixture(
+      JSON.parse(
+        JSON.stringify(
+          buildVerifyFixture({
+            sandbox: negZeroSb,
+            firestoreRules: [
+              "rules_version = '2';",
+              'service cloud.firestore {',
+              '  match /databases/{database}/documents {',
+              '    match /items/{id} {',
+              '      allow create: if request.resource.data.wrapped.fields.v is float && request.resource.data.wrapped.fields.huge is float;',
+              '      allow get: if resource.data.wrapped.fields.v is float && resource.data.wrapped.fields.huge is float;',
+              '    }',
+              '  }',
+              '}',
+            ].join('\n'),
+          }),
+        ),
+      ),
+    );
+    const negZeroVerified = await verifyFixture(negZeroFixture, {
+      rules: { firestore: negZeroFixture.services.firestore!.rules.source },
+    });
+    expect(negZeroVerified.ok).toBe(true);
+
+    // Exact 2-key top-level pyric/map/1.0 user document with float and 2^53
     await setDoc(doc(db, 'items', 'top'), {
       type: 'pyric/map/1.0',
-      fields: { count: 7 },
+      fields: { count: 7, ratio: 1.5, hugeIntFloat: 2 ** 53 },
     });
     const topSnap = await getDoc(doc(db, 'items', 'top'));
-    expect(topSnap.data()).toEqual({
-      type: 'pyric/map/1.0',
-      fields: { count: 7 },
-    });
+    expect(topSnap.exists()).toBe(true);
+    expect(topSnap.data()?.type).toBe('pyric/map/1.0');
 
     // Seeded and admin-written exact 2-key pyric/map/1.0 document reads
-    const seededSnap = await getDoc(doc(db, 'items', 'seeded'));
-    expect(seededSnap.data()).toEqual({
+    expect((await getDoc(doc(db, 'items', 'seeded'))).data()).toEqual({
       type: 'pyric/map/1.0',
       fields: { origin: 'seed' },
     });
-    const adminSnap = await getDoc(doc(db, 'items', 'adminDoc'));
-    expect(adminSnap.data()).toEqual({
+    expect((await getDoc(doc(db, 'items', 'adminDoc'))).data()).toEqual({
       type: 'pyric/map/1.0',
       fields: { origin: 'admin' },
     });
@@ -255,6 +429,7 @@ describe('STATE-ROUNDTRIP standing coverage for replay and verifyFixture', () =>
         type: 'pyric/map/1.0',
         fields: {
           k: 1,
+          ratio: 1.5,
           inner: { type: 'pyric/map/1.0', fields: { deep: 'yes' } },
         },
       },
@@ -269,14 +444,6 @@ describe('STATE-ROUNDTRIP standing coverage for replay and verifyFixture', () =>
       namedRef: doc(tenantDb, 'orgs', 'o9'),
     });
     const kitchenSnap = await getDoc(doc(db, 'items', 'kitchen'));
-    expect(kitchenSnap.data()?.wrapped).toEqual({
-      type: 'pyric/map/1.0',
-      fields: {
-        k: 1,
-        inner: { type: 'pyric/map/1.0', fields: { deep: 'yes' } },
-      },
-    });
-    expect(kitchenSnap.data()?.list).toEqual([{ type: 'pyric/map/1.0', fields: { idx: 0 } }]);
     expect(kitchenSnap.data()?.sentinelLookalike).toEqual({ __type: 'serverTimestamp' });
     expect(kitchenSnap.data()?.tsLookalike).toEqual({
       type: 'firestore/timestamp/1.0',
@@ -284,48 +451,91 @@ describe('STATE-ROUNDTRIP standing coverage for replay and verifyFixture', () =>
       nanoseconds: 0,
     });
 
-    // 1. snapshot() -> loadSnapshot() preserves unescaped tag and exact values
-    const snapCopy = initializeSandbox();
-    snapCopy.loadSnapshot(sb.snapshot());
-    const snapCopyTop = await getDoc(
-      doc(getFirestore(snapCopy.withAuth({ uid: 'u1', token: {} })), 'items', 'top'),
-    );
-    expect(snapCopyTop.data()).toEqual({
-      type: 'pyric/map/1.0',
-      fields: { count: 7 },
-    });
+    // Denied single-segment update producing root colliding pyric/map/1.0 shape (exercises applyPathLeaf root stamping)
+    await expect(
+      updateDoc(doc(db, 'items', 'deniedDotted'), {
+        type: 'pyric/map/1.0',
+        'fields.allowed': false,
+      }),
+    ).rejects.toMatchObject({ code: 'permission-denied' });
 
-    // 2. captureFullState() -> JSON -> applyFullState() preserves all shapes
-    const fullCopy = initializeSandbox();
-    await applyFullState(fullCopy, JSON.parse(JSON.stringify(await captureFullState(sb))));
-    const fullCopyDb = getFirestore(fullCopy.withAuth({ uid: 'u1', token: {} }));
-    expect((await getDoc(doc(fullCopyDb, 'items', 'top'))).data()).toEqual({
-      type: 'pyric/map/1.0',
-      fields: { count: 7 },
-    });
-    expect((await getDoc(doc(fullCopyDb, 'items', 'seeded'))).data()).toEqual({
-      type: 'pyric/map/1.0',
-      fields: { origin: 'seed' },
-    });
-    expect((await getDoc(doc(fullCopyDb, 'items', 'adminDoc'))).data()).toEqual({
-      type: 'pyric/map/1.0',
-      fields: { origin: 'admin' },
-    });
-    expect((await getDoc(doc(fullCopyDb, 'items', 'kitchen'))).data()?.wrapped).toEqual({
-      type: 'pyric/map/1.0',
-      fields: {
-        k: 1,
-        inner: { type: 'pyric/map/1.0', fields: { deep: 'yes' } },
-      },
-    });
+    // 1. Public API cleanliness: zero internal symbols leaked on history(), snapshot(), snapshotDocuments(), admin.getDocument/listDocuments, or replay().divergences
+    expect(collectOwnSymbolsDeep(sb.history())).toEqual([]);
+    expect(collectOwnSymbolsDeep(sb.snapshot())).toEqual([]);
+    expect(collectOwnSymbolsDeep(snapshotDocuments(sb))).toEqual([]);
+    expect(collectOwnSymbolsDeep(sb.admin.getDocument('items/top'))).toEqual([]);
+    expect(collectOwnSymbolsDeep(sb.admin.getDocument('items/kitchen'))).toEqual([]);
+    expect(collectOwnSymbolsDeep(sb.admin.listDocuments('items'))).toEqual([]);
 
-    // 3. In-memory replay() preserves unescaped user maps cleanly
+    // 2. snapshot() -> structuredClone AND JSON.parse(JSON.stringify(...)) -> loadSnapshot() round-trip without mutating lookalike maps into Timestamps
+    for (const clonedSnap of [sb.snapshot(), structuredClone(sb.snapshot())]) {
+      const snapCopy = initializeSandbox();
+      snapCopy.loadSnapshot(clonedSnap);
+      const copyDb = getFirestore(snapCopy.withAuth({ uid: 'u1', token: {} }));
+      const copyKitchen = await getDoc(doc(copyDb, 'items', 'kitchen'));
+      expect(copyKitchen.data()?.sentinelLookalike).toEqual({ __type: 'serverTimestamp' });
+      expect(copyKitchen.data()?.tsLookalike).toEqual({
+        type: 'firestore/timestamp/1.0',
+        seconds: 9,
+        nanoseconds: 0,
+      });
+      expect((copyKitchen.data()?.wrapped as Record<string, unknown>).type).toBe('pyric/map/1.0');
+      const copyTop = await getDoc(doc(copyDb, 'items', 'top'));
+      expect(copyTop.data()?.type).toBe('pyric/map/1.0');
+    }
+    const jsonSnapCopy = initializeSandbox();
+    jsonSnapCopy.loadSnapshot(JSON.parse(JSON.stringify(sb.snapshot())));
+    const jsonCopyDb = getFirestore(jsonSnapCopy.withAuth({ uid: 'u1', token: {} }));
+    const jsonCopyTop = await getDoc(doc(jsonCopyDb, 'items', 'top'));
+    expect(jsonCopyTop.data()?.type).toBe('pyric/map/1.0');
+    const jsonAdminKitchen = jsonSnapCopy.admin.getDocument('items/kitchen');
+    expect(jsonAdminKitchen?.sentinelLookalike).toEqual({ __type: 'serverTimestamp' });
+    expect(jsonAdminKitchen?.tsLookalike).toEqual({
+      type: 'firestore/timestamp/1.0',
+      seconds: 9,
+      nanoseconds: 0,
+    });
+    expect((jsonAdminKitchen?.wrapped as Record<string, unknown>).type).toBe('pyric/map/1.0');
+
+    // 3. Both in-memory AND JSON-serialized sb.history() round-trip cleanly through replay() and branch apply()
     const expectedReplayDocs = snapshotDocuments(sb);
     delete expectedReplayDocs['items/seeded'];
-    const inMemoryReplay = replay(sb.history(), ENVELOPE_MAP_RULES, {}, expectedReplayDocs);
-    expect(inMemoryReplay.divergences).toEqual([]);
+    for (const candidateEvents of [
+      sb.history(),
+      structuredClone(sb.history()),
+      JSON.parse(JSON.stringify(sb.history())),
+    ]) {
+      const rep = replay(candidateEvents, ENVELOPE_MAP_RULES, {}, expectedReplayDocs);
+      expect(rep.divergences).toEqual([]);
+      const repDb = getFirestore(rep.sandbox.withAuth({ uid: 'u1', token: {} }));
+      setRules(rep.sandbox, ENVELOPE_MAP_RULES);
+      const repKitchen = await getDoc(doc(repDb, 'items', 'kitchen'));
+      expect(repKitchen.data()?.sentinelLookalike).toEqual({ __type: 'serverTimestamp' });
+      expect(repKitchen.data()?.tsLookalike).toEqual({
+        type: 'firestore/timestamp/1.0',
+        seconds: 9,
+        nanoseconds: 0,
+      });
+    }
 
-    // 4. buildVerifyFixture -> JSON -> parseVerifyFixture -> verifyFixture round-trips losslessly
+    // Also verify replay().divergences carries zero internal symbols when candidate rules deny a write
+    const denyAllRules = ENVELOPE_MAP_RULES.replaceAll('request.auth != null', 'false');
+    const deniedReplay = replay(
+      JSON.parse(JSON.stringify(sb.history())),
+      denyAllRules,
+      {},
+      expectedReplayDocs,
+    );
+    expect(deniedReplay.divergences.length).toBeGreaterThan(0);
+    expect(collectOwnSymbolsDeep(deniedReplay.divergences)).toEqual([]);
+
+    // Branch apply() over JSON-serialized events
+    const wireBranchEvents = JSON.parse(JSON.stringify(sb.history().slice(postSeedIdx)));
+    const branch = await fork(baseBranchState);
+    apply(branch, wireBranchEvents);
+    expect(snapshotDocuments(branch.sandbox)).toEqual(snapshotDocuments(sb));
+
+    // 4. buildVerifyFixture -> JSON -> parseVerifyFixture -> verifyFixture round-trips losslessly (and detects now-allowed when deniedDotted loosens)
     const rawFixture = buildVerifyFixture({
       sandbox: sb,
       firestoreRules: ENVELOPE_MAP_RULES,
@@ -339,16 +549,32 @@ describe('STATE-ROUNDTRIP standing coverage for replay and verifyFixture', () =>
       expect(verified.services.firestore?.divergences).toEqual([]);
       expect(verified.ok).toBe(true);
     }
+
+    const loosenedDottedRules = ENVELOPE_MAP_RULES.replace(
+      'request.resource.data.fields.allowed == true',
+      'request.resource.data.fields.allowed == false',
+    );
+    const loosenedVerify = await verifyFixture(wireFixture, {
+      rules: { firestore: loosenedDottedRules },
+    });
+    expect(loosenedVerify.ok).toBe(false);
+    expect(loosenedVerify.services.firestore?.divergences).toContainEqual(
+      expect.objectContaining({
+        kind: 'now-allowed',
+        path: 'items/deniedDotted',
+        method: 'update',
+      }),
+    );
   });
 
-  it('projects same-path multi-write atomic batches sequentially across replay, branch apply, deriveRulesTestCases, and verifyFixture', async () => {
+  it('projects same-path multi-write atomic batches (including committed delete->set and constructor/__proto__ keys on create) sequentially across replay, branch apply, deriveRulesTestCases, and verifyFixture', async () => {
     const MULTI_WRITE_RULES = [
       "rules_version = '2';",
       'service cloud.firestore {',
       '  match /databases/{database}/documents {',
       '    match /items/createUpdate {',
       '      allow create, update: if request.auth != null',
-      "        && request.resource.data.owner == request.auth.uid",
+      '        && request.resource.data.owner == request.auth.uid',
       '        && request.resource.data.count == 3',
       "        && request.resource.data.tags == ['a', 'b']",
       "        && !('temp' in request.resource.data);",
@@ -364,8 +590,15 @@ describe('STATE-ROUNDTRIP standing coverage for replay and verifyFixture', () =>
       '      allow create, update, delete: if request.auth != null;',
       '    }',
       '    match /items/deleteSet {',
-      '      allow create, update, delete: if request.auth != null',
-      '        && (request.method == "delete" || (request.resource.data.reborn == true && !("legacy" in request.resource.data)));',
+      '      allow read: if request.auth != null;',
+      '      allow write: if request.auth != null',
+      '        && request.resource.data.ownerId == request.auth.uid',
+      '        && request.resource.data.reborn == true',
+      "        && !('legacy' in request.resource.data);",
+      '    }',
+      '    match /items/protoCreate {',
+      '      allow create, update: if request.auth != null',
+      "        && request.resource.data['constructor'] == 'widget';",
       '    }',
       '    match /items/gate {',
       '      allow create, update: if request.resource.data.allowGate == true;',
@@ -382,13 +615,13 @@ describe('STATE-ROUNDTRIP standing coverage for replay and verifyFixture', () =>
     const sb = initializeSandbox();
     getClock(sb).set(1_735_100_000_000);
     setRules(sb, MULTI_WRITE_RULES);
-    sb.admin.setDocument('items/deleteSet', { legacy: 'old' });
+    sb.admin.setDocument('items/deleteSet', { ownerId: 'u1', legacy: 'old' });
     const baseState = await captureFullState(sb);
     const postSeedHistoryIndex = sb.history().length;
 
     const db = getFirestore(sb.withAuth({ uid: 'u1', token: {} }));
 
-    // 1. Committed multi-write batch exercising create->update, set->merge->mergeFields, set->delete, and delete->set
+    // 1. Committed multi-write batch exercising create->update, set->merge->mergeFields, set->delete, delete->set (under allow write: request.resource.data.ownerId == uid), and batched create with constructor/__proto__ keys
     const committedBatch = writeBatch(db);
     committedBatch.set(doc(db, 'items', 'createUpdate'), {
       owner: 'u1',
@@ -414,7 +647,16 @@ describe('STATE-ROUNDTRIP standing coverage for replay and verifyFixture', () =>
     committedBatch.delete(doc(db, 'items', 'setDelete'));
 
     committedBatch.delete(doc(db, 'items', 'deleteSet'));
-    committedBatch.set(doc(db, 'items', 'deleteSet'), { reborn: true });
+    committedBatch.set(doc(db, 'items', 'deleteSet'), { ownerId: 'u1', reborn: true });
+
+    const protoPayload: Record<string, unknown> = { constructor: 'widget' };
+    Object.defineProperty(protoPayload, '__proto__', {
+      value: 'safe',
+      enumerable: true,
+      writable: true,
+      configurable: true,
+    });
+    committedBatch.set(doc(db, 'items', 'protoCreate'), protoPayload);
 
     committedBatch.set(doc(db, 'items', 'gate'), { allowGate: true });
     await committedBatch.commit();
@@ -426,7 +668,7 @@ describe('STATE-ROUNDTRIP standing coverage for replay and verifyFixture', () =>
 
     const branchEvents = JSON.parse(JSON.stringify(sb.history().slice(postSeedHistoryIndex)));
     const branch = await fork(baseState);
-    apply(branch, branchEvents, { firestore: MULTI_WRITE_RULES });
+    apply(branch, branchEvents);
     expect(snapshotDocuments(branch.sandbox)).toEqual(snapshotDocuments(sb));
 
     // 2. Rolled-back multi-write batch (gate denied) exercises uncommitted sequential projection in deriveRulesTestCases / verifyFixture
@@ -456,16 +698,10 @@ describe('STATE-ROUNDTRIP standing coverage for replay and verifyFixture', () =>
       ),
     );
     const derived = deriveRulesTestCases(fixture);
-    const createUpdateCases = derived.testCases.filter((tc) => tc.path === 'items/createUpdate');
-    expect(createUpdateCases).toHaveLength(4);
-    for (const tc of createUpdateCases) {
-      expect(tc.expectation).toBe('ALLOW');
-      expect(tc.data).toEqual({
-        owner: 'u1',
-        count: 3,
-        tags: ['a', 'b'],
-      });
-    }
+    const deleteSetDeleteCase = derived.testCases.find(
+      (tc) => tc.path === 'items/deleteSet' && tc.method === 'delete',
+    );
+    expect(deleteSetDeleteCase?.data).toEqual({ ownerId: 'u1', reborn: true });
 
     const sameVerify = await verifyFixture(fixture, {
       rules: { firestore: MULTI_WRITE_RULES },
@@ -514,13 +750,11 @@ describe('STATE-ROUNDTRIP standing coverage for replay and verifyFixture', () =>
     });
     const dbStructural = getFirestore(sbStructuralOnly.withAuth({ uid: 'u1', token: {} }));
 
-    // Structural batch prepare error: delete + update on the same document in one writeBatch
     const invalidBatch = writeBatch(dbStructural);
     invalidBatch.delete(doc(dbStructural, 'items', 'a'));
     invalidBatch.update(doc(dbStructural, 'items', 'a'), { role: 'member', count: 5 });
     await expect(invalidBatch.commit()).rejects.toMatchObject({ code: 'invalid-argument' });
 
-    // Structural transaction prepare error: delete + update on the same document in one runTransaction
     await expect(
       runTransaction(dbStructural, async (tx) => {
         tx.delete(doc(dbStructural, 'items', 'b'));
@@ -555,7 +789,6 @@ describe('STATE-ROUNDTRIP standing coverage for replay and verifyFixture', () =>
     expect(structuralUnderPermissive.services.firestore?.divergences).toEqual([]);
     expect(structuralUnderPermissive.ok).toBe(true);
 
-    // Mixed fixture: add a genuine rules denial alongside structural prepare errors
     const dbMixed = getFirestore(sbStructuralOnly.withAuth({ uid: 'u1', token: {} }));
     await expect(
       updateDoc(doc(dbMixed, 'items', 'a'), { role: 'escalated-admin' }),
@@ -579,11 +812,6 @@ describe('STATE-ROUNDTRIP standing coverage for replay and verifyFixture', () =>
       expectation: 'DENY',
     });
 
-    const mixedSame = await verifyFixture(mixedFixture, {
-      rules: { firestore: STRICT_RULES },
-    });
-    expect(mixedSame.ok).toBe(true);
-
     const mixedPermissive = await verifyFixture(mixedFixture, {
       rules: { firestore: PERMISSIVE_RULES },
     });
@@ -596,7 +824,7 @@ describe('STATE-ROUNDTRIP standing coverage for replay and verifyFixture', () =>
     });
   });
 
-  it('verifies Storage-only fixtures backed by seeded Firestore documents for firestore.get() and firestore.exists() without requiring firestore.rules', async () => {
+  it('verifies Storage-only fixtures backed by seeded or empty Firestore stores for firestore.get() and firestore.exists() without requiring firestore.rules', async () => {
     const STORAGE_CROSS_SERVICE_RULES = [
       "rules_version = '2';",
       'service firebase.storage {',
@@ -604,7 +832,7 @@ describe('STATE-ROUNDTRIP standing coverage for replay and verifyFixture', () =>
       '    match /orgs/{orgId}/{fileName} {',
       '      allow read, write: if request.auth != null',
       '        && firestore.exists(/databases/(default)/documents/orgs/$(orgId))',
-      "        && firestore.get(/databases/(default)/documents/orgs/$(orgId)).data.owner == request.auth.uid;",
+      '        && firestore.get(/databases/(default)/documents/orgs/$(orgId)).data.owner == request.auth.uid;',
       '    }',
       '  }',
       '}',
@@ -620,6 +848,13 @@ describe('STATE-ROUNDTRIP standing coverage for replay and verifyFixture', () =>
       'orgs/o1': { owner: 'u1' },
       'orgs/o2': { owner: 'u2' },
     });
+
+    // Also trigger a non-rules Firestore write-prep runtime error to verify fixtureVerifiableServices delegates to rulesDispositionFor
+    const dbPrepErr = getFirestore(sb.withAuth({ uid: 'u1', token: {} }));
+    const prepErrBatch = writeBatch(dbPrepErr);
+    prepErrBatch.delete(doc(dbPrepErr, 'orgs', 'o1'));
+    prepErrBatch.update(doc(dbPrepErr, 'orgs', 'o1'), { owner: 'u1' });
+    await expect(prepErrBatch.commit()).rejects.toMatchObject({ code: 'invalid-argument' });
 
     const dbName = uniqueStorageDb('cross-service');
     const storageU1 = getStorageSandbox(sb.withAuth({ uid: 'u1', token: {} }), {
@@ -645,14 +880,8 @@ describe('STATE-ROUNDTRIP standing coverage for replay and verifyFixture', () =>
       ),
     );
 
-    // Seeded Firestore state is preserved on the fixture while only Storage is marked verifiable
-    expect(fixture.services.firestore?.state.documents).toEqual({
-      'orgs/o1': { owner: 'u1' },
-      'orgs/o2': { owner: 'u2' },
-    });
     expect(fixtureVerifiableServices(fixture)).toEqual(['storage']);
 
-    // Verify succeeds with ONLY Storage rules supplied
     const sameVerify = await verifyFixture(fixture, {
       rules: { storage: STORAGE_CROSS_SERVICE_RULES },
     });
@@ -660,7 +889,6 @@ describe('STATE-ROUNDTRIP standing coverage for replay and verifyFixture', () =>
     expect(sameVerify.services.firestore).toBeUndefined();
     expect(sameVerify.services.storage?.divergences).toEqual([]);
 
-    // Tightening Storage cross-service condition surfaces now-denied divergence
     const tightenedVerify = await verifyFixture(fixture, {
       rules: { storage: TIGHTENED_STORAGE_RULES },
     });
@@ -668,9 +896,46 @@ describe('STATE-ROUNDTRIP standing coverage for replay and verifyFixture', () =>
     expect(tightenedVerify.services.storage?.divergences.some((d) => d.kind === 'now-denied')).toBe(
       true,
     );
+
+    // Empty Firestore store ({}): !firestore.exists(...) on missing doc evaluates true rather than throwing unsupported
+    const EMPTY_FS_STORAGE_RULES = [
+      "rules_version = '2';",
+      'service firebase.storage {',
+      '  match /b/{bucket}/o {',
+      '    match /items/{id} {',
+      '      allow read, write: if request.auth != null',
+      '        && !firestore.exists(/databases/(default)/documents/users/$(request.auth.uid));',
+      '    }',
+      '  }',
+      '}',
+    ].join('\n');
+
+    const sbEmpty = initializeSandbox();
+    const storageEmpty = getStorageSandbox(sbEmpty.withAuth({ uid: 'u1', token: {} }), {
+      dbName: uniqueStorageDb('empty-fs'),
+      rules: EMPTY_FS_STORAGE_RULES,
+    });
+    await uploadString(storageRef(storageEmpty, 'items/a.txt'), 'allowed-when-unblocked');
+
+    const emptyFixture = parseVerifyFixture(
+      JSON.parse(
+        JSON.stringify(
+          buildVerifyFixture({
+            sandbox: sbEmpty,
+            storageRules: EMPTY_FS_STORAGE_RULES,
+          }),
+        ),
+      ),
+    );
+    expect(emptyFixture.services.firestore).toBeUndefined();
+    const emptyVerify = await verifyFixture(emptyFixture, {
+      rules: { storage: EMPTY_FS_STORAGE_RULES },
+    });
+    expect(emptyVerify.ok).toBe(true);
+    expect(emptyVerify.services.storage?.divergences).toEqual([]);
   });
 
-  it('distinguishes map.get() / resource.data.get() method calls, comments, and strings from document lookups across plain and 2+modules rules', async () => {
+  it('distinguishes map.get() / resource.data.get() method calls, comments, and strings from document lookups and fails closed on unresolved 2+modules imports', async () => {
     const MAP_GET_NON_LOOKUP_RULES = [
       "rules_version = '2';",
       'service cloud.firestore {',
@@ -700,6 +965,18 @@ describe('STATE-ROUNDTRIP standing coverage for replay and verifyFixture', () =>
       '}',
     ].join('\n');
 
+    const UNRESOLVABLE_MODULAR_RULES = [
+      "rules_version = '2+modules';",
+      "import { canAccessOrg } from './org_helpers.rules';",
+      'service cloud.firestore {',
+      '  match /databases/{database}/documents {',
+      '    match /items/{id} {',
+      '      allow get, create, update: if canAccessOrg(id);',
+      '    }',
+      '  }',
+      '}',
+    ].join('\n');
+
     const sb = initializeSandbox();
     setRules(sb, MAP_GET_NON_LOOKUP_RULES);
     const db = getFirestore(sb.withAuth({ uid: 'u1', token: {} }));
@@ -718,7 +995,6 @@ describe('STATE-ROUNDTRIP standing coverage for replay and verifyFixture', () =>
         }),
       ),
     );
-    // Strip rulesEvidence (simulating aged/evicted capture history) so deriveRulesTestCases uses static rules lookup classification
     for (const ev of rawFixture.events) {
       delete ev.rulesEvidence;
       ev.rulesEvidenceExpired = true;
@@ -744,6 +1020,22 @@ describe('STATE-ROUNDTRIP standing coverage for replay and verifyFixture', () =>
     expect(lookupDerived.ok).toBe(false);
     expect(lookupDerived.testCases).toEqual([]);
     expect(lookupDerived.unsupportedEvents).toHaveLength(2);
+
+    // Unresolvable 2+modules relative imports fail closed (assumed to contain lookups)
+    const unresolvedModularFixture = parseVerifyFixture({
+      ...rawFixture,
+      services: {
+        ...rawFixture.services,
+        firestore: {
+          ...rawFixture.services.firestore,
+          rules: { format: 'firestore.rules', source: UNRESOLVABLE_MODULAR_RULES },
+        },
+      },
+    });
+    const unresolvedModularDerived = deriveRulesTestCases(unresolvedModularFixture);
+    expect(unresolvedModularDerived.ok).toBe(false);
+    expect(unresolvedModularDerived.testCases).toEqual([]);
+    expect(unresolvedModularDerived.unsupportedEvents).toHaveLength(2);
 
     const verified = await verifyFixture(fixture, {
       rules: { firestore: MAP_GET_NON_LOOKUP_RULES },

@@ -18,7 +18,7 @@ import type { SentinelHit } from './sentinel-capture.js';
 import { buildRulesTestCase } from './rules-test-case.js';
 import { simulateRules } from './rules-simulator.js';
 import { partitionDeletes, registerDefaultConverters } from './value-resolver.js';
-import { copyUnescapedUserMapTag } from './unescaped-map.js';
+import { copyUnescapedUserMapTag, encodeBoundaryMapValue } from './unescaped-map.js';
 import { SandboxClock } from '../../sandbox/clock.js';
 
 registerDefaultConverters();
@@ -76,6 +76,10 @@ export class WriteRuntime {
   }): void {
     const hasNoSubscribers = !this.events.write.hasSubscribers;
     if (hasNoSubscribers) return;
+    const priorState =
+      input.priorState === null ? null : (encodeBoundaryMapValue(input.priorState) as DocumentData);
+    const nextState =
+      input.nextState === null ? null : (encodeBoundaryMapValue(input.nextState) as DocumentData);
     const event: WriteSandboxEvent = {
       kind: 'write',
       id: nextRequestEventId().replace(/^req-/, 'wr-'),
@@ -83,8 +87,8 @@ export class WriteRuntime {
       method: input.method,
       path: input.path,
       auth: null,
-      priorState: input.priorState,
-      nextState: input.nextState,
+      priorState,
+      nextState,
       requestTime: { seconds: input.requestTime.seconds, nanoseconds: input.requestTime.nanos },
     };
     const { auth } = input;
@@ -95,7 +99,7 @@ export class WriteRuntime {
       if (hasToken) event.auth.token = auth.token;
     }
     const hasData = input.data !== undefined;
-    if (hasData) event.data = input.data;
+    if (hasData) event.data = encodeBoundaryMapValue(input.data) as DocumentData;
     const hasUpdateMask = input.updateMask !== undefined;
     if (hasUpdateMask) event.updateMask = input.updateMask;
     // Replay re-issues a merge set with its merge (FS-MET-2).
@@ -191,7 +195,7 @@ export class WriteRuntime {
     projection = new Map<string, DocumentData | null>(),
   ): Map<string, DocumentData | null> {
     for (const operation of operations) {
-      const isReplacement = operation.method === 'set';
+      const isReplacement = operation.method === 'set' || operation.method === 'create';
       if (isReplacement) {
         projection.set(operation.path, partitionDeletes(operation.data ?? {}).writes);
         continue;

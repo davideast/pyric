@@ -22,9 +22,17 @@
  * re-executes the update rebuilds the payload with
  * {@link updatePayloadFromTree}.
  */
-import { Reference } from 'pyric/rules/internal';
+import {
+  Bytes as RulesBytes,
+  LatLng as RulesLatLng,
+  Reference,
+  RulesValue,
+  Timestamp as RulesTimestamp,
+  Vector as RulesVector,
+} from '@pyric/rules/internal';
 import { FirebaseError } from '../../sandbox/internal/firebase-error.js';
 import { isPlainObject } from '../plain-object.js';
+import { extractDuckReferenceDatabaseId } from './admin-reference-database.js';
 import { registeredReferenceQueryValue } from './query-value-registry.js';
 import {
   copyUnescapedUserMapTag,
@@ -223,24 +231,10 @@ export function isFieldPathUpdate(write: { method: string; merge?: unknown }): b
   return write.method === 'update' && (write.merge === undefined || write.merge === false);
 }
 
-function extractDuckAdminRefDatabaseId(value: Record<string, unknown>): string | undefined {
-  if (typeof value.formattedName === 'string' && value.formattedName.length > 0) {
-    return new Reference(value.formattedName).databaseId;
-  }
-  const fs = value._firestore as Record<string, unknown> | null | undefined;
-  if (fs && typeof fs === 'object') {
-    if (typeof fs.databaseId === 'string' && fs.databaseId.length > 0) return fs.databaseId;
-    const inner = fs._databaseId as Record<string, unknown> | null | undefined;
-    if (inner && typeof inner === 'object' && typeof inner.database === 'string' && inner.database.length > 0) {
-      return inner.database;
-    }
-  }
-  return undefined;
-}
-
 function normalizePublicWriteValue(value: unknown): unknown {
   if (value === null || typeof value !== 'object') return value;
-  if (value instanceof Reference) return value;
+  if (value instanceof RulesValue) return value;
+  if (value instanceof Date) return RulesTimestamp.fromMillis(value.getTime());
   const registeredRef = registeredReferenceQueryValue(value);
   if (registeredRef !== undefined) {
     return new Reference(registeredRef.path, registeredRef.databaseId);
@@ -270,14 +264,42 @@ function normalizePublicWriteValue(value: unknown): unknown {
     return value;
   }
   const rec = value as Record<string, unknown>;
-  if (
-    !isUnescapedUserMap(value) &&
-    typeof rec.path === 'string' &&
-    typeof rec.id === 'string' &&
-    rec._path !== undefined &&
-    rec._firestore !== undefined
-  ) {
-    return new Reference(rec.path, extractDuckAdminRefDatabaseId(rec));
+  if (!isUnescapedUserMap(value)) {
+    if (
+      typeof rec.seconds === 'number' &&
+      typeof rec.nanoseconds === 'number' &&
+      typeof rec.toMillis === 'function'
+    ) {
+      return new RulesTimestamp(rec.seconds, Math.floor(rec.nanoseconds / 1_000) * 1_000);
+    }
+    if (
+      typeof rec.toBase64 === 'function' &&
+      typeof rec.toUint8Array === 'function' &&
+      typeof rec.isEqual === 'function'
+    ) {
+      return new RulesBytes((rec as { toUint8Array(): Uint8Array }).toUint8Array());
+    }
+    if (
+      typeof rec.latitude === 'number' &&
+      typeof rec.longitude === 'number' &&
+      typeof rec.isEqual === 'function'
+    ) {
+      return new RulesLatLng(rec.latitude, rec.longitude);
+    }
+    if (typeof rec.toArray === 'function' && typeof rec.isEqual === 'function') {
+      const arr = (rec as { toArray(): number[] }).toArray();
+      if (Array.isArray(arr)) {
+        return new RulesVector(Object.freeze(arr.slice()));
+      }
+    }
+    if (
+      typeof rec.path === 'string' &&
+      typeof rec.id === 'string' &&
+      rec._path !== undefined &&
+      rec._firestore !== undefined
+    ) {
+      return new Reference(rec.path, extractDuckReferenceDatabaseId(rec));
+    }
   }
   if (!isPlainObject(value)) return value;
   const needsEnvelopeStamp =

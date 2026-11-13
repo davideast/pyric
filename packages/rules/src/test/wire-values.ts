@@ -25,7 +25,13 @@ import { Vector } from '../simulator/wrappers/vector.js';
 import { RulesValue } from '../simulator/wrappers/base.js';
 
 const NANOS_PER_SECOND = 1_000_000_000n;
-const DOCUMENTS_ROOT = '/databases/(default)/documents/';
+
+function encodeReferenceWireForm(value: Reference): string {
+  if (value.path.length > 0) {
+    return `/databases/${value.databaseId}/documents/${value.path}`;
+  }
+  return `/databases/${value.databaseId}/documents`;
+}
 
 /** A duration as the Rules Test API's seconds string, such as `-1.500000000s`. */
 function durationWireForm(value: Duration): string {
@@ -54,7 +60,7 @@ function encodeRulesValue(value: RulesValue, field: string): unknown {
   if (value instanceof Timestamp) return value.toString();
   if (value instanceof LatLng) return { latitude: value.lat, longitude: value.lng };
   if (value instanceof Duration) return durationWireForm(value);
-  if (value instanceof Reference) return `${DOCUMENTS_ROOT}${value.path}`;
+  if (value instanceof Reference) return encodeReferenceWireForm(value);
   if (value instanceof RulesFloat) return value.value;
   if (value instanceof Bytes) throw untransportable('bytes', field);
   if (value instanceof Vector) throw untransportable('vector', field);
@@ -73,7 +79,12 @@ export function encodeWireValue(value: unknown, field: string): unknown {
   if (!isPlainMap(value)) return value;
   const out: Record<string, unknown> = {};
   for (const [key, child] of Object.entries(value)) {
-    out[key] = encodeWireValue(child, `${field}.${key}`);
+    Object.defineProperty(out, key, {
+      value: encodeWireValue(child, `${field}.${key}`),
+      enumerable: true,
+      writable: true,
+      configurable: true,
+    });
   }
   return out;
 }

@@ -27,7 +27,8 @@
  * a second resolver pass is a no-op.
  */
 import { KEEP, type ValueConverter } from '../value-resolver.js';
-import { Reference } from 'pyric/rules/internal';
+import { Reference } from '@pyric/rules/internal';
+import { extractDuckReferenceDatabaseId } from '../admin-reference-database.js';
 import { registeredReferenceQueryValue } from '../query-value-registry.js';
 
 /** Minimal duck-type for admin SDK DocumentReference. */
@@ -52,23 +53,6 @@ function isAdminDocumentReference(v: unknown): v is AdminDocumentReferenceLike {
   );
 }
 
-function extractAdminDatabaseId(ref: AdminDocumentReferenceLike): string | undefined {
-  if (typeof ref.formattedName === 'string' && ref.formattedName.length > 0) {
-    return new Reference(ref.formattedName).databaseId;
-  }
-  const fs = ref._firestore as Record<string, unknown> | null | undefined;
-  if (fs && typeof fs === 'object') {
-    if (typeof fs.databaseId === 'string' && fs.databaseId.length > 0) {
-      return fs.databaseId;
-    }
-    const inner = fs._databaseId as Record<string, unknown> | null | undefined;
-    if (inner && typeof inner === 'object' && typeof inner.database === 'string' && inner.database.length > 0) {
-      return inner.database;
-    }
-  }
-  return undefined;
-}
-
 export const documentReferenceConverter: ValueConverter = {
   name: 'document-reference',
   convert(value) {
@@ -77,6 +61,6 @@ export const documentReferenceConverter: ValueConverter = {
       if (registered !== undefined) return new Reference(registered.path, registered.databaseId);
     }
     if (!isAdminDocumentReference(value)) return KEEP;
-    return new Reference(value.path, extractAdminDatabaseId(value));
+    return new Reference(value.path, extractDuckReferenceDatabaseId(value));
   },
 };

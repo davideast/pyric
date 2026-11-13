@@ -98,7 +98,17 @@ export function reviveFirestoreNumbers(value: unknown): unknown {
   if (isPlainObject(value)) {
     const unescapedTag = Symbol.for('pyric.unescapedMap');
     if ((value as Record<symbol, unknown>)[unescapedTag] === true) {
-      return value;
+      const out: Record<string, unknown> = {};
+      for (const [key, child] of Object.entries(value)) {
+        Object.defineProperty(out, key, {
+          value: reviveFirestoreNumbers(child),
+          enumerable: true,
+          writable: true,
+          configurable: true,
+        });
+      }
+      Object.defineProperty(out, unescapedTag, { value: true });
+      return out;
     }
     if (typeof value.__type === 'string') {
       switch (value.__type) {
@@ -200,9 +210,16 @@ export function reviveFirestoreNumbers(value: unknown): unknown {
         : undefined;
       return new Reference(value.path, dbId);
     }
-    return Object.fromEntries(
-      Object.entries(value).map(([key, child]) => [key, reviveFirestoreNumbers(child)]),
-    );
+    const out: Record<string, unknown> = {};
+    for (const [key, child] of Object.entries(value)) {
+      Object.defineProperty(out, key, {
+        value: reviveFirestoreNumbers(child),
+        enumerable: true,
+        writable: true,
+        configurable: true,
+      });
+    }
+    return out;
   }
   return value;
 }

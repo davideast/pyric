@@ -84,7 +84,15 @@ export function encodeDocValue(value: unknown): unknown {
   const prototype = Object.getPrototypeOf(value);
   const isPlainMap = prototype === Object.prototype || prototype === null;
   if (isPlainMap) {
-    const fields = Object.fromEntries(Object.entries(value).map(([key, item]) => [key, encodeDocValue(item)]));
+    const fields: Record<string, unknown> = {};
+    for (const [key, item] of Object.entries(value)) {
+      Object.defineProperty(fields, key, {
+        value: encodeDocValue(item),
+        enumerable: true,
+        writable: true,
+        configurable: true,
+      });
+    }
     const hasMarkerField = Object.hasOwn(fields, 'type')
       || Object.hasOwn(fields, '__type')
       || Object.hasOwn(fields, '__type__');
@@ -96,13 +104,13 @@ export function encodeDocValue(value: unknown): unknown {
 
 /** A decoder's owner supplies usable references; persistence keeps rules values. */
 export interface ReferenceDecoder {
-  create(path: string): object;
+  create(path: string, databaseId?: string): object;
 }
 
 interface ValueConstructors {
   bytes(value: Uint8Array): object;
   geoPoint(latitude: number, longitude: number): object;
-  reference(path: string): object;
+  reference(path: string, databaseId?: string): object;
   timestamp(seconds: number, nanoseconds: number): object;
   vector(values: readonly number[]): object;
 }
@@ -110,7 +118,7 @@ interface ValueConstructors {
 const rulesValues: ValueConstructors = {
   bytes: (value) => new RulesBytes(value),
   geoPoint: (latitude, longitude) => new LatLng(latitude, longitude),
-  reference: (path) => new Reference(path),
+  reference: (path, databaseId) => new Reference(path, databaseId),
   timestamp: (seconds, nanoseconds) => new RulesTimestamp(seconds, nanoseconds),
   vector: (values) => new Vector(values),
 };
@@ -162,10 +170,15 @@ export function decodeDocValue(value: unknown, references: ReferenceDecoder, enc
   return rehydrateValue(value, true, {
     bytes: (value) => Bytes.fromUint8Array(value),
     geoPoint: (latitude, longitude) => new GeoPoint(latitude, longitude),
-    reference: (path) => references.create(path),
+    reference: (path, databaseId) => references.create(path, databaseId),
     timestamp: (seconds, nanoseconds) => new Timestamp(seconds, nanoseconds),
     vector: (values) => VectorValue.create(values.slice()),
   }, allowsEscapedMaps);
+}
+
+function optionalDatabaseId(raw: unknown): string | undefined {
+  if (typeof raw === 'string' && raw.length > 0) return raw;
+  return undefined;
 }
 
 function rehydrateValue(value: unknown, registerRootIdentity: boolean, constructors: ValueConstructors, allowsEscapedMaps: boolean): unknown {
@@ -222,8 +235,9 @@ function rehydrateValue(value: unknown, registerRootIdentity: boolean, construct
       case 'duration':
         return withActivityIdentity(new Duration(obj.seconds as number, obj.nanos as number));
       case 'reference': {
-        const path = obj.path as string;
-        return withActivityIdentity(constructors.reference(path));
+        const parsed = new Reference(obj.path as string, optionalDatabaseId(obj.databaseId));
+        const resolvedDb = parsed.databaseId !== '(default)' ? parsed.databaseId : undefined;
+        return withActivityIdentity(constructors.reference(parsed.path, resolvedDb));
       }
       case 'path':
         return withActivityIdentity(new Path(obj.segments as string[]));

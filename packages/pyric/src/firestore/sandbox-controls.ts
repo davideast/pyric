@@ -9,6 +9,7 @@
 import type { LocalSandbox, RemoteSandbox } from 'pyric/sandbox';
 import { getInternalEnv } from 'pyric/sandbox/internal';
 import { lintFirestoreRules, rulesSourceRejection } from 'pyric/rules/internal';
+import { encodeBoundaryMapValue } from './sandbox/unescaped-map.js';
 
 import type { DocumentData, LintResult } from './types.js';
 
@@ -71,7 +72,17 @@ export function seedDocuments(
 export function snapshotDocuments(
   sandbox: LocalSandbox,
 ): Record<string, DocumentData> {
-  return getInternalEnv(sandbox).snapshot();
+  const raw = getInternalEnv(sandbox).snapshot();
+  const out: Record<string, DocumentData> = {};
+  for (const [path, docData] of Object.entries(raw)) {
+    Object.defineProperty(out, path, {
+      value: encodeBoundaryMapValue(docData) as DocumentData,
+      enumerable: true,
+      writable: true,
+      configurable: true,
+    });
+  }
+  return out;
 }
 
 /** Inspect Firestore rules, documents, and recent requests in one sandbox. */

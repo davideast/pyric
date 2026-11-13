@@ -4,7 +4,7 @@ import {
 } from './activity-value-registry.js';
 import { registeredReferenceQueryValuePath } from './query-value-registry.js';
 
-export const UNESCAPED_MAP_TAG = Symbol.for('pyric.unescapedMap');
+const UNESCAPED_MAP_TAG = Symbol.for('pyric.unescapedMap');
 
 const SENTINEL_REGISTRY_KEY = Symbol.for('pyric.firestore.field-value-sentinels');
 const globalSentinelStore = globalThis as { [SENTINEL_REGISTRY_KEY]?: WeakSet<object> };
@@ -44,13 +44,94 @@ export function copyUnescapedUserMapTag<T extends Record<string, unknown>>(
   return target;
 }
 
+function isPlainMapRecord(value: unknown): value is Record<string, unknown> {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return false;
+  const proto = Object.getPrototypeOf(value);
+  return proto === Object.prototype || proto === null;
+}
+
 export function hasCollidingFirestoreMarkerShape(map: Record<string, unknown>): boolean {
   return (
     Object.hasOwn(map, '__type') ||
     Object.hasOwn(map, 'type') ||
     Object.hasOwn(map, '__type__') ||
+    Object.hasOwn(map, '_methodName') ||
+    Object.hasOwn(map, 'typeName') ||
     (Object.hasOwn(map, 'id') && Object.hasOwn(map, 'path'))
   );
+}
+
+function isCollidingWireMarkerMap(rec: Record<string, unknown>): boolean {
+  if (typeof rec._methodName === 'string') return true;
+  if (typeof rec.__type === 'string') return true;
+  if (typeof rec.typeName === 'string') return true;
+  if (rec.__type__ === '__vector__' && Array.isArray(rec.value)) return true;
+  if (
+    rec.type === 'pyric/map/1.0' &&
+    Object.keys(rec).length === 2 &&
+    isPlainMapRecord(rec.fields)
+  ) {
+    return true;
+  }
+  if (rec.type === 'pyric/number/1.0' && Object.keys(rec).length === 2) {
+    return true;
+  }
+  if (typeof rec.type === 'string' && rec.type.startsWith('firestore/')) {
+    return true;
+  }
+  if (typeof rec.id === 'string' && typeof rec.path === 'string') {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Strip `UNESCAPED_MAP_TAG` while wrapping marker-colliding user maps into
+ * `{ type: 'pyric/map/1.0', fields }` at public event and snapshot boundaries,
+ * so `JSON.stringify` / `structuredClone` round-trips stay unambiguous without
+ * exposing internal symbols on returned objects.
+ */
+export function encodeBoundaryMapValue(value: unknown): unknown {
+  if (value === null || typeof value !== 'object') return value;
+  if (Array.isArray(value)) {
+    return value.map(encodeBoundaryMapValue);
+  }
+  if (!isPlainMapRecord(value)) return value;
+  const fields: Record<string, unknown> = {};
+  for (const [key, item] of Object.entries(value)) {
+    Object.defineProperty(fields, key, {
+      value: encodeBoundaryMapValue(item),
+      enumerable: true,
+      writable: true,
+      configurable: true,
+    });
+  }
+  if (isUnescapedUserMap(value) && (isCollidingWireMarkerMap(value) || isCollidingWireMarkerMap(fields))) {
+    return { type: 'pyric/map/1.0', fields };
+  }
+  return fields;
+}
+
+/**
+ * Return a symbol-clean clone of a plain value tree without wrapping maps
+ * (used by direct document read surfaces like `admin.getDocument`).
+ */
+export function stripUnescapedUserMapTag(value: unknown): unknown {
+  if (value === null || typeof value !== 'object') return value;
+  if (Array.isArray(value)) {
+    return value.map(stripUnescapedUserMapTag);
+  }
+  if (!isPlainMapRecord(value)) return value;
+  const out: Record<string, unknown> = {};
+  for (const [key, item] of Object.entries(value)) {
+    Object.defineProperty(out, key, {
+      value: stripUnescapedUserMapTag(item),
+      enumerable: true,
+      writable: true,
+      configurable: true,
+    });
+  }
+  return out;
 }
 
 /**

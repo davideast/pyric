@@ -40,7 +40,6 @@ import type { Priority } from '../../database/sandbox/query.js';
 import { toStrictRulesJson } from '@pyric/rules/internal/rtdb';
 import { getAdminStorageSandbox, replaceStorageRules } from '../../storage/internal.js';
 import { Timestamp } from 'pyric/rules/internal';
-import { enginePayloadOf } from '../../firestore/sandbox/update-fields.js';
 import type { BatchOperationInput } from '../../firestore/sandbox/writes.js';
 import { getClock } from '../clock.js';
 import {
@@ -56,7 +55,7 @@ import type { SandboxCommitEvent, SandboxEvent, WriteSandboxEvent } from '../typ
 import type { LocalSandbox } from '../types/service.js';
 import { promoteFullState } from './promotion.js';
 import { diffFullStates, type BranchDivergence } from './state-diff.js';
-import { rehydrateReplayValue } from '../replay/index.js';
+import { batchMethodOf, resolveReplayWriteData } from '../replay/index.js';
 
 type DocData = Record<string, unknown>;
 
@@ -230,13 +229,8 @@ export function apply(branch: Branch, events: readonly SandboxEvent[]): Branch {
   const pinClockTo = (write: WriteSandboxEvent): void => {
     pinClockMs(write.requestTime.seconds * 1000 + Math.floor(write.requestTime.nanoseconds / 1e6));
   };
-  const dataFor = (write: WriteSandboxEvent): DocData | undefined => {
-    const rawData =
-      preResolutionDataFor(write, events, consumedRequestIndices) ??
-      enginePayloadOf({ resourceData: write.data, updateMask: write.updateMask });
-    if (rawData === undefined) return undefined;
-    return rehydrateReplayValue(rawData) as DocData;
-  };
+  const dataFor = (write: WriteSandboxEvent): DocData | undefined =>
+    resolveReplayWriteData(write, events, consumedRequestIndices);
 
   try {
     for (let index = 0; index < replayable.length;) {
@@ -254,23 +248,7 @@ export function apply(branch: Branch, events: readonly SandboxEvent[]): Branch {
         const existsInGroup = new Map<string, boolean>();
         const operations: BatchOperationInput[] = group.map((event) => {
           const targetPath = remap(event.path);
-          let method: BatchOperationInput['method'] = event.method;
-          if (event.method === 'delete') {
-            existsInGroup.set(targetPath, false);
-            method = 'delete';
-          } else if (event.updateMask !== undefined) {
-            existsInGroup.set(targetPath, true);
-            method = 'update';
-          } else if (
-            event.merge !== undefined ||
-            event.method === 'update' ||
-            existsInGroup.get(targetPath) === true
-          ) {
-            existsInGroup.set(targetPath, true);
-            method = 'set';
-          } else {
-            existsInGroup.set(targetPath, true);
-          }
+          const method = batchMethodOf(event, targetPath, existsInGroup);
           const operation: BatchOperationInput = { method, path: targetPath };
           if (event.method !== 'delete') {
             const data = dataFor(event);
@@ -443,39 +421,6 @@ function executionFor(
   if (write.merge !== undefined) execution.merge = write.merge;
   if (write.detail?.admin === true) execution.bypassRules = true;
   return execution;
-}
-
-/**
- * The pre-resolution payload for a write: the `request` event at or before it
- * on the same path carries `request.resourceData` with sentinels intact.
- * Mirrors the replay engine's own lookup.
- */
-function preResolutionDataFor(
-  write: WriteSandboxEvent,
-  allEvents: readonly SandboxEvent[],
-  consumedRequestIndices: Set<number>,
-): DocData | undefined {
-  const writeIndex = allEvents.indexOf(write);
-  if (writeIndex < 0) return undefined;
-  for (let index = writeIndex - 1; index >= 0; index--) {
-    const event = allEvents[index];
-    if (!event) continue;
-    if (event.kind === 'write' && event.path === write.path && !write.groupId && !event.groupId) {
-      break;
-    }
-    if (consumedRequestIndices.has(index)) continue;
-    if (event.kind !== 'request' || event.result !== 'allow') continue;
-    if (event.path !== write.path) continue;
-    const sameGroup =
-      write.groupId !== undefined ? event.groupId === write.groupId : event.groupId === undefined;
-    if (!sameGroup) continue;
-    const methodMatches =
-      event.method === write.method || event.method === 'set' || write.method === 'set';
-    if (!methodMatches) continue;
-    consumedRequestIndices.add(index);
-    return enginePayloadOf(event.request) as DocData | undefined;
-  }
-  return undefined;
 }
 
 /**

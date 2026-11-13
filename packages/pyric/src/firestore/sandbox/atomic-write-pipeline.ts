@@ -357,13 +357,11 @@ export class AtomicWritePipeline {
       const committed = decision.allowed && outcome.allowed;
       const prior = context.snapshot[input.path] ?? null;
       if (committed) {
-        const isDelete = input.ruleMethod === 'delete';
-        outcome.request.resourceAfter = isDelete
-          ? { data: null, exists: false }
-          : {
-              data: this.runtime.state.get(input.path),
-              exists: this.runtime.state.get(input.path) !== null,
-            };
+        const finalData = this.runtime.state.get(input.path);
+        outcome.request.resourceAfter = {
+          data: finalData,
+          exists: finalData !== null,
+        };
       } else {
         outcome.request.resourceAfter = { data: prior, exists: prior !== null };
       }

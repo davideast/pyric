@@ -7,6 +7,7 @@ import type { QueryProofDiagnostic } from '../../sandbox/types/query-proof.js';
 import type { EvaluatedRuleInfo } from 'pyric/rules/internal';
 import type { DocumentData } from './local-state.js';
 import type { EventProvenance, RulesDisposition } from '../../sandbox/types/events.js';
+import { encodeBoundaryMapValue, stripUnescapedUserMapTag } from './unescaped-map.js';
 import type { Operation } from './writes.js';
 
 // ─── RequestEvent emission (issue #307) ───────────────────────────────
@@ -97,17 +98,27 @@ export function buildRequestEvent(input: EmitRequestInput): import('../../sandbo
     origin: input.origin,
   };
   if (input.resourceData !== undefined) {
-    out.request = { resourceData: input.resourceData };
+    out.request = { resourceData: encodeBoundaryMapValue(input.resourceData) as DocumentData };
     if (input.updateMask !== undefined) out.request.updateMask = input.updateMask;
     if (input.merge !== undefined) out.request.merge = input.merge;
   }
   if (input.resourceBefore !== undefined) {
-    out.resourceBefore = input.resourceBefore;
+    const beforeData = input.resourceBefore.data;
+    out.resourceBefore = {
+      data: beforeData === null ? null : (encodeBoundaryMapValue(beforeData) as DocumentData),
+      exists: input.resourceBefore.exists,
+    };
   }
   if (input.resourceAfter !== undefined) {
-    out.resourceAfter = input.resourceAfter;
+    const afterData = input.resourceAfter.data;
+    out.resourceAfter = {
+      data: afterData === null ? null : (encodeBoundaryMapValue(afterData) as DocumentData),
+      exists: input.resourceAfter.exists,
+    };
   }
-  if (input.rulesEvidence !== undefined) out.rulesEvidence = input.rulesEvidence;
+  if (input.rulesEvidence !== undefined) {
+    out.rulesEvidence = stripUnescapedUserMapTag(input.rulesEvidence) as typeof input.rulesEvidence;
+  }
   if (input.queryProof !== undefined) out.queryProof = input.queryProof;
   const matched = parseMatchedRule(input.debugMessages, input.result);
   if (matched) out.matchedRule = matched;
@@ -116,7 +127,7 @@ export function buildRequestEvent(input: EmitRequestInput): import('../../sandbo
   // the allowing rule on an allow, the denying rule on a deny. Unsupported
   // results have no deciding rule (the simulator abstained).
   if (input.result !== 'unsupported' && input.evaluatedRule) {
-    out.evaluatedRule = input.evaluatedRule;
+    out.evaluatedRule = stripUnescapedUserMapTag(input.evaluatedRule) as typeof input.evaluatedRule;
   }
   if (input.groupId !== undefined) {
     out.groupId = input.groupId;

@@ -3,7 +3,12 @@ import {
   registeredActivityValue,
   trustedWireActivityValue,
 } from '../../../src/firestore/sandbox/activity-value-registry.js';
-import { rehydrateDocValue } from '../../../src/firestore/internal/value-codec.js';
+import {
+  DOC_VALUE_ENCODING,
+  decodeDocValue,
+  rehydrateDocValue,
+  rehydrateEncodedDocValue,
+} from '../../../src/firestore/internal/value-codec.js';
 import { Bytes } from '@pyric/rules/internal';
 import { Duration } from '@pyric/rules/internal';
 import { LatLng } from '@pyric/rules/internal';
@@ -69,5 +74,46 @@ describe('rehydrateDocValue', () => {
 
     expect(hydrated.__type).toBe('future');
     expect(hydrated.nested).toBeInstanceOf(Reference);
+  });
+
+  it('preserves named databaseId across rehydrateDocValue, rehydrateEncodedDocValue, and decodeDocValue', () => {
+    const namedMarker = { __type: 'reference', path: 'orgs/o1', databaseId: 'tenant-db' };
+    const qualifiedMarker = { __type: 'reference', path: 'databases/analytics-db/documents/docs/d1' };
+    const defaultMarker = { __type: 'reference', path: 'users/u1' };
+
+    const hydratedNamed = rehydrateDocValue(namedMarker) as Reference;
+    expect(hydratedNamed).toBeInstanceOf(Reference);
+    expect(hydratedNamed.path).toBe('orgs/o1');
+    expect(hydratedNamed.databaseId).toBe('tenant-db');
+
+    const hydratedEncoded = rehydrateEncodedDocValue(
+      { namedMarker, qualifiedMarker, defaultMarker },
+      DOC_VALUE_ENCODING,
+    ) as {
+      namedMarker: Reference;
+      qualifiedMarker: Reference;
+      defaultMarker: Reference;
+    };
+    expect(hydratedEncoded.namedMarker.databaseId).toBe('tenant-db');
+    expect(hydratedEncoded.qualifiedMarker.path).toBe('docs/d1');
+    expect(hydratedEncoded.qualifiedMarker.databaseId).toBe('analytics-db');
+    expect(hydratedEncoded.defaultMarker.databaseId).toBe('(default)');
+
+    const decodedCalls: Array<{ path: string; databaseId?: string }> = [];
+    decodeDocValue(
+      { namedMarker, qualifiedMarker, defaultMarker },
+      {
+        create: (path, databaseId) => {
+          decodedCalls.push({ path, databaseId });
+          return { path, databaseId };
+        },
+      },
+      DOC_VALUE_ENCODING,
+    );
+    expect(decodedCalls).toEqual([
+      { path: 'orgs/o1', databaseId: 'tenant-db' },
+      { path: 'docs/d1', databaseId: 'analytics-db' },
+      { path: 'users/u1', databaseId: undefined },
+    ]);
   });
 });

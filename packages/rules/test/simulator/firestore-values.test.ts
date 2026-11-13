@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import { reviveFirestoreNumbers } from '../../src/simulator/firestore-values.js';
 import { RulesFloat } from '../../src/simulator/wrappers/float.js';
 import { Reference } from '../../src/simulator/wrappers/reference.js';
+import { encodeWireDocument } from '../../src/test/wire-values.js';
 
 describe('reviveFirestoreNumbers', () => {
   test('restores non-integral JSON numbers as Firestore floats', () => {
@@ -58,5 +59,37 @@ describe('reviveFirestoreNumbers', () => {
     });
     expect(escapedMap).not.toBeInstanceOf(Reference);
     expect(escapedMap).toEqual({ id: 'org-1', path: 'orgs/org-1', databaseId: 'analytics' });
+  });
+
+  test('recurses into unescaped user maps so -0 and >=2^53 preserve float typing', () => {
+    const unescapedTag = Symbol.for('pyric.unescapedMap');
+    const unescapedMap: Record<string, unknown> = {
+      type: 'pyric/map/1.0',
+      fields: { negZero: -0, huge: 2 ** 53 },
+    };
+    Object.defineProperty(unescapedMap, unescapedTag, { value: true });
+
+    const revived = reviveFirestoreNumbers(unescapedMap) as Record<string, unknown>;
+    expect(revived.type).toBe('pyric/map/1.0');
+    expect((revived as Record<symbol, unknown>)[unescapedTag]).toBe(true);
+    const fields = revived.fields as Record<string, unknown>;
+    expect(fields.negZero).toBeInstanceOf(RulesFloat);
+    expect(Object.is((fields.negZero as RulesFloat).value, -0)).toBe(true);
+    expect(fields.huge).toBeInstanceOf(RulesFloat);
+    expect((fields.huge as RulesFloat).value).toBe(2 ** 53);
+  });
+
+  test('encodes Reference wire paths using each reference databaseId', () => {
+    const doc = encodeWireDocument(
+      {
+        defaultRef: new Reference('users/u1'),
+        namedRef: new Reference('orgs/o1', 'tenant-db'),
+        rootNamedRef: new Reference('', 'tenant-db'),
+      },
+      'data',
+    );
+    expect(doc.defaultRef).toBe('/databases/(default)/documents/users/u1');
+    expect(doc.namedRef).toBe('/databases/tenant-db/documents/orgs/o1');
+    expect(doc.rootNamedRef).toBe('/databases/tenant-db/documents');
   });
 });
