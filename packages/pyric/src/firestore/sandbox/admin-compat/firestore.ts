@@ -83,6 +83,10 @@ function withSerializedCommit<T>(
   });
 }
 
+export const TXN_ATTEMPTS_EXHAUSTED_MARKER = Symbol.for(
+  'pyric.firestore.transactionAttemptsExhausted',
+);
+
 export class FirestoreImpl implements Firestore {
   constructor(
     private readonly env: LocalEnvironment,
@@ -185,7 +189,13 @@ export class FirestoreImpl implements Firestore {
         throw new FirestoreCompatError(e.simError);
       }
       if (e instanceof TransactionAttemptsExhaustedError) {
-        throw new FirestoreCompatError(e.simError);
+        const compatErr = new FirestoreCompatError(e.simError);
+        Object.defineProperty(compatErr, TXN_ATTEMPTS_EXHAUSTED_MARKER, {
+          value: true,
+          enumerable: false,
+          configurable: true,
+        });
+        throw compatErr;
       }
       throw e;
     }

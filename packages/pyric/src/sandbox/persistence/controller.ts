@@ -177,6 +177,11 @@ export async function attachPersistence(
     const servicePrepared: Array<{ records: Map<string, unknown>; removed: string[]; retry(): void }> = [];
     try {
       const services = { ...Object.fromEntries(pendingServices) };
+      if (localSandbox) {
+        for (const [name, pending] of localSandbox.getPendingSnapshotServices()) {
+          services[name] = structuredClone(pending);
+        }
+      }
       let records: Map<string, unknown>;
       let removed: string[];
       const usesChangedBuckets = prepared !== undefined && localSandbox !== null;
@@ -475,6 +480,15 @@ export async function attachPersistence(
     if (replacesState) {
       serviceSnapshots.clear();
       pendingServices.clear();
+      const rtdbRegistered = localSandbox.getServiceRegistry().has('rtdb');
+      if (!rtdbRegistered) {
+        for (const id of [...lastHashes.keys()]) {
+          if (isRtdbRecordId(id)) {
+            staleIds.add(id);
+            lastHashes.delete(id);
+          }
+        }
+      }
     }
     scheduleFlush();
   });

@@ -64,6 +64,7 @@ export type {
   RtdbCase,
   RtdbCaseQuery,
   RtdbCaseResult,
+  RtdbTreeData,
   RtdbInstancesData,
   RtdbExplanation,
   RtdbRuleEvaluation,

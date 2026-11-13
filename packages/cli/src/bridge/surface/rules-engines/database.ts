@@ -80,10 +80,9 @@ export function simulateAgainst(
 ): RtdbCaseResult {
   const tree =
     selector === undefined
-      ? snapshotState(ctx.sandbox)
-      : snapshotState(databaseFor(ctx, selector));
-  let data: Record<string, unknown> = {};
-  if (tree !== null && typeof tree === 'object') data = tree as Record<string, unknown>;
+      ? snapshotState(ctx.sandbox, { includePriorities: true })
+      : snapshotState(databaseFor(ctx, selector), { includePriorities: true });
+  const data: RtdbCase['data'] = tree ?? {};
   let identity: RtdbCase['auth'] = null;
   if (auth !== null) identity = { uid: auth.uid, token: auth.claims };
 

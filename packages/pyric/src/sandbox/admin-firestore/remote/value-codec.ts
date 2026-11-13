@@ -25,6 +25,7 @@ import { rehydrateEncodedDocValue } from 'pyric/firestore/internal/value-codec';
 import { Bytes as InternalBytes } from 'pyric/rules/internal';
 import {
   Timestamp as CompatTimestamp,
+  isValidTimestampComponents,
   registeredAdminReferencePath,
   type DocumentData,
   type FieldValueSentinel,
@@ -98,8 +99,21 @@ export function encodeValue(v: unknown): unknown {
     const view = new Uint8Array(v.buffer, v.byteOffset, v.byteLength);
     return new InternalBytes(view.slice()).toJSON();
   }
-  if (v instanceof CompatTimestamp) return v.toJSON();
-  if (v instanceof Date) return CompatTimestamp.fromDate(v).toJSON();
+  if (v instanceof CompatTimestamp) {
+    if (!isValidTimestampComponents(v.seconds, v.nanoseconds)) {
+      throw invalidArgument(
+        `Invalid Timestamp(seconds=${String(v.seconds)}, nanoseconds=${String(v.nanoseconds)})`,
+      );
+    }
+    return v.toJSON();
+  }
+  if (v instanceof Date) {
+    const ms = v.getTime();
+    if (!Number.isFinite(ms)) {
+      throw invalidArgument('Invalid Date value for Firestore Timestamp.');
+    }
+    return CompatTimestamp.fromDate(v).toJSON();
+  }
   if (Array.isArray(v)) return v.map(encodeValue);
   const proto = Object.getPrototypeOf(v);
   if (proto !== Object.prototype && proto !== null) {

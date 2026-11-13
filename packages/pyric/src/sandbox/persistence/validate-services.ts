@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { rtdbRulesSourceRejection } from '../../rules/internal/rtdb.js';
 import { seedUserSchema } from '../internal/state-schemas.js';
 import { isMessagingSnapshot } from '../../messaging/broker/persistence.js';
 
@@ -23,7 +24,21 @@ export function validatePersistedService(name: string, value: unknown): void {
   const isDatabase = name === 'rtdb';
   if (isDatabase) {
     const parsed = databaseState.parse(value);
-    for (const instance of Object.values(parsed.instances ?? {})) databaseState.parse(instance);
+    if (parsed.rules !== undefined) {
+      const rejection = rtdbRulesSourceRejection(parsed.rules);
+      if (rejection !== null) {
+        throw new Error(`Invalid persisted Realtime Database rules: ${rejection.message}`);
+      }
+    }
+    for (const [instanceName, instance] of Object.entries(parsed.instances ?? {})) {
+      const parsedInstance = databaseState.parse(instance);
+      if (parsedInstance.rules !== undefined) {
+        const rejection = rtdbRulesSourceRejection(parsedInstance.rules);
+        if (rejection !== null) {
+          throw new Error(`Invalid persisted Realtime Database rules for '${instanceName}': ${rejection.message}`);
+        }
+      }
+    }
     return;
   }
   const isMessaging = name === 'messaging';
@@ -53,8 +68,9 @@ export function persistedServiceHasData(name: string, value: unknown): boolean {
   if (isDatabase) {
     const database = databaseState.parse(value);
     const hasData = containsDatabaseData(database.data);
+    const hasRules = database.rules !== undefined;
     const hasInstanceData = Object.values(database.instances ?? {}).some(instance => persistedServiceHasData('rtdb', instance));
-    return hasData || hasInstanceData;
+    return hasData || hasRules || hasInstanceData;
   }
   const isMessaging = name === 'messaging' && isMessagingSnapshot(value);
   if (isMessaging) return value.tokens.length > 0 || value.topics.length > 0;

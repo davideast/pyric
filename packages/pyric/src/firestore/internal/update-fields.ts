@@ -3,6 +3,8 @@
  * segment-vector field paths, without loading the sandbox engine.
  */
 export {
+  fieldPathArgumentSegments,
+  fieldPathKey,
   fieldPathKeySegments,
   normalizeMergeFields,
   parseUpdateArguments,

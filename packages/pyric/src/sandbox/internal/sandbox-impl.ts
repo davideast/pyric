@@ -702,14 +702,6 @@ export class SandboxImpl implements LocalSandbox {
       );
     }
     this.serviceRegistry.set(name, hooks);
-    // Notify the persistence controller so it can subscribe to change
-    // notifications from this service even if it was registered AFTER
-    // `enablePersistence` was called (the late-registration path: user
-    // calls `enablePersistence`, later calls `getAuth(sandbox)` which
-    // triggers this registration).
-    if (this._onServiceRegistered) {
-      this._onServiceRegistered(name, hooks);
-    }
     if (this.pendingSnapshotServices.has(name)) {
       const pending = this.pendingSnapshotServices.get(name);
       this.pendingSnapshotServices.delete(name);
@@ -718,6 +710,12 @@ export class SandboxImpl implements LocalSandbox {
       } catch (e) {
         console.warn(`[sandbox] late snapshot restore for service '${name}' failed:`, e);
       }
+    }
+    // Notify the persistence controller AFTER hydrating any pending snapshot
+    // state so `records.init(...)` sees every restored named instance rather
+    // than treating them as orphans.
+    if (this._onServiceRegistered) {
+      this._onServiceRegistered(name, hooks);
     }
     return () => {
       if (this.serviceRegistry.get(name) !== hooks) return;
@@ -752,6 +750,11 @@ export class SandboxImpl implements LocalSandbox {
    */
   getServiceRegistry(): ReadonlyMap<string, PersistableService> {
     return this.serviceRegistry;
+  }
+
+  /** Internal: unconsumed service payloads placed by `loadSnapshot` before lazy registration. */
+  getPendingSnapshotServices(): ReadonlyMap<string, unknown> {
+    return this.pendingSnapshotServices;
   }
 }
 

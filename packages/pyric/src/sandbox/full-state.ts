@@ -461,6 +461,7 @@ function applyDatabase(sandbox: LocalSandbox, state: FullSandboxState): void {
     const existingBackend = getOrCreateBackend(sandbox, databaseInstanceNamed(existingName));
     existingBackend.restoreTree(databaseEnvelopeWithRules(emptyEnvelope, null));
     existingBackend.setRules(null);
+    existingBackend.markDormant();
   }
 
   for (const name of allNames) {

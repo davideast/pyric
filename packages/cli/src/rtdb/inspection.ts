@@ -94,10 +94,8 @@ export function createRtdbInspectionTools(
           };
         }
 
-        const state = snapshotState(sandbox);
-        const data = state !== null && typeof state === 'object' && !Array.isArray(state)
-          ? state as Record<string, unknown>
-          : {};
+        const state = snapshotState(sandbox, { includePriorities: true });
+        const data: RtdbCase['data'] = state ?? {};
         // `now` is the sandbox clock's unless the call names an instant, so a
         // simulation of a `now`-gated rule moves with a pinned or advanced
         // clock rather than against the wall clock the process runs on.

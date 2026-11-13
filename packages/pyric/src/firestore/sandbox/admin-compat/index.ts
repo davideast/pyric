@@ -24,7 +24,8 @@ import {
   copyQueryValueRegistration,
   registeredReferenceQueryValuePath,
 } from '../query-value-registry.js';
-import { FirestoreImpl } from './firestore.js';
+import { FirestoreImpl, TXN_ATTEMPTS_EXHAUSTED_MARKER } from './firestore.js';
+import { isValidTimestampComponents } from '../../timestamp.js';
 import {
   type AuthContext,
   type Firestore,
@@ -47,6 +48,7 @@ export {
   FieldValue,
   Timestamp,
 } from './types.js';
+export { isValidTimestampComponents, TXN_ATTEMPTS_EXHAUSTED_MARKER };
 export { FieldPath } from './field-path.js';
 export type { SnapshotFieldPath } from './field-path.js';
 

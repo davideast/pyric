@@ -77,7 +77,8 @@ export class BackendState {
   resetGeneration = 0;
   private cachedRulesTreeGen = -1;
   private cachedRulesPriorityGen = -1;
-  private cachedRulesView: Record<string, unknown> | null = null;
+  private hasCachedRulesView = false;
+  private cachedRulesView: JsonValue = {};
   /**
    * The sandbox's clock. Every server-set time this backend produces reads it:
    * `ServerValue.TIMESTAMP`, the rules engine's `now`, push-id keys, and the
@@ -99,11 +100,11 @@ export class BackendState {
    * never mutates `mockData`) and caches the spine-cloned priority view until
    * either the tree or priority state advances its generation.
    */
-  rulesSnapshot(): Record<string, unknown> {
+  rulesSnapshot(): JsonValue {
     const treeGen = this.tree.generation;
     const prioGen = this.priorities.generation;
     if (
-      this.cachedRulesView !== null
+      this.hasCachedRulesView
       && this.cachedRulesTreeGen === treeGen
       && this.cachedRulesPriorityGen === prioGen
     ) {
@@ -117,7 +118,8 @@ export class BackendState {
     }
     this.cachedRulesTreeGen = treeGen;
     this.cachedRulesPriorityGen = prioGen;
-    this.cachedRulesView = view as Record<string, unknown>;
+    this.hasCachedRulesView = true;
+    this.cachedRulesView = view as JsonValue;
     return this.cachedRulesView;
   }
 

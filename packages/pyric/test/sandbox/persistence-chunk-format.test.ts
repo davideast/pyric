@@ -2,6 +2,11 @@ import { describe, test, expect } from 'bun:test';
 import {
   decodeImportBundle,
 } from '../../src/sandbox/persistence/import-bundle.js';
+import { validateRtdbImportRecord } from '../../src/sandbox/persistence/rtdb-records.js';
+import {
+  persistedServiceHasData,
+  validatePersistedService,
+} from '../../src/sandbox/persistence/validate-services.js';
 import {
   bundleRecords,
   pathToBucketId,
@@ -36,6 +41,31 @@ describe('v2 -> v3 migration (C4)', () => {
     const v2 = serializeSnapshot({ 'posts/p1': { title: 'Hi' } });
     const records = parseBundle(v2);
     expect(deserializeFromBuckets([...records]).firestore['posts/p1']).toEqual({ title: 'Hi' });
+  });
+
+  test('migrateV2ToRecords, parseBundle, and decodeImportBundle partition legacy plain-tree services.rtdb into rtdb:* records', () => {
+    const legacyV2 = serializeSnapshot(
+      { 'docs/d1': { title: 'alpha' } },
+      { rtdb: { users: { u1: { name: 'Alice' } } } },
+    );
+    const records = parseBundle(legacyV2);
+    expect((records.get(META_RECORD_ID) as MetaRecord).services).not.toHaveProperty('rtdb');
+    expect([...records.keys()].some((id) => id.startsWith('rtdb:'))).toBe(true);
+
+    const decoded = deserializeFromBuckets(records);
+    expect(decoded.firestore).toEqual({ 'docs/d1': { title: 'alpha' } });
+    expect(decoded.services.rtdb).toEqual({
+      '.pyricRtdbPersistence': 1,
+      data: { users: { u1: { name: 'Alice' } } },
+      priorities: {},
+    });
+
+    const imported = decodeImportBundle(legacyV2);
+    expect(imported.services.rtdb).toEqual({
+      '.pyricRtdbPersistence': 1,
+      data: { users: { u1: { name: 'Alice' } } },
+      priorities: {},
+    });
   });
 });
 
@@ -207,5 +237,47 @@ describe('serializeToBuckets / deserializeFromBuckets', () => {
     const partial = deserializeFromBuckets(records);
     const restoredData = (partial.services.rtdb as { data: Record<string, unknown> }).data;
     expect(restoredData).not.toHaveProperty(firstKey.split('/')[1]!);
+  });
+
+  test('recognizes rules-only RTDB persisted state as non-empty and rejects invalid RTDB rules in record and service validators', () => {
+    const emptyRtdb = {
+      '.pyricRtdbPersistence': 1 as const,
+      data: {},
+      priorities: {},
+    };
+    expect(persistedServiceHasData('rtdb', emptyRtdb)).toBe(false);
+
+    const rulesOnlyDefault = {
+      ...emptyRtdb,
+      rules: { rules: { users: { $uid: { '.read': 'auth.uid === $uid' } } } },
+    };
+    expect(persistedServiceHasData('rtdb', rulesOnlyDefault)).toBe(true);
+
+    const rulesOnlyNamed = {
+      ...emptyRtdb,
+      instances: {
+        'secondary-rtdb': {
+          ...emptyRtdb,
+          rules: { rules: { items: { '.read': true } } },
+        },
+      },
+    };
+    expect(persistedServiceHasData('rtdb', rulesOnlyNamed)).toBe(true);
+
+    expect(() =>
+      validateRtdbImportRecord('rtdb:i:(default)', {
+        version: 1,
+        instance: '(default)',
+        priorities: {},
+        rules: { rules: { '.unknownDirective': true, '.read': 'auth.uid ===' } },
+      }),
+    ).toThrow(/invalid rules|compile/i);
+
+    expect(() =>
+      validatePersistedService('rtdb', {
+        ...emptyRtdb,
+        rules: { rules: { '.unknownDirective': true } },
+      }),
+    ).toThrow(/rules|compile/i);
   });
 });

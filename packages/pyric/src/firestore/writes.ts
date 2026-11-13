@@ -27,7 +27,9 @@ import type {
   DocumentReference,
   CollectionReference,
   FirestoreDataConverter,
+  PartialWithFieldValue,
   UpdateData,
+  WithFieldValue,
 } from './types.js';
 import { withFirestoreFirebaseError } from './errors.js';
 import { clientStateFor } from './client-state.js';
@@ -65,17 +67,45 @@ export interface SetOptions {
   mergeFields?: readonly (string | FieldPath)[];
 }
 
+function applySetConverter<T>(
+  converter: FirestoreDataConverter<T> | null | undefined,
+  data: PartialWithFieldValue<T> | WithFieldValue<T>,
+  options?: SetOptions,
+): unknown {
+  if (converter === undefined || converter === null) {
+    return data;
+  }
+  const usesMergeConverter =
+    options !== undefined && (Boolean(options.merge) || options.mergeFields !== undefined);
+  if (usesMergeConverter) {
+    return converter.toFirestore(data, options);
+  }
+  return converter.toFirestore(data as WithFieldValue<T>);
+}
+
+export function setDoc<T = DocumentData>(
+  ref: DocumentReference<T>,
+  data: WithFieldValue<T>,
+): Promise<void>;
+export function setDoc<T = DocumentData>(
+  ref: DocumentReference<T>,
+  data: PartialWithFieldValue<T>,
+  options: SetOptions,
+): Promise<void>;
+export function setDoc<T = DocumentData>(
+  ref: DocumentReference<T>,
+  data: WithFieldValue<T>,
+  options?: SetOptions,
+): Promise<void>;
 export async function setDoc<T = DocumentData>(
   ref: DocumentReference<T>,
-  data: T,
+  data: PartialWithFieldValue<T> | WithFieldValue<T>,
   options?: SetOptions,
 ): Promise<void> {
   const target = targetOf(ref);
   return runSdkWrite(beginFirestoreActivity(target, ref, 'setDoc', 'operation'), async () => {
-    const conv = converterOf(ref);
-    const rawPayload = conv
-      ? (conv as FirestoreDataConverter<T>).toFirestore(data)
-      : (data as unknown as DocumentData);
+    const conv = converterOf(ref) as FirestoreDataConverter<T> | null | undefined;
+    const rawPayload = applySetConverter(conv, data, options);
     const payload = markUserWriteValue(rawPayload) as DocumentData;
     return clientStateFor(target).runWrite(
       () => withFirestoreFirebaseError(() =>
@@ -133,7 +163,7 @@ export async function deleteDoc(ref: DocumentReference): Promise<void> {
 
 export async function addDoc<T = DocumentData>(
   coll: CollectionReference<T>,
-  data: T,
+  data: WithFieldValue<T>,
 ): Promise<DocumentReference<T>> {
   const target = targetOf(coll);
   return runSdkWrite(beginFirestoreActivity(target, coll, 'addDoc', 'operation'), async () => {

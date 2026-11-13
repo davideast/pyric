@@ -1,7 +1,8 @@
 /** `exportUsers` → `seedUsers` round-trip + `restoreSession` — the auth
  *  substrate for sandbox persistence (pyric-persist plan 0.1, flow doc section 3c). */
 import { describe, expect, it } from 'bun:test';
-import { initializeSandbox } from 'pyric/sandbox';
+import { runInNewContext } from 'node:vm';
+import { initializeSandbox, normalizeAuthState } from 'pyric/sandbox';
 import {
   getAuth,
   onAuthStateChanged,
@@ -161,10 +162,259 @@ describe('sandbox.exportUsers', () => {
 
     const b = wire();
     authSandbox.seedUsers(b, exported);
-    const restored = authSandbox.listUsers(b).find((u) => u.uid === anon.user.uid);
+    const restored = authSandbox.listUsers(b).find((u) => u.uid === 'anon' || u.uid === anon.user.uid);
     expect(restored).toBeDefined();
     expect(restored?.email).toBeNull();
     expect(authSandbox.exportUsers(b)).toEqual(exported);
+  });
+
+  it('deep-clones customClaims across snapshot, loadSnapshot, seedUsers, createUser, updateUser, listUsers, and listIdentities for all user kinds', async () => {
+    const sb = initializeSandbox();
+    try {
+      const auth = getAuth(sb);
+      const seedClaims = { roles: ['editor'], org: { id: 'o1' } };
+      authSandbox.seedUsers(auth, [
+        {
+          uid: 'u-anon',
+          email: '',
+          password: '',
+          providerId: 'anonymous',
+          customClaims: { roles: ['viewer'], org: { id: 'o0' } },
+        },
+        {
+          uid: 'u-email',
+          email: 'alice@example.com',
+          password: 'password123',
+          customClaims: seedClaims,
+        },
+        {
+          uid: 'u-oauth',
+          email: 'oauth@example.com',
+          providerId: 'google.com',
+          customClaims: { roles: ['member'], org: { id: 'o2' } },
+        },
+      ]);
+
+      // Caller mutation after seedUsers must not leak into live store
+      seedClaims.roles.push('mutated-after-seed');
+      seedClaims.org.id = 'tampered-seed';
+      expect(authSandbox.exportUsers(auth).find((u) => u.uid === 'u-email')?.customClaims).toEqual({
+        roles: ['editor'],
+        org: { id: 'o1' },
+      });
+
+      // Snapshot mutation must not corrupt live store for non-anonymous or anonymous users
+      const snap = sb.snapshot();
+      const authState = snap.services.auth as { users: Array<{ uid: string; customClaims?: { roles: string[]; org: { id: string } } }> };
+      for (const u of authState.users) {
+        u.customClaims?.roles.push('tampered-snap');
+        if (u.customClaims?.org) u.customClaims.org.id = 'tampered-snap';
+      }
+      expect(authSandbox.exportUsers(auth).find((u) => u.uid === 'u-email')?.customClaims).toEqual({
+        roles: ['editor'],
+        org: { id: 'o1' },
+      });
+      expect(authSandbox.exportUsers(auth).find((u) => u.uid === 'u-oauth')?.customClaims).toEqual({
+        roles: ['member'],
+        org: { id: 'o2' },
+      });
+
+      // loadSnapshot caller mutation after load must not leak into live store or minted tokens
+      const inputSnap = {
+        firestore: {},
+        services: {
+          auth: {
+            users: [
+              {
+                uid: 'u-restored',
+                email: 'bob@example.com',
+                password: 'password123',
+                customClaims: { scopes: ['read'], meta: { tier: 'gold' } },
+              },
+            ],
+            providers: { password: true },
+          },
+        },
+      };
+      sb.loadSnapshot(inputSnap);
+      inputSnap.services.auth.users[0]!.customClaims.scopes.push('write');
+      inputSnap.services.auth.users[0]!.customClaims.meta.tier = 'compromised';
+
+      expect(authSandbox.exportUsers(auth).find((u) => u.uid === 'u-restored')?.customClaims).toEqual({
+        scopes: ['read'],
+        meta: { tier: 'gold' },
+      });
+      const signedIn = await signInWithEmailAndPassword(auth, 'bob@example.com', 'password123');
+      const tokenResult = await signedIn.user.getIdTokenResult();
+      expect(tokenResult.claims.scopes).toEqual(['read']);
+      expect(tokenResult.claims.meta).toEqual({ tier: 'gold' });
+
+      // createUser, updateUser, listUsers, and listIdentities deep-clone nested customClaims
+      const createClaims = { nested: { list: ['a'] } };
+      const created = authSandbox.createUser(auth, {
+        uid: 'u-admin',
+        email: 'admin@example.com',
+        password: 'password123',
+        customClaims: createClaims,
+      });
+      createClaims.nested.list.push('b');
+      (created.customClaims.nested as { list: string[] }).list.push('c');
+      expect(authSandbox.exportUsers(auth).find((u) => u.uid === 'u-admin')?.customClaims).toEqual({
+        nested: { list: ['a'] },
+      });
+
+      const updateClaims = { nested: { list: ['x'] } };
+      const updated = authSandbox.updateUser(auth, 'u-admin', { customClaims: updateClaims });
+      updateClaims.nested.list.push('y');
+      (updated.customClaims.nested as { list: string[] }).list.push('z');
+
+      const listedUser = authSandbox.listUsers(auth).find((u) => u.uid === 'u-admin')!;
+      (listedUser.customClaims.nested as { list: string[] }).list.push('mut-list');
+      const listedIdentity = authSandbox.listIdentities(auth).find((u) => u.uid === 'u-admin')!;
+      (listedIdentity.customClaims.nested as { list: string[] }).list.push('mut-id');
+
+      expect(authSandbox.exportUsers(auth).find((u) => u.uid === 'u-admin')?.customClaims).toEqual({
+        nested: { list: ['x'] },
+      });
+    } finally {
+      sb.dispose();
+    }
+  });
+
+  it('isolates getIdTokenResult().claims from cached tokens and live sandbox.currentUser.token', async () => {
+    const sb = initializeSandbox();
+    try {
+      const auth = getAuth(sb);
+      authSandbox.seedUsers(auth, [
+        {
+          uid: 'u-viewer',
+          email: 'viewer@example.com',
+          password: 'password123',
+          customClaims: { roles: ['viewer'], org: { id: 'o1' } },
+        },
+      ]);
+
+      const { getDatabase, getAdminDatabase, ref, set, get, sandbox: rtdbSandbox } = await import('../../src/database/index.js');
+      const adminDb = getAdminDatabase(sb);
+      await set(ref(adminDb, 'items/secret'), 'classified');
+      rtdbSandbox.setRules(adminDb, {
+        rules: {
+          items: {
+            secret: {
+              '.read': "auth != null && auth.token.roles[1] === 'admin' && auth.token.org.id === 'tampered'",
+              '.write': false,
+            },
+          },
+        },
+      });
+
+      const cred = await signInWithEmailAndPassword(auth, 'viewer@example.com', 'password123');
+      const clientDb = getDatabase(sb);
+      await expect(get(ref(clientDb, 'items/secret'))).rejects.toThrow(/PERMISSION_DENIED/);
+
+      const firstTokenResult = await cred.user.getIdTokenResult();
+      (firstTokenResult.claims.roles as string[]).push('admin');
+      (firstTokenResult.claims.org as { id: string }).id = 'tampered';
+      firstTokenResult.claims.extraTopLevel = 'leaked';
+
+      const secondTokenResult = await cred.user.getIdTokenResult(false);
+      expect(secondTokenResult.claims.roles).toEqual(['viewer']);
+      expect(secondTokenResult.claims.org).toEqual({ id: 'o1' });
+      expect(secondTokenResult.claims.extraTopLevel).toBeUndefined();
+
+      const forcedTokenResult = await cred.user.getIdTokenResult(true);
+      (forcedTokenResult.claims.roles as string[]).push('admin');
+      (forcedTokenResult.claims.org as { id: string }).id = 'tampered';
+
+      // Mutating returned IdTokenResult.claims must NEVER elevate live rules privileges
+      await expect(get(ref(clientDb, 'items/secret'))).rejects.toThrow(/PERMISSION_DENIED/);
+    } finally {
+      sb.dispose();
+    }
+  });
+
+  it('clones cross-realm customClaims, IdTokenResult, and rulesTokenClaims into realm-local plain objects accepted by normalizeAuthState and withAuth', async () => {
+    const sb = initializeSandbox();
+    try {
+      const crossRealmClaims = runInNewContext(`(() => {
+        const shared = { tier: 'pro' };
+        const nullProto = Object.assign(Object.create(null), { scope: 'docs' });
+        const protoCarrier = JSON.parse('{"__proto__":{"polluted":true},"safe":1}');
+        return {
+          role: 'editor',
+          tags: ['a'],
+          issuedOn: new Date('2026-01-02T03:04:05.000Z'),
+          digest: new Uint8Array([4, 5, 6]),
+          firstRef: shared,
+          secondRef: shared,
+          nullProto,
+          protoCarrier,
+        };
+      })()`) as Record<string, unknown>;
+
+      expect(Object.getPrototypeOf(crossRealmClaims)).not.toBe(Object.prototype);
+
+      const auth = getAuth(sb);
+      authSandbox.seedUsers(auth, [
+        {
+          uid: 'u-realm',
+          email: 'realm@example.com',
+          password: 'password123',
+          customClaims: crossRealmClaims,
+        },
+      ]);
+
+      const exportedClaims = authSandbox.exportUsers(auth).find((u) => u.uid === 'u-realm')?.customClaims;
+      expect(exportedClaims).toBeDefined();
+      expect(Object.getPrototypeOf(exportedClaims)).toBe(Object.prototype);
+      expect(Object.getPrototypeOf(exportedClaims!.tags)).toBe(Array.prototype);
+      expect(exportedClaims!.issuedOn).toBeInstanceOf(Date);
+      expect(exportedClaims!.digest).toBeInstanceOf(Uint8Array);
+      expect(Array.from(exportedClaims!.digest as Uint8Array)).toEqual([4, 5, 6]);
+      expect(exportedClaims!.firstRef).toBe(exportedClaims!.secondRef);
+      expect(Object.getPrototypeOf(exportedClaims!.firstRef)).toBe(Object.prototype);
+      expect(Object.getPrototypeOf(exportedClaims!.nullProto)).toBeNull();
+      const protoCarrier = exportedClaims!.protoCarrier as Record<string, unknown>;
+      expect(Object.getPrototypeOf(protoCarrier)).toBe(Object.prototype);
+      expect(Object.hasOwn(protoCarrier, '__proto__')).toBe(true);
+      expect('polluted' in protoCarrier).toBe(false);
+
+      const listedClaims = authSandbox.listUsers(auth).find((u) => u.uid === 'u-realm')!.customClaims;
+      expect(Object.getPrototypeOf(listedClaims)).toBe(Object.prototype);
+      const identityClaims = authSandbox.listIdentities(auth).find((u) => u.uid === 'u-realm')!.customClaims;
+      expect(Object.getPrototypeOf(identityClaims)).toBe(Object.prototype);
+
+      const signedIn = await signInWithEmailAndPassword(auth, 'realm@example.com', 'password123');
+      const tokenResult = await signedIn.user.getIdTokenResult();
+      expect(Object.getPrototypeOf(tokenResult)).toBe(Object.prototype);
+      expect(Object.getPrototypeOf(tokenResult.claims)).toBe(Object.prototype);
+      expect(Object.getPrototypeOf(tokenResult.claims.firebase)).toBe(Object.prototype);
+      expect(Object.getPrototypeOf(tokenResult.claims.tags)).toBe(Array.prototype);
+
+      const restoredUser = authSandbox.restoreSession(auth, 'u-realm');
+      const restoredTokenResult = await restoredUser.getIdTokenResult(true);
+      expect(Object.getPrototypeOf(restoredTokenResult)).toBe(Object.prototype);
+      expect(Object.getPrototypeOf(restoredTokenResult.claims)).toBe(Object.prototype);
+
+      expect(sb.currentUser).not.toBeNull();
+      expect(Object.getPrototypeOf(sb.currentUser!.token)).toBe(Object.prototype);
+
+      const normalized = normalizeAuthState(sb.currentUser);
+      expect(normalized?.uid).toBe('u-realm');
+      expect(Object.getPrototypeOf(normalized!.token)).toBe(Object.prototype);
+
+      const { getFirestore, doc, getDoc } = await import('pyric/firestore');
+      const { setRules } = await import('pyric/sandbox/firestore');
+      setRules(
+        sb,
+        "rules_version = '2'; service cloud.firestore { match /databases/{d}/documents { match /docs/{docId} { allow read: if request.auth != null && request.auth.token.role == 'editor' && request.auth.token.tags[0] == 'a'; } } }",
+      );
+      const authedCtx = sb.withAuth(sb.currentUser);
+      const snap = await getDoc(doc(getFirestore(authedCtx), 'docs/item-1'));
+      expect(snap.exists()).toBe(false);
+    } finally {
+      sb.dispose();
+    }
   });
 });
 

@@ -54,14 +54,26 @@ export interface QueryDescriptor {
  * and the worker rebuilds them with the pyric/firestore `and`/`or` factories.
  */
 export type FilterConstraintDescriptor =
-  | { kind: 'where'; field: string; op: string; value: unknown; valueEncoding?: DocValueEncoding }
+  | {
+      kind: 'where';
+      field: string;
+      fieldSegments?: readonly string[];
+      op: string;
+      value: unknown;
+      valueEncoding?: DocValueEncoding;
+    }
   | { kind: 'and'; filters: readonly FilterConstraintDescriptor[] }
   | { kind: 'or'; filters: readonly FilterConstraintDescriptor[] };
 
 /** Plain data representation of a query constraint. */
 export type QueryConstraintDescriptor =
   | FilterConstraintDescriptor
-  | { kind: 'orderBy'; field: string; direction?: 'asc' | 'desc' }
+  | {
+      kind: 'orderBy';
+      field: string;
+      fieldSegments?: readonly string[];
+      direction?: 'asc' | 'desc';
+    }
   | { kind: 'limit'; n: number }
   | { kind: 'limitToLast'; n: number }
   | { kind: 'startAt'; values: unknown[]; isSnapshot?: false; fromSnapshot?: boolean; valueEncoding?: DocValueEncoding }

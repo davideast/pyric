@@ -5,7 +5,10 @@ import {
 import {
   copyAdminReferenceRegistration,
   FieldPath,
+  isValidTimestampComponents,
   registeredAdminReferencePath,
+  Timestamp as CompatTimestamp,
+  TXN_ATTEMPTS_EXHAUSTED_MARKER,
   type CollectionReference,
   type DocumentData,
   type DocumentReference,
@@ -25,6 +28,7 @@ import {
   type WhereFilterOp,
   type WriteBatch,
 } from 'pyric/sandbox/admin-compat';
+import { SandboxError } from 'pyric/sandbox';
 import {
   onSnapshot as baseOnSnapshot,
   type SandboxFirestore,
@@ -32,10 +36,45 @@ import {
   type SnapshotObserver,
   type Unsubscribe,
 } from 'pyric/sandbox/admin-firestore';
+import type { AdminServiceLifecycle } from '../app/lifecycle.js';
+
+function translateAdminTransactionError(err: unknown): never {
+  if (
+    err !== null
+    && typeof err === 'object'
+    && (err as Record<symbol, unknown>)[TXN_ATTEMPTS_EXHAUSTED_MARKER] === true
+  ) {
+    let message = 'Transaction failed after maximum attempts due to repeated conflicts.';
+    const rawMessage = (err as { message?: unknown }).message;
+    if (typeof rawMessage === 'string') {
+      message = rawMessage;
+    }
+    throw new SandboxError('aborted', message);
+  }
+  throw err;
+}
 
 const adminToUnderlying = new WeakMap<object, object>();
 const adminToRootDb = new WeakMap<object, SandboxFirestore>();
+const adminToLifecycle = new WeakMap<object, AdminServiceLifecycle>();
 const wrappedDbCache = new WeakMap<SandboxFirestore, SandboxFirestore>();
+
+function lifecycleOf(target: object): AdminServiceLifecycle | undefined {
+  return adminToLifecycle.get(target);
+}
+
+function assertRootActive(rootDb: SandboxFirestore): void {
+  lifecycleOf(rootDb)?.assertActive();
+}
+
+function runAsyncWithLifecycle<R>(rootDb: SandboxFirestore, fn: () => Promise<R>): Promise<R> {
+  try {
+    assertRootActive(rootDb);
+  } catch (err) {
+    return Promise.reject(err);
+  }
+  return fn();
+}
 
 const SENTINEL_TYPES: ReadonlySet<string> = new Set([
   'serverTimestamp',
@@ -78,6 +117,15 @@ function unwrapAdminObject<T>(value: T): T {
 
 function normalizeWriteValue(value: unknown): unknown {
   if (value === null || typeof value !== 'object') return value;
+  if (value instanceof CompatTimestamp) {
+    if (!isValidTimestampComponents(value.seconds, value.nanoseconds)) {
+      throw new SandboxError(
+        'invalid-argument',
+        `Invalid Timestamp(seconds=${String(value.seconds)}, nanoseconds=${String(value.nanoseconds)})`,
+      );
+    }
+    return value;
+  }
   const referencePath = registeredAdminReferencePath(value);
   if (referencePath !== undefined) {
     return new InternalReference(referencePath);
@@ -189,10 +237,15 @@ function unwrapCursorSnapshot(
   });
 }
 
+function docRefOnRoot(rootDb: SandboxFirestore, path: string): DocumentReference {
+  const rawRoot = (adminToUnderlying.get(rootDb) as SandboxFirestore | undefined) ?? rootDb;
+  return wrapDocRef(rawRoot.doc(path), rootDb);
+}
+
 function finalizeReadValue(value: unknown, rootDb: SandboxFirestore): unknown {
   if (value === null || typeof value !== 'object') return value;
   if (value instanceof InternalReference) {
-    return rootDb.doc(value.path);
+    return docRefOnRoot(rootDb, value.path);
   }
   if (value instanceof InternalBytes) {
     return Buffer.from(Uint8Array.prototype.slice.call(value.data));
@@ -221,7 +274,7 @@ function wrapDocSnapshotLike<
   const proxy = new Proxy(rawSnap, {
     get(t, prop) {
       if (prop === 'ref' && t.ref && typeof t.ref.path === 'string') {
-        return rootDb.doc(t.ref.path);
+        return docRefOnRoot(rootDb, t.ref.path);
       }
       if (prop === 'data') {
         return () => {
@@ -326,20 +379,34 @@ function wrapQueryMethods(
 ): unknown | undefined {
   switch (prop) {
     case 'where':
-      return (field: SnapshotFieldPath, op: WhereFilterOp, value: unknown) =>
-        wrapQuery(target.where(field, op, normalizeQueryOperand(value, rootDb)), rootDb);
+      return (field: SnapshotFieldPath, op: WhereFilterOp, value: unknown) => {
+        assertRootActive(rootDb);
+        return wrapQuery(target.where(field, op, normalizeQueryOperand(value, rootDb)), rootDb);
+      };
     case 'applyFilter':
-      return (filter: Filter) =>
-        wrapQuery(target.applyFilter(normalizeFilter(filter, rootDb)), rootDb);
+      return (filter: Filter) => {
+        assertRootActive(rootDb);
+        return wrapQuery(target.applyFilter(normalizeFilter(filter, rootDb)), rootDb);
+      };
     case 'orderBy':
-      return (...args: Parameters<Query['orderBy']>) => wrapQuery(target.orderBy(...args), rootDb);
+      return (...args: Parameters<Query['orderBy']>) => {
+        assertRootActive(rootDb);
+        return wrapQuery(target.orderBy(...args), rootDb);
+      };
     case 'limit':
-      return (n: number) => wrapQuery(target.limit(n), rootDb);
+      return (n: number) => {
+        assertRootActive(rootDb);
+        return wrapQuery(target.limit(n), rootDb);
+      };
     case 'limitToLast':
-      return (n: number) => wrapQuery(target.limitToLast(n), rootDb);
+      return (n: number) => {
+        assertRootActive(rootDb);
+        return wrapQuery(target.limitToLast(n), rootDb);
+      };
     case 'startCursor':
-      return (values: unknown[], inclusive: boolean, fromSnapshot?: boolean) =>
-        wrapQuery(
+      return (values: unknown[], inclusive: boolean, fromSnapshot?: boolean) => {
+        assertRootActive(rootDb);
+        return wrapQuery(
           target.startCursor(
             values.map((item) => normalizeQueryOperand(item, rootDb)),
             inclusive,
@@ -347,9 +414,11 @@ function wrapQueryMethods(
           ),
           rootDb,
         );
+      };
     case 'endCursor':
-      return (values: unknown[], inclusive: boolean, fromSnapshot?: boolean) =>
-        wrapQuery(
+      return (values: unknown[], inclusive: boolean, fromSnapshot?: boolean) => {
+        assertRootActive(rootDb);
+        return wrapQuery(
           target.endCursor(
             values.map((item) => normalizeQueryOperand(item, rootDb)),
             inclusive,
@@ -357,23 +426,31 @@ function wrapQueryMethods(
           ),
           rootDb,
         );
+      };
     case 'startCursorFromSnapshot':
-      return (snapshot: DocumentSnapshot, inclusive: boolean) =>
-        wrapQuery(
+      return (snapshot: DocumentSnapshot, inclusive: boolean) => {
+        assertRootActive(rootDb);
+        return wrapQuery(
           target.startCursorFromSnapshot(unwrapCursorSnapshot(snapshot, rootDb), inclusive),
           rootDb,
         );
+      };
     case 'endCursorFromSnapshot':
-      return (snapshot: DocumentSnapshot, inclusive: boolean) =>
-        wrapQuery(
+      return (snapshot: DocumentSnapshot, inclusive: boolean) => {
+        assertRootActive(rootDb);
+        return wrapQuery(
           target.endCursorFromSnapshot(unwrapCursorSnapshot(snapshot, rootDb), inclusive),
           rootDb,
         );
+      };
     case 'get':
       return (opts?: OperationOptions) =>
-        target.get(opts).then((snap) => wrapQuerySnapshot(snap, rootDb));
+        runAsyncWithLifecycle(rootDb, () =>
+          target.get(opts).then((snap) => wrapQuerySnapshot(snap, rootDb)),
+        );
     case 'aggregate':
-      return (...args: Parameters<Query['aggregate']>) => target.aggregate(...args);
+      return (...args: Parameters<Query['aggregate']>) =>
+        runAsyncWithLifecycle(rootDb, () => target.aggregate(...args));
     default:
       return undefined;
   }
@@ -407,11 +484,16 @@ function wrapCollectionRef(
   const proxy: CollectionReference = new Proxy(rawColl, {
     get(t, prop, receiver) {
       if (prop === 'doc') {
-        return (id?: string) => wrapDocRef(t.doc(id), rootDb);
+        return (id?: string) => {
+          assertRootActive(rootDb);
+          return wrapDocRef(t.doc(id), rootDb);
+        };
       }
       if (prop === 'add') {
         return (data: DocumentData, opts?: OperationOptions) =>
-          t.add(normalizeWriteData(data), opts).then((ref) => wrapDocRef(ref, rootDb));
+          runAsyncWithLifecycle(rootDb, () =>
+            t.add(normalizeWriteData(data), opts).then((ref) => wrapDocRef(ref, rootDb)),
+          );
       }
       if (prop === 'onSnapshot') {
         const underlying = Reflect.get(t, prop, t);
@@ -438,23 +520,30 @@ function wrapDocRef(rawRef: DocumentReference, rootDb: SandboxFirestore): Docume
         case 'parent':
           return wrapCollectionRef(t.parent, rootDb);
         case 'collection':
-          return (name: string) => wrapCollectionRef(t.collection(name), rootDb);
+          return (name: string) => {
+            assertRootActive(rootDb);
+            return wrapCollectionRef(t.collection(name), rootDb);
+          };
         case 'get':
           return (opts?: OperationOptions) =>
-            t.get(opts).then((snap) => wrapDocSnapshot(snap, rootDb));
+            runAsyncWithLifecycle(rootDb, () =>
+              t.get(opts).then((snap) => wrapDocSnapshot(snap, rootDb)),
+            );
         case 'create':
           return (data: DocumentData, opts?: OperationOptions) =>
-            t.create(normalizeWriteData(data), opts);
+            runAsyncWithLifecycle(rootDb, () => t.create(normalizeWriteData(data), opts));
         case 'set':
           return (data: DocumentData, options?: SetOptions) =>
-            t.set(normalizeWriteData(data), options);
+            runAsyncWithLifecycle(rootDb, () => t.set(normalizeWriteData(data), options));
         case 'update':
-          return (...args: unknown[]) => {
-            const normalized = normalizeUpdateArguments(args);
-            return (t.update as (...a: unknown[]) => Promise<void>)(...normalized);
-          };
+          return (...args: unknown[]) =>
+            runAsyncWithLifecycle(rootDb, () => {
+              const normalized = normalizeUpdateArguments(args);
+              return (t.update as (...a: unknown[]) => Promise<void>)(...normalized);
+            });
         case 'delete':
-          return (opts?: OperationOptions) => t.delete(opts);
+          return (opts?: OperationOptions) =>
+            runAsyncWithLifecycle(rootDb, () => t.delete(opts));
         case 'onSnapshot': {
           const underlying = Reflect.get(t, prop, t);
           if (typeof underlying === 'function') {
@@ -480,20 +569,24 @@ function wrapWriterMethod<TWriter extends WriteBatch | Transaction>(
   target: TWriter,
   prop: PropertyKey,
   proxy: TWriter,
+  rootDb: SandboxFirestore,
 ): unknown | undefined {
   switch (prop) {
     case 'create':
       return (ref: DocumentReference, data: DocumentData) => {
+        assertRootActive(rootDb);
         target.create(unwrapAdminObject(ref), normalizeWriteData(data));
         return proxy;
       };
     case 'set':
       return (ref: DocumentReference, data: DocumentData, options?: SetOptions) => {
+        assertRootActive(rootDb);
         target.set(unwrapAdminObject(ref), normalizeWriteData(data), options);
         return proxy;
       };
     case 'update':
       return (ref: DocumentReference, ...args: unknown[]) => {
+        assertRootActive(rootDb);
         const normalized = normalizeUpdateArguments(args);
         (target.update as (r: DocumentReference, ...a: unknown[]) => TWriter)(
           unwrapAdminObject(ref),
@@ -503,6 +596,7 @@ function wrapWriterMethod<TWriter extends WriteBatch | Transaction>(
       };
     case 'delete':
       return (ref: DocumentReference) => {
+        assertRootActive(rootDb);
         target.delete(unwrapAdminObject(ref));
         return proxy;
       };
@@ -514,10 +608,11 @@ function wrapWriterMethod<TWriter extends WriteBatch | Transaction>(
 function wrapWriteBatch(rawBatch: WriteBatch, rootDb: SandboxFirestore): WriteBatch {
   const proxy: WriteBatch = new Proxy(rawBatch, {
     get(t, prop) {
-      const writerMethod = wrapWriterMethod(t, prop, proxy);
+      const writerMethod = wrapWriterMethod(t, prop, proxy, rootDb);
       if (writerMethod !== undefined) return writerMethod;
       if (prop === 'commit') {
-        return (opts?: OperationOptions) => t.commit(opts);
+        return (opts?: OperationOptions) =>
+          runAsyncWithLifecycle(rootDb, () => t.commit(opts));
       }
       const value = Reflect.get(t, prop, t);
       return typeof value === 'function' ? value.bind(t) : value;
@@ -536,15 +631,16 @@ function wrapTransaction(rawTx: Transaction, rootDb: SandboxFirestore): Transact
   const proxy: Transaction = new Proxy(rawTx, {
     get(t, prop) {
       if (prop === 'get') {
-        return (refOrQuery: DocumentReference | Query) => {
-          const unwrapped = unwrapAdminObject(refOrQuery);
-          if (isQueryLike(unwrapped)) {
-            return t.get(unwrapped).then((snap) => wrapQuerySnapshot(snap, rootDb));
-          }
-          return t.get(unwrapped).then((snap) => wrapDocSnapshot(snap, rootDb));
-        };
+        return (refOrQuery: DocumentReference | Query) =>
+          runAsyncWithLifecycle<QuerySnapshot | DocumentSnapshot>(rootDb, () => {
+            const unwrapped = unwrapAdminObject(refOrQuery);
+            if (isQueryLike(unwrapped)) {
+              return t.get(unwrapped).then((snap) => wrapQuerySnapshot(snap, rootDb));
+            }
+            return t.get(unwrapped).then((snap) => wrapDocSnapshot(snap, rootDb));
+          });
       }
-      const writerMethod = wrapWriterMethod(t, prop, proxy);
+      const writerMethod = wrapWriterMethod(t, prop, proxy, rootDb);
       if (writerMethod !== undefined) return writerMethod;
       const value = Reflect.get(t, prop, t);
       return typeof value === 'function' ? value.bind(t) : value;
@@ -555,28 +651,56 @@ function wrapTransaction(rawTx: Transaction, rootDb: SandboxFirestore): Transact
   return proxy;
 }
 
-export function wrapAdminFirestoreHandle(rawDb: SandboxFirestore): SandboxFirestore {
-  const cached = wrappedDbCache.get(rawDb);
-  if (cached !== undefined) return cached;
+export function wrapAdminFirestoreHandle(
+  rawDb: SandboxFirestore,
+  lifecycle?: AdminServiceLifecycle,
+): SandboxFirestore {
+  if (lifecycle === undefined) {
+    const cached = wrappedDbCache.get(rawDb);
+    if (cached !== undefined) return cached;
+  }
 
   const proxy: SandboxFirestore = new Proxy(rawDb, {
     get(t, prop) {
       switch (prop) {
         case 'doc':
-          return (path: string) => wrapDocRef(t.doc(path), proxy);
+          return (path: string) => {
+            lifecycle?.assertActive();
+            return wrapDocRef(t.doc(path), proxy);
+          };
         case 'collection':
-          return (path: string) => wrapCollectionRef(t.collection(path), proxy);
+          return (path: string) => {
+            lifecycle?.assertActive();
+            return wrapCollectionRef(t.collection(path), proxy);
+          };
         case 'collectionGroup':
-          return (collectionId: string) => wrapQuery(t.collectionGroup(collectionId), proxy);
+          return (collectionId: string) => {
+            lifecycle?.assertActive();
+            return wrapQuery(t.collectionGroup(collectionId), proxy);
+          };
         case 'batch':
-          return () => wrapWriteBatch(t.batch(), proxy);
+          return () => {
+            lifecycle?.assertActive();
+            return wrapWriteBatch(t.batch(), proxy);
+          };
         case 'runTransaction':
           return <R>(
             fn: (tx: Transaction) => Promise<R> | R,
             opts?: OperationOptions,
-          ): Promise<R> => t.runTransaction((rawTx) => fn(wrapTransaction(rawTx, proxy)), opts);
+          ): Promise<R> =>
+            runAsyncWithLifecycle(proxy, () =>
+              t
+                .runTransaction(async (rawTx) => {
+                  assertRootActive(proxy);
+                  const result = await fn(wrapTransaction(rawTx, proxy));
+                  assertRootActive(proxy);
+                  return result;
+                }, opts)
+                .catch(translateAdminTransactionError),
+            );
         case 'seed':
           return (options?: { documents?: Record<string, DocumentData> }) => {
+            lifecycle?.assertActive();
             if (options?.documents === undefined) return t.seed(options);
             const normalizedDocs = Object.fromEntries(
               Object.entries(options.documents).map(
@@ -589,8 +713,11 @@ export function wrapAdminFirestoreHandle(rawDb: SandboxFirestore): SandboxFirest
           // Pass deferred members and sandbox helpers through without rebinding
           // so `isDeferredApi(descriptor.value)` and property identity remain intact.
           const value = Reflect.get(t, prop, t);
-          if (prop === 'setRules' || prop === 'snapshot') {
-            return typeof value === 'function' ? value.bind(t) : value;
+          if ((prop === 'setRules' || prop === 'snapshot') && typeof value === 'function') {
+            return (...args: unknown[]) => {
+              lifecycle?.assertActive();
+              return (value as (...a: unknown[]) => unknown).apply(t, args);
+            };
           }
           return value;
         }
@@ -598,7 +725,11 @@ export function wrapAdminFirestoreHandle(rawDb: SandboxFirestore): SandboxFirest
     },
   });
 
-  wrappedDbCache.set(rawDb, proxy);
+  if (lifecycle === undefined) {
+    wrappedDbCache.set(rawDb, proxy);
+  } else {
+    adminToLifecycle.set(proxy, lifecycle);
+  }
   adminToUnderlying.set(proxy, rawDb);
   adminToRootDb.set(proxy, proxy);
   return proxy;
@@ -608,8 +739,12 @@ function wrapObserverOrCallbackArg(
   arg: unknown,
   rootDb: SandboxFirestore,
 ): unknown {
+  const lifecycle = lifecycleOf(rootDb);
   if (typeof arg === 'function') {
-    return (snapshot: unknown) => (arg as (s: unknown) => void)(wrapLiveSnapshot(snapshot, rootDb));
+    return (snapshot: unknown) => {
+      if (lifecycle?.isDeleted) return;
+      (arg as (s: unknown) => void)(wrapLiveSnapshot(snapshot, rootDb));
+    };
   }
   if (
     arg !== null
@@ -624,7 +759,10 @@ function wrapObserverOrCallbackArg(
     const wrapped: SnapshotObserver<unknown> = {};
     if (typeof obs.next === 'function') {
       const boundNext = obs.next.bind(obs);
-      wrapped.next = (snapshot: unknown) => boundNext(wrapLiveSnapshot(snapshot, rootDb));
+      wrapped.next = (snapshot: unknown) => {
+        if (lifecycle?.isDeleted) return;
+        boundNext(wrapLiveSnapshot(snapshot, rootDb));
+      };
     }
     if (typeof obs.error === 'function') {
       wrapped.error = obs.error.bind(obs);
@@ -690,10 +828,10 @@ export function adminOnSnapshot(
   arg4?: ((error: unknown) => void) | (() => void),
   arg5?: () => void,
 ): Unsubscribe {
-  const rootDb =
-    reference !== null && typeof reference === 'object'
-      ? adminToRootDb.get(reference)
-      : undefined;
+  let rootDb: SandboxFirestore | undefined;
+  if (reference !== null && typeof reference === 'object') {
+    rootDb = adminToRootDb.get(reference);
+  }
   const rawReference = unwrapAdminObject(reference);
   if (rootDb === undefined) {
     return (baseOnSnapshot as (...a: unknown[]) => Unsubscribe)(
@@ -705,6 +843,9 @@ export function adminOnSnapshot(
     );
   }
 
+  assertRootActive(rootDb);
+  const lifecycle = lifecycleOf(rootDb);
+
   const arg2IsOptions =
     typeof arg2 === 'object'
     && arg2 !== null
@@ -712,20 +853,27 @@ export function adminOnSnapshot(
     && typeof (arg2 as { error?: unknown }).error !== 'function'
     && typeof (arg2 as { complete?: unknown }).complete !== 'function';
 
+  let unsubscribe: Unsubscribe;
   if (arg2IsOptions) {
-    return (baseOnSnapshot as (...a: unknown[]) => Unsubscribe)(
+    unsubscribe = (baseOnSnapshot as (...a: unknown[]) => Unsubscribe)(
       rawReference,
       arg2,
       wrapObserverOrCallbackArg(arg3, rootDb),
       arg4,
       arg5,
     );
+  } else {
+    unsubscribe = (baseOnSnapshot as (...a: unknown[]) => Unsubscribe)(
+      rawReference,
+      wrapObserverOrCallbackArg(arg2, rootDb),
+      arg3,
+      arg4,
+      arg5,
+    );
   }
-  return (baseOnSnapshot as (...a: unknown[]) => Unsubscribe)(
-    rawReference,
-    wrapObserverOrCallbackArg(arg2, rootDb),
-    arg3,
-    arg4,
-    arg5,
-  );
+
+  if (lifecycle !== undefined) {
+    return lifecycle.trackSubscription(unsubscribe);
+  }
+  return unsubscribe;
 }

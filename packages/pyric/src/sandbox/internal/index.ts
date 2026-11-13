@@ -34,6 +34,7 @@ export {
   validateRtdbImportRecord,
 } from '../persistence/rtdb-records.js';
 export { validatePersistedService, persistedServiceHasData, UnsupportedPersistedServiceError } from '../persistence/validate-services.js';
+export { assertCheckpointState } from '../checkpoints/validation.js';
 export { seedUserSchema, storedMetadataSchema } from './state-schemas.js';
 export {
   BY_REFERENCE_ALTERNATIVE,

@@ -34,6 +34,7 @@ export class RtdbBackend {
   private readonly writes: WritePlane;
   private readonly transactions: Transactions;
   private readonly persistence: PersistenceState;
+  private dormant = false;
 
   /** `instance` is the instance's name, or `undefined` for the default instance. */
   constructor(sandbox?: Sandbox, instance?: string) {
@@ -43,6 +44,9 @@ export class RtdbBackend {
     this.writes = new WritePlane(this.state, this.values, this.children);
     this.transactions = new Transactions(this.state, this.values, this.children, this.writes);
     this.persistence = new PersistenceState(this.state, this.values, this.children);
+    this.state.writeSubscribers.add(() => {
+      this.dormant = false;
+    });
   }
 
   get connectionResetGeneration(): number { return this.state.resetGeneration; }
@@ -200,7 +204,22 @@ export class RtdbBackend {
   exportTree(): JsonValue { return this.persistence.exportTree(); }
   exportPersistenceState(): JsonValue { return this.persistence.exportState(); }
   persistenceBackendState(): BackendState { return this.state; }
-  restoreTree(root: JsonValue): void { this.persistence.restore(root); }
+  hasDurableState(): boolean {
+    if (this.state.activeRules !== null || this.state.priorities.size > 0) return true;
+    const root = this.state.tree.peekRoot();
+    if (root === null || root === undefined) return false;
+    if (typeof root === 'object' && !Array.isArray(root)) {
+      return Object.keys(root).length > 0;
+    }
+    return true;
+  }
+  markDormant(): void { this.dormant = true; }
+  markActive(): void { this.dormant = false; }
+  isDormant(): boolean { return this.dormant; }
+  restoreTree(root: JsonValue): void {
+    this.dormant = false;
+    this.persistence.restore(root);
+  }
   resetTree(preserveRules = false): void { this.persistence.reset(preserveRules); }
   subscribeWrites(onChange: () => void): () => void { return this.persistence.subscribe(onChange); }
   mintKey(): string { return generatePushId(this.state.clock.now()); }

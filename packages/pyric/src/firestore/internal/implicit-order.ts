@@ -4,6 +4,8 @@
  * query has a snapshot cursor. Keeping one copy keeps the planes in step
  * (#1364, FL-4).
  */
+import { fieldPathKeySegments } from '../sandbox/update-fields.js';
+
 export interface ImplicitOrderClause {
   readonly field: string;
   readonly direction: 'asc' | 'desc';
@@ -13,8 +15,8 @@ const KEY_FIELD = '__name__';
 
 /** Field paths compare segment by segment (`FieldPath.comparator`). */
 export function compareFieldPaths(a: string, b: string): number {
-  const aSegments = a.split('.');
-  const bSegments = b.split('.');
+  const aSegments = fieldPathKeySegments(a);
+  const bSegments = fieldPathKeySegments(b);
   const n = Math.min(aSegments.length, bSegments.length);
   for (let i = 0; i < n; i++) {
     const left = aSegments[i]!;

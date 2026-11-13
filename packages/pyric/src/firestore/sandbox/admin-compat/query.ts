@@ -13,7 +13,6 @@ import {
   type SnapshotFieldPath,
 } from './field-path.js';
 import {
-  decodeEncodedFieldPath,
   fieldPathKey,
   fieldPathKeySegments,
 } from '../update-fields.js';
@@ -150,9 +149,7 @@ function cursorValuesFromSnapshot(
       const refPath = snapshot.ref?.path;
       return typeof refPath === 'string' ? documentRef(refPath) : snapshot.ref;
     }
-    const lookupField = o.field.includes('`')
-      ? new FieldPath(...fieldPathKeySegments(o.field))
-      : o.field;
+    const lookupField = new FieldPath(...fieldPathKeySegments(o.field));
     return getSnapshotField(data, lookupField);
   });
 }
@@ -658,10 +655,6 @@ function normalizeFilterFields(filter: Filter): QueryFilter {
 }
 
 function normalizeQueryField(field: SnapshotFieldPath): string {
-  if (typeof field === 'string') {
-    const decoded = decodeEncodedFieldPath(field);
-    if (decoded !== undefined) return fieldPathKey(decoded);
-  }
   try {
     return fieldPathKey(fieldPathSegments(field));
   } catch (error) {
