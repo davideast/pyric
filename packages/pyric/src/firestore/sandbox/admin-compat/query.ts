@@ -149,9 +149,7 @@ function cursorValuesFromSnapshot(
       const refPath = snapshot.ref?.path;
       return typeof refPath === 'string' ? documentRef(refPath) : snapshot.ref;
     }
-    const lookupField = o.field.includes('`')
-      ? new FieldPath(...fieldPathKeySegments(o.field))
-      : o.field;
+    const lookupField = new FieldPath(...fieldPathKeySegments(o.field));
     return getSnapshotField(data, lookupField);
   });
 }

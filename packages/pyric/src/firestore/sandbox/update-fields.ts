@@ -35,7 +35,7 @@ export interface UpdateField {
 
 /** A segment is written bare when the key decoder reads it back unchanged. */
 function needsQuoting(segment: string): boolean {
-  return segment.length === 0 || /[.`\\*~/[\]]/.test(segment);
+  return segment.length === 0 || /[.`\\]/.test(segment);
 }
 
 /** Encode a segment vector as one update-data key. */

@@ -130,6 +130,52 @@ describe('worker Firestore client dual-plane parity', () => {
         ),
       );
       expect(paged.docs.map((d) => d.id)).toEqual(['doc-2']);
+
+      const slashPaged = await workerClient.getDocs(
+        workerClient.query(
+          items,
+          workerClient.orderBy(new FieldPath('a/b'), 'asc'),
+          workerClient.startAfter(snap1),
+        ),
+      );
+      expect(slashPaged.docs.map((d) => d.id)).toEqual(['doc-2']);
+
+      // Rules list-query proof + request.query.orderBy key alignment over worker client/host.
+      await workerClient.setDoc(workerClient.doc(h.wdb, 'scoped/doc-1'), {
+        'a/b': 'tenant-1',
+        a: { b: 'tenant-1' },
+      });
+      await workerClient.setDoc(workerClient.doc(h.wdb, 'scoped/doc-2'), {
+        'a/b': 'tenant-2',
+        a: { b: 'tenant-1' },
+      });
+      getBaseAdminFirestore(h.sandbox).setRules(`rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /scoped/{id} {
+      allow list: if resource.data['a/b'] == 'tenant-1' && request.query.orderBy['a/b'] == 'ASC';
+    }
+  }
+}`);
+      const scoped = workerClient.collection(h.wdb, 'scoped');
+      const allowedScoped = await workerClient.getDocs(
+        workerClient.query(
+          scoped,
+          workerClient.where(new FieldPath('a/b'), '==', 'tenant-1'),
+          workerClient.orderBy(new FieldPath('a/b'), 'asc'),
+        ),
+      );
+      expect(allowedScoped.docs.map((d) => d.id)).toEqual(['doc-1']);
+
+      await expect(
+        workerClient.getDocs(
+          workerClient.query(
+            scoped,
+            workerClient.where(new FieldPath('a', 'b'), '==', 'tenant-1'),
+            workerClient.orderBy(new FieldPath('a/b'), 'asc'),
+          ),
+        ),
+      ).rejects.toMatchObject({ code: 'permission-denied' });
     } finally {
       h.dispose();
     }

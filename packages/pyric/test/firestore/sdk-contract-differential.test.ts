@@ -3,6 +3,7 @@ import * as upstreamApp from 'firebase/app';
 import * as upstreamFs from 'firebase/firestore';
 import * as upstreamAdminFs from 'firebase-admin/firestore';
 import { initializeSandbox } from 'pyric/sandbox';
+import { setRules } from 'pyric/sandbox/firestore';
 import { deleteApp, getApps, initializeApp } from 'pyric/app';
 import { resetAppRegistryForTests } from 'pyric/app/internal';
 import {
@@ -153,6 +154,47 @@ describe('Firestore client SDK differential contracts', () => {
         query(items, orderBy(new FieldPath('meta.tag'), 'asc'), startAfter(doc1Snap)),
       );
       expect(paged.docs.map((d) => d.id)).toEqual(['doc-2', 'doc-3']);
+
+      const slashPaged = await getDocs(
+        query(items, orderBy(new FieldPath('a/b'), 'asc'), startAfter(doc1Snap)),
+      );
+      expect(slashPaged.docs.map((d) => d.id)).toEqual(['doc-2', 'doc-3']);
+
+      // Rules list-query proof + request.query.orderBy key alignment for non-dot special FieldPath segments.
+      await setDoc(doc(db, 'scoped/doc-1'), {
+        'a/b': 'tenant-1',
+        a: { b: 'tenant-1' },
+      });
+      await setDoc(doc(db, 'scoped/doc-2'), {
+        'a/b': 'tenant-2',
+        a: { b: 'tenant-1' },
+      });
+      setRules(
+        sandbox,
+        `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /scoped/{id} {
+      allow list: if resource.data['a/b'] == 'tenant-1' && request.query.orderBy['a/b'] == 'ASC';
+    }
+  }
+}`,
+      );
+      const scoped = collection(db, 'scoped');
+      const allowedSnap = await getDocs(
+        query(scoped, where(new FieldPath('a/b'), '==', 'tenant-1'), orderBy(new FieldPath('a/b'), 'asc')),
+      );
+      expect(allowedSnap.docs.map((d) => d.id)).toEqual(['doc-1']);
+
+      await expect(
+        getDocs(
+          query(
+            scoped,
+            where(new FieldPath('a', 'b'), '==', 'tenant-1'),
+            orderBy(new FieldPath('a/b'), 'asc'),
+          ),
+        ),
+      ).rejects.toMatchObject({ code: 'permission-denied' });
     });
   });
 
