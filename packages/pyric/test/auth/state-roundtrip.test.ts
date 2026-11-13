@@ -1,7 +1,8 @@
 /** `exportUsers` → `seedUsers` round-trip + `restoreSession` — the auth
  *  substrate for sandbox persistence (pyric-persist plan 0.1, flow doc section 3c). */
 import { describe, expect, it } from 'bun:test';
-import { initializeSandbox } from 'pyric/sandbox';
+import { runInNewContext } from 'node:vm';
+import { initializeSandbox, normalizeAuthState } from 'pyric/sandbox';
 import {
   getAuth,
   onAuthStateChanged,
@@ -327,6 +328,90 @@ describe('sandbox.exportUsers', () => {
 
       // Mutating returned IdTokenResult.claims must NEVER elevate live rules privileges
       await expect(get(ref(clientDb, 'items/secret'))).rejects.toThrow(/PERMISSION_DENIED/);
+    } finally {
+      sb.dispose();
+    }
+  });
+
+  it('clones cross-realm customClaims, IdTokenResult, and rulesTokenClaims into realm-local plain objects accepted by normalizeAuthState and withAuth', async () => {
+    const sb = initializeSandbox();
+    try {
+      const crossRealmClaims = runInNewContext(`(() => {
+        const shared = { tier: 'pro' };
+        const nullProto = Object.assign(Object.create(null), { scope: 'docs' });
+        const protoCarrier = JSON.parse('{"__proto__":{"polluted":true},"safe":1}');
+        return {
+          role: 'editor',
+          tags: ['a'],
+          issuedOn: new Date('2026-01-02T03:04:05.000Z'),
+          digest: new Uint8Array([4, 5, 6]),
+          firstRef: shared,
+          secondRef: shared,
+          nullProto,
+          protoCarrier,
+        };
+      })()`) as Record<string, unknown>;
+
+      expect(Object.getPrototypeOf(crossRealmClaims)).not.toBe(Object.prototype);
+
+      const auth = getAuth(sb);
+      authSandbox.seedUsers(auth, [
+        {
+          uid: 'u-realm',
+          email: 'realm@example.com',
+          password: 'password123',
+          customClaims: crossRealmClaims,
+        },
+      ]);
+
+      const exportedClaims = authSandbox.exportUsers(auth).find((u) => u.uid === 'u-realm')?.customClaims;
+      expect(exportedClaims).toBeDefined();
+      expect(Object.getPrototypeOf(exportedClaims)).toBe(Object.prototype);
+      expect(Object.getPrototypeOf(exportedClaims!.tags)).toBe(Array.prototype);
+      expect(exportedClaims!.issuedOn).toBeInstanceOf(Date);
+      expect(exportedClaims!.digest).toBeInstanceOf(Uint8Array);
+      expect(Array.from(exportedClaims!.digest as Uint8Array)).toEqual([4, 5, 6]);
+      expect(exportedClaims!.firstRef).toBe(exportedClaims!.secondRef);
+      expect(Object.getPrototypeOf(exportedClaims!.firstRef)).toBe(Object.prototype);
+      expect(Object.getPrototypeOf(exportedClaims!.nullProto)).toBeNull();
+      const protoCarrier = exportedClaims!.protoCarrier as Record<string, unknown>;
+      expect(Object.getPrototypeOf(protoCarrier)).toBe(Object.prototype);
+      expect(Object.hasOwn(protoCarrier, '__proto__')).toBe(true);
+      expect('polluted' in protoCarrier).toBe(false);
+
+      const listedClaims = authSandbox.listUsers(auth).find((u) => u.uid === 'u-realm')!.customClaims;
+      expect(Object.getPrototypeOf(listedClaims)).toBe(Object.prototype);
+      const identityClaims = authSandbox.listIdentities(auth).find((u) => u.uid === 'u-realm')!.customClaims;
+      expect(Object.getPrototypeOf(identityClaims)).toBe(Object.prototype);
+
+      const signedIn = await signInWithEmailAndPassword(auth, 'realm@example.com', 'password123');
+      const tokenResult = await signedIn.user.getIdTokenResult();
+      expect(Object.getPrototypeOf(tokenResult)).toBe(Object.prototype);
+      expect(Object.getPrototypeOf(tokenResult.claims)).toBe(Object.prototype);
+      expect(Object.getPrototypeOf(tokenResult.claims.firebase)).toBe(Object.prototype);
+      expect(Object.getPrototypeOf(tokenResult.claims.tags)).toBe(Array.prototype);
+
+      const restoredUser = authSandbox.restoreSession(auth, 'u-realm');
+      const restoredTokenResult = await restoredUser.getIdTokenResult(true);
+      expect(Object.getPrototypeOf(restoredTokenResult)).toBe(Object.prototype);
+      expect(Object.getPrototypeOf(restoredTokenResult.claims)).toBe(Object.prototype);
+
+      expect(sb.currentUser).not.toBeNull();
+      expect(Object.getPrototypeOf(sb.currentUser!.token)).toBe(Object.prototype);
+
+      const normalized = normalizeAuthState(sb.currentUser);
+      expect(normalized?.uid).toBe('u-realm');
+      expect(Object.getPrototypeOf(normalized!.token)).toBe(Object.prototype);
+
+      const { getFirestore, doc, getDoc } = await import('pyric/firestore');
+      const { setRules } = await import('pyric/sandbox/firestore');
+      setRules(
+        sb,
+        "rules_version = '2'; service cloud.firestore { match /databases/{d}/documents { match /docs/{docId} { allow read: if request.auth != null && request.auth.token.role == 'editor' && request.auth.token.tags[0] == 'a'; } } }",
+      );
+      const authedCtx = sb.withAuth(sb.currentUser);
+      const snap = await getDoc(doc(getFirestore(authedCtx), 'docs/item-1'));
+      expect(snap.exists()).toBe(false);
     } finally {
       sb.dispose();
     }
