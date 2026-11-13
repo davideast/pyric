@@ -9,7 +9,7 @@ import { describe, expect, it } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createMemoryBackend, type PersistenceBackend } from 'pyric/sandbox';
+import { bundleRecords, createMemoryBackend, serializeToBuckets, type PersistenceBackend } from 'pyric/sandbox';
 import { recordCheckpointBackend } from 'pyric/sandbox/checkpoints';
 import { openStorageBackend } from '../../../../pyric/src/storage/persistence.js';
 import type { BridgeMessage } from '../../../src/bridge/protocol.js';
@@ -675,6 +675,395 @@ describe('createHostedRuntime group commit', () => {
     } finally {
       console.error = originalConsoleError;
       for (const gate of gates) gate.release();
+      await runtime.close();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('createHostedRuntime state import and checkpoint rule preservation', () => {
+  it('applies imported v4 record-bundle RTDB rules across default and named instances and preserves named-instance rules across reopen', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'pyric-hosted-v4-import-'));
+    const frames: BridgeMessage[] = [];
+    const backend = createMemoryBackend();
+    const makePersistence = async () => ({
+      backend,
+      storage: await openStorageBackend(`mem-hosted-v4-imp-${Math.random()}`),
+      checkpoints: recordCheckpointBackend(createMemoryBackend()),
+      state: { seed: async () => false },
+      repairedObjects: [],
+      sweep: Promise.resolve({ removed: 0, bytesRemoved: 0 }),
+      close() {},
+      status: () => ({ state: 'healthy' as const }),
+      onFailure: () => () => {},
+      markUnhealthy() {},
+    });
+
+    const runtime = await createHostedRuntime(
+      {
+        rules: FIRESTORE_RULES,
+        rulesHash: null,
+        databaseRules: { rules: { '.read': false, '.write': false } },
+        databaseRulesHash: null,
+        bridgeUrl: null,
+        seed: null,
+        capture: false,
+        hosted: true,
+        permissive: false,
+        projectKey: 'hosted-v4-import',
+        sessionToken: 'tok-hosted-v4-import',
+        appOptions: { projectId: 'demo-project' },
+      },
+      'http://127.0.0.1:4400',
+      (msg) => frames.push(msg),
+      dir,
+      { persistence: (await makePersistence()) as never, record: false },
+    );
+
+    const sendWorkerOp = async (
+      targetRuntime: Awaited<ReturnType<typeof createHostedRuntime>>,
+      targetFrames: BridgeMessage[],
+      opId: string,
+      op: Record<string, unknown>,
+    ) => {
+      targetRuntime.receive({
+        type: 'worker-message',
+        clientSessionId: 'c-v4-imp',
+        message: { t: 'op', id: opId, ...op },
+      } as unknown as BridgeMessage);
+      const deadline = Date.now() + 3_000;
+      while (Date.now() < deadline) {
+        const hit = targetFrames.find(
+          (f) =>
+            f.type === 'worker-message-result' &&
+            (f.message as { t?: string; id?: string }).t === 'res' &&
+            (f.message as { id?: string }).id === opId,
+        ) as { message: { ok: boolean; value?: unknown; error?: { code?: string; message?: string } } } | undefined;
+        if (hit !== undefined) return hit.message;
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      throw new Error(`Timed out waiting for ${opId}`);
+    };
+
+    const v4Bundle = bundleRecords(
+      serializeToBuckets(
+        {},
+        {
+          rtdb: {
+            '.pyricRtdbPersistence': 1,
+            data: { items: { item1: { label: 'Alpha', qty: 7 } } },
+            priorities: { '/items': 3, '/items/item1': 'p-item1' },
+            rules: {
+              rules: {
+                items: {
+                  '.read': "auth != null && auth.uid === 'alice'",
+                  '.write': "auth != null && auth.uid === 'alice'",
+                },
+              },
+            },
+            instances: {
+              'secondary-db': {
+                '.pyricRtdbPersistence': 1,
+                data: { logs: { e1: { ok: true } } },
+                priorities: { '/logs/e1': 42 },
+                rules: {
+                  rules: {
+                    logs: {
+                      '.read': "auth != null && auth.uid === 'alice'",
+                      '.write': false,
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+        1700000000000,
+      ),
+    );
+
+    try {
+      await sendWorkerOp(runtime, frames, 'pre-touch-sec', {
+        method: 'rtdb.get',
+        instance: 'secondary-db',
+        path: '/logs/e1',
+        actAs: { mode: 'admin' },
+      });
+
+      const imported = await sendWorkerOp(runtime, frames, 'imp-v4-1', {
+        method: 'importState',
+        bundle: v4Bundle,
+      });
+      expect(imported.ok).toBe(true);
+
+      const aliceReadDefault = await sendWorkerOp(runtime, frames, 'read-def-alice', {
+        method: 'rtdb.get',
+        path: '/items/item1',
+        actAs: { mode: 'as', uid: 'alice' },
+      });
+      expect(aliceReadDefault.ok).toBe(true);
+      expect(aliceReadDefault.value).toMatchObject({
+        value: { label: 'Alpha', qty: 7 },
+        priority: 'p-item1',
+      });
+
+      const bobReadDefault = await sendWorkerOp(runtime, frames, 'read-def-bob', {
+        method: 'rtdb.get',
+        path: '/items/item1',
+        actAs: { mode: 'as', uid: 'bob' },
+      });
+      expect(bobReadDefault.ok).toBe(false);
+
+      const aliceReadSec = await sendWorkerOp(runtime, frames, 'read-sec-alice', {
+        method: 'rtdb.get',
+        instance: 'secondary-db',
+        path: '/logs/e1',
+        actAs: { mode: 'as', uid: 'alice' },
+      });
+      expect(aliceReadSec.ok).toBe(true);
+      expect(aliceReadSec.value).toMatchObject({
+        value: { ok: true },
+        priority: 42,
+      });
+
+      const bobReadSec = await sendWorkerOp(runtime, frames, 'read-sec-bob', {
+        method: 'rtdb.get',
+        instance: 'secondary-db',
+        path: '/logs/e1',
+        actAs: { mode: 'as', uid: 'bob' },
+      });
+      expect(bobReadSec.ok).toBe(false);
+
+      await runtime.close();
+
+      // Reopening from persisted v4 records adopts secondary-db's persisted rules on first client access.
+      const frames2: BridgeMessage[] = [];
+      const reopened = await createHostedRuntime(
+        {
+          rules: FIRESTORE_RULES,
+          rulesHash: null,
+          bridgeUrl: null,
+          seed: null,
+          capture: false,
+          hosted: true,
+          permissive: false,
+          projectKey: 'hosted-v4-import',
+          sessionToken: 'tok-hosted-v4-import',
+          appOptions: { projectId: 'demo-project' },
+        },
+        'http://127.0.0.1:4400',
+        (msg) => frames2.push(msg),
+        dir,
+        { persistence: (await makePersistence()) as never, record: false },
+      );
+      try {
+        const reopenedSec = await sendWorkerOp(reopened, frames2, 'reopen-sec-alice', {
+          method: 'rtdb.get',
+          instance: 'secondary-db',
+          path: '/logs/e1',
+          actAs: { mode: 'as', uid: 'alice' },
+        });
+        expect(reopenedSec.ok).toBe(true);
+        expect(reopenedSec.value).toMatchObject({ value: { ok: true }, priority: 42 });
+
+        const reopenedSecBob = await sendWorkerOp(reopened, frames2, 'reopen-sec-bob', {
+          method: 'rtdb.get',
+          instance: 'secondary-db',
+          path: '/logs/e1',
+          actAs: { mode: 'as', uid: 'bob' },
+        });
+        expect(reopenedSecBob.ok).toBe(false);
+      } finally {
+        await reopened.close();
+      }
+    } finally {
+      await runtime.close();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('restores multi-instance and raw-tree checkpoints in the hosted store with named-instance rules synchronized', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'pyric-hosted-cp-rules-'));
+    const frames: BridgeMessage[] = [];
+    const backend = createMemoryBackend();
+    const checkpoints = recordCheckpointBackend(createMemoryBackend());
+    const persistence = {
+      backend,
+      storage: await openStorageBackend(`mem-hosted-cp-rules-${Math.random()}`),
+      checkpoints,
+      state: { seed: async () => false },
+      repairedObjects: [],
+      sweep: Promise.resolve({ removed: 0, bytesRemoved: 0 }),
+      close() {},
+      status: () => ({ state: 'healthy' as const }),
+      onFailure: () => () => {},
+      markUnhealthy() {},
+    };
+
+    await checkpoints.write('multi-instance-cp', {
+      format: 'pyric-checkpoint-v1',
+      at: 1700000001000,
+      counts: { firestore: 1, database: 2, storage: 0, auth: 0 },
+      state: {
+        firestore: { 'notes/n1': { title: 'Saved note' } },
+        database: {
+          '.pyricRtdbPersistence': 1,
+          data: { items: { k1: { name: 'Saved item' } } },
+          priorities: { '/items/k1': 'prio-k1' },
+          instances: {
+            'secondary-db': {
+              '.pyricRtdbPersistence': 1,
+              data: { events: { ev1: { seq: 11 } } },
+              priorities: { '/events/ev1': 77 },
+            },
+          },
+        },
+        storage: [],
+        auth: { users: [], providers: { password: true, anonymous: true } },
+        rules: {
+          firestore: FIRESTORE_RULES,
+          database: {
+            rules: {
+              items: {
+                '.read': "auth != null && auth.uid === 'alice'",
+                '.write': "auth != null && auth.uid === 'alice'",
+              },
+            },
+          },
+          databaseInstances: {
+            'secondary-db': {
+              rules: {
+                events: {
+                  '.read': "auth != null && auth.uid === 'alice'",
+                  '.write': false,
+                },
+              },
+            },
+          },
+          storage: null,
+        },
+      },
+    });
+
+    await checkpoints.write('raw-tree-cp', {
+      format: 'pyric-checkpoint-v1',
+      at: 1700000002000,
+      counts: { firestore: 0, database: 1, storage: 0, auth: 0 },
+      state: {
+        firestore: {},
+        database: { items: { raw1: { count: 9 } } },
+        storage: [],
+        auth: { users: [], providers: { password: true } },
+        rules: {
+          firestore: '',
+          database: {
+            rules: {
+              items: {
+                '.read': "auth != null && auth.uid === 'alice'",
+                '.write': false,
+              },
+            },
+          },
+          storage: null,
+        },
+      },
+    });
+
+    const runtime = await createHostedRuntime(
+      {
+        rules: FIRESTORE_RULES,
+        rulesHash: null,
+        databaseRules: { rules: { '.read': false, '.write': false } },
+        databaseRulesHash: null,
+        bridgeUrl: null,
+        seed: null,
+        capture: false,
+        hosted: true,
+        permissive: false,
+        projectKey: 'hosted-cp-rules',
+        sessionToken: 'tok-hosted-cp-rules',
+        appOptions: { projectId: 'demo-project' },
+      },
+      'http://127.0.0.1:4400',
+      (msg) => frames.push(msg),
+      dir,
+      { persistence: persistence as never, record: false },
+    );
+
+    const sendWorkerOp = async (opId: string, op: Record<string, unknown>) => {
+      runtime.receive({
+        type: 'worker-message',
+        clientSessionId: 'c-cp-rules',
+        message: { t: 'op', id: opId, ...op },
+      } as unknown as BridgeMessage);
+      const deadline = Date.now() + 3_000;
+      while (Date.now() < deadline) {
+        const hit = frames.find(
+          (f) =>
+            f.type === 'worker-message-result' &&
+            (f.message as { t?: string; id?: string }).t === 'res' &&
+            (f.message as { id?: string }).id === opId,
+        ) as { message: { ok: boolean; value?: unknown; error?: { code?: string; message?: string } } } | undefined;
+        if (hit !== undefined) return hit.message;
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      throw new Error(`Timed out waiting for ${opId}`);
+    };
+
+    try {
+      await sendWorkerOp('cp-pre-touch-sec', {
+        method: 'rtdb.set',
+        instance: 'secondary-db',
+        path: '/events/diverged',
+        value: 1,
+        actAs: { mode: 'admin' },
+      });
+
+      const restoreRes = await runtime.runMethod(
+        { key: 'sandbox.restore', args: { name: 'multi-instance-cp', confirm: true }, projectDir: dir },
+        {},
+      );
+      expect(restoreRes.ok, restoreRes.summary).toBe(true);
+
+      const aliceDef = await sendWorkerOp('cp-def-alice', {
+        method: 'rtdb.get',
+        path: '/items/k1',
+        actAs: { mode: 'as', uid: 'alice' },
+      });
+      expect(aliceDef.ok).toBe(true);
+      expect(aliceDef.value).toMatchObject({ value: { name: 'Saved item' }, priority: 'prio-k1' });
+
+      const aliceSec = await sendWorkerOp('cp-sec-alice', {
+        method: 'rtdb.get',
+        instance: 'secondary-db',
+        path: '/events/ev1',
+        actAs: { mode: 'as', uid: 'alice' },
+      });
+      expect(aliceSec.ok).toBe(true);
+      expect(aliceSec.value).toMatchObject({ value: { seq: 11 }, priority: 77 });
+
+      const bobSec = await sendWorkerOp('cp-sec-bob', {
+        method: 'rtdb.get',
+        instance: 'secondary-db',
+        path: '/events/ev1',
+        actAs: { mode: 'as', uid: 'bob' },
+      });
+      expect(bobSec.ok).toBe(false);
+
+      const workerRestore = await sendWorkerOp('cp-worker-restore-raw', {
+        method: 'restore',
+        name: 'raw-tree-cp',
+      });
+      expect(workerRestore.ok).toBe(true);
+
+      const secLockedAfterRaw = await sendWorkerOp('cp-raw-sec-alice', {
+        method: 'rtdb.get',
+        instance: 'secondary-db',
+        path: '/events/ev1',
+        actAs: { mode: 'as', uid: 'alice' },
+      });
+      expect(secLockedAfterRaw.ok).toBe(false);
+    } finally {
       await runtime.close();
       rmSync(dir, { recursive: true, force: true });
     }

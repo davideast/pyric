@@ -22,6 +22,7 @@ import {
   sandbox as rtdbSandbox,
   type Database,
 } from 'pyric/database';
+import { getActiveRules as getActiveDatabaseRules } from 'pyric/sandbox/database';
 import {
   createDatabaseInstanceRegistry,
   LOCKED_DATABASE_RULES,
@@ -55,6 +56,23 @@ export function rtdbInstances(ctx: HostCtx): DatabaseInstanceRegistry<HostRtdbIn
     create: (key) => {
       const selector = key === registry.defaultKey ? undefined : key;
       const live = pyricGetDatabase(ctx.sandbox, selector);
+      const existingRules = getActiveDatabaseRules(live);
+      if (existingRules !== null) {
+        return {
+          key,
+          selector,
+          live,
+          rules: {
+            source: structuredClone(existingRules),
+            lastKnownGood: structuredClone(existingRules),
+            updatedAt: Date.now(),
+            status: 'active',
+            messages: [],
+          },
+          sessions: new Map(),
+          lenses: new Map(),
+        };
+      }
       // The default instance's policy and rules are set with the project's
       // rules. Until rules are deployed to it, every other instance starts
       // locked, as production creates a new instance, or open in permissive

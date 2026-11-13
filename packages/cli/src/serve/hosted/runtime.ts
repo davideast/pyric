@@ -396,10 +396,17 @@ export async function createHostedRuntime(
     if (reapplyNamedInstances) {
       for (const [, instance] of ctx.rtdbInstances?.entries() ?? []) {
         if (instance.selector === undefined) continue;
-        const databaseSource = instance.rules?.source;
-        if (databaseSource !== undefined) {
-          rtdbSandbox.setRules(instance.live, normalizeDatabaseRules(databaseSource));
+        const activeNamed = getActiveDatabaseRules(instance.live);
+        if (activeNamed !== null) {
+          instance.rules = {
+            source: structuredClone(activeNamed),
+            lastKnownGood: structuredClone(activeNamed),
+            updatedAt: Date.now(),
+            status: 'active',
+            messages: [],
+          };
         } else {
+          delete instance.rules;
           const policy = ctx.rtdbDefaultPolicy ?? 'deny';
           rtdbSandbox.setDefaultPolicy(instance.live, policy);
           rtdbSandbox.setRules(instance.live, policy === 'allow' ? null : LOCKED_DATABASE_RULES);

@@ -170,6 +170,7 @@ export class SandboxImpl implements LocalSandbox {
    * service to register BEFORE `enablePersistence` is called.
    */
   private serviceRegistry = new Map<string, PersistableService>();
+  private pendingSnapshotServices = new Map<string, unknown>();
 
   /**
    * Optional callback set by the persistence controller so it learns
@@ -462,6 +463,7 @@ export class SandboxImpl implements LocalSandbox {
     // harmless but wasteful). Then dispose, swap, re-attach.
     for (const unsub of this.envUnsubs) unsub();
     this.envUnsubs = [];
+    this.pendingSnapshotServices.clear();
     this._env.dispose();
     this._env = new LocalEnvironment(this.clock);
     this.attachToEnv();
@@ -523,6 +525,7 @@ export class SandboxImpl implements LocalSandbox {
     // any service change notifications it hooked up — we just drop our
     // reference here so a dead sandbox doesn't hold service closures.
     this.serviceRegistry.clear();
+    this.pendingSnapshotServices.clear();
     this._onServiceRegistered = null;
     this._onServiceUnregistered = null;
     // Drop user callbacks too — a disposed sandbox is dead, holding
@@ -538,6 +541,9 @@ export class SandboxImpl implements LocalSandbox {
     // registered after `enablePersistence` are naturally included the
     // next time flush calls this.
     const services: Record<string, unknown> = {};
+    for (const [name, pending] of this.pendingSnapshotServices) {
+      services[name] = structuredClone(pending);
+    }
     for (const [name, svc] of this.serviceRegistry) {
       services[name] = svc.snapshot();
     }
@@ -569,10 +575,17 @@ export class SandboxImpl implements LocalSandbox {
         cloneFirestoreSnapshotValue(docData) as Record<string, unknown>,
       );
     }
-    // Only services that are BOTH in the snapshot AND currently registered are
-    // restored; each is isolated so one broken service doesn't abort the load.
+    // Restore registered services immediately and hold unconsumed service blobs
+    // for services (e.g. RTDB, Auth) that register lazily on first handle access.
     for (const [name, svc] of this.serviceRegistry) {
-      if (!(name in data.services)) continue;
+      if (!(name in data.services)) {
+        try {
+          awaitlessResetService(svc);
+        } catch (e) {
+          console.warn(`[sandbox] loadSnapshot: service '${name}' reset failed:`, e);
+        }
+        continue;
+      }
       try {
         svc.restore(data.services[name]);
       } catch (e) {
@@ -581,6 +594,11 @@ export class SandboxImpl implements LocalSandbox {
             `Firestore is intact; that service's state may be incomplete:`,
           e,
         );
+      }
+    }
+    for (const [name, serviceData] of Object.entries(data.services)) {
+      if (!this.serviceRegistry.has(name)) {
+        this.pendingSnapshotServices.set(name, structuredClone(serviceData));
       }
     }
   }
@@ -714,6 +732,15 @@ export class SandboxImpl implements LocalSandbox {
     if (this._onServiceRegistered) {
       this._onServiceRegistered(name, hooks);
     }
+    if (this.pendingSnapshotServices.has(name)) {
+      const pending = this.pendingSnapshotServices.get(name);
+      this.pendingSnapshotServices.delete(name);
+      try {
+        hooks.restore(pending);
+      } catch (e) {
+        console.warn(`[sandbox] late snapshot restore for service '${name}' failed:`, e);
+      }
+    }
     return () => {
       if (this.serviceRegistry.get(name) !== hooks) return;
       this.serviceRegistry.delete(name);
@@ -756,6 +783,14 @@ export class SandboxImpl implements LocalSandbox {
  * notifications (matches `firebase/auth`'s observer behavior: it does
  * NOT re-fire when the user object is set to the same identity).
  */
+function awaitlessResetService(svc: PersistableService): void {
+  if (!svc.reset) return;
+  const result = svc.reset() as unknown;
+  if (result && typeof (result as { catch?: unknown }).catch === 'function') {
+    (result as Promise<unknown>).catch(() => { /* swallow */ });
+  }
+}
+
 function currentUserEqual(a: AuthState, b: AuthState): boolean {
   if (a === b) return true;
   if (a === null || b === null) return false;

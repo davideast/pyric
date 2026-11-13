@@ -28,9 +28,12 @@ import {
   META_RECORD_ID,
 } from '../../src/sandbox/persistence/chunk-format.js';
 import {
+  bundleRecords,
   createMemoryBackend,
   deserializeFromBuckets,
   initializeSandbox,
+  parseBundle,
+  serializeToBuckets,
   type PersistenceBackend,
 } from '../../src/sandbox/index.js';
 import {
@@ -501,5 +504,86 @@ describe('rtdb persistence — incremental dirty-tracked records', () => {
     const db2 = getDatabase(sandbox2);
     expect((await get(ref(db2, '/items/inline'))).exists()).toBe(false);
     sandbox2.dispose();
+  });
+
+  it('restores v4 partitioned bundles across lazy getDatabase registration and resets omitted services and named instances', async () => {
+    const v4Bundle = bundleRecords(
+      serializeToBuckets(
+        {},
+        {
+          rtdb: {
+            '.pyricRtdbPersistence': 1,
+            data: { items: { alpha: { title: 'First', count: 3 } } },
+            priorities: { '/items': 5, '/items/alpha': 'prio-alpha' },
+            rules: {
+              rules: {
+                items: {
+                  '.read': "auth != null && auth.uid === 'alice'",
+                  '.write': "auth != null && auth.uid === 'alice'",
+                },
+              },
+            },
+            instances: {
+              'secondary-db': {
+                '.pyricRtdbPersistence': 1,
+                data: { metrics: { m1: { score: 42 } } },
+                priorities: { '/metrics/m1': 99 },
+                rules: {
+                  rules: {
+                    metrics: {
+                      '.read': "auth != null && auth.uid === 'alice'",
+                      '.write': false,
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+        1700000000000,
+      ),
+    );
+
+    // Case 1: fresh sandbox where RTDB has not been touched prior to loadSnapshot.
+    const freshTarget = initializeSandbox();
+    freshTarget.loadSnapshot(deserializeFromBuckets(parseBundle(v4Bundle)));
+
+    const defaultDb = baseGetDatabase(freshTarget);
+    const secondaryDb = baseGetDatabase(freshTarget, 'https://secondary-db.firebaseio.com');
+
+    freshTarget.currentUser = { uid: 'alice' };
+    const alphaSnap = await get(ref(defaultDb, '/items/alpha'));
+    expect(alphaSnap.val()).toEqual({ title: 'First', count: 3 });
+    expect(alphaSnap.priority).toBe('prio-alpha');
+    expect((await get(ref(defaultDb, '/items'))).priority).toBe(5);
+
+    const metricSnap = await get(ref(secondaryDb, '/metrics/m1'));
+    expect(metricSnap.val()).toEqual({ score: 42 });
+    expect(metricSnap.priority).toBe(99);
+    await expect(set(ref(secondaryDb, '/metrics/m1'), { score: 100 })).rejects.toThrow(/permission/i);
+
+    freshTarget.currentUser = { uid: 'bob' };
+    await expect(get(ref(defaultDb, '/items/alpha'))).rejects.toThrow(/permission/i);
+    await expect(get(ref(secondaryDb, '/metrics/m1'))).rejects.toThrow(/permission/i);
+
+    // Case 2: existing sandbox clears omitted named instances and resets omitted registered services.
+    const dirtyTarget = initializeSandbox();
+    const staleInst = baseGetDatabase(dirtyTarget, 'https://stale-db.firebaseio.com');
+    rtdbSandbox.setDefaultPolicy(staleInst, 'allow');
+    await set(ref(staleInst, '/leftover'), 'gone');
+    dirtyTarget.loadSnapshot(deserializeFromBuckets(parseBundle(v4Bundle)));
+    expect((await get(ref(staleInst, '/leftover'))).val()).toBeNull();
+    dirtyTarget.currentUser = { uid: 'alice' };
+    expect((await get(ref(baseGetDatabase(dirtyTarget), '/items/alpha'))).val()).toEqual({
+      title: 'First',
+      count: 3,
+    });
+
+    rtdbSandbox.setDefaultPolicy(baseGetDatabase(dirtyTarget), 'allow');
+    dirtyTarget.loadSnapshot({ firestore: {}, services: {} });
+    expect((await get(ref(baseGetDatabase(dirtyTarget), '/items/alpha'))).val()).toBeNull();
+
+    freshTarget.dispose();
+    dirtyTarget.dispose();
   });
 });

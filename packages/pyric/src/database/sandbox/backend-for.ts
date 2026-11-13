@@ -103,10 +103,18 @@ function backendsFor(sandbox: Sandbox): DatabaseInstanceRegistry<RtdbBackend> {
       if (!data || typeof data !== 'object') return;
       registry.getOrCreate(registry.defaultKey).restoreTree(data as JsonValue);
       const record = data as { instances?: Record<string, unknown> };
-      if (record.instances && typeof record.instances === 'object') {
-        for (const [key, state] of Object.entries(record.instances)) {
-          registry.getOrCreate(key).restoreTree(state as JsonValue);
+      const incomingInstances =
+        record.instances && typeof record.instances === 'object' && !Array.isArray(record.instances)
+          ? record.instances
+          : {};
+      for (const [existingKey, existingBackend] of registry.entries()) {
+        if (existingKey === registry.defaultKey) continue;
+        if (!Object.hasOwn(incomingInstances, existingKey)) {
+          existingBackend.resetTree(false);
         }
+      }
+      for (const [key, state] of Object.entries(incomingInstances)) {
+        registry.getOrCreate(key).restoreTree(state as JsonValue);
       }
     },
     subscribe: (onChange: () => void) => {

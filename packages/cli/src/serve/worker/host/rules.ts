@@ -281,26 +281,67 @@ export function syncHostRulesAfterCheckpointRestore(ctx: HostCtx, rules: Sandbox
     delete defaultRtdb.rules;
   }
 
+  const namedRules = rules.databaseInstances ?? {};
+  for (const [instanceName, instanceSource] of Object.entries(namedRules)) {
+    const entry = rtdbInstance(ctx, instanceName);
+    if (instanceSource !== null) {
+      rtdbSandbox.setRules(entry.live, structuredClone(instanceSource));
+      entry.rules = {
+        source: structuredClone(instanceSource),
+        lastKnownGood: structuredClone(instanceSource),
+        updatedAt: Date.now(),
+        status: 'active',
+        messages: [],
+      };
+    } else {
+      delete entry.rules;
+    }
+  }
+
   for (const [, instance] of ctx.rtdbInstances?.entries() ?? []) {
     if (instance.selector === undefined) continue;
-    const databaseRules = instance.rules;
-    const databaseSource = databaseRules?.source;
-    if (databaseSource !== undefined) {
-      rtdbSandbox.setRules(instance.live, normalizeDatabaseRules(databaseSource));
-    } else {
-      const policy = ctx.rtdbDefaultPolicy ?? 'deny';
-      rtdbSandbox.setDefaultPolicy(instance.live, policy);
-      rtdbSandbox.setRules(instance.live, policy === 'allow' ? null : LOCKED_DATABASE_RULES);
-    }
+    const restoredSource =
+      Object.hasOwn(namedRules, instance.selector)
+        ? namedRules[instance.selector]
+        : Object.hasOwn(namedRules, instance.key)
+          ? namedRules[instance.key]
+          : null;
+    if (restoredSource !== null && restoredSource !== undefined) continue;
+    delete instance.rules;
+    const policy = ctx.rtdbDefaultPolicy ?? 'deny';
+    rtdbSandbox.setDefaultPolicy(instance.live, policy);
+    rtdbSandbox.setRules(instance.live, policy === 'allow' ? null : LOCKED_DATABASE_RULES);
   }
 }
 
 /** Re-apply active host Firestore and RTDB rules onto `ctx.sandbox` after a legacy data-only snapshot import or a sandbox reset. */
-export function reapplyActiveHostRulesAfterReset(ctx: HostCtx): void {
+export function reapplyActiveHostRulesAfterReset(
+  ctx: HostCtx,
+  importedRtdbRules?: ReadonlyMap<string | undefined, { rules: Record<string, unknown> }>,
+): void {
   const firestoreRules = ctx.activeRules?.firestore;
   const source = firestoreRules?.source;
   if (typeof source === 'string') setRules(ctx.sandbox, source);
+  if (importedRtdbRules !== undefined) {
+    for (const [selector, rulesObj] of importedRtdbRules) {
+      const entry = rtdbInstance(ctx, selector);
+      rtdbSandbox.setRules(entry.live, structuredClone(rulesObj));
+      entry.rules = {
+        source: structuredClone(rulesObj),
+        lastKnownGood: structuredClone(rulesObj),
+        updatedAt: Date.now(),
+        status: 'active',
+        messages: [],
+      };
+    }
+  }
   for (const [, instance] of ctx.rtdbInstances?.entries() ?? []) {
+    const coveredByImport =
+      importedRtdbRules !== undefined &&
+      (instance.selector === undefined
+        ? importedRtdbRules.has(undefined)
+        : importedRtdbRules.has(instance.selector) || importedRtdbRules.has(instance.key));
+    if (coveredByImport) continue;
     const databaseRules = instance.rules;
     const databaseSource = databaseRules?.source;
     if (databaseSource !== undefined) {
