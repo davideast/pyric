@@ -161,7 +161,16 @@ export function toSandboxError(err: unknown, ctx: SandboxContext): unknown {
   const code = err.code as SandboxErrorCode;
   const isPermissionDenied = code === 'permission-denied';
   if (isPermissionDenied === false) {
-    return new SandboxError(code, err.message);
+    const translated = new SandboxError(code, err.message);
+    const exhaustedMarker = Symbol.for('pyric.firestore.transactionAttemptsExhausted');
+    if ((err as unknown as Record<symbol, unknown>)[exhaustedMarker] === true) {
+      Object.defineProperty(translated, exhaustedMarker, {
+        value: true,
+        enumerable: false,
+        configurable: true,
+      });
+    }
+    return translated;
   }
 
   const denialContext: DenialContext = {

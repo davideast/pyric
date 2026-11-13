@@ -20,6 +20,11 @@ import { createDocumentReference } from './firestore-reference.js';
 import { FirebaseError } from 'pyric/app';
 import { encodeDocValue, DOC_VALUE_ENCODING } from 'pyric/firestore/internal/value-codec';
 import { normalizeQueryOrders } from 'pyric/firestore/internal/implicit-order';
+import {
+  fieldPathArgumentSegments,
+  fieldPathKey,
+  fieldPathKeySegments,
+} from 'pyric/firestore/internal/update-fields';
 import { generateAutoId } from 'pyric/sandbox/internal';
 import type { DocumentData, FieldPath, FirestoreDataConverter, QueryConstraintType } from 'pyric/firestore';
 import { rawClientSnapshotForCursor, type RawCursorSnapshot } from './snapshots.js';
@@ -200,15 +205,14 @@ const snapshotCursors = new WeakMap<QueryConstraintHandle, PendingSnapshotCursor
 const rawQueryItems = new WeakMap<QueryHandle, readonly RawConstraintItem[]>();
 
 function fieldPathString(field: string | FieldPath): string {
-  return typeof field === 'string' ? field : field._internalPath.segments.join('.');
+  if (typeof field === 'string') return field;
+  const segments = fieldPathArgumentSegments(field);
+  return segments !== undefined ? fieldPathKey(segments) : field._internalPath.segments.join('.');
 }
 
 function readSnapshotField(data: Record<string, unknown>, fieldPath: string): unknown {
-  if (!fieldPath.includes('.')) {
-    return Object.hasOwn(data, fieldPath) ? data[fieldPath] : undefined;
-  }
   let current: unknown = data;
-  for (const segment of fieldPath.split('.')) {
+  for (const segment of fieldPathKeySegments(fieldPath)) {
     if (current === null || typeof current !== 'object' || Array.isArray(current)) return undefined;
     if (!Object.hasOwn(current, segment)) return undefined;
     current = (current as Record<string, unknown>)[segment];

@@ -111,6 +111,18 @@ export function uploadTokenOf(ctx: HostCtx, uploadId: string): string | undefine
 
 /** Names callers gave the host's default bucket, as their app's `storageBucket` option names it. */
 const defaultBucketNamesByHost = new WeakMap<HostCtx, Set<string>>();
+/** Explicit non-default buckets already accessed on this host, which must never be retroactively aliased to `DEFAULT_BUCKET`. */
+const explicitNamedBucketsByHost = new WeakMap<HostCtx, Set<string>>();
+
+function recordExplicitBucketIfNonDefault(ctx: HostCtx, stored: string): void {
+  if (stored === DEFAULT_BUCKET) return;
+  let explicit = explicitNamedBucketsByHost.get(ctx);
+  if (explicit === undefined) {
+    explicit = new Set();
+    explicitNamedBucketsByHost.set(ctx, explicit);
+  }
+  explicit.add(stored);
+}
 
 /**
  * The bucket a bucket name stores its objects in. The host's default bucket
@@ -151,11 +163,17 @@ export function seedDefaultBucketNames(ctx: HostCtx, names: Iterable<string>): v
 function bucketOfOp(ctx: HostCtx, msg: StorageBucketWire): string {
   const named = msg.defaultBucket;
   const namesDefault = named !== undefined && named !== '' && named !== DEFAULT_BUCKET;
-  if (namesDefault && !hasPrimaryDefaultBucket(ctx)) {
+  if (
+    namesDefault &&
+    !hasPrimaryDefaultBucket(ctx) &&
+    explicitNamedBucketsByHost.get(ctx)?.has(named) !== true
+  ) {
     defaultBucketNamesByHost.set(ctx, new Set([named]));
     ctx.onDefaultBucketName?.(named);
   }
-  return storeBucketOf(ctx, msg.bucket);
+  const stored = storeBucketOf(ctx, msg.bucket);
+  recordExplicitBucketIfNonDefault(ctx, stored);
+  return stored;
 }
 
 /**
@@ -876,7 +894,16 @@ export async function handleStorageOp(
         const provenance = opProvenance(msg);
         const source = bindStorageOperationContext(opStorage(ctx, msg, port), provenance);
         const destinationBucket = storeBucketOf(ctx, msg.destinationBucket);
-        const destination = bindStorageOperationContext(lensStorage(ctx, msg.actAs, port, destinationBucket), provenance);
+        recordExplicitBucketIfNonDefault(ctx, destinationBucket);
+        const destinationName = bucketNameOf(
+          ctx,
+          { bucket: msg.destinationBucket, defaultBucket: msg.defaultBucket },
+          destinationBucket,
+        );
+        const destination = bindStorageOperationContext(
+          nameStorageBucket(lensStorage(ctx, msg.actAs, port, destinationBucket), destinationName),
+          provenance,
+        );
         const result = await copyObject(storageRef(source, msg.path), storageRef(destination, msg.destinationPath), msg.patch ?? {}, provenance);
         await bestEffortFlush(ctx, msg.method);
         ok(port, msg.id, namedMetadata(ctx, { bucket: msg.destinationBucket, defaultBucket: msg.defaultBucket }, result));

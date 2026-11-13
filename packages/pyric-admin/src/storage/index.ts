@@ -359,7 +359,11 @@ export function getStorage(app?: StorageApp): Storage {
     // must never touch a remote handle — local state keyed off a remote
     // handle would be a private server-side store the browser never sees,
     // and `onEvent` throws on remote handles by design.
-    const defaultBucket = resolved.options.storageBucket ?? DEFAULT_SANDBOX_BUCKET;
+    const configuredBucket = resolved.options.storageBucket;
+    const defaultBucket =
+      configuredBucket === undefined || configuredBucket === ''
+        ? DEFAULT_SANDBOX_BUCKET
+        : normalizeBucketName(configuredBucket);
     if (isRemoteSandbox(resolved.sandbox)) {
       return getRemoteStorage(resolved, resolved.sandbox, defaultBucket);
     }
@@ -411,6 +415,7 @@ interface SandboxStorageState {
   readonly dbName: string;
   primaryDefaultBucket: string | null;
   usedDefaultBucket: boolean;
+  readonly explicitNamedBuckets: Set<string>;
   readonly buckets: Set<string>;
   pendingReset: Promise<void> | undefined;
 }
@@ -430,6 +435,7 @@ function ensureSandboxStorageState(sandbox: Sandbox, defaultBucket: string): San
       dbName: `pyric-admin-storage:${randomUUID()}`,
       primaryDefaultBucket: null,
       usedDefaultBucket: false,
+      explicitNamedBuckets: new Set(),
       buckets: new Set([DEFAULT_SANDBOX_BUCKET]),
       pendingReset: undefined,
     };
@@ -464,7 +470,8 @@ function ensureSandboxStorageState(sandbox: Sandbox, defaultBucket: string): San
     defaultBucket !== '' &&
     defaultBucket !== DEFAULT_SANDBOX_BUCKET &&
     state.primaryDefaultBucket === null &&
-    !state.usedDefaultBucket
+    !state.usedDefaultBucket &&
+    !state.explicitNamedBuckets.has(defaultBucket)
   ) {
     state.primaryDefaultBucket = defaultBucket;
   }
@@ -520,11 +527,14 @@ class SandboxStorage implements Storage {
 
   bucket(name?: string): Bucket {
     this.assertActive();
-    const bucketName = name ?? this.defaultBucket;
+    const bucketName = name === undefined ? this.defaultBucket : normalizeBucketName(name);
     if (bucketName === DEFAULT_SANDBOX_BUCKET) {
       this.state.usedDefaultBucket = true;
     }
     const storeBucket = this.storeBucketOf(bucketName);
+    if (storeBucket !== DEFAULT_SANDBOX_BUCKET) {
+      this.state.explicitNamedBuckets.add(storeBucket);
+    }
     this.state.buckets.add(storeBucket);
     return new SandboxBucket(bucketName, storeBucket, this);
   }
@@ -807,7 +817,8 @@ class RemoteStorage implements Storage {
   /** Each bucket name is its own bucket on the host; the default one is the host's default bucket. */
   bucket(name?: string): Bucket {
     this.assertActive();
-    return new RemoteBucket(name ?? this.defaultBucket, this.channel, this);
+    const bucketName = name === undefined ? this.defaultBucket : normalizeBucketName(name);
+    return new RemoteBucket(bucketName, this.channel, this);
   }
 }
 
@@ -819,16 +830,16 @@ class RemoteBucket implements Bucket {
   ) {}
 
   /**
-   * How ops name this bucket: `pyric-default` omits `bucket`, every explicit or
-   * app-configured bucket sends `bucket`, and an app-configured `storageBucket`
-   * also announces `defaultBucket` so the host answers to its primary default alias.
+   * How ops name this bucket: always send `bucket: this.name` (including explicit
+   * `'pyric-default'` so callers with a custom `storageBucket` preserve explicit
+   * `'pyric-default'` metadata and copy targets), and include `defaultBucket` when
+   * the app configured a custom `storageBucket`.
    */
   get wire(): BucketWire {
     const defaultName = this.storage.defaultBucket;
     const namesDefault = defaultName !== DEFAULT_SANDBOX_BUCKET;
-    const namesBucket = this.name !== DEFAULT_SANDBOX_BUCKET;
     return {
-      ...(namesBucket ? { bucket: this.name } : {}),
+      bucket: this.name,
       ...(namesDefault ? { defaultBucket: defaultName } : {}),
     };
   }
@@ -1224,6 +1235,35 @@ function isObjectNotFound(err: unknown): boolean {
   return (err as { code?: unknown })?.code === 'storage/object-not-found';
 }
 
+function storageInvalidArgument(message: string): Error & { code: string } {
+  const err = new Error(message) as Error & { code: string };
+  err.code = 'storage/invalid-argument';
+  return err;
+}
+
+/**
+ * Validate and normalize a bucket name (`gs://` prefix and trailing `/`
+ * stripped) matching `firebase-admin/storage` and `@google-cloud/storage`.
+ */
+function normalizeBucketName(raw: unknown): string {
+  if (typeof raw !== 'string') {
+    throw storageInvalidArgument(
+      'Bucket name not specified or invalid. Specify a valid bucket name via the ' +
+        'storageBucket option when initializing the app, or specify the bucket name ' +
+        'explicitly when calling the bucket() method.',
+    );
+  }
+  const stripped = raw.replace(/^gs:\/\//, '').replace(/\/+$/, '');
+  if (stripped.length === 0) {
+    throw storageInvalidArgument(
+      'Bucket name not specified or invalid. Specify a valid bucket name via the ' +
+        'storageBucket option when initializing the app, or specify the bucket name ' +
+        'explicitly when calling the bucket() method.',
+    );
+  }
+  return stripped;
+}
+
 /** Over-cap rejection (code `storage/quota-exceeded`) — mirrors the worker host's message shape. */
 function quotaExceeded(sizeBytes: number, what: string): Error & { code: string } {
   const err = new Error(
@@ -1336,14 +1376,19 @@ function base64Of(bytes: Uint8Array): string {
 }
 
 /**
- * Normalize `DownloadOptions` (`start..end` inclusive, supporting negative
- * offsets from `size`) using `Uint8Array.prototype.subarray` semantics.
- * Returns `null` when the resulting slice is empty.
+ * Normalize `DownloadOptions` (`start..end` inclusive, with negative `end`
+ * treated as a trailing byte count matching `@google-cloud/storage`'s
+ * `Range: bytes=-N` tail request). Returns `null` when the slice is empty.
  */
 function normalizeByteBounds(
   size: number,
   options: DownloadOptions,
 ): { start: number; endExclusive: number } | null {
+  if (options.end !== undefined && options.end < 0) {
+    const tailLength = Math.min(Math.trunc(-options.end) || 0, size);
+    if (tailLength <= 0) return null;
+    return { start: size - tailLength, endExclusive: size };
+  }
   const rawStart = options.start === undefined ? 0 : Math.trunc(options.start) || 0;
   const rawEnd = options.end === undefined ? size : Math.trunc(options.end + 1) || 0;
   const start = rawStart < 0 ? Math.max(size + rawStart, 0) : Math.min(rawStart, size);
@@ -1352,10 +1397,11 @@ function normalizeByteBounds(
   return { start, endExclusive };
 }
 
-/** The inclusive range `start..end` of `bytes`, as `@google-cloud/storage` reads it. */
+/** The inclusive range `start..end` (or trailing `-end` bytes) of `bytes`, as `@google-cloud/storage` reads it. */
 function byteRange(bytes: Uint8Array, options: DownloadOptions): Uint8Array {
-  const end = options.end === undefined ? undefined : options.end + 1;
-  return bytes.subarray(options.start ?? 0, end);
+  const bounds = normalizeByteBounds(bytes.byteLength, options);
+  if (bounds === null) return bytes.subarray(0, 0);
+  return bytes.subarray(bounds.start, bounds.endExclusive);
 }
 
 /**

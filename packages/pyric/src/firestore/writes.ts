@@ -74,7 +74,9 @@ export async function setDoc<T = DocumentData>(
   return runSdkWrite(beginFirestoreActivity(target, ref, 'setDoc', 'operation'), async () => {
     const conv = converterOf(ref);
     const rawPayload = conv
-      ? (conv as FirestoreDataConverter<T>).toFirestore(data)
+      ? options !== undefined
+        ? (conv as FirestoreDataConverter<T>).toFirestore(data, options)
+        : (conv as FirestoreDataConverter<T>).toFirestore(data)
       : (data as unknown as DocumentData);
     const payload = markUserWriteValue(rawPayload) as DocumentData;
     return clientStateFor(target).runWrite(

@@ -8,19 +8,38 @@ import { FirebaseError } from '../sandbox/internal/firebase-error.js';
 const MIN_SECONDS = -62_135_596_800;
 const MAX_SECONDS_EXCLUSIVE = 253_402_300_800;
 
+export function assertValidTimestampComponents(
+  seconds: unknown,
+  nanoseconds: unknown,
+): void {
+  if (
+    !Number.isInteger(nanoseconds)
+    || (nanoseconds as number) < 0
+    || (nanoseconds as number) >= 1_000_000_000
+  ) {
+    throw new FirebaseError(
+      'invalid-argument',
+      `Timestamp nanoseconds out of range: ${String(nanoseconds)}`,
+    );
+  }
+  if (
+    !Number.isInteger(seconds)
+    || (seconds as number) < MIN_SECONDS
+    || (seconds as number) >= MAX_SECONDS_EXCLUSIVE
+  ) {
+    throw new FirebaseError(
+      'invalid-argument',
+      `Timestamp seconds out of range: ${String(seconds)}`,
+    );
+  }
+}
+
 export class Timestamp {
   constructor(
     public readonly seconds: number,
     public readonly nanoseconds: number,
   ) {
-    const nanosecondsOutOfRange = nanoseconds < 0 || nanoseconds >= 1_000_000_000;
-    if (nanosecondsOutOfRange) {
-      throw new FirebaseError('invalid-argument', `Timestamp nanoseconds out of range: ${nanoseconds}`);
-    }
-    const secondsOutOfRange = seconds < MIN_SECONDS || seconds >= MAX_SECONDS_EXCLUSIVE;
-    if (secondsOutOfRange) {
-      throw new FirebaseError('invalid-argument', `Timestamp seconds out of range: ${seconds}`);
-    }
+    assertValidTimestampComponents(seconds, nanoseconds);
     registerActivityValue(
       this,
       boundedActivityIdentity('timestamp', String(seconds), '\0', String(nanoseconds)),

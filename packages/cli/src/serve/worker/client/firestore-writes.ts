@@ -37,11 +37,14 @@ function captureSetOptions(
 function convertSetData(
   ref: { converter: FirestoreDataConverter<unknown> | null },
   data: unknown,
+  options?: ClientSetOptions,
 ): DocumentData {
   const converter = ref.converter;
   const hasConverter = converter !== null;
   let payload = data;
-  if (hasConverter) payload = converter.toFirestore(data);
+  if (hasConverter) {
+    payload = options !== undefined ? converter.toFirestore(data, options) : converter.toFirestore(data);
+  }
   return requireDocumentData(payload);
 }
 
@@ -52,7 +55,7 @@ export async function setDoc<T = DocumentData>(
 ): Promise<void> {
   return runSdkWrite(beginWorkerFirestoreActivity(ref, 'setDoc', 'operation'), async () => {
     const capturedOptions = captureSetOptions(options);
-    const payload = convertSetData(ref, data);
+    const payload = convertSetData(ref, data, options);
     await dataRpc(ref.port, {
       t: 'op',
       id: nextId(),
@@ -170,7 +173,7 @@ export function writeBatch(db: ClientDb): ClientWriteBatch {
     set(ref, data, options) {
       assertNotCommitted();
       const capturedOptions = captureSetOptions(options);
-      const payload = convertSetData(ref, data);
+      const payload = convertSetData(ref, data, options);
       writes.push({ method: 'set', path: ref.descriptor.path, data: encodeDocValue(payload), valueEncoding: DOC_VALUE_ENCODING, options: capturedOptions });
       return batch;
     },
@@ -305,7 +308,7 @@ export async function runTransaction<R>(
         },
         set(ref, data, options) {
           const capturedOptions = captureSetOptions(options);
-          const payload = convertSetData(ref, data);
+          const payload = convertSetData(ref, data, options);
           hasWrites = true;
           writtenPaths.add(ref.descriptor.path);
           writes.push({ method: 'set', path: ref.descriptor.path, data: encodeDocValue(payload), valueEncoding: DOC_VALUE_ENCODING, options: capturedOptions });

@@ -157,6 +157,9 @@ export function waitForPendingWrites(db: Firestore): Promise<void> {
  */
 export function terminate(db: Firestore): Promise<void> {
   const target = targetForTermination(db);
+  (target as unknown as Record<symbol, (() => void) | undefined>)[
+    Symbol.for('pyric.firestore.evictAppCache')
+  ]?.();
   target.terminate?.();
   return Promise.resolve();
 }
@@ -325,9 +328,9 @@ export interface FirestoreSettings {
 export function initializeFirestore(
   app: SandboxContext | Sandbox | FirebaseApp,
   _settings?: FirestoreSettings,
-  _databaseId?: string,
+  databaseId?: string,
 ): Firestore {
-  return getFirestore(app);
+  return getFirestore(app, databaseId);
 }
 
 /**

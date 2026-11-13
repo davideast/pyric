@@ -42,7 +42,7 @@ export interface FirestoreDataConverter<
   AppModelType,
   DbModelType extends DocumentData = DocumentData,
 > {
-  toFirestore(modelObject: AppModelType): DbModelType;
+  toFirestore(modelObject: AppModelType, options?: SetOptions): DbModelType;
   fromFirestore(snapshot: QueryDocumentSnapshot<DbModelType>): AppModelType;
 }
 

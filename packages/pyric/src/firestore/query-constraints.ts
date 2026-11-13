@@ -26,6 +26,7 @@ import { attachConverterMethod, convertedView } from './converter-method.js';
 import { FieldPath } from './field-values.js';
 import { toFirestoreFirebaseError } from './errors.js';
 import { captureQueryOperand } from './sandbox/query-operand-equality.js';
+import { fieldPathArgumentSegments, fieldPathKey } from './sandbox/update-fields.js';
 import { rawDocumentSnapshotForCursor } from './snapshots.js';
 import type {
   CollectionReference,
@@ -37,7 +38,8 @@ import type {
 /** Accept modular `where`/`orderBy` field args as string or FieldPath. */
 function fieldToString(field: string | FieldPath): string {
   if (typeof field === 'string') return field;
-  return field._internalPath.segments.join('.');
+  const segments = fieldPathArgumentSegments(field);
+  return segments !== undefined ? fieldPathKey(segments) : field._internalPath.segments.join('.');
 }
 
 // ─── Query constraints ────────────────────────────────────────────────
