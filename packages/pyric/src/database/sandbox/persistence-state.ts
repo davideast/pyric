@@ -1,9 +1,84 @@
 import type { BackendState } from './backend-state.js';
 import type { ChildListeners } from './child-listeners.js';
-import type { JsonValue } from './data-tree.js';
+import { joinPath, type JsonValue } from './data-tree.js';
 import type { Priority } from './query.js';
 import type { ValueListeners } from './value-listeners.js';
 import { WritePlane } from './write-plane.js';
+
+function defineOwn<V>(target: Record<string, V>, key: string, value: V): void {
+  if (key === '__proto__') {
+    Object.defineProperty(target, key, {
+      value,
+      enumerable: true,
+      writable: true,
+      configurable: true,
+    });
+  } else {
+    target[key] = value;
+  }
+}
+
+function asValidPriority(value: unknown): Exclude<Priority, null> | null {
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  return null;
+}
+
+const UNSAFE_PRIORITY_SEGMENTS = new Set(['__proto__', 'prototype', 'constructor']);
+
+function canStorePriorityForSegments(segments: readonly string[]): boolean {
+  return !segments.some((seg) => UNSAFE_PRIORITY_SEGMENTS.has(seg));
+}
+
+function normalizeRestoredNode(
+  value: unknown,
+  segments: readonly string[],
+  inlinePriorities: Record<string, Exclude<Priority, null>>,
+): JsonValue {
+  if (value === null || value === undefined) return null;
+  if (value === 0) return 0;
+  if (typeof value !== 'object') return value as JsonValue;
+
+  if (Array.isArray(value)) {
+    const out: Record<string, JsonValue> = {};
+    for (let i = 0; i < value.length; i += 1) {
+      if (!(i in value)) continue;
+      const key = String(i);
+      const child = normalizeRestoredNode(value[i], [...segments, key], inlinePriorities);
+      if (child === null) continue;
+      out[key] = child;
+    }
+    return Object.keys(out).length === 0 ? null : out;
+  }
+
+  const record = value as Record<string, unknown>;
+  const inlinePriority = Object.hasOwn(record, '.priority') ? asValidPriority(record['.priority']) : null;
+
+  if (Object.hasOwn(record, '.value')) {
+    const normalized = normalizeRestoredNode(record['.value'], segments, inlinePriorities);
+    if (normalized !== null && inlinePriority !== null && canStorePriorityForSegments(segments)) {
+      defineOwn(inlinePriorities, joinPath([...segments]), inlinePriority);
+    }
+    return normalized;
+  }
+
+  const out: Record<string, JsonValue> = {};
+  for (const [key, child] of Object.entries(record)) {
+    if (key === '.priority') continue;
+    if (key === '.sv') {
+      defineOwn(out, key, child as JsonValue);
+      continue;
+    }
+    const normalized = normalizeRestoredNode(child, [...segments, key], inlinePriorities);
+    if (normalized === null) continue;
+    defineOwn(out, key, normalized);
+  }
+  if (Object.keys(out).length === 0) return null;
+  if (inlinePriority !== null && canStorePriorityForSegments(segments)) {
+    defineOwn(inlinePriorities, joinPath([...segments]), inlinePriority);
+  }
+  return out;
+}
 
 function decode(root: JsonValue): {
   data: JsonValue;
@@ -174,10 +249,12 @@ export class PersistenceState {
     const priors = this.children.snapshotParents();
     const persisted = decode(root);
 
-    let dataToRestore: JsonValue = {};
-    const hasPersistedData = persisted.data !== null && persisted.data !== undefined;
-    if (hasPersistedData) {
-      dataToRestore = persisted.data;
+    const inlinePriorities: Record<string, Exclude<Priority, null>> = {};
+    const normalizedData = normalizeRestoredNode(persisted.data, [], inlinePriorities);
+    const dataToRestore: JsonValue = normalizedData === null ? {} : normalizedData;
+    const mergedPriorities: Record<string, Exclude<Priority, null>> = { ...inlinePriorities };
+    for (const [path, priority] of Object.entries(persisted.priorities)) {
+      defineOwn(mergedPriorities, path, priority);
     }
 
     const hasPersistedRules = persisted.rules !== null;
@@ -190,7 +267,7 @@ export class PersistenceState {
     }
 
     this.state.tree.restore(dataToRestore);
-    this.state.priorities.restore(persisted.priorities);
+    this.state.priorities.restore(mergedPriorities);
     this.state.mutations.mark('/');
     this.writes.cancelDeniedListeners();
     this.writes.fanOutAll(['/'], priors);

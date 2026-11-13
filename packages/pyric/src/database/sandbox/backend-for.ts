@@ -37,7 +37,9 @@ export async function withDatabaseRulesPreservedOnReset<T>(
 /** The sandbox's backend for `instance`; `undefined` is the default instance. */
 export function getOrCreateBackend(sandbox: Sandbox, instance?: DatabaseInstance): RtdbBackend {
   const registry = backendsFor(sandbox);
-  return registry.getOrCreate(registry.keyOf(instance));
+  const backend = registry.getOrCreate(registry.keyOf(instance));
+  backend.markActive();
+  return backend;
 }
 
 function backendsFor(sandbox: Sandbox): DatabaseInstanceRegistry<RtdbBackend> {
@@ -87,7 +89,9 @@ function backendsFor(sandbox: Sandbox): DatabaseInstanceRegistry<RtdbBackend> {
       const defaultState = registry.getOrCreate(registry.defaultKey).exportPersistenceState();
       const instances: Record<string, unknown> = {};
       for (const [key, backend] of registry.entries()) {
-        if (key !== registry.defaultKey) instances[key] = backend.exportPersistenceState();
+        if (key !== registry.defaultKey && backend.hasDurableState()) {
+          instances[key] = backend.exportPersistenceState();
+        }
       }
       if (
         Object.keys(instances).length > 0
@@ -111,10 +115,13 @@ function backendsFor(sandbox: Sandbox): DatabaseInstanceRegistry<RtdbBackend> {
         if (existingKey === registry.defaultKey) continue;
         if (!Object.hasOwn(incomingInstances, existingKey)) {
           existingBackend.resetTree(false);
+          existingBackend.markDormant();
         }
       }
       for (const [key, state] of Object.entries(incomingInstances)) {
-        registry.getOrCreate(key).restoreTree(state as JsonValue);
+        const target = registry.getOrCreate(key);
+        target.markActive();
+        target.restoreTree(state as JsonValue);
       }
     },
     subscribe: (onChange: () => void) => {
@@ -125,7 +132,13 @@ function backendsFor(sandbox: Sandbox): DatabaseInstanceRegistry<RtdbBackend> {
     },
     // Sandbox.resetAll clears the tree of every instance.
     reset: () => {
-      for (const [, backend] of registry.entries()) backend.resetTree(fullStateRestoreDepth.has(sandbox));
+      const preserveRules = fullStateRestoreDepth.has(sandbox);
+      for (const [key, backend] of registry.entries()) {
+        backend.resetTree(preserveRules);
+        if (key !== registry.defaultKey && !preserveRules && !backend.hasDurableState()) {
+          backend.markDormant();
+        }
+      }
     },
     records: changedRecords,
   });
@@ -140,5 +153,7 @@ function backendsFor(sandbox: Sandbox): DatabaseInstanceRegistry<RtdbBackend> {
  */
 export function heldDatabaseInstances(sandbox: Sandbox): string[] {
   const registry = backendsFor(sandbox);
-  return [...registry.entries()].map(([key]) => key).filter((key) => key !== registry.defaultKey);
+  return [...registry.entries()]
+    .filter(([key, backend]) => key !== registry.defaultKey && !backend.isDormant())
+    .map(([key]) => key);
 }

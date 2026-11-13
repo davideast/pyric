@@ -6,6 +6,7 @@ import { z } from 'zod';
 import { bundleRecords, serializeToBuckets } from 'pyric/sandbox';
 import { CHECKPOINT_NAME_PATTERN } from 'pyric/sandbox/checkpoints';
 import {
+  assertCheckpointState,
   CHUNK_FORMAT_VERSION,
   decodeImportBundle,
   deserializeRtdbRecords,
@@ -276,8 +277,15 @@ export async function salvageHostedState(sourceInput: string, outputInput: strin
             }
             const parsedCounts = checkpointCountsShape.safeParse(rawCounts);
             const parsedState = checkpointStateShape.safeParse(rawState);
-            const validPayload = parsedCounts.success && parsedState.success;
-            if (!validPayload) {
+            let validCheckpointState = parsedCounts.success && parsedState.success;
+            if (validCheckpointState) {
+              try {
+                assertCheckpointState(rawState);
+              } catch {
+                validCheckpointState = false;
+              }
+            }
+            if (!validCheckpointState || !parsedCounts.success || !parsedState.success) {
               report.excluded.push({ namespace: 'checkpoints', id: name, reason: 'Checkpoint validation failed' });
               continue;
             }

@@ -161,10 +161,123 @@ describe('sandbox.exportUsers', () => {
 
     const b = wire();
     authSandbox.seedUsers(b, exported);
-    const restored = authSandbox.listUsers(b).find((u) => u.uid === anon.user.uid);
+    const restored = authSandbox.listUsers(b).find((u) => u.uid === 'anon' || u.uid === anon.user.uid);
     expect(restored).toBeDefined();
     expect(restored?.email).toBeNull();
     expect(authSandbox.exportUsers(b)).toEqual(exported);
+  });
+
+  it('deep-clones customClaims across snapshot, loadSnapshot, seedUsers, createUser, updateUser, listUsers, and listIdentities for all user kinds', async () => {
+    const sb = initializeSandbox();
+    try {
+      const auth = getAuth(sb);
+      const seedClaims = { roles: ['editor'], org: { id: 'o1' } };
+      authSandbox.seedUsers(auth, [
+        {
+          uid: 'u-anon',
+          email: '',
+          password: '',
+          providerId: 'anonymous',
+          customClaims: { roles: ['viewer'], org: { id: 'o0' } },
+        },
+        {
+          uid: 'u-email',
+          email: 'alice@example.com',
+          password: 'password123',
+          customClaims: seedClaims,
+        },
+        {
+          uid: 'u-oauth',
+          email: 'oauth@example.com',
+          providerId: 'google.com',
+          customClaims: { roles: ['member'], org: { id: 'o2' } },
+        },
+      ]);
+
+      // Caller mutation after seedUsers must not leak into live store
+      seedClaims.roles.push('mutated-after-seed');
+      seedClaims.org.id = 'tampered-seed';
+      expect(authSandbox.exportUsers(auth).find((u) => u.uid === 'u-email')?.customClaims).toEqual({
+        roles: ['editor'],
+        org: { id: 'o1' },
+      });
+
+      // Snapshot mutation must not corrupt live store for non-anonymous or anonymous users
+      const snap = sb.snapshot();
+      const authState = snap.services.auth as { users: Array<{ uid: string; customClaims?: { roles: string[]; org: { id: string } } }> };
+      for (const u of authState.users) {
+        u.customClaims?.roles.push('tampered-snap');
+        if (u.customClaims?.org) u.customClaims.org.id = 'tampered-snap';
+      }
+      expect(authSandbox.exportUsers(auth).find((u) => u.uid === 'u-email')?.customClaims).toEqual({
+        roles: ['editor'],
+        org: { id: 'o1' },
+      });
+      expect(authSandbox.exportUsers(auth).find((u) => u.uid === 'u-oauth')?.customClaims).toEqual({
+        roles: ['member'],
+        org: { id: 'o2' },
+      });
+
+      // loadSnapshot caller mutation after load must not leak into live store or minted tokens
+      const inputSnap = {
+        firestore: {},
+        services: {
+          auth: {
+            users: [
+              {
+                uid: 'u-restored',
+                email: 'bob@example.com',
+                password: 'password123',
+                customClaims: { scopes: ['read'], meta: { tier: 'gold' } },
+              },
+            ],
+            providers: { password: true },
+          },
+        },
+      };
+      sb.loadSnapshot(inputSnap);
+      inputSnap.services.auth.users[0]!.customClaims.scopes.push('write');
+      inputSnap.services.auth.users[0]!.customClaims.meta.tier = 'compromised';
+
+      expect(authSandbox.exportUsers(auth).find((u) => u.uid === 'u-restored')?.customClaims).toEqual({
+        scopes: ['read'],
+        meta: { tier: 'gold' },
+      });
+      const signedIn = await signInWithEmailAndPassword(auth, 'bob@example.com', 'password123');
+      const tokenResult = await signedIn.user.getIdTokenResult();
+      expect(tokenResult.claims.scopes).toEqual(['read']);
+      expect(tokenResult.claims.meta).toEqual({ tier: 'gold' });
+
+      // createUser, updateUser, listUsers, and listIdentities deep-clone nested customClaims
+      const createClaims = { nested: { list: ['a'] } };
+      const created = authSandbox.createUser(auth, {
+        uid: 'u-admin',
+        email: 'admin@example.com',
+        password: 'password123',
+        customClaims: createClaims,
+      });
+      createClaims.nested.list.push('b');
+      (created.customClaims.nested as { list: string[] }).list.push('c');
+      expect(authSandbox.exportUsers(auth).find((u) => u.uid === 'u-admin')?.customClaims).toEqual({
+        nested: { list: ['a'] },
+      });
+
+      const updateClaims = { nested: { list: ['x'] } };
+      const updated = authSandbox.updateUser(auth, 'u-admin', { customClaims: updateClaims });
+      updateClaims.nested.list.push('y');
+      (updated.customClaims.nested as { list: string[] }).list.push('z');
+
+      const listedUser = authSandbox.listUsers(auth).find((u) => u.uid === 'u-admin')!;
+      (listedUser.customClaims.nested as { list: string[] }).list.push('mut-list');
+      const listedIdentity = authSandbox.listIdentities(auth).find((u) => u.uid === 'u-admin')!;
+      (listedIdentity.customClaims.nested as { list: string[] }).list.push('mut-id');
+
+      expect(authSandbox.exportUsers(auth).find((u) => u.uid === 'u-admin')?.customClaims).toEqual({
+        nested: { list: ['x'] },
+      });
+    } finally {
+      sb.dispose();
+    }
   });
 });
 

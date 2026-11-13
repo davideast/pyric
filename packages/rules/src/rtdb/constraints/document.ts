@@ -39,8 +39,8 @@ export type RtdbRulesSimulationAuth =
 export type RtdbRulesSimulationInput =
   Omit<SimulationInput, 'auth' | 'mockData'> & {
     auth?: RtdbRulesSimulationAuth;
-    data?: Record<string, unknown>;
-    mockData?: Record<string, unknown>;
+    data?: SimulationInput['mockData'];
+    mockData?: SimulationInput['mockData'];
   };
 
 declare const RTDB_RULES_DOCUMENT_BRAND: unique symbol;
@@ -107,11 +107,16 @@ function normalizeSimulationValue(value: unknown): unknown {
 }
 
 export function normalizeSimulationInput(input: RtdbRulesSimulationInput): SimulationInput {
+  const mockData = input.mockData !== undefined
+    ? input.mockData
+    : input.data !== undefined
+      ? input.data
+      : {};
   const simulation: SimulationInput = {
     operation: input.operation,
     path: input.path,
     auth: normalizeAuth(input.auth),
-    mockData: input.mockData ?? input.data ?? {},
+    mockData,
   };
   if (input.newData !== undefined) simulation.newData = normalizeSimulationValue(input.newData);
   if (input.now !== undefined) simulation.now = input.now;

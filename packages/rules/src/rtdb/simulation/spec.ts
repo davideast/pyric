@@ -77,6 +77,15 @@ export function simulationQueryProblem(query: unknown): string | null {
   return thrownMessage(() => validateQuerySpec({ orderBy: orderByOf(q), bounds: boundsOf(q), limit: null }));
 }
 
+export const SimulationMockDataSchema = z.union([
+  z.record(z.unknown()),
+  z.array(z.unknown()),
+  z.string(),
+  z.number().finite(),
+  z.boolean(),
+  z.null(),
+]);
+
 export const SimulationInputSchema = z.object({
   operation: z.enum(['read', 'write', 'validate']),
   path: z.string().min(1).startsWith('/'),
@@ -88,7 +97,7 @@ export const SimulationInputSchema = z.object({
     }),
     z.null(),
   ]),
-  mockData: z.record(z.unknown()),
+  mockData: SimulationMockDataSchema,
   newData: z.unknown().optional(),
   /**
    * The full set of paths written together in one atomic multi-path

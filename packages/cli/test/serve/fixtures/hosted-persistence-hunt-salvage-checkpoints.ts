@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
-import { restoreNamedCheckpoint, saveCheckpoint, type Checkpoint } from 'pyric/sandbox/checkpoints';
+import { captureCheckpoint, restoreNamedCheckpoint, saveCheckpoint } from 'pyric/sandbox/checkpoints';
 import { createSandboxRoot } from 'pyric/sandbox/internal';
 import { getAdminStorageSandbox, installStorageBackend } from 'pyric/storage/internal';
 import { deleteObject, ref, uploadBytes } from 'pyric/storage';
@@ -35,22 +35,7 @@ const objectPath = (dir: string, hash: string): string => join(dir, 'objects', h
     });
 
     // Checkpoint 1: raw checkpoint written directly through checkpoints.write
-    await persistence.checkpoints.write('golden-seed', {
-      format: 'pyric-checkpoint-v1',
-      at: 1700000000000,
-      counts: { firestore: 0, database: 0, storage: 0, auth: 0 },
-      state: {
-        version: 1,
-        createdAt: 1700000000000,
-        clock: { mode: 'system', currentMs: 1700000000000 },
-        auth: { currentUser: null, users: [], providerConfig: {} },
-        rules: { firestore: null, database: null, storage: null, crossServiceIam: 'granted' },
-        firestore: { documents: [] },
-        database: { data: null, priorities: {} },
-        storage: [],
-        messaging: { registrations: [], delivered: [], topics: {} },
-      },
-    } as unknown as Checkpoint);
+    await persistence.checkpoints.write('golden-seed', await captureCheckpoint(sandbox));
 
     // Checkpoint 2: full sandbox checkpoint referencing a blob later deleted from live Storage
     await uploadBytes(ref(storage, 'snapshots/keep.txt'), keepBlob, { contentType: 'text/plain' });
@@ -170,6 +155,83 @@ const objectPath = (dir: string, hash: string): string => join(dir, 'objects', h
   } finally {
     openedV4.close();
   }
+}
+
+// 4. Salvage recovers rules-only RTDB stores and excludes invalid RTDB instance rules and corrupt checkpoint states.
+{
+  const rulesOnlySeed = join(root, 'rules-only-rtdb-seed');
+  const rulesOnlyOut = join(root, 'rules-only-rtdb-out');
+  const seeded = await createHostedPersistence(rulesOnlySeed);
+  seeded.close();
+
+  const rulesOnlyDir = hostedStateDirectory(rulesOnlySeed);
+  const rulesOnlyDb = new DatabaseSync(join(rulesOnlyDir, 'state.sqlite'));
+  rulesOnlyDb.prepare("INSERT OR REPLACE INTO records (namespace, id, payload) VALUES ('hosted', 'meta', ?)").run(
+    JSON.stringify({ version: 4, savedAt: 1000, services: {} }),
+  );
+  rulesOnlyDb.prepare("INSERT OR REPLACE INTO records (namespace, id, payload) VALUES ('hosted', 'rtdb:i:(default)', ?)").run(
+    JSON.stringify({
+      version: 1,
+      instance: '(default)',
+      priorities: {},
+      rules: {
+        rules: {
+          users: {
+            $uid: {
+              '.read': 'auth.uid === $uid',
+              '.write': 'auth.uid === $uid',
+            },
+          },
+        },
+      },
+    }),
+  );
+  rulesOnlyDb.close();
+
+  const rulesOnlyReport = await salvageHostedState(rulesOnlyDir, rulesOnlyOut);
+  assert.equal(rulesOnlyReport.recoveredServices, 1);
+  assert.deepEqual(rulesOnlyReport.excluded, []);
+
+  // Corrupt both rtdb:i:(default) rules and checkpoint state, and verify salvage excludes both
+  // while validateHostedDatabase (via createHostedPersistence) refuses un-salvaged corrupt checkpoint rows.
+  const corruptSeed = join(root, 'corrupt-rtdb-and-checkpoint-seed');
+  const corruptOut = join(root, 'corrupt-rtdb-and-checkpoint-out');
+  const corruptPersistence = await createHostedPersistence(corruptSeed);
+  const sb = createSandboxRoot({ mutations: 100, spans: 100 });
+  installStorageBackend(sb, corruptPersistence.storage);
+  try {
+    await corruptPersistence.state.writeSection('auth', {
+      users: [{ uid: 'u-ok', email: 'ok@example.com', emailVerified: false, isAnonymous: false, providerData: [] }],
+    });
+    await saveCheckpoint(corruptPersistence.checkpoints, 'cp-bad', sb);
+  } finally {
+    sb.dispose();
+    corruptPersistence.close();
+  }
+
+  const corruptDir = hostedStateDirectory(corruptSeed);
+  const corruptDb = new DatabaseSync(join(corruptDir, 'state.sqlite'));
+  corruptDb.prepare("INSERT OR REPLACE INTO records (namespace, id, payload) VALUES ('hosted', 'rtdb:i:(default)', ?)").run(
+    JSON.stringify({
+      version: 1,
+      instance: '(default)',
+      priorities: {},
+      rules: { rules: { '.unknownDirective': true, '.read': 'auth.uid ===' } },
+    }),
+  );
+  const cpRow = corruptDb.prepare("SELECT state FROM checkpoints WHERE name = 'cp-bad'").get() as { state: string };
+  const cpState = JSON.parse(cpRow.state) as { rules: { database: unknown } };
+  cpState.rules.database = { rules: { '.unknownDirective': true } };
+  corruptDb.prepare("UPDATE checkpoints SET state = ? WHERE name = 'cp-bad'").run(JSON.stringify(cpState));
+  corruptDb.close();
+
+  await assert.rejects(() => createHostedPersistence(corruptSeed));
+
+  const corruptReport = await salvageHostedState(corruptDir, corruptOut);
+  assert.equal(corruptReport.recoveredServices, 1);
+  assert.equal(corruptReport.recoveredCheckpoints, 0);
+  assert.equal(corruptReport.excluded.some((e) => e.id === 'rtdb:i:(default)'), true);
+  assert.equal(corruptReport.excluded.some((e) => e.namespace === 'checkpoints' && e.id === 'cp-bad'), true);
 }
 
 console.log('Checkpoint salvage passed');

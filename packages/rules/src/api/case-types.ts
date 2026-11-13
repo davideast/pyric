@@ -238,9 +238,12 @@ export interface RtdbCaseQuery {
   limitToLast?: number;
 }
 
+/** A JSON tree value stored at the root of an RTDB instance. */
+export type RtdbTreeData = Record<string, unknown> | unknown[] | string | number | boolean | null;
+
 /** A case's data as one tree per database instance, keyed by instance name. */
 export type RtdbInstancesData = {
-  instances: Record<string, Record<string, unknown>>;
+  instances: Record<string, RtdbTreeData>;
 };
 
 /**
@@ -278,7 +281,7 @@ export interface RtdbCase {
    * instance (`rtdbRules.fromFirebaseJson`); otherwise an object whose one
    * key is `instances` is a tree with an `/instances` child, as before.
    */
-  data?: Record<string, unknown> | RtdbInstancesData;
+  data?: RtdbTreeData | RtdbInstancesData;
   /**
    * Proposed write value (`newData`), for write/validate cases. Any JSON
    * value: a scalar such as `5` or `true` is a scalar write. For an `update`

@@ -1,4 +1,5 @@
 import { describe, test, expect } from 'bun:test';
+import { rtdbRules } from '../../../src/api/rtdb.js';
 import {
   SimulateErrorCode,
   SimulationInputSchema,
@@ -89,6 +90,74 @@ describe('SimulationInputSchema', () => {
       auth: { uid: 'user123' },
     });
     expect(result.success).toBe(true);
+  });
+
+  test('accepts scalar primitive and null root mockData values', () => {
+    for (const mockData of ['beta', 42, false, null, { '.value': 'alpha', '.priority': 10 }]) {
+      const result = SimulationInputSchema.safeParse({
+        ...BASE,
+        path: '/',
+        mockData,
+      });
+      expect(result.success).toBe(true);
+    }
+  });
+});
+
+describe('rtdbRules().simulate() with scalar root data', () => {
+  test('evaluates read, write, and validate rules when root holds a bare scalar or null', () => {
+    const ruleset = rtdbRules({
+      rules: {
+        '.read': "data.isString() && data.val() === 'beta' && root.val() === 'beta'",
+        '.write': "auth != null && (!data.exists() || data.val() === 'beta')",
+        '.validate': 'newData.isNumber() || newData.hasChildren()',
+      },
+    });
+
+    const summary = ruleset.simulate([
+      {
+        expectation: 'ALLOW',
+        operation: 'read',
+        path: '/',
+        auth: { uid: 'u1' },
+        data: 'beta',
+      },
+      {
+        expectation: 'DENY',
+        operation: 'read',
+        path: '/',
+        auth: { uid: 'u1' },
+        data: 99,
+      },
+      {
+        expectation: 'ALLOW',
+        operation: 'write',
+        path: '/',
+        auth: { uid: 'u1' },
+        data: 'beta',
+        newData: 7,
+      },
+      {
+        expectation: 'ALLOW',
+        operation: 'write',
+        path: '/items/i1',
+        auth: { uid: 'u1' },
+        data: 'beta',
+        newData: 'gamma',
+      },
+      {
+        expectation: 'ALLOW',
+        operation: 'write',
+        path: '/',
+        auth: { uid: 'u1' },
+        data: null,
+        newData: 12,
+      },
+    ]);
+
+    expect(summary.unsupported).toBe(0);
+    expect(summary.failed).toBe(0);
+    expect(summary.passed).toBe(5);
   });
 });
 

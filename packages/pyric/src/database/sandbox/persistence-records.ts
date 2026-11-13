@@ -299,30 +299,6 @@ class InstanceRecordTracker {
 
       const root = this.state.tree.peekRoot();
       const hasRootValue = root !== null && root !== undefined && !isPlainObject(root);
-      const rootValueChanged =
-        hasRootValue !== this.lastHasRootValue
-        || (hasRootValue && !jsonValuesEqual(root, this.lastRootValue));
-      const rulesChanged = this.state.activeRules !== this.lastRulesRef;
-      const shallowPrioritiesChanged = this.state.priorities.shallowGeneration !== this.lastShallowPriorityGen;
-      const needHeader = !this.persistedHeader || rootValueChanged || rulesChanged || shallowPrioritiesChanged;
-
-      if (needHeader) {
-        const header: RtdbInstanceRecord = {
-          version: 1,
-          instance: this.slot,
-          priorities: this.state.priorities.shallowRecord(),
-        };
-        if (hasRootValue) header.rootValue = cloneJson(root);
-        if (this.state.activeRules !== null) {
-          header.rules = structuredClone(this.state.activeRules);
-        }
-        records.set(rtdbInstanceRecordId(this.slot), header);
-        this.persistedHeader = true;
-        this.lastHasRootValue = hasRootValue;
-        this.lastRootValue = hasRootValue ? cloneJson(root) : null;
-        this.lastRulesRef = this.state.activeRules;
-        this.lastShallowPriorityGen = this.state.priorities.shallowGeneration;
-      }
 
       for (const bucketId of capturedDirty) {
         const nodes: Record<string, unknown> = {};
@@ -357,6 +333,50 @@ class InstanceRecordTracker {
             priorities,
             checksum: checksumRtdbBucket(nodes, priorities),
           });
+        }
+      }
+
+      const isNamedInstance = this.slot !== RTDB_DEFAULT_INSTANCE_SLOT;
+      const isNamedEmpty =
+        isNamedInstance
+        && !hasRootValue
+        && this.persistedBuckets.size === 0
+        && this.state.priorities.size === 0
+        && this.state.activeRules === null;
+
+      if (isNamedEmpty) {
+        if (this.persistedHeader) {
+          removed.push(rtdbInstanceRecordId(this.slot));
+          this.persistedHeader = false;
+        }
+        this.lastHasRootValue = false;
+        this.lastRootValue = null;
+        this.lastRulesRef = null;
+        this.lastShallowPriorityGen = this.state.priorities.shallowGeneration;
+      } else {
+        const rootValueChanged =
+          hasRootValue !== this.lastHasRootValue
+          || (hasRootValue && !jsonValuesEqual(root, this.lastRootValue));
+        const rulesChanged = this.state.activeRules !== this.lastRulesRef;
+        const shallowPrioritiesChanged = this.state.priorities.shallowGeneration !== this.lastShallowPriorityGen;
+        const needHeader = !this.persistedHeader || rootValueChanged || rulesChanged || shallowPrioritiesChanged;
+
+        if (needHeader) {
+          const header: RtdbInstanceRecord = {
+            version: 1,
+            instance: this.slot,
+            priorities: this.state.priorities.shallowRecord(),
+          };
+          if (hasRootValue) header.rootValue = cloneJson(root);
+          if (this.state.activeRules !== null) {
+            header.rules = structuredClone(this.state.activeRules);
+          }
+          records.set(rtdbInstanceRecordId(this.slot), header);
+          this.persistedHeader = true;
+          this.lastHasRootValue = hasRootValue;
+          this.lastRootValue = hasRootValue ? cloneJson(root) : null;
+          this.lastRulesRef = this.state.activeRules;
+          this.lastShallowPriorityGen = this.state.priorities.shallowGeneration;
         }
       }
 

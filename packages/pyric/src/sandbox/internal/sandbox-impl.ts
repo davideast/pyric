@@ -775,6 +775,11 @@ export class SandboxImpl implements LocalSandbox {
   getServiceRegistry(): ReadonlyMap<string, PersistableService> {
     return this.serviceRegistry;
   }
+
+  /** Internal: unconsumed service payloads placed by `loadSnapshot` before lazy registration. */
+  getPendingSnapshotServices(): ReadonlyMap<string, unknown> {
+    return this.pendingSnapshotServices;
+  }
 }
 
 /**

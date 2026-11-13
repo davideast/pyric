@@ -9,7 +9,7 @@
  */
 
 import type { RtdbRulesDocumentInternal } from '../rtdb/constraints/document.js';
-import type { RtdbCase, RtdbInstancesData } from './case-types.js';
+import type { RtdbCase, RtdbInstancesData, RtdbTreeData } from './case-types.js';
 import {
   isDefaultDatabaseInstance,
   resolveDatabaseInstance,
@@ -52,6 +52,12 @@ export interface ResolvedInstanceCase {
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function isInstanceTreeData(value: unknown): value is RtdbTreeData {
+  if (value === null || typeof value === 'string' || typeof value === 'boolean') return true;
+  if (typeof value === 'number') return Number.isFinite(value);
+  return Array.isArray(value) || isPlainObject(value);
 }
 
 /** An object whose one key is `instances`, holding an object. */
@@ -130,12 +136,12 @@ export function resolveInstanceCase(
   const evaluated: RtdbCase = { ...c };
   const readsPerInstance = instance !== undefined && hasInstancesShape(c.data);
   if (readsPerInstance) {
-    const trees = new Map<string, Record<string, unknown>>();
+    const trees = new Map<string, RtdbTreeData>();
     for (const [key, tree] of Object.entries((c.data as RtdbInstancesData).instances)) {
       const selected = selectInstance(key, defaultKey, projectId);
       if ('problem' in selected) return located({ problem: `data.instances: ${selected.problem}` });
-      if (!isPlainObject(tree)) {
-        return located({ problem: `data.instances["${key}"] must be an object: the tree of database instance "${selected.name}".` });
+      if (!isInstanceTreeData(tree)) {
+        return located({ problem: `data.instances["${key}"] must be a JSON value: the tree of database instance "${selected.name}".` });
       }
       if (trees.has(selected.name)) {
         return located({

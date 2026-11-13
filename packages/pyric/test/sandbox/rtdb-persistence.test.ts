@@ -38,6 +38,7 @@ import {
 } from '../../src/sandbox/index.js';
 import {
   getDatabase as baseGetDatabase,
+  getAdminDatabase,
   ref,
   set,
   setWithPriority,
@@ -46,6 +47,8 @@ import {
   sandbox as rtdbSandbox,
 } from '../../src/database/index.js';
 import { RtdbBackend } from '../../src/database/sandbox/backend.js';
+import { heldDatabaseInstances } from '../../src/database/internal.js';
+import { getActiveRules } from '../../src/database/sandbox-controls.js';
 
 function getDatabase(target: Parameters<typeof baseGetDatabase>[0]) {
   const db = baseGetDatabase(target);
@@ -585,5 +588,217 @@ describe('rtdb persistence — incremental dirty-tracked records', () => {
 
     freshTarget.dispose();
     dirtyTarget.dispose();
+  });
+
+  it('normalizes JSON arrays on loadSnapshot so child reads, element priorities, and child writes match live writes', async () => {
+    const sb = initializeSandbox();
+    try {
+      const adminDb = getAdminDatabase(sb);
+      const clientDb = baseGetDatabase(sb);
+
+      const protoContainer: Record<string, unknown> = {};
+      Object.defineProperty(protoContainer, '__proto__', {
+        value: { tag: 'preserved' },
+        enumerable: true,
+        writable: true,
+        configurable: true,
+      });
+
+      sb.loadSnapshot({
+        firestore: {},
+        services: {
+          rtdb: {
+            '.pyricRtdbPersistence': 1,
+            data: {
+              items: ['alpha', 'beta'],
+              sparse: [null, 'delta'],
+              meta: protoContainer,
+            },
+            priorities: { '/items/0': 42 },
+            rules: {
+              rules: {
+                items: {
+                  $idx: {
+                    '.read': 'data.getPriority() === 42',
+                    '.write': true,
+                  },
+                },
+              },
+            },
+          },
+        },
+      });
+
+      sb.currentUser = { uid: 'u1', token: {} };
+      expect((await get(ref(adminDb, 'items/0'))).val()).toBe('alpha');
+      const clientSnap = await get(ref(clientDb, 'items/0'));
+      expect(clientSnap.val()).toBe('alpha');
+      expect(clientSnap.priority).toBe(42);
+
+      await set(ref(adminDb, 'items/1'), 'gamma');
+      expect((await get(ref(adminDb, 'items'))).val()).toEqual(['alpha', 'gamma']);
+      expect((await get(ref(adminDb, 'sparse/1'))).val()).toBe('delta');
+      const snapData = (sb.snapshot().services.rtdb as { data: { meta: Record<string, unknown> } }).data;
+      expect(Object.getOwnPropertyDescriptor(snapData.meta, '__proto__')?.value).toEqual({ tag: 'preserved' });
+    } finally {
+      sb.dispose();
+    }
+  });
+
+  it('migrates legacy v2 plain-tree services.rtdb on enablePersistence open without dropping RTDB data', async () => {
+    const legacyPlainV2 = JSON.stringify({
+      version: 2,
+      savedAt: 1000,
+      firestore: { 'docs/d1': { title: 'alpha' } },
+      services: {
+        rtdb: {
+          users: {
+            u1: { name: 'Alice' },
+          },
+        },
+      },
+    });
+    const rawStore = new Map<string, unknown>([['legacy', legacyPlainV2]]);
+    const legacyBackend: PersistenceBackend = {
+      async getRecord(_key, id) {
+        return rawStore.get(id) ?? null;
+      },
+      async listRecords() {
+        return [...rawStore.keys()];
+      },
+      async putRecords(_key, records) {
+        for (const [id, value] of records) rawStore.set(id, value);
+      },
+      async deleteRecords(_key, ids) {
+        for (const id of ids) rawStore.delete(id);
+      },
+      async clear() {
+        rawStore.clear();
+      },
+    };
+
+    const sb = initializeSandbox();
+    try {
+      await sb.enablePersistence({ key: 'v2-open', injectedBackend: legacyBackend, flushIntervalMs: 60_000 });
+      expect(rawStore.has('legacy')).toBe(false);
+      expect((await get(ref(getAdminDatabase(sb)))).val()).toEqual({ users: { u1: { name: 'Alice' } } });
+      expect(sb.admin.getDocument('docs/d1')).toEqual({ title: 'alpha' });
+    } finally {
+      sb.dispose();
+    }
+  });
+
+  it('purges persisted rtdb:* shards when resetAll or loadSnapshot runs before lazy getDatabase registration', async () => {
+    // Case A: enablePersistence -> resetAll -> flush without ever opening Database
+    const backendA = createMemoryBackend();
+    const s1 = initializeSandbox();
+    await s1.enablePersistence({ key: 'unreg-a', injectedBackend: backendA, flushIntervalMs: 60_000 });
+    const db1 = getAdminDatabase(s1);
+    rtdbSandbox.setRules(db1, { rules: { '.read': 'auth != null', '.write': false } });
+    await setWithPriority(ref(db1, 'items/a/b/c/d'), 'wiped-value', 7);
+    await s1.flush();
+    s1.dispose();
+
+    const s2 = initializeSandbox();
+    await s2.enablePersistence({ key: 'unreg-a', injectedBackend: backendA, flushIntervalMs: 60_000 });
+    await s2.resetAll();
+    await s2.flush();
+    s2.dispose();
+
+    const s3 = initializeSandbox();
+    await s3.enablePersistence({ key: 'unreg-a', injectedBackend: backendA, flushIntervalMs: 60_000 });
+    expect((await get(ref(getAdminDatabase(s3)))).val()).toBeNull();
+    expect(getActiveRules(getAdminDatabase(s3))).toBeNull();
+    s3.dispose();
+
+    // Case B: enablePersistence -> resetAll -> late getAdminDatabase -> write another shard -> flush
+    const backendB = createMemoryBackend();
+    const b1 = initializeSandbox();
+    await b1.enablePersistence({ key: 'unreg-b', injectedBackend: backendB, flushIntervalMs: 60_000 });
+    await set(ref(getAdminDatabase(b1), 'items/a/b/c/d'), 'stale-shard');
+    await b1.flush();
+    b1.dispose();
+
+    const b2 = initializeSandbox();
+    await b2.enablePersistence({ key: 'unreg-b', injectedBackend: backendB, flushIntervalMs: 60_000 });
+    await b2.resetAll();
+    await set(ref(getAdminDatabase(b2), 'orgs/o1/teams/t1/m1'), 'fresh-shard');
+    await b2.flush();
+    b2.dispose();
+
+    const b3 = initializeSandbox();
+    await b3.enablePersistence({ key: 'unreg-b', injectedBackend: backendB, flushIntervalMs: 60_000 });
+    expect((await get(ref(getAdminDatabase(b3)))).val()).toEqual({
+      orgs: { o1: { teams: { t1: { m1: 'fresh-shard' } } } },
+    });
+    b3.dispose();
+
+    // Case C: enablePersistence -> loadSnapshot(replacement) -> flush without opening Database
+    const backendC = createMemoryBackend();
+    const c1 = initializeSandbox();
+    await c1.enablePersistence({ key: 'unreg-c', injectedBackend: backendC, flushIntervalMs: 60_000 });
+    await set(ref(getAdminDatabase(c1), 'items/a/b/c/d'), 'old-shard');
+    await c1.flush();
+    c1.dispose();
+
+    const c2 = initializeSandbox();
+    await c2.enablePersistence({ key: 'unreg-c', injectedBackend: backendC, flushIntervalMs: 60_000 });
+    c2.loadSnapshot({
+      firestore: {},
+      services: {
+        rtdb: {
+          '.pyricRtdbPersistence': 1,
+          data: { orgs: { o2: { name: 'Replaced' } } },
+          priorities: {},
+        },
+      },
+    });
+    await c2.flush();
+    c2.dispose();
+
+    const c3 = initializeSandbox();
+    await c3.enablePersistence({ key: 'unreg-c', injectedBackend: backendC, flushIntervalMs: 60_000 });
+    expect((await get(ref(getAdminDatabase(c3)))).val()).toEqual({
+      orgs: { o2: { name: 'Replaced' } },
+    });
+    c3.dispose();
+  });
+
+  it('evicts ghost named RTDB instances from snapshot, heldDatabaseInstances, and persisted headers after loadSnapshot', async () => {
+    const freshSb = initializeSandbox();
+    getAdminDatabase(freshSb);
+    const freshSnapshot = freshSb.snapshot();
+    freshSb.dispose();
+
+    const backend = createMemoryBackend();
+    const sb = initializeSandbox();
+    try {
+      await sb.enablePersistence({ key: 'ghost-inst', injectedBackend: backend, flushIntervalMs: 60_000 });
+      const defaultDb = getAdminDatabase(sb);
+      const namedDb = getAdminDatabase(sb, 'https://secondary-rtdb.firebaseio.com');
+
+      await set(ref(defaultDb, 'items/i1'), 'alpha');
+      await set(ref(namedDb, 'items/i2'), 'beta');
+      await sb.flush();
+
+      expect((sb.snapshot().services.rtdb as { instances?: Record<string, unknown> }).instances?.['secondary-rtdb']).toBeDefined();
+      expect(await backend.listRecords('ghost-inst')).toContain('rtdb:i:secondary-rtdb');
+      expect(heldDatabaseInstances(sb)).toEqual(['secondary-rtdb']);
+
+      sb.loadSnapshot(freshSnapshot);
+      await sb.flush();
+
+      expect((sb.snapshot().services.rtdb as { instances?: Record<string, unknown> }).instances).toBeUndefined();
+      expect(heldDatabaseInstances(sb)).toEqual([]);
+      expect(await backend.listRecords('ghost-inst')).not.toContain('rtdb:i:secondary-rtdb');
+
+      // Writing through the previously-held handle reactivates the same instance cleanly without split-brain.
+      await set(ref(namedDb, 'items/i3'), 'gamma');
+      await sb.flush();
+      expect(heldDatabaseInstances(sb)).toEqual(['secondary-rtdb']);
+      expect(await backend.listRecords('ghost-inst')).toContain('rtdb:i:secondary-rtdb');
+    } finally {
+      sb.dispose();
+    }
   });
 });

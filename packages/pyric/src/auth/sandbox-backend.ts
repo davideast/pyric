@@ -569,7 +569,6 @@ export class SandboxBackend {
       displayName: null,
       phoneNumber: null,
       photoUrl: null,
-      customClaims: {},
       isAnonymous: false,
       providerUserInfo: [],
       disabled: false,
@@ -578,6 +577,7 @@ export class SandboxBackend {
       lastLoginAt: null,
       tenantId: null,
       ...init,
+      customClaims: init.customClaims !== undefined ? structuredClone(init.customClaims) : {},
     };
     const providerId = creationProviderId(record, signInProviderId);
     if (mintsDefaultPhoto(record, providerId)) {
@@ -963,7 +963,7 @@ export class SandboxBackend {
       if (hasPhotoUrl) seed.photoUrl = photoUrl;
       const hasPhoneNumber = phoneNumber !== null;
       if (hasPhoneNumber) seed.phoneNumber = phoneNumber;
-      if (hasCustomClaims) seed.customClaims = u.customClaims;
+      if (hasCustomClaims) seed.customClaims = structuredClone(u.customClaims);
       if (emailVerified) seed.emailVerified = true;
       if (disabled) seed.disabled = true;
       if (hasTenant) seed.tenantId = tenantId;
@@ -1748,9 +1748,9 @@ export class SandboxBackend {
       providerId: u.isAnonymous
         ? 'anonymous'
         : u.providerUserInfo[0]?.providerId ?? 'password',
-      providerUserInfo: [...u.providerUserInfo],
+      providerUserInfo: u.providerUserInfo.map((p) => ({ ...p })),
       isAnonymous: u.isAnonymous,
-      customClaims: u.customClaims,
+      customClaims: structuredClone(u.customClaims),
     }));
   }
 
@@ -1765,7 +1765,7 @@ export class SandboxBackend {
       displayName: u.displayName,
       phoneNumber: u.phoneNumber,
       photoUrl: u.photoUrl,
-      customClaims: { ...u.customClaims },
+      customClaims: structuredClone(u.customClaims),
       providerUserInfo: u.providerUserInfo.map((p) => ({ ...p })),
       isAnonymous: u.isAnonymous,
       disabled: u.disabled,
@@ -1939,7 +1939,7 @@ export class SandboxBackend {
     }
     if (update.displayName !== undefined) stored.displayName = update.displayName;
     if (update.customClaims !== undefined) {
-      stored.customClaims = { ...update.customClaims };
+      stored.customClaims = structuredClone(update.customClaims);
     }
     if (update.disabled !== undefined) stored.disabled = update.disabled;
     if (update.emailVerified !== undefined) stored.emailVerified = update.emailVerified;
@@ -2620,7 +2620,7 @@ export class SandboxBackend {
   static setCustomTokenClaims(backend: SandboxBackend, uid: string, claims: Record<string, unknown> | undefined): void {
     if (claims !== undefined) {
       assertNoReservedCustomClaims(claims);
-      backend.customTokenClaimsByUid.set(uid, { ...claims });
+      backend.customTokenClaimsByUid.set(uid, structuredClone(claims));
     } else {
       backend.customTokenClaimsByUid.delete(uid);
     }
@@ -2637,9 +2637,9 @@ export class SandboxBackend {
     const base = backend.usersByUid.get(uid)?.customClaims ?? fallback;
     const tokenClaims = backend.customTokenClaimsByUid.get(uid);
     if (tokenClaims !== undefined) {
-      return { ...base, ...tokenClaims };
+      return structuredClone({ ...base, ...tokenClaims });
     }
-    return base;
+    return structuredClone(base);
   }
 
   /**

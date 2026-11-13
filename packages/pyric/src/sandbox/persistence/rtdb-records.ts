@@ -14,6 +14,7 @@
  */
 import { FirebaseError } from '../internal/firebase-error.js';
 import { isPlainObject } from '../../firestore/plain-object.js';
+import { rtdbRulesSourceRejection } from '../../rules/internal/rtdb.js';
 import { checksumDocs, pathToBucketId } from './chunk-format.js';
 
 export const RTDB_RECORD_PREFIX = 'rtdb:';
@@ -235,13 +236,40 @@ function serializeSingleInstance(
   }
 }
 
+function isLegacyPlainRtdbTree(value: unknown): boolean {
+  if (value === null || typeof value === 'string' || typeof value === 'boolean') return true;
+  if (typeof value === 'number') return Number.isFinite(value);
+  if (Array.isArray(value)) return true;
+  if (isPlainObject(value)) return !Object.hasOwn(value, '.pyricRtdbPersistence');
+  return false;
+}
+
+function isEmptyNamedInstanceEnvelope(envelope: PersistedRtdbInstanceEnvelope): boolean {
+  if (envelope.rules !== undefined || Object.keys(envelope.priorities).length > 0) return false;
+  const data = envelope.data;
+  if (data === null || data === undefined) return true;
+  if (isPlainObject(data)) return Object.keys(data).length === 0;
+  return false;
+}
+
 export function serializeRtdbServiceToRecords(rtdbService: unknown): Map<string, RtdbPersistedRecord> | null {
-  if (!isValidPersistedRtdbInstance(rtdbService)) return null;
+  let envelope: PersistedRtdbInstanceEnvelope;
+  if (isValidPersistedRtdbInstance(rtdbService)) {
+    envelope = rtdbService;
+  } else if (isLegacyPlainRtdbTree(rtdbService)) {
+    envelope = {
+      '.pyricRtdbPersistence': 1,
+      data: rtdbService === null ? {} : rtdbService,
+      priorities: {},
+    };
+  } else {
+    return null;
+  }
   const records = new Map<string, RtdbPersistedRecord>();
-  serializeSingleInstance(RTDB_DEFAULT_INSTANCE_SLOT, rtdbService, records);
-  if (rtdbService.instances !== undefined) {
-    for (const [name, instanceEnvelope] of Object.entries(rtdbService.instances)) {
-      if (name === RTDB_DEFAULT_INSTANCE_SLOT) continue;
+  serializeSingleInstance(RTDB_DEFAULT_INSTANCE_SLOT, envelope, records);
+  if (envelope.instances !== undefined) {
+    for (const [name, instanceEnvelope] of Object.entries(envelope.instances)) {
+      if (name === RTDB_DEFAULT_INSTANCE_SLOT || isEmptyNamedInstanceEnvelope(instanceEnvelope)) continue;
       serializeSingleInstance(name, instanceEnvelope, records);
     }
   }
@@ -275,8 +303,17 @@ export function validateRtdbImportRecord(id: string, record: unknown): void {
     if (!isValidPriorityMap(record.priorities)) {
       throw new FirebaseError('invalid-argument', `State import RTDB instance record '${id}' requires a priority map.`);
     }
-    if (record.rules !== undefined && !isValidRulesEnvelope(record.rules)) {
-      throw new FirebaseError('invalid-argument', `State import RTDB instance record '${id}' has invalid rules.`);
+    if (record.rules !== undefined) {
+      if (!isValidRulesEnvelope(record.rules)) {
+        throw new FirebaseError('invalid-argument', `State import RTDB instance record '${id}' has invalid rules.`);
+      }
+      const rejection = rtdbRulesSourceRejection(record.rules);
+      if (rejection !== null) {
+        throw new FirebaseError(
+          'invalid-argument',
+          `State import RTDB instance record '${id}' has invalid rules: ${rejection.message}`,
+        );
+      }
     }
     return;
   }

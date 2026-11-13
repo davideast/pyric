@@ -149,7 +149,7 @@ export interface EvalContext {
   /** Snapshot the rules engine sees as `data` / `root.child(...)`.
    *  Pass the current tree (or a relevant subtree); the simulator
    *  walks via path-relative lookups. */
-  mockData: Record<string, unknown>;
+  mockData: SimulationInput['mockData'];
   /** Proposed value at `path` for write/validate ops. Ignored for read. */
   newData?: unknown;
   /**

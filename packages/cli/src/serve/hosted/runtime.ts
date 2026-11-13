@@ -33,6 +33,7 @@ import { createSandboxRoot, emitSandboxEvent, getInternalEnv, LOCKED_DATABASE_RU
 import { getFirestore } from 'pyric/firestore';
 import { setRules } from 'pyric/sandbox/firestore';
 import { getActiveRules as getActiveDatabaseRules } from 'pyric/sandbox/database';
+import { heldDatabaseInstances } from 'pyric/database/internal';
 import { sandbox as rtdbSandbox } from 'pyric/database';
 import { sandbox as authSandbox } from 'pyric/auth';
 import { FirebaseError } from 'pyric/app';
@@ -394,6 +395,9 @@ export async function createHostedRuntime(
       delete defaultRtdb.rules;
     }
     if (reapplyNamedInstances) {
+      for (const heldName of heldDatabaseInstances(ctx.sandbox)) {
+        rtdbInstance(ctx, heldName);
+      }
       for (const [, instance] of ctx.rtdbInstances?.entries() ?? []) {
         if (instance.selector === undefined) continue;
         const activeNamed = getActiveDatabaseRules(instance.live);
@@ -910,7 +914,7 @@ export async function createHostedRuntime(
             }
           } else if (key === 'sandbox.seed' || key === 'sandbox.seedFromFixture' || key === 'sandbox.restore' || key === 'sandbox.promote') {
             syncFirestoreActiveRulesFromSandbox();
-            syncDatabaseActiveRulesFromSandbox(key === 'sandbox.restore');
+            syncDatabaseActiveRulesFromSandbox(key === 'sandbox.restore' || key === 'sandbox.promote');
             reconcilePortSessions();
             restoreFirestoreSubscriptions(ctx);
           }
