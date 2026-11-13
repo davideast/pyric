@@ -5,8 +5,10 @@ import {
 import {
   copyAdminReferenceRegistration,
   FieldPath,
+  isValidTimestampComponents,
   registeredAdminReferencePath,
   Timestamp as CompatTimestamp,
+  TXN_ATTEMPTS_EXHAUSTED_MARKER,
   type CollectionReference,
   type DocumentData,
   type DocumentReference,
@@ -34,9 +36,7 @@ import {
   type SnapshotObserver,
   type Unsubscribe,
 } from 'pyric/sandbox/admin-firestore';
-import type { AdminServiceLifecycle } from './lifecycle.js';
-
-const TXN_ATTEMPTS_EXHAUSTED_MARKER = Symbol.for('pyric.firestore.transactionAttemptsExhausted');
+import type { AdminServiceLifecycle } from '../app/lifecycle.js';
 
 function translateAdminTransactionError(err: unknown): never {
   if (
@@ -44,10 +44,11 @@ function translateAdminTransactionError(err: unknown): never {
     && typeof err === 'object'
     && (err as Record<symbol, unknown>)[TXN_ATTEMPTS_EXHAUSTED_MARKER] === true
   ) {
-    const message =
-      typeof (err as { message?: unknown }).message === 'string'
-        ? (err as { message: string }).message
-        : 'Transaction failed after maximum attempts due to repeated conflicts.';
+    let message = 'Transaction failed after maximum attempts due to repeated conflicts.';
+    const rawMessage = (err as { message?: unknown }).message;
+    if (typeof rawMessage === 'string') {
+      message = rawMessage;
+    }
     throw new SandboxError('aborted', message);
   }
   throw err;
@@ -117,14 +118,7 @@ function unwrapAdminObject<T>(value: T): T {
 function normalizeWriteValue(value: unknown): unknown {
   if (value === null || typeof value !== 'object') return value;
   if (value instanceof CompatTimestamp) {
-    if (
-      !Number.isInteger(value.seconds)
-      || value.seconds < -62_135_596_800
-      || value.seconds >= 253_402_300_800
-      || !Number.isInteger(value.nanoseconds)
-      || value.nanoseconds < 0
-      || value.nanoseconds >= 1_000_000_000
-    ) {
+    if (!isValidTimestampComponents(value.seconds, value.nanoseconds)) {
       throw new SandboxError(
         'invalid-argument',
         `Invalid Timestamp(seconds=${String(value.seconds)}, nanoseconds=${String(value.nanoseconds)})`,
@@ -696,7 +690,12 @@ export function wrapAdminFirestoreHandle(
           ): Promise<R> =>
             runAsyncWithLifecycle(proxy, () =>
               t
-                .runTransaction((rawTx) => fn(wrapTransaction(rawTx, proxy)), opts)
+                .runTransaction(async (rawTx) => {
+                  assertRootActive(proxy);
+                  const result = await fn(wrapTransaction(rawTx, proxy));
+                  assertRootActive(proxy);
+                  return result;
+                }, opts)
                 .catch(translateAdminTransactionError),
             );
         case 'seed':
@@ -714,13 +713,11 @@ export function wrapAdminFirestoreHandle(
           // Pass deferred members and sandbox helpers through without rebinding
           // so `isDeferredApi(descriptor.value)` and property identity remain intact.
           const value = Reflect.get(t, prop, t);
-          if (prop === 'setRules' || prop === 'snapshot') {
-            return typeof value === 'function'
-              ? (...args: unknown[]) => {
-                  lifecycle?.assertActive();
-                  return (value as (...a: unknown[]) => unknown).apply(t, args);
-                }
-              : value;
+          if ((prop === 'setRules' || prop === 'snapshot') && typeof value === 'function') {
+            return (...args: unknown[]) => {
+              lifecycle?.assertActive();
+              return (value as (...a: unknown[]) => unknown).apply(t, args);
+            };
           }
           return value;
         }
@@ -831,10 +828,10 @@ export function adminOnSnapshot(
   arg4?: ((error: unknown) => void) | (() => void),
   arg5?: () => void,
 ): Unsubscribe {
-  const rootDb =
-    reference !== null && typeof reference === 'object'
-      ? adminToRootDb.get(reference)
-      : undefined;
+  let rootDb: SandboxFirestore | undefined;
+  if (reference !== null && typeof reference === 'object') {
+    rootDb = adminToRootDb.get(reference);
+  }
   const rawReference = unwrapAdminObject(reference);
   if (rootDb === undefined) {
     return (baseOnSnapshot as (...a: unknown[]) => Unsubscribe)(
@@ -856,21 +853,27 @@ export function adminOnSnapshot(
     && typeof (arg2 as { error?: unknown }).error !== 'function'
     && typeof (arg2 as { complete?: unknown }).complete !== 'function';
 
-  const unsubscribe = arg2IsOptions
-    ? (baseOnSnapshot as (...a: unknown[]) => Unsubscribe)(
-        rawReference,
-        arg2,
-        wrapObserverOrCallbackArg(arg3, rootDb),
-        arg4,
-        arg5,
-      )
-    : (baseOnSnapshot as (...a: unknown[]) => Unsubscribe)(
-        rawReference,
-        wrapObserverOrCallbackArg(arg2, rootDb),
-        arg3,
-        arg4,
-        arg5,
-      );
+  let unsubscribe: Unsubscribe;
+  if (arg2IsOptions) {
+    unsubscribe = (baseOnSnapshot as (...a: unknown[]) => Unsubscribe)(
+      rawReference,
+      arg2,
+      wrapObserverOrCallbackArg(arg3, rootDb),
+      arg4,
+      arg5,
+    );
+  } else {
+    unsubscribe = (baseOnSnapshot as (...a: unknown[]) => Unsubscribe)(
+      rawReference,
+      wrapObserverOrCallbackArg(arg2, rootDb),
+      arg3,
+      arg4,
+      arg5,
+    );
+  }
 
-  return lifecycle !== undefined ? lifecycle.trackSubscription(unsubscribe) : unsubscribe;
+  if (lifecycle !== undefined) {
+    return lifecycle.trackSubscription(unsubscribe);
+  }
+  return unsubscribe;
 }

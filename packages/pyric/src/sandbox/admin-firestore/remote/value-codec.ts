@@ -25,6 +25,7 @@ import { rehydrateEncodedDocValue } from 'pyric/firestore/internal/value-codec';
 import { Bytes as InternalBytes } from 'pyric/rules/internal';
 import {
   Timestamp as CompatTimestamp,
+  isValidTimestampComponents,
   registeredAdminReferencePath,
   type DocumentData,
   type FieldValueSentinel,
@@ -99,14 +100,7 @@ export function encodeValue(v: unknown): unknown {
     return new InternalBytes(view.slice()).toJSON();
   }
   if (v instanceof CompatTimestamp) {
-    if (
-      !Number.isInteger(v.seconds)
-      || v.seconds < -62_135_596_800
-      || v.seconds >= 253_402_300_800
-      || !Number.isInteger(v.nanoseconds)
-      || v.nanoseconds < 0
-      || v.nanoseconds >= 1_000_000_000
-    ) {
+    if (!isValidTimestampComponents(v.seconds, v.nanoseconds)) {
       throw invalidArgument(
         `Invalid Timestamp(seconds=${String(v.seconds)}, nanoseconds=${String(v.nanoseconds)})`,
       );

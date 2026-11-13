@@ -8,6 +8,20 @@ import { FirebaseError } from '../sandbox/internal/firebase-error.js';
 const MIN_SECONDS = -62_135_596_800;
 const MAX_SECONDS_EXCLUSIVE = 253_402_300_800;
 
+export function isValidTimestampComponents(
+  seconds: unknown,
+  nanoseconds: unknown,
+): boolean {
+  return (
+    Number.isInteger(seconds)
+    && (seconds as number) >= MIN_SECONDS
+    && (seconds as number) < MAX_SECONDS_EXCLUSIVE
+    && Number.isInteger(nanoseconds)
+    && (nanoseconds as number) >= 0
+    && (nanoseconds as number) < 1_000_000_000
+  );
+}
+
 export function assertValidTimestampComponents(
   seconds: unknown,
   nanoseconds: unknown,

@@ -113,6 +113,8 @@ export function uploadTokenOf(ctx: HostCtx, uploadId: string): string | undefine
 const defaultBucketNamesByHost = new WeakMap<HostCtx, Set<string>>();
 /** Explicit non-default buckets already accessed on this host, which must never be retroactively aliased to `DEFAULT_BUCKET`. */
 const explicitNamedBucketsByHost = new WeakMap<HostCtx, Set<string>>();
+/** Whether `DEFAULT_BUCKET` has already been accessed without a custom `defaultBucket` name on this host. */
+const usedDefaultBucketByHost = new WeakMap<HostCtx, boolean>();
 
 function recordExplicitBucketIfNonDefault(ctx: HostCtx, stored: string): void {
   if (stored === DEFAULT_BUCKET) return;
@@ -146,6 +148,13 @@ function hasPrimaryDefaultBucket(ctx: HostCtx): boolean {
   return (defaultBucketNamesByHost.get(ctx)?.size ?? 0) > 0;
 }
 
+function canAdoptPrimaryDefaultBucket(ctx: HostCtx, named: string): boolean {
+  if (hasPrimaryDefaultBucket(ctx)) return false;
+  if (usedDefaultBucketByHost.get(ctx) === true) return false;
+  if (explicitNamedBucketsByHost.get(ctx)?.has(named) === true) return false;
+  return true;
+}
+
 export function defaultBucketNames(ctx: HostCtx): ReadonlySet<string> {
   return defaultBucketNamesByHost.get(ctx) ?? new Set();
 }
@@ -163,15 +172,14 @@ export function seedDefaultBucketNames(ctx: HostCtx, names: Iterable<string>): v
 function bucketOfOp(ctx: HostCtx, msg: StorageBucketWire): string {
   const named = msg.defaultBucket;
   const namesDefault = named !== undefined && named !== '' && named !== DEFAULT_BUCKET;
-  if (
-    namesDefault &&
-    !hasPrimaryDefaultBucket(ctx) &&
-    explicitNamedBucketsByHost.get(ctx)?.has(named) !== true
-  ) {
+  if (namesDefault && canAdoptPrimaryDefaultBucket(ctx, named)) {
     defaultBucketNamesByHost.set(ctx, new Set([named]));
     ctx.onDefaultBucketName?.(named);
   }
   const stored = storeBucketOf(ctx, msg.bucket);
+  if (stored === DEFAULT_BUCKET && !namesDefault) {
+    usedDefaultBucketByHost.set(ctx, true);
+  }
   recordExplicitBucketIfNonDefault(ctx, stored);
   return stored;
 }
@@ -893,20 +901,24 @@ export async function handleStorageOp(
         }
         const provenance = opProvenance(msg);
         const source = bindStorageOperationContext(opStorage(ctx, msg, port), provenance);
-        const destinationBucket = storeBucketOf(ctx, msg.destinationBucket);
-        recordExplicitBucketIfNonDefault(ctx, destinationBucket);
-        const destinationName = bucketNameOf(
-          ctx,
-          { bucket: msg.destinationBucket, defaultBucket: msg.defaultBucket },
-          destinationBucket,
-        );
+        const destinationWire: StorageBucketWire = {};
+        if (msg.destinationBucket !== undefined) {
+          destinationWire.bucket = msg.destinationBucket;
+        }
+        if (msg.destinationDefaultBucket !== undefined) {
+          destinationWire.defaultBucket = msg.destinationDefaultBucket;
+        } else if (msg.destinationBucket === undefined && msg.defaultBucket !== undefined) {
+          destinationWire.defaultBucket = msg.defaultBucket;
+        }
+        const destinationBucket = bucketOfOp(ctx, destinationWire);
+        const destinationName = bucketNameOf(ctx, destinationWire, destinationBucket);
         const destination = bindStorageOperationContext(
           nameStorageBucket(lensStorage(ctx, msg.actAs, port, destinationBucket), destinationName),
           provenance,
         );
         const result = await copyObject(storageRef(source, msg.path), storageRef(destination, msg.destinationPath), msg.patch ?? {}, provenance);
         await bestEffortFlush(ctx, msg.method);
-        ok(port, msg.id, namedMetadata(ctx, { bucket: msg.destinationBucket, defaultBucket: msg.defaultBucket }, result));
+        ok(port, msg.id, namedMetadata(ctx, destinationWire, result));
       } catch (e) { fail(port, msg.id, e); }
       break;
     }

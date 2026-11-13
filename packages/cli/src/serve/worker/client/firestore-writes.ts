@@ -13,7 +13,13 @@ import type { ClientDb, DocRefHandle, CollRefHandle } from './handles.js';
 import { makeDocSnapshot } from './snapshots.js';
 import type { RawDocResult, ClientDocSnapshot } from './snapshots.js';
 import { createDocumentReference } from './firestore-reference.js';
-import type { DocumentData, FieldPath, FirestoreDataConverter } from 'pyric/firestore';
+import type {
+  DocumentData,
+  FieldPath,
+  FirestoreDataConverter,
+  PartialWithFieldValue,
+  WithFieldValue,
+} from 'pyric/firestore';
 import { FirebaseError } from 'pyric/app';
 
 interface ClientSetOptions {
@@ -34,23 +40,42 @@ function captureSetOptions(
 }
 
 /** Convert models before encoding; update payloads bypass model converters. */
-function convertSetData(
+function convertSetData<T>(
   ref: { converter: FirestoreDataConverter<unknown> | null },
-  data: unknown,
+  data: PartialWithFieldValue<T> | WithFieldValue<T>,
   options?: ClientSetOptions,
 ): DocumentData {
-  const converter = ref.converter;
-  const hasConverter = converter !== null;
-  let payload = data;
-  if (hasConverter) {
-    payload = options !== undefined ? converter.toFirestore(data, options) : converter.toFirestore(data);
+  const converter = ref.converter as FirestoreDataConverter<T> | null;
+  let payload: unknown = data;
+  if (converter !== null) {
+    const usesMergeConverter =
+      options !== undefined && (Boolean(options.merge) || options.mergeFields !== undefined);
+    if (usesMergeConverter) {
+      payload = converter.toFirestore(data, options);
+    } else {
+      payload = converter.toFirestore(data as WithFieldValue<T>);
+    }
   }
   return requireDocumentData(payload);
 }
 
+export function setDoc<T = DocumentData>(
+  ref: DocRefHandle<T>,
+  data: WithFieldValue<T>,
+): Promise<void>;
+export function setDoc<T = DocumentData>(
+  ref: DocRefHandle<T>,
+  data: PartialWithFieldValue<T>,
+  options: ClientSetOptions,
+): Promise<void>;
+export function setDoc<T = DocumentData>(
+  ref: DocRefHandle<T>,
+  data: WithFieldValue<T>,
+  options?: ClientSetOptions,
+): Promise<void>;
 export async function setDoc<T = DocumentData>(
   ref: DocRefHandle<T>,
-  data: T,
+  data: PartialWithFieldValue<T> | WithFieldValue<T>,
   options?: ClientSetOptions,
 ): Promise<void> {
   return runSdkWrite(beginWorkerFirestoreActivity(ref, 'setDoc', 'operation'), async () => {
@@ -150,8 +175,13 @@ export async function addDoc(
  *   batch.delete(ref2);
  *   await batch.commit();
  */
-export interface ClientWriteBatch {
-  set<T = DocumentData>(ref: DocRefHandle<T>, data: T, options?: ClientSetOptions): ClientWriteBatch;
+interface ClientSetOperations {
+  set<T = DocumentData>(ref: DocRefHandle<T>, data: WithFieldValue<T>): this;
+  set<T = DocumentData>(ref: DocRefHandle<T>, data: PartialWithFieldValue<T>, options: ClientSetOptions): this;
+  set<T = DocumentData>(ref: DocRefHandle<T>, data: WithFieldValue<T>, options?: ClientSetOptions): this;
+}
+
+export interface ClientWriteBatch extends ClientSetOperations {
   update(ref: DocRefHandle, data: Record<string, unknown>): ClientWriteBatch;
   update(ref: DocRefHandle, field: string | FieldPath, value: unknown, ...moreFieldsAndValues: unknown[]): ClientWriteBatch;
   delete(ref: DocRefHandle): ClientWriteBatch;
@@ -170,7 +200,11 @@ export function writeBatch(db: ClientDb): ClientWriteBatch {
   }
 
   const batch: ClientWriteBatch = {
-    set(ref, data, options) {
+    set<T = DocumentData>(
+      ref: DocRefHandle<T>,
+      data: PartialWithFieldValue<T> | WithFieldValue<T>,
+      options?: ClientSetOptions,
+    ) {
       assertNotCommitted();
       const capturedOptions = captureSetOptions(options);
       const payload = convertSetData(ref, data, options);
@@ -208,9 +242,8 @@ export function writeBatch(db: ClientDb): ClientWriteBatch {
 // ─── runTransaction ──────────────────────────────────────────────────────
 
 /** Client-side transaction handle. */
-export interface ClientTransaction {
+export interface ClientTransaction extends ClientSetOperations {
   get<T = DocumentData>(ref: DocRefHandle<T>): Promise<ClientDocSnapshot<T>>;
-  set<T = DocumentData>(ref: DocRefHandle<T>, data: T, options?: ClientSetOptions): ClientTransaction;
   update(ref: DocRefHandle, data: Record<string, unknown>): ClientTransaction;
   update(ref: DocRefHandle, field: string | FieldPath, value: unknown, ...moreFieldsAndValues: unknown[]): ClientTransaction;
   delete(ref: DocRefHandle): ClientTransaction;
@@ -306,7 +339,11 @@ export async function runTransaction<R>(
 
           return makeDocSnapshot(rawResult, ref.port, ref);
         },
-        set(ref, data, options) {
+        set<T = DocumentData>(
+          ref: DocRefHandle<T>,
+          data: PartialWithFieldValue<T> | WithFieldValue<T>,
+          options?: ClientSetOptions,
+        ) {
           const capturedOptions = captureSetOptions(options);
           const payload = convertSetData(ref, data, options);
           hasWrites = true;

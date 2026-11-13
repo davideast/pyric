@@ -13,7 +13,6 @@ import {
   type SnapshotFieldPath,
 } from './field-path.js';
 import {
-  decodeEncodedFieldPath,
   fieldPathKey,
   fieldPathKeySegments,
 } from '../update-fields.js';
@@ -658,10 +657,6 @@ function normalizeFilterFields(filter: Filter): QueryFilter {
 }
 
 function normalizeQueryField(field: SnapshotFieldPath): string {
-  if (typeof field === 'string') {
-    const decoded = decodeEncodedFieldPath(field);
-    if (decoded !== undefined) return fieldPathKey(decoded);
-  }
   try {
     return fieldPathKey(fieldPathSegments(field));
   } catch (error) {

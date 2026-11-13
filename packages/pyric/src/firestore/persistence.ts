@@ -23,6 +23,7 @@ import type {
   QuerySnapshot,
   Unsubscribe,
 } from './types.js';
+import { EVICT_APP_CACHE_SYMBOL } from './internal/app-cache-symbol.js';
 import { getFirestore } from './instances.js';
 import { clientStateFor } from './client-state.js';
 import { forEachDocument } from './sandbox/for-each-document.js';
@@ -157,9 +158,7 @@ export function waitForPendingWrites(db: Firestore): Promise<void> {
  */
 export function terminate(db: Firestore): Promise<void> {
   const target = targetForTermination(db);
-  (target as unknown as Record<symbol, (() => void) | undefined>)[
-    Symbol.for('pyric.firestore.evictAppCache')
-  ]?.();
+  (target as unknown as Record<symbol, (() => void) | undefined>)[EVICT_APP_CACHE_SYMBOL]?.();
   target.terminate?.();
   return Promise.resolve();
 }

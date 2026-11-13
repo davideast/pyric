@@ -31,7 +31,6 @@ import {
   type SnapshotFieldPath,
 } from '../../../firestore/sandbox/admin-compat/field-path.js';
 import {
-  decodeEncodedFieldPath,
   fieldPathArgumentSegments,
   fieldPathKey,
   fieldPathKeySegments,
@@ -57,7 +56,11 @@ export interface CursorState {
 export interface QueryState {
   readonly source: { __ref: 'collection'; path: string } | { __ref: 'group'; collectionId: string };
   readonly filters: readonly WireFilter[];
-  readonly orders: readonly { field: string; direction: OrderDirection }[];
+  readonly orders: readonly {
+    field: string;
+    fieldSegments?: readonly string[];
+    direction: OrderDirection;
+  }[];
   readonly limitCount?: number;
   readonly limitFromEnd: boolean;
   readonly start?: CursorState;
@@ -76,8 +79,17 @@ export function queryStateOf(value: unknown): QueryState | undefined {
 function encodeFilter(filter: Filter): WireFilter {
   if (filter.kind === 'where') {
     validateWhereOp(filter.op);
-    const normalizedField = validateQueryField(filter.field);
-    return { kind: 'where', field: normalizedField, op: filter.op, value: encodeValue(filter.value) };
+    const normalized = validateQueryField(filter.field);
+    const wireFilter: Extract<WireFilter, { kind: 'where' }> = {
+      kind: 'where',
+      field: normalized.field,
+      op: filter.op,
+      value: encodeValue(filter.value),
+    };
+    if (normalized.fieldSegments !== undefined) {
+      wireFilter.fieldSegments = normalized.fieldSegments;
+    }
+    return wireFilter;
   }
   return { kind: filter.kind, filters: filter.filters.map(encodeFilter) };
 }
@@ -97,12 +109,19 @@ const INEQUALITY_OPS: ReadonlySet<string> = new Set([
   '<', '<=', '>', '>=', '!=', 'not-in',
 ]);
 
+function canonicalOrderFieldKey(item: { field: string; fieldSegments?: readonly string[] }): string {
+  if (item.fieldSegments !== undefined) {
+    return fieldPathKey(item.fieldSegments);
+  }
+  return fieldPathKey(item.field.split('.'));
+}
+
 function collectInequalityFields(filters: readonly WireFilter[]): string[] {
   const fields: string[] = [];
   for (const filter of filters) {
     if (filter.kind === 'where') {
       if (INEQUALITY_OPS.has(filter.op)) {
-        fields.push(filter.field);
+        fields.push(canonicalOrderFieldKey(filter));
       }
       continue;
     }
@@ -115,7 +134,15 @@ function collectInequalityFields(filters: readonly WireFilter[]): string[] {
 export function buildDescriptor(state: QueryState): WireTarget {
   const constraints: WireConstraint[] = [...state.filters];
   for (const o of state.orders) {
-    constraints.push({ kind: 'orderBy', field: o.field, direction: o.direction });
+    const orderConstraint: Extract<WireConstraint, { kind: 'orderBy' }> = {
+      kind: 'orderBy',
+      field: o.field,
+      direction: o.direction,
+    };
+    if (o.fieldSegments !== undefined) {
+      orderConstraint.fieldSegments = o.fieldSegments;
+    }
+    constraints.push(orderConstraint);
   }
   if (state.start) {
     const startKind = state.start.inclusive ? 'startAt' : 'startAfter';
@@ -175,19 +202,28 @@ export function buildDescriptor(state: QueryState): WireTarget {
 function cursorValuesFromSnapshot(
   snapshot: DocumentSnapshot,
   filters: readonly WireFilter[],
-  orders: readonly { field: string; direction: OrderDirection }[],
+  orders: readonly {
+    field: string;
+    fieldSegments?: readonly string[];
+    direction: OrderDirection;
+  }[],
   method: string,
 ): unknown[] {
-  if (orders.some((o) => o.field === '__name__')) {
+  const canonicalOrders = orders.map((o) => ({
+    field: canonicalOrderFieldKey(o),
+    direction: o.direction,
+  }));
+  if (canonicalOrders.some((o) => o.field === '__name__')) {
     throw invalidArgument(
       `${method}(snapshot) on a remote sandbox does not support orderBy('__name__') — ` +
         'the relay protocol has no document-key cursor, and __name__ is not a data ' +
         'field a value cursor can carry. Order by a real document field instead.',
     );
   }
-  const effectiveOrders = normalizeQueryOrders(orders, collectInequalityFields(filters)).filter(
-    (o) => o.field !== '__name__',
-  );
+  const effectiveOrders = normalizeQueryOrders(
+    canonicalOrders,
+    collectInequalityFields(filters),
+  ).filter((o) => o.field !== '__name__');
   if (effectiveOrders.length === 0) {
     throw invalidArgument(
       `${method}(snapshot) on a remote sandbox requires at least one explicit orderBy() ` +
@@ -203,9 +239,7 @@ function cursorValuesFromSnapshot(
     );
   }
   return effectiveOrders.map((o) => {
-    const lookupField = o.field.includes('`')
-      ? new FieldPath(...fieldPathKeySegments(o.field))
-      : o.field;
+    const lookupField = new FieldPath(...fieldPathKeySegments(o.field));
     const value = getSnapshotField(data, lookupField);
     if (value === undefined) {
       throw invalidArgument(
@@ -216,13 +250,16 @@ function cursorValuesFromSnapshot(
   });
 }
 
-function validateQueryField(field: SnapshotFieldPath): string {
-  if (typeof field === 'string') {
-    const decoded = decodeEncodedFieldPath(field);
-    if (decoded !== undefined) return fieldPathKey(decoded);
-  }
+function validateQueryField(field: SnapshotFieldPath): {
+  field: string;
+  fieldSegments?: readonly string[];
+} {
   try {
-    return fieldPathKey(fieldPathSegments(field));
+    const segments = fieldPathSegments(field);
+    if (typeof field === 'string') {
+      return { field };
+    }
+    return { field: fieldPathKey(segments), fieldSegments: [...segments] };
   } catch (error) {
     throw invalidArgument((error as Error).message);
   }
@@ -257,7 +294,11 @@ function assertValidLimit(n: number): void {
 function recomputeSnapshotCursor(
   cursor: CursorState | undefined,
   filters: readonly WireFilter[],
-  orders: readonly { field: string; direction: OrderDirection }[],
+  orders: readonly {
+    field: string;
+    fieldSegments?: readonly string[];
+    direction: OrderDirection;
+  }[],
   defaultInclusiveMethod: string,
   defaultExclusiveMethod: string,
 ): CursorState | undefined {
@@ -317,11 +358,17 @@ export function makeQuery(arm: RemoteArm, state: QueryState): Query {
 
     where(field: SnapshotFieldPath, op: WhereFilterOp, value: unknown): Query {
       validateWhereOp(op);
-      const normalizedField = validateQueryField(field);
-      const filters: WireFilter[] = [
-        ...state.filters,
-        { kind: 'where', field: normalizedField, op, value: encodeValue(value) },
-      ];
+      const normalized = validateQueryField(field);
+      const whereFilter: Extract<WireFilter, { kind: 'where' }> = {
+        kind: 'where',
+        field: normalized.field,
+        op,
+        value: encodeValue(value),
+      };
+      if (normalized.fieldSegments !== undefined) {
+        whereFilter.fieldSegments = normalized.fieldSegments;
+      }
+      const filters: WireFilter[] = [...state.filters, whereFilter];
       const start = recomputeSnapshotCursor(state.start, filters, state.orders, 'startAt', 'startAfter');
       const end = recomputeSnapshotCursor(state.end, filters, state.orders, 'endAt', 'endBefore');
       return clone({ filters, start, end });
@@ -333,11 +380,18 @@ export function makeQuery(arm: RemoteArm, state: QueryState): Query {
       return clone({ filters, start, end });
     },
     orderBy(field: SnapshotFieldPath, direction: OrderDirection = 'asc'): Query {
-      const normalizedField = validateQueryField(field);
+      const normalized = validateQueryField(field);
       if (direction !== 'asc' && direction !== 'desc') {
         throw invalidArgument("orderBy() direction must be 'asc' or 'desc'.");
       }
-      const orders = [...state.orders, { field: normalizedField, direction }];
+      const orderEntry: QueryState['orders'][number] = {
+        field: normalized.field,
+        direction,
+      };
+      if (normalized.fieldSegments !== undefined) {
+        (orderEntry as { fieldSegments?: readonly string[] }).fieldSegments = normalized.fieldSegments;
+      }
+      const orders = [...state.orders, orderEntry];
       const start = recomputeSnapshotCursor(state.start, state.filters, orders, 'startAt', 'startAfter');
       const end = recomputeSnapshotCursor(state.end, state.filters, orders, 'endAt', 'endBefore');
       return clone({ orders, start, end });

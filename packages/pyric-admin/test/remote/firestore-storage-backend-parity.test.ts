@@ -29,6 +29,7 @@ import * as upstreamAdminFirestore from 'firebase-admin/firestore';
 import * as upstreamAdminStorage from 'firebase-admin/storage';
 import { deleteApp, getApps, initializeApp, type PyricAdminApp } from '../../src/app/index.js';
 import {
+  FieldPath,
   getFirestore,
   onSnapshot,
   Timestamp,
@@ -191,7 +192,10 @@ describe('Admin Firestore & Storage dual-arm backend parity + upstream different
       let postDeleteQueryDeliveries = 0;
       let deleted = false;
 
-      const unsubDoc = heldDoc.onSnapshot(() => {
+      const heldDocWithListener = heldDoc as unknown as {
+        onSnapshot(cb: () => void): () => void;
+      };
+      const unsubDoc = heldDocWithListener.onSnapshot(() => {
         if (deleted) postDeleteDocDeliveries += 1;
       });
       const unsubQuery = onSnapshot(heldQuery, () => {
@@ -221,7 +225,7 @@ describe('Admin Firestore & Storage dual-arm backend parity + upstream different
       expect(await rejectedWithCode(() => heldDoc.set({ status: 'stale' }))).toBe('app/app-deleted');
       expect(await rejectedWithCode(() => heldColl.add({ status: 'stale' }))).toBe('app/app-deleted');
       expect(await rejectedWithCode(() => heldQuery.get())).toBe('app/app-deleted');
-      expect(await rejectedWithCode(() => heldDoc.onSnapshot(() => {}))).toBe('app/app-deleted');
+      expect(await rejectedWithCode(() => heldDocWithListener.onSnapshot(() => {}))).toBe('app/app-deleted');
       expect(await rejectedWithCode(() => {
         heldBatch.set(heldDoc, { status: 'stale' });
         return heldBatch.commit();
@@ -236,6 +240,88 @@ describe('Admin Firestore & Storage dual-arm backend parity + upstream different
 
       const siblingSnap = await siblingDb.doc('items/doc-1').get();
       expect(siblingSnap.data()).toEqual({ status: 'active', updatedBy: 'sibling' });
+    });
+
+    it('rejects an in-flight runTransaction with app/app-deleted without committing when deleteApp resolves mid-attempt', async () => {
+      const h = createHarness(arm);
+      const appInFlight = h.createApp(`inflight-${arm}`);
+      const appObserver = h.createApp(`observer-${arm}`);
+      const db = getFirestore(appInFlight);
+      const observerDb = getFirestore(appObserver);
+
+      await db.doc('items/tx-doc').set({ writtenAfterDelete: false });
+
+      let markInsideAttempt!: () => void;
+      const insideAttempt = new Promise<void>((resolve) => {
+        markInsideAttempt = resolve;
+      });
+      let releaseAttempt!: () => void;
+      const attemptGate = new Promise<void>((resolve) => {
+        releaseAttempt = resolve;
+      });
+
+      const txPromise = db.runTransaction(async (tx) => {
+        await tx.get(db.doc('items/tx-doc'));
+        tx.set(db.doc('items/tx-doc'), { writtenAfterDelete: true });
+        markInsideAttempt();
+        await attemptGate;
+        return 'committed';
+      });
+
+      await insideAttempt;
+      await deleteApp(appInFlight);
+      releaseAttempt();
+
+      expect(await rejectedWithCode(() => txPromise)).toBe('app/app-deleted');
+      const finalSnap = await observerDb.doc('items/tx-doc').get();
+      expect(finalSnap.data()).toEqual({ writtenAfterDelete: false });
+    });
+  });
+
+  describe.each(['local', 'remote'] as const)('arm=%s: FieldPath special segment boundaries', (arm) => {
+    it('preserves literal dots, slashes, and special characters in FieldPath across where and orderBy without spoofing raw backtick strings', async () => {
+      const h = createHarness(arm);
+      const app = h.createApp(`fieldpath-${arm}`);
+      const db = getFirestore(app);
+
+      await db.doc('items/doc-1').set({
+        'meta.tag': 'alpha-literal',
+        'a/b': 10,
+        'a.b': { 'c/d': 'first' },
+        'star*key': { 'bracket[0]': 'special-1' },
+        '`meta': { 'tag`': 'backtick-nested' },
+        meta: { tag: 'zzz-nested' },
+      });
+      await db.doc('items/doc-2').set({
+        'meta.tag': 'omega-literal',
+        'a/b': 20,
+        'a.b': { 'c/d': 'second' },
+        'star*key': { 'bracket[0]': 'special-2' },
+        meta: { tag: 'aaa-nested' },
+      });
+
+      const dotSnap = await db.collection('items').where(new FieldPath('meta.tag'), '==', 'alpha-literal').get();
+      expect(dotSnap.docs.map((d) => d.id)).toEqual(['doc-1']);
+
+      const slashSnap = await db.collection('items').where(new FieldPath('a.b', 'c/d'), '==', 'second').get();
+      expect(slashSnap.docs.map((d) => d.id)).toEqual(['doc-2']);
+
+      const specialSnap = await db
+        .collection('items')
+        .where(new FieldPath('star*key', 'bracket[0]'), '==', 'special-1')
+        .get();
+      expect(specialSnap.docs.map((d) => d.id)).toEqual(['doc-1']);
+
+      const rawBacktickFalse = await db.collection('items').where('`meta.tag`', '==', 'alpha-literal').get();
+      expect(rawBacktickFalse.docs.map((d) => d.id)).toEqual([]);
+      const rawBacktickNested = await db.collection('items').where('`meta.tag`', '==', 'backtick-nested').get();
+      expect(rawBacktickNested.docs.map((d) => d.id)).toEqual(['doc-1']);
+
+      const orderedSlash = await db.collection('items').orderBy(new FieldPath('a/b'), 'desc').get();
+      expect(orderedSlash.docs.map((d) => d.id)).toEqual(['doc-2', 'doc-1']);
+
+      const orderedMeta = await db.collection('items').orderBy(new FieldPath('meta.tag'), 'asc').get();
+      expect(orderedMeta.docs.map((d) => d.id)).toEqual(['doc-1', 'doc-2']);
     });
   });
 
@@ -479,6 +565,17 @@ describe('Admin Firestore & Storage dual-arm backend parity + upstream different
           storageBucket: 'gs://team-bucket/',
         });
         expect(getStorage(configuredGsApp).bucket().name).toBe('team-bucket');
+
+        // Lazy validation of app.options.storageBucket: getStorage(app) and explicit bucket('valid-bucket')
+        // succeed even when storageBucket is invalid, while bare bucket() throws storage/invalid-argument.
+        const badDefaultApp = h.createApp(`bucket-lazy-${arm}`, {
+          storageBucket: 'gs://',
+        });
+        const badDefaultStorage = getStorage(badDefaultApp);
+        expect(badDefaultStorage.bucket('valid-bucket').name).toBe('valid-bucket');
+        expect(await rejectedWithCode(() => badDefaultStorage.bucket())).toBe(
+          'storage/invalid-argument',
+        );
       },
     );
   });
@@ -505,6 +602,21 @@ describe('Admin Firestore & Storage dual-arm backend parity + upstream different
     );
 
     it.each(['local', 'remote'] as const)(
+      'arm=%s: does not retroactively alias a secondary storageBucket to the default bucket once unconfigured bucket() has been used',
+      async (arm) => {
+        const h = createHarness(arm);
+        const app1 = h.createApp(`used-default-app1-${arm}`);
+        await getStorage(app1).bucket().file('docs/def.txt').save('from-default');
+
+        const app2 = h.createApp(`used-default-app2-${arm}`, {
+          storageBucket: 'secondary-bucket',
+        });
+        expect(await getStorage(app2).bucket().file('docs/def.txt').exists()).toEqual([false]);
+        expect(await getStorage(app1).bucket().file('docs/def.txt').exists()).toEqual([true]);
+      },
+    );
+
+    it.each(['local', 'remote'] as const)(
       'arm=%s: stamps destination bucket name on File.copy into explicit pyric-default from an app with custom storageBucket',
       async (arm) => {
         const h = createHarness(arm);
@@ -521,6 +633,28 @@ describe('Admin Firestore & Storage dual-arm backend parity + upstream different
         expect(copiedMeta.bucket).toBe('pyric-default');
         const [readMeta] = await st.bucket('pyric-default').file('docs/dst.txt').getMetadata();
         expect(readMeta.bucket).toBe('pyric-default');
+      },
+    );
+
+    it.each(['local', 'remote'] as const)(
+      'arm=%s: cross-app File.copy honors destination app defaultBucket aliasing and rejects deleted destination apps',
+      async (arm) => {
+        const h = createHarness(arm);
+        const appSource = h.createApp(`cross-copy-src-${arm}`);
+        const appDest = h.createApp(`cross-copy-dst-${arm}`, { storageBucket: 'team-default' });
+
+        const src = getStorage(appSource).bucket('staging-bucket').file('docs/src.txt');
+        await src.save('cross-app-bytes');
+
+        const dst = getStorage(appDest).bucket().file('docs/dst.txt');
+        const [copiedFile, copiedMeta] = await src.copy(dst);
+
+        expect(copiedFile.bucket.name).toBe('team-default');
+        expect(copiedMeta.bucket).toBe('team-default');
+        expect(await getStorage(appSource).bucket().file('docs/dst.txt').exists()).toEqual([true]);
+
+        await deleteApp(appDest);
+        expect(await rejectedWithCode(() => src.copy(dst))).toBe('app/app-deleted');
       },
     );
   });

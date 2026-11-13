@@ -360,14 +360,10 @@ export function getStorage(app?: StorageApp): Storage {
     // handle would be a private server-side store the browser never sees,
     // and `onEvent` throws on remote handles by design.
     const configuredBucket = resolved.options.storageBucket;
-    const defaultBucket =
-      configuredBucket === undefined || configuredBucket === ''
-        ? DEFAULT_SANDBOX_BUCKET
-        : normalizeBucketName(configuredBucket);
     if (isRemoteSandbox(resolved.sandbox)) {
-      return getRemoteStorage(resolved, resolved.sandbox, defaultBucket);
+      return getRemoteStorage(resolved, resolved.sandbox, configuredBucket);
     }
-    return getSandboxStorage(resolved, defaultBucket);
+    return getSandboxStorage(resolved, configuredBucket);
   }
   // Defensive: the union is closed at the type level. A runtime value
   // that lands here means a caller forged a handle without going
@@ -428,7 +424,21 @@ interface SandboxStorageState {
  */
 const SANDBOX_STATE = new WeakMap<Sandbox, SandboxStorageState>();
 
-function ensureSandboxStorageState(sandbox: Sandbox, defaultBucket: string): SandboxStorageState {
+function canAdoptPrimaryDefaultBucket(
+  state: SandboxStorageState,
+  candidate: string | undefined,
+): candidate is string {
+  if (candidate === undefined || candidate === DEFAULT_SANDBOX_BUCKET) return false;
+  if (state.primaryDefaultBucket !== null) return false;
+  if (state.usedDefaultBucket) return false;
+  if (state.explicitNamedBuckets.has(candidate)) return false;
+  return true;
+}
+
+function ensureSandboxStorageState(
+  sandbox: Sandbox,
+  configuredDefaultBucket: string | undefined,
+): SandboxStorageState {
   let state = SANDBOX_STATE.get(sandbox);
   if (!state) {
     state = {
@@ -466,22 +476,20 @@ function ensureSandboxStorageState(sandbox: Sandbox, defaultBucket: string): San
       }
     });
   }
-  if (
-    defaultBucket !== '' &&
-    defaultBucket !== DEFAULT_SANDBOX_BUCKET &&
-    state.primaryDefaultBucket === null &&
-    !state.usedDefaultBucket &&
-    !state.explicitNamedBuckets.has(defaultBucket)
-  ) {
-    state.primaryDefaultBucket = defaultBucket;
+  const normalizedDefault = tryNormalizeBucketName(configuredDefaultBucket);
+  if (canAdoptPrimaryDefaultBucket(state, normalizedDefault)) {
+    state.primaryDefaultBucket = normalizedDefault;
   }
   return state;
 }
 
-function getSandboxStorage(app: SandboxAdminApp, defaultBucket: string): Storage {
+function getSandboxStorage(
+  app: SandboxAdminApp,
+  configuredDefaultBucket: string | undefined,
+): Storage {
   const sandbox = app.sandbox;
-  const state = ensureSandboxStorageState(sandbox, defaultBucket);
-  return new SandboxStorage(app, sandbox, state, defaultBucket);
+  const state = ensureSandboxStorageState(sandbox, configuredDefaultBucket);
+  return new SandboxStorage(app, sandbox, state, configuredDefaultBucket);
 }
 
 /**
@@ -496,7 +504,7 @@ class SandboxStorage implements Storage {
     app: SandboxAdminApp,
     readonly sandbox: Sandbox,
     readonly state: SandboxStorageState,
-    readonly defaultBucket: string,
+    readonly configuredDefaultBucket: string | undefined,
   ) {
     this.#app = app;
   }
@@ -527,7 +535,12 @@ class SandboxStorage implements Storage {
 
   bucket(name?: string): Bucket {
     this.assertActive();
-    const bucketName = name === undefined ? this.defaultBucket : normalizeBucketName(name);
+    let bucketName: string;
+    if (name === undefined) {
+      bucketName = resolveDefaultBucketName(this.configuredDefaultBucket);
+    } else {
+      bucketName = normalizeBucketName(name);
+    }
     if (bucketName === DEFAULT_SANDBOX_BUCKET) {
       this.state.usedDefaultBucket = true;
     }
@@ -702,6 +715,7 @@ class SandboxFile implements File {
     const target = copyTargetOf(this, destination, this.bucket.storage);
     const local = target instanceof SandboxFile && target.bucket.storage.sandbox === this.bucket.storage.sandbox;
     if (!local) throw new Error('pyric-admin/storage: File.copy copies to a File from the same getStorage() sandbox.');
+    target.bucket.storage.assertActive();
     await this.bucket.storage.waitForReset();
     const patch = patchOf(copyMetadataOf(options), { strict: false });
     const full = (await this.missingAsNoSuchObject(
@@ -777,10 +791,14 @@ const MAX_STORAGE_OBJECT_BYTES = 512 * 1024 * 1024;
 /** One remote `Storage` per admin `App` handle (handles only, never data). */
 const remoteStorageByApp = new WeakMap<PyricAdminApp, Storage>();
 
-function getRemoteStorage(app: PyricAdminApp, sandbox: RemoteSandbox, defaultBucket: string): Storage {
+function getRemoteStorage(
+  app: PyricAdminApp,
+  sandbox: RemoteSandbox,
+  configuredDefaultBucket: string | undefined,
+): Storage {
   let storage = remoteStorageByApp.get(app);
   if (!storage) {
-    storage = new RemoteStorage(app, sandbox.channel, defaultBucket);
+    storage = new RemoteStorage(app, sandbox.channel, configuredDefaultBucket);
     remoteStorageByApp.set(app, storage);
   }
   return storage;
@@ -805,7 +823,7 @@ class RemoteStorage implements Storage {
   constructor(
     app: PyricAdminApp,
     private readonly channel: RemoteSandboxChannel,
-    readonly defaultBucket: string,
+    readonly configuredDefaultBucket: string | undefined,
   ) {
     this.#app = app;
   }
@@ -817,7 +835,12 @@ class RemoteStorage implements Storage {
   /** Each bucket name is its own bucket on the host; the default one is the host's default bucket. */
   bucket(name?: string): Bucket {
     this.assertActive();
-    const bucketName = name === undefined ? this.defaultBucket : normalizeBucketName(name);
+    let bucketName: string;
+    if (name === undefined) {
+      bucketName = resolveDefaultBucketName(this.configuredDefaultBucket);
+    } else {
+      bucketName = normalizeBucketName(name);
+    }
     return new RemoteBucket(bucketName, this.channel, this);
   }
 }
@@ -836,12 +859,12 @@ class RemoteBucket implements Bucket {
    * the app configured a custom `storageBucket`.
    */
   get wire(): BucketWire {
-    const defaultName = this.storage.defaultBucket;
-    const namesDefault = defaultName !== DEFAULT_SANDBOX_BUCKET;
-    return {
-      bucket: this.name,
-      ...(namesDefault ? { defaultBucket: defaultName } : {}),
-    };
+    const wire: BucketWire = { bucket: this.name };
+    const defaultName = tryNormalizeBucketName(this.storage.configuredDefaultBucket);
+    if (defaultName !== undefined && defaultName !== DEFAULT_SANDBOX_BUCKET) {
+      wire.defaultBucket = defaultName;
+    }
+    return wire;
   }
 
   file(path: string): File {
@@ -959,15 +982,21 @@ class RemoteFile implements File {
     if (!remote) throw new Error('pyric-admin/storage: File.copy copies to a File from the same remote sandbox.');
     target.bucket.storage.assertActive();
     const destinationWire = target.bucket.wire;
-    const full = await this.missingAsNoSuchObject(this.channel.op({
+    const op: { method: string } & Record<string, unknown> = {
       method: 'storage.copyObject',
       ...this.bucket.wire,
       path: this.name,
-      ...(destinationWire.bucket !== undefined ? { destinationBucket: destinationWire.bucket } : {}),
       destinationPath: target.name,
       patch: patchOf(copyMetadataOf(options), { strict: false }),
       actAs: STORAGE_REMOTE_ADMIN_LENS,
-    })) as HostMetadata;
+    };
+    if (destinationWire.bucket !== undefined) {
+      op.destinationBucket = destinationWire.bucket;
+    }
+    if (destinationWire.defaultBucket !== undefined) {
+      op.destinationDefaultBucket = destinationWire.defaultBucket;
+    }
+    const full = await this.missingAsNoSuchObject(this.channel.op(op)) as HostMetadata;
     return [target, fileMetadataOf(full)];
   }
 
@@ -1239,6 +1268,20 @@ function storageInvalidArgument(message: string): Error & { code: string } {
   const err = new Error(message) as Error & { code: string };
   err.code = 'storage/invalid-argument';
   return err;
+}
+
+function tryNormalizeBucketName(raw: string | undefined): string | undefined {
+  if (typeof raw !== 'string') return undefined;
+  const stripped = raw.replace(/^gs:\/\//, '').replace(/\/+$/, '');
+  if (stripped.length === 0) return undefined;
+  return stripped;
+}
+
+function resolveDefaultBucketName(configuredBucket: string | undefined): string {
+  if (configuredBucket === undefined) {
+    return DEFAULT_SANDBOX_BUCKET;
+  }
+  return normalizeBucketName(configuredBucket);
 }
 
 /**

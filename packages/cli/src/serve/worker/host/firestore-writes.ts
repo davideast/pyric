@@ -257,7 +257,11 @@ function applyAtomicWrite(
     case 'set': {
       assertSetOptions(write.options);
       const data = prepareWriteData(write.data, write.valueEncoding) as Record<string, unknown>;
-      writer.set(ref, data, write.options);
+      if ('commit' in writer) {
+        writer.set(ref, data, write.options);
+      } else {
+        writer.set(ref, data, write.options);
+      }
       return;
     }
     case 'update':

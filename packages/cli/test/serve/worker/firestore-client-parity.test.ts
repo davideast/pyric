@@ -48,7 +48,10 @@ function makeWorkerStack() {
       clientPort.onmessage = null;
     },
   };
-  (globalThis as { SharedWorker?: unknown }).SharedWorker = class {
+  const globalScope = globalThis as { SharedWorker?: unknown };
+  const hadSharedWorker = 'SharedWorker' in globalScope;
+  const previousSharedWorker = globalScope.SharedWorker;
+  globalScope.SharedWorker = class {
     port = clientPort;
     constructor(_url: unknown, _opts: unknown) {}
   };
@@ -59,6 +62,11 @@ function makeWorkerStack() {
     db,
     wdb,
     dispose() {
+      if (hadSharedWorker) {
+        globalScope.SharedWorker = previousSharedWorker;
+      } else {
+        delete globalScope.SharedWorker;
+      }
       clientPort.close();
       sandbox.dispose();
     },
@@ -66,16 +74,21 @@ function makeWorkerStack() {
 }
 
 describe('worker Firestore client dual-plane parity', () => {
-  it('preserves FieldPath literal-dot segment boundaries across where, orderBy, and snapshot cursors', async () => {
+  it('preserves FieldPath literal-dot and slash segment boundaries across where, orderBy, and snapshot cursors without spoofing raw backtick strings', async () => {
     const h = makeWorkerStack();
     try {
       const items = workerClient.collection(h.wdb, 'items');
       await workerClient.setDoc(workerClient.doc(h.wdb, 'items/doc-1'), {
         'meta.tag': 'alpha-literal',
+        'a/b': 10,
+        'a.b': { 'c/d': 'first' },
+        '`meta': { 'tag`': 'backtick-nested' },
         meta: { tag: 'zzz-nested' },
       });
       await workerClient.setDoc(workerClient.doc(h.wdb, 'items/doc-2'), {
         'meta.tag': 'omega-literal',
+        'a/b': 20,
+        'a.b': { 'c/d': 'second' },
         meta: { tag: 'aaa-nested' },
       });
 
@@ -84,10 +97,29 @@ describe('worker Firestore client dual-plane parity', () => {
       );
       expect(matched.docs.map((d) => d.id)).toEqual(['doc-1']);
 
+      const slashMatched = await workerClient.getDocs(
+        workerClient.query(items, workerClient.where(new FieldPath('a.b', 'c/d'), '==', 'second')),
+      );
+      expect(slashMatched.docs.map((d) => d.id)).toEqual(['doc-2']);
+
+      const rawBacktickFalse = await workerClient.getDocs(
+        workerClient.query(items, workerClient.where('`meta.tag`', '==', 'alpha-literal')),
+      );
+      expect(rawBacktickFalse.docs.map((d) => d.id)).toEqual([]);
+      const rawBacktickNested = await workerClient.getDocs(
+        workerClient.query(items, workerClient.where('`meta.tag`', '==', 'backtick-nested')),
+      );
+      expect(rawBacktickNested.docs.map((d) => d.id)).toEqual(['doc-1']);
+
       const ordered = await workerClient.getDocs(
         workerClient.query(items, workerClient.orderBy(new FieldPath('meta.tag'), 'asc')),
       );
       expect(ordered.docs.map((d) => d.id)).toEqual(['doc-1', 'doc-2']);
+
+      const slashOrdered = await workerClient.getDocs(
+        workerClient.query(items, workerClient.orderBy(new FieldPath('a/b'), 'desc')),
+      );
+      expect(slashOrdered.docs.map((d) => d.id)).toEqual(['doc-2', 'doc-1']);
 
       const snap1 = await workerClient.getDoc(workerClient.doc(h.wdb, 'items/doc-1'));
       const paged = await workerClient.getDocs(
@@ -103,51 +135,70 @@ describe('worker Firestore client dual-plane parity', () => {
     }
   });
 
-  it('forwards SetOptions to FirestoreDataConverter.toFirestore across setDoc, writeBatch.set, and runTransaction tx.set', async () => {
+  it('forwards SetOptions to FirestoreDataConverter.toFirestore only on merge/mergeFields writes across setDoc, writeBatch.set, and runTransaction tx.set', async () => {
     const h = makeWorkerStack();
     try {
-      const seenOptions: unknown[] = [];
-      const converter = {
-        toFirestore(model: { title?: string; count?: number }, options?: { merge?: boolean; mergeFields?: readonly unknown[] }) {
-          seenOptions.push(options);
-          if (options) {
+      interface ItemModel {
+        title: string;
+        count: number;
+      }
+      const seenCalls: Array<{ argCount: number; options: unknown }> = [];
+      const converter: import('pyric/firestore').FirestoreDataConverter<ItemModel> = {
+        toFirestore(
+          model: import('pyric/firestore').PartialWithFieldValue<ItemModel>,
+          options?: import('pyric/firestore').SetOptions,
+        ) {
+          seenCalls.push({ argCount: arguments.length, options });
+          if (options && (options.merge || options.mergeFields !== undefined)) {
             const partial: Record<string, unknown> = {};
-            if ('title' in model) partial.title = model.title;
-            if ('count' in model) partial.count = model.count;
+            if ('title' in model && model.title !== undefined) partial.title = model.title;
+            if ('count' in model && model.count !== undefined) partial.count = model.count;
             return partial;
           }
-          return { title: model.title ?? 'untitled', count: model.count ?? 0 };
+          const full = model as ItemModel;
+          return { title: full.title, count: full.count };
         },
-        fromFirestore(snap: { data(): Record<string, unknown> }) {
-          return snap.data() as { title?: string; count?: number };
+        fromFirestore(snap) {
+          const raw = snap.data();
+          return { title: String(raw.title), count: Number(raw.count) };
         },
       };
 
       const docA = workerClient.doc(h.wdb, 'items/doc-a').withConverter(converter);
       await workerClient.setDoc(docA, { title: 'a1', count: 7 });
       await workerClient.setDoc(docA, { title: 'a2' }, { merge: true });
-      expect((await workerClient.getDoc(docA)).data()).toEqual({ title: 'a2', count: 7 });
+      await workerClient.setDoc(docA, { title: 'a3', count: 8 }, { merge: false });
+      await workerClient.setDoc(docA, { title: 'a4', count: 9 }, {});
+      expect((await workerClient.getDoc(docA)).data()).toEqual({ title: 'a4', count: 9 });
 
       const docB = workerClient.doc(h.wdb, 'items/doc-b').withConverter(converter);
       await workerClient.setDoc(docB, { title: 'b1', count: 9 });
       const batch = workerClient.writeBatch(h.wdb);
       batch.set(docB, { title: 'b2' }, { merge: true });
+      batch.set(docB, { title: 'b3', count: 10 }, { merge: false });
       await batch.commit();
-      expect((await workerClient.getDoc(docB)).data()).toEqual({ title: 'b2', count: 9 });
+      expect((await workerClient.getDoc(docB)).data()).toEqual({ title: 'b3', count: 10 });
 
       const docC = workerClient.doc(h.wdb, 'items/doc-c').withConverter(converter);
       await workerClient.setDoc(docC, { title: 'c1', count: 11 });
       await workerClient.runTransaction(h.wdb, async (tx) => {
         tx.set(docC, { title: 'c2' }, { mergeFields: ['title'] });
       });
-      expect((await workerClient.getDoc(docC)).data()).toEqual({ title: 'c2', count: 11 });
-      expect(seenOptions).toEqual([
-        undefined,
-        { merge: true },
-        undefined,
-        { merge: true },
-        undefined,
-        { mergeFields: ['title'] },
+      await workerClient.runTransaction(h.wdb, async (tx) => {
+        tx.set(docC, { title: 'c3', count: 12 }, { merge: false });
+      });
+      expect((await workerClient.getDoc(docC)).data()).toEqual({ title: 'c3', count: 12 });
+      expect(seenCalls).toEqual([
+        { argCount: 1, options: undefined },
+        { argCount: 2, options: { merge: true } },
+        { argCount: 1, options: undefined },
+        { argCount: 1, options: undefined },
+        { argCount: 1, options: undefined },
+        { argCount: 2, options: { merge: true } },
+        { argCount: 1, options: undefined },
+        { argCount: 1, options: undefined },
+        { argCount: 2, options: { mergeFields: ['title'] } },
+        { argCount: 1, options: undefined },
       ]);
     } finally {
       h.dispose();

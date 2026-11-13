@@ -47,10 +47,13 @@ import {
   isSandboxAdminApp,
   type PyricAdminApp,
 } from '../app/index.js';
-import { assertAdminAppActive } from '../app/lifecycle.js';
+import {
+  assertAdminAppActive,
+  createAdminServiceLifecycle,
+  type AdminServiceLifecycle,
+} from '../app/lifecycle.js';
 import { defineDeferredMembers, deferredExport, type DeferredMembers } from 'pyric/app/internal';
 import { adminOnSnapshot, wrapAdminFirestoreHandle } from './admin-value-adapter.js';
-import { createAdminServiceLifecycle, type AdminServiceLifecycle } from './lifecycle.js';
 
 // ─── Deferred surface ─────────────────────────────────────────────────────
 //

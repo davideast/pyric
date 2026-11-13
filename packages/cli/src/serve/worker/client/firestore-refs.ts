@@ -204,10 +204,23 @@ const INEQUALITY_OPERATORS = new Set(['<', '<=', '>', '>=', '!=', 'not-in']);
 const snapshotCursors = new WeakMap<QueryConstraintHandle, PendingSnapshotCursor>();
 const rawQueryItems = new WeakMap<QueryHandle, readonly RawConstraintItem[]>();
 
-function fieldPathString(field: string | FieldPath): string {
-  if (typeof field === 'string') return field;
-  const segments = fieldPathArgumentSegments(field);
-  return segments !== undefined ? fieldPathKey(segments) : field._internalPath.segments.join('.');
+function encodeConstraintField(field: string | FieldPath): {
+  field: string;
+  fieldSegments?: readonly string[];
+} {
+  if (typeof field === 'string') return { field };
+  const segments = fieldPathArgumentSegments(field) ?? field._internalPath.segments;
+  return { field: fieldPathKey(segments), fieldSegments: [...segments] };
+}
+
+function canonicalConstraintFieldKey(item: {
+  field: string;
+  fieldSegments?: readonly string[];
+}): string {
+  if (item.fieldSegments !== undefined) {
+    return fieldPathKey(item.fieldSegments);
+  }
+  return fieldPathKey(item.field.split('.'));
 }
 
 function readSnapshotField(data: Record<string, unknown>, fieldPath: string): unknown {
@@ -222,7 +235,7 @@ function readSnapshotField(data: Record<string, unknown>, fieldPath: string): un
 
 function collectInequalityFields(filter: FilterConstraintDescriptor, out: string[]): void {
   if (filter.kind === 'where') {
-    if (INEQUALITY_OPERATORS.has(filter.op)) out.push(filter.field);
+    if (INEQUALITY_OPERATORS.has(filter.op)) out.push(canonicalConstraintFieldKey(filter));
     return;
   }
   for (const nested of filter.filters) collectInequalityFields(nested, out);
@@ -282,7 +295,10 @@ function resolveQueryConstraints(items: readonly RawConstraintItem[]): QueryCons
   for (const item of items) {
     if (isSnapshotCursor(item)) continue;
     if (item.kind === 'orderBy') {
-      explicitOrders.push({ field: item.field, direction: item.direction ?? 'asc' });
+      explicitOrders.push({
+        field: canonicalConstraintFieldKey(item),
+        direction: item.direction ?? 'asc',
+      });
     } else if (item.kind === 'where' || item.kind === 'and' || item.kind === 'or') {
       collectInequalityFields(item, inequalityFields);
     }
@@ -324,9 +340,20 @@ function resolveQueryConstraints(items: readonly RawConstraintItem[]): QueryCons
 
 export function where(field: string | FieldPath, op: string, value: unknown): QueryConstraintHandle {
   const encoded = encodeDocValue(value);
+  const encodedField = encodeConstraintField(field);
+  const descriptor: Extract<QueryConstraintDescriptor, { kind: 'where' }> = {
+    kind: 'where',
+    field: encodedField.field,
+    op,
+    value: encoded,
+    valueEncoding: DOC_VALUE_ENCODING,
+  };
+  if (encodedField.fieldSegments !== undefined) {
+    descriptor.fieldSegments = encodedField.fieldSegments;
+  }
   return {
     type: 'where',
-    _descriptor: { kind: 'where', field: fieldPathString(field), op, value: encoded, valueEncoding: DOC_VALUE_ENCODING },
+    _descriptor: descriptor,
   };
 }
 
@@ -370,7 +397,19 @@ export function and(...filters: QueryConstraintHandle[]): QueryConstraintHandle 
 }
 
 export function orderBy(field: string | FieldPath, direction?: 'asc' | 'desc'): QueryConstraintHandle {
-  return { type: 'orderBy', _descriptor: { kind: 'orderBy', field: fieldPathString(field), direction } };
+  const encodedField = encodeConstraintField(field);
+  const descriptor: Extract<QueryConstraintDescriptor, { kind: 'orderBy' }> = {
+    kind: 'orderBy',
+    field: encodedField.field,
+    direction,
+  };
+  if (encodedField.fieldSegments !== undefined) {
+    descriptor.fieldSegments = encodedField.fieldSegments;
+  }
+  return {
+    type: 'orderBy',
+    _descriptor: descriptor,
+  };
 }
 
 export function limit(n: number): QueryConstraintHandle {

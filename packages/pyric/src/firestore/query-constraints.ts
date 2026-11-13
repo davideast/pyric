@@ -24,9 +24,13 @@ import {
 } from './state.js';
 import { attachConverterMethod, convertedView } from './converter-method.js';
 import { FieldPath } from './field-values.js';
+import {
+  FieldPath as ChainFieldPath,
+  type SnapshotFieldPath,
+} from './sandbox/admin-compat/field-path.js';
 import { toFirestoreFirebaseError } from './errors.js';
 import { captureQueryOperand } from './sandbox/query-operand-equality.js';
-import { fieldPathArgumentSegments, fieldPathKey } from './sandbox/update-fields.js';
+import { fieldPathArgumentSegments } from './sandbox/update-fields.js';
 import { rawDocumentSnapshotForCursor } from './snapshots.js';
 import type {
   CollectionReference,
@@ -35,11 +39,11 @@ import type {
   DocumentData,
 } from './types.js';
 
-/** Accept modular `where`/`orderBy` field args as string or FieldPath. */
-function fieldToString(field: string | FieldPath): string {
+/** Convert modular `where`/`orderBy` field args without conflating raw strings and `FieldPath`. */
+function toChainQueryField(field: string | FieldPath): SnapshotFieldPath {
   if (typeof field === 'string') return field;
-  const segments = fieldPathArgumentSegments(field);
-  return segments !== undefined ? fieldPathKey(segments) : field._internalPath.segments.join('.');
+  const segments = fieldPathArgumentSegments(field) ?? field._internalPath.segments;
+  return new ChainFieldPath(...segments);
 }
 
 // ─── Query constraints ────────────────────────────────────────────────
@@ -100,11 +104,11 @@ export function where(
   op: WhereFilterOp,
   value: unknown,
 ): QueryConstraint {
-  return whereConstraint(fieldToString(field), op, value, false);
+  return whereConstraint(toChainQueryField(field), op, value, false);
 }
 
 function whereConstraint(
-  fieldPath: string,
+  fieldPath: SnapshotFieldPath,
   op: WhereFilterOp,
   value: unknown,
   prepared: boolean,
@@ -186,7 +190,7 @@ export function orderBy(
   field: string | FieldPath,
   direction?: OrderDirection,
 ): QueryConstraint {
-  const fieldPath = fieldToString(field);
+  const fieldPath = toChainQueryField(field);
   return {
     type: 'orderBy',
     applySandbox: (q) => q.orderBy(fieldPath, direction),

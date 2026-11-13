@@ -32,6 +32,7 @@ import {
   type SandboxTarget,
   type SandboxLiveTarget,
 } from './state.js';
+import { EVICT_APP_CACHE_SYMBOL } from './internal/app-cache-symbol.js';
 import type { AppFirestore, Firestore } from './types.js';
 
 /**
@@ -70,7 +71,6 @@ import type { AppFirestore, Firestore } from './types.js';
  * ```
  */
 const appFirestoreRegistry = new WeakMap<object, AppFirestore>();
-const EVICT_APP_CACHE_SYMBOL = Symbol.for('pyric.firestore.evictAppCache');
 
 export function getFirestore(ctx: SandboxContext, databaseId?: string): Firestore;
 export function getFirestore(sandbox: Sandbox, databaseId?: string): Firestore;
@@ -81,6 +81,11 @@ export function getFirestore(target?: SandboxContext | Sandbox | FirebaseApp, da
   if (target === undefined) return getFirestore(defaultClientApp() as FirebaseApp, databaseId);
   // Package resolution already selected the sandbox mirror before this code
   // loaded, so a recognized FirebaseApp resolves to its private Sandbox.
+  // Per Conformance Registry MD1 (`packages/conformance/registry/firestore.ts`
+  // and `packages/pyric/test/firestore/named-database.test.ts`), `FirebaseApp`
+  // handles intentionally resolve every `databaseId` to the app's single
+  // `(default)` handle, whereas `Sandbox` / `SandboxContext` handles below
+  // retain explicit `databaseId` bindings for rules evaluation tests.
   const appRuntime = resolveClientApp(target);
   if (appRuntime) {
     const existing = appFirestoreRegistry.get(appRuntime);
@@ -125,7 +130,7 @@ export function getFirestore(target?: SandboxContext | Sandbox | FirebaseApp, da
     appFirestoreRegistry.set(appRuntime, instance);
     return instance;
   }
-  const namedDb = typeof databaseId === 'string' && databaseId.length > 0 ? databaseId : undefined;
+  const namedDb = normalizeDatabaseId(databaseId);
   if (isSandboxContext(target)) {
     const chainable = getChainableFirestore(target);
     const t: SandboxTarget = {
@@ -167,6 +172,13 @@ export function getFirestore(target?: SandboxContext | Sandbox | FirebaseApp, da
   throw new TypeError(
     'pyric/firestore is a sandbox-only mirror. Package resolution must leave firebase/firestore unchanged for production; activate pyric sandbox or @pyric/cli/register before importing to select the sandbox.',
   );
+}
+
+function normalizeDatabaseId(databaseId: string | undefined): string | undefined {
+  if (typeof databaseId !== 'string' || databaseId.length === 0 || databaseId === '(default)') {
+    return undefined;
+  }
+  return databaseId;
 }
 
 function createFirestoreTargetLifecycle(): Required<

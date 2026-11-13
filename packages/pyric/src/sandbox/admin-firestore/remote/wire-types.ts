@@ -21,13 +21,13 @@ export type WireTarget =
     };
 
 export type WireFilter =
-  | { kind: 'where'; field: string; op: string; value: unknown }
+  | { kind: 'where'; field: string; fieldSegments?: readonly string[]; op: string; value: unknown }
   | { kind: 'and'; filters: WireFilter[] }
   | { kind: 'or'; filters: WireFilter[] };
 
 export type WireConstraint =
   | WireFilter
-  | { kind: 'orderBy'; field: string; direction?: 'asc' | 'desc' }
+  | { kind: 'orderBy'; field: string; fieldSegments?: readonly string[]; direction?: 'asc' | 'desc' }
   | { kind: 'limit'; n: number }
   | { kind: 'limitToLast'; n: number }
   | { kind: 'startAt'; values: unknown[]; fromSnapshot?: boolean }
