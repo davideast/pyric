@@ -1,4 +1,5 @@
 import { Timestamp } from '../simulator/wrappers/timestamp.js';
+import { parseStrictIsoMillis } from '../test/case-refusals.js';
 import type { EvaluationInput, StorageResource } from './rules.js';
 import { RuleError } from './rules-values.js';
 import { StoragePath } from './rules-path.js';
@@ -48,8 +49,8 @@ export function buildResourceObject(resource: StorageResource): Record<string, u
  *  (→ absent-property error → deny) rather than becoming a NaN timestamp. */
 function isoToTimestamp(iso: string | undefined): Timestamp | undefined {
   if (iso === undefined) return undefined;
-  const ms = Date.parse(iso);
-  if (Number.isNaN(ms)) return undefined;
+  const ms = parseStrictIsoMillis(iso, { allowShortSeconds: true });
+  if (ms === null) return undefined;
   return Timestamp.fromMillis(ms);
 }
 

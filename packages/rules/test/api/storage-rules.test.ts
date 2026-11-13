@@ -5,13 +5,18 @@
 import { describe, test, expect } from 'bun:test';
 import {
   storageRules,
+  firestoreRules,
+  rtdbRules,
   lint,
   assertCase,
   explainCase,
+  serverTimestamp,
   RulesCompileError,
   RulesAssertionError,
   RulesUnsupportedError,
   type StorageCase,
+  type FirestoreCase,
+  type RtdbCase,
 } from '@pyric/rules';
 
 const BUCKET = 'demo-app.appspot.com';
@@ -256,5 +261,404 @@ service firebase.storage {
     const issues = storageRules(AVATAR_RULES).lint();
     expect(issues).toEqual(lint(AVATAR_RULES));
     expect(issues.some((issue) => issue.origin === 'parse' && issue.severity === 'error')).toBe(false);
+  });
+
+  test('validates StorageCase shape, scalar bounds, and firestore lookup entries strictly', () => {
+    const ruleset = storageRules(
+      `rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /items/{id} {
+      allow get: if firestore.exists(/databases/(default)/documents/users/u1)
+        && firestore.get(/databases/(default)/documents/users/u1).data.active == true;
+      allow list: if firestore.get(/databases/(default)/documents/users/u1).data.ts.__type == 'serverTimestamp';
+      allow create: if request.resource.size is float || request.resource.size >= 0;
+      allow delete: if resource.timeCreated != null || true;
+    }
+  }
+}`,
+      { bucket: BUCKET },
+    );
+
+    // Leading-slash and full resource-name keys for the default database normalize cleanly.
+    const validLookupSummary = ruleset.simulate([
+      {
+        description: 'leading slash key',
+        expectation: 'ALLOW',
+        method: 'get',
+        path: 'items/i1',
+        firestore: { '/users/u1': { active: true } },
+      },
+      {
+        description: 'full resource key',
+        expectation: 'ALLOW',
+        method: 'get',
+        path: 'items/i1',
+        firestore: { '/databases/(default)/documents/users/u1': { active: true } },
+      },
+    ]);
+    expect(validLookupSummary.passed).toBe(2);
+
+    // Malformed shapes, null/sentinel firestore entries, float/negative sizes, bad timestamps, and unknown keys become UNSUPPORTED.
+    const invalidCases: StorageCase[] = [
+      {
+        description: 'null firestore doc entry',
+        expectation: 'DENY',
+        method: 'get',
+        path: 'items/i1',
+        firestore: { 'users/u1': null as unknown as Record<string, unknown> },
+      },
+      {
+        description: 'null firestore map',
+        expectation: 'DENY',
+        method: 'get',
+        path: 'items/i1',
+        firestore: null as unknown as Record<string, Record<string, unknown>>,
+      },
+      {
+        description: 'serverTimestamp sentinel in stored firestore doc',
+        expectation: 'DENY',
+        method: 'list',
+        path: 'items/i1',
+        firestore: { 'users/u1': { ts: serverTimestamp() } },
+      },
+      {
+        description: 'nested serverTimestamp sentinel in stored firestore doc',
+        expectation: 'DENY',
+        method: 'list',
+        path: 'items/i1',
+        firestore: { 'users/u1': { history: [{ at: serverTimestamp() }] } },
+      },
+      {
+        description: 'odd-segment collection key in firestore map',
+        expectation: 'DENY',
+        method: 'get',
+        path: 'items/i1',
+        firestore: { users: { active: true } },
+      },
+      {
+        description: 'non-default database key in firestore map',
+        expectation: 'DENY',
+        method: 'get',
+        path: 'items/i1',
+        firestore: { '/databases/secondary/documents/users/u1': { active: true } },
+      },
+      {
+        description: 'duplicate normalized keys in firestore map',
+        expectation: 'DENY',
+        method: 'get',
+        path: 'items/i1',
+        firestore: { 'users/u1': { active: true }, '/users/u1': { active: false } },
+      },
+      {
+        description: 'float requestResource.size',
+        expectation: 'DENY',
+        method: 'create',
+        path: 'items/i1',
+        requestResource: { size: 1.5 },
+      },
+      {
+        description: 'negative requestResource.size',
+        expectation: 'DENY',
+        method: 'create',
+        path: 'items/i1',
+        requestResource: { size: -1 },
+      },
+      {
+        description: 'null requestResource on create',
+        expectation: 'DENY',
+        method: 'create',
+        path: 'items/i1',
+        requestResource: null as unknown as StorageCase['requestResource'],
+      },
+      {
+        description: 'invalid resource.timeCreated string',
+        expectation: 'DENY',
+        method: 'delete',
+        path: 'items/i1',
+        resource: { size: 1, timeCreated: 'not-a-timestamp' },
+      },
+      {
+        description: 'year 0000 resource.timeCreated',
+        expectation: 'DENY',
+        method: 'delete',
+        path: 'items/i1',
+        resource: { size: 1, timeCreated: '0000-01-01T00:00:00Z' },
+      },
+      {
+        description: 'calendar-invalid resource.updated',
+        expectation: 'DENY',
+        method: 'delete',
+        path: 'items/i1',
+        resource: { size: 1, updated: '2026-02-31T00:00:00Z' },
+      },
+      {
+        description: 'lowercase expectation and Firestore data key',
+        expectation: 'allow' as StorageCase['expectation'],
+        method: 'create',
+        path: 'items/i1',
+        requestResource: { size: 10 },
+        ...({ data: { size: 10 } } as Record<string, unknown>),
+      },
+    ];
+
+    const invalidSummary = ruleset.simulate(invalidCases);
+    expect(invalidSummary.unsupported).toBe(invalidCases.length);
+    expect(invalidSummary.passed).toBe(0);
+    expect(invalidSummary.failed).toBe(0);
+    expect(invalidSummary.cases.every((c) => c.decision === 'UNSUPPORTED' && c.unsupported)).toBe(true);
+  });
+
+  test('isolates adversarial case inputs as UNSUPPORTED without throwing or aborting batches across storageRules, firestoreRules, and rtdbRules', () => {
+    const cyclicToken: Record<string, unknown> = {};
+    cyclicToken.self = cyclicToken;
+
+    const stRules = storageRules(
+      `rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /items/{id} {
+      allow get: if request.time != null;
+      allow list: if resource.timeCreated != null;
+      allow create: if request.resource != null && request.resource.size < 100;
+    }
+  }
+}`,
+      { bucket: BUCKET },
+    );
+
+    const stBatch = stRules.simulate([
+      { description: 'year 0000 requestTime', expectation: 'DENY', method: 'get', path: 'items/i1', requestTime: '0000-01-01T00:00:00Z' },
+      { description: 'year 0000 resource timeCreated', expectation: 'DENY', method: 'list', path: 'items/i1', resource: { size: 1, timeCreated: '0000-01-01T00:00:00Z' } },
+      { description: 'null requestResource on create', expectation: 'DENY', method: 'create', path: 'items/i1', requestResource: null as unknown as StorageCase['requestResource'] },
+      { description: 'function in auth.token', expectation: 'DENY', method: 'get', path: 'items/i1', auth: { uid: 'u1', token: { fn: () => true } } },
+      { description: 'symbol in auth.token', expectation: 'DENY', method: 'get', path: 'items/i1', auth: { uid: 'u1', token: { sym: Symbol('s') } } },
+      { description: 'cyclic auth.token', expectation: 'DENY', method: 'get', path: 'items/i1', auth: { uid: 'u1', token: cyclicToken } },
+      { description: 'valid control get', expectation: 'ALLOW', method: 'get', path: 'items/i1' },
+    ]);
+    expect(stBatch.unsupported).toBe(6);
+    expect(stBatch.passed).toBe(1);
+
+    const fsRules = firestoreRules(`rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /items/{id} {
+      allow get: if request.time != null;
+    }
+  }
+}`);
+    const fsBatch = fsRules.simulate([
+      { description: 'year 0000', expectation: 'DENY', method: 'get', path: 'items/i1', requestTime: '0000-01-01T00:00:00Z' },
+      { description: 'function in auth.token', expectation: 'DENY', method: 'get', path: 'items/i1', auth: { uid: 'u1', token: { fn: () => true } } },
+      { description: 'cyclic auth.token', expectation: 'DENY', method: 'get', path: 'items/i1', auth: { uid: 'u1', token: cyclicToken } },
+      { description: 'valid control get', expectation: 'ALLOW', method: 'get', path: 'items/i1' } as FirestoreCase,
+    ]);
+    expect(fsBatch.unsupported).toBe(3);
+    expect(fsBatch.passed).toBe(1);
+
+    const dbRules = rtdbRules({ rules: { items: { $id: { '.read': 'auth != null' } } } });
+    const dbBatch = dbRules.simulate([
+      { description: 'function in auth.token', expectation: 'DENY', operation: 'read', path: '/items/i1', auth: { uid: 'u1', token: { fn: () => true } } } as RtdbCase,
+      { description: 'valid control read', expectation: 'ALLOW', operation: 'read', path: '/items/i1', auth: { uid: 'u1' } },
+    ]);
+    expect(dbBatch.unsupported).toBe(1);
+    expect(dbBatch.passed).toBe(1);
+  });
+
+  test('reports Storage and 2+modules compile blockers with origin: parse and exact line numbers in lint() and storageRules()', () => {
+    const storageInvalidRegex = [
+      "rules_version = '2';",
+      'service firebase.storage {',
+      '  match /b/{bucket}/o {',
+      '    match /items/{id} {',
+      "      allow get: if id.matches('(?=a)a');",
+      '    }',
+      '  }',
+      '}',
+    ].join('\n');
+
+    const regexParseIssues = lint(storageInvalidRegex).filter((i) => i.origin === 'parse');
+    expect(regexParseIssues).toEqual([
+      expect.objectContaining({
+        code: 'INVALID_REGEX_PATTERN',
+        severity: 'error',
+        origin: 'parse',
+        line: 5,
+      }),
+    ]);
+
+    let thrownRegex: unknown;
+    try {
+      storageRules(storageInvalidRegex, { bucket: BUCKET });
+    } catch (err) {
+      thrownRegex = err;
+    }
+    expect(thrownRegex).toBeInstanceOf(RulesCompileError);
+    expect((thrownRegex as RulesCompileError).issues[0]).toMatchObject({
+      code: 'INVALID_REGEX_PATTERN',
+      severity: 'error',
+      origin: 'parse',
+      line: 5,
+    });
+
+    const storageV2Import = [
+      "rules_version = '2';",
+      "import { isAuthenticated } from 'auth';",
+      'service firebase.storage {',
+      '  match /b/{bucket}/o {',
+      '    match /items/{id} {',
+      '      allow get: if isAuthenticated();',
+      '    }',
+      '  }',
+      '}',
+    ].join('\n');
+    const v2ImportParseIssues = lint(storageV2Import).filter((i) => i.origin === 'parse');
+    expect(v2ImportParseIssues).toEqual([
+      expect.objectContaining({
+        code: 'UNRESOLVED_MODULES',
+        severity: 'error',
+        origin: 'parse',
+        line: 2,
+      }),
+    ]);
+
+    const storageIncompatibleImport = [
+      "rules_version = '2+modules';",
+      "import { validString } from 'validation';",
+      'service firebase.storage {',
+      '  match /b/{bucket}/o {',
+      '    match /items/{id} {',
+      "      allow create: if request.auth != null && validString('title', 1, 50);",
+      '    }',
+      '  }',
+      '}',
+    ].join('\n');
+    const incompatParseIssues = lint(storageIncompatibleImport).filter((i) => i.origin === 'parse');
+    expect(incompatParseIssues).toEqual([
+      expect.objectContaining({
+        code: 'INCOMPATIBLE_FUNCTION',
+        severity: 'error',
+        origin: 'parse',
+        line: 2,
+      }),
+    ]);
+  });
+
+  test('lints and checks compile limits across all service blocks in multi-service files', () => {
+    const multiServiceOpenStorage = [
+      "rules_version = '2';",
+      'function isSignedIn() { return request.auth != null; }',
+      'service cloud.firestore {',
+      '  match /databases/{database}/documents {',
+      '    match /users/{uid} {',
+      '      allow get: if request.auth != null && request.auth.uid == uid;',
+      '    }',
+      '    match /{document=**} { allow read, write: if false; }',
+      '  }',
+      '}',
+      'service firebase.storage {',
+      '  match /b/{bucket}/o {',
+      '    match /items/{id} {',
+      '      allow get: if isSignedIn();',
+      '    }',
+      '    match /{allPaths=**} {',
+      '      allow read, write: if true;',
+      '    }',
+      '  }',
+      '}',
+    ].join('\n');
+
+    const scopedStorageIssues = storageRules(multiServiceOpenStorage, { bucket: BUCKET }).lint();
+    expect(scopedStorageIssues.some((i) => i.code === 'SEC-1' && i.severity === 'error')).toBe(true);
+    expect(scopedStorageIssues.some((i) => i.code === 'RECURSIVE_WILDCARD_OPEN' && i.severity === 'error')).toBe(true);
+    // Global function called by the Storage block is not falsely flagged as unused (QUA-4).
+    expect(scopedStorageIssues.some((i) => i.code === 'QUA-4')).toBe(false);
+
+    const freeLintIssues = lint(multiServiceOpenStorage);
+    expect(freeLintIssues.some((i) => i.code === 'SEC-1' && i.severity === 'error')).toBe(true);
+    expect(freeLintIssues.some((i) => i.code === 'QUA-4')).toBe(false);
+
+    const multiServiceGlobError = [
+      "rules_version = '2';",
+      'service cloud.firestore {',
+      '  match /databases/{database}/documents {',
+      '    match /{document=**} { allow read, write: if false; }',
+      '  }',
+      '}',
+      'service firebase.storage {',
+      '  match /b/{bucket}/o {',
+      '    match /{a=**}/items/{b=**} {',
+      '      allow get: if request.auth != null;',
+      '    }',
+      '  }',
+      '}',
+    ].join('\n');
+    const globIssues = lint(multiServiceGlobError).filter((i) => i.origin === 'parse');
+    expect(globIssues).toEqual([
+      expect.objectContaining({
+        code: 'GLOB_MATCH_COUNT',
+        severity: 'error',
+        origin: 'parse',
+        line: 9,
+      }),
+    ]);
+  });
+
+  test('maps 2+modules Storage decidingRule and lint() / compile error lines back to authored source lines', () => {
+    const modularStorage = [
+      "rules_version = '2+modules';",
+      "import { isAuthenticated } from 'auth';",
+      'service firebase.storage {',
+      '  match /b/{bucket}/o {',
+      '    match /items/{id} {',
+      '      allow get: if isAuthenticated();',
+      '    }',
+      '  }',
+      '}',
+    ].join('\n');
+
+    const stRs = storageRules(modularStorage, { bucket: BUCKET });
+    const [stAllowed] = stRs.simulate([
+      { description: 'signed in get', expectation: 'ALLOW', method: 'get', path: 'items/i1', auth: { uid: 'u1' } },
+    ]).cases;
+    expect(stAllowed.decidingRule).toEqual({ path: 'match /items/{id}', line: 6 });
+    expect(stRs.explain({
+      description: 'signed in get',
+      expectation: 'ALLOW',
+      method: 'get',
+      path: 'items/i1',
+      auth: { uid: 'u1' },
+    }).decidingRule).toEqual({ path: 'match /items/{id}', line: 6 });
+
+    const modularLintRegex = [
+      "rules_version = '2+modules';",
+      "import { isAuthenticated } from 'auth';",
+      'service cloud.firestore {',
+      '  match /databases/{database}/documents {',
+      '    match /items/{id} {',
+      "      allow get: if isAuthenticated() && id.matches('(?=a)a');",
+      '    }',
+      '  }',
+      '}',
+    ].join('\n');
+    const regexIssue = lint(modularLintRegex).find((i) => i.code === 'INVALID_REGEX_PATTERN');
+    expect(regexIssue).toMatchObject({
+      code: 'INVALID_REGEX_PATTERN',
+      origin: 'parse',
+      line: 6,
+    });
+
+    let fsCompileErr: unknown;
+    try {
+      firestoreRules(modularLintRegex);
+    } catch (err) {
+      fsCompileErr = err;
+    }
+    expect(fsCompileErr).toBeInstanceOf(RulesCompileError);
+    expect((fsCompileErr as RulesCompileError).issues[0]).toMatchObject({
+      code: 'INVALID_REGEX_PATTERN',
+      origin: 'parse',
+      line: 6,
+    });
   });
 });

@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { firestoreRules, RulesCompileError } from '../../src/index.js';
+import { firestoreRules, storageRules, RulesCompileError } from '@pyric/rules';
 import { SimulateFirestoreRulesHandler } from '../../src/internal/index.js';
 
 describe('firestoreRules() 2+modules stdlib lowering and getAfter() batch projections', () => {
@@ -213,5 +213,78 @@ describe('firestoreRules() 2+modules stdlib lowering and getAfter() batch projec
       expect(res.data.passed).toBe(2);
       expect(res.data.failed).toBe(0);
     }
+  });
+
+  test('allows nested match-block functions to shadow imported module functions while still rejecting service/global collisions', () => {
+    const modularStorage = [
+      "rules_version = '2+modules';",
+      "import { isAuthenticated } from 'auth';",
+      'service firebase.storage {',
+      '  match /b/{bucket}/o {',
+      '    match /items/{id} {',
+      '      function isAuthenticated() { return true; }',
+      '      allow get: if isAuthenticated();',
+      '    }',
+      '    match /docs/{docId} {',
+      '      allow get: if isAuthenticated();',
+      '    }',
+      '  }',
+      '}',
+    ].join('\n');
+
+    const stSummary = storageRules(modularStorage, { bucket: 'test-bucket' }).simulate([
+      { description: 'shadowed match allows anonymous get', expectation: 'ALLOW', method: 'get', path: 'items/i1', auth: null },
+      { description: 'sibling match uses imported isAuthenticated and denies anonymous', expectation: 'DENY', method: 'get', path: 'docs/d1', auth: null },
+      { description: 'sibling match allows signed-in user', expectation: 'ALLOW', method: 'get', path: 'docs/d1', auth: { uid: 'u1' } },
+    ]);
+    expect(stSummary.passed).toBe(3);
+
+    const modularFirestore = [
+      "rules_version = '2+modules';",
+      "import { isAuthenticated } from 'auth';",
+      'service cloud.firestore {',
+      '  match /databases/{database}/documents {',
+      '    match /items/{id} {',
+      '      function isAuthenticated() { return true; }',
+      '      allow get: if isAuthenticated();',
+      '    }',
+      '    match /docs/{docId} {',
+      '      allow get: if isAuthenticated();',
+      '    }',
+      '  }',
+      '}',
+    ].join('\n');
+
+    const fsSummary = firestoreRules(modularFirestore).simulate([
+      { description: 'shadowed match allows anonymous get', expectation: 'ALLOW', method: 'get', path: 'items/i1', auth: null },
+      { description: 'sibling match denies anonymous get', expectation: 'DENY', method: 'get', path: 'docs/d1', auth: null },
+      { description: 'sibling match allows signed-in get', expectation: 'ALLOW', method: 'get', path: 'docs/d1', auth: { uid: 'u1' } },
+    ]);
+    expect(fsSummary.passed).toBe(3);
+
+    // Service-scope and global-scope collisions with imported functions still fail with DUPLICATE_FUNCTION.
+    const serviceScopeCollision = [
+      "rules_version = '2+modules';",
+      "import { isAuthenticated } from 'auth';",
+      'service cloud.firestore {',
+      '  function isAuthenticated() { return true; }',
+      '  match /databases/{database}/documents {',
+      '    match /items/{id} { allow get: if isAuthenticated(); }',
+      '  }',
+      '}',
+    ].join('\n');
+    expect(() => firestoreRules(serviceScopeCollision)).toThrow(RulesCompileError);
+
+    const globalScopeCollision = [
+      "rules_version = '2+modules';",
+      "import { isAuthenticated } from 'auth';",
+      'function isAuthenticated() { return true; }',
+      'service firebase.storage {',
+      '  match /b/{bucket}/o {',
+      '    match /items/{id} { allow get: if isAuthenticated(); }',
+      '  }',
+      '}',
+    ].join('\n');
+    expect(() => storageRules(globalScopeCollision, { bucket: 'test-bucket' })).toThrow(RulesCompileError);
   });
 });

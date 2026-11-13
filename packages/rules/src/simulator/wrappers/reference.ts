@@ -127,6 +127,12 @@ export class Reference extends RulesValue {
     if (other instanceof Path) {
       return matchesPathSegments(this.databaseId, this.path, other.segments);
     }
+    if (other instanceof RulesValue && other.typeName === 'path') {
+      const segs = (other as { segments?: unknown }).segments;
+      if (Array.isArray(segs)) {
+        return matchesPathSegments(this.databaseId, this.path, segs.map(String));
+      }
+    }
     return false;
   }
 

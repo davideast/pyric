@@ -436,10 +436,11 @@ export function resolveModulesWith(
     }
   }
 
-  const sourceFnNames = new Set([
+  const topLevelSourceFnNames = new Set([
     ...(ast.functions ?? []).map((fn) => fn.name),
     ...(ast.service.functions ?? []).map((fn) => fn.name),
   ]);
+  const sourceFnNames = new Set(topLevelSourceFnNames);
   const collectMatchFunctions = (match: typeof ast.service.match): void => {
     match.functions.forEach((fn) => sourceFnNames.add(fn.name));
     match.children.forEach(collectMatchFunctions);
@@ -899,9 +900,10 @@ export function resolveModulesWith(
     }
   }
 
-  // 6. Check for conflicts with source-defined functions
+  // 6. Check for conflicts with top-level (global or service-scope) source-defined functions.
+  // Nested match-block functions legally shadow service-scope functions in Rules.
   for (const fn of injected) {
-    if (sourceFnNames.has(fn.name)) {
+    if (topLevelSourceFnNames.has(fn.name)) {
       return {
         success: false,
         error: {

@@ -311,13 +311,24 @@ service cloud.firestore {
     if (!result.success) expect(result.error.code).toBe('NOT_MODULE_SOURCE');
   });
 
-  test('imported function conflicting with source function → DUPLICATE_FUNCTION', () => {
-    const result = resolveModules(makeSource(
+  test('imported function conflicting with service-scope source function -> DUPLICATE_FUNCTION, while match-scope shadows', () => {
+    const serviceScopeConflict = `rules_version = '2+modules';
+import { isAuthenticated } from 'auth';
+service cloud.firestore {
+  function isAuthenticated() { return true; }
+  match /databases/{database}/documents {
+    match /x/{id} { allow read: if isAuthenticated(); }
+  }
+}`;
+    const result = resolveModules(serviceScopeConflict);
+    expect(result.success).toBe(false);
+    if (!result.success) expect(result.error.code).toBe('DUPLICATE_FUNCTION');
+
+    const matchScopeShadow = resolveModules(makeSource(
       "import { isAuthenticated } from 'auth';",
       'function isAuthenticated() { return true; }\nmatch /x/{id} { allow read: if isAuthenticated(); }'
     ));
-    expect(result.success).toBe(false);
-    if (!result.success) expect(result.error.code).toBe('DUPLICATE_FUNCTION');
+    expect(matchScopeShadow.success).toBe(true);
   });
 
   test('path traversal module name safely fails', () => {

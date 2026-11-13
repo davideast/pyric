@@ -4,6 +4,10 @@
  * sandbox and the rules simulators import both from here.
  */
 
+import { RulesValue } from '../simulator/wrappers/base.js';
+import { Bytes } from '../simulator/wrappers/bytes.js';
+import { FirestoreSet } from '../simulator/firestore-set.js';
+
 /**
  * A signed-in identity for a rules request or a sandbox operation. `null` is anonymous.
  *
@@ -20,6 +24,88 @@ export type AuthState =
   | { uid: string; token?: Record<string, unknown>; tenant?: string }
   | null;
 
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return false;
+  if (Object.prototype.toString.call(value) !== '[object Object]') return false;
+  const proto = Object.getPrototypeOf(value);
+  if (proto === Object.prototype || proto === null) return true;
+  // Inline `{ __proto__: { ... } }` literals set a plain-object prototype that
+  // lacks an own `constructor`; copy own enumerable keys onto `{}` to strip it.
+  return !Object.prototype.hasOwnProperty.call(proto, 'constructor');
+}
+
+function cloneAuthClaim(value: unknown, ancestors = new WeakSet<object>()): unknown {
+  if (
+    value === null ||
+    value === undefined ||
+    typeof value === 'boolean' ||
+    typeof value === 'number' ||
+    typeof value === 'string' ||
+    typeof value === 'bigint'
+  ) {
+    return value;
+  }
+  if (typeof value === 'function' || typeof value === 'symbol') {
+    throw new TypeError(`Auth token claims cannot contain ${typeof value} values.`);
+  }
+  if (value instanceof Bytes) {
+    return new Bytes(new Uint8Array(value.data));
+  }
+  if (value instanceof RulesValue) {
+    return value;
+  }
+  if (value instanceof FirestoreSet) {
+    return new FirestoreSet(value.toArray().map((item) => cloneAuthClaim(item, ancestors)));
+  }
+  if (value instanceof Date) {
+    return new Date(value.getTime());
+  }
+  if (value instanceof Uint8Array) {
+    return new Uint8Array(value);
+  }
+  if (value instanceof RegExp) {
+    return new RegExp(value.source, value.flags);
+  }
+  const obj = value as object;
+  if (ancestors.has(obj)) {
+    throw new TypeError('Auth token claims cannot contain circular references.');
+  }
+  if (Array.isArray(value)) {
+    ancestors.add(obj);
+    try {
+      return value.map((item) => cloneAuthClaim(item, ancestors));
+    } finally {
+      ancestors.delete(obj);
+    }
+  }
+  if (!isPlainRecord(value)) {
+    throw new TypeError('Auth token claims must be plain objects, arrays, primitives, or Rules value wrappers.');
+  }
+  ancestors.add(obj);
+  try {
+    const proto = Object.getPrototypeOf(value);
+    const copy: Record<string, unknown> = proto === null ? Object.create(null) : {};
+    for (const [key, item] of Object.entries(value)) {
+      Object.defineProperty(copy, key, {
+        value: cloneAuthClaim(item, ancestors),
+        enumerable: true,
+        writable: true,
+        configurable: true,
+      });
+    }
+    return copy;
+  } finally {
+    ancestors.delete(obj);
+  }
+}
+
+function cloneAuthToken(token: Record<string, unknown>): Record<string, unknown> {
+  if (!isPlainRecord(token)) {
+    throw new TypeError('Auth token must be a plain object.');
+  }
+  return cloneAuthClaim(token) as Record<string, unknown>;
+}
+
 /**
  * Normalize an AuthState before rules read it.
  * Automatically projects top-level `tenant` into `token.firebase.tenant`
@@ -35,24 +121,27 @@ export function normalizeAuthState(auth: AuthState): AuthState {
     }
     return {
       uid: auth.uid,
-      token: structuredClone(auth.token),
+      token: cloneAuthToken(auth.token),
     };
   }
 
-  const token = auth.token !== undefined ? structuredClone(auth.token) : {};
+  const token = auth.token !== undefined ? cloneAuthToken(auth.token) : {};
   const existingFirebase = token.firebase;
 
   let normalizedFirebase: Record<string, unknown>;
-  if (
-    typeof existingFirebase === 'object' &&
-    existingFirebase !== null &&
-    !Array.isArray(existingFirebase)
-  ) {
-    const fbObj = existingFirebase as Record<string, unknown>;
-    normalizedFirebase = {
-      ...fbObj,
-      tenant: fbObj.tenant !== undefined ? fbObj.tenant : auth.tenant,
-    };
+  if (isPlainRecord(existingFirebase)) {
+    normalizedFirebase = {};
+    for (const [key, item] of Object.entries(existingFirebase)) {
+      Object.defineProperty(normalizedFirebase, key, {
+        value: item,
+        enumerable: true,
+        writable: true,
+        configurable: true,
+      });
+    }
+    if (existingFirebase.tenant === undefined) {
+      normalizedFirebase.tenant = auth.tenant;
+    }
   } else {
     normalizedFirebase = { tenant: auth.tenant };
   }

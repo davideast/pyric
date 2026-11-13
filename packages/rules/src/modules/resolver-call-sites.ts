@@ -88,43 +88,54 @@ export function moduleCallSites(
     declarations,
   });
 
+  const visitingFunctions = new Set<FunctionDef>();
+
   const analyzeFunction = (
     fn: FunctionDef,
     arguments_: readonly SourceExpressionFacts[],
     stack: ReadonlySet<string>,
   ) => {
-    if (stack.has(fn.name)) return;
+    if (visitingFunctions.has(fn)) return;
     const declaration = declarations.get(fn);
     if (!declaration) return;
     analyzedFunctions.add(fn);
-    const aliases = new Map(declaration.aliases);
-    const receiverTypes = new Map(declaration.receiverTypes);
-    fn.parameters.forEach((parameter, index) => {
-      aliases.set(parameter, arguments_[index]?.provenance ?? null);
-      receiverTypes.set(parameter, arguments_[index]?.receiverType ?? null);
-    });
-    const ctx = makeContext(
-      { aliases, receiverTypes, functions: declaration.functions },
-      new Set([...stack, fn.name]),
-    );
-    for (const binding of fn.lets) {
-      analyzeExpression(binding.value, ctx);
-      const facts = expressionFacts(binding.value, ctx);
-      ctx.aliases.set(binding.name, facts.provenance);
-      ctx.receiverTypes.set(binding.name, facts.receiverType);
+    visitingFunctions.add(fn);
+    try {
+      const aliases = new Map(declaration.aliases);
+      const receiverTypes = new Map(declaration.receiverTypes);
+      fn.parameters.forEach((parameter, index) => {
+        aliases.set(parameter, arguments_[index]?.provenance ?? null);
+        receiverTypes.set(parameter, arguments_[index]?.receiverType ?? null);
+      });
+      const ctx = makeContext(
+        { aliases, receiverTypes, functions: declaration.functions },
+        new Set([...stack, fn.name]),
+      );
+      for (const binding of fn.lets) {
+        analyzeExpression(binding.value, ctx);
+        const facts = expressionFacts(binding.value, ctx);
+        ctx.aliases.set(binding.name, facts.provenance);
+        ctx.receiverTypes.set(binding.name, facts.receiverType);
+      }
+      analyzeExpression(fn.body, ctx);
+    } finally {
+      visitingFunctions.delete(fn);
     }
-    analyzeExpression(fn.body, ctx);
   };
 
   const analyzeExpression = (expression: Expression, ctx: SourceExpressionContext) => {
+    const targetModuleFunction = moduleFunctions.get(functionName);
     for (const call of collectFunctionCalls(expression)) {
       const argumentFacts = call.args.map((argument) => expressionFacts(argument, ctx));
-      if (call.name === functionName) {
+      const resolvedFunction = ctx.functions.get(call.name);
+      if (
+        call.name === functionName &&
+        (!targetModuleFunction || resolvedFunction === targetModuleFunction)
+      ) {
         sites.push({ arguments: argumentFacts.map(moduleArgument) });
       }
-      const sourceFunction = ctx.functions.get(call.name);
-      if (sourceFunction && !moduleFunctions.has(call.name)) {
-        analyzeFunction(sourceFunction, argumentFacts, ctx.stack);
+      if (resolvedFunction && resolvedFunction !== moduleFunctions.get(call.name)) {
+        analyzeFunction(resolvedFunction, argumentFacts, ctx.stack);
       }
     }
   };

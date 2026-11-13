@@ -180,8 +180,8 @@ service firebase.storage {
     expect(result.success, result.success ? undefined : result.error.message).toBe(true);
   });
 
-  test('rejects imported function collisions in every source scope', () => {
-    const declarations = {
+  test('rejects imported function collisions at global and service scope while allowing nested match shadowing', () => {
+    const collidingDeclarations = {
       global: `function policy() { return true; }
 service firebase.storage {
   match /b/{bucket}/o { match /{file} { allow read: if policy(); } }
@@ -190,6 +190,18 @@ service firebase.storage {
   function policy() { return true; }
   match /b/{bucket}/o { match /{file} { allow read: if policy(); } }
 }`,
+    };
+    for (const [scope, declaration] of Object.entries(collidingDeclarations)) {
+      const result = resolveModulesWith(null, `rules_version = '2+modules';
+import { policy } from './policy';
+${declaration}`, { modules: {
+        './policy': 'export function policy() { return false; }',
+      } });
+      expect(result.success, scope).toBe(false);
+      if (!result.success) expect(result.error.code).toBe('DUPLICATE_FUNCTION');
+    }
+
+    const shadowingDeclarations = {
       rootMatch: `service firebase.storage {
   match /b/{bucket}/o {
     function policy() { return true; }
@@ -205,14 +217,13 @@ service firebase.storage {
   }
 }`,
     };
-    for (const [scope, declaration] of Object.entries(declarations)) {
+    for (const [scope, declaration] of Object.entries(shadowingDeclarations)) {
       const result = resolveModulesWith(null, `rules_version = '2+modules';
 import { policy } from './policy';
 ${declaration}`, { modules: {
         './policy': 'export function policy() { return false; }',
       } });
-      expect(result.success, scope).toBe(false);
-      if (!result.success) expect(result.error.code).toBe('DUPLICATE_FUNCTION');
+      expect(result.success, scope).toBe(true);
     }
   });
 

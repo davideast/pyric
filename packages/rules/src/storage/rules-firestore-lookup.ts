@@ -76,6 +76,15 @@ function wrapFirestoreValue(val: unknown): unknown {
       return out;
     }
     const keys = Object.keys(obj);
+    if (
+      obj.__type === 'serverTimestamp' ||
+      obj._methodName === 'serverTimestamp' ||
+      obj._methodName === 'FieldValue.serverTimestamp'
+    ) {
+      throw new RuleUnsupportedError(
+        'Stored Firestore documents cannot contain unresolved serverTimestamp() sentinels.',
+      );
+    }
     if (obj.__type === 'path') {
       if (Array.isArray(obj.segments)) {
         const bindings =

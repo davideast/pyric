@@ -45,6 +45,7 @@ import { RulesCompileError } from './errors.js';
 import type { RuleIssue } from './issue.js';
 import { rtdbFindingToIssue, rtdbSecurityFindingToIssue } from './issue.js';
 import { lintRtdbRuleset } from '../rtdb/grammar/ruleset-lint.js';
+import { safeReadProp } from '../test/case-refusals.js';
 import type {
   RtdbCase,
   RtdbCaseResult,
@@ -120,49 +121,69 @@ class DocumentRtdbRuleset implements RtdbRuleset {
   }
 
   private runOne(c: RtdbCase): RtdbCaseResult {
-    const resolved = resolveInstanceCase(this.placement, c);
-    const instance = resolved.instance;
-    const named = {
-      case: c,
-      ...(c.description !== undefined ? { description: c.description } : {}),
-      ...(instance !== undefined ? { instance } : {}),
-    };
-    const result = 'problem' in resolved
-      ? invalidCase(resolved.problem)
-      : simulateRtdbCase(resolved.rules.doc, resolved.evaluated);
-    if (!result.success) {
-      // Could not evaluate — report as unsupported rather than throw.
+    try {
+      const resolved = resolveInstanceCase(this.placement, c);
+      const instance = resolved.instance;
+      const named = {
+        case: c,
+        ...(c.description !== undefined ? { description: c.description } : {}),
+        ...(instance !== undefined ? { instance } : {}),
+      };
+      const result = 'problem' in resolved
+        ? invalidCase(resolved.problem)
+        : simulateRtdbCase(resolved.rules.doc, resolved.evaluated);
+      if (!result.success) {
+        // Could not evaluate — report as unsupported rather than throw.
+        return {
+          ...named,
+          expectation: c.expectation,
+          decision: 'UNSUPPORTED',
+          passed: false,
+          unsupported: true,
+          matchedPath: c.path,
+          matchedRule: '',
+          reason: result.error.message,
+          trace: [],
+        };
+      }
+      const data = result.data;
+      const unsupported = data.unsupported === true;
+      const decision: 'ALLOW' | 'DENY' | 'UNSUPPORTED' = unsupported
+        ? 'UNSUPPORTED'
+        : data.allowed
+          ? 'ALLOW'
+          : 'DENY';
+      const passed = !unsupported && decision === c.expectation;
       return {
         ...named,
         expectation: c.expectation,
+        decision,
+        passed,
+        unsupported,
+        matchedPath: data.matchedPath,
+        matchedRule: data.matchedRule,
+        reason: data.reason,
+        trace: instance === undefined ? data.trace : data.trace.map((entry) => ({ ...entry, instance })),
+      };
+    } catch (error) {
+      const desc = safeReadProp(c, 'description');
+      const inst = safeReadProp(c, 'instance');
+      const exp = safeReadProp(c, 'expectation');
+      const rawPath = safeReadProp(c, 'path');
+      return {
+        case: c,
+        ...(typeof desc === 'string' ? { description: desc } : {}),
+        ...(typeof inst === 'string' ? { instance: inst } : {}),
+        expectation: exp === 'ALLOW' ? 'ALLOW' : 'DENY',
         decision: 'UNSUPPORTED',
         passed: false,
         unsupported: true,
-        matchedPath: c.path,
+        matchedPath: typeof rawPath === 'string' ? rawPath : '',
         matchedRule: '',
-        reason: result.error.message,
+        reason: error instanceof Error ? error.message : String(error),
         trace: [],
       };
     }
-    const data = result.data;
-    const unsupported = data.unsupported === true;
-    const decision: 'ALLOW' | 'DENY' | 'UNSUPPORTED' = unsupported
-      ? 'UNSUPPORTED'
-      : data.allowed
-        ? 'ALLOW'
-        : 'DENY';
-    const passed = !unsupported && decision === c.expectation;
-    return {
-      ...named,
-      expectation: c.expectation,
-      decision,
-      passed,
-      unsupported,
-      matchedPath: data.matchedPath,
-      matchedRule: data.matchedRule,
-      reason: data.reason,
-      trace: instance === undefined ? data.trace : data.trace.map((entry) => ({ ...entry, instance })),
-    };
   }
 
   simulate(cases: RtdbCase[]): RtdbSimulationSummary {
@@ -254,8 +275,12 @@ function fileCoverage(
     // refuses, reached no node and ran no query (CS-12). One that reached a
     // rule it could not evaluate still names the index its query needs.
     const refusedAsInput = result.unsupported && result.trace.length === 0;
-    if (result.case.operation === 'read' && !refusedAsInput) {
-      recorder.recordQuery(result.case.path, result.case.query);
+    if (!refusedAsInput && safeReadProp(result.case, 'operation') === 'read') {
+      const path = safeReadProp(result.case, 'path');
+      const query = safeReadProp(result.case, 'query') as RtdbCase['query'];
+      if (typeof path === 'string') {
+        recorder.recordQuery(path, query);
+      }
     }
   }
   return recorder.summarize(options);
@@ -269,15 +294,43 @@ function everyInstance(doc: RtdbRulesDocumentInternal, source?: string): RtdbRul
   });
 }
 
+function cloneRulesJson<T>(value: T, seen = new WeakMap<object, unknown>()): T {
+  if (value === null || typeof value !== 'object') return value;
+  const existing = seen.get(value as object);
+  if (existing !== undefined) return existing as T;
+  if (Array.isArray(value)) {
+    const copy: unknown[] = [];
+    seen.set(value, copy);
+    for (const item of value) copy.push(cloneRulesJson(item, seen));
+    return copy as T;
+  }
+  const proto = Object.getPrototypeOf(value);
+  if (proto !== Object.prototype && proto !== null) return value;
+  const copy: Record<string, unknown> = proto === null ? Object.create(null) : {};
+  seen.set(value as object, copy);
+  for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
+    Object.defineProperty(copy, key, {
+      value: cloneRulesJson(child, seen),
+      enumerable: true,
+      writable: true,
+      configurable: true,
+    });
+  }
+  return copy as T;
+}
+
 /** Internal document adapter for already-compiled Firebase rules JSON. */
 class CompiledRtdbRulesDocument implements RtdbRulesDocumentInternal {
+  private readonly json: RtdbRulesJson;
   private compiled: CompiledRtdbRules | undefined;
   private compileError: unknown;
 
-  constructor(private readonly json: RtdbRulesJson) {}
+  constructor(json: RtdbRulesJson) {
+    this.json = cloneRulesJson(json);
+  }
 
   toJSON(): RtdbRulesJson {
-    return this.json;
+    return cloneRulesJson(this.json);
   }
 
   compile(): CompiledRtdbRules {

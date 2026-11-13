@@ -91,7 +91,19 @@ import { parseToASTOrError } from '../grammar/FirestoreParser.js';
 import { parseErrorWording } from '../grammar/parse-error-wording.js';
 import { compileLimitViolations, describeCompileLimitViolations } from '../grammar/compile-limits.js';
 import { DUPLICATE_SERVICE_REASON, duplicateServiceRejection } from '../grammar/source-compile-limits.js';
-import { copyExpressionPosition, expressionPosition } from '../grammar/expression-positions.js';
+import { withSingleService } from '../grammar/service-blocks.js';
+import {
+  completionPosition,
+  copyExpressionPosition,
+  expressionPosition,
+  setCompletionPosition,
+  setExpressionPosition,
+} from '../grammar/expression-positions.js';
+import {
+  readAuthoredSourceMap,
+  resolveAuthoredLoc,
+  type AuthoredSourceMap,
+} from '../modules/resolver-browser.js';
 import { re2PatternProblem } from '../simulator/re2-pattern-check.js';
 // RULES-B5 float model, shared with the Firestore simulator: a FLOAT value is
 // tagged with this wrapper while an INT is a bigint, or a bare integral JS
@@ -434,19 +446,44 @@ function allowLine(allow: SharedMatchBlock['allows'][number]): number | undefine
   return expressionPosition(allow.condition)?.line;
 }
 
-function convertAllow(allow: SharedMatchBlock['allows'][number]): AllowRule {
-  const rule: AllowRule = { verbs: allow.operations, condition: convertExpr(allow.condition) };
-  const line = allowLine(allow);
-  if (line !== undefined) rule.line = line;
+function remapConvertedPosition(node: object, sourceMap: AuthoredSourceMap): void {
+  if (sourceMap.size === 0) return;
+  const pos = expressionPosition(node);
+  if (pos !== undefined) {
+    const mapped = resolveAuthoredLoc(sourceMap, pos.line, pos.column);
+    if (mapped !== undefined && mapped.line !== pos.line) {
+      setExpressionPosition(node, { line: mapped.line, column: pos.column });
+    }
+  }
+  const comp = completionPosition(node);
+  if (comp !== undefined && comp !== pos) {
+    const mapped = resolveAuthoredLoc(sourceMap, comp.line, comp.column);
+    if (mapped !== undefined && mapped.line !== comp.line) {
+      setCompletionPosition(node, { line: mapped.line, column: comp.column });
+    }
+  }
+}
+
+function convertAllow(
+  allow: SharedMatchBlock['allows'][number],
+  sourceMap: AuthoredSourceMap,
+): AllowRule {
+  const rawLine = allowLine(allow);
+  const rule: AllowRule = { verbs: allow.operations, condition: convertExpr(allow.condition, sourceMap) };
+  if (rawLine !== undefined) {
+    rule.line = sourceMap.size > 0
+      ? (resolveAuthoredLoc(sourceMap, rawLine)?.line ?? rawLine)
+      : rawLine;
+  }
   return rule;
 }
 
-function convertMatch(block: SharedMatchBlock): MatchBlock {
+function convertMatch(block: SharedMatchBlock, sourceMap: AuthoredSourceMap): MatchBlock {
   return {
     segments: block.path.segments.map(convertSegment),
-    children: block.children.map(convertMatch),
-    allows: block.allows.map(convertAllow),
-    functions: block.functions.map(convertFunction),
+    children: block.children.map((child) => convertMatch(child, sourceMap)),
+    allows: block.allows.map((allow) => convertAllow(allow, sourceMap)),
+    functions: block.functions.map((fn) => convertFunction(fn, sourceMap)),
   };
 }
 
@@ -458,27 +495,29 @@ function convertSegment(seg: SharedPathSegment): PathSegment {
   }
 }
 
-function convertFunction(fn: SharedFunctionDef): FunctionDef {
+function convertFunction(fn: SharedFunctionDef, sourceMap: AuthoredSourceMap): FunctionDef {
   return {
     name: fn.name,
     params: fn.parameters,
     lets: fn.lets.map((l) => {
-      const binding = { name: l.name, value: convertExpr(l.value) };
+      const binding = { name: l.name, value: convertExpr(l.value, sourceMap) };
       copyExpressionPosition(l, binding);
+      remapConvertedPosition(binding, sourceMap);
       return binding;
     }),
-    body: convertExpr(fn.body),
+    body: convertExpr(fn.body, sourceMap),
   };
 }
 
 /** The evaluator's node for a parsed expression, at the parsed node's source position. */
-function convertExpr(e: SharedExpression): Expr {
-  const converted = convertExprNode(e);
+function convertExpr(e: SharedExpression, sourceMap: AuthoredSourceMap): Expr {
+  const converted = convertExprNode(e, sourceMap);
   copyExpressionPosition(e, converted);
+  remapConvertedPosition(converted, sourceMap);
   return converted;
 }
 
-function convertExprNode(e: SharedExpression): Expr {
+function convertExprNode(e: SharedExpression, sourceMap: AuthoredSourceMap): Expr {
   switch (e.type) {
     case 'literal':
       // A numeric literal written with a decimal point is a FLOAT even when
@@ -491,13 +530,13 @@ function convertExprNode(e: SharedExpression): Expr {
     case 'identifier':
       return { kind: 'ident', name: e.name };
     case 'memberAccess':
-      return { kind: 'member', target: convertExpr(e.object), name: e.property };
+      return { kind: 'member', target: convertExpr(e.object, sourceMap), name: e.property };
     case 'methodCall':
-      return { kind: 'methodcall', target: convertExpr(e.object), method: e.method, args: e.args.map(convertExpr) };
+      return { kind: 'methodcall', target: convertExpr(e.object, sourceMap), method: e.method, args: e.args.map((a) => convertExpr(a, sourceMap)) };
     case 'bracketAccess':
-      return { kind: 'index', target: convertExpr(e.object), index: convertExpr(e.index) };
+      return { kind: 'index', target: convertExpr(e.object, sourceMap), index: convertExpr(e.index, sourceMap) };
     case 'sliceAccess':
-      return { kind: 'slice', target: convertExpr(e.object), start: convertExpr(e.start), end: convertExpr(e.end) };
+      return { kind: 'slice', target: convertExpr(e.object, sourceMap), start: convertExpr(e.start, sourceMap), end: convertExpr(e.end, sourceMap) };
     case 'binaryOp':
       // Operator strings are VALIDATED, not cast: the `never` backstop below
       // only catches new Expression VARIANTS — a new operator on an existing
@@ -507,33 +546,33 @@ function convertExprNode(e: SharedExpression): Expr {
       if (!BINARY_OPS.has(e.op as BinaryOp)) {
         throw new SyntaxError(`Unsupported binary operator '${e.op}' in storage rules.`);
       }
-      return { kind: 'binary', op: e.op as BinaryOp, left: convertExpr(e.left), right: convertExpr(e.right) };
+      return { kind: 'binary', op: e.op as BinaryOp, left: convertExpr(e.left, sourceMap), right: convertExpr(e.right, sourceMap) };
     case 'unaryOp':
       if (e.op !== '!' && e.op !== '-') {
         throw new SyntaxError(`Unsupported unary operator '${e.op}' in storage rules.`);
       }
-      return { kind: 'unary', op: e.op, arg: convertExpr(e.operand) };
+      return { kind: 'unary', op: e.op, arg: convertExpr(e.operand, sourceMap) };
     case 'ternary':
-      return { kind: 'ternary', cond: convertExpr(e.condition), then: convertExpr(e.consequent), else: convertExpr(e.alternate) };
+      return { kind: 'ternary', cond: convertExpr(e.condition, sourceMap), then: convertExpr(e.consequent, sourceMap), else: convertExpr(e.alternate, sourceMap) };
     case 'inExpr':
-      return { kind: 'in', element: convertExpr(e.element), collection: convertExpr(e.collection) };
+      return { kind: 'in', element: convertExpr(e.element, sourceMap), collection: convertExpr(e.collection, sourceMap) };
     case 'isExpr':
-      return { kind: 'is', value: convertExpr(e.value), typeName: e.typeName };
+      return { kind: 'is', value: convertExpr(e.value, sourceMap), typeName: e.typeName };
     case 'listLiteral':
-      return { kind: 'list', elements: e.elements.map(convertExpr) };
+      return { kind: 'list', elements: e.elements.map((el) => convertExpr(el, sourceMap)) };
     case 'mapLiteral':
-      return { kind: 'map', entries: e.entries.map((en) => ({ key: convertExpr(en.key), value: convertExpr(en.value) })) };
+      return { kind: 'map', entries: e.entries.map((en) => ({ key: convertExpr(en.key, sourceMap), value: convertExpr(en.value, sourceMap) })) };
     case 'pathLiteral':
       return {
         kind: 'path',
         segments: e.segments.map((seg): PathArgSegment =>
           typeof seg === 'string'
             ? { kind: 'literal', value: seg }
-            : { kind: 'interp', expr: convertExpr(seg) },
+            : { kind: 'interp', expr: convertExpr(seg, sourceMap) },
         ),
       };
     case 'functionCall':
-      return { kind: 'call', name: e.name, args: e.args.map(convertExpr) };
+      return { kind: 'call', name: e.name, args: e.args.map((a) => convertExpr(a, sourceMap)) };
     default: {
       // Exhaustiveness backstop: a NEW grammar construct with no storage
       // mapping must fail the parse, never evaluate wrong.
@@ -571,10 +610,13 @@ export function parseStorageRules(source: string): StorageRules {
       `Expected 'service firebase.storage', got 'service ${parsed.ast.service.name}'.`,
     );
   }
-  const ast: SharedRules = { ...parsed.ast, service: storageService };
+  const ast: SharedRules = withSingleService(parsed.ast, storageService);
   // Production rejects a ruleset past its compile limits (call depth, `let`
-  // count, nesting) before evaluating any request.
-  const violations = compileLimitViolations(ast);
+  // count, nesting) before evaluating any request. Regex patterns are checked
+  // below by validateMatchRegexes so low-level callers keep the exact message.
+  const violations = compileLimitViolations(ast, { allowUnresolvedImports: true }).filter(
+    (v) => v.code !== 'INVALID_REGEX_PATTERN',
+  );
   if (violations.length > 0) {
     throw new SyntaxError(`Storage rules do not compile: ${describeCompileLimitViolations(violations)}`);
   }
@@ -586,6 +628,7 @@ export function parseStorageRules(source: string): StorageRules {
   // root visibility equals everywhere-in-service visibility, and the array
   // order (global, then service, then none of root's own) preserves
   // inner-shadows-outer resolution in `resolveFunctions`.
+  const sourceMap = readAuthoredSourceMap(source);
   const importStubs: FunctionDef[] = (ast.imports ?? []).flatMap((imp) =>
     imp.functions.map((name): FunctionDef => ({
       name,
@@ -598,7 +641,7 @@ export function parseStorageRules(source: string): StorageRules {
     })),
   );
   const globalFuncs: FunctionDef[] = (ast.functions ?? []).map((fn) => {
-    const converted = convertFunction(fn);
+    const converted = convertFunction(fn, sourceMap);
     converted.scopeKind = 'global';
     converted.declCaptures = new Set();
     return converted;
@@ -609,7 +652,7 @@ export function parseStorageRules(source: string): StorageRules {
   for (const fn of globalScope.values()) fn.declScope = globalScope;
 
   const serviceFuncs: FunctionDef[] = (ast.service.functions ?? []).map((fn) => {
-    const converted = convertFunction(fn);
+    const converted = convertFunction(fn, sourceMap);
     converted.scopeKind = 'service';
     converted.declCaptures = new Set();
     return converted;
@@ -620,7 +663,7 @@ export function parseStorageRules(source: string): StorageRules {
 
   const root: MatchBlock = {
     segments: [],
-    children: (ast.service.matches ?? [ast.service.match]).map(convertMatch),
+    children: (ast.service.matches ?? [ast.service.match]).map((block) => convertMatch(block, sourceMap)),
     allows: [],
     functions: [...importStubs, ...globalFuncs, ...serviceFuncs],
     visibleFuncs: serviceScope,

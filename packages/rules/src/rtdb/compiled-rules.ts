@@ -133,11 +133,18 @@ function serializeNode(node: RtdbNode): Record<string, unknown> {
   if (node.read) result['.read'] = rawToRuleValue(node.read.raw);
   if (node.write) result['.write'] = rawToRuleValue(node.write.raw);
   if (node.validate) result['.validate'] = rawToRuleValue(node.validate.raw);
-  if (node.indexOn) result['.indexOn'] = node.indexOn;
+  if (node.indexOn) result['.indexOn'] = [...node.indexOn];
 
   for (const child of node.children) {
     const segments = child.path.split('/').filter(Boolean);
-    result[segments[segments.length - 1]] = serializeNode(child);
+    const segment = segments[segments.length - 1];
+    if (segment === undefined) continue;
+    Object.defineProperty(result, segment, {
+      value: serializeNode(child),
+      enumerable: true,
+      writable: true,
+      configurable: true,
+    });
   }
   return result;
 }

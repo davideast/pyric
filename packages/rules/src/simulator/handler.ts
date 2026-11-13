@@ -40,7 +40,7 @@ import {
 import { typeClaimNumbers } from './rules-int.js';
 import { normalizeAuthState } from '../auth/auth-state.js';
 import { caseShapeRefusal } from '../test/case-shape.js';
-import { requestTimeRefusal } from '../test/case-refusals.js';
+import { requestTimeRefusal, safeReadProp } from '../test/case-refusals.js';
 export { SERVER_TIMESTAMP, resolveServerTimestamps, reviveFirestoreNumbers } from './firestore-values.js';
 import { collectRootMatches, noMatchNotes } from './root-match.js';
 import { getListBlockSteps, type ListBlockStep } from './list-proof-budget.js';
@@ -642,10 +642,11 @@ function intakeRefusal(tc: TestCase, publicCases: boolean): string | undefined {
 
 /** The result for a case intake refused: UNSUPPORTED, with the reason. */
 function refusedResult(tc: TestCase, reason: string): TestResult {
-  const shape = (typeof tc === 'object' && tc !== null ? tc : {}) as Partial<TestCase>;
+  const desc = safeReadProp(tc, 'description');
+  const exp = safeReadProp(tc, 'expectation');
   return {
-    description: typeof shape.description === 'string' ? shape.description : '',
-    expectation: shape.expectation === 'ALLOW' ? 'ALLOW' : 'DENY',
+    description: typeof desc === 'string' ? desc : '',
+    expectation: exp === 'ALLOW' ? 'ALLOW' : 'DENY',
     state: 'UNSUPPORTED',
     decision: 'UNSUPPORTED',
     evaluatedExpressions: 0,
@@ -733,6 +734,7 @@ export class SimulateFirestoreRulesHandler {
     const publicCases = opts?.publicCases === true;
     const revive: CaseReviver = publicCases ? reviveCaseLiterals : reviveFirestoreNumbers;
     for (const tc of testCases) {
+      try {
       // A case either engine would read as a different request, or one with
       // an instant that is not ISO-8601 with an offset, is refused here
       // rather than answered (FS2-CON-2, FS2-CON-3, FS2-CON-12).
@@ -1064,6 +1066,15 @@ export class SimulateFirestoreRulesHandler {
         notes,
         pathResolution,
       });
+      } catch (error) {
+        unsupported++;
+        results.push(
+          refusedResult(
+            tc,
+            `Case refused: ${error instanceof Error ? error.message : String(error)}`,
+          ),
+        );
+      }
     }
 
     return { success: true, data: { passed, failed, unsupported, results } };
