@@ -12,6 +12,12 @@ const registeredSentinels: WeakSet<object> =
   globalSentinelStore[SENTINEL_REGISTRY_KEY] ??
   (globalSentinelStore[SENTINEL_REGISTRY_KEY] = new WeakSet());
 
+const UNESCAPED_MAP_REGISTRY_KEY = Symbol.for('pyric.firestore.unescaped-user-maps');
+const globalUnescapedMapStore = globalThis as { [UNESCAPED_MAP_REGISTRY_KEY]?: WeakSet<object> };
+const registeredUnescapedUserMaps: WeakSet<object> =
+  globalUnescapedMapStore[UNESCAPED_MAP_REGISTRY_KEY] ??
+  (globalUnescapedMapStore[UNESCAPED_MAP_REGISTRY_KEY] = new WeakSet());
+
 export function markFieldValueSentinel<T extends object>(sentinel: T): T {
   registeredSentinels.add(sentinel);
   return sentinel;
@@ -19,6 +25,15 @@ export function markFieldValueSentinel<T extends object>(sentinel: T): T {
 
 export function isRegisteredFieldValueSentinel(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && registeredSentinels.has(value);
+}
+
+export function registerUnescapedUserMapClone<T extends object>(map: T): T {
+  registeredUnescapedUserMaps.add(map);
+  return map;
+}
+
+export function isRegisteredUnescapedUserMap(value: unknown): boolean {
+  return typeof value === 'object' && value !== null && registeredUnescapedUserMaps.has(value);
 }
 
 export function isUnescapedUserMap(value: unknown): boolean {
@@ -38,7 +53,7 @@ export function copyUnescapedUserMapTag<T extends Record<string, unknown>>(
   source: unknown,
   target: T,
 ): T {
-  if (isUnescapedUserMap(source)) {
+  if (isUnescapedUserMap(source) || isRegisteredUnescapedUserMap(source)) {
     stampUnescapedUserMap(target);
   }
   return target;
@@ -61,60 +76,75 @@ export function hasCollidingFirestoreMarkerShape(map: Record<string, unknown>): 
   );
 }
 
-function isCollidingWireMarkerMap(rec: Record<string, unknown>): boolean {
-  if (typeof rec._methodName === 'string') return true;
-  if (typeof rec.__type === 'string') return true;
-  if (typeof rec.typeName === 'string') return true;
-  if (rec.__type__ === '__vector__' && Array.isArray(rec.value)) return true;
-  if (
-    rec.type === 'pyric/map/1.0' &&
-    Object.keys(rec).length === 2 &&
-    isPlainMapRecord(rec.fields)
-  ) {
-    return true;
-  }
-  if (rec.type === 'pyric/number/1.0' && Object.keys(rec).length === 2) {
-    return true;
-  }
-  if (typeof rec.type === 'string' && rec.type.startsWith('firestore/')) {
-    return true;
-  }
-  if (typeof rec.id === 'string' && typeof rec.path === 'string') {
-    return true;
-  }
-  return false;
-}
-
 /**
- * Strip `UNESCAPED_MAP_TAG` while wrapping marker-colliding user maps into
- * `{ type: 'pyric/map/1.0', fields }` at public event and snapshot boundaries,
- * so `JSON.stringify` / `structuredClone` round-trips stay unambiguous without
- * exposing internal symbols on returned objects.
+ * Collect JSON-safe paths to plain user maps carrying `UNESCAPED_MAP_TAG` (or
+ * registered in `registeredUnescapedUserMaps`). Root map is represented as `[]`.
  */
-export function encodeBoundaryMapValue(value: unknown): unknown {
-  if (value === null || typeof value !== 'object') return value;
-  if (Array.isArray(value)) {
-    return value.map(encodeBoundaryMapValue);
-  }
-  if (!isPlainMapRecord(value)) return value;
-  const fields: Record<string, unknown> = {};
-  for (const [key, item] of Object.entries(value)) {
-    Object.defineProperty(fields, key, {
-      value: encodeBoundaryMapValue(item),
-      enumerable: true,
-      writable: true,
-      configurable: true,
-    });
-  }
-  if (isUnescapedUserMap(value) && (isCollidingWireMarkerMap(value) || isCollidingWireMarkerMap(fields))) {
-    return { type: 'pyric/map/1.0', fields };
-  }
-  return fields;
+export function collectUnescapedUserMapPaths(value: unknown): (string | number)[][] {
+  const paths: (string | number)[][] = [];
+  const walk = (node: unknown, currentPath: (string | number)[]): void => {
+    if (node === null || typeof node !== 'object') return;
+    if (Array.isArray(node)) {
+      for (let i = 0; i < node.length; i++) {
+        walk(node[i], [...currentPath, i]);
+      }
+      return;
+    }
+    if (!isPlainMapRecord(node)) return;
+    if (
+      (isUnescapedUserMap(node) || isRegisteredUnescapedUserMap(node)) &&
+      hasCollidingFirestoreMarkerShape(node)
+    ) {
+      paths.push([...currentPath]);
+    }
+    for (const [key, item] of Object.entries(node)) {
+      walk(item, [...currentPath, key]);
+    }
+  };
+  walk(value, []);
+  return paths;
 }
 
 /**
- * Return a symbol-clean clone of a plain value tree without wrapping maps
- * (used by direct document read surfaces like `admin.getDocument`).
+ * Non-mutating clone that stamps `UNESCAPED_MAP_TAG` on plain maps at each
+ * recorded path so in-memory callers never leak internal symbols onto public events.
+ */
+export function applyUnescapedUserMapPaths<T>(
+  value: T,
+  paths: readonly (readonly (string | number)[])[] | undefined,
+): T {
+  if (paths === undefined || paths.length === 0) return value;
+  const targetKeys = new Set(paths.map((p) => JSON.stringify(p)));
+  const walk = (node: unknown, currentPath: (string | number)[]): unknown => {
+    if (node === null || typeof node !== 'object') return node;
+    if (Array.isArray(node)) {
+      return node.map((item, idx) => walk(item, [...currentPath, idx]));
+    }
+    if (!isPlainMapRecord(node)) return node;
+    const out: Record<string, unknown> = {};
+    for (const [key, item] of Object.entries(node)) {
+      Object.defineProperty(out, key, {
+        value: walk(item, [...currentPath, key]),
+        enumerable: true,
+        writable: true,
+        configurable: true,
+      });
+    }
+    if (
+      targetKeys.has(JSON.stringify(currentPath)) ||
+      isUnescapedUserMap(node) ||
+      isRegisteredUnescapedUserMap(node)
+    ) {
+      stampUnescapedUserMap(out);
+    }
+    return out;
+  };
+  return walk(value, []) as T;
+}
+
+/**
+ * Return a symbol-clean, unencoded clone of a plain value tree while registering
+ * any colliding user maps in `registeredUnescapedUserMaps` for in-memory consumers.
  */
 export function stripUnescapedUserMapTag(value: unknown): unknown {
   if (value === null || typeof value !== 'object') return value;
@@ -131,14 +161,19 @@ export function stripUnescapedUserMapTag(value: unknown): unknown {
       configurable: true,
     });
   }
+  if (
+    (isUnescapedUserMap(value) || isRegisteredUnescapedUserMap(value)) &&
+    hasCollidingFirestoreMarkerShape(out)
+  ) {
+    registerUnescapedUserMapClone(out);
+  }
   return out;
 }
 
 /**
  * Mark user-supplied plain map literals whose keys collide with internal
- * Firestore sentinel or wrapper markers (`__type`, `type`, `__type__`, or
- * serialized `id`+`path`), while leaving genuine `FieldValue.*` sentinels,
- * `DocumentReference` handles, and scalar wrapper instances untouched.
+ * Firestore sentinel or wrapper markers, while leaving genuine `FieldValue.*`
+ * sentinels, `DocumentReference` handles, and scalar wrapper instances untouched.
  */
 export function markUserWriteValue(value: unknown): unknown {
   if (value === null || typeof value !== 'object') return value;
@@ -178,8 +213,8 @@ export function markUserWriteValue(value: unknown): unknown {
     if (mapped !== item) childChanged = true;
     return [key, mapped] as const;
   });
-  const alreadyStamped = isUnescapedUserMap(record);
-  const needsStamp = !alreadyStamped && hasCollidingFirestoreMarkerShape(record);
+  const alreadyStamped = isUnescapedUserMap(record) || isRegisteredUnescapedUserMap(record);
+  const needsStamp = !isUnescapedUserMap(record) && hasCollidingFirestoreMarkerShape(record);
   if (!childChanged && !needsStamp) return value;
 
   const out: Record<string, unknown> = {};

@@ -174,16 +174,19 @@ export interface RequestEvent {
     resourceData?: Record<string, unknown>;
     updateMask?: string[][];
     merge?: boolean | { mergeFields: string[] };
+    unescapedPaths?: (string | number)[][];
   };
   /** Existing document state before the write (or read target for get). */
   resourceBefore?: {
     data: Record<string, unknown> | null;
     exists: boolean;
+    unescapedPaths?: (string | number)[][];
   };
   /** Projected document state after the write. Absent on reads. */
   resourceAfter?: {
     data: Record<string, unknown> | null;
     exists: boolean;
+    unescapedPaths?: (string | number)[][];
   };
   /** Parsed from the simulator's "Rule #N → …" debug line. Absent when no
    *  rule matched (e.g. no allow rules at the path — implicit deny). */
@@ -258,6 +261,12 @@ export interface WriteSandboxEvent {
   priorState: Record<string, unknown> | null;
   /** State AFTER this write. `null` on `delete`. */
   nextState: Record<string, unknown> | null;
+  /** Colliding user-map paths inside `data` (omitted when empty). */
+  dataUnescapedPaths?: (string | number)[][];
+  /** Colliding user-map paths inside `priorState` (omitted when empty). */
+  priorUnescapedPaths?: (string | number)[][];
+  /** Colliding user-map paths inside `nextState` (omitted when empty). */
+  nextUnescapedPaths?: (string | number)[][];
   groupId?: string;
   groupKind?: 'batch' | 'transaction';
   /** FieldValue sentinels (serverTimestamp / increment / arrayUnion /

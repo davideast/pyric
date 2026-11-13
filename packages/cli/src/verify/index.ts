@@ -20,6 +20,8 @@ import {
 } from 'pyric/storage/internal';
 import { rtdbRulesSourceRejection, type RtdbRulesDocument } from 'pyric/rules/internal/rtdb';
 import {
+  applyUnescapedUserMapPaths,
+  decodeSnapshotMapForEnv,
   isProductionServed,
   observedMethod,
   productionVerdict,
@@ -361,7 +363,8 @@ function verifyFirestoreSandbox(
     throw new VerifyInputError('fixture does not contain services.firestore.');
   }
 
-  const initialData = reconstructInitialFirestoreDocuments(fixture);
+  const decodedFinalDocuments = decodeCapturedFirestoreDocStore(firestore.state.documents);
+  const initialData = reconstructInitialFirestoreDocuments(fixture, decodedFinalDocuments);
   const seedWrites: WriteSandboxEvent[] = Object.entries(initialData).map(
     ([path, data], index) => ({
       kind: 'write',
@@ -382,7 +385,7 @@ function verifyFirestoreSandbox(
     seedWrites.length > 0 ? [...seedWrites, ...fixture.events] : fixture.events,
     rules,
     {},
-    firestore.state.documents,
+    decodedFinalDocuments,
   );
   const mapped = divergences.map(mapFirestoreDivergence);
 
@@ -406,7 +409,11 @@ function verifyFirestoreSandbox(
           proj = new Map();
           batchProjectionByGroupId.set(groupId, proj);
         }
-        proj.set(event.path, event.method === 'delete' ? null : event.nextState);
+        let nextDoc: Record<string, unknown> | null = null;
+        if (event.method !== 'delete' && event.nextState !== null) {
+          nextDoc = decodeCapturedFirestoreDoc(event.nextState, event.nextUnescapedPaths);
+        }
+        proj.set(event.path, nextDoc);
       }
     }
   }
@@ -443,7 +450,7 @@ function verifyFirestoreSandbox(
     const simulator = new SimulateFirestoreRulesHandler();
     for (const { eventId, testCase: tc } of derivation.derived) {
       const isRead = tc.method === 'get' || tc.method === 'list';
-      const pointInTimeDocs = docsByEventId.get(eventId) ?? firestore.state.documents;
+      const pointInTimeDocs = docsByEventId.get(eventId) ?? decodedFinalDocuments;
       const groupId = groupIdByEventId.get(eventId);
       const batchProjection = groupId ? batchProjectionByGroupId.get(groupId) : undefined;
       const simOpts: Parameters<SimulateFirestoreRulesHandler['simulate']>[2] = {
@@ -642,39 +649,80 @@ function verifyLiveFirestoreCalls(fixture: PyricVerifyFixture, rules: string): {
   return { checkedEvents, divergences };
 }
 
+function decodeCapturedFirestoreDoc(
+  docData: Record<string, unknown>,
+  unescapedPaths?: readonly (readonly (string | number)[])[],
+): Record<string, unknown> {
+  const stamped = applyUnescapedUserMapPaths(docData, unescapedPaths);
+  return decodeSnapshotMapForEnv(stamped);
+}
+
+function decodeCapturedFirestoreDocStore(
+  docs: Record<string, Record<string, unknown>>,
+): Record<string, Record<string, unknown>> {
+  const out: Record<string, Record<string, unknown>> = {};
+  for (const [docPath, docData] of Object.entries(docs)) {
+    Object.defineProperty(out, docPath, {
+      value: decodeSnapshotMapForEnv(docData),
+      enumerable: true,
+      writable: true,
+      configurable: true,
+    });
+  }
+  return out;
+}
+
 function reconstructInitialFirestoreDocuments(
   fixture: PyricVerifyFixture,
+  predecodedFinalDocs?: Record<string, Record<string, unknown>>,
 ): Record<string, Record<string, unknown>> {
   const firestore = fixture.services.firestore;
   if (!firestore) return {};
+  const finalDocs = predecodedFinalDocs ?? decodeCapturedFirestoreDocStore(firestore.state.documents);
   const firstSeenState = new Map<string, Record<string, unknown> | null>();
   for (const event of fixture.events) {
     if (event.kind === 'request') {
       const service = (event as { service?: unknown }).service;
       if (service !== undefined && service !== 'firestore') continue;
       if (!firstSeenState.has(event.path) && event.resourceBefore !== undefined) {
-        firstSeenState.set(
-          event.path,
-          event.resourceBefore.exists && event.resourceBefore.data !== null
-            ? event.resourceBefore.data
-            : null,
-        );
+        let beforeDoc: Record<string, unknown> | null = null;
+        if (event.resourceBefore.exists && event.resourceBefore.data !== null) {
+          beforeDoc = decodeCapturedFirestoreDoc(
+            event.resourceBefore.data,
+            event.resourceBefore.unescapedPaths,
+          );
+        }
+        firstSeenState.set(event.path, beforeDoc);
       }
     } else if (event.kind === 'write') {
       if (!firstSeenState.has(event.path)) {
-        firstSeenState.set(event.path, event.priorState !== null ? event.priorState : null);
+        let priorDoc: Record<string, unknown> | null = null;
+        if (event.priorState !== null) {
+          priorDoc = decodeCapturedFirestoreDoc(event.priorState, event.priorUnescapedPaths);
+        }
+        firstSeenState.set(event.path, priorDoc);
       }
     }
   }
   const initialData: Record<string, Record<string, unknown>> = {};
   for (const [docPath, docData] of firstSeenState.entries()) {
     if (docData !== null) {
-      initialData[docPath] = docData;
+      Object.defineProperty(initialData, docPath, {
+        value: docData,
+        enumerable: true,
+        writable: true,
+        configurable: true,
+      });
     }
   }
-  for (const [docPath, docData] of Object.entries(firestore.state.documents)) {
+  for (const [docPath, docData] of Object.entries(finalDocs)) {
     if (!firstSeenState.has(docPath)) {
-      initialData[docPath] = docData;
+      Object.defineProperty(initialData, docPath, {
+        value: docData,
+        enumerable: true,
+        writable: true,
+        configurable: true,
+      });
     }
   }
   return initialData;
@@ -699,7 +747,12 @@ function buildPointInTimeFirestoreDocs(
       if (event.nextState === null || event.method === 'delete') {
         delete currentDocs[event.path];
       } else {
-        currentDocs[event.path] = event.nextState;
+        Object.defineProperty(currentDocs, event.path, {
+          value: decodeCapturedFirestoreDoc(event.nextState, event.nextUnescapedPaths),
+          enumerable: true,
+          writable: true,
+          configurable: true,
+        });
       }
     }
   }
@@ -1023,7 +1076,12 @@ async function verifyStorage(
       if (event.nextState === null || event.method === 'delete') {
         delete currentFirestoreDocs[event.path];
       } else {
-        currentFirestoreDocs[event.path] = event.nextState;
+        Object.defineProperty(currentFirestoreDocs, event.path, {
+          value: decodeCapturedFirestoreDoc(event.nextState, event.nextUnescapedPaths),
+          enumerable: true,
+          writable: true,
+          configurable: true,
+        });
       }
       continue;
     }

@@ -9,7 +9,7 @@
 import type { LocalSandbox, RemoteSandbox } from 'pyric/sandbox';
 import { getInternalEnv } from 'pyric/sandbox/internal';
 import { lintFirestoreRules, rulesSourceRejection } from 'pyric/rules/internal';
-import { encodeBoundaryMapValue } from './sandbox/unescaped-map.js';
+import { markUserWriteValue, stripUnescapedUserMapTag } from './sandbox/unescaped-map.js';
 
 import type { DocumentData, LintResult } from './types.js';
 
@@ -65,7 +65,16 @@ export function seedDocuments(
   documents: Record<string, DocumentData>,
 ): LintResult {
   const env = getInternalEnv(sandbox);
-  return env.seed({ rules: env.getRules(), documents });
+  const markedDocuments: Record<string, DocumentData> = {};
+  for (const [path, docData] of Object.entries(documents)) {
+    Object.defineProperty(markedDocuments, path, {
+      value: markUserWriteValue(docData) as DocumentData,
+      enumerable: true,
+      writable: true,
+      configurable: true,
+    });
+  }
+  return env.seed({ rules: env.getRules(), documents: markedDocuments });
 }
 
 /** Snapshot only Firestore documents without traversing other sandbox services. */
@@ -76,7 +85,7 @@ export function snapshotDocuments(
   const out: Record<string, DocumentData> = {};
   for (const [path, docData] of Object.entries(raw)) {
     Object.defineProperty(out, path, {
-      value: encodeBoundaryMapValue(docData) as DocumentData,
+      value: stripUnescapedUserMapTag(docData) as DocumentData,
       enumerable: true,
       writable: true,
       configurable: true,

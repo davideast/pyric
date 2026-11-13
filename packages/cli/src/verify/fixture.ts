@@ -2,6 +2,7 @@ import {
   assertCompleteHistory,
   encodeSnapshotMap,
   observedDeliveryOf,
+  rehydrateSnapshotDocument,
   resolveDatabaseInstance,
   type ObservedWriteValue,
 } from 'pyric/sandbox/internal';
@@ -55,27 +56,13 @@ export interface PyricVerifyFixture {
   schema: typeof VERIFY_FIXTURE_SCHEMA;
   description?: string;
   createdAt?: string;
-  /** Opaque id of the sandbox instance that produced this capture (the served
-   *  SharedWorker's `instanceId`). Purely additive: `pyric verify` ignores it.
-   *  Present only on captures written by the worker's capture flush; used by
-   *  boot-time event hydration to SKIP priming a capture that belongs to a
-   *  DIFFERENT instance (e.g. another browser profile sharing one `pyric sandbox`),
-   *  so someone else's session never shows up as yours. Absent on older /
-   *  standalone captures → hydration primes best-effort. */
+  /** Opaque id of the sandbox instance that produced this capture (used by
+   *  boot-time event hydration to skip captures from a different instance). */
   capturedBy?: string;
   events: SandboxEvent[];
-  /**
-   * The values each live call carried, by its event's id. A live call's
-   * event holds production's answer and the local verdict; `pyric verify`
-   * replays it with these against the candidate rules. Absent when the
-   * session observed no call that carried any.
-   */
+  /** Live call values (`claims`, `writeData`, `document`) keyed by event id. */
   observedCalls?: Record<string, VerifyObservedCallValues>;
-  /**
-   * Redacted `request.resource` and existing `resource` bindings for denied
-   * Storage operations, keyed by operation event id so `SandboxOperationEvent`
-   * stays narrow on the Traffic chip and Studio event stream.
-   */
+  /** Redacted `request.resource` and `resource` bindings for denied Storage ops. */
   storageDeniedWrites?: Record<string, RecordedStorageDeniedWrite>;
   services: {
     firestore?: {
@@ -272,8 +259,13 @@ export function buildVerifyFixture(input: BuildVerifyFixtureInput): PyricVerifyF
   const rawFirestoreDocuments = snapshot.firestore;
   const firestoreDocuments: Record<string, Record<string, unknown>> = {};
   for (const [docPath, docData] of Object.entries(rawFirestoreDocuments)) {
+    const hydratedDoc = rehydrateSnapshotDocument(
+      docData,
+      snapshot.firestoreWrappers?.[docPath],
+      snapshot.firestoreUnescapedMaps?.[docPath],
+    );
     Object.defineProperty(firestoreDocuments, docPath, {
-      value: encodeSnapshotMap(docData) as Record<string, unknown>,
+      value: encodeSnapshotMap(hydratedDoc) as Record<string, unknown>,
       enumerable: true,
       writable: true,
       configurable: true,

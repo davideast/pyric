@@ -26,6 +26,12 @@ import {
   Vector as RulesVector,
 } from '../../rules/internal/index.js';
 import { extractDuckReferenceDatabaseId } from '../../firestore/sandbox/admin-reference-database.js';
+import {
+  hasCollidingFirestoreMarkerShape,
+  isRegisteredUnescapedUserMap,
+  isUnescapedUserMap,
+  stampUnescapedUserMap,
+} from '../../firestore/sandbox/unescaped-map.js';
 
 export type EncodedMap = Readonly<Record<string, unknown>>;
 
@@ -305,11 +311,7 @@ export function encodeSnapshotValue(value: unknown): unknown {
     if (entry === undefined) continue;
     defineOwnProperty(fields, key, encodeSnapshotValue(entry));
   }
-  const hasMarkerKey =
-    Object.hasOwn(fields, 'type') ||
-    Object.hasOwn(fields, '__type') ||
-    Object.hasOwn(fields, '__type__');
-  if (hasMarkerKey) {
+  if (hasCollidingFirestoreMarkerShape(fields)) {
     return { type: 'pyric/map/1.0', fields };
   }
   return fields;
@@ -361,6 +363,16 @@ function guardMalformedHandAuthoredMarkers(value: unknown, mode: DecodeTargetMod
     return guardMalformedHandAuthoredMarkers(encodedLive, mode);
   }
   const record = value as Record<string, unknown>;
+  if (isUnescapedUserMap(record) || isRegisteredUnescapedUserMap(record)) {
+    const copy: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(record)) {
+      defineOwnProperty(copy, k, guardMalformedHandAuthoredMarkers(v, mode));
+    }
+    if (hasCollidingFirestoreMarkerShape(copy) || Object.hasOwn(copy, '__proto__')) {
+      return { type: 'pyric/map/1.0', fields: copy };
+    }
+    return copy;
+  }
   const tagType = ownField(record, 'type');
   const dunderType = ownField(record, '__type');
   const dunderVectorType = ownField(record, '__type__');
@@ -462,14 +474,18 @@ function guardMalformedHandAuthoredMarkers(value: unknown, mode: DecodeTargetMod
   for (const [key, item] of Object.entries(record)) {
     defineOwnProperty(next, key, guardMalformedHandAuthoredMarkers(item, mode));
   }
-  if (claimsKnownMarkerWithoutShape || Object.hasOwn(next, '__proto__')) {
+  if (
+    claimsKnownMarkerWithoutShape ||
+    hasCollidingFirestoreMarkerShape(next) ||
+    Object.hasOwn(next, '__proto__')
+  ) {
     return { type: 'pyric/map/1.0', fields: next };
   }
   return next;
 }
 
 function unwrapTopLevelFields(encoded: EncodedMap): Readonly<Record<string, unknown>> {
-  if (isEscapedMapEnvelope(encoded)) {
+  if (!isUnescapedUserMap(encoded) && !isRegisteredUnescapedUserMap(encoded) && isEscapedMapEnvelope(encoded)) {
     return encoded.fields;
   }
   return encoded;
@@ -503,5 +519,9 @@ export function decodeSnapshotMapForEnv(encoded: EncodedMap): Record<string, unk
     };
     defineOwnProperty(decoded, key, wrapped.value);
   }
-  return requireDocumentData(decoded);
+  const checked = requireDocumentData(decoded);
+  if (hasCollidingFirestoreMarkerShape(checked)) {
+    stampUnescapedUserMap(checked);
+  }
+  return checked;
 }

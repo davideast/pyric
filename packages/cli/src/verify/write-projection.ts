@@ -1,4 +1,5 @@
 import type { RequestEvent, SandboxEvent } from 'pyric/sandbox';
+import { applyUnescapedUserMapPaths } from 'pyric/sandbox/internal';
 import { fieldPathKeySegments } from 'pyric/firestore/internal/update-fields';
 import {
   reviveFirestoreNumbers,
@@ -63,34 +64,38 @@ function isSerializedScalarMarker(value: Record<string, unknown>): boolean {
   return false;
 }
 
-export function unwrapEscapedCaseValue(value: unknown): unknown {
-  if (Array.isArray(value)) {
-    return value.map((item) => unwrapEscapedCaseValue(item));
+export function unwrapEscapedCaseValue(
+  value: unknown,
+  unescapedPaths?: readonly (readonly (string | number)[])[],
+): unknown {
+  const prepared = applyUnescapedUserMapPaths(value, unescapedPaths);
+  if (Array.isArray(prepared)) {
+    return prepared.map((item) => unwrapEscapedCaseValue(item));
   }
-  if (!isPlainObjectProto(value)) return value;
-  const alreadyUnescaped = isUnescapedCaseMap(value);
+  if (!isPlainObjectProto(prepared)) return prepared;
+  const alreadyUnescaped = isUnescapedCaseMap(prepared);
   if (
     !alreadyUnescaped &&
-    Object.keys(value).length === 2 &&
-    Object.hasOwn(value, 'type') &&
-    value.type === 'pyric/map/1.0' &&
-    isPlainObjectProto(value.fields)
+    Object.keys(prepared).length === 2 &&
+    Object.hasOwn(prepared, 'type') &&
+    prepared.type === 'pyric/map/1.0' &&
+    isPlainObjectProto(prepared.fields)
   ) {
     const out: Record<string, unknown> = {};
-    for (const [k, v] of Object.entries(value.fields)) {
+    for (const [k, v] of Object.entries(prepared.fields)) {
       defineOwnProperty(out, k, unwrapEscapedCaseValue(v));
     }
     Object.defineProperty(out, UNESCAPED_MAP_TAG, { value: true });
     return out;
   }
-  if (!alreadyUnescaped && isSerializedScalarMarker(value)) {
-    return reviveFirestoreNumbers(value);
+  if (!alreadyUnescaped && isSerializedScalarMarker(prepared)) {
+    return reviveFirestoreNumbers(prepared);
   }
   const out: Record<string, unknown> = {};
-  for (const [k, v] of Object.entries(value)) {
+  for (const [k, v] of Object.entries(prepared)) {
     defineOwnProperty(out, k, unwrapEscapedCaseValue(v));
   }
-  return copyUnescapedTag(value, out);
+  return copyUnescapedTag(prepared, out);
 }
 
 function isPlainFirestoreMap(value: unknown): value is Record<string, unknown> {
@@ -517,7 +522,7 @@ export function buildCommittedGroupFinalStates(
     } else {
       groupState.set(
         event.path,
-        unwrapEscapedCaseValue(event.nextState) as Record<string, unknown>,
+        unwrapEscapedCaseValue(event.nextState, event.nextUnescapedPaths) as Record<string, unknown>,
       );
     }
   }
@@ -549,7 +554,10 @@ export function buildUncommittedGroupProjections(
 
     let preBatchExisting: Record<string, unknown> | null = null;
     if (event.resourceBefore?.exists && event.resourceBefore.data !== null) {
-      preBatchExisting = unwrapEscapedCaseValue(event.resourceBefore.data) as Record<string, unknown>;
+      preBatchExisting = unwrapEscapedCaseValue(
+        event.resourceBefore.data,
+        event.resourceBefore.unescapedPaths,
+      ) as Record<string, unknown>;
     }
     const intraPrior = resolveIntraBatchPrior(proj, event.path, method, preBatchExisting);
 
@@ -561,7 +569,7 @@ export function buildUncommittedGroupProjections(
 
     let rawData: Record<string, unknown> | undefined;
     if (typeof sourceRawData === 'object' && sourceRawData !== null && !Array.isArray(sourceRawData)) {
-      rawData = unwrapEscapedCaseValue(sourceRawData) as Record<string, unknown>;
+      rawData = unwrapEscapedCaseValue(sourceRawData, event.request?.unescapedPaths) as Record<string, unknown>;
     }
     if (!rawData) {
       if (method === 'delete') proj.set(event.path, null);

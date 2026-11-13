@@ -16,6 +16,8 @@
  */
 export { withDatabaseRulesPreservedOnReset } from "../../database/sandbox/backend-for.js";
 export { getInternalEnv } from './sandbox-impl.js';
+export { rehydrateSnapshotDocument } from './snapshot-firestore-docs.js';
+export { applyUnescapedUserMapPaths } from '../../firestore/sandbox/unescaped-map.js';
 export {
   getAuthLens,
   onAuthLensChanged,

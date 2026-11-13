@@ -238,10 +238,16 @@ function buildTestCase(
   // bridge bind it, even when the recorded create hit an existing document.
   // The Rules Test API would bind one, so a case carrying it is refused.
   const rawExisting = event.resourceBefore?.exists ? event.resourceBefore.data : null;
-  const existing =
-    rawExisting !== null ? (unwrapEscapedCaseValue(rawExisting) as Record<string, unknown>) : null;
-  const bindsExisting = existing !== null && method !== 'create';
-  if (bindsExisting) testCase.resource = existing;
+  let existing: Record<string, unknown> | null = null;
+  if (rawExisting !== null) {
+    existing = unwrapEscapedCaseValue(
+      rawExisting,
+      event.resourceBefore?.unescapedPaths,
+    ) as Record<string, unknown>;
+  }
+  if (existing !== null && method !== 'create') {
+    testCase.resource = existing;
+  }
 
   if (isWriteMethod(method)) {
     const eventGroupId = (event as { groupId?: unknown }).groupId;
@@ -272,15 +278,24 @@ function buildTestCase(
         !isRolledBackGroupRequest &&
         isCapturedRecord(event.resourceAfter?.data);
       if (hasResolvedAfter) {
-        testCase.data = unwrapEscapedCaseValue(event.resourceAfter!.data!) as Record<string, unknown>;
+        testCase.data = unwrapEscapedCaseValue(
+          event.resourceAfter!.data!,
+          event.resourceAfter!.unescapedPaths,
+        ) as Record<string, unknown>;
         if (method !== 'update') {
           testCase.writeMode = writeModeForEvent(event, method);
         }
       } else {
-        const sourceRawData = event.request?.resourceData ?? event.resourceAfter?.data;
-        const rawData = isCapturedRecord(sourceRawData)
-          ? (unwrapEscapedCaseValue(sourceRawData) as Record<string, unknown>)
-          : sourceRawData;
+        let sourceRawData: unknown = event.resourceAfter?.data;
+        let sourceUnescapedPaths = event.resourceAfter?.unescapedPaths;
+        if (event.request?.resourceData !== undefined) {
+          sourceRawData = event.request.resourceData;
+          sourceUnescapedPaths = event.request.unescapedPaths;
+        }
+        let rawData: unknown = sourceRawData;
+        if (isCapturedRecord(sourceRawData)) {
+          rawData = unwrapEscapedCaseValue(sourceRawData, sourceUnescapedPaths);
+        }
         const reqObj = event.request as { updateMask?: unknown; merge?: unknown } | undefined;
         const updateMask = reqObj?.updateMask;
         const reqMerge = reqObj?.merge;
@@ -320,7 +335,10 @@ function buildTestCase(
       if (committedFinal !== null) {
         testCase.data = clonePlainMap(committedFinal);
       } else if (event.result === 'allow' && isCapturedRecord(event.resourceAfter?.data)) {
-        testCase.data = unwrapEscapedCaseValue(event.resourceAfter!.data!) as Record<string, unknown>;
+        testCase.data = unwrapEscapedCaseValue(
+          event.resourceAfter!.data!,
+          event.resourceAfter!.unescapedPaths,
+        ) as Record<string, unknown>;
       }
       testCase.writeMode = writeModeForEvent(event, method);
     }

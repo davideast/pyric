@@ -96,6 +96,13 @@ export function textContainsDocumentLookupCall(source: string): boolean {
       i++;
       while (i < source.length && isLookupIdentPart(source[i]!)) i++;
       const word = source.slice(start, i);
+      if (
+        word === 'import' &&
+        prev1?.kind !== 'dot' &&
+        !(prev1?.kind === 'ident' && prev1.value === 'function')
+      ) {
+        return true;
+      }
       if (DOCUMENT_LOOKUP_NAMES.has(word) && nextNonTriviaChar(source, i) === '(') {
         const isFnDecl = prev1?.kind === 'ident' && prev1.value === 'function';
         if (!isFnDecl) {
@@ -244,7 +251,7 @@ export function rulesSourceUsesLookups(source: string | undefined): boolean {
   if (typeof source !== 'string' || source.trim().length === 0) return false;
   const parsedInitial = parseToASTOrError(source);
   if (parsedInitial.ok) {
-    if (parsedInitial.ast.version === '2+modules' && parsedInitial.ast.imports.length > 0) {
+    if (parsedInitial.ast.imports.length > 0) {
       const resolved = resolveModulesBrowser(source, { targetService: 'cloud.firestore' });
       if (!resolved.success) return true;
       const parsedResolved = parseToASTOrError(resolved.data.resolved);

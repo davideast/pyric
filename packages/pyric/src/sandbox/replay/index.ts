@@ -71,7 +71,13 @@ import {
 } from 'pyric/rules/internal';
 import { enginePayloadOf } from '../../firestore/sandbox/update-fields.js';
 import { registeredReferenceQueryValue } from '../../firestore/sandbox/query-value-registry.js';
-import { stripUnescapedUserMapTag } from '../../firestore/sandbox/unescaped-map.js';
+import {
+  applyUnescapedUserMapPaths,
+  isRegisteredUnescapedUserMap,
+  isUnescapedUserMap,
+  stampUnescapedUserMap,
+  stripUnescapedUserMapTag,
+} from '../../firestore/sandbox/unescaped-map.js';
 import type { BatchOperationInput } from '../../firestore/sandbox/writes.js';
 
 type DocData = Record<string, unknown>;
@@ -304,8 +310,7 @@ function rehydrateReplayValue(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(rehydrateReplayValue);
   if (!isPlainRecord(value)) return value;
 
-  const unescapedTag = Symbol.for('pyric.unescapedMap');
-  if ((value as Record<symbol, unknown>)[unescapedTag] === true) {
+  if (isUnescapedUserMap(value) || isRegisteredUnescapedUserMap(value)) {
     const out: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(value)) {
       Object.defineProperty(out, k, {
@@ -315,8 +320,7 @@ function rehydrateReplayValue(value: unknown): unknown {
         configurable: true,
       });
     }
-    Object.defineProperty(out, unescapedTag, { value: true });
-    return out;
+    return stampUnescapedUserMap(out);
   }
 
   const revivedClone = reviveStructuredClonedRulesValue(value);
@@ -392,8 +396,7 @@ function rehydrateReplayValue(value: unknown): unknown {
               configurable: true,
             });
           }
-          Object.defineProperty(out, unescapedTag, { value: true });
-          return out;
+          return stampUnescapedUserMap(out);
         }
         break;
       case 'pyric/number/1.0':
@@ -543,11 +546,18 @@ function replayGroup(
  * sentinel markers but is structurally correct for plain writes).
  */
 function rehydrateReplayPayload(
-  payload: { resourceData?: DocData; updateMask?: readonly (readonly string[])[] } | undefined,
+  payload:
+    | {
+        resourceData?: DocData;
+        updateMask?: readonly (readonly string[])[];
+        unescapedPaths?: readonly (readonly (string | number)[])[];
+      }
+    | undefined,
 ): DocData | undefined {
   const resourceData = payload?.resourceData;
   if (resourceData === undefined) return undefined;
-  const hydratedTree = rehydrateReplayValue(resourceData) as DocData;
+  const prepared = applyUnescapedUserMapPaths(resourceData, payload?.unescapedPaths);
+  const hydratedTree = rehydrateReplayValue(prepared) as DocData;
   return enginePayloadOf({
     resourceData: hydratedTree,
     updateMask: payload?.updateMask,
@@ -561,7 +571,11 @@ export function resolveReplayWriteData(
 ): DocData | undefined {
   const requested = preResolutionDataFor(wEv, allEvents, consumedRequestIndices);
   if (requested !== undefined) return requested;
-  return rehydrateReplayPayload({ resourceData: wEv.data, updateMask: wEv.updateMask });
+  return rehydrateReplayPayload({
+    resourceData: wEv.data,
+    updateMask: wEv.updateMask,
+    unescapedPaths: wEv.dataUnescapedPaths,
+  });
 }
 
 function preResolutionDataFor(
@@ -636,7 +650,17 @@ function computeDivergences(
 
   type SentinelKind = 'serverTimestamp' | 'increment' | 'arrayUnion' | 'arrayRemove' | 'delete';
   const sentinelsByPath = new Map<string, Map<string, SentinelKind>>();
+  const unescapedByPath = new Map<string, (string | number)[][]>();
   for (const w of writes) {
+    if (!deniedEventSet.has(w)) {
+      if (w.method === 'delete' || w.nextState === null) {
+        unescapedByPath.delete(w.path);
+      } else if (w.nextUnescapedPaths && w.nextUnescapedPaths.length > 0) {
+        unescapedByPath.set(w.path, w.nextUnescapedPaths);
+      } else {
+        unescapedByPath.delete(w.path);
+      }
+    }
     if (!w.sentinels || w.sentinels.length === 0) continue;
     if (deniedEventSet.has(w)) {
       const existing = sentinelsByPath.get(w.path);
@@ -684,9 +708,10 @@ function computeDivergences(
     }
     if (origDoc === undefined || replDoc === undefined) continue;
 
+    const preparedOrig = applyUnescapedUserMapPaths(origDoc, unescapedByPath.get(path));
     diffDoc(
       path,
-      rehydrateReplayValue(origDoc),
+      rehydrateReplayValue(preparedOrig),
       rehydrateReplayValue(replDoc),
       sentinelsByPath.get(path) ?? new Map(),
       out,

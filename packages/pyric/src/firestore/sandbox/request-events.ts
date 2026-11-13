@@ -7,7 +7,7 @@ import type { QueryProofDiagnostic } from '../../sandbox/types/query-proof.js';
 import type { EvaluatedRuleInfo } from 'pyric/rules/internal';
 import type { DocumentData } from './local-state.js';
 import type { EventProvenance, RulesDisposition } from '../../sandbox/types/events.js';
-import { encodeBoundaryMapValue, stripUnescapedUserMapTag } from './unescaped-map.js';
+import { collectUnescapedUserMapPaths, stripUnescapedUserMapTag } from './unescaped-map.js';
 import type { Operation } from './writes.js';
 
 // ─── RequestEvent emission (issue #307) ───────────────────────────────
@@ -98,23 +98,39 @@ export function buildRequestEvent(input: EmitRequestInput): import('../../sandbo
     origin: input.origin,
   };
   if (input.resourceData !== undefined) {
-    out.request = { resourceData: encodeBoundaryMapValue(input.resourceData) as DocumentData };
+    const reqUnescaped = collectUnescapedUserMapPaths(input.resourceData);
+    out.request = { resourceData: stripUnescapedUserMapTag(input.resourceData) as DocumentData };
     if (input.updateMask !== undefined) out.request.updateMask = input.updateMask;
     if (input.merge !== undefined) out.request.merge = input.merge;
+    if (reqUnescaped.length > 0) out.request.unescapedPaths = reqUnescaped;
   }
   if (input.resourceBefore !== undefined) {
     const beforeData = input.resourceBefore.data;
+    let beforeUnescaped: (string | number)[][] = [];
+    let sanitizedBefore: DocumentData | null = null;
+    if (beforeData !== null) {
+      beforeUnescaped = collectUnescapedUserMapPaths(beforeData);
+      sanitizedBefore = stripUnescapedUserMapTag(beforeData) as DocumentData;
+    }
     out.resourceBefore = {
-      data: beforeData === null ? null : (encodeBoundaryMapValue(beforeData) as DocumentData),
+      data: sanitizedBefore,
       exists: input.resourceBefore.exists,
     };
+    if (beforeUnescaped.length > 0) out.resourceBefore.unescapedPaths = beforeUnescaped;
   }
   if (input.resourceAfter !== undefined) {
     const afterData = input.resourceAfter.data;
+    let afterUnescaped: (string | number)[][] = [];
+    let sanitizedAfter: DocumentData | null = null;
+    if (afterData !== null) {
+      afterUnescaped = collectUnescapedUserMapPaths(afterData);
+      sanitizedAfter = stripUnescapedUserMapTag(afterData) as DocumentData;
+    }
     out.resourceAfter = {
-      data: afterData === null ? null : (encodeBoundaryMapValue(afterData) as DocumentData),
+      data: sanitizedAfter,
       exists: input.resourceAfter.exists,
     };
+    if (afterUnescaped.length > 0) out.resourceAfter.unescapedPaths = afterUnescaped;
   }
   if (input.rulesEvidence !== undefined) {
     out.rulesEvidence = stripUnescapedUserMapTag(input.rulesEvidence) as typeof input.rulesEvidence;

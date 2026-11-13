@@ -297,7 +297,11 @@ export async function getSnapshot(db: ClientDb): Promise<SandboxSnapshot> {
   for (const [docPath, docData] of Object.entries(raw.firestore ?? {})) {
     firestore[docPath] = decodeSnapshotValue(docData) as Record<string, unknown>;
   }
-  return { firestore, services: raw.services };
+  const out: SandboxSnapshot = { firestore, services: raw.services };
+  if (raw.firestoreRules !== undefined) out.firestoreRules = raw.firestoreRules;
+  if (raw.firestoreWrappers !== undefined) out.firestoreWrappers = raw.firestoreWrappers;
+  if (raw.firestoreUnescapedMaps !== undefined) out.firestoreUnescapedMaps = raw.firestoreUnescapedMaps;
+  return out;
 }
 
 /**

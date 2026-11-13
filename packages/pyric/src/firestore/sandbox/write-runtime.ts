@@ -18,7 +18,11 @@ import type { SentinelHit } from './sentinel-capture.js';
 import { buildRulesTestCase } from './rules-test-case.js';
 import { simulateRules } from './rules-simulator.js';
 import { partitionDeletes, registerDefaultConverters } from './value-resolver.js';
-import { copyUnescapedUserMapTag, encodeBoundaryMapValue } from './unescaped-map.js';
+import {
+  collectUnescapedUserMapPaths,
+  copyUnescapedUserMapTag,
+  stripUnescapedUserMapTag,
+} from './unescaped-map.js';
 import { SandboxClock } from '../../sandbox/clock.js';
 
 registerDefaultConverters();
@@ -76,10 +80,18 @@ export class WriteRuntime {
   }): void {
     const hasNoSubscribers = !this.events.write.hasSubscribers;
     if (hasNoSubscribers) return;
-    const priorState =
-      input.priorState === null ? null : (encodeBoundaryMapValue(input.priorState) as DocumentData);
-    const nextState =
-      input.nextState === null ? null : (encodeBoundaryMapValue(input.nextState) as DocumentData);
+    let priorUnescaped: (string | number)[][] = [];
+    let priorState: DocumentData | null = null;
+    if (input.priorState !== null) {
+      priorUnescaped = collectUnescapedUserMapPaths(input.priorState);
+      priorState = stripUnescapedUserMapTag(input.priorState) as DocumentData;
+    }
+    let nextUnescaped: (string | number)[][] = [];
+    let nextState: DocumentData | null = null;
+    if (input.nextState !== null) {
+      nextUnescaped = collectUnescapedUserMapPaths(input.nextState);
+      nextState = stripUnescapedUserMapTag(input.nextState) as DocumentData;
+    }
     const event: WriteSandboxEvent = {
       kind: 'write',
       id: nextRequestEventId().replace(/^req-/, 'wr-'),
@@ -91,6 +103,8 @@ export class WriteRuntime {
       nextState,
       requestTime: { seconds: input.requestTime.seconds, nanoseconds: input.requestTime.nanos },
     };
+    if (priorUnescaped.length > 0) event.priorUnescapedPaths = priorUnescaped;
+    if (nextUnescaped.length > 0) event.nextUnescapedPaths = nextUnescaped;
     const { auth } = input;
     const hasAuth = auth !== null;
     if (hasAuth) {
@@ -99,7 +113,11 @@ export class WriteRuntime {
       if (hasToken) event.auth.token = auth.token;
     }
     const hasData = input.data !== undefined;
-    if (hasData) event.data = encodeBoundaryMapValue(input.data) as DocumentData;
+    if (hasData) {
+      const dataUnescaped = collectUnescapedUserMapPaths(input.data);
+      event.data = stripUnescapedUserMapTag(input.data) as DocumentData;
+      if (dataUnescaped.length > 0) event.dataUnescapedPaths = dataUnescaped;
+    }
     const hasUpdateMask = input.updateMask !== undefined;
     if (hasUpdateMask) event.updateMask = input.updateMask;
     // Replay re-issues a merge set with its merge (FS-MET-2).

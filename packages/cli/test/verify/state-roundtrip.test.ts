@@ -4,6 +4,7 @@ import {
   apply,
   applyFullState,
   captureFullState,
+  createMemoryBackend,
   fork,
   getClock,
   initializeSandbox,
@@ -14,15 +15,18 @@ import {
   decodeSnapshotMap,
   encodeSnapshotMap,
 } from 'pyric/sandbox/internal';
+import { encodeDocValue } from 'pyric/firestore/internal/value-codec';
 import {
   arrayUnion,
   Bytes,
   deleteField,
   doc,
+  type DocumentReference,
   GeoPoint,
   getDoc,
   getFirestore,
   increment,
+  refEqual,
   runTransaction,
   serverTimestamp,
   setDoc,
@@ -287,7 +291,8 @@ describe('state-roundtrip standing coverage for replay and verifyFixture', () =>
       '    match /items/seeded {',
       '      allow get: if request.auth != null',
       "        && resource.data['type'] == 'pyric/map/1.0'",
-      "        && resource.data.fields.origin == 'seed';",
+      "        && resource.data.fields.origin == 'seed'",
+      '        && resource.data.fakeRef is map;',
       '    }',
       '    match /items/adminDoc {',
       '      allow get: if request.auth != null',
@@ -304,6 +309,11 @@ describe('state-roundtrip standing coverage for replay and verifyFixture', () =>
       "        && request.resource.data.list[0]['type'] == 'pyric/map/1.0'",
       "        && request.resource.data.sentinelLookalike['__type'] == 'serverTimestamp'",
       "        && request.resource.data.tsLookalike['type'] == 'firestore/timestamp/1.0'",
+      '        && request.resource.data.fakeTs is map',
+      '        && request.resource.data.fakeRef is map',
+      '        && request.resource.data.fakeMethod is map',
+      '        && request.resource.data.fakeClone is map',
+      '        && request.resource.data.fakeVector is map',
       '        && request.resource.data.realTs is timestamp',
       '        && request.resource.data.realBytes is bytes',
       '        && request.resource.data.realGeo is latlng',
@@ -315,6 +325,11 @@ describe('state-roundtrip standing coverage for replay and verifyFixture', () =>
       "        && resource.data.list[0]['type'] == 'pyric/map/1.0'",
       "        && resource.data.sentinelLookalike['__type'] == 'serverTimestamp'",
       "        && resource.data.tsLookalike['type'] == 'firestore/timestamp/1.0'",
+      '        && resource.data.fakeTs is map',
+      '        && resource.data.fakeRef is map',
+      '        && resource.data.fakeMethod is map',
+      '        && resource.data.fakeClone is map',
+      '        && resource.data.fakeVector is map',
       '        && resource.data.realTs is timestamp',
       '        && resource.data.namedRef == /databases/tenant-db/documents/orgs/o9;',
       '    }',
@@ -334,6 +349,7 @@ describe('state-roundtrip standing coverage for replay and verifyFixture', () =>
       'items/seeded': {
         type: 'pyric/map/1.0',
         fields: { origin: 'seed' },
+        fakeRef: { id: 'o1', path: 'orgs/o1' },
       },
     });
     const baseBranchState = await captureFullState(sb);
@@ -413,17 +429,18 @@ describe('state-roundtrip standing coverage for replay and verifyFixture', () =>
     expect(topSnap.exists()).toBe(true);
     expect(topSnap.data()?.type).toBe('pyric/map/1.0');
 
-    // Seeded and admin-written exact 2-key pyric/map/1.0 document reads
+    // Seeded and admin-written exact 2-key pyric/map/1.0 and { id, path } user map reads
     expect((await getDoc(doc(db, 'items', 'seeded'))).data()).toEqual({
       type: 'pyric/map/1.0',
       fields: { origin: 'seed' },
+      fakeRef: { id: 'o1', path: 'orgs/o1' },
     });
     expect((await getDoc(doc(db, 'items', 'adminDoc'))).data()).toEqual({
       type: 'pyric/map/1.0',
       fields: { origin: 'admin' },
     });
 
-    // Kitchen-sink document mixing nested/doubly-nested/array pyric/map/1.0 maps, colliding marker maps, and real SDK wrappers
+    // Kitchen-sink document mixing all 6 colliding marker shapes and real SDK wrappers
     await setDoc(doc(db, 'items', 'kitchen'), {
       wrapped: {
         type: 'pyric/map/1.0',
@@ -436,6 +453,11 @@ describe('state-roundtrip standing coverage for replay and verifyFixture', () =>
       list: [{ type: 'pyric/map/1.0', fields: { idx: 0 } }],
       sentinelLookalike: { __type: 'serverTimestamp' },
       tsLookalike: { type: 'firestore/timestamp/1.0', seconds: 9, nanoseconds: 0 },
+      fakeTs: { __type: 'timestamp', seconds: 9, nanos: 0 },
+      fakeRef: { id: 'o1', path: 'orgs/o1', databaseId: 'analytics' },
+      fakeMethod: { _methodName: 'serverTimestamp' },
+      fakeClone: { typeName: 'timestamp', seconds: 100, nanos: 200 },
+      fakeVector: { __type__: '__vector__', value: [3, 4] },
       realTs: new Timestamp(1_735_000_000, 500_000),
       realBytes: Bytes.fromUint8Array(new Uint8Array([4, 5, 6])),
       realGeo: new GeoPoint(37.5, -122.25),
@@ -445,6 +467,17 @@ describe('state-roundtrip standing coverage for replay and verifyFixture', () =>
     });
     const kitchenSnap = await getDoc(doc(db, 'items', 'kitchen'));
     expect(kitchenSnap.data()?.sentinelLookalike).toEqual({ __type: 'serverTimestamp' });
+    expect(kitchenSnap.data()?.fakeRef).toEqual({
+      id: 'o1',
+      path: 'orgs/o1',
+      databaseId: 'analytics',
+    });
+    expect(kitchenSnap.data()?.fakeMethod).toEqual({ _methodName: 'serverTimestamp' });
+    expect(kitchenSnap.data()?.fakeClone).toEqual({
+      typeName: 'timestamp',
+      seconds: 100,
+      nanos: 200,
+    });
     expect(kitchenSnap.data()?.tsLookalike).toEqual({
       type: 'firestore/timestamp/1.0',
       seconds: 9,
@@ -459,66 +492,231 @@ describe('state-roundtrip standing coverage for replay and verifyFixture', () =>
       }),
     ).rejects.toMatchObject({ code: 'permission-denied' });
 
-    // 1. Public API cleanliness: zero internal symbols leaked on history(), snapshot(), snapshotDocuments(), admin.getDocument/listDocuments, or replay().divergences
+    // 1. Public API cleanliness: unencoded AND symbol-free across snapshotDocuments, RequestEvent, WriteSandboxEvent, snapshot(), admin, and Worker admin.readState encodeDocValue
     expect(collectOwnSymbolsDeep(sb.history())).toEqual([]);
     expect(collectOwnSymbolsDeep(sb.snapshot())).toEqual([]);
-    expect(collectOwnSymbolsDeep(snapshotDocuments(sb))).toEqual([]);
+    const snapDocs = snapshotDocuments(sb);
+    expect(collectOwnSymbolsDeep(snapDocs)).toEqual([]);
+    expect(snapDocs['items/top']).toEqual({
+      type: 'pyric/map/1.0',
+      fields: { count: 7, ratio: 1.5, hugeIntFloat: 2 ** 53 },
+    });
+    expect(snapDocs['items/kitchen']?.fakeRef).toEqual({
+      id: 'o1',
+      path: 'orgs/o1',
+      databaseId: 'analytics',
+    });
+    expect(snapDocs['items/kitchen']?.sentinelLookalike).toEqual({ __type: 'serverTimestamp' });
+    expect(snapDocs['items/kitchen']?.fakeMethod).toEqual({ _methodName: 'serverTimestamp' });
+    expect(snapDocs['items/kitchen']?.fakeClone).toEqual({
+      typeName: 'timestamp',
+      seconds: 100,
+      nanos: 200,
+    });
+
+    // Worker admin.readState path: encodeDocValue(snapshotDocuments(sb)) wraps once (never double-wraps)
+    const encodedForWorker = JSON.parse(JSON.stringify(encodeDocValue(snapDocs))) as Record<
+      string,
+      Record<string, unknown>
+    >;
+    expect(encodedForWorker['items/kitchen']?.fakeRef).toEqual({
+      type: 'pyric/map/1.0',
+      fields: { id: 'o1', path: 'orgs/o1', databaseId: 'analytics' },
+    });
+    expect(encodedForWorker['items/kitchen']?.sentinelLookalike).toEqual({
+      type: 'pyric/map/1.0',
+      fields: { __type: 'serverTimestamp' },
+    });
+
+    // seedDocuments(sb2, snapshotDocuments(sb)) preserves all colliding maps as maps under live getDoc
+    const reseededSb = initializeSandbox();
+    setRules(reseededSb, ENVELOPE_MAP_RULES);
+    seedDocuments(reseededSb, snapshotDocuments(sb));
+    const reseededDb = getFirestore(reseededSb.withAuth({ uid: 'u1', token: {} }));
+    const reseededKitchen = await getDoc(doc(reseededDb, 'items', 'kitchen'));
+    expect(reseededKitchen.exists()).toBe(true);
+    expect(reseededKitchen.data()?.fakeRef).toEqual({
+      id: 'o1',
+      path: 'orgs/o1',
+      databaseId: 'analytics',
+    });
+    expect(reseededKitchen.data()?.sentinelLookalike).toEqual({ __type: 'serverTimestamp' });
+
+    // RequestEvent & WriteSandboxEvent carry unencoded, symbol-free user maps (Studio Rules Debug inspector/rerun compatibility)
+    const kitchenCreateReq = sb
+      .history()
+      .find(
+        (e) =>
+          e.kind === 'request' &&
+          e.path === 'items/kitchen' &&
+          (e.method === 'set' || e.method === 'create'),
+      );
+    expect(kitchenCreateReq?.kind === 'request' ? kitchenCreateReq.request?.resourceData?.fakeRef : undefined).toEqual({
+      id: 'o1',
+      path: 'orgs/o1',
+      databaseId: 'analytics',
+    });
+    expect(
+      kitchenCreateReq?.kind === 'request' ? kitchenCreateReq.resourceAfter?.data?.sentinelLookalike : undefined,
+    ).toEqual({ __type: 'serverTimestamp' });
+    const kitchenGetReq = sb
+      .history()
+      .find((e) => e.kind === 'request' && e.path === 'items/kitchen' && e.method === 'get');
+    expect(
+      kitchenGetReq?.kind === 'request' ? kitchenGetReq.resourceBefore?.data?.fakeRef : undefined,
+    ).toEqual({ id: 'o1', path: 'orgs/o1', databaseId: 'analytics' });
+    const kitchenWriteEv = sb
+      .history()
+      .find((e) => e.kind === 'write' && e.path === 'items/kitchen');
+    expect(kitchenWriteEv?.kind === 'write' ? kitchenWriteEv.nextState?.fakeRef : undefined).toEqual({
+      id: 'o1',
+      path: 'orgs/o1',
+      databaseId: 'analytics',
+    });
+
     expect(collectOwnSymbolsDeep(sb.admin.getDocument('items/top'))).toEqual([]);
     expect(collectOwnSymbolsDeep(sb.admin.getDocument('items/kitchen'))).toEqual([]);
     expect(collectOwnSymbolsDeep(sb.admin.listDocuments('items'))).toEqual([]);
 
-    // 2. snapshot() -> structuredClone AND JSON.parse(JSON.stringify(...)) -> loadSnapshot() round-trip without mutating lookalike maps into Timestamps
-    for (const clonedSnap of [sb.snapshot(), structuredClone(sb.snapshot())]) {
+    // 2. snapshot() -> in-memory, structuredClone, AND JSON.parse(JSON.stringify(...)) -> loadSnapshot() pass live getDoc rules
+    for (const clonedSnap of [
+      sb.snapshot(),
+      structuredClone(sb.snapshot()),
+      JSON.parse(JSON.stringify(sb.snapshot())),
+    ]) {
       const snapCopy = initializeSandbox();
       snapCopy.loadSnapshot(clonedSnap);
       const copyDb = getFirestore(snapCopy.withAuth({ uid: 'u1', token: {} }));
       const copyKitchen = await getDoc(doc(copyDb, 'items', 'kitchen'));
+      expect(copyKitchen.exists()).toBe(true);
       expect(copyKitchen.data()?.sentinelLookalike).toEqual({ __type: 'serverTimestamp' });
+      expect(copyKitchen.data()?.fakeTs).toEqual({ __type: 'timestamp', seconds: 9, nanos: 0 });
+      expect(copyKitchen.data()?.fakeRef).toEqual({
+        id: 'o1',
+        path: 'orgs/o1',
+        databaseId: 'analytics',
+      });
+      expect(copyKitchen.data()?.fakeMethod).toEqual({ _methodName: 'serverTimestamp' });
+      expect(copyKitchen.data()?.fakeClone).toEqual({
+        typeName: 'timestamp',
+        seconds: 100,
+        nanos: 200,
+      });
       expect(copyKitchen.data()?.tsLookalike).toEqual({
         type: 'firestore/timestamp/1.0',
         seconds: 9,
         nanoseconds: 0,
       });
       expect((copyKitchen.data()?.wrapped as Record<string, unknown>).type).toBe('pyric/map/1.0');
+      expect((copyKitchen.data()?.realTs as Timestamp).seconds).toBe(1_735_000_000);
+      const copyTenantDb = getFirestore(snapCopy.withAuth({ uid: 'u1', token: {} }), 'tenant-db');
+      expect(
+        refEqual(copyKitchen.data()?.namedRef as DocumentReference, doc(copyTenantDb, 'orgs', 'o9')),
+      ).toBe(true);
+      expect(
+        refEqual(copyKitchen.data()?.namedRef as DocumentReference, doc(copyDb, 'orgs', 'o9')),
+      ).toBe(false);
       const copyTop = await getDoc(doc(copyDb, 'items', 'top'));
       expect(copyTop.data()?.type).toBe('pyric/map/1.0');
     }
-    const jsonSnapCopy = initializeSandbox();
-    jsonSnapCopy.loadSnapshot(JSON.parse(JSON.stringify(sb.snapshot())));
-    const jsonCopyDb = getFirestore(jsonSnapCopy.withAuth({ uid: 'u1', token: {} }));
-    const jsonCopyTop = await getDoc(doc(jsonCopyDb, 'items', 'top'));
-    expect(jsonCopyTop.data()?.type).toBe('pyric/map/1.0');
-    const jsonAdminKitchen = jsonSnapCopy.admin.getDocument('items/kitchen');
-    expect(jsonAdminKitchen?.sentinelLookalike).toEqual({ __type: 'serverTimestamp' });
-    expect(jsonAdminKitchen?.tsLookalike).toEqual({
-      type: 'firestore/timestamp/1.0',
-      seconds: 9,
-      nanoseconds: 0,
-    });
-    expect((jsonAdminKitchen?.wrapped as Record<string, unknown>).type).toBe('pyric/map/1.0');
 
-    // 3. Both in-memory AND JSON-serialized sb.history() round-trip cleanly through replay() and branch apply()
-    const expectedReplayDocs = snapshotDocuments(sb);
-    delete expectedReplayDocs['items/seeded'];
+    // 2b. captureFullState -> JSON -> applyFullState AND enablePersistence flush/restore preserve all 6 colliding shapes under live getDoc
+    const fullStateJson = JSON.parse(JSON.stringify(await captureFullState(sb)));
+    const fullStateRestored = initializeSandbox();
+    await applyFullState(fullStateRestored, fullStateJson);
+    const fullStateDb = getFirestore(fullStateRestored.withAuth({ uid: 'u1', token: {} }));
+    const fullStateKitchen = await getDoc(doc(fullStateDb, 'items', 'kitchen'));
+    expect(fullStateKitchen.exists()).toBe(true);
+    expect(fullStateKitchen.data()?.fakeRef).toEqual({
+      id: 'o1',
+      path: 'orgs/o1',
+      databaseId: 'analytics',
+    });
+
+    const persistMem = createMemoryBackend();
+    const persistSource = initializeSandbox();
+    await persistSource.enablePersistence({ key: 'fsq8-persist', injectedBackend: persistMem });
+    persistSource.loadSnapshot(sb.snapshot());
+    await persistSource.flush();
+    persistSource.dispose();
+
+    const persistRestored = initializeSandbox();
+    await persistRestored.enablePersistence({ key: 'fsq8-persist', injectedBackend: persistMem });
+    setRules(persistRestored, ENVELOPE_MAP_RULES);
+    const persistDb = getFirestore(persistRestored.withAuth({ uid: 'u1', token: {} }));
+    const persistKitchen = await getDoc(doc(persistDb, 'items', 'kitchen'));
+    expect(persistKitchen.exists()).toBe(true);
+    expect(persistKitchen.data()?.fakeRef).toEqual({
+      id: 'o1',
+      path: 'orgs/o1',
+      databaseId: 'analytics',
+    });
+    persistRestored.dispose();
+
+    // 3. Canonical replay(history, rules, {}, sb.snapshot().firestore) returns divergences: [] across all colliding shapes
+    const canonicalSb = initializeSandbox();
+    setRules(canonicalSb, ENVELOPE_MAP_RULES);
+    const canonicalAuthed = canonicalSb.withAuth({ uid: 'u1', token: {} });
+    const canonicalDb = getFirestore(canonicalAuthed);
+    const canonicalTenantDb = getFirestore(canonicalAuthed, 'tenant-db');
+    await setDoc(doc(canonicalDb, 'items', 'top'), {
+      type: 'pyric/map/1.0',
+      fields: { count: 7, ratio: 1.5, hugeIntFloat: 2 ** 53 },
+    });
+    await setDoc(doc(canonicalDb, 'items', 'kitchen'), {
+      wrapped: {
+        type: 'pyric/map/1.0',
+        fields: {
+          k: 1,
+          ratio: 1.5,
+          inner: { type: 'pyric/map/1.0', fields: { deep: 'yes' } },
+        },
+      },
+      list: [{ type: 'pyric/map/1.0', fields: { idx: 0 } }],
+      sentinelLookalike: { __type: 'serverTimestamp' },
+      tsLookalike: { type: 'firestore/timestamp/1.0', seconds: 9, nanoseconds: 0 },
+      fakeTs: { __type: 'timestamp', seconds: 9, nanos: 0 },
+      fakeRef: { id: 'o1', path: 'orgs/o1', databaseId: 'analytics' },
+      fakeMethod: { _methodName: 'serverTimestamp' },
+      fakeClone: { typeName: 'timestamp', seconds: 100, nanos: 200 },
+      fakeVector: { __type__: '__vector__', value: [3, 4] },
+      realTs: new Timestamp(1_735_000_000, 500_000),
+      realBytes: Bytes.fromUint8Array(new Uint8Array([4, 5, 6])),
+      realGeo: new GeoPoint(37.5, -122.25),
+      realVec: VectorValue.create([0.5, -0.25]),
+      serverTs: serverTimestamp(),
+      namedRef: doc(canonicalTenantDb, 'orgs', 'o9'),
+    });
     for (const candidateEvents of [
-      sb.history(),
-      structuredClone(sb.history()),
-      JSON.parse(JSON.stringify(sb.history())),
+      canonicalSb.history(),
+      structuredClone(canonicalSb.history()),
+      JSON.parse(JSON.stringify(canonicalSb.history())),
     ]) {
-      const rep = replay(candidateEvents, ENVELOPE_MAP_RULES, {}, expectedReplayDocs);
-      expect(rep.divergences).toEqual([]);
-      const repDb = getFirestore(rep.sandbox.withAuth({ uid: 'u1', token: {} }));
-      setRules(rep.sandbox, ENVELOPE_MAP_RULES);
+      const canonicalRep = replay(
+        candidateEvents,
+        ENVELOPE_MAP_RULES,
+        {},
+        canonicalSb.snapshot().firestore,
+      );
+      expect(canonicalRep.divergences).toEqual([]);
+      const repDb = getFirestore(canonicalRep.sandbox.withAuth({ uid: 'u1', token: {} }));
+      setRules(canonicalRep.sandbox, ENVELOPE_MAP_RULES);
       const repKitchen = await getDoc(doc(repDb, 'items', 'kitchen'));
-      expect(repKitchen.data()?.sentinelLookalike).toEqual({ __type: 'serverTimestamp' });
-      expect(repKitchen.data()?.tsLookalike).toEqual({
-        type: 'firestore/timestamp/1.0',
-        seconds: 9,
-        nanoseconds: 0,
+      expect(repKitchen.data()?.fakeRef).toEqual({
+        id: 'o1',
+        path: 'orgs/o1',
+        databaseId: 'analytics',
+      });
+      expect(repKitchen.data()?.fakeMethod).toEqual({ _methodName: 'serverTimestamp' });
+      expect(repKitchen.data()?.fakeClone).toEqual({
+        typeName: 'timestamp',
+        seconds: 100,
+        nanos: 200,
       });
     }
 
-    // Also verify replay().divergences carries zero internal symbols when candidate rules deny a write
+    const expectedReplayDocs = snapshotDocuments(sb);
+    delete expectedReplayDocs['items/seeded'];
     const denyAllRules = ENVELOPE_MAP_RULES.replaceAll('request.auth != null', 'false');
     const deniedReplay = replay(
       JSON.parse(JSON.stringify(sb.history())),
@@ -535,7 +733,7 @@ describe('state-roundtrip standing coverage for replay and verifyFixture', () =>
     apply(branch, wireBranchEvents);
     expect(snapshotDocuments(branch.sandbox)).toEqual(snapshotDocuments(sb));
 
-    // 4. buildVerifyFixture -> JSON -> parseVerifyFixture -> verifyFixture round-trips losslessly (and detects now-allowed when deniedDotted loosens)
+    // 4. buildVerifyFixture -> JSON -> parseVerifyFixture -> verifyFixture round-trips losslessly across all 6 colliding shapes (0 state-drift)
     const rawFixture = buildVerifyFixture({
       sandbox: sb,
       firestoreRules: ENVELOPE_MAP_RULES,
@@ -1021,21 +1219,26 @@ describe('state-roundtrip standing coverage for replay and verifyFixture', () =>
     expect(lookupDerived.testCases).toEqual([]);
     expect(lookupDerived.unsupportedEvents).toHaveLength(2);
 
-    // Unresolvable 2+modules relative imports fail closed (assumed to contain lookups)
-    const unresolvedModularFixture = parseVerifyFixture({
-      ...rawFixture,
-      services: {
-        ...rawFixture.services,
-        firestore: {
-          ...rawFixture.services.firestore,
-          rules: { format: 'firestore.rules', source: UNRESOLVABLE_MODULAR_RULES },
+    // Unresolvable 2+modules relative imports (and malformed module headers with top-level import) fail closed
+    for (const modularSource of [
+      UNRESOLVABLE_MODULAR_RULES,
+      "import { canAccessOrg } from './org_helpers.rules';\nservice cloud.firestore { broken",
+    ]) {
+      const unresolvedModularFixture = parseVerifyFixture({
+        ...rawFixture,
+        services: {
+          ...rawFixture.services,
+          firestore: {
+            ...rawFixture.services.firestore,
+            rules: { format: 'firestore.rules', source: modularSource },
+          },
         },
-      },
-    });
-    const unresolvedModularDerived = deriveRulesTestCases(unresolvedModularFixture);
-    expect(unresolvedModularDerived.ok).toBe(false);
-    expect(unresolvedModularDerived.testCases).toEqual([]);
-    expect(unresolvedModularDerived.unsupportedEvents).toHaveLength(2);
+      });
+      const unresolvedModularDerived = deriveRulesTestCases(unresolvedModularFixture);
+      expect(unresolvedModularDerived.ok).toBe(false);
+      expect(unresolvedModularDerived.testCases).toEqual([]);
+      expect(unresolvedModularDerived.unsupportedEvents).toHaveLength(2);
+    }
 
     const verified = await verifyFixture(fixture, {
       rules: { firestore: MAP_GET_NON_LOOKUP_RULES },

@@ -60,8 +60,12 @@ function encodeSnapshotValue(value: unknown): unknown {
     }
     const hasMarkerField = Object.hasOwn(fields, 'type')
       || Object.hasOwn(fields, '__type')
-      || Object.hasOwn(fields, '__type__');
-    return hasMarkerField ? { type: 'pyric/map/1.0', fields } : fields;
+      || Object.hasOwn(fields, '__type__')
+      || Object.hasOwn(fields, '_methodName')
+      || Object.hasOwn(fields, 'typeName')
+      || (Object.hasOwn(fields, 'id') && Object.hasOwn(fields, 'path'));
+    if (hasMarkerField) return { type: 'pyric/map/1.0', fields };
+    return fields;
   }
   return value;
 }
@@ -71,7 +75,11 @@ function encodeSandboxSnapshot(raw: SandboxSnapshot): SandboxSnapshot {
   for (const [docPath, docData] of Object.entries(raw.firestore)) {
     firestore[docPath] = encodeSnapshotValue(docData) as Record<string, unknown>;
   }
-  return { firestore, services: raw.services };
+  const out: SandboxSnapshot = { firestore, services: raw.services };
+  if (raw.firestoreRules !== undefined) out.firestoreRules = raw.firestoreRules;
+  if (raw.firestoreWrappers !== undefined) out.firestoreWrappers = raw.firestoreWrappers;
+  if (raw.firestoreUnescapedMaps !== undefined) out.firestoreUnescapedMaps = raw.firestoreUnescapedMaps;
+  return out;
 }
 
 /** The Studio control op methods routed to {@link handleStudioOp}. */

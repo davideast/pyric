@@ -61,7 +61,7 @@ import {
   rehydrateSnapshotDocument,
   sanitizeAdminListedDocuments,
   sanitizeAdminReadDocument,
-  snapshotFirestoreDocuments,
+  snapshotFirestoreState,
 } from './snapshot-firestore-docs.js';
 
 // Kept for internal import compatibility; the implementation lives in the
@@ -532,9 +532,14 @@ export class SandboxImpl implements LocalSandbox {
     for (const [name, svc] of this.serviceRegistry) {
       services[name] = svc.snapshot();
     }
-    const firestore = snapshotFirestoreDocuments(this._env.snapshot());
+    const { firestore, firestoreWrappers, firestoreUnescapedMaps } = snapshotFirestoreState(
+      this._env.snapshot(),
+    );
     const firestoreRules = this._env.getRules();
-    return { firestore, services, firestoreRules };
+    const snap: SandboxSnapshot = { firestore, services, firestoreRules };
+    if (firestoreWrappers !== undefined) snap.firestoreWrappers = firestoreWrappers;
+    if (firestoreUnescapedMaps !== undefined) snap.firestoreUnescapedMaps = firestoreUnescapedMaps;
+    return snap;
   }
 
   loadSnapshot(data: SandboxSnapshot): void {
@@ -551,7 +556,12 @@ export class SandboxImpl implements LocalSandbox {
       this._env.deployRules(data.firestoreRules);
     }
     for (const [path, docData] of Object.entries(data.firestore)) {
-      this._env.adminSetDocument(path, rehydrateSnapshotDocument(docData));
+      const hydrated = rehydrateSnapshotDocument(
+        docData,
+        data.firestoreWrappers?.[path],
+        data.firestoreUnescapedMaps?.[path],
+      );
+      this._env.adminSetDocument(path, hydrated);
     }
     // Restore registered services immediately and hold unconsumed service blobs
     // for services (e.g. RTDB, Auth) that register lazily on first handle access.

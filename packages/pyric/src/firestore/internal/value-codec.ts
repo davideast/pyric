@@ -98,7 +98,10 @@ export function encodeDocValue(value: unknown): unknown {
     }
     const hasMarkerField = Object.hasOwn(fields, 'type')
       || Object.hasOwn(fields, '__type')
-      || Object.hasOwn(fields, '__type__');
+      || Object.hasOwn(fields, '__type__')
+      || Object.hasOwn(fields, '_methodName')
+      || Object.hasOwn(fields, 'typeName')
+      || (Object.hasOwn(fields, 'id') && Object.hasOwn(fields, 'path'));
     if (hasMarkerField) return { type: 'pyric/map/1.0', fields };
     return fields;
   }
