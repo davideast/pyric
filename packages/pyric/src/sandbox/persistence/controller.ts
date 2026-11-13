@@ -59,14 +59,19 @@ function sessionStorageKey(serviceName: string): string {
  * is stable across flushes (snapshot iteration order), so an UNCHANGED bucket
  * always hashes identically.
  */
-function hashRecord(record: unknown): number {
-  const s = JSON.stringify(record);
+function hashSerialized(s: string): number {
   let h = 0x811c9dc5;
   for (let i = 0; i < s.length; i++) {
     h ^= s.charCodeAt(i);
     h = Math.imul(h, 16777619) >>> 0;
   }
   return h;
+}
+
+function hashRecord(record: unknown): number {
+  const s = JSON.stringify(record);
+  if (s === undefined) return 0;
+  return hashSerialized(s);
 }
 
 /** Detect a storage-quota-exceeded error across environments (the DOMException
@@ -176,18 +181,23 @@ export async function attachPersistence(
         records = serializeToBuckets(snap.firestore, { ...services, ...snap.services }, getClock(sandbox).now());
       }
       const changed = new Map<string, unknown>();
+      const serializedChanged = new Map<string, string>();
       const nextHashes = new Map<string, number>();
       for (const [id, record] of records) {
-        const hash = hashRecord(record);
+        const serialized = JSON.stringify(record);
+        const hash = serialized === undefined ? 0 : hashSerialized(serialized);
         nextHashes.set(id, hash);
         const changedHash = lastHashes.get(id) !== hash;
-        if (changedHash) changed.set(id, record);
+        if (changedHash) {
+          changed.set(id, record);
+          if (serialized !== undefined) serializedChanged.set(id, serialized);
+        }
       }
       const removed = prepared?.removed ?? [...lastHashes.keys()].filter(id => !records.has(id));
       const applyChanges = backend.applyChanges;
       const commitsAtomically = applyChanges !== undefined;
       if (commitsAtomically) {
-        await applyChanges(options.key, changed, removed);
+        await applyChanges(options.key, changed, removed, serializedChanged);
       } else {
         const hasChanges = changed.size > 0;
         if (hasChanges) await backend.putRecords(options.key, changed);
@@ -199,18 +209,23 @@ export async function attachPersistence(
     } catch (error) { prepared?.retry(); throw error; }
   };
 
-  // Serialize flushes on a single chain so two never overlap. Without this, a
-  // newer flush that fails while an older one succeeds could adopt a stale
-  // snapshot's hashes and silently drop the newer write. Each run waits for the
-  // previous (success OR failure) and re-derives changes from current state.
+  // Serialize flushes on a single chain so two never overlap, and coalesce
+  // concurrent callers onto one queued flush behind any in-flight flush.
   let flushChain: Promise<void> = Promise.resolve();
+  let queuedFlush: Promise<void> | null = null;
   const flushNow = (): Promise<void> => {
     if (pendingFlush) {
       clearTimeout(pendingFlush);
       pendingFlush = null;
     }
-    flushChain = flushChain.then(realFlush, realFlush);
-    return flushChain;
+    if (queuedFlush !== null) return queuedFlush;
+    const next = flushChain.then(() => {
+      queuedFlush = null;
+      return realFlush();
+    });
+    queuedFlush = next;
+    flushChain = next.then(() => {}, () => {});
+    return next;
   };
 
   const scheduleFlush = (): void => {

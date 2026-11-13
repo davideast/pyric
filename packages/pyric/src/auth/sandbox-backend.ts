@@ -940,7 +940,7 @@ export class SandboxBackend {
         const seed: SeedUser = { uid: u.uid, providerId: 'anonymous', createdAt: u.createdAt, lastLoginAt: u.lastLoginAt };
         if (hasDisplayName) seed.displayName = displayName;
         if (hasPhotoUrl) seed.photoUrl = photoUrl;
-        if (hasCustomClaims) seed.customClaims = u.customClaims;
+        if (hasCustomClaims) seed.customClaims = structuredClone(u.customClaims);
         if (disabled) seed.disabled = true;
         if (hasTenant) seed.tenantId = tenantId;
         out.push(seed);

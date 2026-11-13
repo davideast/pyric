@@ -167,11 +167,16 @@ export async function openHostedDatabase(directory: string, options: { readOnly?
     const remove = connection.prepare('DELETE FROM records WHERE namespace=? AND id=?');
     const clear = connection.prepare('DELETE FROM records WHERE namespace=?');
 
-    function commitChanges(key: string, changed: ReadonlyMap<string, unknown>, removed: readonly string[]): void {
+    function commitChanges(
+      key: string,
+      changed: ReadonlyMap<string, unknown>,
+      removed: readonly string[],
+      serialized?: ReadonlyMap<string, string>,
+    ): void {
       const empty = changed.size === 0 && removed.length === 0;
       if (empty) return;
       const encoded = [...changed].map(([id, value]) => {
-        const payload = JSON.stringify(value);
+        const payload = serialized?.get(id) ?? JSON.stringify(value);
         const missing = payload === undefined;
         if (missing) throw new Error(`Record '${id}' has no JSON representation.`);
         return { id, payload };
@@ -235,8 +240,13 @@ export async function openHostedDatabase(directory: string, options: { readOnly?
         async listRecords(key: string): Promise<string[]> {
           return list.all(key).map(row => sqlText(row, 'id'));
         },
-        async applyChanges(key: string, changed: ReadonlyMap<string, unknown>, removed: readonly string[]): Promise<void> {
-          commitChanges(key, changed, removed);
+        async applyChanges(
+          key: string,
+          changed: ReadonlyMap<string, unknown>,
+          removed: readonly string[],
+          serialized?: ReadonlyMap<string, string>,
+        ): Promise<void> {
+          commitChanges(key, changed, removed, serialized);
         },
         async putRecords(key: string, records: ReadonlyMap<string, unknown>): Promise<void> {
           commitChanges(key, records, []);
