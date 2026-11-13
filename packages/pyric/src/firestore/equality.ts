@@ -8,17 +8,23 @@ import type {
   QuerySnapshot,
 } from './types.js';
 
-function assertRecognizedPair(a: object, b: object): void {
-  targetOf(a);
-  targetOf(b);
+function assertRecognizedPair(a: object, b: object): [ReturnType<typeof targetOf>, ReturnType<typeof targetOf>] {
+  return [targetOf(a), targetOf(b)];
+}
+
+function targetsShareOwner(
+  targetA: ReturnType<typeof targetOf>,
+  targetB: ReturnType<typeof targetOf>,
+): boolean {
+  if ((targetA.sandbox ?? targetA) !== (targetB.sandbox ?? targetB)) return false;
+  if ((targetA.app ?? null) !== (targetB.app ?? null)) return false;
+  if ((targetA.databaseId ?? '(default)') !== (targetB.databaseId ?? '(default)')) return false;
+  return true;
 }
 
 export function refEqual(a: DocumentReference, b: DocumentReference): boolean {
-  assertRecognizedPair(a, b);
-  const targetA = targetOf(a as object);
-  const targetB = targetOf(b as object);
-  if ((targetA.sandbox ?? targetA) !== (targetB.sandbox ?? targetB)) return false;
-  if ((targetA.app ?? null) !== (targetB.app ?? null)) return false;
+  const [targetA, targetB] = assertRecognizedPair(a as object, b as object);
+  if (!targetsShareOwner(targetA, targetB)) return false;
   if ((converterOf(a as object) ?? null) !== (converterOf(b as object) ?? null)) return false;
   const underA = underlyingOf(a) as { path: string; doc?: unknown };
   const underB = underlyingOf(b) as { path: string; doc?: unknown };
@@ -27,8 +33,9 @@ export function refEqual(a: DocumentReference, b: DocumentReference): boolean {
 }
 
 export function queryEqual(a: Query, b: Query): boolean {
-  assertRecognizedPair(a as object, b as object);
-  if (converterOf(a as object) !== converterOf(b as object)) return false;
+  const [targetA, targetB] = assertRecognizedPair(a as object, b as object);
+  if (!targetsShareOwner(targetA, targetB)) return false;
+  if ((converterOf(a as object) ?? null) !== (converterOf(b as object) ?? null)) return false;
   const left = underlyingOf(a as object) as {
     isStructurallyEqual?: (other: unknown) => boolean;
   };

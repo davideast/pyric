@@ -34,6 +34,7 @@ import {
   startAfter as pyricStartAfter,
   endAt as pyricEndAt,
   endBefore as pyricEndBefore,
+  FieldPath as pyricFieldPath,
   type Firestore,
   type DocumentReference,
   type CollectionReference,
@@ -107,14 +108,18 @@ function resolveConstraint(constraint: QueryConstraintDescriptor, db: Firestore)
     return values.map(value => decodeDocValue(value, references, encoding));
   };
   switch (constraint.kind) {
-    case 'where':
+    case 'where': {
       assertEncodedDocValueDepth(constraint.value);
-      // Rehydrate the comparison value (same rationale as prepareWriteData,
-      // spike gap 4, applied to READ inputs): over the JSON relay legs a
-      // Node-side Timestamp/Bytes/GeoPoint arrives as its marker shape;
-      // without rehydration the comparison would see a plain map and the
-      // filter would silently mismatch typed stored values.
-      return pyricWhere(constraint.field, constraint.op as Parameters<typeof pyricWhere>[1], decodeDocValue(constraint.value, references, constraint.valueEncoding));
+      let whereField: string | pyricFieldPath = constraint.field;
+      if (constraint.fieldSegments !== undefined) {
+        whereField = new pyricFieldPath(...constraint.fieldSegments);
+      }
+      return pyricWhere(
+        whereField,
+        constraint.op as Parameters<typeof pyricWhere>[1],
+        decodeDocValue(constraint.value, references, constraint.valueEncoding),
+      );
+    }
     // Composite filters rebuild through the modular `and`/`or` factories,
     // which validate operands: an empty composite or a nested non-filter
     // throws the same TypeError the in-page SDK raises (surfaces as an
@@ -123,8 +128,13 @@ function resolveConstraint(constraint: QueryConstraintDescriptor, db: Firestore)
       return pyricAnd(...constraint.filters.map((filter) => resolveConstraint(filter, db)));
     case 'or':
       return pyricOr(...constraint.filters.map((filter) => resolveConstraint(filter, db)));
-    case 'orderBy':
-      return pyricOrderBy(constraint.field, constraint.direction);
+    case 'orderBy': {
+      let orderField: string | pyricFieldPath = constraint.field;
+      if (constraint.fieldSegments !== undefined) {
+        orderField = new pyricFieldPath(...constraint.fieldSegments);
+      }
+      return pyricOrderBy(orderField, constraint.direction);
+    }
     case 'limit':
       return pyricLimit(constraint.n);
     case 'limitToLast':

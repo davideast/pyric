@@ -16,6 +16,15 @@ const VALID_WHERE_OPS = new Set([
   'not-in',
 ]);
 
+function isValidFieldSegments(segments: unknown): boolean {
+  if (segments === undefined) return true;
+  return (
+    Array.isArray(segments)
+    && segments.length > 0
+    && segments.every((segment) => typeof segment === 'string' && segment.length > 0)
+  );
+}
+
 function isValidFieldReference(field: unknown): boolean {
   if (typeof field === 'string') return field.length > 0;
   if (field instanceof FieldPath) return true;
@@ -97,7 +106,8 @@ function assertConstraintStructure(constraint: unknown, depth: number, requiresF
   }
   switch (constraint.kind) {
     case 'where': {
-      const hasValidField = isValidFieldReference(constraint.field);
+      const hasValidField =
+        isValidFieldReference(constraint.field) && isValidFieldSegments(constraint.fieldSegments);
       const hasValidOp = typeof constraint.op === 'string' && VALID_WHERE_OPS.has(constraint.op);
       const hasValidValue = Object.hasOwn(constraint, 'value') && constraint.value !== undefined;
       if (!hasValidField || !hasValidOp || !hasValidValue) {
@@ -106,7 +116,8 @@ function assertConstraintStructure(constraint: unknown, depth: number, requiresF
       return;
     }
     case 'orderBy': {
-      const hasValidField = isValidFieldReference(constraint.field);
+      const hasValidField =
+        isValidFieldReference(constraint.field) && isValidFieldSegments(constraint.fieldSegments);
       const hasValidDirection = constraint.direction === undefined
         || constraint.direction === 'asc'
         || constraint.direction === 'desc';

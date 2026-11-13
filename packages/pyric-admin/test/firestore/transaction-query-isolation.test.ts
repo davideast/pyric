@@ -146,7 +146,7 @@ describe('pyric-admin/firestore runTransaction query snapshot isolation and conf
             { maxAttempts: 2 },
           ),
         ).rejects.toMatchObject({
-          code: expect.stringMatching(/^(aborted|failed-precondition)$/),
+          code: 'aborted',
         });
 
         expect(attempts).toBe(2);

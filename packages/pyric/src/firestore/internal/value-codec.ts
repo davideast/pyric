@@ -18,7 +18,7 @@ import { Path } from '@pyric/rules/internal';
 import { Reference } from '@pyric/rules/internal';
 import { Timestamp as RulesTimestamp } from '@pyric/rules/internal';
 import { Vector } from '@pyric/rules/internal';
-import { Timestamp } from '../timestamp.js';
+import { assertValidTimestampComponents, Timestamp } from '../timestamp.js';
 import { Bytes } from '../bytes.js';
 import { GeoPoint } from '../geo-point.js';
 import { VectorValue } from '../vector-value.js';
@@ -67,7 +67,10 @@ export function encodeDocValue(value: unknown): unknown {
   const isScalar = value === null || typeof value !== 'object';
   if (isScalar) return value;
   const isTimestamp = value instanceof Timestamp;
-  if (isTimestamp) return value.toJSON();
+  if (isTimestamp) {
+    assertValidTimestampComponents(value.seconds, value.nanoseconds);
+    return value.toJSON();
+  }
   const isDate = value instanceof Date;
   if (isDate) return Timestamp.fromDate(value).toJSON();
   const isBytes = value instanceof Bytes;
@@ -202,11 +205,20 @@ function rehydrateValue(value: unknown, registerRootIdentity: boolean, construct
   const hasWrapperMarker = typeof obj.__type === 'string';
   if (hasWrapperMarker) {
     switch (obj.__type) {
-      case 'timestamp':
-        return withQueryIdentity(
-          constructors.timestamp(obj.seconds as number, obj.nanos as number),
-          { type: 'timestamp', seconds: obj.seconds, nanoseconds: obj.nanos },
-        );
+      case 'timestamp': {
+        if (
+          Object.keys(obj).length === 3
+          && Object.hasOwn(obj, 'seconds')
+          && Object.hasOwn(obj, 'nanos')
+        ) {
+          assertValidTimestampComponents(obj.seconds, obj.nanos);
+          return withQueryIdentity(
+            constructors.timestamp(obj.seconds as number, obj.nanos as number),
+            { type: 'timestamp', seconds: obj.seconds, nanoseconds: obj.nanos },
+          );
+        }
+        break;
+      }
       case 'bytes': {
         const bytes = base64UrlDecode(obj.base64 as string);
         return withQueryIdentity(
@@ -263,12 +275,20 @@ function rehydrateValue(value: unknown, registerRootIdentity: boolean, construct
       case 'firestore/timestamp/1.0': {
         // fb.Timestamp.toJSON() emits { type, seconds, nanoseconds }.
         // The rules Timestamp uses nanos (not nanoseconds) — same value.
-        const seconds = obj.seconds as number;
-        const nanoseconds = obj.nanoseconds as number;
-        return withQueryIdentity(
-          constructors.timestamp(seconds, nanoseconds),
-          { type: 'timestamp', seconds, nanoseconds },
-        );
+        if (
+          Object.keys(obj).length === 3
+          && Object.hasOwn(obj, 'seconds')
+          && Object.hasOwn(obj, 'nanoseconds')
+        ) {
+          assertValidTimestampComponents(obj.seconds, obj.nanoseconds);
+          const seconds = obj.seconds as number;
+          const nanoseconds = obj.nanoseconds as number;
+          return withQueryIdentity(
+            constructors.timestamp(seconds, nanoseconds),
+            { type: 'timestamp', seconds, nanoseconds },
+          );
+        }
+        break;
       }
       case 'firestore/bytes/1.0': {
         // fb.Bytes.toJSON() emits { type, bytes } where bytes is standard base64.

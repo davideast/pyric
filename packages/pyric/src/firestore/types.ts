@@ -42,7 +42,11 @@ export interface FirestoreDataConverter<
   AppModelType,
   DbModelType extends DocumentData = DocumentData,
 > {
-  toFirestore(modelObject: AppModelType): DbModelType;
+  toFirestore(modelObject: WithFieldValue<AppModelType>): WithFieldValue<DbModelType>;
+  toFirestore(
+    modelObject: PartialWithFieldValue<AppModelType>,
+    options: SetOptions,
+  ): PartialWithFieldValue<DbModelType>;
   fromFirestore(snapshot: QueryDocumentSnapshot<DbModelType>): AppModelType;
 }
 
@@ -125,19 +129,22 @@ export interface QuerySnapshot<T = DocumentData> {
   /** Calls `callback.call(thisArg, doc)` once per document, in query order. */
   forEach(callback: (result: QueryDocumentSnapshot<T>) => void, thisArg?: unknown): void;
 }
-export interface WriteBatch {
-  set<T = DocumentData>(ref: DocumentReference<T>, data: T, options?: SetOptions): WriteBatch;
+interface FirestoreSetOperations {
+  set<T = DocumentData>(ref: DocumentReference<T>, data: WithFieldValue<T>): this;
+  set<T = DocumentData>(ref: DocumentReference<T>, data: PartialWithFieldValue<T>, options: SetOptions): this;
+  set<T = DocumentData>(ref: DocumentReference<T>, data: WithFieldValue<T>, options?: SetOptions): this;
+}
+export interface WriteBatch extends FirestoreSetOperations {
   update(ref: DocumentReference<unknown>, data: UpdateData<DocumentData>): WriteBatch;
   update(ref: DocumentReference<unknown>, field: string | FieldPath, value: unknown, ...moreFieldsAndValues: unknown[]): WriteBatch;
   delete(ref: DocumentReference): WriteBatch;
   /** Retains the existing sandbox-only per-commit auth override. */
   commit(options?: OperationOptions): Promise<void>;
 }
-export interface Transaction {
+export interface Transaction extends FirestoreSetOperations {
   get<T = DocumentData>(ref: DocumentReference<T>): Promise<DocumentSnapshot<T> & { exists(): boolean }>;
   /** Existing sandbox query extension; modular Firebase transactions read documents. */
   get(query: ChainQuery): Promise<AdminQuerySnapshot>;
-  set<T = DocumentData>(ref: DocumentReference<T>, data: T, options?: SetOptions): Transaction;
   update(ref: DocumentReference<unknown>, data: UpdateData<DocumentData>): Transaction;
   update(ref: DocumentReference<unknown>, field: string | FieldPath, value: unknown, ...moreFieldsAndValues: unknown[]): Transaction;
   delete(ref: DocumentReference): Transaction;
@@ -255,8 +262,20 @@ export type {
 export type Primitive = string | number | boolean | bigint | symbol | undefined | null;
 export type UnionToIntersection<U> = (U extends any ? (k: U) => void : never) extends ((k: infer I) => void) ? I : never;
 export type UpdateData<T> = { [path in string]: unknown };
-export type WithFieldValue<T> = T | Record<string, unknown>;
-export type PartialWithFieldValue<T> = Partial<T> | Record<string, unknown>;
+export type WithFieldValue<T> =
+  | T
+  | (T extends Primitive
+      ? T
+      : T extends {}
+        ? { [K in keyof T]: WithFieldValue<T[K]> | FieldValueSentinel }
+        : never);
+export type PartialWithFieldValue<T> =
+  | Partial<T>
+  | (T extends Primitive
+      ? T
+      : T extends {}
+        ? { [K in keyof T]?: PartialWithFieldValue<T[K]> | FieldValueSentinel }
+        : never);
 export type AddPrefixToKeys<Prefix extends string, T extends Record<string, unknown>> = { [K in keyof T as `${Prefix}.${string & K}`]: T[K] };
 export type ChildUpdateFields<T> = Record<string, unknown>;
 export type NestedUpdateFields<T> = Record<string, unknown>;

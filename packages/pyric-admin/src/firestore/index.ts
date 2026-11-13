@@ -47,7 +47,11 @@ import {
   isSandboxAdminApp,
   type PyricAdminApp,
 } from '../app/index.js';
-import { assertAdminAppActive } from '../app/lifecycle.js';
+import {
+  assertAdminAppActive,
+  createAdminServiceLifecycle,
+  type AdminServiceLifecycle,
+} from '../app/lifecycle.js';
 import { defineDeferredMembers, deferredExport, type DeferredMembers } from 'pyric/app/internal';
 import { adminOnSnapshot, wrapAdminFirestoreHandle } from './admin-value-adapter.js';
 
@@ -72,9 +76,25 @@ const FIRESTORE_DEFERRED_MEMBERS: DeferredMembers = {
 };
 
 /** Define the deferred `Firestore` methods on a handle either arm built. */
-function withDeferredMembers(db: SandboxFirestore): SandboxFirestore {
+function withDeferredMembers(
+  db: SandboxFirestore,
+  lifecycle?: AdminServiceLifecycle,
+): SandboxFirestore {
   defineDeferredMembers(db, SUBPATH, 'Firestore', FIRESTORE_DEFERRED_MEMBERS);
-  return wrapAdminFirestoreHandle(db);
+  return wrapAdminFirestoreHandle(db, lifecycle);
+}
+
+const appFirestoreCache = new WeakMap<PyricAdminApp, SandboxFirestore>();
+
+function getAppFirestore(app: PyricAdminApp): SandboxFirestore {
+  assertAdminAppActive(app);
+  const existing = appFirestoreCache.get(app);
+  if (existing !== undefined) return existing;
+  const rawDb = baseGetAdminFirestore(adminAppToContext(app));
+  const lifecycle = createAdminServiceLifecycle(app);
+  const wrapped = withDeferredMembers(rawDb, lifecycle);
+  appFirestoreCache.set(app, wrapped);
+  return wrapped;
 }
 
 /** Narrow a `PyricAdminApp` to the {@link SandboxContext} the admin
@@ -117,12 +137,10 @@ export function getFirestore(
   target?: SandboxContext | PyricAdminApp,
 ): SandboxFirestore {
   if (target === undefined) {
-    return withDeferredMembers(baseGetAdminFirestore(adminAppToContext(getApp())));
+    return getAppFirestore(getApp());
   }
   if (typeof target === 'object' && target !== null && ADMIN_APP_TARGET in target) {
-    const app = target as PyricAdminApp;
-    assertAdminAppActive(app);
-    return withDeferredMembers(baseGetAdminFirestore(adminAppToContext(app)));
+    return getAppFirestore(target as PyricAdminApp);
   }
   return withDeferredMembers(baseGetFirestore(target as SandboxContext));
 }

@@ -32,6 +32,7 @@ import {
   type SandboxTarget,
   type SandboxLiveTarget,
 } from './state.js';
+import { EVICT_APP_CACHE_SYMBOL } from './internal/app-cache-symbol.js';
 import type { AppFirestore, Firestore } from './types.js';
 
 /**
@@ -69,45 +70,67 @@ import type { AppFirestore, Firestore } from './types.js';
  * const db = getFirestore(app);
  * ```
  */
+const appFirestoreRegistry = new WeakMap<object, AppFirestore>();
+
 export function getFirestore(ctx: SandboxContext, databaseId?: string): Firestore;
 export function getFirestore(sandbox: Sandbox, databaseId?: string): Firestore;
 export function getFirestore(app: FirebaseApp, databaseId?: string): AppFirestore;
 export function getFirestore(): AppFirestore;
 export function getFirestore(target?: SandboxContext | Sandbox | FirebaseApp, databaseId?: string): Firestore;
 export function getFirestore(target?: SandboxContext | Sandbox | FirebaseApp, databaseId?: string): Firestore {
-  if (target === undefined) return getFirestore(defaultClientApp() as FirebaseApp);
+  if (target === undefined) return getFirestore(defaultClientApp() as FirebaseApp, databaseId);
   // Package resolution already selected the sandbox mirror before this code
   // loaded, so a recognized FirebaseApp resolves to its private Sandbox.
+  // Per Conformance Registry MD1 (`packages/conformance/registry/firestore.ts`
+  // and `packages/pyric/test/firestore/named-database.test.ts`), `FirebaseApp`
+  // handles intentionally resolve every `databaseId` to the app's single
+  // `(default)` handle, whereas `Sandbox` / `SandboxContext` handles below
+  // retain explicit `databaseId` bindings for rules evaluation tests.
   const appRuntime = resolveClientApp(target);
   if (appRuntime) {
-    return appRuntime.service('firestore/default', () => {
-      const { sandbox, session } = appRuntime;
-      const lifecycle = createFirestoreTargetLifecycle();
-      appRuntime.onDelete(lifecycle.terminate);
-      const authScope = appRuntime.authScope;
-      if (authScope) {
-        lifecycle.own(session.onCurrentUserChanged((user) => {
-          const next = resolveAuthLensState(getAuthLens(), user);
-          getInternalEnv(sandbox).reevaluateLiveListeners(next.auth, authScope, next.bypassRules);
-        }));
-        lifecycle.own(onAuthLensChanged((lens) => {
-          const next = resolveAuthLensState(lens, session.currentUser);
-          getInternalEnv(sandbox).reevaluateLiveListeners(next.auth, authScope, next.bypassRules);
-        }));
-      }
-      const t: SandboxLiveTarget = {
-        kind: 'sandbox-live',
-        app: target as object,
-        activityApp: target as object,
-        sandbox,
-        getDb: makeGetDb(sandbox, () => session.currentUser),
-        authScope,
-        ...lifecycle,
-      };
-      return { [TARGET_SYMBOL]: t, app: target as FirebaseApp };
+    const existing = appFirestoreRegistry.get(appRuntime);
+    if (existing !== undefined) return existing;
+    appRuntime.assertAlive();
+
+    const { sandbox, session } = appRuntime;
+    const lifecycle = createFirestoreTargetLifecycle();
+    const releaseOnDelete = appRuntime.onDelete(() => lifecycle.terminate());
+    const authScope = appRuntime.authScope;
+    if (authScope) {
+      lifecycle.own(session.onCurrentUserChanged((user) => {
+        const next = resolveAuthLensState(getAuthLens(), user);
+        getInternalEnv(sandbox).reevaluateLiveListeners(next.auth, authScope, next.bypassRules);
+      }));
+      lifecycle.own(onAuthLensChanged((lens) => {
+        const next = resolveAuthLensState(lens, session.currentUser);
+        getInternalEnv(sandbox).reevaluateLiveListeners(next.auth, authScope, next.bypassRules);
+      }));
+    }
+    let instance!: AppFirestore;
+    const t: SandboxLiveTarget = {
+      kind: 'sandbox-live',
+      app: target as object,
+      activityApp: target as object,
+      sandbox,
+      getDb: makeGetDb(sandbox, () => session.currentUser),
+      authScope,
+      ...lifecycle,
+    };
+    Object.defineProperty(t, EVICT_APP_CACHE_SYMBOL, {
+      value: () => {
+        if (appFirestoreRegistry.get(appRuntime) === instance) {
+          appFirestoreRegistry.delete(appRuntime);
+        }
+        releaseOnDelete();
+      },
+      enumerable: false,
+      configurable: true,
     });
+    instance = { [TARGET_SYMBOL]: t, app: target as FirebaseApp };
+    appFirestoreRegistry.set(appRuntime, instance);
+    return instance;
   }
-  const namedDb = typeof databaseId === 'string' && databaseId.length > 0 ? databaseId : undefined;
+  const namedDb = normalizeDatabaseId(databaseId);
   if (isSandboxContext(target)) {
     const chainable = getChainableFirestore(target);
     const t: SandboxTarget = {
@@ -149,6 +172,13 @@ export function getFirestore(target?: SandboxContext | Sandbox | FirebaseApp, da
   throw new TypeError(
     'pyric/firestore is a sandbox-only mirror. Package resolution must leave firebase/firestore unchanged for production; activate pyric sandbox or @pyric/cli/register before importing to select the sandbox.',
   );
+}
+
+function normalizeDatabaseId(databaseId: string | undefined): string | undefined {
+  if (typeof databaseId !== 'string' || databaseId.length === 0 || databaseId === '(default)') {
+    return undefined;
+  }
+  return databaseId;
 }
 
 function createFirestoreTargetLifecycle(): Required<

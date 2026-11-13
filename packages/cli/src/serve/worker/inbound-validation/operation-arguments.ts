@@ -183,6 +183,7 @@ export function assertOperationArguments(message: Record<string, unknown>): void
     case 'storage.copyObject': {
       requireString(message.destinationPath, 'destinationPath');
       requireOptionalString(message.destinationBucket, 'destinationBucket');
+      requireOptionalString(message.destinationDefaultBucket, 'destinationDefaultBucket');
       const hasPatch = message.patch !== undefined;
       if (hasPatch) assertMetadataPatch(message.patch);
       return;

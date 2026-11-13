@@ -303,7 +303,7 @@ export type OpMessage = (
    * source's metadata; `patch` changes it on the copy. `destinationBucket`
    * names the copy's bucket as `bucket` names the source's.
    */
-  | ({ t: 'op'; id: string; method: 'storage.copyObject'; path: string; destinationBucket?: string; destinationPath: string; patch?: StorageMetadataPatchWire } & StorageBucketWire)
+  | ({ t: 'op'; id: string; method: 'storage.copyObject'; path: string; destinationBucket?: string; destinationDefaultBucket?: string; destinationPath: string; patch?: StorageMetadataPatchWire } & StorageBucketWire)
   /**
    * firebase-admin's `File.createResumableUpload`, on the admin lens only, on a
    * host with an HTTP byte route. Answers `{ uploadUrl }`, a byte route path

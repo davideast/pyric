@@ -32,6 +32,7 @@
 
 import {
   FirestoreCompatError,
+  TXN_ATTEMPTS_EXHAUSTED_MARKER,
   copyAdminReferenceRegistration,
 } from 'pyric/sandbox/admin-compat';
 import type { SandboxContext } from 'pyric/sandbox';
@@ -161,7 +162,15 @@ export function toSandboxError(err: unknown, ctx: SandboxContext): unknown {
   const code = err.code as SandboxErrorCode;
   const isPermissionDenied = code === 'permission-denied';
   if (isPermissionDenied === false) {
-    return new SandboxError(code, err.message);
+    const translated = new SandboxError(code, err.message);
+    if ((err as unknown as Record<symbol, unknown>)[TXN_ATTEMPTS_EXHAUSTED_MARKER] === true) {
+      Object.defineProperty(translated, TXN_ATTEMPTS_EXHAUSTED_MARKER, {
+        value: true,
+        enumerable: false,
+        configurable: true,
+      });
+    }
+    return translated;
   }
 
   const denialContext: DenialContext = {
