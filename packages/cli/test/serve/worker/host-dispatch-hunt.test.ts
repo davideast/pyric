@@ -236,7 +236,7 @@ service cloud.firestore {
       bundle: JSON.stringify({
         format: 'pyric-v3-records',
         records: {
-          meta: { version: 3, savedAt: 1, services: {} },
+          meta: { version: 4, savedAt: 1, services: {} },
           '00': { docs: { 'secrets/item': { classified: 1 } } },
         },
       }),

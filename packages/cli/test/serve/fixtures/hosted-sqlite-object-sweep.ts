@@ -163,7 +163,7 @@ const project = join(root, 'project');
   const damaged = join(root, 'damaged');
   const persistence = await createHostedPersistence(damaged);
   await persistence.backend.putRecords('hosted', new Map<string, unknown>([
-    ['meta', { version: 3, savedAt: 0, services: {} }],
+    ['meta', { version: 4, savedAt: 0, services: {} }],
     ['00', { docs: { 'notes/kept': { answer: 42 } } }],
   ]));
   await put(persistence, 'notes/good.txt', kept);

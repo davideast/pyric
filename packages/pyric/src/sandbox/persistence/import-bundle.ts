@@ -2,6 +2,7 @@ import { DOC_VALUE_ENCODING } from '../../firestore/internal/value-codec.js';
 import { FirebaseError } from '../internal/firebase-error.js';
 import { isPlainObject } from '../../firestore/plain-object.js';
 import { CHUNK_FORMAT_VERSION, checksumDocs, deserializeFromBuckets, META_RECORD_ID, parseBundle } from './chunk-format.js';
+import { isRtdbRecordId, validateRtdbImportRecord } from './rtdb-records.js';
 
 /** Decode a replacement before its caller changes the current sandbox. */
 export function decodeImportBundle(bundle: string) {
@@ -19,14 +20,23 @@ export function decodeImportBundle(bundle: string) {
   if (hasUnsupportedVersion) {
     throw new FirebaseError('invalid-argument', `State import requires metadata version ${CHUNK_FORMAT_VERSION}.`);
   }
-  const isMalformedServices = !isPlainObject(metadata.services);
-  if (isMalformedServices) {
+  if (!isPlainObject(metadata.services)) {
     throw new FirebaseError('invalid-argument', 'State import requires a service state map.');
+  }
+  if (Object.hasOwn(metadata.services, 'rtdb')) {
+    throw new FirebaseError(
+      'invalid-argument',
+      "State import requires Realtime Database state in 'rtdb:*' records, not 'meta.services.rtdb'.",
+    );
   }
   const paths = new Set<string>();
   for (const [id, record] of records) {
     const isMetadata = id === META_RECORD_ID;
     if (isMetadata) continue;
+    if (isRtdbRecordId(id)) {
+      validateRtdbImportRecord(id, record);
+      continue;
+    }
     const isMalformedBucket = !isPlainObject(record);
     if (isMalformedBucket) {
       throw new FirebaseError('invalid-argument', `State import bucket '${id}' must be an object.`);

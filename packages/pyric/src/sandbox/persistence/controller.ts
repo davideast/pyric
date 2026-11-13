@@ -22,6 +22,7 @@ import {
   deserializeFromBuckets,
   migrateV2ToRecords,
 } from './chunk-format.js';
+import { isRtdbRecordId, serializeRtdbServiceToRecords } from './rtdb-records.js';
 import type { PersistenceBackend, SandboxPersistenceOptions } from './types.js';
 
 const DEFAULT_FLUSH_INTERVAL_MS = 250;
@@ -137,10 +138,11 @@ export async function attachPersistence(
   // whose content actually changed. restore() seeds it from the records it reads,
   // so the just-restored state is not redundantly re-written on the first flush.
   const lastHashes = new Map<string, number>();
+  const staleIds = new Set<string>();
   // `restore()` returns the raw services blob — the controller keeps this
   // so late-registering services can still receive their saved state even
   // though they weren't in the registry when `restore()` ran.
-  const restoredServices = await restore(sandbox, backend, options.key, lastHashes);
+  const restoredServices = await restore(sandbox, backend, options.key, lastHashes, staleIds);
 
   const pendingServices = new Map(Object.entries(restoredServices ?? {}));
   const serviceSnapshots = new Map<string, unknown>();
@@ -154,31 +156,75 @@ export async function attachPersistence(
   const serviceUnsubs = new Map<string, () => void>();
 
   const localSandbox = sandbox instanceof SandboxImpl ? sandbox : null;
+  const isPartitionedServiceRecord = (id: string): boolean => {
+    if (isRtdbRecordId(id)) return true;
+    if (!localSandbox) return false;
+    for (const svc of localSandbox.getServiceRegistry().values()) {
+      if (svc.records && id.startsWith(svc.records.prefix)) return true;
+    }
+    return false;
+  };
   const changedBuckets = localSandbox ? new ChangedBuckets(
     () => localSandbox.getEnv().snapshot(),
     path => localSandbox.getEnv().getDocument(path),
-    [...lastHashes.keys()].filter(id => id !== META_RECORD_ID),
+    [...lastHashes.keys()].filter(id => id !== META_RECORD_ID && !isPartitionedServiceRecord(id)),
   ) : null;
 
   // Prepare immutable records before awaiting the backend; later mutations stay dirty.
   const realFlush = async (): Promise<void> => {
     if (disposed) return;
     const prepared = changedBuckets?.prepare();
+    const servicePrepared: Array<{ records: Map<string, unknown>; removed: string[]; retry(): void }> = [];
     try {
       const services = { ...Object.fromEntries(pendingServices) };
       let records: Map<string, unknown>;
+      let removed: string[];
       const usesChangedBuckets = prepared !== undefined && localSandbox !== null;
       if (usesChangedBuckets) {
+        // When `restore()` reconstructed `services.rtdb` from `rtdb:*` records before
+        // lazy `getDatabase(sandbox)` registered the RTDB service, keep `rtdb` out of
+        // `meta.services` (emitting `rtdb:*` records only if none are tracked yet).
+        if ('rtdb' in services) {
+          const pendingRtdb = services.rtdb;
+          delete services.rtdb;
+          const hasPersistedRtdb = [...lastHashes.keys()].some(isRtdbRecordId);
+          if (!hasPersistedRtdb) {
+            const reemitted = serializeRtdbServiceToRecords(pendingRtdb);
+            if (reemitted !== null) {
+              servicePrepared.push({ records: reemitted, removed: [], retry() {} });
+            }
+          }
+        }
         for (const [name, service] of localSandbox.getServiceRegistry()) {
+          if (service.records) {
+            delete services[name];
+            servicePrepared.push(service.records.prepare());
+            continue;
+          }
           const needsSnapshot = !service.subscribe || !serviceSnapshots.has(name);
           if (needsSnapshot) serviceSnapshots.set(name, structuredClone(service.snapshot()));
           services[name] = serviceSnapshots.get(name);
         }
         records = new Map(prepared.records);
+        removed = [...prepared.removed];
+        for (const svcPrep of servicePrepared) {
+          for (const [id, rec] of svcPrep.records) records.set(id, rec);
+          removed.push(...svcPrep.removed);
+        }
         records.set(META_RECORD_ID, { version: CHUNK_FORMAT_VERSION, savedAt: getClock(sandbox).now(), services });
       } else {
         const snap = sandbox.snapshot();
         records = serializeToBuckets(snap.firestore, { ...services, ...snap.services }, getClock(sandbox).now());
+        removed = [...lastHashes.keys()].filter(id => !records.has(id));
+      }
+      if (staleIds.size > 0) {
+        const removedSet = new Set(removed);
+        for (const id of staleIds) {
+          if (!records.has(id) && !removedSet.has(id)) {
+            removed.push(id);
+            removedSet.add(id);
+          }
+        }
       }
       const changed = new Map<string, unknown>();
       const serializedChanged = new Map<string, string>();
@@ -187,13 +233,12 @@ export async function attachPersistence(
         const serialized = JSON.stringify(record);
         const hash = serialized === undefined ? 0 : hashSerialized(serialized);
         nextHashes.set(id, hash);
-        const changedHash = lastHashes.get(id) !== hash;
+        const changedHash = lastHashes.get(id) !== hash || staleIds.has(id);
         if (changedHash) {
           changed.set(id, record);
           if (serialized !== undefined) serializedChanged.set(id, serialized);
         }
       }
-      const removed = prepared?.removed ?? [...lastHashes.keys()].filter(id => !records.has(id));
       const applyChanges = backend.applyChanges;
       const commitsAtomically = applyChanges !== undefined;
       if (commitsAtomically) {
@@ -204,9 +249,14 @@ export async function attachPersistence(
         const hasRemovals = removed.length > 0;
         if (hasRemovals) await backend.deleteRecords(options.key, removed);
       }
+      staleIds.clear();
       for (const id of removed) lastHashes.delete(id);
       for (const [id, hash] of nextHashes) lastHashes.set(id, hash);
-    } catch (error) { prepared?.retry(); throw error; }
+    } catch (error) {
+      prepared?.retry();
+      for (const svcPrep of servicePrepared) svcPrep.retry();
+      throw error;
+    }
   };
 
   // Serialize flushes on a single chain so two never overlap, and coalesce
@@ -371,6 +421,10 @@ export async function attachPersistence(
   if (ownsServiceRegistry) {
     for (const [name, hooks] of sandbox.getServiceRegistry()) {
       pendingServices.delete(name);
+      if (hooks.records) {
+        const prefix = hooks.records.prefix;
+        hooks.records.init?.([...lastHashes.keys()].filter(id => id.startsWith(prefix)));
+      }
       attachServiceSubscription(name, hooks);
       restoreSessionForService(name, hooks);
       // Restore before subscribing: restore(mode, uid) can emit session
@@ -388,6 +442,10 @@ export async function attachPersistence(
         } catch (error) {
           console.warn(`[sandbox/persistence] late-restore for service '${name}' failed:`, error);
         }
+      }
+      if (hooks.records) {
+        const prefix = hooks.records.prefix;
+        hooks.records.init?.([...lastHashes.keys()].filter(id => id.startsWith(prefix)));
       }
       const stored = loadStoredSession(name);
       const hasStoredSession = stored !== null;
@@ -451,7 +509,13 @@ export async function attachPersistence(
       // must treat every bucket as changed and re-persist the full in-memory
       // state (otherwise untouched buckets stay suppressed and are lost).
       lastHashes.clear();
+      staleIds.clear();
       changedBuckets?.mark(null);
+      if (localSandbox) {
+        for (const svc of localSandbox.getServiceRegistry().values()) {
+          svc.records?.markAll?.();
+        }
+      }
     },
     dispose() {
       if (disposed) return;
@@ -515,6 +579,7 @@ async function restore(
   backend: PersistenceBackend,
   key: string,
   lastHashes: Map<string, number>,
+  staleIds: Set<string>,
 ): Promise<Record<string, unknown> | null> {
   let ids: string[];
   try {
@@ -560,8 +625,23 @@ async function restore(
     }
     for (const [id, rec] of migrated) v3Records.push([id, rec]);
   }
-  // Seed the flush hash state from the effective v3 records, so the first flush
-  // does not redundantly re-write the just-restored (or just-migrated) buckets.
+  const metaEntry = v3Records.find(([id]) => id === META_RECORD_ID);
+  if (metaEntry !== undefined) {
+    const metaRec = metaEntry[1];
+    const version =
+      metaRec !== null && typeof metaRec === 'object' && !Array.isArray(metaRec)
+        ? (metaRec as { version?: unknown }).version
+        : undefined;
+    if (typeof version === 'number' && version !== CHUNK_FORMAT_VERSION) {
+      console.warn(
+        `[sandbox/persistence] unsupported persistence format version ${version} (expected ${CHUNK_FORMAT_VERSION}); skipping incompatible persisted state`,
+      );
+      for (const [id] of v3Records) staleIds.add(id);
+      return null;
+    }
+  }
+  // Seed the flush hash state from the persisted records, so the first flush
+  // does not redundantly re-write the just-restored buckets.
   for (const [id, rec] of v3Records) lastHashes.set(id, hashRecord(rec));
   const parsed = deserializeFromBuckets(v3Records, { skipInvalidDocuments: true });
 

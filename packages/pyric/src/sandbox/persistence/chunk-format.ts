@@ -1,18 +1,21 @@
 /**
- * v3 chunked persistence format (pure functions).
+ * v4 chunked persistence format (pure functions).
  *
  * The v1/v2 format serialized the ENTIRE keyspace into one JSON string blob
  * (serialize.ts). At scale that blob exceeds V8's max string length (a 50k-vector
  * dataset is ~1.5GB of JSON), so it is structurally impossible, not just slow.
  *
- * v3 partitions the firestore doc map into BUCKET_COUNT records by a stable hash
- * of the doc path, plus one `meta` record (version + services). Each record is a
- * STRUCTURED-CLONE-SAFE object (marker-encoded docs, the same markers the v2 codec
- * emits via `toJSON`), so a backend can store it natively (IndexedDB) without ever
- * building a single keyspace-sized string. Write-behind flushes touch only the
- * buckets a write changed.
+ * v4 partitions the firestore doc map into BUCKET_COUNT records by a stable hash
+ * of the doc path, partitions Realtime Database state into per-instance header
+ * (`rtdb:i:<slot>`) and depth-4 shard bucket (`rtdb:b:<slot>:<00..ff>`) records,
+ * and stores format version + remaining services in one `meta` record (with no
+ * inline `meta.services.rtdb`). Each record is a STRUCTURED-CLONE-SAFE object
+ * (marker-encoded docs, the same markers the v2 codec emits via `toJSON`), so a
+ * backend can store it natively (IndexedDB) without ever building a single
+ * keyspace-sized string. Write-behind flushes touch only the buckets a write
+ * changed.
  *
- * FORMAT CONTRACT: BUCKET_COUNT and {@link pathToBucketId} are part of the v3
+ * FORMAT CONTRACT: BUCKET_COUNT and {@link pathToBucketId} are part of the v4
  * on-disk contract. Changing either is a format migration once real data exists.
  * (Float32Array vector encoding is a later, backward-compatible refinement on the
  * per-bucket record shape.)
@@ -21,8 +24,14 @@ import { DOC_VALUE_ENCODING, rehydrateEncodedDocValue, requireDocumentData,
   type DocValueEncoding } from '../../firestore/internal/value-codec.js';
 import { encodeStateDocument } from '../internal/state-values.js';
 import { deserializeSnapshot } from './serialize.js';
+import {
+  deserializeRtdbRecords,
+  isRtdbRecordId,
+  serializeRtdbServiceToRecords,
+  type RtdbPersistedRecord,
+} from './rtdb-records.js';
 
-export const CHUNK_FORMAT_VERSION = 3 as const;
+export const CHUNK_FORMAT_VERSION = 4 as const;
 export const BUCKET_COUNT = 256;
 export const META_RECORD_ID = 'meta';
 
@@ -82,9 +91,17 @@ export function serializeToBuckets(
   firestore: Record<string, Record<string, unknown>>,
   services: Record<string, unknown>,
   savedAt: number,
-): Map<string, BucketRecord | MetaRecord> {
-  const records = new Map<string, BucketRecord | MetaRecord>();
-  records.set(META_RECORD_ID, { version: CHUNK_FORMAT_VERSION, savedAt, services });
+): Map<string, BucketRecord | MetaRecord | RtdbPersistedRecord> {
+  const records = new Map<string, BucketRecord | MetaRecord | RtdbPersistedRecord>();
+  const metaServices: Record<string, unknown> = { ...services };
+  if (Object.hasOwn(metaServices, 'rtdb')) {
+    const rtdbRecords = serializeRtdbServiceToRecords(metaServices.rtdb);
+    if (rtdbRecords !== null) {
+      delete metaServices.rtdb;
+      for (const [id, rec] of rtdbRecords) records.set(id, rec);
+    }
+  }
+  records.set(META_RECORD_ID, { version: CHUNK_FORMAT_VERSION, savedAt, services: metaServices });
   for (const [path, data] of Object.entries(firestore)) {
     const id = pathToBucketId(path);
     const existing = records.get(id) as BucketRecord | undefined;
@@ -94,7 +111,7 @@ export function serializeToBuckets(
   }
   // Checksum each bucket so a corrupt record is detected + quarantined on read.
   for (const [id, rec] of records) {
-    const isMetadata = id === META_RECORD_ID;
+    const isMetadata = id === META_RECORD_ID || isRtdbRecordId(id);
     if (isMetadata) continue;
     (rec as BucketRecord).checksum = checksumDocs((rec as BucketRecord).docs);
   }
@@ -150,7 +167,7 @@ export function parseBundle(blob: string): Map<string, unknown> {
  */
 export function migrateV2ToRecords(
   blob: string,
-): Map<string, BucketRecord | MetaRecord> | null {
+): Map<string, BucketRecord | MetaRecord | RtdbPersistedRecord> | null {
   let snap;
   try {
     snap = deserializeSnapshot(blob);
@@ -166,19 +183,22 @@ export function deserializeFromBuckets(
   records: Iterable<[string, unknown]>,
   options: { skipInvalidDocuments?: boolean } = {},
 ): { firestore: Record<string, Record<string, unknown>>; services: Record<string, unknown> } {
+  const allEntries = Array.isArray(records) ? records : [...records];
   const firestore: Record<string, Record<string, unknown>> = {};
   let services: Record<string, unknown> = {};
-  for (const [id, rec] of records) {
+  for (const [id, rec] of allEntries) {
     const isMetadata = id === META_RECORD_ID;
     if (isMetadata) {
       const meta = rec as Partial<MetaRecord> | null;
       const savedServices = meta?.services;
       const hasServices = typeof savedServices === 'object' && savedServices !== null;
       if (hasServices) {
-        services = savedServices;
+        const { rtdb: _inlineRtdbIgnored, ...rest } = savedServices as Record<string, unknown>;
+        services = rest;
       }
       continue;
     }
+    if (isRtdbRecordId(id)) continue;
     const bucket = rec as Partial<BucketRecord> | null;
     const documents = bucket?.docs;
     const isMalformedBucket = typeof documents !== 'object' || documents === null;
@@ -202,6 +222,10 @@ export function deserializeFromBuckets(
         console.warn(`[sandbox/persistence] skipping unreadable Firestore document '${path}' in bucket '${id}':`, error);
       }
     }
+  }
+  const rtdbEnvelope = deserializeRtdbRecords(allEntries);
+  if (rtdbEnvelope !== undefined) {
+    services.rtdb = rtdbEnvelope;
   }
   return { firestore, services };
 }

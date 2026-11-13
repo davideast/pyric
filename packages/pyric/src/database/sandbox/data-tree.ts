@@ -100,6 +100,38 @@ export class DataTree {
   // (or array, coerced upstream) at the root (DB-B13:
   // `set(ref(db), 'hello')` is legal in prod).
   private root: JsonValue = {};
+  private _generation = 0;
+
+  /** Monotonic counter incremented on every tree mutation or restore. */
+  get generation(): number {
+    return this._generation;
+  }
+
+  /**
+   * Internal read-only view of the root node without cloning. Callers must
+   * never mutate the returned object or expose it directly to user code.
+   */
+  peekRoot(): JsonValue {
+    return this.root;
+  }
+
+  /**
+   * Internal read-only lookup at `segs` without cloning, preserving exact
+   * stored node shapes (including empty objects restored verbatim).
+   */
+  peekSegments(segs: readonly string[]): JsonValue | undefined {
+    if (segs.length === 0) return this.root;
+    let node: JsonValue = this.root;
+    for (const seg of segs) {
+      if (node === null || typeof node !== 'object' || Array.isArray(node)) {
+        return undefined;
+      }
+      const obj = node as { [key: string]: JsonValue };
+      if (!Object.hasOwn(obj, seg)) return undefined;
+      node = obj[seg]!;
+    }
+    return node;
+  }
 
   /** Snapshot — defensive deep-copy of the full tree. Returns the root
    *  value; usually an object, but may be a primitive (DB-B13). */
@@ -109,6 +141,7 @@ export class DataTree {
 
   /** Restore — overwrite the tree with the given root. */
   restore(root: JsonValue): void {
+    this._generation += 1;
     this.root = cloneJson(root);
   }
 
@@ -153,6 +186,7 @@ export class DataTree {
    * Returns the prior value at `path` (for undo / event-log).
    */
   write(path: string, value: JsonValue): JsonValue {
+    this._generation += 1;
     const segs = pathSegments(path);
     const prior = this.read(path);
     if (segs.length === 0) {

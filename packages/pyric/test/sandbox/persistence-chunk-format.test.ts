@@ -1,5 +1,9 @@
 import { describe, test, expect } from 'bun:test';
 import {
+  decodeImportBundle,
+} from '../../src/sandbox/persistence/import-bundle.js';
+import {
+  bundleRecords,
   pathToBucketId,
   serializeToBuckets,
   deserializeFromBuckets,
@@ -114,5 +118,94 @@ describe('serializeToBuckets / deserializeFromBuckets', () => {
     expect(records.size).toBe(1);
     expect(records.has(META_RECORD_ID)).toBe(true);
     expect(deserializeFromBuckets(records).firestore).toEqual({});
+  });
+
+  test('partitions services.rtdb into separate rtdb:* records across instances, priorities, and rules', () => {
+    const rtdbEnvelope = {
+      '.pyricRtdbPersistence': 1,
+      data: {
+        workspaces: {
+          w1: { cursors: { u1: { x: 10, y: 20 }, u2: { x: 30, y: 40 } } },
+          w2: { cursors: { u1: { x: 5, y: 6 } } },
+        },
+        banner: 'welcome',
+      },
+      priorities: {
+        '/banner': 1,
+        '/workspaces/w1/cursors/u1': 99,
+      },
+      rules: { rules: { '.read': 'auth != null', '.write': 'auth != null' } },
+      instances: {
+        'secondary-rtdb': {
+          '.pyricRtdbPersistence': 1,
+          data: { counters: { hits: 7 } },
+          priorities: { '/counters/hits': 'high' },
+          rules: { rules: { counters: { '.read': true } } },
+        },
+      },
+    };
+    const services = {
+      auth: { users: [{ uid: 'u1' }], providers: {} },
+      rtdb: rtdbEnvelope,
+    };
+
+    const records = serializeToBuckets({ 'docs/d1': { ok: true } }, services, 500);
+    const meta = records.get(META_RECORD_ID) as MetaRecord;
+    expect(meta.services).not.toHaveProperty('rtdb');
+    expect(meta.services).toEqual({ auth: { users: [{ uid: 'u1' }], providers: {} } });
+
+    const rtdbIds = [...records.keys()].filter((id) => id.startsWith('rtdb:'));
+    expect(rtdbIds.length).toBeGreaterThanOrEqual(3);
+
+    const roundTripped = deserializeFromBuckets(records);
+    expect(roundTripped.firestore).toEqual({ 'docs/d1': { ok: true } });
+    expect(roundTripped.services).toEqual(services);
+
+    const imported = decodeImportBundle(bundleRecords(records));
+    expect(imported.services).toEqual(services);
+  });
+
+  test('rejects metadata version 3 and inline meta.services.rtdb on import and ignores inline rtdb on bucket deserialize', () => {
+    const inlineRtdb = {
+      '.pyricRtdbPersistence': 1,
+      data: { rooms: { general: { name: 'General' } } },
+      priorities: { '/rooms/general': 5 },
+      rules: { rules: { '.read': true } },
+    };
+    const v3Records = new Map<string, unknown>([
+      [META_RECORD_ID, { version: 3, savedAt: 10, services: { auth: { users: [] }, rtdb: inlineRtdb } }],
+    ]);
+    expect(() => decodeImportBundle(bundleRecords(v3Records))).toThrow(
+      `State import requires metadata version ${CHUNK_FORMAT_VERSION}.`,
+    );
+
+    const v4InlineRtdbRecords = new Map<string, unknown>([
+      [META_RECORD_ID, { version: CHUNK_FORMAT_VERSION, savedAt: 10, services: { auth: { users: [] }, rtdb: inlineRtdb } }],
+    ]);
+    expect(() => decodeImportBundle(bundleRecords(v4InlineRtdbRecords))).toThrow(
+      "State import requires Realtime Database state in 'rtdb:*' records, not 'meta.services.rtdb'.",
+    );
+    expect(deserializeFromBuckets(v4InlineRtdbRecords).services).toEqual({ auth: { users: [] } });
+  });
+
+  test('quarantines a checksum-corrupted rtdb bucket on restore and rejects it on strict import', () => {
+    const records = serializeToBuckets({}, {
+      rtdb: {
+        '.pyricRtdbPersistence': 1,
+        data: { a: { b: { c: { d1: { v: 1 } } } }, x: { y: { z: { w1: { v: 2 } } } } },
+        priorities: {},
+      },
+    }, 0);
+    const bucketIds = [...records.keys()].filter((id) => id.startsWith('rtdb:b:'));
+    expect(bucketIds.length).toBeGreaterThanOrEqual(1);
+    const targetId = bucketIds[0]!;
+    const targetBucket = records.get(targetId) as { nodes: Record<string, unknown> };
+    const firstKey = Object.keys(targetBucket.nodes)[0]!;
+    targetBucket.nodes[firstKey] = { v: 9999 };
+
+    expect(() => decodeImportBundle(bundleRecords(records))).toThrow(/checksum/i);
+    const partial = deserializeFromBuckets(records);
+    const restoredData = (partial.services.rtdb as { data: Record<string, unknown> }).data;
+    expect(restoredData).not.toHaveProperty(firstKey.split('/')[1]!);
   });
 });

@@ -18,7 +18,7 @@ const metadata = (size: number, fullPath = path) => ({
 });
 const hashedMetadata = (size: number, md5Hash: string) => ({ ...metadata(size, hashedPath), md5Hash });
 const records = new Map<string, unknown>([
-  ['meta', { version: 3, savedAt: 0, services: { auth: { users: [], providers: {} } } }],
+  ['meta', { version: 4, savedAt: 0, services: { auth: { users: [], providers: {} } } }],
   ['00', { docs: { 'notes/kept': { answer: 42 } } }],
 ]);
 

@@ -199,6 +199,7 @@ export class RtdbBackend {
 
   exportTree(): JsonValue { return this.persistence.exportTree(); }
   exportPersistenceState(): JsonValue { return this.persistence.exportState(); }
+  persistenceBackendState(): BackendState { return this.state; }
   restoreTree(root: JsonValue): void { this.persistence.restore(root); }
   resetTree(preserveRules = false): void { this.persistence.reset(preserveRules); }
   subscribeWrites(onChange: () => void): () => void { return this.persistence.subscribe(onChange); }

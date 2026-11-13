@@ -5,7 +5,18 @@ import { tmpdir } from 'node:os';
 import { z } from 'zod';
 import { bundleRecords, serializeToBuckets } from 'pyric/sandbox';
 import { CHECKPOINT_NAME_PATTERN } from 'pyric/sandbox/checkpoints';
-import { decodeImportBundle, validatePersistenceEncoding, storedMetadataSchema, validatePersistedService, persistedServiceHasData, UnsupportedPersistedServiceError } from 'pyric/sandbox/internal';
+import {
+  CHUNK_FORMAT_VERSION,
+  decodeImportBundle,
+  deserializeRtdbRecords,
+  isRtdbRecordId,
+  validatePersistenceEncoding,
+  validateRtdbImportRecord,
+  storedMetadataSchema,
+  validatePersistedService,
+  persistedServiceHasData,
+  UnsupportedPersistedServiceError,
+} from 'pyric/sandbox/internal';
 import { claimProjectState } from '../project-ownership.js';
 import { createBlobStore, hashFile } from './blob-store.js';
 import { writeCheckpointRow } from './checkpoints.js';
@@ -29,11 +40,11 @@ export interface RecoveryReport {
 const QUARANTINE_REASON = 'Object bytes do not match their hash; the file was copied to quarantine';
 const SHA256_HEX = /^[0-9a-f]{64}$/;
 
-const metadataShape = z.object({ version: z.literal(3), services: z.record(z.unknown()) });
+const metadataShape = z.object({ version: z.literal(CHUNK_FORMAT_VERSION), services: z.record(z.unknown()) });
 const bucketShape = z.object({ docs: z.record(z.unknown()), encoding: z.string().optional(), checksum: z.number().optional() });
 const checkpointCountsShape = z.record(z.number().int().nonnegative());
 const checkpointStateShape = z.object({ storage: z.array(z.unknown()).optional() }).passthrough();
-const emptyMeta = { version: 3, savedAt: 0, services: {} };
+const emptyMeta = { version: CHUNK_FORMAT_VERSION, savedAt: 0, services: {} };
 
 function contains(parent: string, child: string): boolean {
   const path = relative(parent, child);
@@ -96,6 +107,7 @@ export async function salvageHostedState(sourceInput: string, outputInput: strin
       };
       const documents: Record<string, Record<string, unknown>> = {};
       const services: Record<string, unknown> = {};
+      const salvagedRtdbRecords: Array<[string, unknown]> = [];
       const duplicatePaths = new Set<string>();
       const rows = input.prepare('SELECT namespace, id, payload FROM records ORDER BY namespace, id').all();
       const hasRecords = rows.length > 0;
@@ -121,6 +133,10 @@ export async function salvageHostedState(sourceInput: string, outputInput: strin
           const invalidMetadata = !metadata.success;
           if (invalidMetadata) throw new Error('Unsupported or malformed metadata; recovery cannot establish the payload format.');
           for (const [name, data] of Object.entries(metadata.data.services)) {
+            if (name === 'rtdb') {
+              report.excluded.push({ namespace: 'services', id: name, reason: 'Inline RTDB metadata service is unsupported' });
+              continue;
+            }
             try {
               validatePersistedService(name, data);
               services[name] = data;
@@ -132,6 +148,15 @@ export async function salvageHostedState(sourceInput: string, outputInput: strin
               if (unsupported) throw error;
               report.excluded.push({ namespace: 'services', id: name, reason: 'Service validation failed' });
             }
+          }
+          continue;
+        }
+        if (isRtdbRecordId(id)) {
+          try {
+            validateRtdbImportRecord(id, value);
+            salvagedRtdbRecords.push([id, value]);
+          } catch {
+            report.excluded.push({ namespace, id, reason: 'RTDB record integrity or value validation failed' });
           }
           continue;
         }
@@ -162,6 +187,22 @@ export async function salvageHostedState(sourceInput: string, outputInput: strin
             documents[path] = decoded.firestore[path];
             report.recoveredDocuments++;
           } catch { report.excluded.push({ namespace, id: path, reason: 'Document validation failed' }); }
+        }
+      }
+      if (salvagedRtdbRecords.length > 0) {
+        const rtdbState = deserializeRtdbRecords(salvagedRtdbRecords);
+        if (rtdbState !== undefined) {
+          try {
+            validatePersistedService('rtdb', rtdbState);
+            services.rtdb = rtdbState;
+            if (persistedServiceHasData('rtdb', rtdbState)) {
+              report.recoveredServices++;
+            }
+          } catch (error) {
+            const unsupported = error instanceof UnsupportedPersistedServiceError;
+            if (unsupported) throw error;
+            report.excluded.push({ namespace: 'services', id: 'rtdb', reason: 'Service validation failed' });
+          }
         }
       }
       mkdirSync(output);

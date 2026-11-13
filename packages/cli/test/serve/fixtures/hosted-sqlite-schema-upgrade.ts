@@ -35,7 +35,7 @@ const objects = [
   { path: 'media/twin.bin', bytes: large, mime: 'application/octet-stream' },
 ];
 const records = [
-  ['meta', { version: 3, savedAt: 0, services: { auth: { users: [], providers: {} } } }],
+  ['meta', { version: 4, savedAt: 0, services: { auth: { users: [], providers: {} } } }],
   ['00', { docs: { 'notes/kept': { answer: 42 } } }],
 ] as const;
 const sha256 = (bytes: Uint8Array): string => createHash('sha256').update(bytes).digest('hex');

@@ -14,6 +14,7 @@ import {
 } from '../../sandbox/internal/instances.js';
 import { RtdbBackend } from './backend.js';
 import type { JsonValue } from './data-tree.js';
+import { ChangedRtdbRecords } from './persistence-records.js';
 
 const registryBySandbox = new WeakMap<Sandbox, DatabaseInstanceRegistry<RtdbBackend>>();
 const fullStateRestoreDepth = new WeakMap<Sandbox, number>();
@@ -53,6 +54,7 @@ function backendsFor(sandbox: Sandbox): DatabaseInstanceRegistry<RtdbBackend> {
       }
     }
   };
+  let changedRecords: ChangedRtdbRecords | null = null;
   const registry: DatabaseInstanceRegistry<RtdbBackend> = createDatabaseInstanceRegistry({
     // A named instance's backend stamps its name on the events it emits; the
     // default instance's events carry none.
@@ -60,9 +62,11 @@ function backendsFor(sandbox: Sandbox): DatabaseInstanceRegistry<RtdbBackend> {
       const instance = key === registry.defaultKey ? undefined : key;
       const backend = new RtdbBackend(sandbox, instance);
       backend.subscribeWrites(notifyChange);
+      changedRecords?.attachBackend(key, backend);
       return backend;
     },
   });
+  changedRecords = new ChangedRtdbRecords(registry);
   registryBySandbox.set(sandbox, registry);
 
   sandbox.onEvent((event) => {
@@ -115,6 +119,7 @@ function backendsFor(sandbox: Sandbox): DatabaseInstanceRegistry<RtdbBackend> {
     reset: () => {
       for (const [, backend] of registry.entries()) backend.resetTree(fullStateRestoreDepth.has(sandbox));
     },
+    records: changedRecords,
   });
 
   return registry;
