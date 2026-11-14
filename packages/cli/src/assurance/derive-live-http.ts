@@ -2,43 +2,36 @@
  * Read-only loopback HTTP state and event cloner for `deriveAssurance` and
  * `pyric assurance derive --port / --url`. Never mutates the running server.
  */
-import { createHash } from "node:crypto";
 import {
   DEFAULT_SNAPSHOT_RESOURCE,
-  encodeBytesToBase64,
   parseResourcePattern,
   resolveDatabaseInstance,
   type SandboxSnapshot,
-  type SnapshotStorageObject,
 } from "pyric/sandbox/internal";
 import type { SandboxHistoryEvent } from "pyric/rules/internal/usage";
-import { DEFAULT_BUCKET } from "pyric/storage/internal";
-import { boundedFetch } from "../bounded-request.js";
-import { HOSTED_METHOD_PATH } from "../serve/hosted/method-protocol.js";
-import {
-  fetchLoopbackTarget,
-  resolveSessionTokenForTarget,
-} from "../serve/local-session-token.js";
-import {
-  isStorageReference,
-  parseStateFile,
-  type PyricStateFile,
-} from "../serve/state-file.js";
+import { resolveSessionTokenForTarget } from "../serve/local-session-token.js";
+import { parseStateFile, type PyricStateFile } from "../serve/state-file.js";
 import { isLoopbackHost } from "./attachment.js";
-import { defineOwn, getOwn, isUnsafeObjectKey } from "./derive-campaign-state.js";
+import { extractStorageBucketRulesText } from "./attachment-target-clone.js";
+import { defineOwn, isUnsafeObjectKey } from "./derive-campaign-state.js";
+import {
+  computeLiveDefaultStorageBuckets,
+  hydrateLiveStorageObjects,
+  readDefaultProjectIdFromDir,
+} from "./derive-live-http-storage.js";
+import {
+  fetchHostedEvents,
+  parseLoopbackOrigin,
+  requestLoopback,
+} from "./derive-live-http-transport.js";
 import { decodeLiveStatePayload } from "./derive-live-state.js";
 import {
   ASSURANCE_TARGET_SCHEMA,
   AssuranceInputError,
   type LocalFirebaseTarget,
-  type StorageObjectFixture,
 } from "./types.js";
 
-export { isLoopbackHost };
-
-const LOOPBACK_DEADLINE_MS = 1_500;
-const MAX_CLONE_RESPONSE_BYTES = 64 * 1024 * 1024;
-const SHA256_HEX_RE = /^[0-9a-f]{64}$/;
+export { isLoopbackHost, parseLoopbackOrigin };
 
 interface InitMetadataPayload {
   readonly rules?: string | null;
@@ -52,7 +45,7 @@ interface InitMetadataPayload {
   } | null;
   readonly storageRules?: string | null;
   readonly storageBucketRules?: Readonly<
-    Record<string, { readonly rules: string; readonly rulesHash?: string } | null>
+    Record<string, string | { readonly rules: string; readonly rulesHash?: string } | null>
   > | null;
   readonly sessionToken?: string | null;
   readonly instanceId?: string | null;
@@ -66,179 +59,12 @@ export interface LoopbackCloneResult {
   readonly history: SandboxHistoryEvent[];
 }
 
-export function parseLoopbackOrigin(rawUrl: string): URL {
-  let parsed: URL;
-  try {
-    parsed = new URL(rawUrl);
-  } catch {
-    throw new AssuranceInputError(`'${rawUrl}' is not a valid absolute URL.`);
-  }
-  const validProtocol =
-    parsed.protocol === "http:" || parsed.protocol === "https:";
-  if (
-    !validProtocol ||
-    !isLoopbackHost(parsed.hostname) ||
-    parsed.username.length > 0 ||
-    parsed.password.length > 0
-  ) {
-    throw new AssuranceInputError(
-      "Assurance live attachment accepts only credential-free HTTP(S) loopback URLs.",
-    );
-  }
-  return parsed;
-}
-
-async function requestLoopback(
-  targetUrl: string,
-  options: {
-    method?: "GET" | "POST";
-    headers?: Record<string, string>;
-    body?: string;
-    cwd?: string;
-    customFetch?: typeof fetch;
-  },
-): Promise<Response> {
-  const method = options.method ?? "GET";
-  const headers = options.headers ?? {};
-  if (options.customFetch !== undefined) {
-    const init: RequestInit = {
-      method,
-      headers,
-      redirect: "error",
-      signal: AbortSignal.timeout(LOOPBACK_DEADLINE_MS),
-    };
-    if (options.body !== undefined) {
-      init.body = options.body;
-    }
-    return options.customFetch(targetUrl, init);
-  }
-
-  if (targetUrl.startsWith("https://")) {
-    const init: RequestInit = {
-      method,
-      headers,
-      redirect: "error",
-      signal: AbortSignal.timeout(LOOPBACK_DEADLINE_MS),
-    };
-    if (options.body !== undefined) {
-      init.body = options.body;
-    }
-    const res = await fetchLoopbackTarget(targetUrl, init, options.cwd);
-    if (res.status >= 300 && res.status < 400) {
-      throw new TypeError(`fetch failed: ${targetUrl} redirected`);
-    }
-    return res;
-  }
-
-  const boundedOpts: {
-    method: "GET" | "POST";
-    headers: Record<string, string>;
-    body?: string;
-    deadlineMs: number;
-    maxBytes: number;
-    redirect: "error";
-  } = {
-    method,
-    headers,
-    deadlineMs: LOOPBACK_DEADLINE_MS,
-    maxBytes: MAX_CLONE_RESPONSE_BYTES,
-    redirect: "error",
-  };
-  if (options.body !== undefined) {
-    boundedOpts.body = options.body;
-  }
-  return boundedFetch(targetUrl, boundedOpts);
-}
-
-async function fetchHostedEvents(
-  origin: string,
-  instanceId: string | null | undefined,
-  projectDir: string | undefined,
-  effectiveCwd: string,
-  customFetch: typeof fetch | undefined,
-  sessionToken: string | undefined,
-): Promise<SandboxHistoryEvent[]> {
-  if (!instanceId || !projectDir) return [];
-  try {
-    const headers: Record<string, string> = { "content-type": "application/json" };
-    if (sessionToken !== undefined && sessionToken.length > 0) {
-      headers["x-pyric-session-token"] = sessionToken;
-    }
-    const reqOpts: {
-      method: "POST";
-      headers: Record<string, string>;
-      body: string;
-      cwd: string;
-      customFetch?: typeof fetch;
-    } = {
-      method: "POST",
-      headers,
-      body: JSON.stringify({
-        instanceId,
-        projectDir,
-        key: "sandbox.events",
-        args: { limit: 500 },
-        allowProduction: false,
-      }),
-      cwd: effectiveCwd,
-    };
-    if (customFetch !== undefined) {
-      reqOpts.customFetch = customFetch;
-    }
-    const res = await requestLoopback(`${origin}${HOSTED_METHOD_PATH}`, reqOpts);
-    if (!res.ok) return [];
-    const payload = (await res.json()) as {
-      ok?: boolean;
-      data?: { events?: unknown };
-    };
-    if (!payload.ok || !Array.isArray(payload.data?.events)) return [];
-    const out: SandboxHistoryEvent[] = [];
-    for (const item of payload.data.events) {
-      if (item !== null && typeof item === "object" && Object.hasOwn(item, "kind")) {
-        out.push(item as SandboxHistoryEvent);
-      }
-    }
-    return out;
-  } catch {
-    return [];
-  }
-}
-
-function resolveLiveStorageBucketKey(
-  rawBucket: unknown,
-  namedBuckets: ReadonlySet<string>,
-  defaultBucket: string | undefined,
-): string {
-  if (typeof rawBucket !== "string" || rawBucket.trim().length === 0) {
-    return DEFAULT_SNAPSHOT_RESOURCE;
-  }
-  const normalized = parseResourcePattern("storage", "object", rawBucket).resourceId;
-  if (isUnsafeObjectKey(normalized)) {
-    return DEFAULT_SNAPSHOT_RESOURCE;
-  }
-  if (namedBuckets.has(normalized)) {
-    return normalized;
-  }
-  if (
-    normalized === DEFAULT_SNAPSHOT_RESOURCE ||
-    normalized === "default" ||
-    normalized === "default-bucket" ||
-    normalized === "pyric-default" ||
-    normalized === DEFAULT_BUCKET ||
-    (defaultBucket !== undefined && normalized === defaultBucket) ||
-    normalized.endsWith(".appspot.com") ||
-    normalized.endsWith(".firebasestorage.app")
-  ) {
-    return DEFAULT_SNAPSHOT_RESOURCE;
-  }
-  return normalized;
-}
-
 export async function cloneLoopbackSandboxHttp(
   rawUrl: string,
   options: {
     fetchImpl?: typeof fetch;
     projectDir?: string;
+    projectId?: string;
     configuredBuckets?: readonly string[];
     defaultBucket?: string;
     sessionToken?: string;
@@ -275,10 +101,11 @@ export async function cloneLoopbackSandboxHttp(
 
   let initRes: Response;
   try {
-    initRes = await getLoopback(
-      `${origin}/__pyric/init.json`,
-      initialToken !== undefined ? { "x-pyric-session-token": initialToken } : {},
-    );
+    const initHeaders: Record<string, string> = {};
+    if (initialToken !== undefined) {
+      initHeaders["x-pyric-session-token"] = initialToken;
+    }
+    initRes = await getLoopback(`${origin}/__pyric/init.json`, initHeaders);
   } catch (error) {
     if (error instanceof AssuranceInputError) throw error;
     let detail = String(error);
@@ -309,10 +136,10 @@ export async function cloneLoopbackSandboxHttp(
   }
   const initPayload = parsedInit as InitMetadataPayload;
   const headers: Record<string, string> = {};
-  const effectiveToken =
-    typeof initPayload.sessionToken === "string" && initPayload.sessionToken.length > 0
-      ? initPayload.sessionToken
-      : initialToken;
+  let effectiveToken = initialToken;
+  if (typeof initPayload.sessionToken === "string" && initPayload.sessionToken.length > 0) {
+    effectiveToken = initPayload.sessionToken;
+  }
   if (effectiveToken !== undefined && effectiveToken.length > 0) {
     headers["x-pyric-session-token"] = effectiveToken;
   }
@@ -389,10 +216,10 @@ export async function cloneLoopbackSandboxHttp(
     typeof initDbInstances.rules === "object" &&
     !Array.isArray(initDbInstances.rules)
   ) {
-    const defaultInstName =
-      typeof initDbInstances.defaultInstance === "string"
-        ? initDbInstances.defaultInstance
-        : undefined;
+    let defaultInstName: string | undefined;
+    if (typeof initDbInstances.defaultInstance === "string") {
+      defaultInstName = initDbInstances.defaultInstance;
+    }
     for (const [instName, wrapper] of Object.entries(initDbInstances.rules)) {
       if (isUnsafeObjectKey(instName)) continue;
       if (
@@ -448,13 +275,26 @@ export async function cloneLoopbackSandboxHttp(
   const storageRuleMap: Record<string, string> = {};
   const targetStorageBuckets: Record<string, string> = {};
   const namedStorageBuckets = new Set<string>();
-  const isDefaultStorageBucket = (bucketId: string): boolean =>
-    bucketId === DEFAULT_SNAPSHOT_RESOURCE ||
-    bucketId === DEFAULT_BUCKET ||
-    (options.defaultBucket !== undefined && bucketId === options.defaultBucket);
+  let inferredProjectId = options.projectId;
+  if (
+    inferredProjectId === undefined &&
+    typeof initDbInstances?.projectId === "string" &&
+    initDbInstances.projectId.trim().length > 0
+  ) {
+    inferredProjectId = initDbInstances.projectId.trim();
+  }
+  if (inferredProjectId === undefined) {
+    inferredProjectId = readDefaultProjectIdFromDir(options.projectDir);
+  }
+  const initialDefaultStorageBuckets = computeLiveDefaultStorageBuckets({
+    namedBuckets: namedStorageBuckets,
+    defaultBucket: options.defaultBucket,
+    projectId: inferredProjectId,
+    storageEntries: stateBody?.storage,
+  });
   for (const configured of options.configuredBuckets ?? []) {
     const norm = parseResourcePattern("storage", "object", configured).resourceId;
-    if (!isDefaultStorageBucket(norm) && !isUnsafeObjectKey(norm)) {
+    if (!initialDefaultStorageBuckets.has(norm) && !isUnsafeObjectKey(norm)) {
       namedStorageBuckets.add(norm);
     }
   }
@@ -473,18 +313,13 @@ export async function cloneLoopbackSandboxHttp(
     for (const [rawBucket, entry] of Object.entries(
       initPayload.storageBucketRules,
     )) {
-      const entryRules =
-        typeof entry === "string"
-          ? entry
-          : entry && typeof entry === "object" && typeof entry.rules === "string"
-            ? entry.rules
-            : undefined;
+      const entryRules = extractStorageBucketRulesText(entry);
       if (entryRules === undefined || entryRules.trim().length === 0) {
         continue;
       }
       const bucketId = parseResourcePattern("storage", "object", rawBucket).resourceId;
       if (isUnsafeObjectKey(bucketId)) continue;
-      if (isDefaultStorageBucket(bucketId)) {
+      if (initialDefaultStorageBuckets.has(bucketId)) {
         if (rules.storage === undefined) {
           rules.storage = entryRules;
         }
@@ -503,172 +338,39 @@ export async function cloneLoopbackSandboxHttp(
     snapshotRules.storage = storageRuleMap;
   }
 
-  const storageSnapshotsByBucket: Record<string, SnapshotStorageObject[]> = {
-    [DEFAULT_SNAPSHOT_RESOURCE]: [],
+  const defaultStorageBuckets = computeLiveDefaultStorageBuckets({
+    namedBuckets: namedStorageBuckets,
+    defaultBucket: options.defaultBucket,
+    projectId: inferredProjectId,
+    storageEntries: stateBody?.storage,
+  });
+
+  const {
+    storageSnapshotsByBucket,
+    defaultStorageFixtures,
+    namedStorageFixtures,
+  } = await hydrateLiveStorageObjects({
+    origin,
+    headers,
+    getLoopback,
+    storageEntries: stateBody?.storage,
+    namedStorageBuckets,
+    defaultStorageBuckets,
+  });
+
+  const snapshotAuth: {
+    users: SandboxSnapshot["auth"]["users"];
+    providers?: Record<string, boolean>;
+  } = {
+    users: decodedState.snapshotUsers,
   };
-  const defaultStorageFixtures: StorageObjectFixture[] = [];
-  const namedStorageFixtures: Record<string, StorageObjectFixture[]> = {};
-
-  for (const entry of stateBody?.storage ?? []) {
-    let base64 = "";
-    let actualByteLength = entry.metadata.size;
-    if (isStorageReference(entry)) {
-      if (!SHA256_HEX_RE.test(entry.sha256)) {
-        throw new AssuranceInputError(
-          `Invalid Storage object sha256 digest '${entry.sha256}'.`,
-        );
-      }
-      let objRes: Response;
-      try {
-        objRes = await getLoopback(
-          `${origin}/__pyric/state/objects/${entry.sha256}`,
-          headers,
-        );
-      } catch (error) {
-        if (error instanceof AssuranceInputError) throw error;
-        let detail = String(error);
-        if (error instanceof Error) detail = error.message;
-        throw new AssuranceInputError(
-          `Unable to fetch Storage object '${entry.sha256}' from '${origin}': ${detail}`,
-        );
-      }
-      if (objRes.status !== 200) {
-        throw new AssuranceInputError(
-          `Storage object '${entry.sha256}' returned HTTP ${objRes.status} at '${origin}'.`,
-        );
-      }
-      const bytes = new Uint8Array(await objRes.arrayBuffer());
-      if (bytes.byteLength !== entry.size) {
-        throw new AssuranceInputError(
-          `Storage object '${entry.sha256}' byte length mismatch: expected ${entry.size}, received ${bytes.byteLength}.`,
-        );
-      }
-      const computedSha = createHash("sha256").update(bytes).digest("hex");
-      if (computedSha !== entry.sha256) {
-        throw new AssuranceInputError(
-          `Storage object '${entry.sha256}' sha256 digest mismatch.`,
-        );
-      }
-      actualByteLength = bytes.byteLength;
-      base64 = encodeBytesToBase64(bytes);
-    } else {
-      base64 = entry.dataBase64;
-    }
-
-    const bucketKey = resolveLiveStorageBucketKey(
-      entry.metadata.bucket,
-      namedStorageBuckets,
-      options.defaultBucket,
-    );
-    const fullPath = entry.metadata.fullPath;
-    const snapObj: {
-      path: string;
-      contentBase64: string;
-      size: number;
-      generation?: string;
-      metageneration?: string;
-      contentType?: string;
-      blobType?: string;
-      cacheControl?: string;
-      contentDisposition?: string;
-      contentEncoding?: string;
-      contentLanguage?: string;
-      timeCreated?: string;
-      updated?: string;
-      downloadTokens?: string;
-      md5Hash?: string;
-      customMetadata?: Record<string, string>;
-    } = {
-      path: fullPath,
-      contentBase64: base64,
-      size: actualByteLength,
-    };
-    const fixObj: StorageObjectFixture = {
-      path: fullPath,
-      dataBase64: base64,
-    };
-    if (typeof entry.metadata.generation === "string") {
-      snapObj.generation = entry.metadata.generation;
-    }
-    if (typeof entry.metadata.metageneration === "string") {
-      snapObj.metageneration = entry.metadata.metageneration;
-    }
-    if (typeof entry.metadata.contentType === "string") {
-      snapObj.contentType = entry.metadata.contentType;
-      fixObj.contentType = entry.metadata.contentType;
-    }
-    if (
-      typeof entry.blobType === "string" &&
-      entry.blobType !== (entry.metadata.contentType ?? "")
-    ) {
-      snapObj.blobType = entry.blobType;
-    }
-    if (typeof entry.metadata.cacheControl === "string") {
-      snapObj.cacheControl = entry.metadata.cacheControl;
-      fixObj.cacheControl = entry.metadata.cacheControl;
-    }
-    if (typeof entry.metadata.contentDisposition === "string") {
-      snapObj.contentDisposition = entry.metadata.contentDisposition;
-      fixObj.contentDisposition = entry.metadata.contentDisposition;
-    }
-    if (typeof entry.metadata.contentEncoding === "string") {
-      snapObj.contentEncoding = entry.metadata.contentEncoding;
-      fixObj.contentEncoding = entry.metadata.contentEncoding;
-    }
-    if (typeof entry.metadata.contentLanguage === "string") {
-      snapObj.contentLanguage = entry.metadata.contentLanguage;
-      fixObj.contentLanguage = entry.metadata.contentLanguage;
-    }
-    if (typeof entry.metadata.timeCreated === "string") {
-      snapObj.timeCreated = entry.metadata.timeCreated;
-      fixObj.timeCreated = entry.metadata.timeCreated;
-    }
-    if (typeof entry.metadata.updated === "string") {
-      snapObj.updated = entry.metadata.updated;
-      fixObj.updated = entry.metadata.updated;
-    }
-    if (typeof entry.metadata.downloadTokens === "string") {
-      snapObj.downloadTokens = entry.metadata.downloadTokens;
-    }
-    if (typeof entry.metadata.md5Hash === "string") {
-      snapObj.md5Hash = entry.metadata.md5Hash;
-    }
-    if (entry.metadata.customMetadata) {
-      const customCopy: Record<string, string> = {};
-      for (const [k, v] of Object.entries(entry.metadata.customMetadata)) {
-        if (typeof v === "string") defineOwn(customCopy, k, v);
-      }
-      snapObj.customMetadata = { ...customCopy };
-      fixObj.customMetadata = { ...customCopy };
-    }
-    let bucketSnapshots = getOwn(storageSnapshotsByBucket, bucketKey);
-    if (bucketSnapshots === undefined) {
-      bucketSnapshots = [];
-      defineOwn(storageSnapshotsByBucket, bucketKey, bucketSnapshots);
-    }
-    bucketSnapshots.push(snapObj);
-
-    if (bucketKey === DEFAULT_SNAPSHOT_RESOURCE) {
-      defaultStorageFixtures.push(fixObj);
-    } else {
-      let bucketFixtures = getOwn(namedStorageFixtures, bucketKey);
-      if (bucketFixtures === undefined) {
-        bucketFixtures = [];
-        defineOwn(namedStorageFixtures, bucketKey, bucketFixtures);
-      }
-      bucketFixtures.push(fixObj);
-    }
+  if (decodedState.authProviders !== undefined) {
+    snapshotAuth.providers = { ...decodedState.authProviders };
   }
-
   const snapshot: SandboxSnapshot = {
     version: 1,
     rules: snapshotRules,
-    auth: {
-      users: decodedState.snapshotUsers,
-      ...(decodedState.authProviders !== undefined
-        ? { providers: { ...decodedState.authProviders } }
-        : {}),
-    },
+    auth: snapshotAuth,
     firestore: decodedState.firestoreByDb,
     rtdb: decodedState.rtdbByInstance,
     storage: storageSnapshotsByBucket,
@@ -717,12 +419,13 @@ export async function cloneLoopbackSandboxHttp(
     targetState.storageBuckets = namedStorageFixtures;
   }
   if (decodedState.fixtureUsers.length > 0 || decodedState.authProviders !== undefined) {
-    targetState.auth = {
+    const targetAuth: NonNullable<LocalFirebaseTarget["state"]["auth"]> = {
       users: decodedState.fixtureUsers,
-      ...(decodedState.authProviders !== undefined
-        ? { providers: { ...decodedState.authProviders } }
-        : {}),
     };
+    if (decodedState.authProviders !== undefined) {
+      targetAuth.providers = { ...decodedState.authProviders };
+    }
+    targetState.auth = targetAuth;
   }
 
   const history = await fetchHostedEvents(

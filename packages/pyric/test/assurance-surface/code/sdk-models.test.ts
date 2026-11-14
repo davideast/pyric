@@ -285,4 +285,27 @@ describe('SDK models', () => {
       expect(dynNode.notes.some((n) => n.includes('getDatabase()'))).toBe(true);
     }
   });
+
+  test('encodes single-segment literal-dot and backtick FieldPath segments distinctly from multi-segment paths', () => {
+    const hFp = harness({
+      'fp.ts': `
+        import { FieldPath } from 'firebase/firestore';
+        export const nestedPath = new FieldPath('meta', 'ownerId');
+        export const dottedKey = new FieldPath('a.b');
+        export const slashedKey = new FieldPath('a/b');
+      `,
+    });
+    expect(hFp.ev.force(hFp.ev.eval(hFp.ident('fp.ts', 'nestedPath', 0)))).toEqual({
+      k: 'str',
+      parts: [{ kind: 'lit', text: 'meta.ownerId' }],
+    });
+    expect(hFp.ev.force(hFp.ev.eval(hFp.ident('fp.ts', 'dottedKey', 0)))).toEqual({
+      k: 'str',
+      parts: [{ kind: 'lit', text: '`a.b`' }],
+    });
+    expect(hFp.ev.force(hFp.ev.eval(hFp.ident('fp.ts', 'slashedKey', 0)))).toEqual({
+      k: 'str',
+      parts: [{ kind: 'lit', text: 'a/b' }],
+    });
+  });
 });

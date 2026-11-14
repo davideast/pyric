@@ -168,7 +168,7 @@ function rawBytesOfData(data: unknown): Uint8Array {
   return new TextEncoder().encode(JSON.stringify(data));
 }
 
-export function toStorageBytes(data: unknown, sizeBytes?: number): Uint8Array {
+function toStorageBytes(data: unknown, sizeBytes?: number): Uint8Array {
   const raw = rawBytesOfData(data);
   if (typeof sizeBytes !== 'number' || !Number.isFinite(sizeBytes) || sizeBytes < 0) {
     return raw;
@@ -183,10 +183,27 @@ export function toStorageBytes(data: unknown, sizeBytes?: number): Uint8Array {
 
 export function toStorageMetadata(step: ProbeStep): {
   contentType?: string;
+  cacheControl?: string;
+  contentDisposition?: string;
+  contentEncoding?: string;
+  contentLanguage?: string;
   customMetadata?: Record<string, string>;
 } {
-  const metadata: { contentType?: string; customMetadata?: Record<string, string> } = {};
+  const metadata: {
+    contentType?: string;
+    cacheControl?: string;
+    contentDisposition?: string;
+    contentEncoding?: string;
+    contentLanguage?: string;
+    customMetadata?: Record<string, string>;
+  } = {};
   if (step.contentType !== undefined) metadata.contentType = step.contentType;
+  if (step.cacheControl !== undefined) metadata.cacheControl = step.cacheControl;
+  if (step.contentDisposition !== undefined) {
+    metadata.contentDisposition = step.contentDisposition;
+  }
+  if (step.contentEncoding !== undefined) metadata.contentEncoding = step.contentEncoding;
+  if (step.contentLanguage !== undefined) metadata.contentLanguage = step.contentLanguage;
   if (step.customMetadata !== undefined) {
     metadata.customMetadata = { ...step.customMetadata };
   }

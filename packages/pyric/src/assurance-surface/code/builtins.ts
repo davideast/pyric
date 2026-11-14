@@ -8,7 +8,7 @@ import type { Evaluator } from './evaluator.js';
 import { expressionName, hole } from './paths.js';
 import { ReferenceIndex } from './references.js';
 import type { WrapperOperandValue } from './service-models/types.js';
-import { evalBinaryBuiltin } from './storage-upload.js';
+import { evalBinaryBuiltin } from './binary-constructors.js';
 import { alternatives, authMarksOf, concatParts, definiteTruthiness, lit, literalText, unknown, union, type AVal, type Env, type StrPart } from './values.js';
 
 const MIN_TIMESTAMP_SECONDS = -62_135_596_800;

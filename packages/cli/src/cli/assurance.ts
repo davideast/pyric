@@ -16,7 +16,13 @@ import {
   type DeriveAssuranceResult,
 } from '../assurance/derive.js';
 import type { AssuranceCampaignStore } from '../assurance/tools.js';
-import { findMissingValueFlag, type FlagValue, type ParsedArgs } from './parse-args.js';
+import {
+  findMissingValueFlag,
+  findUnknownFlag,
+  formatCliFlagName,
+  type FlagValue,
+  type ParsedArgs,
+} from './parse-args.js';
 
 export interface AssuranceCliDeps {
   readonly cwd?: string;
@@ -166,6 +172,17 @@ function resolveLoopbackUrl(
   return { ok: true };
 }
 
+const ALLOWED_ASSURANCE_DERIVE_FLAGS: ReadonlySet<string> = new Set([
+  'port',
+  'url',
+  'fail-on',
+  'root',
+  'campaign-id',
+  'json',
+  'include-heuristic',
+  'no-static',
+]);
+
 export async function runAssuranceDerive(
   parsed: ParsedArgs,
   deps: AssuranceCliDeps = {},
@@ -173,6 +190,16 @@ export async function runAssuranceDerive(
   const stdout = deps.stdout ?? process.stdout;
   const stderr = deps.stderr ?? process.stderr;
   const cwd = deps.cwd ?? process.cwd();
+  const unknownFlag = findUnknownFlag(
+    parsed.flags,
+    ALLOWED_ASSURANCE_DERIVE_FLAGS,
+  );
+  if (unknownFlag !== undefined) {
+    stderr.write(
+      `pyric assurance derive: unknown option '${formatCliFlagName(unknownFlag)}'\n`,
+    );
+    return 2;
+  }
   const missingFlag = findMissingValueFlag(parsed.flags, [
     'port',
     'url',
