@@ -21,8 +21,20 @@ type Env = Readonly<Record<string, string | undefined>>;
 /** The variables firebase-admin reads a project id from, in its order. */
 const PROJECT_VARIABLES = ['GOOGLE_CLOUD_PROJECT', 'GCLOUD_PROJECT'] as const;
 
+/**
+ * Inherited environment variable pinning the root `@pyric/live/register`
+ * process's resolved `projectId` across child processes and `Worker` threads.
+ */
+export const LIVE_PINNED_PROJECT_VARIABLE = 'PYRIC_LIVE_HOST_PROJECT';
+
 function isNonEmptyString(value: unknown): value is string {
   return typeof value === 'string' && value.length > 0;
+}
+
+/** Reads the pinned live project id inherited from the parent process, if set. */
+export function pinnedLiveProjectId(env: Env = process.env): string | undefined {
+  const pinned = env[LIVE_PINNED_PROJECT_VARIABLE];
+  return isNonEmptyString(pinned) ? pinned : undefined;
 }
 
 /** The `projectId` in `FIREBASE_CONFIG`'s inline JSON, or null. */

@@ -1,38 +1,40 @@
 /**
- * The Admin Auth row: patches `BaseAuth.prototype` in the real
- * `firebase-admin/lib/auth/base-auth.js` (`patch.ts`), the class `Auth` and
- * each tenant's Auth extend, so each Admin call makes a record named
- * `Auth.<method>` with the project and production's code
- * (`auth/user-not-found`).
+ * The Admin Auth row: patches `BaseAuth.prototype` and its sibling sub-manager
+ * prototypes (`TenantAwareAuth`, `TenantManager`, `ProjectConfigManager`) in
+ * the real `firebase-admin/lib/auth/*`, so every Admin Auth RPC passes
+ * `AdminProjectGate` before any request and makes a record with the project and
+ * production's code (`auth/user-not-found`).
  *
- * Observed: `verifyIdToken`, `getUser`, `getUserByEmail`,
- * `getUserByPhoneNumber`, `getUsers`, `listUsers`, `createUser`,
- * `updateUser`, `deleteUser`, `deleteUsers`, `setCustomUserClaims` and
- * `revokeRefreshTokens`.
- *
- * The account a record names: on `verifyIdToken`, the decoded token's uid
- * and the names of its claims; on a call about one user, that user's uid
- * (the argument, or the returned user's for a lookup by email or phone
- * number and for `createUser`); none on `listUsers`, `getUsers` and
- * `deleteUsers`. A record never carries a token, password, email, phone
- * number, claim value or any other profile field.
+ * A record never carries a token, password, email, phone number, claim value or
+ * any other profile field.
  *
  * `verifyIdToken` and `verifySessionCookie` refuse a token a pyric sandbox
  * issued, by name, before any request and with no record: the error keeps
  * firebase-admin's `auth/argument-error` and adds `pyricCode:
  * 'PYRIC_MODE_MISMATCH'` (G-3 in the #2304 plan).
  */
+import { createRequire } from 'node:module';
 import { idTokenIssuer } from '@pyric/cli/register/internal/supplied-rows';
 import { claimNamesOf } from '../account.js';
 import type { CallContext, LiveAccount, LiveObserver, ResultReading } from '../observe.js';
 import { liveModeMismatch } from '../refusal.js';
-import { keepShape, patchAdminClass, type AdminMethod, type AdminRow } from './patch.js';
+import {
+  keepShape,
+  markAdminMethodGated,
+  patchAdminClass,
+  type AdminMethod,
+  type AdminRow,
+} from './patch.js';
 import { failClosedGate, UNREAD_APP, type AdminApp, type AdminProjectGate } from './project-gate.js';
+import { entryRequire, gatePrototypeMethods, withExportedClass } from './prototype-gate.js';
 
 /** The module an Admin Auth record names, which the page observer maps to the `auth` service. */
 export const ADMIN_AUTH_MODULE = 'firebase-admin/auth';
 
 const MAX_UID_LENGTH = 128;
+const TENANT_AUTH_PATCHED = Symbol.for('pyric.live.admin.auth.tenantAware');
+const EMPTY_LOCAL: ReadonlySet<string> = new Set();
+const TENANT_MANAGER_LOCAL: ReadonlySet<string> = new Set(['authForTenant']);
 
 /** The account one call names, filled in as the call's arguments and result are read. */
 interface Target {
@@ -48,11 +50,14 @@ function isUid(value: unknown): value is string {
   return typeof value === 'string' && value.length > 0 && value.length <= MAX_UID_LENGTH;
 }
 
-/** The Admin app an Auth belongs to: its request handler's, which `Auth` and a tenant's Auth both keep. */
+/** The Admin app an Auth, TenantAwareAuth, TenantManager, or ProjectConfigManager belongs to. */
 function adminAppOf(self: unknown): unknown {
-  const handler: unknown = isObject(self) ? Reflect.get(self, 'authRequestHandler') : undefined;
-  const app: unknown = isObject(handler) ? Reflect.get(handler, 'app') : undefined;
-  return isObject(app) ? app : undefined;
+  if (!isObject(self)) return undefined;
+  const handler: unknown = Reflect.get(self, 'authRequestHandler');
+  const fromHandler: unknown = isObject(handler) ? Reflect.get(handler, 'app') : undefined;
+  if (isObject(fromHandler)) return fromHandler;
+  const direct: unknown = Reflect.get(self, 'app');
+  return isObject(direct) ? direct : undefined;
 }
 
 /** The app the gate checks: firebase-admin's own `App`, or `UNREAD_APP` so `failClosedGate` refuses an unreadable receiver. */
@@ -104,8 +109,8 @@ function resultUid(site: { readonly subject?: unknown }, value: unknown): Result
 function accountOf(subject: unknown): LiveAccount | undefined {
   const target = subject as Target | undefined;
   if (target?.uid === undefined) return undefined;
-  const names = target.claimNames === undefined ? {} : { claimNames: [...target.claimNames] };
-  return { uid: target.uid, ...names };
+  if (target.claimNames === undefined) return { uid: target.uid };
+  return { uid: target.uid, claimNames: [...target.claimNames] };
 }
 
 const HOOKS = { context: contextOf, accountOf, throwsLocally: true } as const;
@@ -151,6 +156,19 @@ const METHODS: readonly AdminMethod[] = [
   ),
 ];
 
+const TENANT_MANAGER_METHODS: readonly AdminMethod[] = calls([
+  'getTenant',
+  'listTenants',
+  'deleteTenant',
+  'createTenant',
+  'updateTenant',
+]);
+
+const PROJECT_CONFIG_METHODS: readonly AdminMethod[] = calls([
+  'getProjectConfig',
+  'updateProjectConfig',
+]);
+
 /** Where the records go, which gate the calls pass, and the live host's project a mode mismatch names. */
 export interface AdminAuthRow {
   readonly observer: LiveObserver;
@@ -163,13 +181,6 @@ const TOKEN_CALLS = ['verifyIdToken', 'verifySessionCookie'] as const;
 
 type Method = (this: unknown, ...args: unknown[]) => unknown;
 
-/**
- * Refuses a token a pyric sandbox issued before `real` runs: the page signed
- * in on a sandbox while this backend runs live. The refusal makes no request
- * and no record, as every live refusal. A sandbox mints no session cookie,
- * so a sandbox token at `verifySessionCookie` is a sandbox ID token sent as
- * one, which `idTokenIssuer` reads as it reads any ID token.
- */
 function refusingSandboxTokens(real: Method, hostProjectId: string): Method {
   const refusing = function verifyToken(this: unknown, ...args: unknown[]): unknown {
     const [token] = args;
@@ -177,7 +188,7 @@ function refusingSandboxTokens(real: Method, hostProjectId: string): Method {
     if (isSandboxToken) return Promise.reject(liveModeMismatch(hostProjectId));
     return Reflect.apply(real, this, args);
   };
-  return keepShape(refusing, real);
+  return markAdminMethodGated(keepShape(refusing, real));
 }
 
 /** Wraps each token call on `prototype` with the sandbox-token refusal, over the row's own wrapper where it has one. */
@@ -185,24 +196,96 @@ function refuseSandboxTokens(prototype: object, hostProjectId: string): void {
   for (const name of TOKEN_CALLS) {
     const descriptor = Object.getOwnPropertyDescriptor(prototype, name);
     if (typeof descriptor?.value !== 'function') continue;
-    Object.defineProperty(prototype, name, { ...descriptor, value: refusingSandboxTokens(descriptor.value as Method, hostProjectId) });
+    Object.defineProperty(prototype, name, {
+      ...descriptor,
+      value: refusingSandboxTokens(descriptor.value as Method, hostProjectId),
+    });
   }
 }
 
+function resolveAuthRequire(entryFile: string | undefined): ((id: string) => unknown) | undefined {
+  try {
+    const targetFile = entryFile ?? createRequire(import.meta.url).resolve('firebase-admin/auth');
+    return entryRequire(targetFile);
+  } catch {
+    return undefined;
+  }
+}
+
+function safeLoadSibling(req: ((id: string) => unknown) | undefined, specifier: string): unknown {
+  if (req === undefined) return undefined;
+  try {
+    return req(specifier);
+  } catch {
+    return undefined;
+  }
+}
+
+function patchSubManagers(
+  entryFile: string | undefined,
+  adminRow: AdminRow,
+  hostProjectId: string,
+): void {
+  const req = resolveAuthRequire(entryFile);
+  const tenantMod = safeLoadSibling(req, './tenant-manager');
+  withExportedClass(tenantMod, 'TenantAwareAuth', (ctor) => {
+    const proto: unknown = Reflect.get(ctor, 'prototype');
+    if (!isObject(proto) || Object.hasOwn(proto, TENANT_AUTH_PATCHED)) return;
+    gatePrototypeMethods(proto, {
+      gate: adminRow.gate,
+      appOf,
+      allowlist: EMPTY_LOCAL,
+      skipWhenObserving: true,
+    });
+    refuseSandboxTokens(proto, hostProjectId);
+    Object.defineProperty(proto, TENANT_AUTH_PATCHED, { value: true });
+  });
+  withExportedClass(tenantMod, 'TenantManager', (ctor) => {
+    const proto: unknown = Reflect.get(ctor, 'prototype');
+    const target = isObject(proto) ? proto : undefined;
+    if (patchAdminClass(target, 'TenantManager', TENANT_MANAGER_METHODS, adminRow)) {
+      gatePrototypeMethods(target, {
+        gate: adminRow.gate,
+        appOf,
+        allowlist: TENANT_MANAGER_LOCAL,
+        skipWhenObserving: true,
+      });
+    }
+  });
+  const projectConfigMod = safeLoadSibling(req, './project-config-manager');
+  withExportedClass(projectConfigMod, 'ProjectConfigManager', (ctor) => {
+    const proto: unknown = Reflect.get(ctor, 'prototype');
+    const target = isObject(proto) ? proto : undefined;
+    if (patchAdminClass(target, 'ProjectConfigManager', PROJECT_CONFIG_METHODS, adminRow)) {
+      gatePrototypeMethods(target, {
+        gate: adminRow.gate,
+        appOf,
+        allowlist: EMPTY_LOCAL,
+        skipWhenObserving: true,
+      });
+    }
+  });
+}
+
 /**
- * Patches `BaseAuth.prototype` of the real `base-auth.js` module `baseAuth`
- * once. Later calls change nothing.
+ * Patches `BaseAuth.prototype` and sibling Auth sub-managers once. Later calls
+ * change nothing.
  */
-export function observeAdminAuth(baseAuth: unknown, row: AdminAuthRow): void {
+export function observeAdminAuth(baseAuth: unknown, row: AdminAuthRow, entryFile?: string): void {
   const defined: unknown = isObject(baseAuth) ? Reflect.get(baseAuth, 'BaseAuth') : undefined;
   const prototype: unknown = typeof defined === 'function' ? Reflect.get(defined, 'prototype') : undefined;
+  const gate = failClosedGate(row.gate, 'Auth');
   const adminRow: AdminRow = {
     module: ADMIN_AUTH_MODULE,
     observer: row.observer,
-    gate: failClosedGate(row.gate, 'Auth'),
+    gate,
     appOf,
   };
   const target = isObject(prototype) ? prototype : undefined;
   const isFirstPatch = patchAdminClass(target, 'Auth', METHODS, adminRow);
-  if (isFirstPatch && target !== undefined) refuseSandboxTokens(target, row.hostProjectId);
+  if (isFirstPatch && target !== undefined) {
+    gatePrototypeMethods(target, { gate, appOf, allowlist: EMPTY_LOCAL, skipWhenObserving: true });
+    refuseSandboxTokens(target, row.hostProjectId);
+  }
+  patchSubManagers(entryFile, adminRow, row.hostProjectId);
 }

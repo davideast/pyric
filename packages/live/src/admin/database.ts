@@ -36,9 +36,18 @@ import {
   adminDatabaseResult,
   adminDatabaseSessionContext,
 } from './database-session-capture.js';
-import { keepShape, outsideScope, patchAdminClass, type AdminMethod, type AdminRow } from './patch.js';
+import {
+  isObservingAdminCall,
+  keepShape,
+  markAdminMethodGated,
+  outsideScope,
+  patchAdminClass,
+  type AdminMethod,
+  type AdminRow,
+} from './patch.js';
 import { liveAdminInstanceRefusal, liveAdminInstanceUnreadable, liveAdminProjectRefusal, type AdminProjectSource } from '../refusal.js';
 import { failClosedGate, UNREAD_APP, type AdminApp, type AdminProjectGate } from './project-gate.js';
+import { gatePrototypeMethods } from './prototype-gate.js';
 
 /** The module an Admin RTDB record names: the load the row patches. */
 export const ADMIN_DATABASE_MODULE = '@firebase/database-compat/standalone';
@@ -60,17 +69,28 @@ function delegateOf(self: unknown): unknown {
 
 /** Each firebase-admin app's stand-in for the gate, read once: its project and its own credential. */
 const apps = new WeakMap<object, AdminApp>();
+const databaseByRepo = new WeakMap<object, object>();
+const ownerByOnDisconnect = new WeakMap<object, object>();
+const ON_DISCONNECT_PATCHED = Symbol.for('pyric.live.admin.database.onDisconnect');
+const EMPTY_LOCAL: ReadonlySet<string> = new Set();
+
+function databaseOfReceiver(self: unknown): unknown {
+  const direct = fieldOf(self, 'database');
+  if (isObject(direct)) return direct;
+  if (isObject(self)) {
+    const ownerRef = ownerByOnDisconnect.get(self);
+    if (ownerRef !== undefined) return fieldOf(ownerRef, 'database');
+  }
+  const repo = fieldOf(self, '_repo') ?? fieldOf(delegateOf(self), '_repo');
+  return isObject(repo) ? databaseByRepo.get(repo) : undefined;
+}
 
 /**
  * The Admin app a call belongs to, for the gate: the firebase-admin app the
- * compat Database was made for (`initStandalone(app, ...)`). Its `options`
- * getter copies the options but keeps the credential object, so the gate
- * resolves the project as firebase-admin does: `options.projectId`, a
- * `cert()` credential's, the project variables, then the credential's own
- * `getProjectId()`.
+ * compat Database was made for (`initStandalone(app, ...)`).
  */
 function appOf(self: unknown): AdminApp {
-  return adminAppOf(fieldOf(fieldOf(self, 'database'), 'app'));
+  return adminAppOf(fieldOf(databaseOfReceiver(self), 'app'));
 }
 
 /** The gate's stand-in for one firebase-admin app, made once, or `UNREAD_APP` when absent. */
@@ -81,8 +101,10 @@ function adminAppOf(app: unknown): AdminApp {
   const options = fieldOf(app, 'options');
   const projectId = fieldOf(options, 'projectId');
   const credential = fieldOf(options, 'credential');
-  const named = typeof projectId === 'string' && projectId !== '' ? { projectId } : {};
-  const adminApp: AdminApp = { options: isObject(credential) ? { ...named, credential } : named };
+  const resolvedOptions: { projectId?: string; credential?: object } = {};
+  if (typeof projectId === 'string' && projectId !== '') resolvedOptions.projectId = projectId;
+  if (isObject(credential)) resolvedOptions.credential = credential;
+  const adminApp: AdminApp = { options: resolvedOptions };
   apps.set(app, adminApp);
   return adminApp;
 }
@@ -114,7 +136,10 @@ const HOOKS = {
 type RefusalCallback = AdminMethod['refusalCallback'];
 
 function calls(names: readonly string[], refusalCallback?: RefusalCallback): AdminMethod[] {
-  return names.map((name) => ({ name, ...HOOKS, ...(refusalCallback === undefined ? {} : { refusalCallback }) }));
+  return names.map((name) => {
+    if (refusalCallback === undefined) return { name, ...HOOKS };
+    return { name, ...HOOKS, refusalCallback };
+  });
 }
 
 /** A write's `onComplete`, its first function argument, called with the error as the SDK calls it with a failure. */
@@ -196,7 +221,7 @@ function isCompatListenEvent(value: unknown): value is string {
  * cancel callback.
  */
 function gatedOn(row: AdminRow, real: Method): Method {
-  return keepShape(function on(this: unknown, ...args: unknown[]): unknown {
+  const wrapped = keepShape(function on(this: unknown, ...args: unknown[]): unknown {
     const [eventType, callback] = args;
     if (!isCompatListenEvent(eventType) || typeof callback !== 'function') {
       return Reflect.apply(real, this, args);
@@ -222,6 +247,7 @@ function gatedOn(row: AdminRow, real: Method): Method {
     });
     return callback;
   }, real);
+  return markAdminMethodGated(wrapped);
 }
 
 /** `Query.off`: stops a listen still waiting for the gate, and removes the recording callback the row handed the SDK. */
@@ -230,8 +256,8 @@ function patchedOff(real: Method): Method {
     const [eventType, callback, context] = args;
     stopPending(this, eventType, callback);
     const remove = (_query: unknown, _eventType: unknown, handed: unknown) => {
-      const isHanded = handed !== callback;
-      return Reflect.apply(real, this, isHanded ? [eventType, handed, context] : args);
+      const targetArgs = handed !== callback ? [eventType, handed, context] : args;
+      return Reflect.apply(real, this, targetArgs);
     };
     return offByCallback(remove)(delegateOf(this), eventType, callback);
   }, real);
@@ -246,7 +272,7 @@ function gatedPush(row: AdminRow, realPush: Method, realSet: Method): Method {
   const write = observedCall(siteOf(row, 'Reference.push'), function write(this: unknown, child: unknown, value: unknown): unknown {
     return Reflect.apply(realSet, child, [value]);
   });
-  return keepShape(function push(this: unknown, ...args: unknown[]): unknown {
+  const wrapped = keepShape(function push(this: unknown, ...args: unknown[]): unknown {
     const [value, onComplete] = args;
     const writesNothing = value === undefined || value === null;
     if (writesNothing) return Reflect.apply(realPush, this, args);
@@ -259,6 +285,7 @@ function gatedPush(row: AdminRow, realPush: Method, realSet: Method): Method {
     child.catch = settled.catch.bind(settled);
     return child;
   }, realPush);
+  return markAdminMethodGated(wrapped);
 }
 
 /** Where the records go, which gate the calls pass, and the live host's project the connection gate compares. */
@@ -306,7 +333,8 @@ function holdConnection(row: ConnectionRow, db: object, app: AdminApp): void {
     if (!offlineByApp.has(db)) Reflect.apply(row.goOnline, db, []);
   };
   row.gate(app, goOnline).catch((error: unknown) => {
-    connections.set(db, error instanceof Error ? error : new Error(String(error)));
+    const reason = error instanceof Error ? error : new Error(String(error));
+    connections.set(db, reason);
   });
 }
 
@@ -316,6 +344,7 @@ function holdConnection(row: ConnectionRow, db: object, app: AdminApp): void {
  */
 function instanceOf(db: object): string | undefined {
   const repo = fieldOf(fieldOf(db, '_delegate'), '_repoInternal');
+  if (isObject(repo)) databaseByRepo.set(repo, db);
   const namespace = fieldOf(fieldOf(repo, 'repoInfo_'), 'namespace');
   return typeof namespace === 'string' && namespace !== '' ? namespace.toLowerCase() : undefined;
 }
@@ -380,26 +409,22 @@ function gateConnection(row: ConnectionRow, db: object): void {
 }
 
 function gatedRef(row: ConnectionRow, real: Method): Method {
-  return keepShape(function ref(this: unknown, ...args: unknown[]): unknown {
+  const wrapped = keepShape(function ref(this: unknown, ...args: unknown[]): unknown {
     if (isObject(this)) gateConnection(row, this);
     return Reflect.apply(real, this, args);
   }, real);
+  return markAdminMethodGated(wrapped);
 }
 
-/**
- * `Database.goOnline`, which starts the repo and resumes the connection
- * without `ref()`: it passes the connection gate first, and while the gate
- * is still working out the project it only undoes the app's own `goOffline`,
- * so the hold resumes the connection when the gate passes.
- */
 function gatedGoOnline(row: ConnectionRow): Method {
-  return keepShape(function goOnline(this: unknown, ...args: unknown[]): unknown {
+  const wrapped = keepShape(function goOnline(this: unknown, ...args: unknown[]): unknown {
     if (!isObject(this)) return Reflect.apply(row.goOnline, this, args);
     offlineByApp.delete(this);
     gateConnection(row, this);
     const hasPassed = connections.get(this) === 'passed';
     return hasPassed ? Reflect.apply(row.goOnline, this, args) : undefined;
   }, row.goOnline);
+  return markAdminMethodGated(wrapped);
 }
 
 /** `Database.goOffline`: before the gate passes, it marks the Database so the gate leaves it offline. */
@@ -440,22 +465,61 @@ const RULES_CALLS = ['getRules', 'getRulesJSON', 'setRules'] as const;
 function gateRulesCalls(prototype: object, row: AdminDatabaseRow): void {
   for (const name of RULES_CALLS) {
     const gated = new WeakMap<object, Method>();
+    const getter = markAdminMethodGated(function getRulesMethod(this: unknown): Method | undefined {
+      return isObject(this) ? gated.get(this) : undefined;
+    });
     Object.defineProperty(prototype, name, {
       configurable: true,
-      get(this: unknown): Method | undefined {
-        return isObject(this) ? gated.get(this) : undefined;
-      },
+      get: getter,
       set(this: unknown, real: unknown): void {
         if (!isObject(this) || typeof real !== 'function') return;
         const db = this;
-        gated.set(db, keepShape(function rulesCall(this: unknown, ...args: unknown[]): unknown {
+        gated.set(db, markAdminMethodGated(keepShape(function rulesCall(this: unknown, ...args: unknown[]): unknown {
           const refusal = instanceRefusal(row, db);
           if (refusal !== undefined) return Promise.reject(refusal);
           return row.gate(adminAppOf(fieldOf(db, 'app')), () => Reflect.apply(real, this, args));
-        }, real as Method));
+        }, real as Method)));
       },
     });
   }
+}
+
+function patchCompatOnDisconnect(prototype: object | undefined, gate: AdminProjectGate): void {
+  if (prototype === undefined || Object.hasOwn(prototype, ON_DISCONNECT_PATCHED)) return;
+  for (const name of Object.getOwnPropertyNames(prototype)) {
+    if (name === 'constructor') continue;
+    const descriptor = Object.getOwnPropertyDescriptor(prototype, name);
+    const real = descriptor?.value;
+    if (typeof real !== 'function') continue;
+    const wrapped = markAdminMethodGated(keepShape(function gatedOnDisconnect(this: unknown, ...args: unknown[]): unknown {
+      if (isObservingAdminCall()) return Reflect.apply(real, this, args);
+      const onRefusal = writeCompletion(args);
+      let reached = false;
+      const pending = gate(appOf(this), () => {
+        reached = true;
+        return Reflect.apply(real, this, args);
+      });
+      if (onRefusal !== undefined) {
+        pending.catch((error: unknown) => {
+          if (!reached) onRefusal(error);
+        });
+      }
+      return pending;
+    }, real as Method));
+    Object.defineProperty(prototype, name, { ...descriptor, value: wrapped });
+  }
+  Object.defineProperty(prototype, ON_DISCONNECT_PATCHED, { value: true });
+}
+
+function trackedOnDisconnect(real: Method, gate: AdminProjectGate): Method {
+  return keepShape(function onDisconnect(this: unknown, ...args: unknown[]): unknown {
+    const created = Reflect.apply(real, this, args);
+    if (isObject(created) && isObject(this)) {
+      ownerByOnDisconnect.set(created, this);
+      patchCompatOnDisconnect(Object.getPrototypeOf(created) as object, gate);
+    }
+    return created;
+  }, real);
 }
 
 /**
@@ -492,5 +556,13 @@ export function observeAdminDatabase(sdk: unknown, row: AdminDatabaseRow): void 
   ];
   if (reference !== undefined && patchAdminClass(reference, 'Reference', referenceMethods, adminRow)) {
     replace(reference, 'push', (real) => gatedPush(adminRow, real, realSet as Method));
+    replace(reference, 'onDisconnect', (real) => trackedOnDisconnect(real, closedGate));
   }
+  const modularOnDisconnect = prototypeOf(sdk, 'OnDisconnect');
+  gatePrototypeMethods(modularOnDisconnect, {
+    gate: closedGate,
+    appOf,
+    allowlist: EMPTY_LOCAL,
+    skipWhenObserving: true,
+  });
 }

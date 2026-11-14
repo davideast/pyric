@@ -49,6 +49,49 @@ describe('a live page answers its host reads', () => {
     expect(answer?.ok).toBe(true);
     expect(answer?.data).toEqual({ docs: [{ id: 'a', data: { name: 'Lobby', seats: 4 } }] });
   });
+
+  test('preserves the [DEFAULT] app and primary default-database Firestore handle when secondary FirebaseApps open afterward', async () => {
+    const hits: { projectId?: string; dbId: string }[] = [];
+    const mockFirestore: Record<string, unknown> = {
+      getFirestore(appArg?: { name?: string; options?: { projectId?: string } }, databaseId?: string) {
+        return { app: appArg, _databaseId: databaseId ?? '(default)' };
+      },
+      doc(db: unknown, path: string) {
+        return { firestore: db, path };
+      },
+      async getDoc(ref: { firestore: { app?: { options?: { projectId?: string } }; _databaseId: string } }) {
+        hits.push({ projectId: ref.firestore.app?.options?.projectId, dbId: ref.firestore._databaseId });
+        return { exists: () => true, data: () => ({ ok: true }) };
+      },
+    };
+    noteReadModule('live-firestore', mockFirestore);
+    const getFs = mockFirestore.getFirestore as (app?: unknown, dbId?: string) => unknown;
+
+    // 1. Unnamed mock handles (mainApp opened first, secondaryApp opened second).
+    const mainApp = { options: { projectId: 'org-alpha' } };
+    const secondaryApp = { options: { projectId: 'org-beta' } };
+    getFs(mainApp);
+    getFs(secondaryApp);
+    await hub()?.reader?.call('firestore.getDoc', { path: 'items/item-1' });
+    expect(hits.at(-1)).toEqual({ projectId: 'org-alpha', dbId: '(default)' });
+
+    // 2. Named secondary FirebaseApp opened BEFORE [DEFAULT] FirebaseApp: [DEFAULT] wins once opened,
+    //    and opening another secondary app or named database later never clobbers [DEFAULT].
+    noteReadModule('live-firestore', mockFirestore);
+    const earlySecondary = { name: 'analytics', options: { projectId: 'org-beta' } };
+    const defaultApp = { name: '[DEFAULT]', options: { projectId: 'org-alpha' } };
+    const lateSecondary = { name: 'tenant-other', options: { projectId: 'org-gamma' } };
+    getFs(earlySecondary);
+    getFs(defaultApp);
+    getFs(lateSecondary);
+    getFs(defaultApp, 'reporting-db');
+    await hub()?.reader?.call('firestore_get_document', { path: 'items/item-2' });
+    expect(hits.at(-1)).toEqual({ projectId: 'org-alpha', dbId: '(default)' });
+
+    // Restore the real wrapped module for any subsequent suite assertions.
+    noteReadModule('live-firestore', firestore as unknown as Record<string, unknown>);
+    firestore.getFirestore(app);
+  });
 });
 
 describe('a live page answers Storage reads and crawls to a depth', () => {
@@ -95,21 +138,33 @@ describe('a live page answers Storage reads and crawls to a depth', () => {
   });
 
   test('routes instance and bucket selectors across multiple handles, refuses unopened selectors, and returns Storage metadata faithfully without ref', async () => {
-    const dbPrimary = { app: { options: { projectId: 'proj-1' } }, _repoInternal: { repoInfo_: { namespace: 'proj-1-default-rtdb' } } };
-    const dbSecondary = { app: { options: { projectId: 'proj-1' } }, _repoInternal: { repoInfo_: { namespace: 'proj-1-secondary' } } };
+    const dbPrimary = { app: { name: '[DEFAULT]', options: { projectId: 'proj-1' } }, _repoInternal: { repoInfo_: { namespace: 'proj-1-default-rtdb' } } };
+    const dbSecondary = { app: { name: '[DEFAULT]', options: { projectId: 'proj-1' } }, _repoInternal: { repoInfo_: { namespace: 'proj-1-secondary' } } };
+    const dbOtherApp = { app: { name: 'other-app', options: { projectId: 'proj-2' } }, _repoInternal: { repoInfo_: { namespace: 'proj-2-default-rtdb' } } };
     const databaseModule: Record<string, unknown> = {
-      getDatabase: (_app?: unknown, url?: string) => (url ? dbSecondary : dbPrimary),
+      getDatabase: (appArg?: { name?: string }, url?: string) => {
+        if (url) return dbSecondary;
+        if (appArg?.name === 'other-app') return dbOtherApp;
+        return dbPrimary;
+      },
       ref: (db: unknown, path: string) => ({ db, path }),
-      get: async (r: { db: unknown; path: string }) => ({
-        exists: () => true,
-        val: () => (r.db === dbSecondary ? { source: 'secondary' } : { source: 'primary' }),
-      }),
+      get: async (r: { db: unknown; path: string }) => {
+        let source = 'primary';
+        if (r.db === dbSecondary) source = 'secondary';
+        else if (r.db === dbOtherApp) source = 'other-app';
+        return { exists: () => true, val: () => ({ source }) };
+      },
     };
     noteReadModule('live-database', databaseModule);
-    (databaseModule.getDatabase as (a?: unknown, u?: string) => unknown)(undefined);
-    (databaseModule.getDatabase as (a?: unknown, u?: string) => unknown)(undefined, 'https://proj-1-secondary.firebaseio.com');
+    (databaseModule.getDatabase as (a?: unknown, u?: string) => unknown)({ name: '[DEFAULT]' });
+    (databaseModule.getDatabase as (a?: unknown, u?: string) => unknown)({ name: '[DEFAULT]' }, 'https://proj-1-secondary.firebaseio.com');
+    (databaseModule.getDatabase as (a?: unknown, u?: string) => unknown)({ name: 'other-app' });
 
     expect((await hub()?.reader?.call('database.get', { path: '/items' }))?.data).toEqual({
+      exists: true,
+      value: { source: 'primary' },
+    });
+    expect((await hub()?.reader?.call('database.get', { path: '/items', instance: 'default' }))?.data).toEqual({
       exists: true,
       value: { source: 'primary' },
     });

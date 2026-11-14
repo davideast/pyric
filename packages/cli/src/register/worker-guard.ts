@@ -29,6 +29,8 @@ import { fileURLToPath } from 'node:url';
 import {
   isSandboxParent,
   loadsRegister,
+  matchesRegisterSpecifier,
+  pinnedInheritedVariables,
   withCanonicalRegisterExecArgv,
   withCanonicalRegisterNodeOptions,
   withInheritedSandbox,
@@ -41,6 +43,7 @@ interface WorkerOptionsLike {
   eval?: unknown;
   execArgv?: unknown;
   env?: unknown;
+  [key: string]: unknown;
 }
 
 type WorkerConstructor = new (source: unknown, options?: unknown) => object;
@@ -93,6 +96,27 @@ export function guardWorkerArguments(
       inherited.NODE_OPTIONS = withCanonicalRegisterNodeOptions(childNodeOptions, registerUrl);
     }
     guardedOptions = { ...guardedOptions, env: inherited };
+  } else if (options?.env === undefined) {
+    const pinned = pinnedInheritedVariables();
+    let needsPinnedEnv = false;
+    for (const [name, value] of pinned) {
+      if (parentEnv[name] !== value) {
+        needsPinnedEnv = true;
+        break;
+      }
+    }
+    if (needsPinnedEnv) {
+      const inherited = withInheritedSandbox(parentEnv, parentEnv, parentActive);
+      const parentNodeOptions = parentEnv.NODE_OPTIONS ?? '';
+      if (loadsRegister(parentNodeOptions, registerUrl)) {
+        inherited.NODE_OPTIONS = withCanonicalRegisterNodeOptions(parentNodeOptions, registerUrl);
+      }
+      guardedOptions = { ...guardedOptions, env: inherited };
+    }
+  } else if (typeof options?.env === 'symbol') {
+    for (const [name, value] of pinnedInheritedVariables()) {
+      if (parentEnv[name] !== value) parentEnv[name] = value;
+    }
   }
   return [guardedSource, guardedOptions];
 }
@@ -126,7 +150,27 @@ export function installWorkerGuard(
   class GuardedWorker extends Original {
     static readonly [GUARDED_WORKER] = true;
     constructor(source: unknown, options?: WorkerOptionsLike) {
-      super(...guardWorkerArguments(source, options, registerUrl, process.env, isSandboxParent(), evalRegisterUrl));
+      let effectiveOptions = options;
+      if (
+        options?.eval !== true &&
+        options?.execArgv === undefined &&
+        process.execArgv.some((arg) => !arg.startsWith('file:') && matchesRegisterSpecifier(arg, registerUrl))
+      ) {
+        effectiveOptions = {
+          ...options,
+          execArgv: withCanonicalRegisterExecArgv(process.execArgv, registerUrl),
+        };
+      }
+      super(
+        ...guardWorkerArguments(
+          source,
+          effectiveOptions,
+          registerUrl,
+          process.env,
+          isSandboxParent(),
+          evalRegisterUrl,
+        ),
+      );
     }
   }
   Object.defineProperty(GuardedWorker, 'name', { value: Original.name });

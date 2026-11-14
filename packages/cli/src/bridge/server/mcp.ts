@@ -17,6 +17,7 @@ import { jsonSchemaToZodShape } from './json-schema-to-zod.js';
 import { createOperationBudget } from '../operation-budget.js';
 import { toolFamilies } from '../tool-families.js';
 import type { PyricWriteRefusal } from '../../serve/hosted/own-writes.js';
+import { tabCallRoute } from '../../serve/hosted/live-reads.js';
 
 export interface RegisterToolsOptions {
   /** Metadata for tools whose dispatch goes to the bridge peer. */
@@ -253,6 +254,22 @@ export function buildMcpServer(
               isError: true,
             });
             return toMcpResult(refused, bridge.project, 'in-process', bridgeMode);
+          }
+          if (bridgeMode === 'live') {
+            const routed = await tabCallRoute(bridge.tabTools, handler.name, args ?? {});
+            if (routed !== undefined) {
+              bridge.recordToolEvent({
+                timestamp: new Date(startedAtMs).toISOString(),
+                mode: bridgeMode,
+                project: bridge.project,
+                tool: handler.name,
+                args: args ?? {},
+                result: routed,
+                durationMs: Date.now() - startedAtMs,
+                isError: !routed.ok,
+              });
+              return toMcpResult(routed, bridge.project, 'host', bridgeMode);
+            }
           }
           try {
             // The bridge supplies an AbortSignal-less ToolContext; tools

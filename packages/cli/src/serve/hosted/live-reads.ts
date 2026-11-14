@@ -35,7 +35,7 @@ const OTHER_DATA_READS: ReadonlySet<string> = new Set([
   'sandbox.inspect',
 ]);
 
-/** Forwarded tools on `/__pyric/mcp` that read the project's data. */
+/** Forwarded and in-process tools on `/__pyric/mcp` that read the project's data. */
 const FORWARDED_DATA_READS: ReadonlySet<string> = new Set([
   'firestore_get_document',
   'firestore_list_documents',
@@ -44,6 +44,8 @@ const FORWARDED_DATA_READS: ReadonlySet<string> = new Set([
   'rtdb_crawl_structure',
   'auth_get_user',
   'auth_list_users',
+  'auth_whoami',
+  'auth_sessions',
   'sandbox_inspect',
   'messaging_deliveries',
 ]);
