@@ -87,8 +87,9 @@ export function avatarUidFromPath(pathname: string): string | null {
  */
 function isCrossSiteRequest(req: IncomingMessage): boolean {
   const header = req.headers?.['sec-fetch-site'];
-  const value = Array.isArray(header) ? header[0] : header;
-  return value === 'cross-site';
+  const raw = Array.isArray(header) ? header[0] : header;
+  const value = raw?.trim().toLowerCase();
+  return value === 'cross-site' || value === 'same-site';
 }
 
 /** The seed the resolver picks a pool image with. An explicit `d` wins; a
@@ -130,7 +131,6 @@ export async function handleAvatar(
   const assetRequest: AssetRequest = {
     key: uid,
     seed: seedFor(uid, url.searchParams.get('d')),
-    ...(isCrossSiteRequest(req) ? { sourceAllowed: false } : {}),
     context: {
       uid,
       displayName: url.searchParams.get('n'),
@@ -138,6 +138,9 @@ export async function handleAvatar(
       providerId: url.searchParams.get('p'),
     },
   };
+  if (isCrossSiteRequest(req)) {
+    assetRequest.sourceAllowed = false;
+  }
 
   let asset;
   try {

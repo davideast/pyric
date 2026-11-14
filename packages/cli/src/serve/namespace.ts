@@ -170,6 +170,28 @@ function remotePeerInitPayload(payload: InitPayload): InitPayload {
   };
 }
 
+function guardAvatarLoopback(
+  req: IncomingMessage,
+  res: ServerResponse,
+  opts: GuardOptions,
+): boolean {
+  if (!isLocalPeer(req)) {
+    res.writeHead(403, { 'content-type': 'text/plain' }).end('Forbidden: this route answers clients on this machine only');
+    return false;
+  }
+  const hostHeader = getHeader(req, 'host');
+  if (!isAllowedHost(hostHeader, opts.boundHost ?? 'localhost')) {
+    res.writeHead(403, { 'content-type': 'text/plain' }).end('Forbidden: host not allowed');
+    return false;
+  }
+  const originHeader = getHeader(req, 'origin');
+  if (originHeader && !isAppOrigin(req, originHeader, opts, false)) {
+    res.writeHead(403, { 'content-type': 'text/plain' }).end('Forbidden: origin mismatch');
+    return false;
+  }
+  return true;
+}
+
 function guardLoopback(
   req: IncomingMessage,
   res: ServerResponse,
@@ -470,10 +492,12 @@ export function createPyricNamespace(opts: NamespaceOptions): PyricNamespaceHand
     const avatars = opts.avatars;
     const isAvatarRequest = avatars !== undefined && url.pathname.startsWith(ASSETS_ROUTE_PREFIX);
     if (isAvatarRequest) {
+      if (!guardAvatarLoopback(req, res, opts)) return true;
       return handleAvatar(avatars, req, res, url).then(() => true);
     }
     const isSdkRequest = url.pathname.startsWith('/__pyric/sdk/');
     if (isSdkRequest) {
+      if (!guardLoopback(req, res, opts, false)) return true;
       const file = join(opts.sdkDir, basename(url.pathname));
       const missingFile = !existsSync(file);
       if (missingFile) {
@@ -488,11 +512,7 @@ export function createPyricNamespace(opts: NamespaceOptions): PyricNamespaceHand
       }
       const isSourceMap = file.endsWith('.map');
       const type = isSourceMap ? 'application/json' : 'text/javascript; charset=utf-8';
-      if (
-        isLocalPeer(req) &&
-        isAllowedHost(getHeader(req, 'host'), opts.boundHost ?? 'localhost') &&
-        getHeader(req, 'sec-fetch-site')?.trim().toLowerCase() === 'same-origin'
-      ) {
+      if (getHeader(req, 'sec-fetch-site')?.trim().toLowerCase() === 'same-origin') {
         appendSetCookieHeader(res, formatSessionCookie(sessionToken));
       }
       res.writeHead(200, { 'content-type': type, 'cache-control': 'no-store' });
@@ -504,7 +524,12 @@ export function createPyricNamespace(opts: NamespaceOptions): PyricNamespaceHand
     const requestsStudio = url.pathname === '/__pyric/ui' || url.pathname.startsWith('/__pyric/ui/');
     const hasMissingStudioAssets = opts.studio !== undefined && !siteTree && requestsStudio;
     if (hasMissingStudioAssets) {
-      if (!guardLoopback(req, res, opts, isAllowedSessionToken(req, url, sessionToken))) return true;
+      const authenticated = isAllowedSessionToken(req, url, sessionToken);
+      if (!guardLoopback(req, res, opts, authenticated)) return true;
+      if (requiresSessionToken && !authenticated) {
+        res.writeHead(401, { 'content-type': 'text/plain' }).end('Unauthorized: invalid session capability token');
+        return true;
+      }
       res.writeHead(503, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' });
       res.end(
         '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Studio is unavailable</title></head><body><main><h1>Studio is unavailable</h1><p>The Studio assets are missing from this Pyric installation.</p><p>In a source checkout, run the full build with <code>bash scripts/build.sh</code>. Otherwise, reinstall <code>@pyric/cli</code>. Restart the development server afterward.</p><a href="/">Return to app</a></main></body></html>',

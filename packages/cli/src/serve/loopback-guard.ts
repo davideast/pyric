@@ -5,6 +5,54 @@ import { isLocalPeer, isLoopbackAddress } from './peer.js';
 
 export { isLocalPeer, isLoopbackAddress };
 
+function extractHostname(raw: string): string {
+  const trimmed = raw.trim().toLowerCase();
+  if (trimmed.startsWith('[')) {
+    const close = trimmed.indexOf(']');
+    if (close !== -1) return trimmed.slice(1, close);
+  }
+  const firstColon = trimmed.indexOf(':');
+  const lastColon = trimmed.lastIndexOf(':');
+  if (firstColon !== -1 && firstColon === lastColon) {
+    const maybePort = trimmed.slice(firstColon + 1);
+    if (/^\d+$/.test(maybePort)) {
+      return trimmed.slice(0, firstColon);
+    }
+  }
+  return trimmed;
+}
+
+function extractPortFromHost(raw: string): number | undefined {
+  const trimmed = raw.trim();
+  if (trimmed.startsWith('[')) {
+    const match = /\]:(\d+)$/.exec(trimmed);
+    if (match) return Number(match[1]);
+    return undefined;
+  }
+  const firstColon = trimmed.indexOf(':');
+  const lastColon = trimmed.lastIndexOf(':');
+  if (firstColon !== -1 && firstColon === lastColon) {
+    const maybePort = trimmed.slice(firstColon + 1);
+    if (/^\d+$/.test(maybePort)) return Number(maybePort);
+  }
+  return undefined;
+}
+
+const WILDCARD_HOSTNAMES = new Set([
+  '0',
+  '0.0.0.0',
+  '::ffff:0.0.0.0',
+  '::ffff:0:0',
+  '0:0:0:0:0:ffff:0.0.0.0',
+  '0:0:0:0:0:ffff:0:0',
+]);
+
+function isWildcardHostname(hostname: string): boolean {
+  const clean = hostname.replace(/\.+$/, '');
+  if (WILDCARD_HOSTNAMES.has(clean)) return true;
+  return clean.includes(':') && /^[0:]+$/.test(clean);
+}
+
 /**
  * DNS-rebinding guard. A dev server bound to localhost is reachable by any
  * webpage whose hostname resolves to 127.0.0.1 (`attacker.com` -> A
@@ -14,9 +62,11 @@ export { isLocalPeer, isLoopbackAddress };
  * Vite addresses the same class with `server.allowedHosts`.
  *
  * We accept only loopback hostnames + the host the server was bound to +
- * any `--allowed-host`. A request with NO Host header is allowed (curl /
- * same-origin fetches omit nothing in practice, but non-browser clients may;
- * the attack requires a browser sending the attacker's Host).
+ * any `--allowed-host`. Wildcard bind addresses (`0.0.0.0`, `::`) are never
+ * accepted as Host or Origin names even when the listener is wildcard-bound.
+ * A request with NO Host header is allowed (curl / same-origin fetches omit
+ * nothing in practice, but non-browser clients may; the attack requires a
+ * browser sending the attacker's Host).
  */
 export function isAllowedHost(
   hostHeader: string | undefined,
@@ -24,14 +74,13 @@ export function isAllowedHost(
   extra: string[] = [],
 ): boolean {
   if (!hostHeader) return true; // no Host -> not a browser rebinding attack
-  const hostname = hostHeader.replace(/:\d+$/, '').replace(/^\[|\]$/g, '').toLowerCase();
-  const boundHostname = boundHost.replace(/:\d+$/, '').replace(/^\[|\]$/g, '').toLowerCase();
+  const hostname = extractHostname(hostHeader);
+  if (isWildcardHostname(hostname)) return false;
+  const boundHostname = extractHostname(boundHost);
   if (hostname === 'localhost' || isLoopbackAddress(hostname) || hostname === boundHostname) {
     return true;
   }
-  const allowed = new Set(
-    extra.map((h) => h.replace(/:\d+$/, '').replace(/^\[|\]$/g, '').toLowerCase()),
-  );
+  const allowed = new Set(extra.map((h) => extractHostname(h)));
   return allowed.has(hostname);
 }
 
@@ -127,15 +176,15 @@ export function isAllowedOrigin(
   const hostname = originUrl.hostname; // may be `[::1]` -- isAllowedHost strips brackets
   const allowedHost = isAllowedHost(hostname, boundHost, extra);
   if (!allowedHost) return false;
-  const normalizedHost = hostname.replace(/^\[|\]$/g, '').toLowerCase();
+  const normalizedHost = extractHostname(hostname);
   const allowedByName = !isAllowedHost(hostname, boundHost) && isAllowedHost(hostname, boundHost, extra);
-  const portOnHost = /:(\d+)$/.exec(boundHost)?.[1];
-  let expectedPort = boundPort;
-  if (expectedPort === undefined && portOnHost !== undefined) {
-    expectedPort = Number(portOnHost);
-  }
+  const expectedPort = boundPort ?? extractPortFromHost(boundHost);
   if (allowedByName) {
-    if (originUrl.port === '' || expectedPort === undefined) return true;
+    if (originUrl.port === '') return true;
+    if (expectedScheme !== undefined && originUrl.protocol !== expectedScheme) {
+      return false;
+    }
+    if (expectedPort === undefined) return true;
     const explicitHostPort = `${normalizedHost}:${originUrl.port}`;
     const hasExplicitExtraPort = extra.some(
       (entry) => entry.replace(/^\[|\]$/g, '').toLowerCase() === explicitHostPort,
@@ -148,7 +197,10 @@ export function isAllowedOrigin(
   const portUnknown = expectedPort === undefined;
   if (portUnknown) return true;
   const defaultPort = originUrl.protocol === 'https:' ? 443 : 80;
-  const originPort = originUrl.port === '' ? defaultPort : Number(originUrl.port);
+  let originPort = defaultPort;
+  if (originUrl.port !== '') {
+    originPort = Number(originUrl.port);
+  }
   return originPort === expectedPort;
 }
 
@@ -377,8 +429,7 @@ export function canBootstrapHtmlSession(
 ): boolean {
   if (!isLocalPeer(req)) return false;
   const hostHeader = getHeader(req, 'host');
-  const hostname = hostHeader?.replace(/:\d+$/, '').replace(/^\[|\]$/g, '').toLowerCase();
-  if (hostname === '0.0.0.0' || hostname === '::') return false;
+  if (hostHeader && isWildcardHostname(extractHostname(hostHeader))) return false;
   if (!isAllowedHost(hostHeader, boundHost)) return false;
   let ports = appPorts;
   if (ports === undefined && req.socket?.localPort) {
