@@ -23,7 +23,15 @@ describe('observed-session call-policy', () => {
     expect(isSessionDataService('storage')).toBe(true);
     expect(isSessionDataService('auth')).toBe(false);
 
-    expect(classifySessionCall('storage', 'uploadBytes')).toBe('read');
+    expect(classifySessionCall('storage', 'getMetadata')).toBe('read');
+    expect(classifySessionCall('storage', 'listAll')).toBe('read');
+    expect(classifySessionCall('storage', 'File.download')).toBe('read');
+    expect(classifySessionCall('storage', 'uploadBytes')).toBe('scoped-mutation');
+    expect(classifySessionCall('storage', 'deleteObject')).toBe('scoped-mutation');
+    expect(classifySessionCall('storage', 'File.restore')).toBe('scoped-mutation');
+    expect(classifySessionCall('storage', 'File.copy')).toBe('unscoped-mutation');
+    expect(classifySessionCall('storage', 'Bucket.deleteFiles')).toBe('unscoped-mutation');
+    expect(classifySessionCall('storage', 'futureUnknownStorageMethod')).toBe('scoped-mutation');
 
     expect(classifySessionCall('firestore', 'getDoc')).toBe('read');
     expect(classifySessionCall('firestore', 'getDocs')).toBe('read');
@@ -211,5 +219,88 @@ describe('observed-session call-policy', () => {
       'demo',
     );
     expect(store.getRtdbInstance('demo-default-rtdb').isPathKnown('/flags/open')).toBe(false);
+  });
+
+  it('classifies Storage mutations, preserves entries on definitive rules denials, invalidates uncaptured/ambiguous Storage writes, and normalizes gs:// buckets', () => {
+    expect(classifySessionCall('storage', 'getMetadata')).toBe('read');
+    expect(classifySessionCall('storage', 'Bucket.getFiles')).toBe('read');
+    expect(classifySessionCall('storage', 'uploadBytes')).toBe('scoped-mutation');
+    expect(classifySessionCall('storage', 'File.restore')).toBe('scoped-mutation');
+    expect(classifySessionCall('storage', 'File.makePublic')).toBe('scoped-mutation');
+    expect(classifySessionCall('storage', 'File.copy')).toBe('unscoped-mutation');
+    expect(classifySessionCall('storage', 'File.move')).toBe('unscoped-mutation');
+    expect(classifySessionCall('storage', 'Bucket.combine')).toBe('unscoped-mutation');
+    expect(classifySessionCall('storage', 'Bucket.delete')).toBe('unscoped-mutation');
+
+    const store = createObservedSessionDataStore({ projectId: 'demo-test' });
+    store.apply({
+      storage: [
+        { kind: 'upsert', bucket: 'demo-test.appspot.com', fullPath: 'items/a.txt', metadata: { size: 10 } },
+        { kind: 'upsert', bucket: 'demo-test.appspot.com', fullPath: 'items/b.txt', metadata: { size: 20 } },
+        { kind: 'upsert', bucket: 'demo-test.appspot.com', fullPath: 'items/c.txt', metadata: { size: 30 } },
+      ],
+    });
+
+    // Definitive Storage rules denials keep cached entries intact.
+    applyAcceptedSessionCall(
+      store,
+      {
+        call: makeCall({
+          service: 'storage',
+          method: 'deleteObject',
+          bucket: 'demo-test.appspot.com',
+          path: 'items/a.txt',
+          outcome: { status: 'error', code: 'storage/unauthorized' },
+        }),
+      },
+      'demo-test',
+    );
+    expect(Object.keys(store.snapshot().storage?.['demo-test.appspot.com']?.objects ?? {})).toEqual([
+      'items/a.txt',
+      'items/b.txt',
+      'items/c.txt',
+    ]);
+
+    // Accepted Storage scoped mutation with no sessionData invalidates target path.
+    applyAcceptedSessionCall(
+      store,
+      {
+        call: makeCall({
+          service: 'storage',
+          sdk: 'admin',
+          method: 'File.restore',
+          bucket: 'demo-test.appspot.com',
+          path: 'items/a.txt',
+        }),
+      },
+      'demo-test',
+    );
+    expect(Object.keys(store.snapshot().storage?.['demo-test.appspot.com']?.objects ?? {})).toEqual([
+      'items/b.txt',
+      'items/c.txt',
+    ]);
+
+    // Bucket normalization handles gs://, uppercase, and trailing slashes.
+    store.invalidateStorage('gs://Demo-Test.appspot.com/', 'items/c.txt');
+    expect(Object.keys(store.snapshot().storage?.['demo-test.appspot.com']?.objects ?? {})).toEqual([
+      'items/b.txt',
+    ]);
+
+    // Ambiguous failure on unscoped Storage mutation (`File.copy`) invalidates destination & source catalog entries.
+    applyAcceptedSessionCall(
+      store,
+      {
+        call: makeCall({
+          service: 'storage',
+          sdk: 'admin',
+          method: 'File.copy',
+          bucket: 'demo-test.appspot.com',
+          path: 'items/src.txt',
+          outcome: { status: 'error', code: 'storage/unknown' },
+        }),
+      },
+      'demo-test',
+    );
+    expect(store.snapshot().storage).toBeUndefined();
   });
 });

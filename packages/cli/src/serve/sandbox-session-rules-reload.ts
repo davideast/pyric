@@ -299,10 +299,9 @@ export function createSessionRulesReloaders(deps: SessionRulesReloadDeps) {
       events.broadcast('storage-rules-update', updatedEvent);
       return { kind: 'reloaded', rulesHash: loaded.rulesHash, clients: events.clientCount() };
     } catch (error) {
-      storageAttemptedModuleFilesByTarget.set(
-        target,
-        error instanceof RulesPrepareError ? error.moduleFiles : [],
-      );
+      let attempted: readonly string[] = [];
+      if (error instanceof RulesPrepareError) attempted = error.moduleFiles;
+      storageAttemptedModuleFilesByTarget.set(target, attempted);
       return { kind: 'rejected', error: toError(error) };
     }
   };
@@ -326,10 +325,9 @@ export function createSessionRulesReloaders(deps: SessionRulesReloadDeps) {
       if (loaded === null) return { kind: 'removed', policy, clients: events.clientCount() };
       return { kind: 'reloaded', rulesHash: loaded.rulesHash, clients: events.clientCount() };
     } catch (error) {
-      storageAttemptedModuleFilesByTarget.set(
-        target,
-        error instanceof RulesPrepareError ? error.moduleFiles : [],
-      );
+      let attempted: readonly string[] = [];
+      if (error instanceof RulesPrepareError) attempted = error.moduleFiles;
+      storageAttemptedModuleFilesByTarget.set(target, attempted);
       return { kind: 'rejected', error: toError(error) };
     }
   };

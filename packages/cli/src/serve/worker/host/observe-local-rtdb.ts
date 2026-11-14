@@ -85,6 +85,7 @@ interface RtdbPlan {
   hasIncrement: boolean;
   isPush: boolean;
   isRemove: boolean;
+  isPriorityMethod?: boolean;
 }
 
 interface RuleReads {
@@ -158,6 +159,10 @@ function pushTarget(path: string): string {
   return joinRtdbPath(path, RTDB_PUSH_PLACEHOLDER);
 }
 
+function isPriorityTargetPath(targetPath: string): boolean {
+  return targetPath.split('/').includes('.priority');
+}
+
 function rtdbPlan(call: ObservedCall, method: ObservedMethod, path: string): RtdbPlan | null {
   const operation = RTDB_OPERATION[method];
   const isPush = call.method === 'push';
@@ -169,6 +174,7 @@ function rtdbPlan(call: ObservedCall, method: ObservedMethod, path: string): Rtd
     hasIncrement: false,
     isPush,
     isRemove,
+    isPriorityMethod: call.method === 'setPriority',
   };
   if (isPush) plan.targets = [pushTarget(path)];
   if (operation === 'read') return plan;
@@ -371,12 +377,19 @@ function collectSimulationGaps(
 
   if (plan.operation === 'write') {
     let clearedTargets: string[] = [];
-    const isSingleEffectiveNull =
-      plan.isRemove || (plan.updates === undefined && plan.hasWriteData && isNullRtdbWrite(plan.newData));
-    if (isSingleEffectiveNull) {
+    if (plan.isPriorityMethod) {
+      clearedTargets = plan.targets.map((t) => joinRtdbPath(t, '.priority'));
+    } else if (
+      plan.isRemove ||
+      (plan.updates === undefined &&
+        plan.hasWriteData &&
+        (isNullRtdbWrite(plan.newData) || plan.targets.some(isPriorityTargetPath)))
+    ) {
       clearedTargets = plan.targets;
     } else if (plan.updates !== undefined) {
-      clearedTargets = plan.updates.filter((u) => isNullRtdbWrite(u.value)).map((u) => u.path);
+      clearedTargets = plan.updates
+        .filter((u) => isNullRtdbWrite(u.value) || isPriorityTargetPath(u.path))
+        .map((u) => u.path);
     }
     for (const target of clearedTargets) {
       const uncapturedAncestors = uncapturedAncestorValidatePaths(compiled, target, lookup);

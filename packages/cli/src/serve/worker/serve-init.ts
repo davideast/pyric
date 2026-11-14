@@ -3,7 +3,8 @@ import { doc } from 'pyric/firestore';
 import { seedDocuments, setRules, snapshotDocuments } from 'pyric/sandbox/firestore';
 import { rulesSourceRejection } from 'pyric/rules/internal';
 import { rtdbRulesSourceRejection } from 'pyric/rules/internal/rtdb';
-import { sandbox as rtdbSandbox } from 'pyric/database';
+import { getAdminDatabase, sandbox as rtdbSandbox } from 'pyric/database';
+import { heldDatabaseInstances } from 'pyric/database/internal';
 import { sandbox as authOps, type SeedUser } from 'pyric/auth';
 import {
   applyStorageRulesUpdate,
@@ -143,11 +144,24 @@ export interface ServeInitResult {
   dispose(): void;
 }
 
+function hasNonEmptyRtdbState(state: unknown): boolean {
+  if (state === null || state === undefined) return false;
+  if (Array.isArray(state)) return state.length > 0;
+  if (typeof state === 'object') return Object.keys(state).length > 0;
+  return true;
+}
+
 function sandboxHasExistingData(ctx: HostCtx): boolean {
   const docs = snapshotDocuments(ctx.sandbox);
   if (Object.keys(docs).length > 0) return true;
   const auth = ensureAuth(ctx);
-  return authOps.exportUsers(auth).length > 0;
+  if (authOps.exportUsers(auth).length > 0) return true;
+  if (hasNonEmptyRtdbState(rtdbSandbox.snapshotState(rtdbInstance(ctx).live))) return true;
+  for (const name of heldDatabaseInstances(ctx.sandbox)) {
+    const db = getAdminDatabase(ctx.sandbox, name);
+    if (hasNonEmptyRtdbState(rtdbSandbox.snapshotState(db))) return true;
+  }
+  return false;
 }
 
 const SANDBOX_SEED_SECTION_KEYS: ReadonlySet<string> = new Set([

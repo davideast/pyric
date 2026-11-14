@@ -2,13 +2,32 @@ import {
   STORAGE_IMMUTABLE_STRING_FIELDS,
   STORAGE_NULLABLE_STRING_FIELDS,
   copyStorageCustomMetadataRecord,
+  isValidStorageBucketName,
   type ObservedStorageObjectInput,
   type ObservedStorageObjectMetadata,
 } from './storage-policy.js';
+import { UNREAD_BUCKET } from './wire.js';
 
 type MutableStorageObjectMetadata = {
   -readonly [K in keyof ObservedStorageObjectMetadata]: ObservedStorageObjectMetadata[K];
 };
+
+export function normalizeCatalogBucketName(rawBucket: string): string | null {
+  const trimmed = rawBucket.trim();
+  if (trimmed === '') return null;
+  if (trimmed === UNREAD_BUCKET) return UNREAD_BUCKET;
+  let body = trimmed;
+  if (body.slice(0, 5).toLowerCase() === 'gs://') {
+    body = body.slice(5);
+  }
+  const slash = body.indexOf('/');
+  if (slash !== -1) {
+    body = body.slice(0, slash);
+  }
+  const lowered = body.toLowerCase();
+  if (!isValidStorageBucketName(lowered)) return null;
+  return lowered;
+}
 
 export function objectKey(bucket: string, fullPath: string): string {
   return `${bucket}\u0000${fullPath}`;

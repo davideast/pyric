@@ -1,7 +1,7 @@
 /**
  * Deterministic seeded two-world partial-observation soundness oracle across
  * Firestore (`firestoreVerdict`), RTDB (`rtdbVerdict`), and Storage
- * (`storageVerdict`).
+ * (`storageVerdict` + live Storage wrapper).
  *
  * Invariant: whenever the full ground-truth world `(state, auth, rules, op)`
  * DENIES an operation in `Sandbox` / `evaluateStorageRules`, projecting any
@@ -11,6 +11,7 @@
  */
 import 'fake-indexeddb/auto';
 import { describe, expect, it } from 'bun:test';
+import { wrapLiveModule, type LiveCallRecord } from '../../../../../live/dist/index.js';
 import {
   getAdminDatabase,
   getDatabase,
@@ -67,13 +68,26 @@ function makeFsHost(instanceId: string) {
 }
 
 describe('two-world partial-observation soundness oracle (zero false-allows)', () => {
-  it('Firestore: never returns allow across parenthesized/container/duplicate-match rules when full Sandbox denies', async () => {
+  it('Firestore: never returns allow across parenthesized/container/slice/method/duplicate-match rules when full Sandbox denies', async () => {
     const rng = createPrng(0x5b1101);
+    const getTemplates = [
+      (d: number) => wrapParens(`checkGuest(${wrapParens('request', 1 + (d % 2))})`, d),
+      () => "['pad', request][1:2][0].auth.token.get('role', 'guest') == 'guest'",
+      () => "([request].concat([]))[0].auth.token.get('role', 'guest') == 'guest'",
+      () => "{'req': request}.values()[0].auth.token.get('role', 'guest') == 'guest'",
+    ] as const;
+    const updateTemplates = [
+      "request.auth != null && {'tok': request.auth.token}.tok.get('email', '') == ''",
+      "request.auth != null && ['pad', request.auth.token][1:2][0].get('email', '') == ''",
+      "request.auth != null && request.auth.token.firebase in [{'sign_in_provider': 'password', 'identities': {}}]",
+      "request.auth != null && [request.auth.token.firebase].hasAny([{'sign_in_provider': 'password', 'identities': {}}])",
+    ] as const;
 
-    for (let trial = 0; trial < 40; trial++) {
+    for (let trial = 0; trial < 48; trial++) {
       const parenDepth = 1 + (trial % 3);
       const variant = trial % 4;
-      const helperCall = wrapParens(`checkGuest(${wrapParens('request', 1 + (trial % 2))})`, parenDepth);
+      const getExpr = getTemplates[Math.floor(trial / 4) % getTemplates.length]!(parenDepth);
+      const updateExpr = updateTemplates[Math.floor(trial / 4) % updateTemplates.length]!;
       const afterCall = wrapParens(
         `existsAfter(/databases/$(database)/documents/orgs/org-${trial})`,
         parenDepth,
@@ -89,9 +103,9 @@ service cloud.firestore {
       function checkLocal(req) {
         return req.auth != null && req.auth.token.get('tier', 'free') == 'free';
       }
-      allow get: if ${helperCall};
+      allow get: if ${getExpr};
       allow create: if !${afterCall};
-      allow update: if request.auth != null && {'tok': request.auth.token}.tok.get('email', '') == '';
+      allow update: if ${updateExpr};
       allow delete: if ${wrapParens('checkLocal(request)', parenDepth)};
     }
     match /items/{id} {
@@ -125,11 +139,9 @@ service cloud.firestore {
 
       if (variant === 0) {
         obsMethod = 'get';
-        try {
-          await getDoc(doc(authedDb, `items/item-${trial}`));
-        } catch {
+        await getDoc(doc(authedDb, `items/item-${trial}`)).catch(() => {
           groundTruthDenied = true;
-        }
+        });
         call = {
           service: 'firestore',
           method: 'getDoc',
@@ -140,11 +152,9 @@ service cloud.firestore {
         };
       } else if (variant === 1) {
         obsMethod = 'create';
-        try {
-          await setDoc(doc(authedDb, `items/new-${trial}`), { title: 'created' });
-        } catch {
+        await setDoc(doc(authedDb, `items/new-${trial}`), { title: 'created' }).catch(() => {
           groundTruthDenied = true;
-        }
+        });
         call = {
           service: 'firestore',
           method: 'setDoc',
@@ -156,11 +166,9 @@ service cloud.firestore {
         };
       } else if (variant === 2) {
         obsMethod = 'update';
-        try {
-          await updateDoc(doc(authedDb, `items/item-${trial}`), { title: 'edited' });
-        } catch {
+        await updateDoc(doc(authedDb, `items/item-${trial}`), { title: 'edited' }).catch(() => {
           groundTruthDenied = true;
-        }
+        });
         observedSession.apply({
           firestore: [{ kind: 'set', path: `items/item-${trial}`, data: { title: 'existing' } }],
         });
@@ -170,21 +178,25 @@ service cloud.firestore {
           path: `items/item-${trial}`,
           at: 1000 + trial,
           outcome: DENIED_FS,
-          account: { uid: `u-${trial}`, claimNames: ['email', 'sub'], claims: { sub: `u-${trial}` } },
+          account: {
+            uid: `u-${trial}`,
+            claimNames: ['email', 'firebase', 'sub'],
+            claims: { sub: `u-${trial}`, firebase: { sign_in_provider: 'password', identities: {} } },
+          },
           writeData: { title: 'edited' },
         };
       } else {
         obsMethod = 'delete';
-        try {
-          await deleteDoc(doc(authedDb, `items/item-${trial}`));
-        } catch {
+        await deleteDoc(doc(authedDb, `items/item-${trial}`)).catch(() => {
           groundTruthDenied = true;
-        }
-        let deleteAccount: ObservedCall['account'];
+        });
+        let deleteAccount: ObservedCall['account'] = {
+          uid: `u-${trial}`,
+          claimNames: ['tier'],
+          claims: { tier: 'enterprise' },
+        };
         if (pick(rng, [true, false])) {
           deleteAccount = { uid: `u-${trial}`, claimNames: ['tier', 'sub'] };
-        } else {
-          deleteAccount = { uid: `u-${trial}`, claimNames: ['tier'], claims: { tier: 'enterprise' } };
         }
         call = {
           service: 'firestore',
@@ -280,34 +292,21 @@ service cloud.firestore {
       let verdictResult: string | undefined;
 
       if (mode === 0) {
-        try {
-          await setDoc(doc(clientDb, `docs/c-${trial}`), { meta: shape.plainMap });
-        } catch {
+        await setDoc(doc(clientDb, `docs/c-${trial}`), { meta: shape.plainMap }).catch(() => {
           groundTruthDenied = true;
-        }
+        });
         let writeMeta: Record<string, unknown> = shape.plainMap;
-        if (pick(rng, [true, false])) {
-          writeMeta = { type: 'pyric/map/1.0', fields: shape.plainMap };
-        }
+        if (pick(rng, [true, false])) writeMeta = { type: 'pyric/map/1.0', fields: shape.plainMap };
         verdictResult = firestoreVerdict(
           ctx,
-          {
-            service: 'firestore',
-            method: 'setDoc',
-            path: `docs/c-${trial}`,
-            at: 2000 + trial,
-            outcome: DENIED_FS,
-            writeData: { meta: writeMeta },
-          },
+          { service: 'firestore', method: 'setDoc', path: `docs/c-${trial}`, at: 2000 + trial, outcome: DENIED_FS, writeData: { meta: writeMeta } },
           'create',
         )?.result;
       } else if (mode === 1) {
         await setDoc(doc(adminDb, `docs/d-${trial}`), { meta: shape.plainMap });
-        try {
-          await deleteDoc(doc(clientDb, `docs/d-${trial}`));
-        } catch {
+        await deleteDoc(doc(clientDb, `docs/d-${trial}`)).catch(() => {
           groundTruthDenied = true;
-        }
+        });
         observedSession.apply({
           firestore: [
             { kind: 'set', path: `docs/d-${trial}`, data: { meta: { type: 'pyric/map/1.0', fields: shape.baseMap } } },
@@ -321,26 +320,15 @@ service cloud.firestore {
         )?.result;
       } else {
         await setDoc(doc(adminDb, `docs/u-${trial}`), { meta: shape.baseMap });
-        try {
-          await updateDoc(doc(clientDb, `docs/u-${trial}`), { [shape.dottedKey]: shape.dottedVal });
-        } catch {
+        await updateDoc(doc(clientDb, `docs/u-${trial}`), { [shape.dottedKey]: shape.dottedVal }).catch(() => {
           groundTruthDenied = true;
-        }
+        });
         observedSession.apply({
-          firestore: [
-            { kind: 'set', path: `docs/u-${trial}`, data: { meta: { type: 'pyric/map/1.0', fields: shape.baseMap } } },
-          ],
+          firestore: [{ kind: 'set', path: `docs/u-${trial}`, data: { meta: { type: 'pyric/map/1.0', fields: shape.baseMap } } }],
         });
         verdictResult = firestoreVerdict(
           ctx,
-          {
-            service: 'firestore',
-            method: 'updateDoc',
-            path: `docs/u-${trial}`,
-            at: 2000 + trial,
-            outcome: DENIED_FS,
-            writeData: { [shape.dottedKey]: shape.dottedVal },
-          },
+          { service: 'firestore', method: 'updateDoc', path: `docs/u-${trial}`, at: 2000 + trial, outcome: DENIED_FS, writeData: { [shape.dottedKey]: shape.dottedVal } },
           'update',
         )?.result;
       }
@@ -352,7 +340,7 @@ service cloud.firestore {
     }
   });
 
-  it('RTDB: never returns allow on effective-null writes with uncaptured ancestor .validate when full Sandbox denies', async () => {
+  it('RTDB: never returns allow on effective-null or priority-only writes with uncaptured ancestor .validate when full Sandbox denies', async () => {
     const rng = createPrng(0x5b3303);
     const effectiveNullValues: readonly unknown[] = [
       null,
@@ -380,51 +368,39 @@ service cloud.firestore {
       expect(setDatabaseRules(ctx, undefined, rtdbRulesObj).ok).toBe(true);
 
       const adminRtdb = getAdminDatabase(sandbox);
-      await dbSet(dbRef(adminRtdb, '/'), { groups: { [`g-${trial}`]: { title: 'Alpha', active: true } } });
+      const priorityPatchMode = trial % 4 === 3;
+      if (priorityPatchMode) {
+        await dbSet(dbRef(adminRtdb, '/'), { groups: { [`g-${trial}`]: { status: 'draft' } } });
+      } else {
+        await dbSet(dbRef(adminRtdb, '/'), { groups: { [`g-${trial}`]: { title: 'Alpha', active: true } } });
+      }
       dbSandbox.setRules(adminRtdb, rtdbRulesObj);
 
       const authedRtdb = getDatabase(sandbox.withAuth({ uid: `u-${trial}` }));
-      const useUpdate = pick(rng, [true, false]);
       const nullWrite = pick(rng, effectiveNullValues);
 
       let groundTruthDenied = false;
       let call: ObservedCall;
       let method: 'set' | 'update';
 
-      if (useUpdate) {
+      if (priorityPatchMode) {
         method = 'update';
-        try {
-          await dbUpdate(dbRef(authedRtdb, `groups/g-${trial}`), { active: nullWrite });
-        } catch {
+        await dbUpdate(dbRef(authedRtdb, `groups/g-${trial}`), { 'active/.priority': 5 }).catch(() => {
           groundTruthDenied = true;
-        }
-        call = {
-          service: 'rtdb',
-          method: 'update',
-          instance: 'demo-project-default-rtdb',
-          path: `groups/g-${trial}`,
-          at: 3000 + trial,
-          outcome: DENIED_RTDB,
-          account: { uid: `u-${trial}` },
-          writeData: { active: nullWrite } as ObservedCall['writeData'],
-        };
+        });
+        call = { service: 'rtdb', method: 'update', instance: 'demo-project-default-rtdb', path: `groups/g-${trial}`, at: 3000 + trial, outcome: DENIED_RTDB, account: { uid: `u-${trial}` }, writeData: { 'active/.priority': 5 } };
+      } else if (pick(rng, [true, false])) {
+        method = 'update';
+        await dbUpdate(dbRef(authedRtdb, `groups/g-${trial}`), { active: nullWrite }).catch(() => {
+          groundTruthDenied = true;
+        });
+        call = { service: 'rtdb', method: 'update', instance: 'demo-project-default-rtdb', path: `groups/g-${trial}`, at: 3000 + trial, outcome: DENIED_RTDB, account: { uid: `u-${trial}` }, writeData: { active: nullWrite } as ObservedCall['writeData'] };
       } else {
         method = 'set';
-        try {
-          await dbSet(dbRef(authedRtdb, `groups/g-${trial}/active`), nullWrite);
-        } catch {
+        await dbSet(dbRef(authedRtdb, `groups/g-${trial}/active`), nullWrite).catch(() => {
           groundTruthDenied = true;
-        }
-        call = {
-          service: 'rtdb',
-          method: pick(rng, ['set', 'setWithPriority']),
-          instance: 'demo-project-default-rtdb',
-          path: `groups/g-${trial}/active`,
-          at: 3000 + trial,
-          outcome: DENIED_RTDB,
-          account: { uid: `u-${trial}` },
-          writeData: nullWrite as ObservedCall['writeData'],
-        };
+        });
+        call = { service: 'rtdb', method: pick(rng, ['set', 'setWithPriority']), instance: 'demo-project-default-rtdb', path: `groups/g-${trial}/active`, at: 3000 + trial, outcome: DENIED_RTDB, account: { uid: `u-${trial}` }, writeData: nullWrite as ObservedCall['writeData'] };
       }
 
       expect(groundTruthDenied).toBe(true);
@@ -435,31 +411,31 @@ service cloud.firestore {
     }
   });
 
-  it('Storage: never returns allow on uncaptured hash/storageClass fields, same-line allows, or oversized metadata when full rules deny', () => {
+  it('Storage: never returns allow on uncaptured hash/storageClass fields, same-verb same-line allows, or live >32 KiB metadata when full rules deny', async () => {
     const rng = createPrng(0x5b4404);
     const uncapturedFieldChecks = [
       "!('md5Hash' in request.resource)",
       "!('crc32c' in request.resource)",
       "!('storageClass' in request.resource)",
-      "!('md5Hash' in {'r': request.resource}.r)",
-      "!('crc32c' in [request.resource][0])",
+      "!('md5Hash' in ['pad', request.resource][1:2][0])",
+      "!('crc32c' in {'r': request.resource}.get('r', {}))",
     ] as const;
     const bucket = 'demo-project.appspot.com';
 
-    for (let trial = 0; trial < 40; trial++) {
+    for (let trial = 0; trial < 36; trial++) {
       const checkExpr = pick(rng, uncapturedFieldChecks);
-      let createLine = `allow create: if ${checkExpr};`;
-      if (pick(rng, [true, false])) {
-        createLine = `allow get: if resource.size > 1000; allow create: if ${checkExpr};`;
-      }
-
+      // Same-verb same-line allow statements (`allow create: ...; allow create: ...;`).
+      const createLine = `allow create: if request.resource.size > 1000; allow create: if ${checkExpr};`;
       const storageSource = `rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
     match /items/{id} {
       ${createLine}
-      allow update: if !('etag' in resource) || !('md5Hash' in request.resource);
-      allow delete: if !('blocked' in resource.metadata);
+      allow update: if resource.size > 1000; allow update: if !('etag' in resource) || !('md5Hash' in request.resource);
+      allow get: if resource.metadata == null || !('blocked' in resource.metadata);
+    }
+    match /uploads/{id} {
+      allow create: if request.resource.metadata == null || !('blocked' in request.resource.metadata);
     }
   }
 }`;
@@ -479,12 +455,11 @@ service firebase.storage {
         observedSession,
       };
 
+      type ProdReqRes = NonNullable<Parameters<typeof evaluateStorageRules>[1]['request']['resource']>;
+      const baseAccount = { uid: `u-${trial}`, claimNames: ['sub'], claims: { sub: `u-${trial}` } };
       const mode = trial % 3;
       const objectPath = `items/file-${trial}.txt`;
       const fullName = `b/${bucket}/o/${objectPath}`;
-
-      type ProdReqRes = NonNullable<Parameters<typeof evaluateStorageRules>[1]['request']['resource']>;
-      const baseAccount = { uid: `u-${trial}`, claimNames: ['sub'], claims: { sub: `u-${trial}` } };
       let stVerdict: ReturnType<typeof storageVerdict>;
 
       if (mode === 0) {
@@ -534,17 +509,49 @@ service firebase.storage {
           'update',
         );
       } else {
-        const gt = evaluateStorageRules(
-          compiled,
-          { request: { auth: { uid: `u-${trial}`, token: {} }, method: 'delete', path: objectPath }, resource: { name: fullName, bucket, size: 16, contentType: 'text/plain', metadata: { blocked: 'x'.repeat(33_000) } } },
-          new Date(4000 + trial),
-        );
-        expect(gt.allowed).toBe(false);
-        stVerdict = storageVerdict(
-          ctx,
-          { service: 'storage', method: 'deleteObject', bucket, path: objectPath, at: 4000 + trial, outcome: DENIED_STORAGE, account: baseAccount },
-          'delete',
-        );
+        // Drive live storage wrapper with >32 KiB customMetadata on uploadBytes or getMetadata.
+        const oversizedMeta = { blocked: 'x'.repeat(33_000) };
+        const captured: LiveCallRecord[] = [];
+        const liveSt = wrapLiveModule(
+          'live-storage',
+          'firebase/storage',
+          {
+            uploadBytes: async () => {
+              throw Object.assign(new Error('Denied'), { code: 'storage/unauthorized' });
+            },
+            getMetadata: async () => ({ bucket, fullPath: objectPath, size: 16, contentType: 'text/plain', customMetadata: oversizedMeta }),
+          },
+          { observer: (rec) => captured.push(rec), sdkVersion: '12.0.0', client: 'node' },
+        ) as { uploadBytes(r: unknown, d: Uint8Array, m: unknown): Promise<unknown>; getMetadata(r: unknown): Promise<unknown> };
+        const uploadPath = `uploads/file-${trial}.txt`;
+        const storageOwner = { app: { options: { projectId: 'demo-project' } } };
+        if (pick(rng, [true, false])) {
+          const gt = evaluateStorageRules(
+            compiled,
+            { request: { auth: { uid: `u-${trial}`, token: {} }, method: 'get', path: objectPath }, resource: { name: fullName, bucket, size: 16, contentType: 'text/plain', metadata: oversizedMeta } },
+            new Date(4000 + trial),
+          );
+          expect(gt.allowed).toBe(false);
+          await liveSt.getMetadata({ bucket, fullPath: objectPath, storage: storageOwner });
+          const rec = captured[0]!;
+          const call: ObservedCall = { service: 'storage', method: 'getMetadata', bucket, path: objectPath, at: 4000 + trial, outcome: { status: 'ok' }, account: baseAccount };
+          if (rec.document !== undefined) call.document = rec.document;
+          stVerdict = storageVerdict(ctx, call, 'get');
+        } else {
+          const prodOversized = { name: uploadPath, bucket, size: 4, contentType: 'text/plain', metadata: oversizedMeta } as unknown as ProdReqRes;
+          const gt = evaluateStorageRules(
+            compiled,
+            { request: { auth: { uid: `u-${trial}`, token: {} }, method: 'create', path: uploadPath, resource: prodOversized }, resource: null },
+            new Date(4000 + trial),
+          );
+          expect(gt.allowed).toBe(false);
+          await liveSt.uploadBytes({ bucket, fullPath: uploadPath, storage: storageOwner }, new Uint8Array([1, 2, 3, 4]), { contentType: 'text/plain', customMetadata: oversizedMeta }).catch(() => {});
+          const rec = captured[0]!;
+          const call: ObservedCall = { service: 'storage', method: 'uploadBytes', bucket, path: uploadPath, at: 4000 + trial, outcome: DENIED_STORAGE, account: baseAccount };
+          if (rec.writeData !== undefined) call.writeData = rec.writeData;
+          stVerdict = storageVerdict(ctx, call, 'create');
+        }
+        expect(stVerdict).toMatchObject({ result: 'unevaluated' });
       }
       expect(stVerdict).toBeDefined();
       expect(['deny', 'unevaluated']).toContain(stVerdict!.result);

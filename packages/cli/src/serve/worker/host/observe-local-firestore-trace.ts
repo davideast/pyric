@@ -49,24 +49,124 @@ type CanonValue =
       readonly entries: ReadonlyMap<string, CanonValue>;
       readonly dynamicValues: readonly CanonValue[];
     }
-  | { readonly kind: 'list'; readonly items: readonly CanonValue[] }
+  | {
+      readonly kind: 'list';
+      readonly items: readonly CanonValue[];
+      readonly dynamicElement?: CanonValue;
+    }
   | { readonly kind: 'union'; readonly options: readonly CanonValue[] };
 
 const NONE_VALUE: CanonValue = { kind: 'none' };
 
+function flattenCanonOptions(value: CanonValue): readonly CanonValue[] {
+  if (value.kind === 'none') return [];
+  if (value.kind === 'union') return value.options;
+  return [value];
+}
+
 function unionCanonValues(values: readonly CanonValue[]): CanonValue {
   const flat: CanonValue[] = [];
   for (const v of values) {
-    if (v.kind === 'none') continue;
-    if (v.kind === 'union') {
-      flat.push(...v.options);
-    } else {
-      flat.push(v);
-    }
+    flat.push(...flattenCanonOptions(v));
   }
   if (flat.length === 0) return NONE_VALUE;
   if (flat.length === 1) return flat[0]!;
   return { kind: 'union', options: flat };
+}
+
+function allListElements(value: CanonValue): CanonValue {
+  const parts: CanonValue[] = [];
+  for (const opt of flattenCanonOptions(value)) {
+    if (opt.kind === 'list') {
+      parts.push(...opt.items);
+      if (opt.dynamicElement !== undefined) parts.push(opt.dynamicElement);
+    }
+  }
+  return unionCanonValues(parts);
+}
+
+function hasListOption(value: CanonValue): boolean {
+  return flattenCanonOptions(value).some((opt) => opt.kind === 'list');
+}
+
+function sliceCanonValue(
+  value: CanonValue,
+  startIdx: number | undefined,
+  endIdx: number | undefined,
+): CanonValue {
+  const results: CanonValue[] = [];
+  for (const opt of flattenCanonOptions(value)) {
+    if (opt.kind !== 'list') continue;
+    if (startIdx !== undefined && endIdx !== undefined) {
+      results.push({
+        kind: 'list',
+        items: opt.items.slice(startIdx, endIdx),
+        dynamicElement: opt.dynamicElement,
+      });
+    } else if (startIdx !== undefined) {
+      results.push({
+        kind: 'list',
+        items: opt.items.slice(startIdx),
+        dynamicElement: opt.dynamicElement,
+      });
+    } else {
+      results.push({
+        kind: 'list',
+        items: [],
+        dynamicElement: allListElements(opt),
+      });
+    }
+  }
+  return unionCanonValues(results);
+}
+
+function concatCanonValues(leftVal: CanonValue, rightVal: CanonValue): CanonValue {
+  const leftLists = flattenCanonOptions(leftVal).filter(
+    (opt): opt is Extract<CanonValue, { kind: 'list' }> => opt.kind === 'list',
+  );
+  const rightLists = flattenCanonOptions(rightVal).filter(
+    (opt): opt is Extract<CanonValue, { kind: 'list' }> => opt.kind === 'list',
+  );
+  if (leftLists.length === 0) return NONE_VALUE;
+  if (rightLists.length === 0) {
+    return {
+      kind: 'list',
+      items: [],
+      dynamicElement: unionCanonValues([allListElements(leftVal), allListElements(rightVal)]),
+    };
+  }
+  const results: CanonValue[] = [];
+  for (const l of leftLists) {
+    for (const r of rightLists) {
+      if (l.dynamicElement === undefined) {
+        results.push({
+          kind: 'list',
+          items: [...l.items, ...r.items],
+          dynamicElement: r.dynamicElement,
+        });
+      } else {
+        results.push({
+          kind: 'list',
+          items: [],
+          dynamicElement: unionCanonValues([allListElements(l), allListElements(r)]),
+        });
+      }
+    }
+  }
+  return unionCanonValues(results);
+}
+
+function mapValuesAsList(objVal: CanonValue): CanonValue {
+  const parts: CanonValue[] = [];
+  let sawMap = false;
+  for (const opt of flattenCanonOptions(objVal)) {
+    if (opt.kind === 'map') {
+      sawMap = true;
+      parts.push(...opt.entries.values(), ...opt.dynamicValues);
+    }
+  }
+  if (!sawMap) return NONE_VALUE;
+  return { kind: 'list', items: [], dynamicElement: unionCanonValues(parts) };
 }
 
 function isEmailContainerPath(canonicalPath: string): boolean {
@@ -90,7 +190,8 @@ function containsEmailContainer(value: CanonValue): boolean {
       return value.dynamicValues.some(containsEmailContainer);
     }
     case 'list':
-      return value.items.some(containsEmailContainer);
+      if (value.items.some(containsEmailContainer)) return true;
+      return value.dynamicElement !== undefined && containsEmailContainer(value.dynamicElement);
     case 'union':
       return value.options.some(containsEmailContainer);
   }
@@ -131,6 +232,12 @@ function evaluatedExpressionsOfEntry(
     return { kind: 'path', path: canon };
   };
 
+  const emitEmbeddedPaths = (val: CanonValue): void => {
+    for (const opt of flattenCanonOptions(val)) {
+      if (opt.kind === 'path') out.push(opt.path);
+    }
+  };
+
   const readProperty = (obj: CanonValue, prop: string): CanonValue => {
     switch (obj.kind) {
       case 'none':
@@ -140,19 +247,20 @@ function evaluatedExpressionsOfEntry(
       case 'map': {
         const parts: CanonValue[] = [...obj.dynamicValues];
         const direct = obj.entries.get(prop);
-        if (direct !== undefined) {
-          if (direct.kind === 'path') out.push(direct.path);
-          parts.push(direct);
-        }
-        return unionCanonValues(parts);
+        if (direct !== undefined) parts.push(direct);
+        const combined = unionCanonValues(parts);
+        emitEmbeddedPaths(combined);
+        return combined;
       }
       case 'list': {
         if (/^\d+$/.test(prop)) {
+          const parts: CanonValue[] = [];
           const item = obj.items[Number(prop)];
-          if (item !== undefined) {
-            if (item.kind === 'path') out.push(item.path);
-            return item;
-          }
+          if (item !== undefined) parts.push(item);
+          if (obj.dynamicElement !== undefined) parts.push(obj.dynamicElement);
+          const combined = unionCanonValues(parts);
+          emitEmbeddedPaths(combined);
+          return combined;
         }
         return NONE_VALUE;
       }
@@ -166,10 +274,16 @@ function evaluatedExpressionsOfEntry(
       out.push('request.auth.token.email');
     }
     switch (obj.kind) {
-      case 'list':
-        return unionCanonValues(obj.items);
-      case 'map':
-        return unionCanonValues([...obj.entries.values(), ...obj.dynamicValues]);
+      case 'list': {
+        const combined = allListElements(obj);
+        emitEmbeddedPaths(combined);
+        return combined;
+      }
+      case 'map': {
+        const combined = unionCanonValues([...obj.entries.values(), ...obj.dynamicValues]);
+        emitEmbeddedPaths(combined);
+        return combined;
+      }
       case 'union':
         return unionCanonValues(obj.options.map(readDynamicElement));
       default:
@@ -194,7 +308,7 @@ function evaluatedExpressionsOfEntry(
         const id = stripOuterParens(node.source);
         if (aliases.has(id)) {
           const mapped = aliases.get(id)!;
-          if (mapped.kind === 'path') out.push(mapped.path);
+          emitEmbeddedPaths(mapped);
           return mapped;
         }
         if (!pathVars.has(id) && (id === 'request' || id === 'resource')) {
@@ -224,7 +338,7 @@ function evaluatedExpressionsOfEntry(
         const strKey = literalStringOf(idxNode);
         if (strKey !== undefined) return readProperty(objVal, strKey);
         const numIdx = literalIndexOf(idxNode);
-        if (numIdx !== undefined && objVal.kind === 'list') {
+        if (numIdx !== undefined && hasListOption(objVal)) {
           return readProperty(objVal, String(numIdx));
         }
         return readDynamicElement(objVal);
@@ -234,8 +348,11 @@ function evaluatedExpressionsOfEntry(
         let objVal: CanonValue = NONE_VALUE;
         if (children[0] !== undefined) objVal = walk(children[0], aliases, functions);
         for (const extra of children.slice(1)) walk(extra, aliases, functions);
-        if (objVal.kind === 'list') return objVal;
-        return NONE_VALUE;
+        let startNode: ExprTraceEntry | undefined;
+        if (children[1] !== undefined) startNode = exprTrace[children[1]];
+        let endNode: ExprTraceEntry | undefined;
+        if (children[2] !== undefined) endNode = exprTrace[children[2]];
+        return sliceCanonValue(objVal, literalIndexOf(startNode), literalIndexOf(endNode));
       }
 
       case 'listLiteral': {
@@ -269,13 +386,20 @@ function evaluatedExpressionsOfEntry(
         const elemChild = children[1];
         let collVal: CanonValue = NONE_VALUE;
         if (collChild !== undefined) collVal = walk(collChild, aliases, functions);
-        if (elemChild !== undefined) walk(elemChild, aliases, functions);
+        let elemVal: CanonValue = NONE_VALUE;
+        if (elemChild !== undefined) elemVal = walk(elemChild, aliases, functions);
         for (const extra of children.slice(2)) walk(extra, aliases, functions);
+        if (containsEmailContainer(elemVal)) {
+          out.push('request.auth.token.email');
+        }
         let elemNode: ExprTraceEntry | undefined;
         if (elemChild !== undefined) elemNode = exprTrace[elemChild];
         const key = literalStringOf(elemNode);
         if (key !== undefined) {
           readProperty(collVal, key);
+          if (hasListOption(collVal) && containsEmailContainer(collVal)) {
+            out.push('request.auth.token.email');
+          }
         } else if (containsEmailContainer(collVal)) {
           out.push('request.auth.token.email');
         }
@@ -314,9 +438,45 @@ function evaluatedExpressionsOfEntry(
           }
           return unionCanonValues([readDynamicElement(objVal), defaultVal]);
         }
-        if (method === 'keys' || method === 'values' || method === 'size') {
+        if (method === 'concat') {
+          return concatCanonValues(objVal, argVals[0] ?? NONE_VALUE);
+        }
+        if (method === 'values') {
           if (containsEmailContainer(objVal)) out.push('request.auth.token.email');
-        } else if (method === 'diff') {
+          return mapValuesAsList(objVal);
+        }
+        if (method === 'removeAll') {
+          if (containsEmailContainer(objVal) || argVals.some(containsEmailContainer)) {
+            out.push('request.auth.token.email');
+          }
+          if (hasListOption(objVal)) {
+            return { kind: 'list', items: [], dynamicElement: allListElements(objVal) };
+          }
+          return NONE_VALUE;
+        }
+        if (
+          method === 'toSet' ||
+          method === 'union' ||
+          method === 'intersection' ||
+          method === 'difference'
+        ) {
+          if (containsEmailContainer(objVal) || argVals.some(containsEmailContainer)) {
+            out.push('request.auth.token.email');
+          }
+          const combined = unionCanonValues([allListElements(objVal), ...argVals.map(allListElements)]);
+          if (combined.kind !== 'none') {
+            return { kind: 'list', items: [], dynamicElement: combined };
+          }
+          return NONE_VALUE;
+        }
+        if (method === 'keys' || method === 'size') {
+          if (containsEmailContainer(objVal)) out.push('request.auth.token.email');
+        } else if (
+          method === 'diff' ||
+          method === 'hasAny' ||
+          method === 'hasAll' ||
+          method === 'hasOnly'
+        ) {
           if (containsEmailContainer(objVal) || argVals.some(containsEmailContainer)) {
             out.push('request.auth.token.email');
           }

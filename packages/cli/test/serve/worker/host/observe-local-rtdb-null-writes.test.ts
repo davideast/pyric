@@ -240,4 +240,82 @@ describe('observe-local-rtdb effective-null write normalization', () => {
       sandbox.dispose();
     }
   });
+
+  it('abstains when update or set writes a .priority path under an uncaptured ancestor .validate', async () => {
+    const priorityRules = {
+      rules: {
+        orgs: {
+          $orgId: {
+            '.write': true,
+            '.validate': "newData.hasChild('name')",
+          },
+        },
+      },
+    };
+    const oracleSb = initializeSandbox();
+    try {
+      const adminDb = getAdminDatabase(oracleSb);
+      await dbSet(dbRef(adminDb, '/'), { orgs: { 'org-1': { status: 'draft' } } });
+      dbSandbox.setRules(adminDb, priorityRules);
+      const clientDb = getDatabase(oracleSb.withAuth({ uid: 'u-1' }));
+      await expect(dbUpdate(dbRef(clientDb, 'orgs/org-1'), { 'active/.priority': 5 })).rejects.toThrow();
+    } finally {
+      oracleSb.dispose();
+    }
+
+    const sandbox = initializeSandbox();
+    const observedSession = createObservedSessionDataStore({ projectId: 'demo-project' });
+    const ctx: HostCtx = {
+      db: getFirestore(sandbox),
+      sandbox,
+      instanceId: 'rtdb-priority-patch-test',
+      subs: new Map(),
+      rtdbProjectId: 'demo-project',
+      observedSession,
+    };
+    expect(setDatabaseRules(ctx, undefined, priorityRules).ok).toBe(true);
+    try {
+      const updateVerdict = rtdbVerdict(
+        ctx,
+        {
+          service: 'rtdb',
+          method: 'update',
+          instance: INSTANCE,
+          path: 'orgs/org-1',
+          at: 500,
+          outcome: DENIED,
+          account: { uid: 'u-1' },
+          writeData: { 'active/.priority': 5 },
+        },
+        'update',
+      );
+      expect(updateVerdict).toMatchObject({
+        result: 'unevaluated',
+        needs: ['stored-document'],
+        missingPaths: ['/orgs/org-1'],
+      });
+
+      const directPriorityVerdict = rtdbVerdict(
+        ctx,
+        {
+          service: 'rtdb',
+          method: 'set',
+          instance: INSTANCE,
+          path: 'orgs/org-1/active/.priority',
+          at: 501,
+          outcome: DENIED,
+          account: { uid: 'u-1' },
+          writeData: 5,
+        },
+        'set',
+      );
+      expect(directPriorityVerdict).toMatchObject({
+        result: 'unevaluated',
+        needs: ['stored-document'],
+        missingPaths: ['/orgs/org-1'],
+      });
+    } finally {
+      sandbox.dispose();
+    }
+  });
 });

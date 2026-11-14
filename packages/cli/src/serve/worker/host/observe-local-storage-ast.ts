@@ -19,7 +19,11 @@ type TrackedBinding =
   | { readonly kind: 'target' }
   | { readonly kind: 'request' }
   | { readonly kind: 'map'; readonly entries: ReadonlyMap<string, TrackedBinding> }
-  | { readonly kind: 'list'; readonly items: readonly TrackedBinding[] }
+  | {
+      readonly kind: 'list';
+      readonly items: readonly TrackedBinding[];
+      readonly dynamicElement?: TrackedBinding;
+    }
   | { readonly kind: 'union'; readonly options: readonly TrackedBinding[] }
   | { readonly kind: 'none' };
 
@@ -27,6 +31,26 @@ const NONE_BINDING: TrackedBinding = { kind: 'none' };
 const TARGET_BINDING: TrackedBinding = { kind: 'target' };
 const REQUEST_BINDING: TrackedBinding = { kind: 'request' };
 const EMPTY_STRING_SET: ReadonlySet<string> = new Set();
+
+function literalOf(expr: StorageExpr | undefined): unknown {
+  if (expr?.kind === 'literal') return expr.value;
+  return undefined;
+}
+
+function minRecursiveSegments(rulesVersion: string): number {
+  if (rulesVersion === '2' || rulesVersion === '2+modules') return 0;
+  return 1;
+}
+
+function makeListBinding(
+  items: readonly TrackedBinding[],
+  dynamicElement?: TrackedBinding,
+): TrackedBinding {
+  if (dynamicElement !== undefined && dynamicElement.kind !== 'none') {
+    return { kind: 'list', items, dynamicElement };
+  }
+  return { kind: 'list', items };
+}
 
 function flattenOptions(binding: TrackedBinding): readonly TrackedBinding[] {
   if (binding.kind === 'none') return [];
@@ -57,12 +81,62 @@ function containsSensitiveBinding(binding: TrackedBinding): boolean {
       }
       return false;
     case 'list':
+      if (binding.dynamicElement !== undefined && containsSensitiveBinding(binding.dynamicElement)) {
+        return true;
+      }
       return binding.items.some(containsSensitiveBinding);
     case 'union':
       return binding.options.some(containsSensitiveBinding);
     case 'none':
       return false;
   }
+}
+
+function sliceBinding(base: TrackedBinding, startLit: unknown, endLit: unknown): TrackedBinding {
+  const hasStart = typeof startLit === 'number' || typeof startLit === 'bigint';
+  const hasEnd = typeof endLit === 'number' || typeof endLit === 'bigint';
+  const results: TrackedBinding[] = [];
+  for (const opt of flattenOptions(base)) {
+    if (opt.kind !== 'list') {
+      results.push(opt);
+      continue;
+    }
+    if (hasStart && hasEnd) {
+      results.push(
+        makeListBinding(opt.items.slice(Number(startLit), Number(endLit)), opt.dynamicElement),
+      );
+    } else {
+      const merged = [...opt.items];
+      if (opt.dynamicElement !== undefined) merged.push(opt.dynamicElement);
+      results.push(makeListBinding([], unionBindings(merged)));
+    }
+  }
+  return unionBindings(results);
+}
+
+function concatListBinding(
+  left: Extract<TrackedBinding, { kind: 'list' }>,
+  rightArg: TrackedBinding | undefined,
+): TrackedBinding {
+  const leftPool = [...left.items];
+  if (left.dynamicElement !== undefined) leftPool.push(left.dynamicElement);
+  if (rightArg === undefined) return makeListBinding([], unionBindings(leftPool));
+  const results: TrackedBinding[] = [];
+  for (const rightOpt of flattenOptions(rightArg)) {
+    if (rightOpt.kind === 'list') {
+      if (left.dynamicElement === undefined && rightOpt.dynamicElement === undefined) {
+        results.push(makeListBinding([...left.items, ...rightOpt.items]));
+      } else {
+        const merged = [...leftPool, ...rightOpt.items];
+        if (rightOpt.dynamicElement !== undefined) merged.push(rightOpt.dynamicElement);
+        results.push(makeListBinding([], unionBindings(merged)));
+      }
+    } else {
+      results.push(makeListBinding([], unionBindings([...leftPool, rightOpt])));
+    }
+  }
+  if (results.length === 0) return makeListBinding(left.items, left.dynamicElement);
+  return unionBindings(results);
 }
 
 function isDirectNullCheckTarget(binding: TrackedBinding): boolean {
@@ -83,6 +157,21 @@ function exprMayReadMissingBindingProps(
 ): boolean {
   if (missingProps.size === 0) return false;
   let foundRead = false;
+
+  function stepMapGetKey(base: TrackedBinding, keyPart: string): TrackedBinding {
+    const out: TrackedBinding[] = [];
+    for (const opt of flattenOptions(base)) {
+      if (opt.kind === 'target') {
+        if (missingProps.has(keyPart)) foundRead = true;
+      } else if (opt.kind === 'request') {
+        if (keyPart === 'resource') out.push(TARGET_BINDING);
+      } else if (opt.kind === 'map') {
+        const entry = opt.entries.get(keyPart);
+        if (entry !== undefined) out.push(entry);
+      }
+    }
+    return unionBindings(out);
+  }
 
   function inspectExpr(
     expr: StorageExpr,
@@ -124,21 +213,14 @@ function exprMayReadMissingBindingProps(
       case 'index': {
         const base = walk(expr.target);
         walk(expr.index);
-        const literalKey = expr.index.kind === 'literal' ? expr.index.value : undefined;
+        const literalKey = literalOf(expr.index);
         const results: TrackedBinding[] = [];
         for (const opt of flattenOptions(base)) {
           if (opt.kind === 'target') {
-            if (typeof literalKey === 'string') {
-              if (missingProps.has(literalKey)) foundRead = true;
-            } else {
-              foundRead = true;
-            }
+            if (typeof literalKey !== 'string' || missingProps.has(literalKey)) foundRead = true;
           } else if (opt.kind === 'request') {
-            if (literalKey === 'resource') {
-              results.push(TARGET_BINDING);
-            } else if (typeof literalKey !== 'string') {
-              foundRead = true;
-            }
+            if (literalKey === 'resource') results.push(TARGET_BINDING);
+            else if (typeof literalKey !== 'string') foundRead = true;
           } else if (opt.kind === 'map') {
             if (typeof literalKey === 'string') {
               const entry = opt.entries.get(literalKey);
@@ -153,6 +235,7 @@ function exprMayReadMissingBindingProps(
             } else {
               results.push(...opt.items);
             }
+            if (opt.dynamicElement !== undefined) results.push(opt.dynamicElement);
           }
         }
         return unionBindings(results);
@@ -164,14 +247,12 @@ function exprMayReadMissingBindingProps(
           foundRead = true;
           return NONE_BINDING;
         }
-        const literalEl = expr.element.kind === 'literal' ? expr.element.value : undefined;
+        const literalEl = literalOf(expr.element);
         for (const opt of flattenOptions(coll)) {
           if (opt.kind === 'target') {
-            if (typeof literalEl === 'string') {
-              if (missingProps.has(literalEl)) foundRead = true;
-            } else {
-              foundRead = true;
-            }
+            if (typeof literalEl !== 'string' || missingProps.has(literalEl)) foundRead = true;
+          } else if (containsSensitiveBinding(opt)) {
+            foundRead = true;
           }
         }
         return NONE_BINDING;
@@ -179,56 +260,59 @@ function exprMayReadMissingBindingProps(
       case 'methodcall': {
         const recv = walk(expr.target);
         const argBindings = expr.args.map(walk);
-        if (argBindings.some(containsSensitiveBinding)) {
+        if (expr.method === 'get') {
+          if (argBindings[0] !== undefined && containsSensitiveBinding(argBindings[0])) {
+            foundRead = true;
+          }
+          const keyArg = expr.args[0];
+          const results: TrackedBinding[] = [];
+          if (argBindings[1] !== undefined) results.push(argBindings[1]);
+          if (keyArg?.kind === 'literal' && typeof keyArg.value === 'string') {
+            results.push(stepMapGetKey(recv, keyArg.value));
+          } else if (keyArg?.kind === 'list' && keyArg.elements.length > 0) {
+            let current = recv;
+            for (const el of keyArg.elements) {
+              if (el.kind === 'literal' && typeof el.value === 'string') {
+                current = stepMapGetKey(current, el.value);
+              } else {
+                if (containsSensitiveBinding(current)) foundRead = true;
+                current = NONE_BINDING;
+                break;
+              }
+            }
+            results.push(current);
+          } else {
+            for (const opt of flattenOptions(recv)) {
+              if (opt.kind === 'map') results.push(...opt.entries.values());
+              else if (containsSensitiveBinding(opt)) foundRead = true;
+            }
+          }
+          return unionBindings(results);
+        }
+        if (expr.method !== 'concat' && argBindings.some(containsSensitiveBinding)) {
           foundRead = true;
         }
-        const keyArg = expr.args[0];
         const results: TrackedBinding[] = [];
         for (const opt of flattenOptions(recv)) {
           if (opt.kind === 'target') {
-            if (expr.method === 'get') {
-              if (keyArg?.kind === 'literal' && typeof keyArg.value === 'string') {
-                if (missingProps.has(keyArg.value)) foundRead = true;
-              } else if (
-                keyArg?.kind === 'list' &&
-                keyArg.elements[0]?.kind === 'literal' &&
-                typeof keyArg.elements[0].value === 'string'
-              ) {
-                if (missingProps.has(keyArg.elements[0].value)) foundRead = true;
-              } else {
-                foundRead = true;
-              }
-            } else {
-              foundRead = true;
-            }
+            foundRead = true;
           } else if (opt.kind === 'request') {
-            if (expr.method === 'get') {
-              if (keyArg?.kind === 'literal' && typeof keyArg.value === 'string') {
-                if (keyArg.value === 'resource') results.push(TARGET_BINDING);
-              } else if (keyArg?.kind === 'list' && keyArg.elements.length > 0) {
-                const first = keyArg.elements[0];
-                if (first?.kind === 'literal' && first.value === 'resource') {
-                  if (keyArg.elements.length === 1) {
-                    results.push(TARGET_BINDING);
-                  } else {
-                    const second = keyArg.elements[1];
-                    if (second?.kind === 'literal' && typeof second.value === 'string') {
-                      if (missingProps.has(second.value)) foundRead = true;
-                    } else {
-                      foundRead = true;
-                    }
-                  }
-                } else if (first?.kind !== 'literal') {
-                  foundRead = true;
-                }
-              } else {
-                foundRead = true;
-              }
-            } else if (expr.method !== 'keys' && expr.method !== 'size') {
+            if (expr.method !== 'keys' && expr.method !== 'size') foundRead = true;
+          } else if (opt.kind === 'map') {
+            if (expr.method === 'values') {
+              results.push(makeListBinding([...opt.entries.values()]));
+            } else if (expr.method !== 'keys' && expr.method !== 'size' && containsSensitiveBinding(opt)) {
               foundRead = true;
             }
-          } else if (opt.kind === 'map' && expr.method === 'values') {
-            results.push({ kind: 'list', items: [...opt.entries.values()] });
+          } else if (opt.kind === 'list') {
+            if (expr.method === 'concat') {
+              results.push(concatListBinding(opt, argBindings[0]));
+            } else if (expr.method !== 'size') {
+              if (containsSensitiveBinding(opt)) foundRead = true;
+              const pool = [...opt.items];
+              if (opt.dynamicElement !== undefined) pool.push(opt.dynamicElement);
+              results.push(makeListBinding([], unionBindings(pool)));
+            }
           }
         }
         return unionBindings(results);
@@ -289,7 +373,7 @@ function exprMayReadMissingBindingProps(
         const base = walk(expr.target);
         walk(expr.start);
         walk(expr.end);
-        return base;
+        return sliceBinding(base, literalOf(expr.start), literalOf(expr.end));
       }
       case 'unary': {
         const inner = walk(expr.arg);
@@ -371,7 +455,7 @@ function matchStorageSegments(
   rulesVersion: string,
 ): string[] | null {
   let index = 0;
-  const minimum = rulesVersion === '2' || rulesVersion === '2+modules' ? 0 : 1;
+  const minimum = minRecursiveSegments(rulesVersion);
   for (let s = 0; s < segments.length; s++) {
     const seg = segments[s]!;
     if (seg.kind === 'wildcard') {
@@ -418,7 +502,7 @@ export function evaluationMayReadMissingBindingProps(
   }
 
   const pathSegments = requestPath.split('/').filter((s) => s.length > 0);
-  const minimum = rules._version === '2' || rules._version === '2+modules' ? 0 : 1;
+  const minimum = minRecursiveSegments(rules._version);
   const candidateAllows: Array<{
     blockPath: string;
     line: number | undefined;

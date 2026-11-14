@@ -1,5 +1,6 @@
 import { ConversionFailure, applyConversion, conversionFor } from '../simulator/conversions.js';
 import { ExpressionBudget } from '../simulator/expression-budget.js';
+import { FirestoreSet } from '../simulator/firestore-set.js';
 import { IndexAccessFailure, indexValue, readMember } from '../simulator/index-access.js';
 import { mapLiteral } from '../simulator/map-keys.js';
 import { MembershipFailure, membership } from '../simulator/membership.js';
@@ -156,8 +157,47 @@ export function noteMapEnumerationRead(ctx: EvalCtx, receiver: unknown): void {
   const tracked = ctx.trackedRoots;
   if (!obs || !tracked || receiver === null || typeof receiver !== 'object') return;
   const kind = tracked.get(receiver);
-  if (kind === 'token' || kind === 'firebase' || kind === 'identities') {
+  if (kind === 'request') {
+    obs.readRequestResource = true;
+    obs.readAuthToken = true;
     obs.readAuthTokenEmail = true;
+  } else if (kind === 'auth') {
+    obs.readAuthToken = true;
+    obs.readAuthTokenEmail = true;
+  } else if (kind === 'token' || kind === 'firebase' || kind === 'identities') {
+    obs.readAuthToken = true;
+    obs.readAuthTokenEmail = true;
+  }
+}
+
+export function noteDeepMapEnumerationReads(
+  ctx: EvalCtx,
+  value: unknown,
+  visited?: Set<object>,
+): void {
+  if (!ctx.observation || !ctx.trackedRoots || value === null || typeof value !== 'object') {
+    return;
+  }
+  const seen = visited ?? new Set<object>();
+  if (seen.has(value)) return;
+  seen.add(value);
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      noteDeepMapEnumerationReads(ctx, item, seen);
+    }
+    return;
+  }
+  if (value instanceof FirestoreSet) {
+    for (const item of value.toArray()) {
+      noteDeepMapEnumerationReads(ctx, item, seen);
+    }
+    return;
+  }
+  if (isRulesMap(value)) {
+    noteMapEnumerationRead(ctx, value);
+    for (const child of Object.values(value)) {
+      noteDeepMapEnumerationReads(ctx, child, seen);
+    }
   }
 }
 
@@ -271,6 +311,10 @@ function evalNode(expr: Expr, ctx: EvalCtx): unknown {
       if (isErr(operands)) return operands;
       const [coll, el] = operands;
       if (typeof el === 'string') notePropertyRead(ctx, coll, el, undefined);
+      noteDeepMapEnumerationReads(ctx, el);
+      if (Array.isArray(coll) || coll instanceof FirestoreSet) {
+        noteDeepMapEnumerationReads(ctx, coll);
+      }
       const result = membership(el, coll);
       if (result instanceof MembershipFailure) return new RuleError(result.message);
       return result;
@@ -323,12 +367,13 @@ function evalNode(expr: Expr, ctx: EvalCtx): unknown {
       switch (expr.op) {
         case '==':
         case '!=': {
-          if (isRulesMap(l) && isRulesMap(r)) {
-            noteMapEnumerationRead(ctx, l);
-            noteMapEnumerationRead(ctx, r);
+          if (l !== null && r !== null) {
+            noteDeepMapEnumerationReads(ctx, l);
+            noteDeepMapEnumerationReads(ctx, r);
           }
           const equal = rulesValuesEqual(l, r);
-          return expr.op === '==' ? equal : !equal;
+          if (expr.op === '==') return equal;
+          return !equal;
         }
         case '<':
         case '>':

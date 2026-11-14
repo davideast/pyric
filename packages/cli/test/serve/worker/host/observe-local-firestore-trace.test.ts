@@ -237,4 +237,102 @@ service cloud.firestore {
       ),
     ).toMatchObject({ result: 'unevaluated', needs: ['claim-values'] });
   });
+
+  it('abstains across list slices, concat/removeAll, map.values, in membership, and set/list membership on email containers', () => {
+    const ctx = makeHost();
+    expect(
+      deployFirestoreRulesToHost(
+        ctx,
+        `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /slices/{id} {
+      allow get: if ['pad', request][1:2][0].auth.token.get('role', 'guest') == 'guest';
+      allow create: if ['pad', request.auth.token][1:2][0].get('email', '') == '';
+      allow update: if (request.auth.uid == 'u-1' ? ['pad', request.auth.token] : ['pad', request.auth.token])[1:2][0].get('email', '') == '';
+      allow delete: if request.auth.token.firebase in [{'sign_in_provider': 'password', 'identities': {}}];
+    }
+    match /containers/{id} {
+      allow get: if ([request].concat([]))[0].auth.token.get('role', 'guest') == 'guest';
+      allow create: if ([request].removeAll([]))[0].auth.token.get('role', 'guest') == 'guest';
+      allow update: if {'req': request}.values()[0].auth.token.get('role', 'guest') == 'guest';
+      allow delete: if [request.auth.token.firebase].hasAny([{'sign_in_provider': 'password', 'identities': {}}])
+                    || [request.auth.token.firebase, {'sign_in_provider': 'password', 'identities': {}}].toSet().size() == 1;
+    }
+  }
+}`,
+      ).ok,
+    ).toBe(true);
+
+    const missingClaimsAccount = { uid: 'u-1', claimNames: ['role', 'sub'] };
+    const missingEmailAccount = {
+      uid: 'u-1',
+      claimNames: ['email', 'firebase', 'sub'],
+      claims: { sub: 'u-1', firebase: { sign_in_provider: 'password', identities: {} } },
+    };
+
+    expect(
+      firestoreVerdict(
+        ctx,
+        { service: 'firestore', method: 'getDoc', path: 'slices/s-1', at: 400, outcome: DENIED, account: missingClaimsAccount },
+        'get',
+      ),
+    ).toMatchObject({ result: 'unevaluated', needs: ['claim-values'] });
+
+    expect(
+      firestoreVerdict(
+        ctx,
+        { service: 'firestore', method: 'setDoc', path: 'slices/s-2', at: 401, outcome: DENIED, account: missingEmailAccount, writeData: { ok: true } },
+        'create',
+      ),
+    ).toMatchObject({ result: 'unevaluated', needs: ['claim-values'] });
+
+    expect(
+      firestoreVerdict(
+        ctx,
+        { service: 'firestore', method: 'updateDoc', path: 'slices/s-3', at: 402, outcome: DENIED, account: missingEmailAccount, writeData: { ok: true } },
+        'update',
+      ),
+    ).toMatchObject({ result: 'unevaluated', needs: ['claim-values'] });
+
+    expect(
+      firestoreVerdict(
+        ctx,
+        { service: 'firestore', method: 'deleteDoc', path: 'slices/s-4', at: 403, outcome: DENIED, account: missingEmailAccount },
+        'delete',
+      ),
+    ).toMatchObject({ result: 'unevaluated', needs: ['claim-values'] });
+
+    expect(
+      firestoreVerdict(
+        ctx,
+        { service: 'firestore', method: 'getDoc', path: 'containers/c-1', at: 404, outcome: DENIED, account: missingClaimsAccount },
+        'get',
+      ),
+    ).toMatchObject({ result: 'unevaluated', needs: ['claim-values'] });
+
+    expect(
+      firestoreVerdict(
+        ctx,
+        { service: 'firestore', method: 'setDoc', path: 'containers/c-2', at: 405, outcome: DENIED, account: missingClaimsAccount, writeData: { ok: true } },
+        'create',
+      ),
+    ).toMatchObject({ result: 'unevaluated', needs: ['claim-values'] });
+
+    expect(
+      firestoreVerdict(
+        ctx,
+        { service: 'firestore', method: 'updateDoc', path: 'containers/c-3', at: 406, outcome: DENIED, account: missingClaimsAccount, writeData: { ok: true } },
+        'update',
+      ),
+    ).toMatchObject({ result: 'unevaluated', needs: ['claim-values'] });
+
+    expect(
+      firestoreVerdict(
+        ctx,
+        { service: 'firestore', method: 'deleteDoc', path: 'containers/c-4', at: 407, outcome: DENIED, account: missingEmailAccount },
+        'delete',
+      ),
+    ).toMatchObject({ result: 'unevaluated', needs: ['claim-values'] });
+  });
 });

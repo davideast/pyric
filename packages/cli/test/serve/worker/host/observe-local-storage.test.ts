@@ -242,4 +242,119 @@ service firebase.storage {
       sandbox.dispose();
     }
   });
+
+  it('abstains on sliced/concat/map.get Storage resource containers and nested token.firebase enumerations', () => {
+    const rules = `rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /slices/{id} {
+      allow create: if !('md5Hash' in ['pad', request.resource][1:2][0]);
+      allow update: if !('md5Hash' in (request.auth != null ? ['pad', request.resource] : ['pad', request.resource])[1:2][0]);
+      allow get: if !('md5Hash' in {'r': resource}.get('r', {}));
+    }
+    match /lists/{id} {
+      allow create: if !('md5Hash' in ([request.resource].concat([]))[0]);
+      allow update: if !('md5Hash' in ([request.resource].removeAll([]))[0]);
+    }
+    match /claims/{id} {
+      allow get: if request.auth.token.firebase in [{'sign_in_provider': 'password', 'identities': {}}];
+      allow list: if [request.auth.token.firebase] == [{'sign_in_provider': 'password', 'identities': {}}];
+      allow create: if [request.auth.token.firebase].hasAny([{'sign_in_provider': 'password', 'identities': {}}]);
+      allow delete: if [request.auth.token.firebase, {'sign_in_provider': 'password', 'identities': {}}].toSet().size() == 1;
+    }
+  }
+}`;
+    const { sandbox, ctx } = makeStorageHost(rules);
+    try {
+      const missingEmailAccount = {
+        uid: 'u-1',
+        claimNames: ['email', 'firebase', 'sub'],
+        claims: { sub: 'u-1', firebase: { sign_in_provider: 'password', identities: {} } },
+      };
+
+      expect(
+        storageVerdict(
+          ctx,
+          { service: 'storage', method: 'uploadBytes', bucket: BUCKET, path: 'slices/a', at: 500, outcome: DENIED, writeData: { size: 10 } },
+          'create',
+        ),
+      ).toMatchObject({ result: 'unevaluated', needs: ['write-data'] });
+
+      expect(
+        storageVerdict(
+          ctx,
+          {
+            service: 'storage',
+            method: 'updateMetadata',
+            bucket: BUCKET,
+            path: 'slices/a',
+            at: 501,
+            outcome: DENIED,
+            account: { uid: 'u-1', claimNames: ['sub'], claims: { sub: 'u-1' } },
+            document: { size: 10 },
+            writeData: { contentType: 'text/plain' },
+          },
+          'update',
+        ),
+      ).toMatchObject({ result: 'unevaluated', needs: ['write-data'] });
+
+      expect(
+        storageVerdict(
+          ctx,
+          { service: 'storage', method: 'getMetadata', bucket: BUCKET, path: 'slices/a', at: 502, outcome: DENIED, document: { size: 10 } },
+          'get',
+        ),
+      ).toMatchObject({ result: 'unevaluated', needs: ['stored-document'] });
+
+      expect(
+        storageVerdict(
+          ctx,
+          { service: 'storage', method: 'uploadBytes', bucket: BUCKET, path: 'lists/a', at: 503, outcome: DENIED, writeData: { size: 10 } },
+          'create',
+        ),
+      ).toMatchObject({ result: 'unevaluated', needs: ['write-data'] });
+
+      expect(
+        storageVerdict(
+          ctx,
+          { service: 'storage', method: 'updateMetadata', bucket: BUCKET, path: 'lists/a', at: 504, outcome: DENIED, document: { size: 10 }, writeData: { contentType: 'text/plain' } },
+          'update',
+        ),
+      ).toMatchObject({ result: 'unevaluated', needs: ['write-data'] });
+
+      expect(
+        storageVerdict(
+          ctx,
+          { service: 'storage', method: 'getBytes', bucket: BUCKET, path: 'claims/a', at: 505, outcome: DENIED, account: missingEmailAccount },
+          'get',
+        ),
+      ).toMatchObject({ result: 'unevaluated', needs: ['claim-values'] });
+
+      expect(
+        storageVerdict(
+          ctx,
+          { service: 'storage', method: 'listAll', bucket: BUCKET, path: 'claims/a', at: 506, outcome: DENIED, account: missingEmailAccount },
+          'list',
+        ),
+      ).toMatchObject({ result: 'unevaluated', needs: ['claim-values'] });
+
+      expect(
+        storageVerdict(
+          ctx,
+          { service: 'storage', method: 'uploadBytes', bucket: BUCKET, path: 'claims/a', at: 507, outcome: DENIED, account: missingEmailAccount, writeData: { size: 10 } },
+          'create',
+        ),
+      ).toMatchObject({ result: 'unevaluated', needs: ['claim-values'] });
+
+      expect(
+        storageVerdict(
+          ctx,
+          { service: 'storage', method: 'deleteObject', bucket: BUCKET, path: 'claims/a', at: 508, outcome: DENIED, account: missingEmailAccount },
+          'delete',
+        ),
+      ).toMatchObject({ result: 'unevaluated', needs: ['claim-values'] });
+    } finally {
+      sandbox.dispose();
+    }
+  });
 });

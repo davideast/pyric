@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Bytes, GeoPoint, Timestamp, doc, getAdminFirestore, getDoc } from 'pyric/firestore';
-import { getAdminDatabase, get as databaseGet, ref as databaseRef } from 'pyric/database';
+import { getAdminDatabase, get as databaseGet, ref as databaseRef, set as databaseSet } from 'pyric/database';
 import { createSandboxRoot } from 'pyric/sandbox/internal';
 import { applyData, type SandboxSeed } from '../../src/bridge/surface/seed-apply.js';
 import { parseArgs } from '../../src/cli/parse-args.js';
@@ -460,6 +460,26 @@ describe('runSeedFromLive --out with several RTDB instances', () => {
           };
           applyServeInit(initCtx, session.payload());
           expect((await databaseGet(databaseRef(getAdminDatabase(initSandbox), '/'))).val() as unknown).toEqual(testCase.value);
+
+          // Reload (`persist: true`) when sandbox already holds RTDB-only state must skip re-seeding rather than overwriting.
+          const reloadSandbox = createSandboxRoot();
+          await databaseSet(databaseRef(getAdminDatabase(reloadSandbox), '/'), { preservedCounter: 99 });
+          const reloadCtx: HostCtx = {
+            sandbox: reloadSandbox,
+            db: getAdminFirestore(reloadSandbox),
+            subs: new Map(),
+            instanceId: `seed-reload-rtdb-${testCase.name}`,
+          };
+          const emptyFsSeedPayload = {
+            ...session.payload(),
+            persist: true,
+            seed: { firestore: {}, database: testCase.value },
+          };
+          const reloadRes = applyServeInit(reloadCtx, emptyFsSeedPayload);
+          expect(reloadRes.seedSkipped).toBe('existing-data');
+          expect((await databaseGet(databaseRef(getAdminDatabase(reloadSandbox), '/'))).val() as unknown).toEqual({
+            preservedCounter: 99,
+          });
         } finally {
           await session.close();
         }

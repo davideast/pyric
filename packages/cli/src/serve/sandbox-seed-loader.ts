@@ -14,13 +14,18 @@ import { inlineStorage } from './state-objects.js';
 import type { StateStore } from './state-store.js';
 import { restoredStateCounts, stateForSummary } from './state-summary.js';
 
+function formatSandboxSeedMessage(kind: 'read' | 'shape', path: string, detail: string): string {
+  if (kind === 'read') return `failed to read seed ${path}: ${detail}`;
+  return `seed must be a JSON object (${detail})`;
+}
+
 export class SandboxSeedError extends Error {
   constructor(
     readonly kind: 'read' | 'shape',
     readonly path: string,
     readonly detail: string,
   ) {
-    super(kind === 'read' ? `failed to read seed ${path}: ${detail}` : `seed must be a JSON object (${detail})`);
+    super(formatSandboxSeedMessage(kind, path, detail));
     this.name = 'SandboxSeedError';
   }
 }

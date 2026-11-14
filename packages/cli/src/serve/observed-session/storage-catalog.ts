@@ -17,6 +17,7 @@ import {
   lastPathSegment,
   matchesPrefixScope,
   mergeObjectMetadata,
+  normalizeCatalogBucketName,
   normalizeStoragePrefix,
   objectKey,
   parentPrefixOf,
@@ -86,11 +87,18 @@ export function createObservedStorageCatalog(
   }
 
   function resolveBucketName(rawBucket: string): string | undefined {
-    if (rawBucket !== UNREAD_BUCKET) return rawBucket;
-    const knownDefault = defaultBucket();
-    if (knownDefault !== null) return knownDefault;
-    options.onDrop('unsupported');
-    return undefined;
+    if (rawBucket === UNREAD_BUCKET) {
+      const knownDefault = defaultBucket();
+      if (knownDefault !== null) return knownDefault;
+      options.onDrop('unsupported');
+      return undefined;
+    }
+    const normalized = normalizeCatalogBucketName(rawBucket);
+    if (normalized === null || normalized === UNREAD_BUCKET) {
+      options.onDrop('unsupported');
+      return undefined;
+    }
+    return normalized;
   }
 
   function touchBucket(bucket: string, entry: BucketEntry): void {
@@ -465,28 +473,36 @@ export function createObservedStorageCatalog(
     return changed;
   }
 
+  function clearAllBuckets(): boolean {
+    if (buckets.size === 0) return false;
+    buckets.clear();
+    objectOrder.clear();
+    storageBytes = 0;
+    return true;
+  }
+
   function invalidateCatalog(rawBucket?: string, rawPath?: string): boolean {
     let normPath = '';
     if (rawPath !== undefined) {
       normPath = normalizeStoragePrefix(rawPath);
     }
-    const hasExplicitBucket =
-      rawBucket !== undefined && rawBucket !== '' && rawBucket !== UNREAD_BUCKET;
-    if (!hasExplicitBucket && normPath.length === 0 && rawBucket !== UNREAD_BUCKET) {
-      if (buckets.size === 0) return false;
-      buckets.clear();
-      objectOrder.clear();
-      storageBytes = 0;
-      return true;
+    const trimmedBucket = rawBucket?.trim() ?? '';
+    if (trimmedBucket === '') {
+      if (normPath.length === 0) return clearAllBuckets();
+      const fallback = defaultBucket();
+      if (fallback === null) return false;
+      return invalidateBucketScope(fallback, normPath);
     }
-    let resolvedBucket: string | null;
-    if (hasExplicitBucket) {
-      resolvedBucket = rawBucket;
-    } else {
-      resolvedBucket = defaultBucket();
+    if (trimmedBucket === UNREAD_BUCKET) {
+      const fallback = defaultBucket();
+      if (fallback === null) return false;
+      return invalidateBucketScope(fallback, normPath);
     }
-    if (resolvedBucket === null) return false;
-    return invalidateBucketScope(resolvedBucket, normPath);
+    const normalized = normalizeCatalogBucketName(trimmedBucket);
+    if (normalized === null || normalized === UNREAD_BUCKET) {
+      return clearAllBuckets();
+    }
+    return invalidateBucketScope(normalized, normPath);
   }
 
   function buildSnapshot(): Record<string, ObservedStorageBucketSnapshot> {

@@ -61,10 +61,33 @@ const RTDB_METHOD_ROLES: Readonly<Record<string, SessionCallRole>> = {
   'Query.on': 'read',
 };
 
+const STORAGE_METHOD_ROLES: Readonly<Record<string, SessionCallRole>> = {
+  getStorage: 'passive',
+  connectStorageEmulator: 'passive',
+  'File.download': 'read',
+  'File.exists': 'read',
+  'File.getMetadata': 'read',
+  'File.isPublic': 'read',
+  'Bucket.getFiles': 'read',
+  'Bucket.exists': 'read',
+  'Bucket.getMetadata': 'read',
+  'File.copy': 'unscoped-mutation',
+  'File.move': 'unscoped-mutation',
+  'File.moveFileAtomic': 'unscoped-mutation',
+  'File.rename': 'unscoped-mutation',
+  'Bucket.combine': 'unscoped-mutation',
+  'Bucket.delete': 'unscoped-mutation',
+  'Bucket.deleteFiles': 'unscoped-mutation',
+  'Bucket.setMetadata': 'unscoped-mutation',
+};
+
 const DEFINITIVE_RULES_DENIALS: ReadonlySet<string> = new Set([
   'permission-denied',
   'permission_denied',
   'unauthenticated',
+  'storage/unauthorized',
+  'storage/unauthorized-app',
+  'storage/unauthenticated',
 ]);
 
 export function isSessionDataService(
@@ -78,7 +101,14 @@ export function classifySessionCall(
   service: 'firestore' | 'rtdb' | 'storage',
   method: string,
 ): SessionCallRole {
-  if (service === 'storage') return 'read';
+  if (service === 'storage') {
+    if (Object.hasOwn(STORAGE_METHOD_ROLES, method)) {
+      return STORAGE_METHOD_ROLES[method]!;
+    }
+    const storageMapped = observedMethod('storage', method);
+    if (storageMapped === 'get' || storageMapped === 'list') return 'read';
+    return 'scoped-mutation';
+  }
   if (service === 'firestore') {
     if (Object.hasOwn(FIRESTORE_METHOD_ROLES, method)) {
       return FIRESTORE_METHOD_ROLES[method]!;
@@ -118,6 +148,10 @@ export function invalidateSessionCallTarget(
     return;
   }
   if (call.service === 'storage') {
+    if (role === 'unscoped-mutation') {
+      sessionData.invalidateStorage();
+      return;
+    }
     sessionData.invalidateStorage(call.bucket, call.path, projectHint);
   }
 }
@@ -168,13 +202,15 @@ export function applyAcceptedSessionCall(
   }
   const missingFirestoreWrite =
     call.service === 'firestore' && (entry.sessionData?.firestore?.length ?? 0) === 0;
+  const missingStorageWrite =
+    call.service === 'storage' && (entry.sessionData?.storage?.length ?? 0) === 0;
   const partialUnscopedWrite =
-    call.service === 'firestore' &&
+    (call.service === 'firestore' || call.service === 'storage') &&
     role === 'unscoped-mutation' &&
     entry.sessionData?.skipped !== undefined;
   const missingRtdbWrite =
     call.service === 'rtdb' && (entry.sessionData?.rtdb?.length ?? 0) === 0;
-  if (missingFirestoreWrite || partialUnscopedWrite || missingRtdbWrite) {
+  if (missingFirestoreWrite || missingStorageWrite || partialUnscopedWrite || missingRtdbWrite) {
     invalidateSessionCallTarget(store, call, role, projectHint);
   }
 }
