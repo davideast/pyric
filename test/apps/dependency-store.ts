@@ -27,10 +27,11 @@ import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
 import { gunzipSync } from 'node:zlib';
 import { removeTree } from './cleanup.ts';
+import { copyTree } from './copy-tree.ts';
 import { debugLogTail, npmInstall, npmOfflineInstallArgs, pinPyricPackages, runCommand, type CommandResult, type Tarballs, type TimedResult } from './install.ts';
 import type { NestedProject } from './nested-projects.ts';
 import { installedFileProblems, tarFiles } from './packed-files.ts';
-import { copyTree, installManifest, sortedObject, type Manifest, type SetInstallResult } from './shared-installs.ts';
+import { installManifest, sortedObject, type Manifest, type SetInstallResult } from './shared-installs.ts';
 
 /** Bumped when the layout or the key's inputs change, so old entries are never read. */
 export const STORE_FORMAT = 1;

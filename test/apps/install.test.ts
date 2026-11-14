@@ -1,19 +1,27 @@
 import { afterEach, describe, expect, test } from 'bun:test';
+import { createHash } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import { createServer, type Server } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { Worker } from 'node:worker_threads';
+import { gzipSync } from 'node:zlib';
 import {
   debugLogTail,
+  isTransientNetworkFailure,
   NESTED_INSTALL_ATTEMPT_MS,
   npmInstall,
   npmInstallArgs,
   retryOnceOnTimeout,
+  runCommand,
   shouldRetryOnline,
   type CommandResult,
   type TimedResult,
 } from './install.ts';
-import { copyTree, dependencySetKey, SharedInstalls, type CopyWorker } from './shared-installs.ts';
+import { copyTree, type StartCopyWorker } from './copy-tree.ts';
+import { dependencySetKey, SharedInstalls } from './shared-installs.ts';
 
 const dirs: string[] = [];
 function tempDir(): string {
@@ -64,6 +72,149 @@ describe('the retry after stale npm metadata', () => {
     expect(calls).toBe(1);
     expect(result.code).toBe(1);
   });
+});
+
+/** Builds a minimal gzipped ustar tarball holding `package/package.json` for a local stand-in registry. */
+function minimalTarball(name: string, version: string): Buffer {
+  const body = Buffer.from(`${JSON.stringify({ name, version })}\n`, 'utf8');
+  const header = Buffer.alloc(512);
+  header.write('package/package.json', 0, 'utf8');
+  header.write('0000644\0', 100, 'ascii');
+  header.write('0000000\0', 108, 'ascii');
+  header.write('0000000\0', 116, 'ascii');
+  header.write(`${body.length.toString(8).padStart(11, '0')}\0`, 124, 'ascii');
+  header.write('00000000000\0', 136, 'ascii');
+  header.fill(0x20, 148, 156);
+  header.write('0', 156, 'ascii');
+  header.write('ustar\0', 257, 'ascii');
+  header.write('00', 263, 'ascii');
+  let checksum = 0;
+  for (const byte of header) checksum += byte;
+  header.write(`${checksum.toString(8).padStart(6, '0')}\0 `, 148, 'ascii');
+  const pad = Buffer.alloc((512 - (body.length % 512)) % 512);
+  return gzipSync(Buffer.concat([header, body, pad, Buffer.alloc(1024)]));
+}
+
+describe('the bounded retry after a transient npm network failure', () => {
+  const servers: Server[] = [];
+  afterEach(async () => {
+    for (const server of servers.splice(0)) await new Promise<void>((resolve) => server.close(() => resolve()));
+  });
+
+  test('recognizes dropped sockets and 5xx registry failures, not bad dependencies or timeouts', () => {
+    for (const output of [
+      'npm error code ECONNRESET\n',
+      'npm error errno ETIMEDOUT\n',
+      'npm error code EAI_AGAIN\n',
+      'npm error code E503\n',
+      'npm error network request failed, reason: socket hang up\n',
+    ]) {
+      expect(isTransientNetworkFailure({ code: 1, output })).toBe(true);
+    }
+    expect(isTransientNetworkFailure({ code: 1, output: 'npm error code E404\n404 Not Found\n' })).toBe(false);
+    expect(isTransientNetworkFailure({ code: 1, output: ETARGET_OUTPUT })).toBe(false);
+    expect(isTransientNetworkFailure({ code: 1, output: 'npm error code ERESOLVE\n' })).toBe(false);
+    expect(isTransientNetworkFailure({ code: 0, output: 'warn ECONNRESET\n' })).toBe(false);
+    expect(isTransientNetworkFailure({ code: null, output: 'npm error code ECONNRESET\n', timedOut: true })).toBe(false);
+  });
+
+  test('npmInstall retries once on ECONNRESET, stops after two attempts, and never retries E404', async () => {
+    const recovered: CommandResult[] = [
+      { code: 1, output: 'npm error code ECONNRESET\n' },
+      { code: 0, output: 'added 1 package\n' },
+    ];
+    let calls = 0;
+    const ok = await npmInstall('/cache', async () => {
+      calls += 1;
+      return recovered.shift() ?? { code: 1, output: 'called too often' };
+    }, undefined, { networkRetryDelayMs: 0 });
+    expect(calls).toBe(2);
+    expect(ok.code).toBe(0);
+    expect(ok.output).toContain('npm error code ECONNRESET');
+    expect(ok.output).toContain('infrastructure retry: npm install hit a transient network error');
+    expect(ok.output).toContain('added 1 package');
+
+    let persistentCalls = 0;
+    const failed = await npmInstall('/cache', async () => {
+      persistentCalls += 1;
+      return { code: 1, output: `attempt ${persistentCalls}: npm error code ECONNRESET\n` };
+    }, undefined, { networkRetryDelayMs: 0 });
+    expect(persistentCalls).toBe(2);
+    expect(failed.code).toBe(1);
+    expect(failed.output).toContain('attempt 1: npm error code ECONNRESET');
+    expect(failed.output).toContain('attempt 2: npm error code ECONNRESET');
+
+    let badDepCalls = 0;
+    const badDep = await npmInstall('/cache', async () => {
+      badDepCalls += 1;
+      return { code: 1, output: 'npm error code E404\nnpm error 404 Not Found - GET https://registry.example/missing-pkg\n' };
+    }, undefined, { networkRetryDelayMs: 0 });
+    expect(badDepCalls).toBe(1);
+    expect(badDep.code).toBe(1);
+    expect(badDep.output).toContain('npm error code E404');
+  });
+
+  test('real npm recovers when a local registry resets the first connection, and still fails once on a missing package', async () => {
+    const tgz = minimalTarball('demo-pkg', '1.0.0');
+    const integrity = `sha512-${createHash('sha512').update(tgz).digest('base64')}`;
+    let dropFirst = true;
+    const server = createServer((req, res) => {
+      if (req.url === '/demo-pkg' && dropFirst) {
+        dropFirst = false;
+        req.socket.destroy();
+        return;
+      }
+      if (req.url === '/demo-pkg') {
+        const port = (server.address() as AddressInfo).port;
+        const doc = {
+          name: 'demo-pkg',
+          'dist-tags': { latest: '1.0.0' },
+          versions: {
+            '1.0.0': {
+              name: 'demo-pkg',
+              version: '1.0.0',
+              dist: { tarball: `http://127.0.0.1:${port}/demo-pkg-1.0.0.tgz`, integrity },
+            },
+          },
+        };
+        res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(doc));
+        return;
+      }
+      if (req.url === '/demo-pkg-1.0.0.tgz') {
+        res.writeHead(200, { 'content-type': 'application/octet-stream' }).end(tgz);
+        return;
+      }
+      res.writeHead(404, { 'content-type': 'application/json' }).end(JSON.stringify({ error: 'Not found' }));
+    });
+    servers.push(server);
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const registry = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+
+    const okDir = join(tempDir(), 'ok-app');
+    mkdirSync(okDir, { recursive: true });
+    writeFileSync(join(okDir, 'package.json'), JSON.stringify({ name: 'ok-app', private: true, dependencies: { 'demo-pkg': '1.0.0' } }));
+    let okCalls = 0;
+    const okResult = await npmInstall(join(tempDir(), 'cache-ok'), (args) => {
+      okCalls += 1;
+      return runCommand('npm', [...args, `--registry=${registry}`, '--fetch-retries=0'], { cwd: okDir });
+    }, undefined, { networkRetryDelayMs: 0 });
+    expect(okCalls).toBe(2);
+    expect(okResult.code).toBe(0);
+    expect(okResult.output).toContain('ECONNRESET');
+    expect(existsSync(join(okDir, 'node_modules/demo-pkg/package.json'))).toBe(true);
+
+    const badDir = join(tempDir(), 'bad-app');
+    mkdirSync(badDir, { recursive: true });
+    writeFileSync(join(badDir, 'package.json'), JSON.stringify({ name: 'bad-app', private: true, dependencies: { 'missing-pkg': '1.0.0' } }));
+    let badCalls = 0;
+    const badResult = await npmInstall(join(tempDir(), 'cache-bad'), (args) => {
+      badCalls += 1;
+      return runCommand('npm', [...args, `--registry=${registry}`, '--fetch-retries=0'], { cwd: badDir });
+    }, undefined, { networkRetryDelayMs: 0 });
+    expect(badCalls).toBe(1);
+    expect(badResult.code).toBe(1);
+    expect(badResult.output).toContain('E404');
+  }, 30_000);
 });
 
 describe('the infrastructure retry of a nested install that hangs (#1476)', () => {
@@ -215,29 +366,103 @@ describe('copying an installed tree into an app', () => {
 });
 
 describe('settling a copy from its worker', () => {
-  /** A copy worker that emits each event on its own later turn, `delayMs` apart, the way a real one reports. */
-  function scriptedWorker(events: ReadonlyArray<[string, unknown]>, delayMs = 0): () => CopyWorker {
-    return () => {
+  type WorkerStep = ['result', { ok: boolean; message?: string }] | ['message', { ok: boolean; message?: string }] | ['exit', number];
+
+  /**
+   * A copy worker that does each step on its own later turn, `delayMs`
+   * apart, the way a real one reports: `result` writes the result file, as
+   * the real worker does before it posts its message.
+   */
+  function scriptedWorker(steps: readonly WorkerStep[], delayMs = 0): StartCopyWorker {
+    return (_from, _to, resultFile) => {
       const worker = Object.assign(new EventEmitter(), { terminate: () => undefined });
-      events.forEach(([event, value], index) => setTimeout(() => worker.emit(event, value), (index + 1) * delayMs));
+      steps.forEach(([step, value], index) => setTimeout(() => {
+        if (step === 'result') writeFileSync(resultFile, JSON.stringify(value));
+        else worker.emit(step, value);
+      }, (index + 1) * delayMs));
       return worker;
     };
   }
+
+  /** Starts each worker in `starts` in turn, and counts them. */
+  function inTurn(starts: readonly StartCopyWorker[]): { startWorker: StartCopyWorker; started: () => number } {
+    let count = 0;
+    const startWorker: StartCopyWorker = (from, to, resultFile) => {
+      const start = starts[count] ?? starts[starts.length - 1];
+      if (!start) throw new Error('inTurn requires at least one worker');
+      count += 1;
+      return start(from, to, resultFile);
+    };
+    return { startWorker, started: () => count };
+  }
+
   const to = () => join(tempDir(), 'to');
+  const lines = (): { report: (line: string) => void; reported: string[] } => {
+    const reported: string[] = [];
+    return { report: (line) => reported.push(line), reported };
+  };
 
   test('a worker whose clean exit is handled before its result settles as success (#1280)', async () => {
-    const worker = scriptedWorker([['exit', 0], ['message', { ok: true }]], 50);
-    await expect(copyTree('/from', to(), worker, 500)).resolves.toBeUndefined();
+    const { startWorker, started } = inTurn([scriptedWorker([['result', { ok: true }], ['exit', 0], ['message', { ok: true }]], 20)]);
+    const { report, reported } = lines();
+    await expect(copyTree('/from', to(), { startWorker, report })).resolves.toBeUndefined();
+    expect({ started: started(), reported }).toEqual({ started: 1, reported: [] });
   });
 
-  test('a worker that exits without a result fails the copy, whatever its code', async () => {
-    await expect(copyTree('/from', to(), scriptedWorker([['exit', 1]]))).rejects.toThrow('the copy worker exited with code 1 before it finished');
-    await expect(copyTree('/from', to(), scriptedWorker([['exit', 0]]), 20)).rejects.toThrow('the copy worker exited with code 0 before it finished');
+  test('a worker whose message never arrives settles from the result it wrote', async () => {
+    await expect(copyTree('/from', to(), { startWorker: scriptedWorker([['result', { ok: true }], ['exit', 0]]) })).resolves.toBeUndefined();
+    const failed = copyTree('/from', to(), { startWorker: scriptedWorker([['result', { ok: false, message: 'ENOSPC' }], ['exit', 0]]) });
+    await expect(failed).rejects.toThrow('failed: ENOSPC');
   });
 
-  test('a failed result fails the copy, and a later exit does not change it', async () => {
-    const copy = copyTree('/from', to(), scriptedWorker([['message', { ok: false, message: 'ENOSPC' }], ['exit', 0]]));
-    await expect(copy).rejects.toThrow('failed: ENOSPC');
+  test('a worker that exits with code 0 and no result did not copy: a real worker then copies the tree, and the retry is reported', async () => {
+    const from = tempDir();
+    const target = to();
+    mkdirSync(join(from, 'vite/bin'), { recursive: true });
+    writeFileSync(join(from, 'vite/bin/vite.js'), 'console.log("vite")\n');
+    // The first worker leaves part of a tree and exits cleanly with no result, as on CI. The second is the real one.
+    const exitsEarly: StartCopyWorker = (source, dest, resultFile) => {
+      mkdirSync(join(dest, 'left-by-the-first-worker'), { recursive: true });
+      return scriptedWorker([['exit', 0]])(source, dest, resultFile);
+    };
+    const realWorker: StartCopyWorker = (source, dest, resultFile) =>
+      new Worker(new URL('./copy-tree-worker.ts', import.meta.url), { workerData: { from: source, to: dest, resultFile } });
+    const { startWorker, started } = inTurn([exitsEarly, realWorker]);
+    const { report, reported } = lines();
+    await copyTree(from, target, { startWorker, report });
+    expect(started()).toBe(2);
+    expect(readFileSync(join(target, 'vite/bin/vite.js'), 'utf8')).toBe('console.log("vite")\n');
+    expect(existsSync(join(target, 'left-by-the-first-worker'))).toBe(false);
+    expect(existsSync(`${target}.copy-result.json`)).toBe(false);
+    expect(reported).toEqual([`[runner] infrastructure retry: the copy worker for ${target} exited with code 0 before it finished; copying once more`]);
+  });
+
+  test('a second worker that also exits with code 0 and no result fails the copy, and there is no third', async () => {
+    const { startWorker, started } = inTurn([scriptedWorker([['exit', 0]])]);
+    const { report, reported } = lines();
+    await expect(copyTree('/from', to(), { startWorker, report })).rejects.toThrow('the copy worker exited with code 0 before it finished, on each of 2 attempts');
+    expect({ started: started(), retries: reported.length }).toEqual({ started: 2, retries: 1 });
+  });
+
+  test('a worker that exits with another code fails the copy at once', async () => {
+    const { startWorker, started } = inTurn([scriptedWorker([['exit', 1]])]);
+    const { report, reported } = lines();
+    await expect(copyTree('/from', to(), { startWorker, report })).rejects.toThrow('the copy worker exited with code 1 before it finished');
+    expect({ started: started(), reported }).toEqual({ started: 1, reported: [] });
+  });
+
+  test('a failed result fails the copy at once, and a later exit does not change it', async () => {
+    const { startWorker, started } = inTurn([scriptedWorker([['message', { ok: false, message: 'ENOSPC' }], ['exit', 0]])]);
+    const { report, reported } = lines();
+    await expect(copyTree('/from', to(), { startWorker, report })).rejects.toThrow('failed: ENOSPC');
+    expect({ started: started(), reported }).toEqual({ started: 1, reported: [] });
+  });
+
+  test('a real copy that fails says why, and is not run again', async () => {
+    const { report, reported } = lines();
+    const missing = join(tempDir(), 'no-such-tree');
+    await expect(copyTree(missing, to(), { report })).rejects.toThrow(/copying .*no-such-tree to .* failed: .*ENOENT/);
+    expect(reported).toEqual([]);
   });
 });
 

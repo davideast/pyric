@@ -197,6 +197,12 @@ export function npmOfflineInstallArgs(npmCache: string, registry: string): strin
 /** npm's codes for a version range the cached package listing has no match for. */
 const STALE_METADATA = /\bcode (ETARGET|ENOVERSIONS)\b/;
 
+/** npm's codes and transport messages for a dropped or unavailable registry connection. */
+const TRANSIENT_NETWORK_CODE = /\b(?:code|errno) (?:ECONNRESET|ETIMEDOUT|ESOCKETTIMEDOUT|ERR_SOCKET_TIMEOUT|EAI_AGAIN|ECONNREFUSED|EPIPE|E500|E502|E503|E504)\b/;
+const TRANSIENT_NETWORK_MESSAGE = /\b(?:socket hang up|Client network socket disconnected|network socket disconnected|ECONNRESET|ESOCKETTIMEDOUT|ERR_SOCKET_TIMEOUT|EAI_AGAIN)\b/;
+
+const DEFAULT_NETWORK_RETRY_DELAY_MS = 1_000;
+
 /**
  * Whether a failed install is explained by stale cached metadata. With
  * `--prefer-offline`, npm trusts a cached package listing, so a dependency
@@ -208,16 +214,52 @@ export function shouldRetryOnline(result: CommandResult): boolean {
   return isFailure && STALE_METADATA.test(result.output);
 }
 
-/** Run `npm install` offline first, and once more with `--prefer-online` when stale metadata failed it. */
-export async function npmInstall<R extends CommandResult>(
+/**
+ * Whether a failed install was interrupted by a transient registry or socket
+ * error (such as ECONNRESET or 503). Timed-out installs are not matched here
+ * because their caller owns timeout retries, and bad dependencies (E404,
+ * ETARGET, ERESOLVE) are never matched.
+ */
+export function isTransientNetworkFailure(result: CommandResult & { timedOut?: boolean }): boolean {
+  if (result.timedOut === true) return false;
+  const hasNonZeroExit = result.code !== 0 && result.code !== null;
+  if (!hasNonZeroExit) return false;
+  return TRANSIENT_NETWORK_CODE.test(result.output) || TRANSIENT_NETWORK_MESSAGE.test(result.output);
+}
+
+export interface NpmInstallOptions {
+  /** Pause before retrying a transient network failure; tests pass 0. */
+  networkRetryDelayMs?: number;
+}
+
+async function runWithNetworkRetry<R extends CommandResult & { timedOut?: boolean }>(
+  args: string[],
+  run: (args: string[]) => Promise<R>,
+  delayMs: number,
+): Promise<R> {
+  const first = await run(args);
+  if (!isTransientNetworkFailure(first)) return first;
+  const note = '\n[runner] infrastructure retry: npm install hit a transient network error; retrying once\n';
+  if (delayMs > 0) await new Promise((resolve) => setTimeout(resolve, delayMs));
+  const second = await run(args);
+  return { ...second, output: `${first.output}${note}${second.output}` };
+}
+
+/**
+ * Run `npm install` offline first, retrying once on a transient network
+ * error, and once more with `--prefer-online` when stale metadata failed it.
+ */
+export async function npmInstall<R extends CommandResult & { timedOut?: boolean }>(
   npmCache: string,
   run: (args: string[]) => Promise<R>,
   logsDir?: string,
+  options: NpmInstallOptions = {},
 ): Promise<R> {
-  const first = await run(npmInstallArgs(npmCache, 'offline', logsDir));
+  const delayMs = options.networkRetryDelayMs ?? DEFAULT_NETWORK_RETRY_DELAY_MS;
+  const first = await runWithNetworkRetry(npmInstallArgs(npmCache, 'offline', logsDir), run, delayMs);
   if (!shouldRetryOnline(first)) return first;
   const note = '\n[runner] npm install failed on stale cached metadata; retrying once with --prefer-online\n';
-  const second = await run(npmInstallArgs(npmCache, 'online', logsDir));
+  const second = await runWithNetworkRetry(npmInstallArgs(npmCache, 'online', logsDir), run, delayMs);
   return { ...second, output: `${first.output}${note}${second.output}` };
 }
 
