@@ -67,7 +67,11 @@ function ensureSafeParentDirectory(filePath: string): string {
   for (;;) {
     const stat = lstatOrNull(walk);
     if (stat !== null) {
-      if (stat.isSymbolicLink() && (walk === targetDir || basename(walk) === '.pyric')) {
+      const isNonRootExistingParent = missingSegments.length > 0 && dirname(walk) !== '/';
+      if (
+        stat.isSymbolicLink() &&
+        (walk === targetDir || basename(walk) === '.pyric' || isNonRootExistingParent)
+      ) {
         throw new Error(`Refusing to write session file through symbolic link directory: ${walk}`);
       }
       break;

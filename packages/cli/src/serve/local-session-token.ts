@@ -1,4 +1,4 @@
-import { existsSync, readdirSync, readFileSync, realpathSync, rmSync } from 'node:fs';
+import { existsSync, readFileSync, realpathSync, rmSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import type { HostTrust } from 'pyric/sandbox/internal';
 import { honorsCertificatePin, trustedFetch } from '../remote/loopback-tls.js';
@@ -6,18 +6,13 @@ import type { AnsweringHost, Discovered } from './discovery.js';
 import { writeMode600FileSync } from './mode600-file.js';
 import { isLoopbackAddress } from './peer.js';
 import {
-  CANDIDATE_SUBDIRS,
-  candidateWorkspaceDirectories,
-  findOwningWorkspaceDir,
-  isEnvSessionTokenAllowedForPort,
-  ROOT_ONLY_SUBDIRS,
+  candidateSessionTokenFiles,
+  candidateTlsPointerFiles,
+  POINTER_REL,
+  SESSION_REL,
 } from './workspace-boundary.js';
 
 export { writeMode600FileSync };
-
-const POINTER_REL = join('.pyric', 'serve.json');
-const SESSION_REL = join('.pyric', 'session.json');
-const WORKSPACE_GROUPS = ['apps', 'packages', 'services'] as const;
 
 const TOKENS_BY_PORT_KEY = Symbol.for('pyric.localSessionTokensByPort');
 const REQUIRED_TOKENS_KEY = Symbol.for('pyric.requiredSessionTokens');
@@ -110,11 +105,26 @@ export function inProcessSessionTokenForPort(port: number | undefined): string |
   return activeTokensByPort().get(port);
 }
 
-function parseLoopbackPort(rawUrl: string | undefined): number | undefined {
-  if (!rawUrl) return undefined;
+function parseLoopbackPort(
+  raw: string | undefined,
+  options?: { allowBarePortOrHost?: boolean },
+): number | undefined {
+  if (!raw) return undefined;
+  const trimmed = raw.trim();
+  if (trimmed === '') return undefined;
+  const allowBare = options?.allowBarePortOrHost === true;
+  if (allowBare && /^\d{1,5}$/.test(trimmed)) {
+    const numeric = Number(trimmed);
+    if (numeric > 0 && numeric <= 65535) return numeric;
+    return undefined;
+  }
+  let candidateUrl = trimmed;
+  if (allowBare && !/^[a-z][a-z0-9+.-]*:\/\//i.test(trimmed)) {
+    candidateUrl = `http://${trimmed}`;
+  }
   let parsed: URL;
   try {
-    parsed = new URL(rawUrl);
+    parsed = new URL(candidateUrl);
   } catch {
     return undefined;
   }
@@ -123,7 +133,9 @@ function parseLoopbackPort(rawUrl: string | undefined): number | undefined {
   const isTls = parsed.protocol === 'https:' || parsed.protocol === 'wss:';
   const defaultPort = isTls ? 443 : 80;
   if (parsed.port === '') return defaultPort;
-  return Number(parsed.port);
+  const port = Number(parsed.port);
+  if (Number.isInteger(port) && port > 0 && port <= 65535) return port;
+  return undefined;
 }
 
 export function inProcessSessionTokenForUrl(url: string | undefined): string | undefined {
@@ -165,26 +177,47 @@ function extractEntryPort(entry: DiskTokenEntry): number | undefined {
   return undefined;
 }
 
-function candidateTokenFiles(startDir: string): string[] {
-  const files: string[] = [];
-  const seen = new Set<string>();
-  for (const { dir, includeSubdirs } of candidateWorkspaceDirectories(startDir)) {
-    const subdirs = includeSubdirs ? CANDIDATE_SUBDIRS : ROOT_ONLY_SUBDIRS;
-    for (const sub of subdirs) {
-      let baseDir = dir;
-      if (sub !== '') {
-        baseDir = join(dir, sub);
-      }
-      for (const rel of [POINTER_REL, SESSION_REL]) {
-        const candidate = join(baseDir, rel);
-        if (!seen.has(candidate)) {
-          seen.add(candidate);
-          files.push(candidate);
-        }
+function recordBoundEnvPort(raw: string | undefined, boundPorts: number[]): boolean {
+  if (raw === undefined) return true;
+  const trimmed = raw.trim();
+  if (trimmed === '') return true;
+  const parsed = parseLoopbackPort(trimmed, { allowBarePortOrHost: true });
+  if (parsed === undefined) return false;
+  boundPorts.push(parsed);
+  return true;
+}
+
+function isEnvSessionTokenAllowedForPort(input: {
+  env: NodeJS.ProcessEnv;
+  targetPort: number | undefined;
+  diskPorts: ReadonlySet<number>;
+  tokenMismatchedOnDisk: boolean;
+}): boolean {
+  const { env, targetPort } = input;
+  if (targetPort === undefined) return true;
+  if (input.tokenMismatchedOnDisk) return false;
+
+  const boundEnvPorts: number[] = [];
+  if (!recordBoundEnvPort(env.PYRIC_LIVE_HOST, boundEnvPorts)) return false;
+  if (!recordBoundEnvPort(env.PYRIC_SANDBOX_PORT, boundEnvPorts)) return false;
+  if (!recordBoundEnvPort(env.PYRIC_WORKER_INIT_HOST, boundEnvPorts)) return false;
+
+  const sandboxSpec = env.PYRIC_SANDBOX?.trim();
+  if (typeof sandboxSpec === 'string' && sandboxSpec !== '') {
+    if (sandboxSpec.startsWith('remote:')) {
+      const remoteUrl = sandboxSpec.slice('remote:'.length);
+      if (!recordBoundEnvPort(remoteUrl, boundEnvPorts)) return false;
+    } else if (sandboxSpec === 'remote') {
+      if (boundEnvPorts.length === 0 && !input.diskPorts.has(targetPort)) {
+        return false;
       }
     }
   }
-  return files;
+
+  if (boundEnvPorts.length > 0 && !boundEnvPorts.every((port) => port === targetPort)) {
+    return false;
+  }
+  return true;
 }
 
 /**
@@ -227,6 +260,102 @@ export function writeOwnedSessionFile(
 }
 
 /**
+ * Shared capability-token and optional `instanceId` lookup across in-process
+ * registry, workspace pointer/session files, and port-scoped `PYRIC_SESSION_TOKEN`.
+ */
+export function resolveSessionTokenLookup(input: {
+  cwd?: string;
+  url?: string;
+  port?: number;
+  env?: NodeJS.ProcessEnv;
+  explicitToken?: string;
+  expectedInstanceId?: string | null;
+  includeWorkspaceGroups?: boolean;
+}): { token?: string; expectedInstanceId?: string } {
+  let initialExpected: string | undefined;
+  if (typeof input.expectedInstanceId === 'string' && input.expectedInstanceId.length > 0) {
+    initialExpected = input.expectedInstanceId;
+  }
+  if (typeof input.explicitToken === 'string' && input.explicitToken.length > 0) {
+    return { token: input.explicitToken, expectedInstanceId: initialExpected };
+  }
+
+  const hasTargetUrl = typeof input.url === 'string' && input.url.length > 0;
+  const targetPort = input.port ?? parseLoopbackPort(input.url);
+  if (hasTargetUrl && targetPort === undefined) {
+    return { expectedInstanceId: initialExpected };
+  }
+
+  const inProcess = inProcessSessionTokenForPort(targetPort);
+  if (inProcess !== undefined) {
+    return { token: inProcess, expectedInstanceId: initialExpected };
+  }
+
+  const env = input.env ?? process.env;
+  const envToken = env.PYRIC_SESSION_TOKEN;
+  const diskPorts = new Set<number>();
+  let tokenMismatchedOnDisk = false;
+
+  if (input.cwd) {
+    let fallbackWithoutPort: { token: string; instanceId?: string } | undefined;
+    const files = candidateSessionTokenFiles(input.cwd, {
+      includeWorkspaceGroups: input.includeWorkspaceGroups,
+    });
+    for (const filePath of files) {
+      if (!existsSync(filePath)) continue;
+      try {
+        const entry = JSON.parse(readFileSync(filePath, 'utf8')) as DiskTokenEntry;
+        if (typeof entry.token !== 'string' || entry.token.length === 0) continue;
+        if (!isProcessAlive(entry.pid)) continue;
+        const entryPort = extractEntryPort(entry);
+        if (entryPort !== undefined) {
+          diskPorts.add(entryPort);
+        }
+        let entryId: string | undefined;
+        if (typeof entry.instanceId === 'string' && entry.instanceId.length > 0) {
+          entryId = entry.instanceId;
+        }
+        if (targetPort !== undefined) {
+          if (entryPort === targetPort) {
+            return {
+              token: entry.token,
+              expectedInstanceId: initialExpected ?? entryId,
+            };
+          }
+          if (entryPort !== undefined && entry.token === envToken) {
+            tokenMismatchedOnDisk = true;
+          }
+        } else if (fallbackWithoutPort === undefined) {
+          fallbackWithoutPort = { token: entry.token, instanceId: entryId };
+        }
+      } catch {
+        // Ignore unreadable or mid-write pointer files.
+      }
+    }
+    if (fallbackWithoutPort !== undefined) {
+      return {
+        token: fallbackWithoutPort.token,
+        expectedInstanceId: initialExpected ?? fallbackWithoutPort.instanceId,
+      };
+    }
+  }
+
+  if (
+    typeof envToken === 'string' &&
+    envToken.length > 0 &&
+    isEnvSessionTokenAllowedForPort({
+      env,
+      targetPort,
+      diskPorts,
+      tokenMismatchedOnDisk,
+    })
+  ) {
+    return { token: envToken, expectedInstanceId: initialExpected };
+  }
+  return { expectedInstanceId: initialExpected };
+}
+
+/**
  * Resolves the capability token for a local server from:
  *   1. The in-process port registry (same-process callers & multi-server tests),
  *   2. `.pyric/serve.json` or `.pyric/session.json` (`0o600`) in `cwd` / ancestors,
@@ -239,88 +368,7 @@ export function resolveSessionTokenForTarget(input: {
   env?: NodeJS.ProcessEnv;
   explicitToken?: string;
 }): string | undefined {
-  if (typeof input.explicitToken === 'string' && input.explicitToken.length > 0) {
-    return input.explicitToken;
-  }
-
-  const hasTargetUrl = typeof input.url === 'string' && input.url.length > 0;
-  const targetPort = input.port ?? parseLoopbackPort(input.url);
-  if (hasTargetUrl && targetPort === undefined) {
-    return undefined;
-  }
-
-  const inProcess = inProcessSessionTokenForPort(targetPort);
-  if (inProcess) return inProcess;
-
-  const env = input.env ?? process.env;
-  const envToken = env.PYRIC_SESSION_TOKEN;
-  const diskPorts = new Set<number>();
-  let tokenMismatchedOnDisk = false;
-
-  if (input.cwd) {
-    let fallbackWithoutPort: string | undefined;
-    for (const filePath of candidateTokenFiles(input.cwd)) {
-      if (!existsSync(filePath)) continue;
-      try {
-        const entry = JSON.parse(readFileSync(filePath, 'utf8')) as DiskTokenEntry;
-        if (typeof entry.token !== 'string' || entry.token.length === 0) continue;
-        if (!isProcessAlive(entry.pid)) continue;
-        const entryPort = extractEntryPort(entry);
-        if (entryPort !== undefined) {
-          diskPorts.add(entryPort);
-        }
-        if (targetPort !== undefined) {
-          if (entryPort === targetPort) return entry.token;
-          if (entryPort !== undefined && entry.token === envToken) {
-            tokenMismatchedOnDisk = true;
-          }
-        } else {
-          fallbackWithoutPort ??= entry.token;
-        }
-      } catch {
-        // Ignore unreadable or mid-write pointer files.
-      }
-    }
-    if (fallbackWithoutPort) return fallbackWithoutPort;
-  }
-
-  if (typeof envToken === 'string' && envToken.length > 0) {
-    if (
-      !isEnvSessionTokenAllowedForPort({
-        env,
-        targetPort,
-        diskPorts,
-        tokenMismatchedOnDisk,
-      })
-    ) {
-      return undefined;
-    }
-    return envToken;
-  }
-  return undefined;
-}
-
-function candidateTlsPointerFiles(startDir: string): string[] {
-  const files = [...candidateTokenFiles(startDir)];
-  const seen = new Set(files);
-  const projectRoot = findOwningWorkspaceDir(startDir) ?? resolve(startDir);
-  for (const group of WORKSPACE_GROUPS) {
-    const groupDir = join(projectRoot, group);
-    if (!existsSync(groupDir)) continue;
-    try {
-      for (const entry of readdirSync(groupDir, { withFileTypes: true })) {
-        if (!entry.isDirectory()) continue;
-        const candidate = join(groupDir, entry.name, POINTER_REL);
-        if (!seen.has(candidate)) {
-          seen.add(candidate);
-          files.push(candidate);
-        }
-      }
-    } catch {
-      // Ignore unreadable workspace directories.
-    }
-  }
-  return files;
+  return resolveSessionTokenLookup(input).token;
 }
 
 function httpOriginFromTargetUrl(rawUrl: string): string | undefined {

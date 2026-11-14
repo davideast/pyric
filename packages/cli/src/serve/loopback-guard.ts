@@ -1,56 +1,85 @@
 import { timingSafeEqual } from 'node:crypto';
 import type { IncomingHttpHeaders, IncomingMessage, ServerResponse } from 'node:http';
-import { Socket } from 'node:net';
+import { isIP, Socket } from 'node:net';
 import { isLocalPeer, isLoopbackAddress } from './peer.js';
 
 export { isLocalPeer, isLoopbackAddress };
 
-function extractHostname(raw: string): string {
+interface ParsedHost {
+  hostname: string;
+  port: number | undefined;
+}
+
+function parsePortToken(token: string): number | null {
+  if (!/^[1-9]\d{0,4}$/.test(token)) return null;
+  const port = Number(token);
+  if (port > 65535) return null;
+  return port;
+}
+
+function parseHostHeader(raw: string): ParsedHost | null {
   const trimmed = raw.trim().toLowerCase();
-  if (trimmed.startsWith('[')) {
-    const close = trimmed.indexOf(']');
-    if (close !== -1) return trimmed.slice(1, close);
-  }
-  const firstColon = trimmed.indexOf(':');
-  const lastColon = trimmed.lastIndexOf(':');
-  if (firstColon !== -1 && firstColon === lastColon) {
-    const maybePort = trimmed.slice(firstColon + 1);
-    if (/^\d+$/.test(maybePort)) {
-      return trimmed.slice(0, firstColon);
-    }
-  }
-  return trimmed;
-}
+  if (trimmed === '' || /[\s/\\?#@]/.test(trimmed)) return null;
 
-function extractPortFromHost(raw: string): number | undefined {
-  const trimmed = raw.trim();
   if (trimmed.startsWith('[')) {
-    const match = /\]:(\d+)$/.exec(trimmed);
-    if (match) return Number(match[1]);
-    return undefined;
+    const match = /^\[([^\]]+)\](?::([^:]+))?$/.exec(trimmed);
+    if (match === null) return null;
+    const ipv6 = match[1]!;
+    if (isIP(ipv6) !== 6) return null;
+    const rawPort = match[2];
+    if (rawPort === undefined) return { hostname: ipv6, port: undefined };
+    const port = parsePortToken(rawPort);
+    if (port === null) return null;
+    return { hostname: ipv6, port };
   }
-  const firstColon = trimmed.indexOf(':');
-  const lastColon = trimmed.lastIndexOf(':');
-  if (firstColon !== -1 && firstColon === lastColon) {
-    const maybePort = trimmed.slice(firstColon + 1);
-    if (/^\d+$/.test(maybePort)) return Number(maybePort);
-  }
-  return undefined;
-}
 
-const WILDCARD_HOSTNAMES = new Set([
-  '0',
-  '0.0.0.0',
-  '::ffff:0.0.0.0',
-  '::ffff:0:0',
-  '0:0:0:0:0:ffff:0.0.0.0',
-  '0:0:0:0:0:ffff:0:0',
-]);
+  if (trimmed.includes('[') || trimmed.includes(']')) return null;
+
+  if (trimmed.indexOf(':') !== trimmed.lastIndexOf(':')) {
+    if (isIP(trimmed) === 6) return { hostname: trimmed, port: undefined };
+    return null;
+  }
+
+  const colon = trimmed.indexOf(':');
+  let hostname = trimmed;
+  let port: number | undefined;
+  if (colon !== -1) {
+    hostname = trimmed.slice(0, colon);
+    const parsedPort = parsePortToken(trimmed.slice(colon + 1));
+    if (parsedPort === null) return null;
+    port = parsedPort;
+  }
+  if (hostname === '') return null;
+  const cleanHost = hostname.replace(/\.+$/, '');
+  if (cleanHost === '') return null;
+  if (/^\d+(?:\.\d+)+$/.test(cleanHost) && isIP(cleanHost) !== 4) {
+    return null;
+  }
+  return { hostname, port };
+}
 
 function isWildcardHostname(hostname: string): boolean {
-  const clean = hostname.replace(/\.+$/, '');
-  if (WILDCARD_HOSTNAMES.has(clean)) return true;
-  return clean.includes(':') && /^[0:]+$/.test(clean);
+  const clean = hostname.replace(/\.+$/, '').toLowerCase();
+  if (clean === '0' || clean === '0.0.0.0') return true;
+  if (!clean.includes(':')) return false;
+  try {
+    const canonical = new URL(`http://[${clean}]`).hostname;
+    return canonical === '[::]' || canonical === '[::ffff:0:0]';
+  } catch {
+    return /^[0:]+$/.test(clean);
+  }
+}
+
+function matchesExtraHost(parsed: ParsedHost, extra: string[]): boolean {
+  for (const rawEntry of extra) {
+    const entry = parseHostHeader(rawEntry);
+    if (entry === null || isWildcardHostname(entry.hostname)) continue;
+    if (entry.hostname !== parsed.hostname) continue;
+    if (entry.port === undefined || entry.port === parsed.port) {
+      return true;
+    }
+  }
+  return false;
 }
 
 /**
@@ -61,27 +90,33 @@ function isWildcardHostname(hostname: string): boolean {
  * including `/__pyric/state` (auth users + plaintext passwords, and writes).
  * Vite addresses the same class with `server.allowedHosts`.
  *
- * We accept only loopback hostnames + the host the server was bound to +
- * any `--allowed-host`. Wildcard bind addresses (`0.0.0.0`, `::`) are never
- * accepted as Host or Origin names even when the listener is wildcard-bound.
- * A request with NO Host header is allowed (curl / same-origin fetches omit
- * nothing in practice, but non-browser clients may; the attack requires a
- * browser sending the attacker's Host).
+ * Accepts strictly well-formed `host` or `host:port` values matching loopback
+ * hostnames, a non-wildcard bound host, or `--allowed-host`. Wildcard bind
+ * addresses (`0.0.0.0`, `::`, `::ffff:0.0.0.0`) are never accepted even when
+ * the listener is wildcard-bound. A request with NO `Host` header (`undefined`)
+ * is allowed for non-browser callers.
  */
 export function isAllowedHost(
   hostHeader: string | undefined,
   boundHost: string,
   extra: string[] = [],
 ): boolean {
-  if (!hostHeader) return true; // no Host -> not a browser rebinding attack
-  const hostname = extractHostname(hostHeader);
-  if (isWildcardHostname(hostname)) return false;
-  const boundHostname = extractHostname(boundHost);
-  if (hostname === 'localhost' || isLoopbackAddress(hostname) || hostname === boundHostname) {
+  if (!hostHeader) return true;
+  const parsed = parseHostHeader(hostHeader);
+  if (parsed === null || isWildcardHostname(parsed.hostname)) return false;
+  const parsedBound = parseHostHeader(boundHost);
+  let boundHostname: string | null = null;
+  if (parsedBound !== null && !isWildcardHostname(parsedBound.hostname)) {
+    boundHostname = parsedBound.hostname;
+  }
+  if (
+    parsed.hostname === 'localhost' ||
+    isLoopbackAddress(parsed.hostname) ||
+    (boundHostname !== null && parsed.hostname === boundHostname)
+  ) {
     return true;
   }
-  const allowed = new Set(extra.map((h) => extractHostname(h)));
-  return allowed.has(hostname);
+  return matchesExtraHost(parsed, extra);
 }
 
 export const PYRIC_SESSION_COOKIE_NAME = '__pyric_session';
@@ -139,22 +174,32 @@ export function requestSocketScheme(
   return undefined;
 }
 
+function parseSerializedOrigin(rawOrigin: string): {
+  url: URL;
+  authority: string;
+  parsedAuthority: ParsedHost;
+} | null {
+  const trimmed = rawOrigin.trim();
+  const schemeMatch = /^(https?):\/\/(.*)$/i.exec(trimmed);
+  if (schemeMatch === null) return null;
+  const authority = schemeMatch[2]!;
+  if (authority === '' || /[\s/\\?#@]/.test(authority)) return null;
+  const parsedAuthority = parseHostHeader(authority);
+  if (parsedAuthority === null) return null;
+  try {
+    const url = new URL(trimmed);
+    if (url.username !== '' || url.password !== '') return null;
+    if (url.pathname !== '/' || url.search !== '' || url.hash !== '') return null;
+    return { url, authority, parsedAuthority };
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Origin allowlist for WebSocket `upgrade` handshakes and local endpoint requests.
- * A browser sends an `Origin` header carrying the page's origin; a hostile page
- * that connects to our loopback server sends ITS OWN cross-origin Origin,
- * which we reject.
- *
- * Enforces that the Origin's hostname is an allowed host, and when the bound
- * port is known (from `boundPort`, or as `:port` on `boundHost`), that the
- * Origin's port, or its scheme's default, is that port: another app on another
- * local port is a different origin. A hostname allowed only through `extra`
- * (a tunnel, say) reaches the server on its default public port (`originUrl.port === ''`),
- * while an explicit non-default port on that hostname must match `boundPort` or an
- * explicit `host:port` entry in `extra`.
- *
- * A missing `Origin` is allowed: non-browser clients (curl, CLI peers, tests)
- * are not the cross-origin hijack vector.
+ * Requires a strictly serialized `http:` or `https:` origin (`scheme://host[:port]`
+ * with no userinfo, path, query, or fragment) matching an allowed host and port.
  */
 export function isAllowedOrigin(
   originHeader: string | undefined,
@@ -163,45 +208,43 @@ export function isAllowedOrigin(
   boundPort?: number,
   expectedScheme?: 'http:' | 'https:',
 ): boolean {
-  if (!originHeader) return true; // no Origin -> non-browser client, not a hijack
-  let originUrl: URL;
-  try {
-    originUrl = new URL(originHeader);
-  } catch {
-    return false; // malformed Origin -> reject
-  }
-  if (originUrl.protocol !== 'http:' && originUrl.protocol !== 'https:') {
-    return false;
-  }
-  const hostname = originUrl.hostname; // may be `[::1]` -- isAllowedHost strips brackets
-  const allowedHost = isAllowedHost(hostname, boundHost, extra);
-  if (!allowedHost) return false;
-  const normalizedHost = extractHostname(hostname);
-  const allowedByName = !isAllowedHost(hostname, boundHost) && isAllowedHost(hostname, boundHost, extra);
-  const expectedPort = boundPort ?? extractPortFromHost(boundHost);
+  if (!originHeader) return true;
+  const parsedOrigin = parseSerializedOrigin(originHeader);
+  if (parsedOrigin === null) return false;
+  const { url: originUrl, authority, parsedAuthority } = parsedOrigin;
+  if (!isAllowedHost(authority, boundHost, extra)) return false;
+
+  const allowedByName = !isAllowedHost(authority, boundHost);
+  const expectedPort = boundPort ?? parseHostHeader(boundHost)?.port;
+  const defaultPort = originUrl.protocol === 'https:' ? 443 : 80;
+  const effectiveOriginPort = parsedAuthority.port ?? defaultPort;
+
   if (allowedByName) {
+    if (expectedScheme === 'https:' && originUrl.protocol !== 'https:') {
+      return false;
+    }
+    const hasExplicitExtraPort = extra.some((rawEntry) => {
+      const entry = parseHostHeader(rawEntry);
+      return (
+        entry !== null &&
+        entry.hostname === parsedAuthority.hostname &&
+        entry.port === effectiveOriginPort
+      );
+    });
+    if (hasExplicitExtraPort) return true;
     if (originUrl.port === '') return true;
     if (expectedScheme !== undefined && originUrl.protocol !== expectedScheme) {
       return false;
     }
     if (expectedPort === undefined) return true;
-    const explicitHostPort = `${normalizedHost}:${originUrl.port}`;
-    const hasExplicitExtraPort = extra.some(
-      (entry) => entry.replace(/^\[|\]$/g, '').toLowerCase() === explicitHostPort,
-    );
-    return hasExplicitExtraPort || Number(originUrl.port) === expectedPort;
+    return effectiveOriginPort === expectedPort;
   }
+
   if (expectedScheme !== undefined && originUrl.protocol !== expectedScheme) {
     return false;
   }
-  const portUnknown = expectedPort === undefined;
-  if (portUnknown) return true;
-  const defaultPort = originUrl.protocol === 'https:' ? 443 : 80;
-  let originPort = defaultPort;
-  if (originUrl.port !== '') {
-    originPort = Number(originUrl.port);
-  }
-  return originPort === expectedPort;
+  if (expectedPort === undefined) return true;
+  return effectiveOriginPort === expectedPort;
 }
 
 /**
@@ -255,13 +298,6 @@ export function isForeignFetchSite(
 /**
  * The combined guard for a WS `upgrade` request: BOTH the `Host` header
  * (DNS-rebinding) AND the `Origin` header (cross-origin hijack) must pass.
- * `upgrade` is a separate listener from the HTTP `request` event, so the
- * static server's request-time `isAllowedHost` never runs on it -- every
- * upgrade mount point must call this before `wss.handleUpgrade`.
- *
- * Pass `appPorts` (the socket's `localPort`, plus any port `createAppPorts`
- * learned) so a page on another local port is refused; without it only the
- * Origin's hostname is compared.
  */
 export function isAllowedUpgrade(
   headers: IncomingHttpHeaders | Record<string, string | string[] | undefined>,
@@ -387,10 +423,6 @@ export function isAllowedSessionToken(
 /**
  * Validates that an incoming HTTP request complies with loopback Host
  * (DNS-rebinding), Origin (cross-origin hijacking), and Sec-Fetch-Site restrictions.
- *
- * Pass `appPorts` (the socket's `localPort`, plus any port `createAppPorts`
- * learned) so a page on another local port is refused; without it only the
- * Origin's hostname is compared.
  */
 export function isAllowedLoopbackRequest(
   req: {
@@ -414,13 +446,6 @@ export function isAllowedLoopbackRequest(
 /**
  * Determines whether an HTML response may stamp `sessionToken` into inline init
  * scripts and emit `Set-Cookie: __pyric_session_<port>`.
- *
- * Requires a loopback socket peer AND a loopback/bound `Host` header (ignoring
- * `--allowed-host` / Vite `allowedHosts: true` and rejecting wildcard `0.0.0.0` / `::`,
- * so tunnel/rebound hosts never receive session capabilities), refuses foreign
- * `Origin` headers (port-aware), and refuses cross-site / cross-port Fetch Metadata
- * unless the request is a top-level document navigation
- * (`Sec-Fetch-Mode: navigate` + `Sec-Fetch-Dest: document`).
  */
 export function canBootstrapHtmlSession(
   req: IncomingMessage,
@@ -428,9 +453,7 @@ export function canBootstrapHtmlSession(
   appPorts?: readonly number[],
 ): boolean {
   if (!isLocalPeer(req)) return false;
-  const hostHeader = getHeader(req, 'host');
-  if (hostHeader && isWildcardHostname(extractHostname(hostHeader))) return false;
-  if (!isAllowedHost(hostHeader, boundHost)) return false;
+  if (!isAllowedHost(getHeader(req, 'host'), boundHost)) return false;
   let ports = appPorts;
   if (ports === undefined && req.socket?.localPort) {
     ports = [req.socket.localPort];

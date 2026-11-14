@@ -135,13 +135,16 @@ describe('resolveFirebaseProject', () => {
     expect(resolveFirebaseProject({ projectDir: dir, env: { HOME: badHome } }).projectId).toBe('rc-default');
   });
 
-  test('findFirebaseProjectDir recognizes pyric.json alongside firebase.json and .firebaserc across monorepo subpackages', () => {
+  test('findFirebaseProjectDir recognizes pyric.json alongside firebase.json and .firebaserc across monorepo subpackages without crossing a nested .git boundary', () => {
     const wsRoot = mkdtempSync(join(tmpdir(), 'pyric-workspace-root-'));
     const childPkg = join(wsRoot, 'packages', 'service-a');
+    const nestedStandaloneRepo = join(wsRoot, 'nested-repo');
     mkdirSync(childPkg, { recursive: true });
+    mkdirSync(join(nestedStandaloneRepo, '.git'), { recursive: true });
     writeFileSync(join(wsRoot, 'pyric.json'), JSON.stringify({ sessionToken: true }));
     writeFileSync(join(childPkg, 'package.json'), JSON.stringify({ name: '@org/service-a', private: true }));
     expect(findFirebaseProjectDir(childPkg)).toBe(wsRoot);
     expect(findFirebaseProjectDir(wsRoot)).toBe(wsRoot);
+    expect(findFirebaseProjectDir(nestedStandaloneRepo)).toBeNull();
   });
 });

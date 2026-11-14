@@ -12,15 +12,19 @@ import {
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { parseArgs } from '../../src/cli/parse-args.js';
 import { runServeDiagnostics } from '../../src/cli/serve-diagnostics.js';
 import { discoverServe, readProjectPointer } from '../../src/serve/discovery.js';
+import { liveHostProjectRoot, probeLiveHostUrl } from '../../src/serve/live-host.js';
 import {
   resolveSessionTokenForTarget,
   writeMode600FileSync,
   writeOwnedSessionFile,
 } from '../../src/serve/local-session-token.js';
+
+const LIVE_PKG_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', 'live');
 
 const tempDirs: string[] = [];
 const httpServers: Server[] = [];
@@ -37,9 +41,11 @@ afterEach(async () => {
 });
 
 describe('session token port scoping, symlink containment, and workspace boundary parity', () => {
-  it('suppresses PYRIC_SESSION_TOKEN on mismatched ports under PYRIC_LIVE_HOST, PYRIC_SANDBOX=remote:<url>, and bare PYRIC_SANDBOX=remote + PYRIC_SANDBOX_PORT', () => {
+  it('suppresses PYRIC_SESSION_TOKEN on mismatched ports across PYRIC_LIVE_HOST, PYRIC_SANDBOX=remote:<url>, PYRIC_SANDBOX_PORT, PYRIC_WORKER_INIT_HOST, and bare PYRIC_SANDBOX=remote (with or without disk pointer)', () => {
     const root = mkdtempSync(join(tmpdir(), 'pyric-session-port-scope-'));
     tempDirs.push(root);
+    const emptyDir = mkdtempSync(join(tmpdir(), 'pyric-session-empty-'));
+    tempDirs.push(emptyDir);
     mkdirSync(join(root, '.pyric'), { recursive: true });
     writeFileSync(
       join(root, '.pyric', 'serve.json'),
@@ -47,62 +53,105 @@ describe('session token port scoping, symlink containment, and workspace boundar
         pid: process.pid,
         port: 4111,
         url: 'http://127.0.0.1:4111',
-        token: 'OWNED_PORT_4111_TOKEN',
+        token: 'DISK_POINTER_4111_TOKEN',
       }),
     );
 
     // Matching port 4111 resolves token cleanly.
     expect(
       resolveSessionTokenForTarget({
-        cwd: root,
+        cwd: emptyDir,
         url: 'http://127.0.0.1:4111',
         env: {
           PYRIC_LIVE_HOST: 'http://127.0.0.1:4111',
-          PYRIC_SESSION_TOKEN: 'OWNED_PORT_4111_TOKEN',
+          PYRIC_SESSION_TOKEN: 'ENV_ONLY_SECRET_TOKEN',
         },
       }),
-    ).toBe('OWNED_PORT_4111_TOKEN');
+    ).toBe('ENV_ONLY_SECRET_TOKEN');
 
-    // Mismatched port under PYRIC_LIVE_HOST never leaks PYRIC_SESSION_TOKEN.
+    // Mismatched port under PYRIC_LIVE_HOST (distinct envToken, empty cwd so tokenMismatchedOnDisk is false).
     expect(
       resolveSessionTokenForTarget({
-        cwd: root,
+        cwd: emptyDir,
         url: 'http://127.0.0.1:5999',
         env: {
           PYRIC_LIVE_HOST: 'http://127.0.0.1:4111',
-          PYRIC_SESSION_TOKEN: 'OWNED_PORT_4111_TOKEN',
+          PYRIC_SESSION_TOKEN: 'ENV_ONLY_SECRET_TOKEN',
         },
       }),
     ).toBeUndefined();
 
-    // Mismatched port under bare PYRIC_SANDBOX=remote + PYRIC_SANDBOX_PORT never leaks PYRIC_SESSION_TOKEN.
+    // Mismatched port under PYRIC_SANDBOX=remote:<url>.
     expect(
       resolveSessionTokenForTarget({
-        cwd: root,
+        cwd: emptyDir,
+        url: 'http://127.0.0.1:5999',
+        env: {
+          PYRIC_SANDBOX: 'remote:http://127.0.0.1:4111',
+          PYRIC_SESSION_TOKEN: 'ENV_ONLY_SECRET_TOKEN',
+        },
+      }),
+    ).toBeUndefined();
+
+    // Mismatched port under PYRIC_SANDBOX_PORT.
+    expect(
+      resolveSessionTokenForTarget({
+        cwd: emptyDir,
         url: 'http://127.0.0.1:5999',
         env: {
           PYRIC_SANDBOX: 'remote',
           PYRIC_SANDBOX_PORT: '4111',
-          PYRIC_SESSION_TOKEN: 'SANDBOX_PORT_4111_TOKEN',
+          PYRIC_SESSION_TOKEN: 'ENV_ONLY_SECRET_TOKEN',
         },
       }),
     ).toBeUndefined();
 
-    // Mismatched port under bare PYRIC_SANDBOX=remote when cwd pointer names port 4111 never leaks PYRIC_SESSION_TOKEN.
+    // Mismatched port under PYRIC_WORKER_INIT_HOST.
+    expect(
+      resolveSessionTokenForTarget({
+        cwd: emptyDir,
+        url: 'http://127.0.0.1:5999',
+        env: {
+          PYRIC_WORKER_INIT_HOST: 'http://127.0.0.1:4111',
+          PYRIC_SESSION_TOKEN: 'ENV_ONLY_SECRET_TOKEN',
+        },
+      }),
+    ).toBeUndefined();
+
+    // Bare PYRIC_SANDBOX=remote with distinct envToken vs disk pointer on port 4111 rejects port 5999.
     expect(
       resolveSessionTokenForTarget({
         cwd: root,
         url: 'http://127.0.0.1:5999',
         env: {
           PYRIC_SANDBOX: 'remote',
-          PYRIC_SESSION_TOKEN: 'OWNED_PORT_4111_TOKEN',
+          PYRIC_SESSION_TOKEN: 'ENV_ONLY_SECRET_TOKEN',
+        },
+      }),
+    ).toBeUndefined();
+
+    // Bare PYRIC_SANDBOX=remote with empty cwd (no disk pointer) or omitted cwd fails closed rather than leaking.
+    expect(
+      resolveSessionTokenForTarget({
+        cwd: emptyDir,
+        url: 'http://127.0.0.1:5999',
+        env: {
+          PYRIC_SANDBOX: 'remote',
+          PYRIC_SESSION_TOKEN: 'ENV_ONLY_SECRET_TOKEN',
+        },
+      }),
+    ).toBeUndefined();
+    expect(
+      resolveSessionTokenForTarget({
+        url: 'http://127.0.0.1:5999',
+        env: {
+          PYRIC_SANDBOX: 'remote',
+          PYRIC_SESSION_TOKEN: 'ENV_ONLY_SECRET_TOKEN',
         },
       }),
     ).toBeUndefined();
 
     // Matching port under PYRIC_SANDBOX=remote + PYRIC_SANDBOX_PORT without disk pointer succeeds.
-    const emptyDir = mkdtempSync(join(tmpdir(), 'pyric-session-empty-'));
-    tempDirs.push(emptyDir);
     expect(
       resolveSessionTokenForTarget({
         cwd: emptyDir,
@@ -114,6 +163,7 @@ describe('session token port scoping, symlink containment, and workspace boundar
         },
       }),
     ).toBe('SANDBOX_PORT_4111_TOKEN');
+
     // Non-loopback or unparseable host bindings fail closed rather than leaking PYRIC_SESSION_TOKEN.
     expect(
       resolveSessionTokenForTarget({
@@ -137,7 +187,7 @@ describe('session token port scoping, symlink containment, and workspace boundar
     ).toBeUndefined();
   });
 
-  it('refuses writing session token files through existing, dangling, or nested symlinked .pyric directories while still replacing a leaf symlink atomically', () => {
+  it('refuses writing session token files through existing, dangling, nested, or ancestor symlinked directories while still replacing a leaf symlink atomically', () => {
     const root = mkdtempSync(join(tmpdir(), 'pyric-symlink-dir-'));
     tempDirs.push(root);
     const externalDir = join(root, 'external-target');
@@ -173,6 +223,14 @@ describe('session token port scoping, symlink containment, and workspace boundar
     ).toThrow(/symbolic link/i);
     expect(existsSync(join(externalDir, 'serve.json'))).toBe(false);
 
+    // Intermediate symlinked directory above a missing leaf directory (even without a .pyric segment) is rejected.
+    const linkedParent = join(root, 'linked-parent');
+    symlinkSync(externalDir, linkedParent, 'dir');
+    expect(() =>
+      writeMode600FileSync(join(linkedParent, 'missing-child', 'token.json'), '{"token":"secret"}\n'),
+    ).toThrow(/symbolic link/i);
+    expect(existsSync(join(externalDir, 'missing-child'))).toBe(false);
+
     // Leaf symlink inside a real .pyric directory is still atomically replaced without touching its target.
     const realProjectDir = join(root, 'project-real');
     mkdirSync(join(realProjectDir, '.pyric'), { recursive: true });
@@ -187,7 +245,7 @@ describe('session token port scoping, symlink containment, and workspace boundar
     expect(readFileSync(leafPath, 'utf8')).toContain('atomic-ok');
   });
 
-  it('stops pointer discovery at .git / firebase.json / pyric.json boundaries while resolving workspace tokens from subpackages in pyric.json monorepos', async () => {
+  it('stops pointer and live-host discovery at .git / firebase.json / pyric.json boundaries while resolving workspace tokens from subpackages in pyric.json monorepos', async () => {
     const reposRoot = mkdtempSync(join(tmpdir(), 'pyric-sibling-repos-'));
     tempDirs.push(reposRoot);
     const siblingWeb = join(reposRoot, 'web');
@@ -199,6 +257,7 @@ describe('session token port scoping, symlink containment, and workspace boundar
     const seenHeaders: Array<string | undefined> = [];
     const mockHost = createServer((req, res) => {
       if (req.url === '/__pyric/health') {
+        seenHeaders.push(req.headers['x-pyric-session-token'] as string | undefined);
         res.writeHead(200, { 'content-type': 'application/json' });
         res.end(JSON.stringify({ status: 'ok', mode: 'sandbox', instanceId: 'inst-sibling' }));
         return;
@@ -232,7 +291,6 @@ describe('session token port scoping, symlink containment, and workspace boundar
       }),
     );
 
-    // Unrelated sibling repo never climbs past .git / firebase.json into ../web/.pyric/serve.json.
     expect(readProjectPointer(otherRepo)).toBeNull();
     expect(await discoverServe(otherRepo, () => {}, [])).toBeNull();
     expect(resolveSessionTokenForTarget({ cwd: otherRepo, url: hostUrl, env: {} })).toBeUndefined();
@@ -244,11 +302,16 @@ describe('session token port scoping, symlink containment, and workspace boundar
     expect(otherDiagCode).toBe(2);
     expect(otherDiagOut).toContain('"http": "unknown"');
 
-    // Monorepo configured with pyric.json resolves workspace token from packages/api (both discovery and --url).
+    // Monorepo configured with pyric.json resolves workspace token from packages/api,
+    // while a standalone nested git repo inside that monorepo never climbs past its own .git!
     const monorepoRoot = join(reposRoot, 'monorepo');
     const childPkg = join(monorepoRoot, 'packages', 'api');
+    const appsWeb = join(monorepoRoot, 'apps', 'web');
+    const nestedGitRepo = join(monorepoRoot, 'nested-git');
     mkdirSync(join(monorepoRoot, '.pyric'), { recursive: true });
+    mkdirSync(join(appsWeb, '.pyric'), { recursive: true });
     mkdirSync(childPkg, { recursive: true });
+    mkdirSync(join(nestedGitRepo, '.git'), { recursive: true });
     writeFileSync(join(monorepoRoot, 'pyric.json'), JSON.stringify({ sessionToken: true }));
     writeFileSync(join(childPkg, 'package.json'), JSON.stringify({ name: '@org/api', private: true }));
     writeFileSync(
@@ -261,6 +324,22 @@ describe('session token port scoping, symlink containment, and workspace boundar
         token: 'SIBLING_WEB_TOKEN',
       }),
     );
+    writeFileSync(
+      join(appsWeb, '.pyric', 'serve.json'),
+      JSON.stringify({
+        pid: process.pid,
+        port: hostPort,
+        url: hostUrl,
+        instanceId: 'inst-sibling',
+        token: 'OUTER_LIVE_WEB_TOKEN',
+      }),
+    );
+
+    expect(liveHostProjectRoot(nestedGitRepo)).toBe(nestedGitRepo);
+    seenHeaders.length = 0;
+    await probeLiveHostUrl(hostUrl, nestedGitRepo, { liveRoot: LIVE_PKG_ROOT, env: {} });
+    expect(seenHeaders).not.toContain('OUTER_LIVE_WEB_TOKEN');
+    expect(seenHeaders).not.toContain('SIBLING_WEB_TOKEN');
 
     expect(resolveSessionTokenForTarget({ cwd: childPkg, url: hostUrl, env: {} })).toBe('SIBLING_WEB_TOKEN');
     const discoveredFromChild = await discoverServe(childPkg, () => {}, []);

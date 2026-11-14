@@ -18,8 +18,6 @@
  * entry here refuses to run. `pyric sandbox` never reads this module, and no
  * flag, config key or environment variable reaches it.
  */
-import { existsSync, readdirSync, readFileSync } from 'node:fs';
-import { join, resolve } from 'node:path';
 import { readLiveHostStatus } from 'pyric/sandbox/internal';
 import { isLoopbackHost } from '../assurance/attachment.js';
 import { boundedRequest } from '../bounded-request.js';
@@ -42,14 +40,8 @@ import { readPyricConfigProjectSync, requireLiveProject } from './live-project.j
 import {
   discoverHttpsPointer,
   fetchLoopbackTarget,
-  inProcessSessionTokenForPort,
+  resolveSessionTokenLookup,
 } from './local-session-token.js';
-import {
-  CANDIDATE_SUBDIRS,
-  candidateWorkspaceDirectories,
-  isEnvSessionTokenAllowedForPort,
-  ROOT_ONLY_SUBDIRS,
-} from './workspace-boundary.js';
 
 export { LiveProjectMissingError, liveProjectId } from './live-project.js';
 
@@ -58,9 +50,6 @@ const LIVE_COMMAND_SUBPATH = 'register';
 /** The built `@pyric/live` export that gives this host its refusal of pyric's own writes. */
 const WRITE_REFUSAL_SUBPATH = 'node-modules';
 const HEALTH_PROBE_DEADLINE_MS = 1_000;
-const POINTER_REL = join('.pyric', 'serve.json');
-const SESSION_REL = join('.pyric', 'session.json');
-const WORKSPACE_GROUPS = ['apps', 'packages', 'services'];
 
 const CHILD_COMMAND_REFUSAL =
   'pyric-live starts no command after --. Start your server in another terminal with: node --import @pyric/live/register server.js';
@@ -162,134 +151,6 @@ export type LiveHostProbeAnswer =
   | { readonly kind: 'not-a-host'; readonly base: string; readonly isVite: boolean; readonly viteConfig: string }
   | { readonly kind: 'no-answer' };
 
-interface DiskTokenEntry {
-  pid?: unknown;
-  port?: unknown;
-  url?: unknown;
-  mcpUrl?: unknown;
-  instanceId?: unknown;
-  token?: unknown;
-}
-
-function isProcessAlive(pid: unknown): boolean {
-  if (typeof pid !== 'number' || !Number.isInteger(pid) || pid <= 0) return true;
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (error) {
-    return (error as { code?: string }).code === 'EPERM';
-  }
-}
-
-function extractEntryPort(entry: DiskTokenEntry): number | undefined {
-  if (typeof entry.port === 'number' && Number.isInteger(entry.port) && entry.port > 0) {
-    return entry.port;
-  }
-  for (const raw of [entry.mcpUrl, entry.url]) {
-    if (typeof raw !== 'string') continue;
-    const match = raw.match(/:(\d{2,5})(?:[/?]|$)/);
-    if (match) return Number(match[1]);
-  }
-  return undefined;
-}
-
-function liveTokenFiles(startDir: string, projectRoot: string): string[] {
-  const files: string[] = [];
-  const seen = new Set<string>();
-  const addDir = (dir: string): void => {
-    for (const rel of [POINTER_REL, SESSION_REL]) {
-      const candidate = join(dir, rel);
-      if (!seen.has(candidate)) {
-        seen.add(candidate);
-        files.push(candidate);
-      }
-    }
-  };
-  for (const { dir, includeSubdirs } of candidateWorkspaceDirectories(startDir)) {
-    const subdirs = includeSubdirs ? CANDIDATE_SUBDIRS : ROOT_ONLY_SUBDIRS;
-    for (const sub of subdirs) {
-      let targetDir = dir;
-      if (sub !== '') {
-        targetDir = join(dir, sub);
-      }
-      addDir(targetDir);
-    }
-  }
-  const resolvedProjectRoot = resolve(projectRoot);
-  for (const group of WORKSPACE_GROUPS) {
-    const groupDir = join(resolvedProjectRoot, group);
-    if (!existsSync(groupDir)) continue;
-    try {
-      for (const entry of readdirSync(groupDir, { withFileTypes: true })) {
-        if (entry.isDirectory()) addDir(join(groupDir, entry.name));
-      }
-    } catch {
-      // Unreadable workspace directory.
-    }
-  }
-  return files;
-}
-
-function resolveLiveHostToken(input: {
-  port: number;
-  cwd: string;
-  projectRoot: string;
-  env: NodeJS.ProcessEnv;
-  explicitToken?: string;
-  expectedInstanceId?: string | null;
-}): { token?: string; expectedInstanceId?: string } {
-  let initialExpected: string | undefined;
-  if (typeof input.expectedInstanceId === 'string' && input.expectedInstanceId.length > 0) {
-    initialExpected = input.expectedInstanceId;
-  }
-  if (typeof input.explicitToken === 'string' && input.explicitToken.length > 0) {
-    return { token: input.explicitToken, expectedInstanceId: initialExpected };
-  }
-  const inProcess = inProcessSessionTokenForPort(input.port);
-  if (inProcess !== undefined) {
-    return { token: inProcess, expectedInstanceId: initialExpected };
-  }
-  const envToken = input.env.PYRIC_SESSION_TOKEN;
-  const diskPorts = new Set<number>();
-  let tokenMismatchedOnDisk = false;
-  for (const filePath of liveTokenFiles(input.cwd, input.projectRoot)) {
-    if (!existsSync(filePath)) continue;
-    try {
-      const entry = JSON.parse(readFileSync(filePath, 'utf8')) as DiskTokenEntry;
-      if (typeof entry.token !== 'string' || entry.token.length === 0) continue;
-      if (!isProcessAlive(entry.pid)) continue;
-      const entryPort = extractEntryPort(entry);
-      if (entryPort !== undefined) diskPorts.add(entryPort);
-      if (entryPort !== input.port) {
-        if (entryPort !== undefined && entry.token === envToken) {
-          tokenMismatchedOnDisk = true;
-        }
-        continue;
-      }
-      let entryId: string | undefined;
-      if (typeof entry.instanceId === 'string' && entry.instanceId.length > 0) {
-        entryId = entry.instanceId;
-      }
-      return { token: entry.token, expectedInstanceId: initialExpected ?? entryId };
-    } catch {
-      // Ignore unreadable or mid-write pointer files.
-    }
-  }
-  if (
-    typeof envToken === 'string' &&
-    envToken.length > 0 &&
-    isEnvSessionTokenAllowedForPort({
-      env: input.env,
-      targetPort: input.port,
-      diskPorts,
-      tokenMismatchedOnDisk,
-    })
-  ) {
-    return { token: envToken, expectedInstanceId: initialExpected };
-  }
-  return { expectedInstanceId: initialExpected };
-}
-
 function parseLoopbackHostOrigin(rawUrl: string): URL {
   let parsed: URL;
   try {
@@ -329,13 +190,13 @@ async function probeLiveHostAtBase(input: {
   explicitToken?: string;
   expectedInstanceId?: string | null;
 }): Promise<LiveHostProbeAnswer> {
-  const { token, expectedInstanceId } = resolveLiveHostToken({
+  const { token, expectedInstanceId } = resolveSessionTokenLookup({
     port: input.port,
     cwd: input.cwd,
-    projectRoot: input.projectRoot,
     env: input.env,
     explicitToken: input.explicitToken,
     expectedInstanceId: input.expectedInstanceId,
+    includeWorkspaceGroups: true,
   });
   const probeHeaders: Record<string, string> = { accept: 'application/json' };
   if (token !== undefined) {

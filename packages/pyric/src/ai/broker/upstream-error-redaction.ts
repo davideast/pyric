@@ -220,21 +220,129 @@ function synthesizedBasicTokens(url: string, rawUserinfo: string): string[] {
   return tokens.filter((token) => token !== '');
 }
 
+const CREDENTIAL_QUERY_KEYS = ['key', 'api_key', 'apikey', 'access_token'] as const;
+
+function queryValuesFromSearch(rawSearch: string): string[] {
+  const values: string[] = [];
+  const params = new URLSearchParams(rawSearch);
+  for (const [paramName, paramValue] of params.entries()) {
+    const lower = paramName.toLowerCase();
+    const isCredentialParam = CREDENTIAL_QUERY_KEYS.some((key) => key === lower);
+    if (isCredentialParam && paramValue !== '') {
+      values.push(paramValue);
+    }
+  }
+  return values;
+}
+
+function urlQueryCredentials(urlWithoutUserinfo: string): string[] {
+  try {
+    return queryValuesFromSearch(new URL(urlWithoutUserinfo).search);
+  } catch {
+    const queryAt = urlWithoutUserinfo.indexOf('?');
+    if (queryAt === -1) return [];
+    const hashAt = urlWithoutUserinfo.indexOf('#', queryAt);
+    let rawQuery = urlWithoutUserinfo.slice(queryAt + 1);
+    if (hashAt !== -1) {
+      rawQuery = urlWithoutUserinfo.slice(queryAt + 1, hashAt);
+    }
+    return queryValuesFromSearch(rawQuery);
+  }
+}
+
+/** Strips a trailing path `/` without truncating query strings or fragments (such as Base64 keys ending in `/`). */
+export function normalizeUpstreamBaseUrl(raw: string): string {
+  if (/[?#]/.test(raw)) return raw;
+  return raw.replace(/\/$/, '');
+}
+
+function stripTrailingPathSlash(hostAndPath: string): string {
+  const firstSlash = hostAndPath.indexOf('/');
+  if (firstSlash === -1) return hostAndPath;
+  return hostAndPath.replace(/\/+$/, '');
+}
+
 /**
- * The username, password, and synthesized Basic-auth token an upstream URL
- * carries, as written, percent-encoded and percent-decoded, for the
- * exact-string masking {@link redactUpstreamText} applies (#1766).
+ * Joins an upstream `baseUrl` (which may itself carry query parameters or `#1766`
+ * malformed userinfo) with `suffix` (path plus optional `?query`) and optional
+ * `requestSearch`, preserving existing query encoding and `#1766` userinfo.
+ */
+export function joinUpstreamUrl(upstreamBase: string, suffix: string, requestSearch = ''): string {
+  let suffixPath = suffix;
+  let suffixQuery = '';
+  const suffixQueryAt = suffix.indexOf('?');
+  if (suffixQueryAt !== -1) {
+    suffixPath = suffix.slice(0, suffixQueryAt);
+    suffixQuery = suffix.slice(suffixQueryAt + 1);
+  }
+  let normalizedSuffix = suffixPath;
+  if (suffixPath !== '' && !suffixPath.startsWith('/')) {
+    normalizedSuffix = `/${suffixPath}`;
+  }
+
+  let authorityPrefix = '';
+  let remainder = upstreamBase;
+  const located = locateUserinfo(upstreamBase);
+  if (located !== undefined) {
+    authorityPrefix = `${located.schemePrefix}${located.rawUserinfo}@`;
+    remainder = located.afterAt;
+  } else {
+    const schemeMatch = SCHEME_PREFIX.exec(upstreamBase);
+    if (schemeMatch !== null) {
+      authorityPrefix = schemeMatch[1]!;
+      remainder = upstreamBase.slice(authorityPrefix.length);
+    }
+  }
+
+  let beforeHash = remainder;
+  let hashSuffix = '';
+  const hashAt = remainder.indexOf('#');
+  if (hashAt !== -1) {
+    beforeHash = remainder.slice(0, hashAt);
+    hashSuffix = remainder.slice(hashAt);
+  }
+
+  let hostAndPath = beforeHash;
+  let baseQuery = '';
+  const queryAt = beforeHash.indexOf('?');
+  if (queryAt !== -1) {
+    hostAndPath = beforeHash.slice(0, queryAt);
+    baseQuery = beforeHash.slice(queryAt + 1);
+  }
+
+  const joinedHostAndPath = `${stripTrailingPathSlash(hostAndPath)}${normalizedSuffix}`;
+  const queryParts: string[] = [];
+  if (baseQuery !== '') queryParts.push(baseQuery);
+  if (suffixQuery !== '') queryParts.push(suffixQuery);
+  if (requestSearch !== '') {
+    let trimmedReq = requestSearch;
+    if (requestSearch.startsWith('?')) trimmedReq = requestSearch.slice(1);
+    if (trimmedReq !== '') queryParts.push(trimmedReq);
+  }
+  const combinedQuery = queryParts.join('&');
+  if (combinedQuery === '') {
+    return `${authorityPrefix}${joinedHostAndPath}${hashSuffix}`;
+  }
+  return `${authorityPrefix}${joinedHostAndPath}?${combinedQuery}${hashSuffix}`;
+}
+
+/**
+ * The username, password, synthesized Basic-auth token, and credential query
+ * parameters (`key`, `api_key`, `apikey`, `access_token`) an upstream URL
+ * carries, as written, percent-encoded and percent-decoded (#1766).
  */
 export function urlCredentials(url: string): string[] {
   const located = locateUserinfo(url);
-  if (located === undefined) return [];
+  const withoutUserinfo = located === undefined ? url : `${located.schemePrefix}${located.afterAt}`;
+  const queryCreds = urlQueryCredentials(withoutUserinfo);
+  if (located === undefined) return [...new Set(queryCreds)];
   const parts = [
     located.rawUserinfo,
     ...userinfoParts(located.rawUserinfo),
     ...parsedAuthorityUserinfo(url),
   ].filter((part) => part !== '');
   const expanded = parts.flatMap((part) => [part, decoded(part)]);
-  expanded.push(...synthesizedBasicTokens(url, located.rawUserinfo));
+  expanded.push(...synthesizedBasicTokens(url, located.rawUserinfo), ...queryCreds);
   return [...new Set(expanded)];
 }
 

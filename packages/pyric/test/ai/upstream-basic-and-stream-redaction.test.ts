@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'bun:test';
-import { maskStreamErrors, urlCredentials } from '../../src/ai/internal.js';
+import { OpenAiEngine } from '../../src/ai/broker/openai-engine.js';
+import { GeminiUpstream, maskStreamErrors, urlCredentials } from '../../src/ai/internal.js';
 
 const TEST_BEARER_CREDENTIAL = 'synthetic-adc-bearer-credential-01';
 const TEST_QUERY_CREDENTIAL = 'synthetic-api-key-credential-02';
@@ -56,5 +57,59 @@ describe('urlCredentials and maskStreamErrors', () => {
     expect(result).not.toContain(TEST_QUERY_CREDENTIAL);
     expect(result).not.toContain(btoa('svc:pw-secret'));
     expect(result).toContain('data: [DONE]');
+  });
+
+  it('joins query-bearing baseUrl paths cleanly and redacts baseUrl query credentials in both GeminiUpstream and OpenAiEngine', async () => {
+    const geminiBaseKey = 'GEMINI_BASE_QUERY_SECRET_11/';
+    const geminiApiKey = 'GEMINI_STATIC_API_KEY_22';
+    const seenGemini: string[] = [];
+    const geminiUpstream = new GeminiUpstream({
+      baseUrl: `http://127.0.0.1:9999/gw/?api_key=${geminiBaseKey}`,
+      apiKey: geminiApiKey,
+      fetch: Object.assign(
+        async (input: RequestInfo | URL) => {
+          const url = String(input);
+          seenGemini.push(url);
+          return new Response(
+            JSON.stringify({ error: { code: 401, message: `Rejected ${geminiBaseKey} at ${url}`, status: 'UNAUTHENTICATED' } }),
+            { status: 401, headers: { 'content-type': 'application/json' } },
+          );
+        },
+        { preconnect: fetch.preconnect },
+      ),
+    });
+    const sent = await geminiUpstream.sendWithCredentials('models/gemini-2.5-flash', 'generateContent', '{}');
+    expect(seenGemini).toEqual([
+      `http://127.0.0.1:9999/gw/v1beta/models/gemini-2.5-flash:generateContent?api_key=${geminiBaseKey}&key=${geminiApiKey}`,
+    ]);
+    expect(sent.credentials).toContain(geminiBaseKey);
+
+    const openAiBaseKey = 'OPENAI_BASE_QUERY_SECRET_33/';
+    const seenOpenAi: string[] = [];
+    const openAiEngine = new OpenAiEngine({
+      baseUrl: `http://127.0.0.1:9999/v1/?api_key=${openAiBaseKey}`,
+      fetch: Object.assign(
+        async (input: RequestInfo | URL) => {
+          const url = String(input);
+          seenOpenAi.push(url);
+          return new Response(`Unauthorized key=${openAiBaseKey} url=${url}`, { status: 401 });
+        },
+        { preconnect: fetch.preconnect },
+      ),
+    });
+    let openAiError = '';
+    try {
+      await openAiEngine.generateContent(
+        { contents: [{ role: 'user', parts: [{ text: 'hello' }] }] },
+        'models/gemini-2.5-flash',
+      );
+    } catch (err) {
+      openAiError = err instanceof Error ? err.message : String(err);
+    }
+    expect(seenOpenAi).toEqual([
+      `http://127.0.0.1:9999/v1/chat/completions?api_key=${openAiBaseKey}`,
+    ]);
+    expect(openAiError).not.toContain(openAiBaseKey);
+    expect(openAiError).not.toContain(encodeURIComponent(openAiBaseKey));
   });
 });

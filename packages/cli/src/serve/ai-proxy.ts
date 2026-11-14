@@ -11,7 +11,9 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { ServeLogger } from './server.js';
 import {
+  joinUpstreamUrl,
   maskStreamErrors,
+  normalizeUpstreamBaseUrl,
   redactUpstreamError,
   redactUpstreamText,
   redactUpstreamUrl,
@@ -202,65 +204,7 @@ export function resolveAiProxyUpstream(
     raw = envUpstream;
     source = 'env';
   }
-  let target = raw;
-  if (!/[?#]/.test(raw)) {
-    target = raw.replace(/\/$/, '');
-  }
-  return { target, source };
-}
-
-const CREDENTIAL_QUERY_KEYS = ['key', 'api_key', 'apikey', 'access_token'] as const;
-
-function urlQueryCredentials(target: string): string[] {
-  try {
-    const params = new URL(target).searchParams;
-    const values: string[] = [];
-    for (const [paramName, paramValue] of params.entries()) {
-      const lower = paramName.toLowerCase();
-      const isCredentialParam = CREDENTIAL_QUERY_KEYS.some((key) => key === lower);
-      if (isCredentialParam && paramValue !== '') values.push(paramValue);
-    }
-    return values;
-  } catch {
-    return [];
-  }
-}
-
-function joinAiProxyTargetUrl(upstreamBase: string, suffix: string, requestSearch: string): string {
-  try {
-    const parsed = new URL(upstreamBase);
-    const basePath = parsed.pathname.replace(/\/$/, '');
-    if (suffix !== '') {
-      let normalizedSuffix = suffix;
-      if (!suffix.startsWith('/')) normalizedSuffix = `/${suffix}`;
-      parsed.pathname = `${basePath}${normalizedSuffix}`;
-    } else if (parsed.pathname === '') {
-      parsed.pathname = '/';
-    }
-    if (requestSearch !== '') {
-      if (parsed.search === '') {
-        parsed.search = requestSearch;
-      } else {
-        const extraParams = new URLSearchParams(requestSearch);
-        for (const [key, value] of extraParams.entries()) parsed.searchParams.append(key, value);
-      }
-    }
-    return parsed.toString();
-  } catch {
-    const lastAt = upstreamBase.lastIndexOf('@');
-    const querySearchFrom = lastAt >= 0 ? lastAt : 0;
-    const queryIndex = upstreamBase.indexOf('?', querySearchFrom);
-    if (queryIndex === -1) return `${upstreamBase}${suffix}${requestSearch}`;
-    const pathPart = upstreamBase.slice(0, queryIndex).replace(/\/$/, '');
-    const baseQuery = upstreamBase.slice(queryIndex + 1);
-    let callerQuery = requestSearch;
-    if (requestSearch.startsWith('?')) callerQuery = requestSearch.slice(1);
-    let combinedQuery = baseQuery;
-    if (callerQuery !== '') {
-      combinedQuery = baseQuery !== '' ? `${baseQuery}&${callerQuery}` : callerQuery;
-    }
-    return `${pathPart}${suffix}?${combinedQuery}`;
-  }
+  return { target: normalizeUpstreamBaseUrl(raw), source };
 }
 
 /**
@@ -295,7 +239,6 @@ function requestCredentials(input: Parameters<typeof fetch>[0], init: RequestIni
   const url = isRequest ? input.url : String(input);
   const authorization = headerValue(entries, 'authorization')?.replace(/^\S+\s+/, '') ?? null;
   const found = [
-    ...urlQueryCredentials(url),
     headerValue(entries, 'x-goog-api-key'),
     headerValue(entries, 'x-api-key'),
     headerValue(entries, 'api-key'),
@@ -496,7 +439,7 @@ export async function handleAiProxy(
   }
   const upstreamBase = resolveAiProxyUpstream(configuredUpstream).target;
   const suffix = url.pathname.slice(AI_PROXY_ROUTE.length);
-  const target = joinAiProxyTargetUrl(upstreamBase, suffix, url.search);
+  const target = joinUpstreamUrl(upstreamBase, suffix, url.search);
 
   // The request body is a bounded JSON payload, read once; the RESPONSE streams.
   const body = await readAiProxyBody(req, res);
@@ -509,12 +452,9 @@ export async function handleAiProxy(
     headers[key] = Array.isArray(value) ? value.join(', ') : value;
   }
 
-  const { extraCredentials } = stripFetchUserinfo(target, { headers });
   const credentials = [
-    ...urlQueryCredentials(upstreamBase),
     ...urlCredentials(upstreamBase),
     ...requestCredentials(target, { headers }),
-    ...extraCredentials,
   ];
   let upstream: Response;
   try {

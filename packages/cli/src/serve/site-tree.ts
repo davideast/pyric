@@ -87,25 +87,6 @@ function isSiteTreePath(pathname: string): boolean {
   return pathname.startsWith(SITE_TREE_DESCENDANT_PREFIX);
 }
 
-function isHtmlDocumentNavigation(req: IncomingMessage): boolean {
-  if (req.method !== 'GET' && req.method !== 'HEAD') {
-    return false;
-  }
-  const secFetchDest = getHeader(req, 'sec-fetch-dest')?.trim().toLowerCase();
-  if (secFetchDest !== undefined && secFetchDest !== 'document' && secFetchDest !== 'iframe') {
-    return false;
-  }
-  const secFetchMode = getHeader(req, 'sec-fetch-mode')?.trim().toLowerCase();
-  if (secFetchMode !== undefined && secFetchMode !== 'navigate') {
-    return false;
-  }
-  if (secFetchMode === 'navigate' && (secFetchDest === 'document' || secFetchDest === 'iframe')) {
-    return true;
-  }
-  const accept = getHeader(req, 'accept')?.toLowerCase() ?? '';
-  return accept.includes('text/html');
-}
-
 function withWorkerVersion(html: string, workerVersion: string | undefined): string {
   if (!workerVersion || html.includes('name="pyric-worker-v"')) return html;
   if (!/^[a-f0-9]{16}$/.test(workerVersion)) {
@@ -136,11 +117,6 @@ export function createSiteTreeHandler(
     res: ServerResponse,
     url: URL,
   ): boolean => {
-    // URL parsing normalizes encoded dot segments before `url.pathname`
-    // reaches us. Route and validate against the raw request target so an
-    // encoded traversal cannot cross from Studio into docs or static assets.
-    // Connect preserves that target in `originalUrl` after stripping a mount
-    // prefix from `url`.
     const rawPathname = rawRequestPathname(req, url);
     const isOutsideSite = !isSiteTreePath(rawPathname);
     if (isOutsideSite) {
@@ -184,13 +160,6 @@ export function createSiteTreeHandler(
       res.writeHead(403, { 'content-type': 'text/plain' }).end('Forbidden: cross-site request rejected');
       return true;
     }
-    const canBootstrapNavigation =
-      isHtmlDocumentNavigation(req) &&
-      canBootstrapHtmlSession(req, effectiveBoundHost, appPorts?.forRequest(req));
-    if (requiresToken && !authenticated && !canBootstrapNavigation) {
-      res.writeHead(401, { 'content-type': 'text/plain' }).end('Unauthorized: invalid session capability token');
-      return true;
-    }
     const rawSearch = rawRequestSearch(req, url);
     const isMountRoot = rawPathname === SITE_TREE_MOUNT_PATH;
     if (isMountRoot) {
@@ -208,39 +177,27 @@ export function createSiteTreeHandler(
     const decodedRel = decodeStaticPathname(relativePath);
     const invalidPath = decodedRel === null || decodedRel.includes('\\');
     if (invalidPath) {
-      if (requiresToken && !authenticated) {
-        res.writeHead(401, { 'content-type': 'text/plain' }).end('Unauthorized: invalid session capability token');
-        return true;
-      }
       res.writeHead(404).end('not found');
       return true;
     }
     const decodedSegments = decodedRel.split('/').filter(Boolean);
     const containsTraversal = decodedSegments.some((segment) => segment === '.' || segment === '..');
     if (containsTraversal) {
-      if (requiresToken && !authenticated) {
-        res.writeHead(401, { 'content-type': 'text/plain' }).end('Unauthorized: invalid session capability token');
-        return true;
-      }
       res.writeHead(404).end('not found');
       return true;
     }
-    const first = decodedSegments[0];
-    const studioRequest = first === undefined || studioRoutes.has(first);
     const mayBeDirectory = !relativePath.endsWith('/') && extname(relativePath) === '';
     if (mayBeDirectory) {
       const dir = resolveStaticPath(root, relativePath);
       const isDirectory = dir !== null && existsSync(dir) && statSync(dir).isDirectory();
       if (isDirectory) {
-        if (requiresToken && !authenticated && !studioRequest) {
-          res.writeHead(401, { 'content-type': 'text/plain' }).end('Unauthorized: invalid session capability token');
-          return true;
-        }
         res.writeHead(301, { location: `${rawPathname}/${rawSearch}` }).end();
         return true;
       }
     }
 
+    const first = decodedSegments[0];
+    const studioRequest = first === undefined || studioRoutes.has(first);
     let file = resolveStaticFile(root, relativePath);
     // Storage object names commonly contain extensions (logo.png), while the
     // other Studio routes reserve extension-bearing misses for static assets.
@@ -257,17 +214,15 @@ export function createSiteTreeHandler(
     const resolvedFile = file;
     const isMissingFile = resolvedFile === null;
     if (isMissingFile) {
-      if (requiresToken && !authenticated) {
-        res.writeHead(401, { 'content-type': 'text/plain' }).end('Unauthorized: invalid session capability token');
-        return true;
-      }
       res.writeHead(404).end('not found');
       return true;
     }
 
     const contentType = contentTypeFor(resolvedFile);
     const isStudioHtml = studioRequest && contentType.includes('text/html');
-    const canBootstrap = isStudioHtml && canBootstrapNavigation;
+    const canBootstrap =
+      isStudioHtml &&
+      canBootstrapHtmlSession(req, effectiveBoundHost, appPorts?.forRequest(req));
     if (requiresToken && !authenticated && !canBootstrap) {
       res.writeHead(401, { 'content-type': 'text/plain' }).end('Unauthorized: invalid session capability token');
       return true;

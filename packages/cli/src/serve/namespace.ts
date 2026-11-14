@@ -33,7 +33,7 @@ import {
   formatSessionCookie,
   getHeader,
   isAllowedHost,
-  isAllowedOrigin,
+  isAllowedOriginOnPorts,
   isAllowedSessionToken,
   isForeignFetchSite,
   isLocalPeer,
@@ -138,6 +138,8 @@ type GuardOptions = Pick<NamespaceOptions, 'boundHost' | 'allowedHosts' | 'appPo
  * its ports: this server's own, or under `pyric sandbox` the port of a dev
  * server that proxies to it (see app-ports.ts).
  */
+const NO_ALLOWED_HOSTS: string[] = [];
+
 function isAppOrigin(
   req: IncomingMessage,
   originHeader: string,
@@ -145,10 +147,15 @@ function isAppOrigin(
   allowExtraHosts: boolean,
 ): boolean {
   const boundHost = opts.boundHost ?? 'localhost';
-  const extra = allowExtraHosts ? opts.allowedHosts : undefined;
-  const ports = opts.appPorts?.forRequest(req) ?? [req.socket.localPort];
-  const scheme = requestSocketScheme(req);
-  return ports.some((port) => isAllowedOrigin(originHeader, boundHost, extra, port, scheme));
+  let extra = NO_ALLOWED_HOSTS;
+  if (allowExtraHosts && opts.allowedHosts !== undefined) {
+    extra = opts.allowedHosts;
+  }
+  let ports = opts.appPorts?.forRequest(req);
+  if (ports === undefined && req.socket?.localPort !== undefined) {
+    ports = [req.socket.localPort];
+  }
+  return isAllowedOriginOnPorts(originHeader, boundHost, extra, ports, requestSocketScheme(req));
 }
 
 /**
@@ -170,6 +177,17 @@ function remotePeerInitPayload(payload: InitPayload): InitPayload {
   };
 }
 
+/**
+ * PUBLIC STATIC loopback guard for `GET /__pyric/assets/avatar/<uid>`.
+ *
+ * Avatar URLs are rendered directly in `<img src>`, which cannot attach a
+ * session capability token, and inside opaque-origin `blob:` / `srcdoc` iframes,
+ * which browsers mark `Sec-Fetch-Site: cross-site`. This guard still requires a
+ * local loopback socket peer, a loopback/bound `Host` (never admitting
+ * `--allowed-host` tunnel hostnames), and no foreign `Origin`, while
+ * `avatar-route.ts` disables paid/disk `source` callbacks whenever
+ * `Sec-Fetch-Site` is `cross-site` or `same-site`.
+ */
 function guardAvatarLoopback(
   req: IncomingMessage,
   res: ServerResponse,
@@ -526,10 +544,6 @@ export function createPyricNamespace(opts: NamespaceOptions): PyricNamespaceHand
     if (hasMissingStudioAssets) {
       const authenticated = isAllowedSessionToken(req, url, sessionToken);
       if (!guardLoopback(req, res, opts, authenticated)) return true;
-      if (requiresSessionToken && !authenticated) {
-        res.writeHead(401, { 'content-type': 'text/plain' }).end('Unauthorized: invalid session capability token');
-        return true;
-      }
       res.writeHead(503, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' });
       res.end(
         '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Studio is unavailable</title></head><body><main><h1>Studio is unavailable</h1><p>The Studio assets are missing from this Pyric installation.</p><p>In a source checkout, run the full build with <code>bash scripts/build.sh</code>. Otherwise, reinstall <code>@pyric/cli</code>. Restart the development server afterward.</p><a href="/">Return to app</a></main></body></html>',

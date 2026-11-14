@@ -31,6 +31,7 @@
  */
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { avatarSeed } from 'pyric/auth/internal';
+import { getHeader } from '../server.js';
 import { AVATAR_ROUTE_PREFIX } from './avatar-url.js';
 import type { AssetOrigin, AssetRequest, AssetResolver } from './resolver.js';
 
@@ -67,28 +68,24 @@ export function avatarUidFromPath(pathname: string): string | null {
 }
 
 /**
- * True when the browser tells us this request came from another site.
+ * True when Fetch Metadata tells us this request came from another site or a
+ * sibling local port (`Sec-Fetch-Site: cross-site | same-site`).
  *
- * The route is deliberately unauthenticated, because an `img` element cannot
- * attach a capability token. That leaves one abuse path worth closing: an
- * `img` on any page the developer happens to open resolves against this
- * origin without a CORS preflight, and a uid the resolver has never seen
- * invokes the configured source, which may cost money and writes a cache
- * file. `Sec-Fetch-Site` is set by the browser, not the page, so a
- * `cross-site` value is a reliable statement that the application under
- * development did not start the source. Such a request is still answered
- * from the cache, the pool, or the generated fallback, because the
- * application's own opaque-origin documents (a sandboxed blob-URL or srcdoc
- * iframe showing `user.photoURL`) are cross-site too, and a production photo
- * URL loads anywhere.
+ * The route is deliberately unauthenticated on local loopback because an `img`
+ * element cannot attach a capability token. An `img` on another page or sibling
+ * localhost port resolves without a CORS preflight, and a uid the resolver has
+ * never seen would otherwise invoke the configured source, which may cost money
+ * and writes a cache file. `Sec-Fetch-Site` is set by the browser, so
+ * `cross-site` and `same-site` reliably show that the application's own origin
+ * did not start the request. Such a request is still answered from the cache,
+ * the pool, or the generated fallback so opaque-origin documents (a sandboxed
+ * `blob:` or `srcdoc` iframe showing `user.photoURL`) continue to render.
  *
  * Absence means allow: native clients, `curl`, and older browsers send no
  * such header, and this route is not the place to break them.
  */
-function isCrossSiteRequest(req: IncomingMessage): boolean {
-  const header = req.headers?.['sec-fetch-site'];
-  const raw = Array.isArray(header) ? header[0] : header;
-  const value = raw?.trim().toLowerCase();
+function isForeignSiteAvatarRequest(req: IncomingMessage): boolean {
+  const value = getHeader(req, 'sec-fetch-site')?.trim().toLowerCase();
   return value === 'cross-site' || value === 'same-site';
 }
 
@@ -138,7 +135,7 @@ export async function handleAvatar(
       providerId: url.searchParams.get('p'),
     },
   };
-  if (isCrossSiteRequest(req)) {
+  if (isForeignSiteAvatarRequest(req)) {
     assetRequest.sourceAllowed = false;
   }
 

@@ -12,7 +12,7 @@
  * `log` diagnostic).
  */
 import { existsSync, readFileSync, realpathSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { dirname } from 'node:path';
 import {
   basesForPort,
   canonicalServeUrl,
@@ -30,7 +30,7 @@ import {
   type HostUrlAnswer,
 } from './discovery-health.js';
 import { inProcessSessionTokenForPort, resolveSessionTokenForTarget } from './local-session-token.js';
-import { CANDIDATE_SUBDIRS, candidateWorkspaceDirectories, ROOT_ONLY_SUBDIRS } from './workspace-boundary.js';
+import { candidatePointerFiles, POINTER_REL } from './workspace-boundary.js';
 
 export {
   basesForPort,
@@ -47,25 +47,10 @@ export {
   type HostUrlAnswer,
 };
 
-export const POINTER = join('.pyric', 'serve.json');
+export const POINTER = POINTER_REL;
 
 function candidatePointerPaths(startDir: string): string[] {
-  const paths: string[] = [];
-  const seen = new Set<string>();
-  for (const { dir, includeSubdirs } of candidateWorkspaceDirectories(startDir)) {
-    const subdirs = includeSubdirs ? CANDIDATE_SUBDIRS : ROOT_ONLY_SUBDIRS;
-    for (const sub of subdirs) {
-      let p = join(dir, POINTER);
-      if (sub !== '') {
-        p = join(dir, sub, POINTER);
-      }
-      if (!seen.has(p)) {
-        seen.add(p);
-        paths.push(p);
-      }
-    }
-  }
-  return paths;
+  return candidatePointerFiles(startDir);
 }
 
 export interface Discovered {

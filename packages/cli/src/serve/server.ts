@@ -224,8 +224,6 @@ async function handleRequest(
   opts: StaticServerOptions,
   logger: ServeLogger,
 ): Promise<void> {
-  const url = new URL(req.url ?? '/', `http://${req.headers.host ?? 'localhost'}`);
-
   // DNS-rebinding guard (before ANY handling -- protects static files,
   // init.json/rules schema, and especially /__pyric/state credentials).
   if (!isAllowedHost(req.headers.host, opts.host ?? 'localhost', opts.allowedHosts)) {
@@ -234,6 +232,18 @@ async function handleRequest(
       `pyric sandbox: refused request for Host '${req.headers.host ?? ''}'. ` +
         'Only localhost is allowed; use --allowed-host to add one.',
     );
+    return;
+  }
+
+  let url: URL;
+  try {
+    let baseHost = 'localhost';
+    if (req.headers.host && req.headers.host !== '') {
+      baseHost = req.headers.host;
+    }
+    url = new URL(req.url ?? '/', `http://${baseHost}`);
+  } catch {
+    res.writeHead(400, { 'content-type': 'text/plain' }).end('bad request');
     return;
   }
 

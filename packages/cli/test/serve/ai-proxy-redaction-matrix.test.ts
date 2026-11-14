@@ -72,11 +72,28 @@ async function startProxyHarness(opts: {
 }
 
 describe('AI and Gemini proxy upstream credential redaction matrix (ADR 0024)', () => {
-  it('joins query-bearing proxyUpstream paths cleanly (including trailing-slash Base64 keys) and redacts configured query keys on non-2xx responses', async () => {
+  it('joins query-bearing proxyUpstream paths cleanly (401 redaction and error-free 200 JSON + SSE passthrough)', async () => {
     const querySecret = 'UPSTREAM_QUERY_KEY_SECRET_9988/';
     const seenUrls: string[] = [];
     const upstream = createServer((req, res) => {
       seenUrls.push(req.url ?? '');
+      if ((req.url ?? '').includes('mode=ok-json')) {
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(
+          JSON.stringify({
+            id: 'cmpl-1',
+            model: 'demo-model',
+            choices: [{ index: 0, message: { role: 'assistant', content: 'docs link https://example.test/?key=keep-me-intact' }, finish_reason: 'stop' }],
+          }),
+        );
+        return;
+      }
+      if ((req.url ?? '').includes('mode=ok-sse')) {
+        res.writeHead(200, { 'content-type': 'text/event-stream; charset=utf-8' });
+        res.write('data: {"choices":[{"delta":{"content":"hello https://example.test/?key=keep-me-intact"}}]}\n\n');
+        res.end('data: [DONE]\n\n');
+        return;
+      }
       res.writeHead(401, { 'content-type': 'application/json' });
       res.end(
         JSON.stringify({
@@ -92,7 +109,7 @@ describe('AI and Gemini proxy upstream credential redaction matrix (ADR 0024)', 
       aiProxyUpstream: `http://127.0.0.1:${upstreamPort}/v1/?key=${querySecret}`,
     });
 
-    const res = await fetch(`${handle.url}/__pyric/ai-proxy/chat/completions?stream=false`, {
+    const errRes = await fetch(`${handle.url}/__pyric/ai-proxy/chat/completions?stream=false`, {
       method: 'POST',
       headers: {
         'content-type': 'application/json',
@@ -100,21 +117,43 @@ describe('AI and Gemini proxy upstream credential redaction matrix (ADR 0024)', 
       },
       body: JSON.stringify({ model: 'demo-model', messages: [] }),
     });
-    expect(res.status).toBe(401);
-    expect(seenUrls).toEqual([`/v1/chat/completions?key=${encodeURIComponent(querySecret)}&stream=false`]);
-    const bodyText = await res.text();
+    expect(errRes.status).toBe(401);
+    expect(seenUrls[0]).toBe(`/v1/chat/completions?key=${querySecret}&stream=false`);
+    const bodyText = await errRes.text();
     expect(bodyText).not.toContain(querySecret);
     expect(bodyText).not.toContain(encodeURIComponent(querySecret));
     expect(JSON.parse(bodyText).error.message).toContain('***');
+
+    // Error-free 200 JSON and error-free 200 SSE pass normal content through unaltered.
+    const okJson = await fetch(`${handle.url}/__pyric/ai-proxy/chat/completions?mode=ok-json`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-pyric-session-token': SESSION_TOKEN },
+      body: '{"model":"demo-model","messages":[]}',
+    });
+    expect(okJson.status).toBe(200);
+    expect(await okJson.text()).toContain('https://example.test/?key=keep-me-intact');
+
+    const okSse = await fetch(`${handle.url}/__pyric/ai-proxy/chat/completions?mode=ok-sse`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-pyric-session-token': SESSION_TOKEN },
+      body: '{"model":"demo-model","stream":true,"messages":[]}',
+    });
+    expect(okSse.status).toBe(200);
+    const okSseText = await okSse.text();
+    expect(okSseText).toContain('https://example.test/?key=keep-me-intact');
+    expect(okSseText).toContain('data: [DONE]');
   });
 
-  it('redacts synthesized Basic-auth base64 credentials in Gemini proxy error responses and SSE error frames', async () => {
+  it('joins query-bearing Gemini baseUrl cleanly and redacts Basic-auth base64, baseUrl query keys, and API keys across unary and SSE error responses', async () => {
     const basicUser = 'gw-svc';
     const basicPass = 'GW_BASIC_SECRET_445566';
     const basicBase64 = Buffer.from(`${basicUser}:${basicPass}`, 'utf8').toString('base64');
+    const baseUrlQuerySecret = 'GEMINI_BASEURL_QUERY_SECRET_888/';
     const geminiKey = 'GEMINI_KEY_SECRET_112233';
+    const seenGeminiUrls: string[] = [];
 
     const upstream = createServer((req, res) => {
+      seenGeminiUrls.push(req.url ?? '');
       const authHeader = req.headers.authorization ?? '';
       if ((req.url ?? '').includes(':streamGenerateContent')) {
         res.writeHead(200, { 'content-type': 'text/event-stream' });
@@ -123,7 +162,7 @@ describe('AI and Gemini proxy upstream credential redaction matrix (ADR 0024)', 
           `data: ${JSON.stringify({
             error: {
               code: 500,
-              message: `Gateway stream rejected ${authHeader} for ${basicPass} and ${geminiKey}`,
+              message: `Gateway stream rejected ${authHeader} for ${basicPass}, gwKey=${baseUrlQuerySecret}, and ${geminiKey}`,
               status: 'INTERNAL',
             },
           })}\n\n`,
@@ -135,7 +174,7 @@ describe('AI and Gemini proxy upstream credential redaction matrix (ADR 0024)', 
         JSON.stringify({
           error: {
             code: 401,
-            message: `Gateway rejected Authorization=${authHeader}`,
+            message: `Gateway rejected Authorization=${authHeader} gwKey=${baseUrlQuerySecret} url=${req.url ?? ''}`,
             status: 'UNAUTHENTICATED',
           },
         }),
@@ -146,7 +185,7 @@ describe('AI and Gemini proxy upstream credential redaction matrix (ADR 0024)', 
     const upstreamPort = (upstream.address() as AddressInfo).port;
 
     const handle = await startProxyHarness({
-      geminiBaseUrl: `http://${basicUser}:${basicPass}@127.0.0.1:${upstreamPort}`,
+      geminiBaseUrl: `http://${basicUser}:${basicPass}@127.0.0.1:${upstreamPort}/gw/?api_key=${baseUrlQuerySecret}`,
       geminiApiKey: geminiKey,
     });
 
@@ -162,9 +201,15 @@ describe('AI and Gemini proxy upstream credential redaction matrix (ADR 0024)', 
       },
     );
     expect(unaryRes.status).toBe(401);
+    expect(seenGeminiUrls[0]).toBe(
+      `/gw/v1beta/models/gemini-2.5-flash:generateContent?api_key=${baseUrlQuerySecret}&key=${geminiKey}`,
+    );
     const unaryText = await unaryRes.text();
     expect(unaryText).not.toContain(basicBase64);
     expect(unaryText).not.toContain(basicPass);
+    expect(unaryText).not.toContain(baseUrlQuerySecret);
+    expect(unaryText).not.toContain(encodeURIComponent(baseUrlQuerySecret));
+    expect(unaryText).not.toContain(geminiKey);
 
     const streamRes = await fetch(
       `${handle.url}/__pyric/ai-proxy/gemini/v1beta/models/gemini-2.5-flash:streamGenerateContent?alt=sse`,
@@ -178,10 +223,14 @@ describe('AI and Gemini proxy upstream credential redaction matrix (ADR 0024)', 
       },
     );
     expect(streamRes.status).toBe(200);
+    expect(seenGeminiUrls[1]).toBe(
+      `/gw/v1beta/models/gemini-2.5-flash:streamGenerateContent?api_key=${baseUrlQuerySecret}&alt=sse&key=${geminiKey}`,
+    );
     const streamText = await streamRes.text();
     expect(streamText).toContain('chunk-1');
     expect(streamText).not.toContain(basicBase64);
     expect(streamText).not.toContain(basicPass);
+    expect(streamText).not.toContain(baseUrlQuerySecret);
     expect(streamText).not.toContain(geminiKey);
   });
 
