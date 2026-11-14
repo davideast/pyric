@@ -19,7 +19,7 @@
  * flag, config key or environment variable reaches it.
  */
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { join, resolve } from 'node:path';
 import { readLiveHostStatus } from 'pyric/sandbox/internal';
 import { isLoopbackHost } from '../assurance/attachment.js';
 import { boundedRequest } from '../bounded-request.js';
@@ -44,6 +44,12 @@ import {
   fetchLoopbackTarget,
   inProcessSessionTokenForPort,
 } from './local-session-token.js';
+import {
+  CANDIDATE_SUBDIRS,
+  candidateWorkspaceDirectories,
+  isEnvSessionTokenAllowedForPort,
+  ROOT_ONLY_SUBDIRS,
+} from './workspace-boundary.js';
 
 export { LiveProjectMissingError, liveProjectId } from './live-project.js';
 
@@ -54,7 +60,6 @@ const WRITE_REFUSAL_SUBPATH = 'node-modules';
 const HEALTH_PROBE_DEADLINE_MS = 1_000;
 const POINTER_REL = join('.pyric', 'serve.json');
 const SESSION_REL = join('.pyric', 'session.json');
-const CANDIDATE_SUBDIRS = ['', 'web', 'frontend', 'client', 'app', 'ui', 'www'];
 const WORKSPACE_GROUPS = ['apps', 'packages', 'services'];
 
 const CHILD_COMMAND_REFUSAL =
@@ -200,14 +205,15 @@ function liveTokenFiles(startDir: string, projectRoot: string): string[] {
       }
     }
   };
-  let current = resolve(startDir);
-  for (;;) {
-    for (const sub of CANDIDATE_SUBDIRS) {
-      addDir(sub ? join(current, sub) : current);
+  for (const { dir, includeSubdirs } of candidateWorkspaceDirectories(startDir)) {
+    const subdirs = includeSubdirs ? CANDIDATE_SUBDIRS : ROOT_ONLY_SUBDIRS;
+    for (const sub of subdirs) {
+      let targetDir = dir;
+      if (sub !== '') {
+        targetDir = join(dir, sub);
+      }
+      addDir(targetDir);
     }
-    const parent = dirname(current);
-    if (parent === current) break;
-    current = parent;
   }
   const resolvedProjectRoot = resolve(projectRoot);
   for (const group of WORKSPACE_GROUPS) {
@@ -232,10 +238,10 @@ function resolveLiveHostToken(input: {
   explicitToken?: string;
   expectedInstanceId?: string | null;
 }): { token?: string; expectedInstanceId?: string } {
-  const initialExpected =
-    typeof input.expectedInstanceId === 'string' && input.expectedInstanceId.length > 0
-      ? input.expectedInstanceId
-      : undefined;
+  let initialExpected: string | undefined;
+  if (typeof input.expectedInstanceId === 'string' && input.expectedInstanceId.length > 0) {
+    initialExpected = input.expectedInstanceId;
+  }
   if (typeof input.explicitToken === 'string' && input.explicitToken.length > 0) {
     return { token: input.explicitToken, expectedInstanceId: initialExpected };
   }
@@ -243,21 +249,42 @@ function resolveLiveHostToken(input: {
   if (inProcess !== undefined) {
     return { token: inProcess, expectedInstanceId: initialExpected };
   }
+  const envToken = input.env.PYRIC_SESSION_TOKEN;
+  const diskPorts = new Set<number>();
+  let tokenMismatchedOnDisk = false;
   for (const filePath of liveTokenFiles(input.cwd, input.projectRoot)) {
     if (!existsSync(filePath)) continue;
     try {
       const entry = JSON.parse(readFileSync(filePath, 'utf8')) as DiskTokenEntry;
       if (typeof entry.token !== 'string' || entry.token.length === 0) continue;
       if (!isProcessAlive(entry.pid)) continue;
-      if (extractEntryPort(entry) !== input.port) continue;
-      const entryId = typeof entry.instanceId === 'string' && entry.instanceId.length > 0 ? entry.instanceId : undefined;
+      const entryPort = extractEntryPort(entry);
+      if (entryPort !== undefined) diskPorts.add(entryPort);
+      if (entryPort !== input.port) {
+        if (entryPort !== undefined && entry.token === envToken) {
+          tokenMismatchedOnDisk = true;
+        }
+        continue;
+      }
+      let entryId: string | undefined;
+      if (typeof entry.instanceId === 'string' && entry.instanceId.length > 0) {
+        entryId = entry.instanceId;
+      }
       return { token: entry.token, expectedInstanceId: initialExpected ?? entryId };
     } catch {
       // Ignore unreadable or mid-write pointer files.
     }
   }
-  const envToken = input.env.PYRIC_SESSION_TOKEN;
-  if (typeof envToken === 'string' && envToken.length > 0) {
+  if (
+    typeof envToken === 'string' &&
+    envToken.length > 0 &&
+    isEnvSessionTokenAllowedForPort({
+      env: input.env,
+      targetPort: input.port,
+      diskPorts,
+      tokenMismatchedOnDisk,
+    })
+  ) {
     return { token: envToken, expectedInstanceId: initialExpected };
   }
   return { expectedInstanceId: initialExpected };
@@ -310,6 +337,10 @@ async function probeLiveHostAtBase(input: {
     explicitToken: input.explicitToken,
     expectedInstanceId: input.expectedInstanceId,
   });
+  const probeHeaders: Record<string, string> = { accept: 'application/json' };
+  if (token !== undefined) {
+    probeHeaders['x-pyric-session-token'] = token;
+  }
   let status: number;
   let rawBody: string;
   if (input.base.startsWith('https://')) {
@@ -317,10 +348,7 @@ async function probeLiveHostAtBase(input: {
       const httpsRes = await fetchLoopbackTarget(
         `${input.base}/__pyric/health`,
         {
-          headers: {
-            accept: 'application/json',
-            ...(token !== undefined ? { 'x-pyric-session-token': token } : {}),
-          },
+          headers: probeHeaders,
           signal: AbortSignal.timeout(HEALTH_PROBE_DEADLINE_MS),
         },
         input.cwd,
@@ -332,10 +360,7 @@ async function probeLiveHostAtBase(input: {
     }
   } else {
     const response = await boundedRequest(`${input.base}/__pyric/health`, {
-      headers: {
-        accept: 'application/json',
-        ...(token !== undefined ? { 'x-pyric-session-token': token } : {}),
-      },
+      headers: probeHeaders,
       deadlineMs: HEALTH_PROBE_DEADLINE_MS,
     });
     if (response === null) return { kind: 'no-answer' };

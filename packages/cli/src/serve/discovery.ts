@@ -12,7 +12,7 @@
  * `log` diagnostic).
  */
 import { existsSync, readFileSync, realpathSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, join } from 'node:path';
 import {
   basesForPort,
   canonicalServeUrl,
@@ -30,6 +30,7 @@ import {
   type HostUrlAnswer,
 } from './discovery-health.js';
 import { inProcessSessionTokenForPort, resolveSessionTokenForTarget } from './local-session-token.js';
+import { CANDIDATE_SUBDIRS, candidateWorkspaceDirectories, ROOT_ONLY_SUBDIRS } from './workspace-boundary.js';
 
 export {
   basesForPort,
@@ -51,19 +52,18 @@ export const POINTER = join('.pyric', 'serve.json');
 function candidatePointerPaths(startDir: string): string[] {
   const paths: string[] = [];
   const seen = new Set<string>();
-  const subdirs = ['', 'web', 'frontend', 'client', 'app', 'ui', 'www'];
-  let current = resolve(startDir);
-  while (true) {
+  for (const { dir, includeSubdirs } of candidateWorkspaceDirectories(startDir)) {
+    const subdirs = includeSubdirs ? CANDIDATE_SUBDIRS : ROOT_ONLY_SUBDIRS;
     for (const sub of subdirs) {
-      const p = sub ? join(current, sub, POINTER) : join(current, POINTER);
+      let p = join(dir, POINTER);
+      if (sub !== '') {
+        p = join(dir, sub, POINTER);
+      }
       if (!seen.has(p)) {
         seen.add(p);
         paths.push(p);
       }
     }
-    const parent = dirname(current);
-    if (parent === current) break;
-    current = parent;
   }
   return paths;
 }
@@ -433,16 +433,13 @@ export async function discoverServe(
     const hit = await healthyBase(port);
     const foundByScan = hit !== null;
     if (foundByScan) {
-      const token = inProcessSessionTokenForPort(port);
-      const host: Discovered = {
+      return {
         mcpUrl: `${hit.base}/__pyric/mcp`,
         url: canonicalServeUrl(port),
         base: hit.base,
         instanceId: hit.instanceId,
         source: `port scan (:${port})`,
       };
-      if (token !== undefined) host.token = token;
-      return host;
     }
   }
   return null;

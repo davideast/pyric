@@ -70,20 +70,21 @@ export function firebaseToolsConfigstorePath(env: NodeJS.ProcessEnv = process.en
   return join(configHome, 'configstore', 'firebase-tools.json');
 }
 
-/** The files that mark a folder as a Firebase project root. */
-const PROJECT_ROOT_MARKERS = ['.firebaserc', 'firebase.json'];
+/** The files that mark a folder as a Firebase or Pyric project root. */
+const PROJECT_ROOT_MARKERS = ['.firebaserc', 'firebase.json', 'pyric.json'];
 
 function isFirebaseProjectRoot(dir: string): boolean {
   return PROJECT_ROOT_MARKERS.some((marker) => existsSync(join(dir, marker)));
 }
 
 /**
- * The Firebase project root for a process or server started in `startDir`:
+ * The Firebase or Pyric project root for a process or server started in `startDir`:
  * the nearest folder from `startDir` up, to the filesystem root, that holds
- * `.firebaserc` or `firebase.json`, or null when none does. firebase-tools
- * walks up the same way for `firebase.json` (`detectProjectRoot`); a
- * `.firebaserc` also counts here, since it alone names the project. The Vite
- * plugin and the live register both find their project with this function.
+ * `.firebaserc`, `firebase.json`, or `pyric.json`, or null when none does.
+ * firebase-tools walks up the same way for `firebase.json` (`detectProjectRoot`);
+ * `.firebaserc` and `pyric.json` also count here so workspaces configured via
+ * `pyric.json` resolve consistently from monorepo subpackages. The Vite plugin,
+ * session token discovery, and the live register find their project with this function.
  */
 export function findFirebaseProjectDir(startDir: string): string | null {
   let dir = resolve(startDir);
