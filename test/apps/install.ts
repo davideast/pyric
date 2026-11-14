@@ -56,6 +56,8 @@ export function tarballsIn(root: string, dir: string): Tarballs {
 export interface CommandResult {
   code: number | null;
   output: string;
+  /** False when the command already exhausted its retry policy or hit a non-transient error. */
+  retryable?: boolean;
 }
 
 export interface CommandOptions {
@@ -232,22 +234,36 @@ export interface NpmInstallOptions {
   networkRetryDelayMs?: number;
 }
 
+interface NetworkRetryBudget {
+  remaining: number;
+}
+
 async function runWithNetworkRetry<R extends CommandResult & { timedOut?: boolean }>(
   args: string[],
   run: (args: string[]) => Promise<R>,
   delayMs: number,
+  budget: NetworkRetryBudget,
 ): Promise<R> {
   const first = await run(args);
-  if (!isTransientNetworkFailure(first)) return first;
+  const canRetry = budget.remaining > 0 && isTransientNetworkFailure(first);
+  if (!canRetry) return first;
+  budget.remaining -= 1;
   const note = '\n[runner] infrastructure retry: npm install hit a transient network error; retrying once\n';
   if (delayMs > 0) await new Promise((resolve) => setTimeout(resolve, delayMs));
   const second = await run(args);
   return { ...second, output: `${first.output}${note}${second.output}` };
 }
 
+function withRetryPolicy<R extends CommandResult & { timedOut?: boolean }>(result: R): R {
+  if (result.code === 0) return result;
+  return { ...result, retryable: result.timedOut === true };
+}
+
 /**
- * Run `npm install` offline first, retrying once on a transient network
- * error, and once more with `--prefer-online` when stale metadata failed it.
+ * Run `npm install` offline first, then once more with `--prefer-online` when
+ * stale metadata failed it, sharing one bounded retry across both phases for
+ * transient network errors. A non-timeout failure is marked `retryable: false`
+ * so callers do not stack a second retry on top of this one.
  */
 export async function npmInstall<R extends CommandResult & { timedOut?: boolean }>(
   npmCache: string,
@@ -256,11 +272,12 @@ export async function npmInstall<R extends CommandResult & { timedOut?: boolean 
   options: NpmInstallOptions = {},
 ): Promise<R> {
   const delayMs = options.networkRetryDelayMs ?? DEFAULT_NETWORK_RETRY_DELAY_MS;
-  const first = await runWithNetworkRetry(npmInstallArgs(npmCache, 'offline', logsDir), run, delayMs);
-  if (!shouldRetryOnline(first)) return first;
+  const budget: NetworkRetryBudget = { remaining: 1 };
+  const first = await runWithNetworkRetry(npmInstallArgs(npmCache, 'offline', logsDir), run, delayMs, budget);
+  if (!shouldRetryOnline(first)) return withRetryPolicy(first);
   const note = '\n[runner] npm install failed on stale cached metadata; retrying once with --prefer-online\n';
-  const second = await runWithNetworkRetry(npmInstallArgs(npmCache, 'online', logsDir), run, delayMs);
-  return { ...second, output: `${first.output}${note}${second.output}` };
+  const second = await runWithNetworkRetry(npmInstallArgs(npmCache, 'online', logsDir), run, delayMs, budget);
+  return withRetryPolicy({ ...second, output: `${first.output}${note}${second.output}` });
 }
 
 /**

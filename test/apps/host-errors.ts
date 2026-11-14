@@ -63,7 +63,7 @@ export const STOPPING_HOST_NOTE = ', from a host the scenario was stopping, not 
 const CLOSING_HOST_STATUSES = new Set([404, 503]);
 
 /** Hostnames that refer to the local machine where the driver starts host processes. */
-const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '[::1]']);
+export const LOCAL_HOSTS: ReadonlySet<string> = new Set(['127.0.0.1', 'localhost', '[::1]']);
 
 /**
  * When the browser started a request and received its response headers, from
@@ -156,7 +156,7 @@ export class HostErrors {
     const isClosingStatus = CLOSING_HOST_STATUSES.has(status);
     if (!isClosingStatus) return false;
     if (times === undefined) return false;
-    if (!LOOPBACK_HOSTS.has(url.hostname)) return false;
+    if (!LOCAL_HOSTS.has(url.hostname)) return false;
     if (url.port.length === 0) return false;
     const host = this.hosts.get(Number(url.port));
     if (host === undefined) return false;

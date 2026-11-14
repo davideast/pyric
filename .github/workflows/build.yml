@@ -672,7 +672,7 @@ jobs:
         # One shard runs these, and the plan counts their time against it. The
         # replay directory runs whole, so a new test there needs no edit here.
         if: matrix.shard.runnerTests
-        run: bun test test/apps/selection.test.ts test/apps/driver.test.ts test/apps/driver-network.test.ts test/apps/driver-stopping-host.test.ts test/apps/host-errors.test.ts test/apps/install.test.ts test/apps/dependency-store.test.ts test/apps/packed-files.test.ts test/apps/unreaped-exit.test.ts test/apps/schedule.test.ts test/apps/cleanup.test.ts test/apps/browser-children.test.ts test/apps/crash-watch.test.ts test/apps/crash-output.test.ts test/apps/crash-targets.test.ts test/apps/soak.test.ts ./test/apps/replay/
+        run: bun test test/apps/selection.test.ts test/apps/driver.test.ts test/apps/driver-network.test.ts test/apps/driver-stopping-host.test.ts test/apps/host-errors.test.ts test/apps/copy-tree.test.ts test/apps/install.test.ts test/apps/dependency-store.test.ts test/apps/packed-files.test.ts test/apps/unreaped-exit.test.ts test/apps/schedule.test.ts test/apps/cleanup.test.ts test/apps/browser-children.test.ts test/apps/crash-watch.test.ts test/apps/crash-output.test.ts test/apps/crash-targets.test.ts test/apps/soak.test.ts ./test/apps/replay/
       - name: Write the shard plan
         env:
           APP_PLAN: ${{ needs.plan.outputs.app-plan }}

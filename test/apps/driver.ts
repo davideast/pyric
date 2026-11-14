@@ -27,7 +27,7 @@ import {
 } from './unreaped-exit.ts';
 import { childOutputSockets, describeOutputSockets, isExitWithoutClose } from './output-sockets.ts';
 import { CrashWatch, type CrashVerdict, type ExpectedCrash, type WatchedProcess } from './crash-watch.ts';
-import { firstLine, HostErrors, responseTimes, STOPPING_HOST_NOTE } from './host-errors.ts';
+import { firstLine, HostErrors, LOCAL_HOSTS, responseTimes, STOPPING_HOST_NOTE } from './host-errors.ts';
 
 export type { ExpectedCrash } from './crash-watch.ts';
 
@@ -550,8 +550,6 @@ async function answers(url: string): Promise<boolean> {
 
 // At load, not at launch: a scenario can also call chromium.launch itself.
 retainBrowserChildren();
-
-const LOCAL_HOSTS = new Set(['127.0.0.1', 'localhost', '[::1]']);
 
 /**
  * Chromium's resolver rules for scenario pages: every name and address but

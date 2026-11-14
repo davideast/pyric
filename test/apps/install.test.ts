@@ -1,13 +1,12 @@
 import { afterEach, describe, expect, test } from 'bun:test';
 import { createHash } from 'node:crypto';
-import { EventEmitter } from 'node:events';
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { Worker } from 'node:worker_threads';
 import { gzipSync } from 'node:zlib';
+import { DependencyStore, type RunNpm } from './dependency-store.ts';
 import {
   debugLogTail,
   isTransientNetworkFailure,
@@ -20,7 +19,6 @@ import {
   type CommandResult,
   type TimedResult,
 } from './install.ts';
-import { copyTree, type StartCopyWorker } from './copy-tree.ts';
 import { dependencySetKey, SharedInstalls } from './shared-installs.ts';
 
 const dirs: string[] = [];
@@ -348,124 +346,6 @@ describe('dependency sets', () => {
   });
 });
 
-describe('copying an installed tree into an app', () => {
-  test('files are copies the app can change alone, and symlinks stay symlinks', async () => {
-    const from = tempDir();
-    const to = join(tempDir(), 'node_modules');
-    mkdirSync(join(from, 'vite/bin'), { recursive: true });
-    mkdirSync(join(from, '.bin'));
-    writeFileSync(join(from, 'vite/bin/vite.js'), 'console.log("vite")\n');
-    symlinkSync('../vite/bin/vite.js', join(from, '.bin/vite'));
-    await copyTree(from, to);
-    expect(statSync(join(to, 'vite/bin/vite.js')).ino).not.toBe(statSync(join(from, 'vite/bin/vite.js')).ino);
-    expect(lstatSync(join(to, '.bin/vite')).isSymbolicLink()).toBe(true);
-    expect(readlinkSync(join(to, '.bin/vite'))).toBe('../vite/bin/vite.js');
-    writeFileSync(join(to, 'vite/bin/vite.js'), 'changed\n');
-    expect(readFileSync(join(from, 'vite/bin/vite.js'), 'utf8')).toBe('console.log("vite")\n');
-  });
-});
-
-describe('settling a copy from its worker', () => {
-  type WorkerStep = ['result', { ok: boolean; message?: string }] | ['message', { ok: boolean; message?: string }] | ['exit', number];
-
-  /**
-   * A copy worker that does each step on its own later turn, `delayMs`
-   * apart, the way a real one reports: `result` writes the result file, as
-   * the real worker does before it posts its message.
-   */
-  function scriptedWorker(steps: readonly WorkerStep[], delayMs = 0): StartCopyWorker {
-    return (_from, _to, resultFile) => {
-      const worker = Object.assign(new EventEmitter(), { terminate: () => undefined });
-      steps.forEach(([step, value], index) => setTimeout(() => {
-        if (step === 'result') writeFileSync(resultFile, JSON.stringify(value));
-        else worker.emit(step, value);
-      }, (index + 1) * delayMs));
-      return worker;
-    };
-  }
-
-  /** Starts each worker in `starts` in turn, and counts them. */
-  function inTurn(starts: readonly StartCopyWorker[]): { startWorker: StartCopyWorker; started: () => number } {
-    let count = 0;
-    const startWorker: StartCopyWorker = (from, to, resultFile) => {
-      const start = starts[count] ?? starts[starts.length - 1];
-      if (!start) throw new Error('inTurn requires at least one worker');
-      count += 1;
-      return start(from, to, resultFile);
-    };
-    return { startWorker, started: () => count };
-  }
-
-  const to = () => join(tempDir(), 'to');
-  const lines = (): { report: (line: string) => void; reported: string[] } => {
-    const reported: string[] = [];
-    return { report: (line) => reported.push(line), reported };
-  };
-
-  test('a worker whose clean exit is handled before its result settles as success (#1280)', async () => {
-    const { startWorker, started } = inTurn([scriptedWorker([['result', { ok: true }], ['exit', 0], ['message', { ok: true }]], 20)]);
-    const { report, reported } = lines();
-    await expect(copyTree('/from', to(), { startWorker, report })).resolves.toBeUndefined();
-    expect({ started: started(), reported }).toEqual({ started: 1, reported: [] });
-  });
-
-  test('a worker whose message never arrives settles from the result it wrote', async () => {
-    await expect(copyTree('/from', to(), { startWorker: scriptedWorker([['result', { ok: true }], ['exit', 0]]) })).resolves.toBeUndefined();
-    const failed = copyTree('/from', to(), { startWorker: scriptedWorker([['result', { ok: false, message: 'ENOSPC' }], ['exit', 0]]) });
-    await expect(failed).rejects.toThrow('failed: ENOSPC');
-  });
-
-  test('a worker that exits with code 0 and no result did not copy: a real worker then copies the tree, and the retry is reported', async () => {
-    const from = tempDir();
-    const target = to();
-    mkdirSync(join(from, 'vite/bin'), { recursive: true });
-    writeFileSync(join(from, 'vite/bin/vite.js'), 'console.log("vite")\n');
-    // The first worker leaves part of a tree and exits cleanly with no result, as on CI. The second is the real one.
-    const exitsEarly: StartCopyWorker = (source, dest, resultFile) => {
-      mkdirSync(join(dest, 'left-by-the-first-worker'), { recursive: true });
-      return scriptedWorker([['exit', 0]])(source, dest, resultFile);
-    };
-    const realWorker: StartCopyWorker = (source, dest, resultFile) =>
-      new Worker(new URL('./copy-tree-worker.ts', import.meta.url), { workerData: { from: source, to: dest, resultFile } });
-    const { startWorker, started } = inTurn([exitsEarly, realWorker]);
-    const { report, reported } = lines();
-    await copyTree(from, target, { startWorker, report });
-    expect(started()).toBe(2);
-    expect(readFileSync(join(target, 'vite/bin/vite.js'), 'utf8')).toBe('console.log("vite")\n');
-    expect(existsSync(join(target, 'left-by-the-first-worker'))).toBe(false);
-    expect(existsSync(`${target}.copy-result.json`)).toBe(false);
-    expect(reported).toEqual([`[runner] infrastructure retry: the copy worker for ${target} exited with code 0 before it finished; copying once more`]);
-  });
-
-  test('a second worker that also exits with code 0 and no result fails the copy, and there is no third', async () => {
-    const { startWorker, started } = inTurn([scriptedWorker([['exit', 0]])]);
-    const { report, reported } = lines();
-    await expect(copyTree('/from', to(), { startWorker, report })).rejects.toThrow('the copy worker exited with code 0 before it finished, on each of 2 attempts');
-    expect({ started: started(), retries: reported.length }).toEqual({ started: 2, retries: 1 });
-  });
-
-  test('a worker that exits with another code fails the copy at once', async () => {
-    const { startWorker, started } = inTurn([scriptedWorker([['exit', 1]])]);
-    const { report, reported } = lines();
-    await expect(copyTree('/from', to(), { startWorker, report })).rejects.toThrow('the copy worker exited with code 1 before it finished');
-    expect({ started: started(), reported }).toEqual({ started: 1, reported: [] });
-  });
-
-  test('a failed result fails the copy at once, and a later exit does not change it', async () => {
-    const { startWorker, started } = inTurn([scriptedWorker([['message', { ok: false, message: 'ENOSPC' }], ['exit', 0]])]);
-    const { report, reported } = lines();
-    await expect(copyTree('/from', to(), { startWorker, report })).rejects.toThrow('failed: ENOSPC');
-    expect({ started: started(), reported }).toEqual({ started: 1, reported: [] });
-  });
-
-  test('a real copy that fails says why, and is not run again', async () => {
-    const { report, reported } = lines();
-    const missing = join(tempDir(), 'no-such-tree');
-    await expect(copyTree(missing, to(), { report })).rejects.toThrow(/copying .*no-such-tree to .* failed: .*ENOENT/);
-    expect(reported).toEqual([]);
-  });
-});
-
 describe('one install per dependency set', () => {
   /** An app prepared the way the runner prepares one: <work dir>/app, its package.json without a name. */
   function appDir(name: string, dependencies: Record<string, string>): string {
@@ -551,5 +431,113 @@ describe('one install per dependency set', () => {
     expect(result.code).toBe(1);
     expect(result.output).toContain('added 205 packages');
     expect(result.output).toContain('failed');
+  });
+
+  test('a non-transient failure such as E404 fails on attempt 1 without retrying', async () => {
+    let calls = 0;
+    const shared = new SharedInstalls(tempDir(), async () => {
+      calls += 1;
+      return { code: 1, output: 'npm error code E404\n' };
+    });
+    const result = await shared.install(appDir('a', { vite: '7.3.2' }));
+    expect(calls).toBe(1);
+    expect(result.code).toBe(1);
+    expect(result.output).toContain('npm error code E404');
+  });
+});
+
+describe('consistent single-retry bounds across npmInstall, DependencyStore, and SharedInstalls', () => {
+  const PLATFORM = { nodeMajor: '22', npm: '10.9.0', os: 'linux', arch: 'x64' };
+  const PACKED = [{ name: 'pyric', file: '/packed/pyric.tgz', integrity: 'sha512-demo', manifest: { name: 'pyric', version: '0.1.0-alpha.1' }, files: new Map<string, number>() }];
+
+  function makeApp(name: string, fields: Record<string, unknown>): string {
+    const dir = join(tempDir(), name, 'app');
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, 'package.json'), JSON.stringify({ private: true, ...fields }));
+    return dir;
+  }
+
+  function makeStore(runNpm: RunNpm): DependencyStore {
+    const base = tempDir();
+    return new DependencyStore({
+      dir: join(base, 'deps'),
+      offline: false,
+      packed: PACKED,
+      platform: PLATFORM,
+      npmCache: join(base, 'npm-cache'),
+      runNpm,
+      networkRetryDelayMs: 0,
+    });
+  }
+
+  test('npmInstall shares one network retry budget across --prefer-offline and --prefer-online', async () => {
+    const exhausted: CommandResult[] = [
+      { code: 1, output: 'attempt 1: npm error code ECONNRESET\n' },
+      { code: 1, output: ETARGET_OUTPUT },
+      { code: 1, output: 'attempt 3: npm error code ECONNRESET\n' },
+      { code: 0, output: 'should never run\n' },
+    ];
+    let exhaustedCalls = 0;
+    const failed = await npmInstall('/cache', async () => {
+      exhaustedCalls += 1;
+      return exhausted.shift() ?? { code: 1, output: 'called too often' };
+    }, undefined, { networkRetryDelayMs: 0 });
+    expect({ exhaustedCalls, code: failed.code, retryable: failed.retryable }).toEqual({ exhaustedCalls: 3, code: 1, retryable: false });
+
+    const recoversOnline: CommandResult[] = [
+      { code: 1, output: ETARGET_OUTPUT },
+      { code: 1, output: 'online 1: npm error code ECONNRESET\n' },
+      { code: 0, output: 'added 1 package\n' },
+    ];
+    let onlineCalls = 0;
+    const ok = await npmInstall('/cache', async () => {
+      onlineCalls += 1;
+      return recoversOnline.shift() ?? { code: 1, output: 'called too often' };
+    }, undefined, { networkRetryDelayMs: 0 });
+    expect({ onlineCalls, code: ok.code }).toEqual({ onlineCalls: 3, code: 0 });
+  });
+
+  test('SharedInstalls over DependencyStore runs 2 npm calls on ECONNRESET, 3 on ECONNRESET+ETARGET+ECONNRESET, 1 on E404/ERESOLVE, and 2 on timeout', async () => {
+    const fail = (output: string): TimedResult => ({ code: 1, output, timedOut: false });
+    const hung = (output: string): TimedResult => ({ code: null, output, timedOut: true });
+    const cases: Array<{ label: string; responses: TimedResult[]; expectedCalls: number }> = [
+      { label: 'persistent-econnreset', responses: [fail('npm error code ECONNRESET\n'), fail('npm error code ECONNRESET\n'), fail('extra\n')], expectedCalls: 2 },
+      { label: 'econnreset-etarget-econnreset', responses: [fail('npm error code ECONNRESET\n'), fail(ETARGET_OUTPUT), fail('npm error code ECONNRESET\n'), fail('extra\n')], expectedCalls: 3 },
+      { label: 'bad-dep-e404', responses: [fail('npm error code E404\n'), fail('extra\n')], expectedCalls: 1 },
+      { label: 'bad-dep-eresolve', responses: [fail('npm error code ERESOLVE\n'), fail('extra\n')], expectedCalls: 1 },
+      { label: 'timed-out-warm', responses: [hung('stalled 1\n'), hung('stalled 2\n'), hung('extra\n')], expectedCalls: 2 },
+    ];
+    for (const entry of cases) {
+      let calls = 0;
+      const store = makeStore(async () => {
+        calls += 1;
+        return entry.responses.shift() ?? fail('called too often\n');
+      });
+      const shared = new SharedInstalls(tempDir(), async () => ({ code: 1, output: 'unused\n' }), {
+        installSet: (dir, app) => store.provide(dir, app),
+      });
+      const result = await shared.install(makeApp(entry.label, { dependencies: { vite: '7.3.2' } }), 'demo');
+      expect({ label: entry.label, calls, failed: result.code !== 0 }).toEqual({ label: entry.label, calls: entry.expectedCalls, failed: true });
+    }
+  });
+
+  test('default SharedInstalls wired with npmInstall does not stack retries on shared or standalone apps', async () => {
+    const runPath = async (fields: Record<string, unknown>, output: string): Promise<number> => {
+      let calls = 0;
+      const installIn = () => npmInstall('/cache', async () => {
+        calls += 1;
+        return { code: 1, output };
+      }, undefined, { networkRetryDelayMs: 0 });
+      const shared = new SharedInstalls(tempDir(), installIn);
+      const result = await shared.install(makeApp('app', fields));
+      expect(result.code).toBe(1);
+      return calls;
+    };
+    const sharedFields = { dependencies: { vite: '7.3.2' } };
+    const aloneFields = { dependencies: { vite: '7.3.2' }, scripts: { postinstall: 'node setup.js' } };
+    expect(await runPath(sharedFields, 'npm error code ECONNRESET\n')).toBe(2);
+    expect(await runPath(sharedFields, 'npm error code E404\n')).toBe(1);
+    expect(await runPath(aloneFields, 'npm error code ECONNRESET\n')).toBe(2);
+    expect(await runPath(aloneFields, 'npm error code E404\n')).toBe(1);
   });
 });

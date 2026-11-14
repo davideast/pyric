@@ -10,7 +10,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { copyFile } from 'node:fs/promises';
 import { basename, join } from 'node:path';
 import { copyTree } from './copy-tree.ts';
-import type { CommandResult } from './install.ts';
+import { isTransientNetworkFailure, type CommandResult } from './install.ts';
 
 /**
  * The package.json fields the shared install copies and keys on: what the app
@@ -146,6 +146,11 @@ interface SetInstall {
   result: Promise<CommandResult>;
 }
 
+function canRetrySetInstall(result: SetInstallResult): boolean {
+  if (result.retryable !== undefined) return result.retryable;
+  return isTransientNetworkFailure(result);
+}
+
 /** The installs of one run, one per dependency set, made in directories under `baseDir`. */
 export class SharedInstalls {
   private readonly sets = new Map<string, SetInstall>();
@@ -159,10 +164,10 @@ export class SharedInstalls {
 
   /**
    * Install the app prepared in `projectDir`: its set's install, copied in,
-   * or its own when it installs alone. A set's install is tried twice, so one
-   * dropped connection does not fail the set, unless the first attempt says
-   * a second cannot help; when every attempt fails, every app that shares it
-   * fails with that log, without installing again.
+   * or its own when it installs alone. A set's install gets one retry when it
+   * marks the failure retryable (or, without an explicit flag, hit a transient
+   * network error); when every attempt fails, every app that shares it fails
+   * with that log, without installing again.
    */
   async install(projectDir: string, app?: string): Promise<CommandResult> {
     const inputs = readInstallInputs(projectDir);
@@ -191,7 +196,7 @@ export class SharedInstalls {
       const result = await this.installSetIn(dir, app);
       output += result.output;
       if (result.code === 0) return { ...result, output };
-      const isFinal = attempt === SET_INSTALL_ATTEMPTS || result.retryable === false;
+      const isFinal = attempt === SET_INSTALL_ATTEMPTS || !canRetrySetInstall(result);
       if (isFinal) return { ...result, output };
       output += `\n[runner] the shared install failed (exit ${result.code}); trying it once more\n`;
     }

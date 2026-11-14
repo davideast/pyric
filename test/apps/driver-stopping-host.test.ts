@@ -24,6 +24,8 @@ const server = createServer((request, response) => {
   const path = new URL(request.url, 'http://stand-in').pathname;
   if (path === '/') return response.writeHead(200, { 'content-type': 'text/html' }).end('<!doctype html><title>stand-in host</title>');
   if (path === '/__pyric/broken') return response.writeHead(500, { 'content-type': 'text/plain' }).end('the route broke');
+  if (path === '/__pyric/missing') return response.writeHead(404, { 'content-type': 'text/plain' }).end('route missing');
+  if (path === '/__pyric/unavailable') return response.writeHead(503, { 'content-type': 'text/plain' }).end('service unavailable');
   const servesRoute = path.startsWith('/__pyric/') && !closing;
   if (servesRoute) return response.writeHead(200, { 'content-type': 'application/json' }).end('{}');
   return response.writeHead(404, { 'content-type': 'text/plain' }).end('Not Found');
@@ -95,14 +97,22 @@ describe('a host route error and a host the scenario stops', () => {
     expect(run.unexpectedHostErrors()).toEqual([]);
   }), 60_000);
 
-  test('a route that errors on a running host fails the app, and still does once the scenario stops the host', () => withRun(async (run) => {
+  test('404 and 503 on a running host fail the app, and still do once the scenario stops the host', () => withRun(async (run) => {
     const host = await run.devServer();
     const page = await run.page(host.url);
-    expect(await page.evaluate(async () => (await fetch('/__pyric/broken')).status)).toBe(500);
-    const failure = '500 GET /__pyric/broken (during "setup"): the route broke';
-    await eventually(() => run.unexpectedHostErrors().includes(failure), 'the 500 counting as a host error');
+    const statuses = await page.evaluate(async () => {
+      const missing = await fetch('/__pyric/missing');
+      const unavailable = await fetch('/__pyric/unavailable');
+      return [missing.status, unavailable.status];
+    });
+    expect(statuses).toEqual([404, 503]);
+    const expected = [
+      '404 GET /__pyric/missing (during "setup"): route missing',
+      '503 GET /__pyric/unavailable (during "setup"): service unavailable',
+    ];
+    await eventually(() => expected.every((line) => run.unexpectedHostErrors().includes(line)), 'the running host 404 and 503 counting as host errors');
     await host.process.stop();
-    expect(run.unexpectedHostErrors()).toEqual([failure]);
+    expect(run.unexpectedHostErrors()).toEqual(expected);
   }), 60_000);
 
   test('a 500 while the scenario stops the host still fails the app', () => withRun(async (run) => {
@@ -124,14 +134,22 @@ describe('a host route error and a host the scenario stops', () => {
     expect(run.unexpectedHostErrors()).toEqual([failure]);
   }), 60_000);
 
-  test('a host started again on the same port answers for itself: its error fails the app', () => withRun(async (run) => {
+  test('a host started again on the same port answers for itself: its 404 and 503 fail the app', () => withRun(async (run) => {
     const first = await run.devServer();
     const page = await run.page(first.url);
     await first.process.stop();
     await run.devServer({ port: first.port, name: 'restarted dev server' });
-    expect(await page.evaluate(async () => (await fetch('/__pyric/broken')).status)).toBe(500);
-    const failure = '500 GET /__pyric/broken (during "setup"): the route broke';
-    await eventually(() => run.unexpectedHostErrors().includes(failure), 'the restarted host\'s 500 counting as a host error');
-    expect(run.unexpectedHostErrors()).toEqual([failure]);
+    const statuses = await page.evaluate(async () => {
+      const missing = await fetch('/__pyric/missing');
+      const unavailable = await fetch('/__pyric/unavailable');
+      return [missing.status, unavailable.status];
+    });
+    expect(statuses).toEqual([404, 503]);
+    const expected = [
+      '404 GET /__pyric/missing (during "setup"): route missing',
+      '503 GET /__pyric/unavailable (during "setup"): service unavailable',
+    ];
+    await eventually(() => expected.every((line) => run.unexpectedHostErrors().includes(line)), 'the restarted host 404 and 503 counting as host errors');
+    expect(run.unexpectedHostErrors()).toEqual(expected);
   }), 60_000);
 });

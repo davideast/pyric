@@ -26,7 +26,7 @@ export interface HostWaitOptions {
 }
 
 /** The token the pointer file in `root` names, or undefined while the host has not written one. */
-export function pointerToken(root: string): string | undefined {
+function pointerToken(root: string): string | undefined {
   let text: string;
   try {
     text = readFileSync(join(root, '.pyric/serve.json'), 'utf8');
