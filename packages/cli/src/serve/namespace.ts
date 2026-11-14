@@ -3,12 +3,12 @@ import { DIAGNOSTICS_PATH } from './runtime/diagnostics-report.js';
 import { handleRateCaptures } from './rate-capture-route.js';
 import { handleThresholdConfig } from './threshold-config-route.js';
 /**
- * The `/__pyric/` reserved namespace — pyric's analog of firebase serve's
+ * The `/__pyric/` reserved namespace -- pyric's analog of firebase serve's
  * `/__/firebase/` namespace:
  *
  *   /__pyric/sdk/<file>.js   the bundled SDK files (import-map targets +
  *                            the injected init script + shared chunks)
- *   /__pyric/init.json       the page init payload (rules, bridge URL) —
+ *   /__pyric/init.json       the page init payload (rules, bridge URL) --
  *                            fetched by the runtime chunk at module init
  *   /__pyric/beacon          the handshake beacon a pyric-launched child
  *                            POSTs once its interception is installed
@@ -19,14 +19,13 @@ import { handleThresholdConfig } from './threshold-config-route.js';
  * Bridge routes (`/__pyric/mcp`, `/__pyric/sandbox`) mount here in P2.
  */
 import { randomBytes } from 'node:crypto';
-import { createReadStream, existsSync, statSync } from 'node:fs';
+import { existsSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { ActivityIncident } from 'pyric/firestore/internal';
-import { answerAndClose, collectBody, isBodyTooLarge } from '../bridge/server/peer.js';
 import { handleIndexConfig } from './index-config-route.js';
-import { StateFileError, type StateSection, type StateStore } from './state-store.js';
-import { createWriterLock, type WriterLock } from './writer-lock.js';
+import type { StateStore } from './state-store.js';
+import { createWriterLock } from './writer-lock.js';
 import { createStudioRoutes, type StudioRouteOptions } from './studio/index.js';
 import { registerSessionTokenRequirement } from './local-session-token.js';
 import {
@@ -47,71 +46,37 @@ import type { AppPorts } from './app-ports.js';
 import { handleActivity } from './activity-route.js';
 import { handleAiProxy, AI_PROXY_ROUTE } from './ai-proxy.js';
 import { createGeminiProxy, isGeminiProxyPath, type GeminiProxyConfig } from './gemini-proxy.js';
-import { aiTerminalBlockFor, type AiDiagnosticPayload } from './ai-terminal-blocks.js';
-import { sanitizeForTerminal, stripTerminalControls } from './ai-terminal-text.js';
 import { createSiteTreeHandler } from './site-tree.js';
 import { handleAvatar } from './assets/avatar-route.js';
 import { ASSETS_ROUTE_PREFIX } from './assets/avatar-url.js';
 import type { AssetResolver } from './assets/resolver.js';
 import { BEACON_PATH, type BeaconReport } from '../register/beacon.js';
 import { handleBeacon } from './beacon-route.js';
+import { createEventHub, type ServeEventHub } from './event-hub.js';
+import {
+  createDenialThrottle,
+  DENIAL_BODY_LIMIT_BYTES,
+  formatDenialBlock,
+  handleDenials,
+  noteAiDiagnostic,
+  type DenialThrottle,
+} from './denial-route.js';
+import {
+  handleCapture,
+  handleState,
+  handleStateObject,
+  STATE_OBJECTS_PREFIX,
+} from './state-capture-route.js';
+
 export type { InitPayload } from './init-payload.js';
-
-/**
- * Server-sent-events hub for `/__pyric/events` — the hot-reload channel
- * (P3). The runtime opens an EventSource; the rules watcher broadcasts
- * `rules-changed` and connected pages re-deploy without a refresh.
- */
-export interface ServeEventHub {
-  /** Mounted inside the namespace handler. */
-  handle(req: IncomingMessage, res: ServerResponse): void;
-  broadcast(event: string, data: unknown): void;
-  clientCount(): number;
-  /** End all open streams. Idempotent; used by host-neutral session cleanup. */
-  close(): void;
-}
-
-export function createEventHub(): ServeEventHub {
-  const clients = new Set<ServerResponse>();
-  let closed = false;
-  return {
-    handle(req, res) {
-      if (closed) {
-        res.writeHead(503, { 'content-type': 'text/plain' }).end('sandbox session closed');
-        return;
-      }
-      res.writeHead(200, {
-        'content-type': 'text/event-stream',
-        'cache-control': 'no-store',
-        connection: 'keep-alive',
-      });
-      res.write(': connected\n\n');
-      clients.add(res);
-      req.on('close', () => clients.delete(res));
-      // A dying SSE socket must never surface an unhandled 'error' event
-      // (which would kill the whole serve process) — drop the client instead.
-      res.on('error', () => clients.delete(res));
-    },
-    broadcast(event, data) {
-      if (closed) return;
-      const frame = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
-      for (const res of clients) {
-        try {
-          res.write(frame);
-        } catch {
-          clients.delete(res); // half-closed socket in the close race window
-        }
-      }
-    },
-    clientCount: () => clients.size,
-    close() {
-      if (closed) return;
-      closed = true;
-      for (const res of clients) res.end();
-      clients.clear();
-    },
-  };
-}
+export { createEventHub, type ServeEventHub };
+export {
+  createDenialThrottle,
+  DENIAL_BODY_LIMIT_BYTES,
+  formatDenialBlock,
+  noteAiDiagnostic,
+  type DenialThrottle,
+};
 
 export interface NamespaceOptions {
   rateCaptures?: import('./rate-capture-store.js').RateCaptureStore;
@@ -119,7 +84,7 @@ export interface NamespaceOptions {
   thresholds?: import('./threshold-config-store.js').ThresholdConfigStore;
   /** The bundle output dir (`BundleResult.outDir`). */
   sdkDir: string;
-  /** Producer for `/__pyric/init.json` — a function so hot-reload serves
+  /** Producer for `/__pyric/init.json` -- a function so hot-reload serves
    *  the latest rules without server restart. */
   initPayload: () => InitPayload;
   /** Hot-reload channel; serves `/__pyric/events` when present. */
@@ -132,24 +97,16 @@ export interface NamespaceOptions {
   /** Hosted state can be read here; its runtime owns all writes. */
   stateOwner?: 'browser' | 'host';
   persistenceStatus?: () => import('./hosted/persistence/commits.js').PersistenceStatus;
-  /** `--capture`: mounts GET/POST /__pyric/capture. POST — the page/worker
-   *  pushes its session fixture here; the handler writes it verbatim to
-   *  `.pyric/last-session.json` for `pyric verify` to replay. GET — returns the
-   *  current fixture JSON (200) or 404 when nothing is captured yet, so the
-   *  served worker can re-hydrate its event history on boot after a death. */
+  /** `--capture`: mounts GET/POST /__pyric/capture. */
   capture?: { write(json: string): void; read(): string | null };
   /** Resolves the image behind a sandbox user's `photoURL`; mounts
-   *  `GET /__pyric/assets/avatar/<uid>`. Absent means the whole
-   *  `/__pyric/assets/` prefix 404s, which is the sandbox's Firebase-null
-   *  behaviour for avatars. */
+   *  `GET /__pyric/assets/avatar/<uid>`. */
   avatars?: AssetResolver;
   /** Unified Astro documentation + Studio tree, built for `/__pyric/ui/`. */
   siteUiDir?: string;
   /** Served SharedWorker epoch stamped only into Studio entry documents. */
   workerVersion?: string;
-  /** `--ui` (Pyric Studio): mounts `/__pyric/workspace` + `/__pyric/projects`
-   *  (disk-backed `WorkspaceStore`/`ProjectStore`, plus the SSE watch stream)
-   *  that `@pyric/studio`'s `local` mode talks to. */
+  /** `--ui` (Pyric Studio): mounts `/__pyric/workspace` + `/__pyric/projects`. */
   studio?: StudioRouteOptions;
   /** Per-boot session capability token required on workspace, project, and AI proxy endpoints (and all routes when `requireSessionToken` is true). */
   sessionToken?: string;
@@ -160,431 +117,21 @@ export interface NamespaceOptions {
   /** Extra allowed hostnames. */
   allowedHosts?: string[];
   /** Under `pyric sandbox`, the app's ports, including the port of a dev
-   *  server that proxies `/__pyric/*` here (`withPyric` under `next dev`).
-   *  The guarded routes accept a page's Origin on any of them. Absent, only
-   *  the connection's own port is accepted, as under the Vite plugin. The
-   *  caller that creates it teaches it from each request. */
+   *  server that proxies `/__pyric/*` here (`withPyric` under `next dev`). */
   appPorts?: AppPorts;
-  /** The OpenAI-compatible upstream `/__pyric/ai-proxy` forwards to
-   *  (pyric/ai — cdd-deltas #98.2). Falls back to the
-   *  `PYRIC_AI_PROXY_UPSTREAM` env var, then `http://localhost:11434/v1`
-   *  (local Ollama). Always mounted — the route only touches the network
-   *  when a request arrives. */
+  /** The OpenAI-compatible upstream `/__pyric/ai-proxy` forwards to. */
   aiProxyUpstream?: string;
-  /** The gemini engine `/__pyric/ai-proxy/gemini` sends for a browser engine
-   *  (#1584): the Vite plugin's `ai.engine` when it is gemini. Absent, it
-   *  sends to Google AI Studio with the key from this process's environment. */
+  /** The gemini engine `/__pyric/ai-proxy/gemini` sends for a browser engine. */
   aiGemini?: GeminiProxyConfig;
-  /** Receives one handshake beacon per pyric-launched child (`POST
-   *  /__pyric/beacon`, sent by `@pyric/cli/register` once its module hooks
-   *  are installed). Absent means the route still 204s; the child must never
-   *  be able to fail on its own proof-of-life. */
+  /** Receives one handshake beacon per pyric-launched child (`POST /__pyric/beacon`). */
   beacon?: (report: BeaconReport) => void;
-  /** The per-launch secret a beacon must present in `x-pyric-beacon-token`,
-   *  which the launcher puts in the child's `PYRIC_BEACON_TOKEN`. Absent means
-   *  one is generated that nobody holds, so the route accepts nothing. */
+  /** The per-launch secret a beacon must present in `x-pyric-beacon-token`. */
   beaconToken?: string;
-  /** Where hot-reload/diagnostic lines print (rules reload, denial relay,
-   *  AI broker diagnostics, ai-proxy upstream failures). Absent ⇒ diagnostics
-   *  are dropped (a caller that wires no logger opts out silently rather than
-   *  falling back to raw `console`). */
+  /** Where hot-reload/diagnostic lines print. */
   logger?: ServeLogger;
 }
 
-/** The page's persistence backend speaks this route:
- *  GET    /__pyric/state                    → whole envelope (404 when absent)
- *  GET    /__pyric/state?section=firestore  → that section (404 when null)
- *  POST   /__pyric/state?section=...        → write the section (204; 423 if
- *                                             another tab holds the writer lock)
- *  DELETE /__pyric/state                    → release the writer lock (beacon)
- *  Writes carry `x-pyric-writer: <id>`; the first writer wins, others get 423
- *  and drop to read-only (pre-mortem #3). The firestore body is the sandbox
- *  persistence controller's own blob — stored verbatim, never interpreted. */
-const STATE_OBJECTS_PREFIX = '/__pyric/state/objects/';
-
-/**
- * GET /__pyric/state/objects/<sha256> → the bytes a Storage reference in the
- * state document names. Only a store that keeps object bytes in files serves them.
- */
-function handleStateObject(state: StateStore, req: IncomingMessage, res: ServerResponse, url: URL): void {
-  const isRead = req.method === 'GET';
-  const unsupportedMethod = !isRead;
-  if (unsupportedMethod) {
-    res.writeHead(405, { allow: 'GET' }).end('method not allowed');
-    return;
-  }
-  const sha256 = url.pathname.slice(STATE_OBJECTS_PREFIX.length);
-  const invalidHash = !/^[0-9a-f]{64}$/.test(sha256);
-  if (invalidHash) {
-    res.writeHead(400, { 'content-type': 'text/plain' }).end('An object is named by its SHA-256, as 64 lowercase hex characters.');
-    return;
-  }
-  const file = state.objectFile?.(sha256);
-  const missing = file === undefined;
-  if (missing) {
-    res.writeHead(404, { 'content-type': 'text/plain' }).end('No object has that hash.');
-    return;
-  }
-  res.writeHead(200, {
-    'content-type': 'application/octet-stream',
-    'content-length': String(statSync(file).size),
-    'cache-control': 'no-store',
-  });
-  createReadStream(file).pipe(res);
-}
-
-async function handleState(
-  state: StateStore,
-  lock: WriterLock,
-  req: IncomingMessage,
-  res: ServerResponse,
-  url: URL,
-): Promise<void> {
-  const section = url.searchParams.get('section');
-  const writerId = (req.headers['x-pyric-writer'] as string | undefined) ?? '';
-  try {
-    if (req.method === 'GET') {
-      const value = section ? state.readSection(section as StateSection) : state.load();
-      if (value === null) {
-        res.writeHead(404, { 'content-type': 'application/json' }).end('null');
-        return;
-      }
-      res.writeHead(200, {
-        'content-type': 'application/json; charset=utf-8',
-        'cache-control': 'no-store',
-        // Lets `pyric snapshot` detect it scanned into a NEIGHBOR project's
-        // serve (pre-mortem #4) and warn instead of promoting the wrong DB.
-        'x-pyric-project-dir': state.projectDir,
-      });
-      res.end(JSON.stringify(value));
-      return;
-    }
-    if (req.method === 'DELETE') {
-      if (writerId) lock.release(writerId);
-      res.writeHead(204).end();
-      return;
-    }
-    if (req.method === 'PUT') {
-      // Lock heartbeat — refresh/claim WITHOUT writing state. 423 if another
-      // live tab holds it.
-      res.writeHead(lock.claim(writerId || 'anon', Date.now()) ? 204 : 423).end();
-      return;
-    }
-    if (req.method === 'POST') {
-      if (section !== 'firestore' && section !== 'auth') {
-        res.writeHead(400).end('section must be firestore|auth');
-        return;
-      }
-      // Single-writer: the first page to flush claims the lock; a different
-      // live page is refused (423) so it can't erase the writer's world.
-      if (!lock.claim(writerId || 'anon', Date.now())) {
-        res.writeHead(423, { 'content-type': 'text/plain' }).end(
-          `another tab holds the persist writer lock (held by ${lock.holder()})`,
-        );
-        return;
-      }
-      const body = await collectBody(req);
-      await state.writeSection(section, body);
-      res.writeHead(204).end();
-      return;
-    }
-    res.writeHead(405, { allow: 'GET, POST, DELETE' }).end('method not allowed');
-  } catch (e) {
-    // StateFileError (corrupt/version) or bad body — surface, don't clobber.
-    res.writeHead(e instanceof StateFileError ? 409 : 400, { 'content-type': 'text/plain' });
-    res.end(e instanceof Error ? e.message : String(e));
-  }
-}
-
-/**
- * Handle POST /__pyric/capture — the page pushes its full session fixture
- * (JSON-serialized history + snapshot + rules) whenever the sandbox changes.
- * The server writes it verbatim to `.pyric/last-session.json` so
- * `pyric verify` can pick it up without any extra arguments.
- *
- * GET returns the current fixture JSON verbatim (200), or 404 when nothing
- * has been captured yet. The served SharedWorker fetches this on boot to
- * re-hydrate its in-memory event history after a worker death (Traffic /
- * activity / metrics survive the refresh even though the worker restarted).
- * Cheap + read-only.
- *
- * POST fails fast rather than silently swallowing write errors so the
- * developer knows the capture is broken.
- *
- * We collect the RAW request body as a string rather than using
- * `collectBody` (which parses JSON). The capture must be stored verbatim
- * — re-serializing a parsed object would round-trip through JS values and
- * could alter key order or lose whitespace, making the file differ from
- * what the page intended to write.
- */
-async function handleCapture(
-  capture: { write(json: string): void; read(): string | null },
-  req: IncomingMessage,
-  res: ServerResponse,
-): Promise<void> {
-  if (req.method === 'GET') {
-    const body = capture.read();
-    if (body === null) {
-      res.writeHead(404, { 'content-type': 'application/json' }).end('null');
-      return;
-    }
-    res.writeHead(200, {
-      'content-type': 'application/json; charset=utf-8',
-      'cache-control': 'no-store',
-    });
-    res.end(body);
-    return;
-  }
-  if (req.method !== 'POST') {
-    res.writeHead(405, { allow: 'GET, POST' }).end('method not allowed');
-    return;
-  }
-  try {
-    const body = await new Promise<string>((resolve, reject) => {
-      let raw = '';
-      req.setEncoding('utf8');
-      req.on('data', (chunk: string) => { raw += chunk; });
-      req.on('end', () => resolve(raw));
-      req.on('error', reject);
-    });
-    capture.write(body);
-    res.writeHead(204).end();
-  } catch (e) {
-    res.writeHead(400, { 'content-type': 'text/plain' });
-    res.end(e instanceof Error ? e.message : String(e));
-  }
-}
-
-// ─── Denial relay (`POST /__pyric/denials` — headless dev visibility) ─────
-//
-// The worker client (`serve/worker/client/core.ts`) fire-and-forget POSTs
-// here whenever it reconstructs an error carrying `denialContext` (a rules
-// denial) — from a one-shot rejection or an unobserved listener error alike.
-// An agent driving `pyric dev` in process has no browser console to watch;
-// this is that visibility, printed to the terminal instead.
-//
-// The route carries the AI broker's diagnostics on the same channel, relayed
-// by `serve/ai-diagnostics-relay.ts` off the sandbox event stream:
-// `request_rejected` (a malformed request) and `response_blocked` (a safety
-// or recitation filter withheld the answer). Same category ("the sandbox
-// refused your operation"), same terminal treatment, same throttle, so they
-// ride here rather than opening parallel diagnostics channels.
-// `model_substituted` (an engine answered as a model the code never named)
-// rides along too: not a refusal, but the same "the sandbox quietly did
-// something else" category. The payload's `kind` discriminates the four, and
-// `ai-terminal-blocks.ts` holds one record per AI kind so this route
-// dispatches through a table instead of a cascade.
-//
-// A denied listener re-fires on every auth/rules change, so printing is
-// throttled per (RTDB instance, path, message) — at most one line per window, and
-// silent (no output at all) on suppression rather than a "suppressed N more"
-// line, to keep this a diagnostics side channel, not its own log noise.
-
-const DENIAL_THROTTLE_MS = 5_000;
-
-/** Largest relayed denial the route reads. A real one is a message, a path, a
- *  uid and a short owner stack, a few KiB at most; the index route's 64 KiB
- *  leaves room for a deep stack without letting a page grow the server. */
-export const DENIAL_BODY_LIMIT_BYTES = 64 * 1024;
-
-/** Loosely-typed mirror of the client's relay payload — JSON from the served
- *  page, read defensively since nothing here enforces the wire shape. */
-interface DenialRelayPayload {
-  kind?: unknown;
-  code?: unknown;
-  message?: unknown;
-  /** Sibling of `denialContext` on the sandbox error — query-proof denials
-   *  attach the suggested `where()` fix there; the client forwards it. */
-  remediation?: unknown;
-  /** The named RTDB instance the denied request addressed, when it named one. */
-  instance?: unknown;
-  denialContext?: {
-    engine?: string;
-    auth?: { uid?: string } | null;
-    request?: { method?: string; path?: string };
-    /** RTDB only: the rules node and expression that decided. */
-    matchedPath?: string;
-    matchedRule?: string;
-    /** Fallback position, in case a denial path nests it in the context. */
-    remediation?: string;
-  } | null;
-  /** A denied listener's owners, as the page recorded them when it opened. */
-  owners?: unknown;
-}
-
-/** Per-dev-server-instance throttle: at most one printed line per key within
- *  {@link DENIAL_THROTTLE_MS}. Exported for unit tests. */
-export function createDenialThrottle(windowMs: number = DENIAL_THROTTLE_MS): {
-  /** `window` overrides the throttle's window for this key; `Infinity` prints once. */
-  shouldPrint(key: string, now: number, window?: number): boolean;
-} {
-  const lastPrinted = new Map<string, number>();
-  return {
-    shouldPrint(key, now, window = windowMs) {
-      const last = lastPrinted.get(key);
-      if (last !== undefined && now - last < window) return false;
-      lastPrinted.set(key, now);
-      return true;
-    },
-  };
-}
-export type DenialThrottle = ReturnType<typeof createDenialThrottle>;
-
-/** A page-supplied string as one terminal-safe line. Every field of a relayed
- *  denial comes from the served page, which need not be the developer's own
- *  code, so none of it reaches the terminal with control characters intact. */
-function pageText(value: string): string {
-  return sanitizeForTerminal(value);
-}
-
-/** A multi-line page-supplied string (a query-proof remediation) as indented
- *  terminal lines. Each line keeps its spacing and its whole length, because a
- *  reader pastes the `pyric rules test` command and the `Fixture case:` JSON
- *  out of it; only control and bidi characters are replaced. The denial body
- *  limit bounds the total, so no line or line count is cut here. */
-function pageLines(value: string): string[] {
-  const lines = value.split(/\r?\n/).map((line) => stripTerminalControls(line).trimEnd());
-  const first = lines.findIndex((line) => line.length > 0);
-  if (first === -1) return [];
-  let last = lines.length - 1;
-  while (lines[last]!.length === 0) last -= 1;
-  return lines.slice(first, last + 1).map((line) => (line.length > 0 ? `      ${line}` : ''));
-}
-
-/** Format a relayed denial into the compact terminal block: the message,
- *  then (when present) the request method/path, the auth uid, and any
- *  remediation guidance. A few lines, never a JSON dump. */
-export function formatDenialBlock(payload: DenialRelayPayload): string {
-  const message = typeof payload.message === 'string' ? payload.message : 'permission denied';
-  const lines = [`  ⚠ [pyric] denied: ${pageText(message)}`];
-  const ctx = payload.denialContext;
-  const request = ctx?.request;
-  if (request?.method && request?.path) {
-    const instance = typeof payload.instance === 'string' ? ` (${pageText(payload.instance)})` : '';
-    lines.push(`      ${pageText(String(request.method))} ${pageText(String(request.path))}${instance}`);
-  }
-  const uid = ctx?.auth?.uid;
-  lines.push(`      auth: ${uid === undefined || uid === null ? 'anonymous' : pageText(String(uid))}`);
-  // An RTDB message names no rule, so the block names the deciding one.
-  if (ctx?.engine === 'rtdb' && typeof ctx.matchedRule === 'string') {
-    const node = typeof ctx.matchedPath === 'string' ? `${pageText(ctx.matchedPath)} ` : '';
-    lines.push(`      rule: ${node}${pageText(ctx.matchedRule)}`);
-  }
-  const remediation = typeof payload.remediation === 'string' ? payload.remediation : ctx?.remediation;
-  if (remediation) lines.push(...pageLines(String(remediation)));
-  lines.push(...ownerLines(payload.owners));
-  return lines.join('\n');
-}
-
-interface RelayedFrame {
-  file: string;
-  line: number;
-  function?: string;
-}
-
-function isRelayedFrame(value: unknown): value is RelayedFrame {
-  const frame = value as Partial<RelayedFrame> | null;
-  return typeof frame === 'object' && frame !== null
-    && typeof frame.file === 'string' && typeof frame.line === 'number';
-}
-
-/** A frame's file as a reader looks for it: a served URL loses its origin and query. */
-function frameLocation(frame: RelayedFrame): string {
-  const path = frame.file.replace(/^[a-z][a-z0-9+.-]*:\/\/[^/]*/i, '').replace(/[?#].*$/, '');
-  return pageText(`${path}:${frame.line}`);
-}
-
-/**
- * The `owner:` and `stack:` lines for a denied listener: the frame its owner
- * shows (the first outside the project's `owners.skip` modules), then the
- * application frames around it, innermost first. Nothing when no frame owner
- * was relayed.
- */
-function ownerLines(owners: unknown): string[] {
-  if (!Array.isArray(owners)) return [];
-  const frame = owners.find((owner) => (owner as { kind?: unknown })?.kind === 'frame');
-  if (!isRelayedFrame(frame)) return [];
-  const name = typeof frame.function === 'string' && frame.function.length > 0 ? `${pageText(frame.function)} ` : '';
-  const lines = [`      owner: ${name}${frameLocation(frame)}`];
-  const stack = (frame as { stack?: unknown }).stack;
-  const chain = Array.isArray(stack) ? stack.filter(isRelayedFrame) : [];
-  if (chain.length > 1) lines.push(`      stack: ${chain.map(frameLocation).join(' ← ')}`);
-  return lines;
-}
-
-/**
- * The throttle key separator: a NUL byte, written as an escape so the file
- * stays greppable. It cannot occur in a Firestore path, a model id, or a
- * rejection reason, so no (target, reason) pair can be spelled two ways.
- */
-const THROTTLE_KEY_SEPARATOR = '\x00';
-
-/**
- * Print one AI diagnostic (a broker rejection, blocked response, or model
- * substitution) under the shared throttle. The denials route calls it for a
- * relayed body; the hosted runtime calls it for its own broker's events,
- * since a Node-owned broker has no page to relay from. Returns nothing and
- * ignores a payload whose `kind` is not an AI diagnostic.
- */
-export function noteAiDiagnostic(
-  throttle: DenialThrottle,
-  logger: ServeLogger | undefined,
-  payload: AiDiagnosticPayload,
-): void {
-  const aiBlock = aiTerminalBlockFor(payload.kind);
-  if (aiBlock === null || logger === undefined) return;
-  const key = `${aiBlock.throttleTarget(payload)}${THROTTLE_KEY_SEPARATOR}${aiBlock.throttleReason(payload)}`;
-  const window = aiBlock.printsOnce ? Number.POSITIVE_INFINITY : undefined;
-  if (throttle.shouldPrint(key, Date.now(), window)) logger.note(aiBlock.format(payload));
-}
-
-/** Handle `POST /__pyric/denials`:a rules denial, or (discriminated by
- *  `kind`) an AI broker rejection, blocked response, or model substitution
- *  relayed off the sandbox event stream. All four share the throttle map: an
- *  agent retry loop re-sends the SAME malformed (or filter-tripping) AI
- *  request exactly the way a denied listener re-fires, so one line per
- *  (target, reason) per window is the right volume for every one of them. A
- *  rules denial's target also names its RTDB instance, so the same path
- *  denied on two instances prints once for each.
- *  Answers 204 (best-effort diagnostics: a malformed body or a caller with no
- *  logger wired must never fail the page that reported the refusal), except
- *  413 for a body over {@link DENIAL_BODY_LIMIT_BYTES}. The namespace runs
- *  the loopback guard first, so only this server's own pages reach here. */
-async function handleDenials(
-  throttle: DenialThrottle,
-  logger: ServeLogger | undefined,
-  req: IncomingMessage,
-  res: ServerResponse,
-): Promise<void> {
-  if (req.method !== 'POST') {
-    res.writeHead(405, { allow: 'POST' }).end('method not allowed');
-    return;
-  }
-  try {
-    const payload = (await collectBody(req, DENIAL_BODY_LIMIT_BYTES)) as DenialRelayPayload & AiDiagnosticPayload;
-    const isAiDiagnostic = aiTerminalBlockFor(payload.kind) !== null;
-    if (isAiDiagnostic) {
-      noteAiDiagnostic(throttle, logger, payload);
-    } else {
-      const target = payload.denialContext?.request?.path ?? '';
-      const reason = typeof payload.message === 'string' ? payload.message : 'permission denied';
-      // The same path can be denied on one RTDB instance and allowed on another, so each instance prints.
-      const instance = typeof payload.instance === 'string' ? payload.instance : '';
-      const key = `${instance}${THROTTLE_KEY_SEPARATOR}${target}${THROTTLE_KEY_SEPARATOR}${reason}`;
-      if (logger && throttle.shouldPrint(key, Date.now())) {
-        logger.note(formatDenialBlock(payload));
-      }
-    }
-  } catch (error) {
-    const tooLarge = isBodyTooLarge(error);
-    if (tooLarge) {
-      answerAndClose(req, res, 413, { 'content-type': 'text/plain' }, 'Payload Too Large');
-      return;
-    }
-    /* malformed body: drop it; this is a diagnostics side channel */
-  }
-  res.writeHead(204).end();
-}
+type GuardOptions = Pick<NamespaceOptions, 'boundHost' | 'allowedHosts' | 'appPorts'>;
 
 /**
  * A /__pyric request comes from a page of this app, so the Origin names one of
@@ -603,8 +150,6 @@ function isAppOrigin(
   const scheme = requestSocketScheme(req);
   return ports.some((port) => isAllowedOrigin(originHeader, boundHost, extra, port, scheme));
 }
-
-type GuardOptions = Pick<NamespaceOptions, 'boundHost' | 'allowedHosts' | 'appPorts'>;
 
 /**
  * What a client on another machine reads from init.json: no project data, no
@@ -648,7 +193,10 @@ function guardLoopback(
     res.writeHead(403, { 'content-type': 'text/plain' }).end('Forbidden: origin mismatch');
     return false;
   }
-  const ports = opts.appPorts?.forRequest(req) ?? (req.socket?.localPort ? [req.socket.localPort] : undefined);
+  let ports = opts.appPorts?.forRequest(req);
+  if (ports === undefined && req.socket?.localPort) {
+    ports = [req.socket.localPort];
+  }
   if (isForeignFetchSite(req, opts.boundHost ?? 'localhost', ports)) {
     res.writeHead(403, { 'content-type': 'text/plain' }).end('Forbidden: cross-site request rejected');
     return false;
@@ -657,13 +205,14 @@ function guardLoopback(
 }
 
 function unauthenticatedInitPayload(payload: InitPayload): Record<string, unknown> {
-  return {
-    ...(payload.instanceId !== undefined ? { instanceId: payload.instanceId } : {}),
-    ...(payload.hosted !== undefined ? { hosted: payload.hosted } : {}),
+  const out: Record<string, unknown> = {
     rulesHash: payload.rulesHash ?? null,
     databaseRulesHash: payload.databaseRulesHash ?? null,
     storageRulesHash: payload.storageRulesHash ?? null,
   };
+  if (payload.instanceId !== undefined) out.instanceId = payload.instanceId;
+  if (payload.hosted !== undefined) out.hosted = payload.hosted;
+  return out;
 }
 
 export type PyricNamespaceHandler = ((
@@ -675,7 +224,10 @@ export type PyricNamespaceHandler = ((
 };
 
 export function createPyricNamespace(opts: NamespaceOptions): PyricNamespaceHandler {
-  const diagnostics = createDiagnostics(() => opts.initPayload().hosted ? 'hosted' : 'browser', opts.persistenceStatus);
+  const diagnostics = createDiagnostics(
+    () => (opts.initPayload().hosted ? 'hosted' : 'browser'),
+    opts.persistenceStatus,
+  );
   const stateWriterLock = createWriterLock();
   const hostOwnsState = opts.stateOwner === 'host';
   const studioWriterLock = opts.studio?.writerLock ?? createWriterLock();
@@ -701,27 +253,22 @@ export function createPyricNamespace(opts: NamespaceOptions): PyricNamespaceHand
   registerSessionTokenRequirement(sessionToken, requiresSessionToken);
   const siteUiDir = opts.siteUiDir;
   const hasSiteTree = siteUiDir !== undefined && siteUiDir.length > 0;
-  const siteTree = hasSiteTree
-    ? createSiteTreeHandler(
-        siteUiDir,
-        opts.workerVersion,
-        hostedStudioProject(opts),
-        sessionToken,
-        opts.boundHost,
-        opts.appPorts,
-        opts.allowedHosts,
-        requiresSessionToken,
-      )
-    : null;
+  let siteTree: ReturnType<typeof createSiteTreeHandler> | null = null;
+  if (hasSiteTree) {
+    siteTree = createSiteTreeHandler(
+      siteUiDir,
+      opts.workerVersion,
+      hostedStudioProject(opts),
+      sessionToken,
+      opts.boundHost,
+      opts.appPorts,
+      opts.allowedHosts,
+      requiresSessionToken,
+    );
+  }
   const denialThrottle = createDenialThrottle();
   const geminiProxy = createGeminiProxy(opts.aiGemini, denialThrottle, opts.logger);
-  // Issued once per server boot. The outer static/Vite host guard protects
-  // init.json before this capability is disclosed to the served runtime.
-  const activity = opts.activity;
-  const hasActivity = activity !== undefined;
-  const activityEndpoint = hasActivity
-    ? { sink: activity, token: randomBytes(24).toString('base64url') }
-    : undefined;
+  const activityEndpoint = buildActivityEndpoint(opts.activity);
   const handler = (req: IncomingMessage, res: ServerResponse, url: URL): boolean | Promise<boolean> => {
     const isDiagnostics = url.pathname === DIAGNOSTICS_PATH;
     if (isDiagnostics) {
@@ -739,7 +286,9 @@ export function createPyricNamespace(opts: NamespaceOptions): PyricNamespaceHand
       const hostRefused = !guardLoopback(req, res, opts, requiresSessionToken);
       if (hostRefused) return true;
       if (requiresSessionToken && !isAllowedSessionToken(req, url, sessionToken)) {
-        res.writeHead(401, { 'content-type': 'application/json' }).end(JSON.stringify({ error: 'The local session has changed. Reload to reconnect.' }));
+        res.writeHead(401, { 'content-type': 'application/json' }).end(
+          JSON.stringify({ error: 'The local session has changed. Reload to reconnect.' }),
+        );
         return true;
       }
       return handleThresholdConfig(thresholds, req, res);
@@ -750,7 +299,9 @@ export function createPyricNamespace(opts: NamespaceOptions): PyricNamespaceHand
       const hostRefused = !guardLoopback(req, res, opts, requiresSessionToken);
       if (hostRefused) return true;
       if (requiresSessionToken && !isAllowedSessionToken(req, url, sessionToken)) {
-        res.writeHead(401, { 'content-type': 'application/json' }).end(JSON.stringify({ error: 'The local session has changed. Reload to reconnect.' }));
+        res.writeHead(401, { 'content-type': 'application/json' }).end(
+          JSON.stringify({ error: 'The local session has changed. Reload to reconnect.' }),
+        );
         return true;
       }
       return handleIndexConfig(indexes, req, res);
@@ -758,7 +309,8 @@ export function createPyricNamespace(opts: NamespaceOptions): PyricNamespaceHand
     const routes = studioRoutes;
     const hasStudioRoutes = routes !== null;
     if (hasStudioRoutes) {
-      const isStudioRequest = url.pathname.startsWith('/__pyric/workspace') || url.pathname.startsWith('/__pyric/projects');
+      const isStudioRequest =
+        url.pathname.startsWith('/__pyric/workspace') || url.pathname.startsWith('/__pyric/projects');
       if (isStudioRequest) {
         const hostRefused = !guardLoopback(req, res, opts, true);
         if (hostRefused) return true;
@@ -801,7 +353,8 @@ export function createPyricNamespace(opts: NamespaceOptions): PyricNamespaceHand
       const hostRefused = !guardLoopback(req, res, opts, requiresSessionToken);
       if (hostRefused) return true;
       if (requiresSessionToken && !isAllowedSessionToken(req, url, sessionToken)) {
-        res.writeHead(401).end('Unauthorized'); return true;
+        res.writeHead(401).end('Unauthorized');
+        return true;
       }
       return handleRateCaptures(rateCaptures, req, res, url);
     }
@@ -834,7 +387,6 @@ export function createPyricNamespace(opts: NamespaceOptions): PyricNamespaceHand
     }
     const isGeminiProxyRequest = isGeminiProxyPath(url.pathname);
     if (isGeminiProxyRequest) {
-      // It spends the server's key, so only this app's pages may call it.
       const hostRefused = !guardLoopback(req, res, opts, true);
       if (hostRefused) return true;
       if (!isAllowedSessionToken(req, url, sessionToken)) {
@@ -845,7 +397,6 @@ export function createPyricNamespace(opts: NamespaceOptions): PyricNamespaceHand
     }
     const isAiProxyRequest = url.pathname === AI_PROXY_ROUTE || url.pathname.startsWith(`${AI_PROXY_ROUTE}/`);
     if (isAiProxyRequest) {
-      // The upstream may carry the developer's key, so only this server's pages may spend it.
       const hostRefused = !guardLoopback(req, res, opts, true);
       if (hostRefused) return true;
       if (!isAllowedSessionToken(req, url, sessionToken)) {
@@ -862,7 +413,6 @@ export function createPyricNamespace(opts: NamespaceOptions): PyricNamespaceHand
     }
     const isDenialRequest = url.pathname === '/__pyric/denials';
     if (isDenialRequest) {
-      // A page on another origin must not be able to write to the developer's terminal.
       const hostRefused = !guardLoopback(req, res, opts, requiresSessionToken);
       if (hostRefused) return true;
       if (requiresSessionToken && !isAllowedSessionToken(req, url, sessionToken)) {
@@ -894,19 +444,25 @@ export function createPyricNamespace(opts: NamespaceOptions): PyricNamespaceHand
           return true;
         }
         const { sessionToken: _omitSessionToken, ...sandboxRaw } = raw;
-        const sandboxPayload = {
+        const sandboxPayload: Record<string, unknown> = {
           ...sandboxRaw,
           thresholds: Boolean(opts.thresholds),
           rateCaptures: Boolean(opts.rateCaptures),
-          ...(activityEndpoint !== undefined ? { activityToken: activityEndpoint.token } : {}),
         };
+        if (activityEndpoint !== undefined) {
+          sandboxPayload.activityToken = activityEndpoint.token;
+        }
         res.end(isHead ? undefined : JSON.stringify(sandboxPayload));
         return true;
       }
       appendSetCookieHeader(res, formatSessionCookie(sessionToken));
-      const payload = { ...raw, sessionToken, thresholds: Boolean(opts.thresholds), rateCaptures: Boolean(opts.rateCaptures) };
-      const hasActivityEndpoint = activityEndpoint !== undefined;
-      if (hasActivityEndpoint) payload.activityToken = activityEndpoint.token;
+      const payload = {
+        ...raw,
+        sessionToken,
+        thresholds: Boolean(opts.thresholds),
+        rateCaptures: Boolean(opts.rateCaptures),
+      };
+      if (activityEndpoint !== undefined) payload.activityToken = activityEndpoint.token;
       res.writeHead(200, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
       res.end(isHead ? undefined : JSON.stringify(payload));
       return true;
@@ -914,34 +470,24 @@ export function createPyricNamespace(opts: NamespaceOptions): PyricNamespaceHand
     const avatars = opts.avatars;
     const isAvatarRequest = avatars !== undefined && url.pathname.startsWith(ASSETS_ROUTE_PREFIX);
     if (isAvatarRequest) {
-      // Security class: PUBLIC STATIC, the same class as `/__pyric/sdk/*`, and
-      // deliberately NOT one of the token-gated channels (state, capture,
-      // workspace, projects, activity). An `<img src>` cannot attach a session
-      // capability token, a custom header, or an Origin the page controls, so a
-      // token check here would not gate the route — it would break it. What
-      // still protects it is the layer above: `handleRequest`'s DNS-rebinding
-      // guard rejects any Host that is not loopback or an `--allowed-host`
-      // before this handler ever runs. The bytes served are generated avatars,
-      // which carry no secret the guard is protecting.
       return handleAvatar(avatars, req, res, url).then(() => true);
     }
     const isSdkRequest = url.pathname.startsWith('/__pyric/sdk/');
     if (isSdkRequest) {
-      // basename() flattens any traversal attempt — the sdk dir is flat.
       const file = join(opts.sdkDir, basename(url.pathname));
       const missingFile = !existsSync(file);
       if (missingFile) {
         const isRealSdk = basename(url.pathname).startsWith('firebase-sdk-');
-        const body = isRealSdk
-          ? 'pyric sandbox: the Firebase SDK was not built. Install firebase where pyric starts (production AI mode).'
-          : 'not found';
+        let body = 'not found';
+        if (isRealSdk) {
+          body =
+            'pyric sandbox: the Firebase SDK was not built. Install firebase where pyric starts (production AI mode).';
+        }
         res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' }).end(body);
         return true;
       }
       const isSourceMap = file.endsWith('.map');
       const type = isSourceMap ? 'application/json' : 'text/javascript; charset=utf-8';
-      // Same-origin module/worker loads from a local peer on a loopback Host also
-      // bootstrap the HttpOnly session cookie, covering apps whose HTML was built offline.
       if (
         isLocalPeer(req) &&
         isAllowedHost(getHeader(req, 'host'), opts.boundHost ?? 'localhost') &&
@@ -949,8 +495,6 @@ export function createPyricNamespace(opts: NamespaceOptions): PyricNamespaceHand
       ) {
         appendSetCookieHeader(res, formatSessionCookie(sessionToken));
       }
-      // Immutable-friendly: bundle filenames are content-hashed chunks or
-      // cache-keyed outputs; still no-store in dev for simplicity.
       res.writeHead(200, { 'content-type': type, 'cache-control': 'no-store' });
       pipeFileToResponse(file, res);
       return true;
@@ -962,12 +506,21 @@ export function createPyricNamespace(opts: NamespaceOptions): PyricNamespaceHand
     if (hasMissingStudioAssets) {
       if (!guardLoopback(req, res, opts, isAllowedSessionToken(req, url, sessionToken))) return true;
       res.writeHead(503, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' });
-      res.end('<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Studio is unavailable</title></head><body><main><h1>Studio is unavailable</h1><p>The Studio assets are missing from this Pyric installation.</p><p>In a source checkout, run the full build with <code>bash scripts/build.sh</code>. Otherwise, reinstall <code>@pyric/cli</code>. Restart the development server afterward.</p><a href="/">Return to app</a></main></body></html>');
+      res.end(
+        '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Studio is unavailable</title></head><body><main><h1>Studio is unavailable</h1><p>The Studio assets are missing from this Pyric installation.</p><p>In a source checkout, run the full build with <code>bash scripts/build.sh</code>. Otherwise, reinstall <code>@pyric/cli</code>. Restart the development server afterward.</p><a href="/">Return to app</a></main></body></html>',
+      );
       return true;
     }
-    return false; // unknown /__pyric/* → caller 404s
+    return false; // unknown /__pyric/* -> caller 404s
   };
   return Object.assign(handler, { sessionToken });
+}
+
+function buildActivityEndpoint(
+  activity: ((incident: ActivityIncident) => void) | undefined,
+): { sink: (incident: ActivityIncident) => void; token: string } | undefined {
+  if (activity === undefined) return undefined;
+  return { sink: activity, token: randomBytes(24).toString('base64url') };
 }
 
 function hostedStudioProject(options: NamespaceOptions): string | undefined {

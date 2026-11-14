@@ -1,30 +1,68 @@
 /**
- * `pyric dev` static server — the hosting half of the command.
+ * `pyric dev` static server -- the hosting half of the command.
  *
- * Bare `node:http` (house style — the bridge does the same; no superstatic
+ * Bare `node:http` (house style -- the bridge does the same; no superstatic
  * dependency). Serves `hosting.public` from `firebase.json` with the minimal
- * rewrite the local-dev case needs (`** → /index.html` SPA fallback when
+ * rewrite the local-dev case needs (`** -> /index.html` SPA fallback when
  * configured), and exposes two seams the `/__pyric/` namespace plugs into
  * (`namespaceHandler`) and the import-map injection uses (`transformHtml`).
  *
  * UX parity targets: the `=== Serving from` banner, the labeled `Local server:`
- * line, port 3473 default ("FIRE" on a phone keypad) with scan-forward on conflict, and SIGINT →
+ * line, port 3473 default ("FIRE" on a phone keypad) with scan-forward on conflict, and SIGINT ->
  * `Shutting down...`.
  */
-import { createServer, type IncomingHttpHeaders, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
-import { timingSafeEqual } from 'node:crypto';
+import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { createReadStream, existsSync, statSync } from 'node:fs';
-import { Socket } from 'node:net';
 import { pipeline } from 'node:stream';
 import { extname, join, normalize, resolve, sep } from 'node:path';
 import { isHostingIgnoredPathname, isHostingIgnoredRealFile } from './hosting-ignore.js';
 import { registerLocalSessionToken } from './local-session-token.js';
-import { isLocalPeer, isLoopbackAddress } from './peer.js';
+import {
+  appendSetCookieHeader,
+  canBootstrapHtmlSession,
+  formatSessionCookie,
+  getHeader,
+  isAllowedHost,
+  isAllowedLoopbackRequest,
+  isAllowedOrigin,
+  isAllowedOriginOnPorts,
+  isAllowedSessionToken,
+  isAllowedUpgrade,
+  isForeignFetchSite,
+  isForeignFetchWithoutOrigin,
+  isLocalPeer,
+  isLoopbackAddress,
+  PYRIC_SESSION_COOKIE_NAME,
+  requestSocketScheme,
+  sessionCookieNameForPort,
+  timingSafeTokenMatch,
+} from './loopback-guard.js';
+
+export {
+  appendSetCookieHeader,
+  canBootstrapHtmlSession,
+  formatSessionCookie,
+  getHeader,
+  isAllowedHost,
+  isAllowedLoopbackRequest,
+  isAllowedOrigin,
+  isAllowedOriginOnPorts,
+  isAllowedSessionToken,
+  isAllowedUpgrade,
+  isForeignFetchSite,
+  isForeignFetchWithoutOrigin,
+  isLocalPeer,
+  isLoopbackAddress,
+  PYRIC_SESSION_COOKIE_NAME,
+  requestSocketScheme,
+  sessionCookieNameForPort,
+  timingSafeTokenMatch,
+};
 
 export interface ServeLogger {
-  /** User-facing lines (banner, URLs) → stdout. */
+  /** User-facing lines (banner, URLs) -> stdout. */
   info(message: string): void;
-  /** Lifecycle/diagnostics (requests, warnings) → stderr. */
+  /** Lifecycle/diagnostics (requests, warnings) -> stderr. */
   note(message: string): void;
 }
 
@@ -76,382 +114,6 @@ export interface StaticServerOptions {
   /** Extra hostnames allowed past the DNS-rebinding guard (besides
    *  localhost/127.0.0.1/[::1]/the bound host). `--allowed-host`. */
   allowedHosts?: string[];
-}
-
-/**
- * DNS-rebinding guard. A dev server bound to localhost is reachable by any
- * webpage whose hostname resolves to 127.0.0.1 (`attacker.com` → A
- * 127.0.0.1): the victim's browser then treats `http://attacker.com:PORT`
- * as same-origin to the attacker's page and can read/write our endpoints —
- * including `/__pyric/state` (auth users + plaintext passwords, and writes).
- * Vite addresses the same class with `server.allowedHosts`.
- *
- * We accept only loopback hostnames + the host the server was bound to +
- * any `--allowed-host`. A request with NO Host header is allowed (curl /
- * same-origin fetches omit nothing in practice, but non-browser clients may;
- * the attack requires a browser sending the attacker's Host).
- */
-export function isAllowedHost(
-  hostHeader: string | undefined,
-  boundHost: string,
-  extra: string[] = [],
-): boolean {
-  if (!hostHeader) return true; // no Host → not a browser rebinding attack
-  const hostname = hostHeader.replace(/:\d+$/, '').replace(/^\[|\]$/g, '').toLowerCase();
-  const boundHostname = boundHost.replace(/:\d+$/, '').replace(/^\[|\]$/g, '').toLowerCase();
-  if (hostname === 'localhost' || isLoopbackAddress(hostname) || hostname === boundHostname) {
-    return true;
-  }
-  const allowed = new Set(
-    extra.map((h) => h.replace(/:\d+$/, '').replace(/^\[|\]$/g, '').toLowerCase()),
-  );
-  return allowed.has(hostname);
-}
-
-export { isLocalPeer, isLoopbackAddress };
-
-export const PYRIC_SESSION_COOKIE_NAME = '__pyric_session';
-
-export function sessionCookieNameForPort(port?: number): string {
-  return port !== undefined && Number.isInteger(port) && port > 0
-    ? `${PYRIC_SESSION_COOKIE_NAME}_${port}`
-    : PYRIC_SESSION_COOKIE_NAME;
-}
-
-export function formatSessionCookie(
-  sessionToken: string,
-  options?: { port?: number; secure?: boolean },
-): string {
-  const cookieName = sessionCookieNameForPort(options?.port);
-  const secureAttr = options?.secure === true ? '; Secure' : '';
-  return `${cookieName}=${encodeURIComponent(sessionToken)}; HttpOnly; SameSite=Strict; Path=/__pyric${secureAttr}`;
-}
-
-export function appendSetCookieHeader(res: ServerResponse, cookie: string): void {
-  let effectiveCookie = cookie;
-  const socket = res.socket as (Socket & { encrypted?: boolean }) | null | undefined;
-  if (effectiveCookie.startsWith(`${PYRIC_SESSION_COOKIE_NAME}=`)) {
-    const localPort = socket?.localPort;
-    if (localPort !== undefined && Number.isInteger(localPort) && localPort > 0) {
-      effectiveCookie = `${sessionCookieNameForPort(localPort)}=${effectiveCookie.slice(PYRIC_SESSION_COOKIE_NAME.length + 1)}`;
-    }
-  }
-  if (
-    socket?.encrypted === true &&
-    effectiveCookie.startsWith(PYRIC_SESSION_COOKIE_NAME) &&
-    !/;\s*secure\b/i.test(effectiveCookie)
-  ) {
-    effectiveCookie = `${effectiveCookie}; Secure`;
-  }
-  const existing = res.getHeader('set-cookie');
-  if (existing === undefined) {
-    res.setHeader('set-cookie', effectiveCookie);
-  } else if (Array.isArray(existing)) {
-    res.setHeader('set-cookie', [...existing.map(String), effectiveCookie]);
-  } else {
-    res.setHeader('set-cookie', [String(existing), effectiveCookie]);
-  }
-}
-
-export function requestSocketScheme(
-  req: { socket?: object | null } | undefined,
-): 'http:' | 'https:' | undefined {
-  const socket = req?.socket as { encrypted?: boolean } | null | undefined;
-  if (!socket) return undefined;
-  if (socket.encrypted === true) return 'https:';
-  if (socket.encrypted === false) return 'http:';
-  if (socket instanceof Socket) return 'http:';
-  return undefined;
-}
-
-/**
- * Origin allowlist for WebSocket `upgrade` handshakes and local endpoint requests.
- * A browser sends an `Origin` header carrying the page's origin; a hostile page
- * that connects to our loopback server sends ITS OWN cross-origin Origin,
- * which we reject.
- *
- * Enforces that the Origin's hostname is an allowed host, and when the bound
- * port is known (from `boundPort`, or as `:port` on `boundHost`), that the
- * Origin's port, or its scheme's default, is that port: another app on another
- * local port is a different origin. A hostname allowed only through `extra`
- * (a tunnel, say) reaches the server on its default public port (`originUrl.port === ''`),
- * while an explicit non-default port on that hostname must match `boundPort` or an
- * explicit `host:port` entry in `extra`.
- *
- * A missing `Origin` is allowed: non-browser clients (curl, CLI peers, tests)
- * are not the cross-origin hijack vector.
- */
-export function isAllowedOrigin(
-  originHeader: string | undefined,
-  boundHost: string,
-  extra: string[] = [],
-  boundPort?: number,
-  expectedScheme?: 'http:' | 'https:',
-): boolean {
-  if (!originHeader) return true; // no Origin → non-browser client, not a hijack
-  let originUrl: URL;
-  try {
-    originUrl = new URL(originHeader);
-  } catch {
-    return false; // malformed Origin → reject
-  }
-  if (originUrl.protocol !== 'http:' && originUrl.protocol !== 'https:') {
-    return false;
-  }
-  const hostname = originUrl.hostname; // may be `[::1]` — isAllowedHost strips brackets
-  const allowedHost = isAllowedHost(hostname, boundHost, extra);
-  if (!allowedHost) return false;
-  const normalizedHost = hostname.replace(/^\[|\]$/g, '').toLowerCase();
-  const allowedByName = !isAllowedHost(hostname, boundHost) && isAllowedHost(hostname, boundHost, extra);
-  const portOnHost = /:(\d+)$/.exec(boundHost)?.[1];
-  const expectedPort = boundPort ?? (portOnHost === undefined ? undefined : Number(portOnHost));
-  if (allowedByName) {
-    if (originUrl.port === '' || expectedPort === undefined) return true;
-    const explicitHostPort = `${normalizedHost}:${originUrl.port}`;
-    const hasExplicitExtraPort = extra.some(
-      (entry) => entry.replace(/^\[|\]$/g, '').toLowerCase() === explicitHostPort,
-    );
-    return hasExplicitExtraPort || Number(originUrl.port) === expectedPort;
-  }
-  if (expectedScheme !== undefined && originUrl.protocol !== expectedScheme) {
-    return false;
-  }
-  const portUnknown = expectedPort === undefined;
-  if (portUnknown) return true;
-  const defaultPort = originUrl.protocol === 'https:' ? 443 : 80;
-  const originPort = originUrl.port === '' ? defaultPort : Number(originUrl.port);
-  return originPort === expectedPort;
-}
-
-/**
- * The Origin check once the app's ports are known: the Origin must name one of
- * them. Both a page this app serves and a page on another local port are
- * loopback, so only the port tells them apart. `undefined` means the ports
- * are not known, and only the Origin's hostname is compared.
- */
-export function isAllowedOriginOnPorts(
-  originHeader: string | undefined,
-  boundHost: string,
-  extra: string[],
-  appPorts: readonly number[] | undefined,
-  expectedScheme?: 'http:' | 'https:',
-): boolean {
-  const portsUnknown = appPorts === undefined || appPorts.length === 0;
-  if (portsUnknown) return isAllowedOrigin(originHeader, boundHost, extra, undefined, expectedScheme);
-  return appPorts.some((port) => isAllowedOrigin(originHeader, boundHost, extra, port, expectedScheme));
-}
-
-/**
- * Rejects browser fetches marked `Sec-Fetch-Site: cross-site | same-site`, whether
- * `Origin` is omitted or present, unless `Origin` names a learned secondary local
- * proxy port in `appPorts` (such as Next.js `3000` connecting to `3473`).
- */
-export function isForeignFetchSite(
-  req: {
-    headers?: IncomingHttpHeaders | Record<string, string | string[] | undefined> | Headers;
-    socket?: object | null;
-  },
-  boundHost = 'localhost',
-  appPorts?: readonly number[],
-): boolean {
-  const secFetchSite = getHeader(req, 'sec-fetch-site')?.trim().toLowerCase();
-  if (secFetchSite !== 'cross-site' && secFetchSite !== 'same-site') {
-    return false;
-  }
-  const originHeader = getHeader(req, 'origin');
-  if (!originHeader) return true;
-  const learnedSecondaryPorts =
-    appPorts !== undefined && appPorts.length > 1 ? appPorts.slice(1) : [];
-  if (learnedSecondaryPorts.length === 0) return true;
-  const scheme = requestSocketScheme(req);
-  return !learnedSecondaryPorts.some((port) =>
-    isAllowedOrigin(originHeader, boundHost, [], port, scheme),
-  );
-}
-
-/**
- * The combined guard for a WS `upgrade` request: BOTH the `Host` header
- * (DNS-rebinding) AND the `Origin` header (cross-origin hijack) must pass.
- * `upgrade` is a separate listener from the HTTP `request` event, so the
- * static server's request-time `isAllowedHost` never runs on it — every
- * upgrade mount point must call this before `wss.handleUpgrade`.
- *
- * Pass `appPorts` (the socket's `localPort`, plus any port `createAppPorts`
- * learned) so a page on another local port is refused; without it only the
- * Origin's hostname is compared.
- */
-export function isAllowedUpgrade(
-  headers: IncomingHttpHeaders | Record<string, string | string[] | undefined>,
-  boundHost: string,
-  extra: string[] = [],
-  appPorts?: readonly number[],
-  expectedScheme?: 'http:' | 'https:',
-): boolean {
-  const req = { headers };
-  return (
-    isAllowedHost(getHeader(req, 'host'), boundHost, extra) &&
-    isAllowedOriginOnPorts(getHeader(req, 'origin'), boundHost, extra, appPorts, expectedScheme) &&
-    !isForeignFetchSite(req, boundHost, appPorts)
-  );
-}
-
-/**
- * Extract a header value case-insensitively from either Node's IncomingMessage headers
- * or Fetch API Headers object.
- */
-export function getHeader(
-  req: { headers?: IncomingHttpHeaders | Record<string, string | string[] | undefined> | Headers },
-  name: string,
-): string | undefined {
-  const headers = req?.headers;
-  if (!headers) return undefined;
-  if (typeof (headers as Headers).get === 'function') {
-    return (headers as Headers).get(name) ?? undefined;
-  }
-  const val = (headers as Record<string, string | string[] | undefined>)[name.toLowerCase()];
-  return Array.isArray(val) ? val.join(', ') : val;
-}
-
-/**
- * Rejects browser fetches when Fetch Metadata marks the initiator as
- * `cross-site` or `same-site` (including another local port). Non-browser CLI/MCP/SDK
- * requests carry neither `Origin` nor `Sec-Fetch-Site` and return false here.
- */
-export function isForeignFetchWithoutOrigin(
-  req: { headers?: IncomingHttpHeaders | Record<string, string | string[] | undefined> | Headers },
-): boolean {
-  return isForeignFetchSite(req);
-}
-
-/**
- * Constant-time comparison for capability tokens.
- * Fails closed if either token is missing or empty.
- */
-export function timingSafeTokenMatch(
-  presented: string | undefined,
-  expected: string | undefined,
-): boolean {
-  if (!presented || !expected) return false;
-  const a = Buffer.from(presented, 'utf8');
-  const b = Buffer.from(expected, 'utf8');
-  if (a.length !== b.length) return false;
-  return timingSafeEqual(a, b);
-}
-
-function extractSessionCookies(cookieHeader: string | undefined, expectedPort?: number): string[] {
-  if (!cookieHeader) return [];
-  const portCookieName =
-    expectedPort !== undefined && Number.isInteger(expectedPort) && expectedPort > 0
-      ? sessionCookieNameForPort(expectedPort)
-      : undefined;
-  const out: string[] = [];
-  for (const part of cookieHeader.split(';')) {
-    const eq = part.indexOf('=');
-    if (eq === -1) continue;
-    const name = part.slice(0, eq).trim();
-    const matchesCookieName =
-      name === PYRIC_SESSION_COOKIE_NAME ||
-      (portCookieName !== undefined
-        ? name === portCookieName
-        : /^__pyric_session_\d+$/.test(name));
-    if (!matchesCookieName) continue;
-    const raw = part.slice(eq + 1).trim();
-    try {
-      out.push(decodeURIComponent(raw));
-    } catch {
-      out.push(raw);
-    }
-  }
-  return out;
-}
-
-/**
- * Validates a session capability token from the `x-pyric-session-token` header
- * or the `__pyric_session` / `__pyric_session_<port>` HttpOnly cookie using constant-time comparison.
- * Query-string `?token=` parameters are ignored. Fails closed if `expectedToken`
- * is omitted or empty.
- */
-export function isAllowedSessionToken(
-  req: {
-    headers?: IncomingHttpHeaders | Record<string, string | string[] | undefined> | Headers;
-    socket?: { localPort?: number } | null;
-  },
-  url: URL | undefined,
-  expectedToken: string | undefined,
-): boolean {
-  if (!expectedToken) return false;
-  const headerToken = getHeader(req, 'x-pyric-session-token');
-  if (headerToken !== undefined && timingSafeTokenMatch(headerToken, expectedToken)) {
-    return true;
-  }
-  const socketPort = req?.socket?.localPort;
-  const urlPort = url?.port ? Number(url.port) : undefined;
-  const expectedPort =
-    socketPort !== undefined && socketPort > 0 ? socketPort : urlPort;
-  const cookies = extractSessionCookies(getHeader(req, 'cookie'), expectedPort);
-  return cookies.some((cookie) => timingSafeTokenMatch(cookie, expectedToken));
-}
-
-/**
- * Validates that an incoming HTTP request complies with loopback Host
- * (DNS-rebinding), Origin (cross-origin hijacking), and Sec-Fetch-Site restrictions.
- *
- * Pass `appPorts` (the socket's `localPort`, plus any port `createAppPorts`
- * learned) so a page on another local port is refused; without it only the
- * Origin's hostname is compared.
- */
-export function isAllowedLoopbackRequest(
-  req: {
-    headers?: IncomingHttpHeaders | Record<string, string | string[] | undefined> | Headers;
-    socket?: object | null;
-  },
-  boundHost: string,
-  extra: string[] = [],
-  appPorts?: readonly number[],
-): boolean {
-  const hostHeader = getHeader(req, 'host');
-  const originHeader = getHeader(req, 'origin');
-  const scheme = requestSocketScheme(req);
-  return (
-    isAllowedHost(hostHeader, boundHost, extra) &&
-    isAllowedOriginOnPorts(originHeader, boundHost, extra, appPorts, scheme) &&
-    !isForeignFetchSite(req, boundHost, appPorts)
-  );
-}
-
-/**
- * Determines whether an HTML response may stamp `sessionToken` into inline init
- * scripts and emit `Set-Cookie: __pyric_session_<port>`.
- *
- * Requires a loopback socket peer AND a loopback/bound `Host` header (ignoring
- * `--allowed-host` / Vite `allowedHosts: true` and rejecting wildcard `0.0.0.0` / `::`,
- * so tunnel/rebound hosts never receive session capabilities), refuses foreign
- * `Origin` headers (port-aware), and refuses cross-site / cross-port Fetch Metadata
- * unless the request is a top-level document navigation
- * (`Sec-Fetch-Mode: navigate` + `Sec-Fetch-Dest: document`).
- */
-export function canBootstrapHtmlSession(
-  req: IncomingMessage,
-  boundHost = 'localhost',
-  appPorts?: readonly number[],
-): boolean {
-  if (!isLocalPeer(req)) return false;
-  const hostHeader = getHeader(req, 'host');
-  const hostname = hostHeader?.replace(/:\d+$/, '').replace(/^\[|\]$/g, '').toLowerCase();
-  if (hostname === '0.0.0.0' || hostname === '::') return false;
-  if (!isAllowedHost(hostHeader, boundHost)) return false;
-  const ports = appPorts ?? (req.socket?.localPort ? [req.socket.localPort] : undefined);
-  const scheme = requestSocketScheme(req);
-  if (!isAllowedOriginOnPorts(getHeader(req, 'origin'), boundHost, [], ports, scheme)) return false;
-  const secFetchSite = getHeader(req, 'sec-fetch-site')?.trim().toLowerCase();
-  if (secFetchSite === 'cross-site' || secFetchSite === 'same-site') {
-    const secFetchMode = getHeader(req, 'sec-fetch-mode')?.trim().toLowerCase();
-    const secFetchDest = getHeader(req, 'sec-fetch-dest')?.trim().toLowerCase();
-    if (secFetchMode !== 'navigate' || secFetchDest !== 'document') {
-      return false;
-    }
-  }
-  return true;
 }
 
 export interface ServeHandle {
@@ -535,7 +197,7 @@ export function resolveHostingFile(publicDir: string, pathname: string): string 
 /**
  * Stream a file to a response with the read stream's `'error'` event handled.
  * A bare `createReadStream(file).pipe(res)` leaves the stream's error event
- * unhandled — an fs error between the exists-check and the read (file swapped
+ * unhandled -- an fs error between the exists-check and the read (file swapped
  * out, EMFILE under fd pressure, EISDIR race) then throws at the event-loop
  * level and KILLS the whole serve process. Headers are usually already sent
  * when the stream errors, so the recovery is: log, destroy the response (the
@@ -547,24 +209,13 @@ export function pipeFileToResponse(
   onError?: (err: Error) => void,
 ): void {
   const stream = createReadStream(file);
-  // Read-side failures keep the old contract: log via onError and, when
-  // headers haven't gone out yet, answer 500. (Attached BEFORE pipeline so
-  // it runs ahead of pipeline's own teardown of `res`.)
   stream.on('error', (err: Error) => {
     onError?.(err);
     if (!res.headersSent) {
       res.writeHead(500, { 'content-type': 'text/plain' }).end('read error');
     }
   });
-  // stream.pipeline (not a bare .pipe) so a failure on EITHER side tears both
-  // streams down: a client abort mid-download now destroys the read stream
-  // (closing its fd — the hole .pipe left open), and a mid-stream read
-  // failure destroys the response (the client sees a truncated body), all
-  // without an event-loop-level 'error' escaping.
-  pipeline(stream, res, () => {
-    // Errors on both sides are consumed by the handler above / the teardown
-    // itself; the callback's existence is what keeps the process alive.
-  });
+  pipeline(stream, res, () => {});
 }
 
 async function handleRequest(
@@ -575,7 +226,7 @@ async function handleRequest(
 ): Promise<void> {
   const url = new URL(req.url ?? '/', `http://${req.headers.host ?? 'localhost'}`);
 
-  // DNS-rebinding guard (before ANY handling — protects static files,
+  // DNS-rebinding guard (before ANY handling -- protects static files,
   // init.json/rules schema, and especially /__pyric/state credentials).
   if (!isAllowedHost(req.headers.host, opts.host ?? 'localhost', opts.allowedHosts)) {
     logger.note(`  ✖ 403 blocked Host '${req.headers.host}' (DNS-rebinding guard)`);
@@ -603,25 +254,24 @@ async function handleRequest(
 
   const publicDir = opts.publicDir;
   const servesSite = publicDir !== null;
-  let file = servesSite ? resolveHostingFile(publicDir, url.pathname) : null;
+  let file: string | null = null;
+  if (servesSite) {
+    file = resolveHostingFile(publicDir, url.pathname);
+  }
   if (servesSite && !file && opts.spaRewrite && !extname(url.pathname)) {
     file = resolveHostingFile(publicDir, '/index.html');
   }
   if (!file && url.pathname === '/favicon.ico') {
-    // The browser requests /favicon.ico on every load; without this an app
-    // that ships no favicon logs a 404 in every console. Serve a tiny inline
-    // SVG (a neutral placeholder square — the real mark comes with the logo
-    // work) so consoles stay clean. An on-disk favicon.ico was already
-    // resolved above and wins.
     res.writeHead(200, { 'content-type': 'image/svg+xml', 'cache-control': 'max-age=3600' });
-    res.end(
-      req.method === 'HEAD'
-        ? undefined
-        : '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><rect x="2" y="2" width="12" height="12" rx="2" fill="#e8e8ee"/></svg>',
-    );
+    if (req.method === 'HEAD') {
+      res.end();
+    } else {
+      res.end('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><rect x="2" y="2" width="12" height="12" rx="2" fill="#e8e8ee"/></svg>');
+    }
     return;
   }
-  if (!file && url.pathname === '/' && (opts.redirectRootToStudio ?? Boolean(opts.namespaceHandler))) {
+  const shouldRedirectRoot = opts.redirectRootToStudio ?? Boolean(opts.namespaceHandler);
+  if (!file && url.pathname === '/' && shouldRedirectRoot) {
     const target = `/__pyric/ui/studio${url.search}`;
     logger.note(`  • 302 ${req.method} ${url.pathname} → ${target}`);
     res.writeHead(302, { location: target }).end();
@@ -660,10 +310,7 @@ async function handleRequest(
   pipeFileToResponse(file, res, (e) => logger.note(`  ✖ read failed ${url.pathname}: ${e.message}`));
 }
 
-/** The subset of `Server` the scan logic needs — injectable for tests
- *  (bun's sockets allow same-port rebinds on macOS, so real-socket conflict
- *  tests are runtime-dependent; node, the npx production runtime, raises
- *  EADDRINUSE as expected). */
+/** The subset of `Server` the scan logic needs -- injectable for tests. */
 export interface ListenableLike {
   listen(port: number, host: string, cb: () => void): unknown;
   once(event: 'error', cb: (err: NodeJS.ErrnoException) => void): unknown;
@@ -686,7 +333,8 @@ export function listenWithScan(
       const onError = (err: NodeJS.ErrnoException): void => {
         server.removeListener('error', onError);
         if (port !== 0 && (err.code === 'EADDRINUSE' || err.code === 'EACCES') && attempt - port < limit) {
-          logger.note(`  ⚠ port ${attempt} is in use${attempt === 5000 ? ' (macOS AirPlay commonly holds 5000)' : ''} — trying ${attempt + 1}`);
+          const airplayNote = attempt === 5000 ? ' (macOS AirPlay commonly holds 5000)' : '';
+          logger.note(`  ⚠ port ${attempt} is in use${airplayNote} — trying ${attempt + 1}`);
           attempt += 1;
           tryListen();
           return;
@@ -696,9 +344,12 @@ export function listenWithScan(
       server.once('error', onError);
       server.listen(attempt, host, () => {
         server.removeListener('error', onError);
-        // Read the BOUND port — `attempt` may be 0 (ephemeral, tests).
         const addr = server.address();
-        resolvePort(typeof addr === 'object' && addr ? addr.port : attempt);
+        if (typeof addr === 'object' && addr) {
+          resolvePort(addr.port);
+        } else {
+          resolvePort(attempt);
+        }
       });
     };
     tryListen();
@@ -707,14 +358,11 @@ export function listenWithScan(
 
 /**
  * Loopback families to bind for `host`. The default `localhost` binds BOTH
- * 127.0.0.1 (IPv4) and ::1 (IPv6) so a client using either reaches the server:
- * `localhost` resolves to only ONE family, so the other 404s at the socket (the
- * IPv4/IPv6 loopback trap). An explicit host binds only itself. Loopback
- * families only — NEVER all-interfaces — so the sandbox stays off the LAN behind
- * the DNS-rebinding guard.
+ * 127.0.0.1 (IPv4) and ::1 (IPv6) so a client using either reaches the server.
  */
 export function loopbackHosts(host: string): string[] {
-  return host === 'localhost' ? ['127.0.0.1', '::1'] : [host];
+  if (host === 'localhost') return ['127.0.0.1', '::1'];
+  return [host];
 }
 
 export async function startStaticServer(opts: StaticServerOptions): Promise<ServeHandle> {
@@ -722,14 +370,12 @@ export async function startStaticServer(opts: StaticServerOptions): Promise<Serv
   const host = opts.host ?? 'localhost';
   const hosts = loopbackHosts(host);
 
-  // Track sockets so stop() can sever long-lived connections (SSE,
-  // keep-alive) on runtimes without `closeAllConnections` (bun) — otherwise
-  // `server.close()` waits forever on an open event stream.
   const sockets = new Set<import('node:net').Socket>();
   const newServer = (): Server => {
     const s = createServer((req, res) => {
       void handleRequest(req, res, opts, logger).catch((e) => {
-        logger.note(`  ✖ 500 ${req.url}: ${e instanceof Error ? e.message : String(e)}`);
+        const message = e instanceof Error ? e.message : String(e);
+        logger.note(`  ✖ 500 ${req.url}: ${message}`);
         if (!res.headersSent) res.writeHead(500);
         res.end('internal error');
       });
@@ -741,13 +387,9 @@ export async function startStaticServer(opts: StaticServerOptions): Promise<Serv
     return s;
   };
 
-  // Primary family: scan forward for a free port.
   const primary = newServer();
   const port = await listenWithScan(primary, hosts[0]!, opts.port ?? 3473, opts.portScanLimit ?? 10, logger);
 
-  // Remaining loopback families: bind the SAME port, best-effort. A loopback
-  // port free on one family is virtually always free on the other; if not, warn
-  // and keep going (the primary still serves) rather than fail the whole serve.
   const servers: Server[] = [primary];
   for (const h of hosts.slice(1)) {
     const extra = newServer();
@@ -765,14 +407,16 @@ export async function startStaticServer(opts: StaticServerOptions): Promise<Serv
       });
       servers.push(extra);
     } catch (e) {
-      logger.note(`  ⚠ could not also bind ${h}:${port} (${e instanceof Error ? e.message : String(e)}) — ${hosts[0]} still serves`);
+      const message = e instanceof Error ? e.message : String(e);
+      logger.note(`  ⚠ could not also bind ${h}:${port} (${message}) — ${hosts[0]} still serves`);
     }
   }
 
   const url = `http://${host}:${port}`;
-  const unregisterToken = opts.sessionToken
-    ? registerLocalSessionToken(port, opts.sessionToken)
-    : undefined;
+  let unregisterToken: (() => void) | undefined;
+  if (opts.sessionToken) {
+    unregisterToken = registerLocalSessionToken(port, opts.sessionToken);
+  }
   return {
     port,
     host,
@@ -787,10 +431,12 @@ export async function startStaticServer(opts: StaticServerOptions): Promise<Serv
         for (const s of servers) {
           s.close((e) => {
             if (e && !failed) failed = e;
-            if (--pending === 0) (failed ? rejectStop(failed) : resolveStop());
+            pending -= 1;
+            if (pending === 0) {
+              if (failed) rejectStop(failed);
+              else resolveStop();
+            }
           });
-          // Don't wait on keep-alive/SSE sockets during shutdown. Node has
-          // closeAllConnections; bun doesn't — destroy tracked sockets too.
           s.closeAllConnections?.();
         }
         for (const socket of sockets) socket.destroy();
