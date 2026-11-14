@@ -307,4 +307,250 @@ export async function syncAvatar() {
       ).toBeGreaterThan(0);
     }
   });
+
+  test("abstains on emailVerified: false seeded owners and never injects unowned custom claims onto seeded Auth users", async () => {
+    const { initializeSandbox } = await import("pyric/sandbox");
+    const { getAuth, sandbox: authSandbox } = await import("pyric/auth");
+
+    const emailRoot = makeTempDir("derive-email-verified-");
+    mkdirSync(join(emailRoot, "src"), { recursive: true });
+    writeFileSync(
+      join(emailRoot, "firebase.json"),
+      JSON.stringify({ firestore: { rules: "firestore.rules" } }),
+    );
+    writeFileSync(
+      join(emailRoot, "firestore.rules"),
+      `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /notes/{uid} {
+      allow read, write: if request.auth != null && request.auth.uid == uid && request.auth.token.email_verified == true;
+    }
+  }
+}
+`,
+    );
+    writeFileSync(
+      join(emailRoot, "src/app.ts"),
+      `import { getAuth } from 'firebase/auth';
+import { doc, getFirestore, setDoc } from 'firebase/firestore';
+export async function saveNote() {
+  const uid = getAuth().currentUser!.uid;
+  await setDoc(doc(getFirestore(), 'notes', uid), { text: 'ok' });
+}
+`,
+    );
+
+    const sbUnverified = initializeSandbox();
+    authSandbox.seedUsers(getAuth(sbUnverified), [
+      { uid: "u1", email: "u1@example.test", emailVerified: false },
+    ]);
+    const unverifiedDerived = await deriveAssurance(
+      { root: emailRoot },
+      { store: new AssuranceCampaignStore(), sandbox: sbUnverified },
+    );
+    expect(
+      unverifiedDerived.diagnostics.some((d) => d.code === "assurance-must-allow-denied"),
+    ).toBe(false);
+
+    const staffRoot = makeTempDir("derive-staff-claims-");
+    mkdirSync(join(staffRoot, "src"), { recursive: true });
+    writeFileSync(
+      join(staffRoot, "firebase.json"),
+      JSON.stringify({ firestore: { rules: "firestore.rules" } }),
+    );
+    writeFileSync(
+      join(staffRoot, "firestore.rules"),
+      `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /records/{uid} {
+      allow read, write: if request.auth != null && request.auth.token.role == 'staff';
+    }
+  }
+}
+`,
+    );
+    writeFileSync(
+      join(staffRoot, "src/app.ts"),
+      `import { getAuth } from 'firebase/auth';
+import { doc, getFirestore, setDoc } from 'firebase/firestore';
+export async function saveRecord() {
+  const uid = getAuth().currentUser!.uid;
+  await setDoc(doc(getFirestore(), 'records', uid), { text: 'ok' });
+}
+`,
+    );
+
+    const sbStaff = initializeSandbox();
+    authSandbox.seedUsers(getAuth(sbStaff), [
+      { uid: "u1", email: "u1@example.test", emailVerified: true },
+      { uid: "u2", email: "u2@example.test", emailVerified: true },
+    ]);
+    const staffStore = new AssuranceCampaignStore();
+    const staffDerived = await deriveAssurance(
+      { root: staffRoot },
+      { store: staffStore, sandbox: sbStaff },
+    );
+    expect(
+      staffDerived.diagnostics.some((d) => d.code === "assurance-foreign-slot-write"),
+    ).toBe(false);
+    expect(
+      staffDerived.diagnostics.some((d) => d.code === "assurance-must-allow-denied"),
+    ).toBe(false);
+    expect(
+      staffDerived.diagnostics.some(
+        (d) => d.code === "assurance-probe-inconclusive" && d.certainty === "heuristic",
+      ),
+    ).toBe(true);
+    const staffCampaign = staffStore.get(staffDerived.campaignId)!;
+    expect(
+      staffCampaign.context?.attachment?.coverageGaps.some(
+        (g) => g.code === "probe-inconclusive",
+      ),
+    ).toBe(true);
+    const exportedUsers =
+      staffCampaign.export().campaign.target.state?.auth?.users ?? [];
+    expect(exportedUsers.every((u) => u.customClaims === undefined)).toBe(true);
+
+    // Guaranteed non-claim denial ({ kind: 'INVALID' }) is NOT masked by missing seeded custom claims!
+    const invalidKindRoot = makeTempDir("derive-staff-invalid-payload-");
+    mkdirSync(join(invalidKindRoot, "src"), { recursive: true });
+    writeFileSync(
+      join(invalidKindRoot, "firebase.json"),
+      JSON.stringify({ firestore: { rules: "firestore.rules" } }),
+    );
+    writeFileSync(
+      join(invalidKindRoot, "firestore.rules"),
+      `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /staffOnly/{uid} {
+      allow read, write: if request.auth != null
+        && request.auth.uid == uid
+        && request.auth.token.role == 'staff'
+        && request.resource.data.kind == 'valid';
+    }
+    match /reqUnverified/{uid} {
+      allow read, write: if request.auth != null
+        && request.auth.uid == uid
+        && request.auth.token.email_verified == false;
+    }
+  }
+}
+`,
+    );
+    writeFileSync(
+      join(invalidKindRoot, "src/app.ts"),
+      `import { getAuth } from 'firebase/auth';
+import { doc, getFirestore, setDoc } from 'firebase/firestore';
+export async function saveInvalid() {
+  const uid = getAuth().currentUser!.uid;
+  const db = getFirestore();
+  await setDoc(doc(db, 'staffOnly', uid), { kind: 'INVALID' });
+  await setDoc(doc(db, 'reqUnverified', uid), { ok: true });
+}
+`,
+    );
+    const sbInvalid = initializeSandbox();
+    authSandbox.seedUsers(getAuth(sbInvalid), [
+      { uid: "u1", email: "u1@example.test", emailVerified: true },
+    ]);
+    const invalidDerived = await deriveAssurance(
+      { root: invalidKindRoot, includeHeuristic: true },
+      { store: new AssuranceCampaignStore(), sandbox: sbInvalid },
+    );
+    const firstSegmentOf = (diag: (typeof invalidDerived.diagnostics)[number]): string => {
+      const seg = diag.resource?.segments[0];
+      if (seg && seg.kind === "lit") return seg.text;
+      return "";
+    };
+    expect(
+      invalidDerived.diagnostics.some(
+        (d) =>
+          d.code === "assurance-must-allow-denied"
+          && d.certainty === "proven-counterexample"
+          && firstSegmentOf(d) === "staffOnly",
+      ),
+    ).toBe(true);
+    expect(
+      invalidDerived.diagnostics.some(
+        (d) => d.code === "assurance-must-allow-denied" && firstSegmentOf(d) === "reqUnverified",
+      ),
+    ).toBe(false);
+    expect(
+      invalidDerived.diagnostics.some(
+        (d) =>
+          d.code === "assurance-probe-inconclusive"
+          && d.certainty === "heuristic"
+          && firstSegmentOf(d) === "reqUnverified",
+      ),
+    ).toBe(true);
+  });
+
+  test("rejects broken embedded RTDB rules and never lets embedded rules mask broken disk rules", async () => {
+    const embeddedOnlyRoot = makeTempDir("derive-emb-broken-");
+    mkdirSync(join(embeddedOnlyRoot, "src"), { recursive: true });
+    writeFileSync(
+      join(embeddedOnlyRoot, "src/app.ts"),
+      `import { get, getDatabase, ref } from 'firebase/database';
+import { initializeSandbox } from 'pyric/sandbox';
+import { setRules } from 'pyric/sandbox/database';
+const sb = initializeSandbox();
+setRules(sb, { rules: { items: { '.read': 'auth.uid === ' } } });
+export async function loadItems() {
+  return get(ref(getDatabase(), 'items/first'));
+}
+`,
+    );
+    const store1 = new AssuranceCampaignStore();
+    const embeddedOnly = await deriveAssurance(
+      { root: embeddedOnlyRoot },
+      { store: store1 },
+    );
+    expect(
+      embeddedOnly.diagnostics.some(
+        (d) => d.code === "invalid-rules-configuration" && d.service === "rtdb",
+      ),
+    ).toBe(true);
+    expect(
+      embeddedOnly.diagnostics.some(
+        (d) =>
+          d.code === "invalid-rules-configuration" && d.service === "firestore",
+      ),
+    ).toBe(false);
+    const exp1 = store1.get(embeddedOnly.campaignId).export();
+    expect(exp1.campaign.target.rules.rtdb).toBeUndefined();
+
+    const maskedRoot = makeTempDir("derive-emb-mask-");
+    mkdirSync(join(maskedRoot, "src"), { recursive: true });
+    writeFileSync(
+      join(maskedRoot, "database.rules.json"),
+      JSON.stringify({ rules: { items: { ".read": "auth.uid === " } } }),
+    );
+    writeFileSync(
+      join(maskedRoot, "src/app.ts"),
+      `import { get, getDatabase, ref } from 'firebase/database';
+import { initializeSandbox } from 'pyric/sandbox';
+import { setRules } from 'pyric/sandbox/database';
+const sb = initializeSandbox();
+setRules(sb, { rules: { items: { '.read': 'auth != null' } } });
+export async function loadItems() {
+  return get(ref(getDatabase(), 'items/first'));
+}
+`,
+    );
+    const store2 = new AssuranceCampaignStore();
+    const masked = await deriveAssurance(
+      { root: maskedRoot },
+      { store: store2 },
+    );
+    expect(
+      masked.diagnostics.some(
+        (d) => d.code === "invalid-rules-configuration" && d.service === "rtdb",
+      ),
+    ).toBe(true);
+    const exp2 = store2.get(masked.campaignId).export();
+    expect(exp2.campaign.target.rules.rtdb).toBeUndefined();
+  });
 });

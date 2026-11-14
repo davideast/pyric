@@ -17,6 +17,7 @@ export type AccountLookup = (uid: string) => {
   account: TokenClaimAccount;
   customClaims: Record<string, unknown>;
   signInProvider: string | null;
+  tenantId?: string | null;
 } | null;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -68,14 +69,18 @@ export function projectIdentity(
   const requested: { uid: string; token?: Record<string, unknown>; tenant?: string } = { uid };
   const known = accounts?.(uid) ?? null;
   if (known !== null) {
-    const custom = claims ?? known.customClaims;
+    let custom = known.customClaims;
+    if (claims !== undefined) {
+      custom = { ...known.customClaims, ...claims };
+    }
     const token = accountTokenClaims(uid, known.account, custom, known.signInProvider);
     if (isRecord(custom.firebase)) token.firebase = { ...(token.firebase as Record<string, unknown>), ...custom.firebase };
     requested.token = token;
   } else if (claims !== undefined) {
     requested.token = { ...claims };
   }
-  if (tenant !== undefined) requested.tenant = tenant;
+  const effectiveTenant = tenant ?? known?.tenantId ?? undefined;
+  if (effectiveTenant !== undefined) requested.tenant = effectiveTenant;
   const normalized = normalizeAuthState(requested);
   if (normalized === null) throw new Error('projectIdentity requires a uid');
   const projected: ProjectedIdentity = { uid: normalized.uid, token: normalized.token ?? {} };

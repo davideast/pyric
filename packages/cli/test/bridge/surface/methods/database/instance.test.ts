@@ -264,7 +264,7 @@ describe('the MCP target router', () => {
     const args = { path: 'rooms/lobby', instance: 'https://shard-00.firebaseio.com' };
     const result = await callMethod(methodByKey('database.get'), args, ctx);
     expect(result.summary).toContain('Read rooms/lobby on shard-00');
-    expect(received).toEqual([args]);
+    expect(received).toEqual([{ ...args, __pyricCallerIdentity: { mode: 'default' } }]);
   });
 
   it('resolves pointer host with token field while keeping mcpUrl free of ?token= query parameter', async () => {

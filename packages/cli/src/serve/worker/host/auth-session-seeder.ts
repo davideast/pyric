@@ -9,7 +9,11 @@ import {
   type MintedSession,
   type User,
 } from 'pyric/auth';
-import { sessionKeyOf } from 'pyric/auth/internal';
+import {
+  assertMatchingTenant,
+  normalizeTenantScope,
+  sessionKeyOf,
+} from 'pyric/auth/internal';
 import { serializeUser, type SerializedUser } from '../protocol.js';
 import { FirebaseError } from 'pyric/app';
 
@@ -136,25 +140,29 @@ export function resolveOAuthCredentialUser(
   credential: OAuthCredentialPayload,
 ): { uid: string; isNewUser: boolean } {
   authSandboxOps.assertAuthProviderEnabled(auth, credential.providerId);
-  const targetTenant = credential.tenantId ?? null;
+  const targetTenant = normalizeTenantScope(credential.tenantId);
   const existingUsers = authSandboxOps.listUsers(auth);
   let targetUid = credential.uid && credential.uid.length > 0 ? credential.uid : null;
   if (!targetUid && credential.email) {
     const lowerEmail = credential.email.toLowerCase();
     const byEmail = existingUsers.find(
-      (u) => u.email?.toLowerCase() === lowerEmail && (u.tenantId ?? null) === targetTenant,
+      (u) => u.email?.toLowerCase() === lowerEmail && normalizeTenantScope(u.tenantId) === targetTenant,
     );
     if (byEmail) targetUid = byEmail.uid;
   }
   if (!targetUid) {
-    targetUid = targetTenant
-      ? `oauth-${targetTenant}-${credential.providerId}-${credential.email || 'user'}`
-      : `oauth-${credential.providerId}-${credential.email || 'user'}`;
+    const emailPart = credential.email || 'user';
+    if (targetTenant) {
+      targetUid = `oauth-${targetTenant}-${credential.providerId}-${emailPart}`;
+    } else {
+      targetUid = `oauth-${credential.providerId}-${emailPart}`;
+    }
   }
 
   const existing = existingUsers.find((u) => u.uid === targetUid);
   const callerDecidesVerification = credential.emailVerified !== undefined;
   if (existing) {
+    assertMatchingTenant(existing, targetTenant);
     // A caller's flag leaves an existing account's flag as stored.
     authSandboxOps.createSignInCredential(auth, {
       providerId: credential.providerId, uid: targetUid, verifyEmail: !callerDecidesVerification,
@@ -170,7 +178,7 @@ export function resolveOAuthCredentialUser(
       });
     }
   } else {
-    authSandboxOps.createUser(auth, {
+    const createReq: Record<string, unknown> = {
       uid: targetUid,
       email: credential.email ?? undefined,
       displayName: credential.displayName ?? undefined,
@@ -178,8 +186,11 @@ export function resolveOAuthCredentialUser(
       customClaims: credential.customClaims,
       providerUserInfo: [{ providerId: credential.providerId }],
       emailVerified: credential.emailVerified,
-      ...(targetTenant !== null ? { tenantId: targetTenant } : {}),
-    } as Parameters<typeof authSandboxOps.createUser>[1]);
+    };
+    if (targetTenant !== null) {
+      createReq.tenantId = targetTenant;
+    }
+    authSandboxOps.createUser(auth, createReq as Parameters<typeof authSandboxOps.createUser>[1]);
     // Without a caller's flag, the provider sign-in, not the admin create,
     // decides what the provider vouches for, such as a new Google identity's
     // verified email.

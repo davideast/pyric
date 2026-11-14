@@ -7,7 +7,9 @@
 import { makeAuthError } from './auth-errors.js';
 import { requireSandboxTarget } from './action-codes.js';
 import { getClock, mintCustomToken, readCustomToken, type SandboxCustomToken } from 'pyric/sandbox/internal';
+import type { CreateUserRequest } from './sandbox-backend-types.js';
 import { SandboxBackend } from './sandbox-backend.js';
+import { assertMatchingTenant, normalizeTenantScope } from './sandbox/tenant-isolation.js';
 import { targetOf, type SandboxTarget } from './target.js';
 import type { Auth, User, UserCredential } from './types.js';
 
@@ -58,14 +60,27 @@ export async function signInWithCustomToken(
 }
 
 /** Resolve a custom-token account without changing the backend's global session. */
-export function resolveCustomTokenIdentity(auth: Auth, customToken: string): { user: User; isNewUser: boolean } {
+export function resolveCustomTokenIdentity(
+  auth: Auth,
+  customToken: string,
+  tenantId?: string | null,
+): { user: User; isNewUser: boolean } {
   const target = targetOf(auth);
   const payload = exchangeCustomToken(target, customToken);
+  let rawTenant = tenantId;
+  if (rawTenant === undefined) {
+    rawTenant = target.backend.getTenantId();
+  }
+  const effectiveTenant = normalizeTenantScope(rawTenant);
 
   const existing = target.backend.findByUid(payload.uid);
   const isNewUser = existing === undefined;
-  if (isNewUser) {
-    target.backend.createUser({ uid: payload.uid });
+  if (!isNewUser) {
+    assertMatchingTenant(existing, effectiveTenant);
+  } else {
+    const createReq: CreateUserRequest & { tenantId?: string | null } = { uid: payload.uid };
+    if (effectiveTenant !== null) createReq.tenantId = effectiveTenant;
+    target.backend.createUser(createReq);
   }
   // A custom token asserts claims for the active session only: production merges
   // the custom token's claims over the account's stored customClaims without

@@ -110,6 +110,8 @@ export interface AuthActionCode {
   email: string;
   /** For `VERIFY_AND_CHANGE_EMAIL`: the address being moved TO. */
   newEmail?: string;
+  /** Identity Platform tenant pool the code acts on (`null` for project-level). */
+  tenantId?: string | null;
   /** When true, redeeming throws `auth/expired-action-code` instead of
    *  applying. Staged deliberately by `sandbox.mockActionCode` so the
    *  expiry branch is reachable without waiting out a real TTL. */

@@ -4,9 +4,9 @@
 import { isRemoteSandbox } from 'pyric/sandbox';
 import {
   ADMIN_APP_TARGET,
-  getApp,
   type PyricAdminApp,
 } from '../app/index.js';
+import { getDefaultServiceApp } from '../app/default-service-app.js';
 import { assertAdminAppActive } from '../app/lifecycle.js';
 import { makeSandboxAuth } from './local-auth.js';
 import { makeRemoteAuth } from './remote-auth.js';
@@ -20,7 +20,7 @@ import type { Auth } from './types.js';
 export function getAuth(app?: PyricAdminApp): Auth {
   let resolvedApp = app;
   if (resolvedApp === undefined) {
-    resolvedApp = getApp();
+    resolvedApp = getDefaultServiceApp();
   }
   if (resolvedApp === null || typeof resolvedApp !== 'object' || !(ADMIN_APP_TARGET in resolvedApp)) {
     throw new TypeError(

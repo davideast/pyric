@@ -138,7 +138,7 @@ export function portSession(ctx: HostCtx, port: PortLike): MintedSession | null 
   return portSessionsFor(ctx).get(port) ?? null;
 }
 
-function resolveSignInTenant(
+export function resolveSignInTenant(
   ctx: HostCtx,
   port: PortLike,
   explicitTenantId: string | null | undefined,

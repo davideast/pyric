@@ -17,7 +17,7 @@ import type {
   WrapperOperandSegment,
   WrapperOperandValue,
 } from './service-models/types.js';
-import { literalUint8Bytes } from './storage-upload.js';
+import { literalUint8Bytes } from './binary-constructors.js';
 import {
   alternatives,
   literalText,

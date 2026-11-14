@@ -13,7 +13,7 @@
  * override for an instance the session never used. Declared instances the
  * session did not use are ignored.
  */
-import { existsSync, readFileSync, realpathSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 import { rtdbRulesSourceRejection } from 'pyric/rules/internal/rtdb';
@@ -33,6 +33,7 @@ import {
 } from '../verify/index.js';
 import { parseRtdbRulesText } from '../rtdb/rules-json.js';
 import { databaseRulesTargets, type DatabaseRulesTargets } from '../serve/rules.js';
+import { resolveContainedRulesFile } from './contained-rules-file.js';
 import type { FirebaseJson } from './firebase-json.js';
 import { resolveFirebaseProject, type FirebaseProjectResolution } from './firebase-project.js';
 
@@ -82,9 +83,16 @@ function describeInstance(instance: InstanceKey): string {
   return instance === undefined ? 'the default instance' : `instance "${instance}"`;
 }
 
-function parseRulesFile(path: string, instance: InstanceKey): { rules: Record<string, unknown> } {
-  const label = `RTDB rules file ${path} for ${describeInstance(instance)}`;
-  const rules = parseRtdbRulesText(readFileSync(path, 'utf8'), (reason) => new Error(`${label} did not parse: ${reason.message}`));
+function parseRulesFile(
+  realPath: string,
+  displayPath: string,
+  instance: InstanceKey,
+): { rules: Record<string, unknown> } {
+  const label = `RTDB rules file ${displayPath} for ${describeInstance(instance)}`;
+  const rules = parseRtdbRulesText(
+    readFileSync(realPath, 'utf8'),
+    (reason) => new Error(`${label} did not parse: ${reason.message}`),
+  );
   const rejection = rtdbRulesSourceRejection(rules);
   if (rejection !== null) throw new Error(`${label} would not deploy. ${rejection.message}`);
   return rules;
@@ -113,11 +121,18 @@ function databaseTargets(input: RtdbCandidateRulesInput, config: FirebaseJson | 
 /** Resolve each recorded instance's candidate rules; throws a message naming the instance it cannot resolve. */
 export async function resolveRtdbCandidateRules(input: RtdbCandidateRulesInput): Promise<RtdbCandidateRules> {
   const named = [...new Set(input.fixtures.flatMap(recordedRtdbInstances))].sort();
-  const needed: InstanceKey[] = [
-    ...(input.fixtures.some(recordsDefaultRtdbInstance) ? [undefined] : []),
-    ...named,
-  ];
-  const project = resolveFirebaseProject({ projectDir: input.cwd, ...(input.project ? { option: input.project } : {}) });
+  const needed: InstanceKey[] = [];
+  if (input.fixtures.some(recordsDefaultRtdbInstance)) {
+    needed.push(undefined);
+  }
+  needed.push(...named);
+  const projectOpts: { projectDir: string; option?: string } = {
+    projectDir: input.cwd,
+  };
+  if (input.project) {
+    projectOpts.option = input.project;
+  }
+  const project = resolveFirebaseProject(projectOpts);
   const defaults = defaultNames(input, project.projectId);
   const keyOf = (name: string): InstanceKey => {
     // The config's unnamed default is matched before it is parsed as a name.
@@ -130,6 +145,7 @@ export async function resolveRtdbCandidateRules(input: RtdbCandidateRulesInput):
   const readConfig = async (): Promise<FirebaseJson | null> => (config === undefined ? (config = await input.readFirebaseJson()) : config);
 
   const chosen = new Map<InstanceKey, string>();
+  const configuredKeys = new Set<InstanceKey>();
   if (input.overrides.default !== undefined) {
     if (!needed.includes(undefined)) {
       throw new Error(
@@ -143,10 +159,13 @@ export async function resolveRtdbCandidateRules(input: RtdbCandidateRulesInput):
     const isRecorded = needed.includes(key);
     if (!isRecorded) throw new Error(unrecordedOverride(override.instance, key, needed, await readConfig()));
     const existing = chosen.get(key);
-    const conflicts =
-      existing !== undefined &&
-      canonicalizeRulesPath(input.cwd, existing) !== canonicalizeRulesPath(input.cwd, override.path);
-    if (conflicts) throw new Error(`--rules names two rules files for ${describeInstance(key)}: ${existing} and ${override.path}.`);
+    if (existing !== undefined) {
+      const checkedExisting = requireContainedRtdbRules(input.cwd, existing, key, false);
+      const checkedNext = requireContainedRtdbRules(input.cwd, override.path, key, false);
+      if (checkedExisting.realFile !== checkedNext.realFile) {
+        throw new Error(`--rules names two rules files for ${describeInstance(key)}: ${existing} and ${override.path}.`);
+      }
+    }
     chosen.set(key, override.path);
   }
 
@@ -158,11 +177,14 @@ export async function resolveRtdbCandidateRules(input: RtdbCandidateRulesInput):
       const key = keyOf(target.instance);
       const isWanted = unresolved.includes(key) && !chosen.has(key);
       if (!isWanted) continue;
-      const exists = existsSync(target.path);
-      if (!exists && target.configured) {
-        throw new Error(`rules file not found for rtdb ${describeInstance(key)}: ${target.path}, and firebase.json deploys it.`);
+      if (target.configured) {
+        chosen.set(key, target.path);
+        configuredKeys.add(key);
+        continue;
       }
-      if (exists) chosen.set(key, target.path);
+      if (existsSync(target.path)) {
+        chosen.set(key, target.path);
+      }
     }
   }
 
@@ -171,23 +193,45 @@ export async function resolveRtdbCandidateRules(input: RtdbCandidateRulesInput):
   for (const key of needed) {
     const rel = chosen.get(key);
     if (rel === undefined) throw new Error(missingCandidate(key, targets));
-    const path = resolve(input.cwd, rel);
-    if (!existsSync(path)) throw new Error(`rules file not found for rtdb ${describeInstance(key)}: ${path}`);
-    const parsed = parseRulesFile(path, key);
-    paths[pathKey(key)] = path;
+    const checked = requireContainedRtdbRules(
+      input.cwd,
+      rel,
+      key,
+      configuredKeys.has(key),
+    );
+    const parsed = parseRulesFile(checked.realFile, checked.resolvedPath, key);
+    paths[pathKey(key)] = checked.resolvedPath;
     if (key === undefined) rules.rtdb = parsed;
     else (rules.rtdbInstances ??= {})[key] = parsed;
   }
   return { rules, paths };
 }
 
-function canonicalizeRulesPath(cwd: string, p: string): string {
-  const abs = resolve(cwd, p);
-  try {
-    return realpathSync(abs);
-  } catch {
-    return abs;
+function requireContainedRtdbRules(
+  cwd: string,
+  rel: string,
+  instance: InstanceKey,
+  fromConfiguredTarget: boolean,
+): { realFile: string; resolvedPath: string } {
+  const checked = resolveContainedRulesFile({
+    projectRoot: cwd,
+    lexicalProjectRoot: cwd,
+    cwd,
+    fileArg: rel,
+  });
+  if (!checked.ok) {
+    if (checked.kind === 'not-found') {
+      const abs = resolve(cwd, rel);
+      if (fromConfiguredTarget) {
+        throw new Error(
+          `rules file not found for rtdb ${describeInstance(instance)}: ${abs}, and firebase.json deploys it.`,
+        );
+      }
+      throw new Error(`rules file not found for rtdb ${describeInstance(instance)}: ${abs}`);
+    }
+    throw new Error(`invalid rtdb rules path for ${describeInstance(instance)}: ${checked.message}`);
   }
+  return { realFile: checked.realFile, resolvedPath: checked.resolvedPath };
 }
 
 function overrideKey(raw: string, keyOf: (name: string) => InstanceKey): InstanceKey {

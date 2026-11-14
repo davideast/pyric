@@ -15,6 +15,7 @@ import { createSurfaceContext } from '../../../src/bridge/surface/context.js';
 import { renderSurface } from '../../../src/bridge/surface/index.js';
 import {
   impersonatedIdentity,
+  resolveStoredUidIdentity,
   storedIdentity,
 } from '../../../src/bridge/surface/stored-identity.js';
 import type { SurfaceContext } from '../../../src/bridge/surface/types.js';
@@ -86,6 +87,17 @@ describe('impersonatedIdentity', () => {
       mode: 'uid',
       uid: 'nobody',
     });
+  });
+
+  it('resolveStoredUidIdentity overlays stored user fields on uid mode and leaves non-uid modes intact', () => {
+    const ctx = contextWithBilling();
+    expect(resolveStoredUidIdentity(ctx, { mode: 'uid', uid: 'alice' })).toEqual({
+      mode: 'uid',
+      uid: 'alice',
+      tenant: 'tenant-a',
+      claims: { role: 'billingAdmin', region: 'eu' },
+    });
+    expect(resolveStoredUidIdentity(ctx, { mode: 'anonymous' })).toEqual({ mode: 'anonymous' });
   });
 });
 

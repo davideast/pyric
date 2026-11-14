@@ -332,4 +332,49 @@ exports.second = onValueCreated({ ref: '/second/{id}', instance: 'second-rtdb' }
     );
     expect(await child.exited).toBe(1);
   });
+
+  test('loads module with zero pre-initialized apps so top-level initializeApp(options) configures [DEFAULT]', async () => {
+    const entry = join(fixtureDir, 'functions/custom-init.cjs');
+    writeFileSync(
+      entry,
+      [
+        "const { applicationDefault, getApp, getApps, initializeApp } = require('firebase-admin/app');",
+        "const { getStorage } = require('firebase-admin/storage');",
+        "const { onValueCreated } = require('firebase-functions/v2/database');",
+        "const initialAppsCount = getApps().length;",
+        "initializeApp({ credential: applicationDefault(), storageBucket: 'custom-child.appspot.com' });",
+        "exports.recordAppState = onValueCreated('/app-init/{id}', async (event) => {",
+        "  await event.data.ref.parent.child('state').set({",
+        "    initialAppsCount,",
+        "    bucketOption: getApp().options.storageBucket || null,",
+        "    bucketName: getStorage().bucket().name,",
+        "  });",
+        "});",
+      ].join('\n'),
+    );
+    child = spawnFunctionsChild({
+      cwd: join(fixtureDir, 'functions'),
+      entry,
+      childModuleUrl: pathToFileURL(childModule),
+      env: buildChildEnv(process.env, {
+        serveUrl: runtime.handle.url,
+        registerUrl: registerModuleUrl(),
+      }),
+      instance: 'demo-project-default-rtdb',
+      projectId: 'demo-project',
+      location: 'us-central1',
+    });
+    expect((await child.ready).triggerCount).toBe(1);
+    await observer.rtdb.set('app-init/run1', 'go');
+    const deadline = Date.now() + 5_000;
+    while ((await observer.rtdb.get('app-init/state')) === null && Date.now() < deadline) {
+      await new Promise((resolveSleep) => setTimeout(resolveSleep, 20));
+    }
+    expect(await observer.rtdb.get('app-init/state')).toEqual({
+      initialAppsCount: 0,
+      bucketOption: 'custom-child.appspot.com',
+      bucketName: 'custom-child.appspot.com',
+    });
+    expect(await child.stop()).toBe(0);
+  }, 15_000);
 });

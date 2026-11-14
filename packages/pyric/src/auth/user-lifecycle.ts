@@ -1,5 +1,6 @@
 /** Auth observers, token accessors, and user lifecycle operations. */
 import { makeAuthError } from './sandbox-backend.js';
+import { assertMatchingTenant } from './sandbox/tenant-isolation.js';
 import { targetOf } from './target.js';
 import {
   USER_INTERNAL,
@@ -74,7 +75,12 @@ export async function reload(user: User): Promise<void> {
 }
 
 export async function updateCurrentUser(auth: Auth, user: User | null): Promise<void> {
-  await targetOf(auth).backend.transitionCurrentUser(user);
+  const target = targetOf(auth);
+  const authTenant = target.backend.getTenantId();
+  if (user !== null && authTenant !== null) {
+    assertMatchingTenant(user, authTenant);
+  }
+  await target.backend.transitionCurrentUser(user);
 }
 
 export function useDeviceLanguage(auth: Auth): void {

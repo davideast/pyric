@@ -10,6 +10,7 @@
  * handler, so the same code runs here as under every other variant.
  */
 import { toJsonSchema } from '../json-schema.js';
+import { resolveStoredUidIdentity } from '../stored-identity.js';
 import type {
   OperationResult,
   RenderedResource,
@@ -23,7 +24,8 @@ import { CANONICAL_OPERATION_IDS, runCanonicalOperation } from './canonical-disp
 import {
   DISCRIMINATOR_RESOURCES,
   RESOURCE_ROUTES,
-  matchResourceUri,
+  parseResourceUri,
+  type ParsedResourceUri,
 } from './discriminator-resources.js';
 import { DISCRIMINATOR_ROUTES, DISCRIMINATOR_TOOLS } from './discriminator-routes.js';
 
@@ -41,8 +43,14 @@ function callIdentity(args: Args): CallIdentity | null {
   const override = args.auth;
   if (override === null || override === undefined || typeof override !== 'object') return null;
   const fields = override as Args;
-  if (typeof fields.mode !== 'string') return null;
-  const identity: CallIdentity = { mode: fields.mode as CallIdentity['mode'] };
+  let mode: CallIdentity['mode'] | null = null;
+  if (typeof fields.mode === 'string') {
+    mode = fields.mode as CallIdentity['mode'];
+  } else if (typeof fields.uid === 'string') {
+    mode = 'uid';
+  }
+  if (mode === null) return null;
+  const identity: CallIdentity = { mode };
   if (typeof fields.uid === 'string') identity.uid = fields.uid;
   if (typeof fields.tenant === 'string') identity.tenant = fields.tenant;
   if (typeof fields.claimsJson === 'string') {
@@ -63,9 +71,10 @@ async function runUnderCallIdentity(
   if (override === null) {
     return runCanonicalOperation(operation, translated, ctx, allowProduction);
   }
+  const localOverride = resolveStoredUidIdentity(ctx, override) as CallIdentity;
   const scopedCtx: SurfaceContext = {
     ...ctx,
-    identity: ctx.identity.cloneWith(override),
+    identity: ctx.identity.cloneWith(localOverride),
     callIdentityOverride: override,
   };
   return runCanonicalOperation(operation, translated, scopedCtx, allowProduction);
@@ -84,11 +93,15 @@ function routeFor(toolName: string, args: Args) {
 function resourceOperationFor(resourceName: string, args: Args): string | null {
   const resource = DISCRIMINATOR_RESOURCES.find((candidate) => candidate.name === resourceName);
   if (resource === undefined) return null;
-  const uri = typeof args.uri === 'string' ? args.uri : null;
-  const fromUri = uri === null ? null : matchResourceUri(resource.uriTemplate, uri);
   const params: Record<string, string> = {};
-  for (const [key, value] of Object.entries(fromUri ?? args)) {
-    if (typeof value === 'string') params[key] = value;
+  if (typeof args.uri === 'string') {
+    const parsed: ParsedResourceUri = parseResourceUri(resource.uriTemplate, args.uri);
+    if (parsed.status !== 'matched') return null;
+    Object.assign(params, parsed.params);
+  } else {
+    for (const [key, value] of Object.entries(args)) {
+      if (typeof value === 'string') params[key] = value;
+    }
   }
   const route = RESOURCE_ROUTES.find(
     (candidate) => candidate.uriTemplate === resource.uriTemplate && candidate.selects(params),
@@ -128,17 +141,30 @@ function buildResources(allowProduction: boolean): RenderedResource[] {
     name: resource.name,
     description: resource.description,
     async read(uri: string, ctx: SurfaceContext) {
-      const params = matchResourceUri(resource.uriTemplate, uri);
-      if (params === null) {
+      const parsed = parseResourceUri(resource.uriTemplate, uri);
+      if (parsed.status === 'unmatched') {
         return { ok: false, summary: `${uri} does not match ${resource.uriTemplate}.` };
       }
+      if (parsed.status === 'malformed') {
+        return {
+          ok: false,
+          summary: parsed.message,
+          data: { code: 'invalid_arguments' },
+        };
+      }
       const route = RESOURCE_ROUTES.find(
-        (candidate) => candidate.uriTemplate === resource.uriTemplate && candidate.selects(params),
+        (candidate) =>
+          candidate.uriTemplate === resource.uriTemplate && candidate.selects(parsed.params),
       );
       if (route === undefined) {
         return { ok: false, summary: `${resource.name} is not available in this build.` };
       }
-      return runCanonicalOperation(route.operation, route.translate(params), ctx, allowProduction);
+      return runCanonicalOperation(
+        route.operation,
+        route.translate(parsed.params),
+        ctx,
+        allowProduction,
+      );
     },
   }));
 }
@@ -149,6 +175,11 @@ export function render(options?: RenderOptions): RenderedSurface {
   for (const route of DISCRIMINATOR_ROUTES) {
     if (!known.has(route.operation)) {
       throw new Error(`discriminator route names unknown operation '${route.operation}'`);
+    }
+  }
+  for (const route of RESOURCE_ROUTES) {
+    if (!known.has(route.operation)) {
+      throw new Error(`discriminator resource route names unknown operation '${route.operation}'`);
     }
   }
 

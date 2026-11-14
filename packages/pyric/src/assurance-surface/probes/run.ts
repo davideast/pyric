@@ -107,7 +107,15 @@ export async function runProbe(probe: Probe, rules: ProbeRules, actors: ProbeAct
       return { probe, outcome, steps };
     }
     if (r.decision === 'allow') return { probe, outcome: 'clean', steps };
-    if (probe.inconclusiveOnDeny) return { probe, outcome: 'invalid', reason: probe.inconclusiveOnDeny, steps };
+    if (probe.inconclusiveOnDeny) {
+      return {
+        probe,
+        outcome: 'invalid',
+        reason: probe.inconclusiveOnDeny,
+        abstained: true,
+        steps,
+      };
+    }
     return { probe, outcome: 'hit', steps };
   } finally {
     world.dispose();

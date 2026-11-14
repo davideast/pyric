@@ -174,19 +174,37 @@ export async function sendPasswordResetEmail(
   email: string,
   settings?: ActionCodeSettings,
 ): Promise<void> {
-  const t = targetOf(auth);
-  const target = t;
+  return sendTenantPasswordResetEmail(auth, email, settings);
+}
+
+/** Internal tenant-aware helper shared with served Worker/Node action-code handlers. */
+export async function sendTenantPasswordResetEmail(
+  auth: Auth,
+  email: string,
+  settings?: ActionCodeSettings,
+  tenantId?: string | null,
+): Promise<void> {
+  const target = targetOf(auth);
   if (settings) validateActionCodeSettings(settings, 'sendPasswordResetEmail');
   assertEmailFormat(email, 'sendPasswordResetEmail');
-  const stored = target.backend.findByEmail(email);
+  let effectiveTenant = tenantId;
+  if (effectiveTenant === undefined) {
+    effectiveTenant = target.backend.getTenantId();
+  }
+  const stored = target.backend.findByEmail(email, effectiveTenant);
   if (!stored) {
     // Enumeration protection: resolve silently. No mail, no code, no tell.
     return;
   }
-  emit(target, {
-    operation: ActionCodeOperation.PASSWORD_RESET,
-    email: stored.email ?? email,
-  }, settings);
+  emit(
+    target,
+    {
+      operation: ActionCodeOperation.PASSWORD_RESET,
+      email: stored.email ?? email,
+      tenantId: stored.tenantId ?? effectiveTenant,
+    },
+    settings,
+  );
 }
 
 /**
@@ -220,6 +238,7 @@ export async function sendEmailVerification(
   emit(target, {
     operation: ActionCodeOperation.VERIFY_EMAIL,
     email: user.email,
+    tenantId: user.tenantId ?? null,
   }, settings);
 }
 
@@ -250,6 +269,7 @@ export async function verifyBeforeUpdateEmail(
     operation: ActionCodeOperation.VERIFY_AND_CHANGE_EMAIL,
     email: user.email,
     newEmail,
+    tenantId: user.tenantId ?? null,
     // The code is mailed TO the new address — that is what makes
     // redeeming it proof of control.
     deliverTo: newEmail,
@@ -274,18 +294,22 @@ export async function applyActionCode(auth: Auth, code: string): Promise<void> {
   const t = targetOf(auth);
   const target = t;
   const spec = redeem(target, code, 'applyActionCode');
+  let effectiveTenant = spec.tenantId;
+  if (effectiveTenant === undefined) {
+    effectiveTenant = target.backend.getTenantId();
+  }
   switch (spec.operation) {
     case ActionCodeOperation.VERIFY_EMAIL:
-      target.backend.setEmailVerified(spec.email, true);
+      target.backend.setEmailVerified(spec.email, true, effectiveTenant);
       return;
     case ActionCodeOperation.VERIFY_AND_CHANGE_EMAIL:
       if (!spec.newEmail) {
         throw makeAuthError('auth/invalid-action-code', 'applyActionCode: the action code carries no target address.');
       }
-      target.backend.changeEmail(spec.email, spec.newEmail);
+      target.backend.changeEmail(spec.email, spec.newEmail, effectiveTenant);
       return;
     case ActionCodeOperation.RECOVER_EMAIL:
-      target.backend.setEmailVerified(spec.email, true);
+      target.backend.setEmailVerified(spec.email, true, effectiveTenant);
       return;
     case ActionCodeOperation.PASSWORD_RESET:
       // Prod rejects this: a reset code carries no new password, so
@@ -373,7 +397,11 @@ export async function confirmPasswordReset(
       'confirmPasswordReset: the action code is not a password-reset code.',
     );
   }
-  target.backend.setPasswordByEmail(spec.email, newPassword);
+  let effectiveTenant = spec.tenantId;
+  if (effectiveTenant === undefined) {
+    effectiveTenant = target.backend.getTenantId();
+  }
+  target.backend.setPasswordByEmail(spec.email, newPassword, effectiveTenant);
   target.backend.consumeActionCode(code);
 }
 

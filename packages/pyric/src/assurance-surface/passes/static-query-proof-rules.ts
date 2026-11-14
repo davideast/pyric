@@ -1,48 +1,28 @@
 /**
- * Firestore Rules AST projection and inspection helpers for
- * {@link staticQueryProofPass}.
+ * Firestore Rules root-database normalization and collection-group AST
+ * projection for {@link staticQueryProofPass}.
  */
 import {
   analyzeListRulePathInvariance,
-  assembleExpression,
   attachOrBudgetStep,
   buildListRuleFunctionScope,
-  Bytes,
-  collectRootMatches,
-  Duration,
-  evaluateQueryProof,
-  getListBlockSteps,
-  getOrBudgetStepExpressions,
-  getOrBudgetSteps,
   indexRulesetScopes,
-  isQueryProofScalar,
-  LatLng,
   projectWorstCaseBudgetExpr,
-  queryProofScalarsEqual,
-  Reference,
   resolveRootBlockMatch,
   rootBlockGovernsEveryDocument,
   rootGovernsEveryDocument,
   setListBlockSteps,
   substituteIdentifiers,
-  Timestamp,
   topLevelMatches,
   type AllowRule,
   type Expression,
   type FirestoreRules,
   type FunctionDef,
+  type LetBinding,
   type ListBlockStep,
   type MatchBlock,
   type PathSegment,
-  type RulesScalar,
 } from '@pyric/rules/internal';
-import { SYNTH_UID, type ScalarValue } from './static-query-proof-args.js';
-
-export interface RetainedRulesInspection {
-  readonly usesUnseededContext: boolean;
-  readonly usesRequestQuery: boolean;
-  readonly primaryRule?: { readonly line?: number; readonly expression: string };
-}
 
 export function rulesetHasRootForDatabase(ast: FirestoreRules, resourceId: string): boolean {
   for (const rootBlock of topLevelMatches(ast.service)) {
@@ -69,15 +49,99 @@ export function rulesetHasRootForDatabase(ast: FirestoreRules, resourceId: strin
   return false;
 }
 
+function substituteRootWildcardInFunction(
+  fn: FunctionDef,
+  wildcardName: string,
+  bindings: ReadonlyMap<string, Expression>,
+): FunctionDef {
+  if (fn.parameters.includes(wildcardName)) return fn;
+  const nextLets: LetBinding[] = [];
+  let shadowedByLet = false;
+  let changed = false;
+  for (const b of fn.lets) {
+    if (shadowedByLet) {
+      nextLets.push(b);
+      continue;
+    }
+    const nextValue = substituteIdentifiers(b.value, bindings);
+    if (nextValue !== b.value) changed = true;
+    nextLets.push({ ...b, value: nextValue });
+    if (b.name === wildcardName) {
+      shadowedByLet = true;
+    }
+  }
+  let nextBody = fn.body;
+  if (!shadowedByLet) {
+    nextBody = substituteIdentifiers(fn.body, bindings);
+    if (nextBody !== fn.body) changed = true;
+  }
+  if (!changed) return fn;
+  return { ...fn, lets: nextLets, body: nextBody };
+}
+
+function substituteRootWildcardInBlock(
+  block: MatchBlock,
+  wildcardName: string,
+  bindings: ReadonlyMap<string, Expression>,
+  isRoot: boolean,
+): MatchBlock {
+  if (
+    !isRoot
+    && block.path.segments.some(
+      (seg) => (seg.type === 'wildcard' || seg.type === 'recursive') && seg.name === wildcardName,
+    )
+  ) {
+    return block;
+  }
+  const nextFunctions = block.functions.map((fn) =>
+    substituteRootWildcardInFunction(fn, wildcardName, bindings),
+  );
+  const nextAllows = block.allows.map((rule) => {
+    const nextCond = substituteIdentifiers(rule.condition, bindings);
+    if (nextCond === rule.condition) return rule;
+    return { ...rule, condition: nextCond };
+  });
+  const nextChildren = block.children.map((child) =>
+    substituteRootWildcardInBlock(child, wildcardName, bindings, false),
+  );
+  return {
+    ...block,
+    functions: nextFunctions,
+    allows: nextAllows,
+    children: nextChildren,
+  };
+}
+
 function normalizeRootMatchBlock(rootBlock: MatchBlock, resourceId: string): MatchBlock {
   const segments = rootBlock.path.segments;
   const first = segments[0];
   const second = segments[1];
-  if (
-    first?.type !== 'literal'
-    || first.value !== 'databases'
-    || second?.type !== 'literal'
-  ) {
+  if (first?.type !== 'literal' || first.value !== 'databases' || second === undefined) {
+    return rootBlock;
+  }
+  if (second.type === 'wildcard') {
+    const normalizedSegments: PathSegment[] = [...segments];
+    normalizedSegments[1] = { type: 'literal', value: '(default)' };
+    const replacement: Expression = {
+      type: 'literal',
+      value: resourceId,
+      raw: JSON.stringify(resourceId),
+    };
+    const bindings = new Map<string, Expression>([[second.name, replacement]]);
+    return substituteRootWildcardInBlock(
+      {
+        ...rootBlock,
+        path: {
+          ...rootBlock.path,
+          segments: normalizedSegments,
+        },
+      },
+      second.name,
+      bindings,
+      true,
+    );
+  }
+  if (second.type !== 'literal') {
     return rootBlock;
   }
   if (second.value === resourceId) {
@@ -133,11 +197,14 @@ export function normalizeDatabaseRootAst(
     return next;
   });
   if (nextService === ast.service && !servicesChanged) return ast;
-  return {
+  const normalized: FirestoreRules = {
     ...ast,
     service: nextService,
-    ...(nextServices !== undefined ? { services: nextServices } : {}),
   };
+  if (nextServices !== undefined) {
+    normalized.services = nextServices;
+  }
+  return normalized;
 }
 
 function groupBindings(
@@ -311,10 +378,10 @@ function projectAllowsWithBudget(
         ambiguousNames,
         checkResourceDependence: false,
       });
-      const budgetRule =
-        budgetBranch.expr === rule.condition
-          ? rule
-          : { ...rule, condition: budgetBranch.expr };
+      let budgetRule = rule;
+      if (budgetBranch.expr !== rule.condition) {
+        budgetRule = { ...rule, condition: budgetBranch.expr };
+      }
       blockSteps.push({ kind: 'budget', rule: budgetRule, index: ruleIndex });
       for (const fnDef of budgetBranch.requiredFunctionDefs) {
         budgetDefs.add(fnDef);
@@ -324,10 +391,10 @@ function projectAllowsWithBudget(
     for (const fnDef of projected.requiredFunctionDefs) {
       requiredDefs.add(fnDef);
     }
-    const projectedRule =
-      projected.condition === rule.condition
-        ? rule
-        : { ...rule, condition: projected.condition };
+    let projectedRule = rule;
+    if (projected.condition !== rule.condition) {
+      projectedRule = { ...rule, condition: projected.condition };
+    }
     retained.push(projectedRule);
     blockSteps.push({ kind: 'grant', rule: projectedRule, index: ruleIndex });
   }
@@ -478,545 +545,4 @@ export function projectCollectionGroupAst(
       matches: projectedRoots,
     },
   };
-}
-
-function memberStep(expr: Expression): { object: Expression; property: string } | null {
-  if (expr.type === 'memberAccess') {
-    return { object: expr.object, property: expr.property };
-  }
-  if (
-    expr.type === 'bracketAccess'
-    && expr.index.type === 'literal'
-    && typeof expr.index.value === 'string'
-  ) {
-    return { object: expr.object, property: expr.index.value };
-  }
-  return null;
-}
-
-function isRequestChain(expr: Expression, prop: string): boolean {
-  const step = memberStep(expr);
-  if (!step || step.property !== prop) return false;
-  return step.object.type === 'identifier' && step.object.name === 'request';
-}
-
-function isRequestAuthUid(expr: Expression): boolean {
-  const step = memberStep(expr);
-  if (!step || step.property !== 'uid') return false;
-  return isRequestChain(step.object, 'auth');
-}
-
-function isRequestAuthToken(expr: Expression): boolean {
-  const step = memberStep(expr);
-  if (!step || step.property !== 'token') return false;
-  return isRequestChain(step.object, 'auth');
-}
-
-function isRequestAuthTokenClaim(expr: Expression, claim: string): boolean {
-  const step = memberStep(expr);
-  if (!step || step.property !== claim) return false;
-  return isRequestAuthToken(step.object);
-}
-
-function isResourceDataField(expr: Expression, field: string): boolean {
-  const parts = field.split('.').filter((p) => p.length > 0);
-  if (parts.length === 0) return false;
-  let cur: Expression = expr;
-  for (let i = parts.length - 1; i >= 0; i -= 1) {
-    const step = memberStep(cur);
-    if (!step || step.property !== parts[i]) return false;
-    cur = step.object;
-  }
-  const dataStep = memberStep(cur);
-  if (!dataStep || dataStep.property !== 'data') return false;
-  return dataStep.object.type === 'identifier' && dataStep.object.name === 'resource';
-}
-
-function isAnyResourceDataAccess(expr: Expression): boolean {
-  let cur: Expression | null = expr;
-  while (cur !== null) {
-    const step = memberStep(cur);
-    if (!step) return false;
-    if (
-      step.property === 'data'
-      && step.object.type === 'identifier'
-      && step.object.name === 'resource'
-    ) {
-      return true;
-    }
-    cur = step.object;
-  }
-  return false;
-}
-
-function seededTokenPlaceholder(claim: string): ScalarValue {
-  if (claim === 'email') return 'synth@example.test';
-  if (claim === 'email_verified') return true;
-  if (claim === 'name') return '__pyric_display_name__';
-  if (claim === 'phone_number') return '+15555550100';
-  if (claim === 'picture') return 'https://example.test/avatar.png';
-  return `__pyric_claim_${claim}__`;
-}
-
-function isSeededTokenDischargedByParent(
-  node: Expression,
-  parent: Expression | null,
-  claim: string,
-): boolean {
-  const placeholder = seededTokenPlaceholder(claim);
-  if (parent?.type === 'binaryOp') {
-    const other = parent.left === node ? parent.right : parent.right === node ? parent.left : null;
-    if (!other) return false;
-    if (parent.op === '==') {
-      if (isAnyResourceDataAccess(other)) return true;
-      const lit = asScalarLiteral(other);
-      return lit.ok && Object.is(lit.value, placeholder);
-    }
-    if (parent.op === '!=') {
-      return other.type === 'literal' && other.value === null;
-    }
-    return false;
-  }
-  if (
-    parent?.type === 'inExpr'
-    && parent.element === node
-    && parent.collection.type === 'listLiteral'
-  ) {
-    return parent.collection.elements.some((el) => {
-      const lit = asScalarLiteral(el);
-      return lit.ok && Object.is(lit.value, placeholder);
-    });
-  }
-  return false;
-}
-
-function isAuthUidDischargedByParent(
-  node: Expression,
-  parent: Expression | null,
-  grandparent: Expression | null,
-  matchWildcardNames: ReadonlySet<string>,
-): boolean {
-  if (parent?.type === 'binaryOp') {
-    const other = parent.left === node ? parent.right : parent.right === node ? parent.left : null;
-    if (!other) return false;
-    if (parent.op === '==') {
-      if (isAnyResourceDataAccess(other)) return true;
-      if (other.type === 'identifier' && matchWildcardNames.has(other.name)) return true;
-      const lit = asScalarLiteral(other);
-      return lit.ok && Object.is(lit.value, SYNTH_UID);
-    }
-    if (parent.op === '!=') {
-      return other.type === 'literal' && other.value === null;
-    }
-    return false;
-  }
-  if (parent?.type === 'inExpr' && parent.element === node) {
-    if (isAnyResourceDataAccess(parent.collection)) return true;
-    if (parent.collection.type === 'listLiteral') {
-      return parent.collection.elements.some((el) => {
-        const lit = asScalarLiteral(el);
-        return lit.ok && Object.is(lit.value, SYNTH_UID);
-      });
-    }
-    return false;
-  }
-  if (
-    parent?.type === 'listLiteral'
-    && grandparent?.type === 'methodCall'
-    && (grandparent.method === 'hasAny' || grandparent.method === 'hasAll')
-    && isAnyResourceDataAccess(grandparent.object)
-  ) {
-    return true;
-  }
-  return false;
-}
-
-function walkRuleExpression(
-  expr: Expression,
-  fnMap: ReadonlyMap<string, FunctionDef>,
-  visited: ReadonlySet<string>,
-  onNode: (node: Expression, parent: Expression | null, grandparent: Expression | null) => void,
-  parent: Expression | null = null,
-  grandparent: Expression | null = null,
-): void {
-  onNode(expr, parent, grandparent);
-  switch (expr.type) {
-    case 'memberAccess':
-      walkRuleExpression(expr.object, fnMap, visited, onNode, expr, parent);
-      return;
-    case 'bracketAccess':
-      walkRuleExpression(expr.object, fnMap, visited, onNode, expr, parent);
-      walkRuleExpression(expr.index, fnMap, visited, onNode, expr, parent);
-      return;
-    case 'sliceAccess':
-      walkRuleExpression(expr.object, fnMap, visited, onNode, expr, parent);
-      walkRuleExpression(expr.start, fnMap, visited, onNode, expr, parent);
-      walkRuleExpression(expr.end, fnMap, visited, onNode, expr, parent);
-      return;
-    case 'binaryOp':
-      walkRuleExpression(expr.left, fnMap, visited, onNode, expr, parent);
-      walkRuleExpression(expr.right, fnMap, visited, onNode, expr, parent);
-      return;
-    case 'unaryOp':
-      walkRuleExpression(expr.operand, fnMap, visited, onNode, expr, parent);
-      return;
-    case 'ternary':
-      walkRuleExpression(expr.condition, fnMap, visited, onNode, expr, parent);
-      walkRuleExpression(expr.consequent, fnMap, visited, onNode, expr, parent);
-      walkRuleExpression(expr.alternate, fnMap, visited, onNode, expr, parent);
-      return;
-    case 'inExpr':
-      walkRuleExpression(expr.element, fnMap, visited, onNode, expr, parent);
-      walkRuleExpression(expr.collection, fnMap, visited, onNode, expr, parent);
-      return;
-    case 'isExpr':
-      walkRuleExpression(expr.value, fnMap, visited, onNode, expr, parent);
-      return;
-    case 'listLiteral':
-      for (const el of expr.elements) walkRuleExpression(el, fnMap, visited, onNode, expr, parent);
-      return;
-    case 'mapLiteral':
-      for (const entry of expr.entries) {
-        walkRuleExpression(entry.key, fnMap, visited, onNode, expr, parent);
-        walkRuleExpression(entry.value, fnMap, visited, onNode, expr, parent);
-      }
-      return;
-    case 'pathLiteral':
-      for (const seg of expr.segments) {
-        if (typeof seg !== 'string') walkRuleExpression(seg, fnMap, visited, onNode, expr, parent);
-      }
-      return;
-    case 'methodCall':
-      walkRuleExpression(expr.object, fnMap, visited, onNode, expr, parent);
-      for (const arg of expr.args) walkRuleExpression(arg, fnMap, visited, onNode, expr, parent);
-      return;
-    case 'functionCall': {
-      for (const arg of expr.args) walkRuleExpression(arg, fnMap, visited, onNode, expr, parent);
-      const fn = fnMap.get(expr.name);
-      if (!fn || visited.has(expr.name)) return;
-      const nextVisited = new Set(visited).add(expr.name);
-      const bindings = new Map<string, Expression>();
-      for (let i = 0; i < fn.parameters.length; i++) {
-        const arg = expr.args[i];
-        if (arg) bindings.set(fn.parameters[i]!, arg);
-      }
-      for (const b of fn.lets) {
-        const bound = substituteIdentifiers(b.value, bindings);
-        walkRuleExpression(bound, fnMap, nextVisited, onNode, null, null);
-        bindings.set(b.name, bound);
-      }
-      walkRuleExpression(
-        substituteIdentifiers(fn.body, bindings),
-        fnMap,
-        nextVisited,
-        onNode,
-        null,
-        null,
-      );
-      return;
-    }
-    default:
-      return;
-  }
-}
-
-const LOOKUP_BUILTINS = new Set(['exists', 'get', 'existsAfter', 'getAfter']);
-
-export function inspectRetainedRules(
-  evaluationAst: FirestoreRules,
-  placeholderPath: string,
-  populatedClaims: ReadonlySet<string>,
-): RetainedRulesInspection {
-  indexRulesetScopes(evaluationAst);
-  const rootFunctions = [
-    ...(evaluationAst.functions ?? []),
-    ...(evaluationAst.service.functions ?? []),
-  ];
-  const matches = collectRootMatches(evaluationAst, placeholderPath, rootFunctions);
-  let usesUnseededContext = false;
-  let usesRequestQuery = false;
-  let primaryRule: { readonly line?: number; readonly expression: string } | undefined;
-
-  for (const match of matches) {
-    const scope = buildListRuleFunctionScope(match.functions);
-    const matchWildcardNames = new Set(Object.getOwnPropertyNames(match.pathVariables));
-    const walkedBudgetExprs = new Set<Expression>();
-    const inspectExpr = (expr: Expression): void => {
-      if (walkedBudgetExprs.has(expr)) return;
-      walkedBudgetExprs.add(expr);
-      walkRuleExpression(
-        expr,
-        scope.functions,
-        new Set(),
-        (node, parent, grandparent) => {
-          for (const orStep of getOrBudgetSteps(node) ?? []) {
-            for (const sub of getOrBudgetStepExpressions(orStep)) {
-              inspectExpr(sub);
-            }
-          }
-          if (
-            node.type === 'functionCall'
-            && !scope.functions.has(node.name)
-            && LOOKUP_BUILTINS.has(node.name)
-          ) {
-            usesUnseededContext = true;
-          }
-          if (isRequestChain(node, 'query')) {
-            usesRequestQuery = true;
-          }
-          if (
-            isRequestAuthUid(node)
-            && !isAuthUidDischargedByParent(node, parent, grandparent, matchWildcardNames)
-          ) {
-            usesUnseededContext = true;
-          }
-          const tokenStep = memberStep(node);
-          if (tokenStep && isRequestAuthToken(tokenStep.object)) {
-            if (
-              !populatedClaims.has(tokenStep.property)
-              || !isSeededTokenDischargedByParent(node, parent, tokenStep.property)
-            ) {
-              usesUnseededContext = true;
-            }
-          } else if (node.type === 'bracketAccess' && isRequestAuthToken(node.object)) {
-            usesUnseededContext = true;
-          } else if (node.type === 'methodCall' && isRequestAuthToken(node.object)) {
-            usesUnseededContext = true;
-          } else if (node.type === 'inExpr' && isRequestAuthToken(node.collection)) {
-            if (
-              node.element.type !== 'literal'
-              || typeof node.element.value !== 'string'
-              || !populatedClaims.has(node.element.value)
-            ) {
-              usesUnseededContext = true;
-            }
-          }
-        },
-      );
-      for (const orStep of getOrBudgetSteps(expr) ?? []) {
-        for (const sub of getOrBudgetStepExpressions(orStep)) {
-          inspectExpr(sub);
-        }
-      }
-    };
-
-    for (const rule of match.block.allows) {
-      if (!rule.operations.some((op) => op === 'list' || op === 'read')) continue;
-      if (!primaryRule) {
-        const info: { line?: number; expression: string } = {
-          expression: assembleExpression(rule.condition),
-        };
-        if (rule.loc?.line !== undefined) info.line = rule.loc.line;
-        primaryRule = info;
-      }
-      inspectExpr(rule.condition);
-    }
-    for (const blockStep of getListBlockSteps(match.block) ?? []) {
-      if (blockStep.kind === 'budget') {
-        inspectExpr(blockStep.rule.condition);
-      }
-    }
-  }
-
-  const out: {
-    usesUnseededContext: boolean;
-    usesRequestQuery: boolean;
-    primaryRule?: { readonly line?: number; readonly expression: string };
-  } = { usesUnseededContext, usesRequestQuery };
-  if (primaryRule) out.primaryRule = primaryRule;
-  return out;
-}
-
-function asScalarLiteral(expr: Expression): { ok: true; value: ScalarValue } | { ok: false } {
-  if (expr.type !== 'literal') return { ok: false };
-  const val = expr.value;
-  if (val === null || typeof val === 'string' || typeof val === 'boolean') {
-    return { ok: true, value: val };
-  }
-  if (typeof val === 'number' && Number.isFinite(val)) {
-    return { ok: true, value: val };
-  }
-  return { ok: false };
-}
-
-export function collectClaimCandidateScalars(
-  evaluationAst: FirestoreRules,
-  placeholderPath: string,
-  claim: string,
-): ScalarValue[] {
-  indexRulesetScopes(evaluationAst);
-  const rootFunctions = [
-    ...(evaluationAst.functions ?? []),
-    ...(evaluationAst.service.functions ?? []),
-  ];
-  const matches = collectRootMatches(evaluationAst, placeholderPath, rootFunctions);
-  const out: ScalarValue[] = [];
-  const addScalar = (value: ScalarValue): void => {
-    if (!out.some((existing) => Object.is(existing, value))) {
-      out.push(value);
-    }
-  };
-
-  for (const match of matches) {
-    const scope = buildListRuleFunctionScope(match.functions);
-    for (const rule of match.block.allows) {
-      if (!rule.operations.some((op) => op === 'list' || op === 'read')) continue;
-      walkRuleExpression(rule.condition, scope.functions, new Set(), (node) => {
-        if (node.type === 'binaryOp' && node.op === '==') {
-          if (isRequestAuthTokenClaim(node.left, claim)) {
-            const lit = asScalarLiteral(node.right);
-            if (lit.ok) addScalar(lit.value);
-          } else if (isRequestAuthTokenClaim(node.right, claim)) {
-            const lit = asScalarLiteral(node.left);
-            if (lit.ok) addScalar(lit.value);
-          }
-        } else if (
-          node.type === 'inExpr'
-          && isRequestAuthTokenClaim(node.element, claim)
-          && node.collection.type === 'listLiteral'
-        ) {
-          for (const item of node.collection.elements) {
-            const lit = asScalarLiteral(item);
-            if (lit.ok) addScalar(lit.value);
-          }
-        }
-      });
-    }
-  }
-  return out;
-}
-
-function tryEvaluateOptimisticOperand(
-  expr: Expression,
-  scopeFunctions: ReadonlyMap<string, FunctionDef>,
-  pathVariables: Readonly<Record<string, string>>,
-  functionScopes: Parameters<typeof evaluateQueryProof>[5],
-): RulesScalar | undefined {
-  let readsLookupOrDoc = false;
-  walkRuleExpression(expr, scopeFunctions, new Set(), (node) => {
-    if (isAnyResourceDataAccess(node)) {
-      readsLookupOrDoc = true;
-    } else if (
-      node.type === 'functionCall'
-      && !scopeFunctions.has(node.name)
-      && LOOKUP_BUILTINS.has(node.name)
-    ) {
-      readsLookupOrDoc = true;
-    }
-  });
-  if (readsLookupOrDoc) return undefined;
-  const probeCondition: Expression = {
-    type: 'binaryOp',
-    op: '==',
-    left: {
-      type: 'memberAccess',
-      object: {
-        type: 'memberAccess',
-        object: { type: 'identifier', name: 'resource' },
-        property: 'data',
-      },
-      property: '__pyric_optimistic_probe__',
-    },
-    right: expr,
-  };
-  const proof = evaluateQueryProof(
-    probeCondition,
-    {},
-    scopeFunctions,
-    SYNTH_UID,
-    pathVariables,
-    functionScopes,
-  );
-  if (!proof.provable && proof.kind === 'constraints-not-satisfied') {
-    const expected = proof.residual.missing[0]?.expectedValue;
-    if (isQueryProofScalar(expected)) return expected;
-  }
-  return undefined;
-}
-
-export function collectOptimisticFieldScalars(
-  evaluationAst: FirestoreRules,
-  placeholderPath: string,
-  field: string,
-): RulesScalar[] {
-  indexRulesetScopes(evaluationAst);
-  const rootFunctions = [
-    ...(evaluationAst.functions ?? []),
-    ...(evaluationAst.service.functions ?? []),
-  ];
-  const matches = collectRootMatches(evaluationAst, placeholderPath, rootFunctions);
-  const out: RulesScalar[] = [];
-  let fieldReferencedInRule = false;
-  const addScalar = (value: RulesScalar): void => {
-    if (!out.some((existing) => queryProofScalarsEqual(existing, value))) {
-      out.push(value);
-    }
-  };
-
-  for (const match of matches) {
-    const scope = buildListRuleFunctionScope(match.functions);
-    const addEvaluated = (candidateExpr: Expression): void => {
-      const lit = asScalarLiteral(candidateExpr);
-      if (lit.ok) {
-        addScalar(lit.value);
-        return;
-      }
-      const evaluated = tryEvaluateOptimisticOperand(
-        candidateExpr,
-        scope.functions,
-        match.pathVariables,
-        match.functionScopes,
-      );
-      if (evaluated !== undefined) addScalar(evaluated);
-    };
-
-    for (const rule of match.block.allows) {
-      if (!rule.operations.some((op) => op === 'list' || op === 'read')) continue;
-      walkRuleExpression(rule.condition, scope.functions, new Set(), (node) => {
-        if (isResourceDataField(node, field)) {
-          fieldReferencedInRule = true;
-        }
-        if (node.type === 'binaryOp' && node.op === '==') {
-          if (isResourceDataField(node.left, field)) {
-            addEvaluated(node.right);
-          } else if (isResourceDataField(node.right, field)) {
-            addEvaluated(node.left);
-          }
-        } else if (
-          node.type === 'inExpr'
-          && isResourceDataField(node.element, field)
-          && node.collection.type === 'listLiteral'
-        ) {
-          for (const item of node.collection.elements) {
-            addEvaluated(item);
-          }
-        } else if (
-          node.type === 'inExpr'
-          && isResourceDataField(node.collection, field)
-        ) {
-          addEvaluated(node.element);
-        } else if (
-          node.type === 'methodCall'
-          && (node.method === 'hasAny' || node.method === 'hasAll')
-          && isResourceDataField(node.object, field)
-          && node.args[0]?.type === 'listLiteral'
-        ) {
-          for (const item of node.args[0].elements) {
-            addEvaluated(item);
-          }
-        }
-      });
-    }
-  }
-
-  addScalar(SYNTH_UID);
-  addScalar(`__pyric_optimistic_${field}__`);
-  if (fieldReferencedInRule) {
-    addScalar(new Reference('__pyric_ref_col__/__pyric_ref_id__'));
-    addScalar(Timestamp.fromMillis(1_700_000_000_000));
-    addScalar(new Bytes(new Uint8Array([1])));
-    addScalar(new LatLng(0, 0));
-    addScalar(new Duration(60, 0));
-  }
-  return out;
 }

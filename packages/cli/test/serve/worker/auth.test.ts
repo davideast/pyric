@@ -919,18 +919,18 @@ describe('auth.acceptIdentity — provider sign-in bridge', () => {
       }]);
       await enableProvider(ctx, port, 'google.com');
       okValue(await sendOp(ctx, port, {
-        t: 'op', id: id(), method: 'auth.signInEmail',
+        t: 'op', id: id(), method: 'auth.signInEmail', tenantId: 'account-tenant',
         email: 'preserved@example.com', password: 'original-password',
       }));
       okValue(await sendOp(ctx, port, {
         t: 'op', id: id(), method: 'auth.updatePassword', password: 'changed-password',
       }));
       const accepted = okValue<SerializedUserCredential>(await sendOp(ctx, port, {
-        t: 'op', id: id(), method: 'auth.acceptIdentity', tenantId: 'session-tenant',
+        t: 'op', id: id(), method: 'auth.acceptIdentity', tenantId: 'account-tenant',
         identity: { uid: 'preserved', email: 'preserved@example.com', displayName: 'Updated',
           photoURL: null, customClaims: { role: 'stale' }, providerId: 'google.com' },
       }));
-      expect(accepted.user.tenantId).toBe('session-tenant');
+      expect(accepted.user.tenantId).toBe('account-tenant');
       expect(accepted.user.providerData.map(provider => provider.providerId)).toEqual(['password', 'google.com']);
       const token = okValue<SerializedIdTokenResult>(await sendOp(ctx, port, {
         t: 'op', id: id(), method: 'auth.getIdTokenResult',
@@ -941,11 +941,11 @@ describe('auth.acceptIdentity — provider sign-in bridge', () => {
       expect(account).toMatchObject({ tenantId: 'account-tenant', emailVerified: true,
         createdAt: '2020-01-01T00:00:00.000Z', customClaims: { role: 'editor' } });
       const signedIn = okValue<SerializedUserCredential>(await sendOp(ctx, port, {
-        t: 'op', id: id(), method: 'auth.signInEmail', email: 'preserved@example.com', password: 'changed-password',
+        t: 'op', id: id(), method: 'auth.signInEmail', tenantId: 'account-tenant', email: 'preserved@example.com', password: 'changed-password',
       }));
       expect(signedIn.user.uid).toBe('preserved');
       const stalePassword = await sendOp(ctx, port, {
-        t: 'op', id: id(), method: 'auth.signInEmail', email: 'preserved@example.com', password: 'original-password',
+        t: 'op', id: id(), method: 'auth.signInEmail', tenantId: 'account-tenant', email: 'preserved@example.com', password: 'original-password',
       });
       expect(stalePassword).toMatchObject({ ok: false, error: { code: 'auth/wrong-password' } });
     } finally {

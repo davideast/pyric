@@ -1,6 +1,9 @@
 const deletedApps = new WeakSet<object>();
 const deleteHooks = new WeakMap<object, Set<() => void | Promise<void>>>();
 
+/** Shared global key tracking implicitly-created ambient `[DEFAULT]` apps. */
+export const IMPLICIT_DEFAULT_APPS = Symbol.for('pyric.admin.app.implicitDefaultApps');
+
 /** Internal lifecycle guard shared by every pyric-admin service factory. */
 export function assertAdminAppActive(app: object & { readonly name: string }): void {
   if (!deletedApps.has(app)) return;

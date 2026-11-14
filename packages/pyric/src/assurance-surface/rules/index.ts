@@ -3,11 +3,11 @@
  */
 export { analyzeOwners, ownerConditionsFrom, withEmbeddedRules } from './analyze-owners.js';
 export type { OwnerAnalysis } from './analyze-owners.js';
+export type { Claims } from './claim-algebra.js';
 export {
   firestoreRequiredClaims,
   rtdbRequiredClaims,
   storageRequiredClaims,
-  type Claims,
   type ClaimTarget,
   type RequiredClaimsOptions,
 } from './claims.js';

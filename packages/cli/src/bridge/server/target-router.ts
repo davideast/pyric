@@ -271,12 +271,7 @@ export class TargetRouter {
       const rawOverride = ctx.callIdentityOverride;
       const heldRaw = ctx.identity.rawInput();
       const effectiveIdentity = rawOverride ?? heldRaw;
-      const forwardsIdentity =
-        method.operation !== 'switch_auth_identity' &&
-        (rawOverride !== undefined || effectiveIdentity.mode !== 'default');
-      const wireArgs: Args = forwardsIdentity
-        ? { ...args, [CALLER_IDENTITY_ARG]: effectiveIdentity }
-        : args;
+      const wireArgs: Args = { ...args, [CALLER_IDENTITY_ARG]: effectiveIdentity };
       try {
         const hosted = await (this.customCallHosted ?? callHostedMethod)(
           host,
@@ -337,9 +332,11 @@ export class TargetRouter {
     try {
       if (method.key === 'auth.impersonate' && typeof args.uid === 'string' && args.uid.length > 0) {
         const input: IdentityInput = { mode: 'uid', uid: args.uid };
-        if (typeof args.tenant === 'string') input.tenant = args.tenant;
-        if (args.claims !== null && typeof args.claims === 'object' && !Array.isArray(args.claims)) {
-          input.claims = { ...(args.claims as Record<string, unknown>) };
+        const rawTenant = args.tenantId ?? args.tenant;
+        if (typeof rawTenant === 'string') input.tenant = rawTenant;
+        const rawClaims = args.customClaims ?? args.claims;
+        if (rawClaims !== null && typeof rawClaims === 'object' && !Array.isArray(rawClaims)) {
+          input.claims = { ...(rawClaims as Record<string, unknown>) };
         }
         ctx.identity.switchTo(input);
         return;

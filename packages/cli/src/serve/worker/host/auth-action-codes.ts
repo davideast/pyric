@@ -1,8 +1,8 @@
 import { applyActionCode, checkActionCode, confirmPasswordReset, sendEmailVerification,
-  sendPasswordResetEmail, sendSignInLinkToEmail, sandbox, verifyBeforeUpdateEmail, verifyPasswordResetCode } from 'pyric/auth';
-import { resolveEmailLinkIdentity } from 'pyric/auth/internal';
+  sendSignInLinkToEmail, sandbox, verifyBeforeUpdateEmail, verifyPasswordResetCode } from 'pyric/auth';
+import { resolveEmailLinkIdentity, sendTenantPasswordResetEmail } from 'pyric/auth/internal';
 import type { OpMessage } from '../protocol.js';
-import { ensureAuth, portOriginScope, portSession, setPortSession } from '../host-auth.js';
+import { ensureAuth, portOriginScope, portSession, portTenant, resolveSignInTenant, setPortSession } from '../host-auth.js';
 import { bestEffortFlush, fail, ok, type HostCtx, type PortLike } from '../host-context.js';
 import { credReply, requireMatchingPortSession } from './auth-session-seeder.js';
 
@@ -30,17 +30,30 @@ export async function handleAuthActionCodeOp(ctx: HostCtx, port: PortLike, messa
         await sendSignInLinkToEmail(auth, message.email, message.settings);
         break;
       case 'auth.signInWithEmailLink': {
-        const { user, isNewUser } = resolveEmailLinkIdentity(auth, message.email, message.link);
-        const session = sandbox.mintSession(auth, { kind: 'provider', uid: user.uid,
-          providerId: 'password', tenantId: message.tenantId ?? null, ...portOriginScope(port) });
+        const tenantId = resolveSignInTenant(ctx, port, message.tenantId);
+        const { user, isNewUser } = resolveEmailLinkIdentity(auth, message.email, message.link, tenantId);
+        const session = sandbox.mintSession(auth, {
+          kind: 'provider',
+          uid: user.uid,
+          providerId: 'password',
+          tenantId,
+          ...portOriginScope(port),
+        });
         await bestEffortFlush(ctx, message.method);
         setPortSession(ctx, port, session);
         ok(port, message.id, credReply(session, null, isNewUser));
         return;
       }
-      case 'auth.sendPasswordResetEmail':
-        await sendPasswordResetEmail(auth, message.email, message.settings);
+      case 'auth.sendPasswordResetEmail': {
+        let tenantId: string | null;
+        if (message.tenantId !== undefined) {
+          tenantId = resolveSignInTenant(ctx, port, message.tenantId);
+        } else {
+          tenantId = portTenant(ctx, port) ?? portSession(ctx, port)?.user.tenantId ?? null;
+        }
+        await sendTenantPasswordResetEmail(auth, message.email, message.settings, tenantId);
         break;
+      }
       case 'auth.sendEmailVerification': {
         const session = requireMatchingPortSession(portSession(ctx, port), message);
         await sendEmailVerification(session.user, message.settings);

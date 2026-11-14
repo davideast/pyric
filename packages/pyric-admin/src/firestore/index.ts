@@ -43,10 +43,10 @@ import {
 import type { Sandbox, SandboxContext } from 'pyric/sandbox';
 import {
   ADMIN_APP_TARGET,
-  getApp,
   isSandboxAdminApp,
   type PyricAdminApp,
 } from '../app/index.js';
+import { getDefaultServiceApp } from '../app/default-service-app.js';
 import {
   assertAdminAppActive,
   createAdminServiceLifecycle,
@@ -137,7 +137,7 @@ export function getFirestore(
   target?: SandboxContext | PyricAdminApp,
 ): SandboxFirestore {
   if (target === undefined) {
-    return getAppFirestore(getApp());
+    return getAppFirestore(getDefaultServiceApp());
   }
   if (typeof target === 'object' && target !== null && ADMIN_APP_TARGET in target) {
     return getAppFirestore(target as PyricAdminApp);
