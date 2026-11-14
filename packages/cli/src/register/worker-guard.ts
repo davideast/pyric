@@ -26,7 +26,13 @@
  */
 import Module, { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
-import { isSandboxParent, loadsRegister, withInheritedSandbox } from './child-process-guard.js';
+import {
+  isSandboxParent,
+  loadsRegister,
+  withCanonicalRegisterExecArgv,
+  withCanonicalRegisterNodeOptions,
+  withInheritedSandbox,
+} from './child-process-guard.js';
 
 type Env = Record<string, string | undefined>;
 
@@ -73,16 +79,18 @@ export function guardWorkerArguments(
   if (options?.eval === true && typeof source === 'string') {
     guardedSource = withRegisterPrefix(source, evalRegisterUrl);
   }
-  if (Array.isArray(options?.execArgv) && !options.execArgv.includes(registerUrl)) {
-    guardedOptions = { ...options, execArgv: [...options.execArgv, '--import', registerUrl] };
+  if (Array.isArray(options?.execArgv)) {
+    guardedOptions = {
+      ...options,
+      execArgv: withCanonicalRegisterExecArgv(options.execArgv, registerUrl),
+    };
   }
   if (isOwnEnv(options?.env)) {
     const inherited = withInheritedSandbox(options.env, parentEnv, parentActive);
     const parentNodeOptions = parentEnv.NODE_OPTIONS ?? '';
     const childNodeOptions = inherited.NODE_OPTIONS ?? '';
-    if (loadsRegister(parentNodeOptions, registerUrl) && !loadsRegister(childNodeOptions, registerUrl)) {
-      const importFlag = `--import ${registerUrl}`;
-      inherited.NODE_OPTIONS = childNodeOptions.trim() === '' ? importFlag : `${childNodeOptions} ${importFlag}`;
+    if (loadsRegister(parentNodeOptions, registerUrl) || loadsRegister(childNodeOptions, registerUrl)) {
+      inherited.NODE_OPTIONS = withCanonicalRegisterNodeOptions(childNodeOptions, registerUrl);
     }
     guardedOptions = { ...guardedOptions, env: inherited };
   }

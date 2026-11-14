@@ -1,30 +1,4 @@
 import { setAiEvidence } from '../../sandbox/internal/ai-evidence.js';
-/**
- * The OpenAI AnswerEngine: Gemini wire in, OpenAI-compatible upstream
- * (Ollama, llama.cpp, any /v1/chat/completions) out, Gemini wire back.
- *
- * The translation core was validated end-to-end against the real firebase/ai
- * 2.12.0 SDK before landing here as pure, unit-testable functions; only
- * `OpenAiEngine` does I/O.
- *
- * The five lossy edges that validation pinned, all handled here:
- *   1. Gemini functionResponse has no tool_call_id → synthesized FIFO id
- *      matching per function name ({@link geminiToOpenAIRequest}).
- *   2. OpenAI streams tool-call ARGUMENT FRAGMENTS; Gemini streams WHOLE
- *      functionCall parts → {@link ToolCallBuffer} accumulates fragments and
- *      the engine emits whole parts on the finish chunk.
- *   3. Never forward OpenAI's `data: [DONE]` sentinel — the SDK JSON.parses
- *      every event and dies with PARSE_FAILED (engine skips it).
- *   4. Thought parts are SKIPPED when replaying history to OpenAI
- *      (`part.thought` filter in the request walk).
- *   5. thoughtSignature has no OpenAI equivalent → minted on the Gemini
- *      side by the synthesizer's decoration pass (production signs even
- *      trivial text parts, and rejects unsigned functionCall turns).
- *
- * Plus: `content_filter` maps to SAFETY (faithful — makes response.text()
- * throw exactly like production).
- */
-
 import {
   AiBrokerError,
   Synthesizer,
@@ -32,8 +6,28 @@ import {
   estimateTokens,
   resolveModelVersion,
 } from './synthesizer.js';
-import { redactUpstreamText, urlCredentials } from './upstream-error-redaction.js';
+import {
+  joinUpstreamUrl,
+  normalizeUpstreamBaseUrl,
+  redactUpstreamText,
+  urlCredentials,
+} from './upstream-error-redaction.js';
 import { promptTextOf } from './scripted-engine.js';
+import {
+  DONE_SENTINEL,
+  geminiToOpenAIRequest,
+  mapFinishReason,
+  normalizeSchema,
+  openAIChunkToParts,
+  openAIToGeminiResponse,
+  SseParser,
+  ToolCallBuffer,
+  type OpenAIMessage,
+  type OpenAIRequest,
+  type OpenAIResponse,
+  type OpenAIStreamChunk,
+  type OpenAIToolCall,
+} from './openai-wire-translation.js';
 import type {
   AnswerEngine,
   CountTokensRequest,
@@ -45,414 +39,21 @@ import type {
   WireResponse,
 } from './types.js';
 
-// ── OpenAI-side wire types (minimal) ────────────────────────────────────────
-
-export interface OpenAIToolCall {
-  id: string;
-  type: 'function';
-  function: { name: string; arguments: string };
-}
-
-export interface OpenAIMessage {
-  role: 'system' | 'user' | 'assistant' | 'tool';
-  content: string | null;
-  tool_calls?: OpenAIToolCall[];
-  tool_call_id?: string;
-}
-
-export interface OpenAIRequest {
-  model: string;
-  messages: OpenAIMessage[];
-  stream?: boolean;
-  stream_options?: { include_usage: boolean };
-  tools?: Array<{ type: 'function'; function: Record<string, unknown> }>;
-  tool_choice?: string;
-  temperature?: number;
-  top_p?: number;
-  max_tokens?: number;
-  stop?: string[];
-  response_format?:
-    | { type: 'json_object' }
-    | {
-        type: 'json_schema';
-        json_schema: { name: string; schema: Record<string, unknown>; strict?: boolean };
-      };
-  frequency_penalty?: number;
-  presence_penalty?: number;
-}
-
-export interface OpenAIResponse {
-  id: string;
-  model: string;
-  choices: Array<{
-    index: number;
-    message: {
-      role: string;
-      content: string | null;
-      tool_calls?: OpenAIToolCall[];
-      reasoning?: string;
-      reasoning_content?: string;
-    };
-    finish_reason: string | null;
-  }>;
-  usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number };
-}
-
-export interface OpenAIStreamChunk {
-  id: string;
-  model: string;
-  choices: Array<{
-    index: number;
-    delta: {
-      role?: string;
-      content?: string;
-      reasoning?: string;
-      reasoning_content?: string;
-      tool_calls?: Array<Partial<OpenAIToolCall> & { index: number }>;
-    };
-    finish_reason: string | null;
-  }>;
-  usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number };
-}
-
-// ── Request translation: Gemini → OpenAI (pure) ─────────────────────────────
-
-/**
- * Gemini functionResponse parts carry only a function *name*; OpenAI tool
- * messages require the tool_call_id of the originating call. We synthesize
- * deterministic ids when translating the model's functionCall parts and
- * look them up by name (FIFO per name) for the responses.
- */
-function synthToolCallId(name: string, ordinal: number): string {
-  return `call_${name}_${ordinal}`;
-}
-
-/**
- * A model-authored turn: role `model`, or role `assistant`, which production
- * also accepts inside `contents` (`ai-contents-role-assistant`).
- */
-function isModelTurn(role: string | undefined): boolean {
-  const upper = (role ?? '').toUpperCase();
-  return upper === 'MODEL' || upper === 'ASSISTANT';
-}
-
-export function geminiToOpenAIRequest(
-  model: string,
-  req: GenerateContentRequest,
-  stream: boolean,
-): OpenAIRequest {
-  const messages: OpenAIMessage[] = [];
-
-  // systemInstruction -> leading system message
-  if (req.systemInstruction) {
-    const text = (req.systemInstruction.parts ?? []).map((p) => p.text ?? '').join('');
-    if (text) messages.push({ role: 'system', content: text });
-  }
-
-  // Walk contents. Track pending tool-call ids per function name so a later
-  // functionResponse turn can reference the right id.
-  const pendingIdsByName = new Map<string, string[]>();
-  let callOrdinal = 0;
-
-  for (const content of req.contents ?? []) {
-    // A function response turn rides under role `user` on the production
-    // wire (#1410); the SDK's role `function` never gets past the broker.
-    const isFunctionResponseTurn = !isModelTurn(content.role) && content.parts.some((part) => part.functionResponse);
-    if (isFunctionResponseTurn) {
-      // functionResponse turn -> one OpenAI `tool` message per part
-      for (const part of content.parts) {
-        if (!part.functionResponse) continue;
-        const queue = pendingIdsByName.get(part.functionResponse.name) ?? [];
-        const id = queue.shift() ?? synthToolCallId(part.functionResponse.name, callOrdinal++);
-        messages.push({
-          role: 'tool',
-          tool_call_id: id,
-          content: JSON.stringify(part.functionResponse.response),
-        });
-      }
-      continue;
-    }
-
-    const role = isModelTurn(content.role) ? 'assistant' : 'user';
-    const textParts: string[] = [];
-    const toolCalls: OpenAIToolCall[] = [];
-
-    for (const part of content.parts) {
-      // LOSSY EDGE: thought parts must not be replayed to OpenAI as
-      // assistant text; real Gemini also does not accept thought text back
-      // (only thoughtSignatures — which have no OpenAI equivalent and drop).
-      if (part.thought) continue;
-      if (typeof part.text === 'string') {
-        textParts.push(part.text);
-      } else if (part.functionCall) {
-        const id = synthToolCallId(part.functionCall.name, callOrdinal++);
-        const queue = pendingIdsByName.get(part.functionCall.name) ?? [];
-        queue.push(id);
-        pendingIdsByName.set(part.functionCall.name, queue);
-        toolCalls.push({
-          id,
-          type: 'function',
-          // LOSSY EDGE: Gemini args is an object; OpenAI wants a JSON string.
-          function: {
-            name: part.functionCall.name,
-            arguments: JSON.stringify(part.functionCall.args ?? {}),
-          },
-        });
-      } else if (part.inlineData) {
-        // Not exercised by the V1 broker; marked gap carried from the prototype.
-        textParts.push(`[unsupported inlineData part: ${part.inlineData.mimeType}]`);
-      }
-    }
-
-    const msg: OpenAIMessage = {
-      role,
-      content: textParts.length ? textParts.join('') : null,
-    };
-    if (toolCalls.length) msg.tool_calls = toolCalls;
-    messages.push(msg);
-  }
-
-  const out: OpenAIRequest = { model, messages, stream };
-  if (stream) out.stream_options = { include_usage: true };
-
-  // tools
-  const decls = (req.tools ?? []).flatMap((t) => t.functionDeclarations ?? []);
-  if (decls.length) {
-    out.tools = decls.map((d) => ({
-      type: 'function',
-      function: {
-        name: d.name,
-        description: d.description,
-        parameters: normalizeSchema(d.parameters) ?? { type: 'object', properties: {} },
-      },
-    }));
-  }
-
-  // toolConfig.mode -> tool_choice
-  const mode = req.toolConfig?.functionCallingConfig?.mode;
-  if (mode === 'ANY') out.tool_choice = 'required';
-  else if (mode === 'NONE') out.tool_choice = 'none';
-  else if (mode === 'AUTO') out.tool_choice = 'auto';
-
-  // generationConfig
-  const g = req.generationConfig;
-  if (g) {
-    if (g.temperature !== undefined) out.temperature = g.temperature;
-    if (g.topP !== undefined) out.top_p = g.topP;
-    if (g.maxOutputTokens !== undefined) out.max_tokens = g.maxOutputTokens;
-    if (g.stopSequences?.length) out.stop = g.stopSequences;
-    if (g.frequencyPenalty !== undefined) out.frequency_penalty = g.frequencyPenalty;
-    if (g.presencePenalty !== undefined) out.presence_penalty = g.presencePenalty;
-    // LOSSY EDGE: topK has no OpenAI equivalent; dropped.
-    if (g.responseMimeType === 'application/json') {
-      out.response_format = g.responseSchema
-        ? {
-            type: 'json_schema',
-            json_schema: {
-              name: 'response',
-              schema: normalizeSchema(g.responseSchema)!,
-              strict: true,
-            },
-          }
-        : { type: 'json_object' };
-    }
-  }
-
-  return out;
-}
-
-/**
- * Gemini schemas allow uppercase type names ("STRING") and a `nullable`
- * flag; OpenAI/JSON-Schema wants lowercase types. Normalize defensively and
- * strip fields JSON Schema validators reject.
- */
-export function normalizeSchema(schema: unknown): Record<string, unknown> | undefined {
-  if (!schema || typeof schema !== 'object') return undefined;
-  const s = { ...(schema as Record<string, unknown>) };
-  if (typeof s.type === 'string') s.type = (s.type as string).toLowerCase();
-  delete s.nullable;
-  if (s.properties && typeof s.properties === 'object') {
-    s.properties = Object.fromEntries(
-      Object.entries(s.properties as Record<string, unknown>).map(([k, v]) => [
-        k,
-        normalizeSchema(v),
-      ]),
-    );
-  }
-  if (s.items) s.items = normalizeSchema(s.items);
-  return s;
-}
-
-// ── Response translation: OpenAI → Gemini (pure) ────────────────────────────
-
-const FINISH_REASON_MAP: Record<string, string> = {
-  stop: 'STOP',
-  length: 'MAX_TOKENS',
-  // A tool call is a normal, expected stop in Gemini's model; mapping to
-  // anything in badFinishReasons would make the SDK throw on response.text().
-  tool_calls: 'STOP',
-  // Faithful mapping: SAFETY makes the SDK's response.text() throw — exactly
-  // the real backend's behavior for filtered content.
-  content_filter: 'SAFETY',
+export {
+  DONE_SENTINEL,
+  geminiToOpenAIRequest,
+  mapFinishReason,
+  normalizeSchema,
+  openAIChunkToParts,
+  openAIToGeminiResponse,
+  SseParser,
+  ToolCallBuffer,
+  type OpenAIMessage,
+  type OpenAIRequest,
+  type OpenAIResponse,
+  type OpenAIStreamChunk,
+  type OpenAIToolCall,
 };
-
-export function mapFinishReason(reason: string | null | undefined): string {
-  if (!reason) return 'STOP';
-  return FINISH_REASON_MAP[reason] ?? 'OTHER';
-}
-
-/**
- * OpenAI tool-call `arguments` is a JSON string; Gemini wants an object.
- * Text that does not parse is kept under `__malformed` and flagged, so the
- * candidate finishes `MALFORMED_FUNCTION_CALL` on both the unary and the
- * streamed path.
- */
-function parseToolArguments(raw: string): { args: Record<string, unknown>; malformed: boolean } {
-  try {
-    return { args: JSON.parse(raw || '{}'), malformed: false };
-  } catch {
-    return { args: { __malformed: raw }, malformed: true };
-  }
-}
-
-function messagePartsFromOpenAI(msg: {
-  content: string | null;
-  tool_calls?: OpenAIToolCall[];
-  reasoning?: string;
-  reasoning_content?: string;
-}): WirePart[] {
-  const parts: WirePart[] = [];
-  // Ollama's OpenAI compat surfaces thinking-model output in a nonstandard
-  // `reasoning` field; llama-server / deepseek-format servers use
-  // `reasoning_content` instead. Gemini represents either as a thought part.
-  // `reasoning` wins if both are somehow present (shouldn't happen in practice).
-  const reasoning = msg.reasoning ?? msg.reasoning_content;
-  if (reasoning) parts.push({ text: reasoning, thought: true });
-  if (msg.content) parts.push({ text: msg.content });
-  for (const tc of msg.tool_calls ?? []) {
-    const { args } = parseToolArguments(tc.function.arguments);
-    parts.push({ functionCall: { name: tc.function.name, args } });
-  }
-  if (!parts.length) parts.push({ text: '' });
-  return parts;
-}
-
-export function openAIToGeminiResponse(resp: OpenAIResponse): WireResponse {
-  const choice = resp.choices[0]!;
-  const malformedToolArgs = (choice.message.tool_calls ?? []).some(
-    (tc) => parseToolArguments(tc.function.arguments).malformed,
-  );
-  const out: WireResponse = {
-    candidates: [
-      {
-        index: 0,
-        content: { role: 'model', parts: messagePartsFromOpenAI(choice.message) },
-        finishReason: malformedToolArgs
-          ? 'MALFORMED_FUNCTION_CALL'
-          : mapFinishReason(choice.finish_reason),
-      },
-    ],
-  };
-  if (resp.usage) {
-    // Upstream-faithful counts only; the synthesizer's decorate pass adds the
-    // synthesized promptTokensDetails/serviceTier decoration.
-    out.usageMetadata = {
-      promptTokenCount: resp.usage.prompt_tokens,
-      candidatesTokenCount: resp.usage.completion_tokens,
-      totalTokenCount: resp.usage.total_tokens,
-    };
-  }
-  return out;
-}
-
-/**
- * One OpenAI stream chunk → the TEXT parts of one Gemini chunk (or null for
- * frames carrying nothing representable). Tool-call fragments are NOT
- * handled here — they buffer in {@link ToolCallBuffer} and emit whole on the
- * finish chunk (lossy edge #2).
- */
-export function openAIChunkToParts(chunk: OpenAIStreamChunk): WirePart[] {
-  const choice = chunk.choices?.[0];
-  const parts: WirePart[] = [];
-  const reasoning = choice?.delta?.reasoning ?? choice?.delta?.reasoning_content;
-  if (reasoning) parts.push({ text: reasoning, thought: true });
-  if (choice?.delta?.content) parts.push({ text: choice.delta.content });
-  return parts;
-}
-
-/**
- * Accumulates OpenAI streamed tool-call fragments (indexed deltas whose
- * `arguments` arrive as string pieces) into whole Gemini functionCall parts.
- */
-export class ToolCallBuffer {
-  private readonly byIndex = new Map<number, { name: string; args: string }>();
-
-  add(deltas: Array<Partial<OpenAIToolCall> & { index: number }> | undefined): void {
-    for (const d of deltas ?? []) {
-      const slot = this.byIndex.get(d.index) ?? { name: '', args: '' };
-      if (d.function?.name) slot.name += d.function.name;
-      if (d.function?.arguments) slot.args += d.function.arguments;
-      this.byIndex.set(d.index, slot);
-    }
-  }
-
-  get size(): number {
-    return this.byIndex.size;
-  }
-
-  /**
-   * Emit whole functionCall parts (args parsed to an object) and reset.
-   * `malformed` is true when any call's accumulated arguments did not parse.
-   */
-  flush(): { parts: WirePart[]; malformed: boolean } {
-    const parts: WirePart[] = [];
-    let malformed = false;
-    const indexes = [...this.byIndex.keys()].sort((a, b) => a - b);
-    for (const i of indexes) {
-      const { name, args: raw } = this.byIndex.get(i)!;
-      const parsed = parseToolArguments(raw);
-      if (parsed.malformed) malformed = true;
-      parts.push({ functionCall: { name, args: parsed.args } });
-    }
-    this.byIndex.clear();
-    return { parts, malformed };
-  }
-}
-
-// ── SSE parsing (pure, incremental) ─────────────────────────────────────────
-
-/**
- * Incremental SSE `data:` payload extractor. Push decoded text as it
- * arrives; get back complete event payload strings. Handles both LF LF and
- * CRLF CRLF separators. Emits the `[DONE]` sentinel verbatim — CALLERS must
- * skip it (lossy edge #3); the engine never forwards it downstream.
- */
-export class SseParser {
-  private buffer = '';
-
-  push(text: string): string[] {
-    this.buffer += text;
-    const payloads: string[] = [];
-    for (;;) {
-      const lf = this.buffer.indexOf('\n\n');
-      const crlf = this.buffer.indexOf('\r\n\r\n');
-      const at = lf === -1 ? crlf : crlf === -1 ? lf : Math.min(lf, crlf);
-      if (at === -1) break;
-      const sepLen = at === crlf && crlf !== -1 && (lf === -1 || crlf < lf) ? 4 : 2;
-      const rawEvent = this.buffer.slice(0, at);
-      this.buffer = this.buffer.slice(at + sepLen);
-      for (const line of rawEvent.split(/\r?\n/)) {
-        if (line.startsWith('data: ')) payloads.push(line.slice('data: '.length));
-        else if (line.startsWith('data:')) payloads.push(line.slice('data:'.length));
-      }
-    }
-    return payloads;
-  }
-}
-
-export const DONE_SENTINEL = '[DONE]';
-
-// ── The engine ──────────────────────────────────────────────────────────────
 
 export interface OpenAiEngineOptions {
   baseUrl: string;
@@ -464,35 +65,23 @@ export interface OpenAiEngineOptions {
 
 export class OpenAiEngine implements AnswerEngine {
   private readonly baseUrl: string;
-  /** The base URL's username and password, masked in upstream error text (#1766). */
   private readonly baseUrlCredentials: readonly string[];
   private readonly defaultModel: string | undefined;
   private readonly modelMap: Record<string, string>;
-  /** Call-signature only (not `typeof fetch`): the wrapper below carries none
-   *  of the runtime's static props (e.g. Bun's `fetch.preconnect`). */
   private readonly fetchImpl: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
   private readonly synth: Synthesizer;
 
   private warnedDroppedFields = false;
 
   constructor(options: OpenAiEngineOptions) {
-    this.baseUrl = options.baseUrl.replace(/\/$/, '');
+    this.baseUrl = normalizeUpstreamBaseUrl(options.baseUrl);
     this.baseUrlCredentials = urlCredentials(this.baseUrl);
     this.defaultModel = options.model;
     this.modelMap = options.modelMap ?? {};
-    // Wrapped, not stored bare: `this.fetchImpl(...)` would otherwise invoke
-    // the global fetch with the engine as its receiver, an Illegal invocation
-    // in browser/worker contexts (Node tolerates it, browsers do not).
     this.fetchImpl = options.fetch ?? ((input, init) => fetch(input, init));
     this.synth = options.synthesizer ?? new Synthesizer();
   }
 
-  /**
-   * `thinkingConfig` and `topK` are visible on the request HERE, before
-   * {@link geminiToOpenAIRequest} silently drops them (no OpenAI-compat
-   * equivalent for either). Fires once per engine instance; production still
-   * honors both fields — only the local openai engine does not.
-   */
   private warnDroppedFieldsOnce(req: GenerateContentRequest): void {
     if (this.warnedDroppedFields) return;
     const g = req.generationConfig;
@@ -507,16 +96,11 @@ export class OpenAiEngine implements AnswerEngine {
     );
   }
 
-  /**
-   * Gemini model id to upstream model, WITH the reason: `modelMap[model]` ??
-   * `config.model` ?? passthrough. The reason is what makes the redirect
-   * legible in the dev terminal: "which of my three knobs sent this
-   * elsewhere?" is the whole question when the answer came from a model the
-   * developer never named. Bare (never `models/`-prefixed), per
-   * {@link AnswerEngine.resolveEffectiveModel}.
-   */
   resolveEffectiveModel(model: string): ModelResolution {
-    const bare = model.startsWith('models/') ? model.slice('models/'.length) : model;
+    let bare = model;
+    if (model.startsWith('models/')) {
+      bare = model.slice('models/'.length);
+    }
     const mapped = this.modelMap[bare] ?? this.modelMap[model];
     if (mapped !== undefined) return { model: mapped, reason: 'engine modelMap' };
     if (this.defaultModel !== undefined) {
@@ -525,7 +109,6 @@ export class OpenAiEngine implements AnswerEngine {
     return { model: bare, reason: 'passthrough' };
   }
 
-  /** Gemini model id → upstream model: modelMap[model] ?? config.model ?? passthrough. */
   resolveUpstreamModel(model: string): string {
     return this.resolveEffectiveModel(model).model;
   }
@@ -536,7 +119,11 @@ export class OpenAiEngine implements AnswerEngine {
     const res = await this.post(body);
     const upstream = (await res.json()) as OpenAIResponse;
     const translated = openAIToGeminiResponse(upstream);
-    return setAiEvidence(this.synth.decorate(translated, { model, promptText: promptTextOf(req) }), { reportedModel: upstream.model, usageSource: upstream.usage ? 'backend' : 'estimated' });
+    const usageSource = upstream.usage ? 'backend' : 'estimated';
+    return setAiEvidence(
+      this.synth.decorate(translated, { model, promptText: promptTextOf(req) }),
+      { reportedModel: upstream.model, usageSource },
+    );
   }
 
   streamGenerateContent(req: GenerateContentRequest, model: string): AsyncIterable<WireChunk> {
@@ -562,79 +149,83 @@ export class OpenAiEngine implements AnswerEngine {
       let reportedModel: string | undefined;
       let pendingFinish: string | null = null;
 
-      /**
-       * Frame one complete Gemini chunk. Wire-true semantics require
-       * usageMetadata on EVERY chunk, but OpenAI upstreams only send usage on
-       * the final frame (stream_options.include_usage) — so interim chunks
-       * carry synthesized estimates (by-design synthesized decoration,
-       * cdd-deltas #99.2) and the finish chunk uses real upstream numbers
-       * when they arrived.
-       */
       function frame(parts: WirePart[], finishReason?: string): WireChunk {
         const candidatesTokenCount = estimateTokens(emittedText);
-        const usage = upstreamUsage
-          ? {
-              promptTokenCount: upstreamUsage.prompt_tokens,
-              candidatesTokenCount: upstreamUsage.completion_tokens,
-              totalTokenCount: upstreamUsage.total_tokens,
-            }
-          : {
-              promptTokenCount,
-              candidatesTokenCount,
-              totalTokenCount: promptTokenCount + candidatesTokenCount,
-            };
-        return setAiEvidence({
-          candidates: [
-            {
-              content: { parts: parts.length ? parts : [{ text: '' }], role: 'model' },
-              ...(finishReason ? { finishReason } : {}),
-              index: 0,
+        let usage = {
+          promptTokenCount,
+          candidatesTokenCount,
+          totalTokenCount: promptTokenCount + candidatesTokenCount,
+        };
+        if (upstreamUsage) {
+          usage = {
+            promptTokenCount: upstreamUsage.prompt_tokens,
+            candidatesTokenCount: upstreamUsage.completion_tokens,
+            totalTokenCount: upstreamUsage.total_tokens,
+          };
+        }
+        let effectiveParts: WirePart[] = [{ text: '' }];
+        if (parts.length > 0) {
+          effectiveParts = parts;
+        }
+        const candidate: NonNullable<WireChunk['candidates']>[number] = {
+          content: { parts: effectiveParts, role: 'model' },
+          index: 0,
+        };
+        if (finishReason) {
+          candidate.finishReason = finishReason;
+        }
+        const usageSource = upstreamUsage ? 'backend' : 'estimated';
+        return setAiEvidence(
+          {
+            candidates: [candidate],
+            usageMetadata: {
+              ...usage,
+              promptTokensDetails: [{ modality: 'TEXT', tokenCount: usage.promptTokenCount }],
+              serviceTier: 'standard',
             },
-          ],
-          usageMetadata: {
-            ...usage,
-            promptTokensDetails: [{ modality: 'TEXT', tokenCount: usage.promptTokenCount }],
-            serviceTier: 'standard',
+            modelVersion,
+            responseId,
           },
-          modelVersion,
-          responseId,
-        }, { reportedModel, usageSource: upstreamUsage ? 'backend' : 'estimated' });
+          { reportedModel, usageSource },
+        );
       }
 
       const reader = res.body.getReader();
       try {
         for (;;) {
           const { done, value } = await readStream(reader);
-          const payloads = done
-            ? parser.push('\n\n') // flush any trailing buffered event
-            : parser.push(decoder.decode(value, { stream: true }));
+          let payloads: string[];
+          if (done) {
+            payloads = parser.push('\n\n');
+          } else {
+            payloads = parser.push(decoder.decode(value, { stream: true }));
+          }
 
           for (const payload of payloads) {
-            // LOSSY EDGE: never forward the [DONE] sentinel.
             if (payload.trim() === DONE_SENTINEL) continue;
             let chunk: OpenAIStreamChunk;
             try {
               chunk = JSON.parse(payload) as OpenAIStreamChunk;
             } catch {
-              continue; // non-JSON keepalive/comment frames
+              continue;
             }
             if (chunk.usage) upstreamUsage = chunk.usage;
             if (chunk.model) reportedModel = chunk.model;
             const choice = chunk.choices?.[0];
-            if (!choice) continue; // usage-only final frame folds into the finish chunk
+            if (!choice) continue;
 
             toolBuffer.add(choice.delta?.tool_calls);
             const parts = openAIChunkToParts(chunk);
-            emittedText += parts.map((p) => (p.thought ? '' : (p.text ?? ''))).join('');
+            for (const part of parts) {
+              if (!part.thought && part.text) emittedText += part.text;
+            }
 
             if (choice.finish_reason != null) {
               pendingFinish = choice.finish_reason;
-              // Hold the finish frame until the reader drains, so a trailing
-              // usage-only frame (stream_options.include_usage) lands in it.
-              if (parts.length) yield frame(parts);
+              if (parts.length > 0) yield frame(parts);
               continue;
             }
-            if (parts.length) yield frame(parts);
+            if (parts.length > 0) yield frame(parts);
           }
 
           if (done) break;
@@ -643,22 +234,20 @@ export class OpenAiEngine implements AnswerEngine {
         reader.releaseLock();
       }
 
-      // The stream always ends with ONE finishing chunk (mirrors the captured
-      // final frame: empty text part, signed, finishReason present).
-      // LOSSY EDGE: buffered tool-call fragments emit here as WHOLE
-      // functionCall parts, exactly once.
-      // Arguments that do not parse finish MALFORMED_FUNCTION_CALL, as the
-      // unary path does.
       const flushed = toolBuffer.flush();
-      const finalParts = synth.signParts(flushed.parts.length ? flushed.parts : [{ text: '' }]);
-      yield frame(
-        finalParts,
-        flushed.malformed ? 'MALFORMED_FUNCTION_CALL' : mapFinishReason(pendingFinish),
-      );
+      let rawFinalParts: WirePart[] = [{ text: '' }];
+      if (flushed.parts.length > 0) {
+        rawFinalParts = flushed.parts;
+      }
+      const finalParts = synth.signParts(rawFinalParts);
+      let finalReason = mapFinishReason(pendingFinish);
+      if (flushed.malformed) {
+        finalReason = 'MALFORMED_FUNCTION_CALL';
+      }
+      yield frame(finalParts, finalReason);
     })();
   }
 
-  /** No OpenAI equivalent — deterministic synthesized estimate, wire-true envelope. */
   async countTokens(req: CountTokensRequest, _model: string): Promise<CountTokensResponse> {
     return this.synth.countTokens(promptTextOf(req));
   }
@@ -682,19 +271,15 @@ export class OpenAiEngine implements AnswerEngine {
   }
 
   private async post(body: OpenAIRequest): Promise<Response> {
+    const endpoint = joinUpstreamUrl(this.baseUrl, '/chat/completions');
     let res: Response;
     try {
-      res = await this.fetchImpl(`${this.baseUrl}/chat/completions`, {
+      res = await this.fetchImpl(endpoint, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify(body),
       });
     } catch (err) {
-      // The openai engine has no key-in-URL auth mechanism today
-      // (`OpenAiEngineOptions` carries no `apiKey`), but a caller-supplied
-      // `baseUrl` could embed a credential in its query string or userinfo, and
-      // some fetch implementations echo the request URL into their error text —
-      // redact defensively at this choke point (T1.7, #1766).
       throw new AiBrokerError(
         errorEnvelope(
           502,
@@ -706,12 +291,9 @@ export class OpenAiEngine implements AnswerEngine {
     if (!res.ok) {
       const text = await res.text().catch(() => '');
       const masked = redactUpstreamText(text, this.baseUrlCredentials).slice(0, 500);
+      const statusName = res.status === 404 ? 'NOT_FOUND' : 'INVALID_ARGUMENT';
       throw new AiBrokerError(
-        errorEnvelope(
-          res.status,
-          `openai engine: upstream ${res.status}: ${masked}`,
-          res.status === 404 ? 'NOT_FOUND' : 'INVALID_ARGUMENT',
-        ),
+        errorEnvelope(res.status, `openai engine: upstream ${res.status}: ${masked}`, statusName),
       );
     }
     return res;

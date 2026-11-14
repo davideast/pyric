@@ -34,6 +34,11 @@ export {
   urlCredentials,
   type GeminiUpstreamOptions,
 } from './broker/index.js';
+export {
+  joinUpstreamUrl,
+  maskStreamErrors,
+  normalizeUpstreamBaseUrl,
+} from './broker/upstream-error-redaction.js';
 
 const transportHandles = new WeakMap<FirebaseApp, Map<string, AI>>();
 

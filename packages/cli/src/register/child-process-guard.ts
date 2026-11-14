@@ -17,20 +17,13 @@
  * `PYRIC_SANDBOX_FORCE=1` unless the caller set it, so a child started with
  * `NODE_ENV=production` stays in the sandbox instead of refusing it (#2340).
  * A process that is not registered, or is in live mode, adds no force.
- *
- * A shell the process starts passes the environment on, so a Node process the
- * shell starts is registered too, unless the command line it runs sets
- * `NODE_OPTIONS` itself (`NODE_OPTIONS=--max-old-space-size=4096 node
- * server.js`), which no code in this process can see.
- *
- * Every asynchronous child (`spawn`, `exec`, `execFile`, `fork`, and their
- * promisified forms) is built by `ChildProcess.prototype.spawn` from the env
- * Node has already resolved, so one wrapper there covers them. The
- * synchronous forms reach a native binding instead, so `spawnSync`,
- * `execSync` and `execFileSync` are wrapped where they are exported.
  */
+import { realpathSync } from 'node:fs';
 import Module, { createRequire } from 'node:module';
+import { resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { isLiveRegisterActive, isRegisterActive } from './activation.js';
+import { isSameLocalFile } from './package-identity.js';
 
 type Env = Record<string, string | undefined>;
 
@@ -48,12 +41,228 @@ const GUARDED = Symbol.for('pyric.guardedChildProcess');
 /** The variables that carry the sandbox to a child. */
 const SANDBOX_VARIABLE = /^PYRIC_/;
 
-/** The register, named by its package rather than its file. */
-const REGISTER_BY_NAME = /(^|\s)--import[= ]?["']?@pyric\/(?:cli|live)\/register(["'\s]|$)/;
+const TWO_TOKEN_PRELOAD_FLAGS = new Set(['--import', '--require', '-r']);
+const ATTACHED_PRELOAD_PREFIXES = ['--import=', '--require=', '-r='] as const;
+const PYRIC_REGISTER_PATH_RE =
+  /(?:^|[\\/])(?:@pyric[\\/](?:cli|live)|packages[\\/](?:cli|live))[\\/](?:dist|src)[\\/]register(?:[\\/]index)?\.[cm]?[jt]s$/;
 
-/** Whether `nodeOptions` already loads the register. */
+interface NodeOptionWord {
+  readonly value: string;
+  readonly raw: string;
+}
+
+function tryRealpath(filePath: string): string {
+  try {
+    return realpathSync(filePath);
+  } catch {
+    return filePath;
+  }
+}
+
+function isFilesystemPathSpecifier(specifier: string): boolean {
+  return (
+    specifier.startsWith('/') ||
+    specifier.startsWith('./') ||
+    specifier.startsWith('../') ||
+    /^[A-Za-z]:[\\/]/.test(specifier)
+  );
+}
+
+function isLiveRegisterRef(ref: string): boolean {
+  return /(?:^|[\\/])(?:@pyric[\\/]live|packages[\\/]live)[\\/]/.test(ref);
+}
+
+function ownBareRegisterName(registerUrl: string): string {
+  return isLiveRegisterRef(registerUrl) ? '@pyric/live/register' : '@pyric/cli/register';
+}
+
+function foreignBareRegisterName(registerUrl: string): string {
+  return isLiveRegisterRef(registerUrl) ? '@pyric/cli/register' : '@pyric/live/register';
+}
+
+function isForeignRegisterSpecifier(specifier: string, registerUrl: string): boolean {
+  if (specifier === foreignBareRegisterName(registerUrl)) return true;
+  if (!PYRIC_REGISTER_PATH_RE.test(specifier)) return false;
+  return isLiveRegisterRef(specifier) !== isLiveRegisterRef(registerUrl);
+}
+
+/**
+ * Whether a preload target names the same Pyric register as `registerUrl`, by
+ * `file:` URL, OS filesystem path, or matching bare `@pyric/(cli|live)/register`.
+ */
+export function matchesRegisterSpecifier(specifier: string, registerUrl: string): boolean {
+  if (specifier === registerUrl || specifier === ownBareRegisterName(registerUrl)) return true;
+  if (isSameLocalFile(specifier, registerUrl)) return true;
+  if (!registerUrl.startsWith('file:') || !isFilesystemPathSpecifier(specifier)) return false;
+  let registerFile: string;
+  try {
+    registerFile = fileURLToPath(registerUrl);
+  } catch {
+    return false;
+  }
+  const candidateFile = resolve(specifier);
+  if (candidateFile === registerFile) return true;
+  return tryRealpath(candidateFile) === tryRealpath(registerFile);
+}
+
+function attachedPreloadSpecifier(token: string): { prefix: string; target: string } | null {
+  for (const prefix of ATTACHED_PRELOAD_PREFIXES) {
+    if (token.startsWith(prefix)) {
+      return { prefix, target: token.slice(prefix.length) };
+    }
+  }
+  return null;
+}
+
+function tokenizeNodeOptions(nodeOptions: string): NodeOptionWord[] {
+  const words: NodeOptionWord[] = [];
+  let i = 0;
+  while (i < nodeOptions.length) {
+    while (i < nodeOptions.length && /\s/.test(nodeOptions[i]!)) i++;
+    if (i >= nodeOptions.length) break;
+    const start = i;
+    let value = '';
+    while (i < nodeOptions.length && !/\s/.test(nodeOptions[i]!)) {
+      const ch = nodeOptions[i]!;
+      if (ch === '"' || ch === "'") {
+        const quote = ch;
+        i++;
+        while (i < nodeOptions.length && nodeOptions[i] !== quote) {
+          if (nodeOptions[i] === '\\' && i + 1 < nodeOptions.length && quote === '"') {
+            i++;
+          }
+          value += nodeOptions[i]!;
+          i++;
+        }
+        if (i < nodeOptions.length) i++;
+        continue;
+      }
+      if (ch === '\\' && i + 1 < nodeOptions.length) {
+        value += nodeOptions[i + 1]!;
+        i += 2;
+        continue;
+      }
+      value += ch;
+      i++;
+    }
+    words.push({ value, raw: nodeOptions.slice(start, i) });
+  }
+  return words;
+}
+
+function isAnyPyricRegister(specifier: string, registerUrl: string): boolean {
+  return matchesRegisterSpecifier(specifier, registerUrl) || isForeignRegisterSpecifier(specifier, registerUrl);
+}
+
+/**
+ * Whether `nodeOptions` already loads a Pyric register (`--import` or `-r`/`--require`,
+ * by URL, filesystem path, or package name).
+ */
 export function loadsRegister(nodeOptions: string, registerUrl: string): boolean {
-  return nodeOptions.includes(registerUrl) || REGISTER_BY_NAME.test(nodeOptions);
+  const words = tokenizeNodeOptions(nodeOptions);
+  for (let i = 0; i < words.length; i++) {
+    const word = words[i]!.value;
+    if (TWO_TOKEN_PRELOAD_FLAGS.has(word) && i + 1 < words.length) {
+      if (isAnyPyricRegister(words[i + 1]!.value, registerUrl)) return true;
+      i++;
+      continue;
+    }
+    const attached = attachedPreloadSpecifier(word);
+    if (attached !== null && isAnyPyricRegister(attached.target, registerUrl)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function rewritePreloadTokens(
+  items: ReadonlyArray<{ readonly value: unknown; readonly raw: unknown }>,
+  registerUrl: string,
+): { readonly out: unknown[]; readonly foundRegister: boolean } {
+  const out: unknown[] = [];
+  let foundRegister = false;
+  for (let i = 0; i < items.length; i++) {
+    const item = items[i]!;
+    if (
+      typeof item.value === 'string' &&
+      TWO_TOKEN_PRELOAD_FLAGS.has(item.value) &&
+      i + 1 < items.length &&
+      typeof items[i + 1]!.value === 'string'
+    ) {
+      const nextItem = items[i + 1]!;
+      const target = nextItem.value as string;
+      if (isForeignRegisterSpecifier(target, registerUrl)) {
+        out.push(item.raw, nextItem.raw);
+        foundRegister = true;
+        i++;
+        continue;
+      }
+      if (matchesRegisterSpecifier(target, registerUrl)) {
+        if (!foundRegister) {
+          out.push('--import', registerUrl);
+          foundRegister = true;
+        }
+        i++;
+        continue;
+      }
+      out.push(item.raw, nextItem.raw);
+      i++;
+      continue;
+    }
+    if (typeof item.value === 'string') {
+      const attached = attachedPreloadSpecifier(item.value);
+      if (attached !== null) {
+        if (isForeignRegisterSpecifier(attached.target, registerUrl)) {
+          out.push(item.raw);
+          foundRegister = true;
+          continue;
+        }
+        if (matchesRegisterSpecifier(attached.target, registerUrl)) {
+          if (!foundRegister) {
+            if (attached.prefix === '--import=') {
+              out.push(`--import=${registerUrl}`);
+            } else {
+              out.push('--import', registerUrl);
+            }
+            foundRegister = true;
+          }
+          continue;
+        }
+      }
+    }
+    out.push(item.raw);
+  }
+  return { out, foundRegister };
+}
+
+/**
+ * Ensure `nodeOptions` loads `registerUrl` via its canonical `file:` URL,
+ * rewriting matching bare or filesystem-path register preloads (`--import` and
+ * `-r`/`--require`) in place while leaving the other Pyric register and all user
+ * options untouched.
+ */
+export function withCanonicalRegisterNodeOptions(nodeOptions: string, registerUrl: string): string {
+  const words = tokenizeNodeOptions(nodeOptions);
+  const importFlag = `--import ${registerUrl}`;
+  if (words.length === 0) return importFlag;
+  const { out, foundRegister } = rewritePreloadTokens(words, registerUrl);
+  if (!foundRegister) {
+    return `${nodeOptions.trimEnd()} ${importFlag}`;
+  }
+  return (out as string[]).join(' ');
+}
+
+/**
+ * Ensure a `Worker` `execArgv` array loads `registerUrl` via its canonical
+ * `file:` URL, rewriting matching register preloads in place.
+ */
+export function withCanonicalRegisterExecArgv(execArgv: readonly unknown[], registerUrl: string): unknown[] {
+  const items = execArgv.map((entry) => ({ value: entry, raw: entry }));
+  const { out, foundRegister } = rewritePreloadTokens(items, registerUrl);
+  if (!foundRegister) {
+    out.push('--import', registerUrl);
+  }
+  return out;
 }
 
 /**
@@ -121,10 +330,7 @@ export function guardChildEnv(
 ): Env {
   const guarded = withInheritedSandbox(childEnv, parentEnv, parentActive);
   const nodeOptions = guarded.NODE_OPTIONS ?? '';
-  if (!loadsRegister(nodeOptions, registerUrl)) {
-    const importFlag = `--import ${registerUrl}`;
-    guarded.NODE_OPTIONS = nodeOptions.trim() === '' ? importFlag : `${nodeOptions} ${importFlag}`;
-  }
+  guarded.NODE_OPTIONS = withCanonicalRegisterNodeOptions(nodeOptions, registerUrl);
   return guarded;
 }
 

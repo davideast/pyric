@@ -2,7 +2,16 @@ import { describe, expect, it } from 'bun:test';
 import { spawnSync } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { installViteProcessStop, viteProcessStopHook, type SyncResolve } from '../../src/serve/vite-process-stop.js';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import {
+  acquireViteLiveProcessStop,
+  acquireViteProcessStop,
+  viteProcessStopHook,
+  type SyncResolve,
+} from '../../src/serve/vite-process-stop.js';
+import { suppliedRows } from '../../src/serve/vite-supplied-rows.js';
 
 const vitePluginEntry = fileURLToPath(new URL('../../src/serve/vite-plugin.ts', import.meta.url));
 
@@ -88,36 +97,48 @@ describe('the stop hook in the Vite dev server process (ADR 0022)', () => {
   });
 });
 
-describe('installing the stop hook', () => {
+describe('acquiring the stop hook', () => {
   type Hooks = { resolve: SyncResolve };
 
-  it('installs once per process, and a Vite restart only replaces the AI mode it reads', () => {
+  it('installs once per slot and updates active lease on subsequent acquisitions', () => {
     const installed: Hooks[] = [];
     const slot: Record<symbol, unknown> = {};
     const registerHooks = (hooks: Hooks) => void installed.push(hooks);
-    const first = installViteProcessStop({ slot, registerHooks, registerActive: () => false, getAiMode: () => 'sandbox' });
-    const second = installViteProcessStop({ slot, registerHooks, registerActive: () => false, getAiMode: () => 'production' });
-    expect([first, second]).toEqual([true, true]);
+    const releaseFirst = acquireViteProcessStop({
+      slot,
+      registerHooks,
+      registerActive: () => false,
+      getAiMode: () => 'sandbox',
+      write: () => undefined,
+    });
+    const releaseSecond = acquireViteProcessStop({
+      slot,
+      registerHooks,
+      registerActive: () => false,
+      getAiMode: () => 'production',
+      write: () => undefined,
+    });
     expect(installed).toHaveLength(1);
     const resolve = installed[0]!.resolve;
     expect(resolve('firebase/ai', { parentURL: appFile }, landsOn(realFirebaseAi))).toEqual({ url: realFirebaseAi });
+    releaseSecond();
+    releaseFirst();
   });
 
   it('leaves the stop to the register when the register is active', () => {
     const installed: Hooks[] = [];
-    const result = installViteProcessStop({
+    acquireViteProcessStop({
       slot: {},
       registerHooks: (hooks) => void installed.push(hooks),
       registerActive: () => true,
     });
-    expect(result).toBe(false);
     expect(installed).toEqual([]);
   });
 
   it('throws PYRIC_UNSUPPORTED_NODE_VERSION on a Node without module.registerHooks', () => {
     const lines: string[] = [];
     const error = stopOf(() =>
-      installViteProcessStop({
+      acquireViteProcessStop({
         slot: {},
         registerHooks: undefined,
         registerActive: () => false,
@@ -155,4 +176,93 @@ describe('installing the stop hook', () => {
     expect(result.stderr).toContain('Bun');
     expect(result.stderr).toContain('module.registerHooks');
   });
+
+  it('switches cleanly from pyric() to pyricLive() and releases completely on close', () => {
+    const installed: Hooks[] = [];
+    const slot: Record<symbol, unknown> = {};
+    const registerHooks = (hooks: Hooks) => void installed.push(hooks);
+    const releaseSandbox = acquireViteProcessStop({
+      slot,
+      registerHooks,
+      registerActive: () => false,
+      getAiMode: () => 'sandbox',
+      write: () => undefined,
+    });
+    expect(installed).toHaveLength(1);
+    const resolve = installed[0]!.resolve;
+    expect(stopOf(() => resolve('firebase-admin/app', { parentURL: appFile }, landsOn(realAdminApp))).code)
+      .toBe('PYRIC_REAL_SDK_STOPPED');
+
+    const supplied = suppliedRows((specifier, plane) =>
+      Object.assign(new Error(`live refused ${specifier} on ${plane}`), { code: 'PYRIC_LIVE_REFUSED' }),
+    );
+    const releaseLive = acquireViteLiveProcessStop(supplied, {
+      slot,
+      registerHooks,
+      registerActive: () => false,
+      write: () => undefined,
+    });
+    expect(installed).toHaveLength(1);
+    // Even if the replacement server acquires before the old server closes, the top lease governs.
+    expect(stopOf(() => resolve('firebase-admin/app', { parentURL: appFile }, landsOn(realAdminApp))).code)
+      .toBe('PYRIC_LIVE_REFUSED');
+
+    releaseSandbox();
+    expect(stopOf(() => resolve('firebase-admin/app', { parentURL: appFile }, landsOn(realAdminApp))).code)
+      .toBe('PYRIC_LIVE_REFUSED');
+
+    releaseLive();
+    expect(resolve('firebase-admin/app', { parentURL: appFile }, landsOn(realAdminApp))).toEqual({
+      url: realAdminApp,
+    });
+  });
+
+  it('leaves zero leaked process-stop leases in Node when createServer() fails in pyricLive() configResolved or pyric() configureServer', () => {
+    const emptyDir = mkdtempSync(path.join(tmpdir(), 'pyric-vite-fail-live-'));
+    const badPyricDir = mkdtempSync(path.join(tmpdir(), 'pyric-vite-fail-cfg-'));
+    const wsRoot = fileURLToPath(new URL('../../../../', import.meta.url));
+    try {
+      writeFileSync(path.join(badPyricDir, 'pyric.json'), '{ malformed json\n');
+      const probe = [
+        "import path from 'node:path';",
+        "import { pathToFileURL } from 'node:url';",
+        "import { registerHooks } from 'node:module';",
+        `const wsRoot = ${JSON.stringify(wsRoot)};`,
+        'const bases = [',
+        "  pathToFileURL(path.join(wsRoot, 'packages/cli/package.json')).href,",
+        "  pathToFileURL(path.join(wsRoot, 'packages/pyric/package.json')).href,",
+        "  pathToFileURL(path.join(wsRoot, 'packages/live/package.json')).href,",
+        '];',
+        'registerHooks({',
+        '  resolve(specifier, context, nextResolve) {',
+        '    try { return nextResolve(specifier, context); } catch {}',
+        '    for (const parentURL of bases) {',
+        '      try { return nextResolve(specifier, { ...context, parentURL }); } catch {}',
+        '    }',
+        '    return nextResolve(specifier, context);',
+        '  },',
+        '});',
+        "const { createServer } = await import('vite');",
+        "const { pyric } = await import('@pyric/cli/vite');",
+        "const { pyricLive } = await import('@pyric/live/vite');",
+        `try { await createServer({ root: ${JSON.stringify(emptyDir)}, logLevel: 'silent', plugins: [pyricLive()] }); } catch {}`,
+        `try { await createServer({ root: ${JSON.stringify(badPyricDir)}, logLevel: 'silent', plugins: [pyric()] }); } catch {}`,
+        "let afterCode = 'ok';",
+        "try { await import('firebase-admin/app'); } catch (e) { afterCode = e?.code ?? 'err'; }",
+        'console.log(afterCode);',
+        'process.exit(0);',
+      ].join('\n');
+      const result = spawnSync('node', ['--input-type=module', '-e', probe], {
+        cwd: wsRoot,
+        env: { ...process.env, NODE_OPTIONS: undefined, PYRIC_SANDBOX: undefined },
+        encoding: 'utf8',
+        timeout: 30_000,
+      });
+      expect(result.status, result.stderr).toBe(0);
+      expect(result.stdout.trim()).toBe('ok');
+    } finally {
+      rmSync(emptyDir, { recursive: true, force: true });
+      rmSync(badPyricDir, { recursive: true, force: true });
+    }
+  }, 30_000);
 });

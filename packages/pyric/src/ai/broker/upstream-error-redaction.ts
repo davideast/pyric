@@ -165,20 +165,185 @@ function decoded(part: string): string {
   }
 }
 
+const BASE64_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+
+function encodeUtf8Base64(text: string): string {
+  const bytes = new TextEncoder().encode(text);
+  if (bytes.length === 0) return '';
+  let out = '';
+  let i = 0;
+  while (i + 2 < bytes.length) {
+    const triple = (bytes[i]! << 16) | (bytes[i + 1]! << 8) | bytes[i + 2]!;
+    out += BASE64_ALPHABET[(triple >> 18) & 63]!;
+    out += BASE64_ALPHABET[(triple >> 12) & 63]!;
+    out += BASE64_ALPHABET[(triple >> 6) & 63]!;
+    out += BASE64_ALPHABET[triple & 63]!;
+    i += 3;
+  }
+  const remaining = bytes.length - i;
+  if (remaining === 1) {
+    const single = bytes[i]! << 16;
+    out += BASE64_ALPHABET[(single >> 18) & 63]!;
+    out += BASE64_ALPHABET[(single >> 12) & 63]!;
+    out += '==';
+  } else if (remaining === 2) {
+    const pair = (bytes[i]! << 16) | (bytes[i + 1]! << 8);
+    out += BASE64_ALPHABET[(pair >> 18) & 63]!;
+    out += BASE64_ALPHABET[(pair >> 12) & 63]!;
+    out += BASE64_ALPHABET[(pair >> 6) & 63]!;
+    out += '=';
+  }
+  return out;
+}
+
+function synthesizedBasicTokens(url: string, rawUserinfo: string): string[] {
+  const tokens: string[] = [];
+  const colon = rawUserinfo.indexOf(':');
+  let rawUser = rawUserinfo;
+  let rawPass = '';
+  if (colon >= 0) {
+    rawUser = rawUserinfo.slice(0, colon);
+    rawPass = rawUserinfo.slice(colon + 1);
+  }
+  if (rawUser !== '' || rawPass !== '') {
+    tokens.push(encodeUtf8Base64(`${decoded(rawUser)}:${decoded(rawPass)}`));
+    tokens.push(encodeUtf8Base64(`${rawUser}:${rawPass}`));
+  }
+  try {
+    const parsed = new URL(url);
+    if (parsed.username !== '' || parsed.password !== '') {
+      tokens.push(encodeUtf8Base64(`${decoded(parsed.username)}:${decoded(parsed.password)}`));
+    }
+  } catch {
+    // Malformed authority userinfo already covered above.
+  }
+  return tokens.filter((token) => token !== '');
+}
+
+const CREDENTIAL_QUERY_KEYS = ['key', 'api_key', 'apikey', 'access_token'] as const;
+
+function queryValuesFromSearch(rawSearch: string): string[] {
+  const values: string[] = [];
+  const params = new URLSearchParams(rawSearch);
+  for (const [paramName, paramValue] of params.entries()) {
+    const lower = paramName.toLowerCase();
+    const isCredentialParam = CREDENTIAL_QUERY_KEYS.some((key) => key === lower);
+    if (isCredentialParam && paramValue !== '') {
+      values.push(paramValue);
+    }
+  }
+  return values;
+}
+
+function urlQueryCredentials(urlWithoutUserinfo: string): string[] {
+  try {
+    return queryValuesFromSearch(new URL(urlWithoutUserinfo).search);
+  } catch {
+    const queryAt = urlWithoutUserinfo.indexOf('?');
+    if (queryAt === -1) return [];
+    const hashAt = urlWithoutUserinfo.indexOf('#', queryAt);
+    let rawQuery = urlWithoutUserinfo.slice(queryAt + 1);
+    if (hashAt !== -1) {
+      rawQuery = urlWithoutUserinfo.slice(queryAt + 1, hashAt);
+    }
+    return queryValuesFromSearch(rawQuery);
+  }
+}
+
+/** Strips a trailing path `/` without truncating query strings or fragments (such as Base64 keys ending in `/`). */
+export function normalizeUpstreamBaseUrl(raw: string): string {
+  if (/[?#]/.test(raw)) return raw;
+  return raw.replace(/\/$/, '');
+}
+
+function stripTrailingPathSlash(hostAndPath: string): string {
+  const firstSlash = hostAndPath.indexOf('/');
+  if (firstSlash === -1) return hostAndPath;
+  return hostAndPath.replace(/\/+$/, '');
+}
+
 /**
- * The username and password an upstream URL carries, as written,
- * percent-encoded and percent-decoded, for the exact-string masking
- * {@link redactUpstreamText} applies (#1766).
+ * Joins an upstream `baseUrl` (which may itself carry query parameters or `#1766`
+ * malformed userinfo) with `suffix` (path plus optional `?query`) and optional
+ * `requestSearch`, preserving existing query encoding and `#1766` userinfo.
+ */
+export function joinUpstreamUrl(upstreamBase: string, suffix: string, requestSearch = ''): string {
+  let suffixPath = suffix;
+  let suffixQuery = '';
+  const suffixQueryAt = suffix.indexOf('?');
+  if (suffixQueryAt !== -1) {
+    suffixPath = suffix.slice(0, suffixQueryAt);
+    suffixQuery = suffix.slice(suffixQueryAt + 1);
+  }
+  let normalizedSuffix = suffixPath;
+  if (suffixPath !== '' && !suffixPath.startsWith('/')) {
+    normalizedSuffix = `/${suffixPath}`;
+  }
+
+  let authorityPrefix = '';
+  let remainder = upstreamBase;
+  const located = locateUserinfo(upstreamBase);
+  if (located !== undefined) {
+    authorityPrefix = `${located.schemePrefix}${located.rawUserinfo}@`;
+    remainder = located.afterAt;
+  } else {
+    const schemeMatch = SCHEME_PREFIX.exec(upstreamBase);
+    if (schemeMatch !== null) {
+      authorityPrefix = schemeMatch[1]!;
+      remainder = upstreamBase.slice(authorityPrefix.length);
+    }
+  }
+
+  let beforeHash = remainder;
+  let hashSuffix = '';
+  const hashAt = remainder.indexOf('#');
+  if (hashAt !== -1) {
+    beforeHash = remainder.slice(0, hashAt);
+    hashSuffix = remainder.slice(hashAt);
+  }
+
+  let hostAndPath = beforeHash;
+  let baseQuery = '';
+  const queryAt = beforeHash.indexOf('?');
+  if (queryAt !== -1) {
+    hostAndPath = beforeHash.slice(0, queryAt);
+    baseQuery = beforeHash.slice(queryAt + 1);
+  }
+
+  const joinedHostAndPath = `${stripTrailingPathSlash(hostAndPath)}${normalizedSuffix}`;
+  const queryParts: string[] = [];
+  if (baseQuery !== '') queryParts.push(baseQuery);
+  if (suffixQuery !== '') queryParts.push(suffixQuery);
+  if (requestSearch !== '') {
+    let trimmedReq = requestSearch;
+    if (requestSearch.startsWith('?')) trimmedReq = requestSearch.slice(1);
+    if (trimmedReq !== '') queryParts.push(trimmedReq);
+  }
+  const combinedQuery = queryParts.join('&');
+  if (combinedQuery === '') {
+    return `${authorityPrefix}${joinedHostAndPath}${hashSuffix}`;
+  }
+  return `${authorityPrefix}${joinedHostAndPath}?${combinedQuery}${hashSuffix}`;
+}
+
+/**
+ * The username, password, synthesized Basic-auth token, and credential query
+ * parameters (`key`, `api_key`, `apikey`, `access_token`) an upstream URL
+ * carries, as written, percent-encoded and percent-decoded (#1766).
  */
 export function urlCredentials(url: string): string[] {
   const located = locateUserinfo(url);
-  if (located === undefined) return [];
+  const withoutUserinfo = located === undefined ? url : `${located.schemePrefix}${located.afterAt}`;
+  const queryCreds = urlQueryCredentials(withoutUserinfo);
+  if (located === undefined) return [...new Set(queryCreds)];
   const parts = [
     located.rawUserinfo,
     ...userinfoParts(located.rawUserinfo),
     ...parsedAuthorityUserinfo(url),
   ].filter((part) => part !== '');
-  return [...new Set(parts.flatMap((part) => [part, decoded(part)]))];
+  const expanded = parts.flatMap((part) => [part, decoded(part)]);
+  expanded.push(...synthesizedBasicTokens(url, located.rawUserinfo), ...queryCreds);
+  return [...new Set(expanded)];
 }
 
 /** `url` as it is shown: without its userinfo, and with credential parameters masked. */
@@ -226,4 +391,72 @@ export function redactUpstreamError(text: string, credentials: readonly string[]
   const json = parseJson(text);
   if (json === undefined) return redactUpstreamText(text, credentials);
   return JSON.stringify(redactValue(json.value, credentials));
+}
+
+function isJsonErrorEvent(data: string): boolean {
+  try {
+    const value = JSON.parse(data) as unknown;
+    return value !== null && typeof value === 'object' && 'error' in value;
+  } catch {
+    return false;
+  }
+}
+
+function maskSseLine(
+  line: string,
+  credentials: readonly string[],
+  state: { eventIsError: boolean },
+): string {
+  const carriageReturn = line.endsWith('\r') ? '\r' : '';
+  const body = line.slice(0, line.length - carriageReturn.length);
+  if (body === '') {
+    state.eventIsError = false;
+    return line;
+  }
+  if (/^event:\s*error$/i.test(body)) {
+    state.eventIsError = true;
+    return line;
+  }
+  const prefix = /^data: ?/.exec(body)?.[0];
+  if (prefix === undefined) return line;
+  const data = body.slice(prefix.length);
+  if (!state.eventIsError && !isJsonErrorEvent(data)) return line;
+  return `${prefix}${redactUpstreamError(data, credentials)}${carriageReturn}`;
+}
+
+/**
+ * Wraps an SSE `2xx` byte stream so any error event (`data: {"error": ...}` or
+ * `event: error`) has its credentials masked before reaching the caller, while
+ * streaming complete lines immediately in linear time without buffering.
+ */
+export function maskStreamErrors(
+  body: ReadableStream<Uint8Array>,
+  credentials: readonly string[],
+): ReadableStream<Uint8Array> {
+  const decoder = new TextDecoder();
+  const encoder = new TextEncoder();
+  const state = { eventIsError: false };
+  let pending = '';
+  return body.pipeThrough(
+    new TransformStream<Uint8Array, Uint8Array>({
+      transform(bytes, controller) {
+        const arrived = decoder.decode(bytes, { stream: true });
+        const lastNewline = arrived.lastIndexOf('\n');
+        if (lastNewline === -1) {
+          pending += arrived;
+          return;
+        }
+        const lines = (pending + arrived.slice(0, lastNewline)).split('\n');
+        pending = arrived.slice(lastNewline + 1);
+        const masked = lines.map((line) => `${maskSseLine(line, credentials, state)}\n`).join('');
+        controller.enqueue(encoder.encode(masked));
+      },
+      flush(controller) {
+        pending += decoder.decode();
+        if (pending !== '') {
+          controller.enqueue(encoder.encode(maskSseLine(pending, credentials, state)));
+        }
+      },
+    }),
+  );
 }

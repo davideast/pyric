@@ -201,12 +201,13 @@ describe('contentTypeFor', () => {
 });
 
 describe('isAllowedHost (DNS-rebinding guard)', () => {
-  it('allows loopback hostnames + the bound host, with/without port', () => {
+  it('allows loopback hostnames + non-wildcard bound host, with/without port', () => {
     expect(isAllowedHost('localhost:5000', 'localhost')).toBe(true);
     expect(isAllowedHost('127.0.0.1:8080', 'localhost')).toBe(true);
     expect(isAllowedHost('127.0.0.2:8080', 'localhost')).toBe(true);
     expect(isAllowedHost('[::1]:5000', 'localhost')).toBe(true);
-    expect(isAllowedHost('0.0.0.0', '0.0.0.0')).toBe(true);
+    expect(isAllowedHost('0.0.0.0', '0.0.0.0')).toBe(false);
+    expect(isAllowedHost('[::]', '::')).toBe(false);
     expect(isAllowedHost('0.0.0.0:5000', 'localhost')).toBe(false);
     expect(isAllowedHost('0.0.0.0:5000', '127.0.0.1')).toBe(false);
     expect(isAllowedHost('my-box.local', 'my-box.local')).toBe(true); // bound host

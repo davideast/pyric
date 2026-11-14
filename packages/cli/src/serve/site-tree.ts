@@ -117,11 +117,6 @@ export function createSiteTreeHandler(
     res: ServerResponse,
     url: URL,
   ): boolean => {
-    // URL parsing normalizes encoded dot segments before `url.pathname`
-    // reaches us. Route and validate against the raw request target so an
-    // encoded traversal cannot cross from Studio into docs or static assets.
-    // Connect preserves that target in `originalUrl` after stripping a mount
-    // prefix from `url`.
     const rawPathname = rawRequestPathname(req, url);
     const isOutsideSite = !isSiteTreePath(rawPathname);
     if (isOutsideSite) {
@@ -235,11 +230,14 @@ export function createSiteTreeHandler(
     if (canBootstrap && sessionToken) {
       appendSetCookieHeader(res, formatSessionCookie(sessionToken));
     }
-    res.writeHead(200, {
+    const responseHeaders: Record<string, string> = {
       'content-type': contentType,
       'cache-control': 'no-store',
-      ...(isStudioHtml ? { 'x-frame-options': 'SAMEORIGIN' } : {}),
-    });
+    };
+    if (isStudioHtml) {
+      responseHeaders['x-frame-options'] = 'SAMEORIGIN';
+    }
+    res.writeHead(200, responseHeaders);
     if (isStudioHtml) {
       res.end(
         stampHostedTarget(
