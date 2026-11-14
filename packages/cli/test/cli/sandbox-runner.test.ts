@@ -268,6 +268,112 @@ describe('buildChildEnv', () => {
     expect(parsed.token).toBe('cap-token-123');
   });
 
+  it('protects PYRIC_SANDBOX and host binding env vars from inline KEY=VAL assignments and keeps register --import alongside outer *register* preloads', async () => {
+    const { spawnSandboxChild } = await import('../../src/cli/sandbox-runner.js');
+    const registerUrl = registerModuleUrl();
+    const baseEnv = buildChildEnv(
+      {
+        ...process.env,
+        NODE_OPTIONS: '--import file:///tmp/benign-custom-register.mjs',
+      },
+      {
+        serveUrl: 'http://127.0.0.1:3473',
+        registerUrl,
+        instanceId: 'pinned-host-id',
+        sessionToken: 'pinned-cap-token',
+      },
+    );
+    const lines: string[] = [];
+    const origWrite = process.stdout.write.bind(process.stdout);
+    process.stdout.write = ((chunk: string | Uint8Array) => {
+      lines.push(String(chunk));
+      return true;
+    }) as typeof process.stdout.write;
+    try {
+      const handle = spawnSandboxChild(
+        {
+          argv: [
+            'PYRIC_SANDBOX=',
+            'PYRIC_SESSION_TOKEN=forged',
+            'PYRIC_SANDBOX_INSTANCE=forged',
+            'NODE_OPTIONS=--max-old-space-size=256',
+            process.execPath,
+            '-e',
+            'console.log(JSON.stringify({ sandbox: process.env.PYRIC_SANDBOX, token: process.env.PYRIC_SESSION_TOKEN, instance: process.env.PYRIC_SANDBOX_INSTANCE, nodeOptions: process.env.NODE_OPTIONS }))',
+          ],
+          label: 'probe',
+        },
+        { cwd: process.cwd(), env: baseEnv, json: false },
+      );
+      expect(await handle.exited).toBe(0);
+    } finally {
+      process.stdout.write = origWrite;
+    }
+    const rawLine = lines.join('').replace(/^\[dev\]\s*/gm, '').trim().split('\n').pop() ?? '{}';
+    const parsed = JSON.parse(rawLine) as {
+      sandbox?: string;
+      token?: string;
+      instance?: string;
+      nodeOptions?: string;
+    };
+    expect(parsed.sandbox).toBe('remote:http://127.0.0.1:3473');
+    expect(parsed.token).toBe('pinned-cap-token');
+    expect(parsed.instance).toBe('pinned-host-id');
+    expect(parsed.nodeOptions).toContain('--max-old-space-size=256');
+    expect(parsed.nodeOptions).toContain(`--import ${registerUrl}`);
+  });
+
+  it('protects PYRIC_SANDBOX and NODE_OPTIONS when child command invokes env with overrides or -u/--unset', async () => {
+    const { spawnSandboxChild } = await import('../../src/cli/sandbox-runner.js');
+    const registerUrl = registerModuleUrl();
+    const baseEnv = buildChildEnv(
+      { ...process.env },
+      {
+        serveUrl: 'http://127.0.0.1:3473',
+        registerUrl,
+        sessionToken: 'pinned-cap-token',
+      },
+    );
+    for (const envCmd of [
+      ['env', 'PYRIC_SANDBOX=', 'CUSTOM=1'],
+      ['env', '-u', 'PYRIC_SANDBOX', '-u', 'NODE_OPTIONS', 'CUSTOM=1'],
+      ['env', '--unset=PYRIC_SANDBOX', '--unset=NODE_OPTIONS', 'CUSTOM=1'],
+    ]) {
+      const lines: string[] = [];
+      const origWrite = process.stdout.write.bind(process.stdout);
+      process.stdout.write = ((chunk: string | Uint8Array) => {
+        lines.push(String(chunk));
+        return true;
+      }) as typeof process.stdout.write;
+      let handle: ReturnType<typeof spawnSandboxChild> | undefined;
+      try {
+        handle = spawnSandboxChild(
+          {
+            argv: [
+              ...envCmd,
+              process.env.PYRIC_TEST_NODE ?? 'node',
+              '-e',
+              'console.log(JSON.stringify({ sandbox: process.env.PYRIC_SANDBOX, custom: process.env.CUSTOM, active: Boolean(globalThis[Symbol.for("pyric.register.active")]) })); process.exit(0);',
+            ],
+            label: 'env-probe',
+          },
+          { cwd: process.cwd(), env: baseEnv, json: false },
+        );
+        expect(await handle.exited).toBe(0);
+      } finally {
+        handle?.signal('SIGKILL');
+        process.stdout.write = origWrite;
+      }
+      const rawLine = lines.join('').replace(/^\[dev\]\s*/gm, '').trim().split('\n').pop() ?? '{}';
+      const parsed = JSON.parse(rawLine) as { sandbox?: string; custom?: string; active?: boolean };
+      expect(parsed).toEqual({
+        sandbox: 'remote:http://127.0.0.1:3473',
+        custom: '1',
+        active: true,
+      });
+    }
+  }, 30_000);
+
   // #2609: `NODE_ENV=production pyric sandbox -- next dev` must reach the
   // register's production refusal; the runner never chooses the override.
   for (const [label, inherited, inline] of [

@@ -8,7 +8,12 @@ import {
   getClientStopSpecifiers,
   getNodeBuiltinFallbacks,
 } from './client-aliases.js';
-import { BRIDGE_IMPORT_LOADER, productionBridgeOptions, type BridgeImportOptions } from './bridge-imports.js';
+import {
+  BRIDGE_IMPORT_LOADER,
+  PRODUCTION_AI_SDK_FILE_PATTERN,
+  productionBridgeOptions,
+  type BridgeImportOptions,
+} from './bridge-imports.js';
 
 interface WebpackOptions {
   isServer: boolean;
@@ -48,20 +53,23 @@ function assembleClientResolveSection(existingResolve: Record<string, any> | und
  */
 function assembleClientModuleSection(
   existingModule: { rules?: unknown[]; [key: string]: unknown } | undefined,
-):{ rules?: unknown[]; [key: string]: unknown } | undefined {
+): { rules?: unknown[]; [key: string]: unknown } | undefined {
   const options = productionBridgeOptions();
   if (options === undefined) return existingModule;
   const moduleSection = Object.assign({}, existingModule);
   const rules = Array.isArray(moduleSection.rules) ? [...moduleSection.rules] : [];
-  const rule: WebpackBridgeRule = { test: Object.keys(options.wrappers), use: [{ loader: BRIDGE_IMPORT_LOADER, options }] };
+  const rule: WebpackBridgeRule = {
+    test: [...Object.keys(options.wrappers), PRODUCTION_AI_SDK_FILE_PATTERN],
+    use: [{ loader: BRIDGE_IMPORT_LOADER, options }],
+  };
   rules.push(rule);
   moduleSection.rules = rules;
   return moduleSection;
 }
 
-/** The webpack rule that runs the bridge import loader on the wrappers. */
+/** The webpack rule that runs the bridge import loader on the wrappers and production AI SDK browser files. */
 export interface WebpackBridgeRule {
-  test: string[];
+  test: Array<string | RegExp>;
   use: Array<{ loader: string; options: BridgeImportOptions }>;
 }
 

@@ -52,8 +52,8 @@ const specifiers = JSON.parse(list);
 const loaded = [];
 Module.registerHooks({ load(url, context, next) { loaded.push(url); return next(url, context); } });
 if (mode === 'plain') {
-  const { installViteProcessStop } = await import(new URL('serve/vite-process-stop.js', dist).href);
-  installViteProcessStop({ write: () => undefined });
+  const { acquireViteProcessStop } = await import(new URL('serve/vite-process-stop.js', dist).href);
+  acquireViteProcessStop({ write: () => undefined });
 }
 const { createViteModuleContext, createViteModuleSwap } = await import(new URL('serve/vite-module-swap.js', dist).href);
 const swap = createViteModuleSwap(createViteModuleContext());

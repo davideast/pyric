@@ -93,7 +93,7 @@ function bothLayouts(stems: readonly string[]): string[] {
  * whose only purpose is the effect, and the CLI's own esbuild pass over that
  * directory would drop it under a tighter list.
  */
-const CLI_SIDE_EFFECT_STEMS = ['register/index', 'serve/entries/*'];
+const CLI_SIDE_EFFECT_STEMS = ['next/client-stop', 'register/index', 'serve/entries/*'];
 
 /**
  * The one place `pyric`'s allowlist is written down: every module that
@@ -253,6 +253,17 @@ describe('sideEffects survives a real tree-shaking pass', () => {
       keep: ['pyric'],
     });
     expect(output).toContain('installDefaultAppResolver');
+  }, 60_000);
+
+  it('keeps the @pyric/cli/next/internal/client-stop top-level stop throw', async () => {
+    const dir = scratchLinking('@pyric/cli', CLI_ROOT);
+    const output = await bundleSideEffectOnlyImport({
+      dir,
+      specifier: '@pyric/cli/next/internal/client-stop',
+      keep: ['@pyric'],
+      platform: 'browser',
+    });
+    expect(output).toContain('PYRIC_REAL_SDK_STOPPED');
   }, 60_000);
 
   // The swap entries are aliased in as `firebase/*` (vite-module-swap and the

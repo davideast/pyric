@@ -5,9 +5,15 @@
  * which both bundlers resolve from the application's own dependencies.
  */
 import { describe, expect, it } from 'bun:test';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { getClientAliases } from '../../../src/next/client-aliases.js';
+import {
+  clientStopTurbopackTarget,
+  getClientAliases,
+  getClientStopSpecifiers,
+} from '../../../src/next/client-aliases.js';
 import { bridgeImportOptions } from '../../../src/next/bridge-imports.js';
 import bridgeImportLoader from '../../../src/next/bridge-import-loader.js';
 import { isBypassedBridgeImport, swappedFirebaseEntries } from '../../../src/serve/firebase-module-swap.js';
@@ -60,6 +66,49 @@ describe('client aliases', () => {
   it('aliases no @firebase/* package', () => {
     const scoped = Object.keys(getClientAliases()).filter((source) => source.startsWith('@firebase/'));
     expect(scoped).toEqual([]);
+  });
+
+  it('stops @firebase/* subpath exports, npm-aliased SDK subpaths, and direct @firebase/app in production AI mode, while keeping Turbopack stop target non-leading-slash in hoisted monorepos', () => {
+    const monoRoot = mkdtempSync(join(tmpdir(), 'pyric-next-mono-'));
+    try {
+      const webDir = join(monoRoot, 'apps/web');
+      mkdirSync(webDir, { recursive: true });
+      const aliasDir = join(monoRoot, 'node_modules/aliased-firebase');
+      mkdirSync(aliasDir, { recursive: true });
+      writeFileSync(
+        join(aliasDir, 'package.json'),
+        JSON.stringify({
+          name: 'firebase',
+          version: '12.19.0',
+          exports: {
+            '.': './index.js',
+            './app': './app.js',
+            './firestore': './firestore.js',
+          },
+        }),
+      );
+
+      const sandboxStops = new Set(getClientStopSpecifiers('sandbox', webDir));
+      expect(sandboxStops.has('@firebase/firestore/lite')).toBe(true);
+      expect(sandboxStops.has('@firebase/firestore/pipelines')).toBe(true);
+      expect(sandboxStops.has('firebase/firestore/pipelines')).toBe(true);
+      expect(sandboxStops.has('@firebase/auth/web-extension')).toBe(true);
+      expect(sandboxStops.has('@firebase/messaging/sw')).toBe(true);
+      expect(sandboxStops.has('aliased-firebase')).toBe(true);
+      expect(sandboxStops.has('aliased-firebase/firestore')).toBe(true);
+
+      const prodStops = new Set(getClientStopSpecifiers('production', webDir));
+      expect(prodStops.has('firebase/ai')).toBe(false);
+      expect(prodStops.has('@firebase/app')).toBe(true);
+      expect(prodStops.has('@firebase/ai')).toBe(true);
+
+      expect(clientStopTurbopackTarget.length).toBe(0);
+      const turboTarget = clientStopTurbopackTarget();
+      expect(turboTarget.startsWith('/')).toBe(false);
+      expect(import.meta.resolve(turboTarget)).toStartWith('file://');
+    } finally {
+      rmSync(monoRoot, { recursive: true, force: true });
+    }
   });
 });
 

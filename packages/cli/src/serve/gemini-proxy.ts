@@ -9,17 +9,15 @@
  * successful answer streams back unchanged, except an error event inside a
  * stream, which has any credential it quotes masked (#1660). An error comes
  * back with its status and with any credential it quotes masked, so the
- * browser engine reads Gemini's own error and never the key. The body is bounded as the
- * openai route's is.
- *
- * The browser chooses only the model and the call. The target and the
- * credentials are the server's, so no page can send the key anywhere else.
- * The App Check gate runs before any of this, in the broker that owns the
- * browser engine.
+ * browser engine reads Gemini's own error and never the key.
  */
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { GeminiUpstream, type GeminiUpstreamOptions } from 'pyric/ai/internal';
-import { redactUpstreamError } from 'pyric/ai/internal';
+import {
+  GeminiUpstream,
+  maskStreamErrors,
+  redactUpstreamError,
+  type GeminiUpstreamOptions,
+} from 'pyric/ai/internal';
 import type { ServeLogger } from './server.js';
 import { fetchAiUpstream, readAiProxyBody, relayAiUpstream, type AiDiagnosticThrottle } from './ai-proxy.js';
 import { GEMINI_PROXY_PATH } from './worker/ai-proxy-paths.js';
@@ -37,10 +35,10 @@ export interface GeminiProxyConfig {
 export function geminiProxyConfig(engine: AiEngineConfigWire | undefined): GeminiProxyConfig | undefined {
   const isGemini = engine?.kind === 'gemini';
   if (!isGemini) return undefined;
-  return {
-    ...(engine.baseUrl !== undefined ? { baseUrl: engine.baseUrl } : {}),
-    ...(engine.apiKey !== undefined ? { apiKey: engine.apiKey } : {}),
-  };
+  const out: GeminiProxyConfig = {};
+  if (engine.baseUrl !== undefined) out.baseUrl = engine.baseUrl;
+  if (engine.apiKey !== undefined) out.apiKey = engine.apiKey;
+  return out;
 }
 
 /** `/v1beta/models/<model>:<call>`, for the three calls the browser engine makes. */
@@ -79,7 +77,11 @@ function sendEnvelope(res: ServerResponse, code: number, message: string, status
  * removed, in whatever form the upstream quotes them, and a JSON envelope
  * kept parseable (`redactUpstreamError`, shared with the gemini engine).
  */
-async function relayRedactedError(upstream: Response, credentials: readonly string[], res: ServerResponse): Promise<void> {
+async function relayRedactedError(
+  upstream: Response,
+  credentials: readonly string[],
+  res: ServerResponse,
+): Promise<void> {
   const text = redactUpstreamError(await upstream.text().catch(() => ''), credentials);
   const headers: Record<string, string> = { 'cache-control': 'no-store' };
   const contentType = upstream.headers.get('content-type');
@@ -88,61 +90,17 @@ async function relayRedactedError(upstream: Response, credentials: readonly stri
   res.end(text);
 }
 
-/** Does this SSE `data:` payload hold an error event, `{"error": ...}`? */
-function isErrorEvent(data: string): boolean {
-  try {
-    const value = JSON.parse(data) as unknown;
-    return value !== null && typeof value === 'object' && 'error' in value;
-  } catch {
-    return false;
-  }
-}
-
-/** One SSE line, with an error event's data masked; any other line as it came. */
-function maskDataLine(line: string, credentials: readonly string[]): string {
-  const prefix = /^data: ?/.exec(line)?.[0];
-  if (prefix === undefined) return line;
-  const carriageReturn = line.endsWith('\r') ? '\r' : '';
-  const data = line.slice(prefix.length, line.length - carriageReturn.length);
-  if (!isErrorEvent(data)) return line;
-  return `${prefix}${redactUpstreamError(data, credentials)}${carriageReturn}`;
-}
-
-/**
- * A 2xx stream with every error event's credentials masked, as the gemini
- * engine masks the same event (#1660). Lines pass on as soon as they are
- * complete; only a partial line waits for the rest.
- */
-function maskStreamErrors(body: ReadableStream<Uint8Array>, credentials: readonly string[]): ReadableStream<Uint8Array> {
-  const decoder = new TextDecoder();
-  const encoder = new TextEncoder();
-  let pending = '';
-  return body.pipeThrough(new TransformStream<Uint8Array, Uint8Array>({
-    transform(bytes, controller) {
-      // Only the new text is searched, so one long line over many reads stays linear.
-      const arrived = decoder.decode(bytes, { stream: true });
-      const lastNewline = arrived.lastIndexOf('\n');
-      const completesNoLine = lastNewline === -1;
-      if (completesNoLine) {
-        pending += arrived;
-        return;
-      }
-      const lines = (pending + arrived.slice(0, lastNewline)).split('\n');
-      pending = arrived.slice(lastNewline + 1);
-      controller.enqueue(encoder.encode(lines.map((line) => `${maskDataLine(line, credentials)}\n`).join('')));
-    },
-    flush(controller) {
-      pending += decoder.decode();
-      if (pending !== '') controller.enqueue(encoder.encode(maskDataLine(pending, credentials)));
-    },
-  }));
-}
-
 /** The upstream's 2xx answer, a stream's error events masked whatever content type it names. */
 function maskedSuccess(response: Response, action: string, credentials: readonly string[]): Response {
-  const isStream = action.startsWith('streamGenerateContent') && response.body !== null;
-  if (!isStream) return response;
-  return new Response(maskStreamErrors(response.body, credentials), { status: response.status, headers: response.headers });
+  const contentType = response.headers.get('content-type')?.toLowerCase() ?? '';
+  const isStream =
+    (action.startsWith('streamGenerateContent') || contentType.includes('text/event-stream')) &&
+    response.body !== null;
+  if (!isStream || response.body === null) return response;
+  return new Response(maskStreamErrors(response.body, credentials), {
+    status: response.status,
+    headers: response.headers,
+  });
 }
 
 /**
@@ -156,15 +114,17 @@ export function createGeminiProxy(
   logger?: ServeLogger,
   seams: Pick<GeminiUpstreamOptions, 'printAdcToken'> = {},
 ): (req: IncomingMessage, res: ServerResponse, url: URL) => Promise<void> {
-  const upstream = new GeminiUpstream({
+  const upstreamOptions: GeminiUpstreamOptions = {
     ...seams,
-    ...(config?.baseUrl !== undefined ? { baseUrl: config.baseUrl } : {}),
-    ...(config?.apiKey !== undefined ? { apiKey: config.apiKey } : {}),
     fetch: Object.assign(
-      (input: Parameters<typeof fetch>[0], init?: RequestInit) => fetchAiUpstream(input, init, throttle, logger),
+      (input: Parameters<typeof fetch>[0], init?: RequestInit) =>
+        fetchAiUpstream(input, init, throttle, logger),
       { preconnect: fetch.preconnect },
     ),
-  });
+  };
+  if (config?.baseUrl !== undefined) upstreamOptions.baseUrl = config.baseUrl;
+  if (config?.apiKey !== undefined) upstreamOptions.apiKey = config.apiKey;
+  const upstream = new GeminiUpstream(upstreamOptions);
   return async (req, res, url) => {
     if (req.method !== 'POST') {
       res.writeHead(405, { allow: 'POST' }).end('method not allowed');
@@ -172,7 +132,12 @@ export function createGeminiProxy(
     }
     const call = geminiCall(url);
     if (call === null) {
-      sendEnvelope(res, 404, `pyric dev ai-proxy: ${url.pathname} is not a Gemini call the proxy sends.`, 'NOT_FOUND');
+      sendEnvelope(
+        res,
+        404,
+        `pyric dev ai-proxy: ${url.pathname} is not a Gemini call the proxy sends.`,
+        'NOT_FOUND',
+      );
       return;
     }
     const body = await readAiProxyBody(req, res);
@@ -182,8 +147,6 @@ export function createGeminiProxy(
     try {
       ({ response, credentials } = await upstream.sendWithCredentials(call.resource, call.action, body));
     } catch (error) {
-      // Missing credentials (401) and an unreachable upstream (502) come as
-      // the engine's own envelopes, already redacted.
       const envelope = serializeError(error).aiEnvelope;
       if (envelope === undefined) throw error;
       sendEnvelope(res, envelope.error.code, envelope.error.message, envelope.error.status);

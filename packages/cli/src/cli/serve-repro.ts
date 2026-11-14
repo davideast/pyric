@@ -13,7 +13,7 @@
 import { existsSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import type { ParsedArgs } from './parse-args.js';
-import { discoverServe, probeHostUrl, type Discovered } from '../serve/discovery.js';
+import { discoverServe, probeHostUrl, selectProjectHost, type Discovered } from '../serve/discovery.js';
 import { HOSTED_REPRO_PATH } from '../serve/hosted/method-protocol.js';
 import {
   discoverHttpsPointer,
@@ -33,15 +33,6 @@ export interface ServeReproDeps {
 }
 
 const DEFAULT_OUT = 'pyric-repro.json';
-
-function isLoopbackHost(hostname: string): boolean {
-  return (
-    hostname === 'localhost' ||
-    hostname === '::1' ||
-    hostname === '[::1]' ||
-    /^127(?:\.\d{1,3}){3}$/.test(hostname)
-  );
-}
 
 async function resolveExplicitUrlHost(
   command: string,
@@ -127,9 +118,14 @@ export async function fetchReproBody(
     base = resolvedHost.base;
     instanceId = resolvedHost.instanceId;
   } else {
-    const host = discover
-      ? await discover(projectDir)
-      : (await discoverHttpsPointer(projectDir)) ?? (await discoverServe(projectDir));
+    let host: Discovered | null;
+    if (discover) {
+      host = await discover(projectDir);
+    } else {
+      host =
+        (await discoverHttpsPointer(projectDir)) ??
+        selectProjectHost(await discoverServe(projectDir, () => {}), () => {});
+    }
     if (host === null || host.instanceId === null) {
       err.write(`pyric ${command}: no running Node host found for this project. Start \`pyric sandbox\` or the Vite dev server, reproduce the problem, then run this command.\n`);
       return { exit: 2 };
@@ -141,22 +137,17 @@ export async function fetchReproBody(
 
   let response: Response;
   try {
-    let token = resolveSessionTokenForTarget({
+    const token = resolveSessionTokenForTarget({
       explicitToken,
       url: base,
       cwd: projectDir,
     });
-    if (token === undefined && typeof options.url === 'string') {
-      const parsedBase = new URL(base);
-      const envToken = process.env.PYRIC_SESSION_TOKEN;
-      if (isLoopbackHost(parsedBase.hostname) && typeof envToken === 'string' && envToken.length > 0) {
-        token = envToken;
-      }
+    let targetProjectDir: string;
+    if (typeof options.url === 'string' && options.explicitProjectDir === undefined) {
+      targetProjectDir = await resolveHostedProjectKey(base, token, projectDir);
+    } else {
+      targetProjectDir = realpathSync(projectDir);
     }
-    const targetProjectDir =
-      typeof options.url === 'string' && options.explicitProjectDir === undefined
-        ? await resolveHostedProjectKey(base, token, projectDir)
-        : realpathSync(projectDir);
     const headers: Record<string, string> = { 'content-type': 'application/json' };
     if (token !== undefined) headers['x-pyric-session-token'] = token;
     const tlsCwd =
