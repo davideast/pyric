@@ -4,9 +4,15 @@
 // under a single non-cancelling concurrency group (`merge-queue`).
 //
 // Add the `merge-queue` label to an open pull request targeting `main` to
-// enqueue it. Each pass gathers repository state, asks `merge-queue.ts` for
-// the next pure action, and executes transitions until the queue is either
-// idle or waiting on an asynchronous check run.
+// enqueue it. Each pass gathers repository state, asks `merge-queue.ts` for the next pure action, and executes transitions
+// until the queue is either idle or waiting on an asynchronous check run.
+//
+// A batch is staged as a chain of merge commits, one per pull request, on top
+// of `main`. A batch of two or more gets one more commit on top: the same
+// tree, with `main` as its first parent and the chain as its second, so the
+// commit that lands has the previous `main` as its first parent whatever the
+// batch size. Landing pushes that commit to `main` without force, so `main`
+// becomes the commit the staging run proved, or does not move at all.
 
 import { spawnSync } from 'node:child_process';
 import { appendFileSync, mkdtempSync, writeFileSync } from 'node:fs';
@@ -14,38 +20,35 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   QUEUE_LABEL,
+  REFUSED_BRANCH,
   STAGING_BRANCH,
   decideQueueStep,
   dequeueComment,
-  formatStagingCommit,
+  formatStagingTrailers,
+  landedComment,
+  type DequeueAction,
+  type LandAction,
+  type QueueAction,
+  type QueuedPull,
   parseStagingCommit,
   type ActiveStaging,
   type CheckState,
-  type QueueAction,
   type QueueFacts,
-  type QueuedPull,
+  type StageAction,
+  type StagedMeta,
   type StagingRun,
 } from './merge-queue.ts';
 
 const BUILD_WORKFLOW = 'build.yml';
 const SLOW_WORKFLOW = 'slow-scenarios.yml';
-const SIMULATOR_WORKFLOW = 'simulator-parity.yml';
 const REQUIRED_CHECK = 'CI / required';
-const MAX_TRANSITIONS = 5;
-
-export const SIMULATOR_PARITY_GLOBS: readonly string[] = [
-  'packages/pyric/src/firestore/sandbox/**',
-  'packages/rules/src/grammar/**',
-  'packages/rules/src/simulator/**',
-  'packages/pyric/src/rules-tools/**',
-  'packages/pyric/test/sandbox/firestore/simulator/**',
-  'packages/pyric/test/rules/**',
-  'packages/rules/test/simulator/**',
-  'packages/pyric/test/rules-tools/**',
-  '.github/workflows/simulator-parity.yml',
+/** The workflows whose failure on the head of `main` holds the queue: the
+ *  ones the auto-revert lane watches. */
+const WATCHED_ON_MAIN: ReadonlyArray<{ file: string; name: string }> = [
+  { file: BUILD_WORKFLOW, name: 'Build & Test' },
+  { file: SLOW_WORKFLOW, name: 'Slow app scenarios' },
 ];
-
-const SIMULATOR_MATCHERS = SIMULATOR_PARITY_GLOBS.map((glob) => new Bun.Glob(glob));
+const FAILED = new Set(['failure', 'timed_out']);
 
 export interface QueueIo {
   repo: string;
@@ -62,11 +65,7 @@ interface PullApiItem {
   state?: string;
   draft: boolean;
   created_at: string;
-  head: {
-    ref: string;
-    sha: string;
-    repo: { full_name: string } | null;
-  };
+  head: { ref: string; sha: string; repo: { full_name: string } | null };
   labels: Array<{ name: string }>;
 }
 
@@ -91,17 +90,12 @@ interface WorkflowRunItem {
   html_url: string;
 }
 
-export function needsSimulatorParity(paths: readonly string[]): boolean {
-  return paths.some((path) => SIMULATOR_MATCHERS.some((glob) => glob.match(path)));
-}
-
-function errorText(error: unknown): string {
-  if (error instanceof Error) return error.message;
-  return String(error);
-}
-
 function apiGet<T>(io: QueueIo, path: string): T {
   return JSON.parse(io.gh(['api', `repos/${io.repo}/${path}`])) as T;
+}
+
+function mainHeadSha(io: QueueIo): string {
+  return apiGet<{ commit: { sha: string } }>(io, 'branches/main').commit.sha;
 }
 
 function latestRequiredCheck(io: QueueIo, sha: string): { state: CheckState; conclusion: string | null } {
@@ -111,12 +105,8 @@ function latestRequiredCheck(io: QueueIo, sha: string): { state: CheckState; con
     `commits/${sha}/check-runs?check_name=${encoded}&filter=latest`,
   );
   const run = response.check_runs.find((item) => item.app?.slug === 'github-actions') ?? response.check_runs[0];
-  if (run === undefined || run.status !== 'completed') {
-    return { state: 'pending', conclusion: null };
-  }
-  if (run.conclusion === 'success') {
-    return { state: 'success', conclusion: 'success' };
-  }
+  if (run === undefined || run.status !== 'completed') return { state: 'pending', conclusion: null };
+  if (run.conclusion === 'success') return { state: 'success', conclusion: 'success' };
   return { state: 'failure', conclusion: run.conclusion };
 }
 
@@ -144,15 +134,8 @@ function gatherQueuedPulls(io: QueueIo): QueuedPull[] {
     const labeledAt = latestLabeledTime(io, item.number, item.created_at);
     const requiredCheck = latestRequiredCheck(io, item.head.sha);
     return {
-      number: item.number,
-      title: item.title,
-      isDraft: item.draft,
-      headRef: item.head.ref,
-      headSha: item.head.sha,
-      headRepoFullName,
-      labels: labelNames,
-      labeledAt,
-      prRequiredState: requiredCheck.state,
+      number: item.number, title: item.title, isDraft: item.draft, headRef: item.head.ref, headSha: item.head.sha,
+      headRepoFullName, labels: labelNames, labeledAt, prRequiredState: requiredCheck.state,
     };
   });
 }
@@ -167,140 +150,237 @@ function failedJobNames(io: QueueIo, runId: number, attempt: number): string[] {
     .map((job) => job.name);
 }
 
-function gatherActiveStaging(io: QueueIo): ActiveStaging | undefined {
-  const remote = io.git(['ls-remote', 'origin', `refs/heads/${STAGING_BRANCH}`]).trim();
-  if (!remote) return undefined;
-  const stagingSha = remote.split(/\s+/)[0];
-  if (!stagingSha) return undefined;
+/** The commits the queue's own branches point at, by branch name. */
+function queueBranches(io: QueueIo): Map<string, string> {
+  const listing = io.git(['ls-remote', 'origin', `refs/heads/${STAGING_BRANCH}`, `refs/heads/${REFUSED_BRANCH}`]);
+  const branches = new Map<string, string>();
+  for (const line of listing.split('\n')) {
+    const [sha, ref] = line.trim().split(/\s+/);
+    if (sha && ref) branches.set(ref.replace('refs/heads/', ''), sha);
+  }
+  return branches;
+}
 
-  const commit = apiGet<{ commit: { message: string; committer: { date: string } } }>(io, `commits/${stagingSha}`);
-  const meta = parseStagingCommit(commit.commit.message);
-  const committedAtMs = Date.parse(commit.commit.committer.date);
+function stagingBuildRun(io: QueueIo, stagingSha: string): StagingRun | undefined {
   const encodedBranch = encodeURIComponent(STAGING_BRANCH);
   const runs = apiGet<{ workflow_runs: WorkflowRunItem[] }>(
     io,
     `actions/workflows/${BUILD_WORKFLOW}/runs?branch=${encodedBranch}&head_sha=${stagingSha}&per_page=10`,
   );
   const latestRun = runs.workflow_runs[0];
-  const staging: ActiveStaging = { stagingSha, committedAtMs };
-  if (meta !== undefined) staging.meta = meta;
-  if (latestRun !== undefined) {
-    let requiredCheckState: CheckState = 'pending';
-    let requiredCheckConclusion: string | null = null;
-    let failedJobs: string[] = [];
-    if (latestRun.status === 'completed') {
-      const check = latestRequiredCheck(io, stagingSha);
-      requiredCheckState = check.state;
-      requiredCheckConclusion = check.conclusion;
-      if (latestRun.conclusion !== 'success') {
-        failedJobs = failedJobNames(io, latestRun.id, latestRun.run_attempt);
-      }
+  if (latestRun === undefined) return undefined;
+  let requiredCheckState: CheckState = 'pending';
+  let requiredCheckConclusion: string | null = null;
+  let failedJobs: string[] = [];
+  if (latestRun.status === 'completed') {
+    const check = latestRequiredCheck(io, stagingSha);
+    requiredCheckState = check.state;
+    requiredCheckConclusion = check.conclusion;
+    if (latestRun.conclusion !== 'success') {
+      failedJobs = failedJobNames(io, latestRun.id, latestRun.run_attempt);
     }
-    const buildRun: StagingRun = {
-      id: latestRun.id,
-      attempt: latestRun.run_attempt,
-      totalRunsForCommit: runs.workflow_runs.length,
-      status: latestRun.status,
-      conclusion: latestRun.conclusion,
-      requiredCheckState,
-      requiredCheckConclusion,
-      url: latestRun.html_url,
-      failedJobs,
-    };
-    staging.buildRun = buildRun;
   }
+  return {
+    id: latestRun.id, attempt: latestRun.run_attempt, totalRunsForCommit: runs.workflow_runs.length,
+    status: latestRun.status, conclusion: latestRun.conclusion, requiredCheckState,
+    requiredCheckConclusion, url: latestRun.html_url, failedJobs,
+  };
+}
+
+function gatherActiveStaging(io: QueueIo, stagingSha: string | undefined): ActiveStaging | undefined {
+  if (stagingSha === undefined) return undefined;
+  const commit = apiGet<{ commit: { message: string; committer: { date: string } } }>(io, `commits/${stagingSha}`);
+  const meta = parseStagingCommit(commit.commit.message);
+  const staging: ActiveStaging = { stagingSha, committedAtMs: Date.parse(commit.commit.committer.date) };
+  if (meta !== undefined) staging.meta = meta;
+  const buildRun = stagingBuildRun(io, stagingSha);
+  if (buildRun !== undefined) staging.buildRun = buildRun;
   return staging;
 }
 
+/** A watched workflow whose latest run on the head of `main` failed, or is
+ *  being rerun, which only happens after a failed attempt. A run still in
+ *  its first attempt, or no run at all, does not hold the queue. */
+function gatherMainRed(io: QueueIo, mainSha: string): QueueFacts['mainRed'] {
+  for (const watched of WATCHED_ON_MAIN) {
+    const runs = apiGet<{ workflow_runs: WorkflowRunItem[] }>(
+      io,
+      `actions/workflows/${watched.file}/runs?branch=main&head_sha=${mainSha}&per_page=5`,
+    );
+    const latest = runs.workflow_runs[0];
+    if (latest === undefined) continue;
+    const failed = latest.status === 'completed' && FAILED.has(latest.conclusion ?? '');
+    const rerunning = latest.status !== 'completed' && latest.run_attempt > 1;
+    if (failed || rerunning) return { workflow: watched.name, runUrl: latest.html_url };
+  }
+  return undefined;
+}
+
 export function gatherFacts(io: QueueIo): QueueFacts {
-  const mainSha = apiGet<{ commit: { sha: string } }>(io, 'branches/main').commit.sha;
+  const mainSha = mainHeadSha(io);
   const candidates = gatherQueuedPulls(io);
-  const activeStaging = gatherActiveStaging(io);
-  const facts: QueueFacts = {
-    repo: io.repo,
-    mainSha,
-    candidates,
-    nowMs: io.now(),
-  };
+  const branches = queueBranches(io);
+  const activeStaging = gatherActiveStaging(io, branches.get(STAGING_BRANCH));
+  const mainRed = gatherMainRed(io, mainSha);
+  const refusedStagingSha = branches.get(REFUSED_BRANCH);
+  const facts: QueueFacts = { repo: io.repo, mainSha, candidates, nowMs: io.now() };
   if (activeStaging !== undefined) facts.activeStaging = activeStaging;
+  if (mainRed !== undefined) facts.mainRed = mainRed;
+  if (refusedStagingSha !== undefined) facts.refusedStagingSha = refusedStagingSha;
   return facts;
 }
 
+const SIMULATOR_WORKFLOW = 'simulator-parity.yml';
+const MAX_TRANSITIONS = 5;
+/** How much of a refused push's output goes to the log and the summary. */
+const REFUSAL_TEXT_LIMIT = 4000;
+/** What a push says when the token may not change workflow files. */
+const WORKFLOW_PUSH_REFUSAL = /without `?workflows?`? permission|create or update workflow/i;
+const WORKFLOW_DIR = '.github/workflows/';
+
+export const SIMULATOR_PARITY_GLOBS: readonly string[] = [
+  'packages/pyric/src/firestore/sandbox/**',
+  'packages/rules/src/grammar/**',
+  'packages/rules/src/simulator/**',
+  'packages/pyric/src/rules-tools/**',
+  'packages/pyric/test/sandbox/firestore/simulator/**',
+  'packages/pyric/test/rules/**',
+  'packages/rules/test/simulator/**',
+  'packages/pyric/test/rules-tools/**',
+  '.github/workflows/simulator-parity.yml',
+];
+
+const SIMULATOR_MATCHERS = SIMULATOR_PARITY_GLOBS.map((glob) => new Bun.Glob(glob));
+
+export function needsSimulatorParity(paths: readonly string[]): boolean {
+  return paths.some((path) => SIMULATOR_MATCHERS.some((glob) => glob.match(path)));
+}
+
+function errorText(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  return String(error);
+}
+
+function numbersOf(pulls: readonly QueuedPull[]): string {
+  return pulls.map((pull) => `#${pull.number}`).join(', ');
+}
+
 function ignoreError(fn: () => void): void {
-  try {
-    fn();
-  } catch {
-    // Best-effort cleanup when a branch, label, or workflow run is already gone.
-  }
+  try { fn(); } catch { /* Best-effort cleanup when a branch, label, or workflow run is already gone. */ }
 }
 
 function removeQueueLabel(io: QueueIo, prNumber: number): void {
-  ignoreError(() => {
-    io.gh(['api', '-X', 'DELETE', `repos/${io.repo}/issues/${prNumber}/labels/${QUEUE_LABEL}`]);
-  });
+  ignoreError(() => io.gh(['api', '-X', 'DELETE', `repos/${io.repo}/issues/${prNumber}/labels/${QUEUE_LABEL}`]));
 }
 
-function deleteRemoteStaging(io: QueueIo): void {
-  ignoreError(() => {
-    io.git(['push', 'origin', '--delete', STAGING_BRANCH]);
-  });
+function deleteRemoteBranch(io: QueueIo, branch: string): void {
+  ignoreError(() => io.git(['push', 'origin', '--delete', branch]));
 }
 
 function cancelRunIfPresent(io: QueueIo, runId: number | undefined): void {
-  if (runId === undefined) return;
-  ignoreError(() => {
-    io.gh(['run', 'cancel', String(runId), '--repo', io.repo]);
-  });
+  if (runId !== undefined) ignoreError(() => io.gh(['run', 'cancel', String(runId), '--repo', io.repo]));
 }
 
-function executeDequeue(io: QueueIo, action: Extract<QueueAction, { kind: 'dequeue' }>, mainSha: string): void {
-  removeQueueLabel(io, action.pull.number);
-  const commentFile = io.writeFile(`dequeue-${action.pull.number}.md`, dequeueComment(action, mainSha));
-  io.gh(['api', '-X', 'POST', `repos/${io.repo}/issues/${action.pull.number}/comments`, '-F', `body=@${commentFile}`]);
-  if (action.cleanStaging) deleteRemoteStaging(io);
+function comment(io: QueueIo, prNumber: number, name: string, text: string): void {
+  const file = io.writeFile(name, text);
+  io.gh(['api', '-X', 'POST', `repos/${io.repo}/issues/${prNumber}/comments`, '-F', `body=@${file}`]);
+}
+
+function executeDequeue(io: QueueIo, action: DequeueAction, mainSha: string): void {
+  for (const pull of action.pulls) {
+    removeQueueLabel(io, pull.number);
+    comment(io, pull.number, `dequeue-${pull.number}.md`, dequeueComment(action, pull, mainSha));
+  }
+  if (action.cleanStaging) deleteRemoteBranch(io, STAGING_BRANCH);
+  io.log(`Dequeued ${numbersOf(action.pulls)} (${action.reason}).`);
 }
 
 function dispatchStagingBuild(io: QueueIo, releaseProof: boolean): void {
-  io.gh([
-    'workflow', 'run', BUILD_WORKFLOW,
-    '--repo', io.repo,
-    '--ref', STAGING_BRANCH,
-    '-f', `release_proof=${String(releaseProof)}`,
-  ]);
+  io.gh(['workflow', 'run', BUILD_WORKFLOW, '--repo', io.repo, '--ref', STAGING_BRANCH, '-f', `release_proof=${String(releaseProof)}`]);
 }
 
-function executeStage(
-  io: QueueIo,
-  action: Extract<QueueAction, { kind: 'stage' }>,
-): QueueAction {
+function pullMergeMessage(pull: QueuedPull, trailers: string): string {
+  return `Merge pull request #${pull.number} from ${pull.headRef}\n\n${pull.title}\n\n${trailers}`;
+}
+
+function batchMessage(pulls: readonly QueuedPull[], trailers: string): string {
+  const titles = pulls.map((pull) => `- #${pull.number} ${pull.title}`).join('\n');
+  return `Merge queue batch: ${numbersOf(pulls)}\n\n${titles}\n\n${trailers}`;
+}
+
+/** Merges each pull request onto the checked-out base in order. One that
+ *  conflicts is removed from the queue and left out; the rest go on. */
+function mergeChain(io: QueueIo, action: StageAction): { merged: QueuedPull[]; conflicted: DequeueAction[] } {
+  const merged: QueuedPull[] = [];
+  const conflicted: DequeueAction[] = [];
+  for (const pull of action.pulls) {
+    try {
+      io.git(['merge', '--no-ff', '-m', pullMergeMessage(pull, `Merge-Queue-Pull: #${pull.number} ${pull.headSha}`), pull.headSha]);
+      merged.push(pull);
+    } catch {
+      ignoreError(() => io.git(['merge', '--abort']));
+      const dequeue: DequeueAction = { kind: 'dequeue', pulls: [pull], reason: 'merge-conflict', cleanStaging: false };
+      executeDequeue(io, dequeue, action.baseSha);
+      conflicted.push(dequeue);
+    }
+  }
+  return { merged, conflicted };
+}
+
+/** Writes the commit the staging branch will point at and returns its sha:
+ *  the lone merge commit with the queue's trailers, or for a batch a commit
+ *  of the chain's tree whose first parent is the base. */
+function writeTip(io: QueueIo, merged: readonly QueuedPull[], meta: StagedMeta): string {
+  const trailers = formatStagingTrailers(meta);
+  const only = merged[0];
+  if (merged.length === 1 && only !== undefined) {
+    io.git(['commit', '--amend', '-m', pullMergeMessage(only, trailers)]);
+    return io.git(['rev-parse', 'HEAD']).trim();
+  }
+  const tree = io.git(['rev-parse', 'HEAD^{tree}']).trim();
+  const chain = io.git(['rev-parse', 'HEAD']).trim();
+  return io.git(['commit-tree', tree, '-p', meta.baseSha, '-p', chain, '-m', batchMessage(merged, trailers)]).trim();
+}
+
+/** The push of the staged commit was refused. When GitHub says the token may
+ *  not change workflow files, the pull requests that change them are removed
+ *  with the refusal and the rest are staged again; any other refusal is
+ *  thrown, so the pass fails where it can be seen and nobody is removed. */
+function handleStagingRefusal(io: QueueIo, action: StageAction, merged: readonly QueuedPull[], error: unknown): DequeueAction {
+  const refusal = errorText(error);
+  if (!WORKFLOW_PUSH_REFUSAL.test(refusal)) throw error;
+  const touching = merged.filter((pull) => pullChangedPaths(io, pull.number).some((path) => path.startsWith(WORKFLOW_DIR)));
+  if (touching.length === 0) throw error;
+  const mergeError = refusal.split('\n').find((line) => WORKFLOW_PUSH_REFUSAL.test(line))?.trim() ?? 'push refused';
+  const refused: DequeueAction = { kind: 'dequeue', pulls: touching, reason: 'staging-push-refused', mergeError, cleanStaging: false };
+  executeDequeue(io, refused, action.baseSha);
+  io.log(`GitHub refused the push of the staged commit for ${numbersOf(merged)}.\n\n\`\`\`\n${refusal.slice(0, REFUSAL_TEXT_LIMIT)}\n\`\`\``);
+  return refused;
+}
+
+function executeStage(io: QueueIo, action: StageAction): QueueAction[] {
   cancelRunIfPresent(io, action.cancelRunId);
   io.git(['config', 'user.name', 'github-actions[bot]']);
   io.git(['config', 'user.email', '41898282+github-actions[bot]@users.noreply.github.com']);
-  io.git(['fetch', '--no-tags', 'origin', '+refs/heads/main:refs/remotes/origin/main', action.pull.headSha]);
+  io.git(['fetch', '--no-tags', 'origin', '+refs/heads/main:refs/remotes/origin/main', ...action.pulls.map((pull) => pull.headSha)]);
   io.git(['checkout', '--detach', action.baseSha]);
-  const message = formatStagingCommit({
-    prNumber: action.pull.number,
-    headSha: action.pull.headSha,
-    baseSha: action.baseSha,
-  });
-  try {
-    io.git(['merge', '--no-ff', '-m', message, action.pull.headSha]);
-  } catch {
-    ignoreError(() => io.git(['merge', '--abort']));
-    const conflictDequeue: Extract<QueueAction, { kind: 'dequeue' }> = {
-      kind: 'dequeue',
-      pull: action.pull,
-      reason: 'merge-conflict',
-      cleanStaging: true,
-    };
-    executeDequeue(io, conflictDequeue, action.baseSha);
-    io.log(`Pull request #${action.pull.number} conflicted with main (${action.baseSha.slice(0, 9)}) and was dequeued.`);
-    return conflictDequeue;
+  const { merged, conflicted } = mergeChain(io, action);
+  if (merged.length === 0) {
+    deleteRemoteBranch(io, STAGING_BRANCH);
+    return conflicted;
   }
-  io.git(['push', '--force', 'origin', `HEAD:refs/heads/${STAGING_BRANCH}`]);
+  const meta: StagedMeta = { baseSha: action.baseSha, pulls: merged.map((pull) => ({ number: pull.number, headSha: pull.headSha })) };
+  if (action.search !== undefined) meta.search = action.search;
+  const tip = writeTip(io, merged, meta);
+  try {
+    io.git(['push', '--force', 'origin', `${tip}:refs/heads/${STAGING_BRANCH}`]);
+  } catch (error) {
+    return [...conflicted, handleStagingRefusal(io, action, merged, error)];
+  }
   dispatchStagingBuild(io, action.releaseProof);
-  io.log(`Staged #${action.pull.number} (${action.pull.headSha.slice(0, 9)}) onto main (${action.baseSha.slice(0, 9)}) and dispatched ${BUILD_WORKFLOW}.`);
-  return action;
+  const purpose = action.search === undefined ? '' : ` as a probe of ${action.search.suspects.length} suspects`;
+  io.log(`Staged ${numbersOf(merged)} onto main (${action.baseSha.slice(0, 9)}) as ${tip.slice(0, 9)}${purpose} and dispatched ${BUILD_WORKFLOW}.`);
+  return [...conflicted, { ...action, pulls: merged }];
 }
 
 function pullChangedPaths(io: QueueIo, prNumber: number): string[] {
@@ -314,65 +394,118 @@ function pullChangedPaths(io: QueueIo, prNumber: number): string[] {
   return filenames;
 }
 
-function dispatchPostMergeMainWorkflows(io: QueueIo, prPaths: readonly string[]): void {
+/** One dispatch per landing: the head of `main` is the whole batch. */
+function dispatchPostMergeMainWorkflows(io: QueueIo, landedPaths: readonly string[]): void {
   io.gh(['workflow', 'run', BUILD_WORKFLOW, '--repo', io.repo, '--ref', 'main']);
   io.gh(['workflow', 'run', SLOW_WORKFLOW, '--repo', io.repo, '--ref', 'main']);
-  if (needsSimulatorParity(prPaths)) {
+  if (needsSimulatorParity(landedPaths)) {
     io.gh(['workflow', 'run', SIMULATOR_WORKFLOW, '--repo', io.repo, '--ref', 'main']);
   }
 }
 
-function isPersistentMergeRefusal(io: QueueIo, action: Extract<QueueAction, { kind: 'merge' }>): boolean {
+/** Whether `main` is still the batch's base and every pull request in it is
+ *  still open at the staged head. */
+function landingStillStands(io: QueueIo, action: LandAction): boolean {
   try {
-    const currentMain = apiGet<{ commit: { sha: string } }>(io, 'branches/main').commit.sha;
-    if (currentMain !== action.baseSha) return false;
-    const currentPr = apiGet<{ state: string; head: { sha: string } }>(io, `pulls/${action.pull.number}`);
-    return currentPr.state === 'open' && currentPr.head.sha === action.pull.headSha;
+    if (mainHeadSha(io) !== action.baseSha) return false;
+    return action.pulls.every((pull) => {
+      const current = apiGet<{ state: string; head: { sha: string } }>(io, `pulls/${pull.number}`);
+      return current.state === 'open' && current.head.sha === pull.headSha;
+    });
   } catch {
     return false;
   }
 }
 
-function executeMerge(
+/** Throws unless the tree on `main` is the tree the staging run proved. */
+function verifyLanded(io: QueueIo, action: LandAction): void {
+  const mainSha = io.git(['ls-remote', 'origin', 'refs/heads/main']).trim().split(/\s+/)[0] ?? '';
+  io.git(['fetch', '--no-tags', 'origin', mainSha]);
+  const mainTree = io.git(['rev-parse', `${mainSha}^{tree}`]).trim();
+  const provenTree = io.git(['rev-parse', `${action.stagingSha}^{tree}`]).trim();
+  if (mainTree === '' || mainTree !== provenTree) {
+    throw new Error(`After landing ${numbersOf(action.pulls)}, main is ${mainSha} with tree ${mainTree}, but the staging run (${action.runUrl}) proved ${action.stagingSha} with tree ${provenTree}.`);
+  }
+}
+
+/** A push to `main` that was refused while nothing had moved. The first
+ *  refusal of a staged commit changes nothing but a marker branch, and the
+ *  next pass tries once more; the second removes the batch from the queue. */
+function handleRefusal(io: QueueIo, action: LandAction, refusal: string): { outcomes: QueueAction[]; advance: boolean } {
+  const shown = refusal.slice(0, REFUSAL_TEXT_LIMIT);
+  if (!action.refusedBefore) {
+    ignoreError(() => io.git(['push', '--force', 'origin', `${action.stagingSha}:refs/heads/${REFUSED_BRANCH}`]));
+    io.log(`GitHub refused moving main to ${action.stagingSha} (${numbersOf(action.pulls)}). Nothing landed and nobody was removed from the queue; the next pass tries once more.\n\n\`\`\`\n${shown}\n\`\`\``);
+    return { outcomes: [action], advance: false };
+  }
+  const mergeError = refusal.split('\n')[0] ?? 'push refused';
+  const refused: DequeueAction = { kind: 'dequeue', pulls: action.pulls, reason: 'merge-refused', mergeError, cleanStaging: true };
+  executeDequeue(io, refused, action.baseSha);
+  deleteRemoteBranch(io, REFUSED_BRANCH);
+  io.log(`GitHub refused moving main to ${action.stagingSha} a second time while main and the pull request heads were unchanged.\n\n\`\`\`\n${shown}\n\`\`\``);
+  return { outcomes: [refused], advance: true };
+}
+
+function executeLand(
   io: QueueIo,
-  action: Extract<QueueAction, { kind: 'merge' }>,
+  action: LandAction,
   usingWorkflowToken: boolean,
-): { outcome: QueueAction; advance: boolean } {
-  let prPaths: string[] = [];
-  if (usingWorkflowToken) {
-    prPaths = pullChangedPaths(io, action.pull.number);
+): { outcomes: QueueAction[]; advance: boolean } {
+  const landedPaths = usingWorkflowToken ? action.pulls.flatMap((pull) => pullChangedPaths(io, pull.number)) : [];
+  if (!landingStillStands(io, action)) {
+    io.log(`Did not land ${numbersOf(action.pulls)}: main or a pull request head moved since staging; will re-evaluate.`);
+    deleteRemoteBranch(io, STAGING_BRANCH);
+    return { outcomes: [action], advance: false };
   }
   try {
-    io.gh([
-      'api', '-X', 'PUT', `repos/${io.repo}/pulls/${action.pull.number}/merge`,
-      '-f', 'merge_method=merge',
-      '-f', `sha=${action.pull.headSha}`,
-    ]);
+    io.git(['fetch', '--no-tags', 'origin', action.stagingSha]);
+    // No force: the push is refused unless main is still an ancestor of the staged commit.
+    io.git(['push', 'origin', `${action.stagingSha}:refs/heads/main`]);
   } catch (error) {
-    const detail = errorText(error).split('\n')[0] ?? 'merge refused';
-    if (isPersistentMergeRefusal(io, action)) {
-      const refusedDequeue: Extract<QueueAction, { kind: 'dequeue' }> = {
-        kind: 'dequeue',
-        pull: action.pull,
-        reason: 'merge-refused',
-        mergeError: detail,
-        cleanStaging: true,
-      };
-      executeDequeue(io, refusedDequeue, action.baseSha);
-      io.log(`Dequeued #${action.pull.number}: GitHub refused merge while main and head were unchanged (${detail}).`);
-      return { outcome: refusedDequeue, advance: true };
+    if (landingStillStands(io, action)) return handleRefusal(io, action, errorText(error));
+    io.log(`Could not land ${numbersOf(action.pulls)} (${errorText(error).split('\n')[0]}); main or a pull request head moved, will re-evaluate.`);
+    deleteRemoteBranch(io, STAGING_BRANCH);
+    return { outcomes: [action], advance: false };
+  }
+  verifyLanded(io, action);
+  for (const pull of action.pulls) {
+    comment(io, pull.number, `landed-${pull.number}.md`, landedComment(action, pull));
+    removeQueueLabel(io, pull.number);
+  }
+  if (action.refusedBefore) deleteRemoteBranch(io, REFUSED_BRANCH);
+  if (action.search === undefined) deleteRemoteBranch(io, STAGING_BRANCH);
+  if (usingWorkflowToken) dispatchPostMergeMainWorkflows(io, landedPaths);
+  io.log(`Landed ${numbersOf(action.pulls)} on main as ${action.stagingSha} after green staging run (${action.runUrl}).`);
+  return { outcomes: [action], advance: true };
+}
+
+/** Carries out a step that ends the pass. */
+function executeResting(io: QueueIo, action: QueueAction): void {
+  if (action.kind === 'idle') io.log(`Merge queue idle: ${action.reason}.`);
+  if (action.kind === 'hold-main-red') {
+    io.log(`Merge queue held: ${action.workflow} is red on main (${action.runUrl}). Only revert pull requests are staged until it is green.`);
+  }
+  if (action.kind === 'clean-staging') {
+    cancelRunIfPresent(io, action.cancelRunId);
+    deleteRemoteBranch(io, STAGING_BRANCH);
+    io.log(`Cleaned ${STAGING_BRANCH}: ${action.reason}.`);
+  }
+  if (action.kind === 'wait-pr-checks') {
+    if (action.cleanStaging) {
+      cancelRunIfPresent(io, action.cancelRunId);
+      deleteRemoteBranch(io, STAGING_BRANCH);
     }
-    io.log(`Could not merge #${action.pull.number} at ${action.pull.headSha.slice(0, 9)} (${detail}); main or head moved, will re-evaluate.`);
-    deleteRemoteStaging(io);
-    return { outcome: action, advance: false };
+    io.log(`Waiting for pull request checks on #${action.pull.number} (${action.pull.headSha.slice(0, 9)}).`);
   }
-  removeQueueLabel(io, action.pull.number);
-  deleteRemoteStaging(io);
-  if (usingWorkflowToken) {
-    dispatchPostMergeMainWorkflows(io, prPaths);
+  if (action.kind === 'wait-staging') io.log(`Waiting on ${STAGING_BRANCH} for ${numbersOf(action.pulls)}: ${action.reason}.`);
+  if (action.kind === 'dispatch-staging') {
+    dispatchStagingBuild(io, action.releaseProof);
+    io.log(`Re-dispatched ${BUILD_WORKFLOW} on ${STAGING_BRANCH} for ${numbersOf(action.pulls)}.`);
   }
-  io.log(`Merged #${action.pull.number} into main after green staging run (${action.runUrl}).`);
-  return { outcome: action, advance: true };
+  if (action.kind === 'rerun-staging') {
+    io.gh(['run', 'rerun', String(action.runId), '--failed', '--repo', io.repo]);
+    io.log(`Reran failed jobs once on staging run ${action.runUrl} for ${numbersOf(action.pulls)}.`);
+  }
 }
 
 export function runQueuePass(
@@ -388,62 +521,26 @@ export function runQueuePass(
       executed.push(action);
       return executed;
     }
-    if (action.kind === 'idle') {
-      io.log(`Merge queue idle: ${action.reason}.`);
-      executed.push(action);
-      return executed;
-    }
-    if (action.kind === 'clean-staging') {
-      cancelRunIfPresent(io, action.cancelRunId);
-      deleteRemoteStaging(io);
-      io.log(`Cleaned ${STAGING_BRANCH}: ${action.reason}.`);
-      executed.push(action);
-      return executed;
-    }
-    if (action.kind === 'wait-pr-checks') {
-      if (action.cleanStaging) {
-        cancelRunIfPresent(io, action.cancelRunId);
-        deleteRemoteStaging(io);
-      }
-      io.log(`Waiting for pull request checks on #${action.pull.number} (${action.pull.headSha.slice(0, 9)}).`);
-      executed.push(action);
-      return executed;
-    }
-    if (action.kind === 'wait-staging') {
-      io.log(`Waiting on ${STAGING_BRANCH} for #${action.pull.number}: ${action.reason}.`);
-      executed.push(action);
-      return executed;
-    }
-    if (action.kind === 'dispatch-staging') {
-      dispatchStagingBuild(io, action.releaseProof);
-      io.log(`Re-dispatched ${BUILD_WORKFLOW} on ${STAGING_BRANCH} for #${action.pull.number}.`);
-      executed.push(action);
-      return executed;
-    }
-    if (action.kind === 'rerun-staging') {
-      io.gh(['run', 'rerun', String(action.runId), '--failed', '--repo', io.repo]);
-      io.log(`Reran failed jobs once on staging run ${action.runUrl} for #${action.pull.number}.`);
-      executed.push(action);
-      return executed;
-    }
     if (action.kind === 'dequeue') {
       executeDequeue(io, action, facts.mainSha);
-      io.log(`Dequeued #${action.pull.number} (${action.reason}).`);
       executed.push(action);
       continue;
     }
     if (action.kind === 'stage') {
-      const outcome = executeStage(io, action);
-      executed.push(outcome);
-      if (outcome.kind === 'dequeue') continue;
-      return executed;
+      const outcomes = executeStage(io, action);
+      executed.push(...outcomes);
+      if (outcomes.at(-1)?.kind === 'stage') return executed;
+      continue;
     }
-    if (action.kind === 'merge') {
-      const result = executeMerge(io, action, options.usingWorkflowToken);
-      executed.push(result.outcome);
+    if (action.kind === 'land') {
+      const result = executeLand(io, action, options.usingWorkflowToken);
+      executed.push(...result.outcomes);
       if (!result.advance) return executed;
       continue;
     }
+    executeResting(io, action);
+    executed.push(action);
+    return executed;
   }
   return executed;
 }

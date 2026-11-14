@@ -8,6 +8,11 @@
 // main was already red, and a parent with no finished run leaves the culprit
 // unknown; neither is reverted. Nor is a revert, nor a run whose failures
 // include a quarantined test.
+//
+// The merge queue lands several pull requests as one commit. When that commit
+// is the culprit, the whole batch is not reverted: `decideBatch` bisects the
+// pull requests in it with runs of the failed workflow on prefixes of the
+// batch, and only the first pull request whose prefix fails is reverted.
 
 import { SEPARATOR, UNNAMED, isActive, type Entry } from '../lib/quarantine/entries.ts';
 
@@ -62,7 +67,9 @@ export interface Facts {
 export type Verdict =
   | { kind: 'skip'; reason: string }
   | { kind: 'rerun' }
-  | { kind: 'revert'; title: string; branch: string; mainline: boolean };
+  | { kind: 'revert'; title: string; branch: string; mainline: boolean }
+  /** The failing commit is a merge queue batch that is being bisected. */
+  | { kind: 'bisect'; step: 'probe' | 'wait'; index: number };
 
 const FAILED = new Set(['failure', 'timed_out']);
 
@@ -145,13 +152,41 @@ export function revertCommands(run: FailedRun, verdict: Extract<Verdict, { kind:
   return [['switch', '-c', verdict.branch, 'origin/main'], revert];
 }
 
+export type ProbeResult = 'passed' | 'failed' | 'pending';
+
+export type BatchVerdict =
+  | { kind: 'culprit'; index: number }
+  | { kind: 'probe'; index: number }
+  | { kind: 'wait'; index: number };
+
+/** The next step of bisecting a batch of `size` pull requests whose run
+ *  failed while the run on the commit before the batch passed. `results`
+ *  holds what is known of the batch cut off after member `index` (from 0).
+ *  It takes at most ceil(log2(size)) probes to name the culprit: the first
+ *  member whose prefix fails. */
+export function decideBatch(size: number, results: ReadonlyMap<number, ProbeResult>): BatchVerdict {
+  let passedThrough = -1;
+  let failedAt = size - 1;
+  while (failedAt - passedThrough > 1) {
+    const index = Math.floor((passedThrough + failedAt) / 2);
+    const result = results.get(index);
+    if (result === undefined) return { kind: 'probe', index };
+    if (result === 'pending') return { kind: 'wait', index };
+    if (result === 'passed') passedThrough = index;
+    else failedAt = index;
+  }
+  return { kind: 'culprit', index: failedAt };
+}
+
 export interface RevertEvidence {
   run: FailedRun;
   failedJobs: string[];
   parentRunUrl?: string;
+  /** Set when the pull request landed in a batch and bisecting named it. */
+  batch?: { commit: string; size: number };
 }
 
-export function revertBody({ run, failedJobs, parentRunUrl }: RevertEvidence): string {
+export function revertBody({ run, failedJobs, parentRunUrl, batch }: RevertEvidence): string {
   const subject = run.pull === undefined ? `commit ${run.headSha}` : `#${run.pull.number} (${run.headSha})`;
   const jobs = failedJobs.length > 0 ? failedJobs.map((job) => `\`${job}\``).join(', ') : 'none named';
   const tests = run.failures.map((failure) => failure.test).filter((test) => test !== undefined);
@@ -163,6 +198,9 @@ export function revertBody({ run, failedJobs, parentRunUrl }: RevertEvidence): s
   ];
   if (tests.length > 0) lines.push(`- Failing tests: ${tests.map((test) => `\`${test}\``).join(', ')}`);
   if (parentRunUrl !== undefined) lines.push(`- Passed on the parent commit: ${parentRunUrl}`);
+  if (batch !== undefined) {
+    lines.push(`- Landed in ${batch.commit} with ${batch.size - 1} other pull requests; the failing run is that commit's. Runs of ${run.workflow} on parts of the batch passed without this pull request and failed with it.`);
+  }
   lines.push(
     '',
     'The auto-revert workflow opened this pull request and enabled auto-merge.',

@@ -1,24 +1,36 @@
-# FIFO + fastlane merge queue for personal repositories where GitHub's
-# organization-only `merge_group` queue cannot be enabled.
+# Batching merge queue for personal repositories where GitHub's
+# organization-only `merge_group` queue cannot be enabled
+# (scripts/ci/merge-queue.ts decides, scripts/ci/merge-queue-github.ts acts).
 #
 # Apply the `merge-queue` label to an open pull request targeting `main` once it
-# is approved to land. Serialized under a single concurrency group so two pull
-# requests never merge into `main` back-to-back without testing the combined
-# tree first:
+# is approved to land. Serialized under a single concurrency group, so `main`
+# only ever moves to a tree that passed the full proof:
 #   1. Waits until `CI / required` has passed on the pull request's own head.
-#   2. Merges the head pull request onto `origin/main` on `merge-queue/staging`
+#   2. Merges every ready pull request, revert pull requests first and the rest
+#      first-in first-out, up to 8, onto `origin/main` on `merge-queue/staging`
 #      and dispatches `Build & Test` (full proof: `packaging=true`,
 #      `rtdb-differential=true`, every non-slow app scenario, base quarantine).
-#   3. Reruns failed staging jobs at most once to absorb single-attempt flakes;
-#      dequeues with a diagnostic comment on merge conflict or confirmed failure.
-#   4. Merges into `main` with `--match-head-commit` (`sha`) once staging is
-#      green and `main` has not moved, dispatches `main`'s post-merge workflows
-#      when running under the default workflow token, and immediately stages the
-#      next queued pull request.
+#      A pull request that conflicts is removed with a comment and the rest of
+#      the batch goes on. A batch that holds a revert holds only reverts.
+#   3. Reruns failed staging jobs at most once to absorb single-attempt flakes.
+#      A batch that fails again is split to find the culprit: half of the
+#      suspects is staged, a half that passes lands, and the search goes on in
+#      the half that failed, for at most 6 more runs at a batch of 8. Only a
+#      pull request left alone with a twice-failed run is removed.
+#   4. Once staging is green and `main` has not moved, pushes the staged commit
+#      to `main` without force, so `main` becomes the commit that was tested,
+#      checks that the tree on `main` is the tested tree, comments the commit
+#      and the staging run on each pull request, dispatches `main`'s post-merge
+#      workflows when running under the default workflow token, and stages the
+#      next batch. A refused push changes nothing the first time; a second
+#      refusal of the same commit removes the batch with a comment.
+#   5. While `Build & Test` or `Slow app scenarios` is red on the head of
+#      `main`, stages and lands revert pull requests only.
 #
 # Optional: set `secrets.MERGE_QUEUE_TOKEN` (fine-grained PAT with `contents`
-# and `pull-requests` write on this repository) if you prefer merges to trigger
-# native `on: push` events on `main` directly instead of `workflow_dispatch`.
+# and `pull-requests` write on this repository) if you prefer landings to
+# trigger native `on: push` events on `main` directly instead of
+# `workflow_dispatch`.
 
 name: Merge queue
 
@@ -26,7 +38,9 @@ on:
   pull_request:
     types: [labeled, unlabeled, synchronize, reopened, closed, ready_for_review, converted_to_draft]
   workflow_run:
-    workflows: ['Build & Test']
+    # Build & Test finishing on staging moves the batch on; either workflow
+    # finishing on main can release a queue held while main was red.
+    workflows: ['Build & Test', 'Slow app scenarios']
     types: [completed]
   schedule:
     - cron: '*/15 * * * *'
