@@ -156,6 +156,9 @@ function overrideIdentity(args: Args): Args | undefined {
 function overrideUid(args: Args): string | undefined {
   const override = overrideIdentity(args);
   if (override === undefined) return undefined;
+  if (typeof override.tenant === 'string' || typeof override.claimsJson === 'string') {
+    return undefined;
+  }
   return typeof override.uid === 'string' ? override.uid : undefined;
 }
 

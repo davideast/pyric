@@ -553,7 +553,7 @@ export async function updateCurrentUser(
 ): Promise<void> {
   const raw = (await rpc(auth.port, {
     t: 'op', id: nextId(), method: 'auth.updateCurrentUser', uid: user?.uid ?? null,
-    tenantId: user?.tenantId ?? auth.tenantId ?? null,
+    tenantId: auth.tenantId ?? user?.tenantId ?? null,
     ...(user === null ? {} : sessionKeyField(user)),
   })) as SerializedUser | null;
   if (raw !== null && user !== null && user.uid === raw.uid) {

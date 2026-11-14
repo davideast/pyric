@@ -127,12 +127,15 @@ describe('the discriminator variant', () => {
     expect(surface.resources).toHaveLength(7);
   });
 
-  it('routes every operation exactly once across its tools and resources', () => {
-    const covered = [
-      ...DISCRIMINATOR_ROUTES.map((route) => route.operation),
-      ...RESOURCE_ROUTES.map((route) => route.operation),
-    ];
-    expect(new Set(covered).size).toBe(covered.length);
+  it('routes every operation across its tools and resources with only intentional read overlaps', () => {
+    const toolOperations = DISCRIMINATOR_ROUTES.map((route) => route.operation);
+    const resourceOperations = RESOURCE_ROUTES.map((route) => route.operation);
+    expect(new Set(toolOperations).size).toBe(toolOperations.length);
+    expect(new Set(resourceOperations).size).toBe(resourceOperations.length);
+    const toolSet = new Set(toolOperations);
+    const shared = resourceOperations.filter((op) => toolSet.has(op)).sort();
+    expect(shared).toEqual(['list_firestore_documents', 'list_sandbox_events']);
+    const covered = new Set([...toolOperations, ...resourceOperations]);
     expect([...covered].sort()).toEqual([...CANONICAL_OPERATION_IDS].sort());
   });
 

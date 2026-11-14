@@ -18,12 +18,8 @@ import type { ParsedArgs } from './parse-args.js';
 import { readFirebaseJson, readFirebaseRc, withDefaultFirestoreRules, type FirebaseJson } from './firebase-json.js';
 import { resolveFirebaseProject, type FirebaseProjectResolution } from './firebase-project.js';
 import { bundleSdk, bundleWorker, defaultSdkEntries, planProjectFirebase, resolveSiteUiDir } from '../serve/bundler.js';
-import {
-  isStandalone,
-  materializeServeAssets,
-  materializeSiteUi,
-  embeddedWorkerVersion,
-} from '../serve/standalone-assets.js';
+import { isStandalone, materializeServeAssets, materializeSiteUi, embeddedWorkerVersion } from '../serve/standalone-assets.js';
+import { resolveProjectAndDefaultInstance } from '../bridge/surface/database-instance-project.js';
 import { hasSandboxBuildMarker } from '../serve/sandbox-marker.js';
 import { watchRulesFiles } from '../serve/rules-files-watch.js';
 import { formatDatabaseRulesRemoved, formatStorageRulesRemoved, storageBucketSuffix } from '../serve/rules.js';
@@ -42,13 +38,8 @@ import { resolveOwnersConfig } from '../serve/owners-config.js';
 import { resolveAiMode } from '../serve/firebase-module-swap.js';
 import { formatActivityWarning } from '../serve/activity-warning.js';
 import {
-  consoleServeLogger,
-  getHeader,
-  isAllowedOriginOnPorts,
-  resolveHostingFile,
-  startStaticServer,
-  stderrServeLogger,
-  type ServeHandle,
+  consoleServeLogger, getHeader, isAllowedOriginOnPorts, resolveHostingFile,
+  startStaticServer, stderrServeLogger, type ServeHandle,
 } from '../serve/server.js';
 import { createBridgeMount } from '../serve/bridge-mount.js';
 import { writeOwnedSessionFile } from '../serve/local-session-token.js';
@@ -287,7 +278,14 @@ async function startServeRuntime(opts: {
   liveHost?: LiveServeStart;
 }, releaseOwnership?: () => void): Promise<ServeRuntime> {
   const logger = opts.logger ?? consoleServeLogger();
-  const firebaseProject = opts.firebaseProject ?? resolveFirebaseProject({ projectDir: opts.cwd, option: opts.project });
+  const pyricConfig = await readPyricConfig(opts.cwd);
+  const firebaseProject =
+    opts.firebaseProject ??
+    resolveFirebaseProject({
+      projectDir: opts.cwd,
+      option: opts.project,
+      configProject: pyricConfig.project,
+    });
   const liveStart = opts.liveHost;
   const isLive = liveStart !== undefined;
   const liveHost = isLive
@@ -331,7 +329,6 @@ async function startServeRuntime(opts: {
     logger.note('  ⚠ no firebase.json found');
   }
 
-  const pyricConfig = await readPyricConfig(opts.cwd);
   const requireSessionToken =
     isLive ||
     opts.sessionToken === true ||
@@ -1354,7 +1351,7 @@ export async function runServe(parsed: ParsedArgs, runHost: ServeRunHost = {}): 
       beaconToken: runtime.beaconToken,
       hostInstanceId: runtime.instanceId,
       sessionToken: runtime.sessionToken,
-      instance: `${functionsProjectId}-default-rtdb`,
+      instance: (await resolveProjectAndDefaultInstance(cwd, firebaseProject)).defaultInstance,
       location: process.env.PYRIC_FUNCTIONS_RTDB_REGION ?? 'us-central1',
       projectId: functionsProjectId ?? 'demo-project',
       readiness: createHttpFunctionsPeerReadiness(runtime.handle.url),

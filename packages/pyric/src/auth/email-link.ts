@@ -151,7 +151,12 @@ export async function signInWithEmailLink(
 }
 
 /** Redeem and resolve the account without changing the backend's global session. */
-export function resolveEmailLinkIdentity(auth: Auth, email: string, link: string): { user: User; isNewUser: boolean } {
+export function resolveEmailLinkIdentity(
+  auth: Auth,
+  email: string,
+  link: string,
+  tenantId?: string | null,
+): { user: User; isNewUser: boolean } {
   const t = targetOf(auth);
   const target = t;
   target.backend.assertProviderEnabled('password');
@@ -201,7 +206,11 @@ export function resolveEmailLinkIdentity(auth: Auth, email: string, link: string
   }
 
   target.backend.consumeActionCode(parsed.code);
-  const { stored, isNewUser } = target.backend.upsertEmailLinkUser(spec.email);
+  let effectiveTenant = tenantId;
+  if (effectiveTenant === undefined) {
+    effectiveTenant = target.backend.getTenantId();
+  }
+  const { stored, isNewUser } = target.backend.upsertEmailLinkUser(spec.email, effectiveTenant);
   target.backend.assertSignInAllowed(stored.uid);
   const user = target.backend.buildUserFromStored(stored);
   return { user, isNewUser };

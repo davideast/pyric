@@ -7,7 +7,8 @@ import {
   type AppCheckIdentity,
   type AppCheckTokenClaims,
 } from 'pyric/sandbox/internal';
-import { getApp, type PyricAdminApp } from '../app/index.js';
+import type { PyricAdminApp } from '../app/index.js';
+import { getDefaultServiceApp } from '../app/default-service-app.js';
 import { explicitProjectId } from '../app/project-id.js';
 import { assertAdminAppActive } from '../app/lifecycle.js';
 import { FirebaseAppCheckError } from './error.js';
@@ -240,7 +241,7 @@ function verifyExpiry(exp: unknown): void {
 const instances = new WeakMap<PyricAdminApp, AppCheck>();
 
 export function getAppCheck(app?: PyricAdminApp): AppCheck {
-  const resolved = app ?? getApp();
+  const resolved = app ?? getDefaultServiceApp();
   assertAdminAppActive(resolved);
   const existing = instances.get(resolved);
   if (existing) return existing;

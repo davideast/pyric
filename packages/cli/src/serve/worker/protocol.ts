@@ -240,7 +240,7 @@ export type OpMessage = (
       credential: SerializedAuthCredential }
   | { t: 'op'; id: string; method: 'auth.reauthenticateWithProvider'; uid: string; tenantId: string | null;
       identity: { uid: string; providerId: string } }
-  | { t: 'op'; id: string; method: 'auth.sendPasswordResetEmail'; email: string; settings?: ActionCodeSettings }
+  | { t: 'op'; id: string; method: 'auth.sendPasswordResetEmail'; email: string; settings?: ActionCodeSettings; tenantId?: string | null }
   | { t: 'op'; id: string; method: 'auth.takeMail'; email?: string }
   | { t: 'op'; id: string; method: 'auth.sendSignInLinkToEmail'; email: string; settings: ActionCodeSettings }
   | { t: 'op'; id: string; method: 'auth.signInWithEmailLink'; email: string; link: string; tenantId?: string | null }

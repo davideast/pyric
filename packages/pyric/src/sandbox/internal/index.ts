@@ -322,7 +322,12 @@ export {
   type StorageRulesFile,
   type UnresolvedStorageRulesTarget,
 } from './storage-rules-config.js';
-export { parsePyricSandbox, isRemoteActivation, type PyricSandboxActivation } from './sandbox-activation.js';
+export {
+  LAZY_DEFAULT_AMBIENT_APP,
+  parsePyricSandbox,
+  isRemoteActivation,
+  type PyricSandboxActivation,
+} from './sandbox-activation.js';
 export {
   clearProcessActivation,
   installProcessActivation,

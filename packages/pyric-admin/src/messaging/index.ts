@@ -38,10 +38,10 @@ import {
 
 import {
   ADMIN_APP_TARGET,
-  getApp,
   type PyricAdminApp,
   type SandboxAdminApp,
 } from '../app/index.js';
+import { getDefaultServiceApp } from '../app/default-service-app.js';
 import { PrefixedFirebaseError } from '../app/firebase-error.js';
 import { assertAdminAppActive } from '../app/lifecycle.js';
 import { explicitProjectId } from '../app/project-id.js';
@@ -442,7 +442,7 @@ let climbDefaultApp: SandboxAdminApp | null = null;
 function resolveApp(app?: PyricAdminApp): PyricAdminApp {
   if (app !== undefined) return app;
   try {
-    return getApp();
+    return getDefaultServiceApp();
   } catch (error) {
     if (process.env.PYRIC_CLIMB === '1') {
       climbDefaultApp ??= {

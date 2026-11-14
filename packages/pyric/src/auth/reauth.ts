@@ -53,7 +53,8 @@ export async function reauthenticateWithCredential(
   target.backend.assertProviderEnabled(credential.providerId);
 
   if (credential instanceof EmailAuthCredential) {
-    const stored = target.backend.findByEmail(credential.email);
+    const userTenant = user.tenantId ?? null;
+    const stored = target.backend.findByEmail(credential.email, userTenant);
     // user-mismatch BEFORE the password compare: presenting another
     // account's credential is the wrong-user error regardless of whether
     // the password happens to be right, and answering "wrong password"
@@ -73,7 +74,7 @@ export async function reauthenticateWithCredential(
     }
     // The real check — same path signInWithEmailAndPassword takes, so it
     // throws the same `auth/wrong-password` / `auth/user-disabled`.
-    target.backend.validatePassword(credential.email, password);
+    target.backend.validatePassword(credential.email, password, userTenant);
     return completeReauth(user, target, null, credential.providerId);
   }
 

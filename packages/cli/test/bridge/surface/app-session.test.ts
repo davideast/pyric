@@ -69,6 +69,7 @@ describe('readAppSession', () => {
   it('reports no session again after a sign-out', async () => {
     const sandbox = seeded();
     const auth = getAuth(sandbox);
+    auth.tenantId = 'tenant-acme';
     await signInWithEmailAndPassword(auth, 'riley@acme.test', 'hunter22');
     await signOut(auth);
     expect(readAppSession(sandbox)).toBe(null);
@@ -178,7 +179,9 @@ describe('the provider a session signed in through', () => {
 
   it('reports password for an email and password sign-in', async () => {
     const sandbox = seeded();
-    await signInWithEmailAndPassword(getAuth(sandbox), 'riley@acme.test', 'hunter22');
+    const auth = getAuth(sandbox);
+    auth.tenantId = 'tenant-acme';
+    await signInWithEmailAndPassword(auth, 'riley@acme.test', 'hunter22');
 
     expect(readAppSession(sandbox)?.providerId).toBe('password');
     expect(await mintedSignInProvider(sandbox)).toBe('password');

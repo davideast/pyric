@@ -89,7 +89,7 @@ function signInWithEmailCredential(
   const link = credential.emailLink;
   const usesLink = link !== null;
   if (!usesLink) throw invalidCredential();
-  const { user, isNewUser } = resolveEmailLinkIdentity(auth, credential.email, link);
+  const { user, isNewUser } = resolveEmailLinkIdentity(auth, credential.email, link, scope.tenantId);
   const session = sandbox.mintSession(auth, {
     kind: 'provider', uid: user.uid, providerId: EMAIL_PROVIDER_ID, ...scope,
   });

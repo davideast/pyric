@@ -105,7 +105,9 @@ describe('describeBothIdentities', () => {
     const sandbox = seededSandbox();
     const ctx = freshContext(sandbox);
     switchHeldIdentity(ctx, { mode: 'admin' });
-    await signInWithEmailAndPassword(getAuth(sandbox), 'riley@acme.test', 'hunter22');
+    const auth = getAuth(sandbox);
+    auth.tenantId = 'tenant-acme';
+    await signInWithEmailAndPassword(auth, 'riley@acme.test', 'hunter22');
 
     const result = describeBothIdentities(ctx);
     const data = result.data as {

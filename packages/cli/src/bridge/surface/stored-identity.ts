@@ -59,3 +59,20 @@ export function impersonatedIdentity(
 
   return identity;
 }
+
+/**
+ * Overlay stored `tenantId` and `customClaims` onto a `'uid'` caller identity
+ * input, returning non-`uid` modes (`admin`, `anonymous`, `default`) unchanged.
+ */
+export function resolveStoredUidIdentity<T extends IdentityInput>(
+  ctx: SandboxSurfaceContext,
+  input: T,
+): IdentityInput {
+  if (input.mode === 'uid' && typeof input.uid === 'string' && input.uid.length > 0) {
+    const named: NamedIdentity = {};
+    if (typeof input.tenant === 'string') named.tenant = input.tenant;
+    if (input.claims !== undefined) named.claims = input.claims;
+    return impersonatedIdentity(ctx, input.uid, named);
+  }
+  return input;
+}

@@ -4,7 +4,7 @@
  * starts each trigger family, and reports ready to the host over IPC.
  */
 import { createRequire } from 'node:module';
-import type { RemoteSandbox } from '../remote/index.js';
+import { LAZY_DEFAULT_AMBIENT_APP } from 'pyric/sandbox/internal';
 import { disconnectFromHost, sendToHost } from './child-ipc.js';
 import {
   HEARTBEAT_INTERVAL_MS,
@@ -19,12 +19,20 @@ import { httpFunctionInfo, httpOnRequestFamily, inspectOnRequest } from './http/
 import { loadFunctionsModuleExports } from './module-loader.js';
 import { rtdbCreatedFamily } from './rtdb/discovery.js';
 import type { OnValueCreatedExecutionHost } from './rtdb/execution.js';
-import { serveInstanceAsDefault, startRtdbChildRuntime } from './rtdb/child-runtime.js';
+import {
+  connectAmbientRuntimeSandbox,
+  serveInstanceAsDefault,
+  startRtdbChildRuntime,
+} from './rtdb/child-runtime.js';
 import { findUnsupportedTriggers } from './unsupported.js';
 
+interface AdminAppInstance {
+  sandbox?: { close?: () => void };
+}
+
 interface AdminAppModule {
-  initializeApp(): { sandbox: RemoteSandbox };
-  deleteApp(app: unknown): Promise<void>;
+  getApps(): AdminAppInstance[];
+  deleteApp(app: AdminAppInstance): Promise<void>;
 }
 
 const send = (message: FunctionsChildMessage): void => sendToHost(message);
@@ -76,7 +84,8 @@ async function runFunctionsChild(): Promise<void> {
   const requireFromEntry = createRequire(entry);
   const adminApp = requireFromEntry('firebase-admin/app') as AdminAppModule;
   serveInstanceAsDefault(instance);
-  const app = adminApp.initializeApp();
+  (globalThis as Record<symbol, unknown>)[LAZY_DEFAULT_AMBIENT_APP] = true;
+  const runtimeSandbox = connectAmbientRuntimeSandbox(process.env);
   let host: OnValueCreatedExecutionHost | undefined;
   let httpServer: HttpChildServer | undefined;
   let closing: Promise<void> | undefined;
@@ -89,8 +98,13 @@ async function runFunctionsChild(): Promise<void> {
       await httpServer?.close();
       host?.close();
       await host?.idle();
-      app.sandbox.close();
-      await adminApp.deleteApp(app);
+      delete (globalThis as Record<symbol, unknown>)[LAZY_DEFAULT_AMBIENT_APP];
+      runtimeSandbox.close();
+      const apps = adminApp.getApps();
+      for (const app of apps) {
+        app.sandbox?.close?.();
+      }
+      await Promise.all(apps.map((app) => adminApp.deleteApp(app).catch(() => undefined)));
     })();
     return closing;
   };
@@ -139,13 +153,10 @@ async function runFunctionsChild(): Promise<void> {
   process.once('SIGTERM', onSignal);
 
   try {
-    // The real database provider asks firebase-admin/app for its default app
-    // when it wraps a raw CloudEvent. Initializing that app before loading the
-    // user's module avoids importing the broad firebase-functions/v2 barrel.
     const exported = await loadFunctionsModuleExports(entry);
     host = startRtdbChildRuntime({
       exported,
-      sandbox: app.sandbox,
+      sandbox: runtimeSandbox,
       instance,
       location,
       databaseHost,
