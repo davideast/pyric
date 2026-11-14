@@ -510,7 +510,7 @@ describe('Swap-or-Stop standing guard canary matrix', () => {
     });
   });
 
-  it('6. refuses unsupported runtimes across POSIX command-prefix builtins, command substitutions, shell flags, and fail-closed dynamic constructs', () => {
+  it('6. refuses unsupported runtimes across POSIX command-prefix builtins, command substitutions, and bundled shell/env flags while leaving harmless dynamic scripts alone', () => {
     const blockedVectors: Array<[string[], 'bun' | 'deno']> = [
       [['sh', '-c', 'exec bun run dev'], 'bun'],
       [['sh', '-c', 'exec -a worker-proc bunx vite'], 'bun'],

@@ -345,8 +345,9 @@ describe('buildChildEnv', () => {
         lines.push(String(chunk));
         return true;
       }) as typeof process.stdout.write;
+      let handle: ReturnType<typeof spawnSandboxChild> | undefined;
       try {
-        const handle = spawnSandboxChild(
+        handle = spawnSandboxChild(
           {
             argv: [
               ...envCmd,
@@ -360,6 +361,7 @@ describe('buildChildEnv', () => {
         );
         expect(await handle.exited).toBe(0);
       } finally {
+        handle?.signal('SIGKILL');
         process.stdout.write = origWrite;
       }
       const rawLine = lines.join('').replace(/^\[dev\]\s*/gm, '').trim().split('\n').pop() ?? '{}';
@@ -370,7 +372,7 @@ describe('buildChildEnv', () => {
         active: true,
       });
     }
-  });
+  }, 30_000);
 
   // #2609: `NODE_ENV=production pyric sandbox -- next dev` must reach the
   // register's production refusal; the runner never chooses the override.
