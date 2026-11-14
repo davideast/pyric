@@ -44,7 +44,7 @@ const HEALTH_PROBE_DEADLINE_MS = 1000;
  * (`bridge-mount.ts`). Any other answer comes from a server that is not a
  * sandbox host: an in-page Vite server answers 404 to a JSON request.
  */
-export type HealthAnswer =
+type HealthAnswer =
   | { readonly kind: 'sandbox'; readonly health: HealthLite }
   | { readonly kind: 'no-answer' }
   | { readonly kind: 'other' };
@@ -69,7 +69,7 @@ function sandboxHealthOf(response: BoundedResponse): HealthLite | null {
 }
 
 /** Bounded by {@link HEALTH_PROBE_DEADLINE_MS} and leaves no socket behind (#1162). */
-export async function healthAnswer(base: string): Promise<HealthAnswer> {
+async function healthAnswer(base: string): Promise<HealthAnswer> {
   const response = await boundedRequest(`${base}/__pyric/health`, {
     headers: { accept: 'application/json' },
     deadlineMs: HEALTH_PROBE_DEADLINE_MS,

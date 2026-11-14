@@ -78,7 +78,7 @@ export function candidateWorkspaceDirectories(startDir: string): WorkspaceSearch
   return entries;
 }
 
-export function parseLoopbackPortSpec(raw: string | undefined): number | undefined {
+function parseLoopbackPortSpec(raw: string | undefined): number | undefined {
   if (!raw) return undefined;
   const trimmed = raw.trim();
   if (trimmed === '') return undefined;
