@@ -17,17 +17,6 @@
  * `PYRIC_SANDBOX_FORCE=1` unless the caller set it, so a child started with
  * `NODE_ENV=production` stays in the sandbox instead of refusing it (#2340).
  * A process that is not registered, or is in live mode, adds no force.
- *
- * A shell the process starts passes the environment on, so a Node process the
- * shell starts is registered too, unless the command line it runs sets
- * `NODE_OPTIONS` itself (`NODE_OPTIONS=--max-old-space-size=4096 node
- * server.js`), which no code in this process can see.
- *
- * Every asynchronous child (`spawn`, `exec`, `execFile`, `fork`, and their
- * promisified forms) is built by `ChildProcess.prototype.spawn` from the env
- * Node has already resolved, so one wrapper there covers them. The
- * synchronous forms reach a native binding instead, so `spawnSync`,
- * `execSync` and `execFileSync` are wrapped where they are exported.
  */
 import { realpathSync } from 'node:fs';
 import Module, { createRequire } from 'node:module';
@@ -52,7 +41,10 @@ const GUARDED = Symbol.for('pyric.guardedChildProcess');
 /** The variables that carry the sandbox to a child. */
 const SANDBOX_VARIABLE = /^PYRIC_/;
 
-const BARE_REGISTER_NAMES = new Set(['@pyric/cli/register', '@pyric/live/register']);
+const TWO_TOKEN_PRELOAD_FLAGS = new Set(['--import', '--require', '-r']);
+const ATTACHED_PRELOAD_PREFIXES = ['--import=', '--require=', '-r='] as const;
+const PYRIC_REGISTER_PATH_RE =
+  /(?:^|[\\/])(?:@pyric[\\/](?:cli|live)|packages[\\/](?:cli|live))[\\/](?:dist|src)[\\/]register(?:[\\/]index)?\.[cm]?[jt]s$/;
 
 interface NodeOptionWord {
   readonly value: string;
@@ -76,12 +68,30 @@ function isFilesystemPathSpecifier(specifier: string): boolean {
   );
 }
 
+function isLiveRegisterRef(ref: string): boolean {
+  return /(?:^|[\\/])(?:@pyric[\\/]live|packages[\\/]live)[\\/]/.test(ref);
+}
+
+function ownBareRegisterName(registerUrl: string): string {
+  return isLiveRegisterRef(registerUrl) ? '@pyric/live/register' : '@pyric/cli/register';
+}
+
+function foreignBareRegisterName(registerUrl: string): string {
+  return isLiveRegisterRef(registerUrl) ? '@pyric/cli/register' : '@pyric/live/register';
+}
+
+function isForeignRegisterSpecifier(specifier: string, registerUrl: string): boolean {
+  if (specifier === foreignBareRegisterName(registerUrl)) return true;
+  if (!PYRIC_REGISTER_PATH_RE.test(specifier)) return false;
+  return isLiveRegisterRef(specifier) !== isLiveRegisterRef(registerUrl);
+}
+
 /**
- * Whether an `--import` target names Pyric's register (`registerUrl`), as a
- * `file:` URL, an OS filesystem path, or bare `@pyric/(cli|live)/register`.
+ * Whether a preload target names the same Pyric register as `registerUrl`, by
+ * `file:` URL, OS filesystem path, or matching bare `@pyric/(cli|live)/register`.
  */
 export function matchesRegisterSpecifier(specifier: string, registerUrl: string): boolean {
-  if (specifier === registerUrl || BARE_REGISTER_NAMES.has(specifier)) return true;
+  if (specifier === registerUrl || specifier === ownBareRegisterName(registerUrl)) return true;
   if (isSameLocalFile(specifier, registerUrl)) return true;
   if (!registerUrl.startsWith('file:') || !isFilesystemPathSpecifier(specifier)) return false;
   let registerFile: string;
@@ -93,6 +103,15 @@ export function matchesRegisterSpecifier(specifier: string, registerUrl: string)
   const candidateFile = resolve(specifier);
   if (candidateFile === registerFile) return true;
   return tryRealpath(candidateFile) === tryRealpath(registerFile);
+}
+
+function attachedPreloadSpecifier(token: string): { prefix: string; target: string } | null {
+  for (const prefix of ATTACHED_PRELOAD_PREFIXES) {
+    if (token.startsWith(prefix)) {
+      return { prefix, target: token.slice(prefix.length) };
+    }
+  }
+  return null;
 }
 
 function tokenizeNodeOptions(nodeOptions: string): NodeOptionWord[] {
@@ -131,82 +150,53 @@ function tokenizeNodeOptions(nodeOptions: string): NodeOptionWord[] {
   return words;
 }
 
-/** Whether `nodeOptions` already loads the register (by URL, filesystem path, or package name). */
+function isAnyPyricRegister(specifier: string, registerUrl: string): boolean {
+  return matchesRegisterSpecifier(specifier, registerUrl) || isForeignRegisterSpecifier(specifier, registerUrl);
+}
+
+/**
+ * Whether `nodeOptions` already loads a Pyric register (`--import` or `-r`/`--require`,
+ * by URL, filesystem path, or package name).
+ */
 export function loadsRegister(nodeOptions: string, registerUrl: string): boolean {
   const words = tokenizeNodeOptions(nodeOptions);
   for (let i = 0; i < words.length; i++) {
     const word = words[i]!.value;
-    if (word === '--import' && i + 1 < words.length) {
-      if (matchesRegisterSpecifier(words[i + 1]!.value, registerUrl)) return true;
+    if (TWO_TOKEN_PRELOAD_FLAGS.has(word) && i + 1 < words.length) {
+      if (isAnyPyricRegister(words[i + 1]!.value, registerUrl)) return true;
       i++;
       continue;
     }
-    if (word.startsWith('--import=')) {
-      if (matchesRegisterSpecifier(word.slice('--import='.length), registerUrl)) return true;
+    const attached = attachedPreloadSpecifier(word);
+    if (attached !== null && isAnyPyricRegister(attached.target, registerUrl)) {
+      return true;
     }
   }
   return false;
 }
 
-/**
- * Ensure `nodeOptions` loads `registerUrl` via its canonical `file:` URL,
- * rewriting any bare `@pyric/(cli|live)/register` or filesystem-path register
- * preload in place while preserving all other user options verbatim.
- */
-export function withCanonicalRegisterNodeOptions(nodeOptions: string, registerUrl: string): string {
-  const words = tokenizeNodeOptions(nodeOptions);
-  const importFlag = `--import ${registerUrl}`;
-  if (words.length === 0) return importFlag;
-
-  const rewritten: string[] = [];
+function rewritePreloadTokens(
+  items: ReadonlyArray<{ readonly value: unknown; readonly raw: unknown }>,
+  registerUrl: string,
+): { readonly out: unknown[]; readonly foundRegister: boolean } {
+  const out: unknown[] = [];
   let foundRegister = false;
-
-  for (let i = 0; i < words.length; i++) {
-    const word = words[i]!;
-    if (word.value === '--import' && i + 1 < words.length) {
-      const nextWord = words[i + 1]!;
-      if (matchesRegisterSpecifier(nextWord.value, registerUrl)) {
-        if (!foundRegister) {
-          rewritten.push('--import', registerUrl);
-          foundRegister = true;
-        }
+  for (let i = 0; i < items.length; i++) {
+    const item = items[i]!;
+    if (
+      typeof item.value === 'string' &&
+      TWO_TOKEN_PRELOAD_FLAGS.has(item.value) &&
+      i + 1 < items.length &&
+      typeof items[i + 1]!.value === 'string'
+    ) {
+      const nextItem = items[i + 1]!;
+      const target = nextItem.value as string;
+      if (isForeignRegisterSpecifier(target, registerUrl)) {
+        out.push(item.raw, nextItem.raw);
+        foundRegister = true;
         i++;
         continue;
       }
-      rewritten.push(word.raw, nextWord.raw);
-      i++;
-      continue;
-    }
-    if (word.value.startsWith('--import=')) {
-      const target = word.value.slice('--import='.length);
-      if (matchesRegisterSpecifier(target, registerUrl)) {
-        if (!foundRegister) {
-          rewritten.push(`--import=${registerUrl}`);
-          foundRegister = true;
-        }
-        continue;
-      }
-    }
-    rewritten.push(word.raw);
-  }
-
-  if (!foundRegister) {
-    return `${nodeOptions.trimEnd()} ${importFlag}`;
-  }
-  return rewritten.join(' ');
-}
-
-/**
- * Ensure a `Worker` `execArgv` array loads `registerUrl` via its canonical
- * `file:` URL, rewriting bare or filesystem-path register preloads in place.
- */
-export function withCanonicalRegisterExecArgv(execArgv: readonly unknown[], registerUrl: string): unknown[] {
-  const out: unknown[] = [];
-  let foundRegister = false;
-  for (let i = 0; i < execArgv.length; i++) {
-    const item = execArgv[i];
-    if (item === '--import' && i + 1 < execArgv.length && typeof execArgv[i + 1] === 'string') {
-      const target = execArgv[i + 1] as string;
       if (matchesRegisterSpecifier(target, registerUrl)) {
         if (!foundRegister) {
           out.push('--import', registerUrl);
@@ -215,22 +205,60 @@ export function withCanonicalRegisterExecArgv(execArgv: readonly unknown[], regi
         i++;
         continue;
       }
-      out.push(item, target);
+      out.push(item.raw, nextItem.raw);
       i++;
       continue;
     }
-    if (typeof item === 'string' && item.startsWith('--import=')) {
-      const target = item.slice('--import='.length);
-      if (matchesRegisterSpecifier(target, registerUrl)) {
-        if (!foundRegister) {
-          out.push(`--import=${registerUrl}`);
+    if (typeof item.value === 'string') {
+      const attached = attachedPreloadSpecifier(item.value);
+      if (attached !== null) {
+        if (isForeignRegisterSpecifier(attached.target, registerUrl)) {
+          out.push(item.raw);
           foundRegister = true;
+          continue;
         }
-        continue;
+        if (matchesRegisterSpecifier(attached.target, registerUrl)) {
+          if (!foundRegister) {
+            if (attached.prefix === '--import=') {
+              out.push(`--import=${registerUrl}`);
+            } else {
+              out.push('--import', registerUrl);
+            }
+            foundRegister = true;
+          }
+          continue;
+        }
       }
     }
-    out.push(item);
+    out.push(item.raw);
   }
+  return { out, foundRegister };
+}
+
+/**
+ * Ensure `nodeOptions` loads `registerUrl` via its canonical `file:` URL,
+ * rewriting matching bare or filesystem-path register preloads (`--import` and
+ * `-r`/`--require`) in place while leaving the other Pyric register and all user
+ * options untouched.
+ */
+export function withCanonicalRegisterNodeOptions(nodeOptions: string, registerUrl: string): string {
+  const words = tokenizeNodeOptions(nodeOptions);
+  const importFlag = `--import ${registerUrl}`;
+  if (words.length === 0) return importFlag;
+  const { out, foundRegister } = rewritePreloadTokens(words, registerUrl);
+  if (!foundRegister) {
+    return `${nodeOptions.trimEnd()} ${importFlag}`;
+  }
+  return (out as string[]).join(' ');
+}
+
+/**
+ * Ensure a `Worker` `execArgv` array loads `registerUrl` via its canonical
+ * `file:` URL, rewriting matching register preloads in place.
+ */
+export function withCanonicalRegisterExecArgv(execArgv: readonly unknown[], registerUrl: string): unknown[] {
+  const items = execArgv.map((entry) => ({ value: entry, raw: entry }));
+  const { out, foundRegister } = rewritePreloadTokens(items, registerUrl);
   if (!foundRegister) {
     out.push('--import', registerUrl);
   }
@@ -301,7 +329,8 @@ export function guardChildEnv(
   parentActive: boolean = isSandboxParent(),
 ): Env {
   const guarded = withInheritedSandbox(childEnv, parentEnv, parentActive);
-  guarded.NODE_OPTIONS = withCanonicalRegisterNodeOptions(guarded.NODE_OPTIONS ?? '', registerUrl);
+  const nodeOptions = guarded.NODE_OPTIONS ?? '';
+  guarded.NODE_OPTIONS = withCanonicalRegisterNodeOptions(nodeOptions, registerUrl);
   return guarded;
 }
 

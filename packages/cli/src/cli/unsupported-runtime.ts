@@ -5,15 +5,19 @@
  */
 
 import { warnDeprecatedGuardEnvOnce } from '../register/deprecated-guard-env.js';
+import {
+  COMMAND_GROUP_TOKENS,
+  ENV_ASSIGNMENT,
+  SHELL_OPERATORS,
+  expandUnquotedOperators,
+  extractCommandSubstitutions,
+  tokenizeShellScript,
+} from './shell-script-tokenizer.js';
+
+export { SHELL_OPERATORS };
 
 /** Error code raised when `pyric sandbox` or `pyric run` refuses to spawn an unsupported child runtime. */
 export const UNSUPPORTED_RUNTIME_CODE = 'PYRIC_UNSUPPORTED_RUNTIME';
-
-/** Tokens that end one command and begin the next inside a shell string. */
-export const SHELL_OPERATORS = new Set(['&&', '||', '|', ';', '&']);
-
-/** Grouping tokens that leave the parser at the start of a command. */
-const COMMAND_GROUP_TOKENS = new Set(['(', ')', '{', '}']);
 
 /** Command basenames that cannot evaluate Node loader hooks, to the runtime. */
 const UNSUPPORTED_RUNTIME_BINARIES = new Map<string, string>([
@@ -24,9 +28,6 @@ const UNSUPPORTED_RUNTIME_BINARIES = new Map<string, string>([
 
 /** POSIX/Bourne shells whose `-c <script>` argument executes a shell command string. */
 const SHELL_BINARIES = new Set(['sh', 'bash', 'zsh', 'dash', 'ksh']);
-
-/** Leading `KEY=VAL` environment assignments in a shell command. */
-const ENV_ASSIGNMENT = /^[A-Za-z_][A-Za-z0-9_]*=/;
 
 const MAX_SCRIPT_DEPTH = 8;
 
@@ -41,137 +42,6 @@ function runtimeFromPackageSpec(token: string): string | undefined {
   const base = commandBasename(token);
   const name = !base.startsWith('@') && base.includes('@') ? base.slice(0, base.indexOf('@')) : base;
   return UNSUPPORTED_RUNTIME_BINARIES.get(name);
-}
-
-/**
- * Split unquoted shell operators and subshell parentheses inside a single
- * whitespace-free argv token (e.g. `b;`, `false||deno`, `(bun`), while leaving
- * quoted/multi-word arguments, `KEY=VAL` assignments, `--flag=val` options, and
- * URLs intact.
- */
-function expandUnquotedOperators(token: string): string[] {
-  if (
-    token.length === 0 ||
-    SHELL_OPERATORS.has(token) ||
-    COMMAND_GROUP_TOKENS.has(token) ||
-    /\s/.test(token) ||
-    ENV_ASSIGNMENT.test(token) ||
-    /^--[A-Za-z0-9_-]+=/.test(token) ||
-    /^[A-Za-z][A-Za-z0-9+.-]*:\/\//.test(token)
-  ) {
-    return [token];
-  }
-
-  const out: string[] = [];
-  let buf = '';
-  let i = 0;
-  const flush = (): void => {
-    if (buf.length > 0) {
-      out.push(buf);
-      buf = '';
-    }
-  };
-
-  while (i < token.length) {
-    const ch = token[i]!;
-    const two = token.slice(i, i + 2);
-    if (two === '&&' || two === '||') {
-      flush();
-      out.push(two);
-      i += 2;
-      continue;
-    }
-    if (ch === ';' || ch === '|' || ch === '&' || ch === '(' || ch === ')') {
-      flush();
-      out.push(ch);
-      i++;
-      continue;
-    }
-    buf += ch;
-    i++;
-  }
-  flush();
-  return out;
-}
-
-/**
- * Tokenize a shell `-c` / `env -S` script string into words and unquoted shell
- * operators while keeping single- and double-quoted segments attached.
- */
-function tokenizeShellScript(script: string): string[] {
-  const tokens: string[] = [];
-  let current = '';
-  let inToken = false;
-  let i = 0;
-
-  const flush = (): void => {
-    if (inToken) {
-      tokens.push(current);
-      current = '';
-      inToken = false;
-    }
-  };
-
-  while (i < script.length) {
-    const ch = script[i]!;
-    if (ch === '\n' || ch === '\r') {
-      flush();
-      tokens.push(';');
-      i++;
-      continue;
-    }
-    if (/\s/.test(ch)) {
-      flush();
-      i++;
-      continue;
-    }
-    const two = script.slice(i, i + 2);
-    if (two === '&&' || two === '||') {
-      flush();
-      tokens.push(two);
-      i += 2;
-      continue;
-    }
-    if (ch === ';' || ch === '|' || ch === '&' || ch === '(' || ch === ')') {
-      flush();
-      tokens.push(ch);
-      i++;
-      continue;
-    }
-    inToken = true;
-    if (ch === "'") {
-      i++;
-      while (i < script.length && script[i] !== "'") {
-        current += script[i]!;
-        i++;
-      }
-      if (i < script.length) i++;
-      continue;
-    }
-    if (ch === '"') {
-      i++;
-      while (i < script.length && script[i] !== '"') {
-        if (script[i] === '\\' && i + 1 < script.length && (script[i + 1] === '"' || script[i + 1] === '\\')) {
-          current += script[i + 1]!;
-          i += 2;
-          continue;
-        }
-        current += script[i]!;
-        i++;
-      }
-      if (i < script.length) i++;
-      continue;
-    }
-    if (ch === '\\' && i + 1 < script.length) {
-      current += script[i + 1]!;
-      i += 2;
-      continue;
-    }
-    current += ch;
-    i++;
-  }
-  flush();
-  return tokens;
 }
 
 /** Transparent command-prefix builtins/utilities that execute their target command. */
@@ -216,9 +86,20 @@ function enterCommandToken(token: string): { readonly hit: string | null; readon
   return { hit: null, next: { kind: 'args' } };
 }
 
+function detectInShellScript(script: string, depth: number): string | null {
+  if (depth > MAX_SCRIPT_DEPTH) return null;
+  const directHit = detectInTokens(tokenizeShellScript(script), depth);
+  if (directHit !== null) return directHit;
+  for (const sub of extractCommandSubstitutions(script)) {
+    const subHit = detectInShellScript(sub, depth + 1);
+    if (subHit !== null) return subHit;
+  }
+  return null;
+}
+
 function flushEvalWords(state: ScanState, depth: number): string | null {
   if (state.kind !== 'eval' || state.words.length === 0) return null;
-  return detectInTokens(tokenizeShellScript(state.words.join(' ')), depth + 1);
+  return detectInShellScript(state.words.join(' '), depth + 1);
 }
 
 function detectInTokens(rawArgv: readonly string[], depth: number): string | null {
@@ -310,7 +191,7 @@ function detectInTokens(rawArgv: readonly string[], depth: number): string | nul
         break;
       }
       case 'script-next': {
-        const hit = detectInTokens(tokenizeShellScript(token), depth + 1);
+        const hit = detectInShellScript(token, depth + 1);
         if (hit !== null) return hit;
         state = state.after;
         break;
@@ -332,15 +213,16 @@ function detectInTokens(rawArgv: readonly string[], depth: number): string | nul
           state.acceptFlags &&
           (token.startsWith('--split-string=') || (token.startsWith('-S') && token.length > 2))
         ) {
-          const script = token.startsWith('--split-string=')
-            ? token.slice('--split-string='.length)
-            : token.slice(2);
-          const hit = detectInTokens(tokenizeShellScript(script), depth + 1);
+          let script = token.slice(2);
+          if (token.startsWith('--split-string=')) {
+            script = token.slice('--split-string='.length);
+          }
+          const hit = detectInShellScript(script, depth + 1);
           if (hit !== null) return hit;
           state = { kind: 'env', acceptFlags: false };
         } else if (
           state.acceptFlags &&
-          (/^-[i0v]*[uC]$/.test(token) || token === '--unset' || token === '--chdir')
+          (/^-[i0v]*[uCa]$/.test(token) || token === '--unset' || token === '--chdir' || token === '--argv0')
         ) {
           state = { kind: 'skip-one', next: state };
         } else if (state.acceptFlags && token.startsWith('-')) {
@@ -379,7 +261,7 @@ function detectInTokens(rawArgv: readonly string[], depth: number): string | nul
         } else if (token === '-c' || token === '--call') {
           state = { kind: 'script-next', after: { kind: 'args' } };
         } else if (token.startsWith('--call=')) {
-          const hit = detectInTokens(tokenizeShellScript(token.slice('--call='.length)), depth + 1);
+          const hit = detectInShellScript(token.slice('--call='.length), depth + 1);
           if (hit !== null) return hit;
           state = { kind: 'args' };
         } else if (token === '-p' || token === '--package') {
@@ -442,12 +324,19 @@ function detectInTokens(rawArgv: readonly string[], depth: number): string | nul
         break;
       }
       case 'shell': {
-        if (/^-[A-Za-ln-np-z]*c[A-Za-ln-np-z]*$/.test(token) || token === '--command') {
+        if (/^-[A-Za-np-z]*c[A-Za-np-z]*$/.test(token) || token === '--command') {
           state = { kind: 'script-next', after: { kind: 'args' } };
-        } else if (token === '-o' || token === '+o') {
+        } else if (
+          token === '-o' ||
+          token === '+o' ||
+          token === '-O' ||
+          token === '+O' ||
+          token === '--rcfile' ||
+          token === '--init-file'
+        ) {
           state = { kind: 'skip-one', next: state };
         } else if (token.startsWith('-') || token.startsWith('+')) {
-          // Other shell options (-e, -u, -x, -l)
+          // Other shell options (-e, -u, -x, -l, -m, --norc, --posix)
         } else {
           state = { kind: 'args' };
         }

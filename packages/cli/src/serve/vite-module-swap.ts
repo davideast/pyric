@@ -39,14 +39,18 @@ import {
   unaliasedSpecifier,
 } from './vite-ssr-routing.js';
 import { loadServerTarget } from './vite-ssr-loader.js';
-import { createViteSdkFileGate, type StopEntry } from './vite-sdk-file-gate.js';
+import {
+  DIRECT_SDK_STOP_SPECIFIER,
+  createViteSdkFileGate,
+  type StopEntry,
+} from './vite-sdk-file-gate.js';
 import { LIVE_ROW_SDK_PACKAGES, isFirebaseSdkName, stopFor } from '../register/swap-or-stop.js';
 import { packageNameOf } from '../register/package-identity.js';
 import { installedFirebaseSdkNames } from '../bundler/externals.js';
 
 const FIREBASE_SPECIFIER = /^firebase\/([a-z-]+(?:\/[a-z-]+)*)$/;
 const SDK_PACKAGE_SPECIFIER = /^@firebase\//;
-const DIRECT_SDK_STOP_SPECIFIER = /^(?:firebase|firebase-admin(?:\/.+)?|@firebase\/[^/]+(?:\/.+)?)$/;
+const SUBPATH_IMPORT_SPECIFIER = /^#/;
 const NODE_SHIM_PREFIX = '\0pyric:node-shim:';
 
 function splitSpecifierQuery(source: string): { bare: string; query: string } {
@@ -58,6 +62,10 @@ function splitSpecifierQuery(source: string): { bare: string; query: string } {
 /** The SDK package the served entries import; one instance per page. */
 const PYRIC_PACKAGE = 'pyric';
 
+/**
+ * Node's CommonJS resolver, typed locally: the repo's ambient Node types
+ * leave out these internals.
+ */
 interface CommonJsResolver {
   _resolveFilename?: (request: string, parent: unknown, isMain: boolean) => string;
   _nodeModulePaths?: (from: string) => string[];
@@ -77,7 +85,12 @@ function packageRootOf(file: string): string {
 
 /**
  * The file Node resolves `specifier` to from `base`, without running the
- * process's `module.registerHooks` resolve hooks.
+ * process's `module.registerHooks` resolve hooks. From Node 24.16 those hooks
+ * also run for `require.resolve`: pyric's own stop hook throws there, which
+ * read as "not installed", and the register maps `firebase-admin` to
+ * `pyric-admin`, which read as "not the real SDK", so the stop was skipped
+ * (#1906). `Module._resolveFilename` runs below the hooks on Node 22.15 and
+ * 24.16. Falls back to `createRequire` on a runtime without it.
  */
 function resolveUnhooked(specifier: string, base: string): string {
   const resolveFilename = moduleApi._resolveFilename;
@@ -210,10 +223,11 @@ export function createViteModuleSwap(
   const allowedUrls = new Set<string>();
   const observed = new Set<ServedFirebaseSpecifier>();
 
-  function sdkAliasNames(): readonly string[] {
-    if (cachedSdkAliasRoot === root) return cachedSdkAliases;
-    cachedSdkAliasRoot = root;
-    cachedSdkAliases = installedFirebaseSdkNames({ projectDir: root }).filter(
+  function sdkAliasNames(projectDir: string = root): readonly string[] {
+    const resolvedDir = path.resolve(projectDir);
+    if (cachedSdkAliasRoot === resolvedDir) return cachedSdkAliases;
+    cachedSdkAliasRoot = resolvedDir;
+    cachedSdkAliases = installedFirebaseSdkNames({ projectDir: resolvedDir }).filter(
       (name) => name !== 'firebase' && name !== 'firebase-admin' && !name.startsWith('@firebase/'),
     );
     return cachedSdkAliases;
@@ -232,7 +246,7 @@ export function createViteModuleSwap(
     stops,
     allowedUrls,
     aiMode,
-    isInstalledSdkAlias,
+    isOurCode,
   });
 
   function resolveBases(importer: string | undefined): string[] {
@@ -318,7 +332,10 @@ export function createViteModuleSwap(
       return stopIdFor(bare, importer);
     }
 
-    const isDirectSdkStop = DIRECT_SDK_STOP_SPECIFIER.test(bare) || isInstalledSdkAlias(bare);
+    const isDirectSdkStop =
+      DIRECT_SDK_STOP_SPECIFIER.test(bare) ||
+      SUBPATH_IMPORT_SPECIFIER.test(bare) ||
+      isInstalledSdkAlias(bare);
     if (supplied === undefined && !isOurCode(importer) && isDirectSdkStop) {
       let importerUrl: string | undefined;
       if (importer !== undefined) {
@@ -425,15 +442,19 @@ export function createViteModuleSwap(
     return shimFor(id.slice(NODE_SHIM_PREFIX.length));
   }
 
-  async function preBundledSdkRefusal(file: string): Promise<string | null> {
-    const supplied = options?.supplied;
-    if (supplied === undefined) return null;
+  async function preBundledSdkStop(file: string): Promise<string | null> {
     const url = realFileUrlOf(file);
     const isInstalled = url !== null && url.includes('/node_modules/');
     if (!isInstalled) return null;
     const name = packageNameOf(url);
     if (name === null || !isFirebaseSdkName(name)) return null;
-    return stopModule(supplied.refusal(name, 'page'), await stopModuleExports(file, path.dirname(file)));
+    const supplied = options?.supplied;
+    if (supplied !== undefined) {
+      return stopModule(supplied.refusal(name, 'page'), await stopModuleExports(file, path.dirname(file)));
+    }
+    const stopped = stopFor({ specifier: name, importer: undefined, url, aiMode: aiMode() }, allowedUrls);
+    if (stopped === null) return null;
+    return stopModule(stopped, await stopModuleExports(file, path.dirname(file)));
   }
 
   const rolldownMirror = {
@@ -445,7 +466,7 @@ export function createViteModuleSwap(
       return { id: source, external: true };
     },
     async load(id: string) {
-      return (await preBundledSdkRefusal(id)) ?? load(id);
+      return (await preBundledSdkStop(id)) ?? load(id);
     },
   };
 
@@ -460,18 +481,17 @@ export function createViteModuleSwap(
       build.onResolve({ filter: FIREBASE_SPECIFIER }, keepFirebaseExternal);
       build.onResolve({ filter: SDK_PACKAGE_SPECIFIER }, keepFirebaseExternal);
       build.onResolve({ filter: DIRECT_SDK_STOP_SPECIFIER }, keepFirebaseExternal);
+      build.onResolve({ filter: SUBPATH_IMPORT_SPECIFIER }, keepFirebaseExternal);
       build.onResolve({ filter: NODE_BUILTIN_RE }, (args) => {
         if (!isOurCode(args.importer)) return null;
         const shimPath = args.path.replace(/^node:/, '');
         return { path: shimPath, namespace: 'pyric-node-shim' };
       });
-      if (options?.supplied !== undefined) {
-        build.onLoad({ filter: /.*/, namespace: 'file' }, async (args) => {
-          const contents = await preBundledSdkRefusal(args.path);
-          if (contents === null) return null;
-          return { contents, loader: 'js' };
-        });
-      }
+      build.onLoad({ filter: /.*/, namespace: 'file' }, async (args) => {
+        const contents = await preBundledSdkStop(args.path);
+        if (contents === null) return null;
+        return { contents, loader: 'js' };
+      });
       build.onLoad({ filter: /.*/, namespace: 'pyric-node-shim' }, (args) => {
         const content = NODE_BUILTIN_SHIMS[args.path];
         if (content === undefined) return null;
@@ -480,6 +500,13 @@ export function createViteModuleSwap(
     },
   };
 
+  /**
+   * Every name a Firebase SDK is installed under, kept external in server
+   * environments, as `pyricViteExternals` keeps them in an SSR build (#2345).
+   * Vite ranks `ssr.external` above `ssr.noExternal`, so Node loads a direct
+   * `@firebase/*` import or an npm alias of firebase-admin, and the stop hook
+   * (`vite-process-stop.ts`) decides it as the register does after a build.
+   */
   function installedSdkExternals(userConfig: UserConfig | undefined): string[] {
     const hasLiveRows = options?.supplied !== undefined;
     const externalizesEveryDependency = userConfig?.ssr?.external === true;
@@ -490,6 +517,7 @@ export function createViteModuleSwap(
 
   return {
     config(configOptions) {
+      const projectDir = path.resolve(configOptions?.userConfig?.root ?? process.cwd());
       const excludedModules = [
         ...SDK_MODULES,
         'firebase-admin',
@@ -499,7 +527,11 @@ export function createViteModuleSwap(
         '@firebase/app-check',
         '@firebase/util',
         '@firebase/logger',
+        // A page's own `pyric/*` import would otherwise get a pre-bundled copy
+        // of pyric, with its own app registry, and the served entries would
+        // resolve to that copy too (#1506). The bare name covers every subpath.
         PYRIC_PACKAGE,
+        ...sdkAliasNames(projectDir),
       ];
       if (options?.supplied !== undefined) {
         excludedModules.push(...LIVE_ROW_SDK_PACKAGES, ...passThroughSdkPackages(options.supplied.passThrough));

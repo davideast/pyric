@@ -67,13 +67,16 @@ const CLIENT_STOP_SPECIFIER = '@pyric/cli/next/internal/client-stop';
  * and standard `node_modules` installs resolve uniformly without OS-absolute
  * leading `/` paths.
  */
-export function clientStopTurbopackTarget(projectDir: string = process.cwd()): string {
-  void projectDir;
+export function clientStopTurbopackTarget(): string {
   return CLIENT_STOP_SPECIFIER;
 }
 
 const KNOWN_FIREBASE_SUBPATHS: readonly string[] = [
   'firebase',
+  'firebase/auth/cordova',
+  'firebase/auth/web-extension',
+  'firebase/firestore/pipelines',
+  'firebase/firestore/lite/pipelines',
   'firebase/installations',
   'firebase/data-connect',
   'firebase/vertexai',
@@ -137,6 +140,8 @@ const KNOWN_SCOPED_FIREBASE_PACKAGES: readonly string[] = [
   '@firebase/database-types',
   '@firebase/firestore',
   '@firebase/firestore/lite',
+  '@firebase/firestore/lite/pipelines',
+  '@firebase/firestore/pipelines',
   '@firebase/firestore-compat',
   '@firebase/firestore-types',
   '@firebase/functions',
@@ -199,6 +204,18 @@ function fallbackAliasSubpaths(aliasName: string, manifestName: string | undefin
       if (spec === 'firebase-admin') return aliasName;
       return `${aliasName}/${spec.slice('firebase-admin/'.length)}`;
     });
+  }
+  if (manifestName !== undefined && manifestName.startsWith('@firebase/') && aliasName !== manifestName) {
+    const prefix = `${manifestName}/`;
+    const matching = KNOWN_SCOPED_FIREBASE_PACKAGES.filter(
+      (spec) => spec === manifestName || spec.startsWith(prefix),
+    );
+    if (matching.length > 0) {
+      return matching.map((spec) => {
+        if (spec === manifestName) return aliasName;
+        return `${aliasName}/${spec.slice(prefix.length)}`;
+      });
+    }
   }
   return [aliasName];
 }

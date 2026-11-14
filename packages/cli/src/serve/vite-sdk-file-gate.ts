@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { isBypassedBridgeImport, type AiMode, type ServedFirebaseSpecifier } from './firebase-module-swap.js';
+import type { AiMode, ServedFirebaseSpecifier } from './firebase-module-swap.js';
 import {
   ROW_MODULE_IDS,
   passThroughSdkPackages,
@@ -12,7 +12,7 @@ import { stopFor, suppliedRowsStopFor } from '../register/swap-or-stop.js';
 import { packageNameOf, pathInPackageOf } from '../register/package-identity.js';
 import type { SwapResolveContext } from './vite-module-swap.js';
 
-const DIRECT_SDK_STOP_SPECIFIER = /^(?:firebase|firebase-admin(?:\/.+)?|@firebase\/[^/]+(?:\/.+)?)$/;
+export const DIRECT_SDK_STOP_SPECIFIER = /^(?:firebase|firebase-admin(?:\/.+)?|@firebase\/[^/]+(?:\/.+)?)$/;
 
 export interface StopEntry {
   readonly error: Error;
@@ -24,7 +24,7 @@ export interface ViteSdkFileGateInput {
   readonly stops: Map<string, StopEntry>;
   readonly allowedUrls: Set<string>;
   readonly aiMode: () => AiMode;
-  readonly isInstalledSdkAlias: (bare: string) => boolean;
+  readonly isOurCode: (importer: string | undefined) => boolean;
 }
 
 function splitBareSpecifier(source: string): string {
@@ -80,7 +80,7 @@ function isPassThroughPackageFile(
  * and supplied-rows (`@pyric/live`) modes.
  */
 export function createViteSdkFileGate(input: ViteSdkFileGateInput) {
-  const { stops, allowedUrls, aiMode, isInstalledSdkAlias } = input;
+  const { stops, allowedUrls, aiMode, isOurCode } = input;
 
   function refusedFileIdFor(specifier: string, file: string, error: Error): string {
     const id = `${STOP_PREFIX}refused:page-file:${JSON.stringify([specifier, file])}`;
@@ -96,31 +96,6 @@ export function createViteSdkFileGate(input: ViteSdkFileGateInput) {
       stops.set(id, { error, specifier: file, resolveDir: path.dirname(file) });
     }
     return id;
-  }
-
-  function shouldInspectSandboxTarget(bare: string, importer: string | undefined): boolean {
-    if (
-      bare.startsWith('/') ||
-      bare.startsWith('.') ||
-      bare.startsWith('file:') ||
-      bare.startsWith('#') ||
-      bare.startsWith('@/') ||
-      bare.startsWith('~/') ||
-      bare.includes('/node_modules/')
-    ) {
-      return true;
-    }
-    if (isInstalledSdkAlias(bare)) {
-      return true;
-    }
-    if (aiMode() === 'production') {
-      return (
-        bare === 'firebase/ai' ||
-        isBypassedBridgeImport(bare, importer) ||
-        DIRECT_SDK_STOP_SPECIFIER.test(bare)
-      );
-    }
-    return false;
   }
 
   async function gateLiveSdkFile(
@@ -164,8 +139,8 @@ export function createViteSdkFileGate(input: ViteSdkFileGateInput) {
     if (typeof routed === 'string') return routed;
     const rawUnaliased = unaliasedSpecifier(source) ?? source;
     const bare = splitBareSpecifier(rawUnaliased);
-    if (routed === null && !shouldInspectSandboxTarget(bare, importer)) {
-      return null;
+    if (bare.startsWith('\0') || isOurCode(importer)) {
+      return routed;
     }
     const target = routed ?? await context.resolve(bare, importer, { ...resolveOptions, skipSelf: true });
     if (target === null) return routed;

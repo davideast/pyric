@@ -180,6 +180,108 @@ describe('Edge runtime detection', () => {
       'pages/api/paren-config.ts',
     ]);
   });
+
+  it('resolves object member access, renamed destructuring, TypeScript enums, .cts/.cjs modules, workspace node_modules, #imports, and ancestor tsconfig paths', () => {
+    const monoRoot = mkdtempSync(join(tmpdir(), 'pyric-edge-mono-'));
+    try {
+      mkdirSync(join(monoRoot, 'apps/web'), { recursive: true });
+      writeFileSync(
+        join(monoRoot, 'tsconfig.json'),
+        JSON.stringify({
+          compilerOptions: {
+            baseUrl: '.',
+            paths: { '@shared/*': ['./packages/shared/*'] },
+          },
+        }),
+      );
+      mkdirSync(join(monoRoot, 'packages/shared'), { recursive: true });
+      writeFileSync(join(monoRoot, 'packages/shared/edge.ts'), "export const runtime = 'edge';\n");
+
+      const webRoot = join(monoRoot, 'apps/web');
+      writeFileSync(
+        join(webRoot, 'package.json'),
+        JSON.stringify({
+          name: 'web-app',
+          imports: { '#edge': './lib/hash-edge.js' },
+        }),
+      );
+      mkdirSync(join(webRoot, 'lib'), { recursive: true });
+      writeFileSync(join(webRoot, 'lib/hash-edge.js'), "export const runtime = 'edge';\n");
+      writeFileSync(join(webRoot, 'lib/cfg.cts'), "export const CTS_EDGE = 'edge';\n");
+      mkdirSync(join(webRoot, 'node_modules/@acme/edge-config'), { recursive: true });
+      writeFileSync(
+        join(webRoot, 'node_modules/@acme/edge-config/package.json'),
+        JSON.stringify({ name: '@acme/edge-config', main: './index.ts' }),
+      );
+      writeFileSync(join(webRoot, 'node_modules/@acme/edge-config/index.ts'), "export const runtime = 'edge';\n");
+
+      const writeWeb = (rel: string, text: string) => {
+        const full = join(webRoot, rel);
+        mkdirSync(join(full, '..'), { recursive: true });
+        writeFileSync(full, text);
+      };
+
+      writeWeb('app/api/ws/route.ts', "export { runtime } from '@acme/edge-config';\n");
+      writeWeb('app/api/imp/route.js', "export { runtime } from '#edge';\n");
+      writeWeb('app/api/shared/route.ts', "export { runtime } from '@shared/edge';\n");
+      writeWeb(
+        'app/api/obj/route.ts',
+        "const RUNTIMES = { EDGE: 'edge', NODE: 'nodejs' } as const;\nexport const runtime = RUNTIMES.EDGE;\n",
+      );
+      writeWeb(
+        'app/api/destruct/route.ts',
+        "const RUNTIMES = { EDGE: 'edge' } as const;\nconst { EDGE: runtime } = RUNTIMES;\nexport { runtime };\n",
+      );
+      writeWeb(
+        'app/api/enum/route.ts',
+        "enum Runtime { Edge = 'edge', Node = 'nodejs' }\nexport const runtime = Runtime.Edge;\n",
+      );
+      writeWeb('app/api/cts/route.cts', "export const runtime = 'edge';\n");
+      writeWeb('app/api/from-cts/route.ts', "import { CTS_EDGE } from '../../../lib/cfg.cjs';\nexport const runtime = CTS_EDGE;\n");
+      writeWeb(
+        'middleware.cts',
+        "const RUNTIMES = { EDGE: 'edge', NODE: 'nodejs' } as const;\nexport const runtime = RUNTIMES.NODE;\nexport function middleware() {}\n",
+      );
+
+      expect(findEdgeRuntimeFiles(webRoot).sort()).toEqual([
+        'app/api/cts/route.cts',
+        'app/api/destruct/route.ts',
+        'app/api/enum/route.ts',
+        'app/api/from-cts/route.ts',
+        'app/api/imp/route.js',
+        'app/api/obj/route.ts',
+        'app/api/shared/route.ts',
+        'app/api/ws/route.ts',
+      ]);
+    } finally {
+      rmSync(monoRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('fails closed on unresolved re-exports, cyclic or non-literal runtime declarations, syntax errors, JSX in .ts, and unreadable middleware', () => {
+    write('app/api/missing/route.ts', "export { runtime } from './missing-segment-config';\n");
+    write('app/api/missing-star/route.ts', "export * from './missing-barrel';\n");
+    write('app/api/cycle-a/route.ts', "export { runtime } from '../cycle-b/route';\n");
+    write('app/api/cycle-b/route.ts', "export { runtime } from '../cycle-a/route';\n");
+    write('app/api/concat/route.ts', "export const runtime = 'ed' + 'ge';\n");
+    write('app/api/syntax/route.ts', "/* unterminated comment\nexport const runtime = 'edge';\n");
+    write(
+      'app/api/jsx-in-ts/route.ts',
+      "export default function H() { return <div title=\"a\">It's here</div> }\nexport const runtime = 'edge';\n",
+    );
+    mkdirSync(join(root, 'middleware.ts'), { recursive: true });
+
+    expect(findEdgeRuntimeFiles(root).sort()).toEqual([
+      'app/api/concat/route.ts',
+      'app/api/cycle-a/route.ts',
+      'app/api/cycle-b/route.ts',
+      'app/api/jsx-in-ts/route.ts',
+      'app/api/missing-star/route.ts',
+      'app/api/missing/route.ts',
+      'app/api/syntax/route.ts',
+      'middleware.ts',
+    ]);
+  });
 });
 
 describe('withPyric Edge runtime stop (PYRIC_EDGE_RUNTIME_UNSUPPORTED)', () => {

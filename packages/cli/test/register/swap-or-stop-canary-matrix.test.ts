@@ -3,20 +3,21 @@
  *
  * Exercises adversarial bypass vectors across all six Swap-or-Stop enforcement
  * boundaries in one standing mechanical check:
- *   1. Next.js Edge runtime static AST detection
- *   2. Next.js client subpath aliases, hoisted monorepo Turbopack paths, and production AI mode
- *   3. Vite `#imports` client gate, non-production SSR builds, and process-stop lease lifecycle
- *   4. Register preload URL canonicalization across child processes and worker threads
- *   5. Sandbox child launcher inline environment protection and outer preload coexistence
- *   6. POSIX shell command-prefix builtin unwrapping for unsupported runtimes
+ *   1. Next.js Edge runtime static AST & fail-closed detection
+ *   2. Next.js client subpath aliases, hoisted monorepo Turbopack/Webpack rules, and production AI SDK scoping
+ *   3. Vite `#imports` & plugin-alias client gate, non-production SSR builds, and `server.close()` process-stop cleanup
+ *   4. Register preload URL canonicalization (`--import` and `-r`/`--require`), cross-register isolation, and custom-`env` Workers
+ *   5. Sandbox child launcher inline `KEY=VAL` & `env -u` protection and outer preload coexistence
+ *   6. POSIX shell command-prefix builtins, command substitutions, and shell flags for unsupported runtimes
  */
 import { afterAll, describe, expect, it } from 'bun:test';
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { build as viteBuild, createServer as createViteServer } from 'vite';
+import { build as viteBuild } from 'vite';
 import {
   checkSandboxChildLaunch,
   detectUnsupportedRuntime,
@@ -24,10 +25,15 @@ import {
 } from '../../src/cli/unsupported-runtime.js';
 import { buildChildEnv, parseCommandString, spawnSandboxChild } from '../../src/cli/sandbox-runner.js';
 import { findEdgeRuntimeFiles } from '../../src/next/edge-runtime.js';
-import { clientStopTurbopackTarget, getClientStopSpecifiers } from '../../src/next/client-aliases.js';
+import { CLIENT_STOP_MODULE, clientStopTurbopackTarget, getClientStopSpecifiers } from '../../src/next/client-aliases.js';
 import { augmentTurbopackConfig } from '../../src/next/turbopack-config.js';
+import { augmentWebpackConfig } from '../../src/next/webpack-config.js';
 import bridgeImportLoader from '../../src/next/bridge-import-loader.js';
-import { bridgeImportOptions } from '../../src/next/bridge-imports.js';
+import {
+  BRIDGE_IMPORT_LOADER,
+  PRODUCTION_AI_SDK_FILE_PATTERN,
+  bridgeImportOptions,
+} from '../../src/next/bridge-imports.js';
 import {
   loadsRegister,
   withCanonicalRegisterExecArgv,
@@ -35,15 +41,10 @@ import {
 } from '../../src/register/child-process-guard.js';
 import { installWorkerGuard } from '../../src/register/worker-guard.js';
 import { pyric as pyricVite } from '../../src/serve/vite-plugin.js';
-import {
-  acquireViteLiveProcessStop,
-  acquireViteProcessStop,
-  type SyncResolve,
-} from '../../src/serve/vite-process-stop.js';
-import { suppliedRows } from '../../src/serve/vite-supplied-rows.js';
 
 const requireFromHere = createRequire(import.meta.url);
 const cliRoot = path.resolve(fileURLToPath(new URL('../..', import.meta.url)));
+const workspaceRoot = path.resolve(cliRoot, '../..');
 const registerDistPath = path.join(cliRoot, 'dist', 'register', 'index.js');
 const registerDistUrl = pathToFileURL(registerDistPath).href;
 
@@ -65,7 +66,7 @@ function findInstalledPackageRoot(entrySpecifier: string, expectedName: string):
   while (dir !== path.dirname(dir)) {
     const manifestPath = path.join(dir, 'package.json');
     try {
-      const parsed = JSON.parse(requireFromHere('node:fs').readFileSync(manifestPath, 'utf8')) as { name?: string };
+      const parsed = JSON.parse(readFileSync(manifestPath, 'utf8')) as { name?: string };
       if (parsed.name === expectedName) return dir;
     } catch {
       // Keep ascending until the package root is found.
@@ -76,7 +77,7 @@ function findInstalledPackageRoot(entrySpecifier: string, expectedName: string):
 }
 
 describe('Swap-or-Stop standing guard canary matrix', () => {
-  it('1. detects Next.js Edge runtime declarations across JSX, bindings, barrels, tsconfig paths, and generics', () => {
+  it('1. detects Next.js Edge runtime declarations across JSX, bindings, barrels, enums, tsconfig paths, and fail-closed broken modules', () => {
     const project = makeTempDir('pyric-canary-next-edge-');
     writeFileSync(
       path.join(project, 'tsconfig.base.json'),
@@ -115,7 +116,13 @@ describe('Swap-or-Stop standing guard canary matrix', () => {
     mkdirSync(path.join(project, 'src', 'app', 'generic-parens'), { recursive: true });
     writeFileSync(
       path.join(project, 'src', 'app', 'generic-parens', 'route.ts'),
-      "const id = <K, V>(k: K, _v?: V): K => k;\nvoid id;\nexport const config = ({ runtime: 'edge' });\n",
+      "enum Mode { Edge = 'edge' }\nconst id = <K, V>(k: K, _v?: V): K => k;\nvoid id;\nexport const config = ({ runtime: Mode.Edge });\n",
+    );
+
+    mkdirSync(path.join(project, 'src', 'app', 'unresolved-fail-closed'), { recursive: true });
+    writeFileSync(
+      path.join(project, 'src', 'app', 'unresolved-fail-closed', 'route.ts'),
+      "export { runtime } from './missing-config';\n",
     );
 
     mkdirSync(path.join(project, 'src', 'app', 'node-control'), { recursive: true });
@@ -130,14 +137,17 @@ describe('Swap-or-Stop standing guard canary matrix', () => {
       'src/app/generic-parens/route.ts',
       'src/app/jsx-apostrophe/page.tsx',
       'src/app/reexported-config/route.ts',
+      'src/app/unresolved-fail-closed/route.ts',
     ]);
   });
 
-  it('2. enforces Next.js client subpath stops, hoisted Turbopack relative targets, and production AI SDK scoping', () => {
+  it('2. enforces Next.js client subpath stops, hoisted Turbopack & Webpack rules, and production AI SDK scoping', () => {
     const monorepoRoot = makeTempDir('pyric-canary-next-client-');
     const appDir = path.join(monorepoRoot, 'apps', 'web');
     mkdirSync(path.join(appDir, 'src'), { recursive: true });
     writeFileSync(path.join(appDir, 'package.json'), JSON.stringify({ name: 'web-app', private: true }));
+    mkdirSync(path.join(monorepoRoot, 'node_modules', '@pyric'), { recursive: true });
+    symlinkSync(cliRoot, path.join(monorepoRoot, 'node_modules', '@pyric', 'cli'), 'dir');
 
     for (const [folder, pkgName, subpaths] of [
       ['firebase', 'firebase', { '.': './dist/index.mjs', './ai': './dist/index.mjs' }],
@@ -162,10 +172,43 @@ describe('Swap-or-Stop standing guard canary matrix', () => {
     expect(prodStops).toContain('aliased-firebase');
     expect(prodStops).toContain('aliased-firebase/firestore');
 
-    const browserStopTarget = clientStopTurbopackTarget(appDir);
+    const browserStopTarget = clientStopTurbopackTarget();
     expect(browserStopTarget.startsWith('/')).toBe(false);
-    const augmented = augmentTurbopackConfig({});
-    expect(augmented.turbopack).toBeDefined();
+    const resolvedFromHoistedApp = Bun.resolveSync(browserStopTarget, appDir);
+    expect(realpathSync(resolvedFromHoistedApp)).toBe(
+      realpathSync(path.join(cliRoot, 'dist', 'next', 'client-stop.js')),
+    );
+
+    const prevAiMode = process.env.PYRIC_AI_MODE;
+    process.env.PYRIC_AI_MODE = 'production';
+    try {
+      const turbopack = augmentTurbopackConfig({}).turbopack as Record<string, unknown>;
+      const resolveAlias = turbopack.resolveAlias as Record<string, { browser: string }>;
+      expect(resolveAlias['@firebase/firestore/lite']).toEqual({ browser: browserStopTarget });
+      expect(resolveAlias['@firebase/app']).toEqual({ browser: browserStopTarget });
+      const turboRules = turbopack.rules as Record<string, { loaders: Array<{ loader: string }> }>;
+      expect(turboRules['index.esm.js']?.loaders[0]?.loader).toBe(BRIDGE_IMPORT_LOADER);
+
+      const webpackCfg = augmentWebpackConfig({});
+      const clientWebpack = webpackCfg.webpack!(
+        { resolve: {}, module: { rules: [] } },
+        { isServer: false },
+      ) as {
+        resolve: { alias: Record<string, string> };
+        module: { rules: Array<{ test: unknown; use: Array<{ loader: string; options?: unknown }> }> };
+      };
+      expect(clientWebpack.resolve.alias['@firebase/firestore/lite$']).toBe(CLIENT_STOP_MODULE);
+      expect(clientWebpack.resolve.alias['@firebase/app$']).toBe(CLIENT_STOP_MODULE);
+      expect(clientWebpack.module.rules).toEqual([
+        {
+          test: [...Object.keys(bridgeImportOptions().wrappers), PRODUCTION_AI_SDK_FILE_PATTERN],
+          use: [{ loader: BRIDGE_IMPORT_LOADER, options: bridgeImportOptions() }],
+        },
+      ]);
+    } finally {
+      if (prevAiMode === undefined) delete process.env.PYRIC_AI_MODE;
+      else process.env.PYRIC_AI_MODE = prevAiMode;
+    }
 
     const rewritten = bridgeImportLoader.call(
       {
@@ -173,13 +216,16 @@ describe('Swap-or-Stop standing guard canary matrix', () => {
         rootContext: monorepoRoot,
         getOptions: () => bridgeImportOptions(),
       },
-      "import { _registerComponent } from '@firebase/app';\n",
+      'import{_registerComponent}from"@firebase/app";\n',
     );
-    expect(rewritten).not.toContain("'@firebase/app'");
+    expect(rewritten).not.toContain('"@firebase/app"');
   });
 
-  it('3. enforces Vite #imports client stops, non-production SSR routing, and process-stop lease cleanup', async () => {
+  it('3. enforces Vite #imports & plugin-alias client stops, non-production SSR routing, and real server.close() process-stop cleanup', async () => {
     const root = makeTempDir('pyric-canary-vite-');
+    const emptyDir = makeTempDir('pyric-canary-vite-empty-');
+    const badPyricDir = makeTempDir('pyric-canary-vite-badcfg-');
+    writeFileSync(path.join(badPyricDir, 'pyric.json'), '{ malformed json\n');
     const firebaseDir = findInstalledPackageRoot('firebase/app', 'firebase');
     const adminDir = findInstalledPackageRoot('firebase-admin/app', 'firebase-admin');
     mkdirSync(path.join(root, 'node_modules', '@firebase', 'firestore'), { recursive: true });
@@ -213,19 +259,6 @@ describe('Swap-or-Stop standing guard canary matrix', () => {
     const ssrEntry = path.join(root, 'src', 'entry-server.js');
     writeFileSync(ssrEntry, "import { initializeApp } from 'firebase/app';\nexport const init = initializeApp;\n");
 
-    const server = await createViteServer({
-      root,
-      logLevel: 'silent',
-      server: { host: '127.0.0.1', port: 0 },
-      plugins: [pyricVite()],
-    });
-    try {
-      const resolvedSubpath = await server.pluginContainer.resolveId('#direct-firestore', ssrEntry);
-      expect(resolvedSubpath?.id).toStartWith('\0pyric-stop:');
-    } finally {
-      await server.close();
-    }
-
     const ssrBuilt = await viteBuild({
       root,
       mode: 'development',
@@ -233,58 +266,121 @@ describe('Swap-or-Stop standing guard canary matrix', () => {
       build: { ssr: ssrEntry, write: false },
       plugins: [pyricVite()],
     });
-    const outputs = Array.isArray(ssrBuilt) ? ssrBuilt[0]!.output : (ssrBuilt as { output: Array<{ code?: string }> }).output;
-    const bundledCode = outputs.map((chunk) => ('code' in chunk && typeof chunk.code === 'string' ? chunk.code : '')).join('\n');
+    let outputs: ReadonlyArray<object>;
+    if (Array.isArray(ssrBuilt)) {
+      outputs = ssrBuilt[0]!.output;
+    } else {
+      outputs = (ssrBuilt as { output: ReadonlyArray<object> }).output;
+    }
+    const bundledCode = outputs
+      .map((chunk) => {
+        const maybeCode = (chunk as { code?: unknown }).code;
+        if (typeof maybeCode === 'string') return maybeCode;
+        return '';
+      })
+      .join('\n');
     expect(bundledCode).not.toContain('SharedWorker');
     expect(bundledCode).not.toContain('__PYRIC_DEV_RUNTIME__');
     expect(bundledCode).toContain('@pyric/cli/vite/ssr-loader');
 
-    const installedHooks: Array<{ resolve: SyncResolve }> = [];
-    const slot: Record<symbol, unknown> = {};
-    const registerHooks = (hooks: { resolve: SyncResolve }) => void installedHooks.push(hooks);
-    const releaseSandbox = acquireViteProcessStop({
-      slot,
-      registerHooks,
-      registerActive: () => false,
-      write: () => undefined,
-    });
-    const supplied = suppliedRows((specifier) =>
-      Object.assign(new Error(`refused ${specifier}`), { code: 'PYRIC_LIVE_REFUSED' }),
-    );
-    const releaseLive = acquireViteLiveProcessStop(supplied, {
-      slot,
-      registerHooks,
-      registerActive: () => false,
-      write: () => undefined,
-    });
-    const realAdminUrl = pathToFileURL(requireFromHere.resolve('firebase-admin/app')).href;
-    const resolveHook = installedHooks[0]!.resolve;
-    let liveCode: string | undefined;
-    try {
-      resolveHook('firebase-admin/app', { parentURL: pathToFileURL(ssrEntry).href }, () => ({ url: realAdminUrl }));
-    } catch (err) {
-      liveCode = (err as { code?: string }).code;
-    }
-    expect(liveCode).toBe('PYRIC_LIVE_REFUSED');
-    releaseSandbox();
-    releaseLive();
-    expect(
-      resolveHook('firebase-admin/app', { parentURL: pathToFileURL(ssrEntry).href }, () => ({ url: realAdminUrl })),
-    ).toEqual({ url: realAdminUrl });
-  });
+    // Run real Vite servers in a dedicated Node subprocess so real Module.registerHooks
+    // lifecycle across pyric(), pyricLive(), failed startup, and server.close() is exercised end-to-end.
+    const nodeProbe = [
+      "import path from 'node:path';",
+      "import { pathToFileURL } from 'node:url';",
+      "import { registerHooks } from 'node:module';",
+      `const wsRoot = ${JSON.stringify(workspaceRoot)};`,
+      'const bases = [',
+      "  pathToFileURL(path.join(wsRoot, 'packages/cli/package.json')).href,",
+      "  pathToFileURL(path.join(wsRoot, 'packages/pyric/package.json')).href,",
+      "  pathToFileURL(path.join(wsRoot, 'packages/live/package.json')).href,",
+      '];',
+      'registerHooks({',
+      '  resolve(specifier, context, nextResolve) {',
+      '    try { return nextResolve(specifier, context); } catch {}',
+      '    for (const parentURL of bases) {',
+      '      try { return nextResolve(specifier, { ...context, parentURL }); } catch {}',
+      '    }',
+      '    return nextResolve(specifier, context);',
+      '  },',
+      '});',
+      "const { createServer } = await import('vite');",
+      "const { pyric } = await import('@pyric/cli/vite');",
+      "const { pyricLive } = await import('@pyric/live/vite');",
+      `const root = ${JSON.stringify(root)};`,
+      `const emptyDir = ${JSON.stringify(emptyDir)};`,
+      `const badPyricDir = ${JSON.stringify(badPyricDir)};`,
+      `const importer = ${JSON.stringify(ssrEntry)};`,
+      'const aliasPlugin = {',
+      "  name: 'custom-sdk-alias',",
+      '  resolveId(source) {',
+      "    if (source === '@sdk/firestore') return path.join(root, 'node_modules/@firebase/firestore/index.js');",
+      '    return null;',
+      '  },',
+      '};',
+      'try { await createServer({ root: emptyDir, logLevel: "silent", plugins: [pyricLive()] }); } catch {}',
+      'try { await createServer({ root: badPyricDir, logLevel: "silent", plugins: [pyric()] }); } catch {}',
+      'let leakedBefore = null;',
+      "try { await import('firebase-admin/app'); } catch (e) { leakedBefore = e?.code ?? 'err'; }",
+      'const sandbox = await createServer({ root, logLevel: "silent", server: { host: "127.0.0.1", port: 0 }, plugins: [pyric(), aliasPlugin] });',
+      "const hashStop = await sandbox.pluginContainer.resolveId('#direct-firestore', importer);",
+      "const pluginAliasStop = await sandbox.pluginContainer.resolveId('@sdk/firestore', importer);",
+      'let duringSandbox = null;',
+      "try { await import('firebase-admin/auth'); } catch (e) { duringSandbox = e?.code ?? 'err'; }",
+      'const live = await createServer({ root, logLevel: "silent", server: { host: "127.0.0.1", port: 0 }, plugins: [pyricLive({ project: "org-alpha" })] });',
+      'let duringLive = null;',
+      "try { await import('firebase-admin/firestore'); } catch (e) { duringLive = e?.code ?? 'err'; }",
+      'await sandbox.close();',
+      'await live.close();',
+      'let afterClose = "ok";',
+      "try { await import('firebase/app'); } catch (e) { afterClose = e?.code ?? 'err'; }",
+      'console.log(JSON.stringify({',
+      "  leakedBefore,",
+      "  hashStopped: Boolean(hashStop?.id?.startsWith('\\0pyric-stop:')),",
+      "  pluginAliasStopped: Boolean(pluginAliasStop?.id?.startsWith('\\0pyric-stop:')),",
+      '  duringSandbox,',
+      '  duringLive,',
+      '  afterClose,',
+      '}));',
+      'process.exit(0);',
+    ].join('\n');
 
-  it('4. canonicalizes register preloads across filesystem paths, file URLs, and Workers without eating user preloads', () => {
+    const child = spawnSync(process.env.PYRIC_TEST_NODE ?? 'node', ['--input-type=module', '-e', nodeProbe], {
+      cwd: root,
+      env: { ...process.env, NODE_OPTIONS: undefined, PYRIC_SANDBOX: undefined },
+      encoding: 'utf8',
+      timeout: 60_000,
+    });
+    expect(child.status, child.stderr).toBe(0);
+    const report = JSON.parse(child.stdout.trim().split('\n').pop() ?? '{}') as Record<string, unknown>;
+    expect(report).toEqual({
+      leakedBefore: null,
+      hashStopped: true,
+      pluginAliasStopped: true,
+      duringSandbox: 'PYRIC_REAL_SDK_STOPPED',
+      duringLive: 'PYRIC_LIVE_REFUSED',
+      afterClose: 'ok',
+    });
+  }, 30_000);
+
+  it('4. canonicalizes register preloads (--import and -r/--require), preserves foreign registers, and propagates to custom-env Workers', () => {
     const userPreload = '/opt/hooks/telemetry-register-preload.mjs';
     expect(loadsRegister(`--import ${userPreload}`, registerDistUrl)).toBe(false);
     expect(loadsRegister(`--import ${registerDistPath}`, registerDistUrl)).toBe(true);
-    expect(loadsRegister('--import @pyric/cli/register', registerDistUrl)).toBe(true);
+    expect(loadsRegister(`-r ${registerDistPath}`, registerDistUrl)).toBe(true);
+    expect(loadsRegister('--require=@pyric/cli/register', registerDistUrl)).toBe(true);
 
     const canonicalOptions = withCanonicalRegisterNodeOptions(
-      `--import ${userPreload} --import=${registerDistPath}`,
+      `--import ${userPreload} -r ${registerDistPath}`,
       registerDistUrl,
     );
     expect(canonicalOptions).toContain(`--import ${userPreload}`);
-    expect(canonicalOptions.match(/--import/g)).toHaveLength(2);
+    expect(canonicalOptions).toContain(`--import ${registerDistUrl}`);
+
+    // Cross-register isolation
+    expect(withCanonicalRegisterNodeOptions('--import @pyric/live/register', registerDistUrl)).toBe(
+      '--import @pyric/live/register',
+    );
 
     const canonicalArgv = withCanonicalRegisterExecArgv(
       [`--import=${registerDistPath}`, `--import=${userPreload}`],
@@ -300,24 +396,26 @@ describe('Swap-or-Stop standing guard canary matrix', () => {
     }
     const target = { Worker: FakeWorker as unknown as typeof import('node:worker_threads').Worker };
     const prevNodeOptions = process.env.NODE_OPTIONS;
-    process.env.NODE_OPTIONS = `--import ${userPreload}`;
+    const prevSandbox = process.env.PYRIC_SANDBOX;
+    process.env.NODE_OPTIONS = `-r ${registerDistPath} --import ${userPreload}`;
+    process.env.PYRIC_SANDBOX = 'local';
     try {
       installWorkerGuard(registerDistUrl, target);
       new target.Worker(new URL('file:///app/worker.mjs'), {
-        execArgv: [`--import=${registerDistPath}`],
         env: { NODE_OPTIONS: `--import ${userPreload}` },
       });
     } finally {
       if (prevNodeOptions === undefined) delete process.env.NODE_OPTIONS;
       else process.env.NODE_OPTIONS = prevNodeOptions;
+      if (prevSandbox === undefined) delete process.env.PYRIC_SANDBOX;
+      else process.env.PYRIC_SANDBOX = prevSandbox;
     }
-    const workerExecArgv = capturedOptions[0]?.execArgv as string[] | undefined;
-    expect(workerExecArgv).toEqual([`--import=${registerDistUrl}`]);
     const workerEnv = capturedOptions[0]?.env as Record<string, string> | undefined;
     expect(workerEnv?.NODE_OPTIONS).toContain(`--import ${userPreload}`);
+    expect(workerEnv?.NODE_OPTIONS).toContain(`--import ${registerDistUrl}`);
   });
 
-  it('5. preserves sandbox activation env against inline shell overrides and coexists with outer *register* preloads', async () => {
+  it('5. preserves sandbox activation env against inline shell and env -u overrides and coexists with outer *register* preloads', async () => {
     const dir = makeTempDir('pyric-canary-spawn-');
     const userPreload = path.join(dir, 'custom-register-hook.mjs');
     writeFileSync(userPreload, 'globalThis.__USER_REGISTER_HOOK__ = true;\n');
@@ -349,13 +447,13 @@ describe('Swap-or-Stop standing guard canary matrix', () => {
       },
     );
     const argv = parseCommandString(
-      `PYRIC_SANDBOX='' PYRIC_SESSION_TOKEN=forged CUSTOM_FLAG=kept node ${JSON.stringify(probeScript)}`,
+      `PYRIC_SANDBOX='' env -u PYRIC_SANDBOX -u NODE_OPTIONS PYRIC_SESSION_TOKEN=forged CUSTOM_FLAG=kept node ${JSON.stringify(probeScript)}`,
     );
     const handle = spawnSandboxChild({ argv, label: 'probe' }, { cwd: dir, env: childEnv, json: true });
     const exitCode = await handle.exited;
     expect(exitCode).toBe(0);
 
-    const parsed = JSON.parse(requireFromHere('node:fs').readFileSync(outFile, 'utf8')) as Record<string, unknown>;
+    const parsed = JSON.parse(readFileSync(outFile, 'utf8')) as Record<string, unknown>;
     expect(parsed).toEqual({
       sandbox: 'remote:http://127.0.0.1:44100',
       token: 'expected-session-token',
@@ -365,7 +463,7 @@ describe('Swap-or-Stop standing guard canary matrix', () => {
     });
   });
 
-  it('6. refuses unsupported runtimes wrapped in POSIX command-prefix builtins while allowing lookup-only command -v', () => {
+  it('6. refuses unsupported runtimes across POSIX command-prefix builtins, command substitutions, shell flags, and env -a', () => {
     const blockedVectors: Array<[string[], 'bun' | 'deno']> = [
       [['sh', '-c', 'exec bun run dev'], 'bun'],
       [['sh', '-c', 'exec -a worker-proc bunx vite'], 'bun'],
@@ -373,6 +471,11 @@ describe('Swap-or-Stop standing guard canary matrix', () => {
       [['sh', '-c', 'command -p bun x next dev'], 'bun'],
       [['sh', '-c', 'eval "bun run start"'], 'bun'],
       [['sh', '-c', 'nohup nice -n 5 exec bun script.ts'], 'bun'],
+      [['sh', '-c', '$(bun x)'], 'bun'],
+      [['sh', '-c', 'echo `deno run server.ts`'], 'deno'],
+      [['sh', '-mc', 'bun x'], 'bun'],
+      [['bash', '-O', 'extglob', '-c', 'bun x'], 'bun'],
+      [['env', '-a', 'worker-proc', 'bun', 'x'], 'bun'],
     ];
     for (const [argv, expectedRuntime] of blockedVectors) {
       expect(detectUnsupportedRuntime(argv)).toBe(expectedRuntime);

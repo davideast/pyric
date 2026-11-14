@@ -36,7 +36,7 @@ function importOf(specifier: string): RegExp {
   return new RegExp(`(from\\s*)(['"])${specifier.replace(/[/-]/g, '\\$&')}\\2`, 'g');
 }
 
-const SCOPED_FIREBASE_IMPORT = /(from\s+|import\s+)(['"])(@firebase\/[a-z0-9-]+)\2/g;
+const SCOPED_FIREBASE_IMPORT = /(\bfrom\s*|\bimport\s*)(['"])(@firebase\/[a-z0-9-]+)\2/g;
 
 function projectRoot(context: LoaderContext): string {
   const root = context.rootContext;

@@ -40,7 +40,11 @@ import { createViteModuleContext, createViteModuleSwap } from './vite-module-swa
 import { createVitePageRuntime } from './vite-page-runtime.js';
 import { stampHostedTarget } from './runtime/hosted-target.js';
 import { attachLiveSdkRequestGate } from './vite-live-sdk-requests.js';
-import { acquireViteLiveProcessStop, acquireViteProcessStop } from './vite-process-stop.js';
+import {
+  acquireViteLiveProcessStop,
+  acquireViteProcessStop,
+  validateViteProcessStopRuntime,
+} from './vite-process-stop.js';
 import { attachViteSsrActivation } from './vite-ssr-activation.js';
 import { createServiceWorkerWiring, type ServiceWorkerWiringContext } from './vite-service-worker.js';
 import type { SwapEnvironment, SwapResolveContext } from './vite-module-swap.js';
@@ -76,7 +80,11 @@ export interface PyricOptions {
   root?: string;
   /**
    * The Firebase project the sandbox runs as: a project id or a `.firebaserc`
-   * alias.
+   * alias. It names the default Realtime Database instance, selects the
+   * `.firebaserc` deploy targets a `firebase.json` `database` array names,
+   * and is the functions child's project. Without it, the project resolves as
+   * the Firebase CLI resolves it: `PYRIC_PROJECT`, then the `firebase use`
+   * active project for this directory, then `.firebaserc` `projects.default`.
    */
   project?: string;
   /** Persist sandbox state to `.pyric/state/state.json` so data + test users
@@ -88,35 +96,110 @@ export interface PyricOptions {
   /** Write the live session fixture to `.pyric/last-session.json` (for
    *  `pyric verify`). Default `true`; pass `false` to suppress. */
   capture?: boolean;
-  /** Seed file: a `"collection/doc" -> fields` JSON map, or a `pyric snapshot`
+  /** Seed file: a `"collection/doc" → fields` JSON map, or a `pyric snapshot`
    *  state-file envelope. Applied at page init (state wins once it exists). */
   seed?: string;
-  /** Mount the MCP bridge on Vite's dev origin so an external agent can drive
-   *  this sandbox over MCP. `true` is shorthand for `{}`. */
+  /** Mount the MCP **bridge** on Vite's dev origin so an external agent
+   *  (Claude Code, Cursor) can drive this sandbox over MCP — `POST /__pyric/mcp`
+   *  + `GET /__pyric/health` + `WS /__pyric/sandbox`, all on Vite's port.
+   *  `true` is shorthand for `{}`. The agent and the page share ONE sandbox.
+   *
+   *  Does NOT change the sandbox topology: on the default SharedWorker path the
+   *  page dials the bridge WS and relays agent tool-calls THROUGH the worker
+   *  (`connectBridgePeer`), so multi-tab stays on. The in-page fallback engages
+   *  only when the worker bundle itself fails, bridge or not. */
   bridge?: boolean | { project?: string; disableAuditLog?: boolean };
-  /** Serve the Pyric Studio app at `/__pyric/ui/` on Vite's dev origin.
-   *  On by default; pass `ui: false` to disable. */
+  /** Serve the **Pyric Studio** app at `/__pyric/ui/` on Vite's dev origin (the
+   *  `pyric sandbox --ui` equivalent). Mounts the disk-backed workspace/project
+   *  routes Studio's `local` mode talks to AND serves the unified Astro site
+   *  (vendored in this package at `dist/serve/site-ui`). **On by default**,
+   *  including under `bridge` (the bridge peer routes through the SharedWorker,
+   *  so app, Studio, and agent all observe the one sandbox); pass `ui: false`
+   *  to disable. */
   ui?: boolean;
   /** Inject the collapsed Pyric runtime chip into the app during sandbox Vite
-   *  dev/builds. On by default. */
+   *  dev/builds. On by default. Pass `false` to hide it, or
+   *  `{ initiallyOpen: true }` when actively debugging runtime errors. */
   runtimeChip?: PyricRuntimeChipOption;
   /** Overrides the shared pyric.json Flow configuration. */
   flow?: FlowConfig;
-  /** Overrides the shared pyric.json `owners` configuration, field by field. */
+  /** Overrides the shared pyric.json `owners` configuration, field by field.
+   *  `skip` lists globs for the app's data-layer wrapper modules, so a
+   *  listener's owner shows the code that called the wrapper; the wrapper's
+   *  frame stays on the owner's `stack`. `frames` is how many application
+   *  frames each owner keeps, counted from the frame it shows (default 3). */
   owners?: OwnersConfig;
-  /** RTDB-triggered Cloud Functions under this dev server. */
+  /** RTDB-triggered Cloud Functions under this dev server (the `pyric sandbox`
+   *  parity fold). By default a `functions` block in `firebase.json` is
+   *  discovered automatically: its `onValueCreated` triggers run in an isolated
+   *  node child against the shared sandbox (other trigger kinds warn and are
+   *  skipped), and the discovered codebase turns the MCP bridge mount on (the
+   *  child dials the sandbox over the bridge WS — the page's sandbox topology
+   *  is unchanged, see `bridge`). `functions: false` is the off switch: no
+   *  discovery, no child, no functions-forced bridge mount.
+   *
+   *  Field precedence: explicit option > env var > firebase files > default.
+   *  - `region`: the trigger location. Beats `PYRIC_FUNCTIONS_RTDB_REGION`;
+   *    default `us-central1`.
+   *  - `instance`: the RTDB instance name. Default `<projectId>-default-rtdb`,
+   *    where projectId is the resolved `project` (see that option), else
+   *    `demo-project`.
+   *  - `watch`: hot-reload the functions source (default `true`, matching
+   *    rules). A save under the functions source dir stops the child and
+   *    respawns it — redeploy semantics: in-flight executions in the old child
+   *    may drop, and writes landing during the swap gap are consumed as the new
+   *    child's baseline (they do not fire). Unlike rules, a broken save cannot
+   *    keep last-good live — the old child is already gone — so functions stay
+   *    down until the next good save. */
   functions?: false | { region?: string; instance?: string; watch?: boolean };
-  /** Force whether `vite build` runs the firebase->pyric swap, overriding the
-   *  mode default. */
+  /** Force whether `vite build` runs the firebase→pyric swap, overriding the
+   *  mode default. Unset (default): swap for any NON-production mode, keep real
+   *  firebase for mode `production`. `true` = always produce a sandbox build;
+   *  `false` = never swap in build (real firebase regardless of mode). `vite
+   *  dev` is unaffected — the swap is always on there. */
   swapInBuild?: boolean;
-  /** Dev-server-level AI configuration for `pyric/ai`. */
+  /**
+   * Dev-server-level AI configuration for `pyric/ai` (the sanctioned
+   * replacement for threading `engine` through every app `getAI(...)` call,
+   * which is first-call-wins and easy to get wrong).
+   *
+   *   pyric({
+   *     ai: {
+   *       model: 'llama3.2',
+   *       proxyUpstream: 'http://localhost:11434/v1', // your Ollama
+   *     },
+   *   })
+   *
+   * - `model` is the simple OpenAI-compatible path. It becomes the catch-all
+   *   upstream model. `PYRIC_AI_MODEL` selects
+   *   the same path when neither `model` nor `engine` is explicit.
+   * - `engine` is `pyric/ai`'s `EngineConfig` (scripted | openai), applied on
+   *   Node, SharedWorker, and in-page paths. An openai `baseUrl` of
+   *   `/__pyric/ai-proxy` (or omitted) uses the configured upstream directly
+   *   in Node; browser runtimes use the same-origin proxy to avoid CORS setup.
+   * - `proxyUpstream` sets the upstream for Node and the browser proxy (beats the
+   *   `PYRIC_AI_PROXY_UPSTREAM` env var; default `http://localhost:11434/v1`).
+   *
+   * Precedence: explicit `engine` or `model`, then `PYRIC_AI_MODEL`, then an
+   * engine passed by the app's first `getAI()` call; with none, the zero-config
+   * scripted default applies. `model` and `engine` are mutually exclusive.
+   */
   ai?: PyricAiOptions;
-  /** Profile photos for sandbox provider users. */
+  /** Profile photos for sandbox provider users. Default: deterministic
+   *  generated avatars. A string selects a pre-created avatar set
+   *  (directory path, resolved from the project root). `false` disables
+   *  the avatar route entirely. An object supplies a custom source that
+   *  runs in the dev server, never the browser. */
   avatars?: PyricAvatarsOptions;
-  /** The app's own service worker module (path from the Vite root). */
+  /** The app's own service worker module (path from the Vite root), such as a
+   *  `vite-plugin-pwa` `injectManifest` source. In dev, the plugin adds a fetch
+   *  listener to it that answers production Storage download URLs from the
+   *  sandbox (`sandboxStorageFetch` from `pyric/storage/sw`), so the file needs
+   *  no Pyric import. Builds are untouched. */
   serviceWorker?: string;
   /** Require a per-boot session capability token on every local `/__pyric/*`
-   *  route, MCP, and `WS /__pyric/sandbox`. */
+   *  route, MCP, and `WS /__pyric/sandbox` (workspace, project, and AI proxy
+   *  routes always require one). Default: `false` (or `pyric.json#sessionToken`). */
   sessionToken?: boolean;
 }
 
@@ -132,6 +215,13 @@ async function readOwners(projectDir: string, overrides: OwnersConfig | undefine
   return resolveOwnersConfig((await readPyricConfig(projectDir)).owners, overrides);
 }
 
+/**
+ * Resolves the Firebase project root directory from Vite's server root. In
+ * split-directory or full-stack monorepo layouts where Vite operates inside a
+ * subdirectory (e.g. `/web` or `/frontend`) while `firebase.json` or
+ * `.firebaserc` resides in an ancestor workspace directory, this ascends to
+ * that folder (`findFirebaseProjectDir`, which the live register shares).
+ */
 export function resolveFirebaseProjectDir(defaultRoot: string, explicitRoot?: string): string {
   if (explicitRoot !== undefined && explicitRoot.length > 0) {
     return explicitRoot;
@@ -168,7 +258,9 @@ export function pyric(options: PyricOptions = {}): Plugin & EnvironmentHooks {
 /**
  * The plugin, with the live rows serving pages in place of the swap
  * (`vite-supplied-rows.ts`). `pyric()` passes none; only the internal
- * `@pyric/cli/vite/internal/supplied-rows` entry passes them.
+ * `@pyric/cli/vite/internal/supplied-rows` entry passes them. They open in
+ * `configResolved`, from the `@pyric/live` that supplied them or else the
+ * one the project root resolves, and the dev server refuses to start without it.
  */
 export function createPyricPlugin(options: PyricOptions, supplied?: SuppliedRows): Plugin & EnvironmentHooks {
   const moduleContext = createViteModuleContext();
@@ -220,12 +312,7 @@ export function createPyricPlugin(options: PyricOptions, supplied?: SuppliedRows
       const isDevServer = env.command === 'serve' && env.isPreview !== true;
       const isSsrBuild = env.command === 'build' && (env.isSsrBuild === true || Boolean(config.build?.ssr));
       if (isDevServer) {
-        clearProcessStop();
-        if (supplied === undefined) {
-          releaseProcessStop = acquireViteProcessStop({ getAiMode: () => pageRuntime.ai().mode });
-        } else {
-          releaseProcessStop = acquireViteLiveProcessStop(supplied);
-        }
+        validateViteProcessStopRuntime(supplied === undefined ? 'sandbox' : 'live');
       }
       serviceWorkerContext = { ...serviceWorkerContext, devServer: isDevServer };
       const moduleConfig = moduleSwap.config({
@@ -252,17 +339,12 @@ export function createPyricPlugin(options: PyricOptions, supplied?: SuppliedRows
     },
 
     async configResolved(resolved) {
-      try {
-        pageRuntime.configResolved(resolved);
-        moduleSwap.configResolved(resolved);
-        if (supplied !== undefined) await openSuppliedRows(supplied, resolved);
-        serviceWorkerContext = { ...serviceWorkerContext, root: resolved.root };
-        if (resolved.command === 'build') {
-          owners = await readOwners(resolveFirebaseProjectDir(resolved.root, options.root), options.owners);
-        }
-      } catch (error) {
-        clearProcessStop();
-        throw error;
+      pageRuntime.configResolved(resolved);
+      moduleSwap.configResolved(resolved);
+      if (supplied !== undefined) await openSuppliedRows(supplied, resolved);
+      serviceWorkerContext = { ...serviceWorkerContext, root: resolved.root };
+      if (resolved.command === 'build') {
+        owners = await readOwners(resolveFirebaseProjectDir(resolved.root, options.root), options.owners);
       }
     },
 
@@ -297,100 +379,110 @@ export function createPyricPlugin(options: PyricOptions, supplied?: SuppliedRows
     },
 
     async configureServer(server) {
-      const projectDir = resolveFirebaseProjectDir(server.config.root, options.root);
-      const stateScope = generationStateScope(options);
-      const ownsProjectState = stateScope !== null;
-      const sessionToken = projectSessionToken(projectDir, {
-        fresh: options.fresh === true,
-      });
-      activeSessionToken = sessionToken;
-      const middlewareStack = (server.middlewares as { stack?: unknown[] }).stack;
-      const stackBeforePyricPre = Array.isArray(middlewareStack) ? middlewareStack.length : 0;
-      attachViteRealPathDeny(server, projectDir);
-      attachViteHtmlSessionBootstrap(server, () => activeSessionToken);
-      if (supplied !== undefined) attachLiveSdkRequestGate(server, supplied);
-      if (
-        Array.isArray(middlewareStack) &&
-        stackBeforePyricPre > 0 &&
-        middlewareStack.length > stackBeforePyricPre
-      ) {
-        const added = middlewareStack.splice(stackBeforePyricPre);
-        middlewareStack.unshift(...added);
+      let unregisterProjectPolicy: (() => void) | undefined;
+      clearProcessStop();
+      if (supplied === undefined) {
+        releaseProcessStop = acquireViteProcessStop({ getAiMode: () => pageRuntime.ai().mode });
+      } else {
+        releaseProcessStop = acquireViteLiveProcessStop(supplied);
       }
-      const slot = ownsProjectState ? projectGenerationSlot(projectDir, stateScope) : instanceSlot;
-      await slot.take()?.close();
-      const pyricConfig = await readPyricConfig(projectDir);
-      owners = resolveOwnersConfig(pyricConfig.owners, options.owners);
-      const requireSessionToken =
-        supplied !== undefined ||
-        options.sessionToken === true ||
-        (options.sessionToken === undefined && pyricConfig.sessionToken === true);
-      const unregisterProjectPolicy = registerProjectSessionPolicy(projectDir, {
-        token: sessionToken,
-        requireSessionToken,
-      });
-
-      const uiEnabled = options.ui ?? true;
-      const functionsOptions = resolveFunctionsOptions(options.functions);
-      const ai = pageRuntime.ai();
-      const generationOptions: ViteSandboxGenerationOptions = {
-        hosted: options.hosted,
-        rules: options.rules,
-        seed: options.seed,
-        persist: options.persist,
-        fresh: options.fresh,
-        capture: options.capture,
-        bridge: bridgeOpts,
-        ui: uiEnabled,
-        functions: functionsOptions,
-        avatars: options.avatars,
-        flow: options.flow,
-        project: options.project,
-        requireSessionToken,
-        liveHost: supplied !== undefined,
-        livePassThrough: supplied === undefined ? undefined : [...supplied.passThrough],
-        liveObserved: moduleSwap.observed,
-        ownWriteRefusal: ownWriteRefusalOf(supplied),
-      };
-      const generationInput: ViteSandboxGenerationInput = {
-        server,
-        projectDir,
-        cliRoot,
-        workerRuntime,
-        options: generationOptions,
-        ai,
-        sessionToken,
-      };
-      let generation: Awaited<ReturnType<typeof createViteSandboxGeneration>>;
       try {
-        generation = await createViteSandboxGeneration(generationInput);
+        const projectDir = resolveFirebaseProjectDir(server.config.root, options.root);
+        const stateScope = generationStateScope(options);
+        const ownsProjectState = stateScope !== null;
+        const sessionToken = projectSessionToken(projectDir, {
+          fresh: options.fresh === true,
+        });
+        activeSessionToken = sessionToken;
+        const middlewareStack = (server.middlewares as { stack?: unknown[] }).stack;
+        const stackBeforePyricPre = Array.isArray(middlewareStack) ? middlewareStack.length : 0;
+        attachViteRealPathDeny(server, projectDir);
+        attachViteHtmlSessionBootstrap(server, () => activeSessionToken);
+        if (supplied !== undefined) attachLiveSdkRequestGate(server, supplied);
+        if (
+          Array.isArray(middlewareStack) &&
+          stackBeforePyricPre > 0 &&
+          middlewareStack.length > stackBeforePyricPre
+        ) {
+          const added = middlewareStack.splice(stackBeforePyricPre);
+          middlewareStack.unshift(...added);
+        }
+        const slot = ownsProjectState ? projectGenerationSlot(projectDir, stateScope) : instanceSlot;
+        await slot.take()?.close();
+        const pyricConfig = await readPyricConfig(projectDir);
+        owners = resolveOwnersConfig(pyricConfig.owners, options.owners);
+        const requireSessionToken =
+          supplied !== undefined ||
+          options.sessionToken === true ||
+          (options.sessionToken === undefined && pyricConfig.sessionToken === true);
+        unregisterProjectPolicy = registerProjectSessionPolicy(projectDir, {
+          token: sessionToken,
+          requireSessionToken,
+        });
+
+        const uiEnabled = options.ui ?? true;
+        const functionsOptions = resolveFunctionsOptions(options.functions);
+        const ai = pageRuntime.ai();
+        let livePassThrough: string[] | undefined;
+        if (supplied !== undefined) {
+          livePassThrough = [...supplied.passThrough];
+        }
+        const generationOptions: ViteSandboxGenerationOptions = {
+          hosted: options.hosted,
+          rules: options.rules,
+          seed: options.seed,
+          persist: options.persist,
+          fresh: options.fresh,
+          capture: options.capture,
+          bridge: bridgeOpts,
+          ui: uiEnabled,
+          functions: functionsOptions,
+          avatars: options.avatars,
+          flow: options.flow,
+          project: options.project,
+          requireSessionToken,
+          liveHost: supplied !== undefined,
+          livePassThrough,
+          liveObserved: moduleSwap.observed,
+          ownWriteRefusal: ownWriteRefusalOf(supplied),
+        };
+        const generationInput: ViteSandboxGenerationInput = {
+          server,
+          projectDir,
+          cliRoot,
+          workerRuntime,
+          options: generationOptions,
+          ai,
+          sessionToken,
+        };
+        const generation = await createViteSandboxGeneration(generationInput);
+        slot.set(generation);
+        const ssrActivation = attachViteSsrActivation(server, options.hosted === true);
+        hostedProjectKey = options.hosted ? projectDir : undefined;
+        hostedInstanceId = options.hosted ? generation.instanceId : undefined;
+        const stopProxyReport = attachViteProxyCheck(server, {
+          mode: supplied === undefined ? 'sandbox' : 'live',
+          instanceId: generation.instanceId,
+          projectId: generation.projectId,
+        });
+        const closeServer = server.close.bind(server);
+        server.close = async () => {
+          clearProcessStop();
+          slot.release(generation);
+          unregisterProjectPolicy?.();
+          ssrActivation.close();
+          stopProxyReport();
+          try {
+            await generation.close();
+          } finally {
+            await closeServer();
+          }
+        };
       } catch (error) {
-        unregisterProjectPolicy();
+        unregisterProjectPolicy?.();
         clearProcessStop();
         throw error;
       }
-      slot.set(generation);
-      const ssrActivation = attachViteSsrActivation(server, options.hosted === true);
-      hostedProjectKey = options.hosted ? projectDir : undefined;
-      hostedInstanceId = options.hosted ? generation.instanceId : undefined;
-      const stopProxyReport = attachViteProxyCheck(server, {
-        mode: supplied === undefined ? 'sandbox' : 'live',
-        instanceId: generation.instanceId,
-        projectId: generation.projectId,
-      });
-      const closeServer = server.close.bind(server);
-      server.close = async () => {
-        clearProcessStop();
-        slot.release(generation);
-        unregisterProjectPolicy();
-        ssrActivation.close();
-        stopProxyReport();
-        try {
-          await generation.close();
-        } finally {
-          await closeServer();
-        }
-      };
     },
 
     buildStart() {

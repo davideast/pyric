@@ -426,6 +426,20 @@ describe('a real Firebase SDK load the swap does not serve stops (ADR 0022)', ()
     };
     const subpathStop = await localSwap.resolvePluginId(subpathImportContext, '#direct-firestore', appMain);
     expect(subpathStop).toStartWith(STOP_PREFIX);
+
+    for (const customPrefix of ['@sdk/firestore', '$lib/firestore', '~sdk/firestore']) {
+      const customAliasContext: SwapResolveContext = {
+        environment: clientEnvironment,
+        resolve: async (source) => {
+          if (source === customPrefix) {
+            return { id: path.join(root, 'node_modules', '@firebase', 'firestore', 'index.js') };
+          }
+          return null;
+        },
+      };
+      const customStop = await localSwap.resolvePluginId(customAliasContext, customPrefix, appMain);
+      expect(customStop).toStartWith(STOP_PREFIX);
+    }
   });
 
   it('routes non-production SSR builds to server targets rather than browser SharedWorker entries', async () => {

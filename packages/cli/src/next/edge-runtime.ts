@@ -3,11 +3,11 @@
  * module loader, so the `@pyric/cli/register` interception that serves
  * firebase and firebase-admin in the sandbox does not run there.
  */
-import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, readdirSync, statSync } from 'node:fs';
 import { join, relative, sep } from 'node:path';
+import { SOURCE_EXTENSIONS } from './edge-module-resolver.js';
 import {
   createModuleRuntimeResolver,
-  SOURCE_EXTENSIONS,
   type ResolvedModuleRuntime,
 } from './edge-runtime-ast.js';
 
@@ -16,13 +16,19 @@ const PROXY_FILES = ['proxy', 'src/proxy'];
 const MIDDLEWARE_FILES = ['middleware', 'src/middleware'];
 const SKIPPED_DIRECTORIES = new Set(['node_modules', '.next', '.git']);
 
-function isEdgeModuleRuntime(resolved: ResolvedModuleRuntime): boolean {
-  if (resolved.runtime !== undefined) return resolved.runtime === 'edge';
-  return resolved.configRuntime === 'edge';
+function requiresEdgeStopForRoute(resolved: ResolvedModuleRuntime): boolean {
+  if (resolved.failedClosed) return true;
+  if (resolved.runtime !== 'absent') {
+    return resolved.runtime !== 'nodejs';
+  }
+  return resolved.configRuntime === 'edge' || resolved.configRuntime === 'indeterminate';
 }
 
-function isNodeModuleRuntime(resolved: ResolvedModuleRuntime): boolean {
-  if (resolved.runtime !== undefined) return resolved.runtime === 'nodejs';
+function isConfirmedNodeMiddleware(resolved: ResolvedModuleRuntime): boolean {
+  if (resolved.failedClosed) return false;
+  if (resolved.runtime !== 'absent') {
+    return resolved.runtime === 'nodejs';
+  }
   return resolved.configRuntime === 'nodejs';
 }
 
@@ -60,11 +66,11 @@ function toPosix(filePath: string): string {
 }
 
 /**
- * List the project files that run on the Next.js Edge runtime, as paths
- * relative to `projectRoot`: route/page/proxy files that declare
- * `export const runtime = 'edge'` or `export const config = { runtime: 'edge' }`,
- * and `middleware` / `src/middleware` files unless they opt into Node via
- * `export const runtime = 'nodejs'` or `export const config = { runtime: 'nodejs' }`.
+ * List the project files that run on (or cannot be statically proven free of)
+ * the Next.js Edge runtime, as paths relative to `projectRoot`: route/page/proxy
+ * files that declare Edge or indeterminate `runtime` / `config.runtime`, and
+ * `middleware` / `src/middleware` files unless statically confirmed to opt into
+ * Node via `runtime = 'nodejs'` or `config = { runtime: 'nodejs' }`.
  */
 export function findEdgeRuntimeFiles(projectRoot: string): string[] {
   if (!existsSync(projectRoot)) {
@@ -84,7 +90,7 @@ export function findEdgeRuntimeFiles(projectRoot: string): string[] {
     }
   }
   for (const file of sources) {
-    if (isEdgeModuleRuntime(resolveRuntime(file))) {
+    if (requiresEdgeStopForRoute(resolveRuntime(file))) {
       edgeFiles.push(toPosix(relative(projectRoot, file)));
     }
   }
@@ -93,14 +99,7 @@ export function findEdgeRuntimeFiles(projectRoot: string): string[] {
     for (const extension of SOURCE_EXTENSIONS) {
       const file = join(projectRoot, `${base}${extension}`);
       if (!existsSync(file)) continue;
-      let readable = true;
-      try {
-        readFileSync(file, 'utf8');
-      } catch {
-        readable = false;
-      }
-      if (!readable) continue;
-      if (!isNodeModuleRuntime(resolveRuntime(file))) {
+      if (!isConfirmedNodeMiddleware(resolveRuntime(file))) {
         edgeFiles.push(toPosix(relative(projectRoot, file)));
       }
     }

@@ -106,8 +106,13 @@ function browserFile(packageDir: string, specifier: string): string {
   return join(packageDir, file);
 }
 
-function scopedPackageDir(packageName: string, firebaseDir: string, projectDir: string): string | null {
-  for (const startDir of [firebaseDir, dirname(firebaseDir), projectDir]) {
+function scopedPackageDir(
+  packageName: string,
+  importerFile: string,
+  firebaseDir: string,
+  projectDir: string,
+): string | null {
+  for (const startDir of [dirname(importerFile), firebaseDir, dirname(firebaseDir), projectDir]) {
     for (let dir = startDir; ; dir = dirname(dir)) {
       const candidate = join(dir, 'node_modules', packageName);
       if (existsSync(join(candidate, 'package.json'))) {
@@ -125,8 +130,13 @@ function scopedBrowserEntryFile(packageDir: string): string | null {
     module?: string;
     main?: string;
   };
-  const fromExports = pickBrowserExportTarget(manifest.exports?.['.']);
-  const rel = fromExports ?? manifest.module ?? manifest.main;
+  let rel = pickBrowserExportTarget(manifest.exports?.['.']);
+  if (rel === undefined && typeof manifest.module === 'string') {
+    rel = manifest.module;
+  }
+  if (rel === undefined && typeof manifest.main === 'string') {
+    rel = manifest.main;
+  }
   if (rel === undefined) return null;
   const full = join(packageDir, rel);
   try {
@@ -178,7 +188,7 @@ export function productionAiScopedTarget(
 ): string | null {
   if (!isProductionAiSdkPackage(specifier)) return null;
   const firebaseDir = firebasePackageDir(projectDir);
-  const pkgDir = scopedPackageDir(specifier, firebaseDir, projectDir);
+  const pkgDir = scopedPackageDir(specifier, importerFile, firebaseDir, projectDir);
   if (pkgDir === null) return null;
   const targetFile = scopedBrowserEntryFile(pkgDir);
   if (targetFile === null) return null;

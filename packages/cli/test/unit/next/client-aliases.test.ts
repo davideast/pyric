@@ -90,6 +90,8 @@ describe('client aliases', () => {
 
       const sandboxStops = new Set(getClientStopSpecifiers('sandbox', webDir));
       expect(sandboxStops.has('@firebase/firestore/lite')).toBe(true);
+      expect(sandboxStops.has('@firebase/firestore/pipelines')).toBe(true);
+      expect(sandboxStops.has('firebase/firestore/pipelines')).toBe(true);
       expect(sandboxStops.has('@firebase/auth/web-extension')).toBe(true);
       expect(sandboxStops.has('@firebase/messaging/sw')).toBe(true);
       expect(sandboxStops.has('aliased-firebase')).toBe(true);
@@ -100,8 +102,10 @@ describe('client aliases', () => {
       expect(prodStops.has('@firebase/app')).toBe(true);
       expect(prodStops.has('@firebase/ai')).toBe(true);
 
-      const turboTarget = clientStopTurbopackTarget(webDir);
+      expect(clientStopTurbopackTarget.length).toBe(0);
+      const turboTarget = clientStopTurbopackTarget();
       expect(turboTarget.startsWith('/')).toBe(false);
+      expect(import.meta.resolve(turboTarget)).toStartWith('file://');
     } finally {
       rmSync(monoRoot, { recursive: true, force: true });
     }

@@ -10,7 +10,13 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { withPyric } from '../../../src/next/index.js';
 import { markRegisterActive } from '../../../src/register/activation.js';
-import { BRIDGE_IMPORT_LOADER, bridgeImportOptions, bridgeModuleFileNames, PyricNextBridgeError } from '../../../src/next/bridge-imports.js';
+import {
+  BRIDGE_IMPORT_LOADER,
+  PRODUCTION_AI_SDK_FILE_PATTERN,
+  bridgeImportOptions,
+  bridgeModuleFileNames,
+  PyricNextBridgeError,
+} from '../../../src/next/bridge-imports.js';
 import bridgeImportLoader from '../../../src/next/bridge-import-loader.js';
 
 type Config = Record<string, any>;
@@ -81,9 +87,16 @@ describe('withPyric bridge import rules', () => {
       expect(config.turbopack.rules[name]).toEqual({ loaders: [{ loader: BRIDGE_IMPORT_LOADER, options }], as: '*.js' });
     }
     const rules = clientWebpack(config).module.rules;
-    expect(rules).toHaveLength(2);
-    expect(rules[0]).toBe('user rule');
-    expect(rules[1]).toMatchObject({ use: [{ loader: BRIDGE_IMPORT_LOADER, options }] });
+    expect(rules).toEqual([
+      'user rule',
+      {
+        test: [...Object.keys(options.wrappers), PRODUCTION_AI_SDK_FILE_PATTERN],
+        use: [{ loader: BRIDGE_IMPORT_LOADER, options }],
+      },
+    ]);
+    expect(PRODUCTION_AI_SDK_FILE_PATTERN.test('/app/node_modules/firebase/ai/dist/esm/index.esm.js')).toBe(true);
+    expect(PRODUCTION_AI_SDK_FILE_PATTERN.test('/app/node_modules/@firebase/ai/dist/esm/index.esm.js')).toBe(true);
+    expect(PRODUCTION_AI_SDK_FILE_PATTERN.test('/app/src/index.esm.js')).toBe(false);
   });
 });
 
@@ -192,5 +205,43 @@ describe('the bridge import loader resolves firebase from the project root', () 
       join(project, 'node_modules', '@firebase', 'app', 'dist', 'esm', 'index.esm.js'),
       join(project, 'node_modules', '@firebase', 'component', 'dist', 'esm', 'index.esm.js'),
     ]);
+
+    const minifiedFirebaseAi = load(
+      firebaseAiEntry,
+      project,
+      'import{_registerComponent}from"@firebase/app";export*from"@firebase/ai";\n',
+    );
+    expect(minifiedFirebaseAi).not.toContain('"@firebase/app"');
+    expect(minifiedFirebaseAi).not.toContain('"@firebase/ai"');
+
+    // pnpm virtual store layout: @firebase/component and @firebase/logger live only beside @firebase/ai
+    const pnpmProject = join(temp, 'pnpm-scoped-ai');
+    const pnpmFirebase = join(pnpmProject, 'node_modules', '.pnpm', 'firebase@12.19.0', 'node_modules', 'firebase');
+    mkdirSync(pnpmFirebase, { recursive: true });
+    writeFileSync(join(pnpmFirebase, 'package.json'), JSON.stringify({ name: 'firebase', version: '12.19.0' }));
+    mkdirSync(join(pnpmProject, 'node_modules'), { recursive: true });
+    writeFileSync(join(pnpmProject, 'package.json'), JSON.stringify({ name: 'pnpm-web', private: true }));
+    // Symlink or place firebase at project/node_modules/firebase
+    mkdirSync(join(pnpmProject, 'node_modules', 'firebase'), { recursive: true });
+    writeFileSync(join(pnpmProject, 'node_modules', 'firebase', 'package.json'), JSON.stringify({ name: 'firebase' }));
+
+    const pnpmAiStore = join(pnpmProject, 'node_modules', '.pnpm', '@firebase+ai@2.16.0', 'node_modules');
+    for (const pkg of ['@firebase/ai', '@firebase/component', '@firebase/logger']) {
+      const dir = join(pnpmAiStore, pkg);
+      mkdirSync(join(dir, 'dist', 'esm'), { recursive: true });
+      writeFileSync(
+        join(dir, 'package.json'),
+        JSON.stringify({ name: pkg, exports: { '.': { browser: { import: './dist/esm/index.esm.js' } } } }),
+      );
+      writeFileSync(join(dir, 'dist', 'esm', 'index.esm.js'), 'export const ok = 1;\n');
+    }
+    const pnpmAiEntry = join(pnpmAiStore, '@firebase', 'ai', 'dist', 'esm', 'index.esm.js');
+    const rewrittenPnpmAi = load(
+      pnpmAiEntry,
+      pnpmProject,
+      "import { Component } from '@firebase/component';\nimport { Logger } from '@firebase/logger';\n",
+    );
+    expect(rewrittenPnpmAi).not.toContain("'@firebase/component'");
+    expect(rewrittenPnpmAi).not.toContain("'@firebase/logger'");
   });
 });

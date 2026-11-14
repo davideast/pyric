@@ -10,5 +10,4 @@ const mod = await server.ssrLoadModule("/src/ssr.js");
 const { outcomes } = await mod.run("programmatic");
 console.log(`programmatic.database ${JSON.stringify(outcomes["database.ownPath"])}`);
 await server.close();
-await import("firebase/app");
 console.log("programmatic closed");

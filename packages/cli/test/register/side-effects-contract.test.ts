@@ -255,6 +255,17 @@ describe('sideEffects survives a real tree-shaking pass', () => {
     expect(output).toContain('installDefaultAppResolver');
   }, 60_000);
 
+  it('keeps the @pyric/cli/next/internal/client-stop top-level stop throw', async () => {
+    const dir = scratchLinking('@pyric/cli', CLI_ROOT);
+    const output = await bundleSideEffectOnlyImport({
+      dir,
+      specifier: '@pyric/cli/next/internal/client-stop',
+      keep: ['@pyric'],
+      platform: 'browser',
+    });
+    expect(output).toContain('PYRIC_REAL_SDK_STOPPED');
+  }, 60_000);
+
   // The swap entries are aliased in as `firebase/*` (vite-module-swap and the
   // next client aliases), so app code reaches them through a bare
   // `import 'firebase/auth'` with no bindings used: a single-entry,

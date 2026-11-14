@@ -63,11 +63,16 @@ describe('guardWorkerArguments', () => {
     expect(options).toEqual({ env: { PATH: '/usr/bin', PYRIC_SANDBOX: 'local', PYRIC_SANDBOX_INSTANCE: 'abc' } });
   });
 
-  it('preserves NODE_OPTIONS register import when parent loaded register via NODE_OPTIONS (URL, filesystem path, or bare name) and worker passes custom env', () => {
+  it('preserves NODE_OPTIONS register import when parent loaded register via NODE_OPTIONS (URL, filesystem path, bare name, or -r/--require) and worker passes custom env', () => {
     for (const parentNodeOptions of [
       `--import ${REGISTER_URL}`,
       `--import=${REGISTER_PATH}`,
       '--import @pyric/cli/register',
+      `--require ${REGISTER_PATH}`,
+      `--require=${REGISTER_PATH}`,
+      `-r ${REGISTER_PATH}`,
+      '-r @pyric/cli/register',
+      '--require=@pyric/cli/register',
     ]) {
       const parentEnv = {
         PATH: '/bin',

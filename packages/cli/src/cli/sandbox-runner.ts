@@ -17,12 +17,14 @@
  * only `spawnDevChild` touches the process table.
  */
 import { spawn, type ChildProcess } from 'node:child_process';
+import {
+  PROTECTED_LAUNCHER_ENV_KEYS,
+  resolveLauncherRegisterUrl,
+  sanitizeCommandSegmentTokens,
+  sanitizeEnvAssignmentValue,
+} from './sandbox-env-sanitizer.js';
 import { SHELL_OPERATORS } from './unsupported-runtime.js';
 import { boundedFetch } from '../bounded-request.js';
-import {
-  matchesRegisterSpecifier,
-  withCanonicalRegisterNodeOptions,
-} from '../register/child-process-guard.js';
 import type { WorkerInitPayload } from '../serve/init-payload.js';
 
 // ─── First-run race guard ───────────────────────────────────────────────────
@@ -380,69 +382,6 @@ export function formatShellCommand(tokens: readonly string[]): string {
 }
 
 /**
- * Host-binding and activation variables owned by `buildChildEnv` that inline
- * `KEY=VAL` tokens on a `pyric sandbox` / `pyric run` command must never blank
- * or forge.
- */
-const PROTECTED_LAUNCHER_ENV_KEYS = new Set([
-  'PYRIC_SANDBOX',
-  'PYRIC_BEACON_TOKEN',
-  'PYRIC_SESSION_TOKEN',
-  'PYRIC_SANDBOX_INSTANCE',
-  'PYRIC_WORKER_INIT',
-  'PYRIC_WORKER_INIT_HOST',
-]);
-
-function resolveLauncherRegisterUrl(nodeOptions: string | undefined): string {
-  const fallback = registerModuleUrl();
-  if (!nodeOptions) return fallback;
-  const tailMatch = /(?:^|\s)--import(?:=|\s+)(\S+)\s*$/.exec(nodeOptions);
-  const tailTarget = tailMatch?.[1];
-  if (tailTarget !== undefined && matchesRegisterSpecifier(tailTarget, fallback)) {
-    return tailTarget;
-  }
-  return fallback;
-}
-
-function sanitizeShellEnvAssignments(
-  tokens: readonly string[],
-  optsEnv: NodeJS.ProcessEnv,
-  registerUrl: string,
-): string[] {
-  if (!optsEnv.PYRIC_SANDBOX) return [...tokens];
-  const sanitized: string[] = [];
-  let atCommandStart = true;
-  for (const token of tokens) {
-    if (SHELL_OPERATORS.has(token) || token === '(' || token === ')') {
-      sanitized.push(token);
-      atCommandStart = true;
-      continue;
-    }
-    if (atCommandStart && /^[A-Za-z_][A-Za-z0-9_]*=/.test(token)) {
-      const eq = token.indexOf('=');
-      const key = token.slice(0, eq);
-      const val = token.slice(eq + 1);
-      if (key === 'NODE_OPTIONS') {
-        sanitized.push(`NODE_OPTIONS=${withCanonicalRegisterNodeOptions(val, registerUrl)}`);
-        continue;
-      }
-      if (PROTECTED_LAUNCHER_ENV_KEYS.has(key)) {
-        const pinned = optsEnv[key];
-        if (pinned !== undefined) {
-          sanitized.push(`${key}=${pinned}`);
-        }
-        continue;
-      }
-      sanitized.push(token);
-      continue;
-    }
-    atCommandStart = false;
-    sanitized.push(token);
-  }
-  return sanitized;
-}
-
-/**
  * Spawn the child with inherited stdin and `[dev]`-prefixed stdout/stderr.
  * In `--json` mode ALL child output goes to stderr — stdout carries exactly
  * the one machine line (the serve --json contract).
@@ -453,7 +392,7 @@ export function spawnSandboxChild(
 ): SandboxChildHandle {
   const parts = [...plan.argv];
   const env: NodeJS.ProcessEnv = { ...opts.env };
-  const registerUrl = resolveLauncherRegisterUrl(opts.env.NODE_OPTIONS);
+  const registerUrl = resolveLauncherRegisterUrl(opts.env.NODE_OPTIONS, registerModuleUrl());
 
   // 1. Extract leading KEY=VAL assignments (e.g. PORT=8080 node server.js)
   // NODE_ENV=production passes through as given: the register refuses it unless
@@ -463,24 +402,20 @@ export function spawnSandboxChild(
     const eq = token.indexOf('=');
     const key = token.slice(0, eq);
     const val = token.slice(eq + 1);
-    if (key === 'NODE_OPTIONS' && opts.env.PYRIC_SANDBOX) {
-      env.NODE_OPTIONS = withCanonicalRegisterNodeOptions(val, registerUrl);
-      continue;
+    const rewritten = sanitizeEnvAssignmentValue(key, val, opts.env, registerUrl);
+    if (rewritten !== null && !PROTECTED_LAUNCHER_ENV_KEYS.has(key)) {
+      env[key] = rewritten;
     }
-    if (opts.env.PYRIC_SANDBOX && PROTECTED_LAUNCHER_ENV_KEYS.has(key)) {
-      continue;
-    }
-    env[key] = val;
   }
 
-  // 2. Check for discrete shell operators (&&, ||, |, ;) among top-level tokens
-  const hasShellOperators = parts.some((token) => SHELL_OPERATORS.has(token));
+  // 2. Sanitize `env` invocations and post-operator KEY=VAL overrides
+  const sanitizedParts = sanitizeCommandSegmentTokens(parts, env, registerUrl);
+  const hasShellOperators = sanitizedParts.some((token) => SHELL_OPERATORS.has(token));
 
-  const [command, ...args] = parts;
+  const [command, ...args] = sanitizedParts;
   let child: ChildProcess;
   if (hasShellOperators) {
-    const safeShellTokens = sanitizeShellEnvAssignments(parts, opts.env, registerUrl);
-    child = spawn(formatShellCommand(safeShellTokens), [], {
+    child = spawn(formatShellCommand(sanitizedParts), [], {
       cwd: opts.cwd,
       env,
       stdio: ['inherit', 'pipe', 'pipe'],
