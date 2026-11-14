@@ -267,6 +267,12 @@ export function stepToFirebaseOperation(
     op.dataBase64 = encodeStorageStepBytes(step);
   }
   if (step.contentType !== undefined) op.contentType = step.contentType;
+  if (step.cacheControl !== undefined) op.cacheControl = step.cacheControl;
+  if (step.contentDisposition !== undefined) {
+    op.contentDisposition = step.contentDisposition;
+  }
+  if (step.contentEncoding !== undefined) op.contentEncoding = step.contentEncoding;
+  if (step.contentLanguage !== undefined) op.contentLanguage = step.contentLanguage;
   if (step.customMetadata !== undefined) {
     op.customMetadata = { ...step.customMetadata };
   }
@@ -359,6 +365,16 @@ export function applyStepToTargetState(
     const prev = bucketObjects[existingIdx]!;
     const updated: StorageObjectFixture = { ...prev };
     if (step.contentType !== undefined) updated.contentType = step.contentType;
+    if (step.cacheControl !== undefined) updated.cacheControl = step.cacheControl;
+    if (step.contentDisposition !== undefined) {
+      updated.contentDisposition = step.contentDisposition;
+    }
+    if (step.contentEncoding !== undefined) {
+      updated.contentEncoding = step.contentEncoding;
+    }
+    if (step.contentLanguage !== undefined) {
+      updated.contentLanguage = step.contentLanguage;
+    }
     if (step.customMetadata !== undefined) {
       updated.customMetadata = { ...step.customMetadata };
     }
@@ -370,10 +386,51 @@ export function applyStepToTargetState(
     dataBase64: encodeStorageStepBytes(step),
   };
   if (step.contentType !== undefined) entry.contentType = step.contentType;
+  if (step.cacheControl !== undefined) entry.cacheControl = step.cacheControl;
+  if (step.contentDisposition !== undefined) {
+    entry.contentDisposition = step.contentDisposition;
+  }
+  if (step.contentEncoding !== undefined) {
+    entry.contentEncoding = step.contentEncoding;
+  }
+  if (step.contentLanguage !== undefined) {
+    entry.contentLanguage = step.contentLanguage;
+  }
   if (step.customMetadata !== undefined) {
     entry.customMetadata = { ...step.customMetadata };
   }
   if (existingIdx >= 0) {
+    if (step.actor === "admin" && step.method === "set") {
+      const prev = bucketObjects[existingIdx]!;
+      if (entry.cacheControl === undefined && prev.cacheControl !== undefined) {
+        entry.cacheControl = prev.cacheControl;
+      }
+      if (
+        entry.contentDisposition === undefined &&
+        prev.contentDisposition !== undefined
+      ) {
+        entry.contentDisposition = prev.contentDisposition;
+      }
+      if (
+        entry.contentEncoding === undefined &&
+        prev.contentEncoding !== undefined
+      ) {
+        entry.contentEncoding = prev.contentEncoding;
+      }
+      if (
+        entry.contentLanguage === undefined &&
+        prev.contentLanguage !== undefined
+      ) {
+        entry.contentLanguage = prev.contentLanguage;
+      }
+      if (prev.customMetadata !== undefined) {
+        const mergedCustom: Record<string, string> = { ...prev.customMetadata };
+        if (entry.customMetadata !== undefined) {
+          Object.assign(mergedCustom, entry.customMetadata);
+        }
+        entry.customMetadata = mergedCustom;
+      }
+    }
     bucketObjects[existingIdx] = entry;
   } else {
     bucketObjects.push(entry);

@@ -12,11 +12,13 @@ import {
   rootBlockGovernsEveryDocument,
   rootGovernsEveryDocument,
   setListBlockSteps,
+  substituteIdentifiers,
   topLevelMatches,
   type AllowRule,
   type Expression,
   type FirestoreRules,
   type FunctionDef,
+  type LetBinding,
   type ListBlockStep,
   type MatchBlock,
   type PathSegment,
@@ -47,15 +49,99 @@ export function rulesetHasRootForDatabase(ast: FirestoreRules, resourceId: strin
   return false;
 }
 
+function substituteRootWildcardInFunction(
+  fn: FunctionDef,
+  wildcardName: string,
+  bindings: ReadonlyMap<string, Expression>,
+): FunctionDef {
+  if (fn.parameters.includes(wildcardName)) return fn;
+  const nextLets: LetBinding[] = [];
+  let shadowedByLet = false;
+  let changed = false;
+  for (const b of fn.lets) {
+    if (shadowedByLet) {
+      nextLets.push(b);
+      continue;
+    }
+    const nextValue = substituteIdentifiers(b.value, bindings);
+    if (nextValue !== b.value) changed = true;
+    nextLets.push({ ...b, value: nextValue });
+    if (b.name === wildcardName) {
+      shadowedByLet = true;
+    }
+  }
+  let nextBody = fn.body;
+  if (!shadowedByLet) {
+    nextBody = substituteIdentifiers(fn.body, bindings);
+    if (nextBody !== fn.body) changed = true;
+  }
+  if (!changed) return fn;
+  return { ...fn, lets: nextLets, body: nextBody };
+}
+
+function substituteRootWildcardInBlock(
+  block: MatchBlock,
+  wildcardName: string,
+  bindings: ReadonlyMap<string, Expression>,
+  isRoot: boolean,
+): MatchBlock {
+  if (
+    !isRoot
+    && block.path.segments.some(
+      (seg) => (seg.type === 'wildcard' || seg.type === 'recursive') && seg.name === wildcardName,
+    )
+  ) {
+    return block;
+  }
+  const nextFunctions = block.functions.map((fn) =>
+    substituteRootWildcardInFunction(fn, wildcardName, bindings),
+  );
+  const nextAllows = block.allows.map((rule) => {
+    const nextCond = substituteIdentifiers(rule.condition, bindings);
+    if (nextCond === rule.condition) return rule;
+    return { ...rule, condition: nextCond };
+  });
+  const nextChildren = block.children.map((child) =>
+    substituteRootWildcardInBlock(child, wildcardName, bindings, false),
+  );
+  return {
+    ...block,
+    functions: nextFunctions,
+    allows: nextAllows,
+    children: nextChildren,
+  };
+}
+
 function normalizeRootMatchBlock(rootBlock: MatchBlock, resourceId: string): MatchBlock {
   const segments = rootBlock.path.segments;
   const first = segments[0];
   const second = segments[1];
-  if (
-    first?.type !== 'literal'
-    || first.value !== 'databases'
-    || second?.type !== 'literal'
-  ) {
+  if (first?.type !== 'literal' || first.value !== 'databases' || second === undefined) {
+    return rootBlock;
+  }
+  if (second.type === 'wildcard') {
+    const normalizedSegments: PathSegment[] = [...segments];
+    normalizedSegments[1] = { type: 'literal', value: '(default)' };
+    const replacement: Expression = {
+      type: 'literal',
+      value: resourceId,
+      raw: JSON.stringify(resourceId),
+    };
+    const bindings = new Map<string, Expression>([[second.name, replacement]]);
+    return substituteRootWildcardInBlock(
+      {
+        ...rootBlock,
+        path: {
+          ...rootBlock.path,
+          segments: normalizedSegments,
+        },
+      },
+      second.name,
+      bindings,
+      true,
+    );
+  }
+  if (second.type !== 'literal') {
     return rootBlock;
   }
   if (second.value === resourceId) {

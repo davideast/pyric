@@ -6,7 +6,6 @@
 /** Claims set on every Firebase ID token; never inferred as custom claims. */
 export const STANDARD_CLAIMS = new Set([
   'email',
-  'email_verified',
   'name',
   'picture',
   'uid',
@@ -148,10 +147,23 @@ export function intersectClaimList(list: Claims[]): Claims {
   return out;
 }
 
+export function isExistenceClaim(claims: Claims, key: string): boolean {
+  return EXISTENCE_CLAIMS.get(claims)?.has(key) === true;
+}
+
 export function copyClaimsInto(source: Claims, into: Claims): Claims {
+  const sourceExistence = EXISTENCE_CLAIMS.get(source);
+  let intoExistence = EXISTENCE_CLAIMS.get(into);
   for (const key of Object.getOwnPropertyNames(source)) {
     if (STANDARD_CLAIMS.has(key) || Object.hasOwn(into, key)) continue;
     setClaimOwn(into, key, Object.getOwnPropertyDescriptor(source, key)?.value);
+    if (sourceExistence?.has(key)) {
+      if (!intoExistence) {
+        intoExistence = new Set<string>();
+        EXISTENCE_CLAIMS.set(into, intoExistence);
+      }
+      intoExistence.add(key);
+    }
   }
   return into;
 }

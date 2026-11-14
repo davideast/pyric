@@ -3,6 +3,7 @@
  * plus Firebase Auth, auth hooks, and React state/memo/context helpers.
  */
 import ts from 'typescript';
+import { fieldPathKey } from '../../firestore/internal/update-fields.js';
 import { decodeBase64Bytes, literalUint8Bytes } from './binary-constructors.js';
 import { timestampWrapperFromMillis } from './builtins.js';
 import type { Evaluator } from './evaluator.js';
@@ -130,7 +131,7 @@ export function apiNew(ev: Evaluator, api: Api, node: ts.NewExpression, env: Env
       if (text === null) return unknown('new FieldPath() segment not literal');
       segments.push(text);
     }
-    return lit(segments.join('.'));
+    return lit(fieldPathKey(segments));
   }
   if (api.module === 'firestore' && api.name === 'Timestamp' && node.arguments?.length === 2) {
     const seconds = finiteNumberArg(ev, node.arguments[0], env);

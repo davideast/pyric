@@ -4,19 +4,15 @@
  */
 import type { FirestoreRules, SimulateFirestoreRulesHandler } from '@pyric/rules/internal';
 import {
-  Bytes,
-  Duration,
   isQueryProofScalar,
-  LatLng,
-  Path,
   queryProofScalarsEqual,
   Reference,
-  Timestamp,
   type QueryConstraints,
   type QueryProofFailure,
   type QueryWhereConstraint,
   type RulesScalar,
 } from '@pyric/rules/internal';
+import { fieldPathKeySegments } from '../../firestore/internal/update-fields.js';
 import {
   SYNTH_UID,
   type ConcretizedQueryTarget,
@@ -28,6 +24,7 @@ import {
   defineOwnField,
   type ResidualSimulatorFn,
 } from './static-query-proof-actors.js';
+import { synthesizeFieldWitness } from './static-query-proof-domain-witness.js';
 import { collectOptimisticFieldScalars } from './static-query-proof-scalars.js';
 
 const MAX_OPTIMISTIC_COMBINATIONS = 24;
@@ -51,11 +48,13 @@ export function canSucceedWithOptimisticParams(
   placeholderPath: string,
   projected: ProjectedQueryArm,
   failures: readonly QueryProofFailure[],
+  targetDatabaseId = '(default)',
 ): boolean {
-  if (projected.unresolvedWheres.length === 0) return false;
+  const provableSlots = projected.unresolvedWheres.filter((slot) => !slot.field.includes('`'));
+  if (provableSlots.length === 0) return false;
   let combinations: QueryWhereConstraint[][] = [[]];
 
-  for (const slot of projected.unresolvedWheres) {
+  for (const slot of provableSlots) {
     const candidates: RulesScalar[] = [];
     const pushCandidate = (v: unknown): void => {
       if (isQueryProofScalar(v)) {
@@ -72,7 +71,12 @@ export function canSucceedWithOptimisticParams(
         if (m.field === slot.field) pushCandidate(m.expectedValue);
       }
     }
-    for (const astScalar of collectOptimisticFieldScalars(evaluationAst, placeholderPath, slot.field)) {
+    for (const astScalar of collectOptimisticFieldScalars(
+      evaluationAst,
+      placeholderPath,
+      slot.field,
+      targetDatabaseId,
+    )) {
       pushCandidate(astScalar);
     }
 
@@ -110,7 +114,7 @@ function setNestedResourceField(
   fieldPath: string,
   value: unknown,
 ): void {
-  const parts = fieldPath.split('.').filter((p) => p.length > 0);
+  const parts = fieldPathKeySegments(fieldPath).filter((p) => p.length > 0);
   if (parts.length === 0) return;
   let cursor = root;
   for (let i = 0; i < parts.length - 1; i += 1) {
@@ -130,49 +134,80 @@ function setNestedResourceField(
   defineOwnField(cursor, parts[parts.length - 1]!, value);
 }
 
-function witnessValueForWhere(op: string, raw: QueryWhereConstraint['value']): unknown {
-  if (op === '==') return raw;
-  if (op === 'in') {
-    if (Array.isArray(raw) && raw.length > 0) return raw[0];
-    return raw;
+function extractCandidateDocPath(
+  rawVal: unknown,
+  collectionPath: string,
+  targetDatabaseId: string,
+): string | null {
+  if (typeof rawVal === 'string') {
+    if (rawVal.length === 0 || rawVal.includes('/')) return null;
+    return `${collectionPath}/${rawVal}`;
   }
-  if (op === 'array-contains') return [raw];
-  if (op === 'array-contains-any') {
-    if (Array.isArray(raw) && raw.length > 0) return [raw[0]];
-    return [];
+  if (rawVal instanceof Reference) {
+    if (rawVal.databaseId !== targetDatabaseId) return null;
+    const lastSlash = rawVal.path.lastIndexOf('/');
+    if (lastSlash <= 0) return null;
+    const parent = rawVal.path.slice(0, lastSlash);
+    const leaf = rawVal.path.slice(lastSlash + 1);
+    if (parent !== collectionPath || leaf.length === 0) return null;
+    return rawVal.path;
   }
-  if (op === '>') {
-    if (typeof raw === 'number') return raw + 1;
-    if (raw instanceof Timestamp) return new Timestamp(raw.seconds + 1, raw.nanos);
-    if (raw instanceof Duration) return new Duration(raw.seconds + 1, raw.nanos);
+  return null;
+}
+
+function resolveDocIdCandidatePaths(
+  placeholderPath: string,
+  target: ConcretizedQueryTarget,
+  projected: ProjectedQueryArm,
+  targetDatabaseId: string,
+): readonly string[] | null {
+  if (target.isCollectionGroup) {
+    return [placeholderPath];
   }
-  if (op === '>=' || op === '<=') {
-    if (typeof raw === 'number' || isQueryProofScalar(raw)) return raw;
-  }
-  if (op === '<') {
-    if (typeof raw === 'number') return raw - 1;
-    if (raw instanceof Timestamp) return new Timestamp(raw.seconds - 1, raw.nanos);
-    if (raw instanceof Duration) return new Duration(raw.seconds - 1, raw.nanos);
-  }
-  if (op === '!=') {
-    if (typeof raw === 'number') return raw + 1;
-    if (typeof raw === 'boolean') return !raw;
-    if (typeof raw === 'string') return `${raw}_alt`;
-    if (raw instanceof Reference) return new Reference(`${raw.path}_alt`, raw.databaseId);
-    if (raw instanceof Path) {
-      return new Path([...raw.segments.slice(0, -1), `${raw.segments.at(-1) ?? 'doc'}_alt`]);
+  let pinnedPaths: string[] | null = null;
+  for (const clause of projected.docIdWheres) {
+    if (clause.op === '==') {
+      const cand = extractCandidateDocPath(clause.value, target.collectionPath, targetDatabaseId);
+      if (cand === null) return null;
+      if (pinnedPaths === null) {
+        pinnedPaths = [cand];
+      } else {
+        pinnedPaths = pinnedPaths.filter((existing) => existing === cand);
+      }
+      if (pinnedPaths.length === 0) return null;
+    } else if (clause.op === 'in' && Array.isArray(clause.value)) {
+      const listPaths: string[] = [];
+      for (const item of clause.value) {
+        const cand = extractCandidateDocPath(item, target.collectionPath, targetDatabaseId);
+        if (cand !== null && !listPaths.includes(cand)) {
+          listPaths.push(cand);
+        }
+      }
+      if (listPaths.length === 0) return null;
+      if (pinnedPaths === null) {
+        pinnedPaths = listPaths;
+      } else {
+        pinnedPaths = pinnedPaths.filter((existing) => listPaths.includes(existing));
+      }
+      if (pinnedPaths.length === 0) return null;
     }
-    if (raw instanceof Timestamp) return new Timestamp(raw.seconds + 1, raw.nanos);
-    if (raw instanceof Bytes) return new Bytes(new Uint8Array([...raw.data, 1]));
-    if (raw instanceof LatLng) {
-      let nextLat = 0;
-      if (raw.lat === 0) nextLat = 1;
-      return new LatLng(nextLat, raw.lng);
-    }
-    if (raw instanceof Duration) return new Duration(raw.seconds + 1, raw.nanos);
-    return 'non-null';
   }
-  return undefined;
+  if (pinnedPaths === null && projected.unresolvedDocIdWheres.length > 0) {
+    const hasEqualitySlot = projected.unresolvedDocIdWheres.some(
+      (slot) => slot.op === '==' || slot.op === 'in',
+    );
+    if (hasEqualitySlot) {
+      pinnedPaths = [`${target.collectionPath}/${SYNTH_UID}`];
+    }
+  }
+  return pinnedPaths ?? [placeholderPath];
+}
+
+function unresolvedSlotConstraint(slot: UnresolvedWhereSlot): QueryWhereConstraint {
+  if (slot.op === 'in' || slot.op === 'not-in' || slot.op === 'array-contains-any') {
+    return { field: slot.field, op: slot.op, value: [SYNTH_UID] };
+  }
+  return { field: slot.field, op: slot.op, value: SYNTH_UID };
 }
 
 export function canSucceedAgainstUnsupportedPredicate(
@@ -184,6 +219,7 @@ export function canSucceedAgainstUnsupportedPredicate(
   target: ConcretizedQueryTarget,
   projected: ProjectedQueryArm,
   failures: readonly QueryProofFailure[],
+  targetDatabaseId = '(default)',
 ): boolean {
   if (
     !failures.some(
@@ -192,32 +228,59 @@ export function canSucceedAgainstUnsupportedPredicate(
   ) {
     return false;
   }
-  const wheres = projected.constraints.where ?? [];
-  if (wheres.length === 0 && projected.unresolvedWheres.length === 0) {
+  const hasAnyWhereEvidence =
+    projected.witnessWheres.length > 0
+    || projected.unresolvedWheres.length > 0
+    || projected.docIdWheres.length > 0
+    || projected.unresolvedDocIdWheres.length > 0;
+  if (!hasAnyWhereEvidence) {
     return false;
   }
-  const candidateResource: Record<string, unknown> = {};
-  for (const w of wheres) {
-    const val = witnessValueForWhere(w.op, w.value);
-    if (val !== undefined) {
-      setNestedResourceField(candidateResource, w.field, val);
-    }
-  }
-  for (const slot of projected.unresolvedWheres) {
-    const val = witnessValueForWhere(slot.op, SYNTH_UID);
-    if (val !== undefined) {
-      setNestedResourceField(candidateResource, slot.field, val);
-    }
-  }
-  return allowsResidualForAnyActor(
-    simulateDecision,
-    simulator,
-    evaluationAst,
-    rulesSource,
+  const candidatePaths = resolveDocIdCandidatePaths(
     placeholderPath,
     target,
     projected,
-    candidateResource,
-    projected.constraints,
-  ).allowed;
+    targetDatabaseId,
+  );
+  if (!candidatePaths || candidatePaths.length === 0) {
+    return false;
+  }
+
+  const clausesByField = new Map<string, QueryWhereConstraint[]>();
+  for (const w of projected.witnessWheres) {
+    let list = clausesByField.get(w.field);
+    if (!list) {
+      list = [];
+      clausesByField.set(w.field, list);
+    }
+    list.push(w);
+  }
+  for (const slot of projected.unresolvedWheres) {
+    if (clausesByField.has(slot.field)) continue;
+    clausesByField.set(slot.field, [unresolvedSlotConstraint(slot)]);
+  }
+
+  const candidateResource: Record<string, unknown> = {};
+  for (const [fieldPath, clauses] of clausesByField) {
+    const val = synthesizeFieldWitness(clauses);
+    if (val === undefined) {
+      return false;
+    }
+    setNestedResourceField(candidateResource, fieldPath, val);
+  }
+
+  return candidatePaths.every(
+    (candPath) =>
+      allowsResidualForAnyActor(
+        simulateDecision,
+        simulator,
+        evaluationAst,
+        rulesSource,
+        candPath,
+        target,
+        projected,
+        candidateResource,
+        projected.constraints,
+      ).allowed,
+  );
 }

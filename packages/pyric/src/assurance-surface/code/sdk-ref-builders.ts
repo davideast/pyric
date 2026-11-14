@@ -36,7 +36,7 @@ export interface BaseRefOrigin {
 }
 
 /** Root of a ref built from a base argument: a parent ref, or a service handle. */
-export function baseRefs(
+function baseRefs(
   ev: Evaluator,
   base: AVal,
   service: AssuranceService,

@@ -38,6 +38,10 @@ export interface ProbeStep {
   /** Optional explicit payload byte count for Cloud Storage upload steps. */
   sizeBytes?: number;
   contentType?: string;
+  cacheControl?: string;
+  contentDisposition?: string;
+  contentEncoding?: string;
+  contentLanguage?: string;
   customMetadata?: Record<string, string>;
 }
 

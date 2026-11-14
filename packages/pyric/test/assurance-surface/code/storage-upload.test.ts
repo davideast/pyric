@@ -107,6 +107,7 @@ describe('storageUpload static metadata & byte-size extraction', () => {
 
       const encoded = byPath.get('uploadBytes:files/{uid}/encoded.txt')!;
       expect(encoded.storageUpload).toEqual({
+        contentType: 'application/octet-stream',
         sizeBytes: 10,
       });
 
@@ -117,13 +118,19 @@ describe('storageUpload static metadata & byte-size extraction', () => {
       });
 
       const raw = byPath.get('uploadString:files/{uid}/raw.txt')!;
-      expect(raw.storageUpload).toEqual({ sizeBytes: 5 });
+      expect(raw.storageUpload).toEqual({
+        contentType: 'text/plain;charset=utf-8',
+        sizeBytes: 5,
+      });
 
       const b64 = byPath.get('uploadString:files/{uid}/b64.bin')!;
       expect(b64.storageUpload).toEqual({ contentType: 'text/plain', sizeBytes: 5 });
 
       const b64url = byPath.get('uploadString:files/{uid}/b64url.bin')!;
-      expect(b64url.storageUpload).toEqual({ sizeBytes: 5 });
+      expect(b64url.storageUpload).toEqual({
+        contentType: 'application/octet-stream',
+        sizeBytes: 5,
+      });
 
       const dataUrl = byPath.get('uploadString:files/{uid}/inline.svg')!;
       expect(dataUrl.storageUpload).toEqual({
@@ -159,6 +166,9 @@ describe('storageUpload static metadata & byte-size extraction', () => {
             await uploadBytes(ref(storage, 'files/a.bin'), bytes);
             await uploadString(ref(storage, 'files/b.txt'), 'aGVsbG8=', fmt, { contentType: 'text/plain' });
             await uploadString(ref(storage, 'files/c.txt'), text, 'raw', { contentType: 'text/plain' });
+            await uploadString(ref(storage, 'files/d.txt'), text);
+            await uploadBytes(ref(storage, 'files/e.bin'), new ArrayBuffer(12), { customMetadata: { tag: 'v1' } });
+            await uploadBytes(ref(storage, 'files/f.bin'), new Blob(['hi']));
           }
         `,
       },
@@ -172,6 +182,22 @@ describe('storageUpload static metadata & byte-size extraction', () => {
 
     const c = usage.operations.find((op) => op.path === 'files/c.txt')!;
     expect(c.storageUpload).toEqual({ contentType: 'text/plain' });
+
+    const d = usage.operations.find((op) => op.path === 'files/d.txt')!;
+    expect(d.storageUpload).toEqual({ contentType: 'text/plain;charset=utf-8' });
+
+    const e = usage.operations.find((op) => op.path === 'files/e.bin')!;
+    expect(e.storageUpload).toMatchObject({
+      contentType: 'application/octet-stream',
+      sizeBytes: 12,
+      customMetadataKeys: ['tag'],
+    });
+
+    const f = usage.operations.find((op) => op.path === 'files/f.bin')!;
+    expect(f.storageUpload).toEqual({
+      contentType: 'application/octet-stream',
+      sizeBytes: 2,
+    });
   });
 
   test('distinguishes spread metadata (customMetadataOpen) from untraced metadata arguments (customMetadataUnresolved)', () => {
@@ -212,6 +238,46 @@ describe('storageUpload static metadata & byte-size extraction', () => {
     expect(byPath.get('files/unknown-custom.bin')).toEqual({
       contentType: 'application/pdf',
       customMetadataUnresolved: true,
+    });
+  });
+
+  test('extracts static HTTP metadata headers and marks dynamic HTTP header values as httpMetadataUnresolved', () => {
+    const usage = extractSdkUsage({
+      root: '/virtual/app',
+      files: {
+        'http-meta.ts': `
+          import { getStorage, ref, uploadBytes } from 'pyric/storage';
+          const storage = getStorage();
+          export async function uploadHttp(dynamicCache: string) {
+            await uploadBytes(ref(storage, 'files/static-headers.png'), new Uint8Array([1, 2, 3]), {
+              contentType: 'image/png',
+              cacheControl: 'public, max-age=3600',
+              contentDisposition: 'inline',
+              contentEncoding: 'gzip',
+              contentLanguage: 'en',
+            });
+            await uploadBytes(ref(storage, 'files/dynamic-headers.png'), new Uint8Array([1, 2, 3]), {
+              contentType: 'image/png',
+              cacheControl: dynamicCache,
+            });
+          }
+        `,
+      },
+    });
+
+    const byPath = new Map(usage.operations.map((op) => [op.path, op.storageUpload]));
+    expect(byPath.get('files/static-headers.png')).toEqual({
+      contentType: 'image/png',
+      sizeBytes: 3,
+      cacheControl: 'public, max-age=3600',
+      contentDisposition: 'inline',
+      contentEncoding: 'gzip',
+      contentLanguage: 'en',
+    });
+    expect(byPath.get('files/dynamic-headers.png')).toEqual({
+      contentType: 'image/png',
+      sizeBytes: 3,
+      httpMetadataUnresolved: true,
     });
   });
 });

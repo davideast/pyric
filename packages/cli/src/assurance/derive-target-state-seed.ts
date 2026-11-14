@@ -179,27 +179,21 @@ export function seedAuthFromSnapshotAndActors(
   }
   for (const actor of actors) {
     const existing = usersByUid.get(actor.uid);
-    const claims: Record<string, unknown> = { ...(existing?.customClaims ?? {}) };
+    if (existing !== undefined) continue;
+    const claims: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(actor.token)) {
       if (k !== "email_verified" && !isUnsafeObjectKey(k)) {
         defineOwn(claims, k, v);
       }
     }
     let emailVerified = true;
-    if (existing !== undefined) {
-      emailVerified = existing.emailVerified === true;
-    } else if (typeof actor.token.email_verified === "boolean") {
+    if (typeof actor.token.email_verified === "boolean") {
       emailVerified = actor.token.email_verified;
     }
-    let email: AuthFixtureUser["email"] = actor.email;
-    if (existing !== undefined && existing.email !== undefined) {
-      email = existing.email;
-    }
     const merged: AuthFixtureUser = {
-      ...(existing ?? { uid: actor.uid }),
       uid: actor.uid,
-      email,
-      displayName: existing?.displayName ?? actor.displayName,
+      email: actor.email,
+      displayName: actor.displayName,
       emailVerified,
     };
     if (Object.keys(claims).length > 0) merged.customClaims = claims;

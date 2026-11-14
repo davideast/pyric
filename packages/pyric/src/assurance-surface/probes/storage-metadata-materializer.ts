@@ -188,6 +188,15 @@ export function buildClientCustomMetadata(
   return { metadata: stringifyMetadataRecord(raw), openMap: false };
 }
 
+export function applyClientHttpMetadataToStep(step: ProbeStep, site: AccessSite): void {
+  const up = site.storageUpload;
+  if (!up) return;
+  if (up.cacheControl !== undefined) step.cacheControl = up.cacheControl;
+  if (up.contentDisposition !== undefined) step.contentDisposition = up.contentDisposition;
+  if (up.contentEncoding !== undefined) step.contentEncoding = up.contentEncoding;
+  if (up.contentLanguage !== undefined) step.contentLanguage = up.contentLanguage;
+}
+
 export function attachResourceId(step: ProbeStep, resourceId: string | undefined): ProbeStep {
   if (resourceId === undefined || resourceId === '(default)') return step;
   return { ...step, resourceId };
@@ -272,6 +281,7 @@ export function buildCompliantUploadStep(
     contentType,
   };
   if (actorRole === 'admin') step.method = 'set';
+  applyClientHttpMetadataToStep(step, site);
   const customMetadata = buildCompliantCustomMetadata(
     site,
     sitePattern,
@@ -348,6 +358,7 @@ export function buildCompliantUpdateStep(
     }
     step.contentType = contentType;
   }
+  applyClientHttpMetadataToStep(step, site);
   const customMetadata = buildCompliantCustomMetadata(site, sitePattern, constraint, hints, actorObj, {}, surface);
   if (customMetadata !== undefined) step.customMetadata = customMetadata;
   return attachResourceId(step, site.resourceId);

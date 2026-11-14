@@ -4,6 +4,7 @@
  */
 import type { AccessSite } from '../code/types.js';
 import { isWriteOp } from '../code/operation-specs.js';
+import { isExistenceClaim } from '../rules/claim-algebra.js';
 import {
   firestoreRequiredClaims,
   rtdbRequiredClaims,
@@ -292,6 +293,48 @@ function buildProbeStorageRules(
   return undefined;
 }
 
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function readOwnValue(record: Record<string, unknown> | undefined, key: string): unknown {
+  if (record === undefined || !Object.hasOwn(record, key)) return undefined;
+  return Object.getOwnPropertyDescriptor(record, key)?.value;
+}
+
+function claimValueMatchesRequirement(actual: unknown, expected: unknown): boolean {
+  if (actual === undefined || actual === null) return false;
+  if (isPlainRecord(actual) && isPlainRecord(expected)) {
+    for (const key of Object.getOwnPropertyNames(expected)) {
+      const expVal = Object.getOwnPropertyDescriptor(expected, key)?.value;
+      const actVal = readOwnValue(actual, key);
+      if (!claimValueMatchesRequirement(actVal, expVal)) return false;
+    }
+    return true;
+  }
+  return JSON.stringify(actual) === JSON.stringify(expected);
+}
+
+function seededUserSatisfiesRequiredCustomClaims(
+  seededUser: ProbeUser | undefined,
+  requiredClaims: Record<string, unknown>,
+): boolean {
+  const customClaims = seededUser?.customClaims;
+  for (const key of Object.getOwnPropertyNames(requiredClaims)) {
+    if (key === 'email_verified') continue;
+    const actual = readOwnValue(customClaims, key);
+    if (isExistenceClaim(requiredClaims, key)) {
+      if (actual === undefined || actual === null) return false;
+      continue;
+    }
+    const expected = Object.getOwnPropertyDescriptor(requiredClaims, key)?.value;
+    if (!claimValueMatchesRequirement(actual, expected)) {
+      return false;
+    }
+  }
+  return true;
+}
+
 function mergeActorClaims(
   baseActor: ProbeActor,
   extractedClaims: Readonly<Record<string, unknown>>,
@@ -299,7 +342,9 @@ function mergeActorClaims(
 ): ProbeActor {
   const token: Record<string, unknown> = {};
   copyOwnTokenFields(token, baseActor.token);
-  copyOwnTokenFields(token, extractedClaims);
+  if (baseActor.synthetic !== false) {
+    copyOwnTokenFields(token, extractedClaims);
+  }
   if (seededUser?.customClaims !== undefined) {
     copyOwnTokenFields(token, seededUser.customClaims);
   }
@@ -467,6 +512,16 @@ export async function runProbes(input: RunProbesInput): Promise<ProbeReport> {
       effectiveProbe = {
         ...probe,
         inconclusiveOnDeny: 'seeded owner account has emailVerified: false while rule requires verified email',
+      };
+    } else if (
+      probe.kind === 'must-allow-denied' &&
+      probe.inconclusiveOnDeny === undefined &&
+      !owner.synthetic &&
+      !seededUserSatisfiesRequiredCustomClaims(seededOwner, extracted.ownerClaims)
+    ) {
+      effectiveProbe = {
+        ...probe,
+        inconclusiveOnDeny: 'seeded owner account lacks custom claims required by rule',
       };
     } else if (
       probe.kind === 'must-allow-denied' &&

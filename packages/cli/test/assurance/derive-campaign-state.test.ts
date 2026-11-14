@@ -56,10 +56,59 @@ describe("derive-campaign-state", () => {
       path: "orgs/acme/files/f1.png",
       sizeBytes: 16,
       contentType: "image/png",
+      cacheControl: "public, max-age=3600",
+      contentDisposition: "inline",
+      contentEncoding: "gzip",
+      contentLanguage: "en",
       customMetadata: { ownerId: "u-alice" },
     });
     expect(storageOp.service).toBe("storage");
-    expect(storageOp.method).toBe("upload");
+    if (storageOp.service === "storage") {
+      expect(storageOp.method).toBe("upload");
+      expect(storageOp.cacheControl).toBe("public, max-age=3600");
+      expect(storageOp.contentDisposition).toBe("inline");
+      expect(storageOp.contentEncoding).toBe("gzip");
+      expect(storageOp.contentLanguage).toBe("en");
+    }
+
+    applyStepToTargetState(state, {
+      actor: "owner",
+      service: "storage",
+      method: "create",
+      path: "orgs/acme/files/f1.png",
+      sizeBytes: 16,
+      contentType: "image/png",
+      cacheControl: "public, max-age=3600",
+      contentDisposition: "inline",
+      contentEncoding: "gzip",
+      contentLanguage: "en",
+    });
+    expect(state.storage?.[0]).toMatchObject({
+      path: "orgs/acme/files/f1.png",
+      contentType: "image/png",
+      cacheControl: "public, max-age=3600",
+      contentDisposition: "inline",
+      contentEncoding: "gzip",
+      contentLanguage: "en",
+    });
+
+    // Subsequent synthetic admin seed steps do not wipe existing HTTP metadata
+    applyStepToTargetState(state, {
+      actor: "admin",
+      service: "storage",
+      method: "set",
+      path: "orgs/acme/files/f1.png",
+      sizeBytes: 16,
+      contentType: "image/png",
+    });
+    expect(state.storage?.[0]).toMatchObject({
+      path: "orgs/acme/files/f1.png",
+      contentType: "image/png",
+      cacheControl: "public, max-age=3600",
+      contentDisposition: "inline",
+      contentEncoding: "gzip",
+      contentLanguage: "en",
+    });
   });
 
   test("guards against __proto__, constructor, and prototype pollution in RTDB paths and document payloads", () => {
@@ -124,5 +173,42 @@ describe("derive-campaign-state", () => {
       crossServiceIam: "denied",
       undeployedBucketPolicy: "allow",
     });
+  });
+
+  test("initializeTargetState never injects synthesized actor token claims onto existing seeded Auth users", () => {
+    const out = initializeTargetState(
+      undefined,
+      {
+        auth: {
+          users: [
+            { uid: "u-1", email: "u1@example.test", emailVerified: false },
+            { uid: "u-2", email: "u2@example.test", emailVerified: true, customClaims: { tier: "free" } },
+          ],
+        },
+      },
+      [
+        {
+          role: "owner",
+          uid: "u-1",
+          email: "u1@example.test",
+          displayName: "U1",
+          token: { role: "staff", email_verified: true },
+          synthetic: false,
+        },
+        {
+          role: "peer",
+          uid: "u-2",
+          email: "u2@example.test",
+          displayName: "U2",
+          token: { role: "staff", email_verified: true },
+          synthetic: false,
+        },
+      ],
+    );
+    const u1 = out.auth?.users.find((u) => u.uid === "u-1");
+    const u2 = out.auth?.users.find((u) => u.uid === "u-2");
+    expect(u1?.emailVerified).toBe(false);
+    expect(u1?.customClaims).toBeUndefined();
+    expect(u2?.customClaims).toEqual({ tier: "free" });
   });
 });

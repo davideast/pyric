@@ -307,4 +307,99 @@ export async function syncAvatar() {
       ).toBeGreaterThan(0);
     }
   });
+
+  test("abstains on emailVerified: false seeded owners and never injects unowned custom claims onto seeded Auth users", async () => {
+    const { initializeSandbox } = await import("pyric/sandbox");
+    const { getAuth, sandbox: authSandbox } = await import("pyric/auth");
+
+    const emailRoot = makeTempDir("derive-email-verified-");
+    mkdirSync(join(emailRoot, "src"), { recursive: true });
+    writeFileSync(
+      join(emailRoot, "firebase.json"),
+      JSON.stringify({ firestore: { rules: "firestore.rules" } }),
+    );
+    writeFileSync(
+      join(emailRoot, "firestore.rules"),
+      `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /notes/{uid} {
+      allow read, write: if request.auth != null && request.auth.uid == uid && request.auth.token.email_verified == true;
+    }
+  }
+}
+`,
+    );
+    writeFileSync(
+      join(emailRoot, "src/app.ts"),
+      `import { getAuth } from 'firebase/auth';
+import { doc, getFirestore, setDoc } from 'firebase/firestore';
+export async function saveNote() {
+  const uid = getAuth().currentUser!.uid;
+  await setDoc(doc(getFirestore(), 'notes', uid), { text: 'ok' });
+}
+`,
+    );
+
+    const sbUnverified = initializeSandbox();
+    authSandbox.seedUsers(getAuth(sbUnverified), [
+      { uid: "u1", email: "u1@example.test", emailVerified: false },
+    ]);
+    const unverifiedDerived = await deriveAssurance(
+      { root: emailRoot },
+      { store: new AssuranceCampaignStore(), sandbox: sbUnverified },
+    );
+    expect(
+      unverifiedDerived.diagnostics.some((d) => d.code === "assurance-must-allow-denied"),
+    ).toBe(false);
+
+    const staffRoot = makeTempDir("derive-staff-claims-");
+    mkdirSync(join(staffRoot, "src"), { recursive: true });
+    writeFileSync(
+      join(staffRoot, "firebase.json"),
+      JSON.stringify({ firestore: { rules: "firestore.rules" } }),
+    );
+    writeFileSync(
+      join(staffRoot, "firestore.rules"),
+      `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /records/{uid} {
+      allow read, write: if request.auth != null && request.auth.token.role == 'staff';
+    }
+  }
+}
+`,
+    );
+    writeFileSync(
+      join(staffRoot, "src/app.ts"),
+      `import { getAuth } from 'firebase/auth';
+import { doc, getFirestore, setDoc } from 'firebase/firestore';
+export async function saveRecord() {
+  const uid = getAuth().currentUser!.uid;
+  await setDoc(doc(getFirestore(), 'records', uid), { text: 'ok' });
+}
+`,
+    );
+
+    const sbStaff = initializeSandbox();
+    authSandbox.seedUsers(getAuth(sbStaff), [
+      { uid: "u1", email: "u1@example.test", emailVerified: true },
+      { uid: "u2", email: "u2@example.test", emailVerified: true },
+    ]);
+    const staffStore = new AssuranceCampaignStore();
+    const staffDerived = await deriveAssurance(
+      { root: staffRoot },
+      { store: staffStore, sandbox: sbStaff },
+    );
+    expect(
+      staffDerived.diagnostics.some((d) => d.code === "assurance-foreign-slot-write"),
+    ).toBe(false);
+    expect(
+      staffDerived.diagnostics.some((d) => d.code === "assurance-must-allow-denied"),
+    ).toBe(false);
+    const exportedUsers =
+      staffStore.get(staffDerived.campaignId)?.export().campaign.target.state?.auth?.users ?? [];
+    expect(exportedUsers.every((u) => u.customClaims === undefined)).toBe(true);
+  });
 });

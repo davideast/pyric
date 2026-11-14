@@ -277,46 +277,108 @@ export function compliantByteSize(
   return Math.min(MAX_PROBE_ALLOCATION_BYTES, desired);
 }
 
+function formatDisjunctGroup(disjuncts: readonly string[]): string {
+  if (disjuncts.length === 1) return disjuncts[0]!;
+  return `(?:${disjuncts.join('|')})`;
+}
+
+function distributeDisjunctiveConjunctLists(
+  left: readonly (readonly string[])[],
+  right: readonly (readonly string[])[],
+): (readonly string[])[] | null {
+  const out: (readonly string[])[] = [];
+  const seen = new Set<string>();
+  for (const lDisjuncts of left) {
+    for (const rDisjuncts of right) {
+      const mergedDisjuncts: string[] = [];
+      for (const pat of [...lDisjuncts, ...rDisjuncts]) {
+        if (!mergedDisjuncts.includes(pat)) mergedDisjuncts.push(pat);
+      }
+      const sig = mergedDisjuncts.join('||');
+      if (!seen.has(sig)) {
+        seen.add(sig);
+        out.push(mergedDisjuncts);
+        if (out.length > 32) return null;
+      }
+    }
+  }
+  return out;
+}
+
+function collectStorageConstraintArms(
+  entries: readonly RuleSurfaceEntry[],
+): StorageMetadataConstraint[] {
+  const permissive = entries.filter((entry) => entry.alwaysDeny !== true);
+  if (permissive.length === 0) return [];
+  const arms: StorageMetadataConstraint[] = [];
+  for (const entry of permissive) {
+    if (entry.storageMetadataArms && entry.storageMetadataArms.length > 0) {
+      for (const arm of entry.storageMetadataArms) {
+        arms.push(arm);
+        if (arms.length >= 32) return arms;
+      }
+    } else if (entry.storageMetadata) {
+      arms.push(entry.storageMetadata);
+      if (arms.length >= 32) return arms;
+    } else {
+      arms.push({});
+      if (arms.length >= 32) return arms;
+    }
+  }
+  return arms;
+}
+
 export function mergedStorageConstraint(entries: readonly RuleSurfaceEntry[]): StorageMetadataConstraint {
-  let contentTypePattern: string | undefined;
-  const contentTypeConjuncts: (readonly string[])[] = [];
+  const arms = collectStorageConstraintArms(entries);
+  if (arms.length === 0) return {};
+  if (arms.length === 1) return arms[0]!;
+
+  let disjunctiveConjuncts: (readonly string[])[] | null = null;
+  let allConstrainMime = true;
+  for (const arm of arms) {
+    const norm = normalizeContentTypeConjuncts(arm.contentTypePattern, arm.contentTypeConjuncts);
+    if (norm.length === 0) {
+      allConstrainMime = false;
+      break;
+    }
+    if (disjunctiveConjuncts === null) {
+      disjunctiveConjuncts = norm.map((d) => [...d]);
+    } else {
+      disjunctiveConjuncts = distributeDisjunctiveConjunctLists(disjunctiveConjuncts, norm);
+      if (disjunctiveConjuncts === null) {
+        allConstrainMime = false;
+        break;
+      }
+    }
+  }
+
   let minSizeBytes: number | undefined;
+  if (arms.every((arm) => arm.minSizeBytes !== undefined)) {
+    minSizeBytes = Math.min(...arms.map((arm) => arm.minSizeBytes!));
+  }
+
   let maxSizeBytes: number | undefined;
-  const requiredKeys = new Set<string>();
+  if (arms.every((arm) => arm.maxSizeBytes !== undefined)) {
+    maxSizeBytes = Math.max(...arms.map((arm) => arm.maxSizeBytes!));
+  }
+
+  let intersectedKeys: string[] | undefined;
+  for (const arm of arms) {
+    const armKeys = arm.requiredCustomMetadataKeys ?? [];
+    if (intersectedKeys === undefined) {
+      intersectedKeys = [...armKeys];
+    } else {
+      intersectedKeys = intersectedKeys.filter((k) => armKeys.includes(k));
+    }
+  }
+
+  const firstOwnerKey = arms[0]!.ownerMetadataKey;
   let ownerMetadataKey: string | undefined;
-
-  const pushConjunct = (disjuncts: readonly string[]): void => {
-    const sig = disjuncts.join('||');
-    if (!contentTypeConjuncts.some((existing) => existing.join('||') === sig)) {
-      contentTypeConjuncts.push([...disjuncts]);
-    }
-  };
-
-  for (const entry of entries) {
-    const meta = entry.storageMetadata;
-    if (!meta) continue;
-    if (contentTypePattern === undefined && meta.contentTypePattern !== undefined) {
-      contentTypePattern = meta.contentTypePattern;
-    }
-    if (meta.contentTypeConjuncts && meta.contentTypeConjuncts.length > 0) {
-      for (const c of meta.contentTypeConjuncts) pushConjunct(c);
-    } else if (meta.contentTypePattern !== undefined) {
-      for (const c of normalizeContentTypeConjuncts(meta.contentTypePattern)) pushConjunct(c);
-    }
-    if (meta.minSizeBytes !== undefined) {
-      if (minSizeBytes === undefined || meta.minSizeBytes > minSizeBytes) {
-        minSizeBytes = meta.minSizeBytes;
-      }
-    }
-    if (meta.maxSizeBytes !== undefined) {
-      if (maxSizeBytes === undefined || meta.maxSizeBytes < maxSizeBytes) {
-        maxSizeBytes = meta.maxSizeBytes;
-      }
-    }
-    for (const key of meta.requiredCustomMetadataKeys ?? []) requiredKeys.add(key);
-    if (ownerMetadataKey === undefined && meta.ownerMetadataKey !== undefined) {
-      ownerMetadataKey = meta.ownerMetadataKey;
-    }
+  if (
+    firstOwnerKey !== undefined
+    && arms.every((arm) => arm.ownerMetadataKey === firstOwnerKey)
+  ) {
+    ownerMetadataKey = firstOwnerKey;
   }
 
   const out: {
@@ -327,17 +389,82 @@ export function mergedStorageConstraint(entries: readonly RuleSurfaceEntry[]): S
     requiredCustomMetadataKeys?: readonly string[];
     ownerMetadataKey?: string;
   } = {};
-  if (contentTypeConjuncts.length > 1) {
-    out.contentTypeConjuncts = contentTypeConjuncts;
-    out.contentTypePattern = contentTypeConjuncts.map((c) => c.join('||')).join(' && ');
-  } else if (contentTypePattern !== undefined) {
-    out.contentTypePattern = contentTypePattern;
+  if (allConstrainMime && disjunctiveConjuncts !== null && disjunctiveConjuncts.length > 0) {
+    out.contentTypePattern = disjunctiveConjuncts.map(formatDisjunctGroup).join(' && ');
+    if (
+      disjunctiveConjuncts.length > 1
+      || disjunctiveConjuncts.some((disjuncts) => disjuncts.length > 1)
+    ) {
+      out.contentTypeConjuncts = disjunctiveConjuncts;
+    }
   }
   if (minSizeBytes !== undefined) out.minSizeBytes = minSizeBytes;
   if (maxSizeBytes !== undefined) out.maxSizeBytes = maxSizeBytes;
-  if (requiredKeys.size > 0) out.requiredCustomMetadataKeys = [...requiredKeys];
+  if (intersectedKeys && intersectedKeys.length > 0) {
+    out.requiredCustomMetadataKeys = intersectedKeys;
+  }
   if (ownerMetadataKey !== undefined) out.ownerMetadataKey = ownerMetadataKey;
   return out;
+}
+
+function isArmSynthesizable(arm: StorageMetadataConstraint): boolean {
+  if (
+    arm.minSizeBytes !== undefined
+    && arm.maxSizeBytes !== undefined
+    && arm.minSizeBytes > arm.maxSizeBytes
+  ) {
+    return false;
+  }
+  const synthMime = synthesizeMatchingContentType(
+    arm.contentTypePattern,
+    arm.contentTypeConjuncts,
+  );
+  return contentTypeMatchesPattern(
+    synthMime,
+    arm.contentTypePattern,
+    arm.contentTypeConjuncts,
+  );
+}
+
+function siteCompatibleWithArm(site: AccessSite, arm: StorageMetadataConstraint): boolean {
+  const up = site.storageUpload;
+  if (!up) return true;
+  if (
+    up.contentType !== undefined
+    && !contentTypeMatchesPattern(up.contentType, arm.contentTypePattern, arm.contentTypeConjuncts)
+  ) {
+    return false;
+  }
+  if (up.sizeBytes !== undefined) {
+    if (arm.minSizeBytes !== undefined && up.sizeBytes < arm.minSizeBytes) return false;
+    if (arm.maxSizeBytes !== undefined && up.sizeBytes > arm.maxSizeBytes) return false;
+  }
+  if (
+    up.customMetadataKeys !== undefined
+    && !up.customMetadataOpen
+    && !up.customMetadataUnresolved
+  ) {
+    for (const reqKey of arm.requiredCustomMetadataKeys ?? []) {
+      if (!up.customMetadataKeys.includes(reqKey)) return false;
+    }
+  }
+  return true;
+}
+
+export function selectStorageConstraintForSite(
+  entries: readonly RuleSurfaceEntry[],
+  site: AccessSite,
+): StorageMetadataConstraint {
+  const arms = collectStorageConstraintArms(entries);
+  if (arms.length === 0) return {};
+  if (arms.length === 1) return arms[0]!;
+  const matchingClient = arms.find(
+    (arm) => isArmSynthesizable(arm) && siteCompatibleWithArm(site, arm),
+  );
+  if (matchingClient) return matchingClient;
+  const firstValid = arms.find(isArmSynthesizable);
+  if (firstValid) return firstValid;
+  return mergedStorageConstraint(entries);
 }
 
 export function isProbeableStorageSite(site: AccessSite): boolean {
@@ -354,7 +481,16 @@ export function dedupeStorageSites(sites: readonly AccessSite[]): AccessSite[] {
   const byKey = new Map<string, AccessSite>();
   for (const site of sites) {
     const pattern = parseResourcePattern('storage', site.path, site.resourceId);
-    const uploadSig = `${site.storageUpload?.contentType ?? ''}:${String(site.storageUpload?.sizeBytes ?? '')}`;
+    const up = site.storageUpload;
+    const uploadSig = [
+      up?.contentType ?? '',
+      String(up?.sizeBytes ?? ''),
+      up?.cacheControl ?? '',
+      up?.contentDisposition ?? '',
+      up?.contentEncoding ?? '',
+      up?.contentLanguage ?? '',
+      up?.httpMetadataUnresolved ? 'u' : '',
+    ].join(':');
     const fieldsSig = (site.payload?.fields ?? []).map((f) => f.name).sort().join(',');
     const key = `${resourceShapeKey(pattern)}|${site.op}|${uploadSig}|${fieldsSig}`;
     if (!byKey.has(key)) byKey.set(key, site);

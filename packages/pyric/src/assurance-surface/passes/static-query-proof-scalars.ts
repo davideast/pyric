@@ -128,6 +128,7 @@ export function collectOptimisticFieldScalars(
   evaluationAst: FirestoreRules,
   placeholderPath: string,
   field: string,
+  targetDatabaseId = '(default)',
 ): RulesScalar[] {
   indexRulesetScopes(evaluationAst);
   const rootFunctions = [
@@ -202,7 +203,7 @@ export function collectOptimisticFieldScalars(
   addScalar(SYNTH_UID);
   addScalar(`__pyric_optimistic_${field}__`);
   if (fieldReferencedInRule) {
-    addScalar(new Reference('__pyric_ref_col__/__pyric_ref_id__'));
+    addScalar(new Reference('__pyric_ref_col__/__pyric_ref_id__', targetDatabaseId));
     addScalar(Timestamp.fromMillis(1_700_000_000_000));
     addScalar(new Bytes(new Uint8Array([1])));
     addScalar(new LatLng(0, 0));

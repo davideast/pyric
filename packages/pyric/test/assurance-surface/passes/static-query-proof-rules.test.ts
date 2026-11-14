@@ -28,6 +28,26 @@ service cloud.firestore {
       type: 'literal',
       value: 'analytics',
     });
+
+    const wildcardAst = parseToAST(`rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function matchesShadowedParam(database) {
+      return database == '(default)';
+    }
+    match /events/{id} {
+      allow list: if database == 'secondary' && matchesShadowedParam('(default)');
+    }
+    match /shadowed/{database} {
+      allow list: if database == 'doc-1';
+    }
+  }
+}`)!;
+    const boundSecondary = normalizeDatabaseRootAst(wildcardAst, 'secondary');
+    expect(boundSecondary.service.match.path.segments[1]).toEqual({
+      type: 'literal',
+      value: '(default)',
+    });
   });
 
   it('projects path-invariant collection-group list rules and drops path-dependent rules', () => {
@@ -118,5 +138,26 @@ service cloud.firestore {
     expect(
       inspectRetainedRules(dischargedAst, 'users/u1/items/__listPlaceholder__', new Set()).usesUnseededContext,
     ).toBe(false);
+
+    const helperWrappedUidAst = parseToAST(`rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function currentUid() {
+      return request.auth.uid;
+    }
+    function ownsDoc(docData) {
+      let uid = currentUid();
+      return docData.ownerId == uid;
+    }
+    match /items/{id} {
+      allow list: if request.auth != null
+        && ownsDoc(resource.data)
+        && request.query.limit <= 10;
+    }
+  }
+}`)!;
+    const helperInfo = inspectRetainedRules(helperWrappedUidAst, 'items/__listPlaceholder__', new Set());
+    expect(helperInfo.usesUnseededContext).toBe(false);
+    expect(helperInfo.usesRequestQuery).toBe(true);
   });
 });

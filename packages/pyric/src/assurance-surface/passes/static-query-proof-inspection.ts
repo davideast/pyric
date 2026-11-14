@@ -1,6 +1,7 @@
 /**
  * Retained-rule AST inspection for {@link staticQueryProofPass}: detects
- * unseeded lookup/auth dependencies and `request.query` usage.
+ * unseeded lookup/auth dependencies and `request.query` usage after inlining
+ * helper functions so parent/grandparent discharge context is preserved.
  */
 import {
   assembleExpression,
@@ -10,6 +11,7 @@ import {
   getOrBudgetStepExpressions,
   getOrBudgetSteps,
   indexRulesetScopes,
+  inlineFunctionsInExpr,
   substituteIdentifiers,
   type Expression,
   type FirestoreRules,
@@ -25,7 +27,7 @@ export interface RetainedRulesInspection {
 
 export const LOOKUP_BUILTINS = new Set(['exists', 'get', 'existsAfter', 'getAfter']);
 
-export function memberStep(expr: Expression): { object: Expression; property: string } | null {
+function memberStep(expr: Expression): { object: Expression; property: string } | null {
   if (expr.type === 'memberAccess') {
     return { object: expr.object, property: expr.property };
   }
@@ -45,13 +47,13 @@ export function isRequestChain(expr: Expression, prop: string): boolean {
   return step.object.type === 'identifier' && step.object.name === 'request';
 }
 
-export function isRequestAuthUid(expr: Expression): boolean {
+function isRequestAuthUid(expr: Expression): boolean {
   const step = memberStep(expr);
   if (!step || step.property !== 'uid') return false;
   return isRequestChain(step.object, 'auth');
 }
 
-export function isRequestAuthToken(expr: Expression): boolean {
+function isRequestAuthToken(expr: Expression): boolean {
   const step = memberStep(expr);
   if (!step || step.property !== 'token') return false;
   return isRequestChain(step.object, 'auth');
@@ -289,6 +291,54 @@ export function walkRuleExpression(
   }
 }
 
+export function nodeTouchesUnseededContext(
+  node: Expression,
+  parent: Expression | null,
+  grandparent: Expression | null,
+  scopeFunctions: ReadonlyMap<string, FunctionDef>,
+  matchWildcardNames: ReadonlySet<string>,
+  populatedClaims: ReadonlySet<string>,
+): boolean {
+  if (
+    node.type === 'functionCall'
+    && !scopeFunctions.has(node.name)
+    && LOOKUP_BUILTINS.has(node.name)
+  ) {
+    return true;
+  }
+  if (isRequestChain(node, 'time')) {
+    return true;
+  }
+  if (
+    isRequestAuthUid(node)
+    && !isAuthUidDischargedByParent(node, parent, grandparent, matchWildcardNames)
+  ) {
+    return true;
+  }
+  const tokenStep = memberStep(node);
+  if (tokenStep && isRequestAuthToken(tokenStep.object)) {
+    if (
+      !populatedClaims.has(tokenStep.property)
+      || !isSeededTokenDischargedByParent(node, parent, tokenStep.property)
+    ) {
+      return true;
+    }
+  } else if (node.type === 'bracketAccess' && isRequestAuthToken(node.object)) {
+    return true;
+  } else if (node.type === 'methodCall' && isRequestAuthToken(node.object)) {
+    return true;
+  } else if (node.type === 'inExpr' && isRequestAuthToken(node.collection)) {
+    if (
+      node.element.type !== 'literal'
+      || typeof node.element.value !== 'string'
+      || !populatedClaims.has(node.element.value)
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
 export function inspectRetainedRules(
   evaluationAst: FirestoreRules,
   placeholderPath: string,
@@ -311,15 +361,50 @@ export function inspectRetainedRules(
     const inspectExpr = (expr: Expression): void => {
       if (walkedBudgetExprs.has(expr)) return;
       walkedBudgetExprs.add(expr);
-      walkRuleExpression(
+
+      const scanOrBudgetAttachments = (targetExpr: Expression): void => {
+        for (const orStep of getOrBudgetSteps(targetExpr) ?? []) {
+          for (const sub of getOrBudgetStepExpressions(orStep)) {
+            inspectExpr(sub);
+          }
+        }
+      };
+
+      const inlined = inlineFunctionsInExpr(
         expr,
         scope.functions,
         new Set(),
-        (node, parent, grandparent) => {
-          for (const orStep of getOrBudgetSteps(node) ?? []) {
-            for (const sub of getOrBudgetStepExpressions(orStep)) {
-              inspectExpr(sub);
+        match.functionScopes,
+      );
+      if (inlined !== null) {
+        walkRuleExpression(
+          inlined,
+          new Map(),
+          new Set(),
+          (node, parent, grandparent) => {
+            scanOrBudgetAttachments(node);
+            if (isRequestChain(node, 'query')) {
+              usesRequestQuery = true;
             }
+            if (
+              nodeTouchesUnseededContext(
+                node,
+                parent,
+                grandparent,
+                scope.functions,
+                matchWildcardNames,
+                populatedClaims,
+              )
+            ) {
+              usesUnseededContext = true;
+            }
+          },
+        );
+        // Also scan non-inlined helpers in case an unused `let` binding invoked a lookup or read `request.query`.
+        walkRuleExpression(expr, scope.functions, new Set(), (node) => {
+          scanOrBudgetAttachments(node);
+          if (isRequestChain(node, 'query')) {
+            usesRequestQuery = true;
           }
           if (
             node.type === 'functionCall'
@@ -328,43 +413,33 @@ export function inspectRetainedRules(
           ) {
             usesUnseededContext = true;
           }
-          if (isRequestChain(node, 'query')) {
-            usesRequestQuery = true;
-          }
-          if (
-            isRequestAuthUid(node)
-            && !isAuthUidDischargedByParent(node, parent, grandparent, matchWildcardNames)
-          ) {
-            usesUnseededContext = true;
-          }
-          const tokenStep = memberStep(node);
-          if (tokenStep && isRequestAuthToken(tokenStep.object)) {
+        });
+      } else {
+        walkRuleExpression(
+          expr,
+          scope.functions,
+          new Set(),
+          (node, parent, grandparent) => {
+            scanOrBudgetAttachments(node);
+            if (isRequestChain(node, 'query')) {
+              usesRequestQuery = true;
+            }
             if (
-              !populatedClaims.has(tokenStep.property)
-              || !isSeededTokenDischargedByParent(node, parent, tokenStep.property)
+              nodeTouchesUnseededContext(
+                node,
+                parent,
+                grandparent,
+                scope.functions,
+                matchWildcardNames,
+                populatedClaims,
+              )
             ) {
               usesUnseededContext = true;
             }
-          } else if (node.type === 'bracketAccess' && isRequestAuthToken(node.object)) {
-            usesUnseededContext = true;
-          } else if (node.type === 'methodCall' && isRequestAuthToken(node.object)) {
-            usesUnseededContext = true;
-          } else if (node.type === 'inExpr' && isRequestAuthToken(node.collection)) {
-            if (
-              node.element.type !== 'literal'
-              || typeof node.element.value !== 'string'
-              || !populatedClaims.has(node.element.value)
-            ) {
-              usesUnseededContext = true;
-            }
-          }
-        },
-      );
-      for (const orStep of getOrBudgetSteps(expr) ?? []) {
-        for (const sub of getOrBudgetStepExpressions(orStep)) {
-          inspectExpr(sub);
-        }
+          },
+        );
       }
+      scanOrBudgetAttachments(expr);
     };
 
     for (const rule of match.block.allows) {

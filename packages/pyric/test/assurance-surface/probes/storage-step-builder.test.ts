@@ -57,6 +57,34 @@ service firebase.storage {
     expect(compliantByteSize(4)).toBe(4);
   });
 
+  test('disjoins separate Storage allow statements instead of conjoining incompatible MIME, size, or metadata arms', () => {
+    const surface = projectRuleSurface({
+      storage: `rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /files/{uid}/{name} {
+      allow write: if false;
+      allow write: if request.auth != null
+        && request.resource.contentType.matches('image/.*')
+        && request.resource.size <= 100
+        && 'imgTag' in request.resource.metadata;
+      allow write: if request.auth != null
+        && request.resource.contentType.matches('application/pdf')
+        && request.resource.size <= 4096;
+    }
+  }
+}`,
+    });
+    const merged = mergedStorageConstraint(surface.entries);
+    expect(merged.maxSizeBytes).toBe(4096);
+    expect(merged.requiredCustomMetadataKeys).toBeUndefined();
+    const synth = synthesizeMatchingContentType(
+      merged.contentTypePattern,
+      merged.contentTypeConjuncts,
+    );
+    expect(synth === 'image/png' || synth === 'application/pdf').toBe(true);
+  });
+
   test('identifies probeable Storage sites and excludes unresolved or recursive wildcard templates', () => {
     expect(
       isProbeableStorageSite({

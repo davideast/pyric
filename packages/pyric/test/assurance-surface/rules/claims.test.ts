@@ -201,4 +201,46 @@ service firebase.storage {
       workspaceMember: true,
     });
   });
+
+  test('extracts email_verified == true across Firestore, Storage, and RTDB while keeping other standard ID-token fields excluded', () => {
+    const fsRules = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /notes/{uid} {
+      allow read, write: if request.auth != null
+        && request.auth.uid == uid
+        && request.auth.token.email == 'u1@example.test'
+        && request.auth.token.email_verified == true;
+    }
+  }
+}`;
+    expect(firestoreRequiredClaims(fsRules, { path: 'notes/u1', op: 'create' })).toEqual({
+      email_verified: true,
+    });
+
+    const stEmailRules = `rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /files/{uid}/{name} {
+      allow write: if request.auth != null && request.auth.token.email_verified == true;
+    }
+  }
+}`;
+    expect(storageRequiredClaims(stEmailRules, { path: 'files/u1/a.png', op: 'create' })).toEqual({
+      email_verified: true,
+    });
+
+    const rtdbJson = {
+      rules: {
+        notes: {
+          $uid: {
+            '.write': 'auth != null && auth.token.email_verified === true',
+          },
+        },
+      },
+    };
+    expect(rtdbRequiredClaims(rtdbJson, { path: 'notes/u1', op: 'set' })).toEqual({
+      email_verified: true,
+    });
+  });
 });

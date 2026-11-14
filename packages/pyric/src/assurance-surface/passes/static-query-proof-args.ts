@@ -43,6 +43,9 @@ export interface UnresolvedWhereSlot {
 
 export interface ProjectedQueryArm {
   readonly constraints: QueryConstraints;
+  readonly witnessWheres: readonly QueryWhereConstraint[];
+  readonly docIdWheres: readonly QueryWhereConstraint[];
+  readonly unresolvedDocIdWheres: readonly UnresolvedWhereSlot[];
   readonly auth: { readonly uid: string; readonly token: Record<string, unknown> };
   readonly unresolvedWheres: readonly UnresolvedWhereSlot[];
   readonly hasUnknownConstraint: boolean;
@@ -307,7 +310,6 @@ function resolveAuthSources(
 function resolveWrapperOperand(
   wrapper: WrapperOperandValue,
   token: Record<string, unknown>,
-  targetDatabaseId: string,
 ): { resolved: true; value: ProofScalarValue; usedSynthUid: boolean } | { resolved: false } {
   switch (wrapper.wrapperKind) {
     case 'reference': {
@@ -331,11 +333,9 @@ function resolveWrapperOperand(
         if (resolvedSeg.usedSynthUid) usedSynthUid = true;
         resolvedSegments.push(resolvedSeg.value);
       }
-      const effectiveDatabaseId =
-        wrapper.databaseId === targetDatabaseId ? '(default)' : wrapper.databaseId;
       return {
         resolved: true,
-        value: new Reference(resolvedSegments.join('/'), effectiveDatabaseId),
+        value: new Reference(resolvedSegments.join('/'), wrapper.databaseId),
         usedSynthUid,
       };
     }
@@ -369,14 +369,13 @@ function resolveWrapperOperand(
 function resolveScalarOperand(
   operand: ConstraintOperand | undefined,
   token: Record<string, unknown>,
-  targetDatabaseId: string,
 ): { resolved: true; value: ProofScalarValue; usedSynthUid: boolean } | { resolved: false } {
   if (!operand) return { resolved: false };
   if (operand.kind === 'literal' && operand.literal !== undefined) {
     return { resolved: true, value: operand.literal, usedSynthUid: false };
   }
   if (operand.kind === 'wrapper' && operand.wrapper !== undefined) {
-    return resolveWrapperOperand(operand.wrapper, token, targetDatabaseId);
+    return resolveWrapperOperand(operand.wrapper, token);
   }
   if (operand.kind !== 'auth') {
     return { resolved: false };
@@ -389,10 +388,12 @@ function resolveScalarOperand(
 
 export function projectConstraintArm(
   arm: readonly SdkQueryConstraint[],
-  targetDatabaseId = '(default)',
 ): ProjectedQueryArm {
   const token: Record<string, unknown> = {};
   const wheres: QueryWhereConstraint[] = [];
+  const witnessWheres: QueryWhereConstraint[] = [];
+  const docIdWheres: QueryWhereConstraint[] = [];
+  const unresolvedDocIdWheres: UnresolvedWhereSlot[] = [];
   const unresolvedWheres: UnresolvedWhereSlot[] = [];
   let limit: number | undefined;
   const orderByMap: Record<string, 'ASC' | 'DESC'> = {};
@@ -401,6 +402,25 @@ export function projectConstraintArm(
   let hasDynamicLimit = false;
   let hasDynamicOrderBy = false;
   let usesSynthUidInWhere = false;
+
+  const pushResolvedWhere = (clause: QueryWhereConstraint): void => {
+    if (clause.field === '__name__') {
+      docIdWheres.push(clause);
+      return;
+    }
+    witnessWheres.push(clause);
+    if (!clause.field.includes('`')) {
+      wheres.push(clause);
+    }
+  };
+
+  const pushUnresolvedWhere = (slot: UnresolvedWhereSlot): void => {
+    if (slot.field === '__name__') {
+      unresolvedDocIdWheres.push(slot);
+      return;
+    }
+    unresolvedWheres.push(slot);
+  };
 
   for (const constraint of arm) {
     if (constraint.kind === 'unknown') {
@@ -417,7 +437,7 @@ export function projectConstraintArm(
         const scalars: ProofScalarValue[] = [];
         let allResolved = items.length > 0;
         for (const item of items) {
-          const resolved = resolveScalarOperand(item, token, targetDatabaseId);
+          const resolved = resolveScalarOperand(item, token);
           if (!resolved.resolved) {
             allResolved = false;
             break;
@@ -426,18 +446,18 @@ export function projectConstraintArm(
           scalars.push(resolved.value);
         }
         if (allResolved) {
-          wheres.push({ field: constraint.field, op: constraint.op, value: scalars });
+          pushResolvedWhere({ field: constraint.field, op: constraint.op, value: scalars });
         } else {
-          unresolvedWheres.push({ field: constraint.field, op: constraint.op });
+          pushUnresolvedWhere({ field: constraint.field, op: constraint.op });
         }
         continue;
       }
-      const scalar = resolveScalarOperand(constraint.operand, token, targetDatabaseId);
+      const scalar = resolveScalarOperand(constraint.operand, token);
       if (scalar.resolved) {
         if (scalar.usedSynthUid) usesSynthUidInWhere = true;
-        wheres.push({ field: constraint.field, op: constraint.op, value: scalar.value });
+        pushResolvedWhere({ field: constraint.field, op: constraint.op, value: scalar.value });
       } else {
-        unresolvedWheres.push({ field: constraint.field, op: constraint.op });
+        pushUnresolvedWhere({ field: constraint.field, op: constraint.op });
       }
       continue;
     }
@@ -471,6 +491,9 @@ export function projectConstraintArm(
 
   return {
     constraints,
+    witnessWheres,
+    docIdWheres,
+    unresolvedDocIdWheres,
     auth: { uid: SYNTH_UID, token },
     unresolvedWheres,
     hasUnknownConstraint,

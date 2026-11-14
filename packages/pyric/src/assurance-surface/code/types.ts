@@ -120,6 +120,16 @@ export interface StorageUploadMetadata {
   readonly contentType?: string;
   /** Exact payload size in bytes when statically determinable. */
   readonly sizeBytes?: number;
+  /** Static `cacheControl` HTTP metadata header when determinable. */
+  readonly cacheControl?: string;
+  /** Static `contentDisposition` HTTP metadata header when determinable. */
+  readonly contentDisposition?: string;
+  /** Static `contentEncoding` HTTP metadata header when determinable. */
+  readonly contentEncoding?: string;
+  /** Static `contentLanguage` HTTP metadata header when determinable. */
+  readonly contentLanguage?: string;
+  /** True when one or more HTTP metadata header properties (`cacheControl`, `contentDisposition`, `contentEncoding`, `contentLanguage`) could not be statically resolved. */
+  readonly httpMetadataUnresolved?: boolean;
   /** Sorted custom metadata keys when statically known. */
   readonly customMetadataKeys?: readonly string[];
   /** Per-key value shape and auth provenance for `customMetadata` entries. */

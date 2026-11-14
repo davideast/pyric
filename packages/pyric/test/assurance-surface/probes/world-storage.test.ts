@@ -329,4 +329,38 @@ service firebase.storage {
       world.dispose();
     }
   });
+
+  test('forwards cacheControl, contentDisposition, contentEncoding, and contentLanguage on Storage upload and update steps', async () => {
+    const httpRules = `rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /assets/{uid}/{name} {
+      allow read, write: if request.auth != null
+        && request.auth.uid == uid
+        && request.resource.cacheControl == 'public, max-age=3600'
+        && request.resource.contentDisposition == 'inline'
+        && request.resource.contentEncoding == 'gzip'
+        && request.resource.contentLanguage == 'en';
+    }
+  }
+}`;
+    const world = new ProbeWorld({ storage: httpRules }, ACTORS);
+    try {
+      const uploadRes = await world.run({
+        actor: 'owner',
+        service: 'storage',
+        method: 'create',
+        path: 'assets/u-alice/file.png',
+        data: 'abc',
+        contentType: 'image/png',
+        cacheControl: 'public, max-age=3600',
+        contentDisposition: 'inline',
+        contentEncoding: 'gzip',
+        contentLanguage: 'en',
+      });
+      expect(uploadRes.decision).toBe('allow');
+    } finally {
+      world.dispose();
+    }
+  });
 });

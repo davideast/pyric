@@ -346,7 +346,7 @@ describe('storageContractPass', () => {
             await uploadBytes(ref(appBucket, 'split/trap.png'), new Uint8Array(500), {
               contentType: 'image/png',
             });
-            // 3. Explicit { contentType: '' } fails image/.* (whereas Blob { type: '' } is unset)
+            // 3. Explicit { contentType: '' } and Blob { type: '' } both resolve to application/octet-stream and fail image/.*
             await uploadBytes(ref(appBucket, 'managed/' + uid + '/empty-ct.bin'), new Uint8Array(8), {
               contentType: '',
               customMetadata: { owner: uid },
@@ -403,6 +403,11 @@ describe('storageContractPass', () => {
         code: 'storage-content-type-mismatch',
         resourceId: 'tenant-assets',
         path: 'managed/{uid}/empty-ct.bin',
+      },
+      {
+        code: 'storage-content-type-mismatch',
+        resourceId: 'tenant-assets',
+        path: 'managed/{uid}/blob-empty-type.bin',
       },
       {
         code: 'storage-content-type-mismatch',

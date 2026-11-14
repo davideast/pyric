@@ -1,0 +1,352 @@
+import 'fake-indexeddb/auto';
+import { afterEach, describe, expect, test } from 'bun:test';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { getAuth, sandbox as authSandbox } from 'pyric/auth';
+import { doc, getFirestore, setDoc } from 'pyric/firestore';
+import { firestoreRules, storageRules as compileStorageRules } from 'pyric/rules';
+import { initializeSandbox } from 'pyric/sandbox';
+import { setRules } from 'pyric/sandbox/firestore';
+import { getStorageSandbox, ref as storageRef, uploadBytes, uploadString } from 'pyric/storage';
+import { getAdminStorageSandbox } from 'pyric/storage/internal';
+import {
+  publishAssuranceVisualization,
+  subscribeAssuranceVisualizations,
+  type AssuranceVisualizationSnapshot,
+} from '../../src/assurance/browser.js';
+import { deriveAssurance } from '../../src/assurance/derive.js';
+import { AssuranceCampaignStore } from '../../src/assurance/tools.js';
+
+const tempDirs: string[] = [];
+
+function makeTempDir(prefix: string): string {
+  const dir = mkdtempSync(join(tmpdir(), prefix));
+  tempDirs.push(dir);
+  return dir;
+}
+
+afterEach(() => {
+  while (tempDirs.length > 0) {
+    const dir = tempDirs.pop()!;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+describe('deriveAssurance differential rules-semantics parity', () => {
+  test('preserves seeded Auth customClaims and abstains when seeded owners lack email_verified or custom claims', async () => {
+    const rules = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /users/{uid}/verifiedDocs/{docId} {
+      allow read, write: if request.auth != null
+        && request.auth.uid == uid
+        && request.auth.token.email_verified == true;
+    }
+    match /users/{uid}/roleDocs/{docId} {
+      allow read, write: if request.auth != null
+        && request.auth.uid == uid
+        && 'tier' in request.auth.token
+        && request.auth.token.role == 'editor';
+    }
+    match /users/{uid}/tierDocs/{docId} {
+      allow read, write: if request.auth != null
+        && request.auth.uid == uid
+        && 'tier' in request.auth.token;
+    }
+  }
+}`;
+    const seededUser = {
+      uid: 'u-seeded-owner',
+      email: 'owner@example.test',
+      emailVerified: false,
+      providerId: 'password',
+      customClaims: { tier: 'pro' },
+    };
+
+    const simSummary = firestoreRules(rules).simulate([
+      {
+        description: 'unverified seeded owner denied on verifiedDocs',
+        expectation: 'DENY',
+        method: 'create',
+        path: 'users/u-seeded-owner/verifiedDocs/d1',
+        auth: { uid: 'u-seeded-owner', token: { email_verified: false, tier: 'pro' } },
+        data: { ownerId: 'u-seeded-owner' },
+      },
+      {
+        description: 'seeded owner without editor role denied on roleDocs',
+        expectation: 'DENY',
+        method: 'create',
+        path: 'users/u-seeded-owner/roleDocs/d1',
+        auth: { uid: 'u-seeded-owner', token: { email_verified: false, tier: 'pro' } },
+        data: { ownerId: 'u-seeded-owner' },
+      },
+      {
+        description: 'seeded owner with tier claim allowed on tierDocs',
+        expectation: 'ALLOW',
+        method: 'create',
+        path: 'users/u-seeded-owner/tierDocs/d1',
+        auth: { uid: 'u-seeded-owner', token: { email_verified: false, tier: 'pro' } },
+        data: { ownerId: 'u-seeded-owner' },
+      },
+    ]);
+    expect(simSummary.failed).toBe(0);
+
+    const sandbox = initializeSandbox();
+    setRules(sandbox, rules);
+    const auth = getAuth(sandbox);
+    authSandbox.seedUsers(auth, [seededUser]);
+    const session = authSandbox.mintSession(auth, { kind: 'uid', uid: 'u-seeded-owner' });
+    const ownerDb = getFirestore(sandbox.withAuth(session.state));
+
+    let verifiedAllowed = true;
+    try {
+      await setDoc(doc(ownerDb, 'users/u-seeded-owner/verifiedDocs/d1'), {
+        ownerId: 'u-seeded-owner',
+      });
+    } catch {
+      verifiedAllowed = false;
+    }
+    expect(verifiedAllowed).toBe(false);
+
+    let roleAllowed = true;
+    try {
+      await setDoc(doc(ownerDb, 'users/u-seeded-owner/roleDocs/d1'), {
+        ownerId: 'u-seeded-owner',
+      });
+    } catch {
+      roleAllowed = false;
+    }
+    expect(roleAllowed).toBe(false);
+
+    await setDoc(doc(ownerDb, 'users/u-seeded-owner/tierDocs/d1'), {
+      ownerId: 'u-seeded-owner',
+    });
+
+    const root = makeTempDir('derive-claims-diff-');
+    mkdirSync(join(root, 'src'), { recursive: true });
+    writeFileSync(
+      join(root, 'firebase.json'),
+      JSON.stringify({ firestore: { rules: 'firestore.rules' } }),
+    );
+    writeFileSync(join(root, 'firestore.rules'), rules);
+    writeFileSync(
+      join(root, 'src/app.ts'),
+      `import { getAuth } from 'firebase/auth';
+import { doc, getFirestore, setDoc } from 'firebase/firestore';
+export async function saveAll() {
+  const uid = getAuth().currentUser!.uid;
+  const db = getFirestore();
+  await setDoc(doc(db, 'users', uid, 'verifiedDocs', 'd1'), { ownerId: uid });
+  await setDoc(doc(db, 'users', uid, 'roleDocs', 'd1'), { ownerId: uid });
+  await setDoc(doc(db, 'users', uid, 'tierDocs', 'd1'), { ownerId: uid });
+}
+`,
+    );
+
+    const store = new AssuranceCampaignStore();
+    const seededSandbox = initializeSandbox();
+    authSandbox.seedUsers(getAuth(seededSandbox), [seededUser]);
+    const derived = await deriveAssurance({ root }, { store, sandbox: seededSandbox });
+    const mustAllowDenied = derived.diagnostics.filter(
+      (d) => d.code === 'assurance-must-allow-denied',
+    );
+    expect(mustAllowDenied).toEqual([]);
+
+    const campaign = store.get(derived.campaignId);
+    const preservedOwner = campaign.target.state?.auth?.users?.find(
+      (u) => u.uid === 'u-seeded-owner',
+    );
+    expect(preservedOwner?.emailVerified).toBe(false);
+    expect(preservedOwner?.customClaims).toEqual({ tier: 'pro' });
+  });
+
+  test('Storage default contentType, HTTP metadata fields, and disjunctive allow rules agree across storageRules().simulate(), Sandbox, deriveAssurance, and campaign runner', async () => {
+    const storageRuleText = `rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /users/{uid}/raw/{fileName} {
+      allow create: if request.auth != null
+        && request.auth.uid == uid
+        && request.resource.contentType.matches('image/.*');
+    }
+    match /users/{uid}/headers/{fileName} {
+      allow read: if request.auth != null && request.auth.uid == uid;
+      allow create: if request.auth != null
+        && request.auth.uid == uid
+        && request.resource.cacheControl == 'public, max-age=600'
+        && request.resource.contentDisposition == 'inline'
+        && request.resource.contentEncoding == 'gzip'
+        && request.resource.contentLanguage == 'en';
+    }
+    match /users/{uid}/sharedHeaders/{fileName} {
+      allow write: if request.auth != null
+        && request.resource.cacheControl == 'public, max-age=600'
+        && request.resource.contentDisposition == 'inline'
+        && request.resource.contentEncoding == 'gzip'
+        && request.resource.contentLanguage == 'en';
+    }
+    match /users/{uid}/or/{fileName} {
+      allow write: if false;
+      allow read: if request.auth != null && request.auth.uid == uid;
+      allow create: if request.auth != null
+        && request.auth.uid == uid
+        && request.resource.contentType.matches('image/.*')
+        && request.resource.size < 1024;
+      allow create: if request.auth != null
+        && request.auth.uid == uid
+        && request.resource.contentType == 'application/pdf'
+        && request.resource.size < 4096;
+    }
+  }
+}`;
+    const compiled = compileStorageRules(storageRuleText, { bucket: 'default-bucket' });
+    const simSummary = compiled.simulate([
+      {
+        description: 'raw uploadString default text/plain denied by image/.*',
+        expectation: 'DENY',
+        method: 'create',
+        path: 'users/u-alice/raw/note.txt',
+        auth: { uid: 'u-alice', token: {} },
+        requestResource: { size: 5, contentType: 'text/plain;charset=utf-8', metadata: {} },
+      },
+      {
+        description: 'four HTTP metadata headers allowed',
+        expectation: 'ALLOW',
+        method: 'create',
+        path: 'users/u-alice/headers/report.bin',
+        auth: { uid: 'u-alice', token: {} },
+        requestResource: {
+          size: 4,
+          contentType: 'application/octet-stream',
+          cacheControl: 'public, max-age=600',
+          contentDisposition: 'inline',
+          contentEncoding: 'gzip',
+          contentLanguage: 'en',
+          metadata: {},
+        },
+      },
+      {
+        description: 'second disjunctive allow statement permits 2KB PDF',
+        expectation: 'ALLOW',
+        method: 'create',
+        path: 'users/u-alice/or/spec.pdf',
+        auth: { uid: 'u-alice', token: {} },
+        requestResource: { size: 2048, contentType: 'application/pdf', metadata: {} },
+      },
+    ]);
+    expect(simSummary.failed).toBe(0);
+
+    const sandbox = initializeSandbox();
+    getAdminStorageSandbox(sandbox, { rules: storageRuleText });
+    const aliceStorage = getStorageSandbox(sandbox.withAuth({ uid: 'u-alice', token: {} }));
+
+    let rawAllowed = true;
+    try {
+      await uploadString(storageRef(aliceStorage, 'users/u-alice/raw/note.txt'), 'hello', 'raw');
+    } catch {
+      rawAllowed = false;
+    }
+    expect(rawAllowed).toBe(false);
+
+    await uploadBytes(
+      storageRef(aliceStorage, 'users/u-alice/headers/report.bin'),
+      new Uint8Array([1, 2, 3, 4]),
+      {
+        cacheControl: 'public, max-age=600',
+        contentDisposition: 'inline',
+        contentEncoding: 'gzip',
+        contentLanguage: 'en',
+      },
+    );
+    await uploadBytes(
+      storageRef(aliceStorage, 'users/u-alice/or/spec.pdf'),
+      new Uint8Array(2048),
+      { contentType: 'application/pdf' },
+    );
+
+    const root = makeTempDir('derive-storage-http-');
+    mkdirSync(join(root, 'src'), { recursive: true });
+    writeFileSync(
+      join(root, 'firebase.json'),
+      JSON.stringify({ storage: { rules: 'storage.rules' } }),
+    );
+    writeFileSync(join(root, 'storage.rules'), storageRuleText);
+    writeFileSync(
+      join(root, 'src/upload.ts'),
+      `import { getAuth } from 'firebase/auth';
+import { getBytes, getStorage, ref, uploadBytes, uploadString } from 'firebase/storage';
+export async function syncFiles(dynamicLang: string) {
+  const uid = getAuth().currentUser!.uid;
+  const st = getStorage();
+  await uploadString(ref(st, 'users/' + uid + '/raw/note.txt'), 'hello', 'raw');
+  const headerRef = ref(st, 'users/' + uid + '/headers/report.bin');
+  await uploadBytes(headerRef, new Uint8Array([1, 2, 3, 4]), {
+    cacheControl: 'public, max-age=600',
+    contentDisposition: 'inline',
+    contentEncoding: 'gzip',
+    contentLanguage: 'en',
+  });
+  await getBytes(headerRef);
+  await uploadBytes(ref(st, 'users/' + uid + '/sharedHeaders/open.bin'), new Uint8Array([1, 2, 3, 4]), {
+    cacheControl: 'public, max-age=600',
+    contentDisposition: 'inline',
+    contentEncoding: 'gzip',
+    contentLanguage: 'en',
+  });
+  await uploadBytes(ref(st, 'users/' + uid + '/headers/dyn.bin'), new Uint8Array([1, 2, 3, 4]), {
+    cacheControl: 'public, max-age=600',
+    contentDisposition: 'inline',
+    contentEncoding: 'gzip',
+    contentLanguage: dynamicLang,
+  });
+  await uploadBytes(ref(st, 'users/' + uid + '/or/spec.pdf'), new Uint8Array(2048), {
+    contentType: 'application/pdf',
+  });
+}
+`,
+    );
+
+    const store = new AssuranceCampaignStore();
+    const derived = await deriveAssurance({ root }, { store });
+
+    const contractDiags = derived.diagnostics.filter(
+      (d) => d.code === 'storage-content-type-mismatch',
+    );
+    expect(contractDiags.map((d) => d.codeSite?.source)).toEqual(['src/upload.ts:6']);
+
+    const mustAllowDiags = derived.diagnostics.filter(
+      (d) => d.code === 'assurance-must-allow-denied',
+    );
+    expect(mustAllowDiags).toHaveLength(1);
+    expect(mustAllowDiags[0]!.codeSite?.source).toBe('src/upload.ts:6');
+
+    const campaign = store.get(derived.campaignId);
+    const headerObj = campaign.target.state?.storage?.find((obj) =>
+      obj.path.endsWith('sharedHeaders/open.bin'),
+    );
+    expect(headerObj?.cacheControl).toBe('public, max-age=600');
+    expect(headerObj?.contentDisposition).toBe('inline');
+    expect(headerObj?.contentEncoding).toBe('gzip');
+    expect(headerObj?.contentLanguage).toBe('en');
+
+    const runReport = await campaign.run();
+    expect(runReport.summary.candidateSignals).toBe(1);
+    expect(runReport.summary.noCounterexamples).toBe(0);
+    expect(runReport.summary.invalidProbes).toBe(0);
+    expect(runReport.summary.engineGaps).toBe(0);
+
+    const snapshots: AssuranceVisualizationSnapshot[] = [];
+    const unsubscribe = subscribeAssuranceVisualizations((snap) => {
+      snapshots.push(snap);
+    });
+    publishAssuranceVisualization({
+      schema: 'pyric.assurance.visualization.v1',
+      campaignId: derived.campaignId,
+      observations: [],
+      probes: [],
+    });
+    unsubscribe();
+    expect(snapshots).toHaveLength(1);
+  });
+});

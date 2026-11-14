@@ -16,6 +16,7 @@ import {
   planCrossServiceStorageProbes,
 } from './storage-cross-service-probes.js';
 import {
+  applyClientHttpMetadataToStep,
   attachResourceId,
   buildClientCustomMetadata,
   buildCompliantCustomMetadata,
@@ -35,7 +36,7 @@ import {
   contentTypeMatchesPattern,
   dedupeStorageSites,
   isProbeableStorageSite,
-  mergedStorageConstraint,
+  selectStorageConstraintForSite,
   storageOpCategory,
   synthesizeMatchingContentType,
 } from './storage-step-builder.js';
@@ -87,11 +88,11 @@ export function planStorageProbes(
 
     let createSource: readonly RuleSurfaceEntry[] = allPathEntries;
     if (createEntries.length > 0) createSource = createEntries;
-    const createConstraint = mergedStorageConstraint(createSource);
+    const createConstraint = selectStorageConstraintForSite(createSource, site);
 
     let opSource: readonly RuleSurfaceEntry[] = allPathEntries;
     if (matchingEntries.length > 0) opSource = matchingEntries;
-    const opConstraint = mergedStorageConstraint(opSource);
+    const opConstraint = selectStorageConstraintForSite(opSource, site);
 
     const { directLookups, membershipLookups, primaryRulePattern } = discoverScopeMembershipLookups(
       site, sitePattern, matchingEntries, allPathEntries, surface, input.conditions, input.state, owner,
@@ -135,6 +136,7 @@ export function planStorageProbes(
           { actor: 'owner', service: 'storage', method: 'create', path: ownerPath, data: 'probe-bytes', sizeBytes, contentType },
           site.resourceId,
         );
+        applyClientHttpMetadataToStep(attackStep, site);
         if (clientMeta.metadata !== undefined) attackStep.customMetadata = clientMeta.metadata;
 
         const mustAllowUpload: Omit<Probe, 'id'> = {
@@ -150,8 +152,13 @@ export function planStorageProbes(
           evidence: `the owner's own ${site.op} at ${site.source} is denied`,
           sources: [site.source],
         };
-        if (clientMeta.openMap) {
-          mustAllowUpload.inconclusiveOnDeny = 'client customMetadata map is open and may carry required keys at runtime';
+        if (
+          clientMeta.openMap
+          || site.storageUpload?.customMetadataOpen === true
+          || site.storageUpload?.customMetadataUnresolved === true
+          || site.storageUpload?.httpMetadataUnresolved === true
+        ) {
+          mustAllowUpload.inconclusiveOnDeny = 'client upload metadata contains open or runtime-resolved fields';
         } else if (
           site.storageUpload?.contentType === undefined &&
           !contentTypeMatchesPattern(
@@ -227,12 +234,18 @@ export function planStorageProbes(
           if (site.storageUpload?.contentType !== undefined) {
             attackStep.contentType = site.storageUpload.contentType;
           }
+          applyClientHttpMetadataToStep(attackStep, site);
           const clientMeta = buildClientCustomMetadata(site, sitePattern, opConstraint, hints, owner, surface);
           if (clientMeta.metadata !== undefined) {
             attackStep.customMetadata = clientMeta.metadata;
           }
-          if (clientMeta.openMap) {
-            inconclusiveReason = 'client customMetadata map is open and may carry required keys at runtime';
+          if (
+            clientMeta.openMap
+            || site.storageUpload?.customMetadataOpen === true
+            || site.storageUpload?.customMetadataUnresolved === true
+            || site.storageUpload?.httpMetadataUnresolved === true
+          ) {
+            inconclusiveReason = 'client updateMetadata argument contains open or runtime-resolved fields';
           }
         }
         if (

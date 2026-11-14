@@ -26,6 +26,7 @@ import {
   type ProjectedQueryArm,
 } from './static-query-proof-args.js';
 import { inspectRetainedRules } from './static-query-proof-inspection.js';
+import { canRetainedRulesPossiblyAllow } from './static-query-proof-possibility.js';
 import { projectCollectionGroupAst } from './static-query-proof-rules.js';
 import {
   canSucceedAgainstUnsupportedPredicate,
@@ -210,28 +211,45 @@ function checkProofAndResidual(
   const populatedClaims = new Set(Object.keys(projected.auth.token));
   const retained = inspectRetainedRules(proof.evaluationAst, placeholderPath, populatedClaims);
   let hasUnseededFallbackRule = false;
-  if (retained.usesUnseededContext && proof.failures.length === 0) {
-    if (!residualOutcome.hitResourceLimit) {
-      return { failed: false };
-    }
-    const seededDocsOutcome = allowsResidualForAnyActor(
+  let unseededCanAllow = false;
+  if (retained.usesUnseededContext) {
+    unseededCanAllow = canRetainedRulesPossiblyAllow(
       simulateResidualDecision,
       simulator,
       proof.evaluationAst,
       rulesSource,
       placeholderPath,
-      target,
       projected,
       proof.syntheticResource,
       constraints,
-      () => ({}),
+      populatedClaims,
     );
-    if (seededDocsOutcome.allowed || !seededDocsOutcome.hitResourceLimit) {
-      hasUnseededFallbackRule = true;
+    if (proof.failures.length === 0) {
+      if (!residualOutcome.hitResourceLimit) {
+        if (unseededCanAllow) {
+          return { failed: false };
+        }
+      } else {
+        const seededDocsOutcome = allowsResidualForAnyActor(
+          simulateResidualDecision,
+          simulator,
+          proof.evaluationAst,
+          rulesSource,
+          placeholderPath,
+          target,
+          projected,
+          proof.syntheticResource,
+          constraints,
+          () => ({}),
+        );
+        if (seededDocsOutcome.allowed || !seededDocsOutcome.hitResourceLimit) {
+          hasUnseededFallbackRule = true;
+        }
+      }
     }
   }
   if (proof.failures.length > 0) {
-    return buildUnprovableFailure(proof.failures, retained.usesUnseededContext);
+    return buildUnprovableFailure(proof.failures, unseededCanAllow);
   }
 
   let kind: ClientRemediationInput['kind'] = 'always-denied';
@@ -273,7 +291,7 @@ export function evaluateCandidateArm(
   arm: readonly SdkQueryConstraint[],
 ): ArmFailure | null {
   const targetDbId = dbRules.resourceId ?? '(default)';
-  const projected = projectConstraintArm(arm, targetDbId);
+  const projected = projectConstraintArm(arm);
   let evaluationAst: FirestoreRules | null = dbRules.ast;
   if (target.isCollectionGroup) {
     evaluationAst = projectCollectionGroupAst(dbRules.ast, target.collectionPath);
@@ -306,20 +324,6 @@ export function evaluateCandidateArm(
   );
   if (!check.failed) return null;
 
-  if (targetDbId !== '(default)') {
-    const unnormalizedProjected = projectConstraintArm(arm, '(default)');
-    const unnormalizedCheck = checkProofAndResidual(
-      simulator,
-      evaluationAst,
-      dbRules.source,
-      placeholderPath,
-      target,
-      unnormalizedProjected,
-      unnormalizedProjected.constraints,
-    );
-    if (!unnormalizedCheck.failed) return null;
-  }
-
   let certainty: DiagnosticCertainty = 'static-proof';
   if (target.hasPartialPath || projected.hasUnknownConstraint || check.hasUnseededFallbackRule) {
     certainty = 'heuristic';
@@ -335,6 +339,7 @@ export function evaluateCandidateArm(
       target,
       projected,
       check.failures,
+      targetDbId,
     )
   ) {
     certainty = 'heuristic';
@@ -354,6 +359,7 @@ export function evaluateCandidateArm(
       placeholderPath,
       projected,
       check.failures,
+      targetDbId,
     )
   ) {
     certainty = 'heuristic';
