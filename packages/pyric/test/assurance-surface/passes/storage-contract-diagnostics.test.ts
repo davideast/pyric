@@ -289,4 +289,58 @@ describe('storageContractPass HTTP metadata and typed binary/Blob diagnostics', 
       },
     ]);
   });
+
+  it('strips RE2 \\A and \\z anchors and treats alphabetic escapes as non-literal on dynamic-leaf omitted contentDisposition', async () => {
+    const rules = `rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /anch/{uid}/{file} {
+      allow write: if request.auth != null && request.auth.uid == uid
+        && request.resource.contentDisposition.matches('\\\\Ainline.*\\\\z');
+    }
+    match /anchpdf/{uid}/{file} {
+      allow write: if request.auth != null && request.auth.uid == uid
+        && request.resource.contentDisposition.matches('\\\\Ainline.*\\\\.pdf\\\\z');
+    }
+  }
+}`;
+
+    const sandbox = initializeSandbox();
+    getAdminStorageSandbox(sandbox, { rules });
+    const u1Storage = getStorageSandbox(sandbox.withAuth({ uid: 'u1', token: {} }));
+    await uploadBytes(storageRef(u1Storage, 'anch/u1/item.bin'), new Uint8Array([1]));
+    await uploadBytes(storageRef(u1Storage, 'anchpdf/u1/doc.pdf'), new Uint8Array([1]));
+
+    const usage = extractSdkUsage({
+      root: '/app',
+      files: {
+        'src/anch.ts': `
+          import { getAuth } from 'pyric/auth';
+          import { getStorage, ref, uploadBytes } from 'pyric/storage';
+
+          export async function run(dynName: string) {
+            const uid = getAuth().currentUser!.uid;
+            const st = getStorage();
+            await uploadBytes(ref(st, 'anch/' + uid + '/' + dynName), new Uint8Array([1]));
+            await uploadBytes(ref(st, 'anchpdf/' + uid + '/' + dynName), new Uint8Array([1]));
+          }
+        `,
+      },
+    });
+
+    const diagnostics = storageContractPass(usage, rules);
+    expect(
+      diagnostics.map((d) => ({
+        code: d.code,
+        certainty: d.certainty,
+        path: renderDiagPath(d),
+      })),
+    ).toEqual([
+      {
+        code: 'storage-http-metadata-unverified',
+        certainty: 'heuristic',
+        path: 'anchpdf/{uid}/{dynName}',
+      },
+    ]);
+  });
 });

@@ -292,13 +292,30 @@ export function recordGetRequiredKey(
 }
 
 const INLINE_DISP_PREFIX = "inline; filename*=utf-8''";
-const REGEX_CLASS_ESCAPE_RE = /[dDwWsSbBpP0-9xXuU]/;
+const REGEX_CLASS_ESCAPE_RE = /[a-zA-Z0-9]/;
 const REGEX_META_RE = /[.*+?()|[\]^${}]/;
 
+function countTrailingBackslashes(raw: string): number {
+  let count = 0;
+  for (let i = raw.length - 1; i >= 0 && raw[i] === '\\'; i -= 1) {
+    count += 1;
+  }
+  return count;
+}
+
 function stripPatternAnchors(pattern: string): string {
-  let s = pattern;
-  if (s.startsWith('^')) s = s.slice(1);
-  if (s.endsWith('$') && !s.endsWith('\\$')) s = s.slice(0, -1);
+  let s = pattern.replace(/^(?:\\A|\^)+/, '');
+  while (true) {
+    if (s.endsWith('$') && countTrailingBackslashes(s.slice(0, -1)) % 2 === 0) {
+      s = s.slice(0, -1);
+      continue;
+    }
+    if (s.endsWith('\\z') && countTrailingBackslashes(s.slice(0, -1)) % 2 === 1) {
+      s = s.slice(0, -2);
+      continue;
+    }
+    break;
+  }
   return s;
 }
 

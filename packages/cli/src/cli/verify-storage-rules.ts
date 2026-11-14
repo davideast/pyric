@@ -14,14 +14,15 @@
  * as the session saw it. Without rules by bucket, one ruleset governs every
  * bucket, as before.
  */
-import { existsSync, readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { existsSync, readFileSync, realpathSync } from 'node:fs';
+import { isAbsolute, relative, resolve, sep } from 'node:path';
 
+import { bundleRulesSource } from 'pyric/rules/internal/usage';
 import type { SandboxOperationEvent } from 'pyric/sandbox';
 import { DEFAULT_BUCKET, rulesBucketName } from 'pyric/storage/internal';
 
 import type { PyricVerifyFixture, VerifyRulesInput } from '../verify/index.js';
-import { MODULAR_SOURCE, resolveProjectModules, storageRulesTargets, type StorageRulesTargets } from '../serve/rules.js';
+import { MODULAR_SOURCE, storageRulesTargets, type StorageRulesTargets } from '../serve/rules.js';
 import type { FirebaseJson } from './firebase-json.js';
 import { resolveFirebaseProject } from './firebase-project.js';
 
@@ -103,12 +104,16 @@ function recordedPermissive(fixtures: readonly PyricVerifyFixture[]): boolean {
   return fixtures.flatMap(storageOperations).some((event) => detailOf(event).defaultPolicy === 'allow');
 }
 
-function storageTargets(input: StorageCandidateRulesInput, config: FirebaseJson | null): StorageRulesTargets {
-  const project = resolveFirebaseProject({ projectDir: input.cwd, ...(input.project ? { option: input.project } : {}) });
+function storageTargets(
+  cwd: string,
+  project: ReturnType<typeof resolveFirebaseProject>,
+  config: FirebaseJson | null,
+): StorageRulesTargets {
   try {
-    return storageRulesTargets(input.cwd, config, project);
+    return storageRulesTargets(cwd, config, project);
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
+    let message = String(error);
+    if (error instanceof Error) message = error.message;
     throw new Error(message.replace(/^pyric sandbox: /, ''));
   }
 }
@@ -121,15 +126,34 @@ function describeBucket(bucket: string | null): string {
 function readRules(cwd: string, file: string, bucket: string | null): { path: string; source: string } {
   const path = resolve(cwd, file);
   if (!existsSync(path)) throw new Error(`rules file not found for storage ${describeBucket(bucket)}: ${path}`);
+  const realCwd = realpathSync(cwd);
+  const realPath = realpathSync(path);
+  const relToRoot = relative(realCwd, realPath);
+  if (
+    relToRoot === '..'
+    || relToRoot.startsWith(`..${sep}`)
+    || relToRoot.startsWith('../')
+    || isAbsolute(relToRoot)
+  ) {
+    throw new Error(`storage rules path escapes project root for ${describeBucket(bucket)}: ${file}`);
+  }
   const raw = readFileSync(path, 'utf8');
   if (MODULAR_SOURCE.test(raw)) {
-    const resolved = resolveProjectModules(raw, path, path, 'firebase.storage').result;
-    if (!resolved.success) {
+    try {
+      const bundled = bundleRulesSource(raw, {
+        filePath: realPath,
+        rootDir: realCwd,
+        sourceFile: path,
+        targetService: 'firebase.storage',
+      });
+      return { path, source: bundled };
+    } catch (err) {
+      let msg = String(err);
+      if (err instanceof Error) msg = err.message;
       throw new Error(
-        `storage rules module resolution failed for ${describeBucket(bucket)} (${path}): ${resolved.error.message}`,
+        `storage rules module resolution failed for ${describeBucket(bucket)} (${path}): ${msg}`,
       );
     }
-    return { path, source: resolved.data.resolved };
   }
   return { path, source: raw };
 }
@@ -137,8 +161,28 @@ function readRules(cwd: string, file: string, bucket: string | null): { path: st
 /** Resolve each bucket's candidate Storage rules; throws a message naming a rules file it cannot read. */
 export async function resolveStorageCandidateRules(input: StorageCandidateRulesInput): Promise<StorageCandidateRules> {
   const { cwd } = input;
-  const targets = storageTargets(input, await input.readFirebaseJson());
+  const projectOpts: { projectDir: string; option?: string } = { projectDir: cwd };
+  if (input.project) {
+    projectOpts.option = input.project;
+  }
+  const project = resolveFirebaseProject(projectOpts);
+  const targets = storageTargets(cwd, project, await input.readFirebaseJson());
   const recorded = recordedBuckets(input.fixtures);
+  const defaultBucketNames = new Set<string>(recorded.defaults);
+  defaultBucketNames.add(DEFAULT_BUCKET);
+  if (project.projectId !== undefined) {
+    const fbAppBucket = `${project.projectId}.firebasestorage.app`;
+    const appspotBucket = `${project.projectId}.appspot.com`;
+    const targetBucketSet = new Set(
+      targets.targets
+        .map((t) => t.bucket)
+        .filter((b): b is string => b !== null),
+    );
+    if (!(targetBucketSet.has(fbAppBucket) && targetBucketSet.has(appspotBucket))) {
+      defaultBucketNames.add(fbAppBucket);
+      defaultBucketNames.add(appspotBucket);
+    }
+  }
 
   // The default bucket: the flag, else a single storage object or storage.rules.
   let defaultFile: string | undefined = input.overrides.default;
@@ -151,7 +195,9 @@ export async function resolveStorageCandidateRules(input: StorageCandidateRulesI
   const bucketFiles = new Map<string, string>();
   for (const target of targets.targets) {
     if (target.bucket === null) continue;
-    const replacedByFlag = input.overrides.default !== undefined && recorded.defaults.has(target.bucket);
+    const replacedByFlag =
+      input.overrides.default !== undefined
+      && defaultBucketNames.has(target.bucket);
     if (!replacedByFlag) bucketFiles.set(target.bucket, target.path);
   }
   for (const override of input.overrides.buckets) bucketFiles.set(override.bucket, override.path);

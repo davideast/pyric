@@ -111,7 +111,8 @@ export function targetRulesFromSnapshot(
       ) {
         const inner = (parsed as { rules?: unknown }).rules;
         if (inner && typeof inner === "object" && !Array.isArray(inner)) {
-          const wrapper = { rules: { ...(inner as Record<string, unknown>) } };
+          const innerRecord = inner as Record<string, unknown>;
+          const wrapper = { rules: { ...innerRecord } };
           if (instKey === DEFAULT_SNAPSHOT_RESOURCE) {
             rules.rtdb = wrapper;
           } else {
@@ -351,6 +352,7 @@ export async function cloneLiveRuntime(options: {
   attachmentProvider?: AssuranceAttachmentProvider;
   fetchImpl?: typeof fetch;
   projectDir?: string;
+  projectId?: string;
   configuredBuckets?: readonly string[];
   defaultBucket?: string;
 }): Promise<LiveRuntimeClone> {
@@ -383,16 +385,27 @@ export async function cloneLiveRuntime(options: {
         ...attached.target.rules,
       };
       if (snapshotRules.rtdbInstances || attached.target.rules.rtdbInstances) {
-        mergedRules.rtdbInstances = {
-          ...(snapshotRules.rtdbInstances ?? {}),
-          ...(attached.target.rules.rtdbInstances ?? {}),
-        };
+        const nextRtdbInstances: Record<
+          string,
+          { rules: Record<string, unknown> }
+        > = {};
+        if (snapshotRules.rtdbInstances !== undefined) {
+          Object.assign(nextRtdbInstances, snapshotRules.rtdbInstances);
+        }
+        if (attached.target.rules.rtdbInstances !== undefined) {
+          Object.assign(nextRtdbInstances, attached.target.rules.rtdbInstances);
+        }
+        mergedRules.rtdbInstances = nextRtdbInstances;
       }
       if (snapshotRules.storageBuckets || attached.target.rules.storageBuckets) {
-        mergedRules.storageBuckets = {
-          ...(snapshotRules.storageBuckets ?? {}),
-          ...(attached.target.rules.storageBuckets ?? {}),
-        };
+        const nextStorageBuckets: Record<string, string> = {};
+        if (snapshotRules.storageBuckets !== undefined) {
+          Object.assign(nextStorageBuckets, snapshotRules.storageBuckets);
+        }
+        if (attached.target.rules.storageBuckets !== undefined) {
+          Object.assign(nextStorageBuckets, attached.target.rules.storageBuckets);
+        }
+        mergedRules.storageBuckets = nextStorageBuckets;
       }
       const result: {
         snapshot: SandboxSnapshot;
@@ -428,11 +441,13 @@ export async function cloneLiveRuntime(options: {
     const httpOpts: {
       fetchImpl?: typeof fetch;
       projectDir?: string;
+      projectId?: string;
       configuredBuckets?: readonly string[];
       defaultBucket?: string;
     } = {};
     if (options.fetchImpl !== undefined) httpOpts.fetchImpl = options.fetchImpl;
     if (options.projectDir !== undefined) httpOpts.projectDir = options.projectDir;
+    if (options.projectId !== undefined) httpOpts.projectId = options.projectId;
     if (options.configuredBuckets !== undefined) {
       httpOpts.configuredBuckets = options.configuredBuckets;
     }

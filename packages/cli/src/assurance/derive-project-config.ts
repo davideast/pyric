@@ -10,6 +10,7 @@ import {
   parseResourcePattern,
   type AssuranceService,
 } from "pyric/sandbox/internal";
+import { rtdbRulesSourceRejection } from "pyric/rules/internal/rtdb";
 import { parseRtdbRulesText } from "pyric/rules/internal/usage";
 import { DEFAULT_BUCKET } from "pyric/storage/internal";
 import type { FirebaseRc } from "../cli/firebase-json.js";
@@ -177,6 +178,7 @@ function collectConfiguredRuleTargets(
   section: unknown,
   service: AssuranceService,
   projectId: string | undefined,
+  hasFirebaseRc: boolean,
   projectTargets:
     | Readonly<Record<string, Readonly<Record<string, readonly string[]>>>>
     | undefined,
@@ -208,8 +210,10 @@ function collectConfiguredRuleTargets(
     const relFile = normalizeConfigRuleRel(absRoot, entry.rules);
 
     const rawIds: Array<string | undefined> = [];
-    if (typeof entry.target === "string" && entry.target.trim().length > 0) {
-      const trimmedTarget = entry.target.trim();
+    const hasTargetName =
+      typeof entry.target === "string" && entry.target.trim().length > 0;
+    if (hasTargetName) {
+      const trimmedTarget = (entry.target as string).trim();
       let mapped: readonly string[] | undefined;
       if (targetMap && Object.hasOwn(targetMap, trimmedTarget)) {
         mapped = targetMap[trimmedTarget];
@@ -230,7 +234,9 @@ function collectConfiguredRuleTargets(
     }
 
     if (rawIds.length === 0) {
-      appendRuleTarget(into, relFile, service, DEFAULT_SNAPSHOT_RESOURCE);
+      if (!hasTargetName || !hasFirebaseRc) {
+        appendRuleTarget(into, relFile, service, DEFAULT_SNAPSHOT_RESOURCE);
+      }
     } else {
       for (const rawId of rawIds) {
         appendRuleTarget(
@@ -331,11 +337,15 @@ export function readFirebaseProjectConfig(absRoot: string): ParsedFirebaseConfig
       | undefined;
   }
 
+  const hasFirebaseRc = pathExistsIncludingBrokenSymlink(
+    resolve(absRoot, ".firebaserc"),
+  );
   collectConfiguredRuleTargets(
     absRoot,
     raw.firestore,
     "firestore",
     projectId,
+    hasFirebaseRc,
     projectTargets,
     configuredRuleTargets,
   );
@@ -344,6 +354,7 @@ export function readFirebaseProjectConfig(absRoot: string): ParsedFirebaseConfig
     raw.database,
     "rtdb",
     projectId,
+    hasFirebaseRc,
     projectTargets,
     configuredRuleTargets,
   );
@@ -352,6 +363,7 @@ export function readFirebaseProjectConfig(absRoot: string): ParsedFirebaseConfig
     raw.storage,
     "storage",
     projectId,
+    hasFirebaseRc,
     projectTargets,
     configuredRuleTargets,
   );
@@ -451,6 +463,9 @@ export function readFirebaseProjectConfig(absRoot: string): ParsedFirebaseConfig
       if (!isContainedNonSymlinkFile(absRoot, realRoot, rulesPath)) continue;
 
       const parsedRtdb = parseRtdbRulesText(readFileSync(rulesPath, "utf8"));
+      if (rtdbRulesSourceRejection(parsedRtdb) !== null) {
+        continue;
+      }
       if (
         parsedRtdb &&
         typeof parsedRtdb === "object" &&
@@ -511,7 +526,24 @@ export function classifyRuleProblem(
   if (colonIdx > 0) {
     source = problemText.slice(0, colonIdx);
   }
-  if (source === "firebase.json") {
+  if (source === "firebase.json" || source === ".firebaserc") {
+    const deployTargetMatch =
+      /^firebase\.json: (Firestore|Realtime Database|Storage) deploy target '([^']+)'/.exec(
+        problemText,
+      );
+    if (deployTargetMatch !== null) {
+      let targetService: AssuranceService = "firestore";
+      if (deployTargetMatch[1] === "Realtime Database") targetService = "rtdb";
+      else if (deployTargetMatch[1] === "Storage") targetService = "storage";
+      return [
+        {
+          source,
+          message: problemText,
+          service: targetService,
+          resourceId: deployTargetMatch[2] ?? DEFAULT_SNAPSHOT_RESOURCE,
+        },
+      ];
+    }
     return [
       {
         source,

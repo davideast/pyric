@@ -67,7 +67,7 @@ export function acquireRuleSourceBuiltins(): RuleSourceBuiltins | null {
   return out;
 }
 
-export function isWithinRoot(
+function isWithinRoot(
   pathMod: NodePathBuiltin,
   baseDir: string,
   targetPath: string,
@@ -101,6 +101,42 @@ export function resolveRealRoot(fsMod: NodeFsBuiltin, absRoot: string): string {
   }
 }
 
+function assertNoSymlinkAncestors(
+  fsMod: NodeFsBuiltin,
+  pathMod: NodePathBuiltin,
+  absRoot: string,
+  realRoot: string | undefined,
+  targetPath: string,
+): void {
+  if (typeof fsMod.lstatSync !== 'function') return;
+  const relPath = pathMod.relative(absRoot, targetPath);
+  const segments = relPath.split(/[\\/]+/).filter((part) => part.length > 0);
+  let current = absRoot;
+  for (let i = 0; i < segments.length - 1; i += 1) {
+    current = pathMod.join(current, segments[i]!);
+    let st: { isSymbolicLink(): boolean };
+    try {
+      st = fsMod.lstatSync(current);
+    } catch {
+      return;
+    }
+    if (realRoot !== undefined && typeof fsMod.realpathSync === 'function') {
+      let realCurrent: string | undefined;
+      try {
+        realCurrent = fsMod.realpathSync(current);
+      } catch {
+        realCurrent = undefined;
+      }
+      if (realCurrent !== undefined && !isWithinRoot(pathMod, realRoot, realCurrent)) {
+        throw new Error('Rule path escapes project root via symbolic link');
+      }
+    }
+    if (st.isSymbolicLink()) {
+      throw new Error('Symbolic links are not followed');
+    }
+  }
+}
+
 export function assertContainedProjectFile(
   fsMod: NodeFsBuiltin,
   pathMod: NodePathBuiltin,
@@ -111,6 +147,7 @@ export function assertContainedProjectFile(
   if (!isWithinRoot(pathMod, absRoot, file)) {
     throw new Error('Rule path escapes project root');
   }
+  assertNoSymlinkAncestors(fsMod, pathMod, absRoot, realRoot, file);
   assertNotSymlink(fsMod, file);
   if (typeof fsMod.realpathSync === 'function' && fsMod.existsSync(file)) {
     const realFile = fsMod.realpathSync(file);
@@ -162,6 +199,9 @@ function readDiskRelativeModule(
     if (!isWithinRoot(pathMod, absRoot, candidate)) {
       throw new Error('Rule path escapes project root');
     }
+    assertNoSymlinkAncestors(fsMod, pathMod, absRoot, realRoot, candidate);
+  } else if (isWithinRoot(pathMod, baseDir, candidate)) {
+    assertNoSymlinkAncestors(fsMod, pathMod, baseDir, undefined, candidate);
   }
 
   if (typeof fsMod.lstatSync === 'function') {

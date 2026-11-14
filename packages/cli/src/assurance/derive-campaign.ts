@@ -19,6 +19,7 @@ import {
   AuthorizationCampaign,
   createAuthorizationCampaign,
 } from "./campaign.js";
+import { hasUnruledStorageObjects } from "./attachment-target-clone.js";
 import {
   buildTargetRules,
   translateHitToCampaignProbe,
@@ -331,6 +332,30 @@ export async function populateDerivedCampaign(options: {
     },
   };
   const extraGaps = abstainedCoverageGaps(probeReport);
+  const populatedNamedBuckets = Object.entries(targetState.storageBuckets ?? {})
+    .filter(([, list]) => list.length > 0)
+    .map(([bucketKey]) => bucketKey);
+  const existingHasStorageGap =
+    options.runtime.attachmentContext?.coverageGaps.some(
+      (g) => g.code === "storage-rules-unavailable",
+    ) === true;
+  if (
+    options.runtime.snapshot !== undefined &&
+    !existingHasStorageGap &&
+    hasUnruledStorageObjects({
+      defaultObjectCount: targetState.storage?.length ?? 0,
+      populatedNamedBuckets,
+      defaultStorageRules: targetRules.storage,
+      storageBucketRules: targetRules.storageBuckets,
+    })
+  ) {
+    extraGaps.push({
+      service: "storage",
+      code: "storage-rules-unavailable",
+      reason:
+        "The running sandbox has Storage objects but no explicit Storage rules source.",
+    });
+  }
   if (options.runtime.attachmentContext !== undefined) {
     const combinedGaps = [
       ...options.runtime.attachmentContext.coverageGaps,

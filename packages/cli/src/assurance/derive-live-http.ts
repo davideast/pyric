@@ -9,12 +9,15 @@ import {
   type SandboxSnapshot,
 } from "pyric/sandbox/internal";
 import type { SandboxHistoryEvent } from "pyric/rules/internal/usage";
-import { DEFAULT_BUCKET } from "pyric/storage/internal";
 import { resolveSessionTokenForTarget } from "../serve/local-session-token.js";
 import { parseStateFile, type PyricStateFile } from "../serve/state-file.js";
 import { isLoopbackHost } from "./attachment.js";
 import { defineOwn, isUnsafeObjectKey } from "./derive-campaign-state.js";
-import { hydrateLiveStorageObjects } from "./derive-live-http-storage.js";
+import {
+  computeDefaultStorageBucketSet,
+  hydrateLiveStorageObjects,
+  readDefaultProjectIdFromDir,
+} from "./derive-live-http-storage.js";
 import {
   fetchHostedEvents,
   parseLoopbackOrigin,
@@ -70,6 +73,7 @@ export async function cloneLoopbackSandboxHttp(
   options: {
     fetchImpl?: typeof fetch;
     projectDir?: string;
+    projectId?: string;
     configuredBuckets?: readonly string[];
     defaultBucket?: string;
     sessionToken?: string;
@@ -280,13 +284,26 @@ export async function cloneLoopbackSandboxHttp(
   const storageRuleMap: Record<string, string> = {};
   const targetStorageBuckets: Record<string, string> = {};
   const namedStorageBuckets = new Set<string>();
-  const isDefaultStorageBucket = (bucketId: string): boolean =>
-    bucketId === DEFAULT_SNAPSHOT_RESOURCE ||
-    bucketId === DEFAULT_BUCKET ||
-    (options.defaultBucket !== undefined && bucketId === options.defaultBucket);
+  let inferredProjectId = options.projectId;
+  if (
+    inferredProjectId === undefined &&
+    typeof initDbInstances?.projectId === "string" &&
+    initDbInstances.projectId.trim().length > 0
+  ) {
+    inferredProjectId = initDbInstances.projectId.trim();
+  }
+  if (inferredProjectId === undefined) {
+    inferredProjectId = readDefaultProjectIdFromDir(options.projectDir);
+  }
+  const initialDefaultStorageBuckets = computeDefaultStorageBucketSet({
+    namedBuckets: namedStorageBuckets,
+    defaultBucket: options.defaultBucket,
+    projectId: inferredProjectId,
+    storageEntries: stateBody?.storage,
+  });
   for (const configured of options.configuredBuckets ?? []) {
     const norm = parseResourcePattern("storage", "object", configured).resourceId;
-    if (!isDefaultStorageBucket(norm) && !isUnsafeObjectKey(norm)) {
+    if (!initialDefaultStorageBuckets.has(norm) && !isUnsafeObjectKey(norm)) {
       namedStorageBuckets.add(norm);
     }
   }
@@ -311,7 +328,7 @@ export async function cloneLoopbackSandboxHttp(
       }
       const bucketId = parseResourcePattern("storage", "object", rawBucket).resourceId;
       if (isUnsafeObjectKey(bucketId)) continue;
-      if (isDefaultStorageBucket(bucketId)) {
+      if (initialDefaultStorageBuckets.has(bucketId)) {
         if (rules.storage === undefined) {
           rules.storage = entryRules;
         }
@@ -330,6 +347,13 @@ export async function cloneLoopbackSandboxHttp(
     snapshotRules.storage = storageRuleMap;
   }
 
+  const defaultStorageBuckets = computeDefaultStorageBucketSet({
+    namedBuckets: namedStorageBuckets,
+    defaultBucket: options.defaultBucket,
+    projectId: inferredProjectId,
+    storageEntries: stateBody?.storage,
+  });
+
   const {
     storageSnapshotsByBucket,
     defaultStorageFixtures,
@@ -340,7 +364,7 @@ export async function cloneLoopbackSandboxHttp(
     getLoopback,
     storageEntries: stateBody?.storage,
     namedStorageBuckets,
-    defaultBucket: options.defaultBucket,
+    defaultStorageBuckets,
   });
 
   const snapshotAuth: {

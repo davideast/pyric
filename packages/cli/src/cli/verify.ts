@@ -18,7 +18,13 @@ import {
   type VerifyServiceResult,
 } from '../verify/index.js';
 import { StagingSafetyError } from '../verify/staging/engine.js';
-import type { FlagValue, ParsedArgs } from './parse-args.js';
+import {
+  findMissingValueFlag,
+  findUnknownFlag,
+  formatCliFlagName,
+  type FlagValue,
+  type ParsedArgs,
+} from './parse-args.js';
 import {
   flagStrings,
   resolveCandidateRules,
@@ -121,6 +127,19 @@ export function formatResults(results: FixtureResult[]): string {
   return lines.join('\n');
 }
 
+const ALLOWED_VERIFY_FLAGS: ReadonlySet<string> = new Set([
+  'json',
+  'service',
+  'engine',
+  'rules',
+  'project',
+]);
+
+const ALLOWED_VERIFY_CASES_FLAGS: ReadonlySet<string> = new Set([
+  'service',
+  'out',
+]);
+
 export async function runVerify(parsed: ParsedArgs, deps: VerifyCliDeps = {}): Promise<number> {
   const cwd = process.cwd();
   const json = parsed.flags.get('json') === true;
@@ -135,6 +154,26 @@ export async function runVerify(parsed: ParsedArgs, deps: VerifyCliDeps = {}): P
   }
   if (parsed.positional[0] === 'staging') {
     return runVerifyStaging(parsed, cwd, deps);
+  }
+
+  const unknownFlag = findUnknownFlag(parsed.flags, ALLOWED_VERIFY_FLAGS);
+  if (unknownFlag !== undefined) {
+    process.stderr.write(
+      `pyric verify: unknown option '${formatCliFlagName(unknownFlag)}'\n`,
+    );
+    return 2;
+  }
+  const missingFlag = findMissingValueFlag(parsed.flags, [
+    'service',
+    'engine',
+    'rules',
+    'project',
+  ]);
+  if (missingFlag !== undefined) {
+    process.stderr.write(
+      `pyric verify: missing value for --${missingFlag}\n`,
+    );
+    return 2;
   }
 
   const target = parsed.positional[0];
@@ -301,6 +340,20 @@ export async function runVerify(parsed: ParsedArgs, deps: VerifyCliDeps = {}): P
 }
 
 function runVerifyCases(parsed: ParsedArgs, cwd: string): number {
+  const unknownFlag = findUnknownFlag(parsed.flags, ALLOWED_VERIFY_CASES_FLAGS);
+  if (unknownFlag !== undefined) {
+    process.stderr.write(
+      `pyric verify cases: unknown option '${formatCliFlagName(unknownFlag)}'\n`,
+    );
+    return 2;
+  }
+  const missingFlag = findMissingValueFlag(parsed.flags, ['service', 'out']);
+  if (missingFlag !== undefined) {
+    process.stderr.write(
+      `pyric verify cases: missing value for --${missingFlag}\n`,
+    );
+    return 2;
+  }
   const target = parsed.positional[1];
   const inputPath = resolve(cwd, target ?? CAPTURE_RELATIVE_PATH);
   if (!existsSync(inputPath)) {

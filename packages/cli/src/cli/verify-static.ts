@@ -22,11 +22,27 @@ import {
   readBooleanFlag,
   resolveFailGate,
 } from './assurance.js';
-import { findMissingValueFlag, type FlagValue, type ParsedArgs } from './parse-args.js';
+import {
+  findMissingValueFlag,
+  findUnknownFlag,
+  formatCliFlagName,
+  type FlagValue,
+  type ParsedArgs,
+} from './parse-args.js';
 import {
   applyRulesFlagOverrides,
   readStringValues,
 } from './verify-static-rules-override.js';
+
+const ALLOWED_VERIFY_STATIC_FLAGS: ReadonlySet<string> = new Set([
+  'static',
+  'rules',
+  'service',
+  'root',
+  'fail-on',
+  'json',
+  'include-heuristic',
+]);
 
 export interface VerifyStaticCliDeps {
   readonly cwd?: string;
@@ -69,6 +85,13 @@ export async function runVerifyStatic(
   const stdout = deps.stdout ?? process.stdout;
   const stderr = deps.stderr ?? process.stderr;
   const cwd = deps.cwd ?? process.cwd();
+  const unknownFlag = findUnknownFlag(parsed.flags, ALLOWED_VERIFY_STATIC_FLAGS);
+  if (unknownFlag !== undefined) {
+    stderr.write(
+      `pyric verify --static: unknown option '${formatCliFlagName(unknownFlag)}'\n`,
+    );
+    return 2;
+  }
   const missingFlag = findMissingValueFlag(parsed.flags, [
     'rules',
     'service',
@@ -119,6 +142,7 @@ export async function runVerifyStatic(
     baseProject,
     parsed.flags.get('rules'),
     cwd,
+    targetRoot,
   );
   if (!overridden.ok) {
     stderr.write(`pyric verify --static: ${overridden.message}\n`);

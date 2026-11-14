@@ -29,6 +29,7 @@ export interface StorageConfigEntry {
 export interface FirebaseRcTargetConfig {
   readonly hasFirebaseRc: boolean;
   readonly projectId?: string;
+  readonly problem?: string;
   readonly firestoreTargets: Readonly<Record<string, readonly string[]>>;
   readonly databaseTargets: Readonly<Record<string, readonly string[]>>;
   readonly storageTargets: Readonly<Record<string, readonly string[]>>;
@@ -212,9 +213,12 @@ export function readFirebaseRcTargetConfig(
       result.projectId = projectId;
     }
     return result;
-  } catch {
+  } catch (err) {
+    let msg = String(err);
+    if (err instanceof Error) msg = err.message;
     return {
-      hasFirebaseRc: false,
+      hasFirebaseRc: true,
+      problem: `.firebaserc: ${msg}`,
       firestoreTargets: {},
       databaseTargets: {},
       storageTargets: {},
@@ -222,9 +226,22 @@ export function readFirebaseRcTargetConfig(
   }
 }
 
+function formatUnmappedTargetProblem(
+  serviceLabel: string,
+  targetName: string,
+  rulesFile: string,
+  projectId: string | undefined,
+): string {
+  if (projectId === undefined) {
+    return `firebase.json: ${serviceLabel} deploy target '${targetName}' for '${rulesFile}' cannot be resolved because .firebaserc has no active default project`;
+  }
+  return `firebase.json: ${serviceLabel} deploy target '${targetName}' for '${rulesFile}' is not mapped in .firebaserc targets for project '${projectId}'`;
+}
+
 export function firestoreRulesEntries(
   section: unknown,
   rcConfig: FirebaseRcTargetConfig,
+  problems?: string[],
 ): FirestoreConfigEntry[] {
   let entries: unknown[] = [section];
   if (Array.isArray(section)) entries = section;
@@ -247,7 +264,24 @@ export function firestoreRulesEntries(
     const rec = item as { rules?: unknown; database?: unknown; target?: unknown };
     if (typeof rec.rules !== 'string') continue;
     if (nonEmptyString(rec.target) && rcConfig.hasFirebaseRc) {
-      const mapped = rcConfig.firestoreTargets[rec.target] ?? [];
+      const targetName = rec.target.trim();
+      let mapped: readonly string[] = [];
+      if (Object.hasOwn(rcConfig.firestoreTargets, targetName)) {
+        mapped = rcConfig.firestoreTargets[targetName] ?? [];
+      }
+      if (mapped.length === 0) {
+        if (rcConfig.problem === undefined) {
+          problems?.push(
+            formatUnmappedTargetProblem(
+              'Firestore',
+              targetName,
+              rec.rules,
+              rcConfig.projectId,
+            ),
+          );
+        }
+        continue;
+      }
       for (const dbId of mapped) {
         pushEntry(rec.rules, dbId);
       }
@@ -265,6 +299,7 @@ export function firestoreRulesEntries(
 export function rtdbRulesEntries(
   section: unknown,
   rcConfig: FirebaseRcTargetConfig,
+  problems?: string[],
 ): RtdbConfigEntry[] {
   let entries: unknown[] = [section];
   if (Array.isArray(section)) entries = section;
@@ -297,7 +332,24 @@ export function rtdbRulesEntries(
     const rec = item as { rules?: unknown; instance?: unknown; target?: unknown };
     if (typeof rec.rules !== 'string') continue;
     if (nonEmptyString(rec.target) && rcConfig.hasFirebaseRc) {
-      const mapped = rcConfig.databaseTargets[rec.target] ?? [];
+      const targetName = rec.target.trim();
+      let mapped: readonly string[] = [];
+      if (Object.hasOwn(rcConfig.databaseTargets, targetName)) {
+        mapped = rcConfig.databaseTargets[targetName] ?? [];
+      }
+      if (mapped.length === 0) {
+        if (rcConfig.problem === undefined) {
+          problems?.push(
+            formatUnmappedTargetProblem(
+              'Realtime Database',
+              targetName,
+              rec.rules,
+              rcConfig.projectId,
+            ),
+          );
+        }
+        continue;
+      }
       for (const instId of mapped) {
         pushEntry(rec.rules, instId);
       }
@@ -323,6 +375,7 @@ function normalizeBucketName(raw: string): string {
 export function storageRulesEntries(
   section: unknown,
   rcConfig: FirebaseRcTargetConfig,
+  problems?: string[],
 ): StorageConfigEntry[] {
   let entries: unknown[] = [section];
   if (Array.isArray(section)) entries = section;
@@ -349,7 +402,24 @@ export function storageRulesEntries(
     const rec = item as { rules?: unknown; bucket?: unknown; target?: unknown };
     if (typeof rec.rules !== 'string') continue;
     if (nonEmptyString(rec.target) && rcConfig.hasFirebaseRc) {
-      const mapped = rcConfig.storageTargets[rec.target] ?? [];
+      const targetName = rec.target.trim();
+      let mapped: readonly string[] = [];
+      if (Object.hasOwn(rcConfig.storageTargets, targetName)) {
+        mapped = rcConfig.storageTargets[targetName] ?? [];
+      }
+      if (mapped.length === 0) {
+        if (rcConfig.problem === undefined) {
+          problems?.push(
+            formatUnmappedTargetProblem(
+              'Storage',
+              targetName,
+              rec.rules,
+              rcConfig.projectId,
+            ),
+          );
+        }
+        continue;
+      }
       for (const bucketId of mapped) {
         pushEntry(rec.rules, bucketId);
       }

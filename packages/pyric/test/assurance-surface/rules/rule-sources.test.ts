@@ -329,4 +329,117 @@ service firebase.storage {
       rmSync(tmpBase, { recursive: true, force: true });
     }
   });
+
+  test('rejects RTDB rules with unparseable expressions or unknown directives and marks broken RTDB expressions alwaysDeny in projectRuleSurface', () => {
+    const rtdbDir = mkdtempSync(join(tmpdir(), 'rule-sources-broken-rtdb-'));
+    try {
+      const brokenRules = {
+        rules: {
+          items: {
+            $uid: {
+              '.read': 'auth != null && auth.uid ===',
+              '.write': 'auth.uid === $uid && (',
+              '.unknownDirective': true,
+            },
+          },
+        },
+      };
+      writeFileSync(
+        join(rtdbDir, 'firebase.json'),
+        JSON.stringify({ database: { rules: 'database.rules.json' } }),
+      );
+      writeFileSync(
+        join(rtdbDir, 'database.rules.json'),
+        JSON.stringify(brokenRules, null, 2),
+      );
+      const loaded = loadRuleSources(rtdbDir);
+      expect(loaded.rtdb).toEqual([]);
+      expect(loaded.problems.length).toBeGreaterThan(0);
+      expect(loaded.problems[0]).toContain('database.rules.json:');
+
+      const surface = projectRuleSurface({ rtdb: brokenRules });
+      for (const entry of surface.entries) {
+        expect(entry.alwaysDeny).toBe(true);
+      }
+    } finally {
+      rmSync(rtdbDir, { recursive: true, force: true });
+    }
+  });
+
+  test('reports problems when .firebaserc exists and firebase.json references unmapped deploy targets', () => {
+    const targetDir = mkdtempSync(join(tmpdir(), 'rule-sources-unmapped-target-'));
+    try {
+      writeFileSync(
+        join(targetDir, '.firebaserc'),
+        JSON.stringify({ projects: { default: 'demo-proj' }, targets: { 'demo-proj': {} } }),
+      );
+      writeFileSync(
+        join(targetDir, 'firebase.json'),
+        JSON.stringify({
+          firestore: [{ target: 'unmapped-db', rules: 'firestore.rules' }],
+          database: [{ target: 'unmapped-rtdb', rules: 'database.rules.json' }],
+          storage: [{ target: 'unmapped-bucket', rules: 'storage.rules' }],
+        }),
+      );
+      writeFileSync(join(targetDir, 'firestore.rules'), "rules_version = '2'; service cloud.firestore {}");
+      writeFileSync(join(targetDir, 'database.rules.json'), '{"rules":{".read":false}}');
+      writeFileSync(join(targetDir, 'storage.rules'), "rules_version = '2'; service firebase.storage {}");
+
+      const loaded = loadRuleSources(targetDir);
+      expect(loaded.firestore).toEqual([]);
+      expect(loaded.rtdb).toEqual([]);
+      expect(loaded.storage).toEqual([]);
+      expect(loaded.problems.some((p) => p.includes("unmapped-db"))).toBe(true);
+      expect(loaded.problems.some((p) => p.includes("unmapped-rtdb"))).toBe(true);
+      expect(loaded.problems.some((p) => p.includes("unmapped-bucket"))).toBe(true);
+    } finally {
+      rmSync(targetDir, { recursive: true, force: true });
+    }
+  });
+
+  test('rejects symlinked ancestor directories for rule files and 2+modules imports', () => {
+    const outDir = mkdtempSync(join(tmpdir(), 'rule-sources-sym-out-'));
+    const projDir = mkdtempSync(join(tmpdir(), 'rule-sources-sym-proj-'));
+    try {
+      writeFileSync(
+        join(outDir, 'outside.rules'),
+        "rules_version = '2'; service cloud.firestore {}",
+      );
+      writeFileSync(
+        join(outDir, 'helper.rules'),
+        'export function allowAll() { return true; }\n',
+      );
+      symlinkSync(outDir, join(projDir, 'linked'));
+      writeFileSync(
+        join(projDir, 'firebase.json'),
+        JSON.stringify({
+          firestore: { rules: 'linked/outside.rules' },
+          storage: { rules: 'storage.rules' },
+        }),
+      );
+      writeFileSync(
+        join(projDir, 'storage.rules'),
+        [
+          "rules_version = '2+modules';",
+          "import { allowAll } from './linked/helper.rules';",
+          'service firebase.storage {',
+          '  match /b/{bucket}/o { match /docs/{id} { allow read: if allowAll(); } }',
+          '}',
+        ].join('\n'),
+      );
+
+      const loaded = loadRuleSources(projDir);
+      expect(loaded.firestore).toEqual([]);
+      expect(loaded.storage).toEqual([]);
+      expect(
+        loaded.problems.some((p) => p.includes('linked/outside.rules')),
+      ).toBe(true);
+      expect(
+        loaded.problems.some((p) => p.includes('storage.rules')),
+      ).toBe(true);
+    } finally {
+      rmSync(projDir, { recursive: true, force: true });
+      rmSync(outDir, { recursive: true, force: true });
+    }
+  });
 });

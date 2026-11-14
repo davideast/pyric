@@ -208,3 +208,20 @@ export function findMissingValueFlag(
   }
   return undefined;
 }
+
+export function findUnknownFlag(
+  flags: ReadonlyMap<string, FlagValue>,
+  allowedFlags: ReadonlySet<string>,
+): string | undefined {
+  for (const key of flags.keys()) {
+    if (!allowedFlags.has(key)) {
+      return key;
+    }
+  }
+  return undefined;
+}
+
+export function formatCliFlagName(name: string): string {
+  if (name.length === 1) return `-${name}`;
+  return `--${name}`;
+}

@@ -5,6 +5,7 @@
 import { existsSync, lstatSync, readFileSync, realpathSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { DEFAULT_SNAPSHOT_RESOURCE } from "pyric/sandbox/internal";
+import { rtdbRulesSourceRejection } from "pyric/rules/internal/rtdb";
 import {
   bundleRulesSource,
   extractSdkUsage,
@@ -322,6 +323,11 @@ export function loadAssuranceProject(absRoot: string): LoadedAssuranceProject {
       loadedRules.problems.push(
         `${entry.source}: RTDB rules file must contain a JSON object`,
       );
+      return false;
+    }
+    const rejection = rtdbRulesSourceRejection(entry.json);
+    if (rejection !== null) {
+      loadedRules.problems.push(`${entry.source}: ${rejection.message}`);
       return false;
     }
     return true;

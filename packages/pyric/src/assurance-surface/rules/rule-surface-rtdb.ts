@@ -160,8 +160,11 @@ export function projectRtdbSource(item: RtdbSurfaceSource): RuleSurfaceEntry[] {
         } else if (opName === 'validate') {
           valueHints = validateHints;
         }
-      } else if (opName === 'write') {
-        overbroad = false;
+      } else {
+        alwaysDeny = true;
+        if (opName === 'write') {
+          overbroad = false;
+        }
       }
 
       const entry: {

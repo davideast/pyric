@@ -20,7 +20,13 @@ import {
 } from '../verify/staging/target.js';
 import { readFirebaseJson, readFirebaseRcSync, type FirebaseJson } from './firebase-json.js';
 import { resolveFirebaseProject } from './firebase-project.js';
-import type { FlagValue, ParsedArgs } from './parse-args.js';
+import {
+  findMissingValueFlag,
+  findUnknownFlag,
+  formatCliFlagName,
+  type FlagValue,
+  type ParsedArgs,
+} from './parse-args.js';
 import { readPyricConfig } from './pyric-config.js';
 
 export interface VerifyCliDeps {
@@ -177,11 +183,34 @@ export function stagingRunGuard(
  * `.pyric/staging-restore.json`; with `--force` and no such file, enroll it
  * afresh with deny-all rules. Its data is deleted either way.
  */
+const ALLOWED_STAGING_INIT_FLAGS: ReadonlySet<string> = new Set(['project']);
+const ALLOWED_STAGING_RESTORE_FLAGS: ReadonlySet<string> = new Set([
+  'project',
+  'force',
+]);
+
 async function runVerifyStagingRestore(
   parsed: ParsedArgs,
   cwd: string,
   deps: VerifyCliDeps,
 ): Promise<number> {
+  const unknownFlag = findUnknownFlag(
+    parsed.flags,
+    ALLOWED_STAGING_RESTORE_FLAGS,
+  );
+  if (unknownFlag !== undefined) {
+    process.stderr.write(
+      `pyric verify staging restore: unknown option '${formatCliFlagName(unknownFlag)}'\n`,
+    );
+    return 2;
+  }
+  const missingFlag = findMissingValueFlag(parsed.flags, ['project']);
+  if (missingFlag !== undefined) {
+    process.stderr.write(
+      `pyric verify staging restore: missing value for --${missingFlag}\n`,
+    );
+    return 2;
+  }
   let opened: Awaited<ReturnType<typeof openStagingInstance>>;
   try {
     opened = await openStagingInstance(cwd, stringFlag(parsed.flags.get('project')), deps);
@@ -255,6 +284,20 @@ export async function runVerifyStaging(
   if (parsed.positional[1] !== 'init') {
     process.stderr.write(
       'pyric verify staging: use `init` to enroll the instance pyric.json names, or `restore` to put it back after an interrupted run.\n',
+    );
+    return 2;
+  }
+  const unknownFlag = findUnknownFlag(parsed.flags, ALLOWED_STAGING_INIT_FLAGS);
+  if (unknownFlag !== undefined) {
+    process.stderr.write(
+      `pyric verify staging init: unknown option '${formatCliFlagName(unknownFlag)}'\n`,
+    );
+    return 2;
+  }
+  const missingFlag = findMissingValueFlag(parsed.flags, ['project']);
+  if (missingFlag !== undefined) {
+    process.stderr.write(
+      `pyric verify staging init: missing value for --${missingFlag}\n`,
     );
     return 2;
   }

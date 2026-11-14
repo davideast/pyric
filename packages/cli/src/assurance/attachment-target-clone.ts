@@ -51,10 +51,80 @@ export function cloneOwnRecord<V>(source: Record<string, V>): Record<string, V> 
   return copy;
 }
 
-export function hasRtdbState(value: unknown): boolean {
+function hasRtdbState(value: unknown): boolean {
   if (value === null || value === undefined) return false;
   if (typeof value !== "object") return true;
   return Object.keys(value as Record<string, unknown>).length > 0;
+}
+
+function stripStorageRuleComments(source: string): string {
+  return source.replace(/\/\*[\s\S]*?\*\/|\/\/[^\n]*/g, " ");
+}
+
+function singleStorageRulesCoversBucket(
+  source: string,
+  bucketKey: string,
+): boolean {
+  const stripped = stripStorageRuleComments(source);
+  const bucketMatchRe = /\bmatch\s+\/b\/([^/\s]+)\/o\b/g;
+  const matchedSegments: string[] = [];
+  let match = bucketMatchRe.exec(stripped);
+  while (match !== null) {
+    if (match[1] !== undefined) {
+      matchedSegments.push(match[1]);
+    }
+    match = bucketMatchRe.exec(stripped);
+  }
+  if (matchedSegments.length === 0) {
+    return true;
+  }
+  for (const segment of matchedSegments) {
+    if (segment.startsWith("{") && segment.endsWith("}")) {
+      return true;
+    }
+    if (segment === bucketKey) {
+      return true;
+    }
+  }
+  return false;
+}
+
+export function hasUnruledStorageObjects(options: {
+  defaultObjectCount: number;
+  populatedNamedBuckets: readonly string[];
+  defaultStorageRules: string | undefined;
+  storageBucketRules: Readonly<Record<string, string>> | undefined;
+}): boolean {
+  const hasDefaultRules =
+    typeof options.defaultStorageRules === "string" &&
+    options.defaultStorageRules.trim().length > 0;
+  const bucketRuleMap = options.storageBucketRules ?? {};
+  const hasNamedBucketRules = Object.keys(bucketRuleMap).length > 0;
+
+  if (options.defaultObjectCount > 0 && !hasDefaultRules) {
+    return true;
+  }
+
+  for (const bucketKey of options.populatedNamedBuckets) {
+    let namedSource: string | undefined;
+    if (Object.hasOwn(bucketRuleMap, bucketKey)) {
+      namedSource = bucketRuleMap[bucketKey];
+    }
+    if (typeof namedSource === "string" && namedSource.trim().length > 0) {
+      continue;
+    }
+    if (hasNamedBucketRules) {
+      return true;
+    }
+    if (!hasDefaultRules || options.defaultStorageRules === undefined) {
+      return true;
+    }
+    if (!singleStorageRulesCoversBucket(options.defaultStorageRules, bucketKey)) {
+      return true;
+    }
+  }
+
+  return false;
 }
 
 function parseSnapshotRtdbRules(
@@ -316,7 +386,14 @@ export async function cloneSandboxTarget(
         "The running sandbox has RTDB data but no explicit database rules source.",
     });
   }
-  if (!effectiveRules.storage && storageEntries.length > 0) {
+  if (
+    hasUnruledStorageObjects({
+      defaultObjectCount: storageEntries.length,
+      populatedNamedBuckets: Object.keys(namedStorageBuckets),
+      defaultStorageRules: effectiveRules.storage,
+      storageBucketRules: effectiveRules.storageBuckets,
+    })
+  ) {
     coverageGaps.push({
       service: "storage",
       code: "storage-rules-unavailable",

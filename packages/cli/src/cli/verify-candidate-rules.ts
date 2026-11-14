@@ -2,10 +2,11 @@
  * Candidate rules resolution (`--rules` overrides and `firebase.json` lookup)
  * across Firestore, Realtime Database, and Storage for `pyric verify`.
  */
-import { existsSync, readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { existsSync, readFileSync, realpathSync } from 'node:fs';
+import { isAbsolute, relative, resolve, sep } from 'node:path';
+import { bundleRulesSource } from 'pyric/rules/internal/usage';
 import { defaultFirestoreDatabase } from 'pyric/sandbox/internal';
-import { firestoreDatabases, MODULAR_SOURCE, resolveProjectModules } from '../serve/rules.js';
+import { firestoreDatabases, MODULAR_SOURCE } from '../serve/rules.js';
 import type {
   PyricVerifyFixture,
   VerifiableService,
@@ -135,14 +136,32 @@ export async function resolveCandidateRules(
     if (!existsSync(path)) {
       throw new Error(`rules file not found for firestore: ${path}`);
     }
+    const realCwd = realpathSync(cwd);
+    const realPath = realpathSync(path);
+    const relToRoot = relative(realCwd, realPath);
+    if (
+      relToRoot === '..'
+      || relToRoot.startsWith(`..${sep}`)
+      || relToRoot.startsWith('../')
+      || isAbsolute(relToRoot)
+    ) {
+      throw new Error(`firestore rules path escapes project root: ${rel}`);
+    }
     paths.firestore = path;
     const raw = readFileSync(path, 'utf8');
     if (MODULAR_SOURCE.test(raw)) {
-      const resolved = resolveProjectModules(raw, path, path, 'cloud.firestore').result;
-      if (!resolved.success) {
-        throw new Error(`firestore rules module resolution failed (${path}): ${resolved.error.message}`);
+      try {
+        rules.firestore = bundleRulesSource(raw, {
+          filePath: realPath,
+          rootDir: realCwd,
+          sourceFile: path,
+          targetService: 'cloud.firestore',
+        });
+      } catch (err) {
+        let msg = String(err);
+        if (err instanceof Error) msg = err.message;
+        throw new Error(`firestore rules module resolution failed (${path}): ${msg}`);
       }
-      rules.firestore = resolved.data.resolved;
     } else {
       rules.firestore = raw;
     }

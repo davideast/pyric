@@ -7,7 +7,10 @@
  * Browser-clean: acquires `node:fs` and `node:path` lazily via
  * `process.getBuiltinModule` when loading files from disk.
  */
-import { toStrictRulesJson } from '../../rules/internal/rtdb.js';
+import {
+  rtdbRulesSourceRejection,
+  toStrictRulesJson,
+} from '../../rules/internal/rtdb.js';
 import {
   acquireRuleSourceBuiltins,
   assertContainedProjectFile,
@@ -109,6 +112,9 @@ export function loadRuleSources(
   }));
   if (!hasExplicit) {
     const rcConfig = readFirebaseRcTargetConfig(builtins, absRoot, realRoot);
+    if (rcConfig.problem !== undefined) {
+      out.problems.push(rcConfig.problem);
+    }
     const config = pathMod.join(absRoot, 'firebase.json');
     if (fsMod.existsSync(config)) {
       try {
@@ -123,7 +129,11 @@ export function loadRuleSources(
           storage?: unknown;
         };
         if (firestoreEntries.length === 0) {
-          firestoreEntries = firestoreRulesEntries(parsed.firestore, rcConfig).map((entry) => {
+          firestoreEntries = firestoreRulesEntries(
+            parsed.firestore,
+            rcConfig,
+            out.problems,
+          ).map((entry) => {
             const resolved: FirestoreConfigEntry = {
               file: pathMod.resolve(absRoot, entry.file),
               fromProject: true,
@@ -133,7 +143,11 @@ export function loadRuleSources(
           });
         }
         if (rtdbEntries.length === 0) {
-          rtdbEntries = rtdbRulesEntries(parsed.database, rcConfig).map((entry) => {
+          rtdbEntries = rtdbRulesEntries(
+            parsed.database,
+            rcConfig,
+            out.problems,
+          ).map((entry) => {
             const resolved: RtdbConfigEntry = {
               file: pathMod.resolve(absRoot, entry.file),
               fromProject: true,
@@ -143,7 +157,11 @@ export function loadRuleSources(
           });
         }
         if (storageEntries.length === 0) {
-          storageEntries = storageRulesEntries(parsed.storage, rcConfig).map((entry) => {
+          storageEntries = storageRulesEntries(
+            parsed.storage,
+            rcConfig,
+            out.problems,
+          ).map((entry) => {
             const resolved: StorageConfigEntry = {
               file: pathMod.resolve(absRoot, entry.file),
               fromProject: true,
@@ -204,9 +222,14 @@ export function loadRuleSources(
       } else {
         assertNotSymlink(fsMod, item.file);
       }
+      const parsedJson = parseRtdbRulesText(fsMod.readFileSync(item.file, 'utf8'));
+      const rejection = rtdbRulesSourceRejection(parsedJson);
+      if (rejection !== null) {
+        throw new Error(rejection.message);
+      }
       const loaded: RtdbRuleSource = {
         source: rel(pathMod, absRoot, item.file),
-        json: parseRtdbRulesText(fsMod.readFileSync(item.file, 'utf8')),
+        json: parsedJson,
       };
       if (item.instance !== undefined) loaded.instance = item.instance;
       out.rtdb.push(loaded);

@@ -3,6 +3,8 @@
  * for `derive-live-http.ts`.
  */
 import { createHash } from "node:crypto";
+import { existsSync, lstatSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import {
   DEFAULT_SNAPSHOT_RESOURCE,
   encodeBytesToBase64,
@@ -19,10 +21,138 @@ import { AssuranceInputError, type StorageObjectFixture } from "./types.js";
 
 const SHA256_HEX_RE = /^[0-9a-f]{64}$/;
 
-export function resolveLiveStorageBucketKey(
+const EXPLICIT_DEFAULT_STORAGE_SENTINELS: ReadonlySet<string> = new Set([
+  DEFAULT_SNAPSHOT_RESOURCE,
+  "default",
+  "default-bucket",
+  "pyric-default",
+  DEFAULT_BUCKET,
+  "pyric-sandbox.appspot.com",
+]);
+
+export function readDefaultProjectIdFromDir(
+  projectDir: string | undefined,
+): string | undefined {
+  if (projectDir === undefined) return undefined;
+  try {
+    const rcPath = join(projectDir, ".firebaserc");
+    if (!existsSync(rcPath) || lstatSync(rcPath).isSymbolicLink()) {
+      return undefined;
+    }
+    const parsed = JSON.parse(readFileSync(rcPath, "utf8")) as {
+      projects?: Record<string, unknown>;
+    };
+    const defaultProj = parsed?.projects?.default;
+    if (typeof defaultProj === "string" && defaultProj.trim().length > 0) {
+      return defaultProj.trim();
+    }
+  } catch {
+    return undefined;
+  }
+  return undefined;
+}
+
+function inferProjectIdFromDefaultBucket(
+  defaultBucket: string | undefined,
+): string | undefined {
+  if (defaultBucket === undefined) return undefined;
+  if (EXPLICIT_DEFAULT_STORAGE_SENTINELS.has(defaultBucket)) return undefined;
+  if (defaultBucket.endsWith(".firebasestorage.app")) {
+    const prefix = defaultBucket.slice(0, -".firebasestorage.app".length);
+    if (prefix.length > 0) return prefix;
+  }
+  if (defaultBucket.endsWith(".appspot.com")) {
+    const prefix = defaultBucket.slice(0, -".appspot.com".length);
+    if (prefix.length > 0) return prefix;
+  }
+  return undefined;
+}
+
+export function computeDefaultStorageBucketSet(options: {
+  namedBuckets: ReadonlySet<string>;
+  defaultBucket: string | undefined;
+  projectId: string | undefined;
+  storageEntries: PyricStateFile["storage"] | undefined;
+}): Set<string> {
+  const { namedBuckets, defaultBucket, storageEntries } = options;
+  const defaultSet = new Set<string>();
+  for (const sentinel of EXPLICIT_DEFAULT_STORAGE_SENTINELS) {
+    if (!namedBuckets.has(sentinel)) {
+      defaultSet.add(sentinel);
+    }
+  }
+  if (defaultBucket !== undefined && !namedBuckets.has(defaultBucket)) {
+    defaultSet.add(defaultBucket);
+  }
+
+  const observedBuckets = new Set<string>();
+  let hasExplicitDefaultObject = false;
+  for (const entry of storageEntries ?? []) {
+    const rawBucket = entry.metadata.bucket;
+    if (typeof rawBucket !== "string" || rawBucket.trim().length === 0) {
+      hasExplicitDefaultObject = true;
+      continue;
+    }
+    const normalized = parseResourcePattern("storage", "object", rawBucket).resourceId;
+    if (isUnsafeObjectKey(normalized)) {
+      hasExplicitDefaultObject = true;
+      continue;
+    }
+    if (defaultSet.has(normalized)) {
+      hasExplicitDefaultObject = true;
+    }
+    observedBuckets.add(normalized);
+  }
+
+  const effectiveProjectId =
+    options.projectId ?? inferProjectIdFromDefaultBucket(defaultBucket);
+  if (effectiveProjectId !== undefined) {
+    const fbAppBucket = `${effectiveProjectId}.firebasestorage.app`;
+    const appspotBucket = `${effectiveProjectId}.appspot.com`;
+    const usedFbApp =
+      observedBuckets.has(fbAppBucket) || namedBuckets.has(fbAppBucket);
+    const usedAppspot =
+      observedBuckets.has(appspotBucket) || namedBuckets.has(appspotBucket);
+    if (usedFbApp && usedAppspot) {
+      if (defaultBucket === undefined && !namedBuckets.has(fbAppBucket)) {
+        defaultSet.add(fbAppBucket);
+      }
+    } else {
+      if (!namedBuckets.has(fbAppBucket)) {
+        defaultSet.add(fbAppBucket);
+      }
+      if (!namedBuckets.has(appspotBucket)) {
+        defaultSet.add(appspotBucket);
+      }
+    }
+    return defaultSet;
+  }
+
+  if (defaultBucket === undefined && !hasExplicitDefaultObject) {
+    const nonSentinelObserved: string[] = [];
+    for (const bucketId of observedBuckets) {
+      if (!defaultSet.has(bucketId) && !namedBuckets.has(bucketId)) {
+        nonSentinelObserved.push(bucketId);
+      }
+    }
+    if (nonSentinelObserved.length === 1) {
+      const soleBucket = nonSentinelObserved[0]!;
+      if (
+        soleBucket.endsWith(".appspot.com") ||
+        soleBucket.endsWith(".firebasestorage.app")
+      ) {
+        defaultSet.add(soleBucket);
+      }
+    }
+  }
+
+  return defaultSet;
+}
+
+function resolveLiveStorageBucketKey(
   rawBucket: unknown,
   namedBuckets: ReadonlySet<string>,
-  defaultBucket: string | undefined,
+  defaultBuckets: ReadonlySet<string>,
 ): string {
   if (typeof rawBucket !== "string" || rawBucket.trim().length === 0) {
     return DEFAULT_SNAPSHOT_RESOURCE;
@@ -34,16 +164,7 @@ export function resolveLiveStorageBucketKey(
   if (namedBuckets.has(normalized)) {
     return normalized;
   }
-  if (
-    normalized === DEFAULT_SNAPSHOT_RESOURCE ||
-    normalized === "default" ||
-    normalized === "default-bucket" ||
-    normalized === "pyric-default" ||
-    normalized === DEFAULT_BUCKET ||
-    (defaultBucket !== undefined && normalized === defaultBucket) ||
-    normalized.endsWith(".appspot.com") ||
-    normalized.endsWith(".firebasestorage.app")
-  ) {
+  if (defaultBuckets.has(normalized)) {
     return DEFAULT_SNAPSHOT_RESOURCE;
   }
   return normalized;
@@ -55,7 +176,7 @@ export async function hydrateLiveStorageObjects(options: {
   getLoopback: (url: string, headers: Record<string, string>) => Promise<Response>;
   storageEntries: PyricStateFile["storage"] | undefined;
   namedStorageBuckets: ReadonlySet<string>;
-  defaultBucket: string | undefined;
+  defaultStorageBuckets: ReadonlySet<string>;
 }): Promise<{
   storageSnapshotsByBucket: Record<string, SnapshotStorageObject[]>;
   defaultStorageFixtures: StorageObjectFixture[];
@@ -116,7 +237,7 @@ export async function hydrateLiveStorageObjects(options: {
     const bucketKey = resolveLiveStorageBucketKey(
       entry.metadata.bucket,
       options.namedStorageBuckets,
-      options.defaultBucket,
+      options.defaultStorageBuckets,
     );
     const fullPath = entry.metadata.fullPath;
     const snapObj: {
