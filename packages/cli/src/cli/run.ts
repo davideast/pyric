@@ -16,7 +16,7 @@ import {
   spawnSandboxChild,
   type SandboxChildPlan,
 } from './sandbox-runner.js';
-import { discoverServe, probeHostUrlAnswer, servesViteClient } from '../serve/discovery.js';
+import { discoverServe, probeHostUrlAnswer, selectProjectHost, servesViteClient } from '../serve/discovery.js';
 import { fetchLoopbackTarget, resolveSessionTokenForTarget } from '../serve/local-session-token.js';
 import { viteConfigIn } from './public-dir-hint.js';
 import { checkSandboxChildLaunch } from './unsupported-runtime.js';
@@ -178,7 +178,10 @@ export async function runRun(parsed: ParsedArgs): Promise<number> {
     instanceId = answer.host.instanceId;
   } else {
     const log = (line: string): void => void process.stderr.write(`pyric run: ${line}\n`);
-    const host = await pollUntil(() => discoverServe(cwd, log), { timeoutMs: invocation.waitMs });
+    const host = await pollUntil(
+      async () => selectProjectHost(await discoverServe(cwd, log), log),
+      { timeoutMs: invocation.waitMs },
+    );
     if (host === null) {
       process.stderr.write('pyric run: no running sandbox host found; pass --sandbox <url>.\n');
       return 2;

@@ -1,30 +1,18 @@
-import { randomBytes } from 'node:crypto';
-import {
-  chmodSync,
-  closeSync,
-  constants as fsConstants,
-  existsSync,
-  mkdirSync,
-  openSync,
-  readdirSync,
-  readFileSync,
-  realpathSync,
-  renameSync,
-  rmSync,
-  writeFileSync,
-} from 'node:fs';
-import { basename, dirname, join, resolve, sep } from 'node:path';
+import { existsSync, readFileSync, realpathSync, rmSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
 import type { HostTrust } from 'pyric/sandbox/internal';
-import { findFirebaseProjectDir } from '../cli/firebase-project.js';
 import { honorsCertificatePin, trustedFetch } from '../remote/loopback-tls.js';
 import type { AnsweringHost, Discovered } from './discovery.js';
+import { writeMode600FileSync } from './mode600-file.js';
 import { isLoopbackAddress } from './peer.js';
+import {
+  candidateSessionTokenFiles,
+  candidateTlsPointerFiles,
+  POINTER_REL,
+  SESSION_REL,
+} from './workspace-boundary.js';
 
-const POINTER_REL = join('.pyric', 'serve.json');
-const SESSION_REL = join('.pyric', 'session.json');
-const CANDIDATE_SUBDIRS = ['', 'web', 'frontend', 'client', 'app', 'ui', 'www'];
-const WORKSPACE_GROUPS = ['apps', 'packages', 'services'];
-const BOUNDARY_MARKERS = ['.git', 'firebase.json', '.firebaserc', 'pyric.json', 'package.json'];
+export { writeMode600FileSync };
 
 const TOKENS_BY_PORT_KEY = Symbol.for('pyric.localSessionTokensByPort');
 const REQUIRED_TOKENS_KEY = Symbol.for('pyric.requiredSessionTokens');
@@ -117,66 +105,41 @@ export function inProcessSessionTokenForPort(port: number | undefined): string |
   return activeTokensByPort().get(port);
 }
 
-function parseLoopbackPort(rawUrl: string | undefined): number | undefined {
-  if (!rawUrl) return undefined;
+function parseLoopbackPort(
+  raw: string | undefined,
+  options?: { allowBarePortOrHost?: boolean },
+): number | undefined {
+  if (!raw) return undefined;
+  const trimmed = raw.trim();
+  if (trimmed === '') return undefined;
+  const allowBare = options?.allowBarePortOrHost === true;
+  if (allowBare && /^\d{1,5}$/.test(trimmed)) {
+    const numeric = Number(trimmed);
+    if (numeric > 0 && numeric <= 65535) return numeric;
+    return undefined;
+  }
+  let candidateUrl = trimmed;
+  if (allowBare && !/^[a-z][a-z0-9+.-]*:\/\//i.test(trimmed)) {
+    candidateUrl = `http://${trimmed}`;
+  }
   let parsed: URL;
   try {
-    parsed = new URL(rawUrl);
+    parsed = new URL(candidateUrl);
   } catch {
     return undefined;
   }
   const host = parsed.hostname.replace(/^\[|\]$/g, '').toLowerCase();
   if (host !== 'localhost' && !isLoopbackAddress(host)) return undefined;
-  const defaultPort = parsed.protocol === 'https:' || parsed.protocol === 'wss:' ? 443 : 80;
-  return parsed.port === '' ? defaultPort : Number(parsed.port);
+  const isTls = parsed.protocol === 'https:' || parsed.protocol === 'wss:';
+  const defaultPort = isTls ? 443 : 80;
+  if (parsed.port === '') return defaultPort;
+  const port = Number(parsed.port);
+  if (Number.isInteger(port) && port > 0 && port <= 65535) return port;
+  return undefined;
 }
 
 export function inProcessSessionTokenForUrl(url: string | undefined): string | undefined {
   return inProcessSessionTokenForPort(parseLoopbackPort(url));
-}
-
-/**
- * Atomically writes `content` to `filePath` via a sibling `0o600` temporary file
- * and `renameSync`, replacing any pre-existing symlink without following it.
- */
-export function writeMode600FileSync(filePath: string, content: string): void {
-  const dir = dirname(filePath);
-  mkdirSync(dir, { recursive: true });
-  const tmpPath = join(
-    dir,
-    `.${basename(filePath)}.tmp-${process.pid}-${randomBytes(6).toString('hex')}`,
-  );
-  let fd: number | undefined;
-  try {
-    fd = openSync(
-      tmpPath,
-      fsConstants.O_CREAT | fsConstants.O_EXCL | fsConstants.O_WRONLY,
-      0o600,
-    );
-    writeFileSync(fd, content, 'utf8');
-    closeSync(fd);
-    fd = undefined;
-    try {
-      chmodSync(tmpPath, 0o600);
-    } catch {
-      // Best-effort on filesystems without POSIX chmod semantics.
-    }
-    renameSync(tmpPath, filePath);
-  } catch (error) {
-    if (fd !== undefined) {
-      try {
-        closeSync(fd);
-      } catch {
-        // Ignore close error during cleanup.
-      }
-    }
-    try {
-      rmSync(tmpPath, { force: true });
-    } catch {
-      // Best-effort temp cleanup.
-    }
-    throw error;
-  }
 }
 
 interface DiskTokenEntry {
@@ -214,38 +177,48 @@ function extractEntryPort(entry: DiskTokenEntry): number | undefined {
   return undefined;
 }
 
-function hasBoundaryMarker(dir: string): boolean {
-  return BOUNDARY_MARKERS.some((marker) => existsSync(join(dir, marker)));
+function recordBoundEnvPort(raw: string | undefined, boundPorts: number[]): boolean {
+  if (raw === undefined) return true;
+  const trimmed = raw.trim();
+  if (trimmed === '') return true;
+  const parsed = parseLoopbackPort(trimmed, { allowBarePortOrHost: true });
+  if (parsed === undefined) return false;
+  boundPorts.push(parsed);
+  return true;
 }
 
-function candidateTokenFiles(startDir: string): string[] {
-  const files: string[] = [];
-  const seen = new Set<string>();
-  const resolvedStart = resolve(startDir);
-  const firebaseRoot = findFirebaseProjectDir(resolvedStart);
-  const insideFirebaseRoot =
-    firebaseRoot !== null &&
-    (resolvedStart === firebaseRoot || resolvedStart.startsWith(firebaseRoot + sep));
-  let current = resolvedStart;
-  for (;;) {
-    const allowSubdirs = current === resolvedStart || current === firebaseRoot;
-    const subdirs = allowSubdirs ? CANDIDATE_SUBDIRS : [''];
-    for (const sub of subdirs) {
-      for (const rel of [POINTER_REL, SESSION_REL]) {
-        const candidate = sub ? join(current, sub, rel) : join(current, rel);
-        if (!seen.has(candidate)) {
-          seen.add(candidate);
-          files.push(candidate);
-        }
+function isEnvSessionTokenAllowedForPort(input: {
+  env: NodeJS.ProcessEnv;
+  targetPort: number | undefined;
+  boundHostUrl: string | undefined;
+  diskPorts: ReadonlySet<number>;
+  tokenMismatchedOnDisk: boolean;
+}): boolean {
+  const { env, targetPort } = input;
+  if (targetPort === undefined) return true;
+  if (input.tokenMismatchedOnDisk) return false;
+
+  const boundEnvPorts: number[] = [];
+  if (!recordBoundEnvPort(input.boundHostUrl, boundEnvPorts)) return false;
+  if (!recordBoundEnvPort(env.PYRIC_SANDBOX_PORT, boundEnvPorts)) return false;
+  if (!recordBoundEnvPort(env.PYRIC_WORKER_INIT_HOST, boundEnvPorts)) return false;
+
+  const sandboxSpec = env.PYRIC_SANDBOX?.trim();
+  if (typeof sandboxSpec === 'string' && sandboxSpec !== '') {
+    if (sandboxSpec.startsWith('remote:')) {
+      const remoteUrl = sandboxSpec.slice('remote:'.length);
+      if (!recordBoundEnvPort(remoteUrl, boundEnvPorts)) return false;
+    } else if (sandboxSpec === 'remote') {
+      if (boundEnvPorts.length === 0 && !input.diskPorts.has(targetPort)) {
+        return false;
       }
     }
-    if (insideFirebaseRoot && current === firebaseRoot) break;
-    if (!insideFirebaseRoot && hasBoundaryMarker(current)) break;
-    const parent = dirname(current);
-    if (parent === current) break;
-    current = parent;
   }
-  return files;
+
+  if (boundEnvPorts.length > 0 && !boundEnvPorts.every((port) => port === targetPort)) {
+    return false;
+  }
+  return true;
 }
 
 /**
@@ -258,20 +231,16 @@ export function writeOwnedSessionFile(
   info: { port: number; instanceId?: string; token: string },
 ): () => void {
   const sessionFile = join(projectDir, SESSION_REL);
+  const record: Record<string, unknown> = {
+    pid: process.pid,
+    port: info.port,
+    token: info.token,
+  };
+  if (info.instanceId) {
+    record.instanceId = info.instanceId;
+  }
   try {
-    writeMode600FileSync(
-      sessionFile,
-      JSON.stringify(
-        {
-          pid: process.pid,
-          port: info.port,
-          ...(info.instanceId ? { instanceId: info.instanceId } : {}),
-          token: info.token,
-        },
-        null,
-        2,
-      ) + '\n',
-    );
+    writeMode600FileSync(sessionFile, `${JSON.stringify(record, null, 2)}\n`);
   } catch {
     return () => {};
   }
@@ -292,6 +261,104 @@ export function writeOwnedSessionFile(
 }
 
 /**
+ * Shared capability-token and optional `instanceId` lookup across in-process
+ * registry, workspace pointer/session files, and port-scoped `PYRIC_SESSION_TOKEN`.
+ */
+export function resolveSessionTokenLookup(input: {
+  cwd?: string;
+  url?: string;
+  port?: number;
+  boundHostUrl?: string;
+  env?: NodeJS.ProcessEnv;
+  explicitToken?: string;
+  expectedInstanceId?: string | null;
+  includeWorkspaceGroups?: boolean;
+}): { token?: string; expectedInstanceId?: string } {
+  let initialExpected: string | undefined;
+  if (typeof input.expectedInstanceId === 'string' && input.expectedInstanceId.length > 0) {
+    initialExpected = input.expectedInstanceId;
+  }
+  if (typeof input.explicitToken === 'string' && input.explicitToken.length > 0) {
+    return { token: input.explicitToken, expectedInstanceId: initialExpected };
+  }
+
+  const hasTargetUrl = typeof input.url === 'string' && input.url.length > 0;
+  const targetPort = input.port ?? parseLoopbackPort(input.url);
+  if (hasTargetUrl && targetPort === undefined) {
+    return { expectedInstanceId: initialExpected };
+  }
+
+  const inProcess = inProcessSessionTokenForPort(targetPort);
+  if (inProcess !== undefined) {
+    return { token: inProcess, expectedInstanceId: initialExpected };
+  }
+
+  const env = input.env ?? process.env;
+  const envToken = env.PYRIC_SESSION_TOKEN;
+  const diskPorts = new Set<number>();
+  let tokenMismatchedOnDisk = false;
+
+  if (input.cwd) {
+    let fallbackWithoutPort: { token: string; instanceId?: string } | undefined;
+    const files = candidateSessionTokenFiles(input.cwd, {
+      includeWorkspaceGroups: input.includeWorkspaceGroups,
+    });
+    for (const filePath of files) {
+      if (!existsSync(filePath)) continue;
+      try {
+        const entry = JSON.parse(readFileSync(filePath, 'utf8')) as DiskTokenEntry;
+        if (typeof entry.token !== 'string' || entry.token.length === 0) continue;
+        if (!isProcessAlive(entry.pid)) continue;
+        const entryPort = extractEntryPort(entry);
+        if (entryPort !== undefined) {
+          diskPorts.add(entryPort);
+        }
+        let entryId: string | undefined;
+        if (typeof entry.instanceId === 'string' && entry.instanceId.length > 0) {
+          entryId = entry.instanceId;
+        }
+        if (targetPort !== undefined) {
+          if (entryPort === targetPort) {
+            return {
+              token: entry.token,
+              expectedInstanceId: initialExpected ?? entryId,
+            };
+          }
+          if (entryPort !== undefined && entry.token === envToken) {
+            tokenMismatchedOnDisk = true;
+          }
+        } else if (fallbackWithoutPort === undefined) {
+          fallbackWithoutPort = { token: entry.token, instanceId: entryId };
+        }
+      } catch {
+        // Ignore unreadable or mid-write pointer files.
+      }
+    }
+    if (fallbackWithoutPort !== undefined) {
+      return {
+        token: fallbackWithoutPort.token,
+        expectedInstanceId: initialExpected ?? fallbackWithoutPort.instanceId,
+      };
+    }
+  }
+
+  if (
+    typeof envToken === 'string' &&
+    envToken.length > 0 &&
+    isEnvSessionTokenAllowedForPort({
+      env,
+      targetPort,
+      boundHostUrl: input.boundHostUrl,
+      diskPorts,
+      tokenMismatchedOnDisk,
+    })
+  ) {
+    return { token: envToken, expectedInstanceId: initialExpected };
+  }
+  return { expectedInstanceId: initialExpected };
+}
+
+/**
  * Resolves the capability token for a local server from:
  *   1. The in-process port registry (same-process callers & multi-server tests),
  *   2. `.pyric/serve.json` or `.pyric/session.json` (`0o600`) in `cwd` / ancestors,
@@ -301,81 +368,11 @@ export function resolveSessionTokenForTarget(input: {
   cwd?: string;
   url?: string;
   port?: number;
+  boundHostUrl?: string;
   env?: NodeJS.ProcessEnv;
   explicitToken?: string;
 }): string | undefined {
-  if (typeof input.explicitToken === 'string' && input.explicitToken.length > 0) {
-    return input.explicitToken;
-  }
-
-  const hasTargetUrl = typeof input.url === 'string' && input.url.length > 0;
-  const targetPort = input.port ?? parseLoopbackPort(input.url);
-  if (hasTargetUrl && targetPort === undefined) {
-    return undefined;
-  }
-
-  const inProcess = inProcessSessionTokenForPort(targetPort);
-  if (inProcess) return inProcess;
-
-  if (input.cwd) {
-    let fallbackWithoutPort: string | undefined;
-    for (const filePath of candidateTokenFiles(input.cwd)) {
-      if (!existsSync(filePath)) continue;
-      try {
-        const entry = JSON.parse(readFileSync(filePath, 'utf8')) as DiskTokenEntry;
-        if (typeof entry.token !== 'string' || entry.token.length === 0) continue;
-        if (!isProcessAlive(entry.pid)) continue;
-        const entryPort = extractEntryPort(entry);
-        if (targetPort !== undefined) {
-          if (entryPort === targetPort) return entry.token;
-        } else {
-          fallbackWithoutPort ??= entry.token;
-        }
-      } catch {
-        // Ignore unreadable or mid-write pointer files.
-      }
-    }
-    if (fallbackWithoutPort) return fallbackWithoutPort;
-  }
-
-  const env = input.env ?? process.env;
-  const envToken = env.PYRIC_SESSION_TOKEN;
-  if (typeof envToken === 'string' && envToken.length > 0) {
-    if (targetPort !== undefined) {
-      const sandboxSpec = env.PYRIC_SANDBOX;
-      if (typeof sandboxSpec === 'string' && sandboxSpec.startsWith('remote:')) {
-        const envPort = parseLoopbackPort(sandboxSpec.slice('remote:'.length));
-        if (envPort !== undefined && envPort !== targetPort) {
-          return undefined;
-        }
-      }
-    }
-    return envToken;
-  }
-  return undefined;
-}
-
-function candidateTlsPointerFiles(startDir: string): string[] {
-  const files = [...candidateTokenFiles(startDir)];
-  const seen = new Set(files);
-  const projectRoot = findFirebaseProjectDir(startDir) ?? resolve(startDir);
-  for (const group of WORKSPACE_GROUPS) {
-    const groupDir = join(projectRoot, group);
-    if (!existsSync(groupDir)) continue;
-    try {
-      for (const entry of readdirSync(groupDir, { withFileTypes: true })) {
-        if (!entry.isDirectory()) continue;
-        const candidate = join(groupDir, entry.name, POINTER_REL);
-        if (!seen.has(candidate)) {
-          seen.add(candidate);
-          files.push(candidate);
-        }
-      }
-    } catch {
-      // Ignore unreadable workspace directories.
-    }
-  }
-  return files;
+  return resolveSessionTokenLookup(input).token;
 }
 
 function httpOriginFromTargetUrl(rawUrl: string): string | undefined {
@@ -413,13 +410,14 @@ export function resolveLoopbackTlsTrustForTarget(input: {
       if (extractEntryPort(entry) !== targetPort) continue;
       const tls = entry.tls;
       if (!tls || typeof tls !== 'object') continue;
-      const ca = Array.isArray(tls.ca)
-        ? tls.ca.filter((item): item is string => typeof item === 'string' && item.length > 0)
-        : [];
-      const fingerprint256 =
-        typeof tls.fingerprint256 === 'string' && tls.fingerprint256.length > 0
-          ? tls.fingerprint256
-          : undefined;
+      let ca: string[] = [];
+      if (Array.isArray(tls.ca)) {
+        ca = tls.ca.filter((item): item is string => typeof item === 'string' && item.length > 0);
+      }
+      let fingerprint256: string | undefined;
+      if (typeof tls.fingerprint256 === 'string' && tls.fingerprint256.length > 0) {
+        fingerprint256 = tls.fingerprint256;
+      }
       if (ca.length === 0 || fingerprint256 === undefined) continue;
       return { origin, ca, fingerprint256 };
     } catch {
@@ -443,6 +441,10 @@ export function fetchLoopbackTarget(
   return fetch(url, init);
 }
 
+function answeredBase(base: string): string {
+  return base.replace(/\/$/, '');
+}
+
 export async function probeHttpsHostUrl(
   rawUrl: string,
   cwd: string,
@@ -459,14 +461,15 @@ export async function probeHttpsHostUrl(
   const candidates = [...new Set([`https://127.0.0.1:${port}`, `https://[::1]:${port}`, parsed.origin])];
   for (const base of candidates) {
     const token = resolveSessionTokenForTarget({ url: base, port, cwd });
+    const headers: Record<string, string> = { accept: 'application/json' };
+    if (token !== undefined) {
+      headers['x-pyric-session-token'] = token;
+    }
     try {
       const res = await fetchLoopbackTarget(
         `${base}/__pyric/health`,
         {
-          headers: {
-            accept: 'application/json',
-            ...(token !== undefined ? { 'x-pyric-session-token': token } : {}),
-          },
+          headers,
           signal: AbortSignal.timeout(1_000),
         },
         cwd,
@@ -478,19 +481,16 @@ export async function probeHttpsHostUrl(
         sandboxConnected?: unknown;
       };
       if (body?.mode !== 'sandbox') continue;
+      const instanceId = typeof body.instanceId === 'string' ? body.instanceId : null;
       return {
         base: answeredBase(base),
-        instanceId: typeof body.instanceId === 'string' ? body.instanceId : null,
+        instanceId,
       };
     } catch {
       // Try next loopback family.
     }
   }
   return null;
-}
-
-function answeredBase(base: string): string {
-  return base.replace(/\/$/, '');
 }
 
 export async function discoverHttpsPointer(cwd: string): Promise<Discovered | null> {
@@ -514,19 +514,28 @@ export async function discoverHttpsPointer(cwd: string): Promise<Discovered | nu
       } catch {
         // Keep resolved directory when realpath fails.
       }
-      const token =
-        typeof entry.token === 'string' && entry.token.length > 0
-          ? entry.token
-          : resolveSessionTokenForTarget({ url: answered.base, cwd });
-      return {
+      let token: string | undefined;
+      if (typeof entry.token === 'string' && entry.token.length > 0) {
+        token = entry.token;
+      } else {
+        token = resolveSessionTokenForTarget({ url: answered.base, cwd });
+      }
+      let mcpUrl = `${answered.base}/__pyric/mcp`;
+      if (typeof entry.mcpUrl === 'string') {
+        mcpUrl = entry.mcpUrl;
+      }
+      const discovered: Discovered = {
         pointerProjectDir: canonicalDir,
-        mcpUrl: typeof entry.mcpUrl === 'string' ? entry.mcpUrl : `${answered.base}/__pyric/mcp`,
+        mcpUrl,
         url,
         base: answered.base,
         instanceId: entryInstanceId ?? answered.instanceId,
-        ...(token !== undefined ? { token } : {}),
         source: `pointer:${filePath}`,
       };
+      if (token !== undefined) {
+        discovered.token = token;
+      }
+      return discovered;
     } catch {
       // Ignore unreadable pointer files.
     }

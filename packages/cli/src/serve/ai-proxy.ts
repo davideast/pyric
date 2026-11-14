@@ -11,6 +11,9 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { ServeLogger } from './server.js';
 import {
+  joinUpstreamUrl,
+  maskStreamErrors,
+  normalizeUpstreamBaseUrl,
   redactUpstreamError,
   redactUpstreamText,
   redactUpstreamUrl,
@@ -201,16 +204,7 @@ export function resolveAiProxyUpstream(
     raw = envUpstream;
     source = 'env';
   }
-  return { target: raw.replace(/\/$/, ''), source };
-}
-
-/** The `key` parameter of `target`, or null when it has none or is not a URL. */
-function urlKeyParam(target: string): string | null {
-  try {
-    return new URL(target).searchParams.get('key');
-  } catch {
-    return null;
-  }
+  return { target: normalizeUpstreamBaseUrl(raw), source };
 }
 
 /**
@@ -243,9 +237,14 @@ function requestCredentials(input: Parameters<typeof fetch>[0], init: RequestIni
   const isRequest = input instanceof Request;
   const entries = headerEntries(isRequest ? input.headers : init?.headers);
   const url = isRequest ? input.url : String(input);
-  const urlKey = urlKeyParam(url);
   const authorization = headerValue(entries, 'authorization')?.replace(/^\S+\s+/, '') ?? null;
-  const found = [urlKey, headerValue(entries, 'x-goog-api-key'), authorization, ...urlCredentials(url)];
+  const found = [
+    headerValue(entries, 'x-goog-api-key'),
+    headerValue(entries, 'x-api-key'),
+    headerValue(entries, 'api-key'),
+    authorization,
+    ...urlCredentials(url),
+  ];
   return found.filter((value): value is string => value !== null && value !== '');
 }
 
@@ -302,9 +301,12 @@ function stripFetchUserinfo(
       };
     }
   }
+  const nextInit: RequestInit = {};
+  if (init !== undefined) Object.assign(nextInit, init);
+  if (nextHeaders !== undefined) nextInit.headers = nextHeaders;
   return {
     fetchInput: parsed.toString(),
-    fetchInit: { ...(init ?? {}), ...(nextHeaders !== undefined ? { headers: nextHeaders } : {}) },
+    fetchInit: nextInit,
     extraCredentials: [basicToken],
   };
 }
@@ -336,14 +338,17 @@ export async function fetchAiUpstream(
   const failed = !upstream.ok;
   if (failed) {
     const retryAfter = upstream.headers.get('retry-after');
-    note({
+    const statusFailure: Extract<AiProxyFailure, { kind: 'status' }> = {
       kind: 'status',
       target,
       latencyMs: Date.now() - startedAt,
       status: upstream.status,
       credentials,
-      ...(retryAfter !== null ? { retryAfter } : {}),
-    });
+    };
+    if (retryAfter !== null) {
+      statusFailure.retryAfter = retryAfter;
+    }
+    note(statusFailure);
   }
   const body = upstream.body;
   const hasNoBody = body === null;
@@ -434,7 +439,7 @@ export async function handleAiProxy(
   }
   const upstreamBase = resolveAiProxyUpstream(configuredUpstream).target;
   const suffix = url.pathname.slice(AI_PROXY_ROUTE.length);
-  const target = `${upstreamBase}${suffix}${url.search}`;
+  const target = joinUpstreamUrl(upstreamBase, suffix, url.search);
 
   // The request body is a bounded JSON payload, read once; the RESPONSE streams.
   const body = await readAiProxyBody(req, res);
@@ -447,11 +452,9 @@ export async function handleAiProxy(
     headers[key] = Array.isArray(value) ? value.join(', ') : value;
   }
 
-  const { extraCredentials } = stripFetchUserinfo(target, { headers });
   const credentials = [
     ...urlCredentials(upstreamBase),
     ...requestCredentials(target, { headers }),
-    ...extraCredentials,
   ];
   let upstream: Response;
   try {
@@ -478,6 +481,17 @@ export async function handleAiProxy(
     if (contentType) responseHeaders['content-type'] = contentType;
     res.writeHead(upstream.status, responseHeaders);
     res.end(redactedError);
+    return;
+  }
+
+  const contentType = upstream.headers.get('content-type')?.toLowerCase() ?? '';
+  if (contentType.includes('text/event-stream') && upstream.body !== null) {
+    const maskedUpstream = new Response(maskStreamErrors(upstream.body, credentials), {
+      status: upstream.status,
+      statusText: upstream.statusText,
+      headers: upstream.headers,
+    });
+    await relayAiUpstream(maskedUpstream, res);
     return;
   }
 

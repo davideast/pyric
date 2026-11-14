@@ -22,7 +22,11 @@ import { describe, expect, test } from 'bun:test';
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { firebaseToolsConfigstorePath, resolveFirebaseProject } from '../../src/cli/firebase-project.js';
+import {
+  findFirebaseProjectDir,
+  firebaseToolsConfigstorePath,
+  resolveFirebaseProject,
+} from '../../src/cli/firebase-project.js';
 import type { FirebaseRc } from '../../src/cli/firebase-json.js';
 
 function home(activeProjects?: Record<string, string>): string {
@@ -129,5 +133,18 @@ describe('resolveFirebaseProject', () => {
     mkdirSync(join(badHome, '.config', 'configstore'), { recursive: true });
     writeFileSync(join(badHome, '.config', 'configstore', 'firebase-tools.json'), '{not json');
     expect(resolveFirebaseProject({ projectDir: dir, env: { HOME: badHome } }).projectId).toBe('rc-default');
+  });
+
+  test('findFirebaseProjectDir recognizes pyric.json alongside firebase.json and .firebaserc across monorepo subpackages without crossing a nested .git boundary', () => {
+    const wsRoot = mkdtempSync(join(tmpdir(), 'pyric-workspace-root-'));
+    const childPkg = join(wsRoot, 'packages', 'service-a');
+    const nestedStandaloneRepo = join(wsRoot, 'nested-repo');
+    mkdirSync(childPkg, { recursive: true });
+    mkdirSync(join(nestedStandaloneRepo, '.git'), { recursive: true });
+    writeFileSync(join(wsRoot, 'pyric.json'), JSON.stringify({ sessionToken: true }));
+    writeFileSync(join(childPkg, 'package.json'), JSON.stringify({ name: '@org/service-a', private: true }));
+    expect(findFirebaseProjectDir(childPkg)).toBe(wsRoot);
+    expect(findFirebaseProjectDir(wsRoot)).toBe(wsRoot);
+    expect(findFirebaseProjectDir(nestedStandaloneRepo)).toBeNull();
   });
 });

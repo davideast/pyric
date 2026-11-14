@@ -43,6 +43,19 @@ describe('Vite page runtime', () => {
     expect(page.transformIndexHtml(html)).toBe(html);
   });
 
+  it('does not emit the browser sandbox init chunk during non-production SSR builds', () => {
+    const page = runtime();
+    expect(
+      page.config({ build: { ssr: 'src/entry-server.ts' } }, { command: 'build', mode: 'development', isSsrBuild: true } as never),
+    ).toEqual({ build: { target: 'esnext' } });
+    let emitted = false;
+    page.buildStart(() => {
+      emitted = true;
+      return 'chunk-ref';
+    });
+    expect(emitted).toBe(false);
+  });
+
   it('builds the development bootstrap with fallback, AI, and runtime-chip state', () => {
     const page = runtime({
       runtimeChip: { initiallyOpen: true },
