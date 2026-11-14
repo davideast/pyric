@@ -32,6 +32,7 @@ import {
   listTriggersOnVariant,
   makeHostedInit,
   makeInMemoryPersistence,
+  openHostedLoopbackBridge,
   openMcpVariant,
   parseResourceEnvelope,
   parseToolEnvelope,
@@ -235,41 +236,48 @@ describe('five-surface MCP entrypoint parity', () => {
         ].join('\n'),
       );
 
-      const session = await openMcpVariant(variant, dir);
+      const hostedBridge = await openHostedLoopbackBridge(dir);
+      const inProcSession = await openMcpVariant(variant, dir);
+      const hostedSession = await openMcpVariant(variant, dir, hostedBridge.makeRouter());
       try {
-        const listed = await listTriggersOnVariant(session);
-        expect(listed.ok).toBe(true);
-        const triggers = (listed.data as { triggers: Array<{ name: string; instance: string }> })
-          .triggers;
-        expect(triggers).toHaveLength(1);
-        expect(triggers[0]?.instance).toBe('custom-rtdb');
+        for (const [planeIndex, session] of [inProcSession, hostedSession].entries()) {
+          const itemId = `k${planeIndex + 1}`;
+          const listed = await listTriggersOnVariant(session);
+          expect(listed.ok).toBe(true);
+          const triggers = (listed.data as { triggers: Array<{ name: string; instance: string }> })
+            .triggers;
+          expect(triggers).toHaveLength(1);
+          expect(triggers[0]?.instance).toBe('custom-rtdb');
 
-        const fired = await fireTriggerOnVariant(session, 'onItemCreated', 'items/k1', {
-          title: 'alpha',
-        });
-        expect(fired.ok).toBe(true);
-        const fireData = fired.data as {
-          event: { instance: string };
-          result: {
-            appsAtModuleLoad: number;
-            gcloudProject: string | null;
-            storageBucket: string | null;
+          const fired = await fireTriggerOnVariant(session, 'onItemCreated', `items/${itemId}`, {
+            title: 'alpha',
+          });
+          expect(fired.ok).toBe(true);
+          const fireData = fired.data as {
+            event: { instance: string };
+            result: {
+              appsAtModuleLoad: number;
+              gcloudProject: string | null;
+              storageBucket: string | null;
+            };
           };
-        };
-        expect(fireData.event.instance).toBe('custom-rtdb');
-        expect(fireData.result.appsAtModuleLoad).toBe(0);
-        expect(fireData.result.gcloudProject).toBe('org-alpha');
-        expect(fireData.result.storageBucket).toBe('org-alpha-custom-bucket');
+          expect(fireData.event.instance).toBe('custom-rtdb');
+          expect(fireData.result.appsAtModuleLoad).toBe(0);
+          expect(fireData.result.gcloudProject).toBe('org-alpha');
+          expect(fireData.result.storageBucket).toBe('org-alpha-custom-bucket');
 
-        const workerDoc = await readFirestoreDoc(session, 'workerItems/k1');
-        expect(workerDoc.ok).toBe(true);
-        expect((workerDoc.data as { exists?: boolean }).exists).toBe(true);
+          const workerDoc = await readFirestoreDoc(session, `workerItems/${itemId}`);
+          expect(workerDoc.ok).toBe(true);
+          expect((workerDoc.data as { exists?: boolean }).exists).toBe(true);
 
-        const rtdbProcessed = await readDatabaseValue(session, 'processed/k1');
-        expect(rtdbProcessed.ok).toBe(true);
-        expect((rtdbProcessed.data as { value?: unknown }).value).toEqual({ done: true });
+          const rtdbProcessed = await readDatabaseValue(session, `processed/${itemId}`);
+          expect(rtdbProcessed.ok).toBe(true);
+          expect((rtdbProcessed.data as { value?: unknown }).value).toEqual({ done: true });
+        }
       } finally {
-        await session.close();
+        await inProcSession.close();
+        await hostedSession.close();
+        await hostedBridge.close();
         rmSync(dir, { recursive: true, force: true });
       }
     });
@@ -365,6 +373,14 @@ describe('five-surface MCP entrypoint parity', () => {
             'pyric://firestore/docs/items/bad%ZZ',
             'pyric://storage/objects/docs/bad%E0%A4%A.txt',
             'pyric://database/tree/rooms/bad%2',
+            'pyric://firestore/docs/items/item-1/../../secrets/s1',
+            'pyric://firestore/docs/items/item-1/%2e%2e/%2e%2e/secrets/s1',
+            'pyric://firestore/docs/items%2Fitem-1%2F..%2F..%2Fsecrets%2Fs1',
+            'pyric://firestore/docs/items/..',
+            'pyric://firestore/docs/items/.',
+            'pyric://storage/objects/docs%2F..%2Fsecrets%2Fkey.txt',
+            'pyric://database/tree/rooms/../secrets',
+            'pyric://stdlib/rules/..%2F..%2Fpackage.json',
           ]) {
             const malformed = parseResourceEnvelope(
               await session.client.readResource({ uri: badUri }),

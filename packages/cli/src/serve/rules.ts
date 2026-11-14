@@ -14,24 +14,13 @@ import { readFileSync, watch, type FSWatcher } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { dirname, isAbsolute, join, relative } from 'node:path';
 import {
-  describeCompileLimitViolations,
-  lintFirestoreRules,
-  parseToASTOrError,
-  resolveModulesWithFiles,
-  rulesSourceRejection,
-  sourceCompileLimitViolations,
-  type ResolveResult,
+  describeCompileLimitViolations, lintFirestoreRules, parseToASTOrError,
+  resolveModulesWithFiles, rulesSourceRejection, sourceCompileLimitViolations, type ResolveResult,
 } from 'pyric/rules/internal';
 import {
-  asSentence,
-  databaseRulesConfig,
-  defaultFirestoreDatabase,
-  firestoreRulesConfig,
-  storageRulesConfig,
-  unservedFirestoreDatabaseWarnings,
-  type DatabaseRulesConfig,
-  type StorageRulesConfig,
-  type FirestoreRulesConfig,
+  asSentence, databaseRulesConfig, defaultFirestoreDatabase, firestoreRulesConfig,
+  storageRulesConfig, unservedFirestoreDatabaseWarnings,
+  type DatabaseRulesConfig, type StorageRulesConfig, type FirestoreRulesConfig,
 } from 'pyric/sandbox/internal';
 import { parseStorageRules } from 'pyric/storage';
 import { compileStorageRules } from 'pyric/storage/internal';
@@ -685,8 +674,17 @@ export function databaseRulesTargets(
   } catch (error) {
     throw new Error(`pyric sandbox: ${error instanceof Error ? error.message : String(error)}`);
   }
+  let defaultInstance = resolved.defaultInstance;
+  if (
+    projectId !== undefined &&
+    Array.isArray(config?.database) &&
+    resolved.targets.length === 1 &&
+    resolved.unresolved.length === 0
+  ) {
+    defaultInstance = resolved.targets[0]!.instance;
+  }
   return {
-    defaultInstance: resolved.defaultInstance,
+    defaultInstance,
     ...(projectId === undefined ? {} : { projectId }),
     targets: resolved.targets.map((target) => ({ instance: target.instance, path: target.file, configured: target.configured })),
     pending: resolved.unresolved.map((target) => ({

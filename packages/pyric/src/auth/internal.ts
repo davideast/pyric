@@ -26,6 +26,11 @@ export { effectiveSessionClaimsFor, mintCustomTokenFor, resolveCustomTokenIdenti
 export { isFederatedProviderId } from './providers.js';
 export { noMockConfiguredError } from './sign-in.js';
 export { SERVED_SANDBOX_HOOK } from './sandbox/driver.js';
+export {
+  assertMatchingTenant,
+  normalizeTenantScope,
+  tenantEmailKey,
+} from './sandbox/tenant-isolation.js';
 /** The key a page stores to resume its session after a reload (#1950). */
 export { sessionKeyOf } from './sandbox/session-ledger.js';
 export type { ServedSandboxHook } from './sandbox/driver.js';

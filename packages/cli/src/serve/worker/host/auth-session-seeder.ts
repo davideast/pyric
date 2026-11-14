@@ -9,7 +9,11 @@ import {
   type MintedSession,
   type User,
 } from 'pyric/auth';
-import { sessionKeyOf } from 'pyric/auth/internal';
+import {
+  assertMatchingTenant,
+  normalizeTenantScope,
+  sessionKeyOf,
+} from 'pyric/auth/internal';
 import { serializeUser, type SerializedUser } from '../protocol.js';
 import { FirebaseError } from 'pyric/app';
 
@@ -136,13 +140,13 @@ export function resolveOAuthCredentialUser(
   credential: OAuthCredentialPayload,
 ): { uid: string; isNewUser: boolean } {
   authSandboxOps.assertAuthProviderEnabled(auth, credential.providerId);
-  const targetTenant = credential.tenantId ?? null;
+  const targetTenant = normalizeTenantScope(credential.tenantId);
   const existingUsers = authSandboxOps.listUsers(auth);
   let targetUid = credential.uid && credential.uid.length > 0 ? credential.uid : null;
   if (!targetUid && credential.email) {
     const lowerEmail = credential.email.toLowerCase();
     const byEmail = existingUsers.find(
-      (u) => u.email?.toLowerCase() === lowerEmail && (u.tenantId ?? null) === targetTenant,
+      (u) => u.email?.toLowerCase() === lowerEmail && normalizeTenantScope(u.tenantId) === targetTenant,
     );
     if (byEmail) targetUid = byEmail.uid;
   }
@@ -158,12 +162,7 @@ export function resolveOAuthCredentialUser(
   const existing = existingUsers.find((u) => u.uid === targetUid);
   const callerDecidesVerification = credential.emailVerified !== undefined;
   if (existing) {
-    if ((existing.tenantId ?? null) !== targetTenant) {
-      throw new FirebaseError(
-        'auth/tenant-id-mismatch',
-        "The provided tenant ID does not match the Auth instance's tenant ID.",
-      );
-    }
+    assertMatchingTenant(existing, targetTenant);
     // A caller's flag leaves an existing account's flag as stored.
     authSandboxOps.createSignInCredential(auth, {
       providerId: credential.providerId, uid: targetUid, verifyEmail: !callerDecidesVerification,

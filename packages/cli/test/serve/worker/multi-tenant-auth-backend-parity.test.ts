@@ -22,10 +22,11 @@ import {
   signInWithCustomToken,
   signInWithEmailAndPassword,
   signInWithEmailLink,
+  updateCurrentUser,
 } from 'pyric/auth';
 import { mintCustomTokenFor } from 'pyric/auth/internal';
 import { getFirestore } from 'pyric/firestore';
-import { createMemoryBackend, initializeSandbox } from 'pyric/sandbox';
+import { initializeSandbox } from 'pyric/sandbox';
 import type { BridgeMessage } from '../../../src/bridge/protocol.js';
 import { createHostedRuntime } from '../../../src/serve/hosted/runtime.js';
 import { handleMessage, type HostCtx, type PortLike } from '../../../src/serve/worker/host.js';
@@ -41,33 +42,12 @@ import {
   signInWithEmailLink as clientSignInWithEmailLink,
   stageSignInResult,
   takeAuthMail as clientTakeAuthMail,
+  updateCurrentUser as clientUpdateCurrentUser,
   type ClientDb,
 } from '../../../src/serve/worker/client.js';
 import type { ClientPort } from '../../../src/serve/worker/client/handles.js';
 import type { InboundMessage, OutboundMessage } from '../../../src/serve/worker/protocol.js';
-
-function makeInMemoryHostedPersistence() {
-  const storageStub = {
-    scoped: () => storageStub,
-    reset: async () => {},
-    close: () => {},
-    objectFile: async () => undefined,
-    uploadProgress: async () => undefined,
-    appendUpload: async () => ({ received: 0, size: 0 }),
-  };
-  return {
-    backend: createMemoryBackend(),
-    storage: storageStub,
-    checkpoints: {},
-    state: { seed: async () => false },
-    repairedObjects: [],
-    sweep: Promise.resolve({ removed: 0, bytesRemoved: 0 }),
-    close() {},
-    status: () => ({ state: 'healthy' as const }),
-    onFailure: () => () => {},
-    markUnhealthy() {},
-  };
-}
+import { makeInMemoryPersistence } from '../../bridge/five-surface-parity-harness.js';
 
 function createWorkerHarness() {
   const sandbox = initializeSandbox({ projectId: 'org-alpha' });
@@ -138,7 +118,7 @@ async function createNodeHarness() {
       }
     },
     dir,
-    { persistence: makeInMemoryHostedPersistence() as never, record: false },
+    { persistence: makeInMemoryPersistence() as never, record: false },
   );
 
   const makeClient = (label: string) => {
@@ -281,6 +261,18 @@ describe('multi-tenant Auth BACKEND-PARITY across in-process, node, and worker p
         code: 'auth/tenant-id-mismatch',
       });
 
+      auth.tenantId = 'org-beta';
+      const inProcBetaSignedIn = await signInWithEmailAndPassword(
+        auth,
+        'owner@org-beta.example',
+        'BetaPassword123!',
+      );
+      const inProcAlphaOther = getAuth(inProcSb);
+      inProcAlphaOther.tenantId = 'org-alpha';
+      await expect(
+        updateCurrentUser(inProcAlphaOther, inProcBetaSignedIn.user),
+      ).rejects.toMatchObject({ code: 'auth/tenant-id-mismatch' });
+
       const preservedInProc = authSandbox.listUsers(auth).find((u) => u.uid === 'u-beta');
       expect(preservedInProc).toMatchObject({
         email: 'owner@org-beta.example',
@@ -288,11 +280,24 @@ describe('multi-tenant Auth BACKEND-PARITY across in-process, node, and worker p
         tenantId: 'org-beta',
       });
 
-      // 2 & 3. Hosted Node and SharedWorker planes (acceptIdentity + staged signInWithCredential)
+      // 2 & 3. Hosted Node and SharedWorker planes (acceptIdentity + staged signInWithCredential + updateCurrentUser)
       for (const served of [node, worker]) {
         await served.adminCreate(betaSeed);
+        const betaClient = served.makeClient('beta-owner');
+        betaClient.auth.tenantId = 'org-beta';
+        const servedBetaSignedIn = await clientSignInWithEmailAndPassword(
+          betaClient.auth,
+          'owner@org-beta.example',
+          'BetaPassword123!',
+        );
+
         const alphaClient = served.makeClient('alpha-attacker');
         alphaClient.auth.tenantId = 'org-alpha';
+
+        await expect(
+          clientUpdateCurrentUser(alphaClient.auth, servedBetaSignedIn.user),
+        ).rejects.toMatchObject({ code: 'auth/tenant-id-mismatch' });
+        expect(alphaClient.auth.currentUser).toBeNull();
 
         await expect(
           acceptProviderCredential(alphaClient.auth, {

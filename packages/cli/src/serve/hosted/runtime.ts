@@ -3,13 +3,8 @@ import { aiDiagnosticPayloadFor } from '../ai-diagnostics-relay.js';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { createStorageByteRoute } from './storage-byte-route.js';
 import {
-  defaultBucketNames,
-  finishUploadSession,
-  openUploadSession,
-  seedDefaultBucketNames,
-  storeBucketOf,
-  uploadSessionOf,
-  uploadTokenOf,
+  defaultBucketNames, finishUploadSession, openUploadSession, seedDefaultBucketNames,
+  storeBucketOf, uploadSessionOf, uploadTokenOf,
 } from '../worker/host/storage.js';
 import type { ServeLogger } from '../server.js';
 import { fetchAiUpstream, resolveAiProxyUpstream } from '../ai-proxy.js';
@@ -52,7 +47,7 @@ import { sandboxToolEffect } from '../../bridge/tool-families.js';
 import { createSurfaceContext } from '../../bridge/surface/context.js';
 import { accountLookupFor } from '../../bridge/surface/app-session.js';
 import { CALLER_IDENTITY_ARG, SurfaceIdentity, type IdentityInput } from '../../bridge/surface/identity.js';
-import { impersonatedIdentity, type NamedIdentity } from '../../bridge/surface/stored-identity.js';
+import { resolveStoredUidIdentity } from '../../bridge/surface/stored-identity.js';
 import { callMethod } from '../../bridge/surface/method-call.js';
 import { methodByKey } from '../../bridge/surface/methods/registry.js';
 import type { OperationResult, SurfaceContext } from '../../bridge/surface/types.js';
@@ -844,14 +839,7 @@ export async function createHostedRuntime(
         let callContext: SurfaceContext = surfaceContext;
         if (callerIdentity !== undefined && typeof callerIdentity.mode === 'string') {
           const scopedIdentity = new SurfaceIdentity(accountLookupFor(sandbox));
-          let resolvedCaller: IdentityInput = callerIdentity;
-          if (callerIdentity.mode === 'uid' && typeof callerIdentity.uid === 'string' && callerIdentity.uid.length > 0) {
-            const named: NamedIdentity = {};
-            if (typeof callerIdentity.tenant === 'string') named.tenant = callerIdentity.tenant;
-            if (callerIdentity.claims !== undefined) named.claims = callerIdentity.claims;
-            resolvedCaller = impersonatedIdentity(surfaceContext, callerIdentity.uid, named);
-          }
-          scopedIdentity.switchTo(resolvedCaller);
+          scopedIdentity.switchTo(resolveStoredUidIdentity(surfaceContext, callerIdentity));
           callContext = { ...surfaceContext, identity: scopedIdentity };
         }
         let outcome: OperationResult;

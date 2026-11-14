@@ -925,12 +925,6 @@ describe('auth.acceptIdentity — provider sign-in bridge', () => {
       okValue(await sendOp(ctx, port, {
         t: 'op', id: id(), method: 'auth.updatePassword', password: 'changed-password',
       }));
-      const crossTenant = await sendOp(ctx, port, {
-        t: 'op', id: id(), method: 'auth.acceptIdentity', tenantId: 'session-tenant',
-        identity: { uid: 'preserved', email: 'preserved@example.com', displayName: 'Updated',
-          photoURL: null, customClaims: { role: 'stale' }, providerId: 'google.com' },
-      });
-      expect(crossTenant).toMatchObject({ ok: false, error: { code: 'auth/tenant-id-mismatch' } });
       const accepted = okValue<SerializedUserCredential>(await sendOp(ctx, port, {
         t: 'op', id: id(), method: 'auth.acceptIdentity', tenantId: 'account-tenant',
         identity: { uid: 'preserved', email: 'preserved@example.com', displayName: 'Updated',

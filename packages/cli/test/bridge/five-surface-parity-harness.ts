@@ -2,17 +2,25 @@
  * Shared MCP client/server harness and per-variant operation adapters for the
  * five-surface MCP entrypoint parity suite (`five-surface-entrypoint-parity.test.ts`).
  */
+import { createServer } from 'node:http';
+import type { AddressInfo } from 'node:net';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { createMemoryBackend, initializeSandbox, type LocalSandbox } from 'pyric/sandbox';
 
+import { resolveFirebaseProject } from '../../src/cli/firebase-project.js';
 import type { BridgeToolEvent } from '../../src/bridge/server/bridge.js';
 import { createLocalBridge } from '../../src/bridge/server/local-bridge.js';
 import { registerRenderedSurface } from '../../src/bridge/server/surface-server.js';
-import type { TargetRouter } from '../../src/bridge/server/target-router.js';
+import { TargetRouter } from '../../src/bridge/server/target-router.js';
 import { createSurfaceContext, renderSurface } from '../../src/bridge/surface/index.js';
 import { spellName, wordsFor } from '../../src/bridge/surface/render/method-words.js';
+import { createBridgeMount } from '../../src/serve/bridge-mount.js';
+import { readPyricConfigProjectSync } from '../../src/serve/live-project.js';
+import { createSandboxSession } from '../../src/serve/sandbox-session.js';
 
 export interface Envelope {
   ok: boolean;
@@ -65,6 +73,70 @@ export function makeInMemoryPersistence() {
     status: () => ({ state: 'healthy' as const }),
     onFailure: () => () => {},
     markUnhealthy() {},
+  };
+}
+
+export async function openHostedLoopbackBridge(projectDir: string): Promise<{
+  makeRouter(): TargetRouter;
+  close(): Promise<void>;
+}> {
+  const project = resolveFirebaseProject({
+    projectDir,
+    configProject: readPyricConfigProjectSync(projectDir),
+  });
+  const sandboxSession = await createSandboxSession({
+    projectDir,
+    firebaseConfig: JSON.parse(readFileSync(join(projectDir, 'firebase.json'), 'utf8')),
+    project,
+    capture: false,
+    sdk: { dir: projectDir },
+  });
+  const mount = createBridgeMount({
+    project: project.projectId ?? 'demo-project',
+    projectKey: projectDir,
+    hosted: true,
+    sessionToken: sandboxSession.sessionToken,
+    disableAuditLog: true,
+    upgradeGuard: { boundHost: '127.0.0.1' },
+  });
+  let baseUrl = 'http://127.0.0.1:0';
+  const httpServer = createServer(async (req, res) => {
+    const url = new URL(req.url ?? '/', baseUrl);
+    if (await mount.handler(req, res, url)) return;
+    if (await sandboxSession.handle(req, res, url)) return;
+    res.writeHead(404).end();
+  });
+  await new Promise<void>((resolveListen, rejectListen) => {
+    httpServer.once('error', rejectListen);
+    httpServer.listen(0, '127.0.0.1', () => {
+      httpServer.off('error', rejectListen);
+      resolveListen();
+    });
+  });
+  const port = (httpServer.address() as AddressInfo).port;
+  baseUrl = `http://127.0.0.1:${port}`;
+  mount.attachHost({
+    servers: [httpServer],
+    projectDir,
+    origin: () => ({ host: '127.0.0.1', port }),
+  });
+  await mount.startHostedSandbox(
+    {
+      ...sandboxSession.payload(),
+      hosted: true,
+      bridgeUrl: mount.wsUrl({ host: '127.0.0.1', port }),
+    },
+    () => baseUrl,
+    { persistence: makeInMemoryPersistence() as never, record: false },
+  );
+  return {
+    makeRouter: () => new TargetRouter({ projectDir, cacheTtlMs: 0 }),
+    async close() {
+      await mount.close();
+      await sandboxSession.close();
+      httpServer.closeAllConnections();
+      await new Promise<void>((r) => httpServer.close(() => r()));
+    },
   };
 }
 

@@ -25,7 +25,8 @@ import {
   type DeferredApi,
   type DeferredMembers,
 } from 'pyric/app/internal';
-import { getApp, type PyricAdminApp } from './app/index.js';
+import type { PyricAdminApp } from './app/index.js';
+import { getDefaultServiceApp } from './app/default-service-app.js';
 import { assertAdminAppActive } from './app/lifecycle.js';
 
 export { PyricDeferredApiError };
@@ -52,7 +53,7 @@ export function deferredAdminEntry(subpath: string): Record<string, DeferredApi>
 
 /** Resolve the default or explicit admin `App` and assert it has not been deleted. */
 export function resolveActiveAdminApp(app?: PyricAdminApp): PyricAdminApp {
-  const resolved = app ?? getApp();
+  const resolved = app ?? getDefaultServiceApp();
   assertAdminAppActive(resolved);
   return resolved;
 }

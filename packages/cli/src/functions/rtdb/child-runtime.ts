@@ -4,6 +4,7 @@
  * the discovered `onValueCreated` handlers and reports each run to the host.
  */
 import { randomUUID } from 'node:crypto';
+import { REMOTE_SANDBOX_FACTORY } from 'pyric/sandbox';
 import { parsePyricSandbox } from 'pyric/sandbox/internal';
 import type { WorkerOpPayload, WorkerSubPayload } from '../../bridge/protocol.js';
 import {
@@ -38,9 +39,8 @@ export interface RtdbChildRuntimeOptions {
  * module code runs.
  */
 export function connectAmbientRuntimeSandbox(env: NodeJS.ProcessEnv = process.env): RemoteSandbox {
-  const key = Symbol.for('pyric.remote.sandboxFactory');
   const global = globalThis as Record<symbol, unknown>;
-  const factory = global[key] as ((options?: { url?: string }) => RemoteSandbox) | undefined;
+  const factory = global[REMOTE_SANDBOX_FACTORY] as ((options?: { url?: string }) => RemoteSandbox) | undefined;
   if (typeof factory !== 'function') {
     throw new Error('Functions child is missing the installed remote sandbox factory');
   }
@@ -66,11 +66,10 @@ async function sandboxNow(sandbox: RemoteSandbox): Promise<number> {
  * reaches the default instance.
  */
 export function serveInstanceAsDefault(name: string): void {
-  const key = Symbol.for('pyric.remote.sandboxFactory');
   const global = globalThis as Record<symbol, unknown>;
-  const factory = global[key] as ((options?: { url?: string }) => RemoteSandbox) | undefined;
+  const factory = global[REMOTE_SANDBOX_FACTORY] as ((options?: { url?: string }) => RemoteSandbox) | undefined;
   if (typeof factory !== 'function') return;
-  global[key] = (options?: { url?: string }): RemoteSandbox => {
+  global[REMOTE_SANDBOX_FACTORY] = (options?: { url?: string }): RemoteSandbox => {
     const inner = factory(options);
     return createRemoteSandboxHandle({
       channel: aliasDefaultInstance(inner.channel, name),

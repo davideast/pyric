@@ -241,6 +241,113 @@ describe('functions-child-runner isolated execution', () => {
     }
   });
 
+  it('supports try/catch getApp(), onInit(initializeApp(options)), cold-start handler initializeApp(options), and no-arg getDatabase() without pre-claiming [DEFAULT]', async () => {
+    const runVariant = async (
+      label: string,
+      moduleLines: string[],
+    ): Promise<Record<string, unknown>> => {
+      const dir = mkdtempSync(join(tmpdir(), `pyric-fn-init-${label}-`));
+      const fnDir = join(dir, 'functions');
+      mkdirSync(fnDir, { recursive: true });
+      symlinkSync(
+        resolve(import.meta.dir, '../../../../conformance/node_modules'),
+        join(fnDir, 'node_modules'),
+        'dir',
+      );
+      writeFileSync(join(dir, '.firebaserc'), JSON.stringify({ projects: { default: 'org-alpha' } }));
+      writeFileSync(join(dir, 'firebase.json'), JSON.stringify({ functions: { source: 'functions' } }));
+      writeFileSync(
+        join(fnDir, 'package.json'),
+        JSON.stringify({ name: `fn-${label}`, type: 'module', main: 'index.mjs' }),
+      );
+      writeFileSync(join(fnDir, 'index.mjs'), moduleLines.join('\n'));
+      const sandbox = initializeSandbox();
+      try {
+        const ctx = createSurfaceContext(sandbox, dir);
+        const outcome = await fireFunctionsTriggerIsolated(ctx, {
+          triggerName: 'onItemCreated',
+          path: 'items/i1',
+          ref: 'items/i1',
+          value: 'payload',
+          timeoutMs: 10_000,
+          onFiring() {},
+        });
+        expect(outcome.kind).toBe('executed');
+        if (outcome.kind !== 'executed' || outcome.status !== 'fulfilled') {
+          throw new Error(`unexpected ${label} outcome: ${JSON.stringify(outcome)}`);
+        }
+        return outcome.result as Record<string, unknown>;
+      } finally {
+        sandbox.dispose();
+        rmSync(dir, { recursive: true, force: true });
+      }
+    };
+
+    const tryCatchResult = await runVariant('try-catch', [
+      "import { getApp, initializeApp } from 'firebase-admin/app';",
+      "import { getStorage } from 'firebase-admin/storage';",
+      "import { onValueCreated } from 'firebase-functions/v2/database';",
+      'let getAppThrew = false;',
+      'try { getApp(); } catch { getAppThrew = true; initializeApp({ storageBucket: "archive-bucket" }); }',
+      "export const onItemCreated = onValueCreated('/items/{itemId}', async () => ({",
+      '  getAppThrew,',
+      '  bucketOption: getApp().options.storageBucket ?? null,',
+      '  bucketName: getStorage().bucket().name,',
+      '}));',
+    ]);
+    expect(tryCatchResult).toEqual({
+      getAppThrew: true,
+      bucketOption: 'archive-bucket',
+      bucketName: 'archive-bucket',
+    });
+
+    const onInitResult = await runVariant('on-init', [
+      "import { getApp, initializeApp } from 'firebase-admin/app';",
+      "import { getStorage } from 'firebase-admin/storage';",
+      "import { onInit } from 'firebase-functions/v2/core';",
+      "import { onValueCreated } from 'firebase-functions/v2/database';",
+      'onInit(() => { initializeApp({ storageBucket: "oninit-bucket" }); });',
+      "export const onItemCreated = onValueCreated('/items/{itemId}', async () => ({",
+      '  bucketOption: getApp().options.storageBucket ?? null,',
+      '  bucketName: getStorage().bucket().name,',
+      '}));',
+    ]);
+    expect(onInitResult).toEqual({
+      bucketOption: 'oninit-bucket',
+      bucketName: 'oninit-bucket',
+    });
+
+    const handlerInitResult = await runVariant('handler-init', [
+      "import { getApp, initializeApp } from 'firebase-admin/app';",
+      "import { getStorage } from 'firebase-admin/storage';",
+      "import { onValueCreated } from 'firebase-functions/v2/database';",
+      "export const onItemCreated = onValueCreated('/items/{itemId}', async () => {",
+      '  initializeApp({ storageBucket: "handler-bucket" });',
+      '  return {',
+      '    bucketOption: getApp().options.storageBucket ?? null,',
+      '    bucketName: getStorage().bucket().name,',
+      '  };',
+      '});',
+    ]);
+    expect(handlerInitResult).toEqual({
+      bucketOption: 'handler-bucket',
+      bucketName: 'handler-bucket',
+    });
+
+    const noInitResult = await runVariant('no-init-service', [
+      "import { getDatabase } from 'firebase-admin/database';",
+      "import { getFirestore } from 'firebase-admin/firestore';",
+      "import { onValueCreated } from 'firebase-functions/v2/database';",
+      "export const onItemCreated = onValueCreated('/items/{itemId}', async (event) => {",
+      "  await getDatabase().ref('/echo/' + event.params.itemId).set(event.data.val());",
+      "  await getFirestore().doc('echo/' + event.params.itemId).set({ ok: true });",
+      "  const snap = await getDatabase().ref('/echo/' + event.params.itemId).get();",
+      '  return { echoed: snap.val() };',
+      '});',
+    ]);
+    expect(noInitResult).toEqual({ echoed: 'payload' });
+  });
+
   it('bridges Worker threads spawned inside in-process functions.fire back to ctx.sandbox', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'pyric-fn-runner-worker-'));
     const fnDir = join(dir, 'functions');

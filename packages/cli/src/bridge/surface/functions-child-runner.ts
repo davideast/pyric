@@ -7,7 +7,8 @@
  * loads real `firebase-admin` / `@google-cloud/*`, sees host ADC credentials,
  * or reuses stale module cache entries across edits.
  */
-import { initializeSandbox } from 'pyric/sandbox';
+import { REMOTE_SANDBOX_FACTORY, initializeSandbox } from 'pyric/sandbox';
+import { LAZY_DEFAULT_AMBIENT_APP } from 'pyric/sandbox/internal';
 import { httpOnRequestFamily } from '../../functions/http/discovery.js';
 import { loadFunctionsModuleExports } from '../../functions/module-loader.js';
 import { serveInstanceAsDefault } from '../../functions/rtdb/child-runtime.js';
@@ -70,8 +71,6 @@ export type FunctionsRunnerReply =
 export type FunctionsParentToChild = FunctionsRunnerRequest;
 
 export const FUNCTIONS_RUNNER_CHILD_ENV = 'PYRIC_FUNCTIONS_RUNNER_CHILD';
-const SANDBOX_FACTORY = Symbol.for('pyric.remote.sandboxFactory');
-const LAZY_DEFAULT_AMBIENT = Symbol.for('pyric.admin.app.lazyDefaultAmbient');
 const DEFAULT_LOCATION = 'us-central1';
 
 function serializeTrigger(trigger: {
@@ -101,7 +100,7 @@ function sendReply(message: FunctionsRunnerReply): Promise<void> {
 
 function installLocalFallbackFactory(): () => void {
   const local = initializeSandbox();
-  (globalThis as Record<symbol, unknown>)[SANDBOX_FACTORY] = () => local;
+  (globalThis as Record<symbol, unknown>)[REMOTE_SANDBOX_FACTORY] = () => local;
   return () => {
     local.dispose();
   };
@@ -116,7 +115,7 @@ async function handleRunnerRequest(req: FunctionsRunnerRequest): Promise<void> {
 
   const { getApps, deleteApp, isSandboxAdminApp } = await import('pyric-admin/app');
   serveInstanceAsDefault(req.defaultInstance);
-  (globalThis as Record<symbol, unknown>)[LAZY_DEFAULT_AMBIENT] = true;
+  (globalThis as Record<symbol, unknown>)[LAZY_DEFAULT_AMBIENT_APP] = true;
   const keepAlive = setInterval(() => {}, 60_000);
 
   try {
@@ -180,7 +179,7 @@ async function handleRunnerRequest(req: FunctionsRunnerRequest): Promise<void> {
     }
   } finally {
     clearInterval(keepAlive);
-    delete (globalThis as Record<symbol, unknown>)[LAZY_DEFAULT_AMBIENT];
+    delete (globalThis as Record<symbol, unknown>)[LAZY_DEFAULT_AMBIENT_APP];
     const registeredApps = getApps();
     for (const app of registeredApps) {
       if (isSandboxAdminApp(app) && 'close' in app.sandbox && typeof app.sandbox.close === 'function') {

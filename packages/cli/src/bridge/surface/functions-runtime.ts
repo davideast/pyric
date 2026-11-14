@@ -20,14 +20,12 @@ import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { getClock } from 'pyric/sandbox';
 import { buildChildEnv, registerModuleUrl } from '../../cli/sandbox-runner.js';
-import { resolveFirebaseProject } from '../../cli/firebase-project.js';
 import { discoverFunctionsProject } from '../../functions/project.js';
 import type {
   DiscoveredOnValueCreated,
   UnsupportedOnValueCreated,
 } from '../../functions/rtdb/discovery.js';
 import { buildFunctionsChildEnv, resolveChildDatabaseHost } from '../../functions/spawn.js';
-import { readPyricConfigProjectSync } from '../../serve/live-project.js';
 import { resolveProjectAndDefaultInstance } from './database-instance-project.js';
 import {
   FUNCTIONS_RUNNER_CHILD_ENV,
@@ -246,13 +244,10 @@ export async function fireFunctionsTriggerIsolated(
   const project = discoverFunctionsProject(ctx.projectDir);
   if (project === null) return { kind: 'not-found' };
 
-  const projectId =
-    resolveFirebaseProject({
-      projectDir: ctx.projectDir,
-      configProject: readPyricConfigProjectSync(ctx.projectDir),
-    }).projectId ?? 'demo-project';
+  const resolvedProject = await resolveProjectAndDefaultInstance(ctx.projectDir);
+  const projectId = resolvedProject.projectId;
   const configuredDefaultInstance = (await ctx.databaseInstances()).known().defaultInstance;
-  const defaultInstance = configuredDefaultInstance ?? `${projectId}-default-rtdb`;
+  const defaultInstance = configuredDefaultInstance ?? resolvedProject.defaultInstance;
   const databaseHost = resolveChildDatabaseHost();
   let ephemeralHost: EphemeralFunctionsHost | undefined;
   let activeHost = ctx.functionsHost;

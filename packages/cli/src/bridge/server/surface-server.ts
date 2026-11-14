@@ -19,9 +19,14 @@
 import { z } from 'zod';
 import { createOperationBudget } from '../operation-budget.js';
 import { McpServer, ResourceTemplate } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { ReadResourceRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 import type { Bridge, BridgeToolEvent } from './bridge.js';
 import { jsonSchemaToZodShape } from './json-schema-to-zod.js';
 import { observeRejectedCalls, toMcpResult, type RejectedToolCall } from './mcp.js';
+import {
+  hasDotPathSegment,
+  parseResourceUri,
+} from '../surface/render/discriminator-resources.js';
 import {
   DENIED_BY_RULES_CODE,
   LINT_FINDINGS_CODE,
@@ -262,6 +267,113 @@ function registerResource(
   );
 }
 
+type ReadResourceInvocation = (request: unknown, extra: object) => Promise<unknown>;
+
+function rawPathFromUri(rawUri: string): string {
+  const schemeSep = rawUri.indexOf('://');
+  if (schemeSep < 0) return rawUri;
+  const pathSlash = rawUri.indexOf('/', schemeSep + 3);
+  if (pathSlash < 0) return '';
+  return rawUri.slice(pathSlash + 1).split(/[?#]/)[0] ?? '';
+}
+
+function interceptRawResourceUri(
+  resources: readonly RenderedResource[],
+  rawUri: string,
+): { toolName: string; read: (uri: string, ctx: SurfaceContext) => Promise<OperationResult> } | null {
+  for (const resource of resources) {
+    const parsed = parseResourceUri(resource.uriTemplate, rawUri);
+    if (parsed.status === 'malformed') {
+      return { toolName: resource.name, read: (u, c) => resource.read(u, c) };
+    }
+  }
+  const rawPath = rawPathFromUri(rawUri);
+  if (rawPath.length === 0) return null;
+  try {
+    if (!hasDotPathSegment(rawPath)) return null;
+    return {
+      toolName: 'resource_read',
+      read: async (u) => ({
+        ok: false,
+        summary: `Path traversal segments ('.' or '..') are not allowed in resource URI '${u}'.`,
+        data: { code: 'invalid_arguments' },
+      }),
+    };
+  } catch {
+    return {
+      toolName: 'resource_read',
+      read: async (u) => ({
+        ok: false,
+        summary: `Invalid percent-encoded resource URI '${u}'.`,
+        data: { code: 'invalid_arguments' },
+      }),
+    };
+  }
+}
+
+/**
+ * Intercept `resources/read` before `@modelcontextprotocol/sdk` constructs
+ * `new URL(request.params.uri)` so raw `.` / `..` / `%2e%2e` dot-segments and
+ * malformed `%` sequences are rejected with `invalid_arguments` rather than
+ * silently normalized away by WHATWG URL resolution.
+ */
+function guardRawResourceReads(
+  server: McpServer,
+  bridge: Bridge,
+  surface: RenderedSurface,
+  resources: readonly RenderedResource[],
+  ctx: SurfaceContext,
+  options: RegisterRenderedSurfaceOptions,
+  budget: ReturnType<typeof createOperationBudget>,
+): void {
+  const inner = server.server as unknown as {
+    setRequestHandler: (schema: unknown, handler: ReadResourceInvocation) => void;
+  };
+  const registerHandler = inner.setRequestHandler.bind(inner);
+  inner.setRequestHandler = (schema: unknown, handler: ReadResourceInvocation): void => {
+    if (schema !== ReadResourceRequestSchema) {
+      registerHandler(schema, handler);
+      return;
+    }
+    registerHandler(schema, async (request: unknown, extra: object) => {
+      const rawUri = (request as { params?: { uri?: unknown } }).params?.uri;
+      if (typeof rawUri === 'string') {
+        const intercepted = interceptRawResourceUri(resources, rawUri);
+        if (intercepted !== null) {
+          const startedAtMs = Date.now();
+          const args: Record<string, unknown> = { uri: rawUri };
+          const result = await executeAdmitted(
+            budget,
+            intercepted.toolName,
+            args,
+            () => intercepted.read(rawUri, ctx),
+          );
+          const resolved = surface.resolve(intercepted.toolName, args);
+          const target = ctx.targetRouter?.getCurrentTarget() ?? 'in-process';
+          const mode = ctx.targetRouter?.getCurrentMode?.() ?? 'sandbox';
+          recordCall(bridge, {
+            tool: intercepted.toolName,
+            args,
+            result,
+            startedAtMs,
+            operation: resolved.operation,
+            action: resolved.action,
+            mode,
+          });
+          options.onAfterCall?.();
+          const body = { ...result, _pyric: { mode, project: bridge.project, target } };
+          return {
+            contents: [
+              { uri: rawUri, mimeType: RESOURCE_MIME_TYPE, text: JSON.stringify(body, null, 2) },
+            ],
+          };
+        }
+      }
+      return handler(request, extra);
+    });
+  };
+}
+
 /**
  * Register every rendered tool and resource template of one surface. The
  * rejection observer is installed first, because the SDK installs the
@@ -290,7 +402,11 @@ export function registerRenderedSurface(
   for (const tool of surface.tools) {
     registerTool(server, bridge, surface, tool, ctx, options, markHandlerRan, budget);
   }
-  for (const resource of surface.resources ?? []) {
+  const resources = surface.resources ?? [];
+  if (resources.length > 0) {
+    guardRawResourceReads(server, bridge, surface, resources, ctx, options, budget);
+  }
+  for (const resource of resources) {
     registerResource(server, bridge, surface, resource, ctx, options, budget);
   }
   return server;

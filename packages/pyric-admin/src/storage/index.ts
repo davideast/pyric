@@ -86,10 +86,10 @@ import {
 
 import {
   ADMIN_APP_TARGET,
-  getApp,
   type PyricAdminApp,
   type SandboxAdminApp,
 } from '../app/index.js';
+import { getDefaultServiceApp } from '../app/default-service-app.js';
 import { assertAdminAppActive } from '../app/lifecycle.js';
 import { defineDeferredMembers } from 'pyric/app/internal';
 import { BUCKET_DEFERRED_MEMBERS, FILE_DEFERRED_MEMBERS } from './deferred-members.js';
@@ -351,7 +351,7 @@ export type StorageApp = PyricAdminApp;
 export function getStorage(app?: StorageApp): Storage {
   // No-arg call resolves the default app; nothing initialized → captured
   // `app/no-app` FirebaseAppError (see pyric-admin/app getApp).
-  const resolved: PyricAdminApp = app === undefined ? getApp() : (app as PyricAdminApp);
+  const resolved: PyricAdminApp = app ?? getDefaultServiceApp();
   assertAdminAppActive(resolved);
   if (resolved[ADMIN_APP_TARGET] === 'sandbox') {
     // Remote brand checked BEFORE the local arm (same dispatch order as

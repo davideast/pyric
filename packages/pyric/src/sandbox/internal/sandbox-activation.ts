@@ -42,3 +42,10 @@ export function parsePyricSandbox(value: string | undefined): PyricSandboxActiva
 export function isRemoteActivation(value: string | undefined): boolean {
   return parsePyricSandbox(value).mode === 'remote';
 }
+
+/**
+ * Process-global symbol set by isolated Functions child runtimes so no-arg
+ * `pyric-admin` service factories lazily initialize `[DEFAULT]` without
+ * pre-claiming `[DEFAULT]` before user module code or `onInit(...)` runs.
+ */
+export const LAZY_DEFAULT_AMBIENT_APP = Symbol.for('pyric.admin.app.lazyDefaultAmbient');

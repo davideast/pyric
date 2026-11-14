@@ -21,6 +21,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { databaseRulesTargets, formatUnresolvedDatabaseTargets, loadProjectDatabaseRules } from '../../src/serve/rules.js';
 import { FIREBASE_PROJECT_SOURCES_TRIED, resolveFirebaseProject } from '../../src/cli/firebase-project.js';
+import { startServe } from '../../src/cli/serve.js';
 import { UNNAMED_DEFAULT_DATABASE_INSTANCE } from 'pyric/sandbox/internal';
 import type { FirebaseJson, FirebaseRc } from '../../src/cli/firebase-json.js';
 
@@ -102,6 +103,38 @@ describe('firebase.json database: array of instances', () => {
     expect([...loaded.declared]).toEqual(['first-instance', 'second-instance']);
     expect(loaded.instances.get('first-instance')?.rules).toEqual(FIRST_RULES);
     expect(loaded.instances.get('second-instance')?.rules).toEqual(SECOND_RULES);
+  });
+
+  test('selects a sole declared database array instance as defaultInstance when projectId is resolved', async () => {
+    const dir = project();
+    const loaded = await loadProjectDatabaseRules(dir, config([
+      { instance: 'custom-rtdb', rules: 'first.rules.json' },
+    ]), { projectId: 'demo' });
+    expect(loaded.defaultInstance).toBe('custom-rtdb');
+    expect(loaded.instances.get('custom-rtdb')?.rules).toEqual(FIRST_RULES);
+
+    writeFileSync(join(dir, 'pyric.json'), JSON.stringify({ project: 'org-alpha' }));
+    writeFileSync(
+      join(dir, 'firebase.json'),
+      JSON.stringify({ database: [{ instance: 'custom-rtdb', rules: 'first.rules.json' }] }),
+    );
+    const runtime = await startServe({
+      cwd: dir,
+      port: 0,
+      host: '127.0.0.1',
+      capture: false,
+      logger: { info() {}, note() {} },
+    });
+    try {
+      const initRes = await fetch(`${runtime.handle.url}/__pyric/init.json`);
+      const initJson = (await initRes.json()) as {
+        databaseInstances?: { defaultInstance?: string; projectId?: string };
+      };
+      expect(initJson.databaseInstances?.projectId).toBe('org-alpha');
+      expect(initJson.databaseInstances?.defaultInstance).toBe('custom-rtdb');
+    } finally {
+      await runtime.handle.stop();
+    }
   });
 
   test('skips an entry without rules', () => {

@@ -46,8 +46,13 @@ import { sandboxTokenFor } from './sandbox-token.js';
 import { validateEmailFormat, validatePasswordStrength } from './sandbox-credential-validators.js';
 import {
   assertMatchingTenant,
+  createTenantEmailPasswordAccount,
+  linkTenantEmailIdentity,
+  moveStoredUserEmail,
   normalizeTenantScope,
   tenantEmailKey,
+  unindexStoredUserEmail,
+  upsertTenantEmailLinkAccount,
 } from './sandbox/tenant-isolation.js';
 import {
   accountStanding,
@@ -1201,16 +1206,7 @@ export class SandboxBackend {
   ): StoredUser {
     validateEmailFormat(toEmail);
     const stored = this.requireByEmail(fromEmail, tenantId);
-    const targetTenant = normalizeTenantScope(stored.tenantId);
-    const toKey = tenantEmailKey(targetTenant, toEmail);
-    const existing = this.usersByEmail.get(toKey);
-    if (existing && existing.uid !== stored.uid) {
-      throw makeAuthError('auth/email-already-in-use', `An account already exists for ${toEmail}.`);
-    }
-    if (stored.email) this.usersByEmail.delete(tenantEmailKey(targetTenant, stored.email));
-    stored.email = toEmail;
-    stored.emailVerified = true;
-    this.usersByEmail.set(toKey, stored);
+    moveStoredUserEmail(this.usersByEmail, stored, toEmail);
     this.notifyUsersChanged();
     this.emitAuthEvent('user_update', {
       path: stored.uid,
@@ -1233,38 +1229,22 @@ export class SandboxBackend {
     email: string,
     tenantId: string | null = this.tenantId,
   ): { stored: StoredUser; isNewUser: boolean } {
-    validateEmailFormat(email);
-    const normalizedTenant = normalizeTenantScope(tenantId);
-    const key = tenantEmailKey(normalizedTenant, email);
-    const existing = this.usersByEmail.get(key);
-    const hasAccount = existing !== undefined;
-    if (hasAccount) {
-      const needsPasswordProvider = !existing.providerUserInfo.some((p) => p.providerId === 'password');
-      if (needsPasswordProvider) {
-        existing.providerUserInfo.push({ providerId: 'password' });
-      }
-      // Redeeming a link mailed to this address proves control of it.
-      existing.emailVerified = true;
-      this.notifyUsersChanged();
-      return { stored: existing, isNewUser: false };
-    }
-    // Email punctuation is invalid in common UID-keyed RTDB paths.
-    const uid = `email-${globalThis.crypto.randomUUID()}`;
-    const record = this.makeStored({
-      uid,
+    const result = upsertTenantEmailLinkAccount({
+      usersByEmail: this.usersByEmail,
+      usersByUid: this.usersByUid,
       email,
-      tenantId: normalizedTenant,
-      // No password: an account born from an email link has never had
-      // one set. `signInWithEmailAndPassword` for it fails, exactly as it
-      // would in prod, until the user sets a password.
-      providerUserInfo: [{ providerId: 'password' }],
+      tenantId,
+      buildAccount: (fields) => this.makeStored(fields),
     });
-    record.emailVerified = true;
-    this.usersByEmail.set(key, record);
-    this.usersByUid.set(uid, record);
     this.notifyUsersChanged();
-    this.emitAuthEvent('user_create', { path: uid, after: this.toRecord(record), detail: { emailLink: true } });
-    return { stored: record, isNewUser: true };
+    if (result.isNewUser) {
+      this.emitAuthEvent('user_create', {
+        path: result.stored.uid,
+        after: this.toRecord(result.stored),
+        detail: { emailLink: true },
+      });
+    }
+    return result;
   }
 
   // ─── Account linking / unlinking ────────────────────────────────────
@@ -1301,29 +1281,7 @@ export class SandboxBackend {
         `User can only be linked to one identity for the given provider (${providerId}).`,
       );
     }
-    const email = identity?.email;
-    if (email) {
-      validateEmailFormat(email);
-      const targetTenant = normalizeTenantScope(stored.tenantId);
-      const key = tenantEmailKey(targetTenant, email);
-      const owner = this.usersByEmail.get(key);
-      if (owner && owner.uid !== uid) {
-        throw makeAuthError(
-          'auth/email-already-in-use',
-          `An account already exists for ${email}.`,
-        );
-      }
-      if (identity.password !== undefined && identity.password !== null) {
-        validatePasswordStrength(identity.password);
-        stored.password = identity.password;
-      }
-      if (stored.email && stored.email.toLowerCase() !== email.toLowerCase()) {
-        this.usersByEmail.delete(tenantEmailKey(targetTenant, stored.email));
-      }
-      stored.email = email;
-      this.usersByEmail.set(key, stored);
-      if (identity.emailVerified !== undefined) stored.emailVerified = identity.emailVerified;
-    }
+    linkTenantEmailIdentity(this.usersByEmail, stored, identity);
     stored.providerUserInfo.push({ providerId });
     // The upgrade: an identity that now carries a real provider is no
     // longer anonymous, and it keeps its uid.
@@ -1389,36 +1347,16 @@ export class SandboxBackend {
     password: string,
     tenantId: string | null = this.tenantId,
   ): StoredUser {
-    // Validate format BEFORE checking duplicates so an attacker can't
-    // enumerate seeded emails by varying the malformed-vs-valid shape.
-    // Matches prod's order — the format error fires before any lookup
-    // against the user DB.
-    validateEmailFormat(email);
-    validatePasswordStrength(password);
-    const normalizedTenant = normalizeTenantScope(tenantId);
-    const key = tenantEmailKey(normalizedTenant, email);
-    const emailInUse = this.usersByEmail.has(key);
-    if (emailInUse) {
-      throw makeAuthError(
-        'auth/email-already-in-use',
-        `An account already exists for ${email}.`,
-      );
-    }
-    // Email punctuation is invalid in common UID-keyed RTDB paths.
-    const uid = `email-${globalThis.crypto.randomUUID()}`;
-    const record = this.makeStored({
-      uid,
+    const record = createTenantEmailPasswordAccount({
+      usersByEmail: this.usersByEmail,
+      usersByUid: this.usersByUid,
       email,
       password,
-      tenantId: normalizedTenant,
-      providerUserInfo: [{ providerId: 'password' }],
+      tenantId,
+      buildAccount: (fields) => this.makeStored(fields),
     });
-    this.usersByEmail.set(key, record);
-    this.usersByUid.set(uid, record);
     this.notifyUsersChanged();
-    // App-driven create (createUserWithEmailAndPassword) — the acting
-    // identity is whoever is currently signed in (usually null/anonymous).
-    this.emitAuthEvent('user_create', { path: uid, after: this.toRecord(record) });
+    this.emitAuthEvent('user_create', { path: record.uid, after: this.toRecord(record) });
     return record;
   }
 
@@ -2017,12 +1955,7 @@ export class SandboxBackend {
           `An account already exists for ${update.email}.`,
         );
       }
-      if (stored.email) {
-        const oldKey = tenantEmailKey(targetTenant, stored.email);
-        if (this.usersByEmail.get(oldKey) === stored) {
-          this.usersByEmail.delete(oldKey);
-        }
-      }
+      unindexStoredUserEmail(this.usersByEmail, stored);
       stored.email = update.email;
       this.usersByEmail.set(tenantEmailKey(targetTenant, update.email), stored);
     }
@@ -2071,12 +2004,7 @@ export class SandboxBackend {
     // A held session's next refresh is refused, as production's is, even
     // after the uid is created again.
     recordDeletion(this.projectStore, uid, this.now().getTime());
-    if (stored.email) {
-      const oldKey = tenantEmailKey(stored.tenantId, stored.email);
-      if (this.usersByEmail.get(oldKey) === stored) {
-        this.usersByEmail.delete(oldKey);
-      }
-    }
+    unindexStoredUserEmail(this.usersByEmail, stored);
     // The held ID token stays cached: production's client keeps answering
     // getIdToken() with it until its refresh point, and the refresh is refused.
     this.signInProviderByUid.delete(uid);

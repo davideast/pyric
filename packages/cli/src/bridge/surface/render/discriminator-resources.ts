@@ -143,10 +143,30 @@ export const RESOURCE_ROUTES: readonly ResourceRoute[] = [
   },
 ];
 
+function isDotSegment(segment: string): boolean {
+  return segment === '.' || segment === '..';
+}
+
+/**
+ * Return `true` when `rawValue` contains any `.` or `..` path traversal segment
+ * either before or after single RFC 3986 percent-decoding. Throws `URIError`
+ * when `rawValue` contains a malformed percent sequence.
+ */
+export function hasDotPathSegment(rawValue: string): boolean {
+  for (const segment of rawValue.split(/\/|%2f/i)) {
+    if (isDotSegment(segment)) return true;
+    if (isDotSegment(decodeURIComponent(segment))) return true;
+  }
+  for (const segment of decodeURIComponent(rawValue).split('/')) {
+    if (isDotSegment(segment)) return true;
+  }
+  return false;
+}
+
 /**
  * Parse and RFC 3986 percent-decode template parameters from a resource URI.
- * Malformed percent sequences return `{ status: 'malformed' }` rather than
- * throwing an unhandled `URIError`.
+ * Malformed percent sequences or `.` / `..` traversal segments return
+ * `{ status: 'malformed' }` rather than throwing or traversing parent paths.
  */
 export function parseResourceUri(uriTemplate: string, uri: string): ParsedResourceUri {
   const opening = uriTemplate.indexOf('{');
@@ -159,6 +179,12 @@ export function parseResourceUri(uriTemplate: string, uri: string): ParsedResour
   if (!uri.startsWith(prefix)) return { status: 'unmatched' };
   const rawValue = uri.slice(prefix.length);
   try {
+    if (hasDotPathSegment(rawValue)) {
+      return {
+        status: 'malformed',
+        message: `Path traversal segments ('.' or '..') are not allowed in resource URI '${uri}'.`,
+      };
+    }
     return { status: 'matched', params: { [parameter]: decodeURIComponent(rawValue) } };
   } catch {
     return {

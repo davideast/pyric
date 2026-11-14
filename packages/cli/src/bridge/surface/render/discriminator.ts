@@ -10,7 +10,7 @@
  * handler, so the same code runs here as under every other variant.
  */
 import { toJsonSchema } from '../json-schema.js';
-import { impersonatedIdentity, type NamedIdentity } from '../stored-identity.js';
+import { resolveStoredUidIdentity } from '../stored-identity.js';
 import type {
   OperationResult,
   RenderedResource,
@@ -71,13 +71,7 @@ async function runUnderCallIdentity(
   if (override === null) {
     return runCanonicalOperation(operation, translated, ctx, allowProduction);
   }
-  let localOverride: CallIdentity = override;
-  if (override.mode === 'uid' && typeof override.uid === 'string' && override.uid.length > 0) {
-    const named: NamedIdentity = {};
-    if (override.tenant !== undefined) named.tenant = override.tenant;
-    if (override.claims !== undefined) named.claims = override.claims;
-    localOverride = impersonatedIdentity(ctx, override.uid, named) as CallIdentity;
-  }
+  const localOverride = resolveStoredUidIdentity(ctx, override) as CallIdentity;
   const scopedCtx: SurfaceContext = {
     ...ctx,
     identity: ctx.identity.cloneWith(localOverride),

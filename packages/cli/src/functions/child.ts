@@ -4,6 +4,7 @@
  * starts each trigger family, and reports ready to the host over IPC.
  */
 import { createRequire } from 'node:module';
+import { LAZY_DEFAULT_AMBIENT_APP } from 'pyric/sandbox/internal';
 import { disconnectFromHost, sendToHost } from './child-ipc.js';
 import {
   HEARTBEAT_INTERVAL_MS,
@@ -83,8 +84,7 @@ async function runFunctionsChild(): Promise<void> {
   const requireFromEntry = createRequire(entry);
   const adminApp = requireFromEntry('firebase-admin/app') as AdminAppModule;
   serveInstanceAsDefault(instance);
-  const lazyDefaultKey = Symbol.for('pyric.admin.app.lazyDefaultAmbient');
-  (globalThis as Record<symbol, unknown>)[lazyDefaultKey] = true;
+  (globalThis as Record<symbol, unknown>)[LAZY_DEFAULT_AMBIENT_APP] = true;
   const runtimeSandbox = connectAmbientRuntimeSandbox(process.env);
   let host: OnValueCreatedExecutionHost | undefined;
   let httpServer: HttpChildServer | undefined;
@@ -98,7 +98,7 @@ async function runFunctionsChild(): Promise<void> {
       await httpServer?.close();
       host?.close();
       await host?.idle();
-      delete (globalThis as Record<symbol, unknown>)[lazyDefaultKey];
+      delete (globalThis as Record<symbol, unknown>)[LAZY_DEFAULT_AMBIENT_APP];
       runtimeSandbox.close();
       const apps = adminApp.getApps();
       for (const app of apps) {

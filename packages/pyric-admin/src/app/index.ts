@@ -14,7 +14,11 @@ import {
 import { parsePyricSandbox, processActivation } from 'pyric/sandbox/internal';
 import { readFileSync } from 'node:fs';
 
-import { assertAdminAppActive, markAdminAppDeleted } from './lifecycle.js';
+import {
+  IMPLICIT_DEFAULT_APPS,
+  assertAdminAppActive,
+  markAdminAppDeleted,
+} from './lifecycle.js';
 import { keepAppCredentialProjectId, keepCredentialProjectId } from './project-id.js';
 
 /** Brand carried by every sandbox admin app. */
@@ -96,15 +100,15 @@ class FirebaseAppError extends Error {
 // the same default app and sandbox handle.
 const APP_REGISTRY = Symbol.for('pyric.admin.app.registry');
 const AMBIENT_APPS = Symbol.for('pyric.admin.app.ambientApps');
-const LAZY_DEFAULT_AMBIENT = Symbol.for('pyric.admin.app.lazyDefaultAmbient');
 interface GlobalAppRegistry {
   [APP_REGISTRY]?: Map<string, PyricAdminApp>;
   [AMBIENT_APPS]?: WeakSet<PyricAdminApp>;
-  [LAZY_DEFAULT_AMBIENT]?: boolean;
+  [IMPLICIT_DEFAULT_APPS]?: WeakSet<PyricAdminApp>;
 }
 const globalRegistry = globalThis as GlobalAppRegistry;
 const appRegistry = globalRegistry[APP_REGISTRY] ??= new Map<string, PyricAdminApp>();
 const ambientApps = globalRegistry[AMBIENT_APPS] ??= new WeakSet<PyricAdminApp>();
+const implicitDefaultApps = globalRegistry[IMPLICIT_DEFAULT_APPS] ??= new WeakSet<PyricAdminApp>();
 
 function validateAppName(name: unknown): asserts name is string {
   if (typeof name !== 'string' || name === '') {
@@ -142,6 +146,13 @@ export function initializeApp(
     if (existing !== undefined) {
       const isExistingAmbient = ambientApps.has(existing);
       if (isExistingAmbient) {
+        if (implicitDefaultApps.has(existing)) {
+          implicitDefaultApps.delete(existing);
+          if (config !== undefined) {
+            (existing as { options: AdminAppOptions }).options = ambientAppOptions(config);
+            keepAppCredentialProjectId(existing, config);
+          }
+        }
         return existing;
       }
       throw alreadyExists(name, 'invalid-app-options');
@@ -155,10 +166,9 @@ export function initializeApp(
 
   if (existing !== undefined) {
     if (!ambientApps.has(existing) && existing.sandbox === config.sandbox) return existing;
-    throw alreadyExists(
-      name,
-      ambientApps.has(existing) ? 'invalid-app-options' : 'duplicate-app',
-    );
+    let errorCode: 'duplicate-app' | 'invalid-app-options' = 'duplicate-app';
+    if (ambientApps.has(existing)) errorCode = 'invalid-app-options';
+    throw alreadyExists(name, errorCode);
   }
 
   const app: SandboxAdminApp = {
@@ -177,12 +187,10 @@ export function getApp(name: string = DEFAULT_APP_NAME): PyricAdminApp {
   validateAppName(name);
   const app = appRegistry.get(name);
   if (app === undefined) {
-    if (name === DEFAULT_APP_NAME && globalRegistry[LAZY_DEFAULT_AMBIENT] === true) {
-      return initializeApp();
+    let lead = `Firebase app named "${name}" does not exist. `;
+    if (name === DEFAULT_APP_NAME) {
+      lead = 'The default Firebase app does not exist. ';
     }
-    const lead = name === DEFAULT_APP_NAME
-      ? 'The default Firebase app does not exist. '
-      : `Firebase app named "${name}" does not exist. `;
     throw new FirebaseAppError(
       'no-app',
       lead + 'Make sure you call initializeApp() before using any of the Firebase services.',

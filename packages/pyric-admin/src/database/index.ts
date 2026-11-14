@@ -19,9 +19,9 @@ import { increment, serverTimestamp } from 'pyric/database';
 import { deferredExport } from 'pyric/app/internal';
 import {
   ADMIN_APP_TARGET,
-  getApp,
   type PyricAdminApp,
 } from '../app/index.js';
+import { getDefaultServiceApp } from '../app/default-service-app.js';
 import { assertAdminAppActive } from '../app/lifecycle.js';
 import { explicitProjectId } from '../app/project-id.js';
 import {
@@ -64,7 +64,7 @@ export function getDatabase(
   app?: PyricAdminApp,
   url?: string,
 ): Database {
-  const resolvedApp = app ?? getApp();
+  const resolvedApp = app ?? getDefaultServiceApp();
   assertAdminAppActive(resolvedApp);
   if (resolvedApp[ADMIN_APP_TARGET] === 'sandbox') {
     const resolved = resolveAdminDatabaseTarget(resolvedApp, url);

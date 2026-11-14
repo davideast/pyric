@@ -3,7 +3,7 @@ import { describe, expect, it } from 'bun:test';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createMemoryBackend, initializeSandbox } from 'pyric/sandbox';
+import { initializeSandbox } from 'pyric/sandbox';
 import { setRules as setFirestoreRules } from 'pyric/sandbox/firestore';
 
 import { TargetRouter } from '../../src/bridge/server/target-router.js';
@@ -11,46 +11,7 @@ import { createSurfaceContext, renderSurface } from '../../src/bridge/surface/in
 import { callMethod } from '../../src/bridge/surface/method-call.js';
 import { methodByKey } from '../../src/bridge/surface/methods/registry.js';
 import { createHostedRuntime } from '../../src/serve/hosted/runtime.js';
-
-function makeInitPayload(projectId = 'org-alpha') {
-  return {
-    rules: null,
-    rulesHash: null,
-    storageRules: null,
-    storageRulesHash: null,
-    bridgeUrl: null,
-    seed: null,
-    capture: false,
-    hosted: true,
-    permissive: false,
-    projectKey: projectId,
-    sessionToken: 'tok-caller-identity-test',
-    appOptions: { projectId },
-  };
-}
-
-function makeInMemoryHostedPersistence() {
-  const storageStub = {
-    scoped: () => storageStub,
-    reset: async () => {},
-    close: () => {},
-    objectFile: async () => undefined,
-    uploadProgress: async () => undefined,
-    appendUpload: async () => ({ received: 0, size: 0 }),
-  };
-  return {
-    backend: createMemoryBackend(),
-    storage: storageStub,
-    checkpoints: {},
-    state: { seed: async () => false },
-    repairedObjects: [],
-    sweep: Promise.resolve({ removed: 0, bytesRemoved: 0 }),
-    close() {},
-    status: () => ({ state: 'healthy' as const }),
-    onFailure: () => () => {},
-    markUnhealthy() {},
-  };
-}
+import { makeHostedInit, makeInMemoryPersistence } from './five-surface-parity-harness.js';
 
 describe('TargetRouter caller identity fidelity and stored uid lookup', () => {
   it('preserves tenantId and customClaims across auth.impersonate, isolates fresh default-mode sessions, and keeps stored tenantId on discriminator overrides', async () => {
@@ -59,11 +20,11 @@ describe('TargetRouter caller identity fidelity and stored uid lookup', () => {
     writeFileSync(join(dir, 'firebase.json'), JSON.stringify({}));
 
     const hostRuntime = await createHostedRuntime(
-      makeInitPayload(),
+      makeHostedInit('org-alpha'),
       'http://127.0.0.1:4105',
       () => {},
       dir,
-      { persistence: makeInMemoryHostedPersistence() as never, record: false },
+      { persistence: makeInMemoryPersistence() as never, record: false },
     );
     await hostRuntime.deployRules(
       'firestore',
