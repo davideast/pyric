@@ -59,43 +59,21 @@ import { ADMIN_PASS_THROUGH, adminRowsNodeProblem, passThroughOption } from './r
 import { hostReachLine, liveStartLine, passThroughLines } from './start-line.js';
 import { adminStartRefusal, installedAdminVersion, liveStartRefusal } from './start-checks.js';
 import {
-  LIVE_PINNED_PROJECT_VARIABLE,
   adminEnvRefusal,
-  pinnedLiveProjectId,
+  buildPinnedLiveEnvMap,
+  resolveInheritedLiveProject,
 } from './admin/project-gate.js';
 import { configuredDatabaseInstances } from './admin/database-instances.js';
 
 const ENTRY = '@pyric/live/register';
-
-/**
- * The project a child process or worker serves: the pinned project its root
- * process recorded, or (for synthetic tests setting only `PYRIC_LIVE_PROJECT_ROOT`)
- * the project configured in `projectRoot` without consulting mutable `PYRIC_PROJECT`.
- */
-function childProject(projectRoot: string): string | undefined {
-  const pinned = pinnedLiveProjectId(process.env);
-  if (pinned !== undefined) return pinned;
-  const previousPyricProject = process.env.PYRIC_PROJECT;
-  delete process.env.PYRIC_PROJECT;
-  try {
-    return liveProjectId(projectRoot);
-  } catch {
-    return undefined;
-  } finally {
-    if (previousPyricProject !== undefined) {
-      process.env.PYRIC_PROJECT = previousPyricProject;
-    }
-  }
-}
+const PIN_KEYS = {
+  projectRootVar: LIVE_PROJECT_ROOT_VARIABLE,
+  sdkRootVar: LIVE_SDK_ROOT_VARIABLE,
+  passThroughVar: LIVE_PASS_THROUGH_VARIABLE,
+} as const;
 
 function pinLiveProcessProject(projectRoot: string, projectId: string): void {
-  pinInheritedVariables({
-    [LIVE_PROJECT_ROOT_VARIABLE]: projectRoot,
-    [LIVE_SDK_ROOT_VARIABLE]: process.env[LIVE_SDK_ROOT_VARIABLE] ?? projectRoot,
-    [LIVE_PASS_THROUGH_VARIABLE]: process.env[LIVE_PASS_THROUGH_VARIABLE] ?? '',
-    [LIVE_PINNED_PROJECT_VARIABLE]: projectId,
-    PYRIC_PROJECT: projectId,
-  });
+  pinInheritedVariables(buildPinnedLiveEnvMap(PIN_KEYS, projectRoot, projectRoot, projectId));
   noteSuppliedProcessProject(projectId);
 }
 
@@ -170,7 +148,7 @@ await activateWithSuppliedRows({ liveRoot: LIVE_ROOT, passThrough: seamPassThrou
 const projectRoot = process.env[LIVE_PROJECT_ROOT_VARIABLE];
 const startsLive = reach !== null && projectRoot !== undefined;
 const isChild = !isFirstProcess && projectRoot !== undefined;
-const servedChildProject = isChild ? childProject(projectRoot) : undefined;
+const servedChildProject = isChild ? resolveInheritedLiveProject(projectRoot, true, liveProjectId) : undefined;
 if (servedChildProject !== undefined && projectRoot !== undefined) {
   const childAppDirs = liveAppDirs(process.argv[1], process.cwd());
   const childHasAdmin = inheritsAdmin || installedAdminVersion(childAppDirs, projectRoot) !== null;

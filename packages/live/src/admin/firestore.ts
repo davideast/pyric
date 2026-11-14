@@ -20,6 +20,7 @@ import {
   patchAdminFirestoreTransaction,
   patchAdminFirestoreWriteBatch,
 } from './firestore-session-staging.js';
+import { patchFirestoreGapicClients } from './firestore-gapic.js';
 import { patchAdminClass, type AdminMethod, type AdminRow } from './patch.js';
 import { failClosedGate, UNREAD_APP, type AdminApp, type AdminProjectGate } from './project-gate.js';
 import {
@@ -61,10 +62,7 @@ const LOCAL_METHODS: Readonly<Record<string, ReadonlySet<string>>> = {
   AggregateQuery: new Set(['decodeResult', 'toProto', 'isEqual']),
   VectorQuery: new Set(['toProto', '_createSnapshot', 'startAfter', 'isEqual']),
   WriteBatch: new Set(['verifyNotCommitted', 'create', 'delete', 'set', 'update', '_reset']),
-  Transaction: new Set([
-    'create', 'set', 'update', 'delete', 'withLazyStartedTransaction',
-    'getSingleFn', 'getBatchFn', 'getQueryFn',
-  ]),
+  Transaction: new Set(['create', 'set', 'update', 'delete']),
   BulkWriter: new Set([
     '_getBufferedOperationsCount', '_setMaxBatchSize', '_setMaxPendingOpCount',
     'onWriteResult', 'onWriteError', '_verifyNotClosed', '_scheduleCurrentBatch',
@@ -310,10 +308,13 @@ export function observeAdminFirestore(sdk: unknown, entryFile: string, row: Admi
 
   for (const [className, allowlist] of Object.entries(LOCAL_METHODS)) {
     gatePrototypeMethods(prototypeOf(sdk, className, entryFile), {
+      className,
       gate,
       appOf,
       allowlist,
       skipWhenObserving: true,
+      runInAdminScope: true,
     });
   }
+  patchFirestoreGapicClients(sdk, entryFile, ADMIN_FIRESTORE_MODULE, gate, row.observer);
 }

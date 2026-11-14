@@ -46,6 +46,7 @@ export interface StorageStreamHelpers {
   readonly moduleName: string;
   readonly baseOf: (methodName: string, args: readonly unknown[], self: unknown) => StorageStreamBase;
   readonly codeOf: (error: unknown) => string;
+  readonly beforeCall?: (callName: string, args: readonly unknown[]) => void;
 }
 
 function toError(err: unknown): Error {
@@ -208,8 +209,9 @@ export function patchCreateWriteStream(
     let openPromise: Promise<Writable> | undefined;
     function ensureUnderlying(): Promise<Writable> {
       if (openPromise !== undefined) return openPromise;
-      openPromise = adminRow.gate(adminRow.appOf(self), () =>
-        runInsideAdminCall(() => {
+      openPromise = adminRow.gate(adminRow.appOf(self), () => {
+        helpers.beforeCall?.('File.createWriteStream', args);
+        return runInsideAdminCall(() => {
           const created = Reflect.apply(realFn, self, args);
           reachedSdk = true;
           underlying = created;
@@ -223,8 +225,8 @@ export function patchCreateWriteStream(
             }
           });
           return created;
-        }),
-      );
+        });
+      });
       return openPromise;
     }
 
@@ -292,6 +294,7 @@ export function patchCreateReadStream(
 
     adminRow
       .gate(adminRow.appOf(self), () => {
+        helpers.beforeCall?.('File.createReadStream', args);
         if (proxy.destroyed) return undefined;
         return runInsideAdminCall(() => {
           const created = Reflect.apply(realFn, self, args);

@@ -35,13 +35,14 @@ function sandboxPeer(bridge: ReturnType<typeof newBridge>): string[] {
 
 /** An agent on the host's `/__pyric/mcp` surface. */
 async function agentOn(bridge: ReturnType<typeof newBridge>, live = true) {
+  const mode = live ? 'live' : 'sandbox';
   const server = buildMcpServer(bridge, {
     ...getBridgeToolSurface({
       projectDir: process.cwd(),
       consumers: bridge.consumers,
       callerIdentity: bridge.callerIdentity,
     }),
-    mode: live ? 'live' : 'sandbox',
+    mode,
   });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   await server.connect(serverTransport);

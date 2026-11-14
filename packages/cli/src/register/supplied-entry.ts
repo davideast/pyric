@@ -485,10 +485,17 @@ function finishSuppliedRowsActivation(installed: InstalledLiveRegister, prepared
   });
   // Its servers say this is a live process, so a proxy check can catch a sandbox page in front of it,
   // and list what no row observed.
-  let projectId = suppliedProcessProjectId ?? projectIdOrNull(installed.projectRoot) ?? undefined;
+  let cachedLocalProjectId: string | undefined;
+  const resolveHealthProjectId = (): string | undefined => {
+    if (suppliedProcessProjectId !== undefined) return suppliedProcessProjectId;
+    if (cachedLocalProjectId === undefined) {
+      cachedLocalProjectId = projectIdOrNull(installed.projectRoot) ?? undefined;
+    }
+    return cachedLocalProjectId;
+  };
   installProcessHealth(() => ({
     mode: 'live',
-    projectId: suppliedProcessProjectId ?? (projectId ??= projectIdOrNull(installed.projectRoot) ?? undefined),
+    projectId: resolveHealthProjectId(),
     ...unobservedFields(prepared.adminUnobserved),
   }));
   markLiveRegisterActive();

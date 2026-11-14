@@ -3,9 +3,9 @@
  *
  * Beyond the curated observed methods patched via `patchAdminClass`, Admin SDK
  * classes expose sub-managers, query variants, object/pagination streams,
- * async generators, and internal RPC helpers. Sweeping prototypes structurally
- * guarantees every non-allowlisted method enforces `AdminProjectGate` before
- * any request leaves the process.
+ * async generators, GAPIC clients, and internal RPC helpers. Sweeping
+ * prototypes structurally guarantees every non-allowlisted method enforces
+ * `AdminProjectGate` before any request leaves the process.
  */
 import { EventEmitter } from 'node:events';
 import Module, { createRequire } from 'node:module';
@@ -18,11 +18,13 @@ import {
   markAdminMethodGated,
   nodeCallbackOf,
   runInsideAdminCall,
+  settleToCallback,
   type AdminRow,
 } from './patch.js';
 import type { AdminApp, AdminProjectGate } from './project-gate.js';
 
 type Method = (this: unknown, ...args: unknown[]) => unknown;
+export type BeforeAdminCall = (methodName: string, args: readonly unknown[], self: unknown) => void;
 
 function isObject(value: unknown): value is object {
   return typeof value === 'object' && value !== null;
@@ -31,20 +33,6 @@ function isObject(value: unknown): value is object {
 function toError(err: unknown): Error {
   if (err instanceof Error) return err;
   return new Error(String(err));
-}
-
-function settleCallback(pending: Promise<unknown>, callback: Method): void {
-  pending.then(
-    (value: unknown) => {
-      let results: unknown[] = [];
-      if (Array.isArray(value)) results = value;
-      else if (value !== undefined) results = [value];
-      process.nextTick(() => Reflect.apply(callback, undefined, [null, ...results]));
-    },
-    (error: unknown) => {
-      process.nextTick(() => Reflect.apply(callback, undefined, [error]));
-    },
-  );
 }
 
 /**
@@ -93,17 +81,26 @@ export function withExportedClass(
 }
 
 interface GatePromiseOptions {
+  readonly methodName: string;
   readonly nodeCallback?: boolean;
   readonly skipWhenObserving?: boolean;
+  readonly runInAdminScope?: boolean;
+  readonly beforeCall?: BeforeAdminCall;
 }
 
-/** Wraps an async or node-callback method so `gate` runs before `real`. */
+function invokeReal(real: Method, self: unknown, args: readonly unknown[], inAdminScope: boolean): unknown {
+  if (inAdminScope) return runInsideAdminCall(() => Reflect.apply(real, self, args));
+  return Reflect.apply(real, self, args);
+}
+
+/** Wraps an async or node-callback method so `gate` and `beforeCall` run before `real`. */
 function gatePromiseMethod(
   gate: AdminProjectGate,
   appOf: (self: unknown) => AdminApp,
   real: Method,
-  options: GatePromiseOptions = {},
+  options: GatePromiseOptions,
 ): Method {
+  const inScope = options.runInAdminScope === true;
   const wrapped = keepShape(function gatedAdminMethod(this: unknown, ...args: unknown[]): unknown {
     if (options.skipWhenObserving === true && isObservingAdminCall()) {
       return Reflect.apply(real, this, args);
@@ -114,18 +111,25 @@ function gatePromiseMethod(
       if (!isPromisified) {
         let reached = false;
         gate(appOf(this), () => {
+          options.beforeCall?.(options.methodName, cb.before, this);
           reached = true;
-          return Reflect.apply(real, this, args);
+          return invokeReal(real, this, args, inScope);
         }).catch((err: unknown) => {
           if (!reached) process.nextTick(() => Reflect.apply(cb.callback, undefined, [err]));
         });
         return undefined;
       }
-      const pending = gate(appOf(this), () => Reflect.apply(real, this, cb.before));
-      settleCallback(pending, cb.callback);
+      const pending = gate(appOf(this), () => {
+        options.beforeCall?.(options.methodName, cb.before, this);
+        return invokeReal(real, this, cb.before, inScope);
+      });
+      settleToCallback(pending, cb.callback);
       return undefined;
     }
-    return gate(appOf(this), () => Reflect.apply(real, this, args));
+    return gate(appOf(this), () => {
+      options.beforeCall?.(options.methodName, args, this);
+      return invokeReal(real, this, args, inScope);
+    });
   }, real);
   return markAdminMethodGated(wrapped);
 }
@@ -134,6 +138,7 @@ export interface StreamGateOptions {
   readonly observe?: boolean;
   readonly context?: (name: string, args: readonly unknown[], self: unknown) => CallContext;
   readonly codeOf?: (error: unknown) => string;
+  readonly beforeCall?: BeforeAdminCall;
 }
 
 function emitObservedOutcome(
@@ -208,6 +213,7 @@ function gateObjectStreamMethod(
 
     row
       .gate(row.appOf(self), () => {
+        options.beforeCall?.(callName, args, self);
         if (proxy.destroyed) return undefined;
         return runInsideAdminCall(() => {
           const created = Reflect.apply(real, self, args) as Readable;
@@ -305,7 +311,9 @@ export function patchAsyncGeneratorMethod(
       return;
     }
     const ctx = options.observe === true ? options.context?.(callName, args, this) : undefined;
-    await row.gate(row.appOf(this), () => undefined);
+    await row.gate(row.appOf(this), () => {
+      options.beforeCall?.(callName, args, this);
+    });
     const iterable = runInsideAdminCall(() => Reflect.apply(real, this, args));
     const iterator = iterable[Symbol.asyncIterator]();
     try {
@@ -337,6 +345,7 @@ export function patchVoidUploadMethod(
   methodName: string,
   gate: AdminProjectGate,
   appOf: (self: unknown) => AdminApp,
+  beforeCall?: BeforeAdminCall,
 ): void {
   if (prototype === undefined) return;
   const descriptor = Object.getOwnPropertyDescriptor(prototype, methodName);
@@ -345,7 +354,10 @@ export function patchVoidUploadMethod(
   const wrapped = keepShape(function gatedVoidUpload(this: unknown, ...args: unknown[]): unknown {
     if (isObservingAdminCall()) return Reflect.apply(real, this, args);
     const self = this;
-    gate(appOf(self), () => runInsideAdminCall(() => Reflect.apply(real, self, args))).catch((err: unknown) => {
+    gate(appOf(self), () => {
+      beforeCall?.(methodName, args, self);
+      return runInsideAdminCall(() => Reflect.apply(real, self, args));
+    }).catch((err: unknown) => {
       const dup = args[0];
       const destroy: unknown = isObject(dup) ? Reflect.get(dup, 'destroy') : undefined;
       if (typeof destroy === 'function') Reflect.apply(destroy as Method, dup, [toError(err)]);
@@ -356,11 +368,14 @@ export function patchVoidUploadMethod(
 }
 
 export interface GatePrototypeConfig {
+  readonly className?: string;
   readonly gate: AdminProjectGate;
   readonly appOf: (self: unknown) => AdminApp;
   readonly allowlist: ReadonlySet<string>;
   readonly nodeCallback?: boolean;
   readonly skipWhenObserving?: boolean;
+  readonly runInAdminScope?: boolean;
+  readonly beforeCall?: BeforeAdminCall;
 }
 
 /**
@@ -376,6 +391,7 @@ export function gatePrototypeMethods(prototype: object | undefined, config: Gate
   ) {
     return;
   }
+  const prefix = config.className === undefined ? '' : `${config.className}.`;
   for (const name of Object.getOwnPropertyNames(prototype)) {
     if (name === 'constructor' || config.allowlist.has(name)) continue;
     const descriptor = Object.getOwnPropertyDescriptor(prototype, name);
@@ -383,8 +399,11 @@ export function gatePrototypeMethods(prototype: object | undefined, config: Gate
     const real: unknown = descriptor.value;
     if (typeof real !== 'function' || isAdminMethodGated(real)) continue;
     const wrapped = gatePromiseMethod(config.gate, config.appOf, real as Method, {
+      methodName: `${prefix}${name}`,
       nodeCallback: config.nodeCallback,
       skipWhenObserving: config.skipWhenObserving,
+      runInAdminScope: config.runInAdminScope,
+      beforeCall: config.beforeCall,
     });
     Object.defineProperty(prototype, name, { ...descriptor, value: wrapped });
   }

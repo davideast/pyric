@@ -131,7 +131,7 @@ function callbackResults(value: unknown): unknown[] {
 }
 
 /** Hands a promise's settlement to a node-style callback on a later tick, outside the promise, as the SDK calls it. */
-function settleToCallback(pending: Promise<unknown>, callback: Method): void {
+export function settleToCallback(pending: Promise<unknown>, callback: Method): void {
   const later = (values: unknown[]) => process.nextTick(() => Reflect.apply(callback, undefined, values));
   pending.then(
     (value: unknown) => later([null, ...callbackResults(value)]),
