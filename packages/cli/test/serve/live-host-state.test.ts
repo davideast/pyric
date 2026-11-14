@@ -138,7 +138,7 @@ describe('the live host state', () => {
 
   it('reports the Admin SDK as observed on every live host, apart from the passed-through imports', () => {
     const input = { configProjectId: 'staging', configSource: 'firebaserc', optionName: '--project', warn: () => undefined } as const;
-    const admin = { mode: 'observed', observed: true, bypassesRules: true };
+    const admin = { mode: 'observed', observed: true, bypassesRules: true } as const;
     expect(createLiveHostState(input).report().admin).toEqual(admin);
     const live = createLiveHostState({ ...input, passThrough: ['firebase/functions'] });
     expect(live.report().admin).toEqual(admin);
@@ -435,7 +435,7 @@ describe('the live host state\'s observed session data', () => {
     const { live } = state('demo-live');
     const inst = 'demo-live-default-rtdb';
 
-    // N3: Oversized getDoc read invalidates prior complete doc coverage while preserving Studio UI snapshot data.
+    // N3: Oversized getDoc read invalidates prior complete doc coverage and snapshot entry.
     live.sessionData.apply({
       firestore: [
         { kind: 'set', path: 'spaces/s1', data: { members: ['u-1', 'u-2'] } },
@@ -450,7 +450,7 @@ describe('the live host state\'s observed session data', () => {
     );
     expect(live.sessionData.getFirestoreDoc('spaces/s1')).toEqual({ status: 'unobserved' });
 
-    // N3: Skipped Query.get (e.g. Query.select projection) invalidates collection doc and absent tombstones in coverage.
+    // N3: Skipped Query.get (e.g. Query.select projection) invalidates collection docs and absent tombstones.
     live.sessionData.apply({
       firestore: [{ kind: 'set', path: 'spaces/s1', data: { members: ['u-1'] } }],
     });
@@ -462,7 +462,7 @@ describe('the live host state\'s observed session data', () => {
     );
     expect(live.sessionData.getFirestoreDoc('spaces/s1')).toEqual({ status: 'unobserved' });
     expect(live.sessionData.getFirestoreDoc('spaces/missing')).toEqual({ status: 'unobserved' });
-    expect(live.sessionData.snapshot().firestore['spaces/s1']).toEqual({ members: ['u-1'] });
+    expect(live.sessionData.snapshot().firestore['spaces/s1']).toBeUndefined();
 
     // N5: Malformed delivery delta rejected by readObservedSessionDelta still invalidates `call.path`.
     live.sessionData.apply({

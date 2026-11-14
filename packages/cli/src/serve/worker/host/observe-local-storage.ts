@@ -235,7 +235,10 @@ export function storageVerdict(ctx: HostCtx, call: ObservedCall, method: Observe
     effectiveBucket,
     effectiveBucket,
   );
-  const observation = emptyStorageObservation();
+  const observation: StorageEvaluationObservation = {
+    ...emptyStorageObservation(),
+    evaluatedAllows: [],
+  };
   const evaluated = evaluateStorageRules(rules, input, new Date(call.at), undefined, observation);
   const given = givenBy(call, method);
   const readMissingStoredField =

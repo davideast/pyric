@@ -1,7 +1,10 @@
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { spawnSync } from 'node:child_process';
 import { EventEmitter } from 'node:events';
+import { mkdtempSync, rmSync } from 'node:fs';
 import { createRequire } from 'node:module';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { observeAdminAppCheck } from '../../src/admin/app-check.js';
 import { observeAdminAuth } from '../../src/admin/auth.js';
@@ -236,14 +239,27 @@ function collectExportedConstructors(
 
 describe.skipIf(IS_ISOLATED_WORKER)('AdminProjectGate structural prototype-reflection canary (isolated)', () => {
   it('verifies dynamic export/namespace discovery and prototype reflection completeness in a fresh module graph', () => {
-    const child = spawnSync(process.execPath, ['test', fileURLToPath(import.meta.url)], {
-      env: { ...process.env, PYRIC_CANARY_ISOLATED: '1' },
-      encoding: 'utf8',
-    });
-    if (child.status !== 0) {
-      throw new Error(`Isolated canary failed (exit ${String(child.status)}):\n${child.stdout}\n${child.stderr}`);
+    const cleanHome = mkdtempSync(join(tmpdir(), 'pyric-canary-home-'));
+    try {
+      const childEnv: NodeJS.ProcessEnv = {
+        ...process.env,
+        HOME: cleanHome,
+        NO_GCE_CHECK: 'true',
+        PYRIC_CANARY_ISOLATED: '1',
+      };
+      delete childEnv.GOOGLE_APPLICATION_CREDENTIALS;
+      delete childEnv.CLOUDSDK_CONFIG;
+      const child = spawnSync(process.execPath, ['test', fileURLToPath(import.meta.url)], {
+        env: childEnv,
+        encoding: 'utf8',
+      });
+      if (child.status !== 0) {
+        throw new Error(`Isolated canary failed (exit ${String(child.status)}):\n${child.stdout}\n${child.stderr}`);
+      }
+      expect(child.status).toBe(0);
+    } finally {
+      rmSync(cleanHome, { recursive: true, force: true });
     }
-    expect(child.status).toBe(0);
   }, 30_000);
 });
 

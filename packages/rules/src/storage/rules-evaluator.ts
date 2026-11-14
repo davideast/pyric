@@ -76,7 +76,6 @@ export interface StorageEvaluationObservation {
 /** An observation of an evaluation that has read nothing yet. */
 export function emptyStorageObservation(): StorageEvaluationObservation {
   return {
-    evaluatedAllows: [],
     readResource: false,
     readRequestResource: false,
     readFirestore: false,
@@ -93,8 +92,7 @@ function mergeObservation(into: StorageEvaluationObservation, run: StorageEvalua
   into.readAuthToken ||= run.readAuthToken;
   into.readAuthTokenEmail ||= run.readAuthTokenEmail;
   if (run.matchedRule !== undefined) into.matchedRule = run.matchedRule;
-  if (run.evaluatedAllows !== undefined && run.evaluatedAllows.length > 0) {
-    into.evaluatedAllows ??= [];
+  if (into.evaluatedAllows !== undefined && run.evaluatedAllows !== undefined && run.evaluatedAllows.length > 0) {
     into.evaluatedAllows.push(...run.evaluatedAllows);
   }
 }
@@ -113,7 +111,10 @@ export function evaluateStorageRules(
   let result: EvaluationResult | undefined;
   for (const method of impliedVerbs(input)) {
     let runObservation: StorageEvaluationObservation | undefined;
-    if (observation !== undefined) runObservation = emptyStorageObservation();
+    if (observation !== undefined) {
+      runObservation = emptyStorageObservation();
+      if (observation.evaluatedAllows !== undefined) runObservation.evaluatedAllows = [];
+    }
     result = evaluateGranularRequest(rules, input, method, nowMillis, firestoreLookup, runObservation);
     if (observation !== undefined && runObservation !== undefined) mergeObservation(observation, runObservation);
     if (result.allowed) return result;
@@ -178,12 +179,13 @@ function evaluateGranularRequest(
           candidateRule = { path: `match ${formatPath(block.segments)}` };
           if (rule.line !== undefined) candidateRule.line = rule.line;
           lastCheckedRule = candidateRule;
-          observation.evaluatedAllows ??= [];
-          observation.evaluatedAllows.push({
-            condition: rule.condition,
-            captures: paramNames,
-            funcs,
-          });
+          if (observation.evaluatedAllows !== undefined) {
+            observation.evaluatedAllows.push({
+              condition: rule.condition,
+              captures: paramNames,
+              funcs,
+            });
+          }
         }
         let result: boolean;
         try {

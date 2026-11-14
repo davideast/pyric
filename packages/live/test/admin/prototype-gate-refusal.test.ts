@@ -1,8 +1,11 @@
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { spawnSync } from 'node:child_process';
+import { mkdtempSync, rmSync } from 'node:fs';
 import { createServer, type Server as HttpServer } from 'node:http';
 import { createRequire } from 'node:module';
 import { createServer as createNetServer, type Server as NetServer } from 'node:net';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import type { Duplex, Readable } from 'node:stream';
 import { fileURLToPath } from 'node:url';
 import { observeAdminAppCheck } from '../../src/admin/app-check.js';
@@ -98,14 +101,27 @@ async function asyncIterCode(iterable: AsyncIterable<unknown>): Promise<string> 
 
 describe.skipIf(IS_ISOLATED_WORKER)('AdminProjectGate behavioral refusal suite (isolated)', () => {
   it('enforces cross-project, named-DB, GAPIC, Storage option/HmacKey/userProject refusals and host observation', () => {
-    const child = spawnSync(process.execPath, ['test', fileURLToPath(import.meta.url)], {
-      env: { ...process.env, PYRIC_REFUSAL_ISOLATED: '1' },
-      encoding: 'utf8',
-    });
-    if (child.status !== 0) {
-      throw new Error(`Isolated refusal suite failed (exit ${String(child.status)}):\n${child.stdout}\n${child.stderr}`);
+    const cleanHome = mkdtempSync(join(tmpdir(), 'pyric-refusal-home-'));
+    try {
+      const childEnv: NodeJS.ProcessEnv = {
+        ...process.env,
+        HOME: cleanHome,
+        NO_GCE_CHECK: 'true',
+        PYRIC_REFUSAL_ISOLATED: '1',
+      };
+      delete childEnv.GOOGLE_APPLICATION_CREDENTIALS;
+      delete childEnv.CLOUDSDK_CONFIG;
+      const child = spawnSync(process.execPath, ['test', fileURLToPath(import.meta.url)], {
+        env: childEnv,
+        encoding: 'utf8',
+      });
+      if (child.status !== 0) {
+        throw new Error(`Isolated refusal suite failed (exit ${String(child.status)}):\n${child.stdout}\n${child.stderr}`);
+      }
+      expect(child.status).toBe(0);
+    } finally {
+      rmSync(cleanHome, { recursive: true, force: true });
     }
-    expect(child.status).toBe(0);
   }, 30_000);
 });
 
@@ -272,8 +288,23 @@ describe.skipIf(!IS_ISOLATED_WORKER)('AdminProjectGate behavioral refusal suite'
     await namedFs.terminate!();
 
     // 3. Exported GAPIC v1.FirestoreAdminClient, v1.FirestoreClient, and v1beta1.FirestoreClient
-    const gapicOptsOther = { projectId: OTHER_PROJECT, apiEndpoint: '127.0.0.1', port: grpcPort };
-    const gapicOptsHost = { projectId: HOST_PROJECT, apiEndpoint: '127.0.0.1', port: grpcPort };
+    const stubGapicAuthClient = {
+      getUniverseDomain: async () => 'googleapis.com',
+      getRequestHeaders: async () => ({}),
+      getAccessToken: async () => ({ token: 'stub' }),
+    };
+    const gapicOptsOther = {
+      projectId: OTHER_PROJECT,
+      apiEndpoint: '127.0.0.1',
+      port: grpcPort,
+      authClient: stubGapicAuthClient,
+    };
+    const gapicOptsHost = {
+      projectId: HOST_PROJECT,
+      apiEndpoint: '127.0.0.1',
+      port: grpcPort,
+      authClient: stubGapicAuthClient,
+    };
     const otherGapicAdmin = new adminFsV1.FirestoreAdminClient(gapicOptsOther);
     const hostGapicAdmin = new adminFsV1.FirestoreAdminClient(gapicOptsHost);
     const otherGapicClient = new adminFsV1.FirestoreClient(gapicOptsOther);
