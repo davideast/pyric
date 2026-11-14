@@ -1,7 +1,7 @@
 import { sandbox } from 'pyric/auth';
 import { resolveCustomTokenIdentity } from 'pyric/auth/internal';
 import type { OpMessage } from '../protocol.js';
-import { ensureAuth, portOriginScope, setPortSession } from '../host-auth.js';
+import { ensureAuth, portOriginScope, resolveSignInTenant, setPortSession } from '../host-auth.js';
 import { bestEffortFlush, fail, ok, type HostCtx, type PortLike } from '../host-context.js';
 import { credReply } from './auth-session-seeder.js';
 
@@ -12,9 +12,10 @@ export async function handleCustomTokenSignIn(
 ): Promise<void> {
   try {
     const auth = ensureAuth(ctx);
-    const { user, isNewUser } = resolveCustomTokenIdentity(auth, message.customToken);
+    const tenantId = resolveSignInTenant(ctx, port, message.tenantId);
+    const { user, isNewUser } = resolveCustomTokenIdentity(auth, message.customToken, tenantId);
     const session = sandbox.mintSession(auth, {
-      kind: 'custom', uid: user.uid, tenantId: message.tenantId ?? null, ...portOriginScope(port),
+      kind: 'custom', uid: user.uid, tenantId, ...portOriginScope(port),
     });
     await bestEffortFlush(ctx, message.method);
     setPortSession(ctx, port, session);

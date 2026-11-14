@@ -4,6 +4,7 @@ import { signInWithEmailLink } from './email-link.js';
 import type { AuthProvider } from './providers.js';
 import type { FirebaseError } from '../sandbox/internal/firebase-error.js';
 import { makeAuthError } from './sandbox-backend.js';
+import { assertMatchingTenant } from './sandbox/tenant-isolation.js';
 import { targetOf, type SandboxTarget } from './target.js';
 import type {
   Auth,
@@ -18,7 +19,7 @@ export async function signInAnonymously(auth: Auth): Promise<UserCredential> {
   const { backend } = targetOf(auth);
   backend.assertProviderEnabled('anonymous');
   const existing = backend.getCurrentUser();
-  if (existing?.isAnonymous) {
+  if (existing?.isAnonymous && (existing.tenantId ?? null) === backend.getTenantId()) {
     return {
       user: existing,
       providerId: null,
@@ -161,6 +162,10 @@ async function commitProviderSignIn(
   credential: UserCredential,
   providerId: string,
 ): Promise<UserCredential> {
+  const existing = backend.findByUid(credential.user.uid);
+  if (existing !== undefined) {
+    assertMatchingTenant(existing, backend.getTenantId());
+  }
   backend.assertSignInAllowed(credential.user.uid);
   backend.recordProviderSignIn(credential.user, providerId);
   const user = ensureProviderUser(backend, credential.user, providerId);
@@ -240,6 +245,10 @@ export async function signInWithCredential(
   const mock = backend.consumeMockResult(providerId);
   if (!mock) throw noMockConfiguredError(providerId);
   const credentialProviderId = mock.providerId ?? providerId;
+  const existing = backend.findByUid(mock.user.uid);
+  if (existing !== undefined) {
+    assertMatchingTenant(existing, backend.getTenantId());
+  }
   backend.assertSignInAllowed(mock.user.uid);
   backend.recordProviderSignIn(mock.user, credentialProviderId);
   await backend.transitionCurrentUser(mock.user, credentialProviderId);

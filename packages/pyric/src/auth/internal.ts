@@ -21,6 +21,7 @@ export {
 } from './sandbox/default-avatar.js';
 export type { AvatarMint, AvatarMintInput } from './sandbox/default-avatar.js';
 export { isEmailSignInLink, resolveEmailLinkIdentity } from './email-link.js';
+export { sendTenantPasswordResetEmail } from './action-codes.js';
 export { effectiveSessionClaimsFor, mintCustomTokenFor, resolveCustomTokenIdentity } from './tokens.js';
 export { isFederatedProviderId } from './providers.js';
 export { noMockConfiguredError } from './sign-in.js';

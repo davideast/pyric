@@ -43,17 +43,14 @@ export type PyricAdminApp = SandboxAdminApp;
 export type InitializeAdminAppConfig = { sandbox: Sandbox } & AdminAppOptions;
 
 /**
- * Firebase Functions' ESM runtime statically imports this credential factory
- * while linking its database provider. Pyric initializes the sandbox app
- * before that provider executes, so the factory is not used by supported
- * Functions flows. Keep the named export link-compatible, but fail clearly if
- * application code asks the development sandbox for production credentials.
+ * Link-compatible mirror of `firebase-admin/app`'s `applicationDefault(httpAgent?)`.
+ * Returns an inert sandbox credential token so unchanged application setup code
+ * and `firebase-functions`'s lazy runtime app initialization can pass
+ * `credential: applicationDefault()` under `@pyric/cli/register` without
+ * reading host production credentials.
  */
-export function applicationDefault(): never {
-  throw new Error(
-    'pyric-admin/app: applicationDefault() is unavailable in the sandbox. ' +
-      'Pyric development does not use production credentials.',
-  );
+export function applicationDefault(_httpAgent?: unknown): object {
+  return { [Symbol.for('pyric.admin.credential')]: 'applicationDefault' };
 }
 
 /**
@@ -99,9 +96,11 @@ class FirebaseAppError extends Error {
 // the same default app and sandbox handle.
 const APP_REGISTRY = Symbol.for('pyric.admin.app.registry');
 const AMBIENT_APPS = Symbol.for('pyric.admin.app.ambientApps');
+const LAZY_DEFAULT_AMBIENT = Symbol.for('pyric.admin.app.lazyDefaultAmbient');
 interface GlobalAppRegistry {
   [APP_REGISTRY]?: Map<string, PyricAdminApp>;
   [AMBIENT_APPS]?: WeakSet<PyricAdminApp>;
+  [LAZY_DEFAULT_AMBIENT]?: boolean;
 }
 const globalRegistry = globalThis as GlobalAppRegistry;
 const appRegistry = globalRegistry[APP_REGISTRY] ??= new Map<string, PyricAdminApp>();
@@ -178,6 +177,9 @@ export function getApp(name: string = DEFAULT_APP_NAME): PyricAdminApp {
   validateAppName(name);
   const app = appRegistry.get(name);
   if (app === undefined) {
+    if (name === DEFAULT_APP_NAME && globalRegistry[LAZY_DEFAULT_AMBIENT] === true) {
+      return initializeApp();
+    }
     const lead = name === DEFAULT_APP_NAME
       ? 'The default Firebase app does not exist. '
       : `Firebase app named "${name}" does not exist. `;

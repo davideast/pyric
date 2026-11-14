@@ -100,7 +100,12 @@ export function accountLookupFor(sandbox: LocalSandbox): AccountLookup {
       signInProvider = providerOf(auth, user);
       customClaims = effectiveSessionClaimsFor(auth, uid);
     }
-    return { account: tokenClaimAccount(record), customClaims, signInProvider };
+    return {
+      account: tokenClaimAccount(record),
+      customClaims,
+      signInProvider,
+      tenantId: record.tenantId ?? null,
+    };
   };
 }
 

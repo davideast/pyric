@@ -66,6 +66,20 @@ export const DISCRIMINATOR_RESOURCES: readonly DiscriminatorResource[] = [
   },
 ];
 
+export type ParsedResourceUri =
+  | { status: 'unmatched' }
+  | { status: 'malformed'; message: string }
+  | { status: 'matched'; params: Params };
+
+function nonEmptySegments(path: string): string[] {
+  return path.split('/').filter((segment) => segment.length > 0);
+}
+
+function isCollectionResourcePath(params: Params): boolean {
+  const parts = nonEmptySegments(params.path ?? '');
+  return parts.length > 0 && parts.length % 2 === 1;
+}
+
 /**
  * The stdlib catalogue reads under this module name; every other name reads
  * one module. The typed service contract treats it the same way.
@@ -80,8 +94,20 @@ export const RESOURCE_ROUTES: readonly ResourceRoute[] = [
     translate: () => ({}),
   },
   {
-    uriTemplate: 'pyric://firestore/docs/{path}',
+    uriTemplate: 'pyric://sandbox/events',
     selects: () => true,
+    operation: 'list_sandbox_events',
+    translate: () => ({}),
+  },
+  {
+    uriTemplate: 'pyric://firestore/docs/{path}',
+    selects: (params) => isCollectionResourcePath(params),
+    operation: 'list_firestore_documents',
+    translate: (params) => ({ path: params.path }),
+  },
+  {
+    uriTemplate: 'pyric://firestore/docs/{path}',
+    selects: (params) => !isCollectionResourcePath(params),
     operation: 'get_firestore_document',
     translate: (params) => ({ path: params.path }),
   },
@@ -118,18 +144,26 @@ export const RESOURCE_ROUTES: readonly ResourceRoute[] = [
 ];
 
 /**
- * Read the template parameters out of a uri, or null when the uri does not
- * belong to the template. Every template has at most one parameter, and it is
- * the whole tail of the uri.
+ * Parse and RFC 3986 percent-decode template parameters from a resource URI.
+ * Malformed percent sequences return `{ status: 'malformed' }` rather than
+ * throwing an unhandled `URIError`.
  */
-export function matchResourceUri(uriTemplate: string, uri: string): Params | null {
+export function parseResourceUri(uriTemplate: string, uri: string): ParsedResourceUri {
   const opening = uriTemplate.indexOf('{');
   if (opening === -1) {
-    if (uri !== uriTemplate) return null;
-    return {};
+    if (uri !== uriTemplate) return { status: 'unmatched' };
+    return { status: 'matched', params: {} };
   }
   const prefix = uriTemplate.slice(0, opening);
   const parameter = uriTemplate.slice(opening + 1, uriTemplate.indexOf('}'));
-  if (!uri.startsWith(prefix)) return null;
-  return { [parameter]: uri.slice(prefix.length) };
+  if (!uri.startsWith(prefix)) return { status: 'unmatched' };
+  const rawValue = uri.slice(prefix.length);
+  try {
+    return { status: 'matched', params: { [parameter]: decodeURIComponent(rawValue) } };
+  } catch {
+    return {
+      status: 'malformed',
+      message: `Invalid percent-encoded resource URI parameter '${parameter}' in '${uri}'.`,
+    };
+  }
 }

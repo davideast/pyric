@@ -18,19 +18,17 @@ import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { getFirestore } from 'pyric/firestore';
-import { getClock, type LocalSandbox } from 'pyric/sandbox';
+import { getClock } from 'pyric/sandbox';
 import { buildChildEnv, registerModuleUrl } from '../../cli/sandbox-runner.js';
 import { resolveFirebaseProject } from '../../cli/firebase-project.js';
-import { isBridgeMessage, type BridgeMessage } from '../protocol.js';
 import { discoverFunctionsProject } from '../../functions/project.js';
 import type {
   DiscoveredOnValueCreated,
   UnsupportedOnValueCreated,
 } from '../../functions/rtdb/discovery.js';
 import { buildFunctionsChildEnv, resolveChildDatabaseHost } from '../../functions/spawn.js';
-import { cleanupPortWithDisconnect, handleMessage, type HostCtx, type PortLike } from '../../serve/worker/host.js';
-import type { InboundMessage, OutboundMessage } from '../../serve/worker/protocol.js';
+import { readPyricConfigProjectSync } from '../../serve/live-project.js';
+import { resolveProjectAndDefaultInstance } from './database-instance-project.js';
 import {
   FUNCTIONS_RUNNER_CHILD_ENV,
   type FunctionsParentToChild,
@@ -38,6 +36,7 @@ import {
   type FunctionsRunnerRequest,
   type SerializedTriggerDescriptor,
 } from './functions-child-runner.js';
+import { startEphemeralFunctionsHost, type EphemeralFunctionsHost } from './functions-ephemeral-host.js';
 import type { SurfaceContext } from './types.js';
 
 export interface FunctionsDiscovery {
@@ -100,12 +99,14 @@ function buildIsolatedEnv(options: {
     });
   } else {
     const importFlag = `--import ${registerUrl}`;
+    let nodeOptions = importFlag;
+    if (process.env.NODE_OPTIONS) {
+      nodeOptions = `${process.env.NODE_OPTIONS} ${importFlag}`;
+    }
     activatedBase = {
       ...process.env,
       PYRIC_SANDBOX: '1',
-      NODE_OPTIONS: process.env.NODE_OPTIONS
-        ? `${process.env.NODE_OPTIONS} ${importFlag}`
-        : importFlag,
+      NODE_OPTIONS: nodeOptions,
     };
   }
   const childEnv = buildFunctionsChildEnv({
@@ -123,87 +124,6 @@ function buildIsolatedEnv(options: {
   return childEnv;
 }
 
-function attachInProcessSandboxIpc(
-  child: ReturnType<typeof spawn>,
-  sandbox: LocalSandbox,
-  options: { projectId: string; defaultInstance: string },
-): () => Promise<void> {
-  const hostCtx: HostCtx = {
-    db: getFirestore(sandbox),
-    sandbox,
-    flushPersistence: async () => {},
-    instanceId: `ipc-${randomUUID()}`,
-    subs: new Map(),
-    messagingEnabled: true,
-    defaultRtdbInstance: options.defaultInstance,
-    rtdbProjectId: options.projectId,
-    appOptions: { projectId: options.projectId },
-  };
-  const sendBridge = (frame: BridgeMessage): void => {
-    if (child.connected) {
-      child.send({ type: 'ipc-bridge', frame } satisfies FunctionsParentToChild);
-    }
-  };
-  const port: PortLike = {
-    postMessage(raw: unknown) {
-      const message = raw as OutboundMessage;
-      if (message.t === 'res') {
-        sendBridge(
-          message.ok
-            ? { type: 'worker-res', id: message.id, ok: true, value: message.value }
-            : { type: 'worker-res', id: message.id, ok: false, error: message.error },
-        );
-      } else if (message.t === 'snap') {
-        sendBridge({ type: 'worker-snap', subId: message.subId, value: message.value });
-      }
-    },
-  };
-  let pending = Promise.resolve();
-  let disposed = false;
-  let cleanupPromise: Promise<void> | undefined;
-  const enqueue = (message: InboundMessage): void => {
-    if (disposed) return;
-    pending = pending
-      .then(() => (disposed ? undefined : handleMessage(hostCtx, port, message)))
-      .catch(() => undefined);
-  };
-  const dispose = (): Promise<void> => {
-    disposed = true;
-    cleanupPromise ??= pending
-      .then(() => cleanupPortWithDisconnect(hostCtx, port))
-      .catch(() => undefined);
-    return cleanupPromise;
-  };
-  child.on('message', (raw: unknown) => {
-    if (disposed || typeof raw !== 'object' || raw === null) return;
-    const msg = raw as { type?: unknown; frame?: unknown };
-    if (msg.type !== 'ipc-bridge' || !isBridgeMessage(msg.frame)) return;
-    const frame = msg.frame;
-    if (frame.type === 'worker-op') {
-      enqueue({
-        ...frame.op,
-        t: 'op',
-        id: frame.id,
-      } as InboundMessage);
-    } else if (frame.type === 'worker-sub') {
-      enqueue({
-        ...frame.sub,
-        t: 'sub',
-        subId: frame.subId,
-      } as InboundMessage);
-    } else if (frame.type === 'worker-unsub') {
-      enqueue({
-        t: 'unsub',
-        subId: frame.subId,
-      });
-    }
-  });
-  child.once('close', () => {
-    void dispose();
-  });
-  return dispose;
-}
-
 function toDiscoveredTrigger(descriptor: SerializedTriggerDescriptor): DiscoveredOnValueCreated {
   return {
     ...descriptor,
@@ -218,14 +138,18 @@ function toDiscoveredTrigger(descriptor: SerializedTriggerDescriptor): Discovere
 /** Discover the RTDB triggers one project's Functions source defines, if it has one. */
 export async function discoverFunctionsTriggers(
   projectDir: string,
-  options: { functionsHost?: SurfaceContext['functionsHost'] } = {},
+  options: {
+    functionsHost?: SurfaceContext['functionsHost'];
+    defaultInstance?: string;
+  } = {},
 ): Promise<FunctionsDiscovery> {
   const lookedAt = `${projectDir}/firebase.json`;
   const project = discoverFunctionsProject(projectDir);
   if (project === null) return { lookedAt, triggers: [], unsupported: [] };
 
-  const projectId = resolveFirebaseProject({ projectDir }).projectId ?? 'demo-project';
-  const defaultInstance = `${projectId}-default-rtdb`;
+  const resolved = await resolveProjectAndDefaultInstance(projectDir);
+  const projectId = resolved.projectId;
+  const defaultInstance = options.defaultInstance ?? resolved.defaultInstance;
   const databaseHost = resolveChildDatabaseHost();
   const env = buildIsolatedEnv({
     entry: project.entry,
@@ -302,7 +226,6 @@ export async function discoverFunctionsTriggers(
       projectId,
       defaultInstance,
       databaseHost,
-      ipcSandbox: false,
     };
     child.send(request satisfies FunctionsParentToChild);
   });
@@ -323,17 +246,26 @@ export async function fireFunctionsTriggerIsolated(
   const project = discoverFunctionsProject(ctx.projectDir);
   if (project === null) return { kind: 'not-found' };
 
-  const projectId = resolveFirebaseProject({ projectDir: ctx.projectDir }).projectId ?? 'demo-project';
+  const projectId =
+    resolveFirebaseProject({
+      projectDir: ctx.projectDir,
+      configProject: readPyricConfigProjectSync(ctx.projectDir),
+    }).projectId ?? 'demo-project';
   const configuredDefaultInstance = (await ctx.databaseInstances()).known().defaultInstance;
   const defaultInstance = configuredDefaultInstance ?? `${projectId}-default-rtdb`;
   const databaseHost = resolveChildDatabaseHost();
-  const usesIpcSandbox = ctx.functionsHost === undefined;
+  let ephemeralHost: EphemeralFunctionsHost | undefined;
+  let activeHost = ctx.functionsHost;
+  if (activeHost === undefined) {
+    ephemeralHost = await startEphemeralFunctionsHost(ctx.sandbox, { projectId, defaultInstance });
+    activeHost = ephemeralHost;
+  }
   const env = buildIsolatedEnv({
     entry: project.entry,
     projectId,
     defaultInstance,
     databaseHost,
-    functionsHost: ctx.functionsHost,
+    functionsHost: activeHost,
   });
 
   const runnerPath = resolveRunnerModulePath();
@@ -342,11 +274,6 @@ export async function fireFunctionsTriggerIsolated(
     env,
     stdio: ['ignore', 'ignore', 'pipe', 'ipc'],
   });
-
-  let disposeIpc: (() => Promise<void>) | undefined;
-  if (usesIpcSandbox) {
-    disposeIpc = attachInProcessSandboxIpc(child, ctx.sandbox, { projectId, defaultInstance });
-  }
 
   let stderr = '';
   child.stderr?.setEncoding('utf8');
@@ -370,7 +297,7 @@ export async function fireFunctionsTriggerIsolated(
         timer.unref();
       }),
     ]);
-    await disposeIpc?.();
+    await ephemeralHost?.close();
   };
 
   return await new Promise<IsolatedFireOutcome>((resolvePromise, rejectPromise) => {
@@ -399,7 +326,6 @@ export async function fireFunctionsTriggerIsolated(
     child.on('message', (raw: unknown) => {
       if (settled || typeof raw !== 'object' || raw === null) return;
       const reply = raw as FunctionsRunnerReply;
-      if (reply.type === 'ipc-bridge') return;
 
       if (reply.type === 'not-found') {
         settled = true;
@@ -451,10 +377,12 @@ export async function fireFunctionsTriggerIsolated(
           durationMs,
           status: reply.status,
           event: reply.event,
-          ...(reply.status === 'fulfilled'
-            ? { result: reply.result }
-            : { errorMessage: reply.errorMessage ?? 'Trigger threw an unknown error' }),
         };
+        if (reply.status === 'fulfilled') {
+          outcome.result = reply.result;
+        } else {
+          outcome.errorMessage = reply.errorMessage ?? 'Trigger threw an unknown error';
+        }
         void waitForTeardown(1_000).finally(() => resolvePromise(outcome));
         return;
       }
@@ -469,7 +397,7 @@ export async function fireFunctionsTriggerIsolated(
       if (settled) return;
       settled = true;
       cleanupTimers();
-      void disposeIpc?.().finally(() => rejectPromise(err));
+      void (ephemeralHost?.close() ?? Promise.resolve()).finally(() => rejectPromise(err));
     });
 
     child.once('close', (code) => {
@@ -477,13 +405,9 @@ export async function fireFunctionsTriggerIsolated(
       settled = true;
       cleanupTimers();
       const detail = stderr.trim();
-      void disposeIpc?.().finally(() =>
-        rejectPromise(
-          new Error(
-            `Functions child exited unexpectedly (code ${code ?? 1})` +
-              (detail ? `\n${detail}` : ''),
-          ),
-        ),
+      const suffix = detail ? `\n${detail}` : '';
+      void (ephemeralHost?.close() ?? Promise.resolve()).finally(() =>
+        rejectPromise(new Error(`Functions child exited unexpectedly (code ${code ?? 1})${suffix}`)),
       );
     });
 
@@ -494,7 +418,6 @@ export async function fireFunctionsTriggerIsolated(
       projectId,
       defaultInstance,
       databaseHost,
-      ipcSandbox: usesIpcSandbox,
       triggerName: input.triggerName,
       path: input.path,
       ref: input.ref,

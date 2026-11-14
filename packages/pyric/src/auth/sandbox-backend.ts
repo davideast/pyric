@@ -45,6 +45,11 @@ import type { SandboxTarget } from './target.js';
 import { sandboxTokenFor } from './sandbox-token.js';
 import { validateEmailFormat, validatePasswordStrength } from './sandbox-credential-validators.js';
 import {
+  assertMatchingTenant,
+  normalizeTenantScope,
+  tenantEmailKey,
+} from './sandbox/tenant-isolation.js';
+import {
   accountStanding,
   createAuthProjectStore,
   recordDeletion,
@@ -951,9 +956,12 @@ export class SandboxBackend {
       const prior = this.usersByUid.get(u.uid);
       const priorEmail = prior?.email;
       const hasPriorEmail = typeof priorEmail === 'string' && priorEmail.length > 0;
-      const changesEmail = hasPriorEmail && priorEmail.toLowerCase() !== u.email?.toLowerCase();
-      if (changesEmail) {
-        this.usersByEmail.delete(priorEmail.toLowerCase());
+      const changesEmail =
+        hasPriorEmail &&
+        (priorEmail.toLowerCase() !== u.email?.toLowerCase() ||
+          normalizeTenantScope(prior?.tenantId) !== normalizeTenantScope(u.tenantId));
+      if (changesEmail && priorEmail !== undefined) {
+        this.usersByEmail.delete(tenantEmailKey(prior?.tenantId, priorEmail));
       }
       const isAnonymousSeed = u.providerId === 'anonymous';
       const hasDefaultPasswordProvider =
@@ -986,7 +994,7 @@ export class SandboxBackend {
       const hasLastLoginAt = lastLoginAt !== undefined;
       if (hasLastLoginAt) record.lastLoginAt = lastLoginAt;
       const indexesEmail = !isAnonymousSeed && email !== undefined;
-      if (indexesEmail) this.usersByEmail.set(email.toLowerCase(), record);
+      if (indexesEmail) this.usersByEmail.set(tenantEmailKey(record.tenantId, email), record);
       this.usersByUid.set(u.uid, record);
     }
     const hasSeedUsers = users.length > 0;
@@ -1083,8 +1091,8 @@ export class SandboxBackend {
     return user;
   }
 
-  findByEmail(email: string): StoredUser | undefined {
-    return this.usersByEmail.get(email.toLowerCase());
+  findByEmail(email: string, tenantId: string | null = this.tenantId): StoredUser | undefined {
+    return this.usersByEmail.get(tenantEmailKey(tenantId, email));
   }
 
   findByUid(uid: string): StoredUser | undefined {
@@ -1138,8 +1146,12 @@ export class SandboxBackend {
    * exists to produce, and the one that (in prod) only happens when a
    * human clicks the link. Idempotent.
    */
-  setEmailVerified(email: string, verified: boolean): StoredUser {
-    const stored = this.requireByEmail(email);
+  setEmailVerified(
+    email: string,
+    verified: boolean,
+    tenantId: string | null = this.tenantId,
+  ): StoredUser {
+    const stored = this.requireByEmail(email, tenantId);
     if (stored.emailVerified !== verified) {
       stored.emailVerified = verified;
       this.notifyUsersChanged();
@@ -1158,9 +1170,13 @@ export class SandboxBackend {
    * strength check `createUserWithEmailAndPassword` does, so a reset
    * cannot install a password the create path would have rejected.
    */
-  setPasswordByEmail(email: string, newPassword: string): StoredUser {
+  setPasswordByEmail(
+    email: string,
+    newPassword: string,
+    tenantId: string | null = this.tenantId,
+  ): StoredUser {
     validatePasswordStrength(newPassword);
-    const stored = this.requireByEmail(email);
+    const stored = this.requireByEmail(email, tenantId);
     stored.password = newPassword;
     this.notifyUsersChanged();
     this.emitAuthEvent('user_update', {
@@ -1178,15 +1194,20 @@ export class SandboxBackend {
    * control it by redeeming a code sent TO it. That is the entire
    * difference between this flow and a bare `updateEmail`.
    */
-  changeEmail(fromEmail: string, toEmail: string): StoredUser {
+  changeEmail(
+    fromEmail: string,
+    toEmail: string,
+    tenantId: string | null = this.tenantId,
+  ): StoredUser {
     validateEmailFormat(toEmail);
-    const stored = this.requireByEmail(fromEmail);
-    const toKey = toEmail.toLowerCase();
+    const stored = this.requireByEmail(fromEmail, tenantId);
+    const targetTenant = normalizeTenantScope(stored.tenantId);
+    const toKey = tenantEmailKey(targetTenant, toEmail);
     const existing = this.usersByEmail.get(toKey);
     if (existing && existing.uid !== stored.uid) {
       throw makeAuthError('auth/email-already-in-use', `An account already exists for ${toEmail}.`);
     }
-    if (stored.email) this.usersByEmail.delete(stored.email.toLowerCase());
+    if (stored.email) this.usersByEmail.delete(tenantEmailKey(targetTenant, stored.email));
     stored.email = toEmail;
     stored.emailVerified = true;
     this.usersByEmail.set(toKey, stored);
@@ -1208,9 +1229,13 @@ export class SandboxBackend {
    * Returns `isNewUser` so the credential can carry an honest
    * `getAdditionalUserInfo().isNewUser`.
    */
-  upsertEmailLinkUser(email: string): { stored: StoredUser; isNewUser: boolean } {
+  upsertEmailLinkUser(
+    email: string,
+    tenantId: string | null = this.tenantId,
+  ): { stored: StoredUser; isNewUser: boolean } {
     validateEmailFormat(email);
-    const key = email.toLowerCase();
+    const normalizedTenant = normalizeTenantScope(tenantId);
+    const key = tenantEmailKey(normalizedTenant, email);
     const existing = this.usersByEmail.get(key);
     const hasAccount = existing !== undefined;
     if (hasAccount) {
@@ -1228,6 +1253,7 @@ export class SandboxBackend {
     const record = this.makeStored({
       uid,
       email,
+      tenantId: normalizedTenant,
       // No password: an account born from an email link has never had
       // one set. `signInWithEmailAndPassword` for it fails, exactly as it
       // would in prod, until the user sets a password.
@@ -1278,7 +1304,8 @@ export class SandboxBackend {
     const email = identity?.email;
     if (email) {
       validateEmailFormat(email);
-      const key = email.toLowerCase();
+      const targetTenant = normalizeTenantScope(stored.tenantId);
+      const key = tenantEmailKey(targetTenant, email);
       const owner = this.usersByEmail.get(key);
       if (owner && owner.uid !== uid) {
         throw makeAuthError(
@@ -1290,8 +1317,8 @@ export class SandboxBackend {
         validatePasswordStrength(identity.password);
         stored.password = identity.password;
       }
-      if (stored.email && stored.email.toLowerCase() !== key) {
-        this.usersByEmail.delete(stored.email.toLowerCase());
+      if (stored.email && stored.email.toLowerCase() !== email.toLowerCase()) {
+        this.usersByEmail.delete(tenantEmailKey(targetTenant, stored.email));
       }
       stored.email = email;
       this.usersByEmail.set(key, stored);
@@ -1349,22 +1376,27 @@ export class SandboxBackend {
   }
 
   /** Shared lookup-or-throw behind the by-email mutations above. */
-  private requireByEmail(email: string): StoredUser {
-    const stored = this.usersByEmail.get(email.toLowerCase());
+  private requireByEmail(email: string, tenantId: string | null = this.tenantId): StoredUser {
+    const stored = this.findByEmail(email, tenantId);
     if (!stored) {
       throw makeAuthError('auth/user-not-found', `No user found for ${email}.`);
     }
     return stored;
   }
 
-  createEmailPasswordUser(email: string, password: string): StoredUser {
+  createEmailPasswordUser(
+    email: string,
+    password: string,
+    tenantId: string | null = this.tenantId,
+  ): StoredUser {
     // Validate format BEFORE checking duplicates so an attacker can't
     // enumerate seeded emails by varying the malformed-vs-valid shape.
     // Matches prod's order — the format error fires before any lookup
     // against the user DB.
     validateEmailFormat(email);
     validatePasswordStrength(password);
-    const key = email.toLowerCase();
+    const normalizedTenant = normalizeTenantScope(tenantId);
+    const key = tenantEmailKey(normalizedTenant, email);
     const emailInUse = this.usersByEmail.has(key);
     if (emailInUse) {
       throw makeAuthError(
@@ -1378,6 +1410,7 @@ export class SandboxBackend {
       uid,
       email,
       password,
+      tenantId: normalizedTenant,
       providerUserInfo: [{ providerId: 'password' }],
     });
     this.usersByEmail.set(key, record);
@@ -1686,7 +1719,7 @@ export class SandboxBackend {
     const identityPhotoUrl = user.photoURL ?? null;
     let stored = this.usersByUid.get(user.uid);
     if (!stored) {
-      const tenantId = user.tenantId ?? this.tenantId ?? null;
+      const tenantId = normalizeTenantScope(user.tenantId ?? this.tenantId);
       stored = this.makeStored({
         uid: user.uid,
         email: user.email,
@@ -1699,14 +1732,14 @@ export class SandboxBackend {
       }, providerId);
       this.usersByUid.set(user.uid, stored);
       if (user.email) {
-        const lower = user.email.toLowerCase();
-        if (!this.usersByEmail.has(lower) || tenantId === null) {
-          this.usersByEmail.set(lower, stored);
-        }
+        this.usersByEmail.set(tenantEmailKey(tenantId, user.email), stored);
       }
       changed = true;
-    } else if (refreshStoredPhoto(stored, identityPhotoUrl)) {
-      changed = true;
+    } else {
+      assertMatchingTenant(stored, this.tenantId);
+      if (refreshStoredPhoto(stored, identityPhotoUrl)) {
+        changed = true;
+      }
     }
     if (!stored.providerUserInfo.some((p) => p.providerId === providerId)) {
       stored.providerUserInfo.push({ providerId });
@@ -1769,7 +1802,9 @@ export class SandboxBackend {
     } else {
       const { spec } = req;
       const specPhotoUrl = spec.photoUrl ?? null;
-      const byEmail = this.usersByEmail.get(spec.email.toLowerCase());
+      const tenantId = normalizeTenantScope(this.tenantId);
+      const emailKey = tenantEmailKey(tenantId, spec.email);
+      const byEmail = this.usersByEmail.get(emailKey);
       if (byEmail) {
         this.assertUserEnabled(byEmail);
         stored = byEmail;
@@ -1781,9 +1816,10 @@ export class SandboxBackend {
           displayName: spec.displayName ?? null,
           photoUrl: specPhotoUrl,
           customClaims: spec.customClaims ?? {},
+          tenantId,
         }, providerId);
         this.usersByUid.set(stored.uid, stored);
-        this.usersByEmail.set(spec.email.toLowerCase(), stored);
+        this.usersByEmail.set(emailKey, stored);
         this.notifyUsersChanged();
       }
     }
@@ -1949,10 +1985,7 @@ export class SandboxBackend {
     });
     this.usersByUid.set(uid, record);
     if (record.email) {
-      const lowerEmail = record.email.toLowerCase();
-      if (!this.usersByEmail.has(lowerEmail) || tenantId === null) {
-        this.usersByEmail.set(lowerEmail, record);
-      }
+      this.usersByEmail.set(tenantEmailKey(tenantId, record.email), record);
     }
     this.notifyUsersChanged();
     const created = this.toRecord(record);
@@ -1984,13 +2017,14 @@ export class SandboxBackend {
           `An account already exists for ${update.email}.`,
         );
       }
-      if (stored.email && this.usersByEmail.get(stored.email.toLowerCase()) === stored) {
-        this.usersByEmail.delete(stored.email.toLowerCase());
+      if (stored.email) {
+        const oldKey = tenantEmailKey(targetTenant, stored.email);
+        if (this.usersByEmail.get(oldKey) === stored) {
+          this.usersByEmail.delete(oldKey);
+        }
       }
       stored.email = update.email;
-      if (!this.usersByEmail.has(key) || targetTenant === null) {
-        this.usersByEmail.set(key, stored);
-      }
+      this.usersByEmail.set(tenantEmailKey(targetTenant, update.email), stored);
     }
     if (update.password !== undefined) {
       validatePasswordStrength(update.password);
@@ -2037,8 +2071,11 @@ export class SandboxBackend {
     // A held session's next refresh is refused, as production's is, even
     // after the uid is created again.
     recordDeletion(this.projectStore, uid, this.now().getTime());
-    if (stored.email && this.usersByEmail.get(stored.email.toLowerCase()) === stored) {
-      this.usersByEmail.delete(stored.email.toLowerCase());
+    if (stored.email) {
+      const oldKey = tenantEmailKey(stored.tenantId, stored.email);
+      if (this.usersByEmail.get(oldKey) === stored) {
+        this.usersByEmail.delete(oldKey);
+      }
     }
     // The held ID token stays cached: production's client keeps answering
     // getIdToken() with it until its refresh point, and the refresh is refused.
@@ -2107,9 +2144,10 @@ export class SandboxBackend {
    *  the identity in the user DB (empty `providerUserInfo`, matching
    *  the emulator) so `listIdentities` / future user-admin surfaces
    *  see anonymous accounts too. */
-  mintAnonymousUser(): User {
+  mintAnonymousUser(tenantId: string | null = this.tenantId): User {
     const uid = `anonymous-${globalThis.crypto.randomUUID()}`;
-    const record = this.makeStored({ uid, isAnonymous: true });
+    const normalizedTenant = normalizeTenantScope(tenantId);
+    const record = this.makeStored({ uid, isAnonymous: true, tenantId: normalizedTenant });
     this.usersByUid.set(uid, record);
     this.notifyUsersChanged();
     this.emitAuthEvent('user_create', { path: uid, after: this.toRecord(record), detail: { isAnonymous: true } });
@@ -2119,6 +2157,7 @@ export class SandboxBackend {
       displayName: null,
       isAnonymous: true,
       claims: {},
+      tenantId: normalizedTenant,
     });
   }
 
@@ -2150,15 +2189,21 @@ export class SandboxBackend {
    * authenticated session, same as real Firebase.
    */
   mintDetachedSession(request: MintSessionRequest): MintedSession {
-    const tenantId = request.tenantId ?? null;
+    const tenantId = normalizeTenantScope(request.tenantId);
     switch (request.kind) {
       case 'anonymous':
         this.assertProviderEnabled('anonymous');
-        return this.establishDetachedSession(this.mintAnonymousUser(), 'anonymous', tenantId, true, request.origin);
+        return this.establishDetachedSession(
+          this.mintAnonymousUser(tenantId),
+          'anonymous',
+          tenantId,
+          true,
+          request.origin,
+        );
       case 'password':
         this.assertProviderEnabled('password');
         return this.establishDetachedSession(
-          this.buildUserFromStored(this.validatePassword(request.email, request.password)),
+          this.buildUserFromStored(this.validatePassword(request.email, request.password, tenantId)),
           'password',
           tenantId,
           true,
@@ -2167,7 +2212,9 @@ export class SandboxBackend {
       case 'createPassword':
         this.assertProviderEnabled('password');
         return this.establishDetachedSession(
-          this.buildUserFromStored(this.createEmailPasswordUser(request.email, request.password)),
+          this.buildUserFromStored(
+            this.createEmailPasswordUser(request.email, request.password, tenantId),
+          ),
           'password',
           tenantId,
           true,
@@ -2185,6 +2232,7 @@ export class SandboxBackend {
         if (missingUser) {
           throw makeAuthError('auth/user-not-found', `mintSession: no identity with uid ${request.uid}.`);
         }
+        assertMatchingTenant(stored, tenantId);
         this.assertUserEnabled(stored);
         const isAnonymous = stored.isAnonymous;
         const restoredProvider = isAnonymous ? 'anonymous' : (stored.providerUserInfo[0]?.providerId ?? 'password');
@@ -2889,7 +2937,11 @@ export class SandboxBackend {
    *  (a previously-weak seeded password should still let the user
    *  in); only `createUserWithEmailAndPassword` runs the strength
    *  check, mirroring prod. */
-  validatePassword(email: string, password: string): StoredUser {
+  validatePassword(
+    email: string,
+    password: string,
+    tenantId: string | null = this.tenantId,
+  ): StoredUser {
     validateEmailFormat(email);
     // Empty password → `auth/missing-password`, fired BEFORE the user-DB
     // lookup (same anti-enumeration ordering as the email check). Prod's
@@ -2903,7 +2955,7 @@ export class SandboxBackend {
         'A non-empty password must be provided',
       );
     }
-    const stored = this.findByEmail(email);
+    const stored = this.findByEmail(email, tenantId);
     if (!stored) {
       throw makeAuthError(
         'auth/user-not-found',

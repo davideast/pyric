@@ -147,14 +147,23 @@ export function resolveOAuthCredentialUser(
     if (byEmail) targetUid = byEmail.uid;
   }
   if (!targetUid) {
-    targetUid = targetTenant
-      ? `oauth-${targetTenant}-${credential.providerId}-${credential.email || 'user'}`
-      : `oauth-${credential.providerId}-${credential.email || 'user'}`;
+    const emailPart = credential.email || 'user';
+    if (targetTenant) {
+      targetUid = `oauth-${targetTenant}-${credential.providerId}-${emailPart}`;
+    } else {
+      targetUid = `oauth-${credential.providerId}-${emailPart}`;
+    }
   }
 
   const existing = existingUsers.find((u) => u.uid === targetUid);
   const callerDecidesVerification = credential.emailVerified !== undefined;
   if (existing) {
+    if ((existing.tenantId ?? null) !== targetTenant) {
+      throw new FirebaseError(
+        'auth/tenant-id-mismatch',
+        "The provided tenant ID does not match the Auth instance's tenant ID.",
+      );
+    }
     // A caller's flag leaves an existing account's flag as stored.
     authSandboxOps.createSignInCredential(auth, {
       providerId: credential.providerId, uid: targetUid, verifyEmail: !callerDecidesVerification,
@@ -170,7 +179,7 @@ export function resolveOAuthCredentialUser(
       });
     }
   } else {
-    authSandboxOps.createUser(auth, {
+    const createReq: Record<string, unknown> = {
       uid: targetUid,
       email: credential.email ?? undefined,
       displayName: credential.displayName ?? undefined,
@@ -178,8 +187,11 @@ export function resolveOAuthCredentialUser(
       customClaims: credential.customClaims,
       providerUserInfo: [{ providerId: credential.providerId }],
       emailVerified: credential.emailVerified,
-      ...(targetTenant !== null ? { tenantId: targetTenant } : {}),
-    } as Parameters<typeof authSandboxOps.createUser>[1]);
+    };
+    if (targetTenant !== null) {
+      createReq.tenantId = targetTenant;
+    }
+    authSandboxOps.createUser(auth, createReq as Parameters<typeof authSandboxOps.createUser>[1]);
     // Without a caller's flag, the provider sign-in, not the admin create,
     // decides what the provider vouches for, such as a new Google identity's
     // verified email.

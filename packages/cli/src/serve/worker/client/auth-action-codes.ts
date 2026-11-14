@@ -19,7 +19,14 @@ export async function signInWithEmailLink(auth: ClientAuth, email: string, link:
 }
 
 export async function sendPasswordResetEmail(auth: ClientAuth, email: string, settings?: ActionCodeSettings): Promise<void> {
-  await rpc(auth.port, { t: 'op', id: nextId(), method: 'auth.sendPasswordResetEmail', email, settings });
+  await rpc(auth.port, {
+    t: 'op',
+    id: nextId(),
+    method: 'auth.sendPasswordResetEmail',
+    email,
+    settings,
+    tenantId: auth.tenantId,
+  });
 }
 
 export async function sendEmailVerification(user: ClientUser, settings?: ActionCodeSettings): Promise<void> {

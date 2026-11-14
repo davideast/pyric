@@ -8,8 +8,6 @@
  * or reuses stale module cache entries across edits.
  */
 import { initializeSandbox } from 'pyric/sandbox';
-import { WORKER_RELAY_CAPABILITY, type BridgeMessage } from '../protocol.js';
-import { createRemoteSandboxCore, createRemoteSandboxHandle } from '../../remote/index.js';
 import { httpOnRequestFamily } from '../../functions/http/discovery.js';
 import { loadFunctionsModuleExports } from '../../functions/module-loader.js';
 import { serveInstanceAsDefault } from '../../functions/rtdb/child-runtime.js';
@@ -36,7 +34,6 @@ export type FunctionsRunnerRequest =
       projectId: string;
       defaultInstance: string;
       databaseHost: string;
-      ipcSandbox: boolean;
     }
   | {
       type: 'fire';
@@ -44,7 +41,6 @@ export type FunctionsRunnerRequest =
       projectId: string;
       defaultInstance: string;
       databaseHost: string;
-      ipcSandbox: boolean;
       triggerName: string;
       path: string;
       ref: string;
@@ -69,15 +65,13 @@ export type FunctionsRunnerReply =
       result?: unknown;
       errorMessage?: string;
     }
-  | { type: 'fatal'; message: string; stack?: string }
-  | { type: 'ipc-bridge'; frame: BridgeMessage };
+  | { type: 'fatal'; message: string; stack?: string };
 
-export type FunctionsParentToChild =
-  | FunctionsRunnerRequest
-  | { type: 'ipc-bridge'; frame: BridgeMessage };
+export type FunctionsParentToChild = FunctionsRunnerRequest;
 
 export const FUNCTIONS_RUNNER_CHILD_ENV = 'PYRIC_FUNCTIONS_RUNNER_CHILD';
 const SANDBOX_FACTORY = Symbol.for('pyric.remote.sandboxFactory');
+const LAZY_DEFAULT_AMBIENT = Symbol.for('pyric.admin.app.lazyDefaultAmbient');
 const DEFAULT_LOCATION = 'us-central1';
 
 function serializeTrigger(trigger: {
@@ -105,48 +99,6 @@ function sendReply(message: FunctionsRunnerReply): Promise<void> {
   });
 }
 
-function installIpcSandboxFactory(): () => void {
-  const core = createRemoteSandboxCore(
-    {
-      send(frame: BridgeMessage) {
-        if (typeof process.send === 'function' && process.connected) {
-          process.send({ type: 'ipc-bridge', frame } satisfies FunctionsRunnerReply);
-        }
-      },
-    },
-    { serveUrl: 'ipc://functions-fire' },
-  );
-  const onParentMessage = (raw: unknown): void => {
-    if (typeof raw !== 'object' || raw === null) return;
-    const msg = raw as { type?: unknown; frame?: unknown };
-    if (msg.type === 'ipc-bridge' && msg.frame && typeof msg.frame === 'object') {
-      core.handleMessage(msg.frame as BridgeMessage);
-    }
-  };
-  process.on('message', onParentMessage);
-  core.start();
-  core.handleMessage({
-    type: 'attach-ack',
-    protocol: 1,
-    bridgeVersion: '0.1.0',
-    clientSessionId: 'ipc-functions',
-    peerConnected: true,
-    capabilities: [WORKER_RELAY_CAPABILITY],
-  });
-  const handle = createRemoteSandboxHandle({
-    channel: core.channel,
-    serveUrl: 'ipc://functions-fire',
-    close: () => {
-      process.off('message', onParentMessage);
-      core.dispose('functions child closing');
-    },
-  });
-  (globalThis as Record<symbol, unknown>)[SANDBOX_FACTORY] = () => handle;
-  return () => {
-    handle.close();
-  };
-}
-
 function installLocalFallbackFactory(): () => void {
   const local = initializeSandbox();
   (globalThis as Record<symbol, unknown>)[SANDBOX_FACTORY] = () => local;
@@ -159,13 +111,13 @@ async function handleRunnerRequest(req: FunctionsRunnerRequest): Promise<void> {
   const usesHostedUrl = (process.env.PYRIC_SANDBOX ?? '').startsWith('remote:');
   let cleanupSandbox: () => void = () => {};
   if (!usesHostedUrl) {
-    if (req.ipcSandbox) cleanupSandbox = installIpcSandboxFactory();
-    else cleanupSandbox = installLocalFallbackFactory();
+    cleanupSandbox = installLocalFallbackFactory();
   }
 
-  const { initializeApp, deleteApp } = await import('pyric-admin/app');
+  const { getApps, deleteApp, isSandboxAdminApp } = await import('pyric-admin/app');
   serveInstanceAsDefault(req.defaultInstance);
-  const ambientApp = initializeApp();
+  (globalThis as Record<symbol, unknown>)[LAZY_DEFAULT_AMBIENT] = true;
+  const keepAlive = setInterval(() => {}, 60_000);
 
   try {
     const exported = await loadFunctionsModuleExports(req.entry);
@@ -227,7 +179,15 @@ async function handleRunnerRequest(req: FunctionsRunnerRequest): Promise<void> {
       });
     }
   } finally {
-    await deleteApp(ambientApp).catch(() => undefined);
+    clearInterval(keepAlive);
+    delete (globalThis as Record<symbol, unknown>)[LAZY_DEFAULT_AMBIENT];
+    const registeredApps = getApps();
+    for (const app of registeredApps) {
+      if (isSandboxAdminApp(app) && 'close' in app.sandbox && typeof app.sandbox.close === 'function') {
+        app.sandbox.close();
+      }
+    }
+    await Promise.all(registeredApps.map((app) => deleteApp(app).catch(() => undefined)));
     cleanupSandbox();
   }
 }

@@ -4,6 +4,7 @@
  * the discovered `onValueCreated` handlers and reports each run to the host.
  */
 import { randomUUID } from 'node:crypto';
+import { parsePyricSandbox } from 'pyric/sandbox/internal';
 import type { WorkerOpPayload, WorkerSubPayload } from '../../bridge/protocol.js';
 import {
   createRemoteSandboxHandle,
@@ -29,6 +30,25 @@ export interface RtdbChildRuntimeOptions {
   location: string;
   databaseHost: string;
   send(event: FunctionsChildEvent): void;
+}
+
+/**
+ * Mint a remote sandbox handle directly from the installed ambient factory
+ * without pre-initializing `firebase-admin/app`'s `[DEFAULT]` app before user
+ * module code runs.
+ */
+export function connectAmbientRuntimeSandbox(env: NodeJS.ProcessEnv = process.env): RemoteSandbox {
+  const key = Symbol.for('pyric.remote.sandboxFactory');
+  const global = globalThis as Record<symbol, unknown>;
+  const factory = global[key] as ((options?: { url?: string }) => RemoteSandbox) | undefined;
+  if (typeof factory !== 'function') {
+    throw new Error('Functions child is missing the installed remote sandbox factory');
+  }
+  const parsed = parsePyricSandbox(env.PYRIC_SANDBOX ?? '');
+  if (parsed.mode === 'remote' && parsed.url !== undefined) {
+    return factory({ url: parsed.url });
+  }
+  return factory({});
 }
 
 /** The current instant of the sandbox this child is attached to. */

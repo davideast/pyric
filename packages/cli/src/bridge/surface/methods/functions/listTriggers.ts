@@ -37,8 +37,10 @@ export default {
   operation: 'list_functions_triggers',
   example: {},
   async handler(_args, ctx) {
+    const configuredDefaultInstance = (await ctx.databaseInstances()).known().defaultInstance;
     const discovered = await discoverFunctionsTriggers(ctx.projectDir, {
       functionsHost: ctx.functionsHost,
+      defaultInstance: configuredDefaultInstance,
     });
     if (discovered.triggers.length === 0 && discovered.unsupported.length === 0) {
       return {

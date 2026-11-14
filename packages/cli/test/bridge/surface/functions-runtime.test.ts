@@ -1,8 +1,15 @@
 import { describe, expect, test } from 'bun:test';
-import { mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { discoverFunctionsTriggers } from '../../../src/bridge/surface/functions-runtime.js';
+import { initializeSandbox } from 'pyric/sandbox';
+import { createSurfaceContext } from '../../../src/bridge/surface/index.js';
+import { projectDatabaseInstances } from '../../../src/bridge/surface/database-instance-project.js';
+import {
+  discoverFunctionsTriggers,
+  fireFunctionsTriggerIsolated,
+} from '../../../src/bridge/surface/functions-runtime.js';
+import listTriggersMethod from '../../../src/bridge/surface/methods/functions/listTriggers.js';
 
 const firebaseFunctionsPath = resolve(
   import.meta.dir,
@@ -98,5 +105,108 @@ exports.omittedHttp = onRequest({ omit: true }, (_req, res) => res.send('skip'))
         eventType: 'https (omitted from emulation)',
       },
     ]);
+  });
+
+  test('resolves pyric.json project without .firebaserc across discovery, listTriggers, fire, and database catalog', async () => {
+    const projectDir = fixtureProject();
+    const sandbox = initializeSandbox();
+    try {
+      plantFunctionsSource(
+        projectDir,
+        [
+          "const { onValueCreated } = require('firebase-functions/v2/database');",
+          "const cfg = JSON.parse(process.env.FIREBASE_CONFIG || '{}');",
+          "const defaultInstance = cfg.databaseURL ? new URL(cfg.databaseURL).hostname.split('.')[0] : 'unset';",
+          "exports.onTaskCreated = onValueCreated({ ref: '/tasks/{taskId}', instance: defaultInstance }, (event) => ({",
+          "  instance: event.instance,",
+          "  gcloudProject: process.env.GCLOUD_PROJECT,",
+          "}));",
+        ].join('\n'),
+      );
+      writeFileSync(join(projectDir, 'pyric.json'), JSON.stringify({ project: 'org-alpha' }));
+
+      const catalog = await projectDatabaseInstances(sandbox, projectDir);
+      expect(catalog.select('org-alpha-default-rtdb')).toBeUndefined();
+
+      const standalone = await discoverFunctionsTriggers(projectDir);
+      expect(standalone.triggers[0]?.instance).toBe('org-alpha-default-rtdb');
+
+      const ctx = createSurfaceContext(sandbox, projectDir);
+      const listed = await listTriggersMethod.handler({}, ctx);
+      expect(listed.ok).toBe(true);
+      expect(listed.data.triggers[0]?.instance).toBe('org-alpha-default-rtdb');
+
+      const fired = await fireFunctionsTriggerIsolated(ctx, {
+        triggerName: 'onTaskCreated',
+        path: 'tasks/t1',
+        ref: 'tasks/t1',
+        value: { title: 'ship' },
+        timeoutMs: 10_000,
+        onFiring() {},
+      });
+      expect(fired.kind).toBe('executed');
+      if (fired.kind === 'executed') {
+        expect(fired.trigger.instance).toBe('org-alpha-default-rtdb');
+        expect(fired.result).toEqual({
+          instance: 'org-alpha-default-rtdb',
+          gcloudProject: 'org-alpha',
+        });
+      }
+    } finally {
+      sandbox.dispose();
+      rmSync(projectDir, { recursive: true, force: true });
+    }
+  });
+
+  test('agrees on a configured default database instance across discoverFunctionsTriggers, listTriggers, and fire', async () => {
+    const projectDir = fixtureProject();
+    const sandbox = initializeSandbox();
+    try {
+      plantFunctionsSource(
+        projectDir,
+        [
+          "const { onValueCreated } = require('firebase-functions/v2/database');",
+          "const cfg = JSON.parse(process.env.FIREBASE_CONFIG || '{}');",
+          "const defaultInstance = cfg.databaseURL ? new URL(cfg.databaseURL).hostname.split('.')[0] : 'unset';",
+          "exports.onEntryCreated = onValueCreated({ ref: '/entries/{entryId}', instance: defaultInstance }, (event) => event.instance);",
+        ].join('\n'),
+      );
+      writeFileSync(join(projectDir, '.firebaserc'), JSON.stringify({ projects: { default: 'org-alpha' } }));
+      writeFileSync(
+        join(projectDir, 'database.rules.json'),
+        JSON.stringify({ rules: { '.read': true, '.write': true } }),
+      );
+      writeFileSync(
+        join(projectDir, 'firebase.json'),
+        JSON.stringify({
+          functions: { source: 'functions' },
+          database: [{ instance: 'custom-rtdb', rules: 'database.rules.json' }],
+        }),
+      );
+
+      const standalone = await discoverFunctionsTriggers(projectDir);
+      expect(standalone.triggers[0]?.instance).toBe('custom-rtdb');
+
+      const ctx = createSurfaceContext(sandbox, projectDir);
+      const listed = await listTriggersMethod.handler({}, ctx);
+      expect(listed.data.triggers[0]?.instance).toBe('custom-rtdb');
+
+      const fired = await fireFunctionsTriggerIsolated(ctx, {
+        triggerName: 'onEntryCreated',
+        path: 'entries/e1',
+        ref: 'entries/e1',
+        value: 'ready',
+        timeoutMs: 10_000,
+        onFiring() {},
+      });
+      expect(fired.kind).toBe('executed');
+      if (fired.kind === 'executed') {
+        expect(fired.trigger.instance).toBe('custom-rtdb');
+        expect(fired.result).toBe('custom-rtdb');
+      }
+    } finally {
+      sandbox.dispose();
+      rmSync(projectDir, { recursive: true, force: true });
+    }
   });
 });

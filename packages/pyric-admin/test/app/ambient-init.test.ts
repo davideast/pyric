@@ -31,6 +31,7 @@ import {
 } from 'pyric/sandbox/internal';
 
 import {
+  applicationDefault,
   cert,
   deleteApp,
   getApps,
@@ -247,6 +248,23 @@ describe('ambient init — production guard', () => {
     });
     expect(Object.keys(credential)).toEqual([]);
     expect(Reflect.ownKeys(credential)).toEqual([Symbol.for('pyric.admin.credential')]);
+  });
+
+  it('applicationDefault returns an inert credential object usable with initializeApp options', () => {
+    const { handle } = installFakeFactory();
+    process.env.PYRIC_SANDBOX = 'remote';
+    const credential = applicationDefault();
+    expect(credential).toEqual({
+      [Symbol.for('pyric.admin.credential')]: 'applicationDefault',
+    });
+    expect(Object.keys(credential)).toEqual([]);
+    const app = initializeApp({
+      credential,
+      storageBucket: 'org-alpha.appspot.com',
+    });
+    expect(isSandboxAdminApp(app)).toBe(true);
+    expect(app.options.storageBucket).toBe('org-alpha.appspot.com');
+    if (isSandboxAdminApp(app)) expect(app.sandbox).toBe(handle);
   });
 
   it('initializeApp with production options falls back to ambient sandbox initialization when PYRIC_SANDBOX is set', () => {
