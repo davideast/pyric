@@ -17,8 +17,26 @@ export const REMOTE_PEER_HEADER = 'x-pyric-remote-peer';
 
 /** `::ffff:127.0.0.1`, an IPv4 loopback peer on a dual-stack socket. */
 const MAPPED_IPV4_PREFIX = '::ffff:';
-const IPV4_LOOPBACK = /^127(\.\d{1,3}){3}$/;
-const IPV6_LOOPBACK = new Set(['::1', '0:0:0:0:0:0:0:1']);
+
+function isIpv4Loopback(address: string): boolean {
+  const parts = address.split('.');
+  if (parts.length !== 4 || parts[0] !== '127') return false;
+  for (const part of parts) {
+    if (!/^(?:0|[1-9]\d{0,2})$/.test(part)) return false;
+    if (Number(part) > 255) return false;
+  }
+  return true;
+}
+
+function isIpv6Loopback(address: string): boolean {
+  if (address === '::1' || address === '0:0:0:0:0:0:0:1') return true;
+  if (!address.includes(':')) return false;
+  try {
+    return new URL(`http://[${address}]`).hostname === '[::1]';
+  } catch {
+    return false;
+  }
+}
 
 /**
  * True when a socket's peer address is loopback, so the client runs on this
@@ -28,9 +46,10 @@ const IPV6_LOOPBACK = new Set(['::1', '0:0:0:0:0:0:0:1']);
 export function isLoopbackAddress(address: string | undefined): boolean {
   if (address === undefined) return false;
   const lower = address.toLowerCase();
-  const isMapped = lower.startsWith(MAPPED_IPV4_PREFIX);
-  const ipv4 = isMapped ? lower.slice(MAPPED_IPV4_PREFIX.length) : lower;
-  return IPV6_LOOPBACK.has(lower) || IPV4_LOOPBACK.test(ipv4);
+  if (lower.startsWith(MAPPED_IPV4_PREFIX)) {
+    return isIpv4Loopback(lower.slice(MAPPED_IPV4_PREFIX.length));
+  }
+  return isIpv6Loopback(lower) || isIpv4Loopback(lower);
 }
 
 /** The parts of a request that say where it came from. */

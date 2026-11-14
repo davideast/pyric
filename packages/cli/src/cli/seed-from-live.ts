@@ -18,7 +18,7 @@
 import { existsSync, mkdirSync, realpathSync, writeFileSync } from 'node:fs';
 import { dirname, relative, resolve, sep } from 'node:path';
 import type { ParsedArgs } from './parse-args.js';
-import { discoverServe, type Discovered } from '../serve/discovery.js';
+import { discoverServe, selectProjectHost, type Discovered } from '../serve/discovery.js';
 import { resolveSessionTokenForTarget } from '../serve/local-session-token.js';
 import { ensureGitignored } from '../serve/capture-store.js';
 import { isPathInside } from '../serve/path-inside.js';
@@ -397,7 +397,12 @@ export async function runSeedFromLive(
     return 1;
   }
 
-  const host = await (deps.discover ?? discoverServe)(cwd);
+  let host: Discovered | null;
+  if (deps.discover) {
+    host = await deps.discover(cwd);
+  } else {
+    host = selectProjectHost(await discoverServe(cwd, () => {}), () => {});
+  }
   if (host === null || host.instanceId === null) {
     err.write(
       `${PREFIX} no running Live mode host found for this project. Keep your \`@pyric/live\` server running while invoking this command.\n`,

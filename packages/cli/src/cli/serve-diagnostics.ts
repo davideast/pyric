@@ -1,20 +1,28 @@
 import type { ParsedArgs } from './parse-args.js';
 import { boundedFetch } from '../bounded-request.js';
-import { discoverServe } from '../serve/discovery.js';
-import { resolveSessionTokenForTarget } from '../serve/local-session-token.js';
+import { discoverServe, selectProjectHost } from '../serve/discovery.js';
+import { discoverHttpsPointer, resolveSessionTokenForTarget } from '../serve/local-session-token.js';
 import { DIAGNOSTICS_PATH } from '../serve/runtime/diagnostics-report.js';
 
 /** Milliseconds the diagnostics request has, connect and body included. */
 const DIAGNOSTICS_DEADLINE_MS = 3000;
 
-export async function runServeDiagnostics(parsed: ParsedArgs, deps: {
-  cwd?: string;
-  stdout?: { write(value: string): void };
-} = {}): Promise<number> {
+export async function runServeDiagnostics(
+  parsed: ParsedArgs,
+  deps: {
+    cwd?: string;
+    stdout?: { write(value: string): void };
+  } = {},
+): Promise<number> {
   const out = deps.stdout ?? process.stdout;
   const cwd = deps.cwd ?? process.cwd();
   const explicit = parsed.flags.get('url');
-  const discovered = typeof explicit === 'string' ? null : await discoverServe(cwd);
+  let discovered = null;
+  if (typeof explicit !== 'string') {
+    discovered =
+      (await discoverHttpsPointer(cwd)) ??
+      selectProjectHost(await discoverServe(cwd, () => {}), () => {});
+  }
   const found = typeof explicit === 'string' ? explicit : discovered?.url;
   const print = (report: unknown) => out.write(`${JSON.stringify(report, null, 2)}\n`);
   if (!found) {
@@ -35,30 +43,50 @@ export async function runServeDiagnostics(parsed: ParsedArgs, deps: {
   const sessionToken = discovered?.token ?? resolveSessionTokenForTarget({ cwd, url: endpoint.origin });
   let reachedServer = false;
   try {
-    // Bounded, connect included, so a port whose connect never completes
-    // cannot hold the command open past its answer (#1167). The report is
-    // read whole within the deadline, as fetch's abort covered the body too.
-    const response = await boundedFetch(endpoint, {
-      deadlineMs: DIAGNOSTICS_DEADLINE_MS,
-      maxBytes: Number.POSITIVE_INFINITY,
-      redirect: 'error',
-      ...(sessionToken !== undefined ? { headers: { 'x-pyric-session-token': sessionToken } } : {}),
-    });
+    let response: Response;
+    if (sessionToken !== undefined) {
+      response = await boundedFetch(endpoint, {
+        deadlineMs: DIAGNOSTICS_DEADLINE_MS,
+        maxBytes: Number.POSITIVE_INFINITY,
+        redirect: 'error',
+        headers: { 'x-pyric-session-token': sessionToken },
+      });
+    } else {
+      response = await boundedFetch(endpoint, {
+        deadlineMs: DIAGNOSTICS_DEADLINE_MS,
+        maxBytes: Number.POSITIVE_INFINITY,
+        redirect: 'error',
+      });
+    }
     reachedServer = true;
     if (!response.ok) {
-      print({ version: 1, server: { http: 'responding', status: response.status }, error: 'Diagnostics endpoint unavailable. Check the URL and CLI version.' });
+      print({
+        version: 1,
+        server: { http: 'responding', status: response.status },
+        error: 'Diagnostics endpoint unavailable. Check the URL and CLI version.',
+      });
       return 2;
     }
-    const report = await response.json() as { version?: unknown; server?: { http?: unknown }; clients?: unknown };
-    const validReport = report?.version === 1 && report.server?.http === 'responding' && Array.isArray(report.clients);
+    const report = (await response.json()) as {
+      version?: unknown;
+      server?: { http?: unknown };
+      clients?: unknown;
+    };
+    const validReport =
+      report?.version === 1 && report.server?.http === 'responding' && Array.isArray(report.clients);
     if (!validReport) throw new Error('Invalid diagnostic report.');
     print(report);
     return 0;
   } catch {
+    const httpState = reachedServer ? 'responding' : 'unreachable';
+    let errorMessage = 'HTTP connection failed or timed out. Check the server and network.';
+    if (reachedServer) {
+      errorMessage = 'The server did not return a valid diagnostic report.';
+    }
     print({
       version: 1,
-      server: { http: reachedServer ? 'responding' : 'unreachable' },
-      error: reachedServer ? 'The server did not return a valid diagnostic report.' : 'HTTP connection failed or timed out. Check the server and network.',
+      server: { http: httpState },
+      error: errorMessage,
     });
     return 2;
   }
