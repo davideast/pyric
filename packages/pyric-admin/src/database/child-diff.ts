@@ -10,7 +10,7 @@
  */
 
 import {
-  extractOrderValue,
+  indexedOrderValueChanged,
   jsonEqual,
   normalizeNode,
   valueChildren,
@@ -182,15 +182,14 @@ export class ChildWindowDiffer {
         continue;
       }
 
-      if (effectiveOrderBy.kind === 'key') {
-        continue;
-      }
-      const beforeIndexed = extractOrderValue(effectiveOrderBy, prior.key, prior.value, prior.priority);
-      const afterIndexed = extractOrderValue(effectiveOrderBy, entry.key, entry.value, entry.priority);
-      const indexedValueChanged = !jsonEqual(beforeIndexed, afterIndexed);
-      const priorityChangedUnderValue =
-        effectiveOrderBy.kind === 'value' && prior.priority !== entry.priority;
-      const hasChildMoved = indexedValueChanged || priorityChangedUnderValue;
+      const hasChildMoved = indexedOrderValueChanged(
+        effectiveOrderBy,
+        entry.key,
+        prior.value,
+        prior.priority,
+        entry.value,
+        entry.priority,
+      );
       if (hasChildMoved) {
         deltas.push({
           key: entry.key,

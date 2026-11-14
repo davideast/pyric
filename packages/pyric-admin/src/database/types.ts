@@ -12,8 +12,15 @@ export type SnapshotCallback = (
   previousChildKey?: string | null,
 ) => unknown;
 
+export const ADMIN_REFERENCE_BRAND = Symbol.for('pyric.admin.database.reference');
+
+export function isAdminReference(candidate: unknown): candidate is Reference {
+  if (candidate === null || typeof candidate !== 'object') return false;
+  return (candidate as { [ADMIN_REFERENCE_BRAND]?: unknown })[ADMIN_REFERENCE_BRAND] === true;
+}
+
 export interface Database {
-  ref(path?: string): Reference;
+  ref(path?: string | Reference): Reference;
   refFromURL(url: string): Reference;
   goOffline(): void;
   goOnline(): void;

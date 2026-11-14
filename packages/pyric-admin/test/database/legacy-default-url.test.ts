@@ -26,9 +26,19 @@ describe('a legacy https://<projectId>.firebaseio.com databaseURL', () => {
     expect((await getDatabase(noUrl).ref('probe').get()).val()).toBe('from legacy');
   });
 
-  test('getDatabaseWithUrl(<legacy URL>) is the database getDatabase(app) returns', () => {
-    const app = initializeApp({ sandbox: initializeSandbox(), projectId: PROJECT });
+  test('getDatabaseWithUrl(<legacy URL>) shares the default instance data and caches by canonical URL', async () => {
+    const sandbox = initializeSandbox();
+    const appNoUrl = initializeApp({ sandbox, projectId: PROJECT }, 'no-url');
+    const appLegacyUrl = initializeApp(
+      { sandbox, projectId: PROJECT, databaseURL: LEGACY_URL },
+      'with-legacy-url',
+    );
 
-    expect(getDatabaseWithUrl(LEGACY_URL, app)).toBe(getDatabase(app));
+    const legacyDb = getDatabaseWithUrl(LEGACY_URL, appNoUrl);
+    await legacyDb.ref('shared').set('via legacy url');
+
+    expect((await getDatabase(appNoUrl).ref('shared').get()).val()).toBe('via legacy url');
+    expect(legacyDb.refFromURL(`${LEGACY_URL}/shared`).key).toBe('shared');
+    expect(getDatabaseWithUrl(LEGACY_URL, appLegacyUrl)).toBe(getDatabase(appLegacyUrl));
   });
 });

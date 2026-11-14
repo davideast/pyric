@@ -235,7 +235,7 @@ describe('pyric-admin/database lazy-remote subscription hygiene & deleteApp clea
   });
 });
 
-describe.each(ARMS)('pyric-admin/database adversarial parity regressions ($name)', ({ name, make }) => {
+describe.each(ARMS)('pyric-admin/database adversarial parity regressions ($name)', ({ make }) => {
   test('deleteApp(app) detaches active local and remote listeners so later mutations never invoke them', async () => {
     const { app, sharedSandboxForSecondApp } = make();
     const writerApp = initializeApp(
@@ -361,18 +361,16 @@ describe.each(ARMS)('pyric-admin/database adversarial parity regressions ($name)
     expect(app1Values).toEqual([{ k1: 1 }, { k1: 1, k2: 2 }]);
     db1.ref('items').off();
 
-    if (name === 'in-process') {
-      await db1.ref('presence').set({ app1: 'online', app2: 'online' });
-      await db1.ref('presence/app1').onDisconnect().set('offline');
-      await db2.ref('presence/app2').onDisconnect().set('offline');
+    await db1.ref('presence').set({ app1: 'online', app2: 'online' });
+    await db1.ref('presence/app1').onDisconnect().set('offline');
+    await db2.ref('presence/app2').onDisconnect().set('offline');
 
-      db1.goOffline();
-      expect((await db2.ref('presence').get()).val()).toEqual({ app1: 'offline', app2: 'online' });
-      db2.goOffline();
-      expect((await db1.ref('presence').get()).val()).toEqual({ app1: 'offline', app2: 'offline' });
-      db1.goOnline();
-      db2.goOnline();
-    }
+    db1.goOffline();
+    expect((await db2.ref('presence').get()).val()).toEqual({ app1: 'offline', app2: 'online' });
+    db2.goOffline();
+    expect((await db1.ref('presence').get()).val()).toEqual({ app1: 'offline', app2: 'offline' });
+    db1.goOnline();
+    db2.goOnline();
   });
 
   test('goOffline(); goOnline(); immediately awaited get() and once("value") observe fully drained multi-op state', async () => {
@@ -429,11 +427,9 @@ describe.each(ARMS)('pyric-admin/database adversarial parity regressions ($name)
     const connCb = db.ref('.info/connected').on('value', (s) => transitions.push(s.val()));
     await tick();
     expect(transitions).toEqual([true]);
-    if (name === 'in-process') {
-      db.goOffline();
-      db.goOnline();
-      expect(transitions).toEqual([true, false, true]);
-    }
+    db.goOffline();
+    db.goOnline();
+    expect(transitions).toEqual([true, false, true]);
     db.ref('.info/connected').off('value', connCb);
   });
 
@@ -553,29 +549,31 @@ describe.each(ARMS)('pyric-admin/database adversarial parity regressions ($name)
     ]);
     expect(siblingVals).toEqual([{ a: 1 }, { a: 2 }]);
 
-    // 6. Preserve PR #2558 3-arg specific-context vs 2-arg context-wildcard off().
+    // 6. Pair (callback, context) on off(eventType, cb, ctx?) matching firebase-admin.
     const ctxSeen: string[] = [];
     const ctx1 = { tag: 'c1' };
     const ctx2 = { tag: 'c2' };
     const ctx3 = { tag: 'c3' };
-    function taggedCb(this: { tag: string }): void {
-      ctxSeen.push(this.tag);
+    function taggedCb(this: { tag?: string } | undefined): void {
+      ctxSeen.push(this?.tag ?? 'unbound');
     }
     ref.on('value', taggedCb, ctx1);
     ref.on('value', taggedCb, ctx2);
     ref.on('value', taggedCb, ctx3);
+    ref.on('value', taggedCb);
     await tick();
     ctxSeen.length = 0;
 
     ref.off('value', taggedCb, ctx1);
     await ref.set({ a: 3 });
     await tick();
-    expect(ctxSeen).toEqual(['c2', 'c3']);
+    expect(ctxSeen).toEqual(['c2', 'c3', 'unbound']);
 
     ctxSeen.length = 0;
     ref.off('value', taggedCb);
     await ref.set({ a: 4 });
     await tick();
-    expect(ctxSeen).toEqual([]);
+    expect(ctxSeen).toEqual(['c2', 'c3']);
+    ref.off('value');
   });
 });

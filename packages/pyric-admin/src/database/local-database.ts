@@ -4,11 +4,7 @@
  */
 
 import type { Sandbox } from 'pyric/sandbox';
-import {
-  createDatabaseInstanceRegistry,
-  type DatabaseInstance,
-  type DatabaseInstanceRegistry,
-} from 'pyric/sandbox/internal';
+import type { DatabaseInstance } from 'pyric/sandbox/internal';
 import {
   getAdminDatabase,
   TARGET_SYMBOL,
@@ -22,7 +18,11 @@ import {
   type QuerySpec,
 } from 'pyric/database/internal';
 import type { PyricAdminApp } from '../app/index.js';
-import { onAdminAppDeleted } from '../app/lifecycle.js';
+import {
+  createAdminServiceLifecycle,
+  onAdminAppDeleted,
+  type AdminServiceLifecycle,
+} from '../app/lifecycle.js';
 import {
   buildDatabaseShell,
   formatReferenceUrl,
@@ -45,6 +45,7 @@ import {
 } from './on-disconnect.js';
 import { createQuerySurface } from './query.js';
 import {
+  generatePushId,
   joinPath,
   pathSegments,
   settled,
@@ -52,7 +53,9 @@ import {
   validateValuesArg,
 } from './tree-store.js';
 import {
+  ADMIN_REFERENCE_BRAND,
   notImplemented,
+  validateCallbackArg,
   type Database,
   type DataSnapshot,
   type JsonValue,
@@ -73,11 +76,12 @@ interface SharedRtdbBackend extends LocalListenBackend {
 interface LocalInstance {
   adminDb?: ModularDatabase;
   backend?: SharedRtdbBackend;
+  readonly lifecycle: AdminServiceLifecycle;
   readonly listeners: AdminListenerTable;
   readonly sandbox: Sandbox;
 }
 
-const localInstancesByApp = new WeakMap<PyricAdminApp, DatabaseInstanceRegistry<LocalInstance>>();
+const localInstancesByApp = new WeakMap<PyricAdminApp, Map<string, LocalInstance>>();
 const resetBackendsBySandbox = new WeakMap<Sandbox, Set<SharedRtdbBackend>>();
 
 function registerBackendForReset(sandbox: Sandbox, backend: SharedRtdbBackend): void {
@@ -108,32 +112,46 @@ function resolveSharedHandle(
   return { adminDb, backend };
 }
 
-function localInstances(
-  app: PyricAdminApp,
-  sandbox: Sandbox,
-): DatabaseInstanceRegistry<LocalInstance> {
+function localInstances(app: PyricAdminApp): Map<string, LocalInstance> {
   const existing = localInstancesByApp.get(app);
   if (existing !== undefined) return existing;
-  const registry: DatabaseInstanceRegistry<LocalInstance> = createDatabaseInstanceRegistry({
-    create: () => ({ sandbox, listeners: new AdminListenerTable() }),
-  });
-  localInstancesByApp.set(app, registry);
-  onAdminAppDeleted(app, () => {
-    for (const [, entry] of registry.entries()) {
+  const instances = new Map<string, LocalInstance>();
+  localInstancesByApp.set(app, instances);
+  onAdminAppDeleted(app, async () => {
+    const drains: Promise<void>[] = [];
+    for (const [, entry] of instances.entries()) {
       entry.listeners.detachAll();
+      if (entry.adminDb !== undefined) {
+        const { connection } = (entry.adminDb as unknown as {
+          [TARGET_SYMBOL]: { connection: { drain(): Promise<void> } };
+        })[TARGET_SYMBOL];
+        drains.push(connection.drain().catch(() => undefined));
+      }
+    }
+    if (drains.length > 0) {
+      await Promise.all(drains);
     }
   });
-  return registry;
+  return instances;
 }
 
 export function getLocalDatabase(
   app: PyricAdminApp,
   sandbox: Sandbox,
+  cacheKey: string,
   instance: DatabaseInstance | undefined,
   urlMeta: DatabaseUrlMetadata,
 ): Database {
-  const registry = localInstances(app, sandbox);
-  const entry = registry.getOrCreate(registry.keyOf(instance));
+  const instances = localInstances(app);
+  let entry = instances.get(cacheKey);
+  if (entry === undefined) {
+    entry = {
+      sandbox,
+      lifecycle: createAdminServiceLifecycle(app),
+      listeners: new AdminListenerTable(),
+    };
+    instances.set(cacheKey, entry);
+  }
   if (entry.backend === undefined || entry.adminDb === undefined) {
     const resolved = resolveSharedHandle(sandbox, instance);
     entry.adminDb = resolved.adminDb;
@@ -145,6 +163,7 @@ export function getLocalDatabase(
     urlMeta,
     (handle, path, meta) => buildSandboxRef(instanceState, handle, path, meta),
     localDatabaseConnectionControls(instanceState.adminDb),
+    instanceState.lifecycle,
   );
 }
 
@@ -154,7 +173,7 @@ function buildSandboxRef(
   path: string,
   urlMeta: DatabaseUrlMetadata,
 ): Reference {
-  const { adminDb, backend, listeners } = instanceState;
+  const { adminDb, backend, lifecycle, listeners } = instanceState;
   const canonical = joinPath(pathSegments(path));
   const segs = pathSegments(canonical);
   const key = segs.length === 0 ? null : segs[segs.length - 1]!;
@@ -163,6 +182,7 @@ function buildSandboxRef(
   const listenTarget: LocalListenTarget = {
     adminDb,
     backend,
+    lifecycle,
     listeners,
     canonical,
     refAt,
@@ -176,6 +196,7 @@ function buildSandboxRef(
       getBaseRef: () => ref as unknown as Reference,
       async get(spec: QuerySpec): Promise<DataSnapshot> {
         assertGettablePath(canonical);
+        lifecycle.assertActive();
         if (!isDefaultQuerySpec(spec)) {
           const rows = backend.adminGetQuery(canonical, spec);
           return buildLocalQuerySnapshot(refAt, adminDb, canonical, segs, rows);
@@ -194,6 +215,7 @@ function buildSandboxRef(
   );
 
   const ref = {
+    [ADMIN_REFERENCE_BRAND]: true,
     ...querySurface,
     key,
     get parent(): Reference | null {
@@ -208,15 +230,19 @@ function buildSandboxRef(
     },
 
     set(value: unknown, onComplete?: (err: Error | null) => void): Promise<void> {
+      validateCallbackArg('Reference.set', 'onComplete', onComplete, true);
       const stored = validateValueArg('set', segs, value);
       return settled(() => {
+        lifecycle.assertActive();
         backend.adminSet(canonical, stored);
       }, onComplete);
     },
 
     update(values: object, onComplete?: (err: Error | null) => void): Promise<void> {
+      validateCallbackArg('Reference.update', 'onComplete', onComplete, true);
       const patch = validateValuesArg(segs, values);
       return settled(() => {
+        lifecycle.assertActive();
         if (Object.keys(patch).length > 0) {
           backend.adminUpdate(canonical, patch);
         }
@@ -224,21 +250,38 @@ function buildSandboxRef(
     },
 
     remove(onComplete?: (err: Error | null) => void): Promise<void> {
-      return settled(() => backend.adminRemove(canonical), onComplete);
+      validateCallbackArg('Reference.remove', 'onComplete', onComplete, true);
+      return settled(() => {
+        lifecycle.assertActive();
+        backend.adminRemove(canonical);
+      }, onComplete);
     },
 
     push(value?: unknown, onComplete?: (err: Error | null) => void): ThenableReference {
-      const stored = value === undefined ? undefined : validateValueArg('push', segs, value);
-      const id = backend.mintKey();
-      const childPath = joinPath([...segs, id]);
+      validateCallbackArg('Reference.push', 'onComplete', onComplete, true);
+      let stored: JsonValue | undefined;
+      if (value !== undefined) {
+        stored = validateValueArg('push', segs, value);
+      }
+      let id: string;
       let writeOutcome: Promise<void>;
-      if (stored !== undefined) {
+      if (lifecycle.isDeleted) {
+        id = generatePushId();
         writeOutcome = settled(() => {
-          backend.adminSet(childPath, stored);
+          lifecycle.assertActive();
         }, onComplete);
       } else {
-        writeOutcome = settled(() => {}, onComplete);
+        id = backend.mintKey();
+        const activeChildPath = joinPath([...segs, id]);
+        if (stored !== undefined) {
+          writeOutcome = settled(() => {
+            backend.adminSet(activeChildPath, stored);
+          }, onComplete);
+        } else {
+          writeOutcome = settled(() => {}, onComplete);
+        }
       }
+      const childPath = joinPath([...segs, id]);
       writeOutcome.catch(() => {});
       const childRef = refAt(childPath);
       const resolvedRef = refAt(childPath);
@@ -261,7 +304,7 @@ function buildSandboxRef(
     },
 
     onDisconnect(): OnDisconnect {
-      return buildLocalOnDisconnect(adminDb, canonical);
+      return buildLocalOnDisconnect(adminDb, canonical, lifecycle);
     },
     transaction(..._args: unknown[]): never {
       throw notImplemented('transaction');

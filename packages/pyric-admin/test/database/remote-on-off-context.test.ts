@@ -69,14 +69,17 @@ describe("pyric-admin/database on('value') and off('value') context binding", ()
       itemRef.on('value', otherHandler, ctxB);
       await tick();
 
-      // Detaching sharedHandler without context detaches all registrations of sharedHandler
-      // (both context-bound and context-less), while leaving otherHandler active.
+      // Detaching sharedHandler without context detaches only the context-less registration,
+      // leaving context-bound (ctxA, ctxB) registrations active per CallbackContext.matches.
       itemRef.off('value', sharedHandler);
       const beforeFourthSet = deliveries.length;
       const otherBeforeFourthSet = otherDeliveries.length;
       await itemRef.set({ count: 4 });
       await tick();
-      expect(deliveries.slice(beforeFourthSet)).toEqual([]);
+      expect(deliveries.slice(beforeFourthSet)).toEqual([
+        { subscriber: 'B', val: { count: 4 } },
+        { subscriber: 'A', val: { count: 4 } },
+      ]);
       expect(otherDeliveries.slice(otherBeforeFourthSet)).toEqual([{ count: 4 }]);
 
       // Detach all remaining listeners at path.

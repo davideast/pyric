@@ -32,7 +32,12 @@ export function assertRtdbQuery(value: unknown): void {
     requireRecord(limit, 'query.limit');
     const isKnownLimit = limit.kind === 'limitToFirst' || limit.kind === 'limitToLast';
     requireShape(isKnownLimit, 'query.limit.kind');
-    const hasNumber = typeof limit.n === 'number' && Number.isFinite(limit.n);
-    requireShape(hasNumber, 'query.limit.n');
+    const isFinitePositiveInt =
+      typeof limit.n === 'number' &&
+      Number.isFinite(limit.n) &&
+      limit.n > 0 &&
+      Math.floor(limit.n) === limit.n;
+    const isInfiniteLimit = limit.n === null || limit.n === Number.POSITIVE_INFINITY;
+    requireShape(isFinitePositiveInt || isInfiniteLimit, 'query.limit.n');
   }
 }

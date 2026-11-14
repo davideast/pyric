@@ -557,7 +557,13 @@ export function off(
   callback?: (snap: DataSnapshot) => void,
 ): void {
   const baseRef = isQuery(r as object) ? (r as Query).ref : r as DatabaseReference;
-  const scope = isQuery(r as object) && !isDefaultQuerySpec(r._spec) ? queryScope(r) : undefined;
+  let scope: string | undefined;
+  if (isQuery(r as object) && !isDefaultQuerySpec(r._spec)) {
+    const candidateScope = queryScope(r);
+    if (candidateScope !== 'default') {
+      scope = candidateScope;
+    }
+  }
   const target = targetOf(baseRef as unknown as object);
   if (callback !== undefined && eventType !== undefined) {
     listenerRegistry.takeFirst(target, baseRef._path, eventType, callback, scope)?.unsubscribe();

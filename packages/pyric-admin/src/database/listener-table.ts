@@ -129,17 +129,19 @@ export class AdminListenerTable {
         const list = eventsForQuery.get(ev);
         if (list === undefined) continue;
 
-        if (callback === undefined) {
+        const removesAllInBucket = eventType === undefined || callback === undefined;
+        if (removesAllInBucket) {
           removed.push(...list);
           eventsForQuery.delete(ev);
           continue;
         }
 
         const kept: AdminListenerEntry[] = [];
+        let detachedFirstMatch = false;
         for (const entry of list) {
-          const matchesCallback = entry.callback === callback;
-          const matchesContext = context === undefined || entry.context === context;
-          if (matchesCallback && matchesContext) {
+          const matchesPair = entry.callback === callback && entry.context === context;
+          if (!detachedFirstMatch && matchesPair) {
+            detachedFirstMatch = true;
             removed.push(entry);
           } else {
             kept.push(entry);
