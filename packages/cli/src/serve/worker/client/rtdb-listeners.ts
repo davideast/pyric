@@ -1,6 +1,11 @@
 /** RTDB value/child listeners and Firebase-compatible `off` registration identity. */
 import type { InboundMessage, RtdbValueSubMessage } from '../protocol.js';
-import { compareValues, logDatabaseWarning, queryIdentifier } from 'pyric/database/internal';
+import {
+  indexedOrderValueChanged,
+  logDatabaseWarning,
+  normalizeNode,
+  queryIdentifier,
+} from 'pyric/database/internal';
 import { sameRtdbValue } from '../rtdb-value-equality.js';
 import {
   _defaultLens,
@@ -26,7 +31,6 @@ import {
 import {
   hydrateRtdbSnapshot,
   makeRtdbSnapshot,
-  valueAt,
   type RtdbWireEntry,
   type RtdbWireSnapshot,
 } from './rtdb-snapshots.js';
@@ -343,23 +347,16 @@ function onChildEvent(
           emit(entry, previousChildName);
         }
         if (kind === 'moved' && prior) {
-          const orderBy = query?.orderBy ?? { kind: 'priority' as const };
-          if (orderBy.kind === 'priority') {
-            if ((prior.entry.priority ?? null) !== (entry.priority ?? null)) {
-              emit(entry, previousChildName);
-            }
-          } else if (orderBy.kind === 'value') {
-            const valueChanged = !sameRtdbValue(prior.entry.value, entry.value);
-            const priorityChanged = (prior.entry.priority ?? null) !== (entry.priority ?? null);
-            if (valueChanged || priorityChanged) {
-              emit(entry, previousChildName);
-            }
-          } else if (orderBy.kind === 'child') {
-            const beforeChild = valueAt(prior.entry.value, orderBy.path) as Parameters<typeof compareValues>[0];
-            const afterChild = valueAt(entry.value, orderBy.path) as Parameters<typeof compareValues>[0];
-            if (compareValues(beforeChild, afterChild) !== 0) {
-              emit(entry, previousChildName);
-            }
+          const moved = indexedOrderValueChanged(
+            query?.orderBy ?? null,
+            entry.key,
+            normalizeNode(prior.entry.value),
+            prior.entry.priority ?? null,
+            normalizeNode(entry.value),
+            entry.priority ?? null,
+          );
+          if (moved) {
+            emit(entry, previousChildName);
           }
         }
       }

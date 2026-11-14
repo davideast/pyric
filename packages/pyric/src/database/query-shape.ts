@@ -1,4 +1,4 @@
-import type { Constraint, QuerySpec } from './sandbox/query.js';
+import { canonicalChildPath, type Constraint, type QuerySpec } from './sandbox/query.js';
 import {
   CONSTRAINT_SYMBOL,
   QUERY_SYMBOL,
@@ -59,11 +59,7 @@ function canonicalOrderBy(orderBy: QuerySpec['orderBy']): QuerySpec['orderBy'] {
     return null;
   }
   if (orderBy.kind === 'child') {
-    const canonicalPath = orderBy.path
-      .split('/')
-      .filter((segment) => segment.length > 0)
-      .join('/');
-    return { kind: 'child', path: canonicalPath };
+    return { kind: 'child', path: canonicalChildPath(orderBy.path) };
   }
   return orderBy;
 }

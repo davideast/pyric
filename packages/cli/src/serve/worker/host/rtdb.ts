@@ -289,6 +289,15 @@ export function forgetPortRtdbConnection(ctx: HostCtx, port: PortLike): void {
   offlineInstances.get(ctx)?.delete(port);
 }
 
+export function portRtdbConnectionCounts(
+  ctx: HostCtx,
+  port: PortLike,
+): { readonly queuedScopes: number; readonly offlineScopes: number } {
+  const queuedScopes = disconnectQueues.get(ctx)?.get(port)?.size ?? 0;
+  const offlineScopes = offlineInstances.get(ctx)?.get(port)?.size ?? 0;
+  return { queuedScopes, offlineScopes };
+}
+
 export function isRtdbOp(method: OpMessage['method']): boolean {
   return RTDB_METHODS.has(method);
 }
@@ -434,7 +443,17 @@ export async function handleRtdbOp(
     case 'rtdb.onDisconnectCancel': {
       try {
         const scopeKey = portConnectionScopeKey(ctx, msg.instance, msg.connectionId);
-        portQueue(ctx, port, scopeKey).cancel(msg.path);
+        const queues = disconnectQueues.get(ctx)?.get(port);
+        const existingQueue = queues?.get(scopeKey);
+        if (existingQueue !== undefined) {
+          existingQueue.cancel(msg.path);
+          if (existingQueue.isEmpty) {
+            queues!.delete(scopeKey);
+            if (queues!.size === 0) {
+              disconnectQueues.get(ctx)?.delete(port);
+            }
+          }
+        }
         ok(port, msg.id, null);
       } catch (e) { fail(port, msg.id, e); }
       break;
@@ -443,10 +462,21 @@ export async function handleRtdbOp(
     case 'rtdb.goOffline': {
       try {
         const scopeKey = portConnectionScopeKey(ctx, msg.instance, msg.connectionId);
-        const offline = portOfflineInstances(ctx, port);
-        if (!offline.has(scopeKey)) {
-          offline.add(scopeKey);
+        if (msg.sever === true) {
           await drainPortRtdbDisconnects(ctx, port, scopeKey);
+          const offline = offlineInstances.get(ctx)?.get(port);
+          if (offline !== undefined) {
+            offline.delete(scopeKey);
+            if (offline.size === 0) {
+              offlineInstances.get(ctx)?.delete(port);
+            }
+          }
+        } else {
+          const offline = portOfflineInstances(ctx, port);
+          if (!offline.has(scopeKey)) {
+            offline.add(scopeKey);
+            await drainPortRtdbDisconnects(ctx, port, scopeKey);
+          }
         }
         ok(port, msg.id, null);
       } catch (e) { fail(port, msg.id, e); }
@@ -456,7 +486,13 @@ export async function handleRtdbOp(
     case 'rtdb.goOnline': {
       try {
         const scopeKey = portConnectionScopeKey(ctx, msg.instance, msg.connectionId);
-        portOfflineInstances(ctx, port).delete(scopeKey);
+        const offline = offlineInstances.get(ctx)?.get(port);
+        if (offline !== undefined) {
+          offline.delete(scopeKey);
+          if (offline.size === 0) {
+            offlineInstances.get(ctx)?.delete(port);
+          }
+        }
         ok(port, msg.id, null);
       } catch (e) { fail(port, msg.id, e); }
       break;

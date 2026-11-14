@@ -368,6 +368,7 @@ export function onceLocalListener(
     };
 
     try {
+      target.lifecycle?.assertActive();
       const attachedUnsub = attachRawLocalSubscription(
         target,
         segs,
@@ -412,6 +413,7 @@ export function attachLocalListener(
     cancelCallbackOrContext,
     context,
   );
+  target.lifecycle?.assertActive();
   const normalizedContext = boundContext ?? undefined;
   const segs = pathSegments(target.canonical);
 
@@ -454,7 +456,11 @@ export function attachLocalListener(
     );
     const shouldRetain = entry.active && !erroredSynchronously && target.lifecycle?.isDeleted !== true;
     if (shouldRetain) {
-      unsub = target.lifecycle ? target.lifecycle.trackSubscription(attachedUnsub) : attachedUnsub;
+      if (target.lifecycle !== undefined) {
+        unsub = target.lifecycle.trackSubscription(attachedUnsub);
+      } else {
+        unsub = attachedUnsub;
+      }
     } else {
       entry.active = false;
       target.listeners.detachExact(entry);

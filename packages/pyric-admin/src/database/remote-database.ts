@@ -7,11 +7,7 @@ import type {
   RemoteSandbox,
   RemoteSandboxChannel,
 } from 'pyric/sandbox';
-import {
-  createDatabaseInstanceRegistry,
-  type DatabaseInstance,
-  type DatabaseInstanceRegistry,
-} from 'pyric/sandbox/internal';
+import type { DatabaseInstance } from 'pyric/sandbox/internal';
 import { assertGettablePath, emptySpec, type QuerySpec } from 'pyric/database/internal';
 import type { PyricAdminApp } from '../app/index.js';
 import {
@@ -43,6 +39,7 @@ import {
   type RemoteWireSnapshot,
 } from './remote-listeners.js';
 import {
+  assertActivePromise,
   generatePushId,
   joinPath,
   pathSegments,
@@ -71,24 +68,16 @@ interface RemoteDbState {
   connection: RemoteConnectionState;
 }
 
-const remoteStatesByApp = new WeakMap<
-  PyricAdminApp,
-  DatabaseInstanceRegistry<{ state?: RemoteDbState }>
->();
+const remoteStatesByApp = new WeakMap<PyricAdminApp, Map<string, RemoteDbState>>();
 
-function remoteStatesForApp(
-  app: PyricAdminApp,
-): DatabaseInstanceRegistry<{ state?: RemoteDbState }> {
+function remoteStatesForApp(app: PyricAdminApp): Map<string, RemoteDbState> {
   const existing = remoteStatesByApp.get(app);
   if (existing !== undefined) return existing;
-  const registry: DatabaseInstanceRegistry<{ state?: RemoteDbState }> =
-    createDatabaseInstanceRegistry({ create: () => ({}) });
-  remoteStatesByApp.set(app, registry);
+  const states = new Map<string, RemoteDbState>();
+  remoteStatesByApp.set(app, states);
   onAdminAppDeleted(app, async () => {
     const drains: Promise<void>[] = [];
-    for (const [, entry] of registry.entries()) {
-      const state = entry.state;
-      if (state === undefined) continue;
+    for (const [, state] of states.entries()) {
       state.listeners.detachAll();
       drains.push(severRemoteConnection(state.channel, state.instance, state.connection));
     }
@@ -96,7 +85,7 @@ function remoteStatesForApp(
       await Promise.all(drains);
     }
   });
-  return registry;
+  return states;
 }
 
 export function getRemoteDatabase(
@@ -106,16 +95,18 @@ export function getRemoteDatabase(
   instance: DatabaseInstance | undefined,
   urlMeta: DatabaseUrlMetadata,
 ): Database {
-  const registry = remoteStatesForApp(app);
-  const entry = registry.getOrCreate(cacheKey);
-  entry.state ??= {
-    channel: sandbox.channel,
-    instance: instance?.name,
-    lifecycle: createAdminServiceLifecycle(app),
-    listeners: new AdminListenerTable(),
-    connection: createRemoteConnectionState(sandbox.channel),
-  };
-  const state = entry.state;
+  const states = remoteStatesForApp(app);
+  let state = states.get(cacheKey);
+  if (state === undefined) {
+    state = {
+      channel: sandbox.channel,
+      instance: instance?.name,
+      lifecycle: createAdminServiceLifecycle(app),
+      listeners: new AdminListenerTable(),
+      connection: createRemoteConnectionState(sandbox.channel),
+    };
+    states.set(cacheKey, state);
+  }
   return buildDatabaseShell(
     app,
     urlMeta,
@@ -179,6 +170,7 @@ function buildRemoteRef(
       getBaseRef: () => ref as unknown as Reference,
       async get(spec: QuerySpec): Promise<DataSnapshot> {
         assertGettablePath(canonical);
+        state.lifecycle.assertActive();
         const wireQuery = toWireQuerySpec(spec);
         const opPayload: RemoteRtdbOp = {
           method: 'rtdb.get',
@@ -218,6 +210,10 @@ function buildRemoteRef(
     set(value: unknown, onComplete?: (err: Error | null) => void): Promise<void> {
       validateCallbackArg('Reference.set', 'onComplete', onComplete, true);
       const stored = validateValueArg('set', segs, value);
+      const deleted = assertActivePromise(state.lifecycle);
+      if (deleted !== null) {
+        return withOnComplete(deleted, onComplete);
+      }
       return withOnComplete(
         relayRtdbOp(state, {
           method: 'rtdb.set',
@@ -231,6 +227,10 @@ function buildRemoteRef(
     update(values: object, onComplete?: (err: Error | null) => void): Promise<void> {
       validateCallbackArg('Reference.update', 'onComplete', onComplete, true);
       const patch = validateValuesArg(segs, values);
+      const deleted = assertActivePromise(state.lifecycle);
+      if (deleted !== null) {
+        return withOnComplete(deleted, onComplete);
+      }
       return withOnComplete(
         relayRtdbOp(state, {
           method: 'rtdb.update',
@@ -243,6 +243,10 @@ function buildRemoteRef(
 
     remove(onComplete?: (err: Error | null) => void): Promise<void> {
       validateCallbackArg('Reference.remove', 'onComplete', onComplete, true);
+      const deleted = assertActivePromise(state.lifecycle);
+      if (deleted !== null) {
+        return withOnComplete(deleted, onComplete);
+      }
       return withOnComplete(
         relayRtdbOp(state, {
           method: 'rtdb.remove',
@@ -260,8 +264,11 @@ function buildRemoteRef(
       }
       const id = generatePushId();
       const childPath = joinPath([...segs, id]);
+      const deleted = assertActivePromise(state.lifecycle);
       let write: Promise<void>;
-      if (stored === undefined) {
+      if (deleted !== null) {
+        write = deleted;
+      } else if (stored === undefined) {
         write = Promise.resolve();
       } else {
         write = relayRtdbOp(state, {
@@ -297,6 +304,7 @@ function buildRemoteRef(
         canonical,
         (op) => relayRtdbOp(state, { ...op, connectionId: state.connection.connectionId }),
         state.connection,
+        state.lifecycle,
       );
     },
     transaction(..._args: unknown[]): never {

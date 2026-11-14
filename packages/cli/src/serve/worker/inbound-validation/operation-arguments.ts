@@ -73,6 +73,7 @@ function assertDatabaseInstance(message: Record<string, unknown>): void {
     || method === 'rtdb.goOffline'
     || method === 'rtdb.goOnline';
   if (namesConnection) requireOptionalString(message.connectionId, 'connectionId');
+  if (method === 'rtdb.goOffline') requireOptionalBoolean(message.sever, 'sever');
 }
 
 /** Storage ops name their bucket, and the caller's name for the default bucket, with optional strings. */

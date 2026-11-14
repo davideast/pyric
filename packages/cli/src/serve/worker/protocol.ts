@@ -172,7 +172,7 @@ export type OpMessage = (
   | { t: 'op'; id: string; method: 'rtdb.onDisconnectUpdate'; instance: string | undefined; connectionId?: string; path: string; values: Record<string, unknown> }
   | { t: 'op'; id: string; method: 'rtdb.onDisconnectRemove'; instance: string | undefined; connectionId?: string; path: string }
   | { t: 'op'; id: string; method: 'rtdb.onDisconnectCancel'; instance: string | undefined; connectionId?: string; path: string }
-  | { t: 'op'; id: string; method: 'rtdb.goOffline'; instance: string | undefined; connectionId?: string }
+  | { t: 'op'; id: string; method: 'rtdb.goOffline'; instance: string | undefined; connectionId?: string; sever?: boolean }
   | { t: 'op'; id: string; method: 'rtdb.goOnline'; instance: string | undefined; connectionId?: string }
   | {
       t: 'op';

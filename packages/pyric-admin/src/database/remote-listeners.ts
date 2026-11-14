@@ -83,9 +83,10 @@ function buildInfoWireSnapshot(
   if (!isDefaultQuerySpec(spec)) {
     const rows = executeQuery(raw, spec);
     const hasRows = rows.length > 0;
-    const projected: JsonValue = hasRows
-      ? Object.fromEntries(rows.map((row) => [row.key, row.value]))
-      : null;
+    let projected: JsonValue = null;
+    if (hasRows) {
+      projected = Object.fromEntries(rows.map((row) => [row.key, row.value]));
+    }
     const entries: RemoteWireEntry[] = rows.map((row) => ({
       key: row.key,
       value: row.value,
@@ -100,7 +101,10 @@ function buildInfoWireSnapshot(
       size: rows.length,
     };
   }
-  const size = isJsonRecord(raw) ? Object.keys(raw).length : 0;
+  let size = 0;
+  if (isJsonRecord(raw)) {
+    size = Object.keys(raw).length;
+  }
   return {
     key: snapKey,
     exists: raw !== null,
@@ -249,7 +253,10 @@ export function onceRemoteListener(
   );
   const segs = pathSegments(target.canonical);
   const wireQuery = toWireQuerySpec(spec);
-  const differ = isChildEventType(eventType) ? new ChildWindowDiffer(spec, eventType) : null;
+  let differ: ChildWindowDiffer | null = null;
+  if (isChildEventType(eventType)) {
+    differ = new ChildWindowDiffer(spec, eventType);
+  }
 
   return new Promise<DataSnapshot>((resolve, reject) => {
     let detach: (() => void) | null = null;
@@ -271,6 +278,14 @@ export function onceRemoteListener(
         fn();
       }
     };
+    if (target.lifecycle?.isDeleted === true) {
+      try {
+        target.lifecycle.assertActive();
+      } catch (err) {
+        failOnce(err as Error);
+        return;
+      }
+    }
     const resolveOnce = (snap: DataSnapshot, prevKey: string | null) => {
       isSettled = true;
       if (detach) {
@@ -354,10 +369,14 @@ export function attachRemoteListener(
     cancelCallbackOrContext,
     context,
   );
+  target.lifecycle?.assertActive();
   const normalizedContext = boundContext ?? undefined;
   const segs = pathSegments(target.canonical);
   const wireQuery = toWireQuerySpec(spec);
-  const differ = isChildEventType(eventType) ? new ChildWindowDiffer(spec, eventType) : null;
+  let differ: ChildWindowDiffer | null = null;
+  if (isChildEventType(eventType)) {
+    differ = new ChildWindowDiffer(spec, eventType);
+  }
 
   const entry = target.listeners.register(
     target.canonical,
@@ -427,7 +446,11 @@ export function attachRemoteListener(
     const shouldRetainUnsub =
       entry.active && !erroredSynchronously && target.lifecycle?.isDeleted !== true;
     if (shouldRetainUnsub) {
-      unsub = target.lifecycle ? target.lifecycle.trackSubscription(attachedUnsub) : attachedUnsub;
+      if (target.lifecycle !== undefined) {
+        unsub = target.lifecycle.trackSubscription(attachedUnsub);
+      } else {
+        unsub = attachedUnsub;
+      }
     } else {
       entry.active = false;
       target.listeners.detachExact(entry);

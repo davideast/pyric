@@ -26,8 +26,9 @@ import {
   validateWritablePath,
   validateWrite,
 } from 'pyric/database/internal';
+import type { AdminServiceLifecycle } from '../app/lifecycle.js';
 import type { DatabaseConnectionControls } from './database-shell.js';
-import { pathSegments, withOnComplete } from './tree-store.js';
+import { assertActivePromise, pathSegments, withOnComplete } from './tree-store.js';
 import { validateCallbackArg, type JsonValue, type OnDisconnect } from './types.js';
 
 const REMOTE_ADMIN_LENS = { mode: 'admin' } as const;
@@ -44,6 +45,7 @@ export interface RemoteConnectionState {
   readonly channelBarrier: RemoteBarrierState;
   online: boolean;
   hasPendingDisconnects: boolean;
+  hostTouched: boolean;
   readonly observers: Set<(online: boolean) => void>;
 }
 
@@ -61,6 +63,7 @@ export function createRemoteConnectionState(channel: RemoteSandboxChannel): Remo
     channelBarrier,
     online: true,
     hasPendingDisconnects: false,
+    hostTouched: false,
     observers: new Set(),
   };
 }
@@ -113,21 +116,28 @@ function settleDisconnectPromise(
 export function buildLocalOnDisconnect(
   adminDb: ModularDatabase,
   canonical: string,
+  lifecycle?: AdminServiceLifecycle,
 ): OnDisconnect {
   const handle = modularOnDisconnect(modularRef(adminDb, canonical));
   return {
     cancel(onComplete?: DisconnectCompleteCallback): Promise<void> {
       validateCallbackArg('OnDisconnect.cancel', 'onComplete', onComplete, true);
+      const deleted = assertActivePromise(lifecycle);
+      if (deleted !== null) return settleDisconnectPromise(deleted, onComplete);
       return settleDisconnectPromise(handle.cancel(), onComplete);
     },
     remove(onComplete?: DisconnectCompleteCallback): Promise<void> {
       validateCallbackArg('OnDisconnect.remove', 'onComplete', onComplete, true);
       validateWritablePath('OnDisconnect.remove', canonical);
+      const deleted = assertActivePromise(lifecycle);
+      if (deleted !== null) return settleDisconnectPromise(deleted, onComplete);
       return settleDisconnectPromise(handle.remove(), onComplete);
     },
     set(value: unknown, onComplete?: DisconnectCompleteCallback): Promise<void> {
       validateCallbackArg('OnDisconnect.set', 'onComplete', onComplete, true);
       const stored = validateDisconnectSetValue('OnDisconnect.set', canonical, value);
+      const deleted = assertActivePromise(lifecycle);
+      if (deleted !== null) return settleDisconnectPromise(deleted, onComplete);
       return settleDisconnectPromise(handle.set(stored), onComplete);
     },
     setWithPriority(
@@ -142,11 +152,15 @@ export function buildLocalOnDisconnect(
         value,
       );
       validatePriorityArg('OnDisconnect.setWithPriority', priority);
+      const deleted = assertActivePromise(lifecycle);
+      if (deleted !== null) return settleDisconnectPromise(deleted, onComplete);
       return settleDisconnectPromise(handle.setWithPriority(stored, priority), onComplete);
     },
     update(values: object, onComplete?: DisconnectCompleteCallback): Promise<void> {
       validateCallbackArg('OnDisconnect.update', 'onComplete', onComplete, true);
       const patch = validateDisconnectUpdateValues(canonical, values);
+      const deleted = assertActivePromise(lifecycle);
+      if (deleted !== null) return settleDisconnectPromise(deleted, onComplete);
       return settleDisconnectPromise(handle.update(patch), onComplete);
     },
   };
@@ -169,15 +183,19 @@ export function buildRemoteOnDisconnect(
   canonical: string,
   relayOp: RemoteDisconnectRelay,
   connection?: RemoteConnectionState,
+  lifecycle?: AdminServiceLifecycle,
 ): OnDisconnect {
   const markQueued = (): void => {
     if (connection !== undefined) {
       connection.hasPendingDisconnects = true;
+      connection.hostTouched = true;
     }
   };
   return {
     cancel(onComplete?: DisconnectCompleteCallback): Promise<void> {
       validateCallbackArg('OnDisconnect.cancel', 'onComplete', onComplete, true);
+      const deleted = assertActivePromise(lifecycle);
+      if (deleted !== null) return settleDisconnectPromise(deleted, onComplete);
       return settleDisconnectPromise(
         relayOp({ method: 'rtdb.onDisconnectCancel', path: canonical }).then(() => undefined),
         onComplete,
@@ -186,6 +204,8 @@ export function buildRemoteOnDisconnect(
     remove(onComplete?: DisconnectCompleteCallback): Promise<void> {
       validateCallbackArg('OnDisconnect.remove', 'onComplete', onComplete, true);
       validateWritablePath('OnDisconnect.remove', canonical);
+      const deleted = assertActivePromise(lifecycle);
+      if (deleted !== null) return settleDisconnectPromise(deleted, onComplete);
       markQueued();
       return settleDisconnectPromise(
         relayOp({ method: 'rtdb.onDisconnectRemove', path: canonical }).then(() => undefined),
@@ -195,6 +215,8 @@ export function buildRemoteOnDisconnect(
     set(value: unknown, onComplete?: DisconnectCompleteCallback): Promise<void> {
       validateCallbackArg('OnDisconnect.set', 'onComplete', onComplete, true);
       const stored = validateDisconnectSetValue('OnDisconnect.set', canonical, value);
+      const deleted = assertActivePromise(lifecycle);
+      if (deleted !== null) return settleDisconnectPromise(deleted, onComplete);
       markQueued();
       return settleDisconnectPromise(
         relayOp({ method: 'rtdb.onDisconnectSet', path: canonical, value: stored }).then(
@@ -215,6 +237,8 @@ export function buildRemoteOnDisconnect(
         value,
       );
       validatePriorityArg('OnDisconnect.setWithPriority', priority);
+      const deleted = assertActivePromise(lifecycle);
+      if (deleted !== null) return settleDisconnectPromise(deleted, onComplete);
       markQueued();
       return settleDisconnectPromise(
         relayOp({ method: 'rtdb.onDisconnectSet', path: canonical, value: stored, priority }).then(
@@ -226,6 +250,8 @@ export function buildRemoteOnDisconnect(
     update(values: object, onComplete?: DisconnectCompleteCallback): Promise<void> {
       validateCallbackArg('OnDisconnect.update', 'onComplete', onComplete, true);
       const patch = validateDisconnectUpdateValues(canonical, values);
+      const deleted = assertActivePromise(lifecycle);
+      if (deleted !== null) return settleDisconnectPromise(deleted, onComplete);
       markQueued();
       return settleDisconnectPromise(
         relayOp({ method: 'rtdb.onDisconnectUpdate', path: canonical, values: patch }).then(
@@ -242,16 +268,29 @@ function enqueueRemoteConnectionOp(
   instance: string | undefined,
   connection: RemoteConnectionState,
   method: 'rtdb.goOffline' | 'rtdb.goOnline',
+  sever = false,
 ): Promise<void> {
+  connection.hostTouched = true;
   const shared = connection.channelBarrier;
   shared.pending += 1;
-  const run = (): Promise<unknown> =>
-    channel.op({
+  const run = (): Promise<unknown> => {
+    const opPayload: {
+      method: 'rtdb.goOffline' | 'rtdb.goOnline';
+      instance: string | undefined;
+      connectionId: string;
+      actAs: typeof REMOTE_ADMIN_LENS;
+      sever?: boolean;
+    } = {
       method,
       instance,
       connectionId: connection.connectionId,
       actAs: REMOTE_ADMIN_LENS,
-    });
+    };
+    if (sever) {
+      opPayload.sever = true;
+    }
+    return channel.op(opPayload);
+  };
   let next: Promise<unknown>;
   if (shared.pending === 1) {
     // Dispatch immediately on the current tick while still gating follow-up ops.
@@ -292,11 +331,13 @@ export function severRemoteConnection(
   instance: string | undefined,
   connection: RemoteConnectionState,
 ): Promise<void> {
-  const hadPendingDisconnects = connection.hasPendingDisconnects;
+  const needsHostSever =
+    connection.hasPendingDisconnects || !connection.online || connection.hostTouched;
   connection.hasPendingDisconnects = false;
+  connection.hostTouched = false;
   setRemoteOnlineState(connection, false);
-  if (hadPendingDisconnects) {
-    return enqueueRemoteConnectionOp(channel, instance, connection, 'rtdb.goOffline');
+  if (needsHostSever) {
+    return enqueueRemoteConnectionOp(channel, instance, connection, 'rtdb.goOffline', true);
   }
   if (connection.channelBarrier.pending > 0) {
     return connection.channelBarrier.barrier;

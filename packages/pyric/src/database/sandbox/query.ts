@@ -37,7 +37,13 @@
  * This module computes query windows only. `.indexOn` enforcement lives in
  * `RulesEvaluator.missingQueryIndex` and `query-index.ts`.
  */
-import type { Bound, LimitKind, OrderBy, QuerySpec } from '../internal/query-projection.js';
+import {
+  canonicalChildPath,
+  type Bound,
+  type LimitKind,
+  type OrderBy,
+  type QuerySpec,
+} from '../internal/query-projection.js';
 
 /** Empty spec — equivalent to "no constraints" (a plain ref query). */
 export function emptySpec(): QuerySpec {
@@ -108,11 +114,7 @@ export function applyConstraint(
         throw new Error(`${ORDER_BY_CALL[c.spec.kind]}: You can't combine multiple orderBy calls.`);
       }
       if (c.spec.kind === 'child') {
-        const canonicalPath = c.spec.path
-          .split('/')
-          .filter((segment) => segment.length > 0)
-          .join('/');
-        return { ...spec, orderBy: { kind: 'child', path: canonicalPath } };
+        return { ...spec, orderBy: { kind: 'child', path: canonicalChildPath(c.spec.path) } };
       }
       return { ...spec, orderBy: c.spec };
     }
@@ -147,6 +149,7 @@ export type Constraint =
   | { kind: 'limit'; limitKind: LimitKind; n: number };
 
 export {
+  canonicalChildPath,
   compareValues,
   nameCompare,
   extractOrderValue,

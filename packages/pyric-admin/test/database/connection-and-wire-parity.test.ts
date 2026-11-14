@@ -28,6 +28,8 @@ interface ParityArm {
   readonly app: PyricAdminApp;
   readonly host: Sandbox;
   readonly sharedSandbox: Sandbox;
+  readonly inspectHostState?: () => { readonly queuedScopes: number; readonly offlineScopes: number };
+  readonly simulatePortClose?: () => Promise<void>;
 }
 
 const ARMS: ReadonlyArray<{ name: string; make: () => ParityArm }> = [
@@ -50,7 +52,7 @@ const ARMS: ReadonlyArray<{ name: string; make: () => ParityArm }> = [
   {
     name: 'shared-worker',
     make: () => {
-      const { app: baseApp, host } = sharedWorkerArm();
+      const { app: baseApp, host, inspectHostState, simulatePortClose } = sharedWorkerArm();
       const sharedSandbox = baseApp.sandbox;
       const app = initializeApp(
         {
@@ -60,7 +62,7 @@ const ARMS: ReadonlyArray<{ name: string; make: () => ParityArm }> = [
         },
         `wire-parity-remote-${++seq}`,
       );
-      return { app, host, sharedSandbox };
+      return { app, host, sharedSandbox, inspectHostState, simulatePortClose };
     },
   },
 ];
@@ -183,8 +185,8 @@ describe.each(ARMS)('pyric-admin/database dual-arm connection & wire parity ($na
     ]);
   });
 
-  test('deleteApp(app) drains pending onDisconnect operations across both arms, tombstones Database handles, and prevents post-delete listener leaks', async () => {
-    const { app: workerApp, sharedSandbox } = make();
+  test('deleteApp(app) drains pending onDisconnect operations across both arms, tombstones Database and Reference/Query/OnDisconnect handles, and fires zero post-delete deliveries', async () => {
+    const { app: workerApp, host, sharedSandbox, simulatePortClose } = make();
     const observerApp = initializeApp(
       {
         sandbox: sharedSandbox,
@@ -196,6 +198,8 @@ describe.each(ARMS)('pyric-admin/database dual-arm connection & wire parity ($na
     const workerDb = getDatabase(workerApp);
     const observerDb = getDatabase(observerApp);
     const preDeleteRef = workerDb.ref('users/u1/status');
+    const preDeleteQuery = workerDb.ref('users/u1').orderByKey();
+    const preDeleteDisconnect = preDeleteRef.onDisconnect();
 
     await workerDb.ref('users/u1/status').set('online');
     await observerDb.ref('users/u2/status').set('online');
@@ -222,15 +226,122 @@ describe.each(ARMS)('pyric-admin/database dual-arm connection & wire parity ($na
       'FIREBASE FATAL ERROR: Cannot call goOnline on a deleted database. ',
     );
 
-    // 3. Even if a caller retained a pre-delete Reference, attaching on() after deleteApp never leaks updates.
+    // 3. Synchronous invalid-argument checks still run first on retained handles.
+    expect(() => preDeleteRef.set('stale', 'not-a-fn' as never)).toThrow(
+      'Reference.set failed: onComplete argument must be a valid function.',
+    );
+
+    // 4. Retained Reference, Query, and OnDisconnect handles reject I/O with app/app-deleted
+    //    without mutating state, firing initial snapshots, or queueing post-delete disconnects.
     const postDeleteLeaks: unknown[] = [];
-    preDeleteRef.on('value', (snap) => {
-      postDeleteLeaks.push(snap.val());
+    expect(() =>
+      preDeleteRef.on('value', (snap) => {
+        postDeleteLeaks.push(snap.val());
+      }),
+    ).toThrow(/has already been deleted/);
+    expect(postDeleteLeaks).toEqual([]);
+
+    await expect(preDeleteRef.get()).rejects.toMatchObject({ code: 'app/app-deleted' });
+    await expect(preDeleteQuery.get()).rejects.toMatchObject({ code: 'app/app-deleted' });
+    await expect(preDeleteRef.once('value', (snap) => postDeleteLeaks.push(snap.val()))).rejects.toMatchObject({
+      code: 'app/app-deleted',
     });
-    await tick();
-    postDeleteLeaks.length = 0;
+    await expect(preDeleteRef.set('stale-set')).rejects.toMatchObject({ code: 'app/app-deleted' });
+    await expect(preDeleteRef.parent!.update({ status: 'stale-update' })).rejects.toMatchObject({
+      code: 'app/app-deleted',
+    });
+    await expect(preDeleteRef.remove()).rejects.toMatchObject({ code: 'app/app-deleted' });
+    await expect(Promise.resolve(preDeleteRef.push('stale-push'))).rejects.toMatchObject({
+      code: 'app/app-deleted',
+    });
+    await expect(preDeleteDisconnect.set('ghost-disconnect')).rejects.toMatchObject({
+      code: 'app/app-deleted',
+    });
+    await expect(preDeleteDisconnect.setWithPriority('ghost', 1)).rejects.toMatchObject({
+      code: 'app/app-deleted',
+    });
+    await expect(preDeleteDisconnect.update({ nested: 'ghost' })).rejects.toMatchObject({
+      code: 'app/app-deleted',
+    });
+    await expect(preDeleteDisconnect.remove()).rejects.toMatchObject({ code: 'app/app-deleted' });
+    await expect(preDeleteDisconnect.cancel()).rejects.toMatchObject({ code: 'app/app-deleted' });
+
     await observerDb.ref('users/u1/status').set('updated-after-delete');
     await tick();
     expect(postDeleteLeaks).toEqual([]);
+    expect((await observerDb.ref('users/u1/status').get()).val()).toBe('updated-after-delete');
+
+    // Cancel observerApp's own disconnect before simulating port close to verify zero ghost ops from preDeleteDisconnect.
+    await observerDb.ref('users/u2/status').onDisconnect().cancel();
+    if (simulatePortClose !== undefined) {
+      await simulatePortClose();
+      const hostVerifyApp = initializeApp(
+        {
+          sandbox: host,
+          projectId: 'demo-org',
+          databaseURL: 'https://demo-org-default-rtdb.firebaseio.com',
+        },
+        `wire-parity-host-verify-${++seq}`,
+      );
+      expect((await getDatabase(hostVerifyApp).ref('users/u1/status').get()).val()).toBe(
+        'updated-after-delete',
+      );
+    }
+  });
+
+  test('drains offline-queued onDisconnect writes on deleteApp without leaving ghost ops on port close, and keeps host per-app connection state bounded across cycles', async () => {
+    const { app: initialApp, host, sharedSandbox, inspectHostState, simulatePortClose } = make();
+    await deleteApp(initialApp);
+
+    // 1. Repeated initializeApp / deleteApp cycles across goOffline, queued onDisconnect, and cancel must not grow host state.
+    for (let cycle = 0; cycle < 8; cycle++) {
+      const cycleApp = initializeApp(
+        {
+          sandbox: sharedSandbox,
+          projectId: 'demo-org',
+          databaseURL: 'https://demo-org-default-rtdb.firebaseio.com',
+        },
+        `wire-parity-cycle-${cycle}-${++seq}`,
+      );
+      const cycleDb = getDatabase(cycleApp);
+      await cycleDb.ref(`orgs/c${cycle}/state`).set('active');
+      if (cycle % 3 === 0) {
+        // Offline -> queue onDisconnect -> deleteApp while still offline!
+        cycleDb.goOffline();
+        await cycleDb.ref(`orgs/c${cycle}/state`).onDisconnect().set('drained-from-offline');
+      } else if (cycle % 3 === 1) {
+        // Offline only (no onDisconnect queued) -> deleteApp!
+        cycleDb.goOffline();
+      } else {
+        // Cancel without prior queue, then queue + cancel -> deleteApp!
+        await cycleDb.ref(`orgs/c${cycle}/unused`).onDisconnect().cancel();
+        await cycleDb.ref(`orgs/c${cycle}/state`).onDisconnect().set('cancelled');
+        await cycleDb.ref(`orgs/c${cycle}/state`).onDisconnect().cancel();
+      }
+      await deleteApp(cycleApp);
+
+      if (inspectHostState !== undefined) {
+        expect(inspectHostState()).toEqual({ queuedScopes: 0, offlineScopes: 0 });
+      }
+    }
+
+    // 2. Verify cycle 0's offline-queued onDisconnect drained during deleteApp, and overwrite it to verify zero ghost op on port close.
+    const checkApp = initializeApp(
+      {
+        sandbox: host,
+        projectId: 'demo-org',
+        databaseURL: 'https://demo-org-default-rtdb.firebaseio.com',
+      },
+      `wire-parity-cycle-check-${++seq}`,
+    );
+    const checkDb = getDatabase(checkApp);
+    expect((await checkDb.ref('orgs/c0/state').get()).val()).toBe('drained-from-offline');
+    expect((await checkDb.ref('orgs/c2/state').get()).val()).toBe('active');
+
+    await checkDb.ref('orgs/c0/state').set('clean-after-delete');
+    if (simulatePortClose !== undefined) {
+      await simulatePortClose();
+      expect((await checkDb.ref('orgs/c0/state').get()).val()).toBe('clean-after-delete');
+    }
   });
 });

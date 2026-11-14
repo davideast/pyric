@@ -11,6 +11,7 @@ import {
   validateUpdate,
   validateWrite,
 } from 'pyric/database/internal';
+import type { AdminServiceLifecycle } from '../app/lifecycle.js';
 import type { JsonValue } from './types.js';
 
 /** One RTDB instance's in-memory tree and owning sandbox clock source. */
@@ -179,6 +180,17 @@ export function settled(write: () => void, onComplete?: (err: Error | null) => v
     }
   }
   return Promise.resolve();
+}
+
+/** Return a rejected `app/app-deleted` promise when `lifecycle` has been tombstoned, or `null`. */
+export function assertActivePromise(lifecycle?: AdminServiceLifecycle): Promise<void> | null {
+  if (lifecycle?.isDeleted !== true) return null;
+  try {
+    lifecycle.assertActive();
+  } catch (err) {
+    return Promise.reject(err);
+  }
+  return Promise.reject(new Error('App has already been deleted.'));
 }
 
 /** Attach an optional `onComplete` callback to an asynchronous relayed write promise. */

@@ -4,11 +4,7 @@
  */
 
 import type { Sandbox } from 'pyric/sandbox';
-import {
-  createDatabaseInstanceRegistry,
-  type DatabaseInstance,
-  type DatabaseInstanceRegistry,
-} from 'pyric/sandbox/internal';
+import type { DatabaseInstance } from 'pyric/sandbox/internal';
 import {
   getAdminDatabase,
   TARGET_SYMBOL,
@@ -49,6 +45,7 @@ import {
 } from './on-disconnect.js';
 import { createQuerySurface } from './query.js';
 import {
+  generatePushId,
   joinPath,
   pathSegments,
   settled,
@@ -84,7 +81,7 @@ interface LocalInstance {
   readonly sandbox: Sandbox;
 }
 
-const localInstancesByApp = new WeakMap<PyricAdminApp, DatabaseInstanceRegistry<LocalInstance>>();
+const localInstancesByApp = new WeakMap<PyricAdminApp, Map<string, LocalInstance>>();
 const resetBackendsBySandbox = new WeakMap<Sandbox, Set<SharedRtdbBackend>>();
 
 function registerBackendForReset(sandbox: Sandbox, backend: SharedRtdbBackend): void {
@@ -115,23 +112,14 @@ function resolveSharedHandle(
   return { adminDb, backend };
 }
 
-function localInstances(
-  app: PyricAdminApp,
-  sandbox: Sandbox,
-): DatabaseInstanceRegistry<LocalInstance> {
+function localInstances(app: PyricAdminApp): Map<string, LocalInstance> {
   const existing = localInstancesByApp.get(app);
   if (existing !== undefined) return existing;
-  const registry: DatabaseInstanceRegistry<LocalInstance> = createDatabaseInstanceRegistry({
-    create: () => ({
-      sandbox,
-      lifecycle: createAdminServiceLifecycle(app),
-      listeners: new AdminListenerTable(),
-    }),
-  });
-  localInstancesByApp.set(app, registry);
+  const instances = new Map<string, LocalInstance>();
+  localInstancesByApp.set(app, instances);
   onAdminAppDeleted(app, async () => {
     const drains: Promise<void>[] = [];
-    for (const [, entry] of registry.entries()) {
+    for (const [, entry] of instances.entries()) {
       entry.listeners.detachAll();
       if (entry.adminDb !== undefined) {
         const { connection } = (entry.adminDb as unknown as {
@@ -144,7 +132,7 @@ function localInstances(
       await Promise.all(drains);
     }
   });
-  return registry;
+  return instances;
 }
 
 export function getLocalDatabase(
@@ -154,8 +142,16 @@ export function getLocalDatabase(
   instance: DatabaseInstance | undefined,
   urlMeta: DatabaseUrlMetadata,
 ): Database {
-  const registry = localInstances(app, sandbox);
-  const entry = registry.getOrCreate(cacheKey);
+  const instances = localInstances(app);
+  let entry = instances.get(cacheKey);
+  if (entry === undefined) {
+    entry = {
+      sandbox,
+      lifecycle: createAdminServiceLifecycle(app),
+      listeners: new AdminListenerTable(),
+    };
+    instances.set(cacheKey, entry);
+  }
   if (entry.backend === undefined || entry.adminDb === undefined) {
     const resolved = resolveSharedHandle(sandbox, instance);
     entry.adminDb = resolved.adminDb;
@@ -200,6 +196,7 @@ function buildSandboxRef(
       getBaseRef: () => ref as unknown as Reference,
       async get(spec: QuerySpec): Promise<DataSnapshot> {
         assertGettablePath(canonical);
+        lifecycle.assertActive();
         if (!isDefaultQuerySpec(spec)) {
           const rows = backend.adminGetQuery(canonical, spec);
           return buildLocalQuerySnapshot(refAt, adminDb, canonical, segs, rows);
@@ -236,6 +233,7 @@ function buildSandboxRef(
       validateCallbackArg('Reference.set', 'onComplete', onComplete, true);
       const stored = validateValueArg('set', segs, value);
       return settled(() => {
+        lifecycle.assertActive();
         backend.adminSet(canonical, stored);
       }, onComplete);
     },
@@ -244,6 +242,7 @@ function buildSandboxRef(
       validateCallbackArg('Reference.update', 'onComplete', onComplete, true);
       const patch = validateValuesArg(segs, values);
       return settled(() => {
+        lifecycle.assertActive();
         if (Object.keys(patch).length > 0) {
           backend.adminUpdate(canonical, patch);
         }
@@ -252,7 +251,10 @@ function buildSandboxRef(
 
     remove(onComplete?: (err: Error | null) => void): Promise<void> {
       validateCallbackArg('Reference.remove', 'onComplete', onComplete, true);
-      return settled(() => backend.adminRemove(canonical), onComplete);
+      return settled(() => {
+        lifecycle.assertActive();
+        backend.adminRemove(canonical);
+      }, onComplete);
     },
 
     push(value?: unknown, onComplete?: (err: Error | null) => void): ThenableReference {
@@ -261,16 +263,25 @@ function buildSandboxRef(
       if (value !== undefined) {
         stored = validateValueArg('push', segs, value);
       }
-      const id = backend.mintKey();
-      const childPath = joinPath([...segs, id]);
+      let id: string;
       let writeOutcome: Promise<void>;
-      if (stored !== undefined) {
+      if (lifecycle.isDeleted) {
+        id = generatePushId();
         writeOutcome = settled(() => {
-          backend.adminSet(childPath, stored);
+          lifecycle.assertActive();
         }, onComplete);
       } else {
-        writeOutcome = settled(() => {}, onComplete);
+        id = backend.mintKey();
+        const activeChildPath = joinPath([...segs, id]);
+        if (stored !== undefined) {
+          writeOutcome = settled(() => {
+            backend.adminSet(activeChildPath, stored);
+          }, onComplete);
+        } else {
+          writeOutcome = settled(() => {}, onComplete);
+        }
       }
+      const childPath = joinPath([...segs, id]);
       writeOutcome.catch(() => {});
       const childRef = refAt(childPath);
       const resolvedRef = refAt(childPath);
@@ -293,7 +304,7 @@ function buildSandboxRef(
     },
 
     onDisconnect(): OnDisconnect {
-      return buildLocalOnDisconnect(adminDb, canonical);
+      return buildLocalOnDisconnect(adminDb, canonical, lifecycle);
     },
     transaction(..._args: unknown[]): never {
       throw notImplemented('transaction');

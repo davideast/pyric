@@ -119,6 +119,15 @@ export function nameCompare(a: string, b: string): number {
   return comesBefore ? -1 : 1;
 }
 
+function childPathSegments(path: string): string[] {
+  return path.split('/').filter((segment) => segment.length > 0);
+}
+
+/** Normalize slash-padded `orderByChild` paths (e.g. `'/meta/rank/'` -> `'meta/rank'`). */
+export function canonicalChildPath(path: string): string {
+  return childPathSegments(path).join('/');
+}
+
 /**
  * Extract the value the ordering uses to compare a child. For
  * `orderByKey()` it's the key string; for `orderByValue()` the child's
@@ -145,7 +154,7 @@ export function extractOrderValue(
         return null;
       }
       // Path may be a slash-separated dotted path (`'profile/name'`).
-      const segs = o.path.split('/').filter((s) => s.length > 0);
+      const segs = childPathSegments(o.path);
       let cur: JsonValue = value;
       for (const s of segs) {
         const hasNoDescendant = cur === null || typeof cur !== 'object' || Array.isArray(cur);

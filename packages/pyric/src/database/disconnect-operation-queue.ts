@@ -209,6 +209,10 @@ export class DisconnectOperationQueue<TMetadata extends object = Record<never, n
   private readonly operations = new Map<string, DisconnectOperation<TMetadata>>();
   private readonly unfoldedPriorityOwners = new Map<string, Set<string>>();
 
+  get isEmpty(): boolean {
+    return this.operations.size === 0;
+  }
+
   set(operation: DisconnectOperation<TMetadata>): void {
     // The SDK registers nothing for an empty update, so a write queued at the
     // same path stays queued.
