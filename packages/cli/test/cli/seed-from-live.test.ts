@@ -318,7 +318,9 @@ describe('runSeedFromLive --out with several RTDB instances', () => {
       await applyData(directSandbox, exported);
       const directDb = getAdminFirestore(directSandbox);
       const directSnap = await getDoc(doc(directDb, 'docs/d1'));
-      expect(directSnap.exists()).toBe(true);
+      let directExists = directSnap.exists;
+      if (typeof directExists === 'function') directExists = directExists.call(directSnap);
+      expect(directExists).toBe(true);
       const directData = directSnap.data()!;
       expect(directData.ts).toBeInstanceOf(Timestamp);
       expect(directData.loc).toBeInstanceOf(GeoPoint);
@@ -356,7 +358,9 @@ describe('runSeedFromLive --out with several RTDB instances', () => {
         const initRes = applyServeInit(initCtx, session.payload());
         expect(initRes.seededDocs).toBe(1);
         const initDoc = await getDoc(doc(initCtx.db, 'docs/d1'));
-        expect(initDoc.exists()).toBe(true);
+        let initExists = initDoc.exists;
+        if (typeof initExists === 'function') initExists = initExists.call(initDoc);
+        expect(initExists).toBe(true);
         const initData = initDoc.data()!;
         expect(initData.ts).toBeInstanceOf(Timestamp);
         expect(initData.loc).toBeInstanceOf(GeoPoint);
@@ -383,6 +387,109 @@ describe('runSeedFromLive --out with several RTDB instances', () => {
       } finally {
         await persistedSession.close();
       }
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('exports array and scalar RTDB roots via --out while omitting null roots, and round-trips them through --seed', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'pyric-seed-nonobj-rtdb-'));
+    mkdirSync(join(dir, 'sdk'));
+    writeFileSync(join(dir, 'firebase.json'), JSON.stringify({}));
+    try {
+      const cases: Array<{ name: string; value: unknown }> = [
+        { name: 'array-root', value: ['item-a', 'item-b'] },
+        { name: 'string-root', value: 'maintenance' },
+        { name: 'number-root', value: 0 },
+        { name: 'boolean-root', value: false },
+      ];
+
+      for (const testCase of cases) {
+        const snap = {
+          revision: 11,
+          updatedAt: 950,
+          projectId: 'demo-live',
+          firestore: { 'items/i1': { title: 'One' } },
+          rtdb: {
+            'demo-live-default-rtdb': testCase.value,
+          },
+          defaultRtdbInstance: 'demo-live-default-rtdb',
+          stats: { firestoreDocs: 1, rtdbInstances: 1, byteEstimate: 64, truncated: false, droppedCount: 0 },
+        };
+        const seedRelPath = `.pyric/${testCase.name}.json`;
+        let stdout = '';
+        let stderr = '';
+        const code = await runSeedFromLive(
+          parseArgs(['sandbox', 'seed-from-live', '--out', seedRelPath, '--instance', 'demo-live-default-rtdb', '--force', '--json']),
+          {
+            cwd: dir,
+            discover: async () => discoveredHost,
+            fetchImpl: (async () => new Response(JSON.stringify(snap), { status: 200 })) as unknown as typeof fetch,
+            stdout: { write: (s) => { stdout += s; } },
+            stderr: { write: (s) => { stderr += s; } },
+          },
+        );
+        expect(code).toBe(0);
+        expect(stderr).toBe('');
+        expect(JSON.parse(stdout)).toMatchObject({
+          ok: true,
+          rtdbInstance: 'demo-live-default-rtdb',
+          notExported: [],
+        });
+
+        const exported = JSON.parse(readFileSync(join(dir, seedRelPath), 'utf8')) as SandboxSeed;
+        expect(exported.database as unknown).toEqual(testCase.value);
+
+        const directSandbox = createSandboxRoot();
+        await applyData(directSandbox, exported);
+        expect((await databaseGet(databaseRef(getAdminDatabase(directSandbox), '/'))).val() as unknown).toEqual(testCase.value);
+
+        const session = await createSandboxSession({
+          projectDir: dir,
+          firebaseConfig: null,
+          sdk: { dir: join(dir, 'sdk') },
+          seedFile: seedRelPath,
+        });
+        try {
+          const initSandbox = createSandboxRoot();
+          const initCtx: HostCtx = {
+            sandbox: initSandbox,
+            db: getAdminFirestore(initSandbox),
+            subs: new Map(),
+            instanceId: `seed-init-${testCase.name}`,
+          };
+          applyServeInit(initCtx, session.payload());
+          expect((await databaseGet(databaseRef(getAdminDatabase(initSandbox), '/'))).val() as unknown).toEqual(testCase.value);
+        } finally {
+          await session.close();
+        }
+      }
+
+      // Null/unobserved RTDB roots stay omitted from --out.
+      const nullSnap = {
+        revision: 12,
+        updatedAt: 960,
+        projectId: 'demo-live',
+        firestore: {},
+        rtdb: { 'demo-live-default-rtdb': null },
+        defaultRtdbInstance: 'demo-live-default-rtdb',
+        stats: { firestoreDocs: 0, rtdbInstances: 0, byteEstimate: 0, truncated: false, droppedCount: 0 },
+      };
+      let nullStdout = '';
+      const nullCode = await runSeedFromLive(
+        parseArgs(['sandbox', 'seed-from-live', '--out', '.pyric/null-root.json', '--force', '--json']),
+        {
+          cwd: dir,
+          discover: async () => discoveredHost,
+          fetchImpl: (async () => new Response(JSON.stringify(nullSnap), { status: 200 })) as unknown as typeof fetch,
+          stdout: { write: (s) => { nullStdout += s; } },
+          stderr: { write: () => {} },
+        },
+      );
+      expect(nullCode).toBe(0);
+      expect(JSON.parse(nullStdout)).toMatchObject({ rtdbInstance: null });
+      const nullSeed = JSON.parse(readFileSync(join(dir, '.pyric/null-root.json'), 'utf8')) as Record<string, unknown>;
+      expect('database' in nullSeed).toBe(false);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

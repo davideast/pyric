@@ -1,3 +1,5 @@
+import { cloneReproValue, defineOwnField } from './format.js';
+
 /**
  * Standard Firebase ID token claims stripped when recording sessions in a
  * repro capture (`captureReproBase` records `tenantId` and `signInProvider` on
@@ -50,7 +52,7 @@ export function stripStandardTokenClaims(
   const customClaims: Record<string, unknown> = {};
   for (const [claim, val] of Object.entries(token)) {
     if (!STANDARD_TOKEN_CLAIMS.has(claim)) {
-      customClaims[claim] = val;
+      defineOwnField(customClaims, claim, cloneReproValue(val));
     }
   }
   return Object.keys(customClaims).length > 0 ? customClaims : undefined;
@@ -72,7 +74,7 @@ function stripWireFirebaseClaim(firebaseClaim: unknown): Record<string, unknown>
   const wireFirebase: Record<string, unknown> = {};
   for (const [claimKey, claimValue] of Object.entries(firebaseClaim)) {
     if ((claimKey === 'tenant' || claimKey === 'sign_in_provider') && typeof claimValue === 'string') {
-      wireFirebase[claimKey] = claimValue;
+      defineOwnField(wireFirebase, claimKey, claimValue);
       continue;
     }
     if (claimKey === 'identities' && isPlainRecord(claimValue)) {
@@ -80,7 +82,7 @@ function stripWireFirebaseClaim(firebaseClaim: unknown): Record<string, unknown>
       if (Array.isArray(rawEmails)) {
         const emails = rawEmails.filter((item): item is string => typeof item === 'string');
         if (emails.length > 0) {
-          wireFirebase.identities = { email: emails };
+          defineOwnField(wireFirebase, 'identities', { email: emails });
         }
       }
     }
@@ -104,11 +106,11 @@ export function stripWireTokenClaims(
     if (claim === 'firebase') {
       const wireFirebase = stripWireFirebaseClaim(val);
       if (wireFirebase !== undefined) {
-        wireClaims.firebase = wireFirebase;
+        defineOwnField(wireClaims, 'firebase', wireFirebase);
       }
       continue;
     }
-    wireClaims[claim] = val;
+    defineOwnField(wireClaims, claim, cloneReproValue(val));
   }
   return Object.keys(wireClaims).length > 0 ? wireClaims : undefined;
 }

@@ -21,7 +21,7 @@
  */
 import type { CallContext, ObservedSite, ResultReading } from './observe.js';
 import { hasConverter, isObject, pathOf } from './firestore.js';
-import { jsonFields } from './json-copy.js';
+import { firestoreJsonFields } from './firestore-colliding-maps.js';
 import {
   isValidDocPath,
   normalizeDocPath,
@@ -310,7 +310,7 @@ function documentReadResult(site: ObservedSite, value: object): ResultReading {
   const rawData: unknown = Reflect.apply(dataFn, value, []);
   const reading: { document?: Record<string, unknown>; sessionData?: ObservedSessionDelta } = {};
   if (DOCUMENT_READS.has(site.name)) {
-    const document = jsonFields(rawData);
+    const document = firestoreJsonFields(rawData);
     if (document !== undefined) reading.document = document;
   }
   if (isUnconfirmedSessionRead) return reading;

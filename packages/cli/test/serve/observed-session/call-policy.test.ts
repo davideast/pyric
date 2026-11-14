@@ -148,6 +148,7 @@ describe('observed-session call-policy', () => {
     );
     expect(store.getFirestoreDoc('rooms/r2')).toEqual({ status: 'unobserved' });
     expect(store.getFirestoreDoc('rooms/r3')).toEqual({ status: 'unobserved' });
+    expect(store.snapshot().firestore).toEqual({});
 
     // Unscoped `Firestore.recursiveDelete` with a `path` clears `target` so subcollection docs invalidate too (CP4).
     for (const outcome of [{ status: 'error', code: 'unavailable' } as const, { status: 'ok' } as const]) {
@@ -166,7 +167,24 @@ describe('observed-session call-policy', () => {
         'demo',
       );
       expect(store.getFirestoreDoc('spaces/s1/notes/n1')).toEqual({ status: 'unobserved' });
+      expect(store.snapshot().firestore).toEqual({});
     }
+
+    // Skipped Storage read/list invalidates matching Storage catalog entry cleanly.
+    applyAcceptedSessionCall(
+      store,
+      {
+        call: makeCall({
+          service: 'storage',
+          method: 'getMetadata',
+          bucket: 'demo.firebasestorage.app',
+          path: 'docs/readme.txt',
+        }),
+        sessionDataSkip: 'oversized',
+      },
+      'demo',
+    );
+    expect(store.snapshot().storage).toBeUndefined();
 
     // Passive calls and listener lifecycle events do not invalidate on pending eviction; reads/writes do.
     invalidateEvictedPendingCall(
@@ -179,7 +197,7 @@ describe('observed-session call-policy', () => {
       makeCall({
         service: 'rtdb',
         method: 'onValue',
-        listener: 'subscribe',
+        listener: { phase: 'attach', id: 'l-1', target: '/flags/open' },
         instance: 'demo-default-rtdb',
         path: '/flags/open',
       }),

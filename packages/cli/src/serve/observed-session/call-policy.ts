@@ -115,6 +115,10 @@ export function invalidateSessionCallTarget(
   }
   if (call.service === 'rtdb') {
     sessionData.invalidateRtdb(call.instance, call.path, projectHint);
+    return;
+  }
+  if (call.service === 'storage') {
+    sessionData.invalidateStorage(call.bucket, call.path, projectHint);
   }
 }
 

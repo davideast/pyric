@@ -512,4 +512,50 @@ describe('the metadata a Storage call sent or read', () => {
     });
     expect(observedCallOf({ module: 'firebase/storage', name: 'getMetadata', outcome: 'resolved', bucket: 'demo.appspot.com', path: 'uploads/a.png', document: expectedDoc }, 1)?.document).toEqual(expectedDoc);
   });
+
+  test('omits writeData and getMetadata document when customMetadata or settable headers exceed 32 KiB', () => {
+    const fakeRef = {
+      storage: { app: { options: { projectId: 'demo' } } },
+      bucket: 'demo.appspot.com',
+      fullPath: 'docs/doc-1',
+    };
+    const bytes = new Uint8Array([1, 2, 3]);
+    const oversizedCustomMeta = { largeField: 'x'.repeat(35 * 1024) };
+
+    const uploadBytesOversized = storageContext('uploadBytes', [
+      fakeRef,
+      bytes,
+      { contentType: 'text/plain', customMetadata: oversizedCustomMeta },
+    ]);
+    expect(uploadBytesOversized.writeData).toBeUndefined();
+
+    const uploadStringOversized = storageContext('uploadString', [
+      fakeRef,
+      'hello',
+      'raw',
+      { contentType: 'text/plain', customMetadata: oversizedCustomMeta },
+    ]);
+    expect(uploadStringOversized.writeData).toBeUndefined();
+
+    const updateOversized = storageContext('updateMetadata', [
+      fakeRef,
+      { cacheControl: 'y'.repeat(35 * 1024) },
+    ]);
+    expect(updateOversized.writeData).toBeUndefined();
+
+    const getMetaOversized = storageResult(
+      { name: 'getMetadata' } as Parameters<typeof storageResult>[0],
+      {
+        size: 3,
+        contentType: 'text/plain',
+        customMetadata: oversizedCustomMeta,
+        fullPath: 'docs/doc-1',
+        bucket: 'demo.appspot.com',
+      },
+    );
+    expect(typeof getMetaOversized).toBe('object');
+    if (typeof getMetaOversized === 'object') {
+      expect(getMetaOversized.document).toBeUndefined();
+    }
+  });
 });

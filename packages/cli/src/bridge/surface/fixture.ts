@@ -24,6 +24,7 @@ import {
   applyData,
   applyRules,
   type SandboxSeed,
+  type SandboxSeedDatabase,
   type SeedStorageEntry,
   type SeedUserEntry,
 } from './seed-apply.js';
@@ -84,13 +85,8 @@ export async function buildFixture(
   };
 
   const defaultDatabase = snapshot.rtdb[DEFAULT_SNAPSHOT_RESOURCE];
-  if (
-    defaultDatabase !== null &&
-    defaultDatabase !== undefined &&
-    typeof defaultDatabase === 'object' &&
-    !Array.isArray(defaultDatabase)
-  ) {
-    fixture.database = defaultDatabase as Record<string, unknown>;
+  if (defaultDatabase !== null && defaultDatabase !== undefined) {
+    fixture.database = defaultDatabase as SandboxSeedDatabase;
   }
   const databaseRules = snapshot.rules.rtdb?.[DEFAULT_SNAPSHOT_RESOURCE];
   if (databaseRules !== undefined) fixture.databaseRules = databaseRules;

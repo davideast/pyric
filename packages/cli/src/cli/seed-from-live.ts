@@ -17,6 +17,7 @@
  */
 import { existsSync, mkdirSync, realpathSync, writeFileSync } from 'node:fs';
 import { dirname, relative, resolve, sep } from 'node:path';
+import { hasCollidingFirestoreMarkerShape } from 'pyric/sandbox/internal';
 import type { ParsedArgs } from './parse-args.js';
 import { discoverServe, type Discovered } from '../serve/discovery.js';
 import { resolveSessionTokenForTarget } from '../serve/local-session-token.js';
@@ -45,7 +46,7 @@ export interface SeedFromLiveDeps {
 /** The seed file `--out` writes, as `pyric sandbox --seed` reads it. */
 interface SeedFile {
   firestore: Record<string, Record<string, unknown>>;
-  database?: Record<string, unknown>;
+  database?: unknown;
 }
 
 const PREFIX = 'pyric sandbox seed-from-live:';
@@ -69,12 +70,7 @@ function isEscapedSessionMap(value: Record<string, unknown>): value is { type: '
 }
 
 function needsSeedMapEscape(record: Record<string, unknown>): boolean {
-  return (
-    Object.hasOwn(record, 'type') ||
-    Object.hasOwn(record, '__type') ||
-    Object.hasOwn(record, '__type__') ||
-    Object.hasOwn(record, '__proto__')
-  );
+  return hasCollidingFirestoreMarkerShape(record) || Object.hasOwn(record, '__proto__');
 }
 
 function sessionValueToSeedValue(value: unknown, depth: number): unknown {
@@ -239,12 +235,22 @@ async function requestHost(
   return 1;
 }
 
+function isSeedableRtdbRoot(value: unknown): boolean {
+  if (value === null || value === undefined) return false;
+  if (typeof value === 'string' || typeof value === 'boolean') return true;
+  if (typeof value === 'number') return Number.isFinite(value);
+  if (Array.isArray(value)) return true;
+  return isPlainRecord(value);
+}
+
 /** The seed file for one RTDB instance of the snapshot, with the instance it holds or null. */
 function seedFileOf(snapshot: ObservedSessionDataSnapshot, chosenInstance: string | null): { seed: SeedFile; instance: string | null } {
   const seed: SeedFile = { firestore: sessionFirestoreToSeedDocs(snapshot.firestore) };
-  if (chosenInstance === null) return { seed, instance: null };
+  if (chosenInstance === null || !Object.hasOwn(snapshot.rtdb, chosenInstance)) {
+    return { seed, instance: null };
+  }
   const tree = snapshot.rtdb[chosenInstance];
-  if (!isPlainRecord(tree)) return { seed, instance: null };
+  if (!isSeedableRtdbRoot(tree)) return { seed, instance: null };
   seed.database = tree;
   return { seed, instance: chosenInstance };
 }

@@ -12,6 +12,7 @@
  * where none is allowed) is `unsupported`. Never calls the app's code.
  */
 import { canonicalPath, isObject } from './firestore.js';
+import { hasCollidingFirestoreShape } from './firestore-colliding-maps.js';
 import { isPlainObject } from './json-copy.js';
 import {
   chargeContainer,
@@ -68,56 +69,16 @@ export function isEscapedPlainMapShape(value: Record<string, unknown>): boolean 
   );
 }
 
-/** True when a plain user map has the exact key signature of a serialized Firestore special value or map envelope. */
+/** True when a plain user map has a key signature that collides with a serialized Firestore special value or marker shape. */
 export function collidesWithSessionSpecialShape(value: Record<string, unknown>): boolean {
   const keys = Object.keys(value);
-  if (
-    keys.length === 2 &&
-    typeof value.seconds === 'number' &&
-    typeof value.nanoseconds === 'number'
-  ) {
+  if (keys.length === 2 && typeof value.seconds === 'number' && typeof value.nanoseconds === 'number') {
     return true;
   }
-  if (
-    keys.length === 2 &&
-    typeof value.latitude === 'number' &&
-    typeof value.longitude === 'number'
-  ) {
+  if (keys.length === 2 && typeof value.latitude === 'number' && typeof value.longitude === 'number') {
     return true;
   }
-  if (
-    keys.length === 2 &&
-    value.type === 'firestore/bytes/1.0' &&
-    typeof value.bytes === 'string'
-  ) {
-    return true;
-  }
-  if (
-    keys.length === 2 &&
-    value.__type__ === '__vector__' &&
-    Array.isArray(value.value)
-  ) {
-    return true;
-  }
-  if (
-    keys.length === 3 &&
-    value.type === 'document' &&
-    typeof value.path === 'string' &&
-    typeof value.id === 'string'
-  ) {
-    return true;
-  }
-  if (isEscapedPlainMapShape(value)) {
-    return true;
-  }
-  return (
-    value.type === SPECIAL_NUMBER_TYPE ||
-    value.type === 'firestore/timestamp/1.0' ||
-    value.type === 'firestore/geoPoint/1.0' ||
-    value.type === 'firestore/vectorValue/1.0' ||
-    typeof value.__type === 'string' ||
-    (keys.length >= 2 && typeof value.id === 'string' && typeof value.path === 'string')
-  );
+  return hasCollidingFirestoreShape(value);
 }
 
 /** A copied value, or why it was left out. */
@@ -283,6 +244,7 @@ export function serializedBuiltIn(value: object): unknown {
 
 /** The write sentinel a `FieldValue` stands for, or undefined when the value is none. */
 function writeSentinelOf(value: object): typeof DELETE_FIELD_SENTINEL | typeof OMIT_WRITE_SENTINEL | undefined {
+  if (isPlainObject(value)) return undefined;
   const methodName: unknown = Reflect.get(value, '_methodName');
   if (typeof methodName !== 'string') return undefined;
   if (methodName === 'deleteField' || methodName === 'FieldValue.delete') return DELETE_FIELD_SENTINEL;
@@ -389,8 +351,10 @@ function sessionEntriesCopy(
     if (copied === UNSUPPORTED) return UNSUPPORTED;
     defineOwn(out, key, copied);
   }
-  const needsEscape =
-    depth > 0 ? collidesWithSessionSpecialShape(out) : isEscapedPlainMapShape(out);
+  let needsEscape = isEscapedPlainMapShape(out);
+  if (depth > 0) {
+    needsEscape = collidesWithSessionSpecialShape(out);
+  }
   if (needsEscape) {
     if (!chargeString(budget, ESCAPED_PLAIN_MAP_TYPE)) return OVER_BUDGET;
     return { type: ESCAPED_PLAIN_MAP_TYPE, fields: out };
