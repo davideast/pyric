@@ -29,8 +29,12 @@
  * synchronous forms reach a native binding instead, so `spawnSync`,
  * `execSync` and `execFileSync` are wrapped where they are exported.
  */
+import { realpathSync } from 'node:fs';
 import Module, { createRequire } from 'node:module';
+import { resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { isLiveRegisterActive, isRegisterActive } from './activation.js';
+import { isSameLocalFile } from './package-identity.js';
 
 type Env = Record<string, string | undefined>;
 
@@ -48,12 +52,189 @@ const GUARDED = Symbol.for('pyric.guardedChildProcess');
 /** The variables that carry the sandbox to a child. */
 const SANDBOX_VARIABLE = /^PYRIC_/;
 
-/** The register, named by its package rather than its file. */
-const REGISTER_BY_NAME = /(^|\s)--import[= ]?["']?@pyric\/(?:cli|live)\/register(["'\s]|$)/;
+const BARE_REGISTER_NAMES = new Set(['@pyric/cli/register', '@pyric/live/register']);
 
-/** Whether `nodeOptions` already loads the register. */
+interface NodeOptionWord {
+  readonly value: string;
+  readonly raw: string;
+}
+
+function tryRealpath(filePath: string): string {
+  try {
+    return realpathSync(filePath);
+  } catch {
+    return filePath;
+  }
+}
+
+function isFilesystemPathSpecifier(specifier: string): boolean {
+  return (
+    specifier.startsWith('/') ||
+    specifier.startsWith('./') ||
+    specifier.startsWith('../') ||
+    /^[A-Za-z]:[\\/]/.test(specifier)
+  );
+}
+
+/**
+ * Whether an `--import` target names Pyric's register (`registerUrl`), as a
+ * `file:` URL, an OS filesystem path, or bare `@pyric/(cli|live)/register`.
+ */
+export function matchesRegisterSpecifier(specifier: string, registerUrl: string): boolean {
+  if (specifier === registerUrl || BARE_REGISTER_NAMES.has(specifier)) return true;
+  if (isSameLocalFile(specifier, registerUrl)) return true;
+  if (!registerUrl.startsWith('file:') || !isFilesystemPathSpecifier(specifier)) return false;
+  let registerFile: string;
+  try {
+    registerFile = fileURLToPath(registerUrl);
+  } catch {
+    return false;
+  }
+  const candidateFile = resolve(specifier);
+  if (candidateFile === registerFile) return true;
+  return tryRealpath(candidateFile) === tryRealpath(registerFile);
+}
+
+function tokenizeNodeOptions(nodeOptions: string): NodeOptionWord[] {
+  const words: NodeOptionWord[] = [];
+  let i = 0;
+  while (i < nodeOptions.length) {
+    while (i < nodeOptions.length && /\s/.test(nodeOptions[i]!)) i++;
+    if (i >= nodeOptions.length) break;
+    const start = i;
+    let value = '';
+    while (i < nodeOptions.length && !/\s/.test(nodeOptions[i]!)) {
+      const ch = nodeOptions[i]!;
+      if (ch === '"' || ch === "'") {
+        const quote = ch;
+        i++;
+        while (i < nodeOptions.length && nodeOptions[i] !== quote) {
+          if (nodeOptions[i] === '\\' && i + 1 < nodeOptions.length && quote === '"') {
+            i++;
+          }
+          value += nodeOptions[i]!;
+          i++;
+        }
+        if (i < nodeOptions.length) i++;
+        continue;
+      }
+      if (ch === '\\' && i + 1 < nodeOptions.length) {
+        value += nodeOptions[i + 1]!;
+        i += 2;
+        continue;
+      }
+      value += ch;
+      i++;
+    }
+    words.push({ value, raw: nodeOptions.slice(start, i) });
+  }
+  return words;
+}
+
+/** Whether `nodeOptions` already loads the register (by URL, filesystem path, or package name). */
 export function loadsRegister(nodeOptions: string, registerUrl: string): boolean {
-  return nodeOptions.includes(registerUrl) || REGISTER_BY_NAME.test(nodeOptions);
+  const words = tokenizeNodeOptions(nodeOptions);
+  for (let i = 0; i < words.length; i++) {
+    const word = words[i]!.value;
+    if (word === '--import' && i + 1 < words.length) {
+      if (matchesRegisterSpecifier(words[i + 1]!.value, registerUrl)) return true;
+      i++;
+      continue;
+    }
+    if (word.startsWith('--import=')) {
+      if (matchesRegisterSpecifier(word.slice('--import='.length), registerUrl)) return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Ensure `nodeOptions` loads `registerUrl` via its canonical `file:` URL,
+ * rewriting any bare `@pyric/(cli|live)/register` or filesystem-path register
+ * preload in place while preserving all other user options verbatim.
+ */
+export function withCanonicalRegisterNodeOptions(nodeOptions: string, registerUrl: string): string {
+  const words = tokenizeNodeOptions(nodeOptions);
+  const importFlag = `--import ${registerUrl}`;
+  if (words.length === 0) return importFlag;
+
+  const rewritten: string[] = [];
+  let foundRegister = false;
+
+  for (let i = 0; i < words.length; i++) {
+    const word = words[i]!;
+    if (word.value === '--import' && i + 1 < words.length) {
+      const nextWord = words[i + 1]!;
+      if (matchesRegisterSpecifier(nextWord.value, registerUrl)) {
+        if (!foundRegister) {
+          rewritten.push('--import', registerUrl);
+          foundRegister = true;
+        }
+        i++;
+        continue;
+      }
+      rewritten.push(word.raw, nextWord.raw);
+      i++;
+      continue;
+    }
+    if (word.value.startsWith('--import=')) {
+      const target = word.value.slice('--import='.length);
+      if (matchesRegisterSpecifier(target, registerUrl)) {
+        if (!foundRegister) {
+          rewritten.push(`--import=${registerUrl}`);
+          foundRegister = true;
+        }
+        continue;
+      }
+    }
+    rewritten.push(word.raw);
+  }
+
+  if (!foundRegister) {
+    return `${nodeOptions.trimEnd()} ${importFlag}`;
+  }
+  return rewritten.join(' ');
+}
+
+/**
+ * Ensure a `Worker` `execArgv` array loads `registerUrl` via its canonical
+ * `file:` URL, rewriting bare or filesystem-path register preloads in place.
+ */
+export function withCanonicalRegisterExecArgv(execArgv: readonly unknown[], registerUrl: string): unknown[] {
+  const out: unknown[] = [];
+  let foundRegister = false;
+  for (let i = 0; i < execArgv.length; i++) {
+    const item = execArgv[i];
+    if (item === '--import' && i + 1 < execArgv.length && typeof execArgv[i + 1] === 'string') {
+      const target = execArgv[i + 1] as string;
+      if (matchesRegisterSpecifier(target, registerUrl)) {
+        if (!foundRegister) {
+          out.push('--import', registerUrl);
+          foundRegister = true;
+        }
+        i++;
+        continue;
+      }
+      out.push(item, target);
+      i++;
+      continue;
+    }
+    if (typeof item === 'string' && item.startsWith('--import=')) {
+      const target = item.slice('--import='.length);
+      if (matchesRegisterSpecifier(target, registerUrl)) {
+        if (!foundRegister) {
+          out.push(`--import=${registerUrl}`);
+          foundRegister = true;
+        }
+        continue;
+      }
+    }
+    out.push(item);
+  }
+  if (!foundRegister) {
+    out.push('--import', registerUrl);
+  }
+  return out;
 }
 
 /**
@@ -120,11 +301,7 @@ export function guardChildEnv(
   parentActive: boolean = isSandboxParent(),
 ): Env {
   const guarded = withInheritedSandbox(childEnv, parentEnv, parentActive);
-  const nodeOptions = guarded.NODE_OPTIONS ?? '';
-  if (!loadsRegister(nodeOptions, registerUrl)) {
-    const importFlag = `--import ${registerUrl}`;
-    guarded.NODE_OPTIONS = nodeOptions.trim() === '' ? importFlag : `${nodeOptions} ${importFlag}`;
-  }
+  guarded.NODE_OPTIONS = withCanonicalRegisterNodeOptions(guarded.NODE_OPTIONS ?? '', registerUrl);
   return guarded;
 }
 

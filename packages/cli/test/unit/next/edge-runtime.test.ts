@@ -116,6 +116,70 @@ describe('Edge runtime detection', () => {
       'pages/api/typed-edge.ts',
     ]);
   });
+
+  it('resolves JSX apostrophes, JSX closing-tag comments, imported bindings, barrel star re-exports, tsconfig paths/extends, generics, and parenthesized config values', () => {
+    write(
+      'tsconfig.base.json',
+      JSON.stringify({
+        compilerOptions: {
+          baseUrl: '.',
+          paths: { '@/*': ['./*'] },
+        },
+      }),
+    );
+    write(
+      'tsconfig.json',
+      JSON.stringify({
+        extends: './tsconfig.base.json',
+      }),
+    );
+    write('lib/constants.ts', "export const EDGE_RUNTIME = 'edge' as const;\nexport const NODE_RUNTIME = 'nodejs' as const;\n");
+    write('lib/index.ts', "export * from './constants';\n");
+    write('lib/edge-config.ts', "export const runtime = 'edge';\n");
+
+    write(
+      'app/items/page.tsx',
+      "export default function ItemsPage() { return <p>Org's items</p> }\nexport const runtime = 'edge';\n",
+    );
+    write(
+      'app/docs/page.tsx',
+      "export default function DocsPage() { return <div>Docs</div> } // view\nexport const runtime = 'edge';\n",
+    );
+    write(
+      'app/api/imported/route.ts',
+      "import { EDGE_RUNTIME } from '../../../lib/constants';\nexport const runtime = EDGE_RUNTIME;\n",
+    );
+    write(
+      'app/api/barrel/route.ts',
+      "export { EDGE_RUNTIME as runtime } from '../../../lib';\n",
+    );
+    write(
+      'app/api/aliased/route.ts',
+      "export { runtime } from '@/lib/edge-config';\n",
+    );
+    write(
+      'app/api/generics/route.ts',
+      "export const store = new Map<string, string>(), runtime = 'edge';\n",
+    );
+    write(
+      'pages/api/paren-config.ts',
+      "export const config = ({ runtime: ('edge') });\n",
+    );
+    write(
+      'middleware.ts',
+      "import { NODE_RUNTIME } from '@/lib/constants';\nexport const runtime = NODE_RUNTIME;\nexport function middleware() {}\n",
+    );
+
+    expect(findEdgeRuntimeFiles(root).sort()).toEqual([
+      'app/api/aliased/route.ts',
+      'app/api/barrel/route.ts',
+      'app/api/generics/route.ts',
+      'app/api/imported/route.ts',
+      'app/docs/page.tsx',
+      'app/items/page.tsx',
+      'pages/api/paren-config.ts',
+    ]);
+  });
 });
 
 describe('withPyric Edge runtime stop (PYRIC_EDGE_RUNTIME_UNSUPPORTED)', () => {

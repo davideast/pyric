@@ -74,7 +74,9 @@ export function createVitePageRuntime(input: {
       return env.command === 'serve' || swapsInBuild(env, options.swapInBuild);
     },
     config(config, env) {
-      sandboxBuild = env.command === 'build';
+      const isBuild = env.command === 'build';
+      const isSsrBuild = env.isSsrBuild === true || Boolean(config.build?.ssr);
+      sandboxBuild = isBuild && !isSsrBuild;
       const loadedEnv = loadViteAiEnv(env.mode, config.root, config.envDir);
       // Only the dev server serves `import.meta.env` to pages. A build's
       // output and `vite preview`, which serves it, never held the key. The
@@ -82,7 +84,8 @@ export function createVitePageRuntime(input: {
       const isDevServer = env.command === 'serve' && env.isPreview !== true;
       devServerEnv = isDevServer ? loadedEnv : undefined;
       resolvedAi = resolveViteAiConfig(options.ai, loadedEnv);
-      return sandboxBuild ? { build: { target: 'esnext' } } : {};
+      if (!isBuild) return {};
+      return { build: { target: 'esnext' } };
     },
     configResolved(resolved) {
       // After every plugin's `config` hook, so this is the `envPrefix` Vite

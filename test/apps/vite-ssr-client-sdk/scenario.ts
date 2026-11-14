@@ -190,6 +190,18 @@ async function builtServerStops(app: App): Promise<void> {
     const outcomes = JSON.parse(line.slice('sdk-names '.length)) as Outcomes;
     for (const name of SDK_NAMES) expectCode(outcomes, name, 'PYRIC_REAL_SDK_STOPPED');
   });
+  await app.step('vite build --ssr --mode development routes server imports without browser SharedWorker entries', async () => {
+    const devSsrOutDir = 'dist-ssr-dev';
+    const build = await app.command(
+      'node',
+      ['node_modules/vite/bin/vite.js', 'build', '--ssr', 'src/ssr.js', '--mode', 'development', '--outDir', devSsrOutDir],
+      { timeoutMs: 120_000 },
+    );
+    assert.equal(build.code, 0, build.output);
+    const built = app.readFile(join(devSsrOutDir, 'ssr.js'));
+    assert.doesNotMatch(built, /SharedWorker|__PYRIC_DEV_RUNTIME__/, built);
+    assert.match(built, /@pyric\/cli\/vite\/ssr-loader/, built);
+  });
 }
 
 export default scenario(async (app) => {

@@ -174,10 +174,17 @@ function tokenizeShellScript(script: string): string[] {
   return tokens;
 }
 
+/** Transparent command-prefix builtins/utilities that execute their target command. */
+const TRANSPARENT_PREFIX_WRAPPERS = new Set(['builtin', 'nohup', 'time', 'nice']);
+
 type ScanState =
   | { readonly kind: 'command' }
   | { readonly kind: 'args' }
   | { readonly kind: 'env'; readonly acceptFlags: boolean }
+  | { readonly kind: 'exec' }
+  | { readonly kind: 'command-builtin' }
+  | { readonly kind: 'prefix-wrapper'; readonly name: string }
+  | { readonly kind: 'eval'; readonly acceptDashDash: boolean; readonly words: readonly string[] }
   | { readonly kind: 'npm' }
   | { readonly kind: 'npx' }
   | { readonly kind: 'pkg-manager' }
@@ -196,11 +203,22 @@ function enterCommandToken(token: string): { readonly hit: string | null; readon
   const direct = UNSUPPORTED_RUNTIME_BINARIES.get(base);
   if (direct !== undefined) return { hit: direct, next: { kind: 'args' } };
   if (base === 'env') return { hit: null, next: { kind: 'env', acceptFlags: true } };
+  if (base === 'exec') return { hit: null, next: { kind: 'exec' } };
+  if (base === 'command') return { hit: null, next: { kind: 'command-builtin' } };
+  if (base === 'eval') return { hit: null, next: { kind: 'eval', acceptDashDash: true, words: [] } };
+  if (TRANSPARENT_PREFIX_WRAPPERS.has(base)) {
+    return { hit: null, next: { kind: 'prefix-wrapper', name: base } };
+  }
   if (base === 'npm') return { hit: null, next: { kind: 'npm' } };
   if (base === 'npx') return { hit: null, next: { kind: 'npx' } };
   if (base === 'pnpm' || base === 'yarn') return { hit: null, next: { kind: 'pkg-manager' } };
   if (SHELL_BINARIES.has(base)) return { hit: null, next: { kind: 'shell' } };
   return { hit: null, next: { kind: 'args' } };
+}
+
+function flushEvalWords(state: ScanState, depth: number): string | null {
+  if (state.kind !== 'eval' || state.words.length === 0) return null;
+  return detectInTokens(tokenizeShellScript(state.words.join(' ')), depth + 1);
 }
 
 function detectInTokens(rawArgv: readonly string[], depth: number): string | null {
@@ -210,6 +228,14 @@ function detectInTokens(rawArgv: readonly string[], depth: number): string | nul
 
   for (const token of tokens) {
     if (SHELL_OPERATORS.has(token)) {
+      const evalHit = flushEvalWords(state, depth);
+      if (evalHit !== null) return evalHit;
+      state = { kind: 'command' };
+      continue;
+    }
+    if (state.kind === 'eval' && (token === ')' || token === '}')) {
+      const evalHit = flushEvalWords(state, depth);
+      if (evalHit !== null) return evalHit;
       state = { kind: 'command' };
       continue;
     }
@@ -226,6 +252,57 @@ function detectInTokens(rawArgv: readonly string[], depth: number): string | nul
       case 'skip-one':
         state = state.next;
         break;
+      case 'exec': {
+        if (token === '--') {
+          state = { kind: 'command' };
+        } else if (/^-[cl]*a$/.test(token)) {
+          state = { kind: 'skip-one', next: state };
+        } else if (token.startsWith('-')) {
+          // Other exec flags (-c, -l, -aName)
+        } else {
+          const entered = enterCommandToken(token);
+          if (entered.hit !== null) return entered.hit;
+          state = entered.next;
+        }
+        break;
+      }
+      case 'command-builtin': {
+        if (token === '--') {
+          state = { kind: 'command' };
+        } else if (/^-p*[vV][pvV]*$/.test(token) || token === '--verbose') {
+          // Lookup-only `command -v` / `command -V` inspects PATH without executing.
+          state = { kind: 'args' };
+        } else if (token.startsWith('-')) {
+          // Execution flag such as `command -p <cmd>`
+        } else {
+          const entered = enterCommandToken(token);
+          if (entered.hit !== null) return entered.hit;
+          state = entered.next;
+        }
+        break;
+      }
+      case 'prefix-wrapper': {
+        if (token === '--') {
+          state = { kind: 'command' };
+        } else if (state.name === 'nice' && (token === '-n' || token === '--adjustment')) {
+          state = { kind: 'skip-one', next: state };
+        } else if (token.startsWith('-')) {
+          // Wrapper option (-p on time, -10 / --adjustment=10 on nice)
+        } else {
+          const entered = enterCommandToken(token);
+          if (entered.hit !== null) return entered.hit;
+          state = entered.next;
+        }
+        break;
+      }
+      case 'eval': {
+        if (state.acceptDashDash && token === '--') {
+          state = { kind: 'eval', acceptDashDash: false, words: state.words };
+        } else {
+          state = { kind: 'eval', acceptDashDash: false, words: [...state.words, token] };
+        }
+        break;
+      }
       case 'package-arg': {
         const hit = runtimeFromPackageSpec(token);
         if (hit !== undefined) return hit;
@@ -379,7 +456,7 @@ function detectInTokens(rawArgv: readonly string[], depth: number): string | nul
     }
   }
 
-  return null;
+  return flushEvalWords(state, depth);
 }
 
 /**

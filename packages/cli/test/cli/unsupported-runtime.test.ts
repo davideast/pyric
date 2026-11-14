@@ -55,7 +55,25 @@ describe('detectUnsupportedRuntime', () => {
     expect(detectUnsupportedRuntime(['zsh', '-c', 'env FOO="a b" bun server.ts'])).toBe('bun');
   });
 
-  it('stays null for supported runtimes, safe wrappers, and names that merely contain bun', () => {
+  it('unwraps POSIX command-prefix builtins (exec, command, eval, builtin, nohup, time, nice) inside shell scripts', () => {
+    expect(detectUnsupportedRuntime(['sh', '-c', 'exec bun app.ts'])).toBe('bun');
+    expect(detectUnsupportedRuntime(['sh', '-c', 'exec -cl -a custom-name deno run app.ts'])).toBe('deno');
+    expect(detectUnsupportedRuntime(['sh', '-c', 'exec -- bunx vite'])).toBe('bun');
+    expect(detectUnsupportedRuntime(['sh', '-c', 'command bun app.ts'])).toBe('bun');
+    expect(detectUnsupportedRuntime(['sh', '-c', 'command -p deno run app.ts'])).toBe('deno');
+    expect(detectUnsupportedRuntime(['sh', '-c', 'command -- bun app.ts'])).toBe('bun');
+    expect(detectUnsupportedRuntime(['sh', '-c', 'eval "bun app.ts"'])).toBe('bun');
+    expect(detectUnsupportedRuntime(['sh', '-c', 'eval "exec -a worker deno run app.ts"'])).toBe('deno');
+    expect(detectUnsupportedRuntime(['sh', '-c', 'eval -- "FOO=1" "command -p bunx vite"'])).toBe('bun');
+    expect(detectUnsupportedRuntime(['sh', '-c', 'nohup bun server.ts'])).toBe('bun');
+    expect(detectUnsupportedRuntime(['sh', '-c', 'time -p deno run server.ts'])).toBe('deno');
+    expect(detectUnsupportedRuntime(['sh', '-c', 'nice -n 10 bun server.ts'])).toBe('bun');
+  });
+
+  it('stays null for supported runtimes, safe wrappers, lookup-only command -v/-V, and names that merely contain bun', () => {
+    expect(detectUnsupportedRuntime(['sh', '-c', 'command -v bun && node server.js'])).toBeNull();
+    expect(detectUnsupportedRuntime(['sh', '-c', 'command -pV deno || node server.js'])).toBeNull();
+    expect(detectUnsupportedRuntime(['sh', '-c', 'eval "node server.js"'])).toBeNull();
     expect(detectUnsupportedRuntime(['node', 'server.js'])).toBeNull();
     expect(detectUnsupportedRuntime(['node', '-e', 'const x = 1; bun()'])).toBeNull();
     expect(detectUnsupportedRuntime(['/usr/bin/env', 'FOO=1', 'node', 'server.js'])).toBeNull();

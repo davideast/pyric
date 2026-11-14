@@ -414,5 +414,32 @@ describe('a real Firebase SDK load the swap does not serve stops (ADR 0022)', ()
       undefined,
     );
     expect(pathStop).toStartWith(STOP_PREFIX);
+
+    const subpathImportContext: SwapResolveContext = {
+      environment: clientEnvironment,
+      resolve: async (source) => {
+        if (source === '#direct-firestore') {
+          return { id: path.join(root, 'node_modules', '@firebase', 'firestore', 'index.js') };
+        }
+        return null;
+      },
+    };
+    const subpathStop = await localSwap.resolvePluginId(subpathImportContext, '#direct-firestore', appMain);
+    expect(subpathStop).toStartWith(STOP_PREFIX);
+  });
+
+  it('routes non-production SSR builds to server targets rather than browser SharedWorker entries', async () => {
+    const ssrBuildSwap = createViteModuleSwap(context);
+    const ssrConfig = ssrBuildSwap.config({ devServer: false, ssrBuild: true } as never);
+    const alias = (ssrConfig.resolve?.alias as Array<{ find: RegExp; replacement: string }>)?.[0];
+    expect(alias).toBeDefined();
+    expect(ssrConfig.ssr?.external).toContain('@pyric/cli');
+
+    const buildSsrEnv = { name: 'ssr', mode: 'build', config: { consumer: 'server' } } as SwapEnvironment;
+    const fake = fakeContext(buildSsrEnv);
+    expect(await ssrBuildSwap.resolvePluginId(fake, aliased('firebase/app'), userImporter, { ssr: true }))
+      .toBe('\0pyric-ssr-target:@pyric/cli/register/client/app');
+    expect(await ssrBuildSwap.resolvePluginId(fake, 'firebase/app', userImporter, { ssr: true }))
+      .toBe('\0pyric-ssr-target:@pyric/cli/register/client/app');
   });
 });

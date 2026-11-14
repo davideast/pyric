@@ -43,7 +43,7 @@ const TARGET_PREFIX = '\0pyric-ssr-target:';
 const OUTSIDE_PREFIX = '\0pyric-ssr-outside:';
 /** The prefix of a module that throws the stop error, in the client and on the server. */
 export const STOP_PREFIX = '\0pyric-stop:';
-const SSR_LOADER = '@pyric/cli/vite/ssr-loader';
+export const SSR_LOADER = '@pyric/cli/vite/ssr-loader';
 const IDENTIFIER = /^[A-Za-z_$][\w$]*$/;
 
 function escapeForPattern(text: string): string {
@@ -58,6 +58,11 @@ const ROUTED_SPECIFIER = new RegExp(
 /** The alias that carries each routed specifier past Vite's SSR externalization. */
 export function ssrSwapAlias(): { find: RegExp; replacement: string } {
   return { find: ROUTED_SPECIFIER, replacement: `${SSR_SWAP_PREFIX}$1$2` };
+}
+
+/** Whether `source` is a `firebase/*` or `firebase-admin/*` specifier routed on the server. */
+export function isRoutedServerSpecifier(source: string): boolean {
+  return ROUTED_SPECIFIER.test(source);
 }
 
 /** The original specifier of an aliased id, or null for any other id. */

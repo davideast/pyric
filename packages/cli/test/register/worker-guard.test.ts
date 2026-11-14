@@ -31,10 +31,24 @@ describe('guardWorkerArguments', () => {
     expect(options).toEqual({ execArgv: ['--no-warnings', '--import', REGISTER_URL] });
   });
 
-  it('leaves an explicit execArgv that already imports the register alone', () => {
+  it('leaves an explicit execArgv that already imports the register alone, and canonicalizes bare or filesystem register imports', () => {
     const execArgv = ['--import', REGISTER_URL];
     const [, options] = guardWorkerArguments('/app/worker.js', { execArgv }, REGISTER_URL);
     expect(options).toEqual({ execArgv: ['--import', REGISTER_URL] });
+
+    const [, bareOpts] = guardWorkerArguments(
+      '/app/worker.js',
+      { execArgv: ['--import', '@pyric/cli/register'] },
+      REGISTER_URL,
+    );
+    expect(bareOpts).toEqual({ execArgv: ['--import', REGISTER_URL] });
+
+    const [, fsOpts] = guardWorkerArguments(
+      '/app/worker.js',
+      { execArgv: [`--import=${REGISTER_PATH}`] },
+      REGISTER_URL,
+    );
+    expect(fsOpts).toEqual({ execArgv: [`--import=${REGISTER_URL}`] });
   });
 
   it('leaves a file worker that inherits the parent execArgv alone', () => {
@@ -49,21 +63,27 @@ describe('guardWorkerArguments', () => {
     expect(options).toEqual({ env: { PATH: '/usr/bin', PYRIC_SANDBOX: 'local', PYRIC_SANDBOX_INSTANCE: 'abc' } });
   });
 
-  it('preserves NODE_OPTIONS register import when parent loaded register via NODE_OPTIONS and worker passes custom env', () => {
-    const parentEnv = {
-      PATH: '/bin',
-      PYRIC_SANDBOX: 'local',
-      NODE_OPTIONS: `--import ${REGISTER_URL}`,
-    };
-    const [, options] = guardWorkerArguments('/app/worker.js', { env: { PATH: '/usr/bin' } }, REGISTER_URL, parentEnv, true);
-    expect(options).toEqual({
-      env: {
-        PATH: '/usr/bin',
+  it('preserves NODE_OPTIONS register import when parent loaded register via NODE_OPTIONS (URL, filesystem path, or bare name) and worker passes custom env', () => {
+    for (const parentNodeOptions of [
+      `--import ${REGISTER_URL}`,
+      `--import=${REGISTER_PATH}`,
+      '--import @pyric/cli/register',
+    ]) {
+      const parentEnv = {
+        PATH: '/bin',
         PYRIC_SANDBOX: 'local',
-        PYRIC_SANDBOX_FORCE: '1',
-        NODE_OPTIONS: `--import ${REGISTER_URL}`,
-      },
-    });
+        NODE_OPTIONS: parentNodeOptions,
+      };
+      const [, options] = guardWorkerArguments('/app/worker.js', { env: { PATH: '/usr/bin' } }, REGISTER_URL, parentEnv, true);
+      expect(options).toEqual({
+        env: {
+          PATH: '/usr/bin',
+          PYRIC_SANDBOX: 'local',
+          PYRIC_SANDBOX_FORCE: '1',
+          NODE_OPTIONS: `--import ${REGISTER_URL}`,
+        },
+      });
+    }
   });
 
   it('keeps a sandbox variable the caller set for the worker', () => {

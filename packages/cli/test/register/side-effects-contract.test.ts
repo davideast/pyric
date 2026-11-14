@@ -93,7 +93,7 @@ function bothLayouts(stems: readonly string[]): string[] {
  * whose only purpose is the effect, and the CLI's own esbuild pass over that
  * directory would drop it under a tighter list.
  */
-const CLI_SIDE_EFFECT_STEMS = ['register/index', 'serve/entries/*'];
+const CLI_SIDE_EFFECT_STEMS = ['next/client-stop', 'register/index', 'serve/entries/*'];
 
 /**
  * The one place `pyric`'s allowlist is written down: every module that

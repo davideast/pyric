@@ -13,6 +13,7 @@ import {
   guardSyncArguments,
   installChildProcessGuard,
   isSandboxParent,
+  loadsRegister,
 } from '../../src/register/child-process-guard.js';
 
 /** The marks `activation.ts` sets when the sandbox register or the live register activates. */
@@ -44,10 +45,37 @@ describe('guardChildEnv', () => {
     expect(env.NODE_OPTIONS).toBe(`--max-old-space-size=4096 ${IMPORT}`);
   });
 
-  it('leaves NODE_OPTIONS that already loads the register, by URL or by name', () => {
-    for (const nodeOptions of [IMPORT, '--import @pyric/cli/register', '--import=@pyric/cli/register --no-warnings']) {
-      expect(guardChildEnv({ NODE_OPTIONS: nodeOptions }, PARENT, REGISTER_URL).NODE_OPTIONS).toBe(nodeOptions);
-    }
+  it('canonicalizes bare @pyric/*/register and filesystem register paths to REGISTER_URL while preserving unrelated flags', () => {
+    expect(guardChildEnv({ NODE_OPTIONS: IMPORT }, PARENT, REGISTER_URL).NODE_OPTIONS).toBe(IMPORT);
+    expect(guardChildEnv({ NODE_OPTIONS: '--import @pyric/cli/register' }, PARENT, REGISTER_URL).NODE_OPTIONS).toBe(
+      IMPORT,
+    );
+    expect(
+      guardChildEnv({ NODE_OPTIONS: '--import=@pyric/cli/register --no-warnings' }, PARENT, REGISTER_URL).NODE_OPTIONS,
+    ).toBe(`--import=${REGISTER_URL} --no-warnings`);
+    expect(
+      guardChildEnv(
+        { NODE_OPTIONS: '--import=/app/node_modules/@pyric/cli/dist/register/index.js --no-warnings' },
+        PARENT,
+        REGISTER_URL,
+      ).NODE_OPTIONS,
+    ).toBe(`--import=${REGISTER_URL} --no-warnings`);
+    expect(
+      guardChildEnv(
+        { NODE_OPTIONS: '--import file:///app/custom-register.mjs' },
+        PARENT,
+        REGISTER_URL,
+      ).NODE_OPTIONS,
+    ).toBe(`--import file:///app/custom-register.mjs ${IMPORT}`);
+  });
+
+  it('recognizes file URLs, filesystem paths, and bare package names in loadsRegister without matching unrelated *register* preloads', () => {
+    expect(loadsRegister(IMPORT, REGISTER_URL)).toBe(true);
+    expect(loadsRegister('--import=/app/node_modules/@pyric/cli/dist/register/index.js', REGISTER_URL)).toBe(true);
+    expect(loadsRegister('--import "/app/node_modules/@pyric/cli/dist/register/index.js"', REGISTER_URL)).toBe(true);
+    expect(loadsRegister('--import @pyric/cli/register', REGISTER_URL)).toBe(true);
+    expect(loadsRegister('--import file:///app/custom-register.mjs', REGISTER_URL)).toBe(false);
+    expect(loadsRegister('--import tsx/register', REGISTER_URL)).toBe(false);
   });
 
   it('keeps a PYRIC_ variable the caller set, and fills one set empty', () => {

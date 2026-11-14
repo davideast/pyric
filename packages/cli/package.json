@@ -14,6 +14,8 @@
   "description": "Pyric CLI for local sandbox development, verification, artifact generation, and agent bridges.",
   "type": "module",
   "sideEffects": [
+    "./dist/next/client-stop.js",
+    "./src/next/client-stop.ts",
     "./dist/register/index.js",
     "./src/register/index.ts",
     "./dist/serve/entries/*.js",
@@ -246,6 +248,9 @@
     },
     "./next/internal/react-hook": {
       "import": "./dist/next/react-hook-entry.js"
+    },
+    "./next/internal/client-stop": {
+      "import": "./dist/next/client-stop.js"
     },
     "./package.json": "./package.json"
   },

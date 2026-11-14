@@ -2,7 +2,14 @@ import { describe, expect, it } from 'bun:test';
 import { spawnSync } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { installViteProcessStop, viteProcessStopHook, type SyncResolve } from '../../src/serve/vite-process-stop.js';
+import {
+  acquireViteLiveProcessStop,
+  acquireViteProcessStop,
+  installViteProcessStop,
+  viteProcessStopHook,
+  type SyncResolve,
+} from '../../src/serve/vite-process-stop.js';
+import { suppliedRows } from '../../src/serve/vite-supplied-rows.js';
 
 const vitePluginEntry = fileURLToPath(new URL('../../src/serve/vite-plugin.ts', import.meta.url));
 
@@ -154,5 +161,45 @@ describe('installing the stop hook', () => {
     expect(result.stderr).toContain('PYRIC_UNSUPPORTED_RUNTIME');
     expect(result.stderr).toContain('Bun');
     expect(result.stderr).toContain('module.registerHooks');
+  });
+
+  it('switches cleanly from pyric() to pyricLive() and releases completely on close', () => {
+    const installed: Hooks[] = [];
+    const slot: Record<symbol, unknown> = {};
+    const registerHooks = (hooks: Hooks) => void installed.push(hooks);
+    const releaseSandbox = acquireViteProcessStop({
+      slot,
+      registerHooks,
+      registerActive: () => false,
+      getAiMode: () => 'sandbox',
+      write: () => undefined,
+    });
+    expect(installed).toHaveLength(1);
+    const resolve = installed[0]!.resolve;
+    expect(stopOf(() => resolve('firebase-admin/app', { parentURL: appFile }, landsOn(realAdminApp))).code)
+      .toBe('PYRIC_REAL_SDK_STOPPED');
+
+    const supplied = suppliedRows((specifier, plane) =>
+      Object.assign(new Error(`live refused ${specifier} on ${plane}`), { code: 'PYRIC_LIVE_REFUSED' }),
+    );
+    const releaseLive = acquireViteLiveProcessStop(supplied, {
+      slot,
+      registerHooks,
+      registerActive: () => false,
+      write: () => undefined,
+    });
+    expect(installed).toHaveLength(1);
+    // Even if the replacement server acquires before the old server closes, the top lease governs.
+    expect(stopOf(() => resolve('firebase-admin/app', { parentURL: appFile }, landsOn(realAdminApp))).code)
+      .toBe('PYRIC_LIVE_REFUSED');
+
+    releaseSandbox();
+    expect(stopOf(() => resolve('firebase-admin/app', { parentURL: appFile }, landsOn(realAdminApp))).code)
+      .toBe('PYRIC_LIVE_REFUSED');
+
+    releaseLive();
+    expect(resolve('firebase-admin/app', { parentURL: appFile }, landsOn(realAdminApp))).toEqual({
+      url: realAdminApp,
+    });
   });
 });
