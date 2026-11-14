@@ -5,7 +5,7 @@ import type { ChildEventSnapshot, ChildListener, ChildParentSnapshot } from './l
 import type { PriorityRecord } from './priority-state.js';
 import { denyResultFor, rtdbDenialContext, rtdbRulesDetail } from './operation-events.js';
 import {
-  executeQuery, extractOrderValue,
+  executeQuery, indexedOrderValueChanged,
   type Priority, type QueryRow, type QuerySpec,
 } from './query.js';
 import { permissionDenied } from './rules-eval.js';
@@ -343,19 +343,20 @@ export class ChildListeners {
         });
       }
     } else {
-      const orderBy = listener.spec?.orderBy ?? { kind: 'priority' as const };
-      if (orderBy.kind !== 'key') {
-        // A child moves when its indexed value changes, as production's index
-        // compares it: by equality, so a change that keeps its rank still moves.
-        for (const row of next) {
-          const beforeRow = priorRows.get(row.key);
-          if (!beforeRow) continue;
-          const before = extractOrderValue(orderBy, beforeRow.key, beforeRow.value, beforeRow.priority);
-          const after = extractOrderValue(orderBy, row.key, row.value, row.priority);
-          const priorityChangedUnderValue = orderBy.kind === 'value' && beforeRow.priority !== row.priority;
-          if (!jsonValuesEqual(before, after) || priorityChangedUnderValue) {
-            events.push({ key: row.key, val: row.value, previousChildName: previousName(next, row.key) });
-          }
+      const orderBy = listener.spec?.orderBy ?? null;
+      for (const row of next) {
+        const beforeRow = priorRows.get(row.key);
+        if (!beforeRow) continue;
+        const hasMoved = indexedOrderValueChanged(
+          orderBy,
+          row.key,
+          beforeRow.value,
+          beforeRow.priority,
+          row.value,
+          row.priority,
+        );
+        if (hasMoved) {
+          events.push({ key: row.key, val: row.value, previousChildName: previousName(next, row.key) });
         }
       }
     }

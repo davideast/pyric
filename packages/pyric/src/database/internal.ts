@@ -7,6 +7,7 @@ export {
   applyConstraint,
   emptySpec,
   extractOrderValue,
+  indexedOrderValueChanged,
   type Bound,
   type Constraint,
   type LimitKind,

@@ -10,7 +10,8 @@ import { createBridge, type Bridge } from '../../../cli/src/bridge/server/bridge
 import { createConsumerSession } from '../../../cli/src/bridge/server/peer.js';
 import { WORKER_RELAY_CAPABILITY, type BridgeMessage } from '../../../cli/src/bridge/protocol.js';
 import { createRemoteSandboxCore, createRemoteSandboxHandle } from '../../../cli/src/remote/index.js';
-import { handleMessage, type HostCtx, type PortLike } from '../../../cli/src/serve/worker/host.js';
+import { cleanupPortWithDisconnect, handleMessage, type HostCtx, type PortLike } from '../../../cli/src/serve/worker/host.js';
+import { portRtdbConnectionCounts } from '../../../cli/src/serve/worker/host/rtdb.js';
 import type { InboundMessage, OutboundMessage } from '../../../cli/src/serve/worker/protocol.js';
 import { initializeApp, type PyricAdminApp } from '../../src/app/index.js';
 
@@ -26,8 +27,12 @@ export function inProcessApp(): PyricAdminApp {
 }
 
 /** The worker host's side of the bridge: replies go back through `bridge`.
- *  Returns the host's sandbox. */
-function hostPeer(bridge: Bridge): Sandbox {
+ *  Returns the host's sandbox and port-inspection hooks for lifecycle tests. */
+function hostPeer(bridge: Bridge): {
+  sandbox: Sandbox;
+  ctx: HostCtx;
+  tab: PortLike;
+} {
   const sandbox = initializeSandbox();
   databaseSandbox.setDefaultPolicy(getModularDatabase(sandbox), 'allow');
   // No persistence is enabled, so there is nothing to flush after a write.
@@ -66,7 +71,7 @@ function hostPeer(bridge: Bridge): Sandbox {
       void handleMessage(ctx, tab, { t: 'unsub', subId: wire.subId } as InboundMessage);
     }
   }, [], 'fake-tab', [WORKER_RELAY_CAPABILITY]);
-  return sandbox;
+  return { sandbox, ctx, tab };
 }
 
 /** An app on a remote handle to a SharedWorker host. */
@@ -76,14 +81,24 @@ export function sharedWorkerApp(): PyricAdminApp {
 
 /** An app on a remote handle to a SharedWorker host, and the host's sandbox,
  *  for writes another plane makes. */
-export function sharedWorkerArm(): { app: PyricAdminApp; host: Sandbox } {
+export function sharedWorkerArm(): {
+  app: PyricAdminApp;
+  host: Sandbox;
+  inspectHostState: () => { readonly queuedScopes: number; readonly offlineScopes: number };
+  simulatePortClose: () => Promise<void>;
+} {
   const bridge = createBridge({ mode: 'sandbox', version: 'test' });
-  const host = hostPeer(bridge);
+  const { sandbox: host, ctx, tab } = hostPeer(bridge);
   let deliver: (message: BridgeMessage) => void = () => {};
   const session = createConsumerSession(bridge, (message) => deliver(overWire(message)));
   const core = createRemoteSandboxCore({ send: (message) => session.handleMessage(overWire(message)) }, { serveUrl: SERVE_URL });
   deliver = core.handleMessage;
   core.start();
   const remote = createRemoteSandboxHandle({ channel: core.channel, serveUrl: SERVE_URL, close: () => core.dispose('closed') });
-  return { app: initializeApp({ sandbox: remote }, `database-admin-shared-worker-${++sequence}`), host };
+  return {
+    app: initializeApp({ sandbox: remote }, `database-admin-shared-worker-${++sequence}`),
+    host,
+    inspectHostState: () => portRtdbConnectionCounts(ctx, tab),
+    simulatePortClose: () => cleanupPortWithDisconnect(ctx, tab),
+  };
 }

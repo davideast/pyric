@@ -1,6 +1,11 @@
 /** RTDB value/child listeners and Firebase-compatible `off` registration identity. */
 import type { InboundMessage, RtdbValueSubMessage } from '../protocol.js';
-import { logDatabaseWarning, queryIdentifier } from 'pyric/database/internal';
+import {
+  indexedOrderValueChanged,
+  logDatabaseWarning,
+  normalizeNode,
+  queryIdentifier,
+} from 'pyric/database/internal';
 import { sameRtdbValue } from '../rtdb-value-equality.js';
 import {
   _defaultLens,
@@ -26,7 +31,6 @@ import {
 import {
   hydrateRtdbSnapshot,
   makeRtdbSnapshot,
-  valueAt,
   type RtdbWireEntry,
   type RtdbWireSnapshot,
 } from './rtdb-snapshots.js';
@@ -343,19 +347,16 @@ function onChildEvent(
           emit(entry, previousChildName);
         }
         if (kind === 'moved' && prior) {
-          const orderBy = query?.orderBy ?? { kind: 'priority' as const };
-          if (orderBy.kind !== 'key') {
-            const indexed = (candidate: RtdbWireEntry): unknown => {
-              if (orderBy.kind === 'priority') return candidate.priority ?? null;
-              if (orderBy.kind === 'value') return candidate.value;
-              return valueAt(candidate.value, orderBy.path);
-            };
-            const priorityChangedUnderValue =
-              orderBy.kind === 'value' &&
-              (prior.entry.priority ?? null) !== (entry.priority ?? null);
-            if (!sameRtdbValue(indexed(prior.entry), indexed(entry)) || priorityChangedUnderValue) {
-              emit(entry, previousChildName);
-            }
+          const moved = indexedOrderValueChanged(
+            query?.orderBy ?? null,
+            entry.key,
+            normalizeNode(prior.entry.value),
+            prior.entry.priority ?? null,
+            normalizeNode(entry.value),
+            entry.priority ?? null,
+          );
+          if (moved) {
+            emit(entry, previousChildName);
           }
         }
       }

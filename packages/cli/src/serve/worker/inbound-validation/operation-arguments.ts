@@ -58,7 +58,7 @@ function assertSharedAuthFields(message: Record<string, unknown>): void {
   requireOptionalBoolean(message.forceRefresh, 'forceRefresh');
 }
 
-/** The RTDB ops and the database rules ops name their instance with an optional string. */
+/** The RTDB ops and the database rules ops name their instance with an optional string; connection-scoped RTDB ops also carry an optional connectionId. */
 function assertDatabaseInstance(message: Record<string, unknown>): void {
   const method = message.method;
   const namesInstance = typeof method === 'string' && (
@@ -66,6 +66,14 @@ function assertDatabaseInstance(message: Record<string, unknown>): void {
     || method === 'setDatabaseRules' || method === 'getActiveRules' || method === 'getRulesStatus'
   );
   if (namesInstance) requireOptionalString(message.instance, 'instance');
+  const namesConnection = method === 'rtdb.onDisconnectSet'
+    || method === 'rtdb.onDisconnectUpdate'
+    || method === 'rtdb.onDisconnectRemove'
+    || method === 'rtdb.onDisconnectCancel'
+    || method === 'rtdb.goOffline'
+    || method === 'rtdb.goOnline';
+  if (namesConnection) requireOptionalString(message.connectionId, 'connectionId');
+  if (method === 'rtdb.goOffline') requireOptionalBoolean(message.sever, 'sever');
 }
 
 /** Storage ops name their bucket, and the caller's name for the default bucket, with optional strings. */
