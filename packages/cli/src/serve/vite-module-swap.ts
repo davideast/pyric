@@ -247,6 +247,7 @@ export function createViteModuleSwap(
     allowedUrls,
     aiMode,
     isOurCode,
+    isBypassedBridgeImport,
   });
 
   function resolveBases(importer: string | undefined): string[] {

@@ -23,7 +23,7 @@ import {
   detectUnsupportedRuntime,
   UNSUPPORTED_RUNTIME_CODE,
 } from '../../src/cli/unsupported-runtime.js';
-import { buildChildEnv, parseCommandString, spawnSandboxChild } from '../../src/cli/sandbox-runner.js';
+import { buildChildEnv, spawnSandboxChild } from '../../src/cli/sandbox-runner.js';
 import { findEdgeRuntimeFiles } from '../../src/next/edge-runtime.js';
 import { CLIENT_STOP_MODULE, clientStopTurbopackTarget, getClientStopSpecifiers } from '../../src/next/client-aliases.js';
 import { augmentTurbopackConfig } from '../../src/next/turbopack-config.js';
@@ -33,6 +33,7 @@ import {
   BRIDGE_IMPORT_LOADER,
   PRODUCTION_AI_SDK_FILE_PATTERN,
   bridgeImportOptions,
+  bridgeModuleFileNames,
 } from '../../src/next/bridge-imports.js';
 import {
   loadsRegister,
@@ -187,7 +188,9 @@ describe('Swap-or-Stop standing guard canary matrix', () => {
       expect(resolveAlias['@firebase/firestore/lite']).toEqual({ browser: browserStopTarget });
       expect(resolveAlias['@firebase/app']).toEqual({ browser: browserStopTarget });
       const turboRules = turbopack.rules as Record<string, { loaders: Array<{ loader: string }> }>;
-      expect(turboRules['index.esm.js']?.loaders[0]?.loader).toBe(BRIDGE_IMPORT_LOADER);
+      for (const ruleName of bridgeModuleFileNames()) {
+        expect(turboRules[ruleName]?.loaders[0]?.loader).toBe(BRIDGE_IMPORT_LOADER);
+      }
 
       const webpackCfg = augmentWebpackConfig({});
       const clientWebpack = webpackCfg.webpack!(
@@ -210,15 +213,32 @@ describe('Swap-or-Stop standing guard canary matrix', () => {
       else process.env.PYRIC_AI_MODE = prevAiMode;
     }
 
+    // Non-hoisted pnpm virtual-store layout where @firebase/component only sits beside @firebase/ai
+    const pnpmStoreNm = path.join(monorepoRoot, 'node_modules', '.pnpm', '@firebase+ai@1.0.0', 'node_modules');
+    const pnpmAiDir = path.join(pnpmStoreNm, '@firebase', 'ai', 'dist');
+    const pnpmCompDir = path.join(pnpmStoreNm, '@firebase', 'component', 'dist');
+    mkdirSync(pnpmAiDir, { recursive: true });
+    mkdirSync(pnpmCompDir, { recursive: true });
+    writeFileSync(
+      path.join(pnpmStoreNm, '@firebase', 'ai', 'package.json'),
+      JSON.stringify({ name: '@firebase/ai', version: '1.0.0', exports: { '.': './dist/index.mjs' } }),
+    );
+    writeFileSync(path.join(pnpmAiDir, 'index.mjs'), 'export const ai = 1;\n');
+    writeFileSync(
+      path.join(pnpmStoreNm, '@firebase', 'component', 'package.json'),
+      JSON.stringify({ name: '@firebase/component', version: '1.0.0', exports: { '.': './dist/index.mjs' } }),
+    );
+    writeFileSync(path.join(pnpmCompDir, 'index.mjs'), 'export const _registerComponent = () => {};\n');
+
     const rewritten = bridgeImportLoader.call(
       {
-        resourcePath: path.join(monorepoRoot, 'node_modules', '@firebase', 'ai', 'dist', 'index.mjs'),
+        resourcePath: path.join(pnpmAiDir, 'index.mjs'),
         rootContext: monorepoRoot,
         getOptions: () => bridgeImportOptions(),
       },
-      'import{_registerComponent}from"@firebase/app";\n',
+      'import{_registerComponent}from"@firebase/component";\n',
     );
-    expect(rewritten).not.toContain('"@firebase/app"');
+    expect(rewritten).not.toContain('"@firebase/component"');
   });
 
   it('3. enforces Vite #imports & plugin-alias client stops, non-production SSR routing, and real server.close() process-stop cleanup', async () => {
@@ -227,8 +247,11 @@ describe('Swap-or-Stop standing guard canary matrix', () => {
     const badPyricDir = makeTempDir('pyric-canary-vite-badcfg-');
     writeFileSync(path.join(badPyricDir, 'pyric.json'), '{ malformed json\n');
     const firebaseDir = findInstalledPackageRoot('firebase/app', 'firebase');
+    const scopedAppEntry = createRequire(path.join(firebaseDir, 'package.json')).resolve('@firebase/app');
+    const scopedAppDir = path.resolve(path.dirname(scopedAppEntry), '..');
     const adminDir = findInstalledPackageRoot('firebase-admin/app', 'firebase-admin');
     mkdirSync(path.join(root, 'node_modules', '@firebase', 'firestore'), { recursive: true });
+    symlinkSync(scopedAppDir, path.join(root, 'node_modules', '@firebase', 'app'), 'dir');
     writeFileSync(
       path.join(root, 'node_modules', '@firebase', 'firestore', 'package.json'),
       JSON.stringify({ name: '@firebase/firestore', version: '4.0.0', type: 'module', exports: { '.': './index.js' } }),
@@ -332,12 +355,26 @@ describe('Swap-or-Stop standing guard canary matrix', () => {
       "try { await import('firebase-admin/firestore'); } catch (e) { duringLive = e?.code ?? 'err'; }",
       'await sandbox.close();',
       'await live.close();',
+      'process.env.PYRIC_AI_MODE = "production";',
+      'const prodAiServer = await createServer({ root, logLevel: "silent", server: { host: "127.0.0.1", port: 0 }, plugins: [pyric()] });',
+      "const passthroughApp = await prodAiServer.pluginContainer.resolveId('firebase/app', importer);",
+      "const passthroughCheck = await prodAiServer.pluginContainer.resolveId('firebase/app-check', importer);",
+      "const realAppTarget = await prodAiServer.pluginContainer.resolveId('firebase/app', passthroughApp.id);",
+      "const realCheckTarget = await prodAiServer.pluginContainer.resolveId('firebase/app-check', passthroughCheck.id);",
+      "const scopedAppFromReal = await prodAiServer.pluginContainer.resolveId('@firebase/app', realAppTarget.id);",
+      "const scopedCheckFromReal = await prodAiServer.pluginContainer.resolveId('@firebase/app-check', realCheckTarget.id);",
+      "const directAppStop = await prodAiServer.pluginContainer.resolveId('@firebase/app', importer);",
+      'await prodAiServer.close();',
+      'delete process.env.PYRIC_AI_MODE;',
       'let afterClose = "ok";',
       "try { await import('firebase/app'); } catch (e) { afterClose = e?.code ?? 'err'; }",
       'console.log(JSON.stringify({',
       "  leakedBefore,",
       "  hashStopped: Boolean(hashStop?.id?.startsWith('\\0pyric-stop:')),",
       "  pluginAliasStopped: Boolean(pluginAliasStop?.id?.startsWith('\\0pyric-stop:')),",
+      "  prodAiAppAllowed: Boolean(scopedAppFromReal?.id && !scopedAppFromReal.id.startsWith('\\0pyric-stop:')),",
+      "  prodAiCheckAllowed: Boolean(scopedCheckFromReal?.id && !scopedCheckFromReal.id.startsWith('\\0pyric-stop:')),",
+      "  prodAiDirectStopped: Boolean(directAppStop?.id?.startsWith('\\0pyric-stop:')),",
       '  duringSandbox,',
       '  duringLive,',
       '  afterClose,',
@@ -357,6 +394,9 @@ describe('Swap-or-Stop standing guard canary matrix', () => {
       leakedBefore: null,
       hashStopped: true,
       pluginAliasStopped: true,
+      prodAiAppAllowed: true,
+      prodAiCheckAllowed: true,
+      prodAiDirectStopped: true,
       duringSandbox: 'PYRIC_REAL_SDK_STOPPED',
       duringLive: 'PYRIC_LIVE_REFUSED',
       afterClose: 'ok',
@@ -446,9 +486,16 @@ describe('Swap-or-Stop standing guard canary matrix', () => {
         sessionToken: 'expected-session-token',
       },
     );
-    const argv = parseCommandString(
-      `PYRIC_SANDBOX='' env -u PYRIC_SANDBOX -u NODE_OPTIONS PYRIC_SESSION_TOKEN=forged CUSTOM_FLAG=kept node ${JSON.stringify(probeScript)}`,
-    );
+    const argv = [
+      'env',
+      '-vu',
+      'PYRIC_SANDBOX',
+      '-vu',
+      'NODE_OPTIONS',
+      'sh',
+      '-c',
+      `PYRIC_SANDBOX='' PYRIC_SESSION_TOKEN=forged CUSTOM_FLAG=kept node ${JSON.stringify(probeScript)}`,
+    ];
     const handle = spawnSandboxChild({ argv, label: 'probe' }, { cwd: dir, env: childEnv, json: true });
     const exitCode = await handle.exited;
     expect(exitCode).toBe(0);
@@ -463,7 +510,7 @@ describe('Swap-or-Stop standing guard canary matrix', () => {
     });
   });
 
-  it('6. refuses unsupported runtimes across POSIX command-prefix builtins, command substitutions, shell flags, and env -a', () => {
+  it('6. refuses unsupported runtimes across POSIX command-prefix builtins, command substitutions, shell flags, and fail-closed dynamic constructs', () => {
     const blockedVectors: Array<[string[], 'bun' | 'deno']> = [
       [['sh', '-c', 'exec bun run dev'], 'bun'],
       [['sh', '-c', 'exec -a worker-proc bunx vite'], 'bun'],
@@ -473,9 +520,15 @@ describe('Swap-or-Stop standing guard canary matrix', () => {
       [['sh', '-c', 'nohup nice -n 5 exec bun script.ts'], 'bun'],
       [['sh', '-c', '$(bun x)'], 'bun'],
       [['sh', '-c', 'echo `deno run server.ts`'], 'deno'],
+      [['sh', '-c', 'echo $((bun x); true)'], 'bun'],
+      [['sh', '-c', 'echo $(case x in x) bun x;; esac)'], 'bun'],
       [['sh', '-mc', 'bun x'], 'bun'],
+      [['sh', '-oc', 'errexit', 'bun x'], 'bun'],
+      [['sh', '-co', 'errexit', 'bun x'], 'bun'],
+      [['bash', '-Oc', 'extglob', 'bun x'], 'bun'],
       [['bash', '-O', 'extglob', '-c', 'bun x'], 'bun'],
       [['env', '-a', 'worker-proc', 'bun', 'x'], 'bun'],
+      [['env', '-vS', 'bun x'], 'bun'],
     ];
     for (const [argv, expectedRuntime] of blockedVectors) {
       expect(detectUnsupportedRuntime(argv)).toBe(expectedRuntime);
@@ -487,6 +540,7 @@ describe('Swap-or-Stop standing guard canary matrix', () => {
       expect(stopped).toBe(true);
       expect(lines.join('')).toContain(UNSUPPORTED_RUNTIME_CODE);
     }
+    expect(detectUnsupportedRuntime(['sh', '-c', 'eval "node server.js"'])).toBeNull();
     expect(detectUnsupportedRuntime(['sh', '-c', 'command -v bun && node server.js'])).toBeNull();
   });
 });

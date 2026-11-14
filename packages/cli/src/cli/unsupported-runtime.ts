@@ -2,16 +2,29 @@
  * Child runtimes that cannot evaluate Node loader hooks, and the upfront stop
  * error `pyric sandbox` and `pyric run` raise instead of running unswapped code
  * (ADR 0023).
+ *
+ * Uses the shared `env`/shell option classifier (`shell-command-classifier.ts`)
+ * for early, friendly detection of visible argv/script forms; any construct
+ * outside static classification passes through to the execution-time `PATH`
+ * shim in `spawnSandboxChild`.
  */
 
 import { warnDeprecatedGuardEnvOnce } from '../register/deprecated-guard-env.js';
+import {
+  SHELL_BINARIES,
+  commandBasename,
+  parseShellInvocation,
+  stepEnvOption,
+} from './shell-command-classifier.js';
 import {
   COMMAND_GROUP_TOKENS,
   ENV_ASSIGNMENT,
   SHELL_OPERATORS,
   expandUnquotedOperators,
   extractCommandSubstitutions,
+  splitEnvSplitString,
   tokenizeShellScript,
+  type ShellToken,
 } from './shell-script-tokenizer.js';
 
 export { SHELL_OPERATORS };
@@ -26,16 +39,10 @@ const UNSUPPORTED_RUNTIME_BINARIES = new Map<string, string>([
   ['deno', 'deno'],
 ]);
 
-/** POSIX/Bourne shells whose `-c <script>` argument executes a shell command string. */
-const SHELL_BINARIES = new Set(['sh', 'bash', 'zsh', 'dash', 'ksh']);
-
 const MAX_SCRIPT_DEPTH = 8;
 
-/** Strip directory and a Windows `.exe` suffix from a command token. */
-function commandBasename(token: string): string {
-  const base = token.split(/[\\/]/).pop() ?? token;
-  return base.toLowerCase().replace(/\.exe$/, '');
-}
+/** Transparent command-prefix builtins/utilities that execute their target command. */
+const TRANSPARENT_PREFIX_WRAPPERS = new Set(['builtin', 'nohup', 'time', 'nice']);
 
 /** Resolve a package-runner target (`bun`, `bun@latest`, `deno@2`) to an unsupported runtime, if any. */
 function runtimeFromPackageSpec(token: string): string | undefined {
@@ -43,9 +50,6 @@ function runtimeFromPackageSpec(token: string): string | undefined {
   const name = !base.startsWith('@') && base.includes('@') ? base.slice(0, base.indexOf('@')) : base;
   return UNSUPPORTED_RUNTIME_BINARIES.get(name);
 }
-
-/** Transparent command-prefix builtins/utilities that execute their target command. */
-const TRANSPARENT_PREFIX_WRAPPERS = new Set(['builtin', 'nohup', 'time', 'nice']);
 
 type ScanState =
   | { readonly kind: 'command' }
@@ -55,40 +59,45 @@ type ScanState =
   | { readonly kind: 'command-builtin' }
   | { readonly kind: 'prefix-wrapper'; readonly name: string }
   | { readonly kind: 'eval'; readonly acceptDashDash: boolean; readonly words: readonly string[] }
+  | { readonly kind: 'case-head' }
+  | { readonly kind: 'case-pattern' }
   | { readonly kind: 'npm' }
   | { readonly kind: 'npx' }
   | { readonly kind: 'pkg-manager' }
   | { readonly kind: 'dlx' }
   | { readonly kind: 'runner-target' }
-  | { readonly kind: 'shell' }
   | { readonly kind: 'skip-one'; readonly next: ScanState }
   | { readonly kind: 'package-arg'; readonly next: ScanState }
   | { readonly kind: 'script-next'; readonly after: ScanState };
 
-function enterCommandToken(token: string): { readonly hit: string | null; readonly next: ScanState } {
-  if (COMMAND_GROUP_TOKENS.has(token) || ENV_ASSIGNMENT.test(token)) {
+function enterCommandToken(raw: string): { readonly hit: string | null; readonly next: ScanState } {
+  if (COMMAND_GROUP_TOKENS.has(raw) || ENV_ASSIGNMENT.test(raw)) {
     return { hit: null, next: { kind: 'command' } };
   }
-  const base = commandBasename(token);
+  const base = commandBasename(raw);
   const direct = UNSUPPORTED_RUNTIME_BINARIES.get(base);
   if (direct !== undefined) return { hit: direct, next: { kind: 'args' } };
   if (base === 'env') return { hit: null, next: { kind: 'env', acceptFlags: true } };
   if (base === 'exec') return { hit: null, next: { kind: 'exec' } };
   if (base === 'command') return { hit: null, next: { kind: 'command-builtin' } };
   if (base === 'eval') return { hit: null, next: { kind: 'eval', acceptDashDash: true, words: [] } };
+  if (base === 'case') return { hit: null, next: { kind: 'case-head' } };
+  if (base === 'esac' || base === 'then' || base === 'else' || base === 'do' || base === 'fi' || base === 'done') {
+    return { hit: null, next: { kind: 'command' } };
+  }
   if (TRANSPARENT_PREFIX_WRAPPERS.has(base)) {
     return { hit: null, next: { kind: 'prefix-wrapper', name: base } };
   }
   if (base === 'npm') return { hit: null, next: { kind: 'npm' } };
   if (base === 'npx') return { hit: null, next: { kind: 'npx' } };
   if (base === 'pnpm' || base === 'yarn') return { hit: null, next: { kind: 'pkg-manager' } };
-  if (SHELL_BINARIES.has(base)) return { hit: null, next: { kind: 'shell' } };
+  if (SHELL_BINARIES.has(base)) return { hit: null, next: { kind: 'command' } };
   return { hit: null, next: { kind: 'args' } };
 }
 
 function detectInShellScript(script: string, depth: number): string | null {
   if (depth > MAX_SCRIPT_DEPTH) return null;
-  const directHit = detectInTokens(tokenizeShellScript(script), depth);
+  const directHit = detectInShellTokens(tokenizeShellScript(script), depth);
   if (directHit !== null) return directHit;
   for (const sub of extractCommandSubstitutions(script)) {
     const subHit = detectInShellScript(sub, depth + 1);
@@ -102,244 +111,265 @@ function flushEvalWords(state: ScanState, depth: number): string | null {
   return detectInShellScript(state.words.join(' '), depth + 1);
 }
 
-function detectInTokens(rawArgv: readonly string[], depth: number): string | null {
+function detectInShellTokens(initialTokens: readonly ShellToken[], depth: number): string | null {
   if (depth > MAX_SCRIPT_DEPTH) return null;
-  const tokens = rawArgv.flatMap(expandUnquotedOperators);
+  const tokens: ShellToken[] = [...initialTokens];
   let state: ScanState = { kind: 'command' };
+  let i = 0;
 
-  for (const token of tokens) {
-    if (SHELL_OPERATORS.has(token)) {
+  while (i < tokens.length) {
+    const token = tokens[i]!;
+    const raw = token.value;
+
+    if (SHELL_OPERATORS.has(raw)) {
       const evalHit = flushEvalWords(state, depth);
       if (evalHit !== null) return evalHit;
       state = { kind: 'command' };
+      i++;
       continue;
     }
-    if (state.kind === 'eval' && (token === ')' || token === '}')) {
+    if (state.kind === 'eval' && (raw === ')' || raw === '}')) {
       const evalHit = flushEvalWords(state, depth);
       if (evalHit !== null) return evalHit;
       state = { kind: 'command' };
+      i++;
       continue;
     }
 
     switch (state.kind) {
       case 'command': {
-        const entered = enterCommandToken(token);
+        if (!COMMAND_GROUP_TOKENS.has(raw) && !ENV_ASSIGNMENT.test(raw)) {
+          const base = commandBasename(raw);
+          if (SHELL_BINARIES.has(base)) {
+            const shellParsed = parseShellInvocation(tokens, i + 1);
+            if (shellParsed.kind === 'command-script') {
+              const hit = detectInShellScript(tokens[shellParsed.scriptIndex]!.value, depth + 1);
+              if (hit !== null) return hit;
+            }
+            if (shellParsed.kind !== 'unclassified') {
+              i = shellParsed.endIndex;
+              state = { kind: 'args' };
+              continue;
+            }
+            state = { kind: 'args' };
+            i++;
+            continue;
+          }
+        }
+        const entered = enterCommandToken(raw);
         if (entered.hit !== null) return entered.hit;
         state = entered.next;
+        i++;
+        break;
+      }
+      case 'case-head': {
+        if (raw === 'in') state = { kind: 'case-pattern' };
+        i++;
+        break;
+      }
+      case 'case-pattern': {
+        if (raw === 'esac') {
+          state = { kind: 'command' };
+        } else if (raw === ')') {
+          state = { kind: 'command' };
+        }
+        i++;
         break;
       }
       case 'args':
+        i++;
         break;
       case 'skip-one':
         state = state.next;
+        i++;
         break;
       case 'exec': {
-        if (token === '--') {
+        if (raw === '--') {
           state = { kind: 'command' };
-        } else if (/^-[cl]*a$/.test(token)) {
+        } else if (/^-[cl]*a$/.test(raw)) {
           state = { kind: 'skip-one', next: state };
-        } else if (token.startsWith('-')) {
+        } else if (raw.startsWith('-')) {
           // Other exec flags (-c, -l, -aName)
         } else {
-          const entered = enterCommandToken(token);
-          if (entered.hit !== null) return entered.hit;
-          state = entered.next;
+          state = { kind: 'command' };
+          continue;
         }
+        i++;
         break;
       }
       case 'command-builtin': {
-        if (token === '--') {
+        if (raw === '--') {
           state = { kind: 'command' };
-        } else if (/^-p*[vV][pvV]*$/.test(token) || token === '--verbose') {
-          // Lookup-only `command -v` / `command -V` inspects PATH without executing.
+        } else if (/^-p*[vV][pvV]*$/.test(raw) || raw === '--verbose') {
           state = { kind: 'args' };
-        } else if (token.startsWith('-')) {
+        } else if (raw.startsWith('-')) {
           // Execution flag such as `command -p <cmd>`
         } else {
-          const entered = enterCommandToken(token);
-          if (entered.hit !== null) return entered.hit;
-          state = entered.next;
+          state = { kind: 'command' };
+          continue;
         }
+        i++;
         break;
       }
       case 'prefix-wrapper': {
-        if (token === '--') {
+        if (raw === '--') {
           state = { kind: 'command' };
-        } else if (state.name === 'nice' && (token === '-n' || token === '--adjustment')) {
+        } else if (state.name === 'nice' && (raw === '-n' || raw === '--adjustment')) {
           state = { kind: 'skip-one', next: state };
-        } else if (token.startsWith('-')) {
+        } else if (raw.startsWith('-')) {
           // Wrapper option (-p on time, -10 / --adjustment=10 on nice)
         } else {
-          const entered = enterCommandToken(token);
-          if (entered.hit !== null) return entered.hit;
-          state = entered.next;
+          state = { kind: 'command' };
+          continue;
         }
+        i++;
         break;
       }
       case 'eval': {
-        if (state.acceptDashDash && token === '--') {
+        if (state.acceptDashDash && raw === '--') {
           state = { kind: 'eval', acceptDashDash: false, words: state.words };
         } else {
-          state = { kind: 'eval', acceptDashDash: false, words: [...state.words, token] };
+          state = { kind: 'eval', acceptDashDash: false, words: [...state.words, raw] };
         }
+        i++;
         break;
       }
       case 'package-arg': {
-        const hit = runtimeFromPackageSpec(token);
+        const hit = runtimeFromPackageSpec(raw);
         if (hit !== undefined) return hit;
         state = state.next;
+        i++;
         break;
       }
       case 'script-next': {
-        const hit = detectInShellScript(token, depth + 1);
+        const hit = detectInShellScript(raw, depth + 1);
         if (hit !== null) return hit;
         state = state.after;
+        i++;
         break;
       }
       case 'runner-target': {
-        const hit = runtimeFromPackageSpec(token);
+        const hit = runtimeFromPackageSpec(raw);
         if (hit !== undefined) return hit;
-        const entered = enterCommandToken(token);
-        if (entered.hit !== null) return entered.hit;
-        state = entered.next;
-        break;
+        state = { kind: 'command' };
+        continue;
       }
       case 'env': {
-        if (state.acceptFlags && token === '--') {
-          state = { kind: 'env', acceptFlags: false };
-        } else if (state.acceptFlags && (token === '-S' || token === '--split-string')) {
-          state = { kind: 'script-next', after: { kind: 'env', acceptFlags: false } };
-        } else if (
-          state.acceptFlags &&
-          (token.startsWith('--split-string=') || (token.startsWith('-S') && token.length > 2))
-        ) {
-          let script = token.slice(2);
-          if (token.startsWith('--split-string=')) {
-            script = token.slice('--split-string='.length);
+        if (state.acceptFlags && raw.startsWith('-')) {
+          const stepped = stepEnvOption(tokens, i);
+          if (stepped.kind === 'unclassified') {
+            state = { kind: 'args' };
+            i++;
+            continue;
           }
-          const hit = detectInShellScript(script, depth + 1);
-          if (hit !== null) return hit;
-          state = { kind: 'env', acceptFlags: false };
-        } else if (
-          state.acceptFlags &&
-          (/^-[i0v]*[uCa]$/.test(token) || token === '--unset' || token === '--chdir' || token === '--argv0')
-        ) {
-          state = { kind: 'skip-one', next: state };
-        } else if (state.acceptFlags && token.startsWith('-')) {
-          // Boolean or attached-value env flag (-i, -uFOO, --unset=FOO)
-        } else if (ENV_ASSIGNMENT.test(token)) {
-          // GNU env permutes flags and KEY=VAL assignments until `--` or the command binary.
-        } else {
-          const entered = enterCommandToken(token);
-          if (entered.hit !== null) return entered.hit;
-          state = entered.next;
+          if (stepped.kind === 'end-flags') {
+            state = { kind: 'env', acceptFlags: false };
+            i = stepped.nextIndex;
+            continue;
+          }
+          if (stepped.splitString !== null) {
+            const split = splitEnvSplitString(stepped.splitString);
+            if (split.kind === 'classified') {
+              tokens.splice(i, stepped.nextIndex - i, ...split.tokens);
+              continue;
+            }
+            const fallbackHit = detectInShellScript(stepped.splitString, depth + 1);
+            if (fallbackHit !== null) return fallbackHit;
+            state = { kind: 'args' };
+            i = stepped.nextIndex;
+            continue;
+          }
+          i = stepped.nextIndex;
+          continue;
         }
-        break;
+        if (ENV_ASSIGNMENT.test(raw)) {
+          i++;
+          continue;
+        }
+        state = { kind: 'command' };
+        continue;
       }
       case 'npm': {
-        if (token === 'exec' || token === 'x') {
+        if (raw === 'exec' || raw === 'x') {
           state = { kind: 'npx' };
         } else if (
-          token === '--prefix' ||
-          token === '-C' ||
-          token === '--workspace' ||
-          token === '-w' ||
-          token === '--userconfig' ||
-          token === '--cache'
+          raw === '--prefix' ||
+          raw === '-C' ||
+          raw === '--workspace' ||
+          raw === '-w' ||
+          raw === '--userconfig' ||
+          raw === '--cache'
         ) {
           state = { kind: 'skip-one', next: state };
-        } else if (token.startsWith('-')) {
+        } else if (raw.startsWith('-')) {
           // Other npm global flags (--silent, --workspaces, --yes)
         } else {
           state = { kind: 'args' };
         }
+        i++;
         break;
       }
       case 'npx': {
-        if (token === '--') {
+        if (raw === '--') {
           state = { kind: 'runner-target' };
-        } else if (token === '-c' || token === '--call') {
+        } else if (raw === '-c' || raw === '--call') {
           state = { kind: 'script-next', after: { kind: 'args' } };
-        } else if (token.startsWith('--call=')) {
-          const hit = detectInShellScript(token.slice('--call='.length), depth + 1);
+        } else if (raw.startsWith('--call=')) {
+          const hit = detectInShellScript(raw.slice('--call='.length), depth + 1);
           if (hit !== null) return hit;
           state = { kind: 'args' };
-        } else if (token === '-p' || token === '--package') {
+        } else if (raw === '-p' || raw === '--package') {
           state = { kind: 'package-arg', next: { kind: 'npx' } };
-        } else if (token.startsWith('--package=')) {
-          const hit = runtimeFromPackageSpec(token.slice('--package='.length));
+        } else if (raw.startsWith('--package=')) {
+          const hit = runtimeFromPackageSpec(raw.slice('--package='.length));
           if (hit !== undefined) return hit;
-        } else if (token.startsWith('-')) {
+        } else if (raw.startsWith('-')) {
           // Other npx flags (-y, --yes, -q, --quiet, --no-install)
         } else {
-          const hit = runtimeFromPackageSpec(token);
+          const hit = runtimeFromPackageSpec(raw);
           if (hit !== undefined) return hit;
-          const entered = enterCommandToken(token);
-          if (entered.hit !== null) return entered.hit;
-          state = entered.next;
+          state = { kind: 'command' };
+          continue;
         }
+        i++;
         break;
       }
       case 'pkg-manager': {
-        if (token === 'dlx' || token === 'exec') {
+        if (raw === 'dlx' || raw === 'exec') {
           state = { kind: 'dlx' };
-        } else if (token === '--') {
+        } else if (raw === '--') {
           // `pnpm -- bun app.ts` or `yarn -- deno ...`
-        } else if (
-          token === '--dir' ||
-          token === '-C' ||
-          token === '--filter' ||
-          token === '-F' ||
-          token === '--cwd'
-        ) {
+        } else if (raw === '--dir' || raw === '-C' || raw === '--filter' || raw === '-F' || raw === '--cwd') {
           state = { kind: 'skip-one', next: state };
-        } else if (token.startsWith('-')) {
+        } else if (raw.startsWith('-')) {
           // Other pnpm/yarn flags (--silent, -s, -w, --workspace-root)
         } else {
-          const hit = runtimeFromPackageSpec(token);
+          const hit = runtimeFromPackageSpec(raw);
           if (hit !== undefined) return hit;
           state = { kind: 'args' };
         }
+        i++;
         break;
       }
       case 'dlx': {
-        if (token === '--') {
+        if (raw === '--') {
           state = { kind: 'runner-target' };
-        } else if (token === '-p' || token === '--package') {
+        } else if (raw === '-p' || raw === '--package') {
           state = { kind: 'package-arg', next: { kind: 'dlx' } };
-        } else if (token.startsWith('--package=')) {
-          const hit = runtimeFromPackageSpec(token.slice('--package='.length));
+        } else if (raw.startsWith('--package=')) {
+          const hit = runtimeFromPackageSpec(raw.slice('--package='.length));
           if (hit !== undefined) return hit;
-        } else if (token === '-c' || token === '--shell-mode') {
+        } else if (raw === '-c' || raw === '--shell-mode') {
           state = { kind: 'script-next', after: { kind: 'args' } };
-        } else if (token.startsWith('-')) {
+        } else if (raw.startsWith('-')) {
           // Other dlx flags (-q, --quiet, --silent)
         } else {
-          const hit = runtimeFromPackageSpec(token);
+          const hit = runtimeFromPackageSpec(raw);
           if (hit !== undefined) return hit;
-          const entered = enterCommandToken(token);
-          if (entered.hit !== null) return entered.hit;
-          state = entered.next;
+          state = { kind: 'command' };
+          continue;
         }
-        break;
-      }
-      case 'shell': {
-        if (/^-[A-Za-np-z]*c[A-Za-np-z]*$/.test(token) || token === '--command') {
-          state = { kind: 'script-next', after: { kind: 'args' } };
-        } else if (
-          token === '-o' ||
-          token === '+o' ||
-          token === '-O' ||
-          token === '+O' ||
-          token === '--rcfile' ||
-          token === '--init-file'
-        ) {
-          state = { kind: 'skip-one', next: state };
-        } else if (token.startsWith('-') || token.startsWith('+')) {
-          // Other shell options (-e, -u, -x, -l, -m, --norc, --posix)
-        } else {
-          state = { kind: 'args' };
-        }
+        i++;
         break;
       }
     }
@@ -351,16 +381,10 @@ function detectInTokens(rawArgv: readonly string[], depth: number): string | nul
 /**
  * Decide whether the child command starts a runtime that cannot intercept.
  *
- * Detection covers command starts across discrete and attached shell operators,
- * subshell parentheses, leading `KEY=VAL` assignments, `env` / `npx` /
- * `pnpm dlx` / `yarn dlx` launchers, and `sh` / `bash` / `zsh` `-c <script>`
- * invocations. `npm run dev` whose `package.json` script shells out to `bun`
- * remains outside argv inspection.
- *
- * Returns the canonical runtime name (`bun` for `bunx` too) or null.
+ * Returns the canonical runtime name (`bun` for `bunx` too) or `null`.
  */
 export function detectUnsupportedRuntime(argv: readonly string[]): string | null {
-  return detectInTokens(argv, 0);
+  return detectInShellTokens(argv.flatMap(expandUnquotedOperators), 0);
 }
 
 /**

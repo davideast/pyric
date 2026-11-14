@@ -1,14 +1,32 @@
 /**
- * Environment-assignment and `env`-utility sanitization for `spawnSandboxChild`:
- * keeps launcher-owned `PYRIC_*` activation variables and canonical `NODE_OPTIONS`
- * register preloads intact across inline `KEY=VAL` assignments, `env -u`/`--unset`,
- * `env -i`/`--ignore-environment`, and chained shell operators.
+ * Environment-assignment, `env`-utility, and flat `sh -c` sanitization for
+ * `spawnSandboxChild`: uses the shared `env`/shell option classifier
+ * (`shell-command-classifier.ts`) to keep launcher-owned `PYRIC_*` activation
+ * variables, canonical `NODE_OPTIONS` register preloads, and the execution-time
+ * `PATH` shim intact across inline `KEY=VAL` assignments, bundled `env` flags
+ * (`-iv`, `-iu`, `-vu`, `-vS`), `env -S`, and flat `sh -c` scripts.
  */
-import { SHELL_OPERATORS } from './unsupported-runtime.js';
 import {
   matchesRegisterSpecifier,
   withCanonicalRegisterNodeOptions,
 } from '../register/child-process-guard.js';
+import { prependShimToPath } from './launcher-path-shim.js';
+import {
+  SHELL_BINARIES,
+  commandBasename,
+  parseShellInvocation,
+  stepEnvOption,
+} from './shell-command-classifier.js';
+import {
+  COMMAND_GROUP_TOKENS,
+  ENV_ASSIGNMENT,
+  SHELL_OPERATORS,
+  splitEnvSplitString,
+  tokenizeFlatShellScript,
+  type ShellToken,
+} from './shell-script-tokenizer.js';
+
+const MAX_SANITIZE_DEPTH = 6;
 
 /**
  * Host-binding and activation variables owned by `buildChildEnv` that inline
@@ -46,7 +64,11 @@ export function sanitizeEnvAssignmentValue(
   val: string,
   optsEnv: NodeJS.ProcessEnv,
   registerUrl: string,
+  shimDir: string | null = null,
 ): string | null {
+  if (key === 'PATH' && shimDir !== null) {
+    return prependShimToPath(val, shimDir) ?? shimDir;
+  }
   if (!optsEnv.PYRIC_SANDBOX) return val;
   if (key === 'NODE_OPTIONS') {
     return withCanonicalRegisterNodeOptions(val, registerUrl);
@@ -57,94 +79,178 @@ export function sanitizeEnvAssignmentValue(
   return val;
 }
 
-function isEnvBinaryToken(token: string): boolean {
-  const base = (token.split(/[\\/]/).pop() ?? token).toLowerCase().replace(/\.exe$/, '');
-  return base === 'env';
+function quoteShellWord(word: string): string {
+  if (word.length > 0 && /^[A-Za-z0-9_./:@=-]+$/.test(word)) return word;
+  return `'${word.replace(/'/g, "'\\''")}'`;
+}
+
+export function formatShellCommand(tokens: readonly string[]): string {
+  return tokens
+    .map((token) => {
+      if (SHELL_OPERATORS.has(token) || token === '(' || token === ')') return token;
+      const envMatch = /^([A-Za-z_][A-Za-z0-9_]*=)(.*)$/.exec(token);
+      if (envMatch) {
+        return `${envMatch[1]}${quoteShellWord(envMatch[2]!)}`;
+      }
+      return quoteShellWord(token);
+    })
+    .join(' ');
+}
+
+function pinnedEnvAssignments(optsEnv: NodeJS.ProcessEnv, shimDir: string | null): string[] {
+  const assignments: string[] = [];
+  if (optsEnv.PYRIC_SANDBOX) {
+    for (const key of ['NODE_OPTIONS', ...PROTECTED_LAUNCHER_ENV_KEYS]) {
+      const pinned = optsEnv[key];
+      if (pinned !== undefined) assignments.push(`${key}=${pinned}`);
+    }
+  }
+  const pathVal = prependShimToPath(optsEnv.PATH, shimDir);
+  if (pathVal !== undefined) assignments.push(`PATH=${pathVal}`);
+  return assignments;
+}
+
+function sanitizeShellTokenStream(
+  initialTokens: readonly ShellToken[],
+  optsEnv: NodeJS.ProcessEnv,
+  registerUrl: string,
+  shimDir: string | null,
+  depth: number,
+): string[] {
+  if (depth > MAX_SANITIZE_DEPTH) {
+    return initialTokens.map((t) => t.value);
+  }
+  const tokens: ShellToken[] = [...initialTokens];
+  const out: string[] = [];
+  let mode: 'start' | 'env-flags' | 'env-assigns' | 'args' = 'start';
+  let i = 0;
+
+  while (i < tokens.length) {
+    const tok = tokens[i]!;
+    const raw = tok.value;
+
+    if (SHELL_OPERATORS.has(raw) || COMMAND_GROUP_TOKENS.has(raw)) {
+      out.push(raw);
+      mode = 'start';
+      i++;
+      continue;
+    }
+
+    if ((mode === 'start' || mode === 'env-flags' || mode === 'env-assigns') && ENV_ASSIGNMENT.test(raw)) {
+      const eq = raw.indexOf('=');
+      const key = raw.slice(0, eq);
+      const val = raw.slice(eq + 1);
+      const rewritten = sanitizeEnvAssignmentValue(key, val, optsEnv, registerUrl, shimDir);
+      if (rewritten !== null) {
+        out.push(`${key}=${rewritten}`);
+      }
+      i++;
+      continue;
+    }
+
+    if (mode === 'start') {
+      const base = commandBasename(raw);
+      if (base === 'env') {
+        out.push(raw);
+        mode = 'env-flags';
+        i++;
+        continue;
+      }
+      if (SHELL_BINARIES.has(base)) {
+        const parsed = parseShellInvocation(tokens, i + 1);
+        if (parsed.kind === 'command-script') {
+          const scriptText = tokens[parsed.scriptIndex]!.value;
+          const flat = tokenizeFlatShellScript(scriptText);
+          for (let k = i; k < parsed.endIndex; k++) {
+            if (k === parsed.scriptIndex && flat.kind === 'classified') {
+              const innerSanitized = sanitizeShellTokenStream(
+                flat.tokens,
+                optsEnv,
+                registerUrl,
+                shimDir,
+                depth + 1,
+              );
+              out.push(formatShellCommand(innerSanitized));
+            } else {
+              out.push(tokens[k]!.value);
+            }
+          }
+          i = parsed.endIndex;
+          mode = 'args';
+          continue;
+        }
+      }
+      out.push(raw);
+      mode = 'args';
+      i++;
+      continue;
+    }
+
+    if (mode === 'env-flags') {
+      if (raw.startsWith('-')) {
+        const stepped = stepEnvOption(tokens, i);
+        if (stepped.kind === 'unclassified') {
+          out.push(raw);
+          mode = 'args';
+          i++;
+          continue;
+        }
+        if (stepped.kind === 'end-flags') {
+          out.push('--');
+          mode = 'env-assigns';
+          i = stepped.nextIndex;
+          continue;
+        }
+        out.push(...stepped.passthroughArgs);
+        if (stepped.unsetKey !== null && !isProtectedLauncherKey(stepped.unsetKey)) {
+          out.push('-u', stepped.unsetKey);
+        }
+        if (stepped.ignoreEnv) {
+          out.push(...pinnedEnvAssignments(optsEnv, shimDir));
+        }
+        if (stepped.splitString !== null) {
+          const split = splitEnvSplitString(stepped.splitString);
+          if (split.kind === 'classified') {
+            tokens.splice(i, stepped.nextIndex - i, ...split.tokens);
+            continue;
+          }
+          // Unclassifiable `-S` string: keep `-S <raw>` intact so `PATH` shim enforces at execution.
+          out.push('-S', stepped.splitString);
+          mode = 'args';
+          i = stepped.nextIndex;
+          continue;
+        }
+        i = stepped.nextIndex;
+        continue;
+      }
+      mode = 'env-assigns';
+      continue;
+    }
+
+    if (mode === 'env-assigns') {
+      mode = 'start';
+      continue;
+    }
+
+    out.push(raw);
+    i++;
+  }
+
+  return out;
 }
 
 export function sanitizeCommandSegmentTokens(
   tokens: readonly string[],
   optsEnv: NodeJS.ProcessEnv,
   registerUrl: string,
+  shimDir: string | null = null,
 ): string[] {
-  if (!optsEnv.PYRIC_SANDBOX) return [...tokens];
-  const sanitized: string[] = [];
-  let mode: 'start' | 'env-flags' | 'env-assigns' | 'args' = 'start';
-
-  for (let i = 0; i < tokens.length; i++) {
-    const token = tokens[i]!;
-    if (SHELL_OPERATORS.has(token) || token === '(' || token === ')') {
-      sanitized.push(token);
-      mode = 'start';
-      continue;
-    }
-    if (
-      (mode === 'start' || mode === 'env-flags' || mode === 'env-assigns') &&
-      /^[A-Za-z_][A-Za-z0-9_]*=/.test(token)
-    ) {
-      const eq = token.indexOf('=');
-      const key = token.slice(0, eq);
-      const val = token.slice(eq + 1);
-      const rewritten = sanitizeEnvAssignmentValue(key, val, optsEnv, registerUrl);
-      if (rewritten !== null) {
-        sanitized.push(`${key}=${rewritten}`);
-      }
-      continue;
-    }
-    if (mode === 'start') {
-      sanitized.push(token);
-      mode = isEnvBinaryToken(token) ? 'env-flags' : 'args';
-      continue;
-    }
-    if (mode === 'env-flags') {
-      if (token === '--') {
-        sanitized.push(token);
-        mode = 'env-assigns';
-        continue;
-      }
-      if ((token === '-u' || token === '--unset') && i + 1 < tokens.length) {
-        const targetKey = tokens[i + 1]!;
-        if (isProtectedLauncherKey(targetKey)) {
-          i++;
-          continue;
-        }
-        sanitized.push(token, targetKey);
-        i++;
-        continue;
-      }
-      if (token.startsWith('--unset=')) {
-        const targetKey = token.slice('--unset='.length);
-        if (isProtectedLauncherKey(targetKey)) continue;
-        sanitized.push(token);
-        continue;
-      }
-      if (token.startsWith('-u') && token.length > 2) {
-        const targetKey = token.slice(2);
-        if (isProtectedLauncherKey(targetKey)) continue;
-        sanitized.push(token);
-        continue;
-      }
-      if (token === '-' || token === '-i' || token === '--ignore-environment') {
-        sanitized.push(token);
-        for (const key of ['PYRIC_SANDBOX', 'NODE_OPTIONS', ...PROTECTED_LAUNCHER_ENV_KEYS]) {
-          const pinned = optsEnv[key];
-          if (pinned !== undefined) sanitized.push(`${key}=${pinned}`);
-        }
-        if (optsEnv.PATH !== undefined) sanitized.push(`PATH=${optsEnv.PATH}`);
-        continue;
-      }
-      if ((token === '-C' || token === '--chdir' || token === '-a' || token === '--argv0') && i + 1 < tokens.length) {
-        sanitized.push(token, tokens[i + 1]!);
-        i++;
-        continue;
-      }
-      if (token.startsWith('-')) {
-        sanitized.push(token);
-        continue;
-      }
-    }
-    mode = 'args';
-    sanitized.push(token);
-  }
-  return sanitized;
+  if (!optsEnv.PYRIC_SANDBOX && shimDir === null) return [...tokens];
+  const shellTokens: ShellToken[] = tokens.map((value) => ({
+    value,
+    hasDynamicExpansion: false,
+    hasUnquotedGlob: false,
+    isQuoted: false,
+  }));
+  return sanitizeShellTokenStream(shellTokens, optsEnv, registerUrl, shimDir, 0);
 }

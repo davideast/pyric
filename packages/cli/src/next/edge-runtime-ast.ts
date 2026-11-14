@@ -38,7 +38,8 @@ interface LocalDestructuredBinding {
 type LocalBinding =
   | { readonly kind: 'expr'; readonly expr: ts.Expression }
   | { readonly kind: 'destructured'; readonly binding: LocalDestructuredBinding }
-  | { readonly kind: 'enum'; readonly members: ReadonlyMap<string, ts.Expression | string> };
+  | { readonly kind: 'enum'; readonly members: ReadonlyMap<string, ts.Expression | string> }
+  | { readonly kind: 'indeterminate' };
 
 interface ParsedModuleAst {
   readonly locals: ReadonlyMap<string, LocalBinding>;
@@ -199,13 +200,17 @@ function parseModuleAst(filePath: string, sourceText: string): ParsedModuleAst |
 
     if (ts.isVariableStatement(statement)) {
       const isExported = hasModifier(statement, ts.SyntaxKind.ExportKeyword);
+      const isConst = (statement.declarationList.flags & ts.NodeFlags.Const) !== 0;
       for (const decl of statement.declarationList.declarations) {
-        if (decl.initializer === undefined) continue;
         if (ts.isIdentifier(decl.name)) {
           const varName = decl.name.text;
-          locals.set(varName, { kind: 'expr', expr: decl.initializer });
+          if (!isConst || decl.initializer === undefined) {
+            locals.set(varName, { kind: 'indeterminate' });
+          } else {
+            locals.set(varName, { kind: 'expr', expr: decl.initializer });
+          }
           if (isExported) {
-            exportedExprs.set(varName, decl.initializer);
+            namedExports.push({ localName: varName, exportedName: varName });
           }
         } else if (ts.isObjectBindingPattern(decl.name)) {
           for (const element of decl.name.elements) {
@@ -215,10 +220,14 @@ function parseModuleAst(filePath: string, sourceText: string): ParsedModuleAst |
               propName = propertyKeyText(element.propertyName);
             }
             if (propName === null) continue;
-            locals.set(element.name.text, {
-              kind: 'destructured',
-              binding: { init: decl.initializer, propertyName: propName },
-            });
+            if (!isConst || decl.initializer === undefined) {
+              locals.set(element.name.text, { kind: 'indeterminate' });
+            } else {
+              locals.set(element.name.text, {
+                kind: 'destructured',
+                binding: { init: decl.initializer, propertyName: propName },
+              });
+            }
             if (isExported) {
               namedExports.push({ localName: element.name.text, exportedName: element.name.text });
             }
@@ -269,6 +278,29 @@ function parseModuleAst(filePath: string, sourceText: string): ParsedModuleAst |
       }
     }
   }
+
+  const markMutatedTarget = (target: ts.Node): void => {
+    let cur: ts.Node = target;
+    while (ts.isParenthesizedExpression(cur) || ts.isPropertyAccessExpression(cur) || ts.isElementAccessExpression(cur)) {
+      cur = cur.expression;
+    }
+    if (ts.isIdentifier(cur) && locals.has(cur.text)) {
+      locals.set(cur.text, { kind: 'indeterminate' });
+    }
+  };
+  const scanMutations = (node: ts.Node): void => {
+    if (
+      ts.isBinaryExpression(node) &&
+      node.operatorToken.kind >= ts.SyntaxKind.FirstAssignment &&
+      node.operatorToken.kind <= ts.SyntaxKind.LastAssignment
+    ) {
+      markMutatedTarget(node.left);
+    } else if (ts.isDeleteExpression(node)) {
+      markMutatedTarget(node.expression);
+    }
+    ts.forEachChild(node, scanMutations);
+  };
+  ts.forEachChild(sourceFile, scanMutations);
 
   return {
     locals,
@@ -335,6 +367,7 @@ export function createModuleRuntimeResolver(projectRoot: string): (file: string)
 
     const local = parsed.locals.get(identName);
     if (local !== undefined) {
+      if (local.kind === 'indeterminate') return INDETERMINATE_VALUE;
       if (local.kind === 'expr') {
         return evaluateExpr(realFile, parsed, local.expr, nextVisited);
       }

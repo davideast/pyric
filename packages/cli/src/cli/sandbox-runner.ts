@@ -17,13 +17,17 @@
  * only `spawnDevChild` touches the process table.
  */
 import { spawn, type ChildProcess } from 'node:child_process';
+import { createLauncherShimDir, prependShimToPath } from './launcher-path-shim.js';
 import {
   PROTECTED_LAUNCHER_ENV_KEYS,
+  formatShellCommand,
   resolveLauncherRegisterUrl,
   sanitizeCommandSegmentTokens,
   sanitizeEnvAssignmentValue,
 } from './sandbox-env-sanitizer.js';
 import { SHELL_OPERATORS } from './unsupported-runtime.js';
+
+export { formatShellCommand };
 import { boundedFetch } from '../bounded-request.js';
 import type { WorkerInitPayload } from '../serve/init-payload.js';
 
@@ -363,24 +367,6 @@ export async function sandboxMethodHint(command: string): Promise<string | null>
   );
 }
 
-function quoteShellWord(word: string): string {
-  if (word.length > 0 && /^[A-Za-z0-9_./:@=-]+$/.test(word)) return word;
-  return `'${word.replace(/'/g, "'\\''")}'`;
-}
-
-export function formatShellCommand(tokens: readonly string[]): string {
-  return tokens
-    .map((token) => {
-      if (SHELL_OPERATORS.has(token) || token === '(' || token === ')') return token;
-      const envMatch = /^([A-Za-z_][A-Za-z0-9_]*=)(.*)$/.exec(token);
-      if (envMatch) {
-        return `${envMatch[1]}${quoteShellWord(envMatch[2]!)}`;
-      }
-      return quoteShellWord(token);
-    })
-    .join(' ');
-}
-
 /**
  * Spawn the child with inherited stdin and `[dev]`-prefixed stdout/stderr.
  * In `--json` mode ALL child output goes to stderr — stdout carries exactly
@@ -408,28 +394,49 @@ export function spawnSandboxChild(
     }
   }
 
-  // 2. Sanitize `env` invocations and post-operator KEY=VAL overrides
-  const sanitizedParts = sanitizeCommandSegmentTokens(parts, env, registerUrl);
+  // 2. Install execution-time POSIX PATH shim (stubs for installed bun/bunx/deno + node preload wrapper)
+  const preShimPath = env.PATH ?? process.env.PATH;
+  const shim = createLauncherShimDir({
+    preShimPath,
+    env: opts.env,
+    registerUrl,
+    label: plan.label,
+  });
+  if (shim.shimDir !== null) {
+    env.PATH = prependShimToPath(preShimPath, shim.shimDir);
+  }
+  if (shim.bashEnvPath !== null && env.BASH_ENV && env.BASH_ENV !== shim.bashEnvPath) {
+    env.__PYRIC_ORIG_BASH_ENV = env.BASH_ENV;
+    env.BASH_ENV = shim.bashEnvPath;
+  }
+
+  // 3. Sanitize `env` invocations, flat `sh -c` scripts, and post-operator KEY=VAL overrides
+  const sanitizedParts = sanitizeCommandSegmentTokens(parts, env, registerUrl, shim.shimDir);
   const hasShellOperators = sanitizedParts.some((token) => SHELL_OPERATORS.has(token));
 
   const [command, ...args] = sanitizedParts;
   let child: ChildProcess;
-  if (hasShellOperators) {
-    child = spawn(formatShellCommand(sanitizedParts), [], {
-      cwd: opts.cwd,
-      env,
-      stdio: ['inherit', 'pipe', 'pipe'],
-      shell: true,
-      detached: process.platform !== 'win32',
-    });
-  } else {
-    child = spawn(command!, args, {
-      cwd: opts.cwd,
-      env,
-      stdio: ['inherit', 'pipe', 'pipe'],
-      shell: process.platform === 'win32',
-      detached: process.platform !== 'win32',
-    });
+  try {
+    if (hasShellOperators) {
+      child = spawn(formatShellCommand(sanitizedParts), [], {
+        cwd: opts.cwd,
+        env,
+        stdio: ['inherit', 'pipe', 'pipe'],
+        shell: true,
+        detached: process.platform !== 'win32',
+      });
+    } else {
+      child = spawn(command!, args, {
+        cwd: opts.cwd,
+        env,
+        stdio: ['inherit', 'pipe', 'pipe'],
+        shell: process.platform === 'win32',
+        detached: process.platform !== 'win32',
+      });
+    }
+  } catch (err) {
+    shim.cleanup();
+    throw err;
   }
 
   const outTarget = opts.json ? process.stderr : process.stdout;
@@ -452,6 +459,7 @@ export function spawnSandboxChild(
 
   const exited = new Promise<number>((resolve) => {
     child.once('error', (e) => {
+      shim.cleanup();
       process.stderr.write(`pyric sandbox: failed to run \`${plan.label}\`: ${e.message}\n`);
       const notFound = (e as NodeJS.ErrnoException).code === 'ENOENT';
       if (!notFound) {
@@ -467,6 +475,7 @@ export function spawnSandboxChild(
       });
     });
     child.once('exit', (code, signal) => {
+      shim.cleanup();
       out.flush();
       err.flush();
       if (forceTimer) clearTimeout(forceTimer);

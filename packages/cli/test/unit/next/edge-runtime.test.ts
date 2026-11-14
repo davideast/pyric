@@ -269,6 +269,11 @@ describe('Edge runtime detection', () => {
       'app/api/jsx-in-ts/route.ts',
       "export default function H() { return <div title=\"a\">It's here</div> }\nexport const runtime = 'edge';\n",
     );
+    write('app/api/mutable-let/route.ts', "let runtime = 'nodejs';\nruntime = 'edge';\nexport { runtime };\n");
+    write(
+      'app/api/mutated-obj/route.ts',
+      "const config: { runtime: string } = { runtime: 'nodejs' };\nconfig.runtime = 'edge';\nexport { config };\n",
+    );
     mkdirSync(join(root, 'middleware.ts'), { recursive: true });
 
     expect(findEdgeRuntimeFiles(root).sort()).toEqual([
@@ -278,6 +283,8 @@ describe('Edge runtime detection', () => {
       'app/api/jsx-in-ts/route.ts',
       'app/api/missing-star/route.ts',
       'app/api/missing/route.ts',
+      'app/api/mutable-let/route.ts',
+      'app/api/mutated-obj/route.ts',
       'app/api/syntax/route.ts',
       'middleware.ts',
     ]);

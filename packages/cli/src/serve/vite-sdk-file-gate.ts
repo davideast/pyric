@@ -25,6 +25,7 @@ export interface ViteSdkFileGateInput {
   readonly allowedUrls: Set<string>;
   readonly aiMode: () => AiMode;
   readonly isOurCode: (importer: string | undefined) => boolean;
+  readonly isBypassedBridgeImport: (bare: string, importer: string | undefined) => boolean;
 }
 
 function splitBareSpecifier(source: string): string {
@@ -80,7 +81,7 @@ function isPassThroughPackageFile(
  * and supplied-rows (`@pyric/live`) modes.
  */
 export function createViteSdkFileGate(input: ViteSdkFileGateInput) {
-  const { stops, allowedUrls, aiMode, isOurCode } = input;
+  const { stops, allowedUrls, aiMode, isOurCode, isBypassedBridgeImport } = input;
 
   function refusedFileIdFor(specifier: string, file: string, error: Error): string {
     const id = `${STOP_PREFIX}refused:page-file:${JSON.stringify([specifier, file])}`;
@@ -139,7 +140,7 @@ export function createViteSdkFileGate(input: ViteSdkFileGateInput) {
     if (typeof routed === 'string') return routed;
     const rawUnaliased = unaliasedSpecifier(source) ?? source;
     const bare = splitBareSpecifier(rawUnaliased);
-    if (bare.startsWith('\0') || isOurCode(importer)) {
+    if (bare.startsWith('\0') || (isOurCode(importer) && !isBypassedBridgeImport(bare, importer))) {
       return routed;
     }
     const target = routed ?? await context.resolve(bare, importer, { ...resolveOptions, skipSelf: true });
