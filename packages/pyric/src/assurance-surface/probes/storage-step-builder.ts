@@ -8,13 +8,7 @@ import {
   parseResourcePattern,
   resourceShapeKey,
 } from '../../sandbox/internal/resource-pattern.js';
-import {
-  mergedStorageConstraint,
-  selectStorageConstraintForSite,
-} from './storage-constraint-arms.js';
 import type { FindingOp } from './types.js';
-
-export { mergedStorageConstraint, selectStorageConstraintForSite };
 
 const CANDIDATE_MIMES = [
   'image/png',

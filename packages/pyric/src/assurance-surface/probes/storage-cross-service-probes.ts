@@ -4,10 +4,11 @@
  */
 import type { SnapshotStorageObject } from 'pyric/sandbox/internal';
 import type { ResourcePattern } from '../../sandbox/internal/resource-pattern.js';
-import type { AccessSite } from '../code/types.js';
+import type { AccessSite, StorageHttpHeaderKey } from '../code/types.js';
 import type {
   CrossServiceLookup,
   RuleSurface,
+  RuleSurfaceEntry,
   StorageMetadataConstraint,
 } from '../rules/rule-surface.js';
 import { STORAGE_HTTP_HEADER_KEYS } from '../rules/storage-constraint-summary.js';
@@ -15,6 +16,7 @@ import type { ValueHint } from '../rules/value-hints.js';
 import type { PlanInput } from './plan.js';
 import { crossServiceLookupSeeds } from './prerequisites.js';
 import {
+  distinctSynthesizableStorageArms,
   httpHeaderMatchesConjuncts,
   mergeSeedStorageConstraint,
 } from './storage-constraint-arms.js';
@@ -107,8 +109,11 @@ export interface CrossServiceProbeContext {
   readonly site: AccessSite;
   readonly sitePattern: ResourcePattern;
   readonly ownerPath: string;
+  readonly createSource: readonly RuleSurfaceEntry[];
   readonly createConstraint: StorageMetadataConstraint;
+  readonly opSource: readonly RuleSurfaceEntry[];
   readonly opConstraint: StorageMetadataConstraint;
+  readonly siblingHttpHeaders: Readonly<Partial<Record<StorageHttpHeaderKey, string>>>;
   readonly directLookups: readonly CrossServiceLookup[];
   readonly membershipLookups: readonly CrossServiceLookup[];
   readonly primaryRulePattern: ResourcePattern | undefined;
@@ -125,8 +130,11 @@ export function planCrossServiceStorageProbes(
     site,
     sitePattern,
     ownerPath,
+    createSource,
     createConstraint,
+    opSource,
     opConstraint,
+    siblingHttpHeaders,
     directLookups,
     membershipLookups,
     primaryRulePattern,
@@ -177,44 +185,35 @@ export function planCrossServiceStorageProbes(
       surface,
     );
     const peerNonMemberPath = peerPathInSameScope(site.path, isolatedPath, '-peer');
-    const peerAttack = buildCompliantUploadStep(
-      site,
-      sitePattern,
-      'peer',
-      peer,
-      peerNonMemberPath,
-      createConstraint,
-      hints,
-      {},
-      surface,
-    );
-    add({
-      kind: 'foreign-slot-write',
-      op: 'write',
-      service: 'storage',
-      template: site.path,
-      status: 'proven',
-      seed: ownerOnlySeeds,
-      setup: [ownerSetup],
-      attack: peerAttack,
-      expect: 'deny',
-      evidence: `non-member ${peer.uid} uploaded to cross-service guarded Storage path ${peerNonMemberPath} (${site.source})`,
-      sources: [site.source],
-    });
+    const uploadCandidates = distinctSynthesizableStorageArms(createSource, createConstraint);
+    for (const candidate of uploadCandidates) {
+      const peerAttack = buildCompliantUploadStep(
+        site,
+        sitePattern,
+        'peer',
+        peer,
+        peerNonMemberPath,
+        candidate.constraint,
+        hints,
+        {},
+        surface,
+        { useClientSiteMetadata: false },
+      );
+      add({
+        kind: 'foreign-slot-write',
+        op: 'write',
+        service: 'storage',
+        template: site.path,
+        status: 'proven',
+        seed: [...ownerOnlySeeds],
+        setup: [ownerSetup],
+        attack: peerAttack,
+        expect: 'deny',
+        evidence: `non-member ${peer.uid} uploaded to cross-service guarded Storage path ${peerNonMemberPath} (${site.source})`,
+        sources: [site.source],
+      });
+    }
   } else if (STORAGE_UPDATE_OPS.has(site.op)) {
-    const updateSeedConstraint = mergeSeedStorageConstraint(createConstraint, opConstraint);
-    const adminSeedObj = buildCompliantUploadStep(
-      site,
-      sitePattern,
-      'admin',
-      owner,
-      isolatedPath,
-      updateSeedConstraint,
-      hints,
-      {},
-      surface,
-      { useClientSiteMetadata: false },
-    );
     const ownerUpdateControl = buildCompliantUpdateStep(
       site,
       sitePattern,
@@ -225,29 +224,49 @@ export function planCrossServiceStorageProbes(
       hints,
       surface,
     );
-    const peerUpdateAttack = buildCompliantUpdateStep(
-      site,
-      sitePattern,
-      'peer',
-      peer,
-      isolatedPath,
-      opConstraint,
-      hints,
-      surface,
-    );
-    add({
-      kind: 'foreign-slot-write',
-      op: 'update',
-      service: 'storage',
-      template: site.path,
-      status: 'proven',
-      seed: [...ownerOnlySeeds, adminSeedObj],
-      setup: [ownerUpdateControl],
-      attack: peerUpdateAttack,
-      expect: 'deny',
-      evidence: `non-member ${peer.uid} updated metadata on cross-service guarded Storage path ${isolatedPath} (${site.source})`,
-      sources: [site.source],
-    });
+    const updateCandidates = distinctSynthesizableStorageArms(opSource, opConstraint);
+    for (const candidate of updateCandidates) {
+      const updateSeedConstraint = mergeSeedStorageConstraint(
+        createConstraint,
+        candidate.constraint,
+      );
+      const adminSeedObj = buildCompliantUploadStep(
+        site,
+        sitePattern,
+        'admin',
+        owner,
+        isolatedPath,
+        updateSeedConstraint,
+        hints,
+        {},
+        surface,
+        { useClientSiteMetadata: false, fallbackHttpHeaders: siblingHttpHeaders },
+      );
+      const peerUpdateAttack = buildCompliantUpdateStep(
+        site,
+        sitePattern,
+        'peer',
+        peer,
+        isolatedPath,
+        candidate.constraint,
+        hints,
+        surface,
+        { useClientSiteMetadata: false },
+      );
+      add({
+        kind: 'foreign-slot-write',
+        op: 'update',
+        service: 'storage',
+        template: site.path,
+        status: 'proven',
+        seed: [...ownerOnlySeeds, adminSeedObj],
+        setup: [ownerUpdateControl],
+        attack: peerUpdateAttack,
+        expect: 'deny',
+        evidence: `non-member ${peer.uid} updated metadata on cross-service guarded Storage path ${isolatedPath} (${site.source})`,
+        sources: [site.source],
+      });
+    }
   } else if (STORAGE_READ_OPS.has(site.op)) {
     let seedObjPath = isolatedPath;
     let readMethod: 'get' | 'list' = 'get';
@@ -267,7 +286,7 @@ export function planCrossServiceStorageProbes(
       hints,
       {},
       surface,
-      { useClientSiteMetadata: false },
+      { useClientSiteMetadata: false, fallbackHttpHeaders: siblingHttpHeaders },
     );
     const ownerReadControl = attachResourceId(
       { actor: 'owner', service: 'storage', method: readMethod, path: isolatedPath },

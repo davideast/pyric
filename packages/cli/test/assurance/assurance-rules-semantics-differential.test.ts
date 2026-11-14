@@ -8,7 +8,13 @@ import { doc, getFirestore, setDoc } from 'pyric/firestore';
 import { firestoreRules, storageRules as compileStorageRules } from 'pyric/rules';
 import { initializeSandbox } from 'pyric/sandbox';
 import { setRules } from 'pyric/sandbox/firestore';
-import { getStorageSandbox, ref as storageRef, uploadBytes, uploadString } from 'pyric/storage';
+import {
+  getStorageSandbox,
+  ref as storageRef,
+  updateMetadata,
+  uploadBytes,
+  uploadString,
+} from 'pyric/storage';
 import { getAdminStorageSandbox } from 'pyric/storage/internal';
 import {
   publishAssuranceVisualization,
@@ -390,5 +396,158 @@ export async function syncFiles(dynamicLang: string) {
     });
     unsubscribe();
     expect(snapshots).toHaveLength(1);
+  });
+
+  test('omitted HTTP defaults plus Family 4 and Family 5 disjunctive Storage arms agree with getStorageSandbox()', async () => {
+    const root = makeTempDir('pyric-asr-storage-f4-f5-');
+    mkdirSync(join(root, 'src'), { recursive: true });
+    writeFileSync(
+      join(root, 'firebase.json'),
+      JSON.stringify({
+        firestore: { rules: 'firestore.rules' },
+        storage: { rules: 'storage.rules' },
+      }),
+    );
+
+    const fsRules = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /orgs/{orgId}/members/{uid} {
+      allow read: if request.auth != null;
+    }
+  }
+}`;
+    const stRules = `rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /enc/{uid}/{name} {
+      allow read, write: if request.auth != null
+        && request.auth.uid == uid
+        && request.resource.contentEncoding == 'identity';
+    }
+    match /disp/{uid}/{name} {
+      allow read, write: if request.auth != null
+        && request.auth.uid == uid
+        && request.resource.contentDisposition.matches('inline.*');
+    }
+    match /nullencdyn/{uid}/{name} {
+      allow read, write: if request.auth != null
+        && request.auth.uid == uid
+        && request.resource.contentEncoding == null
+        && request.resource.contentLanguage == 'en';
+    }
+    match /uploads/{fileName} {
+      allow read: if request.auth != null;
+      allow create: if request.auth != null
+        && request.resource.contentType.matches('image/.*')
+        && request.resource.metadata.owner == request.auth.uid;
+      allow create: if request.auth != null
+        && request.resource.contentType == 'application/pdf';
+    }
+    match /shared/{fileName} {
+      allow read: if request.auth != null;
+      allow create: if request.auth != null
+        && request.resource.metadata.owner == request.auth.uid
+        && request.resource.cacheControl == 'public, max-age=3600';
+      allow update: if request.auth != null
+        && request.resource.cacheControl == 'no-cache';
+    }
+    match /orgs/{orgId}/files/{fileName} {
+      allow read: if request.auth != null
+        && firestore.exists(/databases/(default)/documents/orgs/$(orgId)/members/$(request.auth.uid));
+      allow write: if request.auth != null
+        && firestore.exists(/databases/(default)/documents/orgs/$(orgId)/members/$(request.auth.uid))
+        && request.resource.contentType.matches('image/.*');
+      allow write: if request.auth != null
+        && request.resource.contentType == 'application/pdf';
+    }
+    match /orgs/{orgId}/managed/{fileName} {
+      allow read: if request.auth != null
+        && firestore.exists(/databases/(default)/documents/orgs/$(orgId)/members/$(request.auth.uid));
+      allow create: if request.auth != null
+        && firestore.exists(/databases/(default)/documents/orgs/$(orgId)/members/$(request.auth.uid));
+      allow update: if request.auth != null
+        && firestore.exists(/databases/(default)/documents/orgs/$(orgId)/members/$(request.auth.uid))
+        && request.resource.cacheControl == 'public, max-age=600';
+      allow update: if request.auth != null
+        && request.resource.cacheControl == 'no-cache';
+    }
+  }
+}`;
+    writeFileSync(join(root, 'firestore.rules'), fsRules);
+    writeFileSync(join(root, 'storage.rules'), stRules);
+    writeFileSync(
+      join(root, 'src', 'f4f5.ts'),
+      `import { getAuth } from 'firebase/auth';
+import { getStorage, ref, updateMetadata, uploadBytes } from 'firebase/storage';
+export async function runClient(fileId: string, orgId: string, dynLang: string) {
+  const uid = getAuth().currentUser!.uid;
+  const st = getStorage();
+  await uploadBytes(ref(st, 'enc/' + uid + '/a.bin'), new Uint8Array([1]));
+  await uploadBytes(ref(st, 'disp/' + uid + '/doc.pdf'), new Uint8Array([1]), { contentType: 'application/pdf' });
+  await uploadBytes(ref(st, 'nullencdyn/' + uid + '/a.bin'), new Uint8Array([1]), { contentLanguage: dynLang });
+  await uploadBytes(ref(st, 'uploads/' + fileId), new Uint8Array([1]), {
+    contentType: 'image/png',
+    customMetadata: { owner: uid },
+  });
+  await uploadBytes(ref(st, 'shared/' + fileId), new Uint8Array([1]), {
+    cacheControl: 'public, max-age=3600',
+    customMetadata: { owner: uid },
+  });
+  await uploadBytes(ref(st, 'orgs/' + orgId + '/files/' + fileId), new Uint8Array([1]), {
+    contentType: 'image/png',
+  });
+  await updateMetadata(ref(st, 'orgs/' + orgId + '/managed/' + fileId), {
+    cacheControl: 'public, max-age=600',
+  });
+}
+`,
+    );
+
+    const sb = initializeSandbox();
+    await setDoc(doc(getFirestore(sb), 'orgs/org-1/members/u-alice'), { active: true });
+    setRules(sb, fsRules);
+    getAdminStorageSandbox(sb, { rules: stRules });
+    const aliceSt = getStorageSandbox(sb.withAuth({ uid: 'u-alice', token: {} }));
+    const bobSt = getStorageSandbox(sb.withAuth({ uid: 'u-bob', token: {} }));
+    await uploadBytes(storageRef(aliceSt, 'enc/u-alice/a.bin'), new Uint8Array([1]));
+    await uploadBytes(storageRef(aliceSt, 'disp/u-alice/doc.pdf'), new Uint8Array([1]), {
+      contentType: 'application/pdf',
+    });
+    await expect(
+      uploadBytes(storageRef(aliceSt, 'nullencdyn/u-alice/a.bin'), new Uint8Array([1]), {
+        contentLanguage: 'en',
+      }),
+    ).rejects.toThrow();
+    await uploadBytes(storageRef(bobSt, 'uploads/f1'), new Uint8Array([1]), {
+      contentType: 'application/pdf',
+      customMetadata: { owner: 'u-alice' },
+    });
+    await uploadBytes(storageRef(aliceSt, 'shared/f1'), new Uint8Array([1]), {
+      cacheControl: 'public, max-age=3600',
+      customMetadata: { owner: 'u-alice' },
+    });
+    await updateMetadata(storageRef(bobSt, 'shared/f1'), {
+      cacheControl: 'no-cache',
+      customMetadata: { owner: 'u-bob' },
+    });
+    await uploadBytes(storageRef(bobSt, 'orgs/org-1/files/f1'), new Uint8Array([1]), {
+      contentType: 'application/pdf',
+    });
+    await uploadBytes(storageRef(aliceSt, 'orgs/org-1/managed/f1'), new Uint8Array([1]));
+    await updateMetadata(storageRef(bobSt, 'orgs/org-1/managed/f1'), {
+      cacheControl: 'no-cache',
+    });
+
+    const derived = await deriveAssurance({ root, includeHeuristic: false });
+    const diagSummary = derived.diagnostics.map((d) => `${d.code}@${d.codeSite?.source}`);
+    expect(diagSummary).not.toContain('storage-http-metadata-mismatch@src/f4f5.ts:6');
+    expect(diagSummary).not.toContain('storage-http-metadata-mismatch@src/f4f5.ts:7');
+    expect(diagSummary).toContain('storage-http-metadata-mismatch@src/f4f5.ts:8');
+    expect(diagSummary).toContain('assurance-must-allow-denied@src/f4f5.ts:8');
+    expect(diagSummary).toContain('assurance-metadata-owner-forge@src/f4f5.ts:9');
+    expect(diagSummary).toContain('assurance-metadata-owner-forge@src/f4f5.ts:13');
+    expect(diagSummary).toContain('assurance-foreign-slot-write@src/f4f5.ts:17');
+    expect(diagSummary).toContain('assurance-foreign-slot-write@src/f4f5.ts:20');
   });
 });

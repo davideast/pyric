@@ -3,7 +3,11 @@
  * for Cloud Storage metadata constraint extraction.
  */
 import type { Expression } from '../../rules/internal/index.js';
-import type { StorageHttpHeaderKey } from '../code/types.js';
+import {
+  CLIENT_DEFAULT_CONTENT_ENCODING,
+  uploadContentDisposition,
+} from '../../storage/content-defaults.js';
+import type { AccessSite, StorageHttpHeaderKey } from '../code/types.js';
 import {
   isRequestMemberChain,
   resolveRuleExpr,
@@ -285,4 +289,122 @@ export function recordGetRequiredKey(
   if ((defVal === null || defVal === '') && requiresNonEmpty) {
     keys.add(getCall.key);
   }
+}
+
+const INLINE_DISP_PREFIX = "inline; filename*=utf-8''";
+const REGEX_CLASS_ESCAPE_RE = /[dDwWsSbBpP0-9xXuU]/;
+const REGEX_META_RE = /[.*+?()|[\]^${}]/;
+
+function stripPatternAnchors(pattern: string): string {
+  let s = pattern;
+  if (s.startsWith('^')) s = s.slice(1);
+  if (s.endsWith('$') && !s.endsWith('\\$')) s = s.slice(0, -1);
+  return s;
+}
+
+function unescapePureLiteral(raw: string): string | null {
+  let out = '';
+  for (let i = 0; i < raw.length; i += 1) {
+    const ch = raw[i]!;
+    if (ch === '\\') {
+      if (i + 1 >= raw.length) return null;
+      const next = raw[i + 1]!;
+      if (REGEX_CLASS_ESCAPE_RE.test(next)) return null;
+      out += next;
+      i += 1;
+      continue;
+    }
+    if (REGEX_META_RE.test(ch)) return null;
+    out += ch;
+  }
+  return out;
+}
+
+function isUniversalInlineDispositionPattern(pattern: string): boolean {
+  const s = stripPatternAnchors(pattern);
+  if (!s.endsWith('.*') || s.endsWith('\\.*')) return false;
+  const litPrefix = unescapePureLiteral(s.slice(0, -2));
+  if (litPrefix === null) return false;
+  return INLINE_DISP_PREFIX.startsWith(litPrefix);
+}
+
+function isImpossibleInlineDispositionPattern(pattern: string): boolean {
+  const s = stripPatternAnchors(pattern);
+  for (let i = 0; i < s.length; i += 1) {
+    if (s[i] === '\\') {
+      i += 1;
+      continue;
+    }
+    if (s[i] === '|') return false;
+  }
+  let lead = '';
+  for (let i = 0; i < s.length; ) {
+    const ch = s[i]!;
+    if (ch === '\\') {
+      if (i + 1 >= s.length) break;
+      const next = s[i + 1]!;
+      if (REGEX_CLASS_ESCAPE_RE.test(next)) break;
+      if (i + 2 < s.length && (s[i + 2] === '?' || s[i + 2] === '*' || s[i + 2] === '{')) {
+        break;
+      }
+      lead += next;
+      i += 2;
+      continue;
+    }
+    if (REGEX_META_RE.test(ch)) break;
+    if (i + 1 < s.length && (s[i + 1] === '?' || s[i + 1] === '*' || s[i + 1] === '{')) {
+      break;
+    }
+    lead += ch;
+    i += 1;
+  }
+  if (lead.length === 0) return false;
+  return !INLINE_DISP_PREFIX.startsWith(lead) && !lead.startsWith(INLINE_DISP_PREFIX);
+}
+
+export function classifyOmittedClientHttpHeader(
+  key: StorageHttpHeaderKey,
+  site: AccessSite,
+  isUpdate: boolean,
+  inNullSet: boolean,
+  conjuncts: readonly (readonly string[])[] | undefined,
+  matchesPattern: (value: string, pattern: string) => boolean,
+): 'satisfied' | 'mismatched' | 'unverified' {
+  if (inNullSet) {
+    if (key === 'contentEncoding') return 'mismatched';
+    if (isUpdate) return 'satisfied';
+    if (key === 'contentDisposition') return 'mismatched';
+    return 'satisfied';
+  }
+  if (!conjuncts || conjuncts.length === 0) return 'satisfied';
+  if (isUpdate) return 'satisfied';
+  if (key === 'cacheControl' || key === 'contentLanguage') return 'mismatched';
+  if (key === 'contentEncoding') {
+    const ok = conjuncts.every((disjuncts) =>
+      disjuncts.some((pat) => matchesPattern(CLIENT_DEFAULT_CONTENT_ENCODING, pat)),
+    );
+    if (ok) return 'satisfied';
+    return 'mismatched';
+  }
+  const trimmedPath = site.path.replace(/^\/+|\/+$/g, '');
+  const leaf = trimmedPath.split('/').pop() ?? '';
+  const hasConcreteLeaf =
+    site.resolution === 'resolved' && trimmedPath.length > 0 && !/\{[^}]*\}/.test(leaf);
+  if (hasConcreteLeaf) {
+    const defaultDisp = uploadContentDisposition(undefined, leaf);
+    const ok = conjuncts.every((disjuncts) =>
+      disjuncts.some((pat) => matchesPattern(defaultDisp, pat)),
+    );
+    if (ok) return 'satisfied';
+    return 'mismatched';
+  }
+  const allUniversal = conjuncts.every((disjuncts) =>
+    disjuncts.some((pat) => isUniversalInlineDispositionPattern(pat)),
+  );
+  if (allUniversal) return 'satisfied';
+  const anyImpossible = conjuncts.some((disjuncts) =>
+    disjuncts.every((pat) => isImpossibleInlineDispositionPattern(pat)),
+  );
+  if (anyImpossible) return 'mismatched';
+  return 'unverified';
 }

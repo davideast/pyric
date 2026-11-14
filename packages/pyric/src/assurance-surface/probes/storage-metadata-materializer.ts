@@ -25,6 +25,7 @@ import {
 import {
   compliantByteSize,
   contentTypeMatchesPattern,
+  STORAGE_UPDATE_OPS,
   STORAGE_UPLOAD_OPS,
   synthesizeMatchingContentType,
 } from './storage-step-builder.js';
@@ -374,6 +375,11 @@ export function peerPathInSameScope(
   return concreteSegs.join('/');
 }
 
+interface CompliantUpdateStepOptions {
+  readonly useClientSiteMetadata?: boolean;
+  readonly metadataOverrides?: Readonly<Record<string, string>>;
+}
+
 export function buildCompliantUpdateStep(
   site: AccessSite,
   sitePattern: ResourcePattern,
@@ -383,7 +389,11 @@ export function buildCompliantUpdateStep(
   constraint: StorageMetadataConstraint,
   hints: readonly ValueHint[],
   surface?: RuleSurface,
+  options?: CompliantUpdateStepOptions,
 ): ProbeStep {
+  const useClient = options?.useClientSiteMetadata ?? STORAGE_UPDATE_OPS.has(site.op);
+  let clientUpload: AccessSite['storageUpload'] | undefined;
+  if (useClient) clientUpload = site.storageUpload;
   const step: ProbeStep = {
     actor: actorRole,
     service: 'storage',
@@ -393,13 +403,13 @@ export function buildCompliantUpdateStep(
   if (
     constraint.contentTypePattern !== undefined
     || constraint.contentTypeConjuncts !== undefined
-    || site.storageUpload?.contentType !== undefined
+    || clientUpload?.contentType !== undefined
   ) {
     let contentType = synthesizeMatchingContentType(
       constraint.contentTypePattern,
       constraint.contentTypeConjuncts,
     );
-    const clientMime = site.storageUpload?.contentType;
+    const clientMime = clientUpload?.contentType;
     if (
       clientMime !== undefined
       && contentTypeMatchesPattern(
@@ -412,14 +422,14 @@ export function buildCompliantUpdateStep(
     }
     step.contentType = contentType;
   }
-  applyCompliantHttpMetadataToStep(step, constraint, site.storageUpload, undefined);
+  applyCompliantHttpMetadataToStep(step, constraint, clientUpload, undefined);
   const customMetadata = buildCompliantCustomMetadata(
     site,
     sitePattern,
     constraint,
     hints,
     actorObj,
-    {},
+    options?.metadataOverrides ?? {},
     surface,
   );
   if (customMetadata !== undefined) step.customMetadata = customMetadata;

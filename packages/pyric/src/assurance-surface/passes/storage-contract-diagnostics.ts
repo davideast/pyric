@@ -22,6 +22,7 @@ import type {
   RuleSurfaceEntry,
   StorageMetadataConstraintArm,
 } from '../rules/rule-surface.js';
+import { classifyOmittedClientHttpHeader } from '../rules/storage-constraint-ast.js';
 import { STORAGE_HTTP_HEADER_KEYS } from '../rules/storage-constraint-summary.js';
 
 function matchesCelRegex(value: string, rawPattern: string): boolean {
@@ -100,6 +101,7 @@ function evaluateHttpMetadata(
     return { entry, mismatchedHeaders: [], unverifiedHeaders: [] };
   }
   const up = site.storageUpload;
+  const isUpdate = site.op === 'updateMetadata';
   const mismatched: StorageHttpHeaderKey[] = [];
   const unverified: StorageHttpHeaderKey[] = [];
   const nullSet = new Set<StorageHttpHeaderKey>(arm.nullHttpHeaders ?? []);
@@ -110,12 +112,28 @@ function evaluateHttpMetadata(
       up?.httpMetadataUnresolvedFields?.includes(key)
         || (actual === undefined && up?.customMetadataOpen === true),
     );
+    const conjuncts = arm.httpHeaders?.[key];
     if (nullSet.has(key)) {
-      if (actual !== undefined) mismatched.push(key);
-      else if (isFieldUnresolved) unverified.push(key);
+      if (actual !== undefined) {
+        mismatched.push(key);
+      } else if (key === 'contentEncoding') {
+        mismatched.push(key);
+      } else if (isFieldUnresolved) {
+        unverified.push(key);
+      } else {
+        const omittedVerdict = classifyOmittedClientHttpHeader(
+          key,
+          site,
+          isUpdate,
+          true,
+          conjuncts,
+          matchesCelRegex,
+        );
+        if (omittedVerdict === 'mismatched') mismatched.push(key);
+        else if (omittedVerdict === 'unverified') unverified.push(key);
+      }
       continue;
     }
-    const conjuncts = arm.httpHeaders?.[key];
     if (!conjuncts || conjuncts.length === 0) continue;
     if (isFieldUnresolved) {
       unverified.push(key);
@@ -128,9 +146,16 @@ function evaluateHttpMetadata(
       if (!ok) mismatched.push(key);
       continue;
     }
-    if (site.op !== 'updateMetadata') {
-      mismatched.push(key);
-    }
+    const omittedVerdict = classifyOmittedClientHttpHeader(
+      key,
+      site,
+      isUpdate,
+      false,
+      conjuncts,
+      matchesCelRegex,
+    );
+    if (omittedVerdict === 'mismatched') mismatched.push(key);
+    else if (omittedVerdict === 'unverified') unverified.push(key);
   }
 
   return {

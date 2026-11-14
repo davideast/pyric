@@ -15,7 +15,7 @@ import type { PlanInput } from './plan.js';
 import { crossServiceLookupSeeds } from './prerequisites.js';
 import {
   distinctSynthesizableStorageArms,
-  mergeSeedStorageConstraint,
+  selectStorageConstraintForSite,
 } from './storage-constraint-arms.js';
 import {
   hasCompatibleSeededStorageObject,
@@ -23,7 +23,6 @@ import {
 } from './storage-cross-service-probes.js';
 import {
   attachResourceId,
-  buildCompliantCustomMetadata,
   buildCompliantUploadStep,
   isExactUidAuth,
   resolveStorageConcretePath,
@@ -31,6 +30,7 @@ import {
   storageBindingsAt,
 } from './storage-metadata-materializer.js';
 import { planMustAllowStorageProbe } from './storage-must-allow-probes.js';
+import { planOwnerForgeStorageProbes } from './storage-owner-forge-probes.js';
 import { discoverScopeMembershipLookups } from './storage-scope-lookup.js';
 import {
   STORAGE_DELETE_OPS,
@@ -38,7 +38,6 @@ import {
   STORAGE_UPLOAD_OPS,
   dedupeStorageSites,
   isProbeableStorageSite,
-  selectStorageConstraintForSite,
 } from './storage-step-builder.js';
 import type { Probe, ProbeStep } from './types.js';
 import { normalizeStorageBucketKey } from './world-storage.js';
@@ -378,138 +377,45 @@ export function planStorageProbes(
         (f) => metadataOwnerKeys.has(f.name) && isExactUidAuth(f.auth),
       );
       if (ruleUsesMetadataOwner || exactFieldAuth) metaStatus = 'proven';
-      const keyList = [...metadataOwnerKeys].join(', ');
-
-      if (STORAGE_UPLOAD_OPS.has(site.op)) {
-        const peerControlPath = resolveStorageConcretePath(
-          site,
-          peer,
-          peer,
-          owner.uid,
-          primaryRulePattern,
-          directLookups,
-          input.state,
-          '-peer-own',
-        );
-        const peerForgedPath = resolveStorageConcretePath(
-          site,
-          peer,
-          peer,
-          owner.uid,
-          primaryRulePattern,
-          directLookups,
-          input.state,
-          '-forged',
-        );
-        const peerControlStep = buildCompliantUploadStep(
-          site,
-          sitePattern,
-          'peer',
-          peer,
-          peerControlPath,
-          createConstraint,
-          hints,
-          {},
-          surface,
-        );
-        const forgedOverrides: Record<string, string> = {};
-        for (const k of metadataOwnerKeys) setStorageOwn(forgedOverrides, k, owner.uid);
-        const peerForgedStep = buildCompliantUploadStep(
-          site,
-          sitePattern,
-          'peer',
-          peer,
-          peerForgedPath,
-          createConstraint,
-          hints,
-          forgedOverrides,
-          surface,
-        );
-        add({
-          kind: 'metadata-owner-forge',
-          op: 'create',
-          service: 'storage',
-          template: site.path,
-          status: metaStatus,
-          seed: bothCrossSeeds,
-          setup: [peerControlStep],
-          attack: peerForgedStep,
-          expect: 'deny',
-          evidence: `${peer.uid} uploaded a Storage object forging customMetadata (${keyList} = ${owner.uid}) at ${peerForgedPath} (${site.source})`,
-          sources: [site.source],
-        });
-      }
 
       const hasSiblingUpdateSite = storageSites.some(
         (other) =>
           STORAGE_UPDATE_OPS.has(other.op)
           && resourceShapeKey(parseResourcePattern('storage', other.path, other.resourceId)) === shapeKey,
       );
-      const rulesAllowUpdate = allPathEntries.some(
-        (e) => e.ops.includes('update') || e.ops.includes('write'),
+      const updateMatched = matchingStorageSurfaceEntries(
+        surface,
+        sitePattern,
+        'updateMetadata',
+        defaultBucket,
       );
-      if (
-        STORAGE_UPDATE_OPS.has(site.op)
-        || (STORAGE_UPLOAD_OPS.has(site.op) && !hasSiblingUpdateSite && rulesAllowUpdate)
-      ) {
-        const ownerMetaOverrides: Record<string, string> = {};
-        for (const k of metadataOwnerKeys) setStorageOwn(ownerMetaOverrides, k, owner.uid);
-        const hijackSeedConstraint = mergeSeedStorageConstraint(createConstraint, opConstraint);
-        const reuseSeededForHijack = hasCompatibleSeededStorageObject(
-          input.state,
-          site.resourceId,
-          ownerPath,
-          owner.uid,
-          hijackSeedConstraint,
-          metadataOwnerKeys,
-        );
-        const hijackSeeds: ProbeStep[] = [...bothCrossSeeds];
-        if (!reuseSeededForHijack) {
-          hijackSeeds.push(
-            buildCompliantUploadStep(
-              site,
-              sitePattern,
-              'admin',
-              owner,
-              ownerPath,
-              hijackSeedConstraint,
-              hints,
-              ownerMetaOverrides,
-              surface,
-              { useClientSiteMetadata: false, fallbackHttpHeaders: siblingHttpHeaders },
-            ),
-          );
-        }
-        const hijackOverrides: Record<string, string> = {};
-        for (const k of metadataOwnerKeys) setStorageOwn(hijackOverrides, k, peer.uid);
-        const hijackMeta = buildCompliantCustomMetadata(
+      let updateSource: readonly RuleSurfaceEntry[] = allPathEntries;
+      if (updateMatched.length > 0) updateSource = updateMatched;
+
+      planOwnerForgeStorageProbes(
+        {
           site,
           sitePattern,
-          opConstraint,
-          hints,
+          owner,
           peer,
-          hijackOverrides,
+          ownerPath,
+          bothCrossSeeds,
+          createSource,
+          createConstraint,
+          updateSource,
+          allPathEntries,
+          hasSiblingUpdateSite,
+          metadataOwnerKeys,
+          metaStatus,
+          primaryRulePattern,
+          directLookups,
+          siblingHttpHeaders,
+          hints,
           surface,
-        );
-        const peerHijackStep: ProbeStep = attachResourceId(
-          { actor: 'peer', service: 'storage', method: 'update', path: ownerPath },
-          site.resourceId,
-        );
-        if (hijackMeta !== undefined) peerHijackStep.customMetadata = hijackMeta;
-        add({
-          kind: 'metadata-owner-forge',
-          op: 'update',
-          service: 'storage',
-          template: site.path,
-          status: metaStatus,
-          seed: hijackSeeds,
-          setup: [],
-          attack: peerHijackStep,
-          expect: 'deny',
-          evidence: `${peer.uid} overwrote customMetadata (${keyList} = ${peer.uid}) on ${owner.uid}'s Storage object at ${ownerPath} (${site.source})`,
-          sources: [site.source],
-        });
-      }
+          state: input.state,
+        },
+        add,
+      );
     }
 
     if (membershipLookups.length > 0 && uidVars.length === 0) {
@@ -519,8 +425,11 @@ export function planStorageProbes(
           site,
           sitePattern,
           ownerPath,
+          createSource,
           createConstraint,
+          opSource,
           opConstraint,
+          siblingHttpHeaders,
           directLookups,
           membershipLookups,
           primaryRulePattern,

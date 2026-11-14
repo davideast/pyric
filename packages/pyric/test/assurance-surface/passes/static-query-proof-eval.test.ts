@@ -1,4 +1,7 @@
 import { describe, expect, it } from 'bun:test';
+import { collection, doc, getDocs, getFirestore, query, setDoc, where } from 'pyric/firestore';
+import { initializeSandbox } from 'pyric/sandbox';
+import { setRules } from 'pyric/sandbox/firestore';
 import { extractSdkUsage } from '../../../src/assurance-surface/code/usage-index.js';
 import { concretizeQueryTarget } from '../../../src/assurance-surface/passes/static-query-proof-args.js';
 import { evaluateCandidateArm } from '../../../src/assurance-surface/passes/static-query-proof-eval.js';
@@ -471,5 +474,92 @@ service cloud.firestore {
     expect(evalIdx(4)?.certainty).toBe('heuristic');
     expect(evalIdx(5)?.certainty).toBe('heuristic');
     expect(evalIdx(6)?.certainty).toBe('static-proof');
+  });
+
+  it('distinguishes == / != with boolean literals on non-boolean branches (null, strings) from runtime errors, matching Sandbox', async () => {
+    const source = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function banFlag() {
+      return exists(/databases/$(database)/documents/members/$(request.auth.uid)) ? null : true;
+    }
+    function statusLabel() {
+      return exists(/databases/$(database)/documents/members/$(request.auth.uid)) ? 'ok' : true;
+    }
+    function alwaysTrueFlag() {
+      return exists(/databases/$(database)/documents/members/$(request.auth.uid)) ? true : true;
+    }
+    match /nullNeqTrue/{id} {
+      allow list: if request.auth != null
+        && request.auth.uid == resource.data.ownerId
+        && banFlag() != true;
+    }
+    match /strNotEqTrue/{id} {
+      allow list: if request.auth != null
+        && request.auth.uid == resource.data.ownerId
+        && !(statusLabel() == true);
+    }
+    match /alwaysTrueNeqTrue/{id} {
+      allow list: if request.auth != null
+        && request.auth.uid == resource.data.ownerId
+        && alwaysTrueFlag() != true;
+    }
+    match /errNeqTrue/{id} {
+      allow list: if (request.query.limit <= get(/databases/$(database)/documents/cfg/c1).data.max) != true;
+    }
+  }
+}`;
+
+    const sb = initializeSandbox();
+    const adminDb = getFirestore(sb);
+    await setDoc(doc(adminDb, 'members/u-alice'), { active: true });
+    await setDoc(doc(adminDb, 'cfg/c1'), { max: 50 });
+    await setDoc(doc(adminDb, 'nullNeqTrue/d1'), { ownerId: 'u-alice' });
+    await setDoc(doc(adminDb, 'strNotEqTrue/d1'), { ownerId: 'u-alice' });
+    await setDoc(doc(adminDb, 'alwaysTrueNeqTrue/d1'), { ownerId: 'u-alice' });
+    await setDoc(doc(adminDb, 'errNeqTrue/d1'), { ownerId: 'u-alice' });
+    setRules(sb, source);
+
+    const aliceDb = getFirestore(sb.withAuth({ uid: 'u-alice', token: {} }));
+    const allowedNull = await getDocs(
+      query(collection(aliceDb, 'nullNeqTrue'), where('ownerId', '==', 'u-alice')),
+    );
+    expect(allowedNull.size).toBe(1);
+    const allowedStr = await getDocs(
+      query(collection(aliceDb, 'strNotEqTrue'), where('ownerId', '==', 'u-alice')),
+    );
+    expect(allowedStr.size).toBe(1);
+    await expect(
+      getDocs(query(collection(aliceDb, 'alwaysTrueNeqTrue'), where('ownerId', '==', 'u-alice'))),
+    ).rejects.toThrow();
+    await expect(getDocs(collection(aliceDb, 'errNeqTrue'))).rejects.toThrow();
+
+    const usage = extractSdkUsage({
+      root: '/app',
+      files: {
+        'src/bool-eq.ts': `
+          import { getAuth } from 'firebase/auth';
+          import { collection, getDocs, getFirestore, query, where } from 'firebase/firestore';
+          export async function run() {
+            const uid = getAuth().currentUser!.uid;
+            const db = getFirestore();
+            await getDocs(query(collection(db, 'nullNeqTrue'), where('ownerId', '==', uid)));
+            await getDocs(query(collection(db, 'strNotEqTrue'), where('ownerId', '==', uid)));
+            await getDocs(query(collection(db, 'alwaysTrueNeqTrue'), where('ownerId', '==', uid)));
+            await getDocs(collection(db, 'errNeqTrue'));
+          }
+        `,
+      },
+      includeReads: true,
+    });
+
+    const diags = staticQueryProofPass(usage, { rules: { '(default)': source } });
+    const staticProofLines = diags
+      .filter((d) => d.certainty === 'static-proof')
+      .map((d) => d.codeSite?.source);
+    expect(staticProofLines).toEqual([
+      'src/bool-eq.ts:10',
+      'src/bool-eq.ts:9',
+    ]);
   });
 });

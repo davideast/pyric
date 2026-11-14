@@ -7,6 +7,7 @@ import type {
   RuleSurfaceEntry,
   StorageMetadataConstraint,
 } from '../rules/rule-surface.js';
+import { classifyOmittedClientHttpHeader } from '../rules/storage-constraint-ast.js';
 import {
   mergeConjunctLists,
   STORAGE_HTTP_HEADER_KEYS,
@@ -215,6 +216,7 @@ function isArmSynthesizable(arm: StorageMetadataConstraint): boolean {
     return false;
   }
   const nullSet = new Set<StorageHttpHeaderKey>(arm.nullHttpHeaders ?? []);
+  if (nullSet.has('contentEncoding')) return false;
   for (const key of STORAGE_HTTP_HEADER_KEYS) {
     const conjuncts = arm.httpHeaders?.[key];
     if (!conjuncts || conjuncts.length === 0) continue;
@@ -234,6 +236,8 @@ function siteStaticHttpCompatibleWithArm(
   const up = site.storageUpload;
   const isUpdate = STORAGE_UPDATE_OPS.has(site.op);
   const nullSet = new Set<StorageHttpHeaderKey>(arm.nullHttpHeaders ?? []);
+  const matchesStoragePat = (val: string, pat: string): boolean =>
+    safeMatchesStorageRegex(pat, val) === true;
 
   for (const key of STORAGE_HTTP_HEADER_KEYS) {
     const actual = up?.[key];
@@ -241,18 +245,36 @@ function siteStaticHttpCompatibleWithArm(
       up?.httpMetadataUnresolvedFields?.includes(key)
         || (actual === undefined && (up?.customMetadataOpen === true || up?.customMetadataUnresolved === true)),
     );
+    const conjuncts = arm.httpHeaders?.[key];
     if (nullSet.has(key)) {
-      if (actual !== undefined) return false;
+      if (actual !== undefined || key === 'contentEncoding') return false;
+      if (isFieldUnresolved) continue;
+      const omittedVerdict = classifyOmittedClientHttpHeader(
+        key,
+        site,
+        isUpdate,
+        true,
+        conjuncts,
+        matchesStoragePat,
+      );
+      if (omittedVerdict === 'mismatched') return false;
       continue;
     }
-    const conjuncts = arm.httpHeaders?.[key];
     if (!conjuncts || conjuncts.length === 0) continue;
     if (isFieldUnresolved) continue;
     if (actual !== undefined) {
       if (!httpHeaderMatchesConjuncts(actual, conjuncts)) return false;
       continue;
     }
-    if (!isUpdate) return false;
+    const omittedVerdict = classifyOmittedClientHttpHeader(
+      key,
+      site,
+      isUpdate,
+      false,
+      conjuncts,
+      matchesStoragePat,
+    );
+    if (omittedVerdict === 'mismatched') return false;
   }
   return true;
 }

@@ -3,6 +3,7 @@
  * download, list, metadata update, and delete operations.
  */
 import type { AccessSite, StorageHttpHeaderKey } from '../code/types.js';
+import { uploadContentDisposition } from '../../storage/content-defaults.js';
 import type { ResourcePattern } from '../../sandbox/internal/resource-pattern.js';
 import type {
   RuleSurface,
@@ -12,6 +13,7 @@ import type {
 import type { ValueHint } from '../rules/value-hints.js';
 import { uidFields } from './fixtures.js';
 import {
+  httpHeaderMatchesConjuncts,
   mergeSeedStorageConstraint,
   siteHasStaticHttpHeaderViolation,
   synthesizeMatchingHttpHeader,
@@ -165,6 +167,17 @@ export function planMustAllowStorageProbe(
     ) {
       mustAllowUpload.inconclusiveOnDeny =
         'client upload size is supplied at runtime and could not be synthesized for rule bounds';
+    } else if (
+      !staticHttpViolated
+      && site.storageUpload?.contentDisposition === undefined
+      && opConstraint.httpHeaders?.contentDisposition !== undefined
+      && !httpHeaderMatchesConjuncts(
+        uploadContentDisposition(undefined, ownerPath),
+        opConstraint.httpHeaders.contentDisposition,
+      )
+    ) {
+      mustAllowUpload.inconclusiveOnDeny =
+        'client upload contentDisposition depends on runtime object filename';
     }
     add(mustAllowUpload);
     return;

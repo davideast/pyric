@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import 'fake-indexeddb/auto';
 import { extractAccessSites } from '../../../src/assurance-surface/code/extractor.js';
 import { runProbes } from '../../../src/assurance-surface/probes/run-probes.js';
+import { mergedStorageConstraint } from '../../../src/assurance-surface/probes/storage-constraint-arms.js';
 import {
   buildCompliantCustomMetadata,
   storageBindingsAt,
@@ -9,7 +10,6 @@ import {
 import {
   compliantByteSize,
   isProbeableStorageSite,
-  mergedStorageConstraint,
   storageOpCategory,
   synthesizeMatchingContentType,
 } from '../../../src/assurance-surface/probes/storage-step-builder.js';

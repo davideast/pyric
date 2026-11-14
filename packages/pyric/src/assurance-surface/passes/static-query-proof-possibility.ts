@@ -36,18 +36,21 @@ import {
 interface TruthPossibility {
   readonly canBeTrue: boolean;
   readonly canBeFalse: boolean;
+  readonly canBeNonBoolean: boolean;
   readonly canError: boolean;
 }
 
 const UNKNOWN_POSSIBILITY: TruthPossibility = {
   canBeTrue: true,
   canBeFalse: true,
+  canBeNonBoolean: true,
   canError: true,
 };
 
 const IMPOSSIBLE: TruthPossibility = {
   canBeTrue: false,
   canBeFalse: false,
+  canBeNonBoolean: false,
   canError: false,
 };
 
@@ -57,6 +60,44 @@ function negatePossibility(inner: TruthPossibility): TruthPossibility {
   return {
     canBeTrue: inner.canBeFalse,
     canBeFalse: inner.canBeTrue,
+    canBeNonBoolean: false,
+    canError: inner.canError || inner.canBeNonBoolean,
+  };
+}
+
+function compareBooleanLiteralPossibility(
+  inner: TruthPossibility,
+  op: '==' | '!=',
+  boolLit: boolean,
+): TruthPossibility {
+  if (op === '==') {
+    if (boolLit) {
+      return {
+        canBeTrue: inner.canBeTrue,
+        canBeFalse: inner.canBeFalse || inner.canBeNonBoolean,
+        canBeNonBoolean: false,
+        canError: inner.canError,
+      };
+    }
+    return {
+      canBeTrue: inner.canBeFalse,
+      canBeFalse: inner.canBeTrue || inner.canBeNonBoolean,
+      canBeNonBoolean: false,
+      canError: inner.canError,
+    };
+  }
+  if (boolLit) {
+    return {
+      canBeTrue: inner.canBeFalse || inner.canBeNonBoolean,
+      canBeFalse: inner.canBeTrue,
+      canBeNonBoolean: false,
+      canError: inner.canError,
+    };
+  }
+  return {
+    canBeTrue: inner.canBeTrue || inner.canBeNonBoolean,
+    canBeFalse: inner.canBeFalse,
+    canBeNonBoolean: false,
     canError: inner.canError,
   };
 }
@@ -185,26 +226,32 @@ function buildSingleConditionAst(
 }
 
 function combineAnd(left: TruthPossibility, right: TruthPossibility): TruthPossibility {
-  const leftAny = left.canBeTrue || left.canBeFalse || left.canError;
-  const rightAny = right.canBeTrue || right.canBeFalse || right.canError;
+  const leftErr = left.canError || left.canBeNonBoolean;
+  const rightErr = right.canError || right.canBeNonBoolean;
+  const leftAny = left.canBeTrue || left.canBeFalse || leftErr;
+  const rightAny = right.canBeTrue || right.canBeFalse || rightErr;
   return {
     canBeTrue: left.canBeTrue && right.canBeTrue,
     canBeFalse: (left.canBeFalse && rightAny) || (right.canBeFalse && leftAny),
+    canBeNonBoolean: false,
     canError:
-      (left.canError && (right.canBeTrue || right.canError))
-      || (right.canError && (left.canBeTrue || left.canError)),
+      (leftErr && (right.canBeTrue || rightErr))
+      || (rightErr && (left.canBeTrue || leftErr)),
   };
 }
 
 function combineOr(left: TruthPossibility, right: TruthPossibility): TruthPossibility {
-  const leftAny = left.canBeTrue || left.canBeFalse || left.canError;
-  const rightAny = right.canBeTrue || right.canBeFalse || right.canError;
+  const leftErr = left.canError || left.canBeNonBoolean;
+  const rightErr = right.canError || right.canBeNonBoolean;
+  const leftAny = left.canBeTrue || left.canBeFalse || leftErr;
+  const rightAny = right.canBeTrue || right.canBeFalse || rightErr;
   return {
     canBeTrue: (left.canBeTrue && rightAny) || (right.canBeTrue && leftAny),
     canBeFalse: left.canBeFalse && right.canBeFalse,
+    canBeNonBoolean: false,
     canError:
-      (left.canError && (right.canBeFalse || right.canError))
-      || (right.canError && (left.canBeFalse || left.canError)),
+      (leftErr && (right.canBeFalse || rightErr))
+      || (rightErr && (left.canBeFalse || leftErr)),
   };
 }
 
@@ -232,8 +279,9 @@ export function canRetainedRulesPossiblyAllow(
     const matchWildcardNames = new Set(Object.getOwnPropertyNames(match.pathVariables));
 
     for (const candidateAuth of candidateAuths) {
-      const checkLiteralEquality = (
+      const checkLiteralComparison = (
         sub: Expression,
+        op: '==' | '!=',
         expected: boolean | null,
         raw: string,
       ): boolean => {
@@ -241,7 +289,7 @@ export function canRetainedRulesPossiblyAllow(
           operations: ['list'],
           condition: {
             type: 'binaryOp',
-            op: '==',
+            op,
             left: sub,
             right: { type: 'literal', value: expected, raw },
           },
@@ -258,14 +306,17 @@ export function canRetainedRulesPossiblyAllow(
         ).allowed;
       };
 
-      const evalConcreteBooleanSubtree = (sub: Expression): TruthPossibility => {
-        if (checkLiteralEquality(sub, true, 'true')) {
-          return { canBeTrue: true, canBeFalse: false, canError: false };
+      const evalConcreteSubtree = (sub: Expression): TruthPossibility => {
+        if (checkLiteralComparison(sub, '==', true, 'true')) {
+          return { canBeTrue: true, canBeFalse: false, canBeNonBoolean: false, canError: false };
         }
-        if (checkLiteralEquality(sub, false, 'false')) {
-          return { canBeTrue: false, canBeFalse: true, canError: false };
+        if (checkLiteralComparison(sub, '==', false, 'false')) {
+          return { canBeTrue: false, canBeFalse: true, canBeNonBoolean: false, canError: false };
         }
-        return { canBeTrue: false, canBeFalse: false, canError: true };
+        if (checkLiteralComparison(sub, '!=', true, 'true')) {
+          return { canBeTrue: false, canBeFalse: false, canBeNonBoolean: true, canError: false };
+        }
+        return { canBeTrue: false, canBeFalse: false, canBeNonBoolean: false, canError: true };
       };
 
       const isConcreteNonOrderable = (sub: Expression): boolean => {
@@ -281,9 +332,9 @@ export function canRetainedRulesPossiblyAllow(
           return false;
         }
         return (
-          checkLiteralEquality(sub, null, 'null')
-          || checkLiteralEquality(sub, true, 'true')
-          || checkLiteralEquality(sub, false, 'false')
+          checkLiteralComparison(sub, '==', null, 'null')
+          || checkLiteralComparison(sub, '==', true, 'true')
+          || checkLiteralComparison(sub, '==', false, 'false')
         );
       };
 
@@ -298,7 +349,7 @@ export function canRetainedRulesPossiblyAllow(
             populatedClaims,
           )
         ) {
-          return evalConcreteBooleanSubtree(sub);
+          return evalConcreteSubtree(sub);
         }
 
         if (sub.type === 'functionCall' && scope.functions.has(sub.name)) {
@@ -341,17 +392,18 @@ export function canRetainedRulesPossiblyAllow(
               other = sub.left;
             }
             if (boolLit !== undefined && other !== undefined) {
-              const inner = evalPossibility(other, depth + 1);
-              const inverts = (sub.op === '==' && !boolLit) || (sub.op === '!=' && boolLit);
-              if (inverts) return negatePossibility(inner);
-              return inner;
+              return compareBooleanLiteralPossibility(
+                evalPossibility(other, depth + 1),
+                sub.op,
+                boolLit,
+              );
             }
           }
           if (
             ORDERED_OPS.has(sub.op)
             && (isConcreteNonOrderable(sub.left) || isConcreteNonOrderable(sub.right))
           ) {
-            return { canBeTrue: false, canBeFalse: false, canError: true };
+            return { canBeTrue: false, canBeFalse: false, canBeNonBoolean: false, canError: true };
           }
         }
         if (sub.type === 'ternary') {
@@ -363,7 +415,12 @@ export function canRetainedRulesPossiblyAllow(
           return {
             canBeTrue: cons.canBeTrue || alt.canBeTrue,
             canBeFalse: cons.canBeFalse || alt.canBeFalse,
-            canError: cond.canError || cons.canError || alt.canError,
+            canBeNonBoolean: cons.canBeNonBoolean || alt.canBeNonBoolean,
+            canError:
+              cond.canError
+              || cond.canBeNonBoolean
+              || cons.canError
+              || alt.canError,
           };
         }
         return UNKNOWN_POSSIBILITY;
