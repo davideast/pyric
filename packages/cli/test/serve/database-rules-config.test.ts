@@ -227,10 +227,26 @@ describe('firebase.json database: deploy targets', () => {
 
   test('target wins over instance in the same entry', () => {
     const dir = project(rc);
-    const { targets } = databaseRulesTargets(dir, config([
+    const resolved = databaseRulesTargets(dir, config([
       { target: 'solo', instance: 'ignored', rules: 'first.rules.json' },
     ]), { projectId: 'demo' });
-    expect(targets.map((target) => target.instance)).toEqual(['solo-db']);
+    expect(resolved.targets.map((target) => target.instance)).toEqual(['solo-db']);
+    expect(resolved.defaultInstance).toBe('demo-default-rtdb');
+  });
+
+  test('keeps <projectId>-default-rtdb as defaultInstance for a sole .firebaserc deploy target entry or multi-entry array', async () => {
+    const dir = project(rc);
+    const fromTarget = await loadProjectDatabaseRules(dir, config([
+      { target: 'solo', rules: 'first.rules.json' },
+    ]), { projectId: 'demo' });
+    expect(fromTarget.defaultInstance).toBe('demo-default-rtdb');
+    expect(fromTarget.instances.get('solo-db')?.rules).toEqual(FIRST_RULES);
+
+    const fromPartialArray = databaseRulesTargets(dir, config([
+      { instance: 'first-instance', rules: 'first.rules.json' },
+      { instance: 'no-rules' },
+    ]), { projectId: 'demo' });
+    expect(fromPartialArray.defaultInstance).toBe('demo-default-rtdb');
   });
 
   test('a target the project does not map starts unresolved, keeping every project mapping for later', async () => {

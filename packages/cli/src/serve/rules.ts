@@ -26,10 +26,8 @@ import { parseStorageRules } from 'pyric/storage';
 import { compileStorageRules } from 'pyric/storage/internal';
 import { readFirebaseRcSync, type FirebaseJson, type FirebaseRc } from '../cli/firebase-json.js';
 import {
-  describeFirebaseProject,
-  FIREBASE_PROJECT_FIXES,
-  FIREBASE_PROJECT_SOURCES_TRIED,
-  type FirebaseProjectResolution,
+  describeFirebaseProject, FIREBASE_PROJECT_FIXES,
+  FIREBASE_PROJECT_SOURCES_TRIED, type FirebaseProjectResolution,
 } from '../cli/firebase-project.js';
 import { rtdbRulesSourceRejection } from 'pyric/rules/internal/rtdb';
 import type { RtdbRulesJson } from './init-payload.js';
@@ -675,14 +673,9 @@ export function databaseRulesTargets(
     throw new Error(`pyric sandbox: ${error instanceof Error ? error.message : String(error)}`);
   }
   let defaultInstance = resolved.defaultInstance;
-  if (
-    projectId !== undefined &&
-    Array.isArray(config?.database) &&
-    resolved.targets.length === 1 &&
-    resolved.unresolved.length === 0
-  ) {
-    defaultInstance = resolved.targets[0]!.instance;
-  }
+  const usesSoleDirectInstance =
+    projectId !== undefined && hasSoleDirectDatabaseInstance(config?.database) && resolved.targets.length === 1 && resolved.unresolved.length === 0;
+  if (usesSoleDirectInstance) defaultInstance = resolved.targets[0]!.instance;
   return {
     defaultInstance,
     ...(projectId === undefined ? {} : { projectId }),
@@ -697,6 +690,12 @@ export function databaseRulesTargets(
         : `project ${describeFirebaseProject(project)} has no .firebaserc mapping for it (firebase target:apply database ${target.target} <instance>)`,
     })),
   };
+}
+
+function hasSoleDirectDatabaseInstance(database: unknown): boolean {
+  if (!Array.isArray(database) || database.length !== 1 || database[0] === null || typeof database[0] !== 'object') return false;
+  const entry = database[0] as { instance?: unknown; target?: unknown };
+  return (typeof entry.target !== 'string' || entry.target === '') && typeof entry.instance === 'string' && entry.instance !== '';
 }
 
 /** The instance names `.firebaserc` maps `target` to, for each project that maps it. */
