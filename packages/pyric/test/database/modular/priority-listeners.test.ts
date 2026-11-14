@@ -84,13 +84,19 @@ describe('child_moved follows the indexed value', () => {
     expect(moved).toEqual(['a']);
   });
 
-  it('fires when an object child field changes under orderByChild without changing rank', async () => {
+  it('does not fire when an object-valued orderByChild subtree changes while remaining an object, but fires when a scalar orderByChild field changes without changing rank', async () => {
     const db = setup();
-    const moved: string[] = [];
-    onChildMoved(query(ref(db, 'items'), orderByChild('n')), (snapshot) => moved.push(snapshot.key!));
+    const objMoved: string[] = [];
+    onChildMoved(query(ref(db, 'items'), orderByChild('n')), (snapshot) => objMoved.push(snapshot.key!));
     await set(ref(db, 'items/a'), { n: { v: 1 } });
     await set(ref(db, 'items/a'), { n: { v: 2 } });
-    expect(moved).toEqual(['a']);
+    expect(objMoved).toEqual([]);
+
+    await set(ref(db, 'scalarItems'), { a: { n: 10 }, b: { n: 20 } });
+    const scalarMoved: string[] = [];
+    onChildMoved(query(ref(db, 'scalarItems'), orderByChild('n')), (snapshot) => scalarMoved.push(snapshot.key!));
+    await set(ref(db, 'scalarItems/b'), { n: 25 });
+    expect(scalarMoved).toEqual(['b']);
   });
 
   it('does not fire on a plain reference when only a descendant\'s priority changes', async () => {

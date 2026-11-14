@@ -202,8 +202,7 @@ export function deleteApp(app: PyricAdminApp): Promise<void> {
   assertAdminAppActive(app);
   const existing = getApp(app.name);
   appRegistry.delete(existing.name);
-  markAdminAppDeleted(existing);
-  return Promise.resolve();
+  return markAdminAppDeleted(existing);
 }
 
 function initializeAmbientApp(name: string, options: AdminAppOptions): PyricAdminApp {

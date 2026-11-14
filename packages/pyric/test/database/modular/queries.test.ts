@@ -17,6 +17,7 @@ import {
   update,
   push,
   get,
+  off,
   onValue,
   query,
   orderByChild,
@@ -407,6 +408,35 @@ describe('listenerCount + query integration (no leaks)', () => {
     void set(ref(db, 'list/a'), { pos: 1 });
     // No additional fires.
     expect(fires).toBe(1);
+  });
+
+  it('off(query(ref, orderByPriority()), ...) treats default priority scope as a path-wide query wildcard like ref', async () => {
+    const { db } = setup();
+    const base = ref(db, 'items');
+    await set(base, { a: { rank: 1 }, b: { rank: 2 } });
+
+    let limitedFires = 0;
+    let keyedFires = 0;
+    const cbLimited = () => {
+      limitedFires += 1;
+    };
+    const cbKeyed = () => {
+      keyedFires += 1;
+    };
+
+    onValue(query(base, orderByChild('rank'), limitToFirst(1)), cbLimited);
+    onValue(query(base, orderByKey()), cbKeyed);
+    expect([limitedFires, keyedFires]).toEqual([1, 1]);
+
+    // Default-scope orderByPriority() with callback detaches the matching callback on constrained views.
+    off(query(base, orderByPriority()), 'value', cbLimited);
+    await set(ref(db, 'items/a'), { rank: 0 });
+    expect([limitedFires, keyedFires]).toEqual([1, 2]);
+
+    // Default-scope orderByPriority() without callback detaches remaining query views at the path.
+    off(query(base, orderByPriority()), 'value');
+    await set(ref(db, 'items/b'), { rank: 3 });
+    expect([limitedFires, keyedFires]).toEqual([1, 2]);
   });
 });
 

@@ -179,7 +179,7 @@ describe("pyric-admin/database — on('value') and off() parity", () => {
       expect(hits.some((h) => h.startsWith('B:t1,t2'))).toBe(true);
       expect(hits.some((h) => h.startsWith('A:t2,t3'))).toBe(true);
 
-      // Overload 3: off('value', callback) (no context) — detaches context-bound + context-less cb on qFirst only.
+      // Overload 3: off('value', callback) (no context) — detaches only the context-less registration on qFirst.
       qFirst.on('value', shared);
       const otherFirstHits: number[] = [];
       const otherCb = (): void => {
@@ -194,9 +194,10 @@ describe("pyric-admin/database — on('value') and off() parity", () => {
       await base.child('t1').update({ rank: -1 });
       await base.child('t3').update({ rank: 5 });
       await tick();
-      // Neither ctxB nor context-less `shared` on qFirst fired, while `otherCb` on qFirst and `shared` on qLast still fired!
-      expect(hits.every((h) => h.startsWith('A:t2,t3'))).toBe(true);
-      expect(hits.length).toBeGreaterThan(0);
+      // Context-less `shared` on qFirst did NOT fire, while `ctxB` + `otherCb` on qFirst and `ctxA` on qLast still fired!
+      expect(hits.filter((h) => h.startsWith('none:'))).toEqual([]);
+      expect(hits.some((h) => h.startsWith('B:t1,t2'))).toBe(true);
+      expect(hits.some((h) => h.startsWith('A:t2,t3'))).toBe(true);
       expect(otherFirstHits.length).toBeGreaterThan(0);
 
       // Overload 2: q.off('value') (via constraint-order-equivalent query) detaches qFirst only, leaving qLast and base active!

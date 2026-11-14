@@ -361,7 +361,9 @@ describe('pyric-admin/database — queries and one-shot reads parity', () => {
       expect(qA.isEqual(qB)).toBe(true);
       expect(qA.isEqual(base.orderByChild('step').startAt(1).endAt(3).limitToLast(2))).toBe(false);
       expect(base.isEqual(base.orderByKey())).toBe(false);
-      expect(base.isEqual(base.orderByPriority())).toBe(false);
+      expect(base.isEqual(base.orderByValue())).toBe(false);
+      // Default ordering is priority ordering (`PRIORITY_INDEX`), so `ref.orderByPriority()` shares `'default'` queryIdentifier.
+      expect(base.isEqual(base.orderByPriority())).toBe(true);
       expect(base.isEqual(db.ref('other'))).toBe(false);
       expect(base.isEqual(null)).toBe(false);
 

@@ -27,6 +27,7 @@ import {
   type QueryRow,
   type QuerySpec,
 } from 'pyric/database/internal';
+import type { AdminServiceLifecycle } from '../app/lifecycle.js';
 import {
   assertValidEventType,
   isChildEventType,
@@ -71,6 +72,7 @@ export interface LocalListenBackend {
 export interface LocalListenTarget {
   readonly adminDb: ModularDatabase;
   readonly backend: LocalListenBackend;
+  readonly lifecycle?: AdminServiceLifecycle;
   readonly listeners: AdminListenerTable;
   readonly canonical: string;
   readonly refAt: (path: string) => Reference;
@@ -366,6 +368,7 @@ export function onceLocalListener(
     };
 
     try {
+      target.lifecycle?.assertActive();
       const attachedUnsub = attachRawLocalSubscription(
         target,
         segs,
@@ -410,6 +413,7 @@ export function attachLocalListener(
     cancelCallbackOrContext,
     context,
   );
+  target.lifecycle?.assertActive();
   const normalizedContext = boundContext ?? undefined;
   const segs = pathSegments(target.canonical);
 
@@ -450,10 +454,16 @@ export function attachLocalListener(
         }
       },
     );
-    const shouldRetain = entry.active && !erroredSynchronously;
+    const shouldRetain = entry.active && !erroredSynchronously && target.lifecycle?.isDeleted !== true;
     if (shouldRetain) {
-      unsub = attachedUnsub;
+      if (target.lifecycle !== undefined) {
+        unsub = target.lifecycle.trackSubscription(attachedUnsub);
+      } else {
+        unsub = attachedUnsub;
+      }
     } else {
+      entry.active = false;
+      target.listeners.detachExact(entry);
       attachedUnsub();
     }
   } catch (err) {
@@ -481,12 +491,11 @@ export function detachLocalListener(
   validateCallbackArg('Query.off', 'callback', callback, true);
   validateContextArg('Query.off', 'context', context);
   const normalizedCallback = callback ?? undefined;
-  const normalizedContext = context ?? undefined;
   target.listeners.detachMatching(
     target.canonical,
     spec,
     eventType,
     normalizedCallback,
-    normalizedContext,
+    context,
   );
 }

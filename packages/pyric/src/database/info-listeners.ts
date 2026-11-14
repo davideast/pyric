@@ -3,7 +3,7 @@ import type { ListenerRegistry, ListenerRegistration } from './listener-registry
 import { jsonValuesEqual, type JsonValue } from './sandbox/data-tree.js';
 import { targetOf } from './routing.js';
 import { isDefaultQuerySpec, queryIdentifier } from './query-shape.js';
-import { executeQuery, extractOrderValue, type QueryRow, type QuerySpec } from './internal/query-projection.js';
+import { executeQuery, indexedOrderValueChanged, type QueryRow, type QuerySpec } from './internal/query-projection.js';
 import type { DataSnapshot, DatabaseReference, Query, Unsubscribe } from './types.js';
 import { child } from './references.js';
 import { buildSandboxQuerySnap, buildSandboxSnapFromRaw } from './snapshots.js';
@@ -137,10 +137,12 @@ export function observeConnectionChildMetadata(
         if (event === 'child_changed' && prior && !jsonValuesEqual(prior.value, row.value)) {
           emit(row, previousChildName);
         }
-        if (event === 'child_moved' && prior && activeSpec.orderBy && activeSpec.orderBy.kind !== 'key') {
-          const before = extractOrderValue(activeSpec.orderBy, prior.key, prior.value, prior.priority);
-          const after = extractOrderValue(activeSpec.orderBy, row.key, row.value, row.priority);
-          if (!jsonValuesEqual(before, after)) emit(row, previousChildName);
+        if (
+          event === 'child_moved' &&
+          prior &&
+          indexedOrderValueChanged(activeSpec.orderBy, row.key, prior.value, prior.priority, row.value, row.priority)
+        ) {
+          emit(row, previousChildName);
         }
       }
     }
