@@ -21,8 +21,66 @@ type Env = Readonly<Record<string, string | undefined>>;
 /** The variables firebase-admin reads a project id from, in its order. */
 const PROJECT_VARIABLES = ['GOOGLE_CLOUD_PROJECT', 'GCLOUD_PROJECT'] as const;
 
+/**
+ * Inherited environment variable pinning the root `@pyric/live/register`
+ * process's resolved `projectId` across child processes and `Worker` threads.
+ */
+export const LIVE_PINNED_PROJECT_VARIABLE = 'PYRIC_LIVE_HOST_PROJECT';
+
 function isNonEmptyString(value: unknown): value is string {
   return typeof value === 'string' && value.length > 0;
+}
+
+function pinnedLiveProjectId(env: Env = process.env): string | undefined {
+  const pinned = env[LIVE_PINNED_PROJECT_VARIABLE];
+  return isNonEmptyString(pinned) ? pinned : undefined;
+}
+
+/**
+ * Resolves the live project id for a child process or worker: prefers the
+ * parent-pinned project id, falling back to `readLocalProject(projectRoot)`
+ * while ignoring caller-mutated `PYRIC_PROJECT` when `ignoreEnvProject` is set.
+ */
+export function resolveInheritedLiveProject(
+  projectRoot: string,
+  ignoreEnvProject: boolean,
+  readLocalProject: (root: string) => string,
+): string | undefined {
+  const pinned = pinnedLiveProjectId(process.env);
+  if (pinned !== undefined) return pinned;
+  const previousPyricProject = process.env.PYRIC_PROJECT;
+  if (ignoreEnvProject) delete process.env.PYRIC_PROJECT;
+  try {
+    return readLocalProject(projectRoot);
+  } catch {
+    return undefined;
+  } finally {
+    if (ignoreEnvProject && previousPyricProject !== undefined) {
+      process.env.PYRIC_PROJECT = previousPyricProject;
+    }
+  }
+}
+
+export interface LiveProcessPinKeys {
+  readonly projectRootVar: string;
+  readonly sdkRootVar: string;
+  readonly passThroughVar: string;
+}
+
+/** Builds the canonical 5-key inherited variable map pinned across children and workers. */
+export function buildPinnedLiveEnvMap(
+  keys: LiveProcessPinKeys,
+  projectRoot: string,
+  fallbackSdkRoot: string,
+  projectId: string,
+): Record<string, string> {
+  return {
+    [keys.projectRootVar]: projectRoot,
+    [keys.sdkRootVar]: process.env[keys.sdkRootVar] ?? fallbackSdkRoot,
+    [keys.passThroughVar]: process.env[keys.passThroughVar] ?? '',
+    [LIVE_PINNED_PROJECT_VARIABLE]: projectId,
+    PYRIC_PROJECT: projectId,
+  };
 }
 
 /** The `projectId` in `FIREBASE_CONFIG`'s inline JSON, or null. */

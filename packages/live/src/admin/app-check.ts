@@ -9,15 +9,11 @@
  * observed calls have no App Check service yet. The start line and the
  * process health name App Check as gated but unobserved.
  */
-import { keepShape } from './patch.js';
 import { failClosedGate, readAdminApp, type AdminProjectGate } from './project-gate.js';
-
-type Method = (this: unknown, ...args: unknown[]) => unknown;
-
-/** The calls the gate checks. */
-const GATED_METHODS = ['verifyToken', 'createToken'] as const;
+import { gatePrototypeMethods } from './prototype-gate.js';
 
 const PATCHED = Symbol.for('pyric.live.admin.appCheck.gated');
+const LOCAL_METHODS: ReadonlySet<string> = new Set(['validateVerifyAppCheckTokenOptions']);
 
 function isObject(value: unknown): value is object {
   return typeof value === 'object' && value !== null;
@@ -28,15 +24,9 @@ export interface AdminAppCheckRow {
   readonly gate: AdminProjectGate;
 }
 
-function gated(gate: AdminProjectGate, real: Method): Method {
-  return keepShape(function gatedCall(this: unknown, ...args: unknown[]): unknown {
-    return gate(readAdminApp(this, 'app'), () => Reflect.apply(real, this, args));
-  }, real);
-}
-
 /**
- * Gates `verifyToken` and `createToken` on `AppCheck.prototype` of the real
- * `app-check.js` module `appCheckModule` once. Later calls change nothing.
+ * Gates `AppCheck.prototype` of the real `app-check.js` module
+ * `appCheckModule` once. Later calls change nothing.
  */
 export function observeAdminAppCheck(appCheckModule: unknown, row: AdminAppCheckRow): void {
   const defined: unknown = isObject(appCheckModule) ? Reflect.get(appCheckModule, 'AppCheck') : undefined;
@@ -44,10 +34,10 @@ export function observeAdminAppCheck(appCheckModule: unknown, row: AdminAppCheck
   const isPatchable = isObject(prototype) && !Object.hasOwn(prototype, PATCHED);
   if (!isPatchable) return;
   const gate = failClosedGate(row.gate, 'AppCheck');
-  for (const name of GATED_METHODS) {
-    const descriptor = Object.getOwnPropertyDescriptor(prototype, name);
-    if (typeof descriptor?.value !== 'function') continue;
-    Object.defineProperty(prototype, name, { ...descriptor, value: gated(gate, descriptor.value as Method) });
-  }
+  gatePrototypeMethods(prototype, {
+    gate,
+    appOf: (self) => readAdminApp(self, 'app'),
+    allowlist: LOCAL_METHODS,
+  });
   Object.defineProperty(prototype, PATCHED, { value: true });
 }

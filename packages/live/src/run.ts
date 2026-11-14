@@ -16,6 +16,7 @@ import {
   type LiveHostProbeAnswer,
   type LiveHostTarget,
 } from '@pyric/cli/serve/internal/live-host';
+import { LIVE_PINNED_PROJECT_VARIABLE } from './admin/project-gate.js';
 
 export const DEFAULT_WAIT_SECONDS = 30;
 
@@ -163,7 +164,12 @@ export function parseLiveRunInvocation(argv: readonly string[], env: NodeJS.Proc
     }
   }
 
-  const childArgv = passthrough !== null && passthrough.length > 0 ? passthrough : passthrough !== null ? [] : positional;
+  let childArgv: string[];
+  if (passthrough !== null) {
+    childArgv = passthrough.length > 0 ? passthrough : [];
+  } else {
+    childArgv = positional;
+  }
   if (!hasExecutableToken(childArgv)) {
     return { kind: 'error', message: `pyric-live run: no command to run.\n${LIVE_RUN_USAGE}` };
   }
@@ -187,10 +193,10 @@ export function parseLiveRunInvocation(argv: readonly string[], env: NodeJS.Proc
     if (remoteTarget.length > 0) {
       const parsedEnvHost = parseHostUrlValue(remoteTarget);
       if (!parsedEnvHost.ok) {
-        const detail =
-          parsedEnvHost.reason === 'non-loopback'
-            ? `pyric-live run: PYRIC_SANDBOX=remote:${remoteTarget} must name a loopback URL (localhost, 127.0.0.1, or [::1]).\n`
-            : `pyric-live run: PYRIC_SANDBOX=remote:${remoteTarget} is not a valid loopback host URL.\n`;
+        let detail = `pyric-live run: PYRIC_SANDBOX=remote:${remoteTarget} is not a valid loopback host URL.\n`;
+        if (parsedEnvHost.reason === 'non-loopback') {
+          detail = `pyric-live run: PYRIC_SANDBOX=remote:${remoteTarget} must name a loopback URL (localhost, 127.0.0.1, or [::1]).\n`;
+        }
         return { kind: 'error', message: `${detail}${LIVE_RUN_USAGE}` };
       }
       hostUrl = parsedEnvHost.origin;
@@ -249,11 +255,14 @@ export function buildLiveChildEnv(
 ): NodeJS.ProcessEnv {
   const importFlag = `--import ${opts.registerUrl}`;
   const existingNodeOptions = (base.NODE_OPTIONS ?? '').trim();
-  const nodeOptions = existingNodeOptions.includes(opts.registerUrl)
-    ? existingNodeOptions
-    : existingNodeOptions === ''
-      ? importFlag
-      : `${importFlag} ${existingNodeOptions}`;
+  let nodeOptions: string;
+  if (existingNodeOptions.includes(opts.registerUrl)) {
+    nodeOptions = existingNodeOptions;
+  } else if (existingNodeOptions === '') {
+    nodeOptions = importFlag;
+  } else {
+    nodeOptions = `${importFlag} ${existingNodeOptions}`;
+  }
   const env: NodeJS.ProcessEnv = {
     ...base,
     PYRIC_SANDBOX: `remote:${opts.serveUrl}`,
@@ -275,6 +284,7 @@ export function buildLiveChildEnv(
   delete env.PYRIC_LIVE_PROJECT_ROOT;
   delete env.PYRIC_LIVE_SDK_ROOT;
   delete env.PYRIC_LIVE_PASS_THROUGH;
+  delete env[LIVE_PINNED_PROJECT_VARIABLE];
   return env;
 }
 
@@ -367,9 +377,22 @@ function spawnLiveChild(
 ): { child: ChildProcess; exited: Promise<number> } {
   const hasShellOperators = commandArgv.some((token) => SHELL_OPERATORS.has(token));
   const [command, ...args] = commandArgv;
-  const child = hasShellOperators
-    ? spawn(formatLiveShellCommand(commandArgv), [], { cwd: opts.cwd, env: opts.env, stdio: 'inherit', shell: true })
-    : spawn(command!, args, { cwd: opts.cwd, env: opts.env, stdio: 'inherit', shell: process.platform === 'win32' });
+  let child: ChildProcess;
+  if (hasShellOperators) {
+    child = spawn(formatLiveShellCommand(commandArgv), [], {
+      cwd: opts.cwd,
+      env: opts.env,
+      stdio: 'inherit',
+      shell: true,
+    });
+  } else {
+    child = spawn(command!, args, {
+      cwd: opts.cwd,
+      env: opts.env,
+      stdio: 'inherit',
+      shell: process.platform === 'win32',
+    });
+  }
 
   const exited = new Promise<number>((resolveExit) => {
     child.once('error', (err) => {
@@ -383,7 +406,8 @@ function spawnLiveChild(
       }
       if (signal !== null) {
         const sigNum = osConstants.signals[signal];
-        resolveExit(typeof sigNum === 'number' ? 128 + sigNum : 1);
+        const exitCode = typeof sigNum === 'number' ? 128 + sigNum : 1;
+        resolveExit(exitCode);
         return;
       }
       resolveExit(0);

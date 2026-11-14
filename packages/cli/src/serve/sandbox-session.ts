@@ -1,67 +1,47 @@
 import { randomBytes } from 'node:crypto';
-import { createRateCaptureStore } from './rate-capture-store.js';
-import { createThresholdConfigStore } from './threshold-config-store.js';
-import { createFlowTreatmentHost } from './flow-treatment-host.js';
-import { createIndexConfigStore } from './index-config-store.js';
-import type { FlowConfig } from './flow-config.js';
-import { existsSync, readFileSync, rmSync, statSync } from 'node:fs';
-import { readFile } from 'node:fs/promises';
-import { dirname, join, relative, resolve } from 'node:path';
+import { existsSync, rmSync } from 'node:fs';
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import { join, relative } from 'node:path';
 import type { ActivityIncident } from 'pyric/firestore/internal';
 import { defaultAvatarSvg } from 'pyric/auth/internal';
 import type { FirebaseJson } from '../cli/firebase-json.js';
-import { createCaptureStore, type CaptureStore } from './capture-store.js';
-import type { DatabaseInstancesRules, InitPayload, RtdbRulesJson, RulesDestination } from './init-payload.js';
 import type { FirebaseProjectResolution } from '../cli/firebase-project.js';
+import type { BeaconReport } from '../register/beacon.js';
+import type { AppPorts } from './app-ports.js';
+import { createAssetResolver, type AssetRequest, type AssetResolver } from './assets/resolver.js';
+import type { ResolvedAvatarsConfig } from './avatars-config.js';
+import { createCaptureStore, type CaptureStore } from './capture-store.js';
+import type { FlowConfig } from './flow-config.js';
+import { createFlowTreatmentHost } from './flow-treatment-host.js';
+import type { GeminiProxyConfig } from './gemini-proxy.js';
+import { createHostedPersistence, formatStorageRepairs, type HostedPersistence } from './hosted/persistence.js';
+import { createIndexConfigStore } from './index-config-store.js';
+import type { DatabaseInstancesRules, InitPayload, RtdbRulesJson, RulesDestination } from './init-payload.js';
+import { createEventHub, createPyricNamespace } from './namespace.js';
+import { createRateCaptureStore } from './rate-capture-store.js';
 import {
-  firestoreRulesPath,
   formatUnresolvedDatabaseTargets,
-  loadDatabaseInstanceRules,
-  loadPendingDatabaseTargetRules,
-  type LoadedPendingDatabaseTarget,
+  formatUnresolvedStorageTargets,
+  loadPendingStorageTarget,
   loadProjectDatabaseRules,
   loadProjectRules,
   loadProjectStorageRules,
-  loadStorageRulesTarget,
-  loadPendingStorageTarget,
-  formatUnresolvedStorageTargets,
-  prepareProjectRules,
-  storageBucketLabel,
-  rulesHashOf,
-  RulesPrepareError,
-  type DatabaseRulesTarget,
-  type PendingStorageRulesTarget,
-  type StorageRulesTarget,
 } from './rules.js';
-import { createEventHub, createPyricNamespace } from './namespace.js';
-import type { BeaconReport } from '../register/beacon.js';
-import { diskProjectStore, diskWorkspace } from './studio/index.js';
+import { loadSandboxSeedOption, SandboxSeedError } from './sandbox-seed-loader.js';
+import {
+  createSessionRulesReloaders,
+  type DatabaseRulesReloadResult,
+  type RulesReloadResult,
+  type StorageRulesReloadResult,
+} from './sandbox-session-rules-reload.js';
 import type { ServeLogger } from './server.js';
-import { createAssetResolver, type AssetRequest, type AssetResolver } from './assets/resolver.js';
-import type { ResolvedAvatarsConfig } from './avatars-config.js';
-import {
-  createStateStore,
-  type StateStore,
-} from './state-store.js';
-import { restoredStateCounts, stateForSummary } from './state-summary.js';
-import { parseStateFile, STATE_FILE_VERSION, type PyricStateFile } from './state-file.js';
-import { inlineStorage } from './state-objects.js';
-import { bundleRecords, type PersistenceBackend } from 'pyric/sandbox';
-import { createSandboxRoot } from 'pyric/sandbox/internal';
-import { getAuth, sandbox as authSandbox } from 'pyric/auth';
-import { getDatabase } from 'pyric/database';
-import { getStorageSandbox } from 'pyric/storage';
-import { getStorageService, targetOf, type StorageStateRecord } from 'pyric/storage/internal';
-import { applyData, applyRules, type SandboxSeed } from '../bridge/surface/seed-apply.js';
-import { listStoredPaths } from '../bridge/surface/storage-state.js';
-import type { AppPorts } from './app-ports.js';
-import { createHostedPersistence, formatStorageRepairs, type HostedPersistence } from './hosted/persistence.js';
-import type { GeminiProxyConfig } from './gemini-proxy.js';
-import {
-  runProjectFixturesOnRulesReload,
-  type RulesFixtureCheckSummary,
-} from './rules-fixture-check.js';
+import { createStateStore, type StateStore } from './state-store.js';
+import { restoredStateCounts } from './state-summary.js';
+import { diskProjectStore, diskWorkspace } from './studio/index.js';
+import { createThresholdConfigStore } from './threshold-config-store.js';
+
+export { SandboxSeedError };
+export type { DatabaseRulesReloadResult, RulesReloadResult, StorageRulesReloadResult };
 
 export interface SandboxSessionOptions {
   boundHost?: string;
@@ -87,22 +67,16 @@ export interface SandboxSessionOptions {
   aiProxyUpstream?: string;
   /** The gemini engine the dev server's gemini proxy sends for a browser engine. */
   aiGemini?: GeminiProxyConfig;
-  /** Resolved `avatars` option (already reduced by `avatars-config.ts` from
-   *  whatever the caller — the Vite plugin or `pyric sandbox` — accepted).
-   *  Absent behaves like `{ enabled: false }`: no avatar route is mounted. */
+  /** Resolved `avatars` option (already reduced by `avatars-config.ts`). */
   avatars?: ResolvedAvatarsConfig;
   permissive?: boolean;
-  /** The project `resolveFirebaseProject` resolved. Its id names the default
-   *  Realtime Database instance and selects `.firebaserc` deploy targets.
-   *  Without an id, target entries start unresolved. */
+  /** The project `resolveFirebaseProject` resolved. */
   project?: FirebaseProjectResolution;
   logger?: ServeLogger;
   activity?: (incident: ActivityIncident) => void;
-  /** Receives one handshake beacon per pyric-launched child, the dev
-   *  server's only positive proof that the register module reached it. */
+  /** Receives one handshake beacon per pyric-launched child. */
   beacon?: (report: BeaconReport) => void;
-  /** The per-launch secret a beacon must present, also placed in the child's
-   *  `PYRIC_BEACON_TOKEN`. */
+  /** The per-launch secret a beacon must present, also placed in `PYRIC_BEACON_TOKEN`. */
   beaconToken?: string;
   /** Shared per-boot session capability token across namespace, bridge, and served HTML. */
   sessionToken?: string;
@@ -144,86 +118,23 @@ export interface SandboxSession {
   reloadDatabaseRules(file: string): Promise<DatabaseRulesReloadResult[]>;
   /** Reload the Storage rules of each bucket that deploys `file`. */
   reloadStorageRules(file: string): Promise<StorageRulesReloadResult[]>;
-  /** The Firestore rules source file, the module files it imported at the
-   *  last successful load, and the module files a failed reload since then
-   *  asked for, found or not. A successful reload replaces the list. The
-   *  source file is the path the rules load from, listed whether or not it
-   *  exists, so creating it loads the rules. */
   firestoreRulesFiles(): readonly string[];
-  /** The Realtime Database rules files the instances load from, whether or
-   *  not they exist. */
   databaseRulesFiles(): readonly string[];
-  /** The Storage rules files the buckets load from, plus any imported or attempted `2+modules` files. */
   storageRulesFiles(): readonly string[];
-  /** Only the entry Storage rules files the buckets load from, without imported module helpers. */
   storageSourceFiles(): readonly string[];
   close(): Promise<void>;
 }
 
-export class SandboxSeedError extends Error {
-  constructor(
-    readonly kind: 'read' | 'shape',
-    readonly path: string,
-    readonly detail: string,
-  ) {
-    super(kind === 'read' ? `failed to read seed ${path}: ${detail}` : `seed must be a JSON object (${detail})`);
-    this.name = 'SandboxSeedError';
-  }
-}
-
-export type RulesReloadResult =
-  | { kind: 'not-configured' }
-  | { kind: 'reloaded'; rulesHash: string; clients: number; fixtureCheck?: RulesFixtureCheckSummary }
-  | { kind: 'rejected'; error: Error }
-  /** The rules file was deleted. The service is back to the state it starts
-   *  in without a rules file: no rules, and `policy` for every read and write. */
-  | { kind: 'removed'; policy: 'allow' | 'deny'; clients: number };
-
-/** One bucket's, or one pending deploy target's, reload after its rules file changed. */
-export interface StorageRulesReloadResult {
-  /** The bucket by name, or null for the app's default bucket or a pending target. */
-  bucket: string | null;
-  /** The deploy target no project resolved at startup, when the reload is a pending target's. */
-  target?: string;
-  file: string;
-  result: RulesReloadResult;
-}
-
-/** One database instance's reload after its rules file changed. */
-export interface DatabaseRulesReloadResult {
-  /** The instance name, or `deploy target "<name>"` for an unresolved target. */
-  instance: string;
-  file: string;
-  result: RulesReloadResult;
-}
-
-/** The generated fallback every avatars configuration falls back to when a
- *  cache entry, pool, or configured source doesn't answer for a key: the
- *  same deterministic SVG the in-page, no-server mode encodes as a data URI
- *  (`pyric/auth/internal`'s `defaultAvatarDataUri`), so served and in-page
- *  modes agree on a face for the same uid. */
 function defaultAvatarFallback(
   req: AssetRequest,
   kind: 'fallback' | 'interim',
 ): { data: Uint8Array; contentType: string } {
   const displayName = typeof req.context.displayName === 'string' ? req.context.displayName : null;
   const email = typeof req.context.email === 'string' ? req.context.email : null;
-  // An interim response stands in for an image a source is still producing,
-  // so it renders the generating state rather than an image that looks final.
   const svg = defaultAvatarSvg({ uid: req.key, displayName, email, pending: kind === 'interim' });
   return { data: new TextEncoder().encode(svg), contentType: 'image/svg+xml' };
 }
 
-/** Build the avatar asset resolver from a resolved `avatars` config, or
- *  `undefined` when avatars are disabled (or unconfigured) — `undefined`
- *  means the `/__pyric/assets/avatar/*` route 404s entirely (namespace.ts).
- *  The union in `ResolvedAvatarsConfig` guarantees `setDir` XOR `source`, so
- *  a read-only set directory never receives cache writes: `createAssetResolver`
- *  only writes when a `source` produced bytes it needs to cache.
- *
- *  `onMaterialised` is the session's push channel, passed in rather than
- *  reached for: the resolver announces a key whose placeholder has just been
- *  superseded, and the session turns that into an SSE event the page acts on. */
 function createAvatarsResolver(
   config: ResolvedAvatarsConfig | undefined,
   projectDir: string,
@@ -245,141 +156,36 @@ function createAvatarsResolver(
   });
 }
 
-const SANDBOX_SEED_KEYS: ReadonlySet<string> = new Set([
-  'firestore',
-  'database',
-  'users',
-  'storage',
-  'firestoreRules',
-  'databaseRules',
-  'storageRules',
-]);
-
-function isPlainSeedRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-function isSandboxSeedEnvelope(record: Record<string, unknown>): boolean {
-  const keys = Object.keys(record);
-  return !('version' in record) && keys.length > 0 && keys.every((key) => SANDBOX_SEED_KEYS.has(key));
-}
-
-function validateSandboxSeedEnvelope(record: Record<string, unknown>, seedPath: string): SandboxSeed {
-  if ('firestore' in record && record.firestore !== undefined) {
-    if (!isPlainSeedRecord(record.firestore)) {
-      throw new SandboxSeedError('shape', seedPath, 'seed.firestore must be a JSON object');
-    }
-    for (const [docPath, rawDoc] of Object.entries(record.firestore)) {
-      if (!isPlainSeedRecord(rawDoc)) {
-        throw new SandboxSeedError('shape', seedPath, `seed.firestore["${docPath}"] must be a JSON object`);
-      }
-    }
-  }
-  if ('database' in record && record.database !== undefined && !isPlainSeedRecord(record.database)) {
-    throw new SandboxSeedError('shape', seedPath, 'seed.database must be a JSON object');
-  }
-  if ('users' in record && record.users !== undefined && !Array.isArray(record.users)) {
-    throw new SandboxSeedError('shape', seedPath, 'seed.users must be an array');
-  }
-  if ('storage' in record && record.storage !== undefined && !Array.isArray(record.storage)) {
-    throw new SandboxSeedError('shape', seedPath, 'seed.storage must be an array');
-  }
-  for (const rulesKey of ['firestoreRules', 'databaseRules', 'storageRules'] as const) {
-    if (rulesKey in record && record[rulesKey] !== undefined && typeof record[rulesKey] !== 'string') {
-      throw new SandboxSeedError('shape', seedPath, `seed.${rulesKey} must be a string`);
-    }
-  }
-  return record as SandboxSeed;
-}
-
-async function materializeSandboxSeedState(seedRecord: SandboxSeed): Promise<PyricStateFile> {
-  const memoryRecords = new Map<string, unknown>();
-  const backend: PersistenceBackend = {
-    async getRecord(_key, recordId) {
-      return memoryRecords.get(recordId) ?? null;
-    },
-    async listRecords(_key) {
-      return [...memoryRecords.keys()];
-    },
-    async putRecords(_key, records) {
-      for (const [recordId, value] of records) memoryRecords.set(recordId, value);
-    },
-    async deleteRecords(_key, recordIds) {
-      for (const recordId of recordIds) memoryRecords.delete(recordId);
-    },
-    async clear(_key) {
-      memoryRecords.clear();
-    },
-  };
-  const tempSandbox = createSandboxRoot();
-  try {
-    await tempSandbox.enablePersistence({ key: 'seed-materialize', injectedBackend: backend });
-    const auth = getAuth(tempSandbox);
-    getDatabase(tempSandbox);
-    await applyRules(tempSandbox, seedRecord);
-    await applyData(tempSandbox, seedRecord);
-    await tempSandbox.flush();
-    const exportedUsers = authSandbox.exportUsers(auth);
-    let storageEntries: StorageStateRecord[] | undefined;
-    if (seedRecord.storage && seedRecord.storage.length > 0) {
-      const storage = getStorageSandbox(tempSandbox);
-      const storageBackend = (await getStorageService(storage)).backend;
-      const { bucket } = targetOf(storage);
-      const paths = await listStoredPaths(storage);
-      const collected: StorageStateRecord[] = [];
-      for (const objectPath of paths) {
-        const stored = await storageBackend.getObject(objectPath, bucket);
-        if (stored === undefined) continue;
-        collected.push({
-          dataBase64: Buffer.from(await stored.blob.arrayBuffer()).toString('base64'),
-          blobType: stored.blob.type,
-          metadata: stored.metadata,
-        });
-      }
-      if (collected.length > 0) storageEntries = collected;
-    }
-    return {
-      version: STATE_FILE_VERSION,
-      firestore: memoryRecords.size > 0 ? JSON.parse(bundleRecords(memoryRecords)) : null,
-      auth: exportedUsers.length > 0 ? { users: exportedUsers } : null,
-      ...(storageEntries === undefined ? {} : { storage: storageEntries }),
-    };
-  } finally {
-    tempSandbox.dispose();
-  }
-}
-
 export async function createSandboxSession(
   options: SandboxSessionOptions,
 ): Promise<SandboxSession> {
-  // Preserve the established fail-fast order: Firestore, then RTDB, then
-  // Storage. Callers historically surfaced the first error in this sequence.
+  // Preserve the established fail-fast order: Firestore, then RTDB, then Storage.
   const firestore = await loadProjectRules(options.projectDir, options.firebaseConfig, options.project);
   for (const warning of firestore.warnings) options.logger?.note(`  ⚠ ${warning}`);
   const database = await loadProjectDatabaseRules(options.projectDir, options.firebaseConfig, options.project);
   const storage = await loadProjectStorageRules(options.projectDir, options.firebaseConfig, options.project);
-  if (storage.pending.length > 0) options.logger?.note(formatUnresolvedStorageTargets(storage.pending, options.permissive ? 'allow' : 'deny'));
-  // Each named bucket's rules in force, null while its file is missing. The
-  // default bucket's are `live.storageRules`.
+  const defaultPolicy: 'allow' | 'deny' = options.permissive ? 'allow' : 'deny';
+  if (storage.pending.length > 0) {
+    options.logger?.note(formatUnresolvedStorageTargets(storage.pending, defaultPolicy));
+  }
+
   const liveStorageBuckets = new Map<string, { rules: string; rulesHash: string } | null>(
     storage.targets
       .filter((target) => target.bucket !== null)
       .map((target) => [target.bucket as string, storage.buckets.get(target.bucket as string) ?? null]),
   );
-  // Each unresolved Storage deploy target's rules, by target name, null while its file is missing.
   const livePendingStorage = new Map<string, { rules: string; rulesHash: string; moduleFiles?: string[] } | null>();
   for (const target of storage.pending) livePendingStorage.set(target.target, await loadPendingStorageTarget(target));
-  // Each declared instance's rules in force, null while its file is missing.
+
   const liveDatabase = new Map<string, { rules: RtdbRulesJson; rulesHash: string } | null>(
     database.targets.map((target) => [target.instance, database.instances.get(target.instance) ?? null]),
   );
-  // Each unresolved deploy target's rules, by target name, null while its file is missing.
   const livePending = new Map<string, { rules: RtdbRulesJson; rulesHash: string } | null>(
     database.pending.map((target) => [target.target, { rules: target.rules, rulesHash: target.rulesHash }]),
   );
   const hasUnresolvedTargets = database.pending.length > 0;
   if (hasUnresolvedTargets) {
-    options.logger?.note(formatUnresolvedDatabaseTargets(database.pending, options.permissive ? 'allow' : 'deny'));
+    options.logger?.note(formatUnresolvedDatabaseTargets(database.pending, defaultPolicy));
   }
   const live = {
     rules: firestore.rules,
@@ -389,13 +195,13 @@ export async function createSandboxSession(
   };
   const hasNoDatabaseRules = database.instances.size === 0 && !hasUnresolvedTargets;
   if (hasNoDatabaseRules) {
-    const isPermissive = Boolean(options.permissive);
-    if (isPermissive) {
+    if (options.permissive) {
       options.logger?.note('  ⓘ RTDB permissive mode active — client reads/writes are open by default.');
     } else {
       options.logger?.note('  ⚠ no database.rules.json found — client RTDB reads/writes default to DENY (matching production Firebase). Use --permissive for open prototyping.');
     }
   }
+
   const flowTreatments = await createFlowTreatmentHost(options.projectDir, options.flow, {
     boundHost: options.boundHost,
     allowedHosts: options.allowedHosts,
@@ -403,144 +209,68 @@ export async function createSandboxSession(
   });
   const events = createEventHub();
   const sessionToken = options.sessionToken ?? randomBytes(24).toString('base64url');
-  // A background generation that lands in the cache is broadcast on the same
-  // hub the rules watchers use. The page, not the application, listens: it
-  // re-requests that uid's avatar so the finished image replaces the
-  // placeholder the browser is already showing.
   const avatarsResolver = createAvatarsResolver(options.avatars, options.projectDir, (key) => {
     events.broadcast('avatar-ready', { key });
   });
-  // Only a configured source can produce an image that supersedes a
-  // placeholder, so only that case asks the page to open a connection.
   const avatarUpgrades = Boolean(avatarsResolver) && options.avatars?.source !== undefined;
   const capturesSession = options.capture ?? true;
-  const capture: CaptureStore | undefined = capturesSession
-    ? createCaptureStore(options.projectDir)
-    : undefined;
+  let capture: CaptureStore | undefined;
+  if (capturesSession) {
+    capture = createCaptureStore(options.projectDir);
+  }
   const persistsSession = Boolean(options.persistence || options.hosted);
   let hostedPersistence: HostedPersistence | undefined;
-  const usesHostedPersistence = options.hosted === true;
-  if (usesHostedPersistence) {
+  if (options.hosted === true) {
     hostedPersistence = await createHostedPersistence(options.projectDir, { fresh: options.persistence?.fresh });
     for (const line of formatStorageRepairs(hostedPersistence.repairedObjects)) options.logger?.note(line);
   }
+
   try {
-    const state: StateStore | undefined = hostedPersistence?.state ?? (persistsSession ? createStateStore(options.projectDir) : undefined);
+    let initialState: StateStore | undefined = hostedPersistence?.state;
+    if (initialState === undefined && persistsSession) {
+      initialState = createStateStore(options.projectDir);
+    }
+    const state = initialState;
     const hasStateStore = state !== undefined;
-    const resetsState = hasStateStore && !options.hosted && !!options.persistence?.fresh;
+    const resetsState = hasStateStore && !options.hosted && Boolean(options.persistence?.fresh);
     if (resetsState) {
       for (const file of [state.path, state.backupPath]) {
-        const hasFile = existsSync(file);
-        if (hasFile) rmSync(file);
-      }
-    }
-    let persisted = stateForSummary(state, { hosted: options.hosted === true });
-    let seed: Record<string, Record<string, unknown>> | null = null;
-    let seedState: unknown | null = null;
-    let seedUsers: Record<string, unknown>[] | null = null;
-    let seedLabel: string | null = null;
-    let seedApplied = false;
-    const seedFile = options.seedFile;
-    const hasSeedFile = !!seedFile;
-    if (hasSeedFile) {
-      // A snapshot directory holds its document as state.json, with objects/ beside it.
-      const seedTarget = resolve(options.projectDir, seedFile);
-      const seedsDirectory = existsSync(seedTarget) && statSync(seedTarget).isDirectory();
-      const seedPath = seedsDirectory ? join(seedTarget, 'state.json') : seedTarget;
-      const objectsFrom = dirname(seedPath);
-      let parsed: unknown;
-      try {
-        parsed = JSON.parse(readFileSync(seedPath, 'utf8')) as unknown;
-      } catch (error) {
-        const isError = error instanceof Error;
-        const message = isError ? error.message : String(error);
-        throw new SandboxSeedError('read', seedPath, message);
-      }
-      const isArray = Array.isArray(parsed);
-      const isNotObject = !parsed || typeof parsed !== 'object';
-      const isInvalidSeed = isNotObject || isArray;
-      if (isInvalidSeed) {
-        const kind = isArray ? 'array' : typeof parsed;
-        throw new SandboxSeedError('shape', seedPath, `got ${kind}`);
-      }
-      const record = parsed as Record<string, unknown>;
-      const hasStateVersion = 'version' in record;
-      const hasStateSections = 'firestore' in record || 'auth' in record || 'storage' in record;
-      const isStateFixture = hasStateVersion && hasStateSections;
-      if (isStateFixture) {
-        const fixture = parseStateFile(record, seedPath);
-        const { restoredDocs, restoredUsers } = restoredStateCounts(fixture);
-        seedLabel = `${restoredDocs} doc(s) + ${restoredUsers} user(s) from state fixture`;
-        const initializesStateStore = hasStateStore && !state.exists();
-        if (initializesStateStore) {
-          const seedOwner = hostedPersistence;
-          const hasHostedPersistence = seedOwner !== undefined;
-          if (hasHostedPersistence) await seedOwner.seed(fixture, objectsFrom);
-          else {
-            // Checked before any section is written, so a bad reference writes nothing.
-            const storage = fixture.storage === undefined ? undefined : inlineStorage(fixture.storage, objectsFrom);
-            const hasFirestoreState = fixture.firestore != null;
-            if (hasFirestoreState) await state.writeSection('firestore', fixture.firestore);
-            const hasAuthState = fixture.auth != null;
-            if (hasAuthState) await state.writeSection('auth', fixture.auth);
-            const hasStorageState = storage !== undefined;
-            if (hasStorageState) await state.writeSection('storage', storage);
-          }
-          seedApplied = true;
-          persisted = stateForSummary(state, { hosted: options.hosted === true });
-        } else {
-          const hasNoStateStore = !hasStateStore;
-          if (hasNoStateStore) {
-            seedState = fixture.firestore ?? null;
-            seedUsers = fixture.auth?.users.map((user) => ({ ...user })) ?? null;
-          }
-        }
-      } else if (isSandboxSeedEnvelope(record)) {
-        const seedRecord = validateSandboxSeedEnvelope(record, seedPath);
-        const docCount = seedRecord.firestore ? Object.keys(seedRecord.firestore).length : 0;
-        const userCount = seedRecord.users?.length ?? 0;
-        const hasRtdb = seedRecord.database !== undefined;
-        seedLabel = `${docCount} doc(s)${userCount > 0 ? ` + ${userCount} user(s)` : ''}${hasRtdb ? ' + database' : ''} from seed envelope`;
-        const initializesStateStore = hasStateStore && !state.exists();
-        if (initializesStateStore) {
-          const fixture = await materializeSandboxSeedState(seedRecord);
-          const seedOwner = hostedPersistence;
-          if (seedOwner !== undefined) {
-            await seedOwner.seed(fixture, objectsFrom);
-          } else {
-            if (fixture.firestore != null) await state.writeSection('firestore', fixture.firestore);
-            if (fixture.auth != null) await state.writeSection('auth', fixture.auth);
-            if (fixture.storage !== undefined) await state.writeSection('storage', fixture.storage);
-          }
-          seedApplied = true;
-          persisted = stateForSummary(state, { hosted: options.hosted === true });
-        } else if (!hasStateStore) {
-          seed = record as Record<string, Record<string, unknown>>;
-          seedUsers = Array.isArray(seedRecord.users)
-            ? seedRecord.users.map((user) => ({ ...(user as unknown as Record<string, unknown>) }))
-            : null;
-        }
-      } else {
-        seed = record as Record<string, Record<string, unknown>>;
-        seedLabel = `${Object.keys(seed).length} document(s)`;
+        if (existsSync(file)) rmSync(file);
       }
     }
 
-    const databaseInstances = (): DatabaseInstancesRules => ({
-      defaultInstance: database.defaultInstance,
-      ...(database.projectId === undefined ? {} : { projectId: database.projectId }),
-      rules: Object.fromEntries([...liveDatabase].map(([instance, loaded]) => [instance, loaded?.rules ?? null])),
-      ...(database.targets.length === 0 ? {} : {
-        rulesFiles: Object.fromEntries(database.targets.map((target) => [target.instance, relative(options.projectDir, target.path)])),
-      }),
-      ...(livePending.size === 0 ? {} : {
-        pendingTargets: database.pending.map((target) => ({
+    const loadedSeed = await loadSandboxSeedOption({
+      projectDir: options.projectDir,
+      seedFile: options.seedFile,
+      state,
+      hostedPersistence,
+      hosted: options.hosted === true,
+    });
+    const { persisted, seed, seedState, seedUsers, seedLabel, seedApplied } = loadedSeed;
+
+    const databaseInstances = (): DatabaseInstancesRules => {
+      const result: DatabaseInstancesRules = {
+        defaultInstance: database.defaultInstance,
+        rules: Object.fromEntries([...liveDatabase].map(([instance, loaded]) => [instance, loaded?.rules ?? null])),
+      };
+      if (database.projectId !== undefined) {
+        result.projectId = database.projectId;
+      }
+      if (database.targets.length > 0) {
+        result.rulesFiles = Object.fromEntries(
+          database.targets.map((target) => [target.instance, relative(options.projectDir, target.path)]),
+        );
+      }
+      if (livePending.size > 0) {
+        result.pendingTargets = database.pending.map((target) => ({
           target: target.target,
           rules: livePending.get(target.target)?.rules ?? null,
           instancesByProject: target.instancesByProject,
-        })),
-      }),
-    });
+        }));
+      }
+      return result;
+    };
+
     const storageBucketRules = (): Record<string, { rules: string; rulesHash: string }> => {
       const record: Record<string, { rules: string; rulesHash: string }> = {};
       for (const [bucket, loaded] of liveStorageBuckets) {
@@ -548,9 +278,19 @@ export async function createSandboxSession(
       }
       return record;
     };
+
     const payload = (): InitPayload => {
       const hasPersistedState = state?.exists() === true;
       const defaultDatabase = liveDatabase.get(database.defaultInstance) ?? null;
+      let instanceId: string | undefined;
+      if (options.hosted === true) {
+        instanceId = options.hostInstanceId?.();
+      }
+      let authUsers: Record<string, unknown>[] | null = seedUsers;
+      if (hasStateStore) {
+        const storedAuth = state.readSection('auth') as { users?: Record<string, unknown>[] } | null;
+        authUsers = storedAuth?.users ?? null;
+      }
       return {
         rules: live.rules,
         rulesHash: live.rulesHash,
@@ -568,16 +308,14 @@ export async function createSandboxSession(
         projectKey: options.projectDir,
         bridgeUrl: options.bridgeUrl?.() ?? null,
         hosted: options.hosted,
-        instanceId: options.hosted === true ? options.hostInstanceId?.() : undefined,
+        instanceId,
         persistenceUnhealthy: hostedPersistence?.status().state === 'unhealthy',
         seed: hasPersistedState ? null : seed,
         seedState,
         persist: Boolean(state),
         capture: Boolean(capture),
         sessionToken,
-        authUsers: hasStateStore
-          ? ((state.readSection('auth') as { users?: Record<string, unknown>[] } | null)?.users ?? null)
-          : seedUsers,
+        authUsers,
         messaging: true,
         ai: options.ai ?? null,
         avatars: Boolean(avatarsResolver),
@@ -587,6 +325,16 @@ export async function createSandboxSession(
     };
 
     const restoredCounts = restoredStateCounts(persisted);
+    let persistenceSummary: SandboxSessionSummary['persistence'] = null;
+    if (hasStateStore) {
+      persistenceSummary = {
+        path: state.path,
+        backupPath: state.backupPath,
+        ...restoredCounts,
+        restored: persisted !== null,
+        seedApplied,
+      };
+    }
     const summary: SandboxSessionSummary = {
       rules: {
         firestore: { sourcePath: firestore.sourcePath, hash: firestore.rulesHash },
@@ -602,15 +350,7 @@ export async function createSandboxSession(
           hash: loaded.rulesHash,
         })),
       },
-      persistence: hasStateStore
-        ? {
-            path: state.path,
-            backupPath: state.backupPath,
-            ...restoredCounts,
-            restored: persisted !== null,
-            seedApplied,
-          }
-        : null,
+      persistence: persistenceSummary,
       capturePath: capture?.path ?? null,
       seedLabel,
       seedStaged: Boolean((seed && !state?.exists()) || seedState || seedUsers),
@@ -618,9 +358,17 @@ export async function createSandboxSession(
     };
 
     const studio = options.studio;
-    const mountsStudio = !!studio;
-    const hostOwnsState = options.hosted === true;
-    const stateOwner = hostOwnsState ? 'host' : 'browser';
+    const mountsStudio = Boolean(studio);
+    let studioConfig: { workspace: ReturnType<typeof diskWorkspace>; projects: ReturnType<typeof diskProjectStore> } | undefined;
+    let siteUiDir: string | undefined;
+    if (mountsStudio && studio) {
+      studioConfig = {
+        workspace: diskWorkspace(options.projectDir),
+        projects: diskProjectStore(join(options.projectDir, '.pyric', 'projects')),
+      };
+      siteUiDir = studio.siteUiDir;
+    }
+    const stateOwner: 'host' | 'browser' = options.hosted === true ? 'host' : 'browser';
     const namespace = createPyricNamespace({
       boundHost: options.boundHost,
       allowedHosts: options.allowedHosts,
@@ -637,13 +385,8 @@ export async function createSandboxSession(
       capture,
       sessionToken,
       requireSessionToken: options.requireSessionToken,
-      studio: mountsStudio
-        ? {
-            workspace: diskWorkspace(options.projectDir),
-            projects: diskProjectStore(join(options.projectDir, '.pyric', 'projects')),
-          }
-        : undefined,
-      siteUiDir: mountsStudio ? studio.siteUiDir : undefined,
+      studio: studioConfig,
+      siteUiDir,
       workerVersion: options.sdk.workerVersion,
       avatars: avatarsResolver,
       aiProxyUpstream: options.aiProxyUpstream,
@@ -654,248 +397,22 @@ export async function createSandboxSession(
       logger: options.logger,
     });
 
-    // Module files the latest failed reload asked for. Watched with the
-    // last-good module files so fixing or creating one reloads.
-    let attemptedModuleFiles: readonly string[] = [];
-    const firestoreSourcePath = firestoreRulesPath(options.projectDir, options.firebaseConfig, options.project);
-    const reloadFirestoreRules = async (): Promise<RulesReloadResult> => {
-      const sourcePath = firestoreSourcePath;
-      // An array firebase.json that deploys no rules to (default) has no file to reload.
-      if (sourcePath === null) return { kind: 'not-configured' };
-      const isSourceMissing = !existsSync(sourcePath);
-      // A deleted source keeps the last-good rules. Without a rules file the
-      // sandbox runs its default rules, which the SharedWorker sets to a
-      // permissive starter ruleset, so a deletion does not open access
-      // mid-session.
-      const hasLoadedRules = live.rules !== null;
-      if (isSourceMissing && !hasLoadedRules) return { kind: 'not-configured' };
-      if (isSourceMissing) {
-        return { kind: 'rejected', error: new Error(`pyric sandbox: ${sourcePath} does not exist.`) };
-      }
-      try {
-        const raw = await readFile(sourcePath, 'utf8');
-        const { rules, moduleFiles } = prepareProjectRules(raw, sourcePath);
-        firestore.sourcePath = sourcePath;
-        firestore.moduleFiles = moduleFiles;
-        attemptedModuleFiles = [];
-        const rulesHash = rulesHashOf(rules);
-        await options.deployHostedRules?.('firestore', rules);
-        live.rules = rules;
-        live.rulesHash = rulesHash;
-        events.broadcast('rules-changed', { rules, rulesHash });
-        const fixtureCheck = await runProjectFixturesOnRulesReload({
-          projectDir: options.projectDir,
-          service: 'firestore',
-          firestoreRules: rules,
-        });
-        return { kind: 'reloaded', rulesHash, clients: events.clientCount(), fixtureCheck };
-      } catch (error) {
-        const isPrepareError = error instanceof RulesPrepareError;
-        attemptedModuleFiles = isPrepareError ? error.moduleFiles : [];
-        const isError = error instanceof Error;
-        const failure = isError ? error : new Error(String(error));
-        return { kind: 'rejected', error: failure };
-      }
-    };
-    const firestoreRulesFiles = (): readonly string[] => {
-      const sourceFiles = firestoreSourcePath === null ? [] : [firestoreSourcePath];
-      return [...new Set([...sourceFiles, ...firestore.moduleFiles, ...attemptedModuleFiles])];
-    };
-    const databaseRulesFiles = (): readonly string[] => [...new Set([...database.targets, ...database.pending].map((target) => target.path))];
-    // The Node host holds one store per instance, so each instance's rules
-    // deploy to that instance. Its startup rules arrive in the init payload.
-    const deployHostedDatabaseRules = async (instance: string, rules: RtdbRulesJson | null): Promise<void> => {
-      await options.deployHostedRules?.('database', rules === null ? null : JSON.stringify(rules), instance);
-    };
-    // Without a rules file, an instance's reads and writes follow the default
-    // policy: deny, as in production, unless the session is permissive.
-    const removeDatabaseInstanceRules = async (instance: string): Promise<RulesReloadResult> => {
-      const hasNoLoadedRules = (liveDatabase.get(instance) ?? null) === null;
-      if (hasNoLoadedRules) return { kind: 'not-configured' };
-      await deployHostedDatabaseRules(instance, null);
-      liveDatabase.set(instance, null);
-      const policy = options.permissive ? 'allow' : 'deny';
-      events.broadcast('rtdb-rules-update', { instance, rules: null, rulesHash: null, policy });
-      return { kind: 'removed', policy, clients: events.clientCount() };
-    };
-    const reloadDatabaseInstanceRules = async (target: DatabaseRulesTarget): Promise<RulesReloadResult> => {
-      const isSourceMissing = !existsSync(target.path);
-      if (isSourceMissing) return removeDatabaseInstanceRules(target.instance);
-      try {
-        const updated = await loadDatabaseInstanceRules(target);
-        if (updated === null) return removeDatabaseInstanceRules(target.instance);
-        await deployHostedDatabaseRules(target.instance, updated.rules);
-        liveDatabase.set(target.instance, { rules: updated.rules, rulesHash: updated.rulesHash });
-        events.broadcast('rtdb-rules-update', {
-          instance: target.instance,
-          rules: updated.rules,
-          rulesHash: updated.rulesHash,
-        });
-        const fixtureCheck = await runProjectFixturesOnRulesReload({
-          projectDir: options.projectDir,
-          service: 'rtdb',
-          rtdbRules: updated.rules,
-          rtdbInstance: target.instance === database.defaultInstance ? undefined : target.instance,
-        });
-        return { kind: 'reloaded', rulesHash: updated.rulesHash, clients: events.clientCount(), fixtureCheck };
-      } catch (error) {
-        const failure = error instanceof Error ? error : new Error(String(error));
-        return { kind: 'rejected', error: failure };
-      }
-    };
-    // An unresolved target's rules reach the sandbox by target name. The
-    // sandbox applies them to the target's instances once the app config
-    // names the project, and keeps them for that resolution until then.
-    const reloadPendingTargetRules = async (target: LoadedPendingDatabaseTarget): Promise<RulesReloadResult> => {
-      const destination = { target: target.target };
-      const isSourceMissing = !existsSync(target.path);
-      if (isSourceMissing) {
-        const hasNoLoadedRules = (livePending.get(target.target) ?? null) === null;
-        if (hasNoLoadedRules) return { kind: 'not-configured' };
-        await options.deployHostedRules?.('database', null, destination);
-        livePending.set(target.target, null);
-        const policy = options.permissive ? 'allow' : 'deny';
-        events.broadcast('rtdb-rules-update', { target: target.target, rules: null, rulesHash: null, policy });
-        return { kind: 'removed', policy, clients: events.clientCount() };
-      }
-      try {
-        const updated = await loadPendingDatabaseTargetRules(target);
-        await options.deployHostedRules?.('database', JSON.stringify(updated.rules), destination);
-        livePending.set(target.target, updated);
-        events.broadcast('rtdb-rules-update', { target: target.target, rules: updated.rules, rulesHash: updated.rulesHash });
-        return { kind: 'reloaded', rulesHash: updated.rulesHash, clients: events.clientCount() };
-      } catch (error) {
-        const failure = error instanceof Error ? error : new Error(String(error));
-        return { kind: 'rejected', error: failure };
-      }
-    };
-    const reloadDatabaseRules = async (file: string): Promise<DatabaseRulesReloadResult[]> => {
-      const changed = database.targets.filter((target) => target.path === file);
-      const results: DatabaseRulesReloadResult[] = [];
-      for (const target of changed) {
-        results.push({ instance: target.instance, file, result: await reloadDatabaseInstanceRules(target) });
-      }
-      for (const target of database.pending.filter((pending) => pending.path === file)) {
-        results.push({ instance: `deploy target "${target.target}"`, file, result: await reloadPendingTargetRules(target) });
-      }
-      return results;
-    };
-    const storageModuleFilesByTarget = new Map<StorageRulesTarget | PendingStorageRulesTarget, readonly string[]>();
-    const storageAttemptedModuleFilesByTarget = new Map<StorageRulesTarget | PendingStorageRulesTarget, readonly string[]>();
-    for (const target of storage.targets) {
-      const moduleFiles = target.bucket === null
-        ? storage.moduleFiles
-        : storage.buckets.get(target.bucket)?.moduleFiles ?? [];
-      storageModuleFilesByTarget.set(target, moduleFiles);
-    }
-    for (const target of storage.pending) {
-      storageModuleFilesByTarget.set(target, livePendingStorage.get(target.target)?.moduleFiles ?? []);
-    }
-    const storageSourceFiles = (): readonly string[] => [
-      ...new Set([...storage.targets.map((target) => target.path), ...storage.pending.map((target) => target.path)]),
-    ];
-    const storageRulesFiles = (): readonly string[] => {
-      const files: string[] = [];
-      for (const target of [...storage.targets, ...storage.pending]) {
-        files.push(target.path);
-        files.push(...(storageModuleFilesByTarget.get(target) ?? []));
-        files.push(...(storageAttemptedModuleFilesByTarget.get(target) ?? []));
-      }
-      return [...new Set(files)];
-    };
-    // Without a rules file, a bucket denies every client operation, as in
-    // production, and a deleted file returns its bucket to that state rather
-    // than keeping the last-good rules. In permissive mode that state is
-    // open, as an undeployed RTDB instance is (owner decision
-    // multi-resource-1 on #1313): the init payload's `permissive` flag sets
-    // the Storage sandbox's default policy on every served plane.
-    const storagePolicy = options.permissive ? 'allow' : 'deny';
-    const loadedStorageRules = (bucket: string | null): string | null => {
-      if (bucket === null) return live.storageRules;
-      return liveStorageBuckets.get(bucket)?.rules ?? null;
-    };
-    const setLiveStorageRules = (bucket: string | null, loaded: { rules: string; rulesHash: string } | null): void => {
-      if (bucket !== null) {
-        liveStorageBuckets.set(bucket, loaded);
-        return;
-      }
-      live.storageRules = loaded?.rules ?? null;
-      live.storageRulesHash = loaded?.rulesHash ?? null;
-    };
-    const reloadStorageBucketRules = async (target: StorageRulesTarget): Promise<RulesReloadResult> => {
-      const destination = target.bucket === null ? undefined : { bucket: target.bucket };
-      const named = target.bucket === null ? {} : { bucket: target.bucket };
-      if (!existsSync(target.path)) {
-        storageModuleFilesByTarget.set(target, []);
-        storageAttemptedModuleFilesByTarget.set(target, []);
-        if (loadedStorageRules(target.bucket) === null) return { kind: 'not-configured' };
-        await options.deployHostedRules?.('storage', null, destination);
-        setLiveStorageRules(target.bucket, null);
-        events.broadcast('storage-rules-update', { rules: null, rulesHash: null, policy: storagePolicy, ...named });
-        return { kind: 'removed', policy: storagePolicy, clients: events.clientCount() };
-      }
-      try {
-        const loaded = await loadStorageRulesTarget({ ...target, configured: true });
-        if (loaded === null) return { kind: 'not-configured' };
-        storageModuleFilesByTarget.set(target, loaded.moduleFiles);
-        storageAttemptedModuleFilesByTarget.set(target, []);
-        await options.deployHostedRules?.('storage', loaded.rules, destination);
-        setLiveStorageRules(target.bucket, loaded);
-        events.broadcast('storage-rules-update', { rules: loaded.rules, rulesHash: loaded.rulesHash, ...named });
-        return { kind: 'reloaded', rulesHash: loaded.rulesHash, clients: events.clientCount() };
-      } catch (error) {
-        storageAttemptedModuleFilesByTarget.set(
-          target,
-          error instanceof RulesPrepareError ? error.moduleFiles : [],
-        );
-        const failure = error instanceof Error ? error : new Error(String(error));
-        return { kind: 'rejected', error: failure };
-      }
-    };
-    // A pending target's rules reach its buckets once the page's app config
-    // resolves it; until then each plane keeps them for that resolution.
-    const reloadPendingStorageTarget = async (target: PendingStorageRulesTarget): Promise<RulesReloadResult> => {
-      const destination = { target: target.target };
-      try {
-        const loaded = await loadPendingStorageTarget(target);
-        const hadRules = livePendingStorage.get(target.target) != null;
-        storageModuleFilesByTarget.set(target, loaded?.moduleFiles ?? []);
-        storageAttemptedModuleFilesByTarget.set(target, []);
-        if (loaded === null && !hadRules) return { kind: 'not-configured' };
-        await options.deployHostedRules?.('storage', loaded?.rules ?? null, destination);
-        livePendingStorage.set(target.target, loaded);
-        events.broadcast('storage-rules-update', { rules: loaded?.rules ?? null, rulesHash: loaded?.rulesHash ?? null, policy: storagePolicy, ...destination });
-        if (loaded === null) return { kind: 'removed', policy: storagePolicy, clients: events.clientCount() };
-        return { kind: 'reloaded', rulesHash: loaded.rulesHash, clients: events.clientCount() };
-      } catch (error) {
-        storageAttemptedModuleFilesByTarget.set(
-          target,
-          error instanceof RulesPrepareError ? error.moduleFiles : [],
-        );
-        const failure = error instanceof Error ? error : new Error(String(error));
-        return { kind: 'rejected', error: failure };
-      }
-    };
-    const matchesStorageTargetFile = (
-      candidate: StorageRulesTarget | PendingStorageRulesTarget,
-      resolvedFile: string,
-    ): boolean => {
-      if (resolve(candidate.path) === resolvedFile) return true;
-      if ((storageModuleFilesByTarget.get(candidate) ?? []).some((m) => resolve(m) === resolvedFile)) return true;
-      if ((storageAttemptedModuleFilesByTarget.get(candidate) ?? []).some((m) => resolve(m) === resolvedFile)) return true;
-      return false;
-    };
-    const reloadStorageRules = async (file: string): Promise<StorageRulesReloadResult[]> => {
-      const resolvedFile = resolve(file);
-      const results: StorageRulesReloadResult[] = [];
-      for (const target of storage.targets.filter((candidate) => matchesStorageTargetFile(candidate, resolvedFile))) {
-        results.push({ bucket: target.bucket, file: target.path, result: await reloadStorageBucketRules(target) });
-      }
-      for (const target of storage.pending.filter((candidate) => matchesStorageTargetFile(candidate, resolvedFile))) {
-        results.push({ bucket: null, target: target.target, file: target.path, result: await reloadPendingStorageTarget(target) });
-      }
-      return results;
-    };
+    const reloaders = createSessionRulesReloaders({
+      projectDir: options.projectDir,
+      firebaseConfig: options.firebaseConfig,
+      project: options.project,
+      permissive: Boolean(options.permissive),
+      deployHostedRules: options.deployHostedRules,
+      events,
+      live,
+      firestore,
+      database,
+      storage,
+      liveDatabase,
+      livePending,
+      liveStorageBuckets,
+      livePendingStorage,
+    });
 
     let closePromise: Promise<void> | null = null;
     const close = (): Promise<void> => {
@@ -912,15 +429,9 @@ export async function createSandboxSession(
       summary,
       payload,
       async handle(req, res, url) {
-        return await flowTreatments.handle(req, res, url) || namespace(req, res, url);
+        return (await flowTreatments.handle(req, res, url)) || namespace(req, res, url);
       },
-      reloadFirestoreRules,
-      reloadDatabaseRules,
-      reloadStorageRules,
-      firestoreRulesFiles,
-      databaseRulesFiles,
-      storageRulesFiles,
-      storageSourceFiles,
+      ...reloaders,
       close,
     };
   } catch (error) {

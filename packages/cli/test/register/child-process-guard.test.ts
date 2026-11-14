@@ -7,6 +7,7 @@
  */
 import { afterEach, describe, expect, it } from 'bun:test';
 import {
+  clearPinnedInheritedVariables,
   guardChildEnv,
   guardEnvPairs,
   guardSpawnOptions,
@@ -14,6 +15,7 @@ import {
   installChildProcessGuard,
   isSandboxParent,
   loadsRegister,
+  pinInheritedVariables,
 } from '../../src/register/child-process-guard.js';
 
 /** The marks `activation.ts` sets when the sandbox register or the live register activates. */
@@ -259,6 +261,23 @@ describe('installChildProcessGuard', () => {
       const { spawned, executed } = childEnvs();
       expect(spawned.some((pair) => pair.startsWith('PYRIC_SANDBOX_FORCE='))).toBe(false);
       expect(executed.PYRIC_SANDBOX_FORCE).toBeUndefined();
+    });
+
+    it('overwrites caller-forged values for pinned inherited variables across child env and envPairs', () => {
+      const prevProject = process.env.PYRIC_PROJECT;
+      try {
+        pinInheritedVariables({ PYRIC_PROJECT: 'org-alpha' });
+        const env = guardChildEnv({ PYRIC_PROJECT: 'org-beta', GCLOUD_PROJECT: 'org-beta' }, PARENT, REGISTER_URL, false);
+        expect(env.PYRIC_PROJECT).toBe('org-alpha');
+        expect(env.GCLOUD_PROJECT).toBe('org-beta');
+        const pairs = guardEnvPairs(['PYRIC_PROJECT=org-beta', 'GCLOUD_PROJECT=org-beta'], PARENT, REGISTER_URL, false);
+        expect(pairs).toContain('PYRIC_PROJECT=org-alpha');
+        expect(pairs).toContain('GCLOUD_PROJECT=org-beta');
+      } finally {
+        clearPinnedInheritedVariables();
+        if (prevProject === undefined) delete process.env.PYRIC_PROJECT;
+        else process.env.PYRIC_PROJECT = prevProject;
+      }
     });
   });
 });

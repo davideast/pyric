@@ -41,6 +41,29 @@ const GUARDED = Symbol.for('pyric.guardedChildProcess');
 /** The variables that carry the sandbox to a child. */
 const SANDBOX_VARIABLE = /^PYRIC_/;
 
+/**
+ * Inviolable inherited variables pinned by the active register (for example,
+ * the live register's project root, SDK root, pass-through list, and resolved
+ * project id). Every child process and worker receives these exact values even
+ * if the caller supplies a custom `env` or mutates `process.env`.
+ */
+const pinnedVariables = new Map<string, string>();
+
+export function pinInheritedVariables(entries: Readonly<Record<string, string>>): void {
+  for (const [name, value] of Object.entries(entries)) {
+    process.env[name] = value;
+    pinnedVariables.set(name, value);
+  }
+}
+
+export function pinnedInheritedVariables(): ReadonlyMap<string, string> {
+  return pinnedVariables;
+}
+
+export function clearPinnedInheritedVariables(): void {
+  pinnedVariables.clear();
+}
+
 const TWO_TOKEN_PRELOAD_FLAGS = new Set(['--import', '--require', '-r']);
 const ATTACHED_PRELOAD_PREFIXES = ['--import=', '--require=', '-r='] as const;
 const PYRIC_REGISTER_PATH_RE =
@@ -312,6 +335,9 @@ export function withInheritedSandbox(env: Env, parentEnv: Env, parentActive: boo
   const guarded = withSandboxVariables(env, parentEnv);
   const forces = parentActive && !callerSetForce(env, parentEnv);
   if (forces) guarded.PYRIC_SANDBOX_FORCE = '1';
+  for (const [name, value] of pinnedVariables) {
+    guarded[name] = value;
+  }
   return guarded;
 }
 

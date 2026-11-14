@@ -18,7 +18,8 @@ import { tabCallRoute, runHostedMethod } from '../../src/serve/hosted/live-reads
 const SANDBOX_ANSWER = { ok: true, summary: 'answered from the sandbox' };
 
 function newBridge(live = true) {
-  return createBridge({ version: 'test', logger: createSilentLogger(), ...(live ? { tabRoute: tabCallRoute } : {}) });
+  if (live) return createBridge({ version: 'test', logger: createSilentLogger(), tabRoute: tabCallRoute });
+  return createBridge({ version: 'test', logger: createSilentLogger() });
 }
 
 /** The hosted runtime's place as the bridge's sandbox peer: it answers every call from the sandbox. */
@@ -33,8 +34,16 @@ function sandboxPeer(bridge: ReturnType<typeof newBridge>): string[] {
 }
 
 /** An agent on the host's `/__pyric/mcp` surface. */
-async function agentOn(bridge: ReturnType<typeof newBridge>) {
-  const server = buildMcpServer(bridge, getBridgeToolSurface({ projectDir: process.cwd() }));
+async function agentOn(bridge: ReturnType<typeof newBridge>, live = true) {
+  const mode = live ? 'live' : 'sandbox';
+  const server = buildMcpServer(bridge, {
+    ...getBridgeToolSurface({
+      projectDir: process.cwd(),
+      consumers: bridge.consumers,
+      callerIdentity: bridge.callerIdentity,
+    }),
+    mode,
+  });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   await server.connect(serverTransport);
   const agent = new Client({ name: 'live-reads-test', version: 'test' });
@@ -142,6 +151,8 @@ describe('live host reads', () => {
     expect(await callTool('firestore_simulator_read', { path: 'rooms/a' })).toContain('PYRIC_LIVE_REFUSED');
     expect(await callTool('sandbox_inspect', {})).toContain('PYRIC_LIVE_REFUSED');
     expect(await callTool('messaging_deliveries', {})).toContain('PYRIC_LIVE_REFUSED');
+    expect(await callTool('auth_whoami', {})).toContain('PYRIC_LIVE_REFUSED');
+    expect(await callTool('auth_sessions', {})).toContain('PYRIC_LIVE_REFUSED');
     expect(tab.received.map((frame) => frame.name)).toEqual(['firestore_get_document']);
     expect(asked).toEqual([]);
   });
@@ -149,8 +160,10 @@ describe('live host reads', () => {
   it('answers forwarded reads on /__pyric/mcp from the sandbox on a sandbox host', async () => {
     const bridge = newBridge(false);
     const asked = sandboxPeer(bridge);
-    const callTool = await agentOn(bridge);
+    const callTool = await agentOn(bridge, false);
     expect(await callTool('firestore_get_document', { path: 'rooms/a' })).toContain(SANDBOX_ANSWER.summary);
+    expect(await callTool('auth_whoami', {})).not.toContain('PYRIC_LIVE_REFUSED');
+    expect(await callTool('auth_sessions', {})).not.toContain('PYRIC_LIVE_REFUSED');
     expect(asked).toEqual(['firestore_get_document']);
   });
 

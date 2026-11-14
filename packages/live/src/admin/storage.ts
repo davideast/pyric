@@ -1,55 +1,60 @@
 /**
  * The Admin Storage row: patches the classes of the real
- * `@google-cloud/storage` that firebase-admin loads (`patch.ts`), so each
- * Admin call makes a record named `<Class>.<method>` with the bucket and
- * object name it touched, and production's code in the client SDK's spelling
- * (HTTP 404 is `storage/object-not-found`).
- *
- * Observed: `File` `save`, `createWriteStream`, `download`, `delete`, `exists`,
- * `getMetadata`, `setMetadata`, `copy` and `move`; `Bucket` `getFiles`,
- * `upload` and `deleteFiles`. A call the SDK makes inside another, as `exists`
- * reads the metadata, `save` opens `createWriteStream`, and `move` copies then
- * deletes, is part of the outer record.
- *
- * A call in the SDK's callback form (`file.download((error, bytes) => ...)`)
- * is recorded when it settles, and its callback gets the SDK's answer or the
- * gate's refusal.
+ * `@google-cloud/storage` that firebase-admin loads (`patch.ts`), so every
+ * Admin Storage RPC passes `AdminProjectGate` (and cross-project bucket,
+ * `HmacKey`, `userProject`, and per-call option checks) before any request and
+ * makes a record named `<Class>.<method>` with the bucket and object name it
+ * touched, and production's code in the client SDK's spelling.
  *
  * A record never carries an object's bytes.
  */
+import { EventEmitter } from 'node:events';
+import { createRequire } from 'node:module';
 import { basename } from 'node:path';
-import { PassThrough, Readable, Writable } from 'node:stream';
-import type { CallContext, LiveCallRecord, LiveObserver } from '../observe.js';
-import { liveProjectRefusal } from '../refusal.js';
-import { attachSessionData, type ObservedSessionDelta } from '../session-data.js';
+import type { CallContext, LiveObserver } from '../observe.js';
+import { liveAdminProjectRefusal } from '../refusal.js';
+import type { ObservedSessionDelta } from '../session-data.js';
 import {
-  isObservingAdminCall,
-  keepShape,
-  nodeCallbackOf,
+  markAdminMethodGated,
   patchAdminClass,
-  runInsideAdminCall,
   type AdminMethod,
   type AdminRow,
 } from './patch.js';
 import { failClosedGate, UNREAD_APP, type AdminApp, type AdminProjectGate } from './project-gate.js';
 import {
+  entryRequire,
+  gateInstanceStreamProperty,
+  gatePrototypeMethods,
+  patchObjectStreamMethod,
+  patchVoidUploadMethod,
+  withExportedClass,
+} from './prototype-gate.js';
+import {
+  assertStorageCallOptionsAllowed,
+  bucketProjectRefusal,
+  gateMakeAuthenticatedRequest,
+  hmacKeyProjectOf,
+  patchAdminStorageUtils,
+  patchSetUserProject,
+  patchStorageCallChecks,
+  userProjectOf,
+} from './storage-gates.js';
+import {
   adminStorageRejection,
   adminStorageResult,
   adminStorageSessionContext,
-  captureAdminWriteStreamDelta,
-  extractAdminWriteOptionsMetadata,
-  numericByteLengthOf,
 } from './storage-session-capture.js';
+import {
+  patchCreateReadStream,
+  patchCreateWriteStream,
+  type StorageStreamBase,
+} from './storage-streams.js';
 
 /** The module an Admin Storage record names: the load the row patches. */
 export const ADMIN_STORAGE_MODULE = '@google-cloud/storage';
 
-const WRITE_STREAM_PATCHED = Symbol.for('pyric.live.admin.storage.writeStream');
-const READ_STREAM_PATCHED = Symbol.for('pyric.live.admin.storage.readStream');
-const EXTRA_TARGETS_PATCHED = Symbol.for('pyric.live.admin.storage.extraTargets');
-const DEFAULT_BUCKET = /^(?:gs:\/\/)?([a-z0-9-]+)\.(?:appspot\.com|firebasestorage\.app)\/?$/i;
-
-/** The project a client holds until one is given or resolved (`nodejs-common/service.js`). */
+const SUBHANDLES_TRACKED = Symbol.for('pyric.live.admin.storage.subhandlesTracked');
+const ADMIN_WRAPPER_TRACKED = Symbol.for('pyric.live.admin.storage.adminWrapperTracked');
 const UNRESOLVED_PROJECT = '{{projectId}}';
 
 /** HTTP statuses in the client SDK's spelling. */
@@ -61,6 +66,26 @@ const HTTP_CODES: ReadonlyMap<number, string> = new Map([
   [429, 'storage/quota-exceeded'],
 ]);
 
+const LOCAL_METHODS: Readonly<Record<string, ReadonlySet<string>>> = {
+  Service: new Set(['getRequestInterceptors', 'getProjectId', 'getProjectIdAsync']),
+  ServiceObject: new Set(['getRequestInterceptors']),
+  Storage: new Set(['bucket', 'channel', 'hmacKey']),
+  Bucket: new Set(['file', 'notification', 'getId', 'disableAutoRetryConditionallyIdempotent_']),
+  File: new Set([
+    'shouldRetryBasedOnPreconditionAndIdempotencyStrat', 'setEncryptionKey',
+    'publicUrl', 'disableAutoRetryConditionallyIdempotent_', 'getBufferFromReadable',
+  ]),
+  Acl: new Set(['makeAclObject_']),
+  Iam: new Set(),
+  HmacKey: new Set(),
+  Channel: new Set(),
+  Notification: new Set(),
+  TransferManager: new Set(['getPathsFromDirectory']),
+};
+
+const ownerBySubHandle = new WeakMap<object, object>();
+const firebaseAppByClient = new WeakMap<object, object>();
+
 function isObject(value: unknown): value is object {
   return typeof value === 'object' && value !== null;
 }
@@ -68,8 +93,7 @@ function isObject(value: unknown): value is object {
 function stringAt(subject: unknown, field: string): string | undefined {
   if (!isObject(subject)) return undefined;
   const value: unknown = Reflect.get(subject, field);
-  if (typeof value === 'string') return value;
-  return undefined;
+  return typeof value === 'string' ? value : undefined;
 }
 
 /** A failure's code: an HTTP status in the client SDK's spelling, else its string `code`, else its name. */
@@ -80,24 +104,72 @@ function adminCodeOf(error: unknown): string {
   return stringAt(error, 'name') ?? 'unknown';
 }
 
-/** The bucket a file or bucket belongs to: a file's `bucket`, or the bucket itself. */
-function bucketOf(self: unknown): unknown {
-  const owner: unknown = isObject(self) ? Reflect.get(self, 'bucket') : undefined;
-  if (isObject(owner)) return owner;
-  return self;
+function isStorageClient(value: unknown): value is object {
+  if (!isObject(value)) return false;
+  if (typeof Reflect.get(value, 'getBuckets') === 'function' || 'authClient' in value) {
+    return true;
+  }
+  if (isObject(Reflect.get(value, 'storage')) || isObject(Reflect.get(value, 'bucket'))) {
+    return false;
+  }
+  return (
+    typeof Reflect.get(value, 'projectId') === 'string' ||
+    typeof Reflect.get(value, 'getProjectId') === 'function'
+  );
 }
 
-/** The `@google-cloud/storage` client a file or bucket belongs to. */
-function clientOf(self: unknown): unknown {
-  const bucket = bucketOf(self);
-  if (!isObject(bucket)) return undefined;
-  return Reflect.get(bucket, 'storage');
+function isBucketInstance(value: unknown): value is object {
+  if (!isObject(value) || isObject(Reflect.get(value, 'bucket'))) return false;
+  return isStorageClient(Reflect.get(value, 'storage')) && typeof Reflect.get(value, 'name') === 'string';
 }
 
-/** The project the client was given or has resolved, without asking it to resolve one. */
+function resolveOwner(self: unknown): unknown {
+  let current: unknown = self;
+  while (isObject(current) && ownerBySubHandle.has(current)) {
+    current = ownerBySubHandle.get(current);
+  }
+  return current;
+}
+
+/** The bucket a handle belongs to, or `undefined` for client-level handles (`Storage`, `Channel`, `HmacKey`). */
+function bucketOf(self: unknown): object | undefined {
+  const target = resolveOwner(self);
+  if (!isObject(target) || isStorageClient(target)) return undefined;
+  if (isBucketInstance(target)) return target;
+  const directBucket: unknown = Reflect.get(target, 'bucket');
+  if (isBucketInstance(directBucket)) return directBucket;
+  const parent: unknown = Reflect.get(target, 'parent');
+  if (isBucketInstance(parent)) return parent;
+  return undefined;
+}
+
+/** The `@google-cloud/storage` `Storage` client any Storage handle belongs to. */
+function clientOf(self: unknown): object | undefined {
+  const target = resolveOwner(self);
+  if (!isObject(target)) return undefined;
+  if (isStorageClient(target)) return target;
+  const directStorage: unknown = Reflect.get(target, 'storage');
+  if (isStorageClient(directStorage)) return directStorage;
+  const bucket = bucketOf(target);
+  if (bucket !== undefined) {
+    const bucketStorage: unknown = Reflect.get(bucket, 'storage');
+    if (isStorageClient(bucketStorage)) return bucketStorage;
+  }
+  const parent: unknown = Reflect.get(target, 'parent');
+  if (isStorageClient(parent)) return parent;
+  return undefined;
+}
+
+/** The project the client or its owning `firebase-admin` `App` was given, without asking ADC to resolve one. */
 function projectIdOf(client: unknown): string | undefined {
+  if (isObject(client)) {
+    const firebaseApp = firebaseAppByClient.get(client);
+    const appOptions: unknown = isObject(firebaseApp) ? Reflect.get(firebaseApp, 'options') : undefined;
+    const appProjectId = stringAt(appOptions, 'projectId');
+    if (appProjectId !== undefined && appProjectId !== '') return appProjectId;
+  }
   const projectId = stringAt(client, 'projectId');
-  if (projectId === UNRESOLVED_PROJECT) return undefined;
+  if (projectId === UNRESOLVED_PROJECT || projectId === '') return undefined;
   return projectId;
 }
 
@@ -112,31 +184,42 @@ function uploadName(args: readonly unknown[]): string | undefined {
   return undefined;
 }
 
-/** The object a call names: a file's own name, or the one an upload writes. None for the other bucket calls. */
+/** The object a call names: a file's own name, or the one an upload writes. */
 function pathOf(name: string, args: readonly unknown[], self: unknown): string | undefined {
   if (name === 'upload') return uploadName(args);
-  const isFile = bucketOf(self) !== self;
+  const isFile = isObject(self) && isBucketInstance(Reflect.get(self, 'bucket'));
   if (!isFile) return undefined;
   return stringAt(self, 'name');
 }
 
-/** One call's context, read off the SDK's own objects: its project, bucket and object name. */
-function contextOf(name: string, args: readonly unknown[], self: unknown): CallContext {
+function streamBaseOf(methodName: string, args: readonly unknown[], self: unknown): StorageStreamBase {
   const projectId = projectIdOf(clientOf(self));
   const bucket = stringAt(bucketOf(self), 'name');
-  const path = pathOf(name, args, self);
-  const session = adminStorageSessionContext(name, bucket, path, args, self);
+  const path = pathOf(methodName, args, self);
+  const base: StorageStreamBase = {};
+  if (projectId !== undefined) base.projectId = projectId;
+  if (bucket !== undefined) base.bucket = bucket;
+  if (path !== undefined) base.path = path;
+  return base;
+}
+
+function contextOf(name: string, args: readonly unknown[], self: unknown): CallContext {
+  const base = streamBaseOf(name, args, self);
+  const session = adminStorageSessionContext(name, base.bucket, base.path, args, self);
   const context: {
     projectId?: string;
     bucket?: string;
     path?: string;
     sessionData?: ObservedSessionDelta;
-  } = {};
-  if (projectId !== undefined) context.projectId = projectId;
-  if (bucket !== undefined) context.bucket = bucket;
-  if (path !== undefined) context.path = path;
+  } = { ...base };
   if (session.sessionData !== undefined) context.sessionData = session.sessionData;
   return context;
+}
+
+function streamContextOf(fullName: string, args: readonly unknown[], self: unknown): CallContext {
+  const dot = fullName.indexOf('.');
+  const method = dot === -1 ? fullName : fullName.slice(dot + 1);
+  return streamBaseOf(method, args, self);
 }
 
 function calls(...names: string[]): AdminMethod[] {
@@ -151,86 +234,46 @@ function calls(...names: string[]): AdminMethod[] {
   }));
 }
 
-/** The classes the row patches and the methods of each. */
-const CLASSES: readonly { readonly className: string; readonly methods: readonly AdminMethod[] }[] = [
+const FILE_INHERITED = ['delete', 'exists', 'get', 'getMetadata', 'setMetadata'] as const;
+const BUCKET_INHERITED = ['create', 'delete', 'exists', 'get', 'getMetadata', 'setMetadata'] as const;
+
+const CLASSES: readonly {
+  readonly className: string;
+  readonly inherited: readonly string[];
+  readonly extraTargetMethods: ReadonlySet<string>;
+  readonly methods: readonly AdminMethod[];
+}[] = [
   {
     className: 'File',
+    inherited: FILE_INHERITED,
+    extraTargetMethods: new Set(['copy', 'move', 'moveFileAtomic', 'rename']),
     methods: calls(
-      'save',
-      'download',
-      'delete',
-      'exists',
-      'getMetadata',
-      'setMetadata',
-      'copy',
-      'move',
-      'moveFileAtomic',
-      'rename',
-      'createResumableUpload',
-      'makePublic',
-      'makePrivate',
-      'isPublic',
-      'restore',
+      'save', 'download', 'delete', 'exists', 'get', 'getMetadata', 'setMetadata',
+      'copy', 'move', 'moveFileAtomic', 'rename', 'createResumableUpload',
+      'makePublic', 'makePrivate', 'isPublic', 'restore',
     ),
   },
   {
     className: 'Bucket',
-    methods: calls('getFiles', 'upload', 'deleteFiles', 'combine', 'delete', 'exists', 'getMetadata', 'setMetadata'),
+    inherited: BUCKET_INHERITED,
+    extraTargetMethods: new Set(['combine']),
+    methods: calls(
+      'getFiles', 'upload', 'deleteFiles', 'combine', 'create', 'delete', 'exists',
+      'get', 'getMetadata', 'setMetadata', 'makePublic', 'makePrivate', 'restore',
+      'createNotification', 'getNotifications', 'createChannel',
+    ),
+  },
+  {
+    className: 'Storage',
+    inherited: [],
+    extraTargetMethods: new Set(['createBucket']),
+    methods: calls('createBucket', 'getBuckets', 'createHmacKey', 'getHmacKeys', 'getServiceAccount'),
   },
 ];
 
-function bucketProjectRefusal(
-  callName: string,
-  bucketName: string | undefined,
-  observer: LiveObserver,
-): Error | null {
-  const hostProjectId = observer.hostProjectId;
-  if (hostProjectId === undefined || bucketName === undefined) return null;
-  const matched = DEFAULT_BUCKET.exec(bucketName.trim())?.[1]?.toLowerCase();
-  if (matched === undefined || matched === hostProjectId) return null;
-  return liveProjectRefusal(
-    callName,
-    { field: 'bucket', appProjectId: matched, hostProjectId },
-    observer.client ?? 'node',
-  );
-}
-
 function isStorageEntity(value: unknown): boolean {
   if (!isObject(value)) return false;
-  return isObject(Reflect.get(value, 'bucket')) || isObject(Reflect.get(value, 'storage'));
-}
-
-function targetBucketName(target: unknown): string | undefined {
-  if (typeof target === 'string') {
-    if (!target.startsWith('gs://')) return undefined;
-    const rest = target.slice('gs://'.length);
-    const slash = rest.indexOf('/');
-    return slash === -1 ? rest : rest.slice(0, slash);
-  }
-  if (isStorageEntity(target)) {
-    return stringAt(bucketOf(target), 'name');
-  }
-  return undefined;
-}
-
-async function checkExtraStorageTargets(
-  className: string,
-  methodName: string,
-  args: readonly unknown[],
-  adminRow: AdminRow,
-): Promise<void> {
-  const callName = `${className}.${methodName}`;
-  const targets =
-    className === 'Bucket' && methodName === 'combine'
-      ? [...(Array.isArray(args[0]) ? args[0] : []), args[1]]
-      : [args[0]];
-  for (const target of targets) {
-    const refusal = bucketProjectRefusal(callName, targetBucketName(target), adminRow.observer);
-    if (refusal !== null) throw refusal;
-    if (isStorageEntity(target)) {
-      await adminRow.gate(adminRow.appOf(target), () => undefined);
-    }
-  }
+  return isBucketInstance(value) || isBucketInstance(Reflect.get(value, 'bucket'));
 }
 
 /** Where the records go and which gate the calls pass. */
@@ -239,385 +282,130 @@ export interface AdminStorageRow {
   readonly gate: AdminProjectGate;
 }
 
-/** Each client's stand-in Admin app, as the gate reads it. */
-const apps = new WeakMap<object, AdminApp>();
+type StorageAdminApp = AdminApp & {
+  readonly clientApp: AdminApp;
+  readonly bucketName?: string;
+  readonly overrideProjectId?: string;
+  readonly userProject?: string;
+};
 
-/**
- * The Admin app a call belongs to, for the gate. firebase-admin gives
- * `@google-cloud/storage` a project only with a `cert()` credential. A
- * client with none, such as one on application default credentials, gets a
- * credential that runs the client's own `getProjectId` (its auth client's
- * lookup), which sends no Storage request.
- */
-function appOf(self: unknown): AdminApp {
-  const client = clientOf(self);
-  if (!isObject(client)) return UNREAD_APP;
-  const known = apps.get(client);
+const clientApps = new WeakMap<object, AdminApp>();
+
+function clientAppOf(client: object): AdminApp {
+  const known = clientApps.get(client);
   if (known !== undefined) return known;
+  const firebaseApp = firebaseAppByClient.get(client);
+  const appOptions: unknown = isObject(firebaseApp) ? Reflect.get(firebaseApp, 'options') : undefined;
+  const appCred: unknown = isObject(appOptions) ? Reflect.get(appOptions, 'credential') : undefined;
+  const hasAppCred =
+    isObject(appCred) &&
+    (typeof Reflect.get(appCred, 'projectId') === 'string' ||
+      typeof Reflect.get(appCred, 'getProjectId') === 'function');
   const projectId = projectIdOf(client);
-  const credential = {
+  const clientCredential = {
     getProjectId: () =>
       Promise.resolve(Reflect.apply(Reflect.get(client, 'getProjectId') as () => unknown, client, [])),
   };
-  let appOptions: AdminApp['options'];
-  if (projectId === undefined) {
-    appOptions = { credential };
+  let options: AdminApp['options'];
+  if (projectId !== undefined) {
+    options = { projectId };
+  } else if (hasAppCred) {
+    options = { credential: appCred as object };
   } else {
-    appOptions = { projectId };
+    options = { credential: clientCredential };
   }
-  const app: AdminApp = { options: appOptions };
-  apps.set(client, app);
+  const app: AdminApp = { options };
+  clientApps.set(client, app);
   return app;
 }
 
-function emitStreamRecord(
-  observer: LiveObserver,
-  name: 'File.createWriteStream' | 'File.createReadStream',
-  base: { projectId?: string; bucket?: string; path?: string },
-  outcome: 'resolved' | 'rejected',
-  usage: { uploadedBytes: number } | { downloadedBytes: number } | undefined,
-  sessionData: ObservedSessionDelta | undefined,
-  error?: unknown,
-): void {
-  const record: {
-    module: string;
-    sdk: 'admin';
-    name: string;
-    outcome: 'resolved' | 'rejected';
-    projectId?: string;
-    bucket?: string;
-    path?: string;
-    code?: string;
-    usage?: { uploadedBytes?: number; downloadedBytes?: number };
-  } = {
-    module: ADMIN_STORAGE_MODULE,
-    sdk: 'admin',
-    name,
-    outcome,
+function appOf(self: unknown): AdminApp {
+  const client = clientOf(self);
+  if (!isObject(client)) return UNREAD_APP;
+  const clientApp = clientAppOf(client);
+  const bucket = bucketOf(self);
+  const bucketName = stringAt(bucket, 'name');
+  const overrideProjectId = hmacKeyProjectOf(self);
+  const userProject = userProjectOf(resolveOwner(self), bucket);
+  if (bucketName === undefined && overrideProjectId === undefined && userProject === undefined) {
+    return clientApp;
+  }
+  const scoped: StorageAdminApp = {
+    options: clientApp.options,
+    clientApp,
+    bucketName,
+    overrideProjectId,
+    userProject,
   };
-  if (base.projectId !== undefined) record.projectId = base.projectId;
-  if (base.bucket !== undefined) record.bucket = base.bucket;
-  if (base.path !== undefined) record.path = base.path;
-  if (outcome === 'resolved') {
-    if (usage !== undefined) record.usage = usage;
-  } else {
-    record.code = adminCodeOf(error);
-  }
-  const finalized = record as LiveCallRecord;
-  if (outcome === 'resolved') {
-    attachSessionData(finalized, sessionData);
-  }
+  return scoped;
+}
+
+function trackAdminStorageWrapper(requiredBy: string | undefined): void {
   try {
-    observer(finalized);
-  } catch {
-    // Observer failures never alter stream settlement.
-  }
-}
-
-const STANDARD_WRITABLE_EVENTS: ReadonlySet<string | symbol> = new Set([
-  'close',
-  'drain',
-  'error',
-  'finish',
-  'newListener',
-  'pipe',
-  'prefinish',
-  'removeListener',
-  'unpipe',
-]);
-
-function patchCreateWriteStream(prototype: object | undefined, adminRow: AdminRow): void {
-  if (prototype === undefined || Object.hasOwn(prototype, WRITE_STREAM_PATCHED)) return;
-  const descriptor = Object.getOwnPropertyDescriptor(prototype, 'createWriteStream');
-  const real = descriptor?.value as unknown;
-  if (typeof real !== 'function') return;
-  const realFn = real as (this: unknown, ...args: unknown[]) => Writable;
-
-  const wrapped = keepShape(function adminCreateWriteStream(this: unknown, ...args: unknown[]): unknown {
-    if (isObservingAdminCall()) {
-      return Reflect.apply(realFn, this, args);
-    }
-    const self = this;
-    const projectId = projectIdOf(clientOf(self));
-    const bucket = stringAt(bucketOf(self), 'name');
-    const path = pathOf('createWriteStream', args, self);
-    const optionsMeta = extractAdminWriteOptionsMetadata(args[0]);
-    const base: { projectId?: string; bucket?: string; path?: string } = {};
-    if (projectId !== undefined) base.projectId = projectId;
-    if (bucket !== undefined) base.bucket = bucket;
-    if (path !== undefined) base.path = path;
-
-    let writtenBytes = 0;
-    let reachedSdk = false;
-    let settled = false;
-    let underlying: Writable | undefined;
-    const wantedCustomEvents = new Set<string | symbol>(['response']);
-    const bridgedCustomEvents = new Set<string | symbol>();
-
-    const recordOnce = (outcome: 'resolved' | 'rejected', error?: unknown): void => {
-      if (settled) return;
-      settled = true;
-      if (outcome === 'rejected' && !reachedSdk) return;
-      let delta: ObservedSessionDelta | undefined;
-      if (outcome === 'resolved') {
-        delta = captureAdminWriteStreamDelta(bucket, path, self, writtenBytes, optionsMeta);
-      }
-      emitStreamRecord(
-        adminRow.observer,
-        'File.createWriteStream',
-        base,
-        outcome,
-        { uploadedBytes: writtenBytes },
-        delta,
-        error,
-      );
-    };
-
-    const toError = (err: unknown): Error => {
-      if (err instanceof Error) return err;
-      return new Error(String(err));
-    };
-
-    const proxy: Writable = new Writable({
-      write(chunk: unknown, encoding: BufferEncoding, callback: (error?: Error | null) => void) {
-        const chunkLen = numericByteLengthOf(chunk);
-        if (chunkLen !== undefined) writtenBytes += chunkLen;
-        ensureUnderlying()
-          .then((target) => {
-            target.write(chunk, encoding, callback);
-          })
-          .catch((err: unknown) => {
-            callback(toError(err));
-          });
-      },
-      final(callback: (error?: Error | null) => void) {
-        ensureUnderlying()
-          .then((target) => {
-            const onFinish = (): void => {
-              target.removeListener('error', onError);
-              recordOnce('resolved');
-              callback();
-            };
-            const onError = (err: unknown): void => {
-              target.removeListener('finish', onFinish);
-              recordOnce('rejected', err);
-              callback(toError(err));
-            };
-            target.once('finish', onFinish);
-            target.once('error', onError);
-            target.end();
-          })
-          .catch((err: unknown) => {
-            callback(toError(err));
-          });
-      },
-      destroy(error: Error | null, callback: (error: Error | null) => void) {
-        if (error !== null) recordOnce('rejected', error);
-        if (underlying !== undefined && !underlying.destroyed) {
-          underlying.destroy(error ?? undefined);
-        }
-        callback(error);
-      },
-    });
-
-    function bridgeCustomEvent(target: Writable, event: string | symbol): void {
-      if (bridgedCustomEvents.has(event)) return;
-      bridgedCustomEvents.add(event);
-      target.on(event, (...eventArgs: unknown[]) => {
-        proxy.emit(event, ...eventArgs);
-      });
-    }
-
-    proxy.on('newListener', (event: string | symbol) => {
-      if (STANDARD_WRITABLE_EVENTS.has(event)) return;
-      wantedCustomEvents.add(event);
-      if (underlying !== undefined) {
-        bridgeCustomEvent(underlying, event);
-      }
-    });
-
-    let openPromise: Promise<Writable> | undefined;
-    function ensureUnderlying(): Promise<Writable> {
-      if (openPromise !== undefined) return openPromise;
-      openPromise = adminRow.gate(adminRow.appOf(self), () => {
-        const refusal = bucketProjectRefusal('File.createWriteStream', bucket, adminRow.observer);
-        if (refusal !== null) throw refusal;
-        return runInsideAdminCall(() => {
-          const created = Reflect.apply(realFn, self, args);
-          reachedSdk = true;
-          underlying = created;
-          for (const event of wantedCustomEvents) {
-            bridgeCustomEvent(created, event);
+    const adminStorageIndex = requiredBy ?? createRequire(import.meta.url).resolve('firebase-admin/storage');
+    const wrapperMod: unknown = entryRequire(adminStorageIndex)('./storage');
+    withExportedClass(wrapperMod, 'Storage', (wrapperCtor) => {
+      const proto: unknown = Reflect.get(wrapperCtor, 'prototype');
+      if (!isObject(proto) || Object.hasOwn(proto, ADMIN_WRAPPER_TRACKED)) return;
+      const appsByWrapper = new WeakMap<object, unknown>();
+      Object.defineProperty(proto, 'appInternal', {
+        configurable: true,
+        enumerable: true,
+        get(this: unknown): unknown {
+          return isObject(this) ? appsByWrapper.get(this) : undefined;
+        },
+        set(this: unknown, app: unknown): void {
+          if (!isObject(this)) return;
+          appsByWrapper.set(this, app);
+          const client: unknown = Reflect.get(this, 'storageClient');
+          if (isObject(client) && isObject(app)) {
+            firebaseAppByClient.set(client, app);
+            clientApps.delete(client);
           }
-          created.on('error', (err: unknown) => {
-            recordOnce('rejected', err);
-            if (!proxy.destroyed) {
-              proxy.destroy(toError(err));
-            }
-          });
-          return created;
-        });
+        },
       });
-      return openPromise;
-    }
-
-    // Trigger gate check immediately so project refusals surface even on empty streams.
-    ensureUnderlying().catch((err: unknown) => {
-      if (!proxy.destroyed) {
-        proxy.destroy(toError(err));
-      }
+      Object.defineProperty(proto, ADMIN_WRAPPER_TRACKED, { value: true });
     });
-
-    return proxy;
-  }, real as (this: unknown, ...args: unknown[]) => unknown);
-
-  Object.defineProperty(prototype, 'createWriteStream', { ...descriptor, value: wrapped });
-  Object.defineProperty(prototype, WRITE_STREAM_PATCHED, { value: true });
-}
-
-function patchCreateReadStream(prototype: object | undefined, adminRow: AdminRow): void {
-  if (prototype === undefined || Object.hasOwn(prototype, READ_STREAM_PATCHED)) return;
-  const descriptor = Object.getOwnPropertyDescriptor(prototype, 'createReadStream');
-  const real = descriptor?.value as unknown;
-  if (typeof real !== 'function') return;
-  const realFn = real as (this: unknown, ...args: unknown[]) => Readable;
-
-  const wrapped = keepShape(function adminCreateReadStream(this: unknown, ...args: unknown[]): unknown {
-    if (isObservingAdminCall()) {
-      return Reflect.apply(realFn, this, args);
-    }
-    const self = this;
-    const projectId = projectIdOf(clientOf(self));
-    const bucket = stringAt(bucketOf(self), 'name');
-    const path = pathOf('createReadStream', args, self);
-    const base: { projectId?: string; bucket?: string; path?: string } = {};
-    if (projectId !== undefined) base.projectId = projectId;
-    if (bucket !== undefined) base.bucket = bucket;
-    if (path !== undefined) base.path = path;
-
-    let downloadedBytes = 0;
-    let reachedSdk = false;
-    let settled = false;
-    let underlying: Readable | undefined;
-
-    const toError = (err: unknown): Error => {
-      if (err instanceof Error) return err;
-      return new Error(String(err));
-    };
-
-    const recordOnce = (outcome: 'resolved' | 'rejected', error?: unknown): void => {
-      if (settled) return;
-      settled = true;
-      if (outcome === 'rejected' && !reachedSdk) return;
-      emitStreamRecord(
-        adminRow.observer,
-        'File.createReadStream',
-        base,
-        outcome,
-        { downloadedBytes },
-        undefined,
-        error,
-      );
-    };
-
-    const proxy = new PassThrough();
-    proxy.on('close', () => {
-      if (underlying !== undefined && !underlying.destroyed) {
-        underlying.destroy();
-      }
-    });
-
-    adminRow
-      .gate(adminRow.appOf(self), () => {
-        const refusal = bucketProjectRefusal('File.createReadStream', bucket, adminRow.observer);
-        if (refusal !== null) throw refusal;
-        if (proxy.destroyed) return undefined;
-        return runInsideAdminCall(() => {
-          const created = Reflect.apply(realFn, self, args);
-          reachedSdk = true;
-          underlying = created;
-          created.on('response', (...eventArgs: unknown[]) => {
-            proxy.emit('response', ...eventArgs);
-          });
-          created.on('data', (chunk: unknown) => {
-            const chunkLen = numericByteLengthOf(chunk);
-            if (chunkLen !== undefined) downloadedBytes += chunkLen;
-          });
-          created.on('end', () => {
-            recordOnce('resolved');
-          });
-          created.on('error', (err: unknown) => {
-            recordOnce('rejected', err);
-            if (!proxy.destroyed) {
-              proxy.destroy(toError(err));
-            }
-          });
-          created.pipe(proxy);
-          return created;
-        });
-      })
-      .catch((err: unknown) => {
-        if (!proxy.destroyed) {
-          proxy.destroy(toError(err));
-        }
-      });
-
-    return proxy;
-  }, real as (this: unknown, ...args: unknown[]) => unknown);
-
-  Object.defineProperty(prototype, 'createReadStream', { ...descriptor, value: wrapped });
-  Object.defineProperty(prototype, READ_STREAM_PATCHED, { value: true });
-}
-
-function patchExtraStorageTargets(
-  prototype: object | undefined,
-  className: string,
-  methodNames: readonly string[],
-  adminRow: AdminRow,
-): void {
-  if (prototype === undefined || Object.hasOwn(prototype, EXTRA_TARGETS_PATCHED)) return;
-  for (const methodName of methodNames) {
-    const descriptor = Object.getOwnPropertyDescriptor(prototype, methodName);
-    const patched = descriptor?.value as unknown;
-    if (typeof patched !== 'function') continue;
-    const patchedFn = patched as (this: unknown, ...args: unknown[]) => unknown;
-    const guarded = keepShape(function adminExtraTargetsCall(this: unknown, ...args: unknown[]): unknown {
-      if (isObservingAdminCall()) {
-        return Reflect.apply(patchedFn, this, args);
-      }
-      const cb = nodeCallbackOf(args);
-      if (cb !== undefined) {
-        const pending = checkExtraStorageTargets(className, methodName, cb.before, adminRow).then(() =>
-          Reflect.apply(patchedFn, this, cb.before),
-        );
-        pending.then(
-          (value: unknown) => {
-            let results: unknown[] = [];
-            if (Array.isArray(value)) results = value;
-            else if (value !== undefined) results = [value];
-            process.nextTick(() => Reflect.apply(cb.callback, undefined, [null, ...results]));
-          },
-          (error: unknown) => {
-            process.nextTick(() => Reflect.apply(cb.callback, undefined, [error]));
-          },
-        );
-        return undefined;
-      }
-      return checkExtraStorageTargets(className, methodName, args, adminRow).then(() =>
-        Reflect.apply(patchedFn, this, args),
-      );
-    }, patchedFn);
-    Object.defineProperty(prototype, methodName, { ...descriptor, value: guarded });
+  } catch {
+    // Standalone `@google-cloud/storage` without `firebase-admin/storage` needs no wrapper link.
   }
-  Object.defineProperty(prototype, EXTRA_TARGETS_PATCHED, { value: true });
 }
 
-/**
- * Gives `prototype` its own copy of each of `names` it inherits, so the
- * patcher, which leaves inherited methods alone, wraps it for this class
- * only. `File` inherits `exists` and `getMetadata` from `ServiceObject`,
- * which `Bucket` and the other classes share.
- */
+function trackSubHandleProperties(prototype: object | undefined, fields: readonly string[]): void {
+  if (prototype === undefined || Object.hasOwn(prototype, SUBHANDLES_TRACKED)) return;
+  for (const field of fields) {
+    const store = new WeakMap<object, unknown>();
+    const bindSub = (owner: object, sub: unknown): void => {
+      if (!isObject(sub)) return;
+      ownerBySubHandle.set(sub, owner);
+      const reqFn: unknown = Reflect.get(sub, 'request_');
+      if (typeof reqFn === 'function') markAdminMethodGated(reqFn);
+      const defaultAcl: unknown = Reflect.get(sub, 'default');
+      if (isObject(defaultAcl)) {
+        ownerBySubHandle.set(defaultAcl, owner);
+        const defaultReq: unknown = Reflect.get(defaultAcl, 'request_');
+        if (typeof defaultReq === 'function') markAdminMethodGated(defaultReq);
+      }
+    };
+    Object.defineProperty(prototype, field, {
+      configurable: true,
+      enumerable: true,
+      get(this: unknown): unknown {
+        if (!isObject(this)) return undefined;
+        const val = store.get(this);
+        bindSub(this, val);
+        return val;
+      },
+      set(this: unknown, val: unknown): void {
+        if (!isObject(this)) return;
+        store.set(this, val);
+        bindSub(this, val);
+      },
+    });
+  }
+  Object.defineProperty(prototype, SUBHANDLES_TRACKED, { value: true });
+}
+
 function ownInherited(prototype: object, names: readonly string[]): void {
   for (const name of names) {
     const inherited: unknown = Reflect.get(prototype, name);
@@ -628,32 +416,132 @@ function ownInherited(prototype: object, names: readonly string[]): void {
   }
 }
 
+function parentSdkPrototypeOf(prototype: object | undefined): object | undefined {
+  if (prototype === undefined) return undefined;
+  const parent: unknown = Object.getPrototypeOf(prototype);
+  if (!isObject(parent) || parent === Object.prototype || parent === EventEmitter.prototype) return undefined;
+  return parent;
+}
+
 function prototypeOf(sdk: unknown, className: string): object | undefined {
   const isModule = isObject(sdk) || typeof sdk === 'function';
   if (!isModule) return undefined;
   const defined: unknown = Reflect.get(sdk, className);
   if (typeof defined !== 'function') return undefined;
   const prototype: unknown = Reflect.get(defined, 'prototype');
-  if (!isObject(prototype)) return undefined;
-  return prototype;
+  return isObject(prototype) ? prototype : undefined;
+}
+
+function aclPrototypeOf(entryFile: string): object | undefined {
+  try {
+    const loaded: unknown = entryRequire(entryFile)('./acl.js');
+    const aclCtor: unknown = isObject(loaded) ? Reflect.get(loaded, 'Acl') : undefined;
+    const proto: unknown = typeof aclCtor === 'function' ? Reflect.get(aclCtor, 'prototype') : undefined;
+    return isObject(proto) ? proto : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /**
  * Patches the real `@google-cloud/storage` module `sdk` once. Later calls
- * change nothing. `_entryFile` is where it loaded from, as the other rows take it.
+ * change nothing.
  */
-export function observeAdminStorage(sdk: unknown, _entryFile: string, row: AdminStorageRow): void {
-  const gate = failClosedGate(row.gate, 'Storage');
+export function observeAdminStorage(
+  sdk: unknown,
+  entryFile: string,
+  row: AdminStorageRow,
+  requiredBy?: string,
+): void {
+  trackAdminStorageWrapper(requiredBy);
+  const baseGate = failClosedGate(row.gate, 'Storage');
+  const gate: AdminProjectGate = (app, call) => {
+    if (app === UNREAD_APP) return baseGate(UNREAD_APP, call);
+    const typed = app as Partial<StorageAdminApp>;
+    const rootApp = typed.clientApp ?? app;
+    return baseGate(rootApp, () => {
+      const hostProjectId = row.observer.hostProjectId;
+      if (hostProjectId !== undefined) {
+        for (const extraProj of [typed.overrideProjectId, typed.userProject]) {
+          if (extraProj !== undefined && extraProj !== hostProjectId) {
+            throw liveAdminProjectRefusal({ source: 'options.projectId', appProjectId: extraProj, hostProjectId });
+          }
+        }
+      }
+      const refusal = bucketProjectRefusal('firebase-admin/storage', typed.bucketName, row.observer);
+      if (refusal !== null) throw refusal;
+      return call();
+    });
+  };
+  patchAdminStorageUtils(requiredBy, gate, appOf);
   const adminRow: AdminRow = { module: ADMIN_STORAGE_MODULE, observer: row.observer, gate, appOf };
-  const filePrototype = prototypeOf(sdk, 'File');
-  const bucketPrototype = prototypeOf(sdk, 'Bucket');
-  patchCreateWriteStream(filePrototype, adminRow);
-  patchCreateReadStream(filePrototype, adminRow);
-  for (const { className, methods } of CLASSES) {
+  const checkCallOpts = (callName: string, args: readonly unknown[]) => {
+    assertStorageCallOptionsAllowed(callName, args, row.observer);
+  };
+
+  const storageProto = prototypeOf(sdk, 'Storage');
+  const bucketProto = prototypeOf(sdk, 'Bucket');
+  const fileProto = prototypeOf(sdk, 'File');
+  const serviceProto = parentSdkPrototypeOf(storageProto);
+  const serviceObjectProto = parentSdkPrototypeOf(bucketProto);
+
+  trackSubHandleProperties(bucketProto, ['acl', 'iam']);
+  trackSubHandleProperties(fileProto, ['acl']);
+  gateMakeAuthenticatedRequest(serviceProto, gate, appOf, row.observer);
+
+  const clientProjectOf = (self: unknown) => projectIdOf(clientOf(self));
+  patchSetUserProject(bucketProto, row.observer, clientProjectOf);
+  patchSetUserProject(fileProto, row.observer, clientProjectOf);
+
+  const streamHelpers = {
+    moduleName: ADMIN_STORAGE_MODULE,
+    baseOf: streamBaseOf,
+    codeOf: adminCodeOf,
+    beforeCall: checkCallOpts,
+  };
+  patchCreateWriteStream(fileProto, adminRow, streamHelpers);
+  patchCreateReadStream(fileProto, adminRow, streamHelpers);
+
+  const objectStreamOpts = { observe: true, context: streamContextOf, codeOf: adminCodeOf, beforeCall: checkCallOpts };
+  gateInstanceStreamProperty(storageProto, 'getBucketsStream', adminRow, 'Storage', objectStreamOpts);
+  gateInstanceStreamProperty(storageProto, 'getHmacKeysStream', adminRow, 'Storage', objectStreamOpts);
+  gateInstanceStreamProperty(bucketProto, 'getFilesStream', adminRow, 'Bucket', objectStreamOpts);
+
+  patchObjectStreamMethod(serviceProto, 'requestStream', adminRow, 'Service', { beforeCall: checkCallOpts });
+  patchObjectStreamMethod(serviceObjectProto, 'requestStream', adminRow, 'ServiceObject', { beforeCall: checkCallOpts });
+  patchVoidUploadMethod(fileProto, 'startResumableUpload_', gate, appOf, checkCallOpts);
+  patchVoidUploadMethod(fileProto, 'startSimpleUpload_', gate, appOf, checkCallOpts);
+
+  gatePrototypeMethods(serviceProto, { className: 'Service', gate, appOf, allowlist: LOCAL_METHODS.Service!, nodeCallback: true, skipWhenObserving: true, beforeCall: checkCallOpts });
+  gatePrototypeMethods(serviceObjectProto, { className: 'ServiceObject', gate, appOf, allowlist: LOCAL_METHODS.ServiceObject!, nodeCallback: true, skipWhenObserving: true, beforeCall: checkCallOpts });
+
+  for (const { className, inherited, extraTargetMethods, methods } of CLASSES) {
     const prototype = prototypeOf(sdk, className);
-    if (prototype !== undefined) ownInherited(prototype, methods.map((method) => method.name));
+    if (prototype !== undefined && inherited.length > 0) ownInherited(prototype, inherited);
     patchAdminClass(prototype, className, methods, adminRow);
+    patchStorageCallChecks(prototype, className, methods.map((m) => m.name), extraTargetMethods, adminRow, isStorageEntity, bucketOf);
   }
-  patchExtraStorageTargets(filePrototype, 'File', ['copy', 'move', 'moveFileAtomic', 'rename'], adminRow);
-  patchExtraStorageTargets(bucketPrototype, 'Bucket', ['combine'], adminRow);
+
+  const protoTargets: readonly [object | undefined, string, boolean][] = [
+    [storageProto, 'Storage', true],
+    [bucketProto, 'Bucket', true],
+    [fileProto, 'File', true],
+    [aclPrototypeOf(entryFile), 'Acl', true],
+    [prototypeOf(sdk, 'Iam'), 'Iam', true],
+    [prototypeOf(sdk, 'HmacKey'), 'HmacKey', true],
+    [prototypeOf(sdk, 'Channel'), 'Channel', true],
+    [prototypeOf(sdk, 'Notification'), 'Notification', true],
+    [prototypeOf(sdk, 'TransferManager'), 'TransferManager', false],
+  ];
+  for (const [proto, name, nodeCallback] of protoTargets) {
+    gatePrototypeMethods(proto, {
+      className: name,
+      gate,
+      appOf,
+      allowlist: LOCAL_METHODS[name]!,
+      nodeCallback,
+      skipWhenObserving: true,
+      beforeCall: checkCallOpts,
+    });
+  }
 }

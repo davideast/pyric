@@ -1,6 +1,7 @@
-import { Duration } from '../simulator/wrappers/duration.js';
-import { RulesFloat } from '../simulator/wrappers/float.js';
-import { IntFailure, negateInt, rulesFloatValue, rulesInt } from '../simulator/rules-int.js';
+import type { ExpressionPosition } from '../grammar/expression-positions.js';
+import { EXPRESSION_LIMIT } from '../linter/expression-cost.js';
+import { ExpressionBudget, describeExpressionLimit } from '../simulator/expression-budget.js';
+import { describeRulesType as describeType } from '../simulator/rules-type.js';
 import {
   expandVerb,
   type EvaluationInput,
@@ -9,47 +10,52 @@ import {
   type FirestoreLookup,
   type FunctionMap,
   type MatchBlock,
-  type StorageResource,
   type StorageRules,
   type StorageVerb,
 } from './rules.js';
-import { buildRequestObject, buildResourceObject } from './rules-bindings.js';
-import { evalMethodCall } from './rules-methods.js';
-import {
-  evalArithmetic,
-  evalOrdering,
-  evalValueOperator,
-  isValueTypeOperand,
-  typeMatches,
-} from './rules-operators.js';
-import { formatPath, matchSegments, recursiveWildcardMinimum, splitPath, type PathParamValue } from './rules-path-match.js';
 import {
   RuleEvalError,
   RuleExpressionLimitError,
   RuleResourceLimitError,
-  RuleUnsupportedError,
-  isAbsorbableEvalError,
 } from './rules-evaluation-error.js';
-import { EXPRESSION_LIMIT } from '../linter/expression-cost.js';
-import { ExpressionBudget, describeExpressionLimit } from '../simulator/expression-budget.js';
-import type { ExpressionPosition } from '../grammar/expression-positions.js';
-import { StoragePath, interpolationSegments } from './rules-path.js';
-import { ConversionFailure, applyConversion, conversionFor } from '../simulator/conversions.js';
-import { describeRulesType as describeType, isRulesMap } from '../simulator/rules-type.js';
-import { sliceBoundsError } from '../simulator/slice-bounds.js';
-import { IndexAccessFailure, indexValue, readMember } from '../simulator/index-access.js';
-import { mapLiteral } from '../simulator/map-keys.js';
-import { MembershipFailure, membership } from '../simulator/membership.js';
-import { rulesValuesEqual } from '../simulator/value-equality.js';
 import {
-  RuleError,
-  isRuleError as isErr,
-} from './rules-values.js';
+  evalExpr,
+  evalOperand,
+  evalOperands,
+  noteDeepMapEnumerationReads,
+  noteMapEnumerationRead,
+  noteMapGetRead,
+  trackObject,
+  type EvalCtx,
+  type TrackedRoot,
+} from './rules-expr-eval.js';
+import { formatPath, matchSegments, recursiveWildcardMinimum, splitPath, type PathParamValue } from './rules-path-match.js';
+import { StoragePath } from './rules-path.js';
+import { RuleError, isRuleError as isErr } from './rules-values.js';
+
+export {
+  evalExpr,
+  evalOperand,
+  evalOperands,
+  noteDeepMapEnumerationReads,
+  noteMapEnumerationRead,
+  noteMapGetRead,
+  trackObject,
+  type EvalCtx,
+  type TrackedRoot,
+};
 
 /** The allow rule an evaluation stopped on: its match block's path and the rule's line. */
 export interface StorageMatchedRule {
   path: string;
   line?: number;
+}
+
+/** One `allow` rule evaluated during a request run, in exact evaluation order. */
+export interface StorageEvaluatedAllowRule {
+  readonly condition: Expr | null;
+  readonly captures: ReadonlySet<string>;
+  readonly funcs: FunctionMap;
 }
 
 /**
@@ -59,6 +65,7 @@ export interface StorageMatchedRule {
  */
 export interface StorageEvaluationObservation {
   matchedRule?: StorageMatchedRule;
+  evaluatedAllows?: StorageEvaluatedAllowRule[];
   readResource: boolean;
   readRequestResource: boolean;
   readFirestore: boolean;
@@ -85,9 +92,10 @@ function mergeObservation(into: StorageEvaluationObservation, run: StorageEvalua
   into.readAuthToken ||= run.readAuthToken;
   into.readAuthTokenEmail ||= run.readAuthTokenEmail;
   if (run.matchedRule !== undefined) into.matchedRule = run.matchedRule;
+  if (into.evaluatedAllows !== undefined && run.evaluatedAllows !== undefined && run.evaluatedAllows.length > 0) {
+    into.evaluatedAllows.push(...run.evaluatedAllows);
+  }
 }
-
-type TrackedRoot = 'request' | 'auth' | 'token' | 'firebase' | 'identities';
 
 export function evaluateStorageRules(
   rules: StorageRules,
@@ -96,24 +104,17 @@ export function evaluateStorageRules(
   firestoreLookup?: FirestoreLookup,
   observation?: StorageEvaluationObservation,
 ): EvaluationResult {
-  // `request.time` is the request's evaluation moment. The caller injects it
-  // (deterministic in tests); it defaults to now. The request binding turns
-  // it into the Timestamp value `timestamp.date(...)` and
-  // `timestamp.value(...)` also build. An Invalid Date would bind a NaN
-  // timestamp that no comparison orders, so `!(t < x)` would allow.
   const nowMillis = now.getTime();
   if (!Number.isFinite(nowMillis)) {
     throw new TypeError('evaluateStorageRules: now must be a valid Date');
   }
-  // Production binds `request.method` to one granular verb. A coarse
-  // request (`read`, `write`) evaluates once per granular verb it implies,
-  // with `request.method` bound to that verb, and is allowed when any is.
-  // Its count and reasons are the first allowing evaluation's, or the last
-  // denying one's.
   let result: EvaluationResult | undefined;
   for (const method of impliedVerbs(input)) {
     let runObservation: StorageEvaluationObservation | undefined;
-    if (observation !== undefined) runObservation = emptyStorageObservation();
+    if (observation !== undefined) {
+      runObservation = emptyStorageObservation();
+      if (observation.evaluatedAllows !== undefined) runObservation.evaluatedAllows = [];
+    }
     result = evaluateGranularRequest(rules, input, method, nowMillis, firestoreLookup, runObservation);
     if (observation !== undefined && runObservation !== undefined) mergeObservation(observation, runObservation);
     if (result.allowed) return result;
@@ -122,34 +123,17 @@ export function evaluateStorageRules(
   return result;
 }
 
-/**
- * The granular verbs a request implies. A coarse `read` is a `get` or a
- * `list`. A coarse `write` without `request.resource` is a `delete`. One
- * with a payload uploads an object, and production checks an upload as a
- * `create` whether or not an object is stored at the path, with `resource`
- * bound to the stored object when one is (capture
- * `stdlib-realstorage-request-resource-fields`, overwrite cases
- * `verb-create` ALLOW and `verb-update` DENY; #1884). Binding only the verb
- * production evaluates keeps a coarse request from allowing what production
- * would deny for the operation it stands for, such as an oversized upload
- * admitted by a `request.method == 'delete'` arm or an `allow update` grant.
- */
 function impliedVerbs(input: EvaluationInput): readonly StorageVerb[] {
   const { request } = input;
   if (request.method !== 'write') return expandVerb(request.method);
   return request.resource === undefined ? ['delete'] : ['create'];
 }
 
-/** The input with its request's method replaced by one granular verb. */
 function withMethod(input: EvaluationInput, method: StorageVerb): EvaluationInput {
   if (input.request.method === method) return input;
   return { ...input, request: { ...input.request, method } };
 }
 
-/**
- * Evaluate a request with `request.method` bound to `requestVerb`, one
- * granular verb. Reasons name the method the caller passed.
- */
 function evaluateGranularRequest(
   rules: StorageRules,
   input: EvaluationInput,
@@ -162,44 +146,32 @@ function evaluateGranularRequest(
   const boundInput = withMethod(input, requestVerb);
   const reasons: string[] = [];
   const firestoreAccesses = new Set<string>();
-  const trackedRoots = observation ? new WeakMap<object, TrackedRoot>() : undefined;
+  let trackedRoots: WeakMap<object, TrackedRoot> | undefined;
+  if (observation) {
+    trackedRoots = new WeakMap<object, TrackedRoot>();
+  }
   let allowingRule: StorageMatchedRule | undefined;
   let lastCheckedRule: StorageMatchedRule | undefined;
-  // One expression budget for the request, shared by every allow rule and
-  // match block, in the unit the Firestore simulator counts.
   const expressionBudget = new ExpressionBudget((message, position) => new RuleExpressionLimitError(message, position));
   let expressionLimit: { message: string; position: ExpressionPosition | undefined } | undefined;
-  // Whether the request stopped at the limit, and the first error an allow
-  // rule raised before it. Production goes on to later allow rules after an
-  // error, and reports that error rather than a limit reached after it.
   let stopped = false;
   let firstError: string | undefined;
 
-  /**
-   * Walk a match block. `remaining` is the still-unmatched part of
-   * the request path; `params` are the bindings accumulated so far.
-   * Recurses into matching children. Whenever a block fully
-   * consumes the path, its `allow` rules run.
-   */
   function visit(
     block: MatchBlock,
     remaining: string[],
     params: Record<string, PathParamValue>,
   ): boolean {
     if (stopped) return false;
-    // Match this block's segments against the start of `remaining`.
     const match = matchSegments(block.segments, remaining, params, rules._version);
     if (!match) return false;
     const newParams = match.params;
     const left = match.left;
 
-    // If this block fully consumes the path, evaluate its allow
-    // rules. (Or if a wildcard absorbed the remainder.)
     if (left.length === 0) {
+      const funcs = block.visibleFuncs ?? new Map();
+      const paramNames = new Set(Object.keys(newParams));
       for (const rule of block.allows) {
-        // A grant applies when the operation's verb falls within the
-        // grant's verbs after coarse→granular expansion. `allow read`
-        // covers get + list; `allow get` covers only get.
         const grantVerbs = new Set(rule.verbs.flatMap(expandVerb));
         if (!grantVerbs.has(requestVerb)) continue;
         let candidateRule: StorageMatchedRule | undefined;
@@ -207,6 +179,13 @@ function evaluateGranularRequest(
           candidateRule = { path: `match ${formatPath(block.segments)}` };
           if (rule.line !== undefined) candidateRule.line = rule.line;
           lastCheckedRule = candidateRule;
+          if (observation.evaluatedAllows !== undefined) {
+            observation.evaluatedAllows.push({
+              condition: rule.condition,
+              captures: paramNames,
+              funcs,
+            });
+          }
         }
         let result: boolean;
         try {
@@ -219,7 +198,7 @@ function evaluateGranularRequest(
               matchParams: newParams,
               scopeKind: 'match',
               locals: {},
-              funcs: block.visibleFuncs ?? new Map(),
+              funcs,
               firestoreLookup,
               firestoreAccesses,
               expressionBudget,
@@ -230,16 +209,6 @@ function evaluateGranularRequest(
           if (typeof value === 'boolean') {
             result = value;
           } else {
-            // Not a bool. Either the expression already produced an evaluation
-            // error, or CEL's boolean typing of the allow boundary makes one
-            // here: the same `RuleError` the ternary condition raises, rather
-            // than a truthiness coercion. Both DENY this rule with production's
-            // own message in the reason trace and continue to the next rule.
-            // Registry rows
-            // `storage-rules#storage.semantic.strict-boolean-allow-boundary`
-            // and `storage-rules#storage.semantic.strict-boolean-ternary-condition`
-            // carry the claim; corpus scenario
-            // `strict-boolean-allow-and-ternary` is the capture that verifies it.
             let failure: RuleError;
             if (isErr(value)) {
               failure = value;
@@ -253,14 +222,10 @@ function evaluateGranularRequest(
             continue;
           }
         } catch (err) {
-          // The expression limit ends the request: production evaluates no
-          // later allow rule or match block once it is reached.
           if (err instanceof RuleExpressionLimitError) {
             stopped = true;
             if (firstError === undefined) {
               expressionLimit = { message: err.message, position: err.position };
-              // Production reports the limit at the expression the budget ran
-              // out on, so the reason cites that position.
               reasons.push(
                 `match ${formatPath(block.segments)} ${input.request.method}: ${describeExpressionLimit(err.message, err.position)}`,
               );
@@ -272,9 +237,6 @@ function evaluateGranularRequest(
             }
             return false;
           }
-          // Exceeding the 2-lookup Firestore access cap terminates the entire
-          // request evaluation immediately: later allow rules and match blocks
-          // must not run.
           if (err instanceof RuleResourceLimitError) {
             stopped = true;
             reasons.push(
@@ -282,9 +244,6 @@ function evaluateGranularRequest(
             );
             return false;
           }
-          // Any thrown evaluation failure (an unresolved
-          // import, an error inside a body) denies this rule with a reason
-          // that names the function, never a false allow.
           if (err instanceof RuleEvalError) {
             firstError ??= err.message;
             reasons.push(
@@ -303,9 +262,7 @@ function evaluateGranularRequest(
         );
       }
     }
-    // When this block ends with `{name=**}` and has nested `match` children,
-    // `{name=**}` can consume any prefix of the remaining segments while the
-    // child block matches the suffix (mirroring Firestore's `collectBelowRecursive`).
+
     const lastSeg = block.segments[block.segments.length - 1];
     if (block.children.length > 0 && lastSeg !== undefined && lastSeg.kind === 'wildcard') {
       const prefixSegments = block.segments.slice(0, -1);
@@ -327,7 +284,7 @@ function evaluateGranularRequest(
         return false;
       }
     }
-    // Recurse into children with the leftover path.
+
     for (const child of block.children) {
       if (visit(child, left, newParams)) return true;
     }
@@ -342,559 +299,22 @@ function evaluateGranularRequest(
     const matched = allowingRule ?? lastCheckedRule;
     if (matched) observation.matchedRule = matched;
   }
-  return {
+  const evaluationResult: EvaluationResult = {
     allowed,
     reasons,
     evaluatedExpressions: expressionBudget.evaluated,
-    ...(expressionLimit !== undefined
-      ? {
-        resourceLimit: {
-          kind: 'expressions' as const,
-          limit: EXPRESSION_LIMIT,
-          message: expressionLimit.message,
-          ...(expressionLimit.position === undefined
-            ? {}
-            : { line: expressionLimit.position.line, column: expressionLimit.position.column }),
-        },
-      }
-      : {}),
   };
-}
-
-/** `obj.name`: a map's own key, a path's bound name, or production's error (`index-access.ts`). */
-function readProperty(obj: unknown, name: string): unknown {
-  const value = readMember(obj, name);
-  return value instanceof IndexAccessFailure ? new RuleError(value.message) : value;
-}
-
-/** Everything an expression needs to evaluate. */
-export interface EvalCtx {
-  input: EvaluationInput;
-  /** The evaluation instant in epoch milliseconds (injected by the caller,
-   *  defaulting to evaluation-time now); `request.time` is its Timestamp. */
-  now: number;
-  /** Path wildcards visible in the current lexical scope. */
-  params: Record<string, PathParamValue>;
-  /** Full path wildcards captured by the matched `allow` rule's `match` chain. */
-  matchParams?: Record<string, PathParamValue>;
-  /** Lexical scope kind (`'global'` above `service`, `'service'` inside `service`, `'match'` inside `match`). */
-  scopeKind?: 'global' | 'service' | 'match';
-  /** Function parameter and `let` bindings for the current body. */
-  locals: Record<string, unknown>;
-  /** Functions callable from the current scope. */
-  funcs: FunctionMap;
-  /** Optional Firestore read capability for `firestore.get()/exists()`.
-   *  Absent in pure/test usage → those methods deny "unsupported". */
-  firestoreLookup?: FirestoreLookup;
-  /** Distinct Firestore document paths charged during this evaluation. */
-  firestoreAccesses: Set<string>;
-  /** Per-request expression budget; absent in direct evaluator use. */
-  expressionBudget?: ExpressionBudget;
-  /** Optional host observation sink for live traffic gap & rule diagnostics. */
-  observation?: StorageEvaluationObservation;
-  /** Tracks live wrapper objects back to request/auth/token for property observation. */
-  trackedRoots?: WeakMap<object, TrackedRoot>;
-}
-
-/**
- * Walk an `Expr` against the bindings + path params. Missing bindings or
- * members and invalid operations produce `RuleError` values. They propagate
- * unless a `&&`/`||` operand that uniquely determines the result absorbs
- * them COMMUTATIVELY, CEL-style (`<error> || true` → true, and
- * `<error> && false` → false, see the binary case). Any `RuleError` that
- * reaches an allow boundary denies with its production-shaped reason.
- *
- * Function-evaluation failures throw `RuleEvalError`; at a `&&`/`||`
- * operand boundary the ABSORBABLE ones are converted to error values so
- * they participate in the same absorption, while unsupported/compile-reject
- * (`RuleUnsupportedError`) and resource-limit (`RuleResourceLimitError`)
- * failures re-throw and fail the evaluation closed. The allow boundary
- * catches whatever still throws and denies instead of falling through to a
- * potentially truthy value.
- */
-export function evalExpr(expr: Expr, ctx: EvalCtx): unknown {
-  // A call by name is charged as it is entered; every other node as it
-  // completes, with a value or an error, as the Firestore simulator charges
-  // (`expression-budget.ts`).
-  const budget = ctx.expressionBudget;
-  if (!budget) return evalNode(expr, ctx);
-  if (expr.kind === 'call') {
-    budget.call(expr);
-    return evalNode(expr, ctx);
-  }
-  let value: unknown;
-  try {
-    value = evalNode(expr, ctx);
-  } catch (e) {
-    if (!(e instanceof RuleResourceLimitError)) budget.node(expr);
-    throw e;
-  }
-  budget.node(expr);
-  return value;
-}
-
-function trackObject(ctx: EvalCtx, value: unknown, kind: TrackedRoot): void {
-  if (ctx.trackedRoots && value !== null && typeof value === 'object') {
-    ctx.trackedRoots.set(value, kind);
-  }
-}
-
-function notePropertyRead(ctx: EvalCtx, target: unknown, name: string, result: unknown): void {
-  const obs = ctx.observation;
-  const tracked = ctx.trackedRoots;
-  if (!obs || !tracked || target === null || typeof target !== 'object') return;
-  const kind = tracked.get(target);
-  if (kind === 'request') {
-    if (name === 'resource') obs.readRequestResource = true;
-    else if (name === 'auth') trackObject(ctx, result, 'auth');
-  } else if (kind === 'auth') {
-    if (name === 'token') {
-      obs.readAuthToken = true;
-      trackObject(ctx, result, 'token');
+  if (expressionLimit !== undefined) {
+    const limitRecord: NonNullable<EvaluationResult['resourceLimit']> = {
+      kind: 'expressions',
+      limit: EXPRESSION_LIMIT,
+      message: expressionLimit.message,
+    };
+    if (expressionLimit.position !== undefined) {
+      limitRecord.line = expressionLimit.position.line;
+      limitRecord.column = expressionLimit.position.column;
     }
-  } else if (kind === 'token') {
-    if (name === 'email') obs.readAuthTokenEmail = true;
-    else if (name === 'firebase') trackObject(ctx, result, 'firebase');
-  } else if (kind === 'firebase') {
-    if (name === 'identities') trackObject(ctx, result, 'identities');
-  } else if (kind === 'identities') {
-    if (name === 'email') obs.readAuthTokenEmail = true;
+    evaluationResult.resourceLimit = limitRecord;
   }
-}
-
-export function noteMapGetRead(ctx: EvalCtx, receiver: unknown, key: string | readonly string[]): void {
-  const obs = ctx.observation;
-  const tracked = ctx.trackedRoots;
-  if (!obs || !tracked || receiver === null || typeof receiver !== 'object') return;
-  if (typeof key === 'string') {
-    const next = isRulesMap(receiver) && Object.hasOwn(receiver, key) ? receiver[key] : undefined;
-    notePropertyRead(ctx, receiver, key, next);
-    return;
-  }
-  const kind = tracked.get(receiver);
-  if (
-    (kind === 'token' && key[0] === 'firebase' && key[1] === 'identities' && key[2] === 'email') ||
-    (kind === 'firebase' && key[0] === 'identities' && key[1] === 'email') ||
-    (kind === 'identities' && key[0] === 'email')
-  ) {
-    obs.readAuthTokenEmail = true;
-  }
-  let current: unknown = receiver;
-  for (const part of key) {
-    if (!isRulesMap(current)) break;
-    const next = Object.hasOwn(current, part) ? current[part] : undefined;
-    notePropertyRead(ctx, current, part, next);
-    if (next === undefined) break;
-    current = next;
-  }
-}
-
-export function noteMapEnumerationRead(ctx: EvalCtx, receiver: unknown): void {
-  const obs = ctx.observation;
-  const tracked = ctx.trackedRoots;
-  if (!obs || !tracked || receiver === null || typeof receiver !== 'object') return;
-  const kind = tracked.get(receiver);
-  if (kind === 'token' || kind === 'identities') {
-    obs.readAuthTokenEmail = true;
-  }
-}
-
-function evalNode(expr: Expr, ctx: EvalCtx): unknown {
-  switch (expr.kind) {
-    case 'literal':
-      return expr.value;
-    case 'ident': {
-      // Local (param / let) bindings win over path params, and path params
-      // win over the globals: production reads `request` under
-      // `match /pt/{request}` as the wildcard, as the Firestore simulator
-      // does (capture st3-wildcard-shadows-global, #1886).
-      if (Object.hasOwn(ctx.locals, expr.name)) return ctx.locals[expr.name];
-      if (Object.hasOwn(ctx.params, expr.name)) return ctx.params[expr.name];
-      if (ctx.scopeKind !== 'global') {
-        if (expr.name === 'request') {
-          const req = buildRequestObject(ctx.input, ctx.now);
-          trackObject(ctx, req, 'request');
-          return req;
-        }
-        // Production exposes no usable `resource` value when the target object
-        // does not exist. Even comparing the missing binding with null errors
-        // and denies; it is not a JavaScript-like null sentinel.
-        if (expr.name === 'resource') {
-          if (ctx.observation) ctx.observation.readResource = true;
-          return ctx.input.resource === null
-            ? new RuleError('Null value error.')
-            : buildResourceObject(ctx.input.resource);
-        }
-      }
-      return new RuleError(`Identifier ${expr.name} is undefined.`);
-    }
-    case 'member': {
-      const t = evalExpr(expr.target, ctx);
-      if (isErr(t)) return t;
-      // Production: dereferencing a null (e.g. `resource.name` on a create) is
-      // a "Null value error" — it denies, and denies through a negation too.
-      if (t === null || t === undefined) return new RuleError(`Null value error.`);
-      const prop = readProperty(t, expr.name);
-      notePropertyRead(ctx, t, expr.name, prop);
-      return prop;
-    }
-    case 'index': {
-      // The index evaluates before the value it indexes, as in the
-      // Firestore simulator.
-      const operands = evalOperands([expr.index, expr.target], ctx);
-      if (isErr(operands)) return operands;
-      const [idx, t] = operands;
-      if (t === null || t === undefined) return new RuleError(`Null value error.`);
-      // A list, string or path index must be an int within bounds, a map key
-      // must be owned, and other wrappers have no index operator
-      // (`index-access.ts`, shared with the Firestore simulator).
-      const element = indexValue(t, idx);
-      const out = element instanceof IndexAccessFailure ? new RuleError(element.message) : element;
-      if (typeof idx === 'string') notePropertyRead(ctx, t, idx, out);
-      return out;
-    }
-    case 'call':
-      return evalCall(expr, ctx);
-    case 'methodcall':
-      return evalMethodCall(expr, ctx);
-    case 'path': {
-      // A path literal outside a `firestore.get()/exists()` call is a path
-      // value, such as an argument to a function that passes it on to
-      // `firestore.get()`, or an operand of `==`. `evalExpr` charges the path
-      // node itself as it completes; literal segments and `$(...)`
-      // interpolations evaluate in segment order so trailing literal segments
-      // are not charged before an earlier interpolation runs, and every
-      // interpolation still evaluates when an earlier one errors (#2446).
-      const parts: string[] = [];
-      let error: RuleError | undefined;
-      for (const seg of expr.segments) {
-        if (seg.kind === 'literal') {
-          ctx.expressionBudget?.pathSegment(expr);
-          parts.push(seg.value);
-          continue;
-        }
-        const v = evalOperand(seg.expr, ctx);
-        if (isErr(v)) {
-          error ??= v;
-          continue;
-        }
-        const segments = interpolationSegments(v);
-        if (segments === undefined) {
-          error ??= new RuleError(`Path interpolation resolved to ${describeType(v)} (expected a string or a path)`);
-          continue;
-        }
-        parts.push(...segments);
-      }
-      if (error !== undefined) return error;
-      return StoragePath.fromSegments(parts);
-    }
-    case 'unary': {
-      const a = evalExpr(expr.arg, ctx);
-      if (expr.op === '!') {
-        if (isErr(a)) {
-          throw new RuleEvalError(a.message);
-        }
-        if (typeof a !== 'boolean') {
-          throw new RuleEvalError(`Unary '!' expects a boolean, got ${describeType(a)}.`);
-        }
-        return !a;
-      }
-      if (isErr(a)) return a;
-      if (expr.op === '-') {
-        const float = rulesFloatValue(a);
-        if (float !== undefined) return new RulesFloat(-float);
-        if (a instanceof Duration) return a.negated();
-        const int = rulesInt(a);
-        if (int === undefined) return new RuleError(`Unary '-' applied to ${describeType(a)}.`);
-        // `-MIN` is past int64: production's range error value.
-        const negated = negateInt(int);
-        return negated instanceof IntFailure ? new RuleError(negated.message) : negated;
-      }
-      return undefined;
-    }
-    case 'ternary': {
-      ctx.expressionBudget?.ternary(expr);
-      const c = evalExpr(expr.cond, ctx);
-      // An error condition denies the whole conditional; it must not fall
-      // through to the alternate branch and potentially allow.
-      if (isErr(c)) return c;
-      // CEL types the condition as bool. A non-boolean condition is an
-      // evaluation error, which `&&` and `||` absorb like any other. Registry
-      // row `storage-rules#storage.semantic.strict-boolean-ternary-condition`
-      // carries the claim; corpus scenario `strict-boolean-allow-and-ternary`
-      // is the capture that would verify it.
-      if (typeof c !== 'boolean') {
-        return new RuleError(`Ternary condition expected bool, got ${describeType(c)}.`);
-      }
-      if (c) return evalExpr(expr.then, ctx);
-      ctx.expressionBudget?.ternaryElse(expr);
-      return evalExpr(expr.else, ctx);
-    }
-    case 'in': {
-      // List and set elements under Rules value equality, own map keys only,
-      // and production's errors for any other operand (`membership.ts`,
-      // shared with the Firestore simulator). Production evaluates the
-      // collection before the element: when both error, the collection's
-      // error is the result.
-      const operands = evalOperands([expr.collection, expr.element], ctx);
-      if (isErr(operands)) return operands;
-      const [coll, el] = operands;
-      if (typeof el === 'string') notePropertyRead(ctx, coll, el, undefined);
-      const result = membership(el, coll);
-      return result instanceof MembershipFailure ? new RuleError(result.message) : result;
-    }
-    case 'is': {
-      const v = evalExpr(expr.value, ctx);
-      if (isErr(v)) return v;
-      return typeMatches(v, expr.typeName);
-    }
-    case 'list':
-      return evalOperands(expr.elements, ctx);
-    case 'map': {
-      const values = evalOperands(expr.entries.flatMap((entry) => [entry.key, entry.value]), ctx);
-      if (isErr(values)) return values;
-      const entries: [string, unknown][] = [];
-      for (let i = 0; i < values.length; i += 2) {
-        const k = values[i];
-        if (typeof k !== 'string') return new RuleError(`Map literal key is ${describeType(k)} (expected a string).`);
-        entries.push([k, values[i + 1]]);
-      }
-      // The literal keeps its written order for values() (`map-keys.ts`).
-      return mapLiteral(entries);
-    }
-    case 'slice': {
-      const operands = evalOperands([expr.target, expr.start, expr.end], ctx);
-      if (isErr(operands)) return operands;
-      const [t, startValue, endValue] = operands;
-      const start = rulesInt(startValue);
-      const end = rulesInt(endValue);
-      if (start === undefined || end === undefined) {
-        return new RuleError(`Slice bounds must be integers.`);
-      }
-      // Production slices lists and strings, and an out-of-range bound is an
-      // error, never clamped the way JS `.slice()` does. The bounds are the
-      // Firestore simulator's (`rules/simulator/slice-bounds.ts`).
-      if (Array.isArray(t) || typeof t === 'string') {
-        const boundsError = sliceBoundsError(start, end, t.length);
-        if (boundsError) return new RuleError(boundsError);
-        return t.slice(Number(start), Number(end));
-      }
-      return new RuleError(`Slice applied to ${describeType(t)} (expected a list or string).`);
-    }
-    case 'binary': {
-      // RULES-B3: && and || are COMMUTATIVE error-absorbing operators in
-      // CEL, not JS left-to-right short-circuit. The two operators differ
-      // only in which operand value uniquely determines the result: false
-      // for &&, true for ||. Both are evaluated by the one helper below.
-      if (expr.op === '&&') return evalAbsorbingOperator(expr, false, ctx);
-      if (expr.op === '||') return evalAbsorbingOperator(expr, true, ctx);
-      // Both operands evaluate, and count, when the left one errors; the
-      // left error is the result.
-      const operands = evalOperands([expr.left, expr.right], ctx);
-      if (isErr(operands)) return operands;
-      const [l, r] = operands;
-      // Timestamp, Duration, and Bytes operands own their comparison and
-      // arithmetic operators; equality stays with rulesValuesEqual below.
-      if (expr.op !== '==' && expr.op !== '!=' && (isValueTypeOperand(l) || isValueTypeOperand(r))) {
-        return evalValueOperator(expr.op, l, r);
-      }
-      switch (expr.op) {
-        // Lists and maps compare structurally (production `[a] == [a]` is
-        // true), each element by its numeric type as well as its value.
-        case '==':
-        case '!=': {
-          if (isRulesMap(l) && isRulesMap(r)) {
-            noteMapEnumerationRead(ctx, l);
-            noteMapEnumerationRead(ctx, r);
-          }
-          const equal = rulesValuesEqual(l, r);
-          return expr.op === '==' ? equal : !equal;
-        }
-        case '<':
-        case '>':
-        case '<=':
-        case '>=':
-          return evalOrdering(expr.op, l, r);
-        case '+':
-        case '-':
-        case '*':
-        case '/':
-        case '%':
-          return evalArithmetic(expr.op, l, r);
-      }
-    }
-  }
-}
-
-/**
- * Evaluate one commutative error-absorbing operator, `&&` or `||`. The two
- * differ only in `determining`, the operand value that fixes the result on
- * its own: `false` for `&&`, `true` for `||`.
- *
- * If either operand evaluates to `determining`, that is the result and an
- * error in the other operand is absorbed, whichever side it sits on. So
- * `error && false` evaluates to false and `error || true` to true, while
- * `error && true` and `error || false` propagate the error and deny.
- * Laziness is preserved in the no-error path: a determining left operand
- * skips the right one entirely.
- */
-function evalAbsorbingOperator(
-  operator: Extract<Expr, { kind: 'binary' }>,
-  determining: boolean,
-  ctx: EvalCtx,
-): boolean | RuleError {
-  const { left, right } = operator;
-  const l = evalLogicalOperand(left, ctx);
-  if (l === determining) return determining; // left determines; right unevaluated
-  ctx.expressionBudget?.logicalRight(operator);
-  const r = evalLogicalOperand(right, ctx);
-  if (r === determining) return determining; // right determines and absorbs any left error
-  if (isErr(l)) return l;                    // left errored and nothing determined
-  return r;                                  // left was non-determining; right decides
-}
-
-/**
- * Evaluate one `&&`/`||` operand tri-state: `true`, `false`, or a
- * {@link RuleError} value the operator may absorb commutatively.
- *
- *   - A thrown ABSORBABLE {@link RuleEvalError} (for example
- *     `firestore.get()` without an injected capability, or `!` on an error)
- *     is converted to an error VALUE here so a determining sibling operand
- *     can absorb it: production evaluates these positions to a
- *     position-local error.
- *   - {@link RuleUnsupportedError} (compile-reject or unmodelable) and
- *     {@link RuleResourceLimitError} (the lookup cap) re-throw:
- *     production fails those closed for the WHOLE evaluation, so no
- *     determining operand may rescue them (the lookup-budget precedent).
- *   - A non-boolean, non-error operand is a CEL TYPE error (RULES-B6,
- *     captured by rules-firestore-strict-boolean-control-flow): it becomes
- *     an absorbable error value, never a truthy/falsy coercion.
- */
-function evalLogicalOperand(expr: Expr, ctx: EvalCtx): boolean | RuleError {
-  const v = evalOperand(expr, ctx);
-  if (isErr(v)) return v;
-  if (typeof v !== 'boolean') {
-    return new RuleError(`Expected a boolean '&&'/'||' operand, got ${describeType(v)}.`);
-  }
-  return v;
-}
-
-/**
- * Evaluate one operand to a value or an error value. A thrown ABSORBABLE
- * {@link RuleEvalError} becomes a {@link RuleError} value; an unsupported
- * construct or a resource limit re-throws and fails the evaluation closed.
- */
-export function evalOperand(expr: Expr, ctx: EvalCtx): unknown {
-  try {
-    return evalExpr(expr, ctx);
-  } catch (err) {
-    if (isAbsorbableEvalError(err)) return new RuleError(err.message);
-    throw err;
-  }
-}
-
-/**
- * Evaluate every operand in order: the values, or the first error value.
- * Production goes on evaluating the operands of a non-logical operator, a
- * literal's elements, and a call's receiver and arguments after one errors,
- * and counts them toward the expression limit; the result is the first
- * error.
- */
-export function evalOperands(exprs: readonly Expr[], ctx: EvalCtx): unknown[] | RuleError {
-  const values: unknown[] = [];
-  let error: RuleError | undefined;
-  for (const expr of exprs) {
-    const value = evalOperand(expr, ctx);
-    if (isErr(value)) error ??= value;
-    values.push(value);
-  }
-  return error ?? values;
-}
-
-/**
- * Evaluate a bare function call. A function the ruleset declares in scope
- * wins over a global of the same name. Arguments are evaluated in the
- * CALLER's context, then bound to the function's parameters; the body
- * (with any `let` bindings) is evaluated in the function's own lexical
- * scope with fresh locals, so caller path wildcards are not visible except
- * through the arguments passed. An undefined function and a wrong argument
- * count are error values that `&&` and `||` can absorb, as in production.
- */
-function evalCall(expr: Extract<Expr, { kind: 'call' }>, ctx: EvalCtx): unknown {
-  const fn = ctx.funcs.get(expr.name);
-  if (!fn) return evalGlobalCall(expr, ctx);
-  // An unresolved import is a construct the evaluator cannot model, so it
-  // always fails closed.
-  if (fn.unresolvedImport !== undefined) {
-    throw new RuleUnsupportedError(
-      `function ${expr.name}() is imported from '${fn.unresolvedImport}', but import module resolution is not implemented`,
-    );
-  }
-  // Arguments evaluate in caller context before arity checking so expression
-  // and Firestore lookup budgets are charged even when arity mismatches.
-  const argVals = expr.args.map((a) => evalOperand(a, ctx));
-  if (fn.params.length !== expr.args.length) {
-    return new RuleError(
-      `Incorrect number of arguments. Received: ${expr.args.length}. Expected: ${expr.name}(${fn.params.join(', ')}).`,
-    );
-  }
-  const locals: Record<string, unknown> = {};
-  fn.params.forEach((p, i) => {
-    locals[p] = argVals[i];
-  });
-  const fullMatchParams = ctx.matchParams ?? ctx.params;
-  const declParams: Record<string, PathParamValue> = {};
-  if (fn.declCaptures) {
-    for (const key of fn.declCaptures) {
-      if (Object.hasOwn(fullMatchParams, key)) {
-        declParams[key] = fullMatchParams[key]!;
-      }
-    }
-  }
-  const bodyCtx: EvalCtx = {
-    input: ctx.input,
-    now: ctx.now,
-    params: declParams,
-    matchParams: fullMatchParams,
-    scopeKind: fn.scopeKind ?? 'match',
-    locals,
-    funcs: fn.declScope ?? new Map(),
-    firestoreLookup: ctx.firestoreLookup,
-    firestoreAccesses: ctx.firestoreAccesses,
-    expressionBudget: ctx.expressionBudget,
-    observation: ctx.observation,
-    trackedRoots: ctx.trackedRoots,
-  };
-  // `let` bindings evaluated in order; each is visible to the next and
-  // to the return expression (they share the `locals` object). A binding
-  // whose value errors holds the error, as a parameter does.
-  for (const b of fn.lets) {
-    locals[b.name] = evalOperand(b.value, bodyCtx);
-    bodyCtx.expressionBudget?.letBinding(b);
-  }
-  return evalExpr(fn.body, bodyCtx);
-}
-
-/** Evaluate a call to a global function: `path()` or a conversion. */
-function evalGlobalCall(expr: Extract<Expr, { kind: 'call' }>, ctx: EvalCtx): unknown {
-  const args = evalOperands(expr.args, ctx);
-  if (expr.name === 'path') {
-    if (isErr(args)) return args;
-    if (args.length !== 1) {
-      return new RuleError(`Incorrect number of arguments. Received: ${args.length}. Expected: path(string).`);
-    }
-    const inner = args[0];
-    if (typeof inner === 'string') {
-      if (inner.includes('//')) {
-        return new RuleError(`Invalid argument error in path(): empty path segment.`);
-      }
-      return new StoragePath(inner);
-    }
-    return new RuleError(`path() expects a string, got ${describeType(inner)}.`);
-  }
-  const conversion = conversionFor(expr.name);
-  if (!conversion) return new RuleError(`Function not found error: Name: [${expr.name}].`);
-  if (isErr(args)) return args;
-  const converted = applyConversion(conversion, args);
-  return converted instanceof ConversionFailure ? new RuleError(converted.message) : converted;
+  return evaluationResult;
 }

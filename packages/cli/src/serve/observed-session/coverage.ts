@@ -36,7 +36,7 @@ function isDirectChildOfCollection(docPath: string, collectionPath: string): boo
   return !docPath.slice(prefix.length).includes('/');
 }
 
-function matchesCollectionScope(docPath: string, collectionPath: string): boolean {
+export function matchesCollectionScope(docPath: string, collectionPath: string): boolean {
   if (isDirectChildOfCollection(docPath, collectionPath)) return true;
   if (collectionPath.includes('/')) return false;
   const segments = docPath.split('/');

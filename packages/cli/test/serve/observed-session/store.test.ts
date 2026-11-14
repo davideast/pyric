@@ -271,10 +271,88 @@ describe('createObservedSessionDataStore', () => {
     expect(store.getFirestoreDoc('spaces/s1')).toEqual({ status: 'unobserved' });
     store.invalidateFirestore('/');
     expect(store.getFirestoreDoc('spaces/readded')).toEqual({ status: 'unobserved' });
-    expect(store.snapshot().firestore).toEqual({ 'spaces/readded': { a: 9 } });
+    expect(store.snapshot().firestore).toEqual({});
 
     store.invalidateRtdb('demo-default-rtdb', '/rooms/r1');
     expect(store.getRtdbInstance('demo-default-rtdb').isPathKnown('/rooms/r1/name')).toBe(false);
     expect(store.snapshot().rtdb).toEqual({});
+  });
+
+  it('purges invalidated Firestore documents and Storage entries from snapshots, byte estimates, and later partial updates', () => {
+    let clock = 100;
+    const store = createObservedSessionDataStore({ projectId: 'demo', now: () => ++clock });
+
+    // Empty invalidations do not bump revision.
+    store.invalidateFirestore(undefined);
+    store.invalidateFirestore('items');
+    store.invalidateStorage();
+    expect(store.snapshot().revision).toBe(0);
+
+    store.apply({
+      firestore: [
+        { kind: 'set', path: 'docs/doc-1', data: { owner: 'u-1', status: 'draft' } },
+        { kind: 'set', path: 'items/item-1', data: { owner: 'u-1' } },
+        { kind: 'set', path: 'orgs/org-1/items/item-2', data: { owner: 'u-2' } },
+        { kind: 'set', path: 'orgs/org-1/teams/team-1', data: { name: 'Core' } },
+      ],
+      storage: [
+        {
+          kind: 'upsert',
+          bucket: 'demo.firebasestorage.app',
+          fullPath: 'docs/a.txt',
+          metadata: { size: 10, contentType: 'text/plain' },
+        },
+        {
+          kind: 'upsert',
+          bucket: 'demo.firebasestorage.app',
+          fullPath: 'other/b.txt',
+          metadata: { size: 20, contentType: 'text/plain' },
+        },
+      ],
+    });
+
+    // Collection-scoped invalidation removes direct and collection-group matches, updates bytes, and bumps revision.
+    const revBeforeCollection = store.snapshot().revision;
+    const bytesBeforeCollection = store.snapshot().stats.byteEstimate;
+    store.invalidateFirestore('items');
+    let snap = store.snapshot();
+    expect(snap.revision).toBe(revBeforeCollection + 1);
+    expect(snap.firestore['items/item-1']).toBeUndefined();
+    expect(snap.firestore['orgs/org-1/items/item-2']).toBeUndefined();
+    expect(snap.firestore['orgs/org-1/teams/team-1']).toEqual({ name: 'Core' });
+    expect(snap.stats.byteEstimate).toBeLessThan(bytesBeforeCollection);
+
+    // Subcollection-scoped invalidation removes only direct children of that subcollection.
+    store.invalidateFirestore('orgs/org-1/teams');
+    snap = store.snapshot();
+    expect(snap.firestore['orgs/org-1/teams/team-1']).toBeUndefined();
+    expect(snap.firestore['docs/doc-1']).toEqual({ owner: 'u-1', status: 'draft' });
+
+    // Unscoped Firestore invalidation purges remaining docs so a subsequent partial update never creates a chimera.
+    store.invalidateFirestore(undefined);
+    snap = store.snapshot();
+    expect(snap.firestore).toEqual({});
+    expect(snap.stats.firestoreDocs).toBe(0);
+
+    store.apply({
+      firestore: [{ kind: 'update', path: 'docs/doc-1', data: { note: 'post-tx' } }],
+    });
+    expect(store.snapshot().firestore['docs/doc-1']).toEqual({ note: 'post-tx' });
+    expect(store.getFirestoreDoc('docs/doc-1')).toEqual({
+      status: 'partial',
+      data: { note: 'post-tx' },
+    });
+
+    // Scoped and whole-store Storage invalidations purge catalog entries and update byte estimates.
+    const revBeforeStoragePath = store.snapshot().revision;
+    store.invalidateStorage('demo.firebasestorage.app', 'docs');
+    snap = store.snapshot();
+    expect(snap.revision).toBe(revBeforeStoragePath + 1);
+    expect(snap.storage?.['demo.firebasestorage.app']?.objects['docs/a.txt']).toBeUndefined();
+    expect(snap.storage?.['demo.firebasestorage.app']?.objects['other/b.txt']?.size).toBe(20);
+
+    store.invalidateStorage();
+    snap = store.snapshot();
+    expect(snap.storage).toBeUndefined();
   });
 });

@@ -9,7 +9,12 @@ import {
 } from '../simulator/list-methods.js';
 import { MapMethodFailure, mapList, type MapListMethod } from '../simulator/map-keys.js';
 import { MapDiff } from '../simulator/mapdiff.js';
-import { noteMapEnumerationRead, noteMapGetRead, type EvalCtx } from './rules-evaluator.js';
+import {
+  noteDeepMapEnumerationReads,
+  noteMapEnumerationRead,
+  noteMapGetRead,
+  type EvalCtx,
+} from './rules-evaluator.js';
 import { RuleEvalError } from './rules-evaluation-error.js';
 import {
   evalArguments,
@@ -60,6 +65,12 @@ function evalMapList(receiver: unknown, expr: MethodCall, ctx: EvalCtx): unknown
 function evalSetMethod(receiver: FirestoreSet, expr: MethodCall, ctx: EvalCtx): unknown {
   const args = evalArguments(expr, ctx);
   if (isErr(args)) return args;
+  if (expr.method !== 'size') {
+    noteDeepMapEnumerationReads(ctx, receiver);
+    for (const arg of args) {
+      noteDeepMapEnumerationReads(ctx, arg);
+    }
+  }
   const result = setMethod(receiver, expr.method, args);
   if (result instanceof SetMethodFailure) throw new RuleEvalError(result.message);
   return result;
@@ -80,6 +91,12 @@ function evalListMethod(receiver: unknown, expr: MethodCall, ctx: EvalCtx): unkn
   if (!Array.isArray(receiver)) throw functionNotFound(expr.method);
   const args = evalArguments(expr, ctx);
   if (isErr(args)) return args;
+  if (expr.method === 'removeAll') {
+    noteDeepMapEnumerationReads(ctx, receiver);
+    for (const arg of args) {
+      noteDeepMapEnumerationReads(ctx, arg);
+    }
+  }
   const result = LIST_METHODS[expr.method as keyof typeof LIST_METHODS](receiver, args);
   if (result instanceof ListMethodFailure) throw new RuleEvalError(result.message);
   return result;
@@ -127,17 +144,22 @@ function evalMembership(receiver: unknown, expr: MethodCall, ctx: EvalCtx): unkn
   if (!Array.isArray(receiver)) throw functionNotFound(expr.method);
   const args = evalArguments(expr, ctx);
   if (isErr(args)) return args;
+  noteDeepMapEnumerationReads(ctx, receiver);
+  for (const arg of args) {
+    noteDeepMapEnumerationReads(ctx, arg);
+  }
   const result = listMembership(expr.method as ListMembershipMethod, receiver, args);
   if (result instanceof ListMethodFailure) throw new RuleEvalError(result.message);
   return result;
 }
 
 /** `List.toSet()`: the list's distinct members as a Set. */
-function evalToSet(receiver: unknown, expr: MethodCall): unknown {
+function evalToSet(receiver: unknown, expr: MethodCall, ctx: EvalCtx): unknown {
   if (!Array.isArray(receiver)) throw functionNotFound(expr.method);
   if (expr.args.length !== 0) {
     throw new RuleEvalError(`Incorrect number of arguments. Received: ${expr.args.length}. Expected: list.toSet().`);
   }
+  noteDeepMapEnumerationReads(ctx, receiver);
   return new FirestoreSet(receiver);
 }
 

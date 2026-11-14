@@ -51,6 +51,7 @@ interface Service {
   sdk?: Fields;
   instance?: unknown;
   defaultInstance?: unknown;
+  defaultApp?: unknown;
   readonly byResource: Map<string, unknown>;
 }
 
@@ -423,44 +424,100 @@ const reader: NonNullable<LiveReadHub['reader']> = {
   },
 };
 
-function noteInstance(key: LiveModuleKey, sdk: Fields, service: Service, instance: unknown, factoryArgs: readonly unknown[]): void {
+const DEFAULT_APP_NAME = '[DEFAULT]';
+const DEFAULT_FIRESTORE_DB = '(default)';
+
+function appHandleOf(instance: unknown, factoryArgs: readonly unknown[]): unknown {
+  if (isObjectLike(instance) && isObjectLike(instance.app)) return instance.app;
+  const firstArg = factoryArgs[0];
+  if (isObjectLike(firstArg)) return firstArg;
+  return undefined;
+}
+
+function shouldAdoptDefaultInstance(service: Service, instance: unknown, factoryArgs: readonly unknown[]): boolean {
+  const app = appHandleOf(instance, factoryArgs);
+  const appName = nestedStringAt(app, ['name']);
+  if (appName === DEFAULT_APP_NAME) return true;
+  if (appName !== undefined) return false;
+  if (factoryArgs.length === 0 || factoryArgs[0] === undefined) return true;
+  if (service.defaultInstance === undefined) return true;
+  return app !== undefined && app === service.defaultApp;
+}
+
+function isDefaultFirestoreDatabase(factoryName: string, instance: unknown, factoryArgs: readonly unknown[]): boolean {
+  let explicitDb: string | undefined;
+  if (factoryName === 'initializeFirestore') {
+    if (typeof factoryArgs[2] === 'string') explicitDb = factoryArgs[2];
+  } else if (typeof factoryArgs[0] === 'string') {
+    explicitDb = factoryArgs[0];
+  } else if (typeof factoryArgs[1] === 'string') {
+    explicitDb = factoryArgs[1];
+  }
+  if (explicitDb !== undefined && explicitDb !== '' && explicitDb !== DEFAULT_FIRESTORE_DB) {
+    return false;
+  }
+  const internalDb =
+    nestedStringAt(instance, ['_databaseId', 'database']) ??
+    nestedStringAt(instance, ['_databaseId']);
+  if (internalDb !== undefined && internalDb !== '' && internalDb !== DEFAULT_FIRESTORE_DB) {
+    return false;
+  }
+  return true;
+}
+
+function recordServiceInstance(
+  service: Service,
+  instance: unknown,
+  factoryArgs: readonly unknown[],
+  isDefaultResource: boolean,
+  resourceKeys: readonly string[],
+): boolean {
+  const adoptsDefault = isDefaultResource && shouldAdoptDefaultInstance(service, instance, factoryArgs);
+  let changed = false;
+  for (const resourceKey of resourceKeys) {
+    if (resourceKey === 'default' && !adoptsDefault && service.byResource.has('default')) {
+      continue;
+    }
+    if (service.byResource.get(resourceKey) !== instance) {
+      service.byResource.set(resourceKey, instance);
+      changed = true;
+    }
+  }
+  if (adoptsDefault) {
+    if (service.defaultInstance !== instance) {
+      service.defaultInstance = instance;
+      changed = true;
+    }
+    service.defaultApp = appHandleOf(instance, factoryArgs);
+  }
+  const nextPrimary = service.defaultInstance ?? service.instance ?? instance;
+  if (service.instance !== nextPrimary) {
+    service.instance = nextPrimary;
+    changed = true;
+  }
+  return changed;
+}
+
+function noteInstance(
+  key: LiveModuleKey,
+  factoryName: string,
+  sdk: Fields,
+  service: Service,
+  instance: unknown,
+  factoryArgs: readonly unknown[],
+): void {
   if (instance === undefined || instance === null) return;
   const wasOpen = isOpen(service);
   let changed = false;
   if (key === 'live-database') {
     const { keys, isDefault } = databaseKeysOf(instance, factoryArgs);
-    for (const resourceKey of keys) {
-      if (service.byResource.get(resourceKey) !== instance) {
-        service.byResource.set(resourceKey, instance);
-        changed = true;
-      }
-    }
-    if (isDefault && service.defaultInstance !== instance) {
-      service.defaultInstance = instance;
-      changed = true;
-    }
-    const nextPrimary = service.defaultInstance ?? service.instance ?? instance;
-    if (service.instance !== nextPrimary) {
-      service.instance = nextPrimary;
-      changed = true;
-    }
+    changed = recordServiceInstance(service, instance, factoryArgs, isDefault, keys);
   } else if (key === 'live-storage') {
     const { keys, isDefault } = storageKeysOf(sdk, instance, factoryArgs);
-    for (const resourceKey of keys) {
-      if (service.byResource.get(resourceKey) !== instance) {
-        service.byResource.set(resourceKey, instance);
-        changed = true;
-      }
-    }
-    if (isDefault && service.defaultInstance !== instance) {
-      service.defaultInstance = instance;
-      changed = true;
-    }
-    const nextPrimary = service.defaultInstance ?? service.instance ?? instance;
-    if (service.instance !== nextPrimary) {
-      service.instance = nextPrimary;
-      changed = true;
-    }
+    changed = recordServiceInstance(service, instance, factoryArgs, isDefault, keys);
+  } else if (key === 'live-firestore') {
+    const isDefault = isDefaultFirestoreDatabase(factoryName, instance, factoryArgs);
+    changed = recordServiceInstance(service, instance, factoryArgs, isDefault, []);
   } else if (instance !== service.instance) {
     service.instance = instance;
     service.defaultInstance = instance;
@@ -480,13 +537,19 @@ export function noteReadModule(key: LiveModuleKey, wrapped: Fields): void {
   const factories = FACTORIES[key];
   if (factories === undefined) return;
   const { service, names } = factories;
+  if (service.sdk !== undefined && service.sdk !== wrapped) {
+    service.instance = undefined;
+    service.defaultInstance = undefined;
+    service.defaultApp = undefined;
+    service.byResource.clear();
+  }
   service.sdk = wrapped;
   for (const name of names) {
     const factory = wrapped[name];
     if (typeof factory !== 'function') continue;
     wrapped[name] = function noted(this: unknown, ...args: unknown[]): unknown {
       const instance = Reflect.apply(factory as Fn, this, args);
-      noteInstance(key, wrapped, service, instance, args);
+      noteInstance(key, name, wrapped, service, instance, args);
       return instance;
     };
   }

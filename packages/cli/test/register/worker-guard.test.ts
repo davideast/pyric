@@ -8,6 +8,10 @@
  * other worker as the caller built it.
  */
 import { describe, expect, it } from 'bun:test';
+import {
+  clearPinnedInheritedVariables,
+  pinInheritedVariables,
+} from '../../src/register/child-process-guard.js';
 import { guardWorkerArguments, installWorkerGuard } from '../../src/register/worker-guard.js';
 
 const REGISTER_URL = 'file:///app/node_modules/@pyric/cli/dist/register/index.js';
@@ -137,6 +141,48 @@ describe('guardWorkerArguments', () => {
     const options = { eval: true, execArgv: ['--no-warnings'] };
     guardWorkerArguments('console.log(1)', options, REGISTER_URL);
     expect(options).toEqual({ eval: true, execArgv: ['--no-warnings'] });
+  });
+
+  it('enforces pinned inherited variables on custom-env, default-env tampered, and SHARE_ENV workers', () => {
+    const prevProject = process.env.PYRIC_PROJECT;
+    try {
+      pinInheritedVariables({ PYRIC_PROJECT: 'org-alpha' });
+      const [, customOpts] = guardWorkerArguments(
+        '/app/worker.js',
+        { env: { PYRIC_PROJECT: 'org-beta', GCLOUD_PROJECT: 'org-beta' } },
+        REGISTER_URL,
+        { PYRIC_PROJECT: 'org-alpha' },
+        false,
+      );
+      expect(customOpts).toEqual({
+        env: { PYRIC_PROJECT: 'org-alpha', GCLOUD_PROJECT: 'org-beta' },
+      });
+
+      const tamperedParent: Record<string, string | undefined> = { PYRIC_PROJECT: 'org-beta' };
+      const [, defaultTamperedOpts] = guardWorkerArguments(
+        '/app/worker.js',
+        undefined,
+        REGISTER_URL,
+        tamperedParent,
+        false,
+      );
+      expect(defaultTamperedOpts).toEqual({ env: { PYRIC_PROJECT: 'org-alpha' } });
+
+      const shared = Symbol('SHARE_ENV');
+      const [, sharedOpts] = guardWorkerArguments(
+        '/app/worker.js',
+        { env: shared },
+        REGISTER_URL,
+        tamperedParent,
+        false,
+      );
+      expect(sharedOpts).toEqual({ env: shared });
+      expect(tamperedParent.PYRIC_PROJECT).toBe('org-alpha');
+    } finally {
+      clearPinnedInheritedVariables();
+      if (prevProject === undefined) delete process.env.PYRIC_PROJECT;
+      else process.env.PYRIC_PROJECT = prevProject;
+    }
   });
 });
 

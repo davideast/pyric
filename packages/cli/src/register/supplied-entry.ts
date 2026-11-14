@@ -13,14 +13,14 @@
  * reads, its class-defining loads go to the Admin rows when they are open,
  * and a service no row serves loads unobserved.
  */
-import { readFileSync, realpathSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import Module from 'node:module';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { installCjsResolveState, type CjsResolveState, type CjsResolveTurn, type DirectResolveGuard } from './cjs-resolve-state.js';
-import { canonicalFileUrl, packageNameOf, packageRootDirOf } from './package-identity.js';
+import { canonicalFileUrl, packageNameOf } from './package-identity.js';
 import { liveProjectId } from '../serve/live-project.js';
 import { isLiveRegisterActive, isRegisterActive, markLiveRegisterActive } from './activation.js';
-import { installChildProcessGuard } from './child-process-guard.js';
+import { installChildProcessGuard, pinInheritedVariables } from './child-process-guard.js';
 import {
   LIVE_PASS_THROUGH_VARIABLE,
   LIVE_PROJECT_ROOT_VARIABLE,
@@ -36,18 +36,36 @@ import { ADMIN_PASS_THROUGH, passThroughSdkPackages, passThroughSet } from '../s
 import { createStopReporter, suppliedRowsStopFor } from './swap-or-stop.js';
 import { isRegisterLiveModule } from './live-row.js';
 import { ADMIN_ROW_LOADS, adminRowOfUrl, isAdminRowUrl } from './admin-row.js';
+import {
+  LIVE_REGISTER_LOG_PREFIX,
+  adminUnobservedLine,
+  createAdminTree,
+  createAdminUnobserved,
+  isAdminPackageMainProbe,
+  isAdminTreeImporter,
+  isAdminTreeReload,
+  isNodeModulesPath,
+  joinAdminTree,
+  unobservedFields,
+  type AdminTree,
+  type AdminUnobserved,
+} from './admin-tree.js';
 import { adminTreeResolution, isImportCondition, registerLiveModuleSource, registerRows, registerRowsResolution, type RegisterRows } from './supplied-rows.js';
 import { installWorkerGuard } from './worker-guard.js';
 import { installProcessHealth } from './process-health.js';
 import { createUnobservedForwarder, onReattach, type UnobservedForwarder } from './unobserved-forward.js';
 import type { NodeUnobservedLists } from 'pyric/sandbox/internal';
 
+export { adminUnobservedLine } from './admin-tree.js';
+export { pinInheritedVariables } from './child-process-guard.js';
 export { REGISTER_OBSERVER_URL, REGISTER_ROW_URLS } from './live-row.js';
 export { ADMIN_ROW_LOADS, ADMIN_ROW_URLS, adminRowOfUrl, type AdminRowName } from './admin-row.js';
 export { reachLiveHost, type LiveHostReach } from './live-host-reach.js';
 export { liveProjectId } from '../serve/live-project.js';
 export {
+  LIVE_PASS_THROUGH_VARIABLE,
   LIVE_PROJECT_ROOT_VARIABLE,
+  LIVE_SDK_ROOT_VARIABLE,
   liveAppDirs,
   liveProjectRoot,
   recordedPassThrough,
@@ -86,102 +104,7 @@ const moduleApi = Module as unknown as {
   registerHooks?: (hooks: { resolve: Resolve; load: Load }) => void;
 };
 
-const LOG_PREFIX = '@pyric/live/register';
-
-/**
- * The files of the passed-through Admin SDK's tree: the entry an app's own
- * `firebase-admin` import resolved to, and every file a file of the tree
- * resolved, directly or not. Built-ins (`node:*`) and loader instrumentation
- * packages never join.
- */
-interface AdminTree {
-  has(url: string): boolean;
-  add(url: string): void;
-  hasPackageDir(directory: string): boolean;
-}
-
-const INSTRUMENTATION_PACKAGES: ReadonlySet<string> = new Set([
-  'require-in-the-middle',
-  'import-in-the-middle',
-]);
-
-function safeRealpath(directory: string): string {
-  try {
-    return realpathSync(directory);
-  } catch {
-    return directory;
-  }
-}
-
-function createAdminTree(): AdminTree {
-  const urls = new Set<string>();
-  const packageDirs = new Set<string>();
-  return {
-    has: (url) => urls.has(url) || urls.has(canonicalFileUrl(url)),
-    add(url) {
-      if (!url.startsWith('file:')) return;
-      const pkg = packageNameOf(url);
-      if (pkg !== null && INSTRUMENTATION_PACKAGES.has(pkg)) return;
-      urls.add(url);
-      urls.add(canonicalFileUrl(url));
-      const dir = packageRootDirOf(url);
-      if (dir !== null) {
-        packageDirs.add(dir);
-        packageDirs.add(safeRealpath(dir));
-      }
-    },
-    hasPackageDir: (directory) =>
-      packageDirs.has(directory) || packageDirs.has(safeRealpath(directory)),
-  };
-}
-
-/** Whether `url` is a file of the tree, as an import made from it names its importer. */
-function isAdminTreeImporter(tree: AdminTree, importer: string | undefined): boolean {
-  return importer !== undefined && tree.has(importer);
-}
-
-/**
- * Whether this resolve is Node 22 resolving again a CommonJS file of the
- * Admin SDK's tree, by its own path and with no importer, as the stop's
- * `isCjsReloadOfAllowedFile` lets the rows' files through.
- */
-function isAdminTreeReload(tree: AdminTree, specifier: string, importer: string | undefined, url: string): boolean {
-  const isFile = url.startsWith('file:');
-  if (importer !== undefined || !isFile || !tree.has(url)) return false;
-  return specifier === fileURLToPath(url);
-}
-
-/** Adds a resolved file to the tree and returns the resolution. */
-function joinAdminTree(tree: AdminTree, result: ResolveResult): ResolveResult {
-  if (result.url.startsWith('file:')) tree.add(result.url);
-  return result;
-}
-
-function isNodeModulesPath(filePath: string): boolean {
-  return filePath.includes('/node_modules/') || filePath.includes('\\node_modules\\');
-}
-
-function isInstalledNodeModulesUrl(url: string): boolean {
-  return url.startsWith('file:') && isNodeModulesPath(fileURLToPath(url));
-}
-
-/**
- * True when a cached `node_modules` CJS hook runs `require.resolve(pkgName, { paths })`
- * on a package directory already loaded by the Admin SDK's tree.
- */
-function isAdminPackageMainProbe(
-  specifier: string, importer: string | undefined, resolvedUrl: string,
-  isEsmImport: boolean, cjsTurn: CjsResolveTurn | null, adminTree: AdminTree,
-): boolean {
-  if (isEsmImport || cjsTurn === null) return false;
-  if (importer === undefined || !isInstalledNodeModulesUrl(importer)) return false;
-  if (!cjsTurn.isResolveOnlyWithPaths(importer)) return false;
-  const pkgName = packageNameOf(resolvedUrl);
-  if (pkgName === null || specifier !== pkgName) return false;
-  const pkgDir = packageRootDirOf(resolvedUrl);
-  if (pkgDir === null) return false;
-  return adminTree.hasPackageDir(pkgDir);
-}
+const LOG_PREFIX = LIVE_REGISTER_LOG_PREFIX;
 
 /**
  * The real file behind each Admin row: where the Admin SDK's own load of it
@@ -226,46 +149,8 @@ function resolveAdminRowOwn(
   return joinAdminTree(adminTree, resolved);
 }
 
-/**
- * The Admin subpaths no row serves that this process loaded, each once, in
- * load order: the first load prints one line, and the process health lists
- * them. Beside them, the subpaths whose row gates their calls but records
- * none (App Check), which the start line already names.
- */
-interface AdminUnobserved {
-  note(subpath: string): void;
-  list(): readonly string[];
-  noteGated(subpath: string): void;
-  gated(): readonly string[];
-}
-
 /** The Admin rows that gate their calls and record none, by the subpath the health names. */
 const GATED_ADMIN_ROWS: ReadonlyMap<string, string> = new Map([['app-check', 'firebase-admin/app-check']]);
-
-/** The line for the first load of an Admin subpath no row serves. */
-export function adminUnobservedLine(subpath: string): string {
-  return `${LOG_PREFIX}: ${subpath} loads unobserved. Live mode lets it reach Google with your credential, and no row records its calls.`;
-}
-
-function createAdminUnobserved(write: (line: string) => void, changed: () => void): AdminUnobserved {
-  const loaded: string[] = [];
-  const gated: string[] = [];
-  return {
-    note(subpath) {
-      if (loaded.includes(subpath)) return;
-      loaded.push(subpath);
-      write(`${adminUnobservedLine(subpath)}\n`);
-      changed();
-    },
-    list: () => [...loaded],
-    noteGated(subpath) {
-      if (gated.includes(subpath)) return;
-      gated.push(subpath);
-      changed();
-    },
-    gated: () => [...gated],
-  };
-}
 
 /**
  * What a load of the Admin SDK gets from the Admin rows (`adminTreeResolution`):
@@ -470,16 +355,10 @@ function projectIdOrNull(projectRoot: string): string | null {
   }
 }
 
-/** The process health's unobserved Admin lists, each absent when empty. */
-function unobservedFields(
-  admin: AdminUnobserved,
-): { unobservedAdmin?: readonly string[]; gatedAdmin?: readonly string[] } {
-  const unobservedAdmin = admin.list();
-  const gatedAdmin = admin.gated();
-  return {
-    ...(unobservedAdmin.length === 0 ? {} : { unobservedAdmin }),
-    ...(gatedAdmin.length === 0 ? {} : { gatedAdmin }),
-  };
+let suppliedProcessProjectId: string | undefined;
+
+export function noteSuppliedProcessProject(projectId: string): void {
+  suppliedProcessProjectId = projectId;
 }
 
 /**
@@ -606,10 +485,17 @@ function finishSuppliedRowsActivation(installed: InstalledLiveRegister, prepared
   });
   // Its servers say this is a live process, so a proxy check can catch a sandbox page in front of it,
   // and list what no row observed.
-  let projectId = projectIdOrNull(installed.projectRoot) ?? undefined;
+  let cachedLocalProjectId: string | undefined;
+  const resolveHealthProjectId = (): string | undefined => {
+    if (suppliedProcessProjectId !== undefined) return suppliedProcessProjectId;
+    if (cachedLocalProjectId === undefined) {
+      cachedLocalProjectId = projectIdOrNull(installed.projectRoot) ?? undefined;
+    }
+    return cachedLocalProjectId;
+  };
   installProcessHealth(() => ({
     mode: 'live',
-    projectId: (projectId ??= projectIdOrNull(installed.projectRoot) ?? undefined),
+    projectId: resolveHealthProjectId(),
     ...unobservedFields(prepared.adminUnobserved),
   }));
   markLiveRegisterActive();

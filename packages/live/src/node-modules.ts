@@ -131,12 +131,18 @@ export function observeAdminRow(name: AdminRowName, real: unknown, entryFile: st
   if (projectId === undefined) return;
   const row = { observer: adminObserver(observer, projectId), gate: adminGateFor(projectId) };
   if (name === 'firestore') observeAdminFirestore(real, entryFile, row);
-  if (name === 'storage') observeAdminStorage(real, entryFile, row);
+  if (name === 'storage') observeAdminStorage(real, entryFile, row, requiredBy);
   if (name === 'database') {
     const adminVersion = firebaseAdminVersion(requiredBy);
-    observeAdminDatabase(real, { ...row, hostProjectId: projectId, hostInstances: hostDatabaseInstances, ...(adminVersion === undefined ? {} : { adminVersion }) });
+    const dbRow = {
+      ...row,
+      hostProjectId: projectId,
+      hostInstances: hostDatabaseInstances,
+      adminVersion,
+    };
+    observeAdminDatabase(real, dbRow);
   }
-  if (name === 'auth') observeAdminAuth(real, { ...row, hostProjectId: projectId });
+  if (name === 'auth') observeAdminAuth(real, { ...row, hostProjectId: projectId }, entryFile);
   if (name === 'app-check') observeAdminAppCheck(real, row);
   if (name === 'messaging') observeAdminMessaging(real, row);
 }

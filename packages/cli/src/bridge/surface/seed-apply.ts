@@ -61,6 +61,14 @@ export interface SeedStorageEntry extends OptionalStorageObjectHeaders {
   customMetadata?: Record<string, string>;
 }
 
+/** Valid non-null JSON values accepted at the RTDB root of a `SandboxSeed`. */
+export type SandboxSeedDatabase =
+  | Record<string, unknown>
+  | unknown[]
+  | string
+  | number
+  | boolean;
+
 /** State to load into a sandbox. The harness's `EvalSeed` is an alias of this. */
 export interface SandboxSeed {
   firestoreRules?: string;
@@ -69,8 +77,8 @@ export interface SandboxSeed {
   users?: SeedUserEntry[];
   /** Document path to document data. */
   firestore?: Record<string, Record<string, unknown>>;
-  /** Realtime Database tree written at the root. */
-  database?: Record<string, unknown>;
+  /** Realtime Database tree or root value written at `/`. */
+  database?: SandboxSeedDatabase;
   storage?: SeedStorageEntry[];
 }
 
@@ -195,7 +203,7 @@ export async function applyRules(sandbox: LocalSandbox, seed: SandboxSeed): Prom
 export async function applyData(sandbox: LocalSandbox, seed: SandboxSeed): Promise<void> {
   const users = (seed.users ?? []).map(normalizeSeedUser);
   const rtdb: Record<string, unknown> = {};
-  if (seed.database !== undefined) {
+  if (seed.database !== undefined && seed.database !== null) {
     rtdb[DEFAULT_SNAPSHOT_RESOURCE] = seed.database;
   }
   const storage: Record<string, readonly SnapshotStorageObject[]> = {};

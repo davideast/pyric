@@ -32,7 +32,13 @@ export default {
       .optional()
       .describe('Document path to document data.'),
     database: z
-      .record(z.unknown())
+      .union([
+        z.record(z.unknown()),
+        z.array(z.unknown()),
+        z.string(),
+        z.number().finite(),
+        z.boolean(),
+      ])
       .optional()
       .describe('Realtime Database tree written at the root.'),
     storage: z.array(storageObjectSeed).optional().describe('Storage objects to seed.'),

@@ -66,6 +66,20 @@ export interface AdminMethod extends ObservedHooks, Pick<ObservedSite, 'accountO
 
 const PATCHED = Symbol.for('pyric.live.admin.patched');
 
+/** Marks an Admin prototype method or accessor getter that enforces `AdminProjectGate`. */
+const ADMIN_METHOD_GATED = Symbol.for('pyric.live.admin.methodGated');
+
+/** Marks `fn` as gated by `AdminProjectGate` and returns it. */
+export function markAdminMethodGated<T extends Function>(fn: T): T {
+  Object.defineProperty(fn, ADMIN_METHOD_GATED, { value: true });
+  return fn;
+}
+
+/** Whether `value` is a method or accessor getter marked with {@link ADMIN_METHOD_GATED}. */
+export function isAdminMethodGated(value: unknown): boolean {
+  return typeof value === 'function' && Object.hasOwn(value, ADMIN_METHOD_GATED);
+}
+
 /** Set while an observed Admin call runs, so the SDK's own nested calls make no record. */
 const observing = new AsyncLocalStorage<true>();
 
@@ -117,7 +131,7 @@ function callbackResults(value: unknown): unknown[] {
 }
 
 /** Hands a promise's settlement to a node-style callback on a later tick, outside the promise, as the SDK calls it. */
-function settleToCallback(pending: Promise<unknown>, callback: Method): void {
+export function settleToCallback(pending: Promise<unknown>, callback: Method): void {
   const later = (values: unknown[]) => process.nextTick(() => Reflect.apply(callback, undefined, values));
   pending.then(
     (value: unknown) => later([null, ...callbackResults(value)]),
@@ -221,7 +235,8 @@ export function patchAdminClass(prototype: object | undefined, className: string
     const real = descriptor?.value as unknown;
     if (typeof real !== 'function') continue;
     const wrap = method.listener === true ? gatedListener : gatedCall;
-    Object.defineProperty(prototype, method.name, { ...descriptor, value: wrap(row, className, method, real as Method) });
+    const wrapped = markAdminMethodGated(wrap(row, className, method, real as Method));
+    Object.defineProperty(prototype, method.name, { ...descriptor, value: wrapped });
   }
   Object.defineProperty(prototype, PATCHED, { value: true });
   return true;

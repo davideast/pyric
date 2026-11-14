@@ -4,6 +4,7 @@
  * and `deleteFields` removes them. Serialized special values (timestamps,
  * geopoints, bytes, vectors, references) are leaves, never maps to merge into.
  */
+import { hasCollidingFirestoreMarkerShape } from 'pyric/sandbox/internal';
 import { FORBIDDEN_KEYS, isPlainObject } from './json-values.js';
 
 function defineOwn(target: Record<string, unknown>, key: string, value: unknown): void {
@@ -104,9 +105,12 @@ export function isSerializedFirestoreLeafObject(value: Record<string, unknown>):
 
 function wrapPlainMapIfColliding(map: Record<string, unknown>, isRoot: boolean): Record<string, unknown> {
   if (isRoot) {
-    return isEscapedPlainMap(map) ? { type: 'pyric/map/1.0', fields: map } : map;
+    if (isEscapedPlainMap(map)) {
+      return { type: 'pyric/map/1.0', fields: map };
+    }
+    return map;
   }
-  if (isSerializedFirestoreLeafObject(map) || isEscapedPlainMap(map)) {
+  if (hasCollidingFirestoreMarkerShape(map) || isSerializedFirestoreLeafObject(map) || isEscapedPlainMap(map)) {
     return { type: 'pyric/map/1.0', fields: map };
   }
   return map;

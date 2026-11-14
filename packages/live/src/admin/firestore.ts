@@ -1,22 +1,14 @@
 /**
  * The Admin Firestore row: patches the classes of the real
  * `@google-cloud/firestore` that firebase-admin loads (`patch.ts`), so each
- * Admin call makes a record named `<Class>.<method>` with the document or
- * collection path it touched, the project, and production's code in the
- * client SDK's spelling (gRPC 5 is `not-found`).
- *
- * Observed: `DocumentReference` `get`, `set`, `update`, `delete`, `create`,
- * `listCollections` and `onSnapshot` (one record per delivery, with its
- * billed documents); `CollectionReference` `add` and `listDocuments`;
- * `Query` `get` (billed documents: the result's size, at least 1) and
- * `onSnapshot`; `AggregateQuery.get`; `WriteBatch.commit`; `Firestore`
- * `getAll` and `runTransaction`. A transaction's own reads and writes are
- * part of its `runTransaction` record.
+ * Admin call passes `AdminProjectGate` (and `(default)` database check) before
+ * any request and makes a record named `<Class>.<method>` with the document or
+ * collection path it touched, the project, and production's code in the client
+ * SDK's spelling (gRPC 5 is `not-found`).
  *
  * A record never carries a document value: no write data, no returned
  * fields, no filter value.
  */
-import Module, { createRequire } from 'node:module';
 import type { CallContext, LiveObserver } from '../observe.js';
 import { liveCallRefusal } from '../refusal.js';
 import {
@@ -28,8 +20,15 @@ import {
   patchAdminFirestoreTransaction,
   patchAdminFirestoreWriteBatch,
 } from './firestore-session-staging.js';
+import { patchFirestoreGapicClients } from './firestore-gapic.js';
 import { patchAdminClass, type AdminMethod, type AdminRow } from './patch.js';
 import { failClosedGate, UNREAD_APP, type AdminApp, type AdminProjectGate } from './project-gate.js';
+import {
+  entryRequire,
+  gatePrototypeMethods,
+  patchAsyncGeneratorMethod,
+  patchObjectStreamMethod,
+} from './prototype-gate.js';
 
 /** The module an Admin Firestore record names: the load the row patches. */
 export const ADMIN_FIRESTORE_MODULE = '@google-cloud/firestore';
@@ -40,6 +39,36 @@ const GRPC_CODES: readonly string[] = [
   'permission-denied', 'resource-exhausted', 'failed-precondition', 'aborted', 'out-of-range',
   'unimplemented', 'internal', 'unavailable', 'data-loss', 'unauthenticated',
 ];
+
+const LOCAL_METHODS: Readonly<Record<string, ReadonlySet<string>>> = {
+  Firestore: new Set([
+    'getBulkWriter', 'settings', 'validateAndApplySettings', 'newTraceUtilInstance',
+    'doc', 'collection', 'collectionGroup', 'batch', 'bulkWriter', 'snapshot_',
+    'bundle', 'registerListener', 'unregisterListener', '_incrementBulkWritersCount',
+    '_decrementBulkWritersCount', 'terminate', 'toJSON', 'initializeIfNeeded', 'createCallOptions',
+  ]),
+  DocumentReference: new Set(['collection', 'isEqual', 'toProto', 'withConverter']),
+  CollectionReference: new Set(['doc', 'isEqual', 'withConverter']),
+  Query: new Set([
+    'where', '_parseFilter', '_parseFieldFilter', '_parseCompositeFilter',
+    'select', 'orderBy', 'limit', 'limitToLast', 'offset', 'count', 'aggregate',
+    'findNearest', '_findNearest', 'isEqual', 'getInequalityFilterFields',
+    'createImplicitOrderBy', 'createCursor', 'validateReference', 'startAt',
+    'startAfter', 'endBefore', 'endAt', 'toCursor', 'toProto', '_toBundledQuery',
+    'toStructuredQuery', '_isPermanentRpcError', '_hasRetryTimedOut', 'comparator',
+    'withConverter', '_createSnapshot',
+  ]),
+  CollectionGroup: new Set(['withConverter']),
+  AggregateQuery: new Set(['decodeResult', 'toProto', 'isEqual']),
+  VectorQuery: new Set(['toProto', '_createSnapshot', 'startAfter', 'isEqual']),
+  WriteBatch: new Set(['verifyNotCommitted', 'create', 'delete', 'set', 'update', '_reset']),
+  Transaction: new Set(['create', 'set', 'update', 'delete']),
+  BulkWriter: new Set([
+    '_getBufferedOperationsCount', '_setMaxBatchSize', '_setMaxPendingOpCount',
+    'onWriteResult', 'onWriteError', '_verifyNotClosed', '_scheduleCurrentBatch',
+    '_enqueue', '_processBufferedOps',
+  ]),
+};
 
 function isObject(value: unknown): value is object {
   return typeof value === 'object' && value !== null;
@@ -69,24 +98,23 @@ function isFirestoreClient(value: unknown): value is object {
 }
 
 /**
- * The Firestore a reference, query, batch, BulkWriter, or the Firestore itself
- * belongs to. An aggregate query holds none of its own: it reaches it through its query.
+ * The Firestore a reference, query, vector/aggregate query, batch, transaction,
+ * BulkWriter, or the Firestore itself belongs to.
  */
 export function firestoreOf(self: unknown): object | undefined {
   if (!isObject(self)) return undefined;
   const owner: unknown = Reflect.get(self, '_firestore') ?? Reflect.get(self, 'firestore');
   if (isFirestoreClient(owner)) return owner;
-  const aggregated: unknown = Reflect.get(self, '_query');
-  if (isObject(aggregated)) return firestoreOf(aggregated);
+  const wrappedQuery: unknown = Reflect.get(self, '_query');
+  if (isObject(wrappedQuery)) return firestoreOf(wrappedQuery);
   return isFirestoreClient(self) ? self : undefined;
 }
 
 /** The Firestore database id (`'(default)'` when unset or empty). */
 export function databaseIdOf(self: unknown): string {
   const firestore = firestoreOf(self);
-  const raw =
-    stringAt(firestore, '_databaseId') ??
-    stringAt(isObject(firestore) ? Reflect.get(firestore, '_settings') : undefined, 'databaseId');
+  const settings: unknown = isObject(firestore) ? Reflect.get(firestore, '_settings') : undefined;
+  const raw = stringAt(firestore, '_databaseId') ?? stringAt(settings, 'databaseId');
   return raw === undefined || raw === '' ? '(default)' : raw;
 }
 
@@ -101,7 +129,8 @@ function queryPath(query: unknown): string | undefined {
   const collectionId = stringAt(options, 'collectionId');
   if (collectionId === undefined) return undefined;
   if (isObject(options) && Reflect.get(options, 'allDescendants') === true) return collectionId;
-  const parent = stringAt(isObject(options) ? Reflect.get(options, 'parentPath') : undefined, 'relativeName');
+  const parentObj: unknown = isObject(options) ? Reflect.get(options, 'parentPath') : undefined;
+  const parent = stringAt(parentObj, 'relativeName');
   return parent === undefined || parent === '' ? collectionId : `${parent}/${collectionId}`;
 }
 
@@ -113,12 +142,12 @@ const FIRST_ARG_PATH_CALLS: ReadonlySet<string> = new Set([
   'BulkWriter.delete',
 ]);
 
-/** The path a reference, query, aggregate query, BulkWriter op, or recursiveDelete names; none for getAll, a batch, or the Firestore. */
+/** The path a reference, query, aggregate/vector query, BulkWriter op, or recursiveDelete names. */
 function pathOf(name: string, self: unknown, args: readonly unknown[]): string | undefined {
   const own = stringAt(self, 'path');
   if (own !== undefined) return own;
-  const aggregated: unknown = isObject(self) ? Reflect.get(self, '_query') : undefined;
-  const fromQuery = queryPath(aggregated ?? self);
+  const wrappedQuery: unknown = isObject(self) ? Reflect.get(self, '_query') : undefined;
+  const fromQuery = queryPath(wrappedQuery ?? self);
   if (fromQuery !== undefined) return fromQuery;
   if (FIRST_ARG_PATH_CALLS.has(name)) {
     const firstArg = args[0];
@@ -164,12 +193,12 @@ const LISTENER: AdminMethod = {
   ...HOOKS,
 };
 
-/** The classes the row patches, the methods of each, and the file that defines it. */
 const CLASSES: readonly { readonly className: string; readonly methods: readonly AdminMethod[] }[] = [
   { className: 'DocumentReference', methods: [...calls('get', 'set', 'update', 'delete', 'create', 'listCollections'), LISTENER] },
   { className: 'CollectionReference', methods: calls('add', 'listDocuments') },
-  { className: 'Query', methods: [...calls('get'), LISTENER] },
-  { className: 'AggregateQuery', methods: calls('get') },
+  { className: 'Query', methods: [...calls('get', 'explain'), LISTENER] },
+  { className: 'AggregateQuery', methods: calls('get', 'explain') },
+  { className: 'VectorQuery', methods: calls('get', 'explain') },
   { className: 'WriteBatch', methods: calls('commit') },
   { className: 'BulkWriter', methods: calls('create', 'set', 'update', 'delete', 'flush', 'close') },
   { className: 'Firestore', methods: calls('getAll', 'runTransaction', 'listCollections', 'recursiveDelete') },
@@ -183,18 +212,9 @@ export interface AdminFirestoreRow {
 
 type FirestoreAdminApp = AdminApp & { readonly databaseId?: string };
 
-/** Each Firestore's stand-in Admin app, as the gate reads it: the project and databaseId firebase-admin gave it. */
 const apps = new WeakMap<object, FirestoreAdminApp>();
-
-/** The tag the Firestore's own project lookup logs under. */
 const GATE_REQUEST_TAG = 'pyric-admin-gate';
 
-/**
- * A credential whose `getProjectId` runs the Firestore's own project
- * resolution (`initializeIfNeeded`, which no row patches) and returns the
- * project it worked out. It sends no Firestore request: it asks the
- * Firestore's auth client, as the SDK does before its first request.
- */
 function resolvingCredential(firestore: object): { getProjectId(): Promise<unknown> } {
   return {
     async getProjectId() {
@@ -205,10 +225,6 @@ function resolvingCredential(firestore: object): { getProjectId(): Promise<unkno
   };
 }
 
-/**
- * The Admin app a call belongs to, for the gate, or `UNREAD_APP` so
- * `failClosedGate` refuses an unreadable receiver.
- */
 function appOf(self: unknown): FirestoreAdminApp {
   const firestore = firestoreOf(self);
   if (firestore === undefined) return UNREAD_APP;
@@ -216,41 +232,33 @@ function appOf(self: unknown): FirestoreAdminApp {
   if (known !== undefined) return known;
   const projectId = stringAt(Reflect.get(firestore, '_settings'), 'projectId');
   const databaseId = databaseIdOf(firestore);
-  const app: FirestoreAdminApp = {
-    options: projectId === undefined ? { credential: resolvingCredential(firestore) } : { projectId },
-    databaseId,
-  };
+  const options = projectId === undefined ? { credential: resolvingCredential(firestore) } : { projectId };
+  const app: FirestoreAdminApp = { options, databaseId };
   apps.set(firestore, app);
   return app;
 }
 
-function entryRequire(entryFile: string): (id: string) => unknown {
-  const cache = (Module as unknown as { _cache?: Record<string, { require?: (id: string) => unknown }> })._cache;
-  const cached = cache?.[entryFile];
-  if (typeof cached?.require === 'function') {
-    return cached.require.bind(cached);
-  }
-  return createRequire(entryFile);
-}
-
-/** `AggregateQuery`, which the package does not export, from the file beside its entry. */
-function aggregateQueryClass(entryFile: string): unknown {
+function internalClass(entryFile: string, relativePath: string, exportName: string): unknown {
   try {
-    const loaded: unknown = entryRequire(entryFile)('./reference/aggregate-query.js');
-    return isObject(loaded) ? Reflect.get(loaded, 'AggregateQuery') : undefined;
+    const loaded: unknown = entryRequire(entryFile)(relativePath);
+    return isObject(loaded) ? Reflect.get(loaded, exportName) : undefined;
   } catch {
     return undefined;
   }
 }
 
-/** A class the module exports. Its `module.exports` is the `Firestore` class itself, with the others as its properties. */
 function exportedClass(sdk: unknown, className: string): unknown {
   const isModule = isObject(sdk) || typeof sdk === 'function';
   return isModule ? Reflect.get(sdk, className) : undefined;
 }
 
 function prototypeOf(sdk: unknown, className: string, entryFile: string): object | undefined {
-  const defined: unknown = className === 'AggregateQuery' ? aggregateQueryClass(entryFile) : exportedClass(sdk, className);
+  let defined: unknown = exportedClass(sdk, className);
+  if (defined === undefined && className === 'AggregateQuery') {
+    defined = internalClass(entryFile, './reference/aggregate-query.js', 'AggregateQuery');
+  } else if (defined === undefined && className === 'VectorQuery') {
+    defined = internalClass(entryFile, './reference/vector-query.js', 'VectorQuery');
+  }
   const prototype: unknown = typeof defined === 'function' ? Reflect.get(defined, 'prototype') : undefined;
   return isObject(prototype) ? prototype : undefined;
 }
@@ -279,5 +287,34 @@ export function observeAdminFirestore(sdk: unknown, entryFile: string, row: Admi
       return call();
     });
   const adminRow: AdminRow = { module: ADMIN_FIRESTORE_MODULE, observer: row.observer, gate, appOf };
-  for (const { className, methods } of CLASSES) patchAdminClass(prototypeOf(sdk, className, entryFile), className, methods, adminRow);
+  for (const { className, methods } of CLASSES) {
+    patchAdminClass(prototypeOf(sdk, className, entryFile), className, methods, adminRow);
+  }
+
+  const streamOpts = { observe: true, context: contextOf, codeOf: adminCodeOf };
+  const queryProto = prototypeOf(sdk, 'Query', entryFile);
+  patchObjectStreamMethod(queryProto, 'stream', adminRow, 'Query', streamOpts);
+  patchObjectStreamMethod(queryProto, 'explainStream', adminRow, 'Query', streamOpts);
+  patchObjectStreamMethod(queryProto, '_stream', adminRow, 'Query');
+  patchObjectStreamMethod(prototypeOf(sdk, 'AggregateQuery', entryFile), '_stream', adminRow, 'AggregateQuery');
+  patchObjectStreamMethod(prototypeOf(sdk, 'VectorQuery', entryFile), '_stream', adminRow, 'VectorQuery');
+  patchAsyncGeneratorMethod(
+    prototypeOf(sdk, 'CollectionGroup', entryFile),
+    'getPartitions',
+    adminRow,
+    'CollectionGroup',
+    streamOpts,
+  );
+
+  for (const [className, allowlist] of Object.entries(LOCAL_METHODS)) {
+    gatePrototypeMethods(prototypeOf(sdk, className, entryFile), {
+      className,
+      gate,
+      appOf,
+      allowlist,
+      skipWhenObserving: true,
+      runInAdminScope: true,
+    });
+  }
+  patchFirestoreGapicClients(sdk, entryFile, ADMIN_FIRESTORE_MODULE, gate, row.observer);
 }

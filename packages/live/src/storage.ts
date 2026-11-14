@@ -109,31 +109,39 @@ const SETTABLE_STRING_FIELDS = [
   'contentType',
 ] as const;
 
-function copyCustomMetadata(value: unknown, budget: { left: number }): Record<string, string> | undefined {
+function utf8ByteLength(value: string): number {
+  if (typeof TextEncoder !== 'undefined') return new TextEncoder().encode(value).byteLength;
+  return value.length;
+}
+
+function copyCustomMetadata(
+  value: unknown,
+  budget: { left: number },
+): Record<string, string> | 'oversized' | undefined {
   if (!isObject(value) || Array.isArray(value)) return undefined;
   const copy: Record<string, string> = {};
   for (const [key, entry] of Object.entries(value)) {
     if (typeof entry !== 'string' || FORBIDDEN_STORAGE_KEYS.has(key)) continue;
-    budget.left -= key.length + entry.length + 6;
-    if (budget.left < 0) return undefined;
+    budget.left -= utf8ByteLength(key) + utf8ByteLength(entry) + 6;
+    if (budget.left < 0) return 'oversized';
     defineOwn(copy, key, entry);
   }
   return copy;
 }
 
-function copyUploadMetadata(raw: unknown): Record<string, unknown> {
+function copyUploadMetadata(raw: unknown): Record<string, unknown> | undefined {
   if (!isObject(raw) || Array.isArray(raw)) return {};
   const budget = { left: MAX_METADATA_SIZE };
   const out: Record<string, unknown> = {};
   for (const field of SETTABLE_STRING_FIELDS) {
     const val = raw[field];
     if (typeof val === 'string') {
-      budget.left -= field.length + val.length + 6;
-      if (budget.left < 0) return {};
+      budget.left -= field.length + utf8ByteLength(val) + 6;
+      if (budget.left < 0) return undefined;
       defineOwn(out, field, val);
     } else if (val === null) {
       budget.left -= field.length + 8;
-      if (budget.left < 0) return {};
+      if (budget.left < 0) return undefined;
       defineOwn(out, field, null);
     }
   }
@@ -142,15 +150,11 @@ function copyUploadMetadata(raw: unknown): Record<string, unknown> {
       defineOwn(out, 'customMetadata', null);
     } else {
       const copied = copyCustomMetadata(raw.customMetadata, budget);
+      if (copied === 'oversized') return undefined;
       if (copied !== undefined) defineOwn(out, 'customMetadata', copied);
     }
   }
   return out;
-}
-
-function utf8ByteLength(value: string): number {
-  if (typeof TextEncoder !== 'undefined') return new TextEncoder().encode(value).byteLength;
-  return value.length;
 }
 
 /** The bytes a base64 string's trailing `=` signs stand in for: none, one or two. */
@@ -210,6 +214,7 @@ function storageWriteDataOf(name: string, args: readonly unknown[]): Record<stri
     const info = binaryInfo(args[1]);
     if (info.size === undefined) return undefined;
     const meta = copyUploadMetadata(args[2]);
+    if (meta === undefined) return undefined;
     return {
       contentType: info.defaultContentType,
       ...meta,
@@ -221,6 +226,7 @@ function storageWriteDataOf(name: string, args: readonly unknown[]): Record<stri
     if (typeof raw !== 'string') return undefined;
     const format = typeof args[2] === 'string' ? args[2] : 'raw';
     const meta = copyUploadMetadata(args[3]);
+    if (meta === undefined) return undefined;
     if (format === 'data_url') {
       const parsed = dataUrlInfo(raw);
       if (parsed === undefined) return undefined;
@@ -238,7 +244,8 @@ function storageWriteDataOf(name: string, args: readonly unknown[]): Record<stri
     };
   }
   if (name === 'updateMetadata') {
-    return isObject(args[1]) && !Array.isArray(args[1]) ? copyUploadMetadata(args[1]) : undefined;
+    if (!isObject(args[1]) || Array.isArray(args[1])) return undefined;
+    return copyUploadMetadata(args[1]);
   }
   return undefined;
 }
@@ -290,6 +297,7 @@ export function storageResult(site: ObservedSite, result: unknown): ResultReadin
   const isGetMetadataObject = site.name === 'getMetadata' && isObject(result) && !Array.isArray(result);
   if (!isGetMetadataObject) return reading;
   const meta = copyUploadMetadata(result);
+  if (meta === undefined) return reading;
   const doc: Record<string, unknown> = { ...meta };
   if (typeof result.size === 'number' && Number.isFinite(result.size) && result.size >= 0) {
     doc.size = result.size;

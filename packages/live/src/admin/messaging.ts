@@ -12,9 +12,21 @@
 import { noMessage, type CallContext, type LiveObserver } from '../observe.js';
 import { patchAdminClass, type AdminMethod, type AdminRow } from './patch.js';
 import { failClosedGate, readAdminApp, type AdminApp, type AdminProjectGate } from './project-gate.js';
+import { gatePrototypeMethods } from './prototype-gate.js';
 
 /** The module an Admin Messaging record names, which the page observer maps to the `messaging` service. */
 export const ADMIN_MESSAGING_MODULE = 'firebase-admin/messaging';
+
+const LOCAL_METHODS: ReadonlySet<string> = new Set([
+  'enableLegacyHttpTransport',
+  'parseSendResponses',
+  'getUrlPath',
+  'validateRegistrationTokensType',
+  'validateRegistrationTokens',
+  'validateTopicType',
+  'validateTopic',
+  'normalizeTopic',
+]);
 
 function isObject(value: unknown): value is object {
   return typeof value === 'object' && value !== null;
@@ -48,7 +60,10 @@ export interface AdminMessagingRow {
 export function observeAdminMessaging(messagingModule: unknown, row: AdminMessagingRow): void {
   const defined: unknown = isObject(messagingModule) ? Reflect.get(messagingModule, 'Messaging') : undefined;
   const prototype: unknown = typeof defined === 'function' ? Reflect.get(defined, 'prototype') : undefined;
+  const target = isObject(prototype) ? prototype : undefined;
   const gate = failClosedGate(row.gate, 'Messaging');
   const adminRow: AdminRow = { module: ADMIN_MESSAGING_MODULE, observer: row.observer, gate, appOf };
-  patchAdminClass(isObject(prototype) ? prototype : undefined, 'Messaging', METHODS, adminRow);
+  if (patchAdminClass(target, 'Messaging', METHODS, adminRow)) {
+    gatePrototypeMethods(target, { gate, appOf, allowlist: LOCAL_METHODS, skipWhenObserving: true });
+  }
 }
