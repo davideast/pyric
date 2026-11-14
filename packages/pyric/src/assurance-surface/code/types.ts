@@ -114,12 +114,32 @@ export interface QueryConstraint {
   direction?: 'asc' | 'desc';
 }
 
+export type StorageHttpHeaderKey =
+  | 'cacheControl'
+  | 'contentDisposition'
+  | 'contentEncoding'
+  | 'contentLanguage';
+
 /** Static upload payload and metadata facts extracted from a Cloud Storage write site. */
 export interface StorageUploadMetadata {
   /** Static MIME type (`metadata.contentType`, `Blob` `type`, or `data:` URL header). */
   readonly contentType?: string;
+  /** True when `metadata.contentType` is omitted/unset on an untraced `Blob` or `File` payload whose `.type` is determined at runtime. */
+  readonly blobContentTypeUnresolved?: boolean;
   /** Exact payload size in bytes when statically determinable. */
   readonly sizeBytes?: number;
+  /** Static `cacheControl` HTTP metadata header when determinable. */
+  readonly cacheControl?: string;
+  /** Static `contentDisposition` HTTP metadata header when determinable. */
+  readonly contentDisposition?: string;
+  /** Static `contentEncoding` HTTP metadata header when determinable. */
+  readonly contentEncoding?: string;
+  /** Static `contentLanguage` HTTP metadata header when determinable. */
+  readonly contentLanguage?: string;
+  /** True when one or more HTTP metadata header properties (`cacheControl`, `contentDisposition`, `contentEncoding`, `contentLanguage`) could not be statically resolved. */
+  readonly httpMetadataUnresolved?: boolean;
+  /** Specific HTTP metadata header keys whose runtime values could not be statically resolved. */
+  readonly httpMetadataUnresolvedFields?: readonly StorageHttpHeaderKey[];
   /** Sorted custom metadata keys when statically known. */
   readonly customMetadataKeys?: readonly string[];
   /** Per-key value shape and auth provenance for `customMetadata` entries. */

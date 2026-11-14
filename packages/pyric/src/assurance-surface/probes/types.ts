@@ -38,6 +38,10 @@ export interface ProbeStep {
   /** Optional explicit payload byte count for Cloud Storage upload steps. */
   sizeBytes?: number;
   contentType?: string;
+  cacheControl?: string;
+  contentDisposition?: string;
+  contentEncoding?: string;
+  contentLanguage?: string;
   customMetadata?: Record<string, string>;
 }
 
@@ -93,6 +97,8 @@ export interface ProbeResult {
   outcome: ProbeOutcome;
   /** Why the probe is invalid, when it is. */
   reason?: string;
+  /** True when a must-allow probe abstained due to inconclusive seed/runtime preconditions. */
+  abstained?: boolean;
   steps: StepResult[];
   /** Scoped `[owner, peer]` actor profiles (including per-probe extracted token claims) used when executing this probe. */
   actors?: readonly [ProbeActor, ProbeActor];

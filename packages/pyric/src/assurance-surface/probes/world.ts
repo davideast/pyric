@@ -228,6 +228,7 @@ function buildActorAuth(
     }
   }
   for (const key of Object.getOwnPropertyNames(actor.token)) {
+    if (key === 'email_verified') continue;
     defineOwnWorldField(
       customClaims,
       key,

@@ -298,7 +298,7 @@ export { MapMethodFailure, mapKeys, mapList, mapLiteral, mapValues } from '../si
 export type { MapListMethod } from '../simulator/map-keys.js';
 export { MathFailure, applyMath } from '../simulator/math-builtins.js';
 export { MembershipFailure, membership } from '../simulator/membership.js';
-export { substituteIdentifiers } from '../simulator/query-proof-scope.js';
+export { inlineFunctionsInExpr, substituteIdentifiers } from '../simulator/query-proof-scope.js';
 export { re2PatternProblem } from '../simulator/re2-pattern-check.js';
 export { resolveRootBlockMatch } from '../simulator/root-match.js';
 export { IntFailure, hostNumber, intArithmetic, isRulesInt, negateInt, numericLiteralValue, orderNumbers, rulesFloatValue, rulesInt, rulesNumberAsDouble, typeClaimNumbers } from '../simulator/rules-int.js';

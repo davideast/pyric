@@ -85,10 +85,10 @@ function mergeRuntimeFallbackRules(
   project: LoadedAssuranceProject,
   runtime: LiveRuntimeClone,
 ): LoadedAssuranceProject {
-  const snapshotRules =
-    runtime.snapshot !== undefined
-      ? targetRulesFromSnapshot(runtime.snapshot)
-      : undefined;
+  let snapshotRules: ReturnType<typeof targetRulesFromSnapshot> | undefined;
+  if (runtime.snapshot !== undefined) {
+    snapshotRules = targetRulesFromSnapshot(runtime.snapshot);
+  }
   const tr = runtime.targetRules ?? snapshotRules;
   if (!tr) return project;
 
@@ -105,18 +105,25 @@ function mergeRuntimeFallbackRules(
     rtdb.push({ source: "live:database.rules.json", json: tr.rtdb });
   }
 
-  const storage = [...(project.sources.storage ?? [])];
+  const existingStorage = project.sources.storage ?? [];
+  const storage = [...existingStorage];
   const hasDefaultStorage = storage.some(
-    (s) => s.bucket === undefined || s.bucket === DEFAULT_SNAPSHOT_RESOURCE,
+    (s) =>
+      s.bucket === undefined ||
+      s.bucket === DEFAULT_SNAPSHOT_RESOURCE ||
+      (project.defaultBucket !== undefined && s.bucket === project.defaultBucket),
   );
   if (!hasDefaultStorage && typeof tr.storage === "string") {
     storage.push({ source: "live:storage.rules", text: tr.storage });
   }
   const configuredBuckets = [...project.configuredBuckets];
-  const mergedStorageBuckets = {
-    ...(snapshotRules?.storageBuckets ?? {}),
-    ...(tr.storageBuckets ?? {}),
-  };
+  const mergedStorageBuckets: Record<string, string> = {};
+  if (snapshotRules?.storageBuckets !== undefined) {
+    Object.assign(mergedStorageBuckets, snapshotRules.storageBuckets);
+  }
+  if (tr.storageBuckets !== undefined) {
+    Object.assign(mergedStorageBuckets, tr.storageBuckets);
+  }
   for (const [bucketId, rulesText] of Object.entries(mergedStorageBuckets)) {
     if (!storage.some((s) => s.bucket === bucketId)) {
       storage.push({
@@ -136,11 +143,14 @@ function mergeRuntimeFallbackRules(
     storage,
     problems: [...project.sources.problems],
   };
-  const mergedInstances = {
-    ...(snapshotRules?.rtdbInstances ?? {}),
-    ...(tr.rtdbInstances ?? {}),
-    ...project.rtdbInstances,
-  };
+  const mergedInstances: Record<string, { rules: Record<string, unknown> }> = {};
+  if (snapshotRules?.rtdbInstances !== undefined) {
+    Object.assign(mergedInstances, snapshotRules.rtdbInstances);
+  }
+  if (tr.rtdbInstances !== undefined) {
+    Object.assign(mergedInstances, tr.rtdbInstances);
+  }
+  Object.assign(mergedInstances, project.rtdbInstances);
   const ruleSurface = buildRuleSurfaceFromSources(mergedSources, mergedInstances);
 
   return {
@@ -152,7 +162,7 @@ function mergeRuntimeFallbackRules(
   };
 }
 
-export function buildProjectProblemDiagnostics(
+function buildProjectProblemDiagnostics(
   project: LoadedAssuranceProject,
 ): AssuranceDiagnostic[] {
   const defaultService: AssuranceService =
@@ -364,6 +374,7 @@ export async function deriveAssurance(
     attachmentProvider?: AssuranceAttachmentProvider;
     fetchImpl?: typeof fetch;
     projectDir?: string;
+    projectId?: string;
     configuredBuckets?: readonly string[];
     defaultBucket?: string;
   } = { store };
@@ -375,6 +386,9 @@ export async function deriveAssurance(
   }
   if (deps.fetchImpl !== undefined) cloneOpts.fetchImpl = deps.fetchImpl;
   cloneOpts.projectDir = deps.projectDir ?? absRoot;
+  if (diskProject.projectId !== undefined) {
+    cloneOpts.projectId = diskProject.projectId;
+  }
   if (diskProject.configuredBuckets.length > 0) {
     cloneOpts.configuredBuckets = diskProject.configuredBuckets;
   }
@@ -423,10 +437,10 @@ export async function deriveAssurance(
     });
   }
   const conditions = ownerConditionsFrom(probeScopedSources);
-  const ownerBindingOptions =
-    project.defaultBucket !== undefined
-      ? { defaultBucket: project.defaultBucket }
-      : undefined;
+  let ownerBindingOptions: { defaultBucket: string } | undefined;
+  if (project.defaultBucket !== undefined) {
+    ownerBindingOptions = { defaultBucket: project.defaultBucket };
+  }
   const ownerBindings = inferOwnerBindings(
     conditions,
     mutableSites,

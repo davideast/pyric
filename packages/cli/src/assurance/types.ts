@@ -39,6 +39,7 @@ export interface AssuranceCampaignContext {
     inventory: AssuranceAttachmentInventory;
     coverageGaps: AssuranceCoverageGap[];
   };
+  coverageGaps?: AssuranceCoverageGap[];
 }
 export type MutationDimension = "path" | "query" | "payload" | "operation";
 

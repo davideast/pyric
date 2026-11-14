@@ -1,103 +1,46 @@
 /**
  * Cloud Storage assurance probe planning across all five Storage defect families:
- *   1. `must-allow-denied` (including client MIME, byte-size, and customMetadata mismatches)
- *   2. `foreign-slot-write` on UID-keyed Storage paths
+ *   1. `must-allow-denied` (`storage-must-allow-probes.ts`)
+ *   2. `foreign-slot-write` on UID-keyed Storage paths (across all sibling/nested allow arms)
  *   3. `foreign-delete` on UID-keyed or metadata-owned Storage objects
  *   4. `metadata-owner-forge` on `customMetadata` owner fields (create forge + `updateMetadata` hijack)
  *   5. Cross-service non-member upload and read denial (`firestore.get()` / `firestore.exists()`)
  */
-import type { SnapshotStorageObject } from 'pyric/sandbox/internal';
+import type { AccessSite, StorageHttpHeaderKey } from '../code/types.js';
 import { parseResourcePattern, resourceShapeKey } from '../../sandbox/internal/resource-pattern.js';
-import type { RuleSurface, RuleSurfaceEntry, StorageMetadataConstraint } from '../rules/rule-surface.js';
+import type { RuleSurface, RuleSurfaceEntry } from '../rules/rule-surface.js';
+import { STORAGE_HTTP_HEADER_KEYS } from '../rules/storage-constraint-summary.js';
 import { uidFields } from './fixtures.js';
 import type { PlanInput } from './plan.js';
 import { crossServiceLookupSeeds } from './prerequisites.js';
 import {
-  dedupeLookups,
-  discoverScopeMembershipLookups,
-  peerHasLiveMembershipAtPath,
-} from './storage-scope-lookup.js';
+  distinctSynthesizableStorageArms,
+  selectStorageConstraintForSite,
+} from './storage-constraint-arms.js';
 import {
-  STORAGE_DELETE_OPS,
-  STORAGE_LIST_OPS,
-  STORAGE_READ_OPS,
-  STORAGE_UPDATE_OPS,
-  STORAGE_UPLOAD_OPS,
+  hasCompatibleSeededStorageObject,
+  planCrossServiceStorageProbes,
+} from './storage-cross-service-probes.js';
+import {
   attachResourceId,
-  buildClientCustomMetadata,
-  buildCompliantCustomMetadata,
-  buildCompliantUpdateStep,
   buildCompliantUploadStep,
-  compliantByteSize,
-  contentTypeMatchesPattern,
-  dedupeStorageSites,
   isExactUidAuth,
-  isProbeableStorageSite,
-  mergedStorageConstraint,
-  peerPathInSameScope,
   resolveStorageConcretePath,
   setStorageOwn,
   storageBindingsAt,
-  storageOpCategory,
-  synthesizeMatchingContentType,
+} from './storage-metadata-materializer.js';
+import { planMustAllowStorageProbe } from './storage-must-allow-probes.js';
+import { planOwnerForgeStorageProbes } from './storage-owner-forge-probes.js';
+import { discoverScopeMembershipLookups } from './storage-scope-lookup.js';
+import {
+  STORAGE_DELETE_OPS,
+  STORAGE_UPDATE_OPS,
+  STORAGE_UPLOAD_OPS,
+  dedupeStorageSites,
+  isProbeableStorageSite,
 } from './storage-step-builder.js';
 import type { Probe, ProbeStep } from './types.js';
-import type { WorldState } from './world.js';
 import { normalizeStorageBucketKey } from './world-storage.js';
-
-function hasCompatibleSeededStorageObject(
-  state: WorldState | undefined,
-  resourceId: string | undefined,
-  objectPath: string,
-  ownerUid: string,
-  constraint: StorageMetadataConstraint,
-  payloadOwnerFields: Iterable<string>,
-): boolean {
-  if (!state) return false;
-  const bucketKey = normalizeStorageBucketKey(resourceId) ?? '(default)';
-  const candidates: SnapshotStorageObject[] = [];
-  const snapshotBucket = state.snapshot?.storage[bucketKey];
-  if (snapshotBucket) candidates.push(...snapshotBucket);
-  if (bucketKey === '(default)' && state.storage) {
-    candidates.push(...state.storage);
-  }
-  const cleanTarget = objectPath.replace(/^\/+|\/+$/g, '');
-  const existing = candidates.find(
-    (obj) => obj.path.replace(/^\/+|\/+$/g, '') === cleanTarget,
-  );
-  if (!existing) return false;
-  if (constraint.minSizeBytes !== undefined && existing.size < constraint.minSizeBytes) {
-    return false;
-  }
-  if (constraint.maxSizeBytes !== undefined && existing.size > constraint.maxSizeBytes) {
-    return false;
-  }
-  if (
-    (constraint.contentTypePattern !== undefined || constraint.contentTypeConjuncts !== undefined) &&
-    !contentTypeMatchesPattern(
-      existing.contentType ?? 'application/octet-stream',
-      constraint.contentTypePattern,
-      constraint.contentTypeConjuncts,
-    )
-  ) {
-    return false;
-  }
-  for (const reqKey of constraint.requiredCustomMetadataKeys ?? []) {
-    if (!existing.customMetadata || !Object.hasOwn(existing.customMetadata, reqKey)) {
-      return false;
-    }
-  }
-  const ownerKeys = new Set<string>(payloadOwnerFields);
-  if (constraint.ownerMetadataKey !== undefined) {
-    ownerKeys.add(constraint.ownerMetadataKey);
-  }
-  for (const key of ownerKeys) {
-    if (existing.customMetadata?.[key] !== ownerUid) {
-      return false;
-    }
-  }
-  return true;
-}
 
 function matchingStorageSurfaceEntries(
   surface: RuleSurface | undefined,
@@ -123,6 +66,27 @@ function matchingStorageSurfaceEntries(
   return out;
 }
 
+function collectSiblingUploadHttpHeaders(
+  storageSites: readonly AccessSite[],
+  targetShapeKey: string,
+): Partial<Record<StorageHttpHeaderKey, string>> {
+  const out: Partial<Record<StorageHttpHeaderKey, string>> = {};
+  for (const other of storageSites) {
+    if (!STORAGE_UPLOAD_OPS.has(other.op) || !other.storageUpload) continue;
+    const otherShape = resourceShapeKey(
+      parseResourcePattern('storage', other.path, other.resourceId),
+    );
+    if (otherShape !== targetShapeKey) continue;
+    for (const key of STORAGE_HTTP_HEADER_KEYS) {
+      const val = other.storageUpload[key];
+      if (val !== undefined && out[key] === undefined) {
+        out[key] = val;
+      }
+    }
+  }
+  return out;
+}
+
 /** Plan Cloud Storage assurance probes from extracted Storage sites and projected `RuleSurface`. */
 export function planStorageProbes(
   input: PlanInput,
@@ -136,25 +100,56 @@ export function planStorageProbes(
 
   for (const site of storageSites) {
     const sitePattern = parseResourcePattern('storage', site.path, site.resourceId);
-    const matchingEntries = matchingStorageSurfaceEntries(surface, sitePattern, site.op, defaultBucket);
-    const allPathEntries = matchingStorageSurfaceEntries(surface, sitePattern, undefined, defaultBucket);
-    const createMatched = matchingStorageSurfaceEntries(surface, sitePattern, 'uploadBytes', defaultBucket);
-    const createEntries = createMatched.length > 0 ? createMatched : allPathEntries;
+    const shapeKey = resourceShapeKey(sitePattern);
+    const matchingEntries = matchingStorageSurfaceEntries(
+      surface,
+      sitePattern,
+      site.op,
+      defaultBucket,
+    );
+    const allPathEntries = matchingStorageSurfaceEntries(
+      surface,
+      sitePattern,
+      undefined,
+      defaultBucket,
+    );
+    const createMatched = matchingStorageSurfaceEntries(
+      surface,
+      sitePattern,
+      'uploadBytes',
+      defaultBucket,
+    );
+    let createEntries = allPathEntries;
+    if (createMatched.length > 0) createEntries = createMatched;
 
     let createSource: readonly RuleSurfaceEntry[] = allPathEntries;
     if (createEntries.length > 0) createSource = createEntries;
-    const createConstraint = mergedStorageConstraint(createSource);
+    const createConstraint = selectStorageConstraintForSite(createSource, site);
 
     let opSource: readonly RuleSurfaceEntry[] = allPathEntries;
     if (matchingEntries.length > 0) opSource = matchingEntries;
-    const opConstraint = mergedStorageConstraint(opSource);
+    const opConstraint = selectStorageConstraintForSite(opSource, site);
+    const siblingHttpHeaders = collectSiblingUploadHttpHeaders(storageSites, shapeKey);
 
     const { directLookups, membershipLookups, primaryRulePattern } = discoverScopeMembershipLookups(
-      site, sitePattern, matchingEntries, allPathEntries, surface, input.conditions, input.state, owner,
+      site,
+      sitePattern,
+      matchingEntries,
+      allPathEntries,
+      surface,
+      input.conditions,
+      input.state,
+      owner,
     );
 
     const ownerPath = resolveStorageConcretePath(
-      site, owner, owner, peer.uid, primaryRulePattern, directLookups, input.state,
+      site,
+      owner,
+      owner,
+      peer.uid,
+      primaryRulePattern,
+      directLookups,
+      input.state,
     );
     const ownerCrossSeeds = crossServiceLookupSeeds({
       storageTemplate: site.path,
@@ -175,202 +170,135 @@ export function planStorageProbes(
       state: input.state,
     });
 
-    // 1. Family 1: must-allow-denied (including client MIME / size / missing customMetadata mismatches)
     if (!site.source.startsWith('seed:')) {
-      if (STORAGE_UPLOAD_OPS.has(site.op)) {
-        const clientMeta = buildClientCustomMetadata(site, sitePattern, opConstraint, hints, owner, surface);
-        let contentType = synthesizeMatchingContentType(
-          opConstraint.contentTypePattern,
-          opConstraint.contentTypeConjuncts,
-        );
-        if (site.storageUpload?.contentType !== undefined) contentType = site.storageUpload.contentType;
-        let sizeBytes = compliantByteSize(opConstraint.maxSizeBytes, opConstraint.minSizeBytes);
-        if (site.storageUpload?.sizeBytes !== undefined) sizeBytes = site.storageUpload.sizeBytes;
-
-        const attackStep: ProbeStep = attachResourceId(
-          { actor: 'owner', service: 'storage', method: 'create', path: ownerPath, data: 'probe-bytes', sizeBytes, contentType },
-          site.resourceId,
-        );
-        if (clientMeta.metadata !== undefined) attackStep.customMetadata = clientMeta.metadata;
-
-        const mustAllowUpload: Omit<Probe, 'id'> = {
-          kind: 'must-allow-denied',
-          op: 'create',
-          service: 'storage',
-          template: site.path,
-          status: 'proven',
-          seed: ownerCrossSeeds,
-          setup: [],
-          attack: attackStep,
-          expect: 'allow',
-          evidence: `the owner's own ${site.op} at ${site.source} is denied`,
-          sources: [site.source],
-        };
-        if (clientMeta.openMap) {
-          mustAllowUpload.inconclusiveOnDeny = 'client customMetadata map is open and may carry required keys at runtime';
-        } else if (
-          site.storageUpload?.contentType === undefined &&
-          !contentTypeMatchesPattern(
-            contentType,
-            opConstraint.contentTypePattern,
-            opConstraint.contentTypeConjuncts,
-          )
-        ) {
-          mustAllowUpload.inconclusiveOnDeny = 'client upload contentType is supplied at runtime and could not be synthesized for rule regex';
-        } else if (
-          site.storageUpload?.sizeBytes === undefined &&
-          ((opConstraint.minSizeBytes !== undefined && sizeBytes < opConstraint.minSizeBytes) ||
-            (opConstraint.maxSizeBytes !== undefined && sizeBytes > opConstraint.maxSizeBytes))
-        ) {
-          mustAllowUpload.inconclusiveOnDeny = 'client upload size is supplied at runtime and could not be synthesized for rule bounds';
-        }
-        add(mustAllowUpload);
-      } else {
-        let seedObjectPath = ownerPath;
-        if (STORAGE_LIST_OPS.has(site.op)) {
-          if (ownerPath.length === 0) seedObjectPath = 'item-1';
-          else seedObjectPath = `${ownerPath}/item-1`;
-        }
-        const seedMimePattern = createConstraint.contentTypePattern ?? opConstraint.contentTypePattern;
-        const seedMimeConjuncts = createConstraint.contentTypeConjuncts ?? opConstraint.contentTypeConjuncts;
-        let opSeedConstraint: StorageMetadataConstraint = createConstraint;
-        if (
-          (seedMimePattern !== undefined && createConstraint.contentTypePattern === undefined) ||
-          (seedMimeConjuncts !== undefined && createConstraint.contentTypeConjuncts === undefined)
-        ) {
-          opSeedConstraint = {
-            ...createConstraint,
-            ...(seedMimePattern !== undefined ? { contentTypePattern: seedMimePattern } : {}),
-            ...(seedMimeConjuncts !== undefined ? { contentTypeConjuncts: seedMimeConjuncts } : {}),
-          };
-        }
-        const reuseSeededObject =
-          !STORAGE_LIST_OPS.has(site.op) &&
-          hasCompatibleSeededStorageObject(
-            input.state,
-            site.resourceId,
-            seedObjectPath,
-            owner.uid,
-            opSeedConstraint,
-            uidFields(site.payload),
-          );
-        const seedSteps: ProbeStep[] = [...ownerCrossSeeds];
-        let seededStep: ProbeStep | undefined;
-        if (!reuseSeededObject) {
-          seededStep = buildCompliantUploadStep(
-            site, sitePattern, 'admin', owner, seedObjectPath, opSeedConstraint, hints, {}, surface,
-          );
-          seedSteps.push(seededStep);
-        }
-
-        let attackMethod: ProbeStep['method'] = 'get';
-        if (STORAGE_LIST_OPS.has(site.op)) attackMethod = 'list';
-        else if (STORAGE_DELETE_OPS.has(site.op)) attackMethod = 'delete';
-        else if (STORAGE_UPDATE_OPS.has(site.op)) attackMethod = 'update';
-
-        const attackStep: ProbeStep = attachResourceId(
-          { actor: 'owner', service: 'storage', method: attackMethod, path: ownerPath },
-          site.resourceId,
-        );
-        let inconclusiveReason: string | undefined;
-        if (attackMethod === 'update') {
-          if (site.storageUpload?.contentType !== undefined) {
-            attackStep.contentType = site.storageUpload.contentType;
-          }
-          const clientMeta = buildClientCustomMetadata(site, sitePattern, opConstraint, hints, owner, surface);
-          if (clientMeta.metadata !== undefined) {
-            attackStep.customMetadata = clientMeta.metadata;
-          }
-          if (clientMeta.openMap) {
-            inconclusiveReason = 'client customMetadata map is open and may carry required keys at runtime';
-          }
-        }
-        if (
-          inconclusiveReason === undefined &&
-          seededStep?.contentType !== undefined &&
-          !contentTypeMatchesPattern(
-            seededStep.contentType,
-            opSeedConstraint.contentTypePattern,
-            opSeedConstraint.contentTypeConjuncts,
-          )
-        ) {
-          inconclusiveReason = 'seeded object contentType could not be synthesized for rule regex';
-        }
-
-        const mustAllowOp: Omit<Probe, 'id'> = {
-          kind: 'must-allow-denied',
-          op: storageOpCategory(site),
-          service: 'storage',
-          template: site.path,
-          status: 'proven',
-          seed: seedSteps,
-          setup: [],
-          attack: attackStep,
-          expect: 'allow',
-          evidence: `the owner's own ${site.op} at ${site.source} is denied`,
-          sources: [site.source],
-        };
-        if (inconclusiveReason !== undefined) mustAllowOp.inconclusiveOnDeny = inconclusiveReason;
-        add(mustAllowOp);
-      }
+      planMustAllowStorageProbe(
+        {
+          site,
+          sitePattern,
+          owner,
+          ownerPath,
+          ownerCrossSeeds,
+          createConstraint,
+          opConstraint,
+          opSource,
+          siblingHttpHeaders,
+          hints,
+          surface,
+          state: input.state,
+        },
+        add,
+      );
     }
 
     const siteBindings = storageBindingsAt(site, input.bindings, surface, defaultBucket);
-    const uidVars = (site.pathVariables ?? []).filter((v) => v.auth?.some((a) => a.source === 'auth.uid'));
+    const uidVars = (site.pathVariables ?? []).filter((v) =>
+      v.auth?.some((a) => a.source === 'auth.uid'),
+    );
     const hasPathBinding = siteBindings.some((b) => b.kind === 'pathVar');
 
-    // 2. Family 2: foreign-slot-write on UID-keyed Storage path
+    // 2. Family 2: foreign-slot-write on UID-keyed Storage path across all synthesizable rule arms
     if ((uidVars.length > 0 || hasPathBinding) && STORAGE_UPLOAD_OPS.has(site.op)) {
       const ownerSetupUpload = buildCompliantUploadStep(
-        site, sitePattern, 'owner', owner, ownerPath, createConstraint, hints, {}, surface,
+        site,
+        sitePattern,
+        'owner',
+        owner,
+        ownerPath,
+        createConstraint,
+        hints,
+        {},
+        surface,
       );
-      const ownerUidMetaOverrides: Record<string, string> = {};
-      for (const f of uidFields(site.payload)) setStorageOwn(ownerUidMetaOverrides, f, owner.uid);
-      if (createConstraint.ownerMetadataKey !== undefined) {
-        setStorageOwn(ownerUidMetaOverrides, createConstraint.ownerMetadataKey, owner.uid);
+      const createOnlySetupPath = resolveStorageConcretePath(
+        site,
+        owner,
+        owner,
+        peer.uid,
+        primaryRulePattern,
+        directLookups,
+        input.state,
+        '-setup',
+      );
+      const createOnlySetupSteps: ProbeStep[] = [];
+      if (createOnlySetupPath !== ownerPath) {
+        createOnlySetupSteps.push(
+          buildCompliantUploadStep(
+            site,
+            sitePattern,
+            'owner',
+            owner,
+            createOnlySetupPath,
+            createConstraint,
+            hints,
+            {},
+            surface,
+          ),
+        );
       }
-      const peerSlotAttack = buildCompliantUploadStep(
-        site, sitePattern, 'peer', peer, ownerPath, createConstraint, hints, ownerUidMetaOverrides, surface,
-      );
-
       let slotStatus: 'proven' | 'flagged' = 'flagged';
       const ruleConfirmedSlot = siteBindings.some(
         (b) => b.kind === 'pathVar' && (b.strength === 'strong' || b.evidence !== 'code-only'),
       );
-      const exactClientSlot = site.resolution === 'resolved' && uidVars.some((v) => isExactUidAuth(v.auth));
+      const exactClientSlot =
+        site.resolution === 'resolved' && uidVars.some((v) => isExactUidAuth(v.auth));
       if (ruleConfirmedSlot || exactClientSlot) slotStatus = 'proven';
 
-      add({
-        kind: 'foreign-slot-write',
-        op: 'write',
-        service: 'storage',
-        template: site.path,
-        status: slotStatus,
-        seed: bothCrossSeeds,
-        setup: [ownerSetupUpload],
-        attack: peerSlotAttack,
-        expect: 'deny',
-        evidence: `${peer.uid} uploaded into ${owner.uid}'s Storage path at ${ownerPath} (client write ${site.source})`,
-        sources: [site.source],
-      });
+      const attackCandidates = distinctSynthesizableStorageArms(createSource, createConstraint);
+      for (const candidate of attackCandidates) {
+        const ownerUidMetaOverrides: Record<string, string> = {};
+        for (const f of uidFields(site.payload)) setStorageOwn(ownerUidMetaOverrides, f, owner.uid);
+        if (candidate.constraint.ownerMetadataKey !== undefined) {
+          setStorageOwn(ownerUidMetaOverrides, candidate.constraint.ownerMetadataKey, owner.uid);
+        }
+        const peerSlotAttack = buildCompliantUploadStep(
+          site,
+          sitePattern,
+          'peer',
+          peer,
+          ownerPath,
+          candidate.constraint,
+          hints,
+          ownerUidMetaOverrides,
+          surface,
+          { useClientSiteMetadata: false },
+        );
+        let setupSteps: ProbeStep[] = createOnlySetupSteps;
+        if (candidate.allowsUpdate) setupSteps = [ownerSetupUpload];
+        add({
+          kind: 'foreign-slot-write',
+          op: 'write',
+          service: 'storage',
+          template: site.path,
+          status: slotStatus,
+          seed: bothCrossSeeds,
+          setup: setupSteps,
+          attack: peerSlotAttack,
+          expect: 'deny',
+          evidence: `${peer.uid} uploaded into ${owner.uid}'s Storage path at ${ownerPath} (client write ${site.source})`,
+          sources: [site.source],
+        });
+      }
     }
 
-    // Metadata owner keys on this path
     const metadataOwnerKeys = new Set<string>(uidFields(site.payload));
     for (const b of siteBindings) {
       if (b.kind === 'incomingField' || b.kind === 'storedField') {
         metadataOwnerKeys.add(b.field.replace(/^metadata\./, ''));
       }
     }
-    if (createConstraint.ownerMetadataKey !== undefined) metadataOwnerKeys.add(createConstraint.ownerMetadataKey);
-    if (opConstraint.ownerMetadataKey !== undefined) metadataOwnerKeys.add(opConstraint.ownerMetadataKey);
-
-    const shapeKey = resourceShapeKey(sitePattern);
+    if (createConstraint.ownerMetadataKey !== undefined) {
+      metadataOwnerKeys.add(createConstraint.ownerMetadataKey);
+    }
+    if (opConstraint.ownerMetadataKey !== undefined) {
+      metadataOwnerKeys.add(opConstraint.ownerMetadataKey);
+    }
 
     // 3. Family 3: foreign-delete on UID-keyed or metadata-owned Storage paths
     const isDeleteSite = STORAGE_DELETE_OPS.has(site.op);
     const hasSiblingDeleteSite = storageSites.some(
-      (other) => STORAGE_DELETE_OPS.has(other.op) && resourceShapeKey(parseResourcePattern('storage', other.path, other.resourceId)) === shapeKey,
+      (other) =>
+        STORAGE_DELETE_OPS.has(other.op)
+        && resourceShapeKey(parseResourcePattern('storage', other.path, other.resourceId)) === shapeKey,
     );
     const shouldPlanForeignDelete =
       (uidVars.length > 0 || hasPathBinding || metadataOwnerKeys.size > 0)
@@ -391,7 +319,16 @@ export function planStorageProbes(
       if (!reuseSeededForDelete) {
         foreignDeleteSeeds.push(
           buildCompliantUploadStep(
-            site, sitePattern, 'admin', owner, ownerPath, createConstraint, hints, ownerMetaOverrides, surface,
+            site,
+            sitePattern,
+            'admin',
+            owner,
+            ownerPath,
+            createConstraint,
+            hints,
+            ownerMetaOverrides,
+            surface,
+            { useClientSiteMetadata: false, fallbackHttpHeaders: siblingHttpHeaders },
           ),
         );
       }
@@ -401,9 +338,14 @@ export function planStorageProbes(
       );
 
       let deleteStatus: 'proven' | 'flagged' = 'flagged';
-      const exactUid = uidVars.some((v) => isExactUidAuth(v.auth))
-        || (site.payload?.fields ?? []).some((f) => metadataOwnerKeys.has(f.name) && isExactUidAuth(f.auth));
-      const ruleConfirmed = siteBindings.some((b) => b.strength === 'strong' || b.evidence !== 'code-only');
+      const exactUid =
+        uidVars.some((v) => isExactUidAuth(v.auth))
+        || (site.payload?.fields ?? []).some(
+          (f) => metadataOwnerKeys.has(f.name) && isExactUidAuth(f.auth),
+        );
+      const ruleConfirmed = siteBindings.some(
+        (b) => b.strength === 'strong' || b.evidence !== 'code-only',
+      );
       if (exactUid || ruleConfirmed) deleteStatus = 'proven';
 
       add({
@@ -423,7 +365,9 @@ export function planStorageProbes(
 
     // 4. Family 4: metadata-owner-forge (create forge + updateMetadata hijack)
     const ruleUsesMetadataOwner =
-      siteBindings.some((b) => (b.kind === 'incomingField' || b.kind === 'storedField') && b.evidence !== 'code-only')
+      siteBindings.some(
+        (b) => (b.kind === 'incomingField' || b.kind === 'storedField') && b.evidence !== 'code-only',
+      )
       || createConstraint.ownerMetadataKey !== undefined
       || opConstraint.ownerMetadataKey !== undefined;
 
@@ -433,188 +377,67 @@ export function planStorageProbes(
         (f) => metadataOwnerKeys.has(f.name) && isExactUidAuth(f.auth),
       );
       if (ruleUsesMetadataOwner || exactFieldAuth) metaStatus = 'proven';
-      const keyList = [...metadataOwnerKeys].join(', ');
-
-      if (STORAGE_UPLOAD_OPS.has(site.op)) {
-        const peerControlPath = resolveStorageConcretePath(
-          site, peer, peer, owner.uid, primaryRulePattern, directLookups, input.state, '-peer-own',
-        );
-        const peerForgedPath = resolveStorageConcretePath(
-          site, peer, peer, owner.uid, primaryRulePattern, directLookups, input.state, '-forged',
-        );
-        const peerControlStep = buildCompliantUploadStep(
-          site, sitePattern, 'peer', peer, peerControlPath, createConstraint, hints, {}, surface,
-        );
-        const forgedOverrides: Record<string, string> = {};
-        for (const k of metadataOwnerKeys) setStorageOwn(forgedOverrides, k, owner.uid);
-        const peerForgedStep = buildCompliantUploadStep(
-          site, sitePattern, 'peer', peer, peerForgedPath, createConstraint, hints, forgedOverrides, surface,
-        );
-        add({
-          kind: 'metadata-owner-forge',
-          op: 'create',
-          service: 'storage',
-          template: site.path,
-          status: metaStatus,
-          seed: bothCrossSeeds,
-          setup: [peerControlStep],
-          attack: peerForgedStep,
-          expect: 'deny',
-          evidence: `${peer.uid} uploaded a Storage object forging customMetadata (${keyList} = ${owner.uid}) at ${peerForgedPath} (${site.source})`,
-          sources: [site.source],
-        });
-      }
 
       const hasSiblingUpdateSite = storageSites.some(
-        (other) => STORAGE_UPDATE_OPS.has(other.op) && resourceShapeKey(parseResourcePattern('storage', other.path, other.resourceId)) === shapeKey,
+        (other) =>
+          STORAGE_UPDATE_OPS.has(other.op)
+          && resourceShapeKey(parseResourcePattern('storage', other.path, other.resourceId)) === shapeKey,
       );
-      const rulesAllowUpdate = allPathEntries.some((e) => e.ops.includes('update') || e.ops.includes('write'));
-      if (STORAGE_UPDATE_OPS.has(site.op) || (STORAGE_UPLOAD_OPS.has(site.op) && !hasSiblingUpdateSite && rulesAllowUpdate)) {
-        const ownerMetaOverrides: Record<string, string> = {};
-        for (const k of metadataOwnerKeys) setStorageOwn(ownerMetaOverrides, k, owner.uid);
-        const reuseSeededForHijack = hasCompatibleSeededStorageObject(
-          input.state,
-          site.resourceId,
+      const updateMatched = matchingStorageSurfaceEntries(
+        surface,
+        sitePattern,
+        'updateMetadata',
+        defaultBucket,
+      );
+      let updateSource: readonly RuleSurfaceEntry[] = allPathEntries;
+      if (updateMatched.length > 0) updateSource = updateMatched;
+
+      planOwnerForgeStorageProbes(
+        {
+          site,
+          sitePattern,
+          owner,
+          peer,
           ownerPath,
-          owner.uid,
+          bothCrossSeeds,
+          createSource,
           createConstraint,
+          updateSource,
+          allPathEntries,
+          hasSiblingUpdateSite,
           metadataOwnerKeys,
-        );
-        const hijackSeeds: ProbeStep[] = [...bothCrossSeeds];
-        if (!reuseSeededForHijack) {
-          hijackSeeds.push(
-            buildCompliantUploadStep(
-              site, sitePattern, 'admin', owner, ownerPath, createConstraint, hints, ownerMetaOverrides, surface,
-            ),
-          );
-        }
-        const hijackOverrides: Record<string, string> = {};
-        for (const k of metadataOwnerKeys) setStorageOwn(hijackOverrides, k, peer.uid);
-        const hijackMeta = buildCompliantCustomMetadata(
-          site, sitePattern, opConstraint, hints, peer, hijackOverrides, surface,
-        );
-        const peerHijackStep: ProbeStep = attachResourceId(
-          { actor: 'peer', service: 'storage', method: 'update', path: ownerPath },
-          site.resourceId,
-        );
-        if (hijackMeta !== undefined) peerHijackStep.customMetadata = hijackMeta;
-        add({
-          kind: 'metadata-owner-forge',
-          op: 'update',
-          service: 'storage',
-          template: site.path,
-          status: metaStatus,
-          seed: hijackSeeds,
-          setup: [],
-          attack: peerHijackStep,
-          expect: 'deny',
-          evidence: `${peer.uid} overwrote customMetadata (${keyList} = ${peer.uid}) on ${owner.uid}'s Storage object at ${ownerPath} (${site.source})`,
-          sources: [site.source],
-        });
-      }
+          metaStatus,
+          primaryRulePattern,
+          directLookups,
+          siblingHttpHeaders,
+          hints,
+          surface,
+          state: input.state,
+        },
+        add,
+      );
     }
 
-    // 5. Family 5: Cross-service non-member upload and read denial
     if (membershipLookups.length > 0 && uidVars.length === 0) {
-      const combinedLookups = dedupeLookups([...directLookups, ...membershipLookups]);
-      const peerHasLiveDoc = peerHasLiveMembershipAtPath(
-        site.path, primaryRulePattern, ownerPath, combinedLookups, peer, input.state,
+      planCrossServiceStorageProbes(
+        {
+          input,
+          site,
+          sitePattern,
+          ownerPath,
+          createSource,
+          createConstraint,
+          opSource,
+          opConstraint,
+          siblingHttpHeaders,
+          directLookups,
+          membershipLookups,
+          primaryRulePattern,
+          hints,
+          surface,
+        },
+        add,
       );
-      const isolatedPath = resolveStorageConcretePath(
-        site, owner, owner, peer.uid, primaryRulePattern, combinedLookups, input.state, undefined, peerHasLiveDoc,
-      );
-      const ownerOnlySeeds = crossServiceLookupSeeds({
-        storageTemplate: site.path,
-        rulePattern: primaryRulePattern,
-        concreteStoragePath: isolatedPath,
-        lookups: combinedLookups,
-        actors: [owner],
-        sites: input.sites,
-        state: input.state,
-      });
-
-      if (STORAGE_UPLOAD_OPS.has(site.op)) {
-        const ownerSetup = buildCompliantUploadStep(
-          site, sitePattern, 'owner', owner, isolatedPath, createConstraint, hints, {}, surface,
-        );
-        const peerNonMemberPath = peerPathInSameScope(site.path, isolatedPath, '-peer');
-        const peerAttack = buildCompliantUploadStep(
-          site, sitePattern, 'peer', peer, peerNonMemberPath, createConstraint, hints, {}, surface,
-        );
-        add({
-          kind: 'foreign-slot-write',
-          op: 'write',
-          service: 'storage',
-          template: site.path,
-          status: 'proven',
-          seed: ownerOnlySeeds,
-          setup: [ownerSetup],
-          attack: peerAttack,
-          expect: 'deny',
-          evidence: `non-member ${peer.uid} uploaded to cross-service guarded Storage path ${peerNonMemberPath} (${site.source})`,
-          sources: [site.source],
-        });
-      } else if (STORAGE_UPDATE_OPS.has(site.op)) {
-        const seedMimePattern = createConstraint.contentTypePattern ?? opConstraint.contentTypePattern;
-        let updateSeedConstraint: StorageMetadataConstraint = createConstraint;
-        if (seedMimePattern !== undefined && createConstraint.contentTypePattern === undefined) {
-          updateSeedConstraint = { ...createConstraint, contentTypePattern: seedMimePattern };
-        }
-        const adminSeedObj = buildCompliantUploadStep(
-          site, sitePattern, 'admin', owner, isolatedPath, updateSeedConstraint, hints, {}, surface,
-        );
-        const ownerUpdateControl = buildCompliantUpdateStep(
-          site, sitePattern, 'owner', owner, isolatedPath, opConstraint, hints, surface,
-        );
-        const peerUpdateAttack = buildCompliantUpdateStep(
-          site, sitePattern, 'peer', peer, isolatedPath, opConstraint, hints, surface,
-        );
-        add({
-          kind: 'foreign-slot-write',
-          op: 'update',
-          service: 'storage',
-          template: site.path,
-          status: 'proven',
-          seed: [...ownerOnlySeeds, adminSeedObj],
-          setup: [ownerUpdateControl],
-          attack: peerUpdateAttack,
-          expect: 'deny',
-          evidence: `non-member ${peer.uid} updated metadata on cross-service guarded Storage path ${isolatedPath} (${site.source})`,
-          sources: [site.source],
-        });
-      } else if (STORAGE_READ_OPS.has(site.op)) {
-        let seedObjPath = isolatedPath;
-        let readMethod: 'get' | 'list' = 'get';
-        if (STORAGE_LIST_OPS.has(site.op)) {
-          readMethod = 'list';
-          if (isolatedPath.length === 0) seedObjPath = 'item-1';
-          else seedObjPath = `${isolatedPath}/item-1`;
-        }
-        const adminSeedObj = buildCompliantUploadStep(
-          site, sitePattern, 'admin', owner, seedObjPath, createConstraint, hints, {}, surface,
-        );
-        const ownerReadControl = attachResourceId(
-          { actor: 'owner', service: 'storage', method: readMethod, path: isolatedPath },
-          site.resourceId,
-        );
-        const peerReadAttack = attachResourceId(
-          { actor: 'peer', service: 'storage', method: readMethod, path: isolatedPath },
-          site.resourceId,
-        );
-        add({
-          kind: 'foreign-slot-write',
-          op: 'read',
-          service: 'storage',
-          template: site.path,
-          status: 'proven',
-          seed: [...ownerOnlySeeds, adminSeedObj],
-          setup: [ownerReadControl],
-          attack: peerReadAttack,
-          expect: 'deny',
-          evidence: `non-member ${peer.uid} read cross-service guarded Storage path ${isolatedPath} (${site.source})`,
-          sources: [site.source],
-        });
-      }
     }
   }
 }

@@ -148,6 +148,10 @@ export async function seedStorageObject(
   bytes: Uint8Array,
   settable?: {
     readonly contentType?: string;
+    readonly cacheControl?: string;
+    readonly contentDisposition?: string;
+    readonly contentEncoding?: string;
+    readonly contentLanguage?: string;
     readonly customMetadata?: Readonly<Record<string, string>>;
   },
 ): Promise<void> {
@@ -167,6 +171,10 @@ export async function seedStorageObject(
     blob,
     settable: {
       contentType: settable?.contentType,
+      cacheControl: settable?.cacheControl,
+      contentDisposition: settable?.contentDisposition,
+      contentEncoding: settable?.contentEncoding,
+      contentLanguage: settable?.contentLanguage,
       customMetadata,
     },
     now: uploadedAt,

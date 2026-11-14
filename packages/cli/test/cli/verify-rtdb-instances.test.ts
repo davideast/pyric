@@ -212,14 +212,20 @@ describe('pyric verify with more than one RTDB instance', () => {
     expect(unusedDefault.code).toBe(2);
     expect(unusedDefault.err).toContain('the session never used the default instance');
 
-    const symlinkDir = join(dir, 'linked');
-    symlinkSync(dir, symlinkDir);
-    const symlinkDup = await verify(dir, [
+    const dupNonSymlink = await verify(dir, [
       '--rules',
       `rtdb:shard-00=${join(dir, 'shard.rules.json')}`,
       '--rules',
+      'rtdb:shard-00=./shard.rules.json',
+    ]);
+    expect(dupNonSymlink.code).toBe(0);
+
+    const symlinkDir = join(dir, 'linked');
+    symlinkSync(dir, symlinkDir);
+    const symlinkOverride = await verify(dir, [
+      '--rules',
       `rtdb:shard-00=${join(symlinkDir, 'shard.rules.json')}`,
     ]);
-    expect(symlinkDup.code).toBe(0);
+    expect(symlinkOverride.code).toBe(2);
   });
 });

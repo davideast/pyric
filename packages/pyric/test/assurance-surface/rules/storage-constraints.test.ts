@@ -138,4 +138,40 @@ describe('StorageMetadataConstraint and Storage ValueHint extraction', () => {
       },
     ]);
   });
+
+  test('extracts incoming request.resource and stored resource HTTP metadata constraints across ==, matches, and in', () => {
+    const rules = [
+      "rules_version = '2';",
+      'service firebase.storage {',
+      '  match /b/{bucket}/o {',
+      '    match /assets/{uid}/{name} {',
+      "      allow create: if request.auth.uid == uid && request.resource.cacheControl == 'public, max-age=3600' && request.resource.contentDisposition.matches('inline.*') && request.resource.contentEncoding in ['gzip', 'br'];",
+      "      allow update: if request.auth.uid == uid && resource.cacheControl == 'public, max-age=3600' && request.resource.contentLanguage == 'de';",
+      '    }',
+      '  }',
+      '}',
+    ].join('\n');
+
+    const surface = projectRuleSurface({ storage: rules });
+    const createEntry = surface.matching(
+      parseResourcePattern('storage', 'assets/{uid}/{name}'),
+      'uploadBytes',
+    )[0]!;
+    expect(createEntry.storageMetadata?.httpHeaders).toEqual({
+      cacheControl: [['^public, max-age=3600$']],
+      contentDisposition: [['inline.*']],
+      contentEncoding: [['^gzip$', '^br$']],
+    });
+
+    const updateEntry = surface.matching(
+      parseResourcePattern('storage', 'assets/{uid}/{name}'),
+      'updateMetadata',
+    )[0]!;
+    expect(updateEntry.storageMetadata?.storedHttpHeaders).toEqual({
+      cacheControl: [['^public, max-age=3600$']],
+    });
+    expect(updateEntry.storageMetadata?.httpHeaders).toEqual({
+      contentLanguage: [['^de$']],
+    });
+  });
 });
