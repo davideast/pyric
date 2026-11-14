@@ -48,7 +48,8 @@ import {
   type ObservedSite,
   type ListenerIdentity,
 } from './observe.js';
-import { jsonFields } from './json-copy.js';
+import { firestoreJsonFields } from './firestore-colliding-maps.js';
+import { isPlainObject } from './json-copy.js';
 import { realmHash } from './keyed-hash.js';
 import { BatchSession, firestoreWriteSession } from './firestore-session-capture.js';
 
@@ -378,9 +379,11 @@ function writeDataOf(name: string, args: readonly unknown[]): Record<string, unk
   if (!WRITES.has(name) || hasConverter(args[0])) return undefined;
   const merges = name === 'setDoc' && isMerge(args[2]);
   if (merges) return undefined;
-  const data = jsonFields(args[1]);
-  const isDotted = name === 'updateDoc' && data !== undefined && Object.keys(data).some((key) => key.includes('.'));
-  return isDotted ? undefined : data;
+  const rawPayload = args[1];
+  if (name === 'updateDoc' && isPlainObject(rawPayload) && Object.keys(rawPayload).some((key) => key.includes('.'))) {
+    return undefined;
+  }
+  return firestoreJsonFields(rawPayload);
 }
 
 /**

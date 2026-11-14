@@ -60,6 +60,26 @@ function isEpochMillis(value: number): boolean {
   return Number.isInteger(value) && value >= 1e12 && value < 1e14;
 }
 
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value);
+}
+
+function isTimestampObject(value: Record<string, unknown>, keys: string[]): boolean {
+  if (!Object.hasOwn(value, 'seconds') || !isFiniteNumber(value.seconds)) return false;
+  const hasNanoseconds = Object.hasOwn(value, 'nanoseconds') && isFiniteNumber(value.nanoseconds);
+  const hasNanos = Object.hasOwn(value, 'nanos') && isFiniteNumber(value.nanos);
+  if (hasNanoseconds === hasNanos) return false;
+  if (keys.length === 2) return true;
+  if (keys.length !== 3) return false;
+  if (Object.hasOwn(value, 'type') && value.type === 'firestore/timestamp/1.0') {
+    return hasNanoseconds;
+  }
+  if (Object.hasOwn(value, '__type') && value.__type === 'timestamp') {
+    return true;
+  }
+  return false;
+}
+
 /** Times become {@link TIME}; JSON text and JWTs inside strings are compared by the values they encode. */
 export function normalize(value: unknown): unknown {
   if (typeof value === 'number') return isEpochMillis(value) ? TIME : value;
@@ -88,14 +108,17 @@ export function normalize(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(normalize);
   if (!isPlainObject(value)) return value;
   const keys = Object.keys(value);
-  const isTimestamp = 'seconds' in value
-    && ('nanoseconds' in value || 'nanos' in value)
-    && keys.every((key) => key === 'seconds' || key === 'nanoseconds' || key === 'nanos' || key.startsWith('_') || key === 'type');
-  if (isTimestamp) return TIME;
+  if (isTimestampObject(value, keys)) return TIME;
   const copy: Record<string, unknown> = {};
   for (const key of keys.sort()) {
     const child = value[key];
-    defineOwnField(copy, key, TIME_CLAIMS.has(key) && typeof child === 'number' ? TIME : normalize(child));
+    let normalizedChild: unknown;
+    if (TIME_CLAIMS.has(key) && typeof child === 'number') {
+      normalizedChild = TIME;
+    } else {
+      normalizedChild = normalize(child);
+    }
+    defineOwnField(copy, key, normalizedChild);
   }
   return copy;
 }

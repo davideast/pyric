@@ -10,11 +10,12 @@ import { normalizeDocumentPath } from 'pyric/rules/internal';
 import { defaultDatabaseInstanceName, isFirestoreDocumentPath } from 'pyric/sandbox/internal';
 import {
   createObservedSessionCoverage,
+  matchesCollectionScope,
   type ObservedFirestoreDocLookup,
   type ObservedRtdbLookup,
 } from './coverage.js';
 import { MAX_SINGLE_ITEM_BYTES } from './delta-validation.js';
-import { deepMergeFirestoreMap, deleteDottedField, setDottedField } from './firestore-fields.js';
+import { deepMergeFirestoreMap, deleteDottedField, isEscapedPlainMap, setDottedField } from './firestore-fields.js';
 import { byteLengthOf } from './json-values.js';
 import { canonicalRtdbPath, rtdbPathSegments, setRtdbAtSegments, toRtdbMockData } from './rtdb-tree.js';
 import { createObservedStorageCatalog } from './storage-catalog.js';
@@ -49,6 +50,7 @@ export interface ObservedSessionDataStore {
   recordSkip(skip: Partial<ObservedSessionSkipStats>): void;
   invalidateFirestore(path?: string): void;
   invalidateRtdb(instance: string | undefined, path?: string, projectIdHint?: string): void;
+  invalidateStorage(bucket?: string, path?: string, projectIdHint?: string): void;
   snapshot(): ObservedSessionDataSnapshot;
   getFirestoreDoc(path: string): ObservedFirestoreDocLookup;
   getRtdbInstance(instance?: string): ObservedRtdbLookup;
@@ -193,13 +195,26 @@ export function createObservedSessionDataStore(
     let base: Record<string, unknown>;
     if (op.kind === 'set') {
       const mergesExisting = op.merge === true && existing !== undefined;
-      if (mergesExisting) base = deepMergeFirestoreMap(existing, op.data);
-      else base = structuredClone(op.data);
+      if (mergesExisting) {
+        base = deepMergeFirestoreMap(existing, op.data);
+      } else {
+        base = structuredClone(op.data);
+      }
+      if (op.deleteFields !== undefined && op.deleteFields.length > 0) {
+        if (isEscapedPlainMap(base)) base = base.fields;
+        deleteFieldsFrom(base, op.deleteFields);
+        if (isEscapedPlainMap(base)) base = { type: 'pyric/map/1.0', fields: base };
+      }
     } else {
-      base = structuredClone(existing ?? {});
+      let unwrappedExisting: Record<string, unknown> = existing ?? {};
+      if (existing !== undefined && isEscapedPlainMap(existing)) {
+        unwrappedExisting = existing.fields;
+      }
+      base = structuredClone(unwrappedExisting);
       for (const [fieldPath, val] of Object.entries(op.data)) setDottedField(base, fieldPath, val);
+      deleteFieldsFrom(base, op.deleteFields);
+      if (isEscapedPlainMap(base)) base = { type: 'pyric/map/1.0', fields: base };
     }
-    deleteFieldsFrom(base, op.deleteFields);
     const outcome = writeFirestoreDoc(normPath, base);
     coverage.recordFirestoreWrite(normPath, op, outcome.wrote);
     return outcome.changed;
@@ -365,11 +380,19 @@ export function createObservedSessionDataStore(
     invalidateFirestore(path) {
       if (path === undefined) {
         coverage.invalidateAllFirestore();
+        if (docs.size === 0) return;
+        docs.clear();
+        firestoreBytes = 0;
+        touch();
         return;
       }
       const norm = normalizeDocumentPath(path);
       if (norm.length === 0) {
         coverage.invalidateAllFirestore();
+        if (docs.size === 0) return;
+        docs.clear();
+        firestoreBytes = 0;
+        touch();
         return;
       }
       if (isFirestoreDocumentPath(norm)) {
@@ -382,6 +405,14 @@ export function createObservedSessionDataStore(
         return;
       }
       coverage.invalidateFirestoreCollection(norm);
+      let removedAny = false;
+      for (const [docPath, entry] of [...docs.entries()]) {
+        if (!matchesCollectionScope(docPath, norm)) continue;
+        docs.delete(docPath);
+        firestoreBytes = Math.max(0, firestoreBytes - entry.bytes);
+        removedAny = true;
+      }
+      if (removedAny) touch();
     },
 
     invalidateRtdb(rawInstance, path, projectIdHint) {
@@ -397,6 +428,11 @@ export function createObservedSessionDataStore(
         return;
       }
       if (pruneRtdbSegments(instance, [rtdbPathSegments(path)])) touch();
+    },
+
+    invalidateStorage(rawBucket, path, projectIdHint) {
+      if (projectIdHint) currentProjectId = projectIdHint;
+      if (storageCatalog.invalidate(rawBucket, path)) touch();
     },
 
     snapshot(): ObservedSessionDataSnapshot {

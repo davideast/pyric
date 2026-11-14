@@ -11,13 +11,21 @@
 import { MAX_SINGLE_ITEM_BYTES } from './delta-validation.js';
 import { byteLengthOf } from './json-values.js';
 import {
-  STORAGE_IMMUTABLE_STRING_FIELDS,
-  STORAGE_NULLABLE_STRING_FIELDS,
-  copyStorageCustomMetadataRecord,
+  ancestorPrefixesOf,
+  childSegmentUnderPrefix,
+  isStrictlyInsidePrefix,
+  lastPathSegment,
+  matchesPrefixScope,
+  mergeObjectMetadata,
+  normalizeCatalogBucketName,
+  normalizeStoragePrefix,
+  objectKey,
+  parentPrefixOf,
+} from './storage-catalog-metadata.js';
+import {
   selectPreferredStorageBucket,
   validateObservedStorageDownloadUrl,
   type ObservedStorageBucketSnapshot,
-  type ObservedStorageObjectInput,
   type ObservedStorageObjectMetadata,
   type ObservedStorageSessionOp,
 } from './storage-policy.js';
@@ -42,6 +50,7 @@ export interface ObservedStorageCatalogOptions {
 export interface ObservedStorageCatalog {
   apply(op: ObservedStorageSessionOp): boolean;
   applyAll(ops: readonly ObservedStorageSessionOp[] | undefined): boolean;
+  invalidate(bucket?: string, path?: string): boolean;
   byteEstimate(): number;
   bucketCount(): number;
   objectCount(): number;
@@ -49,10 +58,6 @@ export interface ObservedStorageCatalog {
   snapshot(): Record<string, ObservedStorageBucketSnapshot>;
   withStorageSnapshot(base: ObservedSessionDataSnapshot): ObservedSessionDataSnapshot;
 }
-
-type MutableStorageObjectMetadata = {
-  -readonly [K in keyof ObservedStorageObjectMetadata]: ObservedStorageObjectMetadata[K];
-};
 
 interface StoredObjectEntry {
   meta: ObservedStorageObjectMetadata;
@@ -64,107 +69,6 @@ interface BucketEntry {
   explicitPrefixes: Set<string>;
   objects: Map<string, StoredObjectEntry>;
   deleted: Map<string, number>;
-}
-
-function objectKey(bucket: string, fullPath: string): string {
-  return `${bucket}\u0000${fullPath}`;
-}
-
-function lastPathSegment(fullPath: string): string {
-  const slash = fullPath.lastIndexOf('/');
-  if (slash === -1) return fullPath;
-  return fullPath.slice(slash + 1);
-}
-
-function parentPrefixOf(path: string): string {
-  const slash = path.lastIndexOf('/');
-  if (slash === -1) return '';
-  return path.slice(0, slash);
-}
-
-function ancestorPrefixesOf(path: string, includeSelf: boolean): string[] {
-  const segments = path.split('/').filter((seg) => seg.length > 0);
-  let limit = Math.max(0, segments.length - 1);
-  if (includeSelf) limit = segments.length;
-  const out: string[] = [];
-  for (let idx = 1; idx <= limit; idx++) {
-    out.push(segments.slice(0, idx).join('/'));
-  }
-  return out;
-}
-
-function matchesPrefixScope(candidate: string, prefix: string): boolean {
-  if (prefix.length === 0) return true;
-  return candidate === prefix || candidate.startsWith(`${prefix}/`);
-}
-
-function isStrictlyInsidePrefix(candidate: string, prefix: string): boolean {
-  if (prefix.length === 0) return candidate.length > 0;
-  return candidate.startsWith(`${prefix}/`);
-}
-
-function childSegmentUnderPrefix(fullPath: string, prefix: string): string {
-  let relative = fullPath;
-  if (prefix.length > 0) relative = fullPath.slice(prefix.length + 1);
-  const immediateChild = relative.split('/')[0] ?? '';
-  if (prefix.length === 0) return immediateChild;
-  return `${prefix}/${immediateChild}`;
-}
-
-function mergeObjectMetadata(
-  bucket: string,
-  fullPath: string,
-  existing: ObservedStorageObjectMetadata | undefined,
-  input: ObservedStorageObjectInput,
-  replaceMetadata: boolean,
-): ObservedStorageObjectMetadata {
-  const next: MutableStorageObjectMetadata = {
-    bucket,
-    fullPath,
-    name: lastPathSegment(fullPath),
-  };
-
-  if (!replaceMetadata && existing !== undefined) {
-    if (existing.size !== undefined) next.size = existing.size;
-    for (const field of STORAGE_NULLABLE_STRING_FIELDS) {
-      if (existing[field] !== undefined) next[field] = existing[field];
-    }
-    for (const field of STORAGE_IMMUTABLE_STRING_FIELDS) {
-      if (existing[field] !== undefined) next[field] = existing[field];
-    }
-    if (existing.customMetadata !== undefined) {
-      next.customMetadata = { ...existing.customMetadata };
-    }
-  }
-  if (existing?.downloadUrl !== undefined) {
-    next.downloadUrl = existing.downloadUrl;
-  }
-  if (input.size !== undefined) {
-    next.size = input.size;
-  }
-  for (const field of STORAGE_NULLABLE_STRING_FIELDS) {
-    const val = input[field];
-    if (val === null) {
-      delete next[field];
-    } else if (typeof val === 'string') {
-      next[field] = val;
-    }
-  }
-  for (const field of STORAGE_IMMUTABLE_STRING_FIELDS) {
-    const val = input[field];
-    if (typeof val === 'string') next[field] = val;
-  }
-  if (input.customMetadata === null) {
-    delete next.customMetadata;
-  } else if (input.customMetadata !== undefined) {
-    const copied = copyStorageCustomMetadataRecord(input.customMetadata);
-    if (Object.keys(copied).length > 0) {
-      next.customMetadata = copied;
-    } else {
-      delete next.customMetadata;
-    }
-  }
-  return next;
 }
 
 export function createObservedStorageCatalog(
@@ -183,11 +87,18 @@ export function createObservedStorageCatalog(
   }
 
   function resolveBucketName(rawBucket: string): string | undefined {
-    if (rawBucket !== UNREAD_BUCKET) return rawBucket;
-    const knownDefault = defaultBucket();
-    if (knownDefault !== null) return knownDefault;
-    options.onDrop('unsupported');
-    return undefined;
+    if (rawBucket === UNREAD_BUCKET) {
+      const knownDefault = defaultBucket();
+      if (knownDefault !== null) return knownDefault;
+      options.onDrop('unsupported');
+      return undefined;
+    }
+    const normalized = normalizeCatalogBucketName(rawBucket);
+    if (normalized === null || normalized === UNREAD_BUCKET) {
+      options.onDrop('unsupported');
+      return undefined;
+    }
+    return normalized;
   }
 
   function touchBucket(bucket: string, entry: BucketEntry): void {
@@ -212,7 +123,7 @@ export function createObservedStorageCatalog(
     storageBytes = Math.max(0, storageBytes - entry.bucketBytes);
   }
 
-  function evictEntireBucket(bucket: string): boolean {
+  function clearEntireBucket(bucket: string): boolean {
     const entry = buckets.get(bucket);
     if (entry === undefined) return false;
     for (const [fullPath, stored] of entry.objects) {
@@ -227,6 +138,11 @@ export function createObservedStorageCatalog(
     }
     buckets.delete(bucket);
     storageBytes = Math.max(0, storageBytes - entry.bucketBytes);
+    return true;
+  }
+
+  function evictEntireBucket(bucket: string): boolean {
+    if (!clearEntireBucket(bucket)) return false;
     options.onDrop('truncated');
     return true;
   }
@@ -479,7 +395,7 @@ export function createObservedStorageCatalog(
     const bucket = resolveBucketName(op.bucket);
     if (bucket === undefined) return false;
     switch (op.kind) {
-    case 'upsert': {
+      case 'upsert': {
         const entry = ensureBucket(bucket);
         if (entry === undefined) return false;
         const current = entry.objects.get(op.fullPath)?.meta;
@@ -533,6 +449,59 @@ export function createObservedStorageCatalog(
     }
   }
 
+  function invalidateBucketScope(bucket: string, normPath: string): boolean {
+    if (normPath.length === 0) return clearEntireBucket(bucket);
+    const entry = buckets.get(bucket);
+    if (entry === undefined) return false;
+    let changed = false;
+    for (const fullPath of [...entry.objects.keys()]) {
+      if (matchesPrefixScope(fullPath, normPath) && removeStoredObject(bucket, fullPath) !== undefined) {
+        changed = true;
+      }
+    }
+    for (const deletedPath of [...entry.deleted.keys()]) {
+      if (matchesPrefixScope(deletedPath, normPath) && removeTombstone(entry, deletedPath)) {
+        changed = true;
+      }
+    }
+    for (const existingPrefix of [...entry.explicitPrefixes]) {
+      if (matchesPrefixScope(existingPrefix, normPath) && removeExplicitPrefix(entry, existingPrefix)) {
+        changed = true;
+      }
+    }
+    deleteEmptyBucketIfIdle(bucket);
+    return changed;
+  }
+
+  function clearAllBuckets(): boolean {
+    if (buckets.size === 0) return false;
+    buckets.clear();
+    objectOrder.clear();
+    storageBytes = 0;
+    return true;
+  }
+
+  function invalidateCatalog(rawBucket?: string, rawPath?: string): boolean {
+    let normPath = '';
+    if (rawPath !== undefined) {
+      normPath = normalizeStoragePrefix(rawPath);
+    }
+    const trimmedBucket = rawBucket?.trim() ?? '';
+    if (trimmedBucket === '' && normPath.length === 0) {
+      return clearAllBuckets();
+    }
+    if (trimmedBucket === '' || trimmedBucket === UNREAD_BUCKET) {
+      const fallback = defaultBucket();
+      if (fallback === null) return false;
+      return invalidateBucketScope(fallback, normPath);
+    }
+    const normalized = normalizeCatalogBucketName(trimmedBucket);
+    if (normalized === null || normalized === UNREAD_BUCKET) {
+      return clearAllBuckets();
+    }
+    return invalidateBucketScope(normalized, normPath);
+  }
+
   function buildSnapshot(): Record<string, ObservedStorageBucketSnapshot> {
     const out: Record<string, ObservedStorageBucketSnapshot> = {};
     for (const [bucket, entry] of buckets) {
@@ -567,6 +536,7 @@ export function createObservedStorageCatalog(
       }
       return changed;
     },
+    invalidate: invalidateCatalog,
     byteEstimate: () => storageBytes,
     bucketCount: () => buckets.size,
     objectCount: () => objectOrder.size,
@@ -574,7 +544,12 @@ export function createObservedStorageCatalog(
     snapshot: buildSnapshot,
     withStorageSnapshot(base) {
       if (buckets.size === 0) return base;
-      const stats = { ...base.stats, storageBuckets: buckets.size, storageObjects: objectOrder.size, byteEstimate: base.stats.byteEstimate + storageBytes };
+      const stats = {
+        ...base.stats,
+        storageBuckets: buckets.size,
+        storageObjects: objectOrder.size,
+        byteEstimate: base.stats.byteEstimate + storageBytes,
+      };
       return { ...base, storage: buildSnapshot(), defaultStorageBucket: defaultBucket(), stats };
     },
   };

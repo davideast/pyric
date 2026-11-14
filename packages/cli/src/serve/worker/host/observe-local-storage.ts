@@ -35,19 +35,25 @@ import {
   type LocalVerdict,
   type StorageLocal,
 } from './observe-local-evaluation.js';
+import {
+  evaluationMayReadMissingBindingProps,
+  type StorageMethod,
+} from './observe-local-storage-ast.js';
 
-type StorageMethod = Exclude<ObservedMethod, 'set'>;
 type ObjectFields = Record<string, unknown>;
-type CompiledRules = NonNullable<ReturnType<typeof compiledStorageRulesForBucket>>;
-type StorageMatchBlock = CompiledRules['_root'];
-type StorageFunctionDef = StorageMatchBlock['functions'][number];
-type StorageFunctionMap = NonNullable<StorageMatchBlock['visibleFuncs']>;
-type StorageExpr = StorageFunctionDef['body'];
-type StoragePathSegment = StorageMatchBlock['segments'][number];
-type StorageGrantVerb = StorageMatchBlock['allows'][number]['verbs'][number];
 
-const UNCAPTURED_STORED_HASH_FIELDS = ['md5Hash', 'crc32c', 'etag'] as const;
-const EMPTY_STRING_SET: ReadonlySet<string> = new Set();
+const UNCAPTURED_STORED_FIELDS = ['md5Hash', 'crc32c', 'etag', 'storageClass'] as const;
+const UNCAPTURED_CREATE_REQUEST_FIELDS: ReadonlySet<string> = new Set([
+  'md5Hash',
+  'crc32c',
+  'storageClass',
+]);
+const UNCAPTURED_UPDATE_REQUEST_FIELDS: ReadonlySet<string> = new Set([
+  'md5Hash',
+  'crc32c',
+  'etag',
+  'storageClass',
+]);
 
 /** The buckets the app's default rules govern: its configured bucket and the project's two default names. */
 function storageDefaultBuckets(ctx: HostCtx): string[] {
@@ -107,7 +113,7 @@ function writesObject(method: StorageMethod): boolean {
   return method === 'create' || method === 'update';
 }
 
-/** `request.resource` for an upload or a metadata update, or `null` for a call that sent no metadata. */
+/** `request.resource` for an upload or a metadata update, or `undefined` for a call that sent no metadata. */
 function requestResourceOf(call: ObservedCall, method: StorageMethod, bucket: string, fullPath: string) {
   const written = isPlainRecord(call.writeData) ? call.writeData : undefined;
   if (!writesObject(method) || written === undefined) return undefined;
@@ -156,290 +162,19 @@ function storedResourceOf(call: ObservedCall, bucket: string, fullPath: string) 
   });
 }
 
-function missingStoredHashFieldsOf(call: ObservedCall): Set<string> {
+function missingStoredFieldsOf(call: ObservedCall): Set<string> {
   const missing = new Set<string>();
   const stored = isPlainRecord(call.document) ? call.document : undefined;
   if (stored === undefined) return missing;
-  for (const field of UNCAPTURED_STORED_HASH_FIELDS) {
+  for (const field of UNCAPTURED_STORED_FIELDS) {
     if (stringField(stored, field) === undefined) missing.add(field);
   }
   return missing;
 }
 
-function grantCoversVerb(verbs: readonly StorageGrantVerb[], method: StorageMethod): boolean {
-  for (const verb of verbs) {
-    if (verb === method) return true;
-    if (verb === 'read' && (method === 'get' || method === 'list')) return true;
-    if (verb === 'write' && (method === 'create' || method === 'update' || method === 'delete')) return true;
-  }
-  return false;
-}
-
-function formatStorageSegments(segments: readonly StoragePathSegment[]): string {
-  return (
-    '/' +
-    segments
-      .map((s) => {
-        if (s.kind === 'literal') return s.value;
-        if (s.kind === 'param') return `{${s.name}}`;
-        return `{${s.name}=**}`;
-      })
-      .join('/')
-  );
-}
-
-function matchStorageSegments(
-  segments: readonly StoragePathSegment[],
-  remaining: readonly string[],
-  rulesVersion: string,
-): string[] | null {
-  let index = 0;
-  const minimum = rulesVersion === '2' || rulesVersion === '2+modules' ? 0 : 1;
-  for (let s = 0; s < segments.length; s++) {
-    const seg = segments[s]!;
-    if (seg.kind === 'wildcard') {
-      const trailing = segments.length - 1 - s;
-      const length = remaining.length - index - trailing;
-      if (length < minimum) return null;
-      index += length;
-      continue;
-    }
-    if (index >= remaining.length) return null;
-    if (seg.kind === 'literal') {
-      if (remaining[index] !== seg.value) return null;
-    }
-    index += 1;
-  }
-  return remaining.slice(index);
-}
-
-function isResourceBindingExpr(
-  expr: StorageExpr,
-  resourceVars: ReadonlySet<string>,
-  shadowedVars: ReadonlySet<string>,
-): boolean {
-  if (expr.kind !== 'ident') return false;
-  if (resourceVars.has(expr.name)) return true;
-  return expr.name === 'resource' && !shadowedVars.has('resource');
-}
-
-function exprMayReadMissingStoredProps(
-  expr: StorageExpr,
-  missingProps: ReadonlySet<string>,
-  resourceVars: ReadonlySet<string>,
-  shadowedVars: ReadonlySet<string>,
-  funcs: StorageFunctionMap,
-  activeFns: ReadonlySet<StorageFunctionDef>,
-): boolean {
-  const isRes = (node: StorageExpr): boolean => isResourceBindingExpr(node, resourceVars, shadowedVars);
-  if (
-    expr.kind === 'binary' &&
-    (expr.op === '==' || expr.op === '!=') &&
-    ((isRes(expr.left) && expr.right.kind === 'literal' && expr.right.value === null) ||
-      (isRes(expr.right) && expr.left.kind === 'literal' && expr.left.value === null))
-  ) {
-    return false;
-  }
-  const recurse = (node: StorageExpr): boolean =>
-    exprMayReadMissingStoredProps(node, missingProps, resourceVars, shadowedVars, funcs, activeFns);
-
-  switch (expr.kind) {
-    case 'literal':
-      return false;
-    case 'ident':
-      return isRes(expr);
-    case 'member':
-      if (isRes(expr.target)) return missingProps.has(expr.name);
-      return recurse(expr.target);
-    case 'index':
-      if (isRes(expr.target)) {
-        if (recurse(expr.index)) return true;
-        if (expr.index.kind === 'literal' && typeof expr.index.value === 'string') {
-          return missingProps.has(expr.index.value);
-        }
-        return true;
-      }
-      return recurse(expr.target) || recurse(expr.index);
-    case 'in':
-      if (isRes(expr.collection)) {
-        if (recurse(expr.element)) return true;
-        if (expr.element.kind === 'literal' && typeof expr.element.value === 'string') {
-          return missingProps.has(expr.element.value);
-        }
-        return true;
-      }
-      return recurse(expr.element) || recurse(expr.collection);
-    case 'methodcall':
-      if (isRes(expr.target)) {
-        if (expr.args.some(recurse)) return true;
-        if (expr.method === 'get') {
-          const keyArg = expr.args[0];
-          if (keyArg?.kind === 'literal' && typeof keyArg.value === 'string') {
-            return missingProps.has(keyArg.value);
-          }
-          if (
-            keyArg?.kind === 'list' &&
-            keyArg.elements[0]?.kind === 'literal' &&
-            typeof keyArg.elements[0].value === 'string'
-          ) {
-            return missingProps.has(keyArg.elements[0].value);
-          }
-          return true;
-        }
-        return true;
-      }
-      return recurse(expr.target) || expr.args.some(recurse);
-    case 'call': {
-      for (const arg of expr.args) {
-        if (!isRes(arg) && recurse(arg)) return true;
-      }
-      const fn = funcs.get(expr.name);
-      if (fn === undefined || activeFns.has(fn)) {
-        return expr.args.some(isRes);
-      }
-      const nextResourceVars = new Set<string>();
-      const nextShadowed = new Set<string>(fn.declCaptures ?? []);
-      if (fn.scopeKind === 'global') nextShadowed.add('resource');
-      for (let i = 0; i < fn.params.length; i++) {
-        const paramName = fn.params[i]!;
-        const arg = expr.args[i];
-        if (arg !== undefined && isRes(arg)) {
-          nextResourceVars.add(paramName);
-          nextShadowed.delete(paramName);
-        } else {
-          nextShadowed.add(paramName);
-        }
-      }
-      const fnScope = fn.declScope ?? funcs;
-      const nextActive = new Set(activeFns);
-      nextActive.add(fn);
-      for (const binding of fn.lets) {
-        if (isResourceBindingExpr(binding.value, nextResourceVars, nextShadowed)) {
-          nextResourceVars.add(binding.name);
-          nextShadowed.delete(binding.name);
-        } else {
-          if (
-            exprMayReadMissingStoredProps(
-              binding.value,
-              missingProps,
-              nextResourceVars,
-              nextShadowed,
-              fnScope,
-              nextActive,
-            )
-          ) {
-            return true;
-          }
-          nextResourceVars.delete(binding.name);
-          nextShadowed.add(binding.name);
-        }
-      }
-      return exprMayReadMissingStoredProps(
-        fn.body,
-        missingProps,
-        nextResourceVars,
-        nextShadowed,
-        fnScope,
-        nextActive,
-      );
-    }
-    case 'slice':
-      return recurse(expr.target) || recurse(expr.start) || recurse(expr.end);
-    case 'unary':
-      return recurse(expr.arg);
-    case 'ternary':
-      return recurse(expr.cond) || recurse(expr.then) || recurse(expr.else);
-    case 'is':
-      return recurse(expr.value);
-    case 'list':
-      return expr.elements.some(recurse);
-    case 'map':
-      return expr.entries.some((entry) => recurse(entry.key) || recurse(entry.value));
-    case 'binary':
-      return recurse(expr.left) || recurse(expr.right);
-    case 'path':
-      return expr.segments.some((seg) => seg.kind === 'interp' && recurse(seg.expr));
-  }
-}
-
-function evaluationMayReadMissingStoredProps(
-  rules: CompiledRules,
-  requestPath: string,
-  method: StorageMethod,
-  allowed: boolean,
-  matchedRule: StorageEvaluationObservation['matchedRule'],
-  missingProps: ReadonlySet<string>,
-): boolean {
-  if (missingProps.size === 0) return false;
-  const pathSegments = requestPath.split('/').filter((s) => s.length > 0);
-  const minimum = rules._version === '2' || rules._version === '2+modules' ? 0 : 1;
-  let stoppedAtGrant = false;
-  let foundRead = false;
-
-  const visit = (
-    block: StorageMatchBlock,
-    remaining: readonly string[],
-    inheritedCaptures: ReadonlySet<string>,
-  ): void => {
-    if (stoppedAtGrant || foundRead) return;
-    const left = matchStorageSegments(block.segments, remaining, rules._version);
-    if (left === null) return;
-    const captures = new Set(inheritedCaptures);
-    for (const seg of block.segments) {
-      if (seg.kind !== 'literal') captures.add(seg.name);
-    }
-    if (left.length === 0) {
-      const blockPath = `match ${formatStorageSegments(block.segments)}`;
-      const funcs: StorageFunctionMap = block.visibleFuncs ?? new Map();
-      for (const allow of block.allows) {
-        if (!grantCoversVerb(allow.verbs, method)) continue;
-        if (
-          allow.condition !== null &&
-          exprMayReadMissingStoredProps(
-            allow.condition,
-            missingProps,
-            EMPTY_STRING_SET,
-            captures,
-            funcs,
-            new Set(),
-          )
-        ) {
-          foundRead = true;
-          return;
-        }
-        if (
-          allowed &&
-          matchedRule !== undefined &&
-          matchedRule.path === blockPath &&
-          matchedRule.line === allow.line
-        ) {
-          stoppedAtGrant = true;
-          return;
-        }
-      }
-    }
-    const lastSeg = block.segments[block.segments.length - 1];
-    if (block.children.length > 0 && lastSeg !== undefined && lastSeg.kind === 'wildcard') {
-      const prefixLeft = matchStorageSegments(block.segments.slice(0, -1), remaining, rules._version);
-      if (prefixLeft !== null) {
-        for (let splitLen = prefixLeft.length; splitLen >= minimum; splitLen--) {
-          const childLeft = prefixLeft.slice(splitLen);
-          for (const child of block.children) {
-            visit(child, childLeft, captures);
-            if (stoppedAtGrant || foundRead) return;
-          }
-        }
-        return;
-      }
-    }
-    for (const child of block.children) {
-      visit(child, left, captures);
-      if (stoppedAtGrant || foundRead) return;
-    }
-  };
-
-  visit(rules._root, pathSegments, EMPTY_STRING_SET);
-  return foundRead;
+function missingRequestResourceFieldsOf(method: StorageMethod): ReadonlySet<string> {
+  if (method === 'create') return UNCAPTURED_CREATE_REQUEST_FIELDS;
+  return UNCAPTURED_UPDATE_REQUEST_FIELDS;
 }
 
 /** The data the evaluation read that the call did not carry. */
@@ -447,14 +182,18 @@ function storageGaps(
   observation: StorageEvaluationObservation,
   method: StorageMethod,
   given: Given,
-  readMissingStoredHash: boolean,
+  readMissingStoredField: boolean,
+  readMissingRequestField: boolean,
 ): Gap[] {
   const gaps: Gap[] = [];
-  if ((observation.readResource && !given.document) || readMissingStoredHash) gaps.push('stored-document');
+  if ((observation.readResource && !given.document) || readMissingStoredField) {
+    gaps.push('stored-document');
+  }
   if (observation.readFirestore) gaps.push('stored-document');
   if (observation.readRequestResource) {
-    if (writesObject(method) && !given.writeData) gaps.push('write-data');
-    // A metadata update's incoming object keeps the stored fields it does not name.
+    if ((writesObject(method) && !given.writeData) || readMissingRequestField) {
+      gaps.push('write-data');
+    }
     if (method === 'update' && !given.document) gaps.push('stored-document');
   }
   if (observation.readAuthToken && !given.claims) gaps.push('claim-values');
@@ -463,7 +202,10 @@ function storageGaps(
 }
 
 /** The Storage record a verdict carries: the matched rule and the evaluator's reasons. */
-function storageRecordOf(observation: StorageEvaluationObservation, reasons: readonly string[]): StorageLocal | undefined {
+function storageRecordOf(
+  observation: StorageEvaluationObservation,
+  reasons: readonly string[],
+): StorageLocal | undefined {
   const record: StorageLocal = {};
   const matched = observation.matchedRule;
   if (matched !== undefined) record.matchedPath = matched.path;
@@ -496,16 +238,30 @@ export function storageVerdict(ctx: HostCtx, call: ObservedCall, method: Observe
   const observation = emptyStorageObservation();
   const evaluated = evaluateStorageRules(rules, input, new Date(call.at), undefined, observation);
   const given = givenBy(call, method);
-  const readMissingStoredHash =
+  const readMissingStoredField =
     given.document &&
     observation.readResource &&
-    evaluationMayReadMissingStoredProps(
+    evaluationMayReadMissingBindingProps(
       rules,
       input.request.path,
       method,
       evaluated.allowed,
-      observation.matchedRule,
-      missingStoredHashFieldsOf(call),
+      observation,
+      'resource',
+      missingStoredFieldsOf(call),
+    );
+  const readMissingRequestField =
+    writesObject(method) &&
+    given.writeData &&
+    observation.readRequestResource &&
+    evaluationMayReadMissingBindingProps(
+      rules,
+      input.request.path,
+      method,
+      evaluated.allowed,
+      observation,
+      'request.resource',
+      missingRequestResourceFieldsOf(method),
     );
   const matched = observation.matchedRule;
   let rule: LocalVerdict['rule'];
@@ -513,7 +269,7 @@ export function storageVerdict(ctx: HostCtx, call: ObservedCall, method: Observe
   return verdictOf(call, {
     allowed: evaluated.allowed,
     rule,
-    needs: storageGaps(observation, method, given, readMissingStoredHash),
+    needs: storageGaps(observation, method, given, readMissingStoredField, readMissingRequestField),
     storage: storageRecordOf(observation, evaluated.reasons),
   });
 }
