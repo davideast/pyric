@@ -27,6 +27,7 @@ import {
 } from './unreaped-exit.ts';
 import { childOutputSockets, describeOutputSockets, isExitWithoutClose } from './output-sockets.ts';
 import { CrashWatch, type CrashVerdict, type ExpectedCrash, type WatchedProcess } from './crash-watch.ts';
+import { firstLine, HostErrors, LOCAL_HOSTS, responseTimes, STOPPING_HOST_NOTE } from './host-errors.ts';
 
 export type { ExpectedCrash } from './crash-watch.ts';
 
@@ -96,8 +97,10 @@ export class AppProcess {
    * exits on its own with a non-zero code fails the app (crash-watch.ts).
    */
   runsUntilStopped = false;
-  /** Set when `stop()` found the process running, so its exit was the driver's doing. */
-  private stopRequested = false;
+  /** When `stop()` first found the process running, so its exit was the driver's doing. */
+  stopRequestedAt: number | undefined;
+  /** When the driver saw the process gone. */
+  exitedAt: number | undefined;
 
   constructor(
     readonly name: string,
@@ -176,6 +179,7 @@ export class AppProcess {
     if (!this.running) return;
     this.stopWatchingExit();
     this.exitCode = code;
+    this.exitedAt = Date.now();
     this.settle(code);
   }
 
@@ -194,7 +198,7 @@ export class AppProcess {
 
   /** The non-zero code a process started to run until stopped exited with before anything stopped it. */
   get earlyExitCode(): number | undefined {
-    const exitedOnItsOwn = this.runsUntilStopped && !this.stopRequested;
+    const exitedOnItsOwn = this.runsUntilStopped && this.stopRequestedAt === undefined;
     const failed = typeof this.exitCode === 'number' && this.exitCode !== 0;
     return exitedOnItsOwn && failed ? this.exitCode as number : undefined;
   }
@@ -253,7 +257,7 @@ export class AppProcess {
    */
   async stop(grace: StopGrace = this.timing.stop): Promise<void> {
     if (this.child.pid === undefined) return;
-    if (this.running) this.stopRequested = true;
+    if (this.running) this.stopRequestedAt ??= Date.now();
     if (!this.running) {
       await this.stopLeftoverGroup(grace);
       return;
@@ -409,7 +413,9 @@ export interface App {
    * error status, such as a download URL with the wrong token. Any other error
    * a `/__pyric/` route answers to a page fails the app after its scenario,
    * and so does a pattern that matched no error, unless `mayNotHappen` says
-   * why the error comes only in some runs, such as one a race decides.
+   * why the error comes only in some runs, such as one a race decides. An
+   * answer a `devServer()` or `sandboxServer()` host gives after the scenario
+   * stopped it does not count (host-errors.ts).
    */
   expectHostError(pattern: RegExp, options?: { mayNotHappen?: string }): void;
   /**
@@ -433,19 +439,6 @@ export type Scenario = (app: App) => Promise<void>;
 /** Declares an app's scenario. The default export of `scenario.ts`. */
 export function scenario(run: Scenario): Scenario {
   return run;
-}
-
-/** An error response from a `/__pyric/` route, with the step it happened in and, once read, the first line of its body. */
-interface HostError {
-  step: string;
-  request: string;
-  body?: string;
-}
-
-/** The first line of a response body that has text, cut to 200 characters. */
-function firstLine(text: string): string {
-  const line = text.split('\n').map((part) => part.trim()).find((part) => part.length > 0) ?? '';
-  return line.slice(0, 200);
 }
 
 export class StepFailure extends Error {
@@ -558,8 +551,6 @@ async function answers(url: string): Promise<boolean> {
 // At load, not at launch: a scenario can also call chromium.launch itself.
 retainBrowserChildren();
 
-const LOCAL_HOSTS = new Set(['127.0.0.1', 'localhost', '[::1]']);
-
 /**
  * Chromium's resolver rules for scenario pages: every name and address but
  * the local ones fails to resolve. The routes in `browser()` block and log;
@@ -611,28 +602,14 @@ export async function guardContext(context: BrowserContext, log: string[]): Prom
   });
 }
 
-/**
- * A `mayNotHappen` reason lets an allowance match nothing, so it must say why
- * and cite the issue that tracks the race, which closing ends the allowance.
- */
-function assertCitesIssue(pattern: RegExp, reason: string): void {
-  const hasReason = reason.trim().length > 0;
-  const citesIssue = /#\d+/.test(reason);
-  if (hasReason && citesIssue) return;
-  throw new Error(`expectHostError(${pattern}): mayNotHappen must say why the error comes only in some runs and cite its issue (#<number>); got ${JSON.stringify(reason)}`);
-}
-
 /** One run of one app: the state behind the `App` a scenario receives. */
 export class AppRun implements App {
   readonly processes: AppProcess[] = [];
   readonly browserLog: string[] = [];
   currentStep = 'setup';
-  /** Error responses from `/__pyric/` routes to the app's pages, with the step each happened in. */
-  private readonly hostErrors: HostError[] = [];
+  /** Error responses from `/__pyric/` routes to the app's pages, and which of them fail the app (host-errors.ts). */
+  private readonly hostErrors = new HostErrors();
   private readonly expectedLeftovers: RegExp[] = [];
-  private readonly expectedHostErrors: RegExp[] = [];
-  /** The `expectHostError` patterns whose error comes only in some runs, which the stale check skips. */
-  private readonly racyHostErrors = new Set<RegExp>();
   private context: BrowserContext | undefined;
   private serverCount = 0;
   private scriptCount = 0;
@@ -703,6 +680,7 @@ export class AppRun implements App {
 
   /** Waits until a host process serves `/` and `/__pyric/init.json` on `port`, over https when `https`. */
   private async servedHost(name: string, port: number, child: AppProcess, https = false): Promise<DevServer> {
+    this.hostErrors.servedBy(port, child);
     const url = `${https ? 'https' : 'http'}://127.0.0.1:${port}`;
     const deadline = Date.now() + 90_000;
     for (;;) {
@@ -896,10 +874,13 @@ export class AppRun implements App {
     page.on('pageerror', (error) => this.browserLog.push(`[page ${index} error] ${error.stack || `${error.name}: ${error.message}`}`));
     page.on('response', (response) => {
       if (response.status() < 400) return;
-      this.browserLog.push(`[page ${index} response ${response.status()}] ${response.request().method()} ${response.url()}`);
-      const hostError = this.recordHostError(response.status(), response.request().method(), response.url());
+      const request = response.request();
+      const verdict = this.hostErrors.record(this.currentStep, { status: response.status(), method: request.method(), href: response.url(), times: responseTimes(request.timing()) });
+      let note = '';
+      if (verdict.kind === 'from-stopping-host') note = STOPPING_HOST_NOTE;
+      this.browserLog.push(`[page ${index} response ${response.status()}${note}] ${request.method()} ${response.url()}`);
       // The body says why the route failed, such as the dev server's own error page for a rewrite it could not proxy.
-      if (hostError) response.text().then((text) => { hostError.body = firstLine(text); }, () => undefined);
+      if (verdict.kind === 'counted') response.text().then((text) => { verdict.error.body = firstLine(text); }, () => undefined);
     });
     await page.goto(url);
     return page;
@@ -914,11 +895,7 @@ export class AppRun implements App {
   }
 
   expectHostError(pattern: RegExp, options: { mayNotHappen?: string } = {}): void {
-    const reason = options.mayNotHappen;
-    const isRacy = reason !== undefined;
-    if (isRacy) assertCitesIssue(pattern, reason);
-    this.expectedHostErrors.push(pattern);
-    if (isRacy) this.racyHostErrors.add(pattern);
+    this.hostErrors.expect(pattern, options);
   }
 
   expectLeftoverProcess(pattern: RegExp): void {
@@ -945,33 +922,17 @@ export class AppRun implements App {
 
   /** Records an error response a page received; only `/__pyric/` routes count as host errors. */
   noteErrorResponse(status: number, method: string, href: string, body?: string): void {
-    const hostError = this.recordHostError(status, method, href);
-    if (hostError && body !== undefined) hostError.body = firstLine(body);
-  }
-
-  private recordHostError(status: number, method: string, href: string): HostError | undefined {
-    const url = new URL(href);
-    const isHostRoute = url.pathname.startsWith('/__pyric/');
-    if (!isHostRoute) return undefined;
-    const hostError: HostError = { step: this.currentStep, request: `${status} ${method} ${url.pathname}${url.search}` };
-    this.hostErrors.push(hostError);
-    return hostError;
+    const verdict = this.hostErrors.record(this.currentStep, { status, method, href });
+    if (verdict.kind === 'counted' && body !== undefined) verdict.error.body = firstLine(body);
   }
 
   /**
    * What fails the app after its scenario: each error response from a
-   * `/__pyric/` route that no `expectHostError` pattern matches, then each
-   * pattern that matched no error, checked as `unexpectedLeftoverProcesses` is.
+   * `/__pyric/` route that counts and that no `expectHostError` pattern
+   * matches, then each pattern that matched no error (host-errors.ts).
    */
   unexpectedHostErrors(): string[] {
-    const unexpected = this.hostErrors
-      .filter(({ request }) => !this.expectedHostErrors.some((pattern) => pattern.test(request)))
-      .map(({ step, request, body }) => `${request} (during "${step}")${body ? `: ${body}` : ''}`);
-    const stale = this.expectedHostErrors
-      .filter((pattern) => !this.racyHostErrors.has(pattern))
-      .filter((pattern) => !this.hostErrors.some(({ request }) => pattern.test(request)))
-      .map((pattern) => `expectHostError(${pattern}) matched no error response from a /__pyric/ route; remove it or fix its pattern`);
-    return [...unexpected, ...stale];
+    return this.hostErrors.unexpected();
   }
 
   watchCrashes(context: BrowserContext): Promise<void> {

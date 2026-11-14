@@ -25,6 +25,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { expect, test, type Page } from '@playwright/test';
+import { healthOf, sessionHeaders, waitForHost } from './host-health.js';
 
 const cliDir = fileURLToPath(new URL('../../', import.meta.url));
 const liveDir = fileURLToPath(new URL('../../../live/', import.meta.url));
@@ -82,46 +83,6 @@ function started(command: string, args: string[], cwd: string, env: Record<strin
   child.stderr?.on('data', (chunk: Buffer) => { output += chunk.toString(); });
   const exited = new Promise<{ code: number | null; output: string }>((resolve) => child.once('exit', (code) => resolve({ code, output })));
   return { child, output: () => output, exited };
-}
-
-function sessionHeaders(root: string): Record<string, string> {
-  try {
-    const pointer = JSON.parse(readFileSync(join(root, '.pyric/serve.json'), 'utf8')) as { token?: string };
-    return typeof pointer.token === 'string' && pointer.token.length > 0
-      ? { 'x-pyric-session-token': pointer.token }
-      : {};
-  } catch {
-    return {};
-  }
-}
-
-async function healthOf(url: string, root?: string): Promise<Record<string, unknown> | null> {
-  try {
-    const headers = root ? sessionHeaders(root) : undefined;
-    const response = await fetch(`${url}/__pyric/health`, headers ? { headers } : undefined);
-    return response.ok ? (await response.json()) as Record<string, unknown> : null;
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Waits until the host's Node sandbox is connected. The host answers health
- * as soon as it listens, before `startHostedSandbox` connects the sandbox,
- * and a call in that window is refused with "sandbox not connected".
- */
-async function waitForHost(host: Started, url: string, root: string): Promise<Record<string, unknown>> {
-  const deadline = Date.now() + 90_000;
-  for (;;) {
-    const health = await healthOf(url, root);
-    if (health?.sandboxConnected === true) return health;
-    if (host.child.exitCode !== null) throw new Error(`the host exited:\n${host.output()}`);
-    if (Date.now() > deadline) {
-      const seen = health === null ? 'no health answer' : `health ${JSON.stringify(health)}`;
-      throw new Error(`the host at ${url} did not connect its sandbox (last: ${seen}):\n${host.output()}`);
-    }
-    await new Promise((resolve) => setTimeout(resolve, 250));
-  }
 }
 
 /**

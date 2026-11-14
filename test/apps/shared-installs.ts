@@ -8,10 +8,9 @@
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { copyFile } from 'node:fs/promises';
-import { basename, dirname, join } from 'node:path';
-import type { EventEmitter } from 'node:events';
-import { Worker } from 'node:worker_threads';
-import type { CommandResult } from './install.ts';
+import { basename, join } from 'node:path';
+import { copyTree } from './copy-tree.ts';
+import { isTransientNetworkFailure, type CommandResult } from './install.ts';
 
 /**
  * The package.json fields the shared install copies and keys on: what the app
@@ -102,60 +101,6 @@ export function dependencySetKey(inputs: InstallInputs): string | undefined {
   return createHash('sha256').update(identity).digest('hex').slice(0, 16);
 }
 
-/** What `copyTree` needs of its worker: the events a Worker emits, and a way to end it. */
-export type CopyWorker = Pick<EventEmitter, 'once'> & { terminate(): unknown };
-
-export type StartCopyWorker = (from: string, to: string) => CopyWorker;
-
-/** How long a copy worker's result may trail its clean exit before the copy counts as failed. */
-const RESULT_AFTER_EXIT_MS = 5000;
-
-const startCopyTreeWorker: StartCopyWorker = (from, to) => new Worker(new URL('./copy-tree-worker.ts', import.meta.url), { workerData: { from, to } });
-
-/**
- * Copy an installed `node_modules` into an app, symlinks as symlinks, in a
- * worker thread (copy-tree-worker.ts) so the apps already running keep their
- * timers and sockets moving while it copies.
- *
- * A copy, not hard links: with hard links, every full run here had an app
- * whose server process stalled or never closed, and with copies runs passed.
- * Each app also gets files it can change without changing every other app's.
- * Not a `cp` child process either: under Bun, a burst of children exiting
- * together, as when several apps get their set's install at once, left
- * exited children unreaped, and the runner waited on one forever.
- */
-export function copyTree(from: string, to: string, startWorker: StartCopyWorker = startCopyTreeWorker, resultAfterExitMs = RESULT_AFTER_EXIT_MS): Promise<void> {
-  mkdirSync(dirname(to), { recursive: true });
-  return new Promise((resolve, reject) => {
-    const worker = startWorker(from, to);
-    let answered = false;
-    let resultWait: ReturnType<typeof setTimeout> | undefined;
-    worker.once('message', (result: { ok: boolean; message?: string }) => {
-      answered = true;
-      clearTimeout(resultWait);
-      void worker.terminate();
-      if (result.ok) resolve();
-      else reject(new Error(`copying ${from} to ${to} failed: ${result.message ?? 'unknown error'}`));
-    });
-    worker.once('error', (error) => {
-      answered = true;
-      clearTimeout(resultWait);
-      reject(error);
-    });
-    // A worker killed before it answers (out of memory, say) settles the copy too.
-    const failUnanswered = (code: number) => {
-      if (!answered) reject(new Error(`copying ${from} to ${to} failed: the copy worker exited with code ${code} before it finished`));
-    };
-    // A clean exit can be handled before the result it posted (#1280), so it waits for that result first.
-    worker.once('exit', (code: number) => {
-      if (answered) return;
-      const isClean = code === 0;
-      if (isClean) resultWait = setTimeout(() => failUnanswered(code), resultAfterExitMs);
-      else failUnanswered(code);
-    });
-  });
-}
-
 function readOptional(path: string): string | undefined {
   return existsSync(path) ? readFileSync(path, 'utf8') : undefined;
 }
@@ -201,6 +146,11 @@ interface SetInstall {
   result: Promise<CommandResult>;
 }
 
+function canRetrySetInstall(result: SetInstallResult): boolean {
+  if (result.retryable !== undefined) return result.retryable;
+  return isTransientNetworkFailure(result);
+}
+
 /** The installs of one run, one per dependency set, made in directories under `baseDir`. */
 export class SharedInstalls {
   private readonly sets = new Map<string, SetInstall>();
@@ -214,10 +164,10 @@ export class SharedInstalls {
 
   /**
    * Install the app prepared in `projectDir`: its set's install, copied in,
-   * or its own when it installs alone. A set's install is tried twice, so one
-   * dropped connection does not fail the set, unless the first attempt says
-   * a second cannot help; when every attempt fails, every app that shares it
-   * fails with that log, without installing again.
+   * or its own when it installs alone. A set's install gets one retry when it
+   * marks the failure retryable (or, without an explicit flag, hit a transient
+   * network error); when every attempt fails, every app that shares it fails
+   * with that log, without installing again.
    */
   async install(projectDir: string, app?: string): Promise<CommandResult> {
     const inputs = readInstallInputs(projectDir);
@@ -230,7 +180,7 @@ export class SharedInstalls {
     const header = `[runner] shared install ${key}, ${made}\n`;
     if (shared.code !== 0) return { code: shared.code, output: `${header}${shared.output}` };
     try {
-      await copyTree(join(set.dir, 'node_modules'), join(projectDir, 'node_modules'));
+      await copyTree(join(set.dir, 'node_modules'), join(projectDir, 'node_modules'), { report: this.report });
       const lockfile = join(set.dir, 'package-lock.json');
       if (existsSync(lockfile)) await copyFile(lockfile, join(projectDir, 'package-lock.json'));
     } catch (error) {
@@ -246,7 +196,7 @@ export class SharedInstalls {
       const result = await this.installSetIn(dir, app);
       output += result.output;
       if (result.code === 0) return { ...result, output };
-      const isFinal = attempt === SET_INSTALL_ATTEMPTS || result.retryable === false;
+      const isFinal = attempt === SET_INSTALL_ATTEMPTS || !canRetrySetInstall(result);
       if (isFinal) return { ...result, output };
       output += `\n[runner] the shared install failed (exit ${result.code}); trying it once more\n`;
     }

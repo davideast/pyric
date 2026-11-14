@@ -1,19 +1,25 @@
 import { afterEach, describe, expect, test } from 'bun:test';
-import { EventEmitter } from 'node:events';
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { createServer, type Server } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { gzipSync } from 'node:zlib';
+import { DependencyStore, type RunNpm } from './dependency-store.ts';
 import {
   debugLogTail,
+  isTransientNetworkFailure,
   NESTED_INSTALL_ATTEMPT_MS,
   npmInstall,
   npmInstallArgs,
   retryOnceOnTimeout,
+  runCommand,
   shouldRetryOnline,
   type CommandResult,
   type TimedResult,
 } from './install.ts';
-import { copyTree, dependencySetKey, SharedInstalls, type CopyWorker } from './shared-installs.ts';
+import { dependencySetKey, SharedInstalls } from './shared-installs.ts';
 
 const dirs: string[] = [];
 function tempDir(): string {
@@ -64,6 +70,149 @@ describe('the retry after stale npm metadata', () => {
     expect(calls).toBe(1);
     expect(result.code).toBe(1);
   });
+});
+
+/** Builds a minimal gzipped ustar tarball holding `package/package.json` for a local stand-in registry. */
+function minimalTarball(name: string, version: string): Buffer {
+  const body = Buffer.from(`${JSON.stringify({ name, version })}\n`, 'utf8');
+  const header = Buffer.alloc(512);
+  header.write('package/package.json', 0, 'utf8');
+  header.write('0000644\0', 100, 'ascii');
+  header.write('0000000\0', 108, 'ascii');
+  header.write('0000000\0', 116, 'ascii');
+  header.write(`${body.length.toString(8).padStart(11, '0')}\0`, 124, 'ascii');
+  header.write('00000000000\0', 136, 'ascii');
+  header.fill(0x20, 148, 156);
+  header.write('0', 156, 'ascii');
+  header.write('ustar\0', 257, 'ascii');
+  header.write('00', 263, 'ascii');
+  let checksum = 0;
+  for (const byte of header) checksum += byte;
+  header.write(`${checksum.toString(8).padStart(6, '0')}\0 `, 148, 'ascii');
+  const pad = Buffer.alloc((512 - (body.length % 512)) % 512);
+  return gzipSync(Buffer.concat([header, body, pad, Buffer.alloc(1024)]));
+}
+
+describe('the bounded retry after a transient npm network failure', () => {
+  const servers: Server[] = [];
+  afterEach(async () => {
+    for (const server of servers.splice(0)) await new Promise<void>((resolve) => server.close(() => resolve()));
+  });
+
+  test('recognizes dropped sockets and 5xx registry failures, not bad dependencies or timeouts', () => {
+    for (const output of [
+      'npm error code ECONNRESET\n',
+      'npm error errno ETIMEDOUT\n',
+      'npm error code EAI_AGAIN\n',
+      'npm error code E503\n',
+      'npm error network request failed, reason: socket hang up\n',
+    ]) {
+      expect(isTransientNetworkFailure({ code: 1, output })).toBe(true);
+    }
+    expect(isTransientNetworkFailure({ code: 1, output: 'npm error code E404\n404 Not Found\n' })).toBe(false);
+    expect(isTransientNetworkFailure({ code: 1, output: ETARGET_OUTPUT })).toBe(false);
+    expect(isTransientNetworkFailure({ code: 1, output: 'npm error code ERESOLVE\n' })).toBe(false);
+    expect(isTransientNetworkFailure({ code: 0, output: 'warn ECONNRESET\n' })).toBe(false);
+    expect(isTransientNetworkFailure({ code: null, output: 'npm error code ECONNRESET\n', timedOut: true })).toBe(false);
+  });
+
+  test('npmInstall retries once on ECONNRESET, stops after two attempts, and never retries E404', async () => {
+    const recovered: CommandResult[] = [
+      { code: 1, output: 'npm error code ECONNRESET\n' },
+      { code: 0, output: 'added 1 package\n' },
+    ];
+    let calls = 0;
+    const ok = await npmInstall('/cache', async () => {
+      calls += 1;
+      return recovered.shift() ?? { code: 1, output: 'called too often' };
+    }, undefined, { networkRetryDelayMs: 0 });
+    expect(calls).toBe(2);
+    expect(ok.code).toBe(0);
+    expect(ok.output).toContain('npm error code ECONNRESET');
+    expect(ok.output).toContain('infrastructure retry: npm install hit a transient network error');
+    expect(ok.output).toContain('added 1 package');
+
+    let persistentCalls = 0;
+    const failed = await npmInstall('/cache', async () => {
+      persistentCalls += 1;
+      return { code: 1, output: `attempt ${persistentCalls}: npm error code ECONNRESET\n` };
+    }, undefined, { networkRetryDelayMs: 0 });
+    expect(persistentCalls).toBe(2);
+    expect(failed.code).toBe(1);
+    expect(failed.output).toContain('attempt 1: npm error code ECONNRESET');
+    expect(failed.output).toContain('attempt 2: npm error code ECONNRESET');
+
+    let badDepCalls = 0;
+    const badDep = await npmInstall('/cache', async () => {
+      badDepCalls += 1;
+      return { code: 1, output: 'npm error code E404\nnpm error 404 Not Found - GET https://registry.example/missing-pkg\n' };
+    }, undefined, { networkRetryDelayMs: 0 });
+    expect(badDepCalls).toBe(1);
+    expect(badDep.code).toBe(1);
+    expect(badDep.output).toContain('npm error code E404');
+  });
+
+  test('real npm recovers when a local registry resets the first connection, and still fails once on a missing package', async () => {
+    const tgz = minimalTarball('demo-pkg', '1.0.0');
+    const integrity = `sha512-${createHash('sha512').update(tgz).digest('base64')}`;
+    let dropFirst = true;
+    const server = createServer((req, res) => {
+      if (req.url === '/demo-pkg' && dropFirst) {
+        dropFirst = false;
+        req.socket.destroy();
+        return;
+      }
+      if (req.url === '/demo-pkg') {
+        const port = (server.address() as AddressInfo).port;
+        const doc = {
+          name: 'demo-pkg',
+          'dist-tags': { latest: '1.0.0' },
+          versions: {
+            '1.0.0': {
+              name: 'demo-pkg',
+              version: '1.0.0',
+              dist: { tarball: `http://127.0.0.1:${port}/demo-pkg-1.0.0.tgz`, integrity },
+            },
+          },
+        };
+        res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(doc));
+        return;
+      }
+      if (req.url === '/demo-pkg-1.0.0.tgz') {
+        res.writeHead(200, { 'content-type': 'application/octet-stream' }).end(tgz);
+        return;
+      }
+      res.writeHead(404, { 'content-type': 'application/json' }).end(JSON.stringify({ error: 'Not found' }));
+    });
+    servers.push(server);
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const registry = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+
+    const okDir = join(tempDir(), 'ok-app');
+    mkdirSync(okDir, { recursive: true });
+    writeFileSync(join(okDir, 'package.json'), JSON.stringify({ name: 'ok-app', private: true, dependencies: { 'demo-pkg': '1.0.0' } }));
+    let okCalls = 0;
+    const okResult = await npmInstall(join(tempDir(), 'cache-ok'), (args) => {
+      okCalls += 1;
+      return runCommand('npm', [...args, `--registry=${registry}`, '--fetch-retries=0'], { cwd: okDir });
+    }, undefined, { networkRetryDelayMs: 0 });
+    expect(okCalls).toBe(2);
+    expect(okResult.code).toBe(0);
+    expect(okResult.output).toContain('ECONNRESET');
+    expect(existsSync(join(okDir, 'node_modules/demo-pkg/package.json'))).toBe(true);
+
+    const badDir = join(tempDir(), 'bad-app');
+    mkdirSync(badDir, { recursive: true });
+    writeFileSync(join(badDir, 'package.json'), JSON.stringify({ name: 'bad-app', private: true, dependencies: { 'missing-pkg': '1.0.0' } }));
+    let badCalls = 0;
+    const badResult = await npmInstall(join(tempDir(), 'cache-bad'), (args) => {
+      badCalls += 1;
+      return runCommand('npm', [...args, `--registry=${registry}`, '--fetch-retries=0'], { cwd: badDir });
+    }, undefined, { networkRetryDelayMs: 0 });
+    expect(badCalls).toBe(1);
+    expect(badResult.code).toBe(1);
+    expect(badResult.output).toContain('E404');
+  }, 30_000);
 });
 
 describe('the infrastructure retry of a nested install that hangs (#1476)', () => {
@@ -197,50 +346,6 @@ describe('dependency sets', () => {
   });
 });
 
-describe('copying an installed tree into an app', () => {
-  test('files are copies the app can change alone, and symlinks stay symlinks', async () => {
-    const from = tempDir();
-    const to = join(tempDir(), 'node_modules');
-    mkdirSync(join(from, 'vite/bin'), { recursive: true });
-    mkdirSync(join(from, '.bin'));
-    writeFileSync(join(from, 'vite/bin/vite.js'), 'console.log("vite")\n');
-    symlinkSync('../vite/bin/vite.js', join(from, '.bin/vite'));
-    await copyTree(from, to);
-    expect(statSync(join(to, 'vite/bin/vite.js')).ino).not.toBe(statSync(join(from, 'vite/bin/vite.js')).ino);
-    expect(lstatSync(join(to, '.bin/vite')).isSymbolicLink()).toBe(true);
-    expect(readlinkSync(join(to, '.bin/vite'))).toBe('../vite/bin/vite.js');
-    writeFileSync(join(to, 'vite/bin/vite.js'), 'changed\n');
-    expect(readFileSync(join(from, 'vite/bin/vite.js'), 'utf8')).toBe('console.log("vite")\n');
-  });
-});
-
-describe('settling a copy from its worker', () => {
-  /** A copy worker that emits each event on its own later turn, `delayMs` apart, the way a real one reports. */
-  function scriptedWorker(events: ReadonlyArray<[string, unknown]>, delayMs = 0): () => CopyWorker {
-    return () => {
-      const worker = Object.assign(new EventEmitter(), { terminate: () => undefined });
-      events.forEach(([event, value], index) => setTimeout(() => worker.emit(event, value), (index + 1) * delayMs));
-      return worker;
-    };
-  }
-  const to = () => join(tempDir(), 'to');
-
-  test('a worker whose clean exit is handled before its result settles as success (#1280)', async () => {
-    const worker = scriptedWorker([['exit', 0], ['message', { ok: true }]], 50);
-    await expect(copyTree('/from', to(), worker, 500)).resolves.toBeUndefined();
-  });
-
-  test('a worker that exits without a result fails the copy, whatever its code', async () => {
-    await expect(copyTree('/from', to(), scriptedWorker([['exit', 1]]))).rejects.toThrow('the copy worker exited with code 1 before it finished');
-    await expect(copyTree('/from', to(), scriptedWorker([['exit', 0]]), 20)).rejects.toThrow('the copy worker exited with code 0 before it finished');
-  });
-
-  test('a failed result fails the copy, and a later exit does not change it', async () => {
-    const copy = copyTree('/from', to(), scriptedWorker([['message', { ok: false, message: 'ENOSPC' }], ['exit', 0]]));
-    await expect(copy).rejects.toThrow('failed: ENOSPC');
-  });
-});
-
 describe('one install per dependency set', () => {
   /** An app prepared the way the runner prepares one: <work dir>/app, its package.json without a name. */
   function appDir(name: string, dependencies: Record<string, string>): string {
@@ -326,5 +431,113 @@ describe('one install per dependency set', () => {
     expect(result.code).toBe(1);
     expect(result.output).toContain('added 205 packages');
     expect(result.output).toContain('failed');
+  });
+
+  test('a non-transient failure such as E404 fails on attempt 1 without retrying', async () => {
+    let calls = 0;
+    const shared = new SharedInstalls(tempDir(), async () => {
+      calls += 1;
+      return { code: 1, output: 'npm error code E404\n' };
+    });
+    const result = await shared.install(appDir('a', { vite: '7.3.2' }));
+    expect(calls).toBe(1);
+    expect(result.code).toBe(1);
+    expect(result.output).toContain('npm error code E404');
+  });
+});
+
+describe('consistent single-retry bounds across npmInstall, DependencyStore, and SharedInstalls', () => {
+  const PLATFORM = { nodeMajor: '22', npm: '10.9.0', os: 'linux', arch: 'x64' };
+  const PACKED = [{ name: 'pyric', file: '/packed/pyric.tgz', integrity: 'sha512-demo', manifest: { name: 'pyric', version: '0.1.0-alpha.1' }, files: new Map<string, number>() }];
+
+  function makeApp(name: string, fields: Record<string, unknown>): string {
+    const dir = join(tempDir(), name, 'app');
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, 'package.json'), JSON.stringify({ private: true, ...fields }));
+    return dir;
+  }
+
+  function makeStore(runNpm: RunNpm): DependencyStore {
+    const base = tempDir();
+    return new DependencyStore({
+      dir: join(base, 'deps'),
+      offline: false,
+      packed: PACKED,
+      platform: PLATFORM,
+      npmCache: join(base, 'npm-cache'),
+      runNpm,
+      networkRetryDelayMs: 0,
+    });
+  }
+
+  test('npmInstall shares one network retry budget across --prefer-offline and --prefer-online', async () => {
+    const exhausted: CommandResult[] = [
+      { code: 1, output: 'attempt 1: npm error code ECONNRESET\n' },
+      { code: 1, output: ETARGET_OUTPUT },
+      { code: 1, output: 'attempt 3: npm error code ECONNRESET\n' },
+      { code: 0, output: 'should never run\n' },
+    ];
+    let exhaustedCalls = 0;
+    const failed = await npmInstall('/cache', async () => {
+      exhaustedCalls += 1;
+      return exhausted.shift() ?? { code: 1, output: 'called too often' };
+    }, undefined, { networkRetryDelayMs: 0 });
+    expect({ exhaustedCalls, code: failed.code, retryable: failed.retryable }).toEqual({ exhaustedCalls: 3, code: 1, retryable: false });
+
+    const recoversOnline: CommandResult[] = [
+      { code: 1, output: ETARGET_OUTPUT },
+      { code: 1, output: 'online 1: npm error code ECONNRESET\n' },
+      { code: 0, output: 'added 1 package\n' },
+    ];
+    let onlineCalls = 0;
+    const ok = await npmInstall('/cache', async () => {
+      onlineCalls += 1;
+      return recoversOnline.shift() ?? { code: 1, output: 'called too often' };
+    }, undefined, { networkRetryDelayMs: 0 });
+    expect({ onlineCalls, code: ok.code }).toEqual({ onlineCalls: 3, code: 0 });
+  });
+
+  test('SharedInstalls over DependencyStore runs 2 npm calls on ECONNRESET, 3 on ECONNRESET+ETARGET+ECONNRESET, 1 on E404/ERESOLVE, and 2 on timeout', async () => {
+    const fail = (output: string): TimedResult => ({ code: 1, output, timedOut: false });
+    const hung = (output: string): TimedResult => ({ code: null, output, timedOut: true });
+    const cases: Array<{ label: string; responses: TimedResult[]; expectedCalls: number }> = [
+      { label: 'persistent-econnreset', responses: [fail('npm error code ECONNRESET\n'), fail('npm error code ECONNRESET\n'), fail('extra\n')], expectedCalls: 2 },
+      { label: 'econnreset-etarget-econnreset', responses: [fail('npm error code ECONNRESET\n'), fail(ETARGET_OUTPUT), fail('npm error code ECONNRESET\n'), fail('extra\n')], expectedCalls: 3 },
+      { label: 'bad-dep-e404', responses: [fail('npm error code E404\n'), fail('extra\n')], expectedCalls: 1 },
+      { label: 'bad-dep-eresolve', responses: [fail('npm error code ERESOLVE\n'), fail('extra\n')], expectedCalls: 1 },
+      { label: 'timed-out-warm', responses: [hung('stalled 1\n'), hung('stalled 2\n'), hung('extra\n')], expectedCalls: 2 },
+    ];
+    for (const entry of cases) {
+      let calls = 0;
+      const store = makeStore(async () => {
+        calls += 1;
+        return entry.responses.shift() ?? fail('called too often\n');
+      });
+      const shared = new SharedInstalls(tempDir(), async () => ({ code: 1, output: 'unused\n' }), {
+        installSet: (dir, app) => store.provide(dir, app),
+      });
+      const result = await shared.install(makeApp(entry.label, { dependencies: { vite: '7.3.2' } }), 'demo');
+      expect({ label: entry.label, calls, failed: result.code !== 0 }).toEqual({ label: entry.label, calls: entry.expectedCalls, failed: true });
+    }
+  });
+
+  test('default SharedInstalls wired with npmInstall does not stack retries on shared or standalone apps', async () => {
+    const runPath = async (fields: Record<string, unknown>, output: string): Promise<number> => {
+      let calls = 0;
+      const installIn = () => npmInstall('/cache', async () => {
+        calls += 1;
+        return { code: 1, output };
+      }, undefined, { networkRetryDelayMs: 0 });
+      const shared = new SharedInstalls(tempDir(), installIn);
+      const result = await shared.install(makeApp('app', fields));
+      expect(result.code).toBe(1);
+      return calls;
+    };
+    const sharedFields = { dependencies: { vite: '7.3.2' } };
+    const aloneFields = { dependencies: { vite: '7.3.2' }, scripts: { postinstall: 'node setup.js' } };
+    expect(await runPath(sharedFields, 'npm error code ECONNRESET\n')).toBe(2);
+    expect(await runPath(sharedFields, 'npm error code E404\n')).toBe(1);
+    expect(await runPath(aloneFields, 'npm error code ECONNRESET\n')).toBe(2);
+    expect(await runPath(aloneFields, 'npm error code E404\n')).toBe(1);
   });
 });

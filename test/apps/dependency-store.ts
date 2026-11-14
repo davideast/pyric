@@ -27,10 +27,11 @@ import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
 import { gunzipSync } from 'node:zlib';
 import { removeTree } from './cleanup.ts';
+import { copyTree } from './copy-tree.ts';
 import { debugLogTail, npmInstall, npmOfflineInstallArgs, pinPyricPackages, runCommand, type CommandResult, type Tarballs, type TimedResult } from './install.ts';
 import type { NestedProject } from './nested-projects.ts';
 import { installedFileProblems, tarFiles } from './packed-files.ts';
-import { copyTree, installManifest, sortedObject, type Manifest, type SetInstallResult } from './shared-installs.ts';
+import { installManifest, sortedObject, type Manifest, type SetInstallResult } from './shared-installs.ts';
 
 /** Bumped when the layout or the key's inputs change, so old entries are never read. */
 export const STORE_FORMAT = 1;
@@ -312,6 +313,10 @@ export interface DependencyStoreOptions {
   offlineRegistry?: string;
   warmAttemptMs?: number;
   materializeMs?: number;
+  /** Pause before retrying a transient network failure during a warm; tests pass 0. */
+  networkRetryDelayMs?: number;
+  /** Gets one `[runner]` line when a tree copy retries; `console.log` by default. */
+  report?: (line: string) => void;
 }
 
 /** A set's tree, made in its directory from the store. */
@@ -376,8 +381,10 @@ export class DependencyStore {
   /**
    * Make the tree of the project in `projectDir` (its package.json written,
    * no node_modules yet) from the store, warming its entry first on a miss
-   * unless the store is offline. The caller owns the retry: a failed warm is
-   * worth a second attempt; a miss offline and a failed offline install are not.
+   * unless the store is offline. A warm that timed out is marked retryable for
+   * its caller; non-timeout failures already ran their bounded network retry
+   * in `npmInstall`, so they, an offline miss, and a failed offline install
+   * are not.
    */
   async provide(projectDir: string, app?: string, options: ProvideOptions = {}): Promise<ProvidedSet> {
     const inputs = this.keyInputs(projectDir);
@@ -386,7 +393,9 @@ export class DependencyStore {
     const isMiss = !existsSync(entry);
     if (isMiss && this.options.offline) return this.offlineMiss(key, app);
     const warm = isMiss ? await this.warmOnce(key, inputs, options) : undefined;
-    if (warm !== undefined && warm.code !== 0) return { ...warm, source: `warming store entry ${key} from the registry`, retryable: true };
+    if (warm !== undefined && warm.code !== 0) {
+      return { ...warm, source: `warming store entry ${key} from the registry`, retryable: warm.timedOut === true };
+    }
     const { note, ...materialized } = await this.materialize(entry, projectDir);
     const source = warm === undefined ? `from the store, entry ${key}` : `warmed store entry ${key} from the registry`;
     return { ...materialized, output: `${warm?.output ?? ''}${materialized.output}`, source: `${source}${note}` };
@@ -442,7 +451,8 @@ export class DependencyStore {
   /** One online `npm install`, with its debug log; the log's end joins the output of an attempt that timed out. */
   private async installFromRegistry(dir: string, timeoutMs: number): Promise<TimedResult> {
     const logsDir = join(dir, '.npm-logs');
-    const result = await npmInstall(this.options.npmCache, (args) => this.options.runNpm(args, { cwd: dir, timeoutMs }), logsDir);
+    const installOptions = { networkRetryDelayMs: this.options.networkRetryDelayMs };
+    const result = await npmInstall(this.options.npmCache, (args) => this.options.runNpm(args, { cwd: dir, timeoutMs }), logsDir, installOptions);
     const tail = result.timedOut ? debugLogTail(logsDir, NPM_LOG_TAIL_LINES) : '';
     rmSync(logsDir, { recursive: true, force: true });
     return { ...result, code: result.timedOut ? null : result.code, output: `${result.output}${tail}` };
@@ -470,7 +480,8 @@ export class DependencyStore {
     const failed = (output: string) => ({ code: 1, output, note: '', retryable: false });
     try {
       const stored = readJson<Lockfile>(join(entry, 'package-lock.json'));
-      await copyTree(join(entry, 'node_modules'), join(projectDir, 'node_modules'));
+      const copyOptions = { report: this.options.report };
+      await copyTree(join(entry, 'node_modules'), join(projectDir, 'node_modules'), copyOptions);
       const manifest = readJson<Manifest>(join(projectDir, 'package.json'));
       const lock = restampLockfile(stored, { projectDir, manifest, packed: this.options.packed });
       writeFileSync(join(projectDir, 'package-lock.json'), `${JSON.stringify(lock, null, 2)}\n`);
