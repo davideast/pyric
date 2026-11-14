@@ -17,6 +17,7 @@ import {
   type FirestoreRules,
   type FunctionDef,
 } from '@pyric/rules/internal';
+import { fieldPathKeySegments } from '../../firestore/internal/update-fields.js';
 import { SYNTH_UID, type ScalarValue } from './static-query-proof-args.js';
 
 export interface RetainedRulesInspection {
@@ -41,7 +42,7 @@ function memberStep(expr: Expression): { object: Expression; property: string } 
   return null;
 }
 
-export function isRequestChain(expr: Expression, prop: string): boolean {
+function isRequestChain(expr: Expression, prop: string): boolean {
   const step = memberStep(expr);
   if (!step || step.property !== prop) return false;
   return step.object.type === 'identifier' && step.object.name === 'request';
@@ -66,7 +67,7 @@ export function isRequestAuthTokenClaim(expr: Expression, claim: string): boolea
 }
 
 export function isResourceDataField(expr: Expression, field: string): boolean {
-  const parts = field.split('.').filter((p) => p.length > 0);
+  const parts = fieldPathKeySegments(field).filter((p) => p.length > 0);
   if (parts.length === 0) return false;
   let cur: Expression = expr;
   for (let i = parts.length - 1; i >= 0; i -= 1) {

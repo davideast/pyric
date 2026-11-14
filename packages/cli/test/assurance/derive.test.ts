@@ -398,8 +398,93 @@ export async function saveRecord() {
     expect(
       staffDerived.diagnostics.some((d) => d.code === "assurance-must-allow-denied"),
     ).toBe(false);
+    expect(
+      staffDerived.diagnostics.some(
+        (d) => d.code === "assurance-probe-inconclusive" && d.certainty === "heuristic",
+      ),
+    ).toBe(true);
+    const staffCampaign = staffStore.get(staffDerived.campaignId)!;
+    expect(
+      staffCampaign.context?.attachment?.coverageGaps.some(
+        (g) => g.code === "probe-inconclusive",
+      ),
+    ).toBe(true);
     const exportedUsers =
-      staffStore.get(staffDerived.campaignId)?.export().campaign.target.state?.auth?.users ?? [];
+      staffCampaign.export().campaign.target.state?.auth?.users ?? [];
     expect(exportedUsers.every((u) => u.customClaims === undefined)).toBe(true);
+
+    // Guaranteed non-claim denial ({ kind: 'INVALID' }) is NOT masked by missing seeded custom claims!
+    const invalidKindRoot = makeTempDir("derive-staff-invalid-payload-");
+    mkdirSync(join(invalidKindRoot, "src"), { recursive: true });
+    writeFileSync(
+      join(invalidKindRoot, "firebase.json"),
+      JSON.stringify({ firestore: { rules: "firestore.rules" } }),
+    );
+    writeFileSync(
+      join(invalidKindRoot, "firestore.rules"),
+      `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /staffOnly/{uid} {
+      allow read, write: if request.auth != null
+        && request.auth.uid == uid
+        && request.auth.token.role == 'staff'
+        && request.resource.data.kind == 'valid';
+    }
+    match /reqUnverified/{uid} {
+      allow read, write: if request.auth != null
+        && request.auth.uid == uid
+        && request.auth.token.email_verified == false;
+    }
+  }
+}
+`,
+    );
+    writeFileSync(
+      join(invalidKindRoot, "src/app.ts"),
+      `import { getAuth } from 'firebase/auth';
+import { doc, getFirestore, setDoc } from 'firebase/firestore';
+export async function saveInvalid() {
+  const uid = getAuth().currentUser!.uid;
+  const db = getFirestore();
+  await setDoc(doc(db, 'staffOnly', uid), { kind: 'INVALID' });
+  await setDoc(doc(db, 'reqUnverified', uid), { ok: true });
+}
+`,
+    );
+    const sbInvalid = initializeSandbox();
+    authSandbox.seedUsers(getAuth(sbInvalid), [
+      { uid: "u1", email: "u1@example.test", emailVerified: true },
+    ]);
+    const invalidDerived = await deriveAssurance(
+      { root: invalidKindRoot, includeHeuristic: true },
+      { store: new AssuranceCampaignStore(), sandbox: sbInvalid },
+    );
+    const firstSegmentOf = (diag: (typeof invalidDerived.diagnostics)[number]): string => {
+      const seg = diag.resource?.segments[0];
+      if (seg && seg.kind === "lit") return seg.text;
+      return "";
+    };
+    expect(
+      invalidDerived.diagnostics.some(
+        (d) =>
+          d.code === "assurance-must-allow-denied"
+          && d.certainty === "proven-counterexample"
+          && firstSegmentOf(d) === "staffOnly",
+      ),
+    ).toBe(true);
+    expect(
+      invalidDerived.diagnostics.some(
+        (d) => d.code === "assurance-must-allow-denied" && firstSegmentOf(d) === "reqUnverified",
+      ),
+    ).toBe(false);
+    expect(
+      invalidDerived.diagnostics.some(
+        (d) =>
+          d.code === "assurance-probe-inconclusive"
+          && d.certainty === "heuristic"
+          && firstSegmentOf(d) === "reqUnverified",
+      ),
+    ).toBe(true);
   });
 });

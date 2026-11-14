@@ -152,6 +152,10 @@ export async function saveAll() {
       (d) => d.code === 'assurance-must-allow-denied',
     );
     expect(mustAllowDenied).toEqual([]);
+    const inconclusive = derived.diagnostics.filter(
+      (d) => d.code === 'assurance-probe-inconclusive' && d.certainty === 'heuristic',
+    );
+    expect(inconclusive.length).toBeGreaterThanOrEqual(2);
 
     const campaign = store.get(derived.campaignId);
     const preservedOwner = campaign.target.state?.auth?.users?.find(
@@ -198,6 +202,14 @@ service firebase.storage {
         && request.resource.contentType == 'application/pdf'
         && request.resource.size < 4096;
     }
+    match /users/{uid}/asymmetric/{fileName} {
+      allow read: if request.auth != null && request.auth.uid == uid;
+      allow write: if request.auth != null
+        && request.auth.uid == uid
+        && request.resource.contentType.matches('image/.*');
+      allow write: if request.auth != null
+        && request.resource.contentType == 'application/pdf';
+    }
   }
 }`;
     const compiled = compileStorageRules(storageRuleText, { bucket: 'default-bucket' });
@@ -234,12 +246,22 @@ service firebase.storage {
         auth: { uid: 'u-alice', token: {} },
         requestResource: { size: 2048, contentType: 'application/pdf', metadata: {} },
       },
+      {
+        description: 'peer u-bob denied on asymmetric image/.* arm but allowed on overbroad PDF arm',
+        expectation: 'ALLOW',
+        method: 'update',
+        path: 'users/u-alice/asymmetric/avatar.png',
+        auth: { uid: 'u-bob', token: {} },
+        resource: { size: 2, contentType: 'image/png', metadata: {} },
+        requestResource: { size: 2, contentType: 'application/pdf', metadata: {} },
+      },
     ]);
     expect(simSummary.failed).toBe(0);
 
     const sandbox = initializeSandbox();
     getAdminStorageSandbox(sandbox, { rules: storageRuleText });
     const aliceStorage = getStorageSandbox(sandbox.withAuth({ uid: 'u-alice', token: {} }));
+    const bobStorage = getStorageSandbox(sandbox.withAuth({ uid: 'u-bob', token: {} }));
 
     let rawAllowed = true;
     try {
@@ -262,6 +284,16 @@ service firebase.storage {
     await uploadBytes(
       storageRef(aliceStorage, 'users/u-alice/or/spec.pdf'),
       new Uint8Array(2048),
+      { contentType: 'application/pdf' },
+    );
+    await uploadBytes(
+      storageRef(aliceStorage, 'users/u-alice/asymmetric/avatar.png'),
+      new Uint8Array([1, 2]),
+      { contentType: 'image/png' },
+    );
+    await uploadBytes(
+      storageRef(bobStorage, 'users/u-alice/asymmetric/avatar.png'),
+      new Uint8Array([1, 2]),
       { contentType: 'application/pdf' },
     );
 
@@ -303,6 +335,9 @@ export async function syncFiles(dynamicLang: string) {
   await uploadBytes(ref(st, 'users/' + uid + '/or/spec.pdf'), new Uint8Array(2048), {
     contentType: 'application/pdf',
   });
+  await uploadBytes(ref(st, 'users/' + uid + '/asymmetric/avatar.png'), new Uint8Array([1, 2]), {
+    contentType: 'image/png',
+  });
 }
 `,
     );
@@ -321,6 +356,13 @@ export async function syncFiles(dynamicLang: string) {
     expect(mustAllowDiags).toHaveLength(1);
     expect(mustAllowDiags[0]!.codeSite?.source).toBe('src/upload.ts:6');
 
+    const foreignSlotDiags = derived.diagnostics.filter(
+      (d) => d.code === 'assurance-foreign-slot-write',
+    );
+    expect(
+      foreignSlotDiags.some((d) => d.message.includes('asymmetric/avatar.png')),
+    ).toBe(true);
+
     const campaign = store.get(derived.campaignId);
     const headerObj = campaign.target.state?.storage?.find((obj) =>
       obj.path.endsWith('sharedHeaders/open.bin'),
@@ -331,7 +373,7 @@ export async function syncFiles(dynamicLang: string) {
     expect(headerObj?.contentLanguage).toBe('en');
 
     const runReport = await campaign.run();
-    expect(runReport.summary.candidateSignals).toBe(1);
+    expect(runReport.summary.candidateSignals).toBe(2);
     expect(runReport.summary.noCounterexamples).toBe(0);
     expect(runReport.summary.invalidProbes).toBe(0);
     expect(runReport.summary.engineGaps).toBe(0);

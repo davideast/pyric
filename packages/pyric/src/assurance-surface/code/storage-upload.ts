@@ -14,7 +14,12 @@ import {
   type ContentTypeOutcome,
   type DataFacts,
 } from './storage-upload-data-facts.js';
-import type { PayloadField, PayloadShape, StorageUploadMetadata } from './types.js';
+import type {
+  PayloadField,
+  PayloadShape,
+  StorageHttpHeaderKey,
+  StorageUploadMetadata,
+} from './types.js';
 import { alternatives, literalText, union, type AVal, type Env } from './values.js';
 
 export interface ExtractedUploadInfo {
@@ -22,18 +27,22 @@ export interface ExtractedUploadInfo {
   readonly metadataPayload?: PayloadShape;
 }
 
-const HTTP_METADATA_PROPS = [
+const HTTP_METADATA_PROPS: readonly StorageHttpHeaderKey[] = [
   'cacheControl',
   'contentDisposition',
   'contentEncoding',
   'contentLanguage',
-] as const;
-
-type HttpMetadataProp = (typeof HTTP_METADATA_PROPS)[number];
+];
 
 interface ExtractedHttpMetadata {
-  readonly values: Partial<Record<HttpMetadataProp, string>>;
+  readonly values: Partial<Record<StorageHttpHeaderKey, string>>;
   readonly unresolved: boolean;
+  readonly unresolvedFields: readonly StorageHttpHeaderKey[];
+}
+
+interface ResolvedContentTypeFacts {
+  readonly contentType?: string;
+  readonly blobContentTypeUnresolved?: boolean;
 }
 
 function resolveEffectiveContentType(
@@ -42,11 +51,18 @@ function resolveEffectiveContentType(
   spec: UploadPayloadSpec,
   dataFacts: DataFacts,
   force: (v: AVal) => AVal,
-): string | undefined {
-  if (!rawAlts) return resolveUnsetBranchRuntimeContentType(spec, dataFacts);
+): ResolvedContentTypeFacts {
+  const fromUnset = (): ResolvedContentTypeFacts => {
+    const resolved = resolveUnsetBranchRuntimeContentType(spec, dataFacts);
+    if (resolved !== undefined) return { contentType: resolved };
+    if (dataFacts.runtimeBlobMime) return { blobContentTypeUnresolved: true };
+    return {};
+  };
+
+  if (!rawAlts) return fromUnset();
   const nonNullAlts = rawAlts.filter((a) => a.k !== 'undefined' && a.k !== 'null');
-  if (nonNullAlts.length === 0) return resolveUnsetBranchRuntimeContentType(spec, dataFacts);
-  if (hasUnresolvedMeta) return undefined;
+  if (nonNullAlts.length === 0) return fromUnset();
+  if (hasUnresolvedMeta) return {};
 
   const outcomes: ContentTypeOutcome[] = [];
   for (const alt of rawAlts) {
@@ -55,10 +71,10 @@ function resolveEffectiveContentType(
       continue;
     }
     if (alt.k !== 'obj') {
-      return undefined;
+      return {};
     }
     if (!alt.props.has('contentType')) {
-      if (alt.open || alt.computed.length > 0) return undefined;
+      if (alt.open || alt.computed.length > 0) return {};
       outcomes.push({ kind: 'unset' });
       continue;
     }
@@ -66,14 +82,14 @@ function resolveEffectiveContentType(
       outcomes.push({ kind: 'unset' });
     }
     const ctAlts = alternatives(force(alt.props.get('contentType')!));
-    if (ctAlts.length === 0) return undefined;
+    if (ctAlts.length === 0) return {};
     for (const ctAlt of ctAlts) {
       if (ctAlt.k === 'undefined' || (ctAlt.k === 'null' && spec.dataArg !== undefined && !spec.stringData)) {
         outcomes.push({ kind: 'unset' });
         continue;
       }
       const text = literalText(ctAlt);
-      if (text === null) return undefined;
+      if (text === null) return {};
       if (text === '' && spec.dataArg !== undefined) {
         outcomes.push(resolveEmptyUploadContentType(spec, dataFacts));
       } else {
@@ -82,9 +98,12 @@ function resolveEffectiveContentType(
     }
   }
 
-  if (outcomes.some((o) => o.kind === 'unknown')) return undefined;
+  if (outcomes.some((o) => o.kind === 'unknown')) {
+    if (dataFacts.runtimeBlobMime) return { blobContentTypeUnresolved: true };
+    return {};
+  }
   if (outcomes.every((o) => o.kind === 'unset')) {
-    return resolveUnsetBranchRuntimeContentType(spec, dataFacts);
+    return fromUnset();
   }
 
   const values = new Set<string>();
@@ -94,11 +113,14 @@ function resolveEffectiveContentType(
       continue;
     }
     const fallback = resolveUnsetBranchRuntimeContentType(spec, dataFacts);
-    if (fallback === undefined) return undefined;
+    if (fallback === undefined) {
+      if (dataFacts.runtimeBlobMime) return { blobContentTypeUnresolved: true };
+      return {};
+    }
     values.add(fallback);
   }
-  if (values.size === 1) return [...values][0];
-  return undefined;
+  if (values.size === 1) return { contentType: [...values][0]! };
+  return {};
 }
 
 function extractHttpMetadataFields(
@@ -106,8 +128,8 @@ function extractHttpMetadataFields(
   metaObjects: readonly Extract<AVal, { k: 'obj' }>[],
   force: (v: AVal) => AVal,
 ): ExtractedHttpMetadata {
-  const values: Partial<Record<HttpMetadataProp, string>> = {};
-  let unresolved = false;
+  const values: Partial<Record<StorageHttpHeaderKey, string>> = {};
+  const unresolvedFields: StorageHttpHeaderKey[] = [];
 
   for (const prop of HTTP_METADATA_PROPS) {
     if (!metaObjects.some((obj) => obj.props.has(prop))) {
@@ -154,11 +176,15 @@ function extractHttpMetadataFields(
     if (!sawUnknown && !sawUnset && literals.size === 1) {
       values[prop] = [...literals][0]!;
     } else if (sawUnknown || (literals.size > 0 && (sawUnset || literals.size > 1))) {
-      unresolved = true;
+      unresolvedFields.push(prop);
     }
   }
 
-  return { values, unresolved };
+  return {
+    values,
+    unresolved: unresolvedFields.length > 0,
+    unresolvedFields,
+  };
 }
 
 function applyHttpMetadataToFacts(
@@ -168,6 +194,7 @@ function applyHttpMetadataToFacts(
     contentEncoding?: string;
     contentLanguage?: string;
     httpMetadataUnresolved?: boolean;
+    httpMetadataUnresolvedFields?: readonly StorageHttpHeaderKey[];
   },
   httpMeta: ExtractedHttpMetadata,
 ): void {
@@ -185,17 +212,20 @@ function applyHttpMetadataToFacts(
   }
   if (httpMeta.unresolved) {
     target.httpMetadataUnresolved = true;
+    target.httpMetadataUnresolvedFields = httpMeta.unresolvedFields;
   }
 }
 
 interface ExtractedMetaFacts {
   hasMetadataArg: boolean;
   contentType?: string;
+  blobContentTypeUnresolved?: boolean;
   cacheControl?: string;
   contentDisposition?: string;
   contentEncoding?: string;
   contentLanguage?: string;
   httpMetadataUnresolved?: boolean;
+  httpMetadataUnresolvedFields?: readonly StorageHttpHeaderKey[];
   customMetadataKeys?: readonly string[];
   customMetadata?: Readonly<Record<string, PayloadField>>;
   customMetadataOpen?: boolean;
@@ -230,7 +260,7 @@ function extractMetadataFacts(
     return { hasMetadataArg: true, customMetadataUnresolved: true };
   }
 
-  const contentType = resolveEffectiveContentType(
+  const ctFacts = resolveEffectiveContentType(
     rawAlts,
     hasUnresolvedMeta,
     spec,
@@ -239,12 +269,17 @@ function extractMetadataFacts(
   );
   const httpMeta = extractHttpMetadataFields(rawAlts, metaObjects, force);
 
+  const applyResolvedContentType = (target: ExtractedMetaFacts): void => {
+    if (ctFacts.contentType !== undefined) target.contentType = ctFacts.contentType;
+    if (ctFacts.blobContentTypeUnresolved) target.blobContentTypeUnresolved = true;
+  };
+
   if (hasUnresolvedMeta) {
     const out: ExtractedMetaFacts = {
       hasMetadataArg: true,
       customMetadataUnresolved: true,
     };
-    if (contentType !== undefined) out.contentType = contentType;
+    applyResolvedContentType(out);
     applyHttpMetadataToFacts(out, httpMeta);
     return out;
   }
@@ -275,7 +310,7 @@ function extractMetadataFacts(
       hasMetadataArg: true,
       customMetadataUnresolved: true,
     };
-    if (contentType !== undefined) out.contentType = contentType;
+    applyResolvedContentType(out);
     applyHttpMetadataToFacts(out, httpMeta);
     return out;
   }
@@ -283,7 +318,7 @@ function extractMetadataFacts(
   const presentCustom = rawCustomValues.filter((v): v is AVal => v !== undefined);
   if (presentCustom.length === 0) {
     const out: ExtractedMetaFacts = { hasMetadataArg: true };
-    if (contentType !== undefined) out.contentType = contentType;
+    applyResolvedContentType(out);
     if (metaSpreadWithoutCustom) out.customMetadataOpen = true;
     applyHttpMetadataToFacts(out, httpMeta);
     return out;
@@ -302,7 +337,7 @@ function extractMetadataFacts(
   );
   if (customObjects.length === 0) {
     const out: ExtractedMetaFacts = { hasMetadataArg: true };
-    if (contentType !== undefined) out.contentType = contentType;
+    applyResolvedContentType(out);
     if (metaSpreadWithoutCustom) out.customMetadataOpen = true;
     applyHttpMetadataToFacts(out, httpMeta);
     return out;
@@ -332,7 +367,7 @@ function extractMetadataFacts(
     customMetadata: customRecord,
     metadataPayload: shape,
   };
-  if (contentType !== undefined) out.contentType = contentType;
+  applyResolvedContentType(out);
   if (shape.open || metaSpreadWithoutCustom) out.customMetadataOpen = true;
   applyHttpMetadataToFacts(out, httpMeta);
   return out;
@@ -350,11 +385,16 @@ export function extractStorageUpload(
   const metaFacts = extractMetadataFacts(call, spec, dataFacts, ev, force, env);
 
   let contentType = resolveUnsetBranchRuntimeContentType(spec, dataFacts);
+  let blobContentTypeUnresolved =
+    contentType === undefined && dataFacts.runtimeBlobMime === true;
   if (metaFacts.hasMetadataArg) {
     contentType = metaFacts.contentType;
+    blobContentTypeUnresolved = metaFacts.blobContentTypeUnresolved === true;
   }
+
   const hasAny =
     contentType !== undefined
+    || blobContentTypeUnresolved
     || dataFacts.sizeBytes !== undefined
     || metaFacts.cacheControl !== undefined
     || metaFacts.contentDisposition !== undefined
@@ -371,24 +411,32 @@ export function extractStorageUpload(
 
   const upload: {
     contentType?: string;
+    blobContentTypeUnresolved?: boolean;
     sizeBytes?: number;
     cacheControl?: string;
     contentDisposition?: string;
     contentEncoding?: string;
     contentLanguage?: string;
     httpMetadataUnresolved?: boolean;
+    httpMetadataUnresolvedFields?: readonly StorageHttpHeaderKey[];
     customMetadataKeys?: readonly string[];
     customMetadata?: Readonly<Record<string, PayloadField>>;
     customMetadataOpen?: boolean;
     customMetadataUnresolved?: boolean;
   } = {};
   if (contentType !== undefined) upload.contentType = contentType;
+  if (blobContentTypeUnresolved) upload.blobContentTypeUnresolved = true;
   if (dataFacts.sizeBytes !== undefined) upload.sizeBytes = dataFacts.sizeBytes;
   if (metaFacts.cacheControl !== undefined) upload.cacheControl = metaFacts.cacheControl;
   if (metaFacts.contentDisposition !== undefined) upload.contentDisposition = metaFacts.contentDisposition;
   if (metaFacts.contentEncoding !== undefined) upload.contentEncoding = metaFacts.contentEncoding;
   if (metaFacts.contentLanguage !== undefined) upload.contentLanguage = metaFacts.contentLanguage;
-  if (metaFacts.httpMetadataUnresolved) upload.httpMetadataUnresolved = true;
+  if (metaFacts.httpMetadataUnresolved) {
+    upload.httpMetadataUnresolved = true;
+    if (metaFacts.httpMetadataUnresolvedFields !== undefined) {
+      upload.httpMetadataUnresolvedFields = metaFacts.httpMetadataUnresolvedFields;
+    }
+  }
   if (metaFacts.customMetadataKeys !== undefined) upload.customMetadataKeys = metaFacts.customMetadataKeys;
   if (metaFacts.customMetadata !== undefined) upload.customMetadata = metaFacts.customMetadata;
   if (metaFacts.customMetadataOpen) upload.customMetadataOpen = true;

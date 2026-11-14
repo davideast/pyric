@@ -184,6 +184,24 @@ function replaceTokenInSyntheticResource(
   return next;
 }
 
+export function buildResidualCandidateAuths(
+  target: ConcretizedQueryTarget,
+  projected: ProjectedQueryArm,
+): Array<{ uid: string; token?: Record<string, unknown> } | null> {
+  const out: Array<{ uid: string; token?: Record<string, unknown> } | null> = [
+    projected.auth,
+    null,
+  ];
+  const seen = new Set<string>([projected.auth.uid]);
+  for (const altUid of [...target.nonAuthSegmentValues, ...target.literalDocIdValues]) {
+    if (!seen.has(altUid)) {
+      seen.add(altUid);
+      out.push({ uid: altUid, token: projected.auth.token });
+    }
+  }
+  return out;
+}
+
 export function allowsResidualForAnyActor(
   simulateDecision: ResidualSimulatorFn,
   simulator: SimulateFirestoreRulesHandler,

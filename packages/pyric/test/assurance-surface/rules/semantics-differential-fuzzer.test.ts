@@ -1,25 +1,8 @@
 import 'fake-indexeddb/auto';
 import { describe, expect, test } from 'bun:test';
-import {
-  FieldPath,
-  collection,
-  doc,
-  documentId,
-  getDocs,
-  getFirestore,
-  limit,
-  orderBy,
-  query,
-  setDoc,
-  where,
-} from 'pyric/firestore';
+import { FieldPath, collection, doc, documentId, getDocs, getFirestore, limit, orderBy, query, setDoc, where } from 'pyric/firestore';
 import { firestoreRules } from 'pyric/rules';
-import {
-  Bytes as RulesBytes,
-  Duration as RulesDuration,
-  Timestamp as RulesTimestamp,
-  type QueryWhereConstraint,
-} from 'pyric/rules/internal';
+import { Bytes as RulesBytes, Duration as RulesDuration, LatLng as RulesLatLng, Path as RulesPath, Reference as RulesReference, Timestamp as RulesTimestamp, type QueryWhereConstraint, type RulesScalar } from 'pyric/rules/internal';
 import { initializeSandbox } from 'pyric/sandbox';
 import { seedDocuments, setRules } from 'pyric/sandbox/firestore';
 import { synthesizeFieldWitness } from '../../../src/assurance-surface/passes/static-query-proof-domain-witness.js';
@@ -412,7 +395,7 @@ export async function run() {
     expect(proofSources).toEqual(['src/fp.ts:5', 'src/fp.ts:7', 'src/fp.ts:9']);
   });
 
-  test('seeded PRNG domain witness fuzzer agrees with firestoreRules().simulate() across numeric, string, wrapper, and array constraints', () => {
+  test('seeded PRNG domain witness fuzzer agrees with firestoreRules().simulate() across numeric, string, wrapper, and array constraints', async () => {
     const rng = createSeededRng(0x5eed1234);
 
     for (let trial = 0; trial < 40; trial += 1) {
@@ -421,7 +404,7 @@ export async function run() {
       const upperVal = lowerVal + span;
       const lowerInclusive = rng() < 0.5;
       const upperInclusive = rng() < 0.5;
-      const excluded: unknown[] = [];
+      const excluded: RulesScalar[] = [];
       const excludeCount = Math.floor(rng() * 4);
       for (let i = 0; i < excludeCount; i += 1) {
         excluded.push(lowerVal + i);
@@ -436,11 +419,11 @@ export async function run() {
       if (upperInclusive) upperOp = '<=';
 
       const constraints: QueryWhereConstraint[] = [
-        { fieldPath: 'score', op: lowerOp, value: lowerVal },
-        { fieldPath: 'score', op: upperOp, value: upperVal },
+        { field: 'score', op: lowerOp, value: lowerVal },
+        { field: 'score', op: upperOp, value: upperVal },
       ];
       if (excluded.length > 0) {
-        constraints.push({ fieldPath: 'score', op: 'not-in', value: excluded });
+        constraints.push({ field: 'score', op: 'not-in', value: excluded });
       }
 
       const witness = synthesizeFieldWitness(constraints);
@@ -451,20 +434,10 @@ export async function run() {
         expect(witness).toBeUndefined();
         continue;
       }
-      expect(typeof witness).toBe('number');
-      const numericWitness = witness as number;
-      if (lowerInclusive) {
-        expect(numericWitness).toBeGreaterThanOrEqual(lowerVal);
-      } else {
-        expect(numericWitness).toBeGreaterThan(lowerVal);
-      }
-      if (upperInclusive) {
-        expect(numericWitness).toBeLessThanOrEqual(upperVal);
-      } else {
-        expect(numericWitness).toBeLessThan(upperVal);
-      }
-      for (const item of excluded) {
-        expect(numericWitness).not.toBe(item);
+      expect(witness).toBeDefined();
+      let notInGuard = '';
+      if (excluded.length > 0) {
+        notInGuard = ` && !(resource.data.score in [${excluded.map((v) => String(v)).join(', ')}])`;
       }
 
       const ruleText = `rules_version = '2';
@@ -472,7 +445,7 @@ service cloud.firestore {
   match /databases/{database}/documents {
     match /items/{itemId} {
       allow get: if resource.data.score ${lowerOp} ${lowerVal}
-        && resource.data.score ${upperOp} ${upperVal};
+        && resource.data.score ${upperOp} ${upperVal}${notInGuard};
     }
   }
 }`;
@@ -482,47 +455,124 @@ service cloud.firestore {
           expectation: 'ALLOW',
           method: 'get',
           path: 'items/i1',
-          resource: { score: numericWitness },
+          resource: { score: witness },
         },
       ]);
       expect(sim.cases[0]!.decision).toBe('ALLOW');
     }
 
     const openUnitWitness = synthesizeFieldWitness([
-      { fieldPath: 'ratio', op: '>', value: 0 },
-      { fieldPath: 'ratio', op: '<', value: 1 },
+      { field: 'ratio', op: '>', value: 0 },
+      { field: 'ratio', op: '<', value: 1 },
     ]);
-    expect(openUnitWitness).toBe(0.5);
-
     const tsWitness = synthesizeFieldWitness([
-      { fieldPath: 'ts', op: '>', value: new RulesTimestamp(100, 0) },
-      { fieldPath: 'ts', op: '<', value: new RulesTimestamp(100, 10) },
+      { field: 'ts', op: '>', value: new RulesTimestamp(100, 0) },
+      { field: 'ts', op: '<', value: new RulesTimestamp(100, 10) },
     ]);
-    expect(tsWitness).toBeInstanceOf(RulesTimestamp);
-
     const durWitness = synthesizeFieldWitness([
-      { fieldPath: 'dur', op: '>', value: new RulesDuration(5, 0) },
-      { fieldPath: 'dur', op: '<', value: new RulesDuration(5, 4) },
+      { field: 'dur', op: '>', value: new RulesDuration(5, 0) },
+      { field: 'dur', op: '<', value: new RulesDuration(5, 4) },
     ]);
-    expect(durWitness).toBeInstanceOf(RulesDuration);
-
     const bytesWitness = synthesizeFieldWitness([
-      { fieldPath: 'raw', op: '>', value: new RulesBytes(new Uint8Array([1])) },
-      { fieldPath: 'raw', op: '<', value: new RulesBytes(new Uint8Array([1, 2])) },
+      { field: 'raw', op: '>', value: new RulesBytes(new Uint8Array([1])) },
+      { field: 'raw', op: '<', value: new RulesBytes(new Uint8Array([2])) },
+      {
+        field: 'raw',
+        op: 'not-in',
+        value: [
+          new RulesBytes(new Uint8Array([1, 128])),
+          new RulesBytes(new Uint8Array([1, 1])),
+          new RulesBytes(new Uint8Array([1, 2])),
+        ],
+      },
     ]);
-    expect(bytesWitness).toBeInstanceOf(RulesBytes);
-
     const strWitness = synthesizeFieldWitness([
-      { fieldPath: 'code', op: '>', value: 'a' },
-      { fieldPath: 'code', op: '<', value: 'ab' },
-      { fieldPath: 'code', op: 'not-in', value: ['aa'] },
+      { field: 'code', op: '>', value: 'a' },
+      { field: 'code', op: '<', value: 'ab' },
+      { field: 'code', op: 'not-in', value: ['aa'] },
     ]);
-    expect(typeof strWitness).toBe('string');
+    const geoWitness = synthesizeFieldWitness([
+      { field: 'loc', op: '>', value: new RulesLatLng(0, 0) },
+      { field: 'loc', op: '<', value: new RulesLatLng(10, 10) },
+      { field: 'loc', op: '!=', value: new RulesLatLng(5, 5) },
+    ]);
+    const refWitness = synthesizeFieldWitness([
+      { field: 'ref', op: '>', value: new RulesReference('items/a') },
+      { field: 'ref', op: '<', value: new RulesReference('items/z') },
+      { field: 'ref', op: '!=', value: new RulesReference('items/m') },
+    ]);
+    const refDocPath = (refWitness as { path?: string } | undefined)?.path ?? '';
+    const refPathSegments = ['databases', '(default)', 'documents', ...refDocPath.split('/')];
 
     const arrayWitness = synthesizeFieldWitness([
-      { fieldPath: 'tags', op: 'array-contains', value: 'alpha' },
-      { fieldPath: 'tags', op: 'array-contains', value: 'beta' },
+      { field: 'tags', op: '==', value: ['alpha', 'beta'] },
+      { field: 'tags', op: 'array-contains', value: 'alpha' },
+      { field: 'tags', op: 'array-contains', value: 'beta' },
     ]);
-    expect(arrayWitness).toEqual(['alpha', 'beta']);
+
+    const typedRules = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /witnesses/{docId} {
+      allow read: if resource.data.ratio > 0.0
+        && resource.data.ratio < 1.0
+        && resource.data.ts > timestamp.value(100000)
+        && resource.data.ts < timestamp.value(100000) + duration.value(10, 'ns')
+        && resource.data.dur > duration.value(5, 's')
+        && resource.data.dur < duration.value(5, 's') + duration.value(4, 'ns')
+        && resource.data.raw > b'\\x01'
+        && resource.data.raw < b'\\x02'
+        && !(resource.data.raw in [b'\\x01\\x80', b'\\x01\\x01', b'\\x01\\x02'])
+        && resource.data.code > 'a'
+        && resource.data.code < 'ab'
+        && !(resource.data.code in ['aa'])
+        && resource.data.loc != latlng.value(5.0, 5.0)
+        && resource.data.loc.latitude() > 0.0
+        && resource.data.loc.latitude() < 10.0
+        && resource.data.ref != /databases/(default)/documents/items/a
+        && resource.data.ref != /databases/(default)/documents/items/m
+        && resource.data.ref != /databases/(default)/documents/items/z
+        && resource.data.tags == ['alpha', 'beta']
+        && 'alpha' in resource.data.tags
+        && 'beta' in resource.data.tags;
+    }
+    match /refRange/{docId} {
+      allow read: if true;
+    }
+  }
+}`;
+    const typedSim = firestoreRules(typedRules).simulate([
+      {
+        description: 'all non-numeric, wrapper, not-in, and array witnesses satisfy rules simulator',
+        expectation: 'ALLOW',
+        method: 'get',
+        path: 'witnesses/w1',
+        resource: {
+          ratio: openUnitWitness,
+          ts: tsWitness,
+          dur: durWitness,
+          raw: bytesWitness,
+          code: strWitness,
+          loc: geoWitness,
+          ref: new RulesPath(refPathSegments),
+          tags: arrayWitness,
+        },
+      },
+    ]);
+    expect(typedSim.cases[0]!.decision).toBe('ALLOW');
+
+    const refSb = initializeSandbox();
+    setRules(refSb, typedRules);
+    const refDb = getFirestore(refSb);
+    seedDocuments(refSb, { 'refRange/r1': { ref: doc(refDb, refDocPath) } });
+    const refSnap = await getDocs(
+      query(
+        collection(refDb, 'refRange'),
+        where('ref', '>', doc(refDb, 'items/a')),
+        where('ref', '<', doc(refDb, 'items/z')),
+        where('ref', '!=', doc(refDb, 'items/m')),
+      ),
+    );
+    expect(refSnap.docs.length).toBe(1);
   });
 });

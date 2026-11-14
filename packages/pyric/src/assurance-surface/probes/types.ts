@@ -97,6 +97,8 @@ export interface ProbeResult {
   outcome: ProbeOutcome;
   /** Why the probe is invalid, when it is. */
   reason?: string;
+  /** True when a must-allow probe abstained due to inconclusive seed/runtime preconditions. */
+  abstained?: boolean;
   steps: StepResult[];
   /** Scoped `[owner, peer]` actor profiles (including per-probe extracted token claims) used when executing this probe. */
   actors?: readonly [ProbeActor, ProbeActor];

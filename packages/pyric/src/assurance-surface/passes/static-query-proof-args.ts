@@ -15,6 +15,7 @@ import {
   type QueryWhereConstraint,
   type RulesScalar,
 } from '@pyric/rules/internal';
+import { fieldPathKeySegments } from '../../firestore/internal/update-fields.js';
 import { renderResourcePattern } from '../../sandbox/internal/resource-pattern.js';
 import type {
   ConstraintOperand,
@@ -409,8 +410,9 @@ export function projectConstraintArm(
       return;
     }
     witnessWheres.push(clause);
-    if (!clause.field.includes('`')) {
-      wheres.push(clause);
+    const segments = fieldPathKeySegments(clause.field);
+    if (segments.length > 0 && segments.every((seg) => seg.length > 0 && !seg.includes('.'))) {
+      wheres.push({ field: segments.join('.'), op: clause.op, value: clause.value });
     }
   };
 
@@ -471,8 +473,10 @@ export function projectConstraintArm(
     }
     if (constraint.kind === 'orderBy') {
       if (constraint.field !== undefined) {
-        const dir = constraint.direction === 'desc' ? 'DESC' : 'ASC';
-        defineOwn(orderByMap, constraint.field, dir);
+        let dir: 'ASC' | 'DESC' = 'ASC';
+        if (constraint.direction === 'desc') dir = 'DESC';
+        const orderKey = fieldPathKeySegments(constraint.field).join('.');
+        defineOwn(orderByMap, orderKey, dir);
         hasOrderBy = true;
       } else {
         hasDynamicOrderBy = true;

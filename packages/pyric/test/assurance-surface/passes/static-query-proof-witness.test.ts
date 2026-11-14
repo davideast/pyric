@@ -143,4 +143,86 @@ service cloud.firestore {
       expect(failure?.certainty).toBe('static-proof');
     }
   });
+
+  it('synthesizes witnesses across LatLng/Bytes midpoint exclusions and combined array == plus array-contains filters', () => {
+    const source = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /geoDocs/{id} {
+      allow list: if resource.data.meta.loc != latlng.value(5.0, 5.0)
+        && resource.data.meta.loc.latitude() > 0.0
+        && resource.data.meta.loc.latitude() < 10.0;
+    }
+    match /byteDocs/{id} {
+      allow list: if !(resource.data.meta.raw in [b'\\x01\\x80', b'\\x01\\x01', b'\\x01\\x02'])
+        && resource.data.meta.raw > b'\\x01'
+        && resource.data.meta.raw < b'\\x02';
+    }
+    match /tagDocs/{id} {
+      allow list: if resource.data.meta.tags == ['alpha']
+        && 'alpha' in resource.data.meta.tags;
+    }
+    match /badTagDocs/{id} {
+      allow list: if resource.data.meta.tags == ['alpha']
+        && 'alpha' in resource.data.meta.tags;
+    }
+  }
+}`;
+    const ast = parseToAST(source)!;
+    const simulator = new SimulateFirestoreRulesHandler();
+    const usage = extractSdkUsage({
+      root: '/app',
+      files: {
+        'src/witness-edges.ts': `
+          import { Bytes, GeoPoint, collection, getDocs, getFirestore, query, where } from 'firebase/firestore';
+          const db = getFirestore();
+          export async function run() {
+            await getDocs(query(
+              collection(db, 'geoDocs'),
+              where('meta.loc', '>', new GeoPoint(0, 0)),
+              where('meta.loc', '<', new GeoPoint(10, 10)),
+              where('meta.loc', '!=', new GeoPoint(5, 5)),
+            ));
+            await getDocs(query(
+              collection(db, 'byteDocs'),
+              where('meta.raw', '>', Bytes.fromUint8Array(new Uint8Array([1]))),
+              where('meta.raw', '<', Bytes.fromUint8Array(new Uint8Array([2]))),
+              where('meta.raw', 'not-in', [
+                Bytes.fromUint8Array(new Uint8Array([1, 128])),
+                Bytes.fromUint8Array(new Uint8Array([1, 1])),
+                Bytes.fromUint8Array(new Uint8Array([1, 2])),
+              ]),
+            ));
+            await getDocs(query(
+              collection(db, 'tagDocs'),
+              where('meta.tags', '==', ['alpha']),
+              where('meta.tags', 'array-contains', 'alpha'),
+            ));
+            await getDocs(query(
+              collection(db, 'badTagDocs'),
+              where('meta.tags', '==', ['beta']),
+              where('meta.tags', 'array-contains', 'alpha'),
+            ));
+          }
+        `,
+      },
+      includeReads: true,
+    });
+
+    const evalIdx = (idx: number) => {
+      const q = usage.queries[idx]!;
+      const target = concretizeQueryTarget(q.baseRef)!;
+      return evaluateCandidateArm(
+        simulator,
+        { source, file: 'firestore.rules', ast },
+        target,
+        q.constraints,
+      );
+    };
+
+    expect(evalIdx(0)?.certainty).toBe('heuristic');
+    expect(evalIdx(1)?.certainty).toBe('heuristic');
+    expect(evalIdx(2)?.certainty).toBe('heuristic');
+    expect(evalIdx(3)?.certainty).toBe('static-proof');
+  });
 });

@@ -11,6 +11,10 @@ import {
 } from "pyric/sandbox/internal";
 import type { Probe, ProbeActor, ProbeStep } from "pyric/rules/internal/usage";
 import {
+  copyStorageHttpFields,
+  defineOwn,
+  getOwn,
+  isUnsafeObjectKey,
   seedAuthFromSnapshotAndActors,
   seedStorageBucketsFromSnapshot,
   setRtdbPath,
@@ -24,36 +28,11 @@ import type {
   StorageOperation,
 } from "./types.js";
 
+export { defineOwn, getOwn, isUnsafeObjectKey };
+
 interface SentinelLike {
   readonly __sentinel: string;
   readonly by?: number;
-}
-
-export function isUnsafeObjectKey(key: string): boolean {
-  return key === "__proto__" || key === "constructor" || key === "prototype";
-}
-
-export function defineOwn<V>(
-  target: Record<string, V>,
-  key: string,
-  value: V,
-): void {
-  Object.defineProperty(target, key, {
-    value,
-    enumerable: true,
-    writable: true,
-    configurable: true,
-  });
-}
-
-export function getOwn<V>(
-  target: Record<string, V> | undefined,
-  key: string,
-): V | undefined {
-  if (target !== undefined && Object.hasOwn(target, key)) {
-    return target[key];
-  }
-  return undefined;
 }
 
 function isSentinelLike(value: unknown): value is SentinelLike {
@@ -157,10 +136,10 @@ export function buildPeerReplacements(
       let replacedAny = false;
       for (const [, seg] of varEntries) {
         if (
-          seg.kind === "lit" &&
-          seg.text !== owner.uid &&
-          seg.text !== peer.uid &&
-          seedJoined.includes(seg.text)
+          seg.kind === "lit"
+          && seg.text !== owner.uid
+          && seg.text !== peer.uid
+          && seedJoined.includes(seg.text)
         ) {
           pairs.push([seg.text, `${seg.text}-peer`]);
           replacedAny = true;
@@ -169,9 +148,9 @@ export function buildPeerReplacements(
       if (!replacedAny && varEntries.length > 0) {
         const lastSeg = varEntries[varEntries.length - 1]![1];
         if (
-          lastSeg.kind === "lit" &&
-          lastSeg.text !== owner.uid &&
-          lastSeg.text !== peer.uid
+          lastSeg.kind === "lit"
+          && lastSeg.text !== owner.uid
+          && lastSeg.text !== peer.uid
         ) {
           pairs.push([lastSeg.text, `${lastSeg.text}-peer`]);
         }
@@ -184,9 +163,9 @@ export function buildPeerReplacements(
 function encodeStorageStepBytes(step: ProbeStep): string {
   let byteLength = 11;
   if (
-    typeof step.sizeBytes === "number" &&
-    step.sizeBytes > 0 &&
-    step.sizeBytes <= 65_536
+    typeof step.sizeBytes === "number"
+    && step.sizeBytes > 0
+    && step.sizeBytes <= 65_536
   ) {
     byteLength = step.sizeBytes;
   }
@@ -214,10 +193,10 @@ export function stepToFirebaseOperation(
       path: step.path,
     };
     if (
-      method === "create" ||
-      method === "set" ||
-      method === "merge" ||
-      method === "update"
+      method === "create"
+      || method === "set"
+      || method === "merge"
+      || method === "update"
     ) {
       const materialized = materializeDataValue(step.data ?? {}, existingDoc);
       if (materialized && typeof materialized === "object" && !Array.isArray(materialized)) {
@@ -267,12 +246,7 @@ export function stepToFirebaseOperation(
     op.dataBase64 = encodeStorageStepBytes(step);
   }
   if (step.contentType !== undefined) op.contentType = step.contentType;
-  if (step.cacheControl !== undefined) op.cacheControl = step.cacheControl;
-  if (step.contentDisposition !== undefined) {
-    op.contentDisposition = step.contentDisposition;
-  }
-  if (step.contentEncoding !== undefined) op.contentEncoding = step.contentEncoding;
-  if (step.contentLanguage !== undefined) op.contentLanguage = step.contentLanguage;
+  copyStorageHttpFields(op, step);
   if (step.customMetadata !== undefined) {
     op.customMetadata = { ...step.customMetadata };
   }
@@ -310,9 +284,9 @@ export function applyStepToTargetState(
   if (step.service === "rtdb") {
     let rtdbRoot: Record<string, unknown>;
     if (
-      step.resourceId !== undefined &&
-      step.resourceId !== DEFAULT_SNAPSHOT_RESOURCE &&
-      !isUnsafeObjectKey(step.resourceId)
+      step.resourceId !== undefined
+      && step.resourceId !== DEFAULT_SNAPSHOT_RESOURCE
+      && !isUnsafeObjectKey(step.resourceId)
     ) {
       if (!state.rtdbInstances) state.rtdbInstances = {};
       let instTree = getOwn(state.rtdbInstances, step.resourceId);
@@ -338,9 +312,9 @@ export function applyStepToTargetState(
 
   let bucketObjects: StorageObjectFixture[];
   if (
-    step.resourceId !== undefined &&
-    step.resourceId !== DEFAULT_SNAPSHOT_RESOURCE &&
-    !isUnsafeObjectKey(step.resourceId)
+    step.resourceId !== undefined
+    && step.resourceId !== DEFAULT_SNAPSHOT_RESOURCE
+    && !isUnsafeObjectKey(step.resourceId)
   ) {
     if (!state.storageBuckets) state.storageBuckets = {};
     let namedList = getOwn(state.storageBuckets, step.resourceId);
@@ -365,16 +339,7 @@ export function applyStepToTargetState(
     const prev = bucketObjects[existingIdx]!;
     const updated: StorageObjectFixture = { ...prev };
     if (step.contentType !== undefined) updated.contentType = step.contentType;
-    if (step.cacheControl !== undefined) updated.cacheControl = step.cacheControl;
-    if (step.contentDisposition !== undefined) {
-      updated.contentDisposition = step.contentDisposition;
-    }
-    if (step.contentEncoding !== undefined) {
-      updated.contentEncoding = step.contentEncoding;
-    }
-    if (step.contentLanguage !== undefined) {
-      updated.contentLanguage = step.contentLanguage;
-    }
+    copyStorageHttpFields(updated, step);
     if (step.customMetadata !== undefined) {
       updated.customMetadata = { ...step.customMetadata };
     }
@@ -386,43 +351,19 @@ export function applyStepToTargetState(
     dataBase64: encodeStorageStepBytes(step),
   };
   if (step.contentType !== undefined) entry.contentType = step.contentType;
-  if (step.cacheControl !== undefined) entry.cacheControl = step.cacheControl;
-  if (step.contentDisposition !== undefined) {
-    entry.contentDisposition = step.contentDisposition;
-  }
-  if (step.contentEncoding !== undefined) {
-    entry.contentEncoding = step.contentEncoding;
-  }
-  if (step.contentLanguage !== undefined) {
-    entry.contentLanguage = step.contentLanguage;
-  }
+  copyStorageHttpFields(entry, step);
   if (step.customMetadata !== undefined) {
     entry.customMetadata = { ...step.customMetadata };
   }
   if (existingIdx >= 0) {
     if (step.actor === "admin" && step.method === "set") {
       const prev = bucketObjects[existingIdx]!;
-      if (entry.cacheControl === undefined && prev.cacheControl !== undefined) {
-        entry.cacheControl = prev.cacheControl;
-      }
-      if (
-        entry.contentDisposition === undefined &&
-        prev.contentDisposition !== undefined
-      ) {
-        entry.contentDisposition = prev.contentDisposition;
-      }
-      if (
-        entry.contentEncoding === undefined &&
-        prev.contentEncoding !== undefined
-      ) {
-        entry.contentEncoding = prev.contentEncoding;
-      }
-      if (
-        entry.contentLanguage === undefined &&
-        prev.contentLanguage !== undefined
-      ) {
-        entry.contentLanguage = prev.contentLanguage;
-      }
+      copyStorageHttpFields(entry, {
+        cacheControl: entry.cacheControl ?? prev.cacheControl,
+        contentDisposition: entry.contentDisposition ?? prev.contentDisposition,
+        contentEncoding: entry.contentEncoding ?? prev.contentEncoding,
+        contentLanguage: entry.contentLanguage ?? prev.contentLanguage,
+      });
       if (prev.customMetadata !== undefined) {
         const mergedCustom: Record<string, string> = { ...prev.customMetadata };
         if (entry.customMetadata !== undefined) {
@@ -462,11 +403,11 @@ export function initializeTargetState(
   const rtdbInstances: Record<string, Record<string, unknown>> = {};
   for (const [instKey, instVal] of Object.entries(snapshot?.rtdb ?? {})) {
     if (
-      instKey === DEFAULT_SNAPSHOT_RESOURCE ||
-      isUnsafeObjectKey(instKey) ||
-      !instVal ||
-      typeof instVal !== "object" ||
-      Array.isArray(instVal)
+      instKey === DEFAULT_SNAPSHOT_RESOURCE
+      || isUnsafeObjectKey(instKey)
+      || !instVal
+      || typeof instVal !== "object"
+      || Array.isArray(instVal)
     ) {
       continue;
     }
@@ -478,11 +419,11 @@ export function initializeTargetState(
   }
   for (const [instKey, instVal] of Object.entries(baseState?.rtdbInstances ?? {})) {
     if (
-      instKey === DEFAULT_SNAPSHOT_RESOURCE ||
-      isUnsafeObjectKey(instKey) ||
-      !instVal ||
-      typeof instVal !== "object" ||
-      Array.isArray(instVal)
+      instKey === DEFAULT_SNAPSHOT_RESOURCE
+      || isUnsafeObjectKey(instKey)
+      || !instVal
+      || typeof instVal !== "object"
+      || Array.isArray(instVal)
     ) {
       continue;
     }

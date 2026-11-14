@@ -242,5 +242,25 @@ service firebase.storage {
     expect(rtdbRequiredClaims(rtdbJson, { path: 'notes/u1', op: 'set' })).toEqual({
       email_verified: true,
     });
+
+    const unverifiedFsRules = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /pending/{uid} {
+      allow write: if request.auth != null && !request.auth.token.email_verified;
+    }
+    match /unconfirmed/{uid} {
+      allow write: if request.auth != null && request.auth.token.email_verified != true;
+    }
+  }
+}`;
+    expect(firestoreRequiredClaims(unverifiedFsRules, { path: 'pending/u1', op: 'create' })).toEqual({
+      email_verified: false,
+    });
+    expect(
+      firestoreRequiredClaims(unverifiedFsRules, { path: 'unconfirmed/u1', op: 'create' }),
+    ).toEqual({
+      email_verified: false,
+    });
   });
 });

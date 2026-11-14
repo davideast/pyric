@@ -24,16 +24,116 @@ const STRING_FORMAT_NAMES: Readonly<Record<string, StringEncodingFormat>> = {
 
 const BASE64URL_RE = /^[A-Za-z0-9_-]*={0,2}$/;
 
+const RAW_BINARY_TYPE_NAMES: ReadonlySet<string> = new Set([
+  'Uint8Array',
+  'Uint8ClampedArray',
+  'Int8Array',
+  'Uint16Array',
+  'Int16Array',
+  'Uint32Array',
+  'Int32Array',
+  'Float32Array',
+  'Float64Array',
+  'BigInt64Array',
+  'BigUint64Array',
+  'ArrayBuffer',
+  'SharedArrayBuffer',
+  'DataView',
+  'ArrayBufferView',
+]);
+
+const BLOB_TYPE_NAMES: ReadonlySet<string> = new Set(['Blob', 'File']);
+
 export interface DataFacts {
   readonly sizeBytes?: number;
   readonly inferredContentType?: string;
   readonly knownNoIntrinsicMime?: boolean;
+  readonly runtimeBlobMime?: boolean;
 }
 
 export type ContentTypeOutcome =
   | { readonly kind: 'unset' }
   | { readonly kind: 'lit'; readonly value: string }
   | { readonly kind: 'unknown' };
+
+type DeclaredPayloadKind = 'raw-bytes' | 'blob' | 'unknown';
+
+function rightmostEntityName(name: ts.EntityName): string {
+  if (ts.isIdentifier(name)) return name.text;
+  return name.right.text;
+}
+
+function classifyTypeNode(typeNode: ts.TypeNode | undefined): DeclaredPayloadKind {
+  if (!typeNode) return 'unknown';
+  if (ts.isParenthesizedTypeNode(typeNode)) {
+    return classifyTypeNode(typeNode.type);
+  }
+  if (ts.isUnionTypeNode(typeNode)) {
+    const kinds: DeclaredPayloadKind[] = [];
+    for (const member of typeNode.types) {
+      if (
+        member.kind === ts.SyntaxKind.UndefinedKeyword
+        || member.kind === ts.SyntaxKind.NullKeyword
+        || (ts.isLiteralTypeNode(member) && member.literal.kind === ts.SyntaxKind.NullKeyword)
+      ) {
+        continue;
+      }
+      kinds.push(classifyTypeNode(member));
+    }
+    if (kinds.length === 0 || kinds.includes('unknown')) return 'unknown';
+    if (kinds.every((k) => k === 'raw-bytes')) return 'raw-bytes';
+    return 'blob';
+  }
+  if (ts.isTypeReferenceNode(typeNode)) {
+    const name = rightmostEntityName(typeNode.typeName);
+    if (RAW_BINARY_TYPE_NAMES.has(name)) return 'raw-bytes';
+    if (BLOB_TYPE_NAMES.has(name)) return 'blob';
+  }
+  return 'unknown';
+}
+
+function classifyDeclaredBinaryExpr(
+  expr: ts.Expression,
+  checker: ts.TypeChecker,
+  visited: Set<ts.Node> = new Set(),
+): DeclaredPayloadKind {
+  if (visited.has(expr)) return 'unknown';
+  visited.add(expr);
+  if (ts.isParenthesizedExpression(expr) || ts.isNonNullExpression(expr)) {
+    return classifyDeclaredBinaryExpr(expr.expression, checker, visited);
+  }
+  if (ts.isAsExpression(expr) || ts.isSatisfiesExpression(expr)) {
+    const casted = classifyTypeNode(expr.type);
+    if (casted !== 'unknown') return casted;
+    return classifyDeclaredBinaryExpr(expr.expression, checker, visited);
+  }
+  if (ts.isIdentifier(expr)) {
+    let sym = checker.getSymbolAtLocation(expr);
+    if (sym && (sym.flags & ts.SymbolFlags.Alias) !== 0) {
+      try {
+        sym = checker.getAliasedSymbol(sym);
+      } catch {
+        // Keep unaliased symbol on missing target.
+      }
+    }
+    for (const decl of sym?.declarations ?? []) {
+      if (
+        ts.isParameter(decl)
+        || ts.isVariableDeclaration(decl)
+        || ts.isPropertyDeclaration(decl)
+        || ts.isPropertySignature(decl)
+      ) {
+        const declared = classifyTypeNode(decl.type);
+        if (declared !== 'unknown') return declared;
+        if (ts.isVariableDeclaration(decl) && decl.initializer) {
+          const fromInit = classifyDeclaredBinaryExpr(decl.initializer, checker, visited);
+          if (fromInit !== 'unknown') return fromInit;
+        }
+      }
+    }
+  }
+  return 'unknown';
+}
 
 function decodeBase64ByteLength(raw: string): number | undefined {
   const clean = raw.replace(/[\t\n\r ]+/g, '');
@@ -145,6 +245,13 @@ export function extractDataFacts(
       }
       return { knownNoIntrinsicMime: true };
     }
+    const declaredKind = classifyDeclaredBinaryExpr(dataExpr, ev.checker);
+    if (declaredKind === 'raw-bytes') {
+      return { inferredContentType: 'application/octet-stream', knownNoIntrinsicMime: true };
+    }
+    if (declaredKind === 'blob') {
+      return { runtimeBlobMime: true };
+    }
     return {};
   }
   const only = alts[0]!;
@@ -154,6 +261,7 @@ export function extractDataFacts(
     const rawType = only.props.get('type');
     let blobType: string | undefined;
     let knownNoIntrinsicMime = false;
+    let runtimeBlobMime = false;
     if (!rawType) {
       knownNoIntrinsicMime = !only.open && only.computed.length === 0;
     } else if (!only.optional.has('type')) {
@@ -161,12 +269,22 @@ export function extractDataFacts(
       if (text !== null) {
         if (text.length > 0) blobType = text;
         else knownNoIntrinsicMime = true;
+      } else {
+        runtimeBlobMime = true;
       }
+    } else {
+      runtimeBlobMime = true;
     }
-    const out: { sizeBytes?: number; inferredContentType?: string; knownNoIntrinsicMime?: boolean } = {};
+    const out: {
+      sizeBytes?: number;
+      inferredContentType?: string;
+      knownNoIntrinsicMime?: boolean;
+      runtimeBlobMime?: boolean;
+    } = {};
     if (byteLen !== undefined) out.sizeBytes = byteLen;
     if (blobType !== undefined) out.inferredContentType = blobType;
     if (knownNoIntrinsicMime) out.knownNoIntrinsicMime = true;
+    if (runtimeBlobMime) out.runtimeBlobMime = true;
     return out;
   }
 
@@ -207,6 +325,16 @@ export function extractDataFacts(
     if (parsed.sizeBytes !== undefined) out.sizeBytes = parsed.sizeBytes;
     if (parsed.mediaType !== undefined) out.inferredContentType = parsed.mediaType;
     return out;
+  }
+
+  if (!spec.stringData) {
+    const declaredKind = classifyDeclaredBinaryExpr(dataExpr, ev.checker);
+    if (declaredKind === 'raw-bytes') {
+      return { inferredContentType: 'application/octet-stream', knownNoIntrinsicMime: true };
+    }
+    if (declaredKind === 'blob') {
+      return { runtimeBlobMime: true };
+    }
   }
 
   return {};

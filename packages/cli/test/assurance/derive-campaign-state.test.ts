@@ -25,12 +25,10 @@ describe("derive-campaign-state", () => {
   });
 
   test("replaces actor identities across strings, arrays, and object keys/values", () => {
-    const replaced = replaceIdentityDeep(
-      {
-        "users/u-alice/status": { ownerId: "u-alice", tags: ["u-alice"] },
-      },
-      [["u-alice", "u-bob"]],
-    );
+    const input: Record<string, unknown> = {
+      "users/u-alice/status": { ownerId: "u-alice", tags: ["u-alice"] },
+    };
+    const replaced = replaceIdentityDeep(input, [["u-alice", "u-bob"]]);
     expect(replaced).toEqual({
       "users/u-bob/status": { ownerId: "u-bob", tags: ["u-bob"] },
     });

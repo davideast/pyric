@@ -210,6 +210,7 @@ function evalBlobConstructor(
   ev: Evaluator,
   args: readonly ts.Expression[],
   env: Env | undefined,
+  optionsIndex = 1,
 ): AVal {
   let totalBytes: number | undefined = 0;
   if (args[0] && !ts.isSpreadElement(args[0])) {
@@ -244,11 +245,12 @@ function evalBlobConstructor(
   if (totalBytes !== undefined) sizeVal = { k: 'num', value: totalBytes };
   const dynamicBlobType: AVal = { k: 'str', parts: [{ kind: 'hole', name: 'type', auth: [] }] };
   const entries: [string, AVal][] = [['size', sizeVal]];
-  if (args[1]) {
-    if (ts.isSpreadElement(args[1])) {
+  const optsArg = args[optionsIndex];
+  if (optsArg) {
+    if (ts.isSpreadElement(optsArg)) {
       entries.push(['type', dynamicBlobType]);
     } else {
-      const optsAlts = alternatives(ev.force(ev.eval(args[1], env))).filter(
+      const optsAlts = alternatives(ev.force(ev.eval(optsArg, env))).filter(
         (a) => a.k !== 'undefined' && a.k !== 'null',
       );
       if (optsAlts.some((a) => a.k !== 'obj')) {
@@ -276,7 +278,7 @@ function evalBlobConstructor(
   return closedObj(entries);
 }
 
-/** Model typed arrays, `ArrayBuffer`, `Blob`, and `TextEncoder#encode` for static byte-length tracking. */
+/** Model typed arrays, `ArrayBuffer`, `Blob`, `File`, and `TextEncoder#encode` for static byte-length tracking. */
 export function evalBinaryBuiltin(
   ev: Evaluator,
   node: ts.CallExpression | ts.NewExpression,
@@ -285,7 +287,8 @@ export function evalBinaryBuiltin(
   const callee = node.expression;
   const args = node.arguments ?? ts.factory.createNodeArray<ts.Expression>();
   if (ts.isNewExpression(node) && ts.isIdentifier(callee)) {
-    if (callee.text === 'Blob') return evalBlobConstructor(ev, args, env);
+    if (callee.text === 'Blob') return evalBlobConstructor(ev, args, env, 1);
+    if (callee.text === 'File') return evalBlobConstructor(ev, args, env, 2);
     return evalTypedArrayOrBuffer(ev, callee.text, args, env);
   }
   if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(callee) && callee.name.text === 'encode') {

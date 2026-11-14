@@ -96,6 +96,9 @@ export function rtdbExprClaims(tree: RtdbExpressionTree, negated: boolean): Clai
         const isPosNeq = (isNeq && !negated) || (isEq && negated);
         if (isPosNeq && other.type === 'null') return singleClaim(claim, true);
         const lit = rtdbLiteral(other);
+        if (isPosNeq && lit && typeof lit.value === 'boolean' && claim === 'email_verified') {
+          return singleClaim(claim, !lit.value);
+        }
         if (isPosEq && lit) return singleClaim(claim, lit.value);
         return {};
       }
@@ -113,11 +116,13 @@ export function rtdbExprClaims(tree: RtdbExpressionTree, negated: boolean): Clai
     }
     return {};
   }
-  if (!negated) {
-    const bare = rtdbTokenClaim(tree);
-    if (bare && !STANDARD_CLAIMS.has(bare)) {
-      return singleClaim(bare, true);
+  const bare = rtdbTokenClaim(tree);
+  if (bare && !STANDARD_CLAIMS.has(bare)) {
+    if (negated) {
+      if (bare === 'email_verified') return singleClaim(bare, false);
+      return {};
     }
+    return singleClaim(bare, true);
   }
   return {};
 }

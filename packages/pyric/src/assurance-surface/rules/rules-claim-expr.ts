@@ -299,6 +299,14 @@ export function fsExprClaims(
       const isPosEq = (expr.op === '==' && !negated) || (expr.op === '!=' && negated);
       const isPosNeq = (expr.op === '!=' && !negated) || (expr.op === '==' && negated);
       if (isPosNeq && other.value === null) return nestedClaim(claimPath, true, true);
+      if (
+        isPosNeq
+        && typeof other.value === 'boolean'
+        && claimPath.length === 1
+        && claimPath[0] === 'email_verified'
+      ) {
+        return nestedClaim(claimPath, !other.value, false);
+      }
       if (isPosEq && other.value !== null && !(other.value instanceof Uint8Array)) {
         return nestedClaim(claimPath, other.value, false);
       }
@@ -389,11 +397,15 @@ export function fsExprClaims(
     }
     return {};
   }
-  if (!negated) {
-    const bare = fsTokenClaimPath(expr, functions, lets, declScopes, depth);
-    if (bare && bare.length > 0 && !STANDARD_CLAIMS.has(bare[0]!)) {
-      return nestedClaim(bare, true, true);
+  const bare = fsTokenClaimPath(expr, functions, lets, declScopes, depth);
+  if (bare && bare.length > 0 && !STANDARD_CLAIMS.has(bare[0]!)) {
+    if (negated) {
+      if (bare.length === 1 && bare[0] === 'email_verified') {
+        return nestedClaim(bare, false, false);
+      }
+      return {};
     }
+    return nestedClaim(bare, true, true);
   }
   return {};
 }

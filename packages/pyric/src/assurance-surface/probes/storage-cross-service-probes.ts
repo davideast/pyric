@@ -10,9 +10,14 @@ import type {
   RuleSurface,
   StorageMetadataConstraint,
 } from '../rules/rule-surface.js';
+import { STORAGE_HTTP_HEADER_KEYS } from '../rules/storage-constraint-summary.js';
 import type { ValueHint } from '../rules/value-hints.js';
 import type { PlanInput } from './plan.js';
 import { crossServiceLookupSeeds } from './prerequisites.js';
+import {
+  httpHeaderMatchesConjuncts,
+  mergeSeedStorageConstraint,
+} from './storage-constraint-arms.js';
 import {
   attachResourceId,
   buildCompliantUpdateStep,
@@ -63,14 +68,22 @@ export function hasCompatibleSeededStorageObject(
     return false;
   }
   if (
-    (constraint.contentTypePattern !== undefined || constraint.contentTypeConjuncts !== undefined) &&
-    !contentTypeMatchesPattern(
+    (constraint.contentTypePattern !== undefined || constraint.contentTypeConjuncts !== undefined)
+    && !contentTypeMatchesPattern(
       existing.contentType ?? 'application/octet-stream',
       constraint.contentTypePattern,
       constraint.contentTypeConjuncts,
     )
   ) {
     return false;
+  }
+  for (const key of STORAGE_HTTP_HEADER_KEYS) {
+    const conjuncts = constraint.httpHeaders?.[key] ?? constraint.storedHttpHeaders?.[key];
+    if (!conjuncts || conjuncts.length === 0) continue;
+    const val = existing[key];
+    if (typeof val !== 'string' || !httpHeaderMatchesConjuncts(val, conjuncts)) {
+      return false;
+    }
   }
   for (const reqKey of constraint.requiredCustomMetadataKeys ?? []) {
     if (!existing.customMetadata || !Object.hasOwn(existing.customMetadata, reqKey)) {
@@ -153,11 +166,27 @@ export function planCrossServiceStorageProbes(
 
   if (STORAGE_UPLOAD_OPS.has(site.op)) {
     const ownerSetup = buildCompliantUploadStep(
-      site, sitePattern, 'owner', owner, isolatedPath, createConstraint, hints, {}, surface,
+      site,
+      sitePattern,
+      'owner',
+      owner,
+      isolatedPath,
+      createConstraint,
+      hints,
+      {},
+      surface,
     );
     const peerNonMemberPath = peerPathInSameScope(site.path, isolatedPath, '-peer');
     const peerAttack = buildCompliantUploadStep(
-      site, sitePattern, 'peer', peer, peerNonMemberPath, createConstraint, hints, {}, surface,
+      site,
+      sitePattern,
+      'peer',
+      peer,
+      peerNonMemberPath,
+      createConstraint,
+      hints,
+      {},
+      surface,
     );
     add({
       kind: 'foreign-slot-write',
@@ -173,19 +202,38 @@ export function planCrossServiceStorageProbes(
       sources: [site.source],
     });
   } else if (STORAGE_UPDATE_OPS.has(site.op)) {
-    const seedMimePattern = createConstraint.contentTypePattern ?? opConstraint.contentTypePattern;
-    let updateSeedConstraint: StorageMetadataConstraint = createConstraint;
-    if (seedMimePattern !== undefined && createConstraint.contentTypePattern === undefined) {
-      updateSeedConstraint = { ...createConstraint, contentTypePattern: seedMimePattern };
-    }
+    const updateSeedConstraint = mergeSeedStorageConstraint(createConstraint, opConstraint);
     const adminSeedObj = buildCompliantUploadStep(
-      site, sitePattern, 'admin', owner, isolatedPath, updateSeedConstraint, hints, {}, surface,
+      site,
+      sitePattern,
+      'admin',
+      owner,
+      isolatedPath,
+      updateSeedConstraint,
+      hints,
+      {},
+      surface,
+      { useClientSiteMetadata: false },
     );
     const ownerUpdateControl = buildCompliantUpdateStep(
-      site, sitePattern, 'owner', owner, isolatedPath, opConstraint, hints, surface,
+      site,
+      sitePattern,
+      'owner',
+      owner,
+      isolatedPath,
+      opConstraint,
+      hints,
+      surface,
     );
     const peerUpdateAttack = buildCompliantUpdateStep(
-      site, sitePattern, 'peer', peer, isolatedPath, opConstraint, hints, surface,
+      site,
+      sitePattern,
+      'peer',
+      peer,
+      isolatedPath,
+      opConstraint,
+      hints,
+      surface,
     );
     add({
       kind: 'foreign-slot-write',
@@ -208,8 +256,18 @@ export function planCrossServiceStorageProbes(
       if (isolatedPath.length === 0) seedObjPath = 'item-1';
       else seedObjPath = `${isolatedPath}/item-1`;
     }
+    const readSeedConstraint = mergeSeedStorageConstraint(createConstraint, opConstraint);
     const adminSeedObj = buildCompliantUploadStep(
-      site, sitePattern, 'admin', owner, seedObjPath, createConstraint, hints, {}, surface,
+      site,
+      sitePattern,
+      'admin',
+      owner,
+      seedObjPath,
+      readSeedConstraint,
+      hints,
+      {},
+      surface,
+      { useClientSiteMetadata: false },
     );
     const ownerReadControl = attachResourceId(
       { actor: 'owner', service: 'storage', method: readMethod, path: isolatedPath },

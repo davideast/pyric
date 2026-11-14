@@ -134,25 +134,48 @@ function setNestedResourceField(
   defineOwnField(cursor, parts[parts.length - 1]!, value);
 }
 
-function extractCandidateDocPath(
+function extractCandidateDocLeaf(
   rawVal: unknown,
   collectionPath: string,
   targetDatabaseId: string,
 ): string | null {
   if (typeof rawVal === 'string') {
     if (rawVal.length === 0 || rawVal.includes('/')) return null;
-    return `${collectionPath}/${rawVal}`;
+    return rawVal;
   }
   if (rawVal instanceof Reference) {
     if (rawVal.databaseId !== targetDatabaseId) return null;
-    const lastSlash = rawVal.path.lastIndexOf('/');
-    if (lastSlash <= 0) return null;
-    const parent = rawVal.path.slice(0, lastSlash);
-    const leaf = rawVal.path.slice(lastSlash + 1);
-    if (parent !== collectionPath || leaf.length === 0) return null;
-    return rawVal.path;
+    if (rawVal.parent !== collectionPath || rawVal.id.length === 0) return null;
+    return rawVal.id;
   }
   return null;
+}
+
+function projectDocIdConstraintToLeaf(
+  clause: QueryWhereConstraint,
+  collectionPath: string,
+  targetDatabaseId: string,
+): QueryWhereConstraint | null {
+  if (Array.isArray(clause.value)) {
+    const mapped: string[] = [];
+    for (const item of clause.value) {
+      if (item === null && clause.op === 'not-in') return null;
+      const leaf = extractCandidateDocLeaf(item, collectionPath, targetDatabaseId);
+      if (leaf !== null) {
+        mapped.push(leaf);
+      } else if (clause.op === 'in') {
+        continue;
+      }
+    }
+    if (clause.op === 'in' && mapped.length === 0) return null;
+    return { field: '__id__', op: clause.op, value: mapped };
+  }
+  const leaf = extractCandidateDocLeaf(clause.value, collectionPath, targetDatabaseId);
+  if (leaf === null) {
+    if (clause.op === '!=') return { field: '__id__', op: '!=', value: '' };
+    return null;
+  }
+  return { field: '__id__', op: clause.op, value: leaf };
 }
 
 function resolveDocIdCandidatePaths(
@@ -164,43 +187,43 @@ function resolveDocIdCandidatePaths(
   if (target.isCollectionGroup) {
     return [placeholderPath];
   }
-  let pinnedPaths: string[] | null = null;
+  if (projected.docIdWheres.length === 0 && projected.unresolvedDocIdWheres.length === 0) {
+    return [placeholderPath];
+  }
+
+  const leafClauses: QueryWhereConstraint[] = [{ field: '__id__', op: '!=', value: '' }];
   for (const clause of projected.docIdWheres) {
-    if (clause.op === '==') {
-      const cand = extractCandidateDocPath(clause.value, target.collectionPath, targetDatabaseId);
-      if (cand === null) return null;
-      if (pinnedPaths === null) {
-        pinnedPaths = [cand];
-      } else {
-        pinnedPaths = pinnedPaths.filter((existing) => existing === cand);
-      }
-      if (pinnedPaths.length === 0) return null;
-    } else if (clause.op === 'in' && Array.isArray(clause.value)) {
-      const listPaths: string[] = [];
-      for (const item of clause.value) {
-        const cand = extractCandidateDocPath(item, target.collectionPath, targetDatabaseId);
-        if (cand !== null && !listPaths.includes(cand)) {
-          listPaths.push(cand);
-        }
-      }
-      if (listPaths.length === 0) return null;
-      if (pinnedPaths === null) {
-        pinnedPaths = listPaths;
-      } else {
-        pinnedPaths = pinnedPaths.filter((existing) => listPaths.includes(existing));
-      }
-      if (pinnedPaths.length === 0) return null;
-    }
+    const mapped = projectDocIdConstraintToLeaf(clause, target.collectionPath, targetDatabaseId);
+    if (mapped === null) return null;
+    leafClauses.push(mapped);
   }
-  if (pinnedPaths === null && projected.unresolvedDocIdWheres.length > 0) {
-    const hasEqualitySlot = projected.unresolvedDocIdWheres.some(
-      (slot) => slot.op === '==' || slot.op === 'in',
-    );
-    if (hasEqualitySlot) {
-      pinnedPaths = [`${target.collectionPath}/${SYNTH_UID}`];
-    }
+  for (const slot of projected.unresolvedDocIdWheres) {
+    leafClauses.push(unresolvedSlotConstraint({ field: '__id__', op: slot.op }));
   }
-  return pinnedPaths ?? [placeholderPath];
+
+  const inClause = leafClauses.find((c) => c.op === 'in' && Array.isArray(c.value));
+  if (inClause && Array.isArray(inClause.value)) {
+    const validPaths: string[] = [];
+    for (const item of inClause.value) {
+      if (typeof item !== 'string' || item.length === 0 || item.includes('/')) continue;
+      const checkWitness = synthesizeFieldWitness([
+        ...leafClauses,
+        { field: '__id__', op: '==', value: item },
+      ]);
+      if (typeof checkWitness === 'string' && checkWitness.length > 0 && !checkWitness.includes('/')) {
+        const full = `${target.collectionPath}/${checkWitness}`;
+        if (!validPaths.includes(full)) validPaths.push(full);
+      }
+    }
+    if (validPaths.length === 0) return null;
+    return validPaths;
+  }
+
+  const synthesized = synthesizeFieldWitness(leafClauses);
+  if (typeof synthesized !== 'string' || synthesized.length === 0 || synthesized.includes('/')) {
+    return null;
+  }
+  return [`${target.collectionPath}/${synthesized}`];
 }
 
 function unresolvedSlotConstraint(slot: UnresolvedWhereSlot): QueryWhereConstraint {

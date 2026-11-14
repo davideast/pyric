@@ -219,6 +219,7 @@ function checkProofAndResidual(
       proof.evaluationAst,
       rulesSource,
       placeholderPath,
+      target,
       projected,
       proof.syntheticResource,
       constraints,

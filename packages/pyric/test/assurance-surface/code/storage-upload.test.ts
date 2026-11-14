@@ -175,7 +175,7 @@ describe('storageUpload static metadata & byte-size extraction', () => {
     });
 
     const a = usage.operations.find((op) => op.path === 'files/a.bin')!;
-    expect(a.storageUpload).toBeUndefined();
+    expect(a.storageUpload).toEqual({ contentType: 'application/octet-stream' });
 
     const b = usage.operations.find((op) => op.path === 'files/b.txt')!;
     expect(b.storageUpload).toEqual({ contentType: 'text/plain' });
@@ -278,6 +278,39 @@ describe('storageUpload static metadata & byte-size extraction', () => {
       contentType: 'image/png',
       sizeBytes: 3,
       httpMetadataUnresolved: true,
+      httpMetadataUnresolvedFields: ['cacheControl'],
+    });
+  });
+
+  test('infers application/octet-stream for typed Uint8Array/ArrayBuffer params and untyped new File while marking untraced Blob/File params', () => {
+    const usage = extractSdkUsage({
+      root: '/virtual/app',
+      files: {
+        'typed-binary.ts': `
+          import { getStorage, ref, uploadBytes } from 'pyric/storage';
+          const st = getStorage();
+          export async function uploadTyped(u8: Uint8Array, ab: ArrayBuffer, b: Blob) {
+            await uploadBytes(ref(st, 'files/u8.bin'), u8);
+            await uploadBytes(ref(st, 'files/ab.bin'), ab);
+            await uploadBytes(ref(st, 'files/blob-param.bin'), b);
+            await uploadBytes(ref(st, 'files/file-untyped.txt'), new File(['hi'], 'note.txt'));
+            await uploadBytes(ref(st, 'files/file-typed.png'), new File(['hi'], 'pic.png', { type: 'image/png' }));
+          }
+        `,
+      },
+    });
+
+    const byPath = new Map(usage.operations.map((op) => [op.path, op.storageUpload]));
+    expect(byPath.get('files/u8.bin')).toEqual({ contentType: 'application/octet-stream' });
+    expect(byPath.get('files/ab.bin')).toEqual({ contentType: 'application/octet-stream' });
+    expect(byPath.get('files/blob-param.bin')).toEqual({ blobContentTypeUnresolved: true });
+    expect(byPath.get('files/file-untyped.txt')).toEqual({
+      contentType: 'application/octet-stream',
+      sizeBytes: 2,
+    });
+    expect(byPath.get('files/file-typed.png')).toEqual({
+      contentType: 'image/png',
+      sizeBytes: 2,
     });
   });
 });

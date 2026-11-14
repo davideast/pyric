@@ -1,18 +1,70 @@
 /**
- * Snapshot-to-`LocalFirebaseTarget["state"]` seeding and RTDB tree mutation
- * routines for `derive-campaign-state.ts`.
+ * Snapshot-to-`LocalFirebaseTarget["state"]` seeding, safe own-property record
+ * helpers, and RTDB tree mutation routines for `derive-campaign-state.ts`.
  */
 import {
   DEFAULT_SNAPSHOT_RESOURCE,
   type SandboxSnapshot,
 } from "pyric/sandbox/internal";
 import type { ProbeActor } from "pyric/rules/internal/usage";
-import { defineOwn, getOwn, isUnsafeObjectKey } from "./derive-campaign-state.js";
 import type {
   AuthFixtureUser,
   LocalFirebaseTarget,
   StorageObjectFixture,
 } from "./types.js";
+
+export function isUnsafeObjectKey(key: string): boolean {
+  return key === "__proto__" || key === "constructor" || key === "prototype";
+}
+
+export function defineOwn<V>(
+  target: Record<string, V>,
+  key: string,
+  value: V,
+): void {
+  Object.defineProperty(target, key, {
+    value,
+    enumerable: true,
+    writable: true,
+    configurable: true,
+  });
+}
+
+export function getOwn<V>(
+  target: Record<string, V> | undefined,
+  key: string,
+): V | undefined {
+  if (target !== undefined && Object.hasOwn(target, key)) {
+    return target[key];
+  }
+  return undefined;
+}
+
+export function copyStorageHttpFields(
+  target: {
+    cacheControl?: string;
+    contentDisposition?: string;
+    contentEncoding?: string;
+    contentLanguage?: string;
+  },
+  source: {
+    readonly cacheControl?: string;
+    readonly contentDisposition?: string;
+    readonly contentEncoding?: string;
+    readonly contentLanguage?: string;
+  },
+): void {
+  if (source.cacheControl !== undefined) target.cacheControl = source.cacheControl;
+  if (source.contentDisposition !== undefined) {
+    target.contentDisposition = source.contentDisposition;
+  }
+  if (source.contentEncoding !== undefined) {
+    target.contentEncoding = source.contentEncoding;
+  }
+  if (source.contentLanguage !== undefined) {
+    target.contentLanguage = source.contentLanguage;
+  }
+}
 
 export function setRtdbPath(
   root: Record<string, unknown>,
@@ -46,13 +98,13 @@ export function setRtdbPath(
   const leaf = segments[segments.length - 1]!;
   const existingLeaf = getOwn(cursor, leaf);
   if (
-    merge &&
-    value &&
-    typeof value === "object" &&
-    !Array.isArray(value) &&
-    existingLeaf &&
-    typeof existingLeaf === "object" &&
-    !Array.isArray(existingLeaf)
+    merge
+    && value
+    && typeof value === "object"
+    && !Array.isArray(value)
+    && existingLeaf
+    && typeof existingLeaf === "object"
+    && !Array.isArray(existingLeaf)
   ) {
     const targetRecord = existingLeaf as Record<string, unknown>;
     for (const [k, v] of Object.entries(value)) {
@@ -73,16 +125,7 @@ function mapSnapshotStorageItem(
     dataBase64: item.contentBase64,
   };
   if (item.contentType !== undefined) entry.contentType = item.contentType;
-  if (item.cacheControl !== undefined) entry.cacheControl = item.cacheControl;
-  if (item.contentDisposition !== undefined) {
-    entry.contentDisposition = item.contentDisposition;
-  }
-  if (item.contentEncoding !== undefined) {
-    entry.contentEncoding = item.contentEncoding;
-  }
-  if (item.contentLanguage !== undefined) {
-    entry.contentLanguage = item.contentLanguage;
-  }
+  copyStorageHttpFields(entry, item);
   if (item.timeCreated !== undefined) {
     entry.timeCreated = item.timeCreated;
   }

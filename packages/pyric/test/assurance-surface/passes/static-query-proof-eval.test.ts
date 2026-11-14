@@ -2,6 +2,7 @@ import { describe, expect, it } from 'bun:test';
 import { extractSdkUsage } from '../../../src/assurance-surface/code/usage-index.js';
 import { concretizeQueryTarget } from '../../../src/assurance-surface/passes/static-query-proof-args.js';
 import { evaluateCandidateArm } from '../../../src/assurance-surface/passes/static-query-proof-eval.js';
+import { staticQueryProofPass } from '../../../src/assurance-surface/passes/static-query-proof.js';
 import { normalizeDatabaseRootAst } from '../../../src/assurance-surface/passes/static-query-proof-rules.js';
 import { parseToAST } from '@pyric/rules/internal';
 import { SimulateFirestoreRulesHandler } from '@pyric/rules/internal';
@@ -343,5 +344,132 @@ service cloud.firestore {
     expect(evalIdx(2)?.certainty).toBe('static-proof');
     expect(evalIdx(3)?.certainty).toBe('heuristic');
     expect(evalIdx(4)?.certainty).toBe('static-proof');
+  });
+
+  it('handles boolean-wrapped unseeded rules, >500-node helper trees, literal {uid} paths, and !(request.auth != null)', () => {
+    const source = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function leaf() {
+      return exists(/databases/$(database)/documents/orgs/acme)
+        || exists(/databases/$(database)/documents/orgs/b1)
+        || exists(/databases/$(database)/documents/orgs/b2)
+        || exists(/databases/$(database)/documents/orgs/b3)
+        || exists(/databases/$(database)/documents/orgs/b4);
+    }
+    function mid() {
+      return leaf() && leaf() && leaf() && leaf() && leaf();
+    }
+    function top() {
+      return mid() && mid() && mid() && mid() && mid();
+    }
+    match /eqBoolWrap/{id} {
+      allow list: if (request.auth.token.email_verified == true && request.query.limit <= 10) == true;
+    }
+    match /limitVsLookup/{id} {
+      allow list: if request.query.limit <= get(/databases/$(database)/documents/orgs/cfg).data.max;
+    }
+    match /largeHelper/{id} {
+      allow list: if top() && request.query.limit <= 10;
+    }
+    match /litUidUnseeded/{uid}/items/{id} {
+      allow list: if request.auth != null
+        && request.auth.uid == uid
+        && request.auth.token.email_verified == true;
+    }
+    match /negAuthNull/{id} {
+      allow list: if !(request.auth != null)
+        && exists(/databases/$(database)/documents/orgs/publicCfg);
+    }
+  }
+}`;
+    const usage = extractSdkUsage({
+      root: '/app',
+      files: {
+        'src/possibility-edges.ts': `
+          import { collection, getDocs, getFirestore, limit, query } from 'firebase/firestore';
+          const db = getFirestore();
+          export async function run() {
+            await getDocs(query(collection(db, 'eqBoolWrap'), limit(100)));
+            await getDocs(collection(db, 'limitVsLookup'));
+            await getDocs(query(collection(db, 'largeHelper'), limit(100)));
+            await getDocs(query(collection(db, 'largeHelper'), limit(5)));
+            await getDocs(collection(db, 'litUidUnseeded', 'u-alice', 'items'));
+            await getDocs(collection(db, 'negAuthNull'));
+          }
+        `,
+      },
+      includeReads: true,
+    });
+
+    const diags = staticQueryProofPass(usage, { rules: { '(default)': source } });
+    const staticProofLines = diags
+      .filter((d) => d.certainty === 'static-proof')
+      .map((d) => d.codeSite?.source);
+    expect(staticProofLines).toEqual([
+      'src/possibility-edges.ts:5',
+      'src/possibility-edges.ts:6',
+      'src/possibility-edges.ts:7',
+    ]);
+  });
+
+  it('supports FieldPath backticks/backslashes, orderBy(new FieldPath("a.b")), and documentId() range/inequality filters', () => {
+    const source = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /backtickItems/{id} {
+      allow list: if resource.data['a\`b'] == 'v';
+    }
+    match /backslashItems/{id} {
+      allow list: if resource.data['a\\\\b'] == 'v';
+    }
+    match /dotOrder/{id} {
+      allow list: if request.query.orderBy['a.b'] == 'DESC';
+    }
+    match /gtM/{id} {
+      allow read: if id > 'm';
+    }
+  }
+}`;
+    const ast = parseToAST(source)!;
+    const simulator = new SimulateFirestoreRulesHandler();
+    const usage = extractSdkUsage({
+      root: '/app',
+      files: {
+        'src/fp-edges.ts': `
+          import { FieldPath, collection, documentId, getDocs, getFirestore, orderBy, query, where } from 'firebase/firestore';
+          const db = getFirestore();
+          export async function run() {
+            await getDocs(query(collection(db, 'backtickItems'), where(new FieldPath('a\`b'), '==', 'v')));
+            await getDocs(query(collection(db, 'backslashItems'), where(new FieldPath('a\\\\b'), '==', 'v')));
+            await getDocs(query(collection(db, 'dotOrder'), orderBy(new FieldPath('a.b'), 'desc')));
+            await getDocs(query(collection(db, 'gtM'), where(documentId(), '>', 'm')));
+            await getDocs(query(collection(db, 'gtM'), where(documentId(), '!=', '__listPlaceholder__')));
+            await getDocs(query(collection(db, 'gtM'), where(documentId(), 'not-in', ['__listPlaceholder__'])));
+            await getDocs(query(collection(db, 'gtM'), where(documentId(), '<', 'm')));
+          }
+        `,
+      },
+      includeReads: true,
+    });
+
+    const evalIdx = (idx: number) => {
+      const q = usage.queries[idx]!;
+      const target = concretizeQueryTarget(q.baseRef)!;
+      return evaluateCandidateArm(
+        simulator,
+        { source, file: 'firestore.rules', ast },
+        target,
+        q.constraints,
+      );
+    };
+
+    expect(evalIdx(0)).toBeNull();
+    expect(evalIdx(1)).toBeNull();
+    expect(evalIdx(2)).toBeNull();
+    expect(evalIdx(3)?.certainty).toBe('heuristic');
+    expect(evalIdx(4)?.certainty).toBe('heuristic');
+    expect(evalIdx(5)?.certainty).toBe('heuristic');
+    expect(evalIdx(6)?.certainty).toBe('static-proof');
   });
 });

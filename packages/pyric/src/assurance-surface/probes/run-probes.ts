@@ -4,147 +4,35 @@
  */
 import type { AccessSite } from '../code/types.js';
 import { isWriteOp } from '../code/operation-specs.js';
-import { isExistenceClaim } from '../rules/claim-algebra.js';
-import {
-  firestoreRequiredClaims,
-  rtdbRequiredClaims,
-  storageRequiredClaims,
-} from '../rules/claims.js';
 import { projectRuleSurface } from '../rules/rule-surface.js';
 import type { RuleSources, StorageRuleSource } from '../rules/rule-sources.js';
 import { storageValueHints } from '../rules/storage-owners.js';
 import type { OwnerBinding, OwnerCondition } from '../rules/types.js';
 import { firestoreValueHints, rtdbValueHints } from '../rules/value-hints.js';
 import { planProbes } from './plan.js';
+import {
+  buildCounterfactualClaimActor,
+  classifySeededOwnerClaimMismatch,
+  copyOwnTokenFields,
+  extractProbeClaims,
+  mergeActorClaims,
+  probeActors,
+  selectTwoUsers,
+  type ProbeUser,
+} from './probe-actor-claims.js';
 import { findingFor, runProbe, type ProbeRules } from './run.js';
 import { namesFromState, rtdbReadOnlySitesFromState, sitesFromState } from './state.js';
-import type { Finding, Probe, ProbeActor, ProbeResult, ProbeStep } from './types.js';
+import type { Finding, Probe, ProbeActor, ProbeResult } from './types.js';
 import type { WorldState } from './world.js';
 import { normalizeStorageBucketKey, type WorldStorageRules } from './world-storage.js';
+
+export { probeActors, type ProbeUser };
 
 export interface ProbeReport {
   probes: { total: number; invalid: number };
   findings: Finding[];
   results: ProbeResult[];
   actors: ProbeActor[];
-}
-
-/** A known user (from a seed) a probe may act as. */
-export interface ProbeUser {
-  uid: string;
-  email?: string;
-  displayName?: string;
-  photoUrl?: string;
-  phoneNumber?: string;
-  tenantId?: string;
-  providerId?: string;
-  providerUserInfo?: readonly { providerId: string }[];
-  customClaims?: Record<string, unknown>;
-  emailVerified?: boolean;
-  disabled?: boolean;
-}
-
-function setOwnTokenField(target: Record<string, unknown>, key: string, value: unknown): void {
-  Object.defineProperty(target, key, {
-    value,
-    enumerable: true,
-    writable: true,
-    configurable: true,
-  });
-}
-
-function copyOwnTokenFields(
-  target: Record<string, unknown>,
-  source: Readonly<Record<string, unknown>>,
-  overwrite = true,
-): void {
-  for (const key of Object.getOwnPropertyNames(source)) {
-    if (!overwrite && Object.hasOwn(target, key)) continue;
-    setOwnTokenField(target, key, Object.getOwnPropertyDescriptor(source, key)?.value);
-  }
-}
-
-function selectTwoUsers(users: ProbeUser[]): {
-  first: { user: ProbeUser; synthetic: boolean };
-  second: { user: ProbeUser; synthetic: boolean };
-} {
-  const enabled = users.filter((u) => u.disabled !== true);
-  if (enabled.length >= 2) {
-    return {
-      first: { user: enabled[0]!, synthetic: false },
-      second: { user: enabled[1]!, synthetic: false },
-    };
-  }
-  const takenUids = new Set(users.map((u) => u.uid));
-  const allocateSyntheticUid = (base: string): string => {
-    if (!takenUids.has(base)) {
-      takenUids.add(base);
-      return base;
-    }
-    let suffix = 2;
-    while (takenUids.has(`${base}-${suffix}`)) {
-      suffix += 1;
-    }
-    const candidate = `${base}-${suffix}`;
-    takenUids.add(candidate);
-    return candidate;
-  };
-  if (enabled.length === 1) {
-    return {
-      first: { user: enabled[0]!, synthetic: false },
-      second: {
-        user: { uid: allocateSyntheticUid('probe-peer'), displayName: 'Probe Peer' },
-        synthetic: true,
-      },
-    };
-  }
-  return {
-    first: {
-      user: { uid: allocateSyntheticUid('probe-owner'), displayName: 'Probe Owner' },
-      synthetic: true,
-    },
-    second: {
-      user: { uid: allocateSyntheticUid('probe-peer'), displayName: 'Probe Peer' },
-      synthetic: true,
-    },
-  };
-}
-
-/**
- * Two signed-in actors carrying required token claims. With known users from a
- * seed, the first two enabled accounts are chosen with the names their records
- * already show; otherwise two synthetic probe identities are used.
- */
-export function probeActors(
-  claims: Record<string, unknown>,
-  users: ProbeUser[] = [],
-  names: Map<string, string> = new Map(),
-): { owner: ProbeActor; peer: ProbeActor } {
-  const make = (
-    role: 'owner' | 'peer',
-    user: ProbeUser,
-    synthetic: boolean,
-  ): ProbeActor => {
-    const email = user.email ?? `${user.uid}@example.test`;
-    const displayName = user.displayName ?? names.get(user.uid) ?? user.uid;
-    const emailVerified = user.emailVerified ?? true;
-    const token: Record<string, unknown> = {};
-    copyOwnTokenFields(token, claims);
-    setOwnTokenField(token, 'email_verified', emailVerified);
-    if (synthetic && typeof claims.email_verified === 'boolean' && user.emailVerified === undefined) {
-      setOwnTokenField(token, 'email_verified', claims.email_verified);
-    }
-    if (user.customClaims) copyOwnTokenFields(token, user.customClaims);
-    const actor: ProbeActor = { role, uid: user.uid, email, displayName, token, synthetic };
-    if (user.disabled === true) actor.disabled = true;
-    return actor;
-  };
-
-  const chosen = selectTwoUsers(users);
-  return {
-    owner: make('owner', chosen.first.user, chosen.first.synthetic),
-    peer: make('peer', chosen.second.user, chosen.second.synthetic),
-  };
 }
 
 export interface RunProbesInput {
@@ -168,64 +56,6 @@ function byPresence(users: ProbeUser[], state: WorldState | undefined): ProbeUse
   return [...users].sort((x, y) => count(y.uid) - count(x.uid));
 }
 
-function classifyStepOp(step: ProbeStep, existingFirestoreDocs: ReadonlySet<string>): string {
-  if (step.method === 'delete' || step.method === 'remove') return 'delete';
-  if (step.method === 'get') return 'get';
-  if (step.method === 'list') return 'list';
-  if (step.method === 'update') return 'update';
-  if (step.service === 'firestore' && existingFirestoreDocs.has(step.path)) return 'update';
-  return 'create';
-}
-
-function collectStepClaims(
-  step: ProbeStep,
-  stepOp: string,
-  sources: RuleSources,
-  into: Record<string, unknown>,
-  defaultBucket?: string,
-): void {
-  if (step.service === 'firestore') {
-    for (const source of sources.firestore) {
-      firestoreRequiredClaims(source.text, { path: step.path, op: stepOp }, into);
-    }
-    return;
-  }
-  if (step.service === 'storage') {
-    for (const source of sources.storage ?? []) {
-      const normalizedStepBucket = normalizeStorageBucketKey(step.resourceId);
-      if (
-        source.bucket !== undefined
-        && normalizedStepBucket !== undefined
-        && source.bucket !== normalizedStepBucket
-      ) {
-        continue;
-      }
-      let bucket = step.resourceId;
-      if (bucket === undefined) bucket = source.bucket ?? defaultBucket;
-      storageRequiredClaims(source.text, { path: step.path, op: stepOp, bucket }, into);
-    }
-    return;
-  }
-  if (step.path === '' && step.method === 'update' && step.data && typeof step.data === 'object' && !Array.isArray(step.data)) {
-    for (const subPath of Object.keys(step.data)) {
-      for (const source of sources.rtdb) {
-        rtdbRequiredClaims(source.json, { path: subPath, op: 'update' }, into);
-      }
-    }
-    return;
-  }
-  for (const source of sources.rtdb) {
-    rtdbRequiredClaims(source.json, { path: step.path, op: stepOp }, into);
-  }
-}
-
-function initialFirestoreDocPaths(state: WorldState | undefined): Set<string> {
-  if (state?.firestore) return new Set(Object.keys(state.firestore));
-  const snapshotDocs = state?.snapshot?.firestore['(default)'];
-  if (snapshotDocs) return new Set(Object.keys(snapshotDocs));
-  return new Set();
-}
-
 function seedUsersFromInput(input: RunProbesInput): ProbeUser[] {
   const snapshotUsers = input.state?.snapshot?.auth.users ?? input.state?.users;
   if (snapshotUsers && snapshotUsers.length > 0) {
@@ -246,7 +76,11 @@ function seedUsersFromInput(input: RunProbesInput): ProbeUser[] {
       }
       return entry;
     });
-    if (!input.users || input.users.length === 0 || snapshotUsers.some((u) => u.disabled === true)) {
+    if (
+      !input.users
+      || input.users.length === 0
+      || snapshotUsers.some((u) => u.disabled === true)
+    ) {
       return mappedSnapshotUsers;
     }
   }
@@ -261,9 +95,9 @@ function buildProbeStorageRules(
 ): WorldStorageRules | undefined {
   if (storageSources && storageSources.length > 0) {
     if (
-      storageSources.length === 1 &&
-      (storageSources[0]!.bucket === undefined ||
-        (defaultBucket !== undefined && storageSources[0]!.bucket === defaultBucket))
+      storageSources.length === 1
+      && (storageSources[0]!.bucket === undefined
+        || (defaultBucket !== undefined && storageSources[0]!.bucket === defaultBucket))
     ) {
       return storageSources[0]!.text;
     }
@@ -271,9 +105,9 @@ function buildProbeStorageRules(
     for (const src of storageSources) {
       let key = '(default)';
       if (
-        src.bucket !== undefined &&
-        src.bucket.length > 0 &&
-        !(defaultBucket !== undefined && src.bucket === defaultBucket)
+        src.bucket !== undefined
+        && src.bucket.length > 0
+        && !(defaultBucket !== undefined && src.bucket === defaultBucket)
       ) {
         key = src.bucket;
       }
@@ -291,100 +125,6 @@ function buildProbeStorageRules(
     return snapshotStorageRules;
   }
   return undefined;
-}
-
-function isPlainRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-function readOwnValue(record: Record<string, unknown> | undefined, key: string): unknown {
-  if (record === undefined || !Object.hasOwn(record, key)) return undefined;
-  return Object.getOwnPropertyDescriptor(record, key)?.value;
-}
-
-function claimValueMatchesRequirement(actual: unknown, expected: unknown): boolean {
-  if (actual === undefined || actual === null) return false;
-  if (isPlainRecord(actual) && isPlainRecord(expected)) {
-    for (const key of Object.getOwnPropertyNames(expected)) {
-      const expVal = Object.getOwnPropertyDescriptor(expected, key)?.value;
-      const actVal = readOwnValue(actual, key);
-      if (!claimValueMatchesRequirement(actVal, expVal)) return false;
-    }
-    return true;
-  }
-  return JSON.stringify(actual) === JSON.stringify(expected);
-}
-
-function seededUserSatisfiesRequiredCustomClaims(
-  seededUser: ProbeUser | undefined,
-  requiredClaims: Record<string, unknown>,
-): boolean {
-  const customClaims = seededUser?.customClaims;
-  for (const key of Object.getOwnPropertyNames(requiredClaims)) {
-    if (key === 'email_verified') continue;
-    const actual = readOwnValue(customClaims, key);
-    if (isExistenceClaim(requiredClaims, key)) {
-      if (actual === undefined || actual === null) return false;
-      continue;
-    }
-    const expected = Object.getOwnPropertyDescriptor(requiredClaims, key)?.value;
-    if (!claimValueMatchesRequirement(actual, expected)) {
-      return false;
-    }
-  }
-  return true;
-}
-
-function mergeActorClaims(
-  baseActor: ProbeActor,
-  extractedClaims: Readonly<Record<string, unknown>>,
-  seededUser: ProbeUser | undefined,
-): ProbeActor {
-  const token: Record<string, unknown> = {};
-  copyOwnTokenFields(token, baseActor.token);
-  if (baseActor.synthetic !== false) {
-    copyOwnTokenFields(token, extractedClaims);
-  }
-  if (seededUser?.customClaims !== undefined) {
-    copyOwnTokenFields(token, seededUser.customClaims);
-  }
-  if (!baseActor.synthetic && typeof seededUser?.emailVerified === 'boolean') {
-    setOwnTokenField(token, 'email_verified', seededUser.emailVerified);
-  }
-  return { ...baseActor, token };
-}
-
-function extractProbeClaims(
-  probe: Probe,
-  sources: RuleSources,
-  state: WorldState | undefined,
-  defaultBucket: string | undefined,
-): { ownerClaims: Record<string, unknown>; peerClaims: Record<string, unknown> } {
-  const existingFirestoreDocs = initialFirestoreDocPaths(state);
-  for (const seedStep of probe.seed) {
-    if (seedStep.service !== 'firestore') continue;
-    if (seedStep.method === 'delete' || seedStep.method === 'remove') {
-      existingFirestoreDocs.delete(seedStep.path);
-    } else {
-      existingFirestoreDocs.add(seedStep.path);
-    }
-  }
-
-  const ownerClaims: Record<string, unknown> = {};
-  const peerClaims: Record<string, unknown> = {};
-  for (const step of [...probe.setup, probe.attack]) {
-    const stepOp = classifyStepOp(step, existingFirestoreDocs);
-    if (step.actor === 'owner') {
-      collectStepClaims(step, stepOp, sources, ownerClaims, defaultBucket);
-    } else if (step.actor === 'peer') {
-      collectStepClaims(step, stepOp, sources, peerClaims, defaultBucket);
-    }
-    if (step.service === 'firestore') {
-      if (stepOp === 'delete') existingFirestoreDocs.delete(step.path);
-      else if (stepOp !== 'get') existingFirestoreDocs.add(step.path);
-    }
-  }
-  return { ownerClaims, peerClaims };
 }
 
 /** Plan and run every probe; findings come only from reproduced hits. */
@@ -443,19 +183,19 @@ export async function runProbes(input: RunProbesInput): Promise<ProbeReport> {
   let sites = input.accessSites.filter(
     (site) =>
       !site.admin
-      && (
-        site.service === 'storage'
+      && (site.service === 'storage'
         || site.resourceId === undefined
-        || site.resourceId === '(default)'
-      ),
+        || site.resourceId === '(default)'),
   );
-  const hasFirestoreClientWrite = sites.some((site) => site.service === 'firestore' && isWriteOp(site.op));
+  const hasFirestoreClientWrite = sites.some(
+    (site) => site.service === 'firestore' && isWriteOp(site.op),
+  );
   if (rules.firestore && !hasFirestoreClientWrite) {
     sites = [...sites, ...sitesFromState(effectiveState, knownUids)];
   }
   const hasRtdbState =
-    Boolean(effectiveState?.rtdb) ||
-    Boolean(effectiveState?.snapshot && Object.hasOwn(effectiveState.snapshot.rtdb, '(default)'));
+    Boolean(effectiveState?.rtdb)
+    || Boolean(effectiveState?.snapshot && Object.hasOwn(effectiveState.snapshot.rtdb, '(default)'));
   if (rules.rtdb.length > 0 && hasRtdbState) {
     sites = [...sites, ...rtdbReadOnlySitesFromState(sites, effectiveState, knownUids)];
   }
@@ -483,16 +223,17 @@ export async function runProbes(input: RunProbesInput): Promise<ProbeReport> {
   if (normalizedDefaultBucket !== undefined) planInput.defaultBucket = normalizedDefaultBucket;
   const probes = planProbes(planInput);
 
-  const seededOwner = chosenUsers.first.synthetic ? undefined : chosenUsers.first.user;
-  const seededPeer = chosenUsers.second.synthetic ? undefined : chosenUsers.second.user;
+  let seededOwner: ProbeUser | undefined;
+  if (!chosenUsers.first.synthetic) seededOwner = chosenUsers.first.user;
+  let seededPeer: ProbeUser | undefined;
+  if (!chosenUsers.second.synthetic) seededPeer = chosenUsers.second.user;
+
   const storageCrossServiceDenied =
-    effectiveState?.snapshot?.storageConfig?.crossServiceIam === 'denied' &&
-    (
-      storageSources.some((source) => /\bfirestore\s*\.\s*(?:get|exists)\s*\(/.test(source.text)) ||
-      Object.values(effectiveState?.snapshot?.rules.storage ?? {}).some((text) =>
+    effectiveState?.snapshot?.storageConfig?.crossServiceIam === 'denied'
+    && (storageSources.some((source) => /\bfirestore\s*\.\s*(?:get|exists)\s*\(/.test(source.text))
+      || Object.values(effectiveState?.snapshot?.rules.storage ?? {}).some((text) =>
         /\bfirestore\s*\.\s*(?:get|exists)\s*\(/.test(text),
-      )
-    );
+      ));
 
   const results: ProbeResult[] = [];
   const claimsByProbe = new Map<
@@ -502,52 +243,66 @@ export async function runProbes(input: RunProbesInput): Promise<ProbeReport> {
   for (const probe of probes) {
     const extracted = extractProbeClaims(probe, scopedSources, effectiveState, normalizedDefaultBucket);
     let effectiveProbe = probe;
+    let claimMismatchReason: string | undefined;
     if (
-      probe.kind === 'must-allow-denied' &&
-      probe.inconclusiveOnDeny === undefined &&
-      !owner.synthetic &&
-      seededOwner?.emailVerified === false &&
-      extracted.ownerClaims.email_verified === true
+      probe.kind === 'must-allow-denied'
+      && probe.inconclusiveOnDeny === undefined
+      && !owner.synthetic
     ) {
-      effectiveProbe = {
-        ...probe,
-        inconclusiveOnDeny: 'seeded owner account has emailVerified: false while rule requires verified email',
-      };
-    } else if (
-      probe.kind === 'must-allow-denied' &&
-      probe.inconclusiveOnDeny === undefined &&
-      !owner.synthetic &&
-      !seededUserSatisfiesRequiredCustomClaims(seededOwner, extracted.ownerClaims)
-    ) {
-      effectiveProbe = {
-        ...probe,
-        inconclusiveOnDeny: 'seeded owner account lacks custom claims required by rule',
-      };
-    } else if (
-      probe.kind === 'must-allow-denied' &&
-      probe.service === 'storage' &&
-      probe.inconclusiveOnDeny === undefined &&
-      storageCrossServiceDenied
+      claimMismatchReason = classifySeededOwnerClaimMismatch(seededOwner, extracted.ownerClaims);
+    }
+    if (
+      claimMismatchReason === undefined
+      && probe.kind === 'must-allow-denied'
+      && probe.service === 'storage'
+      && probe.inconclusiveOnDeny === undefined
+      && storageCrossServiceDenied
     ) {
       effectiveProbe = {
         ...probe,
         inconclusiveOnDeny: "sandbox Storage crossServiceIam is configured as 'denied'",
       };
     }
-    claimsByProbe.set(effectiveProbe, extracted);
+
     const scopedActors: [ProbeActor, ProbeActor] = [
       mergeActorClaims(owner, extracted.ownerClaims, seededOwner),
       mergeActorClaims(peer, extracted.peerClaims, seededPeer),
     ];
-    const result = await runProbe(effectiveProbe, rules, scopedActors, effectiveState ?? {});
+    let result = await runProbe(effectiveProbe, rules, scopedActors, effectiveState ?? {});
+    if (result && result.outcome === 'hit' && claimMismatchReason !== undefined) {
+      const counterfactualOwner = buildCounterfactualClaimActor(
+        owner,
+        extracted.ownerClaims,
+        seededOwner,
+      );
+      const counterfactualResult = await runProbe(
+        effectiveProbe,
+        rules,
+        [counterfactualOwner, scopedActors[1]],
+        effectiveState ?? {},
+      );
+      if (counterfactualResult?.outcome !== 'hit') {
+        const abstainedProbe: Probe = {
+          ...effectiveProbe,
+          inconclusiveOnDeny: claimMismatchReason,
+        };
+        effectiveProbe = abstainedProbe;
+        result = {
+          ...result,
+          probe: abstainedProbe,
+          outcome: 'invalid',
+          reason: claimMismatchReason,
+          abstained: true,
+        };
+      }
+    }
+    claimsByProbe.set(effectiveProbe, extracted);
     if (result) results.push({ ...result, actors: scopedActors });
   }
 
   const hitResults = results.filter((result) => result.outcome === 'hit');
-  const claimSourceResults =
-    hitResults.length > 0
-      ? hitResults
-      : results.filter((result) => result.outcome === 'clean');
+  let claimSourceResults = results.filter((result) => result.outcome === 'clean');
+  if (hitResults.length > 0) claimSourceResults = hitResults;
   const reportOwnerClaims: Record<string, unknown> = {};
   const reportPeerClaims: Record<string, unknown> = {};
   for (const result of claimSourceResults) {
@@ -565,7 +320,9 @@ export async function runProbes(input: RunProbesInput): Promise<ProbeReport> {
   const seen = new Set<string>();
   for (const result of results) {
     if (result.outcome !== 'hit') continue;
-    const finding = findingFor(result, result.actors ? [...result.actors] : actors);
+    let findingActors = actors;
+    if (result.actors) findingActors = [...result.actors];
+    const finding = findingFor(result, findingActors);
     const key = `${finding.path}|${finding.op}|${finding.kind}|${finding.status}`;
     if (seen.has(key)) continue;
     seen.add(key);

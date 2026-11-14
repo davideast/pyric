@@ -1,4 +1,7 @@
 import { describe, expect, test } from 'bun:test';
+import 'fake-indexeddb/auto';
+import { extractAccessSites } from '../../../src/assurance-surface/code/extractor.js';
+import { runProbes } from '../../../src/assurance-surface/probes/run-probes.js';
 import {
   buildCompliantCustomMetadata,
   storageBindingsAt,
@@ -10,8 +13,10 @@ import {
   storageOpCategory,
   synthesizeMatchingContentType,
 } from '../../../src/assurance-surface/probes/storage-step-builder.js';
+import { ownerConditionsFrom } from '../../../src/assurance-surface/rules/analyze-owners.js';
 import { inferOwnerBindings } from '../../../src/assurance-surface/rules/cross-check.js';
 import { projectRuleSurface } from '../../../src/assurance-surface/rules/rule-surface.js';
+import type { RuleSources } from '../../../src/assurance-surface/rules/rule-sources.js';
 import { storageOwnerConditions, storageValueHints } from '../../../src/assurance-surface/rules/storage-owners.js';
 import { extractSdkUsage } from '../../../src/assurance-surface/usage.js';
 import { parseResourcePattern } from '../../../src/sandbox/internal/resource-pattern.js';
@@ -180,5 +185,124 @@ service firebase.storage {
       surface,
     );
     expect(meta).toEqual({ tier: 'pro' });
+  });
+
+  test('seeds HTTP metadata headers for updateMetadata probes and attacks all sibling and nested allow arms for foreign-slot-write', async () => {
+    const clientCode = [
+      "import { getAuth } from 'firebase/auth';",
+      "import { getStorage, ref, updateMetadata, uploadBytes } from 'firebase/storage';",
+      'export async function run(dynLang: string, b: Blob) {',
+      '  const uid = getAuth().currentUser!.uid;',
+      '  const st = getStorage();',
+      "  await uploadBytes(ref(st, `overwrite/${uid}/item.bin`), new Uint8Array([1, 2]), { cacheControl: 'public, max-age=3600' });",
+      "  await updateMetadata(ref(st, `overwrite/${uid}/item.bin`), { contentLanguage: 'de' });",
+      "  await uploadBytes(ref(st, `asymmetric/${uid}/avatar.png`), new Uint8Array([1, 2]), { contentType: 'image/png' });",
+      "  await uploadBytes(ref(st, `nested/${uid}/avatar.png`), new Uint8Array([1, 2]), { contentType: 'image/png' });",
+      "  await uploadBytes(ref(st, `combo/${uid}/bad`), new Uint8Array([1]), { cacheControl: 'private, no-store', contentLanguage: dynLang });",
+      "  await uploadBytes(ref(st, `imgs/${uid}/blob`), b);",
+      '}',
+    ].join('\n');
+
+    const storageRules = `rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /overwrite/{uid}/{name} {
+      allow create: if request.auth != null
+        && request.auth.uid == uid
+        && request.resource.cacheControl == 'public, max-age=3600';
+      allow update: if request.auth != null
+        && request.auth.uid == uid
+        && resource.cacheControl == 'public, max-age=3600'
+        && request.resource.contentLanguage == 'de';
+    }
+    match /asymmetric/{uid}/{file} {
+      allow read: if request.auth != null && request.auth.uid == uid;
+      allow write: if request.auth != null
+        && request.auth.uid == uid
+        && request.resource.contentType.matches('image/.*');
+      allow write: if request.auth != null
+        && request.resource.contentType == 'application/pdf';
+    }
+    match /nested/{uid} {
+      match /{file} {
+        allow write: if request.auth != null
+          && request.auth.uid == uid
+          && request.resource.contentType.matches('image/.*');
+      }
+      match /{allFiles=**} {
+        allow write: if request.auth != null
+          && request.resource.contentType == 'application/pdf';
+      }
+    }
+    match /combo/{uid}/{file} {
+      allow read, write: if request.auth != null
+        && request.auth.uid == uid
+        && request.resource.cacheControl == 'public, max-age=3600'
+        && request.resource.contentLanguage == 'en';
+    }
+    match /imgs/{uid}/{file} {
+      allow read, write: if request.auth != null
+        && request.auth.uid == uid
+        && request.resource.contentType.matches('image/.*');
+    }
+  }
+}`;
+
+    const accessSites = extractAccessSites({
+      root: '/app',
+      files: { 'client.ts': clientCode },
+    }).accessSites;
+    const sources: RuleSources = {
+      firestore: [],
+      rtdb: [],
+      storage: [{ source: 'storage.rules', text: storageRules }],
+      problems: [],
+    };
+    const conditions = ownerConditionsFrom(sources);
+    const ownerBindings = inferOwnerBindings(conditions, accessSites);
+
+    const report = await runProbes({
+      accessSites,
+      ownerBindings,
+      conditions,
+      sources,
+    });
+
+    // 1. updateMetadata on overwrite/{uid}/item.bin must NOT emit a false must-allow-denied
+    expect(
+      report.findings.some(
+        (f) => f.path === 'overwrite/{uid}/item.bin' && f.kind === 'must-allow-denied',
+      ),
+    ).toBe(false);
+
+    // 2. Both sibling and nested overbroad allow write arms must hit foreign-slot-write!
+    expect(
+      report.findings.some(
+        (f) => f.path === 'asymmetric/{uid}/avatar.png' && f.kind === 'foreign-slot-write',
+      ),
+    ).toBe(true);
+    expect(
+      report.findings.some(
+        (f) => f.path === 'nested/{uid}/avatar.png' && f.kind === 'foreign-slot-write',
+      ),
+    ).toBe(true);
+
+    // 3. Static cacheControl mismatch alongside unresolved contentLanguage must still hit must-allow-denied!
+    expect(
+      report.findings.some(
+        (f) => f.path === 'combo/{uid}/bad' && f.kind === 'must-allow-denied',
+      ),
+    ).toBe(true);
+
+    // 4. Untraced Blob omits explicit contentType -> abstains (invalid) rather than synthesizing image/png!
+    expect(
+      report.findings.some(
+        (f) => f.path === 'imgs/{uid}/blob' && f.kind === 'must-allow-denied',
+      ),
+    ).toBe(false);
+    const blobMustAllow = report.results.find(
+      (r) => r.probe.template === 'imgs/{uid}/blob' && r.probe.kind === 'must-allow-denied',
+    );
+    expect(blobMustAllow?.outcome).toBe('invalid');
   });
 });

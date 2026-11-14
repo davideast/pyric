@@ -2,7 +2,7 @@
  * Path binding, customMetadata materialization, and compliant upload/update
  * `ProbeStep` construction for Cloud Storage assurance probes.
  */
-import type { AccessSite } from '../code/types.js';
+import type { AccessSite, StorageHttpHeaderKey } from '../code/types.js';
 import {
   coversPattern,
   parseResourcePattern,
@@ -13,10 +13,15 @@ import type {
   RuleSurface,
   StorageMetadataConstraint,
 } from '../rules/rule-surface.js';
+import { STORAGE_HTTP_HEADER_KEYS } from '../rules/storage-constraint-summary.js';
 import type { OwnerBinding } from '../rules/types.js';
 import type { ValueHint } from '../rules/value-hints.js';
 import { concretePath, concretePayload, fillTemplate } from './fixtures.js';
 import { bindVarsFromCrossServiceState } from './prerequisites.js';
+import {
+  httpHeaderMatchesConjuncts,
+  synthesizeMatchingHttpHeader,
+} from './storage-constraint-arms.js';
 import {
   compliantByteSize,
   contentTypeMatchesPattern,
@@ -74,11 +79,16 @@ export function storageBindingsAt(
     } else if (!hasExplicitBucket && b.wildcardBucket && sitePattern.resourceId !== '(default)') {
       bp = { ...bp, resourceId: sitePattern.resourceId };
     }
-    return coversPattern(bp, sitePattern, { cascade: true }) || coversPattern(sitePattern, bp, { cascade: true });
+    return (
+      coversPattern(bp, sitePattern, { cascade: true })
+      || coversPattern(sitePattern, bp, { cascade: true })
+    );
   });
 }
 
-export function isExactUidAuth(auth: { source: string; certainty: 'exact' | 'partial' }[] | undefined): boolean {
+export function isExactUidAuth(
+  auth: { source: string; certainty: 'exact' | 'partial' }[] | undefined,
+): boolean {
   if (!auth || auth.length === 0) return false;
   return auth.every((a) => a.source === 'auth.uid' && a.certainty === 'exact');
 }
@@ -135,7 +145,11 @@ export function buildCompliantCustomMetadata(
   if (site.payload && site.payload.kind === 'object') {
     const fieldOverrides: Record<string, unknown> = {};
     for (const field of site.payload.fields) {
-      if (field.literal === undefined && !(field.auth?.length) && Object.hasOwn(hinted, field.name)) {
+      if (
+        field.literal === undefined
+        && !(field.auth?.length)
+        && Object.hasOwn(hinted, field.name)
+      ) {
         setStorageOwn(fieldOverrides, field.name, hinted[field.name]!);
       }
     }
@@ -180,7 +194,11 @@ export function buildClientCustomMetadata(
   const hinted = storageHintMap(sitePattern, hints, surface);
   const overrides: Record<string, unknown> = {};
   for (const field of site.payload.fields) {
-    if (field.literal === undefined && !(field.auth?.length) && Object.hasOwn(hinted, field.name)) {
+    if (
+      field.literal === undefined
+      && !(field.auth?.length)
+      && Object.hasOwn(hinted, field.name)
+    ) {
       setStorageOwn(overrides, field.name, hinted[field.name]!);
     }
   }
@@ -195,6 +213,30 @@ export function applyClientHttpMetadataToStep(step: ProbeStep, site: AccessSite)
   if (up.contentDisposition !== undefined) step.contentDisposition = up.contentDisposition;
   if (up.contentEncoding !== undefined) step.contentEncoding = up.contentEncoding;
   if (up.contentLanguage !== undefined) step.contentLanguage = up.contentLanguage;
+}
+
+function applyCompliantHttpMetadataToStep(
+  step: ProbeStep,
+  constraint: StorageMetadataConstraint,
+  clientUpload: AccessSite['storageUpload'] | undefined,
+  fallbackHeaders: Readonly<Partial<Record<StorageHttpHeaderKey, string>>> | undefined,
+): void {
+  const nullSet = new Set<StorageHttpHeaderKey>(constraint.nullHttpHeaders ?? []);
+  for (const key of STORAGE_HTTP_HEADER_KEYS) {
+    if (nullSet.has(key)) continue;
+    const conjuncts = constraint.httpHeaders?.[key];
+    let chosen: string | undefined;
+    const clientVal = clientUpload?.[key];
+    const fallbackVal = fallbackHeaders?.[key];
+    if (clientVal !== undefined && httpHeaderMatchesConjuncts(clientVal, conjuncts)) {
+      chosen = clientVal;
+    } else if (fallbackVal !== undefined && httpHeaderMatchesConjuncts(fallbackVal, conjuncts)) {
+      chosen = fallbackVal;
+    } else if (conjuncts && conjuncts.length > 0) {
+      chosen = synthesizeMatchingHttpHeader(key, conjuncts);
+    }
+    if (chosen !== undefined) step[key] = chosen;
+  }
 }
 
 export function attachResourceId(step: ProbeStep, resourceId: string | undefined): ProbeStep {
@@ -245,6 +287,11 @@ export function resolveStorageConcretePath(
   return concretePath(site, actor, { keyActor, variant, state, otherUid });
 }
 
+export interface CompliantUploadStepOptions {
+  readonly useClientSiteMetadata?: boolean;
+  readonly fallbackHttpHeaders?: Readonly<Partial<Record<StorageHttpHeaderKey, string>>>;
+}
+
 export function buildCompliantUploadStep(
   site: AccessSite,
   sitePattern: ResourcePattern,
@@ -255,12 +302,14 @@ export function buildCompliantUploadStep(
   hints: readonly ValueHint[],
   metadataOverrides: Readonly<Record<string, string>> = {},
   surface?: RuleSurface,
+  options?: CompliantUploadStepOptions,
 ): ProbeStep {
+  const useClient = options?.useClientSiteMetadata ?? STORAGE_UPLOAD_OPS.has(site.op);
   let contentType = synthesizeMatchingContentType(
     constraint.contentTypePattern,
     constraint.contentTypeConjuncts,
   );
-  const clientMime = site.storageUpload?.contentType;
+  const clientMime = useClient ? site.storageUpload?.contentType : undefined;
   if (
     clientMime !== undefined
     && contentTypeMatchesPattern(
@@ -281,7 +330,12 @@ export function buildCompliantUploadStep(
     contentType,
   };
   if (actorRole === 'admin') step.method = 'set';
-  applyClientHttpMetadataToStep(step, site);
+  applyCompliantHttpMetadataToStep(
+    step,
+    constraint,
+    useClient ? site.storageUpload : undefined,
+    options?.fallbackHttpHeaders,
+  );
   const customMetadata = buildCompliantCustomMetadata(
     site,
     sitePattern,
@@ -358,8 +412,16 @@ export function buildCompliantUpdateStep(
     }
     step.contentType = contentType;
   }
-  applyClientHttpMetadataToStep(step, site);
-  const customMetadata = buildCompliantCustomMetadata(site, sitePattern, constraint, hints, actorObj, {}, surface);
+  applyCompliantHttpMetadataToStep(step, constraint, site.storageUpload, undefined);
+  const customMetadata = buildCompliantCustomMetadata(
+    site,
+    sitePattern,
+    constraint,
+    hints,
+    actorObj,
+    {},
+    surface,
+  );
   if (customMetadata !== undefined) step.customMetadata = customMetadata;
   return attachResourceId(step, site.resourceId);
 }
