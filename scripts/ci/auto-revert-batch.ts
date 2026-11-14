@@ -13,13 +13,18 @@
 // finishes, until `decideBatch` names the culprit.
 
 import { parseStagedPulls, parseStagingCommit } from './merge-queue.ts';
-import { decideBatch, type BatchVerdict, type FailedRun, type ProbeResult } from './auto-revert.ts';
+import {
+  FAILED_CONCLUSIONS,
+  decideBatch,
+  type BatchVerdict,
+  type FailedRun,
+  type ProbeResult,
+} from './auto-revert.ts';
 
 /** Probe branches: `<prefix><batch commit>/<workflow id>/<member index>`. The
  *  `merge-queue/` prefix gives a dispatched Build & Test its full check set. */
 export const BISECT_PREFIX = 'merge-queue/bisect/';
 const BISECT_BRANCH = /^merge-queue\/bisect\/([0-9a-f]{40})\/(\d+)\/(\d+)$/;
-const FAILED = new Set(['failure', 'timed_out']);
 
 export interface BatchIo {
   gh: (args: string[]) => string;
@@ -68,8 +73,9 @@ export function bisectBranch(target: BisectTarget): string {
 
 export function parseBisectBranch(branch: string): BisectTarget | undefined {
   const match = BISECT_BRANCH.exec(branch);
-  if (!match) return undefined;
-  return { commit: match[1]!, workflowId: Number(match[2]), index: Number(match[3]) };
+  const commit = match?.[1];
+  if (match === null || commit === undefined) return undefined;
+  return { commit, workflowId: Number(match[2]), index: Number(match[3]) };
 }
 
 /** The pull request a queue commit merged, when its trailer names exactly one. */
@@ -90,6 +96,7 @@ export function batchMembers(io: BatchIo, commit: BatchCommit): BatchMember[] | 
   const members: BatchMember[] = [];
   let sha = chain;
   for (let step = 0; step < size; step++) {
+    if (sha === base) return undefined;
     const json = api<CommitJson>(io, `commits/${sha}`);
     const parents = json.parents.map((parent) => parent.sha);
     const first = parents[0];
@@ -107,7 +114,7 @@ function probeResult(run: ProbeRun | undefined): ProbeResult {
   if (run.conclusion === 'success') return 'passed';
   // A failed first attempt is rerun before it counts; a cancelled probe never
   // settles, so the bisect stops there and a person takes over.
-  if (FAILED.has(run.conclusion ?? '') && run.run_attempt >= 2) return 'failed';
+  if (FAILED_CONCLUSIONS.has(run.conclusion ?? '') && run.run_attempt >= 2) return 'failed';
   return 'pending';
 }
 
@@ -116,7 +123,9 @@ function probeResults(io: BatchIo, commit: string, workflowId: number): Map<numb
   const results = new Map<number, ProbeResult>();
   const listing = io.git(['ls-remote', 'origin', `refs/heads/${BISECT_PREFIX}${commit}/${workflowId}/*`]);
   for (const line of listing.split('\n')) {
-    const branch = (line.trim().split(/\s+/)[1] ?? '').replace('refs/heads/', '');
+    const rawRef = line.trim().split(/\s+/)[1];
+    if (rawRef === undefined || rawRef === '') continue;
+    const branch = rawRef.replace('refs/heads/', '');
     const target = parseBisectBranch(branch);
     if (target === undefined) continue;
     const runs = api<{ workflow_runs: ProbeRun[] }>(io, `actions/workflows/${workflowId}/runs?branch=${encodeURIComponent(branch)}&per_page=5`);
@@ -126,8 +135,10 @@ function probeResults(io: BatchIo, commit: string, workflowId: number): Map<numb
 }
 
 /** Pushes the probe for the batch cut off after `index` and starts the
- *  workflow on it. Its first parent is the commit before the batch, so the
- *  run compares with the same base the batch's own run did. */
+ *  workflow on it. Its first parent is the commit before the batch so
+ *  quarantine and coverage compare with the batch's base, and its second
+ *  parent is `member.sha` so the prefix's commits and `Conformance-Exempt:`
+ *  trailers stay reachable for `conformance-coupling-gate.sh`. */
 function startProbe(io: BatchIo, target: BisectTarget, base: string, members: readonly BatchMember[], workflowFile: string): void {
   const member = members[target.index];
   if (member === undefined) throw new Error(`batch ${target.commit} has no member ${target.index}`);
@@ -136,7 +147,7 @@ function startProbe(io: BatchIo, target: BisectTarget, base: string, members: re
   io.git(['config', 'user.email', '41898282+github-actions[bot]@users.noreply.github.com']);
   const tree = io.git(['rev-parse', `${member.sha}^{tree}`]).trim();
   const message = `auto-revert bisect: ${target.commit} through pull request ${target.index + 1} of ${members.length}`;
-  const probe = io.git(['commit-tree', tree, '-p', base, '-m', message]).trim();
+  const probe = io.git(['commit-tree', tree, '-p', base, '-p', member.sha, '-m', message]).trim();
   io.git(['push', 'origin', `${probe}:refs/heads/${branch}`]);
   io.gh(['workflow', 'run', workflowFile, '--repo', io.repo, '--ref', branch]);
   io.log(`Bisecting batch ${target.commit}: started ${workflowFile} on ${branch} for the first ${target.index + 1} of ${members.length} pull requests.`);

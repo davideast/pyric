@@ -137,16 +137,24 @@ jobs:
 
   bisect:
     name: Continue a batch bisect
-    # A probe this lane dispatched finished: passed, or failed (a first
-    # failure is rerun by the script, and the rerun's completion comes back
-    # here). A cancelled probe ends the bisect.
+    # A probe this lane dispatched finished (on attempt 1, or on the one
+    # rerun this lane started): passed, failed, or timed out. A person's
+    # rerun or a cancelled probe does not advance the bisect.
     if: >-
       github.event_name == 'workflow_run' &&
       startsWith(github.event.workflow_run.head_branch, 'merge-queue/bisect/') &&
       github.event.workflow_run.event == 'workflow_dispatch' &&
       github.event.workflow_run.actor.login == 'github-actions[bot]' &&
+      github.event.workflow_run.triggering_actor.login == 'github-actions[bot]' &&
+      github.event.workflow_run.run_attempt <= 2 &&
       (github.event.workflow_run.conclusion == 'success' ||
-       github.event.workflow_run.conclusion == 'failure')
+       github.event.workflow_run.conclusion == 'failure' ||
+       github.event.workflow_run.conclusion == 'timed_out')
+    # Serialize bisect steps so concurrent probe completions across Build &
+    # Test and Slow app scenarios never overlap during revert or cleanup.
+    concurrency:
+      group: auto-revert-bisect
+      cancel-in-progress: false
     runs-on: ubuntu-latest
     timeout-minutes: 15
     # The same permissions as the revert job: it may push the next probe, or
@@ -194,6 +202,7 @@ jobs:
           FAILED_RUN_URL: ${{ github.event.workflow_run.html_url }}
           FAILED_WORKFLOW: ${{ github.event.workflow_run.name }}
           HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: bun scripts/ci/auto-revert-github.ts report

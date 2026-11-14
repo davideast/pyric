@@ -7,237 +7,33 @@ import {
   QUEUE_LABEL,
   REFUSED_BRANCH,
   STAGING_BRANCH,
-  formatStagingTrailers,
   parseStagingCommit,
   type QueueAction,
-  type StagedMeta,
 } from './merge-queue.ts';
 import {
   SIMULATOR_PARITY_GLOBS,
   needsSimulatorParity,
   runQueuePass,
-  type QueueIo,
 } from './merge-queue-github.ts';
-
-const MAIN = '1'.repeat(40);
-const HEAD_A = 'a'.repeat(40);
-const HEAD_B = 'b'.repeat(40);
-const HEAD_C = 'd'.repeat(40);
-const STAGED = 'c'.repeat(40);
-const CHAIN = 'e'.repeat(40);
-const WRAPPED = 'f'.repeat(40);
-const NOW = Date.parse('2026-11-14T12:00:00Z');
-const RUN_URL = 'https://github.com/owner/repo/actions/runs/500';
-const GREEN_RUN = { id: 500, run_attempt: 1, status: 'completed', conclusion: 'success', html_url: RUN_URL };
-
-interface FakePull {
-  number: number;
-  title: string;
-  headRef: string;
-  headSha: string;
-  labels: string[];
-}
-
-interface RunItem {
-  id: number;
-  run_attempt: number;
-  status: string;
-  conclusion: string | null;
-  html_url: string;
-}
-
-/** A remote repository small enough to read: branches, pull requests, commit
- *  messages and trees by sha, and the runs of each workflow. */
-interface Remote {
-  main: string;
-  branches: Record<string, string>;
-  pulls: FakePull[];
-  messages: Record<string, string>;
-  trees: Record<string, string>;
-  greenHeads: Set<string>;
-  stagingRuns: RunItem[];
-  mainRuns: Record<string, RunItem[]>;
-  filesByPr: Record<number, string[]>;
-  conflicts: Set<string>;
-  /** What a push to main is refused with. */
-  pushRefusal?: string;
-  /** What a push to the staging branch is refused with. */
-  stagingPushRefusal?: string;
-  /** Called in place of moving main, to model someone else's push winning. */
-  onPushMain?: () => void;
-}
-
-interface Harness {
-  remote: Remote;
-  gh: string[][];
-  git: string[][];
-  comments: Array<{ pull: number; text: string }>;
-  logs: string[];
-  io: QueueIo;
-}
-
-function pull(number: number, headSha: string, labels: string[] = [QUEUE_LABEL]): FakePull {
-  return { number, title: `fix(cli): change ${number}`, headRef: `fix/change-${number}`, headSha, labels };
-}
-
-function stagedMessage(meta: StagedMeta): string {
-  return `Merge queue batch\n\n${formatStagingTrailers(meta)}`;
-}
-
-function createHarness(initial: Partial<Remote>): Harness {
-  const remote: Remote = {
-    main: MAIN, branches: {}, pulls: [], messages: {}, trees: {}, greenHeads: new Set(), stagingRuns: [],
-    mainRuns: {}, filesByPr: {}, conflicts: new Set(), ...initial,
-  };
-  const gh: string[][] = [];
-  const git: string[][] = [];
-  const comments: Harness['comments'] = [];
-  const logs: string[] = [];
-  const files = new Map<string, string>();
-  // The local checkout: the messages of the commits made since the last checkout.
-  let local: string[] = [];
-
-  const treeOf = (sha: string): string => remote.trees[sha] ?? `tree-of-${sha}`;
-
-  function push(args: string[]): string {
-    if (args.includes('--delete')) {
-      delete remote.branches[args.at(-1) ?? ''];
-      return '';
-    }
-    const [sha, ref] = (args.at(-1) ?? '').split(':');
-    const branch = (ref ?? '').replace('refs/heads/', '');
-    if (branch !== 'main') {
-      const touchesWorkflows = remote.pulls.some((item) => (remote.filesByPr[item.number] ?? []).some((file) => file.startsWith('.github/workflows/')) && item.labels.includes(QUEUE_LABEL));
-      if (branch === STAGING_BRANCH && remote.stagingPushRefusal !== undefined && touchesWorkflows) throw new Error(remote.stagingPushRefusal);
-      remote.branches[branch] = sha ?? '';
-      return '';
-    }
-    if (remote.pushRefusal !== undefined) throw new Error(remote.pushRefusal);
-    if (remote.onPushMain !== undefined) {
-      remote.onPushMain();
-      throw new Error('! [rejected] main -> main (fetch first)');
-    }
-    const landed = parseStagingCommit(remote.messages[sha ?? ''] ?? '')?.pulls ?? [];
-    remote.pulls = remote.pulls.filter((item) => !landed.some((entry) => entry.number === item.number));
-    remote.main = sha ?? '';
-    return '';
-  }
-
-  function runGit(args: string[]): string {
-    git.push(args);
-    const [command] = args;
-    if (command === 'ls-remote' && args.includes('refs/heads/main')) return `${remote.main}\trefs/heads/main\n`;
-    if (command === 'ls-remote') {
-      return Object.entries(remote.branches).map(([branch, sha]) => `${sha}\trefs/heads/${branch}\n`).join('');
-    }
-    if (command === 'checkout') local = [];
-    if (command === 'merge' && args[1] === '--no-ff') {
-      if (remote.conflicts.has(args.at(-1) ?? '')) throw new Error('CONFLICT (content): Merge conflict in packages/cli/src/serve/rules.ts');
-      local.push(args[3] ?? '');
-    }
-    if (command === 'commit' && args[1] === '--amend') local[local.length - 1] = args[3] ?? '';
-    if (command === 'rev-parse' && args[1] === 'HEAD') {
-      remote.messages[CHAIN] = local.at(-1) ?? '';
-      return `${CHAIN}\n`;
-    }
-    if (command === 'rev-parse') {
-      const target = (args[1] ?? '').replace('^{tree}', '');
-      return `${treeOf(target === 'HEAD' ? CHAIN : target)}\n`;
-    }
-    if (command === 'commit-tree') {
-      remote.messages[WRAPPED] = args.at(-1) ?? '';
-      return `${WRAPPED}\n`;
-    }
-    if (command === 'push') return push(args);
-    return '';
-  }
-
-  function runsFor(path: string): RunItem[] {
-    const workflow = /^actions\/workflows\/([^/]+)\/runs\?/.exec(path)?.[1] ?? '';
-    if (path.includes('branch=main&')) return remote.mainRuns[workflow] ?? [];
-    return remote.stagingRuns;
-  }
-
-  function runGh(args: string[]): string {
-    gh.push(args);
-    if (args[0] !== 'api') return '';
-    const methodIdx = args.indexOf('-X');
-    const method = methodIdx === -1 ? 'GET' : args[methodIdx + 1];
-    const path = (args.find((arg) => arg.startsWith('repos/owner/repo/')) ?? '').replace('repos/owner/repo/', '');
-    if (method === 'GET' && path === 'branches/main') return JSON.stringify({ commit: { sha: remote.main } });
-    if (method === 'GET' && path.startsWith('pulls?')) {
-      return JSON.stringify(remote.pulls.map((item) => ({
-        number: item.number, title: item.title, state: 'open', draft: false, created_at: `2026-11-14T11:${item.number % 60}:00Z`,
-        head: { ref: item.headRef, sha: item.headSha, repo: { full_name: 'owner/repo' } },
-        labels: item.labels.map((name) => ({ name })),
-      })));
-    }
-    const single = /^pulls\/(\d+)$/.exec(path);
-    if (method === 'GET' && single) {
-      const found = remote.pulls.find((item) => item.number === Number(single[1]));
-      return JSON.stringify({ state: found ? 'open' : 'closed', head: { sha: found?.headSha ?? '' } });
-    }
-    if (method === 'GET' && /^issues\/\d+\/events\?/.test(path)) return '[]';
-    const check = /^commits\/([0-9a-f]+)\/check-runs\?/.exec(path);
-    if (method === 'GET' && check) {
-      const green = remote.greenHeads.has(check[1] ?? '');
-      return JSON.stringify({ check_runs: green ? [{ name: 'CI / required', status: 'completed', conclusion: 'success', app: { slug: 'github-actions' } }] : [] });
-    }
-    const commit = /^commits\/([0-9a-f]+)$/.exec(path);
-    if (method === 'GET' && commit) {
-      return JSON.stringify({ commit: { message: remote.messages[commit[1] ?? ''] ?? '', committer: { date: '2026-11-14T11:55:00Z' } } });
-    }
-    if (method === 'GET' && path.startsWith('actions/workflows/')) return JSON.stringify({ workflow_runs: runsFor(path) });
-    if (method === 'GET' && /^actions\/runs\/\d+\/attempts\/\d+\/jobs\?/.test(path)) return JSON.stringify({ jobs: [] });
-    const filesOf = /^pulls\/(\d+)\/files\?/.exec(path);
-    if (method === 'GET' && filesOf) return JSON.stringify((remote.filesByPr[Number(filesOf[1])] ?? []).map((filename) => ({ filename })));
-    const label = /^issues\/(\d+)\/labels\/merge-queue$/.exec(path);
-    if (method === 'DELETE' && label) {
-      remote.pulls = remote.pulls.map((item) => (item.number === Number(label[1]) ? { ...item, labels: item.labels.filter((name) => name !== QUEUE_LABEL) } : item));
-      return '{}';
-    }
-    const commented = /^issues\/(\d+)\/comments$/.exec(path);
-    if (method === 'POST' && commented) {
-      const file = (args.at(-1) ?? '').replace('body=@', '');
-      comments.push({ pull: Number(commented[1]), text: files.get(file) ?? '' });
-      return '{}';
-    }
-    throw new Error(`unexpected gh api ${method} ${path}`);
-  }
-
-  const io: QueueIo = {
-    repo: 'owner/repo',
-    now: () => NOW,
-    log: (text) => { logs.push(text); },
-    writeFile: (name, text) => {
-      files.set(`/scratch/${name}`, text);
-      return `/scratch/${name}`;
-    },
-    git: runGit,
-    gh: runGh,
-  };
-  return { remote, gh, git, comments, logs, io };
-}
-
-/** Two green pull requests staged together on a green run. */
-function greenBatch(extra: Partial<Remote> = {}): Harness {
-  const meta: StagedMeta = { baseSha: MAIN, pulls: [{ number: 101, headSha: HEAD_A }, { number: 102, headSha: HEAD_B }] };
-  return createHarness({
-    branches: { [STAGING_BRANCH]: STAGED },
-    pulls: [pull(101, HEAD_A), pull(102, HEAD_B)],
-    messages: { [STAGED]: stagedMessage(meta) },
-    greenHeads: new Set([HEAD_A, HEAD_B, STAGED]),
-    stagingRuns: [GREEN_RUN],
-    ...extra,
-  });
-}
-
-function mutations(h: Harness): { git: string[][]; gh: string[][] } {
-  return {
-    git: h.git.filter((args) => args[0] !== 'ls-remote'),
-    gh: h.gh.filter((args) => args[0] !== 'api' || args.includes('-X')),
-  };
-}
+import { batchMembers, bisectBranch, type BatchIo } from './auto-revert-batch.ts';
+import {
+  CHAIN,
+  GREEN_RUN,
+  HEAD_A,
+  HEAD_B,
+  HEAD_C,
+  MAIN,
+  RUN_URL,
+  STAGED,
+  WRAPPED,
+  createHarness,
+  greenBatch,
+  mutations,
+  pull,
+  stagedMessage,
+  type Harness,
+  type RunItem,
+} from './merge-queue-harness.ts';
 
 describe('staging a batch', () => {
   test('merges every ready pull request in order, drops the one that conflicts, and stages one commit whose first parent is main', () => {
@@ -260,7 +56,10 @@ describe('staging a batch', () => {
     const wrap = h.git.find((args) => args[0] === 'commit-tree');
     expect(wrap?.slice(0, 6)).toEqual(['commit-tree', `tree-of-${CHAIN}`, '-p', MAIN, '-p', CHAIN]);
     expect(h.remote.branches[STAGING_BRANCH]).toBe(WRAPPED);
-    expect(parseStagingCommit(h.remote.messages[WRAPPED] ?? '')).toEqual({ baseSha: MAIN, pulls: [{ number: 101, headSha: HEAD_A }, { number: 103, headSha: HEAD_C }] });
+    expect(parseStagingCommit(h.remote.messages[WRAPPED] ?? '')).toEqual({
+      baseSha: MAIN,
+      pulls: [{ number: 101, headSha: HEAD_A }, { number: 103, headSha: HEAD_C }],
+    });
     expect(h.remote.messages[WRAPPED]).toStartWith('Merge queue batch: #101, #103\n\n- #101 fix(cli): change 101\n- #103 fix(cli): change 103\n\n');
     expect(h.gh).toContainEqual(['workflow', 'run', 'build.yml', '--repo', 'owner/repo', '--ref', STAGING_BRANCH, '-f', 'release_proof=true']);
     expect(h.remote.main).toBe(MAIN);
@@ -283,11 +82,11 @@ describe('staging a batch', () => {
 describe('a refused push of the staged commit', () => {
   const refusal = ' ! [remote rejected] HEAD -> merge-queue/staging (refusing to allow a GitHub App to create or update workflow `.github/workflows/build.yml` without `workflows` permission)';
 
-  test('removes the pull requests that change workflow files with the refusal and stages the rest in the same pass', () => {
+  test('removes the pull requests that change or rename out of workflow files with the refusal and stages the rest in the same pass', () => {
     const h = createHarness({
       pulls: [pull(101, HEAD_A), pull(102, HEAD_B)],
       greenHeads: new Set([HEAD_A, HEAD_B]),
-      filesByPr: { 101: ['.github/workflows/build.yml', 'scripts/ci/plan.ts'] },
+      filesByPr: { 101: [{ filename: 'docs/old-workflow.yml', previous_filename: '.github/workflows/build.yml' }] },
       stagingPushRefusal: refusal,
     });
     const actions = runQueuePass(h.io, { dryRun: false, usingWorkflowToken: true });
@@ -313,7 +112,9 @@ describe('a refused push of the staged commit', () => {
 
 describe('landing a batch', () => {
   test('moves main to the staged commit without force, checks the tree, records the run on every pull request, and dispatches main once', () => {
-    const h = greenBatch({ filesByPr: { 102: ['packages/rules/src/simulator/eval.ts'] } });
+    const h = greenBatch({
+      filesByPr: { 102: [{ filename: 'docs/moved.ts', previous_filename: 'packages/rules/src/simulator/eval.ts' }] },
+    });
     const actions = runQueuePass(h.io, { dryRun: false, usingWorkflowToken: true });
     expect(actions.map((action) => action.kind)).toEqual(['land', 'idle']);
     expect(h.git).toContainEqual(['push', 'origin', `${STAGED}:refs/heads/main`]);
@@ -340,7 +141,6 @@ describe('landing a batch', () => {
     const original = h.io.git;
     h.io.git = (args) => {
       const out = original(args);
-      // Someone else's commit lands on top between the push and the check.
       if (args[0] === 'push' && args.at(-1) === `${STAGED}:refs/heads/main`) h.remote.main = '9'.repeat(40);
       return out;
     };
@@ -354,14 +154,10 @@ describe('landing a batch', () => {
     const before = greenBatch();
     before.remote.onPushMain = () => { before.remote.main = moved; };
     const actions = runQueuePass(before.io, { dryRun: false, usingWorkflowToken: true });
-    expect(actions.map((action) => action.kind)).toEqual(['land']);
+    expect(actions.map((action) => action.kind)).toEqual(['land', 'stage']);
     expect(before.remote.main).toBe(moved);
     expect(before.comments).toEqual([]);
     expect(before.remote.pulls.map((item) => item.labels)).toEqual([[QUEUE_LABEL], [QUEUE_LABEL]]);
-    expect(before.remote.branches[STAGING_BRANCH]).toBeUndefined();
-
-    const next = runQueuePass(before.io, { dryRun: false, usingWorkflowToken: true });
-    expect(next.map((action) => action.kind)).toEqual(['stage']);
     expect(before.git).toContainEqual(['checkout', '--detach', moved]);
   });
 
@@ -421,21 +217,78 @@ describe('landing a batch', () => {
 });
 
 describe('a red main', () => {
-  const failed = { id: 9, run_attempt: 2, status: 'completed', conclusion: 'failure', html_url: 'https://github.com/owner/repo/actions/runs/9' };
+  const failedTrunk: RunItem = {
+    id: 9,
+    run_attempt: 2,
+    status: 'completed',
+    conclusion: 'failure',
+    html_url: 'https://github.com/owner/repo/actions/runs/9',
+    event: 'push',
+    head_branch: 'main',
+    actor: { login: 'github-actions[bot]' },
+  };
+  const passedTrunk: RunItem = { ...failedTrunk, id: 10, run_attempt: 1, conclusion: 'success' };
 
-  test('holds a green staged batch while a watched workflow failed or is being rerun on the head of main, and not during a first attempt', () => {
-    for (const run of [failed, { ...failed, status: 'in_progress', conclusion: null }]) {
+  test('holds a green staged batch while a watched trunk run failed or is being rerun on main, and not during a first attempt', () => {
+    const botDispatchFailed: RunItem = { ...failedTrunk, event: 'workflow_dispatch', actor: { login: 'github-actions[bot]' } };
+    const rerunning: RunItem = { ...failedTrunk, status: 'in_progress', conclusion: null };
+    for (const run of [failedTrunk, botDispatchFailed, rerunning]) {
       const h = greenBatch({ mainRuns: { 'slow-scenarios.yml': [run] } });
-      expect(runQueuePass(h.io, { dryRun: false, usingWorkflowToken: true })).toEqual([{ kind: 'hold-main-red', workflow: 'Slow app scenarios', runUrl: failed.html_url }]);
+      expect(runQueuePass(h.io, { dryRun: false, usingWorkflowToken: true })).toEqual([
+        { kind: 'hold-main-red', workflow: 'Slow app scenarios', runUrl: failedTrunk.html_url },
+      ]);
       expect(mutations(h)).toEqual({ git: [], gh: [] });
       expect(h.logs.join('\n')).toContain('Slow app scenarios is red on main');
     }
-    const firstAttempt = greenBatch({ mainRuns: { 'build.yml': [{ ...failed, run_attempt: 1, status: 'in_progress', conclusion: null }] } });
+    const firstAttempt = greenBatch({
+      mainRuns: { 'build.yml': [{ ...failedTrunk, run_attempt: 1, status: 'in_progress', conclusion: null }] },
+    });
     expect(runQueuePass(firstAttempt.io, { dryRun: false, usingWorkflowToken: true }).map((action) => action.kind)).toEqual(['land', 'idle']);
   });
 
+  test('ignores nightly schedule and manual dispatch runs so they neither cause false holds nor shadow a failed trunk run', () => {
+    const nightlyFailed: RunItem = {
+      id: 20, run_attempt: 1, status: 'completed', conclusion: 'failure',
+      html_url: 'https://github.com/owner/repo/actions/runs/20', event: 'schedule', head_branch: 'main', actor: { login: 'github-actions[bot]' },
+    };
+    const nightlyOnly = greenBatch({ mainRuns: { 'slow-scenarios.yml': [nightlyFailed] } });
+    expect(runQueuePass(nightlyOnly.io, { dryRun: false, usingWorkflowToken: true }).map((action) => action.kind)).toEqual(['land', 'idle']);
+
+    const nightlyRunning: RunItem = { ...nightlyFailed, id: 21, status: 'in_progress', conclusion: null };
+    const manualPass: RunItem = {
+      id: 22, run_attempt: 1, status: 'completed', conclusion: 'success',
+      html_url: 'https://github.com/owner/repo/actions/runs/22', event: 'workflow_dispatch', head_branch: 'main', actor: { login: 'contributor' },
+    };
+    for (const nonTrunk of [nightlyRunning, manualPass]) {
+      const shadowed = greenBatch({ mainRuns: { 'slow-scenarios.yml': [nonTrunk, failedTrunk] } });
+      expect(runQueuePass(shadowed.io, { dryRun: false, usingWorkflowToken: true })).toEqual([
+        { kind: 'hold-main-red', workflow: 'Slow app scenarios', runUrl: failedTrunk.html_url },
+      ]);
+      expect(mutations(shadowed)).toEqual({ git: [], gh: [] });
+    }
+  });
+
+  test('holds normal pull requests while a bisect probe branch is active after main moved, until main is proven green', () => {
+    const oldBatch = '7'.repeat(40);
+    const probe = bisectBranch({ commit: oldBatch, workflowId: 5, index: 0 });
+    const inProgressFirst: RunItem = { ...passedTrunk, status: 'in_progress', conclusion: null };
+    const activeBisect = greenBatch({
+      branches: { [STAGING_BRANCH]: STAGED, [probe]: '8'.repeat(40) },
+      mainRuns: { 'build.yml': [passedTrunk], 'slow-scenarios.yml': [inProgressFirst] },
+    });
+    const held = runQueuePass(activeBisect.io, { dryRun: false, usingWorkflowToken: true });
+    expect(held).toMatchObject([{ kind: 'hold-main-red', runUrl: `https://github.com/owner/repo/commit/${oldBatch}` }]);
+    expect(mutations(activeBisect)).toEqual({ git: [], gh: [] });
+
+    const provenGreen = greenBatch({
+      branches: { [STAGING_BRANCH]: STAGED, [probe]: '8'.repeat(40) },
+      mainRuns: { 'build.yml': [passedTrunk], 'slow-scenarios.yml': [passedTrunk] },
+    });
+    expect(runQueuePass(provenGreen.io, { dryRun: false, usingWorkflowToken: true }).map((action) => action.kind)).toEqual(['land', 'idle']);
+  });
+
   test('stages a revert ahead of the held batch', () => {
-    const h = greenBatch({ mainRuns: { 'build.yml': [failed] } });
+    const h = greenBatch({ mainRuns: { 'build.yml': [failedTrunk] } });
     h.remote.pulls.push({ ...pull(103, HEAD_C), title: 'revert: fix(cli): change 90' });
     h.remote.greenHeads.add(HEAD_C);
     const actions = runQueuePass(h.io, { dryRun: false, usingWorkflowToken: true });
@@ -453,10 +306,10 @@ describe('dry run', () => {
       [greenBatch({ branches: { [STAGING_BRANCH]: STAGED, [REFUSED_BRANCH]: STAGED } }), 'land'],
     ];
     for (const [h, kind] of states) {
-      const before = JSON.stringify({ ...h.remote, greenHeads: [...h.remote.greenHeads] });
+      const before = JSON.stringify({ ...h.remote, greenHeads: [...h.remote.greenHeads], ancestors: [...h.remote.ancestors] });
       expect(runQueuePass(h.io, { dryRun: true, usingWorkflowToken: true }).map((action) => action.kind)).toEqual([kind]);
       expect(mutations(h)).toEqual({ git: [], gh: [] });
-      expect(JSON.stringify({ ...h.remote, greenHeads: [...h.remote.greenHeads] })).toBe(before);
+      expect(JSON.stringify({ ...h.remote, greenHeads: [...h.remote.greenHeads], ancestors: [...h.remote.ancestors] })).toBe(before);
       expect(h.comments).toEqual([]);
     }
   });
@@ -464,16 +317,13 @@ describe('dry run', () => {
 
 describe('against a real git remote', () => {
   function sh(cwd: string, args: string[]): string {
-    // Only the repositories' own configuration applies, not the machine's.
     const env = { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1' };
     const out = spawnSync('git', args, { cwd, encoding: 'utf8', env });
     if (out.status !== 0) throw new Error(`git ${args.join(' ')} failed: ${out.stderr}`);
     return out.stdout.trim();
   }
 
-  /** A bare remote with main and two pull request branches that touch
-   *  different files, and a clone the queue works in. */
-  function repositories(): { origin: string; work: string; heads: [string, string] } {
+  function initPair(): { origin: string; seed: string; work: string; commit: (file: string, text: string, message: string) => string } {
     const root = mkdtempSync(join(tmpdir(), 'merge-queue-git-'));
     const origin = join(root, 'origin.git');
     const seed = join(root, 'seed');
@@ -489,19 +339,12 @@ describe('against a real git remote', () => {
     sh(seed, ['checkout', '--quiet', '-b', 'main']);
     commit('base.txt', 'base\n', 'base');
     sh(seed, ['push', '--quiet', 'origin', 'main']);
-    const heads: string[] = [];
-    for (const name of ['one', 'two']) {
-      sh(seed, ['checkout', '--quiet', '-b', `fix/${name}`, 'main']);
-      heads.push(commit(`${name}.txt`, `${name}\n`, `fix: ${name}`));
-      sh(seed, ['push', '--quiet', 'origin', `fix/${name}`]);
-    }
     sh(root, ['clone', '--quiet', origin, work]);
-    return { origin, work, heads: [heads[0]!, heads[1]!] };
+    return { origin, seed, work, commit };
   }
 
-  function realHarness(): { h: Harness; origin: string; work: string; heads: [string, string]; syncStaging: () => string } {
-    const { origin, work, heads } = repositories();
-    const h = createHarness({ pulls: [pull(101, heads[0]), pull(102, heads[1])], greenHeads: new Set(heads) });
+  function wireRealRemote(origin: string, work: string, pulls: ReturnType<typeof pull>[]): { h: Harness; syncStaging: () => string } {
+    const h = createHarness({ pulls, greenHeads: new Set(pulls.map((item) => item.headSha)) });
     Object.defineProperty(h.remote, 'main', { get: () => sh(origin, ['rev-parse', 'refs/heads/main']), set: () => {} });
     h.io.git = (args) => sh(work, args);
     const syncStaging = (): string => {
@@ -511,11 +354,49 @@ describe('against a real git remote', () => {
       h.remote.stagingRuns = [GREEN_RUN];
       return tip;
     };
-    return { h, origin, work, heads, syncStaging };
+    return { h, syncStaging };
+  }
+
+  function realBatchIo(origin: string, pulls: ReturnType<typeof pull>[]): BatchIo {
+    return {
+      repo: 'owner/repo',
+      git: (args) => sh(origin, args),
+      log: () => {},
+      gh: (args) => {
+        const rawPath = args.find((arg) => arg.startsWith('repos/owner/repo/'));
+        let path = '';
+        if (rawPath !== undefined) path = rawPath.slice('repos/owner/repo/'.length);
+        const commitMatch = /^commits\/([0-9a-f]+)$/.exec(path);
+        if (commitMatch) {
+          const sha = commitMatch[1] ?? '';
+          const parentsRaw = sh(origin, ['log', '-1', '--format=%P', sha]);
+          const parents: { sha: string }[] = [];
+          if (parentsRaw !== '') {
+            for (const parentSha of parentsRaw.split(' ')) parents.push({ sha: parentSha });
+          }
+          const message = sh(origin, ['log', '-1', '--format=%B', sha]);
+          return JSON.stringify({ sha, parents, commit: { message } });
+        }
+        const pullMatch = /^pulls\/(\d+)$/.exec(path);
+        if (pullMatch) {
+          const found = pulls.find((item) => item.number === Number(pullMatch[1]));
+          if (found === undefined) throw new Error(`missing pull ${path}`);
+          return JSON.stringify({ number: found.number, title: found.title, head: { ref: found.headRef } });
+        }
+        throw new Error(`unexpected api ${path}`);
+      },
+    };
   }
 
   test('the staged commit has main as first parent and holds both heads, and landing makes main that very commit', () => {
-    const { h, origin, work, heads, syncStaging } = realHarness();
+    const { origin, seed, work, commit } = initPair();
+    const heads: string[] = [];
+    for (const name of ['one', 'two']) {
+      sh(seed, ['checkout', '--quiet', '-b', `fix/${name}`, 'main']);
+      heads.push(commit(`${name}.txt`, `${name}\n`, `fix: ${name}`));
+      sh(seed, ['push', '--quiet', 'origin', `fix/${name}`]);
+    }
+    const { h, syncStaging } = wireRealRemote(origin, work, [pull(101, heads[0]!), pull(102, heads[1]!)]);
     const base = sh(origin, ['rev-parse', 'refs/heads/main']);
     expect(runQueuePass(h.io, { dryRun: false, usingWorkflowToken: true }).map((action) => action.kind)).toEqual(['stage']);
     const tip = syncStaging();
@@ -523,7 +404,6 @@ describe('against a real git remote', () => {
     expect(firstParent).toBe(base);
     expect(sh(origin, ['rev-parse', `${tip}^{tree}`])).toBe(sh(origin, ['rev-parse', `${chain}^{tree}`]));
     expect(sh(origin, ['ls-tree', '--name-only', tip]).split('\n')).toEqual(['base.txt', 'one.txt', 'two.txt']);
-    // The chain is one two-parent merge per pull request, each revertible by itself.
     expect(sh(origin, ['log', '--first-parent', '--format=%P', `${base}..${chain}`]).split('\n').map((line) => line.split(' ')[1])).toEqual([heads[1], heads[0]]);
     expect(parseStagingCommit(h.remote.messages[tip] ?? '')?.pulls.map((entry) => entry.headSha)).toEqual(heads);
 
@@ -532,7 +412,6 @@ describe('against a real git remote', () => {
     for (const head of heads) sh(origin, ['merge-base', '--is-ancestor', head, 'refs/heads/main']);
     expect(h.comments.map((entry) => entry.pull)).toEqual([101, 102]);
 
-    // What the auto-revert lane does for one pull request of a landed batch: revert its merge commit alone.
     const firstMerge = sh(origin, ['rev-list', '--first-parent', `${base}..${chain}`]).split('\n').at(-1) ?? '';
     sh(work, ['fetch', '--quiet', 'origin', 'main']);
     sh(work, ['checkout', '--quiet', '--detach', 'origin/main']);
@@ -540,12 +419,92 @@ describe('against a real git remote', () => {
     expect(sh(work, ['ls-tree', '--name-only', 'HEAD']).split('\n')).toEqual(['base.txt', 'two.txt']);
   }, 60_000);
 
+  test('stacked pull requests in one batch keep a 1-to-1 bisectable merge chain even when the child is queued first', () => {
+    const { origin, seed, work, commit } = initPair();
+    sh(seed, ['checkout', '--quiet', '-b', 'stack/base', 'main']);
+    const head101 = commit('c1.txt', 'c1\n', 'feat: c1');
+    sh(seed, ['push', '--quiet', 'origin', 'stack/base']);
+    sh(seed, ['checkout', '--quiet', '-b', 'stack/child', 'stack/base']);
+    const head102 = commit('c2.txt', 'c2\n', 'feat: c2');
+    sh(seed, ['push', '--quiet', 'origin', 'stack/child']);
+    sh(seed, ['checkout', '--quiet', '-b', 'fix/other', 'main']);
+    const head103 = commit('other.txt', 'other\n', 'fix: other');
+    sh(seed, ['push', '--quiet', 'origin', 'fix/other']);
+
+    const batchPulls = [
+      { ...pull(102, head102), labeledAt: '2026-11-14T11:01:00Z' },
+      { ...pull(101, head101), labeledAt: '2026-11-14T11:02:00Z' },
+      { ...pull(103, head103), labeledAt: '2026-11-14T11:03:00Z' },
+    ];
+    const { h, syncStaging } = wireRealRemote(origin, work, batchPulls);
+    expect(runQueuePass(h.io, { dryRun: false, usingWorkflowToken: true }).map((action) => action.kind)).toEqual(['stage']);
+    const tip = syncStaging();
+    expect(runQueuePass(h.io, { dryRun: false, usingWorkflowToken: true }).map((action) => action.kind)).toEqual(['land', 'idle']);
+
+    const parents = sh(origin, ['log', '-1', '--format=%P', tip]).split(' ');
+    const message = sh(origin, ['log', '-1', '--format=%B', tip]);
+    const members = batchMembers(realBatchIo(origin, batchPulls), { sha: tip, parents, message });
+    expect(members?.map((entry) => entry.pull?.number)).toEqual([101, 102, 103]);
+
+    // Reverting only the stacked child (#102) keeps #101 and #103 on main.
+    const childCommit = members?.[1]?.sha;
+    if (childCommit === undefined) throw new Error('missing stacked child commit');
+    sh(work, ['fetch', '--quiet', 'origin', 'main']);
+    sh(work, ['checkout', '--quiet', '--detach', 'origin/main']);
+    sh(work, ['revert', '--no-edit', '-m', '1', childCommit]);
+    expect(sh(work, ['ls-tree', '--name-only', 'HEAD']).split('\n')).toEqual(['base.txt', 'c1.txt', 'other.txt']);
+  }, 60_000);
+
+  test('two pull requests sharing the same head commit still produce a 1-to-1 bisectable merge chain', () => {
+    const { origin, seed, work, commit } = initPair();
+    sh(seed, ['checkout', '--quiet', '-b', 'fix/dup-a', 'main']);
+    const sharedHead = commit('dup.txt', 'dup\n', 'fix: dup');
+    sh(seed, ['push', '--quiet', 'origin', 'fix/dup-a']);
+    sh(seed, ['push', '--quiet', 'origin', 'fix/dup-a:refs/heads/fix/dup-b']);
+
+    const batchPulls = [pull(101, sharedHead), pull(102, sharedHead)];
+    const { h, syncStaging } = wireRealRemote(origin, work, batchPulls);
+    expect(runQueuePass(h.io, { dryRun: false, usingWorkflowToken: true }).map((action) => action.kind)).toEqual(['stage']);
+    const tip = syncStaging();
+    expect(runQueuePass(h.io, { dryRun: false, usingWorkflowToken: true }).map((action) => action.kind)).toEqual(['land', 'idle']);
+
+    const parents = sh(origin, ['log', '-1', '--format=%P', tip]).split(' ');
+    const message = sh(origin, ['log', '-1', '--format=%B', tip]);
+    const members = batchMembers(realBatchIo(origin, batchPulls), { sha: tip, parents, message });
+    expect(members?.map((entry) => entry.pull?.number)).toEqual([101, 102]);
+  }, 60_000);
+
+  test('a pull request whose head is already an ancestor of main is dequeued cleanly without amending main', () => {
+    const { origin, seed, work, commit } = initPair();
+    sh(seed, ['checkout', '--quiet', '-b', 'stack/parent', 'main']);
+    const head101 = commit('c1.txt', 'c1\n', 'feat: c1');
+    sh(seed, ['push', '--quiet', 'origin', 'stack/parent']);
+    sh(seed, ['checkout', '--quiet', 'main']);
+    sh(seed, ['merge', '--quiet', '--no-ff', 'stack/parent', '-m', 'land stacked child']);
+    sh(seed, ['push', '--quiet', 'origin', 'main']);
+    const mainBefore = sh(origin, ['rev-parse', 'refs/heads/main']);
+
+    const { h } = wireRealRemote(origin, work, [pull(101, head101)]);
+    const actions = runQueuePass(h.io, { dryRun: false, usingWorkflowToken: true });
+    expect(actions.map((action) => action.kind)).toEqual(['dequeue', 'idle']);
+    expect(sh(origin, ['rev-parse', 'refs/heads/main'])).toBe(mainBefore);
+    expect(sh(origin, ['ls-remote', origin, `refs/heads/${STAGING_BRANCH}`])).toBe('');
+    expect(h.gh.filter((args) => args[0] === 'workflow')).toEqual([]);
+    expect(h.comments[0]?.text).toContain('already in `main`');
+  }, 60_000);
+
   test('git refuses the landing when main moved after staging, and main keeps the other commit', () => {
-    const { h, origin, syncStaging } = realHarness();
+    const { origin, seed, work, commit } = initPair();
+    const heads: string[] = [];
+    for (const name of ['one', 'two']) {
+      sh(seed, ['checkout', '--quiet', '-b', `fix/${name}`, 'main']);
+      heads.push(commit(`${name}.txt`, `${name}\n`, `fix: ${name}`));
+      sh(seed, ['push', '--quiet', 'origin', `fix/${name}`]);
+    }
+    const { h, syncStaging } = wireRealRemote(origin, work, [pull(101, heads[0]!), pull(102, heads[1]!)]);
     runQueuePass(h.io, { dryRun: false, usingWorkflowToken: true });
     const tip = syncStaging();
     const other = sh(origin, ['commit-tree', sh(origin, ['rev-parse', 'refs/heads/main^{tree}']), '-p', 'refs/heads/main', '-m', 'someone else']);
-    // The move happens after the queue has read main, as a concurrent push would.
     const git = h.io.git;
     h.io.git = (args) => {
       if (args[0] === 'push' && args.at(-1) === `${tip}:refs/heads/main`) sh(origin, ['update-ref', 'refs/heads/main', other]);
@@ -553,8 +512,15 @@ describe('against a real git remote', () => {
     };
     const frozen = Object.getOwnPropertyDescriptor(h.remote, 'main')!;
     let reads = 0;
-    Object.defineProperty(h.remote, 'main', { get: () => (reads++ < 2 ? sh(origin, ['rev-parse', `${tip}^1`]) : (frozen.get?.() as string)), set: () => {} });
-    expect(runQueuePass(h.io, { dryRun: false, usingWorkflowToken: true }).map((action) => action.kind)).toEqual(['land']);
+    Object.defineProperty(h.remote, 'main', {
+      get: () => {
+        reads += 1;
+        if (reads <= 2) return sh(origin, ['rev-parse', `${tip}^1`]);
+        return frozen.get?.() as string;
+      },
+      set: () => {},
+    });
+    expect(runQueuePass(h.io, { dryRun: false, usingWorkflowToken: true }).map((action) => action.kind)).toEqual(['land', 'stage']);
     expect(sh(origin, ['rev-parse', 'refs/heads/main'])).toBe(other);
     expect(h.comments).toEqual([]);
     expect(h.logs.join('\n')).toContain('main or a pull request head moved');

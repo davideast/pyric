@@ -71,7 +71,29 @@ export type Verdict =
   /** The failing commit is a merge queue batch that is being bisected. */
   | { kind: 'bisect'; step: 'probe' | 'wait'; index: number };
 
-const FAILED = new Set(['failure', 'timed_out']);
+export const FAILED_CONCLUSIONS: ReadonlySet<string> = new Set(['failure', 'timed_out']);
+export const BOT_ACTOR = 'github-actions[bot]';
+
+export interface MainWorkflowRun {
+  event?: string;
+  head_branch?: string;
+  actor?: { login?: string } | null;
+}
+
+/** Whether a run on `main` was dispatched by the workflow token itself
+ *  (as the merge queue does after landing under `github.token`). */
+export function isBotMainDispatch(run: MainWorkflowRun): boolean {
+  const onMain = run.head_branch === undefined || run.head_branch === 'main';
+  return run.event === 'workflow_dispatch' && onMain && run.actor?.login === BOT_ACTOR;
+}
+
+/** Whether a run on `main` is a trunk run (`push` or bot `workflow_dispatch`),
+ *  excluding nightly `schedule` runs and manual human dispatches. */
+export function isWatchedMainRun(run: MainWorkflowRun): boolean {
+  const onMain = run.head_branch === undefined || run.head_branch === 'main';
+  if (run.event === 'push' && onMain) return true;
+  return isBotMainDispatch(run);
+}
 
 /** Whether the commit is a revert: a revert pull request merged, a commit git
  *  revert wrote, or a merge of this lane's own branch. */
@@ -110,7 +132,7 @@ function culpritProblem(facts: Facts): string | undefined {
   const { run, parentConclusion } = facts;
   if (isRevert(run)) return `${run.headSha} is a revert; reverting it again is left to a person`;
   if (parentConclusion === undefined) return `no finished ${run.workflow} push run on the parent ${run.parents[0] ?? '(none)'}, so the culprit is unknown`;
-  if (FAILED.has(parentConclusion)) return `the run on the parent ${run.parents[0]} failed too, so main was already red`;
+  if (FAILED_CONCLUSIONS.has(parentConclusion)) return `the run on the parent ${run.parents[0]} failed too, so main was already red`;
   if (parentConclusion !== 'success') return `the run on the parent ${run.parents[0]} ended ${parentConclusion}, so the culprit is unknown`;
   const quarantined = quarantinedFailures(run.failures, facts.quarantine, facts.today);
   if (quarantined.length > 0) return `quarantined tests failed: ${quarantined.join(', ')}`;

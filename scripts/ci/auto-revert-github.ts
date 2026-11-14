@@ -35,9 +35,23 @@ import { join } from 'node:path';
 import { openOrUpdateIssue, type Gh } from './github-issues.ts';
 import { collectAttempt, defaultContext, type Context } from '../lib/main-failure/github.ts';
 import { readEntries, todayUtc } from '../lib/quarantine/entries.ts';
-import { BRANCH_PREFIX, decide, isRevert, originalTitle, revertBody, revertCommands, type FailedRun, type Facts, type Verdict } from './auto-revert.ts';
+import {
+  BOT_ACTOR,
+  BRANCH_PREFIX,
+  FAILED_CONCLUSIONS,
+  decide,
+  isBotMainDispatch,
+  isRevert,
+  isWatchedMainRun,
+  originalTitle,
+  revertBody,
+  revertCommands,
+  type FailedRun,
+  type Facts,
+  type Verdict,
+} from './auto-revert.ts';
 import { batchMembers, bisectBatch, deleteProbes, parseBisectBranch, queuedPull, type BatchCommit, type BatchMember } from './auto-revert-batch.ts';
-import { parseStagedPulls } from './merge-queue.ts';
+import { QUEUE_LABEL, parseStagedPulls } from './merge-queue.ts';
 
 /** What `gh pr create` prints when the repository does not let workflows
  *  open pull requests (Settings, Actions, General). */
@@ -72,20 +86,13 @@ interface RunJson {
   /** The workflow file, such as `.github/workflows/build.yml`. */
   path?: string;
   actor?: { login?: string } | null;
+  triggering_actor?: { login?: string } | null;
 }
 
-const FAILED = new Set(['failure', 'timed_out']);
-
-const BOT_ACTOR = 'github-actions[bot]';
-const MERGE_QUEUE_LABEL = 'merge-queue';
-
-function isBotMainDispatch(run: Pick<RunJson, 'event' | 'head_branch' | 'actor'>): boolean {
-  return run.event === 'workflow_dispatch' && run.head_branch === 'main' && run.actor?.login === BOT_ACTOR;
-}
-
-function isWatchedMainRun(run: Pick<RunJson, 'event' | 'head_branch' | 'actor'>): boolean {
-  if (run.event === 'push' && run.head_branch === 'main') return true;
-  return isBotMainDispatch(run);
+function workflowFileName(path: string | undefined): string {
+  if (path === undefined || path === '') return '';
+  const parts = path.split('/');
+  return parts.at(-1) ?? '';
 }
 
 interface CommitJson {
@@ -164,7 +171,7 @@ export interface Gathered {
  *  run on main. */
 export function gather(io: Io, runId: number, attempt: number, quarantine: Facts['quarantine'], today: string): Gathered | string {
   const run = api<RunJson>(io, `actions/runs/${runId}/attempts/${attempt}`);
-  const failed = FAILED.has(run.conclusion ?? '');
+  const failed = FAILED_CONCLUSIONS.has(run.conclusion ?? '');
   if (!isWatchedMainRun(run) || !failed) {
     return `attempt ${attempt} of run ${runId} is a ${run.event} run on ${run.head_branch} that ended ${run.conclusion ?? run.status}`;
   }
@@ -176,11 +183,15 @@ export function gather(io: Io, runId: number, attempt: number, quarantine: Facts
     workflow: run.name, runId, attempt, url: run.html_url, headSha: run.head_sha, parents,
     message: commit.commit.message, pull: mergedPull(io, run.head_sha, commit.commit.message), failures,
   };
+  let parentConclusion: string | undefined;
+  if (parent?.status === 'completed' && parent.conclusion !== null) parentConclusion = parent.conclusion;
+  let existing: Facts['existingRevert'];
+  if (attempt === 2) existing = existingRevert(io, run.head_sha);
   const facts: Facts = {
     run: failedRun,
-    parentConclusion: parent?.status === 'completed' ? parent.conclusion ?? undefined : undefined,
+    parentConclusion,
     superseded: attempt === 1 && superseded(io, run, runId),
-    existingRevert: attempt === 2 ? existingRevert(io, run.head_sha) : undefined,
+    existingRevert: existing,
     quarantine,
     today,
   };
@@ -188,7 +199,7 @@ export function gather(io: Io, runId: number, attempt: number, quarantine: Facts
     facts, failedJobs: [...new Set(failures.map((failure) => failure.job))], parentRunUrl: parent?.html_url,
     commit: { sha: run.head_sha, parents, message: commit.commit.message },
     workflowId: run.workflow_id,
-    workflowFile: (run.path ?? '').split('/').at(-1) ?? '',
+    workflowFile: workflowFileName(run.path),
   };
 }
 
@@ -251,13 +262,13 @@ function revert(io: Io, gathered: Gathered, verdict: RevertVerdict): Verdict {
   const prNumber = /\/pull\/(\d+)\s*$/.exec(url)?.[1];
   if (prNumber !== undefined) {
     try {
-      io.gh(['api', '-X', 'POST', `repos/${io.repo}/issues/${prNumber}/labels`, '-f', `labels[]=${MERGE_QUEUE_LABEL}`]);
+      io.gh(['api', '-X', 'POST', `repos/${io.repo}/issues/${prNumber}/labels`, '-f', `labels[]=${QUEUE_LABEL}`]);
     } catch {
       // Best-effort if the merge-queue label has not been created yet.
     }
   }
   io.gh(['pr', 'merge', url, '--repo', io.repo, '--auto', '--merge']);
-  io.log(`Opened ${url}, started ${BUILD_WORKFLOW} on ${verdict.branch}, labeled ${MERGE_QUEUE_LABEL}, and enabled auto-merge: ${verdict.title}`);
+  io.log(`Opened ${url}, started ${BUILD_WORKFLOW} on ${verdict.branch}, labeled ${QUEUE_LABEL}, and enabled auto-merge: ${verdict.title}`);
   return verdict;
 }
 
@@ -293,17 +304,19 @@ function handleBatch(io: Io, gathered: Gathered, members: readonly BatchMember[]
   const member = members[step.index];
   if (member === undefined) throw new Error(`batch ${batch.sha} has no member ${step.index}`);
   const run: FailedRun = { ...gathered.facts.run, headSha: member.sha, parents: member.parents, message: member.message, pull: member.pull };
-  if (isRevert(run)) return quietly(io, `${member.sha} is a revert; reverting it again is left to a person`);
-  const existing = existingRevert(io, member.sha);
-  if (existing !== undefined) return quietly(io, `revert pull request #${existing.number} already exists (${existing.state.toLowerCase()})`);
-  const verdict: RevertVerdict = { kind: 'revert', title: `revert: ${originalTitle(run)}`, branch: `${BRANCH_PREFIX}${member.sha}`, mainline: true };
-  const prefix = dryRun ? 'Dry run, would ' : '';
-  io.log(`${prefix}revert ${member.sha}, pull request ${step.index + 1} of ${members.length} in batch ${batch.sha}, on ${verdict.branch}: ${verdict.title}`);
-  if (dryRun) return verdict;
-  const culprit: Gathered = { ...gathered, facts: { ...gathered.facts, run }, batch: { commit: batch.sha, size: members.length } };
-  const outcome = revert(io, culprit, verdict);
-  deleteProbes(io, batch.sha, gathered.workflowId);
-  return outcome;
+  try {
+    if (isRevert(run)) return quietly(io, `${member.sha} is a revert; reverting it again is left to a person`);
+    const existing = existingRevert(io, member.sha);
+    if (existing !== undefined) return quietly(io, `revert pull request #${existing.number} already exists (${existing.state.toLowerCase()})`);
+    const verdict: RevertVerdict = { kind: 'revert', title: `revert: ${originalTitle(run)}`, branch: `${BRANCH_PREFIX}${member.sha}`, mainline: true };
+    const prefix = dryRun ? 'Dry run, would ' : '';
+    io.log(`${prefix}revert ${member.sha}, pull request ${step.index + 1} of ${members.length} in batch ${batch.sha}, on ${verdict.branch}: ${verdict.title}`);
+    if (dryRun) return verdict;
+    const culprit: Gathered = { ...gathered, facts: { ...gathered.facts, run }, batch: { commit: batch.sha, size: members.length } };
+    return revert(io, culprit, verdict);
+  } finally {
+    if (!dryRun) deleteProbes(io, batch.sha, gathered.workflowId);
+  }
 }
 
 /** Decides on one attempt and carries out the verdict, unless `dryRun`. */
@@ -331,20 +344,25 @@ export function handle(io: Io, runId: number, attempt: number, dryRun: boolean, 
 /** A bisect probe finished. Its first failure is rerun; a pass or a second
  *  failure takes the next step for the batch the probe belongs to. */
 export function handleProbe(io: Io, runId: number, attempt: number, dryRun: boolean, quarantine: Facts['quarantine'], today: string): Verdict {
+  if (attempt > 2) return quietly(io, `probe run ${runId} attempt ${attempt} is past the one rerun`);
   const run = api<RunJson>(io, `actions/runs/${runId}/attempts/${attempt}`);
   const target = parseBisectBranch(run.head_branch);
-  const ownDispatch = run.event === 'workflow_dispatch' && run.actor?.login === BOT_ACTOR;
-  if (target === undefined || !ownDispatch) return quietly(io, `run ${runId} on ${run.head_branch} is not a bisect probe`);
-  const failed = FAILED.has(run.conclusion ?? '');
+  const botDispatched = run.event === 'workflow_dispatch' && run.actor?.login === BOT_ACTOR;
+  const botTriggered = run.triggering_actor?.login === BOT_ACTOR;
+  if (target === undefined || !botDispatched || !botTriggered) {
+    return quietly(io, `run ${runId} on ${run.head_branch} is not a bot-triggered bisect probe`);
+  }
+  const failed = FAILED_CONCLUSIONS.has(run.conclusion ?? '');
   if (failed && attempt === 1) {
-    io.log(`${dryRun ? 'Dry run, would ' : ''}rerun the failed jobs of probe run ${runId}; attempt 2 counts.`);
+    const prefix = dryRun ? 'Dry run, would ' : '';
+    io.log(`${prefix}rerun the failed jobs of probe run ${runId}; attempt 2 counts.`);
     if (!dryRun) io.gh(['run', 'rerun', String(runId), '--failed', '--repo', io.repo]);
     return { kind: 'rerun' };
   }
   if (!failed && run.conclusion !== 'success') return quietly(io, `probe run ${runId} ended ${run.conclusion ?? run.status}, so the bisect stops here`);
   const query = `actions/workflows/${target.workflowId}/runs?branch=main&head_sha=${target.commit}&per_page=10`;
   const candidates = api<{ workflow_runs: (RunJson & { id: number; run_attempt: number })[] }>(io, query).workflow_runs;
-  const batchRun = candidates.find((candidate) => isWatchedMainRun(candidate) && FAILED.has(candidate.conclusion ?? ''));
+  const batchRun = candidates.find((candidate) => isWatchedMainRun(candidate) && FAILED_CONCLUSIONS.has(candidate.conclusion ?? ''));
   if (batchRun === undefined) return quietly(io, `no failed run of the workflow on batch ${target.commit}`);
   return handle(io, batchRun.id, batchRun.run_attempt, dryRun, quarantine, today);
 }
@@ -393,11 +411,15 @@ function required(name: string): string {
 
 function mainReport(): void {
   const repo = required('GITHUB_REPOSITORY');
+  const bisect = parseBisectBranch(process.env.HEAD_BRANCH ?? '');
+  let headSha: string;
+  if (bisect !== undefined) headSha = bisect.commit;
+  else headSha = required('HEAD_SHA');
   const url = reportFailure(defaultIo(repo, defaultContext(repo)), {
     laneRunUrl: required('LANE_RUN_URL'),
     failedRunUrl: required('FAILED_RUN_URL'),
     workflow: required('FAILED_WORKFLOW'),
-    headSha: required('HEAD_SHA'),
+    headSha,
   });
   console.log(url);
 }

@@ -11,6 +11,8 @@ import {
   maxSearchRuns,
   parseStagedPulls,
   parseStagingCommit,
+  type ActiveStaging,
+  type CheckState,
   type DequeueAction,
   type LandAction,
   type QueueAction,
@@ -19,7 +21,7 @@ import {
   type StagedMeta,
   type StagingRun,
 } from './merge-queue.ts';
-import { MAX_TRANSITIONS, Violation, World } from './merge-queue-model.ts';
+import { MAX_TRANSITIONS, World } from './merge-queue-model.ts';
 
 const MAIN = '1'.repeat(40);
 const STAGED = 'c'.repeat(40);
@@ -62,7 +64,8 @@ function facts(candidates: readonly QueuedPull[], overrides: Partial<QueueFacts>
 }
 
 function staged(candidates: readonly QueuedPull[], batch: readonly QueuedPull[], run: StagingRun | undefined, extra: Partial<StagedMeta> = {}): QueueFacts {
-  const activeStaging = { stagingSha: STAGED, committedAtMs: NOW - 120_000, meta: metaFor(batch, extra), ...(run === undefined ? {} : { buildRun: run }) };
+  const activeStaging: ActiveStaging = { stagingSha: STAGED, committedAtMs: NOW - 120_000, meta: metaFor(batch, extra) };
+  if (run !== undefined) activeStaging.buildRun = run;
   return facts(candidates, { activeStaging });
 }
 
@@ -199,8 +202,11 @@ describe('merge queue decisions', () => {
     expect(next).toMatchObject({ kind: 'stage', baseSha: STAGED, search: { suspects: metaFor(rest).pulls, failedRunUrl: RUN_URL } });
     expect(numbers(next)).toEqual([3]);
 
-    const oneLeft = facts([batch[3]!], { mainSha: STAGED, activeStaging: { stagingSha: STAGED, committedAtMs: NOW, meta: metaFor([batch[2]!], { search: { ...search, suspects: metaFor(rest).pulls } }) } });
-    expect(decideQueueStep(oneLeft)).toEqual({ kind: 'dequeue', pulls: [batch[3]!], reason: 'staging-checks-failed', runUrl: RUN_URL, bySearch: true, cleanStaging: true });
+    const searchWithJobs = { ...search, suspects: metaFor(rest).pulls, failedJobs: ['Packaging gate'] };
+    const oneLeft = facts([batch[3]!], { mainSha: STAGED, activeStaging: { stagingSha: STAGED, committedAtMs: NOW, meta: metaFor([batch[2]!], { search: searchWithJobs }) } });
+    expect(decideQueueStep(oneLeft)).toEqual({
+      kind: 'dequeue', pulls: [batch[3]!], reason: 'staging-checks-failed', runUrl: RUN_URL, failedJobs: ['Packaging gate'], bySearch: true, cleanStaging: true,
+    });
 
     const changed = facts([{ ...batch[3]!, headSha: sha(66) }], { mainSha: STAGED, activeStaging: { stagingSha: STAGED, committedAtMs: NOW, meta: metaFor([batch[2]!], { search: { ...search, suspects: metaFor(rest).pulls } }) } });
     expect(decideQueueStep(changed).kind).toBe('clean-staging');
@@ -243,6 +249,8 @@ describe('merge queue decisions', () => {
     const failedTwice = { ...failedOnce, attempt: 2 };
     expect(decideQueueStep({ ...staged([first, second], [first, second], failedOnce), mainRed }).kind).toBe('rerun-staging');
     expect(decideQueueStep({ ...staged([first, second], [first, second], failedTwice), mainRed })).toEqual({ kind: 'hold-main-red', ...mainRed });
+    // Stacked reverts reordered ancestor-first on staging still match the same ready revert set.
+    expect(decideQueueStep({ ...staged([first, second], [second, first], failedTwice), mainRed })).toEqual({ kind: 'hold-main-red', ...mainRed });
     expect(decideQueueStep({ ...staged([first], [first], failedTwice), mainRed })).toEqual({ kind: 'hold-main-red', ...mainRed });
     const third = pull(10, { title: 'revert: three' });
     expect(numbers(decideQueueStep({ ...staged([first, second, third], [first, second], failedTwice), mainRed }))).toEqual([8, 9, 10]);
@@ -396,19 +404,28 @@ describe('queue model: arbitrary event sequences', () => {
     const pick = (): number => 101 + Math.floor(random() * Math.max(world.pulls.size, 1));
     const breaks: number[] = [];
     const events: Array<[number, () => void]> = [
-      [14, () => world.addPull({ bad: random() < 0.2, conflicts: random() < 0.08, checks: random() < 0.7 ? 'success' : 'pending', draft: random() < 0.05 })],
+      [14, () => {
+        const checks: CheckState = random() < 0.7 ? 'success' : 'pending';
+        world.addPull({ bad: random() < 0.2, conflicts: random() < 0.08, checks, draft: random() < 0.05 });
+      }],
       [4, () => world.addPull({ revert: true, bad: random() < 0.1 })],
       [22, () => world.completeRun(random() < 0.15)],
       [4, () => world.cancelRun()],
       [5, () => world.unlabel(pick())],
       [5, () => world.relabel(pick())],
       [5, () => world.pushHead(pick())],
-      [10, () => world.settleChecks(pick(), random() < 0.85 ? 'success' : 'failure')],
+      [10, () => {
+        const outcome = random() < 0.85 ? 'success' : 'failure';
+        world.settleChecks(pick(), outcome);
+      }],
       [2, () => world.setDraft(pick(), random() < 0.5)],
       [3, () => world.moveMain()],
       [3, () => { if (!world.mainIsRed()) breaks.push(world.breakMain()); }],
       [3, () => { const broke = breaks.shift(); if (broke !== undefined) world.addPull({ revert: true, fixes: broke }); }],
-      [8, () => world.tick(random() < 0.5 ? 20_000 : 90_000)],
+      [8, () => {
+        const delta = random() < 0.5 ? 20_000 : 90_000;
+        world.tick(delta);
+      }],
     ];
     const total = events.reduce((sum, [weight]) => sum + weight, 0);
     for (let step = 0; step < steps; step++) {
@@ -416,7 +433,7 @@ describe('queue model: arbitrary event sequences', () => {
       const event = events.find(([weight]) => (roll -= weight) < 0) ?? events[0]!;
       event[1]();
       const taken = world.pass();
-      if (taken.length > MAX_TRANSITIONS) throw new Violation('a pass took more steps than the transition cap');
+      if (taken.length > MAX_TRANSITIONS) throw new Error('a pass took more steps than the transition cap');
     }
     // Let the queue come to rest: no more outside events, every break gets its revert, every check settles.
     // A red main is the one state the queue does not leave by itself when the ready reverts do not
@@ -431,7 +448,7 @@ describe('queue model: arbitrary event sequences', () => {
       world.setDraft(item.number, false);
       world.settleChecks(item.number, 'success');
     }
-    if (!world.drain(400)) throw new Violation('the queue did not come to rest');
+    if (!world.drain(400)) throw new Error('the queue did not come to rest');
     return world;
   }
 
@@ -443,7 +460,10 @@ describe('queue model: arbitrary event sequences', () => {
       try {
         world = randomWalk(seed, 120);
       } catch (error) {
-        throw new Error(`seed ${seed}: ${error instanceof Error ? error.message : String(error)}`);
+        let detail: string;
+        if (error instanceof Error) detail = error.message;
+        else detail = String(error);
+        throw new Error(`seed ${seed}: ${detail}`);
       }
       // No starvation: at rest nothing is left labeled, and main holds nothing that fails.
       const atRest = { seed, queued: world.candidates().map((item) => item.number), mainRed: world.mainIsRed() };
@@ -482,6 +502,7 @@ describe('the merge queue workflow contract', () => {
       'pull-requests': 'write',
     });
     expect(parsed.jobs.queue?.if).toContain('github.event.pull_request.head.repo.full_name == github.repository');
+    expect(parsed.jobs.queue?.if).toContain('github.event.workflow_run.head_repository.full_name == github.repository');
     const inputs = parsed.on.workflow_dispatch?.inputs as Record<string, { default?: unknown }>;
     expect(inputs.dry_run?.default).toBe(true);
     const runStep = parsed.jobs.queue?.steps.find((step) => step.run === 'bun scripts/ci/merge-queue-github.ts');

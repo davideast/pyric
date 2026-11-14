@@ -38,6 +38,7 @@ const BASE_TRAILER = new RegExp(`^Merge-Queue-Base: (${SHA})$`);
 const PULL_TRAILER = new RegExp(`^Merge-Queue-Pull: #(\\d+) (${SHA})$`);
 const SUSPECT_TRAILER = new RegExp(`^Merge-Queue-Suspect: #(\\d+) (${SHA})$`);
 const FAILED_RUN_TRAILER = /^Merge-Queue-Failed-Run: (\S+)$/;
+const FAILED_JOB_TRAILER = /^Merge-Queue-Failed-Job: (.+)$/;
 
 export type CheckState = 'success' | 'failure' | 'pending';
 
@@ -65,6 +66,7 @@ export interface StagedPull {
 export interface SearchState {
   suspects: readonly StagedPull[];
   failedRunUrl: string;
+  failedJobs?: readonly string[];
 }
 
 /** What the tip commit of the staging branch records. */
@@ -109,6 +111,7 @@ export interface QueueFacts {
 export type DequeueReason =
   | 'cross-repository-pull-request'
   | 'pull-request-checks-failed'
+  | 'already-on-main'
   | 'merge-conflict'
   | 'merge-refused'
   | 'staging-push-refused'
@@ -175,13 +178,16 @@ export function formatStagingTrailers(meta: StagedMeta): string {
   if (meta.search !== undefined) {
     for (const pull of meta.search.suspects) lines.push(`Merge-Queue-Suspect: #${pull.number} ${pull.headSha}`);
     lines.push(`Merge-Queue-Failed-Run: ${meta.search.failedRunUrl}`);
+    for (const job of meta.search.failedJobs ?? []) lines.push(`Merge-Queue-Failed-Job: ${job}`);
   }
   return lines.join('\n');
 }
 
 function trailerLines(message: string): string[] {
   const paragraphs = message.trimEnd().split(/\n\s*\n/);
-  return (paragraphs.at(-1) ?? '').split('\n');
+  const last = paragraphs.at(-1);
+  if (last === undefined) return [];
+  return last.split('\n');
 }
 
 function trailerPulls(lines: readonly string[], pattern: RegExp): StagedPull[] {
@@ -202,15 +208,22 @@ export function parseStagingCommit(message: string): StagedMeta | undefined {
   const lines = trailerLines(message);
   let baseSha: string | undefined;
   let failedRunUrl: string | undefined;
+  const failedJobs: string[] = [];
   for (const line of lines) {
     baseSha = BASE_TRAILER.exec(line)?.[1] ?? baseSha;
     failedRunUrl = FAILED_RUN_TRAILER.exec(line)?.[1] ?? failedRunUrl;
+    const jobMatch = FAILED_JOB_TRAILER.exec(line);
+    if (jobMatch !== null && jobMatch[1] !== undefined) failedJobs.push(jobMatch[1]);
   }
   const pulls = trailerPulls(lines, PULL_TRAILER);
   if (baseSha === undefined || pulls.length === 0) return undefined;
   const meta: StagedMeta = { baseSha, pulls };
   const suspects = trailerPulls(lines, SUSPECT_TRAILER);
-  if (failedRunUrl !== undefined && suspects.length > 0) meta.search = { suspects, failedRunUrl };
+  if (failedRunUrl !== undefined && suspects.length > 0) {
+    const search: SearchState = { suspects, failedRunUrl };
+    if (failedJobs.length > 0) search.failedJobs = failedJobs;
+    meta.search = search;
+  }
   return meta;
 }
 
@@ -264,8 +277,9 @@ function revertPreempts(ready: readonly QueuedPull[], held: readonly QueuedPull[
 function isStagedOrSuspected(staging: ActiveStaging | undefined, prNumber: number): boolean {
   const meta = staging?.meta;
   if (meta === undefined) return false;
-  const held = [...meta.pulls, ...(meta.search?.suspects ?? [])];
-  return held.some((pull) => pull.number === prNumber);
+  if (meta.pulls.some((pull) => pull.number === prNumber)) return true;
+  const suspects = meta.search?.suspects;
+  return suspects !== undefined && suspects.some((pull) => pull.number === prNumber);
 }
 
 function asStaged(pulls: readonly QueuedPull[]): StagedPull[] {
@@ -287,12 +301,14 @@ function searchStep(suspects: readonly QueuedPull[], baseSha: string, failed: Pi
     return action;
   }
   const probe = suspects.slice(0, Math.floor(suspects.length / 2));
+  const search: SearchState = { suspects: asStaged(suspects), failedRunUrl: failed.url };
+  if (failed.failedJobs.length > 0) search.failedJobs = failed.failedJobs;
   return {
     kind: 'stage',
     pulls: probe,
     baseSha,
     releaseProof: wantsReleaseProof(probe),
-    search: { suspects: asStaged(suspects), failedRunUrl: failed.url },
+    search,
   };
 }
 
@@ -363,7 +379,7 @@ function decideAfterLanding(meta: StagedMeta, ready: readonly QueuedPull[], main
   if (remaining === undefined || remaining.length === 0 || revertPreempts(ready, remaining)) {
     return { kind: 'clean-staging', reason: 'the culprit search was abandoned because the queue changed' };
   }
-  return searchStep(remaining, mainSha, { url: search.failedRunUrl, failedJobs: [] }, true);
+  return searchStep(remaining, mainSha, { url: search.failedRunUrl, failedJobs: search.failedJobs ?? [] }, true);
 }
 
 function decideWithoutReady(ordered: readonly QueuedPull[], staging: ActiveStaging | undefined): QueueAction {
@@ -383,8 +399,19 @@ function decideWithoutReady(ordered: readonly QueuedPull[], staging: ActiveStagi
   return { kind: 'idle', reason: 'queue is empty' };
 }
 
-function sameBatch(left: readonly QueuedPull[], right: readonly QueuedPull[]): boolean {
-  return left.length === right.length && left.every((pull, index) => pull.number === right[index]?.number);
+function samePullSet(left: readonly QueuedPull[], right: readonly QueuedPull[]): boolean {
+  if (left.length !== right.length) return false;
+  const numbers = new Set(left.map((pull) => pull.number));
+  return right.every((pull) => numbers.has(pull.number));
+}
+
+function hasCurrentRevertBatch(
+  staging: ActiveStaging,
+  staged: readonly QueuedPull[],
+  reverts: readonly QueuedPull[],
+): boolean {
+  if (staging.meta?.search !== undefined) return false;
+  return samePullSet(staged, reverts);
 }
 
 /** While `main` is red, a staging run says nothing about a batch that does
@@ -400,8 +427,7 @@ function decideOnRedMain(facts: QueueFacts, red: NonNullable<QueueFacts['mainRed
   const reverts = ready.filter(isFastlaneRevert).slice(0, MAX_BATCH);
   if (reverts.length === 0) return hold;
   const staged = currentBatch(staging, ready, facts.mainSha);
-  const searching = staging?.meta?.search !== undefined;
-  if (staging === undefined || staged === undefined || searching || !sameBatch(staged, reverts)) {
+  if (staging === undefined || staged === undefined || !hasCurrentRevertBatch(staging, staged, reverts)) {
     const stage: StageAction = { kind: 'stage', pulls: reverts, baseSha: facts.mainSha, releaseProof: wantsReleaseProof(reverts) };
     if (cancelRunId !== undefined) stage.cancelRunId = cancelRunId;
     return stage;
@@ -470,6 +496,9 @@ export function dequeueComment(action: DequeueAction, pull: QueuedPull, mainSha:
   }
   if (action.reason === 'pull-request-checks-failed') {
     return `Removed \`${QUEUE_LABEL}\`: \`CI / required\` failed on pull request head \`${shortHead}\`. Fix the failing check and re-apply \`${QUEUE_LABEL}\`.`;
+  }
+  if (action.reason === 'already-on-main') {
+    return `Removed \`${QUEUE_LABEL}\`: \`${shortHead}\` is already in \`main\` (\`${shortMain}\`), so there is nothing to merge.`;
   }
   if (action.reason === 'merge-conflict') {
     return `Removed \`${QUEUE_LABEL}\`: merging \`${shortHead}\` onto \`main\` (\`${shortMain}\`) and the pull requests queued ahead of it produced a conflict. Merge or rebase \`main\`, wait for \`CI / required\`, and re-apply \`${QUEUE_LABEL}\`.`;

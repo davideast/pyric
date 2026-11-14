@@ -49,10 +49,11 @@ Every PR opens as a draft and stays one until it is approved.
   conflicts while the batch is built loses the label with a comment.
 - Revert pull requests (title starting `revert:`, or branch `auto-revert/*`) go
   first, in a batch of their own. While `Build & Test` or `Slow app scenarios`
-  is red on the head of `main`, the queue lands reverts only; land a forward
-  fix by hand, or wait for the revert. A revert batch that fails on a red
-  `main` stays staged and nobody loses the label; remove the label from a
-  revert that should not be queued, or add the missing one.
+  is red on the head of `main`, or while `auto-revert.yml` is still bisecting a
+  failed batch, the queue lands reverts only; land a forward fix by hand, or
+  wait for the revert. A revert batch that fails on a red `main` stays staged
+  and nobody loses the label; remove the label from a revert that should not be
+  queued, or add the missing one.
 - If `main` goes red after a batch landed, `auto-revert.yml` bisects the batch
   with runs on `merge-queue/bisect/*` branches and opens a revert for the one
   pull request it finds, not for the batch.

@@ -1,7 +1,7 @@
 // A small world the merge queue engine is run against in tests: pull
 // requests, `main`, the staging branch and its run, and the events that
 // change them. `pass` asks `decideQueueStep` for steps and carries them out
-// the way `merge-queue-github.ts` does, and throws `Violation` the moment a
+// the way `merge-queue-github.ts` does, and throws an Error the moment a
 // step breaks a queue invariant. `merge-queue.test.ts` drives it with fixed
 // and seeded random event sequences.
 
@@ -24,9 +24,7 @@ import {
 /** The executor's cap on steps carried out in one pass. */
 export const MAX_TRANSITIONS = 5;
 
-export class Violation extends Error {}
-
-export interface ModelPull {
+interface ModelPull {
   number: number;
   version: number;
   labeled: boolean;
@@ -89,6 +87,11 @@ function contentId(pull: ModelPull): string {
 
 function headSha(pull: Pick<ModelPull, 'number' | 'version'>): string {
   return `h${pull.number}v${pull.version}`;
+}
+
+function treeEntries(pull: ModelPull): string[] {
+  if (pull.fixes === undefined) return [contentId(pull)];
+  return [contentId(pull), `fix${pull.fixes}`];
 }
 
 export class World {
@@ -202,9 +205,10 @@ export class World {
   }
 
   private queued(pull: ModelPull): QueuedPull {
+    const title = pull.revert ? `revert: change ${pull.number}` : `fix: change ${pull.number}`;
     return {
       number: pull.number,
-      title: pull.revert ? `revert: change ${pull.number}` : `fix: change ${pull.number}`,
+      title,
       isDraft: pull.draft,
       headRef: `branch-${pull.number}`,
       headSha: headSha(pull),
@@ -254,7 +258,7 @@ export class World {
   // --- carrying out a step ---------------------------------------------------
 
   private check(condition: boolean, message: string): asserts condition {
-    if (!condition) throw new Violation(message);
+    if (!condition) throw new Error(message);
   }
 
   private modelPull(number: number): ModelPull {
@@ -333,7 +337,7 @@ export class World {
     }
     const meta: StagedMeta = { baseSha: this.main.sha, pulls: staged.map((pull) => ({ number: pull.number, headSha: headSha(pull) })) };
     if (action.search !== undefined) meta.search = action.search;
-    const tree = [...this.main.tree, ...staged.flatMap((pull) => (pull.fixes === undefined ? [contentId(pull)] : [contentId(pull), `fix${pull.fixes}`]))];
+    const tree = [...this.main.tree, ...staged.flatMap(treeEntries)];
     this.staging = { sha: `stg${this.next()}`, committedAt: this.now, meta, tree, dispatches: 0 };
     this.stats.stagings += 1;
     this.dispatch(this.staging);
