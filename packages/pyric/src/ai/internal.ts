@@ -27,6 +27,7 @@ export {
   GEMINI_DEFAULT_BASE_URL,
   GeminiUpstream,
   hasGeminiStaticKey,
+  maskStreamErrors,
   redactUpstreamError,
   redactUpstreamText,
   redactUpstreamUrl,

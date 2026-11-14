@@ -165,10 +165,65 @@ function decoded(part: string): string {
   }
 }
 
+const BASE64_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+
+function encodeUtf8Base64(text: string): string {
+  const bytes = new TextEncoder().encode(text);
+  if (bytes.length === 0) return '';
+  let out = '';
+  let i = 0;
+  while (i + 2 < bytes.length) {
+    const triple = (bytes[i]! << 16) | (bytes[i + 1]! << 8) | bytes[i + 2]!;
+    out += BASE64_ALPHABET[(triple >> 18) & 63]!;
+    out += BASE64_ALPHABET[(triple >> 12) & 63]!;
+    out += BASE64_ALPHABET[(triple >> 6) & 63]!;
+    out += BASE64_ALPHABET[triple & 63]!;
+    i += 3;
+  }
+  const remaining = bytes.length - i;
+  if (remaining === 1) {
+    const single = bytes[i]! << 16;
+    out += BASE64_ALPHABET[(single >> 18) & 63]!;
+    out += BASE64_ALPHABET[(single >> 12) & 63]!;
+    out += '==';
+  } else if (remaining === 2) {
+    const pair = (bytes[i]! << 16) | (bytes[i + 1]! << 8);
+    out += BASE64_ALPHABET[(pair >> 18) & 63]!;
+    out += BASE64_ALPHABET[(pair >> 12) & 63]!;
+    out += BASE64_ALPHABET[(pair >> 6) & 63]!;
+    out += '=';
+  }
+  return out;
+}
+
+function synthesizedBasicTokens(url: string, rawUserinfo: string): string[] {
+  const tokens: string[] = [];
+  const colon = rawUserinfo.indexOf(':');
+  let rawUser = rawUserinfo;
+  let rawPass = '';
+  if (colon >= 0) {
+    rawUser = rawUserinfo.slice(0, colon);
+    rawPass = rawUserinfo.slice(colon + 1);
+  }
+  if (rawUser !== '' || rawPass !== '') {
+    tokens.push(encodeUtf8Base64(`${decoded(rawUser)}:${decoded(rawPass)}`));
+    tokens.push(encodeUtf8Base64(`${rawUser}:${rawPass}`));
+  }
+  try {
+    const parsed = new URL(url);
+    if (parsed.username !== '' || parsed.password !== '') {
+      tokens.push(encodeUtf8Base64(`${decoded(parsed.username)}:${decoded(parsed.password)}`));
+    }
+  } catch {
+    // Malformed authority userinfo already covered above.
+  }
+  return tokens.filter((token) => token !== '');
+}
+
 /**
- * The username and password an upstream URL carries, as written,
- * percent-encoded and percent-decoded, for the exact-string masking
- * {@link redactUpstreamText} applies (#1766).
+ * The username, password, and synthesized Basic-auth token an upstream URL
+ * carries, as written, percent-encoded and percent-decoded, for the
+ * exact-string masking {@link redactUpstreamText} applies (#1766).
  */
 export function urlCredentials(url: string): string[] {
   const located = locateUserinfo(url);
@@ -178,7 +233,9 @@ export function urlCredentials(url: string): string[] {
     ...userinfoParts(located.rawUserinfo),
     ...parsedAuthorityUserinfo(url),
   ].filter((part) => part !== '');
-  return [...new Set(parts.flatMap((part) => [part, decoded(part)]))];
+  const expanded = parts.flatMap((part) => [part, decoded(part)]);
+  expanded.push(...synthesizedBasicTokens(url, located.rawUserinfo));
+  return [...new Set(expanded)];
 }
 
 /** `url` as it is shown: without its userinfo, and with credential parameters masked. */
@@ -226,4 +283,72 @@ export function redactUpstreamError(text: string, credentials: readonly string[]
   const json = parseJson(text);
   if (json === undefined) return redactUpstreamText(text, credentials);
   return JSON.stringify(redactValue(json.value, credentials));
+}
+
+function isJsonErrorEvent(data: string): boolean {
+  try {
+    const value = JSON.parse(data) as unknown;
+    return value !== null && typeof value === 'object' && 'error' in value;
+  } catch {
+    return false;
+  }
+}
+
+function maskSseLine(
+  line: string,
+  credentials: readonly string[],
+  state: { eventIsError: boolean },
+): string {
+  const carriageReturn = line.endsWith('\r') ? '\r' : '';
+  const body = line.slice(0, line.length - carriageReturn.length);
+  if (body === '') {
+    state.eventIsError = false;
+    return line;
+  }
+  if (/^event:\s*error$/i.test(body)) {
+    state.eventIsError = true;
+    return line;
+  }
+  const prefix = /^data: ?/.exec(body)?.[0];
+  if (prefix === undefined) return line;
+  const data = body.slice(prefix.length);
+  if (!state.eventIsError && !isJsonErrorEvent(data)) return line;
+  return `${prefix}${redactUpstreamError(data, credentials)}${carriageReturn}`;
+}
+
+/**
+ * Wraps an SSE `2xx` byte stream so any error event (`data: {"error": ...}` or
+ * `event: error`) has its credentials masked before reaching the caller, while
+ * streaming complete lines immediately in linear time without buffering.
+ */
+export function maskStreamErrors(
+  body: ReadableStream<Uint8Array>,
+  credentials: readonly string[],
+): ReadableStream<Uint8Array> {
+  const decoder = new TextDecoder();
+  const encoder = new TextEncoder();
+  const state = { eventIsError: false };
+  let pending = '';
+  return body.pipeThrough(
+    new TransformStream<Uint8Array, Uint8Array>({
+      transform(bytes, controller) {
+        const arrived = decoder.decode(bytes, { stream: true });
+        const lastNewline = arrived.lastIndexOf('\n');
+        if (lastNewline === -1) {
+          pending += arrived;
+          return;
+        }
+        const lines = (pending + arrived.slice(0, lastNewline)).split('\n');
+        pending = arrived.slice(lastNewline + 1);
+        const masked = lines.map((line) => `${maskSseLine(line, credentials, state)}\n`).join('');
+        controller.enqueue(encoder.encode(masked));
+      },
+      flush(controller) {
+        pending += decoder.decode();
+        if (pending !== '') {
+          controller.enqueue(encoder.encode(maskSseLine(pending, credentials, state)));
+        }
+      },
+    }),
+  );
 }
