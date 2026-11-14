@@ -223,8 +223,8 @@ export function createViteModuleSwap(
   const allowedUrls = new Set<string>();
   const observed = new Set<ServedFirebaseSpecifier>();
 
-  function sdkAliasNames(projectDir: string = root): readonly string[] {
-    const resolvedDir = path.resolve(projectDir);
+  function sdkAliasNames(): readonly string[] {
+    const resolvedDir = path.resolve(root);
     if (cachedSdkAliasRoot === resolvedDir) return cachedSdkAliases;
     cachedSdkAliasRoot = resolvedDir;
     cachedSdkAliases = installedFirebaseSdkNames({ projectDir: resolvedDir }).filter(
@@ -518,7 +518,6 @@ export function createViteModuleSwap(
 
   return {
     config(configOptions) {
-      const projectDir = path.resolve(configOptions?.userConfig?.root ?? process.cwd());
       const excludedModules = [
         ...SDK_MODULES,
         'firebase-admin',
@@ -532,7 +531,6 @@ export function createViteModuleSwap(
         // of pyric, with its own app registry, and the served entries would
         // resolve to that copy too (#1506). The bare name covers every subpath.
         PYRIC_PACKAGE,
-        ...sdkAliasNames(projectDir),
       ];
       if (options?.supplied !== undefined) {
         excludedModules.push(...LIVE_ROW_SDK_PACKAGES, ...passThroughSdkPackages(options.supplied.passThrough));

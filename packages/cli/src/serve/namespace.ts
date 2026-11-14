@@ -31,16 +31,19 @@ import { registerSessionTokenRequirement } from './local-session-token.js';
 import {
   appendSetCookieHeader,
   formatSessionCookie,
-  getHeader,
-  isAllowedHost,
-  isAllowedOriginOnPorts,
   isAllowedSessionToken,
-  isForeignFetchSite,
   isLocalPeer,
   pipeFileToResponse,
-  requestSocketScheme,
   type ServeLogger,
 } from './server.js';
+import {
+  canBootstrapSdkSession,
+  guardAvatarLoopback,
+  guardLoopback,
+  guardSdkRequest,
+  remotePeerInitPayload,
+  unauthenticatedInitPayload,
+} from './namespace-guards.js';
 import type { InitPayload } from './init-payload.js';
 import type { AppPorts } from './app-ports.js';
 import { handleActivity } from './activity-route.js';
@@ -129,130 +132,6 @@ export interface NamespaceOptions {
   beaconToken?: string;
   /** Where hot-reload/diagnostic lines print. */
   logger?: ServeLogger;
-}
-
-type GuardOptions = Pick<NamespaceOptions, 'boundHost' | 'allowedHosts' | 'appPorts'>;
-
-/**
- * A /__pyric request comes from a page of this app, so the Origin names one of
- * its ports: this server's own, or under `pyric sandbox` the port of a dev
- * server that proxies to it (see app-ports.ts).
- */
-const NO_ALLOWED_HOSTS: string[] = [];
-
-function isAppOrigin(
-  req: IncomingMessage,
-  originHeader: string,
-  opts: GuardOptions,
-  allowExtraHosts: boolean,
-): boolean {
-  const boundHost = opts.boundHost ?? 'localhost';
-  let extra = NO_ALLOWED_HOSTS;
-  if (allowExtraHosts && opts.allowedHosts !== undefined) {
-    extra = opts.allowedHosts;
-  }
-  let ports = opts.appPorts?.forRequest(req);
-  if (ports === undefined && req.socket?.localPort !== undefined) {
-    ports = [req.socket.localPort];
-  }
-  return isAllowedOriginOnPorts(originHeader, boundHost, extra, ports, requestSocketScheme(req));
-}
-
-/**
- * What a client on another machine reads from init.json: no project data, no
- * capability, and the fields a page needs to say why it has no sandbox.
- * An allowlist, so a field added to the payload stays local until it is named here.
- */
-function remotePeerInitPayload(payload: InitPayload): InitPayload {
-  return {
-    instanceId: payload.instanceId,
-    hosted: payload.hosted,
-    remotePeer: true,
-    rules: null,
-    rulesHash: null,
-    storageRules: null,
-    storageRulesHash: null,
-    bridgeUrl: null,
-    seed: null,
-  };
-}
-
-/**
- * PUBLIC STATIC loopback guard for `GET /__pyric/assets/avatar/<uid>`.
- *
- * Avatar URLs are rendered directly in `<img src>`, which cannot attach a
- * session capability token, and inside opaque-origin `blob:` / `srcdoc` iframes,
- * which browsers mark `Sec-Fetch-Site: cross-site`. This guard still requires a
- * local loopback socket peer, a loopback/bound `Host` (never admitting
- * `--allowed-host` tunnel hostnames), and no foreign `Origin`, while
- * `avatar-route.ts` disables paid/disk `source` callbacks whenever
- * `Sec-Fetch-Site` is `cross-site` or `same-site`.
- */
-function guardAvatarLoopback(
-  req: IncomingMessage,
-  res: ServerResponse,
-  opts: GuardOptions,
-): boolean {
-  if (!isLocalPeer(req)) {
-    res.writeHead(403, { 'content-type': 'text/plain' }).end('Forbidden: this route answers clients on this machine only');
-    return false;
-  }
-  const hostHeader = getHeader(req, 'host');
-  if (!isAllowedHost(hostHeader, opts.boundHost ?? 'localhost')) {
-    res.writeHead(403, { 'content-type': 'text/plain' }).end('Forbidden: host not allowed');
-    return false;
-  }
-  const originHeader = getHeader(req, 'origin');
-  if (originHeader && !isAppOrigin(req, originHeader, opts, false)) {
-    res.writeHead(403, { 'content-type': 'text/plain' }).end('Forbidden: origin mismatch');
-    return false;
-  }
-  return true;
-}
-
-function guardLoopback(
-  req: IncomingMessage,
-  res: ServerResponse,
-  opts: GuardOptions,
-  allowExtraHosts = false,
-): boolean {
-  // First, and whatever the headers say: a client chooses its own headers.
-  const isRemotePeer = !isLocalPeer(req);
-  if (isRemotePeer) {
-    res.writeHead(403, { 'content-type': 'text/plain' }).end('Forbidden: this route answers clients on this machine only');
-    return false;
-  }
-  const hostHeader = getHeader(req, 'host');
-  const originHeader = getHeader(req, 'origin');
-  const extra = allowExtraHosts ? opts.allowedHosts : undefined;
-  if (!isAllowedHost(hostHeader, opts.boundHost ?? 'localhost', extra)) {
-    res.writeHead(403, { 'content-type': 'text/plain' }).end('Forbidden: host not allowed');
-    return false;
-  }
-  if (originHeader && !isAppOrigin(req, originHeader, opts, allowExtraHosts)) {
-    res.writeHead(403, { 'content-type': 'text/plain' }).end('Forbidden: origin mismatch');
-    return false;
-  }
-  let ports = opts.appPorts?.forRequest(req);
-  if (ports === undefined && req.socket?.localPort) {
-    ports = [req.socket.localPort];
-  }
-  if (isForeignFetchSite(req, opts.boundHost ?? 'localhost', ports)) {
-    res.writeHead(403, { 'content-type': 'text/plain' }).end('Forbidden: cross-site request rejected');
-    return false;
-  }
-  return true;
-}
-
-function unauthenticatedInitPayload(payload: InitPayload): Record<string, unknown> {
-  const out: Record<string, unknown> = {
-    rulesHash: payload.rulesHash ?? null,
-    databaseRulesHash: payload.databaseRulesHash ?? null,
-    storageRulesHash: payload.storageRulesHash ?? null,
-  };
-  if (payload.instanceId !== undefined) out.instanceId = payload.instanceId;
-  if (payload.hosted !== undefined) out.hosted = payload.hosted;
-  return out;
 }
 
 export type PyricNamespaceHandler = ((
@@ -515,7 +394,7 @@ export function createPyricNamespace(opts: NamespaceOptions): PyricNamespaceHand
     }
     const isSdkRequest = url.pathname.startsWith('/__pyric/sdk/');
     if (isSdkRequest) {
-      if (!guardLoopback(req, res, opts, false)) return true;
+      if (!guardSdkRequest(req, res, opts)) return true;
       const file = join(opts.sdkDir, basename(url.pathname));
       const missingFile = !existsSync(file);
       if (missingFile) {
@@ -530,7 +409,7 @@ export function createPyricNamespace(opts: NamespaceOptions): PyricNamespaceHand
       }
       const isSourceMap = file.endsWith('.map');
       const type = isSourceMap ? 'application/json' : 'text/javascript; charset=utf-8';
-      if (getHeader(req, 'sec-fetch-site')?.trim().toLowerCase() === 'same-origin') {
+      if (canBootstrapSdkSession(req, opts)) {
         appendSetCookieHeader(res, formatSessionCookie(sessionToken));
       }
       res.writeHead(200, { 'content-type': type, 'cache-control': 'no-store' });

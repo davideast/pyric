@@ -190,6 +190,7 @@ function recordBoundEnvPort(raw: string | undefined, boundPorts: number[]): bool
 function isEnvSessionTokenAllowedForPort(input: {
   env: NodeJS.ProcessEnv;
   targetPort: number | undefined;
+  boundHostUrl: string | undefined;
   diskPorts: ReadonlySet<number>;
   tokenMismatchedOnDisk: boolean;
 }): boolean {
@@ -198,7 +199,7 @@ function isEnvSessionTokenAllowedForPort(input: {
   if (input.tokenMismatchedOnDisk) return false;
 
   const boundEnvPorts: number[] = [];
-  if (!recordBoundEnvPort(env.PYRIC_LIVE_HOST, boundEnvPorts)) return false;
+  if (!recordBoundEnvPort(input.boundHostUrl, boundEnvPorts)) return false;
   if (!recordBoundEnvPort(env.PYRIC_SANDBOX_PORT, boundEnvPorts)) return false;
   if (!recordBoundEnvPort(env.PYRIC_WORKER_INIT_HOST, boundEnvPorts)) return false;
 
@@ -267,6 +268,7 @@ export function resolveSessionTokenLookup(input: {
   cwd?: string;
   url?: string;
   port?: number;
+  boundHostUrl?: string;
   env?: NodeJS.ProcessEnv;
   explicitToken?: string;
   expectedInstanceId?: string | null;
@@ -346,6 +348,7 @@ export function resolveSessionTokenLookup(input: {
     isEnvSessionTokenAllowedForPort({
       env,
       targetPort,
+      boundHostUrl: input.boundHostUrl,
       diskPorts,
       tokenMismatchedOnDisk,
     })
@@ -365,6 +368,7 @@ export function resolveSessionTokenForTarget(input: {
   cwd?: string;
   url?: string;
   port?: number;
+  boundHostUrl?: string;
   env?: NodeJS.ProcessEnv;
   explicitToken?: string;
 }): string | undefined {

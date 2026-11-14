@@ -2,10 +2,13 @@
  * Execution-time `PATH` shim and shared `env`/shell sanitizer bounds for
  * `spawnSandboxChild` (ADR 0023):
  *   (a) `bun`/`deno` reached through bundled shell/`env` flags, subshells, `case`
- *       substitutions, dynamic wrapper options, or external scripts hit the stub.
- *   (b) `node` reached through bundled `env` flags, `env -S`, `sh -c` inline
- *       overrides, or a `package.json` `npm run` script setting `NODE_OPTIONS`
- *       still loads the sandbox and preserves user `NODE_OPTIONS` flags.
+ *       substitutions, dynamic wrapper options, or external scripts hit the stub
+ *       under POSIX `/bin/sh` (`dash` and `bash`).
+ *   (b) `node` reached through bundled `env` flags, `env -S`, and `sh -c` inline
+ *       overrides loads the sandbox and preserves user `NODE_OPTIONS` flags,
+ *       while a `package.json` `npm run` script that intentionally overwrites
+ *       `NODE_OPTIONS` without `$NODE_OPTIONS` is not masked (preserving
+ *       `withPyric`'s refusal contract).
  *   (c) A `PATH` without `bun`/`bunx`/`deno` receives no `bun`/`bunx`/`deno` stub,
  *       keeping `command -v bun` honest.
  *   (d) The `0700` shim directory is removed after child exit and after spawn error.
@@ -74,23 +77,32 @@ describe('spawnSandboxChild execution-time PATH shim & sanitizer bounds', () => 
     const vectors: string[][] = [
       ['sh', '-oc', 'errexit', 'bun x'],
       ['sh', '-co', 'errexit', 'bun x'],
-      ['bash', '-Oc', 'extglob', 'bun x'],
       ['env', '-vS', 'bun x'],
       ['env', '-iS', `PATH=${basePath} bun x`],
-      ['sh', '-c', 'echo $((bun x); true)'],
-      ['sh', '-c', '$((bun x); true)'],
+      ['sh', '-c', 'echo $( (bun x); true )'],
+      ['sh', '-c', '$( (bun x); true )'],
       ['sh', '-c', 'echo $(case x in x) bun x;; esac)'],
       ['sh', '-c', 'F=-c; sh $F "deno run app.ts"'],
     ];
+    if (findExecutableOnPath('bash', process.env.PATH) !== null) {
+      vectors.push(['bash', '-Oc', 'extglob', 'bun x']);
+    }
+    if (findExecutableOnPath('dash', process.env.PATH) !== null) {
+      vectors.push(
+        ['dash', '-c', 'echo $( (bun x); true )'],
+        ['dash', '-c', 'echo $(case x in x) bun x;; esac)'],
+        ['dash', '-c', 'F=-c; dash $F "deno run app.ts"'],
+      );
+    }
 
     for (const argv of vectors) {
       const res = await runCapturingStderr(argv, dir, baseEnv);
-      expect(res.stderr).toContain(UNSUPPORTED_RUNTIME_CODE);
+      expect(res.stderr, argv.join(' ')).toContain(UNSUPPORTED_RUNTIME_CODE);
       expect(existsSync(leakedMarker)).toBe(false);
     }
   });
 
-  it('(b) preserves sandbox activation and merges NODE_OPTIONS across bundled env flags, sh -c overrides, and npm run scripts', async () => {
+  it('(b) preserves sandbox activation and merges NODE_OPTIONS across bundled env flags and sh -c overrides without masking npm run NODE_OPTIONS overwrites', async () => {
     const dir = makeDir('pyric-shim-node-');
     const wsPkg = fileURLToPath(new URL('../../../../package.json', import.meta.url));
     const outFile = path.join(dir, 'probe-out.json');
@@ -101,9 +113,9 @@ describe('spawnSandboxChild execution-time PATH shim & sanitizer bounds', () => 
         "import { writeFileSync } from 'node:fs';",
         "import { createRequire } from 'node:module';",
         `const req = createRequire(${JSON.stringify(wsPkg)});`,
-        "const resolved = req.resolve('firebase-admin/app');",
+        "const adminApp = req('firebase-admin/app');",
         `writeFileSync(${JSON.stringify(outFile)}, JSON.stringify({`,
-        "  isRealSdk: resolved.includes('/node_modules/firebase-admin/'),",
+        "  isRealSdk: !('ADMIN_APP_TARGET' in adminApp),",
         '  sandbox: process.env.PYRIC_SANDBOX ?? null,',
         '  token: process.env.PYRIC_SESSION_TOKEN ?? null,',
         '  workerInit: process.env.PYRIC_WORKER_INIT ?? null,',
@@ -133,53 +145,62 @@ describe('spawnSandboxChild execution-time PATH shim & sanitizer bounds', () => 
     const directMatrix: string[][] = [
       ['env', '-iv', nodeBin, probeScript],
       ['env', '-iu', 'UNUSED', nodeBin, probeScript],
+      ['env', '-i', '-u', 'UNUSED', nodeBin, probeScript],
       ['env', '-vu', 'PYRIC_SANDBOX', '-vu', 'NODE_OPTIONS', nodeBin, probeScript],
       ['env', '-S', `-u PYRIC_SANDBOX -u NODE_OPTIONS ${JSON.stringify(nodeBin)} ${JSON.stringify(probeScript)}`],
-      ['env', '-vS', `PYRIC_SANDBOX= NODE_OPTIONS= ${JSON.stringify(nodeBin)} ${JSON.stringify(probeScript)}`],
-      ['sh', '-c', `PYRIC_SANDBOX= NODE_OPTIONS= PYRIC_SESSION_TOKEN=forged ${JSON.stringify(nodeBin)} ${JSON.stringify(probeScript)}`],
+      ['env', '-vS', `PYRIC_SANDBOX= NODE_OPTIONS=--max-old-space-size=256 ${JSON.stringify(nodeBin)} ${JSON.stringify(probeScript)}`],
+      ['sh', '-c', `PYRIC_SANDBOX= NODE_OPTIONS=--max-old-space-size=256 PYRIC_SESSION_TOKEN=forged ${JSON.stringify(nodeBin)} ${JSON.stringify(probeScript)}`],
     ];
 
     for (const argv of directMatrix) {
       rmSync(outFile, { force: true });
       const res = await runCapturingStderr(argv, dir, baseEnv);
-      expect(res.code).toBe(0);
+      expect(res.code, argv.join(' ')).toBe(0);
       const parsed = JSON.parse(readFileSync(outFile, 'utf8')) as Record<string, unknown>;
-      expect(parsed.isRealSdk).toBe(false);
+      expect(parsed.isRealSdk, argv.join(' ')).toBe(false);
       expect(parsed.sandbox).toBe('remote:http://127.0.0.1:45999');
       expect(parsed.token).toBe("sess'tok");
       expect(JSON.parse(parsed.workerInit as string)).toEqual(workerInitPayload);
       expect(parsed.active).toBe(true);
     }
 
-    // Real `npm run dev` with package.json script that overrides NODE_OPTIONS and unsets PYRIC_SANDBOX
+    // `npm run` script intentionally overwriting NODE_OPTIONS (without $NODE_OPTIONS) is NOT masked,
+    // preserving withPyric's contract to refuse startup when the register was dropped by package.json.
+    const npmOutFile = path.join(dir, 'npm-probe-out.json');
+    const npmProbeScript = path.join(dir, 'npm-probe.mjs');
+    writeFileSync(
+      npmProbeScript,
+      [
+        "import { writeFileSync } from 'node:fs';",
+        `writeFileSync(${JSON.stringify(npmOutFile)}, JSON.stringify({`,
+        '  sandbox: process.env.PYRIC_SANDBOX ?? null,',
+        '  nodeOptions: process.env.NODE_OPTIONS ?? "",',
+        '  active: Boolean(globalThis[Symbol.for("pyric.register.active")]),',
+        '}));',
+        'process.exit(0);',
+      ].join('\n'),
+    );
     writeFileSync(
       path.join(dir, 'package.json'),
       JSON.stringify({
         name: 'npm-script-app',
         private: true,
         scripts: {
-          dev: `PYRIC_SANDBOX= NODE_OPTIONS=--max-old-space-size=256 node ${JSON.stringify(probeScript)}`,
+          dev: `NODE_OPTIONS=--max-old-space-size=256 node ${JSON.stringify(npmProbeScript)}`,
         },
       }),
     );
-    rmSync(outFile, { force: true });
+    rmSync(npmOutFile, { force: true });
     const npmRes = await runCapturingStderr(['npm', 'run', '--silent', 'dev'], dir, baseEnv);
     expect(npmRes.code).toBe(0);
-    const npmParsed = JSON.parse(readFileSync(outFile, 'utf8')) as {
-      isRealSdk: boolean;
+    const npmParsed = JSON.parse(readFileSync(npmOutFile, 'utf8')) as {
       sandbox: string;
-      token: string;
-      workerInit: string;
       nodeOptions: string;
       active: boolean;
     };
-    expect(npmParsed.isRealSdk).toBe(false);
     expect(npmParsed.sandbox).toBe('remote:http://127.0.0.1:45999');
-    expect(npmParsed.token).toBe("sess'tok");
-    expect(JSON.parse(npmParsed.workerInit)).toEqual(workerInitPayload);
-    expect(npmParsed.nodeOptions).toContain('--max-old-space-size=256');
-    expect(npmParsed.nodeOptions).toContain(`--import ${registerUrl}`);
-    expect(npmParsed.active).toBe(true);
+    expect(npmParsed.nodeOptions).toBe('--max-old-space-size=256');
+    expect(npmParsed.active).toBe(false);
   }, 30_000);
 
   it('(c, d, e) creates no bun/deno stub when absent from PATH, enforces 0700 & cleanup on exit/error, and runs harmless dynamic shell commands', async () => {
@@ -227,7 +248,7 @@ describe('spawnSandboxChild execution-time PATH shim & sanitizer bounds', () => 
       port: string;
       active: boolean;
     };
-    expect(inspected.entries).toEqual(['node']);
+    expect(inspected.entries).toEqual([]);
     expect(inspected.mode).toBe(0o700);
     expect(inspected.port).toBe('4123');
     expect(inspected.active).toBe(true);

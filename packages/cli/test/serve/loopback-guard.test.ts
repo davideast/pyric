@@ -253,7 +253,7 @@ describe('loopback Host and Origin guard (ADR 0024 Decision 5)', () => {
     expect(userinfoOrigin.status).toBe(403);
   });
 
-  it('rejects remote peers, tunnel Hosts, foreign Origins, and foreign Fetch Metadata on /__pyric/sdk/* while preserving local loopback cookie bootstrap', async () => {
+  it('rejects unlisted/wildcard Hosts, foreign Origins, and foreign Fetch Metadata on /__pyric/sdk/* while allowing same-origin allowedHosts without cookie bootstrap and preserving local loopback cookie bootstrap', async () => {
     const root = mkdtempSync(join(tmpdir(), 'pyric-sdk-guard-'));
     tempDirs.push(root);
     const sdkDir = join(root, 'sdk');
@@ -263,7 +263,7 @@ describe('loopback Host and Origin guard (ADR 0024 Decision 5)', () => {
 
     const token = 'sdk-route-session-token';
     const ns = createPyricNamespace({
-      boundHost: '127.0.0.1',
+      boundHost: '0.0.0.0',
       allowedHosts: ['tunnel.example'],
       sdkDir,
       sessionToken: token,
@@ -282,34 +282,18 @@ describe('loopback Host and Origin guard (ADR 0024 Decision 5)', () => {
     handles.push(server);
 
     const rejectedVectors: Array<{ label: string; headers: Record<string, string> }> = [
+      { label: 'wildcard Host 0.0.0.0', headers: { Host: `0.0.0.0:${server.port}` } },
+      { label: 'unlisted Host', headers: { Host: 'unlisted.example' } },
       {
-        label: 'remote peer via marker',
-        headers: { Host: `127.0.0.1:${server.port}`, 'x-pyric-remote-peer': '1' },
+        label: 'remote tunnel cross-site probe',
+        headers: { Host: 'tunnel.example', 'x-pyric-remote-peer': '1', Origin: 'https://other.example', 'Sec-Fetch-Site': 'cross-site' },
       },
-      {
-        label: 'allowedHosts tunnel Host on unauthenticated SDK route',
-        headers: { Host: 'tunnel.example' },
-      },
-      {
-        label: 'foreign Origin',
-        headers: { Host: `127.0.0.1:${server.port}`, Origin: 'https://other.example' },
-      },
-      {
-        label: 'userinfo Origin',
-        headers: { Host: `127.0.0.1:${server.port}`, Origin: `http://attacker.example@127.0.0.1:${server.port}` },
-      },
-      {
-        label: 'sibling localhost port Origin',
-        headers: { Host: `127.0.0.1:${server.port}`, Origin: `http://127.0.0.1:${server.port + 1}` },
-      },
-      {
-        label: 'Sec-Fetch-Site: cross-site',
-        headers: { Host: `127.0.0.1:${server.port}`, 'Sec-Fetch-Site': 'cross-site' },
-      },
-      {
-        label: 'Sec-Fetch-Site: same-site (cross-port)',
-        headers: { Host: `127.0.0.1:${server.port}`, 'Sec-Fetch-Site': 'same-site' },
-      },
+      { label: 'foreign Origin', headers: { Host: `127.0.0.1:${server.port}`, Origin: 'https://other.example' } },
+      { label: 'userinfo Origin', headers: { Host: `127.0.0.1:${server.port}`, Origin: `http://attacker.example@127.0.0.1:${server.port}` } },
+      { label: 'cross-scheme tunnel Origin', headers: { Host: `tunnel.example:${server.port}`, Origin: `https://tunnel.example:${server.port}` } },
+      { label: 'sibling localhost port Origin', headers: { Host: `127.0.0.1:${server.port}`, Origin: `http://127.0.0.1:${server.port + 1}` } },
+      { label: 'Sec-Fetch-Site: cross-site', headers: { Host: `127.0.0.1:${server.port}`, 'Sec-Fetch-Site': 'cross-site' } },
+      { label: 'Sec-Fetch-Site: same-site (cross-port)', headers: { Host: `127.0.0.1:${server.port}`, 'Sec-Fetch-Site': 'same-site' } },
     ];
 
     for (const vector of rejectedVectors) {
@@ -319,6 +303,22 @@ describe('loopback Host and Origin guard (ADR 0024 Decision 5)', () => {
         headers: vector.headers,
       });
       expect(res.status, vector.label).toBe(403);
+    }
+
+    // Same-origin allowedHosts / remote-peer page loads static SDK bundle with ZERO session cookie bootstrap.
+    const allowedRemoteVectors: Array<Record<string, string>> = [
+      { Host: `tunnel.example:${server.port}`, Origin: `http://tunnel.example:${server.port}`, 'x-pyric-remote-peer': '1' },
+      { Host: 'tunnel.example', 'Sec-Fetch-Site': 'same-origin' },
+    ];
+    for (const allowedRemoteHeaders of allowedRemoteVectors) {
+      const remoteSdk = await rawRequest({
+        port: server.port,
+        path: '/__pyric/sdk/worker.js',
+        headers: allowedRemoteHeaders,
+      });
+      expect(remoteSdk.status).toBe(200);
+      expect(remoteSdk.body).toContain('workerReady');
+      expect(remoteSdk.headers['set-cookie']).toBeUndefined();
     }
 
     const localSdk = await rawRequest({

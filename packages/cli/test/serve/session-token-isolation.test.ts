@@ -41,7 +41,7 @@ afterEach(async () => {
 });
 
 describe('session token port scoping, symlink containment, and workspace boundary parity', () => {
-  it('suppresses PYRIC_SESSION_TOKEN on mismatched ports across PYRIC_LIVE_HOST, PYRIC_SANDBOX=remote:<url>, PYRIC_SANDBOX_PORT, PYRIC_WORKER_INIT_HOST, and bare PYRIC_SANDBOX=remote (with or without disk pointer)', () => {
+  it('suppresses PYRIC_SESSION_TOKEN on mismatched ports across boundHostUrl, disk pointer mismatch, PYRIC_SANDBOX=remote:<url>, PYRIC_SANDBOX_PORT, PYRIC_WORKER_INIT_HOST, and bare PYRIC_SANDBOX=remote (with or without disk pointer)', () => {
     const root = mkdtempSync(join(tmpdir(), 'pyric-session-port-scope-'));
     tempDirs.push(root);
     const emptyDir = mkdtempSync(join(tmpdir(), 'pyric-session-empty-'));
@@ -57,26 +57,37 @@ describe('session token port scoping, symlink containment, and workspace boundar
       }),
     );
 
-    // Matching port 4111 resolves token cleanly.
+    // Matching port 4111 resolves token cleanly via explicit boundHostUrl.
     expect(
       resolveSessionTokenForTarget({
         cwd: emptyDir,
         url: 'http://127.0.0.1:4111',
+        boundHostUrl: 'http://127.0.0.1:4111',
         env: {
-          PYRIC_LIVE_HOST: 'http://127.0.0.1:4111',
           PYRIC_SESSION_TOKEN: 'ENV_ONLY_SECRET_TOKEN',
         },
       }),
     ).toBe('ENV_ONLY_SECRET_TOKEN');
 
-    // Mismatched port under PYRIC_LIVE_HOST (distinct envToken, empty cwd so tokenMismatchedOnDisk is false).
+    // Mismatched port under explicit boundHostUrl (distinct envToken, empty cwd so tokenMismatchedOnDisk is false).
     expect(
       resolveSessionTokenForTarget({
         cwd: emptyDir,
         url: 'http://127.0.0.1:5999',
+        boundHostUrl: 'http://127.0.0.1:4111',
         env: {
-          PYRIC_LIVE_HOST: 'http://127.0.0.1:4111',
           PYRIC_SESSION_TOKEN: 'ENV_ONLY_SECRET_TOKEN',
+        },
+      }),
+    ).toBeUndefined();
+
+    // Disk pointer on port 4111 holding the same token suppresses PYRIC_SESSION_TOKEN on port 5999 even with no env host.
+    expect(
+      resolveSessionTokenForTarget({
+        cwd: root,
+        url: 'http://127.0.0.1:5999',
+        env: {
+          PYRIC_SESSION_TOKEN: 'DISK_POINTER_4111_TOKEN',
         },
       }),
     ).toBeUndefined();
@@ -169,8 +180,8 @@ describe('session token port scoping, symlink containment, and workspace boundar
       resolveSessionTokenForTarget({
         cwd: emptyDir,
         url: 'http://127.0.0.1:5999',
+        boundHostUrl: 'https://remote.example:4111',
         env: {
-          PYRIC_LIVE_HOST: 'https://remote.example:4111',
           PYRIC_SESSION_TOKEN: 'NON_LOOPBACK_ENV_TOKEN',
         },
       }),

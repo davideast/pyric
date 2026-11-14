@@ -123,13 +123,21 @@ function sanitizeShellTokenStream(
   const tokens: ShellToken[] = [...initialTokens];
   const out: string[] = [];
   let mode: 'start' | 'env-flags' | 'env-assigns' | 'args' = 'start';
+  let pendingIgnoreEnv = false;
   let i = 0;
+
+  const flushPendingIgnoreEnv = (): void => {
+    if (!pendingIgnoreEnv) return;
+    pendingIgnoreEnv = false;
+    out.push(...pinnedEnvAssignments(optsEnv, shimDir));
+  };
 
   while (i < tokens.length) {
     const tok = tokens[i]!;
     const raw = tok.value;
 
     if (SHELL_OPERATORS.has(raw) || COMMAND_GROUP_TOKENS.has(raw)) {
+      flushPendingIgnoreEnv();
       out.push(raw);
       mode = 'start';
       i++;
@@ -137,6 +145,10 @@ function sanitizeShellTokenStream(
     }
 
     if ((mode === 'start' || mode === 'env-flags' || mode === 'env-assigns') && ENV_ASSIGNMENT.test(raw)) {
+      if (mode === 'env-flags') {
+        flushPendingIgnoreEnv();
+        mode = 'env-assigns';
+      }
       const eq = raw.indexOf('=');
       const key = raw.slice(0, eq);
       const val = raw.slice(eq + 1);
@@ -190,6 +202,7 @@ function sanitizeShellTokenStream(
       if (raw.startsWith('-')) {
         const stepped = stepEnvOption(tokens, i);
         if (stepped.kind === 'unclassified') {
+          flushPendingIgnoreEnv();
           out.push(raw);
           mode = 'args';
           i++;
@@ -197,6 +210,7 @@ function sanitizeShellTokenStream(
         }
         if (stepped.kind === 'end-flags') {
           out.push('--');
+          flushPendingIgnoreEnv();
           mode = 'env-assigns';
           i = stepped.nextIndex;
           continue;
@@ -206,7 +220,7 @@ function sanitizeShellTokenStream(
           out.push('-u', stepped.unsetKey);
         }
         if (stepped.ignoreEnv) {
-          out.push(...pinnedEnvAssignments(optsEnv, shimDir));
+          pendingIgnoreEnv = true;
         }
         if (stepped.splitString !== null) {
           const split = splitEnvSplitString(stepped.splitString);
@@ -215,6 +229,7 @@ function sanitizeShellTokenStream(
             continue;
           }
           // Unclassifiable `-S` string: keep `-S <raw>` intact so `PATH` shim enforces at execution.
+          flushPendingIgnoreEnv();
           out.push('-S', stepped.splitString);
           mode = 'args';
           i = stepped.nextIndex;
@@ -223,6 +238,7 @@ function sanitizeShellTokenStream(
         i = stepped.nextIndex;
         continue;
       }
+      flushPendingIgnoreEnv();
       mode = 'env-assigns';
       continue;
     }
@@ -236,6 +252,7 @@ function sanitizeShellTokenStream(
     i++;
   }
 
+  flushPendingIgnoreEnv();
   return out;
 }
 

@@ -394,20 +394,14 @@ export function spawnSandboxChild(
     }
   }
 
-  // 2. Install execution-time POSIX PATH shim (stubs for installed bun/bunx/deno + node preload wrapper)
+  // 2. Install execution-time POSIX PATH shim (stop stubs for installed bun/bunx/deno)
   const preShimPath = env.PATH ?? process.env.PATH;
   const shim = createLauncherShimDir({
     preShimPath,
-    env: opts.env,
-    registerUrl,
     label: plan.label,
   });
   if (shim.shimDir !== null) {
     env.PATH = prependShimToPath(preShimPath, shim.shimDir);
-  }
-  if (shim.bashEnvPath !== null && env.BASH_ENV && env.BASH_ENV !== shim.bashEnvPath) {
-    env.__PYRIC_ORIG_BASH_ENV = env.BASH_ENV;
-    env.BASH_ENV = shim.bashEnvPath;
   }
 
   // 3. Sanitize `env` invocations, flat `sh -c` scripts, and post-operator KEY=VAL overrides
