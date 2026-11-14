@@ -1,6 +1,6 @@
 /** RTDB value/child listeners and Firebase-compatible `off` registration identity. */
 import type { InboundMessage, RtdbValueSubMessage } from '../protocol.js';
-import { logDatabaseWarning, queryIdentifier } from 'pyric/database/internal';
+import { compareValues, logDatabaseWarning, queryIdentifier } from 'pyric/database/internal';
 import { sameRtdbValue } from '../rtdb-value-equality.js';
 import {
   _defaultLens,
@@ -344,16 +344,20 @@ function onChildEvent(
         }
         if (kind === 'moved' && prior) {
           const orderBy = query?.orderBy ?? { kind: 'priority' as const };
-          if (orderBy.kind !== 'key') {
-            const indexed = (candidate: RtdbWireEntry): unknown => {
-              if (orderBy.kind === 'priority') return candidate.priority ?? null;
-              if (orderBy.kind === 'value') return candidate.value;
-              return valueAt(candidate.value, orderBy.path);
-            };
-            const priorityChangedUnderValue =
-              orderBy.kind === 'value' &&
-              (prior.entry.priority ?? null) !== (entry.priority ?? null);
-            if (!sameRtdbValue(indexed(prior.entry), indexed(entry)) || priorityChangedUnderValue) {
+          if (orderBy.kind === 'priority') {
+            if ((prior.entry.priority ?? null) !== (entry.priority ?? null)) {
+              emit(entry, previousChildName);
+            }
+          } else if (orderBy.kind === 'value') {
+            const valueChanged = !sameRtdbValue(prior.entry.value, entry.value);
+            const priorityChanged = (prior.entry.priority ?? null) !== (entry.priority ?? null);
+            if (valueChanged || priorityChanged) {
+              emit(entry, previousChildName);
+            }
+          } else if (orderBy.kind === 'child') {
+            const beforeChild = valueAt(prior.entry.value, orderBy.path) as Parameters<typeof compareValues>[0];
+            const afterChild = valueAt(entry.value, orderBy.path) as Parameters<typeof compareValues>[0];
+            if (compareValues(beforeChild, afterChild) !== 0) {
               emit(entry, previousChildName);
             }
           }

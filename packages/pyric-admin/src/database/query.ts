@@ -42,7 +42,7 @@ export interface WireQuerySpec {
     readonly value: JsonValue;
     readonly key?: string;
   }>;
-  readonly limit: { readonly kind: LimitKind; readonly n: number } | null;
+  readonly limit: { readonly kind: LimitKind; readonly n: number | null } | null;
 }
 
 export interface QueryExecutionHooks {
@@ -271,9 +271,8 @@ export function buildAdminQuery(hooks: QueryExecutionHooks, spec: QuerySpec): Qu
  * Serializes a non-default `QuerySpec` into the worker protocol's wire query
  * plan. Returns `undefined` for an unconstrained `Reference`.
  *
- * Firebase accepts `+Infinity` limits as unconstrained windows; JSON turns
- * `Infinity` into `null`, so infinite limits omit the wire `limit` clause
- * while keeping identical execution semantics.
+ * JSON serializes `+Infinity` to `null`; encoding infinite limits as
+ * `{ kind, n: null }` preserves constrained-query semantics on the host.
  */
 export function toWireQuerySpec(spec: QuerySpec): WireQuerySpec | undefined {
   if (isDefaultQuerySpec(spec)) return undefined;
@@ -284,9 +283,9 @@ export function toWireQuerySpec(spec: QuerySpec): WireQuerySpec | undefined {
     return { kind: bound.kind, value: bound.value, key: bound.key };
   });
   let limit: WireQuerySpec['limit'] = null;
-  const hasFiniteLimit = spec.limit !== null && Number.isFinite(spec.limit.n);
-  if (hasFiniteLimit && spec.limit !== null) {
-    limit = { kind: spec.limit.kind, n: spec.limit.n };
+  if (spec.limit !== null) {
+    const wireCount = Number.isFinite(spec.limit.n) ? spec.limit.n : null;
+    limit = { kind: spec.limit.kind, n: wireCount };
   }
   return {
     orderBy: spec.orderBy,

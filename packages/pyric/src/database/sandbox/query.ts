@@ -103,11 +103,19 @@ export function applyConstraint(
   c: Constraint,
 ): QuerySpec {
   switch (c.kind) {
-    case 'orderBy':
+    case 'orderBy': {
       if (spec.orderBy !== null) {
         throw new Error(`${ORDER_BY_CALL[c.spec.kind]}: You can't combine multiple orderBy calls.`);
       }
+      if (c.spec.kind === 'child') {
+        const canonicalPath = c.spec.path
+          .split('/')
+          .filter((segment) => segment.length > 0)
+          .join('/');
+        return { ...spec, orderBy: { kind: 'child', path: canonicalPath } };
+      }
       return { ...spec, orderBy: c.spec };
+    }
     case 'bound': {
       const kind = c.bound.kind;
       if (isStartKind(kind) && specHasStart(spec)) {
@@ -142,6 +150,7 @@ export {
   compareValues,
   nameCompare,
   extractOrderValue,
+  indexedOrderValueChanged,
   executeQuery,
   type QueryRow,
   type OrderBy,

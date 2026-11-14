@@ -1,5 +1,5 @@
 const deletedApps = new WeakSet<object>();
-const deleteHooks = new WeakMap<object, Set<() => void>>();
+const deleteHooks = new WeakMap<object, Set<() => void | Promise<void>>>();
 
 /** Internal lifecycle guard shared by every pyric-admin service factory. */
 export function assertAdminAppActive(app: object & { readonly name: string }): void {
@@ -13,9 +13,16 @@ export function assertAdminAppActive(app: object & { readonly name: string }): v
 }
 
 /** Register a teardown hook invoked once when `deleteApp(app)` tombstones `app`. */
-export function onAdminAppDeleted(app: object, cleanup: () => void): void {
+export function onAdminAppDeleted(app: object, cleanup: () => void | Promise<void>): void {
   if (deletedApps.has(app)) {
-    cleanup();
+    try {
+      const result = cleanup();
+      if (result !== undefined) {
+        void Promise.resolve(result).catch(() => {});
+      }
+    } catch {
+      // Isolate late teardown throws on an already-deleted app.
+    }
     return;
   }
   let hooks = deleteHooks.get(app);
@@ -27,18 +34,24 @@ export function onAdminAppDeleted(app: object, cleanup: () => void): void {
 }
 
 /** Tombstone a wrapper while leaving the caller-owned Sandbox alive. */
-export function markAdminAppDeleted(app: object): void {
+export function markAdminAppDeleted(app: object): Promise<void> {
   deletedApps.add(app);
   const hooks = deleteHooks.get(app);
-  if (hooks === undefined) return;
+  if (hooks === undefined) return Promise.resolve();
   deleteHooks.delete(app);
+  const pending: Promise<void>[] = [];
   for (const cleanup of hooks) {
     try {
-      cleanup();
+      const result = cleanup();
+      if (result !== undefined) {
+        pending.push(Promise.resolve(result).catch(() => {}));
+      }
     } catch {
       // Isolate service teardown errors so every registered service detaches.
     }
   }
+  if (pending.length === 0) return Promise.resolve();
+  return Promise.all(pending).then(() => undefined);
 }
 
 export interface AdminServiceLifecycle {

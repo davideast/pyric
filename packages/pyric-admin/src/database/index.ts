@@ -8,14 +8,12 @@
 
 import { isRemoteSandbox, type Sandbox } from 'pyric/sandbox';
 import {
-  createDatabaseInstanceRegistry,
   defaultDatabaseInstance,
   isDefaultDatabaseInstance,
   parseDatabaseLocationUrl,
   parseDatabaseUrl,
   SANDBOX_PROJECT_ID,
   type DatabaseInstance,
-  type DatabaseInstanceRegistry,
 } from 'pyric/sandbox/internal';
 import { increment, serverTimestamp } from 'pyric/database';
 import { deferredExport } from 'pyric/app/internal';
@@ -56,12 +54,7 @@ export const ServerValue: {
   increment: (delta: number) => increment(delta),
 };
 
-interface CachedAppDatabase {
-  db?: Database;
-  urlMeta?: DatabaseUrlMetadata;
-}
-
-const databasesByApp = new WeakMap<PyricAdminApp, DatabaseInstanceRegistry<CachedAppDatabase>>();
+const databasesByApp = new WeakMap<PyricAdminApp, Map<string, Database>>();
 
 /**
  * Returns the {@link Database} service for the supplied app (or the default
@@ -75,28 +68,23 @@ export function getDatabase(
   assertAdminAppActive(resolvedApp);
   if (resolvedApp[ADMIN_APP_TARGET] === 'sandbox') {
     const resolved = resolveAdminDatabaseTarget(resolvedApp, url);
-    let registry = databasesByApp.get(resolvedApp);
-    if (registry === undefined) {
-      registry = createDatabaseInstanceRegistry({ create: () => ({}) });
-      databasesByApp.set(resolvedApp, registry);
+    let handles = databasesByApp.get(resolvedApp);
+    if (handles === undefined) {
+      handles = new Map();
+      databasesByApp.set(resolvedApp, handles);
     }
-    const entry = registry.getOrCreate(registry.keyOf(resolved.routingInstance));
-    if (entry.urlMeta === undefined) {
-      entry.urlMeta = {
-        expectedHost: resolved.expectedHost,
-        originUrl: resolved.originUrl,
-      };
-    } else if (resolved.expectedHost !== undefined && entry.urlMeta.expectedHost === undefined) {
-      entry.urlMeta.expectedHost = resolved.expectedHost;
-      entry.urlMeta.originUrl = resolved.originUrl;
+    let db = handles.get(resolved.cacheKey);
+    if (db === undefined) {
+      db = buildSandboxDatabase(
+        resolvedApp,
+        resolvedApp.sandbox,
+        resolved.cacheKey,
+        resolved.routingInstance,
+        resolved.urlMeta,
+      );
+      handles.set(resolved.cacheKey, db);
     }
-    entry.db ??= buildSandboxDatabase(
-      resolvedApp,
-      resolvedApp.sandbox,
-      resolved.routingInstance,
-      entry.urlMeta,
-    );
-    return entry.db;
+    return db;
   }
   throw new TypeError(
     'pyric-admin/database: getDatabase expected a PyricAdminApp ' +
@@ -129,39 +117,48 @@ function resolveAdminDatabaseTarget(
   app: PyricAdminApp,
   url: string | undefined,
 ): {
+  cacheKey: string;
   routingInstance: DatabaseInstance | undefined;
-  expectedHost: string | undefined;
-  originUrl: string;
+  urlMeta: DatabaseUrlMetadata;
 } {
   if (url === '') throw invalidDatabaseUrl();
   const source = url ?? app.options.databaseURL;
   const projectId = explicitProjectId(app);
   if (source === undefined) {
     const fallback = defaultDatabaseInstance(projectId ?? SANDBOX_PROJECT_ID);
+    const fallbackHost = parseDatabaseLocationUrl(fallback.url).host;
     return {
+      cacheKey: fallback.url,
       routingInstance: undefined,
-      expectedHost: undefined,
-      originUrl: originOfDatabaseUrl(fallback.url),
+      urlMeta: {
+        expectedHost: fallbackHost,
+        originUrl: originOfDatabaseUrl(fallback.url),
+      },
     };
   }
   const instance = parseDatabaseUrl(source);
   const expectedHost = parseDatabaseLocationUrl(source).host;
   const isProjectDefault = isDefaultDatabaseInstance(instance.name, projectId);
+  const routingInstance = isProjectDefault ? undefined : instance;
   return {
-    routingInstance: isProjectDefault ? undefined : instance,
-    expectedHost,
-    originUrl: originOfDatabaseUrl(instance.url),
+    cacheKey: instance.url,
+    routingInstance,
+    urlMeta: {
+      expectedHost,
+      originUrl: originOfDatabaseUrl(instance.url),
+    },
   };
 }
 
 function buildSandboxDatabase(
   app: PyricAdminApp,
   sandbox: Sandbox,
+  cacheKey: string,
   instance: DatabaseInstance | undefined,
   urlMeta: DatabaseUrlMetadata,
 ): Database {
   if (isRemoteSandbox(sandbox)) {
-    return getRemoteDatabase(app, sandbox, instance, urlMeta);
+    return getRemoteDatabase(app, sandbox, cacheKey, instance, urlMeta);
   }
-  return getLocalDatabase(app, sandbox, instance, urlMeta);
+  return getLocalDatabase(app, sandbox, cacheKey, instance, urlMeta);
 }

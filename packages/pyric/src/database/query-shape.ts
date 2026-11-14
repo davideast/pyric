@@ -48,20 +48,73 @@ export function isDefaultQuerySpec(spec: QuerySpec): boolean {
   return spec.orderBy === null && spec.bounds.length === 0 && spec.limit === null;
 }
 
-/** Stable identity for Firebase-equivalent query views, independent of
- * constraint application order. */
-export function queryIdentifier(spec: QuerySpec): string {
-  if (isDefaultQuerySpec(spec)) return 'default';
-  const boundOrder: Record<QuerySpec['bounds'][number]['kind'], number> = {
+type CanonicalBound = {
+  kind: 'startAt' | 'startAfter' | 'endAt' | 'endBefore';
+  value: QuerySpec['bounds'][number]['value'];
+  key?: string;
+};
+
+function canonicalOrderBy(orderBy: QuerySpec['orderBy']): QuerySpec['orderBy'] {
+  if (orderBy === null || orderBy.kind === 'priority') {
+    return null;
+  }
+  if (orderBy.kind === 'child') {
+    const canonicalPath = orderBy.path
+      .split('/')
+      .filter((segment) => segment.length > 0)
+      .join('/');
+    return { kind: 'child', path: canonicalPath };
+  }
+  return orderBy;
+}
+
+function makeCanonicalBound(
+  kind: CanonicalBound['kind'],
+  value: CanonicalBound['value'],
+  key?: string,
+): CanonicalBound {
+  if (key === undefined) {
+    return { kind, value };
+  }
+  return { kind, value, key };
+}
+
+function canonicalBounds(bounds: QuerySpec['bounds']): CanonicalBound[] {
+  const expanded: CanonicalBound[] = [];
+  for (const bound of bounds) {
+    if (bound.kind === 'equalTo') {
+      expanded.push(makeCanonicalBound('startAt', bound.value, bound.key));
+      expanded.push(makeCanonicalBound('endAt', bound.value, bound.key));
+    } else {
+      expanded.push(makeCanonicalBound(bound.kind, bound.value, bound.key));
+    }
+  }
+  const boundOrder: Record<CanonicalBound['kind'], number> = {
     startAt: 0,
     startAfter: 0,
-    equalTo: 1,
-    endAt: 2,
-    endBefore: 2,
+    endAt: 1,
+    endBefore: 1,
   };
-  return JSON.stringify({
-    orderBy: spec.orderBy,
-    bounds: [...spec.bounds].sort((a, b) => boundOrder[a.kind] - boundOrder[b.kind]),
-    limit: spec.limit,
-  });
+  return expanded.sort((a, b) => boundOrder[a.kind] - boundOrder[b.kind]);
+}
+
+function canonicalLimit(
+  limit: QuerySpec['limit'],
+): { kind: NonNullable<QuerySpec['limit']>['kind']; n: number | 'Infinity' } | null {
+  if (limit === null) return null;
+  const count = Number.isFinite(limit.n) ? limit.n : 'Infinity';
+  return { kind: limit.kind, n: count };
+}
+
+/** Stable identity for Firebase-equivalent query views, independent of
+ * constraint application order, slash padding on `orderByChild`, or
+ * `equalTo(v, k?)` vs `startAt(v, k?) + endAt(v, k?)` syntax. */
+export function queryIdentifier(spec: QuerySpec): string {
+  const orderBy = canonicalOrderBy(spec.orderBy);
+  const bounds = canonicalBounds(spec.bounds);
+  const limit = canonicalLimit(spec.limit);
+  if (orderBy === null && bounds.length === 0 && limit === null) {
+    return 'default';
+  }
+  return JSON.stringify({ orderBy, bounds, limit });
 }

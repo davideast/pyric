@@ -5,8 +5,10 @@ export {
 export { isDefaultQuerySpec, queryIdentifier } from './query-shape.js';
 export {
   applyConstraint,
+  compareValues,
   emptySpec,
   extractOrderValue,
+  indexedOrderValueChanged,
   type Bound,
   type Constraint,
   type LimitKind,

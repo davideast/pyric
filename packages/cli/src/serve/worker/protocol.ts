@@ -149,7 +149,7 @@ export type OpMessage = (
   | { t: 'op'; id: string; method: 'admin.deleteDocument'; path: string }
   | { t: 'op'; id: string; method: 'admin.readState'; path?: string; maxDepth?: number }
   | {
-      t: 'op'; id: string; method: 'rtdb.get'; instance: string | undefined; path: string; query?: RtdbQuerySpec;
+      t: 'op'; id: string; method: 'rtdb.get'; instance: string | undefined; path: string; query?: RtdbWireQuerySpec;
       /** A transaction's read of its current value: the sandbox's transaction
        *  engine reads it without evaluating read rules, so this read does not
        *  either. The commit evaluates the write rules. */
@@ -168,12 +168,12 @@ export type OpMessage = (
   // mirror the stream a page port gets and can afford the round trip.
   | { t: 'op'; id: string; method: 'sandbox.clock' }
   | { t: 'op'; id: string; method: 'rtdb.adminSnapshot'; instance: string | undefined }
-  | { t: 'op'; id: string; method: 'rtdb.onDisconnectSet'; instance: string | undefined; path: string; value: unknown; priority?: string | number | null }
-  | { t: 'op'; id: string; method: 'rtdb.onDisconnectUpdate'; instance: string | undefined; path: string; values: Record<string, unknown> }
-  | { t: 'op'; id: string; method: 'rtdb.onDisconnectRemove'; instance: string | undefined; path: string }
-  | { t: 'op'; id: string; method: 'rtdb.onDisconnectCancel'; instance: string | undefined; path: string }
-  | { t: 'op'; id: string; method: 'rtdb.goOffline'; instance: string | undefined }
-  | { t: 'op'; id: string; method: 'rtdb.goOnline'; instance: string | undefined }
+  | { t: 'op'; id: string; method: 'rtdb.onDisconnectSet'; instance: string | undefined; connectionId?: string; path: string; value: unknown; priority?: string | number | null }
+  | { t: 'op'; id: string; method: 'rtdb.onDisconnectUpdate'; instance: string | undefined; connectionId?: string; path: string; values: Record<string, unknown> }
+  | { t: 'op'; id: string; method: 'rtdb.onDisconnectRemove'; instance: string | undefined; connectionId?: string; path: string }
+  | { t: 'op'; id: string; method: 'rtdb.onDisconnectCancel'; instance: string | undefined; connectionId?: string; path: string }
+  | { t: 'op'; id: string; method: 'rtdb.goOffline'; instance: string | undefined; connectionId?: string }
+  | { t: 'op'; id: string; method: 'rtdb.goOnline'; instance: string | undefined; connectionId?: string }
   | {
       t: 'op';
       id: string;
@@ -396,7 +396,7 @@ export interface RtdbValueSubMessage {
     service: 'rtdb';
     instance: string | undefined;
     path: string;
-    query?: RtdbQuerySpec;
+    query?: RtdbWireQuerySpec;
     event?: 'value' | 'child_added' | 'child_changed' | 'child_removed' | 'child_moved';
   };
   actAs?: AuthLens;
@@ -408,6 +408,11 @@ export interface RtdbValueSubMessage {
 
 /** Structured-clone-safe query plan carried by `pyric/database` Query values. */
 export type RtdbQuerySpec = RtdbQuery['_spec'];
+
+/** JSON-safe wire form of {@link RtdbQuerySpec} (`limit.n === null` encodes `+Infinity` across JSON transports). */
+export type RtdbWireQuerySpec = Omit<RtdbQuerySpec, 'limit'> & {
+  limit: { kind: 'limitToFirst' | 'limitToLast'; n: number | null } | null;
+};
 
 export interface AiStreamSubMessage {
   t: 'sub';

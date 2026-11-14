@@ -34,7 +34,7 @@ import {
   type DisconnectOperation,
 } from 'pyric/database/internal';
 
-import type { OpMessage, RtdbQuerySpec } from '../protocol.js';
+import type { OpMessage, RtdbWireQuerySpec } from '../protocol.js';
 import { type HostCtx, type PortLike, ok, fail, bestEffortFlush } from '../host-context.js';
 import { lensRtdb, rtdbInstanceKey } from './rtdb-instances.js';
 import { sameRtdbValue } from '../rtdb-value-equality.js';
@@ -76,18 +76,34 @@ export function rtdbSnapToWire(snap: DataSnapshot): unknown {
   };
 }
 
+function normalizeWireQuerySpec(spec: RtdbWireQuerySpec): Query['_spec'] {
+  if (spec.limit === null) {
+    return { orderBy: spec.orderBy, bounds: spec.bounds, limit: null };
+  }
+  const count = spec.limit.n === null ? Number.POSITIVE_INFINITY : spec.limit.n;
+  return {
+    orderBy: spec.orderBy,
+    bounds: spec.bounds,
+    limit: { kind: spec.limit.kind, n: count },
+  };
+}
+
 export function rtdbTarget(
   db: Parameters<typeof rtdbRef>[0],
   path: string,
-  spec?: RtdbQuerySpec,
+  spec?: RtdbWireQuerySpec,
 ): DatabaseReference | Query {
   const targetRef = rtdbRef(db, path);
   if (!spec) return targetRef;
+  const normalizedSpec = normalizeWireQuerySpec(spec);
   return {
     ref: targetRef,
-    _spec: spec,
+    _spec: normalizedSpec,
     [QUERY_SYMBOL]: true,
-    isEqual: (other) => other === null ? false : other.ref === targetRef && other._spec === spec,
+    isEqual: (other) => {
+      if (other === null) return false;
+      return other.ref === targetRef && other._spec === normalizedSpec;
+    },
     toJSON: () => targetRef.toString(),
     toString: () => targetRef.toString(),
   };
@@ -128,9 +144,23 @@ interface PortDisconnectMetadata {
   actAs?: OpMessage['actAs'];
   /** The instance name the operation was registered on; absent is the default instance. */
   instance?: string;
+  /** Optional per-app connection scope on shared remote relay ports. */
+  connectionId?: string;
 }
 
 type PortDisconnectOperation = DisconnectOperation<PortDisconnectMetadata>;
+
+function portConnectionScopeKey(
+  ctx: HostCtx,
+  instance?: string,
+  connectionId?: string,
+): string {
+  const instanceKey = rtdbInstanceKey(ctx, instance);
+  if (connectionId === undefined || connectionId === '') {
+    return instanceKey;
+  }
+  return `${connectionId}\0${instanceKey}`;
+}
 
 /** Each port's onDisconnect queue per instance, keyed by instance key. As in
  *  production, every database instance is its own connection. */
@@ -195,9 +225,9 @@ async function validateDisconnectOperation(ctx: HostCtx, port: PortLike, operati
 }
 
 async function queueDisconnectOperation(ctx: HostCtx, port: PortLike, operation: PortDisconnectOperation): Promise<void> {
-  const instanceKey = rtdbInstanceKey(ctx, operation.instance);
+  const scopeKey = portConnectionScopeKey(ctx, operation.instance, operation.connectionId);
   await validateDisconnectOperation(ctx, port, operation);
-  portQueue(ctx, port, instanceKey).set(operation);
+  portQueue(ctx, port, scopeKey).set(operation);
 }
 
 /**
@@ -374,7 +404,7 @@ export async function handleRtdbOp(
     case 'rtdb.onDisconnectSet': {
       try {
         await queueDisconnectOperation(ctx, port, {
-          kind: 'set', path: msg.path, value: resolveRtdbSentinels(msg.value), priority: msg.priority, actAs: msg.actAs, instance: msg.instance,
+          kind: 'set', path: msg.path, value: resolveRtdbSentinels(msg.value), priority: msg.priority, actAs: msg.actAs, instance: msg.instance, connectionId: msg.connectionId,
         });
         ok(port, msg.id, null);
       } catch (e) { fail(port, msg.id, e); }
@@ -384,7 +414,7 @@ export async function handleRtdbOp(
     case 'rtdb.onDisconnectUpdate': {
       try {
         await queueDisconnectOperation(ctx, port, {
-          kind: 'update', path: msg.path, values: resolveRtdbSentinels(msg.values) as Record<string, unknown>, actAs: msg.actAs, instance: msg.instance,
+          kind: 'update', path: msg.path, values: resolveRtdbSentinels(msg.values) as Record<string, unknown>, actAs: msg.actAs, instance: msg.instance, connectionId: msg.connectionId,
         });
         ok(port, msg.id, null);
       } catch (e) { fail(port, msg.id, e); }
@@ -393,7 +423,9 @@ export async function handleRtdbOp(
 
     case 'rtdb.onDisconnectRemove': {
       try {
-        await queueDisconnectOperation(ctx, port, { kind: 'remove', path: msg.path, actAs: msg.actAs, instance: msg.instance });
+        await queueDisconnectOperation(ctx, port, {
+          kind: 'remove', path: msg.path, actAs: msg.actAs, instance: msg.instance, connectionId: msg.connectionId,
+        });
         ok(port, msg.id, null);
       } catch (e) { fail(port, msg.id, e); }
       break;
@@ -401,7 +433,8 @@ export async function handleRtdbOp(
 
     case 'rtdb.onDisconnectCancel': {
       try {
-        portQueue(ctx, port, rtdbInstanceKey(ctx, msg.instance)).cancel(msg.path);
+        const scopeKey = portConnectionScopeKey(ctx, msg.instance, msg.connectionId);
+        portQueue(ctx, port, scopeKey).cancel(msg.path);
         ok(port, msg.id, null);
       } catch (e) { fail(port, msg.id, e); }
       break;
@@ -409,11 +442,11 @@ export async function handleRtdbOp(
 
     case 'rtdb.goOffline': {
       try {
-        const instanceKey = rtdbInstanceKey(ctx, msg.instance);
+        const scopeKey = portConnectionScopeKey(ctx, msg.instance, msg.connectionId);
         const offline = portOfflineInstances(ctx, port);
-        if (!offline.has(instanceKey)) {
-          offline.add(instanceKey);
-          await drainPortRtdbDisconnects(ctx, port, instanceKey);
+        if (!offline.has(scopeKey)) {
+          offline.add(scopeKey);
+          await drainPortRtdbDisconnects(ctx, port, scopeKey);
         }
         ok(port, msg.id, null);
       } catch (e) { fail(port, msg.id, e); }
@@ -422,7 +455,8 @@ export async function handleRtdbOp(
 
     case 'rtdb.goOnline': {
       try {
-        portOfflineInstances(ctx, port).delete(rtdbInstanceKey(ctx, msg.instance));
+        const scopeKey = portConnectionScopeKey(ctx, msg.instance, msg.connectionId);
+        portOfflineInstances(ctx, port).delete(scopeKey);
         ok(port, msg.id, null);
       } catch (e) { fail(port, msg.id, e); }
       break;

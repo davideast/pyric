@@ -12,9 +12,13 @@ import {
   type DatabaseInstance,
   type DatabaseInstanceRegistry,
 } from 'pyric/sandbox/internal';
-import { emptySpec, type QuerySpec } from 'pyric/database/internal';
+import { assertGettablePath, emptySpec, type QuerySpec } from 'pyric/database/internal';
 import type { PyricAdminApp } from '../app/index.js';
-import { onAdminAppDeleted } from '../app/lifecycle.js';
+import {
+  createAdminServiceLifecycle,
+  onAdminAppDeleted,
+  type AdminServiceLifecycle,
+} from '../app/lifecycle.js';
 import {
   buildDatabaseShell,
   formatReferenceUrl,
@@ -23,7 +27,10 @@ import {
 import { AdminListenerTable } from './listener-table.js';
 import {
   buildRemoteOnDisconnect,
+  createRemoteConnectionState,
+  observeRemoteConnection,
   remoteDatabaseConnectionControls,
+  severRemoteConnection,
   type RemoteConnectionState,
 } from './on-disconnect.js';
 import { createQuerySurface, toWireQuerySpec } from './query.js';
@@ -44,7 +51,9 @@ import {
   withOnComplete,
 } from './tree-store.js';
 import {
+  ADMIN_REFERENCE_BRAND,
   notImplemented,
+  validateCallbackArg,
   type Database,
   type DataSnapshot,
   type OnDisconnect,
@@ -57,6 +66,7 @@ const REMOTE_ADMIN_LENS = { mode: 'admin' } as const;
 interface RemoteDbState {
   channel: RemoteSandboxChannel;
   instance: string | undefined;
+  lifecycle: AdminServiceLifecycle;
   listeners: AdminListenerTable;
   connection: RemoteConnectionState;
 }
@@ -74,9 +84,16 @@ function remoteStatesForApp(
   const registry: DatabaseInstanceRegistry<{ state?: RemoteDbState }> =
     createDatabaseInstanceRegistry({ create: () => ({}) });
   remoteStatesByApp.set(app, registry);
-  onAdminAppDeleted(app, () => {
+  onAdminAppDeleted(app, async () => {
+    const drains: Promise<void>[] = [];
     for (const [, entry] of registry.entries()) {
-      entry.state?.listeners.detachAll();
+      const state = entry.state;
+      if (state === undefined) continue;
+      state.listeners.detachAll();
+      drains.push(severRemoteConnection(state.channel, state.instance, state.connection));
+    }
+    if (drains.length > 0) {
+      await Promise.all(drains);
     }
   });
   return registry;
@@ -85,16 +102,18 @@ function remoteStatesForApp(
 export function getRemoteDatabase(
   app: PyricAdminApp,
   sandbox: RemoteSandbox,
+  cacheKey: string,
   instance: DatabaseInstance | undefined,
   urlMeta: DatabaseUrlMetadata,
 ): Database {
   const registry = remoteStatesForApp(app);
-  const entry = registry.getOrCreate(registry.keyOf(instance));
+  const entry = registry.getOrCreate(cacheKey);
   entry.state ??= {
     channel: sandbox.channel,
     instance: instance?.name,
+    lifecycle: createAdminServiceLifecycle(app),
     listeners: new AdminListenerTable(),
-    connection: { barrier: Promise.resolve(), pending: 0 },
+    connection: createRemoteConnectionState(sandbox.channel),
   };
   const state = entry.state;
   return buildDatabaseShell(
@@ -102,6 +121,7 @@ export function getRemoteDatabase(
     urlMeta,
     (dbHandle, path, meta) => buildRemoteRef(state, dbHandle, path, meta),
     remoteDatabaseConnectionControls(state.channel, state.instance, state.connection),
+    state.lifecycle,
   );
 }
 
@@ -118,8 +138,8 @@ function normalizeRelayedError(error: unknown): never {
 function relayRtdbOp(state: RemoteDbState, op: RemoteRtdbOp): Promise<unknown> {
   const dispatch = (): Promise<unknown> =>
     state.channel.op({ ...op, instance: state.instance, actAs: REMOTE_ADMIN_LENS });
-  if (state.connection.pending > 0) {
-    return state.connection.barrier.then(dispatch).catch(normalizeRelayedError);
+  if (state.connection.channelBarrier.pending > 0) {
+    return state.connection.channelBarrier.barrier.then(dispatch).catch(normalizeRelayedError);
   }
   return dispatch().catch(normalizeRelayedError);
 }
@@ -138,11 +158,15 @@ function buildRemoteRef(
   const listenTarget: RemoteListenTarget = {
     channel: state.channel,
     instance: state.instance,
+    lifecycle: state.lifecycle,
     listeners: state.listeners,
     canonical,
     refAt,
+    observeConnection: (next) => observeRemoteConnection(state.connection, next),
     waitConnectionBarrier: () => {
-      if (state.connection.pending > 0) return state.connection.barrier;
+      if (state.connection.channelBarrier.pending > 0) {
+        return state.connection.channelBarrier.barrier;
+      }
       return null;
     },
   };
@@ -154,6 +178,7 @@ function buildRemoteRef(
       formattedUrl,
       getBaseRef: () => ref as unknown as Reference,
       async get(spec: QuerySpec): Promise<DataSnapshot> {
+        assertGettablePath(canonical);
         const wireQuery = toWireQuerySpec(spec);
         const opPayload: RemoteRtdbOp = {
           method: 'rtdb.get',
@@ -176,6 +201,7 @@ function buildRemoteRef(
   );
 
   const ref = {
+    [ADMIN_REFERENCE_BRAND]: true,
     ...querySurface,
     key,
     get parent(): Reference | null {
@@ -190,17 +216,20 @@ function buildRemoteRef(
     },
 
     set(value: unknown, onComplete?: (err: Error | null) => void): Promise<void> {
+      validateCallbackArg('Reference.set', 'onComplete', onComplete, true);
+      const stored = validateValueArg('set', segs, value);
       return withOnComplete(
         relayRtdbOp(state, {
           method: 'rtdb.set',
           path: canonical,
-          value: validateValueArg('set', segs, value),
+          value: stored,
         }).then(() => undefined),
         onComplete,
       );
     },
 
     update(values: object, onComplete?: (err: Error | null) => void): Promise<void> {
+      validateCallbackArg('Reference.update', 'onComplete', onComplete, true);
       const patch = validateValuesArg(segs, values);
       return withOnComplete(
         relayRtdbOp(state, {
@@ -213,6 +242,7 @@ function buildRemoteRef(
     },
 
     remove(onComplete?: (err: Error | null) => void): Promise<void> {
+      validateCallbackArg('Reference.remove', 'onComplete', onComplete, true);
       return withOnComplete(
         relayRtdbOp(state, {
           method: 'rtdb.remove',
@@ -223,7 +253,11 @@ function buildRemoteRef(
     },
 
     push(value?: unknown, onComplete?: (err: Error | null) => void): ThenableReference {
-      const stored = value === undefined ? undefined : validateValueArg('push', segs, value);
+      validateCallbackArg('Reference.push', 'onComplete', onComplete, true);
+      let stored: ReturnType<typeof validateValueArg> | undefined;
+      if (value !== undefined) {
+        stored = validateValueArg('push', segs, value);
+      }
       const id = generatePushId();
       const childPath = joinPath([...segs, id]);
       let write: Promise<void>;
@@ -259,7 +293,11 @@ function buildRemoteRef(
     },
 
     onDisconnect(): OnDisconnect {
-      return buildRemoteOnDisconnect(canonical, (op) => relayRtdbOp(state, op));
+      return buildRemoteOnDisconnect(
+        canonical,
+        (op) => relayRtdbOp(state, { ...op, connectionId: state.connection.connectionId }),
+        state.connection,
+      );
     },
     transaction(..._args: unknown[]): never {
       throw notImplemented('transaction');

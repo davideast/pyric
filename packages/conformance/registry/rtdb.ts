@@ -1847,7 +1847,7 @@ export const rtdbRegistry = {
           featureKeys: ["onChildMoved","query"],
           behavior: "`onChildMoved` fires when an ordered child changes position and co-fires with `child_changed` when Firebase does, preserving the captured `previousChildName` sequence.",
           status: "conforms",
-          evidence: "Oracle `rtdb-modular-child-previous-name` and the modular oracle suite replay ordered movement, co-fire behavior, and predecessor sequencing. As `rtdb-modular-childchanged-cofire-with-childmoved` records for a same-rank change of the ordered field, a child moves whenever its indexed value changes; `unit:modular/priority-listeners.test.ts` pins this for object values under `orderByValue()` and `orderByChild()`, which sort equal while differing.",
+          evidence: "Oracle `rtdb-modular-child-previous-name` and the modular oracle suite replay ordered movement, co-fire behavior, and predecessor sequencing. As `rtdb-modular-childchanged-cofire-with-childmoved` records for a same-rank change of the ordered field, `ValueIndex` (`orderByValue()`) moves when the child value changes structurally (even across objects) while `PathIndex` (`orderByChild()`) moves when `compareValues` is non-zero (moving on same-rank scalar changes while keeping object-to-object edits stationary); `unit:modular/priority-listeners.test.ts` pins both.",
           risk: ["listener","listener-fire-count","specific-value"],
           riskScore: 6,
           riskReasons: ["asserts listener semantics","asserts a specific listener fire count","asserts 1 specific value(s)"],

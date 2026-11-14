@@ -27,6 +27,7 @@ import {
   type QueryRow,
   type QuerySpec,
 } from 'pyric/database/internal';
+import type { AdminServiceLifecycle } from '../app/lifecycle.js';
 import {
   assertValidEventType,
   isChildEventType,
@@ -71,6 +72,7 @@ export interface LocalListenBackend {
 export interface LocalListenTarget {
   readonly adminDb: ModularDatabase;
   readonly backend: LocalListenBackend;
+  readonly lifecycle?: AdminServiceLifecycle;
   readonly listeners: AdminListenerTable;
   readonly canonical: string;
   readonly refAt: (path: string) => Reference;
@@ -450,10 +452,12 @@ export function attachLocalListener(
         }
       },
     );
-    const shouldRetain = entry.active && !erroredSynchronously;
+    const shouldRetain = entry.active && !erroredSynchronously && target.lifecycle?.isDeleted !== true;
     if (shouldRetain) {
-      unsub = attachedUnsub;
+      unsub = target.lifecycle ? target.lifecycle.trackSubscription(attachedUnsub) : attachedUnsub;
     } else {
+      entry.active = false;
+      target.listeners.detachExact(entry);
       attachedUnsub();
     }
   } catch (err) {
@@ -481,12 +485,11 @@ export function detachLocalListener(
   validateCallbackArg('Query.off', 'callback', callback, true);
   validateContextArg('Query.off', 'context', context);
   const normalizedCallback = callback ?? undefined;
-  const normalizedContext = context ?? undefined;
   target.listeners.detachMatching(
     target.canonical,
     spec,
     eventType,
     normalizedCallback,
-    normalizedContext,
+    context,
   );
 }

@@ -1,4 +1,4 @@
-import type { JsonValue } from '../sandbox/data-tree.js';
+import { jsonValuesEqual, type JsonValue } from '../sandbox/data-tree.js';
 import type { Bound, OrderBy, QuerySpec } from '@pyric/rules/internal/rtdb';
 
 export type { Bound, LimitKind, OrderBy, QuerySpec } from '@pyric/rules/internal/rtdb';
@@ -155,6 +155,35 @@ export function extractOrderValue(
       return cur;
     }
   }
+}
+
+/**
+ * Whether a child's indexed sort value changed between `before` and `after`
+ * under `orderBy`, matching Firebase RTDB's `Index#indexedValueChanged`:
+ * `PathIndex` (`orderByChild`) compares via `compareValues` (all non-leaf
+ * objects compare equal `0`), `ValueIndex` uses structural equality plus
+ * priority, and `PriorityIndex` compares priorities.
+ */
+export function indexedOrderValueChanged(
+  orderBy: OrderBy | null,
+  key: string,
+  beforeValue: JsonValue,
+  beforePriority: Priority,
+  afterValue: JsonValue,
+  afterPriority: Priority,
+): boolean {
+  const effective = orderBy ?? ({ kind: 'priority' } as const);
+  if (effective.kind === 'key') return false;
+  if (effective.kind === 'priority') {
+    return beforePriority !== afterPriority;
+  }
+  const beforeIndexed = extractOrderValue(effective, key, beforeValue, beforePriority);
+  const afterIndexed = extractOrderValue(effective, key, afterValue, afterPriority);
+  if (effective.kind === 'child') {
+    return compareValues(beforeIndexed, afterIndexed) !== 0;
+  }
+  if (!jsonValuesEqual(beforeIndexed, afterIndexed)) return true;
+  return beforePriority !== afterPriority;
 }
 
 /** Result row — kept minimal so the snap-builder can render it cheaply. */
