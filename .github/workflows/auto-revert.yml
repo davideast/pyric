@@ -22,6 +22,17 @@
 #     or closed, ends the job quietly; any other failure files or comments on
 #     the `Red on main: Auto revert` issue.
 #
+# A commit the merge queue landed for a batch of pull requests is not reverted
+# whole. The revert stage bisects the batch instead
+# (scripts/ci/auto-revert-batch.ts): it pushes a probe, the tree of the batch
+# cut off after some pull request on top of the commit before the batch, to
+# merge-queue/bisect/<batch commit>/<workflow id>/<index> and starts the
+# failed workflow on it. The bisect job runs when a probe finishes: a first
+# failure is rerun once, and a pass or a second failure takes the next step.
+# After at most ceil(log2(n)) probes one pull request is named and only its
+# merge commit is reverted. While that goes on main stays red, so the merge
+# queue lands nothing but reverts.
+#
 # A rerun started with the workflow token still sends workflow_run, so the
 # second stage starts from attempt 2's completion. A manual dispatch prints
 # the verdict for a past run and attempt and changes nothing.
@@ -32,7 +43,7 @@ on:
   workflow_run:
     workflows: ['Build & Test', 'Slow app scenarios']
     types: [completed]
-    branches: [main]
+    branches: [main, 'merge-queue/bisect/**']
   workflow_dispatch:
     inputs:
       run_id:
@@ -57,6 +68,7 @@ jobs:
     name: Rerun the failed jobs once
     if: >-
       github.event_name == 'workflow_run' &&
+      github.event.workflow_run.head_branch == 'main' &&
       (github.event.workflow_run.event == 'push' ||
        (github.event.workflow_run.event == 'workflow_dispatch' &&
         github.event.workflow_run.actor.login == 'github-actions[bot]')) &&
@@ -87,6 +99,7 @@ jobs:
     # Only the attempt the one rerun started; a person's rerun is theirs.
     if: >-
       github.event_name == 'workflow_run' &&
+      github.event.workflow_run.head_branch == 'main' &&
       (github.event.workflow_run.event == 'push' ||
        (github.event.workflow_run.event == 'workflow_dispatch' &&
         github.event.workflow_run.actor.login == 'github-actions[bot]')) &&
@@ -122,10 +135,55 @@ jobs:
           GH_REPO: ${{ github.repository }}
         run: bun scripts/ci/auto-revert-github.ts
 
+  bisect:
+    name: Continue a batch bisect
+    # A probe this lane dispatched finished (on attempt 1, or on the one
+    # rerun this lane started): passed, failed, or timed out. A person's
+    # rerun or a cancelled probe does not advance the bisect.
+    if: >-
+      github.event_name == 'workflow_run' &&
+      startsWith(github.event.workflow_run.head_branch, 'merge-queue/bisect/') &&
+      github.event.workflow_run.event == 'workflow_dispatch' &&
+      github.event.workflow_run.actor.login == 'github-actions[bot]' &&
+      github.event.workflow_run.triggering_actor.login == 'github-actions[bot]' &&
+      github.event.workflow_run.run_attempt <= 2 &&
+      (github.event.workflow_run.conclusion == 'success' ||
+       github.event.workflow_run.conclusion == 'failure' ||
+       github.event.workflow_run.conclusion == 'timed_out')
+    # Serialize bisect steps so concurrent probe completions across Build &
+    # Test and Slow app scenarios never overlap during revert or cleanup.
+    concurrency:
+      group: auto-revert-bisect
+      cancel-in-progress: false
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # The same permissions as the revert job: it may push the next probe, or
+    # the revert branch and its pull request.
+    permissions:
+      actions: write
+      contents: write
+      issues: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.11'
+      - name: Rerun the probe or take the next bisect step
+        env:
+          RUN_ID: ${{ github.event.workflow_run.id }}
+          RUN_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: bun scripts/ci/auto-revert-github.ts bisect
+
   report:
     name: Report a failed revert
-    needs: revert
-    if: always() && needs.revert.result == 'failure'
+    needs: [revert, bisect]
+    if: always() && (needs.revert.result == 'failure' || needs.bisect.result == 'failure')
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -144,6 +202,7 @@ jobs:
           FAILED_RUN_URL: ${{ github.event.workflow_run.html_url }}
           FAILED_WORKFLOW: ${{ github.event.workflow_run.name }}
           HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: bun scripts/ci/auto-revert-github.ts report

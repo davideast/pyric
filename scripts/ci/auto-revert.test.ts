@@ -1,29 +1,28 @@
 import { describe, expect, test } from 'bun:test';
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
-import { handle, reportFailure, type Io } from './auto-revert-github.ts';
-import { decide, isRevert, quarantinedFailures, revertBody, revertCommands, type FailedRun, type Facts } from './auto-revert.ts';
-
-const SHA = 'b'.repeat(40);
-const PARENT = 'a'.repeat(40);
-const BRANCH_TIP = 'c'.repeat(40);
-const RUN_URL = 'https://github.com/owner/repo/actions/runs/9';
-const TEST = 'packages/cli/test/serve/host.test.ts > host > answers';
-
-function run(overrides: Partial<FailedRun> = {}): FailedRun {
-  return {
-    workflow: 'Slow app scenarios',
-    runId: 9,
-    attempt: 2,
-    url: RUN_URL,
-    headSha: SHA,
-    parents: [PARENT, BRANCH_TIP],
-    message: 'Merge pull request #12 from owner/feat/host\n\nfeat(cli): host answers',
-    pull: { number: 12, title: 'feat(cli): host answers', headRef: 'feat/host' },
-    failures: [{ job: 'Slow app scenarios (real apps on the packed packages)', test: TEST }],
-    ...overrides,
-  };
-}
+import { spawnSync } from 'node:child_process';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, join, resolve } from 'node:path';
+import { handle, handleProbe, reportFailure } from './auto-revert-github.ts';
+import { decide, decideBatch, isRevert, quarantinedFailures, revertBody, revertCommands, type Facts, type ProbeResult } from './auto-revert.ts';
+import { bisectBatch, parseBisectBranch, type BatchIo, type BatchMember } from './auto-revert-batch.ts';
+import { formatStagingTrailers } from './merge-queue.ts';
+import {
+  BATCH,
+  BRANCH_TIP,
+  PARENT,
+  PROBE,
+  RUN_URL,
+  SHA,
+  TEST,
+  createBatchFake,
+  createFake,
+  failedRun as run,
+  memberSha as member,
+  probeBranchFor as probeBranch,
+  type BatchFake,
+  type ProbeRun,
+} from './auto-revert-harness.ts';
 
 function facts(overrides: Partial<Facts> = {}): Facts {
   return { run: run(), parentConclusion: 'success', superseded: false, quarantine: [], today: '2026-11-06', ...overrides };
@@ -150,89 +149,15 @@ describe('the revert pull request body', () => {
 });
 
 describe('carrying out the verdict', () => {
-  interface Fake { io: Io; gh: string[][]; git: string[][]; logs: string[] }
-
-  interface FakeOptions {
-    attempt: number;
-    workflow?: string;
-    runEvent?: 'push' | 'workflow_dispatch';
-    runActor?: string;
-    prCreate?: () => string;
-    parentConclusion?: string;
-    parentEvent?: 'push' | 'workflow_dispatch';
-    parentActor?: string;
-    existingPrs?: { number: number; state: string }[];
-    remoteBranch?: boolean;
-    push?: () => string;
-  }
-
-  function fake(options: FakeOptions): Fake {
-    const calls: Fake = { gh: [], git: [], logs: [], io: undefined as unknown as Io };
-    const parentEvent = options.parentEvent ?? 'push';
-    const parentRuns = [{
-      status: 'completed',
-      conclusion: options.parentConclusion ?? 'success',
-      html_url: 'https://github.com/owner/repo/actions/runs/8',
-      event: parentEvent,
-      head_branch: 'main',
-      actor: { login: options.parentActor ?? 'github-actions[bot]' },
-    }];
-    const runEvent = options.runEvent ?? 'push';
-    const responses: Record<string, unknown> = {
-      [`actions/runs/9/attempts/${options.attempt}`]: {
-        name: options.workflow ?? 'Slow app scenarios', event: runEvent, head_branch: 'main', head_sha: SHA,
-        status: 'completed', conclusion: 'failure', workflow_id: 5, html_url: RUN_URL,
-        actor: { login: options.runActor ?? 'github-actions[bot]' },
-      },
-      [`commits/${SHA}`]: { sha: SHA, parents: [{ sha: PARENT }, { sha: BRANCH_TIP }], commit: { message: run().message } },
-      [`commits/${SHA}/pulls`]: [{ number: 12, title: 'feat(cli): host answers', merge_commit_sha: SHA, head: { ref: 'feat/host' } }],
-      [`actions/workflows/5/runs?branch=main&event=push&head_sha=${PARENT}&per_page=5`]: {
-        workflow_runs: parentEvent === 'push' ? parentRuns : [],
-      },
-      [`actions/workflows/5/runs?branch=main&event=workflow_dispatch&head_sha=${PARENT}&per_page=5`]: {
-        workflow_runs: parentEvent === 'workflow_dispatch' ? parentRuns : [],
-      },
-      'branches/main': { commit: { sha: SHA } },
-      'actions/workflows/5/runs?branch=main&event=push&per_page=10': { workflow_runs: [{ id: 9, status: 'completed' }] },
-      'actions/workflows/5/runs?branch=main&event=workflow_dispatch&per_page=10': { workflow_runs: [] },
-      'issues/50/labels': [{ name: 'merge-queue' }],
-    };
-    calls.io = {
-      repo: 'owner/repo',
-      gh: (args) => {
-        calls.gh.push(args);
-        if (args[0] === 'api') {
-          const pathArg = args.find((arg) => arg.startsWith('repos/owner/repo/')) ?? args[1] ?? '';
-          const path = pathArg.replace('repos/owner/repo/', '');
-          if (!(path in responses)) throw new Error(`unexpected api ${path}`);
-          return JSON.stringify(responses[path]);
-        }
-        if (args[0] === 'pr' && args[1] === 'list') return JSON.stringify(options.existingPrs ?? []);
-        if (args[0] === 'pr' && args[1] === 'create') return options.prCreate?.() ?? 'https://github.com/owner/repo/pull/50\n';
-        return '';
-      },
-      git: (args) => {
-        calls.git.push(args);
-        if (args[0] === 'ls-remote') return options.remoteBranch ? `${SHA}\trefs/heads/auto-revert/${SHA}\n` : '';
-        if (args[0] === 'push') return options.push?.() ?? '';
-        return '';
-      },
-      failures: () => run().failures,
-      log: (text) => calls.logs.push(text),
-      writeFile: (name) => `/tmp/${name}`,
-    };
-    return calls;
-  }
-
   test('attempt 1 of a slow scenario run reruns its failed jobs and nothing else', () => {
-    const calls = fake({ attempt: 1 });
+    const calls = createFake({ attempt: 1 });
     expect(handle(calls.io, 9, 1, false, [], '2026-11-06')).toEqual({ kind: 'rerun' });
     expect(calls.gh).toContainEqual(['run', 'rerun', '9', '--failed', '--repo', 'owner/repo']);
     expect(calls.git).toEqual([]);
   });
 
   test('attempt 2 pushes a revert branch, opens the pull request and enables auto-merge, never touching main', () => {
-    const calls = fake({ attempt: 2 });
+    const calls = createFake({ attempt: 2 });
     expect(handle(calls.io, 9, 2, false, [], '2026-11-06').kind).toBe('revert');
     expect(calls.git).toContainEqual(['revert', '--no-edit', '-m', '1', SHA]);
     expect(calls.git).toContainEqual(['push', 'origin', `HEAD:refs/heads/auto-revert/${SHA}`]);
@@ -243,7 +168,7 @@ describe('carrying out the verdict', () => {
   });
 
   test('the revert branch gets Build & Test by dispatch, since a workflow token pull request starts no workflows', () => {
-    const calls = fake({ attempt: 2 });
+    const calls = createFake({ attempt: 2 });
     handle(calls.io, 9, 2, false, [], '2026-11-06');
     const dispatch = ['workflow', 'run', 'build.yml', '--repo', 'owner/repo', '--ref', `auto-revert/${SHA}`];
     expect(calls.gh).toContainEqual(dispatch);
@@ -256,33 +181,33 @@ describe('carrying out the verdict', () => {
   });
 
   test('closed pull requests count too: the lookup asks for every state', () => {
-    const calls = fake({ attempt: 2, existingPrs: [{ number: 41, state: 'CLOSED' }] });
+    const calls = createFake({ attempt: 2, existingPrs: [{ number: 41, state: 'CLOSED' }] });
     expect(handle(calls.io, 9, 2, false, [], '2026-11-06').kind).toBe('skip');
     expect(calls.gh.find((args) => args[1] === 'list')).toContain('all');
     expect(calls.git).toEqual([]);
   });
 
   test('an existing revert branch ends quietly without pushing', () => {
-    const calls = fake({ attempt: 2, remoteBranch: true });
+    const calls = createFake({ attempt: 2, remoteBranch: true });
     expect(handle(calls.io, 9, 2, false, [], '2026-11-06').kind).toBe('skip');
     expect(calls.git.some((args) => args[0] === 'push' || args[0] === 'revert')).toBe(false);
     expect(calls.gh.some((args) => args[1] === 'create')).toBe(false);
   });
 
   test('a second job that loses the push race ends quietly', () => {
-    const calls = fake({ attempt: 2, push: () => { throw new Error('git push failed: ! [rejected] HEAD -> auto-revert/x (fetch first)'); } });
+    const calls = createFake({ attempt: 2, push: () => { throw new Error('git push failed: ! [rejected] HEAD -> auto-revert/x (fetch first)'); } });
     expect(handle(calls.io, 9, 2, false, [], '2026-11-06').kind).toBe('skip');
     expect(calls.gh.some((args) => args[1] === 'create')).toBe(false);
   });
 
   test('a second job that loses the pull request race ends quietly', () => {
-    const calls = fake({ attempt: 2, prCreate: () => { throw new Error('gh pr create failed: a pull request for branch "auto-revert/x" into branch "main" already exists'); } });
+    const calls = createFake({ attempt: 2, prCreate: () => { throw new Error('gh pr create failed: a pull request for branch "auto-revert/x" into branch "main" already exists'); } });
     expect(handle(calls.io, 9, 2, false, [], '2026-11-06').kind).toBe('skip');
     expect(calls.gh.some((args) => args[1] === 'merge' || args[0] === 'workflow')).toBe(false);
   });
 
   test('a dry run decides and changes nothing', () => {
-    const calls = fake({ attempt: 2 });
+    const calls = createFake({ attempt: 2 });
     expect(handle(calls.io, 9, 2, true, [], '2026-11-06').kind).toBe('revert');
     expect(calls.git).toEqual([]);
     expect(calls.gh.filter((args) => (args[0] !== 'api' || args.includes('-X')) && args[1] !== 'list')).toEqual([]);
@@ -290,23 +215,273 @@ describe('carrying out the verdict', () => {
 
   test('an already red main is left alone in both stages', () => {
     for (const attempt of [1, 2]) {
-      const calls = fake({ attempt, parentConclusion: 'failure' });
+      const calls = createFake({ attempt, parentConclusion: 'failure' });
       expect(handle(calls.io, 9, attempt, false, [], '2026-11-06').kind).toBe('skip');
       expect(calls.gh.filter((args) => args[0] === 'run' || args[1] === 'create')).toEqual([]);
     }
   });
 
   test('a repository that refuses workflow pull requests gets the compare link to open by hand', () => {
-    const calls = fake({ attempt: 2, prCreate: () => { throw new Error('gh pr create failed: GitHub Actions is not permitted to create or approve pull requests'); } });
+    const calls = createFake({ attempt: 2, prCreate: () => { throw new Error('gh pr create failed: GitHub Actions is not permitted to create or approve pull requests'); } });
     expect(() => handle(calls.io, 9, 2, false, [], '2026-11-06')).toThrow(`compare/main...auto-revert/${SHA}?expand=1`);
   });
 
   test('a parent merged by the workflow token whose main run was dispatched still counts, and a bot-dispatched main run reverts on attempt 2 and enters merge-queue', () => {
-    const calls = fake({ attempt: 2, runEvent: 'workflow_dispatch', runActor: 'github-actions[bot]', parentEvent: 'workflow_dispatch', parentActor: 'github-actions[bot]' });
+    const calls = createFake({ attempt: 2, runEvent: 'workflow_dispatch', runActor: 'github-actions[bot]', parentEvent: 'workflow_dispatch', parentActor: 'github-actions[bot]' });
     expect(handle(calls.io, 9, 2, false, [], '2026-11-06').kind).toBe('revert');
     expect(calls.gh).toContainEqual(['api', '-X', 'POST', 'repos/owner/repo/issues/50/labels', '-f', 'labels[]=merge-queue']);
-    const humanDispatch = fake({ attempt: 2, runEvent: 'workflow_dispatch', runActor: 'someone-else' });
+    const humanDispatch = createFake({ attempt: 2, runEvent: 'workflow_dispatch', runActor: 'someone-else' });
     expect(handle(humanDispatch.io, 9, 2, false, [], '2026-11-06').kind).toBe('skip');
+  });
+});
+
+describe('a failed merge queue batch', () => {
+  const passed: ProbeRun = { run_attempt: 1, status: 'completed', conclusion: 'success' };
+  const failedTwice: ProbeRun = { run_attempt: 2, status: 'completed', conclusion: 'failure' };
+  const reverts = (calls: BatchFake): string[][] => calls.git.filter((args) => args[0] === 'revert');
+
+  test('bisecting names the first pull request whose prefix fails, for every batch size and culprit, within ceil(log2(n)) probes', () => {
+    for (let size = 2; size <= 16; size++) {
+      for (let culprit = 0; culprit < size; culprit++) {
+        const results = new Map<number, ProbeResult>();
+        let verdict = decideBatch(size, results);
+        while (verdict.kind === 'probe') {
+          const outcome: ProbeResult = verdict.index < culprit ? 'passed' : 'failed';
+          results.set(verdict.index, outcome);
+          verdict = decideBatch(size, results);
+        }
+        expect(verdict).toEqual({ kind: 'culprit', index: culprit });
+        expect(results.size).toBeLessThanOrEqual(Math.ceil(Math.log2(size)));
+        expect(results.has(size - 1)).toBe(false);
+      }
+    }
+    expect(decideBatch(4, new Map([[1, 'pending']]))).toEqual({ kind: 'wait', index: 1 });
+    expect(parseBisectBranch(probeBranch(2))).toEqual({ commit: BATCH, workflowId: 5, index: 2 });
+    expect(parseBisectBranch('merge-queue/staging')).toBeUndefined();
+  });
+
+  test('the first step pushes a probe of the first pull request with base and prefix parents and reverts nothing', () => {
+    const calls = createBatchFake({});
+    expect(handle(calls.io, 9, 2, false, [], '2026-11-06')).toEqual({ kind: 'bisect', step: 'probe', index: 0 });
+    expect(calls.git).toContainEqual(['rev-parse', `${member(0)}^{tree}`]);
+    expect(calls.git.find((args) => args[0] === 'commit-tree')?.slice(0, 6)).toEqual([
+      'commit-tree', `tree-of-${member(0)}^{tree}`, '-p', PARENT, '-p', member(0),
+    ]);
+    expect(calls.git).toContainEqual(['push', 'origin', `${PROBE}:refs/heads/${probeBranch(0)}`]);
+    expect(calls.gh).toContainEqual(['workflow', 'run', 'slow-scenarios.yml', '--repo', 'owner/repo', '--ref', probeBranch(0)]);
+    expect(reverts(calls)).toEqual([]);
+    expect(calls.gh.some((args) => args[0] === 'pr' && args[1] === 'create')).toBe(false);
+  });
+
+  test('a probe in flight, or failed only once, is waited for', () => {
+    for (const pending of [undefined, { run_attempt: 1, status: 'in_progress', conclusion: null }, { run_attempt: 1, status: 'completed', conclusion: 'failure' }, { run_attempt: 1, status: 'completed', conclusion: 'cancelled' }]) {
+      const calls = createBatchFake({ 0: pending });
+      expect(handle(calls.io, 9, 2, false, [], '2026-11-06')).toEqual({ kind: 'bisect', step: 'wait', index: 0 });
+      expect(calls.git.filter((args) => args[0] !== 'ls-remote')).toEqual([]);
+    }
+  });
+
+  test('once the probes single out one pull request, only its merge commit is reverted, never the batch', () => {
+    const calls = createBatchFake({ 0: passed, 1: failedTwice });
+    expect(handle(calls.io, 9, 2, false, [], '2026-11-06')).toEqual({ kind: 'revert', title: 'revert: feat(cli): change 22', branch: `auto-revert/${member(1)}`, mainline: true });
+    expect(reverts(calls)).toEqual([['revert', '--no-edit', '-m', '1', member(1)]]);
+    expect(calls.git).toContainEqual(['switch', '-c', `auto-revert/${member(1)}`, 'origin/main']);
+    expect(calls.gh.find((args) => args[1] === 'create')).toContain('revert: feat(cli): change 22');
+    expect(calls.bodies[0]).toContain(`Reverts #22 (${member(1)})`);
+    expect(calls.bodies[0]).toContain(`Landed in ${BATCH} with 2 other pull requests`);
+    expect(calls.git).toContainEqual(['push', 'origin', '--delete', `refs/heads/${probeBranch(0)}`]);
+    expect(calls.gh).toContainEqual(['api', '-X', 'POST', 'repos/owner/repo/issues/50/labels', '-f', 'labels[]=merge-queue']);
+
+    const last = createBatchFake({ 0: passed, 1: passed });
+    handle(last.io, 9, 2, false, [], '2026-11-06');
+    expect(reverts(last)).toEqual([['revert', '--no-edit', '-m', '1', member(2)]]);
+    const first = createBatchFake({ 0: failedTwice });
+    handle(first.io, 9, 2, false, [], '2026-11-06');
+    expect(reverts(first)).toEqual([['revert', '--no-edit', '-m', '1', member(0)]]);
+  });
+
+  test('probes are deleted even when the culprit is skipped or reverting it conflicts', () => {
+    const isARevert = createBatchFake({ 0: failedTwice }, { titles: { 21: 'revert: feat(cli): earlier' } });
+    expect(handle(isARevert.io, 9, 2, false, [], '2026-11-06').kind).toBe('skip');
+    expect(isARevert.git).toContainEqual(['push', 'origin', '--delete', `refs/heads/${probeBranch(0)}`]);
+
+    const closedByHand = createBatchFake({ 0: failedTwice }, { existingPrs: [{ number: 41, state: 'CLOSED' }] });
+    expect(handle(closedByHand.io, 9, 2, false, [], '2026-11-06')).toEqual({ kind: 'skip', reason: 'revert pull request #41 already exists (closed)' });
+    expect(closedByHand.git).toContainEqual(['push', 'origin', '--delete', `refs/heads/${probeBranch(0)}`]);
+
+    const conflict = createBatchFake({ 0: failedTwice }, { onRevert: () => { throw new Error('CONFLICT'); } });
+    expect(() => handle(conflict.io, 9, 2, false, [], '2026-11-06')).toThrow('does not apply cleanly');
+    expect(conflict.git).toContainEqual(['push', 'origin', '--delete', `refs/heads/${probeBranch(0)}`]);
+  });
+
+  test('a dry run prints the bisect step or the revert and changes nothing', () => {
+    for (const probes of [{}, { 0: passed, 1: failedTwice }]) {
+      const calls = createBatchFake(probes);
+      handle(calls.io, 9, 2, true, [], '2026-11-06');
+      expect(calls.git.filter((args) => args[0] !== 'ls-remote')).toEqual([]);
+      expect(calls.gh.filter((args) => args[0] !== 'api' && args[1] !== 'list')).toEqual([]);
+      expect(calls.logs.join('\n')).toContain('Dry run, would');
+    }
+  });
+
+  test('a finished probe reruns its first failure or timeout, rejects human reruns and attempt > 2, and otherwise advances', () => {
+    const probeRun = (conclusion: string, extra: Record<string, unknown> = {}): Record<string, unknown> => ({
+      name: 'Slow app scenarios', event: 'workflow_dispatch', head_branch: probeBranch(0), head_sha: PROBE, status: 'completed',
+      conclusion, workflow_id: 5, html_url: RUN_URL, actor: { login: 'github-actions[bot]' }, triggering_actor: { login: 'github-actions[bot]' }, ...extra,
+    });
+    const withProbe = (probes: Record<number, ProbeRun | undefined>, attempt: number, json: Record<string, unknown>): BatchFake => {
+      const calls = createBatchFake(probes);
+      const gh = calls.io.gh;
+      calls.io.gh = (args) => {
+        if (args[1] === `repos/owner/repo/actions/runs/70/attempts/${attempt}`) return JSON.stringify(json);
+        return gh(args);
+      };
+      return calls;
+    };
+    for (const conclusion of ['failure', 'timed_out']) {
+      const firstFailure = withProbe({ 0: { run_attempt: 1, status: 'completed', conclusion } }, 1, probeRun(conclusion));
+      expect(handleProbe(firstFailure.io, 70, 1, false, [], '2026-11-06')).toEqual({ kind: 'rerun' });
+      expect(firstFailure.gh).toContainEqual(['run', 'rerun', '70', '--failed', '--repo', 'owner/repo']);
+      expect(firstFailure.git).toEqual([]);
+    }
+    const passedProbe = withProbe({ 0: passed }, 1, probeRun('success'));
+    expect(handleProbe(passedProbe.io, 70, 1, false, [], '2026-11-06')).toEqual({ kind: 'bisect', step: 'probe', index: 1 });
+    expect(passedProbe.git).toContainEqual(['push', 'origin', `${PROBE}:refs/heads/${probeBranch(1)}`]);
+
+    const secondFailure = withProbe({ 0: failedTwice }, 2, probeRun('failure'));
+    expect(handleProbe(secondFailure.io, 70, 2, false, [], '2026-11-06').kind).toBe('revert');
+    expect(reverts(secondFailure)).toEqual([['revert', '--no-edit', '-m', '1', member(0)]]);
+
+    const ignored: Array<[number, Record<string, unknown>]> = [
+      [1, probeRun('success', { head_branch: 'merge-queue/staging' })],
+      [1, probeRun('success', { actor: { login: 'someone-else' } })],
+      [2, probeRun('failure', { triggering_actor: { login: 'someone-else' } })],
+      [3, probeRun('failure')],
+      [1, probeRun('cancelled')],
+    ];
+    for (const [attempt, stranger] of ignored) {
+      const calls = withProbe({ 0: failedTwice }, attempt, stranger);
+      expect(handleProbe(calls.io, 70, attempt, false, [], '2026-11-06').kind).toBe('skip');
+      expect(calls.git).toEqual([]);
+    }
+  });
+
+  test('a bisect probe of a Conformance-Exempt engine pull request passes conformance-coupling-gate.sh', () => {
+    const repoRoot = resolve(import.meta.dir, '../..');
+    const gateScript = resolve(repoRoot, 'scripts/ci/conformance-coupling-gate.sh');
+    const root = mkdtempSync(join(tmpdir(), 'bisect-coupling-'));
+    const gitEnv = {
+      ...process.env,
+      GIT_CONFIG_GLOBAL: '/dev/null',
+      GIT_CONFIG_NOSYSTEM: '1',
+      GIT_AUTHOR_NAME: 'CI',
+      GIT_AUTHOR_EMAIL: 'ci@example.test',
+      GIT_COMMITTER_NAME: 'CI',
+      GIT_COMMITTER_EMAIL: 'ci@example.test',
+    };
+    const sh = (cwd: string, args: string[]): string => {
+      const out = spawnSync('git', args, { cwd, encoding: 'utf8', env: gitEnv });
+      if (out.status !== 0) throw new Error(`git ${args.join(' ')} failed: ${out.stderr}`);
+      return out.stdout.trim();
+    };
+    const write = (cwd: string, rel: string, text: string): void => {
+      const full = join(cwd, rel);
+      mkdirSync(dirname(full), { recursive: true });
+      writeFileSync(full, text);
+    };
+    try {
+      const origin = join(root, 'origin.git');
+      const work = join(root, 'work');
+      sh(root, ['init', '--quiet', '--bare', '--initial-branch=main', origin]);
+      sh(root, ['clone', '--quiet', origin, work]);
+      sh(work, ['checkout', '--quiet', '-b', 'main']);
+      const seeds = [
+        'packages/rules/src/evaluate.ts',
+        'packages/pyric/src/rules/index.ts',
+        'packages/pyric/src/firestore/sandbox/local-state.ts',
+        'packages/pyric/src/database/sandbox/read.ts',
+        'packages/pyric/src/database/sandbox-controls.ts',
+        'packages/pyric/src/storage/sandbox/rules.ts',
+        'packages/pyric/src/storage/enforce.ts',
+        'packages/pyric/src/sandbox/session.ts',
+      ];
+      for (const file of seeds) write(work, file, 'export const v = 0;\n');
+      write(work, 'packages/conformance/matrix.json', '{"rows":0}\n');
+      write(work, 'README.md', 'base\n');
+      sh(work, ['add', '-A']);
+      sh(work, ['commit', '--quiet', '-m', 'base']);
+      const base = sh(work, ['rev-parse', 'HEAD']);
+
+      sh(work, ['checkout', '--quiet', '-b', 'pr1', base]);
+      write(work, 'packages/rules/src/evaluate.ts', 'export const v = 1;\n');
+      sh(work, ['add', '-A']);
+      sh(work, ['commit', '--quiet', '-m', 'refactor(rules): internal cleanup\n\nConformance-Exempt: internal refactor with no observable change']);
+      const pr1 = sh(work, ['rev-parse', 'HEAD']);
+
+      sh(work, ['checkout', '--quiet', '-b', 'pr2', base]);
+      write(work, 'README.md', 'updated\n');
+      sh(work, ['add', '-A']);
+      sh(work, ['commit', '--quiet', '-m', 'docs: update readme']);
+      const pr2 = sh(work, ['rev-parse', 'HEAD']);
+
+      sh(work, ['checkout', '--quiet', 'main']);
+      sh(work, ['merge', '--quiet', '--no-ff', pr1, '-m', 'merge pr1']);
+      const m1 = sh(work, ['rev-parse', 'HEAD']);
+      sh(work, ['merge', '--quiet', '--no-ff', pr2, '-m', 'merge pr2']);
+      const m2 = sh(work, ['rev-parse', 'HEAD']);
+      const batch = sh(work, ['commit-tree', sh(work, ['rev-parse', `${m2}^{tree}`]), '-p', base, '-p', m2, '-m', 'batch']);
+      sh(work, ['reset', '--quiet', '--hard', batch]);
+      sh(work, ['push', '--quiet', 'origin', 'main']);
+
+      const members: BatchMember[] = [
+        { sha: m1, parents: [base, pr1], message: 'merge pr1' },
+        { sha: m2, parents: [m1, pr2], message: 'merge pr2' },
+      ];
+      const io: BatchIo = {
+        repo: 'owner/repo',
+        git: (args) => sh(work, args),
+        gh: () => '',
+        log: () => {},
+      };
+      const verdict = bisectBatch(io, { commit: { sha: batch, parents: [base, m2], message: 'batch' }, workflowId: 5, workflowFile: 'build.yml' }, members, false);
+      expect(verdict).toEqual({ kind: 'probe', index: 0 });
+      const probeRef = `merge-queue/bisect/${batch}/5/0`;
+      sh(work, ['fetch', '--quiet', 'origin', probeRef]);
+      sh(work, ['checkout', '--quiet', '--detach', 'FETCH_HEAD']);
+      expect(sh(work, ['rev-parse', 'HEAD^1'])).toBe(base);
+      expect(sh(work, ['rev-parse', 'HEAD^{tree}'])).toBe(sh(work, ['rev-parse', `${m1}^{tree}`]));
+      const gateEnv: Record<string, string | undefined> = { ...gitEnv };
+      delete gateEnv.GITHUB_STEP_SUMMARY;
+      delete gateEnv.GITHUB_ACTIONS;
+      const againstMain = spawnSync('bash', [gateScript], { cwd: work, encoding: 'utf8', env: { ...gateEnv, BASE_REF: 'origin/main' } });
+      expect(againstMain.status).toBe(0);
+      const againstBase = spawnSync('bash', [gateScript], { cwd: work, encoding: 'utf8', env: { ...gateEnv, BASE_REF: base } });
+      expect(againstBase.status).toBe(0);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  }, 60_000);
+
+  test('a single pull request landed by the merge queue is found through its trailer and reverted whole', () => {
+    const message = `Merge pull request #12 from feat/host\n\nfeat(cli): host answers\n\n${formatStagingTrailers({ baseSha: PARENT, pulls: [{ number: 12, headSha: BRANCH_TIP }] })}`;
+    const calls = createBatchFake({});
+    const gh = calls.io.gh;
+    const single: Record<string, unknown> = {
+      'actions/runs/9/attempts/2': { name: 'Slow app scenarios', event: 'workflow_dispatch', head_branch: 'main', head_sha: SHA, status: 'completed', conclusion: 'failure', workflow_id: 5, html_url: RUN_URL, actor: { login: 'github-actions[bot]' } },
+      [`commits/${SHA}`]: { sha: SHA, parents: [{ sha: PARENT }, { sha: BRANCH_TIP }], commit: { message } },
+      'pulls/12': { number: 12, title: 'feat(cli): host answers', head: { ref: 'feat/host' } },
+      [`actions/workflows/5/runs?branch=main&event=push&head_sha=${PARENT}&per_page=5`]: { workflow_runs: [{ status: 'completed', conclusion: 'success', html_url: RUN_URL, event: 'push', head_branch: 'main' }] },
+    };
+    calls.io.gh = (args) => {
+      const matched = args.find((arg) => arg.startsWith('repos/owner/repo/'));
+      let path = '';
+      if (matched !== undefined) path = matched.slice('repos/owner/repo/'.length);
+      if (args[0] === 'api' && path in single) { calls.gh.push(args); return JSON.stringify(single[path]); }
+      return gh(args);
+    };
+    expect(handle(calls.io, 9, 2, false, [], '2026-11-06')).toEqual({ kind: 'revert', title: 'revert: feat(cli): host answers', branch: `auto-revert/${SHA}`, mainline: true });
+    expect(reverts(calls)).toEqual([['revert', '--no-edit', '-m', '1', SHA]]);
+    expect(calls.gh.some((args) => args.includes(`repos/owner/repo/commits/${SHA}/pulls`))).toBe(false);
   });
 });
 
@@ -342,7 +517,7 @@ describe('the auto revert workflow', () => {
     permissions: Record<string, string>;
     jobs: Record<string, {
       if?: string;
-      needs?: string;
+      needs?: string | string[];
       concurrency?: Record<string, unknown>;
       permissions?: Record<string, string>;
       steps: { run?: string; env?: Record<string, string> }[];
@@ -354,8 +529,22 @@ describe('the auto revert workflow', () => {
     expect(lane.on.workflow_run).toEqual({
       workflows: [read('build.yml').name, read('slow-scenarios.yml').name],
       types: ['completed'],
-      branches: ['main'],
+      branches: ['main', 'merge-queue/bisect/**'],
     });
+    for (const name of ['confirm', 'revert']) expect(lane.jobs[name]?.if).toContain("github.event.workflow_run.head_branch == 'main'");
+  });
+
+  test('a finished bot bisect probe within two attempts starts the serialized bisect job', () => {
+    const bisect = lane.jobs.bisect;
+    expect(bisect?.if).toContain("startsWith(github.event.workflow_run.head_branch, 'merge-queue/bisect/')");
+    expect(bisect?.if).toContain("github.event.workflow_run.actor.login == 'github-actions[bot]'");
+    expect(bisect?.if).toContain("github.event.workflow_run.triggering_actor.login == 'github-actions[bot]'");
+    expect(bisect?.if).toContain('github.event.workflow_run.run_attempt <= 2');
+    expect(bisect?.if).toContain("github.event.workflow_run.conclusion == 'timed_out'");
+    expect(bisect?.concurrency).toEqual({ group: 'auto-revert-bisect', 'cancel-in-progress': false });
+    expect(bisect?.permissions).toEqual(lane.jobs.revert?.permissions);
+    expect(bisect?.steps.at(-1)?.run).toBe('bun scripts/ci/auto-revert-github.ts bisect');
+    expect(bisect?.steps.at(-1)?.env?.RUN_ATTEMPT).toBe('${{ github.event.workflow_run.run_attempt }}');
   });
 
   test('each job holds only the permissions its stage needs', () => {
@@ -374,9 +563,11 @@ describe('the auto revert workflow', () => {
   });
 
   test('a failed revert job is reported, and two revert jobs for one commit run one at a time', () => {
-    expect(lane.jobs.report?.needs).toBe('revert');
+    expect(lane.jobs.report?.needs).toEqual(['revert', 'bisect']);
     expect(lane.jobs.report?.if).toContain("needs.revert.result == 'failure'");
+    expect(lane.jobs.report?.if).toContain("needs.bisect.result == 'failure'");
     expect(lane.jobs.report?.steps.at(-1)?.run).toBe('bun scripts/ci/auto-revert-github.ts report');
+    expect(lane.jobs.report?.steps.at(-1)?.env?.HEAD_BRANCH).toBe('${{ github.event.workflow_run.head_branch }}');
     expect(lane.jobs.revert?.concurrency).toEqual({ group: 'auto-revert-commit-${{ github.event.workflow_run.head_sha }}', 'cancel-in-progress': false });
   });
 

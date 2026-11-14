@@ -33,12 +33,34 @@ Every PR opens as a draft and stays one until it is approved.
 - Enqueue approved, ready pull requests that target `main` by adding the
   `merge-queue` label via the REST API (`gh pr edit` is broken on this repo):
   `gh api -X POST 'repos/{owner}/{repo}/issues/<n>/labels' -f 'labels[]=merge-queue'`.
-  `.github/workflows/merge-queue.yml` stages one pull request at a time onto
-  `merge-queue/staging` over current `origin/main`, runs the full `main`
-  `Build & Test` suite (`packaging=true`, `rtdb-differential=true`, every
-  non-slow app scenario, base quarantine), reruns a single-attempt flake once,
-  and merges with `sha` matching so two back-to-back merges can never bypass
-  `auto-revert.yml`.
+  `.github/workflows/merge-queue.yml` stages every ready pull request together
+  (up to 8, in label order) onto `merge-queue/staging` over current
+  `origin/main`, runs the full `main` `Build & Test` suite (`packaging=true`,
+  `rtdb-differential=true`, every non-slow app scenario, base quarantine),
+  reruns a single-attempt flake once, and lands the batch by pushing the staged
+  commit to `main` without force, so `main` is the commit that was tested.
+- A landed pull request shows as merged and gets a comment naming the landed
+  commit and the staging run. A batch of two or more lands as one commit whose
+  first parent is the previous `main`; each pull request keeps its own merge
+  commit under it, which `git revert -m 1` undoes alone.
+- A batch that fails twice is split to find the culprit, in at most 6 more runs
+  for a batch of 8. Only the pull request a twice-failed run singles out loses
+  the label; the others land without being re-labeled. A pull request that
+  conflicts while the batch is built loses the label with a comment.
+- Revert pull requests (title starting `revert:`, or branch `auto-revert/*`) go
+  first, in a batch of their own. While `Build & Test` or `Slow app scenarios`
+  is red on the head of `main`, or while `auto-revert.yml` is still bisecting a
+  failed batch, the queue lands reverts only; land a forward fix by hand, or
+  wait for the revert. A revert batch that fails on a red `main` stays staged
+  and nobody loses the label; remove the label from a revert that should not be
+  queued, or add the missing one.
+- If `main` goes red after a batch landed, `auto-revert.yml` bisects the batch
+  with runs on `merge-queue/bisect/*` branches and opens a revert for the one
+  pull request it finds, not for the batch.
+- If GitHub refuses the queue's push because a pull request changes
+  `.github/workflows/` (the default workflow token may not push workflow
+  changes), that pull request loses the label with the refusal in a comment.
+  Merge it by hand.
 - If a pull request is part of an explicit stack, do not delete a branch another
   PR is based on. Deleting the base closes the stacked PR instead of retargeting
   it. Retarget the stacked PR to `main` first, then delete:
