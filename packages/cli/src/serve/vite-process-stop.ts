@@ -7,22 +7,21 @@
  * an installed package it externalizes that imports `firebase-admin` or
  * `firebase`, or an unserved `firebase/*` subpath in a server module. Under
  * `pyric sandbox -- vite dev` the register's resolve hook stops those. Under
- * plain `vite dev` there is no register, so the plugin installs this sync
- * resolve hook in its process: it resolves nothing differently, and throws
- * `PYRIC_REAL_SDK_STOPPED` before a real SDK file loads, with the register's
- * own decision and error (`stopFor` in `../register/swap-or-stop.ts`).
- *
- * The hook can't see what loaded before the plugin module ran, such as the
- * Vite config's own static imports.
+ * plain `vite dev` there is no register, so the plugin acquires a scoped
+ * lease on a single sync resolve hook in its process: while a server is open,
+ * the active lease throws `PYRIC_REAL_SDK_STOPPED` (for `pyric()`) or
+ * `PYRIC_LIVE_REFUSED` (for `@pyric/live/vite`), and releasing the lease on
+ * `server.close()` leaves subsequent Node resolutions untouched.
  */
 import Module from 'node:module';
 import { UNSUPPORTED_RUNTIME_CODE } from '../cli/unsupported-runtime.js';
-import { isRegisterActive } from '../register/activation.js';
+import { isLiveRegisterActive, isRegisterActive } from '../register/activation.js';
 import { canonicalFirebaseSpecifier } from '../register/mapping.js';
 import { requireRegisterHooks } from '../register/node-version-stop.js';
 import { packageNameOf } from '../register/package-identity.js';
-import { createStopReporter, stopFor } from '../register/swap-or-stop.js';
+import { createStopReporter, stopFor, suppliedRowsStopFor } from '../register/swap-or-stop.js';
 import type { AiMode } from './firebase-module-swap.js';
+import type { SuppliedRows } from './vite-supplied-rows.js';
 
 interface SyncResolveContext {
   parentURL?: string;
@@ -47,9 +46,23 @@ type RegisterHooks = (hooks: { resolve: SyncResolve }) => void;
 /** Typed locally: the repo's ambient Node types predate `registerHooks`. */
 const moduleApi = Module as unknown as { registerHooks?: RegisterHooks };
 
-/** What this process's hook reads on each resolve, so a Vite restart can replace the AI mode. */
-interface StopState {
+interface SandboxStopLease {
+  readonly kind: 'sandbox';
   getAiMode: () => AiMode;
+  readonly report: ReturnType<typeof createStopReporter>;
+  readonly allowedUrls: Set<string>;
+}
+
+interface LiveStopLease {
+  readonly kind: 'live';
+  readonly supplied: SuppliedRows;
+  readonly report: ReturnType<typeof createStopReporter>;
+}
+
+type ProcessStopLease = SandboxStopLease | LiveStopLease;
+
+interface StopState {
+  readonly leases: ProcessStopLease[];
 }
 
 /** Holds the installed hook's state, once per process. */
@@ -81,31 +94,69 @@ function isViteFirebaseAiLoad(url: string, importer: string | undefined, aiMode:
   return packageNameOf(url) === FIREBASE_AI_PACKAGE;
 }
 
+function evaluateSandboxLease(
+  lease: SandboxStopLease,
+  specifier: string,
+  context: SyncResolveContext,
+  result: SyncResolveResult,
+): SyncResolveResult {
+  const aiMode = lease.getAiMode();
+  const stop = stopFor(
+    {
+      specifier,
+      canonical: canonicalFirebaseSpecifier(specifier),
+      importer: context.parentURL,
+      url: result.url,
+      aiMode,
+    },
+    lease.allowedUrls,
+  );
+  if (stop === null) return result;
+  if (isViteFirebaseAiLoad(result.url, context.parentURL, aiMode)) {
+    lease.allowedUrls.add(result.url);
+    return result;
+  }
+  lease.report(stop);
+  throw stop;
+}
+
+function evaluateLiveLease(
+  lease: LiveStopLease,
+  specifier: string,
+  context: SyncResolveContext,
+  result: SyncResolveResult,
+): SyncResolveResult {
+  const stopped = suppliedRowsStopFor(
+    {
+      specifier,
+      canonical: canonicalFirebaseSpecifier(specifier),
+      importer: context.parentURL,
+      url: result.url,
+    },
+    new Set(),
+    { isRowImport: false, isEsmImport: false },
+  );
+  if (stopped === null) return result;
+  const refusal = lease.supplied.refusal(specifier, 'server');
+  lease.report(Object.assign(new Error(refusal.message), { url: result.url, specifier }));
+  throw refusal;
+}
+
 /**
  * The hook: resolve as Node would, then stop a load of the real SDK that the
  * swap doesn't choose. Each stop is written once per file, so a caught
  * import still shows in the dev server log.
  */
 export function viteProcessStopHook(input: ViteProcessStopHookInput): SyncResolve {
-  const report = createStopReporter(input.write);
-  const allowedUrls = new Set<string>();
+  const lease: SandboxStopLease = {
+    kind: 'sandbox',
+    getAiMode: input.getAiMode,
+    report: createStopReporter(input.write),
+    allowedUrls: new Set<string>(),
+  };
   return (specifier, context, nextResolve) => {
     const result = nextResolve(specifier, context);
-    const aiMode = input.getAiMode();
-    const stop = stopFor({
-      specifier,
-      canonical: canonicalFirebaseSpecifier(specifier),
-      importer: context.parentURL,
-      url: result.url,
-      aiMode,
-    }, allowedUrls);
-    if (stop === null) return result;
-    if (isViteFirebaseAiLoad(result.url, context.parentURL, aiMode)) {
-      allowedUrls.add(result.url);
-      return result;
-    }
-    report(stop);
-    throw stop;
+    return evaluateSandboxLease(lease, specifier, context, result);
   };
 }
 
@@ -122,6 +173,14 @@ export interface ViteProcessStopInput {
   nodeVersion?: string;
 }
 
+export interface ViteLiveProcessStopInput {
+  write?: (line: string) => void;
+  slot?: Record<symbol, unknown>;
+  registerHooks?: RegisterHooks;
+  registerActive?: () => boolean;
+  nodeVersion?: string;
+}
+
 const BUN_TEST_ENTRYPOINT = /\.(?:test|spec)\.[cm]?[jt]sx?$/;
 
 function isInProcessBunTestRunner(): boolean {
@@ -129,10 +188,17 @@ function isInProcessBunTestRunner(): boolean {
   return typeof bunGlobal?.main === 'string' && BUN_TEST_ENTRYPOINT.test(bunGlobal.main);
 }
 
-function createViteBunUnsupportedError(bunVersion: string): Error & { code: string } {
+function createViteBunUnsupportedError(surface: 'sandbox' | 'live', bunVersion: string): Error & { code: string } {
+  const label = surface === 'live' ? '@pyric/live/vite' : 'pyric() Vite plugin';
+  let detail =
+    '  Without synchronous module.registerHooks, externalized server imports of firebase and firebase-admin cannot be swapped or stopped and would reach live Firebase.\n';
+  if (surface === 'live') {
+    detail =
+      '  Without synchronous module.registerHooks, externalized server imports of firebase and firebase-admin cannot be refused in live mode.\n';
+  }
   const message =
-    `pyric() Vite plugin: Bun ${bunVersion} does not run Node module.registerHooks [${UNSUPPORTED_RUNTIME_CODE}].\n` +
-    "  Without synchronous module.registerHooks, externalized server imports of firebase and firebase-admin cannot be swapped or stopped and would reach live Firebase.\n" +
+    `${label}: Bun ${bunVersion} does not run Node module.registerHooks [${UNSUPPORTED_RUNTIME_CODE}].\n` +
+    detail +
     '  Run Vite under Node >= 22.15 (for example `npx vite dev`).\n' +
     `  code: ${UNSUPPORTED_RUNTIME_CODE}`;
   const error = new Error(message) as Error & { code: string };
@@ -140,43 +206,126 @@ function createViteBunUnsupportedError(bunVersion: string): Error & { code: stri
   return error;
 }
 
+function resolveHooksCallback(input: ViteLiveProcessStopInput): RegisterHooks | undefined {
+  if ('registerHooks' in input) return input.registerHooks;
+  if (moduleApi.registerHooks === undefined) return undefined;
+  return moduleApi.registerHooks.bind(Module);
+}
+
+function isAnyRegisterActive(): boolean {
+  return isRegisterActive() || isLiveRegisterActive();
+}
+
 /**
- * Install the hook in this process once, unless the register is active, in
- * which case its own hook already stops these loads. Returns whether a hook
- * of this module is in place. A later call, from the plugin a Vite restart
- * builds, only replaces the AI mode the hook reads.
+ * Validate upfront during `config()` that the host runtime supports synchronous
+ * `module.registerHooks`, without acquiring an active server lease yet.
  */
-export function installViteProcessStop(input: ViteProcessStopInput = {}): boolean {
-  const registerActive = input.registerActive ?? isRegisterActive;
-  if (registerActive()) return false;
-  const slot = input.slot ?? (globalThis as unknown as Record<symbol, unknown>);
-  const getAiMode = input.getAiMode ?? (() => 'sandbox');
-  const installed = slot[VITE_PROCESS_STOP] as StopState | undefined;
-  if (installed !== undefined) {
-    installed.getAiMode = getAiMode;
-    return true;
-  }
+export function validateViteProcessStopRuntime(
+  surface: 'sandbox' | 'live',
+  input: ViteLiveProcessStopInput = {},
+): void {
+  const defaultRegisterCheck = surface === 'live' ? isAnyRegisterActive : isRegisterActive;
+  const registerActive = input.registerActive ?? defaultRegisterCheck;
+  if (registerActive()) return;
   const write = input.write ?? ((line) => void process.stderr.write(line));
   const hasExplicitHooks = 'registerHooks' in input;
   if (!hasExplicitHooks && typeof process.versions.bun === 'string') {
-    if (isInProcessBunTestRunner()) return false;
-    const error = createViteBunUnsupportedError(process.versions.bun);
+    if (isInProcessBunTestRunner()) return;
+    const error = createViteBunUnsupportedError(surface, process.versions.bun);
     write(`${error.message}\n`);
     throw error;
   }
+  const label = surface === 'live' ? '@pyric/live/vite' : 'pyric() Vite plugin';
+  requireRegisterHooks(resolveHooksCallback(input), label, input.nodeVersion ?? process.versions.node, write);
+}
+
+function ensureProcessStopState(
+  surface: 'sandbox' | 'live',
+  input: ViteLiveProcessStopInput,
+  registerActiveCheck: () => boolean,
+): StopState | null {
+  if (registerActiveCheck()) return null;
+  const slot = input.slot ?? (globalThis as unknown as Record<symbol, unknown>);
+  const write = input.write ?? ((line) => void process.stderr.write(line));
+  const hasExplicitHooks = 'registerHooks' in input;
+  if (!hasExplicitHooks && typeof process.versions.bun === 'string') {
+    if (isInProcessBunTestRunner()) return null;
+    const error = createViteBunUnsupportedError(surface, process.versions.bun);
+    write(`${error.message}\n`);
+    throw error;
+  }
+  const existing = slot[VITE_PROCESS_STOP] as StopState | undefined;
+  if (existing !== undefined) return existing;
+  const label = surface === 'live' ? '@pyric/live/vite' : 'pyric() Vite plugin';
   const registerHooks = requireRegisterHooks(
-    hasExplicitHooks ? input.registerHooks : moduleApi.registerHooks?.bind(Module),
-    'pyric() Vite plugin',
+    resolveHooksCallback(input),
+    label,
     input.nodeVersion ?? process.versions.node,
     write,
   );
-  const state: StopState = { getAiMode };
+  const state: StopState = { leases: [] };
   registerHooks({
-    resolve: viteProcessStopHook({
-      getAiMode: () => state.getAiMode(),
-      write,
-    }),
+    resolve(specifier, context, nextResolve) {
+      const result = nextResolve(specifier, context);
+      if (registerActiveCheck()) return result;
+      const active = state.leases.at(-1);
+      if (active === undefined) return result;
+      if (active.kind === 'live') {
+        if (isLiveRegisterActive()) return result;
+        return evaluateLiveLease(active, specifier, context, result);
+      }
+      return evaluateSandboxLease(active, specifier, context, result);
+    },
   });
   slot[VITE_PROCESS_STOP] = state;
-  return true;
+  return state;
+}
+
+function pushLease(state: StopState, lease: ProcessStopLease): () => void {
+  state.leases.push(lease);
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    const index = state.leases.lastIndexOf(lease);
+    if (index !== -1) state.leases.splice(index, 1);
+  };
+}
+
+/**
+ * Acquire a scoped sandbox process-stop lease for one Vite dev server instance.
+ * Calling the returned callback releases only this server's lease.
+ */
+export function acquireViteProcessStop(input: ViteProcessStopInput = {}): () => void {
+  const registerActive = input.registerActive ?? isRegisterActive;
+  const state = ensureProcessStopState('sandbox', input, registerActive);
+  if (state === null) return () => {};
+  const write = input.write ?? ((line) => void process.stderr.write(line));
+  const lease: SandboxStopLease = {
+    kind: 'sandbox',
+    getAiMode: input.getAiMode ?? (() => 'sandbox'),
+    report: createStopReporter(write),
+    allowedUrls: new Set<string>(),
+  };
+  return pushLease(state, lease);
+}
+
+/**
+ * Acquire a scoped live process-stop lease for one `@pyric/live/vite` server instance.
+ * Calling the returned callback releases only this server's lease.
+ */
+export function acquireViteLiveProcessStop(
+  supplied: SuppliedRows,
+  input: ViteLiveProcessStopInput = {},
+): () => void {
+  const registerActive = input.registerActive ?? (() => isRegisterActive() || isLiveRegisterActive());
+  const state = ensureProcessStopState('live', input, registerActive);
+  if (state === null) return () => {};
+  const write = input.write ?? ((line) => void process.stderr.write(line));
+  const lease: LiveStopLease = {
+    kind: 'live',
+    supplied,
+    report: createStopReporter(write),
+  };
+  return pushLease(state, lease);
 }

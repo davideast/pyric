@@ -188,6 +188,7 @@
     "./next/internal/remote-config",
     "./next/internal/storage",
     "./next/internal/react-hook",
+    "./next/internal/client-stop",
     "./package.json"
   ],
   "allowedFirebaseSdkImportEdges": [

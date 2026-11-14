@@ -1,5 +1,6 @@
 import { afterAll, describe, expect, it } from 'bun:test';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { installedFirebaseSdkNames } from '../../src/bundler/externals.js';
@@ -414,5 +415,89 @@ describe('a real Firebase SDK load the swap does not serve stops (ADR 0022)', ()
       undefined,
     );
     expect(pathStop).toStartWith(STOP_PREFIX);
+
+    const subpathImportContext: SwapResolveContext = {
+      environment: clientEnvironment,
+      resolve: async (source) => {
+        if (source === '#direct-firestore') {
+          return { id: path.join(root, 'node_modules', '@firebase', 'firestore', 'index.js') };
+        }
+        return null;
+      },
+    };
+    const subpathStop = await localSwap.resolvePluginId(subpathImportContext, '#direct-firestore', appMain);
+    expect(subpathStop).toStartWith(STOP_PREFIX);
+
+    for (const customPrefix of ['@sdk/firestore', '$lib/firestore', '~sdk/firestore']) {
+      const customAliasContext: SwapResolveContext = {
+        environment: clientEnvironment,
+        resolve: async (source) => {
+          if (source === customPrefix) {
+            return { id: path.join(root, 'node_modules', '@firebase', 'firestore', 'index.js') };
+          }
+          return null;
+        },
+      };
+      const customStop = await localSwap.resolvePluginId(customAliasContext, customPrefix, appMain);
+      expect(customStop).toStartWith(STOP_PREFIX);
+    }
+  });
+
+  it('routes non-production SSR builds to server targets rather than browser SharedWorker entries', async () => {
+    const ssrBuildSwap = createViteModuleSwap(context);
+    const ssrConfig = ssrBuildSwap.config({ devServer: false, ssrBuild: true } as never);
+    const alias = (ssrConfig.resolve?.alias as Array<{ find: RegExp; replacement: string }>)?.[0];
+    expect(alias).toBeDefined();
+    expect(ssrConfig.ssr?.external).toContain('@pyric/cli');
+
+    const buildSsrEnv = { name: 'ssr', mode: 'build', config: { consumer: 'server' } } as SwapEnvironment;
+    const fake = fakeContext(buildSsrEnv);
+    expect(await ssrBuildSwap.resolvePluginId(fake, aliased('firebase/app'), userImporter, { ssr: true }))
+      .toBe('\0pyric-ssr-target:@pyric/cli/register/client/app');
+    expect(await ssrBuildSwap.resolvePluginId(fake, 'firebase/app', userImporter, { ssr: true }))
+      .toBe('\0pyric-ssr-target:@pyric/cli/register/client/app');
+  });
+
+  it('allows bridged firebase/app and firebase/app-check re-exports in PYRIC_AI_MODE=production while stopping direct app @firebase/* imports', async () => {
+    const prodAiSwap = createViteModuleSwap(context, { getAiMode: () => 'production' });
+    const req = createRequire(import.meta.url);
+    const realAppEntry = req.resolve('firebase/app');
+    const realAppCheckEntry = req.resolve('firebase/app-check');
+    const realAiEntry = req.resolve('firebase/ai');
+    const realScopedApp = req.resolve('@firebase/app', { paths: [path.dirname(realAppEntry)] });
+    const realScopedAppCheck = req.resolve('@firebase/app-check', { paths: [path.dirname(realAppCheckEntry)] });
+
+    const prodContext: SwapResolveContext = {
+      environment: clientEnvironment,
+      resolve: async (source) => {
+        if (source === 'firebase/app') return { id: realAppEntry };
+        if (source === 'firebase/app-check') return { id: realAppCheckEntry };
+        if (source === 'firebase/ai') return { id: realAiEntry };
+        if (source === '@firebase/app') return { id: realScopedApp };
+        if (source === '@firebase/app-check') return { id: realScopedAppCheck };
+        return null;
+      },
+    };
+
+    // App imports swap to passthrough bridge entries inside cliRoot
+    expect(await prodAiSwap.resolvePluginId(prodContext, 'firebase/app', userImporter)).toBe(
+      context.entries['app-ai-passthrough'],
+    );
+    expect(await prodAiSwap.resolvePluginId(prodContext, 'firebase/app-check', userImporter)).toBe(
+      context.entries['app-ai-passthrough-app-check'],
+    );
+    // Bridge entries inside cliRoot import real firebase/app and firebase/app-check
+    expect(
+      await prodAiSwap.resolvePluginId(prodContext, 'firebase/app', context.entries['app-ai-passthrough']),
+    ).toBeNull();
+    const appBridgeEntry = path.join(context.cliRoot, 'src', 'register', 'app-bridge-app-check.ts');
+    expect(await prodAiSwap.resolvePluginId(prodContext, 'firebase/app-check', appBridgeEntry)).toBeNull();
+
+    // Real firebase/app and firebase/app-check then re-export @firebase/app and @firebase/app-check cleanly
+    expect(await prodAiSwap.resolvePluginId(prodContext, '@firebase/app', realAppEntry)).toBeNull();
+    expect(await prodAiSwap.resolvePluginId(prodContext, '@firebase/app-check', realAppCheckEntry)).toBeNull();
+
+    // Direct application import of @firebase/app remains stopped
+    expect(await prodAiSwap.resolvePluginId(prodContext, '@firebase/app', userImporter)).toStartWith(STOP_PREFIX);
   });
 });

@@ -1,29 +1,42 @@
 /**
- * The Next plane's form of the shadow-app bypass (#1637). In production AI
- * mode `firebase/app` and `firebase/app-check` alias to the passthrough
- * entries, whose shadow-app wrappers import the Firebase SDK under those same
- * specifiers. Vite and the register let those imports through by importer
- * (`isBypassedBridgeImport`). Webpack and Turbopack aliases apply to every
- * importer, so here a loader rewrites the two imports in the wrappers to
- * relative paths to the Firebase SDK's browser files in the project's own
- * `firebase` install. Nothing else of the SDK loads: the same three modules
- * Vite lets through.
+ * The Next plane's form of the shadow-app and production AI SDK bypass (#1637,
+ * ADR 0022 Ruling 7). In production AI mode `firebase/app` and
+ * `firebase/app-check` alias to the passthrough entries, whose shadow-app
+ * wrappers import the Firebase SDK under those same specifiers, while direct
+ * application imports of `@firebase/*` remain aliased to `client-stop`.
  *
- * The bundler config names only the wrappers. The loader finds `firebase`
- * when it runs, from the project root the bundler gives it, so a Next config
- * that calls `withPyric` from a shared package still resolves the app's own
- * install.
+ * Webpack and Turbopack aliases apply to every importer, so here a loader
+ * rewrites:
+ * 1. the two `firebase/app` and `firebase/app-check` imports in Pyric's
+ *    shadow-app wrappers, and
+ * 2. internal `@firebase/*` imports inside `firebase/{ai,app,app-check}` and
+ *    the six production AI `@firebase/*` packages (`isProductionAiSdkPackage`)
+ * to relative paths to the project's own installed browser ESM files. Direct
+ * app imports of `@firebase/app` or `@firebase/ai` never match this loader and
+ * stay stopped.
  */
 import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { dirname, join, relative, sep } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { isBypassedBridgeImport, resolveAiMode } from '../serve/firebase-module-swap.js';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { packageNameOf, pathInPackageOf } from '../register/package-identity.js';
+import {
+  isBypassedBridgeImport,
+  isProductionAiSdkFile,
+  isProductionAiSdkPackage,
+  resolveAiMode,
+} from '../serve/firebase-module-swap.js';
 
 /** The shadow-app wrappers that import the Firebase SDK, by file name under `register/`, and the specifier each imports. */
 const BRIDGE_MODULES: ReadonlyArray<readonly [name: string, specifier: string]> = [
   ['app-bridge-shadow', 'firebase/app'],
   ['app-bridge-app-check', 'firebase/app-check'],
 ];
+
+/** Filename of browser ESM entry bundles across `firebase` and `@firebase/*`. */
+const SDK_BROWSER_ESM_FILENAME = 'index.esm.js';
+
+/** Matches installed `firebase` and `@firebase/*` JS modules in Webpack client rules. */
+export const PRODUCTION_AI_SDK_FILE_PATTERN = /[\\/]node_modules[\\/](?:firebase|@firebase)[\\/].*\.[cm]?js$/;
 
 /** The loader's options: each wrapper's absolute path to the specifier whose import it rewrites. */
 export interface BridgeImportOptions {
@@ -35,7 +48,7 @@ export class PyricNextBridgeError extends Error {
   override readonly name = 'PyricNextBridgeError';
 }
 
-const UNSUPPORTED_RESOLUTION = 'Pyric looks for node_modules/firebase from the project directory up; Yarn Plug\'n\'Play and NODE_PATH installs are not supported.';
+const UNSUPPORTED_RESOLUTION = "Pyric looks for node_modules/firebase from the project directory up; Yarn Plug'n'Play and NODE_PATH installs are not supported.";
 
 /** This package's built loader, next to this module. */
 export const BRIDGE_IMPORT_LOADER = fileURLToPath(new URL(`./bridge-import-loader${moduleExtension()}`, import.meta.url));
@@ -56,19 +69,87 @@ function firebasePackageDir(projectDir: string): string {
   );
 }
 
+interface ExportConditionMap {
+  browser?: string | { import?: string; default?: string };
+  import?: string | { default?: string };
+  default?: string;
+}
+
+function pickBrowserExportTarget(entry: string | ExportConditionMap | undefined): string | undefined {
+  if (typeof entry === 'string') return entry;
+  if (entry === undefined || typeof entry !== 'object' || entry === null) return undefined;
+  if (typeof entry.browser === 'string') return entry.browser;
+  if (typeof entry.browser === 'object' && entry.browser !== null) {
+    if (typeof entry.browser.import === 'string') return entry.browser.import;
+    if (typeof entry.browser.default === 'string') return entry.browser.default;
+  }
+  if (typeof entry.import === 'string') return entry.import;
+  if (typeof entry.import === 'object' && entry.import !== null && typeof entry.import.default === 'string') {
+    return entry.import.default;
+  }
+  if (typeof entry.default === 'string') return entry.default;
+  return undefined;
+}
+
 /** The browser ESM file `firebase/<subpath>` resolves to under a bundler's browser conditions. */
 function browserFile(packageDir: string, specifier: string): string {
   const manifest = JSON.parse(readFileSync(join(packageDir, 'package.json'), 'utf8')) as {
-    exports?: Record<string, { browser?: { import?: string }; default?: string }>;
+    exports?: Record<string, string | ExportConditionMap>;
   };
   const entry = manifest.exports?.[`./${specifier.slice('firebase/'.length)}`];
-  const file = entry?.browser?.import ?? entry?.default;
+  const file = pickBrowserExportTarget(entry);
   if (file === undefined) {
     throw new PyricNextBridgeError(
       `pyric: production AI mode needs ${specifier} from the Firebase SDK, but ${join(packageDir, 'package.json')} exports no browser entry for it.`,
     );
   }
   return join(packageDir, file);
+}
+
+function scopedPackageDir(
+  packageName: string,
+  importerFile: string,
+  firebaseDir: string,
+  projectDir: string,
+): string | null {
+  for (const startDir of [dirname(importerFile), firebaseDir, dirname(firebaseDir), projectDir]) {
+    for (let dir = startDir; ; dir = dirname(dir)) {
+      const candidate = join(dir, 'node_modules', packageName);
+      if (existsSync(join(candidate, 'package.json'))) {
+        return realpathSync(candidate);
+      }
+      if (dirname(dir) === dir) break;
+    }
+  }
+  return null;
+}
+
+function scopedBrowserEntryFile(packageDir: string): string | null {
+  const manifest = JSON.parse(readFileSync(join(packageDir, 'package.json'), 'utf8')) as {
+    exports?: Record<string, string | ExportConditionMap>;
+    module?: string;
+    main?: string;
+  };
+  let rel = pickBrowserExportTarget(manifest.exports?.['.']);
+  if (rel === undefined && typeof manifest.module === 'string') {
+    rel = manifest.module;
+  }
+  if (rel === undefined && typeof manifest.main === 'string') {
+    rel = manifest.main;
+  }
+  if (rel === undefined) return null;
+  const full = join(packageDir, rel);
+  try {
+    return realpathSync(full);
+  } catch {
+    return full;
+  }
+}
+
+function toRelativeImport(fromFile: string, targetFile: string): string {
+  const rel = relative(dirname(fromFile), targetFile).split(sep).join('/');
+  if (rel.startsWith('.')) return rel;
+  return `./${rel}`;
 }
 
 /**
@@ -78,8 +159,40 @@ function browserFile(packageDir: string, specifier: string): string {
  */
 export function bridgeImportTarget(wrapper: string, specifier: string, projectDir: string): string {
   const target = browserFile(firebasePackageDir(projectDir), specifier);
-  const path = relative(dirname(wrapper), target).split(sep).join('/');
-  return path.startsWith('.') ? path : `./${path}`;
+  return toRelativeImport(wrapper, target);
+}
+
+/**
+ * Whether `filePath` is an installed browser file belonging to `firebase`
+ * (`ai/`, `app/`, `app-check/`) or one of the `@firebase/*` packages allowed in
+ * production AI mode (`isProductionAiSdkPackage`).
+ */
+export function isProductionAiClientSdkFile(filePath: string): boolean {
+  const posix = filePath.replaceAll('\\', '/');
+  if (!posix.includes('/node_modules/')) return false;
+  const fileUrl = pathToFileURL(filePath).href;
+  const pkgName = packageNameOf(fileUrl);
+  if (pkgName === null) return false;
+  if (isProductionAiSdkPackage(pkgName)) return true;
+  return isProductionAiSdkFile(pkgName, () => pathInPackageOf(fileUrl, pkgName));
+}
+
+/**
+ * Resolve an internal `@firebase/*` import inside the production AI SDK closure
+ * to a relative browser-entry path, or `null` if not installed under `projectDir`.
+ */
+export function productionAiScopedTarget(
+  importerFile: string,
+  specifier: string,
+  projectDir: string,
+): string | null {
+  if (!isProductionAiSdkPackage(specifier)) return null;
+  const firebaseDir = firebasePackageDir(projectDir);
+  const pkgDir = scopedPackageDir(specifier, importerFile, firebaseDir, projectDir);
+  if (pkgDir === null) return null;
+  const targetFile = scopedBrowserEntryFile(pkgDir);
+  if (targetFile === null) return null;
+  return toRelativeImport(importerFile, targetFile);
 }
 
 /**
@@ -102,7 +215,10 @@ export function productionBridgeOptions(): BridgeImportOptions | undefined {
   return isProductionAiMode ? bridgeImportOptions() : undefined;
 }
 
-/** The file names of the wrappers, for bundler rules keyed by name. */
+/** The file names Turbopack runs {@link BRIDGE_IMPORT_LOADER} on in production AI mode. */
 export function bridgeModuleFileNames(): string[] {
-  return BRIDGE_MODULES.map(([name]) => `${name}${moduleExtension()}`);
+  return [
+    ...BRIDGE_MODULES.map(([name]) => `${name}${moduleExtension()}`),
+    SDK_BROWSER_ESM_FILENAME,
+  ];
 }

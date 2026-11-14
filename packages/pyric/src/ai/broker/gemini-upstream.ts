@@ -14,7 +14,12 @@
  */
 
 import { AiBrokerError, errorEnvelope } from './synthesizer.js';
-import { redactUpstreamText, urlCredentials } from './upstream-error-redaction.js';
+import {
+  joinUpstreamUrl,
+  normalizeUpstreamBaseUrl,
+  redactUpstreamText,
+  urlCredentials,
+} from './upstream-error-redaction.js';
 
 /** Where the gemini engine talks when no `baseUrl` overrides it. Published
  *  through `pyric/ai/internal` so the CLI's startup banner can name the same
@@ -157,7 +162,7 @@ export class GeminiUpstream {
   private readonly baseUrlCredentials: string[];
 
   constructor(options?: GeminiUpstreamOptions) {
-    this.baseUrl = (options?.baseUrl ?? GEMINI_DEFAULT_BASE_URL).replace(/\/$/, '');
+    this.baseUrl = normalizeUpstreamBaseUrl(options?.baseUrl ?? GEMINI_DEFAULT_BASE_URL);
     this.fetchImpl = options?.fetch ?? ((input, init) => fetch(input, init));
     this.explicitKey = options?.apiKey;
     this.printAdcToken = options?.printAdcToken ?? printAdcTokenWithGcloud;
@@ -292,19 +297,22 @@ export class GeminiUpstream {
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
     };
-    const url = `${this.baseUrl}/v1beta/${resource}:${action}`;
-    if (this.serverAttachesAuth) return { url, headers };
+    const endpointPath = `/v1beta/${resource}:${action}`;
+    if (this.serverAttachesAuth) {
+      return { url: joinUpstreamUrl(this.baseUrl, endpointPath), headers };
+    }
     const isVertexUrl =
       this.baseUrl.includes('firebasevertexai.googleapis.com') ||
       this.baseUrl.includes('aiplatform.googleapis.com');
     const shouldUseBearerAuth = auth.isBearer || isVertexUrl;
     if (shouldUseBearerAuth) {
       headers['Authorization'] = `Bearer ${auth.token}`;
-      return { url, headers };
+      return { url: joinUpstreamUrl(this.baseUrl, endpointPath), headers };
     }
-    // The stream's action already carries `?alt=sse`.
-    const separator = url.includes('?') ? '&' : '?';
-    return { url: `${url}${separator}key=${encodeURIComponent(auth.token)}`, headers };
+    return {
+      url: joinUpstreamUrl(this.baseUrl, endpointPath, `?key=${encodeURIComponent(auth.token)}`),
+      headers,
+    };
   }
 
   private async post(
