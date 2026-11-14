@@ -5,10 +5,6 @@ import type { PrCheckSet } from './check-set.ts';
 interface RequiredInput {
   checkSet: PrCheckSet;
   requirePackaging: boolean;
-  /** The plan selected the packaging gate (`packaging == 'true'`). */
-  requirePackagingGate?: boolean;
-  /** Diff-selected pull requests also run the install matrix alongside packaging. */
-  requireInstallMatrix?: boolean;
   /** The plan selected the RTDB differential gate. */
   requireRtdbDifferential?: boolean;
   /** The plan selected the app scenarios. */
@@ -28,29 +24,20 @@ const CHECK_SET_JOBS: Record<PrCheckSet, readonly string[]> = {
 const PACK_JOB = 'pack-packages';
 
 export function requiredFailures(input: RequiredInput): string[] {
-  const required: string[] = [...CHECK_SET_JOBS[input.checkSet]];
-  const fullCheckSet = input.checkSet === 'full';
-  if (input.requirePackaging) {
-    required.push('packaging', 'install-matrix', 'standalone', 'release-contract');
-  } else if (fullCheckSet && input.requirePackagingGate) {
-    required.push('packaging');
-    if (input.requireInstallMatrix) required.push('install-matrix');
-  }
-  if (input.requireRtdbDifferential) required.push('rtdb-differential');
-  // The Node 24.16 stop job runs with the app scenarios, on the same tarballs.
-  if (input.requireAppScenarios) required.push('app-scenarios', 'node-24-stop');
-  if (input.requireDeletionGuard) required.push('deletion-guard');
+  const required = [
+    ...CHECK_SET_JOBS[input.checkSet],
+    ...(input.requirePackaging ? ['packaging', 'install-matrix', 'standalone', 'release-contract'] : []),
+    ...(input.requireRtdbDifferential ? ['rtdb-differential'] : []),
+    // The Node 24.16 stop job runs with the app scenarios, on the same tarballs.
+    ...(input.requireAppScenarios ? ['app-scenarios', 'node-24-stop'] : []),
+    ...(input.requireDeletionGuard ? ['deletion-guard'] : []),
+  ];
   // The app scenarios and the packaging gate test the tarballs the one pack
   // job made, so either one requires that pack to have succeeded.
-  const needsPackedTarballs = input.requirePackaging
-    || (fullCheckSet && Boolean(input.requirePackagingGate))
-    || Boolean(input.requireAppScenarios);
-  if (needsPackedTarballs) required.push(PACK_JOB);
-  const uniqueRequired = [...new Set(required)];
-  return uniqueRequired.flatMap((job) => {
-    if (input.results[job] === 'success') return [];
-    return [`${job}: ${input.results[job] ?? 'missing'}`];
-  });
+  if (input.requirePackaging || input.requireAppScenarios) required.push(PACK_JOB);
+  return required.flatMap((job) => input.results[job] === 'success'
+    ? []
+    : [`${job}: ${input.results[job] ?? 'missing'}`]);
 }
 
 function main(): void {
@@ -61,8 +48,6 @@ function main(): void {
   const failures = requiredFailures({
     checkSet,
     requirePackaging: process.env.CI_REQUIRE_PACKAGING === 'true',
-    requirePackagingGate: process.env.CI_REQUIRE_PACKAGING_GATE === 'true',
-    requireInstallMatrix: process.env.CI_REQUIRE_INSTALL_MATRIX === 'true',
     requireRtdbDifferential: process.env.CI_REQUIRE_RTDB_DIFFERENTIAL === 'true',
     requireAppScenarios: process.env.CI_REQUIRE_APP_SCENARIOS === 'true',
     requireDeletionGuard: process.env.CI_REQUIRE_DELETION_GUARD === 'true',

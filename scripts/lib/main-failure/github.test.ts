@@ -271,12 +271,8 @@ describe('handling a completed attempt', () => {
     expect(closes).toEqual(['50', '60']);
   });
 
-  test('anything but a push or bot-dispatched Build & Test run on main is refused before it is rerun', async () => {
-    for (const repo of [
-      fakeRepo({ event: 'pull_request' }),
-      fakeRepo({ event: 'workflow_dispatch' }),
-      fakeRepo({ path: '.github/workflows/other.yml' }),
-    ]) {
+  test('anything but a push run of Build & Test on main is refused before it is rerun', async () => {
+    for (const repo of [fakeRepo({ event: 'pull_request' }), fakeRepo({ path: '.github/workflows/other.yml' })]) {
       const fake = fakeGitHub(repo);
       await expect(handleAttempt(fake.context, 7, 1)).rejects.toThrow('only push runs of .github/workflows/build.yml on main');
       expect(hasRerun(fake.calls)).toBe(false);

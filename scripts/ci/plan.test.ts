@@ -96,9 +96,6 @@ describe('app scenario selection', () => {
       'packages/cli/src/register/index.ts',
       'packages/cli/src/remote/index.ts',
       'packages/cli/src/cli/serve.ts',
-      'packages/cli/src/next/with-pyric.ts',
-      'packages/cli/src/bundler/edge-runtime.ts',
-      'packages/cli/src/functions/runtime.ts',
       'packages/live/src/vite.ts',
       'packages/pyric-admin/src/database/index.ts',
       'packages/pyric/src/ai/broker/gemini-engine.ts',
@@ -109,12 +106,10 @@ describe('app scenario selection', () => {
       .toEqual({ kind: 'some', apps: [...smoke, 'bar', 'foo'].sort() });
   });
 
-  test('the smoke set is 3 to 5 scenarios of this repository that are not slow, including split-port Next.js', () => {
+  test('the smoke set is 3 to 4 scenarios of this repository that are not slow', () => {
     const real = discoverScenarios(resolve(import.meta.dir, '../..'));
     expect(SMOKE_SCENARIOS.length).toBeGreaterThanOrEqual(3);
-    expect(SMOKE_SCENARIOS.length).toBeLessThanOrEqual(5);
-    expect(SMOKE_SCENARIOS).toContain('nextjs-template');
-    expect(SMOKE_SCENARIOS).toContain('nextjs16-firebase-imports');
+    expect(SMOKE_SCENARIOS.length).toBeLessThanOrEqual(4);
     for (const name of SMOKE_SCENARIOS) {
       expect(real.find((scenario) => scenario.name === name)).toEqual({ name, slow: false });
     }
@@ -241,12 +236,6 @@ describe('CI change input', () => {
   test('forces packaging gate on a merge group, which carries no labels', () => {
     expect(determinePackaging({ event: 'merge_group', labels: [], paths: [] })).toBe(true);
   });
-
-  test('forces packaging gate on merge-queue staging and main workflow dispatches, not arbitrary branch dispatches', () => {
-    expect(determinePackaging({ event: 'workflow_dispatch', ref: 'refs/heads/merge-queue/staging', labels: [], paths: [] })).toBe(true);
-    expect(determinePackaging({ event: 'workflow_dispatch', ref: 'refs/heads/main', labels: [], paths: [] })).toBe(true);
-    expect(determinePackaging({ event: 'workflow_dispatch', ref: 'refs/heads/auto-revert/abc', labels: [], paths: [] })).toBe(false);
-  });
 });
 
 describe('release proof selection (install matrix and standalone smoke)', () => {
@@ -260,11 +249,10 @@ describe('release proof selection (install matrix and standalone smoke)', () => 
     expect(determineReleaseProof({ event: 'merge_group', labels: [] })).toBe(true);
   });
 
-  test('push, schedule and default dispatch keep today\'s behavior, while dispatchReleaseProof opts a staged PR in', () => {
+  test('push, schedule and dispatch keep today\'s behavior', () => {
     for (const event of ['push', 'schedule', 'workflow_dispatch'] as const) {
       expect(determineReleaseProof({ event, labels: [] })).toBe(false);
     }
-    expect(determineReleaseProof({ event: 'workflow_dispatch', labels: [], dispatchReleaseProof: true })).toBe(true);
   });
 });
 

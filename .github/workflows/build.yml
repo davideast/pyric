@@ -26,12 +26,6 @@ on:
   schedule:
     - cron: '17 9 * * *'
   workflow_dispatch:
-    inputs:
-      release_proof:
-        description: 'Run release-shaped packaging consumers (install matrix, standalone binary, release contract)'
-        required: false
-        default: 'false'
-        type: string
 
 permissions:
   contents: read
@@ -108,22 +102,17 @@ jobs:
         with:
           bun-version: ${{ env.BUN_VERSION }}
       - name: Read the quarantine list on the base branch
-        # A pull request's test steps (and a staged merge-queue commit's) honour
-        # only the quarantine entries already on its base branch, so a PR cannot
-        # quarantine the test it breaks (scripts/lib/quarantine/source.ts).
+        # A pull request's test steps honour only the quarantine entries
+        # already on its base branch, so a PR cannot quarantine the test it
+        # breaks (scripts/lib/quarantine/source.ts). The step above fetched
+        # the base commit.
         id: quarantine-base
-        if: github.event_name == 'pull_request' || startsWith(github.ref, 'refs/heads/merge-queue/')
+        if: github.event_name == 'pull_request'
         env:
           CI_BASE_SHA: ${{ github.event.pull_request.base.sha }}
-        run: |
-          if [ -n "$CI_BASE_SHA" ]; then
-            bun scripts/ci/quarantine-base.ts "$CI_BASE_SHA"
-          else
-            git fetch --no-tags --depth=2 origin "$GITHUB_SHA"
-            bun scripts/ci/quarantine-base.ts "$(git rev-parse HEAD^1)"
-          fi
+        run: bun scripts/ci/quarantine-base.ts "$CI_BASE_SHA"
       - name: Test fail-closed selection policy
-        run: bun test scripts/ci/check-set.test.ts scripts/ci/plan.test.ts scripts/ci/required.test.ts scripts/ci/merge-group.test.ts scripts/ci/merge-queue.test.ts scripts/ci/merge-queue-github.test.ts scripts/ci/workflow-paths.test.ts scripts/ci/test-shard.test.ts scripts/ci/build-input-key.test.ts test/apps/shard-plan.test.ts
+        run: bun test scripts/ci/check-set.test.ts scripts/ci/plan.test.ts scripts/ci/required.test.ts scripts/ci/merge-group.test.ts scripts/ci/workflow-paths.test.ts scripts/ci/test-shard.test.ts scripts/ci/build-input-key.test.ts test/apps/shard-plan.test.ts
       - name: Select proof
         # On a pull request, the app scenarios are the ones under
         # test/apps/<name>/ the diff changes and the test/apps/<name> paths
@@ -139,7 +128,6 @@ jobs:
           CI_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           CI_PR_LABELS_JSON: ${{ toJSON(github.event.pull_request.labels.*.name) }}
           CI_PR_BODY: ${{ github.event.pull_request.body }}
-          CI_DISPATCH_RELEASE_PROOF: ${{ inputs.release_proof }}
         run: bun scripts/ci/plan.ts
       - name: Restore the app scenario times main recorded
         # Only main saves app-durations-main-* (in CI / required), so a pull
@@ -1052,7 +1040,7 @@ jobs:
       # or merge-queue run can never write a report another ref reads.
       - name: Stage this commit's coverage report
         id: coverage-head
-        if: always() && github.event_name != 'pull_request' && github.event_name != 'merge_group' && !startsWith(github.ref, 'refs/heads/merge-queue/')
+        if: always() && github.event_name != 'pull_request' && github.event_name != 'merge_group'
         env:
           HEAD_REPORT: ${{ runner.temp }}/coverage-head-report.json
           CACHE_DIR: ${{ runner.temp }}/coverage-report
@@ -1376,8 +1364,6 @@ jobs:
         env:
           CI_CHECK_SET: ${{ needs.plan.outputs.check-set }}
           CI_REQUIRE_PACKAGING: ${{ needs.plan.outputs.release-proof }}
-          CI_REQUIRE_PACKAGING_GATE: ${{ needs.plan.outputs.packaging }}
-          CI_REQUIRE_INSTALL_MATRIX: ${{ needs.plan.outputs.packaging == 'true' && github.event_name == 'pull_request' }}
           CI_REQUIRE_RTDB_DIFFERENTIAL: ${{ needs.plan.outputs.rtdb-differential }}
           CI_REQUIRE_APP_SCENARIOS: ${{ needs.plan.outputs.app-scenarios }}
           CI_REQUIRE_DELETION_GUARD: ${{ github.event_name == 'pull_request' }}
@@ -1407,8 +1393,8 @@ jobs:
         run: bun test/apps/shard-plan.ts check --reports test-results/app-shards --durations-out test-results/app-durations.json
       - name: Record the app scenario times
         # Main and the nightly run save the times the next plans read. Pull
-        # requests and merge-queue staging save nothing, so their caches cannot crowd out main's.
-        if: always() && needs.plan.outputs.app-scenarios == 'true' && (github.event_name == 'push' || github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'))
+        # requests save nothing, so their caches cannot crowd out main's.
+        if: always() && needs.plan.outputs.app-scenarios == 'true' && (github.event_name == 'push' || github.event_name == 'schedule')
         uses: actions/cache/save@v4
         with:
           path: test-results/app-durations.json

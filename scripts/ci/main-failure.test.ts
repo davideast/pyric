@@ -39,13 +39,11 @@ describe('the main failure workflow', () => {
     expect(lane.jobs.classify?.steps.some((step) => step.run === 'bun scripts/ci/main-failure.ts')).toBe(true);
   });
 
-  test('it handles push runs and bot post-merge dispatches on main, and skips an attempt this lane reran itself', () => {
+  test('it handles only push runs, and skips an attempt this lane reran itself', () => {
     const guard = (lane.jobs.classify?.if ?? '').replace(/\s+/g, ' ').trim();
     expect(guard).toBe([
       "github.event_name == 'workflow_dispatch' ||",
-      "((github.event.workflow_run.event == 'push' ||",
-      "(github.event.workflow_run.event == 'workflow_dispatch' &&",
-      "github.event.workflow_run.actor.login == 'github-actions[bot]')) &&",
+      "(github.event.workflow_run.event == 'push' &&",
       '(github.event.workflow_run.run_attempt == 1 ||',
       "github.event.workflow_run.triggering_actor.login != 'github-actions[bot]'))",
     ].join(' '));

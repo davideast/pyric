@@ -262,30 +262,4 @@ describe('required CI result', () => {
       results: success,
     })).toEqual(['packaging: skipped', 'install-matrix: skipped', 'standalone: skipped', 'release-contract: skipped', 'pack-packages: missing']);
   });
-
-  test('requires the packaging gate and pack job when diff-selected or on main, without requiring standalone', () => {
-    expect(requiredFailures({
-      checkSet: 'full',
-      requirePackaging: false,
-      requirePackagingGate: true,
-      results: { ...success, 'pack-packages': 'success', packaging: 'failure' },
-    })).toEqual(['packaging: failure']);
-    expect(requiredFailures({
-      checkSet: 'full',
-      requirePackaging: false,
-      requirePackagingGate: true,
-      results: { ...success, 'pack-packages': 'success', packaging: 'success' },
-    })).toEqual([]);
-    expect(requiredFailures({
-      checkSet: 'full',
-      requirePackaging: false,
-      requirePackagingGate: true,
-      requireInstallMatrix: true,
-      results: { ...success, 'pack-packages': 'success', packaging: 'success', 'install-matrix': 'failure' },
-    })).toEqual(['install-matrix: failure']);
-    const workflow = readFileSync(resolve(import.meta.dir, '../../.github/workflows/build.yml'), 'utf8');
-    const requiredJob = workflow.slice(workflow.indexOf('\n  required:'));
-    expect(requiredJob).toContain('CI_REQUIRE_PACKAGING_GATE: ${{ needs.plan.outputs.packaging }}');
-    expect(requiredJob).toContain("CI_REQUIRE_INSTALL_MATRIX: ${{ needs.plan.outputs.packaging == 'true' && github.event_name == 'pull_request' }}");
-  });
 });

@@ -57,9 +57,7 @@ jobs:
     name: Rerun the failed jobs once
     if: >-
       github.event_name == 'workflow_run' &&
-      (github.event.workflow_run.event == 'push' ||
-       (github.event.workflow_run.event == 'workflow_dispatch' &&
-        github.event.workflow_run.actor.login == 'github-actions[bot]')) &&
+      github.event.workflow_run.event == 'push' &&
       github.event.workflow_run.conclusion == 'failure' &&
       github.event.workflow_run.run_attempt == 1
     runs-on: ubuntu-latest
@@ -87,9 +85,7 @@ jobs:
     # Only the attempt the one rerun started; a person's rerun is theirs.
     if: >-
       github.event_name == 'workflow_run' &&
-      (github.event.workflow_run.event == 'push' ||
-       (github.event.workflow_run.event == 'workflow_dispatch' &&
-        github.event.workflow_run.actor.login == 'github-actions[bot]')) &&
+      github.event.workflow_run.event == 'push' &&
       github.event.workflow_run.conclusion == 'failure' &&
       github.event.workflow_run.run_attempt == 2 &&
       github.event.workflow_run.triggering_actor.login == 'github-actions[bot]'
@@ -100,11 +96,10 @@ jobs:
       cancel-in-progress: false
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    # actions: write starts Build & Test on the revert branch; issues: write labels merge-queue.
+    # actions: write starts Build & Test on the revert branch.
     permissions:
       actions: write
       contents: write
-      issues: write
       pull-requests: write
     steps:
       - uses: actions/checkout@v4

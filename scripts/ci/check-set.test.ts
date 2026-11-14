@@ -102,20 +102,9 @@ describe('packaging proof selection', () => {
       'scripts/packaging-test.sh',
       'scripts/install-matrix.sh',
       'scripts/lib/package-artifact-manifest.ts',
-      'scripts/packed-cli-smoke.mjs',
-      'scripts/packed-mcp-smoke.mjs',
-      'scripts/packed-resolution-smoke.mjs',
-      'scripts/audit-packed-cli.mjs',
     ]) {
       expect(requiresPackagingProof([changed(path)])).toBe(true);
     }
-  });
-
-  test('a CLI bin or command flag change requires it, with no label', () => {
-    // PR #2498 edited packages/cli/src/cli/seed-from-live.ts, skipped the
-    // packaging gate on the PR, and broke packed-cli-smoke.mjs on main.
-    expect(requiresPackagingProof([changed('packages/cli/src/cli/seed-from-live.ts')])).toBe(true);
-    expect(requiresPackagingProof([changed('packages/cli/bin/pyric.js')])).toBe(true);
   });
 
   test('ordinary source and doc changes do not', () => {

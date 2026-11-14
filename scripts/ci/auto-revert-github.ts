@@ -61,19 +61,6 @@ interface RunJson {
   conclusion: string | null;
   workflow_id: number;
   html_url: string;
-  actor?: { login?: string } | null;
-}
-
-const BOT_ACTOR = 'github-actions[bot]';
-const MERGE_QUEUE_LABEL = 'merge-queue';
-
-function isBotMainDispatch(run: Pick<RunJson, 'event' | 'head_branch' | 'actor'>): boolean {
-  return run.event === 'workflow_dispatch' && run.head_branch === 'main' && run.actor?.login === BOT_ACTOR;
-}
-
-function isWatchedMainRun(run: Pick<RunJson, 'event' | 'head_branch' | 'actor'>): boolean {
-  if (run.event === 'push' && run.head_branch === 'main') return true;
-  return isBotMainDispatch(run);
 }
 
 interface CommitJson {
@@ -102,23 +89,15 @@ function mergedPull(io: Io, sha: string): FailedRun['pull'] {
 
 function parentRun(io: Io, run: RunJson, parent: string | undefined): RunJson | undefined {
   if (parent === undefined) return undefined;
-  const pushQuery = `actions/workflows/${run.workflow_id}/runs?branch=main&event=push&head_sha=${parent}&per_page=5`;
-  const pushMatch = api<{ workflow_runs: RunJson[] }>(io, pushQuery).workflow_runs[0];
-  if (pushMatch !== undefined) return pushMatch;
-  // A merge performed by the Actions merge queue with the workflow token starts
-  // main's workflows by bot dispatch rather than push.
-  const dispatchQuery = `actions/workflows/${run.workflow_id}/runs?branch=main&event=workflow_dispatch&head_sha=${parent}&per_page=5`;
-  return api<{ workflow_runs: RunJson[] }>(io, dispatchQuery).workflow_runs.find(isBotMainDispatch);
+  const query = `actions/workflows/${run.workflow_id}/runs?branch=main&event=push&head_sha=${parent}&per_page=5`;
+  return api<{ workflow_runs: RunJson[] }>(io, query).workflow_runs[0];
 }
 
 function superseded(io: Io, run: RunJson, runId: number): boolean {
   const head = api<{ commit: { sha: string } }>(io, 'branches/main').commit.sha;
-  if (head !== run.head_sha) return true;
-  const recentPush = api<{ workflow_runs: (RunJson & { id: number })[] }>(io, `actions/workflows/${run.workflow_id}/runs?branch=main&event=push&per_page=10`);
-  if (recentPush.workflow_runs.some((other) => other.id !== runId && other.status !== 'completed')) return true;
-  if (!isBotMainDispatch(run)) return false;
-  const recentDispatch = api<{ workflow_runs: (RunJson & { id: number })[] }>(io, `actions/workflows/${run.workflow_id}/runs?branch=main&event=workflow_dispatch&per_page=10`);
-  return recentDispatch.workflow_runs.some((other) => other.id !== runId && isBotMainDispatch(other) && other.status !== 'completed');
+  const recent = api<{ workflow_runs: (RunJson & { id: number })[] }>(io, `actions/workflows/${run.workflow_id}/runs?branch=main&event=push&per_page=10`);
+  const newerPending = recent.workflow_runs.some((other) => other.id !== runId && other.status !== 'completed');
+  return head !== run.head_sha || newerPending;
 }
 
 /** A revert pull request for the commit in any state, so one a person closed
@@ -142,7 +121,7 @@ export interface Gathered {
 export function gather(io: Io, runId: number, attempt: number, quarantine: Facts['quarantine'], today: string): Gathered | string {
   const run = api<RunJson>(io, `actions/runs/${runId}/attempts/${attempt}`);
   const failed = run.conclusion === 'failure' || run.conclusion === 'timed_out';
-  if (!isWatchedMainRun(run) || !failed) {
+  if (run.event !== 'push' || run.head_branch !== 'main' || !failed) {
     return `attempt ${attempt} of run ${runId} is a ${run.event} run on ${run.head_branch} that ended ${run.conclusion ?? run.status}`;
   }
   const commit = api<CommitJson>(io, `commits/${run.head_sha}`);
@@ -220,16 +199,8 @@ function revert(io: Io, gathered: Gathered, verdict: RevertVerdict): Verdict {
   // A pull request opened with the workflow token starts no workflows, but a
   // dispatch does, and its `CI / required` lands on the branch's head commit.
   io.gh(['workflow', 'run', BUILD_WORKFLOW, '--repo', io.repo, '--ref', verdict.branch]);
-  const prNumber = /\/pull\/(\d+)\s*$/.exec(url)?.[1];
-  if (prNumber !== undefined) {
-    try {
-      io.gh(['api', '-X', 'POST', `repos/${io.repo}/issues/${prNumber}/labels`, '-f', `labels[]=${MERGE_QUEUE_LABEL}`]);
-    } catch {
-      // Best-effort if the merge-queue label has not been created yet.
-    }
-  }
   io.gh(['pr', 'merge', url, '--repo', io.repo, '--auto', '--merge']);
-  io.log(`Opened ${url}, started ${BUILD_WORKFLOW} on ${verdict.branch}, labeled ${MERGE_QUEUE_LABEL}, and enabled auto-merge: ${verdict.title}`);
+  io.log(`Opened ${url}, started ${BUILD_WORKFLOW} on ${verdict.branch}, and enabled auto-merge: ${verdict.title}`);
   return verdict;
 }
 

@@ -31,24 +31,14 @@ interface RunJson {
   event?: string;
   head_branch?: string;
   path?: string;
-  actor?: { login?: string } | null;
 }
 
-const BOT_ACTOR = 'github-actions[bot]';
-
-function isMainTrunkRun(run: Pick<RunJson, 'event' | 'head_branch' | 'actor'>): boolean {
-  if (run.head_branch !== 'main') return false;
-  if (run.event === 'push') return true;
-  return run.event === 'workflow_dispatch' && run.actor?.login === BOT_ACTOR;
-}
-
-/** Refuses anything but a push (or workflow-token post-merge dispatch) run of
- *  Build & Test on main, as the classify job does, so a dispatch cannot comment
- *  from a pull request's or person's ad-hoc run. */
+/** Refuses anything but a push run of Build & Test on main, as the classify
+ *  job does, so a dispatch cannot comment from a pull request's run. */
 export function assertMainPushRun(run: RunJson): void {
-  const isMainRun = isMainTrunkRun(run) && run.path === '.github/workflows/build.yml';
-  if (!isMainRun) {
-    throw new Error(`Run ${run.id} is a ${run.event} run of ${run.path} on ${run.head_branch}; only push runs of .github/workflows/build.yml on main (or workflow-token dispatches) are handled`);
+  const isMainPush = run.event === 'push' && run.head_branch === 'main' && run.path === '.github/workflows/build.yml';
+  if (!isMainPush) {
+    throw new Error(`Run ${run.id} is a ${run.event} run of ${run.path} on ${run.head_branch}; only push runs of .github/workflows/build.yml on main are handled`);
   }
 }
 
@@ -62,14 +52,13 @@ function api<T>(context: ReleaseContext, path: string): T {
   return JSON.parse(context.gh(['api', `repos/${context.repo}/${path}`])) as T;
 }
 
-/** The completed push (and workflow-token post-merge dispatch) runs on main
- *  that count, newest first, starting at `runId`. */
+/** The completed push runs on main that count, newest first, starting at `runId`. */
 export function mainRuns(context: ReleaseContext, runId: number): RunJson[] {
   const current = api<RunJson>(context, `actions/runs/${runId}`);
   assertMainPushRun(current);
-  const page = api<{ workflow_runs: RunJson[] }>(context, `actions/workflows/build.yml/runs?branch=main&status=completed&per_page=${RELEASE_STREAK + 25}`);
+  const page = api<{ workflow_runs: RunJson[] }>(context, `actions/workflows/build.yml/runs?branch=main&event=push&status=completed&per_page=${RELEASE_STREAK + 20}`);
   const older = page.workflow_runs
-    .filter((run) => run.id !== runId && isMainTrunkRun(run) && run.created_at <= current.created_at && COUNTED.has(run.conclusion ?? ''))
+    .filter((run) => run.id !== runId && run.created_at <= current.created_at && COUNTED.has(run.conclusion ?? ''))
     .sort((a, b) => b.created_at.localeCompare(a.created_at));
   return [current, ...older];
 }

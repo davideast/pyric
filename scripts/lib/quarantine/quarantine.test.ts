@@ -412,14 +412,12 @@ describe('release check comments', () => {
     expect(toReport('cli-1', verdict).entries).toEqual([{ file: quarantinedEntry.file, test: NAMED, issue: 1477, expires: '2026-11-12', outcome: 'failed' }]);
   });
 
-  test('a manual dispatch refuses any run but a push or bot post-merge dispatch of Build & Test on main', () => {
+  test('a manual dispatch refuses any run but a push run of Build & Test on main', () => {
     const base = { id: 1, conclusion: 'success', created_at: '', html_url: '' };
     expect(() => assertMainPushRun({ ...base, event: 'pull_request', head_branch: 'main', path: '.github/workflows/build.yml' })).toThrow('only push runs');
-    expect(() => assertMainPushRun({ ...base, event: 'workflow_dispatch', head_branch: 'main', path: '.github/workflows/build.yml', actor: { login: 'person' } })).toThrow('only push runs');
     expect(() => assertMainPushRun({ ...base, event: 'push', head_branch: 'feature', path: '.github/workflows/build.yml' })).toThrow('only push runs');
     expect(() => assertMainPushRun({ ...base, event: 'push', head_branch: 'main', path: '.github/workflows/other.yml' })).toThrow('only push runs');
     expect(() => assertMainPushRun({ ...base, event: 'push', head_branch: 'main', path: '.github/workflows/build.yml' })).not.toThrow();
-    expect(() => assertMainPushRun({ ...base, event: 'workflow_dispatch', head_branch: 'main', path: '.github/workflows/build.yml', actor: { login: 'github-actions[bot]' } })).not.toThrow();
   });
 
   test('keeps each suite\'s report from its latest attempt', () => {

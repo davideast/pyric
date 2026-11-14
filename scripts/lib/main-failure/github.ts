@@ -79,15 +79,6 @@ interface RunJson {
   created_at: string;
   updated_at: string;
   html_url: string;
-  actor?: { login?: string } | null;
-}
-
-const BOT_ACTOR = 'github-actions[bot]';
-
-function isMainTrunkEvent(run: Pick<RunJson, 'event' | 'head_branch' | 'actor'>): boolean {
-  if (run.head_branch !== 'main') return false;
-  if (run.event === 'push') return true;
-  return run.event === 'workflow_dispatch' && run.actor?.login === BOT_ACTOR;
 }
 
 const RUN_SHAPE: Record<string, FieldType> = {
@@ -202,25 +193,24 @@ function supersededNow(context: Context, run: RunJson): boolean {
   const branch = checked<{ commit: unknown }>(api(context, 'branches/main'), {}, 'branch main');
   const head = checked<{ sha: string }>(branch.commit, { sha: 'string' }, 'branch main commit');
   const headMoved = head.sha !== run.head_sha;
-  const recent = listRuns(context, `actions/workflows/${run.workflow_id}/runs?branch=main&per_page=10`);
-  const newerPending = recent.some((other) => other.id !== run.id && isMainTrunkEvent(other) && other.status !== 'completed');
+  const recent = listRuns(context, `actions/workflows/${run.workflow_id}/runs?branch=main&event=push&per_page=10`);
+  const newerPending = recent.some((other) => other.id !== run.id && other.status !== 'completed');
   return headMoved || newerPending;
 }
 
-/** For a past run: whether a newer push or bot-dispatched main run started
- *  before attempt 1 ended, which is what `supersededNow` would have seen when
- *  attempt 1 completed. */
+/** For a past run: whether a newer push run started before attempt 1 ended,
+ *  which is what `supersededNow` would have seen when attempt 1 completed. */
 function supersededThen(context: Context, run: RunJson, attemptOne: RunJson): boolean {
   const window = `${run.created_at}..${attemptOne.updated_at}`;
-  const started = listRuns(context, `actions/workflows/${run.workflow_id}/runs?branch=main&per_page=10&created=${window}`);
-  return started.some((other) => other.id !== run.id && isMainTrunkEvent(other));
+  const started = listRuns(context, `actions/workflows/${run.workflow_id}/runs?branch=main&event=push&per_page=10&created=${window}`);
+  return started.some((other) => other.id !== run.id);
 }
 
-/** Refuses anything but a push (or bot post-merge dispatch) run of Build & Test on main. */
+/** Refuses anything but a push run of Build & Test on main. */
 export function assertMainPushRun(run: RunJson): void {
-  const isMainRun = isMainTrunkEvent(run) && run.path === BUILD_WORKFLOW_PATH;
-  if (!isMainRun) {
-    throw new Error(`Run ${run.id} is a ${run.event} run of ${run.path} on ${run.head_branch}; only push runs of ${BUILD_WORKFLOW_PATH} on main (or workflow-token dispatches) are handled`);
+  const isMainPush = run.event === 'push' && run.head_branch === 'main' && run.path === BUILD_WORKFLOW_PATH;
+  if (!isMainPush) {
+    throw new Error(`Run ${run.id} is a ${run.event} run of ${run.path} on ${run.head_branch}; only push runs of ${BUILD_WORKFLOW_PATH} on main are handled`);
   }
 }
 
