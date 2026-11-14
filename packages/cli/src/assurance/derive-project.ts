@@ -36,6 +36,7 @@ import {
   isContainedNonSymlinkFile,
   normalizeConfiguredResourceId,
   readFirebaseProjectConfig,
+  type ConfiguredRuleTarget,
   type ProjectRuleProblem,
 } from "./derive-project-config.js";
 import { AssuranceInputError } from "./types.js";
@@ -288,55 +289,90 @@ export function loadAssuranceProject(absRoot: string): LoadedAssuranceProject {
     }
   }
 
-  loadedRules.firestore = loadedRules.firestore.filter((entry) => {
+  const hadFirestoreDiskRules =
+    fbConfig.hasFirestoreConfig ||
+    loadedRules.firestore.length > 0 ||
+    existsSync(join(absRoot, "firestore.rules"));
+  const hadRtdbDiskRules =
+    fbConfig.hasDatabaseConfig ||
+    loadedRules.rtdb.length > 0 ||
+    existsSync(join(absRoot, "database.rules.json"));
+  const hadStorageDiskRules =
+    fbConfig.hasStorageConfig ||
+    (loadedRules.storage?.length ?? 0) > 0 ||
+    existsSync(join(absRoot, "storage.rules"));
+
+  const eligibleEmbedded = usage.embeddedRules.filter((entry) => {
+    if (entry.service === "firestore") return !hadFirestoreDiskRules;
+    if (entry.service === "rtdb") return !hadRtdbDiskRules;
+    if (entry.service === "storage") return !hadStorageDiskRules;
+    return false;
+  });
+
+  const ruleTargets: Record<string, readonly ConfiguredRuleTarget[]> = {
+    ...fbConfig.configuredRuleTargets,
+  };
+  for (const entry of eligibleEmbedded) {
+    let existing: readonly ConfiguredRuleTarget[] = [];
+    if (Object.hasOwn(ruleTargets, entry.source)) {
+      existing = ruleTargets[entry.source] ?? [];
+    }
+    ruleTargets[entry.source] = [
+      ...existing,
+      { service: entry.service, resourceId: DEFAULT_SNAPSHOT_RESOURCE },
+    ];
+  }
+
+  const sources = withEmbeddedRules(loadedRules, eligibleEmbedded);
+
+  sources.firestore = sources.firestore.filter((entry) => {
     const syntax = validateRulesSourceSyntax(entry.text, "cloud.firestore", {
       sourceFile: entry.source,
       targetService: "cloud.firestore",
     });
     if (!syntax.ok) {
-      loadedRules.problems.push(`${entry.source}: ${syntax.message}`);
+      sources.problems.push(`${entry.source}: ${syntax.message}`);
       return false;
     }
     return true;
   });
 
-  if (loadedRules.storage !== undefined) {
-    loadedRules.storage = loadedRules.storage.filter((entry) => {
+  if (sources.storage !== undefined) {
+    sources.storage = sources.storage.filter((entry) => {
       const syntax = validateRulesSourceSyntax(entry.text, "firebase.storage", {
         sourceFile: entry.source,
         targetService: "firebase.storage",
       });
       if (!syntax.ok) {
-        loadedRules.problems.push(`${entry.source}: ${syntax.message}`);
+        sources.problems.push(`${entry.source}: ${syntax.message}`);
         return false;
       }
       return true;
     });
   }
 
-  loadedRules.rtdb = loadedRules.rtdb.filter((entry) => {
+  sources.rtdb = sources.rtdb.filter((entry) => {
     if (
       !entry.json ||
       typeof entry.json !== "object" ||
       Array.isArray(entry.json)
     ) {
-      loadedRules.problems.push(
+      sources.problems.push(
         `${entry.source}: RTDB rules file must contain a JSON object`,
       );
       return false;
     }
     const rejection = rtdbRulesSourceRejection(entry.json);
     if (rejection !== null) {
-      loadedRules.problems.push(`${entry.source}: ${rejection.message}`);
+      sources.problems.push(`${entry.source}: ${rejection.message}`);
       return false;
     }
     return true;
   });
 
-  const sources = withEmbeddedRules(loadedRules, [...usage.embeddedRules]);
   problems.push(...sources.problems);
   const configProblems = problems.flatMap((p) =>
-    classifyRuleProblem(p, fbConfig.configuredRuleTargets),
+    classifyRuleProblem(p, ruleTargets),
   );
 
   const ruleSurface = buildRuleSurfaceFromSources(sources, fbConfig.rtdbInstances);

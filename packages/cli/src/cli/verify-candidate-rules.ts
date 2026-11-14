@@ -2,8 +2,8 @@
  * Candidate rules resolution (`--rules` overrides and `firebase.json` lookup)
  * across Firestore, Realtime Database, and Storage for `pyric verify`.
  */
-import { existsSync, readFileSync, realpathSync } from 'node:fs';
-import { isAbsolute, relative, resolve, sep } from 'node:path';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { bundleRulesSource } from 'pyric/rules/internal/usage';
 import { defaultFirestoreDatabase } from 'pyric/sandbox/internal';
 import { firestoreDatabases, MODULAR_SOURCE } from '../serve/rules.js';
@@ -12,6 +12,7 @@ import type {
   VerifiableService,
   VerifyRulesInput,
 } from '../verify/index.js';
+import { resolveContainedRulesFile } from './contained-rules-file.js';
 import { readFirebaseJson, readFirebaseRcSync, type FirebaseJson } from './firebase-json.js';
 import type { FlagValue } from './parse-args.js';
 import {
@@ -132,28 +133,26 @@ export async function resolveCandidateRules(
     if (!rel) {
       throw new Error('missing candidate firestore rules. Pass --rules firestore=<path> or configure firebase.json.');
     }
-    const path = resolve(cwd, rel);
-    if (!existsSync(path)) {
-      throw new Error(`rules file not found for firestore: ${path}`);
+    const checked = resolveContainedRulesFile({
+      projectRoot: cwd,
+      lexicalProjectRoot: cwd,
+      cwd,
+      fileArg: rel,
+    });
+    if (!checked.ok) {
+      if (checked.kind === 'not-found') {
+        throw new Error(`rules file not found for firestore: ${resolve(cwd, rel)}`);
+      }
+      throw new Error(`invalid firestore rules path: ${checked.message}`);
     }
-    const realCwd = realpathSync(cwd);
-    const realPath = realpathSync(path);
-    const relToRoot = relative(realCwd, realPath);
-    if (
-      relToRoot === '..'
-      || relToRoot.startsWith(`..${sep}`)
-      || relToRoot.startsWith('../')
-      || isAbsolute(relToRoot)
-    ) {
-      throw new Error(`firestore rules path escapes project root: ${rel}`);
-    }
+    const path = checked.resolvedPath;
     paths.firestore = path;
-    const raw = readFileSync(path, 'utf8');
+    const raw = readFileSync(checked.realFile, 'utf8');
     if (MODULAR_SOURCE.test(raw)) {
       try {
         rules.firestore = bundleRulesSource(raw, {
-          filePath: realPath,
-          rootDir: realCwd,
+          filePath: checked.realFile,
+          rootDir: checked.realRoot,
           sourceFile: path,
           targetService: 'cloud.firestore',
         });

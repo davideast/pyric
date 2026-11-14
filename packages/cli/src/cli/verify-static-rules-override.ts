@@ -2,12 +2,10 @@
  * Target-scoped `--rules` flag parsing and ruleset override loading for
  * `pyric verify --static` (`verify-static.ts`).
  */
-import { existsSync, lstatSync, readFileSync, realpathSync } from 'node:fs';
-import { isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { readFileSync } from 'node:fs';
+import { relative } from 'node:path';
 import {
   DEFAULT_SNAPSHOT_RESOURCE,
-  isDefaultDatabaseInstance,
-  parseResourcePattern,
   type AssuranceService,
 } from 'pyric/sandbox/internal';
 import { rtdbRulesSourceRejection } from 'pyric/rules/internal/rtdb';
@@ -24,8 +22,10 @@ import { DEFAULT_BUCKET } from 'pyric/storage/internal';
 import { defineOwn } from '../assurance/derive-campaign-state.js';
 import {
   buildRuleSurfaceFromSources,
+  normalizeConfiguredResourceId,
   type LoadedAssuranceProject,
 } from '../assurance/derive-project.js';
+import { resolveContainedRulesFile } from './contained-rules-file.js';
 import type { FlagValue } from './parse-args.js';
 
 export function readStringValues(value: FlagValue | undefined): string[] {
@@ -94,90 +94,6 @@ function parseRulesPrefix(
   };
 }
 
-function isWithinRootDir(baseDir: string, targetPath: string): boolean {
-  const rel = relative(baseDir, targetPath);
-  if (rel === '') return true;
-  if (rel === '..') return false;
-  if (
-    rel.startsWith(`..${sep}`)
-    || rel.startsWith('../')
-    || rel.startsWith('..\\')
-  ) {
-    return false;
-  }
-  return !isAbsolute(rel);
-}
-
-function resolveContainedOverrideFile(
-  realRoot: string,
-  lexicalRoot: string | undefined,
-  cwd: string,
-  fileArg: string,
-): { ok: true; realFile: string } | { ok: false; message: string } {
-  const absFile = resolve(cwd, fileArg);
-  let relInsideProject: string;
-  if (isWithinRootDir(realRoot, absFile)) {
-    relInsideProject = relative(realRoot, absFile);
-  } else if (lexicalRoot !== undefined && isWithinRootDir(lexicalRoot, absFile)) {
-    relInsideProject = relative(lexicalRoot, absFile);
-  } else {
-    return { ok: false, message: `rules path escapes project root: ${fileArg}` };
-  }
-
-  const canonicalCandidate = resolve(realRoot, relInsideProject);
-  if (!isWithinRootDir(realRoot, canonicalCandidate)) {
-    return { ok: false, message: `rules path escapes project root: ${fileArg}` };
-  }
-
-  const segments = relInsideProject
-    .split(/[\\/]+/)
-    .filter((part) => part.length > 0);
-  let current = realRoot;
-  for (let i = 0; i < segments.length - 1; i += 1) {
-    current = join(current, segments[i]!);
-    let ancStat: ReturnType<typeof lstatSync>;
-    try {
-      ancStat = lstatSync(current);
-    } catch {
-      break;
-    }
-    if (ancStat.isSymbolicLink()) {
-      return {
-        ok: false,
-        message: `rules path must not traverse symbolic links: ${fileArg}`,
-      };
-    }
-    const realAnc = realpathSync(current);
-    if (!isWithinRootDir(realRoot, realAnc)) {
-      return { ok: false, message: `rules path escapes project root: ${fileArg}` };
-    }
-  }
-
-  let leafStat: ReturnType<typeof lstatSync>;
-  try {
-    leafStat = lstatSync(canonicalCandidate);
-  } catch {
-    if (!existsSync(canonicalCandidate)) {
-      return { ok: false, message: `rules file does not exist: ${fileArg}` };
-    }
-    return {
-      ok: false,
-      message: `rules path must be a regular non-symlink file: ${fileArg}`,
-    };
-  }
-  if (leafStat.isSymbolicLink() || !leafStat.isFile()) {
-    return {
-      ok: false,
-      message: `rules path must be a regular non-symlink file: ${fileArg}`,
-    };
-  }
-  const realLeaf = realpathSync(canonicalCandidate);
-  if (!isWithinRootDir(realRoot, realLeaf)) {
-    return { ok: false, message: `rules path escapes project root: ${fileArg}` };
-  }
-  return { ok: true, realFile: realLeaf };
-}
-
 export function applyRulesFlagOverrides(
   project: LoadedAssuranceProject,
   rawRules: FlagValue | undefined,
@@ -191,7 +107,8 @@ export function applyRulesFlagOverrides(
   let rtdb: RtdbRuleSource[] = [...project.sources.rtdb];
   const existingStorage = project.sources.storage ?? [];
   let storage: StorageRuleSource[] = [...existingStorage];
-  const configuredBuckets = [...project.configuredBuckets];
+  let configuredBuckets = [...project.configuredBuckets];
+  let nextDefaultBucket = project.defaultBucket;
   const rtdbInstances: Record<string, { rules: Record<string, unknown> }> = {};
   for (const [instId, instRules] of Object.entries(project.rtdbInstances)) {
     defineOwn(rtdbInstances, instId, instRules);
@@ -200,6 +117,7 @@ export function applyRulesFlagOverrides(
   const defaultBucketAliases = new Set<string>([
     DEFAULT_SNAPSHOT_RESOURCE,
     DEFAULT_BUCKET,
+    'pyric-default.appspot.com',
   ]);
   if (project.defaultBucket !== undefined) {
     defaultBucketAliases.add(project.defaultBucket);
@@ -216,53 +134,6 @@ export function applyRulesFlagOverrides(
     }
   }
   const overriddenTargets = new Set<string>();
-  const defaultRtdbSuffixRe = /^[a-z0-9-]+-default-rtdb$/i;
-  const normalizeOverrideTarget = (
-    service: AssuranceService,
-    rawTarget: string | undefined,
-  ): string => {
-    if (rawTarget === undefined) return DEFAULT_SNAPSHOT_RESOURCE;
-    const trimmed = rawTarget.trim();
-    if (
-      trimmed.length === 0
-      || trimmed === DEFAULT_SNAPSHOT_RESOURCE
-      || trimmed === 'default'
-    ) {
-      return DEFAULT_SNAPSHOT_RESOURCE;
-    }
-    if (service === 'storage') {
-      let bucketId: string;
-      if (/^https?:\/\//i.test(trimmed)) {
-        bucketId = parseResourcePattern('storage', trimmed).resourceId;
-      } else {
-        bucketId = trimmed.replace(/^gs:\/\//i, '').replace(/^\/+|\/+$/g, '');
-      }
-      if (
-        bucketId.length === 0
-        || bucketId === DEFAULT_SNAPSHOT_RESOURCE
-        || bucketId === 'default'
-        || bucketId === 'pyric-default'
-        || bucketId === 'default-bucket'
-        || bucketId === DEFAULT_BUCKET
-      ) {
-        return DEFAULT_SNAPSHOT_RESOURCE;
-      }
-      return bucketId;
-    }
-    if (service === 'rtdb') {
-      const instId = parseResourcePattern('rtdb', 'ref', trimmed).resourceId;
-      if (
-        instId === DEFAULT_SNAPSHOT_RESOURCE
-        || instId === 'default'
-        || isDefaultDatabaseInstance(instId, project.projectId)
-        || (project.projectId === undefined && defaultRtdbSuffixRe.test(instId))
-      ) {
-        return DEFAULT_SNAPSHOT_RESOURCE;
-      }
-      return instId;
-    }
-    return trimmed;
-  };
 
   for (const spec of specs) {
     const eq = spec.indexOf('=');
@@ -278,25 +149,24 @@ export function applyRulesFlagOverrides(
       targetId = parsedPrefix.value.target;
     }
 
-    let realRoot = resolve(project.root);
-    try {
-      realRoot = realpathSync(realRoot);
-    } catch {
-      realRoot = resolve(project.root);
-    }
-    let resolvedLexicalRoot: string | undefined;
-    if (lexicalProjectRoot !== undefined) {
-      resolvedLexicalRoot = resolve(lexicalProjectRoot);
-    }
-    const checkedFile = resolveContainedOverrideFile(
-      realRoot,
-      resolvedLexicalRoot,
+    const resolveInput: {
+      projectRoot: string;
+      lexicalProjectRoot?: string;
+      cwd: string;
+      fileArg: string;
+    } = {
+      projectRoot: project.root,
       cwd,
       fileArg,
-    );
-    if (!checkedFile.ok) {
-      return checkedFile;
+    };
+    if (lexicalProjectRoot !== undefined) {
+      resolveInput.lexicalProjectRoot = lexicalProjectRoot;
     }
+    const checkedFile = resolveContainedRulesFile(resolveInput);
+    if (!checkedFile.ok) {
+      return { ok: false, message: checkedFile.message };
+    }
+    const realRoot = checkedFile.realRoot;
     const absFile = checkedFile.realFile;
     const content = readFileSync(absFile, 'utf8');
     const sourceLabel = relative(realRoot, absFile).split('\\').join('/') || fileArg;
@@ -328,7 +198,11 @@ export function applyRulesFlagOverrides(
       if (!syntax.ok) {
         return { ok: false, message: `invalid Firestore rules in ${fileArg}: ${syntax.message}` };
       }
-      const effectiveTarget = normalizeOverrideTarget('firestore', targetId);
+      const effectiveTarget = normalizeConfiguredResourceId(
+        'firestore',
+        targetId,
+        project.projectId,
+      );
       overriddenTargets.add(`firestore:${effectiveTarget}`);
       const entry: FirestoreRuleSource = { source: sourceLabel, text: bundledText };
       if (effectiveTarget !== DEFAULT_SNAPSHOT_RESOURCE) {
@@ -359,19 +233,53 @@ export function applyRulesFlagOverrides(
       if (!syntax.ok) {
         return { ok: false, message: `invalid Storage rules in ${fileArg}: ${syntax.message}` };
       }
-      const effectiveTarget = normalizeOverrideTarget('storage', targetId);
+      const effectiveTarget = normalizeConfiguredResourceId(
+        'storage',
+        targetId,
+        project.projectId,
+      );
       const isDefaultOverride = defaultBucketAliases.has(effectiveTarget);
       overriddenTargets.add(`storage:${effectiveTarget}`);
+      const hadConfiguredBuckets = configuredBuckets.length > 0;
       if (isDefaultOverride) {
         for (const alias of defaultBucketAliases) {
           overriddenTargets.add(`storage:${alias}`);
         }
+        configuredBuckets = configuredBuckets.filter(
+          (b) => !defaultBucketAliases.has(b),
+        );
       }
       const entry: StorageRuleSource = { source: sourceLabel, text: bundledText };
       if (effectiveTarget !== DEFAULT_SNAPSHOT_RESOURCE) {
         entry.bucket = effectiveTarget;
-        if (configuredBuckets.length > 0 && !configuredBuckets.includes(effectiveTarget)) {
+        if (isDefaultOverride) {
+          nextDefaultBucket = effectiveTarget;
+        }
+        if (hadConfiguredBuckets && !configuredBuckets.includes(effectiveTarget)) {
           configuredBuckets.push(effectiveTarget);
+        }
+      } else if (isDefaultOverride) {
+        if (project.projectId !== undefined && nextDefaultBucket !== undefined) {
+          const fbApp = `${project.projectId}.firebasestorage.app`;
+          const appspot = `${project.projectId}.appspot.com`;
+          if (
+            bundledText.includes(`/b/${appspot}/o`)
+            && !bundledText.includes(`/b/${fbApp}/o`)
+          ) {
+            nextDefaultBucket = appspot;
+          } else if (
+            bundledText.includes(`/b/${fbApp}/o`)
+            && !bundledText.includes(`/b/${appspot}/o`)
+          ) {
+            nextDefaultBucket = fbApp;
+          }
+        }
+        if (
+          configuredBuckets.length > 0
+          && nextDefaultBucket !== undefined
+          && !configuredBuckets.includes(nextDefaultBucket)
+        ) {
+          configuredBuckets.push(nextDefaultBucket);
         }
       }
       storage = storage.filter((s) => {
@@ -404,7 +312,11 @@ export function applyRulesFlagOverrides(
           message: `invalid RTDB rules in ${fileArg}: ${rtdbRejection.message}`,
         };
       }
-      const effectiveTarget = normalizeOverrideTarget('rtdb', targetId);
+      const effectiveTarget = normalizeConfiguredResourceId(
+        'rtdb',
+        targetId,
+        project.projectId,
+      );
       overriddenTargets.add(`rtdb:${effectiveTarget}`);
       const entry: RtdbRuleSource = { source: sourceLabel, json: parsedRtdb };
       if (effectiveTarget !== DEFAULT_SNAPSHOT_RESOURCE) {
@@ -446,6 +358,7 @@ export function applyRulesFlagOverrides(
       sources: nextSources,
       ruleSurface: nextSurface,
       configuredBuckets,
+      defaultBucket: nextDefaultBucket,
       rtdbInstances,
       problems: remainingProblems,
       configProblems: remainingConfigProblems,

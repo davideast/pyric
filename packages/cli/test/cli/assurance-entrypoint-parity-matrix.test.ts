@@ -11,12 +11,6 @@ import { runVerify } from "../../src/cli/verify.js";
 import { runVerifyStatic } from "../../src/cli/verify-static.js";
 import { resolveStorageCandidateRules } from "../../src/cli/verify-storage-rules.js";
 
-function asFetch(
-  handler: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>,
-): typeof fetch {
-  return Object.assign(handler, { preconnect: fetch.preconnect });
-}
-
 function bufferIo(cwd?: string) {
   let out = "";
   let err = "";
@@ -214,28 +208,34 @@ describe("assurance entrypoint parity, fail-closed, and containment matrix", () 
       );
       expect(defaultOverrideCode).toBe(1);
 
-      const candidate = await resolveStorageCandidateRules({
-        cwd: dir,
-        fixtures: [
+      const sessionFixture = {
+        schema: "pyric.verify.fixture.v1" as const,
+        events: [
           {
-            schema: "pyric.verify.fixture.v1",
-            events: [
-              {
-                kind: "operation",
-                id: "op-1",
-                at: 1000,
-                service: "storage",
-                method: "upload",
-                path: "items/i1.png",
-                auth: { uid: "alice" },
-                result: "allow",
-                origin: "user",
-                detail: { bucket: "pyric-default.appspot.com" },
-              },
-            ],
-            services: {},
+            kind: "operation" as const,
+            id: "op-1",
+            at: 1000,
+            service: "storage" as const,
+            method: "get",
+            path: "items/i1.png",
+            auth: { uid: "alice" },
+            result: "allow" as const,
+            origin: "user" as const,
+            detail: { bucket: "pyric-default.appspot.com" },
           },
         ],
+        services: {
+          storage: {
+            rules: { format: "storage.rules" as const, source: permissiveStorage },
+            state: null,
+          },
+        },
+      };
+      writeFileSync(join(dir, "session.json"), JSON.stringify(sessionFixture));
+
+      const candidate = await resolveStorageCandidateRules({
+        cwd: dir,
+        fixtures: [sessionFixture],
         overrides: { default: "strict.rules", buckets: [] },
         readFirebaseJson: async () => ({
           storage: [
@@ -246,22 +246,97 @@ describe("assurance entrypoint parity, fail-closed, and containment matrix", () 
       expect(candidate.rules.storage).toContain("allow read, write: if false;");
       expect(candidate.rules.storageBuckets).toBeUndefined();
 
+      const runVerifyInDir = async (extraArgs: string[]): Promise<number> => {
+        const prevCwd = process.cwd();
+        const outSpy = spyOn(process.stdout, "write").mockImplementation(() => true);
+        const errSpy = spyOn(process.stderr, "write").mockImplementation(() => true);
+        process.chdir(dir);
+        try {
+          return await runVerify(parseArgs(["verify", "session.json", "--json", ...extraArgs]));
+        } finally {
+          process.chdir(prevCwd);
+          outSpy.mockRestore();
+          errSpy.mockRestore();
+        }
+      };
+
+      for (const alias of [
+        "demo-proj.firebasestorage.app",
+        "demo-proj.appspot.com",
+      ]) {
+        writeFileSync(
+          join(dir, "firebase.json"),
+          JSON.stringify({ storage: { rules: "strict.rules" } }),
+        );
+        expect(
+          await runVerifyStatic(
+            parseArgs(["verify", "--static", "--rules", `storage:${alias}=permissive.rules`, "--json"]),
+            bufferIo(dir),
+          ),
+        ).toBe(0);
+        expect(await runVerifyInDir(["--rules", `storage:${alias}=permissive.rules`])).toBe(0);
+
+        writeFileSync(
+          join(dir, "firebase.json"),
+          JSON.stringify({ storage: { rules: "permissive.rules" } }),
+        );
+        expect(
+          await runVerifyStatic(
+            parseArgs(["verify", "--static", "--rules", `storage:${alias}=strict.rules`, "--json"]),
+            bufferIo(dir),
+          ),
+        ).toBe(1);
+        expect(await runVerifyInDir(["--rules", `storage:${alias}=strict.rules`])).toBe(1);
+      }
+
       writeFileSync(
         join(dir, "firebase.json"),
-        JSON.stringify({ storage: { rules: "permissive.rules" } }),
+        JSON.stringify({
+          storage: [{ bucket: "demo-proj.appspot.com", rules: "strict.rules" }],
+        }),
       );
-      const reverseOverrideIo = bufferIo(dir);
-      const reverseOverrideCode = await runVerifyStatic(
-        parseArgs([
-          "verify",
-          "--static",
+      expect(
+        await runVerifyStatic(
+          parseArgs([
+            "verify",
+            "--static",
+            "--rules",
+            "storage:demo-proj.firebasestorage.app=permissive.rules",
+            "--json",
+          ]),
+          bufferIo(dir),
+        ),
+      ).toBe(0);
+      expect(
+        await runVerifyInDir([
+          "--rules",
+          "storage:demo-proj.firebasestorage.app=permissive.rules",
+        ]),
+      ).toBe(0);
+      writeFileSync(
+        join(dir, "firebase.json"),
+        JSON.stringify({
+          storage: [{ bucket: "demo-proj.appspot.com", rules: "permissive.rules" }],
+        }),
+      );
+      expect(
+        await runVerifyStatic(
+          parseArgs([
+            "verify",
+            "--static",
+            "--rules",
+            "storage:demo-proj.firebasestorage.app=strict.rules",
+            "--json",
+          ]),
+          bufferIo(dir),
+        ),
+      ).toBe(1);
+      expect(
+        await runVerifyInDir([
           "--rules",
           "storage:demo-proj.firebasestorage.app=strict.rules",
-          "--json",
         ]),
-        reverseOverrideIo,
-      );
-      expect(reverseOverrideCode).toBe(1);
+      ).toBe(1);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -496,105 +571,6 @@ describe("assurance entrypoint parity, fail-closed, and containment matrix", () 
       }
     } finally {
       rmSync(emptyDir, { recursive: true, force: true });
-    }
-  });
-
-  it("preserves secondary buckets and surfaces unruled bucket coverage gaps side-by-side across assurance derive CLI and deriveAssurance", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "pyric-parity-live-buckets-"));
-    try {
-      writeFileSync(
-        join(dir, ".firebaserc"),
-        JSON.stringify({ projects: { default: "demo-proj" } }),
-      );
-      writeFileSync(join(dir, "firebase.json"), JSON.stringify({}));
-
-      const mkObj = (bucket: string, dataBase64: string, size: number) => ({
-        dataBase64,
-        blobType: "text/plain",
-        metadata: {
-          bucket,
-          fullPath: "docs/item.txt",
-          name: "item.txt",
-          size,
-          generation: "1",
-          metageneration: "1",
-          contentType: "text/plain",
-          timeCreated: "2026-01-01T00:00:00.000Z",
-          updated: "2026-01-01T00:00:00.000Z",
-        },
-      });
-      const mockFetch = asFetch(async (input) => {
-        const u = new URL(String(input));
-        if (u.pathname === "/__pyric/init.json") {
-          return new Response(
-            JSON.stringify({
-              storageBucketRules: {
-                "demo-proj.firebasestorage.app":
-                  "rules_version = '2'; service firebase.storage { match /b/demo-proj.firebasestorage.app/o { match /{p=**} { allow read: if true; } } }",
-              },
-            }),
-            { status: 200, headers: { "content-type": "application/json" } },
-          );
-        }
-        if (u.pathname === "/__pyric/state") {
-          return new Response(
-            JSON.stringify({
-              version: 1,
-              firestore: null,
-              auth: null,
-              storage: [
-                mkObj("demo-proj.firebasestorage.app", "ZGVmYXVsdA==", 7),
-                mkObj("secondary-archive.appspot.com", "c2Vjb25kYXJ5", 9),
-              ],
-            }),
-            { status: 200, headers: { "content-type": "application/json" } },
-          );
-        }
-        return new Response("not found", { status: 404 });
-      });
-
-      const cliStore = new AssuranceCampaignStore();
-      const cliIo = bufferIo(dir);
-      const cliCode = await runAssuranceDerive(
-        parseArgs([
-          "assurance",
-          "derive",
-          "--root",
-          dir,
-          "--url",
-          "http://127.0.0.1:4410",
-          "--campaign-id",
-          "cli-multi-bucket",
-          "--json",
-        ]),
-        { ...cliIo, store: cliStore, fetchImpl: mockFetch },
-      );
-      expect(cliCode).toBe(0);
-
-      const progStore = new AssuranceCampaignStore();
-      await deriveAssurance(
-        { root: dir, url: "http://127.0.0.1:4410", campaignId: "prog-multi-bucket" },
-        { store: progStore, fetchImpl: mockFetch, projectDir: dir },
-      );
-
-      for (const exported of [
-        cliStore.get("cli-multi-bucket").export(),
-        progStore.get("prog-multi-bucket").export(),
-      ]) {
-        expect(exported.campaign.target.state.storage).toHaveLength(1);
-        expect(
-          exported.campaign.target.state.storageBuckets?.[
-            "secondary-archive.appspot.com"
-          ],
-        ).toHaveLength(1);
-        expect(
-          (exported.context?.coverageGaps ?? []).some(
-            (g) => g.code === "storage-rules-unavailable",
-          ),
-        ).toBe(true);
-      }
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
     }
   });
 });

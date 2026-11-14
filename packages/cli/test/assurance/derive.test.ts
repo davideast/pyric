@@ -487,4 +487,70 @@ export async function saveInvalid() {
       ),
     ).toBe(true);
   });
+
+  test("rejects broken embedded RTDB rules and never lets embedded rules mask broken disk rules", async () => {
+    const embeddedOnlyRoot = makeTempDir("derive-emb-broken-");
+    mkdirSync(join(embeddedOnlyRoot, "src"), { recursive: true });
+    writeFileSync(
+      join(embeddedOnlyRoot, "src/app.ts"),
+      `import { get, getDatabase, ref } from 'firebase/database';
+import { initializeSandbox } from 'pyric/sandbox';
+import { setRules } from 'pyric/sandbox/database';
+const sb = initializeSandbox();
+setRules(sb, { rules: { items: { '.read': 'auth.uid === ' } } });
+export async function loadItems() {
+  return get(ref(getDatabase(), 'items/first'));
+}
+`,
+    );
+    const store1 = new AssuranceCampaignStore();
+    const embeddedOnly = await deriveAssurance(
+      { root: embeddedOnlyRoot },
+      { store: store1 },
+    );
+    expect(
+      embeddedOnly.diagnostics.some(
+        (d) => d.code === "invalid-rules-configuration" && d.service === "rtdb",
+      ),
+    ).toBe(true);
+    expect(
+      embeddedOnly.diagnostics.some(
+        (d) =>
+          d.code === "invalid-rules-configuration" && d.service === "firestore",
+      ),
+    ).toBe(false);
+    const exp1 = store1.get(embeddedOnly.campaignId).export();
+    expect(exp1.campaign.target.rules.rtdb).toBeUndefined();
+
+    const maskedRoot = makeTempDir("derive-emb-mask-");
+    mkdirSync(join(maskedRoot, "src"), { recursive: true });
+    writeFileSync(
+      join(maskedRoot, "database.rules.json"),
+      JSON.stringify({ rules: { items: { ".read": "auth.uid === " } } }),
+    );
+    writeFileSync(
+      join(maskedRoot, "src/app.ts"),
+      `import { get, getDatabase, ref } from 'firebase/database';
+import { initializeSandbox } from 'pyric/sandbox';
+import { setRules } from 'pyric/sandbox/database';
+const sb = initializeSandbox();
+setRules(sb, { rules: { items: { '.read': 'auth != null' } } });
+export async function loadItems() {
+  return get(ref(getDatabase(), 'items/first'));
+}
+`,
+    );
+    const store2 = new AssuranceCampaignStore();
+    const masked = await deriveAssurance(
+      { root: maskedRoot },
+      { store: store2 },
+    );
+    expect(
+      masked.diagnostics.some(
+        (d) => d.code === "invalid-rules-configuration" && d.service === "rtdb",
+      ),
+    ).toBe(true);
+    const exp2 = store2.get(masked.campaignId).export();
+    expect(exp2.campaign.target.rules.rtdb).toBeUndefined();
+  });
 });

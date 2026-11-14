@@ -2,8 +2,8 @@
  * Contained `firebase.json` / `.firebaserc` / `pyric.json` target resolution
  * and rule-problem classification for `derive-project.ts`.
  */
-import { existsSync, lstatSync, readFileSync, realpathSync } from "node:fs";
-import { isAbsolute, relative, resolve, sep } from "node:path";
+import { lstatSync, readFileSync, realpathSync } from "node:fs";
+import { relative, resolve, sep } from "node:path";
 import {
   DEFAULT_SNAPSHOT_RESOURCE,
   isDefaultDatabaseInstance,
@@ -13,9 +13,12 @@ import {
 import { rtdbRulesSourceRejection } from "pyric/rules/internal/rtdb";
 import { parseRtdbRulesText } from "pyric/rules/internal/usage";
 import { DEFAULT_BUCKET } from "pyric/storage/internal";
+import { isContainedNonSymlinkFile } from "../cli/contained-rules-file.js";
 import type { FirebaseRc } from "../cli/firebase-json.js";
 import { resolveFirebaseProject } from "../cli/firebase-project.js";
 import { defineOwn, isUnsafeObjectKey } from "./derive-campaign-state.js";
+
+export { isContainedNonSymlinkFile };
 
 export interface ProjectRuleProblem {
   readonly source: string;
@@ -45,37 +48,6 @@ export interface ParsedFirebaseConfig {
 }
 
 const DEFAULT_RTDB_SUFFIX_RE = /^[a-z0-9-]+-default-rtdb$/i;
-
-function isWithinRootDir(baseDir: string, targetPath: string): boolean {
-  const rel = relative(baseDir, targetPath);
-  if (rel === "") return true;
-  if (rel === "..") return false;
-  if (
-    rel.startsWith(`..${sep}`) ||
-    rel.startsWith("../") ||
-    rel.startsWith("..\\")
-  ) {
-    return false;
-  }
-  return !isAbsolute(rel);
-}
-
-export function isContainedNonSymlinkFile(
-  absRoot: string,
-  realRoot: string,
-  candidatePath: string,
-): boolean {
-  if (!isWithinRootDir(absRoot, candidatePath)) return false;
-  if (!existsSync(candidatePath)) return false;
-  try {
-    const st = lstatSync(candidatePath);
-    if (st.isSymbolicLink() || !st.isFile()) return false;
-    const realTarget = realpathSync(candidatePath);
-    return isWithinRootDir(realRoot, realTarget);
-  } catch {
-    return false;
-  }
-}
 
 function readContainedJsonFile<T>(
   absRoot: string,
@@ -154,6 +126,7 @@ export function normalizeConfiguredResourceId(
       bucketId === DEFAULT_SNAPSHOT_RESOURCE ||
       bucketId === "default" ||
       bucketId === "pyric-default" ||
+      bucketId === "pyric-default.appspot.com" ||
       bucketId === "default-bucket" ||
       bucketId === DEFAULT_BUCKET
     ) {

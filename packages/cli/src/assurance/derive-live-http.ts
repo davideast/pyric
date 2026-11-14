@@ -12,9 +12,10 @@ import type { SandboxHistoryEvent } from "pyric/rules/internal/usage";
 import { resolveSessionTokenForTarget } from "../serve/local-session-token.js";
 import { parseStateFile, type PyricStateFile } from "../serve/state-file.js";
 import { isLoopbackHost } from "./attachment.js";
+import { extractStorageBucketRulesText } from "./attachment-target-clone.js";
 import { defineOwn, isUnsafeObjectKey } from "./derive-campaign-state.js";
 import {
-  computeDefaultStorageBucketSet,
+  computeLiveDefaultStorageBuckets,
   hydrateLiveStorageObjects,
   readDefaultProjectIdFromDir,
 } from "./derive-live-http-storage.js";
@@ -56,16 +57,6 @@ export interface LoopbackCloneResult {
   readonly snapshot: SandboxSnapshot;
   readonly target: LocalFirebaseTarget;
   readonly history: SandboxHistoryEvent[];
-}
-
-function extractEntryStorageRules(
-  entry: string | { readonly rules: string; readonly rulesHash?: string } | null,
-): string | undefined {
-  if (typeof entry === "string") return entry;
-  if (entry && typeof entry === "object" && typeof entry.rules === "string") {
-    return entry.rules;
-  }
-  return undefined;
 }
 
 export async function cloneLoopbackSandboxHttp(
@@ -295,7 +286,7 @@ export async function cloneLoopbackSandboxHttp(
   if (inferredProjectId === undefined) {
     inferredProjectId = readDefaultProjectIdFromDir(options.projectDir);
   }
-  const initialDefaultStorageBuckets = computeDefaultStorageBucketSet({
+  const initialDefaultStorageBuckets = computeLiveDefaultStorageBuckets({
     namedBuckets: namedStorageBuckets,
     defaultBucket: options.defaultBucket,
     projectId: inferredProjectId,
@@ -322,7 +313,7 @@ export async function cloneLoopbackSandboxHttp(
     for (const [rawBucket, entry] of Object.entries(
       initPayload.storageBucketRules,
     )) {
-      const entryRules = extractEntryStorageRules(entry);
+      const entryRules = extractStorageBucketRulesText(entry);
       if (entryRules === undefined || entryRules.trim().length === 0) {
         continue;
       }
@@ -347,7 +338,7 @@ export async function cloneLoopbackSandboxHttp(
     snapshotRules.storage = storageRuleMap;
   }
 
-  const defaultStorageBuckets = computeDefaultStorageBucketSet({
+  const defaultStorageBuckets = computeLiveDefaultStorageBuckets({
     namedBuckets: namedStorageBuckets,
     defaultBucket: options.defaultBucket,
     projectId: inferredProjectId,

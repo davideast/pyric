@@ -16,16 +16,18 @@ import {
   isStorageReference,
   type PyricStateFile,
 } from "../serve/state-file.js";
+import { computeDefaultStorageBucketSet as computeBaseDefaultStorageBucketSet } from "./attachment-target-clone.js";
 import { defineOwn, getOwn, isUnsafeObjectKey } from "./derive-campaign-state.js";
 import { AssuranceInputError, type StorageObjectFixture } from "./types.js";
 
 const SHA256_HEX_RE = /^[0-9a-f]{64}$/;
 
-const EXPLICIT_DEFAULT_STORAGE_SENTINELS: ReadonlySet<string> = new Set([
+const EXPLICIT_DEFAULT_SENTINELS: ReadonlySet<string> = new Set([
   DEFAULT_SNAPSHOT_RESOURCE,
   "default",
   "default-bucket",
   "pyric-default",
+  "pyric-default.appspot.com",
   DEFAULT_BUCKET,
   "pyric-sandbox.appspot.com",
 ]);
@@ -52,42 +54,15 @@ export function readDefaultProjectIdFromDir(
   return undefined;
 }
 
-function inferProjectIdFromDefaultBucket(
-  defaultBucket: string | undefined,
-): string | undefined {
-  if (defaultBucket === undefined) return undefined;
-  if (EXPLICIT_DEFAULT_STORAGE_SENTINELS.has(defaultBucket)) return undefined;
-  if (defaultBucket.endsWith(".firebasestorage.app")) {
-    const prefix = defaultBucket.slice(0, -".firebasestorage.app".length);
-    if (prefix.length > 0) return prefix;
-  }
-  if (defaultBucket.endsWith(".appspot.com")) {
-    const prefix = defaultBucket.slice(0, -".appspot.com".length);
-    if (prefix.length > 0) return prefix;
-  }
-  return undefined;
-}
-
-export function computeDefaultStorageBucketSet(options: {
+export function computeLiveDefaultStorageBuckets(options: {
   namedBuckets: ReadonlySet<string>;
   defaultBucket: string | undefined;
   projectId: string | undefined;
   storageEntries: PyricStateFile["storage"] | undefined;
 }): Set<string> {
-  const { namedBuckets, defaultBucket, storageEntries } = options;
-  const defaultSet = new Set<string>();
-  for (const sentinel of EXPLICIT_DEFAULT_STORAGE_SENTINELS) {
-    if (!namedBuckets.has(sentinel)) {
-      defaultSet.add(sentinel);
-    }
-  }
-  if (defaultBucket !== undefined && !namedBuckets.has(defaultBucket)) {
-    defaultSet.add(defaultBucket);
-  }
-
   const observedBuckets = new Set<string>();
   let hasExplicitDefaultObject = false;
-  for (const entry of storageEntries ?? []) {
+  for (const entry of options.storageEntries ?? []) {
     const rawBucket = entry.metadata.bucket;
     if (typeof rawBucket !== "string" || rawBucket.trim().length === 0) {
       hasExplicitDefaultObject = true;
@@ -98,55 +73,22 @@ export function computeDefaultStorageBucketSet(options: {
       hasExplicitDefaultObject = true;
       continue;
     }
-    if (defaultSet.has(normalized)) {
+    if (
+      !options.namedBuckets.has(normalized) &&
+      (EXPLICIT_DEFAULT_SENTINELS.has(normalized) ||
+        (options.defaultBucket !== undefined && normalized === options.defaultBucket))
+    ) {
       hasExplicitDefaultObject = true;
     }
     observedBuckets.add(normalized);
   }
-
-  const effectiveProjectId =
-    options.projectId ?? inferProjectIdFromDefaultBucket(defaultBucket);
-  if (effectiveProjectId !== undefined) {
-    const fbAppBucket = `${effectiveProjectId}.firebasestorage.app`;
-    const appspotBucket = `${effectiveProjectId}.appspot.com`;
-    const usedFbApp =
-      observedBuckets.has(fbAppBucket) || namedBuckets.has(fbAppBucket);
-    const usedAppspot =
-      observedBuckets.has(appspotBucket) || namedBuckets.has(appspotBucket);
-    if (usedFbApp && usedAppspot) {
-      if (defaultBucket === undefined && !namedBuckets.has(fbAppBucket)) {
-        defaultSet.add(fbAppBucket);
-      }
-    } else {
-      if (!namedBuckets.has(fbAppBucket)) {
-        defaultSet.add(fbAppBucket);
-      }
-      if (!namedBuckets.has(appspotBucket)) {
-        defaultSet.add(appspotBucket);
-      }
-    }
-    return defaultSet;
-  }
-
-  if (defaultBucket === undefined && !hasExplicitDefaultObject) {
-    const nonSentinelObserved: string[] = [];
-    for (const bucketId of observedBuckets) {
-      if (!defaultSet.has(bucketId) && !namedBuckets.has(bucketId)) {
-        nonSentinelObserved.push(bucketId);
-      }
-    }
-    if (nonSentinelObserved.length === 1) {
-      const soleBucket = nonSentinelObserved[0]!;
-      if (
-        soleBucket.endsWith(".appspot.com") ||
-        soleBucket.endsWith(".firebasestorage.app")
-      ) {
-        defaultSet.add(soleBucket);
-      }
-    }
-  }
-
-  return defaultSet;
+  return computeBaseDefaultStorageBucketSet({
+    namedBuckets: options.namedBuckets,
+    defaultBucket: options.defaultBucket,
+    projectId: options.projectId,
+    observedBuckets,
+    hasExplicitDefaultObject,
+  });
 }
 
 function resolveLiveStorageBucketKey(

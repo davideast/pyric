@@ -4,6 +4,8 @@ import { stampedSessionToken } from "../serve/runtime/hosted-target.js";
 import {
   cloneOwnRecord,
   cloneSandboxTarget,
+  computeDefaultStorageBucketSet,
+  extractStorageBucketRulesText,
   setOwn,
 } from "./attachment-target-clone.js";
 import {
@@ -116,16 +118,6 @@ function resolveRuntimeOrigin(explicitOrigin: string | undefined): string {
   return "";
 }
 
-function extractBucketRulesText(
-  entry: string | { rules: string; rulesHash?: string } | null,
-): string | undefined {
-  if (typeof entry === "string") return entry;
-  if (entry && typeof entry === "object" && typeof entry.rules === "string") {
-    return entry.rules;
-  }
-  return undefined;
-}
-
 /**
  * Clone the sandbox currently hosting the connected bridge peer. The URL is an
  * origin assertion and source for explicit rules metadata; no arbitrary host is
@@ -228,14 +220,53 @@ export function createSandboxAttachmentProvider(
       typeof payload.storageBucketRules === "object" &&
       !Array.isArray(payload.storageBucketRules)
     ) {
+      let inferredProjectId: string | undefined;
+      if (
+        typeof payload.databaseInstances?.projectId === "string" &&
+        payload.databaseInstances.projectId.trim().length > 0
+      ) {
+        inferredProjectId = payload.databaseInstances.projectId.trim();
+      } else if (
+        typeof payload.databaseInstances?.defaultInstance === "string" &&
+        payload.databaseInstances.defaultInstance.endsWith("-default-rtdb")
+      ) {
+        const prefix = payload.databaseInstances.defaultInstance.slice(
+          0,
+          -"-default-rtdb".length,
+        );
+        if (prefix.length > 0) {
+          inferredProjectId = prefix;
+        }
+      }
+      const rawRuleBuckets = new Set<string>();
+      for (const [rawBucket, entry] of Object.entries(
+        payload.storageBucketRules,
+      )) {
+        const rawSource = extractStorageBucketRulesText(entry);
+        if (typeof rawSource !== "string" || !rawSource.trim()) continue;
+        const normalizedBucket = normalizeStorageBucketInstance(rawBucket);
+        if (normalizedBucket !== undefined && !isUnsafeKey(normalizedBucket)) {
+          rawRuleBuckets.add(normalizedBucket);
+        }
+      }
+      const defaultBuckets = computeDefaultStorageBucketSet({
+        namedBuckets: new Set<string>(),
+        projectId: inferredProjectId,
+        observedBuckets: rawRuleBuckets,
+        hasExplicitDefaultObject: true,
+      });
+
       const storageBuckets: Record<string, string> = {};
       for (const [rawBucket, entry] of Object.entries(
         payload.storageBucketRules,
       )) {
-        const rawSource = extractBucketRulesText(entry);
+        const rawSource = extractStorageBucketRulesText(entry);
         if (typeof rawSource !== "string" || !rawSource.trim()) continue;
         const normalizedBucket = normalizeStorageBucketInstance(rawBucket);
-        if (normalizedBucket === undefined) {
+        if (
+          normalizedBucket === undefined ||
+          defaultBuckets.has(normalizedBucket)
+        ) {
           if (rules.storage === undefined) {
             rules.storage = rawSource;
           }

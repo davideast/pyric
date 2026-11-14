@@ -5,7 +5,11 @@ import { join } from 'node:path';
 import { extractSdkUsage } from '../../../src/assurance-surface/code/usage-index.js';
 import { staticQueryProofPass } from '../../../src/assurance-surface/passes/static-query-proof.js';
 import { firestoreRequiredClaims, storageRequiredClaims } from '../../../src/assurance-surface/rules/claims.js';
-import { loadRuleSources, parseRtdbRulesText } from '../../../src/assurance-surface/rules/rule-sources.js';
+import {
+  bundleRulesSource,
+  loadRuleSources,
+  parseRtdbRulesText,
+} from '../../../src/assurance-surface/rules/rule-sources.js';
 import { projectRuleSurface } from '../../../src/assurance-surface/rules/rule-surface.js';
 
 const dir = mkdtempSync(join(tmpdir(), 'rule-sources-'));
@@ -440,6 +444,44 @@ service firebase.storage {
     } finally {
       rmSync(projDir, { recursive: true, force: true });
       rmSync(outDir, { recursive: true, force: true });
+    }
+  });
+
+  test('falls back cleanly to browser-mode behavior when globalThis.process is absent', () => {
+    const holder = globalThis as Record<string, unknown>;
+    const saved = holder.process;
+    delete holder.process;
+    try {
+      const noFsLoaded = loadRuleSources('/virtual-project');
+      expect(noFsLoaded.firestore).toEqual([]);
+      expect(noFsLoaded.rtdb).toEqual([]);
+      expect(noFsLoaded.storage).toEqual([]);
+      expect(noFsLoaded.problems).toEqual([
+        'loadRuleSources requires a Node.js filesystem runtime.',
+      ]);
+
+      const bundled = bundleRulesSource(
+        [
+          "rules_version = '2+modules';",
+          "import { canRead } from './shared.rules';",
+          'service cloud.firestore {',
+          '  match /databases/{database}/documents {',
+          '    match /items/{id} { allow read: if canRead(); }',
+          '  }',
+          '}',
+        ].join('\n'),
+        {
+          filePath: '/virtual-project/firestore.rules',
+          modules: {
+            './shared.rules':
+              'export function canRead() { return request.auth != null; }\n',
+          },
+        },
+      );
+      expect(bundled).toContain("rules_version = '2'");
+      expect(bundled).toContain('canRead');
+    } finally {
+      holder.process = saved;
     }
   });
 });

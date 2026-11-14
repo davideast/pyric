@@ -14,8 +14,8 @@
  * as the session saw it. Without rules by bucket, one ruleset governs every
  * bucket, as before.
  */
-import { existsSync, readFileSync, realpathSync } from 'node:fs';
-import { isAbsolute, relative, resolve, sep } from 'node:path';
+import { existsSync, readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 
 import { bundleRulesSource } from 'pyric/rules/internal/usage';
 import type { SandboxOperationEvent } from 'pyric/sandbox';
@@ -23,6 +23,7 @@ import { DEFAULT_BUCKET, rulesBucketName } from 'pyric/storage/internal';
 
 import type { PyricVerifyFixture, VerifyRulesInput } from '../verify/index.js';
 import { MODULAR_SOURCE, storageRulesTargets, type StorageRulesTargets } from '../serve/rules.js';
+import { resolveContainedRulesFile } from './contained-rules-file.js';
 import type { FirebaseJson } from './firebase-json.js';
 import { resolveFirebaseProject } from './firebase-project.js';
 
@@ -124,25 +125,25 @@ function describeBucket(bucket: string | null): string {
 
 /** Read one rules file; a file firebase.json or a flag names must exist. */
 function readRules(cwd: string, file: string, bucket: string | null): { path: string; source: string } {
-  const path = resolve(cwd, file);
-  if (!existsSync(path)) throw new Error(`rules file not found for storage ${describeBucket(bucket)}: ${path}`);
-  const realCwd = realpathSync(cwd);
-  const realPath = realpathSync(path);
-  const relToRoot = relative(realCwd, realPath);
-  if (
-    relToRoot === '..'
-    || relToRoot.startsWith(`..${sep}`)
-    || relToRoot.startsWith('../')
-    || isAbsolute(relToRoot)
-  ) {
-    throw new Error(`storage rules path escapes project root for ${describeBucket(bucket)}: ${file}`);
+  const checked = resolveContainedRulesFile({
+    projectRoot: cwd,
+    lexicalProjectRoot: cwd,
+    cwd,
+    fileArg: file,
+  });
+  if (!checked.ok) {
+    if (checked.kind === 'not-found') {
+      throw new Error(`rules file not found for storage ${describeBucket(bucket)}: ${resolve(cwd, file)}`);
+    }
+    throw new Error(`invalid storage rules path for ${describeBucket(bucket)}: ${checked.message}`);
   }
-  const raw = readFileSync(path, 'utf8');
+  const path = checked.resolvedPath;
+  const raw = readFileSync(checked.realFile, 'utf8');
   if (MODULAR_SOURCE.test(raw)) {
     try {
       const bundled = bundleRulesSource(raw, {
-        filePath: realPath,
-        rootDir: realCwd,
+        filePath: checked.realFile,
+        rootDir: checked.realRoot,
         sourceFile: path,
         targetService: 'firebase.storage',
       });
@@ -170,6 +171,7 @@ export async function resolveStorageCandidateRules(input: StorageCandidateRulesI
   const recorded = recordedBuckets(input.fixtures);
   const defaultBucketNames = new Set<string>(recorded.defaults);
   defaultBucketNames.add(DEFAULT_BUCKET);
+  defaultBucketNames.add('pyric-default.appspot.com');
   if (project.projectId !== undefined) {
     const fbAppBucket = `${project.projectId}.firebasestorage.app`;
     const appspotBucket = `${project.projectId}.appspot.com`;
@@ -184,19 +186,35 @@ export async function resolveStorageCandidateRules(input: StorageCandidateRulesI
     }
   }
 
+  let overriddenDefaultBucketEntry: { bucket: string; path: string } | undefined;
+  for (let i = input.overrides.buckets.length - 1; i >= 0; i -= 1) {
+    const candidate = input.overrides.buckets[i]!;
+    if (defaultBucketNames.has(candidate.bucket)) {
+      overriddenDefaultBucketEntry = candidate;
+      break;
+    }
+  }
+  const defaultOverriddenByFlag =
+    input.overrides.default !== undefined
+    || overriddenDefaultBucketEntry !== undefined;
+
   // The default bucket: the flag, else a single storage object or storage.rules.
   let defaultFile: string | undefined = input.overrides.default;
   const configuredDefault = targets.targets.find((target) => target.bucket === null);
-  const hasDefaultFile = configuredDefault !== undefined && (configuredDefault.configured || existsSync(configuredDefault.path));
-  if (defaultFile === undefined && hasDefaultFile) defaultFile = configuredDefault.path;
+  const hasDefaultFile =
+    configuredDefault !== undefined
+    && (configuredDefault.configured || existsSync(configuredDefault.path));
+  if (defaultFile === undefined && !defaultOverriddenByFlag && hasDefaultFile) {
+    defaultFile = configuredDefault.path;
+  }
 
-  // Named buckets: firebase.json, then each flag over it. The default-bucket
-  // flag replaces whichever firebase.json entry names the default bucket.
+  // Named buckets: firebase.json, then each flag over it. Any default-bucket
+  // override replaces whichever firebase.json entry names a default bucket alias.
   const bucketFiles = new Map<string, string>();
   for (const target of targets.targets) {
     if (target.bucket === null) continue;
     const replacedByFlag =
-      input.overrides.default !== undefined
+      defaultOverriddenByFlag
       && defaultBucketNames.has(target.bucket);
     if (!replacedByFlag) bucketFiles.set(target.bucket, target.path);
   }
@@ -204,10 +222,20 @@ export async function resolveStorageCandidateRules(input: StorageCandidateRulesI
 
   const rules: StorageCandidateRules['rules'] = {};
   const paths: Record<string, string> = {};
+  let defaultRulesText: string | undefined;
   if (defaultFile !== undefined) {
     const read = readRules(cwd, defaultFile, null);
+    defaultRulesText = read.source;
     rules.storage = read.source;
     paths.storage = read.path;
+  } else if (overriddenDefaultBucketEntry !== undefined) {
+    const read = readRules(
+      cwd,
+      overriddenDefaultBucketEntry.path,
+      overriddenDefaultBucketEntry.bucket,
+    );
+    defaultRulesText = read.source;
+    rules.storage = read.source;
   }
   if (bucketFiles.size === 0) {
     if (rules.storage === undefined) {
@@ -221,6 +249,13 @@ export async function resolveStorageCandidateRules(input: StorageCandidateRulesI
     const read = readRules(cwd, file, bucket);
     storageBuckets[bucket] = read.source;
     paths[`${BUCKET_PREFIX}${bucket}`] = read.path;
+  }
+  if (overriddenDefaultBucketEntry !== undefined && defaultRulesText !== undefined) {
+    for (const recordedBucket of recorded.all) {
+      if (defaultBucketNames.has(recordedBucket) && !(recordedBucket in storageBuckets)) {
+        storageBuckets[recordedBucket] = defaultRulesText;
+      }
+    }
   }
   if (recordedPermissive(input.fixtures)) {
     for (const bucket of recorded.all) {

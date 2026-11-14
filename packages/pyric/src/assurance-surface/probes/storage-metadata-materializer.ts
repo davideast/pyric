@@ -331,10 +331,14 @@ export function buildCompliantUploadStep(
     contentType,
   };
   if (actorRole === 'admin') step.method = 'set';
+  let clientUpload: typeof site.storageUpload;
+  if (useClient) {
+    clientUpload = site.storageUpload;
+  }
   applyCompliantHttpMetadataToStep(
     step,
     constraint,
-    useClient ? site.storageUpload : undefined,
+    clientUpload,
     options?.fallbackHttpHeaders,
   );
   const customMetadata = buildCompliantCustomMetadata(

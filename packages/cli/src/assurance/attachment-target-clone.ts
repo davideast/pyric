@@ -8,6 +8,7 @@ import {
   captureSandboxSnapshot,
   type SnapshotStorageObject,
 } from "pyric/sandbox/internal";
+import { DEFAULT_BUCKET } from "pyric/storage/internal";
 import {
   ASSURANCE_TARGET_SCHEMA,
   type AssuranceAttachmentInventory,
@@ -17,6 +18,107 @@ import {
   type LocalFirebaseTarget,
   type StorageObjectFixture,
 } from "./types.js";
+
+const EXPLICIT_DEFAULT_STORAGE_SENTINELS: ReadonlySet<string> = new Set([
+  DEFAULT_SNAPSHOT_RESOURCE,
+  "default",
+  "default-bucket",
+  "pyric-default",
+  "pyric-default.appspot.com",
+  DEFAULT_BUCKET,
+  "pyric-sandbox.appspot.com",
+]);
+
+export function extractStorageBucketRulesText(
+  entry: string | { readonly rules: string; readonly rulesHash?: string } | null,
+): string | undefined {
+  if (typeof entry === "string") return entry;
+  if (entry && typeof entry === "object" && typeof entry.rules === "string") {
+    return entry.rules;
+  }
+  return undefined;
+}
+
+function inferProjectIdFromDefaultBucket(
+  defaultBucket: string | undefined,
+): string | undefined {
+  if (defaultBucket === undefined) return undefined;
+  if (EXPLICIT_DEFAULT_STORAGE_SENTINELS.has(defaultBucket)) return undefined;
+  if (defaultBucket.endsWith(".firebasestorage.app")) {
+    const prefix = defaultBucket.slice(0, -".firebasestorage.app".length);
+    if (prefix.length > 0) return prefix;
+  }
+  if (defaultBucket.endsWith(".appspot.com")) {
+    const prefix = defaultBucket.slice(0, -".appspot.com".length);
+    if (prefix.length > 0) return prefix;
+  }
+  return undefined;
+}
+
+export function computeDefaultStorageBucketSet(options: {
+  namedBuckets: ReadonlySet<string>;
+  defaultBucket?: string | undefined;
+  projectId?: string | undefined;
+  observedBuckets?: ReadonlySet<string> | undefined;
+  hasExplicitDefaultObject?: boolean | undefined;
+}): Set<string> {
+  const { namedBuckets, defaultBucket } = options;
+  const observedBuckets = options.observedBuckets ?? new Set<string>();
+  const hasExplicitDefaultObject = options.hasExplicitDefaultObject === true;
+  const defaultSet = new Set<string>();
+  for (const sentinel of EXPLICIT_DEFAULT_STORAGE_SENTINELS) {
+    if (!namedBuckets.has(sentinel)) {
+      defaultSet.add(sentinel);
+    }
+  }
+  if (defaultBucket !== undefined && !namedBuckets.has(defaultBucket)) {
+    defaultSet.add(defaultBucket);
+  }
+
+  const effectiveProjectId =
+    options.projectId ?? inferProjectIdFromDefaultBucket(defaultBucket);
+  if (effectiveProjectId !== undefined) {
+    const fbAppBucket = `${effectiveProjectId}.firebasestorage.app`;
+    const appspotBucket = `${effectiveProjectId}.appspot.com`;
+    const usedFbApp =
+      observedBuckets.has(fbAppBucket) || namedBuckets.has(fbAppBucket);
+    const usedAppspot =
+      observedBuckets.has(appspotBucket) || namedBuckets.has(appspotBucket);
+    if (usedFbApp && usedAppspot) {
+      if (defaultBucket === undefined && !namedBuckets.has(fbAppBucket)) {
+        defaultSet.add(fbAppBucket);
+      }
+    } else {
+      if (!namedBuckets.has(fbAppBucket)) {
+        defaultSet.add(fbAppBucket);
+      }
+      if (!namedBuckets.has(appspotBucket)) {
+        defaultSet.add(appspotBucket);
+      }
+    }
+    return defaultSet;
+  }
+
+  if (defaultBucket === undefined && !hasExplicitDefaultObject) {
+    const nonSentinelObserved: string[] = [];
+    for (const bucketId of observedBuckets) {
+      if (!defaultSet.has(bucketId) && !namedBuckets.has(bucketId)) {
+        nonSentinelObserved.push(bucketId);
+      }
+    }
+    if (nonSentinelObserved.length === 1) {
+      const soleBucket = nonSentinelObserved[0]!;
+      if (
+        soleBucket.endsWith(".appspot.com") ||
+        soleBucket.endsWith(".firebasestorage.app")
+      ) {
+        defaultSet.add(soleBucket);
+      }
+    }
+  }
+
+  return defaultSet;
+}
 
 export interface ClonedSandboxAttachment {
   target: LocalFirebaseTarget;

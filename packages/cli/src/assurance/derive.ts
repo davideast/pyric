@@ -162,7 +162,7 @@ function mergeRuntimeFallbackRules(
   };
 }
 
-export function buildProjectProblemDiagnostics(
+function buildProjectProblemDiagnostics(
   project: LoadedAssuranceProject,
 ): AssuranceDiagnostic[] {
   const defaultService: AssuranceService =
