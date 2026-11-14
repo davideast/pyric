@@ -35,8 +35,10 @@ export interface StagedMeta {
 export interface StagingRun {
   id: number;
   attempt: number;
+  totalRunsForCommit?: number;
   status: string;
   conclusion: string | null;
+  requiredCheckState?: CheckState;
   requiredCheckConclusion: string | null;
   url: string;
   failedJobs: readonly string[];
@@ -61,6 +63,7 @@ export type DequeueReason =
   | 'cross-repository-pull-request'
   | 'pull-request-checks-failed'
   | 'merge-conflict'
+  | 'merge-refused'
   | 'staging-checks-failed'
   | 'staging-cancelled';
 
@@ -79,6 +82,7 @@ export type QueueAction =
     reason: DequeueReason;
     runUrl?: string;
     failedJobs?: readonly string[];
+    mergeError?: string;
     cleanStaging: boolean;
   };
 
@@ -127,6 +131,14 @@ function isOwnedStaging(staging: ActiveStaging | undefined, prNumber: number): b
   return staging?.meta?.prNumber === prNumber;
 }
 
+function selectActiveOrHeadCandidate(ready: readonly QueuedPull[], staging: ActiveStaging | undefined, mainSha: string): QueuedPull {
+  const first = ready[0]!;
+  if (isFastlaneRevert(first)) return first;
+  const alreadyStaged = ready.find((candidate) => matchesStagedHead(staging, candidate, mainSha));
+  if (alreadyStaged !== undefined) return alreadyStaged;
+  return first;
+}
+
 function decideActiveStaging(pull: QueuedPull, mainSha: string, staging: ActiveStaging, nowMs: number): QueueAction {
   const releaseProof = pull.labels.includes('ci-packaging');
   const run = staging.buildRun;
@@ -151,13 +163,31 @@ function decideActiveStaging(pull: QueuedPull, mainSha: string, staging: ActiveS
       reason: 'staging Build & Test is in progress',
     };
   }
-  const passed = run.conclusion === 'success' && run.requiredCheckConclusion === 'success';
-  if (passed) {
-    return { kind: 'merge', pull, baseSha: mainSha, stagingSha: staging.stagingSha, runUrl: run.url };
+  if (run.conclusion === 'success') {
+    if (run.requiredCheckConclusion === 'success') {
+      return { kind: 'merge', pull, baseSha: mainSha, stagingSha: staging.stagingSha, runUrl: run.url };
+    }
+    if (run.requiredCheckState === 'pending') {
+      return {
+        kind: 'wait-staging',
+        pull,
+        stagingSha: staging.stagingSha,
+        runUrl: run.url,
+        reason: 'waiting for CI / required check run to settle',
+      };
+    }
+    return {
+      kind: 'dequeue',
+      pull,
+      reason: 'staging-checks-failed',
+      runUrl: run.url,
+      cleanStaging: true,
+    };
   }
   const cancelled = run.conclusion === 'cancelled';
   if (cancelled) {
-    if (run.attempt === 1) {
+    const totalRuns = run.totalRunsForCommit ?? 1;
+    if (run.attempt === 1 && totalRuns < 2) {
       return { kind: 'dispatch-staging', pull, stagingSha: staging.stagingSha, releaseProof };
     }
     return { kind: 'dequeue', pull, reason: 'staging-cancelled', runUrl: run.url, cleanStaging: true };
@@ -222,7 +252,7 @@ export function decideQueueStep(facts: QueueFacts): QueueAction {
     return { kind: 'idle', reason: 'queue is empty' };
   }
 
-  const head = ready[0]!;
+  const head = selectActiveOrHeadCandidate(ready, facts.activeStaging, facts.mainSha);
   if (matchesStagedHead(facts.activeStaging, head, facts.mainSha)) {
     return decideActiveStaging(head, facts.mainSha, facts.activeStaging, facts.nowMs);
   }
@@ -249,6 +279,11 @@ export function dequeueComment(action: Extract<QueueAction, { kind: 'dequeue' }>
   }
   if (action.reason === 'merge-conflict') {
     return `Removed \`${QUEUE_LABEL}\`: merging \`${shortHead}\` onto \`main\` (\`${shortMain}\`) produced a conflict. Merge or rebase \`main\`, wait for \`CI / required\`, and re-apply \`${QUEUE_LABEL}\`.`;
+  }
+  if (action.reason === 'merge-refused') {
+    let detailSuffix = '';
+    if (action.mergeError) detailSuffix = ` (${action.mergeError})`;
+    return `Removed \`${QUEUE_LABEL}\`: GitHub refused merging \`${shortHead}\` into \`main\` (\`${shortMain}\`) after staging passed${detailSuffix}. Resolve the branch or ruleset requirement and re-apply \`${QUEUE_LABEL}\`.`;
   }
   if (action.reason === 'staging-cancelled') {
     let runSuffix = '';

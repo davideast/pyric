@@ -32,7 +32,7 @@ Every PR opens as a draft and stays one until it is approved.
 
 - Enqueue approved, ready pull requests that target `main` by adding the
   `merge-queue` label via the REST API (`gh pr edit` is broken on this repo):
-  `gh api -X POST repos/davideast/pyric/issues/<n>/labels -f 'labels[]=merge-queue'`.
+  `gh api -X POST 'repos/{owner}/{repo}/issues/<n>/labels' -f 'labels[]=merge-queue'`.
   `.github/workflows/merge-queue.yml` stages one pull request at a time onto
   `merge-queue/staging` over current `origin/main`, runs the full `main`
   `Build & Test` suite (`packaging=true`, `rtdb-differential=true`, every
@@ -42,7 +42,7 @@ Every PR opens as a draft and stays one until it is approved.
 - If a pull request is part of an explicit stack, do not delete a branch another
   PR is based on. Deleting the base closes the stacked PR instead of retargeting
   it. Retarget the stacked PR to `main` first, then delete:
-  `gh api -X PATCH repos/davideast/pyric/pulls/<n> -f base=main`. If it already
+  `gh api -X PATCH 'repos/{owner}/{repo}/pulls/<n>' -f base=main`. If it already
   closed: push the old base back at the same commit, reopen, retarget, then
   delete.
 - If merging by hand when the queue is not used, update the PR with `main`, let

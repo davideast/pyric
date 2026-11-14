@@ -33,17 +33,19 @@ const SIMULATOR_WORKFLOW = 'simulator-parity.yml';
 const REQUIRED_CHECK = 'CI / required';
 const MAX_TRANSITIONS = 5;
 
-const SIMULATOR_PARITY_PATHS = [
-  /^packages\/pyric\/src\/firestore\/sandbox\//,
-  /^packages\/rules\/src\/grammar\//,
-  /^packages\/rules\/src\/simulator\//,
-  /^packages\/pyric\/src\/rules-tools\//,
-  /^packages\/pyric\/test\/sandbox\/firestore\/simulator\//,
-  /^packages\/pyric\/test\/rules\//,
-  /^packages\/rules\/test\/simulator\//,
-  /^packages\/pyric\/test\/rules-tools\//,
-  /^\.github\/workflows\/simulator-parity\.yml$/,
+export const SIMULATOR_PARITY_GLOBS: readonly string[] = [
+  'packages/pyric/src/firestore/sandbox/**',
+  'packages/rules/src/grammar/**',
+  'packages/rules/src/simulator/**',
+  'packages/pyric/src/rules-tools/**',
+  'packages/pyric/test/sandbox/firestore/simulator/**',
+  'packages/pyric/test/rules/**',
+  'packages/rules/test/simulator/**',
+  'packages/pyric/test/rules-tools/**',
+  '.github/workflows/simulator-parity.yml',
 ];
+
+const SIMULATOR_MATCHERS = SIMULATOR_PARITY_GLOBS.map((glob) => new Bun.Glob(glob));
 
 export interface QueueIo {
   repo: string;
@@ -57,6 +59,7 @@ export interface QueueIo {
 interface PullApiItem {
   number: number;
   title: string;
+  state?: string;
   draft: boolean;
   created_at: string;
   head: {
@@ -89,7 +92,12 @@ interface WorkflowRunItem {
 }
 
 export function needsSimulatorParity(paths: readonly string[]): boolean {
-  return paths.some((path) => SIMULATOR_PARITY_PATHS.some((pattern) => pattern.test(path)));
+  return paths.some((path) => SIMULATOR_MATCHERS.some((glob) => glob.match(path)));
+}
+
+function errorText(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  return String(error);
 }
 
 function apiGet<T>(io: QueueIo, path: string): T {
@@ -113,12 +121,16 @@ function latestRequiredCheck(io: QueueIo, sha: string): { state: CheckState; con
 }
 
 function latestLabeledTime(io: QueueIo, prNumber: number, fallbackCreatedAt: string): string {
-  const events = apiGet<IssueEventItem[]>(io, `issues/${prNumber}/events?per_page=100`);
   let labeledAt = fallbackCreatedAt;
-  for (const item of events) {
-    if (item.event === 'labeled' && item.label?.name === QUEUE_LABEL) {
-      labeledAt = item.created_at;
+  for (let page = 1; page <= 10; page++) {
+    const suffix = page === 1 ? 'per_page=100' : `per_page=100&page=${page}`;
+    const events = apiGet<IssueEventItem[]>(io, `issues/${prNumber}/events?${suffix}`);
+    for (const item of events) {
+      if (item.event === 'labeled' && item.label?.name === QUEUE_LABEL) {
+        labeledAt = item.created_at;
+      }
     }
+    if (events.length < 100) break;
   }
   return labeledAt;
 }
@@ -167,16 +179,19 @@ function gatherActiveStaging(io: QueueIo): ActiveStaging | undefined {
   const encodedBranch = encodeURIComponent(STAGING_BRANCH);
   const runs = apiGet<{ workflow_runs: WorkflowRunItem[] }>(
     io,
-    `actions/workflows/${BUILD_WORKFLOW}/runs?branch=${encodedBranch}&head_sha=${stagingSha}&per_page=5`,
+    `actions/workflows/${BUILD_WORKFLOW}/runs?branch=${encodedBranch}&head_sha=${stagingSha}&per_page=10`,
   );
   const latestRun = runs.workflow_runs[0];
   const staging: ActiveStaging = { stagingSha, committedAtMs };
   if (meta !== undefined) staging.meta = meta;
   if (latestRun !== undefined) {
+    let requiredCheckState: CheckState = 'pending';
     let requiredCheckConclusion: string | null = null;
     let failedJobs: string[] = [];
     if (latestRun.status === 'completed') {
-      requiredCheckConclusion = latestRequiredCheck(io, stagingSha).conclusion;
+      const check = latestRequiredCheck(io, stagingSha);
+      requiredCheckState = check.state;
+      requiredCheckConclusion = check.conclusion;
       if (latestRun.conclusion !== 'success') {
         failedJobs = failedJobNames(io, latestRun.id, latestRun.run_attempt);
       }
@@ -184,8 +199,10 @@ function gatherActiveStaging(io: QueueIo): ActiveStaging | undefined {
     const buildRun: StagingRun = {
       id: latestRun.id,
       attempt: latestRun.run_attempt,
+      totalRunsForCommit: runs.workflow_runs.length,
       status: latestRun.status,
       conclusion: latestRun.conclusion,
+      requiredCheckState,
       requiredCheckConclusion,
       url: latestRun.html_url,
       failedJobs,
@@ -305,11 +322,22 @@ function dispatchPostMergeMainWorkflows(io: QueueIo, prPaths: readonly string[])
   }
 }
 
+function isPersistentMergeRefusal(io: QueueIo, action: Extract<QueueAction, { kind: 'merge' }>): boolean {
+  try {
+    const currentMain = apiGet<{ commit: { sha: string } }>(io, 'branches/main').commit.sha;
+    if (currentMain !== action.baseSha) return false;
+    const currentPr = apiGet<{ state: string; head: { sha: string } }>(io, `pulls/${action.pull.number}`);
+    return currentPr.state === 'open' && currentPr.head.sha === action.pull.headSha;
+  } catch {
+    return false;
+  }
+}
+
 function executeMerge(
   io: QueueIo,
   action: Extract<QueueAction, { kind: 'merge' }>,
   usingWorkflowToken: boolean,
-): boolean {
+): { outcome: QueueAction; advance: boolean } {
   let prPaths: string[] = [];
   if (usingWorkflowToken) {
     prPaths = pullChangedPaths(io, action.pull.number);
@@ -321,10 +349,22 @@ function executeMerge(
       '-f', `sha=${action.pull.headSha}`,
     ]);
   } catch (error) {
-    const detail = error instanceof Error ? error.message : String(error);
-    io.log(`Could not merge #${action.pull.number} at ${action.pull.headSha.slice(0, 9)} (${detail}); will re-evaluate on next pass.`);
+    const detail = errorText(error).split('\n')[0] ?? 'merge refused';
+    if (isPersistentMergeRefusal(io, action)) {
+      const refusedDequeue: Extract<QueueAction, { kind: 'dequeue' }> = {
+        kind: 'dequeue',
+        pull: action.pull,
+        reason: 'merge-refused',
+        mergeError: detail,
+        cleanStaging: true,
+      };
+      executeDequeue(io, refusedDequeue, action.baseSha);
+      io.log(`Dequeued #${action.pull.number}: GitHub refused merge while main and head were unchanged (${detail}).`);
+      return { outcome: refusedDequeue, advance: true };
+    }
+    io.log(`Could not merge #${action.pull.number} at ${action.pull.headSha.slice(0, 9)} (${detail}); main or head moved, will re-evaluate.`);
     deleteRemoteStaging(io);
-    return false;
+    return { outcome: action, advance: false };
   }
   removeQueueLabel(io, action.pull.number);
   deleteRemoteStaging(io);
@@ -332,7 +372,7 @@ function executeMerge(
     dispatchPostMergeMainWorkflows(io, prPaths);
   }
   io.log(`Merged #${action.pull.number} into main after green staging run (${action.runUrl}).`);
-  return true;
+  return { outcome: action, advance: true };
 }
 
 export function runQueuePass(
@@ -399,9 +439,9 @@ export function runQueuePass(
       return executed;
     }
     if (action.kind === 'merge') {
-      const merged = executeMerge(io, action, options.usingWorkflowToken);
-      executed.push(action);
-      if (!merged) return executed;
+      const result = executeMerge(io, action, options.usingWorkflowToken);
+      executed.push(result.outcome);
+      if (!result.advance) return executed;
       continue;
     }
   }

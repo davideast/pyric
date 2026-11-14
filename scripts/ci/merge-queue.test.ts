@@ -12,11 +12,6 @@ import {
   type QueuedPull,
   type StagingRun,
 } from './merge-queue.ts';
-import {
-  needsSimulatorParity,
-  runQueuePass,
-  type QueueIo,
-} from './merge-queue-github.ts';
 
 const MAIN = '1'.repeat(40);
 const HEAD_A = 'a'.repeat(40);
@@ -43,8 +38,10 @@ function stagingRun(overrides: Partial<StagingRun> = {}): StagingRun {
   return {
     id: 500,
     attempt: 1,
+    totalRunsForCommit: 1,
     status: 'completed',
     conclusion: 'success',
+    requiredCheckState: 'success',
     requiredCheckConclusion: 'success',
     url: 'https://github.com/owner/repo/actions/runs/500',
     failedJobs: [],
@@ -70,26 +67,19 @@ describe('staging commit metadata', () => {
       headSha: HEAD_A,
       baseSha: MAIN,
     });
-  });
-
-  test('returns undefined for unrelated commit messages', () => {
     expect(parseStagingCommit('Merge pull request #101 from owner/fix')).toBeUndefined();
   });
 });
 
 describe('merge queue decisions', () => {
-  test('idles when no pull request is queued and no staging branch exists', () => {
+  test('idles when empty and cleans an orphan staging branch when the queue drains', () => {
     expect(decideQueueStep(facts())).toEqual({ kind: 'idle', reason: 'queue is empty' });
-  });
-
-  test('cleans an orphan staging branch and cancels its in-flight run when the queue drains', () => {
-    const run = stagingRun({ status: 'in_progress', conclusion: null });
     expect(decideQueueStep(facts({
       activeStaging: {
         stagingSha: STAGED,
         committedAtMs: NOW - 10_000,
         meta: { prNumber: 99, headSha: HEAD_A, baseSha: MAIN },
-        buildRun: run,
+        buildRun: stagingRun({ status: 'in_progress', conclusion: null }),
       },
     }))).toEqual({
       kind: 'clean-staging',
@@ -123,7 +113,34 @@ describe('merge queue decisions', () => {
     });
   });
 
-  test('skips draft pull requests and lets an already-green pull request stage ahead of one whose PR checks are still running', () => {
+  test('does not preempt an in-flight normal staging run when an earlier normal PR turns green, unless a fastlane revert arrives', () => {
+    const earlierNowGreen = pull({ number: 101, headSha: HEAD_A, prRequiredState: 'success', labeledAt: '2026-11-14T11:35:00Z' });
+    const stagedSecond = pull({ number: 102, headSha: HEAD_B, prRequiredState: 'success', labeledAt: '2026-11-14T11:36:00Z' });
+    const active = {
+      stagingSha: STAGED,
+      committedAtMs: NOW - 60_000,
+      meta: { prNumber: 102, headSha: HEAD_B, baseSha: MAIN },
+      buildRun: stagingRun({ id: 601, status: 'in_progress', conclusion: null }),
+    };
+    expect(decideQueueStep(facts({ candidates: [earlierNowGreen, stagedSecond], activeStaging: active }))).toEqual({
+      kind: 'wait-staging',
+      pull: stagedSecond,
+      stagingSha: STAGED,
+      runUrl: 'https://github.com/owner/repo/actions/runs/500',
+      reason: 'staging Build & Test is in progress',
+    });
+
+    const fastRevert = pull({ number: 105, title: 'revert: fix: break', headSha: 'd'.repeat(40), labeledAt: '2026-11-14T11:58:00Z' });
+    expect(decideQueueStep(facts({ candidates: [earlierNowGreen, stagedSecond, fastRevert], activeStaging: active }))).toEqual({
+      kind: 'stage',
+      pull: fastRevert,
+      baseSha: MAIN,
+      releaseProof: false,
+      cancelRunId: 601,
+    });
+  });
+
+  test('skips drafts, stages green PRs ahead of pending PRs, and waits when all PRs are pending', () => {
     const draft = pull({ number: 100, isDraft: true, labeledAt: '2026-11-14T11:30:00Z' });
     const pendingPr = pull({ number: 101, prRequiredState: 'pending', labeledAt: '2026-11-14T11:35:00Z' });
     const greenPr = pull({ number: 102, headSha: HEAD_B, prRequiredState: 'success', labeledAt: '2026-11-14T11:40:00Z' });
@@ -133,17 +150,13 @@ describe('merge queue decisions', () => {
       baseSha: MAIN,
       releaseProof: false,
     });
-  });
-
-  test('waits quietly when every queued pull request still has pending PR checks', () => {
-    const pendingPr = pull({ number: 101, prRequiredState: 'pending' });
     expect(decideQueueStep(facts({ candidates: [pendingPr] }))).toEqual({
       kind: 'wait-pr-checks',
       pull: pendingPr,
     });
   });
 
-  test('dequeues a pull request immediately when its own PR required check failed or it comes from a fork', () => {
+  test('dequeues immediately on failed PR required checks or fork pull requests', () => {
     const failedPr = pull({ number: 101, prRequiredState: 'failure' });
     expect(decideQueueStep(facts({ candidates: [failedPr] }))).toEqual({
       kind: 'dequeue',
@@ -151,7 +164,6 @@ describe('merge queue decisions', () => {
       reason: 'pull-request-checks-failed',
       cleanStaging: false,
     });
-
     const forkPr = pull({ number: 104, headRepoFullName: 'stranger/repo' });
     expect(decideQueueStep(facts({ candidates: [forkPr] }))).toEqual({
       kind: 'dequeue',
@@ -161,7 +173,7 @@ describe('merge queue decisions', () => {
     });
   });
 
-  test('forwards ci-packaging as releaseProof when staging and cancels any stale staging run when main moved', () => {
+  test('forwards ci-packaging as releaseProof and cancels stale staging runs when main moved', () => {
     const packaged = pull({ labels: [QUEUE_LABEL, 'ci-packaging'] });
     const staleRun = stagingRun({ id: 444, status: 'in_progress', conclusion: null });
     expect(decideQueueStep(facts({
@@ -181,7 +193,7 @@ describe('merge queue decisions', () => {
     });
   });
 
-  test('waits while a newly pushed staging commit registers its workflow run, then re-dispatches after 60s', () => {
+  test('waits during the 60s registration window, re-dispatches a cancelled run at most once, and dequeues on a second cancellation', () => {
     const candidate = pull();
     expect(decideQueueStep(facts({
       candidates: [candidate],
@@ -201,14 +213,31 @@ describe('merge queue decisions', () => {
       candidates: [candidate],
       activeStaging: {
         stagingSha: STAGED,
-        committedAtMs: NOW - 65_000,
+        committedAtMs: NOW - 120_000,
         meta: { prNumber: 101, headSha: HEAD_A, baseSha: MAIN },
+        buildRun: stagingRun({ conclusion: 'cancelled', totalRunsForCommit: 1 }),
       },
     }))).toEqual({
       kind: 'dispatch-staging',
       pull: candidate,
       stagingSha: STAGED,
       releaseProof: false,
+    });
+
+    expect(decideQueueStep(facts({
+      candidates: [candidate],
+      activeStaging: {
+        stagingSha: STAGED,
+        committedAtMs: NOW - 240_000,
+        meta: { prNumber: 101, headSha: HEAD_A, baseSha: MAIN },
+        buildRun: stagingRun({ conclusion: 'cancelled', totalRunsForCommit: 2 }),
+      },
+    }))).toEqual({
+      kind: 'dequeue',
+      pull: candidate,
+      reason: 'staging-cancelled',
+      runUrl: 'https://github.com/owner/repo/actions/runs/500',
+      cleanStaging: true,
     });
   });
 
@@ -254,7 +283,7 @@ describe('merge queue decisions', () => {
     }
   });
 
-  test('merges only when both the staging workflow and CI / required succeeded on the current main tip', () => {
+  test('waits if CI / required is still settling on a passing run, dequeues if it failed, and merges once both succeeded', () => {
     const candidate = pull();
     expect(decideQueueStep(facts({
       candidates: [candidate],
@@ -262,9 +291,9 @@ describe('merge queue decisions', () => {
         stagingSha: STAGED,
         committedAtMs: NOW - 180_000,
         meta: { prNumber: 101, headSha: HEAD_A, baseSha: MAIN },
-        buildRun: stagingRun({ conclusion: 'success', requiredCheckConclusion: 'failure' }),
+        buildRun: stagingRun({ conclusion: 'success', requiredCheckState: 'pending', requiredCheckConclusion: null }),
       },
-    })).kind).toBe('rerun-staging');
+    })).kind).toBe('wait-staging');
 
     expect(decideQueueStep(facts({
       candidates: [candidate],
@@ -272,7 +301,17 @@ describe('merge queue decisions', () => {
         stagingSha: STAGED,
         committedAtMs: NOW - 180_000,
         meta: { prNumber: 101, headSha: HEAD_A, baseSha: MAIN },
-        buildRun: stagingRun({ conclusion: 'success', requiredCheckConclusion: 'success' }),
+        buildRun: stagingRun({ conclusion: 'success', requiredCheckState: 'failure', requiredCheckConclusion: 'failure' }),
+      },
+    })).kind).toBe('dequeue');
+
+    expect(decideQueueStep(facts({
+      candidates: [candidate],
+      activeStaging: {
+        stagingSha: STAGED,
+        committedAtMs: NOW - 180_000,
+        meta: { prNumber: 101, headSha: HEAD_A, baseSha: MAIN },
+        buildRun: stagingRun({ conclusion: 'success', requiredCheckState: 'success', requiredCheckConclusion: 'success' }),
       },
     }))).toEqual({
       kind: 'merge',
@@ -282,247 +321,6 @@ describe('merge queue decisions', () => {
       runUrl: 'https://github.com/owner/repo/actions/runs/500',
     });
     expect(STAGING_BRANCH).toBe('merge-queue/staging');
-  });
-});
-
-describe('executing a queue pass', () => {
-  const MAIN_2 = '2'.repeat(40);
-
-  interface Harness {
-    gh: string[][];
-    git: string[][];
-    comments: string[];
-    io: QueueIo;
-    setState: (next: {
-      mainSha?: string;
-      remoteStagingSha?: string;
-      pulls?: Array<{
-        number: number;
-        title: string;
-        draft?: boolean;
-        headRef: string;
-        headSha: string;
-        headRepo?: string;
-        labels: string[];
-        createdAt?: string;
-      }>;
-      eventsByPr?: Record<number, Array<{ event: string; created_at: string; label?: { name: string } }>>;
-      checkBySha?: Record<string, { status: string; conclusion: string | null } | undefined>;
-      stagingCommit?: { message: string; date: string };
-      stagingRuns?: Array<{ id: number; run_attempt: number; status: string; conclusion: string | null; html_url: string }>;
-      failedJobsByAttempt?: Record<string, string[]>;
-      filesByPr?: Record<number, string[]>;
-      mergeConflictOn?: Set<string>;
-      onMergePr?: (prNumber: number) => void;
-    }) => void;
-  }
-
-  function createHarness(): Harness {
-    const gh: string[][] = [];
-    const git: string[][]= [];
-    const comments: string[] = [];
-    let state: Parameters<Harness['setState']>[0] = {};
-
-    const io: QueueIo = {
-      repo: 'owner/repo',
-      now: () => NOW,
-      log: () => {},
-      writeFile: (name, text) => {
-        comments.push(text);
-        return `/tmp/${name}`;
-      },
-      git: (args) => {
-        git.push(args);
-        if (args[0] === 'ls-remote') {
-          return state.remoteStagingSha ? `${state.remoteStagingSha}\trefs/heads/${STAGING_BRANCH}\n` : '';
-        }
-        if (args[0] === 'merge' && args[1] === '--no-ff') {
-          const targetSha = args.at(-1) ?? '';
-          if (state.mergeConflictOn?.has(targetSha)) {
-            throw new Error('CONFLICT (content): Merge conflict in packages/cli/src/serve/rules.ts');
-          }
-        }
-        if (args[0] === 'push' && args.includes('--delete')) {
-          state.remoteStagingSha = undefined;
-        }
-        return '';
-      },
-      gh: (args) => {
-        gh.push(args);
-        if (args[0] !== 'api') return '';
-        const methodIdx = args.indexOf('-X');
-        const method = methodIdx === -1 ? 'GET' : args[methodIdx + 1];
-        const pathArg = args.find((arg) => arg.startsWith('repos/owner/repo/')) ?? '';
-        const path = pathArg.replace('repos/owner/repo/', '');
-
-        if (method === 'GET' && path === 'branches/main') {
-          return JSON.stringify({ commit: { sha: state.mainSha ?? MAIN } });
-        }
-        if (method === 'GET' && path.startsWith('pulls?')) {
-          const pulls = (state.pulls ?? []).map((item) => ({
-            number: item.number,
-            title: item.title,
-            draft: item.draft ?? false,
-            created_at: item.createdAt ?? '2026-11-14T11:00:00Z',
-            head: { ref: item.headRef, sha: item.headSha, repo: { full_name: item.headRepo ?? 'owner/repo' } },
-            labels: item.labels.map((name) => ({ name })),
-          }));
-          return JSON.stringify(pulls);
-        }
-        const eventsMatch = /^issues\/(\d+)\/events\?/.exec(path);
-        if (method === 'GET' && eventsMatch) {
-          return JSON.stringify(state.eventsByPr?.[Number(eventsMatch[1])] ?? []);
-        }
-        const checkMatch = /^commits\/([0-9a-f]+)\/check-runs\?/.exec(path);
-        if (method === 'GET' && checkMatch) {
-          const check = state.checkBySha?.[checkMatch[1]!];
-          return JSON.stringify({
-            check_runs: check ? [{ name: 'CI / required', status: check.status, conclusion: check.conclusion, app: { slug: 'github-actions' } }] : [],
-          });
-        }
-        if (method === 'GET' && path === `commits/${state.remoteStagingSha}`) {
-          return JSON.stringify({
-            sha: state.remoteStagingSha,
-            commit: {
-              message: state.stagingCommit?.message ?? '',
-              committer: { date: state.stagingCommit?.date ?? '2026-11-14T11:55:00Z' },
-            },
-          });
-        }
-        if (method === 'GET' && path.startsWith('actions/workflows/build.yml/runs?')) {
-          return JSON.stringify({ workflow_runs: state.stagingRuns ?? [] });
-        }
-        const jobsMatch = /^actions\/runs\/(\d+)\/attempts\/(\d+)\/jobs\?/.exec(path);
-        if (method === 'GET' && jobsMatch) {
-          const failed = state.failedJobsByAttempt?.[`${jobsMatch[1]}:${jobsMatch[2]}`] ?? [];
-          return JSON.stringify({ jobs: failed.map((name) => ({ name, conclusion: 'failure' })) });
-        }
-        const filesMatch = /^pulls\/(\d+)\/files\?/.exec(path);
-        if (method === 'GET' && filesMatch) {
-          const files = state.filesByPr?.[Number(filesMatch[1])] ?? [];
-          return JSON.stringify(files.map((filename) => ({ filename })));
-        }
-        const deleteLabelMatch = /^issues\/(\d+)\/labels\/merge-queue$/.exec(path);
-        if (method === 'DELETE' && deleteLabelMatch) {
-          const prNum = Number(deleteLabelMatch[1]);
-          state.pulls = (state.pulls ?? []).map((item) => {
-            if (item.number !== prNum) return item;
-            return { ...item, labels: item.labels.filter((label) => label !== QUEUE_LABEL) };
-          });
-          return '{}';
-        }
-        const mergeMatch = /^pulls\/(\d+)\/merge$/.exec(path);
-        if (method === 'PUT' && mergeMatch) {
-          const prNum = Number(mergeMatch[1]);
-          state.pulls = (state.pulls ?? []).filter((item) => item.number !== prNum);
-          state.onMergePr?.(prNum);
-          return JSON.stringify({ merged: true, sha: MAIN_2 });
-        }
-        if (method === 'POST' && /^issues\/\d+\/comments$/.test(path)) {
-          return JSON.stringify({ id: 1 });
-        }
-        throw new Error(`unexpected gh api ${method} ${path}`);
-      },
-    };
-
-    return {
-      gh,
-      git,
-      comments,
-      io,
-      setState: (next) => { state = next; },
-    };
-  }
-
-  test('merges a green staged PR, dispatches main workflows under the workflow token, and stages the next queued PR in one pass', () => {
-    const h = createHarness();
-    h.setState({
-      mainSha: MAIN,
-      remoteStagingSha: STAGED,
-      pulls: [
-        { number: 101, title: 'fix(rules): simulator parity', headRef: 'fix/sim', headSha: HEAD_A, labels: [QUEUE_LABEL] },
-        { number: 102, title: 'fix(cli): packaging flag', headRef: 'fix/pkg', headSha: HEAD_B, labels: [QUEUE_LABEL, 'ci-packaging'] },
-      ],
-      eventsByPr: {
-        101: [{ event: 'labeled', created_at: '2026-11-14T11:40:00Z', label: { name: QUEUE_LABEL } }],
-        102: [{ event: 'labeled', created_at: '2026-11-14T11:45:00Z', label: { name: QUEUE_LABEL } }],
-      },
-      checkBySha: {
-        [HEAD_A]: { status: 'completed', conclusion: 'success' },
-        [HEAD_B]: { status: 'completed', conclusion: 'success' },
-        [STAGED]: { status: 'completed', conclusion: 'success' },
-      },
-      stagingCommit: {
-        message: formatStagingCommit({ prNumber: 101, headSha: HEAD_A, baseSha: MAIN }),
-        date: '2026-11-14T11:50:00Z',
-      },
-      stagingRuns: [{ id: 500, run_attempt: 1, status: 'completed', conclusion: 'success', html_url: 'https://github.com/owner/repo/actions/runs/500' }],
-      filesByPr: { 101: ['packages/rules/src/simulator/eval.ts'] },
-      onMergePr: () => {
-        h.setState({
-          mainSha: MAIN_2,
-          remoteStagingSha: undefined,
-          pulls: [{ number: 102, title: 'fix(cli): packaging flag', headRef: 'fix/pkg', headSha: HEAD_B, labels: [QUEUE_LABEL, 'ci-packaging'] }],
-          eventsByPr: { 102: [{ event: 'labeled', created_at: '2026-11-14T11:45:00Z', label: { name: QUEUE_LABEL } }] },
-          checkBySha: { [HEAD_B]: { status: 'completed', conclusion: 'success' } },
-        });
-      },
-    });
-
-    const actions = runQueuePass(h.io, { dryRun: false, usingWorkflowToken: true });
-    expect(actions.map((action) => action.kind)).toEqual(['merge', 'stage']);
-    expect(h.gh).toContainEqual(['api', '-X', 'PUT', 'repos/owner/repo/pulls/101/merge', '-f', 'merge_method=merge', '-f', `sha=${HEAD_A}`]);
-    expect(h.gh).toContainEqual(['workflow', 'run', 'build.yml', '--repo', 'owner/repo', '--ref', 'main']);
-    expect(h.gh).toContainEqual(['workflow', 'run', 'slow-scenarios.yml', '--repo', 'owner/repo', '--ref', 'main']);
-    expect(h.gh).toContainEqual(['workflow', 'run', 'simulator-parity.yml', '--repo', 'owner/repo', '--ref', 'main']);
-    expect(h.git).toContainEqual(['checkout', '--detach', MAIN_2]);
-    expect(h.gh).toContainEqual(['workflow', 'run', 'build.yml', '--repo', 'owner/repo', '--ref', STAGING_BRANCH, '-f', 'release_proof=true']);
-  });
-
-  test('aborts a conflicting merge, dequeues the conflicting PR with a comment, and stages the next PR immediately', () => {
-    const h = createHarness();
-    h.setState({
-      mainSha: MAIN,
-      pulls: [
-        { number: 101, title: 'fix(cli): conflict', headRef: 'fix/conflict', headSha: HEAD_A, labels: [QUEUE_LABEL] },
-        { number: 102, title: 'fix(cli): clean', headRef: 'fix/clean', headSha: HEAD_B, labels: [QUEUE_LABEL] },
-      ],
-      eventsByPr: {
-        101: [{ event: 'labeled', created_at: '2026-11-14T11:40:00Z', label: { name: QUEUE_LABEL } }],
-        102: [{ event: 'labeled', created_at: '2026-11-14T11:45:00Z', label: { name: QUEUE_LABEL } }],
-      },
-      checkBySha: {
-        [HEAD_A]: { status: 'completed', conclusion: 'success' },
-        [HEAD_B]: { status: 'completed', conclusion: 'success' },
-      },
-      mergeConflictOn: new Set([HEAD_A]),
-    });
-
-    const actions = runQueuePass(h.io, { dryRun: false, usingWorkflowToken: true });
-    expect(actions.map((action) => action.kind)).toEqual(['dequeue', 'stage']);
-    expect(h.git).toContainEqual(['merge', '--abort']);
-    expect(h.gh).toContainEqual(['api', '-X', 'DELETE', 'repos/owner/repo/issues/101/labels/merge-queue']);
-    expect(h.comments[0]).toContain('produced a conflict');
-    expect(h.git).toContainEqual(['merge', '--no-ff', '-m', formatStagingCommit({ prNumber: 102, headSha: HEAD_B, baseSha: MAIN }), HEAD_B]);
-  });
-
-  test('dryRun computes the next action and performs no git or GitHub mutations', () => {
-    const h = createHarness();
-    h.setState({
-      mainSha: MAIN,
-      pulls: [{ number: 101, title: 'fix(cli): clean', headRef: 'fix/clean', headSha: HEAD_A, labels: [QUEUE_LABEL] }],
-      checkBySha: { [HEAD_A]: { status: 'completed', conclusion: 'success' } },
-    });
-
-    const actions = runQueuePass(h.io, { dryRun: true, usingWorkflowToken: true });
-    expect(actions.map((action) => action.kind)).toEqual(['stage']);
-    expect(h.git.filter((args) => args[0] !== 'ls-remote')).toEqual([]);
-    expect(h.gh.filter((args) => args[0] !== 'api' || args.includes('-X'))).toEqual([]);
-  });
-
-  test('detects simulator parity paths accurately', () => {
-    expect(needsSimulatorParity(['packages/rules/src/grammar/firestore.ohm'])).toBe(true);
-    expect(needsSimulatorParity(['packages/cli/src/serve/rules.ts'])).toBe(false);
   });
 });
 

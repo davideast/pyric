@@ -27,7 +27,7 @@ and the files the fix must touch. Write the table before anyone starts:
   or a class with `>= 3` findings in the round, it must add or extend that
   class's standing mechanical check ([defect-classes.md](defect-classes.md#5-repeat-class-escalation-rule))
   rather than relying on per-finding regression pins alone. Every new standing
-  check must fail against `main` (`Revert-to-RED`) rather than passing via silent
+  check must fail against `main` (`revert-to-red`) rather than passing via silent
   abstention.
 - **Invariant-only briefs.** Stream briefs and review bounces state behavioral
   invariants, concrete counterexamples, and non-regression constraints (after
@@ -71,7 +71,7 @@ short (`<= 30`-line) seam and sibling note for one-turn `Spec` reviewer sign-off
    SQLite, Live), every entry point (CLI, Vite, Next, MCP canonical and
    discriminator), and every sibling grammar construct or prototype method that
    shares the same mechanism.
-3. **Standing-check oracle and `Revert-to-RED` target:** how the class check will
+3. **Standing-check oracle and `revert-to-red` target:** how the class check will
    prove the mechanism and fail when the production fix is reverted.
 
 Once the `Spec` reviewer confirms no sibling was missed, work red to green:
@@ -107,7 +107,7 @@ tests must fail, and the stream tip must pass.
 Enqueue approved streams through the repository merge queue (`.github/workflows/merge-queue.yml`),
 in dependency order:
 
-- apply the `merge-queue` label (`[shipping.md](shipping.md#merging-a-stack)`)
+- apply the `merge-queue` label ([shipping.md](shipping.md#merging-through-the-queue-and-stacks))
   once two-axis review is `MERGE` and PR `CI / required` is green, rather than
   merging two PRs manually back-to-back;
 - if a stream modified shared scorecards or baselines (section 3) after `main`

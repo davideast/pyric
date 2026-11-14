@@ -123,7 +123,7 @@ jobs:
             bun scripts/ci/quarantine-base.ts "$(git rev-parse HEAD^1)"
           fi
       - name: Test fail-closed selection policy
-        run: bun test scripts/ci/check-set.test.ts scripts/ci/plan.test.ts scripts/ci/required.test.ts scripts/ci/merge-group.test.ts scripts/ci/merge-queue.test.ts scripts/ci/workflow-paths.test.ts scripts/ci/test-shard.test.ts scripts/ci/build-input-key.test.ts test/apps/shard-plan.test.ts
+        run: bun test scripts/ci/check-set.test.ts scripts/ci/plan.test.ts scripts/ci/required.test.ts scripts/ci/merge-group.test.ts scripts/ci/merge-queue.test.ts scripts/ci/merge-queue-github.test.ts scripts/ci/workflow-paths.test.ts scripts/ci/test-shard.test.ts scripts/ci/build-input-key.test.ts test/apps/shard-plan.test.ts
       - name: Select proof
         # On a pull request, the app scenarios are the ones under
         # test/apps/<name>/ the diff changes and the test/apps/<name> paths

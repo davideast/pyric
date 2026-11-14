@@ -155,9 +155,12 @@ describe('carrying out the verdict', () => {
   interface FakeOptions {
     attempt: number;
     workflow?: string;
+    runEvent?: 'push' | 'workflow_dispatch';
+    runActor?: string;
     prCreate?: () => string;
     parentConclusion?: string;
     parentEvent?: 'push' | 'workflow_dispatch';
+    parentActor?: string;
     existingPrs?: { number: number; state: string }[];
     remoteBranch?: boolean;
     push?: () => string;
@@ -166,11 +169,20 @@ describe('carrying out the verdict', () => {
   function fake(options: FakeOptions): Fake {
     const calls: Fake = { gh: [], git: [], logs: [], io: undefined as unknown as Io };
     const parentEvent = options.parentEvent ?? 'push';
-    const parentRuns = [{ status: 'completed', conclusion: options.parentConclusion ?? 'success', html_url: 'https://github.com/owner/repo/actions/runs/8' }];
+    const parentRuns = [{
+      status: 'completed',
+      conclusion: options.parentConclusion ?? 'success',
+      html_url: 'https://github.com/owner/repo/actions/runs/8',
+      event: parentEvent,
+      head_branch: 'main',
+      actor: { login: options.parentActor ?? 'github-actions[bot]' },
+    }];
+    const runEvent = options.runEvent ?? 'push';
     const responses: Record<string, unknown> = {
       [`actions/runs/9/attempts/${options.attempt}`]: {
-        name: options.workflow ?? 'Slow app scenarios', event: 'push', head_branch: 'main', head_sha: SHA,
+        name: options.workflow ?? 'Slow app scenarios', event: runEvent, head_branch: 'main', head_sha: SHA,
         status: 'completed', conclusion: 'failure', workflow_id: 5, html_url: RUN_URL,
+        actor: { login: options.runActor ?? 'github-actions[bot]' },
       },
       [`commits/${SHA}`]: { sha: SHA, parents: [{ sha: PARENT }, { sha: BRANCH_TIP }], commit: { message: run().message } },
       [`commits/${SHA}/pulls`]: [{ number: 12, title: 'feat(cli): host answers', merge_commit_sha: SHA, head: { ref: 'feat/host' } }],
@@ -182,13 +194,16 @@ describe('carrying out the verdict', () => {
       },
       'branches/main': { commit: { sha: SHA } },
       'actions/workflows/5/runs?branch=main&event=push&per_page=10': { workflow_runs: [{ id: 9, status: 'completed' }] },
+      'actions/workflows/5/runs?branch=main&event=workflow_dispatch&per_page=10': { workflow_runs: [] },
+      'issues/50/labels': [{ name: 'merge-queue' }],
     };
     calls.io = {
       repo: 'owner/repo',
       gh: (args) => {
         calls.gh.push(args);
         if (args[0] === 'api') {
-          const path = (args[1] ?? '').replace('repos/owner/repo/', '');
+          const pathArg = args.find((arg) => arg.startsWith('repos/owner/repo/')) ?? args[1] ?? '';
+          const path = pathArg.replace('repos/owner/repo/', '');
           if (!(path in responses)) throw new Error(`unexpected api ${path}`);
           return JSON.stringify(responses[path]);
         }
@@ -270,7 +285,7 @@ describe('carrying out the verdict', () => {
     const calls = fake({ attempt: 2 });
     expect(handle(calls.io, 9, 2, true, [], '2026-11-06').kind).toBe('revert');
     expect(calls.git).toEqual([]);
-    expect(calls.gh.filter((args) => args[0] !== 'api' && args[1] !== 'list')).toEqual([]);
+    expect(calls.gh.filter((args) => (args[0] !== 'api' || args.includes('-X')) && args[1] !== 'list')).toEqual([]);
   });
 
   test('an already red main is left alone in both stages', () => {
@@ -286,9 +301,12 @@ describe('carrying out the verdict', () => {
     expect(() => handle(calls.io, 9, 2, false, [], '2026-11-06')).toThrow(`compare/main...auto-revert/${SHA}?expand=1`);
   });
 
-  test('a parent merged by the workflow token whose main run was dispatched still counts', () => {
-    const calls = fake({ attempt: 2, parentEvent: 'workflow_dispatch' });
+  test('a parent merged by the workflow token whose main run was dispatched still counts, and a bot-dispatched main run reverts on attempt 2 and enters merge-queue', () => {
+    const calls = fake({ attempt: 2, runEvent: 'workflow_dispatch', runActor: 'github-actions[bot]', parentEvent: 'workflow_dispatch', parentActor: 'github-actions[bot]' });
     expect(handle(calls.io, 9, 2, false, [], '2026-11-06').kind).toBe('revert');
+    expect(calls.gh).toContainEqual(['api', '-X', 'POST', 'repos/owner/repo/issues/50/labels', '-f', 'labels[]=merge-queue']);
+    const humanDispatch = fake({ attempt: 2, runEvent: 'workflow_dispatch', runActor: 'someone-else' });
+    expect(handle(humanDispatch.io, 9, 2, false, [], '2026-11-06').kind).toBe('skip');
   });
 });
 
@@ -343,7 +361,7 @@ describe('the auto revert workflow', () => {
   test('each job holds only the permissions its stage needs', () => {
     expect(lane.permissions).toEqual({ contents: 'read' });
     expect(lane.jobs.confirm?.permissions).toEqual({ actions: 'write', contents: 'read' });
-    expect(lane.jobs.revert?.permissions).toEqual({ actions: 'write', contents: 'write', 'pull-requests': 'write' });
+    expect(lane.jobs.revert?.permissions).toEqual({ actions: 'write', contents: 'write', issues: 'write', 'pull-requests': 'write' });
     expect(lane.jobs.report?.permissions).toEqual({ contents: 'read', issues: 'write' });
     expect(lane.jobs.preview?.steps.at(-1)?.env?.DRY_RUN).toBe('true');
   });
