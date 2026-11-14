@@ -31,20 +31,29 @@ function isDocMarkdown(path: string): boolean {
 
 /** Changes that invalidate what the packaging gate proves: the scaffolder's
  *  own output, a published package's manifest (its name, exports, or files),
- *  and the packaging scripts themselves. The workflow comment already named
+ *  the CLI bin and command parsing that packed-cli-smoke.mjs exercises, and
+ *  the packaging scripts themselves. The workflow comment already named
  *  these as the moment to apply the `ci-packaging` label; deciding it from the
  *  diff removes the dependency on the author remembering. */
 const PACKAGING_SCRIPTS = new Set([
   'scripts/packaging-test.sh',
   'scripts/install-matrix.sh',
   'scripts/lib/package-artifact-manifest.ts',
+  'scripts/packed-cli-smoke.mjs',
+  'scripts/packed-mcp-smoke.mjs',
+  'scripts/packed-resolution-smoke.mjs',
+  'scripts/audit-packed-cli.mjs',
 ]);
 const SCAFFOLDER_SOURCE = /^packages\/create-pyric\//;
 const PUBLISHED_MANIFEST = /^packages\/[^/]+\/package\.json$/;
+const CLI_ENTRY_AND_COMMANDS = /^packages\/cli\/(bin|src\/cli)\//;
 
 export function requiresPackagingProof(paths: readonly ChangedPath[]): boolean {
   const touches = (path: string): boolean =>
-    PACKAGING_SCRIPTS.has(path) || SCAFFOLDER_SOURCE.test(path) || PUBLISHED_MANIFEST.test(path);
+    PACKAGING_SCRIPTS.has(path)
+    || SCAFFOLDER_SOURCE.test(path)
+    || PUBLISHED_MANIFEST.test(path)
+    || CLI_ENTRY_AND_COMMANDS.test(path);
   return paths.some(({ path, previousPath }) =>
     touches(path) || (previousPath !== undefined && touches(previousPath))
   );

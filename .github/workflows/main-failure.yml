@@ -65,11 +65,14 @@ concurrency:
 jobs:
   classify:
     name: Rerun once and file
-    # Only push runs on main. An attempt this lane reran itself is handled by
-    # the job that reran it, so its completion is skipped here.
+    # Push runs on main (and post-merge workflow-token dispatches on main). An
+    # attempt this lane reran itself is handled by the job that reran it, so its
+    # completion is skipped here.
     if: >-
       github.event_name == 'workflow_dispatch' ||
-      (github.event.workflow_run.event == 'push' &&
+      ((github.event.workflow_run.event == 'push' ||
+        (github.event.workflow_run.event == 'workflow_dispatch' &&
+         github.event.workflow_run.actor.login == 'github-actions[bot]')) &&
       (github.event.workflow_run.run_attempt == 1 ||
       github.event.workflow_run.triggering_actor.login != 'github-actions[bot]'))
     runs-on: ubuntu-latest
@@ -105,7 +108,9 @@ jobs:
       cancel-in-progress: false
     if: >-
       github.event_name == 'workflow_dispatch' ||
-      (github.event.workflow_run.event == 'push' &&
+      ((github.event.workflow_run.event == 'push' ||
+        (github.event.workflow_run.event == 'workflow_dispatch' &&
+         github.event.workflow_run.actor.login == 'github-actions[bot]')) &&
       (github.event.workflow_run.run_attempt == 1 ||
       github.event.workflow_run.triggering_actor.login != 'github-actions[bot]'))
     runs-on: ubuntu-latest
