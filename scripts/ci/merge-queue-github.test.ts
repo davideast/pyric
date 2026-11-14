@@ -317,7 +317,15 @@ describe('dry run', () => {
 
 describe('against a real git remote', () => {
   function sh(cwd: string, args: string[]): string {
-    const env = { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1' };
+    const env = {
+      ...process.env,
+      GIT_CONFIG_GLOBAL: '/dev/null',
+      GIT_CONFIG_NOSYSTEM: '1',
+      GIT_AUTHOR_NAME: 't',
+      GIT_AUTHOR_EMAIL: 't@example.test',
+      GIT_COMMITTER_NAME: 't',
+      GIT_COMMITTER_EMAIL: 't@example.test',
+    };
     const out = spawnSync('git', args, { cwd, encoding: 'utf8', env });
     if (out.status !== 0) throw new Error(`git ${args.join(' ')} failed: ${out.stderr}`);
     return out.stdout.trim();
