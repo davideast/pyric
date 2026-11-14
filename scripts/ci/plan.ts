@@ -59,26 +59,38 @@ function isMergeGroup(event: CheckSetInput['event']): boolean {
   return event === 'merge_group';
 }
 
+function isMainOrStagingDispatch(event: CheckSetInput['event'], ref: string | undefined): boolean {
+  if (event !== 'workflow_dispatch' || ref === undefined) return false;
+  return ref === 'refs/heads/main' || ref.startsWith('refs/heads/merge-queue/');
+}
+
 export function determinePackaging(input: {
   event: CheckSetInput['event'];
+  ref?: string;
   labels: string[];
   paths: ChangedPath[];
 }): boolean {
   const isPushToMain = input.event === 'push';
   return isPushToMain
     || isMergeGroup(input.event)
+    || isMainOrStagingDispatch(input.event, input.ref)
     || input.labels.includes('ci-packaging')
     || requiresPackagingProof(input.paths);
 }
 
 /** The release-shaped packaging consumers: the install matrix (beyond the
  *  diff-selected pull request case) and the standalone smoke. A pull request
- *  opts in with the `ci-packaging` label; a merge group always runs them. */
+ *  opts in with the `ci-packaging` label; a merge group always runs them;
+ *  the Actions merge queue forwards `dispatchReleaseProof` when the staged
+ *  pull request carried `ci-packaging`. */
 export function determineReleaseProof(input: {
   event: CheckSetInput['event'];
   labels: string[];
+  dispatchReleaseProof?: boolean;
 }): boolean {
-  return isMergeGroup(input.event) || input.labels.includes('ci-packaging');
+  return isMergeGroup(input.event)
+    || Boolean(input.dispatchReleaseProof)
+    || input.labels.includes('ci-packaging');
 }
 
 /** The code the RTDB differential gate compares: the served hosts, the RTDB
@@ -124,13 +136,13 @@ const EVERY_APP_INPUTS = [
 
 /**
  * The code the scenarios run as an installed user project: the Vite plugin
- * and served hosts, the register hook and remote sandbox client, the `pyric`
- * bin and its commands, `@pyric/live`, pyric-admin and the AI broker. A
- * change to it runs SMOKE_SCENARIOS, plus the scenarios the pull request
- * changes or names.
+ * and served hosts, the Next.js wrapper and bundler stop, the register hook
+ * and remote sandbox client, the Functions runtime, the `pyric` bin and its
+ * commands, `@pyric/live`, pyric-admin and the AI broker. A change to it runs
+ * SMOKE_SCENARIOS, plus the scenarios the pull request changes or names.
  */
 const SMOKE_INPUTS = [
-  /^packages\/cli\/src\/(serve|register|remote|cli)\//,
+  /^packages\/cli\/src\/(serve|register|remote|cli|next|bundler|functions)\//,
   /^packages\/live\/src\//,
   /^packages\/pyric-admin\/src\//,
   /^packages\/pyric\/src\/ai\//,
@@ -138,7 +150,7 @@ const SMOKE_INPUTS = [
 
 /**
  * A fixed, fast set of scenarios that together drive each real entry point,
- * picked from main's recorded times (run 42331694591):
+ * picked from main's recorded times:
  * - live-pass-through (29 s): the Vite dev server with `pyricLive()`, a
  *   `node --import @pyric/live/register` process using firebase-admin, and
  *   the page in Chromium.
@@ -146,11 +158,17 @@ const SMOKE_INPUTS = [
  *   server with `pyric()`, signing in and reading data in Chromium.
  * - functions-http-hosted (9 s): the `pyric sandbox --hosted` command, the
  *   Node host, with a registered Node process.
+ * - nextjs-template: scaffolded split-port Next.js app (`next dev` on port A
+ *   proxying to the sandbox host on port B, in-process and hosted).
+ * - nextjs16-firebase-imports: Next 16 Turbopack + webpack server externals
+ *   and register refusal stop.
  */
 export const SMOKE_SCENARIOS: readonly string[] = [
   'live-pass-through',
   'served-page-imports-pyric-auth',
   'functions-http-hosted',
+  'nextjs-template',
+  'nextjs16-firebase-imports',
 ];
 
 /** What the app scenario jobs run: every app that is not slow, some of them, or none. */
@@ -262,9 +280,11 @@ function main(): void {
   const effectiveCheckSet = mode === 'shadow' ? 'full' : checkSet;
   // The packaging gate answers a question about published artifacts, which is
   // orthogonal to how much of the suite runs. It is forced by a push to main,
-  // by the ci-packaging label, or by a diff that invalidates what it proves.
-  const packaging = determinePackaging({ event, labels: prLabels, paths });
-  const releaseProof = determineReleaseProof({ event, labels: prLabels });
+  // by merge-queue staging or a main dispatch, by the ci-packaging label, or
+  // by a diff that invalidates what it proves.
+  const packaging = determinePackaging({ event, ref: process.env.GITHUB_REF, labels: prLabels, paths });
+  const dispatchReleaseProof = process.env.CI_DISPATCH_RELEASE_PROOF === 'true';
+  const releaseProof = determineReleaseProof({ event, labels: prLabels, dispatchReleaseProof });
   const rtdbDifferential = effectiveCheckSet === 'full' && determineRtdbDifferential({ event, paths });
   const root = resolve(import.meta.dir, '../..');
   const appSelection: AppScenarioSelection = effectiveCheckSet === 'full'

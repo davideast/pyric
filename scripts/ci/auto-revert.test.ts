@@ -157,6 +157,7 @@ describe('carrying out the verdict', () => {
     workflow?: string;
     prCreate?: () => string;
     parentConclusion?: string;
+    parentEvent?: 'push' | 'workflow_dispatch';
     existingPrs?: { number: number; state: string }[];
     remoteBranch?: boolean;
     push?: () => string;
@@ -164,6 +165,8 @@ describe('carrying out the verdict', () => {
 
   function fake(options: FakeOptions): Fake {
     const calls: Fake = { gh: [], git: [], logs: [], io: undefined as unknown as Io };
+    const parentEvent = options.parentEvent ?? 'push';
+    const parentRuns = [{ status: 'completed', conclusion: options.parentConclusion ?? 'success', html_url: 'https://github.com/owner/repo/actions/runs/8' }];
     const responses: Record<string, unknown> = {
       [`actions/runs/9/attempts/${options.attempt}`]: {
         name: options.workflow ?? 'Slow app scenarios', event: 'push', head_branch: 'main', head_sha: SHA,
@@ -172,7 +175,10 @@ describe('carrying out the verdict', () => {
       [`commits/${SHA}`]: { sha: SHA, parents: [{ sha: PARENT }, { sha: BRANCH_TIP }], commit: { message: run().message } },
       [`commits/${SHA}/pulls`]: [{ number: 12, title: 'feat(cli): host answers', merge_commit_sha: SHA, head: { ref: 'feat/host' } }],
       [`actions/workflows/5/runs?branch=main&event=push&head_sha=${PARENT}&per_page=5`]: {
-        workflow_runs: [{ status: 'completed', conclusion: options.parentConclusion ?? 'success', html_url: 'https://github.com/owner/repo/actions/runs/8' }],
+        workflow_runs: parentEvent === 'push' ? parentRuns : [],
+      },
+      [`actions/workflows/5/runs?branch=main&event=workflow_dispatch&head_sha=${PARENT}&per_page=5`]: {
+        workflow_runs: parentEvent === 'workflow_dispatch' ? parentRuns : [],
       },
       'branches/main': { commit: { sha: SHA } },
       'actions/workflows/5/runs?branch=main&event=push&per_page=10': { workflow_runs: [{ id: 9, status: 'completed' }] },
@@ -278,6 +284,11 @@ describe('carrying out the verdict', () => {
   test('a repository that refuses workflow pull requests gets the compare link to open by hand', () => {
     const calls = fake({ attempt: 2, prCreate: () => { throw new Error('gh pr create failed: GitHub Actions is not permitted to create or approve pull requests'); } });
     expect(() => handle(calls.io, 9, 2, false, [], '2026-11-06')).toThrow(`compare/main...auto-revert/${SHA}?expand=1`);
+  });
+
+  test('a parent merged by the workflow token whose main run was dispatched still counts', () => {
+    const calls = fake({ attempt: 2, parentEvent: 'workflow_dispatch' });
+    expect(handle(calls.io, 9, 2, false, [], '2026-11-06').kind).toBe('revert');
   });
 });
 

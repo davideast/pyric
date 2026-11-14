@@ -20,16 +20,30 @@ and the files the fix must touch. Write the table before anyone starts:
 | S0 evidence | none | pins & observations | corpus, observations, registry, baselines, pin tables | source | none |
 | S1 ... | ... | `STATE-ROUNDTRIP` (`...`) | the source files for this root cause | other streams' files | S0 |
 
-- **Disjoint ownership.** No two streams own the same file.
+- **Disjoint ownership.** No two streams own the same file. Isolate any single
+  finding that requires a `> 500`-line compiler, prover, or lexer rewrite in its
+  own stream rather than bundling it with routine parity fixes.
 - **Standing checks for repeat classes.** If a stream fixes a repeat mechanism
   or a class with `>= 3` findings in the round, it must add or extend that
   class's standing mechanical check ([defect-classes.md](defect-classes.md#5-repeat-class-escalation-rule))
-  rather than relying on per-finding regression pins alone.
+  rather than relying on per-finding regression pins alone. Every new standing
+  check must fail against `main` (`Revert-to-RED`) rather than passing via silent
+  abstention.
+- **Invariant-only briefs.** Stream briefs and review bounces state behavioral
+  invariants, concrete counterexamples, and non-regression constraints (after
+  reconciling any narrowed or rejected sub-claims in `verified.md` up front).
+  Never prescribe internal helper signatures, regexes, or encoding mechanics.
 - **Exceptions are written down.** When a stream needs a file it does not own
   (a one-token export, a test that asserted non-production behavior), it asks;
   the coordinator approves on the board, naming the file and the reason.
-- **Waves.** Streams with no dependency run at once; dependent streams stack on
-  their base branch.
+- **Dependency-ordered DAG scheduling at 4 builder slots.** Do not gate all
+  streams behind rigid round barriers. Compute hard interface dependencies and
+  heavy multi-file soft overlaps from actual `origin/main` call sites. Keep up
+  to 4 builders active whenever unblocked DAG streams exist, and release a
+  builder's slot as soon as its branch enters independent review or PR CI. Hold a
+  downstream stream only on its own unmerged hard dependencies or heavy soft
+  file overlaps; every PR still targets `main` directly once its dependencies
+  have merged.
 - **One worktree per stream**, never the main checkout.
 
 ## 3. Shared score pins
@@ -45,13 +59,30 @@ Node counts are not shared this way. Each PR adds its own delta file,
 `assurance-node-counts/<service>/<pr-number>.json`, so two streams that add
 rows to one service merge without conflict and nobody regenerates a count.
 
-## 4. Each stream works red to green against the pins
+## 4. Pre-build sibling check, then red to green
 
-1. Remove the pin for one case. Run its test: it must fail (red).
+Before writing production code, each builder inspects `origin/main` and posts a
+short (`<= 30`-line) seam and sibling note for one-turn `Spec` reviewer sign-off:
+
+1. **Foundation reuse vs file splits:** which shared module (`AGENTS.md` #4) owns
+   the invariant, and which `> 600`-line files stay at zero net growth by
+   extracting a collaborator (`docs/code-conventions.md`).
+2. **Complete sibling inventory:** every plane (in-process, SharedWorker, Hosted
+   SQLite, Live), every entry point (CLI, Vite, Next, MCP canonical and
+   discriminator), and every sibling grammar construct or prototype method that
+   shares the same mechanism.
+3. **Standing-check oracle and `Revert-to-RED` target:** how the class check will
+   prove the mechanism and fail when the production fix is reverted.
+
+Once the `Spec` reviewer confirms no sibling was missed, work red to green:
+
+1. Remove the pin (or run the standalone repro) for one case. Run its test: it
+   must fail (red).
 2. Change the source until the case passes (green), with the observation or
    contract clause as the answer key.
-3. Typecheck and run the single test file often; the full gates once at the
-   end.
+3. Typecheck both `src/` and new or modified `test/**/*.test.ts` files (`tsconfig.json`
+   excludes `test/` by default, so run `tsc` with `"exclude": []`), run single
+   test files often, and run the full affected gates at the end.
 4. A test elsewhere that asserted the old, non-production behavior changes only
    with a citation in a comment at the site, and only after the coordinator
    approves. Keep its intent: change what it asserts about the wrong behavior,
@@ -71,13 +102,16 @@ Each stream is reviewed by an agent that did not write it:
 The reviewer re-runs red to green itself: the base's source with the stream's
 tests must fail, and the stream tip must pass.
 
-## 6. Merge one at a time
+## 6. Queue and merge one at a time
 
-Merge approved streams one at a time, in dependency order:
+Enqueue approved streams through the repository merge queue (`.github/workflows/merge-queue.yml`),
+in dependency order:
 
-- each merge follows [shipping.md](shipping.md#merging-a-stack);
-- after each merge, the next PR regenerates shared evidence (section 3) and
-  runs the gates before it merges;
+- apply the `merge-queue` label (`[shipping.md](shipping.md#merging-a-stack)`)
+  once two-axis review is `MERGE` and PR `CI / required` is green, rather than
+  merging two PRs manually back-to-back;
+- if a stream modified shared scorecards or baselines (section 3) after `main`
+  moved, regenerate those shared files before re-applying `merge-queue`;
 - after the last merge, fold duplicated helpers into one module, remove pins
   whose dependency has now landed, and fix review notes deferred as
   non-blocking;

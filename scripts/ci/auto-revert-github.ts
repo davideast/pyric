@@ -89,8 +89,13 @@ function mergedPull(io: Io, sha: string): FailedRun['pull'] {
 
 function parentRun(io: Io, run: RunJson, parent: string | undefined): RunJson | undefined {
   if (parent === undefined) return undefined;
-  const query = `actions/workflows/${run.workflow_id}/runs?branch=main&event=push&head_sha=${parent}&per_page=5`;
-  return api<{ workflow_runs: RunJson[] }>(io, query).workflow_runs[0];
+  const pushQuery = `actions/workflows/${run.workflow_id}/runs?branch=main&event=push&head_sha=${parent}&per_page=5`;
+  const pushMatch = api<{ workflow_runs: RunJson[] }>(io, pushQuery).workflow_runs[0];
+  if (pushMatch !== undefined) return pushMatch;
+  // A merge performed by the Actions merge queue with the workflow token starts
+  // main's workflows by dispatch rather than push.
+  const dispatchQuery = `actions/workflows/${run.workflow_id}/runs?branch=main&event=workflow_dispatch&head_sha=${parent}&per_page=5`;
+  return api<{ workflow_runs: RunJson[] }>(io, dispatchQuery).workflow_runs[0];
 }
 
 function superseded(io: Io, run: RunJson, runId: number): boolean {
