@@ -286,6 +286,28 @@ describe('observed-session call-policy', () => {
       'items/b.txt',
     ]);
 
+    // Admin read streams and read-only Admin methods without sessionData must preserve cached Storage entries.
+    expect(classifySessionCall('storage', 'File.createReadStream')).toBe('read');
+    expect(classifySessionCall('storage', 'File.getSignedUrl')).toBe('read');
+    expect(classifySessionCall('storage', 'Bucket.getFilesStream')).toBe('read');
+    expect(classifySessionCall('storage', 'Storage.getBuckets')).toBe('read');
+    applyAcceptedSessionCall(
+      store,
+      {
+        call: makeCall({
+          service: 'storage',
+          sdk: 'admin',
+          method: 'File.createReadStream',
+          bucket: 'demo-test.appspot.com',
+          path: 'items/b.txt',
+        }),
+      },
+      'demo-test',
+    );
+    expect(Object.keys(store.snapshot().storage?.['demo-test.appspot.com']?.objects ?? {})).toEqual([
+      'items/b.txt',
+    ]);
+
     // Ambiguous failure on unscoped Storage mutation (`File.copy`) invalidates destination & source catalog entries.
     applyAcceptedSessionCall(
       store,

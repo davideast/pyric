@@ -335,4 +335,63 @@ service cloud.firestore {
       ),
     ).toMatchObject({ result: 'unevaluated', needs: ['claim-values'] });
   });
+
+  it('abstains when .concat(...) is called on path or dynamic non-literal-list receivers', () => {
+    const ctx = makeHost();
+    expect(
+      deployFirestoreRulesToHost(
+        ctx,
+        `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /docs/{docId} {
+      allow get: if resource.data.items.concat([request])[0].auth.token.get('role', 'guest') == 'guest';
+      allow update: if resource.data.items.concat([request.auth.token])[0].get('email', '') == '';
+      allow create: if ({'x': 1}.keys().removeAll(['x']).concat([request]))[0].auth.token.get('role', 'guest') == 'guest';
+      allow delete: if (request.auth != null ? {'x': 1}.keys().removeAll(['x']) : ['pad']).concat([request])[0].auth.token.get('role', 'guest') == 'guest';
+    }
+  }
+}`,
+      ).ok,
+    ).toBe(true);
+
+    ctx.observedSession!.apply({
+      firestore: [{ kind: 'set', path: 'docs/d-1', data: { items: [] } }],
+    });
+    const missingClaimsAccount = { uid: 'u-1', claimNames: ['role', 'sub'] };
+    const missingEmailAccount = {
+      uid: 'u-1',
+      claimNames: ['email', 'firebase', 'sub'],
+      claims: { sub: 'u-1', firebase: { sign_in_provider: 'password', identities: {} } },
+    };
+
+    expect(
+      firestoreVerdict(
+        ctx,
+        { service: 'firestore', method: 'getDoc', path: 'docs/d-1', at: 500, outcome: DENIED, account: missingClaimsAccount },
+        'get',
+      ),
+    ).toMatchObject({ result: 'unevaluated', needs: ['claim-values'] });
+    expect(
+      firestoreVerdict(
+        ctx,
+        { service: 'firestore', method: 'updateDoc', path: 'docs/d-1', at: 501, outcome: DENIED, account: missingEmailAccount, writeData: { items: [] } },
+        'update',
+      ),
+    ).toMatchObject({ result: 'unevaluated', needs: ['claim-values'] });
+    expect(
+      firestoreVerdict(
+        ctx,
+        { service: 'firestore', method: 'setDoc', path: 'docs/d-2', at: 502, outcome: DENIED, account: missingClaimsAccount, writeData: { items: [] } },
+        'create',
+      ),
+    ).toMatchObject({ result: 'unevaluated', needs: ['claim-values'] });
+    expect(
+      firestoreVerdict(
+        ctx,
+        { service: 'firestore', method: 'deleteDoc', path: 'docs/d-1', at: 503, outcome: DENIED, account: missingClaimsAccount },
+        'delete',
+      ),
+    ).toMatchObject({ result: 'unevaluated', needs: ['claim-values'] });
+  });
 });

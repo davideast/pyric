@@ -357,4 +357,45 @@ service firebase.storage {
       sandbox.dispose();
     }
   });
+
+  it('abstains when .concat(...) is called on dynamic non-literal-list receivers in Storage rules', () => {
+    const { sandbox, ctx } = makeStorageHost(
+      `rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /dyn/{id} {
+      allow create: if !('md5Hash' in ({'x': 1}.keys().removeAll(['x']).concat([request.resource]))[0]);
+      allow update: if !('crc32c' in ({'x': 1}.keys().concat([request.resource]))[1]);
+      allow get: if !('etag' in (resource.size > 0 ? {'x': 1}.keys().removeAll(['x']) : ['pad']).concat([resource])[0]);
+    }
+  }
+}`,
+    );
+
+    try {
+      expect(
+        storageVerdict(
+          ctx,
+          { service: 'storage', method: 'uploadBytes', bucket: BUCKET, path: 'dyn/a', at: 600, outcome: DENIED, writeData: { size: 10 } },
+          'create',
+        ),
+      ).toMatchObject({ result: 'unevaluated', needs: ['write-data'] });
+      expect(
+        storageVerdict(
+          ctx,
+          { service: 'storage', method: 'updateMetadata', bucket: BUCKET, path: 'dyn/a', at: 601, outcome: DENIED, document: { size: 10 }, writeData: { contentType: 'text/plain' } },
+          'update',
+        ),
+      ).toMatchObject({ result: 'unevaluated', needs: ['write-data'] });
+      expect(
+        storageVerdict(
+          ctx,
+          { service: 'storage', method: 'getMetadata', bucket: BUCKET, path: 'dyn/a', at: 602, outcome: DENIED, document: { size: 10 } },
+          'get',
+        ),
+      ).toMatchObject({ result: 'unevaluated', needs: ['stored-document'] });
+    } finally {
+      sandbox.dispose();
+    }
+  });
 });

@@ -487,13 +487,10 @@ export function createObservedStorageCatalog(
       normPath = normalizeStoragePrefix(rawPath);
     }
     const trimmedBucket = rawBucket?.trim() ?? '';
-    if (trimmedBucket === '') {
-      if (normPath.length === 0) return clearAllBuckets();
-      const fallback = defaultBucket();
-      if (fallback === null) return false;
-      return invalidateBucketScope(fallback, normPath);
+    if (trimmedBucket === '' && normPath.length === 0) {
+      return clearAllBuckets();
     }
-    if (trimmedBucket === UNREAD_BUCKET) {
+    if (trimmedBucket === '' || trimmedBucket === UNREAD_BUCKET) {
       const fallback = defaultBucket();
       if (fallback === null) return false;
       return invalidateBucketScope(fallback, normPath);

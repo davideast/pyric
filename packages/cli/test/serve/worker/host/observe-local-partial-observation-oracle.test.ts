@@ -12,6 +12,7 @@
 import 'fake-indexeddb/auto';
 import { describe, expect, it } from 'bun:test';
 import { wrapLiveModule, type LiveCallRecord } from '../../../../../live/dist/index.js';
+import { observedCallOf } from '../../../../../live/dist/page-observer.js';
 import {
   getAdminDatabase,
   getDatabase,
@@ -73,7 +74,7 @@ describe('two-world partial-observation soundness oracle (zero false-allows)', (
     const getTemplates = [
       (d: number) => wrapParens(`checkGuest(${wrapParens('request', 1 + (d % 2))})`, d),
       () => "['pad', request][1:2][0].auth.token.get('role', 'guest') == 'guest'",
-      () => "([request].concat([]))[0].auth.token.get('role', 'guest') == 'guest'",
+      () => "({'x': 1}.keys().removeAll(['x']).concat([request]))[0].auth.token.get('role', 'guest') == 'guest'",
       () => "{'req': request}.values()[0].auth.token.get('role', 'guest') == 'guest'",
     ] as const;
     const updateTemplates = [
@@ -419,6 +420,7 @@ service cloud.firestore {
       "!('storageClass' in request.resource)",
       "!('md5Hash' in ['pad', request.resource][1:2][0])",
       "!('crc32c' in {'r': request.resource}.get('r', {}))",
+      "!('md5Hash' in ({'x': 1}.keys().removeAll(['x']).concat([request.resource]))[0])",
     ] as const;
     const bucket = 'demo-project.appspot.com';
 
@@ -533,9 +535,7 @@ service firebase.storage {
           );
           expect(gt.allowed).toBe(false);
           await liveSt.getMetadata({ bucket, fullPath: objectPath, storage: storageOwner });
-          const rec = captured[0]!;
-          const call: ObservedCall = { service: 'storage', method: 'getMetadata', bucket, path: objectPath, at: 4000 + trial, outcome: { status: 'ok' }, account: baseAccount };
-          if (rec.document !== undefined) call.document = rec.document;
+          const call: ObservedCall = { ...observedCallOf(captured[0]!, 4000 + trial)!, account: baseAccount };
           stVerdict = storageVerdict(ctx, call, 'get');
         } else {
           const prodOversized = { name: uploadPath, bucket, size: 4, contentType: 'text/plain', metadata: oversizedMeta } as unknown as ProdReqRes;
@@ -546,9 +546,7 @@ service firebase.storage {
           );
           expect(gt.allowed).toBe(false);
           await liveSt.uploadBytes({ bucket, fullPath: uploadPath, storage: storageOwner }, new Uint8Array([1, 2, 3, 4]), { contentType: 'text/plain', customMetadata: oversizedMeta }).catch(() => {});
-          const rec = captured[0]!;
-          const call: ObservedCall = { service: 'storage', method: 'uploadBytes', bucket, path: uploadPath, at: 4000 + trial, outcome: DENIED_STORAGE, account: baseAccount };
-          if (rec.writeData !== undefined) call.writeData = rec.writeData;
+          const call: ObservedCall = { ...observedCallOf(captured[0]!, 4000 + trial)!, account: baseAccount };
           stVerdict = storageVerdict(ctx, call, 'create');
         }
         expect(stVerdict).toMatchObject({ result: 'unevaluated' });

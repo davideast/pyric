@@ -3,6 +3,15 @@ import type {
   StorageEvaluationObservation,
 } from 'pyric/storage/internal';
 import type { ObservedMethod } from 'pyric/sandbox/internal';
+import {
+  allListElements,
+  concatListValues,
+  flattenOptions as flattenLatticeOptions,
+  sliceListValue,
+  ternaryValues,
+  unionValues,
+  type LatticeAdapter,
+} from './observe-local-container-lattice.js';
 
 export type StorageMethod = Exclude<ObservedMethod, 'set'>;
 export type CompiledRules = NonNullable<ReturnType<typeof compiledStorageRulesForBucket>>;
@@ -52,22 +61,26 @@ function makeListBinding(
   return { kind: 'list', items };
 }
 
+function literalIntOf(expr: StorageExpr | undefined): number | undefined {
+  const val = literalOf(expr);
+  if (typeof val === 'number' || typeof val === 'bigint') return Number(val);
+  return undefined;
+}
+
+const BINDING_LATTICE: LatticeAdapter<TrackedBinding> = {
+  none: NONE_BINDING,
+  isUnion: (v) => (v.kind === 'union' ? v.options : undefined),
+  isList: (v) => (v.kind === 'list' ? v : undefined),
+  makeUnion: (options) => ({ kind: 'union', options }),
+  makeList: makeListBinding,
+};
+
 function flattenOptions(binding: TrackedBinding): readonly TrackedBinding[] {
-  if (binding.kind === 'none') return [];
-  if (binding.kind === 'union') return binding.options;
-  return [binding];
+  return flattenLatticeOptions(BINDING_LATTICE, binding);
 }
 
 function unionBindings(items: readonly TrackedBinding[]): TrackedBinding {
-  const flat: TrackedBinding[] = [];
-  for (const item of items) {
-    for (const opt of flattenOptions(item)) {
-      flat.push(opt);
-    }
-  }
-  if (flat.length === 0) return NONE_BINDING;
-  if (flat.length === 1) return flat[0]!;
-  return { kind: 'union', options: flat };
+  return unionValues(BINDING_LATTICE, items);
 }
 
 function containsSensitiveBinding(binding: TrackedBinding): boolean {
@@ -90,53 +103,6 @@ function containsSensitiveBinding(binding: TrackedBinding): boolean {
     case 'none':
       return false;
   }
-}
-
-function sliceBinding(base: TrackedBinding, startLit: unknown, endLit: unknown): TrackedBinding {
-  const hasStart = typeof startLit === 'number' || typeof startLit === 'bigint';
-  const hasEnd = typeof endLit === 'number' || typeof endLit === 'bigint';
-  const results: TrackedBinding[] = [];
-  for (const opt of flattenOptions(base)) {
-    if (opt.kind !== 'list') {
-      results.push(opt);
-      continue;
-    }
-    if (hasStart && hasEnd) {
-      results.push(
-        makeListBinding(opt.items.slice(Number(startLit), Number(endLit)), opt.dynamicElement),
-      );
-    } else {
-      const merged = [...opt.items];
-      if (opt.dynamicElement !== undefined) merged.push(opt.dynamicElement);
-      results.push(makeListBinding([], unionBindings(merged)));
-    }
-  }
-  return unionBindings(results);
-}
-
-function concatListBinding(
-  left: Extract<TrackedBinding, { kind: 'list' }>,
-  rightArg: TrackedBinding | undefined,
-): TrackedBinding {
-  const leftPool = [...left.items];
-  if (left.dynamicElement !== undefined) leftPool.push(left.dynamicElement);
-  if (rightArg === undefined) return makeListBinding([], unionBindings(leftPool));
-  const results: TrackedBinding[] = [];
-  for (const rightOpt of flattenOptions(rightArg)) {
-    if (rightOpt.kind === 'list') {
-      if (left.dynamicElement === undefined && rightOpt.dynamicElement === undefined) {
-        results.push(makeListBinding([...left.items, ...rightOpt.items]));
-      } else {
-        const merged = [...leftPool, ...rightOpt.items];
-        if (rightOpt.dynamicElement !== undefined) merged.push(rightOpt.dynamicElement);
-        results.push(makeListBinding([], unionBindings(merged)));
-      }
-    } else {
-      results.push(makeListBinding([], unionBindings([...leftPool, rightOpt])));
-    }
-  }
-  if (results.length === 0) return makeListBinding(left.items, left.dynamicElement);
-  return unionBindings(results);
 }
 
 function isDirectNullCheckTarget(binding: TrackedBinding): boolean {
@@ -289,7 +255,14 @@ function exprMayReadMissingBindingProps(
           }
           return unionBindings(results);
         }
-        if (expr.method !== 'concat' && argBindings.some(containsSensitiveBinding)) {
+        if (expr.method === 'concat') {
+          for (const opt of flattenOptions(recv)) {
+            if (opt.kind === 'target' || opt.kind === 'request') foundRead = true;
+            else if (opt.kind === 'map' && containsSensitiveBinding(opt)) foundRead = true;
+          }
+          return concatListValues(BINDING_LATTICE, recv, argBindings[0] ?? NONE_BINDING, true);
+        }
+        if (argBindings.some(containsSensitiveBinding)) {
           foundRead = true;
         }
         const results: TrackedBinding[] = [];
@@ -304,15 +277,9 @@ function exprMayReadMissingBindingProps(
             } else if (expr.method !== 'keys' && expr.method !== 'size' && containsSensitiveBinding(opt)) {
               foundRead = true;
             }
-          } else if (opt.kind === 'list') {
-            if (expr.method === 'concat') {
-              results.push(concatListBinding(opt, argBindings[0]));
-            } else if (expr.method !== 'size') {
-              if (containsSensitiveBinding(opt)) foundRead = true;
-              const pool = [...opt.items];
-              if (opt.dynamicElement !== undefined) pool.push(opt.dynamicElement);
-              results.push(makeListBinding([], unionBindings(pool)));
-            }
+          } else if (opt.kind === 'list' && expr.method !== 'size') {
+            if (containsSensitiveBinding(opt)) foundRead = true;
+            results.push(makeListBinding([], allListElements(BINDING_LATTICE, opt)));
           }
         }
         return unionBindings(results);
@@ -367,13 +334,19 @@ function exprMayReadMissingBindingProps(
         if (containsSensitiveBinding(cond)) foundRead = true;
         const left = walk(expr.then);
         const right = walk(expr.else);
-        return unionBindings([left, right]);
+        return ternaryValues(BINDING_LATTICE, [left, right]);
       }
       case 'slice': {
         const base = walk(expr.target);
         walk(expr.start);
         walk(expr.end);
-        return sliceBinding(base, literalOf(expr.start), literalOf(expr.end));
+        return sliceListValue(
+          BINDING_LATTICE,
+          base,
+          literalIntOf(expr.start),
+          literalIntOf(expr.end),
+          true,
+        );
       }
       case 'unary': {
         const inner = walk(expr.arg);

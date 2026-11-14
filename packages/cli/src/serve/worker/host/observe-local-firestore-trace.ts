@@ -5,6 +5,16 @@
 import type { ExprTraceEntry, FunctionDef, RuleEvaluation, TestResult } from 'pyric/rules/internal';
 import { ALWAYS_OPEN, type GapPattern } from './observe-local-evaluation.js';
 import {
+  allListElements,
+  concatListValues,
+  flattenOptions,
+  hasListOption,
+  sliceListValue,
+  ternaryValues,
+  unionValues,
+  type LatticeAdapter,
+} from './observe-local-container-lattice.js';
+import {
   extractMethodName,
   isAtomicTraceNode,
   isNullTraceNode,
@@ -58,102 +68,27 @@ type CanonValue =
 
 const NONE_VALUE: CanonValue = { kind: 'none' };
 
+function makeCanonList(items: readonly CanonValue[], dynamicElement?: CanonValue): CanonValue {
+  if (dynamicElement !== undefined && dynamicElement.kind !== 'none') {
+    return { kind: 'list', items, dynamicElement };
+  }
+  return { kind: 'list', items };
+}
+
+const CANON_LATTICE: LatticeAdapter<CanonValue> = {
+  none: NONE_VALUE,
+  isUnion: (v) => (v.kind === 'union' ? v.options : undefined),
+  isList: (v) => (v.kind === 'list' ? v : undefined),
+  makeUnion: (options) => ({ kind: 'union', options }),
+  makeList: makeCanonList,
+};
+
 function flattenCanonOptions(value: CanonValue): readonly CanonValue[] {
-  if (value.kind === 'none') return [];
-  if (value.kind === 'union') return value.options;
-  return [value];
+  return flattenOptions(CANON_LATTICE, value);
 }
 
 function unionCanonValues(values: readonly CanonValue[]): CanonValue {
-  const flat: CanonValue[] = [];
-  for (const v of values) {
-    flat.push(...flattenCanonOptions(v));
-  }
-  if (flat.length === 0) return NONE_VALUE;
-  if (flat.length === 1) return flat[0]!;
-  return { kind: 'union', options: flat };
-}
-
-function allListElements(value: CanonValue): CanonValue {
-  const parts: CanonValue[] = [];
-  for (const opt of flattenCanonOptions(value)) {
-    if (opt.kind === 'list') {
-      parts.push(...opt.items);
-      if (opt.dynamicElement !== undefined) parts.push(opt.dynamicElement);
-    }
-  }
-  return unionCanonValues(parts);
-}
-
-function hasListOption(value: CanonValue): boolean {
-  return flattenCanonOptions(value).some((opt) => opt.kind === 'list');
-}
-
-function sliceCanonValue(
-  value: CanonValue,
-  startIdx: number | undefined,
-  endIdx: number | undefined,
-): CanonValue {
-  const results: CanonValue[] = [];
-  for (const opt of flattenCanonOptions(value)) {
-    if (opt.kind !== 'list') continue;
-    if (startIdx !== undefined && endIdx !== undefined) {
-      results.push({
-        kind: 'list',
-        items: opt.items.slice(startIdx, endIdx),
-        dynamicElement: opt.dynamicElement,
-      });
-    } else if (startIdx !== undefined) {
-      results.push({
-        kind: 'list',
-        items: opt.items.slice(startIdx),
-        dynamicElement: opt.dynamicElement,
-      });
-    } else {
-      results.push({
-        kind: 'list',
-        items: [],
-        dynamicElement: allListElements(opt),
-      });
-    }
-  }
-  return unionCanonValues(results);
-}
-
-function concatCanonValues(leftVal: CanonValue, rightVal: CanonValue): CanonValue {
-  const leftLists = flattenCanonOptions(leftVal).filter(
-    (opt): opt is Extract<CanonValue, { kind: 'list' }> => opt.kind === 'list',
-  );
-  const rightLists = flattenCanonOptions(rightVal).filter(
-    (opt): opt is Extract<CanonValue, { kind: 'list' }> => opt.kind === 'list',
-  );
-  if (leftLists.length === 0) return NONE_VALUE;
-  if (rightLists.length === 0) {
-    return {
-      kind: 'list',
-      items: [],
-      dynamicElement: unionCanonValues([allListElements(leftVal), allListElements(rightVal)]),
-    };
-  }
-  const results: CanonValue[] = [];
-  for (const l of leftLists) {
-    for (const r of rightLists) {
-      if (l.dynamicElement === undefined) {
-        results.push({
-          kind: 'list',
-          items: [...l.items, ...r.items],
-          dynamicElement: r.dynamicElement,
-        });
-      } else {
-        results.push({
-          kind: 'list',
-          items: [],
-          dynamicElement: unionCanonValues([allListElements(l), allListElements(r)]),
-        });
-      }
-    }
-  }
-  return unionCanonValues(results);
+  return unionValues(CANON_LATTICE, values);
 }
 
 function mapValuesAsList(objVal: CanonValue): CanonValue {
@@ -166,7 +101,7 @@ function mapValuesAsList(objVal: CanonValue): CanonValue {
     }
   }
   if (!sawMap) return NONE_VALUE;
-  return { kind: 'list', items: [], dynamicElement: unionCanonValues(parts) };
+  return makeCanonList([], unionCanonValues(parts));
 }
 
 function isEmailContainerPath(canonicalPath: string): boolean {
@@ -275,7 +210,7 @@ function evaluatedExpressionsOfEntry(
     }
     switch (obj.kind) {
       case 'list': {
-        const combined = allListElements(obj);
+        const combined = allListElements(CANON_LATTICE, obj);
         emitEmbeddedPaths(combined);
         return combined;
       }
@@ -338,7 +273,7 @@ function evaluatedExpressionsOfEntry(
         const strKey = literalStringOf(idxNode);
         if (strKey !== undefined) return readProperty(objVal, strKey);
         const numIdx = literalIndexOf(idxNode);
-        if (numIdx !== undefined && hasListOption(objVal)) {
+        if (numIdx !== undefined && hasListOption(CANON_LATTICE, objVal)) {
           return readProperty(objVal, String(numIdx));
         }
         return readDynamicElement(objVal);
@@ -352,7 +287,13 @@ function evaluatedExpressionsOfEntry(
         if (children[1] !== undefined) startNode = exprTrace[children[1]];
         let endNode: ExprTraceEntry | undefined;
         if (children[2] !== undefined) endNode = exprTrace[children[2]];
-        return sliceCanonValue(objVal, literalIndexOf(startNode), literalIndexOf(endNode));
+        return sliceListValue(
+          CANON_LATTICE,
+          objVal,
+          literalIndexOf(startNode),
+          literalIndexOf(endNode),
+          false,
+        );
       }
 
       case 'listLiteral': {
@@ -397,7 +338,7 @@ function evaluatedExpressionsOfEntry(
         const key = literalStringOf(elemNode);
         if (key !== undefined) {
           readProperty(collVal, key);
-          if (hasListOption(collVal) && containsEmailContainer(collVal)) {
+          if (hasListOption(CANON_LATTICE, collVal) && containsEmailContainer(collVal)) {
             out.push('request.auth.token.email');
           }
         } else if (containsEmailContainer(collVal)) {
@@ -439,7 +380,7 @@ function evaluatedExpressionsOfEntry(
           return unionCanonValues([readDynamicElement(objVal), defaultVal]);
         }
         if (method === 'concat') {
-          return concatCanonValues(objVal, argVals[0] ?? NONE_VALUE);
+          return concatListValues(CANON_LATTICE, objVal, argVals[0] ?? NONE_VALUE, false);
         }
         if (method === 'values') {
           if (containsEmailContainer(objVal)) out.push('request.auth.token.email');
@@ -449,8 +390,8 @@ function evaluatedExpressionsOfEntry(
           if (containsEmailContainer(objVal) || argVals.some(containsEmailContainer)) {
             out.push('request.auth.token.email');
           }
-          if (hasListOption(objVal)) {
-            return { kind: 'list', items: [], dynamicElement: allListElements(objVal) };
+          if (hasListOption(CANON_LATTICE, objVal)) {
+            return makeCanonList([], allListElements(CANON_LATTICE, objVal));
           }
           return NONE_VALUE;
         }
@@ -463,9 +404,12 @@ function evaluatedExpressionsOfEntry(
           if (containsEmailContainer(objVal) || argVals.some(containsEmailContainer)) {
             out.push('request.auth.token.email');
           }
-          const combined = unionCanonValues([allListElements(objVal), ...argVals.map(allListElements)]);
+          const combined = unionCanonValues([
+            allListElements(CANON_LATTICE, objVal),
+            ...argVals.map((arg) => allListElements(CANON_LATTICE, arg)),
+          ]);
           if (combined.kind !== 'none') {
-            return { kind: 'list', items: [], dynamicElement: combined };
+            return makeCanonList([], combined);
           }
           return NONE_VALUE;
         }
@@ -561,7 +505,7 @@ function evaluatedExpressionsOfEntry(
       case 'ternary': {
         if (children[0] !== undefined) walk(children[0], aliases, functions);
         const branchVals = children.slice(1).map((branchIdx) => walk(branchIdx, aliases, functions));
-        return unionCanonValues(branchVals);
+        return ternaryValues(CANON_LATTICE, branchVals);
       }
 
       default: {

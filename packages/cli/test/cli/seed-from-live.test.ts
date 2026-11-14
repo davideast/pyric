@@ -470,10 +470,15 @@ describe('runSeedFromLive --out with several RTDB instances', () => {
             subs: new Map(),
             instanceId: `seed-reload-rtdb-${testCase.name}`,
           };
+          const baseInitPayload = session.payload();
+          const emptyFsSeed: typeof baseInitPayload.seed = {
+            firestore: {},
+            database: testCase.value,
+          } as unknown as typeof baseInitPayload.seed;
           const emptyFsSeedPayload = {
-            ...session.payload(),
+            ...baseInitPayload,
             persist: true,
-            seed: { firestore: {}, database: testCase.value },
+            seed: emptyFsSeed,
           };
           const reloadRes = applyServeInit(reloadCtx, emptyFsSeedPayload);
           expect(reloadRes.seedSkipped).toBe('existing-data');
