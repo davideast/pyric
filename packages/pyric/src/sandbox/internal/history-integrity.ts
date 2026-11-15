@@ -8,6 +8,10 @@ interface GapTotals {
   hasUntrackedDenials: boolean;
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
 function readNonNegativeCount(record: Record<string, unknown>, key: string): number | undefined {
   const value = record[key];
   if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) return undefined;
@@ -23,13 +27,12 @@ function collectGapTotals(events: readonly unknown[]): GapTotals {
     hasUntrackedDenials: false,
   };
   for (const event of events) {
-    if (event === null || typeof event !== 'object') continue;
-    const record = event as Record<string, unknown>;
-    if (record.kind !== 'observation_gap') continue;
+    if (!isRecord(event)) continue;
+    if (event.kind !== 'observation_gap') continue;
     totals.gapCount += 1;
-    const omittedCount = readNonNegativeCount(record, 'omittedCount');
+    const omittedCount = readNonNegativeCount(event, 'omittedCount');
     if (omittedCount !== undefined) totals.omittedOperations += omittedCount;
-    const omittedDenials = readNonNegativeCount(record, 'omittedDenials');
+    const omittedDenials = readNonNegativeCount(event, 'omittedDenials');
     if (omittedDenials === undefined) {
       totals.hasUntrackedDenials = true;
     } else {

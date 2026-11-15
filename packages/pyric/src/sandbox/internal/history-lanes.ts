@@ -1,5 +1,6 @@
 import type { EventHistoryLimits as BaseEventHistoryLimits } from './history-retention.js';
 import type { SandboxEvent } from '../types/events.js';
+import type { RulesDisposition } from '../types/operation.js';
 
 const DEFAULT_MAX_DENIAL_EVENTS = 1_000;
 const DEFAULT_MAX_DENIAL_BYTES = 2 * 1024 * 1024;
@@ -24,27 +25,45 @@ export interface HistoryEntry {
   lane: HistoryLane;
 }
 
+function isDeniedDisposition(disposition: RulesDisposition | undefined): boolean {
+  if (disposition === undefined) return false;
+  if (disposition.kind === 'evaluated') return disposition.verdict === 'deny';
+  if (disposition.kind === 'not-evaluated') {
+    return disposition.reason === 'unsupported' || disposition.reason === 'runtime-error';
+  }
+  return false;
+}
+
 /** Denials and runtime or listener errors share a protected bounded lane. */
 export function isDenialOrErrorEvent(event: SandboxEvent): boolean {
   if (event.kind === 'runtime_error' || event.kind === 'listener_errored') return true;
   if (event.kind === 'request') {
-    return event.result === 'deny' || event.result === 'unsupported';
+    if (event.result === 'deny' || event.result === 'unsupported') return true;
+    return isDeniedDisposition(event.rulesDisposition);
   }
   if (event.kind === 'operation') {
     if (event.result === 'deny' || event.result === 'error' || event.result === 'unsupported') {
       return true;
     }
+    if (isDeniedDisposition(event.rulesDisposition)) return true;
     if (event.observation?.status === 'failed') return true;
     return event.production?.outcome.status === 'error';
   }
   if (event.kind === 'listener') {
-    return event.phase === 'errored'
+    if (
+      event.phase === 'errored'
       || event.result === 'deny'
       || event.result === 'error'
-      || event.result === 'unsupported';
+      || event.result === 'unsupported'
+    ) {
+      return true;
+    }
+    return isDeniedDisposition(event.rulesDisposition);
   }
   if (event.kind === 'service_mutation') {
-    return event.service === 'ai' && event.op === 'request_rejected';
+    if (event.service === 'ai') return event.op === 'request_rejected';
+    if (event.service === 'messaging') return event.op === 'message_rejected';
+    return false;
   }
   return false;
 }
@@ -63,7 +82,7 @@ export function resolveDenialLaneLimits(
 }
 
 class EntryQueue {
-  private items: HistoryEntry[] = [];
+  private items: Array<HistoryEntry | undefined> = [];
   private head = 0;
   private bytes = 0;
 
@@ -83,6 +102,7 @@ class EntryQueue {
   shift(): HistoryEntry | undefined {
     if (this.head >= this.items.length) return undefined;
     const entry = this.items[this.head];
+    this.items[this.head] = undefined;
     this.head += 1;
     if (this.head > QUEUE_COMPACT_THRESHOLD && this.head * 2 >= this.items.length) {
       this.items = this.items.slice(this.head);

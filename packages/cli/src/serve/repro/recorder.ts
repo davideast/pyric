@@ -24,7 +24,7 @@
  */
 import type { ObservedCall } from 'pyric/sandbox';
 import type { InboundMessage, OutboundMessage, SerializedError } from '../worker/protocol.js';
-import type { ReproBase, ReproEntry } from './format.js';
+import { isPlainObject, type ReproBase, type ReproEntry } from './format.js';
 
 /** Entries one window holds before the recorder reads a new starting state. */
 export const DEFAULT_REPRO_WINDOW = 1000;
@@ -110,15 +110,10 @@ function recordedFrame(frame: InboundMessage): InboundMessage {
   return { ...restFrame, call: { ...call, account: named } };
 }
 
-function asRecord(value: unknown): Record<string, unknown> | null {
-  if (value === null || typeof value !== 'object') return null;
-  return value as Record<string, unknown>;
-}
-
-function hasDenialContext(error: unknown): boolean {
-  const record = asRecord(error);
-  if (record === null) return false;
-  return asRecord(record.denialContext) !== null;
+function isSerializedDenialError(value: unknown): value is SerializedError {
+  if (!isPlainObject(value)) return false;
+  if (typeof value.code !== 'string' || typeof value.message !== 'string') return false;
+  return isPlainObject(value.denialContext);
 }
 
 function encodedEntryBytes(entry: OutboundReproEntry): number {
@@ -140,19 +135,18 @@ function encodedEntryBytes(entry: OutboundReproEntry): number {
 function archivedDenialEntry(entry: RecordedEntry): OutboundReproEntry | null {
   if (entry.kind !== 'out') return null;
   const { frame } = entry;
-  if (frame.t === 'res' && !frame.ok && hasDenialContext(frame.error)) {
+  if (frame.t === 'res' && !frame.ok && isSerializedDenialError(frame.error)) {
     return entry;
   }
   if (frame.t !== 'snap') return null;
-  const value = asRecord(frame.value);
-  if (value === null) return null;
-  const snapError = asRecord(value.__error);
-  if (snapError === null || !hasDenialContext(snapError)) return null;
+  if (!isPlainObject(frame.value)) return null;
+  const snapError = frame.value.__error;
+  if (!isSerializedDenialError(snapError)) return null;
   const archivedFrame: OutboundMessage = {
     t: 'res',
     id: frame.subId,
     ok: false,
-    error: snapError as unknown as SerializedError,
+    error: snapError,
   };
   if (frame.clientSessionId !== undefined) {
     archivedFrame.clientSessionId = frame.clientSessionId;
@@ -181,7 +175,7 @@ export function createReproRecorder(options: {
   let current: Window | undefined;
   let truncated = false;
   let opening: Promise<void> | undefined;
-  let retainedDenials: ArchivedDenial[] = [];
+  let retainedDenials: Array<ArchivedDenial | undefined> = [];
   let retainedDenialHead = 0;
   let retainedDenialBytes = 0;
   /** Listener registrations still open, by session then subscription id. */
@@ -198,6 +192,7 @@ export function createReproRecorder(options: {
   function shiftRetainedDenial(): void {
     if (retainedDenialHead >= retainedDenials.length) return;
     const dropped = retainedDenials[retainedDenialHead];
+    retainedDenials[retainedDenialHead] = undefined;
     retainedDenialHead += 1;
     if (dropped !== undefined) retainedDenialBytes -= dropped.bytes;
     if (
@@ -279,8 +274,7 @@ export function createReproRecorder(options: {
           await openWindow();
         } catch (error) {
           // The host keeps serving; the next frame tries again.
-          const message = error instanceof Error ? error.message : String(error);
-          console.warn(`[pyric] The repro log could not read a starting state: ${message}`);
+          console.warn(`[pyric] The repro log could not read a starting state: ${error instanceof Error ? error.message : String(error)}`);
         }
       }
       append({ kind: 'in', at: now(), session, frame: recordedFrame(frame) });

@@ -15,139 +15,67 @@ import type {
   ServiceMutationEvent,
 } from '../../src/sandbox/types/events.js';
 
+const OWNER = { uid: 'owner-1' } as const;
+
 function firestoreDeny(id: string, at: number): RequestEvent {
   return {
-    kind: 'request',
-    id,
-    at,
-    evalMs: 1,
-    method: 'update',
-    path: `items/${id}`,
-    auth: { uid: 'owner-1' },
-    result: 'deny',
-    reasons: ['allow write: false'],
-    origin: 'user',
+    kind: 'request', id, at, evalMs: 1, method: 'update', path: `items/${id}`,
+    auth: OWNER, result: 'deny', reasons: ['allow write: false'], origin: 'user',
   };
 }
 
 function firestoreAllow(id: string, at: number, pad = ''): RequestEvent {
   return {
-    kind: 'request',
-    id,
-    at,
-    evalMs: 0,
-    method: 'update',
-    path: `items/${id}${pad}`,
-    auth: { uid: 'owner-1' },
-    result: 'allow',
-    reasons: ['allow write: true'],
-    origin: 'user',
+    kind: 'request', id, at, evalMs: 0, method: 'update', path: `items/${id}${pad}`,
+    auth: OWNER, result: 'allow', reasons: ['allow write: true'], origin: 'user',
   };
 }
 
 function firestoreListenerErrored(id: string, at: number): ListenerLifecycleEvent {
   return {
-    kind: 'listener_errored',
-    id,
-    at,
-    listenerId: `listener-${id}`,
-    target: { kind: 'doc', path: `items/${id}` },
-    auth: { uid: 'owner-1' },
+    kind: 'listener_errored', id, at, listenerId: `listener-${id}`,
+    target: { kind: 'doc', path: `items/${id}` }, auth: OWNER,
     error: { code: 'permission-denied', message: 'Permission denied' },
   };
 }
 
-function rtdbOperation(
-  id: string,
-  at: number,
-  result: 'allow' | 'deny',
-  pad = '',
-): SandboxOperationEvent {
+function rtdbOperation(id: string, at: number, result: 'allow' | 'deny', pad = ''): SandboxOperationEvent {
   return {
-    kind: 'operation',
-    id,
-    at,
-    service: 'rtdb',
-    method: 'set',
-    path: `/items/${id}${pad}`,
-    auth: { uid: 'owner-1' },
-    origin: 'user',
-    result,
+    kind: 'operation', id, at, service: 'rtdb', method: 'set',
+    path: `/items/${id}${pad}`, auth: OWNER, origin: 'user', result,
   };
 }
 
 function rtdbCommit(id: string, at: number): SandboxCommitEvent {
-  return {
-    kind: 'commit',
-    id,
-    at,
-    service: 'rtdb',
-    method: 'set',
-    path: `/items/${id}`,
-    auth: { uid: 'owner-1' },
-  };
+  return { kind: 'commit', id, at, service: 'rtdb', method: 'set', path: `/items/${id}`, auth: OWNER };
 }
 
 function rtdbMutation(id: string, at: number): ServiceMutationEvent {
   return {
-    kind: 'service_mutation',
-    id,
-    at,
-    service: 'rtdb',
-    op: 'set',
-    path: `/items/${id}`,
-    auth: { uid: 'owner-1' },
-    detail: { value: at },
+    kind: 'service_mutation', id, at, service: 'rtdb', op: 'set',
+    path: `/items/${id}`, auth: OWNER, detail: { value: at },
   };
 }
 
 function rtdbListenerErrored(id: string, at: number): SandboxListenerEvent {
   return {
-    kind: 'listener',
-    id,
-    at,
-    service: 'rtdb',
-    phase: 'errored',
-    listenerId: `db-listener-${id}`,
-    target: { kind: 'value', path: `/items/${id}` },
-    auth: { uid: 'owner-1' },
+    kind: 'listener', id, at, service: 'rtdb', phase: 'errored', listenerId: `db-listener-${id}`,
+    target: { kind: 'value', path: `/items/${id}` }, auth: OWNER,
     error: { code: 'PERMISSION_DENIED', message: 'Permission denied' },
   };
 }
 
-function storageOperation(
-  id: string,
-  at: number,
-  result: 'allow' | 'deny',
-  pad = '',
-): SandboxOperationEvent {
+function storageOperation(id: string, at: number, result: 'allow' | 'deny', pad = ''): SandboxOperationEvent {
   return {
-    kind: 'operation',
-    id,
-    at,
-    service: 'storage',
-    method: 'uploadBytes',
-    path: `items/${id}${pad}`,
-    auth: { uid: 'owner-1' },
-    origin: 'user',
-    result,
+    kind: 'operation', id, at, service: 'storage', method: 'uploadBytes',
+    path: `items/${id}${pad}`, auth: OWNER, origin: 'user', result,
   };
 }
 
-function runtimeError(
-  id: string,
-  at: number,
-  service: 'firestore' | 'rtdb' | 'storage',
-): SandboxRuntimeErrorEvent {
+function runtimeError(id: string, at: number, service: 'firestore' | 'rtdb' | 'storage'): SandboxRuntimeErrorEvent {
   return {
-    kind: 'runtime_error',
-    id,
-    at,
-    service,
-    method: 'write',
-    path: `items/${id}`,
-    auth: { uid: 'owner-1' },
-    error: { code: 'internal', message: 'unexpected runtime error' },
+    kind: 'runtime_error', id, at, service, method: 'write', path: `items/${id}`,
+    auth: OWNER, error: { code: 'internal', message: 'unexpected runtime error' },
   };
 }
 
@@ -451,6 +379,74 @@ describe('EventHistory bounded denial and error retention lane', () => {
       omittedDenials: 1,
     });
   });
+  test('folding or evicting untracked observation gaps leaves omittedDenials unknown', () => {
+    const withFrameGap = new EventHistory({ maxEvents: 4, maxBytes: 100_000 });
+    withFrameGap.append({
+      kind: 'observation_gap',
+      id: 'frame-gap',
+      at: 1,
+      reason: 'frame-limit',
+      firstEventId: 'e-1',
+      lastEventId: 'e-50',
+      omittedCount: 50,
+    });
+    for (let index = 0; index < 5; index++) {
+      withFrameGap.append(rtdbOperation(`allow-${index}`, 10 + index, 'allow'));
+    }
+    const frameRetained = withFrameGap.snapshot();
+    const frameGap = findGap(frameRetained);
+    expect(frameGap?.omittedCount).toBe(51);
+    expect(frameGap?.omittedDenials).toBeUndefined();
+    expect(() => assertCompleteHistory(frameRetained)).toThrow('51 omitted operations, unknown omitted denials');
+
+    const withLegacyGap = new EventHistory({ maxEvents: 100, maxBytes: 100_000 });
+    withLegacyGap.append({
+      kind: 'observation_gap',
+      id: 'history-gap',
+      at: 1,
+      reason: 'history-limit',
+      firstEventId: 'e-1',
+      lastEventId: 'e-502',
+      omittedCount: 502,
+    });
+    const legacyRetained = withLegacyGap.snapshot();
+    expect(findGap(legacyRetained)?.omittedDenials).toBeUndefined();
+    expect(() => assertCompleteHistory(legacyRetained)).toThrow('502 omitted operations, unknown omitted denials');
+
+    withLegacyGap.clear();
+    withLegacyGap.append({
+      kind: 'observation_gap',
+      id: 'history-gap',
+      at: 2,
+      reason: 'history-limit',
+      firstEventId: 'e-600',
+      lastEventId: 'e-604',
+      omittedCount: 5,
+      omittedDenials: 1,
+    });
+    expect(findGap(withLegacyGap.snapshot())?.omittedDenials).toBe(1);
+  });
+
+  test('a single oversized denial omits only itself without wiping earlier retained denials', () => {
+    const history = new EventHistory({
+      maxEvents: 50,
+      maxBytes: 100_000,
+      maxDenialEvents: 10,
+      maxDenialBytes: 2_000,
+    });
+    for (let index = 0; index < 5; index++) {
+      history.append(rtdbOperation(`early-${index}`, index + 1, 'deny'));
+    }
+    history.append(rtdbOperation('oversized-deny', 10, 'deny', `/${'z'.repeat(2_500)}`));
+
+    const retained = history.snapshot();
+    const keptIds = new Set(nonGapEvents(retained).map((event) => event.id));
+    for (let index = 0; index < 5; index++) {
+      expect(keptIds.has(`early-${index}`)).toBe(true);
+    }
+    expect(keptIds.has('oversized-deny')).toBe(false);
+    expect(findGap(retained)).toMatchObject({ omittedCount: 1, omittedDenials: 1 });
+  });
 });
 
 describe('assertCompleteHistory honest gap reporting', () => {
@@ -481,12 +477,12 @@ describe('assertCompleteHistory honest gap reporting', () => {
     }
 
     expect(thrown).toBeInstanceOf(SandboxError);
-    const sandboxError = thrown as SandboxError;
-    expect(sandboxError.code).toBe('failed-precondition');
-    expect(sandboxError.message).toContain('Cannot replay or verify incomplete observation history');
-    expect(sandboxError.message).toContain('15 omitted operations');
-    expect(sandboxError.message).toContain('3 omitted denials');
-    expect(sandboxError.message).toContain('pyric serve denials');
+    if (!(thrown instanceof SandboxError)) throw new Error('expected SandboxError');
+    expect(thrown.code).toBe('failed-precondition');
+    expect(thrown.message).toContain('Cannot replay or verify incomplete observation history');
+    expect(thrown.message).toContain('15 omitted operations');
+    expect(thrown.message).toContain('3 omitted denials');
+    expect(thrown.message).toContain('pyric serve denials');
   });
 
   test('reports zero omitted denials honestly when only allowed traffic was evicted', () => {

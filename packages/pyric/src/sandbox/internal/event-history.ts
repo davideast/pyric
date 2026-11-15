@@ -30,6 +30,7 @@ export class EventHistory {
   private readonly rulesEvidence = new RulesEvidenceRetention<HistoryEntry>();
   private sourceGapCount = 0;
   private sourceGapDenialCount = 0;
+  private hasUntrackedGapDenials = false;
   private gap: SandboxObservationGapEvent | undefined;
 
   constructor(private readonly limits?: EventHistoryLimits) {
@@ -69,18 +70,14 @@ export class EventHistory {
     const retainsListener = activeListener?.event.id === event.id;
     if (retainsListener && activeListener !== undefined) this.releaseLive(activeListener);
     const isPriorEviction = isBounded && event.kind === 'observation_gap' && event.reason === 'history-limit';
-    const mustOmit = isPriorEviction || !Number.isFinite(bytes);
+    const isOversizedDenial = isBounded
+      && isDenialOrErrorEvent(event)
+      && !this.canFitSingleDenial(bytes);
+    const mustOmit = isPriorEviction || !Number.isFinite(bytes) || isOversizedDenial;
     if (mustOmit) {
       this.forgetId(event);
       if (isPriorEviction) {
-        const omittedCount = Math.max(0, event.omittedCount - this.sourceGapCount);
-        this.sourceGapCount = Math.max(this.sourceGapCount, event.omittedCount);
-        const priorDenials = event.omittedDenials ?? 0;
-        const omittedDenials = Math.max(0, priorDenials - this.sourceGapDenialCount);
-        this.sourceGapDenialCount = Math.max(this.sourceGapDenialCount, priorDenials);
-        if (omittedCount > 0 || omittedDenials > 0) {
-          this.omit({ ...event, omittedCount, omittedDenials });
-        }
+        this.foldPriorEviction(event);
       } else {
         this.omit(event);
       }
@@ -114,6 +111,27 @@ export class EventHistory {
     this.gap = undefined;
     this.sourceGapCount = 0;
     this.sourceGapDenialCount = 0;
+    this.hasUntrackedGapDenials = false;
+  }
+
+  private foldPriorEviction(event: SandboxObservationGapEvent): void {
+    const omittedCount = Math.max(0, event.omittedCount - this.sourceGapCount);
+    this.sourceGapCount = Math.max(this.sourceGapCount, event.omittedCount);
+    if (event.omittedDenials === undefined) {
+      this.hasUntrackedGapDenials = true;
+      if (omittedCount > 0) {
+        this.omit({ ...event, omittedCount });
+      } else if (this.gap !== undefined) {
+        const { omittedDenials: _omitted, ...gapWithoutDenials } = this.gap;
+        this.gap = gapWithoutDenials;
+      }
+      return;
+    }
+    const omittedDenials = Math.max(0, event.omittedDenials - this.sourceGapDenialCount);
+    this.sourceGapDenialCount = Math.max(this.sourceGapDenialCount, event.omittedDenials);
+    if (omittedCount > 0 || omittedDenials > 0) {
+      this.omit({ ...event, omittedCount, omittedDenials });
+    }
   }
 
   private lookupActiveListener(event: SandboxEvent): LiveEntry | undefined {
@@ -196,17 +214,32 @@ export class EventHistory {
       || this.lanes.denialBytes > denialLimits.maxBytes;
   }
 
-  private exceedsLimits(): boolean {
+  private availableTotalBudget(): { maxEvents: number; maxBytes: number } | undefined {
     const limits = this.limits;
-    if (limits === undefined) return false;
+    if (limits === undefined) return undefined;
     let gapBytes = 0;
     if (this.gap !== undefined) gapBytes = encodedBytes(this.gap) + 1;
     const reservedEvents = Math.min(this.liveCount, Math.floor(limits.maxEvents / 2));
     const reservedBytes = Math.min(this.liveBytes, Math.floor(limits.maxBytes / 2));
-    const eventCount = this.lanes.totalCount + reservedEvents;
-    const exceedsCount = eventCount > limits.maxEvents;
-    const exceedsBytes = this.lanes.totalBytes + reservedBytes + gapBytes + 2 > limits.maxBytes;
-    return exceedsCount || exceedsBytes;
+    return {
+      maxEvents: limits.maxEvents - reservedEvents,
+      maxBytes: limits.maxBytes - reservedBytes - gapBytes - 2,
+    };
+  }
+
+  private canFitSingleDenial(bytes: number): boolean {
+    const budget = this.availableTotalBudget();
+    const denialLimits = this.denialLimits;
+    if (budget === undefined || denialLimits === undefined) return true;
+    const maxEvents = Math.min(denialLimits.maxEvents, budget.maxEvents);
+    const maxBytes = Math.min(denialLimits.maxBytes, budget.maxBytes);
+    return maxEvents >= 1 && bytes <= maxBytes;
+  }
+
+  private exceedsLimits(): boolean {
+    const budget = this.availableTotalBudget();
+    if (budget === undefined) return false;
+    return this.lanes.totalCount > budget.maxEvents || this.lanes.totalBytes > budget.maxBytes;
   }
 
   private omit(event: SandboxEvent): void {
@@ -219,13 +252,17 @@ export class EventHistory {
     let last = event.id;
     if (event.kind === 'observation_gap') {
       count = event.omittedCount;
-      denialCount = event.omittedDenials ?? 0;
+      if (event.omittedDenials === undefined) {
+        this.hasUntrackedGapDenials = true;
+      } else {
+        denialCount = event.omittedDenials;
+      }
       first = event.firstEventId;
       last = event.lastEventId;
     } else if (isDenialOrErrorEvent(event)) {
       denialCount = 1;
     }
-    this.gap = {
+    const nextGap: SandboxObservationGapEvent = {
       kind: 'observation_gap',
       reason: 'history-limit',
       id: 'history-gap',
@@ -233,7 +270,10 @@ export class EventHistory {
       firstEventId: this.gap?.firstEventId ?? first,
       lastEventId: last,
       omittedCount: (this.gap?.omittedCount ?? 0) + count,
-      omittedDenials: (this.gap?.omittedDenials ?? 0) + denialCount,
     };
+    if (!this.hasUntrackedGapDenials) {
+      nextGap.omittedDenials = (this.gap?.omittedDenials ?? 0) + denialCount;
+    }
+    this.gap = nextGap;
   }
 }

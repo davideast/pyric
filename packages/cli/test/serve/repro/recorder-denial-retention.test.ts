@@ -1,8 +1,9 @@
 import 'fake-indexeddb/auto';
 import { describe, expect, test } from 'bun:test';
 import { initializeSandbox } from 'pyric/sandbox';
-import { captureCheckpoint } from 'pyric/sandbox/checkpoints';
+import { captureCheckpoint, type Checkpoint } from 'pyric/sandbox/checkpoints';
 import { getFirestore } from 'pyric/firestore';
+import { setRules } from 'pyric/sandbox/firestore';
 import { buildReproFile } from '../../../src/serve/repro/capture.js';
 import { listDenials } from '../../../src/serve/repro/denials.js';
 import { parseRepro, type ReproBase } from '../../../src/serve/repro/format.js';
@@ -11,28 +12,36 @@ import { replayRepro } from '../../../src/serve/repro/replay.js';
 import { handleMessage, type HostCtx, type PortLike } from '../../../src/serve/worker/host.js';
 import type { InboundMessage, OutboundMessage } from '../../../src/serve/worker/protocol.js';
 
-function emptyBase(at = 0): Omit<ReproBase, 'subscriptions'> {
+async function createEmptyCheckpoint(): Promise<Checkpoint> {
+  const sandbox = initializeSandbox();
+  try {
+    return await captureCheckpoint(sandbox);
+  } finally {
+    sandbox.dispose();
+  }
+}
+
+function emptyBase(checkpoint: Checkpoint, at = 0): Omit<ReproBase, 'subscriptions'> {
   return {
     at,
-    checkpoint: {
-      format: 'pyric-checkpoint-v1',
-      at,
-      counts: { firestore: 0, database: 0, storage: 0, auth: 0 },
-      state: {
-        firestore: [],
-        database: null,
-        storage: [],
-        auth: { users: [] },
-        rules: { firestore: null, database: null, storage: null },
-        clock: { now: at },
-      },
-    } as unknown as ReproBase['checkpoint'],
+    checkpoint,
     databaseInstances: {},
     rules: { firestore: null, database: {}, storage: null },
     defaultInstance: '(default)',
     permissive: false,
     appOptions: null,
     sessions: {},
+  };
+}
+
+function rtdbSetOp(id: string, path: string, value: unknown): InboundMessage {
+  return {
+    t: 'op',
+    id,
+    method: 'rtdb.set',
+    instance: undefined,
+    path,
+    value,
   };
 }
 
@@ -95,13 +104,14 @@ function firestoreReadDenial(id: string, path: string): OutboundMessage {
           citation: 'firestore.rules:4:7',
           expression: 'request.auth != null',
         },
-      } as unknown as NonNullable<Extract<OutboundMessage, { t: 'res'; ok: false }>['error']['denialContext']>,
+      },
     },
   };
 }
 
 describe('repro recorder denial retention across window rollover', () => {
   test('retains early denial groups after 3,500+ allowed entries roll past the 1,000-entry window', async () => {
+    const checkpoint = await createEmptyCheckpoint();
     let clock = 1_000;
     const recorder = createReproRecorder({
       limit: DEFAULT_REPRO_WINDOW,
@@ -109,46 +119,32 @@ describe('repro recorder denial retention across window rollover', () => {
         clock += 1;
         return clock;
       },
-      capture: async () => emptyBase(clock),
+      capture: async () => emptyBase(checkpoint, clock),
     });
 
-    await recorder.inbound('client-1', {
-      t: 'op',
-      id: 'deny-rtdb-1',
-      method: 'rtdb.set',
-      instance: undefined,
-      path: '/items/first',
-      value: 'refused',
-    } as InboundMessage);
+    await recorder.inbound('client-1', rtdbSetOp('deny-rtdb-1', '/items/first', 'refused'));
     recorder.outbound('client-1', rtdbWriteDenial('deny-rtdb-1', '/items/first', 'u-1'));
 
     await recorder.inbound('client-1', {
       t: 'sub',
       subId: 'sub-denied-1',
       target: { service: 'rtdb', instance: undefined, path: '/private/secret' },
-    } as InboundMessage);
+    });
     recorder.outbound('client-1', rtdbSnapDenial('sub-denied-1', '/private/secret', 'u-1'));
-    await recorder.inbound('client-1', { t: 'unsub', subId: 'sub-denied-1' } as InboundMessage);
+    await recorder.inbound('client-1', { t: 'unsub', subId: 'sub-denied-1' });
 
     await recorder.inbound('client-2', {
       t: 'op',
       id: 'deny-fs-1',
       method: 'getDoc',
       path: 'items/locked',
-    } as InboundMessage);
+    });
     recorder.outbound('client-2', firestoreReadDenial('deny-fs-1', 'items/locked'));
 
     const allowedWrites = 3_600;
     for (let index = 0; index < allowedWrites; index++) {
       const id = `allow-${index}`;
-      await recorder.inbound('client-1', {
-        t: 'op',
-        id,
-        method: 'rtdb.set',
-        instance: undefined,
-        path: `/items/n${index % 20}`,
-        value: index,
-      } as InboundMessage);
+      await recorder.inbound('client-1', rtdbSetOp(id, `/items/n${index % 20}`, index));
       recorder.outbound('client-1', { t: 'res', id, ok: true, value: null });
     }
 
@@ -200,6 +196,7 @@ describe('repro recorder denial retention across window rollover', () => {
   });
 
   test('bounds archived dropped denials so a flood of denials cannot grow memory unboundedly', async () => {
+    const checkpoint = await createEmptyCheckpoint();
     let clock = 100;
     const recorder = createReproRecorder({
       limit: 8,
@@ -207,32 +204,18 @@ describe('repro recorder denial retention across window rollover', () => {
         clock += 1;
         return clock;
       },
-      capture: async () => emptyBase(clock),
+      capture: async () => emptyBase(checkpoint, clock),
     });
 
     for (let index = 0; index < 1_050; index++) {
       const id = `deny-${index}`;
-      await recorder.inbound('client-1', {
-        t: 'op',
-        id,
-        method: 'rtdb.set',
-        instance: undefined,
-        path: `/items/d-${index}`,
-        value: 'refused',
-      } as InboundMessage);
+      await recorder.inbound('client-1', rtdbSetOp(id, `/items/d-${index}`, 'refused'));
       recorder.outbound('client-1', rtdbWriteDenial(id, `/items/d-${index}`, 'u-1'));
     }
 
     for (let index = 0; index < 40; index++) {
       const id = `allow-${index}`;
-      await recorder.inbound('client-1', {
-        t: 'op',
-        id,
-        method: 'rtdb.set',
-        instance: undefined,
-        path: `/items/a-${index}`,
-        value: index,
-      } as InboundMessage);
+      await recorder.inbound('client-1', rtdbSetOp(id, `/items/a-${index}`, index));
       recorder.outbound('client-1', { t: 'res', id, ok: true, value: null });
     }
 
@@ -249,6 +232,93 @@ describe('repro recorder denial retention across window rollover', () => {
     expect(groups[0]?.paths[999]).toBe('/items/d-1049');
   });
 
+  test('enforces denialByteLimit with multi-byte UTF-8 and skips oversized or malformed denials identically with and without Buffer', async () => {
+    const checkpoint = await createEmptyCheckpoint();
+    const bufferDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'Buffer');
+
+    async function runByteBoundedRollover(): Promise<{ serialized: string; paths: string[] }> {
+      let clock = 500;
+      const recorder = createReproRecorder({
+        limit: 4,
+        denialLimit: 100,
+        denialByteLimit: 1_500,
+        now: () => {
+          clock += 1;
+          return clock;
+        },
+        capture: async () => emptyBase(checkpoint, clock),
+      });
+
+      const pad = 'é'.repeat(80);
+      for (let index = 0; index < 8; index++) {
+        const id = `utf8-deny-${index}`;
+        await recorder.inbound('client-1', rtdbSetOp(id, `/items/${index}-${pad}`, 'refused'));
+        recorder.outbound('client-1', rtdbWriteDenial(id, `/items/${index}-${pad}`, 'u-1'));
+      }
+
+      // Single oversized denial (> denialByteLimit) is skipped without wiping earlier retained denials.
+      await recorder.inbound('client-1', rtdbSetOp('oversized', `/items/${'é'.repeat(900)}`, 'refused'));
+      recorder.outbound('client-1', rtdbWriteDenial('oversized', `/items/${'é'.repeat(900)}`, 'u-1'));
+
+      // Malformed snap __error missing required code/message is not archived.
+      recorder.outbound('client-1', {
+        t: 'snap',
+        subId: 'malformed-snap',
+        value: {
+          __error: {
+            denialContext: {
+              engine: 'rtdb',
+              auth: null,
+              reasons: ['no .read granted'],
+              request: { method: 'listen', path: '/items/malformed' },
+              matchedPath: '/items/$itemId',
+            },
+          },
+        },
+      });
+
+      for (let index = 0; index < 12; index++) {
+        const id = `ok-${index}`;
+        await recorder.inbound('client-1', rtdbSetOp(id, `/items/ok-${index}`, index));
+        recorder.outbound('client-1', { t: 'res', id, ok: true, value: null });
+      }
+
+      const log = await recorder.log();
+      expect(log.truncated).toBe(true);
+      const archived = log.entries.filter((entry) => entry.kind === 'out' && entry.frame.t === 'res' && !entry.frame.ok);
+      const archivedBytes = archived.reduce(
+        (sum, entry) => sum + new TextEncoder().encode(JSON.stringify(entry)).byteLength,
+        0,
+      );
+      expect(archived.length).toBeGreaterThan(0);
+      expect(archived.length).toBeLessThan(8);
+      expect(archivedBytes).toBeLessThanOrEqual(1_500);
+
+      const ids: string[] = [];
+      for (const entry of archived) {
+        if (entry.kind === 'out' && entry.frame.t === 'res') ids.push(entry.frame.id);
+      }
+      expect(ids).toContain('utf8-deny-7');
+      expect(ids).not.toContain('utf8-deny-0');
+      expect(ids).not.toContain('oversized');
+      expect(ids).not.toContain('malformed-snap');
+
+      return { serialized: JSON.stringify(log), paths: ids };
+    }
+
+    const withBuffer = await runByteBoundedRollover();
+    try {
+      Reflect.deleteProperty(globalThis, 'Buffer');
+      const withoutBuffer = await runByteBoundedRollover();
+      expect(withoutBuffer.serialized).toBe(withBuffer.serialized);
+      expect(withoutBuffer.paths).toEqual(withBuffer.paths);
+    } finally {
+      if (bufferDescriptor !== undefined) {
+        Object.defineProperty(globalThis, 'Buffer', bufferDescriptor);
+      }
+    }
+  });
+
   test('archived res and snap denials remain replay-safe on the worker plane', async () => {
     const firestoreRules = `rules_version = '2';
 service cloud.firestore {
@@ -261,7 +331,6 @@ service cloud.firestore {
 }`;
     const sandbox = initializeSandbox();
     const db = getFirestore(sandbox);
-    const { setRules } = await import('pyric/sandbox/firestore');
     setRules(sandbox, firestoreRules);
 
     try {
@@ -289,8 +358,12 @@ service cloud.firestore {
         },
       });
 
-      const sendOp = async (id: string, payload: Record<string, unknown>): Promise<OutboundMessage> => {
-        const inbound = { t: 'op', id, ...payload } as InboundMessage;
+      const sendSetDoc = async (
+        id: string,
+        path: string,
+        data: Record<string, unknown>,
+      ): Promise<OutboundMessage> => {
+        const inbound: InboundMessage = { t: 'op', id, method: 'setDoc', path, data };
         await recorder.inbound('tab-1', inbound);
         return new Promise<OutboundMessage>((resolve) => {
           const port: PortLike = {
@@ -303,22 +376,14 @@ service cloud.firestore {
         });
       };
 
-      const denied = await sendOp('op-denied', {
-        method: 'setDoc',
-        path: 'items/denied',
-        data: { allowed: false },
-      });
+      const denied = await sendSetDoc('op-denied', 'items/denied', { allowed: false });
       expect(denied.t === 'res' && !denied.ok).toBe(true);
 
       // Also inject a dropped snap denial to ensure archived snap denials do not stall replay.
       recorder.outbound('tab-1', rtdbSnapDenial('sub-dropped', '/private/one', 'u-1'));
 
       for (let index = 0; index < 12; index++) {
-        const allowed = await sendOp(`op-ok-${index}`, {
-          method: 'setDoc',
-          path: `items/ok-${index}`,
-          data: { allowed: true, n: index },
-        });
+        const allowed = await sendSetDoc(`op-ok-${index}`, `items/ok-${index}`, { allowed: true, n: index });
         expect(allowed.t === 'res' && allowed.ok).toBe(true);
       }
 
