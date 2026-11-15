@@ -521,10 +521,7 @@ export class SandboxImpl implements LocalSandbox {
   }
 
   snapshot(): SandboxSnapshot {
-    // Collect each registered service's snapshot under its name. The
-    // snapshot is taken at call time — the registry is live, so services
-    // registered after `enablePersistence` are naturally included the
-    // next time flush calls this.
+    // Collect registered services live so lazy registrations after enablePersistence are included.
     const services: Record<string, unknown> = {};
     for (const [name, pending] of this.pendingSnapshotServices) {
       services[name] = structuredClone(pending);
@@ -535,8 +532,9 @@ export class SandboxImpl implements LocalSandbox {
     const { firestore, firestoreWrappers, firestoreUnescapedMaps } = snapshotFirestoreState(
       this._env.snapshot(),
     );
-    const firestoreRules = this._env.getRules();
-    const snap: SandboxSnapshot = { firestore, services, firestoreRules };
+    const snap: SandboxSnapshot = { firestore, services };
+    const firestoreRules = this._env.getExplicitRules();
+    if (firestoreRules !== null) snap.firestoreRules = firestoreRules;
     if (firestoreWrappers !== undefined) snap.firestoreWrappers = firestoreWrappers;
     if (firestoreUnescapedMaps !== undefined) snap.firestoreUnescapedMaps = firestoreUnescapedMaps;
     return snap;
@@ -552,7 +550,7 @@ export class SandboxImpl implements LocalSandbox {
     // re-attaches the env; the per-doc writes below re-evaluate live listeners
     // and dirty the controller so the loaded state is flushed.
     this.reset();
-    if (typeof data.firestoreRules === 'string') {
+    if (typeof data.firestoreRules === 'string' && data.firestoreRules.length > 0) {
       this._env.deployRules(data.firestoreRules);
     }
     for (const [path, docData] of Object.entries(data.firestore)) {

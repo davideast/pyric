@@ -48,6 +48,10 @@ export {
   compiledStorageRulesForBucket,
 } from './service.js';
 export {
+  getActiveStorageRulesResolution,
+  getDefaultStorageRulesResolution,
+} from './rules-inspection.js';
+export {
   enforceRules,
   normalizeRecordedStorageDeniedWrite,
   primeStorageDeniedWrites,

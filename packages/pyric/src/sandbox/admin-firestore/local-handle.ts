@@ -89,6 +89,7 @@ export function buildFirestoreHandle(
       return env.seed({
         rules: env.getRules(),
         documents: options?.documents ?? {},
+        explicitRules: env.hasExplicitRules(),
       });
     },
     snapshot(): Record<string, DocumentData> {

@@ -356,7 +356,7 @@ export async function captureFullState(sandbox: LocalSandbox, options: FullState
 
   const crossServiceIam = getStorageCrossServiceIam(sandbox);
   const rules: SandboxRuleSources = {
-    firestore: env.getRules(),
+    firestore: env.getExplicitRules() ?? '',
     database: database.getActiveRules(),
     ...(Object.keys(secondaryDatabaseRules).length > 0
       ? { databaseInstances: secondaryDatabaseRules }
@@ -576,7 +576,12 @@ export async function applyFullState(
 ): Promise<void> {
   applyClock(sandbox, state.clock);
   applyFirestoreDocuments(sandbox, state.firestore, state.firestoreEncoding);
-  getInternalEnv(sandbox).deployRules(state.rules.firestore);
+  const env = getInternalEnv(sandbox);
+  if (state.rules.firestore.length > 0) {
+    env.deployRules(state.rules.firestore);
+  } else {
+    env.resetToDefaultRules();
+  }
   applyDatabase(sandbox, state);
   applyAuth(sandbox, state.auth);
   await applyStorage(sandbox, state.storage);

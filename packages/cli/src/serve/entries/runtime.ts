@@ -18,10 +18,11 @@ import {
   serializeToBuckets,
   bundleRecords,
 } from 'pyric/sandbox';
+import { getApps } from 'pyric/app';
 import { getFirestore } from 'pyric/firestore';
 import { seedDocuments, setRules, snapshotDocuments } from 'pyric/sandbox/firestore';
 import { rulesSourceRejection } from 'pyric/rules/internal';
-import { getDatabase, sandbox as rtdbSandbox } from 'pyric/database';
+import { getDatabase } from 'pyric/database';
 import { getStorageSandbox } from 'pyric/storage';
 import { applyStorageRulesUpdate, installServedStorageRules, storageRulesUpdateNotice, type StorageRulesUpdate } from '../storage-rules-install.js';
 import { getAuth, sandbox as authOps, type SeedUser } from 'pyric/auth';
@@ -37,8 +38,7 @@ export { initPayload } from './init-payload.js';
 import { keepaliveSafe } from './keepalive.js';
 import { onServiceUsed } from './service-use.js';
 import { toPageOriginWsUrl } from './bridge-url.js';
-import { buildVerifyFixture } from '../../verify/fixture.js';
-import { captureRtdbInstances, defaultInstanceUrl } from '../../verify/rtdb-instance-capture.js';
+import { buildLiveSessionCaptureFixture } from '../session-capture-fixture.js';
 import { avatarMintForPayload } from '../assets/avatar-url.js';
 import { setupFirebaseActivityGuard } from '../activity-guard.js';
 import { getPyricRuntimeStatus } from '../runtime/status.js';
@@ -359,27 +359,18 @@ if (!useWorker) try {
     });
   }
   if (payload.capture) {
-    // ── capture mode (the write-side of the pyric verify loop): whenever
-    // the sandbox changes, push a snapshot of the full session fixture
-    // (rules + history + firestore state) to /__pyric/capture. The server
-    // writes it verbatim to `.pyric/last-session.json` so `pyric verify`
-    // can replay without any extra arguments. This is independent of
-    // --persist — capture is about the verify loop, persist is about
-    // cross-reload durability.
+    // Capture mode: push live rules, history, and state to /__pyric/capture
+    // for `pyric verify`, independent of --persist durability.
     const flushCapture = (): void => {
-      const rtdbState =
-        payload.databaseRules || sandbox.history().some((event) => event.service === 'rtdb')
-          ? rtdbSandbox.snapshotState(getDatabase(sandbox), { includePriorities: true })
-          : undefined;
       const auth = getAuth(sandbox);
-      const defaultInstance = databaseRules.defaultName();
-      const body = JSON.stringify(buildVerifyFixture({
+      const apps = getApps();
+      const defaultApp = apps.find((app) => app.name === '[DEFAULT]') ?? apps[0];
+      const bucket = defaultApp?.options.storageBucket;
+      const defaultStorageBucket = typeof bucket === 'string' && bucket.length > 0 ? bucket : undefined;
+      const body = JSON.stringify(buildLiveSessionCaptureFixture({
         sandbox,
-        firestoreRules: payload.rules,
-        rtdbRules: payload.databaseRules ?? null,
-        rtdbState,
-        rtdbDatabaseUrl: defaultInstanceUrl(defaultInstance),
-        rtdbInstances: captureRtdbInstances(sandbox, defaultInstance),
+        defaultInstance: databaseRules.defaultName(),
+        ...(defaultStorageBucket !== undefined ? { defaultStorageBucket } : {}),
         authState: {
           users: authOps.exportUsers(auth),
           currentUser: auth.currentUser,
@@ -387,8 +378,10 @@ if (!useWorker) try {
       }));
       const captureHeaders: Record<string, string> = {
         'content-type': 'application/json',
-        ...(payload.sessionToken ? { 'x-pyric-session-token': payload.sessionToken } : {}),
       };
+      if (payload.sessionToken) {
+        captureHeaders['x-pyric-session-token'] = payload.sessionToken;
+      }
       fetch('/__pyric/capture', {
         method: 'POST',
         headers: captureHeaders,
@@ -397,10 +390,7 @@ if (!useWorker) try {
       }).catch(() => {});
     };
 
-    // Debounced flush on every sandbox event — coalesces rapid writes (e.g.
-    // seeding multiple docs) into a single push. 400ms matches the cadence
-    // of the persist auth flush; small enough to feel live, large enough to
-    // avoid one-POST-per-write on bulk ops.
+    // Debounced flush coalesces rapid writes into a single capture POST.
     let captureTimer: ReturnType<typeof setTimeout> | null = null;
     sandbox.onEvent(() => {
       if (captureTimer) clearTimeout(captureTimer);

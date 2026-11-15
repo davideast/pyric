@@ -428,7 +428,7 @@ export async function captureSandboxSnapshot(
   options?: CaptureSnapshotOptions,
 ): Promise<SandboxSnapshot> {
   const env = getInternalEnv(sandbox);
-  const firestoreRulesSource = env.getRules();
+  const firestoreRulesSource = env.getExplicitRules();
   const firestoreDocs: Record<string, EncodedMap> = {};
   const rawDocs = env.snapshot();
   for (const path of Object.keys(rawDocs).sort()) {
@@ -470,7 +470,7 @@ export async function captureSandboxSnapshot(
     rtdb?: Record<string, string>;
     storage?: Record<string, string>;
   } = {};
-  if (firestoreRulesSource.length > 0) {
+  if (firestoreRulesSource !== null && firestoreRulesSource.length > 0) {
     rules.firestore = { [DEFAULT_SNAPSHOT_RESOURCE]: firestoreRulesSource };
   }
   if (Object.keys(rtdbRules).length > 0) {

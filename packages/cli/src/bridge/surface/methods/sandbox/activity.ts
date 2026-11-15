@@ -16,7 +16,7 @@
  */
 import { z } from 'zod';
 import { monitorFirebaseActivity, type ActivityFeed, type ActivityIncident } from 'pyric/firestore/internal';
-import type { SandboxEvent } from 'pyric/sandbox';
+import type { SandboxEvent, SandboxOperationEvent } from 'pyric/sandbox';
 import {
   formatActivitySummary,
   summarizeActivityCoverage,
@@ -36,15 +36,72 @@ function historyFeed(history: readonly SandboxEvent[]): ActivityFeed {
   };
 }
 
-/** The events and ids a `since` cursor makes current: every event at or after
- * it in the sandbox's own event order. */
-function windowAtOrAfter(
+function normalizeEventPath(path: string | undefined): string | undefined {
+  if (path === undefined) return undefined;
+  if (path.startsWith('/')) return path.slice(1);
+  return path;
+}
+
+function matchesOperationTarget(
+  cursor: SandboxOperationEvent,
+  candidatePath: string | undefined,
+): boolean {
+  const normalizedCandidate = normalizeEventPath(candidatePath);
+  if (normalizedCandidate === undefined) return false;
+  if (normalizedCandidate === normalizeEventPath(cursor.path)) return true;
+  const rootPath = cursor.detail?.rootPath;
+  if (typeof rootPath === 'string' && normalizedCandidate === normalizeEventPath(rootPath)) {
+    return true;
+  }
+  return false;
+}
+
+function isCompanionCommit(
+  cursor: SandboxOperationEvent,
+  candidate: SandboxEvent,
+): boolean {
+  if (candidate.kind !== 'commit') return false;
+  if (candidate.service !== cursor.service) return false;
+  if (candidate.instance !== cursor.instance) return false;
+  if (cursor.groupId !== undefined && candidate.groupId === cursor.groupId) {
+    return true;
+  }
+  return matchesOperationTarget(cursor, candidate.path);
+}
+
+function isCompanionMutation(
+  cursor: SandboxOperationEvent,
+  candidate: SandboxEvent,
+): boolean {
+  if (candidate.kind !== 'service_mutation') return false;
+  if (candidate.service === 'auth') return false;
+  if (candidate.service !== cursor.service) return false;
+  if (candidate.instance !== cursor.instance) return false;
+  return matchesOperationTarget(cursor, candidate.path);
+}
+
+/** The events and ids strictly after a `since` cursor in the sandbox's own
+ * event order, skipping immediately trailing companion `commit` and
+ * `service_mutation` records emitted for the same operation cursor. */
+function windowAfter(
   events: readonly SandboxEvent[],
   since: string,
 ): { events: readonly SandboxEvent[]; ids: Set<string> } | null {
   const at = events.findIndex((event) => event.id === since);
   if (at === -1) return null;
-  const slice = events.slice(at);
+  let start = at + 1;
+  const cursor = events[at];
+  if (cursor !== undefined && cursor.kind === 'operation') {
+    const firstTrailing = events[start];
+    if (firstTrailing !== undefined && isCompanionCommit(cursor, firstTrailing)) {
+      start += 1;
+    }
+    const nextTrailing = events[start];
+    if (nextTrailing !== undefined && isCompanionMutation(cursor, nextTrailing)) {
+      start += 1;
+    }
+  }
+  const slice = events.slice(start);
   return {
     events: slice,
     ids: new Set(slice.map((event) => event.id)),
@@ -79,7 +136,7 @@ export default {
     let inspectedEvents: readonly SandboxEvent[] = history;
     let currentIds: Set<string> | null = null;
     if (since !== undefined) {
-      const current = windowAtOrAfter(history, since);
+      const current = windowAfter(history, since);
       if (current === null) {
         return operationFailure(
           `The sandbox carries no event '${since}'. Either the log was replaced, by a restore or a reset, or the cursor is not one this sandbox handed out. Call activity without 'since' to read every incident the sandbox holds now.`,

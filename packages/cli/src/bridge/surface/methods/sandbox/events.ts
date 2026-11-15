@@ -16,6 +16,7 @@ import {
   type RequestEvent,
   type SandboxEvent,
   type SandboxListenerEvent,
+  type SandboxObservationGapEvent,
   type SandboxOperationEvent,
 } from 'pyric/sandbox';
 import { storageDeniedWrites, type RecordedStorageDeniedWrite } from 'pyric/storage/internal';
@@ -30,6 +31,76 @@ type DetailedOperationRecord = OperationRecord & {
   readonly resourceBefore?: unknown;
   readonly resourceAfter?: unknown;
 };
+
+type ObservationGapRecord = Readonly<{
+  kind: 'observation_gap';
+  id: string;
+  at: number;
+  reason: SandboxObservationGapEvent['reason'];
+  omittedCount: number;
+  omittedDenials?: number;
+  firstEventId: string;
+  lastEventId: string;
+}>;
+
+type SandboxEventsEntry = DetailedOperationRecord | ObservationGapRecord;
+
+function toObservationGapRecord(event: SandboxObservationGapEvent): ObservationGapRecord {
+  const copy: { -readonly [Key in keyof ObservationGapRecord]: ObservationGapRecord[Key] } = {
+    kind: 'observation_gap',
+    id: event.id,
+    at: event.at,
+    reason: event.reason,
+    omittedCount: event.omittedCount,
+    firstEventId: event.firstEventId,
+    lastEventId: event.lastEventId,
+  };
+  if (event.omittedDenials !== undefined) {
+    copy.omittedDenials = event.omittedDenials;
+  }
+  return Object.freeze(copy);
+}
+
+function gapAppliesToKind(event: SandboxObservationGapEvent, kind: string): boolean {
+  if (kind !== 'denials') return true;
+  return event.omittedDenials === undefined || event.omittedDenials > 0;
+}
+
+function isObservationGapRecord(entry: SandboxEventsEntry): entry is ObservationGapRecord {
+  return 'kind' in entry && entry.kind === 'observation_gap';
+}
+
+function formatEventsSummary(events: readonly SandboxEventsEntry[]): string {
+  let opCount = 0;
+  let gapCount = 0;
+  let omittedCount = 0;
+  let omittedDenials = 0;
+  let hasUntrackedDenials = false;
+  for (const entry of events) {
+    if (isObservationGapRecord(entry)) {
+      gapCount += 1;
+      omittedCount += entry.omittedCount;
+      if (entry.omittedDenials === undefined) {
+        hasUntrackedDenials = true;
+      } else {
+        omittedDenials += entry.omittedDenials;
+      }
+    } else {
+      opCount += 1;
+    }
+  }
+  if (gapCount === 0) {
+    return `${events.length} event(s).`;
+  }
+  const gapLabel = gapCount === 1 ? 'observation gap' : 'observation gaps';
+  if (omittedDenials > 0 && !hasUntrackedDenials) {
+    return `${opCount} event(s), ${gapCount} ${gapLabel} (${omittedCount} omitted, including ${omittedDenials} denial(s)).`;
+  }
+  if (omittedDenials > 0) {
+    return `${opCount} event(s), ${gapCount} ${gapLabel} (${omittedCount} omitted, including at least ${omittedDenials} denial(s)).`;
+  }
+  return `${opCount} event(s), ${gapCount} ${gapLabel} (${omittedCount} omitted).`;
+}
 
 function isWrite(record: OperationRecord): boolean {
   return !READ_METHODS.has(record.method);
@@ -287,9 +358,13 @@ function recordForKind(
   includeDetail: boolean,
   claimed: Set<number>,
   storageDeniedById: ReadonlyMap<string, RecordedStorageDeniedWrite> | null,
-): DetailedOperationRecord | null {
+): SandboxEventsEntry | null {
   const event = history[index];
   if (event === undefined) return null;
+  if (event.kind === 'observation_gap') {
+    if (!gapAppliesToKind(event, kind)) return null;
+    return toObservationGapRecord(event);
+  }
   if (kind === 'listeners') {
     let record = toListenerRecord(event);
     if (record === null) return null;
@@ -357,7 +432,7 @@ export default {
       storageDeniedById = storageDeniedWrites(ctx.sandbox);
     }
     const claimed = new Set<number>();
-    const events: DetailedOperationRecord[] = [];
+    const events: SandboxEventsEntry[] = [];
     let lastIndex = startIndex - 1;
     for (let i = startIndex; i < history.length && events.length < limit; i++) {
       lastIndex = i;
@@ -375,7 +450,7 @@ export default {
 
     return {
       ok: true,
-      summary: `${events.length} event(s).`,
+      summary: formatEventsSummary(events),
       data: { events, nextCursor },
     };
   },

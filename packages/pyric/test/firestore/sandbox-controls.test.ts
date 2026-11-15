@@ -252,4 +252,26 @@ describe('pyric/sandbox/firestore', () => {
     const listenerDenials = report.events.recentDenials.filter((d) => d.path === '/rooms/r1' || d.path === 'rooms/r1');
     expect(listenerDenials.length).toBeGreaterThan(0);
   });
+
+  it('counts prototype-named top-level collections without prototype corruption', () => {
+    const sandbox = initializeSandbox();
+    seedDocuments(sandbox, {
+      'toString/d1': { n: 1 },
+      'constructor/d2': { n: 2 },
+      '__proto__/d3': { n: 3 },
+      'valueOf/d4': { n: 4 },
+      'hasOwnProperty/d5': { n: 5 },
+      'items/d6': { n: 6 },
+    });
+
+    const report = inspect(sandbox);
+    expect(report.documents.totalCount).toBe(6);
+    expect(Reflect.get(report.documents.byCollection, 'toString')).toBe(1);
+    expect(Reflect.get(report.documents.byCollection, 'constructor')).toBe(1);
+    expect(Reflect.get(report.documents.byCollection, 'valueOf')).toBe(1);
+    expect(Reflect.get(report.documents.byCollection, 'hasOwnProperty')).toBe(1);
+    expect(report.documents.byCollection.items).toBe(1);
+    expect(Object.hasOwn(report.documents.byCollection, '__proto__')).toBe(true);
+    expect(Reflect.get(report.documents.byCollection, '__proto__')).toBe(1);
+  });
 });

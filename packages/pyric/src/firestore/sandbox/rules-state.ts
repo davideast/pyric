@@ -57,6 +57,7 @@ export class RulesState {
   }
 
   private currentSource: string;
+  private explicitRules: boolean;
 
   /**
    * RULES-B11 — parsed-AST cache, keyed on the exact source string.
@@ -70,13 +71,19 @@ export class RulesState {
   /** The source map read from the source, cached on the same key. */
   private sourceMapCache: { source: string; sourceMap: AuthoredSourceMap } | null = null;
 
-  constructor(initialSource: string) {
+  constructor(initialSource: string, explicit = false) {
     this.currentSource = lowerModularFirestoreRules(initialSource);
+    this.explicitRules = explicit && this.currentSource !== '';
   }
 
   /** The currently deployed rules source. */
   get source(): string {
     return this.currentSource;
+  }
+
+  /** Whether the current rules source was explicitly installed rather than the built-in default. */
+  get isExplicit(): boolean {
+    return this.explicitRules;
   }
 
   /**
@@ -85,10 +92,11 @@ export class RulesState {
    * longer matches — installing the byte-identical source keeps the
    * cached AST warm.
    */
-  set(source: string): void {
+  set(source: string, explicit = source !== ''): void {
     const lowered = lowerModularFirestoreRules(source);
     if (this.currentSource !== lowered) this.version = rulesVersion();
     this.currentSource = lowered;
+    this.explicitRules = explicit && lowered !== '';
   }
 
   /**
