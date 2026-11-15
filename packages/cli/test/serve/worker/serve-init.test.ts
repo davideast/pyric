@@ -616,7 +616,7 @@ describe('applyServeInit — capture (the verify loop)', () => {
       await Promise.all([beforeReset, afterReset]);
       expect(bodies).toHaveLength(2);
       const fixture = JSON.parse(bodies[1]!);
-      expect(fixture.services.firestore.state.documents).toEqual({});
+      expect(fixture.services.firestore?.state.documents ?? {}).toEqual({});
     } finally {
       release.resolve(new Response(null, { status: 204 }));
       result.dispose();

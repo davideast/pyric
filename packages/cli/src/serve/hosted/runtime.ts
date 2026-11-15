@@ -11,10 +11,10 @@ import { fetchAiUpstream, resolveAiProxyUpstream } from '../ai-proxy.js';
 import {
   databaseInstanceRulesHost,
   deployFirestoreRulesToHost,
-  enforcedFirestoreRulesState,
   normalizeDatabaseRules,
   setDatabaseRules,
   setDatabaseTargetRules,
+  syncFirestoreActiveRules,
 } from '../worker/host/rules.js';
 import { markHostedCaptureManaged } from '../capture-store.js';
 import { runHostedClearMethod } from './capture-preservation.js';
@@ -25,7 +25,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameS
 import { open as openFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { createSandboxRoot, emitSandboxEvent, getInternalEnv, LOCKED_DATABASE_RULES, makeSandboxRuntimeErrorEvent } from 'pyric/sandbox/internal';
+import { createSandboxRoot, emitSandboxEvent, LOCKED_DATABASE_RULES, makeSandboxRuntimeErrorEvent } from 'pyric/sandbox/internal';
 import { getFirestore } from 'pyric/firestore';
 import { setRules } from 'pyric/sandbox/firestore';
 import { getActiveRules as getActiveDatabaseRules } from 'pyric/sandbox/database';
@@ -363,17 +363,6 @@ export async function createHostedRuntime(
     }
   }
 
-  /** The Firestore status from the rules the sandbox enforces, never `active` for a source production would not load. */
-  function syncFirestoreActiveRulesFromSandbox(): void {
-    const source = getInternalEnv(ctx.sandbox).getExplicitRules();
-    if (source === null) {
-      if (ctx.activeRules) delete ctx.activeRules.firestore;
-      return;
-    }
-    ctx.activeRules ??= {};
-    ctx.activeRules.firestore = enforcedFirestoreRulesState(source, ctx.activeRules.firestore);
-  }
-
   /** Synchronize the default RTDB instance's tracked active rules from the sandbox, and re-apply named instance rules after checkpoint restore or branch promote. */
   function syncDatabaseActiveRulesFromSandbox(reapplyNamedInstances = false): void {
     const defaultRtdb = rtdbInstance(ctx);
@@ -432,7 +421,7 @@ export async function createHostedRuntime(
         : dispatch());
       if (result.ok) {
         if (message.name === 'firestore_simulator_create') {
-          syncFirestoreActiveRulesFromSandbox();
+          syncFirestoreActiveRules(ctx);
           restoreFirestoreSubscriptions(ctx);
         }
         // Deleting or disabling a user leaves its signed-in ports alone, as
@@ -845,7 +834,7 @@ export async function createHostedRuntime(
         let outcome: OperationResult;
         if (key === 'sandbox.reset' || key === 'sandbox.restore') {
           const syncRulesAfterRestore = () => {
-            syncFirestoreActiveRulesFromSandbox();
+            syncFirestoreActiveRules(ctx);
             syncDatabaseActiveRulesFromSandbox(true);
           };
           outcome = await runHostedClearMethod({
@@ -904,7 +893,7 @@ export async function createHostedRuntime(
               recorder?.note({ kind: 'rules', at: Date.now(), service: 'storage', source: typeof args.rules === 'string' ? args.rules : null });
             }
           } else if (key === 'sandbox.seed' || key === 'sandbox.seedFromFixture' || key === 'sandbox.promote') {
-            syncFirestoreActiveRulesFromSandbox();
+            syncFirestoreActiveRules(ctx);
             syncDatabaseActiveRulesFromSandbox(key === 'sandbox.promote');
             reconcilePortSessions();
             restoreFirestoreSubscriptions(ctx);

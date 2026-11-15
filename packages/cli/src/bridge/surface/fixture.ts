@@ -89,11 +89,13 @@ export async function buildFixture(
 
   const fixture: SandboxStateFixture = {
     schema: STATE_FIXTURE_SCHEMA,
-    firestoreRules: snapshot.rules.firestore?.[DEFAULT_SNAPSHOT_RESOURCE] ?? '',
     users,
     firestore: firestoreDocs,
     storage: storageEntries,
   };
+
+  const firestoreRules = snapshot.rules.firestore?.[DEFAULT_SNAPSHOT_RESOURCE];
+  if (firestoreRules !== undefined) fixture.firestoreRules = firestoreRules;
 
   const defaultDatabase = snapshot.rtdb[DEFAULT_SNAPSHOT_RESOURCE];
   if (defaultDatabase !== null && defaultDatabase !== undefined) {

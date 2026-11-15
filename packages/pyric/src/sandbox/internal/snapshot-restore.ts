@@ -225,7 +225,7 @@ export async function restoreSandboxSnapshot(
       env.deployRules(defaultFirestoreRules);
     }
   } else if (!merge) {
-    env.deployRules('');
+    env.resetToDefaultRules();
   }
 
   const rtdbRulesMap = snapshot.rules.rtdb ?? {};

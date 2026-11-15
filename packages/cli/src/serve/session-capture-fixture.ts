@@ -25,7 +25,6 @@ export interface LiveSessionCaptureOptions {
   defaultDatabase?: Database;
   defaultInstance?: string;
   defaultStorageBucket?: string;
-  fallbackFirestoreRules?: string | null;
   authState: {
     users: unknown[];
     currentUser: unknown;
@@ -46,15 +45,7 @@ export function buildLiveSessionCaptureFixture(
   options: LiveSessionCaptureOptions,
 ): PyricVerifyFixture {
   const { sandbox } = options;
-  const explicitFirestoreRules = getInternalEnv(sandbox).getExplicitRules();
-  let firestoreRules: string | null = explicitFirestoreRules;
-  if (
-    firestoreRules === null &&
-    typeof options.fallbackFirestoreRules === 'string' &&
-    options.fallbackFirestoreRules.length > 0
-  ) {
-    firestoreRules = options.fallbackFirestoreRules;
-  }
+  const firestoreRules = getInternalEnv(sandbox).getExplicitRules();
 
   const defaultDatabase = options.defaultDatabase ?? getDatabase(sandbox);
   const rtdbRules = getActiveDatabaseRules(defaultDatabase);

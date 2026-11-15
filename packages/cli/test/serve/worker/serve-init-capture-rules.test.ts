@@ -5,9 +5,18 @@
  */
 import 'fake-indexeddb/auto';
 import { describe, expect, it } from 'bun:test';
-import { initializeSandbox, createMemoryBackend } from 'pyric/sandbox';
+import {
+  applyFullState,
+  captureFullState,
+  createMemoryBackend,
+  initializeSandbox,
+} from 'pyric/sandbox';
 import { getFirestore } from 'pyric/firestore';
 import type { HostCtx } from '../../../src/serve/worker/host.js';
+import {
+  syncFirestoreActiveRules,
+  syncHostRulesAfterCheckpointRestore,
+} from '../../../src/serve/worker/host/rules.js';
 import {
   applyServeInit,
   buildWorkerCtx,
@@ -285,6 +294,28 @@ describe('applyServeInit capture active rules snapshot', () => {
     } finally {
       rtdbCtx.dispose?.();
       rtdbCtx.sandbox.dispose();
+    }
+  });
+
+  it('clears tracked Firestore rules and keeps capture Firestore-free after restoring an implicit checkpoint', async () => {
+    const ctx = await makeCtx();
+    const fetchSpy = recordingFetch();
+    const init = applyServeInit(ctx, basePayload, { fetch: fetchSpy, captureDebounceMs: 10 });
+    try {
+      const implicitSandbox = initializeSandbox();
+      const implicitState = await captureFullState(implicitSandbox);
+
+      await applyFullState(ctx.sandbox, implicitState);
+      syncHostRulesAfterCheckpointRestore(ctx, implicitState.rules);
+      syncFirestoreActiveRules(ctx);
+      expect(ctx.activeRules?.firestore).toBeUndefined();
+
+      await ctx.captureFlush?.();
+      const restoredCapture = JSON.parse(fetchSpy.bodies.at(-1) ?? '{}') as PyricVerifyFixture;
+      expect(restoredCapture.services.firestore).toBeUndefined();
+    } finally {
+      init.dispose();
+      ctx.sandbox.dispose();
     }
   });
 });

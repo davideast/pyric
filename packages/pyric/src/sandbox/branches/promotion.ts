@@ -366,7 +366,12 @@ async function promoteRules(
     seen.add(key);
 
     if (divergence.path === 'firestore') {
-      getInternalEnv(target).deployRules(next.rules.firestore);
+      const env = getInternalEnv(target);
+      if (next.rules.firestore.length > 0) {
+        env.deployRules(next.rules.firestore);
+      } else {
+        env.resetToDefaultRules();
+      }
       continue;
     }
     if (divergence.path === 'database') {

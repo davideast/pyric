@@ -6,7 +6,8 @@
  * `host.ts` is pure-ish: it accepts an injected `{ db, sandbox }` and
  * fake ports, so tests can drive it without a real SharedWorker runtime.
  * This file is the integration shell: it creates the ONE real sandbox,
- * attaches IDB persistence, deploys permissive starter rules, and wires
+ * attaches IDB persistence, relies on the sandbox's built-in open default
+ * Firestore rules until project or runtime rules are deployed, and wires
  * every connecting port to `handleMessage`.
  *
  * Do NOT import this file in tests — import `host.ts` directly.
@@ -30,8 +31,9 @@
  *
  * RULES
  * -----
- * We deploy a permissive starter ruleset on first init. Callers change
- * rules at runtime via `{ t:'op', method:'setRules', source }` messages.
+ * The sandbox starts with its built-in open default Firestore rules until
+ * project rules are loaded or callers deploy rules at runtime via
+ * `{ t:'op', method:'setRules', source }` messages.
  *
  * SINGLE SANDBOX GUARANTEE
  * ------------------------

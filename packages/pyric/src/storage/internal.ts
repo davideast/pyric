@@ -31,9 +31,7 @@ import { buildStoredMetadata } from './upload.js';
 
 export {
   bindStorageOperationContext,
-  getActiveStorageRulesResolution,
   getAdminStorageSandbox,
-  getDefaultStorageRulesResolution,
   getStorageService,
   nameStorageBucket,
   storageAuth,
@@ -49,6 +47,10 @@ export {
   storageBucketsWithRules,
   compiledStorageRulesForBucket,
 } from './service.js';
+export {
+  getActiveStorageRulesResolution,
+  getDefaultStorageRulesResolution,
+} from './rules-inspection.js';
 export {
   enforceRules,
   normalizeRecordedStorageDeniedWrite,

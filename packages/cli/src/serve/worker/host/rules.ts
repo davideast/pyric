@@ -13,7 +13,11 @@
 
 import type { Firestore } from 'pyric/firestore';
 import type { SandboxRuleSources } from 'pyric/sandbox';
-import { LOCKED_DATABASE_RULES, withDatabaseRulesPreservedOnReset } from 'pyric/sandbox/internal';
+import {
+  getInternalEnv,
+  LOCKED_DATABASE_RULES,
+  withDatabaseRulesPreservedOnReset,
+} from 'pyric/sandbox/internal';
 import { setRules } from 'pyric/sandbox/firestore';
 import {
   lintFirestoreRules,
@@ -253,6 +257,17 @@ export function deployFirestoreRulesToHost(ctx: HostCtx, source: string): {
   };
   const rejectionMessage = rejection !== null ? `Firestore ${rejection.message}` : null;
   return { ok: okDeploy, warnings: result.warnings, messages, rejectionMessage };
+}
+
+/** Sync tracked Firestore rules from explicit sandbox rules, clearing when only defaults are active. */
+export function syncFirestoreActiveRules(ctx: HostCtx): void {
+  const source = getInternalEnv(ctx.sandbox).getExplicitRules();
+  if (source === null) {
+    if (ctx.activeRules) delete ctx.activeRules.firestore;
+    return;
+  }
+  ctx.activeRules ??= {};
+  ctx.activeRules.firestore = enforcedFirestoreRulesState(source, ctx.activeRules.firestore);
 }
 
 /** Synchronize `ctx.activeRules` and RTDB instance rules after a full-state checkpoint restore. */

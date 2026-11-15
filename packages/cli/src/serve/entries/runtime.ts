@@ -18,6 +18,7 @@ import {
   serializeToBuckets,
   bundleRecords,
 } from 'pyric/sandbox';
+import { getApps } from 'pyric/app';
 import { getFirestore } from 'pyric/firestore';
 import { seedDocuments, setRules, snapshotDocuments } from 'pyric/sandbox/firestore';
 import { rulesSourceRejection } from 'pyric/rules/internal';
@@ -358,18 +359,18 @@ if (!useWorker) try {
     });
   }
   if (payload.capture) {
-    // ── capture mode (the write-side of the pyric verify loop): whenever
-    // the sandbox changes, push a snapshot of the full session fixture
-    // (rules + history + firestore state) to /__pyric/capture. The server
-    // writes it verbatim to `.pyric/last-session.json` so `pyric verify`
-    // can replay without any extra arguments. This is independent of
-    // --persist — capture is about the verify loop, persist is about
-    // cross-reload durability.
+    // Capture mode: push live rules, history, and state to /__pyric/capture
+    // for `pyric verify`, independent of --persist durability.
     const flushCapture = (): void => {
       const auth = getAuth(sandbox);
+      const apps = getApps();
+      const defaultApp = apps.find((app) => app.name === '[DEFAULT]') ?? apps[0];
+      const bucket = defaultApp?.options.storageBucket;
+      const defaultStorageBucket = typeof bucket === 'string' && bucket.length > 0 ? bucket : undefined;
       const body = JSON.stringify(buildLiveSessionCaptureFixture({
         sandbox,
         defaultInstance: databaseRules.defaultName(),
+        ...(defaultStorageBucket !== undefined ? { defaultStorageBucket } : {}),
         authState: {
           users: authOps.exportUsers(auth),
           currentUser: auth.currentUser,
@@ -389,10 +390,7 @@ if (!useWorker) try {
       }).catch(() => {});
     };
 
-    // Debounced flush on every sandbox event — coalesces rapid writes (e.g.
-    // seeding multiple docs) into a single push. 400ms matches the cadence
-    // of the persist auth flush; small enough to feel live, large enough to
-    // avoid one-POST-per-write on bulk ops.
+    // Debounced flush coalesces rapid writes into a single capture POST.
     let captureTimer: ReturnType<typeof setTimeout> | null = null;
     sandbox.onEvent(() => {
       if (captureTimer) clearTimeout(captureTimer);

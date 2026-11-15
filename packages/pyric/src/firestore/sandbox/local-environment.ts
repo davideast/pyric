@@ -60,11 +60,7 @@ import { RulesState } from './rules-state.js';
 import { RulesReadEngine } from './rules-read-engine.js';
 import { WriteEngine } from './write-engine.js';
 import { SandboxClock } from '../../sandbox/clock.js';
-import {
-  DEFAULT_OPEN_RULES,
-} from './rules-evaluation.js';
-
-
+import { DEFAULT_OPEN_RULES } from './rules-evaluation.js';
 
 export class LocalEnvironment {
   private state: DocStore;
@@ -127,15 +123,8 @@ export class LocalEnvironment {
     this.eventLog = new EventLog(clock);
     const engine = this;
     this.simulator = new SimulateFirestoreRulesHandler();
-    // Default to an allow-all ruleset so a freshly-constructed sandbox
-    // works for the quickstart `addDoc` / `getDoc` flow without forcing
-    // the caller to call `setRules(...)` first. The empty string used
-    // to live here and made the simulator throw `Failed to parse rules
-    // source` on first write — the most common failure mode for new
-    // users running `bun start` from `pyric init`. Callers who care
-    // about real rule enforcement still call `setRules(...)` explicitly;
-    // the default is just "don't blow up before you've thought about
-    // rules."
+    // Default to an allow-all ruleset so fresh sandboxes work out of the box
+    // without requiring `setRules(...)` first; callers deploy real rules explicitly.
     this.rules = new RulesState(DEFAULT_OPEN_RULES, false);
     // Rules-gated reads need live keyspace access (`seed()` replaces state).
     this.reads = new RulesReadEngine(
@@ -300,22 +289,7 @@ export class LocalEnvironment {
     return this.listeners.getSnapshotListenerCount();
   }
 
-  /**
-   * Tear down the environment's listener registries (Slice 8).
-   *
-   * Clears every snapshot listener, denial subscriber, and snapshot-error
-   * subscriber so the environment drops its references to consumer
-   * callbacks. Use case: a host (e.g. the playground runner) is about to
-   * discard this `LocalEnvironment` in favor of a fresh one — calling
-   * `dispose()` first guarantees that any orphan callbacks held by the
-   * outgoing env can no longer be invoked, even if some external code path
-   * still holds a reference to the old instance.
-   *
-   * Idempotent: clearing already-empty sets is a no-op. Does not touch
-   * data state (`state` / `eventLog` / `rules`) — `dispose()` is
-   * about *callback ownership*, not data lifecycle. Construct a fresh
-   * `LocalEnvironment` (or call `seed()`) to reset data.
-   */
+  /** Tear down listener, denial, and state-change registries (idempotent; leaves data intact). */
   dispose(): void {
     this.listeners.dispose();
     this.events.clear();
@@ -368,18 +342,16 @@ export class LocalEnvironment {
    */
   deployRules(source: string): LintResult {
     const lint = lintFirestoreRules(source);
-    // **Always install.** The previous behavior gated install on
-    // `errors.length === 0` and silently no-op'd otherwise — that
-    // caused a 51-tool-call debug session where an agent couldn't
-    // figure out why its rules weren't applied (CLAUDE_DEBUG_SESSION.md).
-    // Lint is *diagnosis*, not enforcement. The dev-loop sandbox installs
-    // whatever the caller asks for; CI or a release workflow can enforce a
-    // stricter policy before shipping. Callers that care about
-    // the lint result still get it back; the `sandbox_inspect`
-    // MCP tool surfaces it for agents.
+    // Always install regardless of lint errors; lint is diagnostic, not a gate.
     this.rules.set(source, source !== '');
     this.listeners.reEvaluateAllListeners();
     return lint;
+  }
+
+  /** Restore built-in open default rules without marking rules as explicitly deployed. */
+  resetToDefaultRules(): void {
+    this.rules.set(DEFAULT_OPEN_RULES, false);
+    this.listeners.reEvaluateAllListeners();
   }
 
   /**

@@ -1,6 +1,7 @@
 import 'fake-indexeddb/auto';
 import { describe, expect, it } from 'bun:test';
-import { initializeSandbox } from 'pyric/sandbox';
+import { applyFullState, captureFullState, initializeSandbox } from 'pyric/sandbox';
+import { captureSandboxSnapshot, restoreSandboxSnapshot } from 'pyric/sandbox/internal';
 import { setRules as setFirestoreRules } from 'pyric/sandbox/firestore';
 import { getDatabase, sandbox as rtdbSandbox } from 'pyric/database';
 import { getStorageSandbox } from 'pyric/storage';
@@ -168,5 +169,49 @@ describe('buildLiveSessionCaptureFixture', () => {
     });
     expect(updated.services.firestore).toBeUndefined();
     expect(updated.services.storage?.rules.source).toBe(UPDATED_STORAGE_RULES);
+  });
+
+  it('keeps Firestore omitted after checkpoint, snapshot(), and captureSandboxSnapshot round-trips', async () => {
+    const source = initializeSandbox();
+    const sourceDb = getDatabase(source);
+    rtdbSandbox.setRules(sourceDb, { rules: { items: { '.read': true, '.write': false } } });
+    getStorageSandbox(source, { rules: INITIAL_STORAGE_RULES });
+
+    // 1. Full-state checkpoint round-trip
+    const checkpointTarget = initializeSandbox();
+    await applyFullState(checkpointTarget, await captureFullState(source));
+    const afterCheckpoint = buildLiveSessionCaptureFixture({
+      sandbox: checkpointTarget,
+      authState: { users: [], currentUser: null },
+    });
+    expect(afterCheckpoint.services.firestore).toBeUndefined();
+    expect(afterCheckpoint.services.storage?.rules.source).toBe(INITIAL_STORAGE_RULES);
+    expect(afterCheckpoint.services.rtdb?.rules.json).toEqual({
+      rules: { items: { '.read': true, '.write': false } },
+    });
+
+    // 2. Sandbox snapshot() / loadSnapshot() round-trip
+    const persistTarget = initializeSandbox();
+    persistTarget.loadSnapshot(source.snapshot());
+    const afterLoadSnapshot = buildLiveSessionCaptureFixture({
+      sandbox: persistTarget,
+      authState: { users: [], currentUser: null },
+    });
+    expect(afterLoadSnapshot.services.firestore).toBeUndefined();
+
+    // 3. captureSandboxSnapshot() / restoreSandboxSnapshot() round-trip
+    const codecTarget = initializeSandbox();
+    const { refusals } = await restoreSandboxSnapshot(
+      codecTarget,
+      await captureSandboxSnapshot(source),
+      { merge: false },
+    );
+    expect(refusals).toEqual([]);
+    const afterCodecRestore = buildLiveSessionCaptureFixture({
+      sandbox: codecTarget,
+      authState: { users: [], currentUser: null },
+    });
+    expect(afterCodecRestore.services.firestore).toBeUndefined();
+    expect(afterCodecRestore.services.storage?.rules.source).toBe(INITIAL_STORAGE_RULES);
   });
 });
