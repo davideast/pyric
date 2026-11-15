@@ -9,12 +9,22 @@
  */
 import { afterEach, describe, expect, test } from 'bun:test';
 import { generateKeyPairSync } from 'node:crypto';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, relative } from 'node:path';
 import { cert, deleteApp, initializeApp, type App, type AppOptions, type Credential } from 'firebase-admin/app';
 import { adminAppProjectId, adminEnvRefusal, adminProjectGate } from '../src/admin/project-gate.js';
 import { LIVE_REFUSED, type LiveAdminProjectRefusal } from '../src/refusal.js';
 
 const HOST = 'a';
 const OTHER = 'b';
+const tempDirs: string[] = [];
+
+function makeTempDir(): string {
+  const dir = mkdtempSync(join(tmpdir(), 'pyric-admin-project-gate-'));
+  tempDirs.push(dir);
+  return dir;
+}
 
 /** A throwaway key made for this run: `cert()` parses it, and nothing here signs with it. */
 const PRIVATE_KEY = generateKeyPairSync('rsa', { modulusLength: 2048 })
@@ -53,6 +63,9 @@ function adcCredential(projectId: string): CountingCredential {
 
 afterEach(async () => {
   await Promise.all(made.splice(0).map((each) => deleteApp(each)));
+  for (const dir of tempDirs.splice(0)) {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 function refusalOf(error: unknown): LiveAdminProjectRefusal {
@@ -62,6 +75,8 @@ function refusalOf(error: unknown): LiveAdminProjectRefusal {
 describe('adminEnvRefusal', () => {
   test('passes when no project variable is set, or each names the host', () => {
     expect(adminEnvRefusal({}, HOST)).toBeNull();
+    expect(adminEnvRefusal({ FIREBASE_CONFIG: '' }, HOST)).toBeNull();
+    expect(adminEnvRefusal({ FIREBASE_CONFIG: '{}' }, HOST)).toBeNull();
     const env = { GOOGLE_CLOUD_PROJECT: HOST, GCLOUD_PROJECT: HOST, FIREBASE_CONFIG: JSON.stringify({ projectId: HOST }) };
     expect(adminEnvRefusal(env, HOST)).toBeNull();
   });
@@ -76,6 +91,71 @@ describe('adminEnvRefusal', () => {
     expect(refusal?.source).toBe(source);
     expect(refusal?.appProjectId).toBe(OTHER);
     expect(refusal?.hostProjectId).toBe(HOST);
+  });
+
+  test('reads file-path FIREBASE_CONFIG matching firebase-admin and refuses cross-project or unreadable configs', () => {
+    const dir = makeTempDir();
+    const hostFile = join(dir, 'host-config.json');
+    const emptyFile = join(dir, 'empty-config.json');
+    const otherFile = join(dir, 'other-config.json');
+    const foreignBucketFile = join(dir, 'foreign-bucket.json');
+    const foreignDbFile = join(dir, 'foreign-db.json');
+    const malformedFile = join(dir, 'malformed.json');
+    const arrayFile = join(dir, 'array.json');
+    const missingFile = join(dir, 'missing-config.json');
+
+    writeFileSync(hostFile, JSON.stringify({
+      projectId: HOST,
+      storageBucket: `${HOST}.appspot.com`,
+      databaseURL: `https://${HOST}-default-rtdb.firebaseio.com`,
+    }));
+    writeFileSync(emptyFile, '{}');
+    writeFileSync(otherFile, JSON.stringify({ projectId: OTHER }));
+    writeFileSync(foreignBucketFile, JSON.stringify({ storageBucket: `${OTHER}.firebasestorage.app` }));
+    writeFileSync(foreignDbFile, JSON.stringify({ databaseURL: `https://${OTHER}-default-rtdb.firebaseio.com` }));
+    writeFileSync(malformedFile, '{ not valid json');
+    writeFileSync(arrayFile, '["a"]');
+
+    // Host and empty JSON config files pass.
+    expect(adminEnvRefusal({ FIREBASE_CONFIG: hostFile }, HOST)).toBeNull();
+    expect(adminEnvRefusal({ FIREBASE_CONFIG: emptyFile }, HOST)).toBeNull();
+
+    // Cross-project file-path FIREBASE_CONFIG (absolute and relative paths) refuses.
+    const otherRefusal = adminEnvRefusal({ FIREBASE_CONFIG: otherFile }, HOST);
+    expect(otherRefusal?.code).toBe(LIVE_REFUSED);
+    expect(otherRefusal?.source).toBe('FIREBASE_CONFIG');
+    expect(otherRefusal?.appProjectId).toBe(OTHER);
+    expect(otherRefusal?.hostProjectId).toBe(HOST);
+
+    const relOther = relative(process.cwd(), otherFile);
+    const relRefusal = adminEnvRefusal({ FIREBASE_CONFIG: relOther }, HOST);
+    expect(relRefusal?.code).toBe(LIVE_REFUSED);
+    expect(relRefusal?.appProjectId).toBe(OTHER);
+
+    // Foreign default storageBucket or databaseURL without projectId refuses.
+    expect(adminEnvRefusal({ FIREBASE_CONFIG: foreignBucketFile }, HOST)?.code).toBe(LIVE_REFUSED);
+    expect(adminEnvRefusal({ FIREBASE_CONFIG: foreignDbFile }, HOST)?.code).toBe(LIVE_REFUSED);
+    expect(
+      adminEnvRefusal({ FIREBASE_CONFIG: JSON.stringify({ storageBucket: `${OTHER}.appspot.com` }) }, HOST)?.code,
+    ).toBe(LIVE_REFUSED);
+
+    // Unreadable, directory, malformed, non-object, and leading-space-file FIREBASE_CONFIG fail closed.
+    for (const badValue of [
+      missingFile,
+      dir,
+      malformedFile,
+      arrayFile,
+      '{broken',
+      '[]',
+      'null',
+      ` ${JSON.stringify({ projectId: HOST })}`,
+    ]) {
+      const refusal = adminEnvRefusal({ FIREBASE_CONFIG: badValue }, HOST);
+      expect(refusal?.code).toBe(LIVE_REFUSED);
+      expect(refusal?.source).toBe('FIREBASE_CONFIG');
+      expect(refusal?.hostProjectId).toBe(HOST);
+      expect(refusal?.message.includes(missingFile)).toBe(false);
+    }
   });
 });
 

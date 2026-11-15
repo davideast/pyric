@@ -14,12 +14,22 @@
  * Pyric never opens a credentials file and never touches a key or a token:
  * it reads only the project id, through firebase-admin's own objects.
  */
-import { liveAdminAppUnreadable, liveAdminProjectRefusal, type AdminProjectSource, type LiveAdminProjectRefusal } from '../refusal.js';
+import { readFileSync, statSync } from 'node:fs';
+import {
+  LIVE_REFUSED,
+  liveAdminAppUnreadable,
+  liveAdminProjectRefusal,
+  type AdminProjectSource,
+  type LiveAdminProjectRefusal,
+} from '../refusal.js';
 
 type Env = Readonly<Record<string, string | undefined>>;
 
 /** The variables firebase-admin reads a project id from, in its order. */
 const PROJECT_VARIABLES = ['GOOGLE_CLOUD_PROJECT', 'GCLOUD_PROJECT'] as const;
+const MAX_FIREBASE_CONFIG_BYTES = 1_048_576;
+const FIREBASE_CONFIG_BUCKET = /^(?:gs:\/\/)?([a-z0-9-]+)\.(?:appspot\.com|firebasestorage\.app)\/?$/i;
+const FIREBASE_CONFIG_DATABASE = /^https?:\/\/([a-z0-9-]+)-default-rtdb\.(?:firebaseio\.com|[a-z0-9-]+\.firebasedatabase\.app)(?:\/|$)/i;
 
 /**
  * Inherited environment variable pinning the root `@pyric/live/register`
@@ -83,16 +93,80 @@ export function buildPinnedLiveEnvMap(
   };
 }
 
-/** The `projectId` in `FIREBASE_CONFIG`'s inline JSON, or null. */
-function firebaseConfigProjectId(config: string | undefined): string | null {
-  const isInlineJson = config?.trimStart().startsWith('{') === true;
-  if (!isInlineJson) return null;
-  try {
-    const parsed = JSON.parse(config as string) as { projectId?: unknown };
-    return isNonEmptyString(parsed.projectId) ? parsed.projectId : null;
-  } catch {
-    return null;
+function unreadableFirebaseConfigRefusal(hostProjectId: string, reason: string): LiveAdminProjectRefusal {
+  const message =
+    `@pyric/live: firebase-admin is refused in live mode, from a Node process: ` +
+    `the environment variable FIREBASE_CONFIG could not be read (${reason}), so live mode can't verify it targets '${hostProjectId}'. ` +
+    `No Admin request left. Fix or unset FIREBASE_CONFIG so it names '${hostProjectId}'.`;
+  return Object.assign(new Error(message), {
+    code: LIVE_REFUSED,
+    source: 'FIREBASE_CONFIG' as const,
+    appProjectId: '',
+    hostProjectId,
+  });
+}
+
+function loadFirebaseConfigJson(
+  config: string,
+  hostProjectId: string,
+): { ok: true; text: string } | { ok: false; refusal: LiveAdminProjectRefusal } {
+  // Matches firebase-admin's parseFirebaseConfig(): inline JSON starts with '{', otherwise a file path.
+  if (config.startsWith('{')) {
+    return { ok: true, text: config };
   }
+  let stats: ReturnType<typeof statSync>;
+  try {
+    stats = statSync(config);
+  } catch {
+    return { ok: false, refusal: unreadableFirebaseConfigRefusal(hostProjectId, 'file could not be read') };
+  }
+  if (!stats.isFile()) {
+    return { ok: false, refusal: unreadableFirebaseConfigRefusal(hostProjectId, 'path is not a regular file') };
+  }
+  if (stats.size > MAX_FIREBASE_CONFIG_BYTES) {
+    return { ok: false, refusal: unreadableFirebaseConfigRefusal(hostProjectId, 'file exceeds size limit') };
+  }
+  try {
+    return { ok: true, text: readFileSync(config, 'utf8') };
+  } catch {
+    return { ok: false, refusal: unreadableFirebaseConfigRefusal(hostProjectId, 'file could not be read') };
+  }
+}
+
+function firebaseConfigProjects(parsed: Record<string, unknown>): readonly string[] {
+  const found: string[] = [];
+  if (isNonEmptyString(parsed.projectId)) found.push(parsed.projectId);
+  if (isNonEmptyString(parsed.storageBucket)) {
+    const bucketProject = FIREBASE_CONFIG_BUCKET.exec(parsed.storageBucket.trim())?.[1]?.toLowerCase();
+    if (bucketProject !== undefined) found.push(bucketProject);
+  }
+  if (isNonEmptyString(parsed.databaseURL)) {
+    const dbProject = FIREBASE_CONFIG_DATABASE.exec(parsed.databaseURL.trim())?.[1]?.toLowerCase();
+    if (dbProject !== undefined) found.push(dbProject);
+  }
+  return found;
+}
+
+/**
+ * Validates `FIREBASE_CONFIG` (inline JSON or file path, matching firebase-admin)
+ * against `hostProjectId`, failing closed when set but unreadable or malformed.
+ */
+function firebaseConfigRefusal(config: string | undefined, hostProjectId: string): LiveAdminProjectRefusal | null {
+  if (!isNonEmptyString(config)) return null;
+  const loaded = loadFirebaseConfigJson(config, hostProjectId);
+  if (!loaded.ok) return loaded.refusal;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(loaded.text);
+  } catch {
+    return unreadableFirebaseConfigRefusal(hostProjectId, 'invalid JSON');
+  }
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+    return unreadableFirebaseConfigRefusal(hostProjectId, 'expected a JSON object');
+  }
+  const mismatch = firebaseConfigProjects(parsed as Record<string, unknown>).find((id) => id !== hostProjectId);
+  if (mismatch === undefined) return null;
+  return liveAdminProjectRefusal({ source: 'FIREBASE_CONFIG', appProjectId: mismatch, hostProjectId });
 }
 
 /**
@@ -110,23 +184,18 @@ function projectVariables(env: Env): { source: AdminProjectSource; projectId: st
   return named;
 }
 
-/** Each project the environment names, with the variable that names it, `FIREBASE_CONFIG` included. */
-function envProjects(env: Env): readonly { source: AdminProjectSource; projectId: string }[] {
-  const named = projectVariables(env);
-  const configProjectId = firebaseConfigProjectId(env.FIREBASE_CONFIG);
-  if (configProjectId !== null) named.push({ source: 'FIREBASE_CONFIG', projectId: configProjectId });
-  return named;
-}
-
 /**
  * The start refusal for the first project variable in `env` that names
- * another project than `hostProjectId`, or null when each set one names it.
+ * another project than `hostProjectId` (or an unreadable/malformed
+ * `FIREBASE_CONFIG`), or null when each set one names it.
  * The register throws it, as it throws `liveStartRefusal`'s reason.
  */
 export function adminEnvRefusal(env: Env, hostProjectId: string): LiveAdminProjectRefusal | null {
-  const mismatch = envProjects(env).find(({ projectId }) => projectId !== hostProjectId);
-  if (mismatch === undefined) return null;
-  return liveAdminProjectRefusal({ source: mismatch.source, appProjectId: mismatch.projectId, hostProjectId });
+  const mismatch = projectVariables(env).find(({ projectId }) => projectId !== hostProjectId);
+  if (mismatch !== undefined) {
+    return liveAdminProjectRefusal({ source: mismatch.source, appProjectId: mismatch.projectId, hostProjectId });
+  }
+  return firebaseConfigRefusal(env.FIREBASE_CONFIG, hostProjectId);
 }
 
 /** The project an Admin app resolves, and where it came from. */
