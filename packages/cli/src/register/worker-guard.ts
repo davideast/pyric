@@ -27,6 +27,7 @@
 import Module, { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import {
+  hasForeignRegisterPreload,
   isSandboxParent,
   loadsRegister,
   matchesRegisterSpecifier,
@@ -63,6 +64,49 @@ function isOwnEnv(env: unknown): env is Env {
   return typeof env === 'object' && env !== null;
 }
 
+const ATTACHED_PRELOAD_PREFIXES = ['--import=', '--require=', '-r='] as const;
+
+function needsNodeOptionsGuard(
+  nodeOptions: string,
+  parentNodeOptions: string,
+  registerUrl: string,
+  parentLoadedViaNodeOptions: boolean,
+): boolean {
+  return (
+    parentLoadedViaNodeOptions ||
+    loadsRegister(parentNodeOptions, registerUrl) ||
+    loadsRegister(nodeOptions, registerUrl) ||
+    hasForeignRegisterPreload(nodeOptions, registerUrl)
+  );
+}
+
+function needsParentNodeOptionsRestore(
+  parentNodeOptions: string,
+  registerUrl: string,
+  parentLoadedViaNodeOptions: boolean,
+): boolean {
+  const hasForeign = hasForeignRegisterPreload(parentNodeOptions, registerUrl);
+  const droppedOwnPreload = parentLoadedViaNodeOptions && !loadsRegister(parentNodeOptions, registerUrl);
+  return hasForeign || droppedOwnPreload;
+}
+
+function hasNonFileUrlRegisterExecArgv(execArgv: readonly string[], registerUrl: string): boolean {
+  for (const arg of execArgv) {
+    if (!arg.startsWith('file:') && matchesRegisterSpecifier(arg, registerUrl)) {
+      return true;
+    }
+    for (const prefix of ATTACHED_PRELOAD_PREFIXES) {
+      if (arg.startsWith(prefix)) {
+        const target = arg.slice(prefix.length);
+        if (!target.startsWith('file:') && matchesRegisterSpecifier(target, registerUrl)) {
+          return true;
+        }
+      }
+    }
+  }
+  return false;
+}
+
 /**
  * The arguments to build the worker with, so that it loads the register at
  * `registerUrl` in the sandbox `parentEnv` names. `parentActive` says whether
@@ -76,6 +120,7 @@ export function guardWorkerArguments(
   parentEnv: Env = process.env,
   parentActive: boolean = isSandboxParent(),
   evalRegisterUrl: string = registerUrl,
+  parentLoadedViaNodeOptions = false,
 ): [unknown, WorkerOptionsLike | undefined] {
   let guardedSource = source;
   let guardedOptions = options;
@@ -92,7 +137,7 @@ export function guardWorkerArguments(
     const inherited = withInheritedSandbox(options.env, parentEnv, parentActive);
     const parentNodeOptions = parentEnv.NODE_OPTIONS ?? '';
     const childNodeOptions = inherited.NODE_OPTIONS ?? '';
-    if (loadsRegister(parentNodeOptions, registerUrl) || loadsRegister(childNodeOptions, registerUrl)) {
+    if (needsNodeOptionsGuard(childNodeOptions, parentNodeOptions, registerUrl, parentLoadedViaNodeOptions)) {
       inherited.NODE_OPTIONS = withCanonicalRegisterNodeOptions(childNodeOptions, registerUrl);
     }
     guardedOptions = { ...guardedOptions, env: inherited };
@@ -105,10 +150,15 @@ export function guardWorkerArguments(
         break;
       }
     }
-    if (needsPinnedEnv) {
+    const parentNodeOptions = parentEnv.NODE_OPTIONS ?? '';
+    const needsCanonicalNodeOptions = needsParentNodeOptionsRestore(
+      parentNodeOptions,
+      registerUrl,
+      parentLoadedViaNodeOptions,
+    );
+    if (needsPinnedEnv || needsCanonicalNodeOptions) {
       const inherited = withInheritedSandbox(parentEnv, parentEnv, parentActive);
-      const parentNodeOptions = parentEnv.NODE_OPTIONS ?? '';
-      if (loadsRegister(parentNodeOptions, registerUrl)) {
+      if (needsNodeOptionsGuard(parentNodeOptions, parentNodeOptions, registerUrl, parentLoadedViaNodeOptions)) {
         inherited.NODE_OPTIONS = withCanonicalRegisterNodeOptions(parentNodeOptions, registerUrl);
       }
       guardedOptions = { ...guardedOptions, env: inherited };
@@ -116,6 +166,10 @@ export function guardWorkerArguments(
   } else if (typeof options?.env === 'symbol') {
     for (const [name, value] of pinnedInheritedVariables()) {
       if (parentEnv[name] !== value) parentEnv[name] = value;
+    }
+    const parentNodeOptions = parentEnv.NODE_OPTIONS ?? '';
+    if (needsParentNodeOptionsRestore(parentNodeOptions, registerUrl, parentLoadedViaNodeOptions)) {
+      parentEnv.NODE_OPTIONS = withCanonicalRegisterNodeOptions(parentNodeOptions, registerUrl);
     }
   }
   return [guardedSource, guardedOptions];
@@ -147,6 +201,7 @@ export function installWorkerGuard(
   const target = workerThreads ?? (createRequire(import.meta.url)('node:worker_threads') as { Worker: unknown });
   const Original = target.Worker as (WorkerConstructor & { [GUARDED_WORKER]?: true }) | undefined;
   if (typeof Original !== 'function' || Original[GUARDED_WORKER] === true) return;
+  const parentLoadedViaNodeOptions = loadsRegister(process.env.NODE_OPTIONS ?? '', registerUrl);
   class GuardedWorker extends Original {
     static readonly [GUARDED_WORKER] = true;
     constructor(source: unknown, options?: WorkerOptionsLike) {
@@ -154,7 +209,7 @@ export function installWorkerGuard(
       if (
         options?.eval !== true &&
         options?.execArgv === undefined &&
-        process.execArgv.some((arg) => !arg.startsWith('file:') && matchesRegisterSpecifier(arg, registerUrl))
+        hasNonFileUrlRegisterExecArgv(process.execArgv, registerUrl)
       ) {
         effectiveOptions = {
           ...options,
@@ -169,6 +224,7 @@ export function installWorkerGuard(
           process.env,
           isSandboxParent(),
           evalRegisterUrl,
+          parentLoadedViaNodeOptions,
         ),
       );
     }

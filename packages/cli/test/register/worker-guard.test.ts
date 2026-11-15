@@ -184,6 +184,101 @@ describe('guardWorkerArguments', () => {
       else process.env.PYRIC_PROJECT = prevProject;
     }
   });
+
+  it('injects the active register ahead of foreign preloads in execArgv and worker env NODE_OPTIONS', () => {
+    const LIVE_URL = 'file:///app/node_modules/@pyric/live/dist/register.js';
+
+    const [, liveExecOpts] = guardWorkerArguments(
+      '/app/worker.js',
+      { execArgv: ['--import', '@pyric/cli/register'] },
+      LIVE_URL,
+      {},
+      false,
+    );
+    expect(liveExecOpts).toEqual({
+      execArgv: ['--import', LIVE_URL, '--import', '@pyric/cli/register'],
+    });
+
+    const [, sandboxExecOpts] = guardWorkerArguments(
+      '/app/worker.js',
+      { execArgv: ['--import', '/tmp/decoy/packages/live/dist/register/index.js'] },
+      REGISTER_URL,
+      { PYRIC_SANDBOX: 'local' },
+      true,
+    );
+    expect(sandboxExecOpts).toEqual({
+      execArgv: ['--import', REGISTER_URL, '--import', '/tmp/decoy/packages/live/dist/register/index.js'],
+    });
+
+    // Even when parent loaded via CLI execArgv (empty parentEnv.NODE_OPTIONS), a foreign NODE_OPTIONS in custom env is guarded.
+    const [, workerEnvForeign] = guardWorkerArguments(
+      '/app/worker.js',
+      { env: { PATH: '/usr/bin', NODE_OPTIONS: '--import @pyric/live/register' } },
+      REGISTER_URL,
+      { PYRIC_SANDBOX: 'local' },
+      true,
+    );
+    expect(workerEnvForeign).toEqual({
+      env: {
+        PATH: '/usr/bin',
+        PYRIC_SANDBOX: 'local',
+        PYRIC_SANDBOX_FORCE: '1',
+        NODE_OPTIONS: `--import ${REGISTER_URL} --import @pyric/live/register`,
+      },
+    });
+  });
+
+  it('restores NODE_OPTIONS register preload when parent loaded via NODE_OPTIONS and later deleted or replaced it', () => {
+    const [, customOpts] = guardWorkerArguments(
+      '/app/worker.js',
+      { env: { PATH: '/usr/bin' } },
+      REGISTER_URL,
+      { PYRIC_SANDBOX: 'local' },
+      true,
+      REGISTER_URL,
+      true,
+    );
+    expect(customOpts).toEqual({
+      env: {
+        PATH: '/usr/bin',
+        PYRIC_SANDBOX: 'local',
+        PYRIC_SANDBOX_FORCE: '1',
+        NODE_OPTIONS: `--import ${REGISTER_URL}`,
+      },
+    });
+
+    const [, defaultOpts] = guardWorkerArguments(
+      '/app/worker.js',
+      undefined,
+      REGISTER_URL,
+      { PATH: '/bin', PYRIC_SANDBOX: 'local' },
+      true,
+      REGISTER_URL,
+      true,
+    );
+    expect(defaultOpts).toEqual({
+      env: {
+        PATH: '/bin',
+        PYRIC_SANDBOX: 'local',
+        PYRIC_SANDBOX_FORCE: '1',
+        NODE_OPTIONS: `--import ${REGISTER_URL}`,
+      },
+    });
+
+    const shared = Symbol('SHARE_ENV');
+    const tamperedParent: Record<string, string | undefined> = { PATH: '/bin', PYRIC_SANDBOX: 'local' };
+    const [, sharedOpts] = guardWorkerArguments(
+      '/app/worker.js',
+      { env: shared },
+      REGISTER_URL,
+      tamperedParent,
+      true,
+      REGISTER_URL,
+      true,
+    );
+    expect(sharedOpts).toEqual({ env: shared });
+    expect(tamperedParent.NODE_OPTIONS).toBe(`--import ${REGISTER_URL}`);
+  });
 });
 
 describe('installWorkerGuard', () => {

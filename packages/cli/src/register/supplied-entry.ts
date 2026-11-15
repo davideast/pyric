@@ -20,7 +20,11 @@ import { installCjsResolveState, type CjsResolveState, type CjsResolveTurn, type
 import { canonicalFileUrl, packageNameOf } from './package-identity.js';
 import { liveProjectId } from '../serve/live-project.js';
 import { isLiveRegisterActive, isRegisterActive, markLiveRegisterActive } from './activation.js';
-import { installChildProcessGuard, pinInheritedVariables } from './child-process-guard.js';
+import {
+  hasSandboxRegisterAheadOfLive,
+  installChildProcessGuard,
+  pinInheritedVariables,
+} from './child-process-guard.js';
 import {
   LIVE_PASS_THROUGH_VARIABLE,
   LIVE_PROJECT_ROOT_VARIABLE,
@@ -524,6 +528,16 @@ export async function activateWithSuppliedRows(input: SuppliedRowsActivation = {
 export function activateWithSuppliedRowsSync(
   input: SuppliedRowsActivation = {},
 ): InstalledLiveRegisterSync | null {
+  const cliRegisterUrl = new URL('./index.js', import.meta.url).href;
+  const sandboxAheadOfLive =
+    Boolean(process.env.PYRIC_SANDBOX) &&
+    hasSandboxRegisterAheadOfLive(process.env.NODE_OPTIONS ?? '', process.execArgv, cliRegisterUrl);
+  if (sandboxAheadOfLive) {
+    throw new Error(
+      `${LOG_PREFIX}: @pyric/cli/register is already active in this process, so Firebase resolves to the sandbox. ` +
+        'Start the process with one of the two.',
+    );
+  }
   const prepared = prepareSuppliedRowsActivation(input);
   if (prepared === null) return null;
   const installed = loadInstalledLiveRegisterSync(
