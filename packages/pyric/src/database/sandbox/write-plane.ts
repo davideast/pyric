@@ -6,7 +6,7 @@ import { listenerReadDependsOnPaths } from './listener-read-dependency.js';
 import type { ChildListener, ValueListener } from './listener-types.js';
 import { errorPrefix, normalizeWrite, withPriorities, writePriority, type InlinePriority } from './normalize.js';
 import { canonicalPath, denyResultFor, rtdbDenialContext, rtdbRulesDetail } from './operation-events.js';
-import { validatePriority } from './priority-state.js';
+import { validateNestedPriorities, validatePriority } from './priority-state.js';
 import { PriorityWrites } from './priority-writes.js';
 import { executeQuery, type Priority, type QueryRow, type QuerySpec } from './query.js';
 import { indexNotDefined } from './query-index.js';
@@ -93,16 +93,6 @@ export function captureRewindDetail(
 }
 
 const CANONICAL_CHILD_EVENTS = ['child_removed', 'child_added', 'child_moved', 'child_changed'] as const;
-
-function validateNestedPriorities(
-  baseSegments: readonly string[],
-  nested: readonly InlinePriority[],
-): void {
-  for (const entry of nested) {
-    pathSegments(joinPath([...baseSegments, ...entry.segments]));
-    validatePriority(entry.priority);
-  }
-}
 
 export class WritePlane {
   private readonly priorityWrites: PriorityWrites;

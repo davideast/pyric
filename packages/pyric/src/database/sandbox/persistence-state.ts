@@ -1,6 +1,6 @@
 import type { BackendState } from './backend-state.js';
 import type { ChildListeners } from './child-listeners.js';
-import { isJsonObject, joinPath, pathSegments, setOwnProperty, type JsonValue } from './data-tree.js';
+import { isJsonObject, isReservedSegment, joinPath, pathSegments, setOwnProperty, type JsonValue } from './data-tree.js';
 import type { Priority } from './query.js';
 import type { ValueListeners } from './value-listeners.js';
 import { WritePlane } from './write-plane.js';
@@ -11,10 +11,8 @@ function asValidPriority(value: unknown): Exclude<Priority, null> | null {
   return null;
 }
 
-const UNSAFE_PRIORITY_SEGMENTS = new Set(['__proto__', 'prototype', 'constructor']);
-
 function canStorePriorityForSegments(segments: readonly string[]): boolean {
-  return segments[0] !== '.info' && !segments.some((seg) => UNSAFE_PRIORITY_SEGMENTS.has(seg));
+  return segments[0] !== '.info' && !segments.some(isReservedSegment);
 }
 
 function normalizeRestoredNode(

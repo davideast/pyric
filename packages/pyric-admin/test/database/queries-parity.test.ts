@@ -230,10 +230,13 @@ describe('pyric-admin/database — queries and one-shot reads parity', () => {
         onceKeys: ['k3', 'k2'],
       });
 
+      const unfiltered = await db.ref('ranked').orderByPriority().get();
+      expect(unfiltered.getPriority()).toBe('root-prio');
+      expect((unfiltered.exportVal() as Record<string, unknown>)['.priority']).toBe('root-prio');
+
       const windowed = await db.ref('ranked').orderByPriority().startAt(10).limitToFirst(1).get();
-      expect(windowed.getPriority()).toBe('root-prio');
+      expect(windowed.getPriority()).toBeNull();
       expect(windowed.exportVal()).toEqual({
-        '.priority': 'root-prio',
         k2: { '.priority': 10, label: 'two' },
       });
       expect(windowed.child('k2').getPriority()).toBe(10);

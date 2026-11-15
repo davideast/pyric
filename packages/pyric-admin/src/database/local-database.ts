@@ -14,6 +14,7 @@ import {
   assertGettablePath,
   emptySpec,
   isDefaultQuerySpec,
+  loadsAllData,
   type QueryRow,
   type QuerySpec,
 } from 'pyric/database/internal';
@@ -199,7 +200,7 @@ function buildSandboxRef(
         lifecycle.assertActive();
         if (!isDefaultQuerySpec(spec)) {
           const rows = backend.adminGetQuery(canonical, spec);
-          return buildLocalQuerySnapshot(refAt, adminDb, canonical, segs, rows);
+          return buildLocalQuerySnapshot(refAt, adminDb, canonical, segs, rows, loadsAllData(spec));
         }
         const val = backend.adminGet(canonical);
         return buildSandboxSnap(refAt, canonical, val, exportedLocalValueAt(adminDb, segs, val));

@@ -5,7 +5,7 @@ import {
   listenerAttachOwners,
   type ListenerAttribution,
 } from '../../sandbox/attribution/listener-owners.js';
-import { jsonValuesEqual, joinPath, pathSegments, type JsonValue } from './data-tree.js';
+import { isReservedSegment, jsonValuesEqual, joinPath, pathSegments, type JsonValue } from './data-tree.js';
 import type { BackendState } from './backend-state.js';
 import type { ValueListener, ValueListenerSnapshot } from './listener-types.js';
 import { denyResultFor, rtdbDenialContext, rtdbRulesDetail } from './operation-events.js';
@@ -218,7 +218,10 @@ export class ValueListeners {
   private queryPriorityState(path: string, rows: QueryRow[], query: QuerySpec): string {
     const base = pathSegments(path);
     const childState = rows
-      .map((row) => `${row.key}:${this.state.priorities.stateAtOrBelow(joinPath([...base, row.key]))}`)
+      .map((row) => {
+        if (isReservedSegment(row.key)) return `${row.key}:[]`;
+        return `${row.key}:${this.state.priorities.stateAtOrBelow(joinPath([...base, row.key]))}`;
+      })
       .join('\0');
     if (!loadsAllData(query)) {
       return childState;

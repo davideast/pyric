@@ -11,6 +11,7 @@ import { isInfoPath } from './writable-path.js';
 import type { DataSnapshot, DatabaseReference, ListenOptions, Query, Unsubscribe } from './types.js';
 import type { ListenerAttribution } from '../sandbox/attribution/listener-owners.js';
 import { child } from './references.js';
+import { loadsAllData } from './sandbox/query-index.js';
 import { buildSandboxQuerySnap, buildSandboxSnapFromRaw } from './snapshots.js';
 import {
   observeConnectionChildMetadata,
@@ -251,7 +252,7 @@ function onValueInternal(
     const scope = queryScope(q);
     const deliver = (raw: { val: JsonValue; key: string | null; rows?: QueryRow[] }): void => {
       const rows = raw.rows ?? [];
-      const snap = buildSandboxQuerySnap(target, q.ref, rows);
+      const snap = buildSandboxQuerySnap(target, q.ref, rows, loadsAllData(q._spec));
       try {
         cb(snap);
       } catch {

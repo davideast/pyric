@@ -6,6 +6,7 @@ import { isDefaultQuerySpec, queryIdentifier } from './query-shape.js';
 import { executeQuery, indexedOrderValueChanged, type QueryRow, type QuerySpec } from './internal/query-projection.js';
 import type { DataSnapshot, DatabaseReference, Query, Unsubscribe } from './types.js';
 import { child } from './references.js';
+import { loadsAllData } from './sandbox/query-index.js';
 import { buildSandboxQuerySnap, buildSandboxSnapFromRaw } from './snapshots.js';
 
 export type ChildEvent = 'child_added' | 'child_changed' | 'child_removed' | 'child_moved';
@@ -52,7 +53,7 @@ export function observeConnectionMetadata(
       const isUnchangedSelection = jsonValuesEqual(previousRows, rows);
       if (isUnchangedSelection) return;
       previousRows = rows;
-      snapshot = buildSandboxQuerySnap(target, reference, rows);
+      snapshot = buildSandboxQuerySnap(target, reference, rows, loadsAllData(query._spec));
     } else {
       snapshot = buildSandboxSnapFromRaw(target, reference, value);
     }
