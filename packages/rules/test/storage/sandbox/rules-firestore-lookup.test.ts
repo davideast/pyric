@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'bun:test';
 import { parseStorageRules } from '../../../src/storage/rules.js';
 import { evaluateStorageRules } from '../../../src/storage/rules-evaluator.js';
+import { LatLng } from '../../../src/simulator/wrappers/latlng.js';
 import { Reference } from '../../../src/simulator/wrappers/reference.js';
 
 // ─── firestore.get() / firestore.exists() cross-service lookups ───
@@ -195,9 +196,11 @@ describe('evaluateStorageRules — firestore.get / firestore.exists', () => {
     expect(r.allowed).toBe(true);
   });
 
-  it('wraps GeoPoint and Reference in document data while keeping /databases/ strings as strings', () => {
+  it('wraps GeoPoint and Reference in document data while keeping plain maps and /databases/ strings intact', () => {
     const r = evalFs(
       "firestore.get(/databases/(default)/documents/places/p1).data.loc is latlng"
+        + " && firestore.get(/databases/(default)/documents/places/p1).data.plainLoc is map"
+        + " && !(firestore.get(/databases/(default)/documents/places/p1).data.plainLoc is latlng)"
         + " && firestore.get(/databases/(default)/documents/places/p1).data.ref is path"
         + " && firestore.get(/databases/(default)/documents/places/p1).data.note is string"
         + " && !(firestore.get(/databases/(default)/documents/places/p1).data.note is path)"
@@ -207,7 +210,8 @@ describe('evaluateStorageRules — firestore.get / firestore.exists', () => {
         + " && firestore.get(/databases/(default)/documents/places/p1).data.strMap.path is string",
       {
         'places/p1': {
-          loc: { latitude: 37.7749, longitude: -122.4194 },
+          loc: new LatLng(37.7749, -122.4194),
+          plainLoc: { latitude: 37.7749, longitude: -122.4194 },
           ref: new Reference('/databases/(default)/documents/users/alice/'),
           note: '/databases/(default)/documents/users/alice',
           refMap: { path: new Reference('users/alice') },

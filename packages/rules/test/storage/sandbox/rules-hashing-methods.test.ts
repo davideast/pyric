@@ -55,8 +55,11 @@ describe('evaluateStorageRules — hashing and bytes', () => {
     expect(evalHash('hashing.md5(resource.size).size() == 16 || true').allowed).toBe(true);
   });
 
-  it('fails closed on a hashing function production does not define', () => {
-    expect(evalHash("hashing.sha1('abc').size() == 20 || true").allowed).toBe(false);
+  it('returns an absorbable function-not-found error on an undefined hashing function', () => {
+    const r = evalHash("hashing.sha1('abc').size() == 20");
+    expect(r.allowed).toBe(false);
+    expect(r.reasons.join(' ')).toContain('Function not found error: Name: [sha1].');
+    expect(evalHash("hashing.sha1('abc').size() == 20 || true").allowed).toBe(true);
   });
 
   it('denies a wrong argument count', () => {

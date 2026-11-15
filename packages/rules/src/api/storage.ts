@@ -178,6 +178,7 @@ function lookupFor(documents: Record<string, Record<string, unknown>> | undefine
   return {
     get: (path) => (has(path) ? documents[path] : null),
     exists: has,
+    publicCases: true,
   };
 }
 

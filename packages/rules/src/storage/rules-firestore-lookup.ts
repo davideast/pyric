@@ -7,6 +7,7 @@ import {
 } from './rules-evaluation-error.js';
 import { StorageLatLng } from './rules-latlng.js';
 import { StoragePath, interpolationSegments, isPathValue, pathValueSegments } from './rules-path.js';
+import { functionNotFoundMessage } from '../simulator/eval-error.js';
 import { describeRulesType as describeType } from '../simulator/rules-type.js';
 import { lookupAccessKey, slashedSegment, slashedSegmentReason } from '../simulator/lookup-path.js';
 import { RulesValue } from '../simulator/wrappers/base.js';
@@ -17,6 +18,7 @@ import { LatLng } from '../simulator/wrappers/latlng.js';
 import { Path } from '../simulator/wrappers/path.js';
 import { Reference } from '../simulator/wrappers/reference.js';
 import { Timestamp } from '../simulator/wrappers/timestamp.js';
+import { Vector } from '../simulator/wrappers/vector.js';
 import { isUnresolvedWriteSentinel } from '../test/case-refusals.js';
 import {
   RuleError,
@@ -25,14 +27,103 @@ import {
 
 type MethodCall = Extract<Expr, { kind: 'methodcall' }>;
 
+const UNESCAPED_MAP_TAG = Symbol.for('pyric.unescapedMap');
+const UNESCAPED_MAP_REGISTRY_KEY = Symbol.for('pyric.firestore.unescaped-user-maps');
+
+function isPlainObject(value: object): boolean {
+  const proto = Object.getPrototypeOf(value);
+  return proto === Object.prototype || proto === null;
+}
+
+function isUnescapedUserMap(obj: object): boolean {
+  if ((obj as Record<symbol, unknown>)[UNESCAPED_MAP_TAG] === true) return true;
+  const store = globalThis as Record<symbol, WeakSet<object> | undefined>;
+  const registry = store[UNESCAPED_MAP_REGISTRY_KEY];
+  return registry !== undefined && registry.has(obj);
+}
+
+function wrapPlainMap(obj: Record<string, unknown>, publicCases: boolean): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(obj)) {
+    Object.defineProperty(out, k, {
+      value: wrapFirestoreValue(v, publicCases),
+      enumerable: true,
+      configurable: true,
+      writable: true,
+    });
+  }
+  return out;
+}
+
+function extractSdkDatabaseId(obj: Record<string, unknown>): string | undefined {
+  if (typeof obj.databaseId === 'string' && obj.databaseId.length > 0) {
+    return obj.databaseId;
+  }
+  const firestore = obj._firestore ?? obj.firestore;
+  if (typeof firestore === 'object' && firestore !== null) {
+    const dbId = (firestore as Record<string, unknown>)._databaseId;
+    if (typeof dbId === 'object' && dbId !== null) {
+      const database = (dbId as Record<string, unknown>).database;
+      if (typeof database === 'string' && database.length > 0) return database;
+    }
+  }
+  return undefined;
+}
+
+function wrapNonPlainSdkValue(obj: Record<string, unknown>): unknown | undefined {
+  if (
+    typeof obj.latitude === 'number' &&
+    typeof obj.longitude === 'number' &&
+    typeof obj.isEqual === 'function'
+  ) {
+    return new StorageLatLng(obj.latitude, obj.longitude);
+  }
+  if (
+    typeof obj.toUint8Array === 'function' &&
+    typeof obj.toBase64 === 'function' &&
+    typeof obj.isEqual === 'function'
+  ) {
+    const raw = (obj.toUint8Array as () => unknown)();
+    if (raw instanceof Uint8Array) return new Bytes(raw);
+  }
+  if (
+    typeof obj.seconds === 'number' &&
+    typeof obj.nanoseconds === 'number' &&
+    typeof obj.toMillis === 'function'
+  ) {
+    return new Timestamp(obj.seconds, obj.nanoseconds);
+  }
+  if (
+    typeof obj.path === 'string' &&
+    typeof obj.id === 'string' &&
+    (obj._firestore !== undefined || obj.firestore !== undefined)
+  ) {
+    return storagePathFromReferenceString(obj.path, extractSdkDatabaseId(obj));
+  }
+  if (typeof obj.toArray === 'function' && typeof obj.isEqual === 'function') {
+    const raw = (obj.toArray as () => unknown)();
+    if (Array.isArray(raw) && raw.every((item): item is number => typeof item === 'number')) {
+      return new Vector(raw);
+    }
+  }
+  return undefined;
+}
+
+function isWireRevivableObject(obj: Record<string, unknown>): boolean {
+  if (typeof obj.__type === 'string') return true;
+  if (typeof obj.type === 'string') {
+    if (obj.type.startsWith('firestore/') || obj.type.startsWith('pyric/')) return true;
+  }
+  if (obj.__type__ === '__vector__') return true;
+  return typeof obj.id === 'string' && typeof obj.path === 'string';
+}
+
 /**
- * Wrap raw Firestore document data values into Storage rules values
- * (preserving RulesValue instances, typing numbers with `hostNumber`, and
- * wrapping GeoPoint/DocumentReference sentinels as StorageLatLng/StoragePath
- * without clobbering plain user maps that happen to carry `path` or
- * `latitude`/`longitude` alongside other fields).
+ * Wrap raw Firestore document data values into Storage rules values,
+ * preserving RulesValue and SDK scalar instances while keeping plain user
+ * maps as maps.
  */
-function wrapFirestoreValue(val: unknown): unknown {
+function wrapFirestoreValue(val: unknown, publicCases: boolean): unknown {
   if (val === null || val === undefined) return val;
   if (typeof val === 'string') return val;
   if (typeof val === 'number') return hostNumber(val);
@@ -49,96 +140,83 @@ function wrapFirestoreValue(val: unknown): unknown {
     return StoragePath.fromSegments(val.segments, val.bindings);
   }
   if (val instanceof Reference) {
-    return new StoragePath(
-      val.path.length > 0
-        ? `/databases/${val.databaseId}/documents/${val.path}`
-        : `/databases/${val.databaseId}/documents`,
-    );
+    let refPath = `/databases/${val.databaseId}/documents`;
+    if (val.path.length > 0) {
+      refPath = `/databases/${val.databaseId}/documents/${val.path}`;
+    }
+    return new StoragePath(refPath);
   }
   if (val instanceof RulesValue) {
     return val;
   }
   if (typeof val === 'object') {
     if (Array.isArray(val)) {
-      return val.map(wrapFirestoreValue);
+      return val.map((item) => wrapFirestoreValue(item, publicCases));
     }
     const obj = val as Record<string, unknown>;
-    const unescapedTag = Symbol.for('pyric.unescapedMap');
-    if ((obj as Record<symbol, unknown>)[unescapedTag] === true) {
-      const out: Record<string, unknown> = {};
-      for (const [k, v] of Object.entries(obj)) {
-        Object.defineProperty(out, k, {
-          value: wrapFirestoreValue(v),
-          enumerable: true,
-          configurable: true,
-          writable: true,
-        });
-      }
-      return out;
+    if (!isPlainObject(obj)) {
+      const wrappedSdk = wrapNonPlainSdkValue(obj);
+      if (wrappedSdk !== undefined) return wrappedSdk;
+      return wrapPlainMap(obj, publicCases);
     }
-    const keys = Object.keys(obj);
+    if (isUnescapedUserMap(obj)) {
+      return wrapPlainMap(obj, publicCases);
+    }
     if (isUnresolvedWriteSentinel(obj)) {
       throw new RuleUnsupportedError(
         'Stored Firestore documents cannot contain unresolved write FieldValue sentinels.',
       );
     }
+    if (publicCases) {
+      return wrapPlainMap(obj, true);
+    }
     if (obj.__type === 'path') {
       if (Array.isArray(obj.segments)) {
-        const bindings =
-          typeof obj.bindings === 'object' && obj.bindings !== null && !Array.isArray(obj.bindings)
-            ? Object.fromEntries(
-                Object.entries(obj.bindings as Record<string, unknown>).map(([k, v]) => [k, String(v)]),
-              )
-            : {};
+        const bindings: Record<string, string> = {};
+        if (typeof obj.bindings === 'object' && obj.bindings !== null && !Array.isArray(obj.bindings)) {
+          for (const [k, v] of Object.entries(obj.bindings as Record<string, unknown>)) {
+            Object.defineProperty(bindings, k, {
+              value: String(v),
+              enumerable: true,
+              configurable: true,
+              writable: true,
+            });
+          }
+        }
         return StoragePath.fromSegments(obj.segments.map(String), bindings);
       }
       if (typeof obj.path === 'string') {
-        return new StoragePath(obj.path.length > 1 ? obj.path.replace(/\/+$/, '') : obj.path);
+        let normalized = obj.path;
+        if (obj.path.length > 1) {
+          normalized = obj.path.replace(/\/+$/, '');
+        }
+        return new StoragePath(normalized);
       }
     }
     if ((obj.__type === 'reference' || obj.__type === 'ref') && typeof obj.path === 'string') {
-      return storagePathFromReferenceString(
-        obj.path,
-        typeof obj.databaseId === 'string' && obj.databaseId.length > 0
-          ? obj.databaseId
-          : undefined,
-      );
+      let dbId: string | undefined;
+      if (typeof obj.databaseId === 'string' && obj.databaseId.length > 0) {
+        dbId = obj.databaseId;
+      }
+      return storagePathFromReferenceString(obj.path, dbId);
     }
-    if (
-      typeof obj.__type === 'string' ||
-      (typeof obj.type === 'string' &&
-        (obj.type.startsWith('firestore/') || obj.type.startsWith('pyric/'))) ||
-      obj.__type__ === '__vector__' ||
-      (typeof obj.id === 'string' && typeof obj.path === 'string')
-    ) {
-      const revived = reviveFirestoreNumbers(obj);
-      if (
-        revived instanceof RulesValue ||
-        (typeof revived === 'object' &&
-          revived !== null &&
-          (revived as Record<symbol, unknown>)[unescapedTag] === true)
-      ) {
-        return wrapFirestoreValue(revived);
+    if (obj.__type === 'latlng') {
+      const lat = obj.latitude ?? obj._latitude ?? obj.lat;
+      const lng = obj.longitude ?? obj._longitude ?? obj.lng;
+      if (typeof lat === 'number' && typeof lng === 'number') {
+        return new StorageLatLng(lat, lng);
       }
     }
-    const lat = obj.latitude ?? obj._latitude ?? (obj.__type === 'latlng' ? obj.lat : undefined);
-    const lng = obj.longitude ?? obj._longitude ?? (obj.__type === 'latlng' ? obj.lng : undefined);
-    if (
-      (obj.__type === 'latlng' && typeof lat === 'number' && typeof lng === 'number') ||
-      (keys.length === 2 && typeof lat === 'number' && typeof lng === 'number')
-    ) {
-      return new StorageLatLng(lat, lng);
+    if (isWireRevivableObject(obj)) {
+      const revived = reviveFirestoreNumbers(obj);
+      if (revived instanceof RulesValue) {
+        return wrapFirestoreValue(revived, false);
+      }
+      if (typeof revived === 'object' && revived !== null && isUnescapedUserMap(revived)) {
+        return wrapFirestoreValue(revived, false);
+      }
     }
-    const out: Record<string, unknown> = {};
-    for (const [k, v] of Object.entries(obj)) {
-      Object.defineProperty(out, k, {
-        value: wrapFirestoreValue(v),
-        enumerable: true,
-        configurable: true,
-        writable: true,
-      });
-    }
-    return out;
+    return wrapPlainMap(obj, false);
   }
   return val;
 }
@@ -146,15 +224,14 @@ function wrapFirestoreValue(val: unknown): unknown {
 function storagePathFromReferenceString(rawPath: string, databaseId: string = '(default)'): StoragePath {
   let trimmed = rawPath.replace(/^\/+|\/+$/g, '');
   const projectsMatch = /^projects\/[^/]+\/(databases(?:\/.*)?)$/.exec(trimmed);
-  if (projectsMatch) trimmed = projectsMatch[1]!;
+  if (projectsMatch && projectsMatch[1] !== undefined) trimmed = projectsMatch[1];
   if (/^databases\/[^/]+\/documents(?:\/|$)/.test(trimmed)) {
     return new StoragePath(`/${trimmed}`);
   }
-  return new StoragePath(
-    trimmed.length > 0
-      ? `/databases/${databaseId}/documents/${trimmed}`
-      : `/databases/${databaseId}/documents`,
-  );
+  if (trimmed.length > 0) {
+    return new StoragePath(`/databases/${databaseId}/documents/${trimmed}`);
+  }
+  return new StoragePath(`/databases/${databaseId}/documents`);
 }
 
 export function evalFirestoreBuiltin(expr: MethodCall, ctx: EvalCtx): unknown {
@@ -162,8 +239,9 @@ export function evalFirestoreBuiltin(expr: MethodCall, ctx: EvalCtx): unknown {
   // path evaluates (no capture measures it after an erroring path).
   ctx.expressionBudget?.node(expr);
   if (expr.method !== 'get' && expr.method !== 'exists') {
-    // Unknown namespace method, compile-reject class, never absorbed.
-    throw new RuleUnsupportedError(`unsupported method firestore.${expr.method}()`);
+    const args = evalOperands(expr.args, ctx);
+    if (isErr(args)) return args;
+    return new RuleError(functionNotFoundMessage(expr.method));
   }
   if (expr.args.length !== 1) {
     evalOperands(expr.args, ctx);
@@ -231,7 +309,7 @@ export function evalFirestoreBuiltin(expr: MethodCall, ctx: EvalCtx): unknown {
     // see the tri-state operand handling in rules-evaluator.ts).
     return new RuleError(`firestore.get() targeted a nonexistent document: ${docPath}`);
   }
-  return { data: wrapFirestoreValue(fields) as Record<string, unknown> };
+  return { data: wrapFirestoreValue(fields, ctx.firestoreLookup.publicCases === true) as Record<string, unknown> };
 }
 
 /**

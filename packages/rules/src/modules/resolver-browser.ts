@@ -39,6 +39,7 @@ import { assembleRules } from '../grammar/FirestoreAssembler.js';
 import type { FirestoreRules, FunctionDef, ImportDecl, MatchBlock } from '../grammar/FirestoreAST.js';
 import { parseToAST } from '../grammar/FirestoreParser.js';
 import { isLocalRelativeModuleSpecifier } from '../grammar/function-scopes.js';
+import { blankLocalRelativeImports } from './relative-import-blanking.js';
 import { allServiceBlocks, isStorageServiceName, topLevelMatches } from '../grammar/service-blocks.js';
 import {
   readAuthoredSourceMap,
@@ -179,12 +180,31 @@ export function resolveBundledModulesWithDiagnostics(
   if (bundledImports.length === 0) {
     return { ast };
   }
-  const targetService: 'cloud.firestore' | 'firebase.storage' =
-    options?.targetService ?? (isStorageServiceName(ast.service?.name) ? 'firebase.storage' : 'cloud.firestore');
-  const usesRawSource = localRelativeImports.length === 0 && rawSource !== undefined;
-  const candidateSource = usesRawSource
-    ? rawSource
-    : assembleRules({ ...ast, imports: bundledImports });
+  let targetService: 'cloud.firestore' | 'firebase.storage';
+  if (options?.targetService !== undefined) {
+    targetService = options.targetService;
+  } else if (isStorageServiceName(ast.service?.name)) {
+    targetService = 'firebase.storage';
+  } else {
+    targetService = 'cloud.firestore';
+  }
+  let usesRawSource = false;
+  let candidateSource: string | undefined;
+  if (rawSource !== undefined) {
+    if (localRelativeImports.length === 0) {
+      candidateSource = rawSource;
+      usesRawSource = true;
+    } else {
+      const blanked = blankLocalRelativeImports(rawSource, localRelativeImports.length);
+      if (blanked !== null) {
+        candidateSource = blanked;
+        usesRawSource = true;
+      }
+    }
+  }
+  if (candidateSource === undefined) {
+    candidateSource = assembleRules({ ...ast, imports: bundledImports });
+  }
   const resolved = resolveModulesBrowser(candidateSource, {
     targetService,
     sourceFile: AUTHORED_ROOT_SOURCE_FILE,
@@ -204,6 +224,9 @@ export function resolveBundledModulesWithDiagnostics(
     return { ast };
   }
   if (usesRawSource) {
+    if (ast.loc !== undefined) {
+      resolvedAst.loc = { ...ast.loc };
+    }
     remapAstLocations(
       resolvedAst,
       readAuthoredSourceMap(resolved.data.resolved),

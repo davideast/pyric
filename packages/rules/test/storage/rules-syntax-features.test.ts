@@ -66,8 +66,16 @@ const CASES: Array<{ name: string; source: string }> = [
     source: ruleset('resource.size * 0.5 < 1048576.0'),
   },
   {
-    name: 'export function inside a match body',
-    source: ruleset('isOwner(fileId)', 'export function isOwner(uid) { return request.auth.uid == uid; }'),
+    name: 'export function inside a match body (2+modules)',
+    source: `rules_version = '2+modules';
+service firebase.storage {
+  match /b/{bucket}/o {
+    export function isOwner(uid) { return request.auth.uid == uid; }
+    match /files/{fileId} {
+      allow read: if isOwner(fileId);
+    }
+  }
+}`,
   },
   {
     name: 'function at service scope',

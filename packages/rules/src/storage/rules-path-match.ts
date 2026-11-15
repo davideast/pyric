@@ -41,7 +41,7 @@ export function matchSegments(
   rulesVersion: string,
 ): { left: string[]; params: Record<string, PathParamValue> } | null {
   let i = 0;
-  const next: Record<string, PathParamValue> = { ...params };
+  const next: Record<string, PathParamValue> = Object.assign(Object.create(null), params);
   const minimum = recursiveWildcardMinimum(rulesVersion);
   for (let s = 0; s < segments.length; s++) {
     const seg = segments[s];

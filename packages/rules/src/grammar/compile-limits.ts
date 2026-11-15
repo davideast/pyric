@@ -58,6 +58,7 @@ import { parenthesizedGroups } from './paren-groups.js';
 import { expressionPosition } from './expression-positions.js';
 import { MAX_BRACKET_DEPTH, scanBrackets } from './bracket-scan.js';
 import { allServiceBlocks, isStorageServiceName, topLevelMatches } from './service-blocks.js';
+import { moduleSyntaxViolations } from './module-syntax-violations.js';
 import { re2PatternProblem } from '../simulator/re2-pattern-check.js';
 import { invalidNumberLiteralMessage, outOfRangeLiteral } from '../simulator/rules-int.js';
 
@@ -130,16 +131,8 @@ export function compileLimitViolations(
   const out: CompileLimitViolation[] = [];
   if (ast.version !== '1' && ast.version !== '2' && ast.version !== '2+modules') {
     out.push({ code: 'UNSUPPORTED_RULES_VERSION', message: `Unsupported rules version ${ast.version}.`, line: ast.loc?.line ?? 1 });
-  } else if (
-    !options?.allowUnresolvedImports &&
-    (ast.version === '2+modules' || (ast.imports?.length ?? 0) > 0)
-  ) {
-    const importLine = ast.imports?.[0]?.loc?.line ?? ast.loc?.line ?? 1;
-    out.push({
-      code: 'UNRESOLVED_MODULES',
-      message: "Rules source uses '2+modules' or import statements that must be resolved before compilation.",
-      line: importLine,
-    });
+  } else {
+    out.push(...moduleSyntaxViolations(ast, graph.map((node) => node.fn), options));
   }
   for (const node of graph) {
     const fn = node.fn;
