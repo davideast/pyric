@@ -9,6 +9,11 @@
  * therefore holds between `limit` and twice `limit` entries, replayed from the
  * starting state of the older window it carries.
  *
+ * Denied replies dropped with older windows are retained in a separate bounded
+ * denial lane so `pyric serve denials` still reports early denials after
+ * sustained allowed traffic. Archived replies carry no matching inbound frame,
+ * so replay skips them cleanly.
+ *
  * The starting state is read between frames. A frame another port is still
  * handling while it is read can land on either side of it; replay reports such
  * a frame as a divergence rather than hiding it.
@@ -18,11 +23,16 @@
  * a repro file is made to share.
  */
 import type { ObservedCall } from 'pyric/sandbox';
-import type { InboundMessage, OutboundMessage } from '../worker/protocol.js';
+import type { InboundMessage, OutboundMessage, SerializedError } from '../worker/protocol.js';
 import type { ReproBase, ReproEntry } from './format.js';
 
 /** Entries one window holds before the recorder reads a new starting state. */
 export const DEFAULT_REPRO_WINDOW = 1000;
+
+const DEFAULT_RETAINED_DENIALS = 1000;
+const DEFAULT_RETAINED_DENIAL_BYTES = 2 * 1024 * 1024;
+const DENIAL_QUEUE_COMPACT_THRESHOLD = 256;
+const utf8 = new TextEncoder();
 
 /** What the host supplies when a window opens; the recorder adds the listeners it tracked. */
 export type ReproBaseCapture = () => Promise<Omit<ReproBase, 'subscriptions'>>;
@@ -38,6 +48,13 @@ export interface RecordedUploadSlice {
 }
 
 export type RecordedEntry = ReproEntry | RecordedUploadSlice;
+
+type OutboundReproEntry = Extract<ReproEntry, { kind: 'out' }>;
+
+interface ArchivedDenial {
+  entry: OutboundReproEntry;
+  bytes: number;
+}
 
 interface Window {
   base: ReproBase;
@@ -93,18 +110,80 @@ function recordedFrame(frame: InboundMessage): InboundMessage {
   return { ...restFrame, call: { ...call, account: named } };
 }
 
+function asRecord(value: unknown): Record<string, unknown> | null {
+  if (value === null || typeof value !== 'object') return null;
+  return value as Record<string, unknown>;
+}
+
+function hasDenialContext(error: unknown): boolean {
+  const record = asRecord(error);
+  if (record === null) return false;
+  return asRecord(record.denialContext) !== null;
+}
+
+function encodedEntryBytes(entry: OutboundReproEntry): number {
+  try {
+    const json = JSON.stringify(entry);
+    if (typeof Buffer === 'function') return Buffer.byteLength(json);
+    return utf8.encode(json).byteLength;
+  } catch {
+    return Infinity;
+  }
+}
+
+/**
+ * Normalizes a dropped denial reply into a replay-safe `res` error entry.
+ * Dropped `snap` denials are converted to failed `res` entries keyed by `subId`
+ * so `listDenials` reads them identically while `replayRepro` skips them
+ * without waiting for a missing listener delivery.
+ */
+function archivedDenialEntry(entry: RecordedEntry): OutboundReproEntry | null {
+  if (entry.kind !== 'out') return null;
+  const { frame } = entry;
+  if (frame.t === 'res' && !frame.ok && hasDenialContext(frame.error)) {
+    return entry;
+  }
+  if (frame.t !== 'snap') return null;
+  const value = asRecord(frame.value);
+  if (value === null) return null;
+  const snapError = asRecord(value.__error);
+  if (snapError === null || !hasDenialContext(snapError)) return null;
+  const archivedFrame: OutboundMessage = {
+    t: 'res',
+    id: frame.subId,
+    ok: false,
+    error: snapError as unknown as SerializedError,
+  };
+  if (frame.clientSessionId !== undefined) {
+    archivedFrame.clientSessionId = frame.clientSessionId;
+  }
+  return {
+    kind: 'out',
+    at: entry.at,
+    session: entry.session,
+    frame: archivedFrame,
+  };
+}
+
 export function createReproRecorder(options: {
   capture: ReproBaseCapture;
   limit?: number;
+  denialLimit?: number;
+  denialByteLimit?: number;
   now?: () => number;
   onDrop?: (dropped: RecordedEntry[], retained: RecordedEntry[]) => void;
 }): ReproRecorder {
   const limit = Math.max(1, options.limit ?? DEFAULT_REPRO_WINDOW);
+  const denialLimit = Math.max(0, options.denialLimit ?? DEFAULT_RETAINED_DENIALS);
+  const denialByteLimit = Math.max(0, options.denialByteLimit ?? DEFAULT_RETAINED_DENIAL_BYTES);
   const now = options.now ?? Date.now;
   let previous: Window | undefined;
   let current: Window | undefined;
   let truncated = false;
   let opening: Promise<void> | undefined;
+  let retainedDenials: ArchivedDenial[] = [];
+  let retainedDenialHead = 0;
+  let retainedDenialBytes = 0;
   /** Listener registrations still open, by session then subscription id. */
   const open = new Map<string, Map<string, InboundMessage>>();
 
@@ -116,6 +195,38 @@ export function createReproRecorder(options: {
     return copy;
   }
 
+  function shiftRetainedDenial(): void {
+    if (retainedDenialHead >= retainedDenials.length) return;
+    const dropped = retainedDenials[retainedDenialHead];
+    retainedDenialHead += 1;
+    if (dropped !== undefined) retainedDenialBytes -= dropped.bytes;
+    if (
+      retainedDenialHead > DENIAL_QUEUE_COMPACT_THRESHOLD
+      && retainedDenialHead * 2 >= retainedDenials.length
+    ) {
+      retainedDenials = retainedDenials.slice(retainedDenialHead);
+      retainedDenialHead = 0;
+    }
+  }
+
+  function archiveDroppedDenials(droppedEntries: RecordedEntry[]): void {
+    if (denialLimit === 0 || denialByteLimit === 0) return;
+    for (const entry of droppedEntries) {
+      const archived = archivedDenialEntry(entry);
+      if (archived === null) continue;
+      const bytes = encodedEntryBytes(archived);
+      if (!Number.isFinite(bytes) || bytes > denialByteLimit) continue;
+      retainedDenials.push({ entry: archived, bytes });
+      retainedDenialBytes += bytes;
+      while (
+        retainedDenials.length - retainedDenialHead > denialLimit
+        || retainedDenialBytes > denialByteLimit
+      ) {
+        shiftRetainedDenial();
+      }
+    }
+  }
+
   /** Read a starting state and make it the current window. Concurrent callers share one read. */
   function openWindow(): Promise<void> {
     opening ??= (async () => {
@@ -125,8 +236,10 @@ export function createReproRecorder(options: {
         const retained = current;
         if (retained !== undefined) {
           const dropped = previous;
-          const dropsWindow = dropped !== undefined;
-          if (dropsWindow) truncated = true;
+          if (dropped !== undefined) {
+            truncated = true;
+            archiveDroppedDenials(dropped.entries);
+          }
           previous = retained;
           if (dropped !== undefined) options.onDrop?.(dropped.entries, retained.entries);
         }
@@ -166,7 +279,8 @@ export function createReproRecorder(options: {
           await openWindow();
         } catch (error) {
           // The host keeps serving; the next frame tries again.
-          console.warn(`[pyric] The repro log could not read a starting state: ${error instanceof Error ? error.message : String(error)}`);
+          const message = error instanceof Error ? error.message : String(error);
+          console.warn(`[pyric] The repro log could not read a starting state: ${message}`);
         }
       }
       append({ kind: 'in', at: now(), session, frame: recordedFrame(frame) });
@@ -186,7 +300,15 @@ export function createReproRecorder(options: {
       if (current === undefined) await openWindow();
       const newest = current as Window;
       const oldest = previous ?? newest;
-      const entries = previous ? [...previous.entries, ...newest.entries] : [...newest.entries];
+      const entries: RecordedEntry[] = [];
+      for (let index = retainedDenialHead; index < retainedDenials.length; index++) {
+        const archived = retainedDenials[index];
+        if (archived !== undefined) entries.push(archived.entry);
+      }
+      if (previous !== undefined) {
+        for (const entry of previous.entries) entries.push(entry);
+      }
+      for (const entry of newest.entries) entries.push(entry);
       return { base: oldest.base, entries, truncated };
     },
   };

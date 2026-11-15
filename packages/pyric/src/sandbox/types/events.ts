@@ -492,7 +492,6 @@ export interface SessionBoundaryEvent {
   priorOpCount: number;
 }
 
-
 /**
  * Canonical service operation event. This is the service-neutral successor to
  * Firestore's `request` traffic shape: every user-visible operation can be
@@ -652,6 +651,7 @@ export interface SandboxObservationGapEvent {
   at: number;
   reason: 'frame-limit' | 'history-limit';
   omittedCount: number;
+  omittedDenials?: number;
   firstEventId: string;
   lastEventId: string;
 }
