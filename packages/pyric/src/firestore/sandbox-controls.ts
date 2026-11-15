@@ -82,7 +82,11 @@ export function seedDocuments(
       configurable: true,
     });
   }
-  return env.seed({ rules: env.getRules(), documents: markedDocuments });
+  return env.seed({
+    rules: env.getRules(),
+    documents: markedDocuments,
+    explicitRules: env.hasExplicitRules(),
+  });
 }
 
 /** Snapshot only Firestore documents without traversing other sandbox services. */

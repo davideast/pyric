@@ -136,7 +136,7 @@ export class LocalEnvironment {
     // about real rule enforcement still call `setRules(...)` explicitly;
     // the default is just "don't blow up before you've thought about
     // rules."
-    this.rules = new RulesState(DEFAULT_OPEN_RULES);
+    this.rules = new RulesState(DEFAULT_OPEN_RULES, false);
     // Rules-gated reads need live keyspace access (`seed()` replaces state).
     this.reads = new RulesReadEngine(
       this.events,
@@ -327,8 +327,13 @@ export class LocalEnvironment {
     rules: string;
     documents?: Record<string, DocumentData>;
     baseDocuments?: Record<string, DocumentData>;
+    explicitRules?: boolean;
   }): LintResult {
-    this.rules.set(options.rules);
+    const explicit =
+      options.explicitRules !== undefined
+        ? options.explicitRules && options.rules !== ''
+        : options.rules !== '';
+    this.rules.set(options.rules, explicit);
     // `baseDocuments` (branch fork): wrap the snapshot as an immutable CoW base
     // instead of cloning it, so the fork is O(1). Reads fall through to the base;
     // branch writes land in the overlay.
@@ -372,7 +377,7 @@ export class LocalEnvironment {
     // stricter policy before shipping. Callers that care about
     // the lint result still get it back; the `sandbox_inspect`
     // MCP tool surfaces it for agents.
-    this.rules.set(source);
+    this.rules.set(source, source !== '');
     this.listeners.reEvaluateAllListeners();
     return lint;
   }
@@ -390,6 +395,16 @@ export class LocalEnvironment {
   /** Get current rules source. */
   getRules(): string {
     return this.rules.source;
+  }
+
+  /** Whether Firestore rules were explicitly installed rather than the built-in default. */
+  hasExplicitRules(): boolean {
+    return this.rules.isExplicit;
+  }
+
+  /** Explicitly installed Firestore rules source, or null when only the built-in default is active. */
+  getExplicitRules(): string | null {
+    return this.rules.isExplicit && this.rules.source !== '' ? this.rules.source : null;
   }
 
   /**

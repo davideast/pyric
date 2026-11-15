@@ -950,3 +950,29 @@ export function getStorageRulesResolution(
   if (byBucket && !addressesDefaultBucket(target)) return null;
   return OPEN_SERVICES.get(target.sandbox)?.rulesResolution ?? null;
 }
+
+/** Side-effect-free read of the sandbox's unnamed default Storage rules resolution. */
+export function getDefaultStorageRulesResolution(
+  sandbox: Sandbox,
+): StorageRulesResolution | null {
+  return OPEN_SERVICES.get(sandbox)?.rulesResolution ?? null;
+}
+
+/**
+ * Side-effect-free read of the active Storage rules resolution for the default bucket:
+ * checks per-bucket rules for `defaultBucketName` (or the pinned default bucket name)
+ * first, then falls back to unnamed default Storage rules.
+ */
+export function getActiveStorageRulesResolution(
+  sandbox: Sandbox,
+  defaultBucketName?: string,
+): StorageRulesResolution | null {
+  const hasExplicitBucket = typeof defaultBucketName === 'string' && defaultBucketName.length > 0;
+  const resolvedBucket = hasExplicitBucket ? defaultBucketName : DEFAULT_STORE_NAMES.get(sandbox);
+  if (resolvedBucket !== undefined) {
+    const normalized = rulesBucketName(resolvedBucket, resolvedBucket);
+    const deployed = BUCKET_RULES.get(sandbox)?.get(normalized);
+    if (deployed !== undefined) return deployed.resolution;
+  }
+  return OPEN_SERVICES.get(sandbox)?.rulesResolution ?? null;
+}

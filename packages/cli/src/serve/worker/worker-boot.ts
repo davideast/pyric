@@ -85,17 +85,6 @@ export function workerPersistenceKey(projectKey?: string | null): string {
   return projectKey ? `${WORKER_PERSISTENCE_KEY}:${projectKey}` : WORKER_PERSISTENCE_KEY;
 }
 
-const PERMISSIVE_RULES = `
-  rules_version = '2';
-  service cloud.firestore {
-    match /databases/{database}/documents {
-      match /{document=**} {
-        allow read, write: if true;
-      }
-    }
-  }
-`;
-
 /** Environment for {@link buildWorkerCtx}. */
 export interface WorkerBootEnv extends ServeInitEnv {
   idb: PersistenceBackend;
@@ -116,10 +105,6 @@ export async function buildWorkerCtx(bootEnv: WorkerBootEnv): Promise<HostCtx> {
     fetch: ((...args: Parameters<typeof fetch>) => ambientFetch(...args)) as typeof fetch,
   };
   const sandbox = createSandboxRoot(SERVE_HISTORY_LIMITS);
-
-  const { getFirestore: getAdminFirestore } = await import('pyric/sandbox/admin-firestore');
-  const adminDb = getAdminFirestore(sandbox.withAuth(null));
-  adminDb.setRules(PERMISSIVE_RULES);
 
   const payload = await fetchInitPayload(env.fetch, env.sessionToken);
 

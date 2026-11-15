@@ -1,15 +1,16 @@
 /**
  * Session capture snapshots must read active sandbox rules for Firestore,
- * Realtime Database, and Storage instead of boot-time payload fields.
+ * Realtime Database, and Storage instead of boot-time payload fields, and
+ * must omit unused services rather than recording built-in default rules.
  */
 import 'fake-indexeddb/auto';
 import { describe, expect, it } from 'bun:test';
 import { initializeSandbox, createMemoryBackend } from 'pyric/sandbox';
 import { getFirestore } from 'pyric/firestore';
-import { setRules as setFirestoreRules } from 'pyric/sandbox/firestore';
 import type { HostCtx } from '../../../src/serve/worker/host.js';
 import {
   applyServeInit,
+  buildWorkerCtx,
   setupWorkerHotReload,
   type EventSourceLike,
 } from '../../../src/serve/worker/serve-init.js';
@@ -79,7 +80,6 @@ class FakeEventSource implements EventSourceLike {
 
 async function makeCtx(): Promise<HostCtx> {
   const sandbox = initializeSandbox();
-  setFirestoreRules(sandbox, BOOT_FIRESTORE_RULES);
   await sandbox.enablePersistence({
     key: `serve-init-capture-rules-${Math.random()}`,
     injectedBackend: createMemoryBackend(),
@@ -87,10 +87,32 @@ async function makeCtx(): Promise<HostCtx> {
   return { db: getFirestore(sandbox), sandbox, subs: new Map(), instanceId: 'capture-rules-test' };
 }
 
-function recordingFetch(): typeof fetch & { bodies: string[] } {
+function recordingFetch(initPayload?: InitPayload): typeof fetch & { bodies: string[] } {
   const bodies: string[] = [];
-  const fn = ((_input: RequestInfo | URL, init?: RequestInit) => {
-    bodies.push(String(init?.body ?? ''));
+  const fn = ((input: RequestInfo | URL, init?: RequestInit) => {
+    let url: string;
+    if (typeof input === 'string') {
+      url = input;
+    } else if (input instanceof URL) {
+      url = input.href;
+    } else {
+      url = input.url;
+    }
+    if (initPayload !== undefined && url.includes('/__pyric/init.json')) {
+      return Promise.resolve(
+        new Response(JSON.stringify(initPayload), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }),
+      );
+    }
+    if (url.includes('/__pyric/capture')) {
+      if (init?.method === 'POST') {
+        bodies.push(String(init.body ?? ''));
+        return Promise.resolve(new Response(null, { status: 204 }));
+      }
+      return Promise.resolve(new Response(null, { status: 404 }));
+    }
     return Promise.resolve(new Response(null, { status: 204 }));
   }) as typeof fetch & { bodies: string[] };
   fn.bodies = bodies;
@@ -139,6 +161,130 @@ describe('applyServeInit capture active rules snapshot', () => {
       stopHotReload();
       init.dispose();
       ctx.sandbox.dispose();
+    }
+  });
+
+  it('omits Firestore on Storage-only and RTDB-only worker boots (including permissive) and captures rules installed later', async () => {
+    const storageOnlyPayload: InitPayload = {
+      activityToken: 'activity-token',
+      rules: null,
+      rulesHash: null,
+      databaseRules: null,
+      databaseRulesHash: null,
+      databaseInstances: {
+        defaultInstance: 'demo-default-rtdb',
+        rules: { 'demo-default-rtdb': null },
+      },
+      storageRules: BOOT_STORAGE_RULES,
+      storageRulesHash: 'boot-storage',
+      permissive: true,
+      bridgeUrl: null,
+      seed: null,
+      capture: true,
+    };
+    const fetchSpy = recordingFetch(storageOnlyPayload);
+    const fakeEs = new FakeEventSource('/__pyric/events');
+    const ctx = await buildWorkerCtx({
+      fetch: fetchSpy,
+      idb: createMemoryBackend(),
+      persistenceKey: `worker-storage-only-${Math.random()}`,
+      captureDebounceMs: 10,
+      makeEventSource: () => fakeEs,
+    });
+    try {
+      await ctx.captureFlush?.();
+      const bootCapture = JSON.parse(fetchSpy.bodies.at(-1) ?? '{}') as PyricVerifyFixture;
+      expect(bootCapture.services.firestore).toBeUndefined();
+      expect(bootCapture.services.rtdb).toBeUndefined();
+      expect(bootCapture.services.storage?.rules.source).toBe(BOOT_STORAGE_RULES);
+
+      // Installing Firestore and RTDB rules at runtime when boot rules were absent must be captured.
+      fakeEs.emit('rules-changed', { rules: UPDATED_FIRESTORE_RULES, rulesHash: 'late-fs' });
+      fakeEs.emit('rtdb-rules-update', { rules: UPDATED_RTDB_RULES, rulesHash: 'late-rtdb' });
+      await new Promise((resolve) => setTimeout(resolve, 25));
+
+      await ctx.captureFlush?.();
+      const afterInstall = JSON.parse(fetchSpy.bodies.at(-1) ?? '{}') as PyricVerifyFixture;
+      expect(afterInstall.services.firestore?.rules.source).toBe(UPDATED_FIRESTORE_RULES);
+      expect(afterInstall.services.rtdb?.rules.json).toEqual(UPDATED_RTDB_RULES);
+      expect(afterInstall.services.storage?.rules.source).toBe(BOOT_STORAGE_RULES);
+    } finally {
+      ctx.dispose?.();
+      ctx.sandbox.dispose();
+    }
+  });
+
+  it('omits RTDB and Storage on a Firestore-only worker boot (including permissive) and omits Firestore on RTDB-only boot', async () => {
+    const firestoreOnlyPayload: InitPayload = {
+      activityToken: 'activity-token',
+      rules: BOOT_FIRESTORE_RULES,
+      rulesHash: 'boot-fs',
+      databaseRules: null,
+      databaseRulesHash: null,
+      databaseInstances: {
+        defaultInstance: 'demo-default-rtdb',
+        rules: { 'demo-default-rtdb': null },
+      },
+      storageRules: null,
+      storageRulesHash: null,
+      permissive: true,
+      bridgeUrl: null,
+      seed: null,
+      capture: true,
+    };
+    const fsFetch = recordingFetch(firestoreOnlyPayload);
+    const fsCtx = await buildWorkerCtx({
+      fetch: fsFetch,
+      idb: createMemoryBackend(),
+      persistenceKey: `worker-fs-only-${Math.random()}`,
+      captureDebounceMs: 10,
+      makeEventSource: null,
+    });
+    try {
+      await fsCtx.captureFlush?.();
+      const fsCapture = JSON.parse(fsFetch.bodies.at(-1) ?? '{}') as PyricVerifyFixture;
+      expect(fsCapture.services.firestore?.rules.source).toBe(BOOT_FIRESTORE_RULES);
+      expect(fsCapture.services.rtdb).toBeUndefined();
+      expect(fsCapture.services.storage).toBeUndefined();
+    } finally {
+      fsCtx.dispose?.();
+      fsCtx.sandbox.dispose();
+    }
+
+    const rtdbOnlyPayload: InitPayload = {
+      activityToken: 'activity-token',
+      rules: null,
+      rulesHash: null,
+      databaseRules: BOOT_RTDB_RULES,
+      databaseRulesHash: 'boot-rtdb',
+      databaseInstances: {
+        defaultInstance: 'demo-default-rtdb',
+        rules: { 'demo-default-rtdb': BOOT_RTDB_RULES },
+      },
+      storageRules: null,
+      storageRulesHash: null,
+      permissive: true,
+      bridgeUrl: null,
+      seed: null,
+      capture: true,
+    };
+    const rtdbFetch = recordingFetch(rtdbOnlyPayload);
+    const rtdbCtx = await buildWorkerCtx({
+      fetch: rtdbFetch,
+      idb: createMemoryBackend(),
+      persistenceKey: `worker-rtdb-only-${Math.random()}`,
+      captureDebounceMs: 10,
+      makeEventSource: null,
+    });
+    try {
+      await rtdbCtx.captureFlush?.();
+      const rtdbCapture = JSON.parse(rtdbFetch.bodies.at(-1) ?? '{}') as PyricVerifyFixture;
+      expect(rtdbCapture.services.firestore).toBeUndefined();
+      expect(rtdbCapture.services.storage).toBeUndefined();
+      expect(rtdbCapture.services.rtdb?.rules.json).toEqual(BOOT_RTDB_RULES);
+    } finally {
+      rtdbCtx.dispose?.();
+      rtdbCtx.sandbox.dispose();
     }
   });
 });

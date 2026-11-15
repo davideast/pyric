@@ -1,11 +1,8 @@
 /** Replace the live sandbox with a saved checkpoint. */
 import { z } from 'zod';
-import type { LocalSandbox, SandboxEvent } from 'pyric/sandbox';
-import { getInternalEnv } from 'pyric/sandbox/internal';
-import { getAdminDatabase, sandbox as rtdbSandbox } from 'pyric/database';
-import { getActiveRules as getActiveDatabaseRules } from 'pyric/sandbox/database';
+import type { LocalSandbox } from 'pyric/sandbox';
+import { getAdminDatabase } from 'pyric/database';
 import { getAuth, sandbox as authSandbox } from 'pyric/auth';
-import { getAdminStorageSandbox, getStorageRulesResolution } from 'pyric/storage/internal';
 import { checkpointNames, restoreCheckpoint } from '../../checkpoints.js';
 import { operationFailure } from '../../context.js';
 import type { MethodRecord } from '../../method-types.js';
@@ -16,16 +13,12 @@ import {
   PREVIOUS_CAPTURE_RELATIVE_PATH,
   type CaptureStore,
 } from '../../../../serve/capture-store.js';
+import { buildLiveSessionCaptureFixture } from '../../../../serve/session-capture-fixture.js';
 import { liveCallValues } from '../../../../serve/worker/host/observe.js';
 import {
   countDeniedEvents,
   formatCaptureEventCounts,
 } from '../../../../verify/file-format.js';
-import { buildVerifyFixture } from '../../../../verify/fixture.js';
-import {
-  captureRtdbInstances,
-  defaultInstanceUrl,
-} from '../../../../verify/rtdb-instance-capture.js';
 
 interface PreservedCapture {
   json: string;
@@ -37,30 +30,16 @@ interface PreservedCapture {
 async function buildLiveCaptureJson(
   sandbox: LocalSandbox,
   ctx: SurfaceContext,
-  events: readonly SandboxEvent[],
 ): Promise<string> {
-  const rawFirestoreRules = getInternalEnv(sandbox).getRules();
-  const firestoreRules = rawFirestoreRules === '' ? null : rawFirestoreRules;
-  const adminDb = getAdminDatabase(sandbox);
-  const rtdbRules = getActiveDatabaseRules(adminDb);
-  const hasRtdb = rtdbRules !== null || events.some((event) => event.service === 'rtdb');
-  let rtdbState: ReturnType<typeof rtdbSandbox.snapshotState> | undefined;
-  if (hasRtdb) {
-    rtdbState = rtdbSandbox.snapshotState(adminDb, { includePriorities: true });
-  }
   const catalog = await ctx.databaseInstances();
   const defaultInstance = catalog.known().defaultInstance;
-  const storageResolution = getStorageRulesResolution(getAdminStorageSandbox(sandbox));
-  const storageRules = storageResolution?.source ?? null;
   const auth = getAuth(sandbox);
-  const fixture = buildVerifyFixture({
+  const defaultStorageBucket = ctx.storageBucketName?.();
+  const fixture = buildLiveSessionCaptureFixture({
     sandbox,
-    firestoreRules,
-    rtdbRules,
-    rtdbState,
-    rtdbDatabaseUrl: defaultInstanceUrl(defaultInstance),
-    rtdbInstances: captureRtdbInstances(sandbox, defaultInstance),
-    storageRules,
+    defaultDatabase: getAdminDatabase(sandbox),
+    defaultInstance,
+    ...(defaultStorageBucket !== undefined ? { defaultStorageBucket } : {}),
     authState: {
       users: authSandbox.exportUsers(auth),
       currentUser: sandbox.currentUser,
@@ -85,7 +64,7 @@ async function prepareCaptureBeforeRestore(
 ): Promise<PreservedCapture | null> {
   const liveEvents = ctx.sandbox.history();
   if (liveEvents.length === 0) return null;
-  const json = await buildLiveCaptureJson(ctx.sandbox, ctx, liveEvents);
+  const json = await buildLiveCaptureJson(ctx.sandbox, ctx);
   return {
     json,
     eventCount: liveEvents.length,

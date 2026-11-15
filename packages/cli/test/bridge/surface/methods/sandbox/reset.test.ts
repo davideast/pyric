@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { initializeSandbox } from 'pyric/sandbox';
 import { doc, getFirestore, setDoc } from 'pyric/firestore';
 import { setRules as setFirestoreRules } from 'pyric/sandbox/firestore';
+import { getInternalEnv } from 'pyric/sandbox/internal';
 import { getAdminDatabase, get as databaseGet, ref as databaseRef, set as databaseSet, sandbox as rtdbSandbox } from 'pyric/database';
 import { getActiveRules as getActiveDatabaseRules } from 'pyric/sandbox/database';
 import { getStorageSandbox, ref as storageRef, uploadBytes } from 'pyric/storage';
@@ -101,6 +102,25 @@ describe('sandbox.reset', () => {
       expect(defaultSnap.exists()).toBe(false);
       expect(namedSnap.exists()).toBe(false);
       expect(getActiveDatabaseRules(getAdminDatabase(sandbox, 'alt-db'))).toEqual(namedRules);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('does not promote built-in default Firestore rules to explicit across scope: "all"', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'pyric-reset-no-fs-rules-'));
+    try {
+      const sandbox = initializeSandbox();
+      const rtdbRules = { rules: { nodes: { '.read': true, '.write': true } } };
+      rtdbSandbox.setRules(getAdminDatabase(sandbox), rtdbRules);
+      expect(getInternalEnv(sandbox).getExplicitRules()).toBeNull();
+
+      const ctx = createSurfaceContext(sandbox, dir);
+      const outcome = await resetMethod.handler({ confirm: true, scope: 'all' }, ctx);
+      expect(outcome.ok).toBe(true);
+
+      expect(getInternalEnv(sandbox).getExplicitRules()).toBeNull();
+      expect(getActiveDatabaseRules(getAdminDatabase(sandbox))).toEqual(rtdbRules);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

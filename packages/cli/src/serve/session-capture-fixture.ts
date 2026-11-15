@@ -11,7 +11,7 @@ import { getDatabase, sandbox as rtdbSandbox } from 'pyric/database';
 import { getActiveRules as getActiveDatabaseRules } from 'pyric/sandbox/database';
 import type { Sandbox } from 'pyric/sandbox';
 import { getInternalEnv } from 'pyric/sandbox/internal';
-import { getAdminStorageSandbox, getStorageRulesResolution } from 'pyric/storage/internal';
+import { getActiveStorageRulesResolution } from 'pyric/storage/internal';
 import {
   buildVerifyFixture,
   type BuildVerifyFixtureInput,
@@ -24,6 +24,8 @@ export interface LiveSessionCaptureOptions {
   sandbox: Sandbox;
   defaultDatabase?: Database;
   defaultInstance?: string;
+  defaultStorageBucket?: string;
+  fallbackFirestoreRules?: string | null;
   authState: {
     users: unknown[];
     currentUser: unknown;
@@ -32,23 +34,41 @@ export interface LiveSessionCaptureOptions {
   observedCalls?: Record<string, VerifyObservedCallValues>;
 }
 
+function hasNonEmptyRtdbState(state: unknown): boolean {
+  if (state === null || state === undefined) return false;
+  if (Array.isArray(state)) return state.length > 0;
+  if (typeof state === 'object') return Object.keys(state).length > 0;
+  return true;
+}
+
 /** Snapshot active Firestore, RTDB, and Storage rules alongside current sandbox state. */
 export function buildLiveSessionCaptureFixture(
   options: LiveSessionCaptureOptions,
 ): PyricVerifyFixture {
   const { sandbox } = options;
-  const rawFirestoreRules = getInternalEnv(sandbox).getRules();
-  const firestoreRules = rawFirestoreRules === '' ? null : rawFirestoreRules;
+  const explicitFirestoreRules = getInternalEnv(sandbox).getExplicitRules();
+  let firestoreRules: string | null = explicitFirestoreRules;
+  if (
+    firestoreRules === null &&
+    typeof options.fallbackFirestoreRules === 'string' &&
+    options.fallbackFirestoreRules.length > 0
+  ) {
+    firestoreRules = options.fallbackFirestoreRules;
+  }
 
   const defaultDatabase = options.defaultDatabase ?? getDatabase(sandbox);
   const rtdbRules = getActiveDatabaseRules(defaultDatabase);
   const hasRtdbHistory = sandbox.history().some((event) => event.service === 'rtdb');
+  const rtdbSnapshot = rtdbSandbox.snapshotState(defaultDatabase, { includePriorities: true });
   let rtdbState: ReturnType<typeof rtdbSandbox.snapshotState> | undefined;
-  if (rtdbRules !== null || hasRtdbHistory) {
-    rtdbState = rtdbSandbox.snapshotState(defaultDatabase, { includePriorities: true });
+  if (rtdbRules !== null || hasRtdbHistory || hasNonEmptyRtdbState(rtdbSnapshot)) {
+    rtdbState = rtdbSnapshot;
   }
 
-  const storageResolution = getStorageRulesResolution(getAdminStorageSandbox(sandbox));
+  const storageResolution = getActiveStorageRulesResolution(
+    sandbox,
+    options.defaultStorageBucket,
+  );
   let storageRules: string | null = null;
   if (storageResolution !== null) {
     storageRules = storageResolution.source;

@@ -212,6 +212,18 @@ function decodeSeedDocuments(
   return decoded;
 }
 
+function trackedFirestoreRulesSource(ctx: HostCtx): string | null {
+  const tracked = ctx.activeRules?.firestore;
+  if (tracked === undefined) return null;
+  if (tracked.status === 'active' && typeof tracked.source === 'string' && tracked.source.length > 0) {
+    return tracked.source;
+  }
+  if (typeof tracked.lastKnownGood === 'string' && tracked.lastKnownGood.length > 0) {
+    return tracked.lastKnownGood;
+  }
+  return null;
+}
+
 /**
  * Apply the init payload to the worker's sandbox.
  */
@@ -366,10 +378,14 @@ export function applyServeInit(
 
     const postCapture = async (): Promise<void> => {
       const auth = ensureAuth(ctx);
+      const defaultStorageBucket =
+        typeof ctx.appOptions?.storageBucket === 'string' ? ctx.appOptions.storageBucket : undefined;
       const body = JSON.stringify(buildLiveSessionCaptureFixture({
         sandbox: ctx.sandbox,
         defaultDatabase: rtdbInstance(ctx).live,
         defaultInstance: defaultInstanceNameOf(ctx),
+        ...(defaultStorageBucket !== undefined ? { defaultStorageBucket } : {}),
+        fallbackFirestoreRules: trackedFirestoreRulesSource(ctx),
         authState: {
           users: authOps.exportUsers(auth),
           currentUser: ctx.sandbox.currentUser,

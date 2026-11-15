@@ -365,7 +365,11 @@ export async function createHostedRuntime(
 
   /** The Firestore status from the rules the sandbox enforces, never `active` for a source production would not load. */
   function syncFirestoreActiveRulesFromSandbox(): void {
-    const source = getInternalEnv(ctx.sandbox).getRules();
+    const source = getInternalEnv(ctx.sandbox).getExplicitRules();
+    if (source === null) {
+      if (ctx.activeRules) delete ctx.activeRules.firestore;
+      return;
+    }
     ctx.activeRules ??= {};
     ctx.activeRules.firestore = enforcedFirestoreRulesState(source, ctx.activeRules.firestore);
   }

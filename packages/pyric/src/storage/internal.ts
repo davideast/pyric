@@ -31,7 +31,9 @@ import { buildStoredMetadata } from './upload.js';
 
 export {
   bindStorageOperationContext,
+  getActiveStorageRulesResolution,
   getAdminStorageSandbox,
+  getDefaultStorageRulesResolution,
   getStorageService,
   nameStorageBucket,
   storageAuth,

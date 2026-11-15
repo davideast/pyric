@@ -28,6 +28,7 @@ import {
   DEFAULT_BUCKET,
   deployStorageBucketRules,
   getAdminStorageSandbox,
+  getDefaultStorageRulesResolution,
   getStorageRulesResolution,
   nameStorageBucket,
   replaceStorageRules,
@@ -113,7 +114,7 @@ export default {
   async handler(args, ctx) {
     const scope = (typeof args.scope === 'string' ? args.scope : 'all') as Scope;
     if (scope === 'all') {
-      const firestoreRules = getInternalEnv(ctx.sandbox).getRules();
+      const firestoreRules = getInternalEnv(ctx.sandbox).getExplicitRules();
       const heldNamedDbs = [...heldDatabaseInstances(ctx.sandbox)];
       const namedDbRules = new Map(
         heldNamedDbs.map((instance) => [
@@ -122,7 +123,7 @@ export default {
         ]),
       );
       const defaultStorageRules =
-        getStorageRulesResolution(getAdminStorageSandbox(ctx.sandbox))?.source ?? null;
+        getDefaultStorageRulesResolution(ctx.sandbox)?.source ?? null;
       const bucketStorageRules = new Map<string, string>();
       for (const bucket of storageBucketsWithRules(ctx.sandbox)) {
         const handle = nameStorageBucket(getAdminStorageSandbox(ctx.sandbox, { bucket }), bucket);
@@ -131,7 +132,7 @@ export default {
       }
 
       const outcome = await withDatabaseRulesPreservedOnReset(ctx.sandbox, () => ctx.sandbox.resetAll());
-      if (firestoreRules !== '') setFirestoreRules(ctx.sandbox, firestoreRules);
+      if (firestoreRules !== null) setFirestoreRules(ctx.sandbox, firestoreRules);
       for (const [instance, rules] of namedDbRules) {
         if (rules !== null) {
           setDatabaseRules(getAdminDatabase(ctx.sandbox, instance), structuredClone(rules));
