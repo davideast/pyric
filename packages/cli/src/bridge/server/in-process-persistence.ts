@@ -52,6 +52,7 @@ export function createInProcessPersistence(
   let owner: ProjectStateOwner | null = options.initialOwner;
   let persisting = owner !== null;
   let fallbackAttempted = persisting;
+  let ephemeralNotice: string | undefined;
   let activationPromise: Promise<string | undefined> | null = null;
   let saveTimer: ReturnType<typeof setTimeout> | null = null;
   let pendingSave = false;
@@ -120,7 +121,8 @@ export function createInProcessPersistence(
 
     async activateOnFallback(): Promise<string | undefined> {
       if (activationPromise !== null) return await activationPromise;
-      if (persisting || fallbackAttempted) return undefined;
+      if (persisting) return undefined;
+      if (fallbackAttempted) return ephemeralNotice;
       const activating = (async (): Promise<string | undefined> => {
         fallbackAttempted = true;
         let claimed: ProjectStateOwner | null = null;
@@ -131,6 +133,7 @@ export function createInProcessPersistence(
           owner = claimed;
           claimed = null;
           persisting = true;
+          ephemeralNotice = undefined;
           attachExitListener();
           options.log(`fallback persistence enabled (${options.stateRelativePath})`);
           return undefined;
@@ -138,7 +141,8 @@ export function createInProcessPersistence(
           claimed?.close();
           const detail = failureMessage(error);
           options.log(`fallback persistence unavailable; running ephemerally: ${detail}`);
-          return `Local state persistence is unavailable (${detail}); writes after fallback are ephemeral and will not be saved on exit.`;
+          ephemeralNotice = `Local state persistence is unavailable (${detail}); writes after fallback are ephemeral and will not be saved on exit.`;
+          return ephemeralNotice;
         } finally {
           activationPromise = null;
         }

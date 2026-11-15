@@ -79,7 +79,33 @@ function parseCliJson(output: string): Record<string, unknown> {
   if (start === -1) {
     throw new Error(`Missing JSON payload in CLI output:\n${output}`);
   }
-  return JSON.parse(output.slice(start)) as Record<string, unknown>;
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let i = start; i < output.length; i += 1) {
+    const ch = output[i];
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (ch === '\\') {
+        escaped = true;
+      } else if (ch === '"') {
+        inString = false;
+      }
+      continue;
+    }
+    if (ch === '"') {
+      inString = true;
+    } else if (ch === '{') {
+      depth += 1;
+    } else if (ch === '}') {
+      depth -= 1;
+      if (depth === 0) {
+        return JSON.parse(output.slice(start, i + 1)) as Record<string, unknown>;
+      }
+    }
+  }
+  throw new Error(`Unterminated JSON payload in CLI output:\n${output}`);
 }
 
 export default scenario(async (app) => {

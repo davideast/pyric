@@ -92,6 +92,14 @@ describe('non-.1 loopback host discovery (127.0.0.0/8)', () => {
     expect(basesForPort(41234, 'http://127.0.0.2:41234/__pyric/mcp')).toEqual([
       'http://127.0.0.2:41234',
     ]);
+    expect(basesForPort(41234, 'http://169.254.169.254:41234')).toEqual([
+      'http://127.0.0.1:41234',
+      'http://[::1]:41234',
+    ]);
+    expect(basesForPort(41234, 'http://evil.example:41234')).toEqual([
+      'http://127.0.0.1:41234',
+      'http://[::1]:41234',
+    ]);
   });
 
   it('discovers a host bound exclusively to 127.0.0.2 immediately without stalling', async () => {
