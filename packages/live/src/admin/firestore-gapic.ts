@@ -128,7 +128,7 @@ function collectObjectKeys(value: object): Set<string> {
       if (SKIPPED_PAYLOAD_KEYS.has(key) || keys.has(key)) continue;
       const desc = Object.getOwnPropertyDescriptor(current, key);
       if (desc === undefined) continue;
-      if (typeof desc.get === 'function' || (desc.enumerable === true && typeof desc.value !== 'function')) {
+      if (typeof desc.get === 'function' || ('value' in desc && typeof desc.value !== 'function')) {
         keys.add(key);
       }
     }
@@ -240,7 +240,7 @@ function patchGapicDuplexMethod(
     if (isObservingAdminCall()) return Reflect.apply(real, this, args);
     const self = this;
     let underlying: Duplex | undefined;
-    let openPromise: Promise<Duplex> | undefined;
+    let openPromise: Promise<Duplex | undefined> | undefined;
 
     const proxy = new Duplex({
       objectMode: true,
@@ -257,13 +257,19 @@ function patchGapicDuplexMethod(
           return;
         }
         ensureUnderlying()
-          .then((target) => target.write(chunk, encoding, callback))
+          .then((target) => {
+            if (target === undefined) {
+              callback();
+              return;
+            }
+            target.write(chunk, encoding, callback);
+          })
           .catch((err: unknown) => callback(toError(err)));
       },
       final(callback: (error?: Error | null) => void) {
         ensureUnderlying()
           .then((target) => {
-            target.end();
+            if (target !== undefined) target.end();
             callback();
           })
           .catch((err: unknown) => callback(toError(err)));
@@ -276,10 +282,11 @@ function patchGapicDuplexMethod(
       },
     });
 
-    function ensureUnderlying(): Promise<Duplex> {
+    function ensureUnderlying(): Promise<Duplex | undefined> {
       if (openPromise !== undefined) return openPromise;
-      openPromise = gate(gapicAppOf(self), () =>
-        runInsideAdminCall(() => {
+      openPromise = gate(gapicAppOf(self), () => {
+        if (proxy.destroyed) return undefined;
+        return runInsideAdminCall(() => {
           const created = Reflect.apply(real, self, args);
           underlying = created;
           created.on('data', (item: unknown) => {
@@ -292,8 +299,8 @@ function patchGapicDuplexMethod(
             if (!proxy.destroyed) proxy.destroy(toError(err));
           });
           return created;
-        }),
-      );
+        });
+      });
       return openPromise;
     }
 

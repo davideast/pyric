@@ -148,6 +148,7 @@ export default scenario(async (app) => {
       assert.deepEqual(outcome.gapic, {
         hostProto: 'OK',
         classOther: LIVE_REFUSED,
+        nonEnumProtoOther: LIVE_REFUSED,
         protoOther: LIVE_REFUSED,
         protoNamedDb: LIVE_REFUSED,
       });
@@ -156,6 +157,7 @@ export default scenario(async (app) => {
         requestStreamOtherBucket: LIVE_REFUSED,
         projectsPathAuthReq: LIVE_REFUSED,
         queryProjectAuthReq: LIVE_REFUSED,
+        qsBucketAuthReq: LIVE_REFUSED,
         nonPlainGetBuckets: LIVE_REFUSED,
         interceptorRewrite: LIVE_REFUSED,
       });

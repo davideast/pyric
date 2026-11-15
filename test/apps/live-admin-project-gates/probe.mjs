@@ -81,6 +81,11 @@ function runStream(target, opts) {
 }
 
 const callOpts = { timeout: 2000, retry: null };
+const nonEnumProto = {};
+Object.defineProperty(nonEnumProto, 'name', {
+  value: `projects/${OTHER}/databases/(default)/documents/items/1`,
+  enumerable: false,
+});
 const gapic = {
   hostProto: await codeOf(
     gapicClient.getDocument(
@@ -94,6 +99,7 @@ const gapic = {
       callOpts,
     ),
   ),
+  nonEnumProtoOther: await codeOf(gapicClient.getDocument(Object.create(nonEnumProto), callOpts)),
   protoOther: await codeOf(
     gapicClient.getDocument(
       GetDocumentRequest.create({ name: `projects/${OTHER}/databases/(default)/documents/items/1` }),
@@ -113,6 +119,7 @@ const storageResults = {
   requestStreamOtherBucket: await runStream(storage, { uri: `/b/${OTHER}.appspot.com/o` }),
   projectsPathAuthReq: await runAuthReq({ uri: `${ORIGIN}/storage/v1/projects/${OTHER}/hmacKeys` }),
   queryProjectAuthReq: await runAuthReq({ uri: `${ORIGIN}/storage/v1/b?project=${OTHER}` }),
+  qsBucketAuthReq: await runAuthReq({ uri: `${ORIGIN}/storage/v1/b`, qs: { bucket: `${OTHER}.appspot.com` } }),
   nonPlainGetBuckets: await codeOf(storage.getBuckets(new BucketQueryOpts(OTHER))),
   interceptorRewrite: await runStream(storage, {
     uri: '/b',

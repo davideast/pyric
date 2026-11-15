@@ -48,6 +48,13 @@ class UriRequestOpts {
   }
 }
 
+class BucketNameOpts {
+  readonly bucket: string;
+  constructor(bucket: string) {
+    this.bucket = bucket;
+  }
+}
+
 describe('storage-gates', () => {
   const observer: LiveObserver = Object.assign(
     (_record: LiveCallRecord) => undefined,
@@ -79,6 +86,8 @@ describe('storage-gates', () => {
       { uri: `https://storage.googleapis.com/storage/v1/b/${HOST_PROJECT}.appspot.com/o/projects%2Forg-beta%2Ffile.txt` },
       { uri: `https://storage.googleapis.com/storage/v1/b/${HOST_PROJECT}.appspot.com/o/projects/org-beta/file.txt` },
       { uri: `https://storage.googleapis.com/storage/v1/b/${HOST_PROJECT}.appspot.com/o?prefix=projects/org-beta/` },
+      { qs: { bucket: `${HOST_PROJECT}.appspot.com` } },
+      { bucket: { name: 'org-beta.appspot.com' } },
       Buffer.from('projects/org-beta/hmacKeys'),
       new Date(),
     ];
@@ -90,6 +99,12 @@ describe('storage-gates', () => {
     cyclicHost.request = cyclicHost;
     expect(() => assertStorageCallOptionsAllowed('Storage.request', [cyclicHost], observer)).not.toThrow();
 
+    const nonEnumBucketProto: Record<string, unknown> = {};
+    Object.defineProperty(nonEnumBucketProto, 'bucket', {
+      value: 'org-beta.appspot.com',
+      enumerable: false,
+    });
+
     // Refused option objects (plain, non-plain class, prototype getter, Object.create, URLSearchParams, Map, headers, URIs).
     const refusedOpts: readonly unknown[] = [
       { project: 'org-beta' },
@@ -99,8 +114,16 @@ describe('storage-gates', () => {
       new GetterUserProjectOpts('org-beta'),
       Object.create({ projectId: 'org-beta' }),
       { qs: new BucketQueryOpts('org-beta') },
+      { qs: new BucketNameOpts('org-beta.appspot.com') },
+      { qs: Object.create(nonEnumBucketProto) },
+      { qs: { bucket: 'org-beta.appspot.com' } },
+      { qs: { destinationBucket: 'org-beta.appspot.com' } },
+      { qs: { BUCKET: 'org-beta.appspot.com' } },
+      { qs: { bucket: [`${HOST_PROJECT}.appspot.com`, 'org-beta.appspot.com'] } },
+      { qs: 'bucket=org-beta.appspot.com' },
       { qs: new URLSearchParams({ project: 'org-beta' }) },
       { qs: new Map([['userProject', 'org-beta']]) },
+      { qs: new Map([['bucket', [`${HOST_PROJECT}.appspot.com`, 'org-beta.appspot.com']]]) },
       { qs: { project: [HOST_PROJECT, 'org-beta'] } },
       { request: new BucketQueryOpts('org-beta') },
       { headers: { 'X-Goog-User-Project': 'org-beta' } },
@@ -224,6 +247,14 @@ describe('storage-gates', () => {
       );
     });
     expect((crossQueryErr as { code?: string })?.code).toBe('PYRIC_LIVE_REFUSED');
+
+    const crossQsBucketErr = await new Promise<unknown>((resolve) => {
+      hostSvc.makeAuthenticatedRequest(
+        { uri: 'http://127.0.0.1/storage/v1/b', qs: { bucket: 'org-beta.appspot.com' } },
+        (err) => resolve(err),
+      );
+    });
+    expect((crossQsBucketErr as { code?: string })?.code).toBe('PYRIC_LIVE_REFUSED');
 
     // Reentrant calls inside runInsideAdminCall (matching Service.requestStream / Service.request)
     // must STILL validate URI and options across stream, callback, and onAuthenticated modes.

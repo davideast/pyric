@@ -27,10 +27,12 @@ const HMAC_BASE_URL_PROJECT = /^\/projects\/([^/]+)\/hmacKeys(?:\/|$)/;
 const URI_BUCKET_SEGMENT = /\/b\/([^/?#]+)/g;
 const URI_PROJECTS_SEGMENT = /(?:^|\/)projects\/([^/?#:]+)/g;
 const URI_PROJECT_QUERY = /[?&](?:project|projectId|userProject)=([^&#]+)/gi;
+const URI_BUCKET_QUERY = /[?&](?:bucket|destinationBucket)=([^&#]+)/gi;
 const VIRTUAL_HOST_SUFFIX = '.storage.googleapis.com';
 const UNRESOLVED_PROJECT = '{{projectId}}';
 const MAX_OPTION_SCAN_DEPTH = 4;
 const PROJECT_OPTION_KEYS = ['project', 'projectId', 'userProject'] as const;
+const BUCKET_OPTION_KEYS = ['bucket', 'destinationBucket'] as const;
 const PROJECT_QUERY_KEYS: ReadonlySet<string> = new Set(['project', 'projectid', 'userproject']);
 const BUCKET_QUERY_KEYS: ReadonlySet<string> = new Set(['bucket', 'destinationbucket']);
 const USER_PROJECT_HEADER = 'x-goog-user-project';
@@ -138,6 +140,16 @@ function assertBucketAllowed(callName: string, bucketName: string | undefined, o
   if (refusal !== null) throw refusal;
 }
 
+function assertBucketValueAllowed(callName: string, value: unknown, observer: LiveObserver): void {
+  if (typeof value === 'string') {
+    assertBucketAllowed(callName, value, observer);
+    return;
+  }
+  if (Array.isArray(value)) {
+    for (const item of value) assertBucketValueAllowed(callName, item, observer);
+  }
+}
+
 function assertStorageUriFallback(callName: string, rawUri: string, observer: LiveObserver, hostProjectId: string): void {
   for (const match of rawUri.matchAll(URI_BUCKET_SEGMENT)) {
     const seg = match[1];
@@ -150,6 +162,10 @@ function assertStorageUriFallback(callName: string, rawUri: string, observer: Li
   for (const match of rawUri.matchAll(URI_PROJECT_QUERY)) {
     const val = match[1];
     if (val !== undefined) assertProjectValueAllowed(safeDecode(val), hostProjectId);
+  }
+  for (const match of rawUri.matchAll(URI_BUCKET_QUERY)) {
+    const val = match[1];
+    if (val !== undefined) assertBucketAllowed(callName, safeDecode(val), observer);
   }
 }
 
@@ -264,8 +280,8 @@ function scanStorageOptionObject(
       const key = rawKey.trim().toLowerCase();
       if (PROJECT_QUERY_KEYS.has(key)) {
         assertProjectValueAllowed(rawVal, hostProjectId);
-      } else if (BUCKET_QUERY_KEYS.has(key) && typeof rawVal === 'string') {
-        assertBucketAllowed(callName, rawVal, observer);
+      } else if (BUCKET_QUERY_KEYS.has(key)) {
+        assertBucketValueAllowed(callName, rawVal, observer);
       } else if (key === 'uri' || key === 'url') {
         assertUriFieldAllowed(callName, rawVal, observer);
       }
@@ -279,12 +295,27 @@ function scanStorageOptionObject(
   for (const key of PROJECT_OPTION_KEYS) {
     assertProjectValueAllowed(safeGet(value, key), hostProjectId);
   }
+  for (const key of BUCKET_OPTION_KEYS) {
+    assertBucketValueAllowed(callName, safeGet(value, key), observer);
+  }
+  for (const key of Object.keys(value)) {
+    const lower = key.trim().toLowerCase();
+    if (PROJECT_QUERY_KEYS.has(lower)) {
+      assertProjectValueAllowed(safeGet(value, key), hostProjectId);
+    } else if (BUCKET_QUERY_KEYS.has(lower)) {
+      assertBucketValueAllowed(callName, safeGet(value, key), observer);
+    }
+  }
   assertUriFieldAllowed(callName, safeGet(value, 'uri'), observer);
   assertUriFieldAllowed(callName, safeGet(value, 'url'), observer);
   assertHeadersAllowed(safeGet(value, 'headers'), hostProjectId);
 
   const qs = safeGet(value, 'qs');
-  if (qs !== undefined) scanStorageOptionObject(callName, qs, observer, depth + 1, seen);
+  if (typeof qs === 'string') {
+    scanStorageOptionObject(callName, new URLSearchParams(qs), observer, depth + 1, seen);
+  } else if (qs !== undefined) {
+    scanStorageOptionObject(callName, qs, observer, depth + 1, seen);
+  }
   const nestedRequest = safeGet(value, 'request');
   if (nestedRequest !== undefined) scanStorageOptionObject(callName, nestedRequest, observer, depth + 1, seen);
 }
@@ -413,7 +444,9 @@ export function patchStorageCallChecks(
   Object.defineProperty(prototype, CALL_CHECKS_PATCHED, { value: true });
 }
 
-function onAuthenticatedOf(args: readonly unknown[]): { receiver: object; fn: Method } | undefined {
+function authCallbackOf(args: readonly unknown[]): { receiver: unknown; fn: Method } | undefined {
+  const cb = nodeCallbackOf(args);
+  if (cb !== undefined) return { receiver: undefined, fn: cb.callback };
   const second = args[1];
   if (!isObject(second)) return undefined;
   const fn = safeGet(second, 'onAuthenticated');
@@ -447,20 +480,15 @@ export function gateMakeAuthenticatedRequest(
         assertStorageCallOptionsAllowed('Storage.makeAuthenticatedRequest', args, observer);
       };
 
-      const cb = nodeCallbackOf(args);
-      const onAuth = cb === undefined ? onAuthenticatedOf(args) : undefined;
+      const authCb = authCallbackOf(args);
 
       // Never skip URI/options enforcement when called reentrantly (e.g. from Service.requestStream / Service.request).
       if (isObservingAdminCall()) {
         try {
           checkUriAndOpts();
         } catch (err: unknown) {
-          if (cb !== undefined) {
-            process.nextTick(() => Reflect.apply(cb.callback, undefined, [err]));
-            return { abort() {} };
-          }
-          if (onAuth !== undefined) {
-            process.nextTick(() => Reflect.apply(onAuth.fn, onAuth.receiver, [err]));
+          if (authCb !== undefined) {
+            process.nextTick(() => Reflect.apply(authCb.fn, authCb.receiver, [err]));
             return { abort() {} };
           }
           return refusedStream(err);
@@ -468,26 +496,14 @@ export function gateMakeAuthenticatedRequest(
         return Reflect.apply(real, this, args);
       }
 
-      if (cb !== undefined) {
+      if (authCb !== undefined) {
         let reached = false;
         gate(appOf(owner), () => {
           checkUriAndOpts();
           reached = true;
           return runInsideAdminCall(() => Reflect.apply(real, this, args));
         }).catch((err: unknown) => {
-          if (!reached) process.nextTick(() => Reflect.apply(cb.callback, undefined, [err]));
-        });
-        return { abort() {} };
-      }
-
-      if (onAuth !== undefined) {
-        let reached = false;
-        gate(appOf(owner), () => {
-          checkUriAndOpts();
-          reached = true;
-          return runInsideAdminCall(() => Reflect.apply(real, this, args));
-        }).catch((err: unknown) => {
-          if (!reached) process.nextTick(() => Reflect.apply(onAuth.fn, onAuth.receiver, [err]));
+          if (!reached) process.nextTick(() => Reflect.apply(authCb.fn, authCb.receiver, [err]));
         });
         return { abort() {} };
       }

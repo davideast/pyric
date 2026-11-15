@@ -169,6 +169,21 @@ describe('Admin live project-gate adversarial matrix', () => {
         '  get name() { return this.#name; }',
         '}',
         "const GetDocumentRequest = client._protos.lookupType('google.firestore.v1.GetDocumentRequest');",
+        "const WriteRequest = client._protos.lookupType('google.firestore.v1.WriteRequest');",
+        'function nonEnumProtoReq(name) {',
+        '  const proto = {};',
+        '  Object.defineProperty(proto, "name", { value: name, enumerable: false });',
+        '  return Object.create(proto);',
+        '}',
+        'function writeDuplexCode(chunk) {',
+        '  return new Promise((resolve) => {',
+        '    const stream = client.write();',
+        '    let done = false;',
+        '    const finish = (v) => { if (!done) { done = true; resolve(v); } };',
+        '    stream.once("error", (err) => finish(String(err?.code ?? err?.message ?? err)));',
+        '    stream.write(chunk, (err) => { if (err) finish(String(err?.code ?? err?.message ?? err)); });',
+        '  });',
+        '}',
         'async function codeOf(promise) {',
         '  try { await promise; return "OK"; } catch (err) { return String(err?.code ?? err?.message ?? err); }',
         '}',
@@ -179,10 +194,15 @@ describe('Admin live project-gate adversarial matrix', () => {
         'const classOther = await codeOf(client.getDocument(new GapicRequest(`projects/${OTHER}/databases/(default)/documents/items/1`), callOpts));',
         'const classNamedDb = await codeOf(client.getDocument(new GapicRequest(`projects/${HOST}/databases/other-db/documents/items/1`), callOpts));',
         'const getterOther = await codeOf(client.getDocument(new GetterRequest(`projects/${OTHER}/databases/(default)/documents/items/1`), callOpts));',
+        'const nonEnumOther = await codeOf(client.getDocument(nonEnumProtoReq(`projects/${OTHER}/databases/(default)/documents/items/1`), callOpts));',
+        'const nonEnumNamedDb = await codeOf(client.getDocument(nonEnumProtoReq(`projects/${HOST}/databases/other-db/documents/items/1`), callOpts));',
         'const protoOther = await codeOf(client.getDocument(GetDocumentRequest.create({ name: `projects/${OTHER}/databases/(default)/documents/items/1` }), callOpts));',
         'const protoNamedDb = await codeOf(client.getDocument(GetDocumentRequest.create({ name: `projects/${HOST}/databases/other-db/documents/items/1` }), callOpts));',
+        'const writeProtoOther = await writeDuplexCode(WriteRequest.create({ database: `projects/${OTHER}/databases/(default)` }));',
+        'const writeProtoNamedDb = await writeDuplexCode(WriteRequest.create({ database: `projects/${HOST}/databases/other-db` }));',
         'process.stdout.write("RESULT " + JSON.stringify({',
-        '  hostPlain, hostProto, plainOther, classOther, classNamedDb, getterOther, protoOther, protoNamedDb,',
+        '  hostPlain, hostProto, plainOther, classOther, classNamedDb, getterOther,',
+        '  nonEnumOther, nonEnumNamedDb, protoOther, protoNamedDb, writeProtoOther, writeProtoNamedDb,',
         '}) + "\\n");',
       ].join('\n'),
     );
@@ -196,8 +216,12 @@ describe('Admin live project-gate adversarial matrix', () => {
     expect(result.classOther).toBe('PYRIC_LIVE_REFUSED');
     expect(result.classNamedDb).toBe('PYRIC_LIVE_REFUSED');
     expect(result.getterOther).toBe('PYRIC_LIVE_REFUSED');
+    expect(result.nonEnumOther).toBe('PYRIC_LIVE_REFUSED');
+    expect(result.nonEnumNamedDb).toBe('PYRIC_LIVE_REFUSED');
     expect(result.protoOther).toBe('PYRIC_LIVE_REFUSED');
     expect(result.protoNamedDb).toBe('PYRIC_LIVE_REFUSED');
+    expect(result.writeProtoOther).toBe('PYRIC_LIVE_REFUSED');
+    expect(result.writeProtoNamedDb).toBe('PYRIC_LIVE_REFUSED');
 
     const badHits = hits.filter(
       (hit) => hit.url.includes(OTHER_PROJECT) || hit.url.includes('/databases/other-db/'),
@@ -224,6 +248,9 @@ describe('Admin live project-gate adversarial matrix', () => {
         'storage.retryOptions = { autoRetry: false };',
         'class BucketQueryOpts {',
         '  constructor(project) { this.project = project; }',
+        '}',
+        'class BucketNameOpts {',
+        '  constructor(bucket) { this.bucket = bucket; }',
         '}',
         'class UserProjOpts {',
         '  #project;',
@@ -260,13 +287,17 @@ describe('Admin live project-gate adversarial matrix', () => {
         'const v4GetBuckets = await codeOf(storage.getBuckets(new BucketQueryOpts(OTHER)));',
         'const v4GetFiles = await codeOf(bucket.getFiles(new UserProjOpts(OTHER)));',
         'const v4Qs = await codeOf(new Promise((res, rej) => storage.request({ uri: "/b", qs: new BucketQueryOpts(OTHER) }, (e, b) => (e ? rej(e) : res(b)))));',
+        'const vQsBucketAuthReq = await runAuthReq({ uri: `${ORIGIN}/storage/v1/b`, qs: { bucket: `${OTHER}.appspot.com` } });',
+        'const vQsDestBucketAuthReq = await runAuthReq({ uri: `${ORIGIN}/storage/v1/b`, qs: { destinationBucket: `${OTHER}.appspot.com` } });',
+        'const vQsNonPlainBucket = await runAuthReq({ uri: `${ORIGIN}/storage/v1/b`, qs: new BucketNameOpts(`${OTHER}.appspot.com`) });',
         'const vInterceptor = await runStream(storage, {',
         '  uri: "/b",',
         '  interceptors_: [{ request(reqOpts) { return { ...reqOpts, uri: `${ORIGIN}/storage/v1/b/${OTHER}.appspot.com/o` }; } }],',
         '});',
         'process.stdout.write("RESULT " + JSON.stringify({',
         '  hostFiles, v1StorageStream, v1BucketStream, v2AuthReq, v2Request, v2Stream,',
-        '  v3AuthReq, v3Request, v3Stream, v4GetBuckets, v4GetFiles, v4Qs, vInterceptor,',
+        '  v3AuthReq, v3Request, v3Stream, v4GetBuckets, v4GetFiles, v4Qs,',
+        '  vQsBucketAuthReq, vQsDestBucketAuthReq, vQsNonPlainBucket, vInterceptor,',
         '}) + "\\n");',
       ].join('\n'),
     );
@@ -286,6 +317,9 @@ describe('Admin live project-gate adversarial matrix', () => {
     expect(result.v4GetBuckets).toBe('PYRIC_LIVE_REFUSED');
     expect(result.v4GetFiles).toBe('PYRIC_LIVE_REFUSED');
     expect(result.v4Qs).toBe('PYRIC_LIVE_REFUSED');
+    expect(result.vQsBucketAuthReq).toBe('PYRIC_LIVE_REFUSED');
+    expect(result.vQsDestBucketAuthReq).toBe('PYRIC_LIVE_REFUSED');
+    expect(result.vQsNonPlainBucket).toBe('PYRIC_LIVE_REFUSED');
     expect(result.vInterceptor).toBe('PYRIC_LIVE_REFUSED');
 
     const foreignHits = hits.filter((hit) => hit.url.includes(OTHER_PROJECT));

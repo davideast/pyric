@@ -148,6 +148,32 @@ describe('firestore-gapic', () => {
     }) as object;
     expect(errorCodeOf(() => assertGapicPayloadAllowed([inheritedReq], observer))).toBe('PYRIC_LIVE_REFUSED');
 
+    // Non-enumerable prototype data properties (host allowed, cross-project and named-db refused).
+    const nonEnumHostProto: Record<string, unknown> = {};
+    Object.defineProperty(nonEnumHostProto, 'name', {
+      value: `projects/${HOST_PROJECT}/databases/(default)/documents/items/1`,
+      enumerable: false,
+    });
+    expect(() => assertGapicPayloadAllowed([Object.create(nonEnumHostProto) as object], observer)).not.toThrow();
+
+    const nonEnumOtherProto: Record<string, unknown> = {};
+    Object.defineProperty(nonEnumOtherProto, 'name', {
+      value: 'projects/org-beta/databases/(default)/documents/items/1',
+      enumerable: false,
+    });
+    expect(errorCodeOf(() => assertGapicPayloadAllowed([Object.create(nonEnumOtherProto) as object], observer))).toBe(
+      'PYRIC_LIVE_REFUSED',
+    );
+
+    const nonEnumNamedDbProto: Record<string, unknown> = {};
+    Object.defineProperty(nonEnumNamedDbProto, 'databaseId', {
+      value: 'secondary-db',
+      enumerable: false,
+    });
+    expect(errorCodeOf(() => assertGapicPayloadAllowed([Object.create(nonEnumNamedDbProto) as object], observer))).toBe(
+      'PYRIC_LIVE_REFUSED',
+    );
+
     // Map and Set containers, plus binary/built-in skips and cyclic references.
     const mapReq = new Map<string, unknown>([
       ['target', new Set(['projects/org-beta/databases/(default)/documents/items/1'])],
@@ -209,6 +235,17 @@ describe('firestore-gapic', () => {
       name: `projects/${HOST_PROJECT}/databases/secondary-db/documents/items/1`,
     });
     expect(errorCodeOf(() => assertGapicPayloadAllowed([namedDbProtoReq], observer))).toBe('PYRIC_LIVE_REFUSED');
+
+    const WriteRequest = protoClient._protos.lookupType('google.firestore.v1.WriteRequest');
+    const otherWriteProto = WriteRequest.create({
+      database: 'projects/org-beta/databases/(default)',
+    });
+    expect(errorCodeOf(() => assertGapicPayloadAllowed([otherWriteProto], observer))).toBe('PYRIC_LIVE_REFUSED');
+
+    const namedDbWriteProto = WriteRequest.create({
+      database: `projects/${HOST_PROJECT}/databases/secondary-db`,
+    });
+    expect(errorCodeOf(() => assertGapicPayloadAllowed([namedDbWriteProto], observer))).toBe('PYRIC_LIVE_REFUSED');
   });
 
   it('patches v1/v1beta1 GAPIC prototypes across unary, stream, async-iterable, and duplex methods while passing nested calls through', async () => {
