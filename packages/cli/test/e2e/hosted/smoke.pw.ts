@@ -518,7 +518,7 @@ setInterval(() => {}, 1000);
       const deletedPath = await page.evaluate((kept) => window.__smoke.deleteByUrl(kept), url);
       expect(deletedPath).toBe('media/kept.txt');
       expect(await page.evaluate(() => window.__smoke.storageObjectExists('media/kept.txt'))).toBe(false);
-      expect((await page.request.get(url)).status()).toBe(404);
+      expect((await page.request.get(url)).status()).toBe(403);
     } finally {
       await host.stop();
     }
