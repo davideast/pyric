@@ -1,20 +1,6 @@
 /**
- * InProcess MCP server: runs the pyric sandbox IN this process (no browser, no
- * serve) and exposes the SAME tool surface the bridge advertises, over stdio.
- *
- * This is the zero-setup half of the hybrid MCP server
- * (design rationale): when no `pyric dev --bridge` is running to
- * attach to, the MCP server hosts its own sandbox. The tool surface is identical
- * to the served bridge by construction (`buildSandboxDispatcher` is the shared
- * source pinned by `tool-parity.test.ts`), including the per-identity `as` arg.
- *
- * Persistence (Phase 1b) uses the v3 bundle codec the worker already uses for
- * transfer/branches (`serializeToBuckets` + `bundleRecords`). It writes its OWN
- * `.pyric/state/in-process.json`, NOT serve's `state.json` (which currently uses a
- * different on-disk envelope, and carries a controller-blob version that has
- * drifted from pyric's snapshot SCHEMA_VERSION). Unifying the two formats so a
- * in-process session and a `pyric dev` session can share one file is a tracked
- * design item, not done here.
+ * In-process stdio MCP server: serves the ten method-record service tools,
+ * routing per call via `TargetRouter` to a live Node host or a local sandbox.
  */
 import { existsSync, readFileSync, writeFileSync, mkdirSync, renameSync } from 'node:fs';
 import { join, dirname, resolve } from 'node:path';
@@ -76,7 +62,8 @@ import {
 import { readFirebaseRcSync, type FirebaseJson } from '../../cli/firebase-json.js';
 import { defaultFirestoreDatabase } from 'pyric/sandbox/internal';
 import { TargetRouter } from './target-router.js';
-import type { discoverServe } from '../../serve/discovery.js';
+import { formatMcpInstructions, resolveProjectIdentity } from './project-identity.js';
+import type { Discovered, discoverServe } from '../../serve/discovery.js';
 import type { callHostedMethod } from '../../cli/hosted-method.js';
 
 /** The stdio transport is a late import: the SDK is heavy and only needed here. */
@@ -118,6 +105,10 @@ export interface InProcessMcpServerOptions extends LocalBridgeOptions {
   discover?: typeof discoverServe;
   /** Injected hosted method caller for testing. */
   callHosted?: typeof callHostedMethod;
+  /** Pre-discovered Node host present when the session started. */
+  initialHost?: Discovered;
+  /** Runtime mode of `initialHost`. */
+  initialHostMode?: 'sandbox' | 'live';
 }
 
 /**
@@ -143,17 +134,9 @@ export function buildInProcessMcpServer(sandbox: LocalSandbox, opts?: InProcessM
     });
   };
 
-  // The product surface is the service tools rendered from the method records,
-  // and it is what a server with no `--surface` serves. A surface id renders
-  // another spelling of the same records for the surface evaluation. Either way
-  // the rendering is registered through the surface adapter, so one code path
-  // serves the product and the measurements.
-  //
-  // Throws for an id no renderer claims, which fails the session at startup
-  // rather than measuring the wrong surface.
   const rendered = renderSurface(opts?.surface, { allowProduction: opts?.allowProduction });
-  const server = new McpServer({ name: 'pyric', version: bridge.version });
   const projectDir = opts?.projectDir ?? process.cwd();
+  const projectIdentity = resolveProjectIdentity(projectDir);
   const targetRouter =
     opts?.targetRouter ??
     new TargetRouter({
@@ -163,7 +146,15 @@ export function buildInProcessMcpServer(sandbox: LocalSandbox, opts?: InProcessM
       cacheTtlMs: opts?.cacheTtlMs,
       discover: opts?.discover,
       callHosted: opts?.callHosted,
+      initialHost: opts?.initialHost,
+      initialHostMode: opts?.initialHostMode,
     });
+  const instructions = formatMcpInstructions(
+    projectIdentity,
+    targetRouter.getCurrentTarget(),
+    opts?.initialHost?.url,
+  );
+  const server = new McpServer({ name: 'pyric', version: bridge.version }, { instructions });
   const surfaceContext = createSurfaceContext(sandbox, projectDir, targetRouter);
   // With no page, rules see the default bucket under the name the project gives it.
   const defaultBucketName = inProcessDefaultBucketName(projectDir);
@@ -171,6 +162,7 @@ export function buildInProcessMcpServer(sandbox: LocalSandbox, opts?: InProcessM
   return registerRenderedSurface(server, bridge, rendered, surfaceContext, {
     onCallRejected: onCallRejected ? rejectionEvent : undefined,
     onAfterCall: opts?.onAfterDispatch,
+    projectIdentity,
   });
 }
 
@@ -552,6 +544,10 @@ export interface InProcessRunOptions {
   transport?: Transport;
   /** Suppress following a live Node host (--in-process flag). */
   inProcessOnly?: boolean;
+  /** Pre-discovered Node host present when the session started. */
+  initialHost?: Discovered;
+  /** Runtime mode of `initialHost`. */
+  initialHostMode?: 'sandbox' | 'live';
 }
 
 /**
@@ -581,29 +577,22 @@ export function withInProcessEventWriter(
 }
 
 /**
- * Run the in-process MCP server over stdio. Loads `.pyric/state/in-process.json` and
- * the storage sidecar on start, debounces a save after each dispatch, and
- * flushes both on shutdown. Resolves with an exit code when the stdio transport
- * closes (the editor disconnects).
- *
- * Every file the session touches lives under the project directory, which is
- * `cwd` unless `options.projectDir` names another one. Separating the two lets a
- * caller start the server in a directory that holds none of the state the
- * session reads or writes.
- *
- * With `PYRIC_EVAL_LOG` set, every tool call is appended to that file as NDJSON
- * and the per-project audit log is not written. Without it, nothing is recorded,
- * which is the behaviour in-process mode has always had.
+ * Run the stdio MCP server. Owns `.pyric/state/in-process.json` when no Node
+ * host was discovered at startup; routes straight to `options.initialHost`
+ * without claiming the in-process lock when a Node host is already running.
  */
 export async function runInProcessMcp(
   cwd: string = process.cwd(),
   options: InProcessRunOptions = {},
 ): Promise<number> {
   const projectDir = resolve(cwd, options.projectDir ?? '.');
+  if (options.initialHost !== undefined && !options.inProcessOnly) {
+    return await runInProcessSession(projectDir, options, false);
+  }
   mkdirSync(projectDir, { recursive: true });
   const owner = await claimProjectState(projectDir, 'in-process');
   try {
-    return await runInProcessSession(projectDir, options);
+    return await runInProcessSession(projectDir, options, true);
   } finally {
     owner.close();
   }
@@ -612,6 +601,7 @@ export async function runInProcessMcp(
 async function runInProcessSession(
   projectDir: string,
   options: InProcessRunOptions,
+  persistLocal: boolean,
 ): Promise<number> {
   const log = (m: string): void => {
     process.stderr.write(`[pyric mcp in-process] ${m}\n`);
@@ -627,15 +617,13 @@ async function runInProcessSession(
   if (recordsEvaluation) log(`recording tool events to ${evalLog.path}`);
 
   const sandbox = initializeSandbox();
-  // Before the snapshot, and before the transport serves a single call.
   const storage = openPersistedServices(sandbox, projectDir);
-  const restored = loadSandboxSnapshot(sandbox, projectDir);
-  const restoredSnapshot = restored !== null;
-  if (restoredSnapshot) {
-    log(`restored ${restored} docs from ${join(projectDir, IN_PROCESS_STATE_RELATIVE)}`);
+  if (persistLocal) {
+    const restored = loadSandboxSnapshot(sandbox, projectDir);
+    if (restored !== null) {
+      log(`restored ${restored} docs from ${join(projectDir, IN_PROCESS_STATE_RELATIVE)}`);
+    }
   }
-  // After the snapshot: restoring it resets the ruleset to the sandbox default,
-  // and the project's rules file is the authority for what the server enforces.
   const projectRules = loadProjectRules(sandbox, projectDir, log);
   if (projectRules !== null && projectRules.refused === null) {
     log(`rules loaded from ${projectRules.path}`);
@@ -644,19 +632,17 @@ async function runInProcessSession(
   } else {
     log(`no Firestore rules for (default) found in ${projectDir}`);
   }
-  const restoredObjects = await loadStorageSidecar(storage, projectDir);
-  const restoredStorage = restoredObjects > 0;
-  if (restoredStorage) {
-    log(`restored ${restoredObjects} objects from ${join(projectDir, STORAGE_SIDECAR_RELATIVE)}`);
+  if (persistLocal) {
+    const restoredObjects = await loadStorageSidecar(storage, projectDir);
+    if (restoredObjects > 0) {
+      log(`restored ${restoredObjects} objects from ${join(projectDir, STORAGE_SIDECAR_RELATIVE)}`);
+    }
   }
 
-  // Debounced persistence: a burst of writes collapses to one flush. The final
-  // flush is synchronous and runs before the server closes, so the file a reader
-  // opens after the session always contains the last writes. `pendingSave`
-  // covers the path where the process ends without reaching that flush.
   let saveTimer: ReturnType<typeof setTimeout> | null = null;
   let pendingSave = false;
   const saveNow = (): void => {
+    if (!persistLocal) return;
     pendingSave = false;
     try {
       saveSandboxSnapshot(sandbox, projectDir);
@@ -665,25 +651,22 @@ async function runInProcessSession(
     }
   };
   const flush = (): void => {
-    const pendingTimer = saveTimer;
-    const hasSaveTimer = pendingTimer !== null;
-    if (hasSaveTimer) {
-      clearTimeout(pendingTimer);
+    if (saveTimer !== null) {
+      clearTimeout(saveTimer);
       saveTimer = null;
     }
     saveNow();
   };
   const scheduleSave = (): void => {
+    if (!persistLocal) return;
     pendingSave = true;
-    const pendingTimer = saveTimer;
-    const hasSaveTimer = pendingTimer !== null;
-    if (hasSaveTimer) clearTimeout(pendingTimer);
+    if (saveTimer !== null) clearTimeout(saveTimer);
     saveTimer = setTimeout(saveNow, 750);
   };
   const saveIfPendingAtExit = (): void => {
     if (pendingSave) saveNow();
   };
-  process.once('exit', saveIfPendingAtExit);
+  if (persistLocal) process.once('exit', saveIfPendingAtExit);
 
   const baseServerOptions: InProcessMcpServerOptions = {
     onAfterDispatch: scheduleSave,
@@ -691,6 +674,8 @@ async function runInProcessSession(
     allowProduction: options.allowProduction,
     projectDir,
     inProcessOnly: options.inProcessOnly,
+    initialHost: options.initialHost,
+    initialHostMode: options.initialHostMode,
   };
   // A surface id no renderer claims is a start-up failure, not a per-call one:
   // serving the wrong surface would silently mislabel a whole run.
@@ -707,12 +692,8 @@ async function runInProcessSession(
   return await new Promise<number>((resolve) => {
     let stopping = false;
     const onStdinEnd = (): void => stop(0);
-    /**
-     * Write the storage sidecar. Storage reads are asynchronous, so this is the
-     * one part of the final flush that cannot be synchronous; it runs before
-     * the exit code resolves, which is before the process ends.
-     */
     const flushStorage = async (): Promise<void> => {
+      if (!persistLocal) return;
       try {
         await saveStorageSidecar(storage, projectDir);
       } catch (e) {
@@ -748,8 +729,12 @@ async function runInProcessSession(
     process.stdin.once('end', onStdinEnd);
     process.once('SIGINT', () => stop(0));
     process.once('SIGTERM', () => stop(0));
+    let readyMessage = `in-process sandbox MCP server ready (persisting to ${IN_PROCESS_STATE_RELATIVE})`;
+    if (!persistLocal && options.initialHost !== undefined) {
+      readyMessage = `MCP server ready (routing to Node host at ${options.initialHost.url})`;
+    }
     void server.connect(transport).then(
-      () => log(`in-process sandbox MCP server ready (persisting to ${IN_PROCESS_STATE_RELATIVE})`),
+      () => log(readyMessage),
       (e) => {
         log(`failed to start: ${failureMessage(e)}`);
         resolve(1);

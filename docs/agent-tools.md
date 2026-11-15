@@ -9,18 +9,23 @@ This repo carries two MCP tool contracts, both sourced from
    `{ method, args }`, where `method` is the SDK's own method name where the
    SDK has one, and pyric's own name where it does not. `DEFAULT_MCP_TOOL_NAMES`
    is the exact list, and it is the ten tools this section documents. Ten is
-   the ceiling `0014-service-tools-with-sdk-methods.md` sets. Which sandbox
-   the server acts on depends on what is running: when the project's own
-   `.pyric/serve.json` pointer names a running `pyric serve` or
-   `pyric sandbox --bridge`, it attaches to that process and relays to the
-   sandbox it holds in the browser tab, which today advertises the transport
-   surface below (a sandbox server found only by the port scan is reported
-   and not attached to, since it may belong to another project); otherwise
-   it owns an in-process sandbox, a
-   plain object inside the `pyric mcp` process with no browser involved,
-   persisted to `.pyric/state/in-process.json`. `--attach` insists on the
-   running one and fails when there is none; `--in-process` insists on owning
-   one and never looks. The first line the server logs says which happened.
+   the ceiling `0014-service-tools-with-sdk-methods.md` sets. Whether started
+   before or after a Node host (`pyric sandbox --hosted`, Vite
+   `pyric({ hosted: true })`, or `pyricLive()`), and regardless of `--project-dir`,
+   `pyric mcp` always serves this identical ten-tool product surface and routes
+   each call through `TargetRouter` to the live Node host (when the project's
+   `.pyric/serve.json` names one) or to a local in-process sandbox persisted to
+   `.pyric/state/in-process.json`. A sandbox server found only by the port scan
+   is reported and not attached to, since it may belong to another project. The
+   HTTP `/__pyric/mcp` relay to the transport surface below is used only when
+   the running host is a browser SharedWorker host (which cannot execute method
+   records directly) or when `--attach` is passed explicitly. `--attach` insists
+   on a running host, fails when there is none, and cannot be combined with
+   `--surface` or `--allow-production`; `--in-process` insists on
+   owning a local sandbox and never looks. The MCP `initialize` response
+   includes a one-sentence `instructions` field naming the resolved project
+   directory, initial target, and a warning if no project markers exist there,
+   and every tool result carries `_pyric: { mode, project, target, projectDir, isProject }`.
 2. **`pyric sandbox --bridge`**: the **transport
    surface** a browser sandbox peer executes, plus the rules and conformance
    tools that run in the bridge process. The standalone `pyric bridge` serves
@@ -28,7 +33,7 @@ This repo carries two MCP tool contracts, both sourced from
    no page can attach to it, and `connectBridge` pointed at it stops with an
    error that names `pyric sandbox --bridge`. Its names are authored per family in
    `packages/cli/src/bridge/tool-family-records/` and pinned as
-   `BRIDGE_TOOL_NAMES` (41 tools today, unchanged flat names such as
+   `BRIDGE_TOOL_NAMES` (47 tools today, unchanged flat names such as
    `firestore_get_document` and `sandbox_inspect`). The
    [Pyric agent plugin](../pyric-plugin/README.md) auto-wires an agent to
    this surface when it drives `pyric sandbox --bridge` against a served
@@ -52,15 +57,15 @@ A `production` method reaches Google infrastructure with real credentials. It is
 | Tool | Methods |
 |---|---|
 | `firestore` | `getDoc`, `getDocs`, `addDoc`, `setDoc`, `updateDoc`, `deleteDoc`, `writeBatch`, `getCountFromServer`, `getAggregateFromServer`, `discoverPaths`, `findCollectionGroup`, `extractIndexes`, `writeIndexes` (destructive; requires `confirm: true`) |
-| `database` | `get`, `query`, `set`, `update`, `remove`, `push`, `crawl` (bounded structural view, no leaf values, depth 0 to 10, default 10) |
+| `database` | `get`, `query`, `set`, `update`, `remove`, `push`, `crawl` (bounded structural view, no leaf values, depth 0 to 10, default 10), `extractIndexes` |
 | `storage` | `getBytes`, `getDownloadURL`, `getMetadata`, `listAll`, `uploadBytes`, `updateMetadata`, `deleteObject`, `setCrossServiceIam`, `status` and `provision` (production; disabled unless the server was started with `--allow-production`, and then requires `confirm: true`) |
-| `auth` | `getUser`, `getUserByEmail`, `listUsers`, `createUser`, `updateUser`, `deleteUser`, `setCustomUserClaims`, `importUsers`, `createCustomToken`, `signInWithEmailAndPassword`, `signInAnonymously`, `signInWithCustomToken`, `signInWithCredential`, `signOut`, `impersonate`, `actAsAdmin`, `actAsAnonymous`, `useAppSession`, `whoami`, `sessions` |
+| `auth` | `getUser`, `getUserByEmail`, `listUsers`, `createUser`, `updateUser`, `deleteUser`, `setCustomUserClaims`, `importUsers`, `createCustomToken`, `signInWithEmailAndPassword`, `signInAnonymously`, `signInWithCustomToken`, `signInWithCredential`, `signOut`, `takeAuthMail`, `impersonate`, `actAsAdmin`, `actAsAnonymous`, `useAppSession`, `whoami`, `sessions` |
 | `messaging` | `send`, `subscribeToTopic`, `unsubscribeFromTopic`, `tokens`, `deliveries` |
 | `functions` | `listTriggers`, `fire`, `executions` |
 | `ai_logic` | `script`, `clearScripts`, `scripts`, `status` |
 | `rules` | `lint`, `simulate`, `explainDenial`, `set`, `listStdlib`, `getStdlib` |
-| `sandbox` | `inspect`, `events`, `listeners`, `activity`, `seed`, `seedFromFixture`, `exportFixture`, `reset` (destructive; requires `confirm: true`; `scope` narrows it to one service), `checkpoint`, `restore` (destructive; requires `confirm: true`), `listCheckpoints`, `deleteCheckpoint` (destructive; requires `confirm: true`), `fork`, `apply`, `diff`, `promote` (destructive; requires `confirm: true`), `discard`, `listBranches`, `setClock`, `advanceClock`, `resetClock` |
-| `assurance` | `replaySession`, `verifyCases`, `canIUse`, `attach`, `start`, `map`, `define`, `propose`, `run`, `inspect`, `minimize`, `verify`, `export`, `testRulesHosted` (production; disabled unless the server was started with `--allow-production`, and then requires `confirm: true`) |
+| `sandbox` | `inspect`, `events`, `listeners`, `activity`, `seed`, `seedFromFixture`, `exportFixture`, `reset` (destructive; requires `confirm: true`; `scope` narrows it to one service), `checkpoint`, `restore` (destructive; requires `confirm: true`), `listCheckpoints`, `deleteCheckpoint` (destructive; requires `confirm: true`), `fork`, `apply`, `diff`, `promote` (destructive; requires `confirm: true`), `discard`, `listBranches`, `listCaptures`, `openCapture`, `saveCapture`, `renameCapture`, `deleteCapture` (destructive; requires `confirm: true`), `setClock`, `advanceClock`, `resetClock` |
+| `assurance` | `replaySession`, `verifyCases`, `canIUse`, `attach`, `start`, `map`, `define`, `propose`, `run`, `inspect`, `minimize`, `verify`, `export`, `derive`, `testRulesHosted` (production; disabled unless the server was started with `--allow-production`, and then requires `confirm: true`) |
 
 `checkpoint` writes the whole live sandbox under a name into
 `.pyric/state/checkpoints/`: Firestore documents, the Realtime Database tree,
@@ -258,12 +263,16 @@ posts/p1 --data '{"a":1}'` and an MCP call with `{ method: "setDoc", args:
 identical sandbox state. See `docs/decisions/0014-service-tools-with-sdk-methods.md`
 for the design rationale.
 
-A derived command acts on the in-process sandbox in
-`.pyric/state/in-process.json`, and its first line says so. It cannot reach a
-sandbox that a running `pyric serve` holds in the browser, so when one is
-running for the project the command refuses rather than answer about a
-different sandbox, naming `--in-process`, which overrides the refusal, and
-`pyric mcp`, which reaches the running one.
+When `.pyric/serve.json` points to a running hosted Node sandbox (`pyric
+sandbox --hosted` or Vite `pyric({ hosted: true })`), a derived command routes
+directly to it and logs `pyric: hosted sandbox, <url>` on stderr (pass
+`--in-process` to act on the local `.pyric/state/in-process.json` file
+instead). When no host is running, it acts on `.pyric/state/in-process.json`
+and logs that path. When a running browser SharedWorker host (`pyric sandbox
+--bridge`) holds the sandbox in a browser tab, a derived CLI command cannot
+execute method records against it directly, so it refuses rather than answer
+about a different sandbox, naming `--in-process` (which overrides the refusal)
+and `pyric mcp` (which relays to the running SharedWorker host).
 
 Any argument may be read from a file instead of the command line, as
 `--<arg>-file <path>`, and the file is read as that argument's own kind: text
@@ -459,8 +468,8 @@ land in `createAssuranceTools` and is picked up by both.
 
 ---
 
-**Transport surface: 41 unique tool names** (see `BRIDGE_TOOL_NAMES` in
+**Transport surface: 47 unique tool names** (see `BRIDGE_TOOL_NAMES` in
 `mcp-contract.ts`). The product surface `pyric mcp` serves by default is the
-seven service tools documented above (`DEFAULT_MCP_TOOL_NAMES` in the same
+ten service tools documented above (`DEFAULT_MCP_TOOL_NAMES` in the same
 file). Production shipping (rules, indexes, hosting, functions) is owned by
 `firebase-tools` or the Firebase Console.

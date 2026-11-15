@@ -64,6 +64,7 @@ import { resolve } from 'node:path';
 import type { JSONRPCMessage, JSONRPCRequest } from '@modelcontextprotocol/sdk/types.js';
 import type { ParsedArgs } from './parse-args.js';
 import { allowProductionFrom } from '../bridge/surface/method-effects.js';
+import { probeNodeHost } from '../bridge/server/project-identity.js';
 import { discoverServe, SCAN_PORTS, selectProjectHost, type Discovered } from '../serve/discovery.js';
 import { resolveSessionTokenForTarget } from '../serve/local-session-token.js';
 import { MCP_PROJECT_HEADER, MCP_INSTANCE_HEADER } from '../serve/mcp-project.js';
@@ -102,6 +103,7 @@ function isResponse(m: JSONRPCMessage): m is JSONRPCMessage & { id: string | num
 /** Injectable seams for testing the attach-vs-in-process selection. */
 export interface McpProxyDeps {
   discover?: typeof discoverServe;
+  probeHost?: typeof probeNodeHost;
   inProcess?: (cwd: string, options: InProcessSelection) => Promise<number>;
   /** Environment the surface fallback is read from. Defaults to the process. */
   env?: NodeJS.ProcessEnv;
@@ -128,6 +130,10 @@ export interface InProcessSelection {
   allowProduction?: boolean;
   /** Suppress following a live Node host (--in-process flag). */
   inProcessOnly?: boolean;
+  /** Pre-discovered Node host present when the MCP session started. */
+  initialHost?: Discovered;
+  /** Runtime mode of `initialHost`. */
+  initialHostMode?: 'sandbox' | 'live';
 }
 
 /** Environment variable naming the tool surface when `--surface` is absent. */
@@ -211,9 +217,19 @@ export async function runMcpProxy(
     deps.inProcess ??
     ((c: string, o: InProcessSelection) =>
       import('../bridge/server/in-process.js').then((m) => m.runInProcessMcp(c, o)));
-  const hasConflictingHosts = forcesInProcess && requiresRunningServe(parsed);
+  const requiresServe = requiresRunningServe(parsed);
+  const hasConflictingHosts = forcesInProcess && requiresServe;
   if (hasConflictingHosts) {
     log('--attach and --in-process name different hosts for the sandbox; pass one of them.');
+    return USAGE_ERROR;
+  }
+  const requestsRenderedSurface =
+    selection.surface !== undefined || selection.allowProduction === true;
+  if (requiresServe && requestsRenderedSurface) {
+    log(
+      '--attach relays the running host HTTP /__pyric/mcp transport surface and cannot be combined ' +
+        'with --surface or --allow-production; drop --attach to serve the rendered product surface.',
+    );
     return USAGE_ERROR;
   }
 
@@ -255,7 +271,7 @@ export async function runMcpProxy(
   // endpoint; the pointer's contents alone do not establish project ownership.
   const found = matchesSelectedProject(selectProjectHost(discovered, log));
   const hasNoHost = found === null;
-  const requiresMissingHost = hasNoHost && requiresRunningServe(parsed);
+  const requiresMissingHost = hasNoHost && requiresServe;
   if (requiresMissingHost) {
     log(
       'no running `pyric serve` or `pyric sandbox --bridge` found for this project (looked for ' +
@@ -264,21 +280,34 @@ export async function runMcpProxy(
     );
     return USAGE_ERROR;
   }
-  const requestsRenderedSurface =
-    selection.surface !== undefined || selection.allowProduction === true;
-  if (hasNoHost || requestsRenderedSurface) {
-    if (hasNoHost) {
-      // Hybrid mode (design rationale): no dev server to attach to, so host the
-      // sandbox IN this process. Zero setup, no browser tab required. A running
-      // `pyric sandbox --bridge` upgrades to the shared session on reconnect.
+  if (hasNoHost) {
+    // Hybrid mode: no dev server to attach to, so host the sandbox in this
+    // process and let TargetRouter follow a Node host started later.
+    log(
+      'no running `pyric sandbox --bridge` found (looked for .pyric/serve.json and ports ' +
+        `${SCAN_PORTS.join(', ')}); starting an in-process sandbox (zero-setup).\n` +
+        '  Data persists to .pyric/state/in-process.json. If a Node host starts later for\n' +
+        '  this project, subsequent calls route to it automatically.',
+    );
+    return await runInProcess(cwd, selection);
+  }
+  if (!requiresServe) {
+    const effectiveProjectDir = found.pointerProjectDir ?? selection.projectDir;
+    const probeDir = effectiveProjectDir ?? canonicalSearchDir;
+    const probed = await (deps.probeHost ?? probeNodeHost)(found, probeDir);
+    if (probed.supportsMethods) {
       log(
-        'no running `pyric sandbox --bridge` found (looked for .pyric/serve.json and ports ' +
-          `${SCAN_PORTS.join(', ')}); starting an in-process sandbox (zero-setup).\n` +
-          '  Data persists to .pyric/state/in-process.json. For a shared-live Studio\n' +
-          '  session, start `pyric sandbox --bridge` before connecting the agent (a sandbox host\n' +
-          '  started mid-session keeps its own state; this session stays on the in-process file).',
+        `serving ten-tool MCP surface routed to Node host at ${found.url} (via ${found.source})`,
       );
+      return await runInProcess(cwd, {
+        ...selection,
+        projectDir: effectiveProjectDir,
+        initialHost: found,
+        initialHostMode: probed.mode,
+      });
     }
+  }
+  if (requestsRenderedSurface) {
     return await runInProcess(cwd, selection);
   }
   log(`relaying stdio ↔ ${found.mcpUrl} (via ${found.source}; attached to a running serve)`);

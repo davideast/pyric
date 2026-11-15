@@ -18,6 +18,12 @@ import { createOperationBudget } from '../operation-budget.js';
 import { toolFamilies } from '../tool-families.js';
 import type { PyricWriteRefusal } from '../../serve/hosted/own-writes.js';
 import { tabCallRoute } from '../../serve/hosted/live-reads.js';
+import {
+  buildPyricEnvelope,
+  formatMcpInstructions,
+  resolveProjectIdentity,
+  type ProjectIdentity,
+} from './project-identity.js';
 
 export interface RegisterToolsOptions {
   /** Metadata for tools whose dispatch goes to the bridge peer. */
@@ -26,6 +32,8 @@ export interface RegisterToolsOptions {
   inProcess: ToolHandler[];
   /** Runtime mode stamped onto MCP envelopes and in-process tool events. Defaults to `'sandbox'`. */
   mode?: 'sandbox' | 'live';
+  /** Project directory stamped onto `_pyric` and `initialize.instructions`. Defaults to `process.cwd()`. */
+  projectDir?: string;
   /** Live mode's refusal for mutating/identity-switching in-process tools. */
   writeRefusal?: PyricWriteRefusal;
   /**
@@ -118,13 +126,14 @@ export function toMcpResult(
   project: string,
   target: 'host' | 'in-process' = 'in-process',
   mode: 'sandbox' | 'live' = 'sandbox',
+  projectIdentity?: ProjectIdentity,
 ) {
   // Wrap the bridge's tool result in MCP's content envelope. Include
-  // sandbox provenance + project label + target in a metadata block so the calling
-  // agent can always tell which target the tool hit.
+  // sandbox provenance + project label + target (+ projectDir/isProject) so
+  // the calling agent can always tell which project and target the tool hit.
   const body = {
     ...result,
-    _pyric: { mode, project, target },
+    _pyric: buildPyricEnvelope(mode, project, target, projectIdentity),
   };
   return {
     content: [
@@ -154,10 +163,17 @@ export function buildMcpServer(
   bridge: Bridge,
   options: RegisterToolsOptions,
 ): McpServer {
-  const server = new McpServer({
-    name: 'pyric',
-    version: bridge.version,
-  });
+  const projectIdentity = resolveProjectIdentity(options.projectDir ?? process.cwd());
+  let initialTarget: 'host' | 'in-process' = 'in-process';
+  if (options.forwarded.length > 0) initialTarget = 'host';
+  const instructions = formatMcpInstructions(projectIdentity, initialTarget);
+  const server = new McpServer(
+    {
+      name: 'pyric',
+      version: bridge.version,
+    },
+    { instructions },
+  );
   const registerTool = server.tool as RegisterMcpTool;
   const operationBudget = createOperationBudget();
   const callerId = crypto.randomUUID();
@@ -181,7 +197,7 @@ export function buildMcpServer(
         timestamp: new Date().toISOString(), mode: bridgeMode, project: bridge.project,
         tool, args, result, durationMs: 0, isError: true,
       });
-      return toMcpResult(result, bridge.project, 'in-process', bridgeMode);
+      return toMcpResult(result, bridge.project, 'in-process', bridgeMode, projectIdentity);
     }
     try {
       return await run();
@@ -216,7 +232,7 @@ export function buildMcpServer(
         markHandlerRan(extra);
         return admitToolCall(meta.name, args ?? {}, async () => {
           const result = await bridge.dispatch(meta.name, args ?? {}, extra.signal, callerId);
-          return toMcpResult(result, bridge.project, 'host', bridgeMode);
+          return toMcpResult(result, bridge.project, 'host', bridgeMode, projectIdentity);
         });
       },
     );
@@ -253,7 +269,7 @@ export function buildMcpServer(
               durationMs: Date.now() - startedAtMs,
               isError: true,
             });
-            return toMcpResult(refused, bridge.project, 'in-process', bridgeMode);
+            return toMcpResult(refused, bridge.project, 'in-process', bridgeMode, projectIdentity);
           }
           if (bridgeMode === 'live') {
             const routed = await tabCallRoute(bridge.tabTools, handler.name, args ?? {});
@@ -268,7 +284,7 @@ export function buildMcpServer(
                 durationMs: Date.now() - startedAtMs,
                 isError: !routed.ok,
               });
-              return toMcpResult(routed, bridge.project, 'host', bridgeMode);
+              return toMcpResult(routed, bridge.project, 'host', bridgeMode, projectIdentity);
             }
           }
           try {
@@ -294,7 +310,7 @@ export function buildMcpServer(
               durationMs: Date.now() - startedAtMs,
               isError: !normalised.ok,
             });
-            return toMcpResult(normalised, bridge.project, 'in-process', bridgeMode);
+            return toMcpResult(normalised, bridge.project, 'in-process', bridgeMode, projectIdentity);
           } catch (err) {
             const isError = err instanceof Error;
             const result = {
@@ -311,7 +327,7 @@ export function buildMcpServer(
               durationMs: Date.now() - startedAtMs,
               isError: true,
             });
-            return toMcpResult(result, bridge.project, 'in-process', bridgeMode);
+            return toMcpResult(result, bridge.project, 'in-process', bridgeMode, projectIdentity);
           }
         });
       },

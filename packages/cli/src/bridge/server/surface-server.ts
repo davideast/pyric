@@ -23,6 +23,7 @@ import { ReadResourceRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 import type { Bridge, BridgeToolEvent } from './bridge.js';
 import { jsonSchemaToZodShape } from './json-schema-to-zod.js';
 import { observeRejectedCalls, toMcpResult, type RejectedToolCall } from './mcp.js';
+import { buildPyricEnvelope, type ProjectIdentity } from './project-identity.js';
 import {
   hasDotPathSegment,
   parseResourceUri,
@@ -52,6 +53,8 @@ export interface RegisterRenderedSurfaceOptions {
    * `onAfterDispatch` does for the default surface.
    */
   onAfterCall?: () => void;
+  /** Canonical project directory and marker check stamped onto `_pyric`. */
+  projectIdentity?: ProjectIdentity;
 }
 
 /** MIME type of a resource read body, which is the operation result as JSON. */
@@ -216,7 +219,7 @@ function registerTool(
         mode,
       });
       options.onAfterCall?.();
-      return toMcpResult(result, bridge.project, target, mode);
+      return toMcpResult(result, bridge.project, target, mode, options.projectIdentity);
     },
   );
 }
@@ -257,7 +260,10 @@ function registerResource(
         mode,
       });
       options.onAfterCall?.();
-      const body = { ...result, _pyric: { mode, project: bridge.project, target } };
+      const body = {
+        ...result,
+        _pyric: buildPyricEnvelope(mode, bridge.project, target, options.projectIdentity),
+      };
       return {
         contents: [
           { uri: requested, mimeType: RESOURCE_MIME_TYPE, text: JSON.stringify(body, null, 2) },
@@ -361,7 +367,10 @@ function guardRawResourceReads(
             mode,
           });
           options.onAfterCall?.();
-          const body = { ...result, _pyric: { mode, project: bridge.project, target } };
+          const body = {
+            ...result,
+            _pyric: buildPyricEnvelope(mode, bridge.project, target, options.projectIdentity),
+          };
           return {
             contents: [
               { uri: rawUri, mimeType: RESOURCE_MIME_TYPE, text: JSON.stringify(body, null, 2) },
