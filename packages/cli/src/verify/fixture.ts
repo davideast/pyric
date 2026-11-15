@@ -381,7 +381,7 @@ export function buildVerifyFixture(input: BuildVerifyFixtureInput): PyricVerifyF
 export function parseVerifyFixture(value: unknown): PyricVerifyFixture {
   const isNotObject = !isVerifyFixtureObject(value);
   if (isNotObject) {
-    throw new Error('fixture must be a JSON object.');
+    throw new Error(formatWrongFileError('verify-session', value, 'fixture must be a JSON object'));
   }
   const hasWrongSchema = value.schema !== VERIFY_FIXTURE_SCHEMA;
   if (hasWrongSchema) {

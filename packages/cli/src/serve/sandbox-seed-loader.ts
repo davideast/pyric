@@ -13,6 +13,11 @@ import { parseStateFile, STATE_FILE_VERSION, type PyricStateFile } from './state
 import { inlineStorage } from './state-objects.js';
 import type { StateStore } from './state-store.js';
 import { restoredStateCounts, stateForSummary } from './state-summary.js';
+import {
+  formatWrongFileError,
+  identifyPyricFile,
+  STATE_FIXTURE_SCHEMA,
+} from '../verify/file-format.js';
 
 function formatSandboxSeedMessage(kind: 'read' | 'shape', path: string, detail: string): string {
   if (kind === 'read') return `failed to read seed ${path}: ${detail}`;
@@ -53,8 +58,11 @@ function isSeedableDatabaseValue(value: unknown): boolean {
 }
 
 function isSandboxSeedEnvelope(record: Record<string, unknown>): boolean {
+  if ('version' in record) return false;
+  if ('schema' in record && record.schema !== STATE_FIXTURE_SCHEMA) return false;
   const keys = Object.keys(record);
-  return !('version' in record) && keys.length > 0 && keys.every((key) => SANDBOX_SEED_KEYS.has(key));
+  if (keys.length === 0) return false;
+  return keys.every((key) => key === 'schema' || SANDBOX_SEED_KEYS.has(key));
 }
 
 function validateSandboxSeedEnvelope(record: Record<string, unknown>, seedPath: string): SandboxSeed {
@@ -237,6 +245,44 @@ export async function loadSandboxSeedOption(params: {
       }
     }
     return { persisted, seed, seedState, seedUsers, seedLabel, seedApplied };
+  }
+
+  const detected = identifyPyricFile(record);
+  if (detected !== null && detected.kind !== 'state-fixture') {
+    throw new SandboxSeedError(
+      'shape',
+      seedPath,
+      formatWrongFileError('state-fixture', record, undefined, 'pyric sandbox --seed'),
+    );
+  }
+  if ('schema' in record) {
+    if (record.schema !== STATE_FIXTURE_SCHEMA) {
+      throw new SandboxSeedError(
+        'shape',
+        seedPath,
+        formatWrongFileError(
+          'state-fixture',
+          record,
+          `unsupported schema '${String(record.schema)}'`,
+          'pyric sandbox --seed',
+        ),
+      );
+    }
+    const unexpectedKey = Object.keys(record).find(
+      (key) => key !== 'schema' && !SANDBOX_SEED_KEYS.has(key),
+    );
+    if (unexpectedKey !== undefined) {
+      throw new SandboxSeedError(
+        'shape',
+        seedPath,
+        formatWrongFileError(
+          'state-fixture',
+          record,
+          `unexpected field '${unexpectedKey}'`,
+          'pyric sandbox --seed',
+        ),
+      );
+    }
   }
 
   if (isSandboxSeedEnvelope(record)) {

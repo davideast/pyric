@@ -110,19 +110,43 @@ export function formatWrongFileError(
   expected: PyricFileKind,
   actual: unknown,
   prefix?: string,
+  consumerName?: string,
 ): string {
   const expectedInfo = PYRIC_FILE_FORMATS[expected];
+  const consumer = consumerName ?? expectedInfo.acceptedBy;
   const detected = identifyPyricFile(actual);
   let guidance: string;
   if (detected !== null && detected.kind !== expected) {
     guidance =
       `This is a ${detected.label} (${detected.schema}, from ${detected.producedBy}); ` +
       `use ${detected.acceptedBy} to load it. ` +
-      `${expectedInfo.acceptedBy} expects ${expectedInfo.sourceHint}.`;
+      `${consumer} expects ${expectedInfo.sourceHint}.`;
   } else {
-    guidance = `${expectedInfo.acceptedBy} expects ${expectedInfo.sourceHint}.`;
+    guidance = `${consumer} expects ${expectedInfo.sourceHint}.`;
   }
   if (!prefix) return guidance;
   if (prefix.endsWith('.')) return `${prefix} ${guidance}`;
   return `${prefix}. ${guidance}`;
+}
+
+/** Count denied events inside a sandbox or capture event list. */
+export function countDeniedEvents(events: readonly unknown[]): number {
+  let denials = 0;
+  for (const event of events) {
+    if (
+      typeof event === 'object' &&
+      event !== null &&
+      (event as { result?: unknown }).result === 'deny'
+    ) {
+      denials++;
+    }
+  }
+  return denials;
+}
+
+/** Format an event/denial count phrase for preserved-capture notices. */
+export function formatCaptureEventCounts(eventCount: number, denialCount: number): string {
+  const eventWord = eventCount === 1 ? 'event' : 'events';
+  const denialWord = denialCount === 1 ? 'denial' : 'denials';
+  return `${eventCount} ${eventWord}, ${denialCount} ${denialWord}`;
 }

@@ -28,6 +28,7 @@ import {
 } from './host/rules.js';
 import { connectDatabaseInstanceRules, createPendingDatabaseTargets } from '../database-instance-rules-host.js';
 import { buildVerifyFixture } from '../../verify/fixture.js';
+import { STATE_FIXTURE_SCHEMA } from '../../verify/file-format.js';
 import { captureRtdbInstances, defaultInstanceUrl } from '../../verify/rtdb-instance-capture.js';
 
 export {
@@ -187,8 +188,11 @@ function isSeedableDatabaseRoot(value: unknown): boolean {
 }
 
 function isSandboxSeedEnvelope(seed: Record<string, unknown>): boolean {
+  if ('version' in seed) return false;
+  if ('schema' in seed && seed.schema !== STATE_FIXTURE_SCHEMA) return false;
   const keys = Object.keys(seed);
-  return !('version' in seed) && keys.length > 0 && keys.every((key) => SANDBOX_SEED_SECTION_KEYS.has(key));
+  if (keys.length === 0) return false;
+  return keys.every((key) => key === 'schema' || SANDBOX_SEED_SECTION_KEYS.has(key));
 }
 
 function decodeSeedDocuments(

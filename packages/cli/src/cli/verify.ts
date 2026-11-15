@@ -3,9 +3,11 @@ import { basename, join, resolve } from 'node:path';
 import { resolveScope } from '../credentials/node/scope.js';
 import {
   CAPTURE_RELATIVE_PATH,
+  createCaptureStore,
   PREVIOUS_CAPTURE_RELATIVE_PATH,
   summarizeCaptureJson,
 } from '../serve/capture-store.js';
+import { formatCaptureEventCounts } from '../verify/file-format.js';
 import {
   deriveRulesTestCases,
   fixtureVerifiableServices,
@@ -187,7 +189,9 @@ export async function runVerify(parsed: ParsedArgs, deps: VerifyCliDeps = {}): P
   }
 
   const target = parsed.positional[0];
+  const activeCapturePath = resolve(cwd, CAPTURE_RELATIVE_PATH);
   const inputPath = resolve(cwd, target ?? CAPTURE_RELATIVE_PATH);
+  const isActiveCaptureTarget = !target || inputPath === activeCapturePath;
   if (!existsSync(inputPath)) {
     if (target) {
       process.stderr.write(`pyric verify: no such fixture or directory: ${inputPath}\n`);
@@ -196,6 +200,12 @@ export async function runVerify(parsed: ParsedArgs, deps: VerifyCliDeps = {}): P
         `pyric verify: no captured session at ${CAPTURE_RELATIVE_PATH}.\n` +
           '  Run `pyric sandbox`, exercise your app, then `pyric verify`, or pass a fixture path.\n',
       );
+    }
+    if (isActiveCaptureTarget) {
+      const preserved = readPreservedPreviousCapture(cwd);
+      if (preserved !== null) {
+        process.stderr.write(formatPreservedPreviousCaptureHint(preserved));
+      }
     }
     return 2;
   }
@@ -320,24 +330,30 @@ export async function runVerify(parsed: ParsedArgs, deps: VerifyCliDeps = {}): P
   const allOk = results.every((result) => result.ok);
   const emptyCount = results.filter((result) => result.eventCount === 0).length;
   const allEmpty = results.length > 0 && emptyCount === results.length;
+  let preservedPrevious: PreservedPreviousCapture | null = null;
+  if (allEmpty && isActiveCaptureTarget) {
+    preservedPrevious = readPreservedPreviousCapture(cwd);
+  }
 
   if (json) {
-    process.stdout.write(
-      JSON.stringify({
-        ok: allOk,
-        empty: allEmpty,
-        engines,
-        rulesPaths: rulesResolution.paths,
-        results: results.map((result) => ({
-          name: result.name,
-          description: result.description,
-          ok: result.ok,
-          eventCount: result.eventCount ?? 0,
-          empty: result.eventCount === 0,
-          services: result.result.services,
-        })),
-      }) + '\n',
-    );
+    const jsonOutput: Record<string, unknown> = {
+      ok: allOk,
+      empty: allEmpty,
+      engines,
+      rulesPaths: rulesResolution.paths,
+      results: results.map((result) => ({
+        name: result.name,
+        description: result.description,
+        ok: result.ok,
+        eventCount: result.eventCount ?? 0,
+        empty: result.eventCount === 0,
+        services: result.result.services,
+      })),
+    };
+    if (preservedPrevious !== null) {
+      jsonOutput.previousCapture = preservedPrevious;
+    }
+    process.stdout.write(JSON.stringify(jsonOutput) + '\n');
   } else {
     process.stdout.write(formatResults(results) + '\n');
     if (!allOk) {
@@ -348,11 +364,8 @@ export async function runVerify(parsed: ParsedArgs, deps: VerifyCliDeps = {}): P
       process.stderr.write(`\n✗ ${failed} session(s) regressed under ${rules}.\n`);
     } else if (allEmpty) {
       process.stdout.write('\n! Capture holds no operations (0 events); no rules behavior was verified.\n');
-      if (!target) {
-        const previousNote = describePreservedPreviousCapture(cwd);
-        if (previousNote !== null) {
-          process.stdout.write(previousNote);
-        }
+      if (preservedPrevious !== null) {
+        process.stdout.write(formatPreservedPreviousCaptureHint(preservedPrevious));
       }
     } else if (emptyCount > 0) {
       process.stdout.write(
@@ -366,22 +379,29 @@ export async function runVerify(parsed: ParsedArgs, deps: VerifyCliDeps = {}): P
   return 1;
 }
 
-function describePreservedPreviousCapture(cwd: string): string | null {
-  const previousPath = resolve(cwd, PREVIOUS_CAPTURE_RELATIVE_PATH);
-  if (!existsSync(previousPath)) return null;
-  let raw: string;
-  try {
-    raw = readFileSync(previousPath, 'utf8');
-  } catch {
-    return null;
-  }
+interface PreservedPreviousCapture {
+  path: string;
+  eventCount: number;
+  denialCount: number;
+}
+
+function readPreservedPreviousCapture(cwd: string): PreservedPreviousCapture | null {
+  const raw = createCaptureStore(cwd).readPrevious();
+  if (raw === null) return null;
   const summary = summarizeCaptureJson(raw);
   if (summary === null || summary.eventCount === 0) return null;
-  const eventWord = summary.eventCount === 1 ? 'event' : 'events';
-  const denialWord = summary.denialCount === 1 ? 'denial' : 'denials';
+  return {
+    path: PREVIOUS_CAPTURE_RELATIVE_PATH,
+    eventCount: summary.eventCount,
+    denialCount: summary.denialCount,
+  };
+}
+
+function formatPreservedPreviousCaptureHint(previous: PreservedPreviousCapture): string {
+  const counts = formatCaptureEventCounts(previous.eventCount, previous.denialCount);
   return (
-    `  Previous session (${summary.eventCount} ${eventWord}, ${summary.denialCount} ${denialWord}) is preserved at ${PREVIOUS_CAPTURE_RELATIVE_PATH}.\n` +
-    `  Run: pyric verify ${PREVIOUS_CAPTURE_RELATIVE_PATH}\n`
+    `  Previous session (${counts}) is preserved at ${previous.path}.\n` +
+    `  Run: pyric verify ${previous.path}\n`
   );
 }
 

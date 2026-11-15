@@ -9,13 +9,23 @@ import { getAdminStorageSandbox, getStorageRulesResolution } from 'pyric/storage
 import { checkpointNames, restoreCheckpoint } from '../../checkpoints.js';
 import { operationFailure } from '../../context.js';
 import type { MethodRecord } from '../../method-types.js';
+import type { SurfaceContext } from '../../types.js';
 import {
   createCaptureStore,
+  isHostedCaptureManaged,
   PREVIOUS_CAPTURE_RELATIVE_PATH,
-  summarizeCaptureJson,
   type CaptureStore,
 } from '../../../../serve/capture-store.js';
+import { liveCallValues } from '../../../../serve/worker/host/observe.js';
+import {
+  countDeniedEvents,
+  formatCaptureEventCounts,
+} from '../../../../verify/file-format.js';
 import { buildVerifyFixture } from '../../../../verify/fixture.js';
+import {
+  captureRtdbInstances,
+  defaultInstanceUrl,
+} from '../../../../verify/rtdb-instance-capture.js';
 
 interface PreservedCapture {
   json: string;
@@ -24,40 +34,39 @@ interface PreservedCapture {
   hadDiskCapture: boolean;
 }
 
-function countDenials(events: readonly SandboxEvent[]): number {
-  let denials = 0;
-  for (const event of events) {
-    if ('result' in event && event.result === 'deny') denials++;
-  }
-  return denials;
-}
-
-function buildLiveCaptureJson(sandbox: LocalSandbox, events: readonly SandboxEvent[]): string {
-  const firestoreRules = getInternalEnv(sandbox).getRules();
-  const hasRtdb = events.some((event) => event.service === 'rtdb');
-  const hasStorage = events.some((event) => event.service === 'storage');
-  let rtdbRules: ReturnType<typeof getActiveDatabaseRules> = null;
+async function buildLiveCaptureJson(
+  sandbox: LocalSandbox,
+  ctx: SurfaceContext,
+  events: readonly SandboxEvent[],
+): Promise<string> {
+  const rawFirestoreRules = getInternalEnv(sandbox).getRules();
+  const firestoreRules = rawFirestoreRules === '' ? null : rawFirestoreRules;
+  const adminDb = getAdminDatabase(sandbox);
+  const rtdbRules = getActiveDatabaseRules(adminDb);
+  const hasRtdb = rtdbRules !== null || events.some((event) => event.service === 'rtdb');
   let rtdbState: ReturnType<typeof rtdbSandbox.snapshotState> | undefined;
   if (hasRtdb) {
-    const adminDb = getAdminDatabase(sandbox);
-    rtdbRules = getActiveDatabaseRules(adminDb);
     rtdbState = rtdbSandbox.snapshotState(adminDb, { includePriorities: true });
   }
-  let storageRules: string | null = null;
-  if (hasStorage) {
-    storageRules = getStorageRulesResolution(getAdminStorageSandbox(sandbox))?.source ?? null;
-  }
+  const catalog = await ctx.databaseInstances();
+  const defaultInstance = catalog.known().defaultInstance;
+  const storageResolution = getStorageRulesResolution(getAdminStorageSandbox(sandbox));
+  const storageRules = storageResolution?.source ?? null;
   const auth = getAuth(sandbox);
   const fixture = buildVerifyFixture({
     sandbox,
-    firestoreRules: firestoreRules === '' ? null : firestoreRules,
+    firestoreRules,
     rtdbRules,
     rtdbState,
+    rtdbDatabaseUrl: defaultInstanceUrl(defaultInstance),
+    rtdbInstances: captureRtdbInstances(sandbox, defaultInstance),
     storageRules,
     authState: {
       users: authSandbox.exportUsers(auth),
       currentUser: sandbox.currentUser,
     },
+    capturedBy: 'sandbox-restore',
+    observedCalls: Object.fromEntries(liveCallValues(sandbox)),
   });
   return JSON.stringify(fixture);
 }
@@ -70,39 +79,19 @@ function clearEventsInCaptureJson(captureJson: string): string {
   return JSON.stringify(cleared);
 }
 
-function prepareCaptureBeforeRestore(
-  sandbox: LocalSandbox,
+async function prepareCaptureBeforeRestore(
+  ctx: SurfaceContext,
   store: CaptureStore,
-): PreservedCapture | null {
-  const liveEvents = sandbox.history();
-  const liveCount = liveEvents.length;
-  const existingDisk = store.read();
-  let diskSummary = null;
-  if (existingDisk !== null) {
-    diskSummary = summarizeCaptureJson(existingDisk);
-  }
-  let diskCount = 0;
-  if (diskSummary !== null) {
-    diskCount = diskSummary.eventCount;
-  }
-
-  if (existingDisk !== null && diskSummary !== null && diskCount > 0 && diskCount >= liveCount) {
-    return {
-      json: existingDisk,
-      eventCount: diskSummary.eventCount,
-      denialCount: diskSummary.denialCount,
-      hadDiskCapture: true,
-    };
-  }
-  if (liveCount > 0) {
-    return {
-      json: buildLiveCaptureJson(sandbox, liveEvents),
-      eventCount: liveCount,
-      denialCount: countDenials(liveEvents),
-      hadDiskCapture: existingDisk !== null,
-    };
-  }
-  return null;
+): Promise<PreservedCapture | null> {
+  const liveEvents = ctx.sandbox.history();
+  if (liveEvents.length === 0) return null;
+  const json = await buildLiveCaptureJson(ctx.sandbox, ctx, liveEvents);
+  return {
+    json,
+    eventCount: liveEvents.length,
+    denialCount: countDeniedEvents(liveEvents),
+    hadDiskCapture: store.read() !== null,
+  };
 }
 
 export default {
@@ -124,8 +113,13 @@ export default {
   example: { name: 'before-migration', confirm: true },
   async handler(args, ctx) {
     const name = String(args.name);
-    const store = createCaptureStore(ctx.projectDir);
-    const priorCapture = prepareCaptureBeforeRestore(ctx.sandbox, store);
+    const managedByHost = isHostedCaptureManaged(ctx.sandbox);
+    let store: CaptureStore | null = null;
+    let priorCapture: PreservedCapture | null = null;
+    if (!managedByHost) {
+      store = createCaptureStore(ctx.projectDir);
+      priorCapture = await prepareCaptureBeforeRestore(ctx, store);
+    }
 
     const restored = await restoreCheckpoint(ctx.sandbox, ctx, name);
     if (restored === null) {
@@ -136,12 +130,11 @@ export default {
 
     const counts = restored.counts;
     const baseSummary = `Restored checkpoint '${name}' (${counts.firestore} docs, ${counts.database} database entries, ${counts.storage} objects, ${counts.auth} users).`;
-    if (priorCapture !== null && store.preservePrevious(priorCapture.json)) {
+    if (store !== null && priorCapture !== null && store.preservePrevious(priorCapture.json)) {
       if (priorCapture.hadDiskCapture) {
         store.clearActive(clearEventsInCaptureJson(priorCapture.json));
       }
-      const eventWord = priorCapture.eventCount === 1 ? 'event' : 'events';
-      const denialWord = priorCapture.denialCount === 1 ? 'denial' : 'denials';
+      const eventSummary = formatCaptureEventCounts(priorCapture.eventCount, priorCapture.denialCount);
       const previousCapture = {
         path: PREVIOUS_CAPTURE_RELATIVE_PATH,
         eventCount: priorCapture.eventCount,
@@ -149,7 +142,7 @@ export default {
       };
       return {
         ok: true,
-        summary: `${baseSummary} Previous session capture (${priorCapture.eventCount} ${eventWord}, ${priorCapture.denialCount} ${denialWord}) preserved at ${PREVIOUS_CAPTURE_RELATIVE_PATH}.`,
+        summary: `${baseSummary} Previous session capture (${eventSummary}) preserved at ${PREVIOUS_CAPTURE_RELATIVE_PATH}.`,
         data: { name, counts, previousCapture },
       };
     }

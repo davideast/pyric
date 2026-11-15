@@ -5,14 +5,21 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { initializeSandbox } from 'pyric/sandbox';
 import { doc, getAdminFirestore, getFirestore, setDoc } from 'pyric/firestore';
-import { setRules as setFirestoreRules } from 'pyric/sandbox/firestore';
+import { setRules as setFirestoreRules, snapshotDocuments } from 'pyric/sandbox/firestore';
 import { captureCheckpoint } from 'pyric/sandbox/checkpoints';
 import { buildVerifyFixture, parseVerifyFixture } from '../../src/verify/index.js';
 import { parseRepro, REPRO_SCHEMA, type ReproFile } from '../../src/serve/repro/format.js';
-import { buildRateCapture } from '../../src/serve/runtime/rate-capture.js';
+import { buildRateCapture, readRateCapture } from '../../src/serve/runtime/rate-capture.js';
+import { loadSandboxSeedOption } from '../../src/serve/sandbox-seed-loader.js';
+import { applyServeInit } from '../../src/serve/worker/serve-init.js';
+import type { HostCtx } from '../../src/serve/worker/host-context.js';
 import { buildFixture, readFixtureFile, writeFixtureFile } from '../../src/bridge/surface/fixture.js';
 import { createSurfaceContext } from '../../src/bridge/surface/context.js';
+import { createCaptureTools } from '../../src/bridge/server/capture-tools.js';
+import replaySessionMethod from '../../src/bridge/surface/methods/assurance/replaySession.js';
+import applyMethod from '../../src/bridge/surface/methods/sandbox/apply.js';
 import exportFixtureMethod from '../../src/bridge/surface/methods/sandbox/exportFixture.js';
+import forkMethod from '../../src/bridge/surface/methods/sandbox/fork.js';
 import seedFromFixtureMethod from '../../src/bridge/surface/methods/sandbox/seedFromFixture.js';
 import saveCaptureMethod from '../../src/bridge/surface/methods/sandbox/saveCapture.js';
 import openCaptureMethod from '../../src/bridge/surface/methods/sandbox/openCapture.js';
@@ -341,8 +348,175 @@ describe('Pyric file-format matrix: every producer against every consumer loader
       writeFixtureFile(roundTripPath, stateSample.payload as Parameters<typeof writeFixtureFile>[1]);
       const loaded = readFixtureFile(roundTripPath) as Record<string, unknown> | null;
       expect(loaded?.schema).toBe('pyric.state-fixture.v1');
+
+      // Malformed rate-capture opened by valid UUID preserves the corrupt-file error instead of path hint.
+      const corruptId = '00000000-0000-4000-8000-0000000000ff';
+      writeFileSync(
+        join(dir, '.pyric', 'captures', `${corruptId}.json`),
+        JSON.stringify({ schema: 'pyric.rate-capture.v1', frame: 'broken' }),
+      );
+      const corruptOpen = await openCaptureMethod.handler({ id: corruptId }, captureCtx);
+      expect(corruptOpen.ok).toBe(false);
+      expect(corruptOpen.summary).not.toContain('rather than a file path');
     } finally {
       captureSandbox.dispose();
+    }
+
+    // 5. Sibling verify-session consumers: pyric verify cases, assurance.replaySession, sandbox.apply --sessionPath
+    const siblingSandbox = initializeSandbox();
+    try {
+      setFirestoreRules(siblingSandbox, FIRESTORE_RULES);
+      const siblingCtx = createSurfaceContext(siblingSandbox, dir);
+      const forked = await forkMethod.handler({ branch: 'draft' }, siblingCtx);
+      expect(forked.ok).toBe(true);
+
+      // Non-object JSON inputs to parseVerifyFixture still name .pyric/last-session.json.
+      for (const nonObject of [[], 'not-an-object']) {
+        let nonObjMsg = '';
+        try {
+          parseVerifyFixture(nonObject);
+        } catch (error) {
+          nonObjMsg = errorMessageOf(error);
+        }
+        expect(nonObjMsg).toMatch(/\.pyric\/last-session\.json/);
+      }
+
+      for (const sample of samples) {
+        if (sample.family === 'verify-session') continue;
+        const casesRun = await runVerifyCaptured(dir, ['cases', sample.filename]);
+        expect(casesRun.code).toBe(2);
+        expect(casesRun.err).toMatch(sample.acceptedByPattern);
+        expect(casesRun.err).toMatch(/\.pyric\/last-session\.json/);
+
+        const replayRes = await replaySessionMethod.handler(
+          { sessionPath: sample.filename, candidateRules: FIRESTORE_RULES },
+          siblingCtx,
+        );
+        expect(replayRes.ok).toBe(false);
+        expect(replayRes.summary).toMatch(sample.acceptedByPattern);
+        expect(replayRes.summary).toMatch(/\.pyric\/last-session\.json/);
+
+        const applyRes = await applyMethod.handler(
+          { branch: 'draft', sessionPath: sample.filename },
+          siblingCtx,
+        );
+        expect(applyRes.ok).toBe(false);
+        expect(applyRes.summary).toMatch(sample.acceptedByPattern);
+        expect(applyRes.summary).toMatch(/\.pyric\/last-session\.json/);
+      }
+    } finally {
+      siblingSandbox.dispose();
+    }
+
+    // 6. Sibling state-fixture consumer: pyric sandbox --seed (loadSandboxSeedOption + applyServeInit)
+    for (const sample of samples) {
+      if (sample.family === 'state-fixture') {
+        const loadedSeed = await loadSandboxSeedOption({
+          projectDir: dir,
+          seedFile: sample.filename,
+          state: undefined,
+          hostedPersistence: undefined,
+          hosted: false,
+        });
+        expect(loadedSeed.seedLabel).toContain('seed envelope');
+        expect(loadedSeed.seed).not.toBeNull();
+
+        const initSandbox = initializeSandbox();
+        try {
+          const hostCtx: HostCtx = {
+            sandbox: initSandbox,
+            db: getFirestore(initSandbox),
+            instanceId: 'seed-init-test',
+            subs: new Map(),
+          };
+          const initResult = applyServeInit(hostCtx, {
+            rules: FIRESTORE_RULES,
+            rulesHash: null,
+            storageRules: null,
+            storageRulesHash: null,
+            bridgeUrl: null,
+            seed: loadedSeed.seed,
+            authUsers: loadedSeed.seedUsers ?? undefined,
+          });
+          expect(initResult.seededDocs).toBe(2);
+          const docs = snapshotDocuments(initSandbox);
+          expect(docs['items/seed-1']).toBeDefined();
+          expect(docs['items/live-1']).toBeDefined();
+          expect(docs.schema).toBeUndefined();
+        } finally {
+          initSandbox.dispose();
+        }
+      } else {
+        let seedErr = '';
+        try {
+          await loadSandboxSeedOption({
+            projectDir: dir,
+            seedFile: sample.filename,
+            state: undefined,
+            hostedPersistence: undefined,
+            hosted: false,
+          });
+        } catch (error) {
+          seedErr = errorMessageOf(error);
+        }
+        expect(seedErr).not.toBe('');
+        expect(seedErr).toMatch(sample.acceptedByPattern);
+        expect(seedErr).toMatch(/exportFixture/i);
+      }
+    }
+
+    // 7. Sibling rate-capture consumers: readRateCapture, sandbox.saveCapture, and MCP createCaptureTools
+    const captureTools = createCaptureTools(dir);
+    const mcpOpenTool = captureTools.find((tool) => tool.name === 'sandbox_open_capture');
+    const mcpSaveTool = captureTools.find((tool) => tool.name === 'sandbox_save_capture');
+    if (mcpOpenTool === undefined || mcpSaveTool === undefined) {
+      throw new Error('missing capture MCP tools');
+    }
+    const saveSandbox = initializeSandbox();
+    const toolCtx = { signal: new AbortController().signal };
+    try {
+      const saveCtx = createSurfaceContext(saveSandbox, dir);
+      for (const sample of samples) {
+        if (sample.family === 'rate-capture') continue;
+        const serialized = JSON.stringify(sample.payload);
+
+        let readErr = '';
+        try {
+          readRateCapture(serialized);
+        } catch (error) {
+          readErr = errorMessageOf(error);
+        }
+        expect(readErr).toMatch(sample.acceptedByPattern);
+        expect(readErr).toMatch(rateSourcePattern);
+
+        let saveErr = '';
+        try {
+          await saveCaptureMethod.handler({ capture: serialized }, saveCtx);
+        } catch (error) {
+          saveErr = errorMessageOf(error);
+        }
+        expect(saveErr).toMatch(sample.acceptedByPattern);
+        expect(saveErr).toMatch(rateSourcePattern);
+
+        const mcpOpenRes = (await mcpOpenTool.execute({ id: sample.filename }, toolCtx)) as {
+          ok: boolean;
+          summary: string;
+        };
+        expect(mcpOpenRes.ok).toBe(false);
+        expect(mcpOpenRes.summary).toMatch(sample.acceptedByPattern);
+        expect(mcpOpenRes.summary).toMatch(rateSourcePattern);
+
+        let mcpSaveErr = '';
+        try {
+          await mcpSaveTool.execute({ capture: serialized }, toolCtx);
+        } catch (error) {
+          mcpSaveErr = errorMessageOf(error);
+        }
+        expect(mcpSaveErr).toMatch(sample.acceptedByPattern);
+        expect(mcpSaveErr).toMatch(rateSourcePattern);
+      }
+    } finally {
+      saveSandbox.dispose();
     }
   });
 });

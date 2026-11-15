@@ -16,6 +16,7 @@ import { isAbsolute, relative, resolve } from 'node:path';
 import type { SandboxEvent } from 'pyric/sandbox';
 import { BRANCH_NAME_PATTERN, listBranches } from 'pyric/sandbox/branches/store';
 import { CAPTURE_RELATIVE_PATH } from '../../../serve/capture-store.js';
+import { formatWrongFileError, identifyPyricFile } from '../../../verify/file-format.js';
 import { z } from 'zod';
 
 import type { Args, Fail, InvalidArguments } from '../method-types.js';
@@ -144,6 +145,39 @@ export function readSessionEvents(path: string): SandboxEvent[] | null {
   const events = (parsed as { events?: unknown }).events;
   if (!Array.isArray(events)) return null;
   return events as SandboxEvent[];
+}
+
+/**
+ * Read events for `sandbox.apply --sessionPath`, returning actionable
+ * wrong-format guidance when the file is another Pyric format or unreadable.
+ */
+export function readSessionEventsForApply(
+  path: string,
+  named: string,
+): { events: SandboxEvent[] } | { message: string } {
+  const prefix = `No recorded session was read from '${named}'`;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(readFileSync(path, 'utf8'));
+  } catch {
+    return {
+      message: formatWrongFileError('verify-session', null, prefix, 'pyric sandbox apply'),
+    };
+  }
+  if (Array.isArray(parsed)) return { events: parsed as SandboxEvent[] };
+  if (parsed !== null && typeof parsed === 'object') {
+    const detected = identifyPyricFile(parsed);
+    if (detected !== null && detected.kind !== 'verify-session') {
+      return {
+        message: formatWrongFileError('verify-session', parsed, prefix, 'pyric sandbox apply'),
+      };
+    }
+    const events = (parsed as { events?: unknown }).events;
+    if (Array.isArray(events)) return { events: events as SandboxEvent[] };
+  }
+  return {
+    message: formatWrongFileError('verify-session', parsed, prefix, 'pyric sandbox apply'),
+  };
 }
 
 /**

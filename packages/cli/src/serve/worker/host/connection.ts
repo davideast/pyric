@@ -123,6 +123,17 @@ export async function handleConnectionOp(
 
     case 'importState': {
       try {
+        let parsedBundle: unknown = null;
+        try {
+          parsedBundle = JSON.parse(msg.bundle);
+        } catch {
+          parsedBundle = null;
+        }
+        const looksValidBundle =
+          parsedBundle !== null && typeof parsedBundle === 'object' && !Array.isArray(parsedBundle);
+        if (looksValidBundle && ctx.sandbox.history().length > 0) {
+          await ctx.captureFlush?.();
+        }
         const imported = await importStateBundle(ctx.sandbox, msg.bundle);
         if (imported.kind === 'checkpoint') {
           syncHostRulesAfterCheckpointRestore(ctx, imported.rules);
@@ -130,6 +141,7 @@ export async function handleConnectionOp(
           reapplyActiveHostRulesAfterReset(ctx, imported.rtdbRules);
         }
         restoreFirestoreSubscriptions(ctx);
+        await ctx.captureFlush?.();
         await bestEffortFlush(ctx, msg.method);
         ok(port, msg.id, { ok: true });
       } catch (error) {
@@ -170,6 +182,15 @@ export async function handleConnectionOp(
         ok(port, msg.id, { ok: false, error: 'no persistence backend' });
         break;
       }
+      const checkpoints = await listCheckpoints(backend);
+      const checkpointExists = checkpoints.some((entry) => entry.name === msg.name);
+      if (!checkpointExists) {
+        ok(port, msg.id, { ok: false, error: `no such checkpoint: ${msg.name}` });
+        break;
+      }
+      if (ctx.sandbox.history().length > 0) {
+        await ctx.captureFlush?.();
+      }
       const restored = await restoreNamedCheckpoint(backend, msg.name, ctx.sandbox);
       const isMissingCheckpoint = restored === null;
       if (isMissingCheckpoint) {
@@ -178,6 +199,7 @@ export async function handleConnectionOp(
       }
       syncHostRulesAfterCheckpointRestore(ctx, restored.state.rules);
       restoreFirestoreSubscriptions(ctx);
+      await ctx.captureFlush?.();
       await bestEffortFlush(ctx, msg.method);
       ok(port, msg.id, { ok: true, at: restored.at, counts: restored.counts });
       break;

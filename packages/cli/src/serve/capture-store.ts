@@ -19,10 +19,23 @@ import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path';
 import {
   CAPTURE_RELATIVE_PATH,
+  countDeniedEvents,
   PREVIOUS_CAPTURE_RELATIVE_PATH,
 } from '../verify/file-format.js';
 
 export { CAPTURE_RELATIVE_PATH, PREVIOUS_CAPTURE_RELATIVE_PATH };
+
+const hostedCaptureManagedSandboxes = new WeakSet<object>();
+
+/** Record that a sandbox's session capture lifecycle is managed by a hosted runtime. */
+export function markHostedCaptureManaged(sandbox: object): void {
+  hostedCaptureManagedSandboxes.add(sandbox);
+}
+
+/** Whether a sandbox's session capture lifecycle is managed by a hosted runtime. */
+export function isHostedCaptureManaged(sandbox: object): boolean {
+  return hostedCaptureManagedSandboxes.has(sandbox);
+}
 
 /** The `.gitignore` line the capture step adds. */
 const PYRIC_IGNORE_LINE = '.pyric/';
@@ -79,17 +92,7 @@ export function summarizeCaptureJson(raw: string): CaptureSummary | null {
   }
   const events = (parsed as { events?: unknown }).events;
   if (!Array.isArray(events)) return null;
-  let denialCount = 0;
-  for (const event of events) {
-    if (
-      typeof event === 'object' &&
-      event !== null &&
-      (event as { result?: unknown }).result === 'deny'
-    ) {
-      denialCount++;
-    }
-  }
-  return { eventCount: events.length, denialCount };
+  return { eventCount: events.length, denialCount: countDeniedEvents(events) };
 }
 
 export interface CaptureStore {

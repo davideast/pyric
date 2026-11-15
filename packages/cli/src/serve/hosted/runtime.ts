@@ -12,11 +12,11 @@ import {
   databaseInstanceRulesHost,
   deployFirestoreRulesToHost,
   enforcedFirestoreRulesState,
-  resetHostSandbox,
   normalizeDatabaseRules,
   setDatabaseRules,
   setDatabaseTargetRules,
 } from '../worker/host/rules.js';
+import { markHostedCaptureManaged, runHostedClearMethod } from './capture-preservation.js';
 import { SERVE_HISTORY_LIMITS } from '../observation-limits.js';
 import { randomUUID } from 'node:crypto';
 import { createOperationBudget } from '../../bridge/operation-budget.js';
@@ -241,6 +241,7 @@ export async function createHostedRuntime(
     }
   }
 
+  markHostedCaptureManaged(sandbox);
   const ctx: HostCtx = {
     sandbox,
     flushPersistence,
@@ -843,12 +844,19 @@ export async function createHostedRuntime(
           callContext = { ...surfaceContext, identity: scopedIdentity };
         }
         let outcome: OperationResult;
-        if (key === 'sandbox.reset') {
-          const scope = typeof args.scope === 'string' ? args.scope : 'all';
-          outcome = await resetHostSandbox(ctx, scope, () => callMethod(method, args, callContext, call.allowProduction));
-          if (outcome.ok && scope === 'storage') {
-            await persistence.storage.reset();
-          }
+        if (key === 'sandbox.reset' || key === 'sandbox.restore') {
+          const syncAfterRestore = () => {
+            syncFirestoreActiveRulesFromSandbox();
+            syncDatabaseActiveRulesFromSandbox(true);
+            reconcilePortSessions();
+            restoreFirestoreSubscriptions(ctx);
+          };
+          outcome = await runHostedClearMethod({
+            key, args, ctx, projectDir: ownedProjectDir,
+            call: () => callMethod(method, args, callContext, call.allowProduction),
+            resetStorage: () => persistence.storage.reset(), syncAfterRestore,
+            reconcilePortSessions, restoreFirestoreSubscriptions: () => restoreFirestoreSubscriptions(ctx),
+          });
         } else if (key === 'functions.fire') {
           // Suppress RTDB relay snapshots only to pre-existing background
           // Functions trigger-runner children during a synthetic `functions.fire`
@@ -878,17 +886,7 @@ export async function createHostedRuntime(
           outcome = await callMethod(method, args, callContext, call.allowProduction);
         }
         if (outcome.ok) {
-          if (key === 'sandbox.reset') {
-            const scope = typeof args.scope === 'string' ? args.scope : 'all';
-            if (scope === 'all') {
-              reconcilePortSessions();
-              restoreFirestoreSubscriptions(ctx);
-            } else if (scope === 'firestore') {
-              restoreFirestoreSubscriptions(ctx);
-            } else if (scope === 'auth') {
-              reconcilePortSessions();
-            }
-          } else if (key === 'rules.set') {
+          if (key === 'rules.set') {
             if (args.service === 'firestore' && typeof args.rules === 'string') {
               deployFirestoreRulesToHost(ctx, args.rules);
               restoreFirestoreSubscriptions(ctx);
@@ -908,9 +906,9 @@ export async function createHostedRuntime(
             } else if (args.service === 'storage') {
               recorder?.note({ kind: 'rules', at: Date.now(), service: 'storage', source: typeof args.rules === 'string' ? args.rules : null });
             }
-          } else if (key === 'sandbox.seed' || key === 'sandbox.seedFromFixture' || key === 'sandbox.restore' || key === 'sandbox.promote') {
+          } else if (key === 'sandbox.seed' || key === 'sandbox.seedFromFixture' || key === 'sandbox.promote') {
             syncFirestoreActiveRulesFromSandbox();
-            syncDatabaseActiveRulesFromSandbox(key === 'sandbox.restore' || key === 'sandbox.promote');
+            syncDatabaseActiveRulesFromSandbox(key === 'sandbox.promote');
             reconcilePortSessions();
             restoreFirestoreSubscriptions(ctx);
           }
