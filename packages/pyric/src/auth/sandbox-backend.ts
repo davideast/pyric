@@ -62,6 +62,7 @@ import {
   type AuthProjectStore,
 } from './sandbox/project-store.js';
 import { defaultAvatarMint, type AvatarMint } from './sandbox/default-avatar.js';
+import { applyEmailChangeToUser, applyUserEmailUpdate, propagateRefreshedToken } from './sandbox/email-update.js';
 import { SessionLedger } from './sandbox/session-ledger.js';
 
 import { normalizeAuthState, type AuthState, type Sandbox } from 'pyric/sandbox';
@@ -2400,17 +2401,10 @@ export class SandboxBackend {
     if (exchangesRefreshToken) assertRefreshAllowed(this.projectStore, uid, authenticatedAtMs);
     if (forceRefresh || cachedTokenExpired) {
       const fresh = this.mintToken(uid, claims, tenantId);
-      const current = this.session.currentUser;
-      const refreshesCurrentUser = current !== null && current.uid === uid && (current.tenant ?? null) === tenantId;
-      if (refreshesCurrentUser) {
-        // Rules follow refreshed claims without turning a token refresh into a sign-in.
+      propagateRefreshedToken(this.session, uid, tenantId, fresh.result, (fn) => {
         this.applyingTransition = true;
-        try {
-          this.session.currentUser = { ...current, token: rulesTokenClaims(fresh.result) };
-        } finally {
-          this.applyingTransition = false;
-        }
-      }
+        try { fn(); } finally { this.applyingTransition = false; }
+      });
       this.fanOut('id-token');
       return cloneClaimData(fresh.result);
     }
@@ -2736,34 +2730,32 @@ export class SandboxBackend {
     }
   }
 
-  /**
-   * Backend for the top-level `updateEmail(user, newEmail)`. Re-keys the
-   * stored record's email (via {@link updateUser}, which validates format +
-   * rejects `auth/email-already-in-use`) so a subsequent sign-in resolves
-   * against the NEW email, then mutates the passed `user` (and
-   * `this.cachedUser`) in place so held references reflect the change.
-   *
-   * Refused with `auth/requires-recent-login` on a stale session.
-   *
-   * Divergence: with email-enumeration protection on, production refuses
-   * `updateEmail` with `auth/operation-not-allowed` and requires
-   * `verifyBeforeUpdateEmail`; the sandbox applies the change directly.
-   */
+  /** Backend for `updateEmail(user, newEmail)`: delegates to `sandbox/email-update.ts`. */
   updateEmailFor(user: User, newEmail: string): void {
-    this.assertRecentLogin(user.uid);
-    this.updateUser(user.uid, { email: newEmail });
-    this.applyEmailToUser(user, newEmail);
-    if (this.cachedUser && this.cachedUser.uid === user.uid && this.cachedUser !== user) {
-      this.applyEmailToUser(this.cachedUser, newEmail);
-    }
+    applyUserEmailUpdate({
+      user,
+      stored: this.usersByUid.get(user.uid),
+      cachedUser: this.cachedUser,
+      session: this.session,
+      nowMs: this.now().getTime(),
+      projectStore: this.projectStore,
+      sessions: this.sessions,
+      assertRecentLogin: () => this.assertRecentLogin(user.uid),
+      persistEmailReset: (email) => { this.updateUser(user.uid, { email, emailVerified: false }); },
+      applyUserEmail: (target, email) => this.applyEmailToUser(target, email),
+      mintFreshToken: () => this.mintToken(user.uid, this.liveClaims(user.uid, {}), user.tenantId ?? null),
+      runInTransition: (fn) => {
+        this.applyingTransition = true;
+        try { fn(); } finally { this.applyingTransition = false; }
+      },
+      notifyUsersChanged: () => this.notifyUsersChanged(),
+      notifyIdTokenChanged: () => this.fanOut('id-token'),
+    }, newEmail);
   }
 
-  /** Mutate a `User`'s `email` (and its first `providerData` entry) in
-   *  place — `readonly` at the type level, runtime-mutable. */
+  /** Mutate a `User`'s `email` and `providerData` email fields in place. */
   private applyEmailToUser(user: User, email: string): void {
-    (user as Mutable<User>).email = email;
-    const provider0 = user.providerData?.[0] as Mutable<UserInfo> | undefined;
-    if (provider0) provider0.email = email;
+    applyEmailChangeToUser(user, email, false);
   }
 
   /**
