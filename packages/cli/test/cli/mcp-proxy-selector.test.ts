@@ -51,15 +51,15 @@ describe('mcp --attach', () => {
 
 describe('mcp-proxy hybrid selector (Phase 2)', () => {
   it('runs the in-process sandbox (not exit 2) when no serve is found', async () => {
-    let inProcessCwd: string | null = null;
+    const seen: string[] = [];
     const code = await runMcpProxy({} as never, '/proj', {
       discover: async () => null,
       inProcess: async (cwd) => {
-        inProcessCwd = cwd;
+        seen.push(cwd);
         return 0;
       },
     });
-    expect(inProcessCwd).toBe('/proj');
+    expect(seen).toEqual(['/proj']);
     expect(code).toBe(0);
   });
 
@@ -87,20 +87,20 @@ describe('mcp-proxy hybrid selector (Phase 2)', () => {
 describe('mcp --in-process', () => {
   it('goes straight to the in-process sandbox without consulting discovery', async () => {
     let consultedDiscover = false;
-    let inProcessCwd: string | null = null;
+    const seen: string[] = [];
     const code = await runMcpProxy(mcpArgs('--in-process'), '/proj', {
       discover: async () => {
         consultedDiscover = true;
         return null;
       },
       inProcess: async (cwd) => {
-        inProcessCwd = cwd;
+        seen.push(cwd);
         return 0;
       },
       env: {},
     });
     expect(consultedDiscover).toBe(false);
-    expect(inProcessCwd).toBe('/proj');
+    expect(seen).toEqual(['/proj']);
     expect(code).toBe(0);
   });
 
@@ -244,17 +244,17 @@ describe('a serve found only by the port scan', () => {
   };
 
   it('is not attached to; the command owns an in-process sandbox instead', async () => {
-    let inProcessCwd: string | null = null;
+    const seen: string[] = [];
     const code = await runMcpProxy(mcpArgs(), '/proj', {
       discover: async () => scanned,
       inProcess: async (cwd) => {
-        inProcessCwd = cwd;
+        seen.push(cwd);
         return 0;
       },
       env: {},
     });
     expect(code).toBe(0);
-    expect(inProcessCwd).toBe('/proj');
+    expect(seen).toEqual(['/proj']);
   });
 
   it('does not satisfy --attach', async () => {
@@ -268,6 +268,80 @@ describe('a serve found only by the port scan', () => {
       env: {},
     });
     expect(code).toBe(1);
+    expect(wentInProcess).toBe(false);
+  });
+});
+
+describe('Node host vs SharedWorker host selection', () => {
+  const pointerHost = {
+    mcpUrl: 'http://127.0.0.1:3473/__pyric/mcp',
+    url: 'http://localhost:3473',
+    base: 'http://127.0.0.1:3473',
+    instanceId: 'hosted-1',
+    pointerProjectDir: '/proj',
+    source: 'pointer /proj/.pyric/serve.json',
+  };
+
+  it('routes a Node host through the ten-tool product surface with initialHost', async () => {
+    let capturedHost: unknown;
+    let capturedMode: string | undefined;
+    const code = await runMcpProxy(mcpArgs(), '/proj', {
+      discover: async () => pointerHost,
+      probeHost: async () => ({ supportsMethods: true, mode: 'sandbox' }),
+      inProcess: async (_cwd, options) => {
+        capturedHost = options.initialHost;
+        capturedMode = options.initialHostMode;
+        return 0;
+      },
+      env: {},
+    });
+    expect(code).toBe(0);
+    expect(capturedHost).toEqual(pointerHost);
+    expect(capturedMode).toBe('sandbox');
+  });
+
+  it('propagates live host mode when the Node host runs in live mode', async () => {
+    let capturedMode: string | undefined;
+    const code = await runMcpProxy(mcpArgs(), '/proj', {
+      discover: async () => pointerHost,
+      probeHost: async () => ({ supportsMethods: true, mode: 'live' }),
+      inProcess: async (_cwd, options) => {
+        capturedMode = options.initialHostMode;
+        return 0;
+      },
+      env: {},
+    });
+    expect(code).toBe(0);
+    expect(capturedMode).toBe('live');
+  });
+
+  it('keeps the HTTP relay path for SharedWorker hosts (supportsMethods: false)', async () => {
+    let wentInProcess = false;
+    let probedHost = false;
+    let startedRelay = false;
+    const code = await runMcpProxy(mcpArgs(), '/proj', {
+      discover: async () => pointerHost,
+      probeHost: async () => {
+        probedHost = true;
+        return { supportsMethods: false, mode: 'sandbox' };
+      },
+      inProcess: async () => {
+        wentInProcess = true;
+        return 0;
+      },
+      stdio: {
+        start: async () => {
+          startedRelay = true;
+          throw new Error('stop after entering relay');
+        },
+        send: async () => {},
+        close: async () => {},
+      },
+      env: {},
+    });
+    expect(code).toBe(1);
+    expect(probedHost).toBe(true);
+    expect(startedRelay).toBe(true);
     expect(wentInProcess).toBe(false);
   });
 });

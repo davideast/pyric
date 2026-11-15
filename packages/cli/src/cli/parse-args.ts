@@ -92,7 +92,11 @@ export function parseArgs(argv: string[]): ParsedArgs {
       passthrough.push(...argv.slice(i + 1).filter((a): a is string => a !== undefined));
       break;
     }
-    if (isExecutionSubcommand(subcommand, positional) && positional.length > 0) {
+    const isSingleWordHelp =
+      positional.length === 1 &&
+      i === argv.length - 1 &&
+      (arg === '--help' || arg === '-h');
+    if (isExecutionSubcommand(subcommand, positional) && positional.length > 0 && !isSingleWordHelp) {
       positional.push(arg);
       i += 1;
       continue;

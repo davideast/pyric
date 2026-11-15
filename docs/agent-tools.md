@@ -9,18 +9,22 @@ This repo carries two MCP tool contracts, both sourced from
    `{ method, args }`, where `method` is the SDK's own method name where the
    SDK has one, and pyric's own name where it does not. `DEFAULT_MCP_TOOL_NAMES`
    is the exact list, and it is the ten tools this section documents. Ten is
-   the ceiling `0014-service-tools-with-sdk-methods.md` sets. Which sandbox
-   the server acts on depends on what is running: when the project's own
-   `.pyric/serve.json` pointer names a running `pyric serve` or
-   `pyric sandbox --bridge`, it attaches to that process and relays to the
-   sandbox it holds in the browser tab, which today advertises the transport
-   surface below (a sandbox server found only by the port scan is reported
-   and not attached to, since it may belong to another project); otherwise
-   it owns an in-process sandbox, a
-   plain object inside the `pyric mcp` process with no browser involved,
-   persisted to `.pyric/state/in-process.json`. `--attach` insists on the
-   running one and fails when there is none; `--in-process` insists on owning
-   one and never looks. The first line the server logs says which happened.
+   the ceiling `0014-service-tools-with-sdk-methods.md` sets. Whether started
+   before or after a Node host (`pyric sandbox --hosted`, Vite
+   `pyric({ hosted: true })`, or `pyricLive()`), and regardless of `--project-dir`,
+   `pyric mcp` always serves this identical ten-tool product surface and routes
+   each call through `TargetRouter` to the live Node host (when the project's
+   `.pyric/serve.json` names one) or to a local in-process sandbox persisted to
+   `.pyric/state/in-process.json`. A sandbox server found only by the port scan
+   is reported and not attached to, since it may belong to another project. The
+   HTTP `/__pyric/mcp` relay to the transport surface below is used only when
+   the running host is a browser SharedWorker host (which cannot execute method
+   records directly) or when `--attach` is passed explicitly. `--attach` insists
+   on a running host and fails when there is none; `--in-process` insists on
+   owning a local sandbox and never looks. The MCP `initialize` response
+   includes a one-sentence `instructions` field naming the resolved project
+   directory, initial target, and a warning if no project markers exist there,
+   and every tool result carries `_pyric: { mode, project, target, projectDir, isProject }`.
 2. **`pyric sandbox --bridge`**: the **transport
    surface** a browser sandbox peer executes, plus the rules and conformance
    tools that run in the bridge process. The standalone `pyric bridge` serves
@@ -461,6 +465,6 @@ land in `createAssuranceTools` and is picked up by both.
 
 **Transport surface: 41 unique tool names** (see `BRIDGE_TOOL_NAMES` in
 `mcp-contract.ts`). The product surface `pyric mcp` serves by default is the
-seven service tools documented above (`DEFAULT_MCP_TOOL_NAMES` in the same
+ten service tools documented above (`DEFAULT_MCP_TOOL_NAMES` in the same
 file). Production shipping (rules, indexes, hosting, functions) is owned by
 `firebase-tools` or the Firebase Console.

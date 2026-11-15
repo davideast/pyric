@@ -130,6 +130,10 @@ export interface TargetRouterOptions {
   cacheTtlMs?: number;
   discover?: typeof discoverServe;
   callHosted?: typeof callHostedMethod;
+  /** Pre-discovered Node host present when the MCP session started. */
+  initialHost?: Discovered;
+  /** Initial host runtime mode when `initialHost` is supplied. */
+  initialHostMode?: 'sandbox' | 'live';
 }
 
 export class TargetRouter {
@@ -154,6 +158,15 @@ export class TargetRouter {
     this.cacheTtlMs = options.cacheTtlMs ?? 1000;
     this.customDiscover = options.discover;
     this.customCallHosted = options.callHosted;
+    if (options.initialHost !== undefined && !this.inProcessOnly) {
+      const mode = options.initialHostMode ?? 'sandbox';
+      this.cachedHost = options.initialHost;
+      this.cachedHostMode = mode;
+      this.lastHostMode = mode;
+      this.lastTarget = 'host';
+      this.lastInstanceId = options.initialHost.instanceId;
+      this.lastCheckMs = Date.now();
+    }
   }
 
   getCurrentTarget(): 'host' | 'in-process' {
