@@ -385,17 +385,19 @@ describe.each(ARMS)('pyric-admin/database adversarial parity regressions ($name)
       c: 'added',
     });
 
+    // Parent update overwrites the earlier queued child set at od/a in the
+    // server's SparseSnapshotTree, so increment(5) applies to the live 0 value.
     db.goOffline();
     db.goOnline();
     const afterGet = (await db.ref('od').get()).val();
-    expect(afterGet).toEqual({ a: 15, b: 'drained', c: 'added' });
+    expect(afterGet).toEqual({ a: 5, b: 'drained', c: 'added' });
 
     await db.ref('od/step').onDisconnect().set(1);
     await db.ref('od').onDisconnect().update({ step: ServerValue.increment(2) });
     db.goOffline();
     db.goOnline();
     const afterOnce = (await db.ref('od').once('value')).val();
-    expect(afterOnce).toEqual({ a: 15, b: 'drained', c: 'added', step: 3 });
+    expect(afterOnce).toEqual({ a: 5, b: 'drained', c: 'added', step: 2 });
   });
 
   test('supports once/on on .info/connected and .info across both arms while get() rejects .info/*', async () => {
