@@ -52,6 +52,12 @@ const MAX_TRANSITIONS = 5;
 const REFUSAL_TEXT_LIMIT = 4000;
 /** What a push says when the token may not change workflow files. */
 const WORKFLOW_PUSH_REFUSAL = /without `?workflows?`? permission|create or update workflow/i;
+/** What a push to `main` says when a repository ruleset or branch protection
+ *  refuses a direct push (for example a multi-PR batch commit whose
+ *  intermediate parent has no `CI / required` check run). */
+const RULESET_PUSH_REFUSAL = /\bGH0(?:06|13)\b|repository rule violations|protected branch update failed/i;
+/** Transient GitHub REST merge race right after an earlier PR in the same batch moved `main`. */
+const BASE_MODIFIED_MERGE_ERROR = /base branch was modified/i;
 const WORKFLOW_DIR = '.github/workflows/';
 
 export const SIMULATOR_PARITY_GLOBS: readonly string[] = [
@@ -307,8 +313,9 @@ function landingStillStands(io: QueueIo, action: LandAction): boolean {
   }
 }
 
-/** Throws unless the tree on `main` is the tree the staging run proved. */
-function verifyLanded(io: QueueIo, action: LandAction): void {
+/** Throws unless the tree on `main` is the tree the staging run proved, and
+ *  returns the verified commit SHA on `main`. */
+function verifyLanded(io: QueueIo, action: LandAction): string {
   const mainSha = io.git(['ls-remote', 'origin', 'refs/heads/main']).trim().split(/\s+/)[0] ?? '';
   io.git(['fetch', '--no-tags', 'origin', mainSha]);
   const mainTree = io.git(['rev-parse', `${mainSha}^{tree}`]).trim();
@@ -316,6 +323,7 @@ function verifyLanded(io: QueueIo, action: LandAction): void {
   if (mainTree === '' || mainTree !== provenTree) {
     throw new Error(`After landing ${numbersOf(action.pulls)}, main is ${mainSha} with tree ${mainTree}, but the staging run (${action.runUrl}) proved ${action.stagingSha} with tree ${provenTree}.`);
   }
+  return mainSha;
 }
 
 /** A push to `main` that was refused while nothing had moved. The first
@@ -336,14 +344,151 @@ function handleRefusal(io: QueueIo, action: LandAction, refusal: string): { outc
   return { outcomes: [refused], advance: true };
 }
 
+/** Records the landed `main` commit on `STAGING_BRANCH` when a multi-PR culprit
+ *  search probe landed via PR merges (so `main` moved to a different commit
+ *  than `action.stagingSha`), letting the next step resume searching the
+ *  remaining suspects from `landedSha`. */
+function recordSearchLanding(io: QueueIo, action: LandAction, landedSha: string): void {
+  const meta: StagedMeta = {
+    baseSha: action.baseSha,
+    pulls: action.pulls.map((pull) => ({ number: pull.number, headSha: pull.headSha })),
+    landedSha,
+  };
+  if (action.search !== undefined) meta.search = action.search;
+  io.git(['config', 'user.name', 'github-actions[bot]']);
+  io.git(['config', 'user.email', '41898282+github-actions[bot]@users.noreply.github.com']);
+  const tree = io.git(['rev-parse', `${landedSha}^{tree}`]).trim();
+  const marker = io.git(['commit-tree', tree, '-p', landedSha, '-m', batchMessage(action.pulls, formatStagingTrailers(meta))]).trim();
+  io.git(['push', '--force', 'origin', `${marker}:refs/heads/${STAGING_BRANCH}`]);
+}
+
+function finishLanding(
+  io: QueueIo,
+  action: LandAction,
+  landedSha: string,
+  usingWorkflowToken: boolean,
+  landedPaths: readonly string[],
+): { outcomes: QueueAction[]; advance: boolean } {
+  for (const pull of action.pulls) {
+    comment(io, pull.number, `landed-${pull.number}.md`, landedComment(action, pull, landedSha));
+    removeQueueLabel(io, pull.number);
+  }
+  if (action.refusedBefore) deleteRemoteBranch(io, REFUSED_BRANCH);
+  if (action.search === undefined) {
+    deleteRemoteBranch(io, STAGING_BRANCH);
+  } else if (landedSha !== action.stagingSha) {
+    recordSearchLanding(io, action, landedSha);
+  }
+  if (usingWorkflowToken) dispatchPostMergeMainWorkflows(io, landedPaths);
+  io.log(`Landed ${numbersOf(action.pulls)} on main as ${landedSha} after green staging run (${action.runUrl}).`);
+  return { outcomes: [action], advance: true };
+}
+
+function mergePull(io: QueueIo, pull: QueuedPull): string {
+  const raw = io.gh([
+    'api',
+    '-X',
+    'PUT',
+    `repos/${io.repo}/pulls/${pull.number}/merge`,
+    '-f',
+    'merge_method=merge',
+    '-f',
+    `sha=${pull.headSha}`,
+  ]);
+  const parsed = JSON.parse(raw) as { sha?: string; merged?: boolean };
+  if (!parsed.merged || !parsed.sha) {
+    throw new Error(`PUT repos/${io.repo}/pulls/${pull.number}/merge returned an unmerged response.`);
+  }
+  return parsed.sha;
+}
+
+function pullAlreadyLanded(io: QueueIo, pull: QueuedPull, currentMainSha: string): boolean {
+  try {
+    const current = apiGet<{ state: string; merged?: boolean; head?: { sha?: string } }>(io, `pulls/${pull.number}`);
+    if (current.merged === true) return true;
+    if (current.head?.sha !== undefined && current.head.sha !== '' && current.head.sha !== pull.headSha) return false;
+    io.git(['fetch', '--no-tags', 'origin', currentMainSha, pull.headSha]);
+    return isAncestor(io, pull.headSha, currentMainSha);
+  } catch {
+    return false;
+  }
+}
+
+function partialLandedComment(action: LandAction, mergeSha: string): string {
+  return [
+    `Landed on \`main\` as \`${mergeSha}\` (from staged batch \`${action.stagingSha}\`; the remaining pull requests will be re-staged on the new \`main\`).`,
+    `- Staging run: ${action.runUrl}`,
+  ].join('\n');
+}
+
+/** Fallback when a repository ruleset rejects pushing a multi-PR wrapper commit
+ *  directly to `main`: merges each staged pull request in order through
+ *  GitHub's PR merge API (pinned to its staged head SHA) and still verifies
+ *  that the final tree on `main` equals the staged tree. */
+function landBatchByPullApi(
+  io: QueueIo,
+  action: LandAction,
+  usingWorkflowToken: boolean,
+  pathsByPr: ReadonlyMap<number, readonly string[]>,
+): { outcomes: QueueAction[]; advance: boolean } {
+  const landed: Array<{ pull: QueuedPull; sha: string }> = [];
+  let lastMergeSha = action.baseSha;
+  for (const pull of action.pulls) {
+    let mergeError: unknown;
+    try {
+      lastMergeSha = mergePull(io, pull);
+      landed.push({ pull, sha: lastMergeSha });
+      continue;
+    } catch (error) {
+      mergeError = error;
+    }
+    if (landed.length > 0 && BASE_MODIFIED_MERGE_ERROR.test(errorText(mergeError))) {
+      try {
+        if (mainHeadSha(io) === lastMergeSha) {
+          lastMergeSha = mergePull(io, pull);
+          landed.push({ pull, sha: lastMergeSha });
+          continue;
+        }
+      } catch (retryError) {
+        mergeError = retryError;
+      }
+    }
+    if (landed.length > 0 && pullAlreadyLanded(io, pull, lastMergeSha)) {
+      landed.push({ pull, sha: lastMergeSha });
+      continue;
+    }
+    if (landed.length === 0) {
+      if (landingStillStands(io, action)) return handleRefusal(io, action, errorText(mergeError));
+      io.log(`Could not land ${numbersOf(action.pulls)} (${errorText(mergeError).split('\n')[0]}); main or a pull request head moved, will re-evaluate.`);
+      deleteRemoteBranch(io, STAGING_BRANCH);
+      return { outcomes: [action], advance: true };
+    }
+    for (const entry of landed) {
+      comment(io, entry.pull.number, `landed-${entry.pull.number}.md`, partialLandedComment(action, entry.sha));
+      removeQueueLabel(io, entry.pull.number);
+    }
+    if (action.refusedBefore) deleteRemoteBranch(io, REFUSED_BRANCH);
+    deleteRemoteBranch(io, STAGING_BRANCH);
+    if (usingWorkflowToken) {
+      const partialPaths = landed.flatMap((entry) => pathsByPr.get(entry.pull.number) ?? []);
+      dispatchPostMergeMainWorkflows(io, partialPaths);
+    }
+    io.log(`Landed ${numbersOf(landed.map((entry) => entry.pull))} on main before #${pull.number} could not be merged (${errorText(mergeError).split('\n')[0]}); remaining pull requests will be re-staged.`);
+    return { outcomes: [action], advance: true };
+  }
+  const landedSha = verifyLanded(io, action);
+  const landedPaths = action.pulls.flatMap((pull) => pathsByPr.get(pull.number) ?? []);
+  return finishLanding(io, action, landedSha, usingWorkflowToken, landedPaths);
+}
+
 function executeLand(
   io: QueueIo,
   action: LandAction,
   usingWorkflowToken: boolean,
 ): { outcomes: QueueAction[]; advance: boolean } {
-  let landedPaths: string[] = [];
+  const pathsByPr = new Map<number, readonly string[]>();
   if (usingWorkflowToken) {
-    landedPaths = action.pulls.flatMap((pull) => pullChangedPaths(io, pull.number));
+    for (const pull of action.pulls) pathsByPr.set(pull.number, pullChangedPaths(io, pull.number));
   }
   if (!landingStillStands(io, action)) {
     io.log(`Did not land ${numbersOf(action.pulls)}: main or a pull request head moved since staging; will re-evaluate.`);
@@ -355,21 +500,21 @@ function executeLand(
     // No force: the push is refused unless main is still an ancestor of the staged commit.
     io.git(['push', 'origin', `${action.stagingSha}:refs/heads/main`]);
   } catch (error) {
-    if (landingStillStands(io, action)) return handleRefusal(io, action, errorText(error));
-    io.log(`Could not land ${numbersOf(action.pulls)} (${errorText(error).split('\n')[0]}); main or a pull request head moved, will re-evaluate.`);
-    deleteRemoteBranch(io, STAGING_BRANCH);
-    return { outcomes: [action], advance: true };
+    if (!landingStillStands(io, action)) {
+      io.log(`Could not land ${numbersOf(action.pulls)} (${errorText(error).split('\n')[0]}); main or a pull request head moved, will re-evaluate.`);
+      deleteRemoteBranch(io, STAGING_BRANCH);
+      return { outcomes: [action], advance: true };
+    }
+    const refusal = errorText(error);
+    if (RULESET_PUSH_REFUSAL.test(refusal)) {
+      io.log(`GitHub refused direct push of ${action.stagingSha} (${numbersOf(action.pulls)}); landing the proven batch via pull request merge API.`);
+      return landBatchByPullApi(io, action, usingWorkflowToken, pathsByPr);
+    }
+    return handleRefusal(io, action, refusal);
   }
-  verifyLanded(io, action);
-  for (const pull of action.pulls) {
-    comment(io, pull.number, `landed-${pull.number}.md`, landedComment(action, pull));
-    removeQueueLabel(io, pull.number);
-  }
-  if (action.refusedBefore) deleteRemoteBranch(io, REFUSED_BRANCH);
-  if (action.search === undefined) deleteRemoteBranch(io, STAGING_BRANCH);
-  if (usingWorkflowToken) dispatchPostMergeMainWorkflows(io, landedPaths);
-  io.log(`Landed ${numbersOf(action.pulls)} on main as ${action.stagingSha} after green staging run (${action.runUrl}).`);
-  return { outcomes: [action], advance: true };
+  const landedSha = verifyLanded(io, action);
+  const landedPaths = action.pulls.flatMap((pull) => pathsByPr.get(pull.number) ?? []);
+  return finishLanding(io, action, landedSha, usingWorkflowToken, landedPaths);
 }
 
 /** Carries out a step that ends the pass. */
@@ -438,15 +583,17 @@ export function runQueuePass(
   return executed;
 }
 
-function runCommand(command: string, args: string[]): string {
-  const out = spawnSync(command, args, { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
+function runCommand(command: string, args: string[], envOverrides?: Record<string, string>): string {
+  const env = envOverrides === undefined ? process.env : { ...process.env, ...envOverrides };
+  const out = spawnSync(command, args, { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, env });
   if (out.status !== 0) throw new Error(`${command} ${args.join(' ')} failed: ${out.stderr || out.error?.message}`);
   return out.stdout;
 }
 
 function defaultIo(repo: string): QueueIo {
   let dir: string | undefined;
-  return {
+  const checksToken = process.env.GH_CHECKS_TOKEN;
+  const io: QueueIo = {
     repo,
     gh: (args) => runCommand('gh', args),
     git: (args) => runCommand('git', args),
@@ -463,6 +610,10 @@ function defaultIo(repo: string): QueueIo {
       return path;
     },
   };
+  if (checksToken) {
+    io.ghChecks = (args) => runCommand('gh', args, { GH_TOKEN: checksToken });
+  }
+  return io;
 }
 
 if (import.meta.main) {

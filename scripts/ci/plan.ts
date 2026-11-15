@@ -171,6 +171,16 @@ export const SMOKE_SCENARIOS: readonly string[] = [
   'nextjs16-firebase-imports',
 ];
 
+/** Extra scenarios tied to specific subsystems beyond the general smoke set.
+ *  `remote-sandbox-discovery` exercises `pyric` CLI subcommand dispatch/guards
+ *  and `PYRIC_SANDBOX=remote` discovery/fallback paths directly. */
+const TARGETED_SCENARIO_INPUTS: ReadonlyArray<{ patterns: readonly RegExp[]; apps: readonly string[] }> = [
+  {
+    patterns: [/^packages\/cli\/src\/(cli|remote)\//],
+    apps: ['remote-sandbox-discovery'],
+  },
+];
+
 /** What the app scenario jobs run: every app that is not slow, some of them, or none. */
 export type AppScenarioSelection =
   | { kind: 'all' }
@@ -232,7 +242,8 @@ export function selectAppScenarios(input: {
   if (owners.includes(SHARED)) return { kind: 'all' };
   const named = scenariosNamedIn(input.body).filter((name) => names.has(name));
   const smoke = matchesAny(SMOKE_INPUTS) ? SMOKE_SCENARIOS : [];
-  const apps = [...new Set([...smoke, ...owners, ...named])].filter((name) => !slow.has(name)).sort();
+  const targeted = TARGETED_SCENARIO_INPUTS.flatMap((entry) => (matchesAny(entry.patterns) ? entry.apps : []));
+  const apps = [...new Set([...smoke, ...targeted, ...owners, ...named])].filter((name) => !slow.has(name)).sort();
   return apps.length === 0 ? { kind: 'none' } : { kind: 'some', apps };
 }
 

@@ -35,6 +35,7 @@ export const MAX_BATCH = 8;
 const REGISTER_GRACE_MS = 60_000;
 const SHA = '[0-9a-f]{7,40}';
 const BASE_TRAILER = new RegExp(`^Merge-Queue-Base: (${SHA})$`);
+const LANDED_TRAILER = new RegExp(`^Merge-Queue-Landed: (${SHA})$`);
 const PULL_TRAILER = new RegExp(`^Merge-Queue-Pull: #(\\d+) (${SHA})$`);
 const SUSPECT_TRAILER = new RegExp(`^Merge-Queue-Suspect: #(\\d+) (${SHA})$`);
 const FAILED_RUN_TRAILER = /^Merge-Queue-Failed-Run: (\S+)$/;
@@ -74,6 +75,9 @@ export interface StagedMeta {
   baseSha: string;
   pulls: readonly StagedPull[];
   search?: SearchState;
+  /** The `main` commit a multi-PR culprit-search probe landed as when landed
+   *  via pull request merges rather than fast-forwarding `main` to `stagingSha`. */
+  landedSha?: string;
 }
 
 export interface StagingRun {
@@ -175,6 +179,7 @@ export function maxSearchRuns(batchSize: number): number {
 export function formatStagingTrailers(meta: StagedMeta): string {
   const lines = [`Merge-Queue-Base: ${meta.baseSha}`];
   for (const pull of meta.pulls) lines.push(`Merge-Queue-Pull: #${pull.number} ${pull.headSha}`);
+  if (meta.landedSha !== undefined) lines.push(`Merge-Queue-Landed: ${meta.landedSha}`);
   if (meta.search !== undefined) {
     for (const pull of meta.search.suspects) lines.push(`Merge-Queue-Suspect: #${pull.number} ${pull.headSha}`);
     lines.push(`Merge-Queue-Failed-Run: ${meta.search.failedRunUrl}`);
@@ -207,10 +212,12 @@ export function parseStagedPulls(message: string): StagedPull[] {
 export function parseStagingCommit(message: string): StagedMeta | undefined {
   const lines = trailerLines(message);
   let baseSha: string | undefined;
+  let landedSha: string | undefined;
   let failedRunUrl: string | undefined;
   const failedJobs: string[] = [];
   for (const line of lines) {
     baseSha = BASE_TRAILER.exec(line)?.[1] ?? baseSha;
+    landedSha = LANDED_TRAILER.exec(line)?.[1] ?? landedSha;
     failedRunUrl = FAILED_RUN_TRAILER.exec(line)?.[1] ?? failedRunUrl;
     const jobMatch = FAILED_JOB_TRAILER.exec(line);
     if (jobMatch !== null && jobMatch[1] !== undefined) failedJobs.push(jobMatch[1]);
@@ -218,6 +225,7 @@ export function parseStagingCommit(message: string): StagedMeta | undefined {
   const pulls = trailerPulls(lines, PULL_TRAILER);
   if (baseSha === undefined || pulls.length === 0) return undefined;
   const meta: StagedMeta = { baseSha, pulls };
+  if (landedSha !== undefined) meta.landedSha = landedSha;
   const suspects = trailerPulls(lines, SUSPECT_TRAILER);
   if (failedRunUrl !== undefined && suspects.length > 0) {
     const search: SearchState = { suspects, failedRunUrl };
@@ -458,8 +466,10 @@ export function decideQueueStep(facts: QueueFacts): QueueAction {
   if (ready.length === 0) return decideWithoutReady(ordered, staging);
 
   if (facts.mainRed !== undefined) return decideOnRedMain(facts, facts.mainRed, ready);
-  if (staging?.meta !== undefined && staging.stagingSha === facts.mainSha) {
-    return decideAfterLanding(staging.meta, ready, facts.mainSha);
+  const landedOnMain = staging?.meta !== undefined
+    && (staging.stagingSha === facts.mainSha || staging.meta.landedSha === facts.mainSha);
+  if (landedOnMain) {
+    return decideAfterLanding(staging.meta!, ready, facts.mainSha);
   }
   const staged = currentBatch(staging, ready, facts.mainSha);
   if (staged !== undefined && staging !== undefined) {
@@ -523,12 +533,12 @@ export function dequeueComment(action: DequeueAction, pull: QueuedPull, mainSha:
 
 /** The comment a landed pull request gets: the commit `main` moved to and the
  *  staging run that proved it. */
-export function landedComment(action: LandAction, pull: QueuedPull): string {
+export function landedComment(action: LandAction, pull: QueuedPull, landedSha = action.stagingSha): string {
   const others = action.pulls.filter((other) => other.number !== pull.number).map((other) => `#${other.number}`);
-  const lines = [
-    `Landed on \`main\` as \`${action.stagingSha}\`, the commit the merge queue staged and tested.`,
-    `- Staging run that proved it: ${action.runUrl}`,
-  ];
+  const summary = landedSha === action.stagingSha
+    ? `Landed on \`main\` as \`${action.stagingSha}\`, the commit the merge queue staged and tested.`
+    : `Landed on \`main\` as \`${landedSha}\` (same tree as staged commit \`${action.stagingSha}\`).`;
+  const lines = [summary, `- Staging run that proved it: ${action.runUrl}`];
   if (others.length > 0) lines.push(`- Staged and landed together with: ${others.join(', ')}`);
   return lines.join('\n');
 }

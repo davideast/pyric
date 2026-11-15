@@ -89,8 +89,10 @@ describe('staging commit metadata', () => {
   test('round-trips the base, the batch, and a culprit search through the trailer block', () => {
     const plain: StagedMeta = { baseSha: MAIN, pulls: [{ number: 101, headSha: sha(1) }, { number: 102, headSha: sha(2) }] };
     const searching: StagedMeta = { ...plain, pulls: [plain.pulls[0]!], search: { suspects: plain.pulls, failedRunUrl: RUN_URL } };
+    const landedProbe: StagedMeta = { ...searching, landedSha: sha(42) };
     expect(parseStagingCommit(`Merge queue batch: #101, #102\n\n- #101 a title\n\n${formatStagingTrailers(plain)}\n`)).toEqual(plain);
     expect(parseStagingCommit(`Merge pull request #101 from fix/a\n\na title\n\n${formatStagingTrailers(searching)}`)).toEqual(searching);
+    expect(parseStagingCommit(`Merge queue batch: #101\n\n- #101 a title\n\n${formatStagingTrailers(landedProbe)}`)).toEqual(landedProbe);
     expect(parseStagedPulls(`Merge pull request #101 from fix/a\n\na title\n\nMerge-Queue-Pull: #101 ${sha(1)}`)).toEqual([{ number: 101, headSha: sha(1) }]);
   });
 
@@ -211,6 +213,17 @@ describe('merge queue decisions', () => {
     const changed = facts([{ ...batch[3]!, headSha: sha(66) }], { mainSha: STAGED, activeStaging: { stagingSha: STAGED, committedAtMs: NOW, meta: metaFor([batch[2]!], { search: { ...search, suspects: metaFor(rest).pulls } }) } });
     expect(decideQueueStep(changed).kind).toBe('clean-staging');
     expect(decideQueueStep(facts([pull(9)], { mainSha: STAGED, activeStaging: { stagingSha: STAGED, committedAtMs: NOW, meta: metaFor(batch) } }))).toEqual({ kind: 'clean-staging', reason: 'the staged batch landed' });
+
+    // A multi-PR probe that landed via PR merges advances main to a different commit than STAGED,
+    // recorded in `landedSha`, so the culprit search still continues from the landed main commit.
+    const mergedMain = sha(88);
+    const landedViaPrApi: QueueFacts = facts(rest, {
+      mainSha: mergedMain,
+      activeStaging: { stagingSha: sha(89), committedAtMs: NOW, meta: metaFor(batch.slice(0, 2), { search, landedSha: mergedMain }) },
+    });
+    const nextAfterApiLand = decideQueueStep(landedViaPrApi);
+    expect(nextAfterApiLand).toMatchObject({ kind: 'stage', baseSha: mergedMain, search: { suspects: metaFor(rest).pulls, failedRunUrl: RUN_URL } });
+    expect(numbers(nextAfterApiLand)).toEqual([3]);
   });
 
   test('a single failing pull request is removed after one rerun, as before batching', () => {
@@ -284,6 +297,14 @@ describe('merge queue decisions', () => {
     expect(comment).toContain(RUN_URL);
     expect(comment).toContain('#2');
     expect(comment).not.toContain('\u2014');
+
+    const apiMain = sha(91);
+    const apiComment = landedComment(land, batch[0]!, apiMain);
+    expect(apiComment).toContain(apiMain);
+    expect(apiComment).toContain(STAGED);
+    expect(apiComment).toContain('same tree as staged commit');
+    expect(apiComment).toContain(RUN_URL);
+    expect(apiComment).toContain('#2');
   });
 });
 
@@ -497,6 +518,7 @@ describe('the merge queue workflow contract', () => {
     expect(parsed.permissions).toEqual({ contents: 'read' });
     expect(parsed.jobs.queue?.permissions).toEqual({
       actions: 'write',
+      checks: 'read',
       contents: 'write',
       issues: 'write',
       'pull-requests': 'write',
@@ -507,6 +529,9 @@ describe('the merge queue workflow contract', () => {
     expect(inputs.dry_run?.default).toBe(true);
     const runStep = parsed.jobs.queue?.steps.find((step) => step.run === 'bun scripts/ci/merge-queue-github.ts');
     expect(runStep).toBeDefined();
+    expect(runStep?.env?.GH_CHECKS_TOKEN).toBe('${{ github.token }}');
+    expect(runStep?.env?.GH_TOKEN).toBe('${{ secrets.MERGE_QUEUE_TOKEN || secrets.MERQUE_QUEUE_TOKEN || github.token }}');
+    expect(runStep?.env?.USING_WORKFLOW_TOKEN).toBe("${{ (secrets.MERGE_QUEUE_TOKEN == '' && secrets.MERQUE_QUEUE_TOKEN == '') && 'true' || 'false' }}");
   });
 
   test('wakes when a watched main workflow finishes, so a held queue resumes once main is green again', () => {

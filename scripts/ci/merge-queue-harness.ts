@@ -70,13 +70,20 @@ export interface Remote {
   pushRefusal?: string;
   /** What a push to the staging branch is refused with. */
   stagingPushRefusal?: string;
+  /** What `PUT pulls/<n>/merge` is refused with (every PR). */
+  mergeRefusal?: string;
+  /** Optional custom handler for `PUT pulls/<n>/merge`; returns merge commit sha or throws. */
+  onMergePull?: (pullNumber: number, headSha: string) => string;
   /** Called in place of moving main, to model someone else's push winning. */
   onPushMain?: () => void;
+  /** Closed PRs merged via `PUT pulls/<n>/merge` (or auto-closed by a duplicate head). */
+  mergedPulls?: Set<number>;
 }
 
 export interface Harness {
   remote: Remote;
   gh: string[][];
+  ghChecks: string[][];
   git: string[][];
   comments: Array<{ pull: number; text: string }>;
   logs: string[];
@@ -145,11 +152,15 @@ export function createHarness(initial: Partial<Remote>): Harness {
     ...initial,
   };
   const gh: string[][] = [];
+  const ghChecks: string[][] = [];
   const git: string[][] = [];
   const comments: Harness['comments'] = [];
   const logs: string[] = [];
   const files = new Map<string, string>();
   let local: string[] = [];
+  let mergeCounter = 0;
+  let commitTreeCounter = 0;
+  remote.mergedPulls ??= new Set();
 
   const treeOf = (sha: string): string => remote.trees[sha] ?? `tree-of-${sha}`;
 
@@ -219,8 +230,10 @@ export function createHarness(initial: Partial<Remote>): Harness {
       return `${treeOf(sha)}\n`;
     }
     if (command === 'commit-tree') {
-      remote.messages[WRAPPED] = args.at(-1) ?? '';
-      return `${WRAPPED}\n`;
+      const sha = commitTreeCounter === 0 ? WRAPPED : `8${String(commitTreeCounter).padStart(39, '0')}`;
+      commitTreeCounter += 1;
+      remote.messages[sha] = args.at(-1) ?? '';
+      return `${sha}\n`;
     }
     if (command === 'push') return push(args);
     return '';
@@ -261,10 +274,40 @@ export function createHarness(initial: Partial<Remote>): Harness {
     }
     const single = /^pulls\/(\d+)$/.exec(path);
     if (method === 'GET' && single) {
-      const found = remote.pulls.find((item) => item.number === Number(single[1]));
+      const targetNumber = Number(single[1]);
+      const found = remote.pulls.find((item) => item.number === targetNumber);
       const state = found === undefined ? 'closed' : 'open';
+      const merged = remote.mergedPulls?.has(targetNumber) ?? false;
       const sha = found?.headSha ?? '';
-      return JSON.stringify({ state, head: { sha } });
+      return JSON.stringify({ state, merged, head: { sha } });
+    }
+    const mergePr = /^pulls\/(\d+)\/merge$/.exec(path);
+    if (method === 'PUT' && mergePr) {
+      const targetNumber = Number(mergePr[1]);
+      const shaArg = args.find((arg) => arg.startsWith('sha='));
+      const requestedSha = stripPrefix(shaArg, 'sha=');
+      if (remote.mergeRefusal !== undefined) throw new Error(remote.mergeRefusal);
+      if (remote.onMergePull !== undefined) {
+        const mergedSha = remote.onMergePull(targetNumber, requestedSha);
+        return JSON.stringify({ sha: mergedSha, merged: true });
+      }
+      const found = remote.pulls.find((item) => item.number === targetNumber);
+      if (found === undefined) throw new Error(`gh: Pull Request #${targetNumber} is not mergeable (HTTP 405)`);
+      if (requestedSha !== '' && found.headSha !== requestedSha) {
+        throw new Error(`gh: Head branch was modified. Review and try the merge again. (HTTP 409)`);
+      }
+      mergeCounter += 1;
+      const mergeSha = `9${String(mergeCounter).padStart(39, '0')}`;
+      remote.pulls = remote.pulls.filter((item) => item.number !== targetNumber);
+      remote.mergedPulls?.add(targetNumber);
+      remote.main = mergeSha;
+      const stagingSha = remote.branches[STAGING_BRANCH];
+      const stagedPulls = stagingSha !== undefined ? parseStagingCommit(remote.messages[stagingSha] ?? '')?.pulls ?? [] : [];
+      const allStagedMerged = stagedPulls.length > 0 && stagedPulls.every((entry) => remote.mergedPulls?.has(entry.number));
+      if (stagingSha !== undefined && allStagedMerged && remote.trees[mergeSha] === undefined) {
+        remote.trees[mergeSha] = treeOf(stagingSha);
+      }
+      return JSON.stringify({ sha: mergeSha, merged: true });
     }
     if (method === 'GET' && /^issues\/\d+\/events\?/.test(path)) return '[]';
     const check = /^commits\/([0-9a-f]+)\/check-runs\?/.exec(path);
@@ -305,6 +348,23 @@ export function createHarness(initial: Partial<Remote>): Harness {
     throw new Error(`unexpected gh api ${method} ${path}`);
   }
 
+  function runGhChecks(args: string[]): string {
+    ghChecks.push(args);
+    const repoArg = args.find((arg) => arg.startsWith('repos/owner/repo/'));
+    const path = stripPrefix(repoArg, 'repos/owner/repo/');
+    const check = /^commits\/([0-9a-f]+)\/check-runs\?/.exec(path);
+    if (check) {
+      const head = check[1] ?? '';
+      if (remote.greenHeads.has(head)) {
+        return JSON.stringify({
+          check_runs: [{ name: 'CI / required', status: 'completed', conclusion: 'success', app: { slug: 'github-actions' } }],
+        });
+      }
+      return JSON.stringify({ check_runs: [] });
+    }
+    throw new Error(`unexpected ghChecks ${args.join(' ')}`);
+  }
+
   const io: QueueIo = {
     repo: 'owner/repo',
     now: () => NOW,
@@ -315,8 +375,9 @@ export function createHarness(initial: Partial<Remote>): Harness {
     },
     git: runGit,
     gh: runGh,
+    ghChecks: runGhChecks,
   };
-  return { remote, gh, git, comments, logs, io };
+  return { remote, gh, ghChecks, git, comments, logs, io };
 }
 
 /** Two green pull requests staged together on a green run. */
