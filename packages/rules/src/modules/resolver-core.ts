@@ -9,7 +9,7 @@ import { parseToASTOrError, parseFunctions } from '../grammar/FirestoreParser.js
 import { assembleRules, assembleRulesWithSourceMap, type RulesSourceMapEntry } from '../grammar/FirestoreAssembler.js';
 import type { FunctionDef, Expression, FirestoreRules, MatchBlock } from '../grammar/FirestoreAST.js';
 import { RULES_BUILTIN_FUNCTIONS } from '../grammar/builtin-functions.js';
-import { isStorageServiceName, topLevelMatches } from '../grammar/service-blocks.js';
+import { allServiceBlocks, isStorageServiceName, topLevelMatches } from '../grammar/service-blocks.js';
 import { DUPLICATE_SERVICE_REASON, duplicateServiceRejection } from '../grammar/source-compile-limits.js';
 import { STDLIB_MODULE_EVIDENCE } from './stdlib-services.generated.js';
 import {
@@ -463,6 +463,7 @@ export function resolveModulesWith(
   const isNoImports = ast.imports.length === 0;
   if (isNoImports) {
     ast.version = '2';
+    clearExportedModifiers(ast);
     const assembled = assembleRulesWithSourceMap(ast);
     const sourceMapJson = JSON.stringify(assembled.sourceMap);
     const resolvedWithMap = `${assembled.resolved}// @pyric-source-map: ${sourceMapJson}\n`;
@@ -918,6 +919,7 @@ export function resolveModulesWith(
   ast.service.functions = [...injected, ...(ast.service.functions ?? [])];
   ast.version = '2';
   ast.imports = [];
+  clearExportedModifiers(ast);
 
   const evidenceIds = new Set<string>();
   let evidencePrefix = 'firestore-rules#';
@@ -949,6 +951,18 @@ export function resolveModulesWith(
   };
 }
 
+function clearExportedModifiers(ast: FirestoreRules): void {
+  const clearBlock = (block: MatchBlock): void => {
+    for (const fn of block.functions) fn.exported = false;
+    for (const child of block.children) clearBlock(child);
+  };
+  for (const fn of ast.functions ?? []) fn.exported = false;
+  for (const service of allServiceBlocks(ast)) {
+    for (const fn of service.functions ?? []) fn.exported = false;
+    for (const root of topLevelMatches(service)) clearBlock(root);
+  }
+}
+
 export function attachAstSourceFile(ast: FirestoreRules, file: string): void {
   const attachToFunction = (fn: {
     loc?: { file?: string };
@@ -956,57 +970,26 @@ export function attachAstSourceFile(ast: FirestoreRules, file: string): void {
     body?: { loc?: { file?: string } };
     lets: ReadonlyArray<{ loc?: { file?: string } }>;
   }): void => {
-    if (fn.loc !== undefined) {
-      fn.loc.file = file;
-    }
+    if (fn.loc !== undefined) fn.loc.file = file;
     for (const binding of fn.lets) {
-      if (binding.loc !== undefined) {
-        binding.loc.file = file;
-      }
+      if (binding.loc !== undefined) binding.loc.file = file;
     }
-    if (fn.returnLoc !== undefined) {
-      fn.returnLoc.file = file;
-    }
-    if (fn.body?.loc !== undefined) {
-      fn.body.loc.file = file;
-    }
+    if (fn.returnLoc !== undefined) fn.returnLoc.file = file;
+    if (fn.body?.loc !== undefined) fn.body.loc.file = file;
   };
-  if (ast.service.loc !== undefined) {
-    ast.service.loc.file = file;
-  }
-  const hasFunctions = ast.functions !== undefined;
-  if (hasFunctions) {
-    for (const fn of ast.functions!) {
-      attachToFunction(fn);
-    }
-  }
-  const hasServiceFunctions = ast.service.functions !== undefined;
-  if (hasServiceFunctions) {
-    for (const fn of ast.service.functions!) {
-      attachToFunction(fn);
-    }
-  }
+  if (ast.service.loc !== undefined) ast.service.loc.file = file;
+  for (const fn of ast.functions ?? []) attachToFunction(fn);
+  for (const fn of ast.service.functions ?? []) attachToFunction(fn);
   const stack: MatchBlock[] = [...topLevelMatches(ast.service)];
-  let stackLength = stack.length;
-  while (stackLength > 0) {
-    const block = stack.pop()!;
-    const hasBlockLoc = block.loc !== undefined;
-    if (hasBlockLoc) {
-      block.loc!.file = file;
-    }
+  while (stack.length > 0) {
+    const block = stack.pop();
+    if (!block) continue;
+    if (block.loc !== undefined) block.loc.file = file;
     for (const allow of block.allows) {
-      const hasAllowLoc = allow.loc !== undefined;
-      if (hasAllowLoc) {
-        allow.loc!.file = file;
-      }
+      if (allow.loc !== undefined) allow.loc.file = file;
     }
-    for (const fn of block.functions) {
-      attachToFunction(fn);
-    }
-    for (const child of block.children) {
-      stack.push(child);
-    }
-    stackLength = stack.length;
+    for (const fn of block.functions) attachToFunction(fn);
+    stack.push(...block.children);
   }
 }
 

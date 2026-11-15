@@ -197,7 +197,7 @@ function evaluateGranularRequest(
               params: newParams,
               matchParams: newParams,
               scopeKind: 'match',
-              locals: {},
+              locals: Object.create(null),
               funcs,
               firestoreLookup,
               firestoreAccesses,
@@ -273,10 +273,11 @@ function evaluateGranularRequest(
         for (let splitLen = tail.length; splitLen >= fewest; splitLen--) {
           const captured = tail.slice(0, splitLen);
           const childLeft = tail.slice(splitLen);
-          const childParams: Record<string, PathParamValue> = {
-            ...prefixMatch.params,
-            [lastSeg.name]: new StoragePath('/' + captured.join('/')),
-          };
+          const childParams: Record<string, PathParamValue> = Object.assign(
+            Object.create(null),
+            prefixMatch.params,
+          );
+          childParams[lastSeg.name] = new StoragePath('/' + captured.join('/'));
           for (const child of block.children) {
             if (visit(child, childLeft, childParams)) return true;
           }
@@ -291,7 +292,7 @@ function evaluateGranularRequest(
     return false;
   }
 
-  const allowed = visit(rules._root, pathSegments, {});
+  const allowed = visit(rules._root, pathSegments, Object.create(null));
   if (!allowed && reasons.length === 0) {
     reasons.push(`no rule matches ${input.request.method} /${pathSegments.join('/')}`);
   }

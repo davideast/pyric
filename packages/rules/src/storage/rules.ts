@@ -299,22 +299,16 @@ export interface EvaluationResult {
 
 /**
  * Injected capability that lets a Storage rule read Firestore documents
- * (`firestore.get(path)` / `firestore.exists(path)`), WITHOUT the pure
- * evaluator importing the Firestore sandbox. The enforcement layer builds
- * one from the sandbox's admin Firestore accessor (a synchronous in-memory
- * read) and passes it into {@link evaluateStorageRules}; pure/test callers
- * that omit it get the deny-with-reason "unsupported" behavior instead.
- *
- * Paths are the document path RELATIVE to the database — the
- * `collection/doc` form `sandbox.admin.getDocument` expects — after the
- * evaluator has stripped the `/databases/<db>/documents/` prefix from the
- * rule's path literal.
+ * (`firestore.get(path)` / `firestore.exists(path)`). Paths are relative
+ * `collection/doc` strings after stripping `/databases/<db>/documents/`.
  */
 export interface FirestoreLookup {
   /** The document's fields, or `null` when the document does not exist. */
   get(path: string): Record<string, unknown> | null;
   /** Whether a document exists at `path`. */
   exists(path: string): boolean;
+  /** True for public `storageRules()` cases where plain maps stay plain maps. */
+  readonly publicCases?: boolean;
 }
 
 /** Opaque parsed-rules handle returned by `parseStorageRules`. */
@@ -345,6 +339,7 @@ export interface MatchBlock {
 export interface FunctionDef {
   name: string;
   params: string[];
+  exported?: boolean;
   /** `let` bindings evaluated in order before the return, each visible
    *  to those after it and to the return expression. */
   lets: { name: string; value: Expr }[];
@@ -500,6 +495,7 @@ function convertFunction(fn: SharedFunctionDef, sourceMap: AuthoredSourceMap): F
   return {
     name: fn.name,
     params: fn.parameters,
+    exported: fn.exported,
     lets: fn.lets.map((l) => {
       const binding = { name: l.name, value: convertExpr(l.value, sourceMap) };
       copyExpressionPosition(l, binding);

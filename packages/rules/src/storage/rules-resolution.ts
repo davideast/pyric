@@ -82,6 +82,11 @@ export interface CompiledStorageRules {
   readonly resolution: StorageRulesResolution;
 }
 
+function matchHasExportedFunction(match: MatchBlock): boolean {
+  if (match.functions.some((fn) => fn.exported === true)) return true;
+  return match.children.some(matchHasExportedFunction);
+}
+
 /**
  * Compile a storage rules source into the ruleset the evaluator runs and the
  * resolution record hosts read back, lowering `2+modules` source first.
@@ -97,6 +102,9 @@ export function compileStorageRules(declared: string): CompiledStorageRules {
   if (rules._version !== '2+modules') {
     if (rules._root.functions.some((fn) => fn.unresolvedImport !== undefined)) {
       throw new SyntaxError("Import statements require rules_version = '2+modules'.");
+    }
+    if (matchHasExportedFunction(rules._root)) {
+      throw new SyntaxError("Export declarations require rules_version = '2+modules'.");
     }
   } else {
     const resolved = resolveModulesBrowser(source, { targetService: 'firebase.storage' });

@@ -1,7 +1,8 @@
+import { functionNotFoundMessage } from '../simulator/eval-error.js';
 import { evaluateHashingMethod } from '../simulator/hashing-builtins.js';
 import { Bytes } from '../simulator/wrappers/bytes.js';
 import type { EvalCtx } from './rules-evaluator.js';
-import { RuleEvalError, RuleUnsupportedError } from './rules-evaluation-error.js';
+import { RuleEvalError } from './rules-evaluation-error.js';
 import {
   evalNamespaceArguments,
   evalValueMethod,
@@ -9,7 +10,7 @@ import {
   type ReceiverMethods,
 } from './rules-method-calls.js';
 import { describeRulesType as describeType } from '../simulator/rules-type.js';
-import { isRuleError as isErr } from './rules-values.js';
+import { RuleError, isRuleError as isErr } from './rules-values.js';
 
 /** The digests the `hashing` namespace defines. */
 const HASHING_FUNCTIONS = new Set(['crc32', 'crc32c', 'md5', 'sha256']);
@@ -21,12 +22,11 @@ const HASHING_FUNCTIONS = new Set(['crc32', 'crc32c', 'md5', 'sha256']);
  * operation error", captured for `hashing.md5(int)`.
  */
 export function evalHashingNamespace(expr: MethodCall, ctx: EvalCtx): unknown {
-  if (!HASHING_FUNCTIONS.has(expr.method)) {
-    // A name outside the namespace is a compile-reject class: never absorbed.
-    throw new RuleUnsupportedError(`unsupported method hashing.${expr.method}()`);
-  }
   const args = evalNamespaceArguments(expr, ctx);
   if (isErr(args)) return args;
+  if (!HASHING_FUNCTIONS.has(expr.method)) {
+    return new RuleError(functionNotFoundMessage(expr.method));
+  }
   if (args.length !== 1) {
     throw new RuleEvalError(`hashing.${expr.method}() expects a single string or bytes argument`);
   }

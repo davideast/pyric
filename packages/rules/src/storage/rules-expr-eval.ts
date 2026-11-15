@@ -449,16 +449,17 @@ function evalCall(expr: Extract<Expr, { kind: 'call' }>, ctx: EvalCtx): unknown 
       `Incorrect number of arguments. Received: ${expr.args.length}. Expected: ${expr.name}(${fn.params.join(', ')}).`,
     );
   }
-  const locals: Record<string, unknown> = {};
+  const locals: Record<string, unknown> = Object.create(null);
   fn.params.forEach((p, i) => {
     locals[p] = argVals[i];
   });
   const fullMatchParams = ctx.matchParams ?? ctx.params;
-  const declParams: Record<string, PathParamValue> = {};
+  const declParams: Record<string, PathParamValue> = Object.create(null);
   if (fn.declCaptures) {
     for (const key of fn.declCaptures) {
       if (Object.hasOwn(fullMatchParams, key)) {
-        declParams[key] = fullMatchParams[key]!;
+        const value = fullMatchParams[key];
+        if (value !== undefined) declParams[key] = value;
       }
     }
   }

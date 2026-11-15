@@ -19,7 +19,14 @@ import { typeClaimNumbers } from '../simulator/rules-int.js';
 function omitUndefined<T extends Record<string, unknown>>(obj: T): T {
   const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(obj)) {
-    if (v !== undefined) out[k] = v;
+    if (v !== undefined) {
+      Object.defineProperty(out, k, {
+        value: v,
+        enumerable: true,
+        configurable: true,
+        writable: true,
+      });
+    }
   }
   return out as T;
 }

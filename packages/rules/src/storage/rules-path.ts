@@ -12,6 +12,15 @@ import { RuleError, isRuleError as isErr } from './rules-values.js';
 
 const PLACEHOLDER = /^(?:\{([A-Za-z_][A-Za-z0-9_]*)\}|\$\(([A-Za-z_][A-Za-z0-9_]*)\))$/;
 
+function copyBindings(source?: Readonly<Record<string, string>>): Record<string, string> {
+  const out: Record<string, string> = Object.create(null);
+  if (source === undefined) return out;
+  for (const [key, value] of Object.entries(source)) {
+    out[key] = value;
+  }
+  return out;
+}
+
 export class StoragePath extends RulesValue {
   readonly typeName = 'path';
   /** Names bound to segments via `.bind(map)`. */
@@ -20,17 +29,17 @@ export class StoragePath extends RulesValue {
   #segments: readonly string[] | undefined;
   constructor(
     readonly path: string,
-    bindings: Readonly<Record<string, string>> = {},
+    bindings?: Readonly<Record<string, string>>,
   ) {
     super();
-    this.bindings = bindings;
+    this.bindings = copyBindings(bindings);
   }
   /**
    * A path built from its segments. A path literal's interpolated string is
    * one segment even when it holds `/`, as production keeps it
    * (capture `rules-storage-h1-lookup-interpolated-slash`).
    */
-  static fromSegments(segments: readonly string[], bindings: Readonly<Record<string, string>> = {}): StoragePath {
+  static fromSegments(segments: readonly string[], bindings?: Readonly<Record<string, string>>): StoragePath {
     const path = new StoragePath(`/${segments.join('/')}`, bindings);
     path.#segments = [...segments];
     return path;
@@ -42,14 +51,18 @@ export class StoragePath extends RulesValue {
   }
   bind(bindings: Record<string, unknown>): StoragePath {
     const next: string[] = [];
-    const nextBindings: Record<string, string> = { ...this.bindings };
+    const nextBindings = copyBindings(this.bindings);
     for (const seg of this.segments) {
       const m = PLACEHOLDER.exec(seg);
       if (!m) {
         next.push(seg);
         continue;
       }
-      const name = (m[1] ?? m[2])!;
+      const name = m[1] ?? m[2];
+      if (name === undefined) {
+        next.push(seg);
+        continue;
+      }
       if (Object.hasOwn(bindings, name)) {
         const v = bindings[name];
         if (v === null || v === undefined || (typeof v !== 'string' && typeof v !== 'number' && typeof v !== 'bigint')) {
