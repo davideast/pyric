@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'bun:test';
+import { dirname, extname, join } from 'node:path';
+import type { ConfigEnv } from 'vite';
 import { defaultSdkEntries } from '../../src/serve/bundler.js';
 import { createVitePageRuntime } from '../../src/serve/vite-page-runtime.js';
 
@@ -93,6 +95,49 @@ describe('Vite page runtime', () => {
     const page = runtime();
     page.config({}, { command: 'serve', mode: 'development' } as never);
     expect(page.ai()).toEqual({ mode: 'sandbox', engineWire: undefined, proxyUpstream: undefined });
+  });
+
+  it('defines a non-sensitive hosted worker init fallback in dev server mode without overwriting user defines', () => {
+    const serveEnv: ConfigEnv = { command: 'serve', mode: 'development' };
+    const previewEnv: ConfigEnv = { command: 'serve', mode: 'production', isPreview: true };
+    const buildEnv: ConfigEnv = { command: 'build', mode: 'development' };
+    const hostedPage = runtime({ hosted: true });
+    const devConfig = hostedPage.config({}, serveEnv);
+    const rawDefine = devConfig.define?.['process.env.NEXT_PUBLIC_PYRIC_WORKER_INIT'];
+    expect(typeof rawDefine).toBe('string');
+    const parsed = JSON.parse(JSON.parse(rawDefine as string) as string) as Record<string, unknown>;
+    expect(parsed).toEqual({ hosted: true, projectKey: null, bridgeUrl: null });
+
+    const userCustom = JSON.stringify(JSON.stringify({ hosted: true, projectKey: 'custom', bridgeUrl: '/__pyric/sandbox' }));
+    const preserved = hostedPage.config(
+      { define: { 'process.env.NEXT_PUBLIC_PYRIC_WORKER_INIT': userCustom } },
+      serveEnv,
+    );
+    expect(preserved.define?.['process.env.NEXT_PUBLIC_PYRIC_WORKER_INIT']).toBeUndefined();
+
+    const previewConfig = hostedPage.config({}, previewEnv);
+    expect(previewConfig.define).toBeUndefined();
+
+    const buildConfig = hostedPage.config({}, buildEnv);
+    expect(buildConfig.define).toBeUndefined();
+
+    const inPageConfig = runtime({ hosted: false }).config({}, serveEnv);
+    expect(inPageConfig.define).toBeUndefined();
+
+    hostedPage.config({}, serveEnv);
+    hostedPage.configResolved({ envPrefix: 'VITE_', define: devConfig.define });
+    const initEntry = defaultSdkEntries().init;
+    let initExt = extname(initEntry);
+    if (initExt.length === 0) initExt = '.js';
+    const bundledInitPath = join(dirname(initEntry), `bundled-worker-init${initExt}`);
+    const source = 'return process.env.NEXT_PUBLIC_PYRIC_WORKER_INIT;';
+    const transformed = hostedPage.transformModule(source, `${bundledInitPath}?v=123`);
+    expect(transformed).toBe(`return ${rawDefine as string};`);
+    expect(hostedPage.transformModule(source, '/app/src/main.ts')).toBeNull();
+
+    hostedPage.config({}, buildEnv);
+    hostedPage.configResolved({ envPrefix: 'VITE_', define: devConfig.define });
+    expect(hostedPage.transformModule(source, bundledInitPath)).toBeNull();
   });
 
   it('never injects engine baseUrl userinfo into served page HTML (#1766)', () => {

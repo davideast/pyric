@@ -1,7 +1,8 @@
 /**
  * A page whose HTML pyric never serves, such as a Next.js page under
- * `pyric sandbox -- next dev`, has no stamped `__PYRIC_WORKER_INIT__`.
- * `withPyric` inlines the launcher's selection into the client bundle as
+ * `pyric sandbox -- next dev` or a self-rendering Vite framework in hosted
+ * mode, has no stamped `__PYRIC_WORKER_INIT__`. `withPyric` and
+ * `pyric({ hosted: true })` inline the selection into the client bundle as
  * `process.env.NEXT_PUBLIC_PYRIC_WORKER_INIT`, and this module declares it as
  * the served HTML stamp would (`runtime/hosted-target.ts`), before
  * `init-payload.ts` reads the page. A stamped page and every other bundler
@@ -18,11 +19,13 @@ function inlinedSelection(): string | undefined {
   }
 }
 
-function declareHostedSandbox(projectKey: string): void {
+function declareHostedSandbox(projectKey: string | null | undefined): void {
   const meta = document.createElement('meta');
   meta.name = 'pyric-sandbox-host';
   meta.content = 'node';
-  meta.setAttribute('data-project-key', projectKey);
+  if (typeof projectKey === 'string' && projectKey.length > 0) {
+    meta.setAttribute('data-project-key', projectKey);
+  }
   meta.setAttribute('data-pyric-serve', '');
   document.head.append(meta);
 }
@@ -33,7 +36,5 @@ const selection = isUnstamped ? inlinedSelection() : undefined;
 if (selection !== undefined) {
   const payload = JSON.parse(selection) as WorkerInitPayload;
   globalThis.__PYRIC_WORKER_INIT__ = payload;
-  const projectKey = payload.projectKey;
-  const isHosted = payload.hosted === true && typeof projectKey === 'string';
-  if (isHosted) declareHostedSandbox(projectKey);
+  if (payload.hosted === true) declareHostedSandbox(payload.projectKey);
 }

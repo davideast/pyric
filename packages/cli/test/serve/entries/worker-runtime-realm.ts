@@ -7,10 +7,18 @@ const entry = new URL('../../../src/serve/entries/worker-runtime.ts', import.met
 
 // Browser transports are the I/O boundary. The bundled entry and its clients
 // run unchanged in a fresh realm for each case.
-export async function runtimeRealm(options: { sharedWorker?: boolean; blockedWorker?: boolean; serviceWorker?: boolean; forceInPage?: boolean; pageSdk?: boolean; hosted?: boolean; inlinedSelection?: object; stamped?: boolean; failedSockets?: number; owners?: { skip?: string[]; frames?: number } } = {}) {
+export async function runtimeRealm(options: { sharedWorker?: boolean; blockedWorker?: boolean; serviceWorker?: boolean; forceInPage?: boolean; pageSdk?: boolean; hosted?: boolean; hostedWithoutIdentity?: boolean; unstamped?: boolean; inlinedSelection?: object; stamped?: boolean; failedSockets?: number; owners?: { skip?: string[]; frames?: number } } = {}) {
   const { runInNewContext, createContext, SourceTextModule } = await import('node:vm');
   const { JSDOM } = await import('jsdom');
-  const page = (options.pageSdk || options.inlinedSelection) && !options.serviceWorker ? new JSDOM('<html><head><meta name="pyric-runtime-chip" content="off"></head><body></body></html>', { url: 'https://app.example/' }) : undefined;
+  const needsPage = Boolean(options.pageSdk || options.inlinedSelection || options.unstamped || options.hostedWithoutIdentity) && !options.serviceWorker;
+  let hostMeta = '';
+  if (options.hostedWithoutIdentity) {
+    hostMeta = '<meta name="pyric-sandbox-host" content="node" data-pyric-serve>';
+  }
+  let page: InstanceType<typeof JSDOM> | undefined;
+  if (needsPage) {
+    page = new JSDOM(`<html><head>${hostMeta}<meta name="pyric-runtime-chip" content="off"></head><body></body></html>`, { url: 'https://app.example/' });
+  }
   const result = await build({
     stdin: { contents: (options.pageSdk ? `export * as firestore from './firestore.js';
       export * as auth from './auth.js';
@@ -44,6 +52,20 @@ export async function runtimeRealm(options: { sharedWorker?: boolean; blockedWor
     start() {}
     close() {}
   }
+  let workerInitGlobal: Record<string, unknown> | undefined;
+  const omitWorkerInit = Boolean(options.serviceWorker || options.unstamped || (options.inlinedSelection && !options.stamped));
+  if (!omitWorkerInit) {
+    if (options.hostedWithoutIdentity) {
+      workerInitGlobal = { hosted: true, projectKey: null, bridgeUrl: null };
+    } else {
+      workerInitGlobal = {
+        hosted: options.hosted ?? false,
+        projectKey: options.hosted ? 'orbit' : null,
+        bridgeUrl: options.hosted ? '/__pyric/sandbox' : null,
+      };
+      if (options.owners) workerInitGlobal.owners = options.owners;
+    }
+  }
   const globals = {
     console, TextEncoder, TextDecoder, URL, AbortController, MessageEvent,
     crypto, performance, queueMicrotask,
@@ -56,7 +78,7 @@ export async function runtimeRealm(options: { sharedWorker?: boolean; blockedWor
       const timer = setInterval(callback, ms); timers.add(timer); return timer;
     },
     clearTimeout, clearInterval,
-    __PYRIC_WORKER_INIT__: options.serviceWorker || (options.inlinedSelection && !options.stamped) ? undefined : { hosted: options.hosted ?? false, projectKey: options.hosted ? 'orbit' : null, bridgeUrl: options.hosted ? '/__pyric/sandbox' : null, ...(options.owners ? { owners: options.owners } : {}) },
+    __PYRIC_WORKER_INIT__: workerInitGlobal,
     __PYRIC_FORCE_INPAGE__: options.forceInPage,
     ...(options.serviceWorker ? { ServiceWorkerGlobalScope: class {}, registration: { scope: '/' }, clients: {} } : { window: page?.window ?? {} }),
     ...(page ? { document: page.window.document, HTMLElement: page.window.HTMLElement, CustomEvent: page.window.CustomEvent, MutationObserver: page.window.MutationObserver, localStorage: page.window.localStorage } : {}),

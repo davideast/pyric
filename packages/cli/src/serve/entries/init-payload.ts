@@ -15,7 +15,8 @@ const isNodeRealm = nodeRuntimeOrigin() !== undefined;
 const declaresNodeHost = hostedDeclaration?.getAttribute('content') === 'node';
 const requiresHostedSandbox = declaresNodeHost || isNodeRealm;
 const expectedProjectKey = hostedDeclaration?.getAttribute('data-project-key');
-const checksProjectKey = declaresNodeHost;
+const hasExpectedProjectKey = typeof expectedProjectKey === 'string' && expectedProjectKey.length > 0;
+const checksProjectKey = declaresNodeHost && hasExpectedProjectKey;
 const HOSTED_INIT_TIMEOUT_MS = 5_000;
 const HOSTED_INIT_MAX_BACKOFF_MS = 5_000;
 

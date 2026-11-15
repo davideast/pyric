@@ -14,7 +14,14 @@ import { getServiceWorkerFirestore } from '../worker/client/service-worker-conne
 import { getDeferredFirestore } from '../worker/client/deferred-connection.js';
 import { getHostedFirestore } from '../worker/client/websocket-connection.js';
 import { ownClientUntilPagehide } from '../worker/client/pagehide.js';
-import { currentHostInstanceId, currentHostPayload, currentSessionToken, forgetSessionToken, initPayload } from './init-payload.js';
+import {
+  currentHostInstanceId,
+  currentHostPayload,
+  currentSessionToken,
+  forgetSessionToken,
+  initPayload,
+  logInitPayloadFailure,
+} from './init-payload.js';
 import type { WorkerInitPayload } from '../init-payload.js';
 import { toPageOriginWsUrl } from './bridge-url.js';
 import { movedSocketUrl, type AttachedHost } from './moved-host.js';
@@ -106,8 +113,40 @@ export const WORKER_NAME = workerNameForEpoch(
   epochStorage,
 );
 
+function hasHostedIdentity(configuration: WorkerInitPayload | null): boolean {
+  const bridgeUrl = configuration?.bridgeUrl;
+  const projectKey = configuration?.projectKey;
+  return (
+    typeof bridgeUrl === 'string' &&
+    bridgeUrl.length > 0 &&
+    typeof projectKey === 'string' &&
+    projectKey.length > 0
+  );
+}
+
+/**
+ * A hosted page whose HTML or bundled define declared the Node host without
+ * project identity (for example, a remote peer or a self-rendering dev server)
+ * waits for `/__pyric/init.json` before dialing the socket, so a remote refusal
+ * fails calls with the refusal message and opens no WebSocket or worker.
+ */
+function openDeferredHostedDb(): ClientDb {
+  const transport = initPayload.then((configuration) => {
+    const isNodeHost = configuration !== null && configuration.hosted === true;
+    if (!isNodeHost) {
+      throw new Error('The hosted sandbox did not return a hosted configuration.');
+    }
+    payload = configuration;
+    return (port: Parameters<typeof getHostedFirestore>[1]) => getHostedFirestore(hostedTarget(), port);
+  });
+  return getDeferredFirestore(transport);
+}
+
 function createControlClient(workerRequested: boolean): ClientDb | null {
-  if (useHosted) return getHostedFirestore(hostedTarget());
+  if (useHosted) {
+    if (hasHostedIdentity(payload)) return getHostedFirestore(hostedTarget());
+    return openDeferredHostedDb();
+  }
   const usesSharedWorker = workerRequested && hasSharedWorker;
   if (usesSharedWorker) {
     return connectRuntimeWorker(
@@ -148,7 +187,10 @@ export function openWorkerDb(appName: string): ClientDb {
     if (useHosted) return port => getHostedFirestore(hostedTarget(), port);
     return port => getServiceWorkerFirestore(appName, port);
   }));
-  if (useHosted) return getHostedFirestore(hostedTarget());
+  if (useHosted) {
+    if (hasHostedIdentity(payload)) return getHostedFirestore(hostedTarget());
+    return openDeferredHostedDb();
+  }
   if (hasSharedWorker) return getFirestore(WORKER_URL, WORKER_NAME);
   throw new Error('No Pyric worker transport is available in this browser context.');
 }
@@ -291,7 +333,17 @@ if (isNodeRealm) {
 } else if (!isServiceWorker) {
   const pagePayload = globalThis.__PYRIC_WORKER_INIT__;
   const pageHasNoPayload = typeof document !== 'undefined' && pagePayload === undefined;
-  if (pageHasNoPayload) throw new Error('Missing Pyric page initialization. Reload the page through the sandbox server.');
+  if (pageHasNoPayload) {
+    throw new Error(
+      "Missing Pyric page initialization. This page was served without Vite's transformIndexHtml hook "
+        + '(common in frameworks that render their own dev HTML). Enable hosted mode with '
+        + 'pyric({ hosted: true }) for automatic client bundle initialization, pass your HTML through '
+        + 'server.transformIndexHtml, or define process.env.NEXT_PUBLIC_PYRIC_WORKER_INIT.',
+    );
+  }
   initialize(pagePayload ?? null);
-  void initPayload.then(reportPersistenceHealth, error => runtimeStatus.reportError(error, 'runtime'));
+  void initPayload.then(reportPersistenceHealth, (error) => {
+    runtimeStatus.reportError(error, 'runtime');
+    logInitPayloadFailure(error);
+  });
 }

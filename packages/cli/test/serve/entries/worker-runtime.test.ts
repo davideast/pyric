@@ -151,3 +151,64 @@ test('a stamped page keeps its stamp over a selection its bundle inlines', async
     expect(realm.status().mode).toBe('shared-worker');
   } finally { realm.dispose(); }
 });
+
+function errorMessage(value: unknown): string {
+  if (value instanceof Error) return value.message;
+  return String(value);
+}
+
+test('an unstamped page with no bundled selection throws an error explaining transformIndexHtml and its remedies', async () => {
+  let thrown: unknown;
+  try {
+    await runtimeRealm({ unstamped: true });
+  } catch (error) {
+    thrown = error;
+  }
+  const message = errorMessage(thrown);
+  expect(message).toContain('Missing Pyric page initialization');
+  expect(message).toContain('transformIndexHtml');
+  expect(message).toMatch(/hosted:\s*true/);
+  expect(message).toContain('NEXT_PUBLIC_PYRIC_WORKER_INIT');
+});
+
+test('an unstamped hosted define fallback without projectKey resolves via init.json and connects cleanly', async () => {
+  const selection = { hosted: true, projectKey: null, bridgeUrl: null };
+  const realm = await runtimeRealm({ inlinedSelection: selection, sharedWorker: true });
+  try {
+    const declaration = realm.document?.querySelector('meta[name="pyric-sandbox-host"]');
+    expect(declaration?.getAttribute('content')).toBe('node');
+    expect(declaration?.getAttribute('data-project-key')).toBeNull();
+    expect(realm.runtime.useHosted).toBe(true);
+    expect(realm.connections).toEqual([]);
+    const appDb = realm.runtime.openWorkerDb('app');
+    expect(realm.connections).toEqual([]);
+    realm.respond({ hosted: true, projectKey: 'orbit', bridgeUrl: '/__pyric/sandbox' });
+    await new Promise(resolve => setTimeout(resolve, 20));
+    expect(realm.connections).toEqual(['wss://app.example/__pyric/sandbox', 'wss://app.example/__pyric/sandbox']);
+    appDb.port.close();
+  } finally { realm.dispose(); }
+});
+
+test('a remote-peer hosted marker without projectKey rejects clearly without opening SharedWorker or WebSocket', async () => {
+  const realm = await runtimeRealm({ hostedWithoutIdentity: true, sharedWorker: true, pageSdk: true });
+  try {
+    await realm.evaluation;
+    expect(realm.runtime.useHosted).toBe(true);
+    expect(realm.connections).toEqual([]);
+    const app = realm.sdk.app.initializeApp({ projectId: 'demo-items' });
+    const db = realm.sdk.firestore.getFirestore(app);
+    const pendingRead = realm.sdk.firestore.getDoc(realm.sdk.firestore.doc(db, 'items/a'));
+    realm.respond({ hosted: true, remotePeer: true, bridgeUrl: null });
+    let readError: unknown;
+    try {
+      await pendingRead;
+    } catch (error) {
+      readError = error;
+    }
+    const readMessage = errorMessage(readError);
+    expect(readMessage).toContain('This Node host serves project data only to clients on its own machine');
+    expect(realm.connections).toEqual([]);
+    const status = realm.status() as { errors?: Array<{ message: string }> };
+    expect(status.errors?.some((entry) => entry.message.includes('only to clients on its own machine'))).toBe(true);
+  } finally { realm.dispose(); }
+});

@@ -134,3 +134,17 @@ it('inlines the same sandbox endpoint supplied by the bridge in init.json', asyn
     expect(inlinedSelection(html)).toEqual({ hosted: true, projectKey: 'orbit', bridgeUrl: endpoint.pathname });
   } finally { await bridge.close(); }
 });
+
+it('stamps a non-sensitive Node host marker for remote peers without projectKey, instanceId, or sessionToken', () => {
+  const html = injectServeTags('<head></head>', {
+    hosted: { projectKey: '/workspace/items-app', instanceId: 'boot-123' },
+    sessionToken: 'secret-token',
+    remotePeer: true,
+  });
+  expect(inlinedSelection(html)).toEqual({ hosted: true, projectKey: null, bridgeUrl: null });
+  expect(html).toContain('<meta name="pyric-sandbox-host" content="node" data-pyric-serve>');
+  expect(html).not.toContain('data-project-key=');
+  expect(html).not.toContain('/workspace/items-app');
+  expect(html).not.toContain('boot-123');
+  expect(html).not.toContain('secret-token');
+});

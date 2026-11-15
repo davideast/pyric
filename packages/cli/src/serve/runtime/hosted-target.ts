@@ -25,24 +25,32 @@ export function readHostedTarget(): { url: string; projectKey: string } | null {
   return { url: `${protocol}//${location.host}/__pyric/sandbox`, projectKey };
 }
 
+/** Optional hosted override when a host declares Node mode without stamping its project path. */
+export interface HostedStampOptions {
+  hosted?: boolean;
+}
+
 /**
  * The page's synchronous transport selection. Served HTML carries it as
- * `__PYRIC_WORKER_INIT__`; a Next.js page, whose HTML pyric never serves,
- * gets the same value inlined into its client bundle (`next/runtime-env.ts`).
+ * `__PYRIC_WORKER_INIT__`; a Next.js page or Vite hosted dev bundle, whose HTML
+ * pyric may not serve, gets the same value inlined into its client bundle.
  */
 export function workerInitPayload(
   projectKey: string | undefined,
   owners?: OwnersConfig,
   instanceId?: string,
   sessionToken?: string,
+  options?: HostedStampOptions,
 ): WorkerInitPayload {
-  const hosted = projectKey !== undefined;
+  const hasProjectKey = projectKey !== undefined;
+  const hosted = hasProjectKey || options?.hosted === true;
   const payload: WorkerInitPayload = {
-    hosted, projectKey: projectKey ?? null,
-    bridgeUrl: hosted ? '/__pyric/sandbox' : null,
+    hosted,
+    projectKey: hasProjectKey ? projectKey : null,
+    bridgeUrl: hasProjectKey ? '/__pyric/sandbox' : null,
   };
   if (owners !== undefined) payload.owners = owners;
-  if (hosted && instanceId !== undefined) payload.instanceId = instanceId;
+  if (hasProjectKey && instanceId !== undefined) payload.instanceId = instanceId;
   if (sessionToken !== undefined && sessionToken.length > 0) payload.sessionToken = sessionToken;
   return payload;
 }
@@ -53,14 +61,18 @@ export function stampHostedTarget(
   owners?: OwnersConfig,
   instanceId?: string,
   sessionToken?: string,
+  options?: HostedStampOptions,
 ): string {
-  const hosted = projectKey !== undefined;
-  const payload = workerInitPayload(projectKey, owners, instanceId, sessionToken);
+  const hasProjectKey = projectKey !== undefined;
+  const hosted = hasProjectKey || options?.hosted === true;
+  const payload = workerInitPayload(projectKey, owners, instanceId, sessionToken, options);
   const serialized = JSON.stringify(payload).replaceAll('<', '\\u003c');
   let declaration = `<script data-pyric-worker-init>globalThis.__PYRIC_WORKER_INIT__=${serialized};</script>`;
-  if (hosted) {
+  if (hosted && hasProjectKey) {
     const escaped = projectKey.replaceAll('&', '&amp;').replaceAll('"', '&quot;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
     declaration += `<meta name="pyric-sandbox-host" content="node" data-project-key="${escaped}" data-pyric-serve>`;
+  } else if (hosted) {
+    declaration += '<meta name="pyric-sandbox-host" content="node" data-pyric-serve>';
   }
   // A built page may carry a different selection than its current server.
   const page = html

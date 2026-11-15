@@ -30,15 +30,27 @@ export interface ServeTagOptions {
   owners?: OwnersConfig;
   /** Per-boot session capability token stamped for local-peer navigations only. */
   sessionToken?: string;
+  /**
+   * True when serving HTML to a non-loopback peer. Declares the Node host
+   * without stamping the project path, host instance id, or session token so
+   * the browser shows the loopback-only refusal instead of starting a worker.
+   */
+  remotePeer?: boolean;
 }
 
 export function injectServeTags(html: string, options: ServeTagOptions = {}): string {
+  const isRemotePeer = options.remotePeer === true;
+  const projectKey = isRemotePeer ? undefined : options.hosted?.projectKey;
+  const instanceId = isRemotePeer ? undefined : options.hosted?.instanceId;
+  const sessionToken = isRemotePeer ? undefined : options.sessionToken;
+  const stampOptions = options.hosted !== undefined ? { hosted: true } : undefined;
   return stampHostedTarget(
     injectRuntimeTags(html, options),
-    options.hosted?.projectKey,
+    projectKey,
     options.owners,
-    options.hosted?.instanceId,
-    options.sessionToken,
+    instanceId,
+    sessionToken,
+    stampOptions,
   );
 }
 
