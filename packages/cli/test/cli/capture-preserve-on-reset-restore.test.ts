@@ -14,6 +14,7 @@ import { createCaptureStore, CAPTURE_RELATIVE_PATH } from '../../src/serve/captu
 import { handleConnectionOp } from '../../src/serve/worker/host/connection.js';
 import { exportStateBundle } from '../../src/serve/worker/host/state-transfer.js';
 import { handleStudioOp } from '../../src/serve/worker/host/studio.js';
+import { handleSub } from '../../src/serve/worker/host/subscriptions.js';
 import type { HostCtx, PortLike } from '../../src/serve/worker/host-context.js';
 import { createSurfaceContext } from '../../src/bridge/surface/context.js';
 import checkpointMethod from '../../src/bridge/surface/methods/sandbox/checkpoint.js';
@@ -470,6 +471,103 @@ describe('preserve previous session capture across restore and reset', () => {
         readFileSync(join(dir, CAPTURE_RELATIVE_PATH), 'utf8'),
       ) as PyricVerifyFixture;
       expect(afterImportActive.events).toHaveLength(0);
+    } finally {
+      sandbox.dispose();
+    }
+  });
+
+  it('rotates previous-session.json across Studio resetAll and worker restore/importState with an active Firestore onSnapshot listener', async () => {
+    const dir = makeTempProject();
+    const sandbox = initializeSandbox();
+    try {
+      setFirestoreRules(sandbox, STRICT_FIRESTORE_RULES);
+      rtdbSandbox.setRules(getAdminDatabase(sandbox), STRICT_RTDB_RULES);
+      const checkpointBackend = recordCheckpointBackend(createMemoryBackend());
+      await setDoc(doc(getFirestore(sandbox), 'items/watched'), { state: 'base' });
+      await saveCheckpoint(checkpointBackend, 'c1', sandbox);
+      const exportedBundle = await exportStateBundle(sandbox);
+
+      const store = createCaptureStore(dir);
+      const replies: unknown[] = [];
+      const port: PortLike = {
+        postMessage(message: unknown) {
+          replies.push(message);
+        },
+      };
+      const snapCount = () =>
+        replies.filter(
+          (msg) =>
+            typeof msg === 'object' &&
+            msg !== null &&
+            (msg as { t?: string; subId?: string }).t === 'snap' &&
+            (msg as { t?: string; subId?: string }).subId === 'watch-item',
+        ).length;
+      const hostCtx: HostCtx = {
+        sandbox,
+        db: getFirestore(sandbox),
+        instanceId: 'worker-listener-rotate',
+        subs: new Map(),
+        checkpointBackend,
+        captureFlush: async () => {
+          store.write(captureJson(sandbox));
+        },
+      };
+
+      const waitForSnaps = async (minCount: number) => {
+        const deadline = Date.now() + 2_000;
+        while (Date.now() < deadline) {
+          if (snapCount() >= minCount) return;
+          await new Promise((resolve) => setTimeout(resolve, 10));
+        }
+        throw new Error(`Timed out waiting for ${minCount} snapshot deliveries`);
+      };
+      // Attach an active Firestore doc onSnapshot listener before clearing.
+      handleSub(hostCtx, port, {
+        t: 'sub',
+        subId: 'watch-item',
+        target: { __ref: 'doc', path: 'items/watched' },
+      });
+      await waitForSnaps(1);
+
+      const previousPath = join(dir, PREVIOUS_CAPTURE_RELATIVE_PATH);
+
+      // 1. Studio resetAll with active listener rotates prior denials and keeps listener live.
+      await exerciseAllowedAndDeniedWrites(sandbox, 'studio-listener');
+      const snapsBeforeReset = snapCount();
+      await handleStudioOp(hostCtx, port, { t: 'op', id: 'reset-sub', method: 'resetAll' });
+      expect(existsSync(previousPath)).toBe(true);
+      const afterResetPrev = JSON.parse(readFileSync(previousPath, 'utf8')) as PyricVerifyFixture;
+      expect(deniedCountIn(afterResetPrev)).toBeGreaterThanOrEqual(2);
+      await waitForSnaps(snapsBeforeReset + 1);
+      const snapsAfterReset = snapCount();
+      await setDoc(doc(getFirestore(sandbox), 'items/watched'), { state: 'live-after-reset' });
+      await waitForSnaps(snapsAfterReset + 1);
+
+      // 2. Worker connection restore with active listener rotates prior denials and keeps listener live.
+      unlinkSync(previousPath);
+      setFirestoreRules(sandbox, STRICT_FIRESTORE_RULES);
+      await exerciseAllowedAndDeniedWrites(sandbox, 'restore-listener');
+      const snapsBeforeRestore = snapCount();
+      await handleConnectionOp(hostCtx, port, { t: 'op', id: 'restore-sub', method: 'restore', name: 'c1' });
+      expect(existsSync(previousPath)).toBe(true);
+      const afterRestorePrev = JSON.parse(readFileSync(previousPath, 'utf8')) as PyricVerifyFixture;
+      expect(deniedCountIn(afterRestorePrev)).toBeGreaterThanOrEqual(2);
+      await waitForSnaps(snapsBeforeRestore + 1);
+
+      // 3. Worker connection importState with active listener rotates prior denials and keeps listener live.
+      unlinkSync(previousPath);
+      await exerciseAllowedAndDeniedWrites(sandbox, 'import-listener');
+      const snapsBeforeImport = snapCount();
+      await handleConnectionOp(hostCtx, port, {
+        t: 'op',
+        id: 'import-sub',
+        method: 'importState',
+        bundle: exportedBundle,
+      });
+      expect(existsSync(previousPath)).toBe(true);
+      const afterImportPrev = JSON.parse(readFileSync(previousPath, 'utf8')) as PyricVerifyFixture;
+      expect(deniedCountIn(afterImportPrev)).toBeGreaterThanOrEqual(2);
+      await waitForSnaps(snapsBeforeImport + 1);
     } finally {
       sandbox.dispose();
     }

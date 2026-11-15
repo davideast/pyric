@@ -140,8 +140,8 @@ export async function handleConnectionOp(
         } else {
           reapplyActiveHostRulesAfterReset(ctx, imported.rtdbRules);
         }
-        restoreFirestoreSubscriptions(ctx);
         await ctx.captureFlush?.();
+        restoreFirestoreSubscriptions(ctx);
         await bestEffortFlush(ctx, msg.method);
         ok(port, msg.id, { ok: true });
       } catch (error) {
@@ -198,8 +198,8 @@ export async function handleConnectionOp(
         break;
       }
       syncHostRulesAfterCheckpointRestore(ctx, restored.state.rules);
-      restoreFirestoreSubscriptions(ctx);
       await ctx.captureFlush?.();
+      restoreFirestoreSubscriptions(ctx);
       await bestEffortFlush(ctx, msg.method);
       ok(port, msg.id, { ok: true, at: restored.at, counts: restored.counts });
       break;

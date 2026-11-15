@@ -16,7 +16,8 @@ import {
   setDatabaseRules,
   setDatabaseTargetRules,
 } from '../worker/host/rules.js';
-import { markHostedCaptureManaged, runHostedClearMethod } from './capture-preservation.js';
+import { markHostedCaptureManaged } from '../capture-store.js';
+import { runHostedClearMethod } from './capture-preservation.js';
 import { SERVE_HISTORY_LIMITS } from '../observation-limits.js';
 import { randomUUID } from 'node:crypto';
 import { createOperationBudget } from '../../bridge/operation-budget.js';
@@ -845,16 +846,14 @@ export async function createHostedRuntime(
         }
         let outcome: OperationResult;
         if (key === 'sandbox.reset' || key === 'sandbox.restore') {
-          const syncAfterRestore = () => {
+          const syncRulesAfterRestore = () => {
             syncFirestoreActiveRulesFromSandbox();
             syncDatabaseActiveRulesFromSandbox(true);
-            reconcilePortSessions();
-            restoreFirestoreSubscriptions(ctx);
           };
           outcome = await runHostedClearMethod({
             key, args, ctx, projectDir: ownedProjectDir,
             call: () => callMethod(method, args, callContext, call.allowProduction),
-            resetStorage: () => persistence.storage.reset(), syncAfterRestore,
+            resetStorage: () => persistence.storage.reset(), syncRulesAfterRestore,
             reconcilePortSessions, restoreFirestoreSubscriptions: () => restoreFirestoreSubscriptions(ctx),
           });
         } else if (key === 'functions.fire') {

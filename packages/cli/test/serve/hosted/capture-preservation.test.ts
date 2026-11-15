@@ -7,12 +7,13 @@ import 'fake-indexeddb/auto';
 import { afterEach, describe, expect, it } from 'bun:test';
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, unlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createMemoryBackend } from 'pyric/sandbox';
 import { recordCheckpointBackend } from 'pyric/sandbox/checkpoints';
 import { openStorageBackend } from '../../../../pyric/src/storage/persistence.js';
+import type { BridgeMessage } from '../../../src/bridge/protocol.js';
 import { createHostedRuntime } from '../../../src/serve/hosted/runtime.js';
 import {
   CAPTURE_RELATIVE_PATH,
@@ -88,7 +89,12 @@ async function makeInMemoryPersistence() {
 
 type HostedRuntime = Awaited<ReturnType<typeof createHostedRuntime>>;
 
-async function openHosted(projectDir: string, baseUrl: string, capture: boolean): Promise<HostedRuntime> {
+async function openHosted(
+  projectDir: string,
+  baseUrl: string,
+  capture: boolean,
+  onMessage: (message: BridgeMessage) => void = () => {},
+): Promise<HostedRuntime> {
   const persistence = await makeInMemoryPersistence();
   return createHostedRuntime(
     {
@@ -107,7 +113,7 @@ async function openHosted(projectDir: string, baseUrl: string, capture: boolean)
       sessionToken: 'tok-hosted-preserve',
     },
     baseUrl,
-    () => {},
+    onMessage,
     projectDir,
     { persistence: persistence as never, record: false },
   );
@@ -318,6 +324,112 @@ describe('hosted capture preservation across fast sandbox.reset and sandbox.rest
     } finally {
       await runtime.close();
       await new Promise<void>((resolveClose) => failingServer.close(() => resolveClose()));
+    }
+  });
+
+  it('preserves previous-session.json across hosted reset and restore while an active Firestore onSnapshot listener stays live', async () => {
+    const dir = makeTempProject();
+    const server = await startCaptureServer(dir);
+    const frames: BridgeMessage[] = [];
+    const runtime = await openHosted(dir, server.url, true, (frame) => frames.push(frame));
+    const conn = {};
+    const snapFramesFor = (subId: string) =>
+      frames.filter(
+        (frame) =>
+          frame.type === 'worker-message-result' &&
+          typeof frame.message === 'object' &&
+          frame.message !== null &&
+          (frame.message as { t?: string; subId?: string }).t === 'snap' &&
+          (frame.message as { t?: string; subId?: string }).subId === subId,
+      );
+    const waitForSnapCount = async (subId: string, minCount: number) => {
+      const deadline = Date.now() + 3_000;
+      while (Date.now() < deadline) {
+        if (snapFramesFor(subId).length >= minCount) return;
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      throw new Error(`Timed out waiting for ${minCount} snapshots on ${subId}`);
+    };
+    try {
+      await callHosted(runtime, dir, conn, 'auth.actAsAnonymous', {});
+      await callHosted(runtime, dir, conn, 'firestore.setDoc', {
+        path: 'items/a',
+        data: { state: 'base' },
+      });
+      const cp = await callHosted(runtime, dir, conn, 'sandbox.checkpoint', { name: 'c1' });
+      expect(cp.ok).toBe(true);
+
+      // Attach an active Firestore doc onSnapshot listener over the worker bridge.
+      runtime.receive({
+        type: 'worker-message',
+        clientSessionId: 'c-listener',
+        message: {
+          t: 'sub',
+          subId: 'doc-items-a',
+          target: { __ref: 'doc', path: 'items/a' },
+        },
+      } as unknown as BridgeMessage);
+      await waitForSnapCount('doc-items-a', 1);
+
+      const deniedBeforeRestore = await callHosted(runtime, dir, conn, 'firestore.setDoc', {
+        path: 'items/a',
+        data: { state: 'refused' },
+      });
+      expect(deniedBeforeRestore.ok).toBe(false);
+
+      const snapsBeforeRestore = snapFramesFor('doc-items-a').length;
+      const restored = await callHosted(runtime, dir, conn, 'sandbox.restore', {
+        name: 'c1',
+        confirm: true,
+      });
+      expect(restored.ok).toBe(true);
+      expect(restored.summary).toContain(PREVIOUS_CAPTURE_RELATIVE_PATH);
+      const restorePrevPath = join(dir, PREVIOUS_CAPTURE_RELATIVE_PATH);
+      expect(existsSync(restorePrevPath)).toBe(true);
+      const afterRestorePrev = JSON.parse(readFileSync(restorePrevPath, 'utf8')) as PyricVerifyFixture;
+      expect(deniedCountOf(afterRestorePrev)).toBeGreaterThanOrEqual(1);
+
+      // Listener re-attached after restore and receives a subsequent live write.
+      await waitForSnapCount('doc-items-a', snapsBeforeRestore + 1);
+      const snapsAfterRestore = snapFramesFor('doc-items-a').length;
+      const liveAfterRestore = await callHosted(runtime, dir, conn, 'firestore.setDoc', {
+        path: 'items/a',
+        data: { state: 'after-restore' },
+      });
+      expect(liveAfterRestore.ok).toBe(true);
+      await waitForSnapCount('doc-items-a', snapsAfterRestore + 1);
+
+      // Now trigger a denied write and run hosted sandbox.reset while the listener is still open.
+      unlinkSync(restorePrevPath);
+      const deniedBeforeReset = await callHosted(runtime, dir, conn, 'firestore.setDoc', {
+        path: 'items/a',
+        data: { state: 'refused' },
+      });
+      expect(deniedBeforeReset.ok).toBe(false);
+
+      const snapsBeforeReset = snapFramesFor('doc-items-a').length;
+      const resetResult = await callHosted(runtime, dir, conn, 'sandbox.reset', {
+        scope: 'all',
+        confirm: true,
+      });
+      expect(resetResult.ok).toBe(true);
+      expect(resetResult.summary).toContain(PREVIOUS_CAPTURE_RELATIVE_PATH);
+      expect(existsSync(restorePrevPath)).toBe(true);
+      const afterResetPrev = JSON.parse(readFileSync(restorePrevPath, 'utf8')) as PyricVerifyFixture;
+      expect(deniedCountOf(afterResetPrev)).toBeGreaterThanOrEqual(1);
+
+      // Listener stays live after reset and delivers post-reset writes.
+      await waitForSnapCount('doc-items-a', snapsBeforeReset + 1);
+      const snapsAfterReset = snapFramesFor('doc-items-a').length;
+      const liveAfterReset = await callHosted(runtime, dir, conn, 'firestore.setDoc', {
+        path: 'items/a',
+        data: { state: 'after-reset' },
+      });
+      expect(liveAfterReset.ok).toBe(true);
+      await waitForSnapCount('doc-items-a', snapsAfterReset + 1);
+    } finally {
+      await runtime.close();
+      await server.close();
     }
   });
 });

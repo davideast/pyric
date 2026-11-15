@@ -6,14 +6,11 @@ import type { OperationResult } from '../../bridge/surface/types.js';
 import { formatCaptureEventCounts } from '../../verify/file-format.js';
 import {
   createCaptureStore,
-  markHostedCaptureManaged,
   PREVIOUS_CAPTURE_RELATIVE_PATH,
   summarizeCaptureJson,
 } from '../capture-store.js';
 import type { HostCtx } from '../worker/host-context.js';
 import { resetHostSandbox } from '../worker/host/rules.js';
-
-export { markHostedCaptureManaged };
 
 interface PreservedCaptureMetadata {
   path: string;
@@ -25,7 +22,8 @@ interface HostedCaptureClearOptions {
   ctx: HostCtx;
   projectDir: string;
   action: () => Promise<OperationResult>;
-  afterSuccess?: () => void;
+  syncRules?: () => void;
+  afterFlush?: () => void;
 }
 
 interface HostedClearMethodOptions {
@@ -35,7 +33,7 @@ interface HostedClearMethodOptions {
   projectDir: string;
   call: () => Promise<OperationResult>;
   resetStorage: () => Promise<void>;
-  syncAfterRestore: () => void;
+  syncRulesAfterRestore: () => void;
   reconcilePortSessions: () => void;
   restoreFirestoreSubscriptions: () => void;
 }
@@ -64,11 +62,14 @@ function attachPreservedCapture(
 async function withHostedCapturePreservation(
   options: HostedCaptureClearOptions,
 ): Promise<OperationResult> {
-  const { ctx, projectDir, action, afterSuccess } = options;
+  const { ctx, projectDir, action, syncRules, afterFlush } = options;
   const flush = ctx.captureFlush;
   if (flush === undefined) {
     const outcome = await action();
-    if (outcome.ok) afterSuccess?.();
+    if (outcome.ok) {
+      syncRules?.();
+      afterFlush?.();
+    }
     return outcome;
   }
 
@@ -86,37 +87,48 @@ async function withHostedCapturePreservation(
   const outcome = await action();
   if (!outcome.ok) return outcome;
 
-  afterSuccess?.();
+  // Sync rule metadata (no events) before flushing the empty post-clear capture,
+  // and verify rotation before re-attaching listeners (which emit listener_attach).
+  syncRules?.();
   await flush();
 
-  if (preFlushDisk === null || preFlushSummary === null) return outcome;
-  if (preFlushSummary.eventCount === 0) return outcome;
+  let result = outcome;
+  if (preFlushDisk !== null && preFlushSummary !== null && preFlushSummary.eventCount > 0) {
+    const postFlushDisk = store.read();
+    if (postFlushDisk !== null) {
+      const postFlushSummary = summarizeCaptureJson(postFlushDisk);
+      if (postFlushSummary !== null && postFlushSummary.eventCount === 0) {
+        const preservedDisk = store.readPrevious();
+        if (preservedDisk === preFlushDisk) {
+          result = attachPreservedCapture(outcome, {
+            path: PREVIOUS_CAPTURE_RELATIVE_PATH,
+            eventCount: preFlushSummary.eventCount,
+            denialCount: preFlushSummary.denialCount,
+          });
+        }
+      }
+    }
+  }
 
-  const postFlushDisk = store.read();
-  if (postFlushDisk === null) return outcome;
-  const postFlushSummary = summarizeCaptureJson(postFlushDisk);
-  if (postFlushSummary === null || postFlushSummary.eventCount !== 0) return outcome;
-
-  const preservedDisk = store.readPrevious();
-  if (preservedDisk !== preFlushDisk) return outcome;
-
-  return attachPreservedCapture(outcome, {
-    path: PREVIOUS_CAPTURE_RELATIVE_PATH,
-    eventCount: preFlushSummary.eventCount,
-    denialCount: preFlushSummary.denialCount,
-  });
+  afterFlush?.();
+  return result;
 }
 
 /** Execute hosted `sandbox.reset` or `sandbox.restore` with capture preservation. */
 export async function runHostedClearMethod(
   options: HostedClearMethodOptions,
 ): Promise<OperationResult> {
+  const restoreListeners = () => {
+    options.reconcilePortSessions();
+    options.restoreFirestoreSubscriptions();
+  };
   if (options.key === 'sandbox.restore') {
     return withHostedCapturePreservation({
       ctx: options.ctx,
       projectDir: options.projectDir,
       action: options.call,
-      afterSuccess: options.syncAfterRestore,
+      syncRules: options.syncRulesAfterRestore,
+      afterFlush: restoreListeners,
     });
   }
 
@@ -129,10 +141,7 @@ export async function runHostedClearMethod(
       ctx: options.ctx,
       projectDir: options.projectDir,
       action: () => resetHostSandbox(options.ctx, scope, options.call),
-      afterSuccess: () => {
-        options.reconcilePortSessions();
-        options.restoreFirestoreSubscriptions();
-      },
+      afterFlush: restoreListeners,
     });
   }
 
