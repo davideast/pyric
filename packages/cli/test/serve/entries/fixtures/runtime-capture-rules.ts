@@ -50,7 +50,7 @@ const UPDATED_STORAGE_RULES = [
   '}',
 ].join('\n');
 
-const bundle = (await build({
+const buildResult = await build({
   stdin: {
     contents: `export * from './runtime.ts';`,
     resolveDir: entriesDir,
@@ -60,7 +60,9 @@ const bundle = (await build({
   format: 'esm',
   platform: 'browser',
   logLevel: 'silent',
-})).outputFiles[0]!.text;
+});
+const bundle = buildResult.outputFiles[0]?.text;
+assert.ok(bundle !== undefined, 'expected esbuild output file for runtime bundle');
 
 const capturedBodies: string[] = [];
 const windowListeners = new Map<string, Array<() => void>>();
@@ -157,17 +159,21 @@ const emitSse = (type: string, data: unknown) => {
   for (const listener of sseListeners.get(type) ?? []) listener(payload);
 };
 
-// First capture: boot rules must include storageRules too.
-firePagehide();
-await new Promise((resolve) => setTimeout(resolve, 25));
-assert.ok(capturedBodies.length >= 1, 'expected initial capture POST');
-const bootFixture = JSON.parse(capturedBodies.at(-1)!) as {
+interface CapturedFixture {
   services: {
     firestore?: { rules: { source: string } };
     rtdb?: { rules: { json: unknown } };
     storage?: { rules: { source: string } };
   };
-};
+}
+
+// First capture: boot rules must include storageRules too.
+firePagehide();
+await new Promise((resolve) => setTimeout(resolve, 25));
+const bootBody = capturedBodies.at(-1);
+assert.ok(bootBody !== undefined, 'expected initial capture POST');
+const bootCaptureCount = capturedBodies.length;
+const bootFixture = JSON.parse(bootBody) as CapturedFixture;
 assert.equal(bootFixture.services.firestore?.rules.source, BOOT_FIRESTORE_RULES);
 assert.deepEqual(bootFixture.services.rtdb?.rules.json, BOOT_RTDB_RULES);
 assert.equal(bootFixture.services.storage?.rules.source, BOOT_STORAGE_RULES);
@@ -184,13 +190,10 @@ await new Promise((resolve) => setTimeout(resolve, 50));
 
 firePagehide();
 await new Promise((resolve) => setTimeout(resolve, 25));
-const updatedFixture = JSON.parse(capturedBodies.at(-1)!) as {
-  services: {
-    firestore?: { rules: { source: string } };
-    rtdb?: { rules: { json: unknown } };
-    storage?: { rules: { source: string } };
-  };
-};
+assert.ok(capturedBodies.length > bootCaptureCount, 'expected updated capture POST after hot-reload');
+const updatedBody = capturedBodies.at(-1);
+assert.ok(updatedBody !== undefined, 'expected updated capture body');
+const updatedFixture = JSON.parse(updatedBody) as CapturedFixture;
 assert.equal(updatedFixture.services.firestore?.rules.source, UPDATED_FIRESTORE_RULES);
 assert.deepEqual(updatedFixture.services.rtdb?.rules.json, UPDATED_RTDB_RULES);
 assert.equal(updatedFixture.services.storage?.rules.source, UPDATED_STORAGE_RULES);
