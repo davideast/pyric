@@ -411,4 +411,57 @@ describe('promoteFullState lands the divergences the diff reports', () => {
     expect(liveSideDb.adminGet('b')).toBe(2);
     expect(liveSideDb.adminGet('groups/g2')).toEqual({ name: 'beta' });
   });
+
+  it('preserves unchanged ancestor Realtime Database .priority metadata when replacing all children of a prioritized parent', async () => {
+    const { fork, promote } = await import('../../../src/sandbox/branches/engine.js');
+    const { databaseInstanceNamed } = await import('../../../src/sandbox/internal/instances.js');
+
+    const live = initializeSandbox();
+    const liveDefaultDb = getOrCreateBackend(live);
+    const liveSideDb = getOrCreateBackend(live, databaseInstanceNamed('side-db'));
+
+    liveDefaultDb.adminSet('items/a', { b: 1 });
+    liveDefaultDb.adminSetPriority('/', 1);
+    liveDefaultDb.adminSetPriority('items', 5);
+    liveDefaultDb.adminSetPriority('items/a', 10);
+
+    liveSideDb.adminSet('items/a', { b: 1 });
+    liveSideDb.adminSetPriority('items/a', 20);
+
+    const branch = await fork(await captureFullState(live));
+    const branchDefaultDb = getOrCreateBackend(branch.sandbox);
+    const branchSideDb = getOrCreateBackend(branch.sandbox, databaseInstanceNamed('side-db'));
+
+    branchDefaultDb.adminSetWithPriority('items/a', { c: 2 }, 10);
+    branchSideDb.adminSetWithPriority('items/a', { c: 3 }, 20);
+
+    await promote(branch, live);
+
+    expect(liveDefaultDb.adminGet('items/a')).toEqual({ c: 2 });
+    expect(liveDefaultDb.getPriority('items/a')).toBe(10);
+    expect(liveDefaultDb.getPriority('items')).toBe(5);
+    expect(liveDefaultDb.getPriority('/')).toBe(1);
+
+    expect(liveSideDb.adminGet('items/a')).toEqual({ c: 3 });
+    expect(liveSideDb.getPriority('items/a')).toBe(20);
+  });
+
+  it('preserves a concurrent target ancestor .priority edit when promoting a child replacement under that ancestor', async () => {
+    const { fork, promote } = await import('../../../src/sandbox/branches/engine.js');
+
+    const live = initializeSandbox();
+    const liveDb = getOrCreateBackend(live);
+    liveDb.adminSetWithPriority('items/a', { b: 1 }, 10);
+
+    const branch = await fork(await captureFullState(live));
+    getOrCreateBackend(branch.sandbox).adminSetWithPriority('items/a', { c: 2 }, 10);
+
+    // Concurrent priority update on target before promotion
+    liveDb.adminSetPriority('items/a', 99);
+
+    await promote(branch, live);
+
+    expect(liveDb.adminGet('items/a')).toEqual({ c: 2 });
+    expect(liveDb.getPriority('items/a')).toBe(99);
+  });
 });

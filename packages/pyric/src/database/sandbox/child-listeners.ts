@@ -1,5 +1,5 @@
 import type { AuthState } from 'pyric/sandbox';
-import { jsonValuesEqual, joinPath, pathSegments, type JsonValue } from './data-tree.js';
+import { isReservedSegment, jsonValuesEqual, joinPath, pathSegments, type JsonValue } from './data-tree.js';
 import type { BackendState } from './backend-state.js';
 import type { ChildEventSnapshot, ChildListener, ChildParentSnapshot } from './listener-types.js';
 import type { PriorityRecord } from './priority-state.js';
@@ -258,9 +258,13 @@ export class ChildListeners {
     }
     for (const [key, { val }] of prior) {
       if (next.has(key)) continue;
+      let removedPriorities: PriorityRecord = {};
+      if (!isReservedSegment(key)) {
+        removedPriorities = prioritiesAt(priorPriorities, joinPath([...pathSegments(parentPath), key]));
+      }
       events.child_removed.push({
         key, val, previousChildName: previousValueName(priorRows, key),
-        priorities: prioritiesAt(priorPriorities, joinPath([...pathSegments(parentPath), key])),
+        priorities: removedPriorities,
       });
     }
     return events;
@@ -337,9 +341,13 @@ export class ChildListeners {
       }
     } else if (listener.event === 'child_removed') {
       for (const row of prior) if (!nextByKey.has(row.key)) {
+        let removedPriorities: PriorityRecord = {};
+        if (!isReservedSegment(row.key)) {
+          removedPriorities = prioritiesAt(priorPriorities, joinPath([...pathSegments(listener.path), row.key]));
+        }
         events.push({
           key: row.key, val: row.value, previousChildName: previousName(prior, row.key),
-          priorities: prioritiesAt(priorPriorities, joinPath([...pathSegments(listener.path), row.key])),
+          priorities: removedPriorities,
         });
       }
     } else {

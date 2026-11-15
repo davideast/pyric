@@ -1,4 +1,4 @@
-import { joinPath, pathSegments, type JsonValue } from './data-tree.js';
+import { isReservedSegment, joinPath, pathSegments, type JsonValue } from './data-tree.js';
 import { priorityBucketIdForSegments } from '../../sandbox/persistence/rtdb-records.js';
 import type { Priority } from './query.js';
 
@@ -106,7 +106,10 @@ export class PriorityState {
 
   forChild(path: string): (key: string) => Priority {
     const base = pathSegments(path);
-    return (key) => this.get(joinPath([...base, key]));
+    return (key) => {
+      if (isReservedSegment(key)) return null;
+      return this.get(joinPath([...base, key]));
+    };
   }
 
   /** The priorities at and below `path`, by canonical path. */
@@ -203,5 +206,15 @@ export function validatePriority(priority: Priority): void {
     && (typeof priority !== 'number' || !Number.isFinite(priority))
   ) {
     throw new Error('priority must be a valid Firebase priority (string, finite number, or null)');
+  }
+}
+
+export function validateNestedPriorities(
+  baseSegments: readonly string[],
+  nested: readonly { segments: readonly string[]; priority: Priority }[],
+): void {
+  for (const entry of nested) {
+    pathSegments(joinPath([...baseSegments, ...entry.segments]));
+    validatePriority(entry.priority);
   }
 }

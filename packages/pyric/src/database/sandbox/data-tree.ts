@@ -33,6 +33,17 @@ import { pathSegments } from '@pyric/rules/internal/rtdb';
 export { pathSegments };
 export type { JsonValue };
 
+const RESERVED_PATH_SEGMENTS: ReadonlySet<string> = new Set([
+  '__proto__',
+  'prototype',
+  'constructor',
+]);
+
+/** Whether `segment` is one of the prototype-chain keys `pathSegments` rejects. */
+export function isReservedSegment(segment: string): boolean {
+  return RESERVED_PATH_SEGMENTS.has(segment);
+}
+
 /** Join segments back into a `/`-prefixed canonical path. `[]` → `'/'`. */
 export function joinPath(segments: string[]): string {
   if (segments.length === 0) return '/';

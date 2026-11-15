@@ -4,7 +4,7 @@ import type { ChildListeners } from './child-listeners.js';
 import { cloneJson, joinPath, pathSegments, type JsonValue } from './data-tree.js';
 import { coerceArrays, normalizeWrite, TRANSACTION_ERROR_PREFIX, withPriorities, writePriority, type InlinePriority } from './normalize.js';
 import { canonicalPath, denyResultFor, rtdbDenialContext } from './operation-events.js';
-import { validatePriority, type PriorityRecord } from './priority-state.js';
+import { validateNestedPriorities, validatePriority, type PriorityRecord } from './priority-state.js';
 import { withDenialContext } from './rules-eval.js';
 import { resolveSentinels } from './sentinels.js';
 import type { ValueListeners } from './value-listeners.js';
@@ -165,6 +165,7 @@ export class Transactions {
     );
     const written = writePriority(resolvedInput, currentPriority);
     validatePriority(written.priority);
+    validateNestedPriorities(segments, written.nested);
     const effectivePriority = resolved === null ? null : written.priority;
     const at = this.state.clock.now();
     let evaluation: ReturnType<BackendState['rules']['evaluate']> | undefined;

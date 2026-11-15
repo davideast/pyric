@@ -35,19 +35,51 @@
  *   - `core/snap/nodeFromJSON.ts:40-132`
  *   - `core/snap/ChildrenNode.ts:194-230` (val array coercion)
  */
-import { normalizeNode } from '@pyric/rules/internal/rtdb';
-import { validateUpdatePaths } from '../writable-path.js';
 import {
   errorPrefix,
   isInvalidJSONNumber,
+  normalizeNode,
   validateData,
-  validateWrite,
+  validateWrite as validateRuleWrite,
 } from '@pyric/rules/internal/rtdb';
-import { pathSegments, type JsonValue } from './data-tree.js';
+import { validateUpdatePaths } from '../writable-path.js';
+import { isReservedSegment, pathSegments, type JsonValue } from './data-tree.js';
 
 export { normalizeNode, inlinePriorities, writePriority, withPriorities, normalizeRuleWrite } from '@pyric/rules/internal/rtdb';
 export type { InlinePriority } from '@pyric/rules/internal/rtdb';
-export { errorPrefix, validateWrite } from '@pyric/rules/internal/rtdb';
+export { errorPrefix } from '@pyric/rules/internal/rtdb';
+
+/**
+ * Reject reserved prototype-chain keys (`__proto__`, `prototype`, `constructor`)
+ * anywhere inside a write payload before normalization, rules evaluation, or
+ * listener fanout runs. Reuses `pathSegments` for the canonical error text so
+ * writes cannot store keys that refs, queries, or snapshots cannot address.
+ */
+function assertNoReservedKeys(value: unknown): void {
+  if (value === null || typeof value !== 'object') return;
+  if (Array.isArray(value)) {
+    for (let i = 0; i < value.length; i += 1) {
+      if (i in value) assertNoReservedKeys(value[i]);
+    }
+    return;
+  }
+  for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
+    if (key === '.priority' || key === '.sv') continue;
+    if (key !== '.value' && isReservedSegment(key)) {
+      pathSegments(key);
+    }
+    assertNoReservedKeys(child);
+  }
+}
+
+export function validateWrite(
+  value: unknown,
+  path: string,
+  prefix = errorPrefix('set', 'value'),
+): void {
+  validateRuleWrite(value, path, prefix);
+  assertNoReservedKeys(value);
+}
 
 /** The start of the SDK's error for a refused transaction result. */
 export const TRANSACTION_ERROR_PREFIX = 'transaction failed: Data returned ';
@@ -87,6 +119,7 @@ export function validateUpdate(values: unknown, path: string, fnName = 'update')
   for (const [key, value] of Object.entries(patch)) {
     const keySegments = pathSegments(key);
     validateData(value, [...pathSegments(path), ...keySegments], prefix);
+    assertNoReservedKeys(value);
     const isPriorityKey = keySegments[keySegments.length - 1] === '.priority';
     if (isPriorityKey && !isValidPriority(value)) {
       throw new Error(

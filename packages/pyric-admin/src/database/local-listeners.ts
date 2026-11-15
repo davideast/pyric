@@ -21,6 +21,7 @@ import {
   exportDatabaseVal,
   isDefaultQuerySpec,
   isInfoPath,
+  loadsAllData,
   normalizeNode,
   valueAtChildPath,
   type Priority,
@@ -219,6 +220,7 @@ export function buildLocalQuerySnapshot(
   canonical: string,
   segs: readonly string[],
   rows: readonly QueryRow[],
+  includeRootPriority = true,
 ): DataSnapshot {
   if (rows.length === 0) {
     return buildSandboxSnap(refAt, canonical, null, null, []);
@@ -233,7 +235,7 @@ export function buildLocalQuerySnapshot(
     fullExport !== null &&
     typeof fullExport === 'object' &&
     !Array.isArray(fullExport);
-  if (isExportRecord && Object.hasOwn(fullExport, '.priority')) {
+  if (includeRootPriority && isExportRecord && Object.hasOwn(fullExport, '.priority')) {
     exportedWindow['.priority'] = (fullExport as Record<string, unknown>)['.priority'];
   }
   const entries: SnapshotChildEntry[] = [];
@@ -253,16 +255,17 @@ export function buildLocalQuerySnapshot(
 function hydrateLocalValueSnap(
   target: LocalListenTarget,
   segs: readonly string[],
-  isQuery: boolean,
+  spec: QuerySpec,
   raw: { val: JsonValue; rows?: QueryRow[] },
 ): DataSnapshot {
-  if (isQuery) {
+  if (!isDefaultQuerySpec(spec)) {
     return buildLocalQuerySnapshot(
       target.refAt,
       target.adminDb,
       target.canonical,
       segs,
       raw.rows ?? [],
+      loadsAllData(spec),
     );
   }
   return buildSandboxSnap(
@@ -304,7 +307,7 @@ function attachRawLocalSubscription(
   return target.backend.adminOnValue(
     target.canonical,
     (raw) => {
-      onDelivery(hydrateLocalValueSnap(target, segs, isQuery, raw), null);
+      onDelivery(hydrateLocalValueSnap(target, segs, spec, raw), null);
     },
     queryArg,
   );

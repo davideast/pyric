@@ -131,8 +131,10 @@ function deleteLeafEntries(backend: RtdbBackend, basePath: string, value: JsonVa
  *
  * When a branch creates or deletes a subtree relative to `base`, each leaf is
  * written or removed individually so concurrent siblings added on `target`
- * under the same parent or root survive, and unchanged `.priority` values from
- * `next` are re-applied after `adminSet` writes.
+ * under the same parent or root survive. Non-deletion writes run before
+ * deletions so replacing all children of an existing prioritized ancestor never
+ * transiently empties it and prunes its unchanged `.priority`, and unchanged
+ * `.priority` values from `next` are re-applied after `adminSet` writes.
  */
 function promoteDatabaseInstance(
   backend: RtdbBackend,
@@ -141,6 +143,8 @@ function promoteDatabaseInstance(
 ): void {
   if (divergences.length === 0) return;
   const writtenPaths: string[] = [];
+  const writes: BranchDivergence[] = [];
+  const deletions: BranchDivergence[] = [];
 
   for (const divergence of divergences) {
     if (divergence.field === DATABASE_PRIORITY_FIELD) continue;
@@ -151,14 +155,17 @@ function promoteDatabaseInstance(
       isBranchingNode(divergence.after) && Object.keys(divergence.after).length === 0;
     const afterDeleted = divergence.after === null || afterEmptyBranch;
     if (afterEmptyBranch && beforeEmpty) continue;
-    if (
-      afterDeleted &&
-      isBranchingNode(divergence.before) &&
-      Object.keys(divergence.before).length > 0
-    ) {
-      deleteLeafEntries(backend, divergence.path, divergence.before);
-      continue;
+    if (afterDeleted) {
+      deletions.push(divergence);
+    } else {
+      writes.push(divergence);
     }
+  }
+
+  for (const divergence of writes) {
+    const beforeEmpty =
+      divergence.before === null ||
+      (isBranchingNode(divergence.before) && Object.keys(divergence.before).length === 0);
     if (
       beforeEmpty &&
       isBranchingNode(divergence.after) &&
@@ -167,11 +174,19 @@ function promoteDatabaseInstance(
       writeLeafEntries(backend, divergence.path, divergence.after, writtenPaths);
       continue;
     }
-    backend.adminSet(
-      divergence.path,
-      afterEmptyBranch ? null : (structuredClone(divergence.after) as JsonValue),
-    );
-    if (!afterDeleted) writtenPaths.push(divergence.path);
+    backend.adminSet(divergence.path, structuredClone(divergence.after) as JsonValue);
+    writtenPaths.push(divergence.path);
+  }
+
+  for (const divergence of deletions) {
+    if (
+      isBranchingNode(divergence.before) &&
+      Object.keys(divergence.before).length > 0
+    ) {
+      deleteLeafEntries(backend, divergence.path, divergence.before);
+      continue;
+    }
+    backend.adminSet(divergence.path, null);
   }
 
   if (writtenPaths.length > 0) {

@@ -1,6 +1,7 @@
 import { expect, it } from 'bun:test';
 import { BackendState } from '../../../src/database/sandbox/backend-state.js';
 import { ChildListeners } from '../../../src/database/sandbox/child-listeners.js';
+import type { JsonValue } from '../../../src/database/sandbox/data-tree.js';
 import { ValueListeners } from '../../../src/database/sandbox/value-listeners.js';
 import { WritePlane } from '../../../src/database/sandbox/write-plane.js';
 
@@ -141,5 +142,45 @@ for (const admin of [false, true]) {
       'listen /items/x deny',
       'delivery /items/x to bob',
     ]);
+  });
+}
+
+for (const reservedKey of ['constructor', 'prototype', '__proto__']) {
+  it(`rejects set/adminSet/update/adminUpdate atomically before mutating state when nested .priority sits under '${reservedKey}'`, () => {
+    const state = new BackendState();
+    const values = new ValueListeners(state);
+    const children = new ChildListeners(state);
+    const writes = new WritePlane(state, values, children);
+    writes.setRules({ rules: { '.read': true, '.write': true } });
+    writes.adminSet('/items', { intact: 1 });
+
+    const seen: unknown[] = [];
+    values.onValue({ uid: 'u1' }, '/items', (snap) => seen.push(snap.val));
+    seen.length = 0;
+
+    const nestedPayload = JSON.parse(
+      `{"${reservedKey}":{"nested":{".value":2,".priority":5}},"other":99}`,
+    ) as JsonValue;
+
+    expect(() => writes.set({ uid: 'u1' }, '/items', nestedPayload)).toThrow();
+    expect(writes.adminGet('/items')).toEqual({ intact: 1 });
+    expect(seen).toEqual([]);
+
+    expect(() => writes.adminSet('/items', nestedPayload)).toThrow();
+    expect(writes.adminGet('/items')).toEqual({ intact: 1 });
+    expect(seen).toEqual([]);
+
+    const patchPayload: Record<string, JsonValue> = {
+      safe: 7,
+      nested: nestedPayload,
+    };
+
+    expect(() => writes.update({ uid: 'u1' }, '/items', patchPayload)).toThrow();
+    expect(writes.adminGet('/items')).toEqual({ intact: 1 });
+    expect(seen).toEqual([]);
+
+    expect(() => writes.adminUpdate('/items', patchPayload)).toThrow();
+    expect(writes.adminGet('/items')).toEqual({ intact: 1 });
+    expect(seen).toEqual([]);
   });
 }

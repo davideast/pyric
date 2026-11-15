@@ -1,10 +1,19 @@
 import { asSdkArray } from './sandbox/normalize.js';
-import { joinPath, pathSegments, type JsonValue } from './sandbox/data-tree.js';
+import { isReservedSegment, joinPath, pathSegments, setOwnProperty, type JsonValue } from './sandbox/data-tree.js';
 import { executeQuery, type Priority, type QueryRow } from './sandbox/query.js';
 import type { PriorityRecord } from './sandbox/priority-state.js';
 import type { SandboxLiveTarget, SandboxTarget } from './routing.js';
 import { DataSnapshot, type DatabaseReference, type DataSnapshotImplementation } from './types.js';
 import { child } from './references.js';
+
+function hasReservedSegment(path: string): boolean {
+  return path.split('/').some(isReservedSegment);
+}
+
+function childPathOf(basePath: string, key: string): string {
+  if (basePath === '/' || basePath === '') return `/${key}`;
+  return `${basePath}/${key}`;
+}
 
 // ─── Snapshot wrappers ───────────────────────────────────────────────
 
@@ -51,14 +60,18 @@ function snapshotWithPriorities(
   const childCount = (val !== null && typeof val === 'object' && !Array.isArray(val))
     ? Object.keys(val as Record<string, JsonValue>).length
     : 0;
-  const priority = exists ? priorityOf(refForSnap._path) : null;
+  const refHasReserved = hasReservedSegment(refForSnap._path);
+  let priority: Priority = null;
+  if (exists && !refHasReserved) {
+    priority = priorityOf(refForSnap._path);
+  }
   const implementation: DataSnapshotImplementation = {
     key: refForSnap.key,
     ref: refForSnap,
     size: childCount,
     priority,
     exists(): boolean { return exists; },
-    val(): JsonValue { return renderNode(priorityOf, refForSnap, val, false); },
+    val(): JsonValue { return renderNode(priorityOf, refForSnap._path, refHasReserved, val, false); },
     child(p: string): DataSnapshot {
       const segs = pathSegments(p);
       let cur: JsonValue = val;
@@ -79,11 +92,11 @@ function snapshotWithPriorities(
       return val !== null && typeof val === 'object' && !Array.isArray(val)
         && Object.keys(val as Record<string, JsonValue>).length > 0;
     },
-    exportVal(): JsonValue { return renderNode(priorityOf, refForSnap, val, true); },
-    toJSON(): JsonValue { return renderNode(priorityOf, refForSnap, val, true); },
+    exportVal(): JsonValue { return renderNode(priorityOf, refForSnap._path, refHasReserved, val, true); },
+    toJSON(): JsonValue { return renderNode(priorityOf, refForSnap._path, refHasReserved, val, true); },
     forEach(cb): boolean {
       if (val === null || typeof val !== 'object' || Array.isArray(val)) return false;
-      for (const { key, value } of childrenInPriorityOrder(priorityOf, refForSnap, val)) {
+      for (const { key, value } of childrenInPriorityOrder(priorityOf, refForSnap._path, refHasReserved, val)) {
         const childRef = child(refForSnap, key);
         const childSnap = snapshotWithPriorities(target, childRef, value, priorityOf);
         if (cb(childSnap) === true) return true;
@@ -109,26 +122,32 @@ export function buildSandboxQuerySnap(
   target: SandboxTarget | SandboxLiveTarget,
   refForSnap: DatabaseReference,
   rows: QueryRow[],
+  includeRootPriority = true,
 ): DataSnapshot {
   let val: JsonValue;
   if (rows.length === 0) {
     val = null;
   } else {
     const obj: Record<string, JsonValue> = {};
-    for (const { key, value } of rows) obj[key] = value;
+    for (const { key, value } of rows) setOwnProperty(obj, key, value);
     val = obj;
   }
   const exists = rows.length > 0;
+  const refHasReserved = hasReservedSegment(refForSnap._path);
   const priorityOf = priorityLookup(target);
+  let priority: Priority = null;
+  if (exists && includeRootPriority && !refHasReserved) {
+    priority = target.backend.getPriority(refForSnap._path);
+  }
   const implementation: DataSnapshotImplementation = {
     key: refForSnap.key,
     ref: refForSnap,
     size: rows.length,
-    priority: exists ? target.backend.getPriority(refForSnap._path) : null,
+    priority,
     exists(): boolean { return exists; },
     // Like production, `val()` and `exportVal()` order the window's keys by
     // priority, then key; only `forEach` follows the query's order (RT-7).
-    val(): JsonValue { return renderNode(priorityOf, refForSnap, val, false); },
+    val(): JsonValue { return renderNode(priorityOf, refForSnap._path, refHasReserved, val, false); },
     child(p: string): DataSnapshot {
       const segs = pathSegments(p);
       let cur: JsonValue = val;
@@ -146,8 +165,12 @@ export function buildSandboxQuerySnap(
       return this.child(p).exists();
     },
     hasChildren(): boolean { return rows.length > 0; },
-    exportVal(): JsonValue { return renderNode(priorityOf, refForSnap, val, true); },
-    toJSON(): JsonValue { return renderNode(priorityOf, refForSnap, val, true); },
+    exportVal(): JsonValue {
+      return renderNode(priorityOf, refForSnap._path, refHasReserved, val, true, includeRootPriority);
+    },
+    toJSON(): JsonValue {
+      return renderNode(priorityOf, refForSnap._path, refHasReserved, val, true, includeRootPriority);
+    },
     forEach(cb): boolean {
       for (const { key, value } of rows) {
         const childRef = child(refForSnap, key);
@@ -163,13 +186,17 @@ export function buildSandboxQuerySnap(
 /** The children of a stored object in priority, then key order, as `forEach` walks them. */
 function childrenInPriorityOrder(
   priorityOf: PriorityLookup,
-  refForSnap: DatabaseReference,
+  basePath: string,
+  hasReservedAncestor: boolean,
   value: Record<string, JsonValue>,
 ): QueryRow[] {
   return executeQuery(
     value,
     { orderBy: null, bounds: [], limit: null },
-    (key) => priorityOf(child(refForSnap, key)._path),
+    (key) => {
+      if (hasReservedAncestor || isReservedSegment(key)) return null;
+      return priorityOf(childPathOf(basePath, key));
+    },
   );
 }
 
@@ -183,20 +210,43 @@ function childrenInPriorityOrder(
  */
 function renderNode(
   priorityOf: PriorityLookup,
-  refForSnap: DatabaseReference,
+  nodePath: string,
+  hasReservedAncestor: boolean,
   value: JsonValue,
   exportFormat: boolean,
+  includeOwnPriority = true,
 ): JsonValue {
   if (value === null) return null;
-  const priority = exportFormat ? priorityOf(refForSnap._path) : null;
+  let priority: Priority = null;
+  if (exportFormat && includeOwnPriority && !hasReservedAncestor) {
+    priority = priorityOf(nodePath);
+  }
   if (typeof value !== 'object' || Array.isArray(value)) {
-    return priority === null ? value : { '.value': value, '.priority': priority };
+    if (priority === null) return value;
+    return { '.value': value, '.priority': priority };
   }
   const rendered: Record<string, JsonValue> = {};
-  for (const { key, value: childValue } of childrenInPriorityOrder(priorityOf, refForSnap, value)) {
-    rendered[key] = renderNode(priorityOf, child(refForSnap, key), childValue, exportFormat);
+  for (const { key, value: childValue } of childrenInPriorityOrder(
+    priorityOf,
+    nodePath,
+    hasReservedAncestor,
+    value,
+  )) {
+    const childReserved = hasReservedAncestor || isReservedSegment(key);
+    const renderedChild = renderNode(
+      priorityOf,
+      childPathOf(nodePath, key),
+      childReserved,
+      childValue,
+      exportFormat,
+    );
+    setOwnProperty(rendered, key, renderedChild);
   }
-  if (!exportFormat) return asSdkArray(rendered) ?? rendered;
+  if (!exportFormat) {
+    const array = asSdkArray(rendered);
+    if (array !== null) return array;
+    return rendered;
+  }
   if (priority !== null) rendered['.priority'] = priority;
   return rendered;
 }
