@@ -21,12 +21,16 @@ const EXPECTED: Record<string, unknown> = {
   'update-object-then-deep-child': { a: { x: 1, y: 3 }, keep: true },
   'remove-then-update': { b: 2 },
   'parent-update-child-set-parent-deep-update': { keep: true, other: 1, sub: { x: 9, y: 1 } },
+  'set-inline-priority-atomic-delete-and-add': { '.priority': 9, b: 2 },
+  'parent-set-child-set-parent-update-child-cancel': { a: { b: 2, old: 1 }, keep: true },
 };
 
 function parsePayload(output: string): ClientPayload {
   const match = output.match(/^RESULT (.*)$/m);
   assert.ok(match, `expected RESULT line in:\n${output}`);
-  return JSON.parse(match[1]!) as ClientPayload;
+  const raw = match[1];
+  assert.ok(raw !== undefined, `expected RESULT payload in:\n${output}`);
+  return JSON.parse(raw) as ClientPayload;
 }
 
 async function waitForExitDrain(app: App, hostUrl: string, root: string): Promise<ClientPayload> {

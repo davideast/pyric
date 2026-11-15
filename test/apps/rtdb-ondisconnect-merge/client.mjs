@@ -57,6 +57,23 @@ const CASES = {
       () => od('').update({ 'sub/x': 9 }),
     ],
   },
+  'set-inline-priority-atomic-delete-and-add': {
+    seed: { keep: true },
+    useExportVal: true,
+    steps: (od) => [
+      () => od('').set({ a: 1, '.priority': 9 }),
+      () => od('').update({ a: null, b: 2 }),
+    ],
+  },
+  'parent-set-child-set-parent-update-child-cancel': {
+    seed: { keep: true, a: { old: 1 } },
+    steps: (od) => [
+      () => od('').set({ a: 1 }),
+      () => od('a').set({ b: 2 }),
+      () => od('').update({ 'a/c': 3 }),
+      () => od('a/c').cancel(),
+    ],
+  },
 };
 
 function sortKeys(value) {
@@ -70,7 +87,10 @@ async function registerAll(db, root) {
     const base = `${root}/${name}`;
     await set(ref(db, base), spec.seed);
     const od = (child) => {
-      const path = child === '' ? base : `${base}/${child}`;
+      let path = base;
+      if (child !== '') {
+        path = `${base}/${child}`;
+      }
       return onDisconnect(ref(db, path));
     };
     for (const step of spec.steps(od)) {
@@ -83,8 +103,15 @@ async function registerAll(db, root) {
 
 async function readAll(db, root) {
   const results = {};
-  for (const name of Object.keys(CASES)) {
-    results[name] = sortKeys((await get(ref(db, `${root}/${name}`))).val());
+  for (const [name, spec] of Object.entries(CASES)) {
+    const snapshot = await get(ref(db, `${root}/${name}`));
+    let raw;
+    if (spec.useExportVal) {
+      raw = snapshot.exportVal();
+    } else {
+      raw = snapshot.val();
+    }
+    results[name] = sortKeys(raw);
   }
   const sentinel = (await get(ref(db, `${root}/_sentinel`))).val();
   return { sentinel, results };

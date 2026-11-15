@@ -438,7 +438,12 @@ describe('onDisconnect registration merging across same-path and overlapping seq
       }
       goOffline(db);
       const snapshot = await get(ref(db, base));
-      const actual: unknown = spec.useExportVal ? snapshot.exportVal() : snapshot.val();
+      let actual: unknown;
+      if (spec.useExportVal) {
+        actual = snapshot.exportVal();
+      } else {
+        actual = snapshot.val();
+      }
       expect(actual).toEqual(spec.expected);
     });
   }
