@@ -41,6 +41,8 @@ import {
   gatherFacts,
   mainHeadSha,
   pullChangedPaths,
+  resolveWorkflowToken,
+  workflowGh,
   type QueueIo,
 } from './merge-queue-facts.ts';
 
@@ -92,7 +94,7 @@ function ignoreError(fn: () => void): void {
 }
 
 function removeQueueLabel(io: QueueIo, prNumber: number): void {
-  ignoreError(() => io.gh(['api', '-X', 'DELETE', `repos/${io.repo}/issues/${prNumber}/labels/${QUEUE_LABEL}`]));
+  ignoreError(() => workflowGh(io)(['api', '-X', 'DELETE', `repos/${io.repo}/issues/${prNumber}/labels/${QUEUE_LABEL}`]));
 }
 
 function deleteRemoteBranch(io: QueueIo, branch: string): void {
@@ -105,7 +107,7 @@ function cancelRunIfPresent(io: QueueIo, runId: number | undefined): void {
 
 function comment(io: QueueIo, prNumber: number, name: string, text: string): void {
   const file = io.writeFile(name, text);
-  io.gh(['api', '-X', 'POST', `repos/${io.repo}/issues/${prNumber}/comments`, '-F', `body=@${file}`]);
+  workflowGh(io)(['api', '-X', 'POST', `repos/${io.repo}/issues/${prNumber}/comments`, '-F', `body=@${file}`]);
 }
 
 function executeDequeue(io: QueueIo, action: DequeueAction, mainSha: string): void {
@@ -385,16 +387,7 @@ function finishLanding(
 }
 
 function mergePull(io: QueueIo, pull: QueuedPull): string {
-  const raw = io.gh([
-    'api',
-    '-X',
-    'PUT',
-    `repos/${io.repo}/pulls/${pull.number}/merge`,
-    '-f',
-    'merge_method=merge',
-    '-f',
-    `sha=${pull.headSha}`,
-  ]);
+  const raw = io.gh(['api', '-X', 'PUT', `repos/${io.repo}/pulls/${pull.number}/merge`, '-f', 'merge_method=merge', '-f', `sha=${pull.headSha}`]);
   const parsed = JSON.parse(raw) as { sha?: string; merged?: boolean };
   if (!parsed.merged || !parsed.sha) {
     throw new Error(`PUT repos/${io.repo}/pulls/${pull.number}/merge returned an unmerged response.`);
@@ -592,7 +585,7 @@ function runCommand(command: string, args: string[], envOverrides?: Record<strin
 
 function defaultIo(repo: string): QueueIo {
   let dir: string | undefined;
-  const checksToken = process.env.GH_CHECKS_TOKEN;
+  const workflowToken = resolveWorkflowToken(process.env);
   const io: QueueIo = {
     repo,
     gh: (args) => runCommand('gh', args),
@@ -610,8 +603,8 @@ function defaultIo(repo: string): QueueIo {
       return path;
     },
   };
-  if (checksToken) {
-    io.ghChecks = (args) => runCommand('gh', args, { GH_TOKEN: checksToken });
+  if (workflowToken) {
+    io.ghWorkflow = (args) => runCommand('gh', args, { GH_TOKEN: workflowToken });
   }
   return io;
 }

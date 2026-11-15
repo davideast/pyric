@@ -529,7 +529,7 @@ describe('the merge queue workflow contract', () => {
     expect(inputs.dry_run?.default).toBe(true);
     const runStep = parsed.jobs.queue?.steps.find((step) => step.run === 'bun scripts/ci/merge-queue-github.ts');
     expect(runStep).toBeDefined();
-    expect(runStep?.env?.GH_CHECKS_TOKEN).toBe('${{ github.token }}');
+    expect(runStep?.env?.GH_WORKFLOW_TOKEN).toBe('${{ github.token }}');
     expect(runStep?.env?.GH_TOKEN).toBe('${{ secrets.MERGE_QUEUE_TOKEN || secrets.MERQUE_QUEUE_TOKEN || github.token }}');
     expect(runStep?.env?.USING_WORKFLOW_TOKEN).toBe("${{ (secrets.MERGE_QUEUE_TOKEN == '' && secrets.MERQUE_QUEUE_TOKEN == '') && 'true' || 'false' }}");
   });
