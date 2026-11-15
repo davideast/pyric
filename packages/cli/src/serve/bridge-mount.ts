@@ -386,6 +386,7 @@ export function createBridgeMount(opts: BridgeMountOptions = {}): BridgeMount {
         };
         const hostOptions = {
           ...withLiveObservedSession(ai, liveHost?.sessionData),
+          ownWriteRefusal: activeWriteRefusal,
           requireSessionToken: requiresSessionToken,
         };
         hostedRuntime = await createHostedRuntime(payload, baseUrl, fromSandbox, opts.projectKey ?? process.cwd(), hostOptions);
@@ -496,12 +497,7 @@ export function createBridgeMount(opts: BridgeMountOptions = {}): BridgeMount {
         // its creator named. `allowedHosts: true` never bypasses this guard, and
         // `--allowed-host` never reaches unauthenticated sandbox byte routes.
         const authenticatedSession = isAllowedSessionToken(req, url, sessionToken);
-        const hasByteToken =
-          url.searchParams.has('token') || url.searchParams.has('upload_token');
-        const byteAllowedHosts =
-          requiresSessionToken && (authenticatedSession || hasByteToken)
-            ? extraAllowedHosts
-            : [];
+        const byteAllowedHosts = requiresSessionToken && authenticatedSession ? extraAllowedHosts : [];
         const hostHeader = getHeader(req, 'host');
         const originHeader = getHeader(req, 'origin');
         const ports = appPorts.forRequest(req);
