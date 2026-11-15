@@ -40,7 +40,15 @@
  *   Mirrors `clones/.../model/transform_operation.ts`
  *   (`computeTransformOperationBaseValue`, `coercedFieldValuesArray`).
  */
-import { KEEP, DELETE_MARKER, type ValueConverter, type ResolveContext } from '../value-resolver.js';
+import {
+  KEEP,
+  DELETE_MARKER,
+  resolveValue,
+  type ValueConverter,
+  type ResolveContext,
+} from '../value-resolver.js';
+import { isPlainObject } from '../../plain-object.js';
+import { registeredReferenceQueryValue } from '../query-value-registry.js';
 import { isUnescapedUserMap, markFieldValueSentinel } from '../unescaped-map.js';
 import { firestoreValuesEqual } from '../value-equality.js';
 
@@ -130,15 +138,59 @@ export const incrementConverter: ValueConverter = {
   },
 };
 
+function nestedFieldValueName(v: unknown): string | null {
+  if (typeof v !== 'object' || v === null || isUnescapedUserMap(v)) return null;
+  if (isIncrement(v)) return 'increment()';
+  if (isArrayUnion(v)) return 'arrayUnion()';
+  if (isArrayRemove(v)) return 'arrayRemove()';
+  if (isDeleteField(v)) return 'deleteField()';
+  if ((v as Record<string, unknown>).__type === 'serverTimestamp') return 'serverTimestamp()';
+  return null;
+}
+
+function assertNoNestedFieldValues(values: readonly unknown[], ownerName: string): void {
+  const seen = new WeakSet<object>();
+  const visit = (node: unknown): void => {
+    if (node === null || typeof node !== 'object') return;
+    if (seen.has(node)) return;
+    seen.add(node);
+    const sentinelName = nestedFieldValueName(node);
+    if (sentinelName !== null) {
+      throw new Error(`${sentinelName} cannot be used inside of ${ownerName}`);
+    }
+    if (registeredReferenceQueryValue(node) !== undefined) return;
+    if (Array.isArray(node)) {
+      for (const item of node) visit(item);
+      return;
+    }
+    if (!isPlainObject(node)) return;
+    for (const child of Object.values(node)) visit(child);
+  };
+  for (const item of values) visit(item);
+}
+
+function resolveArrayElements(values: readonly unknown[], ctx: ResolveContext): unknown[] {
+  return values.map((item, index) =>
+    resolveValue(item, {
+      ...ctx,
+      prior: null,
+      fieldPath: `${ctx.fieldPath}[${index}]`,
+      fieldSegments: [...ctx.fieldSegments, index],
+    }),
+  );
+}
+
 export const arrayUnionConverter: ValueConverter = {
   name: 'array-union-sentinel',
   convert(value, ctx) {
     if (!isArrayUnion(value)) return KEEP;
+    assertNoNestedFieldValues(value.values, 'arrayUnion()');
+    const resolvedValues = resolveArrayElements(value.values, ctx);
     const prior = readPrior(ctx);
     // FS-B11 — a non-array (or absent) prior is coerced to `[]` rather than
     // throwing (upstream `coercedFieldValuesArray`).
     const base: unknown[] = Array.isArray(prior) ? prior.slice() : [];
-    for (const v of value.values) {
+    for (const v of resolvedValues) {
       const exists = base.some((b) => firestoreValuesEqual(b, v));
       if (!exists) base.push(v);
     }
@@ -150,11 +202,13 @@ export const arrayRemoveConverter: ValueConverter = {
   name: 'array-remove-sentinel',
   convert(value, ctx) {
     if (!isArrayRemove(value)) return KEEP;
+    assertNoNestedFieldValues(value.values, 'arrayRemove()');
+    const resolvedValues = resolveArrayElements(value.values, ctx);
     const prior = readPrior(ctx);
     // FS-B11 — a non-array (or absent) prior coerces to `[]` (so the result
     // is `[]`), rather than throwing.
     if (!Array.isArray(prior)) return [];
-    return prior.filter((b) => !value.values.some((v) => firestoreValuesEqual(b, v)));
+    return prior.filter((b) => !resolvedValues.some((v) => firestoreValuesEqual(b, v)));
   },
 };
 

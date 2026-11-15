@@ -54,16 +54,35 @@ export function isIncrementSentinel(v: unknown): v is IncrementSentinel {
  * is handled by the caller calling this per-path with that path's prior
  * value.
  */
+const CANONICAL_ARRAY_INDEX = /^(0|[1-9]\d*)$/;
+
 function unwrapNodeValue(node: unknown): unknown {
-  if (node !== null && typeof node === 'object' && !Array.isArray(node) && Object.hasOwn(node, '.value')) {
-    return (node as Record<string, unknown>)['.value'];
+  let cursor = node;
+  while (cursor !== null && typeof cursor === 'object' && !Array.isArray(cursor) && Object.hasOwn(cursor, '.value')) {
+    cursor = (cursor as Record<string, unknown>)['.value'];
   }
-  return node;
+  return cursor;
 }
 
 function nodePriority(node: unknown): unknown {
   if (node !== null && typeof node === 'object' && !Array.isArray(node) && Object.hasOwn(node, '.priority')) {
     return (node as Record<string, unknown>)['.priority'];
+  }
+  return undefined;
+}
+
+function childCurrentValue(rawCurrent: unknown, key: string): unknown {
+  if (rawCurrent === null || typeof rawCurrent !== 'object') return undefined;
+  if (Array.isArray(rawCurrent)) {
+    if (!CANONICAL_ARRAY_INDEX.test(key)) return undefined;
+    const index = Number(key);
+    if (!Number.isSafeInteger(index) || index >= rawCurrent.length || !(index in rawCurrent)) {
+      return undefined;
+    }
+    return rawCurrent[index];
+  }
+  if (Object.hasOwn(rawCurrent, key)) {
+    return (rawCurrent as Record<string, unknown>)[key];
   }
   return undefined;
 }
@@ -79,12 +98,8 @@ export function resolveSentinels(value: unknown, now: number, current?: unknown)
   if (value === null || typeof value !== 'object') return value;
   if (Array.isArray(value)) {
     return value.map((v, i) =>
-      resolveSentinels(v, now, Array.isArray(rawCurrent) ? rawCurrent[i] : undefined),
+      resolveSentinels(v, now, childCurrentValue(rawCurrent, String(i))),
     );
-  }
-  let curObj: Record<string, unknown> | undefined;
-  if (rawCurrent !== null && typeof rawCurrent === 'object' && !Array.isArray(rawCurrent)) {
-    curObj = rawCurrent as Record<string, unknown>;
   }
   const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
@@ -93,8 +108,8 @@ export function resolveSentinels(value: unknown, now: number, current?: unknown)
       childCurrent = rawCurrent;
     } else if (k === '.priority') {
       childCurrent = nodePriority(current);
-    } else if (curObj !== undefined && Object.hasOwn(curObj, k)) {
-      childCurrent = curObj[k];
+    } else {
+      childCurrent = childCurrentValue(rawCurrent, k);
     }
     Object.defineProperty(out, k, {
       value: resolveSentinels(v, now, childCurrent),
