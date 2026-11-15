@@ -272,7 +272,7 @@ export async function dispatch(parsed: ParsedArgs): Promise<number> {
         return runSalvage(parsed);
       }
       if ((parsed.passthrough?.length ?? 0) === 0 && parsed.positional.length > 0) {
-        const { checkAmbiguousSandboxWord } = await import('./help.js');
+        const { checkAmbiguousSandboxWord } = await import('./sandbox-word-guard.js');
         const refusal = checkAmbiguousSandboxWord(parsed);
         if (refusal !== null) {
           process.stderr.write(refusal);

@@ -107,6 +107,10 @@ export function buildPyricEnvelope(
   return envelope;
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
 function headerIncludesPost(raw: string | string[] | null | undefined): boolean {
   if (typeof raw === 'string') return raw.toUpperCase().includes('POST');
   if (Array.isArray(raw)) {
@@ -124,7 +128,7 @@ async function probeNodeHostMode(
   const headers: Record<string, string> = { accept: 'application/json' };
   if (token !== undefined) headers['x-pyric-session-token'] = token;
   try {
-    let body: { mode?: unknown; live?: unknown } | null = null;
+    let body: unknown = null;
     if (healthUrl.startsWith('https://')) {
       const response = await fetchLoopbackTarget(
         healthUrl,
@@ -132,15 +136,15 @@ async function probeNodeHostMode(
         projectDir,
       );
       if (!response.ok) return 'sandbox';
-      body = (await response.json()) as { mode?: unknown; live?: unknown } | null;
+      body = await response.json();
     } else {
       const response = await boundedRequest(healthUrl, { headers, deadlineMs: 1_000 });
       if (response === null || response.status !== 200) return 'sandbox';
-      body = JSON.parse(response.body.toString('utf8')) as { mode?: unknown; live?: unknown } | null;
+      body = JSON.parse(response.body.toString('utf8'));
     }
-    if (body !== null && typeof body === 'object') {
+    if (isRecord(body)) {
       if (body.mode === 'live') return 'live';
-      if (typeof body.live === 'object' && body.live !== null) return 'live';
+      if (isRecord(body.live)) return 'live';
     }
   } catch {
     // Fall back to sandbox mode if health cannot be parsed.

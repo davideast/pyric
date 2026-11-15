@@ -729,8 +729,12 @@ async function runInProcessSession(
     process.stdin.once('end', onStdinEnd);
     process.once('SIGINT', () => stop(0));
     process.once('SIGTERM', () => stop(0));
+    let readyMessage = `in-process sandbox MCP server ready (persisting to ${IN_PROCESS_STATE_RELATIVE})`;
+    if (!persistLocal && options.initialHost !== undefined) {
+      readyMessage = `MCP server ready (routing to Node host at ${options.initialHost.url})`;
+    }
     void server.connect(transport).then(
-      () => log(`in-process sandbox MCP server ready (persisting to ${IN_PROCESS_STATE_RELATIVE})`),
+      () => log(readyMessage),
       (e) => {
         log(`failed to start: ${failureMessage(e)}`);
         resolve(1);

@@ -122,6 +122,20 @@ export default scenario(async (app) => {
     assert.equal(afterWithDir.body?._pyric?.isProject, true);
     assert.ok(afterWithDir.init?.instructions?.includes(realProject));
 
+    const subDir = join(app.dir, 'packages', 'sub');
+    mkdirSync(subDir, { recursive: true });
+    const afterInSubdir = await runProbe(app, subDir, []);
+    assert.deepEqual(afterInSubdir.tools, beforeOutside.tools);
+    assert.deepEqual(afterInSubdir.body?.data?.value, { n: 1 });
+    assert.equal(afterInSubdir.body?._pyric?.target, 'host');
+    assert.equal(afterInSubdir.body?._pyric?.projectDir, realProject);
+    assert.equal(afterInSubdir.body?._pyric?.isProject, true);
+    assert.ok(afterInSubdir.init?.instructions?.includes(realProject));
+
+    const attachOutside = await runProbe(app, outsideAfter, ['--attach']);
+    assert.equal(attachOutside.started, false);
+    assert.equal(attachOutside.exitCode, 1);
+
     await host.stop();
   });
 });

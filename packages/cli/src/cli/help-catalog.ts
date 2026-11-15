@@ -10,6 +10,7 @@ export interface CommandHelpEntry {
   readonly summary: string;
   readonly details?: readonly string[];
   readonly flags?: readonly [flag: string, description: string][];
+  readonly example?: string;
 }
 
 export const TOP_LEVEL_COMMANDS: Readonly<Record<string, CommandHelpEntry>> = {
@@ -59,7 +60,7 @@ export const TOP_LEVEL_COMMANDS: Readonly<Record<string, CommandHelpEntry>> = {
     flags: [
       ['--project-dir DIR', 'Project directory for rules, state, and host discovery (default: cwd; env: PYRIC_PROJECT_DIR).'],
       ['--in-process', 'Force the local in-process sandbox even when a host is running.'],
-      ['--attach', 'Require a running host (.pyric/serve.json) and relay directly over HTTP /__pyric/mcp.'],
+      ['--attach', 'Require a running host (.pyric/serve.json) and relay directly over HTTP /__pyric/mcp (cannot be combined with --surface or --allow-production).'],
       ['--allow-production', 'Mount production-effect methods (default: refused).'],
       ['--surface ID', 'Select an evaluation tool-surface variant (env: PYRIC_TOOL_SURFACE).'],
     ],
@@ -281,6 +282,26 @@ export const MULTI_WORD_COMMANDS: Readonly<Record<string, CommandHelpEntry>> = {
       ['--target ID', 'Reset a specific connected client listed by `pyric serve sessions`.'],
       ['--json', 'Print the result as JSON.'],
     ],
+  },
+  'assurance derive': {
+    usage:
+      'pyric assurance derive [dir] [--root DIR] [--port N | --url URL] [--campaign-id ID] [--fail-on GATE] [--include-heuristic] [--no-static] [--json]',
+    summary:
+      'Derive tri-source assurance diagnostics and counterexample probes into a fresh local campaign.',
+    flags: [
+      ['--port N', 'Loopback port of a running Pyric server to clone.'],
+      ['--url URL', 'Loopback HTTP(S) URL of a running Pyric server to clone.'],
+      ['--root DIR', 'Project directory to scan (default: cwd; also accepted as positional [dir]).'],
+      ['--campaign-id ID', 'Explicit campaign id (generated when omitted).'],
+      [
+        '--fail-on GATE',
+        'Exit 1 gate: proven-counterexample, static-proof, heuristic, critical, high, medium, or low.',
+      ],
+      ['--include-heuristic', 'Include heuristic findings in the default fail gate.'],
+      ['--no-static', 'Skip static query, storage contract, index, and coverage passes.'],
+      ['--json', 'Print full JSON result on stdout.'],
+    ],
+    example: 'pyric assurance derive --campaign-id audit-pass',
   },
 };
 

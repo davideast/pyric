@@ -1,14 +1,12 @@
 /**
- * Help, tool discovery, and ambiguous-command disambiguation for the `pyric` CLI.
+ * Help and tool discovery for the `pyric` CLI.
  *
  * Kept separate from `index.ts` and loaded lazily on `--help`, bare tool
- * words, unknown commands, and ambiguous `pyric sandbox <word>` checks so
- * `pyric run` never imports the method registry at startup.
+ * words, and unknown commands so `pyric run` never imports the method registry
+ * at startup and `pyric --help` keeps the generated conformance table off its
+ * startup module graph.
  */
-import { accessSync, constants, statSync } from 'node:fs';
-import { delimiter, join } from 'node:path';
-import type { z } from 'zod';
-import { closest, editDistance } from '../bridge/surface/closest-name.js';
+import { closest } from '../bridge/surface/closest-name.js';
 import { TOOL_DESCRIPTIONS } from '../bridge/surface/descriptions.generated.js';
 import { toJsonSchema } from '../bridge/surface/json-schema.js';
 import type { Method, MethodEffect, Tool } from '../bridge/surface/method-types.js';
@@ -21,7 +19,8 @@ import {
   TOP_LEVEL_COMMANDS,
   type CommandHelpEntry,
 } from './help-catalog.js';
-import { SANDBOX_METHOD_WORDS, type ParsedArgs } from './parse-args.js';
+import type { ParsedArgs } from './parse-args.js';
+import { formatSandboxAmbiguityError } from './sandbox-word-guard.js';
 import { argumentKind, FILE_FLAG_SUFFIX } from './surface-method-args.js';
 
 export interface HelpOutput {
@@ -29,20 +28,9 @@ export interface HelpOutput {
   readonly exitCode: number;
 }
 
-const UNSUPPORTED_RUNTIME_WORDS: ReadonlySet<string> = new Set(['bun', 'deno']);
-
-const TOP_LEVEL_PYRIC_WORDS: ReadonlySet<string> = new Set([
-  'bridge',
-  'run',
-  'snapshot',
-  'verify',
-  'can-i-use',
-  'mcp',
-  'init',
-  'vendor',
-  'serve',
-  ...Object.keys(TOOL_DESCRIPTIONS).filter((name) => name !== 'sandbox'),
-]);
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
 
 function firstSentence(text: string): string {
   const idx = text.indexOf('. ');
@@ -66,6 +54,9 @@ function formatCommandHelp(name: string, entry: CommandHelpEntry): string {
   if (entry.flags && entry.flags.length > 0) {
     lines.push('', 'FLAGS', ...formatFlagTable(entry.flags));
   }
+  if (entry.example !== undefined && entry.example.length > 0) {
+    lines.push('', 'EXAMPLE', `  ${entry.example}`);
+  }
   return `${lines.join('\n')}\n`;
 }
 
@@ -76,25 +67,20 @@ function effectSummary(effect: MethodEffect): string {
   return 'production (refused by default; pass --allow-production to enable)';
 }
 
-function isOptionalSchema(schema: z.ZodTypeAny): boolean {
-  const typeName = (schema._def as { typeName: string }).typeName;
-  return typeName === 'ZodOptional' || typeName === 'ZodDefault';
-}
-
-function formatJsonSchemaType(schema: Record<string, unknown>): string {
+function formatJsonSchemaType(schema: unknown): string {
+  if (!isRecord(schema)) return 'json';
   if (Array.isArray(schema.enum)) {
-    return (schema.enum as unknown[]).map((v) => String(v)).join(' | ');
+    return schema.enum.map((v) => String(v)).join(' | ');
   }
   if (schema.const !== undefined) {
     return JSON.stringify(schema.const);
   }
   if (Array.isArray(schema.anyOf)) {
-    const parts = (schema.anyOf as Record<string, unknown>[]).map(formatJsonSchemaType);
+    const parts = schema.anyOf.map(formatJsonSchemaType);
     return [...new Set(parts)].join(' | ');
   }
   if (schema.type === 'array') {
-    const items = schema.items as Record<string, unknown> | undefined;
-    if (items !== undefined) return `${formatJsonSchemaType(items)}[] (JSON)`;
+    if (isRecord(schema.items)) return `${formatJsonSchemaType(schema.items)}[] (JSON)`;
     return 'array (JSON)';
   }
   if (schema.type === 'object') return 'object (JSON)';
@@ -125,8 +111,7 @@ function formatMethodExample(method: Method): string {
 }
 
 function renderMethodHelp(method: Method): string {
-  const shape = method.args.shape;
-  const argEntries = Object.entries(shape);
+  const argEntries = Object.entries(method.args.shape);
   const lines: string[] = [
     `pyric ${method.tool} ${method.method}`,
     '',
@@ -148,11 +133,10 @@ function renderMethodHelp(method: Method): string {
     lines.push('  (none)');
   } else {
     for (const [name, schema] of argEntries) {
-      const zodSchema = schema as z.ZodTypeAny;
-      const jsonSchema = toJsonSchema(zodSchema);
-      const kind = argumentKind(zodSchema);
+      const jsonSchema = toJsonSchema(schema);
+      const kind = argumentKind(schema);
       let reqLabel = 'required';
-      if (isOptionalSchema(zodSchema)) reqLabel = 'optional';
+      if (schema.isOptional()) reqLabel = 'optional';
       const typeLabel = formatJsonSchemaType(jsonSchema);
       let desc = '';
       if (typeof jsonSchema.description === 'string') desc = jsonSchema.description;
@@ -165,23 +149,6 @@ function renderMethodHelp(method: Method): string {
         lines.push(`      ${desc}`);
       }
     }
-  }
-
-  if (method.tool === 'assurance' && method.method === 'derive') {
-    lines.push(
-      '',
-      'CLI OPTIONS (pyric assurance derive)',
-      ...formatFlagTable([
-        ['--port N', 'Loopback port of a running Pyric server to clone.'],
-        ['--url URL', 'Loopback HTTP(S) URL of a running Pyric server to clone.'],
-        ['--root DIR', 'Project directory to scan (default: cwd).'],
-        ['--campaign-id ID', 'Explicit campaign id (generated when omitted).'],
-        ['--fail-on GATE', 'Exit 1 gate: proven-counterexample, static-proof, heuristic, critical, high, medium, or low.'],
-        ['--include-heuristic', 'Include heuristic findings in the default fail gate.'],
-        ['--no-static', 'Skip static query, storage contract, index, and coverage passes.'],
-        ['--json', 'Print full JSON result on stdout.'],
-      ]),
-    );
   }
 
   lines.push(
@@ -302,108 +269,6 @@ export async function formatUnknownToolMethod(
   return `${lines.join('\n')}\n`;
 }
 
-function isExecutableFile(candidate: string): boolean {
-  try {
-    if (!statSync(candidate).isFile()) return false;
-    accessSync(candidate, constants.X_OK);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-function isExecutableOnPath(command: string, cwd: string): boolean {
-  const dirs: string[] = [join(cwd, 'node_modules', '.bin')];
-  const rawPath = process.env.PATH;
-  if (rawPath !== undefined && rawPath.length > 0) {
-    for (const entry of rawPath.split(delimiter)) {
-      if (entry.length > 0) dirs.push(entry);
-    }
-  }
-  for (const dir of dirs) {
-    if (isExecutableFile(join(dir, command))) return true;
-  }
-  return false;
-}
-
-function closeSandboxMethod(word: string): string | null {
-  const allSandboxWords = [...SANDBOX_METHOD_WORDS, 'salvage', 'seed-from-live'];
-  const lower = word.toLowerCase();
-  for (const candidate of allSandboxWords) {
-    if (candidate.toLowerCase() === lower) return candidate;
-  }
-  let best: string | null = null;
-  let bestDistance = Number.POSITIVE_INFINITY;
-  for (const candidate of allSandboxWords) {
-    const distance = editDistance(lower, candidate.toLowerCase());
-    if (distance <= 2 && distance < bestDistance) {
-      bestDistance = distance;
-      best = candidate;
-    }
-  }
-  return best;
-}
-
-function formatSandboxAmbiguityError(word: string, reason: 'top-level' | 'near-miss' | 'not-found'): string {
-  const allSandboxWords = [...SANDBOX_METHOD_WORDS, 'salvage', 'seed-from-live'];
-  if (reason === 'top-level') {
-    return [
-      `pyric sandbox: '${word}' is a top-level pyric command, not a sandbox method.`,
-      `Did you mean \`pyric ${word}\`?`,
-      `To run a child executable named '${word}' inside the sandbox, pass \`--\`:`,
-      `  pyric sandbox -- ${word}`,
-      'Run `pyric sandbox --help` to list sandbox methods and launcher flags.',
-      '',
-    ].join('\n');
-  }
-  const suggestion = closest(word, allSandboxWords);
-  if (suggestion !== null) {
-    return [
-      `pyric sandbox: unknown method '${word}'. Did you mean \`pyric sandbox ${suggestion}\`?`,
-      'To run a child command inside the sandbox, pass `--`:',
-      `  pyric sandbox -- ${word}`,
-      'Run `pyric sandbox --help` to list sandbox methods and launcher flags.',
-      '',
-    ].join('\n');
-  }
-  return [
-    `pyric sandbox: '${word}' is not a sandbox method or an executable on PATH.`,
-    'To run a child command inside the sandbox, pass `--`:',
-    `  pyric sandbox -- ${word}`,
-    'Run `pyric sandbox --help` to list sandbox methods and launcher flags.',
-    '',
-  ].join('\n');
-}
-
-/**
- * Guard `pyric sandbox <word...>` (without `--`) against accidentally launching
- * a sandbox server when `<word>` looks like a mistyped sandbox method, another
- * top-level `pyric` command (such as `snapshot`), or a nonexistent executable.
- */
-export function checkAmbiguousSandboxWord(parsed: ParsedArgs, cwd = process.cwd()): string | null {
-  if ((parsed.passthrough?.length ?? 0) > 0) return null;
-  const first = parsed.positional[0];
-  if (first === undefined) return null;
-  if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(first)) return null;
-  if (first.includes('/') || first.includes('\\')) return null;
-  if (UNSUPPORTED_RUNTIME_WORDS.has(first)) return null;
-
-  if (TOP_LEVEL_PYRIC_WORDS.has(first)) {
-    return formatSandboxAmbiguityError(first, 'top-level');
-  }
-
-  const tightMatch = closeSandboxMethod(first);
-  if (tightMatch !== null) {
-    return formatSandboxAmbiguityError(first, 'near-miss');
-  }
-
-  if (!isExecutableOnPath(first, cwd)) {
-    return formatSandboxAmbiguityError(first, 'not-found');
-  }
-
-  return null;
-}
-
 export function renderGlobalUsage(): string {
   const toolEntries = Object.entries(TOOL_DESCRIPTIONS);
   const toolLines = toolEntries.map(([name, description]) => {
@@ -453,18 +318,34 @@ COMMANDS
   run [--sandbox URL]        Run a command against a running hosted sandbox.
   init [dir]                 Scaffold a Pyric project (web, static, node, or nextjs).
   vendor [dir]               Vendor pyric and @pyric/cli tarballs into an existing project.
-  mcp                        Stdio MCP server (serves all 10 tools; routes to Node host or in-process).
+  mcp                        Stdio MCP server (serves all ${toolEntries.length} tools; routes to Node host or in-process).
   snapshot [--out=DIR]       Promote lived sandbox state to a committable seed directory.
   verify [fixture|dir]       Replay a captured session against candidate rules.
   can-i-use <feature>        Check Pyric availability and conformance status for a Firebase feature.
+  verify cases [fixture]     Derive Firestore Rules Test API cases from a captured fixture.
+  verify staging init        Enroll the empty RTDB instance named in pyric.json verify.staging.
+  verify staging restore     Restore staging RTDB rules from .pyric/staging-restore.json.
+  firestore rules validate   Validate Firestore rules structure against a file.
+  firestore rules resolve    Resolve Firestore 2+modules imports to one ruleset.
+  firestore indexes generate Generate firestore.indexes.json from application source.
+  storage rules resolve      Resolve Storage 2+modules imports to one ruleset.
+  database rules validate    Validate Realtime Database rules expressions.
+  database rules generate    Compile a constraints module to database.rules.json.
+  database indexes generate  Extract RTDB .indexOn rules from application source.
+  serve diagnostics          Read bounded startup and connection reports over HTTP.
+  serve sessions             List clients connected to the running bridge.
+  serve denials              List RTDB and Firestore rules denials recorded by the running Node host.
+  serve repro capture        Write the running Node host repro file.
+  serve repro replay <file>  Replay a repro file on a fresh Node host and worker host.
+  auth reset                 Follow the application session again on a running bridge.
   <tool> <method>            Call one method on any service tool (${toolNames}).
                              Flags match SDK argument names; --<arg>-file <path> reads from a file.
 
-SERVICE TOOLS (run \`pyric <tool> --help\` or \`pyric <tool> <method> --help\`)
-${toolLines.join('\n')}
-
 CORE FLAGS (sandbox)
 ${formatFlagTable(SANDBOX_CORE_FLAGS).join('\n')}
+
+SERVICE TOOLS (run \`pyric <tool> --help\` or \`pyric <tool> <method> --help\`)
+${toolLines.join('\n')}
 
 PROJECT CONFIG (pyric.json)
   command            Default child command. An explicit CLI command overrides it.
@@ -517,9 +398,7 @@ export async function renderHelp(parsed: ParsedArgs): Promise<HelpOutput> {
         return { text: renderMethodHelp(method), exitCode: 0 };
       }
       if (tool.name === 'sandbox') {
-        let reason: 'top-level' | 'not-found' = 'not-found';
-        if (TOP_LEVEL_PYRIC_WORDS.has(first)) reason = 'top-level';
-        return { text: formatSandboxAmbiguityError(first, reason), exitCode: 1 };
+        return { text: formatSandboxAmbiguityError(first), exitCode: 1 };
       }
       const unknownText = await formatUnknownToolMethod(tool.name, parsed.positional);
       return { text: unknownText ?? renderGlobalUsage(), exitCode: 1 };

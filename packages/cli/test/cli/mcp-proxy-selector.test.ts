@@ -47,6 +47,30 @@ describe('mcp --attach', () => {
     expect(consultedDiscover).toBe(false);
     expect(wentInProcess).toBe(false);
   });
+
+  it('refuses --attach together with --allow-production or --surface', async () => {
+    for (const argv of [
+      ['--attach', '--allow-production'],
+      ['--attach', '--surface', 'discriminator'],
+    ]) {
+      let consultedDiscover = false;
+      let wentInProcess = false;
+      const code = await runMcpProxy(mcpArgs(...argv), '/proj', {
+        discover: async () => {
+          consultedDiscover = true;
+          return null;
+        },
+        inProcess: async () => {
+          wentInProcess = true;
+          return 0;
+        },
+        env: {},
+      });
+      expect(code).toBe(1);
+      expect(consultedDiscover).toBe(false);
+      expect(wentInProcess).toBe(false);
+    }
+  });
 });
 
 describe('mcp-proxy hybrid selector (Phase 2)', () => {
@@ -313,6 +337,26 @@ describe('Node host vs SharedWorker host selection', () => {
     });
     expect(code).toBe(0);
     expect(capturedMode).toBe('live');
+  });
+
+  it('propagates pointerProjectDir when cwd is a project subdirectory', async () => {
+    let capturedProbeDir: string | undefined;
+    let capturedProjectDir: string | undefined;
+    const code = await runMcpProxy(mcpArgs(), '/proj/packages/sub', {
+      discover: async () => pointerHost,
+      probeHost: async (_found, dir) => {
+        capturedProbeDir = dir;
+        return { supportsMethods: true, mode: 'sandbox' };
+      },
+      inProcess: async (_cwd, options) => {
+        capturedProjectDir = options.projectDir;
+        return 0;
+      },
+      env: {},
+    });
+    expect(code).toBe(0);
+    expect(capturedProbeDir).toBe('/proj');
+    expect(capturedProjectDir).toBe('/proj');
   });
 
   it('keeps the HTTP relay path for SharedWorker hosts (supportsMethods: false)', async () => {

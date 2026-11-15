@@ -308,10 +308,39 @@ describe('pyric mcp project identity and start-order tool parity', () => {
       expect(cell6.body._pyric?.projectDir).toBe(realProject);
       expect(cell6.body._pyric?.isProject).toBe(true);
 
-      // Guardrail: --attach outside the project still refuses cleanly.
+      // Cell 7: started after host from a nested subdirectory of the project (no --project-dir)
+      // must report the project root (isProject=true) and stay on the live host past the 1s cache TTL.
+      const subDir = join(project, 'packages', 'sub');
+      mkdirSync(subDir, { recursive: true });
+      const afterInSubdir = track(await openMcpSession(subDir, []));
+      expect(afterInSubdir.started).toBe(true);
+      expect(await afterInSubdir.listTools()).toEqual(EXPECTED_TOOLS);
+      const afterInSubdirInstructions = String(afterInSubdir.init?.instructions ?? '');
+      expect(afterInSubdirInstructions).toContain(realProject);
+      expect(afterInSubdirInstructions).toContain('host');
+      expect(afterInSubdirInstructions).not.toMatch(/warning|no Firebase or Pyric project markers/i);
+      const subCall1 = await afterInSubdir.callDatabaseGet('items/a');
+      expect(subCall1.body.ok).toBe(true);
+      expect(subCall1.body.data?.value).toEqual({ n: 1 });
+      expect(subCall1.body._pyric?.target).toBe('host');
+      expect(subCall1.body._pyric?.projectDir).toBe(realProject);
+      expect(subCall1.body._pyric?.isProject).toBe(true);
+      await sleep(1_200);
+      const subCall2 = await afterInSubdir.callDatabaseGet('items/a');
+      expect(subCall2.body.ok).toBe(true);
+      expect(subCall2.body.data?.value).toEqual({ n: 1 });
+      expect(subCall2.body._pyric?.target).toBe('host');
+      expect(subCall2.body._pyric?.projectDir).toBe(realProject);
+      expect(subCall2.body._pyric?.isProject).toBe(true);
+      expect(subCall2.body.summary).not.toContain('sandbox host stopped');
+
+      // Guardrail: --attach outside the project and --attach with rendered-surface flags refuse cleanly.
       const attachOutside = track(await openMcpSession(elsewhereB, ['--attach']));
       expect(attachOutside.started).toBe(false);
       expect(attachOutside.exitCode).toBe(1);
+      const attachAllowProd = track(await openMcpSession(project, ['--attach', '--allow-production']));
+      expect(attachAllowProd.started).toBe(false);
+      expect(attachAllowProd.exitCode).toBe(1);
     } finally {
       await Promise.allSettled(sessions.map((session) => session.close()));
       host?.kill('SIGTERM');

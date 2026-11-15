@@ -7,19 +7,19 @@
  * cannot ship without focused `--help` or silently launch a server.
  */
 import { describe, expect, it } from 'bun:test';
-import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 
 import { METHODS, TOOLS } from '../../../src/bridge/surface/methods/registry.js';
-import { dispatch, parseArgs } from '../../../src/cli/index.js';
+import { parseArgs } from '../../../src/cli/index.js';
+import { checkAmbiguousSandboxWord } from '../../../src/cli/sandbox-word-guard.js';
 import { SERVICE_COMMANDS } from '../../../src/cli/service-commands.generated.js';
+import { runDispatch, type CliRun } from '../../cli/run-cli.js';
 
-interface DispatchCapture {
-  code: number;
-  stdout: string;
-  stderr: string;
-}
+const PACKAGE_ROOT = resolve(import.meta.dir, '../../..');
+const DIST_CLI = join(PACKAGE_ROOT, 'dist', 'cli', 'index.js');
 
 const TOP_LEVEL_COMMANDS: ReadonlyArray<readonly string[]> = [
   ['bridge'],
@@ -39,39 +39,28 @@ const TOP_LEVEL_COMMANDS: ReadonlyArray<readonly string[]> = [
   ['assurance', 'derive'],
 ];
 
-async function runInTempDir(args: string[]): Promise<{ result: DispatchCapture; createdPyricDir: boolean }> {
+const ASSURANCE_DERIVE_FLAGS: readonly string[] = [
+  '--port',
+  '--url',
+  '--root',
+  '--campaign-id',
+  '--fail-on',
+  '--include-heuristic',
+  '--no-static',
+  '--json',
+];
+
+async function runInTempDir(args: string[]): Promise<{ result: CliRun; createdPyricDir: boolean }> {
   const dir = mkdtempSync(join(tmpdir(), 'pyric-help-route-'));
   const priorCwd = process.cwd();
-  let stdout = '';
-  let stderr = '';
-  const stdoutWrite = process.stdout.write;
-  const stderrWrite = process.stderr.write;
   process.chdir(dir);
-  process.stdout.write = ((chunk: string | Uint8Array) => {
-    if (typeof chunk === 'string') {
-      stdout += chunk;
-    } else {
-      stdout += Buffer.from(chunk).toString();
-    }
-    return true;
-  }) as typeof process.stdout.write;
-  process.stderr.write = ((chunk: string | Uint8Array) => {
-    if (typeof chunk === 'string') {
-      stderr += chunk;
-    } else {
-      stderr += Buffer.from(chunk).toString();
-    }
-    return true;
-  }) as typeof process.stderr.write;
   try {
-    const code = await dispatch(parseArgs(args));
+    const result = await runDispatch(args);
     return {
-      result: { code, stdout, stderr },
+      result,
       createdPyricDir: existsSync(join(dir, '.pyric')),
     };
   } finally {
-    process.stdout.write = stdoutWrite;
-    process.stderr.write = stderrWrite;
     process.chdir(priorCwd);
     rmSync(dir, { recursive: true, force: true });
   }
@@ -103,9 +92,20 @@ describe('CLI help and routing enumeration', () => {
         expect(result.stdout).not.toMatch(/Serving from|Local server:/);
       }
       if (route.length === 2) {
-        const method = methodByKey.get(`${route[0]}.${route[1]}`);
+        const key = `${route[0]}.${route[1]}`;
+        const { result } = await runInTempDir([...route, '--help']);
+        if (key === 'assurance.derive') {
+          for (const flagName of ASSURANCE_DERIVE_FLAGS) {
+            expect(result.stdout).toContain(flagName);
+          }
+          expect(result.stdout).toContain('pyric assurance derive --campaign-id audit-pass');
+          expect(result.stdout).not.toContain('--campaignId');
+          expect(result.stdout).not.toContain('--in-process');
+          expect(result.stdout).not.toContain('--allow-production');
+          continue;
+        }
+        const method = methodByKey.get(key);
         if (method !== undefined) {
-          const { result } = await runInTempDir([...route, '--help']);
           const argNames = Object.keys(method.args.shape);
           for (const argName of argNames) {
             expect(result.stdout).toContain(`--${argName}`);
@@ -180,6 +180,7 @@ describe('CLI help and routing enumeration', () => {
       ['sandbox', 'bogus', '--help'],
     ]) {
       const { result, createdPyricDir } = await runInTempDir(argv);
+      expect(result.code).toBe(1);
       expect(createdPyricDir).toBe(false);
       expect(result.stdout).not.toMatch(/Serving from|Local server:/);
       expect(result.stderr).not.toMatch(/Serving from|Local server:/);
@@ -187,6 +188,7 @@ describe('CLI help and routing enumeration', () => {
 
     const refusals: Array<{ argv: string[]; hint: string }> = [
       { argv: ['sandbox', 'snapshot'], hint: 'pyric snapshot' },
+      { argv: ['sandbox', 'serve'], hint: 'pyric serve --help' },
       { argv: ['sandbox', 'event'], hint: 'events' },
       { argv: ['sandbox', 'listcaptures'], hint: 'listCaptures' },
       { argv: ['sandbox', 'bogus'], hint: '--' },
@@ -199,9 +201,17 @@ describe('CLI help and routing enumeration', () => {
       expect(result.stderr).toContain(refusal.hint);
       expect(result.stderr).toContain('--');
     }
+
+    for (const nonMatch of ['help', 'list', 'status', 'bogus']) {
+      const { result, createdPyricDir } = await runInTempDir(['sandbox', nonMatch]);
+      expect(result.code).toBe(1);
+      expect(createdPyricDir).toBe(false);
+      expect(result.stderr).not.toContain('Did you mean');
+      expect(result.stderr).toContain(`pyric sandbox -- ${nonMatch}`);
+    }
   });
 
-  it('preserves child command parsing for explicit -- and multi-word launcher invocations', () => {
+  it('passes real PATH executables, local bin executables, and explicit paths through sandbox parsing', () => {
     const explicit = parseArgs(['sandbox', '--', 'npm', 'run', 'dev', '-h']);
     expect(explicit.flags.has('h')).toBe(false);
     expect(explicit.passthrough).toEqual(['npm', 'run', 'dev', '-h']);
@@ -210,12 +220,87 @@ describe('CLI help and routing enumeration', () => {
     expect(multiWord.flags.has('h')).toBe(false);
     expect(multiWord.positional).toEqual(['npm', 'run', 'dev', '-h']);
 
-    const singleWithHelp = parseArgs(['sandbox', 'snapshot', '--help']);
-    expect(singleWithHelp.flags.get('help')).toBe(true);
-    expect(singleWithHelp.positional).toEqual(['snapshot']);
+    const nodeHelp = parseArgs(['sandbox', 'node', '--help']);
+    expect(nodeHelp.flags.has('help')).toBe(false);
+    expect(nodeHelp.positional).toEqual(['node', '--help']);
+    expect(checkAmbiguousSandboxWord(nodeHelp)).toBeNull();
 
-    const explicitSingleWithHelp = parseArgs(['sandbox', '--', 'snapshot', '--help']);
-    expect(explicitSingleWithHelp.flags.has('help')).toBe(false);
-    expect(explicitSingleWithHelp.passthrough).toEqual(['snapshot', '--help']);
+    const scriptHelp = parseArgs(['sandbox', './myscript.sh', '--help']);
+    expect(scriptHelp.flags.has('help')).toBe(false);
+    expect(scriptHelp.positional).toEqual(['./myscript.sh', '--help']);
+    expect(checkAmbiguousSandboxWord(scriptHelp)).toBeNull();
+
+    for (const cmd of [
+      ['sandbox', 'sort', 'file.txt'],
+      ['sandbox', 'test', '-f', 'a'],
+      ['sandbox', 'sed', '-n', '1p'],
+    ]) {
+      expect(checkAmbiguousSandboxWord(parseArgs(cmd))).toBeNull();
+    }
+
+    const dir = mkdtempSync(join(tmpdir(), 'pyric-local-bin-'));
+    try {
+      const binDir = join(dir, 'node_modules', '.bin');
+      mkdirSync(binDir, { recursive: true });
+      const vitePath = join(binDir, 'vite');
+      writeFileSync(vitePath, '#!/bin/sh\nexit 0\n', 'utf8');
+      chmodSync(vitePath, 0o755);
+      const viteHelp = parseArgs(['sandbox', 'vite', '--help']);
+      expect(viteHelp.flags.has('help')).toBe(false);
+      expect(checkAmbiguousSandboxWord(viteHelp, dir)).toBeNull();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+
+    const methodHelp = parseArgs(['sandbox', 'events', '--help']);
+    expect(methodHelp.flags.get('help')).toBe(true);
+    expect(methodHelp.positional).toEqual(['events']);
+
+    const salvageHelp = parseArgs(['sandbox', 'salvage', '--help']);
+    expect(salvageHelp.flags.get('help')).toBe(true);
+    expect(salvageHelp.positional).toEqual(['salvage']);
+
+    const seedFromLiveHelp = parseArgs(['sandbox', 'seed-from-live', '--help']);
+    expect(seedFromLiveHelp.flags.get('help')).toBe(true);
+    expect(seedFromLiveHelp.positional).toEqual(['seed-from-live']);
+  });
+
+  it('exercises the real built CLI binary end-to-end for help, bare tools, and sandbox refusal', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'pyric-cli-smoke-'));
+    try {
+      const runBuilt = (args: string[]) =>
+        spawnSync('node', [DIST_CLI, ...args], {
+          cwd: dir,
+          encoding: 'utf8',
+          timeout: 30_000,
+        });
+
+      const methodHelp = runBuilt(['firestore', 'getDoc', '--help']);
+      expect(methodHelp.status).toBe(0);
+      expect(methodHelp.stderr).toBe('');
+      expect(methodHelp.stdout).toContain('pyric firestore getDoc');
+      expect(methodHelp.stdout).toContain('--path');
+
+      const deriveHelp = runBuilt(['assurance', 'derive', '--help']);
+      expect(deriveHelp.status).toBe(0);
+      expect(deriveHelp.stderr).toBe('');
+      expect(deriveHelp.stdout).toContain('--campaign-id');
+      expect(deriveHelp.stdout).not.toContain('--campaignId');
+
+      const bareAssurance = runBuilt(['assurance']);
+      expect(bareAssurance.status).toBe(0);
+      expect(bareAssurance.stderr).toBe('');
+      expect(bareAssurance.stdout).toContain('pyric assurance');
+      expect(bareAssurance.stdout).toContain('derive');
+
+      const snapshotHelp = runBuilt(['sandbox', 'snapshot', '--help']);
+      expect(snapshotHelp.status).toBe(1);
+      expect(snapshotHelp.stdout).not.toMatch(/Serving from|Local server:/);
+      expect(snapshotHelp.stderr).toContain('pyric snapshot');
+
+      expect(existsSync(join(dir, '.pyric'))).toBe(false);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

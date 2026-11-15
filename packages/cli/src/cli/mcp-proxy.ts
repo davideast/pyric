@@ -217,9 +217,19 @@ export async function runMcpProxy(
     deps.inProcess ??
     ((c: string, o: InProcessSelection) =>
       import('../bridge/server/in-process.js').then((m) => m.runInProcessMcp(c, o)));
-  const hasConflictingHosts = forcesInProcess && requiresRunningServe(parsed);
+  const requiresServe = requiresRunningServe(parsed);
+  const hasConflictingHosts = forcesInProcess && requiresServe;
   if (hasConflictingHosts) {
     log('--attach and --in-process name different hosts for the sandbox; pass one of them.');
+    return USAGE_ERROR;
+  }
+  const requestsRenderedSurface =
+    selection.surface !== undefined || selection.allowProduction === true;
+  if (requiresServe && requestsRenderedSurface) {
+    log(
+      '--attach relays the running host HTTP /__pyric/mcp transport surface and cannot be combined ' +
+        'with --surface or --allow-production; drop --attach to serve the rendered product surface.',
+    );
     return USAGE_ERROR;
   }
 
@@ -261,7 +271,7 @@ export async function runMcpProxy(
   // endpoint; the pointer's contents alone do not establish project ownership.
   const found = matchesSelectedProject(selectProjectHost(discovered, log));
   const hasNoHost = found === null;
-  const requiresMissingHost = hasNoHost && requiresRunningServe(parsed);
+  const requiresMissingHost = hasNoHost && requiresServe;
   if (requiresMissingHost) {
     log(
       'no running `pyric serve` or `pyric sandbox --bridge` found for this project (looked for ' +
@@ -270,8 +280,6 @@ export async function runMcpProxy(
     );
     return USAGE_ERROR;
   }
-  const requestsRenderedSurface =
-    selection.surface !== undefined || selection.allowProduction === true;
   if (hasNoHost) {
     // Hybrid mode: no dev server to attach to, so host the sandbox in this
     // process and let TargetRouter follow a Node host started later.
@@ -283,14 +291,17 @@ export async function runMcpProxy(
     );
     return await runInProcess(cwd, selection);
   }
-  if (!requiresRunningServe(parsed)) {
-    const probed = await (deps.probeHost ?? probeNodeHost)(found, canonicalSearchDir);
+  if (!requiresServe) {
+    const effectiveProjectDir = found.pointerProjectDir ?? selection.projectDir;
+    const probeDir = effectiveProjectDir ?? canonicalSearchDir;
+    const probed = await (deps.probeHost ?? probeNodeHost)(found, probeDir);
     if (probed.supportsMethods) {
       log(
         `serving ten-tool MCP surface routed to Node host at ${found.url} (via ${found.source})`,
       );
       return await runInProcess(cwd, {
         ...selection,
+        projectDir: effectiveProjectDir,
         initialHost: found,
         initialHostMode: probed.mode,
       });
