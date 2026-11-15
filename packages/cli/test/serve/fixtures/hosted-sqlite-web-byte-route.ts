@@ -252,7 +252,8 @@ try {
     assert.equal(kept.fullPath, 'notes/note.txt');
     await deleteObject(kept);
     assert.equal(await persistence.storage.getMetadata('notes/note.txt', bucket), undefined, 'the object is gone');
-    assert.equal((await fetch(url)).status, 404);
+    assert.equal((await fetch(url)).status, 403);
+    assert.equal((await fetch(url, { headers: { 'x-pyric-session-token': SESSION } })).status, 404);
   }
 } finally {
   server.close();

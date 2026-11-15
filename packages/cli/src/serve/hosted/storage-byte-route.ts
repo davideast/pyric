@@ -24,6 +24,7 @@ import { createReadStream } from 'node:fs';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { timingSafeTokenMatch, getHeader } from '../server.js';
 import { STORAGE_ROUTE_PREFIX } from '../worker/protocol/storage.js';
+import type { PyricWriteRefusal } from './own-writes.js';
 import { UploadOffsetError, type ScopedStorageBackend, type UploadProgress } from './persistence/storage.js';
 
 export interface StorageByteRouteOptions {
@@ -38,6 +39,8 @@ export interface StorageByteRouteOptions {
   bucketOf?(name: string): string;
   /** Upload sessions, which this route commits when their last byte arrives. */
   sessions?: UploadSessions;
+  /** Live mode's refusal of pyric's own writes; refuses every byte-route upload before it runs. */
+  ownWriteRefusal?: PyricWriteRefusal;
 }
 
 /** A pending upload session, as the route sees it. */
@@ -125,8 +128,10 @@ export function createStorageByteRoute(opts: StorageByteRouteOptions) {
       return refuse(res, 403, 'This URL carries no token that grants this object.');
     }
     const object = await opts.storage.objectFile(opts.bucketOf?.(bucket) ?? bucket, path);
-    const missing = object === undefined;
-    if (missing) return refuse(res, 404, 'No such object.');
+    if (object === undefined) {
+      if (sdkAuthorized) return refuse(res, 404, 'No such object.');
+      return refuse(res, 403, 'This URL carries no token that grants this object.');
+    }
     const rawTokens = object.metadata.downloadTokens ?? object.metadata.customMetadata?.firebaseStorageDownloadTokens ?? '';
     const downloadTokens = rawTokens.split(',').filter(token => token !== '');
     const byDownloadToken = downloadTokens.some(token => timingSafeTokenMatch(presented, token));
@@ -218,6 +223,13 @@ export function createStorageByteRoute(opts: StorageByteRouteOptions) {
   }
 
   async function receiveUpload(req: IncomingMessage, res: ServerResponse, url: URL): Promise<void> {
+    if (opts.ownWriteRefusal !== undefined) {
+      req.resume();
+      const refusal = opts.ownWriteRefusal({ action: 'storage.upload', writer: 'page' });
+      const code = 'code' in refusal && typeof refusal.code === 'string' ? refusal.code : undefined;
+      const body = code === undefined ? refusal.message : `${code}: ${refusal.message}`;
+      return refuse(res, 403, body);
+    }
     const uploadId = url.searchParams.get('upload_id') ?? '';
     const session = opts.sessions?.get(uploadId);
     const isSession = session !== undefined;
@@ -409,6 +421,7 @@ export function createStorageByteRoute(opts: StorageByteRouteOptions) {
 
   /** Whether `origin` may reach `url`: an upload session's URL, with its token, from the session's origin. */
   function allowsOrigin(url: URL, origin: string | undefined): boolean {
+    if (opts.ownWriteRefusal !== undefined) return false;
     const target = targetOf(url.pathname);
     const isUpload = target?.kind === 'upload';
     if (!isUpload || origin === undefined) return false;

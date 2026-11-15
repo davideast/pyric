@@ -689,7 +689,7 @@ service cloud.firestore {
       assert.equal(badTokenRes.status, 403);
 
       const otherBucketRes = await fetch(\`\${serverUrl}/__pyric/storage/v0/b/unrelated-secondary-bucket/o/spaces%2Fs1%2Fpixel.bin?alt=media&token=tok-persist-1\`);
-      assert.equal(otherBucketRes.status, 404);
+      assert.equal(otherBucketRes.status, 403);
     } finally {
       await host2.runtime.close();
     }

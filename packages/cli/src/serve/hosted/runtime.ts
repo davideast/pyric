@@ -69,7 +69,7 @@ import { createObservedSeedRunner, type ObservedSeedResult } from './seed-from-o
 import { serializeError, type InboundMessage, type OutboundMessage } from '../worker/protocol.js';
 import { createHostedPersistence, formatStorageRepairs, HOSTED_NAMESPACE, hostedStateDirectory, type HostedPersistence } from './persistence.js';
 import { requiresHealthyPersistence } from './persistence-admission.js';
-import { refuseOwnWrite, type PyricWriteRefusal } from './own-writes.js';
+import { portWriteOf, refuseOwnWrite, type PyricWriteRefusal } from './own-writes.js';
 import { MAX_HOSTED_METHOD_OWNERS, type HostedMethodRequest } from './method-protocol.js';
 import { createReproRecorder, type ReproRecorder } from '../repro/recorder.js';
 import { buildReproFile, captureReproBase } from '../repro/capture.js';
@@ -121,13 +121,6 @@ export interface HostedRuntimeOptions {
   observedSession?: ObservedSessionDataStore;
   /** Require `x-pyric-session-token` on SDK Storage byte-route reads. */
   requireSessionToken?: boolean;
-}
-
-/** The write a port's frame asks for: a durable operation or a write tool, named for the refusal. Null for anything else. */
-function portWriteOf(message: InboundMessage): string | null {
-  if (message.t === 'op') return requiresHealthyPersistence(message) ? message.method : null;
-  if (message.t === 'tool') return sandboxToolEffect(message.name) === 'write' ? message.name : null;
-  return null;
 }
 
 /** One Node-owned sandbox; each admitted consumer owns its ordered work. */
@@ -661,6 +654,7 @@ export async function createHostedRuntime(
     },
     sessionToken: payload.sessionToken,
     requireSessionToken: ai.requireSessionToken,
+    ownWriteRefusal: ai.ownWriteRefusal,
     uploadToken: uploadId => uploadTokenOf(ctx, uploadId),
     bucketOf: name => storeBucketOf(ctx, name),
     sessions: {
