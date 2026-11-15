@@ -296,7 +296,7 @@ export async function pointerHostAnswers(pointer: ServePointer): Promise<boolean
   const port = pointer.port ?? portOf(pointer.mcpUrl) ?? portOf(pointer.url);
   const hasPort = port !== null && Boolean(port);
   if (!hasPort) return false;
-  return (await healthyBase(port, pointerInstanceId(pointer))) !== null;
+  return (await healthyBase(port, pointerInstanceId(pointer), pointer.url ?? pointer.mcpUrl)) !== null;
 }
 
 const LIVE_POINTER_WAIT_MS = 10_000;
@@ -341,7 +341,7 @@ async function probePointer(pointerPath: string): Promise<PointerOutcome> {
   const hasPort = port !== null && Boolean(port);
   if (!hasPort) return { kind: 'unusable' };
   const expectedId = pointerInstanceId(p);
-  const probe = await probePort(port, expectedId);
+  const probe = await probePort(port, expectedId, p.url ?? p.mcpUrl);
   const match = probe.match;
   if (match === null) {
     const waits = !probe.otherAnswered && hasRunningProcess(p.pid);

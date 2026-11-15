@@ -134,6 +134,12 @@ export interface TargetRouterOptions {
   initialHost?: Discovered;
   /** Initial host runtime mode when `initialHost` is supplied. */
   initialHostMode?: 'sandbox' | 'live';
+  /**
+   * Optional hook invoked before local execution when routing falls back to
+   * the in-process sandbox. Returns an optional notice suffix appended to
+   * `HOST_STOPPED_NOTICE` (for example when local persistence is unavailable).
+   */
+  onBeforeLocalFallback?: () => Promise<string | undefined>;
 }
 
 export class TargetRouter {
@@ -143,6 +149,7 @@ export class TargetRouter {
   readonly cacheTtlMs: number;
   private readonly customDiscover?: typeof discoverServe;
   private readonly customCallHosted?: typeof callHostedMethod;
+  private readonly onBeforeLocalFallback?: () => Promise<string | undefined>;
 
   private lastCheckMs = 0;
   private cachedHost: Discovered | null = null;
@@ -158,6 +165,7 @@ export class TargetRouter {
     this.cacheTtlMs = options.cacheTtlMs ?? 1000;
     this.customDiscover = options.discover;
     this.customCallHosted = options.callHosted;
+    this.onBeforeLocalFallback = options.onBeforeLocalFallback;
     if (options.initialHost !== undefined && !this.inProcessOnly) {
       const mode = options.initialHostMode ?? 'sandbox';
       this.cachedHost = options.initialHost;
@@ -240,7 +248,7 @@ export class TargetRouter {
         ? await probeHttpsTargetBase(raw.url!, port, expectedId, canonicalProjectDir)
         : null;
       if (!hit) {
-        hit = await healthyBase(port, expectedId);
+        hit = await healthyBase(port, expectedId, raw.url ?? raw.mcpUrl);
       }
       if (!hit) {
         this.cachedHost = null;
@@ -278,6 +286,7 @@ export class TargetRouter {
   ): Promise<OperationResult> {
     const host = await this.resolveHost();
     let currentTarget: 'host' | 'in-process' = 'in-process';
+    let fallbackNoticeDetail: string | undefined;
     let result: OperationResult;
 
     if (host !== null) {
@@ -306,6 +315,9 @@ export class TargetRouter {
           currentTarget = 'in-process';
           this.lastHostMode = 'sandbox';
           this.lastInstanceId = null;
+          if (this.onBeforeLocalFallback !== undefined) {
+            fallbackNoticeDetail = await this.onBeforeLocalFallback();
+          }
           result = await this.executeLocal(method, args, ctx);
         }
       } catch (err) {
@@ -321,11 +333,19 @@ export class TargetRouter {
       currentTarget = 'in-process';
       this.lastHostMode = 'sandbox';
       this.lastInstanceId = null;
+      if (this.onBeforeLocalFallback !== undefined) {
+        fallbackNoticeDetail = await this.onBeforeLocalFallback();
+      }
       result = await this.executeLocal(method, args, ctx);
     }
 
     if (currentTarget !== this.lastTarget) {
-      const notice = currentTarget === 'host' ? HOST_STARTED_NOTICE : HOST_STOPPED_NOTICE;
+      let notice = HOST_STOPPED_NOTICE;
+      if (currentTarget === 'host') {
+        notice = HOST_STARTED_NOTICE;
+      } else if (fallbackNoticeDetail !== undefined && fallbackNoticeDetail.length > 0) {
+        notice = `${HOST_STOPPED_NOTICE} ${fallbackNoticeDetail}`;
+      }
       result = {
         ...result,
         summary: result.summary ? `${notice}\n\n${result.summary}` : notice,

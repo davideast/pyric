@@ -19,7 +19,7 @@
  *    PYRIC_VERBOSE=1.
  */
 
-import { createServer } from 'node:http';
+import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { WebSocketServer } from 'ws';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
@@ -42,6 +42,7 @@ import {
 } from '../protocol.js';
 import { cliVersion } from '../../pkg-version.js';
 import {
+  isAllowedHost,
   isAllowedLoopbackRequest,
   isAllowedSessionToken,
   isAllowedUpgrade,
@@ -130,8 +131,9 @@ export async function startServer(
   });
 
   // No browser peer can attach here, so the tools a peer would run are not offered.
+  const projectDir = opts.projectDir ?? process.cwd();
   const { inProcess } = getBridgeToolSurface({
-    projectDir: opts.projectDir ?? process.cwd(),
+    projectDir,
     consumers: bridge.consumers,
     callerIdentity: bridge.callerIdentity,
   });
@@ -192,7 +194,7 @@ export async function startServer(
         logger.verbose(`session ${id.slice(0, 8)}… initialized`);
       },
     });
-    const server = buildMcpServer(bridge, { forwarded: [], inProcess });
+    const server = buildMcpServer(bridge, { forwarded: [], inProcess, projectDir });
     let closing: Promise<void> | null = null;
     const session: Session = {
       transport,
@@ -234,9 +236,28 @@ export async function startServer(
   // ── HTTP server ─────────────────────────────────────────────────
   // No proxy fronts this bridge, so it learns no port: an MCP request names this port or none.
   const mcpPorts = createAppPorts('127.0.0.1');
-  const http = createServer(async (req, res) => {
+  async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    const rawHost = req.headers.host;
+    const hasEmptyHost = rawHost !== undefined && rawHost.trim() === '';
+    const allowedHost = !hasEmptyHost && isAllowedHost(rawHost, '127.0.0.1', opts.allowedHosts);
+    if (!allowedHost) {
+      res.writeHead(403, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Forbidden: invalid host or origin' }));
+      return;
+    }
     const url = req.url ?? '/';
-    const parsedUrl = new URL(url, `http://${req.headers.host ?? '127.0.0.1'}`);
+    let baseHost = '127.0.0.1';
+    if (rawHost !== undefined) {
+      baseHost = rawHost.trim();
+    }
+    let parsedUrl: URL;
+    try {
+      parsedUrl = new URL(url, `http://${baseHost}`);
+    } catch {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Bad Request: invalid URL or Host header' }));
+      return;
+    }
     const debugEnabled = Boolean(process.env.PYRIC_DEBUG);
     if (debugEnabled) {
       process.stderr.write(`[pyric debug] ${req.method} ${url}\n`);
@@ -258,16 +279,16 @@ export async function startServer(
         return;
       }
       const fullHealth = bridge.health();
-      const body = JSON.stringify(
-        !requiresSessionToken || authenticated
-          ? fullHealth
-          : {
-              status: fullHealth.status,
-              mode: fullHealth.mode,
-              instanceId: fullHealth.instanceId,
-              sandboxConnected: fullHealth.sandboxConnected,
-            },
-      );
+      let healthPayload: unknown = fullHealth;
+      if (requiresSessionToken && !authenticated) {
+        healthPayload = {
+          status: fullHealth.status,
+          mode: fullHealth.mode,
+          instanceId: fullHealth.instanceId,
+          sandboxConnected: fullHealth.sandboxConnected,
+        };
+      }
+      const body = JSON.stringify(healthPayload);
       res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
       res.end(req.method === 'HEAD' ? undefined : body);
       return;
@@ -356,6 +377,24 @@ export async function startServer(
     }
     res.writeHead(404, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ error: 'not found', path: url }));
+  }
+
+  const http = createServer((req, res) => {
+    void handleRequest(req, res).catch((err: unknown) => {
+      let diagnostic: string;
+      if (err instanceof Error) {
+        diagnostic = err.stack ?? err.message;
+      } else {
+        diagnostic = String(err);
+      }
+      logger.error(`HTTP request error: ${diagnostic}`);
+      if (!res.headersSent) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Internal Server Error' }));
+      } else if (!res.writableEnded) {
+        res.end();
+      }
+    });
   });
 
   // ── /sandbox: refused with a reason ─────────────────────────────
@@ -364,9 +403,18 @@ export async function startServer(
   // message from it is read, and it never registers as the sandbox peer.
   const wss = new WebSocketServer({ noServer: true, maxPayload: 1024 });
   http.on('upgrade', (req, socket, head) => {
+    const rawUpgradeHost = req.headers.host;
+    if (rawUpgradeHost !== undefined && rawUpgradeHost.trim() === '') {
+      socket.destroy();
+      return;
+    }
+    let upgradeBaseHost = '127.0.0.1';
+    if (rawUpgradeHost !== undefined) {
+      upgradeBaseHost = rawUpgradeHost.trim();
+    }
     let upgradePath = '';
     try {
-      upgradePath = new URL(req.url ?? '/', `http://${req.headers.host ?? '127.0.0.1'}`).pathname;
+      upgradePath = new URL(req.url ?? '/', `http://${upgradeBaseHost}`).pathname;
     } catch {
       socket.destroy();
       return;

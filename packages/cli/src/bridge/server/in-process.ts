@@ -25,10 +25,9 @@ import {
 import { rulesSourceRejection } from 'pyric/rules/internal';
 import type { FirebaseStorage } from 'pyric/storage';
 import {
-  saveStorageSidecar,
-  loadStorageSidecar,
-  STORAGE_SIDECAR_RELATIVE,
-} from './storage-sidecar.js';
+  createInProcessPersistence,
+  type ProjectStateOwner,
+} from './in-process-persistence.js';
 import { type RejectedToolCall } from './mcp.js';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { registerRenderedSurface } from './surface-server.js';
@@ -109,6 +108,8 @@ export interface InProcessMcpServerOptions extends LocalBridgeOptions {
   initialHost?: Discovered;
   /** Runtime mode of `initialHost`. */
   initialHostMode?: 'sandbox' | 'live';
+  /** Optional hook run before local fallback execution in TargetRouter. */
+  onBeforeLocalFallback?: () => Promise<string | undefined>;
 }
 
 /**
@@ -148,6 +149,7 @@ export function buildInProcessMcpServer(sandbox: LocalSandbox, opts?: InProcessM
       callHosted: opts?.callHosted,
       initialHost: opts?.initialHost,
       initialHostMode: opts?.initialHostMode,
+      onBeforeLocalFallback: opts?.onBeforeLocalFallback,
     });
   const instructions = formatMcpInstructions(
     projectIdentity,
@@ -586,22 +588,22 @@ export async function runInProcessMcp(
   options: InProcessRunOptions = {},
 ): Promise<number> {
   const projectDir = resolve(cwd, options.projectDir ?? '.');
-  if (options.initialHost !== undefined && !options.inProcessOnly) {
-    return await runInProcessSession(projectDir, options, false);
+  let initialOwner: ProjectStateOwner | null = null;
+  if (options.initialHost === undefined || options.inProcessOnly) {
+    mkdirSync(projectDir, { recursive: true });
+    initialOwner = await claimProjectState(projectDir, 'in-process');
   }
-  mkdirSync(projectDir, { recursive: true });
-  const owner = await claimProjectState(projectDir, 'in-process');
   try {
-    return await runInProcessSession(projectDir, options, true);
+    return await runInProcessSession(projectDir, options, initialOwner);
   } finally {
-    owner.close();
+    initialOwner?.close();
   }
 }
 
 async function runInProcessSession(
   projectDir: string,
   options: InProcessRunOptions,
-  persistLocal: boolean,
+  initialOwner: ProjectStateOwner | null,
 ): Promise<number> {
   const log = (m: string): void => {
     process.stderr.write(`[pyric mcp in-process] ${m}\n`);
@@ -613,132 +615,98 @@ async function runInProcessSession(
 
   const env = options.env ?? process.env;
   const evalLog = createInProcessEventWriter(env);
-  const recordsEvaluation = evalLog !== null;
-  if (recordsEvaluation) log(`recording tool events to ${evalLog.path}`);
+  if (evalLog !== null) log(`recording tool events to ${evalLog.path}`);
 
   const sandbox = initializeSandbox();
   const storage = openPersistedServices(sandbox, projectDir);
-  if (persistLocal) {
-    const restored = loadSandboxSnapshot(sandbox, projectDir);
-    if (restored !== null) {
-      log(`restored ${restored} docs from ${join(projectDir, IN_PROCESS_STATE_RELATIVE)}`);
-    }
-  }
-  const projectRules = loadProjectRules(sandbox, projectDir, log);
-  if (projectRules !== null && projectRules.refused === null) {
-    log(`rules loaded from ${projectRules.path}`);
-  } else if (projectRules !== null) {
-    log(`rules not loaded from ${projectRules.path}: ${projectRules.refused} The sandbox keeps the rules in force.`);
-  } else {
-    log(`no Firestore rules for (default) found in ${projectDir}`);
-  }
-  if (persistLocal) {
-    const restoredObjects = await loadStorageSidecar(storage, projectDir);
-    if (restoredObjects > 0) {
-      log(`restored ${restoredObjects} objects from ${join(projectDir, STORAGE_SIDECAR_RELATIVE)}`);
-    }
-  }
-
-  let saveTimer: ReturnType<typeof setTimeout> | null = null;
-  let pendingSave = false;
-  const saveNow = (): void => {
-    if (!persistLocal) return;
-    pendingSave = false;
-    try {
-      saveSandboxSnapshot(sandbox, projectDir);
-    } catch (e) {
-      log(`persist failed: ${failureMessage(e)}`);
+  const reloadRules = (): void => {
+    const projectRules = loadProjectRules(sandbox, projectDir, log);
+    if (projectRules !== null && projectRules.refused === null) {
+      log(`rules loaded from ${projectRules.path}`);
+    } else if (projectRules !== null) {
+      log(`rules not loaded from ${projectRules.path}: ${projectRules.refused} The sandbox keeps the rules in force.`);
+    } else {
+      log(`no Firestore rules for (default) found in ${projectDir}`);
     }
   };
-  const flush = (): void => {
-    if (saveTimer !== null) {
-      clearTimeout(saveTimer);
-      saveTimer = null;
-    }
-    saveNow();
-  };
-  const scheduleSave = (): void => {
-    if (!persistLocal) return;
-    pendingSave = true;
-    if (saveTimer !== null) clearTimeout(saveTimer);
-    saveTimer = setTimeout(saveNow, 750);
-  };
-  const saveIfPendingAtExit = (): void => {
-    if (pendingSave) saveNow();
-  };
-  if (persistLocal) process.once('exit', saveIfPendingAtExit);
-
-  const baseServerOptions: InProcessMcpServerOptions = {
-    onAfterDispatch: scheduleSave,
-    surface: options.surface,
-    allowProduction: options.allowProduction,
+  const persistence = createInProcessPersistence({
     projectDir,
-    inProcessOnly: options.inProcessOnly,
-    initialHost: options.initialHost,
-    initialHostMode: options.initialHostMode,
-  };
-  // A surface id no renderer claims is a start-up failure, not a per-call one:
-  // serving the wrong surface would silently mislabel a whole run.
-  let server;
-  try {
-    server = buildInProcessMcpServer(sandbox, withInProcessEventWriter(baseServerOptions, evalLog));
-  } catch (e) {
-    process.off('exit', saveIfPendingAtExit);
-    log(failureMessage(e));
-    return 1;
-  }
-  const transport = options.transport ?? (await openStdioTransport());
-
-  return await new Promise<number>((resolve) => {
-    let stopping = false;
-    const onStdinEnd = (): void => stop(0);
-    const flushStorage = async (): Promise<void> => {
-      if (!persistLocal) return;
-      try {
-        await saveStorageSidecar(storage, projectDir);
-      } catch (e) {
-        log(`storage persist failed: ${failureMessage(e)}`);
-      }
-    };
-    const finishStop = async (code: number): Promise<number> => {
-      await flushStorage();
-      try {
-        await server.close();
-        return code;
-      } catch (e) {
-        log(`shutdown failed: ${failureMessage(e)}`);
-        const wasSuccessful = code === 0;
-        return wasSuccessful ? 1 : code;
-      }
-    };
-    const stop = (code: number): void => {
-      if (stopping) return;
-      stopping = true;
-      process.stdin.off('end', onStdinEnd);
-      // Synchronous, and before `server.close()`: the debounced timer can hold
-      // writes that have not reached disk, and nothing after this point is
-      // guaranteed to run.
-      flush();
-      process.off('exit', saveIfPendingAtExit);
-      void finishStop(code).then(resolve);
-    };
-    transport.onclose = () => stop(0);
-    // StdioServerTransport 1.29 no longer reports stdin EOF through onclose.
-    // Editors close the pipe to end an MCP session, so own that lifecycle
-    // signal explicitly and then close the server/transport above.
-    process.stdin.once('end', onStdinEnd);
-    process.once('SIGINT', () => stop(0));
-    process.once('SIGTERM', () => stop(0));
-    let readyMessage = `in-process sandbox MCP server ready (persisting to ${IN_PROCESS_STATE_RELATIVE})`;
-    if (!persistLocal && options.initialHost !== undefined) {
-      readyMessage = `MCP server ready (routing to Node host at ${options.initialHost.url})`;
-    }
-    void server.connect(transport).then(
-      () => log(readyMessage),
-      (e) => {
-        log(`failed to start: ${failureMessage(e)}`);
-        resolve(1);
-      },
-    );
+    stateRelativePath: IN_PROCESS_STATE_RELATIVE,
+    initialOwner,
+    storage,
+    loadSnapshot: () => loadSandboxSnapshot(sandbox, projectDir),
+    saveSnapshot: () => saveSandboxSnapshot(sandbox, projectDir),
+    reloadRules,
+    log,
   });
+
+  try {
+    await persistence.hydrateAtStartup();
+    const baseServerOptions: InProcessMcpServerOptions = {
+      onAfterDispatch: () => persistence.scheduleSave(),
+      onBeforeLocalFallback: () => persistence.activateOnFallback(),
+      surface: options.surface,
+      allowProduction: options.allowProduction,
+      projectDir,
+      inProcessOnly: options.inProcessOnly,
+      initialHost: options.initialHost,
+      initialHostMode: options.initialHostMode,
+    };
+    // A surface id no renderer claims is a start-up failure, not a per-call one:
+    // serving the wrong surface would silently mislabel a whole run.
+    let server;
+    try {
+      server = buildInProcessMcpServer(sandbox, withInProcessEventWriter(baseServerOptions, evalLog));
+    } catch (e) {
+      log(failureMessage(e));
+      return 1;
+    }
+    const transport = options.transport ?? (await openStdioTransport());
+
+    return await new Promise<number>((resolveExit) => {
+      let stopping = false;
+      const onStdinEnd = (): void => stop(0);
+      const finishStop = async (code: number): Promise<number> => {
+        await persistence.flushStorage();
+        try {
+          await server.close();
+          return code;
+        } catch (e) {
+          log(`shutdown failed: ${failureMessage(e)}`);
+          const wasSuccessful = code === 0;
+          return wasSuccessful ? 1 : code;
+        }
+      };
+      const stop = (code: number): void => {
+        if (stopping) return;
+        stopping = true;
+        process.stdin.off('end', onStdinEnd);
+        // Synchronous, and before `server.close()`: the debounced timer can hold
+        // writes that have not reached disk, and nothing after this point is
+        // guaranteed to run.
+        persistence.flush();
+        void finishStop(code).then(resolveExit);
+      };
+      transport.onclose = () => stop(0);
+      // StdioServerTransport 1.29 no longer reports stdin EOF through onclose.
+      // Editors close the pipe to end an MCP session, so own that lifecycle
+      // signal explicitly and then close the server/transport above.
+      process.stdin.once('end', onStdinEnd);
+      process.once('SIGINT', () => stop(0));
+      process.once('SIGTERM', () => stop(0));
+      let readyMessage = `in-process sandbox MCP server ready (persisting to ${IN_PROCESS_STATE_RELATIVE})`;
+      if (!persistence.isPersisting() && options.initialHost !== undefined) {
+        readyMessage = `MCP server ready (routing to Node host at ${options.initialHost.url})`;
+      }
+      void server.connect(transport).then(
+        () => log(readyMessage),
+        (e) => {
+          log(`failed to start: ${failureMessage(e)}`);
+          resolveExit(1);
+        },
+      );
+    });
+  } finally {
+    persistence.release();
+  }
 }
