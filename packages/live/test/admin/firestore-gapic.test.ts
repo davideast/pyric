@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'bun:test';
+import { createRequire } from 'node:module';
 import { Duplex, Readable } from 'node:stream';
 import type { LiveCallRecord, LiveObserver } from '../../src/observe.js';
 import {
@@ -10,13 +11,50 @@ import { adminProjectGate, failClosedGate } from '../../src/admin/project-gate.j
 
 const HOST_PROJECT = 'org-alpha';
 
+function errorCodeOf(fn: () => void): string | undefined {
+  try {
+    fn();
+    return undefined;
+  } catch (err: unknown) {
+    return (err as { code?: string })?.code;
+  }
+}
+
+class CustomGapicRequest {
+  readonly name?: string;
+  readonly parent?: string;
+  readonly databaseId?: string;
+  readonly writes?: unknown[];
+  constructor(fields: { name?: string; parent?: string; databaseId?: string; writes?: unknown[] }) {
+    this.name = fields.name;
+    this.parent = fields.parent;
+    this.databaseId = fields.databaseId;
+    this.writes = fields.writes;
+  }
+}
+
+class GetterGapicRequest {
+  readonly #target: string;
+  readonly #dbId?: string;
+  constructor(target: string, dbId?: string) {
+    this.#target = target;
+    this.#dbId = dbId;
+  }
+  get name(): string {
+    return this.#target;
+  }
+  get databaseId(): string | undefined {
+    return this.#dbId;
+  }
+}
+
 describe('firestore-gapic', () => {
   const observer: LiveObserver = Object.assign(
     (_record: LiveCallRecord) => undefined,
     { client: 'node' as const, hostProjectId: HOST_PROJECT },
   );
 
-  it('validates GAPIC resource strings across cross-project and named-database payloads', () => {
+  it('validates GAPIC resource strings across plain, non-plain, getter, inherited, container, cyclic, and protobufjs payloads', () => {
     expect(() =>
       assertGapicPayloadAllowed(
         [{ parent: `projects/${HOST_PROJECT}/databases/(default)/documents` }],
@@ -24,38 +62,190 @@ describe('firestore-gapic', () => {
       ),
     ).not.toThrow();
 
-    let crossProjErr: unknown;
-    try {
-      assertGapicPayloadAllowed(
-        [{ name: 'projects/org-beta/databases/(default)/documents/items/1' }],
-        observer,
-      );
-    } catch (err) {
-      crossProjErr = err;
-    }
-    expect((crossProjErr as { code?: string })?.code).toBe('PYRIC_LIVE_REFUSED');
+    expect(
+      errorCodeOf(() =>
+        assertGapicPayloadAllowed(
+          [{ name: 'projects/org-beta/databases/(default)/documents/items/1' }],
+          observer,
+        ),
+      ),
+    ).toBe('PYRIC_LIVE_REFUSED');
 
-    let namedDbErr: unknown;
-    try {
-      assertGapicPayloadAllowed(
-        [{ writes: [{ update: { name: `projects/${HOST_PROJECT}/databases/analytics-db/documents/items/1` } }] }],
-        observer,
-      );
-    } catch (err) {
-      namedDbErr = err;
-    }
-    expect((namedDbErr as { code?: string })?.code).toBe('PYRIC_LIVE_REFUSED');
+    expect(
+      errorCodeOf(() =>
+        assertGapicPayloadAllowed(
+          [{ writes: [{ update: { name: `projects/${HOST_PROJECT}/databases/analytics-db/documents/items/1` } }] }],
+          observer,
+        ),
+      ),
+    ).toBe('PYRIC_LIVE_REFUSED');
 
-    let createDbErr: unknown;
-    try {
+    expect(
+      errorCodeOf(() =>
+        assertGapicPayloadAllowed(
+          [{ parent: `projects/${HOST_PROJECT}`, databaseId: 'secondary-db' }],
+          observer,
+        ),
+      ),
+    ).toBe('PYRIC_LIVE_REFUSED');
+
+    // Non-plain class instances (cross-project, named database path, and named databaseId field).
+    expect(() =>
       assertGapicPayloadAllowed(
-        [{ parent: `projects/${HOST_PROJECT}`, databaseId: 'secondary-db' }],
+        [new CustomGapicRequest({ name: `projects/${HOST_PROJECT}/databases/(default)/documents/items/1` })],
         observer,
-      );
-    } catch (err) {
-      createDbErr = err;
-    }
-    expect((createDbErr as { code?: string })?.code).toBe('PYRIC_LIVE_REFUSED');
+      ),
+    ).not.toThrow();
+
+    expect(
+      errorCodeOf(() =>
+        assertGapicPayloadAllowed(
+          [new CustomGapicRequest({ name: 'projects/org-beta/databases/(default)/documents/items/1' })],
+          observer,
+        ),
+      ),
+    ).toBe('PYRIC_LIVE_REFUSED');
+
+    expect(
+      errorCodeOf(() =>
+        assertGapicPayloadAllowed(
+          [new CustomGapicRequest({ name: `projects/${HOST_PROJECT}/databases/other-db/documents/items/1` })],
+          observer,
+        ),
+      ),
+    ).toBe('PYRIC_LIVE_REFUSED');
+
+    expect(
+      errorCodeOf(() =>
+        assertGapicPayloadAllowed(
+          [new CustomGapicRequest({ parent: `projects/${HOST_PROJECT}`, databaseId: 'secondary-db' })],
+          observer,
+        ),
+      ),
+    ).toBe('PYRIC_LIVE_REFUSED');
+
+    // Prototype getters and prototype-inherited properties.
+    expect(
+      errorCodeOf(() =>
+        assertGapicPayloadAllowed(
+          [new GetterGapicRequest('projects/org-beta/databases/(default)/documents/items/1')],
+          observer,
+        ),
+      ),
+    ).toBe('PYRIC_LIVE_REFUSED');
+
+    expect(
+      errorCodeOf(() =>
+        assertGapicPayloadAllowed(
+          [new GetterGapicRequest(`projects/${HOST_PROJECT}/databases/(default)/documents/items/1`, 'secondary-db')],
+          observer,
+        ),
+      ),
+    ).toBe('PYRIC_LIVE_REFUSED');
+
+    const inheritedReq = Object.create({
+      name: 'projects/org-beta/databases/(default)/documents/items/1',
+    }) as object;
+    expect(errorCodeOf(() => assertGapicPayloadAllowed([inheritedReq], observer))).toBe('PYRIC_LIVE_REFUSED');
+
+    // Non-enumerable prototype data properties (host allowed, cross-project and named-db refused).
+    const nonEnumHostProto: Record<string, unknown> = {};
+    Object.defineProperty(nonEnumHostProto, 'name', {
+      value: `projects/${HOST_PROJECT}/databases/(default)/documents/items/1`,
+      enumerable: false,
+    });
+    expect(() => assertGapicPayloadAllowed([Object.create(nonEnumHostProto) as object], observer)).not.toThrow();
+
+    const nonEnumOtherProto: Record<string, unknown> = {};
+    Object.defineProperty(nonEnumOtherProto, 'name', {
+      value: 'projects/org-beta/databases/(default)/documents/items/1',
+      enumerable: false,
+    });
+    expect(errorCodeOf(() => assertGapicPayloadAllowed([Object.create(nonEnumOtherProto) as object], observer))).toBe(
+      'PYRIC_LIVE_REFUSED',
+    );
+
+    const nonEnumNamedDbProto: Record<string, unknown> = {};
+    Object.defineProperty(nonEnumNamedDbProto, 'databaseId', {
+      value: 'secondary-db',
+      enumerable: false,
+    });
+    expect(errorCodeOf(() => assertGapicPayloadAllowed([Object.create(nonEnumNamedDbProto) as object], observer))).toBe(
+      'PYRIC_LIVE_REFUSED',
+    );
+
+    // Map and Set containers, plus binary/built-in skips and cyclic references.
+    const mapReq = new Map<string, unknown>([
+      ['target', new Set(['projects/org-beta/databases/(default)/documents/items/1'])],
+    ]);
+    expect(errorCodeOf(() => assertGapicPayloadAllowed([mapReq], observer))).toBe('PYRIC_LIVE_REFUSED');
+
+    const safeCyclic: Record<string, unknown> = {
+      name: `projects/${HOST_PROJECT}/databases/(default)/documents/items/1`,
+      bytes: Buffer.from('projects/org-beta/databases/other-db/documents/items/1'),
+      view: new Uint8Array([1, 2, 3]),
+      createdAt: new Date(),
+      pattern: /projects\/org-beta/,
+    };
+    safeCyclic.self = safeCyclic;
+    expect(() => assertGapicPayloadAllowed([safeCyclic], observer)).not.toThrow();
+
+    const badCyclic: Record<string, unknown> = {
+      parent: `projects/${HOST_PROJECT}/databases/(default)/documents`,
+    };
+    badCyclic.self = badCyclic;
+    badCyclic.nested = new CustomGapicRequest({
+      name: 'projects/org-beta/databases/(default)/documents/items/1',
+    });
+    expect(errorCodeOf(() => assertGapicPayloadAllowed([badCyclic], observer))).toBe('PYRIC_LIVE_REFUSED');
+
+    // Real protobufjs message instances created by @google-cloud/firestore's GAPIC protos.
+    const requireHere = createRequire(import.meta.url);
+    const firestoreMod = requireHere('firebase-admin/firestore') as {
+      v1: {
+        FirestoreClient: new (opts: Record<string, unknown>) => {
+          _protos: {
+            lookupType(name: string): { create(props: Record<string, unknown>): object };
+          };
+        };
+      };
+    };
+    const protoClient = new firestoreMod.v1.FirestoreClient({
+      projectId: HOST_PROJECT,
+      fallback: 'rest',
+      auth: {
+        getProjectId: async () => HOST_PROJECT,
+        getRequestHeaders: async () => ({}),
+        getUniverseDomain: async () => 'googleapis.com',
+      },
+    });
+    const GetDocumentRequest = protoClient._protos.lookupType('google.firestore.v1.GetDocumentRequest');
+
+    const hostProtoReq = GetDocumentRequest.create({
+      name: `projects/${HOST_PROJECT}/databases/(default)/documents/items/1`,
+    });
+    expect(() => assertGapicPayloadAllowed([hostProtoReq], observer)).not.toThrow();
+
+    const otherProtoReq = GetDocumentRequest.create({
+      name: 'projects/org-beta/databases/(default)/documents/items/1',
+    });
+    expect(errorCodeOf(() => assertGapicPayloadAllowed([otherProtoReq], observer))).toBe('PYRIC_LIVE_REFUSED');
+
+    const namedDbProtoReq = GetDocumentRequest.create({
+      name: `projects/${HOST_PROJECT}/databases/secondary-db/documents/items/1`,
+    });
+    expect(errorCodeOf(() => assertGapicPayloadAllowed([namedDbProtoReq], observer))).toBe('PYRIC_LIVE_REFUSED');
+
+    const WriteRequest = protoClient._protos.lookupType('google.firestore.v1.WriteRequest');
+    const otherWriteProto = WriteRequest.create({
+      database: 'projects/org-beta/databases/(default)',
+    });
+    expect(errorCodeOf(() => assertGapicPayloadAllowed([otherWriteProto], observer))).toBe('PYRIC_LIVE_REFUSED');
+
+    const namedDbWriteProto = WriteRequest.create({
+      database: `projects/${HOST_PROJECT}/databases/secondary-db`,
+    });
+    expect(errorCodeOf(() => assertGapicPayloadAllowed([namedDbWriteProto], observer))).toBe('PYRIC_LIVE_REFUSED');
   });
 
   it('patches v1/v1beta1 GAPIC prototypes across unary, stream, async-iterable, and duplex methods while passing nested calls through', async () => {
@@ -147,5 +337,17 @@ describe('firestore-gapic', () => {
       .getDocument({ name: 'projects/org-beta/databases/(default)/documents/items/1' })
       .catch((err: unknown) => (err as { code?: string }).code);
     expect(refusedHostPayload).toBe('PYRIC_LIVE_REFUSED');
+
+    const refusedNonPlain = await hostClient
+      .getDocument(new CustomGapicRequest({ name: 'projects/org-beta/databases/(default)/documents/items/1' }) as { name: string })
+      .catch((err: unknown) => (err as { code?: string }).code);
+    expect(refusedNonPlain).toBe('PYRIC_LIVE_REFUSED');
+
+    const duplex = hostClient.write();
+    const duplexErr = await new Promise<unknown>((resolve) => {
+      duplex.once('error', resolve);
+      duplex.write(new CustomGapicRequest({ name: 'projects/org-beta/databases/(default)/documents/items/1' }));
+    });
+    expect((duplexErr as { code?: string })?.code).toBe('PYRIC_LIVE_REFUSED');
   });
 });

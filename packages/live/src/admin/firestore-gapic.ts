@@ -30,7 +30,8 @@ import {
 type Method = (this: unknown, ...args: unknown[]) => unknown;
 
 const RESOURCE_PATH_PATTERN = /(?:^|\/)projects\/([^/]+)(?:\/databases\/([^/]+))?/;
-const MAX_SCAN_DEPTH = 5;
+const MAX_SCAN_DEPTH = 16;
+const SKIPPED_PAYLOAD_KEYS: ReadonlySet<string> = new Set(['constructor', '$type', '__proto__']);
 
 const V1_CLIENT_LOCAL: ReadonlySet<string> = new Set(['initialize', 'getProjectId', 'close']);
 const V1_ADMIN_LOCAL: ReadonlySet<string> = new Set([
@@ -103,24 +104,90 @@ function checkResourceString(text: string, hostProjectId: string, observer: Live
   }
 }
 
-function scanRequestPayload(value: unknown, hostProjectId: string, observer: LiveObserver, depth: number): void {
+function isSkippablePayloadObject(value: object): boolean {
+  if (ArrayBuffer.isView(value) || value instanceof ArrayBuffer) return true;
+  if (typeof SharedArrayBuffer === 'function' && value instanceof SharedArrayBuffer) return true;
+  return (
+    value instanceof Date ||
+    value instanceof RegExp ||
+    value instanceof Error ||
+    value instanceof Promise ||
+    value instanceof WeakMap ||
+    value instanceof WeakSet
+  );
+}
+
+function collectObjectKeys(value: object): Set<string> {
+  const keys = new Set<string>();
+  for (const key of Object.getOwnPropertyNames(value)) {
+    if (!SKIPPED_PAYLOAD_KEYS.has(key)) keys.add(key);
+  }
+  let current: object | null = Object.getPrototypeOf(value);
+  while (current !== null && current !== Object.prototype) {
+    for (const key of Object.getOwnPropertyNames(current)) {
+      if (SKIPPED_PAYLOAD_KEYS.has(key) || keys.has(key)) continue;
+      const desc = Object.getOwnPropertyDescriptor(current, key);
+      if (desc === undefined) continue;
+      if (typeof desc.get === 'function' || ('value' in desc && typeof desc.value !== 'function')) {
+        keys.add(key);
+      }
+    }
+    current = Object.getPrototypeOf(current);
+  }
+  return keys;
+}
+
+function scanRequestPayload(
+  value: unknown,
+  hostProjectId: string,
+  observer: LiveObserver,
+  depth: number,
+  seen: Set<object>,
+): void {
   if (depth > MAX_SCAN_DEPTH || value === null || value === undefined) return;
   if (typeof value === 'string') {
     checkResourceString(value, hostProjectId, observer);
     return;
   }
+  if (!isObject(value) || isSkippablePayloadObject(value)) return;
+  if (seen.has(value)) return;
+  seen.add(value);
+
   if (Array.isArray(value)) {
-    for (const item of value) scanRequestPayload(item, hostProjectId, observer, depth + 1);
+    for (const item of value) {
+      scanRequestPayload(item, hostProjectId, observer, depth + 1, seen);
+    }
     return;
   }
-  if (!isObject(value) || Buffer.isBuffer(value) || value instanceof Uint8Array) return;
-  const proto = Object.getPrototypeOf(value);
-  if (proto !== null && proto !== Object.prototype) return;
-  for (const [key, entry] of Object.entries(value)) {
+  if (value instanceof Set) {
+    for (const item of value) {
+      scanRequestPayload(item, hostProjectId, observer, depth + 1, seen);
+    }
+    return;
+  }
+  if (value instanceof Map) {
+    for (const [key, entry] of value.entries()) {
+      if (key === 'databaseId' && typeof entry === 'string' && entry !== '' && entry !== '(default)') {
+        throwNamedDatabaseRefusal(entry, observer);
+      }
+      scanRequestPayload(key, hostProjectId, observer, depth + 1, seen);
+      scanRequestPayload(entry, hostProjectId, observer, depth + 1, seen);
+    }
+    return;
+  }
+
+  for (const key of collectObjectKeys(value)) {
+    let entry: unknown;
+    try {
+      entry = Reflect.get(value, key);
+    } catch {
+      continue;
+    }
+    if (typeof entry === 'function') continue;
     if (key === 'databaseId' && typeof entry === 'string' && entry !== '' && entry !== '(default)') {
       throwNamedDatabaseRefusal(entry, observer);
     }
-    scanRequestPayload(entry, hostProjectId, observer, depth + 1);
+    scanRequestPayload(entry, hostProjectId, observer, depth + 1, seen);
   }
 }
 
@@ -128,7 +195,7 @@ function scanRequestPayload(value: unknown, hostProjectId: string, observer: Liv
 export function assertGapicPayloadAllowed(args: readonly unknown[], observer: LiveObserver): void {
   const hostProjectId = observer.hostProjectId;
   if (hostProjectId === undefined || args.length === 0) return;
-  scanRequestPayload(args[0], hostProjectId, observer, 0);
+  scanRequestPayload(args[0], hostProjectId, observer, 0, new Set<object>());
 }
 
 function gapicAppOf(self: unknown): AdminApp {
@@ -173,7 +240,7 @@ function patchGapicDuplexMethod(
     if (isObservingAdminCall()) return Reflect.apply(real, this, args);
     const self = this;
     let underlying: Duplex | undefined;
-    let openPromise: Promise<Duplex> | undefined;
+    let openPromise: Promise<Duplex | undefined> | undefined;
 
     const proxy = new Duplex({
       objectMode: true,
@@ -190,13 +257,19 @@ function patchGapicDuplexMethod(
           return;
         }
         ensureUnderlying()
-          .then((target) => target.write(chunk, encoding, callback))
+          .then((target) => {
+            if (target === undefined) {
+              callback();
+              return;
+            }
+            target.write(chunk, encoding, callback);
+          })
           .catch((err: unknown) => callback(toError(err)));
       },
       final(callback: (error?: Error | null) => void) {
         ensureUnderlying()
           .then((target) => {
-            target.end();
+            if (target !== undefined) target.end();
             callback();
           })
           .catch((err: unknown) => callback(toError(err)));
@@ -209,10 +282,11 @@ function patchGapicDuplexMethod(
       },
     });
 
-    function ensureUnderlying(): Promise<Duplex> {
+    function ensureUnderlying(): Promise<Duplex | undefined> {
       if (openPromise !== undefined) return openPromise;
-      openPromise = gate(gapicAppOf(self), () =>
-        runInsideAdminCall(() => {
+      openPromise = gate(gapicAppOf(self), () => {
+        if (proxy.destroyed) return undefined;
+        return runInsideAdminCall(() => {
           const created = Reflect.apply(real, self, args);
           underlying = created;
           created.on('data', (item: unknown) => {
@@ -225,8 +299,8 @@ function patchGapicDuplexMethod(
             if (!proxy.destroyed) proxy.destroy(toError(err));
           });
           return created;
-        }),
-      );
+        });
+      });
       return openPromise;
     }
 

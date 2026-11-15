@@ -24,8 +24,18 @@ type Method = (this: unknown, ...args: unknown[]) => unknown;
 
 const DEFAULT_BUCKET = /^(?:gs:\/\/)?([a-z0-9-]+)\.(?:appspot\.com|firebasestorage\.app)\/?$/i;
 const HMAC_BASE_URL_PROJECT = /^\/projects\/([^/]+)\/hmacKeys(?:\/|$)/;
-const URI_BUCKET_SEGMENT = /\/b\/([^/?#]+)/;
+const URI_BUCKET_SEGMENT = /\/b\/([^/?#]+)/g;
+const URI_PROJECTS_SEGMENT = /(?:^|\/)projects\/([^/?#:]+)/g;
+const URI_PROJECT_QUERY = /[?&](?:project|projectId|userProject)=([^&#]+)/gi;
+const URI_BUCKET_QUERY = /[?&](?:bucket|destinationBucket)=([^&#]+)/gi;
+const VIRTUAL_HOST_SUFFIX = '.storage.googleapis.com';
 const UNRESOLVED_PROJECT = '{{projectId}}';
+const MAX_OPTION_SCAN_DEPTH = 4;
+const PROJECT_OPTION_KEYS = ['project', 'projectId', 'userProject'] as const;
+const BUCKET_OPTION_KEYS = ['bucket', 'destinationBucket'] as const;
+const PROJECT_QUERY_KEYS: ReadonlySet<string> = new Set(['project', 'projectid', 'userproject']);
+const BUCKET_QUERY_KEYS: ReadonlySet<string> = new Set(['bucket', 'destinationbucket']);
+const USER_PROJECT_HEADER = 'x-goog-user-project';
 const CALL_CHECKS_PATCHED = Symbol.for('pyric.live.admin.storage.callChecks');
 const UTILS_PATCHED = Symbol.for('pyric.live.admin.storage.firebaseUtils');
 
@@ -33,9 +43,25 @@ function isObject(value: unknown): value is object {
   return typeof value === 'object' && value !== null;
 }
 
+function safeGet(subject: object, field: string): unknown {
+  try {
+    return Reflect.get(subject, field);
+  } catch {
+    return undefined;
+  }
+}
+
+function safeDecode(value: string): string {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
+
 function stringAt(subject: unknown, field: string): string | undefined {
   if (!isObject(subject)) return undefined;
-  const value: unknown = Reflect.get(subject, field);
+  const value: unknown = safeGet(subject, field);
   return typeof value === 'string' ? value : undefined;
 }
 
@@ -82,33 +108,228 @@ export function userProjectOf(self: unknown, bucket: object | undefined): string
   return isResolvedProjectString(fromBucket) ? fromBucket : undefined;
 }
 
-function isPlainOptionsObject(value: unknown): value is Record<string, unknown> {
-  if (!isObject(value) || Array.isArray(value) || Buffer.isBuffer(value) || value instanceof Uint8Array) {
-    return false;
-  }
-  const proto = Object.getPrototypeOf(value);
-  return proto === null || proto === Object.prototype;
+function isSkippableOptionObject(value: object): boolean {
+  if (Array.isArray(value) || ArrayBuffer.isView(value) || value instanceof ArrayBuffer) return true;
+  if (typeof SharedArrayBuffer === 'function' && value instanceof SharedArrayBuffer) return true;
+  return (
+    value instanceof Date ||
+    value instanceof RegExp ||
+    value instanceof Error ||
+    value instanceof Promise ||
+    value instanceof WeakMap ||
+    value instanceof WeakSet ||
+    value instanceof URL
+  );
 }
 
-/** Validates per-call `{ project, projectId, userProject }` option objects against `observer.hostProjectId`. */
+function assertProjectValueAllowed(value: unknown, hostProjectId: string): void {
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (isResolvedProjectString(trimmed) && trimmed !== hostProjectId) {
+      throw liveAdminProjectRefusal({ source: 'options.projectId', appProjectId: trimmed, hostProjectId });
+    }
+    return;
+  }
+  if (Array.isArray(value)) {
+    for (const item of value) assertProjectValueAllowed(item, hostProjectId);
+  }
+}
+
+function assertBucketAllowed(callName: string, bucketName: string | undefined, observer: LiveObserver): void {
+  const refusal = bucketProjectRefusal(callName, bucketName, observer);
+  if (refusal !== null) throw refusal;
+}
+
+function assertBucketValueAllowed(callName: string, value: unknown, observer: LiveObserver): void {
+  if (typeof value === 'string') {
+    assertBucketAllowed(callName, value, observer);
+    return;
+  }
+  if (Array.isArray(value)) {
+    for (const item of value) assertBucketValueAllowed(callName, item, observer);
+  }
+}
+
+function assertStorageUriFallback(callName: string, rawUri: string, observer: LiveObserver, hostProjectId: string): void {
+  for (const match of rawUri.matchAll(URI_BUCKET_SEGMENT)) {
+    const seg = match[1];
+    if (seg !== undefined) assertBucketAllowed(callName, safeDecode(seg), observer);
+  }
+  for (const match of rawUri.matchAll(URI_PROJECTS_SEGMENT)) {
+    const seg = match[1];
+    if (seg !== undefined) assertProjectValueAllowed(safeDecode(seg), hostProjectId);
+  }
+  for (const match of rawUri.matchAll(URI_PROJECT_QUERY)) {
+    const val = match[1];
+    if (val !== undefined) assertProjectValueAllowed(safeDecode(val), hostProjectId);
+  }
+  for (const match of rawUri.matchAll(URI_BUCKET_QUERY)) {
+    const val = match[1];
+    if (val !== undefined) assertBucketAllowed(callName, safeDecode(val), observer);
+  }
+}
+
+function assertStorageUriAllowed(callName: string, rawUri: string, observer: LiveObserver): void {
+  const hostProjectId = observer.hostProjectId;
+  const trimmed = rawUri.trim();
+  if (hostProjectId === undefined || trimmed === '') return;
+
+  let parsed: URL;
+  try {
+    parsed = new URL(trimmed, 'https://storage.pyric.invalid');
+  } catch {
+    assertStorageUriFallback(callName, trimmed, observer, hostProjectId);
+    return;
+  }
+
+  if (parsed.protocol === 'gs:') {
+    assertBucketAllowed(callName, safeDecode(parsed.hostname), observer);
+  }
+
+  const hostLower = parsed.hostname.toLowerCase();
+  if (hostLower.endsWith(VIRTUAL_HOST_SUFFIX)) {
+    const hostBucket = parsed.hostname.slice(0, -VIRTUAL_HOST_SUFFIX.length);
+    assertBucketAllowed(callName, safeDecode(hostBucket), observer);
+  }
+
+  const segments = parsed.pathname.split('/').filter((segment) => segment.length > 0);
+  if (segments.length > 0) {
+    assertBucketAllowed(callName, safeDecode(segments[0] ?? ''), observer);
+  }
+
+  let seenBucket = false;
+  for (let i = 0; i < segments.length; i += 1) {
+    const seg = safeDecode(segments[i] ?? '');
+    const nextSeg = i + 1 < segments.length ? segments[i + 1] : undefined;
+    if (seg === 'b' && nextSeg !== undefined) {
+      seenBucket = true;
+      assertBucketAllowed(callName, safeDecode(nextSeg), observer);
+    } else if (seg === 'projects' && !seenBucket && nextSeg !== undefined) {
+      const decoded = safeDecode(nextSeg);
+      const colon = decoded.indexOf(':');
+      const projectId = colon === -1 ? decoded : decoded.slice(0, colon);
+      assertProjectValueAllowed(projectId, hostProjectId);
+    }
+  }
+
+  for (const [rawKey, rawVal] of parsed.searchParams.entries()) {
+    const key = rawKey.trim().toLowerCase();
+    if (PROJECT_QUERY_KEYS.has(key)) {
+      assertProjectValueAllowed(rawVal, hostProjectId);
+    } else if (BUCKET_QUERY_KEYS.has(key)) {
+      assertBucketAllowed(callName, rawVal, observer);
+    }
+  }
+}
+
+function assertHeadersAllowed(headers: unknown, hostProjectId: string): void {
+  if (!isObject(headers)) return;
+  if (typeof Headers === 'function' && headers instanceof Headers) {
+    assertProjectValueAllowed(headers.get(USER_PROJECT_HEADER), hostProjectId);
+    return;
+  }
+  if (headers instanceof Map) {
+    for (const [key, val] of headers.entries()) {
+      if (typeof key === 'string' && key.trim().toLowerCase() === USER_PROJECT_HEADER) {
+        assertProjectValueAllowed(val, hostProjectId);
+      }
+    }
+    return;
+  }
+  assertProjectValueAllowed(safeGet(headers, USER_PROJECT_HEADER), hostProjectId);
+  for (const key of Object.keys(headers)) {
+    if (key.trim().toLowerCase() === USER_PROJECT_HEADER) {
+      assertProjectValueAllowed(safeGet(headers, key), hostProjectId);
+    }
+  }
+}
+
+function assertUriFieldAllowed(callName: string, raw: unknown, observer: LiveObserver): void {
+  if (typeof raw === 'string') {
+    assertStorageUriAllowed(callName, raw, observer);
+  } else if (raw instanceof URL) {
+    assertStorageUriAllowed(callName, raw.href, observer);
+  }
+}
+
+function scanStorageOptionObject(
+  callName: string,
+  value: unknown,
+  observer: LiveObserver,
+  depth: number,
+  seen: Set<object>,
+): void {
+  const hostProjectId = observer.hostProjectId;
+  if (hostProjectId === undefined || depth > MAX_OPTION_SCAN_DEPTH || !isObject(value)) return;
+
+  if (value instanceof URLSearchParams) {
+    for (const [rawKey, rawVal] of value.entries()) {
+      const key = rawKey.trim().toLowerCase();
+      if (PROJECT_QUERY_KEYS.has(key)) {
+        assertProjectValueAllowed(rawVal, hostProjectId);
+      } else if (BUCKET_QUERY_KEYS.has(key)) {
+        assertBucketAllowed(callName, rawVal, observer);
+      }
+    }
+    return;
+  }
+
+  if (value instanceof Map) {
+    for (const [rawKey, rawVal] of value.entries()) {
+      if (typeof rawKey !== 'string') continue;
+      const key = rawKey.trim().toLowerCase();
+      if (PROJECT_QUERY_KEYS.has(key)) {
+        assertProjectValueAllowed(rawVal, hostProjectId);
+      } else if (BUCKET_QUERY_KEYS.has(key)) {
+        assertBucketValueAllowed(callName, rawVal, observer);
+      } else if (key === 'uri' || key === 'url') {
+        assertUriFieldAllowed(callName, rawVal, observer);
+      }
+    }
+    return;
+  }
+
+  if (isSkippableOptionObject(value) || seen.has(value)) return;
+  seen.add(value);
+
+  for (const key of PROJECT_OPTION_KEYS) {
+    assertProjectValueAllowed(safeGet(value, key), hostProjectId);
+  }
+  for (const key of BUCKET_OPTION_KEYS) {
+    assertBucketValueAllowed(callName, safeGet(value, key), observer);
+  }
+  for (const key of Object.keys(value)) {
+    const lower = key.trim().toLowerCase();
+    if (PROJECT_QUERY_KEYS.has(lower)) {
+      assertProjectValueAllowed(safeGet(value, key), hostProjectId);
+    } else if (BUCKET_QUERY_KEYS.has(lower)) {
+      assertBucketValueAllowed(callName, safeGet(value, key), observer);
+    }
+  }
+  assertUriFieldAllowed(callName, safeGet(value, 'uri'), observer);
+  assertUriFieldAllowed(callName, safeGet(value, 'url'), observer);
+  assertHeadersAllowed(safeGet(value, 'headers'), hostProjectId);
+
+  const qs = safeGet(value, 'qs');
+  if (typeof qs === 'string') {
+    scanStorageOptionObject(callName, new URLSearchParams(qs), observer, depth + 1, seen);
+  } else if (qs !== undefined) {
+    scanStorageOptionObject(callName, qs, observer, depth + 1, seen);
+  }
+  const nestedRequest = safeGet(value, 'request');
+  if (nestedRequest !== undefined) scanStorageOptionObject(callName, nestedRequest, observer, depth + 1, seen);
+}
+
+/** Validates per-call Storage option objects (plain or non-plain), URIs, query params, and headers against `observer.hostProjectId`. */
 export function assertStorageCallOptionsAllowed(
-  _callName: string,
+  callName: string,
   args: readonly unknown[],
   observer: LiveObserver,
 ): void {
-  const hostProjectId = observer.hostProjectId;
-  if (hostProjectId === undefined) return;
+  if (observer.hostProjectId === undefined) return;
+  const seen = new Set<object>();
   for (const arg of args) {
-    if (!isPlainOptionsObject(arg)) continue;
-    for (const key of ['project', 'projectId', 'userProject'] as const) {
-      const val = arg[key];
-      if (typeof val === 'string' && isResolvedProjectString(val) && val !== hostProjectId) {
-        throw liveAdminProjectRefusal({ source: 'options.projectId', appProjectId: val, hostProjectId });
-      }
-    }
-    if (isPlainOptionsObject(arg.qs)) {
-      assertStorageCallOptionsAllowed(_callName, [arg.qs], observer);
-    }
+    scanStorageOptionObject(callName, arg, observer, 0, seen);
   }
 }
 
@@ -223,7 +444,25 @@ export function patchStorageCallChecks(
   Object.defineProperty(prototype, CALL_CHECKS_PATCHED, { value: true });
 }
 
-/** Gates `Service` constructor's own `makeAuthenticatedRequest` property (used by `getDownloadURL`). */
+function authCallbackOf(args: readonly unknown[]): { receiver: unknown; fn: Method } | undefined {
+  const cb = nodeCallbackOf(args);
+  if (cb !== undefined) return { receiver: undefined, fn: cb.callback };
+  const second = args[1];
+  if (!isObject(second)) return undefined;
+  const fn = safeGet(second, 'onAuthenticated');
+  if (typeof fn !== 'function') return undefined;
+  return { receiver: second, fn: fn as Method };
+}
+
+function refusedStream(err: unknown): PassThrough {
+  const proxy = new PassThrough();
+  process.nextTick(() => {
+    if (!proxy.destroyed) proxy.destroy(toError(err));
+  });
+  return proxy;
+}
+
+/** Gates `Service` constructor's own `makeAuthenticatedRequest` property (used by `getDownloadURL`, `request`, and `requestStream`). */
 export function gateMakeAuthenticatedRequest(
   serviceProto: object | undefined,
   gate: AdminProjectGate,
@@ -237,27 +476,36 @@ export function gateMakeAuthenticatedRequest(
 
   const wrapAuthRequest = (owner: object, real: Method): Method =>
     markAdminMethodGated(keepShape(function gatedMakeAuthenticatedRequest(this: unknown, ...args: unknown[]): unknown {
-      if (isObservingAdminCall()) return Reflect.apply(real, this, args);
       const checkUriAndOpts = (): void => {
         assertStorageCallOptionsAllowed('Storage.makeAuthenticatedRequest', args, observer);
-        const uri = stringAt(args[0], 'uri');
-        const uriBucket = uri === undefined ? undefined : URI_BUCKET_SEGMENT.exec(uri)?.[1];
-        const decodedBucket = uriBucket === undefined ? undefined : decodeURIComponent(uriBucket);
-        const refusal = bucketProjectRefusal('firebase-admin/storage', decodedBucket, observer);
-        if (refusal !== null) throw refusal;
       };
 
-      const cb = nodeCallbackOf(args);
-      if (cb !== undefined) {
+      const authCb = authCallbackOf(args);
+
+      // Never skip URI/options enforcement when called reentrantly (e.g. from Service.requestStream / Service.request).
+      if (isObservingAdminCall()) {
+        try {
+          checkUriAndOpts();
+        } catch (err: unknown) {
+          if (authCb !== undefined) {
+            process.nextTick(() => Reflect.apply(authCb.fn, authCb.receiver, [err]));
+            return { abort() {} };
+          }
+          return refusedStream(err);
+        }
+        return Reflect.apply(real, this, args);
+      }
+
+      if (authCb !== undefined) {
         let reached = false;
         gate(appOf(owner), () => {
           checkUriAndOpts();
           reached = true;
           return runInsideAdminCall(() => Reflect.apply(real, this, args));
         }).catch((err: unknown) => {
-          if (!reached) process.nextTick(() => Reflect.apply(cb.callback, undefined, [err]));
+          if (!reached) process.nextTick(() => Reflect.apply(authCb.fn, authCb.receiver, [err]));
         });
-        return undefined;
+        return { abort() {} };
       }
 
       const proxy = new PassThrough();
