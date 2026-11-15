@@ -1,0 +1,12 @@
+{
+  "rules": {
+    "tenants": {
+      "$tenant": {
+        ".write": "auth != null && auth.token.firebase.tenant == $tenant"
+      }
+    },
+    "verified": {
+      ".write": "auth != null && auth.token.email_verified == true"
+    }
+  }
+}

@@ -24,7 +24,6 @@ import {
   getAuth,
   reload,
   sandbox as authSandboxOps,
-  updateEmail,
   updatePassword,
   type Auth,
   type MintedSession,
@@ -49,6 +48,7 @@ import { isPlainRecord, STANDARD_TOKEN_CLAIMS } from '../repro/token-claims.js';
 
 import { linkSessionProvider } from './host/auth-linking.js';
 import { reauthenticateSession } from './host/auth-reauthentication.js';
+import { alignSessionTenant, updatePortSessionEmail } from './host/auth-session-tenant.js';
 import { createStagedSignInResults, type StagedSignInResults } from './host/staged-sign-in-results.js';
 
 // ─── Auth: per-port sessions + port-scoped fan-out ────────────────────────
@@ -165,18 +165,7 @@ function setPortSession(
   session: MintedSession | null,
   options?: { skipResubscribe?: boolean },
 ): void {
-  if (session) {
-    const tenant = session.user.tenantId ?? portTenant(ctx, port);
-    session.state.tenant = tenant ?? undefined;
-    (session.user as { tenantId?: string | null }).tenantId = tenant ?? null;
-    if (tenant && session.state.token) {
-      const firebaseClaim = session.state.token.firebase;
-      const firebaseObj = (typeof firebaseClaim === 'object' && firebaseClaim !== null)
-        ? { ...(firebaseClaim as Record<string, unknown>), tenant }
-        : { tenant };
-      session.state.token = { ...session.state.token, firebase: firebaseObj };
-    }
-  }
+  if (session) alignSessionTenant(session);
   portSessionsFor(ctx).set(port, session);
 
   // Clear cached session handles so they rebuild with the new session/tenant state
@@ -539,13 +528,6 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
         // `customTokenReload`). Keep `session.state.token` and the backend
         // `tokenCache` at the last minted ID token until `getIdToken(true)`.
         await reload(session.user);
-        const tenant = session.user.tenantId ?? portTenant(ctx, port);
-        if (tenant) {
-          session.state.tenant = tenant;
-          if (session.state.token?.firebase && typeof session.state.token.firebase === 'object') {
-            (session.state.token.firebase as { tenant?: string }).tenant = tenant;
-          }
-        }
         const serialized = serializeUser(session.user);
         for (const [subId, target] of authSubsFor(ctx).get(port) ?? []) {
           const isTokenSubscription = target === 'idToken';
@@ -582,11 +564,12 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
       try {
         const session = requirePortSession(portSession(ctx, port), 'updateEmail');
         const email = msg.email ?? msg.newEmail ?? '';
-        await updateEmail(session.user, email);
-        const freshSession = remintSessionWithClaims(auth, session);
-        setPortSession(ctx, port, freshSession);
-        await bestEffortFlush(ctx, msg.method);
-        ok(port, msg.id, serializeUser(freshSession.user));
+        const { session: nextSession, changed } = await updatePortSessionEmail(auth, session, email);
+        if (changed) {
+          setPortSession(ctx, port, nextSession);
+          await bestEffortFlush(ctx, msg.method);
+        }
+        ok(port, msg.id, serializeUser(nextSession.user));
       } catch (e) { fail(port, msg.id, e); }
       break;
     }

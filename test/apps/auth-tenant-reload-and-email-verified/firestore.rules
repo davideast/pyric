@@ -1,0 +1,13 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /tenants/{tenant}/items/{id} {
+      allow read, write: if request.auth != null
+        && request.auth.token.firebase.tenant == tenant;
+    }
+    match /verified/{id} {
+      allow read, write: if request.auth != null
+        && request.auth.token.email_verified == true;
+    }
+  }
+}
