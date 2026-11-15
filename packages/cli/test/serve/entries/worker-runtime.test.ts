@@ -189,90 +189,32 @@ test('an unstamped hosted define fallback without projectKey resolves via init.j
   } finally { realm.dispose(); }
 });
 
-test('a remote-peer hosted marker without projectKey rejects clearly without opening SharedWorker or WebSocket', async () => {
-  const realm = await runtimeRealm({
-    hostedWithoutIdentity: true,
-    sharedWorker: true,
-    pageSdk: true,
-    captureConsoleErrors: true,
-  });
+// Full page SDK realms use node:vm SourceTextModule for entries/runtime.ts top-level await.
+// Run them under Node with --experimental-vm-modules (matching a5-service-worker-sdk-selection.test.ts).
+async function runPageSdkRefusalFixture(mode: 'remote-peer' | 'terminal-http'): Promise<void> {
+  const fixture = new URL('./fixtures/remote-peer-refusal.ts', import.meta.url).pathname;
+  const child = Bun.spawn(
+    [process.env.PYRIC_TEST_NODE ?? 'node', '--experimental-strip-types', '--experimental-vm-modules', fixture, mode],
+    { stdout: 'pipe', stderr: 'pipe' },
+  );
+  const deadline = setTimeout(() => child.kill(), 15_000);
   try {
-    await realm.evaluation;
-    const stopAuth = realm.registerAuth();
-    expect(realm.runtime.useHosted).toBe(true);
-    expect(realm.connections).toEqual([]);
-    const app = realm.sdk.app.initializeApp({ projectId: 'demo-items' });
-    const db = realm.sdk.firestore.getFirestore(app);
-    const pendingRead = realm.sdk.firestore.getDoc(realm.sdk.firestore.doc(db, 'items/a'));
-    realm.respond({ hosted: true, remotePeer: true, bridgeUrl: null });
-    let readError: unknown;
-    try {
-      await pendingRead;
-    } catch (error) {
-      readError = error;
-    }
-    await new Promise(resolve => setTimeout(resolve, 20));
-    stopAuth();
-    const readMessage = errorMessage(readError);
-    expect(readMessage).toContain('This Node host serves project data only to clients on its own machine');
-    expect(realm.connections).toEqual([]);
-    expect(realm.initFetches()).toBe(1);
-    expect(realm.consoleErrors).toHaveLength(1);
-    expect(realm.consoleErrors[0]).toContain('[pyric sandbox] init payload unavailable:');
-    expect(realm.consoleErrors[0]).not.toContain('Uncaught Error in snapshot listener');
-    const status = realm.status() as { errors?: Array<{ message: string }> };
-    expect(status.errors).toHaveLength(1);
-    expect(status.errors?.[0]?.message).toContain('only to clients on its own machine');
-  } finally { realm.dispose(); }
-});
+    const [code, stdout, stderr] = await Promise.all([
+      child.exited,
+      new Response(child.stdout).text(),
+      new Response(child.stderr).text(),
+    ]);
+    expect(code, stdout + stderr).toBe(0);
+  } finally {
+    clearTimeout(deadline);
+    child.kill();
+  }
+}
+
+test('a remote-peer hosted marker without projectKey rejects clearly without opening SharedWorker or WebSocket', async () => {
+  await runPageSdkRefusalFixture('remote-peer');
+}, 20_000);
 
 test('terminal 403 and 401 responses from /__pyric/init.json fail openDeferredHostedDb immediately without retrying', async () => {
-  const cases = [
-    {
-      response: new Response('Forbidden: host not allowed', {
-        status: 403,
-        headers: { 'content-type': 'text/plain' },
-      }),
-      expectedCode: '403',
-      expectedDetail: 'Forbidden: host not allowed',
-    },
-    {
-      response: new Response(JSON.stringify({ error: 'Unauthorized: invalid session' }), {
-        status: 401,
-        headers: { 'content-type': 'application/json' },
-      }),
-      expectedCode: '401',
-      expectedDetail: 'Unauthorized: invalid session',
-    },
-  ];
-  for (const testCase of cases) {
-    const realm = await runtimeRealm({
-      hostedWithoutIdentity: true,
-      sharedWorker: true,
-      pageSdk: true,
-      captureConsoleErrors: true,
-    });
-    try {
-      await realm.evaluation;
-      const app = realm.sdk.app.initializeApp({ projectId: 'demo-items' });
-      const db = realm.sdk.firestore.getFirestore(app);
-      const pendingRead = realm.sdk.firestore.getDoc(realm.sdk.firestore.doc(db, 'items/a'));
-      realm.respondRaw(testCase.response);
-      let readError: unknown;
-      try {
-        await pendingRead;
-      } catch (error) {
-        readError = error;
-      }
-      await new Promise(resolve => setTimeout(resolve, 30));
-      const readMessage = errorMessage(readError);
-      expect(readMessage).toContain(testCase.expectedCode);
-      expect(readMessage).toContain(testCase.expectedDetail);
-      expect(realm.initFetches()).toBe(1);
-      expect(realm.connections).toEqual([]);
-      expect(realm.consoleErrors).toHaveLength(1);
-      const status = realm.status() as { errors?: Array<{ message: string }> };
-      expect(status.errors).toHaveLength(1);
-    } finally { realm.dispose(); }
-  }
-});
+  await runPageSdkRefusalFixture('terminal-http');
+}, 20_000);
