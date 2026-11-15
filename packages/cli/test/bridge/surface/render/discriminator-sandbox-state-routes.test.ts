@@ -64,12 +64,13 @@ describe('the sandbox state routes', () => {
     expect(routeFor(args).translate(args)).toEqual({ name: 'before-cleanup', confirm: true });
   });
 
-  it('carry the cursor, the limit, and the kind an events page takes', () => {
-    const args = { action: 'events', since: 'evt-1', limit: 20, kind: 'denials' };
+  it('carry the cursor, the limit, the kind, and the detail flag an events page takes', () => {
+    const args = { action: 'events', since: 'evt-1', limit: 20, kind: 'denials', detail: true };
     expect(routeFor(args).translate(args)).toEqual({
       since: 'evt-1',
       limit: 20,
       kind: 'denials',
+      detail: true,
     });
   });
 

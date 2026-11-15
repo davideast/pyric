@@ -281,7 +281,7 @@ const ROUTES: Readonly<Record<string, CanonicalRoute>> = {
   },
   list_sandbox_events: {
     key: 'sandbox.events',
-    toMethodArgs: (args) => pick(args, ['since', 'limit', 'kind']),
+    toMethodArgs: (args) => pick(args, ['since', 'limit', 'kind', 'detail']),
   },
   list_sandbox_listeners: {
     key: 'sandbox.listeners',

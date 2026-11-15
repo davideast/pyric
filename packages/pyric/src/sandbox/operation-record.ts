@@ -23,6 +23,14 @@ import type {
   SandboxOperationEvent,
 } from './types/events.js';
 
+import {
+  denialFor,
+  type OperationDenial,
+  type OperationDenialRule,
+} from './operation-denial.js';
+
+export type { OperationDenial, OperationDenialRule };
+
 export interface OperationRecord {
   readonly observation?: import('./types/request-observation.js').RequestObservation;
   readonly id: string;
@@ -35,6 +43,7 @@ export interface OperationRecord {
   readonly result?: RequestEvent['result'] | SandboxOperationEvent['result'] | SandboxListenerEvent['result'];
   readonly context: OperationContext;
   readonly rules: RulesDisposition;
+  readonly denial?: OperationDenial;
   readonly queryProof?: RequestEvent['queryProof'];
   /** What production answered, for a call production served and pyric observed. */
   readonly production?: ObservedProduction;
@@ -132,14 +141,17 @@ export function operationContextFor(
   return resolveOperationContext(undefined, event);
 }
 
-function isPermissionDeniedError(event: OperationEvent): boolean {
-  if (event.result === 'deny') {
+function isPermissionDeniedError(event: SandboxEvent): boolean {
+  if ('result' in event && event.result === 'deny') {
     return true;
   }
-  if (!('error' in event) || !event.error || typeof event.error !== 'object') {
+  if (!('error' in event) || event.error === null || event.error === undefined || typeof event.error !== 'object') {
     return false;
   }
-  const code = (event.error as { code?: unknown }).code;
+  let code: unknown = undefined;
+  if ('code' in event.error) {
+    code = event.error.code;
+  }
   if (typeof code !== 'string') {
     return false;
   }
@@ -289,28 +301,43 @@ export function toOperationRecord(input: SandboxEvent): OperationRecord | null {
   if ('queryProof' in event && event.queryProof) {
     queryProof = immutableValue(event.queryProof) as RequestEvent['queryProof'];
   }
-  return Object.freeze({
-    id: event.kind === 'operation' ? event.observation?.id ?? event.id : event.id,
-    at: event.kind === 'operation' ? event.observation?.startedAt ?? event.at : event.at,
-    ...(event.kind === 'operation' && event.observation ? { observation: event.observation } : {}),
+  const rules = Object.freeze({ ...rulesDispositionFor(event) });
+  const denial = denialFor(event, rules, event.result);
+  let idVal = event.id;
+  let atVal = event.at;
+  if (event.kind === 'operation' && event.observation !== undefined) {
+    idVal = event.observation.id;
+    atVal = event.observation.startedAt;
+  }
+  const record: {
+    -readonly [Key in keyof OperationRecord]: OperationRecord[Key];
+  } = {
+    id: idVal,
+    at: atVal,
     eventKind: event.kind,
     service: serviceVal,
     method: methodVal,
-    ...(pathVal === undefined ? {} : { path: pathVal }),
     auth: immutableAuthState(event.auth),
     result: event.result,
     context: operationContextFor(event),
-    rules: Object.freeze({ ...rulesDispositionFor(event) }),
+    rules,
     queryProof,
-    ...productionOf(event),
-  });
+  };
+  if (event.kind === 'operation' && event.observation !== undefined) {
+    record.observation = event.observation;
+  }
+  if (pathVal !== undefined) record.path = pathVal;
+  if (denial !== undefined) record.denial = denial;
+  const production = productionOf(event);
+  if (production !== undefined) record.production = production;
+  return Object.freeze(record);
 }
 
 /** A frozen copy of production's answer, when the event carries one. */
-function productionOf(event: OperationEvent): { production?: ObservedProduction } {
+function productionOf(event: OperationEvent): ObservedProduction | undefined {
   const production = event.kind === 'operation' ? event.production : undefined;
-  if (production === undefined) return {};
-  return { production: immutableRecord(production as unknown as Record<string, unknown>) as unknown as ObservedProduction };
+  if (production === undefined) return undefined;
+  return immutableRecord(production as unknown as Record<string, unknown>) as unknown as ObservedProduction;
 }
 
 /** The five phases a listener passes through, whatever variant carried it. */
@@ -327,15 +354,26 @@ function listenerPhaseOf(event: SandboxEvent): ListenerPhase | null {
   return null;
 }
 
-/** Only an errored listener met Security Rules; the other phases never did. */
+/** Only an errored listener met Security Rules; non-rules errors stay runtime errors. */
 function listenerRulesDisposition(event: SandboxEvent, phase: ListenerPhase): RulesDisposition {
-  if (phase !== 'errored') return { kind: 'not-evaluated', reason: 'not-a-rules-operation' };
-  return rulesDispositionFor(event as OperationEvent);
+  if (phase !== 'errored') {
+    return { kind: 'not-evaluated', reason: 'not-a-rules-operation' };
+  }
+  if (event.kind === 'listener') {
+    return rulesDispositionFor(event);
+  }
+  if ('rulesDisposition' in event && event.rulesDisposition) {
+    return event.rulesDisposition;
+  }
+  if (isPermissionDeniedError(event)) {
+    return { kind: 'evaluated', verdict: 'deny' };
+  }
+  return { kind: 'not-evaluated', reason: 'runtime-error' };
 }
 
 /** The listener-shaped fields every lifecycle variant carries. */
 interface ListenerShape {
-  target: { kind: string; path?: string };
+  target: { kind: string; path?: string; collection?: string };
   auth: AuthState;
 }
 
@@ -361,12 +399,20 @@ export function toListenerRecord(event: SandboxEvent): OperationRecord | null {
     serviceVal = event.service;
   }
 
+  const rules = Object.freeze({ ...listenerRulesDisposition(event, phase) });
+
   let resultVal: OperationRecord['result'] = undefined;
   if (event.kind === 'listener' && event.result !== undefined) {
     resultVal = event.result;
   } else if (phase === 'errored') {
-    resultVal = 'deny';
+    if (rules.kind === 'evaluated' && rules.verdict === 'deny') {
+      resultVal = 'deny';
+    } else {
+      resultVal = 'error';
+    }
   }
+
+  const denial = denialFor(event, rules, resultVal);
 
   const record: {
     -readonly [Key in keyof OperationRecord]: OperationRecord[Key];
@@ -379,8 +425,15 @@ export function toListenerRecord(event: SandboxEvent): OperationRecord | null {
     auth: immutableAuthState(listener.auth),
     result: resultVal,
     context: operationContextFor(event),
-    rules: Object.freeze(listenerRulesDisposition(event, phase)),
+    rules,
   };
-  if (listener.target.path !== undefined) record.path = listener.target.path;
+  let targetPath: string | undefined = undefined;
+  if (typeof listener.target.path === 'string') {
+    targetPath = listener.target.path;
+  } else if (typeof listener.target.collection === 'string') {
+    targetPath = listener.target.collection;
+  }
+  if (targetPath !== undefined) record.path = targetPath;
+  if (denial !== undefined) record.denial = denial;
   return Object.freeze(record);
 }
