@@ -52,7 +52,7 @@ import { warnDeprecatedGuardEnvOnce } from './deprecated-guard-env.js';
 import { requireRegisterHooks } from './node-version-stop.js';
 import { emitBeacon } from './beacon.js';
 import { installWorkerGuard } from './worker-guard.js';
-import { installChildProcessGuard } from './child-process-guard.js';
+import { installChildProcessGuard, pinInheritedVariables } from './child-process-guard.js';
 import { installRemotePeerMark } from './remote-peer-mark.js';
 import { installProcessHealth, sandboxHost } from './process-health.js';
 import { remoteSandbox } from '../remote/index.js';
@@ -145,25 +145,54 @@ function resolveMapped(mapped: string, context: SyncResolveContext, nextResolve:
 }
 
 /**
+ * Host-binding and launcher variables pinned alongside `PYRIC_SANDBOX` when
+ * `@pyric/cli/register` activates, matching `PROTECTED_LAUNCHER_ENV_KEYS`.
+ */
+const PINNED_SANDBOX_OPTIONAL_KEYS = [
+  'PYRIC_SANDBOX_INSTANCE',
+  'PYRIC_BEACON_TOKEN',
+  'PYRIC_SESSION_TOKEN',
+  'PYRIC_WORKER_INIT',
+  'PYRIC_WORKER_INIT_HOST',
+] as const;
+
+function buildPinnedSandboxEnv(
+  activatedSandbox: string,
+  env: NodeJS.ProcessEnv,
+): Record<string, string> {
+  const pinned: Record<string, string> = { PYRIC_SANDBOX: activatedSandbox };
+  for (const key of PINNED_SANDBOX_OPTIONAL_KEYS) {
+    const value = env[key];
+    if (value !== undefined && value !== '') {
+      pinned[key] = value;
+    }
+  }
+  return pinned;
+}
+
+/**
  * The sync resolve hook. A canonical Firebase specifier maps directly. A
  * Turbopack-renamed one (`firebase-admin-<hash>/app`, #1443) resolves as
  * given first, and maps by its canonical name only when that landed in the
  * real package, so an unrelated package with such a name stays itself.
  */
-const resolveFirebase: SyncResolve = (specifier, context, nextResolve) => {
-  const canonical = canonicalFirebaseSpecifier(specifier);
-  if (canonical === null) {
-    const mapped = mapFirebaseSpecifier(specifier, context.parentURL);
-    if (mapped === null) return nextResolve(specifier, context);
+function createResolveFirebase(activatedSandbox: string): SyncResolve {
+  const mapOptions = { sandbox: activatedSandbox };
+  return (specifier, context, nextResolve) => {
+    const canonical = canonicalFirebaseSpecifier(specifier);
+    if (canonical === null) {
+      const mapped = mapFirebaseSpecifier(specifier, context.parentURL, mapOptions);
+      if (mapped === null) return nextResolve(specifier, context);
+      return resolveMapped(mapped, context, nextResolve);
+    }
+    const renamed = nextResolve(specifier, context);
+    const isRealFirebasePackage = resolvesIntoPackage(renamed.url, canonical);
+    if (!isRealFirebasePackage) return renamed;
+    const mapped = mapFirebaseSpecifier(canonical, context.parentURL, mapOptions);
+    if (mapped === null) return renamed;
     return resolveMapped(mapped, context, nextResolve);
-  }
-  const renamed = nextResolve(specifier, context);
-  const isRealFirebasePackage = resolvesIntoPackage(renamed.url, canonical);
-  if (!isRealFirebasePackage) return renamed;
-  const mapped = mapFirebaseSpecifier(canonical, context.parentURL);
-  if (mapped === null) return renamed;
-  return resolveMapped(mapped, context, nextResolve);
-};
+  };
+}
 
 /**
  * Swap or stop (ADR 0022): a resolve that lands in the real `firebase-admin`,
@@ -187,7 +216,7 @@ function withSwapOrStop(resolve: SyncResolve): SyncResolve {
   };
 }
 
-function activate(): void {
+function activate(activatedSandbox: string): void {
   warnDeprecatedGuardEnvOnce(process.env);
   const registerHooks = requireRegisterHooks(
     moduleApi.registerHooks?.bind(Module),
@@ -195,6 +224,11 @@ function activate(): void {
     process.versions.node,
     (line) => void process.stderr.write(line),
   );
+  const activatedInstance = process.env.PYRIC_SANDBOX_INSTANCE;
+  // Pin the sandbox activator and host-binding variables so mutating or
+  // deleting `process.env` in the parent cannot drop sandbox enforcement in
+  // child processes or worker threads.
+  pinInheritedVariables(buildPinnedSandboxEnv(activatedSandbox, process.env));
   // Built-ins and resolve hooks are per thread: every worker this process
   // starts loads this module too, including the kinds Node starts without
   // running preloads, so the worker gets the swap and the stop.
@@ -208,12 +242,12 @@ function activate(): void {
   // Its servers say this is a sandbox process, so a proxy check can catch a live page in front of it.
   installProcessHealth(() => ({
     mode: 'sandbox',
-    instanceId: process.env.PYRIC_SANDBOX_INSTANCE,
-    host: sandboxHost(process.env.PYRIC_SANDBOX),
+    instanceId: activatedInstance,
+    host: sandboxHost(activatedSandbox),
   }));
 
   registerHooks({
-    resolve: withSwapOrStop(resolveFirebase),
+    resolve: withSwapOrStop(createResolveFirebase(activatedSandbox)),
   });
 
   // The factory global -- exact contract shared with pyric-admin's ambient
@@ -222,13 +256,13 @@ function activate(): void {
   // this project's host. A launcher that sets the url also pins the identity
   // of the host it started, so that url holds from any working directory.
   (globalThis as Record<symbol, unknown>)[SANDBOX_FACTORY] = (opts?: { url?: string }) =>
-    remoteSandbox({ configuredUrl: opts?.url, instanceId: process.env.PYRIC_SANDBOX_INSTANCE });
+    remoteSandbox({ configuredUrl: opts?.url, instanceId: activatedInstance });
 
   installAppCheckVerifier();
 
   process.stderr.write(
     `@pyric/cli/register: active. firebase-admin/firebase imports now resolve to the ` +
-      `pyric sandbox (PYRIC_SANDBOX=${process.env.PYRIC_SANDBOX}).\n`,
+      `pyric sandbox (PYRIC_SANDBOX=${activatedSandbox}).\n`,
   );
 
   // LAST: the handshake beacon, after the hooks and the factory global are all
@@ -238,7 +272,7 @@ function activate(): void {
   emitBeacon({
     pid: process.pid,
     hooks: true,
-    sandbox: process.env.PYRIC_SANDBOX ?? '',
+    sandbox: activatedSandbox,
   });
 }
 
@@ -264,7 +298,8 @@ function installAppCheckVerifier(): void {
  *  refused by the production guard) at the moment this module loaded. */
 export let active = false;
 
-if (process.env.PYRIC_SANDBOX) {
+const activatedSandbox = process.env.PYRIC_SANDBOX;
+if (activatedSandbox) {
   if (isLiveRegisterActive()) {
     // Live mode already resolves Firebase to the installed SDK in this
     // process; a second set of hooks would send it to the sandbox instead.
@@ -279,7 +314,7 @@ if (process.env.PYRIC_SANDBOX) {
         'Set PYRIC_SANDBOX_FORCE=1 to override (dev/CI only).\n',
     );
   } else {
-    activate();
+    activate(activatedSandbox);
     active = true;
     markRegisterActive();
   }

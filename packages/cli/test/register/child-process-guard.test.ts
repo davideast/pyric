@@ -12,6 +12,8 @@ import {
   guardEnvPairs,
   guardSpawnOptions,
   guardSyncArguments,
+  hasForeignRegisterPreload,
+  hasSandboxRegisterAheadOfLive,
   installChildProcessGuard,
   isSandboxParent,
   loadsRegister,
@@ -47,8 +49,9 @@ describe('guardChildEnv', () => {
     expect(env.NODE_OPTIONS).toBe(`--max-old-space-size=4096 ${IMPORT}`);
   });
 
-  it('canonicalizes own bare and filesystem preloads (both --import and -r/--require) while leaving the other Pyric register untouched', () => {
+  it('canonicalizes own bare and filesystem preloads (both --import and -r/--require) and injects active register ahead of foreign preloads without rewriting the foreign specifier', () => {
     const LIVE_URL = 'file:///app/node_modules/@pyric/live/dist/register.js';
+    const LIVE_IMPORT = `--import ${LIVE_URL}`;
     expect(guardChildEnv({ NODE_OPTIONS: IMPORT }, PARENT, REGISTER_URL).NODE_OPTIONS).toBe(IMPORT);
     expect(guardChildEnv({ NODE_OPTIONS: '--import @pyric/cli/register' }, PARENT, REGISTER_URL).NODE_OPTIONS).toBe(
       IMPORT,
@@ -67,15 +70,42 @@ describe('guardChildEnv', () => {
     expect(guardChildEnv({ NODE_OPTIONS: '--require=@pyric/cli/register' }, PARENT, REGISTER_URL).NODE_OPTIONS).toBe(
       IMPORT,
     );
-    // Cross-register isolation: a sandbox parent never rewrites @pyric/live/register, and vice versa.
-    for (const foreign of ['--import @pyric/live/register', `--import ${LIVE_URL}`, '-r @pyric/live/register']) {
-      expect(guardChildEnv({ NODE_OPTIONS: foreign }, PARENT, REGISTER_URL).NODE_OPTIONS).toBe(foreign);
-    }
-    for (const foreign of ['--import @pyric/cli/register', IMPORT, '-r @pyric/cli/register']) {
-      expect(guardChildEnv({ NODE_OPTIONS: foreign }, PARENT, LIVE_URL).NODE_OPTIONS).toBe(foreign);
-    }
-    expect(guardChildEnv({ NODE_OPTIONS: '--import @pyric/live/register' }, PARENT, LIVE_URL).NODE_OPTIONS).toBe(
+    // Foreign register preloads are kept verbatim AND never suppress injecting the active parent register ahead of them.
+    for (const foreign of [
+      '--import @pyric/live/register',
+      '--import=@pyric/live/register',
       `--import ${LIVE_URL}`,
+      '-r @pyric/live/register',
+      '--import /tmp/decoy/packages/live/dist/register/index.js',
+    ]) {
+      expect(guardChildEnv({ NODE_OPTIONS: foreign }, PARENT, REGISTER_URL).NODE_OPTIONS).toBe(`${IMPORT} ${foreign}`);
+    }
+    for (const foreign of [
+      '--import @pyric/cli/register',
+      '--import=@pyric/cli/register',
+      IMPORT,
+      '-r @pyric/cli/register',
+      '--import /tmp/decoy/packages/cli/dist/register/index.js',
+    ]) {
+      expect(guardChildEnv({ NODE_OPTIONS: foreign }, PARENT, LIVE_URL).NODE_OPTIONS).toBe(`${LIVE_IMPORT} ${foreign}`);
+    }
+    // Foreign followed by own still places the active parent register first and deduplicates own.
+    expect(
+      guardChildEnv(
+        { NODE_OPTIONS: '--import @pyric/live/register --import @pyric/cli/register' },
+        PARENT,
+        REGISTER_URL,
+      ).NODE_OPTIONS,
+    ).toBe(`${IMPORT} --import @pyric/live/register`);
+    expect(
+      guardChildEnv(
+        { NODE_OPTIONS: '--import @pyric/cli/register --import @pyric/live/register' },
+        PARENT,
+        LIVE_URL,
+      ).NODE_OPTIONS,
+    ).toBe(`${LIVE_IMPORT} --import @pyric/cli/register`);
+    expect(guardChildEnv({ NODE_OPTIONS: '--import @pyric/live/register' }, PARENT, LIVE_URL).NODE_OPTIONS).toBe(
+      LIVE_IMPORT,
     );
     expect(
       guardChildEnv(
@@ -86,7 +116,8 @@ describe('guardChildEnv', () => {
     ).toBe(`--import file:///app/custom-register.mjs ${IMPORT}`);
   });
 
-  it('recognizes file URLs, filesystem paths, bare package names, and -r/--require in loadsRegister without matching unrelated *register* preloads', () => {
+  it('recognizes only the active register in loadsRegister and distinguishes foreign preloads and preload order', () => {
+    const LIVE_URL = 'file:///app/node_modules/@pyric/live/dist/register.js';
     expect(loadsRegister(IMPORT, REGISTER_URL)).toBe(true);
     expect(loadsRegister('--import=/app/node_modules/@pyric/cli/dist/register/index.js', REGISTER_URL)).toBe(true);
     expect(loadsRegister('--import "/app/node_modules/@pyric/cli/dist/register/index.js"', REGISTER_URL)).toBe(true);
@@ -94,10 +125,44 @@ describe('guardChildEnv', () => {
     expect(loadsRegister('-r @pyric/cli/register', REGISTER_URL)).toBe(true);
     expect(loadsRegister('--require /app/node_modules/@pyric/cli/dist/register/index.js', REGISTER_URL)).toBe(true);
     expect(loadsRegister('--require=/app/node_modules/@pyric/cli/dist/register/index.js', REGISTER_URL)).toBe(true);
-    expect(loadsRegister('--import @pyric/live/register', REGISTER_URL)).toBe(true);
+    // Foreign registers and unverified decoys never satisfy loadsRegister for the active register.
+    expect(loadsRegister('--import @pyric/live/register', REGISTER_URL)).toBe(false);
+    expect(loadsRegister(`--import ${LIVE_URL}`, REGISTER_URL)).toBe(false);
+    expect(loadsRegister('--import /tmp/decoy/packages/live/dist/register/index.js', REGISTER_URL)).toBe(false);
+    expect(loadsRegister('--import /tmp/decoy/packages/cli/dist/register/index.js', REGISTER_URL)).toBe(false);
+    expect(loadsRegister('--import @pyric/cli/register', LIVE_URL)).toBe(false);
+    expect(loadsRegister('--import @pyric/live/register', LIVE_URL)).toBe(true);
     expect(loadsRegister('--import file:///app/custom-register.mjs', REGISTER_URL)).toBe(false);
     expect(loadsRegister('--import tsx/register', REGISTER_URL)).toBe(false);
     expect(loadsRegister('-r tsx/cjs', REGISTER_URL)).toBe(false);
+
+    expect(hasForeignRegisterPreload('--import @pyric/live/register', REGISTER_URL)).toBe(true);
+    expect(hasForeignRegisterPreload('-r /app/node_modules/@pyric/live/dist/register-eval-worker.js', REGISTER_URL)).toBe(true);
+    expect(hasForeignRegisterPreload('--import @pyric/cli/register', LIVE_URL)).toBe(true);
+    expect(hasForeignRegisterPreload('--import @pyric/cli/register', REGISTER_URL)).toBe(false);
+    expect(hasForeignRegisterPreload('--import file:///app/custom-register.mjs', REGISTER_URL)).toBe(false);
+
+    expect(
+      hasSandboxRegisterAheadOfLive(
+        `${IMPORT} -r /app/node_modules/@pyric/live/dist/register-eval-worker.js`,
+        [],
+        REGISTER_URL,
+      ),
+    ).toBe(true);
+    expect(
+      hasSandboxRegisterAheadOfLive(
+        `--import ${LIVE_URL} --import @pyric/cli/register`,
+        [],
+        REGISTER_URL,
+      ),
+    ).toBe(false);
+    expect(
+      hasSandboxRegisterAheadOfLive(
+        '',
+        ['--import', REGISTER_URL, '-r', '/app/node_modules/@pyric/live/dist/register-eval-worker.js'],
+        REGISTER_URL,
+      ),
+    ).toBe(true);
   });
 
   it('keeps a PYRIC_ variable the caller set, and fills one set empty', () => {

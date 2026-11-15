@@ -67,7 +67,7 @@ export function clearPinnedInheritedVariables(): void {
 const TWO_TOKEN_PRELOAD_FLAGS = new Set(['--import', '--require', '-r']);
 const ATTACHED_PRELOAD_PREFIXES = ['--import=', '--require=', '-r='] as const;
 const PYRIC_REGISTER_PATH_RE =
-  /(?:^|[\\/])(?:@pyric[\\/](?:cli|live)|packages[\\/](?:cli|live))[\\/](?:dist|src)[\\/]register(?:[\\/]index)?\.[cm]?[jt]s$/;
+  /(?:^|[\\/])(?:@pyric[\\/](?:cli|live)|packages[\\/](?:cli|live))[\\/](?:dist|src)[\\/]register(?:[\\/]index|-eval-worker)?\.[cm]?[jt]s(?:[?#].*)?$/;
 
 interface NodeOptionWord {
   readonly value: string;
@@ -173,29 +173,79 @@ function tokenizeNodeOptions(nodeOptions: string): NodeOptionWord[] {
   return words;
 }
 
-function isAnyPyricRegister(specifier: string, registerUrl: string): boolean {
-  return matchesRegisterSpecifier(specifier, registerUrl) || isForeignRegisterSpecifier(specifier, registerUrl);
-}
-
-/**
- * Whether `nodeOptions` already loads a Pyric register (`--import` or `-r`/`--require`,
- * by URL, filesystem path, or package name).
- */
-export function loadsRegister(nodeOptions: string, registerUrl: string): boolean {
+function matchesNodeOptionPreload(
+  nodeOptions: string,
+  predicate: (specifier: string) => boolean,
+): boolean {
   const words = tokenizeNodeOptions(nodeOptions);
   for (let i = 0; i < words.length; i++) {
-    const word = words[i]!.value;
+    const current = words[i];
+    if (current === undefined) continue;
+    const word = current.value;
     if (TWO_TOKEN_PRELOAD_FLAGS.has(word) && i + 1 < words.length) {
-      if (isAnyPyricRegister(words[i + 1]!.value, registerUrl)) return true;
+      const next = words[i + 1];
+      if (next !== undefined && predicate(next.value)) return true;
       i++;
       continue;
     }
     const attached = attachedPreloadSpecifier(word);
-    if (attached !== null && isAnyPyricRegister(attached.target, registerUrl)) {
+    if (attached !== null && predicate(attached.target)) {
       return true;
     }
   }
   return false;
+}
+
+/**
+ * Whether `nodeOptions` already loads the active Pyric register at `registerUrl`
+ * (`--import` or `-r`/`--require`, by URL, filesystem path, or matching package
+ * name). Foreign register specifiers and unverified decoy paths return `false`.
+ */
+export function loadsRegister(nodeOptions: string, registerUrl: string): boolean {
+  return matchesNodeOptionPreload(nodeOptions, (specifier) => matchesRegisterSpecifier(specifier, registerUrl));
+}
+
+/**
+ * Whether `nodeOptions` carries a preload naming the other Pyric register
+ * (for example `@pyric/cli/register` when live is active, or `@pyric/live/register`
+ * when sandbox is active).
+ */
+export function hasForeignRegisterPreload(nodeOptions: string, registerUrl: string): boolean {
+  return matchesNodeOptionPreload(nodeOptions, (specifier) => isForeignRegisterSpecifier(specifier, registerUrl));
+}
+
+function firstPyricRegisterKind(tokens: readonly string[], cliRegisterUrl: string): 'cli' | 'live' | null {
+  for (let i = 0; i < tokens.length; i++) {
+    const word = tokens[i];
+    if (word === undefined) continue;
+    let target: string | null = null;
+    if (TWO_TOKEN_PRELOAD_FLAGS.has(word) && i + 1 < tokens.length) {
+      target = tokens[i + 1] ?? null;
+      i++;
+    } else {
+      const attached = attachedPreloadSpecifier(word);
+      if (attached !== null) target = attached.target;
+    }
+    if (target === null) continue;
+    if (matchesRegisterSpecifier(target, cliRegisterUrl)) return 'cli';
+    if (isForeignRegisterSpecifier(target, cliRegisterUrl)) return 'live';
+  }
+  return null;
+}
+
+/**
+ * Whether `nodeOptions` or `execArgv` schedules the sandbox register
+ * (`cliRegisterUrl`) ahead of any live register preload.
+ */
+export function hasSandboxRegisterAheadOfLive(
+  nodeOptions: string,
+  execArgv: readonly string[],
+  cliRegisterUrl: string,
+): boolean {
+  const nodeOptionTokens = tokenizeNodeOptions(nodeOptions).map((word) => word.value);
+  const nodeOptionKind = firstPyricRegisterKind(nodeOptionTokens, cliRegisterUrl);
+  if (nodeOptionKind !== null) return nodeOptionKind === 'cli';
+  return firstPyricRegisterKind(execArgv, cliRegisterUrl) === 'cli';
 }
 
 function rewritePreloadTokens(
@@ -205,18 +255,22 @@ function rewritePreloadTokens(
   const out: unknown[] = [];
   let foundRegister = false;
   for (let i = 0; i < items.length; i++) {
-    const item = items[i]!;
+    const item = items[i];
+    if (item === undefined) continue;
+    const nextItem = items[i + 1];
     if (
       typeof item.value === 'string' &&
       TWO_TOKEN_PRELOAD_FLAGS.has(item.value) &&
-      i + 1 < items.length &&
-      typeof items[i + 1]!.value === 'string'
+      nextItem !== undefined &&
+      typeof nextItem.value === 'string'
     ) {
-      const nextItem = items[i + 1]!;
-      const target = nextItem.value as string;
+      const target = nextItem.value;
       if (isForeignRegisterSpecifier(target, registerUrl)) {
+        if (!foundRegister) {
+          out.push('--import', registerUrl);
+          foundRegister = true;
+        }
         out.push(item.raw, nextItem.raw);
-        foundRegister = true;
         i++;
         continue;
       }
@@ -236,8 +290,11 @@ function rewritePreloadTokens(
       const attached = attachedPreloadSpecifier(item.value);
       if (attached !== null) {
         if (isForeignRegisterSpecifier(attached.target, registerUrl)) {
+          if (!foundRegister) {
+            out.push('--import', registerUrl);
+            foundRegister = true;
+          }
           out.push(item.raw);
-          foundRegister = true;
           continue;
         }
         if (matchesRegisterSpecifier(attached.target, registerUrl)) {
@@ -261,7 +318,8 @@ function rewritePreloadTokens(
 /**
  * Ensure `nodeOptions` loads `registerUrl` via its canonical `file:` URL,
  * rewriting matching bare or filesystem-path register preloads (`--import` and
- * `-r`/`--require`) in place while leaving the other Pyric register and all user
+ * `-r`/`--require`) in place, injecting `registerUrl` ahead of any foreign Pyric
+ * register preload without rewriting the foreign specifier, and leaving all user
  * options untouched.
  */
 export function withCanonicalRegisterNodeOptions(nodeOptions: string, registerUrl: string): string {

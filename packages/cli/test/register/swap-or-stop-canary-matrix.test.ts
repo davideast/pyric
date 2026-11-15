@@ -417,9 +417,9 @@ describe('Swap-or-Stop standing guard canary matrix', () => {
     expect(canonicalOptions).toContain(`--import ${userPreload}`);
     expect(canonicalOptions).toContain(`--import ${registerDistUrl}`);
 
-    // Cross-register isolation
+    // Cross-register isolation: keep foreign register intact while still injecting active parent register first.
     expect(withCanonicalRegisterNodeOptions('--import @pyric/live/register', registerDistUrl)).toBe(
-      '--import @pyric/live/register',
+      `--import ${registerDistUrl} --import @pyric/live/register`,
     );
 
     const canonicalArgv = withCanonicalRegisterExecArgv(
