@@ -65,6 +65,33 @@ describe('probeHostUrlAnswer', () => {
     const url = await serve(answersHealth(200, JSON.stringify({ status: 'ok' })));
     expect(await probeHostUrlAnswer(url)).toEqual({ kind: 'not-a-host', base: url });
   });
+
+  it('reports HTTP 403 as host-refused with plain-text, JSON, or empty reply details', async () => {
+    const plain = await serve(
+      answersHealth(403, "pyric sandbox: refused request for Host '0.0.0.0:4330'.", 'text/plain'),
+    );
+    expect(await probeHostUrlAnswer(plain)).toEqual({
+      kind: 'host-refused',
+      base: plain,
+      detail: "pyric sandbox: refused request for Host '0.0.0.0:4330'.",
+    });
+
+    const json = await serve(
+      answersHealth(403, JSON.stringify({ error: 'Forbidden: this route answers clients on this machine only' })),
+    );
+    expect(await probeHostUrlAnswer(json)).toEqual({
+      kind: 'host-refused',
+      base: json,
+      detail: 'Forbidden: this route answers clients on this machine only',
+    });
+
+    const empty = await serve(answersHealth(403, '', 'text/plain'));
+    expect(await probeHostUrlAnswer(empty)).toEqual({
+      kind: 'host-refused',
+      base: empty,
+      detail: '',
+    });
+  });
 });
 
 describe('servesViteClient', () => {

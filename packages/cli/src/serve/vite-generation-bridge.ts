@@ -9,6 +9,7 @@ import type {
   BridgeMountOptions,
   BridgeOrigin,
 } from './bridge-mount.js';
+import { advertisedHost } from './advertised-host.js';
 import { servesHttps } from './vite-https.js';
 
 function resolveAllowedHosts(allowedHosts: true | string[] | undefined): true | string[] {
@@ -62,8 +63,9 @@ export function attachViteGenerationBridge(input: {
   const { server, projectDir, bridge } = input;
   if (!bridge || !server.httpServer) return null;
   const httpServer = server.httpServer as unknown as HttpServer;
-  const host =
-    (typeof server.config.server.host === 'string' && server.config.server.host) || 'localhost';
+  const configuredHost = server.config.server.host;
+  const rawHost = typeof configuredHost === 'string' && configuredHost.length > 0 ? configuredHost : 'localhost';
+  const host = advertisedHost(rawHost);
   const secure = servesHttps(server);
   const origin = (): BridgeOrigin | null => {
     const address = httpServer.address();

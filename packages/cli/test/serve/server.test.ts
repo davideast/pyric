@@ -25,8 +25,11 @@ describe('loopback host binding', () => {
     expect(loopbackHosts('localhost')).toEqual(['127.0.0.1', '::1']);
   });
 
-  it('binds an explicit host only to itself', () => {
+  it('binds an explicit host only to itself and unwraps bracketed IPv6 literals', () => {
     expect(loopbackHosts('0.0.0.0')).toEqual(['0.0.0.0']);
+    expect(loopbackHosts('::')).toEqual(['::']);
+    expect(loopbackHosts('[::]')).toEqual(['::']);
+    expect(loopbackHosts('[::1]')).toEqual(['::1']);
     expect(loopbackHosts('192.168.1.5')).toEqual(['192.168.1.5']);
     expect(loopbackHosts('127.0.0.1')).toEqual(['127.0.0.1']);
   });

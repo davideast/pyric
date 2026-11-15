@@ -19,6 +19,7 @@ import {
   uncaughtErrorLine,
 } from '../functions/http/report.js';
 import type { HostingRewrite } from '../functions/http/rewrites.js';
+import { formatUrlHost } from './advertised-host.js';
 import type { BridgeMount } from './bridge-mount.js';
 
 type ConnectHandler = (req: IncomingMessage, res: ServerResponse, next: (error?: unknown) => void) => void;
@@ -198,10 +199,11 @@ export function attachViteFunctionsDevelopment(
     }, next);
   });
 
+  const urlHost = formatUrlHost(host);
   const serveUrl = (): string | null => {
     const address = httpServer.address();
     const port = address && typeof address === 'object' ? address.port : 0;
-    return port > 0 ? `http://${host}:${port}` : null;
+    return port > 0 ? `http://${urlHost}:${port}` : null;
   };
 
   const retryQueued = (): void => {
@@ -218,7 +220,7 @@ export function attachViteFunctionsDevelopment(
     starting = activeRuntime.start();
     void starting.then(result => {
       running = result.kind === 'ready';
-      const url = serveUrl() ?? `http://${host}:0`;
+      const url = serveUrl() ?? `http://${urlHost}:0`;
       gateway.update(stateAfterStart(result, url));
       const shouldReport = !closed;
       if (shouldReport) reportResult(options, result, 'initial', url, warnPrivateInvokers);
@@ -276,7 +278,7 @@ export function attachViteFunctionsDevelopment(
       reportedReload = transition;
       void transition.then((result) => {
         running = result.kind === 'ready';
-        const url = serveUrl() ?? `http://${host}:0`;
+        const url = serveUrl() ?? `http://${urlHost}:0`;
         gateway.update(stateAfterStart(result, url));
         if (!closed) reportResult(options, result, 'reload', url, warnPrivateInvokers);
       }).finally(() => {

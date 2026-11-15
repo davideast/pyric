@@ -1,4 +1,5 @@
 import { boundedRequest, type BoundedResponse } from '../bounded-request.js';
+import { formatUrlHost } from './advertised-host.js';
 
 /** Ports probed when the pointer is absent -- serve's default scan window PLUS
  *  the standard Vite dev ports (5173-5177), which the plain 3473+ window would miss
@@ -47,10 +48,26 @@ const HEALTH_PROBE_DEADLINE_MS = 1000;
 type HealthAnswer =
   | { readonly kind: 'sandbox'; readonly health: HealthLite }
   | { readonly kind: 'no-answer' }
+  | { readonly kind: 'forbidden'; readonly detail: string }
   | { readonly kind: 'other' };
 
 const NO_HEALTH_ANSWER: HealthAnswer = { kind: 'no-answer' };
 const OTHER_HEALTH_ANSWER: HealthAnswer = { kind: 'other' };
+
+/** Single-line summary from a 403 refusal body, if the host included one. */
+function forbiddenDetailOf(response: BoundedResponse): string {
+  const text = response.body.toString('utf8').trim();
+  if (text === '') return '';
+  try {
+    const parsed: unknown = JSON.parse(text);
+    if (typeof parsed === 'object' && parsed !== null && 'error' in parsed && typeof parsed.error === 'string') {
+      return parsed.error.replace(/\s+/g, ' ').trim().slice(0, 240);
+    }
+  } catch {
+    // Plain-text refusal body (for example, the Host guard reply).
+  }
+  return text.replace(/\s+/g, ' ').slice(0, 240);
+}
 
 /** The health reply in a response, or `null` when the response is not one. */
 function sandboxHealthOf(response: BoundedResponse): HealthLite | null {
@@ -77,6 +94,8 @@ async function healthAnswer(base: string): Promise<HealthAnswer> {
   if (response === null) return NO_HEALTH_ANSWER;
   const isClosingHost = response.status === 503;
   if (isClosingHost) return NO_HEALTH_ANSWER;
+  const isForbidden = response.status === 403;
+  if (isForbidden) return { kind: 'forbidden', detail: forbiddenDetailOf(response) };
   const health = sandboxHealthOf(response);
   if (health === null) return OTHER_HEALTH_ANSWER;
   return { kind: 'sandbox', health };
@@ -142,7 +161,9 @@ export function canonicalServeUrl(port: number, pointerUrl?: string): string {
     try {
       const u = new URL(pointerUrl);
       if (u.protocol === 'http:' || u.protocol === 'https:') {
-        return `${u.protocol}//${u.host}`;
+        const host = formatUrlHost(u.hostname);
+        const portSuffix = u.port === '' ? '' : `:${u.port}`;
+        return `${u.protocol}//${host}${portSuffix}`;
       }
     } catch {
       /* malformed pointer url -- fall through to the localhost default */
@@ -155,12 +176,13 @@ export const LOOPBACK_HOSTNAMES = new Set(['localhost', '127.0.0.1', '[::1]']);
 
 /**
  * What an explicit host URL's health probe found: a sandbox host; no answer,
- * which is worth waiting for; or a server that answers but is not a sandbox
- * host, which waiting will not change.
+ * which is worth waiting for; a 403 Host-guard or peer refusal; or a server
+ * that answers but is not a sandbox host, which waiting will not change.
  */
 export type HostUrlAnswer =
   | { readonly kind: 'host'; readonly host: AnsweringHost }
   | { readonly kind: 'no-answer' }
+  | { readonly kind: 'host-refused'; readonly base: string; readonly detail: string }
   | { readonly kind: 'not-a-host'; readonly base: string };
 
 const NO_HOST_URL_ANSWER: HostUrlAnswer = { kind: 'no-answer' };
@@ -191,14 +213,21 @@ function basesForHostUrl(url: string): string[] {
 
 /** Health-probe an explicit host URL on each of its bases; a sandbox host on any base wins. */
 export async function probeHostUrlAnswer(url: string): Promise<HostUrlAnswer> {
+  let refused: { base: string; detail: string } | null = null;
   let notHostBase: string | null = null;
   for (const base of basesForHostUrl(url)) {
     const answer = await healthAnswer(base);
     if (answer.kind === 'sandbox') {
       return { kind: 'host', host: { base, instanceId: answer.health.instanceId ?? null } };
     }
-    const isOtherServer = answer.kind === 'other';
-    if (isOtherServer) notHostBase ??= base;
+    if (answer.kind === 'forbidden') {
+      refused ??= { base, detail: answer.detail };
+    } else if (answer.kind === 'other') {
+      notHostBase ??= base;
+    }
+  }
+  if (refused !== null) {
+    return { kind: 'host-refused', base: refused.base, detail: refused.detail };
   }
   if (notHostBase === null) return NO_HOST_URL_ANSWER;
   return { kind: 'not-a-host', base: notHostBase };

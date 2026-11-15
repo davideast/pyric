@@ -29,6 +29,7 @@ import { SHELL_OPERATORS } from './unsupported-runtime.js';
 
 export { formatShellCommand };
 import { boundedFetch } from '../bounded-request.js';
+import { advertisedUrl } from '../serve/advertised-host.js';
 import type { WorkerInitPayload } from '../serve/init-payload.js';
 
 // ─── First-run race guard ───────────────────────────────────────────────────
@@ -279,13 +280,15 @@ export function buildChildEnv(
  * The activator printed for copying is bare `remote`: the client finds the
  * running host through the project's `.pyric/serve.json`, so the line keeps
  * working when the host takes another port or the project moves to another
- * machine. The explicit url is named only for the case discovery cannot
- * cover, a command started outside this project directory.
+ * machine. From another directory without `.pyric/serve.json`, `pyric run
+ * --sandbox <url> -- <command>` probes the host and injects its instance
+ * identity alongside the activator.
  *
  * Only the spawned-child environment receives the beacon secret. Printed
  * output is safe to share; independently started commands still intercept.
  */
 export function formatStartupEnvExport(opts: ChildActivation): string {
+  const serveUrl = advertisedUrl(opts.serveUrl);
   const lines = ['export PYRIC_SANDBOX=remote'];
   lines.push(`export NODE_OPTIONS="--import ${opts.registerUrl}"`);
   const width = Math.max(...lines.map((line) => line.length));
@@ -298,7 +301,7 @@ export function formatStartupEnvExport(opts: ChildActivation): string {
     body +
     `  ${divider}\n` +
     '  PYRIC_SANDBOX=remote finds this host through .pyric/serve.json from this project directory.\n' +
-    `  From another directory on this machine, set PYRIC_SANDBOX=remote:${opts.serveUrl} instead.\n` +
+    `  From another directory on this machine, run \`pyric run --sandbox ${serveUrl} -- <command>\` instead.\n` +
     '  Automatic interception confirmation requires launching the command through pyric.\n'
   );
 }

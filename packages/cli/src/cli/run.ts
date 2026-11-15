@@ -113,6 +113,28 @@ export function notAHostMessage(hostUrl: string, isVite: boolean, viteConfig: st
   );
 }
 
+/**
+ * The refusal for a URL whose host answered HTTP 403 to `/__pyric/health`
+ * (for example, a wildcard or non-loopback `Host` header blocked by the
+ * DNS-rebinding guard).
+ */
+export function hostRefusedMessage(hostUrl: string, detail: string): string {
+  let suggested = 'http://localhost:<port>';
+  try {
+    const parsed = new URL(hostUrl);
+    const portSuffix = parsed.port === '' ? '' : `:${parsed.port}`;
+    suggested = `${parsed.protocol}//localhost${portSuffix}`;
+  } catch {
+    // Keep the placeholder when hostUrl cannot be parsed.
+  }
+  const detailLine = detail.length > 0 ? `  Server reply: ${detail}\n` : '';
+  return (
+    `pyric run: ${hostUrl} refused the request (HTTP 403): the host rejected the Host header or client address.\n` +
+    detailLine +
+    `  Use a loopback URL such as ${suggested} on the host machine (or forward the port over SSH).\n`
+  );
+}
+
 export function liveHostRefusalMessage(hostUrl: string): string {
   return (
     `pyric run: the host at ${hostUrl} is a live host, not a sandbox host, so it cannot run this command in sandbox mode.\n` +
@@ -167,6 +189,10 @@ export async function runRun(parsed: ParsedArgs): Promise<number> {
     if (answer === null) {
       const waited = invocation.waitMs > 0 ? ` after waiting ${invocation.waitMs / 1000}s` : '';
       process.stderr.write(`pyric run: no sandbox host answers at ${hostUrl}/__pyric/health${waited}.\n`);
+      return 2;
+    }
+    if (answer.kind === 'host-refused') {
+      process.stderr.write(hostRefusedMessage(hostUrl, answer.detail));
       return 2;
     }
     if (answer.kind === 'not-a-host') {

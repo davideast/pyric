@@ -424,4 +424,22 @@ describe('Vite sandbox generation project', () => {
   it('falls back to .firebaserc projects.default', async () => {
     expect((await sessionProject({ functions: false })).session?.projectId).toBe('rc-default');
   });
+
+  it('normalizes wildcard server.host to localhost in bridgeUrl while keeping raw boundHost for security guards', async () => {
+    for (const wildcardHost of ['0.0.0.0', '::', '[::]']) {
+      const h = harness();
+      h.input.server.config.server.host = wildcardHost;
+      let captured: SandboxSessionOptions | undefined;
+      const create = h.dependencies.createSession;
+      h.dependencies.createSession = async (sessionOptions) => {
+        captured = sessionOptions;
+        if (!create) throw new Error('missing createSession stub');
+        return create(sessionOptions);
+      };
+      const generation = await createViteSandboxGeneration(h.input, h.dependencies);
+      expect(captured?.boundHost).toBe(wildcardHost);
+      expect(captured?.bridgeUrl?.()).toBe('ws://localhost:5173/__pyric/sandbox');
+      await generation.close();
+    }
+  });
 });
