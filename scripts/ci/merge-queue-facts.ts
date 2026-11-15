@@ -28,9 +28,13 @@ const WATCHED_ON_MAIN: ReadonlyArray<{ file: string; name: string }> = [
 export interface QueueIo {
   repo: string;
   gh: (args: string[]) => string;
-  /** Optional `gh` runner backed by a token with `checks: read` (such as
-   *  `github.token`) for `commits/<sha>/check-runs`, which fine-grained PATs
-   *  cannot read. Defaults to `gh` when omitted. */
+  /** Optional `gh` runner backed by the workflow's `github.token` (`checks: read`,
+   *  `issues: write`, and its own repo-scoped rate limit) for read-only GitHub
+   *  API queries, issue comments, and queue label removals. Defaults to `gh`
+   *  when omitted. */
+  ghWorkflow?: (args: string[]) => string;
+  /** Legacy checks-only fallback for `commits/<sha>/check-runs` when
+   *  `ghWorkflow` is omitted. Defaults to `gh` when both are omitted. */
   ghChecks?: (args: string[]) => string;
   git: (args: string[]) => string;
   log: (text: string) => void;
@@ -72,12 +76,31 @@ interface WorkflowRunItem {
   actor?: { login?: string } | null;
 }
 
+export function resolveWorkflowToken(env: Record<string, string | undefined>): string | undefined {
+  const workflowToken = env.GH_WORKFLOW_TOKEN;
+  if (workflowToken) return workflowToken;
+  const legacyChecksToken = env.GH_CHECKS_TOKEN;
+  if (legacyChecksToken) return legacyChecksToken;
+  return undefined;
+}
+
+export function workflowGh(io: QueueIo): (args: string[]) => string {
+  if (io.ghWorkflow !== undefined) return io.ghWorkflow;
+  return io.gh;
+}
+
+function checksGh(io: QueueIo): (args: string[]) => string {
+  if (io.ghWorkflow !== undefined) return io.ghWorkflow;
+  if (io.ghChecks !== undefined) return io.ghChecks;
+  return io.gh;
+}
+
 function apiGetWith<T>(run: (args: string[]) => string, repo: string, path: string): T {
   return JSON.parse(run(['api', `repos/${repo}/${path}`])) as T;
 }
 
 export function apiGet<T>(io: QueueIo, path: string): T {
-  return apiGetWith<T>(io.gh, io.repo, path);
+  return apiGetWith<T>(workflowGh(io), io.repo, path);
 }
 
 export function mainHeadSha(io: QueueIo): string {
@@ -108,7 +131,7 @@ export function pullChangedPaths(io: QueueIo, prNumber: number): string[] {
 function latestRequiredCheck(io: QueueIo, sha: string): { state: CheckState; conclusion: string | null } {
   const encoded = encodeURIComponent(REQUIRED_CHECK);
   const response = apiGetWith<{ check_runs: CheckRunItem[] }>(
-    io.ghChecks ?? io.gh,
+    checksGh(io),
     io.repo,
     `commits/${sha}/check-runs?check_name=${encoded}&filter=latest`,
   );

@@ -30,10 +30,11 @@
 #      `main`, stages and lands revert pull requests only.
 #
 # Optional: set `secrets.MERGE_QUEUE_TOKEN` (fine-grained PAT scoped to this
-# repository with `Actions`, `Contents`, `Issues`, and `Pull requests` set to
-# Read and write; `Checks` reads use `github.token` because fine-grained PATs
-# do not offer a `Checks` permission) so landings trigger native `on: push`
-# events on `main` directly instead of `workflow_dispatch`.
+# repository with `Actions`, `Contents`, and `Pull requests` set to Read and
+# write; read-only API queries, `Checks` reads, issue comments, and queue label
+# removals use `github.token`, so `Issues` and `Checks` permissions are not
+# required on the PAT) so landings trigger native `on: push` events on `main`
+# directly instead of `workflow_dispatch`.
 # `secrets.MERQUE_QUEUE_TOKEN` is temporarily accepted as a fallback alias
 # until the token is rotated.
 
@@ -96,7 +97,7 @@ jobs:
       - name: Advance the queue
         env:
           GH_TOKEN: ${{ secrets.MERGE_QUEUE_TOKEN || secrets.MERQUE_QUEUE_TOKEN || github.token }}
-          GH_CHECKS_TOKEN: ${{ github.token }}
+          GH_WORKFLOW_TOKEN: ${{ github.token }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           USING_WORKFLOW_TOKEN: ${{ (secrets.MERGE_QUEUE_TOKEN == '' && secrets.MERQUE_QUEUE_TOKEN == '') && 'true' || 'false' }}
           DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run && 'true' || 'false' }}
