@@ -9,7 +9,6 @@ import {
   collectRootMatches,
   indexRulesetScopes,
   inlineFunctionsInExpr,
-  substituteIdentifiers,
   topLevelMatches,
   type AllowRule,
   type Expression,
@@ -33,6 +32,12 @@ import {
   nodeTouchesUnseededContext,
   walkRuleExpression,
 } from './static-query-proof-inspection.js';
+import {
+  applyRequestAliases,
+  rebindParentForResolvedNode,
+  resolveNodeForUnseededCheck,
+  resolveRequestAliasExpr,
+} from './static-query-proof-request-aliases.js';
 
 interface TruthPossibility {
   readonly canBeTrue: boolean;
@@ -103,69 +108,6 @@ function compareBooleanLiteralPossibility(
   };
 }
 
-const MAX_REQUEST_ALIAS_DEPTH = 3;
-
-function requestAliasDepth(expr: Expression): number | null {
-  if (expr.type === 'identifier') {
-    return expr.name === 'request' ? 0 : null;
-  }
-  if (
-    expr.type === 'memberAccess'
-    || (
-      expr.type === 'bracketAccess'
-      && expr.index.type === 'literal'
-      && typeof expr.index.value === 'string'
-    )
-  ) {
-    const baseDepth = requestAliasDepth(expr.object);
-    if (baseDepth === null || baseDepth >= MAX_REQUEST_ALIAS_DEPTH) return null;
-    return baseDepth + 1;
-  }
-  return null;
-}
-
-function applyRequestAliases(
-  expr: Expression,
-  aliases: ReadonlyMap<string, Expression>,
-): Expression {
-  if (aliases.size === 0) return expr;
-  return substituteIdentifiers(expr, aliases);
-}
-
-function resolveRequestAliasExpr(
-  expr: Expression,
-  scopeFunctions: ReadonlyMap<string, FunctionDef>,
-  visited: ReadonlySet<FunctionDef>,
-): Expression | null {
-  if (requestAliasDepth(expr) !== null) return expr;
-  if (expr.type !== 'functionCall') return null;
-  const fnDef = scopeFunctions.get(expr.name);
-  if (!fnDef || visited.has(fnDef) || fnDef.parameters.length !== expr.args.length) return null;
-  const nextVisited = new Set(visited);
-  nextVisited.add(fnDef);
-  const aliases = new Map<string, Expression>();
-  for (let i = 0; i < fnDef.parameters.length; i += 1) {
-    const param = fnDef.parameters[i];
-    const arg = expr.args[i];
-    if (param === undefined || arg === undefined) continue;
-    const argAlias = resolveRequestAliasExpr(arg, scopeFunctions, nextVisited);
-    if (argAlias !== null) {
-      aliases.set(param, argAlias);
-    }
-  }
-  for (const binding of fnDef.lets) {
-    const value = applyRequestAliases(binding.value, aliases);
-    const resolved = resolveRequestAliasExpr(value, scopeFunctions, nextVisited);
-    if (resolved !== null) {
-      aliases.set(binding.name, resolved);
-    } else {
-      aliases.delete(binding.name);
-    }
-  }
-  const body = applyRequestAliases(fnDef.body, aliases);
-  return resolveRequestAliasExpr(body, scopeFunctions, nextVisited);
-}
-
 function isUnseededDynamicPathWildcard(
   node: Expression,
   parent: Expression | null,
@@ -196,13 +138,12 @@ function functionTouchesUnseeded(
   matchWildcardNames: ReadonlySet<string>,
   populatedClaims: ReadonlySet<string>,
   visited: ReadonlySet<FunctionDef>,
-  shadowedNames: ReadonlySet<string>,
 ): boolean {
   const fnDef = scopeFunctions.get(fnName);
   if (!fnDef || visited.has(fnDef)) return false;
   const nextVisited = new Set(visited);
   nextVisited.add(fnDef);
-  const localShadowed = new Set(shadowedNames);
+  const localShadowed = new Set<string>();
   const aliases = new Map<string, Expression>();
   for (let i = 0; i < fnDef.parameters.length; i += 1) {
     const param = fnDef.parameters[i];
@@ -284,7 +225,6 @@ function subtreeTouchesUnseededContext(
           matchWildcardNames,
           populatedClaims,
           visitedFns,
-          shadowedNames,
         )
       ) {
         touches = true;
@@ -295,10 +235,12 @@ function subtreeTouchesUnseededContext(
       touches = true;
       return;
     }
+    const effectiveNode = resolveNodeForUnseededCheck(node, scopeFunctions, visitedFns);
+    const effectiveParent = rebindParentForResolvedNode(node, effectiveNode, parent);
     if (
       nodeTouchesUnseededContext(
-        node,
-        parent,
+        effectiveNode,
+        effectiveParent,
         grandparent,
         scopeFunctions,
         matchWildcardNames,

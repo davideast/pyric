@@ -233,4 +233,179 @@ export async function listZeroScored() {
     expect(diagsZero.length).toBe(1);
     expect(diagsZero[0]?.code).toBe('firestore-unprovable-list-query');
   });
+
+  it('preserves lexical scoping when a caller param or let shadows a match wildcard read by a callee', () => {
+    const dynamicOrgList = `
+import { getAuth, onAuthStateChanged } from 'firebase/auth';
+import { collection, getDocs, getFirestore } from 'firebase/firestore';
+
+const auth = getAuth();
+const db = getFirestore();
+export function listOrgItems(orgId: string) {
+  onAuthStateChanged(auth, async (user) => {
+    if (!user) return;
+    await getDocs(collection(db, 'orgs', orgId, 'items'));
+  });
+}
+`;
+
+    const paramShadowCalleeRules = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /orgs/{orgId}/items/{id} {
+      function getOrg() {
+        return orgId;
+      }
+      function wrapper(orgId) {
+        return getOrg();
+      }
+      allow list: if request.auth != null && request.auth.token.admin == true && wrapper('x') == 'acme';
+    }
+  }
+}`;
+    expect(runStaticQueryProof(paramShadowCalleeRules, dynamicOrgList)).toEqual([]);
+
+    const letShadowCalleeRules = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /orgs/{orgId}/items/{id} {
+      function getOrg() {
+        return orgId;
+      }
+      function wrapper() {
+        let orgId = 'other';
+        return getOrg();
+      }
+      allow list: if request.auth != null && request.auth.token.admin == true && wrapper() == 'acme';
+    }
+  }
+}`;
+    expect(runStaticQueryProof(letShadowCalleeRules, dynamicOrgList)).toEqual([]);
+
+    const ownParamShadowControlRules = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /orgs/{orgId}/items/{id} {
+      function wrapper(orgId) {
+        return orgId == 'acme';
+      }
+      allow list: if request.auth != null && request.auth.token.admin == true && wrapper('other');
+    }
+  }
+}`;
+    const controlDiags = runStaticQueryProof(ownParamShadowControlRules, dynamicOrgList);
+    expect(controlDiags.length).toBe(1);
+    expect(controlDiags[0]?.code).toBe('firestore-unprovable-list-query');
+    expect(controlDiags[0]?.certainty).toBe('static-proof');
+  });
+
+  it('tracks member, bracket, method, and in projections over helper calls returning auth or token', () => {
+    const authMemberLetRules = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function getAuth() {
+      return request.auth;
+    }
+    function isAdmin() {
+      let tok = getAuth().token;
+      return tok.role == 'admin';
+    }
+    match /items/{id} {
+      allow list: if request.auth != null && isAdmin();
+    }
+  }
+}`;
+    expect(runStaticQueryProof(authMemberLetRules, SIGNED_IN_LIST_ITEMS)).toEqual([]);
+
+    const tokenClaimLetRules = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function getToken() {
+      return request.auth.token;
+    }
+    function isAdmin() {
+      let role = getToken().role;
+      return role == 'admin';
+    }
+    match /items/{id} {
+      allow list: if request.auth != null && isAdmin();
+    }
+  }
+}`;
+    expect(runStaticQueryProof(tokenClaimLetRules, SIGNED_IN_LIST_ITEMS)).toEqual([]);
+
+    const chainedAuthTokenClaimLetRules = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function getAuth() {
+      return request.auth;
+    }
+    function isAdmin() {
+      let role = getAuth().token.role;
+      return role == 'admin';
+    }
+    match /items/{id} {
+      allow list: if request.auth != null && isAdmin();
+    }
+  }
+}`;
+    expect(runStaticQueryProof(chainedAuthTokenClaimLetRules, SIGNED_IN_LIST_ITEMS)).toEqual([]);
+
+    const bracketAndMethodRules = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function getToken() {
+      return request.auth.token;
+    }
+    function isAdmin() {
+      let role = getToken()['role'];
+      return role == 'admin' || ('tier' in getToken() && getToken().get('tier', '') == 'pro');
+    }
+    match /items/{id} {
+      allow list: if request.auth != null && isAdmin();
+    }
+  }
+}`;
+    expect(runStaticQueryProof(bracketAndMethodRules, SIGNED_IN_LIST_ITEMS)).toEqual([]);
+
+    const inlineHelperProjectionRules = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function getAuth() {
+      return request.auth;
+    }
+    match /items/{id} {
+      allow list: if request.auth != null && getAuth().token.role == 'admin';
+    }
+  }
+}`;
+    expect(runStaticQueryProof(inlineHelperProjectionRules, SIGNED_IN_LIST_ITEMS)).toEqual([]);
+
+    const dischargedUidWithFalseControlRules = `rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function getAuth() {
+      return request.auth;
+    }
+    match /items/{id} {
+      allow list: if request.auth != null && getAuth().uid == resource.data.ownerId && false;
+    }
+  }
+}`;
+    const ownerList = `
+import { getAuth, onAuthStateChanged } from 'firebase/auth';
+import { collection, getDocs, getFirestore, query, where } from 'firebase/firestore';
+
+const auth = getAuth();
+const db = getFirestore();
+onAuthStateChanged(auth, async (user) => {
+  if (!user) return;
+  await getDocs(query(collection(db, 'items'), where('ownerId', '==', user.uid)));
+});
+`;
+    const controlDiags = runStaticQueryProof(dischargedUidWithFalseControlRules, ownerList);
+    expect(controlDiags.length).toBe(1);
+    expect(controlDiags[0]?.code).toBe('firestore-unprovable-list-query');
+    expect(controlDiags[0]?.certainty).toBe('static-proof');
+  });
 });

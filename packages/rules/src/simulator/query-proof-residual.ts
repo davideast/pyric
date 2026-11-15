@@ -1138,8 +1138,9 @@ export function buildRuleBudgetCondition(
 ): Expression {
   const singlePins = new Map<string, Expression>();
   for (const [field, values] of computeWhereDomains(constraints)) {
-    if (values.length === 1) {
-      singlePins.set(field, rulesScalarExpression(values[0]!));
+    const [only] = values;
+    if (values.length === 1 && only !== undefined) {
+      singlePins.set(field, rulesScalarExpression(only));
     }
   }
 
