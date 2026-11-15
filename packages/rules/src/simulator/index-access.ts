@@ -87,10 +87,12 @@ export const NO_INDEX_OPERATOR_MESSAGE = 'Function not found error: Name: [[]].'
 
 /**
  * `value[index]` on any value, as production reads it: a list or a string by
- * int index, a map by key, a path by segment index or bound name
- * (`request.path[0]` is the first segment; an unbound name is an error, not
- * null). A wrapper value other than a path has no index operator (corpus
- * scenarios `undefined-field-access` and `list-map-literals-and-slice`).
+ * int index, a map by string key, a path by int segment index or string bound
+ * name (`request.path[0]` is the first segment; an unbound name is an error,
+ * not null). Non-string keys on maps and non-int/non-string keys on paths are
+ * unsupported operation errors rather than JS string coercions. A wrapper value
+ * other than a path has no index operator (corpus scenarios
+ * `undefined-field-access` and `list-map-literals-and-slice`).
  */
 export function indexValue(value: unknown, index: unknown): unknown {
   if (Array.isArray(value)) return indexList(value, index);
@@ -98,17 +100,28 @@ export function indexValue(value: unknown, index: unknown): unknown {
   if (isPath(value)) {
     const int = rulesInt(index);
     if (int !== undefined) {
-      return int >= 0n && int < value.segments.length
-        ? value.segments[Number(int)]
-        : new IndexAccessFailure(indexOutOfBoundMessage(int, value.segments.length));
+      if (int >= 0n && int < value.segments.length) {
+        return value.segments[Number(int)];
+      }
+      return new IndexAccessFailure(indexOutOfBoundMessage(int, value.segments.length));
     }
-    const name = String(index);
-    return Object.hasOwn(value.bindings, name)
-      ? value.bindings[name]
-      : new IndexAccessFailure(undefinedPropertyMessage(name));
+    if (typeof index !== 'string') {
+      return new IndexAccessFailure(
+        `Unsupported operation error. Received: path[${describeRulesType(index)}]. Expected: path[int], path[string].`,
+      );
+    }
+    if (Object.hasOwn(value.bindings, index)) {
+      return value.bindings[index];
+    }
+    return new IndexAccessFailure(undefinedPropertyMessage(index));
   }
   if (!isRulesMap(value)) return new IndexAccessFailure(NO_INDEX_OPERATOR_MESSAGE);
-  return indexMap(value, String(index));
+  if (typeof index !== 'string') {
+    return new IndexAccessFailure(
+      `Unsupported operation error. Received: map[${describeRulesType(index)}]. Expected: map[string].`,
+    );
+  }
+  return indexMap(value, index);
 }
 
 /**
