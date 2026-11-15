@@ -48,6 +48,7 @@ import { documentReferenceConverter } from './converters/reference.js';
 import { vectorValueConverter } from './converters/vector.js';
 import { bytesConverter, geoPointConverter } from './converters/bytes-geopoint.js';
 import { copyUnescapedUserMapTag, isUnescapedUserMap, stampUnescapedUserMap } from './unescaped-map.js';
+import { registeredReferenceQueryValue } from './query-value-registry.js';
 import { isPlainObject } from '../plain-object.js';
 import { fieldPathKeySegments } from './update-fields.js';
 export { isPlainObject } from '../plain-object.js';
@@ -191,6 +192,7 @@ export function assertServerWriteLimits(
       return;
     }
     if (v === null || v === undefined || typeof v !== 'object') return;
+    if (registeredReferenceQueryValue(v) !== undefined) return;
     if (Array.isArray(v)) {
       for (const el of v) checkValue(el, mapDepth);
       return;
@@ -201,6 +203,9 @@ export function assertServerWriteLimits(
         transformCount += 1;
         if (transformCount > MAX_FIELD_TRANSFORMS) {
           throw new Error('cannot have more than 500 field transforms on a single document');
+        }
+        if ((v.__type === 'arrayUnion' || v.__type === 'arrayRemove') && Array.isArray(v.values)) {
+          for (const el of v.values) checkValue(el, mapDepth);
         }
         return;
       }
