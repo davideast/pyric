@@ -3,9 +3,9 @@
  * `inspect()`.
  *
  * Plants real denials across every rules-evaluating service (Firestore,
- * Realtime Database, Storage) and every denial shape (write, read, listener),
- * plus expired Firestore rules evidence, and asserts parity with the raw
- * captured events.
+ * Realtime Database, Storage) and every denial shape (write, read, list query
+ * proof, listener), plus expired Firestore rules evidence and non-denial
+ * listener errors, and asserts parity with the raw captured events.
  */
 import 'fake-indexeddb/auto';
 import { describe, expect, it } from 'bun:test';
@@ -22,6 +22,7 @@ import {
   doc,
   getAdminFirestore,
   getDoc,
+  getDocs,
   getFirestore,
   onSnapshot,
   setDoc,
@@ -75,25 +76,14 @@ function storageDb(label: string): string {
   return `denial-record-parity-${label}-${storageSeq}`;
 }
 
-function awaitDeniedFirestoreListener(
-  subscribe: (onError: () => void) => () => void,
-): Promise<void> {
-  return new Promise((resolve) => {
-    let settled = false;
-    const unsubscribe = subscribe(() => {
-      if (settled) return;
-      settled = true;
-      queueMicrotask(() => {
-        unsubscribe();
-        resolve();
-      });
-    });
-  });
+function requireDefined<T>(value: T | null | undefined, label: string): T {
+  if (value === null || value === undefined) {
+    throw new Error(`Expected ${label} to be defined`);
+  }
+  return value;
 }
 
-function awaitDeniedRtdbListener(
-  subscribe: (onError: () => void) => () => void,
-): Promise<void> {
+function awaitDeniedListener(subscribe: (onError: () => void) => () => void): Promise<void> {
   return new Promise((resolve) => {
     let settled = false;
     const unsubscribe = subscribe(() => {
@@ -120,12 +110,8 @@ describe('denial projection parity across rules-evaluating services', () => {
     await expect(
       setDoc(doc(db, 'items/item-1'), { owner: 'user-1', title: 'tampered' }),
     ).rejects.toMatchObject({ code: 'permission-denied' });
-    await awaitDeniedFirestoreListener((onError) =>
-      onSnapshot(doc(db, 'items/item-1'), () => {}, onError),
-    );
-    await awaitDeniedFirestoreListener((onError) =>
-      onSnapshot(collection(db, 'items'), () => {}, onError),
-    );
+    await awaitDeniedListener((onError) => onSnapshot(doc(db, 'items/item-1'), () => {}, onError));
+    await awaitDeniedListener((onError) => onSnapshot(collection(db, 'items'), () => {}, onError));
 
     const history = sandbox.history();
     const deniedRequests = history.filter(
@@ -140,40 +126,38 @@ describe('denial projection parity across rules-evaluating services', () => {
     ]);
 
     for (const raw of deniedRequests) {
-      const record = toOperationRecord(raw);
-      expect(record).not.toBeNull();
-      expect(record!.rules).toEqual({ kind: 'evaluated', verdict: 'deny' });
-      expect(record!.denial).toBeDefined();
-      expect(record!.denial!.reasons).toEqual(raw.reasons);
-      expect(record!.denial!.reasons.length).toBeGreaterThan(0);
-      expect(Object.isFrozen(record!.denial)).toBe(true);
-      expect(Object.isFrozen(record!.denial!.reasons)).toBe(true);
+      const record = requireDefined(toOperationRecord(raw), `operation record for ${raw.id}`);
+      expect(record.rules).toEqual({ kind: 'evaluated', verdict: 'deny' });
+      const denial = requireDefined(record.denial, `denial for ${raw.id}`);
+      expect(denial.reasons).toEqual(raw.reasons);
+      expect(denial.reasons.length).toBeGreaterThan(0);
+      expect(Object.isFrozen(denial)).toBe(true);
+      expect(Object.isFrozen(denial.reasons)).toBe(true);
       if (raw.evaluatedRule !== undefined) {
-        expect(record!.denial!.rule).toBeDefined();
-        expect(record!.denial!.rule!.expression).toBe(raw.evaluatedRule.expression);
-        expect(record!.denial!.rule!.citation).toBe(raw.evaluatedRule.citation);
-        expect(record!.denial!.rule!.line).toBe(raw.evaluatedRule.line);
-        expect(record!.denial!.rule!.path).toBe('/items/{id}');
-        expect(Object.isFrozen(record!.denial!.rule)).toBe(true);
+        const rule = requireDefined(denial.rule, `rule for ${raw.id}`);
+        expect(rule.expression).toBe(raw.evaluatedRule.expression);
+        expect(rule.citation).toBe(raw.evaluatedRule.citation);
+        expect(rule.line).toBe(raw.evaluatedRule.line);
+        expect(rule.path).toBe('/items/{id}');
+        expect(Object.isFrozen(rule)).toBe(true);
       }
     }
 
     const erroredListeners = history.filter((event) => event.kind === 'listener_errored');
     expect(erroredListeners).toHaveLength(2);
     for (const raw of erroredListeners) {
-      const record = toListenerRecord(raw);
-      expect(record).not.toBeNull();
-      expect(record!.rules).toEqual({ kind: 'evaluated', verdict: 'deny' });
-      expect(record!.denial).toBeDefined();
-      expect(record!.denial!.reasons.length).toBeGreaterThan(0);
-      expect(record!.path).toBeDefined();
+      const record = requireDefined(toListenerRecord(raw), `listener record for ${raw.id}`);
+      expect(record.rules).toEqual({ kind: 'evaluated', verdict: 'deny' });
+      const denial = requireDefined(record.denial, `listener denial for ${raw.id}`);
+      expect(denial.reasons.length).toBeGreaterThan(0);
+      expect(record.path).toBeDefined();
     }
 
     const report = inspect(sandbox, { recentEventLimit: 10 });
     expect(report.events.recentDenials).toHaveLength(deniedRequests.length);
     for (let i = 0; i < deniedRequests.length; i++) {
-      const raw = deniedRequests[i]!;
-      const inspected = report.events.recentDenials[i]!;
+      const raw = requireDefined(deniedRequests[i], `deniedRequests[${i}]`);
+      const inspected = requireDefined(report.events.recentDenials[i], `recentDenials[${i}]`);
       expect(inspected.reasons).toEqual(raw.reasons);
       if (raw.evaluatedRule !== undefined) {
         expect(inspected.rule).toMatchObject({
@@ -191,9 +175,7 @@ describe('denial projection parity across rules-evaluating services', () => {
 
     await expect(rtdbGet(rtdbRef(db, 'items/user-1'))).rejects.toThrow();
     await expect(rtdbSet(rtdbRef(db, 'items/user-1'), { title: 'blocked' })).rejects.toThrow();
-    await awaitDeniedRtdbListener((onError) =>
-      onValue(rtdbRef(db, 'items/user-1'), () => {}, onError),
-    );
+    await awaitDeniedListener((onError) => onValue(rtdbRef(db, 'items/user-1'), () => {}, onError));
 
     const history = sandbox.history();
     const deniedOps = history.filter(
@@ -203,10 +185,9 @@ describe('denial projection parity across rules-evaluating services', () => {
     expect(deniedOps.map((event) => event.method)).toEqual(['get', 'set', 'listen']);
 
     for (const raw of deniedOps) {
-      const record = toOperationRecord(raw);
-      expect(record).not.toBeNull();
-      expect(record!.rules).toEqual({ kind: 'evaluated', verdict: 'deny' });
-      expect(record!.denial).toEqual({
+      const record = requireDefined(toOperationRecord(raw), `rtdb record for ${raw.id}`);
+      expect(record.rules).toEqual({ kind: 'evaluated', verdict: 'deny' });
+      expect(record.denial).toEqual({
         reasons: raw.reasons ?? [],
         rule: {
           path: '/items/$id',
@@ -215,16 +196,19 @@ describe('denial projection parity across rules-evaluating services', () => {
       });
     }
 
-    const erroredListener = history.find(
-      (event): event is SandboxListenerEvent & SandboxEvent =>
-        event.kind === 'listener' && event.service === 'rtdb' && event.phase === 'errored',
+    const erroredListener = requireDefined(
+      history.find(
+        (event): event is SandboxListenerEvent & SandboxEvent =>
+          event.kind === 'listener' && event.service === 'rtdb' && event.phase === 'errored',
+      ),
+      'rtdb errored listener event',
     );
-    expect(erroredListener).toBeDefined();
-    for (const projected of [toOperationRecord(erroredListener!), toListenerRecord(erroredListener!)]) {
-      expect(projected).not.toBeNull();
-      expect(projected!.rules).toEqual({ kind: 'evaluated', verdict: 'deny' });
-      expect(projected!.denial).toEqual({
-        reasons: erroredListener!.reasons ?? [],
+    const projections = [toOperationRecord(erroredListener), toListenerRecord(erroredListener)];
+    for (const projected of projections) {
+      const record = requireDefined(projected, 'rtdb listener projection');
+      expect(record.rules).toEqual({ kind: 'evaluated', verdict: 'deny' });
+      expect(record.denial).toEqual({
+        reasons: erroredListener.reasons ?? [],
         rule: {
           path: '/items/$id',
           expression: 'auth.uid === $id',
@@ -235,8 +219,8 @@ describe('denial projection parity across rules-evaluating services', () => {
     const report = inspect(sandbox, { recentEventLimit: 10 });
     expect(report.events.recentDenials.length).toBeGreaterThanOrEqual(4);
     for (const inspected of report.events.recentDenials) {
-      expect(inspected.reasons).toBeDefined();
-      expect(inspected.reasons!.length).toBeGreaterThan(0);
+      const reasons = requireDefined(inspected.reasons, 'inspected rtdb reasons');
+      expect(reasons.length).toBeGreaterThan(0);
       expect(inspected.rule).toEqual({
         path: '/items/$id',
         expression: 'auth.uid === $id',
@@ -271,35 +255,114 @@ describe('denial projection parity across rules-evaluating services', () => {
     expect(deniedOps.map((event) => event.method)).toEqual(['get', 'create']);
 
     for (const raw of deniedOps) {
-      const record = toOperationRecord(raw);
-      expect(record).not.toBeNull();
-      expect(record!.rules).toEqual({ kind: 'evaluated', verdict: 'deny' });
-      expect(record!.denial).toEqual({ reasons: raw.reasons ?? [] });
-      expect(record!.denial!.reasons[0]).toContain('match /files/{uid}/{name}');
-      expect(record!.denial!.rule).toBeUndefined();
+      const record = requireDefined(toOperationRecord(raw), `storage record for ${raw.id}`);
+      expect(record.rules).toEqual({ kind: 'evaluated', verdict: 'deny' });
+      const denial = requireDefined(record.denial, `storage denial for ${raw.id}`);
+      expect(denial).toEqual({ reasons: raw.reasons ?? [] });
+      expect(denial.reasons[0]).toContain('match /files/{uid}/{name}');
+      expect(denial.rule).toBeUndefined();
     }
 
     const report = inspect(sandbox, { recentEventLimit: 10 });
     expect(report.events.recentDenials).toHaveLength(deniedOps.length);
     for (let i = 0; i < deniedOps.length; i++) {
-      expect(report.events.recentDenials[i]!.reasons).toEqual(deniedOps[i]!.reasons);
+      const raw = requireDefined(deniedOps[i], `storage deniedOps[${i}]`);
+      const inspected = requireDefined(report.events.recentDenials[i], `recentDenials[${i}]`);
+      expect(inspected.reasons).toEqual(raw.reasons);
     }
 
-    // No-rules Storage default deny also exposes its denial reason without claiming rules evaluated.
+    // No-rules Storage default deny exposes its denial reason without claiming rules evaluated.
     const unconfigured = initializeSandbox();
     const unconfiguredStorage = getStorageSandbox(unconfigured.withAuth({ uid: 'user-2' }), {
       dbName: storageDb('no-rules'),
     });
     await expect(getBytes(storageRef(unconfiguredStorage, 'files/a.txt'))).rejects.toThrow();
-    const noRulesEvent = unconfigured.history().find(
-      (event) => event.kind === 'operation' && event.service === 'storage' && event.result === 'deny',
+    const noRulesEvent = requireDefined(
+      unconfigured
+        .history()
+        .find(
+          (event) =>
+            event.kind === 'operation' && event.service === 'storage' && event.result === 'deny',
+        ),
+      'storage no-rules event',
     );
-    expect(noRulesEvent).toBeDefined();
-    const noRulesRecord = toOperationRecord(noRulesEvent!);
-    expect(noRulesRecord!.rules).toEqual({ kind: 'not-evaluated', reason: 'no-rules' });
-    expect(noRulesRecord!.denial).toEqual({
+    const noRulesRecord = requireDefined(
+      toOperationRecord(noRulesEvent),
+      'storage no-rules record',
+    );
+    expect(noRulesRecord.rules).toEqual({ kind: 'not-evaluated', reason: 'no-rules' });
+    expect(noRulesRecord.denial).toEqual({
       reasons: ['No Storage rules configured; default deny.'],
     });
+  });
+
+  it('preserves Firestore query-proof citation and column before and after rulesEvidence expiry', async () => {
+    const sandbox = initializeSandbox();
+    setRules(sandbox, FIRESTORE_RULES);
+    seedDocuments(sandbox, { 'items/item-1': { owner: 'user-1' } });
+    const deniedDb = getFirestore(sandbox.withAuth({ uid: 'user-2' }));
+    const allowedDb = getFirestore(sandbox.withAuth({ uid: 'user-1' }));
+
+    await expect(getDocs(collection(deniedDb, 'items'))).rejects.toMatchObject({
+      code: 'permission-denied',
+    });
+
+    const rawBefore = requireDefined(
+      sandbox.history().find(
+        (event): event is RequestEvent & SandboxEvent =>
+          event.kind === 'request' && event.method === 'list' && event.result === 'deny',
+      ),
+      'query-proof denial before expiry',
+    );
+    const proofRule = requireDefined(rawBefore.queryProof?.failures[0]?.rule, 'queryProof rule');
+    expect(proofRule.citation).toBeDefined();
+    expect(proofRule.column).toBeDefined();
+
+    const recordBefore = requireDefined(
+      toOperationRecord(rawBefore),
+      'query-proof record before expiry',
+    );
+    const ruleBefore = requireDefined(recordBefore.denial?.rule, 'denial.rule before expiry');
+    expect(ruleBefore.citation).toBe(proofRule.citation);
+    expect(ruleBefore.line).toBe(proofRule.line);
+    expect(ruleBefore.column).toBe(proofRule.column);
+    expect(ruleBefore.expression).toBe(proofRule.expression);
+
+    // Retention keeps 64 rulesEvidence snapshots; 65 subsequent reads evict the first.
+    for (let i = 0; i < 65; i++) {
+      await getDoc(doc(allowedDb, 'items/item-1'));
+    }
+
+    const rawAfter = requireDefined(
+      sandbox.history().find(
+        (event): event is RequestEvent & SandboxEvent =>
+          event.kind === 'request' && event.method === 'list' && event.result === 'deny',
+      ),
+      'query-proof denial after expiry',
+    );
+    expect(rawAfter.rulesEvidence).toBeUndefined();
+    expect(rawAfter.rulesEvidenceExpired).toBe(true);
+
+    const recordAfter = requireDefined(
+      toOperationRecord(rawAfter),
+      'query-proof record after expiry',
+    );
+    const denialAfter = requireDefined(recordAfter.denial, 'denial after expiry');
+    expect(denialAfter.evidenceExpired).toBe(true);
+    expect(denialAfter.reasons).toEqual(rawAfter.reasons);
+    const ruleAfter = requireDefined(denialAfter.rule, 'denial.rule after expiry');
+    expect(ruleAfter.citation).toBe(proofRule.citation);
+    expect(ruleAfter.line).toBe(proofRule.line);
+    expect(ruleAfter.column).toBe(proofRule.column);
+    expect(ruleAfter.expression).toBe(proofRule.expression);
+
+    const inspected = requireDefined(
+      inspect(sandbox, { recentEventLimit: 10 }).events.recentDenials[0],
+      'inspected expired query-proof denial',
+    );
+    expect(inspected.evidenceExpired).toBe(true);
+    expect(inspected.reasons).toEqual(rawAfter.reasons);
+    expect(inspected.rule).toEqual(ruleAfter);
   });
 
   it('flags expired Firestore rules evidence and never leaves silent empty denial fields', async () => {
@@ -312,29 +375,33 @@ describe('denial projection parity across rules-evaluating services', () => {
     await expect(getDoc(doc(deniedDb, 'items/item-1'))).rejects.toMatchObject({
       code: 'permission-denied',
     });
-    // Retention keeps 64 rulesEvidence snapshots; 65 subsequent evaluated requests evict the first.
     for (let i = 0; i < 65; i++) {
       await getDoc(doc(allowedDb, 'items/item-1'));
     }
 
-    const firstDenial = sandbox.history().find(
-      (event): event is RequestEvent & SandboxEvent =>
-        event.kind === 'request' && event.result === 'deny',
+    const firstDenial = requireDefined(
+      sandbox.history().find(
+        (event): event is RequestEvent & SandboxEvent =>
+          event.kind === 'request' && event.result === 'deny',
+      ),
+      'expired getDoc denial',
     );
-    expect(firstDenial).toBeDefined();
-    expect(firstDenial!.rulesEvidence).toBeUndefined();
-    expect(firstDenial!.rulesEvidenceExpired).toBe(true);
+    expect(firstDenial.rulesEvidence).toBeUndefined();
+    expect(firstDenial.rulesEvidenceExpired).toBe(true);
 
-    const record = toOperationRecord(firstDenial!);
-    expect(record!.denial).toBeDefined();
-    expect(record!.denial!.evidenceExpired).toBe(true);
-    expect(record!.denial!.reasons).toEqual(firstDenial!.reasons);
-    expect(record!.denial!.rule?.citation).toBe(firstDenial!.evaluatedRule?.citation);
-    expect(record!.denial!.rule?.expression).toBe(firstDenial!.evaluatedRule?.expression);
+    const record = requireDefined(toOperationRecord(firstDenial), 'expired getDoc record');
+    const denial = requireDefined(record.denial, 'expired getDoc denial');
+    expect(denial.evidenceExpired).toBe(true);
+    expect(denial.reasons).toEqual(firstDenial.reasons);
+    expect(denial.rule?.citation).toBe(firstDenial.evaluatedRule?.citation);
+    expect(denial.rule?.expression).toBe(firstDenial.evaluatedRule?.expression);
 
-    const inspected = inspect(sandbox, { recentEventLimit: 10 }).events.recentDenials[0];
-    expect(inspected?.evidenceExpired).toBe(true);
-    expect(inspected?.reasons).toEqual(firstDenial!.reasons);
+    const inspected = requireDefined(
+      inspect(sandbox, { recentEventLimit: 10 }).events.recentDenials[0],
+      'inspected expired getDoc denial',
+    );
+    expect(inspected.evidenceExpired).toBe(true);
+    expect(inspected.reasons).toEqual(firstDenial.reasons);
 
     // Even when a synthetic expired event carries empty reasons and no evaluatedRule, denial stays explicit.
     const bareExpired: SandboxEvent = {
@@ -350,14 +417,77 @@ describe('denial projection parity across rules-evaluating services', () => {
       rulesEvidenceExpired: true,
       origin: 'user',
     };
-    const bareRecord = toOperationRecord(bareExpired)!;
+    const bareRecord = requireDefined(toOperationRecord(bareExpired), 'bare expired record');
     expect(bareRecord.denial).toEqual({
       reasons: ['Firestore rules evidence expired.'],
       evidenceExpired: true,
     });
   });
 
-  it('omits empty rule fields, deeply snapshots inputs, and omits denial on non-denials', async () => {
+  it('classifies non-permission-denied listener_errored as runtime errors without denial', () => {
+    const unavailableListener: SandboxEvent = JSON.parse(
+      JSON.stringify({
+        kind: 'listener_errored',
+        id: 'err-unavailable',
+        at: 40,
+        listenerId: 'l-unavail',
+        target: { kind: 'doc', path: 'items/item-1' },
+        auth: { uid: 'user-2' },
+        error: { code: 'unavailable', message: 'stream disconnected' },
+      }),
+    );
+    const unavailableRecord = requireDefined(
+      toListenerRecord(unavailableListener),
+      'unavailable listener record',
+    );
+    expect(unavailableRecord.result).toBe('error');
+    expect(unavailableRecord.rules).toEqual({
+      kind: 'not-evaluated',
+      reason: 'runtime-error',
+    });
+    expect(unavailableRecord.denial).toBeUndefined();
+
+    const nullErrorDenied: SandboxEvent = JSON.parse(
+      JSON.stringify({
+        kind: 'operation',
+        id: 'op-null-error',
+        at: 41,
+        service: 'rtdb',
+        method: 'get',
+        path: '/items/a',
+        auth: null,
+        result: 'deny',
+        origin: 'user',
+        error: null,
+      }),
+    );
+    const nullErrorRecord = requireDefined(
+      toOperationRecord(nullErrorDenied),
+      'null-error denied record',
+    );
+    expect(nullErrorRecord.denial).toEqual({ reasons: ['Denied by security rules.'] });
+
+    const errorlessListener: SandboxEvent = {
+      kind: 'listener_errored',
+      id: 'err-empty',
+      at: 42,
+      listenerId: 'l-empty',
+      target: { kind: 'doc', path: 'items/item-1' },
+      auth: null,
+    };
+    const errorlessRecord = requireDefined(
+      toListenerRecord(errorlessListener),
+      'errorless listener record',
+    );
+    expect(errorlessRecord.result).toBe('error');
+    expect(errorlessRecord.rules).toEqual({
+      kind: 'not-evaluated',
+      reason: 'runtime-error',
+    });
+    expect(errorlessRecord.denial).toBeUndefined();
+  });
+
+  it('omits empty or allow-only rule fields, snapshots inputs, and omits denial on non-denials', async () => {
     const sandbox = initializeSandbox();
     setRules(sandbox, FIRESTORE_RULES);
     seedDocuments(sandbox, { 'items/item-1': { owner: 'user-1' } });
@@ -391,10 +521,45 @@ describe('denial projection parity across rules-evaluating services', () => {
         reason: 'No rule granted access.',
       },
     };
-    const record = toOperationRecord(emptyRuleEvent)!;
+    const record = requireDefined(toOperationRecord(emptyRuleEvent), 'empty-rule rtdb record');
     reasons.push('mutated');
     expect(record.denial).toEqual({ reasons: ['No rule granted access.'] });
     expect(record.denial?.rule).toBeUndefined();
+
+    // Evidence containing only ALLOW entries must not be picked as a denying rule.
+    const allowOnlyEvidenceDenial: SandboxEvent = {
+      kind: 'request',
+      id: 'req-allow-only-evidence',
+      at: 25,
+      evalMs: 1,
+      method: 'get',
+      path: 'items/item-1',
+      auth: null,
+      result: 'deny',
+      reasons: ['Denied by security rules.'],
+      origin: 'user',
+      rulesEvidence: {
+        version: '1',
+        scope: 'request',
+        decision: 'DENY',
+        truncated: false,
+        paths: [],
+        rules: [
+          {
+            path: '/items/{id}',
+            expression: 'true',
+            line: 5,
+            verdict: 'ALLOW',
+            checks: [],
+          },
+        ],
+      },
+    };
+    const allowOnlyRecord = requireDefined(
+      toOperationRecord(allowOnlyEvidenceDenial),
+      'allow-only evidence record',
+    );
+    expect(allowOnlyRecord.denial?.rule).toBeUndefined();
 
     // External-execution observed denials were not locally evaluated by rules.
     const observedDenial: SandboxEvent = {
@@ -410,6 +575,7 @@ describe('denial projection parity across rules-evaluating services', () => {
       rulesDisposition: { kind: 'not-evaluated', reason: 'external-execution' },
       production: { outcome: { status: 'error', code: 'permission-denied' }, claimNames: [] },
     };
-    expect(toOperationRecord(observedDenial)!.denial).toBeUndefined();
+    const observedRecord = requireDefined(toOperationRecord(observedDenial), 'observed record');
+    expect(observedRecord.denial).toBeUndefined();
   });
 });

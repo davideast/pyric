@@ -161,10 +161,16 @@ export function inspect(
     auth: record.auth,
   }));
   const recentDenials = denials.slice(-recentLimit).map(({ event, record }) => {
-    const rawDebug = (event as { debugMessage?: unknown }).debugMessage;
-    const debugMessageVal = typeof rawDebug === 'string' ? rawDebug : undefined;
+    const rawDebug: unknown = Reflect.get(event, 'debugMessage');
+    let debugMessageVal: string | undefined = undefined;
+    if (typeof rawDebug === 'string') {
+      debugMessageVal = rawDebug;
+    }
     let ruleVal: unknown = record.denial?.rule;
-    if (event.kind === 'request' && event.evaluatedRule !== undefined) {
+    const hasQueryProofRule =
+      event.kind === 'request' &&
+      event.queryProof?.failures?.some((failure) => failure.rule !== undefined) === true;
+    if (event.kind === 'request' && event.evaluatedRule !== undefined && !hasQueryProofRule) {
       ruleVal = event.evaluatedRule;
     }
     let reasonsVal: string[] | undefined = undefined;

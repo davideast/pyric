@@ -10,6 +10,7 @@ import { z } from 'zod';
 import {
   toListenerRecord,
   toOperationRecord,
+  type AuthState,
   type ListenerLifecycleEvent,
   type OperationRecord,
   type RequestEvent,
@@ -40,16 +41,87 @@ function matchesKind(record: OperationRecord, kind: string): boolean {
   return isWrite(record);
 }
 
-function authUid(auth: SandboxEvent extends { auth?: infer A } ? A : unknown): string | null {
-  if (auth !== null && typeof auth === 'object' && 'uid' in auth && typeof auth.uid === 'string') {
-    return auth.uid;
+function isEvaluatedRulesDenial(record: OperationRecord): boolean {
+  return record.rules.kind === 'evaluated' && record.rules.verdict === 'deny';
+}
+
+function defineOwnField(target: Record<string, unknown>, key: string, value: unknown): void {
+  Object.defineProperty(target, key, {
+    value,
+    enumerable: true,
+    configurable: true,
+    writable: true,
+  });
+}
+
+function cloneAndFreezeRecord(source: object): Record<string, unknown> {
+  const clone: Record<string, unknown> = {};
+  for (const [key, entry] of Object.entries(source)) {
+    defineOwnField(clone, key, cloneAndFreezeValue(entry));
   }
-  return null;
+  return Object.freeze(clone);
+}
+
+/** Deep-clone and recursively freeze payloads so callers cannot alias live history. */
+function cloneAndFreezeValue(value: unknown): unknown {
+  if (value === null || typeof value !== 'object') return value;
+  if (Array.isArray(value)) {
+    return Object.freeze(value.map(cloneAndFreezeValue));
+  }
+  if (value instanceof Date) {
+    return Object.freeze(new Date(value.getTime()));
+  }
+  if (ArrayBuffer.isView(value)) {
+    return new Uint8Array(value.buffer.slice(value.byteOffset, value.byteOffset + value.byteLength));
+  }
+  return cloneAndFreezeRecord(value);
+}
+
+function valuesEqual(a: unknown, b: unknown): boolean {
+  if (Object.is(a, b)) return true;
+  if (a === null || b === null || typeof a !== 'object' || typeof b !== 'object') {
+    return false;
+  }
+  if (Array.isArray(a) || Array.isArray(b)) {
+    if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) return false;
+    for (let i = 0; i < a.length; i++) {
+      if (!valuesEqual(a[i], b[i])) return false;
+    }
+    return true;
+  }
+  const aEntries = Object.entries(a);
+  const bKeys = Object.keys(b);
+  if (aEntries.length !== bKeys.length) return false;
+  for (const [key, aVal] of aEntries) {
+    if (!Object.prototype.hasOwnProperty.call(b, key)) return false;
+    if (!valuesEqual(aVal, Reflect.get(b, key))) return false;
+  }
+  return true;
+}
+
+function authMatches(a: AuthState | undefined, b: AuthState | undefined): boolean {
+  if (a === null || a === undefined) {
+    return b === null || b === undefined;
+  }
+  if (b === null || b === undefined) return false;
+  if (a.uid !== b.uid) return false;
+  return valuesEqual(a.token, b.token);
+}
+
+function firestoreListenerTarget(event: ListenerLifecycleEvent): {
+  path: string;
+  method: 'get' | 'list';
+} {
+  if (event.target.kind === 'doc') {
+    return { path: event.target.path, method: 'get' };
+  }
+  return { path: event.target.collection, method: 'list' };
 }
 
 /**
  * Find the denied Firestore listener `RequestEvent` immediately preceding one
- * `listener_errored` event, without crossing a session reset boundary.
+ * denied `listener_errored` event, without crossing a session boundary, the
+ * listener's own attach, a prior errored event, or a non-deny listener read.
  */
 function findPairedFirestoreListenerRequest(
   history: readonly SandboxEvent[],
@@ -57,39 +129,40 @@ function findPairedFirestoreListenerRequest(
   event: ListenerLifecycleEvent,
   claimed: Set<number>,
 ): RequestEvent | null {
-  let targetPath: string;
-  let expectedMethod: 'get' | 'list';
-  if (event.target.kind === 'doc') {
-    targetPath = event.target.path;
-    expectedMethod = 'get';
-  } else {
-    targetPath = event.target.collection;
-    expectedMethod = 'list';
-  }
-  const uid = authUid(event.auth);
+  const target = firestoreListenerTarget(event);
   for (let j = index - 1; j >= 0; j--) {
     const candidate = history[j];
     if (candidate === undefined) continue;
     if (candidate.kind === 'session_boundary') break;
-    if (claimed.has(j)) continue;
-    const matchesRequest =
+    if (candidate.kind === 'listener_attach' && candidate.listenerId === event.listenerId) {
+      break;
+    }
+    if (candidate.kind === 'listener_errored') {
+      const candidateTarget = firestoreListenerTarget(candidate);
+      const sameTarget =
+        candidateTarget.path === target.path &&
+        candidateTarget.method === target.method &&
+        authMatches(candidate.auth, event.auth);
+      if (candidate.listenerId === event.listenerId || sameTarget) break;
+      continue;
+    }
+    const sameListenerRequest =
       candidate.kind === 'request' &&
       candidate.origin === 'listener' &&
-      candidate.result === 'deny' &&
-      candidate.method === expectedMethod &&
-      candidate.path === targetPath &&
-      authUid(candidate.auth) === uid;
-    if (matchesRequest) {
-      claimed.add(j);
-      return candidate;
-    }
+      candidate.method === target.method &&
+      candidate.path === target.path &&
+      authMatches(candidate.auth, event.auth);
+    if (!sameListenerRequest) continue;
+    if (claimed.has(j) || candidate.result !== 'deny') break;
+    claimed.add(j);
+    return candidate;
   }
   return null;
 }
 
 /**
- * Find the denied RTDB `listen` operation event preceding one errored RTDB
- * listener event so `detail: true` can carry its request payload when present.
+ * Find the denied RTDB `listen` operation event preceding one denied errored
+ * RTDB listener event so `detail: true` can carry its request payload.
  */
 function findPairedRtdbListenerOperation(
   history: readonly SandboxEvent[],
@@ -99,26 +172,53 @@ function findPairedRtdbListenerOperation(
 ): SandboxOperationEvent | null {
   const targetPath = event.target.path;
   if (targetPath === undefined) return null;
-  const uid = authUid(event.auth);
   for (let j = index - 1; j >= 0; j--) {
     const candidate = history[j];
     if (candidate === undefined) continue;
     if (candidate.kind === 'session_boundary') break;
-    if (claimed.has(j)) continue;
-    const matchesOp =
+    if (
+      candidate.kind === 'listener' &&
+      candidate.service === 'rtdb' &&
+      candidate.phase === 'errored' &&
+      candidate.target.path === targetPath &&
+      candidate.instance === event.instance &&
+      authMatches(candidate.auth, event.auth)
+    ) {
+      break;
+    }
+    const sameListenerOp =
       candidate.kind === 'operation' &&
       candidate.service === 'rtdb' &&
       candidate.origin === 'listener' &&
       candidate.method === 'listen' &&
-      candidate.result === 'deny' &&
       candidate.path === targetPath &&
-      authUid(candidate.auth) === uid;
-    if (matchesOp) {
-      claimed.add(j);
-      return candidate;
-    }
+      candidate.instance === event.instance &&
+      authMatches(candidate.auth, event.auth);
+    if (!sameListenerOp) continue;
+    if (claimed.has(j) || candidate.result !== 'deny') break;
+    claimed.add(j);
+    return candidate;
   }
   return null;
+}
+
+function resolveRtdbDetailSource(
+  history: readonly SandboxEvent[],
+  index: number,
+  event: SandboxEvent,
+  record: OperationRecord,
+  claimed: Set<number>,
+): SandboxEvent {
+  const isDeniedRtdbListener =
+    event.kind === 'listener' &&
+    event.phase === 'errored' &&
+    event.service === 'rtdb' &&
+    event.result === 'deny' &&
+    record.denial !== undefined;
+  if (!isDeniedRtdbListener) return event;
+  const paired = findPairedRtdbListenerOperation(history, index, event, claimed);
+  if (paired !== null) return paired;
+  return event;
 }
 
 /** Merge correlated Firestore denial metadata onto an errored listener record. */
@@ -136,7 +236,7 @@ function enrichFirestoreListenerRecord(
   return Object.freeze(next);
 }
 
-/** Opt-in attachment of request/resource payloads when `detail: true`. */
+/** Opt-in attachment of deep-cloned, frozen request/resource payloads when `detail: true`. */
 function attachEventDetail(
   record: OperationRecord,
   sourceEvent: SandboxEvent,
@@ -146,12 +246,14 @@ function attachEventDetail(
     -readonly [Key in keyof DetailedOperationRecord]: DetailedOperationRecord[Key];
   } = { ...record };
   if (sourceEvent.kind === 'request' || sourceEvent.kind === 'operation') {
-    if (sourceEvent.request !== undefined) detailed.request = sourceEvent.request;
+    if (sourceEvent.request !== undefined) {
+      detailed.request = cloneAndFreezeValue(sourceEvent.request);
+    }
     if (sourceEvent.resourceBefore !== undefined) {
-      detailed.resourceBefore = sourceEvent.resourceBefore;
+      detailed.resourceBefore = cloneAndFreezeValue(sourceEvent.resourceBefore);
     }
     if (sourceEvent.resourceAfter !== undefined) {
-      detailed.resourceAfter = sourceEvent.resourceAfter;
+      detailed.resourceAfter = cloneAndFreezeValue(sourceEvent.resourceAfter);
     }
   }
   if (
@@ -162,10 +264,10 @@ function attachEventDetail(
     const recorded = storageDeniedById.get(sourceEvent.id);
     if (recorded !== undefined) {
       if (detailed.request === undefined && recorded.requestResource !== undefined) {
-        detailed.request = { resourceData: recorded.requestResource };
+        detailed.request = cloneAndFreezeValue({ resourceData: recorded.requestResource });
       }
       if (detailed.resourceBefore === undefined && recorded.resource !== undefined) {
-        detailed.resourceBefore = { data: recorded.resource, exists: true };
+        detailed.resourceBefore = cloneAndFreezeValue({ data: recorded.resource, exists: true });
       }
     }
   }
@@ -192,28 +294,24 @@ function recordForKind(
     let record = toListenerRecord(event);
     if (record === null) return null;
     let payloadSource: SandboxEvent = event;
-    if (event.kind === 'listener_errored') {
+    if (event.kind === 'listener_errored' && isEvaluatedRulesDenial(record)) {
       const paired = findPairedFirestoreListenerRequest(history, index, event, claimed);
       if (paired !== null) {
         record = enrichFirestoreListenerRecord(record, paired);
         payloadSource = paired;
       }
-    } else if (event.kind === 'listener' && event.phase === 'errored' && event.service === 'rtdb') {
-      const paired = findPairedRtdbListenerOperation(history, index, event, claimed);
-      if (paired !== null) payloadSource = paired;
     }
     if (!includeDetail) return record;
+    if (payloadSource === event) {
+      payloadSource = resolveRtdbDetailSource(history, index, event, record, claimed);
+    }
     return attachEventDetail(record, payloadSource, storageDeniedById);
   }
   const record = toOperationRecord(event);
   if (record === null) return null;
   if (!matchesKind(record, kind)) return null;
   if (!includeDetail) return record;
-  let payloadSource: SandboxEvent = event;
-  if (event.kind === 'listener' && event.phase === 'errored' && event.service === 'rtdb') {
-    const paired = findPairedRtdbListenerOperation(history, index, event, claimed);
-    if (paired !== null) payloadSource = paired;
-  }
+  const payloadSource = resolveRtdbDetailSource(history, index, event, record, claimed);
   return attachEventDetail(record, payloadSource, storageDeniedById);
 }
 
@@ -267,8 +365,13 @@ export default {
       if (record === null) continue;
       events.push(record);
     }
-    const hasMore = lastIndex < history.length - 1;
-    const nextCursor = hasMore ? history[lastIndex]!.id : null;
+    let nextCursor: string | null = null;
+    if (lastIndex >= 0 && lastIndex < history.length - 1) {
+      const lastEvent = history[lastIndex];
+      if (lastEvent !== undefined) {
+        nextCursor = lastEvent.id;
+      }
+    }
 
     return {
       ok: true,
