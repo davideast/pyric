@@ -100,12 +100,26 @@ async function bundlePage(): Promise<string> {
   return result.outputs[0]!.text();
 }
 
-/** A page that declares the Node host, whose `init.json` answers with `payload`. */
-function runPage(code: string, payload: object, pageConsole: Console): void {
+/** A page that declares the Node host, whose `init.json` answers with `respond`. */
+function runPageWithResponse(
+  code: string,
+  respond: () => Response,
+  pageConsole: Console,
+): { fetches: () => number } {
+  let fetchCount = 0;
   const hostMeta = { getAttribute: (name: string) => (name === 'content' ? 'node' : null) };
   const document = { querySelector: (selector: string) => (selector.includes('pyric-sandbox-host') ? hostMeta : null) };
-  const fetch = async (): Promise<Response> => Response.json(payload);
+  const fetch = async (): Promise<Response> => {
+    fetchCount += 1;
+    return respond();
+  };
   new Function('document', 'window', 'console', 'fetch', code)(document, {}, pageConsole, fetch);
+  return { fetches: () => fetchCount };
+}
+
+/** A page that declares the Node host, whose `init.json` answers with `payload`. */
+function runPage(code: string, payload: object, pageConsole: Console): void {
+  runPageWithResponse(code, () => Response.json(payload), pageConsole);
 }
 
 const settle = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 50));
@@ -138,5 +152,48 @@ describe('init entry payload refusal (#2052)', () => {
     await settle();
     expect(realm.__avatarUpgrades).toBe(true);
     delete realm.__avatarUpgrades;
+  });
+
+  it('treats HTTP 403 and 401 from /__pyric/init.json as terminal refusals with sanitized details', async () => {
+    const code = await bundlePage();
+    const cases = [
+      {
+        respond: () => new Response('Forbidden: host not allowed', { status: 403, headers: { 'content-type': 'text/plain' } }),
+        expected: '403): Forbidden: host not allowed',
+      },
+      {
+        respond: () => new Response(JSON.stringify({ error: 'Unauthorized:\u001b[31m invalid token' }), {
+          status: 401,
+          headers: { 'content-type': 'application/json' },
+        }),
+        expected: '401): Unauthorized: invalid token',
+      },
+      {
+        respond: () => new Response('<html><body>Forbidden</body></html>', { status: 403, headers: { 'content-type': 'text/html' } }),
+        expected: 'refused the request (403)',
+        forbidden: '<html>',
+      },
+    ];
+    for (const testCase of cases) {
+      const unhandled: unknown[] = [];
+      const onUnhandled = (reason: unknown): void => { unhandled.push(reason); };
+      const logged: unknown[][] = [];
+      const record = (...args: unknown[]): void => { logged.push(args); };
+      const pageConsole = { ...console, error: record, warn: record };
+      let handle: { fetches: () => number };
+      process.on('unhandledRejection', onUnhandled);
+      try {
+        handle = runPageWithResponse(code, testCase.respond, pageConsole);
+        await new Promise((resolve) => setTimeout(resolve, 350));
+      } finally {
+        process.off('unhandledRejection', onUnhandled);
+      }
+      expect(handle.fetches()).toBe(1);
+      expect(unhandled).toEqual([]);
+      expect(logged).toHaveLength(1);
+      const line = logged[0]?.join(' ') ?? '';
+      expect(line).toContain(testCase.expected);
+      if (testCase.forbidden !== undefined) expect(line).not.toContain(testCase.forbidden);
+    }
   });
 });

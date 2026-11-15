@@ -365,7 +365,10 @@ export function createPyricPlugin(options: PyricOptions, supplied?: SuppliedRows
     },
 
     transform(code, id, transformOptions) {
-      if (transformOptions?.ssr === true) return null;
+      const env = environmentOf(this);
+      let isServerTransform = transformOptions?.ssr === true;
+      if (env !== undefined) isServerTransform = env.config.consumer === 'server';
+      if (isServerTransform) return null;
       const inlinedWorkerInit = pageRuntime.transformModule(code, id);
       if (inlinedWorkerInit !== null) return inlinedWorkerInit;
       if (supplied === undefined) {

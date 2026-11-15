@@ -85,8 +85,10 @@ describe('Vite plugin', () => {
     const configHook = typeof plugin.config === 'function' ? plugin.config : plugin.config.handler;
     const result = configHook({}, { command: 'serve', mode: 'development' }) as UserConfig;
     const defined = result.define?.['process.env.NEXT_PUBLIC_PYRIC_WORKER_INIT'];
-    expect(typeof defined).toBe('string');
-    const parsed = JSON.parse(JSON.parse(defined as string) as string) as Record<string, unknown>;
+    if (typeof defined !== 'string') throw new Error('expected define value to be a string');
+    const serialized: unknown = JSON.parse(defined);
+    if (typeof serialized !== 'string') throw new Error('expected double-serialized define string');
+    const parsed: unknown = JSON.parse(serialized);
     expect(parsed).toEqual({ hosted: true, projectKey: null, bridgeUrl: null });
 
     const userValue = JSON.stringify(JSON.stringify({ hosted: true, projectKey: 'user-project', bridgeUrl: '/__pyric/sandbox' }));

@@ -142,11 +142,13 @@ function openDeferredHostedDb(): ClientDb {
   return getDeferredFirestore(transport);
 }
 
+function openHostedClient(): ClientDb {
+  if (hasHostedIdentity(payload)) return getHostedFirestore(hostedTarget());
+  return openDeferredHostedDb();
+}
+
 function createControlClient(workerRequested: boolean): ClientDb | null {
-  if (useHosted) {
-    if (hasHostedIdentity(payload)) return getHostedFirestore(hostedTarget());
-    return openDeferredHostedDb();
-  }
+  if (useHosted) return openHostedClient();
   const usesSharedWorker = workerRequested && hasSharedWorker;
   if (usesSharedWorker) {
     return connectRuntimeWorker(
@@ -187,10 +189,7 @@ export function openWorkerDb(appName: string): ClientDb {
     if (useHosted) return port => getHostedFirestore(hostedTarget(), port);
     return port => getServiceWorkerFirestore(appName, port);
   }));
-  if (useHosted) {
-    if (hasHostedIdentity(payload)) return getHostedFirestore(hostedTarget());
-    return openDeferredHostedDb();
-  }
+  if (useHosted) return openHostedClient();
   if (hasSharedWorker) return getFirestore(WORKER_URL, WORKER_NAME);
   throw new Error('No Pyric worker transport is available in this browser context.');
 }

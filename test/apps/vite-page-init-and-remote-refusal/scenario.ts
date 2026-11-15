@@ -4,15 +4,15 @@
 //    (without inlining the project directory path), and throws a clear guidance error
 //    naming the remedies in in-page mode.
 // 2. Opening a hosted page from a non-loopback address on both the Vite and CLI planes
-//    shows the loopback-only refusal explanation with zero SharedWorker errors and
-//    without leaking session tokens or project paths on Vite.
+//    shows the loopback-only refusal explanation once with zero SharedWorker or
+//    WebSocket errors and without leaking session tokens or project paths.
 //
 // In an offline network namespace, add a non-loopback IPv4 address first:
 // `ip addr add 10.203.0.1/32 dev lo`.
 import assert from 'node:assert/strict';
 import { join } from 'node:path';
 import { chromium } from '@playwright/test';
-import { scenario, sleep, type AppProcess, type ExpectedCrash } from '../driver.ts';
+import { scenario, sleep, type App, type AppProcess, type ExpectedCrash } from '../driver.ts';
 import { get, nonLoopbackAddress } from '../peer-client.ts';
 
 export const expectedCrashes: readonly ExpectedCrash[] = [
@@ -46,29 +46,35 @@ interface RemotePageCheck {
   pageErrors: string[];
 }
 
+function assertRedactedRemoteHtml(label: string, body: string): void {
+  const initMatch = /globalThis\.__PYRIC_WORKER_INIT__=(\{[\s\S]*?\});<\/script>/.exec(body);
+  assert.ok(initMatch !== null && initMatch[1] !== undefined, `${label}: remote HTML must stamp __PYRIC_WORKER_INIT__`);
+  const stampedInit = JSON.parse(initMatch[1]) as Record<string, unknown>;
+  assert.equal(stampedInit.hosted, true, `${label}: remote HTML must declare hosted: true`);
+  assert.equal(stampedInit.projectKey, null, `${label}: remote HTML must not stamp projectKey`);
+  assert.equal(stampedInit.bridgeUrl, null, `${label}: remote HTML must not stamp bridgeUrl`);
+  assert.equal(stampedInit.sessionToken, undefined, `${label}: remote HTML must not stamp sessionToken`);
+  assert.equal(stampedInit.instanceId, undefined, `${label}: remote HTML must not stamp instanceId`);
+  assert.ok(body.includes('<meta name="pyric-sandbox-host" content="node" data-pyric-serve>'), `${label}: remote HTML must declare Node host meta without projectKey`);
+  assert.ok(!body.includes('"sessionToken"'), `${label}: remote HTML must not stamp sessionToken`);
+  assert.ok(!body.includes('data-project-key='), `${label}: remote HTML must not stamp data-project-key`);
+}
+
 async function openRemotePage(
+  app: App,
   browser: Awaited<ReturnType<typeof chromium.launch>>,
   url: string,
-  options: { waitForPageDone: boolean },
 ): Promise<RemotePageCheck> {
   const page = await browser.newPage();
+  await app.watchCrashes(page.context());
   const consoleLines: string[] = [];
   const pageErrors: string[] = [];
   page.on('console', (message) => consoleLines.push(message.text()));
   page.on('pageerror', (error) => pageErrors.push(error.message));
   try {
     await page.goto(url, { waitUntil: 'load' });
-    if (options.waitForPageDone) {
-      await page.waitForFunction(() => 'pageDone' in window, undefined, { timeout: 20_000 });
-      await page.waitForTimeout(300);
-    } else {
-      const deadline = Date.now() + 15_000;
-      while (Date.now() < deadline) {
-        if (consoleLines.some((line) => EXPLANATION.test(line))) break;
-        await sleep(200);
-      }
-      await page.waitForTimeout(300);
-    }
+    await page.waitForFunction(() => 'pageDone' in window, undefined, { timeout: 20_000 });
+    await page.waitForTimeout(300);
     const out = (await page.locator('#out').textContent()) ?? '';
     const stampedHosted = await page.evaluate(
       () => (globalThis as { __PYRIC_WORKER_INIT__?: { hosted?: unknown } }).__PYRIC_WORKER_INIT__?.hosted,
@@ -89,16 +95,20 @@ async function openRemotePage(
 function assertCleanRemoteRefusal(
   label: string,
   result: RemotePageCheck,
-  options: { requireFastAppRejection: boolean },
+  options: { expectRuntimeChip: boolean },
 ): void {
   assert.equal(result.stampedHosted, true, `${label}: expected hosted: true stamp, got ${String(result.stampedHosted)}`);
   const combined = [...result.consoleLines, ...result.pageErrors, result.chipText].join('\n');
-  if (options.requireFastAppRejection) {
-    assert.match(result.out, /^error .*only to clients on its own machine/, `${label}: unexpected #out: ${result.out}`);
-    assert.ok(!/WebSocket connection/i.test(combined), `${label}: unexpected WebSocket attempt:\n${combined}`);
-  }
-  assert.match(combined, EXPLANATION, `${label}: refusal explanation missing from console/chip:\n${combined}`);
+  assert.match(result.out, /^error .*only to clients on its own machine/, `${label}: unexpected #out: ${result.out}`);
+  const initFailureLogs = result.consoleLines.filter((line) => line.includes('[pyric sandbox] init payload unavailable:'));
+  assert.equal(initFailureLogs.length, 1, `${label}: expected exactly 1 refusal console log, saw ${initFailureLogs.length}:\n${result.consoleLines.join('\n')}`);
+  assert.match(initFailureLogs[0] ?? '', EXPLANATION, `${label}: refusal explanation missing from console log:\n${initFailureLogs[0] ?? ''}`);
+  assert.ok(!/Uncaught Error in snapshot listener/i.test(combined), `${label}: unexpected Firestore listener log:\n${combined}`);
+  assert.ok(!/WebSocket connection/i.test(combined), `${label}: unexpected WebSocket attempt:\n${combined}`);
   assert.ok(!/SharedWorker/i.test(combined), `${label}: unexpected SharedWorker reference:\n${combined}`);
+  if (options.expectRuntimeChip) {
+    assert.match(result.chipText, /\b1 runtime error\b/i, `${label}: expected single runtime chip error, saw: ${result.chipText}`);
+  }
   assert.deepEqual(result.pageErrors, [], `${label}: unexpected uncaught page errors: ${result.pageErrors.join('; ')}`);
 }
 
@@ -146,28 +156,18 @@ export default scenario(async (app) => {
       localAddress: remote,
     });
     assert.equal(remoteHtml.status, 200, remoteHtml.body);
-    const initMatch = /globalThis\.__PYRIC_WORKER_INIT__=(\{[\s\S]*?\});<\/script>/.exec(remoteHtml.body);
-    assert.ok(initMatch !== null && initMatch[1] !== undefined, 'remote Vite HTML must stamp __PYRIC_WORKER_INIT__');
-    const stampedInit = JSON.parse(initMatch[1]) as Record<string, unknown>;
-    assert.equal(stampedInit.hosted, true, 'remote Vite HTML must declare hosted: true');
-    assert.equal(stampedInit.projectKey, null, 'remote Vite HTML must not stamp projectKey');
-    assert.equal(stampedInit.bridgeUrl, null, 'remote Vite HTML must not stamp bridgeUrl');
-    assert.equal(stampedInit.sessionToken, undefined, 'remote Vite HTML must not stamp sessionToken');
-    assert.equal(stampedInit.instanceId, undefined, 'remote Vite HTML must not stamp instanceId');
-    assert.ok(remoteHtml.body.includes('<meta name="pyric-sandbox-host" content="node" data-pyric-serve>'), 'remote Vite HTML must declare Node host meta without projectKey');
-    assert.ok(!remoteHtml.body.includes('"sessionToken"'), 'remote Vite HTML must not stamp sessionToken');
-    assert.ok(!remoteHtml.body.includes('data-project-key='), 'remote Vite HTML must not stamp data-project-key');
+    assertRedactedRemoteHtml('vite', remoteHtml.body);
 
     const browser = await chromium.launch({
       headless: true,
       args: [`--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE localhost, EXCLUDE 127.0.0.1, EXCLUDE ${remote}`],
     });
     try {
-      const standardResult = await openRemotePage(browser, `http://${remote}:${hostedVitePort}/`, { waitForPageDone: true });
-      assertCleanRemoteRefusal('vite standard page', standardResult, { requireFastAppRejection: true });
+      const standardResult = await openRemotePage(app, browser, `http://${remote}:${hostedVitePort}/`);
+      assertCleanRemoteRefusal('vite standard page', standardResult, { expectRuntimeChip: true });
 
-      const customResult = await openRemotePage(browser, `http://${remote}:${hostedVitePort}/custom-html`, { waitForPageDone: true });
-      assertCleanRemoteRefusal('vite custom-html page', customResult, { requireFastAppRejection: true });
+      const customResult = await openRemotePage(app, browser, `http://${remote}:${hostedVitePort}/custom-html`);
+      assertCleanRemoteRefusal('vite custom-html page', customResult, { expectRuntimeChip: false });
     } finally {
       await browser.close();
     }
@@ -181,20 +181,24 @@ export default scenario(async (app) => {
     const inPageVite = await app.devServer({ env: { SCENARIO_HOSTED: '0' }, name: 'in-page vite' });
     const pageErrors: string[] = [];
     const page = await (await app.browser()).newPage();
-    page.on('pageerror', (error) => pageErrors.push(error.message));
-    await page.goto(`${inPageVite.url}/custom-html`, { waitUntil: 'load' });
-    await page.waitForTimeout(1_500);
-    const missing = pageErrors.find((message) => message.includes('Missing Pyric page initialization'));
-    assert.ok(missing !== undefined, `expected Missing Pyric page initialization error, saw: ${pageErrors.join(' | ')}`);
-    assert.match(missing, /transformIndexHtml/, missing);
-    assert.match(missing, /hosted:\s*true/, missing);
-    assert.match(missing, /NEXT_PUBLIC_PYRIC_WORKER_INIT/, missing);
-    await inPageVite.process.stop();
+    try {
+      page.on('pageerror', (error) => pageErrors.push(error.message));
+      await page.goto(`${inPageVite.url}/custom-html`, { waitUntil: 'load' });
+      await page.waitForTimeout(1_500);
+      const missing = pageErrors.find((message) => message.includes('Missing Pyric page initialization'));
+      assert.ok(missing !== undefined, `expected Missing Pyric page initialization error, saw: ${pageErrors.join(' | ')}`);
+      assert.match(missing, /transformIndexHtml/, missing);
+      assert.match(missing, /hosted:\s*true/, missing);
+      assert.match(missing, /NEXT_PUBLIC_PYRIC_WORKER_INIT/, missing);
+    } finally {
+      await page.close();
+      await inPageVite.process.stop();
+    }
   });
 
   const cliPort = await app.freePort();
   let cliHost: AppProcess | undefined;
-  await app.step('hosted CLI server refuses non-loopback peer with the same explanation and zero SharedWorker errors', async () => {
+  await app.step('hosted CLI server refuses non-loopback peer with the same explanation and zero SharedWorker or WebSocket errors', async () => {
     const child = app.pyricProcess([
       'sandbox',
       '--hosted',
@@ -213,13 +217,23 @@ export default scenario(async (app) => {
     await localPage.waitForFunction(() => 'pageDone' in window, undefined, { timeout: 20_000 });
     assert.equal((await localPage.locator('#out').textContent()) ?? '', 'wrote {"value":1}');
 
+    const cliRemoteHtml = await get({
+      address: remote,
+      port: cliPort,
+      path: '/',
+      host: `${remote}:${cliPort}`,
+      localAddress: remote,
+    });
+    assert.equal(cliRemoteHtml.status, 200, cliRemoteHtml.body);
+    assertRedactedRemoteHtml('cli', cliRemoteHtml.body);
+
     const browser = await chromium.launch({
       headless: true,
       args: [`--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE localhost, EXCLUDE 127.0.0.1, EXCLUDE ${remote}`],
     });
     try {
-      const cliRemote = await openRemotePage(browser, `http://${remote}:${cliPort}/`, { waitForPageDone: false });
-      assertCleanRemoteRefusal('cli hosted page', cliRemote, { requireFastAppRejection: false });
+      const cliRemote = await openRemotePage(app, browser, `http://${remote}:${cliPort}/`);
+      assertCleanRemoteRefusal('cli hosted page', cliRemote, { expectRuntimeChip: true });
     } finally {
       await browser.close();
     }

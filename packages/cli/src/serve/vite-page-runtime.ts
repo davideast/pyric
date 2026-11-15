@@ -38,6 +38,7 @@ export interface VitePageRuntime {
 }
 
 const WORKER_INIT_DEFINE_KEY = 'process.env.NEXT_PUBLIC_PYRIC_WORKER_INIT';
+const WORKER_INIT_REPLACE_RE = /\/\*[\s\S]*?\*\/|\/\/[^\n]*|\bprocess\.env\.NEXT_PUBLIC_PYRIC_WORKER_INIT\b/g;
 
 function isBundledWorkerInitId(cleanId: string, expectedPath: string): boolean {
   if (cleanId === expectedPath) return true;
@@ -174,7 +175,10 @@ export function createVitePageRuntime(input: {
       const cleanId = id.split('?')[0] ?? id;
       if (!isBundledWorkerInitId(cleanId, bundledWorkerInitEntry)) return null;
       if (!code.includes(WORKER_INIT_DEFINE_KEY)) return null;
-      return code.replaceAll(WORKER_INIT_DEFINE_KEY, () => replacement);
+      return code.replace(WORKER_INIT_REPLACE_RE, (match) => {
+        if (match === WORKER_INIT_DEFINE_KEY) return replacement;
+        return match;
+      });
     },
     transformIndexHtml(html) {
       const marker = 'data-pyric-sandbox';

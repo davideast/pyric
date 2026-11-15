@@ -15,6 +15,16 @@ function needsTransport(message: InboundMessage): boolean {
   return message.t === 'op' || message.t === 'sub' || message.t === 'observe' || message.t === 'unobserved';
 }
 
+/**
+ * Data, AI stream, and Studio event subscriptions hear transport choice errors
+ * via synthetic snapshot error frames; internal Auth, presence, and messaging
+ * observers stop silently through `endPortSubscriptions`.
+ */
+function failsWithSnapshotError(message: InboundMessage): message is Extract<InboundMessage, { t: 'sub' }> {
+  if (message.t !== 'sub') return false;
+  return message.target === 'events' || (typeof message.target === 'object' && message.target !== null);
+}
+
 /** A transport that refuses with its own code keeps it (a Node process off the Node host, #1082). */
 function choiceFailure(error: unknown): FirebaseError {
   const isFirebaseError = error instanceof FirebaseError;
@@ -132,10 +142,11 @@ export function getDeferredFirestore(choice: TransportChoice | (() => TransportC
     const waiting = queued.splice(0);
     if (choosesAgain) queued.push(...waiting.filter(message => !needsTransport(message)));
     for (const message of waiting) {
-      const isSubscription = message.t === 'sub';
-      if (isSubscription) port.onmessage?.(new MessageEvent('message', {
-        data: { t: 'snap', subId: message.subId, value: { __error: { code: failed.code, message: failed.message } } },
-      }));
+      if (failsWithSnapshotError(message)) {
+        port.onmessage?.(new MessageEvent('message', {
+          data: { t: 'snap', subId: message.subId, value: { __error: { code: failed.code, message: failed.message } } },
+        }));
+      }
     }
     endPortSubscriptions(port, failed);
     return failed;

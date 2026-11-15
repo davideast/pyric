@@ -554,7 +554,6 @@ if (bridgeUrlFromPayload) {
     try {
       payload = await initPayload;
     } catch (e) {
-      runtimeStatus.reportError(e, 'runtime');
       logInitPayloadFailure(e);
       return;
     }

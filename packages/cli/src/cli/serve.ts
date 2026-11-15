@@ -603,12 +603,10 @@ async function startServeRuntime(opts: {
       // routes agent tool-calls THROUGH the worker (see connectBridgePeer), so app
       // + Studio + agent share the one sandbox even under --bridge.
       transformHtml: (html, ctx) => injectServeTags(html, {
-        workerVersion,
-        hosted,
-        aiMode,
-        owners,
+        workerVersion, hosted, aiMode, owners,
         importMap: pageImportMap,
         sessionToken: ctx.localPeer ? sessionToken : undefined,
+        remotePeer: !ctx.localPeer,
       }),
       sessionToken,
       allowedHosts: opts.allowedHosts,

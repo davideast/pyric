@@ -104,8 +104,10 @@ describe('Vite page runtime', () => {
     const hostedPage = runtime({ hosted: true });
     const devConfig = hostedPage.config({}, serveEnv);
     const rawDefine = devConfig.define?.['process.env.NEXT_PUBLIC_PYRIC_WORKER_INIT'];
-    expect(typeof rawDefine).toBe('string');
-    const parsed = JSON.parse(JSON.parse(rawDefine as string) as string) as Record<string, unknown>;
+    if (typeof rawDefine !== 'string') throw new Error('expected define value to be a string');
+    const serialized: unknown = JSON.parse(rawDefine);
+    if (typeof serialized !== 'string') throw new Error('expected double-serialized define string');
+    const parsed: unknown = JSON.parse(serialized);
     expect(parsed).toEqual({ hosted: true, projectKey: null, bridgeUrl: null });
 
     const userCustom = JSON.stringify(JSON.stringify({ hosted: true, projectKey: 'custom', bridgeUrl: '/__pyric/sandbox' }));
@@ -130,9 +132,9 @@ describe('Vite page runtime', () => {
     let initExt = extname(initEntry);
     if (initExt.length === 0) initExt = '.js';
     const bundledInitPath = join(dirname(initEntry), `bundled-worker-init${initExt}`);
-    const source = 'return process.env.NEXT_PUBLIC_PYRIC_WORKER_INIT;';
+    const source = '/* process.env.NEXT_PUBLIC_PYRIC_WORKER_INIT */\nreturn process.env.NEXT_PUBLIC_PYRIC_WORKER_INIT;';
     const transformed = hostedPage.transformModule(source, `${bundledInitPath}?v=123`);
-    expect(transformed).toBe(`return ${rawDefine as string};`);
+    expect(transformed).toBe(`/* process.env.NEXT_PUBLIC_PYRIC_WORKER_INIT */\nreturn ${rawDefine};`);
     expect(hostedPage.transformModule(source, '/app/src/main.ts')).toBeNull();
 
     hostedPage.config({}, buildEnv);

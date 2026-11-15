@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test';
 import { FirebaseError } from 'pyric/app';
 import { getDeferredFirestore } from '../../../src/serve/worker/client/deferred-connection.js';
-import { nextId, rawRpc } from '../../../src/serve/worker/client/core.js';
+import { nextId, nextSubId, openSnapshotSubscription, rawRpc } from '../../../src/serve/worker/client/core.js';
 import type { ClientDb, ClientPort } from '../../../src/serve/worker/client/handles.js';
 import type { InboundMessage } from '../../../src/serve/worker/protocol.js';
 
@@ -55,4 +55,46 @@ test('a function choice that rejects fails the waiting call, and the next call c
   const kinds = sent.map(message => message.t);
   expect(kinds.filter(kind => kind === 'appConfig')).toHaveLength(1);
   expect(kinds.indexOf('appConfig')).toBeLessThan(kinds.indexOf('op'));
+});
+
+test('a rejected choice stops internal Auth and presence subscriptions silently while delivering Firestore listener errors', async () => {
+  let rejectChoice!: (reason: unknown) => void;
+  const choice = new Promise<(port: ClientPort) => ClientDb>((_resolve, reject) => {
+    rejectChoice = reject;
+  });
+  const db = getDeferredFirestore(choice);
+  const authSubId = nextSubId();
+  const presenceSubId = nextSubId();
+  const handledSubId = nextSubId();
+  const unhandledSubId = nextSubId();
+  const handledErrors: unknown[] = [];
+
+  openSnapshotSubscription(db.port, authSubId, { port: db.port, next: () => {} }, { t: 'sub', subId: authSubId, target: 'idToken' });
+  openSnapshotSubscription(db.port, presenceSubId, { port: db.port, next: () => {} }, { t: 'sub', subId: presenceSubId, target: 'presence' });
+  openSnapshotSubscription(
+    db.port,
+    handledSubId,
+    { port: db.port, service: 'firestore', next: () => {}, error: (err) => handledErrors.push(err) },
+    { t: 'sub', subId: handledSubId, target: { __ref: 'doc', path: 'items/a' } },
+  );
+  openSnapshotSubscription(
+    db.port,
+    unhandledSubId,
+    { port: db.port, service: 'firestore', next: () => {} },
+    { t: 'sub', subId: unhandledSubId, target: { __ref: 'doc', path: 'items/b' } },
+  );
+
+  const logged: unknown[][] = [];
+  const originalConsoleError = console.error;
+  console.error = (...args: unknown[]) => { logged.push(args); };
+  try {
+    rejectChoice(new Error('This Node host serves project data only to clients on its own machine.'));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  } finally {
+    console.error = originalConsoleError;
+  }
+
+  expect(handledErrors).toHaveLength(1);
+  expect(logged).toHaveLength(1);
+  expect(String(logged[0]?.[0])).toContain('pyric/firestore: Uncaught Error in snapshot listener:');
 });
