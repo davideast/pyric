@@ -10,11 +10,17 @@
  * around Firestore's document and query shapes; folding the Realtime
  * Database's canonical `listener` events into the same buckets safely is
  * more than this method's bounded scope, so a Realtime Database listener
- * never appears here.
+ * never raises an incident here. Coverage metadata (`examined`, `notExamined`)
+ * and the summary state that scope explicitly and report any unexamined
+ * service events present in the inspected window.
  */
 import { z } from 'zod';
 import { monitorFirebaseActivity, type ActivityFeed, type ActivityIncident } from 'pyric/firestore/internal';
 import type { SandboxEvent } from 'pyric/sandbox';
+import {
+  formatActivitySummary,
+  summarizeActivityCoverage,
+} from '../../activity-coverage.js';
 import { operationFailure } from '../../sandbox-context.js';
 import type { MethodRecord } from '../../method-types.js';
 
@@ -30,12 +36,19 @@ function historyFeed(history: readonly SandboxEvent[]): ActivityFeed {
   };
 }
 
-/** The event ids a `since` cursor makes current: every id at or after it in
- * the sandbox's own event order. */
-function idsAtOrAfter(events: readonly SandboxEvent[], since: string): { ids: Set<string> } | null {
+/** The events and ids a `since` cursor makes current: every event at or after
+ * it in the sandbox's own event order. */
+function windowAtOrAfter(
+  events: readonly SandboxEvent[],
+  since: string,
+): { events: readonly SandboxEvent[]; ids: Set<string> } | null {
   const at = events.findIndex((event) => event.id === since);
   if (at === -1) return null;
-  return { ids: new Set(events.slice(at).map((event) => event.id)) };
+  const slice = events.slice(at);
+  return {
+    events: slice,
+    ids: new Set(slice.map((event) => event.id)),
+  };
 }
 
 export default {
@@ -63,6 +76,19 @@ export default {
     }
 
     const history = ctx.sandbox.history();
+    let inspectedEvents: readonly SandboxEvent[] = history;
+    let currentIds: Set<string> | null = null;
+    if (since !== undefined) {
+      const current = windowAtOrAfter(history, since);
+      if (current === null) {
+        return operationFailure(
+          `The sandbox carries no event '${since}'. Either the log was replaced, by a restore or a reset, or the cursor is not one this sandbox handed out. Call activity without 'since' to read every incident the sandbox holds now.`,
+        );
+      }
+      inspectedEvents = current.events;
+      currentIds = current.ids;
+    }
+
     const feed = historyFeed(history);
     const monitor = monitorFirebaseActivity(feed, () => {});
     let incidents: readonly ActivityIncident[];
@@ -75,22 +101,23 @@ export default {
     if (pattern !== undefined) {
       incidents = incidents.filter((incident) => incident.pattern === pattern);
     }
-    if (since !== undefined) {
-      const current = idsAtOrAfter(history, since);
-      if (current === null) {
-        return operationFailure(
-          `The sandbox carries no event '${since}'. Either the log was replaced, by a restore or a reset, or the cursor is not one this sandbox handed out. Call activity without 'since' to read every incident the sandbox holds now.`,
-        );
-      }
+    if (currentIds !== null) {
+      const activeIds = currentIds;
       incidents = incidents.filter((incident) =>
-        incident.evidenceEventIds.some((id) => current.ids.has(id)),
+        incident.evidenceEventIds.some((id) => activeIds.has(id)),
       );
     }
 
+    const coverage = summarizeActivityCoverage(inspectedEvents);
+
     return {
       ok: true,
-      summary: `${incidents.length} incident(s).`,
-      data: { incidents },
+      summary: formatActivitySummary(incidents.length, coverage),
+      data: {
+        incidents,
+        examined: coverage.examined,
+        notExamined: coverage.notExamined,
+      },
     };
   },
 } satisfies MethodRecord;
