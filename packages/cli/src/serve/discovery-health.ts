@@ -1,5 +1,6 @@
 import { boundedRequest, type BoundedResponse } from '../bounded-request.js';
-import { formatUrlHost, portSuffix } from './advertised-host.js';
+import { formatUrlHost, portSuffix, stripHostBrackets } from './advertised-host.js';
+import { isLoopbackAddress } from './peer.js';
 
 /** Ports probed when the pointer is absent -- serve's default scan window PLUS
  *  the standard Vite dev ports (5173-5177), which the plain 3473+ window would miss
@@ -21,18 +22,40 @@ export interface AnsweringHost {
   instanceId: string | null;
 }
 
+function explicitLoopbackHost(pointerUrl: string | undefined): string | null {
+  if (!pointerUrl) return null;
+  let parsed: URL;
+  try {
+    parsed = new URL(pointerUrl);
+  } catch {
+    return null;
+  }
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null;
+  const rawHost = stripHostBrackets(parsed.hostname.trim()).toLowerCase();
+  if (rawHost === '' || rawHost === 'localhost') return null;
+  if (!isLoopbackAddress(rawHost)) return null;
+  return formatUrlHost(rawHost);
+}
+
 /**
- * Probe BOTH loopback families on a port and return the base that answers.
+ * Probe loopback bases for a port and return the base that answers.
  *
- * Hostname-based URLs are a trap here: serve writes `http://localhost:...`
- * for humans (browsers dual-stack fine), but `localhost` resolution differs
- * by runtime -- node/undici prefers IPv6 `::1`, and a serve under one runtime
- * may bind `127.0.0.1`-only while under another binds `::1`-only. So a
- * discovery client never trusts the hostname: it takes the PORT and tries
- * explicit `127.0.0.1` and `[::1]`, using whichever the server is actually on.
+ * Hostname-based URLs are a trap for `localhost`: serve writes
+ * `http://localhost:...` for humans (browsers dual-stack fine), but `localhost`
+ * resolution differs by runtime -- node/undici prefers IPv6 `::1`, and a serve
+ * under one runtime may bind `127.0.0.1`-only while under another binds
+ * `::1`-only. When `pointerUrl` records a non-`.1` loopback address (such as
+ * `127.0.0.2`), probe that recorded loopback host directly; for `localhost` or
+ * wildcard URLs, probe both `127.0.0.1` and `[::1]`.
  */
-export function basesForPort(port: number): string[] {
-  return [`http://127.0.0.1:${port}`, `http://[::1]:${port}`];
+export function basesForPort(port: number, pointerUrl?: string): string[] {
+  const ipv4 = `http://127.0.0.1:${port}`;
+  const ipv6 = `http://[::1]:${port}`;
+  const explicitHost = explicitLoopbackHost(pointerUrl);
+  if (explicitHost === null) return [ipv4, ipv6];
+  if (explicitHost === '127.0.0.1') return [ipv4, ipv6];
+  if (explicitHost === '[::1]') return [ipv6, ipv4];
+  return [`http://${explicitHost}:${port}`];
 }
 
 /** How long one health probe may take, connect included. Loopback answers in
@@ -164,9 +187,13 @@ export interface PortProbe {
   otherAnswered: boolean;
 }
 
-export async function probePort(port: number, expectedInstanceId?: string | null): Promise<PortProbe> {
+export async function probePort(
+  port: number,
+  expectedInstanceId?: string | null,
+  pointerUrl?: string,
+): Promise<PortProbe> {
   let otherAnswered = false;
-  for (const base of basesForPort(port)) {
+  for (const base of basesForPort(port, pointerUrl)) {
     const health = await probeHealth(base);
     if (!health) continue;
     const id = health.instanceId ?? null;
@@ -192,8 +219,9 @@ export async function probePort(port: number, expectedInstanceId?: string | null
 export async function healthyBase(
   port: number,
   expectedInstanceId?: string | null,
+  pointerUrl?: string,
 ): Promise<{ base: string; instanceId: string | null } | null> {
-  return (await probePort(port, expectedInstanceId)).match;
+  return (await probePort(port, expectedInstanceId, pointerUrl)).match;
 }
 
 /**
@@ -253,7 +281,7 @@ function basesForHostUrl(url: string): string[] {
     return [];
   }
   const isLoopback = LOOPBACK_HOSTNAMES.has(parsed.hostname);
-  if (isLoopback) return basesForPort(urlPort(parsed));
+  if (isLoopback) return basesForPort(urlPort(parsed), url);
   return [`${parsed.protocol}//${parsed.host}`];
 }
 

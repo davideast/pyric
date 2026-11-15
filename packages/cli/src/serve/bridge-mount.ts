@@ -207,7 +207,7 @@ export function createBridgeMount(opts: BridgeMountOptions = {}): BridgeMount {
   let hostedRuntime: Awaited<ReturnType<typeof createHostedRuntime>> | undefined;
   let hostedStartup: Promise<void> | undefined;
   let disconnectHosted: (() => void) | undefined;
-  let captureProjectDir = process.cwd();
+  let captureProjectDir = opts.projectKey ?? process.cwd();
   const isLiveMode = opts.liveHost !== undefined;
   const requiresSessionToken = isLiveMode || opts.requireSessionToken === true;
   let activeWriteRefusal: PyricWriteRefusal | undefined =
@@ -302,9 +302,8 @@ export function createBridgeMount(opts: BridgeMountOptions = {}): BridgeMount {
       callerIdentity: bridge.callerIdentity,
     });
     const server = buildMcpServer(bridge, {
-      forwarded: surface.forwarded,
-      inProcess: surface.inProcess,
-      mode: isLiveMode ? 'live' : 'sandbox',
+      forwarded: surface.forwarded, inProcess: surface.inProcess,
+      mode: isLiveMode ? 'live' : 'sandbox', projectDir: captureProjectDir,
       writeRefusal: activeWriteRefusal,
     });
     session.close = () => {
