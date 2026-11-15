@@ -29,7 +29,20 @@ import {
   lexicalCaptureLiteralBindings,
   substituteIdentifiers,
 } from "./query-proof-scope.js";
-import { hostNumber, inInt64, isHostIntNumber } from "./rules-int.js";
+import {
+  expandEqualityDomainScalars,
+  isRulesScalar,
+  literal,
+  normalizeQueryConstraintScalar,
+  normalizeStrictQueryScalar,
+  rulesScalarExpression,
+  sameDomainRulesScalar,
+  toRulesQueryScalar,
+  type RulesScalar,
+  type RulesWrapperScalar,
+  type Scalar,
+} from "./query-scalar-pins.js";
+import { inInt64 } from "./rules-int.js";
 import { listElementsEqual, rulesValuesEqual } from "./value-equality.js";
 import { Bytes } from "./wrappers/bytes.js";
 import { Duration } from "./wrappers/duration.js";
@@ -39,40 +52,8 @@ import { Path } from "./wrappers/path.js";
 import { Reference } from "./wrappers/reference.js";
 import { Timestamp } from "./wrappers/timestamp.js";
 
-export type RulesWrapperScalar = Reference | Path | Timestamp | Bytes | LatLng | Duration;
-export type Scalar = string | number | boolean | null | RulesWrapperScalar;
-export type RulesScalar = string | number | bigint | boolean | null | RulesFloat | RulesWrapperScalar;
-
-function isRulesWrapperScalar(value: unknown): value is RulesWrapperScalar {
-  return (
-    value instanceof Reference ||
-    value instanceof Path ||
-    value instanceof Timestamp ||
-    value instanceof Bytes ||
-    value instanceof LatLng ||
-    value instanceof Duration
-  );
-}
-
-export const isScalar = (value: unknown): value is Scalar =>
-  value === null ||
-  typeof value === "string" ||
-  typeof value === "boolean" ||
-  (typeof value === "number" && Number.isFinite(value)) ||
-  isRulesWrapperScalar(value);
-
-export function normalizeQueryConstraintScalar(value: unknown): Scalar | undefined {
-  if (isScalar(value)) return value;
-  if (value instanceof RulesFloat && Number.isFinite(value.value)) return value.value;
-  if (
-    typeof value === "bigint" &&
-    value >= BigInt(Number.MIN_SAFE_INTEGER) &&
-    value <= BigInt(Number.MAX_SAFE_INTEGER)
-  ) {
-    return Number(value);
-  }
-  return undefined;
-}
+export type { RulesScalar, RulesWrapperScalar, Scalar };
+export { normalizeQueryConstraintScalar, toRulesQueryScalar };
 
 export function isQueryProofScalar(value: unknown): value is RulesScalar {
   return normalizeQueryConstraintScalar(value) !== undefined;
@@ -253,29 +234,6 @@ export function replaceTokenInQueryScalar<T extends RulesScalar>(
   return value;
 }
 
-type PrimitiveScalar = string | number | boolean | null;
-
-function literalRaw(value: PrimitiveScalar): string {
-  if (typeof value !== "number") return JSON.stringify(value);
-  if (Object.is(value, -0)) return "-0.0";
-  const serialized = JSON.stringify(value);
-  if (
-    !isHostIntNumber(value) &&
-    !serialized.includes(".") &&
-    !serialized.includes("e") &&
-    !serialized.includes("E")
-  ) {
-    return `${serialized}.0`;
-  }
-  return serialized;
-}
-
-const literal = (value: PrimitiveScalar): Expression => ({
-  type: "literal",
-  value,
-  raw: literalRaw(value),
-});
-
 function sameQueryDomainScalar(a: Scalar, b: Scalar): boolean {
   if (typeof a === "number" && typeof b === "number") {
     return Object.is(a, b);
@@ -291,36 +249,38 @@ export function queryProofScalarsEqual(a: unknown, b: unknown): boolean {
 }
 
 /**
- * Collect the list of per-filter scalar sets (`==` or finite `in`) for each
- * constrained field in the query conjunction.
+ * Collect the list of per-filter typed Rules scalar sets (`==` or finite `in`)
+ * for each constrained field in the query conjunction.
+ *
+ * `==` expands whole numbers across equivalent `int` and `float` (and `+0.0` /
+ * `-0.0`) values because Firestore equality filters use cross-type numeric
+ * comparison. `in` keeps each element's strict wire representation without
+ * mixing ints and doubles or signed zeros.
  */
 export function computeFieldFilterSets(
   constraints: QueryConstraints,
-): Map<string, Scalar[][]> {
-  const filterSets = new Map<string, Scalar[][]>();
+): Map<string, RulesScalar[][]> {
+  const filterSets = new Map<string, RulesScalar[][]>();
   for (const filter of constraints.where ?? []) {
-    let filterValues: Scalar[] | undefined;
+    let filterValues: RulesScalar[] | undefined;
     if (filter.op === "==" && !Array.isArray(filter.value)) {
-      const normalized = normalizeQueryConstraintScalar(filter.value);
-      if (normalized !== undefined) {
-        filterValues = normalized === 0 ? [0, -0] : [normalized];
-      }
+      filterValues = expandEqualityDomainScalars(filter.value);
     } else if (
       filter.op === "in" &&
       Array.isArray(filter.value) &&
       filter.value.length > 0 &&
       filter.value.length <= 30
     ) {
-      const deduped: Scalar[] = [];
+      const deduped: RulesScalar[] = [];
       let allValid = true;
       for (const item of filter.value) {
-        const normalized = normalizeQueryConstraintScalar(item);
-        if (normalized === undefined) {
+        const strict = normalizeStrictQueryScalar(item);
+        if (strict === undefined) {
           allValid = false;
           break;
         }
-        if (!deduped.some((existing) => sameQueryDomainScalar(existing, normalized))) {
-          deduped.push(normalized);
+        if (!deduped.some((existing) => sameDomainRulesScalar(existing, strict))) {
+          deduped.push(strict);
         }
       }
       if (allValid) {
@@ -339,20 +299,20 @@ export function computeFieldFilterSets(
 }
 
 /**
- * Compute the effective scalar domain for each constrained field by intersecting
- * all `==` and finite `in` filters on the same field (order-independent).
- * An empty array `[]` indicates contradictory equality/`in` filters on that field.
+ * Compute the effective typed Rules scalar domain for each constrained field
+ * by intersecting all `==` and finite `in` filters on the same field
+ * (order-independent). An empty array `[]` indicates contradictory filters.
  */
 export function computeWhereDomains(
   constraints: QueryConstraints,
-): Map<string, Scalar[]> {
-  const domains = new Map<string, Scalar[]>();
+): Map<string, RulesScalar[]> {
+  const domains = new Map<string, RulesScalar[]>();
   for (const [field, sets] of computeFieldFilterSets(constraints)) {
     let intersected = sets[0]!;
     for (let i = 1; i < sets.length; i++) {
       const next = sets[i]!;
       intersected = intersected.filter((v) =>
-        next.some((candidate) => sameQueryDomainScalar(candidate, v)),
+        next.some((candidate) => sameDomainRulesScalar(candidate, v)),
       );
     }
     domains.set(field, intersected);
@@ -366,24 +326,6 @@ function join(left: Expression, right: Expression, op: string): Expression {
 
 function not(operand: Expression): Expression {
   return { type: "unaryOp", op: "!", operand };
-}
-
-function isRulesScalar(value: unknown): value is RulesScalar {
-  return (
-    value === null ||
-    typeof value === "string" ||
-    typeof value === "boolean" ||
-    typeof value === "bigint" ||
-    (typeof value === "number" && Number.isFinite(value)) ||
-    (value instanceof RulesFloat && Number.isFinite(value.value)) ||
-    isRulesWrapperScalar(value)
-  );
-}
-
-export function toRulesQueryScalar(
-  value: Scalar,
-): Exclude<Scalar, number> | number | RulesFloat {
-  return typeof value === "number" ? hostNumber(value) : value;
 }
 
 export function isSafePrecisionRulesScalar(value: RulesScalar): boolean {
@@ -510,8 +452,8 @@ function resolveGuaranteedArrayContains(
     if (filter.field !== arrayField || filter.op !== "array-contains" || Array.isArray(filter.value)) {
       return false;
     }
-    const normalized = normalizeQueryConstraintScalar(filter.value);
-    return normalized !== undefined && listElementsEqual(ruleVal, toRulesQueryScalar(normalized));
+    const strict = normalizeStrictQueryScalar(filter.value);
+    return strict !== undefined && listElementsEqual(ruleVal, strict);
   });
   return matched ? ruleVal : undefined;
 }
@@ -541,7 +483,7 @@ function isGuaranteedByArrayContains(
 function isEqualityImpliedByFilterSet(
   left: Expression,
   right: Expression,
-  filterSetsByField: ReadonlyMap<string, Scalar[][]>,
+  filterSetsByField: ReadonlyMap<string, RulesScalar[][]>,
   userFunctions: ReadonlyMap<string, FunctionDef>,
   authUid?: string,
   pathVariables?: Readonly<Record<string, string>>,
@@ -572,7 +514,7 @@ function isEqualityImpliedByFilterSet(
 function isInImpliedByFilterSet(
   element: Expression,
   collection: Expression,
-  filterSetsByField: ReadonlyMap<string, Scalar[][]>,
+  filterSetsByField: ReadonlyMap<string, RulesScalar[][]>,
   userFunctions: ReadonlyMap<string, FunctionDef>,
   authUid?: string,
   pathVariables?: Readonly<Record<string, string>>,
@@ -597,10 +539,9 @@ function isInImpliedByFilterSet(
   return sets.some(
     (set) =>
       set.length > 0 &&
-      set.every((v) => {
-        const qv = toRulesQueryScalar(v);
-        return allowedValues.some((allowed) => listElementsEqual(allowed, qv));
-      }),
+      set.every((v) =>
+        allowedValues.some((allowed) => listElementsEqual(allowed, toRulesQueryScalar(v))),
+      ),
   );
 }
 
@@ -637,7 +578,7 @@ const CLOSED_CONST_CTX: SimulationContext = {
   existsAfter: false,
 };
 
-export function isClosedConstantExpr(
+function isClosedConstantExpr(
   expr: Expression,
   userFunctions: ReadonlyMap<string, FunctionDef> = new Map(),
 ): boolean {
@@ -707,7 +648,7 @@ export function isClosedConstantExpr(
   }
 }
 
-export function evalConstValue(
+function evalConstValue(
   expr: Expression,
   userFunctions: ReadonlyMap<string, FunctionDef> = new Map(),
 ): unknown {
@@ -736,117 +677,6 @@ function isConstRefuted(
   }
 }
 
-function int64LiteralExpr(value: bigint): Expression {
-  if (value >= 0n) {
-    return { type: "literal", value: Number(value), raw: value.toString() };
-  }
-  const magnitude = -value;
-  return {
-    type: "unaryOp",
-    op: "-",
-    operand: {
-      type: "literal",
-      value: Number(magnitude),
-      raw: magnitude.toString(),
-    },
-  };
-}
-
-function floatLiteralExpr(value: number): Expression {
-  if (Object.is(value, -0)) return { type: "literal", value: -0, raw: "-0.0" };
-  const serialized = JSON.stringify(value);
-  let raw = serialized;
-  if (!serialized.includes(".") && !serialized.includes("e") && !serialized.includes("E")) {
-    raw = `${serialized}.0`;
-  }
-  return { type: "literal", value, raw };
-}
-
-function bytesLiteralRaw(data: Uint8Array): string {
-  let inner = "";
-  for (const byte of data) {
-    inner += `\\x${byte.toString(16).padStart(2, "0")}`;
-  }
-  return `b'${inner}'`;
-}
-
-function rulesScalarExpression(value: RulesScalar): Expression {
-  if (typeof value === "bigint") return int64LiteralExpr(value);
-  if (value instanceof RulesFloat) return floatLiteralExpr(value.value);
-  if (value instanceof Path) {
-    return { type: "pathLiteral", raw: value.toString(), segments: [...value.segments] };
-  }
-  if (value instanceof Reference) {
-    return {
-      type: "pathLiteral",
-      raw: value.toPath().toString(),
-      segments: [...value.segments],
-      isReference: true,
-    };
-  }
-  if (value instanceof Bytes) {
-    return { type: "literal", value: value.data, raw: bytesLiteralRaw(value.data) };
-  }
-  if (value instanceof LatLng) {
-    return {
-      type: "methodCall",
-      object: { type: "identifier", name: "latlng" },
-      method: "value",
-      args: [floatLiteralExpr(value.lat), floatLiteralExpr(value.lng)],
-    };
-  }
-  if (value instanceof Timestamp) {
-    const baseMillis = {
-      type: "methodCall" as const,
-      object: { type: "identifier" as const, name: "timestamp" },
-      method: "value",
-      args: [int64LiteralExpr(BigInt(value.seconds) * 1000n)],
-    };
-    if (value.nanos === 0) return baseMillis;
-    const nanosOffset = {
-      type: "methodCall" as const,
-      object: { type: "identifier" as const, name: "duration" },
-      method: "value",
-      args: [int64LiteralExpr(BigInt(value.nanos)), literal("ns")],
-    };
-    return join(baseMillis, nanosOffset, "+");
-  }
-  if (value instanceof Duration) {
-    const secsPart = {
-      type: "methodCall" as const,
-      object: { type: "identifier" as const, name: "duration" },
-      method: "value",
-      args: [int64LiteralExpr(BigInt(value.seconds)), literal("s")],
-    };
-    if (value.nanos === 0) return secsPart;
-    const nanosPart = {
-      type: "methodCall" as const,
-      object: { type: "identifier" as const, name: "duration" },
-      method: "value",
-      args: [int64LiteralExpr(BigInt(value.nanos)), literal("ns")],
-    };
-    return join(secsPart, nanosPart, "+");
-  }
-  return literal(value);
-}
-
-function pinCandidateExpressions(value: Scalar): Expression[] {
-  if (isRulesWrapperScalar(value)) {
-    return [rulesScalarExpression(value)];
-  }
-  const primary = literal(value);
-  if (
-    typeof value === "number" &&
-    Number.isInteger(value) &&
-    !Number.isSafeInteger(value) &&
-    value >= -(2 ** 63) &&
-    value < 2 ** 63
-  ) {
-    return [primary, int64LiteralExpr(BigInt(value))];
-  }
-  return [primary];
-}
-
 export interface PathInvarianceContext {
   readonly candidateVariables: ReadonlySet<string>;
   readonly ambiguousNames: ReadonlySet<string>;
@@ -867,7 +697,7 @@ export function queryResidual(
   const nonEmptyDomains = new Map<string, Expression[]>();
   for (const [name, values] of domains) {
     if (values.length > 0) {
-      nonEmptyDomains.set(name, values.flatMap(pinCandidateExpressions));
+      nonEmptyDomains.set(name, values.map(rulesScalarExpression));
     }
   }
   let variants: Map<string, Expression>[] = [new Map()];
@@ -1308,11 +1138,9 @@ export function buildRuleBudgetCondition(
 ): Expression {
   const singlePins = new Map<string, Expression>();
   for (const [field, values] of computeWhereDomains(constraints)) {
-    if (values.length === 1) {
-      const exprs = pinCandidateExpressions(values[0]!);
-      if (exprs.length > 0) {
-        singlePins.set(field, exprs[0]!);
-      }
+    const [only] = values;
+    if (values.length === 1 && only !== undefined) {
+      singlePins.set(field, rulesScalarExpression(only));
     }
   }
 

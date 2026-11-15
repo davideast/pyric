@@ -32,6 +32,12 @@ import {
   nodeTouchesUnseededContext,
   walkRuleExpression,
 } from './static-query-proof-inspection.js';
+import {
+  applyRequestAliases,
+  rebindParentForResolvedNode,
+  resolveNodeForUnseededCheck,
+  resolveRequestAliasExpr,
+} from './static-query-proof-request-aliases.js';
 
 interface TruthPossibility {
   readonly canBeTrue: boolean;
@@ -106,8 +112,11 @@ function isUnseededDynamicPathWildcard(
   node: Expression,
   parent: Expression | null,
   pathVariables: Readonly<Record<string, string>>,
+  shadowedNames: ReadonlySet<string>,
 ): boolean {
-  if (node.type !== 'identifier' || !Object.hasOwn(pathVariables, node.name)) return false;
+  if (node.type !== 'identifier' || shadowedNames.has(node.name) || !Object.hasOwn(pathVariables, node.name)) {
+    return false;
+  }
   const bound = pathVariables[node.name];
   if (bound === undefined || !bound.startsWith('__pyric_') || bound === SYNTH_UID) {
     return false;
@@ -123,23 +132,63 @@ function isUnseededDynamicPathWildcard(
 
 function functionTouchesUnseeded(
   fnName: string,
+  callArgs: readonly Expression[],
   scopeFunctions: ReadonlyMap<string, FunctionDef>,
   pathVariables: Readonly<Record<string, string>>,
   matchWildcardNames: ReadonlySet<string>,
   populatedClaims: ReadonlySet<string>,
-  visited: Set<string>,
+  visited: ReadonlySet<FunctionDef>,
 ): boolean {
-  if (visited.has(fnName)) return false;
   const fnDef = scopeFunctions.get(fnName);
-  if (!fnDef) return false;
-  visited.add(fnName);
+  if (!fnDef || visited.has(fnDef)) return false;
+  const nextVisited = new Set(visited);
+  nextVisited.add(fnDef);
+  const localShadowed = new Set<string>();
+  const aliases = new Map<string, Expression>();
+  for (let i = 0; i < fnDef.parameters.length; i += 1) {
+    const param = fnDef.parameters[i];
+    if (param === undefined) continue;
+    localShadowed.add(param);
+    const arg = callArgs[i];
+    if (arg !== undefined) {
+      const argAlias = resolveRequestAliasExpr(arg, scopeFunctions, nextVisited);
+      if (argAlias !== null) {
+        aliases.set(param, argAlias);
+      }
+    }
+  }
+  for (const binding of fnDef.lets) {
+    const value = applyRequestAliases(binding.value, aliases);
+    if (
+      subtreeTouchesUnseededContext(
+        value,
+        scopeFunctions,
+        pathVariables,
+        matchWildcardNames,
+        populatedClaims,
+        nextVisited,
+        localShadowed,
+      )
+    ) {
+      return true;
+    }
+    const resolvedAlias = resolveRequestAliasExpr(value, scopeFunctions, nextVisited);
+    if (resolvedAlias !== null) {
+      aliases.set(binding.name, resolvedAlias);
+    } else {
+      aliases.delete(binding.name);
+    }
+    localShadowed.add(binding.name);
+  }
+  const body = applyRequestAliases(fnDef.body, aliases);
   return subtreeTouchesUnseededContext(
-    fnDef.body,
+    body,
     scopeFunctions,
     pathVariables,
     matchWildcardNames,
     populatedClaims,
-    visited,
+    nextVisited,
+    localShadowed,
   );
 }
 
@@ -149,7 +198,8 @@ function subtreeTouchesUnseededContext(
   pathVariables: Readonly<Record<string, string>>,
   matchWildcardNames: ReadonlySet<string>,
   populatedClaims: ReadonlySet<string>,
-  visitedFns: Set<string> = new Set(),
+  visitedFns: ReadonlySet<FunctionDef> = new Set(),
+  shadowedNames: ReadonlySet<string> = new Set(),
 ): boolean {
   let touches = false;
   walkRuleExpression(expr, new Map(), new Set(), (node, parent, grandparent) => {
@@ -163,30 +213,34 @@ function subtreeTouchesUnseededContext(
             pathVariables,
             matchWildcardNames,
             populatedClaims,
-            new Set(visitedFns),
+            visitedFns,
+            shadowedNames,
           ),
         )
         || functionTouchesUnseeded(
           node.name,
+          node.args,
           scopeFunctions,
           pathVariables,
           matchWildcardNames,
           populatedClaims,
-          new Set(visitedFns),
+          visitedFns,
         )
       ) {
         touches = true;
       }
       return;
     }
-    if (isUnseededDynamicPathWildcard(node, parent, pathVariables)) {
+    if (isUnseededDynamicPathWildcard(node, parent, pathVariables, shadowedNames)) {
       touches = true;
       return;
     }
+    const effectiveNode = resolveNodeForUnseededCheck(node, scopeFunctions, visitedFns);
+    const effectiveParent = rebindParentForResolvedNode(node, effectiveNode, parent);
     if (
       nodeTouchesUnseededContext(
-        node,
-        parent,
+        effectiveNode,
+        effectiveParent,
         grandparent,
         scopeFunctions,
         matchWildcardNames,
