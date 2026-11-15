@@ -735,8 +735,8 @@ function evaluateBinaryOp(
   }
 
   switch (op) {
-    case '==': return lv === rv || rulesValuesEqual(lv, rv);
-    case '!=': return !(lv === rv || rulesValuesEqual(lv, rv));
+    case '==': return rulesValuesEqual(lv, rv);
+    case '!=': return !rulesValuesEqual(lv, rv);
     case '<': return (lv as number) < (rv as number);
     case '>': return (lv as number) > (rv as number);
     case '<=': return (lv as number) <= (rv as number);
