@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'bun:test';
-import { advertisedHost, advertisedUrl, formatUrlHost } from '../../src/serve/advertised-host.js';
+import {
+  advertisedHost,
+  advertisedUrl,
+  formatUrlHost,
+  portSuffix,
+  stripHostBrackets,
+} from '../../src/serve/advertised-host.js';
 
 describe('advertisedHost', () => {
   it('maps wildcard bind hosts to localhost', () => {
@@ -52,6 +58,9 @@ describe('advertisedUrl', () => {
     expect(advertisedUrl('http://0.0.0.0:3473/__pyric/mcp')).toBe('http://localhost:3473/__pyric/mcp');
     expect(advertisedUrl('ws://[::]:5173/__pyric/sandbox?token=abc')).toBe('ws://localhost:5173/__pyric/sandbox?token=abc');
     expect(advertisedUrl('https://[::ffff:0.0.0.0]:8443/items#top')).toBe('https://localhost:8443/items#top');
+    expect(advertisedUrl('http://0.0.0.0:3473?next=/home')).toBe('http://localhost:3473?next=/home');
+    expect(advertisedUrl('http://0.0.0.0:3473/?next=/home')).toBe('http://localhost:3473/?next=/home');
+    expect(advertisedUrl('http://0.0.0.0:3473#a/b')).toBe('http://localhost:3473#a/b');
   });
 
   it('leaves non-wildcard and unparseable strings unchanged', () => {
@@ -59,5 +68,19 @@ describe('advertisedUrl', () => {
     expect(advertisedUrl('http://127.0.0.1:3473/__pyric/mcp')).toBe('http://127.0.0.1:3473/__pyric/mcp');
     expect(advertisedUrl('http://[::1]:5173')).toBe('http://[::1]:5173');
     expect(advertisedUrl('not a url')).toBe('not a url');
+  });
+});
+
+describe('stripHostBrackets and portSuffix', () => {
+  it('unwraps bracketed IPv6 literals and leaves other hosts intact', () => {
+    expect(stripHostBrackets('[::]')).toBe('::');
+    expect(stripHostBrackets('[::1]')).toBe('::1');
+    expect(stripHostBrackets('::1')).toBe('::1');
+    expect(stripHostBrackets('localhost')).toBe('localhost');
+  });
+
+  it('formats non-empty ports with a leading colon', () => {
+    expect(portSuffix('')).toBe('');
+    expect(portSuffix('3473')).toBe(':3473');
   });
 });

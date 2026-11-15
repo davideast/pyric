@@ -64,7 +64,10 @@ export function attachViteGenerationBridge(input: {
   if (!bridge || !server.httpServer) return null;
   const httpServer = server.httpServer as unknown as HttpServer;
   const configuredHost = server.config.server.host;
-  const rawHost = typeof configuredHost === 'string' && configuredHost.length > 0 ? configuredHost : 'localhost';
+  let rawHost = 'localhost';
+  if (typeof configuredHost === 'string' && configuredHost.length > 0) {
+    rawHost = configuredHost;
+  }
   const host = advertisedHost(rawHost);
   const secure = servesHttps(server);
   const origin = (): BridgeOrigin | null => {

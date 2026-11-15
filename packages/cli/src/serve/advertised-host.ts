@@ -9,15 +9,22 @@
  * instead, while the listener and Host guard keep the raw bind host.
  */
 
-function stripBrackets(host: string): string {
+/** Remove surrounding square brackets from an IPv6 host literal, if present. */
+export function stripHostBrackets(host: string): string {
   if (host.startsWith('[') && host.endsWith(']')) {
     return host.slice(1, -1);
   }
   return host;
 }
 
+/** Format a URL `port` string as `:port` when non-empty, or `''` otherwise. */
+export function portSuffix(port: string): string {
+  if (port === '') return '';
+  return `:${port}`;
+}
+
 function isWildcardHost(host: string): boolean {
-  const unwrapped = stripBrackets(host.trim());
+  const unwrapped = stripHostBrackets(host.trim());
   const clean = unwrapped.replace(/\.+$/, '').toLowerCase();
   if (clean === '0' || clean === '0.0.0.0') return true;
   if (!clean.includes(':')) return false;
@@ -52,6 +59,13 @@ export function formatUrlHost(host: string): string {
   return resolved;
 }
 
+function authorityAndPathPart(rawUrl: string, protocolLength: number): string {
+  const afterScheme = rawUrl.trimStart().slice(protocolLength + 2);
+  const queryOrHashIndex = afterScheme.search(/[?#]/);
+  if (queryOrHashIndex === -1) return afterScheme;
+  return afterScheme.slice(0, queryOrHashIndex);
+}
+
 /**
  * Rewrite a URL whose hostname is a wildcard bind address to use `localhost`
  * while preserving scheme, port, path, query, and fragment. Non-wildcard URLs
@@ -65,9 +79,10 @@ export function advertisedUrl(rawUrl: string): string {
     return rawUrl;
   }
   if (!isWildcardHost(parsed.hostname)) return rawUrl;
-  const portSuffix = parsed.port === '' ? '' : `:${parsed.port}`;
-  const afterScheme = rawUrl.slice(parsed.protocol.length + 2);
-  const hasExplicitSlash = afterScheme.includes('/');
-  const pathPart = parsed.pathname === '/' && !hasExplicitSlash ? '' : parsed.pathname;
-  return `${parsed.protocol}//localhost${portSuffix}${pathPart}${parsed.search}${parsed.hash}`;
+  const hasExplicitSlash = authorityAndPathPart(rawUrl, parsed.protocol.length).includes('/');
+  let pathPart = parsed.pathname;
+  if (parsed.pathname === '/' && !hasExplicitSlash) {
+    pathPart = '';
+  }
+  return `${parsed.protocol}//localhost${portSuffix(parsed.port)}${pathPart}${parsed.search}${parsed.hash}`;
 }

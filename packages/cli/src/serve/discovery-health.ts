@@ -1,5 +1,5 @@
 import { boundedRequest, type BoundedResponse } from '../bounded-request.js';
-import { formatUrlHost } from './advertised-host.js';
+import { formatUrlHost, portSuffix } from './advertised-host.js';
 
 /** Ports probed when the pointer is absent -- serve's default scan window PLUS
  *  the standard Vite dev ports (5173-5177), which the plain 3473+ window would miss
@@ -54,19 +54,66 @@ type HealthAnswer =
 const NO_HEALTH_ANSWER: HealthAnswer = { kind: 'no-answer' };
 const OTHER_HEALTH_ANSWER: HealthAnswer = { kind: 'other' };
 
-/** Single-line summary from a 403 refusal body, if the host included one. */
+const ANSI_ESCAPE = /(?:\u001b\[|\u009b)[0-9;?]*[ -/]*[@-~]|\u001b\][^\u0007\u001b]*(?:\u0007|\u001b\\)/g;
+const LINE_BREAK_OR_TAB = /[\r\n\t\v\f\u0085\u2028\u2029]+/g;
+const TERMINAL_CONTROL_OR_BIDI =
+  /[\u0000-\u001f\u007f-\u009f\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069\ufeff]/g;
+const MARKUP_TAG = /<(?:!doctype|html|head|body|title|div|p|h[1-6]|pre|script|xml)\b/i;
+
+function mediaTypeOf(response: BoundedResponse): string {
+  const raw = response.headers['content-type'];
+  let header: string | undefined;
+  if (Array.isArray(raw)) {
+    header = raw[0];
+  } else {
+    header = raw;
+  }
+  if (typeof header !== 'string') return '';
+  const semi = header.indexOf(';');
+  let typePart = header;
+  if (semi !== -1) {
+    typePart = header.slice(0, semi);
+  }
+  return typePart.trim().toLowerCase();
+}
+
+function sanitizeDetailText(text: string): string {
+  return text
+    .replace(ANSI_ESCAPE, '')
+    .replace(LINE_BREAK_OR_TAB, ' ')
+    .replace(TERMINAL_CONTROL_OR_BIDI, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 240);
+}
+
+function looksLikeMarkup(text: string): boolean {
+  const trimmed = text.trimStart();
+  if (trimmed.startsWith('<')) return true;
+  return MARKUP_TAG.test(trimmed);
+}
+
+/** Single-line summary from a 403 refusal body, if the host included a safe text or JSON error. */
 function forbiddenDetailOf(response: BoundedResponse): string {
   const text = response.body.toString('utf8').trim();
   if (text === '') return '';
-  try {
-    const parsed: unknown = JSON.parse(text);
-    if (typeof parsed === 'object' && parsed !== null && 'error' in parsed && typeof parsed.error === 'string') {
-      return parsed.error.replace(/\s+/g, ' ').trim().slice(0, 240);
+  const mediaType = mediaTypeOf(response);
+  const isJson = mediaType === 'application/json' || mediaType.endsWith('+json');
+  if (isJson) {
+    try {
+      const parsed: unknown = JSON.parse(text);
+      if (typeof parsed === 'object' && parsed !== null && 'error' in parsed && typeof parsed.error === 'string') {
+        return sanitizeDetailText(parsed.error);
+      }
+    } catch {
+      return '';
     }
-  } catch {
-    // Plain-text refusal body (for example, the Host guard reply).
+    return '';
   }
-  return text.replace(/\s+/g, ' ').slice(0, 240);
+  const isPlainOrMissing = mediaType === '' || mediaType === 'text/plain';
+  if (!isPlainOrMissing) return '';
+  if (looksLikeMarkup(text)) return '';
+  return sanitizeDetailText(text);
 }
 
 /** The health reply in a response, or `null` when the response is not one. */
@@ -162,8 +209,7 @@ export function canonicalServeUrl(port: number, pointerUrl?: string): string {
       const u = new URL(pointerUrl);
       if (u.protocol === 'http:' || u.protocol === 'https:') {
         const host = formatUrlHost(u.hostname);
-        const portSuffix = u.port === '' ? '' : `:${u.port}`;
-        return `${u.protocol}//${host}${portSuffix}`;
+        return `${u.protocol}//${host}${portSuffix(u.port)}`;
       }
     } catch {
       /* malformed pointer url -- fall through to the localhost default */

@@ -142,7 +142,7 @@ npx pyric sandbox salvage --source .pyric/state/hosted --out .pyric/state/recove
 
 The Node host answers sandbox, Studio, and MCP requests only for clients on the same machine (`localhost`, `127.0.0.1`, or `[::1]`). This restriction is enforced unconditionally on both `pyric sandbox --hosted` and the Vite plugin:
 
-- Passing `--host 0.0.0.0`, `--host ::`, or `--allowed-host` (or Vite `server.host` / `server.allowedHosts`) does **not** expose sandbox data, Studio, or MCP routes to remote peers. Requests from another machine receive a `403` refusal on `/__pyric/*` routes, and `/__pyric/init.json` responds with `remotePeer: true` and no project data.
+- Passing `--host 0.0.0.0`, `--host ::`, or `--allowed-host` (or Vite `server.host` / `server.allowedHosts`) does **not** expose sandbox data, Studio, or MCP routes to remote peers. Requests from another machine receive a `403` refusal on sandbox, Studio, and MCP `/__pyric/*` routes, and `/__pyric/init.json` responds with `remotePeer: true` and no project data (only the local-only notice assets and any explicitly hosted static or Functions routes remain reachable).
 - When bound to a wildcard address (`0.0.0.0` or `::`), the host still rejects requests whose `Host` header carries the wildcard address. Client-facing URLs in `.pyric/serve.json`, `/__pyric/init.json`, and the startup banner therefore advertise `localhost` so local browsers, `pyric run --sandbox`, and MCP tools connect cleanly.
 
 To use a Node host running on a remote machine (such as a cloud dev workstation or VM), keep the host on loopback and forward the port over SSH from your local machine:

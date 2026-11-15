@@ -16,6 +16,7 @@ import { createServer, request as httpRequest, type IncomingMessage, type Server
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import type { ViteDevServer } from 'vite';
 import { startServe, serveJsonLine, type ServeRuntime } from '../../src/cli/serve.js';
 import { formatStartupEnvExport } from '../../src/cli/sandbox-runner.js';
 import { createBridgeMount } from '../../src/serve/bridge-mount.js';
@@ -271,7 +272,7 @@ describe('wildcard bind hosts advertise connectable loopback URLs', () => {
       expect(startupExport).toContain(`pyric run --sandbox ${pointer.url} -- <command>`);
 
       // Running the advertised URL via `pyric run --sandbox` succeeds from the project dir
-      // AND from an unrelated directory outside the project.
+      // and from an unrelated directory outside the project.
       const outsideDir = makeUnrelatedDir();
       for (const runCwd of [cwd, outsideDir]) {
         const result = await runCommandAsync(
@@ -374,33 +375,35 @@ describe('wildcard bind hosts advertise connectable loopback URLs', () => {
       const watcher = new EventEmitter() as EventEmitter & { add(path: string | readonly string[]): void };
       watcher.add = () => {};
 
+      const viteServerStub = {
+        config: {
+          root: cwd,
+          server: { host: testCase.configuredHost, allowedHosts: [] as string[] },
+          logger: {
+            info: () => {},
+            warn: () => {},
+            error: () => {},
+          },
+        },
+        middlewares: {
+          use(
+            route: string,
+            handler: (
+              req: IncomingMessage & { originalUrl?: string },
+              res: ServerResponse,
+              next: () => void,
+            ) => void,
+          ) {
+            if (route === '/__pyric') pyricMiddleware = handler;
+          },
+        },
+        watcher,
+        httpServer,
+      };
+
       const generation = await createViteSandboxGeneration(
         {
-          server: {
-            config: {
-              root: cwd,
-              server: { host: testCase.configuredHost, allowedHosts: [] },
-              logger: {
-                info: () => {},
-                warn: () => {},
-                error: () => {},
-              },
-            },
-            middlewares: {
-              use(
-                route: string,
-                handler: (
-                  req: IncomingMessage & { originalUrl?: string },
-                  res: ServerResponse,
-                  next: () => void,
-                ) => void,
-              ) {
-                if (route === '/__pyric') pyricMiddleware = handler;
-              },
-            },
-            watcher,
-            httpServer,
-          } as never,
+          server: viteServerStub as unknown as ViteDevServer,
           projectDir: cwd,
           cliRoot: join(import.meta.dir, '..', '..'),
           workerRuntime: {

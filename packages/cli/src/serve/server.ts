@@ -15,7 +15,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { createReadStream, existsSync, statSync } from 'node:fs';
 import { pipeline } from 'node:stream';
 import { extname, join, normalize, resolve, sep } from 'node:path';
-import { formatUrlHost } from './advertised-host.js';
+import { formatUrlHost, stripHostBrackets } from './advertised-host.js';
 import { isHostingIgnoredPathname, isHostingIgnoredRealFile } from './hosting-ignore.js';
 import { registerLocalSessionToken } from './local-session-token.js';
 import {
@@ -373,8 +373,7 @@ export function listenWithScan(
  */
 export function loopbackHosts(host: string): string[] {
   if (host === 'localhost') return ['127.0.0.1', '::1'];
-  if (host.startsWith('[') && host.endsWith(']')) return [host.slice(1, -1)];
-  return [host];
+  return [stripHostBrackets(host)];
 }
 
 export async function startStaticServer(opts: StaticServerOptions): Promise<ServeHandle> {

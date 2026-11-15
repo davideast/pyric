@@ -442,4 +442,37 @@ describe('Vite sandbox generation project', () => {
       await generation.close();
     }
   });
+
+  it('normalizes wildcard resolvedUrls to localhost for hosted sandbox baseUrl', async () => {
+    for (const rawUrl of ['http://0.0.0.0:5173', 'http://[::]:5173']) {
+      const hostedDir = mkdtempSync(join(tmpdir(), 'pyric-vite-hosted-wildcard-'));
+      try {
+        const h = harness();
+        h.input.projectDir = hostedDir;
+        h.input.options.hosted = true;
+        h.input.server.resolvedUrls = { local: [rawUrl], network: [] };
+        let capturedBaseUrl: string | (() => string) | undefined;
+        const baseCreateBridge = h.dependencies.createBridge;
+        h.dependencies.createBridge = (bridgeOptions) => {
+          if (!baseCreateBridge) throw new Error('missing createBridge stub');
+          const created = baseCreateBridge(bridgeOptions);
+          return {
+            ...created,
+            startHostedSandbox: async (_payload, baseUrl) => {
+              capturedBaseUrl = baseUrl;
+            },
+          };
+        };
+        const generation = await createViteSandboxGeneration(h.input, h.dependencies);
+        let resolved = capturedBaseUrl;
+        if (typeof capturedBaseUrl === 'function') {
+          resolved = capturedBaseUrl();
+        }
+        expect(resolved, `rawUrl=${rawUrl}`).toBe('http://localhost:5173');
+        await generation.close();
+      } finally {
+        rmSync(hostedDir, { recursive: true, force: true });
+      }
+    }
+  });
 });
