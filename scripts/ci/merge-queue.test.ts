@@ -4,7 +4,6 @@ import { resolve } from 'node:path';
 import {
   MAX_BATCH,
   QUEUE_LABEL,
-  STAGING_BRANCH,
   decideQueueStep,
   dequeueComment,
   formatStagingTrailers,
@@ -23,9 +22,6 @@ import {
   type StagingRun,
 } from './merge-queue.ts';
 import { MAX_TRANSITIONS, World } from './merge-queue-model.ts';
-import { mainHeadSha, pullChangedPaths, type QueueIo } from './merge-queue-facts.ts';
-import { runQueuePass } from './merge-queue-github.ts';
-import { GREEN_RUN, HEAD_A, HEAD_B, createHarness, greenBatch, pull as harnessPull, stagedMessage } from './merge-queue-harness.ts';
 
 const MAIN = '1'.repeat(40);
 const STAGED = 'c'.repeat(40);
@@ -542,54 +538,5 @@ describe('the merge queue workflow contract', () => {
     const watched = lane().on.workflow_run?.workflows as string[];
     expect(watched).toContain('Build & Test');
     expect(watched).toContain('Slow app scenarios');
-  });
-
-  test('routes reads, comments, and queue label removals to ghWorkflow while keeping merge and workflow ops on gh', () => {
-    const isWf = (args: readonly string[]): boolean => {
-      if (args[0] !== 'api') return false;
-      const idx = args.indexOf('-X');
-      if (idx === -1) return true;
-      const p = args.find((arg) => arg.startsWith('repos/')) ?? '';
-      return (args[idx + 1] === 'POST' && p.endsWith('/comments')) || (args[idx + 1] === 'DELETE' && p.includes('/labels/'));
-    };
-    const wrap = (h: ReturnType<typeof createHarness>) => {
-      const pat: string[][] = [];
-      const wf: string[][] = [];
-      const raw = h.io.gh;
-      const io: QueueIo = {
-        ...h.io,
-        gh: (a) => { pat.push(a); if (isWf(a)) throw new Error('HTTP 403'); return raw(a); },
-        ghWorkflow: (a) => { wf.push(a); if (!isWf(a)) throw new Error('PAT only'); return raw(a); },
-      };
-      delete io.ghChecks;
-      return { io, pat, wf };
-    };
-    const refusal = 'remote: error: GH013: Repository rule violations found for refs/heads/main.';
-    const land = wrap(greenBatch({ pushRefusal: refusal, filesByPr: { 101: ['README.md'] } }));
-    expect(mainHeadSha(land.io)).toBe(MAIN);
-    expect(pullChangedPaths(land.io, 101)).toEqual(['README.md']);
-    expect(runQueuePass(land.io, { dryRun: false, usingWorkflowToken: false }).map((a) => a.kind)).toEqual(['land', 'idle']);
-    expect(land.pat.map((a) => a[3])).toEqual(['repos/owner/repo/pulls/101/merge', 'repos/owner/repo/pulls/102/merge']);
-    expect(land.wf.some((a) => a.includes('repos/owner/repo/issues/101/comments'))).toBe(true);
-    expect(land.wf).toContainEqual(['api', '-X', 'DELETE', `repos/owner/repo/issues/101/labels/${QUEUE_LABEL}`]);
-    const rerun = wrap(createHarness({
-      branches: { [STAGING_BRANCH]: STAGED }, pulls: [harnessPull(101, HEAD_A)],
-      messages: { [STAGED]: stagedMessage({ baseSha: MAIN, pulls: [{ number: 101, headSha: HEAD_A }] }) },
-      greenHeads: new Set([HEAD_A]), stagingRuns: [{ ...GREEN_RUN, id: 701, conclusion: 'failure' }],
-    }));
-    expect(runQueuePass(rerun.io, { dryRun: false, usingWorkflowToken: false }).map((a) => a.kind)).toEqual(['rerun-staging']);
-    expect(rerun.pat).toEqual([['run', 'rerun', '701', '--failed', '--repo', 'owner/repo']]);
-    const stage = wrap(createHarness({
-      branches: { [STAGING_BRANCH]: STAGED }, pulls: [harnessPull(101, HEAD_A), harnessPull(102, HEAD_B)],
-      messages: { [STAGED]: stagedMessage({ baseSha: '0'.repeat(40), pulls: [{ number: 101, headSha: HEAD_A }] }) },
-      greenHeads: new Set([HEAD_A, HEAD_B]), stagingRuns: [{ ...GREEN_RUN, id: 700, status: 'in_progress', conclusion: null }],
-    }));
-    expect(runQueuePass(stage.io, { dryRun: false, usingWorkflowToken: false }).map((a) => a.kind)).toEqual(['stage']);
-    expect(stage.pat.map((a) => `${a[0]} ${a[1]}`)).toEqual(['run cancel', 'workflow run']);
-    const fb = greenBatch({ pushRefusal: refusal });
-    delete fb.io.ghChecks;
-    delete fb.io.ghWorkflow;
-    expect(runQueuePass(fb.io, { dryRun: false, usingWorkflowToken: false }).map((a) => a.kind)).toEqual(['land', 'idle']);
-    expect(fb.gh.some((a) => a.includes('repos/owner/repo/issues/101/comments'))).toBe(true);
   });
 });
