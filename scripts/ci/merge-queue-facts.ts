@@ -28,6 +28,10 @@ const WATCHED_ON_MAIN: ReadonlyArray<{ file: string; name: string }> = [
 export interface QueueIo {
   repo: string;
   gh: (args: string[]) => string;
+  /** Optional `gh` runner backed by a token with `checks: read` (such as
+   *  `github.token`) for `commits/<sha>/check-runs`, which fine-grained PATs
+   *  cannot read. Defaults to `gh` when omitted. */
+  ghChecks?: (args: string[]) => string;
   git: (args: string[]) => string;
   log: (text: string) => void;
   writeFile: (name: string, text: string) => string;
@@ -68,8 +72,12 @@ interface WorkflowRunItem {
   actor?: { login?: string } | null;
 }
 
+function apiGetWith<T>(run: (args: string[]) => string, repo: string, path: string): T {
+  return JSON.parse(run(['api', `repos/${repo}/${path}`])) as T;
+}
+
 export function apiGet<T>(io: QueueIo, path: string): T {
-  return JSON.parse(io.gh(['api', `repos/${io.repo}/${path}`])) as T;
+  return apiGetWith<T>(io.gh, io.repo, path);
 }
 
 export function mainHeadSha(io: QueueIo): string {
@@ -99,8 +107,9 @@ export function pullChangedPaths(io: QueueIo, prNumber: number): string[] {
 
 function latestRequiredCheck(io: QueueIo, sha: string): { state: CheckState; conclusion: string | null } {
   const encoded = encodeURIComponent(REQUIRED_CHECK);
-  const response = apiGet<{ check_runs: CheckRunItem[] }>(
-    io,
+  const response = apiGetWith<{ check_runs: CheckRunItem[] }>(
+    io.ghChecks ?? io.gh,
+    io.repo,
     `commits/${sha}/check-runs?check_name=${encoded}&filter=latest`,
   );
   const run = response.check_runs.find((item) => item.app?.slug === 'github-actions') ?? response.check_runs[0];

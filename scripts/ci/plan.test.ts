@@ -94,8 +94,6 @@ describe('app scenario selection', () => {
     for (const path of [
       'packages/cli/src/serve/vite-plugin.ts',
       'packages/cli/src/register/index.ts',
-      'packages/cli/src/remote/index.ts',
-      'packages/cli/src/cli/serve.ts',
       'packages/cli/src/next/with-pyric.ts',
       'packages/cli/src/bundler/edge-runtime.ts',
       'packages/cli/src/functions/runtime.ts',
@@ -107,6 +105,22 @@ describe('app scenario selection', () => {
     }
     expect(pullRequest({ paths: ['packages/live/src/vite.ts', 'test/apps/foo/scenario.ts'], body: 'test/apps/bar' }))
       .toEqual({ kind: 'some', apps: [...smoke, 'bar', 'foo'].sort() });
+  });
+
+  test('a change to CLI commands or remote sandbox discovery also selects remote-sandbox-discovery', () => {
+    const cliApps = [...SMOKE_SCENARIOS, 'remote-sandbox-discovery'].sort();
+    for (const path of [
+      'packages/cli/src/cli/serve.ts',
+      'packages/cli/src/cli/sandbox-word-guard.ts',
+      'packages/cli/src/remote/index.ts',
+    ]) {
+      expect(pullRequest({ paths: [path], body: 'No runtime path.' })).toEqual({ kind: 'some', apps: cliApps });
+    }
+    const real = discoverScenarios(resolve(import.meta.dir, '../..'));
+    expect(real.find((scenario) => scenario.name === 'remote-sandbox-discovery')).toEqual({
+      name: 'remote-sandbox-discovery',
+      slow: false,
+    });
   });
 
   test('the smoke set is 3 to 5 scenarios of this repository that are not slow, including split-port Next.js', () => {

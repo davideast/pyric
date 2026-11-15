@@ -18,19 +18,24 @@
 #      the half that failed, for at most 6 more runs at a batch of 8. Only a
 #      pull request left alone with a twice-failed run is removed.
 #   4. Once staging is green and `main` has not moved, pushes the staged commit
-#      to `main` without force, so `main` becomes the commit that was tested,
-#      checks that the tree on `main` is the tested tree, comments the commit
-#      and the staging run on each pull request, dispatches `main`'s post-merge
-#      workflows when running under the default workflow token, and stages the
-#      next batch. A refused push changes nothing the first time; a second
-#      refusal of the same commit removes the batch with a comment.
+#      to `main` without force, so `main` becomes the commit that was tested
+#      (or, if a repository ruleset rejects a direct push of a multi-PR batch,
+#      merges each staged pull request in order via GitHub's pull request merge
+#      API), checks that the tree on `main` is the tested tree, comments the
+#      commit and the staging run on each pull request, dispatches `main`'s
+#      post-merge workflows when running under the default workflow token, and
+#      stages the next batch. A refused landing changes nothing the first time;
+#      a second refusal of the same commit removes the batch with a comment.
 #   5. While `Build & Test` or `Slow app scenarios` is red on the head of
 #      `main`, stages and lands revert pull requests only.
 #
-# Optional: set `secrets.MERGE_QUEUE_TOKEN` (fine-grained PAT with `contents`
-# and `pull-requests` write on this repository) if you prefer landings to
-# trigger native `on: push` events on `main` directly instead of
-# `workflow_dispatch`.
+# Optional: set `secrets.MERGE_QUEUE_TOKEN` (fine-grained PAT scoped to this
+# repository with `Actions`, `Contents`, `Issues`, and `Pull requests` set to
+# Read and write; `Checks` reads use `github.token` because fine-grained PATs
+# do not offer a `Checks` permission) so landings trigger native `on: push`
+# events on `main` directly instead of `workflow_dispatch`.
+# `secrets.MERQUE_QUEUE_TOKEN` is temporarily accepted as a fallback alias
+# until the token is rotated.
 
 name: Merge queue
 
@@ -75,6 +80,7 @@ jobs:
     timeout-minutes: 15
     permissions:
       actions: write
+      checks: read
       contents: write
       issues: write
       pull-requests: write
@@ -83,14 +89,15 @@ jobs:
         with:
           ref: main
           fetch-depth: 0
-          token: ${{ secrets.MERGE_QUEUE_TOKEN || github.token }}
+          token: ${{ secrets.MERGE_QUEUE_TOKEN || secrets.MERQUE_QUEUE_TOKEN || github.token }}
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: '1.3.11'
       - name: Advance the queue
         env:
-          GH_TOKEN: ${{ secrets.MERGE_QUEUE_TOKEN || github.token }}
+          GH_TOKEN: ${{ secrets.MERGE_QUEUE_TOKEN || secrets.MERQUE_QUEUE_TOKEN || github.token }}
+          GH_CHECKS_TOKEN: ${{ github.token }}
           GITHUB_REPOSITORY: ${{ github.repository }}
-          USING_WORKFLOW_TOKEN: ${{ secrets.MERGE_QUEUE_TOKEN == '' && 'true' || 'false' }}
+          USING_WORKFLOW_TOKEN: ${{ (secrets.MERGE_QUEUE_TOKEN == '' && secrets.MERQUE_QUEUE_TOKEN == '') && 'true' || 'false' }}
           DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run && 'true' || 'false' }}
         run: bun scripts/ci/merge-queue-github.ts

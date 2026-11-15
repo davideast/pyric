@@ -163,14 +163,15 @@ describe('landing a batch', () => {
 
   test('a first refused push changes nothing but a marker and shows the refusal; a second removes the batch', () => {
     const refusal = 'remote: error: GH013: Repository rule violations found for refs/heads/main.\nremote: - Required status check "CI / required" is expected.';
-    const h = greenBatch({ pushRefusal: refusal });
+    const mergeRefusal = 'gh: At least 1 approving review is required by reviewers with write access. (HTTP 405)';
+    const h = greenBatch({ pushRefusal: refusal, mergeRefusal });
     const first = runQueuePass(h.io, { dryRun: false, usingWorkflowToken: true });
     expect(first.map((action) => action.kind)).toEqual(['land']);
     expect(h.remote.main).toBe(MAIN);
     expect(h.comments).toEqual([]);
     expect(h.remote.pulls.map((item) => item.labels)).toEqual([[QUEUE_LABEL], [QUEUE_LABEL]]);
     expect(h.remote.branches).toEqual({ [STAGING_BRANCH]: STAGED, [REFUSED_BRANCH]: STAGED });
-    expect(h.logs.join('\n')).toContain('GH013: Repository rule violations');
+    expect(h.logs.join('\n')).toContain('At least 1 approving review is required');
     expect(h.logs.join('\n')).toContain('Nothing landed and nobody was removed');
     expect(h.gh.filter((args) => args[0] === 'workflow')).toEqual([]);
 
@@ -178,9 +179,149 @@ describe('landing a batch', () => {
     expect(second.map((action) => action.kind)).toEqual(['dequeue', 'idle']);
     expect(h.remote.main).toBe(MAIN);
     expect(h.comments.map((entry) => entry.pull)).toEqual([101, 102]);
-    expect(h.comments[0]?.text).toContain('GH013');
+    expect(h.comments[0]?.text).toContain('At least 1 approving review is required');
     expect(h.remote.branches).toEqual({});
     expect(h.logs.join('\n')).toContain('a second time');
+  });
+
+  test('when a ruleset refuses direct push of a proven batch, lands via PR merge API in order and checks the tree', () => {
+    const refusal = 'remote: error: GH013: Repository rule violations found for refs/heads/main.\nremote: - Required status check "CI / required" is expected.';
+    const h = greenBatch({
+      pushRefusal: refusal,
+      filesByPr: { 102: ['packages/rules/src/simulator/eval.ts'] },
+    });
+    const actions = runQueuePass(h.io, { dryRun: false, usingWorkflowToken: true });
+    expect(actions.map((action) => action.kind)).toEqual(['land', 'idle']);
+    const mergeCalls = h.gh.filter((args) => args.includes('PUT') && args.some((arg) => arg.endsWith('/merge')));
+    expect(mergeCalls).toEqual([
+      ['api', '-X', 'PUT', 'repos/owner/repo/pulls/101/merge', '-f', 'merge_method=merge', '-f', `sha=${HEAD_A}`],
+      ['api', '-X', 'PUT', 'repos/owner/repo/pulls/102/merge', '-f', 'merge_method=merge', '-f', `sha=${HEAD_B}`],
+    ]);
+    expect(h.remote.main).not.toBe(MAIN);
+    expect(h.remote.main).not.toBe(STAGED);
+    expect(h.remote.branches[STAGING_BRANCH]).toBeUndefined();
+    expect(h.comments.map((entry) => entry.pull)).toEqual([101, 102]);
+    for (const entry of h.comments) {
+      expect(entry.text).toContain(h.remote.main);
+      expect(entry.text).toContain(STAGED);
+      expect(entry.text).toContain('same tree as staged commit');
+      expect(entry.text).toContain(RUN_URL);
+    }
+    const mainDispatches = h.gh.filter((args) => args[0] === 'workflow' && args.at(-1) === 'main');
+    expect(mainDispatches.map((args) => args[2])).toEqual(['build.yml', 'slow-scenarios.yml', 'simulator-parity.yml']);
+
+    const withPat = greenBatch({ pushRefusal: refusal });
+    expect(runQueuePass(withPat.io, { dryRun: false, usingWorkflowToken: false }).map((action) => action.kind)).toEqual(['land', 'idle']);
+    expect(withPat.gh.filter((args) => args[0] === 'workflow')).toEqual([]);
+  });
+
+  test('retries a transient base-branch-modified race once during PR merge API fallback', () => {
+    const refusal = 'remote: error: GH013: Repository rule violations found for refs/heads/main.';
+    let secondAttempts = 0;
+    const h = greenBatch({
+      pushRefusal: refusal,
+      onMergePull: (number, headSha) => {
+        if (number === 101) {
+          expect(headSha).toBe(HEAD_A);
+          h.remote.pulls = h.remote.pulls.filter((item) => item.number !== 101);
+          h.remote.mergedPulls?.add(101);
+          h.remote.main = '9'.repeat(39) + '1';
+          return h.remote.main;
+        }
+        secondAttempts += 1;
+        if (secondAttempts === 1) throw new Error('gh: Base branch was modified. Review and try the merge again. (HTTP 405)');
+        expect(headSha).toBe(HEAD_B);
+        h.remote.pulls = h.remote.pulls.filter((item) => item.number !== 102);
+        h.remote.mergedPulls?.add(102);
+        h.remote.main = '9'.repeat(39) + '2';
+        h.remote.trees[h.remote.main] = `tree-of-${STAGED}`;
+        return h.remote.main;
+      },
+    });
+    const actions = runQueuePass(h.io, { dryRun: false, usingWorkflowToken: false });
+    expect(actions.map((action) => action.kind)).toEqual(['land', 'idle']);
+    expect(secondAttempts).toBe(2);
+    expect(h.comments.map((entry) => entry.pull)).toEqual([101, 102]);
+  });
+
+  test('a mid-batch PR merge failure comments and unlabels what landed and re-stages the rest on the new main', () => {
+    const refusal = 'remote: error: GH013: Repository rule violations found for refs/heads/main.';
+    const firstMergeSha = '9'.repeat(39) + '1';
+    const h = greenBatch({
+      pushRefusal: refusal,
+      onMergePull: (number) => {
+        if (number === 101) {
+          h.remote.pulls = h.remote.pulls.filter((item) => item.number !== 101);
+          h.remote.mergedPulls?.add(101);
+          h.remote.main = firstMergeSha;
+          return firstMergeSha;
+        }
+        throw new Error('gh: Head branch was modified. Review and try the merge again. (HTTP 409)');
+      },
+    });
+    const actions = runQueuePass(h.io, { dryRun: false, usingWorkflowToken: true });
+    expect(actions.map((action) => action.kind)).toEqual(['land', 'stage']);
+    expect(h.remote.main).toBe(firstMergeSha);
+    expect(h.comments).toHaveLength(1);
+    expect(h.comments[0]?.pull).toBe(101);
+    expect(h.comments[0]?.text).toContain(firstMergeSha);
+    expect(h.comments[0]?.text).toContain('remaining pull requests will be re-staged');
+    expect(h.git).toContainEqual(['checkout', '--detach', firstMergeSha]);
+    expect(h.remote.pulls.map((item) => item.number)).toEqual([102]);
+  });
+
+  test('a passing multi-PR culprit-search probe landed via PR merge API continues searching remaining suspects in the same pass', () => {
+    const headD = '4'.repeat(40);
+    const suspects = [
+      { number: 101, headSha: HEAD_A },
+      { number: 102, headSha: HEAD_B },
+      { number: 103, headSha: HEAD_C },
+      { number: 104, headSha: headD },
+    ];
+    const failedRunUrl = 'https://github.com/owner/repo/actions/runs/400';
+    const h = createHarness({
+      branches: { [STAGING_BRANCH]: STAGED },
+      pulls: [pull(101, HEAD_A), pull(102, HEAD_B), pull(103, HEAD_C), pull(104, headD)],
+      messages: {
+        [STAGED]: stagedMessage({
+          baseSha: MAIN,
+          pulls: suspects.slice(0, 2),
+          search: { suspects, failedRunUrl },
+        }),
+      },
+      greenHeads: new Set([HEAD_A, HEAD_B, HEAD_C, headD, STAGED]),
+      stagingRuns: [GREEN_RUN],
+      pushRefusal: 'remote: error: GH013: Repository rule violations found for refs/heads/main.',
+    });
+    const actions = runQueuePass(h.io, { dryRun: false, usingWorkflowToken: false });
+    expect(actions.map((action) => action.kind)).toEqual(['land', 'stage']);
+    expect(actions[1]).toMatchObject({
+      kind: 'stage',
+      baseSha: h.remote.main,
+      pulls: [{ number: 103 }],
+      search: { suspects: suspects.slice(2), failedRunUrl },
+    });
+    expect(h.comments.map((entry) => entry.pull)).toEqual([101, 102]);
+    expect(h.remote.branches[STAGING_BRANCH]).toBe(CHAIN);
+    expect(parseStagingCommit(h.remote.messages[CHAIN] ?? '')).toEqual({
+      baseSha: h.remote.main,
+      pulls: [{ number: 103, headSha: HEAD_C }],
+      search: { suspects: suspects.slice(2), failedRunUrl },
+    });
+  });
+
+  test('reads check-runs through ghChecks when provided so fine-grained PATs never hit the Checks API', () => {
+    const h = greenBatch();
+    runQueuePass(h.io, { dryRun: true, usingWorkflowToken: false });
+    expect(h.ghChecks.length).toBeGreaterThanOrEqual(3);
+    expect(h.ghChecks.every((args) => args.some((arg) => arg.includes('/check-runs?')))).toBe(true);
+    expect(h.gh.some((args) => args.some((arg) => arg.includes('/check-runs?')))).toBe(false);
+
+    // Falls back to `io.gh` when `ghChecks` is omitted.
+    const fallback = greenBatch();
+    delete fallback.io.ghChecks;
+    expect(runQueuePass(fallback.io, { dryRun: true, usingWorkflowToken: false }).map((action) => action.kind)).toEqual(['land']);
+    expect(fallback.gh.some((args) => args.some((arg) => arg.includes('/check-runs?')))).toBe(true);
   });
 
   test('a stale refusal marker for another commit does not count, and a landing after one refusal clears the marker', () => {
@@ -532,6 +673,59 @@ describe('against a real git remote', () => {
     expect(sh(origin, ['rev-parse', 'refs/heads/main'])).toBe(other);
     expect(h.comments).toEqual([]);
     expect(h.logs.join('\n')).toContain('main or a pull request head moved');
+  }, 60_000);
+
+  test('when a ruleset refuses direct push on a real remote, PR merge API fallback lands both normal and duplicate-head batches with exact tree proof', () => {
+    const { origin, seed, work, commit } = initPair();
+    sh(seed, ['checkout', '--quiet', '-b', 'fix/one', 'main']);
+    const head1 = commit('one.txt', 'one\n', 'fix: one');
+    sh(seed, ['push', '--quiet', 'origin', 'fix/one']);
+    sh(seed, ['push', '--quiet', 'origin', 'fix/one:refs/heads/fix/one-dup']);
+    sh(seed, ['checkout', '--quiet', '-b', 'fix/two', 'main']);
+    const head2 = commit('two.txt', 'two\n', 'fix: two');
+    sh(seed, ['push', '--quiet', 'origin', 'fix/two']);
+
+    const { h, syncStaging } = wireRealRemote(origin, work, [pull(101, head1), pull(102, head1), pull(103, head2)]);
+    expect(runQueuePass(h.io, { dryRun: false, usingWorkflowToken: false }).map((action) => action.kind)).toEqual(['stage']);
+    const tip = syncStaging();
+
+    // Simulate GitHub Ruleset GH013 rejecting direct push of the multi-PR wrapper commit,
+    // and real server-side PR merge API commits on `origin.git` (auto-closing #102 when #101 merges).
+    const realGit = h.io.git;
+    h.io.git = (args) => {
+      if (args[0] === 'push' && args.at(-1) === `${tip}:refs/heads/main`) {
+        throw new Error('git push failed: remote: error: GH013: Repository rule violations found for refs/heads/main.\nremote: - Required status check "CI / required" is expected.');
+      }
+      return realGit(args);
+    };
+    h.remote.onMergePull = (number, requestedSha) => {
+      const found = h.remote.pulls.find((item) => item.number === number);
+      if (found === undefined) throw new Error(`gh: Pull Request #${number} is not mergeable (HTTP 405)`);
+      expect(requestedSha).toBe(found.headSha);
+      sh(seed, ['fetch', '--quiet', 'origin', 'main']);
+      sh(seed, ['checkout', '--quiet', 'main']);
+      sh(seed, ['reset', '--quiet', '--hard', 'origin/main']);
+      sh(seed, ['merge', '--quiet', '--no-ff', found.headSha, '-m', `Merge pull request #${number} from ${found.headRef}`]);
+      sh(seed, ['push', '--quiet', 'origin', 'main']);
+      const mergeSha = sh(origin, ['rev-parse', 'refs/heads/main']);
+      h.remote.pulls = h.remote.pulls.filter((item) => {
+        if (item.number === number || item.headSha === found.headSha) {
+          h.remote.mergedPulls?.add(item.number);
+          return false;
+        }
+        return true;
+      });
+      return mergeSha;
+    };
+
+    expect(runQueuePass(h.io, { dryRun: false, usingWorkflowToken: false }).map((action) => action.kind)).toEqual(['land', 'idle']);
+    const mainAfter = sh(origin, ['rev-parse', 'refs/heads/main']);
+    expect(mainAfter).not.toBe(tip);
+    expect(sh(origin, ['rev-parse', `${mainAfter}^{tree}`])).toBe(sh(origin, ['rev-parse', `${tip}^{tree}`]));
+    expect(sh(origin, ['ls-tree', '--name-only', mainAfter]).split('\n')).toEqual(['base.txt', 'one.txt', 'two.txt']);
+    expect(h.comments.map((entry) => entry.pull)).toEqual([101, 102, 103]);
+    expect(h.comments[0]?.text).toContain(mainAfter);
+    expect(h.comments[0]?.text).toContain(tip);
   }, 60_000);
 });
 
