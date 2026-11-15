@@ -186,12 +186,18 @@ function wrapFirestoreValue(val: unknown, publicCases: boolean): unknown {
         return StoragePath.fromSegments(obj.segments.map(String), bindings);
       }
       if (typeof obj.path === 'string') {
-        const normalized = obj.path.length > 1 ? obj.path.replace(/\/+$/, '') : obj.path;
+        let normalized = obj.path;
+        if (obj.path.length > 1) {
+          normalized = obj.path.replace(/\/+$/, '');
+        }
         return new StoragePath(normalized);
       }
     }
     if ((obj.__type === 'reference' || obj.__type === 'ref') && typeof obj.path === 'string') {
-      const dbId = typeof obj.databaseId === 'string' && obj.databaseId.length > 0 ? obj.databaseId : undefined;
+      let dbId: string | undefined;
+      if (typeof obj.databaseId === 'string' && obj.databaseId.length > 0) {
+        dbId = obj.databaseId;
+      }
       return storagePathFromReferenceString(obj.path, dbId);
     }
     if (obj.__type === 'latlng') {

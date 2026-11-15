@@ -1162,15 +1162,14 @@ function analyzeParsedRules(
   checkMemberChainLength(serviceOnlyAst, ownFunctions, warnings);
 
   // Rules 2 and 2b: Nesting depth, slash starts path, recursive glob count, and other compile rejections
-  const rawViolations = compileLimitViolations(
-    serviceOnlyAst,
-    isSecondaryService ? { allowUnresolvedImports: true } : undefined,
-  );
-  const violations = isSecondaryService
-    ? rawViolations.filter(
-        (v) => v.code !== 'UNSUPPORTED_RULES_VERSION' && v.code !== 'UNRESOLVED_MODULES',
-      )
-    : rawViolations;
+  let violations: CompileLimitViolation[];
+  if (isSecondaryService) {
+    violations = compileLimitViolations(serviceOnlyAst, { allowUnresolvedImports: true }).filter(
+      (v) => v.code !== 'UNSUPPORTED_RULES_VERSION' && !(v.code === 'UNRESOLVED_MODULES' && v.functionName === undefined),
+    );
+  } else {
+    violations = compileLimitViolations(serviceOnlyAst);
+  }
   checkNestingDepth(violations, warnings);
   checkSlashStartsPath(violations, warnings);
   checkGlobMatchCount(violations, warnings);

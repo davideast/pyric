@@ -65,7 +65,8 @@ service firebase.storage {
   if (docs !== undefined) {
     lookup = {
       get(path: string) {
-        return Object.hasOwn(docs, path) ? docs[path] ?? null : null;
+        if (!Object.hasOwn(docs, path)) return null;
+        return docs[path] ?? null;
       },
       exists(path: string) {
         return Object.hasOwn(docs, path);

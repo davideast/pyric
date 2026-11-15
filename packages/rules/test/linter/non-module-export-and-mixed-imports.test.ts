@@ -5,6 +5,7 @@ import {
   lint,
   storageRules,
 } from '../../src/index.js';
+import { parseStorageRules } from '../../src/storage/rules.js';
 
 describe('non-module rules reject export function declarations', () => {
   test('rejects global export function in rules_version = 2 across lint(), firestoreRules(), and storageRules()', () => {
@@ -110,6 +111,66 @@ describe('non-module rules reject export function declarations', () => {
 
     const errors = lint(modularSource).filter((issue) => issue.severity === 'error');
     expect(errors).toEqual([]);
+  });
+
+  test('rejects export function in secondary service blocks of multi-service rules_version = 2 files and direct parseStorageRules()', () => {
+    const fsThenSt = [
+      "rules_version = '2';",
+      'service cloud.firestore {',
+      '  match /databases/{database}/documents {',
+      '    match /items/{id} { allow get: if false; }',
+      '  }',
+      '}',
+      'service firebase.storage {',
+      '  export function badStorage() { return true; }',
+      '  match /b/{bucket}/o {',
+      '    match /items/{id} { allow get: if badStorage(); }',
+      '  }',
+      '}',
+    ].join('\n');
+
+    const stThenFs = [
+      "rules_version = '2';",
+      'service firebase.storage {',
+      '  match /b/{bucket}/o {',
+      '    match /items/{id} { allow get: if false; }',
+      '  }',
+      '}',
+      'service cloud.firestore {',
+      '  export function badFirestore() { return true; }',
+      '  match /databases/{database}/documents {',
+      '    match /items/{id} { allow get: if badFirestore(); }',
+      '  }',
+      '}',
+    ].join('\n');
+
+    const globalMulti = [
+      "rules_version = '2';",
+      'export function sharedBad() { return true; }',
+      'service cloud.firestore {',
+      '  match /databases/{database}/documents {',
+      '    match /items/{id} { allow get: if sharedBad(); }',
+      '  }',
+      '}',
+      'service firebase.storage {',
+      '  match /b/{bucket}/o {',
+      '    match /items/{id} { allow get: if sharedBad(); }',
+      '  }',
+      '}',
+    ].join('\n');
+
+    const fsThenStErrors = lint(fsThenSt).filter((issue) => issue.code === 'UNRESOLVED_MODULES');
+    expect(fsThenStErrors.map((issue) => issue.line)).toEqual([8]);
+
+    const stThenFsErrors = lint(stThenFs).filter((issue) => issue.code === 'UNRESOLVED_MODULES');
+    expect(stThenFsErrors.map((issue) => issue.line)).toEqual([8]);
+
+    const globalMultiErrors = lint(globalMulti).filter((issue) => issue.code === 'UNRESOLVED_MODULES');
+    expect(globalMultiErrors.map((issue) => issue.line)).toEqual([2]);
+
+    expect(() => storageRules(fsThenSt, { bucket: 'demo.appspot.com' })).toThrow(RulesCompileError);
+    expect(() => firestoreRules(stThenFs)).toThrow(RulesCompileError);
+    expect(() => parseStorageRules(fsThenSt)).toThrow(SyntaxError);
   });
 });
 

@@ -11,9 +11,11 @@ export function moduleSyntaxViolations(
   functions: readonly FunctionDef[],
   options?: CompileLimitOptions,
 ): CompileLimitViolation[] {
-  if (options?.allowUnresolvedImports) return [];
   const out: CompileLimitViolation[] = [];
-  if (ast.version === '2+modules' || (ast.imports?.length ?? 0) > 0) {
+  if (
+    !options?.allowUnresolvedImports &&
+    (ast.version === '2+modules' || (ast.imports?.length ?? 0) > 0)
+  ) {
     const importLine = ast.imports?.[0]?.loc?.line ?? ast.loc?.line ?? 1;
     out.push({
       code: 'UNRESOLVED_MODULES',
