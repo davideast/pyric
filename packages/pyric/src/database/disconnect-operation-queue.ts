@@ -57,6 +57,31 @@ export class DisconnectOperationQueue<TMetadata extends object = Record<never, n
     return this.operations.size === 0;
   }
 
+  private syncUnfoldedPriorityOwners(
+    queuedPath: string,
+    entries: ReadonlyArray<[string, unknown]>,
+    owners: Set<string>,
+  ): void {
+    const remainingKeys = new Set<string>();
+    for (const [entryKey] of entries) {
+      remainingKeys.add(entryKey);
+    }
+    for (const owner of [...owners]) {
+      let priorityKey = '.priority';
+      if (owner !== '') {
+        priorityKey = `${owner}/.priority`;
+      }
+      if (!remainingKeys.has(priorityKey)) {
+        owners.delete(owner);
+      }
+    }
+    if (owners.size === 0) {
+      this.unfoldedPriorityOwners.delete(queuedPath);
+      return;
+    }
+    this.unfoldedPriorityOwners.set(queuedPath, owners);
+  }
+
   private findCoveringOperation(targetPath: string, excludePath: string): string | null {
     for (const [queuedPath, queued] of this.operations.entries()) {
       if (queuedPath === excludePath) continue;
@@ -69,6 +94,18 @@ export class DisconnectOperationQueue<TMetadata extends object = Record<never, n
         if (segs.length === 0) continue;
         if (isAncestorPath(joinPath(queuedPath, segs), targetPath)) {
           return queuedPath;
+        }
+      }
+      const owners = this.unfoldedPriorityOwners.get(queuedPath);
+      if (owners !== undefined) {
+        for (const owner of owners) {
+          let ownerPath = queuedPath;
+          if (owner !== '') {
+            ownerPath = joinPath(queuedPath, pathSegments(owner));
+          }
+          if (isAncestorPath(ownerPath, targetPath)) {
+            return queuedPath;
+          }
         }
       }
     }
@@ -107,6 +144,9 @@ export class DisconnectOperationQueue<TMetadata extends object = Record<never, n
         continue;
       }
       this.operations.set(queuedPath, { ...queued, values: Object.fromEntries(pruned) });
+      if (owners !== undefined) {
+        this.syncUnfoldedPriorityOwners(queuedPath, pruned, owners);
+      }
     }
   }
 
@@ -116,6 +156,9 @@ export class DisconnectOperationQueue<TMetadata extends object = Record<never, n
     if (queued.kind === 'update') {
       const owners = this.unfoldedPriorityOwners.get(targetPath);
       const mergedValues = mergeUpdateValues(queued.values, values, owners);
+      if (owners !== undefined && owners.size === 0) {
+        this.unfoldedPriorityOwners.delete(targetPath);
+      }
       this.operations.set(targetPath, structuredClone({ ...queued, values: mergedValues }));
       return true;
     }
@@ -250,7 +293,7 @@ export class DisconnectOperationQueue<TMetadata extends object = Record<never, n
           values: Object.fromEntries(pruned),
         } as DisconnectOperation<TMetadata>;
         this.operations.set(queuedPath, mergedOperation);
-        this.unfoldedPriorityOwners.set(queuedPath, owners);
+        this.syncUnfoldedPriorityOwners(queuedPath, pruned, owners);
       } else if (queued.kind === 'update') {
         const canReachChild = cancelledQueuedOperation || hasNestedPath(queued.values, relative);
         if (!canReachChild) continue;
@@ -264,7 +307,7 @@ export class DisconnectOperationQueue<TMetadata extends object = Record<never, n
           continue;
         }
         this.operations.set(queuedPath, { ...queued, values: Object.fromEntries(pruned) });
-        this.unfoldedPriorityOwners.set(queuedPath, owners);
+        this.syncUnfoldedPriorityOwners(queuedPath, pruned, owners);
       }
     }
   }

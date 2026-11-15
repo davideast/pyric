@@ -253,10 +253,162 @@ const FOLDING_AND_CANCEL_CASES: readonly FoldingCase[] = [
   },
 ];
 
+const UNFOLDED_PRIORITY_FOLDING_CASES: readonly FoldingCase[] = [
+  {
+    name: 'unfolded root setWithPriority preserves priority when child set overwrites remaining key',
+    seed: { keep: true, a: 0, z: 0 },
+    steps: (od) => [
+      () => od('').setWithPriority({ a: 1, z: 2 }, 9),
+      () => od('z').cancel(),
+      () => od('a').set(10),
+    ],
+    expected: { '.priority': 9, a: 10, keep: true, z: 0 },
+    useExportVal: true,
+  },
+  {
+    name: 'unfolded nested inline priority preserves priority when child set overwrites remaining key',
+    seed: { keep: true, sub: { a: 0, z: 0 } },
+    steps: (od) => [
+      () => od('').set({ sub: { a: 1, z: 2, '.priority': 9 } }),
+      () => od('sub/z').cancel(),
+      () => od('sub/a').set(10),
+    ],
+    expected: { keep: true, sub: { '.priority': 9, a: 10, z: 0 } },
+    useExportVal: true,
+  },
+  {
+    name: 'unfolded nested inline priority preserves priority when mid-level update overwrites remaining key',
+    seed: { keep: true, sub: { a: { k: 0 }, z: 0 } },
+    steps: (od) => [
+      () => od('').set({ sub: { a: { k: 1 }, z: 2, '.priority': 9 } }),
+      () => od('sub/z').cancel(),
+      () => od('sub').update({ a: { k: 2 } }),
+    ],
+    expected: { keep: true, sub: { '.priority': 9, a: { k: 2 }, z: 0 } },
+    useExportVal: true,
+  },
+  {
+    name: 'unfolded nested inline priority after two cancels preserves priority when child set replaces branch',
+    seed: { keep: true, sub: { a: { x: 0, y: 0 }, z: 0 } },
+    steps: (od) => [
+      () => od('').set({ sub: { a: { x: 1, y: 2 }, z: 3, '.priority': 9 } }),
+      () => od('sub/z').cancel(),
+      () => od('sub/a/y').cancel(),
+      () => od('sub/a').set(10),
+    ],
+    expected: { keep: true, sub: { '.priority': 9, a: 10, z: 0 } },
+    useExportVal: true,
+  },
+  {
+    name: 'replacing an unfolded priority owner directly clears its unfolded priority',
+    seed: { keep: true, sub: { a: 0, z: 0 } },
+    steps: (od) => [
+      () => od('').set({ sub: { a: 1, z: 2, '.priority': 9 } }),
+      () => od('sub/z').cancel(),
+      () => od('sub').set({ m: 1 }),
+    ],
+    expected: { keep: true, sub: { m: 1 } },
+    useExportVal: true,
+  },
+  {
+    name: 'replacing an unfolded priority owner while siblings remain routes later child sets into the new owner set',
+    seed: { keep: true, other: 0, sub: { a: 0, z: 0 } },
+    steps: (od) => [
+      () => od('').set({ sub: { a: 1, z: 2, '.priority': 9 }, other: 1 }),
+      () => od('sub/z').cancel(),
+      () => od('sub').set({ m: 1 }),
+      () => od('sub/n').set(2),
+    ],
+    expected: { keep: true, other: 1, sub: { m: 1, n: 2 } },
+    useExportVal: true,
+  },
+  {
+    name: 'cancelling all keys under an unfolded priority owner while siblings remain clears stale owner coverage',
+    seed: { keep: true, other: 0, sub: { a: 0, z: 0 } },
+    steps: (od) => [
+      () => od('').set({ sub: { a: 1, z: 2, '.priority': 9 }, other: 1 }),
+      () => od('sub/z').cancel(),
+      () => od('sub/a').cancel(),
+      () => od('sub').set({ m: 1 }),
+      () => od('sub/n').set(2),
+    ],
+    expected: { keep: true, other: 1, sub: { m: 1, n: 2 } },
+    useExportVal: true,
+  },
+  {
+    name: 'unfolded nested inline priority survives when a new sibling is set and the original key is cancelled',
+    seed: { keep: true, sub: { a: 0, z: 0 } },
+    steps: (od) => [
+      () => od('').set({ sub: { a: 1, z: 2, '.priority': 9 } }),
+      () => od('sub/z').cancel(),
+      () => od('sub/b').set(2),
+      () => od('sub/a').cancel(),
+    ],
+    expected: { keep: true, sub: { '.priority': 9, a: 0, b: 2, z: 0 } },
+    useExportVal: true,
+  },
+  {
+    name: 'unfolded nested inline priority allows explicit mid-level priority override',
+    seed: { keep: true, sub: { a: 0, z: 0 } },
+    steps: (od) => [
+      () => od('').set({ sub: { a: 1, z: 2, '.priority': 9 } }),
+      () => od('sub/z').cancel(),
+      () => od('sub').update({ '.priority': 5, a: 10 }),
+    ],
+    expected: { keep: true, sub: { '.priority': 5, a: 10, z: 0 } },
+    useExportVal: true,
+  },
+  {
+    name: 'unfolded nested inline priority preserves both parent and child priority on child setWithPriority',
+    seed: { keep: true, sub: { a: 0, z: 0 } },
+    steps: (od) => [
+      () => od('').set({ sub: { a: 1, z: 2, '.priority': 9 } }),
+      () => od('sub/z').cancel(),
+      () => od('sub/a').setWithPriority(10, 4),
+    ],
+    expected: { keep: true, sub: { '.priority': 9, a: { '.priority': 4, '.value': 10 }, z: 0 } },
+    useExportVal: true,
+  },
+  {
+    name: 'nested unfolded root and child priorities both survive when deepest remaining key is overwritten',
+    seed: { keep: true, sub: { a: 0, z: 0 } },
+    steps: (od) => [
+      () => od('').setWithPriority({ sub: { a: 1, z: 2, '.priority': 9 } }, 3),
+      () => od('sub/z').cancel(),
+      () => od('sub/a').set(10),
+    ],
+    expected: { '.priority': 3, keep: true, sub: { '.priority': 9, a: 10, z: 0 } },
+    useExportVal: true,
+  },
+  {
+    name: 'unfolded root setWithPriority preserves priority when remaining child is removed while db siblings exist',
+    seed: { keep: true, a: 0, z: 0 },
+    steps: (od) => [
+      () => od('').setWithPriority({ a: 1, z: 2 }, 9),
+      () => od('z').cancel(),
+      () => od('a').remove(),
+    ],
+    expected: { '.priority': 9, keep: true, z: 0 },
+    useExportVal: true,
+  },
+  {
+    name: 'unfolded nested inline priority does not leave an empty node when remaining child is removed',
+    seed: { keep: true, sub: { a: 0 } },
+    steps: (od) => [
+      () => od('').set({ sub: { a: 1, z: 2, '.priority': 9 } }),
+      () => od('sub/z').cancel(),
+      () => od('sub/a').remove(),
+    ],
+    expected: { keep: true },
+    useExportVal: true,
+  },
+];
+
 const ALL_FOLDING_CASES: readonly FoldingCase[] = [
   ...LEAF_NESTED_PRIORITY_CASES,
   ...ATOMIC_PRIORITY_CASES,
   ...FOLDING_AND_CANCEL_CASES,
+  ...UNFOLDED_PRIORITY_FOLDING_CASES,
 ];
 
 describe('onDisconnect tree folding, leaf priority, and atomic multi-key parity', () => {
