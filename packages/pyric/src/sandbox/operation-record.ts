@@ -23,6 +23,22 @@ import type {
   SandboxOperationEvent,
 } from './types/events.js';
 
+/** The deciding rule for a denial, carrying only the location and text fields available. */
+export interface OperationDenialRule {
+  readonly path?: string;
+  readonly citation?: string;
+  readonly line?: number;
+  readonly column?: number;
+  readonly expression?: string;
+}
+
+/** Diagnostic explanation of a rules-evaluated or fail-closed denial. */
+export interface OperationDenial {
+  readonly reasons: readonly string[];
+  readonly rule?: OperationDenialRule;
+  readonly evidenceExpired?: true;
+}
+
 export interface OperationRecord {
   readonly observation?: import('./types/request-observation.js').RequestObservation;
   readonly id: string;
@@ -35,6 +51,7 @@ export interface OperationRecord {
   readonly result?: RequestEvent['result'] | SandboxOperationEvent['result'] | SandboxListenerEvent['result'];
   readonly context: OperationContext;
   readonly rules: RulesDisposition;
+  readonly denial?: OperationDenial;
   readonly queryProof?: RequestEvent['queryProof'];
   /** What production answered, for a call production served and pyric observed. */
   readonly production?: ObservedProduction;
@@ -264,6 +281,152 @@ export function trafficOperationEvent(event: SandboxEvent): OperationEvent | nul
   };
 }
 
+function nonEmptyString(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  const trimmed = value.trim();
+  if (trimmed.length === 0) return undefined;
+  return value;
+}
+
+function nonEmptyStrings(values: unknown): string[] {
+  if (!Array.isArray(values)) return [];
+  const out: string[] = [];
+  for (const entry of values) {
+    if (nonEmptyString(entry) !== undefined) {
+      out.push(entry as string);
+    }
+  }
+  return out;
+}
+
+function selectEvidenceRule(
+  event: RequestEvent,
+): NonNullable<RequestEvent['rulesEvidence']>['rules'][number] | undefined {
+  const rules = event.rulesEvidence?.rules;
+  if (!rules || rules.length === 0) return undefined;
+  const isDenying = (entry: NonNullable<RequestEvent['rulesEvidence']>['rules'][number]): boolean =>
+    entry.verdict === 'DENY' || entry.verdict === 'ERROR';
+  const evaluated = event.evaluatedRule;
+  if (evaluated !== undefined) {
+    const byLine = rules.find(
+      (entry) => isDenying(entry) && evaluated.line !== undefined && entry.line === evaluated.line,
+    );
+    if (byLine !== undefined) return byLine;
+    const byExpr = rules.find(
+      (entry) =>
+        isDenying(entry) && evaluated.expression !== undefined && entry.expression === evaluated.expression,
+    );
+    if (byExpr !== undefined) return byExpr;
+  }
+  const firstDenying = rules.find(isDenying);
+  if (firstDenying !== undefined) return firstDenying;
+  return rules[rules.length - 1];
+}
+
+function extractRequestDenialRule(event: RequestEvent): OperationDenialRule | undefined {
+  const rule: { -readonly [K in keyof OperationDenialRule]: OperationDenialRule[K] } = {};
+  const evaluated = event.evaluatedRule;
+  if (evaluated !== undefined) {
+    const citation = nonEmptyString(evaluated.citation);
+    if (citation !== undefined) rule.citation = citation;
+    if (typeof evaluated.line === 'number') rule.line = evaluated.line;
+    if (typeof evaluated.column === 'number') rule.column = evaluated.column;
+    else if (typeof evaluated.col === 'number') rule.column = evaluated.col;
+    const expression = nonEmptyString(evaluated.expression);
+    if (expression !== undefined) rule.expression = expression;
+  }
+  const evidenceRule = selectEvidenceRule(event);
+  if (evidenceRule !== undefined) {
+    const path = nonEmptyString(evidenceRule.path);
+    if (rule.path === undefined && path !== undefined) rule.path = path;
+    if (rule.line === undefined && typeof evidenceRule.line === 'number') rule.line = evidenceRule.line;
+    const expression = nonEmptyString(evidenceRule.expression);
+    if (rule.expression === undefined && expression !== undefined) rule.expression = expression;
+  }
+  if (Object.keys(rule).length === 0) {
+    const firstQueryFailure = event.rulesEvidence?.queryProof?.failures?.[0];
+    if (firstQueryFailure !== undefined) {
+      const expression = nonEmptyString(firstQueryFailure.expression);
+      if (expression !== undefined) rule.expression = expression;
+      if (typeof firstQueryFailure.line === 'number') rule.line = firstQueryFailure.line;
+    }
+  }
+  if (Object.keys(rule).length === 0) return undefined;
+  return Object.freeze(rule);
+}
+
+function extractDenialRule(event: SandboxEvent): OperationDenialRule | undefined {
+  if (event.kind === 'request') {
+    return extractRequestDenialRule(event);
+  }
+  if (event.kind === 'operation' || event.kind === 'listener') {
+    const rules = event.rules;
+    if (!rules) return undefined;
+    const rule: { path?: string; expression?: string } = {};
+    const matchedPath = nonEmptyString(rules.matchedPath);
+    if (matchedPath !== undefined) rule.path = matchedPath;
+    const matchedRule = nonEmptyString(rules.matchedRule);
+    if (matchedRule !== undefined) rule.expression = matchedRule;
+    if (Object.keys(rule).length === 0) return undefined;
+    return Object.freeze(rule);
+  }
+  return undefined;
+}
+
+function extractDenialReasons(event: SandboxEvent): string[] {
+  if ('reasons' in event) {
+    const direct = nonEmptyStrings(event.reasons);
+    if (direct.length > 0) return direct;
+  }
+  if ('error' in event && event.error !== undefined && typeof event.error === 'object') {
+    const errorObj = event.error as { reasons?: unknown; message?: unknown };
+    const fromErrorReasons = nonEmptyStrings(errorObj.reasons);
+    if (fromErrorReasons.length > 0) return fromErrorReasons;
+  }
+  if ('rules' in event && event.rules !== undefined) {
+    const ruleReason = nonEmptyString(event.rules.reason);
+    if (ruleReason !== undefined) return [ruleReason];
+  }
+  if ('error' in event && event.error !== undefined && typeof event.error === 'object') {
+    const message = nonEmptyString((event.error as { message?: unknown }).message);
+    if (message !== undefined) return [message];
+  }
+  return [];
+}
+
+function denialFor(
+  event: SandboxEvent,
+  rules: RulesDisposition,
+  result: OperationRecord['result'],
+): OperationDenial | undefined {
+  const isEvaluatedDeny = rules.kind === 'evaluated' && rules.verdict === 'deny';
+  const isNoRulesDeny = result === 'deny' && rules.kind === 'not-evaluated' && rules.reason === 'no-rules';
+  if (!isEvaluatedDeny && !isNoRulesDeny) return undefined;
+
+  const evidenceExpired = event.kind === 'request' && event.rulesEvidenceExpired === true;
+  let reasons = extractDenialReasons(event);
+  if (reasons.length === 0) {
+    if (evidenceExpired) {
+      reasons = ['Firestore rules evidence expired.'];
+    } else if (isNoRulesDeny) {
+      reasons = ['No security rules configured; default deny.'];
+    } else {
+      reasons = ['Denied by security rules.'];
+    }
+  }
+  const rule = extractDenialRule(event);
+  const denial: {
+    reasons: readonly string[];
+    rule?: OperationDenialRule;
+    evidenceExpired?: true;
+  } = {
+    reasons: Object.freeze([...reasons]),
+  };
+  if (rule !== undefined) denial.rule = rule;
+  if (evidenceExpired) denial.evidenceExpired = true;
+  return Object.freeze(denial);
+}
+
 /** Project either traffic event family into the canonical record. */
 export function toOperationRecord(input: SandboxEvent): OperationRecord | null {
   const event = trafficOperationEvent(input);
@@ -289,28 +452,43 @@ export function toOperationRecord(input: SandboxEvent): OperationRecord | null {
   if ('queryProof' in event && event.queryProof) {
     queryProof = immutableValue(event.queryProof) as RequestEvent['queryProof'];
   }
-  return Object.freeze({
-    id: event.kind === 'operation' ? event.observation?.id ?? event.id : event.id,
-    at: event.kind === 'operation' ? event.observation?.startedAt ?? event.at : event.at,
-    ...(event.kind === 'operation' && event.observation ? { observation: event.observation } : {}),
+  const rules = Object.freeze({ ...rulesDispositionFor(event) });
+  const denial = denialFor(event, rules, event.result);
+  let idVal = event.id;
+  let atVal = event.at;
+  if (event.kind === 'operation' && event.observation !== undefined) {
+    idVal = event.observation.id;
+    atVal = event.observation.startedAt;
+  }
+  const record: {
+    -readonly [Key in keyof OperationRecord]: OperationRecord[Key];
+  } = {
+    id: idVal,
+    at: atVal,
     eventKind: event.kind,
     service: serviceVal,
     method: methodVal,
-    ...(pathVal === undefined ? {} : { path: pathVal }),
     auth: immutableAuthState(event.auth),
     result: event.result,
     context: operationContextFor(event),
-    rules: Object.freeze({ ...rulesDispositionFor(event) }),
+    rules,
     queryProof,
-    ...productionOf(event),
-  });
+  };
+  if (event.kind === 'operation' && event.observation !== undefined) {
+    record.observation = event.observation;
+  }
+  if (pathVal !== undefined) record.path = pathVal;
+  if (denial !== undefined) record.denial = denial;
+  const production = productionOf(event);
+  if (production !== undefined) record.production = production;
+  return Object.freeze(record);
 }
 
 /** A frozen copy of production's answer, when the event carries one. */
-function productionOf(event: OperationEvent): { production?: ObservedProduction } {
+function productionOf(event: OperationEvent): ObservedProduction | undefined {
   const production = event.kind === 'operation' ? event.production : undefined;
-  if (production === undefined) return {};
-  return { production: immutableRecord(production as unknown as Record<string, unknown>) as unknown as ObservedProduction };
+  if (production === undefined) return undefined;
+  return immutableRecord(production as unknown as Record<string, unknown>) as unknown as ObservedProduction;
 }
 
 /** The five phases a listener passes through, whatever variant carried it. */
@@ -335,7 +513,7 @@ function listenerRulesDisposition(event: SandboxEvent, phase: ListenerPhase): Ru
 
 /** The listener-shaped fields every lifecycle variant carries. */
 interface ListenerShape {
-  target: { kind: string; path?: string };
+  target: { kind: string; path?: string; collection?: string };
   auth: AuthState;
 }
 
@@ -368,6 +546,9 @@ export function toListenerRecord(event: SandboxEvent): OperationRecord | null {
     resultVal = 'deny';
   }
 
+  const rules = Object.freeze(listenerRulesDisposition(event, phase));
+  const denial = denialFor(event, rules, resultVal);
+
   const record: {
     -readonly [Key in keyof OperationRecord]: OperationRecord[Key];
   } = {
@@ -379,8 +560,15 @@ export function toListenerRecord(event: SandboxEvent): OperationRecord | null {
     auth: immutableAuthState(listener.auth),
     result: resultVal,
     context: operationContextFor(event),
-    rules: Object.freeze(listenerRulesDisposition(event, phase)),
+    rules,
   };
-  if (listener.target.path !== undefined) record.path = listener.target.path;
+  let targetPath: string | undefined = undefined;
+  if (typeof listener.target.path === 'string') {
+    targetPath = listener.target.path;
+  } else if (typeof listener.target.collection === 'string') {
+    targetPath = listener.target.collection;
+  }
+  if (targetPath !== undefined) record.path = targetPath;
+  if (denial !== undefined) record.denial = denial;
   return Object.freeze(record);
 }

@@ -6,7 +6,14 @@
  * export is nested below `pyric/sandbox`: central sandbox owns cross-service
  * lifecycle, while each Firebase surface owns its own backend controls.
  */
-import type { LocalSandbox, RemoteSandbox } from 'pyric/sandbox';
+import {
+  isOperationEvent,
+  toOperationRecord,
+  type LocalSandbox,
+  type OperationRecord,
+  type RemoteSandbox,
+  type SandboxEvent,
+} from 'pyric/sandbox';
 import { getInternalEnv } from 'pyric/sandbox/internal';
 import { lintFirestoreRules, rulesSourceRejection } from 'pyric/rules/internal';
 import { markUserWriteValue, stripUnescapedUserMapTag } from './sandbox/unescaped-map.js';
@@ -44,6 +51,7 @@ export interface FirestoreInspectReport {
       debugMessage?: string;
       rule?: unknown;
       reasons?: string[];
+      evidenceExpired?: true;
     }>;
     recentRequests: Array<{
       path: string;
@@ -134,106 +142,49 @@ export function inspect(
     byCollection[top] = (byCollection[top] ?? 0) + 1;
   }
 
-  const history = sandbox.history() as unknown as Array<Record<string, unknown>>;
-  const operations: Array<Record<string, unknown>> = [];
+  const history = sandbox.history();
+  const operations: Array<{ event: SandboxEvent; record: OperationRecord }> = [];
   for (const event of history) {
-    const isRequestKind = event.kind === 'request';
-    const isOperationKind = event.kind === 'operation';
-    const isListenerKind = event.kind === 'listener';
-    if (isRequestKind) {
-      operations.push(event);
-    } else if (isOperationKind) {
-      operations.push(event);
-    } else if (isListenerKind) {
-      const isErroredPhase = event.phase === 'errored';
-      if (isErroredPhase) {
-        operations.push(event);
-      }
+    if (!isOperationEvent(event)) continue;
+    const record = toOperationRecord(event);
+    if (record !== null) {
+      operations.push({ event, record });
     }
   }
-  const denials: Array<Record<string, unknown>> = [];
-  for (const event of operations) {
-    const isDenyResult = event.result === 'deny';
-    if (isDenyResult) {
-      denials.push(event);
-    } else {
-      const errorObj = event.error as Record<string, unknown> | undefined;
-      const hasPermissionDeniedCode = errorObj !== undefined && errorObj.code === 'PERMISSION_DENIED';
-      if (hasPermissionDeniedCode) {
-        denials.push(event);
-      }
+  const denials = operations.filter(
+    ({ record }) => record.denial !== undefined || record.result === 'deny',
+  );
+  const recentRequests = operations.slice(-recentLimit).map(({ record }) => ({
+    path: record.path ?? '',
+    method: record.method,
+    result: record.result ?? 'error',
+    auth: record.auth,
+  }));
+  const recentDenials = denials.slice(-recentLimit).map(({ event, record }) => {
+    const rawDebug = (event as { debugMessage?: unknown }).debugMessage;
+    const debugMessageVal = typeof rawDebug === 'string' ? rawDebug : undefined;
+    let ruleVal: unknown = record.denial?.rule;
+    if (event.kind === 'request' && event.evaluatedRule !== undefined) {
+      ruleVal = event.evaluatedRule;
     }
-  }
-  const recentRequests = operations.slice(-recentLimit).map((event) => {
-    let pathVal = '';
-    if (event.path !== undefined) {
-      pathVal = String(event.path);
-    } else {
-      const targetObj = event.target as Record<string, unknown> | undefined;
-      if (targetObj !== undefined && targetObj.path !== undefined) {
-        pathVal = String(targetObj.path);
-      }
+    let reasonsVal: string[] | undefined = undefined;
+    if (record.denial !== undefined) {
+      reasonsVal = [...record.denial.reasons];
+    } else if (debugMessageVal !== undefined) {
+      reasonsVal = [debugMessageVal];
     }
-    let methodVal = 'listen';
-    if (event.method !== undefined) {
-      methodVal = String(event.method);
-    }
-    let resultVal = 'error';
-    if (event.result !== undefined) {
-      resultVal = String(event.result);
-    } else {
-      const errorObj = event.error as Record<string, unknown> | undefined;
-      if (errorObj !== undefined && errorObj.code === 'PERMISSION_DENIED') {
-        resultVal = 'deny';
-      }
-    }
-    let authVal: unknown = null;
-    if (event.auth !== undefined) {
-      authVal = event.auth;
-    }
-    return {
-      path: pathVal,
-      method: methodVal,
-      result: resultVal,
-      auth: authVal,
-    };
-  });
-  const recentDenials = denials.slice(-recentLimit).map((event) => {
-    let pathVal = '';
-    if (event.path !== undefined) {
-      pathVal = String(event.path);
-    } else {
-      const targetObj = event.target as Record<string, unknown> | undefined;
-      if (targetObj !== undefined && targetObj.path !== undefined) {
-        pathVal = String(targetObj.path);
-      }
-    }
-    let methodVal = 'listen';
-    if (event.method !== undefined) {
-      methodVal = String(event.method);
-    }
-    let authVal: unknown = null;
-    if (event.auth !== undefined) {
-      authVal = event.auth;
-    }
-    let debugMessageVal: string | undefined = undefined;
-    if (typeof event.debugMessage === 'string') {
-      debugMessageVal = event.debugMessage;
-    }
-    const ruleVal = (event as any).evaluatedRule ?? (event as any).rule ?? undefined;
-    const reasonsVal = Array.isArray((event as any).debugMessages)
-      ? (event as any).debugMessages
-      : typeof event.debugMessage === 'string'
-      ? [event.debugMessage]
-      : undefined;
-    return {
-      path: pathVal,
-      method: methodVal,
-      auth: authVal,
+    const entry: FirestoreInspectReport['events']['recentDenials'][number] = {
+      path: record.path ?? '',
+      method: record.method,
+      auth: record.auth,
       debugMessage: debugMessageVal,
       rule: ruleVal,
       reasons: reasonsVal,
     };
+    if (record.denial?.evidenceExpired === true) {
+      entry.evidenceExpired = true;
+    }
+    return entry;
   });
 
   return {

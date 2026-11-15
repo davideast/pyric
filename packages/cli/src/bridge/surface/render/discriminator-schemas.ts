@@ -411,9 +411,13 @@ export const controlSandboxEnvironmentSchema = z.object({
   since: z.string().optional().describe("Cursor from a prior 'events' call."),
   limit: z.number().optional().describe("Maximum events to return (when action is 'events')."),
   kind: z
-    .enum(['all', 'denials', 'writes'])
+    .enum(['all', 'denials', 'writes', 'listeners'])
     .optional()
     .describe("Event filter (when action is 'events')."),
+  detail: z
+    .boolean()
+    .optional()
+    .describe("Include request and resource payloads (when action is 'events')."),
   service: z
     .enum(['firestore', 'database'])
     .optional()

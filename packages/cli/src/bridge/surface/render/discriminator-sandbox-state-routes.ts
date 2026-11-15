@@ -103,6 +103,7 @@ export const SANDBOX_STATE_ROUTES: DiscriminatorRoute[] = [
       assign(call, 'since', args.since);
       assign(call, 'limit', args.limit);
       assign(call, 'kind', args.kind);
+      assign(call, 'detail', args.detail);
       return call;
     },
   },

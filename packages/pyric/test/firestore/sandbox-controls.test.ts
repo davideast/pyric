@@ -142,7 +142,7 @@ describe('pyric/sandbox/firestore', () => {
                 },
               ],
             },
-            reasons: undefined,
+            reasons: ['Rule #0 (read,write) → deny', 'Simulated: DENY'],
           },
         ],
         recentRequests: [
