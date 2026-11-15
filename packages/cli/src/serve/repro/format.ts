@@ -14,6 +14,7 @@
 import { z } from 'zod';
 import type { Checkpoint } from 'pyric/sandbox/checkpoints';
 import type { InboundMessage, OutboundMessage } from '../worker/protocol.js';
+import { formatWrongFileError, identifyPyricFile } from '../../verify/file-format.js';
 
 export const REPRO_SCHEMA = 'pyric.repro.v1' as const;
 
@@ -133,9 +134,15 @@ const reproSchema = z.object({
 export function parseRepro(value: unknown): ReproFile {
   const result = reproSchema.safeParse(value);
   if (!result.success) {
+    const detected = identifyPyricFile(value);
+    if (detected !== null && detected.kind !== 'repro') {
+      throw new Error(formatWrongFileError('repro', value, `Not a ${REPRO_SCHEMA} file`));
+    }
     const issue = result.error.issues[0];
     const where = issue.path.join('.') || '(root)';
-    throw new Error(`Not a ${REPRO_SCHEMA} file: ${where}: ${issue.message}`);
+    throw new Error(
+      formatWrongFileError('repro', value, `Not a ${REPRO_SCHEMA} file: ${where}: ${issue.message}`),
+    );
   }
   return cloneReproValue(value) as ReproFile;
 }

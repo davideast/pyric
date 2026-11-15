@@ -17,6 +17,7 @@ import { inlinePriorities, jsonEqual, normalizeNode, withPriorities } from 'pyri
 import { getStorageSandbox } from 'pyric/storage';
 import { storageDeniedWrites, type RecordedStorageDeniedWrite } from 'pyric/storage/internal';
 import { isRtdbRulesJson } from '../rtdb/rules-json.js';
+import { formatWrongFileError } from './file-format.js';
 
 export const VERIFY_FIXTURE_SCHEMA = 'pyric.verify.fixture.v1' as const;
 
@@ -380,11 +381,11 @@ export function buildVerifyFixture(input: BuildVerifyFixtureInput): PyricVerifyF
 export function parseVerifyFixture(value: unknown): PyricVerifyFixture {
   const isNotObject = !isVerifyFixtureObject(value);
   if (isNotObject) {
-    throw new Error('fixture must be a JSON object.');
+    throw new Error(formatWrongFileError('verify-session', value, 'fixture must be a JSON object'));
   }
   const hasWrongSchema = value.schema !== VERIFY_FIXTURE_SCHEMA;
   if (hasWrongSchema) {
-    throw new Error(`fixture schema must be '${VERIFY_FIXTURE_SCHEMA}'.`);
+    throw new Error(formatWrongFileError('verify-session', value, `fixture schema must be '${VERIFY_FIXTURE_SCHEMA}'`));
   }
   const events = value.events;
   const hasInvalidEvents = !Array.isArray(events);

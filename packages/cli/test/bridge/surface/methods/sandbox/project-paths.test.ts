@@ -50,6 +50,12 @@ function plantSession(path: string): void {
   writeFileSync(path, JSON.stringify({ events: [] }), 'utf8');
 }
 
+/** A state fixture file, written where `sandbox.seedFromFixture` is about to name it. */
+function plantStateFixture(path: string): void {
+  mkdirSync(join(path, '..'), { recursive: true });
+  writeFileSync(path, JSON.stringify({ schema: 'pyric.state-fixture.v1', firestore: {} }), 'utf8');
+}
+
 /** The three calls, each one naming the path under the argument it takes it as. */
 const CALLS: ReadonlyArray<{ key: string; argument: string; extra: Record<string, unknown> }> = [
   { key: 'sandbox.apply', argument: 'sessionPath', extra: { branch: 'draft' } },
@@ -74,8 +80,10 @@ describe('a path a sandbox method names', () => {
 
     it(`${call.key} accepts an absolute path inside the project`, async () => {
       const inside = resolve(projectDir, 'state', 'inside.json');
-      if (call.key !== 'sandbox.exportFixture') {
+      if (call.key === 'sandbox.apply') {
         plantSession(inside);
+      } else if (call.key === 'sandbox.seedFromFixture') {
+        plantStateFixture(inside);
       }
       const accepted = await run(call.key, { ...call.extra, [call.argument]: inside });
       expect(accepted.ok).toBe(true);

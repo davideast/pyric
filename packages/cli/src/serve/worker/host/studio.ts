@@ -115,14 +115,19 @@ export async function handleStudioOp(
       // payload's `errors` so Studio can surface a half-clear instead of
       // reporting a clean reset.
       try {
+        // Flush any un-debounced events before wiping so the subsequent empty
+        // flush rotates a non-empty capture to `.pyric/previous-session.json`.
+        if (ctx.sandbox.history().length > 0) {
+          await ctx.captureFlush?.();
+        }
         const { errors } = await resetHostSandbox(ctx, 'all', () => ctx.sandbox.resetAll());
-        restoreFirestoreSubscriptions(ctx);
         // The server capture (`.pyric/last-session.json`) persists the event
-        // history a rebooting worker re-primes into Traffic. Flush it NOW —
-        // reset just emptied `sandbox.history()`, and waiting out the
-        // capture debounce leaves a window where a worker death resurrects
-        // the wiped session's events on the next boot.
+        // history a rebooting worker re-primes into Traffic. Flush the empty
+        // capture before re-attaching listeners so `.pyric/last-session.json`
+        // rotates into `.pyric/previous-session.json` before `listener_attach`
+        // events land, and a worker death cannot resurrect wiped events.
         await ctx.captureFlush?.();
+        restoreFirestoreSubscriptions(ctx);
         // The hosted policy waits for earlier saves and persists the cleared state.
         await bestEffortFlush(ctx, msg.method);
         ok(port, msg.id, { errors });

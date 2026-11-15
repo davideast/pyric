@@ -3,7 +3,7 @@ import remove from '../surface/methods/sandbox/deleteCapture.js';
 import type { ToolHandler } from 'pyric/sandbox/internal';
 import save from '../surface/methods/sandbox/saveCapture.js';
 import list from '../surface/methods/sandbox/listCaptures.js';
-import open from '../surface/methods/sandbox/openCapture.js';
+import open, { openRateCapture } from '../surface/methods/sandbox/openCapture.js';
 import { toJsonSchema } from '../surface/json-schema.js';
 import { runCaptureMethod } from '../../serve/rate-capture-service.js';
 
@@ -37,6 +37,9 @@ export function createCaptureTools(projectDir = process.cwd()): ToolHandler[] {
     parameters: toJsonSchema(record.args),
     async execute(args) {
       const parsed = record.args.parse(args);
+      if (method === 'openCapture') {
+        return openRateCapture(parsed, projectDir);
+      }
       return runCaptureMethod(method, parsed, projectDir);
     },
   }));

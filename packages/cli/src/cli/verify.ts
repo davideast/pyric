@@ -1,7 +1,13 @@
 import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { basename, join, resolve } from 'node:path';
 import { resolveScope } from '../credentials/node/scope.js';
-import { CAPTURE_RELATIVE_PATH } from '../serve/capture-store.js';
+import {
+  CAPTURE_RELATIVE_PATH,
+  createCaptureStore,
+  PREVIOUS_CAPTURE_RELATIVE_PATH,
+  summarizeCaptureJson,
+} from '../serve/capture-store.js';
+import { formatCaptureEventCounts } from '../verify/file-format.js';
 import {
   deriveRulesTestCases,
   fixtureVerifiableServices,
@@ -48,6 +54,7 @@ export interface FixtureResult {
   name: string;
   description?: string;
   ok: boolean;
+  eventCount?: number;
   result: VerifyResult;
 }
 
@@ -65,6 +72,7 @@ export async function runFixture(
   const out: FixtureResult = {
     name,
     ok: result.ok,
+    eventCount: fixture.events.length,
     result,
   };
   if (fixture.description !== undefined) {
@@ -88,8 +96,12 @@ export async function checkDirectory(
 export function formatResults(results: FixtureResult[]): string {
   const lines: string[] = [];
   for (const result of results) {
-    const marker = result.ok ? '✓' : '✗';
     const desc = result.description ? ` - ${result.description}` : '';
+    if (result.eventCount === 0) {
+      lines.push(`! ${result.name}${desc} - the capture holds no operations (0 events); nothing to verify.`);
+      continue;
+    }
+    const marker = result.ok ? '✓' : '✗';
     const serviceSummary = Object.values(result.result.services)
       .filter((service): service is VerifyServiceResult => service !== undefined)
       .map((service) => {
@@ -177,7 +189,9 @@ export async function runVerify(parsed: ParsedArgs, deps: VerifyCliDeps = {}): P
   }
 
   const target = parsed.positional[0];
+  const activeCapturePath = resolve(cwd, CAPTURE_RELATIVE_PATH);
   const inputPath = resolve(cwd, target ?? CAPTURE_RELATIVE_PATH);
+  const isActiveCaptureTarget = !target || inputPath === activeCapturePath;
   if (!existsSync(inputPath)) {
     if (target) {
       process.stderr.write(`pyric verify: no such fixture or directory: ${inputPath}\n`);
@@ -186,6 +200,12 @@ export async function runVerify(parsed: ParsedArgs, deps: VerifyCliDeps = {}): P
         `pyric verify: no captured session at ${CAPTURE_RELATIVE_PATH}.\n` +
           '  Run `pyric sandbox`, exercise your app, then `pyric verify`, or pass a fixture path.\n',
       );
+    }
+    if (isActiveCaptureTarget) {
+      const preserved = readPreservedPreviousCapture(cwd);
+      if (preserved !== null) {
+        process.stderr.write(formatPreservedPreviousCaptureHint(preserved));
+      }
     }
     return 2;
   }
@@ -308,21 +328,32 @@ export async function runVerify(parsed: ParsedArgs, deps: VerifyCliDeps = {}): P
     stopStaging?.();
   }
   const allOk = results.every((result) => result.ok);
+  const emptyCount = results.filter((result) => result.eventCount === 0).length;
+  const allEmpty = results.length > 0 && emptyCount === results.length;
+  let preservedPrevious: PreservedPreviousCapture | null = null;
+  if (allEmpty && isActiveCaptureTarget) {
+    preservedPrevious = readPreservedPreviousCapture(cwd);
+  }
 
   if (json) {
-    process.stdout.write(
-      JSON.stringify({
-        ok: allOk,
-        engines,
-        rulesPaths: rulesResolution.paths,
-        results: results.map((result) => ({
-          name: result.name,
-          description: result.description,
-          ok: result.ok,
-          services: result.result.services,
-        })),
-      }) + '\n',
-    );
+    const jsonOutput: Record<string, unknown> = {
+      ok: allOk,
+      empty: allEmpty,
+      engines,
+      rulesPaths: rulesResolution.paths,
+      results: results.map((result) => ({
+        name: result.name,
+        description: result.description,
+        ok: result.ok,
+        eventCount: result.eventCount ?? 0,
+        empty: result.eventCount === 0,
+        services: result.result.services,
+      })),
+    };
+    if (preservedPrevious !== null) {
+      jsonOutput.previousCapture = preservedPrevious;
+    }
+    process.stdout.write(JSON.stringify(jsonOutput) + '\n');
   } else {
     process.stdout.write(formatResults(results) + '\n');
     if (!allOk) {
@@ -331,12 +362,47 @@ export async function runVerify(parsed: ParsedArgs, deps: VerifyCliDeps = {}): P
         .map(([key, path]) => `${key}=${basename(path)}`)
         .join(', ');
       process.stderr.write(`\n✗ ${failed} session(s) regressed under ${rules}.\n`);
+    } else if (allEmpty) {
+      process.stdout.write('\n! Capture holds no operations (0 events); no rules behavior was verified.\n');
+      if (preservedPrevious !== null) {
+        process.stdout.write(formatPreservedPreviousCaptureHint(preservedPrevious));
+      }
+    } else if (emptyCount > 0) {
+      process.stdout.write(
+        `\n✓ non-empty fixtures replay cleanly (${emptyCount} empty capture(s) held no operations).\n`,
+      );
     } else {
       process.stdout.write('\n✓ all selected services replay cleanly.\n');
     }
   }
   if (allOk) return 0;
   return 1;
+}
+
+interface PreservedPreviousCapture {
+  path: string;
+  eventCount: number;
+  denialCount: number;
+}
+
+function readPreservedPreviousCapture(cwd: string): PreservedPreviousCapture | null {
+  const raw = createCaptureStore(cwd).readPrevious();
+  if (raw === null) return null;
+  const summary = summarizeCaptureJson(raw);
+  if (summary === null || summary.eventCount === 0) return null;
+  return {
+    path: PREVIOUS_CAPTURE_RELATIVE_PATH,
+    eventCount: summary.eventCount,
+    denialCount: summary.denialCount,
+  };
+}
+
+function formatPreservedPreviousCaptureHint(previous: PreservedPreviousCapture): string {
+  const counts = formatCaptureEventCounts(previous.eventCount, previous.denialCount);
+  return (
+    `  Previous session (${counts}) is preserved at ${previous.path}.\n` +
+    `  Run: pyric verify ${previous.path}\n`
+  );
 }
 
 function runVerifyCases(parsed: ParsedArgs, cwd: string): number {

@@ -4,6 +4,7 @@ import { z } from 'zod';
 import type { SandboxEvent } from 'pyric/sandbox';
 import type { HistoryFrame } from './rate-history.js';
 import { readThresholdConfig, type ThresholdConfig } from './rate-threshold-config.js';
+import { formatWrongFileError } from '../../verify/file-format.js';
 
 const number = z.number().finite();
 const count = number.nonnegative();
@@ -20,8 +21,17 @@ const schema = z.object({ schema: z.literal('pyric.rate-capture.v1'), createdAt:
 /** Validate imported measurements before they reach HTML or chart arithmetic. */
 export function readRateCapture(text: string): { frame: HistoryFrame; thresholds: ThresholdConfig } {
   if (text.length > 32 * 1024 * 1024) throw new Error('Capture exceeds 32 MB.');
-  const result = schema.safeParse(JSON.parse(text));
-  if (!result.success) throw new Error('Choose a Pyric rate capture with valid measurements.');
+  const parsed: unknown = JSON.parse(text);
+  const result = schema.safeParse(parsed);
+  if (!result.success) {
+    throw new Error(
+      formatWrongFileError(
+        'rate-capture',
+        parsed,
+        'Choose a Pyric rate capture with valid measurements',
+      ),
+    );
+  }
   const { frame } = result.data;
   if (frame.to < frame.from || frame.duration !== frame.to - frame.from + 1 || frame.from < frame.points[0]!.second || frame.to > frame.points.at(-1)!.second || frame.points.some((point, index) => index > 0 && point.second !== frame.points[index - 1]!.second + 1)) throw new Error('Capture has an invalid time range.');
   const selected = frame.points.filter(point => point.second >= frame.from && point.second <= frame.to);

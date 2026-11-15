@@ -15,7 +15,7 @@ import { CAPTURE_RELATIVE_PATH } from '../../../../serve/capture-store.js';
 
 import {
   branchName,
-  readSessionEvents,
+  readSessionEventsForApply,
   refuseAmbiguousSource,
   refuseUnknownBranch,
   projectPathWithin,
@@ -34,15 +34,11 @@ function eventsFor(args: Record<string, unknown>, projectDir: string): EventSour
   const named = String(args.sessionPath);
   const resolved = projectPathWithin(projectDir, named, 'sessionPath', failFor('sandbox', 'apply'));
   if (!('path' in resolved)) return { refusal: resolved };
-  const events = readSessionEvents(resolved.path);
-  if (events === null) {
-    return {
-      refusal: operationFailure(
-        `No recorded session was read from '${named}'. A session file is the capture the sandbox writes, holding an events array.`,
-      ),
-    };
+  const read = readSessionEventsForApply(resolved.path, named);
+  if ('message' in read) {
+    return { refusal: operationFailure(read.message) };
   }
-  return { events };
+  return { events: read.events };
 }
 
 export default {

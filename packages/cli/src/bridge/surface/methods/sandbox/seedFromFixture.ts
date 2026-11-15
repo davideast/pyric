@@ -26,7 +26,13 @@ export default {
       failFor('sandbox', 'seedFromFixture'),
     );
     if (!('path' in resolved)) return resolved;
-    const fixture = readFixtureFile(resolved.path);
+    let fixture: ReturnType<typeof readFixtureFile>;
+    try {
+      fixture = readFixtureFile(resolved.path);
+    } catch (error) {
+      if (error instanceof Error) return operationFailure(error.message);
+      return operationFailure(String(error));
+    }
     if (fixture === null) {
       return operationFailure(`No fixture file at '${given}'.`);
     }
@@ -34,12 +40,20 @@ export default {
     const docs = Object.keys(fixture.firestore ?? {}).length;
     const users = fixture.users?.length ?? 0;
     const loaded = `Loaded a fixture of ${docs} doc(s) and ${users} user(s) from ${given}.`;
+    let summary = loaded;
+    const data: { path: string; docs: number; users: number; refusedRules?: string[] } = {
+      path: given,
+      docs,
+      users,
+    };
+    if (refusals.length > 0) {
+      summary = `${loaded} Rules not installed, the sandbox keeps the rules in force: ${refusals.join(' ')}`;
+      data.refusedRules = refusals;
+    }
     return {
       ok: true,
-      summary: refusals.length === 0
-        ? loaded
-        : `${loaded} Rules not installed, the sandbox keeps the rules in force: ${refusals.join(' ')}`,
-      data: { path: given, docs, users, ...(refusals.length === 0 ? {} : { refusedRules: refusals }) },
+      summary,
+      data,
     };
   },
 } satisfies MethodRecord;
