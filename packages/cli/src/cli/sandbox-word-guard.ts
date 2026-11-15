@@ -96,7 +96,7 @@ export function formatSandboxAmbiguityError(word: string): string {
     ].join('\n');
   }
   return [
-    `pyric sandbox: '${word}' is not a sandbox method or an executable on PATH.`,
+    `pyric sandbox: '${word}' is neither a command on PATH nor a \`pyric sandbox\` method.`,
     'To run a child command inside the sandbox, pass `--`:',
     `  pyric sandbox -- ${word}`,
     'Run `pyric sandbox --help` to list sandbox methods and launcher flags.',

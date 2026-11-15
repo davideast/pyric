@@ -202,11 +202,14 @@ describe('CLI help and routing enumeration', () => {
       expect(result.stderr).toContain('--');
     }
 
-    for (const nonMatch of ['help', 'list', 'status', 'bogus']) {
+    for (const nonMatch of ['help', 'list', 'status', 'bogus', 'save']) {
       const { result, createdPyricDir } = await runInTempDir(['sandbox', nonMatch]);
       expect(result.code).toBe(1);
       expect(createdPyricDir).toBe(false);
       expect(result.stderr).not.toContain('Did you mean');
+      expect(result.stderr).toMatch(
+        new RegExp(`'${nonMatch}' is neither a command on PATH nor a \`pyric sandbox\` method`),
+      );
       expect(result.stderr).toContain(`pyric sandbox -- ${nonMatch}`);
     }
   });
