@@ -2,6 +2,7 @@ import type { AuthState, RtdbDenialContext } from 'pyric/sandbox';
 import type { BackendState } from './backend-state.js';
 import type { ChildListeners } from './child-listeners.js';
 import { joinPath, pathSegments, type JsonValue } from './data-tree.js';
+import { listenerReadDependsOnPaths } from './listener-read-dependency.js';
 import type { ChildListener, ValueListener } from './listener-types.js';
 import { errorPrefix, normalizeWrite, withPriorities, writePriority, type InlinePriority } from './normalize.js';
 import { canonicalPath, denyResultFor, rtdbDenialContext, rtdbRulesDetail } from './operation-events.js';
@@ -91,52 +92,16 @@ export function captureRewindDetail(
   return extra;
 }
 
-const ROOT_IDENTIFIER_PATTERN = /\broot\b/;
-const NOW_IDENTIFIER_PATTERN = /\bnow\b/;
-const DATA_IDENTIFIER_PATTERN = /\bdata\b/;
-const PARENT_IDENTIFIER_PATTERN = /\bparent\b/;
 const CANONICAL_CHILD_EVENTS = ['child_removed', 'child_added', 'child_moved', 'child_changed'] as const;
 
-function pathsTouch(left: string, right: string): boolean {
-  if (left === right || left === '/' || right === '/') return true;
-  return right.startsWith(`${left}/`) || left.startsWith(`${right}/`);
-}
-
-function isRuleObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-function nextRuleNode(node: Record<string, unknown>, segment: string): Record<string, unknown> | undefined {
-  if (!segment.startsWith('.') && Object.hasOwn(node, segment) && isRuleObject(node[segment])) {
-    return node[segment];
+function validateNestedPriorities(
+  baseSegments: readonly string[],
+  nested: readonly InlinePriority[],
+): void {
+  for (const entry of nested) {
+    pathSegments(joinPath([...baseSegments, ...entry.segments]));
+    validatePriority(entry.priority);
   }
-  for (const [key, child] of Object.entries(node)) {
-    if (key.startsWith('$') && isRuleObject(child)) return child;
-  }
-  return undefined;
-}
-
-function readRuleDependsOnWrite(rawRule: unknown, ancestorPath: string, changedPaths: readonly string[]): boolean {
-  if (typeof rawRule !== 'string') return false;
-  if (ROOT_IDENTIFIER_PATTERN.test(rawRule) || NOW_IDENTIFIER_PATTERN.test(rawRule)) return true;
-  if (!DATA_IDENTIFIER_PATTERN.test(rawRule)) return false;
-  if (PARENT_IDENTIFIER_PATTERN.test(rawRule) || rawRule.includes('[')) return true;
-  return changedPaths.some((changedPath) => pathsTouch(ancestorPath, changedPath));
-}
-
-function listenerReadDependsOnPaths(
-  rulesRoot: Record<string, unknown>,
-  listenerPath: string,
-  changedPaths: readonly string[],
-): boolean {
-  const segments = pathSegments(listenerPath);
-  let current: Record<string, unknown> | undefined = rulesRoot;
-  for (let depth = 0; depth <= segments.length && current !== undefined; depth++) {
-    const ancestorPath = joinPath(segments.slice(0, depth));
-    if (readRuleDependsOnWrite(current['.read'], ancestorPath, changedPaths)) return true;
-    if (depth < segments.length) current = nextRuleNode(current, segments[depth]!);
-  }
-  return false;
 }
 
 export class WritePlane {
@@ -164,6 +129,7 @@ export class WritePlane {
     validatePriority(resolvedArgPriority);
     const written = writePriority(resolvedInput, resolvedArgPriority);
     validatePriority(written.priority);
+    validateNestedPriorities(pathSegments(path), written.nested);
     return {
       priorNodePriority,
       resolved,
@@ -642,6 +608,7 @@ export class WritePlane {
     }
     const { priority, inline, nested } = writePriority(resolvedInput, null);
     validatePriority(priority);
+    validateNestedPriorities(segs, nested);
     const priorities: InlinePriority[] = [];
     if (inline) priorities.push({ segments: [], priority });
     priorities.push(...nested);

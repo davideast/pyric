@@ -295,11 +295,11 @@ export class DisconnectOperationQueue<TMetadata extends object = Record<never, n
         this.operations.set(queuedPath, mergedOperation);
         this.syncUnfoldedPriorityOwners(queuedPath, pruned, owners);
       } else if (queued.kind === 'update') {
-        const canReachChild = cancelledQueuedOperation || hasNestedPath(queued.values, relative);
+        const canReachChild = cancelledQueuedOperation || hasNestedPath(queued.values, relative, true);
         if (!canReachChild) continue;
         const existingOwners = this.unfoldedPriorityOwners.get(queuedPath);
         const owners = new Set(existingOwners);
-        const unfolded = unfoldWithoutNestedPath('', queued.values, relative, owners, true);
+        const unfolded = unfoldWithoutNestedPath('', queued.values, relative, owners, true, true);
         const pruned = pruneOrphanedPriorities(unfolded, owners);
         if (pruned.length === 0) {
           this.operations.delete(queuedPath);

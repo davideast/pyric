@@ -78,18 +78,24 @@ function isPrefixSegments(prefix: readonly string[], full: readonly string[]): b
   return prefix.every((segment, index) => segment === full[index]);
 }
 
-export function hasNestedPath(value: unknown, segments: readonly string[]): boolean {
+export function hasNestedPath(
+  value: unknown,
+  segments: readonly string[],
+  includeNullEntries = false,
+): boolean {
   if (segments.length === 0) return false;
   const record = childRecord(value);
   if (record === null) return false;
   for (const [key, entryValue] of Object.entries(record)) {
-    if (key.startsWith('.') || entryValue == null) continue;
+    if (key.startsWith('.') || entryValue === undefined) continue;
+    if (entryValue === null && !includeNullEntries) continue;
     const keySegs = pathSegments(key);
     if (keySegs.length === 0) continue;
     if (keySegs.length >= segments.length) {
       if (isPrefixSegments(segments, keySegs)) return true;
       continue;
     }
+    if (entryValue === null) continue;
     const reachesDescendant =
       isPrefixSegments(keySegs, segments) &&
       hasNestedPath(entryValue, segments.slice(keySegs.length));
@@ -160,12 +166,14 @@ export function unfoldWithoutNestedPath(
   segments: readonly string[],
   unfoldedPriorityOwners: Set<string>,
   includeRootOwnPriority: boolean,
+  includeNullEntries = false,
 ): Array<[string, unknown]> {
   if (segments.length === 0) return [];
   const record = childRecord(value);
   if (record === null) return [[prefix, structuredClone(value)]];
   const entries = Object.entries(record).flatMap(([childKey, childValue]): Array<[string, unknown]> => {
-    if (childKey.startsWith('.') || childValue == null) return [];
+    if (childKey.startsWith('.') || childValue === undefined) return [];
+    if (childValue === null && !includeNullEntries) return [];
     const keySegs = pathSegments(childKey);
     if (keySegs.length === 0) return [];
     const joinedKey = keySegs.join('/');
@@ -177,7 +185,7 @@ export function unfoldWithoutNestedPath(
       if (isPrefixSegments(segments, keySegs)) return [];
       return [[childPrefix, structuredClone(childValue)]];
     }
-    if (!isPrefixSegments(keySegs, segments)) {
+    if (!isPrefixSegments(keySegs, segments) || childValue === null) {
       return [[childPrefix, structuredClone(childValue)]];
     }
     return unfoldWithoutNestedPath(

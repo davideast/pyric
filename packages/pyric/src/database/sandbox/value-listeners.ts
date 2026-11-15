@@ -9,7 +9,8 @@ import { jsonValuesEqual, joinPath, pathSegments, type JsonValue } from './data-
 import type { BackendState } from './backend-state.js';
 import type { ValueListener, ValueListenerSnapshot } from './listener-types.js';
 import { denyResultFor, rtdbDenialContext, rtdbRulesDetail } from './operation-events.js';
-import { executeQuery, type QueryRow, type QuerySpec } from './query.js';
+import { executeQuery, type Priority, type QueryRow, type QuerySpec } from './query.js';
+import { loadsAllData } from './query-index.js';
 import { permissionDenied, withDenialContext, type RuleEvaluationDetails } from './rules-eval.js';
 
 function rowsToVal(rows: QueryRow[]): JsonValue {
@@ -132,7 +133,7 @@ export class ValueListeners {
     if (query) {
       const rows = executeQuery(this.state.tree.read(path), query, this.state.priorities.forChild(path));
       listener.lastWindow = rows;
-      listener.lastPriorityState = this.queryPriorityState(path, rows);
+      listener.lastPriorityState = this.queryPriorityState(path, rows, query);
       this.deliverInitial(listener, { val: rowsToVal(rows), exists: rows.length > 0, key: this.key(path), rows }, {
         initial: true, query: true,
       });
@@ -165,7 +166,7 @@ export class ValueListeners {
           this.state.tree.read(listener.path), listener.query,
           this.state.priorities.forChild(listener.path),
         );
-        const priorityState = this.queryPriorityState(listener.path, rows);
+        const priorityState = this.queryPriorityState(listener.path, rows, listener.query);
         if (windowsEqual(listener.lastWindow ?? [], rows) && listener.lastPriorityState === priorityState) {
           this.state.events.listener('suppressed', listener, listener.auth, {
             event: 'value', reason: 'no-op', detail: { query: true },
@@ -214,11 +215,19 @@ export class ValueListeners {
     return { val, exists: val !== null, key: this.key(path) };
   }
 
-  private queryPriorityState(path: string, rows: QueryRow[]): string {
+  private queryPriorityState(path: string, rows: QueryRow[], query: QuerySpec): string {
     const base = pathSegments(path);
-    return rows
+    const childState = rows
       .map((row) => `${row.key}:${this.state.priorities.stateAtOrBelow(joinPath([...base, row.key]))}`)
       .join('\0');
+    if (!loadsAllData(query)) {
+      return childState;
+    }
+    let rootPriority: Priority = null;
+    if (rows.length > 0) {
+      rootPriority = this.state.priorities.get(path);
+    }
+    return `${JSON.stringify(rootPriority)}\0${childState}`;
   }
 
   private key(path: string): string | null {
