@@ -12,6 +12,7 @@ import {
   type FunctionsProject,
 } from '../functions/project.js';
 import { formatActivityWarning } from './activity-warning.js';
+import { advertisedHost, advertisedUrl } from './advertised-host.js';
 import { formatAiStatusNote } from './ai-status.js';
 import {
   createBridgeMount,
@@ -300,7 +301,8 @@ export async function createViteSandboxGeneration(
       const port = hasTcpAddress ? address.port : 0;
       const configuredHost = serverOptions.host;
       const hasHostname = typeof configuredHost === 'string' && configuredHost.length > 0;
-      const host = hasHostname ? configuredHost : 'localhost';
+      const rawHost = hasHostname ? configuredHost : 'localhost';
+      const host = advertisedHost(rawHost);
       const hasNoListeningPort = port <= 0;
       if (hasNoListeningPort) return null;
       return activeBridge.wsUrl({ host, port, secure: servesHttps(server) });
@@ -382,7 +384,7 @@ export async function createViteSandboxGeneration(
         const url = urls?.local[0] ?? urls?.network[0];
         const isNotListening = url === undefined;
         if (isNotListening) throw new Error('The Vite sandbox server is not listening.');
-        return url;
+        return advertisedUrl(url);
       };
       const hostedPayload = ai.engineWire === undefined
         ? session.payload()

@@ -15,6 +15,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { createReadStream, existsSync, statSync } from 'node:fs';
 import { pipeline } from 'node:stream';
 import { extname, join, normalize, resolve, sep } from 'node:path';
+import { formatUrlHost, stripHostBrackets } from './advertised-host.js';
 import { isHostingIgnoredPathname, isHostingIgnoredRealFile } from './hosting-ignore.js';
 import { registerLocalSessionToken } from './local-session-token.js';
 import {
@@ -372,7 +373,7 @@ export function listenWithScan(
  */
 export function loopbackHosts(host: string): string[] {
   if (host === 'localhost') return ['127.0.0.1', '::1'];
-  return [host];
+  return [stripHostBrackets(host)];
 }
 
 export async function startStaticServer(opts: StaticServerOptions): Promise<ServeHandle> {
@@ -422,7 +423,7 @@ export async function startStaticServer(opts: StaticServerOptions): Promise<Serv
     }
   }
 
-  const url = `http://${host}:${port}`;
+  const url = `http://${formatUrlHost(host)}:${port}`;
   let unregisterToken: (() => void) | undefined;
   if (opts.sessionToken) {
     unregisterToken = registerLocalSessionToken(port, opts.sessionToken);

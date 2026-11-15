@@ -23,7 +23,7 @@ Node host mode runs Pyric's Firebase sandbox in a single, durable Node process r
 | **Admin child processes** | Requires browser tab to connect first | Connects directly to Node host |
 
 Choose **Node host mode** when you want:
-- Multiple browser profiles or devices (e.g. Chrome, Safari, mobile simulators) sharing the same state.
+- Multiple browser profiles or local simulators on the same machine sharing one state.
 - Backend child processes (`firebase-admin`) reading and writing state without needing a browser page open.
 - Immediate durability across server restarts.
 - Full parity between Studio, agent MCP tools, and runtime clients.
@@ -137,6 +137,25 @@ npx pyric sandbox salvage --source .pyric/state/hosted --out .pyric/state/recove
 - Your application, Pyric Studio, docs, and MCP endpoints all share Vite's single port (default 5173).
 - Studio is served at `/__pyric/ui/studio`.
 - Server-rendered modules use this host too: their `firebase/*` and `firebase-admin/*` calls land in the same sandbox ([Vite plugin](./vite.md#server-rendered-code)).
+
+### Loopback-only access and SSH port forwarding
+
+The Node host answers sandbox, Studio, and MCP requests only for clients on the same machine (`localhost`, `127.0.0.1`, or `[::1]`). This restriction is enforced unconditionally on both `pyric sandbox --hosted` and the Vite plugin:
+
+- Passing `--host 0.0.0.0`, `--host ::`, or `--allowed-host` (or Vite `server.host` / `server.allowedHosts`) does **not** expose sandbox data, Studio, or MCP routes to remote peers. Requests from another machine receive a `403` refusal on sandbox, Studio, and MCP `/__pyric/*` routes, and `/__pyric/init.json` responds with `remotePeer: true` and no project data (only the local-only notice assets and any explicitly hosted static or Functions routes remain reachable).
+- When bound to a wildcard address (`0.0.0.0` or `::`), the host still rejects requests whose `Host` header carries the wildcard address. Client-facing URLs in `.pyric/serve.json`, `/__pyric/init.json`, and the startup banner therefore advertise `localhost` so local browsers, `pyric run --sandbox`, and MCP tools connect cleanly.
+
+To use a Node host running on a remote machine (such as a cloud dev workstation or VM), keep the host on loopback and forward the port over SSH from your local machine:
+
+```bash
+# Forward pyric sandbox --hosted (default port 3473)
+ssh -L 3473:localhost:3473 <remote-host>
+
+# Or forward a Vite dev server (default port 5173)
+ssh -L <port>:localhost:<port> <remote-host>
+```
+
+With the tunnel open, traffic arrives at the host over loopback on the remote machine, so opening `http://localhost:<port>` in your local browser or pointing local tools at it works with full Studio and sandbox access.
 
 ---
 

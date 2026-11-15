@@ -2,7 +2,7 @@ import { afterEach, describe, it, expect } from 'bun:test';
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { parseArgs } from '../../src/cli/parse-args.js';
-import { DEFAULT_WAIT_SECONDS, notAHostMessage, parseRunInvocation, pollUntil } from '../../src/cli/run.js';
+import { DEFAULT_WAIT_SECONDS, hostRefusedMessage, notAHostMessage, parseRunInvocation, pollUntil } from '../../src/cli/run.js';
 import { runDispatch } from './run-cli.js';
 
 const parse = (argv: string[], env: NodeJS.ProcessEnv = {}) => parseRunInvocation(parseArgs(['run', ...argv]), env);
@@ -135,6 +135,67 @@ describe('pyric run --sandbox against a server that is not a sandbox host (#1568
     expect(stderr).toContain('pyric sandbox --hosted');
     expect(stderr).toContain('pyric({ hosted: true })');
     expect(ms).toBeLessThan(4000);
+  });
+
+  it('refuses a 403 Host-guard response at once and explains why instead of saying not a sandbox host', async () => {
+    const server = createServer((_req, res) => {
+      res
+        .writeHead(403, { 'content-type': 'text/plain' })
+        .end("pyric sandbox: refused request for Host '0.0.0.0:4330'. Only localhost is allowed.");
+    });
+    servers.push(server);
+    await new Promise<void>((done) => server.listen(0, '127.0.0.1', () => done()));
+    const port = (server.address() as AddressInfo).port;
+    const url = `http://127.0.0.1:${port}`;
+    const { code, stderr, ms } = await runAgainst(url);
+    expect(code).toBe(2);
+    expect(stderr).toContain('refused the request (HTTP 403)');
+    expect(stderr).toContain('Host header');
+    expect(stderr).toContain('Server reply: pyric sandbox: refused request');
+    expect(stderr).not.toContain('not a sandbox host');
+    expect(stderr).not.toContain(`Use a loopback URL such as http://localhost:${port}`);
+    expect(ms).toBeLessThan(4000);
+  });
+
+  it('omits HTML markup when a server returns an HTML 403 page', async () => {
+    const server = createServer((_req, res) => {
+      res
+        .writeHead(403, { 'content-type': 'text/html; charset=utf-8' })
+        .end('<!doctype html><html><body><h1>403 Forbidden</h1></body></html>');
+    });
+    servers.push(server);
+    await new Promise<void>((done) => server.listen(0, '127.0.0.1', () => done()));
+    const port = (server.address() as AddressInfo).port;
+    const { code, stderr, ms } = await runAgainst(`http://127.0.0.1:${port}`);
+    expect(code).toBe(2);
+    expect(stderr).toContain('refused the request (HTTP 403)');
+    expect(stderr).not.toContain('Server reply:');
+    expect(stderr).not.toContain('<html');
+    expect(stderr).not.toContain('not a sandbox host');
+    expect(ms).toBeLessThan(4000);
+  });
+});
+
+describe('hostRefusedMessage', () => {
+  it('includes the host reply when present and suggests a loopback URL for non-loopback inputs', () => {
+    const withDetail = hostRefusedMessage('http://0.0.0.0:4330', 'Blocked request.');
+    expect(withDetail).toContain('http://0.0.0.0:4330 refused the request (HTTP 403)');
+    expect(withDetail).toContain('Server reply: Blocked request.');
+    expect(withDetail).toContain('http://localhost:4330');
+
+    const withoutDetail = hostRefusedMessage('http://[::]:5173', '');
+    expect(withoutDetail).toContain('http://[::]:5173 refused the request (HTTP 403)');
+    expect(withoutDetail).not.toContain('Server reply:');
+    expect(withoutDetail).toContain('http://localhost:5173');
+  });
+
+  it('avoids a self-referential loopback hint when the input URL is already loopback', () => {
+    for (const url of ['http://localhost:4330', 'http://127.0.0.1:4330', 'http://[::1]:4330']) {
+      const message = hostRefusedMessage(url, '');
+      expect(message).toContain(`${url} refused the request (HTTP 403)`);
+      expect(message).not.toContain('Use a loopback URL such as');
+      expect(message).toContain('Verify that a pyric sandbox host is running on this port');
+    }
   });
 });
 

@@ -136,6 +136,54 @@ describe('Vite Functions development adapter', () => {
     expect(watcher.eventNames()).toHaveLength(0);
     await attachment.close();
   });
+
+  it('normalizes wildcard bind hosts to localhost and brackets bare IPv6 in serveUrl', async () => {
+    const cases: Array<{ host: string; expectedServeUrl: string }> = [
+      { host: '0.0.0.0', expectedServeUrl: 'http://localhost:5173' },
+      { host: '::', expectedServeUrl: 'http://localhost:5173' },
+      { host: '[::]', expectedServeUrl: 'http://localhost:5173' },
+      { host: '::1', expectedServeUrl: 'http://[::1]:5173' },
+    ];
+    for (const testCase of cases) {
+      const httpServer = new FakeHttpServer();
+      const watcher = new FakeWatcher();
+      let runtimeOptions: FunctionsDevelopmentRuntimeOptions | undefined;
+      const runtime: FunctionsDevelopmentRuntime = {
+        async start() {
+          return { kind: 'ready', ready: { triggerCount: 0, unsupportedTriggers: [] } };
+        },
+        async reload() {
+          return { kind: 'ready', ready: { triggerCount: 0, unsupportedTriggers: [] } };
+        },
+        async close() {},
+      };
+      const attachment = attachViteFunctionsDevelopment({
+        cwd: '/project',
+        project: { sourceDir: '/project/functions', entry: '/project/functions/index.js' },
+        projectId: 'demo-project',
+        host: testCase.host,
+        watch: false,
+        httpServer: httpServer as unknown as Server,
+        middlewares: { use: () => undefined },
+        isAllowedRequest: () => true,
+        allowsAppOrigin: () => true,
+        watcher: watcher as unknown as ViteDevServer['watcher'],
+        logger: { info() {}, warn() {}, error() {} } as unknown as ViteDevServer['config']['logger'],
+        bridge: { sandboxConnected: () => true, onSandboxPeerConnected: () => () => {} } as unknown as BridgeMount,
+        baseEnv: {},
+        registerUrl: 'file:///register.js',
+        runtimeFactory: (options) => {
+          runtimeOptions = options;
+          return runtime;
+        },
+      });
+      httpServer.listening = true;
+      httpServer.emit('listening');
+      await Promise.resolve();
+      expect(runtimeOptions?.serveUrl, `host=${testCase.host}`).toBe(testCase.expectedServeUrl);
+      await attachment.close();
+    }
+  });
 });
 
 it('retries after reconnect even during startup, without duplicate starts or listeners after close', async () => {

@@ -424,4 +424,55 @@ describe('Vite sandbox generation project', () => {
   it('falls back to .firebaserc projects.default', async () => {
     expect((await sessionProject({ functions: false })).session?.projectId).toBe('rc-default');
   });
+
+  it('normalizes wildcard server.host to localhost in bridgeUrl while keeping raw boundHost for security guards', async () => {
+    for (const wildcardHost of ['0.0.0.0', '::', '[::]']) {
+      const h = harness();
+      h.input.server.config.server.host = wildcardHost;
+      let captured: SandboxSessionOptions | undefined;
+      const create = h.dependencies.createSession;
+      h.dependencies.createSession = async (sessionOptions) => {
+        captured = sessionOptions;
+        if (!create) throw new Error('missing createSession stub');
+        return create(sessionOptions);
+      };
+      const generation = await createViteSandboxGeneration(h.input, h.dependencies);
+      expect(captured?.boundHost).toBe(wildcardHost);
+      expect(captured?.bridgeUrl?.()).toBe('ws://localhost:5173/__pyric/sandbox');
+      await generation.close();
+    }
+  });
+
+  it('normalizes wildcard resolvedUrls to localhost for hosted sandbox baseUrl', async () => {
+    for (const rawUrl of ['http://0.0.0.0:5173', 'http://[::]:5173']) {
+      const hostedDir = mkdtempSync(join(tmpdir(), 'pyric-vite-hosted-wildcard-'));
+      try {
+        const h = harness();
+        h.input.projectDir = hostedDir;
+        h.input.options.hosted = true;
+        h.input.server.resolvedUrls = { local: [rawUrl], network: [] };
+        let capturedBaseUrl: string | (() => string) | undefined;
+        const baseCreateBridge = h.dependencies.createBridge;
+        h.dependencies.createBridge = (bridgeOptions) => {
+          if (!baseCreateBridge) throw new Error('missing createBridge stub');
+          const created = baseCreateBridge(bridgeOptions);
+          return {
+            ...created,
+            startHostedSandbox: async (_payload, baseUrl) => {
+              capturedBaseUrl = baseUrl;
+            },
+          };
+        };
+        const generation = await createViteSandboxGeneration(h.input, h.dependencies);
+        let resolved = capturedBaseUrl;
+        if (typeof capturedBaseUrl === 'function') {
+          resolved = capturedBaseUrl();
+        }
+        expect(resolved, `rawUrl=${rawUrl}`).toBe('http://localhost:5173');
+        await generation.close();
+      } finally {
+        rmSync(hostedDir, { recursive: true, force: true });
+      }
+    }
+  });
 });

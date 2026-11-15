@@ -523,8 +523,9 @@ describe('formatStartupEnvExport', () => {
     expect(output).not.toContain('export PYRIC_SANDBOX="remote:');
     expect(output).toContain('.pyric/serve.json');
     expect(output).toContain(
-      'From another directory on this machine, set PYRIC_SANDBOX=remote:http://localhost:3473 instead.',
+      'From another directory on this machine, run `pyric run --sandbox http://localhost:3473 -- <command>` instead.',
     );
+    expect(output).not.toContain('PYRIC_SANDBOX=remote:');
     expect(output).not.toContain('launch-secret');
     expect(output).not.toContain('PYRIC_BEACON_TOKEN');
     expect(output).toContain('Automatic interception confirmation requires launching the command through pyric.');
@@ -540,6 +541,20 @@ describe('formatStartupEnvExport', () => {
       registerUrl: 'file:///r.js',
     });
     expect(output).not.toContain('PYRIC_BEACON_TOKEN');
+  });
+
+  it('normalizes wildcard serveUrl hosts to localhost in cross-directory guidance', () => {
+    for (const serveUrl of ['http://0.0.0.0:4330', 'http://[::]:4330']) {
+      const output = formatStartupEnvExport({
+        serveUrl,
+        registerUrl: 'file:///r.js',
+      });
+      expect(output).toContain(
+        'From another directory on this machine, run `pyric run --sandbox http://localhost:4330 -- <command>` instead.',
+      );
+      expect(output).not.toContain('0.0.0.0');
+      expect(output).not.toContain('[::]');
+    }
   });
 });
 

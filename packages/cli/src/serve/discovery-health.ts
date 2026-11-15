@@ -1,4 +1,5 @@
 import { boundedRequest, type BoundedResponse } from '../bounded-request.js';
+import { formatUrlHost, portSuffix } from './advertised-host.js';
 
 /** Ports probed when the pointer is absent -- serve's default scan window PLUS
  *  the standard Vite dev ports (5173-5177), which the plain 3473+ window would miss
@@ -47,10 +48,73 @@ const HEALTH_PROBE_DEADLINE_MS = 1000;
 type HealthAnswer =
   | { readonly kind: 'sandbox'; readonly health: HealthLite }
   | { readonly kind: 'no-answer' }
+  | { readonly kind: 'forbidden'; readonly detail: string }
   | { readonly kind: 'other' };
 
 const NO_HEALTH_ANSWER: HealthAnswer = { kind: 'no-answer' };
 const OTHER_HEALTH_ANSWER: HealthAnswer = { kind: 'other' };
+
+const ANSI_ESCAPE = /(?:\u001b\[|\u009b)[0-9;?]*[ -/]*[@-~]|\u001b\][^\u0007\u001b]*(?:\u0007|\u001b\\)/g;
+const LINE_BREAK_OR_TAB = /[\r\n\t\v\f\u0085\u2028\u2029]+/g;
+const TERMINAL_CONTROL_OR_BIDI =
+  /[\u0000-\u001f\u007f-\u009f\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069\ufeff]/g;
+const MARKUP_TAG = /<(?:!doctype|html|head|body|title|div|p|h[1-6]|pre|script|xml)\b/i;
+
+function mediaTypeOf(response: BoundedResponse): string {
+  const raw = response.headers['content-type'];
+  let header: string | undefined;
+  if (Array.isArray(raw)) {
+    header = raw[0];
+  } else {
+    header = raw;
+  }
+  if (typeof header !== 'string') return '';
+  const semi = header.indexOf(';');
+  let typePart = header;
+  if (semi !== -1) {
+    typePart = header.slice(0, semi);
+  }
+  return typePart.trim().toLowerCase();
+}
+
+function sanitizeDetailText(text: string): string {
+  return text
+    .replace(ANSI_ESCAPE, '')
+    .replace(LINE_BREAK_OR_TAB, ' ')
+    .replace(TERMINAL_CONTROL_OR_BIDI, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 240);
+}
+
+function looksLikeMarkup(text: string): boolean {
+  const trimmed = text.trimStart();
+  if (trimmed.startsWith('<')) return true;
+  return MARKUP_TAG.test(trimmed);
+}
+
+/** Single-line summary from a 403 refusal body, if the host included a safe text or JSON error. */
+function forbiddenDetailOf(response: BoundedResponse): string {
+  const text = response.body.toString('utf8').trim();
+  if (text === '') return '';
+  const mediaType = mediaTypeOf(response);
+  const isJson = mediaType === 'application/json' || mediaType.endsWith('+json');
+  if (isJson) {
+    try {
+      const parsed: unknown = JSON.parse(text);
+      if (typeof parsed === 'object' && parsed !== null && 'error' in parsed && typeof parsed.error === 'string') {
+        return sanitizeDetailText(parsed.error);
+      }
+    } catch {
+      return '';
+    }
+    return '';
+  }
+  const isPlainOrMissing = mediaType === '' || mediaType === 'text/plain';
+  if (!isPlainOrMissing) return '';
+  if (looksLikeMarkup(text)) return '';
+  return sanitizeDetailText(text);
+}
 
 /** The health reply in a response, or `null` when the response is not one. */
 function sandboxHealthOf(response: BoundedResponse): HealthLite | null {
@@ -77,6 +141,8 @@ async function healthAnswer(base: string): Promise<HealthAnswer> {
   if (response === null) return NO_HEALTH_ANSWER;
   const isClosingHost = response.status === 503;
   if (isClosingHost) return NO_HEALTH_ANSWER;
+  const isForbidden = response.status === 403;
+  if (isForbidden) return { kind: 'forbidden', detail: forbiddenDetailOf(response) };
   const health = sandboxHealthOf(response);
   if (health === null) return OTHER_HEALTH_ANSWER;
   return { kind: 'sandbox', health };
@@ -142,7 +208,8 @@ export function canonicalServeUrl(port: number, pointerUrl?: string): string {
     try {
       const u = new URL(pointerUrl);
       if (u.protocol === 'http:' || u.protocol === 'https:') {
-        return `${u.protocol}//${u.host}`;
+        const host = formatUrlHost(u.hostname);
+        return `${u.protocol}//${host}${portSuffix(u.port)}`;
       }
     } catch {
       /* malformed pointer url -- fall through to the localhost default */
@@ -155,12 +222,13 @@ export const LOOPBACK_HOSTNAMES = new Set(['localhost', '127.0.0.1', '[::1]']);
 
 /**
  * What an explicit host URL's health probe found: a sandbox host; no answer,
- * which is worth waiting for; or a server that answers but is not a sandbox
- * host, which waiting will not change.
+ * which is worth waiting for; a 403 Host-guard or peer refusal; or a server
+ * that answers but is not a sandbox host, which waiting will not change.
  */
 export type HostUrlAnswer =
   | { readonly kind: 'host'; readonly host: AnsweringHost }
   | { readonly kind: 'no-answer' }
+  | { readonly kind: 'host-refused'; readonly base: string; readonly detail: string }
   | { readonly kind: 'not-a-host'; readonly base: string };
 
 const NO_HOST_URL_ANSWER: HostUrlAnswer = { kind: 'no-answer' };
@@ -191,14 +259,21 @@ function basesForHostUrl(url: string): string[] {
 
 /** Health-probe an explicit host URL on each of its bases; a sandbox host on any base wins. */
 export async function probeHostUrlAnswer(url: string): Promise<HostUrlAnswer> {
+  let refused: { base: string; detail: string } | null = null;
   let notHostBase: string | null = null;
   for (const base of basesForHostUrl(url)) {
     const answer = await healthAnswer(base);
     if (answer.kind === 'sandbox') {
       return { kind: 'host', host: { base, instanceId: answer.health.instanceId ?? null } };
     }
-    const isOtherServer = answer.kind === 'other';
-    if (isOtherServer) notHostBase ??= base;
+    if (answer.kind === 'forbidden') {
+      refused ??= { base, detail: answer.detail };
+    } else if (answer.kind === 'other') {
+      notHostBase ??= base;
+    }
+  }
+  if (refused !== null) {
+    return { kind: 'host-refused', base: refused.base, detail: refused.detail };
   }
   if (notHostBase === null) return NO_HOST_URL_ANSWER;
   return { kind: 'not-a-host', base: notHostBase };

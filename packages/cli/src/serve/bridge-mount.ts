@@ -28,6 +28,7 @@ import { buildMcpServer } from '../bridge/server/mcp.js';
 import { getBridgeToolSurface } from '../bridge/server/mcp-contract.js';
 import { createAuditWriter } from '../bridge/server/audit.js';
 import { answerAndClose, attachPeer, collectBody, isBodyTooLarge } from '../bridge/server/peer.js';
+import { formatUrlHost as urlHost } from './advertised-host.js';
 import { pointerHeldByAnotherHost, pointerHostAnswers, type ServePointer } from './discovery.js';
 import { hostTrustFor } from '../remote/loopback-tls.js';
 import { registerLocalSessionToken, writeMode600FileSync } from './local-session-token.js';
@@ -161,11 +162,8 @@ export function originUrl(origin: BridgeOrigin): string {
   return `${schemes(origin).http}://${urlHost(origin.host)}:${origin.port}`;
 }
 
-/** A host as a URL writes it: an IPv6 literal (`::1`, from `server.host`) in brackets. */
-export function urlHost(host: string): string {
-  const isBareIpv6 = host.includes(':') && !host.startsWith('[');
-  return isBareIpv6 ? `[${host}]` : host;
-}
+/** A host as a URL writes it: wildcard binds map to `localhost`, bare IPv6 literals are bracketed. */
+export { urlHost };
 
 export interface BridgeHostOptions {
   /** Every server accepting upgrades (static serve may bind both IP families). */

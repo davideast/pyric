@@ -99,9 +99,11 @@ describe('canonical serve URL (default host)', () => {
 });
 
 describe('canonicalServeUrl', () => {
-  it('prefers the pointer url origin, falls back to localhost', () => {
+  it('prefers the pointer url origin, falls back to localhost, and maps wildcard hosts to localhost', () => {
     expect(canonicalServeUrl(3473, 'http://localhost:3473')).toBe('http://localhost:3473');
     expect(canonicalServeUrl(3473, 'http://127.0.0.1:3473')).toBe('http://127.0.0.1:3473');
+    expect(canonicalServeUrl(3473, 'http://0.0.0.0:4330')).toBe('http://localhost:4330');
+    expect(canonicalServeUrl(3473, 'http://[::]:5173')).toBe('http://localhost:5173');
     expect(canonicalServeUrl(3473, 'not a url')).toBe('http://localhost:3473');
     expect(canonicalServeUrl(3473)).toBe('http://localhost:3473');
   });

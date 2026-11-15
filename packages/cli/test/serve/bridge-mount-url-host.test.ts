@@ -8,6 +8,22 @@ describe('bridge urls', () => {
     expect(urlHost('[::1]')).toBe('[::1]');
     expect(urlHost('127.0.0.1')).toBe('127.0.0.1');
     expect(urlHost('localhost')).toBe('localhost');
+    expect(urlHost('0.0.0.0')).toBe('localhost');
+    expect(urlHost('::')).toBe('localhost');
+    expect(urlHost('[::]')).toBe('localhost');
+  });
+
+  it('maps wildcard bind hosts to localhost in origin, socket, and MCP urls', async () => {
+    const mount = createBridgeMount({ disableAuditLog: true });
+    try {
+      for (const wildcard of ['0.0.0.0', '::', '[::]']) {
+        expect(originUrl({ host: wildcard, port: 4330 })).toBe('http://localhost:4330');
+        expect(mount.wsUrl({ host: wildcard, port: 4330 })).toBe('ws://localhost:4330/__pyric/sandbox');
+        expect(mount.mcpUrl({ host: wildcard, port: 4330 })).toBe('http://localhost:4330/__pyric/mcp');
+      }
+    } finally {
+      await mount.close();
+    }
   });
 
   it('gives a dev server on ::1 a socket url that parses', async () => {
