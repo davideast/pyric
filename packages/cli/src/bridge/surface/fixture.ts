@@ -28,12 +28,22 @@ import {
   type SeedStorageEntry,
   type SeedUserEntry,
 } from './seed-apply.js';
+import {
+  formatWrongFileError,
+  identifyPyricFile,
+  STATE_FIXTURE_KEYS,
+  STATE_FIXTURE_SCHEMA,
+} from '../../verify/file-format.js';
+
+export type SandboxStateFixture = SandboxSeed & {
+  schema?: typeof STATE_FIXTURE_SCHEMA;
+};
 
 /** Build a fixture from the live sandbox's current state. */
 export async function buildFixture(
   sandbox: LocalSandbox,
   excludePasswords = false,
-): Promise<SandboxSeed> {
+): Promise<SandboxStateFixture> {
   const snapshot = await captureSandboxSnapshot(sandbox, {
     excludePasswords,
     inlineStorageDocument: FIXTURE_EXPORT_DOCUMENT,
@@ -77,7 +87,8 @@ export async function buildFixture(
     firestoreDocs[path] = { ...encodedDoc };
   }
 
-  const fixture: SandboxSeed = {
+  const fixture: SandboxStateFixture = {
+    schema: STATE_FIXTURE_SCHEMA,
     firestoreRules: snapshot.rules.firestore?.[DEFAULT_SNAPSHOT_RESOURCE] ?? '',
     users,
     firestore: firestoreDocs,
@@ -95,23 +106,72 @@ export async function buildFixture(
   return fixture;
 }
 
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/** Validate a versioned or legacy unversioned sandbox state fixture. */
+function parseStateFixture(value: unknown): SandboxStateFixture {
+  if (!isPlainObject(value)) {
+    throw new Error(formatWrongFileError('state-fixture', value, 'Invalid sandbox state fixture'));
+  }
+  const detected = identifyPyricFile(value);
+  if (detected !== null && detected.kind !== 'state-fixture') {
+    throw new Error(formatWrongFileError('state-fixture', value));
+  }
+  if (value.schema !== undefined && value.schema !== STATE_FIXTURE_SCHEMA) {
+    throw new Error(
+      formatWrongFileError('state-fixture', value, `Unsupported fixture schema '${String(value.schema)}'`),
+    );
+  }
+  for (const key of Object.keys(value)) {
+    if (key === 'schema' || STATE_FIXTURE_KEYS.has(key)) continue;
+    throw new Error(
+      formatWrongFileError('state-fixture', value, `Invalid sandbox state fixture: unexpected field '${key}'`),
+    );
+  }
+  if (value.firestore !== undefined && !isPlainObject(value.firestore)) {
+    throw new Error(
+      formatWrongFileError('state-fixture', value, 'Invalid sandbox state fixture: firestore must be an object'),
+    );
+  }
+  if (value.users !== undefined && !Array.isArray(value.users)) {
+    throw new Error(
+      formatWrongFileError('state-fixture', value, 'Invalid sandbox state fixture: users must be an array'),
+    );
+  }
+  if (value.storage !== undefined && !Array.isArray(value.storage)) {
+    throw new Error(
+      formatWrongFileError('state-fixture', value, 'Invalid sandbox state fixture: storage must be an array'),
+    );
+  }
+  for (const rulesKey of ['firestoreRules', 'databaseRules', 'storageRules'] as const) {
+    if (value[rulesKey] !== undefined && typeof value[rulesKey] !== 'string') {
+      throw new Error(
+        formatWrongFileError('state-fixture', value, `Invalid sandbox state fixture: ${rulesKey} must be a string`),
+      );
+    }
+  }
+  return value as SandboxStateFixture;
+}
+
 /** Write a fixture to `path`, creating its parent directory. */
-export function writeFixtureFile(path: string, fixture: SandboxSeed): void {
+export function writeFixtureFile(path: string, fixture: SandboxStateFixture): void {
   mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, `${JSON.stringify(fixture, null, 2)}\n`, 'utf8');
 }
 
-/** Read a fixture file back into a `SandboxSeed`, or null when it does not exist. */
-export function readFixtureFile(path: string): SandboxSeed | null {
+/** Read a fixture file back into a `SandboxStateFixture`, or null when it does not exist. */
+export function readFixtureFile(path: string): SandboxStateFixture | null {
   if (!existsSync(path)) return null;
-  return JSON.parse(readFileSync(path, 'utf8')) as SandboxSeed;
+  return parseStateFixture(JSON.parse(readFileSync(path, 'utf8')));
 }
 
 /**
  * Load a fixture's state onto the live sandbox, on top of whatever is already
  * there. Returns why each rules source production would not load was refused.
  */
-export async function applyFixture(sandbox: LocalSandbox, fixture: SandboxSeed): Promise<string[]> {
+export async function applyFixture(sandbox: LocalSandbox, fixture: SandboxStateFixture): Promise<string[]> {
   const refusals = await applyRules(sandbox, fixture);
   await applyData(sandbox, fixture);
   return refusals;

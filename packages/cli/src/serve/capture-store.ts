@@ -17,6 +17,12 @@
  */
 import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
+import {
+  CAPTURE_RELATIVE_PATH,
+  PREVIOUS_CAPTURE_RELATIVE_PATH,
+} from '../verify/file-format.js';
+
+export { CAPTURE_RELATIVE_PATH, PREVIOUS_CAPTURE_RELATIVE_PATH };
 
 /** The `.gitignore` line the capture step adds. */
 const PYRIC_IGNORE_LINE = '.pyric/';
@@ -51,24 +57,51 @@ export function ensureGitignored(projectDir: string): void {
   }
 }
 
+/** Summary of recorded events in a serialized capture fixture. */
+export interface CaptureSummary {
+  eventCount: number;
+  denialCount: number;
+}
+
 /**
- * Relative path (from project root) where the serve capture lives.
- *
- * This is where the file is written, so this is where its name is declared.
- * `pyric verify`, the surface's session arguments, and the eval seeder all
- * read the same file and import this rather than spelling it again. Written
- * with forward slashes because it is quoted verbatim in method descriptions
- * and in what a caller types; every reader joins it onto a directory.
+ * Count total and denied events inside a serialized verify capture JSON string.
+ * Returns `null` when the string is not a JSON object with an `events` array.
  */
-export const CAPTURE_RELATIVE_PATH = '.pyric/last-session.json';
+export function summarizeCaptureJson(raw: string): CaptureSummary | null {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return null;
+  }
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+    return null;
+  }
+  const events = (parsed as { events?: unknown }).events;
+  if (!Array.isArray(events)) return null;
+  let denialCount = 0;
+  for (const event of events) {
+    if (
+      typeof event === 'object' &&
+      event !== null &&
+      (event as { result?: unknown }).result === 'deny'
+    ) {
+      denialCount++;
+    }
+  }
+  return { eventCount: events.length, denialCount };
+}
 
 export interface CaptureStore {
   /** Absolute path of the capture file (`<projectDir>/.pyric/last-session.json`). */
   path: string;
+  /** Absolute path of the rotated prior capture (`<projectDir>/.pyric/previous-session.json`). */
+  previousPath: string;
   /**
    * Write the fixture JSON verbatim. Creates `.pyric/` if absent.
-   * The body is the page's own JSON-serialized fixture; we store it
-   * as-is so `pyric verify` can hand it straight to the replay engine.
+   * When a clearing flush (0 events) overwrites a non-empty capture, the
+   * prior capture is copied verbatim to `.pyric/previous-session.json` first.
+   * An empty flush never overwrites an already-preserved previous capture.
    */
   write(fixtureJson: string): void;
   /**
@@ -78,6 +111,20 @@ export interface CaptureStore {
    * re-hydrate its in-memory event history after a worker death.
    */
   read(): string | null;
+  /** Read back the preserved previous capture verbatim, or `null` when absent. */
+  readPrevious(): string | null;
+  /**
+   * Persist a non-empty capture verbatim to `.pyric/previous-session.json`.
+   * Returns `false` without touching disk when `fixtureJson` holds zero events.
+   */
+  preservePrevious(fixtureJson: string): boolean;
+  /**
+   * Write a cleared active capture to `.pyric/last-session.json` without
+   * rotating `.pyric/previous-session.json`. Used immediately after
+   * `preservePrevious` so a later debounced empty flush sees 0 events and
+   * cannot overwrite the preserved capture.
+   */
+  clearActive(fixtureJson: string): void;
 }
 
 /**
@@ -87,23 +134,60 @@ export interface CaptureStore {
  */
 export function createCaptureStore(projectDir: string): CaptureStore {
   const path = join(projectDir, CAPTURE_RELATIVE_PATH);
+  const previousPath = join(projectDir, PREVIOUS_CAPTURE_RELATIVE_PATH);
   let isIgnored = false;
+
+  function markIgnored(): void {
+    if (isIgnored) return;
+    ensureGitignored(projectDir);
+    isIgnored = true;
+  }
+
+  function readFileOrNull(filePath: string): string | null {
+    try {
+      return readFileSync(filePath, 'utf8');
+    } catch {
+      // ENOENT (nothing captured yet) or any read error -> treat as absent.
+      return null;
+    }
+  }
+
+  function writeVerbatim(filePath: string, content: string): void {
+    mkdirSync(dirname(filePath), { recursive: true });
+    writeFileSync(filePath, content);
+    markIgnored();
+  }
+
   return {
     path,
+    previousPath,
     write(fixtureJson: string): void {
-      mkdirSync(dirname(path), { recursive: true });
-      writeFileSync(path, fixtureJson);
-      if (isIgnored) return;
-      ensureGitignored(projectDir);
-      isIgnored = true;
+      const incoming = summarizeCaptureJson(fixtureJson);
+      if (incoming !== null && incoming.eventCount === 0) {
+        const existing = readFileOrNull(path);
+        if (existing !== null) {
+          const prior = summarizeCaptureJson(existing);
+          if (prior !== null && prior.eventCount > 0) {
+            writeVerbatim(previousPath, existing);
+          }
+        }
+      }
+      writeVerbatim(path, fixtureJson);
     },
     read(): string | null {
-      try {
-        return readFileSync(path, 'utf8');
-      } catch {
-        // ENOENT (nothing captured yet) or any read error → treat as absent.
-        return null;
-      }
+      return readFileOrNull(path);
+    },
+    readPrevious(): string | null {
+      return readFileOrNull(previousPath);
+    },
+    preservePrevious(fixtureJson: string): boolean {
+      const summary = summarizeCaptureJson(fixtureJson);
+      if (summary === null || summary.eventCount === 0) return false;
+      writeVerbatim(previousPath, fixtureJson);
+      return true;
+    },
+    clearActive(fixtureJson: string): void {
+      writeVerbatim(path, fixtureJson);
     },
   };
 }

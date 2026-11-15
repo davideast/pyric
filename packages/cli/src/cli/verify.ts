@@ -1,7 +1,11 @@
 import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { basename, join, resolve } from 'node:path';
 import { resolveScope } from '../credentials/node/scope.js';
-import { CAPTURE_RELATIVE_PATH } from '../serve/capture-store.js';
+import {
+  CAPTURE_RELATIVE_PATH,
+  PREVIOUS_CAPTURE_RELATIVE_PATH,
+  summarizeCaptureJson,
+} from '../serve/capture-store.js';
 import {
   deriveRulesTestCases,
   fixtureVerifiableServices,
@@ -48,6 +52,7 @@ export interface FixtureResult {
   name: string;
   description?: string;
   ok: boolean;
+  eventCount?: number;
   result: VerifyResult;
 }
 
@@ -65,6 +70,7 @@ export async function runFixture(
   const out: FixtureResult = {
     name,
     ok: result.ok,
+    eventCount: fixture.events.length,
     result,
   };
   if (fixture.description !== undefined) {
@@ -88,8 +94,12 @@ export async function checkDirectory(
 export function formatResults(results: FixtureResult[]): string {
   const lines: string[] = [];
   for (const result of results) {
-    const marker = result.ok ? '✓' : '✗';
     const desc = result.description ? ` - ${result.description}` : '';
+    if (result.eventCount === 0) {
+      lines.push(`! ${result.name}${desc} - the capture holds no operations (0 events); nothing to verify.`);
+      continue;
+    }
+    const marker = result.ok ? '✓' : '✗';
     const serviceSummary = Object.values(result.result.services)
       .filter((service): service is VerifyServiceResult => service !== undefined)
       .map((service) => {
@@ -308,17 +318,22 @@ export async function runVerify(parsed: ParsedArgs, deps: VerifyCliDeps = {}): P
     stopStaging?.();
   }
   const allOk = results.every((result) => result.ok);
+  const emptyCount = results.filter((result) => result.eventCount === 0).length;
+  const allEmpty = results.length > 0 && emptyCount === results.length;
 
   if (json) {
     process.stdout.write(
       JSON.stringify({
         ok: allOk,
+        empty: allEmpty,
         engines,
         rulesPaths: rulesResolution.paths,
         results: results.map((result) => ({
           name: result.name,
           description: result.description,
           ok: result.ok,
+          eventCount: result.eventCount ?? 0,
+          empty: result.eventCount === 0,
           services: result.result.services,
         })),
       }) + '\n',
@@ -331,12 +346,43 @@ export async function runVerify(parsed: ParsedArgs, deps: VerifyCliDeps = {}): P
         .map(([key, path]) => `${key}=${basename(path)}`)
         .join(', ');
       process.stderr.write(`\n✗ ${failed} session(s) regressed under ${rules}.\n`);
+    } else if (allEmpty) {
+      process.stdout.write('\n! Capture holds no operations (0 events); no rules behavior was verified.\n');
+      if (!target) {
+        const previousNote = describePreservedPreviousCapture(cwd);
+        if (previousNote !== null) {
+          process.stdout.write(previousNote);
+        }
+      }
+    } else if (emptyCount > 0) {
+      process.stdout.write(
+        `\n✓ non-empty fixtures replay cleanly (${emptyCount} empty capture(s) held no operations).\n`,
+      );
     } else {
       process.stdout.write('\n✓ all selected services replay cleanly.\n');
     }
   }
   if (allOk) return 0;
   return 1;
+}
+
+function describePreservedPreviousCapture(cwd: string): string | null {
+  const previousPath = resolve(cwd, PREVIOUS_CAPTURE_RELATIVE_PATH);
+  if (!existsSync(previousPath)) return null;
+  let raw: string;
+  try {
+    raw = readFileSync(previousPath, 'utf8');
+  } catch {
+    return null;
+  }
+  const summary = summarizeCaptureJson(raw);
+  if (summary === null || summary.eventCount === 0) return null;
+  const eventWord = summary.eventCount === 1 ? 'event' : 'events';
+  const denialWord = summary.denialCount === 1 ? 'denial' : 'denials';
+  return (
+    `  Previous session (${summary.eventCount} ${eventWord}, ${summary.denialCount} ${denialWord}) is preserved at ${PREVIOUS_CAPTURE_RELATIVE_PATH}.\n` +
+    `  Run: pyric verify ${PREVIOUS_CAPTURE_RELATIVE_PATH}\n`
+  );
 }
 
 function runVerifyCases(parsed: ParsedArgs, cwd: string): number {

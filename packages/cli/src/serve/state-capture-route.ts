@@ -128,7 +128,9 @@ export async function handleState(
  * Handle POST /__pyric/capture -- the page pushes its full session fixture
  * (JSON-serialized history + snapshot + rules) whenever the sandbox changes.
  * The server writes it verbatim to `.pyric/last-session.json` so
- * `pyric verify` can pick it up without any extra arguments.
+ * `pyric verify` can pick it up without any extra arguments. When a clearing
+ * flush (`events: []`) overwrites a non-empty capture, the store preserves the
+ * prior capture at `.pyric/previous-session.json` first.
  *
  * GET returns the current fixture JSON verbatim (200), or 404 when nothing
  * has been captured yet. The served SharedWorker fetches this on boot to

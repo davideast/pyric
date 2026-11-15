@@ -34,9 +34,19 @@ import {
   storageBucketsWithRules,
 } from 'pyric/storage/internal';
 import { getAuth, sandbox as authSandbox } from 'pyric/auth';
+import type { SandboxEvent } from 'pyric/sandbox';
 import { listStoredPaths } from '../../storage-state.js';
 import type { MethodRecord } from '../../method-types.js';
 import type { SandboxSurfaceContext } from '../../types.js';
+import { PREVIOUS_CAPTURE_RELATIVE_PATH } from '../../../../verify/file-format.js';
+
+function countDenials(events: readonly SandboxEvent[]): number {
+  let denials = 0;
+  for (const event of events) {
+    if ('result' in event && event.result === 'deny') denials++;
+  }
+  return denials;
+}
 
 const STORAGE_SERVICE_CACHES_KEY = Symbol.for('pyric.storage.service-caches');
 
@@ -113,6 +123,9 @@ export default {
   async handler(args, ctx) {
     const scope = (typeof args.scope === 'string' ? args.scope : 'all') as Scope;
     if (scope === 'all') {
+      const priorHistory = ctx.sandbox.history();
+      const priorEventCount = priorHistory.length;
+      const priorDenialCount = countDenials(priorHistory);
       const firestoreRules = getInternalEnv(ctx.sandbox).getRules();
       const heldNamedDbs = [...heldDatabaseInstances(ctx.sandbox)];
       const namedDbRules = new Map(
@@ -152,6 +165,20 @@ export default {
           ok: false,
           summary: `Reset finished with ${outcome.errors.length} service errors.`,
           data: { errors: outcome.errors },
+        };
+      }
+      if (priorEventCount > 0) {
+        const eventWord = priorEventCount === 1 ? 'event' : 'events';
+        const denialWord = priorDenialCount === 1 ? 'denial' : 'denials';
+        const previousCapture = {
+          path: PREVIOUS_CAPTURE_RELATIVE_PATH,
+          eventCount: priorEventCount,
+          denialCount: priorDenialCount,
+        };
+        return {
+          ok: true,
+          summary: `Sandbox reset. Previous session capture (${priorEventCount} ${eventWord}, ${priorDenialCount} ${denialWord}) preserved at ${PREVIOUS_CAPTURE_RELATIVE_PATH}.`,
+          data: { errors: [], previousCapture },
         };
       }
       return { ok: true, summary: 'Sandbox reset.', data: { errors: [] } };
