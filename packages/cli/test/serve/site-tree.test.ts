@@ -139,3 +139,53 @@ describe('Astro site tree redirects', () => {
     });
   });
 });
+
+describe('Astro site tree hosted HTML stamps', () => {
+  it('declares hosted mode without projectKey or sessionToken on non-bootstrapped requests and blocks remote peers', async () => {
+    const { publicDir, siteRoot } = siteFixture();
+    const projectPath = '/workspace/studio-project';
+    const token = 'studio-boot-token';
+    const h = await startStaticServer({
+      publicDir,
+      port: 0,
+      host: '127.0.0.1',
+      portScanLimit: 200,
+      logger: silentServeLogger(),
+      namespaceHandler: createSiteTreeHandler(siteRoot, '0123456789abcdef', projectPath, token, '127.0.0.1'),
+    });
+    handles.push(h);
+
+    const framedRes = await fetch(`${h.url}/__pyric/ui/studio/`, {
+      headers: {
+        'sec-fetch-site': 'same-site',
+        'sec-fetch-mode': 'navigate',
+        'sec-fetch-dest': 'iframe',
+      },
+    });
+    const framedHtml = await framedRes.text();
+    expect(framedRes.status).toBe(200);
+    expect(framedHtml).toContain('"hosted":true');
+    expect(framedHtml).toContain('<meta name="pyric-sandbox-host" content="node" data-pyric-serve>');
+    expect(framedHtml).not.toContain(projectPath);
+    expect(framedHtml).not.toContain('data-project-key=');
+    expect(framedHtml).not.toContain(token);
+
+    const localRes = await fetch(`${h.url}/__pyric/ui/studio/`, {
+      headers: {
+        'sec-fetch-site': 'none',
+        'sec-fetch-mode': 'navigate',
+        'sec-fetch-dest': 'document',
+      },
+    });
+    const localHtml = await localRes.text();
+    expect(localRes.status).toBe(200);
+    expect(localHtml).toContain('"hosted":true');
+    expect(localHtml).toContain(`data-project-key="${projectPath}"`);
+    expect(localHtml).toContain(token);
+
+    const remoteRes = await fetch(`${h.url}/__pyric/ui/studio/`, {
+      headers: { 'x-pyric-remote-peer': '1' },
+    });
+    expect(remoteRes.status).toBe(403);
+  });
+});

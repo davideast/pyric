@@ -641,7 +641,7 @@ export function wirePort(port: ClientPort): void {
         const handleError = sub.error;
         const hasErrorHandler = handleError !== undefined;
         if (hasErrorHandler) handleError.call(sub, err);
-        else console.error('pyric/firestore: Uncaught Error in snapshot listener:', err);
+        else if (sub.service === 'firestore') console.error('pyric/firestore: Uncaught Error in snapshot listener:', err);
         return;
       }
       sub.next(msg.value);

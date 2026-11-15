@@ -7,10 +7,18 @@ const entry = new URL('../../../src/serve/entries/worker-runtime.ts', import.met
 
 // Browser transports are the I/O boundary. The bundled entry and its clients
 // run unchanged in a fresh realm for each case.
-export async function runtimeRealm(options: { sharedWorker?: boolean; blockedWorker?: boolean; serviceWorker?: boolean; forceInPage?: boolean; pageSdk?: boolean; hosted?: boolean; inlinedSelection?: object; stamped?: boolean; failedSockets?: number; owners?: { skip?: string[]; frames?: number } } = {}) {
+export async function runtimeRealm(options: { sharedWorker?: boolean; blockedWorker?: boolean; serviceWorker?: boolean; forceInPage?: boolean; pageSdk?: boolean; hosted?: boolean; hostedWithoutIdentity?: boolean; unstamped?: boolean; inlinedSelection?: object; stamped?: boolean; failedSockets?: number; owners?: { skip?: string[]; frames?: number }; captureConsoleErrors?: boolean } = {}) {
   const { runInNewContext, createContext, SourceTextModule } = await import('node:vm');
   const { JSDOM } = await import('jsdom');
-  const page = (options.pageSdk || options.inlinedSelection) && !options.serviceWorker ? new JSDOM('<html><head><meta name="pyric-runtime-chip" content="off"></head><body></body></html>', { url: 'https://app.example/' }) : undefined;
+  const needsPage = Boolean(options.pageSdk || options.inlinedSelection || options.unstamped || options.hostedWithoutIdentity) && !options.serviceWorker;
+  let hostMeta = '';
+  if (options.hostedWithoutIdentity) {
+    hostMeta = '<meta name="pyric-sandbox-host" content="node" data-pyric-serve>';
+  }
+  let page: InstanceType<typeof JSDOM> | undefined;
+  if (needsPage) {
+    page = new JSDOM(`<html><head>${hostMeta}<meta name="pyric-runtime-chip" content="off"></head><body></body></html>`, { url: 'https://app.example/' });
+  }
   const result = await build({
     stdin: { contents: (options.pageSdk ? `export * as firestore from './firestore.js';
       export * as auth from './auth.js';
@@ -27,6 +35,8 @@ export async function runtimeRealm(options: { sharedWorker?: boolean; blockedWor
   const connections: string[] = [];
   let socketsToFail = options.failedSockets ?? 0;
   const messages: InboundMessage[] = [];
+  const consoleErrors: string[] = [];
+  let initFetchCount = 0;
   const timers = new Set<ReturnType<typeof setTimeout>>();
   let respond!: (response: Response) => void;
   const response = new Promise<Response>(resolve => { respond = resolve; });
@@ -44,11 +54,44 @@ export async function runtimeRealm(options: { sharedWorker?: boolean; blockedWor
     start() {}
     close() {}
   }
+  let workerInitGlobal: Record<string, unknown> | undefined;
+  const omitWorkerInit = Boolean(options.serviceWorker || options.unstamped || (options.inlinedSelection && !options.stamped));
+  if (!omitWorkerInit) {
+    if (options.hostedWithoutIdentity) {
+      workerInitGlobal = { hosted: true, projectKey: null, bridgeUrl: null };
+    } else {
+      workerInitGlobal = {
+        hosted: options.hosted ?? false,
+        projectKey: options.hosted ? 'orbit' : null,
+        bridgeUrl: options.hosted ? '/__pyric/sandbox' : null,
+      };
+      if (options.owners) workerInitGlobal.owners = options.owners;
+    }
+  }
+  let realmConsole: Console = console;
+  if (options.captureConsoleErrors) {
+    realmConsole = {
+      ...console,
+      error: (...args: unknown[]) => {
+        const formatArg = (arg: unknown): string => {
+          if (arg instanceof Error) return arg.message;
+          return String(arg);
+        };
+        consoleErrors.push(args.map(formatArg).join(' '));
+      },
+    };
+  }
   const globals = {
-    console, TextEncoder, TextDecoder, URL, AbortController, MessageEvent,
+    console: realmConsole, TextEncoder, TextDecoder, URL, AbortController, MessageEvent,
     crypto, performance, queueMicrotask,
     location: new URL('https://app.example/'),
-    fetch: (url: string) => url === '/__pyric/init.json' ? response : Promise.resolve(new Response()),
+    fetch: (url: string) => {
+      if (url === '/__pyric/init.json') {
+        initFetchCount += 1;
+        return response;
+      }
+      return Promise.resolve(new Response());
+    },
     setTimeout: (callback: () => void, ms: number) => {
       const timer = setTimeout(callback, ms); timers.add(timer); return timer;
     },
@@ -56,7 +99,7 @@ export async function runtimeRealm(options: { sharedWorker?: boolean; blockedWor
       const timer = setInterval(callback, ms); timers.add(timer); return timer;
     },
     clearTimeout, clearInterval,
-    __PYRIC_WORKER_INIT__: options.serviceWorker || (options.inlinedSelection && !options.stamped) ? undefined : { hosted: options.hosted ?? false, projectKey: options.hosted ? 'orbit' : null, bridgeUrl: options.hosted ? '/__pyric/sandbox' : null, ...(options.owners ? { owners: options.owners } : {}) },
+    __PYRIC_WORKER_INIT__: workerInitGlobal,
     __PYRIC_FORCE_INPAGE__: options.forceInPage,
     ...(options.serviceWorker ? { ServiceWorkerGlobalScope: class {}, registration: { scope: '/' }, clients: {} } : { window: page?.window ?? {} }),
     ...(page ? { document: page.window.document, HTMLElement: page.window.HTMLElement, CustomEvent: page.window.CustomEvent, MutationObserver: page.window.MutationObserver, localStorage: page.window.localStorage } : {}),
@@ -123,12 +166,19 @@ export async function runtimeRealm(options: { sharedWorker?: boolean; blockedWor
     exports = runInNewContext('entry', context);
   }
   const runtime = exports as typeof import('../../../src/serve/entries/worker-runtime.js') & Pick<typeof import('pyric/sandbox/internal'), 'callerFrameFromStack'>;
+  const authExports = exports as {
+    registerActiveAuth: (auth: unknown) => () => void;
+    getAuth: (db: unknown) => unknown;
+    workerDb: unknown;
+  };
   return {
-    runtime, connections, messages, evaluation,
+    runtime, connections, messages, evaluation, consoleErrors,
     sdk: exports as { firestore: typeof import('../../../src/serve/entries/firestore.js'); auth: typeof import('../../../src/serve/entries/auth.js'); database: typeof import('../../../src/serve/entries/database.js'); app: typeof import('../../../src/serve/entries/app.js') },
-    registerAuth: (): (() => void) => runInNewContext('entry.registerActiveAuth(entry.getAuth(entry.workerDb))', globals),
+    registerAuth: (): (() => void) => authExports.registerActiveAuth(authExports.getAuth(authExports.workerDb)),
     status: () => runInNewContext('__pyricRuntime.getSnapshot()', globals),
     respond: (payload: object) => respond(Response.json(payload)),
+    respondRaw: (res: Response) => respond(res),
+    initFetches: () => initFetchCount,
     document: page?.window.document,
     workerInit: () => (context as { __PYRIC_WORKER_INIT__?: unknown }).__PYRIC_WORKER_INIT__,
     dispose() {

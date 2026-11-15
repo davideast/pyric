@@ -1,5 +1,8 @@
+import { realpathSync } from 'node:fs';
+import { dirname, extname, join } from 'node:path';
 import { REACT_BOOTSTRAP } from './react-bootstrap.js';
 import type { ConfigEnv, ResolvedConfig, UserConfig } from 'vite';
+import { workerInitPayload } from './runtime/hosted-target.js';
 import { SANDBOX_BUILD_META } from './sandbox-marker.js';
 import {
   browserAiEngineWire,
@@ -26,11 +29,30 @@ export interface VitePageRuntimeOptions {
 export interface VitePageRuntime {
   applies(env: ConfigEnv): boolean;
   config(config: UserConfig, env: ConfigEnv): UserConfig;
-  configResolved(resolved: Pick<ResolvedConfig, 'envPrefix'>): void;
+  configResolved(resolved: Pick<ResolvedConfig, 'envPrefix'> & { define?: Record<string, unknown> }): void;
   ai(): ResolvedViteAiConfig;
   buildStart(emitFile: (chunk: { type: 'chunk'; id: string; name: string }) => string): void;
   generateBundle(getFileName: (referenceId: string) => string): void;
+  transformModule(code: string, id: string): string | null;
   transformIndexHtml(html: string): string;
+}
+
+const WORKER_INIT_DEFINE_KEY = 'process.env.NEXT_PUBLIC_PYRIC_WORKER_INIT';
+const WORKER_INIT_REPLACE_RE = /\/\*[\s\S]*?\*\/|\/\/[^\n]*|\bprocess\.env\.NEXT_PUBLIC_PYRIC_WORKER_INIT\b/g;
+
+function isBundledWorkerInitId(cleanId: string, expectedPath: string): boolean {
+  if (cleanId === expectedPath) return true;
+  const hasEntryName =
+    cleanId.endsWith('/bundled-worker-init.js') ||
+    cleanId.endsWith('/bundled-worker-init.ts') ||
+    cleanId.endsWith('\\bundled-worker-init.js') ||
+    cleanId.endsWith('\\bundled-worker-init.ts');
+  if (!hasEntryName) return false;
+  try {
+    return realpathSync(cleanId) === realpathSync(expectedPath);
+  } catch {
+    return false;
+  }
 }
 
 function swapsInBuild(env: ConfigEnv, override: boolean | undefined): boolean {
@@ -62,12 +84,22 @@ export function createVitePageRuntime(input: {
   workerRuntime: ViteWorkerRuntime;
 }): VitePageRuntime {
   const { options, studioEnabled, initEntry, workerRuntime } = input;
+  let initExt = extname(initEntry);
+  if (initExt.length === 0) initExt = '.js';
+  const bundledWorkerInitEntry = join(dirname(initEntry), `bundled-worker-init${initExt}`);
   let resolvedAi = resolveViteAiConfig(options.ai, {});
   let sandboxBuild = false;
   let initChunkRef: string | undefined;
   let initChunkFile: string | undefined;
   /** The dev server's loaded env, kept for the key refusal once `envPrefix` is resolved. */
   let devServerEnv: Record<string, string> | undefined;
+  /**
+   * Vite skips `vite:define` transforms on dev client modules, injecting `define`
+   * only through `/@vite/client`. Mirror the resolved worker-init define into
+   * `bundled-worker-init` during dev so self-rendering pages initialize even
+   * without `/@vite/client`.
+   */
+  let devWorkerInitDefine: string | undefined;
 
   return {
     applies(env) {
@@ -84,13 +116,43 @@ export function createVitePageRuntime(input: {
       const isDevServer = env.command === 'serve' && env.isPreview !== true;
       devServerEnv = isDevServer ? loadedEnv : undefined;
       resolvedAi = resolveViteAiConfig(options.ai, loadedEnv);
-      if (!isBuild) return {};
-      return { build: { target: 'esnext' } };
+      if (isBuild) return { build: { target: 'esnext' } };
+      // Frameworks that render their own dev HTML (such as Astro) bypass
+      // `transformIndexHtml`. Define a non-sensitive hosted marker in dev
+      // client bundles so swapped SDK modules discover `/__pyric/init.json`
+      // without embedding the local project path.
+      const definesHostedFallback = isDevServer && options.hosted === true;
+      const hasUserWorkerInit =
+        config.define !== undefined &&
+        Object.prototype.hasOwnProperty.call(config.define, WORKER_INIT_DEFINE_KEY) &&
+        config.define[WORKER_INIT_DEFINE_KEY] !== undefined;
+      if (definesHostedFallback && !hasUserWorkerInit) {
+        const selection = JSON.stringify(
+          workerInitPayload(undefined, undefined, undefined, undefined, { hosted: true }),
+        );
+        return {
+          define: {
+            [WORKER_INIT_DEFINE_KEY]: JSON.stringify(selection),
+          },
+        };
+      }
+      return {};
     },
     configResolved(resolved) {
       // After every plugin's `config` hook, so this is the `envPrefix` Vite
       // serves `import.meta.env` by (#1659).
-      if (devServerEnv === undefined) return;
+      if (devServerEnv === undefined) {
+        devWorkerInitDefine = undefined;
+        return;
+      }
+      const rawDefine = resolved.define?.[WORKER_INIT_DEFINE_KEY];
+      if (typeof rawDefine === 'string') {
+        devWorkerInitDefine = rawDefine;
+      } else if (rawDefine !== undefined) {
+        devWorkerInitDefine = JSON.stringify(rawDefine);
+      } else {
+        devWorkerInitDefine = undefined;
+      }
       refuseBrowserServedGeminiKey(devServerEnv, resolved.envPrefix);
     },
     ai() {
@@ -106,6 +168,17 @@ export function createVitePageRuntime(input: {
     },
     generateBundle(getFileName) {
       if (initChunkRef) initChunkFile = getFileName(initChunkRef);
+    },
+    transformModule(code, id) {
+      const replacement = devWorkerInitDefine;
+      if (replacement === undefined) return null;
+      const cleanId = id.split('?')[0] ?? id;
+      if (!isBundledWorkerInitId(cleanId, bundledWorkerInitEntry)) return null;
+      if (!code.includes(WORKER_INIT_DEFINE_KEY)) return null;
+      return code.replace(WORKER_INIT_REPLACE_RE, (match) => {
+        if (match === WORKER_INIT_DEFINE_KEY) return replacement;
+        return match;
+      });
     },
     transformIndexHtml(html) {
       const marker = 'data-pyric-sandbox';

@@ -147,4 +147,22 @@ export default defineConfig({
 });
 ```
 
+### Frameworks that render their own dev HTML
+
+Some Vite-based frameworks (such as Astro) render dev HTML directly without calling Vite's `transformIndexHtml` hook. With `pyric({ hosted: true })`, the plugin defines `process.env.NEXT_PUBLIC_PYRIC_WORKER_INIT` in the client bundle during `vite dev`, so swapped `firebase/*` modules initialize against the dev server's Node host automatically without requiring `transformIndexHtml`.
+
+In the default browser SharedWorker mode (`hosted: false`), pages need HTML stamped by `server.transformIndexHtml` (or an explicit `process.env.NEXT_PUBLIC_PYRIC_WORKER_INIT` define).
+
+### Loopback-only access and remote development
+
+The Node host serves project data only to clients on its own machine. If Vite listens on a non-loopback address (`server.host: '0.0.0.0'` or `vite --host`), a browser connecting from another machine receives the page with a loopback-only refusal rather than silently starting a browser worker.
+
+To use a dev server running on a remote machine or cloud workstation from your local browser, forward the dev port over SSH and open the forwarded `localhost` URL:
+
+```bash
+ssh -L 5173:localhost:5173 <remote-host>
+```
+
+Then open `http://localhost:5173` in your local browser so requests reach the Node host on loopback.
+
 See [Node host mode](./node-host.md) for complete details on persistence, ports, and multi-client sharing.

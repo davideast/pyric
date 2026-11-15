@@ -151,3 +151,70 @@ test('a stamped page keeps its stamp over a selection its bundle inlines', async
     expect(realm.status().mode).toBe('shared-worker');
   } finally { realm.dispose(); }
 });
+
+function errorMessage(value: unknown): string {
+  if (value instanceof Error) return value.message;
+  return String(value);
+}
+
+test('an unstamped page with no bundled selection throws an error explaining transformIndexHtml and its remedies', async () => {
+  let thrown: unknown;
+  try {
+    await runtimeRealm({ unstamped: true });
+  } catch (error) {
+    thrown = error;
+  }
+  const message = errorMessage(thrown);
+  expect(message).toContain('Missing Pyric page initialization');
+  expect(message).toContain('transformIndexHtml');
+  expect(message).toMatch(/hosted:\s*true/);
+  expect(message).toContain('NEXT_PUBLIC_PYRIC_WORKER_INIT');
+});
+
+test('an unstamped hosted define fallback without projectKey resolves via init.json and connects cleanly', async () => {
+  const selection = { hosted: true, projectKey: null, bridgeUrl: null };
+  const realm = await runtimeRealm({ inlinedSelection: selection, sharedWorker: true });
+  try {
+    const declaration = realm.document?.querySelector('meta[name="pyric-sandbox-host"]');
+    expect(declaration?.getAttribute('content')).toBe('node');
+    expect(declaration?.getAttribute('data-project-key')).toBeNull();
+    expect(realm.runtime.useHosted).toBe(true);
+    expect(realm.connections).toEqual([]);
+    const appDb = realm.runtime.openWorkerDb('app');
+    expect(realm.connections).toEqual([]);
+    realm.respond({ hosted: true, projectKey: 'orbit', bridgeUrl: '/__pyric/sandbox' });
+    await new Promise(resolve => setTimeout(resolve, 20));
+    expect(realm.connections).toEqual(['wss://app.example/__pyric/sandbox', 'wss://app.example/__pyric/sandbox']);
+    appDb.port.close();
+  } finally { realm.dispose(); }
+});
+
+// Full page SDK realms use node:vm SourceTextModule for entries/runtime.ts top-level await.
+// Run them under Node with --experimental-vm-modules (matching a5-service-worker-sdk-selection.test.ts).
+async function runPageSdkRefusalFixture(mode: 'remote-peer' | 'terminal-http'): Promise<void> {
+  const fixture = new URL('./fixtures/remote-peer-refusal.ts', import.meta.url).pathname;
+  const child = Bun.spawn(
+    [process.env.PYRIC_TEST_NODE ?? 'node', '--experimental-strip-types', '--experimental-vm-modules', fixture, mode],
+    { stdout: 'pipe', stderr: 'pipe' },
+  );
+  const deadline = setTimeout(() => child.kill(), 15_000);
+  try {
+    const [code, stdout, stderr] = await Promise.all([
+      child.exited,
+      new Response(child.stdout).text(),
+      new Response(child.stderr).text(),
+    ]);
+    expect(code, stdout + stderr).toBe(0);
+  } finally {
+    clearTimeout(deadline);
+    child.kill();
+  }
+}
+
+test('a remote-peer hosted marker without projectKey rejects clearly without opening SharedWorker or WebSocket', async () => {
+  await runPageSdkRefusalFixture('remote-peer');
+}, 20_000);
+
+test('terminal 403 and 401 responses from /__pyric/init.json fail openDeferredHostedDb immediately without retrying', async () => {
+  await runPageSdkRefusalFixture('terminal-http');
+}, 20_000);

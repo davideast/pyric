@@ -239,13 +239,18 @@ export function createSiteTreeHandler(
     }
     res.writeHead(200, responseHeaders);
     if (isStudioHtml) {
+      const canStampIdentity = canBootstrap || authenticated;
+      const stampProject = canStampIdentity ? hostedProjectKey : undefined;
+      const stampToken = canBootstrap ? sessionToken : undefined;
+      const stampOptions = hostedProjectKey !== undefined ? { hosted: true } : undefined;
       res.end(
         stampHostedTarget(
           withWorkerVersion(readFileSync(resolvedFile, 'utf8'), workerVersion),
-          canBootstrap || authenticated ? hostedProjectKey : undefined,
+          stampProject,
           undefined,
           undefined,
-          canBootstrap ? sessionToken : undefined,
+          stampToken,
+          stampOptions,
         ),
       );
     } else {

@@ -15,12 +15,59 @@ const isNodeRealm = nodeRuntimeOrigin() !== undefined;
 const declaresNodeHost = hostedDeclaration?.getAttribute('content') === 'node';
 const requiresHostedSandbox = declaresNodeHost || isNodeRealm;
 const expectedProjectKey = hostedDeclaration?.getAttribute('data-project-key');
-const checksProjectKey = declaresNodeHost;
+const hasExpectedProjectKey = typeof expectedProjectKey === 'string' && expectedProjectKey.length > 0;
+const checksProjectKey = declaresNodeHost && hasExpectedProjectKey;
 const HOSTED_INIT_TIMEOUT_MS = 5_000;
 const HOSTED_INIT_MAX_BACKOFF_MS = 5_000;
 
 /** A host that answered with another host or project identity; retrying cannot change the answer. */
 class InitIdentityError extends Error {}
+
+const MAX_REFUSAL_DETAIL_LENGTH = 240;
+const ANSI_ESCAPE_RE = /\u001b(?:\[[0-?]*[ -/]*[@-~]|\][^\u0007\u001b]*(?:\u0007|\u001b\\))/g;
+const CONTROL_CHARS_RE = /[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/g;
+
+function sanitizeRefusalText(value: string): string {
+  const clean = value
+    .replace(ANSI_ESCAPE_RE, ' ')
+    .replace(CONTROL_CHARS_RE, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (clean.length <= MAX_REFUSAL_DETAIL_LENGTH) return clean;
+  return clean.slice(0, MAX_REFUSAL_DETAIL_LENGTH).trimEnd();
+}
+
+async function readRefusalDetail(response: Response): Promise<string> {
+  if (typeof response.text !== 'function') return '';
+  let raw: string;
+  try {
+    raw = await response.text();
+  } catch {
+    return '';
+  }
+  let contentType = '';
+  if (typeof response.headers?.get === 'function') {
+    contentType = response.headers.get('content-type') ?? '';
+  }
+  const mediaHeader = contentType.split(';')[0];
+  let mediaType = '';
+  if (mediaHeader !== undefined) mediaType = mediaHeader.trim().toLowerCase();
+  if (mediaType === 'application/json' || mediaType.endsWith('+json')) {
+    try {
+      const parsed: unknown = JSON.parse(raw);
+      if (typeof parsed === 'object' && parsed !== null && 'error' in parsed && typeof parsed.error === 'string') {
+        return sanitizeRefusalText(parsed.error);
+      }
+    } catch {
+      return '';
+    }
+    return '';
+  }
+  if (mediaType !== '' && mediaType !== 'text/plain') return '';
+  const trimmed = raw.trim();
+  if (trimmed.length === 0 || trimmed.startsWith('<')) return '';
+  return sanitizeRefusalText(trimmed);
+}
 
 async function requestInitPayload(): Promise<InitPayload> {
   recordDiagnostic({ phase: 'init-request' });
@@ -39,6 +86,12 @@ async function requestInitPayload(): Promise<InitPayload> {
       ...(token !== undefined ? { headers: { 'x-pyric-session-token': token } } : {}),
     });
     status = response.status;
+    const isTerminalRefusal = response.status === 401 || response.status === 403;
+    if (isTerminalRefusal) {
+      const detail = await readRefusalDetail(response);
+      const suffix = detail.length > 0 ? `: ${detail}` : '';
+      throw new InitIdentityError(`/__pyric/init.json refused the request (${response.status})${suffix}`);
+    }
     const hasFailedResponse = !response.ok;
     if (hasFailedResponse) throw new Error(`/__pyric/init.json → ${response.status}`);
     const payload: InitPayload = await response.json();

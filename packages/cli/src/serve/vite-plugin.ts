@@ -365,7 +365,12 @@ export function createPyricPlugin(options: PyricOptions, supplied?: SuppliedRows
     },
 
     transform(code, id, transformOptions) {
-      if (transformOptions?.ssr === true) return null;
+      const env = environmentOf(this);
+      let isServerTransform = transformOptions?.ssr === true;
+      if (env !== undefined) isServerTransform = env.config.consumer === 'server';
+      if (isServerTransform) return null;
+      const inlinedWorkerInit = pageRuntime.transformModule(code, id);
+      if (inlinedWorkerInit !== null) return inlinedWorkerInit;
       if (supplied === undefined) {
         const wiredServiceWorker = serviceWorkerWiring.transform(code, id, serviceWorkerContext);
         if (wiredServiceWorker !== null) return wiredServiceWorker;
@@ -494,17 +499,23 @@ export function createPyricPlugin(options: PyricOptions, supplied?: SuppliedRows
 
     transformIndexHtml(html) {
       const peerContext = currentViteHtmlPeerContext();
-      const stampToken = peerContext?.localPeer === true ? activeSessionToken : undefined;
+      const isLocalPeer = peerContext?.localPeer === true;
+      const stampToken = isLocalPeer ? activeSessionToken : undefined;
+      const canStampHostedIdentity = activeSessionToken === undefined || isLocalPeer;
       let stampProject: string | undefined;
-      if (activeSessionToken === undefined || peerContext?.localPeer === true) {
+      let stampInstanceId: string | undefined;
+      if (canStampHostedIdentity) {
         stampProject = hostedProjectKey;
+        stampInstanceId = hostedInstanceId;
       }
+      const stampOptions = hostedProjectKey !== undefined ? { hosted: true } : undefined;
       return stampHostedTarget(
         pageRuntime.transformIndexHtml(html),
         stampProject,
         owners,
-        hostedInstanceId,
+        stampInstanceId,
         stampToken,
+        stampOptions,
       );
     },
   };
