@@ -10,6 +10,7 @@ import {
   attachOrBudgetStep,
   indexRulesetScopes,
   projectWorstCaseBudgetExpr,
+  resolveRootBlockMatch,
   rootBlockGovernsEveryDocument,
   rootGovernsEveryDocument,
   setListBlockSteps,
@@ -22,20 +23,24 @@ import {
 
 /**
  * Projects the ruleset down to the path-invariant list rules that govern
- * every collection named `collectionId`, wherever it is nested. Two top-level
- * shapes qualify:
+ * every collection named `collectionId`, wherever it is nested. Qualifying
+ * shapes:
+ * - A root block ending in a recursive wildcard (such as
+ *   `match /databases/{database}/documents/{document=**}`) with its own allows.
  * - `match /{document=**}`, which governs every document.
  * - `match /{path=**}/<collectionId>/{id}`, the collection-group shape, which
  *   governs every document in a collection named `collectionId` at any depth.
+ * - `match /<collectionId>/{id}` directly nested under a root block ending in
+ *   a recursive wildcard.
  *
  * A rule qualifies only when its condition reads none of the block's path
  * bindings, because a collection-group query has no single parent path or
- * document id to bind them to. Concrete collection matches never qualify: each
- * governs only one parent path, not the whole group. Nested blocks are
- * dropped. Returns null when no rule qualifies, or when the root match does
- * not govern every document of the database: a root such as
- * `/databases/{database}/documents/z` reaches only the documents under `z`,
- * and a group query spans every collection with its id (FS2-ENF-1).
+ * document id to bind them to. Concrete collection matches under non-recursive
+ * roots never qualify: each governs only one parent path, not the whole group.
+ * Deeper nested blocks are dropped. Returns null when no rule qualifies, or
+ * when the root match does not govern every document of the database: a root
+ * such as `/databases/{database}/documents/z` reaches only the documents under
+ * `z`, and a group query spans every collection with its id (FS2-ENF-1).
  */
 export function proveCollectionGroupRules(
   ast: FirestoreRules | null,
@@ -56,23 +61,74 @@ export function proveCollectionGroupRules(
   const projectedRoots: MatchBlock[] = [];
   for (const rootBlock of topLevelMatches(ast.service)) {
     if (!rootBlockGovernsEveryDocument(rootBlock, ast.version)) continue;
+    const rootMatch = resolveRootBlockMatch(rootBlock, ast.version, '');
+    if (!rootMatch) continue;
+
     const outerFunctions = [...serviceFunctions, ...rootBlock.functions];
+    const blockRequiredDefs = new Set<FunctionDef>();
+    const underRecursiveRoot = rootMatch.recursiveTail !== undefined;
+    const extraBound = new Set<string>(rootMatch.recursiveVariables ?? []);
+    if (rootMatch.recursiveTail !== undefined) {
+      extraBound.add(rootMatch.recursiveTail.name);
+    }
+
+    let rootAllows: AllowRule[] = [];
+    let rootSteps: ListBlockStep[] = [];
+    if (underRecursiveRoot && rootBlock.allows.length > 0) {
+      const rootScope = buildListRuleFunctionScope(outerFunctions);
+      const projectedRootAllows = projectAllowsWithBudget(
+        rootBlock.allows,
+        extraBound,
+        rootScope.functions,
+        rootScope.ambiguousNames,
+      );
+      rootAllows = projectedRootAllows.allows;
+      rootSteps = projectedRootAllows.blockSteps;
+      if (rootAllows.length > 0 || rootSteps.some((step) => step.kind === 'budget')) {
+        for (const fnDef of projectedRootAllows.requiredDefs) {
+          blockRequiredDefs.add(fnDef);
+        }
+      }
+    }
+
     const children: MatchBlock[] = [];
     for (const block of rootBlock.children) {
-      const projected = projectGroupBlock(block, collectionId, outerFunctions, requiredFunctionDefs);
+      const projected = projectGroupBlock(
+        block,
+        collectionId,
+        underRecursiveRoot,
+        extraBound,
+        outerFunctions,
+        blockRequiredDefs,
+      );
       if (projected) {
         children.push(projected);
       }
     }
-    if (children.length === 0) continue;
-    projectedRoots.push({
+
+    const hasRootBudgets = rootSteps.some((step) => step.kind === 'budget');
+    if (rootAllows.length === 0 && !hasRootBudgets && children.length === 0) continue;
+    for (const fnDef of blockRequiredDefs) {
+      if (!rootBlock.functions.includes(fnDef)) {
+        requiredFunctionDefs.add(fnDef);
+      }
+    }
+
+    const projectedRoot: MatchBlock = {
       ...rootBlock,
-      functions: retainRequired(rootBlock.functions) ?? [],
+      functions: rootBlock.functions.filter((fn) => blockRequiredDefs.has(fn)),
+      allows: rootAllows,
       children,
-    });
+    };
+    if (hasRootBudgets) {
+      setListBlockSteps(projectedRoot, rootSteps);
+    }
+    projectedRoots.push(projectedRoot);
   }
-  const hasAnyGrant = projectedRoots.some((root) =>
-    root.children.some((child) => child.allows.length > 0),
+  const firstRoot = projectedRoots[0];
+  if (!firstRoot) return null;
+  const hasAnyGrant = projectedRoots.some(
+    (root) => root.allows.length > 0 || root.children.some((child) => child.allows.length > 0),
   );
   if (!hasAnyGrant) return null;
 
@@ -82,7 +138,7 @@ export function proveCollectionGroupRules(
     service: {
       ...ast.service,
       functions: retainRequired(ast.service.functions),
-      match: projectedRoots[0]!,
+      match: firstRoot,
       matches: projectedRoots,
     },
   };
@@ -90,15 +146,28 @@ export function proveCollectionGroupRules(
 
 /** The names a block binds when it governs every `collectionId` collection,
  *  or null when it does not. */
-function groupBindings(block: MatchBlock, collectionId: string): Set<string> | null {
+function groupBindings(
+  block: MatchBlock,
+  collectionId: string,
+  underRecursiveRoot: boolean,
+): Set<string> | null {
   const [first, second, third, ...rest] = block.path.segments;
-  if (first?.type !== 'recursive') return null;
-  if (!second) return new Set([first.name]);
+  if (first?.type === 'recursive') {
+    if (!second) return new Set([first.name]);
+    if (
+      second.type === 'literal' && second.value === collectionId
+      && third?.type === 'wildcard' && rest.length === 0
+    ) {
+      return new Set([first.name, third.name]);
+    }
+    return null;
+  }
   if (
-    second.type === 'literal' && second.value === collectionId
-    && third?.type === 'wildcard' && rest.length === 0
+    underRecursiveRoot
+    && first?.type === 'literal' && first.value === collectionId
+    && second?.type === 'wildcard' && third === undefined
   ) {
-    return new Set([first.name, third.name]);
+    return new Set([second.name]);
   }
   return null;
 }
@@ -203,42 +272,46 @@ function projectPathInvariantCondition(
   return null;
 }
 
-function projectGroupBlock(
-  block: MatchBlock,
-  collectionId: string,
-  outerFunctions: readonly FunctionDef[],
-  requiredFunctionDefs: Set<FunctionDef>,
-): MatchBlock | null {
-  const bound = groupBindings(block, collectionId);
-  if (!bound) return null;
+interface ProjectedBlockAllows {
+  readonly allows: AllowRule[];
+  readonly blockSteps: ListBlockStep[];
+  readonly requiredDefs: Set<FunctionDef>;
+}
 
-  const functionScope = buildListRuleFunctionScope([...outerFunctions, ...block.functions]);
-  const blockRequiredDefs = new Set<FunctionDef>();
-  const budgetDefs = new Set<FunctionDef>();
-  const allows: AllowRule[] = [];
+function projectAllowsWithBudget(
+  allows: readonly AllowRule[],
+  bound: ReadonlySet<string>,
+  scopeFunctions: ReadonlyMap<string, FunctionDef>,
+  ambiguousNames: ReadonlySet<string>,
+): ProjectedBlockAllows {
+  const retained: AllowRule[] = [];
   const blockSteps: ListBlockStep[] = [];
+  const requiredDefs = new Set<FunctionDef>();
+  const budgetDefs = new Set<FunctionDef>();
 
-  for (let ruleIndex = 0; ruleIndex < block.allows.length; ruleIndex++) {
-    const rule = block.allows[ruleIndex]!;
+  for (let ruleIndex = 0; ruleIndex < allows.length; ruleIndex++) {
+    const rule = allows[ruleIndex];
+    if (!rule) continue;
     if (!rule.operations.some((operation) => operation === 'list' || operation === 'read')) {
       continue;
     }
     const projected = projectPathInvariantCondition(
       rule.condition,
       bound,
-      functionScope.functions,
-      functionScope.ambiguousNames,
+      scopeFunctions,
+      ambiguousNames,
     );
     if (!projected) {
       const budgetBranch = projectWorstCaseBudgetExpr(rule.condition, {
-        outerFunctions: functionScope.functions,
+        outerFunctions: scopeFunctions,
         candidateVariables: bound,
-        ambiguousNames: functionScope.ambiguousNames,
+        ambiguousNames,
         checkResourceDependence: false,
       });
-      const budgetRule = budgetBranch.expr === rule.condition
-        ? rule
-        : { ...rule, condition: budgetBranch.expr };
+      let budgetRule = rule;
+      if (budgetBranch.expr !== rule.condition) {
+        budgetRule = { ...rule, condition: budgetBranch.expr };
+      }
       blockSteps.push({ kind: 'budget', rule: budgetRule, index: ruleIndex });
       for (const fnDef of budgetBranch.requiredFunctionDefs) {
         budgetDefs.add(fnDef);
@@ -246,39 +319,63 @@ function projectGroupBlock(
       continue;
     }
     for (const fnDef of projected.requiredFunctionDefs) {
-      if (block.functions.includes(fnDef)) {
-        blockRequiredDefs.add(fnDef);
-      } else {
-        requiredFunctionDefs.add(fnDef);
-      }
+      requiredDefs.add(fnDef);
     }
-    const projectedRule = projected.condition === rule.condition
-      ? rule
-      : { ...rule, condition: projected.condition };
-    allows.push(projectedRule);
+    let projectedRule = rule;
+    if (projected.condition !== rule.condition) {
+      projectedRule = { ...rule, condition: projected.condition };
+    }
+    retained.push(projectedRule);
     blockSteps.push({ kind: 'grant', rule: projectedRule, index: ruleIndex });
   }
-  const hasBudgetSteps = blockSteps.some((step) => step.kind === 'budget');
-  if (allows.length === 0 && !hasBudgetSteps) return null;
 
-  if (hasBudgetSteps) {
+  if (blockSteps.some((step) => step.kind === 'budget')) {
     for (const fnDef of budgetDefs) {
-      if (block.functions.includes(fnDef)) {
-        blockRequiredDefs.add(fnDef);
-      } else {
-        requiredFunctionDefs.add(fnDef);
-      }
+      requiredDefs.add(fnDef);
+    }
+  }
+  return { allows: retained, blockSteps, requiredDefs };
+}
+
+function projectGroupBlock(
+  block: MatchBlock,
+  collectionId: string,
+  underRecursiveRoot: boolean,
+  extraBound: ReadonlySet<string>,
+  outerFunctions: readonly FunctionDef[],
+  requiredFunctionDefs: Set<FunctionDef>,
+): MatchBlock | null {
+  const localBound = groupBindings(block, collectionId, underRecursiveRoot);
+  if (!localBound) return null;
+  const bound = new Set([...extraBound, ...localBound]);
+
+  const functionScope = buildListRuleFunctionScope([...outerFunctions, ...block.functions]);
+  const projected = projectAllowsWithBudget(
+    block.allows,
+    bound,
+    functionScope.functions,
+    functionScope.ambiguousNames,
+  );
+  const hasBudgetSteps = projected.blockSteps.some((step) => step.kind === 'budget');
+  if (projected.allows.length === 0 && !hasBudgetSteps) return null;
+
+  const blockRequiredDefs = new Set<FunctionDef>();
+  for (const fnDef of projected.requiredDefs) {
+    if (block.functions.includes(fnDef)) {
+      blockRequiredDefs.add(fnDef);
+    } else {
+      requiredFunctionDefs.add(fnDef);
     }
   }
 
   const projectedBlock: MatchBlock = {
     ...block,
     functions: block.functions.filter((fn) => blockRequiredDefs.has(fn)),
-    allows,
+    allows: projected.allows,
     children: [],
   };
   if (hasBudgetSteps) {
-    setListBlockSteps(projectedBlock, blockSteps);
+    setListBlockSteps(projectedBlock, projected.blockSteps);
   }
   return projectedBlock;
 }
