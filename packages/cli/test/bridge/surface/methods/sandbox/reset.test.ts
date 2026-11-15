@@ -79,4 +79,30 @@ describe('sandbox.reset', () => {
       rmSync(dir, { recursive: true, force: true });
     }
   });
+
+  it('clears named Realtime Database instances on scope: "all" without emitting post-reset history events', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'pyric-reset-all-named-rtdb-'));
+    try {
+      const sandbox = initializeSandbox();
+      const namedRules = { rules: { '.read': 'auth != null', '.write': 'auth != null' } };
+      const namedAdminDb = getAdminDatabase(sandbox, 'alt-db');
+      rtdbSandbox.setRules(namedAdminDb, namedRules);
+      await databaseSet(databaseRef(getAdminDatabase(sandbox), 'nodes/default'), { ok: true });
+      await databaseSet(databaseRef(namedAdminDb, 'nodes/n1'), { ok: true });
+      expect(sandbox.history().length).toBeGreaterThan(0);
+
+      const ctx = createSurfaceContext(sandbox, dir);
+      const outcome = await resetMethod.handler({ confirm: true, scope: 'all' }, ctx);
+      expect(outcome.ok).toBe(true);
+      expect(sandbox.history()).toHaveLength(0);
+
+      const defaultSnap = await databaseGet(databaseRef(getAdminDatabase(sandbox), 'nodes/default'));
+      const namedSnap = await databaseGet(databaseRef(getAdminDatabase(sandbox, 'alt-db'), 'nodes/n1'));
+      expect(defaultSnap.exists()).toBe(false);
+      expect(namedSnap.exists()).toBe(false);
+      expect(getActiveDatabaseRules(getAdminDatabase(sandbox, 'alt-db'))).toEqual(namedRules);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });

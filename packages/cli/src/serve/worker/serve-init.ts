@@ -27,9 +27,8 @@ import {
   setDatabaseTargetRules,
 } from './host/rules.js';
 import { connectDatabaseInstanceRules, createPendingDatabaseTargets } from '../database-instance-rules-host.js';
-import { buildVerifyFixture } from '../../verify/fixture.js';
+import { buildLiveSessionCaptureFixture } from '../session-capture-fixture.js';
 import { STATE_FIXTURE_SCHEMA } from '../../verify/file-format.js';
-import { captureRtdbInstances, defaultInstanceUrl } from '../../verify/rtdb-instance-capture.js';
 
 export {
   buildWorkerCtx,
@@ -366,22 +365,11 @@ export function applyServeInit(
     let disposed = false;
 
     const postCapture = async (): Promise<void> => {
-      const defaultLive = rtdbInstance(ctx).live;
-      const shouldSnapshotRtdb =
-        Boolean(payload.databaseRules) || ctx.sandbox.history().some((event) => event.service === 'rtdb');
-      let rtdbState: ReturnType<typeof rtdbSandbox.snapshotState> | undefined;
-      if (shouldSnapshotRtdb) {
-        rtdbState = rtdbSandbox.snapshotState(defaultLive, { includePriorities: true });
-      }
-      const defaultInstance = defaultInstanceNameOf(ctx);
       const auth = ensureAuth(ctx);
-      const body = JSON.stringify(buildVerifyFixture({
+      const body = JSON.stringify(buildLiveSessionCaptureFixture({
         sandbox: ctx.sandbox,
-        firestoreRules: payload.rules,
-        rtdbRules: payload.databaseRules ?? null,
-        rtdbState,
-        rtdbDatabaseUrl: defaultInstanceUrl(defaultInstance),
-        rtdbInstances: captureRtdbInstances(ctx.sandbox, defaultInstance),
+        defaultDatabase: rtdbInstance(ctx).live,
+        defaultInstance: defaultInstanceNameOf(ctx),
         authState: {
           users: authOps.exportUsers(auth),
           currentUser: ctx.sandbox.currentUser,

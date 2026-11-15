@@ -131,9 +131,6 @@ export default {
       }
 
       const outcome = await withDatabaseRulesPreservedOnReset(ctx.sandbox, () => ctx.sandbox.resetAll());
-      for (const instance of heldNamedDbs) {
-        await databaseRemove(databaseRef(getAdminDatabase(ctx.sandbox, instance)));
-      }
       if (firestoreRules !== '') setFirestoreRules(ctx.sandbox, firestoreRules);
       for (const [instance, rules] of namedDbRules) {
         if (rules !== null) {

@@ -432,4 +432,67 @@ describe('hosted capture preservation across fast sandbox.reset and sandbox.rest
       await server.close();
     }
   });
+
+  it('rotates previous-session.json and returns previousCapture after hosted reset when a named RTDB instance was written', async () => {
+    const dir = makeTempProject();
+    const server = await startCaptureServer(dir);
+    const runtime = await openHosted(dir, server.url, true);
+    const conn = {};
+    try {
+      const setNamedRules = await callHosted(runtime, dir, conn, 'rules.set', {
+        service: 'database',
+        instance: 'alt-db',
+        rules: JSON.stringify({ rules: { '.read': true, '.write': true } }),
+      });
+      expect(setNamedRules.ok).toBe(true);
+
+      const fsWrite = await callHosted(runtime, dir, conn, 'firestore.setDoc', {
+        path: 'items/before-reset',
+        data: { state: 'kept' },
+      });
+      expect(fsWrite.ok).toBe(true);
+
+      const rtdbWrite = await callHosted(runtime, dir, conn, 'database.set', {
+        instance: 'alt-db',
+        path: 'nodes/n1',
+        value: { ok: true },
+      });
+      expect(rtdbWrite.ok).toBe(true);
+
+      const resetResult = await callHosted(runtime, dir, conn, 'sandbox.reset', {
+        scope: 'all',
+        confirm: true,
+      });
+      expect(resetResult.ok).toBe(true);
+      expect(resetResult.summary).toContain(PREVIOUS_CAPTURE_RELATIVE_PATH);
+      const resetData = resetResult.data as {
+        previousCapture?: { path: string; eventCount: number; denialCount: number };
+      };
+      const previousCapture = resetData.previousCapture;
+      expect(previousCapture).toBeDefined();
+      if (!previousCapture) throw new Error('expected previousCapture metadata');
+      expect(previousCapture.path).toBe(PREVIOUS_CAPTURE_RELATIVE_PATH);
+      expect(previousCapture.eventCount).toBeGreaterThan(0);
+
+      const previousPath = join(dir, PREVIOUS_CAPTURE_RELATIVE_PATH);
+      const activePath = join(dir, CAPTURE_RELATIVE_PATH);
+      expect(existsSync(previousPath)).toBe(true);
+      expect(existsSync(activePath)).toBe(true);
+
+      const preserved = JSON.parse(readFileSync(previousPath, 'utf8')) as PyricVerifyFixture;
+      const active = JSON.parse(readFileSync(activePath, 'utf8')) as PyricVerifyFixture;
+      expect(preserved.events.length).toBe(previousCapture.eventCount);
+      expect(active.events).toHaveLength(0);
+
+      const afterNamed = await callHosted(runtime, dir, conn, 'database.get', {
+        instance: 'alt-db',
+        path: 'nodes/n1',
+      });
+      expect(afterNamed.ok).toBe(true);
+      expect((afterNamed.data as { exists: boolean }).exists).toBe(false);
+    } finally {
+      await runtime.close();
+      await server.close();
+    }
+  });
 });

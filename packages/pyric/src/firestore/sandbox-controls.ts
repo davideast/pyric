@@ -135,11 +135,15 @@ export function inspect(
   }
 
   const documents = env.snapshot();
-  const byCollection: Record<string, number> = {};
+  const byCollection = Object.create(null) as Record<string, number>;
   for (const path of Object.keys(documents)) {
     const top = path.split('/')[0] ?? '';
     if (!top) continue;
-    byCollection[top] = (byCollection[top] ?? 0) + 1;
+    let current = 0;
+    if (Object.hasOwn(byCollection, top)) {
+      current = byCollection[top] ?? 0;
+    }
+    byCollection[top] = current + 1;
   }
 
   const history = sandbox.history();

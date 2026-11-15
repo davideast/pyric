@@ -21,7 +21,7 @@ import {
 import { getFirestore } from 'pyric/firestore';
 import { seedDocuments, setRules, snapshotDocuments } from 'pyric/sandbox/firestore';
 import { rulesSourceRejection } from 'pyric/rules/internal';
-import { getDatabase, sandbox as rtdbSandbox } from 'pyric/database';
+import { getDatabase } from 'pyric/database';
 import { getStorageSandbox } from 'pyric/storage';
 import { applyStorageRulesUpdate, installServedStorageRules, storageRulesUpdateNotice, type StorageRulesUpdate } from '../storage-rules-install.js';
 import { getAuth, sandbox as authOps, type SeedUser } from 'pyric/auth';
@@ -37,8 +37,7 @@ export { initPayload } from './init-payload.js';
 import { keepaliveSafe } from './keepalive.js';
 import { onServiceUsed } from './service-use.js';
 import { toPageOriginWsUrl } from './bridge-url.js';
-import { buildVerifyFixture } from '../../verify/fixture.js';
-import { captureRtdbInstances, defaultInstanceUrl } from '../../verify/rtdb-instance-capture.js';
+import { buildLiveSessionCaptureFixture } from '../session-capture-fixture.js';
 import { avatarMintForPayload } from '../assets/avatar-url.js';
 import { setupFirebaseActivityGuard } from '../activity-guard.js';
 import { getPyricRuntimeStatus } from '../runtime/status.js';
@@ -367,19 +366,10 @@ if (!useWorker) try {
     // --persist — capture is about the verify loop, persist is about
     // cross-reload durability.
     const flushCapture = (): void => {
-      const rtdbState =
-        payload.databaseRules || sandbox.history().some((event) => event.service === 'rtdb')
-          ? rtdbSandbox.snapshotState(getDatabase(sandbox), { includePriorities: true })
-          : undefined;
       const auth = getAuth(sandbox);
-      const defaultInstance = databaseRules.defaultName();
-      const body = JSON.stringify(buildVerifyFixture({
+      const body = JSON.stringify(buildLiveSessionCaptureFixture({
         sandbox,
-        firestoreRules: payload.rules,
-        rtdbRules: payload.databaseRules ?? null,
-        rtdbState,
-        rtdbDatabaseUrl: defaultInstanceUrl(defaultInstance),
-        rtdbInstances: captureRtdbInstances(sandbox, defaultInstance),
+        defaultInstance: databaseRules.defaultName(),
         authState: {
           users: authOps.exportUsers(auth),
           currentUser: auth.currentUser,
@@ -387,8 +377,10 @@ if (!useWorker) try {
       }));
       const captureHeaders: Record<string, string> = {
         'content-type': 'application/json',
-        ...(payload.sessionToken ? { 'x-pyric-session-token': payload.sessionToken } : {}),
       };
+      if (payload.sessionToken) {
+        captureHeaders['x-pyric-session-token'] = payload.sessionToken;
+      }
       fetch('/__pyric/capture', {
         method: 'POST',
         headers: captureHeaders,

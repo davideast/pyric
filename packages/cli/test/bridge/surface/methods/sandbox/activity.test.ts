@@ -6,12 +6,15 @@
  * both `data.notExamined` and `summary`, and even an empty result must state
  * that only Firestore was examined.
  */
+import 'fake-indexeddb/auto';
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { getDatabase, onValue, ref, sandbox as rtdbSandbox } from 'pyric/database';
-import { doc, getFirestore, onSnapshot } from 'pyric/firestore';
+import { getDatabase, onValue, ref, sandbox as rtdbSandbox, set as rtdbSet } from 'pyric/database';
+import { doc, getDoc, getFirestore, onSnapshot, setDoc } from 'pyric/firestore';
+import { getStorageSandbox, ref as storageRef, uploadBytes } from 'pyric/storage';
+import { replaceStorageRules } from 'pyric/storage/internal';
 import {
   MUTATION_EVENT_SERVICES,
   initializeSandbox,
@@ -251,7 +254,7 @@ describe('sandbox.activity real SDK and window coverage', () => {
     }
   });
 
-  it('scopes notExamined to events at or after the since cursor and keeps coverage under pattern filters', async () => {
+  it('scopes notExamined to events strictly after the since cursor and keeps coverage under pattern filters', async () => {
     plantDuplicateListeners(sandbox, 'rtdb', 2);
     const db = getFirestore(sandbox);
     const stop = onSnapshot(doc(db, 'items/marker'), () => {});
@@ -323,5 +326,94 @@ describe('sandbox.activity real SDK and window coverage', () => {
       examined: ['firestore'],
       notExamined: [],
     });
+  });
+
+  it('excludes the boundary event at since so already-reported Firestore incidents are not re-reported', async () => {
+    const db = getFirestore(sandbox);
+    await setDoc(doc(db, 'items/hot'), { count: 1 });
+    for (let i = 0; i < 8; i += 1) {
+      await getDoc(doc(db, 'items/hot'));
+    }
+
+    const beforeCursor = await callActivity();
+    expect(beforeCursor.ok).toBe(true);
+    const beforeData = beforeCursor.data as ActivityResultData;
+    expect(beforeData.incidents.some((incident) => incident.pattern === 'repeated-read')).toBe(true);
+
+    const eventsTool = surface.tools.find((candidate) => candidate.name === 'sandbox');
+    if (!eventsTool) throw new Error('no rendered tool named sandbox');
+    const listed = await eventsTool.execute({ method: 'events', args: { limit: 100 } }, ctx);
+    expect(listed.ok).toBe(true);
+    const listedEvents = (listed.data as { events: Array<{ id: string }> }).events;
+    const lastId = listedEvents.at(-1)?.id;
+    expect(lastId).toBeDefined();
+
+    const atBoundary = await callActivity({ since: lastId });
+    expect(atBoundary.ok).toBe(true);
+    const boundaryData = atBoundary.data as ActivityResultData;
+    expect(boundaryData.incidents).toEqual([]);
+    expect(boundaryData.notExamined).toEqual([]);
+
+    await getDoc(doc(db, 'items/hot'));
+    const afterNewEvidence = await callActivity({ since: lastId });
+    expect(afterNewEvidence.ok).toBe(true);
+    const newerData = afterNewEvidence.data as ActivityResultData;
+    expect(newerData.incidents.some((incident) => incident.pattern === 'repeated-read')).toBe(true);
+  });
+
+  it('excludes trailing companion commit and service_mutation records for an RTDB or Storage operation cursor', async () => {
+    const rtdb = getDatabase(sandbox);
+    rtdbSandbox.setRules(rtdb, rtdbSandbox.DEFAULT_OPEN_RULES);
+    await rtdbSet(ref(rtdb, 'nodes/n1'), { ok: true });
+
+    const eventsTool = surface.tools.find((candidate) => candidate.name === 'sandbox');
+    if (!eventsTool) throw new Error('no rendered tool named sandbox');
+    const rtdbListed = await eventsTool.execute({ method: 'events', args: { limit: 100 } }, ctx);
+    expect(rtdbListed.ok).toBe(true);
+    const lastRtdbId = (rtdbListed.data as { events: Array<{ id: string }> }).events.at(-1)?.id;
+    expect(lastRtdbId).toBeDefined();
+
+    const afterRtdb = await callActivity({ since: lastRtdbId });
+    expect(afterRtdb.ok).toBe(true);
+    const afterRtdbData = afterRtdb.data as ActivityResultData;
+    expect(afterRtdbData.notExamined).toEqual([]);
+    expect(afterRtdb.summary).toBe('0 incident(s). Examined firestore only.');
+
+    await rtdbSet(ref(rtdb, 'nodes/n2'), { ok: true });
+    const afterSecondRtdb = await callActivity({ since: lastRtdbId });
+    expect(afterSecondRtdb.ok).toBe(true);
+    const afterSecondRtdbData = afterSecondRtdb.data as ActivityResultData;
+    expect(afterSecondRtdbData.notExamined?.some((entry) => entry.service === 'rtdb')).toBe(true);
+
+    const openStorageRules = [
+      "rules_version = '2';",
+      'service firebase.storage {',
+      '  match /b/{bucket}/o {',
+      '    match /{allPaths=**} { allow read, write: if true; }',
+      '  }',
+      '}',
+    ].join('\n');
+    const storage = getStorageSandbox(sandbox, {
+      dbName: `activity-since-storage-${Math.random()}`,
+      rules: openStorageRules,
+    });
+    await replaceStorageRules(sandbox, openStorageRules, {});
+    await uploadBytes(storageRef(storage, 'files/a.txt'), new Uint8Array([1, 2, 3]));
+
+    const storageListed = await eventsTool.execute({ method: 'events', args: { limit: 100 } }, ctx);
+    expect(storageListed.ok).toBe(true);
+    const lastStorageId = (storageListed.data as { events: Array<{ id: string }> }).events.at(-1)?.id;
+    expect(lastStorageId).toBeDefined();
+
+    const afterStorage = await callActivity({ since: lastStorageId });
+    expect(afterStorage.ok).toBe(true);
+    const afterStorageData = afterStorage.data as ActivityResultData;
+    expect(afterStorageData.notExamined).toEqual([]);
+
+    await uploadBytes(storageRef(storage, 'files/b.txt'), new Uint8Array([4, 5, 6]));
+    const afterSecondStorage = await callActivity({ since: lastStorageId });
+    expect(afterSecondStorage.ok).toBe(true);
+    const afterSecondStorageData = afterSecondStorage.data as ActivityResultData;
+    expect(afterSecondStorageData.notExamined?.some((entry) => entry.service === 'storage')).toBe(true);
   });
 });

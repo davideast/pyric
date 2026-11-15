@@ -13,11 +13,13 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { initializeSandbox, type LocalSandbox } from 'pyric/sandbox';
+import { createSandboxRoot, emitSandboxEvent } from 'pyric/sandbox/internal';
 import { setRules } from 'pyric/sandbox/firestore';
-import { doc, getFirestore, onSnapshot } from 'pyric/firestore';
+import { doc, getFirestore, onSnapshot, setDoc } from 'pyric/firestore';
 
 import { createSurfaceContext, renderSurface } from '../../../../../src/bridge/surface/index.js';
 import type { OperationResult, SurfaceContext } from '../../../../../src/bridge/surface/index.js';
+import { SERVE_HISTORY_LIMITS } from '../../../../../src/serve/observation-limits.js';
 
 const OPEN_RULES = `rules_version = '2';
 service cloud.firestore {
@@ -116,5 +118,113 @@ describe('sandbox.events', () => {
     expect(refused.ok).toBe(false);
     expect(refused.summary).toContain('not-a-cursor');
     expect(refused.summary).toContain("without 'since'");
+  });
+
+  it('preserves observation_gap records and discloses omissions after bounded denial eviction', async () => {
+    const boundedSandbox = createSandboxRoot(SERVE_HISTORY_LIMITS);
+    const boundedCtx = createSurfaceContext(boundedSandbox, projectDir);
+    const runBounded = async (
+      key: string,
+      args: Record<string, unknown> = {},
+    ): Promise<OperationResult> => {
+      const [toolName, method] = key.split('.');
+      const tool = surface.tools.find((candidate) => candidate.name === toolName);
+      if (!tool) throw new Error(`no rendered tool named ${toolName}`);
+      return tool.execute({ method, args }, boundedCtx);
+    };
+
+    const denyRules = [
+      "rules_version = '2';",
+      'service cloud.firestore {',
+      '  match /databases/{database}/documents {',
+      '    match /{document=**} { allow read, write: if false; }',
+      '  }',
+      '}',
+    ].join('\n');
+    setRules(boundedSandbox, denyRules);
+    const db = getFirestore(boundedSandbox.withAuth({ uid: 'user-1' }));
+    const largePayload = 'x'.repeat(200_000);
+    for (let i = 0; i < 25; i += 1) {
+      await setDoc(doc(db, `items/d${i}`), { payload: largePayload, i }).catch(() => undefined);
+    }
+
+    const denialsPage = await runBounded('sandbox.events', { kind: 'denials', limit: 500 });
+    expect(denialsPage.ok).toBe(true);
+    const denialEvents = (denialsPage.data as { events: Array<Record<string, unknown>> }).events;
+    const gap = denialEvents.find((entry) => entry.kind === 'observation_gap');
+    expect(gap).toBeDefined();
+    expect(gap?.id).toBe('history-gap');
+    expect(gap?.reason).toBe('history-limit');
+    expect(typeof gap?.omittedCount).toBe('number');
+    expect((gap?.omittedCount as number) > 0).toBe(true);
+    expect(typeof gap?.omittedDenials).toBe('number');
+    expect((gap?.omittedDenials as number) > 0).toBe(true);
+    expect(Object.isFrozen(gap)).toBe(true);
+    expect(denialsPage.summary).toContain('observation gap');
+    expect(denialsPage.summary).toContain('omitted');
+
+    // Also preserved under kind: 'all', 'writes', and 'listeners'.
+    for (const kind of ['all', 'writes', 'listeners'] as const) {
+      const page = await runBounded('sandbox.events', { kind, limit: 500 });
+      expect(page.ok).toBe(true);
+      const events = (page.data as { events: Array<Record<string, unknown>> }).events;
+      expect(events.some((entry) => entry.kind === 'observation_gap')).toBe(true);
+    }
+
+    // Cursor pagination over a leading observation_gap advances cleanly without repeating it.
+    const first = await runBounded('sandbox.events', { kind: 'denials', limit: 1 });
+    expect(first.ok).toBe(true);
+    const firstData = first.data as {
+      events: Array<Record<string, unknown>>;
+      nextCursor: string | null;
+    };
+    expect(firstData.events).toHaveLength(1);
+    expect(firstData.events[0]?.kind).toBe('observation_gap');
+    expect(firstData.nextCursor).toBe('history-gap');
+
+    const second = await runBounded('sandbox.events', {
+      kind: 'denials',
+      limit: 5,
+      since: firstData.nextCursor ?? undefined,
+    });
+    expect(second.ok).toBe(true);
+    const secondEvents = (second.data as { events: Array<Record<string, unknown>> }).events;
+    expect(secondEvents.length).toBeGreaterThan(0);
+    expect(secondEvents.some((entry) => entry.kind === 'observation_gap')).toBe(false);
+  });
+
+  it('omits zero-denial gaps on kind: "denials" while keeping untracked and non-zero gaps', async () => {
+    emitSandboxEvent(sandbox, {
+      kind: 'observation_gap',
+      id: 'gap-zero-denials',
+      at: 100,
+      reason: 'frame-limit',
+      omittedCount: 4,
+      omittedDenials: 0,
+      firstEventId: 'e1',
+      lastEventId: 'e4',
+    });
+    emitSandboxEvent(sandbox, {
+      kind: 'observation_gap',
+      id: 'gap-untracked-denials',
+      at: 200,
+      reason: 'frame-limit',
+      omittedCount: 2,
+      firstEventId: 'e5',
+      lastEventId: 'e6',
+    });
+
+    const allPage = await run('sandbox.events', { kind: 'all', limit: 50 });
+    expect(allPage.ok).toBe(true);
+    const allIds = (allPage.data as { events: Array<{ id: string }> }).events.map((e) => e.id);
+    expect(allIds).toContain('gap-zero-denials');
+    expect(allIds).toContain('gap-untracked-denials');
+
+    const denialPage = await run('sandbox.events', { kind: 'denials', limit: 50 });
+    expect(denialPage.ok).toBe(true);
+    const denialIds = (denialPage.data as { events: Array<{ id: string }> }).events.map((e) => e.id);
+    expect(denialIds).not.toContain('gap-zero-denials');
+    expect(denialIds).toContain('gap-untracked-denials');
+    expect(denialPage.summary).toContain('observation gap');
   });
 });
