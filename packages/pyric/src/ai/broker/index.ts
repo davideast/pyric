@@ -29,6 +29,7 @@ export {
 } from './openai-engine.js';
 export {
   AiBrokerError,
+  AiBrokerParseError,
   Synthesizer,
   errorEnvelope,
   unknownModel,

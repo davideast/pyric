@@ -399,4 +399,119 @@ describe('ai: GeminiEngine WHATWG SSE framing', () => {
       { error: { code: 500, message: 'bad key ***', status: 'INTERNAL' } } as unknown as WireChunk,
     ]);
   });
+
+  test('redacts credentials inside array-wrapped mid-stream error events', async () => {
+    const secret = 'AIzaSyFakeKeyForArraySseRedaction';
+    const errEnvelope = [{ error: { code: 400, message: `refused ${secret}`, status: 'INVALID_ARGUMENT' } }];
+    const engine = engineFromChunks(
+      [`data: ${JSON.stringify(errEnvelope)}\n\n`, `data:${JSON.stringify(errEnvelope)}\n\n`],
+      secret,
+    );
+    const chunks = await drainChunks(
+      engine.streamGenerateContent({ contents: [{ role: 'user', parts: [{ text: 'hi' }] }] }, MODEL),
+    );
+    expect(JSON.stringify(chunks)).not.toContain(secret);
+    expect(chunks).toEqual([
+      [{ error: { code: 400, message: 'refused ***', status: 'INVALID_ARGUMENT' } }] as unknown as WireChunk,
+      [{ error: { code: 400, message: 'refused ***', status: 'INVALID_ARGUMENT' } }] as unknown as WireChunk,
+    ]);
+  });
+
+  test('fails with AIError(PARSE_FAILED) on malformed SSE JSON frames and redacts secrets', async () => {
+    const secret = 'AIzaSyFakeKeyInMalformedSseFrame';
+    const cases = [
+      { label: 'spaced', payload: 'data: {not-valid-json}\n\n', expectedQuote: '"{not-valid-json}"' },
+      { label: 'no-space', payload: 'data:{broken\n\n', expectedQuote: '"{broken"' },
+      { label: 'eof-flush', payload: 'data:{truncated-eof', expectedQuote: '"{truncated-eof"' },
+      { label: 'two-spaces', payload: 'data:  {keep-second-space\n\n', expectedQuote: '" {keep-second-space"' },
+      {
+        label: 'multiline-broken',
+        payload: 'data:{\ndata:  "bad":\ndata:}\n\n',
+        expectedQuote: '"{\n "bad":\n}"',
+      },
+      {
+        label: 'secret-redacted',
+        payload: `data:{broken ${secret}\n\n`,
+        expectedQuote: '"{broken ***"',
+      },
+    ];
+
+    for (const tc of cases) {
+      const ai = getAI(initializeSandbox(), {
+        engine: {
+          kind: 'gemini',
+          apiKey: secret,
+          fetch: (async () =>
+            new Response(tc.payload, {
+              status: 200,
+              headers: { 'content-type': 'text/event-stream' },
+            })) as unknown as typeof fetch,
+        },
+      });
+      const model = getGenerativeModel(ai, { model: MODEL });
+      const streamRes = await model.generateContentStream('hi');
+
+      let streamErr: unknown;
+      try {
+        for await (const _chunk of streamRes.stream) {
+          // drain
+        }
+      } catch (err) {
+        streamErr = err;
+      }
+      let responseErr: unknown;
+      try {
+        await streamRes.response;
+      } catch (err) {
+        responseErr = err;
+      }
+
+      for (const err of [streamErr, responseErr]) {
+        expect(err, `${tc.label}: expected AIError`).toBeInstanceOf(AIError);
+        const aiErr = err as AIError;
+        expect(aiErr.code, `${tc.label}: expected PARSE_FAILED`).toBe(AIErrorCode.PARSE_FAILED);
+        expect(aiErr.message, `${tc.label}: expected quoted snippet`).toContain(tc.expectedQuote);
+        expect(aiErr.message, `${tc.label}: must not leak secret`).not.toContain(secret);
+      }
+    }
+  });
+
+  test('yields valid chunks before failing with AIError(PARSE_FAILED) on a later malformed frame', async () => {
+    const valid = sampleChunk('before-failure');
+    const scenarios = [
+      `data:  ${JSON.stringify(valid)}\n\ndata: {broken\n\n`,
+      `data:${JSON.stringify(valid)}\ndata:{broken\n\n`,
+    ];
+
+    for (const payload of scenarios) {
+      const ai = getAI(initializeSandbox(), {
+        engine: {
+          kind: 'gemini',
+          apiKey: 'synthetic-key',
+          fetch: (async () =>
+            new Response(payload, {
+              status: 200,
+              headers: { 'content-type': 'text/event-stream' },
+            })) as unknown as typeof fetch,
+        },
+      });
+      const model = getGenerativeModel(ai, { model: MODEL });
+      const streamRes = await model.generateContentStream('hi');
+
+      const seen: string[] = [];
+      let streamErr: unknown;
+      try {
+        for await (const chunk of streamRes.stream) {
+          seen.push(chunk.text());
+        }
+      } catch (err) {
+        streamErr = err;
+      }
+
+      expect(seen).toEqual(['before-failure']);
+      expect(streamErr).toBeInstanceOf(AIError);
+      expect((streamErr as AIError).code).toBe(AIErrorCode.PARSE_FAILED);
+      await expect(streamRes.response).rejects.toMatchObject({ code: AIErrorCode.PARSE_FAILED });
+    }
+  });
 });

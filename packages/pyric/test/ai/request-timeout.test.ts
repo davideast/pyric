@@ -374,4 +374,34 @@ describe('ai: RequestOptions.timeout and SingleRequestOptions.timeout parity', (
     expect((geminiErr as DOMException).message).toBe('Timeout has expired.');
     expect(geminiFetch.abortedCount()).toBe(1);
   });
+
+  test('disposes stream timeout and rejects stream/response when engine iterator throws synchronously', async () => {
+    const customEngine: AnswerEngine = {
+      async generateContent() {
+        return makeTextResponse('unused');
+      },
+      streamGenerateContent() {
+        return {
+          [Symbol.asyncIterator]() {
+            throw new Error('sync iterator init failed');
+          },
+        };
+      },
+      async countTokens() {
+        return { totalTokens: 1, promptTokensDetails: [] };
+      },
+    };
+    const ai = getAI(initializeSandbox(), { engine: customEngine });
+    const model = getGenerativeModel(ai, { model: MODEL });
+    const streamRes = await model.generateContentStream('hi', { timeout: 60_000 });
+
+    const streamErr = await captureRejection(async () => {
+      for await (const _chunk of streamRes.stream) {
+        // should fail immediately without hanging
+      }
+    });
+    const responseErr = await captureRejection(() => streamRes.response);
+    expect((streamErr as Error).message).toBe('sync iterator init failed');
+    expect((responseErr as Error).message).toBe('sync iterator init failed');
+  });
 });

@@ -305,8 +305,9 @@ export async function planeGenerateContentStream(
   };
 
   const pumped = (async () => {
-    const iterator = inner[Symbol.asyncIterator]();
+    let iterator: AsyncIterator<WireResponse> | undefined;
     try {
+      iterator = inner[Symbol.asyncIterator]();
       for (;;) {
         const step = await streamScope.race(iterator.next());
         streamScope.clearTimeout();
@@ -316,7 +317,7 @@ export async function planeGenerateContentStream(
         wake();
       }
     } catch (err) {
-      if (streamScope.signal.aborted && typeof iterator.return === 'function') {
+      if (streamScope.signal.aborted && iterator && typeof iterator.return === 'function') {
         void iterator.return().catch(() => undefined);
       }
       activity.fail(err);

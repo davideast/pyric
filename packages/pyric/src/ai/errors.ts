@@ -12,7 +12,7 @@
  */
 
 import { FirebaseError } from '../sandbox/internal/firebase-error.js';
-import { AiBrokerError, type WireErrorEnvelope } from './broker/index.js';
+import { AiBrokerError, AiBrokerParseError, type WireErrorEnvelope } from './broker/index.js';
 import { BackendType, type Backend, type VertexAIBackend } from './backend.js';
 
 const AI_TYPE = 'AI';
@@ -182,6 +182,9 @@ function aiErrorFromHeadersFailure(
 export function toAIError(err: unknown, modelResource: string, op: string, backend?: Backend): unknown {
   if (err instanceof AiBrokerError) {
     return aiErrorFromEnvelope(err.envelope, modelResource, op, backend);
+  }
+  if (err instanceof AiBrokerParseError) {
+    return new AIError(AIErrorCode.PARSE_FAILED, err.message);
   }
   if (err instanceof RequestHeadersFailure) {
     return aiErrorFromHeadersFailure(err, modelResource, op, backend);

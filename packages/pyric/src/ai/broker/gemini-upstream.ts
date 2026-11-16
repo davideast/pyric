@@ -13,7 +13,7 @@
  * are sent and the browser never holds the key.
  */
 
-import { AiBrokerError, errorEnvelope } from './synthesizer.js';
+import { AiBrokerError, errorEnvelope, rethrowIfAborted } from './synthesizer.js';
 import {
   joinUpstreamUrl,
   normalizeUpstreamBaseUrl,
@@ -347,9 +347,7 @@ export class GeminiUpstream {
     try {
       return await this.fetchImpl(url, init);
     } catch (err) {
-      if (signal?.aborted) {
-        throw signal.reason !== undefined ? signal.reason : err;
-      }
+      rethrowIfAborted(signal, err);
       // Mask both with the request's exact credentials, as an error body is
       // masked (#1737): `url` carries a static key, and a fetch error can
       // quote the URL or a header, such as Node's refusal of an invalid

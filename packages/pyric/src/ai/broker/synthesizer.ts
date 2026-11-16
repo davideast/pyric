@@ -105,6 +105,28 @@ export class AiBrokerError extends Error {
   }
 }
 
+/** Thrown by an engine when a streaming payload cannot be parsed as JSON. */
+export class AiBrokerParseError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'AiBrokerParseError';
+  }
+}
+
+/** Throws the signal's abort reason (or a default AbortError) when aborted. */
+export function throwIfAborted(signal: AbortSignal | undefined): void {
+  if (!signal?.aborted) return;
+  throw signal.reason !== undefined
+    ? signal.reason
+    : new DOMException('The operation was aborted.', 'AbortError');
+}
+
+/** Rethrows the signal's abort reason (or `fallback`) when aborted. */
+export function rethrowIfAborted(signal: AbortSignal | undefined, fallback: unknown): void {
+  if (!signal?.aborted) return;
+  throw signal.reason !== undefined ? signal.reason : fallback;
+}
+
 export function errorEnvelope(code: number, message: string, status: string): WireErrorEnvelope {
   return { error: { code, message, status } };
 }

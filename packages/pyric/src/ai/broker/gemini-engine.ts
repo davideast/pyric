@@ -15,9 +15,16 @@
  * reaches the caller with the upstream's own code, status and message.
  */
 
-import { AiBrokerError, errorEnvelope } from './synthesizer.js';
+import {
+  AiBrokerError,
+  AiBrokerParseError,
+  errorEnvelope,
+  rethrowIfAborted,
+  throwIfAborted,
+} from './synthesizer.js';
 import { GeminiUpstream, type GeminiUpstreamOptions } from './gemini-upstream.js';
 import { redactUpstreamError, redactUpstreamText } from './upstream-error-redaction.js';
+import { isJsonErrorEnvelope } from './upstream-stream-redaction.js';
 import type {
   AnswerEngine,
   AnswerEngineCallOptions,
@@ -46,10 +53,13 @@ function parseUpstreamError(text: string): { message: string; status: string } |
   return { message: error.message as string, status: error.status as string };
 }
 
+const MAX_PARSE_ERROR_SNIPPET = 500;
+
 /**
  * One SSE event's data as a chunk, or undefined when it is not JSON. A 2xx
- * stream can carry an error event mid-response; it passes through as the
- * upstream sent it, with the credentials the request carried masked (#1660).
+ * stream can carry an error event mid-response (object or array-wrapped); it
+ * passes through as the upstream sent it, with the credentials the request
+ * carried masked (#1660).
  */
 function parseStreamData(data: string, credentials: readonly string[]): WireChunk | undefined {
   let chunk: unknown;
@@ -58,9 +68,15 @@ function parseStreamData(data: string, credentials: readonly string[]): WireChun
   } catch {
     return undefined;
   }
-  const isErrorEvent = chunk !== null && typeof chunk === 'object' && 'error' in chunk;
-  if (!isErrorEvent) return chunk as WireChunk;
+  if (!isJsonErrorEnvelope(chunk)) return chunk as WireChunk;
   return JSON.parse(redactUpstreamError(data, credentials)) as WireChunk;
+}
+
+function sseParseError(raw: string, credentials: readonly string[]): AiBrokerParseError {
+  const safe = redactUpstreamText(raw, credentials);
+  const snippet =
+    safe.length > MAX_PARSE_ERROR_SNIPPET ? `${safe.slice(0, MAX_PARSE_ERROR_SNIPPET)}...` : safe;
+  return new AiBrokerParseError(`Error parsing JSON response: "${snippet}"`);
 }
 
 /**
@@ -98,25 +114,36 @@ function extractSseDataLine(line: string): string | undefined {
  * Parses one SSE event's accumulated `data:` lines. Multi-line JSON payloads
  * parse as a single joined event; if multiple single-line JSON frames arrived
  * without blank separators, falls back to parsing each line individually.
+ * Non-empty, non-`[DONE]` payloads that fail JSON parsing throw
+ * {@link AiBrokerParseError} with credentials redacted.
  */
-function parseSseEventData(
+function* parseSseEventData(
   dataLines: readonly string[],
   credentials: readonly string[],
-): WireChunk[] {
-  if (dataLines.length === 0) return [];
-  const joined = dataLines.join('\n').trim();
-  if (joined === '' || joined === '[DONE]') return [];
+): Generator<WireChunk> {
+  if (dataLines.length === 0) return;
+  const joined = dataLines.join('\n');
+  const trimmed = joined.trim();
+  if (trimmed === '' || trimmed === '[DONE]') return;
   const combined = parseStreamData(joined, credentials);
-  if (combined !== undefined) return [combined];
-  if (dataLines.length === 1) return [];
-  const chunks: WireChunk[] = [];
-  for (const line of dataLines) {
-    const trimmed = line.trim();
-    if (trimmed === '' || trimmed === '[DONE]') continue;
-    const chunk = parseStreamData(trimmed, credentials);
-    if (chunk !== undefined) chunks.push(chunk);
+  if (combined !== undefined) {
+    yield combined;
+    return;
   }
-  return chunks;
+  if (dataLines.length === 1) {
+    throw sseParseError(joined, credentials);
+  }
+  let yieldedAny = false;
+  for (const line of dataLines) {
+    const lineTrimmed = line.trim();
+    if (lineTrimmed === '' || lineTrimmed === '[DONE]') continue;
+    const chunk = parseStreamData(line, credentials);
+    if (chunk === undefined) {
+      throw sseParseError(yieldedAny ? line : joined, credentials);
+    }
+    yieldedAny = true;
+    yield chunk;
+  }
 }
 
 /** A 2xx upstream answer and the credentials its request carried. */
@@ -192,11 +219,7 @@ export class GeminiEngine implements AnswerEngine {
     const isSuccess = response.ok;
     if (isSuccess) return;
     const errorText = await response.text().catch(() => '');
-    if (signal?.aborted) {
-      throw signal.reason !== undefined
-        ? signal.reason
-        : new DOMException('The operation was aborted.', 'AbortError');
-    }
+    throwIfAborted(signal);
     const upstream = parseUpstreamError(redactUpstreamError(errorText, credentials));
     if (upstream !== null) {
       throw new AiBrokerError(errorEnvelope(response.status, upstream.message, upstream.status));
@@ -224,9 +247,7 @@ export class GeminiEngine implements AnswerEngine {
     try {
       return await reader.read();
     } catch (err) {
-      if (signal?.aborted) {
-        throw signal.reason !== undefined ? signal.reason : err;
-      }
+      rethrowIfAborted(signal, err);
       if (err instanceof AiBrokerError) throw err;
       const rawMessage = err instanceof Error ? err.message : String(err);
       const message = `Gemini API stream aborted mid-response: ${redactUpstreamText(rawMessage, credentials)}`;
@@ -271,18 +292,18 @@ export class GeminiEngine implements AnswerEngine {
     let buffer = '';
     let eventDataLines: string[] = [];
 
-    const ingestLine = (line: string): WireChunk[] => {
+    function* ingestLine(line: string): Generator<WireChunk> {
       if (line === '') {
-        const chunks = parseSseEventData(eventDataLines, credentials);
+        const linesToParse = eventDataLines;
         eventDataLines = [];
-        return chunks;
+        yield* parseSseEventData(linesToParse, credentials);
+        return;
       }
       const data = extractSseDataLine(line);
       if (data !== undefined) {
         eventDataLines.push(data);
       }
-      return [];
-    };
+    }
 
     try {
       while (true) {
@@ -296,9 +317,7 @@ export class GeminiEngine implements AnswerEngine {
         buffer = split.rest;
 
         for (const line of split.lines) {
-          for (const chunk of ingestLine(line)) {
-            yield chunk;
-          }
+          yield* ingestLine(line);
         }
       }
 
@@ -306,21 +325,17 @@ export class GeminiEngine implements AnswerEngine {
       if (buffer.length > 0) {
         const split = extractCompleteSseLines(buffer);
         for (const line of split.lines) {
-          for (const chunk of ingestLine(line)) {
-            yield chunk;
-          }
+          yield* ingestLine(line);
         }
         if (split.rest.length > 0) {
           const trailingLine = split.rest.endsWith('\r') ? split.rest.slice(0, -1) : split.rest;
-          for (const chunk of ingestLine(trailingLine)) {
-            yield chunk;
-          }
+          yield* ingestLine(trailingLine);
         }
       }
 
-      for (const chunk of parseSseEventData(eventDataLines, credentials)) {
-        yield chunk;
-      }
+      const trailingDataLines = eventDataLines;
+      eventDataLines = [];
+      yield* parseSseEventData(trailingDataLines, credentials);
     } finally {
       if (signal?.aborted) {
         await reader.cancel().catch(() => undefined);

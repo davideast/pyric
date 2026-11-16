@@ -5,6 +5,8 @@ import {
   errorEnvelope,
   estimateTokens,
   resolveModelVersion,
+  rethrowIfAborted,
+  throwIfAborted,
 } from './synthesizer.js';
 import {
   joinUpstreamUrl,
@@ -283,9 +285,7 @@ export class OpenAiEngine implements AnswerEngine {
     try {
       return await reader.read();
     } catch (err) {
-      if (signal?.aborted) {
-        throw signal.reason !== undefined ? signal.reason : err;
-      }
+      rethrowIfAborted(signal, err);
       if (err instanceof AiBrokerError) throw err;
       const rawMessage = err instanceof Error ? err.message : String(err);
       throw new AiBrokerError(
@@ -310,9 +310,7 @@ export class OpenAiEngine implements AnswerEngine {
     try {
       res = await this.fetchImpl(endpoint, init);
     } catch (err) {
-      if (signal?.aborted) {
-        throw signal.reason !== undefined ? signal.reason : err;
-      }
+      rethrowIfAborted(signal, err);
       throw new AiBrokerError(
         errorEnvelope(
           502,
@@ -323,11 +321,7 @@ export class OpenAiEngine implements AnswerEngine {
     }
     if (!res.ok) {
       const text = await res.text().catch(() => '');
-      if (signal?.aborted) {
-        throw signal.reason !== undefined
-          ? signal.reason
-          : new DOMException('The operation was aborted.', 'AbortError');
-      }
+      throwIfAborted(signal);
       const masked = redactUpstreamText(text, this.baseUrlCredentials).slice(0, 500);
       const statusName = res.status === 404 ? 'NOT_FOUND' : 'INVALID_ARGUMENT';
       throw new AiBrokerError(
