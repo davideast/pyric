@@ -59,6 +59,8 @@ export interface ResolvedLoad {
   readonly url: string;
   /** Defaults to the mode `PYRIC_AI_MODE` and `PYRIC_AI_PASSTHROUGH` select. */
   readonly aiMode?: AiMode;
+  /** Whether the load resolved under the `import` condition; CJS `createRequire` calls pass `false`. */
+  readonly isEsmImport?: boolean;
   /** Defaults to the manifest lookup in `package-identity.ts`. */
   readonly nameOf?: (url: string) => string | null;
   /** Defaults to `pathInPackageOf` in `package-identity.ts`. */
@@ -112,7 +114,9 @@ function isAllowedRealLoad(load: ResolvedLoad, packageName: string, family: SdkF
   if (isFromAllowedSdkFile(load, packageName, allowedUrls)) return true;
   const specifier = load.canonical ?? load.specifier;
   const aiMode = load.aiMode ?? resolveAiMode(undefined, process.env);
-  if (family === 'admin') return isBypassedBridgeImport(specifier, load.importer, aiMode);
+  if (family === 'admin') {
+    return load.isEsmImport !== false && isBypassedBridgeImport(specifier, load.importer, aiMode);
+  }
   const pathOf = load.pathInPackage ?? pathInPackageOf;
   return choosesRealFirebase({
     specifier,
@@ -120,6 +124,7 @@ function isAllowedRealLoad(load: ResolvedLoad, packageName: string, family: SdkF
     packageName,
     pathInPackage: () => pathOf(load.url, packageName),
     aiMode,
+    isEsmImport: load.isEsmImport,
   });
 }
 
@@ -402,6 +407,22 @@ export function suppliedRowsStopFor(load: ResolvedLoad, allowedUrls: Set<string>
   }
   const error = new Error(liveStopMessage(load, family, packageName));
   return Object.assign(error, { code: REAL_SDK_STOPPED_CODE, url: load.url, specifier: load.specifier });
+}
+
+/**
+ * Whether a resolve hook's `conditions` names `import` (an ESM import rather
+ * than CommonJS `require()`). Node 22 can pass `Set`, `Array`, other iterables,
+ * non-iterable objects, or `undefined`.
+ */
+export function isImportCondition(conditions: unknown): boolean {
+  if (Array.isArray(conditions)) return conditions.includes('import');
+  if (conditions instanceof Set) return conditions.has('import');
+  if (conditions !== null && typeof conditions === 'object' && Symbol.iterator in conditions) {
+    for (const entry of conditions as Iterable<unknown>) {
+      if (entry === 'import') return true;
+    }
+  }
+  return false;
 }
 
 /** Writes each stop to stderr once per file, so a caught import still shows in the log. */

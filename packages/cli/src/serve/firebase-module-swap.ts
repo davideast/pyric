@@ -206,8 +206,13 @@ const PACKAGE_ROOTS: readonly string[] = (() => {
   }
 })();
 
-/** The shadow-app wrappers, relative to the package root. */
-const SHADOW_MODULE = /^(?:dist|src)\/(?:register\/(?:client\/)?app-bridge[^/]*|serve\/entries\/app-ai-passthrough[^/]*)$/;
+/** The shadow-app wrappers that bridge `firebase/app`, relative to the package root. */
+const APP_BRIDGE_MODULE =
+  /^(?:dist|src)\/(?:register\/(?:app-bridge|app-bridge-shadow|client\/app-bridge)|serve\/entries\/app-ai-passthrough)\.(?:js|ts)$/;
+
+/** The shadow-app wrappers that bridge `firebase/app-check`, relative to the package root. */
+const APP_CHECK_BRIDGE_MODULE =
+  /^(?:dist|src)\/(?:register\/app-bridge-app-check|serve\/entries\/app-ai-passthrough-app-check)\.(?:js|ts)$/;
 
 /** The register's App Check verifier for production AI mode, relative to the package root. */
 const ADMIN_BRIDGE_MODULE = /^(?:dist|src)\/register\/app-bridge-admin-app-check\.(?:js|ts)$/;
@@ -232,11 +237,8 @@ function isPackageModule(importer: string | undefined, module: RegExp): boolean 
  * happens to be named `app-bridge.js` is still swapped.
  */
 export function isShadowAppImporter(importer: string | undefined): boolean {
-  return isPackageModule(importer, SHADOW_MODULE);
+  return isPackageModule(importer, APP_BRIDGE_MODULE) || isPackageModule(importer, APP_CHECK_BRIDGE_MODULE);
 }
-
-/** The client SDK modules every shadow-app wrapper imports for itself. */
-const BRIDGED_SPECIFIERS: ReadonlySet<string> = new Set(['firebase/app', 'firebase/app-check']);
 
 /**
  * The firebase-admin pair that only the register's App Check verifier imports
@@ -247,11 +249,14 @@ const ADMIN_BRIDGED_SPECIFIERS: ReadonlySet<string> = new Set(['firebase-admin/a
 
 /**
  * Whether this import is a shadow-app wrapper reaching the Firebase SDK it
- * wraps. The firebase-admin pair counts only when `aiMode` is `production`,
- * so a plane that passes no mode never bypasses it.
+ * wraps. Sandbox AI mode never bypasses any bridge import, and the
+ * firebase-admin pair counts only when `aiMode` is `production`, so a plane
+ * that passes no mode never bypasses it.
  */
 export function isBypassedBridgeImport(specifier: string, importer: string | undefined, aiMode?: AiMode): boolean {
-  if (BRIDGED_SPECIFIERS.has(specifier)) return isShadowAppImporter(importer);
+  if (aiMode === 'sandbox') return false;
+  if (specifier === 'firebase/app') return isPackageModule(importer, APP_BRIDGE_MODULE);
+  if (specifier === 'firebase/app-check') return isPackageModule(importer, APP_CHECK_BRIDGE_MODULE);
   const isAdminBridgeImport = ADMIN_BRIDGED_SPECIFIERS.has(specifier) && aiMode === 'production';
   return isAdminBridgeImport && isPackageModule(importer, ADMIN_BRIDGE_MODULE);
 }

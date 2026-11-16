@@ -30,6 +30,9 @@ import type { ServedFirebaseSpecifier } from '../serve/firebase-module-swap.js';
 import { REGISTER_ROW_URLS, isRegisterLiveModule } from './live-row.js';
 import { ADMIN_ROW_URLS, adminRowOf, unservedAdminService } from './admin-row.js';
 import { packageNameOf, pathInPackageOf } from './package-identity.js';
+import { isImportCondition } from './swap-or-stop.js';
+
+export { isImportCondition };
 
 /** What the register reads from the installed `@pyric/live`. */
 export interface RegisterRowPackage {
@@ -99,13 +102,6 @@ export interface RegisterRowsImport {
   readonly importer: string | undefined;
   /** An array on an ESM import; Node 22 passes a `require()` other shapes, or none. */
   readonly conditions: unknown;
-}
-
-/** Whether a resolve hook's conditions name `import`: an ESM import, never a `require()`. */
-export function isImportCondition(conditions: unknown): boolean {
-  const isList = Array.isArray(conditions) || conditions instanceof Set;
-  if (!isList) return false;
-  return [...(conditions as Iterable<unknown>)].includes('import');
 }
 
 /**

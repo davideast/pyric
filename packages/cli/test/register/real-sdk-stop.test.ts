@@ -179,7 +179,7 @@ async function step(name, run) {
 }
 const firstFile = (part) => loaded.find((url) => url.includes(part));
 if (process.env.FORGE === 'admin-pair') {
-  await step('first', () => createRequire(join(process.env.CLI_ROOT, 'dist/register/app-bridge-admin-app-check.js'))('firebase-admin/app'));
+  await step('first', () => import(process.env.ADMIN_BRIDGE_URL));
   const approved = firstFile('/firebase-admin/lib/app/');
   await step('firestore', () => createRequire(approved)('../firestore/index.js'));
   await step('auth', () => createRequire(approved)('../auth/index.js'));
@@ -229,7 +229,7 @@ interface Outcome {
   first?: string;
   firestore?: string;
   auth?: string;
-  load: string;
+  load?: string;
   realAdmin?: boolean;
   escaped: string[];
 }

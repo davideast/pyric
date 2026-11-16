@@ -6,7 +6,14 @@
 import { describe, expect, it } from 'bun:test';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { REAL_SDK_STOPPED_CODE, createStopReporter, stopFor, suppliedRowsStopFor, type ResolvedLoad } from '../../src/register/swap-or-stop.js';
+import {
+  REAL_SDK_STOPPED_CODE,
+  createStopReporter,
+  isImportCondition,
+  stopFor,
+  suppliedRowsStopFor,
+  type ResolvedLoad,
+} from '../../src/register/swap-or-stop.js';
 
 const cliRoot = resolve(import.meta.dir, '../..');
 const SHADOW_IMPORTER = pathToFileURL(join(cliRoot, 'src/register/app-bridge-shadow.ts')).href;
@@ -82,9 +89,16 @@ describe('stopFor: firebase-admin', () => {
     expect(stopFor(load({ url: ADMIN_FILE, aiMode: 'production' }), noneAllowed())).not.toBeNull();
   });
 
-  it("lets production AI mode's App Check verifier bridge load firebase-admin, and only it (#1552)", () => {
-    const bridge = load({ specifier: 'firebase-admin/app', url: ADMIN_FILE, importer: ADMIN_BRIDGE_IMPORTER, aiMode: 'production' });
+  it("lets production AI mode's App Check verifier bridge load firebase-admin via ESM, and stops CJS createRequire forges (#1552)", () => {
+    const bridge = load({
+      specifier: 'firebase-admin/app',
+      url: ADMIN_FILE,
+      importer: ADMIN_BRIDGE_IMPORTER,
+      aiMode: 'production',
+      isEsmImport: true,
+    });
     expect(stopFor(bridge, noneAllowed())).toBeNull();
+    expect(stopFor({ ...bridge, isEsmImport: false }, noneAllowed())).not.toBeNull();
     expect(stopFor({ ...bridge, importer: APP_IMPORTER }, noneAllowed())).not.toBeNull();
     expect(stopFor({ ...bridge, specifier: 'firebase-admin/auth' }, noneAllowed())).not.toBeNull();
   });
@@ -176,8 +190,22 @@ describe('stopFor: the client SDK', () => {
     expect(stopFor(load({ url: AT_FIRESTORE_FILE, importer: forgedImporter }), noneAllowed())).not.toBeNull();
   });
 
-  it('lets a shadow module reach the firebase/app it wraps', () => {
-    expect(stopFor(load({ specifier: 'firebase/app', url: FIREBASE_APP_FILE, importer: SHADOW_IMPORTER }), noneAllowed())).toBeNull();
+  it('stops a shadow module reaching firebase/app in sandbox AI mode, and allows it via ESM in production AI mode', () => {
+    expect(
+      stopFor(load({ specifier: 'firebase/app', url: FIREBASE_APP_FILE, importer: SHADOW_IMPORTER, aiMode: 'sandbox' }), noneAllowed()),
+    ).not.toBeNull();
+    expect(
+      stopFor(
+        load({ specifier: 'firebase/app', url: FIREBASE_APP_FILE, importer: SHADOW_IMPORTER, aiMode: 'sandbox', isEsmImport: false }),
+        noneAllowed(),
+      ),
+    ).not.toBeNull();
+    expect(
+      stopFor(
+        load({ specifier: 'firebase/app', url: FIREBASE_APP_FILE, importer: SHADOW_IMPORTER, aiMode: 'production', isEsmImport: true }),
+        noneAllowed(),
+      ),
+    ).toBeNull();
   });
 
   it("lets production AI mode load the firebase package's ai, app and app-check files from any importer, such as a server runner", () => {
@@ -306,5 +334,25 @@ describe('createStopReporter', () => {
     report(stop);
     expect(lines).toHaveLength(1);
     expect(lines[0]).toContain('code: PYRIC_REAL_SDK_STOPPED');
+  });
+});
+
+describe('isImportCondition', () => {
+  it('handles Array, Set, custom iterables, non-iterable objects, primitives, and undefined', () => {
+    expect(isImportCondition(['node', 'import'])).toBe(true);
+    expect(isImportCondition(['node', 'require'])).toBe(false);
+    expect(isImportCondition(new Set(['node', 'import']))).toBe(true);
+    expect(isImportCondition(new Set(['node', 'require']))).toBe(false);
+    const customIterable = {
+      *[Symbol.iterator]() {
+        yield 'node';
+        yield 'import';
+      },
+    };
+    expect(isImportCondition(customIterable)).toBe(true);
+    expect(isImportCondition({})).toBe(false);
+    expect(isImportCondition(null)).toBe(false);
+    expect(isImportCondition(undefined)).toBe(false);
+    expect(isImportCondition('import')).toBe(false);
   });
 });

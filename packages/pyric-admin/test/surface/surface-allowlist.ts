@@ -47,14 +47,8 @@ export const ALLOWLIST: readonly AllowlistGroup[] = [
   {
     entry: '.',
     owner: '(exports)',
-    members: ['SDK_VERSION', 'apps'],
-    reason: 'non-function values a stub cannot stand in for; the sandbox claims no SDK version, and a module export cannot be the live list upstream `apps` is (the default export has an `apps` getter, and getApps() lists apps)',
-  },
-  {
-    entry: '.',
-    owner: 'default',
-    members: ['SDK_VERSION'],
-    reason: 'a non-function value a stub cannot stand in for; the sandbox claims no SDK version',
+    members: ['apps'],
+    reason: 'a static module export cannot be the live list upstream `apps` is (the default export and CJS module.exports carry an `apps` getter, and getApps() lists apps)',
   },
   {
     entry: '.',

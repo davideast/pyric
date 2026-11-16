@@ -46,6 +46,8 @@ export interface MapFirebaseOptions {
   aiMode?: AiMode;
   /** The activator value; defaults to `process.env.PYRIC_SANDBOX`. */
   sandbox?: string;
+  /** Whether the load resolved under the `import` condition; CJS `createRequire` calls pass `false`. */
+  isEsmImport?: boolean;
 }
 
 function appTarget(isRemote: boolean, isProductionMode: boolean): string {
@@ -92,19 +94,21 @@ export interface RealFirebaseLoad {
   /** The resolved file's path inside that package; read only for `firebase` in production AI mode. */
   pathInPackage: () => string | null;
   aiMode: AiMode;
+  /** Whether the load resolved under the `import` condition; CJS `createRequire` calls pass `false`. */
+  isEsmImport?: boolean;
 }
 
 /**
  * Whether the swap table hands this client SDK load to the real SDK (ADR
  * 0022): one of pyric's shadow modules reaching the `firebase/app` or
- * `firebase/app-check` it wraps, or, in production AI mode, the files of
- * `firebase/ai`, `firebase/app` and `firebase/app-check`
+ * `firebase/app-check` it wraps via ESM import, or, in production AI mode, the
+ * files of `firebase/ai`, `firebase/app` and `firebase/app-check`
  * (`isProductionAiSdkFile`). The `@firebase/*` packages those import are
  * allowed only from a real SDK file the stop in `swap-or-stop.ts` already
  * allowed, never from app code (#1635).
  */
 export function choosesRealFirebase(load: RealFirebaseLoad): boolean {
-  if (isBypassedBridgeImport(load.specifier, load.importer, load.aiMode)) return true;
+  if (load.isEsmImport !== false && isBypassedBridgeImport(load.specifier, load.importer, load.aiMode)) return true;
   const isProductionMode = load.aiMode === 'production';
   return isProductionMode && isProductionAiSdkFile(load.packageName, load.pathInPackage);
 }
@@ -120,7 +124,7 @@ export function mapFirebaseSpecifier(
 ): string | null {
   const isFirebaseAppSpecifier = specifier === 'firebase/app';
   const aiMode = resolveAiMode(options?.aiMode, process.env);
-  if (isBypassedBridgeImport(specifier, importer, aiMode)) {
+  if (options?.isEsmImport !== false && isBypassedBridgeImport(specifier, importer, aiMode)) {
     return null;
   }
 

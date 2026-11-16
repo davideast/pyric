@@ -57,22 +57,44 @@ describe('mapFirebaseSpecifier', () => {
 
   const cliRoot = join(import.meta.dir, '..', '..');
 
-  it('leaves firebase/app unmapped when importer is the shadow app bridge', () => {
-    expect(mapFirebaseSpecifier('firebase/app', join(cliRoot, 'dist/register/app-bridge.js'), { aiMode: 'production' })).toBeNull();
-    expect(mapFirebaseSpecifier('firebase/app', `file://${join(cliRoot, 'dist/register/client/app-bridge.js')}`, { aiMode: 'production' })).toBeNull();
-    expect(mapFirebaseSpecifier('firebase/app', join(cliRoot, 'src/serve/entries/app-ai-passthrough.ts'), { aiMode: 'production' })).toBeNull();
+  it('leaves firebase/app unmapped for ESM imports from the shadow app bridge in production AI mode, and swaps CJS or sandbox calls', () => {
+    const appBridge = join(cliRoot, 'dist/register/app-bridge.js');
+    const shadowBridge = join(cliRoot, 'dist/register/app-bridge-shadow.js');
+    const clientBridge = `file://${join(cliRoot, 'dist/register/client/app-bridge.js')}`;
+    const passthrough = join(cliRoot, 'src/serve/entries/app-ai-passthrough.ts');
+    expect(mapFirebaseSpecifier('firebase/app', appBridge, { aiMode: 'production', isEsmImport: true })).toBeNull();
+    expect(mapFirebaseSpecifier('firebase/app', shadowBridge, { aiMode: 'production', isEsmImport: true })).toBeNull();
+    expect(mapFirebaseSpecifier('firebase/app', clientBridge, { aiMode: 'production', isEsmImport: true })).toBeNull();
+    expect(mapFirebaseSpecifier('firebase/app', passthrough, { aiMode: 'production', isEsmImport: true })).toBeNull();
+
+    // Sandbox AI mode never bypasses bridge importers, and CJS createRequire never bypasses in either mode.
+    for (const importer of [appBridge, shadowBridge, clientBridge, passthrough]) {
+      expect(mapFirebaseSpecifier('firebase/app', importer, { aiMode: 'sandbox', sandbox: '' })).toBe('pyric/app/register');
+      expect(mapFirebaseSpecifier('firebase/app', importer, { aiMode: 'sandbox', sandbox: '', isEsmImport: false })).toBe('pyric/app/register');
+      expect(mapFirebaseSpecifier('firebase/app', importer, { aiMode: 'production', sandbox: '', isEsmImport: false })).toBe('@pyric/cli/register/app-bridge');
+    }
+    // Cross-bridge and wildcard bridge filenames never bypass.
+    expect(mapFirebaseSpecifier('firebase/app', join(cliRoot, 'dist/register/app-bridge-anything.js'), { aiMode: 'production', sandbox: '' })).toBe('@pyric/cli/register/app-bridge');
+    expect(mapFirebaseSpecifier('firebase/app', join(cliRoot, 'dist/register/app-bridge-admin-app-check.js'), { aiMode: 'production', sandbox: '' })).toBe('@pyric/cli/register/app-bridge');
+    expect(mapFirebaseSpecifier('firebase/app', join(cliRoot, 'dist/register/app-bridge-app-check.js'), { aiMode: 'production', sandbox: '' })).toBe('@pyric/cli/register/app-bridge');
+    expect(mapFirebaseSpecifier('firebase/app-check', appBridge, { aiMode: 'production', sandbox: '' })).toBe('@pyric/cli/register/app-bridge-app-check');
   });
 
-  it('maps firebase/app-check to the App Check bridge in production AI mode, and the bridge reaches the SDK', () => {
+  it('maps firebase/app-check to the App Check bridge in production AI mode, and only ESM imports from the bridge reach the SDK', () => {
+    const appCheckBridge = join(cliRoot, 'dist/register/app-bridge-app-check.js');
     expect(mapFirebaseSpecifier('firebase/app-check', undefined, { aiMode: 'production', sandbox: '' })).toBe('@pyric/cli/register/app-bridge-app-check');
-    expect(mapFirebaseSpecifier('firebase/app-check', join(cliRoot, 'dist/register/app-bridge-app-check.js'), { aiMode: 'production', sandbox: '' })).toBeNull();
+    expect(mapFirebaseSpecifier('firebase/app-check', appCheckBridge, { aiMode: 'production', sandbox: '', isEsmImport: true })).toBeNull();
+    expect(mapFirebaseSpecifier('firebase/app-check', appCheckBridge, { aiMode: 'production', sandbox: '', isEsmImport: false })).toBe('@pyric/cli/register/app-bridge-app-check');
+    expect(mapFirebaseSpecifier('firebase/app-check', appCheckBridge, { aiMode: 'sandbox', sandbox: '' })).toBe('pyric/app-check');
   });
 
-  it('lets the App Check verifier bridge reach the real firebase-admin in production AI mode, and maps it for app files (#1552)', () => {
+  it('lets the App Check verifier bridge reach the real firebase-admin via ESM in production AI mode, and maps CJS or app files (#1552)', () => {
     const bridges = [join(cliRoot, 'dist/register/app-bridge-admin-app-check.js'), `file://${join(cliRoot, 'src/register/app-bridge-admin-app-check.ts')}`];
     for (const bridge of bridges) {
-      expect(mapFirebaseSpecifier('firebase-admin/app', bridge, { aiMode: 'production', sandbox: 'local' })).toBeNull();
-      expect(mapFirebaseSpecifier('firebase-admin/app-check', bridge, { aiMode: 'production', sandbox: 'local' })).toBeNull();
+      expect(mapFirebaseSpecifier('firebase-admin/app', bridge, { aiMode: 'production', sandbox: 'local', isEsmImport: true })).toBeNull();
+      expect(mapFirebaseSpecifier('firebase-admin/app-check', bridge, { aiMode: 'production', sandbox: 'local', isEsmImport: true })).toBeNull();
+      expect(mapFirebaseSpecifier('firebase-admin/app', bridge, { aiMode: 'production', sandbox: 'local', isEsmImport: false })).toBe('pyric-admin/app');
+      expect(mapFirebaseSpecifier('firebase-admin/app-check', bridge, { aiMode: 'production', sandbox: 'local', isEsmImport: false })).toBe('pyric-admin/app-check');
       expect(mapFirebaseSpecifier('firebase-admin/firestore', bridge, { aiMode: 'production', sandbox: 'local' })).toBe('pyric-admin/firestore');
     }
     for (const appFile of ['/home/me/app/server.mjs', '/home/me/app/dist/register/app-bridge-admin-app-check.js']) {
