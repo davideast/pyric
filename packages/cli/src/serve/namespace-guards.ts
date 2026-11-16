@@ -92,7 +92,7 @@ export function guardAvatarLoopback(
     return false;
   }
   const originHeader = getHeader(req, 'origin');
-  if (originHeader && !isAppOrigin(req, originHeader, opts, false)) {
+  if (originHeader !== undefined && !isAppOrigin(req, originHeader, opts, false)) {
     res.writeHead(403, { 'content-type': 'text/plain' }).end('Forbidden: origin mismatch');
     return false;
   }
@@ -121,7 +121,7 @@ export function guardSdkRequest(
     return false;
   }
   const originHeader = getHeader(req, 'origin');
-  if (originHeader && !isAppOrigin(req, originHeader, opts, true)) {
+  if (originHeader !== undefined && !isAppOrigin(req, originHeader, opts, true)) {
     res.writeHead(403, { 'content-type': 'text/plain' }).end('Forbidden: origin mismatch');
     return false;
   }
@@ -141,7 +141,7 @@ export function canBootstrapSdkSession(req: IncomingMessage, opts: NamespaceGuar
   const boundHost = opts.boundHost ?? 'localhost';
   if (!isAllowedHost(getHeader(req, 'host'), boundHost)) return false;
   const originHeader = getHeader(req, 'origin');
-  if (originHeader && !isAppOrigin(req, originHeader, opts, false)) return false;
+  if (originHeader !== undefined && !isAppOrigin(req, originHeader, opts, false)) return false;
   return getHeader(req, 'sec-fetch-site')?.trim().toLowerCase() === 'same-origin';
 }
 
@@ -164,7 +164,7 @@ export function guardLoopback(
     res.writeHead(403, { 'content-type': 'text/plain' }).end('Forbidden: host not allowed');
     return false;
   }
-  if (originHeader && !isAppOrigin(req, originHeader, opts, allowExtraHosts)) {
+  if (originHeader !== undefined && !isAppOrigin(req, originHeader, opts, allowExtraHosts)) {
     res.writeHead(403, { 'content-type': 'text/plain' }).end('Forbidden: origin mismatch');
     return false;
   }

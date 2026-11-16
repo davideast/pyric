@@ -38,8 +38,8 @@ import { resolveOwnersConfig } from '../serve/owners-config.js';
 import { resolveAiMode } from '../serve/firebase-module-swap.js';
 import { formatActivityWarning } from '../serve/activity-warning.js';
 import {
-  consoleServeLogger, getHeader, isAllowedOriginOnPorts, resolveHostingFile,
-  startStaticServer, stderrServeLogger, type ServeHandle,
+  consoleServeLogger, getHeader, isAllowedOriginOnPorts, isForeignFetchSite,
+  requestSocketScheme, resolveHostingFile, startStaticServer, stderrServeLogger, type ServeHandle,
 } from '../serve/server.js';
 import { createBridgeMount } from '../serve/bridge-mount.js';
 import { writeOwnedSessionFile } from '../serve/local-session-token.js';
@@ -579,13 +579,13 @@ async function startServeRuntime(opts: {
     if (handledByBridge) return true;
     return session.handle(req, res, url);
   };
-  // A private function answers only the app's own pages: the same ports the bridge accepts.
-  const allowsAppOrigin = (req: IncomingMessage): boolean => isAllowedOriginOnPorts(
-    getHeader(req, 'origin'),
-    opts.host ?? 'localhost',
-    opts.allowedHosts ?? [],
-    appPorts.forRequest(req),
-  );
+  // A private function answers only the app's own pages: the same ports and scheme the bridge accepts.
+  const allowsAppOrigin = (req: IncomingMessage): boolean => {
+    const boundHost = opts.host ?? 'localhost';
+    const ports = appPorts.forRequest(req);
+    const scheme = requestSocketScheme(req);
+    return isAllowedOriginOnPorts(getHeader(req, 'origin'), boundHost, opts.allowedHosts ?? [], ports, scheme) && !isForeignFetchSite(req, boundHost, ports, scheme);
+  };
   const gatewayHandler = opts.functionsHandler;
   let functionsHandler: ((req: IncomingMessage, res: ServerResponse) => Promise<boolean>) | undefined;
   const servesFunctions = gatewayHandler !== undefined;

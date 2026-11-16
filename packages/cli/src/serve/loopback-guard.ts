@@ -101,7 +101,7 @@ export function isAllowedHost(
   boundHost: string,
   extra: string[] = [],
 ): boolean {
-  if (!hostHeader) return true;
+  if (hostHeader === undefined) return true;
   const parsed = parseHostHeader(hostHeader);
   if (parsed === null || isWildcardHostname(parsed.hostname)) return false;
   const parsedBound = parseHostHeader(boundHost);
@@ -208,7 +208,7 @@ export function isAllowedOrigin(
   boundPort?: number,
   expectedScheme?: 'http:' | 'https:',
 ): boolean {
-  if (!originHeader) return true;
+  if (originHeader === undefined) return true;
   const parsedOrigin = parseSerializedOrigin(originHeader);
   if (parsedOrigin === null) return false;
   const { url: originUrl, authority, parsedAuthority } = parsedOrigin;
@@ -248,6 +248,50 @@ export function isAllowedOrigin(
 }
 
 /**
+ * Same-origin check for wildcard-allowed hosts (`allowedHosts: true`):
+ * requires a strictly serialized `http:` or `https:` origin matching `Host`
+ * (no userinfo, path, query, fragment, or wildcard address) and enforces the
+ * listener scheme on loopback/bound hosts and explicit-port origins while
+ * allowing default-port HTTPS tunnels over a plain HTTP listener.
+ */
+export function isSameOrigin(
+  originHeader: string | undefined,
+  hostHeader: string | undefined,
+  boundHost = 'localhost',
+  expectedScheme?: 'http:' | 'https:',
+): boolean {
+  if (originHeader === undefined) return true;
+  if (hostHeader === undefined) return false;
+  const parsedOrigin = parseSerializedOrigin(originHeader);
+  const parsedHost = parseHostHeader(hostHeader);
+  if (parsedOrigin === null || parsedHost === null) return false;
+  if (isWildcardHostname(parsedHost.hostname)) return false;
+  const { url: originUrl, authority, parsedAuthority } = parsedOrigin;
+  if (parsedAuthority.hostname !== parsedHost.hostname) return false;
+
+  const defaultPort = originUrl.protocol === 'https:' ? 443 : 80;
+  const effectiveOriginPort = parsedAuthority.port ?? defaultPort;
+  const expectedHostPort = parsedHost.port ?? defaultPort;
+  if (effectiveOriginPort !== expectedHostPort) return false;
+
+  if (expectedScheme === 'https:' && originUrl.protocol !== 'https:') {
+    return false;
+  }
+  const isLocalOrBound = isAllowedHost(authority, boundHost);
+  if (isLocalOrBound) {
+    if (expectedScheme !== undefined && originUrl.protocol !== expectedScheme) {
+      return false;
+    }
+    return true;
+  }
+  if (originUrl.port === '') return true;
+  if (expectedScheme !== undefined && originUrl.protocol !== expectedScheme) {
+    return false;
+  }
+  return true;
+}
+
+/**
  * The Origin check once the app's ports are known: the Origin must name one of
  * them. Both a page this app serves and a page on another local port are
  * loopback, so only the port tells them apart. `undefined` means the ports
@@ -277,6 +321,7 @@ export function isForeignFetchSite(
   },
   boundHost = 'localhost',
   appPorts?: readonly number[],
+  expectedScheme?: 'http:' | 'https:',
 ): boolean {
   const secFetchSite = getHeader(req, 'sec-fetch-site')?.trim().toLowerCase();
   if (secFetchSite !== 'cross-site' && secFetchSite !== 'same-site') {
@@ -289,7 +334,7 @@ export function isForeignFetchSite(
     learnedSecondaryPorts = appPorts.slice(1);
   }
   if (learnedSecondaryPorts.length === 0) return true;
-  const scheme = requestSocketScheme(req);
+  const scheme = expectedScheme ?? requestSocketScheme(req);
   return !learnedSecondaryPorts.some((port) =>
     isAllowedOrigin(originHeader, boundHost, [], port, scheme),
   );
@@ -310,7 +355,7 @@ export function isAllowedUpgrade(
   return (
     isAllowedHost(getHeader(req, 'host'), boundHost, extra) &&
     isAllowedOriginOnPorts(getHeader(req, 'origin'), boundHost, extra, appPorts, expectedScheme) &&
-    !isForeignFetchSite(req, boundHost, appPorts)
+    !isForeignFetchSite(req, boundHost, appPorts, expectedScheme)
   );
 }
 
@@ -439,7 +484,7 @@ export function isAllowedLoopbackRequest(
   return (
     isAllowedHost(hostHeader, boundHost, extra) &&
     isAllowedOriginOnPorts(originHeader, boundHost, extra, appPorts, scheme) &&
-    !isForeignFetchSite(req, boundHost, appPorts)
+    !isForeignFetchSite(req, boundHost, appPorts, scheme)
   );
 }
 

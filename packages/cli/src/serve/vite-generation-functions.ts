@@ -8,7 +8,14 @@ import type {
 } from '../functions/project.js';
 import type { BridgeMount } from './bridge-mount.js';
 import { hostingRewrites } from '../functions/http/rewrites.js';
-import { getHeader, isAllowedHost, isAllowedOriginOnPorts } from './server.js';
+import {
+  getHeader,
+  isAllowedHost,
+  isAllowedOriginOnPorts,
+  isForeignFetchSite,
+  isSameOrigin,
+  requestSocketScheme,
+} from './server.js';
 import type {
   ViteFunctionsDevelopmentAttachment,
   ViteFunctionsDevelopmentOptions,
@@ -83,20 +90,6 @@ export function resolveViteGenerationFunctions(input: {
   };
 }
 
-/**
- * With `allowedHosts: true` Vite serves the app under any name, so the
- * app's own page is the one whose Origin names the host it asked for.
- */
-function isSameOrigin(origin: string | undefined, hostHeader: string | undefined): boolean {
-  const sendsNoOrigin = origin === undefined;
-  if (sendsNoOrigin) return true;
-  try {
-    return new URL(origin).host.toLowerCase() === (hostHeader ?? '').toLowerCase();
-  } catch {
-    return false;
-  }
-}
-
 export function attachViteGenerationFunctions(input: {
   server: ViteDevServer;
   projectDir: string;
@@ -135,15 +128,25 @@ export function attachViteGenerationFunctions(input: {
         Array.isArray(serverOptions.allowedHosts) ? serverOptions.allowedHosts : [],
       );
     },
-    // The page Vite serves names Vite's own port, the port the request came in on.
+    // The page Vite serves names Vite's own port and scheme, the socket the request came in on.
     allowsAppOrigin: (req) => {
       const serverOptions = server.config.server;
       const origin = getHeader(req, 'origin');
+      const fallbackScheme = serverOptions.https ? 'https:' : 'http:';
+      const expectedScheme = requestSocketScheme(req) ?? fallbackScheme;
       const allowsAnyHost = serverOptions.allowedHosts === true;
-      if (allowsAnyHost) return isSameOrigin(origin, req.headers.host);
+      if (allowsAnyHost) {
+        return (
+          isSameOrigin(origin, getHeader(req, 'host'), host, expectedScheme) &&
+          !isForeignFetchSite(req, host, undefined, expectedScheme)
+        );
+      }
       const extraHosts = Array.isArray(serverOptions.allowedHosts) ? serverOptions.allowedHosts : [];
       const ports = req.socket.localPort === undefined ? [] : [req.socket.localPort];
-      return isAllowedOriginOnPorts(origin, host, extraHosts, ports);
+      return (
+        isAllowedOriginOnPorts(origin, host, extraHosts, ports, expectedScheme) &&
+        !isForeignFetchSite(req, host, ports, expectedScheme)
+      );
     },
     watcher: server.watcher,
     logger: server.config.logger,

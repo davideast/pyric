@@ -14,6 +14,7 @@
  * production does; CORS decides who reads the response.
  */
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import { getHeader } from '../../serve/loopback-guard.js';
 import type { HttpFunctionInfo } from './discovery.js';
 
 /** Whether a request's Origin is absent or one of the app's own pages; the plane knows its ports. */
@@ -22,12 +23,22 @@ export type AppOriginCheck = (req: IncomingMessage) => boolean;
 /** `Sec-Fetch-Site` values that name a page other than the app's own. */
 const FOREIGN_FETCH_SITES = new Set(['cross-site', 'same-site']);
 
-/** A browser request with no Origin that its fetch metadata says came from another page. */
+/** A browser request with an empty Origin or no Origin whose fetch metadata names another page. */
 function isForeignFetchWithoutOrigin(req: IncomingMessage): boolean {
-  const hasOrigin = req.headers.origin !== undefined;
-  if (hasOrigin) return false;
-  const site = req.headers['sec-fetch-site'];
-  return typeof site === 'string' && FOREIGN_FETCH_SITES.has(site.toLowerCase());
+  const rawOrigin = getHeader(req, 'origin');
+  if (rawOrigin !== undefined) {
+    return rawOrigin.trim() === '';
+  }
+  const site = getHeader(req, 'sec-fetch-site')?.trim().toLowerCase();
+  return site !== undefined && FOREIGN_FETCH_SITES.has(site);
+}
+
+function describeForeignCaller(rawOrigin: string | undefined, site: string | undefined): string {
+  const trimmedOrigin = rawOrigin?.trim();
+  if (trimmedOrigin !== undefined && trimmedOrigin !== '') return trimmedOrigin;
+  if (site !== undefined && site !== '') return `a ${site} page`;
+  if (rawOrigin !== undefined) return 'an empty Origin';
+  return 'a foreign page';
 }
 
 /** Answers 403 and returns true when a private function's caller is a foreign page. */
@@ -39,7 +50,7 @@ export function refuseForeignOrigin(
 ): boolean {
   const isForeignCaller = fn.privateInvoker && (isForeignFetchWithoutOrigin(req) || !allowsAppOrigin(req));
   if (!isForeignCaller) return false;
-  const caller = req.headers.origin ?? `a ${String(req.headers['sec-fetch-site'])} page`;
+  const caller = describeForeignCaller(getHeader(req, 'origin'), getHeader(req, 'sec-fetch-site')?.trim());
   res.writeHead(403, { 'content-type': 'text/plain; charset=utf-8' }).end(
     `pyric: refused a request from ${caller} to ${fn.exportName}, which sets an invoker other than 'public', such as invoker: 'private' or a service account. ` +
       'pyric serves such functions only to the app\'s own pages and to callers that are not browser pages, such as curl or server code.',

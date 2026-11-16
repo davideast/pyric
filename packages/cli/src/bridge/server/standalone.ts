@@ -47,6 +47,7 @@ import {
   isAllowedSessionToken,
   isAllowedUpgrade,
   isLocalPeer,
+  requestSocketScheme,
 } from '../../serve/server.js';
 import { registerLocalSessionToken } from '../../serve/local-session-token.js';
 import { createAppPorts } from '../../serve/app-ports.js';
@@ -427,7 +428,13 @@ export async function startServer(
     // DNS-rebinding + cross-origin guard: only a loopback page is told why.
     // The port is not compared here: the page that reaches this socket loads
     // from the app's own dev server on another port.
-    const refusesUpgrade = !isAllowedUpgrade(req.headers, '127.0.0.1', []);
+    const refusesUpgrade = !isAllowedUpgrade(
+      req.headers,
+      '127.0.0.1',
+      [],
+      undefined,
+      requestSocketScheme(req),
+    );
     if (refusesUpgrade) {
       logger.error(
         `refused WS upgrade — Host='${req.headers.host ?? ''}' Origin='${req.headers.origin ?? ''}' (rebinding/origin guard)`,
