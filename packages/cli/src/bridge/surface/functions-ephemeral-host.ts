@@ -16,6 +16,16 @@ import { getFirestore } from 'pyric/firestore';
 import type { LocalSandbox } from 'pyric/sandbox';
 import { WebSocketServer, type WebSocket } from 'ws';
 import { cliVersion } from '../../pkg-version.js';
+import { BEACON_TOKEN_HEADER } from '../../register/beacon.js';
+import { BEACON_BODY_LIMIT_BYTES } from '../../serve/beacon-route.js';
+import {
+  getHeader,
+  isAllowedLoopbackRequest,
+  isAllowedUpgrade,
+  isLocalPeer,
+  requestSocketScheme,
+  timingSafeTokenMatch,
+} from '../../serve/loopback-guard.js';
 import {
   cleanupPortWithDisconnect,
   handleMessage,
@@ -29,6 +39,7 @@ import {
   isBridgeMessage,
   type BridgeMessage,
 } from '../protocol.js';
+import { answerAndClose, collectBody, isBodyTooLarge } from '../server/peer.js';
 
 export interface EphemeralFunctionsHost {
   serveUrl(): string;
@@ -37,15 +48,53 @@ export interface EphemeralFunctionsHost {
   close(): Promise<void>;
 }
 
+const BOUND_HOST = '127.0.0.1';
+const SESSION_TOKEN_HEADER = 'x-pyric-session-token';
 const WS_PATH = '/__pyric/sandbox';
 const HEALTH_PATH = '/__pyric/health';
 const INIT_PATH = '/__pyric/init.json';
 const BEACON_PATH = '/__pyric/beacon';
 
-function hasValidToken(req: IncomingMessage, expected: string): boolean {
-  const header = req.headers['x-pyric-session-token'];
-  if (typeof header === 'string') return header === expected;
-  return false;
+function hasValidSessionToken(req: IncomingMessage, expected: string): boolean {
+  return timingSafeTokenMatch(getHeader(req, SESSION_TOKEN_HEADER), expected);
+}
+
+function hasValidBeaconToken(req: IncomingMessage, expected: string): boolean {
+  if (timingSafeTokenMatch(getHeader(req, SESSION_TOKEN_HEADER), expected)) {
+    return true;
+  }
+  return timingSafeTokenMatch(getHeader(req, BEACON_TOKEN_HEADER), expected);
+}
+
+function declaresJsonBody(req: IncomingMessage): boolean {
+  const contentType = getHeader(req, 'content-type');
+  if (contentType === undefined) return false;
+  const mimeType = contentType.split(';')[0];
+  if (mimeType === undefined) return false;
+  return mimeType.trim().toLowerCase() === 'application/json';
+}
+
+function isBrowserBeacon(req: IncomingMessage): boolean {
+  if (getHeader(req, 'origin') !== undefined) return true;
+  const fetchMode = getHeader(req, 'sec-fetch-mode')?.trim().toLowerCase();
+  return fetchMode === 'cors';
+}
+
+function parseRequestPathname(rawUrl: string | undefined): string | null {
+  try {
+    return new URL(rawUrl ?? '/', `http://${BOUND_HOST}`).pathname;
+  } catch {
+    return null;
+  }
+}
+
+function rejectUpgrade(
+  socket: { end(chunk: string, cb?: () => void): void; destroy(): void },
+  statusLine: string,
+): void {
+  socket.end(`HTTP/1.1 ${statusLine}\r\nConnection: close\r\n\r\n`, () => {
+    socket.destroy();
+  });
 }
 
 function sendFrame(ws: WebSocket, frame: BridgeMessage): void {
@@ -88,64 +137,133 @@ export async function startEphemeralFunctionsHost(
       .catch(() => undefined);
   };
 
-  const handleHttp = (req: IncomingMessage, res: ServerResponse): void => {
-    const pathname = (req.url ?? '/').split('?')[0];
+  const boundPorts = (req: IncomingMessage): readonly number[] | undefined => {
+    const activePort = req.socket?.localPort ?? portNumber;
+    if (activePort > 0) return [activePort];
+    return undefined;
+  };
+
+  const handleHttp = async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
+    const ports = boundPorts(req);
+    if (!isLocalPeer(req) || !isAllowedLoopbackRequest(req, BOUND_HOST, [], ports)) {
+      res.writeHead(403, { 'content-type': 'application/json', 'cache-control': 'no-store' });
+      res.end(JSON.stringify({ error: 'Forbidden: invalid host or origin' }));
+      return;
+    }
+    const pathname = parseRequestPathname(req.url);
+    if (pathname === null) {
+      res.writeHead(400).end();
+      return;
+    }
     if (pathname === HEALTH_PATH) {
+      if (req.method !== 'GET' && req.method !== 'HEAD') {
+        res.writeHead(405, { allow: 'GET, HEAD' }).end('method not allowed');
+        return;
+      }
       if (closing) {
-        res.writeHead(503, { 'content-type': 'application/json' });
+        res.writeHead(503, { 'content-type': 'application/json', 'cache-control': 'no-store' });
         res.end(JSON.stringify({ error: 'ephemeral host closing' }));
         return;
       }
-      res.writeHead(200, { 'content-type': 'application/json' });
-      res.end(
-        JSON.stringify({
-          status: 'ok',
-          mode: 'sandbox',
-          instanceId,
-          sandboxConnected: true,
-          project: options.projectId,
-        }),
-      );
+      const healthBody: Record<string, unknown> = {
+        status: 'ok',
+        mode: 'sandbox',
+        instanceId,
+        sandboxConnected: true,
+      };
+      if (hasValidSessionToken(req, sessionToken)) {
+        healthBody.project = options.projectId;
+      }
+      res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' });
+      res.end(req.method === 'HEAD' ? undefined : JSON.stringify(healthBody));
       return;
     }
     if (pathname === BEACON_PATH) {
-      req.resume();
+      if (req.method !== 'POST') {
+        res.writeHead(405, { allow: 'POST' }).end('method not allowed');
+        return;
+      }
+      if (!declaresJsonBody(req)) {
+        res.writeHead(415, { 'content-type': 'text/plain' }).end('Unsupported Media Type');
+        return;
+      }
+      if (isBrowserBeacon(req)) {
+        res.writeHead(403, { 'content-type': 'text/plain' }).end('Forbidden: browser origin');
+        return;
+      }
+      if (!hasValidBeaconToken(req, sessionToken)) {
+        res.writeHead(401, { 'content-type': 'text/plain' }).end('Unauthorized: invalid beacon token');
+        return;
+      }
+      try {
+        await collectBody(req, BEACON_BODY_LIMIT_BYTES);
+      } catch (err) {
+        if (isBodyTooLarge(err)) {
+          answerAndClose(req, res, 413, { 'content-type': 'text/plain' }, 'Payload Too Large');
+          return;
+        }
+        res.writeHead(204).end();
+        return;
+      }
       res.writeHead(204).end();
       return;
     }
     if (pathname === INIT_PATH) {
-      if (!hasValidToken(req, sessionToken)) {
-        res.writeHead(401, { 'content-type': 'application/json' });
+      if (req.method !== 'GET' && req.method !== 'HEAD') {
+        res.writeHead(405, { allow: 'GET, HEAD' }).end('method not allowed');
+        return;
+      }
+      if (!hasValidSessionToken(req, sessionToken)) {
+        res.writeHead(401, { 'content-type': 'application/json', 'cache-control': 'no-store' });
         res.end(JSON.stringify({ error: 'unauthorized' }));
         return;
       }
-      res.writeHead(200, { 'content-type': 'application/json' });
-      res.end(
-        JSON.stringify({
-          instanceId,
-          sessionToken,
-          hosted: true,
-          rules: null,
-          rulesHash: null,
-          storageRules: null,
-          storageRulesHash: null,
-          bridgeUrl: `ws://127.0.0.1:${portNumber}${WS_PATH}`,
-          seed: null,
-        }),
-      );
+      const initBody = JSON.stringify({
+        instanceId,
+        sessionToken,
+        hosted: true,
+        rules: null,
+        rulesHash: null,
+        storageRules: null,
+        storageRulesHash: null,
+        bridgeUrl: `ws://127.0.0.1:${portNumber}${WS_PATH}`,
+        seed: null,
+      });
+      res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' });
+      res.end(req.method === 'HEAD' ? undefined : initBody);
       return;
     }
     res.writeHead(404).end();
   };
 
-  const server = createServer(handleHttp);
+  const server = createServer((req, res) => {
+    void handleHttp(req, res).catch(() => {
+      if (!res.headersSent) res.writeHead(500).end();
+      else res.end();
+    });
+  });
   const wss = new WebSocketServer({ noServer: true, maxPayload: MAX_BRIDGE_FRAME_BYTES });
 
   server.on('upgrade', (req, socket, head) => {
-    const pathname = (req.url ?? '/').split('?')[0];
-    if (closing || pathname !== WS_PATH || !hasValidToken(req, sessionToken)) {
-      socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
-      socket.destroy();
+    const ports = boundPorts(req);
+    if (
+      !isLocalPeer(req) ||
+      !isAllowedUpgrade(req.headers, BOUND_HOST, [], ports, requestSocketScheme(req))
+    ) {
+      rejectUpgrade(socket, '403 Forbidden');
+      return;
+    }
+    if (closing) {
+      rejectUpgrade(socket, '503 Service Unavailable');
+      return;
+    }
+    const pathname = parseRequestPathname(req.url);
+    if (pathname !== WS_PATH) {
+      rejectUpgrade(socket, '404 Not Found');
+      return;
+    }
+    if (!hasValidSessionToken(req, sessionToken)) {
+      rejectUpgrade(socket, '401 Unauthorized');
       return;
     }
     wss.handleUpgrade(req, socket, head, (ws) => {

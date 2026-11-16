@@ -530,4 +530,33 @@ describe('createStudioRoutes guards and operations', () => {
     expect(h4).toBe(true);
     expect(statusCode).toBe(401);
   });
+
+  it('rejects empty Origin and cross-scheme loopback Origin with 403 Forbidden', async () => {
+    const routes = createStudioRoutes({
+      workspace: diskWorkspace(dir),
+      sessionToken,
+      writerLock: createWriterLock(),
+      boundHost,
+      allowedHosts,
+    });
+
+    for (const badOrigin of ['', '   ', 'https://localhost:5173']) {
+      let statusCode = 200;
+      let body = '';
+      const mockRes = {
+        writeHead(code: number) { statusCode = code; return mockRes; },
+        end(chunk?: string) { if (chunk) body += chunk; return mockRes; },
+        headersSent: false,
+      } as any;
+      const req = {
+        method: 'GET',
+        headers: { host: 'localhost:5173', origin: badOrigin, 'x-pyric-session-token': sessionToken },
+        socket: { localPort: 5173, encrypted: false },
+      };
+      const handled = await routes(req as any, mockRes, new URL('http://localhost:5173/__pyric/workspace/list'));
+      expect(handled).toBe(true);
+      expect(statusCode).toBe(403);
+      expect(body).toContain('Forbidden: origin mismatch');
+    }
+  });
 });

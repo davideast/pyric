@@ -33,7 +33,14 @@ import type {
   WorkspaceChange,
   WorkspaceStore,
 } from './store-types.js';
-import { isAllowedHost, isAllowedOrigin, isForeignFetchWithoutOrigin, getHeader, isAllowedSessionToken } from '../server.js';
+import {
+  getHeader,
+  isAllowedHost,
+  isAllowedOrigin,
+  isAllowedSessionToken,
+  isForeignFetchWithoutOrigin,
+  requestSocketScheme,
+} from '../server.js';
 import type { AppPorts } from '../app-ports.js';
 import type { WriterLock } from '../writer-lock.js';
 
@@ -263,10 +270,11 @@ export function createStudioRoutes(opts: StudioRouteOptions) {
           res.writeHead(403, { 'content-type': 'text/plain' }).end('Forbidden: host not allowed');
           return true;
         }
-        if (originHeader) {
+        if (originHeader !== undefined) {
           const ports = opts.appPorts?.forRequest(req) ?? [req.socket?.localPort];
+          const scheme = requestSocketScheme(req);
           const allowedOrigin = ports.some((port) =>
-            isAllowedOrigin(originHeader, opts.boundHost ?? 'localhost', opts.allowedHosts, port),
+            isAllowedOrigin(originHeader, opts.boundHost ?? 'localhost', opts.allowedHosts, port, scheme),
           );
           if (!allowedOrigin) {
             res.writeHead(403, { 'content-type': 'text/plain' }).end('Forbidden: origin mismatch');
