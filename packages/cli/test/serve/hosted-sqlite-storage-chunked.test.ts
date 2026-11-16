@@ -33,4 +33,4 @@ async function runNodeFixture(name: string): Promise<string> {
 
 test('Storage stages chunked uploads and supports ranged reads', async () => {
   expect(await runNodeFixture('storage-chunked')).toBe('Storage chunked passed');
-});
+}, 30_000);

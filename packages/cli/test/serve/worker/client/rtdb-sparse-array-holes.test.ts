@@ -28,7 +28,9 @@ beforeAll(async () => {
   directory = mkdtempSync(join(tmpdir(), 'pyric-sparse-probe-'));
   nodeProbe = await buildForNode(directory, 'sparse-array-probe.ts');
 }, BUILD_TIMEOUT_MS);
-afterAll(() => rmSync(directory, { recursive: true, force: true }));
+afterAll(() => {
+  if (directory) rmSync(directory, { recursive: true, force: true });
+});
 
 async function probe(plane: 'worker' | 'node'): Promise<unknown> {
   const command = plane === 'node'
