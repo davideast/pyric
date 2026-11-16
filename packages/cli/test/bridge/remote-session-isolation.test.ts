@@ -208,7 +208,7 @@ describe('remote session isolation across bridge relay (M1)', () => {
       });
       expect(bob.snaps.find(snapshot => snapshot.subId === 'bob-own-note')).toMatchObject({
         clientSessionId: bob.clientSessionId,
-        value: { exists: true, data: { json: '{"text":"Bob private note"}', valueEncoding: 'pyric/firestore-values/1' } },
+        value: { exists: true, data: { json: '{"text":"Bob private note"}' } },
       });
     } finally {
       alice.session.dispose();

@@ -43,7 +43,7 @@ class OnDisconnect(private val ref: DatabaseReference) {
             try {
                 ref.database.bridgeClient.op(
                     method = method,
-                    params = params,
+                    params = ref.database.withInstance(params),
                     actAs = ref.database.getEffectiveAuthLens().toMap()
                 )
                 tcs.setResult(null)

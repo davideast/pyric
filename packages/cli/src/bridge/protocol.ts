@@ -198,6 +198,9 @@ export const STORAGE_BYTE_ROUTE_CAPABILITY = 'storage-byte-route';
 /** Full port traffic, including app configuration, clock updates, and teardown. */
 export const WORKER_PORT_CAPABILITY = 'worker-port';
 
+/** Consumer capability flag: "I decode pyric/firestore-values/1 escaped maps and number markers". */
+export const DOC_VALUE_ENCODING_CAPABILITY = 'pyric/firestore-values/1';
+
 /** After this interruption window a client must request a fresh logical session. */
 export const WORKER_SESSION_RETENTION_MS = 60_000;
 /** How often every bridge client sends `ping` while attached (ADR-0019). */
@@ -249,6 +252,7 @@ type DistributiveOmit<T, K extends PropertyKey> = T extends unknown
 /** A worker one-shot op, minus the port-level `t`/`id` the relay re-mints. */
 export type WorkerOpPayload = DistributiveOmit<OpMessage, 't' | 'id'> & {
   resumeSession?: boolean;
+  docValueEncoding?: import('../serve/worker/protocol/firestore.js').ResponseDocValueEncoding;
 };
 
 /**
@@ -259,6 +263,7 @@ export type WorkerOpPayload = DistributiveOmit<OpMessage, 't' | 'id'> & {
  */
 export type WorkerSubPayload = DistributiveOmit<SubMessage, 't' | 'subId'> & {
   resumeSession?: boolean;
+  docValueEncoding?: import('../serve/worker/protocol/firestore.js').ResponseDocValueEncoding;
 };
 
 /** Node consumer → bridge: attach as a worker-relay consumer (NOT a peer —
@@ -266,6 +271,7 @@ export type WorkerSubPayload = DistributiveOmit<SubMessage, 't' | 'subId'> & {
 export interface AttachFromConsumer {
   type: 'attach';
   protocol: 1;
+  capabilities?: string[];
   transport?: 'worker-port';
   /** Host-issued capability for resuming a worker port's original identity. */
   resumeToken?: string;

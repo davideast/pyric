@@ -293,7 +293,7 @@ function registerListener(
         // Query snapshot. Each document sends its own pending state, which
         // production reports per document (FP-5, #1358).
         const docs = snapAny.docs.map((d) => ({
-          ...serializeDocSnap(d as Parameters<typeof serializeDocSnap>[0]),
+          ...serializeDocSnap(d as Parameters<typeof serializeDocSnap>[0], msg.docValueEncoding),
           hasPendingWrites: d.metadata?.hasPendingWrites === true,
         }));
         post(port, { t: 'snap', subId: msg.subId, value: { docs, hasPendingWrites, usage } });
@@ -302,7 +302,7 @@ function registerListener(
         post(port, {
           t: 'snap',
           subId: msg.subId,
-          value: { ...serializeDocSnap(snapAny as Parameters<typeof serializeDocSnap>[0]), hasPendingWrites, usage },
+          value: { ...serializeDocSnap(snapAny as Parameters<typeof serializeDocSnap>[0], msg.docValueEncoding), hasPendingWrites, usage },
         });
       }
     },

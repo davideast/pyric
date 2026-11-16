@@ -4,6 +4,7 @@ import { DELIVERY_STAGES } from 'pyric/messaging/internal';
 import { requireDocumentData } from 'pyric/firestore/internal/value-codec';
 import {
   assertAggregateFieldPath,
+  assertNoTopLevelSetOptions,
   assertSetOptions,
   requireFirestorePath,
   requireSingleUpdateForm,
@@ -114,6 +115,7 @@ export function assertOperationArguments(message: Record<string, unknown>): void
       return;
     case 'setDoc':
       requireDocumentData(message.data);
+      assertNoTopLevelSetOptions(message);
       assertSetOptions(message.options);
       return;
     case 'updateDoc': {

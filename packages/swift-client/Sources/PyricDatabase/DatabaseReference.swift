@@ -207,7 +207,7 @@ public final class DatabaseReference: DatabaseQuery, @unchecked Sendable {
 
             let res = try await database.bridgeClient.op(
                 method: "rtdb.transactionCommit",
-                params: params,
+                params: database.withInstance(params),
                 actAs: database.currentAuthLens()
             )
 

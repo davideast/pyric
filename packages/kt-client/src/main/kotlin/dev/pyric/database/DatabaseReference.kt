@@ -99,7 +99,7 @@ class DatabaseReference(
         while (maxRetries-- > 0) {
             val currentWire = database.bridgeClient.op(
                 method = "rtdb.get",
-                params = mapOf("path" to path),
+                params = database.withInstance(mapOf("path" to path)),
                 actAs = database.getEffectiveAuthLens().toMap()
             )
             @Suppress("UNCHECKED_CAST")
@@ -116,11 +116,13 @@ class DatabaseReference(
 
             val commitRes = database.bridgeClient.op(
                 method = "rtdb.transactionCommit",
-                params = mapOf(
-                    "path" to path,
-                    "expected" to currentVal,
-                    "value" to result.mutableData?.value,
-                    "applyLocally" to fireLocalEvents
+                params = database.withInstance(
+                    mapOf(
+                        "path" to path,
+                        "expected" to currentVal,
+                        "value" to result.mutableData?.value,
+                        "applyLocally" to fireLocalEvents
+                    )
                 ),
                 actAs = database.getEffectiveAuthLens().toMap()
             )
@@ -149,7 +151,7 @@ class DatabaseReference(
             try {
                 database.bridgeClient.op(
                     method = method,
-                    params = params,
+                    params = database.withInstance(params),
                     actAs = database.getEffectiveAuthLens().toMap()
                 )
                 tcs.setResult(null)

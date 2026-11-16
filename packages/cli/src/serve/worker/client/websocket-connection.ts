@@ -2,7 +2,7 @@ import type { DiagnosticEvent } from '../../runtime/diagnostics-report.js';
 import { recordDiagnostic } from '../../runtime/diagnostics-client.js';
 import { hostRestartedSincePageLoad, type HostRestart } from '../../runtime/host-restart.js';
 import { hasValidAttachFields } from '../../../bridge/attach-validation.js';
-import { isBridgeMessage, MAX_BRIDGE_FRAME_BYTES, STORAGE_BYTE_ROUTE_CAPABILITY, WORKER_PORT_CAPABILITY, WORKER_SESSION_EXPIRED_CLOSE_CODE, WORKER_SESSION_RETENTION_MS, type BridgeMessage } from '../../../bridge/protocol.js';
+import { DOC_VALUE_ENCODING_CAPABILITY, isBridgeMessage, MAX_BRIDGE_FRAME_BYTES, STORAGE_BYTE_ROUTE_CAPABILITY, WORKER_PORT_CAPABILITY, WORKER_SESSION_EXPIRED_CLOSE_CODE, WORKER_SESSION_RETENTION_MS, type BridgeMessage } from '../../../bridge/protocol.js';
 import { FirebaseError } from 'pyric/app';
 import { BROWSER_FRAME_LIMIT_CLOSE_CODE, BRIDGE_FRAME_LIMIT_MESSAGE, encodeBridgeMessage } from '../../../bridge/frame-output.js';
 import type { InboundMessage, OutboundMessage } from '../protocol.js';
@@ -444,7 +444,7 @@ export function getHostedFirestore(target: {
         const presentsOtherBoot = presented !== hostInstanceId;
         if (presentsOtherBoot) resumeToken = undefined;
         const platform = resolveConnectionPlatform(realm, target.platform);
-        send(connection, { type: 'attach', protocol: 1, transport: 'worker-port', resumeToken, hostInstanceId: presented, clientInfo: { platform } });
+        send(connection, { type: 'attach', protocol: 1, capabilities: [DOC_VALUE_ENCODING_CAPABILITY], transport: 'worker-port', resumeToken, hostInstanceId: presented, clientInfo: { platform } });
       });
     });
     connection.addEventListener('message', (event: MessageEvent<string>) => {

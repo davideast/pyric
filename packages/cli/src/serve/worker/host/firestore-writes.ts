@@ -22,11 +22,6 @@ import {
   addDoc,
   runTransaction,
   writeBatch,
-  serverTimestamp,
-  increment,
-  arrayUnion,
-  arrayRemove,
-  deleteField,
   FieldPath,
   type Firestore,
   type DocumentReference,
@@ -48,10 +43,10 @@ import {
 } from 'pyric/rules/internal';
 import { FirebaseError } from 'pyric/app';
 
-import type { OpMessage, TargetDescriptor, WriteDescriptor, SentinelMarker, UpdatePayload } from '../protocol.js';
-import { isSentinelMarker } from '../protocol.js';
+import type { OpMessage, TargetDescriptor, WriteDescriptor, UpdatePayload } from '../protocol.js';
 import {
   assertAtomicList,
+  assertNoTopLevelSetOptions,
   assertSetOptions,
   requireFirestorePath,
   requireSingleUpdateForm,
@@ -59,6 +54,7 @@ import {
 } from '../protocol/firestore-validation.js';
 import { type HostCtx, type PortLike, post, ok, fail, bestEffortFlush } from '../host-context.js';
 import { releasePinnedTxnSnapshot } from './firestore-txn-snapshots.js';
+import { resolveSentinels } from './firestore-sentinels.js';
 import { resolveTarget } from './core.js';
 
 const txnCommitLocks = new WeakMap<object, Promise<void>>();
@@ -82,47 +78,7 @@ async function withTxnCommitLock<T>(key: object, fn: () => Promise<T>): Promise<
   }
 }
 
-// ─── Sentinel resolution ──────────────────────────────────────────────────
-
-/**
- * Walk a write payload and replace every `SentinelMarker` with the
- * corresponding pyric/firestore FieldValue sentinel object.
- *
- * WHY: FieldValue class instances don't survive structured clone — they
- * arrive as plain objects and lose their prototype, breaking sandbox
- * sentinel detection. The client sends `{ __sentinel: 'serverTimestamp' }`
- * etc. and we reconstruct the real FieldValue here before the sandbox sees
- * the data.
- *
- * The sandbox's sentinel-capture code (sentinel-capture.ts) recognizes
- * FieldValue objects by their internal `__type` property, which the
- * factories produce correctly.
- */
-function resolveSentinels(value: unknown): unknown {
-  if (isSentinelMarker(value)) {
-    return resolveSentinel(value);
-  }
-  if (Array.isArray(value)) {
-    return value.map(resolveSentinels);
-  }
-  if (value !== null && typeof value === 'object') {
-    // Leave CLASS instances intact (Timestamp/Bytes/LatLng rehydrated by
-    // prepareWriteData below, or FieldValue objects): walking their entries
-    // into a plain object would strip the prototype the sandbox keys on.
-    // Sentinel markers only ever live in plain JSON containers.
-    const proto = Object.getPrototypeOf(value);
-    if (proto !== Object.prototype && proto !== null) {
-      return value;
-    }
-    const obj = value as Record<string, unknown>;
-    const out: Record<string, unknown> = {};
-    for (const [k, v] of Object.entries(obj)) {
-      out[k] = resolveSentinels(v);
-    }
-    return out;
-  }
-  return value;
-}
+// --- Write payload preparation ---
 
 /**
  * Decode document values using the request's declared encoding, then rebuild
@@ -135,14 +91,10 @@ export function prepareWriteData(value: unknown, valueEncoding?: DocValueEncodin
   return resolveSentinels(rehydrateEncodedDocValue(value, valueEncoding));
 }
 
-function resolveSentinel(marker: SentinelMarker): unknown {
-  switch (marker.__sentinel) {
-    case 'serverTimestamp': return serverTimestamp();
-    case 'increment':       return increment(marker.n);
-    case 'arrayUnion':      return arrayUnion(...marker.values);
-    case 'arrayRemove':     return arrayRemove(...marker.values);
-    case 'deleteField':     return deleteField();
-  }
+function compareEntries([a]: [string, unknown], [b]: [string, unknown]): number {
+  if (a < b) return -1;
+  if (a > b) return 1;
+  return 0;
 }
 
 // ─── Transaction read-set canonicalization helpers ─────────────────────────
@@ -185,10 +137,9 @@ function canonicalizeHydratedValue(value: unknown): unknown {
   }
   if (value instanceof RulesVector) return ['vec', [...value.value]];
   if (typeof value === 'object') {
-    const entries = Object.entries(value as Record<string, unknown>).map(([k, v]) => [
-      k,
-      canonicalizeHydratedValue(v),
-    ]);
+    const entries = Object.entries(value as Record<string, unknown>)
+      .sort(compareEntries)
+      .map(([k, v]) => [k, canonicalizeHydratedValue(v)]);
     return ['map', entries];
   }
   return ['unknown', String(value)];
@@ -255,6 +206,7 @@ function applyAtomicWrite(
       return;
     }
     case 'set': {
+      assertNoTopLevelSetOptions(write as unknown as Record<string, unknown>);
       assertSetOptions(write.options);
       const data = prepareWriteData(write.data, write.valueEncoding) as Record<string, unknown>;
       if ('commit' in writer) {
@@ -307,6 +259,7 @@ export async function handleFirestoreWriteOp(
     case 'setDoc': {
       try {
         const path = requireFirestorePath(msg.path);
+        assertNoTopLevelSetOptions(msg as unknown as Record<string, unknown>);
         const ref = pyricDoc(db, path);
         const data = prepareWriteData(msg.data, msg.valueEncoding) as Record<string, unknown>;
         await sdkActivity.silence(() => setDoc(ref, data, msg.options as SetOptions | undefined));

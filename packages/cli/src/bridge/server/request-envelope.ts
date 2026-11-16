@@ -78,6 +78,11 @@ export function requestEnvelopeError(frame: BridgeMessage): string | undefined {
     if (invalidSession) return 'Invalid bridge client session ID.';
   }
   switch (frame.type) {
+    case 'attach': {
+      const hasValidCapabilities = frame.capabilities === undefined || isStringList(frame.capabilities);
+      if (!hasValidCapabilities) return 'Invalid consumer attach handshake.';
+      return;
+    }
     case 'hello': {
       const hasMalformedTools = !isStringList(frame.tools);
       const hasMalformedIdentity = typeof frame.sandboxId !== 'string';

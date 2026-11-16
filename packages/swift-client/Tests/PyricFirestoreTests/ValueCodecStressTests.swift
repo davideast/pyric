@@ -383,8 +383,9 @@ struct ValueCodecStressTests {
         #expect(encRemove["__sentinel"] as? String == "arrayRemove")
 
         let encVec = try #require(ValueCodec.encodeValue(vec) as? [String: Any])
-        #expect(encVec["__sentinel"] as? String == "vector")
-        #expect(encVec["values"] as? [Double] == [0.1, 0.2, 0.3])
+        #expect(encVec["type"] as? String == "firestore/vectorValue/1.0")
+        #expect(encVec["vectorValues"] as? [Double] == [0.1, 0.2, 0.3])
+        #expect(encVec["__sentinel"] == nil)
 
         // Transmutations of __type sentinels
         let transSt = try #require(ValueCodec.encodeValue(["__type": "serverTimestamp"]) as? [String: Any])

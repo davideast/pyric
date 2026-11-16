@@ -60,7 +60,8 @@ class DocumentReference internal constructor(
                     reference = this@DocumentReference,
                     exists = exists,
                     rawData = unpackedData,
-                    metadata = SnapshotMetadata(hasPendingWrites = false, isFromCache = false)
+                    metadata = SnapshotMetadata(hasPendingWrites = false, isFromCache = false),
+                    rawWireData = if (exists) DocumentDataEnvelope.extractEnvelope(rawData) else null
                 )
                 tcs.setResult(snapshot)
             } catch (e: Exception) {
@@ -88,13 +89,17 @@ class DocumentReference internal constructor(
         // back-to-back writes reach the host in call order (#1032).
         scope.launch(start = CoroutineStart.UNDISPATCHED) {
             try {
+                val params = mutableMapOf<String, Any?>(
+                    "path" to path,
+                    "data" to ValueCodec.encodeWriteData(map)
+                )
+                val wireOptions = options.toWireOptions()
+                if (wireOptions != null) {
+                    params["options"] = wireOptions
+                }
                 firestore.bridgeClient.op(
                     method = "setDoc",
-                    params = mapOf(
-                        "path" to path,
-                        "data" to ValueCodec.encodeWriteData(map),
-                        "merge" to options.isMerge
-                    ),
+                    params = params,
                     actAs = firestore.getEffectiveAuthLens().toMap()
                 )
                 tcs.setResult(null)
@@ -198,7 +203,8 @@ class DocumentReference internal constructor(
             reference = this,
             exists = exists,
             rawData = unpackedData,
-            metadata = SnapshotMetadata(hasPendingWrites = resMap["hasPendingWrites"] == true, isFromCache = isFromCache)
+            metadata = SnapshotMetadata(hasPendingWrites = resMap["hasPendingWrites"] == true, isFromCache = isFromCache),
+            rawWireData = if (exists) DocumentDataEnvelope.extractEnvelope(rawData) else null
         )
     }
 

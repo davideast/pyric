@@ -61,12 +61,25 @@ public struct TxnReadEntry: Sendable, Equatable {
     public func toAnySendable() -> AnySendable {
         return .dictionary([
             "path": .string(path),
-            "data": data != nil ? .dictionary(["json": .string(data!.json)]) : .null
+            "data": data?.toAnySendable() ?? .null
         ])
     }
 }
 
 public struct SerializedDocData: Sendable, Equatable {
     public let json: String
-    public init(json: String) { self.json = json }
+    public let valueEncoding: String?
+
+    public init(json: String, valueEncoding: String? = nil) {
+        self.json = json
+        self.valueEncoding = valueEncoding
+    }
+
+    public func toAnySendable() -> AnySendable {
+        var dict: [String: AnySendable] = ["json": .string(json)]
+        if let valueEncoding {
+            dict["valueEncoding"] = .string(valueEncoding)
+        }
+        return .dictionary(dict)
+    }
 }

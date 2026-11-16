@@ -6,6 +6,7 @@ import com.google.firebase.auth.FirebaseAuth
 import dev.pyric.auth.AuthLens
 import dev.pyric.auth.CredentialsProvider
 import dev.pyric.bridge.PyricBridgeClient
+import dev.pyric.database.internal.DatabaseInstanceResolver
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
@@ -78,13 +79,28 @@ class FirebaseDatabase(
         return DatabaseReference(this, path)
     }
 
+    internal val wireInstance: String?
+        get() {
+            val effectiveUrl = if (url == DEFAULT_DATABASE_URL && !app.options.databaseUrl.isNullOrBlank()) {
+                app.options.databaseUrl
+            } else {
+                url
+            }
+            return DatabaseInstanceResolver.resolveInstanceName(effectiveUrl, app.options.projectId)
+        }
+
+    internal fun withInstance(params: Map<String, Any?>): Map<String, Any?> {
+        val instance = wireInstance ?: return params
+        return params + ("instance" to instance)
+    }
+
     fun goOffline() {
         _networkEnabled.value = false
         databaseScope.launch(start = CoroutineStart.UNDISPATCHED) {
             try {
                 bridgeClient.op(
                     method = "rtdb.goOffline",
-                    params = emptyMap(),
+                    params = withInstance(emptyMap()),
                     actAs = getEffectiveAuthLens().toMap()
                 )
             } catch (_: Exception) {}
@@ -97,7 +113,7 @@ class FirebaseDatabase(
             try {
                 bridgeClient.op(
                     method = "rtdb.goOnline",
-                    params = emptyMap(),
+                    params = withInstance(emptyMap()),
                     actAs = getEffectiveAuthLens().toMap()
                 )
             } catch (_: Exception) {}

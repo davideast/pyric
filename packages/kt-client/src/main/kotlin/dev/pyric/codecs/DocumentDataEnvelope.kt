@@ -19,9 +19,10 @@ object DocumentDataEnvelope {
             val map = wireData as Map<String, Any?>
             val jsonStr = map["json"] as? String
             if (jsonStr != null) {
+                val allowEscapedMaps = map["valueEncoding"] == ValueCodec.DOC_VALUE_ENCODING_V1
                 return try {
                     val parsed = JsonCodec.decode(jsonStr)
-                    val decoded = ValueCodec.decodeValue(parsed, resolver)
+                    val decoded = ValueCodec.decodeValue(parsed, resolver, allowEscapedMaps)
                     @Suppress("UNCHECKED_CAST")
                     (decoded as? Map<String, Any?>) ?: emptyMap()
                 } catch (_: Exception) {
@@ -34,5 +35,16 @@ object DocumentDataEnvelope {
         }
 
         return emptyMap()
+    }
+
+    fun extractEnvelope(wireData: Any?): Map<String, Any?>? {
+        if (wireData !is Map<*, *>) return null
+        val jsonStr = wireData["json"] as? String ?: return null
+        val encoding = wireData["valueEncoding"] as? String
+        return if (encoding != null) {
+            mapOf("json" to jsonStr, "valueEncoding" to encoding)
+        } else {
+            mapOf("json" to jsonStr)
+        }
     }
 }

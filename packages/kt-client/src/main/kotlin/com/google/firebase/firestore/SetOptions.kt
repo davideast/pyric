@@ -4,6 +4,16 @@ class SetOptions private constructor(
     val isMerge: Boolean,
     val mergeFields: List<FieldPath>? = null
 ) {
+    internal fun toWireOptions(): Map<String, Any>? {
+        if (mergeFields != null) {
+            return mapOf("mergeFields" to mergeFields.map { it.canonicalString })
+        }
+        if (isMerge) {
+            return mapOf("merge" to true)
+        }
+        return null
+    }
+
     companion object {
         private val OVERWRITE = SetOptions(false)
         private val MERGE_ALL = SetOptions(true)

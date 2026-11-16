@@ -98,6 +98,10 @@ void main() {
       expect(sentMessages.length, equals(1));
       expect(sentMessages.first['type'], equals('attach'));
       expect(sentMessages.first['protocol'], equals(1));
+      expect(
+        sentMessages.first['capabilities'],
+        equals(['pyric/firestore-values/1']),
+      );
 
       // Simulate bridge attach-ack response
       mockChannel.toClientController.add(

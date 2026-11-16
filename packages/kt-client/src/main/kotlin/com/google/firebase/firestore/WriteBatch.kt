@@ -71,19 +71,25 @@ class WriteBatch internal constructor(private val firestore: FirebaseFirestore) 
         val tcs = TaskCompletionSource<Void?>()
         val writes = operations.map { op ->
             when (op) {
-                is Mutation.Set -> mapOf(
-                    "op" to "set",
-                    "path" to op.ref.path,
-                    "data" to ValueCodec.encodeWriteData(op.data),
-                    "merge" to op.options.isMerge
-                )
+                is Mutation.Set -> {
+                    val entry = mutableMapOf<String, Any?>(
+                        "method" to "set",
+                        "path" to op.ref.path,
+                        "data" to ValueCodec.encodeWriteData(op.data)
+                    )
+                    val wireOptions = op.options.toWireOptions()
+                    if (wireOptions != null) {
+                        entry["options"] = wireOptions
+                    }
+                    entry
+                }
                 is Mutation.Update -> mapOf(
-                    "op" to "update",
+                    "method" to "update",
                     "path" to op.ref.path,
                     "data" to ValueCodec.encodeWriteData(op.data)
                 )
                 is Mutation.Delete -> mapOf(
-                    "op" to "delete",
+                    "method" to "delete",
                     "path" to op.ref.path
                 )
             }

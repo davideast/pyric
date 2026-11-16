@@ -507,10 +507,9 @@ class PyricBridgeClient {
       _sendRaw({
         'type': 'attach',
         'protocol': 1,
+        'capabilities': const ['pyric/firestore-values/1'],
         if (_clientSessionId != null) 'clientSessionId': _clientSessionId,
-        'clientInfo': {
-          'platform': 'flutter',
-        },
+        'clientInfo': const {'platform': 'flutter'},
       });
     } catch (e) {
       _handleConnectionLoss(generation, 'Failed to send attach frame: $e');

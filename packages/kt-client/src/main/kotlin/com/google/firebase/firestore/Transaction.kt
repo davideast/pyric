@@ -1,7 +1,8 @@
 package com.google.firebase.firestore
 
-import dev.pyric.codecs.PojoCodec
 import com.google.android.gms.tasks.Tasks
+import dev.pyric.codecs.JsonCodec
+import dev.pyric.codecs.PojoCodec
 import dev.pyric.codecs.SentinelValidator
 import dev.pyric.codecs.ValueCodec
 
@@ -13,10 +14,17 @@ class Transaction internal constructor(
 
     fun get(documentRef: DocumentReference): DocumentSnapshot {
         val snapshot = Tasks.await(documentRef.get())
+        val serializedData: Map<String, Any?>? = if (!snapshot.exists()) {
+            null
+        } else {
+            snapshot.rawWireData ?: snapshot.getData()?.let {
+                mapOf("json" to JsonCodec.encodeToString(ValueCodec.encodeValue(it)))
+            }
+        }
         reads.add(
             mapOf(
                 "path" to documentRef.path,
-                "data" to mapOf("json" to (snapshot.getData()?.let { dev.pyric.codecs.JsonCodec.encodeToString(it) } ?: "null"))
+                "data" to serializedData
             )
         )
         return snapshot
@@ -32,21 +40,23 @@ class Transaction internal constructor(
             else -> PojoCodec.serialize(data)
         }
         SentinelValidator.validateNoDelete(map, options.isMerge)
-        writes.add(
-            mapOf(
-                "op" to "set",
-                "path" to documentRef.path,
-                "data" to ValueCodec.encodeWriteData(map),
-                "merge" to options.isMerge
-            )
+        val entry = mutableMapOf<String, Any?>(
+            "method" to "set",
+            "path" to documentRef.path,
+            "data" to ValueCodec.encodeWriteData(map)
         )
+        val wireOptions = options.toWireOptions()
+        if (wireOptions != null) {
+            entry["options"] = wireOptions
+        }
+        writes.add(entry)
         return this
     }
 
     fun update(documentRef: DocumentReference, data: Map<String, Any?>): Transaction {
         writes.add(
             mapOf(
-                "op" to "update",
+                "method" to "update",
                 "path" to documentRef.path,
                 "data" to ValueCodec.encodeWriteData(data)
             )
@@ -68,7 +78,7 @@ class Transaction internal constructor(
     fun delete(documentRef: DocumentReference): Transaction {
         writes.add(
             mapOf(
-                "op" to "delete",
+                "method" to "delete",
                 "path" to documentRef.path
             )
         )

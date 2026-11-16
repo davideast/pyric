@@ -184,7 +184,8 @@ class ConformanceTest {
     fun `firestore-kotlin#16 DocumentReference set with merge preserves unspecified fields`() {
         Tasks.await(harness.firestore.document("users/alice").set(mapOf("age" to 31), SetOptions.merge()))
         val op = lastOp("setDoc")!!["op"] as Map<*, *>
-        assertEquals(true, op["merge"])
+        assertFalse(op.containsKey("merge"))
+        assertEquals(true, (op["options"] as Map<*, *>)["merge"])
     }
 
     @Test

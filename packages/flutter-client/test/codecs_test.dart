@@ -353,6 +353,78 @@ void main() {
       expect(decodeDocData({'json': 'not even json'}), equals(<String, dynamic>{}));
       expect(decodeDocData({'json': ''}), equals(<String, dynamic>{}));
     });
+
+    test('decodes pyric/firestore-values/1 escaped maps and non-finite number markers', () {
+      final envelope = {
+        'valueEncoding': docValueEncodingV1,
+        'json': jsonEncode({
+          'type': 'pyric/map/1.0',
+          'fields': {
+            'type': 'order',
+            'label': 'a',
+            'nestedRefShape': {
+              'type': 'pyric/map/1.0',
+              'fields': {'id': 'home', 'path': '/home'},
+            },
+            'fakeTs': {
+              'type': 'pyric/map/1.0',
+              'fields': {
+                'type': 'firestore/timestamp/1.0',
+                'seconds': 1,
+                'nanoseconds': 2,
+              },
+            },
+            'realTs': {
+              'type': 'firestore/timestamp/1.0',
+              'seconds': 1712000000,
+              'nanoseconds': 5,
+            },
+            'nanVal': {'__type': 'number', 'value': 'NaN'},
+            'infVal': {'__type': 'number', 'value': 'Infinity'},
+            'negInfVal': {'__type': 'number', 'value': '-Infinity'},
+            'negZeroVal': {'__type': 'number', 'value': '-0'},
+          },
+        }),
+      };
+
+      final data = decodeDocData(envelope);
+      expect(data['type'], equals('order'));
+      expect(data['label'], equals('a'));
+      expect(data['nestedRefShape'], equals({'id': 'home', 'path': '/home'}));
+      expect(
+        data['fakeTs'],
+        equals({
+          'type': 'firestore/timestamp/1.0',
+          'seconds': 1,
+          'nanoseconds': 2,
+        }),
+      );
+      expect(data['realTs'], isA<Timestamp>());
+      expect((data['realTs'] as Timestamp).seconds, equals(1712000000));
+      expect((data['nanVal'] as double).isNaN, isTrue);
+      expect(data['infVal'], equals(double.infinity));
+      expect(data['negInfVal'], equals(double.negativeInfinity));
+      expect(data['negZeroVal'], equals(-0.0));
+      expect((data['negZeroVal'] as double).isNegative, isTrue);
+    });
+
+    test('preserves literal pyric/map/1.0 maps when valueEncoding is absent', () {
+      final legacyEnvelope = {
+        'json': jsonEncode({
+          'type': 'pyric/map/1.0',
+          'fields': {'a': 1},
+        }),
+      };
+
+      final data = decodeDocData(legacyEnvelope);
+      expect(
+        data,
+        equals({
+          'type': 'pyric/map/1.0',
+          'fields': {'a': 1},
+        }),
+      );
+    });
   });
 
   group('Query Compiler: Target Descriptors & Constraints', () {

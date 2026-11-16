@@ -119,7 +119,13 @@ public final class PyricVectorSentinel: PyricSentinel, Equatable, @unchecked Sen
     }
 
     public func toWireSentinel() throws -> [String: Any] {
-        ["__sentinel": "vector", "values": values]
+        guard values.allSatisfy(\.isFinite) else {
+            throw PyricFirestoreError.serializationError("Vector elements must be finite numbers.")
+        }
+        return [
+            "type": "firestore/vectorValue/1.0",
+            "vectorValues": values
+        ]
     }
 
     public func isEqual(to other: any PyricSentinel) -> Bool {

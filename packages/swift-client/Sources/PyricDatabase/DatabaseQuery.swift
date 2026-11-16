@@ -216,7 +216,12 @@ public class DatabaseQuery: NSObject, @unchecked Sendable {
             params["query"] = qSpec
         }
         let actAs = database.currentAuthLens()
-        let wire = try await client.op(turn: turn, method: "rtdb.get", params: params, actAs: actAs)
+        let wire = try await client.op(
+            turn: turn,
+            method: "rtdb.get",
+            params: database.withInstance(params),
+            actAs: actAs
+        )
         return DataSnapshot(wire: wire, ref: ref)
     }
 
@@ -338,6 +343,9 @@ public class DatabaseQuery: NSObject, @unchecked Sendable {
             "service": .string("rtdb"),
             "path": .string(path)
         ]
+        if let instance = database.wireInstance {
+            targetDict["instance"] = .string(instance)
+        }
         if let qSpec = toQuerySpecAnySendable() {
             targetDict["query"] = qSpec
         }

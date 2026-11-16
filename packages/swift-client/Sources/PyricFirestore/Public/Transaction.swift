@@ -36,15 +36,35 @@ public final class Transaction: @unchecked Sendable {
         let snapshot = DocumentSnapshot.fromWire(firestore: firestore, path: document.path, wire: raw)
 
         // Capture read state for optimistic concurrency check
-        if snapshot.exists, let rawData = snapshot.rawData {
-            let dataJSON = try JSONSerialization.data(withJSONObject: rawData)
-            let jsonString = String(data: dataJSON, encoding: .utf8) ?? "{}"
-            stagedReads.append(TxnReadEntry(path: document.path, data: SerializedDocData(json: jsonString)))
+        if snapshot.exists {
+            if let envelope = Self.extractWireEnvelope(from: raw) {
+                stagedReads.append(TxnReadEntry(path: document.path, data: envelope))
+            } else if let rawData = snapshot.rawData {
+                let encoded = try ValueCodec.encodeWriteData(rawData)
+                let dataJSON = try JSONSerialization.data(
+                    withJSONObject: encoded,
+                    options: [.sortedKeys]
+                )
+                let jsonString = String(data: dataJSON, encoding: .utf8) ?? "{}"
+                stagedReads.append(TxnReadEntry(path: document.path, data: SerializedDocData(json: jsonString)))
+            } else {
+                stagedReads.append(TxnReadEntry(path: document.path, data: SerializedDocData(json: "{}")))
+            }
         } else {
             stagedReads.append(TxnReadEntry(path: document.path, data: nil))
         }
 
         return snapshot
+    }
+
+    private static func extractWireEnvelope(from raw: AnySendable) -> SerializedDocData? {
+        guard let wireDict = raw.dictionaryValue,
+              let dataDict = wireDict["data"]?.dictionaryValue,
+              let jsonString = dataDict["json"]?.stringValue else {
+            return nil
+        }
+        let valueEncoding = dataDict["valueEncoding"]?.stringValue
+        return SerializedDocData(json: jsonString, valueEncoding: valueEncoding)
     }
 
     private final class BoxedResult: @unchecked Sendable {

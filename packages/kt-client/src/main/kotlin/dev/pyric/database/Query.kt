@@ -181,7 +181,7 @@ open class Query(
                 }
                 val res = database.bridgeClient.op(
                     method = "rtdb.get",
-                    params = params,
+                    params = database.withInstance(params),
                     actAs = database.getEffectiveAuthLens().toMap()
                 )
                 @Suppress("UNCHECKED_CAST")
@@ -269,6 +269,10 @@ private fun Query.hostSnapshots(): Flow<DataSnapshot> = callbackFlow {
         "service" to "rtdb",
         "path" to path
     )
+    val instance = database.wireInstance
+    if (instance != null) {
+        target["instance"] = instance
+    }
     if (!querySpec.isEmpty()) {
         target["query"] = querySpec.toMap()
     }

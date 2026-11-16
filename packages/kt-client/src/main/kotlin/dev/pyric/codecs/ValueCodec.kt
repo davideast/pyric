@@ -15,6 +15,8 @@ data class PyricDocumentReferenceHolder(val path: String)
 
 object ValueCodec {
 
+    const val DOC_VALUE_ENCODING_V1 = "pyric/firestore-values/1"
+
     fun encodeValue(value: Any?): Any? {
         return when (value) {
             null -> null
@@ -97,11 +99,20 @@ object ValueCodec {
         return (encodeValue(data) as? Map<String, Any?>) ?: emptyMap()
     }
 
-    fun decodeValue(value: Any?, resolver: DocumentReferenceResolver? = null): Any? {
+    fun decodeValue(
+        value: Any?,
+        resolver: DocumentReferenceResolver? = null
+    ): Any? = decodeValue(value, resolver, false)
+
+    fun decodeValue(
+        value: Any?,
+        resolver: DocumentReferenceResolver? = null,
+        allowEscapedMaps: Boolean
+    ): Any? {
         return when (value) {
             null -> null
             is Boolean, is Number, is String -> value
-            is List<*> -> value.map { decodeValue(it, resolver) }
+            is List<*> -> value.map { decodeValue(it, resolver, allowEscapedMaps) }
             is Map<*, *> -> {
                 @Suppress("UNCHECKED_CAST")
                 val map = value as Map<String, Any?>
@@ -111,50 +122,100 @@ object ValueCodec {
                 if (typeMarker != null) {
                     return when (typeMarker) {
                         "timestamp" -> {
-                            val seconds = (map["seconds"] as Number).toLong()
-                            val nanos = (map["nanos"] as Number).toInt()
-                            Timestamp(seconds, nanos)
+                            val seconds = (map["seconds"] as? Number)?.toLong()
+                            val nanos = (map["nanos"] as? Number)?.toInt()
+                            if (seconds != null && nanos != null) {
+                                Timestamp(seconds, nanos)
+                            } else {
+                                decodeMapEntries(map, resolver, allowEscapedMaps)
+                            }
                         }
                         "latlng" -> {
-                            val lat = (map["lat"] as Number).toDouble()
-                            val lng = (map["lng"] as Number).toDouble()
-                            GeoPoint(lat, lng)
+                            val lat = (map["lat"] as? Number)?.toDouble()
+                            val lng = (map["lng"] as? Number)?.toDouble()
+                            if (lat != null && lng != null) {
+                                GeoPoint(lat, lng)
+                            } else {
+                                decodeMapEntries(map, resolver, allowEscapedMaps)
+                            }
                         }
                         "bytes" -> {
-                            val b64 = map["base64"] as String
-                            Blob.fromBytes(Base64Url.decodeUnpadded(b64))
+                            val b64 = map["base64"] as? String
+                            if (b64 != null) {
+                                Blob.fromBytes(Base64Url.decodeUnpadded(b64))
+                            } else {
+                                decodeMapEntries(map, resolver, allowEscapedMaps)
+                            }
                         }
                         "reference" -> {
-                            val path = map["path"] as String
-                            resolver?.resolve(path) ?: PyricDocumentReferenceHolder(path)
+                            val path = map["path"] as? String
+                            if (path != null) {
+                                resolver?.resolve(path) ?: PyricDocumentReferenceHolder(path)
+                            } else {
+                                decodeMapEntries(map, resolver, allowEscapedMaps)
+                            }
                         }
-                        else -> decodeMapEntries(map, resolver)
+                        "number" -> {
+                            if (map.size == 2 && map.containsKey("value")) {
+                                when (map["value"]) {
+                                    "NaN" -> Double.NaN
+                                    "Infinity" -> Double.POSITIVE_INFINITY
+                                    "-Infinity" -> Double.NEGATIVE_INFINITY
+                                    "-0" -> -0.0
+                                    else -> decodeMapEntries(map, resolver, allowEscapedMaps)
+                                }
+                            } else {
+                                decodeMapEntries(map, resolver, allowEscapedMaps)
+                            }
+                        }
+                        else -> decodeMapEntries(map, resolver, allowEscapedMaps)
                     }
                 }
 
-                // 2. Compatibility type marker
+                // 2. Escaped user map wrapper under declared pyric/firestore-values/1 encoding
                 val compatType = map["type"] as? String
+                if (allowEscapedMaps && compatType == "pyric/map/1.0" && map.size == 2) {
+                    val rawFields = map["fields"]
+                    if (rawFields is Map<*, *>) {
+                        @Suppress("UNCHECKED_CAST")
+                        return decodeMapEntries(rawFields as Map<String, Any?>, resolver, allowEscapedMaps)
+                    }
+                }
+
+                // 3. Compatibility type marker
                 if (compatType != null) {
                     return when (compatType) {
                         "firestore/timestamp/1.0" -> {
-                            val seconds = (map["seconds"] as Number).toLong()
-                            val nanos = (map["nanoseconds"] as Number).toInt()
-                            Timestamp(seconds, nanos)
+                            val seconds = (map["seconds"] as? Number)?.toLong()
+                            val nanos = (map["nanoseconds"] as? Number)?.toInt()
+                            if (seconds != null && nanos != null) {
+                                Timestamp(seconds, nanos)
+                            } else {
+                                decodeMapEntries(map, resolver, allowEscapedMaps)
+                            }
                         }
                         "firestore/geoPoint/1.0" -> {
-                            val lat = (map["latitude"] as Number).toDouble()
-                            val lng = (map["longitude"] as Number).toDouble()
-                            GeoPoint(lat, lng)
+                            val lat = (map["latitude"] as? Number)?.toDouble()
+                            val lng = (map["longitude"] as? Number)?.toDouble()
+                            if (lat != null && lng != null) {
+                                GeoPoint(lat, lng)
+                            } else {
+                                decodeMapEntries(map, resolver, allowEscapedMaps)
+                            }
                         }
                         "firestore/bytes/1.0" -> {
-                            val b64 = map["bytes"] as String
-                            Blob.fromBytes(Base64Url.decodeStandard(b64))
+                            val b64 = map["bytes"] as? String
+                            if (b64 != null) {
+                                Blob.fromBytes(Base64Url.decodeStandard(b64))
+                            } else {
+                                decodeMapEntries(map, resolver, allowEscapedMaps)
+                            }
                         }
-                        else -> decodeMapEntries(map, resolver)
+                        else -> decodeMapEntries(map, resolver, allowEscapedMaps)
                     }
                 }
 
-                decodeMapEntries(map, resolver)
+                decodeMapEntries(map, resolver, allowEscapedMaps)
             }
             else -> value
         }
@@ -162,11 +223,12 @@ object ValueCodec {
 
     private fun decodeMapEntries(
         map: Map<String, Any?>,
-        resolver: DocumentReferenceResolver?
+        resolver: DocumentReferenceResolver?,
+        allowEscapedMaps: Boolean
     ): Map<String, Any?> {
         val out = mutableMapOf<String, Any?>()
         for ((k, v) in map) {
-            out[k] = decodeValue(v, resolver)
+            out[k] = decodeValue(v, resolver, allowEscapedMaps)
         }
         return out
     }

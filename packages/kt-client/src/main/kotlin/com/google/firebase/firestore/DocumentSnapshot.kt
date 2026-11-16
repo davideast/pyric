@@ -8,7 +8,8 @@ open class DocumentSnapshot internal constructor(
     val reference: DocumentReference,
     private val exists: Boolean,
     private val rawData: Map<String, Any?>?,
-    val metadata: SnapshotMetadata = SnapshotMetadata(hasPendingWrites = false, isFromCache = false)
+    val metadata: SnapshotMetadata = SnapshotMetadata(hasPendingWrites = false, isFromCache = false),
+    internal val rawWireData: Map<String, Any?>? = null
 ) {
     open fun exists(): Boolean = exists
 

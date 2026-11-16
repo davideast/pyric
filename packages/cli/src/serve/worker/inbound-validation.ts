@@ -2,7 +2,7 @@ import { validateAuthState } from 'pyric/sandbox';
 import { readNodeUnobservedLists, readObservedCall } from 'pyric/sandbox/internal';
 import { readObservedSessionDelta } from '../observed-session/delta-validation.js';
 import type { PortLike } from './host-context.js';
-import type { OutboundMessage } from './protocol.js';
+import { DOC_VALUE_ENCODING, type OutboundMessage } from './protocol.js';
 import { assertOperationArguments } from './inbound-validation/operation-arguments.js';
 import { assertSubscription } from './inbound-validation/subscription.js';
 import { isMessageRecord, requireRecord, requireShape, requireString, requireOptionalString,
@@ -26,6 +26,10 @@ function dropUnreadableSessionData(message: Record<string, unknown>): void {
 function assertInboundFields(message: Record<string, unknown>): void {
   requireOptionalString(message.clientSessionId, 'clientSessionId');
   requireOptionalBoolean(message.resumeSession, 'resumeSession');
+  const encoding = message.docValueEncoding;
+  if (encoding !== undefined) {
+    requireShape(encoding === DOC_VALUE_ENCODING || encoding === 'legacy', 'docValueEncoding');
+  }
   const lens = message.actAs;
   const hasLens = lens !== undefined;
   if (hasLens) {

@@ -17,6 +17,7 @@ export * from './protocol/storage.js';
 import type {
   TargetDescriptor,
   DocValueEncoding,
+  ResponseDocValueEncoding,
   AggregateSpecDescriptor,
   WriteDescriptor,
   UpdatePayload,
@@ -362,8 +363,7 @@ export type OpMessage = (
   | { t: 'op'; id: string; method: 'presence.disconnect'; clientId: string }
 ) & {
   actAs?: AuthLens;
-  issuer?: 'studio';
-  relaySource?: 'remote';
+  issuer?: 'studio'; relaySource?: 'remote'; docValueEncoding?: ResponseDocValueEncoding;
 };
 
 /**
