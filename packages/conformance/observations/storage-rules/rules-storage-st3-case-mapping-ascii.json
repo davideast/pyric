@@ -5,7 +5,7 @@
     "storage-rules#220"
   ],
   "description": "Storage Rules Test API verdicts for corpus scenario \"st3-case-mapping-ascii\" (ST3-CASE-ASCII). lower() and upper() map the ASCII letters A-Z and a-z only; every other letter keeps its case.",
-  "observedAt": "2026-11-04T02:27:38.149Z",
+  "observedAt": "2026-11-16T06:12:09.431Z",
   "fbSdkVersion": "12.19.0",
   "projectId": "digame-mas",
   "inputDigest": {
@@ -25,5 +25,187 @@
     "mixed-ascii-part: 'aé'.upper() == 'Aé' (pyric DENY)": "ALLOW",
     "fullwidth-upper: 'ａ'.upper() == 'Ａ' (pyric ALLOW)": "DENY",
     "email-lower: 'ÉVE@X.COM'.lower() == 'éve@x.com' (pyric ALLOW)": "DENY"
+  },
+  "diagnostics": {
+    "latin1-upper: 'é'.upper() == 'É' (pyric ALLOW)": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 4,
+              "column": 50,
+              "currentOffset": 121,
+              "endOffset": 123
+            },
+            "value": false
+          }
+        ]
+      }
+    },
+    "latin1-upper-unchanged: 'é'.upper() == 'é' (pyric DENY)": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 5,
+              "column": 60,
+              "currentOffset": 202,
+              "endOffset": 204
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "latin1-lower: 'Ä'.lower() == 'ä' (pyric ALLOW)": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 6,
+              "column": 50,
+              "currentOffset": 273,
+              "endOffset": 275
+            },
+            "value": false
+          }
+        ]
+      }
+    },
+    "latin1-lower-unchanged: 'Ä'.lower() == 'Ä' (pyric DENY)": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 7,
+              "column": 60,
+              "currentOffset": 354,
+              "endOffset": 356
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "greek-lower-unchanged: 'ΑΣ'.lower() == 'ΑΣ' (pyric DENY)": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 8,
+              "column": 59,
+              "currentOffset": 434,
+              "endOffset": 437
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "cyrillic-upper: 'ж'.upper() == 'Ж' (pyric ALLOW)": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 9,
+              "column": 52,
+              "currentOffset": 509,
+              "endOffset": 511
+            },
+            "value": false
+          }
+        ]
+      }
+    },
+    "cyrillic-upper-unchanged: 'ж'.upper() == 'ж' (pyric DENY)": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 10,
+              "column": 62,
+              "currentOffset": 592,
+              "endOffset": 594
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "dotted-i-lower-unchanged: 'İ'.lower() == 'İ' (pyric DENY)": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 11,
+              "column": 62,
+              "currentOffset": 675,
+              "endOffset": 677
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "dotless-i-upper-unchanged: 'ı'.upper() == 'ı' (pyric DENY)": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 12,
+              "column": 63,
+              "currentOffset": 759,
+              "endOffset": 761
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "mixed-ascii-part: 'aé'.upper() == 'Aé' (pyric DENY)": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 13,
+              "column": 54,
+              "currentOffset": 834,
+              "endOffset": 837
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "fullwidth-upper: 'ａ'.upper() == 'Ａ' (pyric ALLOW)": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 14,
+              "column": 53,
+              "currentOffset": 910,
+              "endOffset": 912
+            },
+            "value": false
+          }
+        ]
+      }
+    },
+    "email-lower: 'ÉVE@X.COM'.lower() == 'éve@x.com' (pyric ALLOW)": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 15,
+              "column": 49,
+              "currentOffset": 980,
+              "endOffset": 990
+            },
+            "value": false
+          }
+        ]
+      }
+    }
   }
 }

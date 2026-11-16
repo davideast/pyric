@@ -5,7 +5,7 @@
     "firestore-rules#223"
   ],
   "description": "Firestore Rules Test API verdicts for corpus scenario \"root-recursive-own-allow-write\" (Coverage: root block own allow). The write rules on a root recursive block apply, as on any other block.",
-  "observedAt": "2026-11-04T02:28:14.129Z",
+  "observedAt": "2026-11-16T06:12:07.633Z",
   "fbSdkVersion": "12.19.0",
   "projectId": "digame-mas",
   "inputDigest": {
@@ -20,7 +20,16 @@
     "root /{path=**} own write rule, signed out create c/1": {
       "notes": [
         "Error: firestore.rules line [4], column [21]. Property auth is undefined on object."
-      ]
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 4,
+          "column": 21,
+          "currentOffset": 88,
+          "endOffset": 94
+        }
+      }
     }
   }
 }

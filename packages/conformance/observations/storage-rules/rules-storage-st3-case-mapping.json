@@ -5,7 +5,7 @@
     "storage-rules#220"
   ],
   "description": "Storage Rules Test API verdicts for corpus scenario \"st3-case-mapping\" (ST3-CASE-MAPPING). lower() and upper() where full and simple Unicode case mapping differ.",
-  "observedAt": "2026-11-04T02:27:15.469Z",
+  "observedAt": "2026-11-16T06:12:09.184Z",
   "fbSdkVersion": "12.19.0",
   "projectId": "digame-mas",
   "inputDigest": {
@@ -26,5 +26,210 @@
     "armenian-ligature-upper-size: 'և'.upper().size() == 1 (pyric DENY)": "ALLOW",
     "upper-sharp-s-to-capital: 'ß'.upper() == 'ẞ' (pyric DENY)": "DENY",
     "lookup map with one path key: .path is path (pyric DENY)": "ALLOW"
+  },
+  "diagnostics": {
+    "ascii-upper: 'aB'.upper() == 'AB' (pyric ALLOW)": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 4,
+              "column": 49,
+              "currentOffset": 120,
+              "endOffset": 123
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "sharp-s-upper-unchanged: 'ß'.upper() == 'ß' (pyric DENY)": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 5,
+              "column": 61,
+              "currentOffset": 204,
+              "endOffset": 206
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "sharp-s-upper-size: 'ß'.upper().size() == 1 (pyric DENY)": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 6,
+              "column": 56,
+              "currentOffset": 281,
+              "endOffset": 283
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "sigma-lower-simple: 'ΑΣ'.lower() == 'ασ' (pyric DENY)": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 7,
+              "column": 56,
+              "currentOffset": 363,
+              "endOffset": 366
+            },
+            "value": false
+          }
+        ]
+      }
+    },
+    "ligature-upper-unchanged: 'ﬁ'.upper() == 'ﬁ' (pyric DENY)": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 8,
+              "column": 62,
+              "currentOffset": 448,
+              "endOffset": 450
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "dotted-i-lower-plain-i: 'İ'.lower() == 'i' (pyric DENY)": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 9,
+              "column": 60,
+              "currentOffset": 529,
+              "endOffset": 531
+            },
+            "value": false
+          }
+        ]
+      }
+    },
+    "dotted-i-lower-size-1: 'İ'.lower().size() == 1 (pyric DENY)": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 10,
+              "column": 59,
+              "currentOffset": 609,
+              "endOffset": 611
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "dotless-i-upper: 'ı'.upper() == 'I' (pyric ALLOW)": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 11,
+              "column": 53,
+              "currentOffset": 688,
+              "endOffset": 690
+            },
+            "value": false
+          }
+        ]
+      }
+    },
+    "long-s-upper: 'ſ'.upper() == 'S' (pyric ALLOW)": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 12,
+              "column": 50,
+              "currentOffset": 759,
+              "endOffset": 761
+            },
+            "value": false
+          }
+        ]
+      }
+    },
+    "titlecase-dz-upper: 'ǅ'.upper() == 'Ǆ' (pyric ALLOW)": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 13,
+              "column": 56,
+              "currentOffset": 836,
+              "endOffset": 838
+            },
+            "value": false
+          }
+        ]
+      }
+    },
+    "armenian-ligature-upper-size: 'և'.upper().size() == 1 (pyric DENY)": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 14,
+              "column": 66,
+              "currentOffset": 923,
+              "endOffset": 925
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "upper-sharp-s-to-capital: 'ß'.upper() == 'ẞ' (pyric DENY)": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 15,
+              "column": 62,
+              "currentOffset": 1011,
+              "endOffset": 1013
+            },
+            "value": false
+          }
+        ]
+      }
+    },
+    "lookup map with one path key: .path is path (pyric DENY)": {
+      "api": {
+        "functionCalls": [
+          {
+            "function": "firestore.get",
+            "args": [
+              "/databases/%28default%29/documents/a/b"
+            ]
+          }
+        ],
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 16,
+              "column": 41,
+              "currentOffset": 1073,
+              "endOffset": 1081
+            },
+            "value": true
+          }
+        ]
+      }
+    }
   }
 }
