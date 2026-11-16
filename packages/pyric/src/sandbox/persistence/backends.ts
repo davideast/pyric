@@ -39,12 +39,33 @@ export function recordBackendOverBlob(io: {
   clear(): Promise<void>;
 }): PersistenceBackend {
   let cache: Map<string, unknown> | null = null;
+  let loadPromise: Promise<Map<string, unknown>> | null = null;
+  let epoch = 0;
   let writeChain: Promise<void> = Promise.resolve();
   const load = async (): Promise<Map<string, unknown>> => {
-    if (cache) return cache;
-    const blob = await io.read();
-    cache = blob ? parseBundle(blob) : new Map();
-    return cache;
+    if (cache !== null) return cache;
+    if (loadPromise !== null) return loadPromise;
+    const startedEpoch = epoch;
+    const readCall = (async (): Promise<string | null> => io.read())();
+    const pending = readCall.then(
+      (blob): Map<string, unknown> => {
+        const loaded = blob ? parseBundle(blob) : new Map<string, unknown>();
+        if (epoch === startedEpoch && cache === null) {
+          cache = loaded;
+        }
+        return cache ?? loaded;
+      },
+      (error: unknown): Map<string, unknown> => {
+        if (epoch !== startedEpoch && cache !== null) return cache;
+        throw error;
+      },
+    );
+    loadPromise = pending;
+    const clearPending = (): void => {
+      if (loadPromise === pending) loadPromise = null;
+    };
+    pending.then(clearPending, clearPending);
+    return pending;
   };
   const serialize = <T>(op: () => Promise<T>): Promise<T> => {
     const run = writeChain.then(op, op);
@@ -63,26 +84,32 @@ export function recordBackendOverBlob(io: {
       return [...(await load()).keys()];
     },
     async putRecords(_key, records) {
+      const staged: Array<[string, unknown]> = [];
+      for (const [id, rec] of records) staged.push([id, structuredClone(rec)]);
       await serialize(async () => {
         const all = await load();
         const next = new Map(all);
-        for (const [id, rec] of records) next.set(id, structuredClone(rec));
+        for (const [id, rec] of staged) next.set(id, rec);
         await io.write(bundleRecords(next));
+        epoch += 1;
         cache = next;
       });
     },
     async deleteRecords(_key, recordIds) {
+      const ids = [...recordIds];
       await serialize(async () => {
         const all = await load();
         const next = new Map(all);
-        for (const id of recordIds) next.delete(id);
+        for (const id of ids) next.delete(id);
         await io.write(bundleRecords(next));
+        epoch += 1;
         cache = next;
       });
     },
     async clear() {
       await serialize(async () => {
         await io.clear();
+        epoch += 1;
         cache = new Map();
       });
     },

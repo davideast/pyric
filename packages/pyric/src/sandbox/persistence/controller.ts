@@ -143,9 +143,9 @@ export async function attachPersistence(
   // `restore()` returns the raw services blob — the controller keeps this
   // so late-registering services can still receive their saved state even
   // though they weren't in the registry when `restore()` ran.
-  const restoredServices = await restore(sandbox, backend, options.key, lastHashes, staleIds);
-
-  const pendingServices = new Map(Object.entries(restoredServices ?? {}));
+  const restored = await restore(sandbox, backend, options.key, lastHashes, staleIds);
+  let preserveIncompatible = restored.preserveIncompatible;
+  const pendingServices = new Map(Object.entries(restored.services ?? {}));
   const serviceSnapshots = new Map<string, unknown>();
 
   let pendingFlush: ReturnType<typeof setTimeout> | null = null;
@@ -173,7 +173,7 @@ export async function attachPersistence(
 
   // Prepare immutable records before awaiting the backend; later mutations stay dirty.
   const realFlush = async (): Promise<void> => {
-    if (disposed) return;
+    if (disposed || preserveIncompatible) return;
     const prepared = changedBuckets?.prepare();
     const servicePrepared: Array<{ records: Map<string, unknown>; removed: string[]; retry(): void }> = [];
     try {
@@ -285,7 +285,7 @@ export async function attachPersistence(
   };
 
   const scheduleFlush = (): void => {
-    if (disposed) return;
+    if (disposed || preserveIncompatible) return;
     const alreadyScheduled = pendingFlush !== null;
     if (alreadyScheduled) return;
     pendingFlush = setTimeout(() => {
@@ -523,6 +523,7 @@ export async function attachPersistence(
         pendingFlush = null;
       }
       await backend.clear(options.key);
+      preserveIncompatible = false;
       // Reset the diff baseline: the backend is now empty, so the next flush
       // must treat every bucket as changed and re-persist the full in-memory
       // state (otherwise untouched buckets stay suppressed and are lost).
@@ -575,13 +576,9 @@ export async function attachPersistence(
  * land after Firestore is ready, not before — matches the natural
  * initialization order.
  *
- * Unreadable blobs (parse failure, schema mismatch) are QUARANTINED,
- * not destroyed: the raw blob moves to `<key>:corrupt` and the live
- * key is cleared so the next flush starts fresh. Silent data loss is
- * the worst failure mode for a persistence layer — parking the bytes
- * under a side key keeps a serialization bug debuggable after the
- * fact. Each new corrupt blob overwrites the previous quarantine
- * record (one forensic slot per key is enough).
+ * Incompatible newer or malformed formats are quarantined to `<key>:corrupt`
+ * when the backend supports distinct keys, or left untouched with flushing
+ * paused until an explicit `clear()` when quarantining is not possible.
  *
  * Listeners attached to the sandbox before restore will see each
  * hydrated doc as a fresh notification — intentional. The natural
@@ -598,15 +595,15 @@ async function restore(
   key: string,
   lastHashes: Map<string, number>,
   staleIds: Set<string>,
-): Promise<Record<string, unknown> | null> {
+): Promise<{ services: Record<string, unknown> | null; preserveIncompatible: boolean }> {
   let ids: string[];
   try {
     ids = await backend.listRecords(key);
   } catch (e) {
     console.warn('[sandbox/persistence] backend list failed:', e);
-    return null;
+    return { services: null, preserveIncompatible: false };
   }
-  if (ids.length === 0) return null;
+  if (ids.length === 0) return { services: null, preserveIncompatible: false };
   const records: [string, unknown][] = [];
   for (const id of ids) {
     try {
@@ -643,7 +640,10 @@ async function restore(
     }
     for (const [id, rec] of migrated) v3Records.push([id, rec]);
   }
-  if (await skipIncompatibleFormat(backend, key, v3Records, staleIds)) return null;
+  const formatOutcome = await skipIncompatibleFormat(backend, key, v3Records, staleIds);
+  if (formatOutcome !== 'compatible') {
+    return { services: null, preserveIncompatible: formatOutcome === 'preserved' };
+  }
   // Seed the flush hash state from the persisted records, so the first flush
   // does not redundantly re-write the just-restored buckets.
   for (const [id, rec] of v3Records) lastHashes.set(id, hashRecord(rec));
@@ -684,7 +684,7 @@ async function restore(
 
   // Return the services blob so the controller can apply it to services
   // that register after this call (the late-registration case).
-  return parsed.services;
+  return { services: parsed.services, preserveIncompatible: false };
 }
 
 /**

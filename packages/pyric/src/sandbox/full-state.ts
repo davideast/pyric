@@ -11,6 +11,7 @@
  *   auth accounts, with the fields the auth sandbox exports, plus provider config
  *     and each account's revocation time and the deleted uids
  *   the three rule sources: Firestore, Realtime Database, and Storage
+ *   Messaging broker state: tokens, tombstones, and topic subscriptions
  *
  * {@link captureFullState} is a pure read: it reaches each service's backend
  * through the same seams persistence already uses, and leaves every one of
@@ -32,7 +33,7 @@ import { getOrCreateBackend, heldDatabaseInstances } from '../database/sandbox/b
 import type { RtdbBackend } from '../database/sandbox/backend.js';
 import type { JsonValue } from '../database/sandbox/data-tree.js';
 import { DOC_VALUE_ENCODING, type DocValueEncoding } from '../firestore/internal/value-codec.js';
-import { getMessagingBroker } from '../messaging/broker/index.js';
+import { getMessagingBroker } from '../messaging/internal.js';
 import { isMessagingSnapshot, type MessagingSnapshot } from '../messaging/broker/persistence.js';
 import {
   ref,

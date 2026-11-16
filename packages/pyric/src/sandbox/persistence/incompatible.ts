@@ -2,26 +2,32 @@ import { isSingleKeyBackend } from './backends.js';
 import { CHUNK_FORMAT_VERSION, META_RECORD_ID } from './chunk-format.js';
 import type { PersistenceBackend } from './types.js';
 
+export type IncompatibleFormatOutcome = 'compatible' | 'cleared' | 'preserved';
+
 /**
  * Inspect the `meta` record for format-version compatibility.
  *
- * Legacy older versions (`version < CHUNK_FORMAT_VERSION`) are skipped and
- * marked stale so the next flush replaces them cleanly. Future or malformed
- * metadata versions are quarantined to `<key>:corrupt` before marking the live
- * records stale so newer-format data is never silently destroyed.
+ * Returns:
+ * - `'compatible'`: no metadata record or `version === CHUNK_FORMAT_VERSION`.
+ * - `'cleared'`: legacy older version (`version < CHUNK_FORMAT_VERSION`) or a
+ *   future/malformed version that was safely quarantined to `<key>:corrupt`;
+ *   records are added to `staleIds` so the next flush replaces them cleanly.
+ * - `'preserved'`: future/malformed version could not be quarantined
+ *   (single-key backend or quarantine write failure); callers must keep
+ *   flushing paused until an explicit `clear()` removes the incompatible store.
  */
 export async function skipIncompatibleFormat(
   backend: PersistenceBackend,
   key: string,
   records: ReadonlyArray<[string, unknown]>,
   staleIds: Set<string>,
-): Promise<boolean> {
+): Promise<IncompatibleFormatOutcome> {
   const metaEntry = records.find(([id]) => id === META_RECORD_ID);
-  if (metaEntry === undefined) return false;
+  if (metaEntry === undefined) return 'compatible';
   const metaRec = metaEntry[1];
   const isObject = metaRec !== null && typeof metaRec === 'object' && !Array.isArray(metaRec);
   const version = isObject ? (metaRec as { version?: unknown }).version : undefined;
-  if (version === CHUNK_FORMAT_VERSION) return false;
+  if (version === CHUNK_FORMAT_VERSION) return 'compatible';
 
   const isLegacyVersion =
     typeof version === 'number' && Number.isFinite(version) && version < CHUNK_FORMAT_VERSION;
@@ -30,15 +36,15 @@ export async function skipIncompatibleFormat(
       `[sandbox/persistence] unsupported persistence format version ${version} (expected ${CHUNK_FORMAT_VERSION}); skipping incompatible persisted state`,
     );
     for (const [id] of records) staleIds.add(id);
-    return true;
+    return 'cleared';
   }
 
   const versionLabel = String(version);
   if (isSingleKeyBackend(backend)) {
     console.warn(
-      `[sandbox/persistence] unsupported persistence format version ${versionLabel} (expected ${CHUNK_FORMAT_VERSION}); leaving incompatible persisted records untouched`,
+      `[sandbox/persistence] unsupported persistence format version ${versionLabel} (expected ${CHUNK_FORMAT_VERSION}); leaving incompatible persisted records untouched until cleared`,
     );
-    return true;
+    return 'preserved';
   }
 
   const corruptKey = `${key}:corrupt`;
@@ -56,12 +62,13 @@ export async function skipIncompatibleFormat(
   }
   const outcome = quarantined
     ? `quarantined persisted state to '${corruptKey}'`
-    : 'leaving incompatible persisted records untouched';
+    : 'leaving incompatible persisted records untouched until cleared';
   console.warn(
     `[sandbox/persistence] unsupported persistence format version ${versionLabel} (expected ${CHUNK_FORMAT_VERSION}); ${outcome}`,
   );
   if (quarantined) {
     for (const [id] of records) staleIds.add(id);
+    return 'cleared';
   }
-  return true;
+  return 'preserved';
 }

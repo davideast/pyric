@@ -11,9 +11,10 @@
  *     base/firestore.json    the forked base state, one file per service:
  *     base/database.json       documents, the Realtime Database envelope,
  *     base/storage.json        objects with base64 bytes and metadata,
- *     base/auth.json           accounts and provider config, and the three
- *     base/rules.json          rule sources
- *     state/<service>.json   what the branch holds now, the same five files
+ *     base/auth.json           accounts and provider config, the three
+ *     base/rules.json          rule sources, and optional Messaging broker
+ *     base/messaging.json      state (tokens, tombstones, topic subscriptions)
+ *     state/<service>.json   what the branch holds now, the same six files
  *
  * One file per service rather than one bundle, so a reader opening the
  * directory sees which services a branch carries without decoding anything,
@@ -24,7 +25,7 @@
  * was taken from.
  *
  * Why the branch carries two states rather than a base and a replayable log.
- * The event log records Firestore writes, which is one of the five services a
+ * The event log records Firestore writes, which is one of the six services a
  * branch holds. A branch that had uploaded a Storage object or created an
  * account could not be rebuilt from its base and its log, so the log is what
  * was applied and `state/` is what the branch holds. `base/` stays because a
