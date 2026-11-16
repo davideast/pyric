@@ -1,3 +1,4 @@
+import { authAdminBlock } from './auth-admin.ts';
 import { defineRows } from './define-rows.ts';
 import type { CompatibilitySurfaceRegistry } from './types.ts';
 
@@ -13,11 +14,7 @@ const row1 = defineRows({
 /** What a call in flight at a hosted socket drop does on the web hosted client (ADR-0019 decision 7). */
 const droppedConnectionRow = defineRows({
   surface: "auth",
-  defaults: {
-    section: "Calls in flight when the hosted connection drops",
-    status: "diverged-documented",
-    automation: "unit-backed",
-  },
+  defaults: { section: "Calls in flight when the hosted connection drops", status: "diverged-documented", automation: "unit-backed" },
 });
 
 const row2 = defineRows({
@@ -1540,7 +1537,7 @@ export const authRegistry = {
           risk: ["error-code"],
           riskScore: 4,
           riskReasons: ["asserts Firebase error code(s): `auth/provider-already-linked`, `auth/email-already-in-use`"],
-          automation: "unit-backed",
+          automation: "oracle-backed",
           oracleObservations: ["auth-link-conflicts"],
           conformanceTests: ["packages/pyric/test/auth/sandbox-linking-reauth.test.ts"],
         }),
@@ -1784,6 +1781,7 @@ export const authRegistry = {
         }),
       ],
     },
+    authAdminBlock,
   ],
 } satisfies CompatibilitySurfaceRegistry;
 

@@ -1,6 +1,7 @@
 import { dirname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { type CompatibilityRow, type Surface } from '../registry/index.ts';
+import { isCaptureProvenRow, isSelfTestedOnlyRow, splitConformingRows } from './behavior-split.ts';
 import { generatedRowLineNumbers } from './generate-docs.ts';
 import type { ConformanceModel } from './conformance-model.ts';
 export { loadObservations, type Observation } from '../observations/load.ts';
@@ -16,6 +17,8 @@ export interface RegistryEntry extends CompatibilityRow {
   hasOracle: boolean;
   hasTestEvidence: boolean;
   isConforming: boolean;
+  isCaptureProven: boolean;
+  isSelfTestedOnly: boolean;
 }
 
 export interface CompatibilityLedger {
@@ -55,6 +58,8 @@ export function buildCompatibilityLedger(model: ConformanceModel): Compatibility
       hasOracle: row.oracleObservations.length > 0,
       hasTestEvidence: row.conformanceTests.length > 0,
       isConforming: row.status === 'conforms',
+      isCaptureProven: isCaptureProvenRow(row),
+      isSelfTestedOnly: isSelfTestedOnlyRow(row),
     } satisfies RegistryEntry;
   });
 
@@ -119,15 +124,19 @@ export function summarizeLedger(ledger: CompatibilityLedger, model: ConformanceM
   ) as Record<Surface, number>;
   const explicitExceptions = entries.filter((e) => ['sandbox-only', 'playground-only', 'type-backed', 'unsupported'].includes(e.automation));
   const conformanceChecks = entries.reduce((sum, row) => sum + (row.conformanceChecks?.length ?? 0), 0);
+  const split = splitConformingRows(entries);
   return {
     totalRows: entries.length,
     bySurface,
-    conformingRows: entries.filter((e) => e.isConforming).length,
+    conformingRows: split.conforms,
+    captureProvenRows: split.captureProven,
+    selfTestedRows: split.selfTested,
     oracleBackedRows: entries.filter((e) => e.hasOracle).length,
     unitBackedRows: entries.filter((e) => e.automation === 'unit-backed').length,
     explicitExceptionRows: explicitExceptions.length,
     unsupportedRows: entries.filter((e) => e.automation === 'unsupported').length,
     unverifiedRows: entries.filter((e) => e.automation === 'unverified').length,
+    unverifiedStatusRows: entries.filter((e) => e.status === 'unverified').length,
     highRiskUnverifiedRows: highRiskUnverifiedRows(ledger).length,
     evidenceTierGapRows: evidenceTierGapRows(ledger).length,
     observations: ledger.observations.length,

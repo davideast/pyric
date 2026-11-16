@@ -1,0 +1,1 @@
+Flutter Firestore rows previously marked `conforms` ran only against an in-memory Dart mock WebSocket harness, never against a booted Pyric host process. Demoted to `unverified` with unit test links retained until live-host end-to-end tests land (#307, #1048).

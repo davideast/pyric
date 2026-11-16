@@ -1,4 +1,4 @@
-import { defineRows } from './define-rows.ts';
+import { defineRows, MOCK_BRIDGE_STATUS_NOTE } from './define-rows.ts';
 import type { CompatibilityRow, CompatibilitySurfaceRegistry } from './types.ts';
 
 const CONFORMANCE_SUITE = 'packages/swift-client/Tests/PyricAuthTests/AuthConformanceTests.swift';
@@ -27,7 +27,8 @@ function row(seed: SwiftAuthRowSeed): CompatibilityRow {
   const resolvedEvidence = evidence ?? defaultEvidence;
   const climb = flipped
     ? {
-        status: 'conforms' as const,
+        status: 'unverified' as const,
+        statusNote: MOCK_BRIDGE_STATUS_NOTE,
         automation: 'unit-backed' as const,
         evidence: `${resolvedEvidence} Swift test: \`${CONFORMANCE_SUITE}\` assertion set \`auth-swift#${ref}\`.`,
         conformanceTests: [CONFORMANCE_SUITE],

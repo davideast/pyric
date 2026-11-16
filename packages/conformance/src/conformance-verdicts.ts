@@ -12,6 +12,8 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { surfaceRegistries, type CompatibilityRow } from '../registry/index.ts';
 import { loadAllSnapshots } from '../rules-language/load.ts';
+import { surfaceDescriptors } from '../surfaces/load.ts';
+import { hasLiveHostConformanceEvidence } from './integration-host-evidence.ts';
 import {
   RULES_ENGINE_SURFACES,
   deriveConformanceGraph,
@@ -95,6 +97,10 @@ export async function loadConformanceGraph(): Promise<ConformanceGraph> {
   return (await deriveConformanceEvidence()).graph;
 }
 
+const INTEGRATION_SURFACES = new Set(
+  surfaceDescriptors.filter((d) => d.kind === 'integration').map((d) => d.surface),
+);
+
 export function validationProblems(graph: ConformanceGraph): string[] {
   const problems: string[] = [];
   for (const row of graph.rows.values()) {
@@ -110,6 +116,11 @@ export function validationProblems(graph: ConformanceGraph): string[] {
     ) {
       problems.push(
         `registry row ${row.id} is "${row.status}" on rules-engine surface ${row.surface} but declares no 'constructs' scope; a divergence with no scope contaminates no node`,
+      );
+    }
+    if (INTEGRATION_SURFACES.has(row.surface) && row.status === 'conforms' && !hasLiveHostConformanceEvidence(row)) {
+      problems.push(
+        `registry row ${row.id} is "conforms" on integration surface ${row.surface} without live-host hostConformanceTests`,
       );
     }
   }
@@ -145,6 +156,7 @@ export function deriveRegistryRowVerdict(graph: ConformanceGraph, id: string): C
     return RULES_ENGINE_SURFACES.has(row.surface) ? 'unsupported' : 'qualified';
   }
   if (row.status === 'unverified') return 'qualified';
+  if (INTEGRATION_SURFACES.has(row.surface) && !hasLiveHostConformanceEvidence(row)) return 'qualified';
   return 'supported';
 }
 

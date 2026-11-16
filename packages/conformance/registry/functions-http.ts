@@ -64,7 +64,7 @@ function flipped(seed: RowSeed, flip: Flip): CompatibilityRow {
   if (flip.status === 'unsupported') {
     return buildRow({ ...shared, status: 'unsupported', automation: 'unsupported', exceptionReason: flip.reason });
   }
-  return buildRow({ ...shared, status: 'conforms', automation: 'unit-backed' });
+  return buildRow({ ...shared, status: 'conforms', automation: 'unit-backed', hostConformanceTests: flip.tests });
 }
 
 function row(seed: RowSeed): CompatibilityRow {

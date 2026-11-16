@@ -335,33 +335,32 @@ which is the whole point.
 
 ```
 $ bun run compat:coverage --base-report base.json --base-commit a62fbbc98
-service         runtime(public)  types(public)  behavior(total)  behavior(intended)  diverged  unverified
----------------------------------------------------------------------------------------------------------
-ai                         69.1%          66.5%             92.3%                92.3%          6            0
-app                          90%          66.7%             85.2%                88.5%          2            1
-auth                       82.4%          39.1%             81.8%                85.3%         16            1
-firestore                  63.5%          38.5%             87.6%                87.6%         20            0
-rtdb                      native         native             53.8%                95.5%          1            0
-rtdb-modular               79.5%          53.3%             82.1%                86.9%          8           12
-storage                    72.2%          52.9%               86%                93.5%          6            0
-messaging                   100%           100%              100%                 100%          0            0
-functions-rtdb       integration    integration             92.3%                92.3%          0            1
-firestore-rules           native         native             74.1%                74.1%          7            0
-storage-rules             native         native             96.9%                96.9%          1            0
-rtdb-rules                native         native              100%                 100%          0            0
----------------------------------------------------------------------------------------------------------
-OVERALL                    73.5%          54.8%             84.6%                89.1%         67           15
+service             runtime(public)  types(public)  proven(total)  proven(intended)  self-tested(total)  self-tested(intended)  proven/self/total  diverged  unverified
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ai                            85.4%          70.4%          24.2%             24.2%               64.2%                  64.2%           23/61/95         8           0
+app                             90%          66.7%          85.2%             88.5%                  0%                     0%            23/0/27         2           1
+auth                          83.5%          39.1%          35.4%             36.9%               40.2%                  41.8%          45/51/127        23           2
+firestore                     98.1%           100%          24.7%             24.7%               59.3%                  59.3%         48/115/194        19           0
+rtdb                         native         native           2.6%              4.5%               51.3%                  90.9%            1/20/39         1           0
+rtdb-modular                   100%           100%          52.1%             52.9%               36.2%                  36.7%         111/77/213        15           0
+storage                       88.9%          76.5%          12.5%             13.0%               69.6%                  72.2%          14/78/112        16           0
+functions-rtdb          integration    integration          92.3%             92.3%                  0%                     0%            12/0/13         0           1
+firestore-rules              native         native          98.1%             98.1%                  0%                     0%            53/0/54         0           1
+storage-rules                native         native          83.3%             83.3%                 15%                    15%            50/9/60         1           0
+rtdb-rules                   native         native          94.3%             94.3%                5.7%                   5.7%            50/3/53         0           0
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------
+OVERALL                       90.6%          73.3%          27.6%             28.1%               27.5%                  28.1%       433/432/1571        97         554
 
-High-risk unverified conforms rows: 5
+High-risk unverified conforms rows: 2
 Orphan observations: 0
 
-Entry-path (compat:entry-path — CLIFF, not a ratchet):
+Entry-path (compat:entry-path -- CLIFF, not a ratchet):
   auth         green
   database     green
   firestore    green
   storage      green
 
-✓ No regressions vs. the base commit a62fbbc98.
+No regressions vs. the base commit a62fbbc98.
 ```
 
 **Public runtime surface** is mirrored public runtime exports over Firebase
@@ -383,14 +382,7 @@ Pyric mirrors 9, with only `initializeServerApp` missing, so App runtime surface
 is 90%. Its 13 exactly classified private runtime exports remain visible in the
 raw census diagnostic, but they cannot lower or raise public coverage.
 
-**Behavior conformance** is `conforms` rows over evaluated rows, from the
-ledger in `src/ledger.ts`. It measures FIDELITY of the already-implemented
-slice: "of the calls that exist, do they behave like prod." It is never a
-standalone completeness grade. A service can post high behavior conformance
-while most of its surface is not built yet, because this axis only evaluates
-rows that exist in the registry. `diverged-documented` and `unverified` rows
-get their own columns and are never folded into `conforms`; folding them in
-would inflate the number without changing what is true.
+**Behavior conformance** splits `conforms` rows into two non-overlapping columns (`proven` backed by a replayed `oracle-backed` Firebase capture, and `self-tested` backed only by Pyric's own tests), from `src/ledger.ts`. It measures FIDELITY of the already-implemented slice ("of the calls that exist, do they behave like prod") and is never a standalone completeness grade. A service can post high behavior conformance while most of its surface is not built yet, because this axis only evaluates rows in the registry. `diverged-documented` and `unverified` rows get their own columns and are never folded into `conforms`.
 
 **Surface has no intended axis.** A public Firebase export is part of the
 contract whether Pyric plans to implement it, has deferred it, or has an honest
@@ -466,8 +458,11 @@ change.
 
 A row accepted once already has its `<row-id>.md`, so a later demotion of the
 same row adds `<row-id>.<pr-or-issue>.md`, for example `firestore#76.1520.md`.
-The gate reads the row id from the name before the number. Files go directly
-in `coverage-acceptances/`; a file in a subdirectory fails the gate.
+A surface-wide `conforms -> unverified` demotion may instead add
+`<surface>.surface.md` (or `<surface>.surface.<pr-or-issue>.md`), which excuses
+only `conforms -> unverified` demotions within `<surface>` when at least one row
+in that surface regressed. Files go directly in `coverage-acceptances/`; a file
+in a subdirectory fails the gate.
 
 The other regressions have no acceptance file: fix them. A fixed row
 moving to `conforms` or a newly mirrored export needs nothing; the next base

@@ -18,6 +18,11 @@ import { listEntryPathProgramFiles } from '../entry-path/load.ts';
 import { deriveConformanceModel } from './conformance-model.ts';
 import { normalizeFeature } from './can-i-use-query.ts';
 import { formatRowEvidence } from './generate-docs.ts';
+import {
+  hasLiveHostConformanceEvidence,
+  isMockBridgeUnitTestPath,
+  normalizeConformanceTestPath,
+} from './integration-host-evidence.ts';
 
 const allowedStatus = new Set<CompatStatus>([
   'conforms',
@@ -78,6 +83,9 @@ export function validateCompatibilityRegistry(input: ValidationInput): string[] 
   const observationPaths = Object.fromEntries(
     input.observations.map((obs) => [obs.name, `packages/conformance/observations/${obs.surfaceDir}/${obs.file}`]),
   );
+  const integrationSurfaces = new Set(
+    input.descriptors.filter((d) => d.kind === 'integration').map((d) => d.surface),
+  );
 
   for (const row of input.rows) {
     ids.set(row.id, (ids.get(row.id) ?? 0) + 1);
@@ -122,6 +130,26 @@ export function validateCompatibilityRegistry(input: ValidationInput): string[] 
     }
     for (const testPath of row.conformanceTests) {
       if (!existsSync(join(REPO_ROOT, testPath))) problems.push(`${row.id}: conformance test '${testPath}' is missing`);
+    }
+    const hostTests = row.hostConformanceTests ?? [];
+    for (const testPath of hostTests) {
+      const normalizedHostPath = normalizeConformanceTestPath(testPath);
+      if (normalizedHostPath === '') {
+        problems.push(`${row.id}: hostConformanceTests must not contain blank paths`);
+        continue;
+      }
+      if (isMockBridgeUnitTestPath(normalizedHostPath)) {
+        problems.push(
+          `${row.id}: hostConformanceTests entry '${testPath}' is an in-language mock-bridge unit suite, not a live Pyric host test`,
+        );
+      } else if (!existsSync(join(REPO_ROOT, normalizedHostPath))) {
+        problems.push(`${row.id}: host conformance test '${testPath}' is missing`);
+      }
+    }
+    if (integrationSurfaces.has(row.surface) && row.status === 'conforms' && !hasLiveHostConformanceEvidence(row)) {
+      problems.push(
+        `${row.id}: conforming row on integration surface '${row.surface}' requires hostConformanceTests running against a live Pyric host`,
+      );
     }
     for (const check of row.conformanceChecks ?? []) {
       if (!observationNames.has(check.observation)) problems.push(`${row.id}: check ${check.finding} observation '${check.observation}.json' is missing`);

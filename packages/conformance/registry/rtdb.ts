@@ -1,12 +1,9 @@
 import { defineRows } from './define-rows.ts';
+import { rtdbAdminBlock } from './rtdb-admin.ts';
 import type { CompatibilitySurfaceRegistry } from './types.ts';
 import { rtdbSdkCaptureBlock } from './rtdb-sdk-captures.ts';
 
-const listenerPermissionDenied = {
-  name: "Error",
-  code: "PERMISSION_DENIED",
-  message: "permission_denied at <path>: Client doesn't have permission to access the desired data.",
-};
+const listenerPermissionDenied = { name: "Error", code: "PERMISSION_DENIED", message: "permission_denied at <path>: Client doesn't have permission to access the desired data." };
 
 const deniedListenerCancellations = {
   value: { synchronous: null, cancellations: [listenerPermissionDenied] },
@@ -3615,6 +3612,7 @@ export const rtdbRegistry = {
       ],
     },
     rtdbSdkCaptureBlock,
+    rtdbAdminBlock,
   ],
 } satisfies CompatibilitySurfaceRegistry;
 

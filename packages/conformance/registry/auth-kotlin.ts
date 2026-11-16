@@ -1,4 +1,4 @@
-import { defineRows } from './define-rows.ts';
+import { defineRows, MOCK_BRIDGE_STATUS_NOTE } from './define-rows.ts';
 import type { CompatibilityRow, CompatibilitySurfaceRegistry } from './types.ts';
 
 const CONFORMANCE_SUITE = 'packages/kt-client/src/test/kotlin/dev/pyric/auth/ConformanceTest.kt';
@@ -27,7 +27,8 @@ function row(seed: KotlinAuthRowSeed): CompatibilityRow {
   const resolvedEvidence = evidence ?? defaultEvidence;
   const climb = flipped
     ? {
-        status: 'conforms' as const,
+        status: 'unverified' as const,
+        statusNote: MOCK_BRIDGE_STATUS_NOTE,
         automation: 'unit-backed' as const,
         evidence: `${resolvedEvidence} Test: \`${CONFORMANCE_SUITE}\` assertion set \`auth-kotlin#${ref}\`.`,
         conformanceTests: [CONFORMANCE_SUITE],

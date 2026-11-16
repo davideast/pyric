@@ -9,8 +9,8 @@ import {
   loadAddedAcceptances,
   parseAcceptance,
   type CoverageAcceptance,
-  type CoverageReport,
-} from '../../src/coverage.ts';
+} from '../../src/coverage-acceptances.ts';
+import type { CoverageReport } from '../../src/coverage.ts';
 
 /** Percentage axes are held flat in these fixtures unless a test moves them. */
 const FLAT_SURFACE = {
@@ -20,12 +20,14 @@ const FLAT_SURFACE = {
 
 const FLAT_BEHAVIOR = {
   conforms: 0,
+  captureProven: 0,
+  selfTested: 0,
   divergedDocumented: 0,
   bug: 0,
   unsupported: 0,
   unverified: 0,
-  total: { denominator: 0, pct: 0 },
-  intended: { denominator: 0, pct: 0 },
+  total: { denominator: 0, pct: 0, captureProvenPct: 0, selfTestedPct: 0 },
+  intended: { denominator: 0, pct: 0, captureProvenPct: 0, selfTestedPct: 0 },
 };
 
 function reportOf(rowStatuses: Record<string, string>, overrides: Partial<CoverageReport> = {}): CoverageReport {
@@ -245,7 +247,7 @@ describe('loadAddedAcceptances: only files the change adds', () => {
   });
 
   function git(repo: string, ...args: string[]): string {
-    return execFileSync('git', args, {
+    return execFileSync('git', ['-c', 'commit.gpgsign=false', ...args], {
       cwd: repo,
       encoding: 'utf8',
       env: { ...process.env, GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t' },
@@ -276,7 +278,7 @@ describe('loadAddedAcceptances: only files the change adds', () => {
     expect(findRegressions(reportOf({ 'auth#2': 'conforms' }), reportOf({ 'auth#2': 'bug' }), accepted)).toEqual([
       "auth#2: was 'conforms', now 'bug'",
     ]);
-  });
+  }, 20_000);
 
   test('an acceptance file the change adds excuses its demotion', () => {
     const { repo, base } = repoWithBase();
@@ -284,7 +286,7 @@ describe('loadAddedAcceptances: only files the change adds', () => {
     const accepted = loadAddedAcceptances(base, repo);
     expect(accepted.map((a) => a.rowId)).toEqual(['auth#3']);
     expect(findRegressions(reportOf({ 'auth#3': 'conforms' }), reportOf({ 'auth#3': 'bug' }), accepted)).toEqual([]);
-  });
+  }, 20_000);
 
   test('a second demotion of a row already accepted once is accepted by <row-id>.<pr-or-issue>.md', () => {
     const { repo, base } = repoWithBase();
@@ -292,23 +294,92 @@ describe('loadAddedAcceptances: only files the change adds', () => {
     const accepted = loadAddedAcceptances(base, repo);
     expect(accepted.map((a) => a.rowId)).toEqual(['auth#2']);
     expect(findRegressions(reportOf({ 'auth#2': 'conforms' }), reportOf({ 'auth#2': 'bug' }), accepted)).toEqual([]);
-  });
+  }, 20_000);
 
   test('an acceptance file added in a subdirectory fails loudly', () => {
     const { repo, base } = repoWithBase();
     commitFile(repo, `${ACCEPTANCES_DIR}/again/auth#2.md`, 'Upstream changed it again. #1520\n');
     expect(() => loadAddedAcceptances(base, repo)).toThrow('is in a subdirectory');
-  });
+  }, 20_000);
 
   test('editing an acceptance file already on the base does not renew it', () => {
     const { repo, base } = repoWithBase();
     commitFile(repo, `${ACCEPTANCES_DIR}/auth#2.md`, 'Accepted again. #1417\n');
     expect(loadAddedAcceptances(base, repo)).toEqual([]);
-  });
+  }, 20_000);
 
   test('an added file that is not a valid acceptance fails loudly', () => {
     const { repo, base } = repoWithBase();
     commitFile(repo, `${ACCEPTANCES_DIR}/auth#4.md`, 'No issue named.\n');
     expect(() => loadAddedAcceptances(base, repo)).toThrow(`${ACCEPTANCES_DIR}/auth#4.md names no issue`);
+  }, 20_000);
+});
+
+describe('surface-scoped acceptance files: <surface>.surface.md', () => {
+  test('parseAcceptance reads <surface>.surface.md and <surface>.surface.<pr-or-issue>.md', () => {
+    const first = `${ACCEPTANCES_DIR}/auth-flutter.surface.md`;
+    expect(parseAcceptance(first, 'Mock-bridge rows demoted until host e2e lands (#307, #1048).\n')).toEqual({
+      surface: 'auth-flutter',
+      path: first,
+      text: 'Mock-bridge rows demoted until host e2e lands (#307, #1048).\n',
+    });
+    const later = `${ACCEPTANCES_DIR}/auth-flutter.surface.2700.md`;
+    expect(parseAcceptance(later, 'Demoted again (#307).\n')).toEqual({
+      surface: 'auth-flutter',
+      path: later,
+      text: 'Demoted again (#307).\n',
+    });
+  });
+
+  test('excuses conforms -> unverified demotions within its surface only', () => {
+    const surfaceAcc = parseAcceptance(
+      `${ACCEPTANCES_DIR}/firestore-kotlin.surface.md`,
+      'Mock-only rows demoted (#307, #1048).\n',
+    );
+    const base = reportOf({
+      'firestore-kotlin#7': 'conforms',
+      'firestore-kotlin#16': 'conforms',
+      'auth-kotlin#1': 'conforms',
+    });
+    const head = reportOf({
+      'firestore-kotlin#7': 'unverified',
+      'firestore-kotlin#16': 'unverified',
+      'auth-kotlin#1': 'unverified',
+    });
+    expect(findRegressions(base, head, [surfaceAcc])).toEqual([
+      "auth-kotlin#1: was 'conforms', now 'unverified'",
+    ]);
+  });
+
+  test('does not excuse row deletions or demotions to bug/unsupported/diverged-documented', () => {
+    const surfaceAcc = parseAcceptance(
+      `${ACCEPTANCES_DIR}/firestore-kotlin.surface.md`,
+      'Mock-only rows demoted (#307, #1048).\n',
+    );
+    const base = reportOf({
+      'firestore-kotlin#1': 'conforms',
+      'firestore-kotlin#2': 'conforms',
+      'firestore-kotlin#3': 'conforms',
+    });
+    const head = reportOf({
+      'firestore-kotlin#1': 'unverified',
+      'firestore-kotlin#2': 'bug',
+    });
+    expect(findRegressions(base, head, [surfaceAcc])).toEqual([
+      "firestore-kotlin#2: was 'conforms', now 'bug'",
+      "firestore-kotlin#3: was 'conforms', row removed from the registry",
+    ]);
+  });
+
+  test('fails when no row in the named surface had a conforms -> unverified demotion', () => {
+    const surfaceAcc = parseAcceptance(
+      `${ACCEPTANCES_DIR}/firestore-kotlin.surface.md`,
+      'Mock-only rows demoted (#307, #1048).\n',
+    );
+    const base = reportOf({ 'firestore-kotlin#1': 'conforms' });
+    const head = reportOf({ 'firestore-kotlin#1': 'conforms' });
+    expect(findRegressions(base, head, [surfaceAcc])).toEqual([
+      `${ACCEPTANCES_DIR}/firestore-kotlin.surface.md names surface 'firestore-kotlin', which had no 'conforms' -> 'unverified' demotions against the base report`,
+    ]);
   });
 });

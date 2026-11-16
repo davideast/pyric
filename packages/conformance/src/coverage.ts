@@ -42,10 +42,17 @@
  */
 import { execFileSync } from 'node:child_process';
 import { readFileSync, writeFileSync } from 'node:fs';
-import { basename, dirname, join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { CensusSurface } from '../surfaces/types.ts';
 import { type Surface } from '../registry/index.ts';
+import { splitConformingRows } from './behavior-split.ts';
+import {
+  ACCEPTANCES_DIR,
+  findRegressions,
+  loadAddedAcceptances,
+  type CoverageBaseline,
+} from './coverage-acceptances.ts';
 import { buildCompatibilityLedger, highRiskUnverifiedRows, type RegistryEntry } from './ledger.ts';
 import { deriveConformanceModel, type ConformanceModel } from './conformance-model.ts';
 
@@ -129,18 +136,41 @@ function pct(n: number, d: number): number {
 
 // ── Behavior conformance (ledger.ts — unmodified) ──────────────────────────
 
+interface BehaviorSlice {
+  denominator: number;
+  pct: number;
+  captureProvenPct: number;
+  selfTestedPct: number;
+}
+
 interface BehaviorConformance {
   conforms: number;
+  captureProven: number;
+  selfTested: number;
   divergedDocumented: number;
   bug: number;
   unsupported: number;
   unverified: number;
-  total: { denominator: number; pct: number };
-  intended: { denominator: number; pct: number };
+  total: BehaviorSlice;
+  intended: BehaviorSlice;
+}
+
+function behaviorSlice(
+  conforms: number,
+  captureProven: number,
+  selfTested: number,
+  denominator: number,
+): BehaviorSlice {
+  return {
+    denominator,
+    pct: pct(conforms, denominator),
+    captureProvenPct: pct(captureProven, denominator),
+    selfTestedPct: pct(selfTested, denominator),
+  };
 }
 
 function behaviorConformanceFor(rows: RegistryEntry[]): BehaviorConformance {
-  const conforms = rows.filter((r) => r.status === 'conforms').length;
+  const split = splitConformingRows(rows);
   const divergedDocumented = rows.filter((r) => r.status === 'diverged-documented').length;
   const bug = rows.filter((r) => r.status === 'bug').length;
   const unsupported = rows.filter((r) => r.status === 'unsupported').length;
@@ -148,13 +178,15 @@ function behaviorConformanceFor(rows: RegistryEntry[]): BehaviorConformance {
   const totalDenominator = rows.length;
   const intendedDenominator = totalDenominator - unsupported;
   return {
-    conforms,
+    conforms: split.conforms,
+    captureProven: split.captureProven,
+    selfTested: split.selfTested,
     divergedDocumented,
     bug,
     unsupported,
     unverified,
-    total: { denominator: totalDenominator, pct: pct(conforms, totalDenominator) },
-    intended: { denominator: intendedDenominator, pct: pct(conforms, intendedDenominator) },
+    total: behaviorSlice(split.conforms, split.captureProven, split.selfTested, totalDenominator),
+    intended: behaviorSlice(split.conforms, split.captureProven, split.selfTested, intendedDenominator),
   };
 }
 
@@ -269,213 +301,92 @@ export function buildReport(
  * One-line scope statement per surface. Mirror summaries are derived from the
  * census/dispositions; native and integration boundaries remain authored.
  */
-function printTable(report: CoverageReport, model: ConformanceModel): void {
+function formatBehaviorRow(
+  label: string,
+  runtimePublic: string,
+  typesPublic: string,
+  behavior: BehaviorConformance,
+): string {
+  const counts = `${behavior.captureProven}/${behavior.selfTested}/${behavior.total.denominator}`;
+  return [
+    label.padEnd(18),
+    runtimePublic.padStart(15),
+    typesPublic.padStart(13),
+    `${behavior.total.captureProvenPct}%`.padStart(13),
+    `${behavior.intended.captureProvenPct}%`.padStart(16),
+    `${behavior.total.selfTestedPct}%`.padStart(18),
+    `${behavior.intended.selfTestedPct}%`.padStart(21),
+    counts.padStart(17),
+    String(behavior.divergedDocumented).padStart(9),
+    String(behavior.unverified).padStart(10),
+  ].join('  ');
+}
+
+function formatMirrorRuntimeScope(dispositionedCount: number): string {
+  if (dispositionedCount === 0) return 'all public runtime exports are mapped';
+  return `${dispositionedCount} absent runtime export(s) have reviewed dispositions`;
+}
+
+export function formatCoverageTable(report: CoverageReport, model: ConformanceModel): string {
   const scopeNotes = Object.fromEntries(model.documentation.descriptors.map((descriptor) => {
     if (descriptor.scopeNote) return [descriptor.surface, descriptor.scopeNote];
     if (descriptor.kind !== 'mirror') throw new Error(`Missing scope note for ${descriptor.surface}`);
     const census = model.census.find(({ surface }) => surface === descriptor.censusSurface);
     if (!census) throw new Error(`Missing census for ${descriptor.surface}`);
-    const runtime = census.runtime.dispositioned.length === 0
-      ? 'all public runtime exports are mapped'
-      : `${census.runtime.dispositioned.length} absent runtime export(s) have reviewed dispositions`;
+    const runtime = formatMirrorRuntimeScope(census.runtime.dispositioned.length);
     return [descriptor.surface, `${runtime}; ${census.types.unmapped.length} public type gap(s) remain visible in the denominator.`];
   })) as Record<Surface, string>;
-  console.log('# Compatibility coverage\n');
-  console.log('PUBLIC RUNTIME surface counts Firebase exports not exactly reviewed as private in a surface contract. PUBLIC TYPE surface counts non-underscore Firebase exported types.');
-  console.log('Deprecated, unsupported, and not-yet-built public APIs stay in their denominator. Pyric-only exports receive no credit.');
-  console.log('BEHAVIOR conformance (`conforms` rows / evaluated rows) is the FIDELITY of the already-implemented slice — "of the calls that exist, do they behave like prod." It is never a standalone completeness grade.');
-  console.log('Behavior `intended` excludes unsupported rows only; every five-state count remains available in the registry.\n');
-  for (const s of report.services) {
-    console.log(`  ${s.surface}: ${scopeNotes[s.surface]}`);
-  }
-  console.log('');
 
-  const header = 'service         runtime(public)  types(public)  behavior(total)  behavior(intended)  diverged  unverified';
-  console.log(header);
-  console.log('-'.repeat(header.length));
+  const lines: string[] = [
+    '# Compatibility coverage',
+    '',
+    'PUBLIC RUNTIME surface counts Firebase exports not exactly reviewed as private in a surface contract. PUBLIC TYPE surface counts non-underscore Firebase exported types.',
+    'Deprecated, unsupported, and not-yet-built public APIs stay in their denominator. Pyric-only exports receive no credit.',
+    'BEHAVIOR conformance splits conforming rows into two non-overlapping evidence tiers:',
+    '  - proven(total / intended): `conforms` rows backed by a real Firebase capture observation.',
+    '  - self-tested(total / intended): `conforms` rows backed only by Pyric\'s own tests without a Firebase capture.',
+    'Behavior `intended` excludes unsupported rows only; `proven/self/total` gives the exact row counts.',
+    '',
+  ];
   for (const s of report.services) {
-    // A native surface has no upstream breadth denominator — its SURFACE cells
-    // read 'native', never a percentage, so a reader can never confuse "N% of
-    // my own exports claimed" with "N% of upstream mirrored".
+    lines.push(`  ${s.surface}: ${scopeNotes[s.surface]}`);
+  }
+  lines.push('');
+
+  const header =
+    'service             runtime(public)  types(public)  proven(total)  proven(intended)  self-tested(total)  self-tested(intended)  proven/self/total  diverged  unverified';
+  lines.push(header);
+  lines.push('-'.repeat(header.length));
+  for (const s of report.services) {
     const noCensusLabel = s.kind === 'integration' ? 'integration' : 'native';
     const runtimePublic = s.surfaceCoverage ? `${s.surfaceCoverage.runtime.pct}%` : noCensusLabel;
     const typesPublic = s.surfaceCoverage ? `${s.surfaceCoverage.types.pct}%` : noCensusLabel;
-    console.log(
-      [
-        s.surface.padEnd(15),
-        runtimePublic.padStart(15),
-        typesPublic.padStart(13),
-        `${s.behavior.total.pct}%`.padStart(16),
-        `${s.behavior.intended.pct}%`.padStart(19),
-        String(s.behavior.divergedDocumented).padStart(9),
-        String(s.behavior.unverified).padStart(11),
-      ].join('  '),
-    );
+    lines.push(formatBehaviorRow(s.surface, runtimePublic, typesPublic, s.behavior));
   }
-  console.log('-'.repeat(header.length));
-  console.log(
-    [
-      'OVERALL'.padEnd(15),
-      `${report.overall.surfaceCoverage.runtime.pct}%`.padStart(15),
-      `${report.overall.surfaceCoverage.types.pct}%`.padStart(13),
-      `${report.overall.behavior.total.pct}%`.padStart(16),
-      `${report.overall.behavior.intended.pct}%`.padStart(19),
-      String(report.overall.behavior.divergedDocumented).padStart(9),
-      String(report.overall.behavior.unverified).padStart(11),
-    ].join('  '),
+  lines.push('-'.repeat(header.length));
+  lines.push(
+    formatBehaviorRow(
+      'OVERALL',
+      `${report.overall.surfaceCoverage.runtime.pct}%`,
+      `${report.overall.surfaceCoverage.types.pct}%`,
+      report.overall.behavior,
+    ),
   );
-  console.log('\nPUBLIC surface reads `native` for a Pyric-owned API and `integration` for unchanged upstream code run through a Pyric runtime seam; neither has a Firebase denominator. OVERALL public surface sums mirror surfaces only.');
-  console.log(`\nHigh-risk unverified conforms rows: ${report.highRiskUnverified.length}`);
-  console.log(`Orphan observations: ${report.orphanObservations.length}`);
-
-  console.log('\nEntry-path (compat:entry-path — CLIFF, not a ratchet; a green program that regresses is a published FAILURE, never tolerated):');
+  lines.push('');
+  lines.push('PUBLIC surface reads `native` for a Pyric-owned API and `integration` for unchanged upstream code run through a Pyric runtime seam; neither has a Firebase denominator. OVERALL public surface sums mirror surfaces only.');
+  lines.push('');
+  lines.push(`High-risk unverified conforms rows: ${report.highRiskUnverified.length}`);
+  lines.push(`Orphan observations: ${report.orphanObservations.length}`);
+  lines.push('');
+  lines.push('Entry-path (compat:entry-path -- CLIFF, not a ratchet; a green program that regresses is a published FAILURE, never tolerated):');
   for (const p of report.entryPath) {
-    console.log(`  ${p.program.padEnd(12)} ${p.verdict}`);
+    lines.push(`  ${p.program.padEnd(12)} ${p.verdict}`);
   }
+  return lines.join('\n');
 }
 
-// ── Regression gate: the head report against the base commit's report ───────
-
-/** Where a change adds `<row-id>.md` to accept that row's demotion or removal. */
-export const ACCEPTANCES_DIR = 'packages/conformance/coverage-acceptances';
-
-/**
- * One acceptance file. The change that demotes a `conforms` row, or removes a
- * row, adds `coverage-acceptances/<row-id>.md` with the reason and the issue.
- * A row accepted before gets `<row-id>.<pr-or-issue>.md` instead, since its
- * first file already exists. Files sit directly in the directory, never in a
- * subdirectory.
- * Only files the change adds count (loadAddedAcceptances): a file from an
- * earlier merge stays as a record and can never authorize a later change.
- */
-export interface CoverageAcceptance {
-  rowId: string;
-  /** Repo-relative path, as the change added it. */
-  path: string;
-  text: string;
-}
-
-/** `<row-id>.md`, or `<row-id>.<pr-or-issue>.md`. No row id ends in `.<digits>`, so the suffix is unambiguous. */
-const ACCEPTANCE_NAME = /^([A-Za-z0-9._-]+#[A-Za-z0-9._-]+?)(?:\.\d+)?\.md$/;
-const ISSUE_REFERENCE = /#\d+|https:\/\/github\.com\/[^\s/]+\/[^\s/]+\/issues\/\d+/;
-
-export function parseAcceptance(path: string, text: string): CoverageAcceptance {
-  const inSubdirectory = dirname(path) !== ACCEPTANCES_DIR;
-  if (inSubdirectory) {
-    throw new Error(`${path} is in a subdirectory: put it directly in ${ACCEPTANCES_DIR}/`);
-  }
-  const name = ACCEPTANCE_NAME.exec(basename(path));
-  if (!name) throw new Error(`${path} is not named <row-id>.md or <row-id>.<pr-or-issue>.md`);
-  if (text.trim() === '') throw new Error(`${path} is empty: give the reason and the issue`);
-  if (!ISSUE_REFERENCE.test(text)) throw new Error(`${path} names no issue: add #<n> or the issue's URL`);
-  const reason = text.replace(new RegExp(ISSUE_REFERENCE.source, 'g'), '').replace(/[\s.,;:()-]/g, '');
-  if (reason === '') throw new Error(`${path} gives no reason: say why the row may regress`);
-  return { rowId: name[1], path, text };
-}
-
-/** The acceptance files HEAD adds relative to `baseCommit`. An edit or a rename target that already existed does not count. */
-export function loadAddedAcceptances(baseCommit: string, repoRoot: string = REPO_ROOT): CoverageAcceptance[] {
-  const added = execFileSync(
-    'git',
-    ['diff', '-z', '--no-renames', '--diff-filter=A', '--name-only', baseCommit, 'HEAD', '--', ACCEPTANCES_DIR],
-    { cwd: repoRoot, encoding: 'utf8' },
-  ).split('\0').filter((path) => path !== '');
-  return added.map((path) => parseAcceptance(path, readFileSync(join(repoRoot, path), 'utf8')));
-}
-
-const CONFORMING_DEMOTION = new Set(['bug', 'diverged-documented', 'unverified', 'unsupported']);
-
-function rowRegressions(base: CoverageReport, head: CoverageReport): Map<string, string> {
-  const regressed = new Map<string, string>();
-  for (const [id, baseStatus] of Object.entries(base.rowStatuses)) {
-    const headStatus = head.rowStatuses[id];
-    // A row may change status freely below conforms, but it may never just
-    // vanish: deleting a `bug`/`unverified` row shrinks the denominator and
-    // lifts the published percentage without fixing anything.
-    if (headStatus === undefined) {
-      regressed.set(id, `${id}: was '${baseStatus}', row removed from the registry`);
-    } else if (baseStatus === 'conforms' && CONFORMING_DEMOTION.has(headStatus)) {
-      regressed.set(id, `${id}: was 'conforms', now '${headStatus}'`);
-    }
-  }
-  return regressed;
-}
-
-function surfaceRegressions(base: CoverageReport, head: CoverageReport): string[] {
-  const problems: string[] = [];
-  const dropped = (label: string, from: SurfaceCoverage, to: SurfaceCoverage): void => {
-    if (to.runtime.pct < from.runtime.pct) problems.push(`${label}: public runtime surface dropped ${from.runtime.pct}% -> ${to.runtime.pct}%`);
-    if (to.types.pct < from.types.pct) problems.push(`${label}: public type surface dropped ${from.types.pct}% -> ${to.types.pct}%`);
-  };
-  const baseServices = new Map(base.services.map((s) => [s.surface, s]));
-  for (const s of head.services) {
-    const baseSurface = baseServices.get(s.surface)?.surfaceCoverage;
-    // A native or integration surface has no breadth percentage to compare.
-    if (baseSurface && s.surfaceCoverage) dropped(s.surface, baseSurface, s.surfaceCoverage);
-  }
-  dropped('overall', base.overall.surfaceCoverage, head.overall.surfaceCoverage);
-  return problems;
-}
-
-function entryPathRegressions(base: CoverageReport, head: CoverageReport): string[] {
-  // The one cliff in this ratchet (see entry-path-gate.ts's header): a program
-  // that was green and is no longer fails, whatever it became.
-  const problems: string[] = [];
-  const headVerdicts = new Map(head.entryPath.map((p) => [p.program, p.verdict]));
-  for (const { program, verdict } of base.entryPath) {
-    if (verdict !== 'green') continue;
-    const headVerdict = headVerdicts.get(program);
-    if (headVerdict === undefined) {
-      problems.push(`entry-path '${program}': was green, program removed from the corpus`);
-    } else if (headVerdict !== 'green') {
-      problems.push(`entry-path '${program}': was green, now '${headVerdict}' (a cliff regression, never tolerated)`);
-    }
-  }
-  return problems;
-}
-
-/**
- * Regression-only gate. Deliberately does NOT fail on an absolute percentage
- * — a threshold gate invites relabeling rows `conforms` just to clear the
- * bar, which is the exact dishonesty this ratchet exists to prevent. It only
- * fails when something true of the base commit stops being true of the head:
- *   - a row that was `conforms` is no longer `conforms`,
- *   - a row in the base report is gone from the registry (any status),
- *   - a service's public surface coverage % drops,
- *   - a NEW orphan observation appears,
- *   - the high-risk-unverified count increases,
- *   - an entry-path program that was green is not.
- * The first two are excused only by an acceptance file the change adds, and
- * every such file has to name a row that really regressed.
- */
-export function findRegressions(
-  base: CoverageReport,
-  head: CoverageReport,
-  acceptances: readonly CoverageAcceptance[],
-): string[] {
-  const problems = surfaceRegressions(base, head);
-
-  const regressedRows = rowRegressions(base, head);
-  const accepted = new Set(acceptances.map((a) => a.rowId));
-  for (const [id, problem] of regressedRows) {
-    if (!accepted.has(id)) problems.push(problem);
-  }
-  for (const acceptance of acceptances) {
-    if (!regressedRows.has(acceptance.rowId)) {
-      problems.push(`${acceptance.path} names '${acceptance.rowId}', which did not regress against the base report`);
-    }
-  }
-
-  const baseOrphans = new Set(base.orphanObservations);
-  const newOrphans = head.orphanObservations.filter((o) => !baseOrphans.has(o));
-  if (newOrphans.length > 0) problems.push(`${newOrphans.length} NEW orphan observation(s): ${newOrphans.join(', ')}`);
-
-  if (head.highRiskUnverified.length > base.highRiskUnverified.length) {
-    problems.push(`high-risk unverified rows increased: ${base.highRiskUnverified.length} -> ${head.highRiskUnverified.length}`);
-  }
-
-  problems.push(...entryPathRegressions(base, head));
-  return problems;
+function printTable(report: CoverageReport, model: ConformanceModel): void {
+  console.log(formatCoverageTable(report, model));
 }
 
 // ── main ─────────────────────────────────────────────────────────────────
@@ -488,9 +399,9 @@ function flagValue(name: string): string | undefined {
   return value;
 }
 
-function readBaseReport(path: string): CoverageReport {
+function readBaseReport(path: string): CoverageBaseline {
   try {
-    return JSON.parse(readFileSync(path, 'utf8')) as CoverageReport;
+    return JSON.parse(readFileSync(path, 'utf8')) as CoverageBaseline;
   } catch (err) {
     throw new Error(`Base coverage report at ${path} is unreadable: ${err instanceof Error ? err.message : String(err)}`);
   }

@@ -15,8 +15,10 @@ packages use generated projections and never import this workspace package.
 ```
 packages/conformance/
   surfaces/          one schema-validated JSON contract per compatibility surface (ai,
-                     auth, firestore, rtdb, rtdb-modular, storage, messaging,
-                     messaging-admin), plus census-only surfaces. Filename is the key. The contract names the
+                     auth, auth-admin, firestore, firestore-admin, rtdb, rtdb-admin,
+                     rtdb-modular, storage, storage-admin, messaging, messaging-admin,
+                     app-check, app-check-admin, functions-*, and native clients),
+                     plus census-only surfaces. Filename is the key. The contract names the
                      registry it hosts rows in, the observation filename
                      prefixes it owns, the capture rigs that produce them, and
                      any reviewed public-runtime dispositions. load.ts is the
@@ -79,13 +81,13 @@ packages/conformance/
                      without conflict. Hand-written; the failure message gives
                      the delta.
   coverage-acceptances/  one <row-id>.md (or <row-id>.<pr-or-issue>.md for a
-                     row accepted before) per accepted coverage regression: a
-                     `conforms` row demoted, or a row removed. The file holds
-                     the reason and the issue. The coverage gate compares the
-                     head report with the base commit's report and honors
-                     only files the change adds, each naming a row that really
-                     regressed; older files stay as a record and authorize
-                     nothing.
+                     row accepted before) per accepted coverage regression, or
+                     <surface>.surface.md for a surface-wide `conforms -> unverified`
+                     demotion. The file holds the reason and the issue. The
+                     coverage gate compares the head report with the base
+                     commit's report and honors only files the change adds,
+                     each naming a row or surface that really regressed; older
+                     files stay as a record and authorize nothing.
   rules-language/    the per-engine Rules-language axis. One hand-enumerated
                      construct snapshot per engine (firestore.json, storage.json,
                      rtdb.json). Coverage and simulator capability are derived in
