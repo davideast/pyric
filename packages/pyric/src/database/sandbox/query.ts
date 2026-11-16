@@ -6,9 +6,9 @@
  * feed the spec + the current tree-subtree into {@link executeQuery},
  * which runs the documented RTDB pipeline:
  *
- *   1. Enumerate the children at the path (root + immediate children;
- *      primitive values at the path are NOT eligible — `query()` only
- *      makes sense on a collection-shaped node).
+ *   1. Enumerate the immediate children at the path (scalar leaf values have
+ *      no child rows; unfiltered queries preserve the scalar leaf snapshot via
+ *      `projectQueryValue`, while ranged or limited queries project `null`).
  *   2. Order them by the active `orderBy*` constraint (default
  *      priority index with key tie-breaking if none supplied).
  *   3. Apply `startAt` / `startAfter` / `endAt` / `endBefore` / `equalTo`

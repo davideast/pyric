@@ -338,6 +338,14 @@ describe('query — degenerate inputs', () => {
     await set(ref(db, 'leaf'), 42);
     const snap = await get(query(ref(db, 'leaf'), orderByKey()));
     expect(snap.size).toBe(0);
+    expect(snap.exists()).toBe(true);
+    expect(snap.val()).toBe(42);
+    expect(snapKeys(snap)).toEqual([]);
+
+    const limited = await get(query(ref(db, 'leaf'), orderByKey(), limitToFirst(1)));
+    expect(limited.size).toBe(0);
+    expect(limited.exists()).toBe(false);
+    expect(limited.val()).toBeNull();
   });
 
   it('query with no constraints behaves like a plain get (default priority index)', async () => {

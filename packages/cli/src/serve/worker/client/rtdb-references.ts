@@ -1,5 +1,5 @@
 /** RTDB database handles, references, path validation, and query target routing. */
-import { queryIdentifier } from 'pyric/database/internal';
+import { isDefaultQuerySpec, queryIdentifier } from 'pyric/database/internal';
 import type { InboundMessage, RtdbQuerySpec } from '../protocol.js';
 import { dataRpc, isDisconnectedPort } from './core.js';
 import { getFirestore } from './connection.js';
@@ -229,6 +229,6 @@ export function targetParts(target: RtdbTarget): {
   query?: RtdbQuerySpec;
 } {
   if (!isRtdbQuery(target)) return { ref: target };
-  if (queryIdentifier(target._spec) === 'default') return { ref: target.ref };
+  if (isDefaultQuerySpec(target._spec)) return { ref: target.ref };
   return { ref: target.ref, query: target._spec };
 }

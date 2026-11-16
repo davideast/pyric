@@ -6,12 +6,11 @@ import type { ChildEventSnapshot, ValueListenerSnapshot } from './sandbox/listen
 import type { JsonValue } from './sandbox/data-tree.js';
 import { authFor, isAdminFor, targetOf, type Target } from './routing.js';
 import { isDefaultQuerySpec, isQuery, queryIdentifier } from './query-shape.js';
-import type { QueryRow } from './internal/query-projection.js';
+import { loadsAllData, type QueryRow } from './internal/query-projection.js';
 import { isInfoPath } from './writable-path.js';
 import type { DataSnapshot, DatabaseReference, ListenOptions, Query, Unsubscribe } from './types.js';
 import type { ListenerAttribution } from '../sandbox/attribution/listener-owners.js';
 import { child } from './references.js';
-import { loadsAllData } from './sandbox/query-index.js';
 import { buildSandboxQuerySnap, buildSandboxSnapFromRaw } from './snapshots.js';
 import {
   observeConnectionChildMetadata,
@@ -238,8 +237,7 @@ function onValueInternal(
   const reference = r.ref;
   const isConnectionValue = reference._path === '/.info/connected';
   const isMetadataRoot = reference._path === '/.info';
-  const hasDefaultQuery = isDefaultQuerySpec(r._spec);
-  const observesConnection = isMetadataRoot || (hasDefaultQuery && isConnectionValue);
+  const observesConnection = isMetadataRoot || isConnectionValue;
   if (observesConnection) return observeConnectionMetadata(listenerRegistry, r, cb, registryCallback, activity);
   // Query branch — fire only when the windowed result changes.
   // Locked by oracle observation `rtdb-modular-onvalue-with-query.json`:
@@ -252,7 +250,7 @@ function onValueInternal(
     const scope = queryScope(q);
     const deliver = (raw: { val: JsonValue; key: string | null; rows?: QueryRow[] }): void => {
       const rows = raw.rows ?? [];
-      const snap = buildSandboxQuerySnap(target, q.ref, rows, loadsAllData(q._spec));
+      const snap = buildSandboxQuerySnap(target, q.ref, rows, loadsAllData(q._spec), raw.val);
       try {
         cb(snap);
       } catch {

@@ -241,6 +241,25 @@ describe('pyric-admin/database — queries and one-shot reads parity', () => {
       });
       expect(windowed.child('k2').getPriority()).toBe(10);
       expect(windowed.child('k1').exists()).toBe(false);
+
+      await clientSetWithPriority(clientRef(clientDb, 'rankedScalar'), 125, 7);
+      const scalarByPriority = await db.ref('rankedScalar').orderByPriority().get();
+      expect(scalarByPriority.exists()).toBe(true);
+      expect(scalarByPriority.val()).toBe(125);
+      expect(scalarByPriority.getPriority()).toBe(7);
+      expect(scalarByPriority.exportVal()).toEqual({ '.value': 125, '.priority': 7 });
+
+      const scalarOnce = await db.ref('rankedScalar').orderByKey().once('value');
+      expect(scalarOnce.exists()).toBe(true);
+      expect(scalarOnce.val()).toBe(125);
+      expect(scalarOnce.getPriority()).toBe(7);
+      expect(scalarOnce.exportVal()).toEqual({ '.value': 125, '.priority': 7 });
+
+      const scalarLimited = await db.ref('rankedScalar').orderByPriority().limitToFirst(1).get();
+      expect(scalarLimited.exists()).toBe(false);
+      expect(scalarLimited.val()).toBeNull();
+      expect(scalarLimited.getPriority()).toBeNull();
+      expect(scalarLimited.exportVal()).toBeNull();
     }
   });
 

@@ -14,6 +14,12 @@ interface Repro {
   signIn(): Promise<string>;
   getConnected(): Promise<{ resolved?: unknown; error?: string; code: string | null }>;
   listenConnected(): Promise<unknown>;
+  queryPrioritizedScalar(): Promise<{
+    plainError: string | null;
+    unfiltered: { exists: boolean; val: unknown; priority: string | number | null; exportVal: unknown; size: number };
+    listened: unknown;
+    limited: { exists: boolean; val: unknown };
+  }>;
   writePrioritized(): Promise<void>;
   transactPrioritized(): Promise<string>;
 }
@@ -73,6 +79,20 @@ export default scenario(async (app) => {
     assert.equal(await page.evaluate(() => repro.listenConnected()), true);
   });
 
+  await app.step('orderByPriority() forwards query.orderByPriority and keeps prioritized scalar leaves on served host', async () => {
+    const result = await page.evaluate(() => repro.queryPrioritizedScalar());
+    assert.match(result.plainError ?? '', /permission/i);
+    assert.deepEqual(result.unfiltered, {
+      exists: true,
+      val: 125,
+      priority: 7,
+      exportVal: { '.value': 125, '.priority': 7 },
+      size: 0,
+    });
+    assert.deepEqual(result.listened, { '.value': 125, '.priority': 7 });
+    assert.deepEqual(result.limited, { exists: false, val: null });
+  });
+
   await app.step('the page writes a prioritized node and the rules deny a transaction on it', async () => {
     await page.evaluate(() => repro.writePrioritized());
     assert.match(await page.evaluate(() => repro.transactPrioritized()), /permission/i);
@@ -86,7 +106,10 @@ export default scenario(async (app) => {
 
   await app.step('rules that allow a write keeping the priority report the transaction as now-allowed', async () => {
     app.writeFile('keeps-priority.rules.json', JSON.stringify({
-      rules: { '.read': true, t: { '.write': 'newData.getPriority() == 5' } },
+      rules: {
+        ranked: { '.read': 'query.orderByPriority == true', '.write': 'auth != null' },
+        t: { '.read': true, '.write': 'newData.getPriority() == 5' },
+      },
     }));
     const output = await pyricFails(app, ['verify', '--service', 'rtdb', '--rules', 'rtdb=keeps-priority.rules.json'], 1);
     assert.match(output, /\[rtdb\] now-allowed: transaction \/t/, output);

@@ -7,7 +7,7 @@ import { initializeSandbox } from 'pyric/sandbox';
 import { handleMessage, type PortLike } from '../../../src/serve/worker/host.js';
 import { setDatabaseRules } from '../../../src/serve/worker/host/rules.js';
 import type { InboundMessage, OutboundMessage } from '../../../src/serve/worker/protocol.js';
-import { type FakePort, makeHostCtx, portPair } from './integration-support.js';
+import { type FakePort, makeHostCtx, portPair, sleep } from './integration-support.js';
 
 describe('Cross-plane RTDB query surface, snapshots, and setData fan-out', () => {
   let restoreSW: () => void;
@@ -21,9 +21,10 @@ describe('Cross-plane RTDB query surface, snapshots, and setData fan-out', () =>
 
   afterEach(() => restoreSW());
 
-  async function setupPlanes() {
+  async function setupPlanes(rules?: { rules: Record<string, unknown> }) {
     const ctx = await makeHostCtx();
-    setDatabaseRules(ctx, undefined, { rules: { '.read': true, '.write': true } });
+    const activeRules = rules ?? { rules: { '.read': true, '.write': true } };
+    setDatabaseRules(ctx, undefined, activeRules);
     (globalThis as { SharedWorker?: unknown }).SharedWorker = class {
       port: FakePort;
       addEventListener() {}
@@ -48,7 +49,11 @@ describe('Cross-plane RTDB query surface, snapshots, and setData fan-out', () =>
 
     const ipSandbox = initializeSandbox();
     const ipDb = ip.getDatabase(ipSandbox.withAuth({ uid: 'user-1' }));
-    ip.sandbox.setDefaultPolicy(ipDb, 'allow');
+    if (rules !== undefined) {
+      ip.sandbox.setRules(ipDb, rules);
+    } else {
+      ip.sandbox.setDefaultPolicy(ipDb, 'allow');
+    }
 
     return {
       served,
@@ -87,21 +92,144 @@ describe('Cross-plane RTDB query surface, snapshots, and setData fan-out', () =>
     }
   });
 
-  it('returns the scalar snapshot from get(query(scalarRef)) across both planes', async () => {
+  it('returns scalar snapshots (including falsy leaves) on unfiltered queries and fires zero child_added events across both planes', async () => {
     const { served, servedDb, ipDb, cleanup } = await setupPlanes();
     try {
       const ipScalar = ip.ref(ipDb, 'items/count');
       const servedScalar = served.ref(servedDb, 'items/count');
+
+      const ipValueEvents: Array<{ exists: boolean; val: unknown }> = [];
+      const servedValueEvents: Array<{ exists: boolean; val: unknown }> = [];
+      const ipChildEvents: string[] = [];
+      const servedChildEvents: string[] = [];
+
       await ip.set(ipScalar, 42);
       await served.set(servedScalar, 42);
 
-      const ipSnap = await ip.get(ip.query(ipScalar));
-      const servedSnap = await served.get(served.query(servedScalar));
+      const unsubIpValue = ip.onValue(ip.query(ipScalar, ip.orderByPriority()), (snap) => {
+        ipValueEvents.push({ exists: snap.exists(), val: snap.val() });
+      });
+      const unsubServedValue = served.onValue(served.query(servedScalar, served.orderByPriority()), (snap) => {
+        servedValueEvents.push({ exists: snap.exists(), val: snap.val() });
+      });
+      const unsubIpChild = ip.onChildAdded(ip.query(ipScalar, ip.orderByPriority()), (snap) => {
+        ipChildEvents.push(`${snap.key}:${String(snap.val())}`);
+      });
+      const unsubServedChild = served.onChildAdded(served.query(servedScalar, served.orderByPriority()), (snap) => {
+        servedChildEvents.push(`${snap.key}:${String(snap.val())}`);
+      });
+      await sleep();
 
-      expect(ipSnap.exists()).toBe(true);
-      expect(ipSnap.val()).toBe(42);
-      expect(servedSnap.exists()).toBe(true);
-      expect(servedSnap.val()).toBe(42);
+      for (const scalar of [42, false, 0, ''] as const) {
+        if (scalar !== 42) {
+          await ip.set(ipScalar, scalar);
+          await served.set(servedScalar, scalar);
+          await sleep();
+        }
+
+        const ipSnap = await ip.get(ip.query(ipScalar));
+        const servedSnap = await served.get(served.query(servedScalar));
+        expect(ipSnap.exists()).toBe(true);
+        expect(ipSnap.val()).toBe(scalar);
+        expect(servedSnap.exists()).toBe(true);
+        expect(servedSnap.val()).toBe(scalar);
+
+        const ipPrioritySnap = await ip.get(ip.query(ipScalar, ip.orderByPriority()));
+        const servedPrioritySnap = await served.get(served.query(servedScalar, served.orderByPriority()));
+        expect(ipPrioritySnap.exists()).toBe(true);
+        expect(ipPrioritySnap.val()).toBe(scalar);
+        expect(servedPrioritySnap.exists()).toBe(true);
+        expect(servedPrioritySnap.val()).toBe(scalar);
+
+        const ipKeySnap = await ip.get(ip.query(ipScalar, ip.orderByKey()));
+        const servedKeySnap = await served.get(served.query(servedScalar, served.orderByKey()));
+        expect(ipKeySnap.exists()).toBe(true);
+        expect(ipKeySnap.val()).toBe(scalar);
+        expect(servedKeySnap.exists()).toBe(true);
+        expect(servedKeySnap.val()).toBe(scalar);
+
+        const ipLimitedSnap = await ip.get(ip.query(ipScalar, ip.orderByPriority(), ip.limitToFirst(1)));
+        const servedLimitedSnap = await served.get(served.query(servedScalar, served.orderByPriority(), served.limitToFirst(1)));
+        expect(ipLimitedSnap.exists()).toBe(false);
+        expect(ipLimitedSnap.val()).toBeNull();
+        expect(servedLimitedSnap.exists()).toBe(false);
+        expect(servedLimitedSnap.val()).toBeNull();
+      }
+
+      const expectedValueEvents = [
+        { exists: true, val: 42 },
+        { exists: true, val: false },
+        { exists: true, val: 0 },
+        { exists: true, val: '' },
+      ];
+      expect(ipValueEvents).toEqual(expectedValueEvents);
+      expect(servedValueEvents).toEqual(expectedValueEvents);
+      expect(ipChildEvents).toEqual([]);
+      expect(servedChildEvents).toEqual([]);
+
+      unsubIpValue();
+      unsubServedValue();
+      unsubIpChild();
+      unsubServedChild();
+    } finally {
+      await cleanup();
+    }
+  });
+
+  it('forwards orderByPriority() over the served wire protocol for query.orderByPriority rule checks', async () => {
+    const rules = {
+      rules: {
+        items: {
+          '.write': true,
+          '.read': 'query.orderByPriority == true',
+        },
+      },
+    };
+    const { served, servedDb, ipDb, cleanup } = await setupPlanes(rules);
+    try {
+      const ipItems = ip.ref(ipDb, 'items');
+      const servedItems = served.ref(servedDb, 'items');
+      await ip.set(ipItems, 125);
+      await served.set(servedItems, 125);
+
+      await expect(ip.get(ipItems)).rejects.toThrow(/permission_denied/i);
+      await expect(served.get(servedItems)).rejects.toThrow(/permission_denied/i);
+
+      const ipAllowed = await ip.get(ip.query(ipItems, ip.orderByPriority()));
+      const servedAllowed = await served.get(served.query(servedItems, served.orderByPriority()));
+      expect(ipAllowed.exportVal()).toBe(125);
+      expect(servedAllowed.exportVal()).toBe(125);
+
+      const ipErrors: string[] = [];
+      const servedErrors: string[] = [];
+      const unsubIpDenied = ip.onValue(ipItems, () => {}, (err) => ipErrors.push(err.message));
+      const unsubServedDenied = served.onValue(servedItems, () => {}, (err) => servedErrors.push(err.message));
+
+      const ipStream: unknown[] = [];
+      const servedStream: unknown[] = [];
+      const unsubIpAllowed = ip.onValue(ip.query(ipItems, ip.orderByPriority()), (snap) => {
+        ipStream.push(snap.exportVal());
+      });
+      const unsubServedAllowed = served.onValue(served.query(servedItems, served.orderByPriority()), (snap) => {
+        servedStream.push(snap.exportVal());
+      });
+      await sleep();
+
+      await ip.set(ipItems, 0);
+      await served.set(servedItems, 0);
+      await sleep();
+
+      expect(ipErrors).toHaveLength(1);
+      expect(servedErrors).toHaveLength(1);
+      expect(ipErrors[0]).toMatch(/permission_denied/i);
+      expect(servedErrors[0]).toMatch(/permission_denied/i);
+      expect(ipStream).toEqual([125, 0]);
+      expect(servedStream).toEqual([125, 0]);
+
+      unsubIpDenied();
+      unsubServedDenied();
+      unsubIpAllowed();
+      unsubServedAllowed();
     } finally {
       await cleanup();
     }

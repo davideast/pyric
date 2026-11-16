@@ -470,4 +470,89 @@ describe('offline firebase-admin differential contracts', () => {
       expect((await legacyDb.ref('items/sharedDefault').get()).val()).toBe('ok');
     }
   });
+
+  test('preserves scalar leaf snapshots on unfiltered orderBy* queries and projects null on ranged or limited queries', async () => {
+    async function runScalarQueryScenario(driver: DifferentialDriver) {
+      const db = driver.db as Database;
+      await driver.write('items/scalar', 125);
+
+      const queries = {
+        byPriority: db.ref('items/scalar').orderByPriority(),
+        byKey: db.ref('items/scalar').orderByKey(),
+        byValue: db.ref('items/scalar').orderByValue(),
+        byChild: db.ref('items/scalar').orderByChild('n'),
+        limited: db.ref('items/scalar').orderByPriority().limitToFirst(2),
+        ranged: db.ref('items/scalar').orderByPriority().startAt(1),
+      };
+
+      const observed: Record<string, unknown> = {};
+      for (const [name, q] of Object.entries(queries)) {
+        let seen: unknown = null;
+        const cb = (snap: DataSnapshot): void => {
+          seen = {
+            exists: snap.exists(),
+            val: snap.val(),
+            exportVal: snap.exportVal(),
+            priority: snap.getPriority(),
+            numChildren: snap.numChildren(),
+          };
+        };
+        q.on('value', cb);
+        if (driver.kind === 'shared-worker') await tick();
+        q.off('value', cb);
+        observed[name] = seen;
+      }
+      return observed;
+    }
+
+    const oracle = await runScalarQueryScenario(makeProdDriver());
+    expect(oracle).toEqual({
+      byPriority: {
+        exists: true,
+        val: 125,
+        exportVal: 125,
+        priority: null,
+        numChildren: 0,
+      },
+      byKey: {
+        exists: true,
+        val: 125,
+        exportVal: 125,
+        priority: null,
+        numChildren: 0,
+      },
+      byValue: {
+        exists: true,
+        val: 125,
+        exportVal: 125,
+        priority: null,
+        numChildren: 0,
+      },
+      byChild: {
+        exists: true,
+        val: 125,
+        exportVal: 125,
+        priority: null,
+        numChildren: 0,
+      },
+      limited: {
+        exists: false,
+        val: null,
+        exportVal: null,
+        priority: null,
+        numChildren: 0,
+      },
+      ranged: {
+        exists: false,
+        val: null,
+        exportVal: null,
+        priority: null,
+        numChildren: 0,
+      },
+    });
+
+    for (const driver of makePyricDrivers()) {
+      expect(await runScalarQueryScenario(driver)).toEqual(oracle);
+    }
+  });
 });

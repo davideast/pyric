@@ -67,11 +67,17 @@ describe('rtdb-modular CDD: query, normalization, and listener rows', () => {
   row('M63', async () => expect(await queryKeys([api.orderByChild('score')], { a: { other: true }, b: { score: 1 } })).toEqual(['a', 'b']));
   row('M64', async () => {
     const { db } = setup();
-    for (const [path, value] of [['primitive', 1], ['absent', undefined]] as const) {
-      const target = api.ref(db, path); if (value !== undefined) await api.set(target, value);
-      const snap = await api.get(api.query(target, api.orderByKey()));
-      expect([snap.exists(), snap.size, keys(snap)]).toEqual([false, 0, []]);
-    }
+    const primitiveTarget = api.ref(db, 'primitive');
+    await api.set(primitiveTarget, 1);
+    // Upstream `IndexedFilter.updateFullNode` (`LeafNode.withIndex`) keeps a scalar leaf on unfiltered
+    // queries (`loadsAllData() === true`), with zero child rows; `RangedFilter` / `LimitedFilter`
+    // replace a leaf with `EMPTY_NODE` (#2661; this contract previously asserted `exists() === false` on unfiltered `orderByKey()`).
+    const unfilteredSnap = await api.get(api.query(primitiveTarget, api.orderByKey()));
+    expect([unfilteredSnap.exists(), unfilteredSnap.val(), unfilteredSnap.size, keys(unfilteredSnap)]).toEqual([true, 1, 0, []]);
+    const limitedSnap = await api.get(api.query(primitiveTarget, api.orderByKey(), api.limitToFirst(1)));
+    expect([limitedSnap.exists(), limitedSnap.val(), limitedSnap.size, keys(limitedSnap)]).toEqual([false, null, 0, []]);
+    const absentSnap = await api.get(api.query(api.ref(db, 'absent'), api.orderByKey()));
+    expect([absentSnap.exists(), absentSnap.val(), absentSnap.size, keys(absentSnap)]).toEqual([false, null, 0, []]);
   });
   row('M65', async () => {
     const { db } = setup(); const target = api.ref(db, 'array'); await api.set(target, ['a', 'b']);

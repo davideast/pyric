@@ -164,4 +164,77 @@ describe('query onValue root priority notifications', () => {
       unsub();
     }
   });
+
+  test('preserves scalar leaf values and priorities on unfiltered queries while projecting null on filtered queries', async () => {
+    const box = initializeSandbox();
+    const db = getDatabase(box);
+    rtdbSandbox.setRules(db, OPEN_RULES);
+    await setWithPriority(ref(db, 'items'), 125, 7);
+
+    const unfilteredQueries = [
+      query(ref(db, 'items'), orderByPriority()),
+      query(ref(db, 'items'), orderByKey()),
+      query(ref(db, 'items'), orderByValue()),
+      query(ref(db, 'items'), orderByChild('score')),
+    ];
+    for (const q of unfilteredQueries) {
+      const snap = await get(q);
+      expect(snap.exists()).toBe(true);
+      expect(snap.val()).toBe(125);
+      expect(snap.priority).toBe(7);
+      expect(snap.exportVal()).toEqual({ '.value': 125, '.priority': 7 });
+      expect(snap.size).toBe(0);
+      expect(snap.hasChildren()).toBe(false);
+    }
+
+    const filteredQueries = [
+      query(ref(db, 'items'), orderByPriority(), limitToFirst(2)),
+      query(ref(db, 'items'), orderByKey(), limitToLast(1)),
+      query(ref(db, 'items'), orderByPriority(), startAt(1)),
+      query(ref(db, 'items'), orderByValue(), endAt(200)),
+      query(ref(db, 'items'), orderByChild('score'), equalTo(1)),
+    ];
+    for (const q of filteredQueries) {
+      const snap = await get(q);
+      expect(snap.exists()).toBe(false);
+      expect(snap.val()).toBeNull();
+      expect(snap.priority).toBeNull();
+      expect(snap.exportVal()).toBeNull();
+    }
+
+    await set(ref(db, 'items'), 125);
+    const byPriorityEvents: Array<{ exists: boolean; exportVal: unknown; priority: string | number | null }> = [];
+    const limitedEvents: Array<{ exists: boolean; exportVal: unknown; priority: string | number | null }> = [];
+    const unsubPriority = onValue(query(ref(db, 'items'), orderByPriority()), (snap) => {
+      byPriorityEvents.push({ exists: snap.exists(), exportVal: snap.exportVal(), priority: snap.priority });
+    });
+    const unsubLimited = onValue(query(ref(db, 'items'), orderByPriority(), limitToFirst(2)), (snap) => {
+      limitedEvents.push({ exists: snap.exists(), exportVal: snap.exportVal(), priority: snap.priority });
+    });
+
+    try {
+      await set(ref(db, 'items'), 200);
+      await setPriority(ref(db, 'items'), 7);
+      await set(ref(db, 'items'), { b: 1, a: 2 });
+      await set(ref(db, 'items'), 300);
+      await set(ref(db, 'items'), null);
+
+      expect(byPriorityEvents).toEqual([
+        { exists: true, exportVal: 125, priority: null },
+        { exists: true, exportVal: 200, priority: null },
+        { exists: true, exportVal: { '.value': 200, '.priority': 7 }, priority: 7 },
+        { exists: true, exportVal: { a: 2, b: 1 }, priority: null },
+        { exists: true, exportVal: 300, priority: null },
+        { exists: false, exportVal: null, priority: null },
+      ]);
+      expect(limitedEvents).toEqual([
+        { exists: false, exportVal: null, priority: null },
+        { exists: true, exportVal: { a: 2, b: 1 }, priority: null },
+        { exists: false, exportVal: null, priority: null },
+      ]);
+    } finally {
+      unsubPriority();
+      unsubLimited();
+    }
+  });
 });

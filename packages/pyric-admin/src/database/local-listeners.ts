@@ -21,6 +21,7 @@ import {
   exportDatabaseVal,
   isDefaultQuerySpec,
   isInfoPath,
+  isScalarLeafValue,
   loadsAllData,
   normalizeNode,
   valueAtChildPath,
@@ -220,9 +221,13 @@ export function buildLocalQuerySnapshot(
   canonical: string,
   segs: readonly string[],
   rows: readonly QueryRow[],
-  includeRootPriority = true,
+  unfiltered = true,
+  leafValue: JsonValue = null,
 ): DataSnapshot {
   if (rows.length === 0) {
+    if (unfiltered && isScalarLeafValue(leafValue)) {
+      return buildSandboxSnap(refAt, canonical, leafValue, exportedLocalValueAt(adminDb, segs, leafValue));
+    }
     return buildSandboxSnap(refAt, canonical, null, null, []);
   }
   const stored: Record<string, JsonValue> = {};
@@ -235,7 +240,7 @@ export function buildLocalQuerySnapshot(
     fullExport !== null &&
     typeof fullExport === 'object' &&
     !Array.isArray(fullExport);
-  if (includeRootPriority && isExportRecord && Object.hasOwn(fullExport, '.priority')) {
+  if (unfiltered && isExportRecord && Object.hasOwn(fullExport, '.priority')) {
     exportedWindow['.priority'] = (fullExport as Record<string, unknown>)['.priority'];
   }
   const entries: SnapshotChildEntry[] = [];
@@ -266,6 +271,7 @@ function hydrateLocalValueSnap(
       segs,
       raw.rows ?? [],
       loadsAllData(spec),
+      raw.val,
     );
   }
   return buildSandboxSnap(

@@ -5,7 +5,7 @@
 
 import type { RemoteSandboxChannel } from 'pyric/sandbox';
 import {
-  executeQuery,
+  evaluateQueryRead,
   isDefaultQuerySpec,
   isInfoPath,
   jsonEqual,
@@ -81,12 +81,7 @@ function buildInfoWireSnapshot(
   }
   const snapKey = segs.length === 0 ? null : segs[segs.length - 1]!;
   if (!isDefaultQuerySpec(spec)) {
-    const rows = executeQuery(raw, spec);
-    const hasRows = rows.length > 0;
-    let projected: JsonValue = null;
-    if (hasRows) {
-      projected = Object.fromEntries(rows.map((row) => [row.key, row.value]));
-    }
+    const { val, rows } = evaluateQueryRead(raw, spec);
     const entries: RemoteWireEntry[] = rows.map((row) => ({
       key: row.key,
       value: row.value,
@@ -94,9 +89,9 @@ function buildInfoWireSnapshot(
     }));
     return {
       key: snapKey,
-      exists: hasRows,
-      value: projected,
-      exportValue: projected,
+      exists: val !== null,
+      value: val,
+      exportValue: val,
       entries,
       size: rows.length,
     };

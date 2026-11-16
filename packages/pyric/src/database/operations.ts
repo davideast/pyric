@@ -10,7 +10,7 @@ import { buildSandboxRef } from './references.js';
 import { assertGettablePath } from './info-read.js';
 import { validateUpdatePaths, validateWritablePath } from './writable-path.js';
 import { errorPrefix, validateUpdate, validateWrite } from './sandbox/normalize.js';
-import { loadsAllData } from './sandbox/query-index.js';
+import { loadsAllData } from './internal/query-projection.js';
 import { buildSandboxQuerySnap, buildSandboxSnap } from './snapshots.js';
 
 // ─── Reads ───────────────────────────────────────────────────────────
@@ -35,13 +35,16 @@ export function get(r: DatabaseReference | Query): Promise<DataSnapshot> {
     try {
       assertGettablePath(ref0._path);
       if (query) {
-        let rows: ReturnType<typeof target.backend.adminGetQuery>;
+        let result: ReturnType<typeof target.backend.adminGetQuery>;
         if (isAdminFor(target)) {
-          rows = target.backend.adminGetQuery(query.ref._path, query._spec);
+          result = target.backend.adminGetQuery(query.ref._path, query._spec);
         } else {
-          rows = target.backend.getQuery(authFor(target), query.ref._path, query._spec);
+          result = target.backend.getQuery(authFor(target), query.ref._path, query._spec);
         }
-        return finishSdkRead(activity, buildSandboxQuerySnap(target, query.ref, rows, loadsAllData(query._spec)));
+        return finishSdkRead(
+          activity,
+          buildSandboxQuerySnap(target, query.ref, result.rows, loadsAllData(query._spec), result.val),
+        );
       }
       let val: JsonValue;
       if (isAdminFor(target)) {

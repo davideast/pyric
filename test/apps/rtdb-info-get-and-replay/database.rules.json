@@ -1,8 +1,12 @@
 {
   "rules": {
-    ".read": true,
     "t": {
+      ".read": true,
       ".write": "auth != null && !data.exists()"
+    },
+    "ranked": {
+      ".read": "query.orderByPriority == true",
+      ".write": "auth != null"
     }
   }
 }
