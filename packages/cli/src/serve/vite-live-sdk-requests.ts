@@ -28,11 +28,10 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { ViteDevServer } from 'vite';
 import { packageNameOf } from '../register/package-identity.js';
+import { viteBasePrefix, viteCandidateFiles, viteRequestPathnames, viteServedRoots } from './vite-request-path.js';
 import { stopModule, stopModuleExports } from './vite-ssr-routing.js';
 import { realFileUrlOf, type SuppliedRows } from './vite-supplied-rows.js';
 
-const FS_PREFIX = '/@fs/';
-const ID_PREFIX = '/@id/';
 const ORIGIN = 'http://request.invalid';
 
 type Next = (error?: unknown) => void;
@@ -55,50 +54,24 @@ function clientGraphOf(server: GateServer): ClientGraph | null {
   return shaped.environments?.client?.moduleGraph ?? shaped.moduleGraph ?? null;
 }
 
-/** Vite's `base` as a path with a trailing slash. */
-function basePrefix(base: string): string {
-  return new URL(base, 'http://base.invalid').pathname.replace(/\/?$/, '/');
-}
-
-/** The pathname below Vite's `base`, decoded, to find the file it opens; null when it does not decode. */
-function servedPathname(url: URL, base: string): string | null {
-  const prefix = basePrefix(base);
-  const isUnderBase = url.pathname.startsWith(prefix);
-  const pathname = isUnderBase ? `/${url.pathname.slice(prefix.length)}` : url.pathname;
-  try {
-    return decodeURIComponent(pathname);
-  } catch {
-    return null;
-  }
-}
-
-/**
- * The files Vite could serve a pathname as: an `/@fs/` path names one; any
- * other path is tried as an absolute filesystem path and under the root, as
- * Vite tries it. An `/@id/` path is unwrapped first, so the id it carries is
- * tried the same way.
- */
-function candidateFiles(pathname: string, root: string): string[] {
-  const isIdPath = pathname.startsWith(ID_PREFIX);
-  if (isIdPath) return candidateFiles(`/${pathname.slice(ID_PREFIX.length).replace(/^\/+/, '')}`, root);
-  const isFsPath = pathname.startsWith(FS_PREFIX);
-  if (isFsPath) return [pathname.slice(FS_PREFIX.length - 1)];
-  return [pathname, path.join(root, pathname)];
-}
-
-/** The real file URL of the loaded SDK file a pathname reaches, or null when it reaches none. */
-function loadedSdkFileOf(pathname: string, root: string, supplied: SuppliedRows): string | null {
-  for (const file of candidateFiles(pathname, root)) {
-    const real = realFileUrlOf(file);
-    const isLoadedSdkFile = real !== null && supplied.liveSdkUrls.has(real);
-    if (isLoadedSdkFile) return real;
+/** The real file URL of the loaded SDK file any candidate pathname reaches, or null when none matches. */
+function loadedSdkFileOf(pathnames: readonly string[], roots: readonly string[], supplied: SuppliedRows): string | null {
+  const seen = new Set<string>();
+  for (const pathname of pathnames) {
+    for (const file of viteCandidateFiles(pathname, roots, { includeAbsolute: true })) {
+      if (seen.has(file)) continue;
+      seen.add(file);
+      const real = realFileUrlOf(file);
+      const isLoadedSdkFile = real !== null && supplied.liveSdkUrls.has(real);
+      if (isLoadedSdkFile) return real;
+    }
   }
   return null;
 }
 
 /** A module graph URL as the browser requests it: under `base`, spelled by the WHATWG parser, nothing decoded. */
 function requestSpelling(graphUrl: string, base: string): string {
-  const parsed = new URL(`${basePrefix(base)}${graphUrl.replace(/^\//, '')}`, ORIGIN);
+  const parsed = new URL(`${viteBasePrefix(base)}${graphUrl.replace(/^\/+/, '')}`, ORIGIN);
   return `${parsed.pathname}${parsed.search}`;
 }
 
@@ -133,17 +106,18 @@ function writtenUrlsOf(server: GateServer, realFile: string): Set<string> {
 /**
  * The real file URL of a loaded SDK file this request names under a URL Vite
  * did not write, or null. The request's raw pathname and query must equal a
- * written URL exactly: Vite normalizes `?v=x&`, `?%76=x` and an encoded path
- * back to the file, while the browser keys each as its own module.
+ * written URL exactly: Vite normalizes `?v=x&`, `?%76=x`, dot segments,
+ * repeated slashes, and encoded paths back to the file, while the browser keys
+ * each as its own module.
  */
 function unwrittenSdkFile(server: GateServer, supplied: SuppliedRows, rawUrl: string | undefined): string | null {
   if (rawUrl === undefined || supplied.package() === null) return null;
-  const url = new URL(rawUrl, ORIGIN);
-  const pathname = servedPathname(url, server.config.base ?? '/');
-  if (pathname === null) return null;
-  const real = loadedSdkFileOf(pathname, server.config.root, supplied);
+  const pathnames = viteRequestPathnames(rawUrl, server.config.base ?? '/');
+  if (pathnames === null) return null;
+  const real = loadedSdkFileOf(pathnames, viteServedRoots(server.config), supplied);
   if (real === null) return null;
-  const isWritten = writtenUrlsOf(server, fileURLToPath(real)).has(`${url.pathname}${url.search}`);
+  const rawTarget = rawUrl.replace(/#.*$/, '');
+  const isWritten = writtenUrlsOf(server, fileURLToPath(real)).has(rawTarget);
   return isWritten ? null : real;
 }
 
@@ -156,12 +130,22 @@ function secondCopyRefusal(supplied: SuppliedRows, real: string, rawUrl: string)
   return Object.assign(new Error(`${refusal.message} ${route}`), { code: (refusal as { code?: unknown }).code });
 }
 
-async function answerRefusal(response: ServerResponse, supplied: SuppliedRows, real: string, rawUrl: string): Promise<void> {
+async function answerRefusal(
+  request: IncomingMessage,
+  response: ServerResponse,
+  supplied: SuppliedRows,
+  real: string,
+  rawUrl: string,
+): Promise<void> {
   const file = fileURLToPath(real);
   const source = stopModule(secondCopyRefusal(supplied, real, rawUrl), await stopModuleExports(file, path.dirname(file)));
   response.statusCode = 200;
   response.setHeader('Content-Type', 'text/javascript');
   response.setHeader('Cache-Control', 'no-store');
+  if (request.method === 'HEAD') {
+    response.end();
+    return;
+  }
   response.end(source);
 }
 
@@ -171,6 +155,6 @@ export function attachLiveSdkRequestGate(server: GateServer, supplied: SuppliedR
     const rawUrl = request.url;
     const real = unwrittenSdkFile(server, supplied, rawUrl);
     if (real === null || rawUrl === undefined) return next();
-    answerRefusal(response, supplied, real, rawUrl).catch(next);
+    answerRefusal(request, response, supplied, real, rawUrl).catch(next);
   });
 }

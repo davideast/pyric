@@ -24,25 +24,68 @@ function isClientSideBuild(options: WebpackOptions): boolean {
   return options.isServer === false;
 }
 
-function assembleClientResolveSection(existingResolve: Record<string, any> | undefined): Record<string, any> {
-  const resolveSection = existingResolve !== undefined ? Object.assign({}, existingResolve) : {};
+interface WebpackAliasEntry {
+  readonly name: string;
+  readonly alias: string | false | string[];
+  readonly onlyModule: boolean;
+}
 
-  const currentAliases = resolveSection.alias !== undefined ? Object.assign({}, resolveSection.alias) : {};
-  // Webpack matches a key as a prefix unless it ends in `$`. Exact keys keep
-  // `firebase/firestore` from capturing `firebase/firestore/lite`.
-  const newAliases: Record<string, string> = {};
+function pyricClientAliases(): Array<{ readonly name: string; readonly alias: string; readonly onlyModule: true }> {
+  const entries: Array<{ readonly name: string; readonly alias: string; readonly onlyModule: true }> = [];
   for (const [source, target] of Object.entries(getClientAliases())) {
-    newAliases[`${source}$`] = target;
+    entries.push({ name: source, alias: target, onlyModule: true });
   }
   for (const unserved of getClientStopSpecifiers()) {
-    newAliases[`${unserved}$`] = CLIENT_STOP_MODULE;
+    entries.push({ name: unserved, alias: CLIENT_STOP_MODULE, onlyModule: true });
   }
-  resolveSection.alias = Object.assign(currentAliases, newAliases);
+  return entries;
+}
 
-  const currentFallbacks = resolveSection.fallback !== undefined ? Object.assign({}, resolveSection.fallback) : {};
+function clonePlainObject(value: unknown): Record<string, unknown> {
+  const copy: Record<string, unknown> = {};
+  if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
+    Object.assign(copy, value);
+  }
+  return copy;
+}
+
+function mergeResolveAliases(existingAlias: unknown): Record<string, unknown> | WebpackAliasEntry[] {
+  const pyricEntries = pyricClientAliases();
+  if (Array.isArray(existingAlias)) {
+    // Webpack 5 array-form `resolve.alias` evaluates entries in order without
+    // stripping trailing `$`, so Pyric's exact entries (`onlyModule: true`) go
+    // first while preserving all user entries without mutating the input array.
+    return [...pyricEntries, ...(existingAlias as WebpackAliasEntry[])];
+  }
+  const currentAliases = clonePlainObject(existingAlias);
+  // Webpack matches an object key as a prefix unless it ends in `$`. Exact keys
+  // keep `firebase/firestore` from capturing `firebase/firestore/lite`.
+  const newAliases: Record<string, string> = {};
+  for (const entry of pyricEntries) {
+    newAliases[`${entry.name}$`] = entry.alias;
+  }
+  return Object.assign(currentAliases, newAliases);
+}
+
+function mergeResolveFallbacks(existingFallback: unknown): Record<string, unknown> | WebpackAliasEntry[] {
   const newFallbacks = getNodeBuiltinFallbacks();
-  resolveSection.fallback = Object.assign(currentFallbacks, newFallbacks);
+  if (Array.isArray(existingFallback)) {
+    const pyricFallbacks: WebpackAliasEntry[] = [];
+    for (const [name, enabled] of Object.entries(newFallbacks)) {
+      if (!enabled) {
+        pyricFallbacks.push({ name, alias: false, onlyModule: false });
+      }
+    }
+    return [...pyricFallbacks, ...(existingFallback as WebpackAliasEntry[])];
+  }
+  const currentFallbacks = clonePlainObject(existingFallback);
+  return Object.assign(currentFallbacks, newFallbacks);
+}
 
+function assembleClientResolveSection(existingResolve: Record<string, any> | undefined): Record<string, any> {
+  const resolveSection = existingResolve !== undefined ? Object.assign({}, existingResolve) : {};
+  resolveSection.alias = mergeResolveAliases(resolveSection.alias);
+  resolveSection.fallback = mergeResolveFallbacks(resolveSection.fallback);
   return resolveSection;
 }
 

@@ -7,7 +7,7 @@
  * each URL as its own module.
  */
 import { afterAll, describe, expect, it } from 'bun:test';
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -47,6 +47,7 @@ interface GateOptions {
   /** The optimizer's current hash in memory, which the gate must not read. */
   currentHash?: string;
   base?: string;
+  publicDir?: string;
 }
 
 /** A gate on a stand-in dev server whose client module graph holds `written` for the SDK file. */
@@ -62,7 +63,12 @@ function gate(options: GateOptions): { ask: (url: string) => Promise<Answer>; no
     ? { moduleGraph }
     : { environments: { client: { moduleGraph, depsOptimizer } } };
   const server = {
-    config: { root, base: options.base ?? '/', cacheDir: join(root, 'node_modules/.vite') },
+    config: {
+      root,
+      publicDir: options.publicDir ?? '',
+      base: options.base ?? '/',
+      cacheDir: join(root, 'node_modules/.vite'),
+    },
     middlewares: { use: (fn: Middleware) => { middleware = fn; } },
     ...placement,
   };
@@ -106,6 +112,15 @@ describe('a request for an SDK file the live rows loaded', () => {
     'an /@id/ absolute path with a query': `/@id${sdkFile}?q=1`,
     'an /@id/ path with a doubled slash': `/@id/${sdkFile}?v=abc123`,
     'an /@id/ root path': `/@id${PATH}?v=abc123`,
+    'a repeated leading slash on /@fs/': `//@fs${sdkFile}`,
+    'a repeated leading slash on /@fs/ with written query': `//@fs${sdkFile}?v=abc123`,
+    'a dot segment before /@fs/': `/./@fs${sdkFile}`,
+    'a parent traversal before /@fs/': `/items/../@fs${sdkFile}?v=abc123`,
+    'an encoded dot segment before /@fs/': `/%2e/@fs${sdkFile}?v=abc123`,
+    'an encoded /@fs/ prefix': `/%40fs${sdkFile}?v=abc123`,
+    'a repeated leading slash on node_modules': `/${PATH}?v=abc123`,
+    'a dot segment before node_modules': `/./${PATH.slice(1)}?v=abc123`,
+    'a parent traversal before node_modules': `/items/..${PATH}?v=abc123`,
   };
   for (const [name, url] of Object.entries(refused)) {
     it(`is refused under ${name}`, async () => {
@@ -153,5 +168,34 @@ describe('the URLs Vite wrote, read from its module graph', () => {
     const { ask } = gate({ written: [`${PATH}?v=abc123`], base: '/app/' });
     expect((await ask(`/app${PATH}?v=abc123`)).passed).toBe(true);
     expect((await ask(`/app${PATH}?v=abc123&`)).passed).toBe(false);
+    expect((await ask(`/app//@fs${sdkFile}`)).passed).toBe(false);
+    expect((await ask(`/app/./${PATH.slice(1)}?v=abc123`)).passed).toBe(false);
+    expect((await ask(`//app${PATH}?v=abc123`)).passed).toBe(false);
+  });
+
+  it('refuses non-canonical /@fs/ variants even when Vite wrote a canonical /@fs/ URL', async () => {
+    const { ask } = gate({ written: [`/@fs${sdkFile}?v=abc123`] });
+    expect((await ask(`/@fs${sdkFile}?v=abc123`)).passed).toBe(true);
+    expect((await ask(`//@fs${sdkFile}?v=abc123`)).passed).toBe(false);
+    expect((await ask(`/./@fs${sdkFile}?v=abc123`)).passed).toBe(false);
+    expect((await ask(`/items/../@fs${sdkFile}?v=abc123`)).passed).toBe(false);
+  });
+
+  it('refuses a publicDir symlink pointing to a loaded live SDK file', async () => {
+    const publicDir = join(root, 'public-assets');
+    mkdirSync(publicDir, { recursive: true });
+    symlinkSync(sdkFile, join(publicDir, 'sdk-link.js'));
+    const { ask } = gate({ written: [`${PATH}?v=abc123`], publicDir });
+
+    for (const url of ['/sdk-link.js', '//sdk-link.js', '/./sdk-link.js', '/items/../sdk-link.js']) {
+      const answer = await ask(url);
+      expect(answer.passed).toBe(false);
+      expect(answer.body).toContain('PYRIC_LIVE_REFUSED');
+      expect(answer.body).toContain('initializeFirestore');
+    }
+
+    const withBase = gate({ written: [`${PATH}?v=abc123`], publicDir, base: '/app/' });
+    expect((await withBase.ask('/app/sdk-link.js')).passed).toBe(false);
+    expect((await withBase.ask('/app//sdk-link.js')).passed).toBe(false);
   });
 });

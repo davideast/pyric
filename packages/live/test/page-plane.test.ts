@@ -237,4 +237,125 @@ describe('the refusal of a served specifier with no live row', () => {
     expect(liveRefusal('firebase-admin/app', 'server').message).toContain('(the Admin SDK)');
     expect(liveRefusal('firebase-admin/app', 'server').message).toContain('server code the dev server runs');
   });
+
+  test('refuses non-canonical /@fs/ and WHATWG fetch(//@fs...) requests for installed Firebase SDK files in pyricLive()', async () => {
+    const { spawnSync } = await import('node:child_process');
+    const { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } = await import('node:fs');
+    const { createRequire } = await import('node:module');
+    const { tmpdir } = await import('node:os');
+    const { dirname, join, resolve } = await import('node:path');
+    const { pathToFileURL } = await import('node:url');
+
+    const repoRoot = resolve(import.meta.dir, '../../..');
+    const liveRequire = createRequire(join(repoRoot, 'packages/live/package.json'));
+    const cliRequire = createRequire(join(repoRoot, 'packages/cli/package.json'));
+    const viteDir = dirname(liveRequire.resolve('vite/package.json'));
+    const viteEntryUrl = pathToFileURL(join(viteDir, 'dist/node/index.js')).href;
+    const liveViteUrl = pathToFileURL(join(repoRoot, 'packages/live/dist/vite.js')).href;
+    const installedPkg = cliRequire.resolve('firebase/package.json');
+    const installedDir = dirname(installedPkg);
+    const fbRequire = createRequire(installedPkg);
+    const atFirebaseDir = dirname(dirname(fbRequire.resolve('@firebase/app/package.json')));
+    const firebaseAppEsm = realpathSync(join(installedDir, 'app/dist/esm/index.esm.js'));
+
+    const root = realpathSync(mkdtempSync(join(tmpdir(), 'pyric-live-rawfs-')));
+    try {
+      mkdirSync(join(root, 'node_modules'), { recursive: true });
+      symlinkSync(installedDir, join(root, 'node_modules', 'firebase'));
+      symlinkSync(atFirebaseDir, join(root, 'node_modules', '@firebase'));
+      const targetFile = realpathSync(join(installedDir, 'firebase-app.js'));
+      const publicDir = join(root, 'public');
+      mkdirSync(publicDir, { recursive: true });
+      symlinkSync(firebaseAppEsm, join(publicDir, 'sdk-link.js'));
+      writeFileSync(join(root, 'package.json'), JSON.stringify({ name: 'items-app', type: 'module' }));
+      writeFileSync(join(root, 'index.html'), '<!doctype html><html><body>ok</body></html>');
+      writeFileSync(join(root, 'entry.js'), "import { initializeApp } from 'firebase/app';\nexport { initializeApp };\n");
+      writeFileSync(join(root, '.firebaserc'), JSON.stringify({ projects: { default: 'demo-project' } }));
+
+      const probePath = join(root, 'probe-live-rawfs.mjs');
+      writeFileSync(
+        probePath,
+        [
+          "import { request } from 'node:http';",
+          `const { createServer } = await import(${JSON.stringify(viteEntryUrl)});`,
+          `const { pyricLive } = await import(${JSON.stringify(liveViteUrl)});`,
+          `const root = ${JSON.stringify(root)};`,
+          `const targetFile = ${JSON.stringify(targetFile)};`,
+          'const rawGet = (port, reqPath) => new Promise((resP, rejP) => {',
+          "  const req = request({ hostname: '127.0.0.1', port, path: reqPath, headers: { accept: 'text/javascript', connection: 'close' } }, (res) => {",
+          "    let body = '';",
+          "    res.setEncoding('utf8');",
+          "    res.on('data', (chunk) => { body += chunk; });",
+          "    res.on('end', () => resP({ status: res.statusCode ?? 0, body }));",
+          '  });',
+          "  req.on('error', rejP);",
+          '  req.end();',
+          '});',
+          'const server = await createServer({',
+          '  root, configFile: false, logLevel: "silent",',
+          "  server: { host: '127.0.0.1', port: 0, strictPort: false, ws: false },",
+          '  optimizeDeps: { noDiscovery: true, include: [] },',
+          "  plugins: [pyricLive({ project: 'demo-project' })],",
+          '});',
+          'try {',
+          '  await server.listen();',
+          '  const address = server.httpServer?.address();',
+          "  if (!address || typeof address === 'string') throw new Error('no port');",
+          '  const targets = [',
+          '    `/@fs${targetFile}`,',
+          '    `/./@fs${targetFile}`,',
+          '    `//@fs${targetFile}`,',
+          '    `/items/../@fs${targetFile}`,',
+          '    `/%2e/@fs${targetFile}`,',
+          '    `/%40fs${targetFile}`,',
+          '  ];',
+          '  const answers = [];',
+          '  for (const target of targets) {',
+          '    const answer = await rawGet(address.port, target);',
+          "    answers.push({ target, status: answer.status, refused: answer.body.startsWith('throw Object.assign(new Error(') && answer.body.includes('PYRIC_LIVE_REFUSED'), leaked: answer.body.includes('FirebaseAppImpl') });",
+          '  }',
+          '  const fetched = await fetch(`http://127.0.0.1:${address.port}//@fs${targetFile}`);',
+          '  const fetchBody = await fetched.text();',
+          "  answers.push({ target: 'fetch://@fs', status: fetched.status, refused: fetchBody.startsWith('throw Object.assign(new Error(') && fetchBody.includes('PYRIC_LIVE_REFUSED'), leaked: fetchBody.includes('FirebaseAppImpl') });",
+          "  const entryRes = await rawGet(address.port, '/entry.js');",
+          '  const rowMatch = /"(\\/@id\\/[^"]+)"/.exec(entryRes.body);',
+          "  if (!rowMatch) throw new Error('missing live row import');",
+          '  await rawGet(address.port, rowMatch[1]);',
+          '  for (const pubTarget of ["/sdk-link.js", "//sdk-link.js"]) {',
+          '    const pubAns = await rawGet(address.port, pubTarget);',
+          "    answers.push({ target: pubTarget, status: pubAns.status, refused: pubAns.body.startsWith('throw Object.assign(new Error(') && pubAns.body.includes('PYRIC_LIVE_REFUSED') && pubAns.body.includes('second copy'), leaked: pubAns.body.includes('FirebaseAppImpl') });",
+          '  }',
+          '  console.log(JSON.stringify(answers));',
+          '} finally {',
+          '  await server.close();',
+          '}',
+          'process.exit(0);',
+        ].join('\n'),
+      );
+
+      const run = spawnSync(process.env.PYRIC_TEST_NODE ?? 'node', [probePath], {
+        cwd: repoRoot,
+        encoding: 'utf8',
+        timeout: 60_000,
+      });
+      if (run.status !== 0) {
+        throw new Error(`live probe failed (${String(run.status)}): ${run.stderr}`);
+      }
+      const lastLine = run.stdout.trim().split('\n').pop() ?? '[]';
+      const answers = JSON.parse(lastLine) as Array<{
+        target: string;
+        status: number;
+        refused: boolean;
+        leaked: boolean;
+      }>;
+      expect(answers.length).toBe(9);
+      for (const entry of answers) {
+        expect(entry.status).toBe(200);
+        expect(entry.refused).toBe(true);
+        expect(entry.leaked).toBe(false);
+      }
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  }, 60_000);
 });

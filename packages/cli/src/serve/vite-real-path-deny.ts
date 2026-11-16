@@ -13,12 +13,11 @@
  */
 import { realpathSync } from 'node:fs';
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { join, relative } from 'node:path';
+import { relative } from 'node:path';
 import type { ViteDevServer } from 'vite';
 import { isPyricStateOrEnvPath } from './project-secret-paths.js';
 import { isPathInside } from './path-inside.js';
-
-const FS_PREFIX = '/@fs/';
+import { viteCandidateFiles, viteRequestPathnames, viteServedRoots } from './vite-request-path.js';
 
 type Next = (error?: unknown) => void;
 
@@ -31,39 +30,9 @@ export interface ViteDenyScope {
   base: string;
 }
 
-/** The decoded pathname of a request URL, without its query or hash; null when it does not decode. */
-function decodedPathname(rawUrl: string | undefined): string | null {
-  const pathname = (rawUrl ?? '/').replace(/[?#].*$/, '');
+function realPathOf(filePath: string): string | null {
   try {
-    return decodeURIComponent(pathname);
-  } catch {
-    return null;
-  }
-}
-
-/** A `base` as a path with a trailing slash; a full URL contributes its pathname. */
-function basePath(base: string): string {
-  const pathname = new URL(base, 'http://base.invalid').pathname;
-  return pathname.endsWith('/') ? pathname : `${pathname}/`;
-}
-
-/** The path as named, and the path below `base` when it starts there. */
-function withAndWithoutBase(pathname: string, base: string): string[] {
-  const prefix = basePath(base);
-  const isUnderBase = prefix !== '/' && pathname.startsWith(prefix);
-  return isUnderBase ? [pathname, `/${pathname.slice(prefix.length)}`] : [pathname];
-}
-
-/** The files a path could open: an `/@fs/` path names one, any other is tried under each root. */
-function candidateFiles(pathname: string, roots: readonly string[]): string[] {
-  const isFsPath = pathname.startsWith(FS_PREFIX);
-  if (isFsPath) return [pathname.slice(FS_PREFIX.length - 1)];
-  return roots.map((root) => join(root, pathname));
-}
-
-function realPathOf(path: string): string | null {
-  try {
-    return realpathSync(path);
+    return realpathSync(filePath);
   } catch {
     return null;
   }
@@ -90,31 +59,37 @@ function refuse(res: ServerResponse, message: string): void {
 /** Connect middleware; `scope` is read per request so a restarted server's config is used. */
 export function viteRealPathDeny(scope: () => ViteDenyScope) {
   return (req: IncomingMessage, res: ServerResponse, next: Next): void => {
-    const pathname = decodedPathname(req.url);
-    const undecodable = pathname === null;
-    if (undecodable) {
+    const { servedRoots, containingRoots, base } = scope();
+    const paths = viteRequestPathnames(req.url, base);
+    if (paths === null) {
       refuse(res, 'pyric: this request path does not decode.');
       return;
     }
-    const { servedRoots, containingRoots, base } = scope();
     const realRoots = [...servedRoots, ...containingRoots].map((root) => realPathOf(root) ?? root);
-    const paths = withAndWithoutBase(pathname, base);
-    const realFiles = paths.flatMap((path) => candidateFiles(path, servedRoots)).map(realPathOf);
-    const isDenied = realFiles.some((file) => file !== null && isDeniedRealPath(file, realRoots));
-    if (isDenied) {
-      refuse(res, 'pyric: this path is project state or an env file, which the dev server does not serve.');
-      return;
+    const candidates = new Set<string>();
+    for (const pathname of paths) {
+      for (const candidate of viteCandidateFiles(pathname, servedRoots, { includeAbsolute: true })) {
+        candidates.add(candidate);
+      }
+    }
+    for (const candidate of candidates) {
+      const real = realPathOf(candidate);
+      if (real !== null && isDeniedRealPath(real, realRoots)) {
+        refuse(res, 'pyric: this path is project state or an env file, which the dev server does not serve.');
+        return;
+      }
     }
     next();
   };
 }
 
 /** The scope one dev server's guard checks: its served directories and the Firebase project around them. */
-export function viteDenyScope(config: { root: string; publicDir?: string; base?: string }, projectDir: string): ViteDenyScope {
-  const publicDir = config.publicDir;
-  const hasPublicDir = typeof publicDir === 'string' && publicDir.length > 0;
+export function viteDenyScope(
+  config: { root: string; publicDir?: string | false; base?: string },
+  projectDir: string,
+): ViteDenyScope {
   return {
-    servedRoots: hasPublicDir ? [config.root, publicDir] : [config.root],
+    servedRoots: viteServedRoots(config),
     containingRoots: [projectDir],
     base: config.base ?? '/',
   };
