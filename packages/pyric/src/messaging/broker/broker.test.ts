@@ -12,7 +12,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { initializeSandbox } from '../../sandbox/index.js';
-import type { SandboxEvent, ServiceMutationEvent } from '../../sandbox/types.js';
+import type { SandboxEvent, ServiceMutationEvent } from '../../sandbox/types/index.js';
 import { MessagingBroker } from './broker.js';
 import { getMessagingBroker } from './index.js';
 import { BrokerSendError } from './envelopes.js';
@@ -170,6 +170,57 @@ describe('messaging broker — intake validation (captured envelopes, byte-match
     const err = rejectionOf(() => broker.send({ condition: "'/topics/alpha' in topics", data: { k: 'v' } }));
     expect(err.envelope.status).toBe(captured.status);
     expect(err.envelope.error).toEqual(captured.error as any);
+  });
+
+  it('enforces whitespace separation and the five-topic limit in parseCondition', () => {
+    const fiveTopics = "'t1' in topics && 't2' in topics && 't3' in topics && 't4' in topics && 't5' in topics";
+    const sixTopics = `${fiveTopics} && 't6' in topics`;
+    expect(parseCondition(fiveTopics)).toEqual({ topics: ['t1', 't2', 't3', 't4', 't5'] });
+    expect(parseCondition(sixTopics)).toBeNull();
+    expect(parseCondition("'alerts'intopics")).toBeNull();
+    expect(parseCondition("'alerts'in topics")).toBeNull();
+    expect(parseCondition("'alerts' intopics")).toBeNull();
+
+    const broker = new MessagingBroker();
+    const captured = capturedEnvelope('messaging-send-invalid-condition-error-envelope');
+    expect(rejectionOf(() => broker.send({ condition: sixTopics })).envelope.error).toEqual(captured.error as any);
+    expect(rejectionOf(() => broker.send({ condition: "'alerts'intopics" })).envelope.error).toEqual(
+      captured.error as any,
+    );
+  });
+
+  it('strips /topics/ at most once and rejects double-prefixed or slash-containing topics', () => {
+    const broker = new MessagingBroker();
+    const token = broker.getTokenFor('reg-single-strip');
+    broker.subscribeToTopic([token], 'alerts');
+    const seen: string[] = [];
+    broker.onBackgroundMessage((payload) => {
+      if (payload.data?.id) seen.push(payload.data.id);
+    });
+
+    broker.send({ topic: '/topics/alerts', data: { id: 'ok' } });
+    expect(seen).toEqual(['ok']);
+
+    for (const badTopic of ['/topics//topics/alerts', '/topics/', 'alerts/sub']) {
+      const err = rejectionOf(() => broker.send({ topic: badTopic, data: { id: 'bad' } }));
+      expect(err.errorCode).toBe('INVALID_PAYLOAD');
+      expect(err.message).toBe('Malformed topic name');
+    }
+    expect(seen).toEqual(['ok']);
+  });
+
+  it('rejects non-object, array, and non-string data payloads with INVALID_PAYLOAD', () => {
+    const broker = new MessagingBroker();
+    for (const badData of [['not-a-map'], null, 'raw-string', 123]) {
+      const err = rejectionOf(() => broker.send({ topic: 'alerts', data: badData as never }));
+      expect(err.errorCode).toBe('INVALID_PAYLOAD');
+      expect(err.message).toBe('data must be a non-null object');
+    }
+    for (const badData of [{ count: 42 }, { flag: true }, { nested: { ok: true } }, { missing: null }]) {
+      const err = rejectionOf(() => broker.send({ topic: 'alerts', data: badData as never }));
+      expect(err.errorCode).toBe('INVALID_PAYLOAD');
+      expect(err.message).toBe('data must only contain string values');
+    }
   });
 });
 

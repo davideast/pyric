@@ -128,10 +128,14 @@ export function onMessage(
   messaging: Messaging,
   nextOrObserver: NextFn<MessagePayload> | Observer<MessagePayload>,
 ): Unsubscribe {
-  const next = typeof nextOrObserver === 'function' ? nextOrObserver : nextOrObserver.next;
   return ownMessagingSubscription(messaging, (state) =>
     state.broker.onForegroundMessage((payload: DeliveredPayload) => {
-      next(payload as unknown as MessagePayload);
+      const message = payload as unknown as MessagePayload;
+      if (typeof nextOrObserver === 'function') {
+        nextOrObserver(message);
+        return;
+      }
+      nextOrObserver.next(message);
     }));
 }
 
