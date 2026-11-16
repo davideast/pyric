@@ -5,7 +5,7 @@
     "firestore-rules#225"
   ],
   "description": "Firestore Rules Test API verdicts for corpus scenario \"int64-conversions-and-mixed-equality\" (Coverage: int64 conversions and mixed int and float equality). int() of strings and floats saturates or fails as production does, math functions and int64 overflow keep production's results, and an int and a float past 2^53 are equal under == but distinct in a List, a Map, a Set and a map diff.",
-  "observedAt": "2026-11-04T02:25:29.600Z",
+  "observedAt": "2026-11-16T06:12:03.393Z",
   "fbSdkVersion": "12.19.0",
   "projectId": "digame-mas",
   "inputDigest": {
@@ -74,57 +74,172 @@
     "in1: int('9223372036854775808') == 9223372036854775807": {
       "notes": [
         "Error: firestore.rules line [17], column [21]. Type conversion error. Argument: [9223372036854775808], From type: [string], To type: [int]."
-      ]
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 17,
+          "column": 21,
+          "currentOffset": 535,
+          "endOffset": 537
+        }
+      }
     },
     "in2: int('9223372036854775808') > 0 || int('9223372036854775808') <= 0": {
       "notes": [
         "Error: firestore.rules line [20], column [21]. Type conversion error. Argument: [9223372036854775808], From type: [string], To type: [int]."
-      ]
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 20,
+          "column": 21,
+          "currentOffset": 634,
+          "endOffset": 636
+        }
+      }
     },
     "in5: int(' 1') == 1": {
       "notes": [
         "Error: firestore.rules line [29], column [21]. Type conversion error. Argument: [ 1], From type: [string], To type: [int]."
-      ]
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 29,
+          "column": 21,
+          "currentOffset": 920,
+          "endOffset": 922
+        }
+      }
     },
     "in6: int('1.5') == 1": {
       "notes": [
         "Error: firestore.rules line [32], column [21]. Type conversion error. Argument: [1.5], From type: [string], To type: [int]."
-      ]
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 32,
+          "column": 21,
+          "currentOffset": 984,
+          "endOffset": 986
+        }
+      }
     },
     "in7: int('0x10') == 16": {
       "notes": [
         "Error: firestore.rules line [35], column [21]. Type conversion error. Argument: [0x10], From type: [string], To type: [int]."
-      ]
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 35,
+          "column": 21,
+          "currentOffset": 1049,
+          "endOffset": 1051
+        }
+      }
     },
     "in9: int('1e3') == 1000": {
       "notes": [
         "Error: firestore.rules line [41], column [21]. Type conversion error. Argument: [1e3], From type: [string], To type: [int]."
-      ]
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 41,
+          "column": 21,
+          "currentOffset": 1180,
+          "endOffset": 1182
+        }
+      }
     },
     "ov0: ((-9223372036854775807 - 1) * -1) < 0": {
       "notes": [
         "Error: firestore.rules line [122], column [49]. Integer value is out of the [-9223372036854775808, 9223372036854775807] range."
-      ]
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 122,
+          "column": 49,
+          "currentOffset": 3540,
+          "endOffset": 3540
+        }
+      }
     },
     "ov1: ((-9223372036854775807 - 1) * -1) > 0": {
       "notes": [
         "Error: firestore.rules line [125], column [49]. Integer value is out of the [-9223372036854775808, 9223372036854775807] range."
-      ]
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 125,
+          "column": 49,
+          "currentOffset": 3627,
+          "endOffset": 3627
+        }
+      }
     },
     "ov3: -(-9223372036854775807 - 1) < 0": {
       "notes": [
         "Error: firestore.rules line [131], column [21]. Integer value is out of the [-9223372036854775808, 9223372036854775807] range."
-      ]
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 131,
+          "column": 21,
+          "currentOffset": 3774,
+          "endOffset": 3774
+        }
+      }
     },
     "fd0: math.isInfinite(1 / 0.0)": {
       "notes": [
         "Error: firestore.rules line [140], column [21]. Function not found error: Name: [math.isInfinite]."
-      ]
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 140,
+          "column": 21,
+          "currentOffset": 4063,
+          "endOffset": 4066
+        },
+        "functionCalls": [
+          {
+            "function": "math.isInfinite",
+            "args": [
+              "Infinity"
+            ]
+          }
+        ]
+      }
     },
     "fd1: math.isInfinite(1.0 / 0)": {
       "notes": [
         "Error: firestore.rules line [143], column [21]. Function not found error: Name: [math.isInfinite]."
-      ]
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 143,
+          "column": 21,
+          "currentOffset": 4137,
+          "endOffset": 4140
+        },
+        "functionCalls": [
+          {
+            "function": "math.isInfinite",
+            "args": [
+              "Infinity"
+            ]
+          }
+        ]
+      }
     }
   }
 }
