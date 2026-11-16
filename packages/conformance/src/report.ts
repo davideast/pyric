@@ -1,4 +1,5 @@
 #!/usr/bin/env bun
+import { splitConformingRows } from './behavior-split.ts';
 import { buildCompatibilityLedger, highRiskUnverifiedRows, summarizeLedger } from './ledger.ts';
 import { deriveConformanceModel } from './conformance-model.ts';
 
@@ -17,17 +18,25 @@ const climbSurfaces = model.documentation.descriptors
   .map((descriptor) => {
     const rows = ledger.entries.filter((entry) => entry.surface === descriptor.surface);
     const total = rows.length;
-    const conforming = rows.filter((entry) => entry.status === 'conforms').length;
+    const { conforms: conforming, captureProven, selfTested } = splitConformingRows(rows);
     const byStatus = Object.fromEntries(
       CLIMB_STATUS_ORDER.map((status) => [status, rows.filter((entry) => entry.status === status).length]).filter(
         ([, count]) => (count as number) > 0,
       ),
     );
+    const pct = (n: number): number => {
+      if (total === 0) return 0;
+      return Math.round((n / total) * 1000) / 10;
+    };
     return {
       surface: descriptor.surface,
       total,
       conforming,
-      climbPercent: total === 0 ? 0 : Math.round((conforming / total) * 1000) / 10,
+      captureProven,
+      selfTested,
+      climbPercent: pct(conforming),
+      captureProvenPercent: pct(captureProven),
+      selfTestedPercent: pct(selfTested),
       byStatus,
     };
   });
@@ -51,11 +60,14 @@ console.log(`Rows: ${summary.totalRows}`);
 for (const descriptor of model.documentation.descriptors) console.log(`  ${descriptor.surface}: ${summary.bySurface[descriptor.surface]}`);
 console.log('');
 console.log(`Conforming rows: ${summary.conformingRows}`);
-console.log(`Oracle-backed rows: ${summary.oracleBackedRows}`);
-console.log(`Unit-backed rows: ${summary.unitBackedRows}`);
+console.log(`  Proven by a Firebase capture: ${summary.captureProvenRows}`);
+console.log(`  Passes Pyric's own tests only: ${summary.selfTestedRows}`);
+console.log(`Oracle-backed rows (all statuses): ${summary.oracleBackedRows}`);
+console.log(`Unit-backed rows (all statuses): ${summary.unitBackedRows}`);
 console.log(`Explicit exception rows: ${summary.explicitExceptionRows}`);
 console.log(`Unsupported rows: ${summary.unsupportedRows}`);
-console.log(`Unverified rows: ${summary.unverifiedRows}`);
+console.log(`Unverified status rows: ${summary.unverifiedStatusRows}`);
+console.log(`Unverified automation rows: ${summary.unverifiedRows}`);
 console.log(`High-risk unverified rows: ${summary.highRiskUnverifiedRows}`);
 console.log(`Unit-backed evidence-tier gap rows: ${summary.evidenceTierGapRows}`);
 console.log(`Observations: ${summary.observations}`);
@@ -79,7 +91,11 @@ if (climbSurfaces.length > 0) {
     const breakdown = Object.entries(s.byStatus)
       .map(([status, count]) => `${count} ${status}`)
       .join(', ');
-    console.log(`- ${s.surface}: ${s.conforming}/${s.total} conforming (${s.climbPercent}%)${breakdown ? ` — ${breakdown}` : ''}`);
+    const suffix = breakdown ? ` -- ${breakdown}` : '';
+    console.log(
+      `- ${s.surface}: ${s.captureProven}/${s.total} proven by capture (${s.captureProvenPercent}%), ` +
+        `${s.selfTested}/${s.total} self-tested (${s.selfTestedPercent}%)${suffix}`,
+    );
   }
 }
 

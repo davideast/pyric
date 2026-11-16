@@ -1,7 +1,9 @@
 {
   "name": "admin-firestore-document-snapshot-get",
   "matrixRow": "",
-  "rowIds": [],
+  "rowIds": [
+    "firestore-admin#5"
+  ],
   "description": "firebase-admin DocumentSnapshot.get(fieldPath) behavior across one-shot document/query reads, transaction document/query reads, and document/query listeners, including missing fields/documents, dotted strings, literal-dot FieldPath segments, and invalid path validation.",
   "observedAt": "2026-07-21T00:14:49.250Z",
   "adminSdkVersion": "13.10.0",

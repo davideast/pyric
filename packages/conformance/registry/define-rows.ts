@@ -1,4 +1,15 @@
-import type { CompatibilityRow, Surface } from './types.ts';
+import type { CompatibilityRow, CompatStatus, Surface } from './types.ts';
+
+export const MOCK_BRIDGE_STATUS_NOTE =
+  'unit-tested against an in-language mock bridge only; not yet verified against a running pyric host';
+
+export function resolveMockBridgeNote(
+  status: CompatStatus | undefined,
+  statusNote: string | undefined,
+): string | undefined {
+  if (status === undefined) return statusNote ?? MOCK_BRIDGE_STATUS_NOTE;
+  return statusNote;
+}
 
 /**
  * Shared row-authoring adapter for every surface registry.

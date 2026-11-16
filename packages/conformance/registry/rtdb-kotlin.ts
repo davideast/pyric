@@ -1,4 +1,4 @@
-import { defineRows } from './define-rows.ts';
+import { defineRows, resolveMockBridgeNote } from './define-rows.ts';
 import type { CompatibilityRow, CompatibilitySurfaceRegistry, CompatStatus } from './types.ts';
 
 const CONFORMANCE_SUITE = 'packages/kt-client/src/test/kotlin/dev/pyric/database/RtdbConformanceTest.kt';
@@ -17,18 +17,19 @@ interface KotlinRtdbRowSeed {
   evidence?: string;
   /** Tests beyond the conformance suite that also exercise this row. */
   tests?: string[];
-  /** Overrides the default `conforms` status. */
+  /** Overrides the default mock-bridge `unverified` status. */
   status?: CompatStatus;
   statusNote?: string;
 }
 
 function row(seed: KotlinRtdbRowSeed): CompatibilityRow {
-  const { ref, evidence, status, tests, ...rest } = seed;
+  const { ref, evidence, status, statusNote, tests, ...rest } = seed;
   const resolvedEvidence = evidence ?? 'com.google.firebase:firebase-database specification.';
   return buildRow({
     ...rest,
     rowRef: ref,
-    status: status ?? 'conforms',
+    status: status ?? 'unverified',
+    statusNote: resolveMockBridgeNote(status, statusNote),
     automation: 'unit-backed',
     evidence: `${resolvedEvidence} Test: \`${CONFORMANCE_SUITE}\` assertion set \`rtdb-kotlin#${ref}\`.`,
     conformanceTests: [CONFORMANCE_SUITE, ...(tests ?? [])],

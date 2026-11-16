@@ -116,7 +116,7 @@ describe('generatedRowLineNumbers ↔ rendered projection coupling', () => {
     expect(markdown).not.toContain('Compiled RTDB rules tree');
     expect(markdown).not.toContain('An in-module production target is intentionally absent');
     expect(markdown).not.toContain('A production target is intentionally absent');
-    expect(markdown).not.toContain('| — | **Not implemented yet**');
+    expect(markdown).toContain('## `pyric-admin/database`');
     expect(markdown).not.toContain('packages/pyric/src/database');
   });
 });

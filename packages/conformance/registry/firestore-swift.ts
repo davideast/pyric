@@ -1,15 +1,11 @@
-import { defineRows } from './define-rows.ts';
+import { defineRows, resolveMockBridgeNote } from './define-rows.ts';
 import type { CompatibilityRow, CompatibilitySurfaceRegistry, CompatStatus } from './types.ts';
 
 const CONFORMANCE_SUITE = 'packages/swift-client/Tests/PyricFirestoreTests/ConformanceCoreTests.swift';
-const CONFORMANCE_QUERY_SUITE =
-  'packages/swift-client/Tests/PyricFirestoreTests/ConformanceQueryAndCodableTests.swift';
-const UNOBSERVED_REASON =
-  'Behavior stated from FirebaseFirestore Swift specification; test has not passed yet.';
+const CONFORMANCE_QUERY_SUITE = 'packages/swift-client/Tests/PyricFirestoreTests/ConformanceQueryAndCodableTests.swift';
+const UNOBSERVED_REASON = 'Behavior stated from FirebaseFirestore Swift specification; test has not passed yet.';
 
-const buildRow = defineRows({
-  surface: 'firestore-swift',
-});
+const buildRow = defineRows({ surface: 'firestore-swift' });
 
 interface SwiftRowSeed {
   ref: number;
@@ -21,7 +17,7 @@ interface SwiftRowSeed {
   /** Tests beyond the conformance suite that also exercise this row. */
   tests?: string[];
   flipped?: 'unit-backed';
-  /** A unit-backed status other than `conforms`, set in place of `flipped`. */
+  /** An explicit unit-backed status (such as `diverged-documented`) set in place of `flipped`. */
   status?: CompatStatus;
   statusNote?: string;
 }
@@ -34,7 +30,7 @@ function suiteForRef(ref: number): string {
 }
 
 function row(seed: SwiftRowSeed): CompatibilityRow {
-  const { ref, flipped, status, evidence, tests, ...rest } = seed;
+  const { ref, flipped, status, statusNote, evidence, tests, ...rest } = seed;
   const suite = suiteForRef(ref);
   const unitBacked = flipped !== undefined || status !== undefined;
   const defaultEvidence = unitBacked
@@ -43,7 +39,8 @@ function row(seed: SwiftRowSeed): CompatibilityRow {
   const resolvedEvidence = evidence ?? defaultEvidence;
   const climb = unitBacked
     ? {
-        status: status ?? ('conforms' as const),
+        status: status ?? ('unverified' as const),
+        statusNote: resolveMockBridgeNote(status, statusNote),
         automation: 'unit-backed' as const,
         evidence: `${resolvedEvidence} Swift test: \`${suite}\` assertion set \`firestore-swift#${ref}\`.`,
         conformanceTests: [suite, ...(tests ?? [])],

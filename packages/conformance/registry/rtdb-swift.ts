@@ -1,4 +1,4 @@
-import { defineRows } from './define-rows.ts';
+import { defineRows, resolveMockBridgeNote } from './define-rows.ts';
 import type { CompatibilityRow, CompatibilitySurfaceRegistry, CompatStatus } from './types.ts';
 
 const CONFORMANCE_SUITE = 'packages/swift-client/Tests/PyricDatabaseTests/RtdbConformanceTests.swift';
@@ -15,7 +15,7 @@ interface SwiftRtdbRowSeed {
   behavior: string;
   featureKeys: string[];
   evidence?: string;
-  /** Overrides the default `conforms` status. */
+  /** Overrides the default mock-bridge `unverified` status. */
   status?: CompatStatus;
   statusNote?: string;
   /** Test files cited beyond the conformance suite. */
@@ -23,12 +23,13 @@ interface SwiftRtdbRowSeed {
 }
 
 function row(seed: SwiftRtdbRowSeed): CompatibilityRow {
-  const { ref, evidence, status, tests, ...rest } = seed;
+  const { ref, evidence, status, statusNote, tests, ...rest } = seed;
   const resolvedEvidence = evidence ?? 'FirebaseDatabase Swift specification.';
   return buildRow({
     ...rest,
     rowRef: ref,
-    status: status ?? 'conforms',
+    status: status ?? 'unverified',
+    statusNote: resolveMockBridgeNote(status, statusNote),
     automation: 'unit-backed',
     evidence: `${resolvedEvidence} Swift test: \`${CONFORMANCE_SUITE}\` assertion set \`rtdb-swift#${ref}\`.`,
     conformanceTests: [CONFORMANCE_SUITE, ...(tests ?? [])],

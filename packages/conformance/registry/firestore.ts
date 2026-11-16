@@ -1,4 +1,5 @@
 import { defineRows } from './define-rows.ts';
+import { firestoreAdminBlock } from './firestore-admin.ts';
 import type { CompatibilitySurfaceRegistry } from './types.ts';
 import { sdkCaptureBlock } from './firestore-sdk-captures.ts';
 
@@ -17,11 +18,7 @@ const row1 = defineRows({
  * database id to `(default)`, and the test that pins it. */
 const namedDatabaseRow = defineRows({
   surface: "firestore",
-  defaults: {
-    section: "Named databases",
-    status: "diverged-documented",
-    automation: "unit-backed",
-  },
+  defaults: { section: "Named databases", status: "diverged-documented", automation: "unit-backed" },
 });
 
 /** What a call in flight at a hosted socket drop does on the web hosted client (ADR-0019 decision 7). */
@@ -2477,6 +2474,7 @@ export const firestoreRegistry = {
       ],
     },
     sdkCaptureBlock,
+    firestoreAdminBlock,
   ],
 } satisfies CompatibilitySurfaceRegistry;
 

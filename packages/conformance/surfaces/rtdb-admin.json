@@ -1,0 +1,16 @@
+{
+  "schema": "pyric.conformance.surface.v2",
+  "kind": "registry-only",
+  "developerSurface": "rtdb-admin",
+  "evidenceImports": [
+    "pyric-admin/database"
+  ],
+  "observationPrefixes": [
+    "admin-rtdb-"
+  ],
+  "coverage": false,
+  "scopeNote": "The firebase-admin Realtime Database plane (pyric-admin/database: getDatabase, getDatabaseWithUrl, Reference, Query, DataSnapshot, OnDisconnect, ServerValue, connection controls, and rules-bypass admin access). Its rows share the rtdb registry and are tracked without a client runtime census.",
+  "captureRigs": [],
+  "climb": true,
+  "registry": "rtdb"
+}

@@ -45,6 +45,7 @@ import { censusGapProblems, censusIntegrityProblems, type CensusGapBaseline } fr
 import { workspaceEntryPaths } from './workspace-entry.ts';
 import { publicRuntimeExportNamesFromSource } from './public-exports.ts';
 import { compatibilitySlug } from './docs-routes.ts';
+import { formatFidelityClause, isCaptureProvenRow, isSelfTestedOnlyRow } from './behavior-split.ts';
 
 export type { DeveloperSurface } from '../registry/index.ts';
 export const AVAILABILITIES = ['available', 'unavailable', 'deferred', 'out-of-scope'] as const;
@@ -127,6 +128,8 @@ interface MutableFeature {
   declaredAvailability?: Availability;
   claims: FeatureClaim[];
   registryStatuses: CompatStatus[];
+  captureProvenRowCount: number;
+  selfTestedRowCount: number;
   assuranceVerdicts: ConformanceVerdict[];
   caveats: string[];
 }
@@ -223,7 +226,7 @@ function summarize(feature: MutableFeature, availability: Availability, fidelity
   if (availability !== 'available') {
     return `${feature.feature} is ${availability}; behavior fidelity and assurance are not applicable until the surface exists.`;
   }
-  const fidelityText = fidelity === 'not-applicable' ? 'has no applicable behavior claim' : `has ${fidelity} fidelity`;
+  const fidelityText = formatFidelityClause(fidelity, feature.captureProvenRowCount, feature.selfTestedRowCount);
   const assuranceText = assurance === 'not-applicable' ? 'has no assurance classification' : `is ${assurance} for assurance`;
   return `${feature.feature} is available, ${fidelityText}, and ${assuranceText}.`;
 }
@@ -381,7 +384,8 @@ async function buildConformanceModel(enforceCensusPolicy: boolean): Promise<Conf
       return existing;
     }
     const created: MutableFeature = {
-      feature: name, surface, importPaths: new Set(), claims: [], registryStatuses: [], assuranceVerdicts: [], caveats: [],
+      feature: name, surface, importPaths: new Set(), claims: [], registryStatuses: [],
+      captureProvenRowCount: 0, selfTestedRowCount: 0, assuranceVerdicts: [], caveats: [],
     };
     features.set(key, created);
     return created;
@@ -468,6 +472,11 @@ async function buildConformanceModel(enforceCensusPolicy: boolean): Promise<Conf
       }
       classify(feature, 'declared', 'available');
       feature.registryStatuses.push(row.status);
+      if (isCaptureProvenRow(row)) {
+        feature.captureProvenRowCount += 1;
+      } else if (isSelfTestedOnlyRow(row)) {
+        feature.selfTestedRowCount += 1;
+      }
       if (rowVerdict) feature.assuranceVerdicts.push(rowVerdict);
       if (row.status !== 'conforms') feature.caveats.push(row.behavior, row.evidence);
       feature.claims.push({

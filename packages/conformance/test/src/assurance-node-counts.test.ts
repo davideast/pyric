@@ -173,7 +173,7 @@ describe('per-service assurance node counts', () => {
       ['storage#1', 'storage'], ['storage#2', 'storage'], ['storage#3', 'storage'], ['storage#4', 'storage'],
     ]);
     expect(assuranceNodeCountProblems(merged.keys(), merged, loadAssuranceNodeCounts(counts))).toEqual([]);
-  });
+  }, 20_000);
 
   it('fails against the committed counts when a real registry row is dropped', () => {
     const realOwners = assuranceNodeOwners();

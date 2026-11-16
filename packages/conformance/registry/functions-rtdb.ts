@@ -36,6 +36,7 @@ function row(seed: RowSeed): CompatibilityRow {
         automation: flipped,
         evidence: `${seed.evidence} Local replay: \`${CONFORMANCE_SUITE}\` assertion set \`functions-rtdb#${ref}\`.`,
         conformanceTests: [CONFORMANCE_SUITE],
+        hostConformanceTests: [CONFORMANCE_SUITE],
       }
     : {
         status: 'unverified' as const,

@@ -1,4 +1,4 @@
-import { defineRows } from './define-rows.ts';
+import { defineRows, resolveMockBridgeNote } from './define-rows.ts';
 import type { CompatibilityRow, CompatibilitySurfaceRegistry, CompatStatus } from './types.ts';
 
 const CONFORMANCE_SUITE = 'packages/flutter-client/test/conformance_test.dart';
@@ -19,19 +19,20 @@ interface FlutterRowSeed {
   /** Tests beyond the conformance suite that also exercise this row. */
   tests?: string[];
   flipped?: 'unit-backed';
-  /** A unit-backed status other than `conforms`, set in place of `flipped`. */
+  /** An explicit unit-backed status (such as `diverged-documented`) set in place of `flipped`. */
   status?: CompatStatus;
   statusNote?: string;
 }
 
 function row(seed: FlutterRowSeed): CompatibilityRow {
-  const { ref, flipped, status, evidence, tests, ...rest } = seed;
+  const { ref, flipped, status, statusNote, evidence, tests, ...rest } = seed;
   const unitBacked = flipped !== undefined || status !== undefined;
-  const defaultEvidence = unitBacked ?'cloud_firestore_platform_interface specification.' : 'cloud_firestore_platform_interface specification; unverified locally.';
+  const defaultEvidence = unitBacked ? 'cloud_firestore_platform_interface specification.' : 'cloud_firestore_platform_interface specification; unverified locally.';
   const resolvedEvidence = evidence ?? defaultEvidence;
   const climb = unitBacked
     ? {
-        status: status ?? ('conforms' as const),
+        status: status ?? ('unverified' as const),
+        statusNote: resolveMockBridgeNote(status, statusNote),
         automation: 'unit-backed' as const,
         evidence: `${resolvedEvidence} Container test: \`${CONFORMANCE_SUITE}\` assertion set \`firestore-flutter#${ref}\`.`,
         conformanceTests: [CONFORMANCE_SUITE, ...(tests ?? [])],

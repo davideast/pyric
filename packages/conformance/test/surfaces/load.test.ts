@@ -16,10 +16,10 @@ import surfaceContractJsonSchema from '../../schemas/surface-contract.v2.schema.
 
 describe('machine-readable surface contracts', () => {
   it('loads every authored contract through one schema-validated seam', () => {
-    expect(surfaceContracts).toHaveLength(28);
+    expect(surfaceContracts).toHaveLength(31);
     expect(surfaceContracts.map(({ key }) => key)).toEqual(surfaceContracts.map(({ key }) => key).toSorted());
     expect(surfaceContracts.every(({ record }) => !('order' in record))).toBe(true);
-    expect(surfaceDescriptors).toHaveLength(27);
+    expect(surfaceDescriptors).toHaveLength(30);
     expect(loadCensusPairs()).toHaveLength(9);
     expect(loadSurfaceDispositions()).toHaveLength(32);
   });
@@ -61,8 +61,11 @@ describe('machine-readable surface contracts', () => {
 
   it('derives developer surfaces from self-owned records and rejects unknown aliases', () => {
     expect(developerSurfaces).toEqual([
-      'ai', 'app', 'app-check', 'app-check-admin', 'auth', 'auth-flutter', 'auth-kotlin', 'auth-swift', 'firestore', 'firestore-flutter', 'firestore-kotlin', 'firestore-rules', 'firestore-swift',
-      'functions-callable', 'functions-http', 'functions-rtdb', 'messaging', 'messaging-admin', 'rtdb', 'rtdb-flutter', 'rtdb-kotlin', 'rtdb-rules', 'rtdb-swift', 'storage', 'storage-admin', 'storage-rules',
+      'ai', 'app', 'app-check', 'app-check-admin', 'auth', 'auth-admin', 'auth-flutter', 'auth-kotlin', 'auth-swift',
+      'firestore', 'firestore-admin', 'firestore-flutter', 'firestore-kotlin', 'firestore-rules', 'firestore-swift',
+      'functions-callable', 'functions-http', 'functions-rtdb', 'messaging', 'messaging-admin',
+      'rtdb', 'rtdb-admin', 'rtdb-flutter', 'rtdb-kotlin', 'rtdb-rules', 'rtdb-swift',
+      'storage', 'storage-admin', 'storage-rules',
     ]);
     expect(surfaceContractJsonSchema.$defs.developerSurface).not.toHaveProperty('enum');
     const app = surfaceContracts.find(({ key }) => key === 'app')?.record;

@@ -2,7 +2,8 @@
   "name": "firestore-named-database-admin-mixing",
   "matrixRow": "firestore MD3",
   "rowIds": [
-    "firestore#MD3"
+    "firestore#MD3",
+    "firestore-admin#2"
   ],
   "description": "The Admin SDK mixing (default) and `probes`: a set() in (default) of a field holding a probes DocumentReference, a WriteBatch from (default) with one set() in each database, and a (default) transaction that reads and writes probes documents. Records whether each commits and what was stored.",
   "observedAt": "2026-10-28T11:06:48.443Z",

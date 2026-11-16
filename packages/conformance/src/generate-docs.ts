@@ -9,6 +9,7 @@ import {
 } from './conformance-model.ts';
 import type { SurfaceCensus } from './surface-census.ts';
 import { compatibilityHref, compatibilitySlug } from './docs-routes.ts';
+import { formatPageBehaviorNote, formatScoreboardBehaviorBasis } from './behavior-split.ts';
 import { findTestLineNumber } from './test-line-anchors.ts';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -125,25 +126,28 @@ function surfaceMeter(pct: number): string {
   ].join('\n');
 }
 
-/** Public API breadth shown at the top of each compatibility document. */
+function publishedTableRows(surface: CompatibilitySurfaceRegistry): CompatibilityRow[] {
+  return publishedBlocks(surface).flatMap((block) => (block.kind === 'table' ? block.rows : []));
+}
+
+/** Public API breadth and behavior-evidence split shown at the top of each compatibility document. */
 export function scoreBlock(surface: CompatibilitySurfaceRegistry, projection: DocumentationProjection): string | null {
   const spec = scoreSpec(surface, projection);
   const coverage = computeSurface(spec, projection.census);
   const combined = combinedScore(coverage);
+  const behaviorNote = `<p class="compat-stat-note">${formatPageBehaviorNote(publishedTableRows(surface))}</p>`;
   if (combined === null) {
     const surfaceLine = spec.noCensusKind === 'integration'
       ? '<p class="compat-stat-surface">This page tracks an integration contract: unchanged Firebase code run through a Pyric runtime seam, so there is no separate Firebase public API to measure. The rows below are its signed behavior inventory.</p>'
       : '<p class="compat-stat-surface">This is a Pyric-native API with no Firebase counterpart, so coverage is measured against its own public exports rather than a Firebase surface.</p>';
-    return ['<div class="compat-stat">', surfaceLine, '</div>', ''].join('\n');
+    return ['<div class="compat-stat">', surfaceLine, behaviorNote, '</div>', ''].join('\n');
   }
   return [
     '<div class="compat-stat">',
-    '<p class="compat-stat-figure">',
-    `<span class="compat-stat-pct">${combined.pct}%</span>`,
-    '<span class="compat-stat-label">of the public API supported</span>',
-    '</p>',
+    `<p class="compat-stat-figure"><span class="compat-stat-pct">${combined.pct}%</span><span class="compat-stat-label">of the public API supported</span></p>`,
     surfaceMeter(combined.pct),
     `<p class="compat-stat-denom">${splitLine(coverage)}</p>`,
+    behaviorNote,
     '</div>',
     '',
   ].join('\n');
@@ -158,26 +162,23 @@ function meterCell(pct: number | string, basis: string): string {
 }
 
 function scoreRow(
-  label: string,
-  href: string | null,
-  surface: CompatibilitySurfaceRegistry | null,
-  coverage: SurfaceScore,
-  overall = false,
+  label: string, href: string | null, surface: CompatibilitySurfaceRegistry | null, coverage: SurfaceScore, overall = false,
 ): string[] {
   const combined = combinedScore(coverage);
-  const name = href === null ? escapeCell(label) : `<a href="${href}">${escapeCell(label)}</a>`;
-  const score = combined !== null
-    ? meterCell(combined.pct, splitLine(coverage))
-    // No honest public-API denominator exists yet for this surface (#344).
-    : surface !== null
-      ? '<span class="compat-score-tbd">Gathering metrics. Total score TBD.</span>'
-      : '';
-  return [
-    `<tr${overall ? ' class="compat-score-row--overall"' : ''}>`,
-    `<th scope="row" class="compat-score-name">${name}</th>`,
-    `<td class="compat-score-cell">${score}</td>`,
-    '</tr>',
-  ];
+  let name = escapeCell(label);
+  if (href !== null) name = `<a href="${href}">${name}</a>`;
+  let behaviorBasis = '';
+  if (surface !== null) behaviorBasis = formatScoreboardBehaviorBasis(publishedTableRows(surface));
+  let score = '';
+  if (combined !== null) {
+    const split = splitLine(coverage);
+    const basis = behaviorBasis === '' ? split : `${split} -- ${behaviorBasis}`;
+    score = meterCell(combined.pct, basis);
+  } else if (surface !== null) {
+    score = `<span class="compat-score-tbd">Gathering metrics. Total score TBD.</span><div class="compat-score-basis">${behaviorBasis}</div>`;
+  }
+  const rowOpen = overall ? '<tr class="compat-score-row--overall">' : '<tr>';
+  return [rowOpen, `<th scope="row" class="compat-score-name">${name}</th>`, `<td class="compat-score-cell">${score}</td>`, '</tr>'];
 }
 
 type RulesLanguageScores = ConformanceModel['rulesLanguage'];
@@ -221,7 +222,7 @@ export function renderScoreboardMarkdown(model: ConformanceModel): string {
     '',
     '# Conformance scores',
     '',
-    'Mirror services measure the share of Firebase\'s public API that Pyric supports. Rules engines measure production-verified rules-language constructs. Not-implemented-yet, deprecated, deferred, and unverified items remain in their respective denominators. Overall combines only the public API rows. [How does Pyric know it works like Firebase?](../trust/how-we-know-it-matches-firebase/) explains the evidence and its limits.',
+    'Mirror services measure the share of Firebase\'s public API that Pyric supports. Rules engines measure production-verified rules-language constructs. Behavior row counts split claims proven by a Firebase capture from rows that pass Pyric\'s own tests only. Not-implemented-yet, deprecated, deferred, and unverified items remain in their respective denominators. Overall combines only the public API rows. [How does Pyric know it works like Firebase?](../trust/how-we-know-it-matches-firebase/) explains the evidence and its limits.',
     '',
     '## Services',
     '',
@@ -482,10 +483,6 @@ export function dispositionSection(
   ].join('\n');
 }
 
-
-
-/** Canonical status order for a rendered legend, independent of which subset
- * of statuses a surface currently uses. */
 const LEGEND_STATUS_ORDER = ['conforms', 'diverged-documented', 'bug', 'unsupported', 'unverified'] as const;
 
 const LEGEND_GLYPHS: Record<CompatStatus, string> = {

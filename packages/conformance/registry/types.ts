@@ -70,6 +70,8 @@ export interface CompatibilityRow {
   automation: Automation;
   oracleObservations: string[];
   conformanceTests: string[];
+  /** Cross-SDK end-to-end test files that boot a live Pyric host and run the real client or runtime against it. */
+  hostConformanceTests?: string[];
   exceptionReason?: string;
   /** Reviewed outcome for a non-conforming row in an active CDD climb. */
   conformanceDisposition?: ConformanceDisposition;

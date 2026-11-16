@@ -1,4 +1,4 @@
-import { defineRows } from './define-rows.ts';
+import { defineRows, resolveMockBridgeNote } from './define-rows.ts';
 import type { CompatibilityRow, CompatibilitySurfaceRegistry, CompatStatus } from './types.ts';
 
 const CONFORMANCE_SUITE = 'packages/kt-client/src/test/kotlin/dev/pyric/firestore/ConformanceTest.kt';
@@ -19,13 +19,13 @@ interface KotlinRowSeed {
   /** Tests beyond the conformance suite that also exercise this row. */
   tests?: string[];
   flipped?: 'unit-backed';
-  /** A unit-backed status other than `conforms`, set in place of `flipped`. */
+  /** An explicit unit-backed status (such as `diverged-documented`) set in place of `flipped`. */
   status?: CompatStatus;
   statusNote?: string;
 }
 
 function row(seed: KotlinRowSeed): CompatibilityRow {
-  const { ref, flipped, status, evidence, tests, ...rest } = seed;
+  const { ref, flipped, status, statusNote, evidence, tests, ...rest } = seed;
   const unitBacked = flipped !== undefined || status !== undefined;
   const defaultEvidence = unitBacked
     ? 'com.google.firebase.firestore specification.'
@@ -33,7 +33,8 @@ function row(seed: KotlinRowSeed): CompatibilityRow {
   const resolvedEvidence = evidence ?? defaultEvidence;
   const climb = unitBacked
     ? {
-        status: status ?? ('conforms' as const),
+        status: status ?? ('unverified' as const),
+        statusNote: resolveMockBridgeNote(status, statusNote),
         automation: 'unit-backed' as const,
         evidence: `${resolvedEvidence} Test: \`${CONFORMANCE_SUITE}\` assertion set \`firestore-kotlin#${ref}\`.`,
         conformanceTests: [CONFORMANCE_SUITE, ...(tests ?? [])],

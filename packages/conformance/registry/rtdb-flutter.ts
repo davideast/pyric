@@ -1,4 +1,4 @@
-import { defineRows } from './define-rows.ts';
+import { defineRows, resolveMockBridgeNote } from './define-rows.ts';
 import type { CompatibilityRow, CompatibilitySurfaceRegistry, CompatStatus } from './types.ts';
 
 const CONFORMANCE_SUITE = 'packages/flutter-client/test/rtdb_conformance_test.dart';
@@ -15,7 +15,7 @@ interface FlutterRtdbRowSeed {
   behavior: string;
   featureKeys: string[];
   evidence?: string;
-  /** Overrides the default `conforms` status. */
+  /** Overrides the default mock-bridge `unverified` status. */
   status?: CompatStatus;
   statusNote?: string;
   /** Suites beyond the conformance suite that back this row. */
@@ -23,13 +23,14 @@ interface FlutterRtdbRowSeed {
 }
 
 function row(seed: FlutterRtdbRowSeed): CompatibilityRow {
-  const { ref, evidence, status, extraTests, ...rest } = seed;
+  const { ref, evidence, status, statusNote, extraTests, ...rest } = seed;
   const resolvedEvidence =
     evidence ?? 'Verified by packages/flutter-client/test/rtdb_conformance_test.dart.';
   return buildRow({
     ...rest,
     rowRef: ref,
-    status: status ?? 'conforms',
+    status: status ?? 'unverified',
+    statusNote: resolveMockBridgeNote(status, statusNote),
     automation: 'unit-backed',
     conformanceTests: [CONFORMANCE_SUITE, ...(extraTests ?? [])],
     risk: [],

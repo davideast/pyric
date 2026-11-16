@@ -1,0 +1,16 @@
+{
+  "schema": "pyric.conformance.surface.v2",
+  "kind": "registry-only",
+  "developerSurface": "auth-admin",
+  "evidenceImports": [
+    "pyric-admin/auth"
+  ],
+  "observationPrefixes": [
+    "admin-auth-"
+  ],
+  "coverage": false,
+  "scopeNote": "The firebase-admin Auth plane (pyric-admin/auth: getAuth, user management, custom tokens, ID token verification, custom claims, and refresh-token revocation). Its rows share the auth registry and are tracked without a client runtime census.",
+  "captureRigs": [],
+  "climb": true,
+  "registry": "auth"
+}
