@@ -29,6 +29,7 @@ export {
 } from './openai-engine.js';
 export {
   AiBrokerError,
+  AiBrokerParseError,
   Synthesizer,
   errorEnvelope,
   unknownModel,
@@ -46,6 +47,7 @@ export {
 } from './synthesizer.js';
 export type {
   AnswerEngine,
+  AnswerEngineCallOptions,
   AppCheckClaim,
   CountTokensRequest,
   CountTokensResponse,

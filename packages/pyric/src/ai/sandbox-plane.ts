@@ -88,15 +88,120 @@ function validateModel(modelResource: string): void {
   }
 }
 
-/** Upstream rejects a pre-aborted signal before any fetch; so do we. */
-function checkSignal(singleRequestOptions?: SingleRequestOptions): void {
-  const signal = singleRequestOptions?.signal;
-  if (signal?.aborted) {
-    throw new DOMException(
-      (signal.reason as string | undefined) ?? 'Aborted externally before fetch',
-      'AbortError',
-    );
+const DEFAULT_FETCH_TIMEOUT_MS = 180 * 1000;
+const MAX_TIMER_DELAY_MS = 2_147_483_647;
+const TIMEOUT_EXPIRED_MESSAGE = 'Timeout has expired.';
+const ABORT_ERROR_NAME = 'AbortError';
+
+interface RequestAbortScope {
+  readonly signal: AbortSignal;
+  clearTimeout(): void;
+  dispose(): void;
+  race<T>(promise: Promise<T>): Promise<T>;
+}
+
+function resolveTimeoutMillis(timeout: number | undefined): number | undefined {
+  if (timeout === undefined || timeout === null) return DEFAULT_FETCH_TIMEOUT_MS;
+  if (typeof timeout !== 'number' || Number.isNaN(timeout) || timeout < 0) {
+    return DEFAULT_FETCH_TIMEOUT_MS;
   }
+  if (!Number.isFinite(timeout)) return undefined;
+  return Math.min(timeout, MAX_TIMER_DELAY_MS);
+}
+
+function abortReasonOf(signal: AbortSignal): unknown {
+  if (signal.reason !== undefined) return signal.reason;
+  return new DOMException('The operation was aborted.', ABORT_ERROR_NAME);
+}
+
+function raceWithSignal<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
+  if (signal.aborted) {
+    void promise.catch(() => undefined);
+    return Promise.reject(abortReasonOf(signal));
+  }
+  return new Promise<T>((resolve, reject) => {
+    let settled = false;
+    const onAbort = (): void => {
+      if (settled) return;
+      settled = true;
+      reject(abortReasonOf(signal));
+    };
+    signal.addEventListener('abort', onAbort, { once: true });
+    promise.then(
+      (value) => {
+        if (settled) return;
+        settled = true;
+        signal.removeEventListener('abort', onAbort);
+        resolve(value);
+      },
+      (err) => {
+        if (settled) return;
+        settled = true;
+        signal.removeEventListener('abort', onAbort);
+        reject(err);
+      },
+    );
+  });
+}
+
+/**
+ * Combines caller `signal` and request `timeout` using upstream @firebase/ai
+ * semantics: pre-aborted external signals throw immediately before any work,
+ * timeouts abort with `DOMException('Timeout has expired.', 'AbortError')`,
+ * and `dispose()` always clears timers and external listeners.
+ */
+function createRequestAbortScope(singleRequestOptions?: SingleRequestOptions): RequestAbortScope {
+  const externalSignal = singleRequestOptions?.signal;
+  if (externalSignal?.aborted) {
+    const reason = externalSignal.reason;
+    const message = reason ?? 'Aborted externally before fetch';
+    throw new DOMException(message as string, ABORT_ERROR_NAME);
+  }
+
+  const controller = new AbortController();
+  const timeoutMillis = resolveTimeoutMillis(singleRequestOptions?.timeout);
+  let timerId: ReturnType<typeof setTimeout> | undefined;
+
+  const clearTimer = (): void => {
+    if (timerId !== undefined) {
+      clearTimeout(timerId);
+      timerId = undefined;
+    }
+  };
+
+  const onExternalAbort = (): void => {
+    clearTimer();
+    if (!controller.signal.aborted) {
+      controller.abort(externalSignal?.reason);
+    }
+  };
+
+  if (externalSignal !== undefined) {
+    externalSignal.addEventListener('abort', onExternalAbort, { once: true });
+  }
+
+  if (timeoutMillis !== undefined) {
+    timerId = setTimeout(() => {
+      timerId = undefined;
+      if (!controller.signal.aborted) {
+        controller.abort(new DOMException(TIMEOUT_EXPIRED_MESSAGE, ABORT_ERROR_NAME));
+      }
+    }, timeoutMillis);
+  }
+
+  const dispose = (): void => {
+    clearTimer();
+    if (externalSignal !== undefined) {
+      externalSignal.removeEventListener('abort', onExternalAbort);
+    }
+  };
+
+  return {
+    signal: controller.signal,
+    clearTimeout: clearTimer,
+    dispose,
+    race: <T>(promise: Promise<T>): Promise<T> => raceWithSignal(promise, controller.signal),
+  };
 }
 
 /**
@@ -123,22 +228,27 @@ export async function planeGenerateContent(
   singleRequestOptions?: SingleRequestOptions,
 ): Promise<GenerateContentResult> {
   const activity = beginAiActivity(target, modelResource, 'generateContent');
+  let scope: RequestAbortScope | undefined;
   try {
     target.assertAlive?.();
-    checkSignal(singleRequestOptions);
+    scope = createRequestAbortScope(singleRequestOptions);
     validateModel(modelResource);
     const normalized = normalizeRequest(request) as unknown as GenerateContentRequest;
     // A handle with no app has no claim, and its dispatch takes no extra turn.
     let appCheck: AppCheckClaim | undefined;
     const attachment = target.appCheck;
-    if (attachment !== undefined) appCheck = await attachment.claim();
-    const response = await (target.kind === 'transport' ? target.transport : target.broker)
-      .generateContent(normalized, modelResource, appCheck);
+    if (attachment !== undefined) appCheck = await scope.race(attachment.claim());
+    const dispatch = target.kind === 'transport' ? target.transport : target.broker;
+    const response = await scope.race(
+      dispatch.generateContent(normalized, modelResource, appCheck, { signal: scope.signal }),
+    );
     activity.finish(response);
     return { response: createEnhancedContentResponse(response) };
   } catch (err) {
     activity.fail(err);
     throw planeError(target, err, modelResource, 'generateContent');
+  } finally {
+    scope?.dispose();
   }
 }
 
@@ -150,30 +260,39 @@ export async function planeGenerateContentStream(
 ): Promise<GenerateContentStreamResult> {
   const activity = beginAiActivity(target, modelResource, 'generateContentStream');
   let inner: AsyncIterable<WireResponse>;
+  let activeScope: RequestAbortScope | undefined;
   try {
     target.assertAlive?.();
-    checkSignal(singleRequestOptions);
+    activeScope = createRequestAbortScope(singleRequestOptions);
     validateModel(modelResource);
     const normalized = normalizeRequest(request) as unknown as GenerateContentRequest;
     // A handle with no app has no claim, and its dispatch takes no extra turn.
     let appCheck: AppCheckClaim | undefined;
     const attachment = target.appCheck;
-    if (attachment !== undefined) appCheck = await attachment.claim();
+    if (attachment !== undefined) appCheck = await activeScope.race(attachment.claim());
     // The App Check gate and broker validation run eagerly here — a refused
     // or bad request throws before iteration, the way production answers
     // HTTP errors instead of a stream.
     const admitsBeforeStream = target.kind === 'sandbox' && appCheck !== undefined;
-    if (admitsBeforeStream) await target.broker.admitAppCheck(modelResource, appCheck);
+    if (admitsBeforeStream) {
+      await activeScope.race(target.broker.admitAppCheck(modelResource, appCheck));
+    }
     // Once admitted here, the claim is spent: the broker then validates at the
     // call instead of deferring validation behind its own gate.
     const claimForStream = admitsBeforeStream ? undefined : appCheck;
-    inner = (target.kind === 'transport' ? target.transport : target.broker)
-      .streamGenerateContent(normalized, modelResource, claimForStream);
+    const scopeRef = activeScope;
+    const dispatch = target.kind === 'transport' ? target.transport : target.broker;
+    inner = dispatch.streamGenerateContent(normalized, modelResource, claimForStream, {
+      signal: scopeRef.signal,
+      onStreamOpen: () => scopeRef.clearTimeout(),
+    });
   } catch (err) {
+    activeScope?.dispose();
     activity.fail(err);
     throw planeError(target, err, modelResource, 'streamGenerateContent');
   }
 
+  const streamScope = activeScope;
   // Pump eagerly (upstream tees the body stream): the aggregate resolves
   // even if the consumer never drains `stream`.
   const buffered: WireResponse[] = [];
@@ -186,18 +305,27 @@ export async function planeGenerateContentStream(
   };
 
   const pumped = (async () => {
+    let iterator: AsyncIterator<WireResponse> | undefined;
     try {
-      for await (const chunk of inner) {
-        activity.chunk(chunk);
-        buffered.push(chunk);
+      iterator = inner[Symbol.asyncIterator]();
+      for (;;) {
+        const step = await streamScope.race(iterator.next());
+        streamScope.clearTimeout();
+        if (step.done) break;
+        activity.chunk(step.value);
+        buffered.push(step.value);
         wake();
       }
     } catch (err) {
+      if (streamScope.signal.aborted && iterator && typeof iterator.return === 'function') {
+        void iterator.return().catch(() => undefined);
+      }
       activity.fail(err);
       failure = planeError(target, err, modelResource, 'streamGenerateContent');
       wake();
       throw failure;
     } finally {
+      streamScope.dispose();
       done = true;
       wake();
     }
@@ -241,9 +369,10 @@ export async function planeCountTokens(
   singleRequestOptions?: SingleRequestOptions,
 ): Promise<CountTokensResponse> {
   const activity = beginAiActivity(target, modelResource, 'countTokens');
+  let scope: RequestAbortScope | undefined;
   try {
     target.assertAlive?.();
-    checkSignal(singleRequestOptions);
+    scope = createRequestAbortScope(singleRequestOptions);
     validateModel(modelResource);
     const dispatch = target.kind === 'transport' ? target.transport : target.broker;
     const normalized = normalizeRequest(request) as unknown as Parameters<
@@ -252,12 +381,16 @@ export async function planeCountTokens(
     // A handle with no app has no claim, and its dispatch takes no extra turn.
     let appCheck: AppCheckClaim | undefined;
     const attachment = target.appCheck;
-    if (attachment !== undefined) appCheck = await attachment.claim();
-    const result = await dispatch.countTokens(normalized, modelResource, appCheck);
+    if (attachment !== undefined) appCheck = await scope.race(attachment.claim());
+    const result = await scope.race(
+      dispatch.countTokens(normalized, modelResource, appCheck, { signal: scope.signal }),
+    );
     activity.finish(result);
     return result;
   } catch (err) {
     activity.fail(err);
     throw planeError(target, err, modelResource, 'countTokens');
+  } finally {
+    scope?.dispose();
   }
 }

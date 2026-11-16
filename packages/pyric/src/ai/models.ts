@@ -19,6 +19,7 @@
  * SDK hands out its live array).
  */
 
+import { isBlockingFinishReason } from './blocked.js';
 import { AIError, AIErrorCode } from './errors.js';
 import {
   formatGenerateContentInput,
@@ -39,7 +40,7 @@ import {
 } from './sandbox-plane.js';
 import { targetOf } from './target.js';
 import type { AI, AITarget } from './types.js';
-import type { CountTokensResponse } from './broker/index.js';
+import type { CountTokensResponse, WireCandidate } from './broker/index.js';
 
 export interface RequestOptions {
   timeout?: number;
@@ -218,6 +219,25 @@ export abstract class ChatSessionBase {
   }
 }
 
+/**
+ * Returns a valid model history entry for a candidate, or `undefined` when
+ * the candidate was blocked or carries no content parts (so neither blocked
+ * or empty candidates nor the prompts that generated them are recorded).
+ */
+function recordableCandidateContent(
+  candidate: WireCandidate | undefined,
+): ContentShape | undefined {
+  if (!candidate) return undefined;
+  if (isBlockingFinishReason(candidate.finishReason)) return undefined;
+  const parts = candidate.content?.parts;
+  if (!Array.isArray(parts) || parts.length === 0) return undefined;
+  return {
+    ...candidate.content,
+    parts,
+    role: candidate.content?.role || 'model',
+  };
+}
+
 /** Chat session for multi-turn conversations on a sandbox target. */
 export class ChatSession extends ChatSessionBase {
   readonly model: string;
@@ -278,14 +298,10 @@ export class ChatSession extends ChatSessionBase {
         formattedRequest,
         { ...this.requestOptions, ...singleRequestOptions },
       );
-      const candidate = result.response.candidates?.[0];
-      if (candidate) {
+      const candidateContent = recordableCandidateContent(result.response.candidates?.[0]);
+      if (candidateContent) {
         this._history.push(content);
-        this._history.push({
-          parts: candidate.content?.parts ?? [],
-          // Responses can come back without a role set.
-          role: candidate.content?.role ?? 'model',
-        });
+        this._history.push(candidateContent);
       }
       return result;
     });
@@ -312,12 +328,10 @@ export class ChatSession extends ChatSessionBase {
       // History updates after aggregation; getHistory() waits via the chain.
       const historySettled = result.response
         .then((response) => {
-          const candidate = response.candidates?.[0];
-          if (candidate?.content) {
+          const candidateContent = recordableCandidateContent(response.candidates?.[0]);
+          if (candidateContent) {
             this._history.push(content);
-            const responseContent: ContentShape = { ...candidate.content };
-            if (!responseContent.role) responseContent.role = 'model';
-            this._history.push(responseContent);
+            this._history.push(candidateContent);
           }
         })
         .catch(() => undefined);

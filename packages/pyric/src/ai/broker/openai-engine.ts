@@ -5,6 +5,8 @@ import {
   errorEnvelope,
   estimateTokens,
   resolveModelVersion,
+  rethrowIfAborted,
+  throwIfAborted,
 } from './synthesizer.js';
 import {
   joinUpstreamUrl,
@@ -30,6 +32,8 @@ import {
 } from './openai-wire-translation.js';
 import type {
   AnswerEngine,
+  AnswerEngineCallOptions,
+  AppCheckClaim,
   CountTokensRequest,
   CountTokensResponse,
   GenerateContentRequest,
@@ -113,10 +117,15 @@ export class OpenAiEngine implements AnswerEngine {
     return this.resolveEffectiveModel(model).model;
   }
 
-  async generateContent(req: GenerateContentRequest, model: string): Promise<WireResponse> {
+  async generateContent(
+    req: GenerateContentRequest,
+    model: string,
+    _appCheck?: AppCheckClaim,
+    options?: AnswerEngineCallOptions,
+  ): Promise<WireResponse> {
     this.warnDroppedFieldsOnce(req);
     const body = geminiToOpenAIRequest(this.resolveUpstreamModel(model), req, false);
-    const res = await this.post(body);
+    const res = await this.post(body, options?.signal);
     const upstream = (await res.json()) as OpenAIResponse;
     const translated = openAIToGeminiResponse(upstream);
     const usageSource = upstream.usage ? 'backend' : 'estimated';
@@ -126,17 +135,26 @@ export class OpenAiEngine implements AnswerEngine {
     );
   }
 
-  streamGenerateContent(req: GenerateContentRequest, model: string): AsyncIterable<WireChunk> {
+  streamGenerateContent(
+    req: GenerateContentRequest,
+    model: string,
+    _appCheck?: AppCheckClaim,
+    options?: AnswerEngineCallOptions,
+  ): AsyncIterable<WireChunk> {
     this.warnDroppedFieldsOnce(req);
     const body = geminiToOpenAIRequest(this.resolveUpstreamModel(model), req, true);
     const opts = { model, promptText: promptTextOf(req) };
     const synth = this.synth;
-    const post = () => this.post(body);
-    const readStream = (reader: ReadableStreamDefaultReader<Uint8Array>) => this.readStream(reader);
+    const signal = options?.signal;
+    const onStreamOpen = options?.onStreamOpen;
+    const post = () => this.post(body, signal);
+    const readStream = (reader: ReadableStreamDefaultReader<Uint8Array>) =>
+      this.readStream(reader, signal);
 
     return (async function* stream(): AsyncGenerator<WireChunk> {
       const res = await post();
       if (!res.body) throw new AiBrokerError(errorEnvelope(502, 'upstream returned no body', 'UNAVAILABLE'));
+      onStreamOpen?.();
 
       const modelVersion = resolveModelVersion(model);
       const responseId = synth.nextResponseId();
@@ -231,6 +249,9 @@ export class OpenAiEngine implements AnswerEngine {
           if (done) break;
         }
       } finally {
+        if (signal?.aborted) {
+          await reader.cancel().catch(() => undefined);
+        }
         reader.releaseLock();
       }
 
@@ -248,16 +269,23 @@ export class OpenAiEngine implements AnswerEngine {
     })();
   }
 
-  async countTokens(req: CountTokensRequest, _model: string): Promise<CountTokensResponse> {
+  async countTokens(
+    req: CountTokensRequest,
+    _model: string,
+    _appCheck?: AppCheckClaim,
+    _options?: AnswerEngineCallOptions,
+  ): Promise<CountTokensResponse> {
     return this.synth.countTokens(promptTextOf(req));
   }
 
   private async readStream(
     reader: ReadableStreamDefaultReader<Uint8Array>,
+    signal?: AbortSignal,
   ): ReturnType<ReadableStreamDefaultReader<Uint8Array>['read']> {
     try {
       return await reader.read();
     } catch (err) {
+      rethrowIfAborted(signal, err);
       if (err instanceof AiBrokerError) throw err;
       const rawMessage = err instanceof Error ? err.message : String(err);
       throw new AiBrokerError(
@@ -270,16 +298,19 @@ export class OpenAiEngine implements AnswerEngine {
     }
   }
 
-  private async post(body: OpenAIRequest): Promise<Response> {
+  private async post(body: OpenAIRequest, signal?: AbortSignal): Promise<Response> {
     const endpoint = joinUpstreamUrl(this.baseUrl, '/chat/completions');
+    const init: RequestInit = {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    };
+    if (signal !== undefined) init.signal = signal;
     let res: Response;
     try {
-      res = await this.fetchImpl(endpoint, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(body),
-      });
+      res = await this.fetchImpl(endpoint, init);
     } catch (err) {
+      rethrowIfAborted(signal, err);
       throw new AiBrokerError(
         errorEnvelope(
           502,
@@ -290,6 +321,7 @@ export class OpenAiEngine implements AnswerEngine {
     }
     if (!res.ok) {
       const text = await res.text().catch(() => '');
+      throwIfAborted(signal);
       const masked = redactUpstreamText(text, this.baseUrlCredentials).slice(0, 500);
       const statusName = res.status === 404 ? 'NOT_FOUND' : 'INVALID_ARGUMENT';
       throw new AiBrokerError(

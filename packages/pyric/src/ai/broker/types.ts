@@ -25,6 +25,7 @@ export interface WirePart {
   functionCall?: { name: string; args: Record<string, unknown>; id?: string };
   functionResponse?: { name: string; response: Record<string, unknown>; id?: string };
   inlineData?: { mimeType: string; data: string };
+  fileData?: { mimeType: string; fileUri: string };
   /** Thought-summary flag (`includeThoughts`); thought parts never replay upstream. */
   thought?: boolean;
   /** Opaque signature production mints on parts — including trivial text parts. */
@@ -141,15 +142,38 @@ export interface AppCheckClaim {
 
 // ── The answer-engine seam (cdd-deltas #97, verbatim) ───────────────────────
 
+/** Per-call execution controls forwarded from SDK RequestOptions / SingleRequestOptions. */
+export interface AnswerEngineCallOptions {
+  /** Combined abort signal (external caller signal and/or request timeout). */
+  signal?: AbortSignal;
+  /** Called once a streaming upstream response opens so connect timeouts can be cleared. */
+  onStreamOpen?: () => void;
+}
+
 /**
  * `appCheck` is the claim the request carries. The broker checks it before
  * any engine runs, so engines ignore it; a transport that forwards requests
  * to another plane's broker sends it along.
  */
 export interface AnswerEngine {
-  generateContent(req: GenerateContentRequest, model: string, appCheck?: AppCheckClaim): Promise<WireResponse>;
-  streamGenerateContent(req: GenerateContentRequest, model: string, appCheck?: AppCheckClaim): AsyncIterable<WireChunk>;
-  countTokens(req: CountTokensRequest, model: string, appCheck?: AppCheckClaim): Promise<CountTokensResponse>;
+  generateContent(
+    req: GenerateContentRequest,
+    model: string,
+    appCheck?: AppCheckClaim,
+    options?: AnswerEngineCallOptions,
+  ): Promise<WireResponse>;
+  streamGenerateContent(
+    req: GenerateContentRequest,
+    model: string,
+    appCheck?: AppCheckClaim,
+    options?: AnswerEngineCallOptions,
+  ): AsyncIterable<WireChunk>;
+  countTokens(
+    req: CountTokensRequest,
+    model: string,
+    appCheck?: AppCheckClaim,
+    options?: AnswerEngineCallOptions,
+  ): Promise<CountTokensResponse>;
   /**
    * OPTIONAL self-report: which model this engine will ACTUALLY answer with
    * for a requested Gemini model id, and why it differs. Engines that redirect
