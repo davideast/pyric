@@ -46,7 +46,7 @@ export function observeConnectionMetadata(
   stopObserving = target.connection.observeConnection((connected) => {
     if (stopped) return;
     const value = isMetadataRoot ? { connected, serverTimeOffset: 0 } : connected;
-    const filtersChildren = isMetadataRoot && hasConstraints;
+    const filtersChildren = hasConstraints && (isMetadataRoot || !loadsAllData(query._spec));
     let snapshot: DataSnapshot;
     if (filtersChildren) {
       const rows = executeQuery(value, query._spec);

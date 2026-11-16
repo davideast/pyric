@@ -15,7 +15,7 @@ import {
   emptySpec,
   isDefaultQuerySpec,
   loadsAllData,
-  type QueryRow,
+  type QueryReadResult,
   type QuerySpec,
 } from 'pyric/database/internal';
 import type { PyricAdminApp } from '../app/index.js';
@@ -66,7 +66,7 @@ import {
 } from './types.js';
 
 interface SharedRtdbBackend extends LocalListenBackend {
-  adminGetQuery(path: string, spec: QuerySpec): QueryRow[];
+  adminGetQuery(path: string, spec: QuerySpec): QueryReadResult;
   adminSet(path: string, value: JsonValue): void;
   adminUpdate(path: string, patch: Record<string, JsonValue>): void;
   adminRemove(path: string): void;
@@ -199,8 +199,8 @@ function buildSandboxRef(
         assertGettablePath(canonical);
         lifecycle.assertActive();
         if (!isDefaultQuerySpec(spec)) {
-          const rows = backend.adminGetQuery(canonical, spec);
-          return buildLocalQuerySnapshot(refAt, adminDb, canonical, segs, rows, loadsAllData(spec));
+          const result = backend.adminGetQuery(canonical, spec);
+          return buildLocalQuerySnapshot(refAt, adminDb, canonical, segs, result.rows, loadsAllData(spec), result.val);
         }
         const val = backend.adminGet(canonical);
         return buildSandboxSnap(refAt, canonical, val, exportedLocalValueAt(adminDb, segs, val));

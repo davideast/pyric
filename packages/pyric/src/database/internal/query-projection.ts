@@ -202,6 +202,45 @@ export interface QueryRow {
   priority: Priority;
 }
 
+export interface QueryReadResult {
+  val: JsonValue;
+  rows: QueryRow[];
+}
+
+/** True when a stored RTDB value is a non-null scalar leaf rather than a child map. */
+export function isScalarLeafValue(value: unknown): value is string | number | boolean {
+  return value !== null && value !== undefined && typeof value !== 'object';
+}
+
+/** True when the query reads the whole location: no limit and no range. */
+export function loadsAllData(spec: QuerySpec): boolean {
+  return spec.limit === null && spec.bounds.length === 0;
+}
+
+/**
+ * Project the value a query snapshot exposes at `path` from the raw stored
+ * value, the ordered/filtered `rows` produced by {@link executeQuery}, and the
+ * active {@link QuerySpec}.
+ *
+ * Mirrors Firebase RTDB's `IndexedFilter` vs `RangedFilter`/`LimitedFilter`:
+ * an unfiltered query (`loadsAllData(spec) === true`) preserves scalar leaf
+ * values (`LeafNode#withIndex` returns `this`), whereas any bound or limit
+ * replaces a scalar leaf with an empty snapshot (`null`).
+ */
+export function projectQueryValue(
+  rawValue: JsonValue,
+  rows: readonly QueryRow[],
+  spec: QuerySpec,
+): JsonValue {
+  if (rows.length > 0) {
+    return Object.fromEntries(rows.map(({ key, value }) => [key, value])) as JsonValue;
+  }
+  if (loadsAllData(spec) && isScalarLeafValue(rawValue)) {
+    return rawValue;
+  }
+  return null;
+}
+
 /**
  * Run a {@link QuerySpec} against the data at a path. The caller passes
  * the raw value at the path (a `Record<string, JsonValue>` if it's a

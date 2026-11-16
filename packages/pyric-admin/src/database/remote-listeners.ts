@@ -9,6 +9,7 @@ import {
   isDefaultQuerySpec,
   isInfoPath,
   jsonEqual,
+  loadsAllData,
   normalizeNode,
   type QuerySpec,
 } from 'pyric/database/internal';
@@ -80,7 +81,8 @@ function buildInfoWireSnapshot(
     raw = raw[seg] ?? null;
   }
   const snapKey = segs.length === 0 ? null : segs[segs.length - 1]!;
-  if (!isDefaultQuerySpec(spec)) {
+  const projectsQueryRows = !isDefaultQuerySpec(spec) && (isJsonRecord(raw) || !loadsAllData(spec));
+  if (projectsQueryRows) {
     const rows = executeQuery(raw, spec);
     const hasRows = rows.length > 0;
     let projected: JsonValue = null;

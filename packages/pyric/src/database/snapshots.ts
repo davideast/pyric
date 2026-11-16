@@ -1,6 +1,6 @@
 import { asSdkArray } from './sandbox/normalize.js';
 import { isReservedSegment, joinPath, pathSegments, setOwnProperty, type JsonValue } from './sandbox/data-tree.js';
-import { executeQuery, type Priority, type QueryRow } from './sandbox/query.js';
+import { executeQuery, isScalarLeafValue, type Priority, type QueryRow } from './sandbox/query.js';
 import type { PriorityRecord } from './sandbox/priority-state.js';
 import type { SandboxLiveTarget, SandboxTarget } from './routing.js';
 import { DataSnapshot, type DatabaseReference, type DataSnapshotImplementation } from './types.js';
@@ -123,7 +123,11 @@ export function buildSandboxQuerySnap(
   refForSnap: DatabaseReference,
   rows: QueryRow[],
   includeRootPriority = true,
+  leafValue: JsonValue = null,
 ): DataSnapshot {
+  if (rows.length === 0 && includeRootPriority && isScalarLeafValue(leafValue)) {
+    return buildSandboxSnapFromRaw(target, refForSnap, leafValue);
+  }
   let val: JsonValue;
   if (rows.length === 0) {
     val = null;

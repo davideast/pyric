@@ -11,7 +11,9 @@
  *     query logs nothing.
  *   - `orderByKey`, `orderByPriority` and the default ordering need no index.
  */
-import type { QuerySpec } from '../internal/query-projection.js';
+import { loadsAllData, type QuerySpec } from '../internal/query-projection.js';
+
+export { loadsAllData };
 
 function displayPath(path: string): string {
   return '/' + path.split('/').filter(Boolean).join('/');
@@ -22,11 +24,6 @@ export function indexNotDefined(path: string, index: string): Error {
   return new Error(
     `Index not defined, add ".indexOn": "${index}", for path "${displayPath(path)}", to the rules`,
   );
-}
-
-/** True when the query reads the whole location: no limit and no range. */
-export function loadsAllData(spec: QuerySpec): boolean {
-  return spec.limit === null && spec.bounds.length === 0;
 }
 
 /** The warning text a listener on an unindexed, limited or ranged query logs. */

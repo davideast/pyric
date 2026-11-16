@@ -238,8 +238,7 @@ function onValueInternal(
   const reference = r.ref;
   const isConnectionValue = reference._path === '/.info/connected';
   const isMetadataRoot = reference._path === '/.info';
-  const hasDefaultQuery = isDefaultQuerySpec(r._spec);
-  const observesConnection = isMetadataRoot || (hasDefaultQuery && isConnectionValue);
+  const observesConnection = isMetadataRoot || isConnectionValue;
   if (observesConnection) return observeConnectionMetadata(listenerRegistry, r, cb, registryCallback, activity);
   // Query branch — fire only when the windowed result changes.
   // Locked by oracle observation `rtdb-modular-onvalue-with-query.json`:
@@ -252,7 +251,7 @@ function onValueInternal(
     const scope = queryScope(q);
     const deliver = (raw: { val: JsonValue; key: string | null; rows?: QueryRow[] }): void => {
       const rows = raw.rows ?? [];
-      const snap = buildSandboxQuerySnap(target, q.ref, rows, loadsAllData(q._spec));
+      const snap = buildSandboxQuerySnap(target, q.ref, rows, loadsAllData(q._spec), raw.val);
       try {
         cb(snap);
       } catch {

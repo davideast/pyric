@@ -8,16 +8,17 @@ import { errorPrefix, normalizeWrite, withPriorities, writePriority, type Inline
 import { canonicalPath, denyResultFor, rtdbDenialContext, rtdbRulesDetail } from './operation-events.js';
 import { validateNestedPriorities, validatePriority } from './priority-state.js';
 import { PriorityWrites } from './priority-writes.js';
-import { executeQuery, type Priority, type QueryRow, type QuerySpec } from './query.js';
+import {
+  executeQuery,
+  projectQueryValue,
+  type Priority,
+  type QueryReadResult,
+  type QuerySpec,
+} from './query.js';
 import { indexNotDefined } from './query-index.js';
 import { permissionDenied, type RuleEvaluationDetails } from './rules-eval.js';
 import { resolveSentinels } from './sentinels.js';
 import { listenerPermissionDenied, type ValueListeners } from './value-listeners.js';
-
-function rowsToVal(rows: QueryRow[]): JsonValue {
-  if (rows.length === 0) return null;
-  return Object.fromEntries(rows.map(({ key, value }) => [key, value])) as JsonValue;
-}
 
 function updateDenialRank(evaluation: RuleEvaluationDetails): 0 | 1 | 2 | 3 | null {
   if (evaluation.check === 'allow') return null;
@@ -193,7 +194,7 @@ export class WritePlane {
     return value;
   }
 
-  adminGetQuery(path: string, spec: QuerySpec): QueryRow[] {
+  adminGetQuery(path: string, spec: QuerySpec): QueryReadResult {
     // Admin access bypasses rules, not the index requirement.
     const missingIndex = this.state.rules.missingQueryIndex(path, spec);
     if (missingIndex !== null) {
@@ -203,13 +204,15 @@ export class WritePlane {
       });
       throw indexNotDefined(path, missingIndex);
     }
-    const rows = executeQuery(this.state.tree.read(path), spec, this.state.priorities.forChild(path));
+    const rawValue = this.state.tree.read(path);
+    const rows = executeQuery(rawValue, spec, this.state.priorities.forChild(path));
+    const val = projectQueryValue(rawValue, rows, spec);
     this.state.events.operation(null, 'get', path, 'not-applicable', undefined, {
       at: this.state.clock.now(),
       origin: 'admin', request: { query: spec },
-      resourceBefore: { data: rowsToVal(rows), exists: rows.length > 0 },
+      resourceBefore: { data: val, exists: val !== null },
     });
-    return rows;
+    return { val, rows };
   }
 
   adminSet(path: string, value: JsonValue): void {
@@ -307,7 +310,7 @@ export class WritePlane {
     return this.state.tree.read(path);
   }
 
-  getQuery(auth: AuthState, path: string, spec: QuerySpec): QueryRow[] {
+  getQuery(auth: AuthState, path: string, spec: QuerySpec): QueryReadResult {
     const at = this.state.clock.now();
     const evaluation = this.readEvaluation(auth, path, spec);
     if (evaluation.check !== 'allow') {
@@ -323,12 +326,14 @@ export class WritePlane {
       });
       throw indexNotDefined(path, missingIndex);
     }
-    const rows = executeQuery(this.state.tree.read(path), spec, this.state.priorities.forChild(path));
+    const rawValue = this.state.tree.read(path);
+    const rows = executeQuery(rawValue, spec, this.state.priorities.forChild(path));
+    const val = projectQueryValue(rawValue, rows, spec);
     this.state.events.operation(auth, 'get', path, 'allow', evaluation, {
       at, durationMs: this.state.clock.now() - at, request: { query: spec },
-      resourceBefore: { data: rowsToVal(rows), exists: rows.length > 0 },
+      resourceBefore: { data: val, exists: val !== null },
     });
-    return rows;
+    return { val, rows };
   }
 
   set(auth: AuthState, path: string, value: JsonValue): void {

@@ -102,8 +102,84 @@ describe('Cross-plane RTDB query surface, snapshots, and setData fan-out', () =>
       expect(ipSnap.val()).toBe(42);
       expect(servedSnap.exists()).toBe(true);
       expect(servedSnap.val()).toBe(42);
+
+      const ipPrioritySnap = await ip.get(ip.query(ipScalar, ip.orderByPriority()));
+      const servedPrioritySnap = await served.get(served.query(servedScalar, served.orderByPriority()));
+      expect(ipPrioritySnap.exists()).toBe(true);
+      expect(ipPrioritySnap.val()).toBe(42);
+      expect(servedPrioritySnap.exists()).toBe(true);
+      expect(servedPrioritySnap.val()).toBe(42);
+
+      const ipKeySnap = await ip.get(ip.query(ipScalar, ip.orderByKey()));
+      const servedKeySnap = await served.get(served.query(servedScalar, served.orderByKey()));
+      expect(ipKeySnap.exists()).toBe(true);
+      expect(ipKeySnap.val()).toBe(42);
+      expect(servedKeySnap.exists()).toBe(true);
+      expect(servedKeySnap.val()).toBe(42);
+
+      const ipLimitedSnap = await ip.get(ip.query(ipScalar, ip.orderByPriority(), ip.limitToFirst(1)));
+      const servedLimitedSnap = await served.get(served.query(servedScalar, served.orderByPriority(), served.limitToFirst(1)));
+      expect(ipLimitedSnap.exists()).toBe(false);
+      expect(ipLimitedSnap.val()).toBeNull();
+      expect(servedLimitedSnap.exists()).toBe(false);
+      expect(servedLimitedSnap.val()).toBeNull();
     } finally {
       await cleanup();
+    }
+  });
+
+  it('forwards orderByPriority() over the served wire protocol for query.orderByPriority rule checks', async () => {
+    const ctx = await makeHostCtx();
+    const rules = {
+      rules: {
+        items: {
+          '.write': true,
+          '.read': 'query.orderByPriority == true',
+        },
+      },
+    };
+    setDatabaseRules(ctx, undefined, rules);
+    (globalThis as { SharedWorker?: unknown }).SharedWorker = class {
+      port: FakePort;
+      addEventListener() {}
+      constructor(_url: unknown, _opts: unknown) {
+        const { a: clientPort, b: hostPort } = portPair();
+        const hostPortLike: PortLike = {
+          postMessage: (message: OutboundMessage) => hostPort.postMessage(message),
+        };
+        hostPort.onmessage = (event) => {
+          void handleMessage(ctx, hostPortLike, event.data as InboundMessage);
+        };
+        this.port = clientPort;
+      }
+    };
+    const served = await import('../../../src/serve/entries/database.js');
+    const servedApp = createAppForSandbox(
+      ctx.sandbox,
+      { projectId: 'rtdb-priority-rule-parity' },
+      `rtdb-priority-rule-served-${Math.random()}`,
+    );
+    const servedDb = served.getDatabase(servedApp);
+
+    const ipSandbox = initializeSandbox();
+    const ipDb = ip.getDatabase(ipSandbox);
+    ip.sandbox.setRules(ipDb, rules);
+
+    try {
+      const ipItems = ip.ref(ipDb, 'items');
+      const servedItems = served.ref(servedDb, 'items');
+      await ip.set(ipItems, 125);
+      await served.set(servedItems, 125);
+
+      await expect(ip.get(ipItems)).rejects.toThrow(/permission_denied/i);
+      await expect(served.get(servedItems)).rejects.toThrow(/permission_denied/i);
+
+      const ipAllowed = await ip.get(ip.query(ipItems, ip.orderByPriority()));
+      const servedAllowed = await served.get(served.query(servedItems, served.orderByPriority()));
+      expect(ipAllowed.exportVal()).toBe(125);
+      expect(servedAllowed.exportVal()).toBe(125);
+    } finally {
+      await deleteApp(servedApp);
     }
   });
 

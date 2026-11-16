@@ -24,7 +24,7 @@ export {
   validateQuerySpec,
 } from './query-validation.js';
 export { jsonEqual } from '@pyric/rules/internal/rtdb';
-export { executeQuery } from './internal/query-projection.js';
+export { executeQuery, isScalarLeafValue, projectQueryValue, type QueryReadResult } from './internal/query-projection.js';
 export { listenIndexWarning } from './listen-index-warning.js';
 export { loadsAllData, logDatabaseWarning } from './sandbox/query-index.js';
 export { heldDatabaseInstances } from './sandbox/backend-for.js';

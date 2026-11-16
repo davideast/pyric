@@ -1,0 +1,22 @@
+{
+  "description": "Unfiltered queries (orderByPriority, orderByKey, orderByValue, orderByChild with no bounds or limit) on a scalar leaf preserve the scalar value and its priority across get() and onValue(), while bounded or limited queries on a scalar leaf return null.",
+  "sequence": {
+    "seed": 1047,
+    "instances": 3,
+    "initialRules": [0, 0, 2],
+    "steps": [
+      { "op": "set", "db": 2, "path": "items", "value": 125 },
+      { "op": "listen", "db": 2, "id": 1, "path": "items", "event": "value", "query": { "orderBy": "priority" } },
+      { "op": "listen", "db": 2, "id": 2, "path": "items", "event": "value", "query": { "orderBy": "key" } },
+      { "op": "listen", "db": 2, "id": 3, "path": "items", "event": "value", "query": { "orderBy": "priority", "limitToFirst": 2 } },
+      { "op": "setPriority", "db": 2, "path": "items", "priority": 7 },
+      { "op": "get", "db": 2, "path": "items", "query": { "orderBy": "priority" } },
+      { "op": "get", "db": 2, "path": "items", "query": { "orderBy": "key" } },
+      { "op": "get", "db": 2, "path": "items", "query": { "orderBy": "value" } },
+      { "op": "get", "db": 2, "path": "items", "query": { "orderBy": { "child": "n" } } },
+      { "op": "get", "db": 2, "path": "items", "query": { "orderBy": "priority", "startAt": { "value": 1 } } },
+      { "op": "transaction", "db": 0, "path": "items/a", "script": "increment" },
+      { "op": "get", "db": 0, "path": "items/a", "query": { "orderBy": "priority" } }
+    ]
+  }
+}

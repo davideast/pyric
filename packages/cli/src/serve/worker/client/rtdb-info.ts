@@ -12,7 +12,7 @@
  * | `/.info`                 | `{ connected, serverTimeOffset: 0 }` |
  * | any other `.info` path   | `null`                             |
  */
-import { executeQuery, isInfoPath, queryIdentifier } from 'pyric/database/internal';
+import { executeQuery, isInfoPath, isScalarLeafValue, loadsAllData } from 'pyric/database/internal';
 import { sameRtdbValue } from '../rtdb-value-equality.js';
 import { isDisconnectedPort } from './core.js';
 import type { RtdbDataSnapshot, RtdbRefHandle } from './handles.js';
@@ -41,8 +41,10 @@ function infoValue(path: string, connected: boolean): unknown {
 
 /** The snapshot a listener or read sees, with a query's selection applied to a branch. */
 function infoSnapshot(ref: RtdbRefHandle, value: unknown, query: RtdbQuerySpec | undefined): { snapshot: RtdbDataSnapshot; content: unknown } {
-  const filtersChildren = query !== undefined && queryIdentifier(query) !== 'default';
-  if (!filtersChildren) return { snapshot: makeRtdbSnapshot(ref, value), content: value };
+  const preservesScalarLeaf = isScalarLeafValue(value) && (query === undefined || loadsAllData(query));
+  if (query === undefined || preservesScalarLeaf) {
+    return { snapshot: makeRtdbSnapshot(ref, value), content: value };
+  }
   const rows = executeQuery(value as Parameters<typeof executeQuery>[0], query);
   const hasRows = rows.length > 0;
   const projection = Object.fromEntries(rows.map(({ key, value: child }) => [key, child]));
