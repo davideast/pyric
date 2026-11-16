@@ -281,4 +281,99 @@ describe('AI and Gemini proxy upstream credential redaction matrix (ADR 0024)', 
     expect(sseText).not.toContain(basicPass);
     expect(sseText).not.toContain(querySecret);
   });
+
+  it('strips x-pyric-session-token and all x-pyric-* headers while preserving AI provider auth headers', async () => {
+    const seenHeaders: Array<Record<string, string | string[] | undefined>> = [];
+    const upstream = createServer((req, res) => {
+      seenHeaders.push({ ...req.headers });
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ id: 'cmpl-hdr', choices: [] }));
+    });
+    await new Promise<void>((resolve) => upstream.listen(0, '127.0.0.1', resolve));
+    upstreams.push(upstream);
+    const upstreamPort = (upstream.address() as AddressInfo).port;
+
+    const handle = await startProxyHarness({
+      aiProxyUpstream: `http://127.0.0.1:${upstreamPort}/v1`,
+    });
+
+    const res = await fetch(`${handle.url}/__pyric/ai-proxy/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-pyric-session-token': SESSION_TOKEN,
+        'x-pyric-activity-token': 'local-activity-token',
+        'x-pyric-beacon-token': 'local-beacon-token',
+        'x-pyric-functions-token': 'local-functions-token',
+        'x-pyric-instance-id': 'local-instance-id',
+        'x-pyric-project-dir': 'local-project-dir',
+        authorization: 'Bearer client-openai-key',
+        'x-goog-api-key': 'client-goog-key',
+        'x-api-key': 'client-provider-key',
+        'api-key': 'client-azure-key',
+        'x-custom-trace': 'keep-trace-id',
+      },
+      body: '{"model":"demo-model","messages":[]}',
+    });
+    expect(res.status).toBe(200);
+    expect(seenHeaders.length).toBe(1);
+    const forwarded = seenHeaders[0];
+    expect(forwarded).toBeDefined();
+    if (forwarded === undefined) return;
+    expect(forwarded['x-pyric-session-token']).toBeUndefined();
+    expect(forwarded['x-pyric-activity-token']).toBeUndefined();
+    expect(forwarded['x-pyric-beacon-token']).toBeUndefined();
+    expect(forwarded['x-pyric-functions-token']).toBeUndefined();
+    expect(forwarded['x-pyric-instance-id']).toBeUndefined();
+    expect(forwarded['x-pyric-project-dir']).toBeUndefined();
+    for (const key of Object.keys(forwarded)) {
+      expect(key.toLowerCase().startsWith('x-pyric-')).toBe(false);
+    }
+    expect(forwarded.authorization).toBe('Bearer client-openai-key');
+    expect(forwarded['x-goog-api-key']).toBe('client-goog-key');
+    expect(forwarded['x-api-key']).toBe('client-provider-key');
+    expect(forwarded['api-key']).toBe('client-azure-key');
+    expect(forwarded['x-custom-trace']).toBe('keep-trace-id');
+  });
+
+  it('redacts credentials in OpenAI ai-proxy 200 array-wrapped SSE errors, multi-line SSE errors, and 200 JSON error envelopes', async () => {
+    const querySecret = 'PROXY_SSE_MULTI_SECRET_7766';
+    const upstream = createServer((req, res) => {
+      const reqUrl = req.url ?? '';
+      if (reqUrl.includes('mode=array-sse')) {
+        res.writeHead(200, { 'content-type': 'text/event-stream' });
+        res.end(`data: [{"error":{"code":400,"message":"Bad key ${querySecret}"}}]\n\n`);
+        return;
+      }
+      if (reqUrl.includes('mode=multiline-sse')) {
+        res.writeHead(200, { 'content-type': 'text/event-stream' });
+        res.end(`data: {"error":{"code":400,\ndata: "message":"Split key ${querySecret}"}}\n\n`);
+        return;
+      }
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ error: { code: 400, message: `Envelope key ${querySecret}` } }));
+    });
+    await new Promise<void>((resolve) => upstream.listen(0, '127.0.0.1', resolve));
+    upstreams.push(upstream);
+    const upstreamPort = (upstream.address() as AddressInfo).port;
+
+    const handle = await startProxyHarness({
+      aiProxyUpstream: `http://127.0.0.1:${upstreamPort}/v1?key=${querySecret}`,
+    });
+
+    for (const mode of ['array-sse', 'multiline-sse', 'json-error']) {
+      const res = await fetch(`${handle.url}/__pyric/ai-proxy/chat/completions?mode=${mode}`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'x-pyric-session-token': SESSION_TOKEN,
+        },
+        body: '{}',
+      });
+      expect(res.status).toBe(200);
+      const text = await res.text();
+      expect(text).not.toContain(querySecret);
+      expect(text).toContain('***');
+    }
+  });
 });

@@ -16,6 +16,7 @@ import {
   GeminiUpstream,
   maskStreamErrors,
   redactUpstreamError,
+  redactUpstreamSuccessBody,
   type GeminiUpstreamOptions,
 } from 'pyric/ai/internal';
 import type { ServeLogger } from './server.js';
@@ -90,14 +91,36 @@ async function relayRedactedError(
   res.end(text);
 }
 
-/** The upstream's 2xx answer, a stream's error events masked whatever content type it names. */
-function maskedSuccess(response: Response, action: string, credentials: readonly string[]): Response {
+/**
+ * The upstream's 2xx answer, masked before it reaches the browser:
+ * - SSE streams pipe through `maskStreamErrors` without buffering normal events.
+ * - Non-streaming JSON/text responses pass through `redactUpstreamSuccessBody`
+ *   with `maskExactCredentials: true` so server-held credentials (`GEMINI_API_KEY`,
+ *   ADC tokens, baseUrl credentials) never leak to the browser in 200 JSON error
+ *   envelopes or echoed responses, while normal model text and unrelated `?key=`
+ *   URLs remain untouched (ADR 0024).
+ */
+async function maskedSuccess(
+  response: Response,
+  action: string,
+  credentials: readonly string[],
+): Promise<Response> {
+  if (response.body === null) return response;
   const contentType = response.headers.get('content-type')?.toLowerCase() ?? '';
-  const isStream =
-    (action.startsWith('streamGenerateContent') || contentType.includes('text/event-stream')) &&
-    response.body !== null;
-  if (!isStream || response.body === null) return response;
-  return new Response(maskStreamErrors(response.body, credentials), {
+  const isEventStream = contentType.includes('text/event-stream');
+  const isJson = contentType.includes('json');
+  const isStream = isEventStream || (action.startsWith('streamGenerateContent') && !isJson);
+  if (isStream) {
+    return new Response(maskStreamErrors(response.body, credentials), {
+      status: response.status,
+      headers: response.headers,
+    });
+  }
+  const isTextLike = contentType === '' || isJson || contentType.startsWith('text/');
+  if (!isTextLike) return response;
+  const rawBody = await response.text().catch(() => '');
+  const maskedBody = redactUpstreamSuccessBody(rawBody, credentials, { maskExactCredentials: true });
+  return new Response(maskedBody, {
     status: response.status,
     headers: response.headers,
   });
@@ -153,7 +176,7 @@ export function createGeminiProxy(
       return;
     }
     if (response.ok) {
-      await relayAiUpstream(maskedSuccess(response, call.action, credentials), res);
+      await relayAiUpstream(await maskedSuccess(response, call.action, credentials), res);
       return;
     }
     await relayRedactedError(response, credentials, res);

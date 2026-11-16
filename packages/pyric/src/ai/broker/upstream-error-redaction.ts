@@ -19,7 +19,7 @@
  */
 import { redactUrl } from './synthesizer.js';
 
-const MASK = '***';
+export const CREDENTIAL_MASK = '***';
 
 /**
  * Every form every credential can appear in, raw and percent-encoded,
@@ -27,7 +27,7 @@ const MASK = '***';
  * and the refreshed token that extends it, so the longer is masked first:
  * masking the shorter first would leave the rest of the longer behind.
  */
-function quotedForms(credentials: readonly string[]): string[] {
+export function quotedForms(credentials: readonly string[]): string[] {
   const forms = new Set(credentials.flatMap((credential) => [encodeURIComponent(credential), credential]));
   return [...forms].sort((a, b) => b.length - a.length);
 }
@@ -360,7 +360,7 @@ export function redactUpstreamUrl(url: string): string {
  */
 export function redactUpstreamText(text: string, credentials: readonly string[]): string {
   let masked = text;
-  for (const form of quotedForms(credentials)) masked = masked.split(form).join(MASK);
+  for (const form of quotedForms(credentials)) masked = masked.split(form).join(CREDENTIAL_MASK);
   return redactUrl(masked);
 }
 
@@ -375,7 +375,7 @@ function redactValue(value: unknown, credentials: readonly string[]): unknown {
 }
 
 /** The JSON value `text` holds, or undefined when it is not JSON. */
-function parseJson(text: string): { value: unknown } | undefined {
+export function parseJson(text: string): { value: unknown } | undefined {
   try {
     return { value: JSON.parse(text) as unknown };
   } catch {
@@ -391,72 +391,4 @@ export function redactUpstreamError(text: string, credentials: readonly string[]
   const json = parseJson(text);
   if (json === undefined) return redactUpstreamText(text, credentials);
   return JSON.stringify(redactValue(json.value, credentials));
-}
-
-function isJsonErrorEvent(data: string): boolean {
-  try {
-    const value = JSON.parse(data) as unknown;
-    return value !== null && typeof value === 'object' && 'error' in value;
-  } catch {
-    return false;
-  }
-}
-
-function maskSseLine(
-  line: string,
-  credentials: readonly string[],
-  state: { eventIsError: boolean },
-): string {
-  const carriageReturn = line.endsWith('\r') ? '\r' : '';
-  const body = line.slice(0, line.length - carriageReturn.length);
-  if (body === '') {
-    state.eventIsError = false;
-    return line;
-  }
-  if (/^event:\s*error$/i.test(body)) {
-    state.eventIsError = true;
-    return line;
-  }
-  const prefix = /^data: ?/.exec(body)?.[0];
-  if (prefix === undefined) return line;
-  const data = body.slice(prefix.length);
-  if (!state.eventIsError && !isJsonErrorEvent(data)) return line;
-  return `${prefix}${redactUpstreamError(data, credentials)}${carriageReturn}`;
-}
-
-/**
- * Wraps an SSE `2xx` byte stream so any error event (`data: {"error": ...}` or
- * `event: error`) has its credentials masked before reaching the caller, while
- * streaming complete lines immediately in linear time without buffering.
- */
-export function maskStreamErrors(
-  body: ReadableStream<Uint8Array>,
-  credentials: readonly string[],
-): ReadableStream<Uint8Array> {
-  const decoder = new TextDecoder();
-  const encoder = new TextEncoder();
-  const state = { eventIsError: false };
-  let pending = '';
-  return body.pipeThrough(
-    new TransformStream<Uint8Array, Uint8Array>({
-      transform(bytes, controller) {
-        const arrived = decoder.decode(bytes, { stream: true });
-        const lastNewline = arrived.lastIndexOf('\n');
-        if (lastNewline === -1) {
-          pending += arrived;
-          return;
-        }
-        const lines = (pending + arrived.slice(0, lastNewline)).split('\n');
-        pending = arrived.slice(lastNewline + 1);
-        const masked = lines.map((line) => `${maskSseLine(line, credentials, state)}\n`).join('');
-        controller.enqueue(encoder.encode(masked));
-      },
-      flush(controller) {
-        pending += decoder.decode();
-        if (pending !== '') {
-          controller.enqueue(encoder.encode(maskSseLine(pending, credentials, state)));
-        }
-      },
-    }),
-  );
 }
