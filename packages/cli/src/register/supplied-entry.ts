@@ -83,7 +83,7 @@ export type { ObservedCall, ObservedCallService, ProductionOutcome } from 'pyric
 
 interface ResolveContext {
   parentURL?: string;
-  conditions?: string[];
+  conditions?: unknown;
 }
 interface ResolveResult {
   url: string;
@@ -482,7 +482,7 @@ function finishSuppliedRowsActivation(installed: InstalledLiveRegister, prepared
     [LIVE_PASS_THROUGH_VARIABLE]: [...prepared.passThrough].join(','),
   });
   installWorkerGuard(installed.entryUrl, undefined, installed.evalEntryUrl);
-  installChildProcessGuard(installed.entryUrl);
+  installChildProcessGuard(installed.entryUrl, undefined, installed.evalEntryUrl);
   const report = createStopReporter((line) => void process.stderr.write(line));
   const env: SuppliedResolveEnv = {
     rows,

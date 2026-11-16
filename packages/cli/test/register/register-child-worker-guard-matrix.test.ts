@@ -278,10 +278,15 @@ describe('register child-process and worker guard matrix', () => {
       });
     }
 
-    // `-r @pyric/cli/register` with `PYRIC_SANDBOX=1` runs before `--import` and must fail closed.
+    // Live's synchronous `--require` preload runs before `-r @pyric/cli/register`,
+    // so the child activates live mode and `@pyric/cli/register` refuses to activate.
     const requireWithSandbox = matrix.childRequireCliWithSandboxEnv;
-    expect(requireWithSandbox?.status).not.toBe(0);
-    expect(requireWithSandbox?.probe).toBeNull();
+    expect(requireWithSandbox?.status, requireWithSandbox?.stderr ?? '').toBe(0);
+    expect(requireWithSandbox?.probe).toEqual({
+      functionsOutcome: 'PYRIC_LIVE_REFUSED',
+      liveActive: true,
+      sandboxActive: false,
+    });
 
     for (const key of [
       'workerExecArgvCli',

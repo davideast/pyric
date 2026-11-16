@@ -45,8 +45,8 @@ import { dirname, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { canonicalFirebaseSpecifier, mapFirebaseSpecifier } from './mapping.js';
 import { resolvesIntoPackage } from './package-identity.js';
-import { isLiveRegisterActive, markRegisterActive } from './activation.js';
-import { createStopReporter, stopFor } from './swap-or-stop.js';
+import { isLiveRegisterActive, isRegisterActive, markRegisterActive } from './activation.js';
+import { createStopReporter, isImportCondition, stopFor } from './swap-or-stop.js';
 import { resolveEsmOnlySubpath } from './esm-exports.js';
 import { warnDeprecatedGuardEnvOnce } from './deprecated-guard-env.js';
 import { requireRegisterHooks } from './node-version-stop.js';
@@ -68,7 +68,7 @@ const APP_CHECK_FIREBASE_VERIFIER = Symbol.for('pyric.admin.appCheck.firebaseVer
 
 interface SyncResolveContext {
   parentURL?: string;
-  conditions?: string[];
+  conditions?: unknown;
 }
 interface SyncResolveResult {
   url: string;
@@ -155,10 +155,6 @@ const PINNED_SANDBOX_OPTIONAL_KEYS = [
   'PYRIC_WORKER_INIT',
   'PYRIC_WORKER_INIT_HOST',
 ] as const;
-
-function isImportCondition(conditions: readonly string[] | undefined): boolean {
-  return conditions?.includes('import') === true;
-}
 
 function buildPinnedSandboxEnv(
   activatedSandbox: string,
@@ -315,7 +311,9 @@ export let active = false;
 
 const activatedSandbox = process.env.PYRIC_SANDBOX;
 if (activatedSandbox) {
-  if (isLiveRegisterActive()) {
+  if (isRegisterActive()) {
+    active = true;
+  } else if (isLiveRegisterActive()) {
     // Live mode already resolves Firebase to the installed SDK in this
     // process; a second set of hooks would send it to the sandbox instead.
     process.stderr.write(

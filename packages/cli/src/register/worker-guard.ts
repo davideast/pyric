@@ -2,38 +2,27 @@
  * The register in worker threads.
  *
  * Built-in modules and resolve hooks are per thread, so the swap and the stop
- * have to be installed inside each worker as well. Node runs `--import` preloads (from the command
- * line or `NODE_OPTIONS`) in a worker built from a file, a `data:` URL or ESM
- * source, and the register then activates there as it does on the main
- * thread. Two kinds of worker skip it:
+ * have to be installed inside each worker as well. Node runs preloads (from
+ * the command line or `NODE_OPTIONS`) in a worker built from a file, a `data:`
+ * URL or ESM source, and `--require` preloads also execute before CommonJS
+ * `eval: true` worker source (defeating `function require() {}` hoisting).
  *
- *  - a worker built from CommonJS source with `eval: true`, which never runs
- *    preloads;
- *  - a worker given its own `execArgv`, when the register came from the
- *    command line rather than `NODE_OPTIONS`.
- *
- * Wrapping `worker_threads.Worker` closes both.
- *
- * A worker of a registered thread is in the sandbox whatever `env` it is
- * given (#1621). The register activates in a thread under that thread's
- * `PYRIC_SANDBOX`, so a worker given its own `env` object
- * (`new Worker(file, { env: { PATH } })`) gets each `PYRIC_*` variable this
- * thread has and that `env` lacks, as a child process does. A variable the
- * caller set for the worker keeps the caller's value. When the register is
- * active in this thread, the worker's env also carries `PYRIC_SANDBOX_FORCE=1`
- * (including inherited and `SHARE_ENV` workers when `NODE_ENV=production`),
- * so a `NODE_ENV=production` mutation there does not refuse it.
+ * Wrapping `worker_threads.Worker` snapshots `options` once (preventing TOCTOU
+ * getters and Proxies on `eval`, `execArgv`, and `env`), injects a canonical
+ * synchronous `--require` preload ahead of caller preloads and `--`, and
+ * propagates pinned variables and `PYRIC_SANDBOX_FORCE=1` across custom,
+ * inherited (`undefined`/`null`), and `SHARE_ENV` environments.
  */
 import Module, { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { types } from 'node:util';
 import {
   hasForeignRegisterPreload,
+  hasNonFileUrlRegisterExecArgv,
   hasPreloadBeforeRegister,
   hasPreloadBeforeRegisterTokens,
   isSandboxParent,
   loadsRegister,
-  matchesRegisterSpecifier,
   pinnedInheritedVariables,
   withCanonicalRegisterExecArgv,
   withCanonicalRegisterNodeOptions,
@@ -60,8 +49,8 @@ const USE_STRICT = /^(\s*(['"])use strict\2;?[ \t]*\n?)/;
 
 /**
  * Whether the caller gave the worker an env object of its own. `SHARE_ENV` is
- * a symbol, and a worker with no `env` gets a copy of this thread's env; both
- * already carry this thread's `PYRIC_*` variables.
+ * a symbol, and a worker with `undefined` or `null` `env` gets a copy of this
+ * thread's env.
  */
 function isOwnEnv(env: unknown): env is Env {
   return typeof env === 'object' && env !== null;
@@ -72,59 +61,93 @@ function isEvalWorker(options: WorkerOptionsLike | undefined): boolean {
   return Boolean(options?.eval);
 }
 
-function hasEvalAccessor(options: WorkerOptionsLike | undefined): boolean {
-  if (options === undefined || options === null) return false;
-  if (types.isProxy(options)) return true;
-  for (let current: object | null = options; current !== null; current = Object.getPrototypeOf(current)) {
-    const descriptor = Object.getOwnPropertyDescriptor(current, 'eval');
-    if (descriptor !== undefined) return typeof descriptor.get === 'function';
+/** Copies an `execArgv` array once into a plain array so element getters cannot flip on re-read. */
+function copyExecArgvOnce(raw: unknown): unknown {
+  if (!Array.isArray(raw)) return raw;
+  const length = raw.length;
+  const copy: unknown[] = [];
+  for (let i = 0; i < length; i++) {
+    copy.push(raw[i]);
   }
-  return false;
+  return copy;
 }
 
-const ATTACHED_PRELOAD_PREFIXES = ['--import=', '--require=', '-r='] as const;
+/**
+ * Materializes a caller's `options` object once into a fresh plain object with
+ * own data properties, so getters or `Proxy` traps on `eval`, `execArgv`, or
+ * `env` (own, non-enumerable, or inherited) cannot return different values to
+ * the guard versus `super()`.
+ */
+function snapshotWorkerOptions(options: WorkerOptionsLike | undefined): WorkerOptionsLike | undefined {
+  if (options === undefined || options === null || typeof options !== 'object') {
+    return options;
+  }
+  const isProxy = types.isProxy(options);
+  const plain: WorkerOptionsLike = {};
+  let sawEval = false;
+  let sawExecArgv = false;
+  let sawEnv = false;
+  for (const key of Object.keys(options)) {
+    const value = options[key];
+    if (key === 'eval') {
+      sawEval = true;
+      plain.eval = Boolean(value);
+      continue;
+    }
+    if (key === 'execArgv') {
+      sawExecArgv = true;
+      plain.execArgv = copyExecArgvOnce(value);
+      continue;
+    }
+    if (key === 'env') {
+      sawEnv = true;
+      plain.env = value;
+      continue;
+    }
+    plain[key] = value;
+  }
+  if (!sawEval && (isProxy || 'eval' in options)) {
+    const value = options.eval;
+    if (value !== undefined) plain.eval = Boolean(value);
+  }
+  if (!sawExecArgv && (isProxy || 'execArgv' in options)) {
+    const value = options.execArgv;
+    if (value !== undefined) plain.execArgv = copyExecArgvOnce(value);
+  }
+  if (!sawEnv && (isProxy || 'env' in options)) {
+    const value = options.env;
+    if (value !== undefined) plain.env = value;
+  }
+  return plain;
+}
 
 function needsNodeOptionsGuard(
   nodeOptions: string,
   parentNodeOptions: string,
   registerUrl: string,
+  evalRegisterUrl: string,
   parentLoadedViaNodeOptions: boolean,
 ): boolean {
   return (
     parentLoadedViaNodeOptions ||
-    loadsRegister(parentNodeOptions, registerUrl) ||
-    loadsRegister(nodeOptions, registerUrl) ||
+    loadsRegister(parentNodeOptions, registerUrl, evalRegisterUrl) ||
+    loadsRegister(nodeOptions, registerUrl, evalRegisterUrl) ||
     hasForeignRegisterPreload(nodeOptions, registerUrl) ||
-    hasPreloadBeforeRegister(nodeOptions, registerUrl)
+    hasPreloadBeforeRegister(nodeOptions, registerUrl, evalRegisterUrl)
   );
 }
 
 function needsParentNodeOptionsRestore(
   parentNodeOptions: string,
   registerUrl: string,
+  evalRegisterUrl: string,
   parentLoadedViaNodeOptions: boolean,
 ): boolean {
   const hasForeign = hasForeignRegisterPreload(parentNodeOptions, registerUrl);
-  const hasEarlierPreload = hasPreloadBeforeRegister(parentNodeOptions, registerUrl);
-  const droppedOwnPreload = parentLoadedViaNodeOptions && !loadsRegister(parentNodeOptions, registerUrl);
+  const hasEarlierPreload = hasPreloadBeforeRegister(parentNodeOptions, registerUrl, evalRegisterUrl);
+  const droppedOwnPreload =
+    parentLoadedViaNodeOptions && !loadsRegister(parentNodeOptions, registerUrl, evalRegisterUrl);
   return hasForeign || hasEarlierPreload || droppedOwnPreload;
-}
-
-function hasNonFileUrlRegisterExecArgv(execArgv: readonly string[], registerUrl: string): boolean {
-  for (const arg of execArgv) {
-    if (!arg.startsWith('file:') && matchesRegisterSpecifier(arg, registerUrl)) {
-      return true;
-    }
-    for (const prefix of ATTACHED_PRELOAD_PREFIXES) {
-      if (arg.startsWith(prefix)) {
-        const target = arg.slice(prefix.length);
-        if (!target.startsWith('file:') && matchesRegisterSpecifier(target, registerUrl)) {
-          return true;
-        }
-      }
-    }
-  }
-  return false;
 }
 
 /**
@@ -143,29 +166,39 @@ export function guardWorkerArguments(
   parentLoadedViaNodeOptions = false,
 ): [unknown, WorkerOptionsLike | undefined] {
   let guardedSource = source;
-  let guardedOptions = options;
-  const evalMode = isEvalWorker(options);
-  if (hasEvalAccessor(options)) {
-    guardedOptions = { ...guardedOptions, eval: evalMode };
-  }
+  let guardedOptions = snapshotWorkerOptions(options);
+  const evalMode = isEvalWorker(guardedOptions);
   if (evalMode && typeof source === 'string') {
     guardedSource = withRegisterPrefix(source, evalRegisterUrl);
   }
-  if (Array.isArray(options?.execArgv)) {
+  if (Array.isArray(guardedOptions?.execArgv)) {
     guardedOptions = {
       ...guardedOptions,
-      execArgv: withCanonicalRegisterExecArgv(options.execArgv, registerUrl),
+      execArgv: withCanonicalRegisterExecArgv(guardedOptions.execArgv, registerUrl, evalRegisterUrl),
     };
   }
-  if (isOwnEnv(options?.env)) {
-    const inherited = withInheritedSandbox(options.env, parentEnv, parentActive);
+  const envOption = guardedOptions?.env;
+  if (isOwnEnv(envOption)) {
+    const inherited = withInheritedSandbox(envOption, parentEnv, parentActive);
     const parentNodeOptions = parentEnv.NODE_OPTIONS ?? '';
     const childNodeOptions = inherited.NODE_OPTIONS ?? '';
-    if (needsNodeOptionsGuard(childNodeOptions, parentNodeOptions, registerUrl, parentLoadedViaNodeOptions)) {
-      inherited.NODE_OPTIONS = withCanonicalRegisterNodeOptions(childNodeOptions, registerUrl);
+    if (
+      needsNodeOptionsGuard(
+        childNodeOptions,
+        parentNodeOptions,
+        registerUrl,
+        evalRegisterUrl,
+        parentLoadedViaNodeOptions,
+      )
+    ) {
+      inherited.NODE_OPTIONS = withCanonicalRegisterNodeOptions(
+        childNodeOptions,
+        registerUrl,
+        evalRegisterUrl,
+      );
     }
     guardedOptions = { ...guardedOptions, env: inherited };
-  } else if (options?.env === undefined) {
+  } else if (envOption == null) {
     const pinned = pinnedInheritedVariables();
     let needsPinnedEnv = false;
     for (const [name, value] of pinned) {
@@ -178,18 +211,31 @@ export function guardWorkerArguments(
     const needsCanonicalNodeOptions = needsParentNodeOptionsRestore(
       parentNodeOptions,
       registerUrl,
+      evalRegisterUrl,
       parentLoadedViaNodeOptions,
     );
     const needsProductionForce =
       parentActive && parentEnv.NODE_ENV === 'production' && parentEnv.PYRIC_SANDBOX_FORCE !== '1';
     if (needsPinnedEnv || needsCanonicalNodeOptions || needsProductionForce) {
       const inherited = withInheritedSandbox(parentEnv, parentEnv, parentActive);
-      if (needsNodeOptionsGuard(parentNodeOptions, parentNodeOptions, registerUrl, parentLoadedViaNodeOptions)) {
-        inherited.NODE_OPTIONS = withCanonicalRegisterNodeOptions(parentNodeOptions, registerUrl);
+      if (
+        needsNodeOptionsGuard(
+          parentNodeOptions,
+          parentNodeOptions,
+          registerUrl,
+          evalRegisterUrl,
+          parentLoadedViaNodeOptions,
+        )
+      ) {
+        inherited.NODE_OPTIONS = withCanonicalRegisterNodeOptions(
+          parentNodeOptions,
+          registerUrl,
+          evalRegisterUrl,
+        );
       }
       guardedOptions = { ...guardedOptions, env: inherited };
     }
-  } else if (typeof options?.env === 'symbol') {
+  } else if (typeof envOption === 'symbol') {
     if (parentActive && parentEnv.PYRIC_SANDBOX_FORCE !== '1') {
       parentEnv.PYRIC_SANDBOX_FORCE = '1';
     }
@@ -197,8 +243,19 @@ export function guardWorkerArguments(
       if (parentEnv[name] !== value) parentEnv[name] = value;
     }
     const parentNodeOptions = parentEnv.NODE_OPTIONS ?? '';
-    if (needsParentNodeOptionsRestore(parentNodeOptions, registerUrl, parentLoadedViaNodeOptions)) {
-      parentEnv.NODE_OPTIONS = withCanonicalRegisterNodeOptions(parentNodeOptions, registerUrl);
+    if (
+      needsParentNodeOptionsRestore(
+        parentNodeOptions,
+        registerUrl,
+        evalRegisterUrl,
+        parentLoadedViaNodeOptions,
+      )
+    ) {
+      parentEnv.NODE_OPTIONS = withCanonicalRegisterNodeOptions(
+        parentNodeOptions,
+        registerUrl,
+        evalRegisterUrl,
+      );
     }
   }
   return [guardedSource, guardedOptions];
@@ -230,23 +287,25 @@ export function installWorkerGuard(
   const target = workerThreads ?? (createRequire(import.meta.url)('node:worker_threads') as { Worker: unknown });
   const Original = target.Worker as (WorkerConstructor & { [GUARDED_WORKER]?: true }) | undefined;
   if (typeof Original !== 'function' || Original[GUARDED_WORKER] === true) return;
-  const parentLoadedViaNodeOptions = loadsRegister(process.env.NODE_OPTIONS ?? '', registerUrl);
+  const parentLoadedViaNodeOptions = loadsRegister(
+    process.env.NODE_OPTIONS ?? '',
+    registerUrl,
+    evalRegisterUrl,
+  );
   class GuardedWorker extends Original {
     static readonly [GUARDED_WORKER] = true;
     constructor(source: unknown, options?: WorkerOptionsLike) {
-      let effectiveOptions = options;
-      const evalMode = isEvalWorker(options);
-      if (hasEvalAccessor(options)) {
-        effectiveOptions = { ...effectiveOptions, eval: evalMode };
-      }
+      let effectiveOptions = snapshotWorkerOptions(options);
+      const evalMode = isEvalWorker(effectiveOptions);
       if (
-        effectiveOptions?.execArgv === undefined &&
-        (hasNonFileUrlRegisterExecArgv(process.execArgv, registerUrl) ||
-          hasPreloadBeforeRegisterTokens(process.execArgv, registerUrl))
+        effectiveOptions?.execArgv == null &&
+        (evalMode ||
+          hasNonFileUrlRegisterExecArgv(process.execArgv, registerUrl, evalRegisterUrl) ||
+          hasPreloadBeforeRegisterTokens(process.execArgv, registerUrl, evalRegisterUrl))
       ) {
         effectiveOptions = {
           ...effectiveOptions,
-          execArgv: withCanonicalRegisterExecArgv(process.execArgv, registerUrl),
+          execArgv: withCanonicalRegisterExecArgv(process.execArgv, registerUrl, evalRegisterUrl),
         };
       }
       super(

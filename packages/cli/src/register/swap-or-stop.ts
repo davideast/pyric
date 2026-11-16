@@ -409,6 +409,22 @@ export function suppliedRowsStopFor(load: ResolvedLoad, allowedUrls: Set<string>
   return Object.assign(error, { code: REAL_SDK_STOPPED_CODE, url: load.url, specifier: load.specifier });
 }
 
+/**
+ * Whether a resolve hook's `conditions` names `import` (an ESM import rather
+ * than CommonJS `require()`). Node 22 can pass `Set`, `Array`, other iterables,
+ * non-iterable objects, or `undefined`.
+ */
+export function isImportCondition(conditions: unknown): boolean {
+  if (Array.isArray(conditions)) return conditions.includes('import');
+  if (conditions instanceof Set) return conditions.has('import');
+  if (conditions !== null && typeof conditions === 'object' && Symbol.iterator in conditions) {
+    for (const entry of conditions as Iterable<unknown>) {
+      if (entry === 'import') return true;
+    }
+  }
+  return false;
+}
+
 /** Writes each stop to stderr once per file, so a caught import still shows in the log. */
 export function createStopReporter(write: (line: string) => void): (error: Error) => void {
   const reported = new Set<string>();

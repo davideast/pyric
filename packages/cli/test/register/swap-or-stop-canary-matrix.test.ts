@@ -419,14 +419,20 @@ describe('Swap-or-Stop standing guard canary matrix', () => {
 
     // Cross-register isolation: keep foreign register intact while still injecting active parent register first.
     expect(withCanonicalRegisterNodeOptions('--import @pyric/live/register', registerDistUrl)).toBe(
-      `--import ${registerDistUrl} --import @pyric/live/register`,
+      `--require ${registerDistPath} --import ${registerDistUrl} --import @pyric/live/register`,
     );
 
     const canonicalArgv = withCanonicalRegisterExecArgv(
       [`--import=${registerDistPath}`, `--import=${userPreload}`],
       registerDistUrl,
     );
-    expect(canonicalArgv).toEqual([`--import=${registerDistUrl}`, `--import=${userPreload}`]);
+    expect(canonicalArgv).toEqual([
+      '--require',
+      registerDistPath,
+      '--import',
+      registerDistUrl,
+      `--import=${userPreload}`,
+    ]);
 
     const capturedOptions: Array<Record<string, unknown> | undefined> = [];
     class FakeWorker {

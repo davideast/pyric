@@ -6,7 +6,14 @@
 import { describe, expect, it } from 'bun:test';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { REAL_SDK_STOPPED_CODE, createStopReporter, stopFor, suppliedRowsStopFor, type ResolvedLoad } from '../../src/register/swap-or-stop.js';
+import {
+  REAL_SDK_STOPPED_CODE,
+  createStopReporter,
+  isImportCondition,
+  stopFor,
+  suppliedRowsStopFor,
+  type ResolvedLoad,
+} from '../../src/register/swap-or-stop.js';
 
 const cliRoot = resolve(import.meta.dir, '../..');
 const SHADOW_IMPORTER = pathToFileURL(join(cliRoot, 'src/register/app-bridge-shadow.ts')).href;
@@ -327,5 +334,25 @@ describe('createStopReporter', () => {
     report(stop);
     expect(lines).toHaveLength(1);
     expect(lines[0]).toContain('code: PYRIC_REAL_SDK_STOPPED');
+  });
+});
+
+describe('isImportCondition', () => {
+  it('handles Array, Set, custom iterables, non-iterable objects, primitives, and undefined', () => {
+    expect(isImportCondition(['node', 'import'])).toBe(true);
+    expect(isImportCondition(['node', 'require'])).toBe(false);
+    expect(isImportCondition(new Set(['node', 'import']))).toBe(true);
+    expect(isImportCondition(new Set(['node', 'require']))).toBe(false);
+    const customIterable = {
+      *[Symbol.iterator]() {
+        yield 'node';
+        yield 'import';
+      },
+    };
+    expect(isImportCondition(customIterable)).toBe(true);
+    expect(isImportCondition({})).toBe(false);
+    expect(isImportCondition(null)).toBe(false);
+    expect(isImportCondition(undefined)).toBe(false);
+    expect(isImportCondition('import')).toBe(false);
   });
 });
