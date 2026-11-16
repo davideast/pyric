@@ -63,7 +63,14 @@ async function startServe(baseUrl: string): Promise<ServeHandle> {
   writeFileSync(join(site, 'index.html'), '<!doctype html><html><head></head><body></body></html>');
   const ns = createPyricNamespace({
     sdkDir: sdk,
-    initPayload: () => ({ rules: null, rulesHash: null, bridgeUrl: null }),
+    initPayload: () => ({
+      rules: null,
+      rulesHash: null,
+      storageRules: null,
+      storageRulesHash: null,
+      bridgeUrl: null,
+      seed: null,
+    }),
     aiGemini: { baseUrl },
     sessionToken: TEST_TOKEN,
   });
@@ -311,6 +318,137 @@ describe('/__pyric/ai-proxy/gemini', () => {
     await post(`${url}${CALL}`);
     expect(upstream.seen[0]!.headers.authorization).toBe('Bearer adc-token');
     expect(new URL(upstream.seen[0]!.url).search).toBe('');
+  });
+
+  it('never forwards x-pyric-* headers to the Gemini upstream', async () => {
+    process.env.GEMINI_API_KEY = KEY;
+    const upstream = standIn();
+    const h = await startServe(upstream.url);
+    const response = await post(`${h.url}${CALL}`, {
+      'x-pyric-activity-token': 'local-activity',
+      'x-pyric-instance-id': 'local-instance',
+    });
+    expect(response.status).toBe(200);
+    const forwardedHeaders = upstream.seen[0]?.headers;
+    expect(forwardedHeaders).toBeDefined();
+    if (forwardedHeaders === undefined) return;
+    expect(forwardedHeaders['x-pyric-session-token']).toBeUndefined();
+    expect(forwardedHeaders['x-pyric-activity-token']).toBeUndefined();
+    expect(forwardedHeaders['x-pyric-instance-id']).toBeUndefined();
+  });
+
+  it('masks the key in 200 array-wrapped and multi-line SSE error events', async () => {
+    process.env.GEMINI_API_KEY = KEY;
+    let mode = 'array';
+    const upstream = standIn(() => {
+      if (mode === 'array') {
+        return new Response(
+          `data: [{"error":{"code":400,"message":"Invalid key ${KEY}"}}]\n\n`,
+          { headers: { 'content-type': 'text/event-stream' } },
+        );
+      }
+      return new Response(
+        `data: {"error":{"code":400,\ndata: "message":"Split key ${KEY}"}}\n\n`,
+        { headers: { 'content-type': 'text/event-stream' } },
+      );
+    });
+    const h = await startServe(upstream.url);
+    const streamUrl = `${h.url}${GEMINI_PROXY_PATH}/v1beta/models/gemini-2.5-flash:streamGenerateContent?alt=sse`;
+
+    const arrayRes = await post(streamUrl);
+    expect(arrayRes.status).toBe(200);
+    const arrayText = await arrayRes.text();
+    expect(arrayText).not.toContain(KEY);
+    expect(arrayText).toBe('data: [{"error":{"code":400,"message":"Invalid key ***"}}]\n\n');
+
+    mode = 'multiline';
+    const multiRes = await post(streamUrl);
+    expect(multiRes.status).toBe(200);
+    const multiText = await multiRes.text();
+    expect(multiText).not.toContain(KEY);
+    expect(multiText).toBe('data: {"error":{"code":400,"message":"Split key ***"}}' + '\n\n');
+  });
+
+  it('masks server credentials in 200 non-streaming JSON error envelopes and echoed responses while preserving unrelated query strings (ADR 0024)', async () => {
+    process.env.GEMINI_API_KEY = KEY;
+    let mode = 'error-envelope';
+    const upstream = standIn(() => {
+      if (mode === 'error-envelope') {
+        return Response.json({ error: { code: 400, message: `Refused ${KEY} at https://x.test/?key=other`, status: 'INVALID_ARGUMENT' } });
+      }
+      if (mode === 'array-error-envelope') {
+        return Response.json([{ error: { code: 400, message: `Array refused ${KEY}`, status: 'INVALID_ARGUMENT' } }]);
+      }
+      if (mode === 'echo-key') {
+        return Response.json({
+          candidates: [
+            {
+              index: 0,
+              content: {
+                role: 'model',
+                parts: [{ text: `echo ${KEY} and docs https://x.example/?key=not-a-credential` }],
+              },
+              finishReason: 'STOP',
+            },
+          ],
+        });
+      }
+      return Response.json({
+        candidates: [
+          {
+            index: 0,
+            content: {
+              role: 'model',
+              parts: [{ text: 'see https://x.example/?key=not-a-credential' }],
+            },
+            finishReason: 'STOP',
+          },
+        ],
+      });
+    });
+    const h = await startServe(upstream.url);
+
+    const errRes = await post(`${h.url}${CALL}`);
+    expect(errRes.status).toBe(200);
+    const errText = await errRes.text();
+    expect(errText).not.toContain(KEY);
+    expect(JSON.parse(errText)).toEqual({
+      error: { code: 400, message: 'Refused *** at https://x.test/?key=***', status: 'INVALID_ARGUMENT' },
+    });
+
+    mode = 'array-error-envelope';
+    const arrErrRes = await post(`${h.url}${CALL}`);
+    expect(arrErrRes.status).toBe(200);
+    expect(await arrErrRes.json()).toEqual([
+      { error: { code: 400, message: 'Array refused ***', status: 'INVALID_ARGUMENT' } },
+    ]);
+
+    mode = 'echo-key';
+    const echoRes = await post(`${h.url}${CALL}`);
+    expect(echoRes.status).toBe(200);
+    const echoText = await echoRes.text();
+    expect(echoText).not.toContain(KEY);
+    expect(echoText).toContain('echo *** and docs https://x.example/?key=not-a-credential');
+
+    mode = 'clean-answer';
+    const cleanRes = await post(`${h.url}${CALL}`);
+    expect(cleanRes.status).toBe(200);
+    expect(await cleanRes.text()).toContain('see https://x.example/?key=not-a-credential');
+  });
+
+  it('masks an ADC bearer token echoed in a 200 non-streaming JSON response', async () => {
+    const adcToken = 'synthetic-adc-bearer-echo-200';
+    const upstream = standIn(() =>
+      Response.json({
+        candidates: [{ index: 0, content: { role: 'model', parts: [{ text: `token ${adcToken}` }] }, finishReason: 'STOP' }],
+      }),
+    );
+    const url = await startHandler(upstream.url, async () => adcToken);
+    const response = await post(`${url}${CALL}`);
+    expect(response.status).toBe(200);
+    const text = await response.text();
+    expect(text).not.toContain(adcToken);
+    expect(text).toContain('token ***');
   });
 });
 

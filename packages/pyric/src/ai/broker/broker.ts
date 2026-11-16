@@ -294,7 +294,8 @@ export class AiBroker {
    */
   async admitAppCheck(model: string, appCheck: AppCheckClaim | undefined): Promise<void> {
     if (appCheck === undefined) return;
-    const admitted = await admitsAppCheckToken(appCheck.token);
+    const nowMillis = this.sandbox === undefined ? Date.now() : getClock(this.sandbox).now();
+    const admitted = await admitsAppCheckToken(appCheck.token, nowMillis);
     if (admitted) return;
     this.reject(model, appCheckRequired(), APP_CHECK_HINT);
   }

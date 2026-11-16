@@ -15,6 +15,7 @@ import {
   maskStreamErrors,
   normalizeUpstreamBaseUrl,
   redactUpstreamError,
+  redactUpstreamSuccessBody,
   redactUpstreamText,
   redactUpstreamUrl,
   urlCredentials,
@@ -43,10 +44,11 @@ export const AI_PROXY_BODY_LIMIT_BYTES = HOSTED_METHOD_BODY_LIMIT;
 /**
  * Request headers that must NOT be forwarded upstream: origin-sensitive
  * browser context (`origin`/`referer`/`cookie`, since the upstream is a
- * different origin and must never see the page's), hop-by-hop headers, and
- * the two the proxy re-derives (`host`, `content-length`). `accept-encoding`
- * is dropped so fetch negotiates its own compression and the streamed body
- * needs no length fixups.
+ * different origin and must never see the page's), hop-by-hop headers,
+ * Pyric-local control/session headers (`x-pyric-*`, including
+ * `x-pyric-session-token`), and the two the proxy re-derives (`host`,
+ * `content-length`). `accept-encoding` is dropped so fetch negotiates its own
+ * compression and the streamed body needs no length fixups.
  */
 const AI_PROXY_STRIPPED_HEADERS = new Set([
   'host',
@@ -63,6 +65,15 @@ const AI_PROXY_STRIPPED_HEADERS = new Set([
   'transfer-encoding',
   'upgrade',
 ]);
+
+/** Prefix for Pyric-local headers that must never be forwarded to upstream AI servers. */
+const AI_PROXY_LOCAL_HEADER_PREFIX = 'x-pyric-';
+
+/** Whether a request header must be stripped before forwarding to the upstream AI server. */
+function shouldStripUpstreamHeader(headerName: string): boolean {
+  const lower = headerName.toLowerCase();
+  return AI_PROXY_STRIPPED_HEADERS.has(lower) || lower.startsWith(AI_PROXY_LOCAL_HEADER_PREFIX);
+}
 
 /** The upstream-failure shapes the proxy surfaces to the terminal. A
  *  failure's `credentials` are the ones the request carried, masked from
@@ -448,7 +459,7 @@ export async function handleAiProxy(
   const headers: Record<string, string> = {};
   for (const [key, value] of Object.entries(req.headers)) {
     if (value === undefined) continue;
-    if (AI_PROXY_STRIPPED_HEADERS.has(key.toLowerCase())) continue;
+    if (shouldStripUpstreamHeader(key)) continue;
     headers[key] = Array.isArray(value) ? value.join(', ') : value;
   }
 
@@ -487,6 +498,17 @@ export async function handleAiProxy(
   const contentType = upstream.headers.get('content-type')?.toLowerCase() ?? '';
   if (contentType.includes('text/event-stream') && upstream.body !== null) {
     const maskedUpstream = new Response(maskStreamErrors(upstream.body, credentials), {
+      status: upstream.status,
+      statusText: upstream.statusText,
+      headers: upstream.headers,
+    });
+    await relayAiUpstream(maskedUpstream, res);
+    return;
+  }
+  if (contentType.includes('application/json') && upstream.body !== null && credentials.length > 0) {
+    const rawBody = await upstream.text().catch(() => '');
+    const maskedBody = redactUpstreamSuccessBody(rawBody, credentials, { maskExactCredentials: false });
+    const maskedUpstream = new Response(maskedBody, {
       status: upstream.status,
       statusText: upstream.statusText,
       headers: upstream.headers,

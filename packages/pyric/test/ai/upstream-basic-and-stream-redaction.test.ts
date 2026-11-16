@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'bun:test';
 import { OpenAiEngine } from '../../src/ai/broker/openai-engine.js';
-import { GeminiUpstream, maskStreamErrors, urlCredentials } from '../../src/ai/internal.js';
+import {
+  GeminiUpstream,
+  isJsonErrorEnvelope,
+  maskStreamErrors,
+  redactUpstreamSuccessBody,
+  urlCredentials,
+} from '../../src/ai/internal.js';
 
 const TEST_BEARER_CREDENTIAL = 'synthetic-adc-bearer-credential-01';
 const TEST_QUERY_CREDENTIAL = 'synthetic-api-key-credential-02';
@@ -111,5 +117,130 @@ describe('urlCredentials and maskStreamErrors', () => {
     ]);
     expect(openAiError).not.toContain(openAiBaseKey);
     expect(openAiError).not.toContain(encodeURIComponent(openAiBaseKey));
+  });
+
+  it('masks array-wrapped and multi-line SSE JSON errors, multi-line event:error, and EOF frames without altering normal chunks', async () => {
+    const encoder = new TextEncoder();
+    const secretKey = 'synthetic-stream-secret-key-42';
+    const normalArray =
+      'data: [{"candidates":[{"content":{"parts":[{"text":"docs https://example.test/?key=public-doc"}]}}]}]\n\n';
+    const arrayError =
+      `data: [{"error":{"code":400,"message":"Invalid key ${secretKey}"}}]\n\n`;
+    const multilineError =
+      `data: {"error":{"code":400,\r\ndata: "message":"Split key ${secretKey}"}}\r\n\r\n`;
+    const multilineArrayError =
+      `data: [\ndata: {"error":{"code":500,"message":"Array split ${secretKey}"}}\ndata: ]\n\n`;
+    const multilinePlainError =
+      `event: error\ndata: line one ${secretKey}\ndata: line two ${encodeURIComponent(secretKey)}\n\n`;
+    const eofMultilineError =
+      `data: {"error":{"code":403,\ndata: "message":"EOF key ${secretKey}"}}`;
+    const combined =
+      normalArray +
+      arrayError +
+      multilineError +
+      multilineArrayError +
+      multilinePlainError +
+      eofMultilineError;
+
+    // Split across tiny chunks to exercise cross-read reassembly mid-credential and mid-newline.
+    const input = new ReadableStream<Uint8Array>({
+      start(controller) {
+        const bytes = encoder.encode(combined);
+        for (let offset = 0; offset < bytes.length; offset += 13) {
+          controller.enqueue(bytes.slice(offset, offset + 13));
+        }
+        controller.close();
+      },
+    });
+    const result = await new Response(maskStreamErrors(input, [secretKey])).text();
+
+    expect(result).toContain(normalArray);
+    expect(result).not.toContain(secretKey);
+    expect(result).not.toContain(encodeURIComponent(secretKey));
+    expect(result).toContain('data: [{"error":{"code":400,"message":"Invalid key ***"}}]\n\n');
+    expect(result).toContain('data: {"error":{"code":400,"message":"Split key ***"}}' + '\r\n\r\n');
+    expect(result).toContain('data: [{"error":{"code":500,"message":"Array split ***"}}]\n\n');
+    expect(result).toContain('event: error\ndata: line one ***\ndata: line two ***\n\n');
+    expect(result).toContain('data: {"error":{"code":403,"message":"EOF key ***"}}');
+  });
+
+  it('masks individual error lines when multiple data lines appear without a blank separator and flushes complete events immediately', async () => {
+    const encoder = new TextEncoder();
+    const secretKey = 'synthetic-unseparated-secret-99';
+    const noBlankBody =
+      'data: {"candidates":[{"content":{"parts":[{"text":"ok https://example.test/?key=keep"}]}}]}\n' +
+      `data: [{"error":{"code":500,"message":"Failed for ${secretKey}"}}]\n`;
+    const unseparatedOut = await new Response(
+      maskStreamErrors(
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.enqueue(encoder.encode(noBlankBody));
+            controller.close();
+          },
+        }),
+        [secretKey],
+      ),
+    ).text();
+    expect(unseparatedOut).toContain('https://example.test/?key=keep');
+    expect(unseparatedOut).not.toContain(secretKey);
+    expect(unseparatedOut).toContain('data: [{"error":{"code":500,"message":"Failed for ***"}}]\n');
+
+    // Verify first event flushes while upstream stream stays open.
+    let releaseSecond: (() => void) | undefined;
+    const secondGate = new Promise<void>((resolve) => {
+      releaseSecond = resolve;
+    });
+    const incremental = new ReadableStream<Uint8Array>({
+      async start(controller) {
+        controller.enqueue(encoder.encode('data: {"n":1}\n\n'));
+        await secondGate;
+        controller.enqueue(encoder.encode('data: [DONE]\n\n'));
+        controller.close();
+      },
+    });
+    const reader = maskStreamErrors(incremental, [secretKey]).getReader();
+    const first = await reader.read();
+    expect(first.done).toBe(false);
+    expect(new TextDecoder().decode(first.value)).toBe('data: {"n":1}\n\n');
+    if (releaseSecond !== undefined) releaseSecond();
+    const second = await reader.read();
+    expect(new TextDecoder().decode(second.value)).toBe('data: [DONE]\n\n');
+  });
+
+  it('classifies JSON error envelopes and masks 2xx non-streaming bodies selectively per ADR 0024', () => {
+    const serverKey = 'synthetic-server-key-987654/';
+    const shortCred = 'ab';
+
+    expect(isJsonErrorEnvelope({ error: { code: 400 } })).toBe(true);
+    expect(isJsonErrorEnvelope([{ error: { code: 400 } }])).toBe(true);
+    expect(isJsonErrorEnvelope([{ candidates: [] }, { error: { code: 500 } }])).toBe(true);
+    expect(isJsonErrorEnvelope({ candidates: [] })).toBe(false);
+    expect(isJsonErrorEnvelope([{ candidates: [] }])).toBe(false);
+
+    // 200 JSON error envelopes (object or array) get full error redaction even with maskExactCredentials: false.
+    const objErr = JSON.stringify({ error: { code: 400, message: `Refused https://x.test/?key=other and ${serverKey}` } });
+    const maskedObjErr = redactUpstreamSuccessBody(objErr, [serverKey], { maskExactCredentials: false });
+    expect(maskedObjErr).not.toContain(serverKey);
+    expect(maskedObjErr).toContain('?key=***');
+
+    const arrErr = JSON.stringify([{ error: { code: 400, message: `Refused ${serverKey}` } }]);
+    const maskedArrErr = redactUpstreamSuccessBody(arrErr, [serverKey], { maskExactCredentials: false });
+    expect(JSON.parse(maskedArrErr)).toEqual([{ error: { code: 400, message: 'Refused ***' } }]);
+
+    // Error-free 200 JSON with unrelated ?key= stays untouched byte-for-byte.
+    const normalJson = '{\n  "candidates": [{"text": "see https://x.test/?key=not-a-credential about abc"}]\n}';
+    expect(redactUpstreamSuccessBody(normalJson, [serverKey, shortCred], { maskExactCredentials: true })).toBe(
+      normalJson,
+    );
+    expect(redactUpstreamSuccessBody(normalJson, [serverKey], { maskExactCredentials: false })).toBe(normalJson);
+
+    // Exact server credential echoed in 200 JSON (raw, JSON-escaped, or percent-encoded) is masked cleanly.
+    const echoedJson = `{"text":"echo ${serverKey.replace('/', '\\/')} and ${encodeURIComponent(serverKey)} plus ?key=keep-me"}`;
+    const maskedEcho = redactUpstreamSuccessBody(echoedJson, [serverKey, shortCred], {
+      maskExactCredentials: true,
+    });
+    expect(maskedEcho).not.toContain(serverKey);
+    expect(maskedEcho).not.toContain(encodeURIComponent(serverKey));
+    expect(JSON.parse(maskedEcho)).toEqual({ text: 'echo *** and *** plus ?key=keep-me' });
   });
 });

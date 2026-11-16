@@ -36,9 +36,14 @@ export {
 } from './broker/index.js';
 export {
   joinUpstreamUrl,
-  maskStreamErrors,
   normalizeUpstreamBaseUrl,
 } from './broker/upstream-error-redaction.js';
+export {
+  isJsonErrorEnvelope,
+  maskStreamErrors,
+  redactUpstreamSuccessBody,
+  type RedactSuccessBodyOptions,
+} from './broker/upstream-stream-redaction.js';
 
 const transportHandles = new WeakMap<FirebaseApp, Map<string, AI>>();
 
