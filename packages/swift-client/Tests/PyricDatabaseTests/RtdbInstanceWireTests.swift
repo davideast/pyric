@@ -141,15 +141,31 @@ struct RtdbInstanceWireTests {
             DatabaseInstanceResolver.resolveInstanceName(from: "http://127.0.0.1:9000/?ns=secondary-ns")
                 == "secondary-ns"
         )
+        #expect(
+            DatabaseInstanceResolver.resolveInstanceName(from: "shard-a.firebaseio.com")
+                == "shard-a"
+        )
+        #expect(
+            DatabaseInstanceResolver.resolveInstanceName(from: "SHARD-A.EUROPE-WEST1.FIREBASEDATABASE.APP/")
+                == "shard-a"
+        )
+        #expect(
+            DatabaseInstanceResolver.resolveInstanceName(from: "127.0.0.1:9000/?ns=Secondary-NS")
+                == "secondary-ns"
+        )
         #expect(DatabaseInstanceResolver.resolveInstanceName(from: "my-secondary") == "my-secondary")
 
         #expect(DatabaseInstanceResolver.resolveInstanceName(from: "https://default.firebaseio.com") == nil)
+        #expect(DatabaseInstanceResolver.resolveInstanceName(from: "https://default.firebaseio.com/") == nil)
         #expect(DatabaseInstanceResolver.resolveInstanceName(from: "default") == nil)
         #expect(DatabaseInstanceResolver.resolveInstanceName(from: "") == nil)
         #expect(DatabaseInstanceResolver.resolveInstanceName(from: nil) == nil)
         #expect(DatabaseInstanceResolver.resolveInstanceName(from: "http://localhost:9000") == nil)
         #expect(DatabaseInstanceResolver.resolveInstanceName(from: "http://127.0.0.1:9000") == nil)
         #expect(DatabaseInstanceResolver.resolveInstanceName(from: "http://127.0.0.1:9000/?ns=default") == nil)
+        #expect(DatabaseInstanceResolver.resolveInstanceName(from: "http://127.0.0.1:9000/?ns=bad/name") == nil)
+        #expect(DatabaseInstanceResolver.resolveInstanceName(from: "http://127.0.0.1:9000/?ns=bad_name") == nil)
+        #expect(DatabaseInstanceResolver.resolveInstanceName(from: "http://127.0.0.1:9000/?ns=-bad") == nil)
     }
 
     @Test("Non-default Database serializes wire instance on all rtdb ops and subscriptions")

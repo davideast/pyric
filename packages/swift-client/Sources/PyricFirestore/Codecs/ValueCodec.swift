@@ -149,6 +149,9 @@ public enum ValueCodec {
 
         // 9. Vector Value
         if let vec = value as? VectorValue {
+            guard vec.values.allSatisfy(\.isFinite) else {
+                throw PyricFirestoreError.serializationError("Vector elements must be finite numbers.")
+            }
             return [
                 "type": "firestore/vectorValue/1.0",
                 "vectorValues": vec.values
@@ -178,7 +181,12 @@ public enum ValueCodec {
                     ]
                 }
                 if sentinel == "vector" {
-                    let raw = (dict["values"] as? [Any]) ?? (dict["vectorValues"] as? [Any]) ?? []
+                    let rawObj = dict["values"] ?? dict["vectorValues"]
+                    guard let raw = rawObj as? [Any] else {
+                        throw PyricFirestoreError.serializationError(
+                            "Vector sentinel values must be an array of finite numbers."
+                        )
+                    }
                     let doubles = try extractVectorDoubles(raw)
                     return [
                         "type": "firestore/vectorValue/1.0",
@@ -416,22 +424,27 @@ public enum ValueCodec {
         var doubles: [Double] = []
         doubles.reserveCapacity(raw.count)
         for item in raw {
+            let value: Double
             if let num = item as? NSNumber {
                 if CFGetTypeID(num) == CFBooleanGetTypeID() {
-                    throw PyricFirestoreError.serializationError("Vector elements must be numeric.")
+                    throw PyricFirestoreError.serializationError("Vector elements must be finite numbers.")
                 }
-                doubles.append(num.doubleValue)
+                value = num.doubleValue
             } else if let dbl = item as? Double {
-                doubles.append(dbl)
+                value = dbl
             } else if let flt = item as? Float {
-                doubles.append(Double(flt))
+                value = Double(flt)
             } else if let intVal = item as? Int {
-                doubles.append(Double(intVal))
+                value = Double(intVal)
             } else if let int64Val = item as? Int64 {
-                doubles.append(Double(int64Val))
+                value = Double(int64Val)
             } else {
-                throw PyricFirestoreError.serializationError("Vector elements must be numeric.")
+                throw PyricFirestoreError.serializationError("Vector elements must be finite numbers.")
             }
+            guard value.isFinite else {
+                throw PyricFirestoreError.serializationError("Vector elements must be finite numbers.")
+            }
+            doubles.append(value)
         }
         return doubles
     }

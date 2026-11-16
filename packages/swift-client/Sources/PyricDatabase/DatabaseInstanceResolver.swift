@@ -15,40 +15,38 @@ internal enum DatabaseInstanceResolver {
             return nil
         }
 
-        if let components = URLComponents(string: trimmed) {
-            if let nsValue = components.queryItems?
-                .first(where: { $0.name == "ns" })?
-                .value?
-                .trimmingCharacters(in: .whitespacesAndNewlines),
-               !nsValue.isEmpty {
-                return normalizeCandidate(nsValue)
-            }
-
-            if let host = components.host?.lowercased(), !host.isEmpty {
-                if host == "localhost" || isIPv4Address(host) {
-                    return nil
-                }
-                let labels = host.split(separator: ".").map(String.init)
-                if labels.count > 2, let first = labels.first, !first.isEmpty {
-                    return normalizeCandidate(first)
-                }
-                return nil
-            }
-
-            if components.scheme != nil {
-                return nil
-            }
-        }
-
         if isBareInstanceName(trimmed) {
             return normalizeCandidate(trimmed)
+        }
+
+        let normalized = trimmed.contains("://") ? trimmed : "https://\(trimmed)"
+        guard let components = URLComponents(string: normalized) else {
+            return nil
+        }
+
+        if let nsValue = components.queryItems?
+            .first(where: { $0.name == "ns" })?
+            .value?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+           !nsValue.isEmpty {
+            return normalizeCandidate(nsValue)
+        }
+
+        if let host = components.host?.lowercased(), !host.isEmpty {
+            if host == "localhost" || isIPv4Address(host) {
+                return nil
+            }
+            let labels = host.split(separator: ".").map(String.init)
+            if labels.count > 2, let first = labels.first, !first.isEmpty {
+                return normalizeCandidate(first)
+            }
         }
         return nil
     }
 
     private static func normalizeCandidate(_ value: String) -> String? {
         let lower = value.lowercased()
-        if lower.isEmpty || lower == "default" {
+        if lower.isEmpty || lower == "default" || !isBareInstanceName(lower) {
             return nil
         }
         return lower

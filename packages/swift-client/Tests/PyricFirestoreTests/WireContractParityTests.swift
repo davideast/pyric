@@ -15,7 +15,8 @@ struct WireContractParityTests {
 
         #expect(attachFrame["type"]?.stringValue == "attach")
         #expect(attachFrame["protocol"]?.intValue == 1)
-        let caps = try #require(attachFrame["capabilities"]?.arrayValue?.compactMap(\.stringValue))
+        let rawCaps = try #require(attachFrame["capabilities"]?.arrayValue)
+        let caps = rawCaps.compactMap(\.stringValue)
         #expect(caps.contains(ValueCodec.docValueEncodingV1))
 
         try mock.simulateServerMessage(["type": "attach-ack", "protocol": 1, "peerConnected": true])
@@ -110,6 +111,22 @@ struct WireContractParityTests {
 
         let decoded = try #require(ValueCodec.decodeValue(encoded) as? VectorValue)
         #expect(decoded == VectorValue([0.1, 0.2, 0.3]))
+
+        #expect(throws: PyricFirestoreError.self) {
+            _ = try ValueCodec.encodeValue(["__sentinel": "vector", "values": "not-an-array"])
+        }
+        #expect(throws: PyricFirestoreError.self) {
+            _ = try ValueCodec.encodeValue(["__sentinel": "vector", "values": [0.1, Double.nan]])
+        }
+        #expect(throws: PyricFirestoreError.self) {
+            _ = try ValueCodec.encodeValue(["__sentinel": "vector", "values": [Double.infinity]])
+        }
+        #expect(throws: PyricFirestoreError.self) {
+            _ = try ValueCodec.encodeValue(FieldValue.vector([0.1, Double.nan]))
+        }
+        #expect(throws: PyricFirestoreError.self) {
+            _ = try ValueCodec.encodeValue(VectorValue([Double.infinity]))
+        }
     }
 
     @Test("Transaction.getDocument preserves wire envelope and valueEncoding and emits null for missing docs")

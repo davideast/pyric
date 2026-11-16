@@ -31,7 +31,7 @@ import type { WorkerSessionLease } from './worker-sessions.js';
 import { parseBridgeMessage, requestEnvelopeError, requestProtocolError } from './request-envelope.js';
 import { sendBridgeMessage } from './socket-message.js';
 import { watchPeerLiveness } from './peer-liveness.js';
-import { resolveConsumerDocEncoding, stampWorkerOpPayload, stampWorkerSubPayload } from './consumer-capabilities.js';
+import { resolveConsumerDocEncoding, stampWorkerOpPayload, stampWorkerPortMessage, stampWorkerSubPayload } from './consumer-capabilities.js';
 
 export interface AttachPeerOptions {
   /** The liveness window; defaults to `HOST_PEER_LIVENESS_TIMEOUT_MS`. Shortened only by tests. */
@@ -380,13 +380,11 @@ export function createConsumerSession(
         const deletesApp = msg.message.t === 'disconnect';
         if (deletesApp) workerSession?.retire();
         try {
-          const forwarded = msg.message.t === 'appConfig'
-            ? (attachedFromPriorHost
-                ? { ...msg.message, fromPriorHost: true }
-                : verifiedCurrentHost
-                  ? { ...msg.message, hostVerified: true }
-                  : msg.message)
-            : msg.message;
+          const forwarded = stampWorkerPortMessage(msg.message, {
+            docValueEncoding,
+            attachedFromPriorHost,
+            verifiedCurrentHost,
+          });
           bridge.forwardWorkerMessage(forwarded, clientSessionId);
         } catch (cause) {
           const error = serializeError(cause);

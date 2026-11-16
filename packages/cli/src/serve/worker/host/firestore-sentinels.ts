@@ -17,9 +17,11 @@ function resolveSentinel(marker: SentinelMarker): unknown {
     case 'arrayRemove':     return arrayRemove(...marker.values);
     case 'deleteField':     return deleteField();
     case 'vector': {
-      const isNumberList = Array.isArray(marker.values) && marker.values.every((v) => typeof v === 'number');
+      const isNumberList =
+        Array.isArray(marker.values) &&
+        marker.values.every((v) => typeof v === 'number' && Number.isFinite(v));
       if (!isNumberList) {
-        throw new FirebaseError('invalid-argument', 'Vector sentinel values must be an array of numbers.');
+        throw new FirebaseError('invalid-argument', 'Vector sentinel values must be an array of finite numbers.');
       }
       return vector(marker.values as number[]);
     }

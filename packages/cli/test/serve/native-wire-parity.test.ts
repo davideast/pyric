@@ -444,6 +444,30 @@ describe('Native client & Firestore/RTDB wire-protocol parity', () => {
       });
       expect(badVectorSentinel.ok).toBe(false);
       expect((badVectorSentinel.error as { code: string }).code).toBe('invalid-argument');
+
+      const nonArrayVectorSentinel = await client.op('v5', {
+        method: 'setDoc',
+        path: 'items/bad-vector-non-array',
+        data: {
+          emb: { __sentinel: 'vector', values: 'not-an-array' },
+        },
+      });
+      expect(nonArrayVectorSentinel.ok).toBe(false);
+      expect((nonArrayVectorSentinel.error as { code: string }).code).toBe('invalid-argument');
+
+      const nonFiniteVectorSentinel = await client.op('v6', {
+        method: 'setDoc',
+        path: 'items/bad-vector-non-finite',
+        valueEncoding: 'pyric/firestore-values/1',
+        data: {
+          emb: {
+            __sentinel: 'vector',
+            values: [0.1, { __type: 'number', value: 'NaN' }, { __type: 'number', value: 'Infinity' }],
+          },
+        },
+      });
+      expect(nonFiniteVectorSentinel.ok).toBe(false);
+      expect((nonFiniteVectorSentinel.error as { code: string }).code).toBe('invalid-argument');
     } finally {
       client.close();
       harness.teardown();
