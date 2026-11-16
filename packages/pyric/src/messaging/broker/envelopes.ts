@@ -96,6 +96,15 @@ export function invalidTopicNameEnvelope(): FcmErrorEnvelope {
 }
 
 /**
+ * Payload validation failure surfaced as `messaging/invalid-payload` by
+ * `firebase-admin/messaging` (for example non-string data values, non-object
+ * data maps, or malformed topic prefixes).
+ */
+export function invalidPayloadEnvelope(message: string): FcmErrorEnvelope {
+  return invalidArgument(message, [badRequest('message', message), fcmError('INVALID_PAYLOAD')]);
+}
+
+/**
  * oracle: `messaging-send-invalid-condition-error-envelope` — the BARE
  * envelope: no `details` key at all, only code/message/status.
  */

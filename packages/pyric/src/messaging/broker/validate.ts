@@ -15,6 +15,7 @@
 import {
   BrokerSendError,
   invalidConditionEnvelope,
+  invalidPayloadEnvelope,
   invalidTokenEnvelope,
   invalidTopicNameEnvelope,
   invalidWebpushTtlEnvelope,
@@ -59,7 +60,23 @@ export const TOKEN_SHAPE_RE = /^[A-Za-z0-9_-]+:[A-Za-z0-9_-]+$/;
  */
 export const EMPIRICAL_DATA_CAP_BYTES = 4506;
 
+/** Documented FCM limit on topic clauses per condition expression. */
+export const MAX_CONDITION_TOPICS = 5;
+
 const utf8 = new TextEncoder();
+
+function validateDataPayload(data: unknown): void {
+  if (data === undefined) return;
+  const isNonNullObject = typeof data === 'object' && data !== null && !Array.isArray(data);
+  if (!isNonNullObject) {
+    throw new BrokerSendError(invalidPayloadEnvelope('data must be a non-null object'));
+  }
+  for (const value of Object.values(data)) {
+    if (typeof value !== 'string') {
+      throw new BrokerSendError(invalidPayloadEnvelope('data must only contain string values'));
+    }
+  }
+}
 
 function dataBytes(data: Record<string, string> | undefined): number {
   if (data === undefined) return 0;
@@ -76,18 +93,21 @@ export function canonicalTopicName(topic: string): string {
   return topic.startsWith('/topics/') ? topic.slice('/topics/'.length) : topic;
 }
 
+export function isValidBareTopicName(topic: string): boolean {
+  return typeof topic === 'string' && topic.length > 0 && TOPIC_NAME_RE.test(topic);
+}
+
 export function isValidTopicName(topic: string): boolean {
   if (typeof topic !== 'string') return false;
-  const name = canonicalTopicName(topic);
-  return name.length > 0 && TOPIC_NAME_RE.test(name);
+  return isValidBareTopicName(canonicalTopicName(topic));
 }
 
 /**
  * Condition grammar: boolean expressions over `'name' in topics` with
- * `&&`, `||`, `!`, and parentheses. A dangling operator (the captured
- * malformed case `"'a' in topics &&"`) fails the parse and produces the
- * captured BARE envelope. UNOBSERVED: production's documented 5-topic
- * limit per condition is not enforced here (no captured envelope for it).
+ * `&&`, `||`, `!`, and parentheses. Keywords `in` and `topics` must be
+ * separated by whitespace, and at most five topics may appear in one
+ * condition. A malformed condition fails the parse and produces the
+ * captured BARE envelope.
  *
  * Returns the topic names referenced (for delivery routing) or `null`
  * when the condition is malformed.
@@ -101,6 +121,12 @@ export function parseCondition(condition: string): { topics: string[] } | null {
     while (pos < src.length && /\s/.test(src[pos]!)) pos++;
   }
 
+  function requireWs(): boolean {
+    const start = pos;
+    ws();
+    return pos > start;
+  }
+
   function expectLiteral(lit: string): boolean {
     ws();
     if (src.startsWith(lit, pos)) {
@@ -110,7 +136,7 @@ export function parseCondition(condition: string): { topics: string[] } | null {
     return false;
   }
 
-  // primary := "'" name "' in topics" | "(" orExpr ")" | "!" primary
+  // primary := "'" name "'" WS "in" WS "topics" | "(" orExpr ")" | "!" primary
   function primary(): boolean {
     ws();
     if (expectLiteral('!')) return primary();
@@ -126,10 +152,15 @@ export function parseCondition(condition: string): { topics: string[] } | null {
     if (pos >= src.length) return false;
     const name = src.slice(start, pos);
     pos++; // closing quote
-    if (!expectLiteral('in')) return false;
-    if (!expectLiteral('topics')) return false;
+    if (!requireWs()) return false;
+    if (!src.startsWith('in', pos)) return false;
+    pos += 'in'.length;
+    if (!requireWs()) return false;
+    if (!src.startsWith('topics', pos)) return false;
+    pos += 'topics'.length;
     if (name.length === 0 || !TOPIC_NAME_RE.test(name)) return false;
     topics.push(name);
+    if (topics.length > MAX_CONDITION_TOPICS) return false;
     return true;
   }
 
@@ -195,7 +226,13 @@ export function validateMessage(message: BrokerMessage): ResolvedTarget {
     // oracle: messaging-send-invalid-token-error-envelope
     throw new BrokerSendError(invalidTokenEnvelope());
   }
-  if (target.kind === 'topic' && !isValidTopicName(target.topic)) {
+  if (target.kind === 'topic' && !isValidBareTopicName(target.topic)) {
+    const hasMalformedTopicPrefix =
+      target.topic.includes('/') ||
+      (typeof message.topic === 'string' && message.topic.startsWith('/topics/'));
+    if (hasMalformedTopicPrefix) {
+      throw new BrokerSendError(invalidPayloadEnvelope('Malformed topic name'));
+    }
     // oracle: messaging-send-invalid-topic-name-error-envelope
     throw new BrokerSendError(invalidTopicNameEnvelope());
   }
@@ -212,7 +249,8 @@ export function validateMessage(message: BrokerMessage): ResolvedTarget {
     throw new BrokerSendError(invalidWebpushTtlEnvelope());
   }
 
-  // 4. Data payload boundary (oracle: messaging-send-oversized-payload-error-envelope).
+  // 4. Data payload shape and size boundary (oracle: messaging-send-oversized-payload-error-envelope).
+  validateDataPayload(message.data);
   if (dataBytes(message.data) > EMPIRICAL_DATA_CAP_BYTES) {
     throw new BrokerSendError(oversizedPayloadEnvelope());
   }

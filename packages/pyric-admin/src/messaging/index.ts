@@ -205,10 +205,60 @@ export interface MessagingTopicManagementResponse {
   errors: Array<{ index: number; error: FirebaseMessagingError }>;
 }
 
-/** Wire FcmError errorCode → firebase-admin client error info. */
+/** Wire FcmError errorCode to firebase-admin client error info. */
 function clientErrorInfoFor(fcmErrorCode: string | undefined): ErrorCodeInfo {
-  if (fcmErrorCode === 'UNREGISTERED') return ErrorCodes.REGISTRATION_TOKEN_NOT_REGISTERED!;
-  return ErrorCodes.INVALID_ARGUMENT!;
+  if (fcmErrorCode === 'UNREGISTERED') {
+    return MessagingClientErrorCode.REGISTRATION_TOKEN_NOT_REGISTERED;
+  }
+  if (fcmErrorCode === 'INVALID_PAYLOAD') {
+    return MessagingClientErrorCode.INVALID_PAYLOAD;
+  }
+  return MessagingClientErrorCode.INVALID_ARGUMENT;
+}
+
+const MAX_TOPIC_MANAGEMENT_TOKENS = 1000;
+
+function assertValidDryRun(dryRun: unknown): void {
+  if (dryRun !== undefined && typeof dryRun !== 'boolean') {
+    throw invalidArgument('dryRun must be a boolean');
+  }
+}
+
+function validateTopicManagementRequest(
+  tokenOrTokens: unknown,
+  topic: unknown,
+  fnName: string,
+): string[] {
+  const isNonEmptyString = typeof tokenOrTokens === 'string' && tokenOrTokens.length > 0;
+  const isNonEmptyArray = Array.isArray(tokenOrTokens) && tokenOrTokens.length > 0;
+  if (!isNonEmptyString && !isNonEmptyArray) {
+    throw invalidArgument(
+      `Registration token(s) provided to ${fnName}() must be a non-empty string or a non-empty array.`,
+    );
+  }
+  if (typeof topic !== 'string' || topic.length === 0) {
+    throw invalidArgument(
+      `Topic provided to ${fnName}() must be a string which matches the format "/topics/[a-zA-Z0-9-_.~%]+".`,
+    );
+  }
+  if (Array.isArray(tokenOrTokens)) {
+    if (tokenOrTokens.length > MAX_TOPIC_MANAGEMENT_TOKENS) {
+      throw invalidArgument(
+        `Too many registration tokens provided in a single request to ${fnName}(). Batch ` +
+          'your requests to contain no more than 1,000 registration tokens per request.',
+      );
+    }
+    for (let index = 0; index < tokenOrTokens.length; index++) {
+      const token: unknown = tokenOrTokens[index];
+      if (typeof token !== 'string' || token.length === 0) {
+        throw invalidArgument(
+          `Registration token provided to ${fnName}() at index ${index} must be a non-empty string.`,
+        );
+      }
+    }
+    return tokenOrTokens;
+  }
+  return [tokenOrTokens as string];
 }
 
 /** Re-wrap a broker rejection exactly as firebase-admin wraps the wire envelope. */
@@ -298,6 +348,7 @@ export class Messaging {
    */
   async send(message: Message, dryRun?: boolean): Promise<string> {
     assertAdminAppActive(this.boundApp);
+    assertValidDryRun(dryRun);
     try {
       return await dispatchSend(
         this.boundApp.sandbox,
@@ -322,6 +373,7 @@ export class Messaging {
     if (messages.length > 500) {
       throw invalidArgument('messages list must not contain more than 500 items');
     }
+    assertValidDryRun(dryRun);
     const projectId = projectIdFor(this.boundApp);
     const responses: SendResponse[] = [];
     for (const message of messages) {
@@ -348,12 +400,18 @@ export class Messaging {
   /** Fan a `MulticastMessage` (up to 500 tokens) out through {@link sendEach}. */
   async sendEachForMulticast(message: MulticastMessage, dryRun?: boolean): Promise<BatchResponse> {
     assertAdminAppActive(this.boundApp);
-    if (!Array.isArray(message?.tokens) || message.tokens.length === 0) {
+    const isNonNullObject =
+      typeof message === 'object' && message !== null && !Array.isArray(message);
+    if (!isNonNullObject) {
+      throw invalidArgument('MulticastMessage must be a non-null object');
+    }
+    if (!Array.isArray(message.tokens) || message.tokens.length === 0) {
       throw invalidArgument('tokens must be a non-empty array');
     }
     if (message.tokens.length > 500) {
       throw invalidArgument('tokens list must not contain more than 500 items');
     }
+    assertValidDryRun(dryRun);
     const { tokens, ...base } = message;
     return this.sendEach(
       tokens.map((token) => ({ ...base, token }) as Message),
@@ -383,16 +441,8 @@ export class Messaging {
     action: 'subscribe' | 'unsubscribe',
   ): Promise<MessagingTopicManagementResponse> {
     assertAdminAppActive(this.boundApp);
-    const tokens = Array.isArray(tokenOrTokens) ? tokenOrTokens : [tokenOrTokens];
-    if (tokens.length === 0) {
-      throw invalidArgument('registration token(s) must be a non-empty string or a non-empty array');
-    }
-    if (typeof topic !== 'string' || topic.length === 0) {
-      const fnName = action === 'subscribe' ? 'subscribeToTopic' : 'unsubscribeFromTopic';
-      throw invalidArgument(
-        `Topic provided to ${fnName}() must be a string which matches the format "/topics/[a-zA-Z0-9-_.~%]+".`,
-      );
-    }
+    const fnName = action === 'subscribe' ? 'subscribeToTopic' : 'unsubscribeFromTopic';
+    const tokens = validateTopicManagementRequest(tokenOrTokens, topic, fnName);
     let outcome: TopicManagementOutcome;
     try {
       outcome = await dispatchTopicOp(
@@ -463,7 +513,17 @@ function resolveApp(app?: PyricAdminApp): PyricAdminApp {
  */
 export function getMessaging(app?: PyricAdminApp): Messaging {
   const resolved = resolveApp(app);
+  if (resolved === null || typeof resolved !== 'object' || !(ADMIN_APP_TARGET in resolved)) {
+    throw new TypeError(
+      'pyric-admin/messaging: getMessaging expected a PyricAdminApp (from pyric-admin/app#initializeApp). ' +
+        'Received a value with no ADMIN_APP_TARGET brand. Pass the handle returned by ' +
+        '`initializeApp({ sandbox })`.',
+    );
+  }
   assertAdminAppActive(resolved);
+  if (resolved[ADMIN_APP_TARGET] !== 'sandbox') {
+    throw new TypeError('pyric-admin/messaging: getMessaging expected a sandbox admin app.');
+  }
   const existing = sandboxInstances.get(resolved);
   if (existing !== undefined) return existing;
   const instance = new Messaging(resolved);

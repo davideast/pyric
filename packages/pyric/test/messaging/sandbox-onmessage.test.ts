@@ -69,6 +69,38 @@ describe('onMessage (sandbox)', () => {
     expect(result.handlerCount).toBe(2);
   });
 
+  it('preserves Observer this binding when invoking next on object literals and class instances', async () => {
+    const messaging = getMessaging(sandboxApp());
+    const literalObserver = {
+      prefix: 'fg',
+      seen: [] as string[],
+      next(payload: MessagePayload) {
+        this.seen.push(`${this.prefix}:${payload.data?.k ?? ''}`);
+      },
+      error() {},
+      complete() {},
+    };
+    class ClassObserver {
+      readonly seen: string[] = [];
+      constructor(private readonly tag: string) {}
+      next(payload: MessagePayload): void {
+        this.seen.push(`${this.tag}:${payload.data?.k ?? ''}`);
+      }
+      error(): void {}
+      complete(): void {}
+    }
+    const classObserver = new ClassObserver('cls');
+
+    const unsubLiteral = onMessage(messaging, literalObserver);
+    const unsubClass = onMessage(messaging, classObserver);
+    await messagingSandbox.deliver(messaging, { visibilityState: 'visible', data: { k: 'item-1' } });
+    unsubLiteral();
+    unsubClass();
+
+    expect(literalObserver.seen).toEqual(['fg:item-1']);
+    expect(classObserver.seen).toEqual(['cls:item-1']);
+  });
+
   it('each handler receives its own copy — a mutating handler cannot corrupt a sibling', async () => {
     // The broker structuredClones the payload per handler; a consumer that
     // mutates its envelope must not change what the next handler observes.

@@ -98,4 +98,39 @@ describe('visibility routing (sandbox)', () => {
     expect(result.route).toBe('foreground');
     expect(foreground.length).toBe(1);
   });
+
+  it('preserves Observer this binding on both onMessage and onBackgroundMessage', async () => {
+    const app = sandboxApp();
+    const client = getMessaging(app);
+    const sw = getMessagingInSw(app);
+
+    const fgObserver = {
+      tag: 'fg',
+      seen: [] as string[],
+      next(payload: { data?: Record<string, string> }) {
+        this.seen.push(`${this.tag}:${payload.data?.k ?? ''}`);
+      },
+      error() {},
+      complete() {},
+    };
+    const bgObserver = {
+      tag: 'bg',
+      seen: [] as string[],
+      next(payload: { data?: Record<string, string> }) {
+        this.seen.push(`${this.tag}:${payload.data?.k ?? ''}`);
+      },
+      error() {},
+      complete() {},
+    };
+
+    const unsubFg = onMessage(client, fgObserver);
+    const unsubBg = onBackgroundMessage(sw, bgObserver);
+    await messagingSandbox.deliver(client, { visibilityState: 'visible', data: { k: 'item-1' } });
+    await messagingSandbox.deliver(client, { visibilityState: 'hidden', data: { k: 'item-2' } });
+    unsubFg();
+    unsubBg();
+
+    expect(fgObserver.seen).toEqual(['fg:item-1']);
+    expect(bgObserver.seen).toEqual(['bg:item-2']);
+  });
 });
