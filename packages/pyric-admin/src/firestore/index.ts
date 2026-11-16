@@ -40,7 +40,7 @@ import {
   getAdminFirestore as baseGetAdminFirestore,
   type SandboxFirestore,
 } from 'pyric/sandbox/admin-firestore';
-import type { Sandbox, SandboxContext } from 'pyric/sandbox';
+import { SandboxContextImpl, type Sandbox, type SandboxContext } from 'pyric/sandbox';
 import {
   ADMIN_APP_TARGET,
   isSandboxAdminApp,
@@ -108,11 +108,17 @@ function getAppFirestore(app: PyricAdminApp): SandboxFirestore {
  *  does not model. */
 function adminAppToContext(app: PyricAdminApp): SandboxContext {
   if (isSandboxAdminApp(app)) {
-    return app.sandbox.withAuth(null);
+    const candidateSandbox = (app as { sandbox?: unknown }).sandbox;
+    if (
+      candidateSandbox !== null &&
+      typeof candidateSandbox === 'object' &&
+      typeof (candidateSandbox as { withAuth?: unknown }).withAuth === 'function'
+    ) {
+      return app.sandbox.withAuth(null);
+    }
   }
-  throw new Error(
-    'pyric-admin/firestore: getFirestore() default-app resolution supports ' +
-      'sandbox apps; a prod app requires firebase-admin/firestore directly.',
+  throw new TypeError(
+    `pyric-admin/firestore: expected a sandbox admin app from initializeApp(), received target '${String(app[ADMIN_APP_TARGET])}'.`,
   );
 }
 
@@ -142,7 +148,12 @@ export function getFirestore(
   if (typeof target === 'object' && target !== null && ADMIN_APP_TARGET in target) {
     return getAppFirestore(target as PyricAdminApp);
   }
-  return withDeferredMembers(baseGetFirestore(target as SandboxContext));
+  if (target instanceof SandboxContextImpl) {
+    return withDeferredMembers(baseGetFirestore(target));
+  }
+  throw new TypeError(
+    'pyric-admin/firestore: expected a PyricAdminApp from initializeApp() or a SandboxContext (or omit the argument for the default app).',
+  );
 }
 
 export function getAdminFirestore(ctx: SandboxContext): SandboxFirestore;

@@ -7,7 +7,7 @@ import {
   type AppCheckIdentity,
   type AppCheckTokenClaims,
 } from 'pyric/sandbox/internal';
-import type { PyricAdminApp } from '../app/index.js';
+import { ADMIN_APP_TARGET, type PyricAdminApp } from '../app/index.js';
 import { getDefaultServiceApp } from '../app/default-service-app.js';
 import { explicitProjectId } from '../app/project-id.js';
 import { assertAdminAppActive } from '../app/lifecycle.js';
@@ -241,7 +241,26 @@ function verifyExpiry(exp: unknown): void {
 const instances = new WeakMap<PyricAdminApp, AppCheck>();
 
 export function getAppCheck(app?: PyricAdminApp): AppCheck {
-  const resolved = app ?? getDefaultServiceApp();
+  const resolved = app === undefined ? getDefaultServiceApp() : app;
+  if (
+    resolved === null ||
+    typeof resolved !== 'object' ||
+    !(ADMIN_APP_TARGET in resolved)
+  ) {
+    throw new TypeError(
+      'pyric-admin/app-check: expected a PyricAdminApp from initializeApp() (or omit the argument for the default app).',
+    );
+  }
+  const candidateSandbox = (resolved as { sandbox?: unknown }).sandbox;
+  const hasValidSandbox =
+    candidateSandbox !== null &&
+    typeof candidateSandbox === 'object' &&
+    typeof (candidateSandbox as { withAuth?: unknown }).withAuth === 'function';
+  if (resolved[ADMIN_APP_TARGET] !== 'sandbox' || !hasValidSandbox) {
+    throw new TypeError(
+      `pyric-admin/app-check: expected a sandbox admin app from initializeApp(), received target '${String(resolved[ADMIN_APP_TARGET])}'.`,
+    );
+  }
   assertAdminAppActive(resolved);
   const existing = instances.get(resolved);
   if (existing) return existing;

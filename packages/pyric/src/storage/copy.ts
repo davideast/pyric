@@ -6,7 +6,14 @@ import type { EventProvenance } from 'pyric/sandbox';
 import { getStorageService, targetOf } from './service.js';
 import { planeOf } from './content-defaults.js';
 import { StorageError } from './errors.js';
-import { getMetadata, type AdminMetadataPatch, type FullMetadata, type SettableMetadata } from './metadata.js';
+import {
+  cloneCustomMetadata,
+  defineOwnMetadataKey,
+  getMetadata,
+  type AdminMetadataPatch,
+  type FullMetadata,
+  type SettableMetadata,
+} from './metadata.js';
 import { uploadObject } from './upload.js';
 import type { StorageReference } from './reference.js';
 
@@ -36,13 +43,14 @@ export async function copyObject(
   const stored = object!.metadata;
   const settable: SettableMetadata = {};
   for (const field of COPIED_FIELDS) {
-    const value = patch.settable?.[field] ?? stored[field];
+    const patched = patch.settable?.[field];
+    const value = patched === null ? undefined : (patched ?? stored[field]);
     if (value !== undefined) settable[field] = value;
   }
-  const custom: Record<string, string> = { ...(stored.customMetadata ?? {}) };
+  const custom: Record<string, string> = cloneCustomMetadata(stored.customMetadata) ?? {};
   for (const [key, value] of Object.entries(patch.customMetadata ?? {})) {
     if (value === null) delete custom[key];
-    else custom[key] = value;
+    else defineOwnMetadataKey(custom, key, value);
   }
   const hasCustom = Object.keys(custom).length > 0;
   if (hasCustom) settable.customMetadata = custom;

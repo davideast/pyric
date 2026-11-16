@@ -76,7 +76,13 @@ const storageArgumentShapes = [
   },
   {
     method: 'storage.setMetadata',
-    valid: { path: 'photos/cat.png', patch: { settable: { contentType: 'image/png' }, customMetadata: { owner: null } } },
+    valid: {
+      path: 'photos/cat.png',
+      patch: {
+        settable: { contentType: 'image/png', cacheControl: null },
+        customMetadata: { owner: null },
+      },
+    },
     malformed: [{ path: 'photos/cat.png' }, { path: 'photos/cat.png', patch: { settable: { contentType: 1 } } }],
   },
 ];

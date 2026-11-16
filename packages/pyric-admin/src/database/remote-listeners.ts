@@ -260,10 +260,21 @@ export function onceRemoteListener(
 
   return new Promise<DataSnapshot>((resolve, reject) => {
     let detach: (() => void) | null = null;
+    let untrack: (() => void) | null = null;
     let isSettled = false;
+    const isDeleted = (): boolean => target.lifecycle?.isDeleted === true;
+    const cleanup = (): void => {
+      const fn = detach;
+      detach = null;
+      if (fn !== null) fn();
+      const release = untrack;
+      untrack = null;
+      if (release !== null) release();
+    };
     const failOnce = (err: Error) => {
       if (isSettled) return;
       isSettled = true;
+      cleanup();
       if (failureCb !== undefined) {
         try {
           failureCb.call(boundContext, err);
@@ -272,36 +283,37 @@ export function onceRemoteListener(
         }
       }
       reject(err);
-      if (detach) {
-        const fn = detach;
-        detach = null;
-        fn();
-      }
     };
-    if (target.lifecycle?.isDeleted === true) {
+    if (isDeleted()) {
       try {
-        target.lifecycle.assertActive();
+        target.lifecycle?.assertActive();
       } catch (err) {
         failOnce(err as Error);
         return;
       }
     }
-    const resolveOnce = (snap: DataSnapshot, prevKey: string | null) => {
-      isSettled = true;
-      if (detach) {
+    if (target.lifecycle !== undefined) {
+      untrack = target.lifecycle.trackSubscription(() => {
+        isSettled = true;
         const fn = detach;
         detach = null;
-        fn();
-      }
+        if (fn !== null) fn();
+      });
+    }
+    const resolveOnce = (snap: DataSnapshot, prevKey: string | null) => {
+      if (isSettled || isDeleted()) return;
+      isSettled = true;
+      cleanup();
       deliverRemoteCallback(eventType, successCb, boundContext, snap, prevKey);
       resolve(snap);
     };
     const handleWireDelivery = (wire: RemoteWireSnapshot): void => {
-      if (isSettled) return;
+      if (isSettled || isDeleted()) return;
       if (differ !== null) {
         const deltas = differ.consume(wire);
         if (deltas.length === 0) return;
-        const first = deltas[0]!;
+        const first = deltas[0];
+        if (first === undefined) return;
         const childPath = joinPath([...segs, first.key]);
         const childSnap = buildSandboxSnap(
           target.refAt,
@@ -316,27 +328,31 @@ export function onceRemoteListener(
       resolveOnce(snap, null);
     };
     const startSubscribe = (): void => {
-      if (isSettled) return;
+      if (isSettled || isDeleted()) {
+        isSettled = true;
+        cleanup();
+        return;
+      }
       try {
-        if (isInfoPath(target.canonical)) {
-          detach = subscribeRemoteInfo(target, segs, spec, eventType, handleWireDelivery);
+        const attachedUnsub = isInfoPath(target.canonical)
+          ? subscribeRemoteInfo(target, segs, spec, eventType, handleWireDelivery)
+          : subscribeRemoteRtdb(
+              target,
+              wireQuery,
+              eventType,
+              (value) => {
+                handleWireDelivery(value as RemoteWireSnapshot);
+              },
+              (err) => {
+                failOnce(err);
+              },
+            );
+        if (isSettled || isDeleted()) {
+          isSettled = true;
+          attachedUnsub();
+          cleanup();
         } else {
-          detach = subscribeRemoteRtdb(
-            target,
-            wireQuery,
-            eventType,
-            (value) => {
-              handleWireDelivery(value as RemoteWireSnapshot);
-            },
-            (err) => {
-              failOnce(err);
-            },
-          );
-        }
-        if (isSettled && detach) {
-          const fn = detach;
-          detach = null;
-          fn();
+          detach = attachedUnsub;
         }
       } catch (err) {
         failOnce(err as Error);

@@ -44,6 +44,7 @@ import {
 import type { SandboxTarget } from './target.js';
 import { sandboxTokenFor } from './sandbox-token.js';
 import { validateEmailFormat, validatePasswordStrength } from './sandbox-credential-validators.js';
+import { toAuthUserRecord } from './user-record-snapshot.js';
 import {
   assertMatchingTenant,
   createTenantEmailPasswordAccount,
@@ -1808,21 +1809,7 @@ export class SandboxBackend {
   /** Public snapshot of a stored user. Defensive copies — mutating a
    *  returned record never touches the DB. */
   private toRecord(u: StoredUser): AuthUserRecord {
-    return {
-      uid: u.uid,
-      email: u.email,
-      displayName: u.displayName,
-      phoneNumber: u.phoneNumber,
-      photoUrl: u.photoUrl,
-      customClaims: cloneClaimData(u.customClaims),
-      providerUserInfo: u.providerUserInfo.map((p) => ({ ...p })),
-      isAnonymous: u.isAnonymous,
-      disabled: u.disabled,
-      emailVerified: u.emailVerified,
-      tenantId: u.tenantId,
-      createdAt: u.createdAt,
-      lastLoginAt: u.lastLoginAt,
-    };
+    return toAuthUserRecord(u, this.projectStore.tokensValidAfterMs.get(u.uid), cloneClaimData);
   }
 
   /** Every user in the DB (seeded, created, signed-in-via-provider,

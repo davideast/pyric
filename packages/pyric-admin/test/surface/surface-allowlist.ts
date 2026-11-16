@@ -114,8 +114,8 @@ export const ALLOWLIST: readonly AllowlistGroup[] = [
   {
     entry: 'auth',
     owner: 'UserRecord',
-    members: ['multiFactor', 'passwordHash', 'passwordSalt', 'tokensValidAfterTime'],
-    reason: 'user record fields the sandbox auth store does not model (MFA enrollment, password hashes, token revocation time)',
+    members: ['multiFactor', 'passwordHash', 'passwordSalt'],
+    reason: 'user record fields the sandbox auth store does not model (MFA enrollment, password hashes)',
   },
 
   // ─── firebase-admin/database ───────────────────────────────────────────

@@ -351,15 +351,20 @@ export function onceLocalListener(
 
   return new Promise<DataSnapshot>((resolve, reject) => {
     let detach: (() => void) | undefined;
+    let untrack: (() => void) | undefined;
     let isSettled = false;
+    const cleanup = (): void => {
+      const fn = detach;
+      detach = undefined;
+      if (fn !== undefined) fn();
+      const release = untrack;
+      untrack = undefined;
+      if (release !== undefined) release();
+    };
     const failOnce = (err: Error): void => {
       if (isSettled) return;
       isSettled = true;
-      if (detach !== undefined) {
-        const fn = detach;
-        detach = undefined;
-        fn();
-      }
+      cleanup();
       if (failureCb !== undefined) {
         try {
           failureCb.call(boundContext, err);
@@ -372,26 +377,32 @@ export function onceLocalListener(
 
     try {
       target.lifecycle?.assertActive();
+      if (target.lifecycle !== undefined) {
+        untrack = target.lifecycle.trackSubscription(() => {
+          isSettled = true;
+          const fn = detach;
+          detach = undefined;
+          if (fn !== undefined) fn();
+        });
+      }
       const attachedUnsub = attachRawLocalSubscription(
         target,
         segs,
         spec,
         eventType,
         (snap, prevKey) => {
-          if (isSettled) return;
+          if (isSettled || target.lifecycle?.isDeleted === true) return;
           isSettled = true;
-          if (detach !== undefined) {
-            const fn = detach;
-            detach = undefined;
-            fn();
-          }
+          cleanup();
           deliverListenerSnapshot(eventType, successCb, boundContext, snap, prevKey);
           resolve(snap);
         },
         failOnce,
       );
-      if (isSettled) {
+      if (isSettled || target.lifecycle?.isDeleted === true) {
+        isSettled = true;
         attachedUnsub();
+        cleanup();
       } else {
         detach = attachedUnsub;
       }

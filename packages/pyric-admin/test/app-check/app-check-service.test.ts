@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'bun:test';
 import { initializeSandbox } from 'pyric/sandbox';
-import { deleteApp, getApps, initializeApp } from '../../src/app/index.js';
+import { ADMIN_APP_TARGET, deleteApp, getApps, initializeApp } from '../../src/app/index.js';
 import { getAppCheck } from '../../src/app-check/index.js';
 
 const APP_ID = '1:123456789012:web:0a1b2c3d4e5f60718293a4';
@@ -65,5 +65,25 @@ describe('AppCheck service and createToken / verifyToken options', () => {
       exp: number;
     };
     expect(claims.exp - claims.iat).toBe(1801);
+  });
+
+  it('rejects unbranded, spoofed, non-sandbox, null, primitive, and deleted apps', async () => {
+    expect(() => getAppCheck({} as never)).toThrow(TypeError);
+    expect(() => getAppCheck(null as never)).toThrow(TypeError);
+    expect(() => getAppCheck('not-an-app' as never)).toThrow(TypeError);
+    expect(() => getAppCheck(42 as never)).toThrow(TypeError);
+    expect(() => getAppCheck([] as never)).toThrow(TypeError);
+
+    expect(() => getAppCheck({ [ADMIN_APP_TARGET]: 'prod' } as never)).toThrow(TypeError);
+    expect(() => getAppCheck({ [ADMIN_APP_TARGET]: 'prod', sandbox: {} } as never)).toThrow(TypeError);
+    expect(() => getAppCheck({ [ADMIN_APP_TARGET]: 'sandbox' } as never)).toThrow(TypeError);
+    expect(() => getAppCheck({ [ADMIN_APP_TARGET]: 'sandbox', sandbox: {} } as never)).toThrow(TypeError);
+    expect(() =>
+      getAppCheck({ [ADMIN_APP_TARGET]: 'sandbox', sandbox: {}, options: {}, name: 'x' } as never),
+    ).toThrow(TypeError);
+
+    const app = initializeApp({ sandbox: initializeSandbox(), projectId: 'demo-appcheck' }, 'ac-brand');
+    await deleteApp(app);
+    expect(() => getAppCheck(app)).toThrow(/already been deleted/);
   });
 });

@@ -33,6 +33,7 @@ import {
   DEFAULT_BUCKET,
   bindStorageOperationContext,
   copyObject,
+  defineOwnMetadataKey,
   getAdminStorageSandbox,
   getStorageService,
   nameStorageBucket,
@@ -428,9 +429,7 @@ function toSettableMetadata(msg: {
   let customMetadata: Record<string, string> | undefined;
   if (customSource !== null && typeof customSource === 'object' && !Array.isArray(customSource)) {
     customMetadata = {};
-    for (const [k, v] of Object.entries(customSource as Record<string, unknown>)) {
-      customMetadata[k] = String(v);
-    }
+    for (const [k, v] of Object.entries(customSource as Record<string, unknown>)) defineOwnMetadataKey(customMetadata, k, String(v));
   }
   const settable: SettableMetadata = {};
   const rawContentType = (msg.contentType !== '' ? msg.contentType : undefined) ?? str('contentType');

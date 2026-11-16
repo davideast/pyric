@@ -56,6 +56,7 @@ export interface UserRecord {
   readonly metadata: UserMetadata;
   readonly providerData: UserInfo[];
   readonly customClaims?: Record<string, unknown>;
+  readonly tokensValidAfterTime?: string;
   readonly tenantId: string | null;
   toJSON(): Record<string, unknown>;
 }

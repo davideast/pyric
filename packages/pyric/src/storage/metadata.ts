@@ -67,12 +67,30 @@ export interface UploadResult {
   ref: StorageReference;
 }
 
+/** Define an own enumerable property without triggering prototype setters (e.g. `"__proto__"`). */
+export function defineOwnMetadataKey<T>(
+  target: Record<string, T>,
+  key: string,
+  value: T,
+): void {
+  Object.defineProperty(target, key, {
+    value,
+    enumerable: true,
+    writable: true,
+    configurable: true,
+  });
+}
+
 /** Shallow-clone `customMetadata` so caller mutations and stored records stay isolated. */
 export function cloneCustomMetadata(
   customMetadata: { [key: string]: string } | undefined,
 ): { [key: string]: string } | undefined {
   if (customMetadata === undefined) return undefined;
-  return { ...customMetadata };
+  const cloned: Record<string, string> = {};
+  for (const [key, value] of Object.entries(customMetadata)) {
+    defineOwnMetadataKey(cloned, key, value);
+  }
+  return cloned;
 }
 
 /** Shallow-clone settable metadata and its nested `customMetadata` map when present. */
@@ -196,13 +214,30 @@ export async function updateMetadata(
   return rewriteMetadata(ref, 'updateMetadata', (existing, now) => applyMetadataPatch(existing, patch, now), provenance);
 }
 
+/** Settable object metadata fields for an admin patch (`null` clears a previously set value). */
+export interface AdminSettableMetadataPatch {
+  contentType?: string | null;
+  cacheControl?: string | null;
+  contentDisposition?: string | null;
+  contentEncoding?: string | null;
+  contentLanguage?: string | null;
+}
+
+const ADMIN_SETTABLE_FIELDS = [
+  'contentType',
+  'cacheControl',
+  'contentDisposition',
+  'contentEncoding',
+  'contentLanguage',
+] as const;
+
 /**
  * What the admin plane changes in one metadata write, as firebase-admin's
  * `File.setMetadata` does.
  */
 export interface AdminMetadataPatch {
-  /** Settable fields to replace. Custom metadata is merged through `customMetadata`. */
-  settable?: Omit<SettableMetadata, 'customMetadata'>;
+  /** Settable fields to replace; `null` clears a field. Custom metadata is merged through `customMetadata`. */
+  settable?: AdminSettableMetadataPatch;
   /** Custom keys to set; `null` removes a key. Keys not named stay. */
   customMetadata?: { [key: string]: string | null };
   /** The object's download tokens, or `null` to remove them, which revokes their URLs. */
@@ -219,11 +254,29 @@ export async function patchObjectMetadata(
   provenance?: EventProvenance,
 ): Promise<FullMetadata> {
   return rewriteMetadata(ref, 'setMetadata', (existing, now) => {
-    const next = applyMetadataPatch(existing, patch.settable ?? {}, now);
-    const custom = { ...(existing.customMetadata ?? {}) };
+    const next: StoredMetadata = {
+      ...existing,
+      metageneration: bump(existing.metageneration),
+      updated: now.toISOString(),
+    };
+    const settable = patch.settable;
+    if (settable !== undefined) {
+      for (const field of ADMIN_SETTABLE_FIELDS) {
+        const value = settable[field];
+        if (value === null) {
+          delete next[field];
+        } else if (value !== undefined) {
+          next[field] = value;
+        }
+      }
+    }
+    const custom = cloneCustomMetadata(existing.customMetadata) ?? {};
     for (const [key, value] of Object.entries(patch.customMetadata ?? {})) {
-      if (value === null) delete custom[key];
-      else custom[key] = value;
+      if (value === null) {
+        delete custom[key];
+      } else {
+        defineOwnMetadataKey(custom, key, value);
+      }
     }
     const hasCustom = Object.keys(custom).length > 0;
     if (hasCustom) next.customMetadata = custom;

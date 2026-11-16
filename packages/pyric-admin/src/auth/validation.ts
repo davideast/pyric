@@ -275,6 +275,21 @@ export function toSandboxCreateRequest(props: CreateRequest): SandboxCreateUserR
   };
 }
 
+function formatTokensValidAfterTime(r: AuthUserRecord): string | undefined {
+  let validAfterMs: number | undefined;
+  if (typeof r.tokensValidAfterMs === 'number' && Number.isFinite(r.tokensValidAfterMs)) {
+    validAfterMs = Math.floor(r.tokensValidAfterMs / 1000) * 1000;
+  } else {
+    const parsedCreated = Date.parse(r.createdAt);
+    if (Number.isFinite(parsedCreated)) {
+      validAfterMs = Math.floor(parsedCreated / 1000) * 1000;
+    }
+  }
+  if (validAfterMs === undefined) return undefined;
+  const date = new Date(validAfterMs);
+  return Number.isNaN(date.getTime()) ? undefined : date.toUTCString();
+}
+
 /**
  * Convert an `AuthUserRecord` from `pyric/auth` into a firebase-admin
  * `UserRecord`-shaped object.
@@ -300,6 +315,7 @@ export function fromAuthUserRecord(r: AuthUserRecord): UserRecord {
     customClaims = r.customClaims as Record<string, unknown>;
   }
   const email = r.email ?? undefined;
+  const tokensValidAfterTime = formatTokensValidAfterTime(r);
   return {
     uid: r.uid,
     email,
@@ -311,7 +327,8 @@ export function fromAuthUserRecord(r: AuthUserRecord): UserRecord {
     metadata,
     providerData,
     customClaims,
+    tokensValidAfterTime,
     tenantId: null,
-    toJSON: () => ({ uid: r.uid, email }),
+    toJSON: () => ({ uid: r.uid, email, tokensValidAfterTime }),
   };
 }

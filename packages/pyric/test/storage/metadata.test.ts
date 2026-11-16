@@ -13,6 +13,7 @@
 import 'fake-indexeddb/auto';
 import { describe, it, expect } from 'bun:test';
 import { initializeSandbox } from 'pyric/sandbox';
+import { storedMetadataSchema } from '../../src/sandbox/internal/state-schemas.js';
 import {
   getStorageSandbox,
   ref,
@@ -21,6 +22,7 @@ import {
   getMetadata,
   updateMetadata,
 } from '../../src/storage/index.js';
+import { patchObjectMetadata } from '../../src/storage/metadata.js';
 
 const OPEN_RULES = `rules_version = '2';
 service firebase.storage {
@@ -144,5 +146,37 @@ describe('updateMetadata', () => {
     await expect(updateMetadata(ref(storage), {})).rejects.toThrow(
       /invalid-root-operation/,
     );
+  });
+
+  it('preserves own "__proto__" custom metadata and clears settable fields with null in patchObjectMetadata', async () => {
+    const storage = freshStorage('patch-proto-null');
+    const r = ref(storage, 'docs/item.txt');
+    await uploadBytes(r, new Blob(['body']), {
+      contentType: 'text/plain',
+      cacheControl: 'public, max-age=60',
+      contentLanguage: 'en',
+      customMetadata: JSON.parse('{"__proto__":"initial","k1":"v1"}') as Record<string, string>,
+    });
+
+    const initial = await getMetadata(r);
+    expect(Object.hasOwn(initial.customMetadata ?? {}, '__proto__')).toBe(true);
+    expect(initial.customMetadata?.['__proto__']).toBe('initial');
+
+    const patched = await patchObjectMetadata(r, {
+      settable: { cacheControl: null, contentLanguage: null },
+      customMetadata: JSON.parse('{"__proto__":"kept","k2":"v2"}') as Record<string, string>,
+    });
+    expect(patched.cacheControl).toBeUndefined();
+    expect(patched.contentLanguage).toBeUndefined();
+    expect(patched.contentType).toBe('text/plain');
+    expect(Object.hasOwn(patched.customMetadata ?? {}, '__proto__')).toBe(true);
+    expect(patched.customMetadata?.['__proto__']).toBe('kept');
+    expect(patched.customMetadata?.k1).toBe('v1');
+    expect(patched.customMetadata?.k2).toBe('v2');
+    expect(Object.getPrototypeOf(patched.customMetadata)).toBe(Object.prototype);
+
+    const parsed = storedMetadataSchema.parse(JSON.parse(JSON.stringify(patched)));
+    expect(Object.hasOwn(parsed.customMetadata ?? {}, '__proto__')).toBe(true);
+    expect(parsed.customMetadata?.['__proto__']).toBe('kept');
   });
 });

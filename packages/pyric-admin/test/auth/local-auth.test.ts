@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from 'bun:test';
 import { initializeSandbox } from 'pyric/sandbox';
+import { getClock } from 'pyric/sandbox/internal';
 import {
   browserLocalPersistence,
   createUserWithEmailAndPassword,
@@ -252,5 +253,36 @@ service cloud.firestore {
     await expect(adminAuth.updateUser('', { displayName: 'Nope' })).rejects.toMatchObject({
       code: 'auth/invalid-uid',
     });
+  });
+
+  it('exposes tokensValidAfterTime on UserRecord and toJSON() before and after revokeRefreshTokens', async () => {
+    const sandbox = initializeSandbox();
+    const clock = getClock(sandbox);
+    const createdAtMs = Date.parse('2026-05-01T10:00:00.750Z');
+    clock.set(createdAtMs);
+    const adminAuth = getAuth(initializeApp({ sandbox }, 'local-valid-after'));
+
+    const created = await adminAuth.createUser({ uid: 'u1', email: 'u1@example.com' });
+    const expectedCreatedUtc = new Date(Math.floor(createdAtMs / 1000) * 1000).toUTCString();
+    expect(created.tokensValidAfterTime).toBe(expectedCreatedUtc);
+    expect(created.toJSON().tokensValidAfterTime).toBe(expectedCreatedUtc);
+
+    const revokedAtMs = Date.parse('2026-05-01T10:05:12.900Z');
+    clock.set(revokedAtMs);
+    await adminAuth.revokeRefreshTokens('u1');
+    const expectedRevokedUtc = new Date(Math.floor(revokedAtMs / 1000) * 1000).toUTCString();
+
+    const byUid = await adminAuth.getUser('u1');
+    const byEmail = await adminAuth.getUserByEmail('u1@example.com');
+    const listed = await adminAuth.listUsers();
+    for (const record of [byUid, byEmail, listed.users[0]]) {
+      expect(record?.tokensValidAfterTime).toBe(expectedRevokedUtc);
+      expect(record?.toJSON().tokensValidAfterTime).toBe(expectedRevokedUtc);
+    }
+
+    // Revocation timestamp remains visible even when the account is disabled.
+    const disabled = await adminAuth.updateUser('u1', { disabled: true });
+    expect(disabled.tokensValidAfterTime).toBe(expectedRevokedUtc);
+    expect(disabled.toJSON().tokensValidAfterTime).toBe(expectedRevokedUtc);
   });
 });
