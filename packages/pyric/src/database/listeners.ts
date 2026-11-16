@@ -6,12 +6,11 @@ import type { ChildEventSnapshot, ValueListenerSnapshot } from './sandbox/listen
 import type { JsonValue } from './sandbox/data-tree.js';
 import { authFor, isAdminFor, targetOf, type Target } from './routing.js';
 import { isDefaultQuerySpec, isQuery, queryIdentifier } from './query-shape.js';
-import type { QueryRow } from './internal/query-projection.js';
+import { loadsAllData, type QueryRow } from './internal/query-projection.js';
 import { isInfoPath } from './writable-path.js';
 import type { DataSnapshot, DatabaseReference, ListenOptions, Query, Unsubscribe } from './types.js';
 import type { ListenerAttribution } from '../sandbox/attribution/listener-owners.js';
 import { child } from './references.js';
-import { loadsAllData } from './sandbox/query-index.js';
 import { buildSandboxQuerySnap, buildSandboxSnapFromRaw } from './snapshots.js';
 import {
   observeConnectionChildMetadata,

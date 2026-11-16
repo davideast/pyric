@@ -1,6 +1,6 @@
 import { asSdkArray } from './sandbox/normalize.js';
 import { isReservedSegment, joinPath, pathSegments, setOwnProperty, type JsonValue } from './sandbox/data-tree.js';
-import { executeQuery, isScalarLeafValue, type Priority, type QueryRow } from './sandbox/query.js';
+import { executeQuery, isScalarLeafValue, type Priority, type QueryRow } from './internal/query-projection.js';
 import type { PriorityRecord } from './sandbox/priority-state.js';
 import type { SandboxLiveTarget, SandboxTarget } from './routing.js';
 import { DataSnapshot, type DatabaseReference, type DataSnapshotImplementation } from './types.js';
@@ -113,7 +113,8 @@ function snapshotWithPriorities(
  * order the executor produced them (not insertion order).
  *
  * `val()` returns a `Record<string, JsonValue>` containing only the
- * windowed children (or `null` if the window is empty), matching
+ * windowed children, the stored scalar leaf when `unfiltered` is `true` and
+ * `rows` is empty, or `null` when the window is empty, matching
  * `firebase/database`'s `DataSnapshot.val()` on a query snap.
  *
  * `numChildren()` is the window size; `forEach` walks the ordered rows.
@@ -122,10 +123,10 @@ export function buildSandboxQuerySnap(
   target: SandboxTarget | SandboxLiveTarget,
   refForSnap: DatabaseReference,
   rows: QueryRow[],
-  includeRootPriority = true,
+  unfiltered = true,
   leafValue: JsonValue = null,
 ): DataSnapshot {
-  if (rows.length === 0 && includeRootPriority && isScalarLeafValue(leafValue)) {
+  if (rows.length === 0 && unfiltered && isScalarLeafValue(leafValue)) {
     return buildSandboxSnapFromRaw(target, refForSnap, leafValue);
   }
   let val: JsonValue;
@@ -140,7 +141,7 @@ export function buildSandboxQuerySnap(
   const refHasReserved = hasReservedSegment(refForSnap._path);
   const priorityOf = priorityLookup(target);
   let priority: Priority = null;
-  if (exists && includeRootPriority && !refHasReserved) {
+  if (exists && unfiltered && !refHasReserved) {
     priority = target.backend.getPriority(refForSnap._path);
   }
   const implementation: DataSnapshotImplementation = {
@@ -170,10 +171,10 @@ export function buildSandboxQuerySnap(
     },
     hasChildren(): boolean { return rows.length > 0; },
     exportVal(): JsonValue {
-      return renderNode(priorityOf, refForSnap._path, refHasReserved, val, true, includeRootPriority);
+      return renderNode(priorityOf, refForSnap._path, refHasReserved, val, true, unfiltered);
     },
     toJSON(): JsonValue {
-      return renderNode(priorityOf, refForSnap._path, refHasReserved, val, true, includeRootPriority);
+      return renderNode(priorityOf, refForSnap._path, refHasReserved, val, true, unfiltered);
     },
     forEach(cb): boolean {
       for (const { key, value } of rows) {

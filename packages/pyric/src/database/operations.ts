@@ -10,7 +10,7 @@ import { buildSandboxRef } from './references.js';
 import { assertGettablePath } from './info-read.js';
 import { validateUpdatePaths, validateWritablePath } from './writable-path.js';
 import { errorPrefix, validateUpdate, validateWrite } from './sandbox/normalize.js';
-import { loadsAllData } from './sandbox/query-index.js';
+import { loadsAllData } from './internal/query-projection.js';
 import { buildSandboxQuerySnap, buildSandboxSnap } from './snapshots.js';
 
 // ─── Reads ───────────────────────────────────────────────────────────

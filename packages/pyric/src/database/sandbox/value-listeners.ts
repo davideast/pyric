@@ -9,8 +9,13 @@ import { isReservedSegment, jsonValuesEqual, joinPath, pathSegments, type JsonVa
 import type { BackendState } from './backend-state.js';
 import type { ValueListener, ValueListenerSnapshot } from './listener-types.js';
 import { denyResultFor, rtdbDenialContext, rtdbRulesDetail } from './operation-events.js';
-import { executeQuery, projectQueryValue, type Priority, type QueryRow, type QuerySpec } from './query.js';
-import { loadsAllData } from './query-index.js';
+import {
+  evaluateQueryRead,
+  loadsAllData,
+  type Priority,
+  type QueryRow,
+  type QuerySpec,
+} from '../internal/query-projection.js';
 import { permissionDenied, withDenialContext, type RuleEvaluationDetails } from './rules-eval.js';
 
 function windowsEqual(left: QueryRow[], right: QueryRow[]): boolean {
@@ -126,9 +131,7 @@ export class ValueListeners {
       owners: attachOwners,
     });
     if (query) {
-      const rawValue = this.state.tree.read(path);
-      const rows = executeQuery(rawValue, query, this.state.priorities.forChild(path));
-      const val = projectQueryValue(rawValue, rows, query);
+      const { val, rows } = evaluateQueryRead(this.state.tree.read(path), query, this.state.priorities.forChild(path));
       listener.lastWindow = rows;
       listener.lastValue = val;
       listener.lastPriorityState = this.queryPriorityState(path, rows, val, query);
@@ -160,12 +163,11 @@ export class ValueListeners {
       const listenerPath = joinPath(pathSegments(listener.path));
       if (!touchedSet.some((path) => pathsTouch(listenerPath, path))) continue;
       if (listener.query) {
-        const rawValue = this.state.tree.read(listener.path);
-        const rows = executeQuery(
-          rawValue, listener.query,
+        const { val, rows } = evaluateQueryRead(
+          this.state.tree.read(listener.path),
+          listener.query,
           this.state.priorities.forChild(listener.path),
         );
-        const val = projectQueryValue(rawValue, rows, listener.query);
         const priorityState = this.queryPriorityState(listener.path, rows, val, listener.query);
         const isUnchangedQueryWindow =
           windowsEqual(listener.lastWindow ?? [], rows)

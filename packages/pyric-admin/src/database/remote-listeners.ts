@@ -5,11 +5,10 @@
 
 import type { RemoteSandboxChannel } from 'pyric/sandbox';
 import {
-  executeQuery,
+  evaluateQueryRead,
   isDefaultQuerySpec,
   isInfoPath,
   jsonEqual,
-  loadsAllData,
   normalizeNode,
   type QuerySpec,
 } from 'pyric/database/internal';
@@ -81,14 +80,8 @@ function buildInfoWireSnapshot(
     raw = raw[seg] ?? null;
   }
   const snapKey = segs.length === 0 ? null : segs[segs.length - 1]!;
-  const projectsQueryRows = !isDefaultQuerySpec(spec) && (isJsonRecord(raw) || !loadsAllData(spec));
-  if (projectsQueryRows) {
-    const rows = executeQuery(raw, spec);
-    const hasRows = rows.length > 0;
-    let projected: JsonValue = null;
-    if (hasRows) {
-      projected = Object.fromEntries(rows.map((row) => [row.key, row.value]));
-    }
+  if (!isDefaultQuerySpec(spec)) {
+    const { val, rows } = evaluateQueryRead(raw, spec);
     const entries: RemoteWireEntry[] = rows.map((row) => ({
       key: row.key,
       value: row.value,
@@ -96,9 +89,9 @@ function buildInfoWireSnapshot(
     }));
     return {
       key: snapKey,
-      exists: hasRows,
-      value: projected,
-      exportValue: projected,
+      exists: val !== null,
+      value: val,
+      exportValue: val,
       entries,
       size: rows.length,
     };

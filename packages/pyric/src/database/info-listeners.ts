@@ -3,10 +3,16 @@ import type { ListenerRegistry, ListenerRegistration } from './listener-registry
 import { jsonValuesEqual, type JsonValue } from './sandbox/data-tree.js';
 import { targetOf } from './routing.js';
 import { isDefaultQuerySpec, queryIdentifier } from './query-shape.js';
-import { executeQuery, indexedOrderValueChanged, type QueryRow, type QuerySpec } from './internal/query-projection.js';
+import {
+  evaluateQueryRead,
+  executeQuery,
+  indexedOrderValueChanged,
+  loadsAllData,
+  type QueryRow,
+  type QuerySpec,
+} from './internal/query-projection.js';
 import type { DataSnapshot, DatabaseReference, Query, Unsubscribe } from './types.js';
 import { child } from './references.js';
-import { loadsAllData } from './sandbox/query-index.js';
 import { buildSandboxQuerySnap, buildSandboxSnapFromRaw } from './snapshots.js';
 
 export type ChildEvent = 'child_added' | 'child_changed' | 'child_removed' | 'child_moved';
@@ -30,7 +36,7 @@ export function observeConnectionMetadata(
   let stopped = false;
   let stopObserving: Unsubscribe = () => {};
   let release: Unsubscribe | undefined;
-  let previousRows: QueryRow[] | undefined;
+  let previousSelection: JsonValue | undefined;
   const stop = (): void => {
     if (stopped) return;
     stopped = true;
@@ -45,15 +51,14 @@ export function observeConnectionMetadata(
   if (hasAppLifetime) release = target.own?.(stop);
   stopObserving = target.connection.observeConnection((connected) => {
     if (stopped) return;
-    const value = isMetadataRoot ? { connected, serverTimeOffset: 0 } : connected;
-    const filtersChildren = hasConstraints && (isMetadataRoot || !loadsAllData(query._spec));
+    const value: JsonValue = isMetadataRoot ? { connected, serverTimeOffset: 0 } : connected;
     let snapshot: DataSnapshot;
-    if (filtersChildren) {
-      const rows = executeQuery(value, query._spec);
-      const isUnchangedSelection = jsonValuesEqual(previousRows, rows);
-      if (isUnchangedSelection) return;
-      previousRows = rows;
-      snapshot = buildSandboxQuerySnap(target, reference, rows, loadsAllData(query._spec));
+    if (hasConstraints) {
+      const { val, rows } = evaluateQueryRead(value, query._spec);
+      const selection: JsonValue = rows.length > 0 ? (rows as unknown as JsonValue) : val;
+      if (previousSelection !== undefined && jsonValuesEqual(previousSelection, selection)) return;
+      previousSelection = selection;
+      snapshot = buildSandboxQuerySnap(target, reference, rows, loadsAllData(query._spec), val);
     } else {
       snapshot = buildSandboxSnapFromRaw(target, reference, value);
     }

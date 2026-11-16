@@ -11,9 +11,6 @@
  *     query logs nothing.
  *   - `orderByKey`, `orderByPriority` and the default ordering need no index.
  */
-import { loadsAllData, type QuerySpec } from '../internal/query-projection.js';
-
-export { loadsAllData };
 
 function displayPath(path: string): string {
   return '/' + path.split('/').filter(Boolean).join('/');

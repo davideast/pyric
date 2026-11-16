@@ -242,6 +242,21 @@ export function projectQueryValue(
 }
 
 /**
+ * Execute a {@link QuerySpec} at `rawValue` and return both the ordered child
+ * `rows` and the projected snapshot `val` (preserving scalar leaves when
+ * {@link loadsAllData} is `true`).
+ */
+export function evaluateQueryRead(
+  rawValue: JsonValue,
+  spec: QuerySpec,
+  priorityForKey: (key: string) => Priority = () => null,
+): QueryReadResult {
+  const rows = executeQuery(rawValue, spec, priorityForKey);
+  const val = projectQueryValue(rawValue, rows, spec);
+  return { val, rows };
+}
+
+/**
  * Run a {@link QuerySpec} against the data at a path. The caller passes
  * the raw value at the path (a `Record<string, JsonValue>` if it's a
  * collection, anything else → empty result).

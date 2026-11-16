@@ -10,7 +10,7 @@ import type { ChildListener, ValueListener, ValueListenerSnapshot } from './list
 import { PersistenceState } from './persistence-state.js';
 import type { PriorityRecord } from './priority-state.js';
 import { generatePushId } from './push-id.js';
-import type { Priority, QueryReadResult, QueryRow, QuerySpec } from './query.js';
+import type { Priority, QueryReadResult, QueryRow, QuerySpec } from '../internal/query-projection.js';
 import { Transactions } from './transactions.js';
 import { ValueListeners } from './value-listeners.js';
 import { WritePlane } from './write-plane.js';

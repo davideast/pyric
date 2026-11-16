@@ -8,13 +8,7 @@ import { errorPrefix, normalizeWrite, withPriorities, writePriority, type Inline
 import { canonicalPath, denyResultFor, rtdbDenialContext, rtdbRulesDetail } from './operation-events.js';
 import { validateNestedPriorities, validatePriority } from './priority-state.js';
 import { PriorityWrites } from './priority-writes.js';
-import {
-  executeQuery,
-  projectQueryValue,
-  type Priority,
-  type QueryReadResult,
-  type QuerySpec,
-} from './query.js';
+import { evaluateQueryRead, type Priority, type QueryReadResult, type QuerySpec } from '../internal/query-projection.js';
 import { indexNotDefined } from './query-index.js';
 import { permissionDenied, type RuleEvaluationDetails } from './rules-eval.js';
 import { resolveSentinels } from './sentinels.js';
@@ -204,15 +198,13 @@ export class WritePlane {
       });
       throw indexNotDefined(path, missingIndex);
     }
-    const rawValue = this.state.tree.read(path);
-    const rows = executeQuery(rawValue, spec, this.state.priorities.forChild(path));
-    const val = projectQueryValue(rawValue, rows, spec);
+    const result = evaluateQueryRead(this.state.tree.read(path), spec, this.state.priorities.forChild(path));
     this.state.events.operation(null, 'get', path, 'not-applicable', undefined, {
       at: this.state.clock.now(),
       origin: 'admin', request: { query: spec },
-      resourceBefore: { data: val, exists: val !== null },
+      resourceBefore: { data: result.val, exists: result.val !== null },
     });
-    return { val, rows };
+    return result;
   }
 
   adminSet(path: string, value: JsonValue): void {
@@ -326,14 +318,12 @@ export class WritePlane {
       });
       throw indexNotDefined(path, missingIndex);
     }
-    const rawValue = this.state.tree.read(path);
-    const rows = executeQuery(rawValue, spec, this.state.priorities.forChild(path));
-    const val = projectQueryValue(rawValue, rows, spec);
+    const result = evaluateQueryRead(this.state.tree.read(path), spec, this.state.priorities.forChild(path));
     this.state.events.operation(auth, 'get', path, 'allow', evaluation, {
       at, durationMs: this.state.clock.now() - at, request: { query: spec },
-      resourceBefore: { data: val, exists: val !== null },
+      resourceBefore: { data: result.val, exists: result.val !== null },
     });
-    return { val, rows };
+    return result;
   }
 
   set(auth: AuthState, path: string, value: JsonValue): void {
