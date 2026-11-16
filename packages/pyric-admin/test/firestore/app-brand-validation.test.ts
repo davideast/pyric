@@ -21,14 +21,19 @@ describe('pyric-admin/firestore getFirestore app-brand validation', () => {
     expect(() => getFirestore(sandbox as never)).toThrow(TypeError);
   });
 
-  it('rejects non-sandbox admin app targets and deleted apps', async () => {
+  it('rejects spoofed, non-sandbox admin app targets with TypeError and rejects deleted apps', async () => {
     const sandbox = initializeSandbox();
     const app = initializeApp({ sandbox }, 'fs-brand-disposable');
     await deleteApp(app);
     expect(() => getFirestore(app)).toThrow(/already been deleted/);
 
-    const nonSandboxApp = { [ADMIN_APP_TARGET]: 'prod', sandbox: {} } as never;
-    expect(() => getFirestore(nonSandboxApp)).toThrow(/sandbox apps/);
+    expect(() => getFirestore({ [ADMIN_APP_TARGET]: 'prod' } as never)).toThrow(TypeError);
+    expect(() => getFirestore({ [ADMIN_APP_TARGET]: 'prod', sandbox: {} } as never)).toThrow(TypeError);
+    expect(() => getFirestore({ [ADMIN_APP_TARGET]: 'sandbox' } as never)).toThrow(TypeError);
+    expect(() => getFirestore({ [ADMIN_APP_TARGET]: 'sandbox', sandbox: {} } as never)).toThrow(TypeError);
+    expect(() =>
+      getFirestore({ [ADMIN_APP_TARGET]: 'sandbox', sandbox: {}, options: {}, name: 'x' } as never),
+    ).toThrow(TypeError);
   });
 
   it('continues accepting valid PyricAdminApp, default app, and SandboxContext handles', async () => {

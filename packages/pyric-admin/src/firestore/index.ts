@@ -108,11 +108,17 @@ function getAppFirestore(app: PyricAdminApp): SandboxFirestore {
  *  does not model. */
 function adminAppToContext(app: PyricAdminApp): SandboxContext {
   if (isSandboxAdminApp(app)) {
-    return app.sandbox.withAuth(null);
+    const candidateSandbox = (app as { sandbox?: unknown }).sandbox;
+    if (
+      candidateSandbox !== null &&
+      typeof candidateSandbox === 'object' &&
+      typeof (candidateSandbox as { withAuth?: unknown }).withAuth === 'function'
+    ) {
+      return app.sandbox.withAuth(null);
+    }
   }
-  throw new Error(
-    'pyric-admin/firestore: getFirestore() default-app resolution supports ' +
-      'sandbox apps; a prod app requires firebase-admin/firestore directly.',
+  throw new TypeError(
+    `pyric-admin/firestore: expected a sandbox admin app from initializeApp(), received target '${String(app[ADMIN_APP_TARGET])}'.`,
   );
 }
 

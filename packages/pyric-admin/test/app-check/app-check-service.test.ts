@@ -67,15 +67,20 @@ describe('AppCheck service and createToken / verifyToken options', () => {
     expect(claims.exp - claims.iat).toBe(1801);
   });
 
-  it('rejects unbranded objects, null, primitives, non-sandbox targets, and deleted apps', async () => {
+  it('rejects unbranded, spoofed, non-sandbox, null, primitive, and deleted apps', async () => {
     expect(() => getAppCheck({} as never)).toThrow(TypeError);
     expect(() => getAppCheck(null as never)).toThrow(TypeError);
     expect(() => getAppCheck('not-an-app' as never)).toThrow(TypeError);
     expect(() => getAppCheck(42 as never)).toThrow(TypeError);
     expect(() => getAppCheck([] as never)).toThrow(TypeError);
 
-    const nonSandboxApp = { [ADMIN_APP_TARGET]: 'prod', sandbox: {} } as never;
-    expect(() => getAppCheck(nonSandboxApp)).toThrow(/expected a sandbox admin app/);
+    expect(() => getAppCheck({ [ADMIN_APP_TARGET]: 'prod' } as never)).toThrow(TypeError);
+    expect(() => getAppCheck({ [ADMIN_APP_TARGET]: 'prod', sandbox: {} } as never)).toThrow(TypeError);
+    expect(() => getAppCheck({ [ADMIN_APP_TARGET]: 'sandbox' } as never)).toThrow(TypeError);
+    expect(() => getAppCheck({ [ADMIN_APP_TARGET]: 'sandbox', sandbox: {} } as never)).toThrow(TypeError);
+    expect(() =>
+      getAppCheck({ [ADMIN_APP_TARGET]: 'sandbox', sandbox: {}, options: {}, name: 'x' } as never),
+    ).toThrow(TypeError);
 
     const app = initializeApp({ sandbox: initializeSandbox(), projectId: 'demo-appcheck' }, 'ac-brand');
     await deleteApp(app);

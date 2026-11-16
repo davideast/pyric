@@ -251,9 +251,14 @@ export function getAppCheck(app?: PyricAdminApp): AppCheck {
       'pyric-admin/app-check: expected a PyricAdminApp from initializeApp() (or omit the argument for the default app).',
     );
   }
-  if (resolved[ADMIN_APP_TARGET] !== 'sandbox') {
-    throw new Error(
-      `pyric-admin/app-check: expected a sandbox admin app, received target '${String(resolved[ADMIN_APP_TARGET])}'.`,
+  const candidateSandbox = (resolved as { sandbox?: unknown }).sandbox;
+  const hasValidSandbox =
+    candidateSandbox !== null &&
+    typeof candidateSandbox === 'object' &&
+    typeof (candidateSandbox as { withAuth?: unknown }).withAuth === 'function';
+  if (resolved[ADMIN_APP_TARGET] !== 'sandbox' || !hasValidSandbox) {
+    throw new TypeError(
+      `pyric-admin/app-check: expected a sandbox admin app from initializeApp(), received target '${String(resolved[ADMIN_APP_TARGET])}'.`,
     );
   }
   assertAdminAppActive(resolved);

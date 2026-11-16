@@ -115,7 +115,7 @@ describe.each(STORAGE_ARMS)('File.setMetadata null clearing and proto-safe custo
     });
 
     await source.copy(dest, {
-      cacheControl: null as unknown as string,
+      cacheControl: null,
       metadata: JSON.parse('{"__proto__":"overridden","k2":"v2"}') as Record<string, string>,
     });
 

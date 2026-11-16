@@ -288,11 +288,11 @@ export type CopyDestination = string | Bucket | File;
 
 /** Options bag for {@link File.copy}. Subset of `@google-cloud/storage`'s `CopyOptions`. */
 export interface CopyOptions {
-  contentType?: string;
-  cacheControl?: string;
-  contentDisposition?: string;
-  contentEncoding?: string;
-  contentLanguage?: string;
+  contentType?: string | null;
+  cacheControl?: string | null;
+  contentDisposition?: string | null;
+  contentEncoding?: string | null;
+  contentLanguage?: string | null;
   /** Custom keys for the copy, merged over the source's; `null` leaves a key off. */
   metadata?: Record<string, string | number | boolean | null>;
 }
@@ -1192,7 +1192,6 @@ class RemoteFile implements File {
   }
 }
 
-/** Object metadata as a host reports it (`pyric/storage`'s `FullMetadata`, with its download tokens). */
 /** Is this relayed error the worker's `storage/object-not-found`? */
 function isObjectNotFound(err: unknown): boolean {
   return (err as { code?: unknown })?.code === 'storage/object-not-found';
