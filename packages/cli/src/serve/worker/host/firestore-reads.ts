@@ -60,7 +60,7 @@ export async function handleFirestoreReadOp(
               )
             : sdkActivity.silence(() => getDoc(ref));
         const snap = await snapPromise;
-        ok(port, msg.id, serializeDocSnap(snap as Parameters<typeof serializeDocSnap>[0]));
+        ok(port, msg.id, serializeDocSnap(snap as Parameters<typeof serializeDocSnap>[0], msg.docValueEncoding));
       } catch (e) { fail(port, msg.id, e); }
       break;
     }
@@ -81,7 +81,7 @@ export async function handleFirestoreReadOp(
             : sdkActivity.silence(() => getDocs(source as Query));
         const snap = await snapPromise;
         const docs = snap.docs.map((d) =>
-          serializeDocSnap(d as Parameters<typeof serializeDocSnap>[0]),
+          serializeDocSnap(d as Parameters<typeof serializeDocSnap>[0], msg.docValueEncoding),
         );
         ok(port, msg.id, { docs });
       } catch (e) { fail(port, msg.id, e); }

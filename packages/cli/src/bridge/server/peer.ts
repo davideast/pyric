@@ -31,6 +31,7 @@ import type { WorkerSessionLease } from './worker-sessions.js';
 import { parseBridgeMessage, requestEnvelopeError, requestProtocolError } from './request-envelope.js';
 import { sendBridgeMessage } from './socket-message.js';
 import { watchPeerLiveness } from './peer-liveness.js';
+import { resolveConsumerDocEncoding, stampWorkerOpPayload, stampWorkerSubPayload } from './consumer-capabilities.js';
 
 export interface AttachPeerOptions {
   /** The liveness window; defaults to `HOST_PEER_LIVENESS_TIMEOUT_MS`. Shortened only by tests. */
@@ -215,6 +216,7 @@ export function createConsumerSession(
   const socketIdentity = {};
   let attachedFromPriorHost = false;
   let verifiedCurrentHost = false;
+  let docValueEncoding = resolveConsumerDocEncoding(undefined);
   /** Unregisters the reads this consumer's tab announced (`tab-tools.ts`). */
   let leaveTabTools: (() => void) | null = null;
 
@@ -286,6 +288,7 @@ export function createConsumerSession(
     switch (msg.type) {
       case 'attach': {
         const attachMsg = msg;
+        docValueEncoding = resolveConsumerDocEncoding(attachMsg.capabilities);
         ownsWorkerPort = attachMsg.transport === 'worker-port';
         if (ownsWorkerPort) {
           const hasHostIdentity = typeof attachMsg.hostInstanceId === 'string' && attachMsg.hostInstanceId.length > 0;
@@ -351,10 +354,7 @@ export function createConsumerSession(
       }
       case 'worker-op': {
         const opSessionId = clientSessionId;
-        const opPayload = {
-          ...msg.op,
-          resumeSession: true,
-        };
+        const opPayload = stampWorkerOpPayload(msg.op, docValueEncoding);
         bridge.dispatchWorkerOp(opPayload, opSessionId, socketIdentity).then(
           (value) => send({ type: 'worker-res', id: msg.id, clientSessionId: opSessionId, ok: true, value }),
           (err: Error & { code?: string; denialContext?: unknown; envelope?: unknown }) => {
@@ -411,10 +411,7 @@ export function createConsumerSession(
         const isAlreadySubscribed = subs.has(msg.subId);
         if (isAlreadySubscribed) return;
         const subSessionId = clientSessionId;
-        const subPayload = {
-          ...msg.sub,
-          resumeSession: true,
-        };
+        const subPayload = stampWorkerSubPayload(msg.sub, docValueEncoding);
         const unsubscribe = bridge.subscribeWorker(
           subPayload,
           (value) => send({ type: 'worker-snap', subId: msg.subId, clientSessionId: subSessionId, value }),

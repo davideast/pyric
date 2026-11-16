@@ -213,17 +213,28 @@ Map<String, dynamic> encodeWriteData(Map<String, dynamic> data) {
 
 // ─── Value Deserializer (Wire JSON -> Dart) ─────────────────────────────────
 
-/// Decodes a wire JSON structure, reviving `__type` and compat type markers.
+/// Declared document value encoding capability for lossless Firestore wire maps and numbers.
+const String docValueEncodingV1 = 'pyric/firestore-values/1';
+
+/// Decodes a wire JSON structure, reviving `__type`, compat `type`, and
+/// (when [allowEscapedMaps] is true) `pyric/map/1.0` wrappers.
 dynamic decodeValue(
   dynamic value, {
   DocumentReferenceResolver? referenceResolver,
+  bool allowEscapedMaps = false,
 }) {
   if (value == null) return null;
   if (value is bool || value is num || value is String) return value;
 
   if (value is List) {
     return value
-        .map((item) => decodeValue(item, referenceResolver: referenceResolver))
+        .map(
+          (item) => decodeValue(
+            item,
+            referenceResolver: referenceResolver,
+            allowEscapedMaps: allowEscapedMaps,
+          ),
+        )
         .toList();
   }
 
@@ -235,48 +246,96 @@ dynamic decodeValue(
     if (typeMarker is String) {
       switch (typeMarker) {
         case 'timestamp':
-          final seconds = (map['seconds'] as num).toInt();
-          final nanos = (map['nanos'] as num).toInt();
-          return Timestamp(seconds, nanos);
+          if (map['seconds'] is num && map['nanos'] is num) {
+            final seconds = (map['seconds'] as num).toInt();
+            final nanos = (map['nanos'] as num).toInt();
+            return Timestamp(seconds, nanos);
+          }
+          break;
         case 'latlng':
-          final lat = (map['lat'] as num).toDouble();
-          final lng = (map['lng'] as num).toDouble();
-          return GeoPoint(lat, lng);
+          if (map['lat'] is num && map['lng'] is num) {
+            final lat = (map['lat'] as num).toDouble();
+            final lng = (map['lng'] as num).toDouble();
+            return GeoPoint(lat, lng);
+          }
+          break;
         case 'bytes':
-          final b64 = map['base64'] as String;
-          return Blob(base64UrlDecodeUnpadded(b64));
+          if (map['base64'] is String) {
+            final b64 = map['base64'] as String;
+            return Blob(base64UrlDecodeUnpadded(b64));
+          }
+          break;
         case 'reference':
-          final path = map['path'] as String;
-          return referenceResolver != null
-              ? referenceResolver(path)
-              : PyricDocumentReferenceHolder(path);
+          if (map['path'] is String) {
+            final path = map['path'] as String;
+            return referenceResolver != null
+                ? referenceResolver(path)
+                : PyricDocumentReferenceHolder(path);
+          }
+          break;
+        case 'number':
+          if (map.length == 2 && map.containsKey('value')) {
+            final numVal = map['value'];
+            if (numVal == 'NaN') return double.nan;
+            if (numVal == 'Infinity') return double.infinity;
+            if (numVal == '-Infinity') return double.negativeInfinity;
+            if (numVal == '-0') return -0.0;
+          }
+          break;
       }
     }
 
-    // 2. Compatibility `type` marker (firebase/firestore SDK style)
+    // 2. Escaped user map wrapper under declared pyric/firestore-values/1 encoding
     final dynamic compatType = map['type'];
+    if (allowEscapedMaps &&
+        compatType == 'pyric/map/1.0' &&
+        map.length == 2 &&
+        map['fields'] is Map) {
+      final fields = map['fields'] as Map;
+      final unwrapped = <String, dynamic>{};
+      for (final entry in fields.entries) {
+        unwrapped[entry.key.toString()] = decodeValue(
+          entry.value,
+          referenceResolver: referenceResolver,
+          allowEscapedMaps: allowEscapedMaps,
+        );
+      }
+      return unwrapped;
+    }
+
+    // 3. Compatibility `type` marker (firebase/firestore SDK style)
     if (compatType is String) {
       switch (compatType) {
         case 'firestore/timestamp/1.0':
-          final seconds = (map['seconds'] as num).toInt();
-          final nanos = (map['nanoseconds'] as num).toInt();
-          return Timestamp(seconds, nanos);
+          if (map['seconds'] is num && map['nanoseconds'] is num) {
+            final seconds = (map['seconds'] as num).toInt();
+            final nanos = (map['nanoseconds'] as num).toInt();
+            return Timestamp(seconds, nanos);
+          }
+          break;
         case 'firestore/geoPoint/1.0':
-          final lat = (map['latitude'] as num).toDouble();
-          final lng = (map['longitude'] as num).toDouble();
-          return GeoPoint(lat, lng);
+          if (map['latitude'] is num && map['longitude'] is num) {
+            final lat = (map['latitude'] as num).toDouble();
+            final lng = (map['longitude'] as num).toDouble();
+            return GeoPoint(lat, lng);
+          }
+          break;
         case 'firestore/bytes/1.0':
-          final b64 = map['bytes'] as String;
-          return Blob(base64StdDecode(b64));
+          if (map['bytes'] is String) {
+            final b64 = map['bytes'] as String;
+            return Blob(base64StdDecode(b64));
+          }
+          break;
       }
     }
 
-    // 3. Regular Map: recursively decode all entries
+    // 4. Regular Map: recursively decode all entries
     final out = <String, dynamic>{};
     for (final entry in map.entries) {
       out[entry.key.toString()] = decodeValue(
         entry.value,
         referenceResolver: referenceResolver,
+        allowEscapedMaps: allowEscapedMaps,
       );
     }
     return out;
@@ -304,9 +363,14 @@ Map<String, dynamic> decodeDocData(
   if (wireData is Map) {
     if (wireData.containsKey('json') && wireData['json'] is String) {
       final jsonStr = wireData['json'] as String;
+      final allowEscapedMaps = wireData['valueEncoding'] == docValueEncodingV1;
       try {
         final parsed = jsonDecode(jsonStr);
-        final decoded = decodeValue(parsed, referenceResolver: referenceResolver);
+        final decoded = decodeValue(
+          parsed,
+          referenceResolver: referenceResolver,
+          allowEscapedMaps: allowEscapedMaps,
+        );
         if (decoded is Map<String, dynamic>) return decoded;
         if (decoded is Map) return Map<String, dynamic>.from(decoded);
         return <String, dynamic>{};

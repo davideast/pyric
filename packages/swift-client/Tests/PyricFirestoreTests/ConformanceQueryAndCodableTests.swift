@@ -382,7 +382,8 @@ struct ConformanceQueryAndCodableTests {
     @Test func `firestore-swift#97: FieldValue.vector(_:) - Constructs dense vector embedding from Double or Float array.`() async throws {
         let fv = FieldValue.vector([0.1, 0.2, 0.3])
         let wire = try ValueCodec.encodeValue(fv) as? [String: Any]
-        #expect(wire?["__sentinel"] as? String == "vector")
+        #expect(wire?["type"] as? String == "firestore/vectorValue/1.0")
+        #expect(wire?["vectorValues"] as? [Double] == [0.1, 0.2, 0.3])
     }
 
     // ══════════════════════════════════════════════════════════════════════════

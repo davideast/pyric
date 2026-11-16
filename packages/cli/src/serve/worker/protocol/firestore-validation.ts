@@ -33,6 +33,18 @@ export function requireUpdateFields(value: unknown): asserts value is { path: st
   throw new FirebaseError('invalid-argument', 'Firestore update fields must name non-empty segment vectors.');
 }
 
+/** Refuse misplaced top-level set options that belong nested under `options`. */
+export function assertNoTopLevelSetOptions(record: Record<string, unknown>): void {
+  const hasTopLevelMerge = Object.hasOwn(record, 'merge') && record.merge !== undefined;
+  const hasTopLevelMergeFields = Object.hasOwn(record, 'mergeFields') && record.mergeFields !== undefined;
+  if (hasTopLevelMerge || hasTopLevelMergeFields) {
+    throw new FirebaseError(
+      'invalid-argument',
+      'Firestore set options must be passed under "options", not as top-level merge or mergeFields.',
+    );
+  }
+}
+
 /** Check optional `SetOptions` (`merge` boolean and/or `mergeFields` string array). */
 export function assertSetOptions(value: unknown): void {
   if (value === undefined) return;

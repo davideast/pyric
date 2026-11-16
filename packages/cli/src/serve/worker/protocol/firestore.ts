@@ -3,7 +3,7 @@
  * aggregate descriptors, write descriptors, and document data serialization.
  */
 import { decodeDocValue, encodeDocValue, rehydrateEncodedDocValue, DOC_VALUE_ENCODING, type DocValueEncoding, type ReferenceDecoder } from 'pyric/firestore/internal/value-codec';
-export type { DocValueEncoding } from 'pyric/firestore/internal/value-codec';
+export { DOC_VALUE_ENCODING, type DocValueEncoding } from 'pyric/firestore/internal/value-codec';
 import type { AuthLens, ListenerOwner } from 'pyric/sandbox';
 
 // ─── Ref descriptors (client-side, never cross the port directly) ──────────
@@ -100,7 +100,8 @@ export type SentinelMarker =
   | { readonly __sentinel: 'increment'; readonly n: number }
   | { readonly __sentinel: 'arrayUnion'; readonly values: unknown[] }
   | { readonly __sentinel: 'arrayRemove'; readonly values: unknown[] }
-  | { readonly __sentinel: 'deleteField' };
+  | { readonly __sentinel: 'deleteField' }
+  | { readonly __sentinel: 'vector'; readonly values: unknown[] };
 
 export function isSentinelMarker(v: unknown): v is SentinelMarker {
   return (
@@ -219,6 +220,8 @@ export interface FirestoreSubMessage {
   issuer?: 'studio';
   /** Marks traffic relayed from a remote Node/agent consumer, never page app activity. */
   relaySource?: 'remote';
+  /** Negotiated response value encoding for this subscription's snapshots. */
+  docValueEncoding?: ResponseDocValueEncoding;
 }
 
 // ─── Serialized document data ─────────────────────────────────────────────
@@ -235,10 +238,74 @@ export interface SerializedDocData {
   json: string;
 }
 
+/** Response encoding selected for a peer: full value encoding or legacy protocol-1 JSON. */
+export type ResponseDocValueEncoding = DocValueEncoding | 'legacy';
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return false;
+  const proto = Object.getPrototypeOf(value);
+  return proto === Object.prototype || proto === null;
+}
+
+function unwrapLegacyDocValue(encoded: unknown): unknown {
+  if (encoded === null || typeof encoded !== 'object') return encoded;
+  if (Array.isArray(encoded)) return encoded.map(unwrapLegacyDocValue);
+  if (!isPlainObject(encoded)) return encoded;
+  const keys = Object.keys(encoded);
+  const isEscapedMap =
+    keys.length === 2
+    && Object.hasOwn(encoded, 'type')
+    && encoded.type === 'pyric/map/1.0'
+    && Object.hasOwn(encoded, 'fields')
+    && isPlainObject(encoded.fields);
+  if (isEscapedMap) {
+    const out: Record<string, unknown> = {};
+    for (const [key, item] of Object.entries(encoded.fields as Record<string, unknown>)) {
+      Object.defineProperty(out, key, {
+        value: unwrapLegacyDocValue(item),
+        enumerable: true,
+        writable: true,
+        configurable: true,
+      });
+    }
+    return out;
+  }
+  const isNumberMarker =
+    keys.length === 2
+    && Object.hasOwn(encoded, '__type')
+    && encoded.__type === 'number'
+    && Object.hasOwn(encoded, 'value');
+  if (isNumberMarker) {
+    if (encoded.value === 'NaN' || encoded.value === 'Infinity' || encoded.value === '-Infinity') return null;
+    if (encoded.value === '-0') return 0;
+  }
+  const out: Record<string, unknown> = {};
+  for (const [key, item] of Object.entries(encoded)) {
+    Object.defineProperty(out, key, {
+      value: unwrapLegacyDocValue(item),
+      enumerable: true,
+      writable: true,
+      configurable: true,
+    });
+  }
+  return out;
+}
+
+/** Encode document values for unnegotiated protocol-1 peers (no escaped map wrappers or number markers). */
+export function encodeLegacyDocValue(data: unknown): unknown {
+  return unwrapLegacyDocValue(encodeDocValue(data));
+}
+
 /**
  * Serialize document data to cross-port form.
  */
-export function serializeDocData(data: Record<string, unknown>): SerializedDocData {
+export function serializeDocData(
+  data: Record<string, unknown>,
+  encoding: ResponseDocValueEncoding = DOC_VALUE_ENCODING,
+): SerializedDocData {
+  if (encoding === 'legacy') {
+    return { json: JSON.stringify(encodeLegacyDocValue(data)) };
+  }
   return { valueEncoding: DOC_VALUE_ENCODING, json: JSON.stringify(encodeDocValue(data)) };
 }
 

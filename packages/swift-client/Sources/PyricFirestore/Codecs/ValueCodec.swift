@@ -55,6 +55,8 @@ public typealias DocumentReferenceResolver = @Sendable (String) -> Any
 // ─── Value Codec ─────────────────────────────────────────────────────────────
 
 public enum ValueCodec {
+    public static let docValueEncodingV1 = "pyric/firestore-values/1"
+
     private static let sentinelTypes: Set<String> = [
         "serverTimestamp",
         "increment",
@@ -148,8 +150,8 @@ public enum ValueCodec {
         // 9. Vector Value
         if let vec = value as? VectorValue {
             return [
-                "__sentinel": "vector",
-                "values": vec.values
+                "type": "firestore/vectorValue/1.0",
+                "vectorValues": vec.values
             ]
         }
 
@@ -176,7 +178,12 @@ public enum ValueCodec {
                     ]
                 }
                 if sentinel == "vector" {
-                    return ["__sentinel": "vector", "values": dict["values"] as Any]
+                    let raw = (dict["values"] as? [Any]) ?? (dict["vectorValues"] as? [Any]) ?? []
+                    let doubles = try extractVectorDoubles(raw)
+                    return [
+                        "type": "firestore/vectorValue/1.0",
+                        "vectorValues": doubles
+                    ]
                 }
             }
 
@@ -242,6 +249,7 @@ public enum ValueCodec {
     /// Decodes a wire JSON structure, reviving `__type` and compatibility type markers.
     public static func decodeValue(
         _ value: Any?,
+        allowEscapedMaps: Bool = false,
         referenceResolver: DocumentReferenceResolver? = nil
     ) -> Any? {
         guard let value = value, !(value is NSNull) else {
@@ -263,7 +271,13 @@ public enum ValueCodec {
 
         // 2. Arrays
         if let array = value as? [Any] {
-            return array.map { decodeValue($0, referenceResolver: referenceResolver) ?? NSNull() }
+            return array.map {
+                decodeValue(
+                    $0,
+                    allowEscapedMaps: allowEscapedMaps,
+                    referenceResolver: referenceResolver
+                ) ?? NSNull()
+            }
         }
 
         // 3. Dictionaries
@@ -296,6 +310,12 @@ public enum ValueCodec {
                 case "vector":
                     let numbers = (dict["value"] as? [NSNumber]) ?? (dict["values"] as? [NSNumber]) ?? []
                     return VectorValue(numbers.map { $0.doubleValue })
+                case "number":
+                    if dict.count == 2, let rawNumber = dict["value"] as? String {
+                        if let parsed = decodeSpecialNumber(rawNumber) {
+                            return parsed
+                        }
+                    }
                 default:
                     break
                 }
@@ -310,6 +330,16 @@ public enum ValueCodec {
             // (c) Compatibility `type` markers
             if let compatType = dict["type"] as? String {
                 switch compatType {
+                case "pyric/map/1.0":
+                    if allowEscapedMaps,
+                       dict.count == 2,
+                       let fields = dict["fields"] as? [String: Any] {
+                        return decodeMapEntries(
+                            fields,
+                            allowEscapedMaps: allowEscapedMaps,
+                            referenceResolver: referenceResolver
+                        )
+                    }
                 case "firestore/timestamp/1.0":
                     let sec = (dict["seconds"] as? NSNumber)?.int64Value ?? 0
                     let nanos = (dict["nanoseconds"] as? NSNumber)?.int32Value ?? 0
@@ -329,21 +359,81 @@ public enum ValueCodec {
                 case "firestore/bytes/1.0":
                     let b64 = (dict["bytes"] as? String) ?? ""
                     return Base64Codec.base64StdDecode(b64) ?? Data()
+                case "firestore/vectorValue/1.0":
+                    if let rawValues = dict["vectorValues"] as? [Any],
+                       let doubles = try? extractVectorDoubles(rawValues) {
+                        return VectorValue(doubles)
+                    }
                 default:
                     break
                 }
             }
 
-            // (c) Regular dictionary: recursively decode entries
-            var out: [String: Any] = [:]
-            for (key, val) in dict {
-                let decoded = decodeValue(val, referenceResolver: referenceResolver)
-                out[key] = decoded ?? NSNull()
-            }
-            return out
+            // (d) Regular dictionary: recursively decode entries
+            return decodeMapEntries(
+                dict,
+                allowEscapedMaps: allowEscapedMaps,
+                referenceResolver: referenceResolver
+            )
         }
 
         return value
+    }
+
+    private static func decodeMapEntries(
+        _ dict: [String: Any],
+        allowEscapedMaps: Bool,
+        referenceResolver: DocumentReferenceResolver?
+    ) -> [String: Any] {
+        var out: [String: Any] = [:]
+        for (key, val) in dict {
+            let decoded = decodeValue(
+                val,
+                allowEscapedMaps: allowEscapedMaps,
+                referenceResolver: referenceResolver
+            )
+            out[key] = decoded ?? NSNull()
+        }
+        return out
+    }
+
+    private static func decodeSpecialNumber(_ raw: String) -> Double? {
+        switch raw {
+        case "NaN":
+            return Double.nan
+        case "Infinity":
+            return Double.infinity
+        case "-Infinity":
+            return -Double.infinity
+        case "-0":
+            return -0.0
+        default:
+            return nil
+        }
+    }
+
+    private static func extractVectorDoubles(_ raw: [Any]) throws -> [Double] {
+        var doubles: [Double] = []
+        doubles.reserveCapacity(raw.count)
+        for item in raw {
+            if let num = item as? NSNumber {
+                if CFGetTypeID(num) == CFBooleanGetTypeID() {
+                    throw PyricFirestoreError.serializationError("Vector elements must be numeric.")
+                }
+                doubles.append(num.doubleValue)
+            } else if let dbl = item as? Double {
+                doubles.append(dbl)
+            } else if let flt = item as? Float {
+                doubles.append(Double(flt))
+            } else if let intVal = item as? Int {
+                doubles.append(Double(intVal))
+            } else if let int64Val = item as? Int64 {
+                doubles.append(Double(int64Val))
+            } else {
+                throw PyricFirestoreError.serializationError("Vector elements must be numeric.")
+            }
+        }
+        return doubles
     }
 
     /// Decodes document data from the `{ "json": string }` envelope returned by bridge.
@@ -372,7 +462,12 @@ public enum ValueCodec {
                       let parsed = try? JSONSerialization.jsonObject(with: data) else {
                     return [:]
                 }
-                let decoded = decodeValue(parsed, referenceResolver: referenceResolver)
+                let allowEscapedMaps = (dict["valueEncoding"] as? String) == docValueEncodingV1
+                let decoded = decodeValue(
+                    parsed,
+                    allowEscapedMaps: allowEscapedMaps,
+                    referenceResolver: referenceResolver
+                )
                 return (decoded as? [String: Any]) ?? [:]
             }
 

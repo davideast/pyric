@@ -119,7 +119,10 @@ public final class PyricVectorSentinel: PyricSentinel, Equatable, @unchecked Sen
     }
 
     public func toWireSentinel() throws -> [String: Any] {
-        ["__sentinel": "vector", "values": values]
+        [
+            "type": "firestore/vectorValue/1.0",
+            "vectorValues": values
+        ]
     }
 
     public func isEqual(to other: any PyricSentinel) -> Bool {

@@ -8,6 +8,7 @@ import '../auth/auth_lens.dart';
 import '../auth/pyric_auth_credentials_provider.dart';
 import '../transport/bridge_client.dart';
 import 'connection_info.dart';
+import 'instance_name.dart';
 import 'pyric_database_reference.dart';
 
 /// Entry point for the Pyric Realtime Database client SDK.
@@ -136,11 +137,26 @@ class PyricDatabase {
     await op('rtdb.goOnline', const {});
   }
 
-  /// Dispatches an RTDB worker operation stamped with the active [AuthLens].
+  /// Wire `instance` selector derived from [databaseURL] (or [app] options),
+  /// or `null` when targeting the default instance.
+  String? get wireInstance {
+    final effectiveUrl = databaseURL ?? app?.options.databaseURL;
+    return resolveDatabaseInstanceName(
+      effectiveUrl,
+      projectId: app?.options.projectId,
+    );
+  }
+
+  /// Dispatches an RTDB worker operation stamped with the active [AuthLens]
+  /// and optional non-default wire `instance`.
   Future<dynamic> op(String method, Map<String, dynamic> params) {
+    final instance = wireInstance;
+    final payload = instance == null
+        ? params
+        : <String, dynamic>{...params, 'instance': instance};
     return _bridgeClient.op(
       method,
-      params,
+      payload,
       actAs: effectiveAuthLens,
     );
   }
@@ -159,9 +175,11 @@ class PyricDatabase {
 
     void startListening(Map<String, dynamic> actAs) {
       bridgeSub?.cancel();
+      final instance = wireInstance;
       final subStream = _bridgeClient.subscribeRaw({
         'target': {
           'service': 'rtdb',
+          if (instance != null) 'instance': instance,
           'path': path,
           if (querySpec != null) 'query': querySpec,
         },

@@ -2,6 +2,7 @@ package dev.pyric.bridge
 
 object BridgeProtocol {
     const val PROTOCOL_VERSION: Int = 1
+    const val CAPABILITY_DOC_VALUE_ENCODING: String = "pyric/firestore-values/1"
     const val DEFAULT_BRIDGE_URL: String = "ws://127.0.0.1:5174/__pyric/sandbox"
     const val DEFAULT_OP_TIMEOUT_MS: Long = 35_000L
 
@@ -21,7 +22,8 @@ object BridgeProtocol {
     fun createAttachFrame(clientSessionId: String? = null): Map<String, Any> {
         val frame = mutableMapOf<String, Any>(
             "type" to TYPE_ATTACH,
-            "protocol" to PROTOCOL_VERSION
+            "protocol" to PROTOCOL_VERSION,
+            "capabilities" to listOf(CAPABILITY_DOC_VALUE_ENCODING)
         )
         if (clientSessionId != null) frame["clientSessionId"] = clientSessionId
         return frame

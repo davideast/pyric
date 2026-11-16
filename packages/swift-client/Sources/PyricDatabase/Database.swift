@@ -48,6 +48,7 @@ public final class Database: NSObject, @unchecked Sendable {
     public let app: FirebaseApp
     public let url: String
     public private(set) var bridgeClient: PyricBridgeClient
+    internal let wireInstance: String?
 
     private let stateLock = NSLock()
     private var _impersonatedLens: AuthLens?
@@ -78,8 +79,18 @@ public final class Database: NSObject, @unchecked Sendable {
         self.app = app
         self.url = url
         self.bridgeClient = bridgeClient ?? Firestore.firestore(app: app).bridgeClient
+        self.wireInstance = DatabaseInstanceResolver.resolveInstanceName(from: url)
         super.init()
         startAuthLensSync()
+    }
+
+    internal func withInstance(_ params: [String: AnySendable]) -> [String: AnySendable] {
+        guard let instance = wireInstance else {
+            return params
+        }
+        var out = params
+        out["instance"] = .string(instance)
+        return out
     }
 
     deinit {

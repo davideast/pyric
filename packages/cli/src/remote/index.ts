@@ -65,7 +65,7 @@ import {
   isBridgeMessage,
   MAX_BRIDGE_FRAME_BYTES,
   NO_SANDBOX_ERROR_MESSAGE,
-  STORAGE_BYTE_ROUTE_CAPABILITY,
+  DOC_VALUE_ENCODING_CAPABILITY, STORAGE_BYTE_ROUTE_CAPABILITY,
 } from '../bridge/protocol.js';
 import { encodeBridgeMessage } from '../bridge/frame-output.js';
 import { createOperationBudget } from '../bridge/operation-budget.js';
@@ -654,8 +654,7 @@ export function createRemoteSandboxCore(
     fail,
     start: () =>
       send({
-        type: 'attach',
-        protocol: 1,
+        type: 'attach', protocol: 1, capabilities: [DOC_VALUE_ENCODING_CAPABILITY],
         ...(attachClientInfo !== undefined ? { clientInfo: attachClientInfo } : {}),
       }),
     capabilities: () => advertised,

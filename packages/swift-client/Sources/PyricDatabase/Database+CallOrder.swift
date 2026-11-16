@@ -13,7 +13,12 @@ extension Database {
 
     /// Sends an operation in the place `turn` holds and awaits its result.
     func send(turn: OperationTurn, method: String, params: [String: AnySendable]) async throws {
-        _ = try await bridgeClient.op(turn: turn, method: method, params: params, actAs: currentAuthLens())
+        _ = try await bridgeClient.op(
+            turn: turn,
+            method: method,
+            params: withInstance(params),
+            actAs: currentAuthLens()
+        )
     }
 
     /// Sends a write started from synchronous code in the order the app called
@@ -28,9 +33,10 @@ extension Database {
         let client = bridgeClient
         let turn = client.takeTurn()
         let actAs = currentAuthLens()
+        let wireParams = withInstance(params)
         Task {
             do {
-                _ = try await client.op(turn: turn, method: method, params: params, actAs: actAs)
+                _ = try await client.op(turn: turn, method: method, params: wireParams, actAs: actAs)
                 completion(nil)
             } catch {
                 completion(error)

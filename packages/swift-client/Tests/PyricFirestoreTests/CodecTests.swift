@@ -262,8 +262,9 @@ struct CodecTests {
         // vector
         let vec = FieldValue.vector([1.0, 2.0, 3.5])
         let encVec = try #require(ValueCodec.encodeValue(vec) as? [String: Any])
-        #expect(encVec["__sentinel"] as? String == "vector")
-        #expect(encVec["values"] as? [Double] == [1.0, 2.0, 3.5])
+        #expect(encVec["type"] as? String == "firestore/vectorValue/1.0")
+        #expect(encVec["vectorValues"] as? [Double] == [1.0, 2.0, 3.5])
+        #expect(encVec["__sentinel"] == nil)
     }
 
     @Test("Tests FieldValue sentinel equality and deep comparison")

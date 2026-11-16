@@ -49,6 +49,8 @@ import type {
   InboundMessage,
   TargetDescriptor,
   QueryConstraintDescriptor,
+  ResponseDocValueEncoding,
+  SerializedDocData,
 } from '../protocol.js';
 import { serializeDocData } from '../protocol.js';
 import { type HostCtx, type PortLike } from '../host-context.js';
@@ -170,13 +172,16 @@ function resolveConstraint(constraint: QueryConstraintDescriptor, db: Firestore)
  * Serialize a document snapshot to cross-port form.
  * Uses JSON-via-serializeDocData so Timestamp/Bytes/LatLng survive.
  */
-export function serializeDocSnap(snap: {
-  id: string;
-  path?: string;
-  ref?: { path?: string };
-  exists: boolean | (() => boolean);
-  data(): Record<string, unknown> | undefined;
-}): { id: string; path?: string; exists: boolean; data?: { json: string } } {
+export function serializeDocSnap(
+  snap: {
+    id: string;
+    path?: string;
+    ref?: { path?: string };
+    exists: boolean | (() => boolean);
+    data(): Record<string, unknown> | undefined;
+  },
+  encoding?: ResponseDocValueEncoding,
+): { id: string; path?: string; exists: boolean; data?: SerializedDocData } {
   const existsBool = typeof snap.exists === 'function' ? snap.exists() : snap.exists;
   const data = existsBool ? snap.data() : undefined;
   return {
@@ -186,7 +191,7 @@ export function serializeDocSnap(snap: {
     // browse resolves the document detail from it).
     path: snap.path ?? snap.ref?.path,
     exists: existsBool,
-    data: data ? serializeDocData(data) : undefined,
+    data: data ? serializeDocData(data, encoding) : undefined,
   };
 }
 

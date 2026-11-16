@@ -3,10 +3,14 @@ import '../transport/codecs.dart';
 
 /// Concrete [DocumentSnapshotPlatform] representing a document in Pyric Firestore.
 class PyricDocumentSnapshot extends DocumentSnapshotPlatform {
+  /// Original wire `{ json, valueEncoding? }` envelope when deserialized from bridge.
+  final Map<String, dynamic>? rawWireData;
+
   PyricDocumentSnapshot(
     FirebaseFirestorePlatform firestore,
     String path,
     Map<String?, Object?>? data, {
+    this.rawWireData,
     bool hasPendingWrites = false,
     bool isFromCache = false,
   }) : super(
@@ -76,11 +80,19 @@ class PyricDocumentSnapshot extends DocumentSnapshotPlatform {
       rawData,
       referenceResolver: (refPath) => firestore.doc(refPath),
     );
+    Map<String, dynamic>? wireEnvelope;
+    if (rawData is Map && rawData['json'] is String) {
+      wireEnvelope = <String, dynamic>{'json': rawData['json'] as String};
+      if (rawData['valueEncoding'] is String) {
+        wireEnvelope['valueEncoding'] = rawData['valueEncoding'] as String;
+      }
+    }
 
     return PyricDocumentSnapshot(
       firestore,
       path,
       decoded.cast<String?, Object?>(),
+      rawWireData: wireEnvelope,
       hasPendingWrites: hasPendingWrites,
       isFromCache: isFromCache,
     );

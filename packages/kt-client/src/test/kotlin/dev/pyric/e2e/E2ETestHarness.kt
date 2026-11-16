@@ -145,7 +145,9 @@ class E2ETestHarness {
                 val path = op["path"] as String
                 @Suppress("UNCHECKED_CAST")
                 val rawData = (op["data"] as? Map<String, Any?>) ?: emptyMap()
-                val merge = op["merge"] == true
+                @Suppress("UNCHECKED_CAST")
+                val options = op["options"] as? Map<String, Any?>
+                val merge = options?.get("merge") == true || options?.get("mergeFields") != null
                 synchronized(storeLock) {
                     applySet(path, rawData, merge)
                     notifySubscribers(path)
@@ -233,11 +235,13 @@ class E2ETestHarness {
                     for (w in writes) {
                         val path = w["path"] as String
                         touchedPaths.add(path)
-                        when (w["op"] as? String) {
+                        when (w["method"] as? String) {
                             "set" -> {
                                 @Suppress("UNCHECKED_CAST")
                                 val rawData = (w["data"] as? Map<String, Any?>) ?: emptyMap()
-                                val merge = w["merge"] == true
+                                @Suppress("UNCHECKED_CAST")
+                                val options = w["options"] as? Map<String, Any?>
+                                val merge = options?.get("merge") == true || options?.get("mergeFields") != null
                                 applySet(path, rawData, merge)
                             }
                             "update" -> {
@@ -282,11 +286,13 @@ class E2ETestHarness {
                     for (w in writes) {
                         val path = w["path"] as String
                         touchedPaths.add(path)
-                        when (w["op"] as? String) {
+                        when (w["method"] as? String) {
                             "set" -> {
                                 @Suppress("UNCHECKED_CAST")
                                 val rawData = (w["data"] as? Map<String, Any?>) ?: emptyMap()
-                                val merge = w["merge"] == true
+                                @Suppress("UNCHECKED_CAST")
+                                val options = w["options"] as? Map<String, Any?>
+                                val merge = options?.get("merge") == true || options?.get("mergeFields") != null
                                 applySet(path, rawData, merge)
                             }
                             "update" -> {

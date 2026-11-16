@@ -13,21 +13,52 @@ public struct ClientInfo: Codable, Sendable {
 }
 
 public struct AttachFrame: Codable, Sendable {
-    public let type: String = "attach"
-    public let protocolVersion: Int = 1
+    public static let defaultCapabilities: [String] = [ValueCodec.docValueEncodingV1]
+
+    public let type: String
+    public let protocolVersion: Int
     public let clientSessionId: String?
     public let clientInfo: ClientInfo?
+    public let capabilities: [String]
 
     enum CodingKeys: String, CodingKey {
         case type
         case protocolVersion = "protocol"
         case clientSessionId
         case clientInfo
+        case capabilities
     }
 
-    public init(clientSessionId: String? = nil, clientInfo: ClientInfo? = nil) {
+    public init(
+        clientSessionId: String? = nil,
+        clientInfo: ClientInfo? = nil,
+        capabilities: [String] = AttachFrame.defaultCapabilities
+    ) {
+        self.type = "attach"
+        self.protocolVersion = 1
         self.clientSessionId = clientSessionId
         self.clientInfo = clientInfo
+        self.capabilities = capabilities
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.type = try container.decodeIfPresent(String.self, forKey: .type) ?? "attach"
+        self.protocolVersion = try container.decodeIfPresent(Int.self, forKey: .protocolVersion) ?? 1
+        self.clientSessionId = try container.decodeIfPresent(String.self, forKey: .clientSessionId)
+        self.clientInfo = try container.decodeIfPresent(ClientInfo.self, forKey: .clientInfo)
+        self.capabilities = try container.decodeIfPresent([String].self, forKey: .capabilities) ?? []
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(type, forKey: .type)
+        try container.encode(protocolVersion, forKey: .protocolVersion)
+        try container.encodeIfPresent(clientSessionId, forKey: .clientSessionId)
+        try container.encodeIfPresent(clientInfo, forKey: .clientInfo)
+        if !capabilities.isEmpty {
+            try container.encode(capabilities, forKey: .capabilities)
+        }
     }
 }
 

@@ -4,6 +4,7 @@ import 'package:cloud_firestore_platform_interface/cloud_firestore_platform_inte
 import '../transport/bridge_client.dart';
 import '../transport/codecs.dart';
 import 'mutation_serialization.dart';
+import 'pyric_document_snapshot.dart';
 import 'pyric_firestore_platform.dart';
 
 /// Concrete [TransactionPlatform] managing reads and writes within an atomic transaction.
@@ -27,7 +28,11 @@ class PyricTransaction extends TransactionPlatform {
     final snap = await firestore.doc(documentPath).get();
     Map<String, dynamic>? serializedData;
     if (snap.exists) {
-      serializedData = {'json': jsonEncode(encodeValue(snap.data()))};
+      if (snap is PyricDocumentSnapshot && snap.rawWireData != null) {
+        serializedData = snap.rawWireData;
+      } else {
+        serializedData = {'json': jsonEncode(encodeValue(snap.data()))};
+      }
     }
     _reads.add({
       'path': documentPath,
