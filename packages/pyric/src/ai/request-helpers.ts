@@ -21,6 +21,7 @@ import { POSSIBLE_ROLES, type Role } from './enums.js';
 export interface PartShape {
   text?: string;
   inlineData?: { mimeType: string; data: string };
+  fileData?: { mimeType: string; fileUri: string };
   functionCall?: { name: string; args: Record<string, unknown>; id?: string };
   functionResponse?: { name: string; response: Record<string, unknown>; id?: string };
   thought?: boolean;

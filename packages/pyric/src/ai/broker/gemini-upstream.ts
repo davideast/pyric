@@ -145,6 +145,13 @@ function credentialsOf(auth: UpstreamAuth): string[] {
   return hasToken ? [auth.token] : [];
 }
 
+function throwIfAborted(signal: AbortSignal | undefined): void {
+  if (!signal?.aborted) return;
+  throw signal.reason !== undefined
+    ? signal.reason
+    : new DOMException('The operation was aborted.', 'AbortError');
+}
+
 /** No credentials: the base URL is Pyric's server, which attaches them. */
 const SERVER_ATTACHES_AUTH: UpstreamAuth = { token: '', isBearer: false, isAdc: false };
 
@@ -188,8 +195,13 @@ export class GeminiUpstream {
    * more with a fresh one. Missing credentials and an unreachable upstream
    * throw an {@link AiBrokerError}.
    */
-  async send(resource: string, action: string, body: string | Uint8Array<ArrayBuffer>): Promise<Response> {
-    return (await this.sendWithCredentials(resource, action, body)).response;
+  async send(
+    resource: string,
+    action: string,
+    body: string | Uint8Array<ArrayBuffer>,
+    signal?: AbortSignal,
+  ): Promise<Response> {
+    return (await this.sendWithCredentials(resource, action, body, signal)).response;
   }
 
   /**
@@ -202,18 +214,26 @@ export class GeminiUpstream {
     resource: string,
     action: string,
     body: string | Uint8Array<ArrayBuffer>,
+    signal?: AbortSignal,
   ): Promise<{ response: Response; credentials: string[] }> {
+    throwIfAborted(signal);
     const auth = await this.resolveAuthToken();
+    throwIfAborted(signal);
     const credentials = [...this.baseUrlCredentials, ...credentialsOf(auth)];
     const first = this.formatUpstreamRequest(resource, action, auth);
-    const response = await this.post(first.url, first.headers, body, credentials);
+    const response = await this.post(first.url, first.headers, body, credentials, signal);
     if (response.status === 401 && auth.isAdc) {
       await response.body?.cancel().catch(() => {});
+      throwIfAborted(signal);
       this.adcToken = undefined;
       const retryAuth = await this.resolveAuthToken();
+      throwIfAborted(signal);
       credentials.push(...credentialsOf(retryAuth));
       const retry = this.formatUpstreamRequest(resource, action, retryAuth);
-      return { response: await this.post(retry.url, retry.headers, body, credentials), credentials };
+      return {
+        response: await this.post(retry.url, retry.headers, body, credentials, signal),
+        credentials,
+      };
     }
     return { response, credentials };
   }
@@ -320,10 +340,16 @@ export class GeminiUpstream {
     headers: Record<string, string>,
     body: string | Uint8Array<ArrayBuffer>,
     credentials: readonly string[],
+    signal?: AbortSignal,
   ): Promise<Response> {
+    const init: RequestInit = { method: 'POST', headers, body };
+    if (signal !== undefined) init.signal = signal;
     try {
-      return await this.fetchImpl(url, { method: 'POST', headers, body });
+      return await this.fetchImpl(url, init);
     } catch (err) {
+      if (signal?.aborted) {
+        throw signal.reason !== undefined ? signal.reason : err;
+      }
       // Mask both with the request's exact credentials, as an error body is
       // masked (#1737): `url` carries a static key, and a fetch error can
       // quote the URL or a header, such as Node's refusal of an invalid

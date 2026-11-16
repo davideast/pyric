@@ -58,6 +58,7 @@ import { OpenAiEngine } from './openai-engine.js';
 import { GeminiEngine, GEMINI_DEFAULT_BASE_URL } from './gemini-engine.js';
 import type {
   AnswerEngine,
+  AnswerEngineCallOptions,
   AppCheckClaim,
   CountTokensRequest,
   CountTokensResponse,
@@ -300,14 +301,22 @@ export class AiBroker {
     this.reject(model, appCheckRequired(), APP_CHECK_HINT);
   }
 
-  async generateContent(req: GenerateContentRequest, model: string, appCheck?: AppCheckClaim): Promise<WireResponse> {
+  async generateContent(
+    req: GenerateContentRequest,
+    model: string,
+    appCheck?: AppCheckClaim,
+    options?: AnswerEngineCallOptions,
+  ): Promise<WireResponse> {
     const identity = this.observationIdentity(model);
     // No claim, no gate, and no extra turn: the request reaches the engine synchronously as before.
     if (appCheck !== undefined) await this.admitAppCheck(model, appCheck);
     this.validate(req, model);
     this.emitModelSubstitution(model);
     try {
-      const response = await this.engine.generateContent(req, model);
+      const response =
+        options === undefined
+          ? await this.engine.generateContent(req, model)
+          : await this.engine.generateContent(req, model, undefined, options);
       this.emit('generate_content', model, {
         contentCount: req.contents.length,
         finishReason: response.candidates?.[0]?.finishReason,
@@ -333,7 +342,12 @@ export class AiBroker {
    * Callers that answer an HTTP-like error before any chunk (the sandbox
    * plane, the worker host) call {@link admitAppCheck} first.
    */
-  streamGenerateContent(req: GenerateContentRequest, model: string, appCheck?: AppCheckClaim): AsyncIterable<WireChunk> {
+  streamGenerateContent(
+    req: GenerateContentRequest,
+    model: string,
+    appCheck?: AppCheckClaim,
+    options?: AnswerEngineCallOptions,
+  ): AsyncIterable<WireChunk> {
     const identity = this.observationIdentity(model);
     const hasClaim = appCheck !== undefined;
     // The App Check gate comes before validation, as in generateContent. A
@@ -342,13 +356,17 @@ export class AiBroker {
     if (!hasClaim) this.validate(req, model);
     this.emitModelSubstitution(model);
     const engine = this.engine;
-    const eager = hasClaim ? undefined : engine.streamGenerateContent(req, model);
+    const openEngine = (): AsyncIterable<WireChunk> => {
+      if (options === undefined) return engine.streamGenerateContent(req, model);
+      return engine.streamGenerateContent(req, model, undefined, options);
+    };
+    const eager = hasClaim ? undefined : openEngine();
     const admit = () => this.admitAppCheck(model, appCheck);
     const open = async (): Promise<AsyncIterable<WireChunk>> => {
       if (eager !== undefined) return eager;
       await admit();
       this.validate(req, model);
-      return engine.streamGenerateContent(req, model);
+      return openEngine();
     };
     const annotate = (chunk: WireChunk) => this.annotate(chunk, identity);
     const emit = (chunkCount: number) =>
@@ -384,13 +402,21 @@ export class AiBroker {
     })();
   }
 
-  async countTokens(req: CountTokensRequest, model: string, appCheck?: AppCheckClaim): Promise<CountTokensResponse> {
+  async countTokens(
+    req: CountTokensRequest,
+    model: string,
+    appCheck?: AppCheckClaim,
+    options?: AnswerEngineCallOptions,
+  ): Promise<CountTokensResponse> {
     const identity = this.observationIdentity(model);
     // No claim, no gate, and no extra turn: the request reaches the engine synchronously as before.
     if (appCheck !== undefined) await this.admitAppCheck(model, appCheck);
     this.validateContents(req, model);
     try {
-      const response = await this.engine.countTokens(req, model);
+      const response =
+        options === undefined
+          ? await this.engine.countTokens(req, model)
+          : await this.engine.countTokens(req, model, undefined, options);
       this.emit('count_tokens', model, { totalTokens: response.totalTokens });
       const { totalTokens } = aiUsageEvidence({ totalTokenCount: response.totalTokens });
       return setAiEvidence(response, { ...identity, totalTokens, usageSource: this.engineKind === 'gemini' ? 'backend' : this.engineKind === 'openai' ? 'estimated' : this.engineKind === 'scripted' ? 'scripted' : 'unknown' });

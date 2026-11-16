@@ -20,6 +20,8 @@ import { GeminiUpstream, type GeminiUpstreamOptions } from './gemini-upstream.js
 import { redactUpstreamError, redactUpstreamText } from './upstream-error-redaction.js';
 import type {
   AnswerEngine,
+  AnswerEngineCallOptions,
+  AppCheckClaim,
   CountTokensRequest,
   CountTokensResponse,
   GenerateContentRequest,
@@ -61,6 +63,62 @@ function parseStreamData(data: string, credentials: readonly string[]): WireChun
   return JSON.parse(redactUpstreamError(data, credentials)) as WireChunk;
 }
 
+/**
+ * Splits complete SSE lines delimited by CRLF, LF, or CR, holding a trailing
+ * CR until the next chunk or EOF so split CRLF boundaries never emit a
+ * spurious blank line.
+ */
+function extractCompleteSseLines(buffer: string): { lines: string[]; rest: string } {
+  const lines: string[] = [];
+  let start = 0;
+  for (let i = 0; i < buffer.length; i++) {
+    const ch = buffer[i];
+    if (ch === '\n') {
+      lines.push(buffer.slice(start, i));
+      start = i + 1;
+    } else if (ch === '\r') {
+      if (i + 1 === buffer.length) break;
+      lines.push(buffer.slice(start, i));
+      if (buffer[i + 1] === '\n') i += 1;
+      start = i + 1;
+    }
+  }
+  return { lines, rest: buffer.slice(start) };
+}
+
+/** WHATWG EventSource `data:` field extraction (strips at most one leading space). */
+function extractSseDataLine(line: string): string | undefined {
+  if (!line.startsWith('data:')) return undefined;
+  const value = line.slice('data:'.length);
+  if (value.startsWith(' ')) return value.slice(1);
+  return value;
+}
+
+/**
+ * Parses one SSE event's accumulated `data:` lines. Multi-line JSON payloads
+ * parse as a single joined event; if multiple single-line JSON frames arrived
+ * without blank separators, falls back to parsing each line individually.
+ */
+function parseSseEventData(
+  dataLines: readonly string[],
+  credentials: readonly string[],
+): WireChunk[] {
+  if (dataLines.length === 0) return [];
+  const joined = dataLines.join('\n').trim();
+  if (joined === '' || joined === '[DONE]') return [];
+  const combined = parseStreamData(joined, credentials);
+  if (combined !== undefined) return [combined];
+  if (dataLines.length === 1) return [];
+  const chunks: WireChunk[] = [];
+  for (const line of dataLines) {
+    const trimmed = line.trim();
+    if (trimmed === '' || trimmed === '[DONE]') continue;
+    const chunk = parseStreamData(trimmed, credentials);
+    if (chunk !== undefined) chunks.push(chunk);
+  }
+  return chunks;
+}
+
 /** A 2xx upstream answer and the credentials its request carried. */
 interface SentRequest {
   response: Response;
@@ -87,13 +145,19 @@ export class GeminiEngine implements AnswerEngine {
   }
 
   /** Sends one upstream request; a non-2xx answer throws the upstream's own error. */
-  private async send(model: string, action: string, body: unknown): Promise<SentRequest> {
+  private async send(
+    model: string,
+    action: string,
+    body: unknown,
+    signal?: AbortSignal,
+  ): Promise<SentRequest> {
     const { response, credentials } = await this.upstream.sendWithCredentials(
       this.normalizeModel(model),
       action,
       JSON.stringify(body),
+      signal,
     );
-    await this.checkStatus(response, credentials);
+    await this.checkStatus(response, credentials, signal);
     return { response, credentials };
   }
 
@@ -120,10 +184,19 @@ export class GeminiEngine implements AnswerEngine {
    * alike, with the masking the gemini proxy applies to the same body
    * (`upstream-error-redaction.ts`, #1660).
    */
-  private async checkStatus(response: Response, credentials: readonly string[]): Promise<void> {
+  private async checkStatus(
+    response: Response,
+    credentials: readonly string[],
+    signal?: AbortSignal,
+  ): Promise<void> {
     const isSuccess = response.ok;
     if (isSuccess) return;
     const errorText = await response.text().catch(() => '');
+    if (signal?.aborted) {
+      throw signal.reason !== undefined
+        ? signal.reason
+        : new DOMException('The operation was aborted.', 'AbortError');
+    }
     const upstream = parseUpstreamError(redactUpstreamError(errorText, credentials));
     if (upstream !== null) {
       throw new AiBrokerError(errorEnvelope(response.status, upstream.message, upstream.status));
@@ -146,10 +219,14 @@ export class GeminiEngine implements AnswerEngine {
   private async readStream(
     reader: ReadableStreamDefaultReader<Uint8Array>,
     credentials: readonly string[],
+    signal?: AbortSignal,
   ): ReturnType<ReadableStreamDefaultReader<Uint8Array>['read']> {
     try {
       return await reader.read();
     } catch (err) {
+      if (signal?.aborted) {
+        throw signal.reason !== undefined ? signal.reason : err;
+      }
       if (err instanceof AiBrokerError) throw err;
       const rawMessage = err instanceof Error ? err.message : String(err);
       const message = `Gemini API stream aborted mid-response: ${redactUpstreamText(rawMessage, credentials)}`;
@@ -157,16 +234,29 @@ export class GeminiEngine implements AnswerEngine {
     }
   }
 
-  async generateContent(req: GenerateContentRequest, model: string): Promise<WireResponse> {
-    const { response } = await this.send(model, 'generateContent', req);
+  async generateContent(
+    req: GenerateContentRequest,
+    model: string,
+    _appCheck?: AppCheckClaim,
+    options?: AnswerEngineCallOptions,
+  ): Promise<WireResponse> {
+    const { response } = await this.send(model, 'generateContent', req, options?.signal);
     return (await response.json()) as WireResponse;
   }
 
   async *streamGenerateContent(
     req: GenerateContentRequest,
     model: string,
+    _appCheck?: AppCheckClaim,
+    options?: AnswerEngineCallOptions,
   ): AsyncIterable<WireChunk> {
-    const { response, credentials } = await this.send(model, 'streamGenerateContent?alt=sse', req);
+    const signal = options?.signal;
+    const { response, credentials } = await this.send(
+      model,
+      'streamGenerateContent?alt=sse',
+      req,
+      signal,
+    );
 
     const hasBody = response.body !== null && response.body !== undefined;
     if (!hasBody) {
@@ -174,58 +264,78 @@ export class GeminiEngine implements AnswerEngine {
         errorEnvelope(500, 'Gemini API returned an empty stream response.', 'INTERNAL'),
       );
     }
+    options?.onStreamOpen?.();
 
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
     let buffer = '';
+    let eventDataLines: string[] = [];
+
+    const ingestLine = (line: string): WireChunk[] => {
+      if (line === '') {
+        const chunks = parseSseEventData(eventDataLines, credentials);
+        eventDataLines = [];
+        return chunks;
+      }
+      const data = extractSseDataLine(line);
+      if (data !== undefined) {
+        eventDataLines.push(data);
+      }
+      return [];
+    };
 
     try {
       while (true) {
-        const { done, value } = await this.readStream(reader, credentials);
+        const { done, value } = await this.readStream(reader, credentials, signal);
         const isDone = done === true;
         if (isDone) {
           break;
         }
         buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split(/\r?\n/);
-        buffer = lines.pop() ?? '';
+        const split = extractCompleteSseLines(buffer);
+        buffer = split.rest;
 
-        for (const line of lines) {
-          const isDataLine = line.startsWith('data: ');
-          if (!isDataLine) {
-            continue;
+        for (const line of split.lines) {
+          for (const chunk of ingestLine(line)) {
+            yield chunk;
           }
-          const dataStr = line.slice(6).trim();
-          const isEmptyOrDone = dataStr === '' || dataStr === '[DONE]';
-          if (isEmptyOrDone) {
-            continue;
-          }
-          // A malformed SSE chunk is skipped.
-          const chunk = parseStreamData(dataStr, credentials);
-          if (chunk !== undefined) yield chunk;
         }
       }
 
-      const hasTrailingBuffer = buffer.trim().length > 0;
-      if (hasTrailingBuffer) {
-        const line = buffer.trim();
-        const isDataLine = line.startsWith('data: ');
-        if (isDataLine) {
-          const dataStr = line.slice(6).trim();
-          const isNotEmptyOrDone = dataStr !== '' && dataStr !== '[DONE]';
-          if (isNotEmptyOrDone) {
-            const chunk = parseStreamData(dataStr, credentials);
-            if (chunk !== undefined) yield chunk;
+      buffer += decoder.decode();
+      if (buffer.length > 0) {
+        const split = extractCompleteSseLines(buffer);
+        for (const line of split.lines) {
+          for (const chunk of ingestLine(line)) {
+            yield chunk;
           }
         }
+        if (split.rest.length > 0) {
+          const trailingLine = split.rest.endsWith('\r') ? split.rest.slice(0, -1) : split.rest;
+          for (const chunk of ingestLine(trailingLine)) {
+            yield chunk;
+          }
+        }
+      }
+
+      for (const chunk of parseSseEventData(eventDataLines, credentials)) {
+        yield chunk;
       }
     } finally {
+      if (signal?.aborted) {
+        await reader.cancel().catch(() => undefined);
+      }
       reader.releaseLock();
     }
   }
 
-  async countTokens(req: CountTokensRequest, model: string): Promise<CountTokensResponse> {
-    const { response } = await this.send(model, 'countTokens', req);
+  async countTokens(
+    req: CountTokensRequest,
+    model: string,
+    _appCheck?: AppCheckClaim,
+    options?: AnswerEngineCallOptions,
+  ): Promise<CountTokensResponse> {
+    const { response } = await this.send(model, 'countTokens', req, options?.signal);
     return (await response.json()) as CountTokensResponse;
   }
 }

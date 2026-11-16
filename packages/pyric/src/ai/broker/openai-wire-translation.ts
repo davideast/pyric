@@ -1,3 +1,4 @@
+import { AiBrokerError, errorEnvelope } from './synthesizer.js';
 import type {
   GenerateContentRequest,
   WirePart,
@@ -81,6 +82,23 @@ function isModelTurn(role: string | undefined): boolean {
   return upper === 'MODEL' || upper === 'ASSISTANT';
 }
 
+function formatFileDataPlaceholder(fileData: { mimeType?: string; fileUri?: string }): string {
+  const details = [fileData.mimeType, fileData.fileUri].filter(Boolean).join(' ');
+  if (details) return `[unsupported fileData part: ${details}]`;
+  return '[unsupported fileData part]';
+}
+
+function appendNonToolPart(part: WirePart, textParts: string[]): void {
+  if (part.thought) return;
+  if (typeof part.text === 'string') {
+    textParts.push(part.text);
+  } else if (part.inlineData) {
+    textParts.push(`[unsupported inlineData part: ${part.inlineData.mimeType}]`);
+  } else if (part.fileData) {
+    textParts.push(formatFileDataPlaceholder(part.fileData));
+  }
+}
+
 export function geminiToOpenAIRequest(
   model: string,
   req: GenerateContentRequest,
@@ -97,18 +115,26 @@ export function geminiToOpenAIRequest(
   let callOrdinal = 0;
 
   for (const content of req.contents ?? []) {
+    const parts = content.parts ?? [];
     const isFunctionResponseTurn =
-      !isModelTurn(content.role) && content.parts.some((part) => part.functionResponse);
+      !isModelTurn(content.role) && parts.some((part) => part.functionResponse);
     if (isFunctionResponseTurn) {
-      for (const part of content.parts) {
-        if (!part.functionResponse) continue;
-        const queue = pendingIdsByName.get(part.functionResponse.name) ?? [];
-        const id = queue.shift() ?? synthToolCallId(part.functionResponse.name, callOrdinal++);
-        messages.push({
-          role: 'tool',
-          tool_call_id: id,
-          content: JSON.stringify(part.functionResponse.response),
-        });
+      const trailingTextParts: string[] = [];
+      for (const part of parts) {
+        if (part.functionResponse) {
+          const queue = pendingIdsByName.get(part.functionResponse.name) ?? [];
+          const id = queue.shift() ?? synthToolCallId(part.functionResponse.name, callOrdinal++);
+          messages.push({
+            role: 'tool',
+            tool_call_id: id,
+            content: JSON.stringify(part.functionResponse.response),
+          });
+          continue;
+        }
+        appendNonToolPart(part, trailingTextParts);
+      }
+      if (trailingTextParts.length > 0) {
+        messages.push({ role: 'user', content: trailingTextParts.join('') });
       }
       continue;
     }
@@ -117,11 +143,9 @@ export function geminiToOpenAIRequest(
     const textParts: string[] = [];
     const toolCalls: OpenAIToolCall[] = [];
 
-    for (const part of content.parts) {
+    for (const part of parts) {
       if (part.thought) continue;
-      if (typeof part.text === 'string') {
-        textParts.push(part.text);
-      } else if (part.functionCall) {
+      if (part.functionCall) {
         const id = synthToolCallId(part.functionCall.name, callOrdinal++);
         const queue = pendingIdsByName.get(part.functionCall.name) ?? [];
         queue.push(id);
@@ -134,8 +158,8 @@ export function geminiToOpenAIRequest(
             arguments: JSON.stringify(part.functionCall.args ?? {}),
           },
         });
-      } else if (part.inlineData) {
-        textParts.push(`[unsupported inlineData part: ${part.inlineData.mimeType}]`);
+      } else {
+        appendNonToolPart(part, textParts);
       }
     }
 
@@ -251,7 +275,12 @@ function messagePartsFromOpenAI(msg: {
 }
 
 export function openAIToGeminiResponse(resp: OpenAIResponse): WireResponse {
-  const choice = resp.choices[0]!;
+  const choice = resp?.choices?.[0];
+  if (!choice?.message) {
+    throw new AiBrokerError(
+      errorEnvelope(502, 'openai engine: upstream returned no completion choices', 'UNAVAILABLE'),
+    );
+  }
   const malformedToolArgs = (choice.message.tool_calls ?? []).some(
     (tc) => parseToolArguments(tc.function.arguments).malformed,
   );
