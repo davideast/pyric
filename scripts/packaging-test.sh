@@ -909,9 +909,13 @@ try {
 try {
   const { initializeSandbox } = await import('pyric/sandbox');
   const { getFirestore } = await import('pyric-admin/firestore');
-  const db = getFirestore(initializeSandbox());
-  if (!db || typeof db !== 'object') throw new Error('getFirestore did not construct a handle');
-  ok('pyric-admin: getFirestore(sandbox) handle constructed (admin SDK + pyric interop)');
+  const db = getFirestore(initializeSandbox().withAuth(null));
+  await db.doc('items/smoke').set({ ok: true });
+  const snap = await db.doc('items/smoke').get();
+  if (!snap.exists || snap.data()?.ok !== true) {
+    throw new Error('getFirestore(sandbox.withAuth(null)) round-trip failed');
+  }
+  ok('pyric-admin: getFirestore(sandbox.withAuth(null)) read/write round-trip passed (admin SDK + pyric interop)');
 } catch (e) { bad('pyric-admin runtime: ' + (e?.message ?? e)); }
 
 // @pyric/ui — the React component graph loads under node (peer deps resolved).
