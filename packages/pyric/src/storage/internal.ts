@@ -27,6 +27,7 @@ import {
   targetOf,
   type FirebaseStorage,
 } from './service.js';
+import { cloneCustomMetadata } from './metadata.js';
 import { buildStoredMetadata } from './upload.js';
 
 export {
@@ -70,9 +71,11 @@ export { clientContentEncoding, uploadContentDisposition } from './content-defau
 export {
   cloneCustomMetadata,
   cloneSettableMetadata,
+  defineOwnMetadataKey,
   patchObjectMetadata,
   toFullMetadata,
   type AdminMetadataPatch,
+  type AdminSettableMetadataPatch,
 } from './metadata.js';
 export {
   decodeString,
@@ -168,7 +171,7 @@ export async function seedStorageObject(
   const blob = new Blob([bytes as BlobPart], { type: settable?.contentType ?? '' });
   let customMetadata: Record<string, string> | undefined;
   if (settable?.customMetadata !== undefined) {
-    customMetadata = { ...settable.customMetadata };
+    customMetadata = cloneCustomMetadata(settable.customMetadata);
   }
   const stored = buildStoredMetadata({
     ref: objectRef,

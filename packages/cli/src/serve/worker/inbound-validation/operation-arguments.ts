@@ -85,12 +85,12 @@ function assertStorageBucket(message: Record<string, unknown>): void {
   requireOptionalString(message.defaultBucket, 'defaultBucket');
 }
 
-/** A metadata change from the admin plane: settable strings, custom keys set or removed, and the download tokens. */
+/** A metadata change from the admin plane: settable strings or null, custom keys set or removed, and the download tokens. */
 function assertMetadataPatch(patch: unknown): void {
   requireRecord(patch, 'patch');
   const { settable, customMetadata, downloadTokens } = patch;
   requireOptionalRecord(settable, 'patch.settable');
-  requireShape(settable === undefined || Object.values(settable as object).every(value => typeof value === 'string'), 'patch.settable');
+  requireShape(settable === undefined || Object.values(settable as object).every(value => value === null || typeof value === 'string'), 'patch.settable');
   requireOptionalRecord(customMetadata, 'patch.customMetadata');
   requireShape(customMetadata === undefined || Object.values(customMetadata as object).every(value => value === null || typeof value === 'string'), 'patch.customMetadata');
   requireShape(downloadTokens === undefined || downloadTokens === null || typeof downloadTokens === 'string', 'patch.downloadTokens');

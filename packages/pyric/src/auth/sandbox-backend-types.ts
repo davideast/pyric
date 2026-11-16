@@ -183,6 +183,8 @@ export interface AuthUserRecord {
   createdAt: string;
   /** ISO timestamp, or null if the identity never signed in. */
   lastLoginAt: string | null;
+  /** Whole-second epoch milliseconds matching production `validSince` / `tokensValidAfterTime`. */
+  tokensValidAfterMs?: number;
 }
 
 /** `sandbox.createUser` request. Everything optional except that a

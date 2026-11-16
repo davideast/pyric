@@ -203,4 +203,29 @@ describe('remote sandbox Auth arm', () => {
       expect(typeof (err as { toJSON?: unknown }).toJSON).toBe('function');
     }
   });
+
+  it('propagates tokensValidAfterTime on UserRecord and toJSON() across revokeRefreshTokens', async () => {
+    const { backing, auth } = createBackedRemoteAuth('remote-valid-after');
+    const clock = getClock(backing);
+    const createdAtMs = Date.parse('2026-06-01T12:00:00.400Z');
+    clock.set(createdAtMs);
+
+    const created = await auth.createUser({ uid: 'u1', email: 'u1@example.com' });
+    const expectedCreatedUtc = new Date(Math.floor(createdAtMs / 1000) * 1000).toUTCString();
+    expect(created.tokensValidAfterTime).toBe(expectedCreatedUtc);
+    expect(created.toJSON().tokensValidAfterTime).toBe(expectedCreatedUtc);
+
+    const revokedAtMs = Date.parse('2026-06-01T12:03:45.800Z');
+    clock.set(revokedAtMs);
+    await auth.revokeRefreshTokens('u1');
+    const expectedRevokedUtc = new Date(Math.floor(revokedAtMs / 1000) * 1000).toUTCString();
+
+    const fetched = await auth.getUser('u1');
+    const byEmail = await auth.getUserByEmail('u1@example.com');
+    const listed = await auth.listUsers();
+    for (const record of [fetched, byEmail, listed.users[0]]) {
+      expect(record?.tokensValidAfterTime).toBe(expectedRevokedUtc);
+      expect(record?.toJSON().tokensValidAfterTime).toBe(expectedRevokedUtc);
+    }
+  });
 });

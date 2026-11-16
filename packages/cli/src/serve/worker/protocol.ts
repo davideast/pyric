@@ -107,11 +107,11 @@ export interface StorageBucketWire {
 /** A metadata change from the admin plane, as `pyric/storage/internal`'s `patchObjectMetadata` takes it. */
 export interface StorageMetadataPatchWire {
   settable?: {
-    contentType?: string;
-    cacheControl?: string;
-    contentDisposition?: string;
-    contentEncoding?: string;
-    contentLanguage?: string;
+    contentType?: string | null;
+    cacheControl?: string | null;
+    contentDisposition?: string | null;
+    contentEncoding?: string | null;
+    contentLanguage?: string | null;
   };
   customMetadata?: Record<string, string | null>;
   downloadTokens?: string | null;

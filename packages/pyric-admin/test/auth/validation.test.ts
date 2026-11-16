@@ -90,9 +90,18 @@ describe('pyric-admin/auth validation and conversion', () => {
     expect(converted.uid).toBe('user-1');
     expect(converted.customClaims).toEqual({ tier: 'pro' });
     expect(converted.providerData[0]?.providerId).toBe('password');
+    expect(converted.tokensValidAfterTime).toBe('Thu, 01 Jan 2026 00:00:00 GMT');
+    expect(converted.toJSON().tokensValidAfterTime).toBe('Thu, 01 Jan 2026 00:00:00 GMT');
     expect(converted.metadata.toJSON()).toEqual({
       creationTime: '2026-01-01T00:00:00.000Z',
       lastSignInTime: '',
     });
+
+    const revoked = fromAuthUserRecord({
+      ...raw,
+      tokensValidAfterMs: Date.parse('2026-02-03T04:05:06.789Z'),
+    });
+    expect(revoked.tokensValidAfterTime).toBe('Tue, 03 Feb 2026 04:05:06 GMT');
+    expect(revoked.toJSON().tokensValidAfterTime).toBe('Tue, 03 Feb 2026 04:05:06 GMT');
   });
 });

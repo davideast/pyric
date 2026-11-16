@@ -59,4 +59,38 @@ describe('storage.setMetadata', () => {
     const refused = await op(ctx, { method: 'storage.setMetadata', path: 'media/take.wav', actAs: ADMIN, patch: { customMetadata: { note: 3 } } });
     expect(refused.ok).toBe(false);
   });
+
+  it('clears settable fields patched with null and preserves own "__proto__" custom keys', async () => {
+    const ctx = makeCtx();
+    await op(ctx, {
+      method: 'storage.putBytes',
+      path: 'docs/item.txt',
+      dataB64: bytesToBase64(new Uint8Array([1, 2, 3])),
+      metadata: {
+        cacheControl: 'public, max-age=60',
+        contentLanguage: 'en',
+        metadata: JSON.parse('{"__proto__":"saved","k1":"v1"}'),
+      },
+      actAs: ADMIN,
+    });
+
+    const cleared = await op(ctx, {
+      method: 'storage.setMetadata',
+      path: 'docs/item.txt',
+      actAs: ADMIN,
+      patch: {
+        settable: { cacheControl: null, contentLanguage: null },
+        customMetadata: JSON.parse('{"__proto__":"kept","k2":"v2"}'),
+      },
+    });
+    expect(cleared.ok).toBe(true);
+    const value = (cleared as { value: Record<string, unknown> }).value;
+    expect(value.cacheControl).toBeUndefined();
+    expect(value.contentLanguage).toBeUndefined();
+    const custom = (value.customMetadata ?? {}) as Record<string, string>;
+    expect(Object.hasOwn(custom, '__proto__')).toBe(true);
+    expect(custom['__proto__']).toBe('kept');
+    expect(custom.k1).toBe('v1');
+    expect(custom.k2).toBe('v2');
+  });
 });

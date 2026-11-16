@@ -21,6 +21,38 @@ const userFields = {
   providerUserInfo: z.array(z.object({ providerId: z.string() })).optional(),
 } satisfies Record<keyof SeedUser, z.ZodType<unknown>>;
 
+/**
+ * Validate a plain string-value map while preserving own `"__proto__"` keys
+ * via `Object.defineProperty` (Zod's `z.record` assigns via `[]` and drops them).
+ */
+const customMetadataSchema: z.ZodType<Record<string, string>> = z
+  .custom<Record<string, string>>(
+    (value) => {
+      if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+        return false;
+      }
+      for (const key of Object.keys(value)) {
+        if (typeof (value as Record<string, unknown>)[key] !== 'string') {
+          return false;
+        }
+      }
+      return true;
+    },
+    { message: 'Expected customMetadata to be an object mapping strings to strings' },
+  )
+  .transform((value) => {
+    const out: Record<string, string> = {};
+    for (const [key, entry] of Object.entries(value)) {
+      Object.defineProperty(out, key, {
+        value: entry,
+        enumerable: true,
+        writable: true,
+        configurable: true,
+      });
+    }
+    return out;
+  });
+
 const storageMetadataFields = {
   fullPath: z.string(),
   name: z.string(),
@@ -35,7 +67,7 @@ const storageMetadataFields = {
   contentDisposition: z.string().optional(),
   contentEncoding: z.string().optional(),
   contentLanguage: z.string().optional(),
-  customMetadata: z.record(z.string()).optional(),
+  customMetadata: customMetadataSchema.optional(),
   downloadTokens: z.string().optional(),
   md5Hash: z.string().optional(),
 } satisfies Record<keyof StoredMetadata, z.ZodType<unknown>>;
