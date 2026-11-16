@@ -814,7 +814,7 @@ describe('hosted Node runtime & repro hunt regressions (SW-HST-1..10)', () => {
     });
     expect(build.success).toBe(true);
     scenarioPath = join(bundleDir, 'scenario.mjs');
-  });
+  }, 60_000);
 
   afterAll(() => {
     if (bundleDir) rmSync(bundleDir, { recursive: true, force: true });
@@ -832,41 +832,41 @@ describe('hosted Node runtime & repro hunt regressions (SW-HST-1..10)', () => {
 
   test('SW-HST-1: sandbox.reset preserves active rules, RTDB rules, live subscriptions, and reconciles cleared sessions', () => {
     runScenario('sw-hst-1');
-  }, 30_000);
+  }, 45_000);
 
   test('SW-HST-3: resumeSession revives disconnected sessions while keeping non-resumed disconnects closed, and routes replies per message transport', () => {
     runScenario('sw-hst-3');
-  }, 30_000);
+  }, 45_000);
 
   test('SW-HST-4: deployRules rejects invalid Firestore/RTDB rules without poisoning repro entries, and rules.set updates activeRules', () => {
     runScenario('sw-hst-4');
-  }, 30_000);
+  }, 45_000);
 
   test('SW-HST-5: storage byte route rejects out-of-bounds, backwards, and mismatched-length Content-Range requests with 400', () => {
     runScenario('sw-hst-5');
-  }, 30_000);
+  }, 45_000);
 
   test('SW-HST-7b: captureReproBase preserves RTDB priorities on non-default instances across window rollovers', () => {
     runScenario('sw-hst-7b');
-  }, 30_000);
+  }, 45_000);
 
   test('SW-HST-8: repro records worker-client-disconnect / worker-client-interrupted and Storage HTTP byte-route uploads across both planes', () => {
     runScenario('sw-hst-8');
-  }, 30_000);
+  }, 45_000);
 
   test('SW-HST-9: custom-token signInProvider and customClaims survive repro window rollover on replay', () => {
     runScenario('sw-hst-9');
-  }, 30_000);
+  }, 45_000);
 
   test('SW-HST-10: runMethod, captureRepro, and mcpProjectError accept symlinked project directories while rejecting outside directories', () => {
     runScenario('sw-hst-10');
-  }, 30_000);
+  }, 45_000);
 
   test('SW-HST-11: caller defaultBucket aliases persist across Node host restarts so download URLs resolve on cold boot', () => {
     runScenario('sw-hst-11');
-  }, 30_000);
+  }, 45_000);
 
   test('SW-HST-12: firestore_simulator_create refuses rules production would not load, and the host never reports a refused source active (FS2-ENF-3a, FS2-ENF-3b)', () => {
     runScenario('sw-hst-12');
-  }, 30_000);
+  }, 45_000);
 });

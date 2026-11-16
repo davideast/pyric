@@ -123,6 +123,67 @@ describe('app scenario selection', () => {
     });
   });
 
+  test('a change to session-capture, verify, rules-host, or reset/restore paths selects multi-service verify scenarios', () => {
+    const verifyScenarios = ['rtdb-verify-reads-and-denials', 'storage-per-bucket-rules'];
+    const smokeAndVerify = [...SMOKE_SCENARIOS, ...verifyScenarios].sort();
+
+    for (const path of [
+      'packages/cli/src/verify/index.ts',
+      'packages/cli/src/verify/fixture.ts',
+      'packages/cli/src/verify/staging/session.ts',
+      'packages/cli/src/bridge/surface/fixture.ts',
+      'packages/cli/src/bridge/surface/seed-apply.ts',
+      'packages/cli/src/bridge/surface/methods/sandbox/reset.ts',
+      'packages/cli/src/bridge/surface/methods/sandbox/restore.ts',
+      'packages/cli/src/bridge/surface/methods/sandbox/saveCapture.ts',
+      'packages/cli/src/bridge/surface/methods/sandbox/openCapture.ts',
+      'packages/cli/src/bridge/surface/methods/sandbox/exportFixture.ts',
+      'packages/cli/src/bridge/surface/methods/sandbox/seedFromFixture.ts',
+    ]) {
+      expect(pullRequest({ paths: [path], body: 'No runtime path.' })).toEqual({ kind: 'some', apps: verifyScenarios });
+    }
+
+    for (const path of [
+      'packages/cli/src/serve/session-capture-fixture.ts',
+      'packages/cli/src/serve/capture-store.ts',
+      'packages/cli/src/serve/state-capture-route.ts',
+      'packages/cli/src/serve/storage-rules-install.ts',
+      'packages/cli/src/serve/database-instance-rules-host.ts',
+      'packages/cli/src/serve/hosted/capture-preservation.ts',
+      'packages/cli/src/serve/hosted/runtime.ts',
+      'packages/cli/src/serve/worker/serve-init.ts',
+      'packages/cli/src/serve/worker/worker-boot.ts',
+      'packages/cli/src/serve/worker/entry.ts',
+      'packages/cli/src/serve/worker/host/rules.ts',
+      'packages/cli/src/serve/entries/runtime.ts',
+    ]) {
+      expect(pullRequest({ paths: [path], body: 'No runtime path.' })).toEqual({ kind: 'some', apps: smokeAndVerify });
+    }
+
+    const smokeOnly = [...SMOKE_SCENARIOS].sort();
+    for (const path of [
+      'packages/cli/src/serve/vite-plugin.ts',
+      'packages/cli/src/serve/worker/host/clock.ts',
+      'packages/cli/src/serve/entries/init.ts',
+    ]) {
+      expect(pullRequest({ paths: [path], body: 'No runtime path.' })).toEqual({ kind: 'some', apps: smokeOnly });
+    }
+
+    for (const path of [
+      'packages/cli/src/bridge/surface/methods/sandbox/inspect.ts',
+      'packages/cli/src/bridge/surface/methods/sandbox/events.ts',
+      'packages/cli/src/rules/eval.ts',
+      'packages/pyric/src/index.ts',
+    ]) {
+      expect(pullRequest({ paths: [path], body: 'No runtime path.' })).toEqual({ kind: 'none' });
+    }
+
+    const real = discoverScenarios(resolve(import.meta.dir, '../..'));
+    for (const name of verifyScenarios) {
+      expect(real.find((scenario) => scenario.name === name)).toEqual({ name, slow: false });
+    }
+  });
+
   test('the smoke set is 3 to 5 scenarios of this repository that are not slow, including split-port Next.js', () => {
     const real = discoverScenarios(resolve(import.meta.dir, '../..'));
     expect(SMOKE_SCENARIOS.length).toBeGreaterThanOrEqual(3);

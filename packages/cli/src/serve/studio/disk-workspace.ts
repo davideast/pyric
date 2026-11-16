@@ -241,7 +241,7 @@ export function diskWorkspace(dir: string): WorkspaceStore {
       let watcher: FSWatcher | null = null;
       try {
         watcher = fsWatch(root, { recursive: true }, (_event, filename) => {
-          if (filename == null) return;
+          if (!watcher || filename == null) return;
           const relPath = String(filename).split(sep).join('/');
           // fs.watch doesn't tell us create vs update vs delete reliably across
           // platforms; derive it from current existence.

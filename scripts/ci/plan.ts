@@ -172,12 +172,28 @@ export const SMOKE_SCENARIOS: readonly string[] = [
 ];
 
 /** Extra scenarios tied to specific subsystems beyond the general smoke set.
- *  `remote-sandbox-discovery` exercises `pyric` CLI subcommand dispatch/guards
- *  and `PYRIC_SANDBOX=remote` discovery/fallback paths directly. */
+ *  - `remote-sandbox-discovery` exercises `pyric` CLI subcommand dispatch/guards
+ *    and `PYRIC_SANDBOX=remote` discovery/fallback paths directly.
+ *  - `storage-per-bucket-rules` and `rtdb-verify-reads-and-denials` exercise
+ *    multi-service session capture, rules preservation, reset/restore, and
+ *    `pyric verify` replay across Storage and RTDB. */
 const TARGETED_SCENARIO_INPUTS: ReadonlyArray<{ patterns: readonly RegExp[]; apps: readonly string[] }> = [
   {
     patterns: [/^packages\/cli\/src\/(cli|remote)\//],
     apps: ['remote-sandbox-discovery'],
+  },
+  {
+    patterns: [
+      /^packages\/cli\/src\/verify\//,
+      /^packages\/cli\/src\/serve\/(session-capture-fixture|capture-store|state-capture-route|storage-rules-install|database-instance-rules-host)\.ts$/,
+      /^packages\/cli\/src\/serve\/hosted\/(capture-preservation|runtime)\.ts$/,
+      /^packages\/cli\/src\/serve\/worker\/(serve-init|worker-boot|entry)\.ts$/,
+      /^packages\/cli\/src\/serve\/worker\/host\/rules\.ts$/,
+      /^packages\/cli\/src\/serve\/entries\/runtime\.ts$/,
+      /^packages\/cli\/src\/bridge\/surface\/(fixture|seed-apply)\.ts$/,
+      /^packages\/cli\/src\/bridge\/surface\/methods\/sandbox\/(reset|restore|saveCapture|openCapture|exportFixture|seedFromFixture)\.ts$/,
+    ],
+    apps: ['storage-per-bucket-rules', 'rtdb-verify-reads-and-denials'],
   },
 ];
 

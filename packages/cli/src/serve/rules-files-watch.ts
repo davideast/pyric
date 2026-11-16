@@ -41,23 +41,24 @@ export const watchFileOrWhenCreatedWith = (fileSystem: WatchFileSystem): WatchFi
     current?.close();
     current = null;
     let target = directory;
+    let watcher: FSWatcher | null = null;
     for (;;) {
       const next = target === directory ? null : descendantOf(target);
       try {
-        current = next === null
+        watcher = next === null
           ? fileSystem.watch(directory, (_event, name) => {
             // A null name cannot be ruled out as the file, so it counts.
             const isFile = name === null || String(name) === fileName;
-            if (!isFile || closed) return;
+            if (!isFile || closed || watcher !== current) return;
             listener();
           })
           : fileSystem.watch(target, (_event, name) => {
             const isNext = name !== null && String(name) === basename(next);
-            if (!isNext || !fileSystem.existsSync(next) || closed) return;
+            if (!isNext || !fileSystem.existsSync(next) || closed || watcher !== current) return;
             // Move the watch after this callback returns: attach() closes the
             // watcher that is delivering this event.
             setImmediate(() => {
-              if (closed) return;
+              if (closed || watcher !== current) return;
               // Any number of missing segments, and the file itself, can
               // appear before the watch moves, as with `mkdir -p` followed by
               // a write. The file was missing while an ancestor was watched,
@@ -67,6 +68,7 @@ export const watchFileOrWhenCreatedWith = (fileSystem: WatchFileSystem): WatchFi
               if (watchesDirectory && fileSystem.existsSync(file)) listener();
             });
           });
+        current = watcher;
         break;
       } catch (error) {
         const parent = dirname(target);
@@ -75,9 +77,9 @@ export const watchFileOrWhenCreatedWith = (fileSystem: WatchFileSystem): WatchFi
         target = parent;
       }
     }
-    const watcher = current;
-    watcher.on('error', (error) => {
-      const isReplaced = watcher !== current;
+    const attached = current;
+    attached.on('error', (error) => {
+      const isReplaced = attached !== current;
       if (isReplaced || closed) return;
       if (isMissing(error)) {
         rearmAfterLostWatch();
