@@ -17,6 +17,7 @@ import {
   isCanonicalViteRequestPath,
   viteCandidateFiles,
   viteRequestPathnames,
+  viteServedRoots,
 } from './vite-request-path.js';
 
 export const DIRECT_SDK_STOP_SPECIFIER = /^(?:firebase|firebase-admin(?:\/.+)?|@firebase\/[^/]+(?:\/.+)?)$/;
@@ -195,14 +196,6 @@ function installedSdkFileOf(pathnames: readonly string[], roots: readonly string
   return null;
 }
 
-function servedRootsOf(config: RequestGateServer['config']): string[] {
-  const publicDir = config.publicDir;
-  if (typeof publicDir === 'string' && publicDir.length > 0) {
-    return [config.root, publicDir];
-  }
-  return [config.root];
-}
-
 async function answerStoppedSdk(
   request: IncomingMessage,
   response: ServerResponse,
@@ -234,7 +227,7 @@ export function attachViteSdkRequestGate(server: RequestGateServer, options: Vit
     const base = server.config.base ?? '/';
     const pathnames = viteRequestPathnames(rawUrl, base);
     if (pathnames === null) return next();
-    const sdkFile = installedSdkFileOf(pathnames, servedRootsOf(server.config));
+    const sdkFile = installedSdkFileOf(pathnames, viteServedRoots(server.config));
     if (sdkFile === null) return next();
 
     const supplied = options.supplied;

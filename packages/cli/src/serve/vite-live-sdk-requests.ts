@@ -28,7 +28,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { ViteDevServer } from 'vite';
 import { packageNameOf } from '../register/package-identity.js';
-import { viteBasePrefix, viteCandidateFiles, viteRequestPathnames } from './vite-request-path.js';
+import { viteBasePrefix, viteCandidateFiles, viteRequestPathnames, viteServedRoots } from './vite-request-path.js';
 import { stopModule, stopModuleExports } from './vite-ssr-routing.js';
 import { realFileUrlOf, type SuppliedRows } from './vite-supplied-rows.js';
 
@@ -55,10 +55,10 @@ function clientGraphOf(server: GateServer): ClientGraph | null {
 }
 
 /** The real file URL of the loaded SDK file any candidate pathname reaches, or null when none matches. */
-function loadedSdkFileOf(pathnames: readonly string[], root: string, supplied: SuppliedRows): string | null {
+function loadedSdkFileOf(pathnames: readonly string[], roots: readonly string[], supplied: SuppliedRows): string | null {
   const seen = new Set<string>();
   for (const pathname of pathnames) {
-    for (const file of viteCandidateFiles(pathname, [root], { includeAbsolute: true })) {
+    for (const file of viteCandidateFiles(pathname, roots, { includeAbsolute: true })) {
       if (seen.has(file)) continue;
       seen.add(file);
       const real = realFileUrlOf(file);
@@ -114,7 +114,7 @@ function unwrittenSdkFile(server: GateServer, supplied: SuppliedRows, rawUrl: st
   if (rawUrl === undefined || supplied.package() === null) return null;
   const pathnames = viteRequestPathnames(rawUrl, server.config.base ?? '/');
   if (pathnames === null) return null;
-  const real = loadedSdkFileOf(pathnames, server.config.root, supplied);
+  const real = loadedSdkFileOf(pathnames, viteServedRoots(server.config), supplied);
   if (real === null) return null;
   const rawTarget = rawUrl.replace(/#.*$/, '');
   const isWritten = writtenUrlsOf(server, fileURLToPath(real)).has(rawTarget);

@@ -17,7 +17,7 @@ import { relative } from 'node:path';
 import type { ViteDevServer } from 'vite';
 import { isPyricStateOrEnvPath } from './project-secret-paths.js';
 import { isPathInside } from './path-inside.js';
-import { viteCandidateFiles, viteRequestPathnames } from './vite-request-path.js';
+import { viteCandidateFiles, viteRequestPathnames, viteServedRoots } from './vite-request-path.js';
 
 type Next = (error?: unknown) => void;
 
@@ -84,11 +84,12 @@ export function viteRealPathDeny(scope: () => ViteDenyScope) {
 }
 
 /** The scope one dev server's guard checks: its served directories and the Firebase project around them. */
-export function viteDenyScope(config: { root: string; publicDir?: string; base?: string }, projectDir: string): ViteDenyScope {
-  const publicDir = config.publicDir;
-  const hasPublicDir = typeof publicDir === 'string' && publicDir.length > 0;
+export function viteDenyScope(
+  config: { root: string; publicDir?: string | false; base?: string },
+  projectDir: string,
+): ViteDenyScope {
   return {
-    servedRoots: hasPublicDir ? [config.root, publicDir] : [config.root],
+    servedRoots: viteServedRoots(config),
     containingRoots: [projectDir],
     base: config.base ?? '/',
   };

@@ -146,18 +146,23 @@ export function createModuleRuntimeResolver(projectRoot: string): (file: string)
       if (ts.isSpreadAssignment(prop)) {
         const spreadVal = evaluateExpr(realFile, parsed, prop.expression, visited);
         if (spreadVal.kind === 'object') {
+          if (spreadVal.hasIndeterminateSpread) {
+            hasIndeterminateSpread = true;
+            props.clear();
+          }
           for (const [k, v] of spreadVal.props) props.set(k, v);
-          if (spreadVal.hasIndeterminateSpread) hasIndeterminateSpread = true;
         } else if (spreadVal.kind === 'namespace') {
           const nsParsed = getParsed(toCanonicalFile(spreadVal.file));
           if (nsParsed === null) {
             hasIndeterminateSpread = true;
+            props.clear();
           } else {
             const nsRuntime = evaluateExport(spreadVal.file, 'runtime', visited);
             if (nsRuntime !== null) props.set('runtime', nsRuntime);
           }
         } else {
           hasIndeterminateSpread = true;
+          props.clear();
         }
         continue;
       }
@@ -170,6 +175,7 @@ export function createModuleRuntimeResolver(projectRoot: string): (file: string)
         const key = propertyKeyText(prop.name);
         if (key === null) {
           hasIndeterminateSpread = true;
+          props.clear();
           continue;
         }
         props.set(key, evaluateExpr(realFile, parsed, prop.initializer, visited));
@@ -183,6 +189,7 @@ export function createModuleRuntimeResolver(projectRoot: string): (file: string)
         const key = propertyKeyText(prop.name);
         if (key === null) {
           hasIndeterminateSpread = true;
+          props.clear();
         } else {
           props.set(key, INDETERMINATE_VALUE);
         }

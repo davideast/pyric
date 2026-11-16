@@ -240,7 +240,7 @@ describe('the refusal of a served specifier with no live row', () => {
 
   test('refuses non-canonical /@fs/ and WHATWG fetch(//@fs...) requests for installed Firebase SDK files in pyricLive()', async () => {
     const { spawnSync } = await import('node:child_process');
-    const { copyFileSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } = await import('node:fs');
+    const { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } = await import('node:fs');
     const { createRequire } = await import('node:module');
     const { tmpdir } = await import('node:os');
     const { dirname, join, resolve } = await import('node:path');
@@ -254,16 +254,22 @@ describe('the refusal of a served specifier with no live row', () => {
     const liveViteUrl = pathToFileURL(join(repoRoot, 'packages/live/dist/vite.js')).href;
     const installedPkg = cliRequire.resolve('firebase/package.json');
     const installedDir = dirname(installedPkg);
+    const fbRequire = createRequire(installedPkg);
+    const atFirebaseDir = dirname(dirname(fbRequire.resolve('@firebase/app/package.json')));
+    const firebaseAppEsm = realpathSync(join(installedDir, 'app/dist/esm/index.esm.js'));
 
     const root = realpathSync(mkdtempSync(join(tmpdir(), 'pyric-live-rawfs-')));
     try {
-      const localFbDir = join(root, 'node_modules', 'firebase');
-      mkdirSync(localFbDir, { recursive: true });
-      copyFileSync(installedPkg, join(localFbDir, 'package.json'));
-      const targetFile = join(localFbDir, 'firebase-app.js');
-      copyFileSync(join(installedDir, 'firebase-app.js'), targetFile);
+      mkdirSync(join(root, 'node_modules'), { recursive: true });
+      symlinkSync(installedDir, join(root, 'node_modules', 'firebase'));
+      symlinkSync(atFirebaseDir, join(root, 'node_modules', '@firebase'));
+      const targetFile = realpathSync(join(installedDir, 'firebase-app.js'));
+      const publicDir = join(root, 'public');
+      mkdirSync(publicDir, { recursive: true });
+      symlinkSync(firebaseAppEsm, join(publicDir, 'sdk-link.js'));
       writeFileSync(join(root, 'package.json'), JSON.stringify({ name: 'items-app', type: 'module' }));
       writeFileSync(join(root, 'index.html'), '<!doctype html><html><body>ok</body></html>');
+      writeFileSync(join(root, 'entry.js'), "import { initializeApp } from 'firebase/app';\nexport { initializeApp };\n");
       writeFileSync(join(root, '.firebaserc'), JSON.stringify({ projects: { default: 'demo-project' } }));
 
       const probePath = join(root, 'probe-live-rawfs.mjs');
@@ -311,10 +317,19 @@ describe('the refusal of a served specifier with no live row', () => {
           '  const fetched = await fetch(`http://127.0.0.1:${address.port}//@fs${targetFile}`);',
           '  const fetchBody = await fetched.text();',
           "  answers.push({ target: 'fetch://@fs', status: fetched.status, refused: fetchBody.startsWith('throw Object.assign(new Error(') && fetchBody.includes('PYRIC_LIVE_REFUSED'), leaked: fetchBody.includes('FirebaseAppImpl') });",
+          "  const entryRes = await rawGet(address.port, '/entry.js');",
+          '  const rowMatch = /"(\\/@id\\/[^"]+)"/.exec(entryRes.body);',
+          "  if (!rowMatch) throw new Error('missing live row import');",
+          '  await rawGet(address.port, rowMatch[1]);',
+          '  for (const pubTarget of ["/sdk-link.js", "//sdk-link.js"]) {',
+          '    const pubAns = await rawGet(address.port, pubTarget);',
+          "    answers.push({ target: pubTarget, status: pubAns.status, refused: pubAns.body.startsWith('throw Object.assign(new Error(') && pubAns.body.includes('PYRIC_LIVE_REFUSED') && pubAns.body.includes('second copy'), leaked: pubAns.body.includes('FirebaseAppImpl') });",
+          '  }',
           '  console.log(JSON.stringify(answers));',
           '} finally {',
           '  await server.close();',
           '}',
+          'process.exit(0);',
         ].join('\n'),
       );
 
@@ -333,7 +348,7 @@ describe('the refusal of a served specifier with no live row', () => {
         refused: boolean;
         leaked: boolean;
       }>;
-      expect(answers.length).toBe(7);
+      expect(answers.length).toBe(9);
       for (const entry of answers) {
         expect(entry.status).toBe(200);
         expect(entry.refused).toBe(true);

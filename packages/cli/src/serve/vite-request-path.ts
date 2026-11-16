@@ -25,6 +25,15 @@ export function viteBasePrefix(base: string): string {
   return pathname.endsWith('/') ? pathname : `${pathname}/`;
 }
 
+/** The directories Vite serves files from: its `root`, plus `publicDir` when enabled. */
+export function viteServedRoots(config: { readonly root: string; readonly publicDir?: string | false }): string[] {
+  const publicDir = config.publicDir;
+  if (typeof publicDir === 'string' && publicDir.length > 0) {
+    return [config.root, publicDir];
+  }
+  return [config.root];
+}
+
 /** Extracts the raw pathname from a request target, without query or hash. */
 export function rawRequestPathname(rawUrl: string | undefined): string {
   const input = rawUrl ?? '/';

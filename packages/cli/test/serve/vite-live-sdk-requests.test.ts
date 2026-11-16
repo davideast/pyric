@@ -7,7 +7,7 @@
  * each URL as its own module.
  */
 import { afterAll, describe, expect, it } from 'bun:test';
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -47,6 +47,7 @@ interface GateOptions {
   /** The optimizer's current hash in memory, which the gate must not read. */
   currentHash?: string;
   base?: string;
+  publicDir?: string;
 }
 
 /** A gate on a stand-in dev server whose client module graph holds `written` for the SDK file. */
@@ -62,7 +63,12 @@ function gate(options: GateOptions): { ask: (url: string) => Promise<Answer>; no
     ? { moduleGraph }
     : { environments: { client: { moduleGraph, depsOptimizer } } };
   const server = {
-    config: { root, base: options.base ?? '/', cacheDir: join(root, 'node_modules/.vite') },
+    config: {
+      root,
+      publicDir: options.publicDir ?? '',
+      base: options.base ?? '/',
+      cacheDir: join(root, 'node_modules/.vite'),
+    },
     middlewares: { use: (fn: Middleware) => { middleware = fn; } },
     ...placement,
   };
@@ -173,5 +179,23 @@ describe('the URLs Vite wrote, read from its module graph', () => {
     expect((await ask(`//@fs${sdkFile}?v=abc123`)).passed).toBe(false);
     expect((await ask(`/./@fs${sdkFile}?v=abc123`)).passed).toBe(false);
     expect((await ask(`/items/../@fs${sdkFile}?v=abc123`)).passed).toBe(false);
+  });
+
+  it('refuses a publicDir symlink pointing to a loaded live SDK file', async () => {
+    const publicDir = join(root, 'public-assets');
+    mkdirSync(publicDir, { recursive: true });
+    symlinkSync(sdkFile, join(publicDir, 'sdk-link.js'));
+    const { ask } = gate({ written: [`${PATH}?v=abc123`], publicDir });
+
+    for (const url of ['/sdk-link.js', '//sdk-link.js', '/./sdk-link.js', '/items/../sdk-link.js']) {
+      const answer = await ask(url);
+      expect(answer.passed).toBe(false);
+      expect(answer.body).toContain('PYRIC_LIVE_REFUSED');
+      expect(answer.body).toContain('initializeFirestore');
+    }
+
+    const withBase = gate({ written: [`${PATH}?v=abc123`], publicDir, base: '/app/' });
+    expect((await withBase.ask('/app/sdk-link.js')).passed).toBe(false);
+    expect((await withBase.ask('/app//sdk-link.js')).passed).toBe(false);
   });
 });

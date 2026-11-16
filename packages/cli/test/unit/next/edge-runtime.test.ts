@@ -366,6 +366,45 @@ describe('Edge runtime detection', () => {
       'pages/api/dual-reexport.ts',
     ]);
   });
+
+  it('fails closed when dynamic spreads or computed members follow runtime: nodejs in config', () => {
+    write(
+      'pages/api/trailing-spread.ts',
+      "declare const extra: Record<string, string>;\nexport const config = { runtime: 'nodejs', ...extra };\n",
+    );
+    write(
+      'pages/api/trailing-indeterminate-obj-spread.ts',
+      "declare const extra: Record<string, string>;\nconst partial = { ...extra, other: 'ok' };\nexport const config = { runtime: 'nodejs', ...partial };\n",
+    );
+    write(
+      'pages/api/trailing-computed-prop.ts',
+      "const k = 'run' + 'time';\nexport const config = { runtime: 'nodejs', [k]: 'edge' };\n",
+    );
+    write(
+      'pages/api/trailing-computed-getter.ts',
+      "const k = 'run' + 'time';\nexport const config = { runtime: 'nodejs', get [k]() { return 'edge'; } };\n",
+    );
+    write(
+      'pages/api/trailing-computed-method.ts',
+      "const k = 'run' + 'time';\nexport const config = { runtime: 'nodejs', [k]() { return 'edge'; } };\n",
+    );
+    // Negative controls: explicit runtime: 'nodejs' after indeterminate spread, or spread of a known-safe object.
+    write(
+      'pages/api/leading-spread-nodejs.ts',
+      "declare const extra: Record<string, string>;\nexport const config = { ...extra, runtime: 'nodejs' };\n",
+    );
+    write(
+      'pages/api/safe-object-spread.ts',
+      "const base = { api: { bodyParser: false } };\nexport const config = { runtime: 'nodejs', ...base };\n",
+    );
+    expect(findEdgeRuntimeFiles(root).sort()).toEqual([
+      'pages/api/trailing-computed-getter.ts',
+      'pages/api/trailing-computed-method.ts',
+      'pages/api/trailing-computed-prop.ts',
+      'pages/api/trailing-indeterminate-obj-spread.ts',
+      'pages/api/trailing-spread.ts',
+    ]);
+  });
 });
 
 describe('withPyric Edge runtime stop (PYRIC_EDGE_RUNTIME_UNSUPPORTED)', () => {
