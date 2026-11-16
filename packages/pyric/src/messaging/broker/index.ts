@@ -1,10 +1,10 @@
 /**
- * `pyric/src/messaging/broker` — the sandbox-side FCM broker (see
+ * `pyric/src/messaging/broker` -- the sandbox-side FCM broker (see
  * `broker.ts` for the model and the documented worker-host seam).
  *
  * One broker per {@link Sandbox}, held in a WeakMap exactly like
  * `pyric-admin/database`'s per-sandbox state: every plane that shares a
- * Sandbox shares the broker, which is what closes the send→deliver loop
+ * Sandbox shares the broker, which is what closes the send->deliver loop
  * in-process (admin `send` on the same sandbox reaches client `onMessage` /
  * sw `onBackgroundMessage` handlers).
  */
@@ -33,6 +33,7 @@ export {
 } from './envelopes.js';
 export type { FcmErrorEnvelope, ErrorDetail, BadRequestDetail, FcmErrorDetail } from './envelopes.js';
 export {
+  validateClientMessage,
   validateMessage,
   parseCondition,
   isValidTopicName,
@@ -63,7 +64,7 @@ export type {
 const brokers = new WeakMap<Sandbox, MessagingBroker>();
 
 /**
- * The broker bound to `sandbox` — created on first access, then stable.
+ * The broker bound to `sandbox` -- created on first access, then stable.
  * `config` applies only on the creating call (subsequent callers share the
  * already-configured instance; passing a different config later is a no-op
  * by design, mirroring how per-sandbox service state behaves elsewhere).
