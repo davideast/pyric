@@ -59,6 +59,8 @@ export interface ResolvedLoad {
   readonly url: string;
   /** Defaults to the mode `PYRIC_AI_MODE` and `PYRIC_AI_PASSTHROUGH` select. */
   readonly aiMode?: AiMode;
+  /** Whether the load resolved under the `import` condition; CJS `createRequire` calls pass `false`. */
+  readonly isEsmImport?: boolean;
   /** Defaults to the manifest lookup in `package-identity.ts`. */
   readonly nameOf?: (url: string) => string | null;
   /** Defaults to `pathInPackageOf` in `package-identity.ts`. */
@@ -112,7 +114,9 @@ function isAllowedRealLoad(load: ResolvedLoad, packageName: string, family: SdkF
   if (isFromAllowedSdkFile(load, packageName, allowedUrls)) return true;
   const specifier = load.canonical ?? load.specifier;
   const aiMode = load.aiMode ?? resolveAiMode(undefined, process.env);
-  if (family === 'admin') return isBypassedBridgeImport(specifier, load.importer, aiMode);
+  if (family === 'admin') {
+    return load.isEsmImport !== false && isBypassedBridgeImport(specifier, load.importer, aiMode);
+  }
   const pathOf = load.pathInPackage ?? pathInPackageOf;
   return choosesRealFirebase({
     specifier,
@@ -120,6 +124,7 @@ function isAllowedRealLoad(load: ResolvedLoad, packageName: string, family: SdkF
     packageName,
     pathInPackage: () => pathOf(load.url, packageName),
     aiMode,
+    isEsmImport: load.isEsmImport,
   });
 }
 

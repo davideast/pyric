@@ -13,6 +13,8 @@ import {
   guardSpawnOptions,
   guardSyncArguments,
   hasForeignRegisterPreload,
+  hasPreloadBeforeRegister,
+  hasPreloadBeforeRegisterTokens,
   hasSandboxRegisterAheadOfLive,
   installChildProcessGuard,
   isSandboxParent,
@@ -113,7 +115,42 @@ describe('guardChildEnv', () => {
         PARENT,
         REGISTER_URL,
       ).NODE_OPTIONS,
-    ).toBe(`--import file:///app/custom-register.mjs ${IMPORT}`);
+    ).toBe(`${IMPORT} --import file:///app/custom-register.mjs`);
+    expect(
+      guardChildEnv(
+        { NODE_OPTIONS: '--no-warnings --import=file:///app/custom-register.mjs --import @pyric/cli/register' },
+        PARENT,
+        REGISTER_URL,
+      ).NODE_OPTIONS,
+    ).toBe(`--no-warnings ${IMPORT} --import=file:///app/custom-register.mjs`);
+    expect(
+      guardChildEnv(
+        { NODE_OPTIONS: '--require file:///app/early.cjs' },
+        PARENT,
+        REGISTER_URL,
+      ).NODE_OPTIONS,
+    ).toBe(`${IMPORT} --require file:///app/early.cjs`);
+    expect(
+      guardChildEnv(
+        { NODE_OPTIONS: '-r file:///app/early.cjs --import @pyric/live/register' },
+        PARENT,
+        LIVE_URL,
+      ).NODE_OPTIONS,
+    ).toBe(`${LIVE_IMPORT} -r file:///app/early.cjs`);
+  });
+
+  it('detects any preload scheduled ahead of the active register', () => {
+    expect(hasPreloadBeforeRegister('', REGISTER_URL)).toBe(false);
+    expect(hasPreloadBeforeRegister('--max-old-space-size=4096', REGISTER_URL)).toBe(false);
+    expect(hasPreloadBeforeRegister(`${IMPORT} --import file:///app/custom.mjs`, REGISTER_URL)).toBe(false);
+    expect(hasPreloadBeforeRegister('--import @pyric/cli/register --import file:///app/custom.mjs', REGISTER_URL)).toBe(false);
+    expect(hasPreloadBeforeRegister('--import file:///app/custom.mjs', REGISTER_URL)).toBe(true);
+    expect(hasPreloadBeforeRegister('--import=file:///app/custom.mjs', REGISTER_URL)).toBe(true);
+    expect(hasPreloadBeforeRegister('--import file:///app/custom.mjs --import @pyric/cli/register', REGISTER_URL)).toBe(true);
+    expect(hasPreloadBeforeRegister('-r file:///app/early.cjs', REGISTER_URL)).toBe(true);
+    expect(hasPreloadBeforeRegisterTokens(['--no-warnings'], REGISTER_URL)).toBe(false);
+    expect(hasPreloadBeforeRegisterTokens(['--import', REGISTER_URL, '--import', 'file:///app/early.mjs'], REGISTER_URL)).toBe(false);
+    expect(hasPreloadBeforeRegisterTokens(['--import', 'file:///app/early.mjs', '--import', REGISTER_URL], REGISTER_URL)).toBe(true);
   });
 
   it('recognizes only the active register in loadsRegister and distinguishes foreign preloads and preload order', () => {

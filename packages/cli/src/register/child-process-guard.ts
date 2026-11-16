@@ -248,6 +248,38 @@ export function hasSandboxRegisterAheadOfLive(
   return firstPyricRegisterKind(execArgv, cliRegisterUrl) === 'cli';
 }
 
+/**
+ * Whether `tokens` contains a preload flag (`--import`, `--require`, `-r`, or
+ * attached `=` forms) ahead of a preload matching `registerUrl`. Returns `false`
+ * when no preload flags are present or when the first preload already names
+ * `registerUrl`.
+ */
+export function hasPreloadBeforeRegisterTokens(tokens: readonly unknown[], registerUrl: string): boolean {
+  for (let i = 0; i < tokens.length; i++) {
+    const word = tokens[i];
+    if (typeof word !== 'string') continue;
+    let target: string | null = null;
+    if (TWO_TOKEN_PRELOAD_FLAGS.has(word) && i + 1 < tokens.length && typeof tokens[i + 1] === 'string') {
+      target = tokens[i + 1] as string;
+      i++;
+    } else {
+      const attached = attachedPreloadSpecifier(word);
+      if (attached !== null) target = attached.target;
+    }
+    if (target === null) continue;
+    return !matchesRegisterSpecifier(target, registerUrl);
+  }
+  return false;
+}
+
+/**
+ * Whether `nodeOptions` schedules another preload ahead of `registerUrl`.
+ */
+export function hasPreloadBeforeRegister(nodeOptions: string, registerUrl: string): boolean {
+  const tokens = tokenizeNodeOptions(nodeOptions).map((word) => word.value);
+  return hasPreloadBeforeRegisterTokens(tokens, registerUrl);
+}
+
 function rewritePreloadTokens(
   items: ReadonlyArray<{ readonly value: unknown; readonly raw: unknown }>,
   registerUrl: string,
@@ -265,15 +297,6 @@ function rewritePreloadTokens(
       typeof nextItem.value === 'string'
     ) {
       const target = nextItem.value;
-      if (isForeignRegisterSpecifier(target, registerUrl)) {
-        if (!foundRegister) {
-          out.push('--import', registerUrl);
-          foundRegister = true;
-        }
-        out.push(item.raw, nextItem.raw);
-        i++;
-        continue;
-      }
       if (matchesRegisterSpecifier(target, registerUrl)) {
         if (!foundRegister) {
           out.push('--import', registerUrl);
@@ -282,6 +305,10 @@ function rewritePreloadTokens(
         i++;
         continue;
       }
+      if (!foundRegister) {
+        out.push('--import', registerUrl);
+        foundRegister = true;
+      }
       out.push(item.raw, nextItem.raw);
       i++;
       continue;
@@ -289,14 +316,6 @@ function rewritePreloadTokens(
     if (typeof item.value === 'string') {
       const attached = attachedPreloadSpecifier(item.value);
       if (attached !== null) {
-        if (isForeignRegisterSpecifier(attached.target, registerUrl)) {
-          if (!foundRegister) {
-            out.push('--import', registerUrl);
-            foundRegister = true;
-          }
-          out.push(item.raw);
-          continue;
-        }
         if (matchesRegisterSpecifier(attached.target, registerUrl)) {
           if (!foundRegister) {
             if (attached.prefix === '--import=') {
@@ -308,6 +327,12 @@ function rewritePreloadTokens(
           }
           continue;
         }
+        if (!foundRegister) {
+          out.push('--import', registerUrl);
+          foundRegister = true;
+        }
+        out.push(item.raw);
+        continue;
       }
     }
     out.push(item.raw);
@@ -316,11 +341,10 @@ function rewritePreloadTokens(
 }
 
 /**
- * Ensure `nodeOptions` loads `registerUrl` via its canonical `file:` URL,
- * rewriting matching bare or filesystem-path register preloads (`--import` and
- * `-r`/`--require`) in place, injecting `registerUrl` ahead of any foreign Pyric
- * register preload without rewriting the foreign specifier, and leaving all user
- * options untouched.
+ * Ensure `nodeOptions` loads `registerUrl` via its canonical `file:` URL ahead
+ * of any caller or foreign preload, rewriting matching bare or filesystem-path
+ * register preloads (`--import` and `-r`/`--require`) in place, deduplicating
+ * later own-register preloads, and leaving all other options untouched.
  */
 export function withCanonicalRegisterNodeOptions(nodeOptions: string, registerUrl: string): string {
   const words = tokenizeNodeOptions(nodeOptions);

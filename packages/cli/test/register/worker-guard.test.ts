@@ -25,14 +25,55 @@ describe('guardWorkerArguments', () => {
     expect(options).toEqual({ eval: true });
   });
 
+  it('matches Node truthiness for non-boolean options.eval values and freezes eval getters', () => {
+    for (const truthy of [1, 'yes', 'false', {}, []]) {
+      const [source] = guardWorkerArguments('console.log(1)', { eval: truthy }, REGISTER_URL);
+      expect(source, String(truthy)).toBe(`${PREFIX}\nconsole.log(1)`);
+    }
+    for (const falsy of [false, 0, '', null, undefined, Number.NaN]) {
+      const [source] = guardWorkerArguments('/app/worker.js', { eval: falsy }, REGISTER_URL);
+      expect(source, String(falsy)).toBe('/app/worker.js');
+    }
+
+    let reads = 0;
+    const flipping = {
+      get eval() {
+        reads += 1;
+        return reads > 1;
+      },
+    };
+    const [source, options] = guardWorkerArguments('/app/worker.js', flipping, REGISTER_URL);
+    expect(source).toBe('/app/worker.js');
+    expect(options?.eval).toBe(false);
+    expect(options?.eval).toBe(false);
+  });
+
   it('keeps a leading use strict directive first', () => {
     const [source] = guardWorkerArguments(`'use strict';\nconsole.log(1)`, { eval: true }, REGISTER_URL);
     expect(source).toBe(`'use strict';\n${PREFIX}\nconsole.log(1)`);
   });
 
-  it('adds the register import to an explicit execArgv', () => {
+  it('adds the register import to an explicit execArgv and places it before caller preloads', () => {
     const [, options] = guardWorkerArguments('/app/worker.js', { execArgv: ['--no-warnings'] }, REGISTER_URL);
     expect(options).toEqual({ execArgv: ['--no-warnings', '--import', REGISTER_URL] });
+
+    const [, preloadOpts] = guardWorkerArguments(
+      '/app/worker.js',
+      { execArgv: ['--import', 'file:///app/early.mjs'] },
+      REGISTER_URL,
+    );
+    expect(preloadOpts).toEqual({
+      execArgv: ['--import', REGISTER_URL, '--import', 'file:///app/early.mjs'],
+    });
+
+    const [, attachedOpts] = guardWorkerArguments(
+      '/app/worker.js',
+      { execArgv: ['--import=file:///app/early.mjs', '--import', '@pyric/cli/register'] },
+      REGISTER_URL,
+    );
+    expect(attachedOpts).toEqual({
+      execArgv: ['--import', REGISTER_URL, '--import=file:///app/early.mjs'],
+    });
   });
 
   it('leaves an explicit execArgv that already imports the register alone, and canonicalizes bare or filesystem register imports', () => {
@@ -125,10 +166,87 @@ describe('guardWorkerArguments', () => {
     expect(options).toEqual({ env: { NODE_ENV: 'production', PYRIC_SANDBOX: 'local', PYRIC_SANDBOX_FORCE: '1' } });
   });
 
-  it('leaves a worker that shares the parent env alone', () => {
+  it('leaves a worker that shares the parent env alone, while setting PYRIC_SANDBOX_FORCE when parent sandbox is active', () => {
     const shared = Symbol('SHARE_ENV');
-    const [, options] = guardWorkerArguments('/app/worker.js', { env: shared }, REGISTER_URL, { PYRIC_SANDBOX: 'local' }, true);
+    const parentEnv: Record<string, string | undefined> = { PYRIC_SANDBOX: 'local' };
+    const [, options] = guardWorkerArguments('/app/worker.js', { env: shared }, REGISTER_URL, parentEnv, true);
     expect(options).toEqual({ env: shared });
+    expect(parentEnv.PYRIC_SANDBOX_FORCE).toBe('1');
+  });
+
+  it('forces the sandbox for default-env and SHARE_ENV workers when parent NODE_ENV is mutated to production', () => {
+    const prodParent: Record<string, string | undefined> = {
+      PATH: '/bin',
+      PYRIC_SANDBOX: 'local',
+      NODE_ENV: 'production',
+    };
+    const [, defaultOpts] = guardWorkerArguments('/app/worker.js', undefined, REGISTER_URL, prodParent, true);
+    expect(defaultOpts).toEqual({
+      env: {
+        PATH: '/bin',
+        PYRIC_SANDBOX: 'local',
+        NODE_ENV: 'production',
+        PYRIC_SANDBOX_FORCE: '1',
+      },
+    });
+    expect(prodParent.PYRIC_SANDBOX_FORCE).toBeUndefined();
+
+    const [, inactiveOpts] = guardWorkerArguments('/app/worker.js', undefined, REGISTER_URL, prodParent, false);
+    expect(inactiveOpts).toBeUndefined();
+
+    const shared = Symbol('SHARE_ENV');
+    const sharedParent: Record<string, string | undefined> = {
+      PATH: '/bin',
+      PYRIC_SANDBOX: 'local',
+      NODE_ENV: 'production',
+    };
+    const [, sharedOpts] = guardWorkerArguments('/app/worker.js', { env: shared }, REGISTER_URL, sharedParent, true);
+    expect(sharedOpts).toEqual({ env: shared });
+    expect(sharedParent.PYRIC_SANDBOX_FORCE).toBe('1');
+  });
+
+  it('guards caller NODE_OPTIONS preloads in custom-env, default-env, and SHARE_ENV workers even when parent loaded via CLI execArgv', () => {
+    const early = '--import file:///app/early.mjs';
+    const [, customOpts] = guardWorkerArguments(
+      '/app/worker.js',
+      { env: { PATH: '/usr/bin', NODE_OPTIONS: early } },
+      REGISTER_URL,
+      { PYRIC_SANDBOX: 'local' },
+      true,
+    );
+    expect(customOpts).toEqual({
+      env: {
+        PATH: '/usr/bin',
+        PYRIC_SANDBOX: 'local',
+        PYRIC_SANDBOX_FORCE: '1',
+        NODE_OPTIONS: `--import ${REGISTER_URL} ${early}`,
+      },
+    });
+
+    const [, defaultOpts] = guardWorkerArguments(
+      '/app/worker.js',
+      undefined,
+      REGISTER_URL,
+      { PATH: '/bin', PYRIC_SANDBOX: 'local', NODE_OPTIONS: early },
+      true,
+    );
+    expect(defaultOpts).toEqual({
+      env: {
+        PATH: '/bin',
+        PYRIC_SANDBOX: 'local',
+        PYRIC_SANDBOX_FORCE: '1',
+        NODE_OPTIONS: `--import ${REGISTER_URL} ${early}`,
+      },
+    });
+
+    const shared = Symbol('SHARE_ENV');
+    const sharedParent: Record<string, string | undefined> = {
+      PATH: '/bin',
+      PYRIC_SANDBOX: 'local',
+      NODE_OPTIONS: early,
+    };
+    guardWorkerArguments('/app/worker.js', { env: shared }, REGISTER_URL, sharedParent, true);
+    expect(sharedParent.NODE_OPTIONS).toBe(`--import ${REGISTER_URL} ${early}`);
   });
 
   it('never changes the env object the caller passed', () => {

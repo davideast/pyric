@@ -346,8 +346,15 @@ function loadWithRows(rows: RegisterRows): Load {
   };
 }
 
+function isInheritedLiveChild(): boolean {
+  const recorded = process.env[LIVE_PROJECT_ROOT_VARIABLE];
+  return recorded !== undefined && recorded !== '';
+}
+
 function isRefusedInProduction(): boolean {
-  return process.env.NODE_ENV === 'production' && process.env.PYRIC_SANDBOX_FORCE !== '1';
+  if (process.env.NODE_ENV !== 'production') return false;
+  if (process.env.PYRIC_SANDBOX_FORCE === '1') return false;
+  return !isInheritedLiveChild();
 }
 
 /** The live project in `projectRoot`, or null when none is set: the register entry refuses that start itself. */
@@ -469,9 +476,11 @@ function finishSuppliedRowsActivation(installed: InstalledLiveRegister, prepared
   const rows = registerRows(prepared.passThrough, prepared.adminRows);
   rows.open(installed.rows);
   // Children and workers open the rows for this process's project and its checked firebase, wherever they start.
-  process.env[LIVE_PROJECT_ROOT_VARIABLE] = installed.projectRoot;
-  process.env[LIVE_SDK_ROOT_VARIABLE] = installed.sdkRoot;
-  process.env[LIVE_PASS_THROUGH_VARIABLE] = [...prepared.passThrough].join(',');
+  pinInheritedVariables({
+    [LIVE_PROJECT_ROOT_VARIABLE]: installed.projectRoot,
+    [LIVE_SDK_ROOT_VARIABLE]: installed.sdkRoot,
+    [LIVE_PASS_THROUGH_VARIABLE]: [...prepared.passThrough].join(','),
+  });
   installWorkerGuard(installed.entryUrl, undefined, installed.evalEntryUrl);
   installChildProcessGuard(installed.entryUrl);
   const report = createStopReporter((line) => void process.stderr.write(line));

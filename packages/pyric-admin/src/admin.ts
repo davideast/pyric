@@ -27,6 +27,9 @@ import { getProjectManagement } from './project-management/index.js';
 import { getRemoteConfig } from './remote-config/index.js';
 import { getSecurityRules } from './security-rules/index.js';
 
+/** The firebase-admin version whose behavior pyric-admin currently mirrors. */
+export const SDK_VERSION = '13.10.0';
+
 export const credential = {
   cert: appModule.cert,
   applicationDefault: appModule.applicationDefault,
@@ -67,6 +70,7 @@ export const securityRules = (app?: appModule.PyricAdminApp) => getSecurityRules
 
 const admin = {
   ...appModule,
+  SDK_VERSION,
   credential,
   firestore,
   auth,
@@ -86,5 +90,11 @@ const admin = {
     return appModule.getApps();
   },
 };
+
+// Match upstream CJS/ESM interop where `admin.default === admin`.
+Object.defineProperty(admin, 'default', {
+  get: () => admin,
+  configurable: true,
+});
 
 export default admin;

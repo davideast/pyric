@@ -56,7 +56,7 @@ import { installChildProcessGuard, pinInheritedVariables } from './child-process
 import { installRemotePeerMark } from './remote-peer-mark.js';
 import { installProcessHealth, sandboxHost } from './process-health.js';
 import { remoteSandbox } from '../remote/index.js';
-import { resolveAiMode } from '../serve/firebase-module-swap.js';
+import { resolveAiMode, type AiMode } from '../serve/firebase-module-swap.js';
 
 /** The shared seam with pyric-admin's ambient init: a synchronous factory
  *  returning the lazy branded handle. `Symbol.for` so both packages agree
@@ -156,11 +156,20 @@ const PINNED_SANDBOX_OPTIONAL_KEYS = [
   'PYRIC_WORKER_INIT_HOST',
 ] as const;
 
+function isImportCondition(conditions: readonly string[] | undefined): boolean {
+  return conditions?.includes('import') === true;
+}
+
 function buildPinnedSandboxEnv(
   activatedSandbox: string,
+  activatedAiMode: AiMode,
   env: NodeJS.ProcessEnv,
 ): Record<string, string> {
-  const pinned: Record<string, string> = { PYRIC_SANDBOX: activatedSandbox };
+  const pinned: Record<string, string> = {
+    PYRIC_SANDBOX: activatedSandbox,
+    PYRIC_AI_MODE: activatedAiMode,
+    PYRIC_AI_PASSTHROUGH: activatedAiMode === 'production' && env.PYRIC_AI_PASSTHROUGH === '1' ? '1' : '',
+  };
   for (const key of PINNED_SANDBOX_OPTIONAL_KEYS) {
     const value = env[key];
     if (value !== undefined && value !== '') {
@@ -176,9 +185,13 @@ function buildPinnedSandboxEnv(
  * given first, and maps by its canonical name only when that landed in the
  * real package, so an unrelated package with such a name stays itself.
  */
-function createResolveFirebase(activatedSandbox: string): SyncResolve {
-  const mapOptions = { sandbox: activatedSandbox };
+function createResolveFirebase(activatedSandbox: string, activatedAiMode: AiMode): SyncResolve {
   return (specifier, context, nextResolve) => {
+    const mapOptions = {
+      sandbox: activatedSandbox,
+      aiMode: activatedAiMode,
+      isEsmImport: isImportCondition(context.conditions),
+    };
     const canonical = canonicalFirebaseSpecifier(specifier);
     if (canonical === null) {
       const mapped = mapFirebaseSpecifier(specifier, context.parentURL, mapOptions);
@@ -199,7 +212,7 @@ function createResolveFirebase(activatedSandbox: string): SyncResolve {
  * or in the real client SDK where the swap table didn't choose it, throws
  * before the file loads, and the stop is written to stderr once per file.
  */
-function withSwapOrStop(resolve: SyncResolve): SyncResolve {
+function withSwapOrStop(resolve: SyncResolve, activatedAiMode: AiMode): SyncResolve {
   const report = createStopReporter((line) => void process.stderr.write(line));
   const allowedUrls = new Set<string>();
   return (specifier, context, nextResolve) => {
@@ -209,6 +222,8 @@ function withSwapOrStop(resolve: SyncResolve): SyncResolve {
       canonical: canonicalFirebaseSpecifier(specifier),
       importer: context.parentURL,
       url: result.url,
+      aiMode: activatedAiMode,
+      isEsmImport: isImportCondition(context.conditions),
     }, allowedUrls);
     if (stop === null) return result;
     report(stop);
@@ -225,10 +240,11 @@ function activate(activatedSandbox: string): void {
     (line) => void process.stderr.write(line),
   );
   const activatedInstance = process.env.PYRIC_SANDBOX_INSTANCE;
-  // Pin the sandbox activator and host-binding variables so mutating or
-  // deleting `process.env` in the parent cannot drop sandbox enforcement in
-  // child processes or worker threads.
-  pinInheritedVariables(buildPinnedSandboxEnv(activatedSandbox, process.env));
+  const activatedAiMode = resolveAiMode(undefined, process.env);
+  // Pin the sandbox activator, AI mode, and host-binding variables so mutating
+  // or deleting `process.env` in the parent cannot drop sandbox enforcement or
+  // switch AI mode in-process or in child processes and worker threads.
+  pinInheritedVariables(buildPinnedSandboxEnv(activatedSandbox, activatedAiMode, process.env));
   // Built-ins and resolve hooks are per thread: every worker this process
   // starts loads this module too, including the kinds Node starts without
   // running preloads, so the worker gets the swap and the stop.
@@ -247,7 +263,7 @@ function activate(activatedSandbox: string): void {
   }));
 
   registerHooks({
-    resolve: withSwapOrStop(createResolveFirebase(activatedSandbox)),
+    resolve: withSwapOrStop(createResolveFirebase(activatedSandbox, activatedAiMode), activatedAiMode),
   });
 
   // The factory global -- exact contract shared with pyric-admin's ambient
@@ -258,7 +274,7 @@ function activate(activatedSandbox: string): void {
   (globalThis as Record<symbol, unknown>)[SANDBOX_FACTORY] = (opts?: { url?: string }) =>
     remoteSandbox({ configuredUrl: opts?.url, instanceId: activatedInstance });
 
-  installAppCheckVerifier();
+  installAppCheckVerifier(activatedAiMode);
 
   process.stderr.write(
     `@pyric/cli/register: active. firebase-admin/firebase imports now resolve to the ` +
@@ -284,9 +300,8 @@ function activate(activatedSandbox: string): void {
  * mode nothing is installed, and the mirror refuses such a token with a
  * message that says why.
  */
-function installAppCheckVerifier(): void {
-  const isProductionAiMode = resolveAiMode(undefined, process.env) === 'production';
-  if (!isProductionAiMode) return;
+function installAppCheckVerifier(activatedAiMode: AiMode): void {
+  if (activatedAiMode !== 'production') return;
   (globalThis as Record<symbol, unknown>)[APP_CHECK_FIREBASE_VERIFIER] = async (token: string, projectId: string) => {
     const bridge = await import('./app-bridge-admin-app-check.js');
     return bridge.verifyFirebaseAppCheckToken(token, projectId);
