@@ -40,6 +40,7 @@ import { createViteModuleContext, createViteModuleSwap } from './vite-module-swa
 import { createVitePageRuntime } from './vite-page-runtime.js';
 import { stampHostedTarget } from './runtime/hosted-target.js';
 import { attachLiveSdkRequestGate } from './vite-live-sdk-requests.js';
+import { attachViteSdkRequestGate } from './vite-sdk-file-gate.js';
 import {
   acquireViteLiveProcessStop,
   acquireViteProcessStop,
@@ -403,6 +404,11 @@ export function createPyricPlugin(options: PyricOptions, supplied?: SuppliedRows
         const stackBeforePyricPre = Array.isArray(middlewareStack) ? middlewareStack.length : 0;
         attachViteRealPathDeny(server, projectDir);
         attachViteHtmlSessionBootstrap(server, () => activeSessionToken);
+        attachViteSdkRequestGate(server, {
+          allowedUrls: moduleSwap.allowedUrls,
+          aiMode: () => pageRuntime.ai().mode,
+          supplied,
+        });
         if (supplied !== undefined) attachLiveSdkRequestGate(server, supplied);
         if (
           Array.isArray(middlewareStack) &&

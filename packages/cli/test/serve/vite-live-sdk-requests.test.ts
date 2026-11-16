@@ -106,6 +106,15 @@ describe('a request for an SDK file the live rows loaded', () => {
     'an /@id/ absolute path with a query': `/@id${sdkFile}?q=1`,
     'an /@id/ path with a doubled slash': `/@id/${sdkFile}?v=abc123`,
     'an /@id/ root path': `/@id${PATH}?v=abc123`,
+    'a repeated leading slash on /@fs/': `//@fs${sdkFile}`,
+    'a repeated leading slash on /@fs/ with written query': `//@fs${sdkFile}?v=abc123`,
+    'a dot segment before /@fs/': `/./@fs${sdkFile}`,
+    'a parent traversal before /@fs/': `/items/../@fs${sdkFile}?v=abc123`,
+    'an encoded dot segment before /@fs/': `/%2e/@fs${sdkFile}?v=abc123`,
+    'an encoded /@fs/ prefix': `/%40fs${sdkFile}?v=abc123`,
+    'a repeated leading slash on node_modules': `/${PATH}?v=abc123`,
+    'a dot segment before node_modules': `/./${PATH.slice(1)}?v=abc123`,
+    'a parent traversal before node_modules': `/items/..${PATH}?v=abc123`,
   };
   for (const [name, url] of Object.entries(refused)) {
     it(`is refused under ${name}`, async () => {
@@ -153,5 +162,16 @@ describe('the URLs Vite wrote, read from its module graph', () => {
     const { ask } = gate({ written: [`${PATH}?v=abc123`], base: '/app/' });
     expect((await ask(`/app${PATH}?v=abc123`)).passed).toBe(true);
     expect((await ask(`/app${PATH}?v=abc123&`)).passed).toBe(false);
+    expect((await ask(`/app//@fs${sdkFile}`)).passed).toBe(false);
+    expect((await ask(`/app/./${PATH.slice(1)}?v=abc123`)).passed).toBe(false);
+    expect((await ask(`//app${PATH}?v=abc123`)).passed).toBe(false);
+  });
+
+  it('refuses non-canonical /@fs/ variants even when Vite wrote a canonical /@fs/ URL', async () => {
+    const { ask } = gate({ written: [`/@fs${sdkFile}?v=abc123`] });
+    expect((await ask(`/@fs${sdkFile}?v=abc123`)).passed).toBe(true);
+    expect((await ask(`//@fs${sdkFile}?v=abc123`)).passed).toBe(false);
+    expect((await ask(`/./@fs${sdkFile}?v=abc123`)).passed).toBe(false);
+    expect((await ask(`/items/../@fs${sdkFile}?v=abc123`)).passed).toBe(false);
   });
 });

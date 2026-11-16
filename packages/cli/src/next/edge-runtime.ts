@@ -16,20 +16,21 @@ const PROXY_FILES = ['proxy', 'src/proxy'];
 const MIDDLEWARE_FILES = ['middleware', 'src/middleware'];
 const SKIPPED_DIRECTORIES = new Set(['node_modules', '.next', '.git']);
 
+function isEdgeOrIndeterminate(classification: ResolvedModuleRuntime['runtime']): boolean {
+  return classification === 'edge' || classification === 'indeterminate';
+}
+
 function requiresEdgeStopForRoute(resolved: ResolvedModuleRuntime): boolean {
   if (resolved.failedClosed) return true;
-  if (resolved.runtime !== 'absent') {
-    return resolved.runtime !== 'nodejs';
-  }
-  return resolved.configRuntime === 'edge' || resolved.configRuntime === 'indeterminate';
+  return isEdgeOrIndeterminate(resolved.runtime) || isEdgeOrIndeterminate(resolved.configRuntime);
 }
 
 function isConfirmedNodeMiddleware(resolved: ResolvedModuleRuntime): boolean {
   if (resolved.failedClosed) return false;
-  if (resolved.runtime !== 'absent') {
-    return resolved.runtime === 'nodejs';
+  if (isEdgeOrIndeterminate(resolved.runtime) || isEdgeOrIndeterminate(resolved.configRuntime)) {
+    return false;
   }
-  return resolved.configRuntime === 'nodejs';
+  return resolved.runtime === 'nodejs' || resolved.configRuntime === 'nodejs';
 }
 
 function hasSourceExtension(name: string): boolean {

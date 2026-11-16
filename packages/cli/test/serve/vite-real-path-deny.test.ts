@@ -196,4 +196,64 @@ describe('Vite real-path guard', () => {
     expect((await fetch(`${base}/src/main.js`)).status).toBe(200);
     expect((await fetch(`${base}/`)).status).toBe(200);
   });
+
+  it('refuses non-canonical /@fs/ paths (dot segments, repeated slashes, encoded variants) and standard WHATWG fetch(//@fs...)', async () => {
+    const root = project();
+    writeFileSync(join(root, '.pyric', 'serve.json'), JSON.stringify({ token: 'synthetic-token-1234' }));
+    const serveLink = join(root, 'serve-link.json');
+    const envLink = join(root, 'env-link');
+    symlinkSync(join(root, '.pyric', 'serve.json'), serveLink);
+
+    const base = await serve(root, [guardPlugin(root)]);
+    const strippedServe = serveLink.replace(/^\/+/, '');
+    const rawTargets = [
+      `/./@fs${serveLink}`,
+      `//@fs${serveLink}`,
+      `/items/../@fs${serveLink}`,
+      `/items//../../@fs${serveLink}`,
+      `/%2e/@fs${serveLink}`,
+      `/%40fs${serveLink}`,
+      `/@fs%2f${strippedServe}`,
+      `/\\@fs${serveLink}`,
+      `/%5c@fs${serveLink}`,
+      `//@fs${envLink}`,
+      `/./@fs${envLink}`,
+      `/items/../@fs${envLink}`,
+    ];
+    for (const target of rawTargets) {
+      const answer = await rawGet(base, target);
+      expect(answer.status).toBe(403);
+      expect(answer.body).not.toContain('synthetic-token-1234');
+      expect(answer.body).not.toContain('API_KEY');
+    }
+
+    const fetchServe = await fetch(`${base}//@fs${serveLink}`);
+    expect(fetchServe.status).toBe(403);
+    expect(await fetchServe.text()).not.toContain('synthetic-token-1234');
+
+    const fetchEnv = await fetch(`${base}//@fs${envLink}`);
+    expect(fetchEnv.status).toBe(403);
+    expect(await fetchEnv.text()).not.toContain('API_KEY');
+  });
+
+  it('refuses non-canonical paths combined with a configured Vite base', async () => {
+    const root = project();
+    const envLink = join(root, 'env-link');
+    const base = await serve(root, [guardPlugin(root)], { base: '/app/' });
+    const targets = [
+      `/app/./@fs${envLink}`,
+      `/app//@fs${envLink}`,
+      `//app/@fs${envLink}`,
+      `/app/items/../@fs${envLink}`,
+      `/app/items/../../@fs${envLink}`,
+      `/app/./env-link`,
+      `//app/env-link`,
+    ];
+    for (const target of targets) {
+      const answer = await rawGet(base, target);
+      expect(answer.status).toBe(403);
+      expect(answer.body).not.toContain('API_KEY');
+    }
+    expect((await rawGet(base, '/app/src/main.js')).status).toBe(200);
+  });
 });

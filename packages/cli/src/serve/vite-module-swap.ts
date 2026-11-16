@@ -156,6 +156,8 @@ export interface ViteModuleSwap {
   loadPluginModule(id: string): Promise<string | null>;
   /** The served specifiers the page resolved to live rows, in first-import order; empty without supplied rows. */
   readonly observed: ReadonlySet<ServedFirebaseSpecifier>;
+  /** Real file URLs of installed Firebase SDK files explicitly allowed on the page plane. */
+  readonly allowedUrls: ReadonlySet<string>;
 }
 
 /** A server environment's own config, for `configEnvironment`. Unset consumers default as Vite defaults them. */
@@ -577,5 +579,6 @@ export function createViteModuleSwap(
     load,
     loadPluginModule,
     observed,
+    allowedUrls,
   };
 }

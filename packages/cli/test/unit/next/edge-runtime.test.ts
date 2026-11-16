@@ -289,6 +289,83 @@ describe('Edge runtime detection', () => {
       'middleware.ts',
     ]);
   });
+
+  it('fails closed on array destructuring, object rest, nested destructuring, computed destructuring keys, defaults, and config getters', () => {
+    write('app/api/array-destr/route.ts', "export const [runtime] = ['edge'];\nexport function GET() {}\n");
+    write('app/api/array-reexport/route.ts', "const [r] = ['edge'];\nexport { r as runtime };\n");
+    write('app/api/object-rest/route.ts', "export const { ...config } = { runtime: 'edge' };\nexport function GET() {}\n");
+    write('app/api/nested-destr/route.ts', "export const { a: { runtime } } = { a: { runtime: 'edge' } };\nexport function GET() {}\n");
+    write('app/api/nested-array/route.ts', "export const { a: [runtime] } = { a: ['edge'] };\nexport function GET() {}\n");
+    write('app/api/computed-destr/route.ts', "const key = 'runtime';\nexport const { [key]: runtime } = { runtime: 'edge' };\nexport function GET() {}\n");
+    write('app/api/default-destr/route.ts', "export const { runtime = 'edge' } = {};\nexport function GET() {}\n");
+    write('app/api/getter-config/route.ts', "export const config = { get runtime() { return 'edge'; } };\nexport function GET() {}\n");
+    write('app/api/computed-getter/route.ts', "const key = 'runtime';\nexport const config = { get [key]() { return 'edge'; } };\nexport function GET() {}\n");
+    write('app/api/method-config/route.ts', "export const config = { runtime() { return 'edge'; } };\nexport function GET() {}\n");
+
+    // Negative controls: unrelated destructuring and getters do not trigger the Edge stop.
+    write('app/api/safe-array/route.ts', "export const [first, second] = ['a', 'b'];\nexport function GET() {}\n");
+    write('app/api/safe-rest/route.ts', "export const { ...other } = { value: 1 };\nexport function GET() {}\n");
+    write('app/api/safe-getter/route.ts', "export const config = { get matcher() { return ['/items']; } };\nexport function GET() {}\n");
+
+    expect(findEdgeRuntimeFiles(root).sort()).toEqual([
+      'app/api/array-destr/route.ts',
+      'app/api/array-reexport/route.ts',
+      'app/api/computed-destr/route.ts',
+      'app/api/computed-getter/route.ts',
+      'app/api/default-destr/route.ts',
+      'app/api/getter-config/route.ts',
+      'app/api/method-config/route.ts',
+      'app/api/nested-array/route.ts',
+      'app/api/nested-destr/route.ts',
+      'app/api/object-rest/route.ts',
+    ]);
+  });
+
+  it('does not ignore config.runtime = edge when a nodejs runtime export is also present', () => {
+    write(
+      'pages/api/dual-direct.ts',
+      "export const runtime = 'nodejs';\nexport const config = { runtime: 'edge' };\nexport default function handler() {}\n",
+    );
+    write(
+      'pages/api/dual-reexport.ts',
+      "const r = 'nodejs';\nexport { r as runtime };\nexport const config = { runtime: 'edge' };\nexport default function handler() {}\n",
+    );
+    write(
+      'app/api/dual-route/route.ts',
+      "export const runtime = 'nodejs';\nexport const config = { runtime: 'edge' };\nexport function GET() {}\n",
+    );
+    write(
+      'app/api/dual-indeterminate/route.ts',
+      "export const runtime = 'nodejs';\nexport const config = { get runtime() { return 'edge'; } };\nexport function GET() {}\n",
+    );
+    write(
+      'middleware.ts',
+      "const r = 'nodejs';\nexport { r as runtime };\nexport const config = { runtime: 'edge' };\nexport function middleware() {}\n",
+    );
+    write(
+      'pages/api/both-node.ts',
+      "export const runtime = 'nodejs';\nexport const config = { runtime: 'nodejs' };\nexport default function handler() {}\n",
+    );
+
+    expect(findEdgeRuntimeFiles(root).sort()).toEqual([
+      'app/api/dual-indeterminate/route.ts',
+      'app/api/dual-route/route.ts',
+      'middleware.ts',
+      'pages/api/dual-direct.ts',
+      'pages/api/dual-reexport.ts',
+    ]);
+
+    write(
+      'middleware.ts',
+      "export const runtime = 'nodejs';\nexport const config = { runtime: 'nodejs' };\nexport function middleware() {}\n",
+    );
+    expect(findEdgeRuntimeFiles(root).sort()).toEqual([
+      'app/api/dual-indeterminate/route.ts',
+      'app/api/dual-route/route.ts',
+      'pages/api/dual-direct.ts',
+      'pages/api/dual-reexport.ts',
+    ]);
+  });
 });
 
 describe('withPyric Edge runtime stop (PYRIC_EDGE_RUNTIME_UNSUPPORTED)', () => {
