@@ -32,6 +32,8 @@ import { getOrCreateBackend, heldDatabaseInstances } from '../database/sandbox/b
 import type { RtdbBackend } from '../database/sandbox/backend.js';
 import type { JsonValue } from '../database/sandbox/data-tree.js';
 import { DOC_VALUE_ENCODING, type DocValueEncoding } from '../firestore/internal/value-codec.js';
+import { getMessagingBroker } from '../messaging/broker/index.js';
+import { isMessagingSnapshot, type MessagingSnapshot } from '../messaging/broker/persistence.js';
 import {
   ref,
   uploadBytes,
@@ -54,20 +56,24 @@ import {
   snapshotStorageState,
   type StorageStateRecord,
 } from '../storage/internal.js';
-import { getInternalEnv } from './internal/sandbox-impl.js';
+import { SandboxImpl, getInternalEnv } from './internal/sandbox-impl.js';
 import { authAccountsFor } from 'pyric/sandbox/internal';
 import type { AuthAccountHistory } from './internal/auth-accounts.js';
 import { assertInlineStorageFits, base64DecodedLength, type InlineStorageDocument } from './internal/inline-storage-limit.js';
 import { databaseInstanceNamed } from './internal/instances.js';
+import {
+  databaseEnvelopeWithRules,
+  extractDatabaseInstances,
+  isEmptyRtdbTree,
+  stripDatabaseRules,
+  type DatabaseRuleset,
+} from './internal/rtdb-envelope.js';
 import { readStorageCaches } from './internal/snapshot-codec.js';
 import { encodeStateDocument, decodeStateDocument } from './internal/state-values.js';
 import { getClock, type SandboxClockState } from './clock.js';
 import type { LocalSandbox } from './types/service.js';
 
-/** A Realtime Database ruleset, in the `{ rules: ... }` envelope the SDK takes. */
-export interface DatabaseRuleset {
-  rules: Record<string, unknown>;
-}
+export type { DatabaseRuleset, MessagingSnapshot };
 
 /**
  * One Storage object, with everything a reader of it can observe. Its bytes are
@@ -156,7 +162,7 @@ export interface SandboxRuleSources {
  * file per entry. A service added to {@link FullSandboxState} is added here, and
  * the type, the diff, and the store follow without a second list to edit.
  */
-export const SANDBOX_SERVICES = ['firestore', 'database', 'storage', 'auth', 'rules'] as const;
+export const SANDBOX_SERVICES = ['firestore', 'database', 'storage', 'auth', 'rules', 'messaging'] as const;
 
 /** One service a full state carries. */
 export type SandboxService = (typeof SANDBOX_SERVICES)[number];
@@ -179,6 +185,12 @@ export interface FullSandboxState {
   auth: AuthAccountsState;
   /** The three rule sources. */
   rules: SandboxRuleSources;
+  /**
+   * Durable Messaging broker state: active tokens, unregistered tombstones, and
+   * topic subscriptions. Optional: omitted when empty or in states captured
+   * before Messaging was included.
+   */
+  messaging?: MessagingSnapshot;
   /**
    * The sandbox clock's state at capture. A checkpoint restore and a branch
    * fork both carry it, so a forked branch reaches the same `request.time`
@@ -204,21 +216,6 @@ function databaseBackendFor(sandbox: LocalSandbox): RtdbBackend {
 /** The rules-bypass Storage handle onto one sandbox's default bucket. */
 function storageFor(sandbox: LocalSandbox): FirebaseStorage {
   return getAdminStorageSandbox(sandbox);
-}
-
-/**
- * The database persistence envelope with its rules key removed. The envelope
- * the backend exports carries the active ruleset inline; the full state names
- * rules once, under `rules.database`, so a caller editing one rule source can
- * never leave a second stale copy behind in the tree.
- */
-function databaseStateWithoutRules(backend: RtdbBackend): JsonValue {
-  const exported = backend.exportPersistenceState();
-  const isObject = exported !== null && typeof exported === 'object' && !Array.isArray(exported);
-  if (!isObject) return exported;
-  const envelope: Record<string, JsonValue> = { ...(exported as Record<string, JsonValue>) };
-  delete envelope.rules;
-  return envelope as unknown as JsonValue;
 }
 
 /** Where an inline capture's Storage ends up, and what to use past its limit. */
@@ -253,12 +250,7 @@ async function captureStorage(storage: FirebaseStorage, mode: 'inline' | 'refere
   await assertInlineCaptureFits(storage);
   const objects: StorageObjectState[] = [];
   const records = await snapshotStorageState(storage);
-  records.sort((left, right) => {
-    const sortsBefore = left.metadata.fullPath < right.metadata.fullPath;
-    if (sortsBefore) return -1;
-    const sortsAfter = left.metadata.fullPath > right.metadata.fullPath;
-    return sortsAfter ? 1 : 0;
-  });
+  records.sort((left, right) => compareText(left.metadata.fullPath, right.metadata.fullPath));
   for (const record of records) {
     const { fullPath, contentType, customMetadata, ...metadata } = record.metadata;
     const object: StorageObjectState = {
@@ -280,7 +272,7 @@ async function captureStorage(storage: FirebaseStorage, mode: 'inline' | 'refere
 /** Read every Storage object as a reference to the bytes its backend holds. */
 async function captureStorageReferences(storage: FirebaseStorage): Promise<StorageObjectState[]> {
   const records = await referenceStorageState(storage);
-  records.sort((left, right) => (left.metadata.fullPath < right.metadata.fullPath ? -1 : left.metadata.fullPath > right.metadata.fullPath ? 1 : 0));
+  records.sort((left, right) => compareText(left.metadata.fullPath, right.metadata.fullPath));
   return records.map((record): StorageObjectState => {
     const { fullPath, contentType, customMetadata, ...metadata } = record.metadata;
     const object: StorageObjectState = {
@@ -305,12 +297,55 @@ function captureAuth(sandbox: LocalSandbox, auth: Auth): AuthAccountsState {
   return history === undefined ? { users, providers } : { users, providers, history: structuredClone(history) };
 }
 
-function isEmptyRtdbTree(data: JsonValue | undefined): boolean {
-  if (data === null || data === undefined) return true;
-  if (typeof data === 'object' && !Array.isArray(data)) {
-    return Object.keys(data).length === 0;
+function compareText(left: string, right: string): number {
+  if (left < right) return -1;
+  if (left > right) return 1;
+  return 0;
+}
+
+function normalizeMessagingSnapshot(raw: unknown): MessagingSnapshot | undefined {
+  if (!isMessagingSnapshot(raw)) return undefined;
+  const tokens = raw.tokens
+    .map(([token, record]): [string, typeof record] => [token, { ...record }])
+    .sort((left, right) => compareText(left[0], right[0]));
+  const topics: Array<[string, string[]]> = [];
+  for (const [topic, members] of raw.topics) {
+    const unique = [...new Set(members)].sort(compareText);
+    if (unique.length > 0) topics.push([topic, unique]);
   }
-  return false;
+  topics.sort((left, right) => compareText(left[0], right[0]));
+  if (tokens.length === 0 && topics.length === 0) return undefined;
+  return { version: 1, tokens, topics };
+}
+
+/** Pure read of the sandbox's durable Messaging state, if any tokens or topics exist. */
+export function captureMessaging(sandbox: LocalSandbox): MessagingSnapshot | undefined {
+  if (!(sandbox instanceof SandboxImpl)) return undefined;
+  const registered = sandbox.getServiceRegistry().get('messaging');
+  if (registered !== undefined) return normalizeMessagingSnapshot(registered.snapshot());
+  const pending = sandbox.getPendingSnapshotServices().get('messaging');
+  if (pending !== undefined) return normalizeMessagingSnapshot(pending);
+  return undefined;
+}
+
+/** Replace or clear the sandbox's Messaging broker state without leaving stale tokens or topics behind. */
+export function applyMessaging(sandbox: LocalSandbox, captured: MessagingSnapshot | undefined): void {
+  const normalized = normalizeMessagingSnapshot(captured);
+  if (normalized === undefined) {
+    if (!(sandbox instanceof SandboxImpl)) return;
+    const registered = sandbox.getServiceRegistry().get('messaging');
+    if (registered !== undefined) {
+      registered.reset?.();
+      return;
+    }
+    if (sandbox.getPendingSnapshotServices().has('messaging')) {
+      getMessagingBroker(sandbox).reset();
+    }
+    return;
+  }
+  const broker = getMessagingBroker(sandbox);
+  broker.reset();
+  broker.restore(structuredClone(normalized));
 }
 
 /**
@@ -329,7 +364,7 @@ export async function captureFullState(sandbox: LocalSandbox, options: FullState
   const secondaryDatabaseRules: Record<string, DatabaseRuleset | null> = {};
   for (const name of heldDatabaseInstances(sandbox)) {
     const instBackend = getOrCreateBackend(sandbox, databaseInstanceNamed(name));
-    const instEnvelope = databaseStateWithoutRules(instBackend);
+    const instEnvelope = stripDatabaseRules(instBackend.exportPersistenceState());
     const instRules = instBackend.getActiveRules();
     const isEnvelopeObj =
       instEnvelope !== null && typeof instEnvelope === 'object' && !Array.isArray(instEnvelope);
@@ -341,7 +376,7 @@ export async function captureFullState(sandbox: LocalSandbox, options: FullState
     if (instRules !== null) secondaryDatabaseRules[name] = instRules;
   }
 
-  let defaultDatabase = databaseStateWithoutRules(database);
+  let defaultDatabase = stripDatabaseRules(database.exportPersistenceState());
   if (
     Object.keys(secondaryDatabaseData).length > 0 &&
     defaultDatabase !== null &&
@@ -365,7 +400,8 @@ export async function captureFullState(sandbox: LocalSandbox, options: FullState
     ...(crossServiceIam === 'denied' ? { storageCrossServiceIam: 'denied' } : {}),
   };
 
-  return {
+  const messaging = captureMessaging(sandbox);
+  const fullState: FullSandboxState = {
     firestore: Object.fromEntries(Object.entries(env.snapshot()).map(([path, data]) => [path, encodeStateDocument(data)])),
     firestoreEncoding: DOC_VALUE_ENCODING,
     database: defaultDatabase,
@@ -374,6 +410,8 @@ export async function captureFullState(sandbox: LocalSandbox, options: FullState
     rules: structuredClone(rules),
     clock: getClock(sandbox).capture(),
   };
+  if (messaging !== undefined) fullState.messaging = messaging;
+  return fullState;
 }
 
 /**
@@ -405,44 +443,6 @@ function applyFirestoreDocuments(
   for (const [path, data] of Object.entries(documents)) {
     env.adminSetDocument(path, decodeStateDocument(data, encoding));
   }
-}
-
-/** Build a persistence envelope carrying both the target RTDB tree and its ruleset for atomic restore. */
-function databaseEnvelopeWithRules(
-  database: FullSandboxState['database'],
-  rules: DatabaseRuleset | null,
-): JsonValue {
-  const clonedDb = structuredClone(database);
-  const clonedRules = structuredClone(rules) as JsonValue;
-  if (
-    clonedDb !== null
-    && typeof clonedDb === 'object'
-    && !Array.isArray(clonedDb)
-    && (clonedDb as Record<string, JsonValue>)['.pyricRtdbPersistence'] === 1
-    && 'data' in clonedDb
-    && typeof (clonedDb as Record<string, JsonValue>).priorities === 'object'
-    && (clonedDb as Record<string, JsonValue>).priorities !== null
-    && !Array.isArray((clonedDb as Record<string, JsonValue>).priorities)
-  ) {
-    const rest: Record<string, JsonValue> = { ...(clonedDb as Record<string, JsonValue>) };
-    delete rest.instances;
-    return { ...rest, rules: clonedRules };
-  }
-  return {
-    '.pyricRtdbPersistence': 1,
-    data: clonedDb,
-    priorities: {},
-    rules: clonedRules,
-  };
-}
-
-function extractDatabaseInstances(database: FullSandboxState['database']): Record<string, JsonValue> {
-  if (database === null || typeof database !== 'object' || Array.isArray(database)) return {};
-  const record = database as Record<string, JsonValue>;
-  if (record['.pyricRtdbPersistence'] !== 1) return {};
-  const rawInstances = record.instances;
-  if (rawInstances === null || typeof rawInstances !== 'object' || Array.isArray(rawInstances)) return {};
-  return rawInstances as Record<string, JsonValue>;
 }
 
 /** Replace the target's Realtime Database trees and install each instance's ruleset atomically before fan-out. */
@@ -584,6 +584,7 @@ export async function applyFullState(
   }
   applyDatabase(sandbox, state);
   applyAuth(sandbox, state.auth);
+  applyMessaging(sandbox, state.messaging);
   await applyStorage(sandbox, state.storage);
   await applyStorageRules(sandbox, state.rules.storage, state.rules.storageCrossServiceIam);
 }

@@ -8,8 +8,6 @@ import {
   initializeSandbox,
   serializeToBuckets,
   bundleRecords,
-  parseBundle,
-  deserializeFromBuckets,
   type LocalSandbox,
 } from 'pyric/sandbox';
 import { getFirestore } from 'pyric/firestore';
@@ -26,6 +24,7 @@ import { rulesSourceRejection } from 'pyric/rules/internal';
 import type { FirebaseStorage } from 'pyric/storage';
 import {
   createInProcessPersistence,
+  decodeInProcessSnapshot,
   type ProjectStateOwner,
 } from './in-process-persistence.js';
 import { type RejectedToolCall } from './mcp.js';
@@ -431,7 +430,7 @@ function readPersistedRulesState(cwd: string): PersistedRulesState | null {
   const path = join(cwd, IN_PROCESS_STATE_RELATIVE);
   if (!existsSync(path)) return null;
   try {
-    const snap = deserializeFromBuckets(parseBundle(readFileSync(path, 'utf8')));
+    const snap = decodeInProcessSnapshot(path);
     const raw = snap.services[RULES_STATE_SERVICE_KEY];
     return raw !== null && typeof raw === 'object' ? (raw as PersistedRulesState) : null;
   } catch {
@@ -506,7 +505,7 @@ export function saveSandboxSnapshot(sandbox: LocalSandbox, cwd: string): void {
 export function loadSandboxSnapshot(sandbox: LocalSandbox, cwd: string): number | null {
   const path = join(cwd, IN_PROCESS_STATE_RELATIVE);
   if (!existsSync(path)) return null;
-  const snap = deserializeFromBuckets(parseBundle(readFileSync(path, 'utf8')));
+  const snap = decodeInProcessSnapshot(path);
   sandbox.loadSnapshot(snap);
   restoreAppSession(sandbox, snap.services[APP_SESSION_SERVICE_KEY]);
   const persistedRules = snap.services[RULES_STATE_SERVICE_KEY] as PersistedRulesState | null | undefined;
@@ -641,21 +640,21 @@ async function runInProcessSession(
   });
 
   try {
-    await persistence.hydrateAtStartup();
-    const baseServerOptions: InProcessMcpServerOptions = {
-      onAfterDispatch: () => persistence.scheduleSave(),
-      onBeforeLocalFallback: () => persistence.activateOnFallback(),
-      surface: options.surface,
-      allowProduction: options.allowProduction,
-      projectDir,
-      inProcessOnly: options.inProcessOnly,
-      initialHost: options.initialHost,
-      initialHostMode: options.initialHostMode,
-    };
-    // A surface id no renderer claims is a start-up failure, not a per-call one:
-    // serving the wrong surface would silently mislabel a whole run.
+    // A corrupt state file or unknown surface id is a start-up failure, not a
+    // per-call one: never serve over an unreadable snapshot or mislabel a run.
     let server;
     try {
+      await persistence.hydrateAtStartup();
+      const baseServerOptions: InProcessMcpServerOptions = {
+        onAfterDispatch: () => persistence.scheduleSave(),
+        onBeforeLocalFallback: () => persistence.activateOnFallback(),
+        surface: options.surface,
+        allowProduction: options.allowProduction,
+        projectDir,
+        inProcessOnly: options.inProcessOnly,
+        initialHost: options.initialHost,
+        initialHostMode: options.initialHostMode,
+      };
       server = buildInProcessMcpServer(sandbox, withInProcessEventWriter(baseServerOptions, evalLog));
     } catch (e) {
       log(failureMessage(e));

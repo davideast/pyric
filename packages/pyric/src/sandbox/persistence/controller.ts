@@ -11,6 +11,7 @@
 
 import { ChangedBuckets } from './changed-buckets.js';
 import { CHUNK_FORMAT_VERSION, META_RECORD_ID } from './chunk-format.js';
+import { skipIncompatibleFormat } from './incompatible.js';
 import type { SandboxEvent } from '../types/events.js';
 import type { PersistableService } from '../types/persistence.js';
 import type { Sandbox } from '../types/service.js';
@@ -642,21 +643,7 @@ async function restore(
     }
     for (const [id, rec] of migrated) v3Records.push([id, rec]);
   }
-  const metaEntry = v3Records.find(([id]) => id === META_RECORD_ID);
-  if (metaEntry !== undefined) {
-    const metaRec = metaEntry[1];
-    const version =
-      metaRec !== null && typeof metaRec === 'object' && !Array.isArray(metaRec)
-        ? (metaRec as { version?: unknown }).version
-        : undefined;
-    if (typeof version === 'number' && version !== CHUNK_FORMAT_VERSION) {
-      console.warn(
-        `[sandbox/persistence] unsupported persistence format version ${version} (expected ${CHUNK_FORMAT_VERSION}); skipping incompatible persisted state`,
-      );
-      for (const [id] of v3Records) staleIds.add(id);
-      return null;
-    }
-  }
+  if (await skipIncompatibleFormat(backend, key, v3Records, staleIds)) return null;
   // Seed the flush hash state from the persisted records, so the first flush
   // does not redundantly re-write the just-restored buckets.
   for (const [id, rec] of v3Records) lastHashes.set(id, hashRecord(rec));

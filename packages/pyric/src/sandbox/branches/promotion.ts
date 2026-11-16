@@ -27,6 +27,8 @@ import {
   restoreStorageState,
 } from '../../storage/internal.js';
 import {
+  applyMessaging,
+  captureMessaging,
   holdsBytesInline,
   type FullSandboxState,
   type SandboxService,
@@ -408,6 +410,54 @@ async function promoteRules(
   }
 }
 
+/** Land the Messaging token records and topic subscription changes the branch made. */
+function promoteMessaging(
+  target: LocalSandbox,
+  next: FullSandboxState,
+  divergences: readonly BranchDivergence[],
+): void {
+  if (divergences.length === 0) return;
+  const current = captureMessaging(target);
+  const tokenMap = new Map(current?.tokens ?? []);
+  const topicMap = new Map<string, Set<string>>();
+  for (const [topic, members] of current?.topics ?? []) {
+    topicMap.set(topic, new Set(members));
+  }
+  const nextTokens = new Map(next.messaging?.tokens ?? []);
+  const handledTokens = new Set<string>();
+  for (const divergence of divergences) {
+    if (divergence.path.startsWith('tokens/')) {
+      const token = divergence.path.slice('tokens/'.length);
+      if (handledTokens.has(token)) continue;
+      handledTokens.add(token);
+      const nextRecord = nextTokens.get(token);
+      if (nextRecord === undefined) tokenMap.delete(token);
+      else tokenMap.set(token, structuredClone(nextRecord));
+      continue;
+    }
+    if (divergence.path.startsWith('topics/') && divergence.field !== undefined) {
+      const topic = divergence.path.slice('topics/'.length);
+      const token = divergence.field;
+      let members = topicMap.get(topic);
+      if (divergence.after === true) {
+        if (members === undefined) {
+          members = new Set();
+          topicMap.set(topic, members);
+        }
+        members.add(token);
+      } else if (members !== undefined) {
+        members.delete(token);
+        if (members.size === 0) topicMap.delete(topic);
+      }
+    }
+  }
+  applyMessaging(target, {
+    version: 1,
+    tokens: [...tokenMap],
+    topics: [...topicMap].map(([topic, set]) => [topic, [...set]]),
+  });
+}
+
 /**
  * Write onto `target` everything that differs between the state a branch was
  * forked from and the state it holds now.
@@ -425,6 +475,7 @@ export async function promoteFullState(
   promoteFirestore(target, next, forService(divergences, 'firestore'));
   promoteDatabase(target, next, forService(divergences, 'database'));
   promoteAuth(target, next, forService(divergences, 'auth'));
+  promoteMessaging(target, next, forService(divergences, 'messaging'));
   await promoteStorage(target, next, forService(divergences, 'storage'));
   await promoteRules(target, next, forService(divergences, 'rules'));
 }

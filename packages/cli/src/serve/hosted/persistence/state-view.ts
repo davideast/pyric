@@ -19,7 +19,7 @@ import { FILE_BYTES_SCHEMA_VERSION, storedObjects } from './stored-objects.js';
 import { validateHostedDatabase } from './validate.js';
 
 type Database = Awaited<ReturnType<typeof openHostedDatabase>>;
-const authSection = z.object({ users: z.array(seedUserSchema) });
+const authSection = z.object({ users: z.array(seedUserSchema) }).passthrough();
 const SHA256_HEX = /^[0-9a-f]{64}$/;
 
 /** The Storage entries a document carries, validated as a seed's are. */
@@ -103,7 +103,7 @@ export function createHostedStateView(projectDir: string, directory: string, dat
       let users: z.infer<typeof authSection>['users'] = [];
       let incomingExtras: Record<string, unknown> = {};
       if (hasValue) {
-        const parsedAuth = authSection.passthrough().parse(value);
+        const parsedAuth = authSection.parse(value);
         const { users: parsedUsers, ...rest } = parsedAuth;
         users = parsedUsers;
         incomingExtras = rest;

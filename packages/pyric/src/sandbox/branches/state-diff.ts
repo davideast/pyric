@@ -421,9 +421,46 @@ function diffRules(before: FullSandboxState, after: FullSandboxState): BranchDiv
   return out;
 }
 
+/** Messaging token records (`tokens/<token>`) and topic memberships (`topics/<topic>`, field `<token>`). */
+function diffMessaging(before: FullSandboxState, after: FullSandboxState): BranchDivergence[] {
+  const out: BranchDivergence[] = [];
+  const beforeTokens = new Map(before.messaging?.tokens ?? []);
+  const afterTokens = new Map(after.messaging?.tokens ?? []);
+  for (const token of [...new Set([...beforeTokens.keys(), ...afterTokens.keys()])].sort()) {
+    const beforeRec = beforeTokens.get(token);
+    const afterRec = afterTokens.get(token);
+    if (beforeRec === undefined || afterRec === undefined) {
+      out.push(divergenceAt('messaging', `tokens/${token}`, undefined, beforeRec, afterRec));
+      continue;
+    }
+    walkDocument('messaging', `tokens/${token}`, beforeRec, afterRec, out);
+  }
+  const toTopicSets = (state: FullSandboxState): Map<string, Set<string>> => {
+    const map = new Map<string, Set<string>>();
+    for (const [topic, members] of state.messaging?.topics ?? []) {
+      if (members.length > 0) map.set(topic, new Set(members));
+    }
+    return map;
+  };
+  const beforeTopics = toTopicSets(before);
+  const afterTopics = toTopicSets(after);
+  for (const topic of [...new Set([...beforeTopics.keys(), ...afterTopics.keys()])].sort()) {
+    const beforeSet = beforeTopics.get(topic) ?? new Set<string>();
+    const afterSet = afterTopics.get(topic) ?? new Set<string>();
+    for (const token of [...new Set([...beforeSet, ...afterSet])].sort()) {
+      const wasSubscribed = beforeSet.has(token);
+      const isSubscribed = afterSet.has(token);
+      if (wasSubscribed === isSubscribed) continue;
+      out.push(divergenceAt('messaging', `topics/${topic}`, token, wasSubscribed, isSubscribed));
+    }
+  }
+  return out;
+}
+
 /**
  * Every difference between two full sandbox states, ordered service by service:
- * Firestore, then the Realtime Database, then Storage, then auth, then rules.
+ * Firestore, then the Realtime Database, then Storage, then auth, then rules,
+ * then messaging.
  *
  * `before` is the reference and `after` is the state being described, so a
  * record's `before` and `after` read the way a caller asking "what would
@@ -439,5 +476,6 @@ export function diffFullStates(
     ...diffStorage(before, after),
     ...diffAuth(before.auth, after.auth),
     ...diffRules(before, after),
+    ...diffMessaging(before, after),
   ];
 }

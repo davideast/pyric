@@ -6,8 +6,9 @@
  * flush, and lazy lock acquisition when a session started against a Node host
  * falls back to the local in-process sandbox after that host stops.
  */
-import { mkdirSync } from 'node:fs';
+import { mkdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { decodeImportBundle } from 'pyric/sandbox/internal';
 import type { FirebaseStorage } from 'pyric/storage';
 import { claimProjectState } from '../../serve/hosted/project-ownership.js';
 import {
@@ -44,6 +45,33 @@ const SAVE_DEBOUNCE_MS = 750;
 function failureMessage(error: unknown): string {
   if (error instanceof Error) return error.message;
   return String(error);
+}
+
+/**
+ * Read and strictly validate an in-process snapshot bundle from `path`.
+ * Fails closed on invalid JSON, unsupported versions, malformed buckets,
+ * or checksum mismatches so corrupt state is never silently overwritten.
+ */
+export function decodeInProcessSnapshot(path: string): ReturnType<typeof decodeImportBundle> {
+  const raw = readFileSync(path, 'utf8');
+  try {
+    JSON.parse(raw);
+  } catch {
+    // Avoid quoting parser fragments that may contain private user data.
+    throw new Error(
+      `In-process state file at ${path} is not valid JSON. ` +
+        'Inspect or delete it to continue; pyric will not overwrite it silently.',
+    );
+  }
+  try {
+    return decodeImportBundle(raw);
+  } catch (error) {
+    const detail = failureMessage(error);
+    throw new Error(
+      `In-process state file at ${path} is corrupt or unsupported (${detail}). ` +
+        'Inspect or delete it to continue; pyric will not overwrite it silently.',
+    );
+  }
 }
 
 export function createInProcessPersistence(

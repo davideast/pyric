@@ -25,13 +25,13 @@ const alice = {
       JSON.parse(bundleRecords(serializeToBuckets({ 'posts/first': { title: 'Hello' } }, {}, 0))),
     );
     // Auth survived writing a Firestore bundle whose services map omitted auth.
-    assert.deepEqual(persistence.state.readSection('auth'), { users: [alice] });
+    assert.deepEqual(persistence.state.readSection('auth'), { users: [alice], providers: {} });
     const withDocs = decodeImportBundle(JSON.stringify(persistence.state.readSection('firestore')));
     assert.deepEqual(withDocs.firestore, { 'posts/first': { title: 'Hello' } });
 
     // Clearing Firestore removes all document buckets while keeping Auth intact.
     await persistence.state.writeSection('firestore', null);
-    assert.deepEqual(persistence.state.readSection('auth'), { users: [alice] });
+    assert.deepEqual(persistence.state.readSection('auth'), { users: [alice], providers: {} });
     const clearedDocs = decodeImportBundle(JSON.stringify(persistence.state.readSection('firestore')));
     assert.deepEqual(clearedDocs.firestore, {});
   } finally {
@@ -40,7 +40,7 @@ const alice = {
 
   const reopened = await createHostedPersistence(project);
   try {
-    assert.deepEqual(reopened.state.readSection('auth'), { users: [alice] });
+    assert.deepEqual(reopened.state.readSection('auth'), { users: [alice], providers: {} });
   } finally {
     reopened.close();
   }
@@ -99,6 +99,7 @@ const alice = {
     });
     const decoded = decodeImportBundle(JSON.stringify(persistence.state.readSection('firestore')));
     assert.deepEqual(decoded.services.auth, authServicePayload);
+    assert.deepEqual(persistence.state.readSection('auth'), authServicePayload);
   } finally {
     persistence.close();
   }

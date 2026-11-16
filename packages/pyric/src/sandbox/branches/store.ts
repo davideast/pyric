@@ -137,11 +137,13 @@ function stateServicePath(dir: string, stateDir: string, service: SandboxService
 function writeState(dir: string, stateDir: string, state: FullSandboxState): void {
   mkdirSync(join(dir, stateDir), { recursive: true });
   for (const service of SANDBOX_SERVICES) {
-    writeFileSync(
-      stateServicePath(dir, stateDir, service),
-      `${JSON.stringify(state[service])}\n`,
-      'utf8',
-    );
+    const filePath = stateServicePath(dir, stateDir, service);
+    const slice = state[service];
+    if (slice === undefined) {
+      rmSync(filePath, { force: true });
+      continue;
+    }
+    writeFileSync(filePath, `${JSON.stringify(slice)}\n`, 'utf8');
   }
   // The clock is not a service, so it gets its own file beside them rather than
   // a place in the service list the diff walks. A branch reloaded from disk
@@ -183,7 +185,7 @@ function readClock(dir: string, stateDir: string): SandboxClockState {
 
 /** One full state a branch directory carries, under `base/` or under `state/`. */
 function readState(dir: string, stateDir: string): FullSandboxState {
-  return {
+  const state: FullSandboxState = {
     clock: readClock(dir, stateDir),
     firestoreEncoding: readFirestoreEncoding(dir, stateDir),
     firestore: (readSandboxService(dir, stateDir, 'firestore') ?? {}) as FullSandboxState['firestore'],
@@ -199,6 +201,9 @@ function readState(dir: string, stateDir: string): FullSandboxState {
       storage: null,
     }) as FullSandboxState['rules'],
   };
+  const messaging = readSandboxService(dir, stateDir, 'messaging') as FullSandboxState['messaging'] | null;
+  if (messaging !== null && messaging !== undefined) state.messaging = messaging;
+  return state;
 }
 
 /**
