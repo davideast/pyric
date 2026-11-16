@@ -19,6 +19,12 @@ import type { PersistenceBackend } from './types.js';
 import { bundleRecords, parseBundle } from './chunk-format.js';
 
 const OBJECT_STORE = 'snapshots';
+const singleKeyBackends = new WeakSet<PersistenceBackend>();
+
+/** True for backends that collapse every key onto one underlying blob. */
+export function isSingleKeyBackend(backend: PersistenceBackend): boolean {
+  return singleKeyBackends.has(backend);
+}
 
 /**
  * A record-shaped backend over a single-blob store (read/write/clear ONE blob).
@@ -33,34 +39,83 @@ export function recordBackendOverBlob(io: {
   clear(): Promise<void>;
 }): PersistenceBackend {
   let cache: Map<string, unknown> | null = null;
+  let loadPromise: Promise<Map<string, unknown>> | null = null;
+  let epoch = 0;
+  let writeChain: Promise<void> = Promise.resolve();
   const load = async (): Promise<Map<string, unknown>> => {
-    if (cache) return cache;
-    const blob = await io.read();
-    cache = blob ? parseBundle(blob) : new Map();
-    return cache;
+    if (cache !== null) return cache;
+    if (loadPromise !== null) return loadPromise;
+    const startedEpoch = epoch;
+    const readCall = (async (): Promise<string | null> => io.read())();
+    const pending = readCall.then(
+      (blob): Map<string, unknown> => {
+        const loaded = blob ? parseBundle(blob) : new Map<string, unknown>();
+        if (epoch === startedEpoch && cache === null) {
+          cache = loaded;
+        }
+        return cache ?? loaded;
+      },
+      (error: unknown): Map<string, unknown> => {
+        if (epoch !== startedEpoch && cache !== null) return cache;
+        throw error;
+      },
+    );
+    loadPromise = pending;
+    const clearPending = (): void => {
+      if (loadPromise === pending) loadPromise = null;
+    };
+    pending.then(clearPending, clearPending);
+    return pending;
   };
-  return {
+  const serialize = <T>(op: () => Promise<T>): Promise<T> => {
+    const run = writeChain.then(op, op);
+    writeChain = run.then(
+      () => {},
+      () => {},
+    );
+    return run;
+  };
+  const backend: PersistenceBackend = {
     async getRecord(_key, recordId) {
-      return (await load()).get(recordId) ?? null;
+      const rec = (await load()).get(recordId);
+      return rec === undefined ? null : structuredClone(rec);
     },
     async listRecords() {
       return [...(await load()).keys()];
     },
     async putRecords(_key, records) {
-      const all = await load();
-      for (const [id, rec] of records) all.set(id, rec);
-      await io.write(bundleRecords(all));
+      const staged: Array<[string, unknown]> = [];
+      for (const [id, rec] of records) staged.push([id, structuredClone(rec)]);
+      await serialize(async () => {
+        const all = await load();
+        const next = new Map(all);
+        for (const [id, rec] of staged) next.set(id, rec);
+        await io.write(bundleRecords(next));
+        epoch += 1;
+        cache = next;
+      });
     },
     async deleteRecords(_key, recordIds) {
-      const all = await load();
-      for (const id of recordIds) all.delete(id);
-      await io.write(bundleRecords(all));
+      const ids = [...recordIds];
+      await serialize(async () => {
+        const all = await load();
+        const next = new Map(all);
+        for (const id of ids) next.delete(id);
+        await io.write(bundleRecords(next));
+        epoch += 1;
+        cache = next;
+      });
     },
     async clear() {
-      cache = new Map();
-      await io.clear();
+      await serialize(async () => {
+        await io.clear();
+        epoch += 1;
+        cache = new Map();
+      });
     },
   };
+  singleKeyBackends.add(backend);
+  return backend;
 }
 
 export function createMemoryBackend(): PersistenceBackend {
