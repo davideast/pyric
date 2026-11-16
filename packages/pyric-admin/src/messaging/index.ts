@@ -1,6 +1,6 @@
 /**
- * `pyric-admin/messaging` — the `firebase-admin/messaging` send-plane mirror
- * (surface `messaging-admin`, rows `messaging-admin#1`–`#39` in
+ * `pyric-admin/messaging` -- the `firebase-admin/messaging` send-plane mirror
+ * (surface `messaging-admin`, rows `messaging-admin#1`-#39 in
  * `packages/conformance/registry/messaging.ts`).
  *
  * A sandbox-branded app produces an in-process {@link Messaging} over the
@@ -13,25 +13,26 @@
  * Rejections carry the broker's captured `google.rpc` envelopes and are
  * re-wrapped here the way firebase-admin wraps the wire: the FcmError
  * `errorCode` maps through {@link MessagingClientErrorCode}
- * (`INVALID_ARGUMENT` → `messaging/invalid-argument`, `UNREGISTERED` →
- * `messaging/registration-token-not-registered` — the captured
+ * (`INVALID_ARGUMENT` -> `messaging/invalid-argument`, `UNREGISTERED` ->
+ * `messaging/registration-token-not-registered` -- the captured
  * `adminThrowCode`), with the envelope's message text.
  *
- * ── Default app (climb-gated) ───────────────────────────────────────────────
+ * -- Default app (climb-gated) -----------------------------------------------
  * `getMessaging()` with no app first resolves the registered `'[DEFAULT]'`
  * app (mirroring firebase-admin, including the exact `app/no-app` throw).
  * Only when NO default exists AND `PYRIC_CLIMB=1` does the mirror mint an
- * implicit, UNREGISTERED sandbox app — the conformance suites' headless
+ * implicit, UNREGISTERED sandbox app -- the conformance suites' headless
  * degenerate case. Outside the climb it preserves the captured no-app error.
  *
  * Mirror-owned `FirebaseMessagingError` and `MessagingClientErrorCode`
  * preserve the observable names, codes, and static members used by callers.
  */
 
-import { initializeSandbox, isRemoteSandbox, type RemoteSandbox, type Sandbox } from 'pyric/sandbox';
+import { initializeSandbox, isRemoteSandbox, type Sandbox } from 'pyric/sandbox';
 import {
   getMessagingBroker,
   BrokerSendError,
+  validateClientMessage,
   type BrokerMessage,
   type TopicManagementOutcome,
 } from 'pyric/messaging/internal';
@@ -158,9 +159,10 @@ export class MessagingClientErrorCode {
 
 export class FirebaseMessagingError extends PrefixedFirebaseError {
   constructor(info: ErrorCodeInfo, message?: string) {
-    const shortCode = info.code.startsWith('messaging/')
-      ? info.code.slice('messaging/'.length)
-      : info.code;
+    let shortCode = info.code;
+    if (shortCode.startsWith('messaging/')) {
+      shortCode = shortCode.slice('messaging/'.length);
+    }
     super('messaging', shortCode, message ?? info.message);
     this.name = 'FirebaseMessagingError';
     Object.setPrototypeOf(this, new.target.prototype);
@@ -168,7 +170,6 @@ export class FirebaseMessagingError extends PrefixedFirebaseError {
 }
 
 const MessagingError = FirebaseMessagingError;
-const ErrorCodes = MessagingClientErrorCode as unknown as Record<string, ErrorCodeInfo>;
 
 /** Mirror-owned structural messaging types. */
 export type Notification = NonNullable<BrokerMessage['notification']>;
@@ -261,13 +262,24 @@ function validateTopicManagementRequest(
   return [tokenOrTokens as string];
 }
 
+function hasErrorEnvelope(
+  error: unknown,
+): error is { envelope: ConstructorParameters<typeof BrokerSendError>[0] } {
+  return (
+    error !== null &&
+    typeof error === 'object' &&
+    'envelope' in error &&
+    Boolean((error as { envelope?: unknown }).envelope)
+  );
+}
+
 /** Re-wrap a broker rejection exactly as firebase-admin wraps the wire envelope. */
 function toMessagingError(error: unknown): unknown {
   if (error instanceof BrokerSendError) {
     return new MessagingError(clientErrorInfoFor(error.errorCode), error.envelope.error.message);
   }
-  if (error !== null && typeof error === 'object' && 'envelope' in error && (error as any).envelope) {
-    const sendErr = new BrokerSendError((error as any).envelope);
+  if (hasErrorEnvelope(error)) {
+    const sendErr = new BrokerSendError(error.envelope);
     return new MessagingError(clientErrorInfoFor(sendErr.errorCode), sendErr.envelope.error.message);
   }
   return error;
@@ -277,8 +289,15 @@ function rethrowWrapped(error: unknown): never {
   throw toMessagingError(error);
 }
 
-function invalidArgument(message: string): Error & { readonly code: string } {
-  return new MessagingError(ErrorCodes.INVALID_ARGUMENT!, message);
+function invalidArgument(message: string): FirebaseMessagingError {
+  return new MessagingError(MessagingClientErrorCode.INVALID_ARGUMENT, message);
+}
+
+function topicManagementItemError(reason: TopicManagementOutcome['errors'][number]['reason']): FirebaseMessagingError {
+  if (reason === 'unregistered-token') {
+    return new MessagingError(MessagingClientErrorCode.REGISTRATION_TOKEN_NOT_REGISTERED);
+  }
+  return new MessagingError(MessagingClientErrorCode.INVALID_REGISTRATION_TOKEN);
 }
 
 function projectIdFor(app: PyricAdminApp): string {
@@ -292,11 +311,14 @@ async function dispatchSend(
   validateOnly: boolean,
 ): Promise<string> {
   if (isRemoteSandbox(sandbox)) {
-    const res = (await sandbox.channel.op({
+    const opPayload: { method: 'messaging.send'; message: BrokerMessage; validateOnly?: boolean } = {
       method: 'messaging.send',
       message,
-      ...(validateOnly ? { validateOnly } : {}),
-    })) as { name: string };
+    };
+    if (validateOnly) {
+      opPayload.validateOnly = true;
+    }
+    const res = (await sandbox.channel.op(opPayload)) as { name: string };
     return res.name.replace(/^projects\/[^/]+\/messages\//, `projects/${projectId}/messages/`);
   }
   return getMessagingBroker(sandbox).send(message, { validateOnly, projectId }).name;
@@ -309,19 +331,25 @@ async function dispatchTopicOp(
   topic: string,
 ): Promise<TopicManagementOutcome> {
   if (isRemoteSandbox(sandbox)) {
+    let method: 'messaging.subscribeToTopic' | 'messaging.unsubscribeFromTopic' =
+      'messaging.unsubscribeFromTopic';
+    if (action === 'subscribe') {
+      method = 'messaging.subscribeToTopic';
+    }
     return (await sandbox.channel.op({
-      method: action === 'subscribe' ? 'messaging.subscribeToTopic' : 'messaging.unsubscribeFromTopic',
+      method,
       tokens,
       topic,
     })) as TopicManagementOutcome;
   }
   const broker = getMessagingBroker(sandbox);
-  return action === 'subscribe'
-    ? broker.subscribeToTopic(tokens, topic)
-    : broker.unsubscribeFromTopic(tokens, topic);
+  if (action === 'subscribe') {
+    return broker.subscribeToTopic(tokens, topic);
+  }
+  return broker.unsubscribeFromTopic(tokens, topic);
 }
 
-// ── The sandbox Messaging service ────────────────────────────────────────────
+// -- The sandbox Messaging service --------------------------------------------
 
 /**
  * The sandbox `Messaging` service mirror, implementing the send plane over
@@ -341,13 +369,18 @@ export class Messaging {
 
   /**
    * Send one message. Resolves the FCM resource name
-   * `projects/<projectId>/messages/<id>` — numeric id for topic/condition
+   * `projects/<projectId>/messages/<id>` -- numeric id for topic/condition
    * targets, UUID-form for token targets. `dryRun` validates on the
    * identical path and returns the SAME shape with a fake id (captured
    * `dryRunSameShapeAsReal` / `realSendEnvelopeIdentical` parity).
    */
   async send(message: Message, dryRun?: boolean): Promise<string> {
     assertAdminAppActive(this.boundApp);
+    try {
+      validateClientMessage(message as BrokerMessage);
+    } catch (error) {
+      rethrowWrapped(error);
+    }
     assertValidDryRun(dryRun);
     try {
       return await dispatchSend(
@@ -378,6 +411,7 @@ export class Messaging {
     const responses: SendResponse[] = [];
     for (const message of messages) {
       try {
+        validateClientMessage(message as BrokerMessage);
         const name = await dispatchSend(
           this.boundApp.sandbox,
           projectId,
@@ -459,17 +493,13 @@ export class Messaging {
       failureCount: outcome.failureCount,
       errors: outcome.errors.map(({ index, reason }) => ({
         index,
-        error: (reason === 'unregistered-token'
-          ? new MessagingError(ErrorCodes.REGISTRATION_TOKEN_NOT_REGISTERED!)
-          : new MessagingError(
-              ErrorCodes.INVALID_REGISTRATION_TOKEN ?? ErrorCodes.INVALID_ARGUMENT!,
-            )) as unknown as MessagingTopicManagementResponse['errors'][number]['error'],
+        error: topicManagementItemError(reason),
       })),
     };
   }
 
   /**
-   * Force HTTP/1.1 for batch sends — deprecated upstream; the sandbox has
+   * Force HTTP/1.1 for batch sends -- deprecated upstream; the sandbox has
    * no HTTP transport, so this is a recorded no-op.
    */
   enableLegacyHttpTransport(): void {
@@ -477,7 +507,7 @@ export class Messaging {
   }
 }
 
-// ── Dispatch + default-app resolution ────────────────────────────────────────
+// -- Dispatch + default-app resolution ----------------------------------------
 
 const sandboxInstances = new WeakMap<PyricAdminApp, Messaging>();
 
@@ -532,7 +562,7 @@ export function getMessaging(app?: PyricAdminApp): Messaging {
 }
 
 /**
- * Namespaced / legacy accessor — the `admin.messaging(app?)` equivalent of
+ * Namespaced / legacy accessor -- the `admin.messaging(app?)` equivalent of
  * {@link getMessaging}.
  */
 export function messaging(app?: PyricAdminApp): Messaging {

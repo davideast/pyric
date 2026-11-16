@@ -1,16 +1,17 @@
 /**
- * Send-plane intake validation — the CAPTURED contract, in checking order.
+ * Send-plane intake validation -- the CAPTURED contract, in checking order.
  *
  * Each rule cites the observation that pins it. Rules with no observation
  * are marked UNOBSERVED and stated at documentation strength (probe
  * candidates before they can be trusted as prod-faithful).
  *
- * CHECK ORDER (provisional — every captured case is single-fault, so
- * production's precedence among simultaneous faults is unobserved):
- *   1. target exclusivity (exactly one of token / topic / condition)
- *   2. per-target syntax (token shape, topic charset, condition grammar)
- *   3. webpush headers.TTL
- *   4. data payload size boundary
+ * CHECK ORDER:
+ *   1. client preflight (`validateClientMessage`: `INVALID_PAYLOAD` checks for
+ *      message container, present-but-empty/non-string sole target, malformed
+ *      `/topics/` or `/` topic prefixes, and payload option blocks)
+ *   2. wire target exclusivity (`noTargetEnvelope`, `multipleTargetsEnvelope`)
+ *   3. wire target syntax (bare topic charset, token shape, condition grammar)
+ *   4. wire `webpush.headers.TTL` integer digits & data payload size boundary
  */
 import {
   BrokerSendError,
@@ -23,6 +24,7 @@ import {
   noTargetEnvelope,
   oversizedPayloadEnvelope,
 } from './envelopes.js';
+import { isNonNullPlainObject, validateMessagePayloadFields } from './payload-validation.js';
 import type { BrokerMessage, ResolvedTarget } from './types.js';
 
 /**
@@ -38,7 +40,7 @@ export const TOPIC_NAME_RE = /^[a-zA-Z0-9-_.~%]+$/;
  * "two non-empty URL-safe segments around a single colon" as well-formed;
  * anything else is the captured invalid-token rejection. UNOBSERVED nuance:
  * production's exact syntactic acceptance set is unknown (only
- * `'not-a-valid-fcm-token'` — no colon — was driven); this class is the
+ * `'not-a-valid-fcm-token'` -- no colon -- was driven); this class is the
  * broker's provisional model.
  */
 export const TOKEN_SHAPE_RE = /^[A-Za-z0-9_-]+:[A-Za-z0-9_-]+$/;
@@ -48,35 +50,18 @@ export const TOKEN_SHAPE_RE = /^[A-Za-z0-9_-]+:[A-Za-z0-9_-]+$/;
  *
  * oracle: `messaging-send-oversized-payload-error-envelope` bisected a
  * minimal single-entry topic message (`data: { p: 'x'.repeat(len) }`):
- * len 4505 accepted, 4506 rejected. Under the broker's size model —
- * summed UTF-8 bytes of every data key + value — the flip sits at
+ * len 4505 accepted, 4506 rejected. Under the broker's size model --
+ * summed UTF-8 bytes of every data key + value -- the flip sits at
  * 1 ('p') + 4505 = 4506 bytes accepted, 4507 rejected. The documented cap
  * (4096, quoted in the error message) is NOT the enforcement constant;
- * production enforces looser. The true production size function is
- * unobserved beyond this one point — this model reproduces the captured
- * boundary exactly for the captured probe shape and is a provisional
- * design decision (see the broker report; informs the open payload-size
- * ticket).
+ * production enforces looser.
  */
 export const EMPIRICAL_DATA_CAP_BYTES = 4506;
 
 /** Documented FCM limit on topic clauses per condition expression. */
-export const MAX_CONDITION_TOPICS = 5;
+const MAX_CONDITION_TOPICS = 5;
 
 const utf8 = new TextEncoder();
-
-function validateDataPayload(data: unknown): void {
-  if (data === undefined) return;
-  const isNonNullObject = typeof data === 'object' && data !== null && !Array.isArray(data);
-  if (!isNonNullObject) {
-    throw new BrokerSendError(invalidPayloadEnvelope('data must be a non-null object'));
-  }
-  for (const value of Object.values(data)) {
-    if (typeof value !== 'string') {
-      throw new BrokerSendError(invalidPayloadEnvelope('data must only contain string values'));
-    }
-  }
-}
 
 function dataBytes(data: Record<string, string> | undefined): number {
   if (data === undefined) return 0;
@@ -93,13 +78,17 @@ export function canonicalTopicName(topic: string): string {
   return topic.startsWith('/topics/') ? topic.slice('/topics/'.length) : topic;
 }
 
-export function isValidBareTopicName(topic: string): boolean {
+function isValidBareTopicName(topic: string): boolean {
   return typeof topic === 'string' && topic.length > 0 && TOPIC_NAME_RE.test(topic);
 }
 
 export function isValidTopicName(topic: string): boolean {
   if (typeof topic !== 'string') return false;
   return isValidBareTopicName(canonicalTopicName(topic));
+}
+
+function hasMalformedTopicPrefixOrSlash(rawTopic: string, bareTopic: string): boolean {
+  return bareTopic.includes('/') || rawTopic.startsWith('/topics/');
 }
 
 /**
@@ -118,7 +107,7 @@ export function parseCondition(condition: string): { topics: string[] } | null {
   const topics: string[] = [];
 
   function ws(): void {
-    while (pos < src.length && /\s/.test(src[pos]!)) pos++;
+    while (pos < src.length && /\s/.test(src.charAt(pos))) pos++;
   }
 
   function requireWs(): boolean {
@@ -145,10 +134,10 @@ export function parseCondition(condition: string): { topics: string[] } | null {
       return expectLiteral(')');
     }
     ws();
-    if (src[pos] !== "'") return false;
+    if (src.charAt(pos) !== "'") return false;
     pos++;
     const start = pos;
-    while (pos < src.length && src[pos] !== "'") pos++;
+    while (pos < src.length && src.charAt(pos) !== "'") pos++;
     if (pos >= src.length) return false;
     const name = src.slice(start, pos);
     pos++; // closing quote
@@ -197,44 +186,91 @@ export function parseCondition(condition: string): { topics: string[] } | null {
 }
 
 /**
+ * Client-only preflight validation (`INVALID_PAYLOAD` checks enforced by
+ * `firebase-admin/messaging` before `dryRun` and before serializing a message
+ * over HTTP or a `RemoteSandbox` JSON channel). Wire-level checks (`{}`,
+ * multiple targets, bare invalid-char topic, token shape, condition grammar,
+ * numeric TTL, and payload byte cap) remain in {@link validateMessage} so
+ * `MessagingBroker.send` emits `message_rejected` onto `sandbox.history()`.
+ */
+export function validateClientMessage(message: BrokerMessage): void {
+  const rawMessage: unknown = message;
+  if (!isNonNullPlainObject(rawMessage)) {
+    throw new BrokerSendError(invalidPayloadEnvelope('Message must be a non-null object'));
+  }
+
+  const targetKeys = ['token', 'topic', 'condition'] as const;
+  const presentKeys = targetKeys.filter((key) => key in rawMessage);
+  const definedKeys = targetKeys.filter((key) => rawMessage[key] !== undefined);
+  if (definedKeys.length === 0 && presentKeys.length > 0) {
+    throw new BrokerSendError(
+      invalidPayloadEnvelope('Exactly one of topic, token or condition is required'),
+    );
+  }
+  if (definedKeys.length === 1) {
+    const soleKey = definedKeys[0];
+    const rawValue = soleKey !== undefined ? rawMessage[soleKey] : undefined;
+    if (typeof rawValue !== 'string' || rawValue.length === 0) {
+      throw new BrokerSendError(
+        invalidPayloadEnvelope('Exactly one of topic, token or condition is required'),
+      );
+    }
+    if (soleKey === 'topic') {
+      const bareTopic = canonicalTopicName(rawValue);
+      if (!isValidBareTopicName(bareTopic) && hasMalformedTopicPrefixOrSlash(rawValue, bareTopic)) {
+        throw new BrokerSendError(invalidPayloadEnvelope('Malformed topic name'));
+      }
+    }
+  }
+
+  validateMessagePayloadFields(rawMessage);
+}
+
+function resolveWireTarget(rawMessage: Record<string, unknown>): ResolvedTarget {
+  const targetKeys = ['token', 'topic', 'condition'] as const;
+  const definedKeys = targetKeys.filter((key) => rawMessage[key] !== undefined);
+  if (definedKeys.length === 0) {
+    throw new BrokerSendError(noTargetEnvelope());
+  }
+  if (definedKeys.length > 1) {
+    throw new BrokerSendError(multipleTargetsEnvelope());
+  }
+  const soleKey = definedKeys[0];
+  if (soleKey === undefined) {
+    throw new BrokerSendError(noTargetEnvelope());
+  }
+  const rawValue = String(rawMessage[soleKey]);
+  if (soleKey === 'token') {
+    return { kind: 'token', token: rawValue };
+  }
+  if (soleKey === 'topic') {
+    return { kind: 'topic', topic: canonicalTopicName(rawValue) };
+  }
+  return { kind: 'condition', condition: rawValue, topics: [] };
+}
+
+/**
  * Validate an intake message against the captured contract and resolve its
  * target. Throws {@link BrokerSendError} carrying the exact captured
  * envelope for each fault; returns the resolved target on acceptance.
- * `validate_only` (dryRun) runs this identical path — parity is pinned by
+ * `validate_only` (dryRun) runs this identical path -- parity is pinned by
  * every `realSendEnvelopeIdentical` capture.
  */
 export function validateMessage(message: BrokerMessage): ResolvedTarget {
-  if (typeof message !== 'object' || message === null) {
-    throw new BrokerSendError(noTargetEnvelope());
-  }
+  validateClientMessage(message);
+  const rawMessage = message as unknown as Record<string, unknown>;
 
-  // 1. Target exclusivity (oracle: messaging-send-no-target-error-envelope).
-  const targets: ResolvedTarget[] = [];
-  if (typeof message.token === 'string') targets.push({ kind: 'token', token: message.token });
-  if (typeof message.topic === 'string') {
-    targets.push({ kind: 'topic', topic: canonicalTopicName(message.topic) });
-  }
-  if (typeof message.condition === 'string') {
-    targets.push({ kind: 'condition', condition: message.condition, topics: [] });
-  }
-  if (targets.length === 0) throw new BrokerSendError(noTargetEnvelope());
-  if (targets.length > 1) throw new BrokerSendError(multipleTargetsEnvelope());
-  const target = targets[0]!;
+  // 1. Wire target exclusivity (oracle: messaging-send-no-target-error-envelope).
+  const target = resolveWireTarget(rawMessage);
 
-  // 2. Per-target syntax.
+  // 2. Wire per-target syntax (bare topic charset, token shape, condition grammar).
+  if (target.kind === 'topic' && !isValidBareTopicName(target.topic)) {
+    // oracle: messaging-send-invalid-topic-name-error-envelope
+    throw new BrokerSendError(invalidTopicNameEnvelope());
+  }
   if (target.kind === 'token' && !TOKEN_SHAPE_RE.test(target.token)) {
     // oracle: messaging-send-invalid-token-error-envelope
     throw new BrokerSendError(invalidTokenEnvelope());
-  }
-  if (target.kind === 'topic' && !isValidBareTopicName(target.topic)) {
-    const hasMalformedTopicPrefix =
-      target.topic.includes('/') ||
-      (typeof message.topic === 'string' && message.topic.startsWith('/topics/'));
-    if (hasMalformedTopicPrefix) {
-      throw new BrokerSendError(invalidPayloadEnvelope('Malformed topic name'));
-    }
-    // oracle: messaging-send-invalid-topic-name-error-envelope
-    throw new BrokerSendError(invalidTopicNameEnvelope());
   }
   if (target.kind === 'condition') {
     // oracle: messaging-send-invalid-condition-error-envelope (bare envelope)
@@ -243,14 +279,12 @@ export function validateMessage(message: BrokerMessage): ResolvedTarget {
     target.topics = parsed.topics;
   }
 
-  // 3. webpush headers.TTL (oracle: messaging-send-webpush-invalid-ttl-error-envelope).
+  // 3. webpush headers.TTL digits and data payload byte cap.
   const ttl = message.webpush?.headers?.TTL;
-  if (ttl !== undefined && !/^\d+$/.test(String(ttl))) {
+  if (ttl !== undefined && !/^\d+$/.test(ttl)) {
     throw new BrokerSendError(invalidWebpushTtlEnvelope());
   }
 
-  // 4. Data payload shape and size boundary (oracle: messaging-send-oversized-payload-error-envelope).
-  validateDataPayload(message.data);
   if (dataBytes(message.data) > EMPIRICAL_DATA_CAP_BYTES) {
     throw new BrokerSendError(oversizedPayloadEnvelope());
   }
