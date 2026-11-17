@@ -17,6 +17,8 @@ packages/cli/build/
 .env
 .env.local
 .env.*.local
+/gha-creds-*.json
+!/gha-creds-*.json/
 .pyric/
 ignored/
 

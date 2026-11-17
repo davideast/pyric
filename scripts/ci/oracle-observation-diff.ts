@@ -7,6 +7,7 @@ import {
   copyFileSync,
   lstatSync,
   mkdirSync,
+  readdirSync,
   readFileSync,
 } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -14,6 +15,7 @@ import { dirname, join } from 'node:path';
 const OBSERVATIONS_PREFIX = 'packages/conformance/observations/';
 const SAFE_OBSERVATION_REL_PATH =
   /^packages\/conformance\/observations\/([a-z0-9-]+)\/([a-z0-9][a-z0-9._-]*)\.json$/;
+const ROOT_GHA_CREDS_FILE = /^gha-creds-[A-Za-z0-9._-]+\.json$/;
 
 export interface CollectedObservationChange {
   path: string;
@@ -81,7 +83,12 @@ export function validateObservationRelativePath(relPath: string): {
       `Path '${relPath}' is outside packages/conformance/observations/<surface>/<safe-name>.json`,
     );
   }
-  return { surface: match[1] ?? '', stem: match[2] ?? '' };
+  const surface = match[1] ?? '';
+  const stem = match[2] ?? '';
+  if (stem.startsWith('gha-creds-')) {
+    throw new Error(`Refusing credential filename stem '${stem}' in observation path '${relPath}'`);
+  }
+  return { surface, stem };
 }
 
 export function assertValidObservationEnvelope(relPath: string, content: string): void {
@@ -167,6 +174,54 @@ function headContentAt(cwd: string, relPath: string): string | null {
   }
 }
 
+function isRegularRootGhaCredsFile(cwd: string, relPath: string): boolean {
+  if (!ROOT_GHA_CREDS_FILE.test(relPath)) {
+    return false;
+  }
+  try {
+    const stat = lstatSync(join(cwd, relPath));
+    return !stat.isSymbolicLink() && stat.isFile();
+  } catch {
+    return false;
+  }
+}
+
+function assertValidRootGhaCredsEntries(cwd: string): void {
+  for (const entry of readdirSync(cwd)) {
+    if (!entry.startsWith('gha-creds-')) {
+      continue;
+    }
+    if (!isRegularRootGhaCredsFile(cwd, entry)) {
+      throw new Error(
+        `Working tree contains invalid or non-regular root gha-creds entry '${entry}'`,
+      );
+    }
+  }
+}
+
+function isEphemeralRootGhaCreds(cwd: string, record: StatusRecord): boolean {
+  return (
+    record.xy === '??' &&
+    record.previousPath === undefined &&
+    isRegularRootGhaCredsFile(cwd, record.path)
+  );
+}
+
+/**
+ * Asserts that the working tree in `cwd` has zero modified, staged, renamed,
+ * deleted, or untracked files before capture starts, explicitly tolerating only
+ * an untracked regular root `gha-creds-*.json` written by
+ * `google-github-actions/auth@v2` even if `.gitignore` were absent or changed.
+ */
+export function assertCleanWorkingTreeForCapture(cwd: string): void {
+  assertValidRootGhaCredsEntries(cwd);
+  const dirty = parsePorcelainZ(cwd).filter((record) => !isEphemeralRootGhaCreds(cwd, record));
+  if (dirty.length > 0) {
+    const summary = dirty.map((record) => `${record.xy} ${record.path}`).join('\n');
+    throw new Error(`Working tree must be clean before capture starts:\n${summary}`);
+  }
+}
+
 /**
  * Inspects the working tree in `cwd` after a capture run:
  *   1. Fails closed if ANY modified, deleted, renamed, or untracked path is
@@ -182,10 +237,14 @@ export function collectTimestampCleanObservations(
   cwd: string,
   bundleOutDir: string,
 ): CollectedObservationChange[] {
+  assertValidRootGhaCredsEntries(cwd);
   const statusRecords = parsePorcelainZ(cwd);
   const collected: CollectedObservationChange[] = [];
 
   for (const record of statusRecords) {
+    if (isEphemeralRootGhaCreds(cwd, record)) {
+      continue;
+    }
     if (record.previousPath !== undefined) {
       throw new Error(
         `Unexpected rename '${record.previousPath}' -> '${record.path}' outside allowed observation writes`,
