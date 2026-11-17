@@ -1,0 +1,128 @@
+{
+  "name": "messaging-send-webpush-lowercase-ttl",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "v1 messages:send with lowercase webpush.headers.ttl set to \"60\", \"-1\", and \"abc\" across validate_only=true and validate_only=false on a zero-subscriber topic: records whether FCM validates lowercase headers.ttl case-insensitively like uppercase headers.TTL.",
+  "observedAt": "2026-11-17T10:32:45.412Z",
+  "adminSdkVersion": "13.10.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "validSixtySeconds": {
+      "headerKey": "ttl",
+      "headerValue": "60",
+      "dryRunStatus": 200,
+      "dryRunAccepted": true,
+      "dryRunName": {
+        "matchesProjectsMessagesFormat": true,
+        "projectSegmentMatchesProject": true,
+        "messageIdIsNumericString": true
+      },
+      "realSendStatus": 200,
+      "realSendAccepted": true,
+      "realSendName": {
+        "matchesProjectsMessagesFormat": true,
+        "projectSegmentMatchesProject": true,
+        "messageIdIsNumericString": true
+      },
+      "dryRunMatchesRealSend": true
+    },
+    "negativeOne": {
+      "headerKey": "ttl",
+      "headerValue": "-1",
+      "dryRunStatus": 400,
+      "dryRunAccepted": false,
+      "dryRunError": {
+        "code": 400,
+        "message": "TTL must be a non-negative integer.",
+        "status": "INVALID_ARGUMENT",
+        "details": [
+          {
+            "@type": "type.googleapis.com/google.rpc.BadRequest",
+            "fieldViolations": [
+              {
+                "field": "message.webpush.headers.TTL",
+                "description": "TTL must be a non-negative integer."
+              }
+            ]
+          },
+          {
+            "@type": "type.googleapis.com/google.firebase.fcm.v1.FcmError",
+            "errorCode": "INVALID_ARGUMENT"
+          }
+        ]
+      },
+      "realSendStatus": 400,
+      "realSendAccepted": false,
+      "realSendError": {
+        "code": 400,
+        "message": "TTL must be a non-negative integer.",
+        "status": "INVALID_ARGUMENT",
+        "details": [
+          {
+            "@type": "type.googleapis.com/google.rpc.BadRequest",
+            "fieldViolations": [
+              {
+                "field": "message.webpush.headers.TTL",
+                "description": "TTL must be a non-negative integer."
+              }
+            ]
+          },
+          {
+            "@type": "type.googleapis.com/google.firebase.fcm.v1.FcmError",
+            "errorCode": "INVALID_ARGUMENT"
+          }
+        ]
+      },
+      "dryRunMatchesRealSend": true
+    },
+    "nonNumericAbc": {
+      "headerKey": "ttl",
+      "headerValue": "abc",
+      "dryRunStatus": 400,
+      "dryRunAccepted": false,
+      "dryRunError": {
+        "code": 400,
+        "message": "TTL must be a non-negative integer.",
+        "status": "INVALID_ARGUMENT",
+        "details": [
+          {
+            "@type": "type.googleapis.com/google.rpc.BadRequest",
+            "fieldViolations": [
+              {
+                "field": "message.webpush.headers.TTL",
+                "description": "TTL must be a non-negative integer."
+              }
+            ]
+          },
+          {
+            "@type": "type.googleapis.com/google.firebase.fcm.v1.FcmError",
+            "errorCode": "INVALID_ARGUMENT"
+          }
+        ]
+      },
+      "realSendStatus": 400,
+      "realSendAccepted": false,
+      "realSendError": {
+        "code": 400,
+        "message": "TTL must be a non-negative integer.",
+        "status": "INVALID_ARGUMENT",
+        "details": [
+          {
+            "@type": "type.googleapis.com/google.rpc.BadRequest",
+            "fieldViolations": [
+              {
+                "field": "message.webpush.headers.TTL",
+                "description": "TTL must be a non-negative integer."
+              }
+            ]
+          },
+          {
+            "@type": "type.googleapis.com/google.firebase.fcm.v1.FcmError",
+            "errorCode": "INVALID_ARGUMENT"
+          }
+        ]
+      },
+      "dryRunMatchesRealSend": true
+    }
+  }
+}
