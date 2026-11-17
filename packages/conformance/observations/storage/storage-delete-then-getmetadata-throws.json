@@ -1,0 +1,28 @@
+{
+  "name": "storage-delete-then-getmetadata-throws",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "uploadBytes with customMetadata, verify getMetadata reads the stored metadata, call deleteObject, then call getMetadata on the deleted reference and observe the error shape.",
+  "observedAt": "2026-11-17T21:29:53.623Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "beforeDelete": {
+      "size": 5,
+      "contentType": "application/octet-stream",
+      "customMetadata": {
+        "stage": "before-delete"
+      },
+      "hasGeneration": true,
+      "metageneration": "1"
+    },
+    "deleteCompleted": true,
+    "afterDeleteGetMetadata": {
+      "threw": true,
+      "code": "storage/object-not-found",
+      "errorName": "FirebaseError",
+      "isFirebaseError": true,
+      "message": "Firebase Storage: Object 'pyric_oracle/<runId>/delete-then-getmetadata/ephemeral.bin' does not exist. (storage/object-not-found)"
+    }
+  }
+}
