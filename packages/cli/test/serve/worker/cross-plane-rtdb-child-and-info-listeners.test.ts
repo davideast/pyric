@@ -7,7 +7,7 @@ import { initializeSandbox } from 'pyric/sandbox';
 import { handleMessage, type PortLike } from '../../../src/serve/worker/host.js';
 import { setDatabaseRules } from '../../../src/serve/worker/host/rules.js';
 import type { InboundMessage, OutboundMessage } from '../../../src/serve/worker/protocol.js';
-import { type FakePort, makeHostCtx, portPair, sleep } from './integration-support.js';
+import { type FakePort, makeHostCtx, portPair, until } from './integration-support.js';
 
 describe('Cross-plane RTDB child onlyOnce, off(query), and /.info listener parity', () => {
   let restoreSW: () => void;
@@ -72,14 +72,24 @@ describe('Cross-plane RTDB child onlyOnce, off(query), and /.info listener parit
 
       const ipAdded: string[] = [];
       const servedAdded: string[] = [];
+      let emptyObserved = false;
 
       ip.onChildAdded(ipEmpty, (snap) => ipAdded.push(`${snap.key}:${snap.val()}`), { onlyOnce: true });
       served.onChildAdded(servedEmpty, (snap) => servedAdded.push(`${snap.key}:${snap.val()}`), { onlyOnce: true });
-      await sleep();
+      // A value listener opened after onChildAdded crosses the same ordered port,
+      // so its initial null snapshot proves onChildAdded finished its empty attach.
+      served.onValue(
+        servedEmpty,
+        () => {
+          emptyObserved = true;
+        },
+        { onlyOnce: true },
+      );
+      await until(() => emptyObserved, 'empty-path child listener attach');
 
       await ip.set(ipEmpty, { alpha: 1, beta: 2, gamma: 3 });
       await served.set(servedEmpty, { alpha: 1, beta: 2, gamma: 3 });
-      await sleep();
+      await until(() => servedAdded.length > 0, 'single child_added delivery on multi-child write');
 
       expect(ipAdded).toEqual(['alpha:1']);
       expect(servedAdded).toEqual(['alpha:1']);
@@ -89,7 +99,7 @@ describe('Cross-plane RTDB child onlyOnce, off(query), and /.info listener parit
       const servedExisting: string[] = [];
       ip.onChildAdded(ipEmpty, (snap) => ipExisting.push(`${snap.key}:${snap.val()}`), { onlyOnce: true });
       served.onChildAdded(servedEmpty, (snap) => servedExisting.push(`${snap.key}:${snap.val()}`), { onlyOnce: true });
-      await sleep();
+      await until(() => servedExisting.length > 0, 'initial child_added batch');
 
       expect(ipExisting).toEqual(['gamma:3', 'beta:2', 'alpha:1']);
       expect(servedExisting).toEqual(['gamma:3', 'beta:2', 'alpha:1']);
@@ -118,7 +128,14 @@ describe('Cross-plane RTDB child onlyOnce, off(query), and /.info listener parit
       ip.onValue(ipItems, (snap) => ipDefaultCalls.push(snap.val()));
       served.onValue(servedLimited, (snap) => servedLimitedCalls.push(snap.val()));
       served.onValue(servedItems, (snap) => servedDefaultCalls.push(snap.val()));
-      await sleep();
+      await until(
+        () => servedLimitedCalls.length > 0 && servedDefaultCalls.length > 0,
+        'initial constrained and unconstrained value snapshots',
+      );
+      expect(ipLimitedCalls).toEqual([{ a: 1 }]);
+      expect(servedLimitedCalls).toEqual([{ a: 1 }]);
+      expect(ipDefaultCalls).toEqual([{ a: 1, b: 2 }]);
+      expect(servedDefaultCalls).toEqual([{ a: 1, b: 2 }]);
 
       ipLimitedCalls.length = 0;
       ipDefaultCalls.length = 0;
@@ -131,7 +148,10 @@ describe('Cross-plane RTDB child onlyOnce, off(query), and /.info listener parit
 
       await ip.set(ipItems, { a: 10, b: 20 });
       await served.set(servedItems, { a: 10, b: 20 });
-      await sleep();
+      await until(
+        () => servedDefaultCalls.length > 0,
+        'unconstrained listener update after constrained off()',
+      );
 
       expect(ipLimitedCalls).toEqual([]);
       expect(servedLimitedCalls).toEqual([]);
@@ -141,7 +161,13 @@ describe('Cross-plane RTDB child onlyOnce, off(query), and /.info listener parit
       // Re-attach constrained view, then call off(query(ref)) (unconstrained query) to detach all views on ref.
       ip.onValue(ipLimited, (snap) => ipLimitedCalls.push(snap.val()));
       served.onValue(servedLimited, (snap) => servedLimitedCalls.push(snap.val()));
-      await sleep();
+      await until(
+        () => servedLimitedCalls.length > 0,
+        're-attached constrained listener initial snapshot',
+      );
+      expect(ipLimitedCalls).toEqual([{ a: 10 }]);
+      expect(servedLimitedCalls).toEqual([{ a: 10 }]);
+
       ipLimitedCalls.length = 0;
       ipDefaultCalls.length = 0;
       servedLimitedCalls.length = 0;
@@ -152,7 +178,8 @@ describe('Cross-plane RTDB child onlyOnce, off(query), and /.info listener parit
 
       await ip.set(ipItems, { a: 100, b: 200 });
       await served.set(servedItems, { a: 100, b: 200 });
-      await sleep();
+      // A read on the same ordered port settles after any snapshot the write queued.
+      expect((await served.get(servedItems)).val()).toEqual({ a: 100, b: 200 });
 
       expect(ipLimitedCalls).toEqual([]);
       expect(ipDefaultCalls).toEqual([]);
@@ -171,15 +198,18 @@ describe('Cross-plane RTDB child onlyOnce, off(query), and /.info listener parit
       const servedAdded: Array<[string | null, unknown]> = [];
       const servedChanged: Array<[string | null, unknown]> = [];
 
-      const unsubIpAdded = ip.onChildAdded(ip.ref(ipDb, '.info'), (s) => ipAdded.push([s.key, s.val()]));
       const unsubIpChanged = ip.onChildChanged(ip.ref(ipDb, '.info'), (s) => ipChanged.push([s.key, s.val()]));
-      const unsubServedAdded = served.onChildAdded(served.ref(servedDb, '.info'), (s) =>
-        servedAdded.push([s.key, s.val()]),
-      );
+      const unsubIpAdded = ip.onChildAdded(ip.ref(ipDb, '.info'), (s) => ipAdded.push([s.key, s.val()]));
       const unsubServedChanged = served.onChildChanged(served.ref(servedDb, '.info'), (s) =>
         servedChanged.push([s.key, s.val()]),
       );
-      await sleep();
+      const unsubServedAdded = served.onChildAdded(served.ref(servedDb, '.info'), (s) =>
+        servedAdded.push([s.key, s.val()]),
+      );
+      await until(
+        () => ipAdded.length >= 2 && servedAdded.length >= 2,
+        'initial /.info child_added deliveries',
+      );
 
       expect(ipAdded).toEqual([
         ['connected', true],
@@ -192,14 +222,20 @@ describe('Cross-plane RTDB child onlyOnce, off(query), and /.info listener parit
 
       ip.goOffline(ipDb);
       served.goOffline(servedDb);
-      await sleep();
+      await until(
+        () => ipChanged.length >= 1 && servedChanged.length >= 1,
+        '/.info offline transition',
+      );
 
       expect(ipChanged).toEqual([['connected', false]]);
       expect(servedChanged).toEqual([['connected', false]]);
 
       ip.goOnline(ipDb);
       served.goOnline(servedDb);
-      await sleep();
+      await until(
+        () => ipChanged.length >= 2 && servedChanged.length >= 2,
+        '/.info online transition',
+      );
 
       expect(ipChanged).toEqual([
         ['connected', false],
@@ -221,7 +257,10 @@ describe('Cross-plane RTDB child onlyOnce, off(query), and /.info listener parit
         served.query(served.ref(servedDb, '.info/connected'), served.limitToFirst(1)),
         (s) => servedConstrainedScalar.push(s.val()),
       );
-      await sleep();
+      await until(
+        () => ipConstrainedScalar.length >= 1 && servedConstrainedScalar.length >= 1,
+        'constrained /.info/connected snapshot',
+      );
 
       expect(ipConstrainedScalar).toEqual([null]);
       expect(servedConstrainedScalar).toEqual([null]);
