@@ -4,7 +4,13 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Probe } from '../rigs/types.ts';
 import { probe } from '../probes/firestore/admin-firestore-document-snapshot-get.ts';
+import { oracleCredentialConfigured } from './oracle-credential.ts';
 import { resolvedAdminVersion } from './package-version.ts';
+import {
+  formatInertPreviewFooter,
+  requireCaptureMode,
+  stripCaptureFlags,
+} from './capture-mode-guard.ts';
 import { readSingleProbeSelector } from './probe-cli-args.ts';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -59,11 +65,28 @@ export function selectAdminFirestoreProbeId(args: readonly string[]): string {
 
 async function main(): Promise<void> {
   const args = process.argv.slice(2);
-  selectAdminFirestoreProbeId(args);
+  selectAdminFirestoreProbeId(stripCaptureFlags(args));
+  const wantsVerify = args.includes('--verify');
+  if (!wantsVerify) {
+    requireCaptureMode({
+      label: 'admin-firestore-probes',
+      scriptPath: 'packages/conformance/src/admin-firestore-probes.ts',
+      argv: args,
+      preview: () => {
+        console.log(`[admin-firestore-probes] INERT preview for ${ID}.`);
+        console.log(`  ${formatInertPreviewFooter('packages/conformance/src/admin-firestore-probes.ts')}`);
+      },
+      missingCredentials: () => {
+        if (oracleCredentialConfigured(process.env)) return null;
+        return 'PYRIC_ORACLE_SA_PATH or PYRIC_ORACLE_PROJECT_ID';
+      },
+    });
+  }
+  const wantsWrite = !wantsVerify;
   const adminSdkVersion = resolvedAdminVersion();
   const actual = await capture(probe, adminSdkVersion);
 
-  if (args.includes('--write')) {
+  if (wantsWrite) {
     writeFileSync(OBSERVATION_PATH, `${JSON.stringify(actual, null, 2)}\n`);
     console.log(`wrote ${ID}.json against firebase-admin ${adminSdkVersion}`);
     return;

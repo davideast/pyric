@@ -12,8 +12,12 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
-import { planCaptureRun } from './oracle-capture-plan.ts';
-import { executeCapturePlan, type CaptureBundleManifest } from './oracle-capture-pr.ts';
+import { diagnoseCaptureFailure, planCaptureRun } from './oracle-capture-plan.ts';
+import {
+  buildInvocationEnv,
+  executeCapturePlan,
+  type CaptureBundleManifest,
+} from './oracle-capture-pr.ts';
 import {
   assertCleanWorkingTreeForCapture,
   collectTimestampCleanObservations,
@@ -47,12 +51,12 @@ function initTempGitRepo(options: { copyRepoGitignore?: boolean } = {}): {
 }
 
 describe('oracle-capture-plan WIF SDK write flags and sibling invocation isolation', () => {
-  test('passes --write and --probe for admin-firestore and storage-admin dispatches', async () => {
+  test('passes --write and --probe for admin-firestore and storage-admin dispatches via CAPTURE_WIF_PROVIDER', async () => {
     const baseEnv = {
       GITHUB_EVENT_NAME: 'workflow_dispatch',
       GITHUB_REF: 'refs/heads/main',
-      GCP_WIF_PROVIDER: 'projects/1/locations/global/workloadIdentityPools/p/providers/gh',
-      PARITY_SA_EMAIL: 'parity-test-sa@digame-mas.iam.gserviceaccount.com',
+      CAPTURE_WIF_PROVIDER: 'projects/1/locations/global/workloadIdentityPools/c/providers/gh',
+      CAPTURE_SA_EMAIL: 'capture-sa@example.iam.gserviceaccount.com',
     };
 
     const adminFsPlan = await planCaptureRun({
@@ -60,11 +64,14 @@ describe('oracle-capture-plan WIF SDK write flags and sibling invocation isolati
       INPUT_RIG: 'admin-firestore',
       INPUT_FILTER: 'admin-firestore-document-snapshot-get',
     });
+    expect(adminFsPlan.needsCaptureWif).toBe(true);
+    expect(adminFsPlan.needsParityWif).toBe(false);
     expect(adminFsPlan.invocations).toEqual([
       {
         rig: 'admin-firestore',
         script: 'packages/conformance/src/admin-firestore-probes.ts',
         args: ['--write', '--probe', 'admin-firestore-document-snapshot-get'],
+        wifTier: 'capture-write',
       },
     ]);
 
@@ -78,8 +85,117 @@ describe('oracle-capture-plan WIF SDK write flags and sibling invocation isolati
         rig: 'storage-admin',
         script: 'packages/conformance/src/storage-admin-probes.ts',
         args: ['--write', '--probe', 'admin-storage-metadata-download-url'],
+        wifTier: 'capture-write',
       },
     ]);
+  });
+
+  test('routes messaging-send, sdk-probes, and admin-auth through optional CAPTURE_WIF_PROVIDER and skips cleanly when unconfigured', async () => {
+    const summaryDir = mkdtempSync(join(tmpdir(), 'capture-wif-skip-'));
+    const summaryPath = join(summaryDir, 'summary.md');
+    try {
+      const skippedDispatch = await planCaptureRun({
+        GITHUB_EVENT_NAME: 'workflow_dispatch',
+        GITHUB_REF: 'refs/heads/main',
+        GITHUB_STEP_SUMMARY: summaryPath,
+        GCP_WIF_PROVIDER: 'projects/1/locations/global/workloadIdentityPools/p/providers/gh',
+        PARITY_SA_EMAIL: 'parity-test-sa@digame-mas.iam.gserviceaccount.com',
+        INPUT_RIG: 'messaging-send',
+      });
+      expect(skippedDispatch.shouldRun).toBe(false);
+      expect(skippedDispatch.invocations).toEqual([]);
+      expect(skippedDispatch.skippedRigs).toEqual(['messaging-send']);
+      const summaryText = readFileSync(summaryPath, 'utf8');
+      expect(summaryText).toContain('CAPTURE_WIF_PROVIDER');
+      expect(summaryText).toContain('CAPTURE_SA_EMAIL');
+      expect(summaryText).toContain('messaging-send');
+
+      // Mixed push: parity-readonly rules-firestore runs while unconfigured sdk-probes skips cleanly!
+      const mixedPush = await planCaptureRun(
+        {
+          GITHUB_EVENT_NAME: 'push',
+          GITHUB_REF: 'refs/heads/main',
+          GCP_WIF_PROVIDER: 'projects/1/locations/global/workloadIdentityPools/p/providers/gh',
+          PARITY_SA_EMAIL: 'parity-test-sa@digame-mas.iam.gserviceaccount.com',
+        },
+        {
+          stagedTargets: [
+            {
+              rig: 'rules-firestore',
+              observationName: 'rules-firestore-path-bind-forms',
+              filterFlag: '--scenario',
+              filterValue: 'path-bind-forms',
+            },
+            {
+              rig: 'sdk-probes',
+              observationName: 'rtdb-modular-query-limit-infinity',
+              filterFlag: '--probe',
+              filterValue: 'rtdb-modular-query-limit-infinity',
+            },
+            {
+              rig: 'admin-auth',
+              observationName: 'admin-auth-listusers-deleted-cursor',
+              filterFlag: '--probe',
+              filterValue: 'admin-auth-listusers-deleted-cursor',
+            },
+          ],
+          pendingPrefixRigs: [],
+        },
+      );
+      expect(mixedPush.shouldRun).toBe(true);
+      expect(mixedPush.needsParityWif).toBe(true);
+      expect(mixedPush.needsCaptureWif).toBe(false);
+      expect(mixedPush.skippedRigs).toEqual(['admin-auth', 'sdk-probes']);
+      expect(mixedPush.invocations).toEqual([
+        {
+          rig: 'rules-firestore',
+          script: 'packages/conformance/src/run-rules.ts',
+          args: ['--write', '--scenario', 'path-bind-forms'],
+          wifTier: 'parity-readonly',
+        },
+      ]);
+
+      // Comma-separated multi-rig dispatch
+      const multiRigPlan = await planCaptureRun({
+        GITHUB_EVENT_NAME: 'workflow_dispatch',
+        GITHUB_REF: 'refs/heads/main',
+        GCP_WIF_PROVIDER: 'projects/1/locations/global/workloadIdentityPools/p/providers/gh',
+        PARITY_SA_EMAIL: 'parity-test-sa@digame-mas.iam.gserviceaccount.com',
+        INPUT_RIG: 'rules-firestore,rules-storage',
+      });
+      expect(multiRigPlan.invocations.map((i) => i.rig)).toEqual(['rules-firestore', 'rules-storage']);
+      expect(multiRigPlan.invocations.every((i) => i.args.includes('--write'))).toBe(true);
+    } finally {
+      rmSync(summaryDir, { recursive: true, force: true });
+    }
+  });
+
+  test('diagnoseCaptureFailure classifies Permission <perm> denied on resource and missing RTDB URL', () => {
+    const fcmResourceDenied = diagnoseCaptureFailure(
+      'messaging-send',
+      "Error: Permission 'cloudmessaging.messages.create' denied on resource '//cloudresourcemanager.googleapis.com/projects/digame-mas' (or it may not exist).",
+      { CAPTURE_SA_EMAIL: 'capture-sa@example.iam.gserviceaccount.com' },
+    );
+    expect(fcmResourceDenied).toContain('capture-sa@example.iam.gserviceaccount.com');
+    expect(fcmResourceDenied).toContain('cloudmessaging.messages.create');
+    expect(fcmResourceDenied).toContain('roles/firebasecloudmessaging.admin');
+    expect(fcmResourceDenied).toContain('Action:');
+
+    const authDenied = diagnoseCaptureFailure(
+      'admin-auth',
+      "Permission 'firebaseauth.users.get' denied on resource 'projects/digame-mas'",
+      { CAPTURE_SA_EMAIL: 'capture-sa@example.iam.gserviceaccount.com' },
+    );
+    expect(authDenied).toContain('firebaseauth.users.get');
+    expect(authDenied).toContain('roles/firebaseauth.admin');
+
+    const rtdbUrlMissing = diagnoseCaptureFailure(
+      'sdk-probes',
+      'Missing dedicated RTDB endpoint: set PYRIC_ORACLE_RTDB_URL',
+      { CAPTURE_SA_EMAIL: 'capture-sa@example.iam.gserviceaccount.com' },
+    );
+    expect(rtdbUrlMissing).toContain('PYRIC_ORACLE_RTDB_URL');
+    expect(rtdbUrlMissing).toContain('Action:');
   });
 
   test('executeCapturePlan preserves passing sibling --scenario captures when one sibling fails', () => {
@@ -355,5 +471,64 @@ describe('oracle-capture-plan WIF SDK write flags and sibling invocation isolati
       rmSync(scratchOut, { recursive: true, force: true });
       cleanup();
     }
+  });
+
+  test('buildInvocationEnv clears GOOGLE_APPLICATION_CREDENTIALS and fails closed when a tier credential file is missing', () => {
+    const ambient = {
+      GOOGLE_APPLICATION_CREDENTIALS: '/tmp/ambient-parity.json',
+      PARITY_WIF_CREDENTIALS_FILE: '/tmp/parity-wif.json',
+      CAPTURE_WIF_CREDENTIALS_FILE: '/tmp/capture-wif.json',
+    };
+
+    const unattendedEnv = buildInvocationEnv(ambient, {
+      rig: 'client-storage',
+      script: 'packages/conformance/src/client-storage-probes.ts',
+      args: ['--write'],
+      wifTier: 'none',
+    });
+    expect(unattendedEnv.GOOGLE_APPLICATION_CREDENTIALS).toBeUndefined();
+
+    const parityEnv = buildInvocationEnv(ambient, {
+      rig: 'rules-firestore',
+      script: 'packages/conformance/src/run-rules.ts',
+      args: ['--write'],
+      wifTier: 'parity-readonly',
+    });
+    expect(parityEnv.GOOGLE_APPLICATION_CREDENTIALS).toBe('/tmp/parity-wif.json');
+
+    const captureEnv = buildInvocationEnv(ambient, {
+      rig: 'messaging-send',
+      script: 'packages/conformance/src/messaging-send-probes.ts',
+      args: ['--write'],
+      wifTier: 'capture-write',
+    });
+    expect(captureEnv.GOOGLE_APPLICATION_CREDENTIALS).toBe('/tmp/capture-wif.json');
+
+    expect(() =>
+      buildInvocationEnv(
+        {
+          GOOGLE_APPLICATION_CREDENTIALS: '/tmp/ambient-parity.json',
+          PARITY_WIF_CREDENTIALS_FILE: '/tmp/parity-wif.json',
+        },
+        {
+          rig: 'messaging-send',
+          script: 'packages/conformance/src/messaging-send-probes.ts',
+          args: ['--write'],
+          wifTier: 'capture-write',
+        },
+      ),
+    ).toThrow(/Missing CAPTURE_WIF_CREDENTIALS_FILE/);
+
+    expect(() =>
+      buildInvocationEnv(
+        { GOOGLE_APPLICATION_CREDENTIALS: '/tmp/ambient-parity.json' },
+        {
+          rig: 'rules-firestore',
+          script: 'packages/conformance/src/run-rules.ts',
+          args: ['--write'],
+          wifTier: 'parity-readonly',
+        },
+      ),
+    ).toThrow(/Missing PARITY_WIF_CREDENTIALS_FILE/);
   });
 });

@@ -34,7 +34,8 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { loadOracleServiceAccount, oracleAppOptions } from './oracle-credential.ts';
+import { formatInertPreviewFooter, requireCaptureMode } from './capture-mode-guard.ts';
+import { loadOracleServiceAccount, oracleAppOptions, oracleCredentialConfigured } from './oracle-credential.ts';
 import { resolvedAdminVersion, resolvedFirebaseVersion } from './package-version.ts';
 import {
   accessHeaders,
@@ -342,21 +343,43 @@ async function captureAbsentDatabase(sa: ServiceAccount, web: WebConfig): Promis
 }
 
 async function main(): Promise<void> {
-  const mode = process.argv[2];
+  const { hasParityCredential, NO_CREDENTIAL_MESSAGE } = await import('../../pyric/test/rules/parity/credential.ts');
+  const rawArgs = process.argv.slice(2);
+  const cliArgs = requireCaptureMode({
+    label: 'named-databases',
+    scriptPath: 'packages/conformance/src/capture-firestore-named-databases.ts',
+    argv: rawArgs,
+    extraFlags: 'rules-api | absent-database',
+    preview: () => {
+      console.log(`[named-databases] INERT preview. ${formatInertPreviewFooter('packages/conformance/src/capture-firestore-named-databases.ts', 'rules-api | absent-database')}`);
+    },
+    missingCredentials: () => {
+      if (rawArgs.includes('rules-api')) {
+        if (hasParityCredential()) return null;
+        return NO_CREDENTIAL_MESSAGE;
+      }
+      if (!oracleCredentialConfigured(process.env)) {
+        return 'PYRIC_ORACLE_SA_PATH or PYRIC_ORACLE_PROJECT_ID';
+      }
+      return null;
+    },
+  });
+  const mode = cliArgs[0];
   if (mode === 'rules-api') {
-    // The Rules Test API credential run-rules.ts uses: GOOGLE_APPLICATION_CREDENTIALS,
-    // then a firebase-tools login, then gcloud ADC (test/rules/parity/credential.ts).
     const { parityScope } = await import('../../pyric/test/rules/parity/harness.ts');
     return captureRulesApi(parityScope() as RulesScope);
   }
   const sa = await loadOracleServiceAccount();
   if (mode === 'absent-database') {
     const configPath = process.env.PYRIC_AI_FIREBASE_CONFIG_PATH;
-    const config = configPath ? readFileSync(configPath, 'utf8') : process.env.PYRIC_AI_FIREBASE_CONFIG;
+    let config = process.env.PYRIC_AI_FIREBASE_CONFIG;
+    if (configPath) {
+      config = readFileSync(configPath, 'utf8');
+    }
     if (!config) throw new Error('absent-database requires PYRIC_AI_FIREBASE_CONFIG or PYRIC_AI_FIREBASE_CONFIG_PATH');
     return captureAbsentDatabase(sa, JSON.parse(config) as WebConfig);
   }
-  throw new Error('usage: capture-firestore-named-databases.ts rules-api | absent-database');
+  throw new Error('usage: capture-firestore-named-databases.ts --write rules-api | absent-database');
 }
 
 if (import.meta.main) {

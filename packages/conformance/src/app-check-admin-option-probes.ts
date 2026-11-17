@@ -19,6 +19,7 @@ import { randomBytes } from 'node:crypto';
 import { deleteApp, initializeApp } from 'firebase-admin/app';
 import { getAppCheck } from 'firebase-admin/app-check';
 import { loadOracleServiceAccount, oracleCredentialConfigured } from './oracle-credential.ts';
+import { formatInertPreviewFooter, requireCaptureMode } from './capture-mode-guard.ts';
 import { ADMIN_OPTION_PLAN, runAdminOptionProbes } from './capture/app-check/admin-option-probes.ts';
 import type { Secrets } from './capture/app-check/redact.ts';
 
@@ -28,15 +29,26 @@ interface WebConfig {
   projectId: string;
 }
 
-const rawConfig = process.env.PYRIC_AI_FIREBASE_CONFIG;
-const credentialsMissing = !oracleCredentialConfigured(process.env) || !rawConfig;
+requireCaptureMode({
+  label: 'app-check-admin-options',
+  scriptPath: 'packages/conformance/src/app-check-admin-option-probes.ts',
+  preview: () => {
+    console.log('[app-check-admin-options] INERT preview; no network call was made.');
+    for (const entry of ADMIN_OPTION_PLAN) console.log(`  ${entry.name}: ${entry.captures}`);
+    console.log(`  ${formatInertPreviewFooter('packages/conformance/src/app-check-admin-option-probes.ts')}`);
+  },
+  missingCredentials: () => {
+    const missing: string[] = [];
+    if (!process.env.PYRIC_AI_FIREBASE_CONFIG) missing.push('PYRIC_AI_FIREBASE_CONFIG');
+    if (!oracleCredentialConfigured(process.env)) {
+      missing.push('PYRIC_ORACLE_SA_PATH or PYRIC_ORACLE_PROJECT_ID');
+    }
+    if (missing.length > 0) return missing.join(', ');
+    return null;
+  },
+});
 
-if (credentialsMissing) {
-  console.log('PYRIC_AI_FIREBASE_CONFIG and an oracle credential (PYRIC_ORACLE_SA_PATH or PYRIC_ORACLE_PROJECT_ID) are not both set; no network call was made.');
-  console.log('With both set, this runner captures:');
-  for (const entry of ADMIN_OPTION_PLAN) console.log(`  ${entry.name}: ${entry.captures}`);
-  process.exit(0);
-}
+const rawConfig = process.env.PYRIC_AI_FIREBASE_CONFIG ?? '{}';
 
 const sa = await loadOracleServiceAccount();
 const web = JSON.parse(rawConfig) as WebConfig;

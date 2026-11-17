@@ -48,10 +48,13 @@ function recordProblems(file: string, value: unknown): string[] {
   if (!pendingOk) {
     fail("'pendingPrefixes' must be a string array when present");
   }
+  if (record.probeDeclaredOwnership !== undefined && typeof record.probeDeclaredOwnership !== 'boolean') {
+    fail("'probeDeclaredOwnership' must be a boolean when present");
+  }
   if (observationPrefixesOk && pendingOk) {
     const observationPrefixes = record.observationPrefixes as string[];
     const pendingPrefixes = (record.pendingPrefixes as string[] | undefined) ?? [];
-    if (observationPrefixes.length + pendingPrefixes.length === 0) {
+    if (!record.probeDeclaredOwnership && observationPrefixes.length + pendingPrefixes.length === 0) {
       fail("a rig must declare at least one prefix across 'observationPrefixes' and 'pendingPrefixes'");
     }
     const overlap = observationPrefixes.filter((prefix) => pendingPrefixes.includes(prefix));
@@ -147,7 +150,8 @@ export async function loadRigManifests(): Promise<RigManifest[]> {
 
   const prefixOwner = new Map<string, string>();
   for (const manifest of manifests) {
-    for (const prefix of manifest.observationPrefixes) {
+    const allPrefixes = [...manifest.observationPrefixes, ...(manifest.pendingPrefixes ?? [])];
+    for (const prefix of allPrefixes) {
       const owner = prefixOwner.get(prefix);
       if (owner && owner !== manifest.id) {
         problems.push(`observation prefix '${prefix}' is claimed by both rig '${owner}' and rig '${manifest.id}'`);

@@ -44,6 +44,8 @@ import type { ProjectScope } from '../../pyric/src/project-scope.ts';
 import type { MatchBlock } from '../../rules/src/grammar/FirestoreAST.ts';
 import { parseToAST } from '../../rules/src/grammar/FirestoreParser.ts';
 import type { TestCase } from '../../rules/src/test/spec.ts';
+import { hasParityCredential, NO_CREDENTIAL_MESSAGE } from '../../pyric/test/rules/parity/credential.ts';
+import { formatInertPreviewFooter, requireCaptureMode } from './capture-mode-guard.ts';
 import {
   EXPRESSION_LIMIT,
   LIMIT_POSITION_STEPS,
@@ -401,9 +403,30 @@ async function capturePositions(): Promise<void> {
 }
 
 if (import.meta.main) {
-  const args = process.argv.slice(2);
+  const args = requireCaptureMode({
+    label: 'expression-cost',
+    scriptPath: 'packages/conformance/src/capture-rules-expression-cost.ts',
+    preview: () => {
+      console.log(`[expression-cost] INERT preview. ${formatInertPreviewFooter('packages/conformance/src/capture-rules-expression-cost.ts')}`);
+    },
+    missingCredentials: () => {
+      if (argsHasReportsOnly()) return null;
+      if (hasParityCredential()) return null;
+      return NO_CREDENTIAL_MESSAGE;
+    },
+  });
   const i = args.indexOf('--suite');
-  const selected = i >= 0 ? args[i + 1]!.split(',') : null;
+  let selected: string[] | null = null;
+  if (i >= 0) {
+    const suiteArg = args[i + 1];
+    if (suiteArg) {
+      selected = suiteArg.split(',');
+    }
+  }
   if (args.includes('--positions')) await capturePositions();
   else await capture({ selected, reportsOnly: args.includes('--reports') });
+}
+
+function argsHasReportsOnly(): boolean {
+  return process.argv.slice(2).includes('--reports');
 }

@@ -23,7 +23,11 @@ import {
   isMockBridgeUnitTestPath,
   normalizeConformanceTestPath,
 } from './integration-host-evidence.ts';
-import { loadPendingRowLinkObservations } from './staged-captures.ts';
+import {
+  isUnlinkedStagedObservation,
+  loadPendingRowLinkObservations,
+  readDeclaredProbeRig,
+} from './staged-captures.ts';
 
 const allowedStatus = new Set<CompatStatus>([
   'conforms',
@@ -67,7 +71,7 @@ export interface ValidationInput {
    *  Optional for the same reason as `rigManifests`; the real compat:validate
    *  entry point always passes it, so the twin-path check below (a probe's
    *  surface directory must match its paired observation's) is CI-enforced. */
-  probeFiles?: ProbeFile[];
+  probeFiles?: Array<ProbeFile & { declaredRig?: string }>;
   /** The live surface census from the central model, for the entry-path
    *  critical-symbol + expected-failure citation checks below. Optional for
    *  the same reason as `rigManifests`; the real compat:validate entry point
@@ -298,24 +302,69 @@ export function validateCompatibilityRegistry(input: ValidationInput): string[] 
           problems.push(`rig '${manifest.id}': observation prefix '${prefix}' matches no observation file`);
         }
       }
-      // Pending prefixes: staged machinery ahead of the first capture. Each
-      // must still be a recognized surface prefix, but — unlike a real
-      // observation prefix — must have NO observation yet. The moment a
-      // capture lands, this flips to a failure telling you to promote the
-      // prefix into `observationPrefixes`, so a captured file can never sit in
-      // a permanently-pending prefix and dodge the ownership/twin checks.
+      // Pending prefixes: staged machinery ahead of the first row-linked capture.
+      // Each must still be a recognized surface prefix, and must match NO
+      // row-linked observation yet. Unlinked staged observations (PR #2 touching
+      // only observations/** while pendingRowLink: true remains on the probe)
+      // stay permitted under pendingPrefixes until PR #3 links rowIds and
+      // promotes the prefix into observationPrefixes.
+      const nonStagedObservationFiles = input.observations
+        .filter((obs) => !isUnlinkedStagedObservation(obs.name, obs.rowIds, pendingRowLinkObservations))
+        .map((obs) => obs.file);
       for (const prefix of manifest.pendingPrefixes ?? []) {
         if (!descriptorPrefixes.has(prefix)) {
           problems.push(`rig '${manifest.id}': pending prefix '${prefix}' is not a recognized surface contract prefix (surfaces/*.json)`);
         }
-        if (observationFiles.some((file) => file.startsWith(prefix))) {
+        if (nonStagedObservationFiles.some((file) => file.startsWith(prefix))) {
           problems.push(`rig '${manifest.id}': pending prefix '${prefix}' now matches a captured observation — promote it into observationPrefixes`);
         }
       }
     }
 
+    const probeDeclaredOwnerByFile = new Map<string, string>();
+    if (input.probeFiles) {
+      const descriptorBySurface = new Map(input.descriptors.map((d) => [d.surface, d]));
+      for (const probe of input.probeFiles) {
+        const declaredRig = probe.declaredRig ?? readDeclaredProbeRig(probe.surfaceDir, probe.name);
+        if (!declaredRig) continue;
+        if (!rigIds.has(declaredRig)) {
+          problems.push(`probes/${probe.surfaceDir}/${probe.name}.ts: declares unknown rig '${declaredRig}'`);
+          continue;
+        }
+        const surfaceDescriptor = descriptorBySurface.get(probe.surfaceDir);
+        if (!surfaceDescriptor) {
+          problems.push(`probes/${probe.surfaceDir}/${probe.name}.ts: surface directory '${probe.surfaceDir}' matches no surface contract`);
+          continue;
+        }
+        if (!surfaceDescriptor.captureRigs.includes(declaredRig)) {
+          problems.push(
+            `probes/${probe.surfaceDir}/${probe.name}.ts: declares rig '${declaredRig}', which is not listed in surface '${surfaceDescriptor.surface}' captureRigs`,
+          );
+        }
+        const obsFile = `${probe.name}.json`;
+        if (!surfaceDescriptor.observationPrefixes.some((prefix) => obsFile.startsWith(prefix))) {
+          problems.push(
+            `probes/${probe.surfaceDir}/${probe.name}.ts: filename '${obsFile}' does not match any observation prefix of surface '${surfaceDescriptor.surface}'`,
+          );
+        }
+        probeDeclaredOwnerByFile.set(obsFile, declaredRig);
+      }
+    }
+
+    const manifestsIncludingPending = manifests.map((m) => ({
+      id: m.id,
+      observationPrefixes: [...m.observationPrefixes, ...(m.pendingPrefixes ?? [])],
+    }));
+
     for (const obs of input.observations) {
-      const owners = longestPrefixOwners(obs.file, manifests);
+      if (probeDeclaredOwnerByFile.has(obs.file)) {
+        continue;
+      }
+      let ownerPool: { id: string; observationPrefixes: string[] }[] = manifests;
+      if (isUnlinkedStagedObservation(obs.name, obs.rowIds, pendingRowLinkObservations)) {
+        ownerPool = manifestsIncludingPending;
+      }
+      const owners = longestPrefixOwners(obs.file, ownerPool);
       if (owners.length === 0) {
         problems.push(`${obs.file}: does not match any rig manifest's observation prefix`);
         continue;

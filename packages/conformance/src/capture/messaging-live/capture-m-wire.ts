@@ -23,40 +23,16 @@
  *                            lets Installations create and registrations create through and mints a token
  *   cleanup                  the run's installations deleted and read back
  *
- * A page init script wraps `fetch` before the SDK loads and keeps every
- * request to the two hosts; the browser's network layer adds the response
- * headers the page cannot read, and Resource Timing adds what the page's
- * observer will see. A `push` listener added ahead of the SDK's in the
- * service worker keeps each push's `event.data.json()`. Only key sets, header
- * names, the headers the SDK and CORS read, response bodies and the test
- * values the run sent are kept. FIDs, refresh and auth tokens, registration
- * tokens, push endpoints and keys become numbered placeholders; the project,
- * app id and sender id become fixed placeholders; API keys, the VAPID key
- * and every credential are never written. The file is written only when no
- * token-shaped string remains.
+ * Safety: restricted API keys carry the run id in their display names and are
+ * deleted and read back as deleted on completion, failure, or SIGINT; minted
+ * installations and tokens are deleted and verified. Refuses to run in CI.
  *
- * Safety: the three restricted API keys carry the run id in their display
- * names and are created together, so they share one propagation wait; the
- * run lists keys by the run id before (none may exist) and after (none may
- * remain), deletes all three, and reads each back as deleted. The recording
- * is written only when every case reaches its expected answer. Every
- * installation the run made is deleted and read back, and every token it
- * minted is deleted and read back through a dry-run send. Cleanup runs on any
- * failure and on SIGINT; the recording is written only when it held. Refuses
- * to run in CI.
+ * Requires `--write` plus PYRIC_MESSAGING_FIREBASE_CONFIG,
+ * PYRIC_MESSAGING_VAPID_KEY, and ADC on PYRIC_MESSAGING_PROJECT_ID (or
+ * PYRIC_ORACLE_PROJECT_ID):
  *
- * Inert unless PYRIC_MESSAGING_FIREBASE_CONFIG and PYRIC_MESSAGING_VAPID_KEY
- * are set. The credential is the oracle credential through Application
- * Default Credentials, on PYRIC_MESSAGING_PROJECT_ID (or PYRIC_ORACLE_PROJECT_ID).
- *
- *   bun run packages/conformance/src/capture/messaging-live/capture-m-wire.ts
+ *   bun run packages/conformance/src/capture/messaging-live/capture-m-wire.ts --write
  *   bun run packages/conformance/src/capture/messaging-live/capture-m-wire.ts --cleanup <run id>
- *
- * `--cleanup <run id>` runs only the cleanup of an earlier run: it deletes the
- * keys carrying that run id and, from that run's browser profile, its tokens
- * and installations, and reads each back. The run prints its real run id and
- * that command before it creates anything, and appends both to
- * `pyric-capture-m-run-ids.log` in the OS temp folder; the recording reads `<run>`.
  */
 import { existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -65,6 +41,7 @@ import { fileURLToPath } from 'node:url';
 import type { BrowserContext, Page } from '@playwright/test';
 import { deleteApp, initializeApp, type App } from 'firebase-admin/app';
 import { getMessaging } from 'firebase-admin/messaging';
+import { requireCaptureMode } from '../../capture-mode-guard.ts';
 import { oracleAppOptions, oracleServiceAccountEmail } from '../../oracle-credential.ts';
 import { resolvedAdminVersion, resolvedFirebaseVersion } from '../../package-version.ts';
 import { messagingWebProjectProblems } from '../messaging-web/project-checks.ts';
@@ -127,23 +104,41 @@ const say = (line: string) => console.log(redactLine(redactor, line));
 const complain = (line: string) => console.error(redactLine(redactor, line));
 const messageOf = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
+const rawArgs = process.argv.slice(2);
+const cleanupFlag = rawArgs.indexOf('--cleanup');
+if (cleanupFlag === -1) {
+  requireCaptureMode({
+    label: 'capture-m',
+    scriptPath: 'packages/conformance/src/capture/messaging-live/capture-m-wire.ts',
+    argv: rawArgs,
+    summary: 'would record browser firebase/messaging Installations, FCM registrations, and push wire exchanges.',
+    missingCredentials: () => {
+      if (process.env.CI) {
+        return 'live capture M refuses to run in CI';
+      }
+      if (captureIsInert(process.env)) {
+        return `${CONFIG_VARIABLE}, ${VAPID_VARIABLE}`;
+      }
+      const missingList = missingVariables(process.env);
+      if (missingList.length > 0) {
+        return missingList.join(', ');
+      }
+      return null;
+    },
+  });
+}
 if (process.env.CI) {
   console.error('[capture-m] refusing: capture M reaches production and never runs in CI.');
   process.exit(1);
 }
-const cleanupFlag = process.argv.indexOf('--cleanup');
-const cleanupOnlyRun = cleanupFlag === -1 ? null : process.argv[cleanupFlag + 1] ?? '';
+const cleanupOnlyRun = cleanupFlag === -1 ? null : (rawArgs[cleanupFlag + 1] ?? '');
 if (cleanupOnlyRun === '') {
   console.error('[capture-m] --cleanup needs the run id the capture printed.');
   process.exit(1);
 }
-if (captureIsInert(process.env)) {
-  console.log(`[capture-m] inert: set ${CONFIG_VARIABLE} and ${VAPID_VARIABLE} (the messaging-web harness project) to capture.`);
-  process.exit(0);
-}
 const missing = missingVariables(process.env);
-if (missing.length > 0) {
-  console.error(`[capture-m] missing: ${missing.join(', ')}`);
+if (missing.length > 0 || captureIsInert(process.env)) {
+  console.error(`[capture-m] missing: ${missing.join(', ') || `${CONFIG_VARIABLE}, ${VAPID_VARIABLE}`}`);
   process.exit(1);
 }
 

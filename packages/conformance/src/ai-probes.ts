@@ -36,7 +36,8 @@
  * Requires: PYRIC_AI_FIREBASE_CONFIG (single-line JSON web app config) and
  * an oracle credential for the same project: PYRIC_ORACLE_SA_PATH, or
  * PYRIC_ORACLE_PROJECT_ID with Application Default Credentials.
- * Run: bun --env-file=<repo>/.env packages/conformance/src/ai-probes.ts [--only=<name>,<name>]
+ * Run: PYRIC_ORACLE_PROJECT_ID=<project> PYRIC_AI_FIREBASE_CONFIG='<web config json>' \
+ *   bun run packages/conformance/src/ai-probes.ts --write [--only=<name>,<name>]
  * `--only` runs just the named probes, so a re-capture spends only the
  * requests it needs.
  */
@@ -45,6 +46,7 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { initializeApp } from 'firebase-admin/app';
 import { getAppCheck } from 'firebase-admin/app-check';
+import { formatInertPreviewFooter, requireCaptureMode } from './capture-mode-guard.ts';
 import { resolvedFirebaseVersion } from './package-version.ts';
 import { loadOracleServiceAccount, oracleCredentialConfigured } from './oracle-credential.ts';
 import { mintWithRetry } from './capture/app-check/mint.ts';
@@ -55,11 +57,25 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 // ai-* observations belong to the 'ai' surface.
 const OBS_DIR = join(HERE, '..', 'observations', 'ai');
 
-const rawConfig = process.env.PYRIC_AI_FIREBASE_CONFIG;
-if (!rawConfig || !oracleCredentialConfigured(process.env)) {
-  console.error('✗ PYRIC_AI_FIREBASE_CONFIG and PYRIC_ORACLE_SA_PATH or PYRIC_ORACLE_PROJECT_ID are required; nothing was run.');
-  process.exit(1);
-}
+requireCaptureMode({
+  label: 'ai-probes',
+  scriptPath: 'packages/conformance/src/ai-probes.ts',
+  extraFlags: '[--only=<name>,<name>]',
+  preview: () => {
+    console.log(`[ai-probes] INERT preview (no --write flag): ${formatInertPreviewFooter('packages/conformance/src/ai-probes.ts', '[--only=<name>,<name>]')}`);
+  },
+  missingCredentials: () => {
+    const missing: string[] = [];
+    if (!process.env.PYRIC_AI_FIREBASE_CONFIG) missing.push('PYRIC_AI_FIREBASE_CONFIG');
+    if (!oracleCredentialConfigured(process.env)) {
+      missing.push('PYRIC_ORACLE_SA_PATH or PYRIC_ORACLE_PROJECT_ID');
+    }
+    if (missing.length > 0) return missing.join(', ');
+    return null;
+  },
+});
+
+const rawConfig = process.env.PYRIC_AI_FIREBASE_CONFIG ?? '{}';
 const config = JSON.parse(rawConfig) as { apiKey: string; appId: string; projectId: string };
 const { apiKey, appId, projectId } = config;
 const serviceAccount = await loadOracleServiceAccount();

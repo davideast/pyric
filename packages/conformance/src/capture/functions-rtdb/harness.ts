@@ -4,6 +4,7 @@ import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from '
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
+import { requireCaptureMode } from '../../capture-mode-guard.ts';
 import { resolvePackageVersion } from '../../package-version.ts';
 import { cert, deleteApp, initializeApp } from 'firebase-admin/app';
 import { getDatabase } from 'firebase-admin/database';
@@ -204,6 +205,17 @@ function writeObservation(
   console.log(`Captured ${output}`);
 }
 
+const cliArgs = requireCaptureMode({
+  label: 'functions-rtdb',
+  scriptPath: 'packages/conformance/src/capture/functions-rtdb/harness.ts',
+  summary: 'would deploy and run 5 RTDB Cloud Functions trigger probe(s).',
+  missingCredentials: () => {
+    if (process.env.PYRIC_FUNCTIONS_RTDB_SA_PATH?.trim()) {
+      return null;
+    }
+    return 'PYRIC_FUNCTIONS_RTDB_SA_PATH';
+  },
+});
 const saPath = need('PYRIC_FUNCTIONS_RTDB_SA_PATH');
 if (!existsSync(saPath)) throw new Error(`Service account not found: ${saPath}`);
 const serviceAccount = JSON.parse(readFileSync(saPath, 'utf8')) as ServiceAccount;
@@ -211,9 +223,9 @@ const projectId = serviceAccount.project_id;
 const databaseUrl =
   process.env.PYRIC_FUNCTIONS_RTDB_DATABASE_URL ?? `https://${projectId}-default-rtdb.firebaseio.com`;
 const instance = new URL(databaseUrl).hostname.split('.')[0];
-const deployOnly = process.argv.includes('--deploy-only');
-const skipDeploy = process.argv.includes('--skip-deploy');
-const keepDeployed = process.argv.includes('--keep-deployed');
+const deployOnly = cliArgs.includes('--deploy-only');
+const skipDeploy = cliArgs.includes('--skip-deploy');
+const keepDeployed = cliArgs.includes('--keep-deployed');
 const recoverRunId = process.env.PYRIC_FUNCTIONS_RTDB_RECOVER_RUN_ID?.trim();
 const recoverDeployedAt = process.env.PYRIC_FUNCTIONS_RTDB_RECOVER_DEPLOYED_AT?.trim();
 if ([deployOnly, skipDeploy, Boolean(recoverRunId)].filter(Boolean).length > 1) {

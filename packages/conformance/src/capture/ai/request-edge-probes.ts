@@ -38,7 +38,13 @@ async function generateContent(input: RequestEdgeInput, testCase: RequestEdgeCas
     headers: requestHeaders(input),
     body: JSON.stringify(testCase.body),
   });
-  return { status: response.status, body: parseJson(await response.text()) };
+  const body = parseJson(await response.text());
+  if (response.status === 401 || response.status === 403 || response.status >= 500) {
+    throw new Error(
+      `AI request-edge HTTP ${response.status} infrastructure/IAM failure (refusing to record as observation): ${JSON.stringify(body)}`,
+    );
+  }
+  return { status: response.status, body };
 }
 
 async function captureCase(input: RequestEdgeInput, testCase: RequestEdgeCase): Promise<void> {

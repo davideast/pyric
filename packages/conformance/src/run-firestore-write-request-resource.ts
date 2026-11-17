@@ -27,6 +27,7 @@ import { deleteApp as deleteAdminApp, initializeApp as initializeAdminApp } from
 import { getAuth as getAdminAuth } from 'firebase-admin/auth';
 import { getFirestore as getAdminFirestore } from 'firebase-admin/firestore';
 import { acquireRunLock } from './storage-stdlib-real-lock.ts';
+import { requireCaptureMode } from './capture-mode-guard.ts';
 import { loadOracleServiceAccount, oracleAppOptions, oracleCredentialConfigured } from './oracle-credential.ts';
 import { resolvedFirebaseVersion } from './package-version.ts';
 import {
@@ -38,11 +39,10 @@ import {
   type WebConfig,
 } from './storage-stdlib-real-api.ts';
 import {
-  activateFirestoreRules,
   replaceSelectedRulesFile,
-  restoreFirestoreRules,
   selectFirestoreRulesFile,
   snapshotFirestoreRules,
+  withSignalGuardedFirestoreRules,
 } from './firestore-real-rules.ts';
 import {
   SEED_DOCUMENT,
@@ -114,10 +114,15 @@ async function withAdminRetry<T>(op: () => Promise<T>): Promise<T> {
 }
 
 async function run(): Promise<void> {
-  if (!oracleCredentialConfigured(process.env)) {
-    console.log('[write-request-resource] inert: set PYRIC_ORACLE_SA_PATH, or PYRIC_ORACLE_PROJECT_ID with Application Default Credentials, to capture.');
-    return;
-  }
+  requireCaptureMode({
+    label: 'write-request-resource',
+    scriptPath: 'packages/conformance/src/run-firestore-write-request-resource.ts',
+    summary: 'would capture Firestore request.resource.data single-document write projections.',
+    missingCredentials: () => {
+      if (oracleCredentialConfigured(process.env)) return null;
+      return 'PYRIC_ORACLE_SA_PATH or PYRIC_ORACLE_PROJECT_ID';
+    },
+  });
   const releaseLock = acquireRunLock(LOCK_PATH);
   try {
     const sa = await loadOracleServiceAccount();
@@ -136,81 +141,81 @@ async function run(): Promise<void> {
     const db = getFirestore(app);
     const base = `__pyric_firestore_cdd/${runId}/wrr`;
     const seeded: string[] = [];
-    let activated = false;
-    let probeRulesetName: string | undefined;
-    let restoreVerified = false;
     const results: Array<Record<string, unknown>> = [];
+    const token = await getAdminAuth(admin).createCustomToken(`pyric-wrr-${runId}`);
+    await signInWithCustomToken(getAuth(app), token);
+
+    const seed = async (id: string) => {
+      await withAdminRetry(() =>
+        adminDb.doc(`${base}/${id}`).set(JSON.parse(JSON.stringify(SEED_DOCUMENT))),
+      );
+      if (!seeded.includes(id)) seeded.push(id);
+    };
+
+    let probeRulesetName = '';
+    let restoreVerified = false;
     try {
-      const token = await getAdminAuth(admin).createCustomToken(`pyric-wrr-${runId}`);
-      await signInWithCustomToken(getAuth(app), token);
-
-      const seed = async (id: string) => {
-        await withAdminRetry(() =>
-          adminDb.doc(`${base}/${id}`).set(JSON.parse(JSON.stringify(SEED_DOCUMENT))),
-        );
-        if (!seeded.includes(id)) seeded.push(id);
-      };
-
-      activated = true;
-      probeRulesetName = await activateFirestoreRules(sa, headers, snapshot, files);
-
-      // Wait until the probe ruleset serves the data plane: the constant-true
-      // predicate must allow three consecutive writes.
-      const warmId = predicateDocId('control', 'always_true');
-      const deadline = Date.now() + 90_000;
-      let consecutive = 0;
-      while (consecutive < 5) {
-        if (Date.now() > deadline) throw new Error('probe rules did not reach the data plane');
-        await seed(warmId);
-        try {
-          await updateDoc(doc(db, `${base}/${warmId}`), { keep: 2 });
-          consecutive += 1;
-          await sleep(1_000);
-        } catch (error) {
-          if ((error as { code?: unknown }).code !== 'permission-denied') throw error;
-          consecutive = 0;
-          await sleep(1_000);
-        }
-      }
-
-      // Replicas pick up a new ruleset at different times; settle before reading verdicts.
-      await sleep(15_000);
-
-      for (const c of WRITE_CASES) {
-        for (const p of c.predicates) {
-          const id = predicateDocId(c.id, p.id);
-          await seed(id);
-          let verdict: 'allow' | 'deny';
-          let code: string | null = null;
-          try {
-            await applyWrite(sdk, doc(db, `${base}/${id}`), c.write);
-            verdict = 'allow';
-          } catch (error) {
-            const found = (error as { code?: unknown }).code;
-            if (found !== 'permission-denied') throw error;
-            verdict = 'deny';
-            code = String(found);
+      const guarded = await withSignalGuardedFirestoreRules({
+        label: '[write-request-resource]',
+        sa,
+        headers,
+        snapshot,
+        files,
+        beforeRestore: async () => {
+          await Promise.allSettled(
+            seeded.map((id) => withAdminRetry(() => adminDb.doc(`${base}/${id}`).delete())),
+          );
+          await Promise.allSettled([terminate(db)]);
+          await Promise.allSettled([deleteApp(app)]);
+        },
+        onRestored: () => console.log('[write-request-resource] firestore rules restored and verified'),
+        body: async () => {
+          const warmId = predicateDocId('control', 'always_true');
+          const deadline = Date.now() + 90_000;
+          let consecutive = 0;
+          while (consecutive < 5) {
+            if (Date.now() > deadline) throw new Error('probe rules did not reach the data plane');
+            await seed(warmId);
+            try {
+              await updateDoc(doc(db, `${base}/${warmId}`), { keep: 2 });
+              consecutive += 1;
+              await sleep(1_000);
+            } catch (error) {
+              if ((error as { code?: unknown }).code !== 'permission-denied') throw error;
+              consecutive = 0;
+              await sleep(1_000);
+            }
           }
-          const stored =
-            (await withAdminRetry(() => adminDb.doc(`${base}/${id}`).get())).data() ?? null;
-          results.push({ case: c.id, predicate: p.id, verdict, code, stored });
-          console.log(`[write-request-resource] ${c.id}/${p.id}: ${verdict}`);
-        }
-      }
+
+          await sleep(15_000);
+
+          for (const c of WRITE_CASES) {
+            for (const p of c.predicates) {
+              const id = predicateDocId(c.id, p.id);
+              await seed(id);
+              let verdict: 'allow' | 'deny';
+              let code: string | null = null;
+              try {
+                await applyWrite(sdk, doc(db, `${base}/${id}`), c.write);
+                verdict = 'allow';
+              } catch (error) {
+                const found = (error as { code?: unknown }).code;
+                if (found !== 'permission-denied') throw error;
+                verdict = 'deny';
+                code = String(found);
+              }
+              const stored =
+                (await withAdminRetry(() => adminDb.doc(`${base}/${id}`).get())).data() ?? null;
+              results.push({ case: c.id, predicate: p.id, verdict, code, stored });
+              console.log(`[write-request-resource] ${c.id}/${p.id}: ${verdict}`);
+            }
+          }
+        },
+      });
+      probeRulesetName = guarded.probeRulesetName;
+      restoreVerified = guarded.restoreVerified;
     } finally {
-      try {
-        await Promise.allSettled(
-          seeded.map((id) => withAdminRetry(() => adminDb.doc(`${base}/${id}`).delete())),
-        );
-        await Promise.allSettled([terminate(db)]);
-        await Promise.allSettled([deleteApp(app)]);
-      } finally {
-        if (activated) {
-          await restoreFirestoreRules(headers, snapshot);
-          restoreVerified = true;
-        }
-        await deleteAdminApp(admin);
-      }
+      await deleteAdminApp(admin);
     }
     if (!probeRulesetName || !restoreVerified) throw new Error('capture did not complete with verified rules restoration');
 

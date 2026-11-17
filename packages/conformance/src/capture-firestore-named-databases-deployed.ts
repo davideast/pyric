@@ -33,6 +33,8 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Firestore as AdminFirestore } from 'firebase-admin/firestore';
+import { formatInertPreviewFooter, requireCaptureMode } from './capture-mode-guard.ts';
+import { createSignalRestoreCoordinator, ORACLE_RESTORE_ATTEMPTS } from './oracle-signal-restore.ts';
 import { loadOracleServiceAccount, oracleAppOptions } from './oracle-credential.ts';
 import { resolvedAdminVersion, resolvedFirebaseVersion } from './package-version.ts';
 import {
@@ -108,21 +110,32 @@ async function deployMerged(rules: RulesClient, snapshot: Release, run: string):
 /** Points the release back at the snapshot, reads it back, and deletes the C2 ruleset. */
 async function restore(rules: RulesClient, snapshot: Release, createdRuleset: string | null): Promise<Record<string, unknown>> {
   const h = await rules.headers();
-  await jsonRequest(
-    `${RULES_API}/projects/${rules.project}/releases/${RELEASE}`,
-    { method: 'PATCH', headers: h.json, body: JSON.stringify({ release: { name: snapshot.name, rulesetName: snapshot.rulesetName } }) },
-    'restore probes release',
-  );
-  const after = await readRelease(rules);
-  if (after.rulesetName !== snapshot.rulesetName) {
-    throw new Error(`RESTORE FAILED: ${RELEASE} points at ${after.rulesetName}; PATCH it back to ${snapshot.rulesetName} by hand`);
+  let after: Release | null = null;
+  for (let attempt = 1; attempt <= ORACLE_RESTORE_ATTEMPTS; attempt += 1) {
+    const isLast = attempt === ORACLE_RESTORE_ATTEMPTS;
+    try {
+      await jsonRequest(
+        `${RULES_API}/projects/${rules.project}/releases/${RELEASE}`,
+        { method: 'PATCH', headers: h.json, body: JSON.stringify({ release: { name: snapshot.name, rulesetName: snapshot.rulesetName } }) },
+        'restore probes release',
+      );
+      after = await readRelease(rules);
+      if (after.rulesetName === snapshot.rulesetName) {
+        break;
+      }
+      if (isLast) {
+        throw new Error(`RESTORE FAILED: ${RELEASE} points at ${after.rulesetName}; PATCH it back to ${snapshot.rulesetName} by hand`);
+      }
+    } catch (err) {
+      if (isLast) throw err;
+    }
   }
   let rulesetDeleted = false;
   if (createdRuleset) {
     const res = await fetch(`${RULES_API}/${createdRuleset}`, { method: 'DELETE', headers: h.auth });
     rulesetDeleted = res.ok;
   }
-  return { restoredTo: after.rulesetName, matchesSnapshot: true, createdRuleset, rulesetDeleted };
+  return { restoredTo: after?.rulesetName ?? snapshot.rulesetName, matchesSnapshot: true, createdRuleset, rulesetDeleted };
 }
 
 type Verdict = 'allowed' | 'permission-denied' | `error:${string}`;
@@ -167,10 +180,25 @@ async function captureCrossDatabase(sa: ServiceAccount, web: WebConfig): Promise
   const base = `${ROOT}/${run}`;
   const paths = [base, `${base}/only/default`, `${base}/only/probes`];
 
+  const coordinator = createSignalRestoreCoordinator('[named-databases-deployed]');
+  const uninstallSignals = coordinator.installSignals();
   const snapshot = await readRelease(rules);
   console.log(`  snapshot ${RELEASE} -> ${snapshot.rulesetName}`);
+  let deployAttempted = false;
   let created: string | null = null;
   let restoration: Record<string, unknown> = {};
+  let restorePromise: Promise<void> | null = null;
+  const restoreOnce = (): Promise<void> => {
+    if (!deployAttempted) return Promise.resolve();
+    if (restorePromise === null) {
+      restorePromise = (async () => {
+        restoration = await restore(rules, snapshot, created);
+        console.log(`  restored ${RELEASE} -> ${String(restoration.restoredTo)}`);
+      })();
+    }
+    return restorePromise;
+  };
+  coordinator.registerCleanup(restoreOnce);
   let left: string[] = [];
   const behavior: Record<string, string> = {};
   const reads: Record<string, Verdict[]> = {};
@@ -185,7 +213,8 @@ async function captureCrossDatabase(sa: ServiceAccount, web: WebConfig): Promise
     isolation.defaultHasProbesOnly = (await defaultDb.doc(`${base}/only/probes`).get()).exists;
     isolation.probesHasDefaultOnly = (await namedDb.doc(`${base}/only/default`).get()).exists;
 
-    created = await deployMerged(rules, snapshot, run);
+    deployAttempted = true;
+    created = await coordinator.trackMutation(deployMerged(rules, snapshot, run));
     console.log(`  deployed ${created}`);
 
     const { initializeApp } = await import('firebase/app');
@@ -210,8 +239,11 @@ async function captureCrossDatabase(sa: ServiceAccount, web: WebConfig): Promise
     }
     await terminate(client);
   } finally {
-    restoration = await restore(rules, snapshot, created);
-    console.log(`  restored ${RELEASE} -> ${String(restoration.restoredTo)}`);
+    try {
+      await coordinator.runRestore();
+    } finally {
+      uninstallSignals();
+    }
     left = await cleanUp([defaultDb, namedDb], paths);
     if (left.length > 0) console.error(`  CLEANUP LEFT ${left.join(', ')}`);
   }
@@ -316,7 +348,22 @@ async function captureAdminMixing(sa: ServiceAccount): Promise<void> {
 }
 
 async function main(): Promise<void> {
-  const mode = process.argv[2];
+  const { oracleCredentialConfigured } = await import('./oracle-credential.ts');
+  const cliArgs = requireCaptureMode({
+    label: 'named-databases-deployed',
+    scriptPath: 'packages/conformance/src/capture-firestore-named-databases-deployed.ts',
+    extraFlags: 'cross-database | admin-mixing',
+    preview: () => {
+      console.log(`[named-databases-deployed] INERT preview. ${formatInertPreviewFooter('packages/conformance/src/capture-firestore-named-databases-deployed.ts', 'cross-database | admin-mixing')}`);
+    },
+    missingCredentials: () => {
+      if (!oracleCredentialConfigured(process.env)) {
+        return 'PYRIC_ORACLE_SA_PATH or PYRIC_ORACLE_PROJECT_ID';
+      }
+      return null;
+    },
+  });
+  const mode = cliArgs[0];
   const sa = await loadOracleServiceAccount();
   if (mode === 'admin-mixing') return captureAdminMixing(sa);
   if (mode === 'cross-database') {
@@ -324,7 +371,7 @@ async function main(): Promise<void> {
     if (!configPath) throw new Error('cross-database requires PYRIC_AI_FIREBASE_CONFIG_PATH');
     return captureCrossDatabase(sa, JSON.parse(readFileSync(configPath, 'utf8')) as WebConfig);
   }
-  throw new Error('usage: capture-firestore-named-databases-deployed.ts cross-database | admin-mixing');
+  throw new Error('usage: capture-firestore-named-databases-deployed.ts --write cross-database | admin-mixing');
 }
 
 if (import.meta.main) {

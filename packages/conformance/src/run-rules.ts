@@ -53,6 +53,11 @@ import {
   captureRulesTestApiCompileCheck,
   type CompileCheckCaptureResult,
 } from './rules-compile-check.ts';
+import {
+  formatInertPreviewFooter,
+  requireCaptureMode,
+  stripCaptureFlags,
+} from './capture-mode-guard.ts';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 // rules-firestore-* observations belong to the native 'firestore-rules' surface.
@@ -144,12 +149,13 @@ function printOwned(owned: Scenario[]): void {
 }
 
 export function selectFirestoreScenarios(args: string[]): Scenario[] {
-  if (args.filter((arg) => arg === '--scenario').length > 1) {
+  const cleaned = stripCaptureFlags(args);
+  if (cleaned.filter((arg) => arg === '--scenario').length > 1) {
     throw new Error('only one --scenario selector is allowed');
   }
-  const selectorIndex = args.indexOf('--scenario');
+  const selectorIndex = cleaned.indexOf('--scenario');
   if (selectorIndex === -1) return ALL_RULES_FIRESTORE_SCENARIOS;
-  const id = args[selectorIndex + 1];
+  const id = cleaned[selectorIndex + 1];
   if (!id) throw new Error('--scenario requires an id');
   const selected = ALL_RULES_FIRESTORE_SCENARIOS.filter(
     (scenario) => scenario.id === id,
@@ -238,9 +244,7 @@ function printInertPlan(scenarios: Scenario[]): void {
     );
   }
   console.log(`\n  Total: ${scenarios.length} scenarios, ${totalCases} cases.`);
-  console.log('\n  To capture for real:');
-  console.log('    GOOGLE_APPLICATION_CREDENTIALS=/path/to/credentials.json \\');
-  console.log('      bun run packages/conformance/src/run-rules.ts');
+  console.log(`\n  ${formatInertPreviewFooter('packages/conformance/src/run-rules.ts', '[--scenario <id>]')}`);
 }
 
 async function capture(scenarios: Scenario[]): Promise<void> {
@@ -303,15 +307,23 @@ async function capture(scenarios: Scenario[]): Promise<void> {
 }
 
 if (import.meta.main) {
+  const args = process.argv.slice(2);
   const { capture: scenarios, owned } = partitionByOwner(
-    selectFirestoreScenarios(process.argv.slice(2)),
+    selectFirestoreScenarios(args),
   );
-  // credential.ts loads no Firebase code, so the inert path stays light.
-  if (!hasParityCredential()) {
-    printInertPlan(scenarios);
-    printOwned(owned);
-    process.exit(0);
-  }
+  requireCaptureMode({
+    label: 'oracle:rules',
+    scriptPath: 'packages/conformance/src/run-rules.ts',
+    argv: args,
+    preview: () => {
+      printInertPlan(scenarios);
+      printOwned(owned);
+    },
+    missingCredentials: () => {
+      if (hasParityCredential()) return null;
+      return NO_CREDENTIAL_MESSAGE;
+    },
+  });
   printOwned(owned);
   await capture(scenarios);
 }

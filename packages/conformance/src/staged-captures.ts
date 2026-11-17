@@ -63,14 +63,34 @@ function stripComments(source: string): string {
     .replace(/\/\/.*$/gm, '');
 }
 
-function probeFileDeclaresPendingRowLink(surfaceDir: string, name: string): boolean {
-  const fullPath = join(PROBES_ROOT, surfaceDir, `${name}.ts`);
-  const source = stripComments(readFileSync(fullPath, 'utf8'));
-  return /\bpendingRowLink\s*:\s*true\b/.test(source);
+export function resolveProbeRigFromSource(source: string, probeName: string): string | undefined {
+  const cleaned = stripComments(source);
+  const explicitMatch = /\brig\s*:\s*['"]([a-z0-9-]+)['"]/.exec(cleaned);
+  if (explicitMatch?.[1]) {
+    return explicitMatch[1];
+  }
+  return PROBE_PREFIX_TO_RIG.find(({ prefix }) => probeName.startsWith(prefix))?.rig;
 }
 
-function rigForProbeName(name: string): string | undefined {
-  return PROBE_PREFIX_TO_RIG.find(({ prefix }) => name.startsWith(prefix))?.rig;
+export function readDeclaredProbeRig(surfaceDir: string, name: string): string | undefined {
+  const fullPath = join(PROBES_ROOT, surfaceDir, `${name}.ts`);
+  try {
+    const cleaned = stripComments(readFileSync(fullPath, 'utf8'));
+    const explicitMatch = /\brig\s*:\s*['"]([a-z0-9-]+)['"]/.exec(cleaned);
+    return explicitMatch?.[1];
+  } catch {
+    return undefined;
+  }
+}
+
+function readStagedProbeRig(surfaceDir: string, name: string): string | undefined {
+  const fullPath = join(PROBES_ROOT, surfaceDir, `${name}.ts`);
+  const source = readFileSync(fullPath, 'utf8');
+  const cleaned = stripComments(source);
+  if (!/\bpendingRowLink\s*:\s*true\b/.test(cleaned)) {
+    return undefined;
+  }
+  return resolveProbeRigFromSource(source, name);
 }
 
 /** Every authored scenario or probe currently marked `pendingRowLink: true`. */
@@ -100,8 +120,7 @@ export function loadStagedCaptureItems(): StagedCaptureItem[] {
   }
 
   for (const probeFile of listProbeFiles()) {
-    if (!probeFileDeclaresPendingRowLink(probeFile.surfaceDir, probeFile.name)) continue;
-    const rig = rigForProbeName(probeFile.name);
+    const rig = readStagedProbeRig(probeFile.surfaceDir, probeFile.name);
     if (!rig) continue;
     items.push({
       rig,

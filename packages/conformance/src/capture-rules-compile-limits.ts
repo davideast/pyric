@@ -26,6 +26,8 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { ProjectScope } from '../../pyric/src/project-scope.ts';
 import type { StorageTestCase, TestCase } from '../../rules/src/test/spec.ts';
+import { hasParityCredential, NO_CREDENTIAL_MESSAGE } from '../../pyric/test/rules/parity/credential.ts';
+import { formatInertPreviewFooter, requireCaptureMode } from './capture-mode-guard.ts';
 import { REPO_ROOT } from './rules-expression-cost-suites.ts';
 
 const OUT_DIR = join(REPO_ROOT, 'packages', 'rules', 'test', 'linter', 'fixtures', 'compile-limits');
@@ -356,5 +358,16 @@ async function main(args: string[]): Promise<void> {
 }
 
 if (import.meta.main) {
-  await main(process.argv.slice(2));
+  const cliArgs = requireCaptureMode({
+    label: 'compile-limits',
+    scriptPath: 'packages/conformance/src/capture-rules-compile-limits.ts',
+    preview: () => {
+      console.log(`[compile-limits] INERT preview. ${formatInertPreviewFooter('packages/conformance/src/capture-rules-compile-limits.ts')}`);
+    },
+    missingCredentials: () => {
+      if (hasParityCredential()) return null;
+      return NO_CREDENTIAL_MESSAGE;
+    },
+  });
+  await main(cliArgs);
 }

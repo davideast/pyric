@@ -24,27 +24,50 @@
  *   PYRIC_STAGING_RTDB=https://<instance>.firebaseio.com \
  *     bun run packages/conformance/src/capture-rtdb-staging-auth-override.ts
  */
-import { readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { initializeApp, deleteApp } from 'firebase-admin/app';
 import { getDatabase } from 'firebase-admin/database';
+import { formatInertPreviewFooter, requireCaptureMode } from './capture-mode-guard.ts';
+import { assertDedicatedOracleRtdbUrl } from './oracle-run-setup.ts';
+import {
+  createSignalRestoreCoordinator,
+  restoreRtdbRulesWithRetry,
+} from './oracle-signal-restore.ts';
 
-const URL_ = (process.env.PYRIC_STAGING_RTDB ?? '').replace(/\/+$/, '');
-if (URL_ === '') {
-  console.log('[oracle:rtdb-staging-auth-override] inert: set PYRIC_STAGING_RTDB to an empty, dedicated instance URL to capture.');
-  process.exit(0);
-}
+const configHome = process.env.XDG_CONFIG_HOME || join(process.env.HOME || homedir(), '.config');
+const firebaseToolsLoginPath = join(configHome, 'configstore', 'firebase-tools.json');
+
+requireCaptureMode({
+  label: 'oracle:rtdb-staging-auth-override',
+  scriptPath: 'packages/conformance/src/capture-rtdb-staging-auth-override.ts',
+  preview: () => {
+    console.log('[oracle:rtdb-staging-auth-override] INERT preview: set PYRIC_STAGING_RTDB to an empty, dedicated instance URL with --write to capture.');
+    console.log(`  ${formatInertPreviewFooter('packages/conformance/src/capture-rtdb-staging-auth-override.ts')}`);
+  },
+  missingCredentials: () => {
+    const missing: string[] = [];
+    if (!(process.env.PYRIC_STAGING_RTDB ?? '').trim()) {
+      missing.push('PYRIC_STAGING_RTDB');
+    }
+    if (!process.env.PYRIC_STAGING_TOKEN && !existsSync(firebaseToolsLoginPath)) {
+      missing.push('PYRIC_STAGING_TOKEN or firebase-tools login');
+    }
+    if (missing.length > 0) return missing.join(', ');
+    return null;
+  },
+});
+
+const URL_ = assertDedicatedOracleRtdbUrl(process.env.PYRIC_STAGING_RTDB, process.env.PYRIC_STAGING_PROJECT);
 const INSTANCE = new URL(URL_).hostname.split('.')[0];
 const HERE = dirname(fileURLToPath(import.meta.url));
 const OUT = resolve(HERE, '../observations/rtdb-modular/rtdb-modular-staging-auth-override.json');
 const ADMIN_VERSION = JSON.parse(readFileSync(resolve(HERE, '../../../node_modules/firebase-admin/package.json'), 'utf8')).version;
-// firebase-tools keeps its login where the `configstore` package puts it: $XDG_CONFIG_HOME, else ~/.config.
-const configHome = process.env.XDG_CONFIG_HOME || join(process.env.HOME || homedir(), '.config');
 const token = process.env.PYRIC_STAGING_TOKEN
-  ?? JSON.parse(readFileSync(join(configHome, 'configstore', 'firebase-tools.json'), 'utf8')).tokens.access_token;
+  ?? JSON.parse(readFileSync(firebaseToolsLoginPath, 'utf8')).tokens.access_token;
 const H = { Authorization: `Bearer ${token}` };
 
 const PROBE_RULES = {
@@ -117,12 +140,34 @@ if (prior.status !== 200) throw new Error(`cannot read rules: ${prior.status}`);
 const priorRoot = await rest('GET', '.json', undefined, '?shallow=true');
 if (priorRoot.text !== 'null') throw new Error(`refusing: ${INSTANCE} is not empty (${priorRoot.text.slice(0, 80)})`);
 
+const coordinator = createSignalRestoreCoordinator('[oracle:rtdb-staging-auth-override]');
+const uninstallSignals = coordinator.installSignals();
+let deployStarted = false;
+let rulesRestoredOk = false;
+coordinator.registerCleanup(async () => {
+  if (!deployStarted) return;
+  await restoreRtdbRulesWithRetry({
+    beforeText: prior.text,
+    writeText: async (text) => {
+      const res = await coordinator.trackMutation(rest('PUT', '.settings/rules.json', text));
+      if (res.status !== 200) throw new Error(`restore PUT failed: ${res.status}`);
+    },
+    readText: async () => {
+      const back = await rest('GET', '.settings/rules.json');
+      if (back.status !== 200) throw new Error(`restore GET failed: ${back.status}`);
+      return back.text;
+    },
+  });
+  rulesRestoredOk = true;
+});
+
 let failure: Error | undefined;
 try {
   const dry = await rest('PUT', '.settings/rules.json', PROBE_RULES, '?dryRun=true');
   results.dryRun = dry;
   if (dry.status !== 200) throw new Error(`probe rules rejected by dry run: ${dry.text}`);
-  const deployed = await rest('PUT', '.settings/rules.json', PROBE_RULES);
+  deployStarted = true;
+  const deployed = await coordinator.trackMutation(rest('PUT', '.settings/rules.json', PROBE_RULES));
   if (deployed.status !== 200) throw new Error(`deploy failed: ${deployed.text}`);
 
   const identities: Record<string, Identity | null> = { match: MATCH, mismatch: MISMATCH, null: null, ...Object.fromEntries(FLIPS) };
@@ -160,15 +205,29 @@ try {
     await deleteApp(app);
   }
 } catch (e: unknown) {
-  failure = e instanceof Error ? e : new Error(String(e));
+  if (e instanceof Error) {
+    failure = e;
+  } else {
+    failure = new Error(String(e));
+  }
 } finally {
   const del = await rest('DELETE', 'probe.json');
-  const restore = await rest('PUT', '.settings/rules.json', prior.text);
-  const back = await rest('GET', '.settings/rules.json');
+  try {
+    await coordinator.runRestore();
+    if (!deployStarted) {
+      const back = await rest('GET', '.settings/rules.json');
+      rulesRestoredOk = back.status === 200 && back.text === prior.text;
+    }
+  } catch (err) {
+    console.error('[oracle:rtdb-staging-auth-override] rules restore error:', err);
+    rulesRestoredOk = false;
+  } finally {
+    uninstallSignals();
+  }
   const root = await rest('GET', '.json', undefined, '?shallow=true');
   results.invariants = {
     dataRemoved: del.status === 200 && root.text === 'null',
-    rulesRestored: restore.status === 200 && back.text === prior.text,
+    rulesRestored: rulesRestoredOk,
   };
   results.finishedAt = new Date().toISOString();
   if (!failure && results.invariants.dataRemoved && results.invariants.rulesRestored) {
@@ -192,7 +251,7 @@ try {
     }, null, 2)}\n`);
   }
   if (!results.invariants.dataRemoved || !results.invariants.rulesRestored) {
-    console.error('INVARIANT FAILED', results.invariants, { restoreStatus: restore.status, root: root.text.slice(0, 80) });
+    console.error('INVARIANT FAILED', results.invariants, { root: root.text.slice(0, 80) });
     process.exitCode = 3;
   }
 }

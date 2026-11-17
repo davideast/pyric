@@ -39,37 +39,20 @@
  *      observations; prod noise (token values, message ids, timestamps) is
  *      reduced to shape facts.
  *
- * Automation traps (all load-bearing — do not "simplify" away):
- *   - caffeinate: every run re-execs itself under `caffeinate -is` (guard
- *     below) so display/idle/disk sleep cannot interrupt a multi-minute
- *     capture that depends on the live GCM channel.
- *   - Persistent profile, NOT an incognito context: Chrome disables web
- *     push in incognito, so launchPersistentContext is mandatory.
- *   - CDP push grant: Playwright's grantPermissions has no 'push'; the
- *     descriptor is granted over CDP before the app loads.
- *   - Occlusion flags: Playwright's default disable-occlusion args are
- *     stripped so a hidden window reports visibilityState 'hidden'.
- *   - The ONLY reliable "no visible client" under automation is navigating
- *     the capture page itself away (about:blank). A second window (even
- *     cross-origin) leaves the capture page VISIBLE — which is exactly why
- *     it is the driver for the visible-but-unfocused case, and why it
- *     CANNOT stand in for the background case.
- *   - deleteToken needs a live messaging instance, so scenario F navigates
- *     BACK to the origin (re-running the app; getToken returns the same
- *     stable token), deletes it, then sends to it.
+ * Automation notes:
+ *   - Re-execs under `caffeinate -is` on macOS so sleep cannot break GCM.
+ *   - Uses `launchPersistentContext`, CDP push grant, and stripped occlusion
+ *     flags so Chrome web push and `visibilityState === 'hidden'` hold.
+ *   - Navigates to `about:blank` for the no-visible-client background case
+ *     and back to the origin before `deleteToken`.
  *
  * Requires in env:
- *   PYRIC_MESSAGING_FIREBASE_CONFIG  web app config JSON of the SAME
- *                                    project as the VAPID key and the
- *                                    send credential
- *   PYRIC_MESSAGING_VAPID_KEY        Web Push certificate public key
- *   the send credential: PYRIC_MESSAGING_PROJECT_ID (or
- *   PYRIC_ORACLE_PROJECT_ID) with Application Default Credentials, or
- *   PYRIC_MESSAGING_SA_BASE64. project-checks.ts refuses a config or key
- *   from another project before the browser opens.
+ *   PYRIC_MESSAGING_FIREBASE_CONFIG, PYRIC_MESSAGING_VAPID_KEY, and the send
+ *   credential (`PYRIC_MESSAGING_PROJECT_ID` / `PYRIC_ORACLE_PROJECT_ID` with
+ *   ADC, or `PYRIC_MESSAGING_SA_BASE64`).
  *
- * Run (headed browser will open; re-execs under caffeinate automatically):
- *   bun run packages/conformance/src/capture/messaging-web/harness.ts
+ * Run:
+ *   bun run packages/conformance/src/capture/messaging-web/harness.ts --write
  */
 import { writeFileSync, readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
@@ -77,6 +60,7 @@ import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import { initializeApp, deleteApp } from 'firebase-admin/app';
 import { getMessaging } from 'firebase-admin/messaging';
+import { requireCaptureMode } from '../../capture-mode-guard.ts';
 import { loadMessagingServiceAccount, messagingAccessToken, messagingSendEndpoint } from '../../messaging-credential.ts';
 import { oracleAppOptions } from '../../oracle-credential.ts';
 import { messagingWebProjectProblems } from './project-checks.ts';
@@ -85,6 +69,19 @@ import { resolvedAdminVersion, resolvedFirebaseVersion } from '../../package-ver
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = join(HERE, '..', '..', '..', '..', '..');
+const SERVE_ONLY = Boolean(process.env.PYRIC_MSG_SERVE_ONLY);
+if (!SERVE_ONLY) {
+  requireCaptureMode({
+    label: 'messaging-web',
+    scriptPath: 'packages/conformance/src/capture/messaging-web/harness.ts',
+    summary: 'would run 7 browser web-push messaging receive-plane scenarios.',
+    missingCredentials: () => {
+      if (!process.env.PYRIC_MESSAGING_FIREBASE_CONFIG) return 'PYRIC_MESSAGING_FIREBASE_CONFIG';
+      if (!process.env.PYRIC_MESSAGING_VAPID_KEY) return 'PYRIC_MESSAGING_VAPID_KEY';
+      return null;
+    },
+  });
+}
 
 // ─── caffeinate: wrap EVERY run so the machine cannot sleep mid-capture ───
 // Real push delivery depends on an uninterrupted GCM channel; a display or
@@ -116,8 +113,10 @@ async function loadChromium() {
   }
   throw new Error('playwright not found; run bun install in packages/playground');
 }
-const SERVE_ONLY = !!process.env.PYRIC_MSG_SERVE_ONLY;
-const chromium = SERVE_ONLY ? (null as never) : await loadChromium();
+let chromium: Awaited<ReturnType<typeof loadChromium>> = null as never;
+if (!SERVE_ONLY) {
+  chromium = await loadChromium();
+}
 // messaging-web-* observations belong to the 'messaging' surface.
 const OBS_DIR = join(HERE, '..', '..', '..', 'observations', 'messaging');
 const PORT = 4873;

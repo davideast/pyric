@@ -167,12 +167,12 @@ jobs:
             script: packages/conformance/src/run.ts
             guard: PYRIC_ORACLE_FIREBASE_CONFIG
             disabled: '#1270 and #1271 (credentials without a key file)'
-          # The FCM send-plane, Rules Test API, and Storage stdlib discovery
-          # legs authenticate through Workload Identity Federation, so their
-          # guard is the GCP_WIF_PROVIDER variable.
+          # messaging-send authenticates through the optional main-only capture
+          # WIF identity (CAPTURE_WIF_PROVIDER + CAPTURE_SA_EMAIL); the read-only
+          # Rules Test API and stdlib discovery legs use GCP_WIF_PROVIDER.
           - rig: messaging-send
             script: packages/conformance/src/messaging-send-probes.ts
-            guard: GCP_WIF_PROVIDER
+            guard: CAPTURE_WIF_PROVIDER
             wif: true
           - rig: rules-firestore
             script: packages/conformance/src/run-rules.ts
@@ -206,6 +206,7 @@ jobs:
         # is a broken configuration and fails. The `missing` output names the
         # variable a leg lacks, for the state recorded at the end of the job.
         env:
+          RIG: ${{ matrix.rig }}
           GUARD: ${{ matrix.guard }}
           DISABLED: ${{ matrix.disabled }}
           EVENT: ${{ github.event_name }}
@@ -213,19 +214,27 @@ jobs:
           PYRIC_ORACLE_FIREBASE_CONFIG: ${{ secrets.PYRIC_ORACLE_FIREBASE_CONFIG }}
           GCP_WIF_PROVIDER: ${{ vars.GCP_WIF_PROVIDER }}
           PARITY_SA_EMAIL: ${{ vars.PARITY_SA_EMAIL }}
+          CAPTURE_WIF_PROVIDER: ${{ vars.CAPTURE_WIF_PROVIDER }}
+          CAPTURE_SA_EMAIL: ${{ vars.CAPTURE_SA_EMAIL }}
         run: |
           if [ -n "$DISABLED" ]; then
             echo "available=false" >> "$GITHUB_OUTPUT"
-            echo "::notice::${{ matrix.rig }} is disabled until $DISABLED. Re-capture skipped."
+            echo "::notice::$RIG is disabled until $DISABLED. Re-capture skipped."
+          elif [ "$GUARD" = "CAPTURE_WIF_PROVIDER" ] && { [ -z "$CAPTURE_WIF_PROVIDER" ] || [ -z "$CAPTURE_SA_EMAIL" ]; }; then
+            missing_var="CAPTURE_WIF_PROVIDER"
+            if [ -n "$CAPTURE_WIF_PROVIDER" ]; then missing_var="CAPTURE_SA_EMAIL"; fi
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "missing=$missing_var" >> "$GITHUB_OUTPUT"
+            echo "::notice::$missing_var not configured for main-only capture identity. $RIG re-capture skipped."
           elif [ -z "${!GUARD}" ] && [ "$EVENT" = "schedule" ]; then
             echo "missing=$GUARD" >> "$GITHUB_OUTPUT"
-            echo "::error::$GUARD not configured, so ${{ matrix.rig }} checked nothing against production. Configure it, or mark the leg disabled with its blocking issue."
+            echo "::error::$GUARD not configured, so $RIG checked nothing against production. Configure it, or mark the leg disabled with its blocking issue."
             exit 1
           elif [ -z "${!GUARD}" ]; then
             echo "available=false" >> "$GITHUB_OUTPUT"
             echo "missing=$GUARD" >> "$GITHUB_OUTPUT"
-            echo "::warning::$GUARD not configured. ${{ matrix.rig }} re-capture skipped. A scheduled run fails here."
-          elif [ "$WIF" = "true" ] && [ -z "$PARITY_SA_EMAIL" ]; then
+            echo "::warning::$GUARD not configured. $RIG re-capture skipped. A scheduled run fails here."
+          elif [ "$WIF" = "true" ] && [ "$GUARD" = "GCP_WIF_PROVIDER" ] && [ -z "$PARITY_SA_EMAIL" ]; then
             echo "missing=PARITY_SA_EMAIL" >> "$GITHUB_OUTPUT"
             echo "::error::GCP_WIF_PROVIDER is set but PARITY_SA_EMAIL is not. Set both repository variables."
             exit 1
@@ -239,8 +248,8 @@ jobs:
         if: steps.secret-check.outputs.available == 'true' && matrix.wif
         uses: google-github-actions/auth@v2
         with:
-          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
-          service_account: ${{ vars.PARITY_SA_EMAIL }}
+          workload_identity_provider: ${{ matrix.guard == 'CAPTURE_WIF_PROVIDER' && vars.CAPTURE_WIF_PROVIDER || vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ matrix.guard == 'CAPTURE_WIF_PROVIDER' && vars.CAPTURE_SA_EMAIL || vars.PARITY_SA_EMAIL }}
       # Bun re-downloads every dependency from the registry without this;
       # persisting its install cache lets `bun install` reuse prior downloads.
       # Gated like Install itself: no point restoring/saving a cache for a
@@ -264,17 +273,20 @@ jobs:
       - name: Re-capture ${{ matrix.rig }} against production
         if: steps.secret-check.outputs.available == 'true'
         env:
+          SCRIPT: ${{ matrix.script }}
           PYRIC_ORACLE_FIREBASE_CONFIG: ${{ secrets.PYRIC_ORACLE_FIREBASE_CONFIG }}
           PYRIC_ORACLE_PROJECT_ID: digame-mas
           PARITY_PROJECT_ID: digame-mas
           # On a wif leg, a missing credential exits 1 instead of printing the
           # inert plan, which would otherwise report no drift.
           PARITY_REQUIRE_CREDENTIAL: ${{ matrix.wif && '1' || '' }}
-        run: bun run ${{ matrix.script }}
+        run: bun run "$SCRIPT" --write
       - name: Detect observation drift
         id: drift
         if: steps.secret-check.outputs.available == 'true'
-        run: bun scripts/ci/oracle-drift-report.ts "${{ matrix.rig }}"
+        env:
+          RIG: ${{ matrix.rig }}
+        run: bun scripts/ci/oracle-drift-report.ts "$RIG"
       # The diff above names the drifted files; these steps keep the
       # rewritten files themselves, so a person can review and commit them.
       # Timestamp-only rewrites come along too and are harmless to commit.

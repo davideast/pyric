@@ -45,14 +45,26 @@ import {
   type TestCase,
 } from '../../rules/src/test/spec.ts';
 import { REPO_ROOT } from './rules-expression-cost-suites.ts';
+import { requireCaptureMode } from './capture-mode-guard.ts';
 import { STDLIB_DIR, apiValue } from './measure-stdlib-cost.ts';
+import { hasParityCredential, NO_CREDENTIAL_MESSAGE } from '../../pyric/test/rules/parity/credential.ts';
 
 const DEFAULT_TIME = '2026-07-21T00:00:00Z';
 const RULES_API = 'https://firebaserules.googleapis.com/v1';
 
-const moduleName = process.argv[2];
+const cliArgs = requireCaptureMode({
+  label: 'stdlib-replay',
+  scriptPath: 'packages/conformance/src/replay-stdlib-cases.ts',
+  extraFlags: '<module>',
+  summary: 'would replay a stdlib module test suite through the Rules Test API.',
+  missingCredentials: () => {
+    if (hasParityCredential()) return null;
+    return NO_CREDENTIAL_MESSAGE;
+  },
+});
+const moduleName = cliArgs[0];
 if (!moduleName) {
-  throw new Error('usage: replay-stdlib-cases.ts <module>');
+  throw new Error('usage: replay-stdlib-cases.ts --write <module>');
 }
 const storage = moduleName.startsWith('storage/');
 

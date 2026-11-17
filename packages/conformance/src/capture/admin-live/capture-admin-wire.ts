@@ -47,6 +47,7 @@ import type { Auth } from 'firebase-admin/auth';
 import type { Database } from 'firebase-admin/database';
 import type { DocumentReference, Firestore } from 'firebase-admin/firestore';
 import type { Storage } from 'firebase-admin/storage';
+import { requireCaptureMode } from '../../capture-mode-guard.ts';
 import { resolvedAdminVersion } from '../../package-version.ts';
 import {
   DEFAULT_INSTANCE_VARIABLE,
@@ -414,14 +415,36 @@ async function cleanupOnly(ctx: LiveContext, databaseURL: string, bucket: string
 let announcedRun: string | null = null;
 
 async function main(): Promise<void> {
+  const rawArgs = process.argv.slice(2);
+  const cleanupAt = rawArgs.indexOf('--cleanup');
+  if (cleanupAt === -1) {
+    requireCaptureMode({
+      label: 'capture-admin',
+      scriptPath: 'packages/conformance/src/capture/admin-live/capture-admin-wire.ts',
+      argv: rawArgs,
+      summary: 'would record firebase-admin Auth, Firestore, RTDB, and Storage wire exchanges.',
+      missingCredentials: () => {
+        const refusal = captureRefusal(process.env);
+        if (refusal) return refusal;
+        const missing: string[] = [];
+        if (!process.env.PYRIC_ORACLE_PROJECT_ID) missing.push('PYRIC_ORACLE_PROJECT_ID');
+        if (instanceFromEnv(process.env, DEFAULT_INSTANCE_VARIABLE, 'default') === null) {
+          missing.push(DEFAULT_INSTANCE_VARIABLE);
+        }
+        if (missing.length > 0) {
+          return missing.join(', ');
+        }
+        return null;
+      },
+    });
+  }
   const refusal = captureRefusal(process.env);
   if (refusal) {
     console.error(`[capture-admin] ${refusal}`);
     process.exit(2);
   }
   // Checked before any credential or client: a bad id must never reach the run root.
-  const cleanupAt = process.argv.indexOf('--cleanup');
-  const cleanupRun = cleanupAt === -1 ? null : (process.argv[cleanupAt + 1] ?? '');
+  const cleanupRun = cleanupAt === -1 ? null : (rawArgs[cleanupAt + 1] ?? '');
   const runProblem = cleanupRun === null ? null : runIdProblem(cleanupRun);
   if (runProblem) {
     console.error(`[capture-admin] --cleanup: ${runProblem}. Nothing was touched.`);
@@ -429,8 +452,8 @@ async function main(): Promise<void> {
   }
   const instance = instanceFromEnv(process.env, DEFAULT_INSTANCE_VARIABLE, 'default');
   if (!process.env.PYRIC_ORACLE_PROJECT_ID || instance === null) {
-    console.log(`[capture-admin] inert: set PYRIC_ORACLE_PROJECT_ID (Application Default Credentials) and ${DEFAULT_INSTANCE_VARIABLE} to capture.`);
-    process.exit(0);
+    console.error(`[capture-admin] missing PYRIC_ORACLE_PROJECT_ID or ${DEFAULT_INSTANCE_VARIABLE}`);
+    process.exit(1);
   }
   const ctx = await loadLiveContext();
   const bucket = ctx.webConfig.storageBucket;

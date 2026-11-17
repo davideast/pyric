@@ -15,8 +15,14 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { hasParityCredential, NO_CREDENTIAL_MESSAGE } from '../../pyric/test/rules/parity/credential.ts';
+import { requireCaptureMode } from './capture-mode-guard.ts';
 import { readObservationLinkage } from './observation-linkage.ts';
-import { loadOracleServiceAccount, oracleCredentialConfigured } from './oracle-credential.ts';
+import {
+  loadOracleServiceAccount,
+  oracleCredentialConfigured,
+  SECONDARY_ORACLE_VARIABLES,
+} from './oracle-credential.ts';
 import { resolvedFirebaseVersion } from './package-version.ts';
 import {
   accessHeaders,
@@ -46,6 +52,7 @@ import {
   restoreStorageRelease,
   selectRulesFile,
   storageRulesSnapshot,
+  storageStdlibSignalCoordinator,
   type Release,
   type Ruleset,
 } from './storage-stdlib-real-rules.ts';
@@ -192,16 +199,21 @@ function injectFirestoreProbeRule(source: string, runId: string, allow: boolean)
   return `${source.slice(0, insertAt)}${block}${source.slice(insertAt)}`;
 }
 
-async function run(): Promise<void> {
-  if (Bun.argv.includes('--request-resource-fields')) {
+async function run(cliArgs: readonly string[]): Promise<void> {
+  if (cliArgs.includes('--request-resource-fields')) {
     const { resolveProbeAccess, runStorageRequestResourceFields } = await import('./run-storage-request-resource-fields.ts');
     return runStorageRequestResourceFields(await resolveProbeAccess());
   }
   const webConfigJson = process.env.PYRIC_AI_FIREBASE_CONFIG;
-  if (!oracleCredentialConfigured(process.env) || !webConfigJson) return inert();
-  if (Bun.argv.includes('--native-fields') || Bun.argv.includes('--remaining-cross-service')) {
+  if (!oracleCredentialConfigured(process.env) || !webConfigJson) {
+    throw new Error('missing PYRIC_AI_FIREBASE_CONFIG or PYRIC_ORACLE_SA_PATH / PYRIC_ORACLE_PROJECT_ID');
+  }
+  if (cliArgs.includes('--native-fields') || cliArgs.includes('--remaining-cross-service')) {
     const { runStorageStdlibRemaining } = await import('./run-storage-stdlib-remaining.ts');
-    return runStorageStdlibRemaining(Bun.argv.includes('--native-fields') ? 'native-fields' : 'remaining-cross-service');
+    if (cliArgs.includes('--native-fields')) {
+      return runStorageStdlibRemaining('native-fields');
+    }
+    return runStorageStdlibRemaining('remaining-cross-service');
   }
 
   const sa = await loadOracleServiceAccount();
@@ -219,10 +231,10 @@ async function run(): Promise<void> {
     cleanupBudget.take(storageProbeRequestKind(url));
     return rawJson<T>(url, init, label);
   };
-  const temporaryIam = Bun.argv.includes('--temporary-iam');
-  const externallyEnabledIam = Bun.argv.includes('--iam-enabled');
-  const compileAdvanced = Bun.argv.includes('--compile-advanced');
-  const advanced = Bun.argv.includes('--advanced') || compileAdvanced;
+  const temporaryIam = cliArgs.includes('--temporary-iam');
+  const externallyEnabledIam = cliArgs.includes('--iam-enabled');
+  const compileAdvanced = cliArgs.includes('--compile-advanced');
+  const advanced = cliArgs.includes('--advanced') || compileAdvanced;
   if (temporaryIam && externallyEnabledIam) {
     throw new Error('--temporary-iam and --iam-enabled are mutually exclusive');
   }
@@ -320,19 +332,39 @@ async function run(): Promise<void> {
       return last;
     };
 
+    let unregisterFirestoreCleanup: () => void = () => undefined;
+    if (originalFirestore) {
+      unregisterFirestoreCleanup = storageStdlibSignalCoordinator.registerCleanup(async () => {
+        const ok = await restoreRulesRelease(
+          { auth: authHeaders, json: jsonHeaders },
+          cleanupBudget,
+          firestoreReleaseUrl,
+          firestoreReleaseName,
+          originalFirestore.rulesetName,
+          (url, init, label) => rawJson<Release>(url, init, label),
+        );
+        if (!ok) {
+          throw new Error(`failed to restore Firestore release ${firestoreReleaseName}`);
+        }
+      });
+    }
     const activateFirestoreProbeRule = async (allow: boolean): Promise<number> => {
       if (!originalFirestoreRuleset || !firestoreRulesFile) throw new Error('Firestore rules snapshot unavailable');
       const content = injectFirestoreProbeRule(firestoreRulesFile.content, runId, allow);
       const files = originalFirestoreRuleset.source.files.map((file) => file === firestoreRulesFile ? { ...file, content } : file);
-      const created = await json<{ name: string }>(
-        `${RULES_API}/projects/${sa.project_id}/rulesets`,
-        { method: 'POST', headers: jsonHeaders, body: JSON.stringify({ source: { files } }) },
-        `create ${allow ? 'allow' : 'deny'} probe Firestore ruleset`,
+      const created = await storageStdlibSignalCoordinator.trackMutation(
+        json<{ name: string }>(
+          `${RULES_API}/projects/${sa.project_id}/rulesets`,
+          { method: 'POST', headers: jsonHeaders, body: JSON.stringify({ source: { files } }) },
+          `create ${allow ? 'allow' : 'deny'} probe Firestore ruleset`,
+        ),
       );
-      await json(
-        firestoreReleaseUrl,
-        { method: 'PATCH', headers: jsonHeaders, body: JSON.stringify({ release: { name: firestoreReleaseName, rulesetName: created.name } }) },
-        `activate ${allow ? 'allow' : 'deny'} probe Firestore ruleset`,
+      await storageStdlibSignalCoordinator.trackMutation(
+        json(
+          firestoreReleaseUrl,
+          { method: 'PATCH', headers: jsonHeaders, body: JSON.stringify({ release: { name: firestoreReleaseName, rulesetName: created.name } }) },
+          `activate ${allow ? 'allow' : 'deny'} probe Firestore ruleset`,
+        ),
       );
       const expected = allow ? 200 : 403;
       const documentUrl = `https://firestore.googleapis.com/v1/${docNames[0]}?key=${encodeURIComponent(web.apiKey)}`;
@@ -398,14 +430,18 @@ async function run(): Promise<void> {
           label: 'restore Firestore release',
           run: async () => {
             if (!originalFirestore) return;
-            firestoreReleaseRestored = await restoreRulesRelease(
-              { auth: authHeaders, json: jsonHeaders },
-              cleanupBudget,
-              firestoreReleaseUrl,
-              firestoreReleaseName,
-              originalFirestore.rulesetName,
-              (url, init, label) => rawJson<Release>(url, init, label),
-            );
+            try {
+              firestoreReleaseRestored = await restoreRulesRelease(
+                { auth: authHeaders, json: jsonHeaders },
+                cleanupBudget,
+                firestoreReleaseUrl,
+                firestoreReleaseName,
+                originalFirestore.rulesetName,
+                (url, init, label) => rawJson<Release>(url, init, label),
+              );
+            } finally {
+              unregisterFirestoreCleanup();
+            }
           },
         },
         {
@@ -508,10 +544,46 @@ async function run(): Promise<void> {
 }
 
 if (import.meta.main) {
+  const rawArgs = process.argv.slice(2);
+  const cliArgs = requireCaptureMode({
+    label: 'storage-stdlib:real',
+    scriptPath: 'packages/conformance/src/run-storage-stdlib-real.ts',
+    argv: rawArgs,
+    preview: inert,
+    missingCredentials: () => {
+      if (rawArgs.includes('--request-resource-fields')) {
+        if (oracleCredentialConfigured(process.env) || hasParityCredential()) {
+          return null;
+        }
+        return NO_CREDENTIAL_MESSAGE;
+      }
+      const missing: string[] = [];
+      if (!process.env.PYRIC_AI_FIREBASE_CONFIG) missing.push('PYRIC_AI_FIREBASE_CONFIG');
+      if (!oracleCredentialConfigured(process.env)) {
+        missing.push('PYRIC_ORACLE_SA_PATH or PYRIC_ORACLE_PROJECT_ID');
+      }
+      if (
+        rawArgs.includes('--remaining-cross-service') &&
+        !oracleCredentialConfigured(process.env, SECONDARY_ORACLE_VARIABLES)
+      ) {
+        missing.push('PYRIC_SECONDARY_ORACLE_SA_PATH or PYRIC_SECONDARY_ORACLE_PROJECT_ID');
+      }
+      if (missing.length > 0) {
+        return missing.join(', ');
+      }
+      return null;
+    },
+  });
   const releaseLock = acquireRunLock();
+  const uninstallSignals = storageStdlibSignalCoordinator.installSignals();
   try {
-    await run();
+    await run(cliArgs);
   } finally {
-    releaseLock();
+    try {
+      await storageStdlibSignalCoordinator.runRestore();
+    } finally {
+      uninstallSignals();
+      releaseLock();
+    }
   }
 }

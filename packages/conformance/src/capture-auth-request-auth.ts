@@ -42,7 +42,13 @@ import { randomBytes } from 'node:crypto';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { RTDB_RULES_SCOPE } from './oracle-access-token.ts';
+import { formatInertPreviewFooter, requireCaptureMode } from './capture-mode-guard.ts';
 import { loadOracleServiceAccount, oracleAccessToken, oracleAppOptions, oracleCredentialConfigured } from './oracle-credential.ts';
+import { assertDedicatedOracleRtdbUrl } from './oracle-run-setup.ts';
+import {
+  createSignalRestoreCoordinator,
+  restoreRtdbRulesWithRetry,
+} from './oracle-signal-restore.ts';
 import { resolvedFirebaseVersion } from './package-version.ts';
 import { leaves, probesFor, redactor, type Claims, type Probe, type Verdict } from './auth-request-auth-probes.ts';
 
@@ -51,17 +57,31 @@ const OUT = resolve(HERE, '../observations/auth/auth-request-auth-per-sign-in.js
 
 interface WebConfig { apiKey: string; authDomain?: string; projectId: string; databaseURL?: string }
 
-if (!process.env.PYRIC_ORACLE_FIREBASE_CONFIG || !oracleCredentialConfigured(process.env)) {
-  console.log('[oracle:auth-request-auth] inert: set PYRIC_ORACLE_FIREBASE_CONFIG (with databaseURL) and PYRIC_ORACLE_SA_PATH or PYRIC_ORACLE_PROJECT_ID to capture.');
-  console.log(`[oracle:auth-request-auth] would write ${OUT}`);
-  process.exit(0);
-}
+requireCaptureMode({
+  label: 'oracle:auth-request-auth',
+  scriptPath: 'packages/conformance/src/capture-auth-request-auth.ts',
+  preview: () => {
+    console.log('[oracle:auth-request-auth] INERT preview: set PYRIC_ORACLE_FIREBASE_CONFIG (with databaseURL) and PYRIC_ORACLE_SA_PATH or PYRIC_ORACLE_PROJECT_ID with --write to capture.');
+    console.log(`[oracle:auth-request-auth] would write ${OUT}`);
+    console.log(`  ${formatInertPreviewFooter('packages/conformance/src/capture-auth-request-auth.ts')}`);
+  },
+  missingCredentials: () => {
+    const missing: string[] = [];
+    if (!process.env.PYRIC_ORACLE_FIREBASE_CONFIG) missing.push('PYRIC_ORACLE_FIREBASE_CONFIG');
+    if (!oracleCredentialConfigured(process.env)) {
+      missing.push('PYRIC_ORACLE_SA_PATH or PYRIC_ORACLE_PROJECT_ID');
+    }
+    if (missing.length > 0) return missing.join(', ');
+    return null;
+  },
+});
 
-const config = JSON.parse(process.env.PYRIC_ORACLE_FIREBASE_CONFIG) as WebConfig;
+const rawConfigText = process.env.PYRIC_ORACLE_FIREBASE_CONFIG ?? '{}';
+const config = JSON.parse(rawConfigText) as WebConfig;
 const sa = await loadOracleServiceAccount();
-if (!config.databaseURL) throw new Error('the web config has no databaseURL');
+const targetRtdbUrl = process.env.PYRIC_ORACLE_RTDB_URL ?? config.databaseURL;
+const DB_URL = assertDedicatedOracleRtdbUrl(targetRtdbUrl, config.projectId);
 if (config.projectId !== sa.project_id) throw new Error('the web config and the service account name different projects');
-const DB_URL = config.databaseURL.replace(/\/+$/, '');
 const UID_LOG = process.env.PYRIC_AUTH_CAPTURE_UIDS;
 
 const RUN = `${Date.now().toString(36)}${randomBytes(3).toString('hex')}`;
@@ -190,6 +210,29 @@ const canonical = (text: string) => {
 };
 const beforeCanonical = canonical(beforeRulesText);
 console.log(`[oracle:auth-request-auth] run ${RUN}; project ${config.projectId}; database ${new URL(DB_URL).host}; rules snapshotted.`);
+
+const coordinator = createSignalRestoreCoordinator('[oracle:auth-request-auth]');
+const uninstallSignals = coordinator.installSignals();
+let rulesDeployed = false;
+coordinator.registerCleanup(async () => {
+  if (!rulesDeployed) return;
+  await restoreRtdbRulesWithRetry({
+    beforeText: beforeRulesText,
+    writeText: async (text) => {
+      const put = await coordinator.trackMutation(
+        fetch(`${rulesUrl}&print=silent`, { method: 'PUT', body: text }),
+      );
+      if (!put.ok) throw new Error(`restore failed: ${put.status}`);
+    },
+    readText: async () => {
+      const res = await fetch(rulesUrl);
+      if (!res.ok) throw new Error(`read-back failed: ${res.status}`);
+      return res.text();
+    },
+    canonicalize: canonical,
+  });
+  rulesRestored = true;
+});
 
 const behavior: Record<string, unknown> = {};
 const adminFacts: Record<string, unknown> = {};
@@ -404,7 +447,10 @@ try {
   const merged = JSON.stringify({ rules: { ...beforeRules.rules, [RUN_KEY]: subtree } });
   const dry = await fetch(`${rulesUrl}&dryRun=true`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: merged });
   if (!dry.ok) throw new Error(`probe rules rejected by the dry run: ${dry.status} ${redactString(await dry.text())}`);
-  const put = await fetch(`${rulesUrl}&print=silent`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: merged });
+  rulesDeployed = true;
+  const put = await coordinator.trackMutation(
+    fetch(`${rulesUrl}&print=silent`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: merged }),
+  );
   if (!put.ok) throw new Error(`probe rules deploy failed: ${put.status}`);
   console.log('[oracle:auth-request-auth] deployed probe rules under the run key; waiting 8s.');
   await sleep(8000);
@@ -441,14 +487,17 @@ try {
   behavior.admin = shape(adminFacts);
 } finally {
   try {
-    const put = await fetch(`${rulesUrl}&print=silent`, { method: 'PUT', body: beforeRulesText });
-    if (!put.ok) throw new Error(`restore failed: ${put.status}`);
-    const back = await (await fetch(rulesUrl)).text();
-    rulesRestored = canonical(back) === beforeCanonical;
+    await coordinator.runRestore();
+    if (!rulesDeployed) {
+      const back = await (await fetch(rulesUrl)).text();
+      rulesRestored = canonical(back) === beforeCanonical;
+    }
     const root = await (await fetch(`${DB_URL}/.json?shallow=true&access_token=${encodeURIComponent(rtdbToken)}`)).json() as Claims | null;
     runKeyAbsent = root === null || !(RUN_KEY in root);
   } catch (e) {
     console.error(`[oracle:auth-request-auth] restore problem: ${(e as Error).message}. Restore the rules of ${new URL(DB_URL).host} by hand.`);
+  } finally {
+    uninstallSignals();
   }
   for (const s of sessions) if (s.app) await deleteApp(s.app).catch(() => {});
   const remaining: string[] = [];

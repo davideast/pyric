@@ -9,57 +9,20 @@
  * a function's cost.
  *
  * Method
- *  1. Probes. For every case in a module's `*.test.json`, each call to one of
- *     the module's exports in the case's call expression becomes a probe: the
- *     call alone, wrapped in a single-rule block the way the module tests wrap
- *     it, under the case's request and documents. A second probe calls a
- *     function that returns `false` with the same arguments. The function's
- *     cost for that case is `X(call) - X(reference) + 2`: the reference costs
- *     one call node, the arguments, and one literal.
- *  2. Padding. Each probe block starts with two always-false rules whose cost
- *     is set by path wildcards: `__pyricPad0(int(a))` from
- *     `rules-expression-cost-pad.ts` grows by 5 expressions per step (plus 2
- *     per 40-step segment), and `__pyricFine(int(v))` grows by 6 per step for
- *     v in 0..4. Together they reach every integer in the range the probes
- *     need. The request reaches the limit exactly when
- *     `pad(a, v) + X >= D`, so the smallest reaching padding gives X exactly.
- *     The wildcards carry the padding because the test cases of
- *     unauthenticated requests have no auth token to carry it.
- *  3. Calibration. D is measured per service from three blocks of known cost:
- *     `false` (1), `true && false` (4) and 20 conjoined `true` (58). The run
- *     stops when the three disagree, since the padding model would then be
- *     wrong.
- *  4. Search. The linter's estimator predicts each probe's cost; the first
- *     round probes the predicted boundary and spreads the rest of its points
- *     over the window, and later rounds split the remaining interval. Every
- *     probe of a service shares one ruleset, so each round is one request per
- *     chunk of up to 125 test cases.
- *  5. Requests. An unauthenticated case is sent with `auth: null`. Without the
- *     field, production makes `request.auth` undefined rather than null, so
- *     `request.auth != null` errors and `&&` evaluates both operands, which
- *     is not the path a signed-out client takes.
+ *  1. Probes: each exported call in `*.test.json` is paired with a constant-false
+ *     reference call (`X(call) - X(reference) + 2`).
+ *  2. Padding: path wildcards drive `__pyricPad0` + `__pyricFine` across the
+ *     1000-expression boundary without requiring an auth token.
+ *  3. Calibration: `D` is calibrated per service from 3 blocks of known cost.
+ *  4. Search: binary/windowed rounds of up to 125 test cases per request.
+ *  5. Unauthenticated cases carry `auth: null` so `request.auth` matches SDK behavior.
  *
  * Output
- *  - packages/rules/test/modules/fixtures/stdlib-cost-capture.json:
- *    calibration, every probe's measured X, and per-function min and max.
- *    A full run replaces it. A run with --module replaces its modules' rows
- *    in place and keeps the full run's totals, date and calibration; its own
- *    request and test case counts go in `runs`, under each module it measured
- *    (`mergeCapture`).
- *  - With --write: the `costs` records in every module test file and the cost
- *    line above every exported function (`applyCostLines`). Run
- *    `bun run inline-stdlib` in packages/pyric afterwards.
- *
- * Credentials: the Firestore rules oracle contract (`run-rules.ts`).
- * GOOGLE_APPLICATION_CREDENTIALS selects an ADC credential holding
- * `firebaserules.rulesets.test`; otherwise the firebase-tools login is used
- * with PARITY_PROJECT_ID (default digame-mas). A service that answers
- * PERMISSION_DENIED or an auth failure with the ADC credential retries with
- * the firebase-tools login. The Rules Test API evaluates the submitted
- * ruleset without deploying it.
+ *  - `packages/rules/test/modules/fixtures/stdlib-cost-capture.json` (`--capture` / `--write`).
+ *  - With `--write`: updates module `*.test.json` cost records and `.rules` cost lines.
  *
  * Usage:
- *   bun run packages/conformance/src/measure-stdlib-cost.ts [--write] [--module auth,storage/uploads]
+ *   bun run packages/conformance/src/measure-stdlib-cost.ts --write [--module auth,storage/uploads]
  *   --dry-run   build the rulesets and probes and print the plan; no network.
  */
 import { existsSync, readFileSync, readdirSync, writeFileSync, mkdirSync } from 'node:fs';
@@ -77,6 +40,7 @@ import {
   type StdlibCostRecord,
 } from '../../rules/src/modules/stdlib-cost.ts';
 import type { StorageTestCase, TestCase } from '../../rules/src/test/spec.ts';
+import { requireCaptureMode } from './capture-mode-guard.ts';
 import { PAD_MAX, isLimitMessage, padFunctions } from './rules-expression-cost-pad.ts';
 import { REPO_ROOT } from './rules-expression-cost-suites.ts';
 
@@ -645,14 +609,36 @@ function staticReads(service: Service, modules: ModuleText[]): Map<string, numbe
 }
 
 async function main(): Promise<void> {
-  const args = process.argv.slice(2);
-  const write = args.includes('--write');
-  const dryRun = args.includes('--dry-run');
+  const rawArgs = process.argv.slice(2);
+  const dryRun = rawArgs.includes('--dry-run');
+  let args = rawArgs;
+  if (!dryRun) {
+    const { hasParityCredential, NO_CREDENTIAL_MESSAGE } = await import('../../pyric/test/rules/parity/credential.ts');
+    args = requireCaptureMode({
+      label: 'stdlib-cost',
+      scriptPath: 'packages/conformance/src/measure-stdlib-cost.ts',
+      argv: rawArgs,
+      extraFlags: '[--module <names>]',
+      summary: 'would calibrate and measure Rules stdlib function expression costs via projects.test.',
+      missingCredentials: () => {
+        if (hasParityCredential()) return null;
+        return NO_CREDENTIAL_MESSAGE;
+      },
+    });
+  }
+  const write = rawArgs.includes('--write');
   const mi = args.indexOf('--module');
-  const selected = mi >= 0 ? new Set(args[mi + 1]!.split(',')) : null;
+  let selected: Set<string> | null = null;
+  if (mi >= 0) {
+    const moduleCsv = args[mi + 1] ?? '';
+    selected = new Set(moduleCsv.split(',').filter(Boolean));
+  }
   const modules = loadModules().filter((m) => !selected || selected.has(m.name));
   const reach = reachablePadding();
-  const runner = dryRun ? null : await makeRunner();
+  let runner: Awaited<ReturnType<typeof makeRunner>> | null = null;
+  if (!dryRun) {
+    runner = await makeRunner();
+  }
   const functions: any[] = [];
   const calibration: Record<string, unknown> = {};
   const probeRows: any[] = [];

@@ -1,3 +1,4 @@
+import { createSignalRestoreCoordinator } from './oracle-signal-restore.ts';
 import {
   RULES_API,
   jsonRequest,
@@ -218,4 +219,55 @@ export async function restoreFirestoreRules(
   throw new Error('Firestore rules restoration failed after bounded retries', {
     cause: lastError,
   });
+}
+
+export async function withSignalGuardedFirestoreRules(options: {
+  label: string;
+  sa: ServiceAccount;
+  headers: AccessHeaders;
+  snapshot: Awaited<ReturnType<typeof snapshotFirestoreRules>>;
+  files: FirestoreRulesFile[];
+  beforeRestore?: () => Promise<void>;
+  onRestored?: () => void;
+  body: (probeRulesetName: string) => Promise<void>;
+}): Promise<{ probeRulesetName: string; restoreVerified: boolean }> {
+  const coordinator = createSignalRestoreCoordinator(options.label);
+  const uninstallSignals = coordinator.installSignals();
+  let activationAttempted = false;
+  let restoreVerified = false;
+  let restorePromise: Promise<void> | null = null;
+
+  const restoreOnce = (): Promise<void> => {
+    if (!activationAttempted) return Promise.resolve();
+    if (restorePromise === null) {
+      restorePromise = (async () => {
+        await restoreFirestoreRules(options.headers, options.snapshot);
+        restoreVerified = true;
+        options.onRestored?.();
+      })();
+    }
+    return restorePromise;
+  };
+
+  coordinator.registerCleanup(restoreOnce);
+
+  let probeRulesetName = '';
+  try {
+    activationAttempted = true;
+    probeRulesetName = await coordinator.trackMutation(
+      activateFirestoreRules(options.sa, options.headers, options.snapshot, options.files),
+    );
+    await options.body(probeRulesetName);
+  } finally {
+    try {
+      await options.beforeRestore?.();
+    } finally {
+      try {
+        await coordinator.runRestore();
+      } finally {
+        uninstallSignals();
+      }
+    }
+  }
+  return { probeRulesetName, restoreVerified };
 }

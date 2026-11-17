@@ -10,6 +10,7 @@ import {
   type AuthStorageSignal,
 } from './cross-tab-auth-observer.js';
 import { resolvedFirebaseVersion } from './package-version.ts';
+import { formatInertPreviewFooter, requireCaptureMode } from './capture-mode-guard.ts';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const OBSERVATION = join(HERE, '..', 'observations', 'app', 'app-production-multi-app-topology.json');
@@ -20,10 +21,18 @@ const CROSS_TAB_OBSERVATION = join(
   'app',
   'app-production-cross-tab-auth-persistence.json',
 );
-const rawConfig = process.env.PYRIC_ORACLE_FIREBASE_CONFIG;
-if (!rawConfig) {
-  throw new Error('PYRIC_ORACLE_FIREBASE_CONFIG is required; run oracle:plan before this production capture.');
-}
+requireCaptureMode({
+  label: 'app-production-browser-probes',
+  scriptPath: 'packages/conformance/src/app-production-browser-probes.ts',
+  preview: () => {
+    console.log(`[app-production-browser-probes] INERT preview: ${formatInertPreviewFooter('packages/conformance/src/app-production-browser-probes.ts')}`);
+  },
+  missingCredentials: () => {
+    if (process.env.PYRIC_ORACLE_FIREBASE_CONFIG) return null;
+    return 'PYRIC_ORACLE_FIREBASE_CONFIG';
+  },
+});
+const rawConfig = process.env.PYRIC_ORACLE_FIREBASE_CONFIG ?? '{}';
 const config = JSON.parse(rawConfig) as { apiKey: string; projectId: string };
 const firebasePackage = { version: resolvedFirebaseVersion() };
 

@@ -7,14 +7,17 @@
     "pyric/rules"
   ],
   "observationPrefixes": [
-    "rules-firestore-"
+    "rules-firestore-",
+    "rules-firestore-get-after-and-exists-after",
+    "rules-firestore-atomic-batch-sibling-merge"
   ],
   "coverage": true,
   "climb": true,
   "scopeNote": "native (no upstream): the Firestore rules simulator, measured against the production Rules Test API engine. The strict construct score is published separately; remaining divergences and unsupported rows stay visible and contaminate assurance.",
   "conformanceSuite": "packages/pyric/test/rules/oracle-conformance.test.ts",
   "captureRigs": [
-    "rules-firestore"
+    "rules-firestore",
+    "firestore-real"
   ],
   "registry": "rules"
 }

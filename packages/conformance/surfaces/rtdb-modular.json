@@ -25,7 +25,8 @@
   "coverage": true,
   "conformanceSuite": "packages/pyric/test/database/cdd",
   "captureRigs": [
-    "oracle-run"
+    "oracle-run",
+    "sdk-probes"
   ],
   "registry": "rtdb",
   "dispositions": []

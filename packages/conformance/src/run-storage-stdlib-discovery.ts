@@ -11,6 +11,11 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { resolvedFirebaseVersion } from './package-version.ts';
+import {
+  formatInertPreviewFooter,
+  requireCaptureMode,
+  stripCaptureFlags,
+} from './capture-mode-guard.ts';
 import { hasParityCredential, NO_CREDENTIAL_MESSAGE } from '../../../packages/pyric/test/rules/parity/credential.ts';
 import type { ProjectScope } from '../../../packages/pyric/src/project-scope.ts';
 import {
@@ -33,9 +38,17 @@ const OBS_DIR = join(HERE, '..', 'observations', 'storage-rules');
 const REQUEST_COUNTS: Record<ProbeId, number> = { p0: 12, p1: 14, p2: 1 };
 
 export function selectedProbes(args: string[]): ProbeId[] {
-  const values = args.flatMap((arg, index) => {
-    if (arg === '--probe') return args[index + 1] ? [args[index + 1]] : [];
-    return arg.startsWith('--probe=') ? [arg.slice('--probe='.length)] : [];
+  const cleaned = stripCaptureFlags(args);
+  const values = cleaned.flatMap((arg, index) => {
+    if (arg === '--probe') {
+      const next = cleaned[index + 1];
+      if (next) return [next];
+      return [];
+    }
+    if (arg.startsWith('--probe=')) {
+      return [arg.slice('--probe='.length)];
+    }
+    return [];
   });
   if (values.length === 0) return ['p0', 'p1', 'p2'];
   const invalid = values.filter((value) => !['p0', 'p1', 'p2'].includes(value));
@@ -52,6 +65,7 @@ function printPlan(probes: ProbeId[]): void {
   console.log(`[storage-stdlib:discovery] ${NO_CREDENTIAL_MESSAGE} INERT preview; no network calls.`);
   console.log(`Would run ${total} serial, read-only projects.test request(s):`);
   for (const probe of probes) console.log(`  ${probe}: ${REQUEST_COUNTS[probe]} request(s)`);
+  console.log(`  ${formatInertPreviewFooter('packages/conformance/src/run-storage-stdlib-discovery.ts', '[--probe p0|p1|p2]')}`);
 }
 
 function observation(
@@ -242,8 +256,18 @@ async function runP2(scope: ProjectScope): Promise<void> {
 }
 
 async function run(): Promise<void> {
-  const probes = selectedProbes(Bun.argv.slice(2));
-  if (!hasParityCredential()) return printPlan(probes);
+  const args = process.argv.slice(2);
+  const probes = selectedProbes(args);
+  requireCaptureMode({
+    label: 'storage-stdlib:discovery',
+    scriptPath: 'packages/conformance/src/run-storage-stdlib-discovery.ts',
+    argv: args,
+    preview: () => printPlan(probes),
+    missingCredentials: () => {
+      if (hasParityCredential()) return null;
+      return NO_CREDENTIAL_MESSAGE;
+    },
+  });
   const { parityScope } = await import('../../../packages/pyric/test/rules/parity/harness.ts');
   const scope = parityScope();
   for (const probe of probes) {

@@ -26,6 +26,8 @@
  */
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { hasParityCredential, NO_CREDENTIAL_MESSAGE } from '../../pyric/test/rules/parity/credential.ts';
+import { formatInertPreviewFooter, requireCaptureMode } from './capture-mode-guard.ts';
 import { REPO_ROOT } from './rules-expression-cost-suites.ts';
 
 const RULES_API = 'https://firebaserules.googleapis.com/v1';
@@ -168,5 +170,16 @@ async function main(): Promise<void> {
 }
 
 if (import.meta.main) {
+  requireCaptureMode({
+    label: 'case-wire',
+    scriptPath: 'packages/conformance/src/capture-rules-case-wire.ts',
+    preview: () => {
+      console.log(`[case-wire] INERT preview. ${formatInertPreviewFooter('packages/conformance/src/capture-rules-case-wire.ts')}`);
+    },
+    missingCredentials: () => {
+      if (hasParityCredential()) return null;
+      return NO_CREDENTIAL_MESSAGE;
+    },
+  });
   await main();
 }

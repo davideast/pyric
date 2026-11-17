@@ -26,12 +26,19 @@
   ],
   "observationPrefixes": [
     "firestore-",
-    "admin-firestore-"
+    "admin-firestore-",
+    "firestore-transaction-contention-retries",
+    "firestore-browser-lifecycle",
+    "firestore-collection-group-listener",
+    "firestore-write-request-resource"
   ],
   "coverage": true,
   "captureRigs": [
     "oracle-run",
-    "admin-firestore"
+    "admin-firestore",
+    "sdk-probes",
+    "firestore-real",
+    "firestore-write-request-resource"
   ],
   "registry": "firestore",
   "dispositions": [

@@ -146,6 +146,8 @@ describe('planCaptureRun', () => {
     GITHUB_REF: 'refs/heads/main',
     GCP_WIF_PROVIDER: 'projects/123/locations/global/workloadIdentityPools/pool/providers/gh',
     PARITY_SA_EMAIL: 'parity-test-sa@digame-mas.iam.gserviceaccount.com',
+    CAPTURE_WIF_PROVIDER: 'projects/123/locations/global/workloadIdentityPools/pool/providers/capture',
+    CAPTURE_SA_EMAIL: 'capture-sa@example.iam.gserviceaccount.com',
   };
 
   test('refuses non-main refs and pull_request events', async () => {
@@ -184,7 +186,8 @@ describe('planCaptureRun', () => {
       {
         rig: 'rules-firestore',
         script: 'packages/conformance/src/run-rules.ts',
-        args: ['--scenario', 'path-bind-forms'],
+        args: ['--write', '--scenario', 'path-bind-forms'],
+        wifTier: 'parity-readonly',
       },
     ]);
 
@@ -200,6 +203,7 @@ describe('planCaptureRun', () => {
         rig: 'client-storage',
         script: 'packages/conformance/src/client-storage-probes.ts',
         args: ['--write'],
+        wifTier: 'none',
       },
     ]);
   });
@@ -259,12 +263,14 @@ describe('planCaptureRun', () => {
       {
         rig: 'messaging-send',
         script: 'packages/conformance/src/messaging-send-probes.ts',
-        args: ['--probe', 'messaging-send-webpush-lowercase-ttl'],
+        args: ['--write', '--probe', 'messaging-send-webpush-lowercase-ttl'],
+        wifTier: 'capture-write',
       },
       {
         rig: 'rules-firestore',
         script: 'packages/conformance/src/run-rules.ts',
-        args: ['--scenario', 'path-bind-forms'],
+        args: ['--write', '--scenario', 'path-bind-forms'],
+        wifTier: 'parity-readonly',
       },
     ]);
   });
@@ -279,7 +285,7 @@ describe('diagnoseCaptureFailure', () => {
     );
     expect(fcmDenied).toContain('parity-test-sa@digame-mas.iam.gserviceaccount.com');
     expect(fcmDenied).toContain('cloudmessaging.messages.create');
-    expect(fcmDenied).toContain('captures-to-authorise');
+    expect(fcmDenied).toContain('Action:');
 
     const signBlob = diagnoseCaptureFailure(
       'admin-firestore',
@@ -296,7 +302,7 @@ describe('diagnoseCaptureFailure', () => {
       {},
     );
     expect(missingConfig).toContain('PYRIC_ORACLE_FIREBASE_CONFIG');
-    expect(missingConfig).toContain('captures-to-authorise');
+    expect(missingConfig).toContain('Action:');
   });
 });
 
@@ -498,6 +504,7 @@ describe('verifyAndOpenCapturePullRequests', () => {
           branch: 'chore/oracle-capture-rules-firestore',
           action: 'created',
           prUrl: 'https://github.com/davideast/pyric/pull/999',
+          authMode: 'pat',
         },
       ]);
 
@@ -544,6 +551,7 @@ describe('verifyAndOpenCapturePullRequests', () => {
           branch: 'chore/oracle-capture-rules-firestore',
           action: 'updated',
           prUrl: 'https://github.com/davideast/pyric/pull/999',
+          authMode: 'pat',
         },
       ]);
       expect(editCalls.some((args) => args[0] === 'pr' && args[1] === 'edit' && args[2] === '999')).toBe(

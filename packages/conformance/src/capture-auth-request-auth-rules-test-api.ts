@@ -22,7 +22,8 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { hasParityCredential, parityScope } from '../../pyric/test/rules/parity/credential.ts';
+import { hasParityCredential, NO_CREDENTIAL_MESSAGE, parityScope } from '../../pyric/test/rules/parity/credential.ts';
+import { formatInertPreviewFooter, requireCaptureMode } from './capture-mode-guard.ts';
 import { probesFor, type Claims } from './auth-request-auth-probes.ts';
 import { resolvedFirebaseVersion } from './package-version.ts';
 
@@ -84,10 +85,17 @@ export function sessionSuite(service: 'firestore' | 'storage', session: Recorded
 }
 
 if (import.meta.main) {
-  if (!hasParityCredential()) {
-    console.log('[oracle:auth-request-auth-test-api] inert: no Rules Test API credential.');
-    process.exit(0);
-  }
+  requireCaptureMode({
+    label: 'oracle:auth-request-auth-test-api',
+    scriptPath: 'packages/conformance/src/capture-auth-request-auth-rules-test-api.ts',
+    preview: () => {
+      console.log(`[oracle:auth-request-auth-test-api] INERT preview. ${formatInertPreviewFooter('packages/conformance/src/capture-auth-request-auth-rules-test-api.ts')}`);
+    },
+    missingCredentials: () => {
+      if (hasParityCredential()) return null;
+      return NO_CREDENTIAL_MESSAGE;
+    },
+  });
   const scope = parityScope();
   const recorded = JSON.parse(readFileSync(SOURCE, 'utf8')) as { behavior: Record<string, RecordedSession>; observedAt: string };
   const behavior: Record<string, unknown> = {};

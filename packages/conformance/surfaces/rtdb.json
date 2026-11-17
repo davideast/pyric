@@ -9,7 +9,8 @@
   "coverage": true,
   "scopeNote": "native (no upstream): pure RTDB rules engine under the unstable rules-internal seam. Production data access and deployment are intentionally absent.",
   "captureRigs": [
-    "oracle-run"
+    "oracle-run",
+    "sdk-probes"
   ],
   "registry": "rtdb"
 }
