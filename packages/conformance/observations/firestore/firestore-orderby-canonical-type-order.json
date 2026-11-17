@@ -1,0 +1,70 @@
+{
+  "name": "firestore-orderby-canonical-type-order",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "orderBy cross-type canonical sort order (null, boolean, NaN/number, Timestamp, string, Bytes, DocumentReference, GeoPoint, array, map) and same-type range filter isolation.",
+  "observedAt": "2026-11-17T23:55:48.731Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "allAsc": {
+      "threw": false,
+      "ids": [
+        "t_null",
+        "t_bool_false",
+        "t_bool_true",
+        "t_num_nan",
+        "t_num_neg",
+        "t_num_two",
+        "t_num_ten",
+        "t_ts",
+        "t_str",
+        "t_bytes",
+        "t_ref",
+        "t_geo",
+        "t_arr",
+        "t_map"
+      ],
+      "code": null,
+      "errorName": null
+    },
+    "allDesc": {
+      "threw": false,
+      "ids": [
+        "t_map",
+        "t_arr",
+        "t_geo",
+        "t_ref",
+        "t_bytes",
+        "t_str",
+        "t_ts",
+        "t_num_ten",
+        "t_num_two",
+        "t_num_neg",
+        "t_num_nan",
+        "t_bool_true",
+        "t_bool_false",
+        "t_null"
+      ],
+      "code": null,
+      "errorName": null
+    },
+    "numberRangeGtZero": {
+      "threw": false,
+      "ids": [
+        "t_num_two",
+        "t_num_ten"
+      ],
+      "code": null,
+      "errorName": null
+    },
+    "stringRangeGteA": {
+      "threw": false,
+      "ids": [
+        "t_str"
+      ],
+      "code": null,
+      "errorName": null
+    }
+  }
+}

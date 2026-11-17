@@ -1,0 +1,84 @@
+{
+  "name": "firestore-composite-or-with-orderby-and-limit",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "or(...) composite filter combined with orderBy(...), limit(...), nested and(...), chained query(...), and top-level multi-filter validation in query(coll, ...).",
+  "observedAt": "2026-11-17T23:55:36.014Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "clientTopLevelMixing": {
+      "orWithOrderByAndLimit": {
+        "threw": false,
+        "errorName": null,
+        "isTypeError": false,
+        "code": null,
+        "message": null
+      },
+      "wherePlusOrSameCall": {
+        "threw": true,
+        "errorName": "FirebaseError",
+        "isTypeError": false,
+        "code": "invalid-argument",
+        "message": "InvalidQuery. When using composite filters, you cannot use more than one filter at the top level. Consider nesting the multiple filters within an `and(...)` statement. For example: change `query(query, where(...), or(...))` to `query(query, and(where(...), or(...)))`."
+      },
+      "orPlusWhereSameCall": {
+        "threw": true,
+        "errorName": "FirebaseError",
+        "isTypeError": false,
+        "code": "invalid-argument",
+        "message": "InvalidQuery. When using composite filters, you cannot use more than one filter at the top level. Consider nesting the multiple filters within an `and(...)` statement. For example: change `query(query, where(...), or(...))` to `query(query, and(where(...), or(...)))`."
+      },
+      "orPlusOrSameCall": {
+        "threw": true,
+        "errorName": "FirebaseError",
+        "isTypeError": false,
+        "code": "invalid-argument",
+        "message": "InvalidQuery. When using composite filters, you cannot use more than one filter at the top level. Consider nesting the multiple filters within an `and(...)` statement. For example: change `query(query, where(...), or(...))` to `query(query, and(where(...), or(...)))`."
+      },
+      "andWrappingWhereAndOr": {
+        "threw": false,
+        "errorName": null,
+        "isTypeError": false,
+        "code": null,
+        "message": null
+      },
+      "chainedWhereThenOr": {
+        "threw": false,
+        "errorName": null,
+        "isTypeError": false,
+        "code": null,
+        "message": null
+      }
+    },
+    "live": {
+      "orWithOrderByDescLimitTwo": {
+        "threw": false,
+        "ids": [
+          "d4",
+          "d3"
+        ],
+        "code": null,
+        "errorName": null
+      },
+      "andWrappingWhereAndOr": {
+        "threw": false,
+        "ids": [
+          "d1",
+          "d4"
+        ],
+        "code": null,
+        "errorName": null
+      },
+      "chainedWhereThenOr": {
+        "threw": false,
+        "ids": [
+          "d1",
+          "d4"
+        ],
+        "code": null,
+        "errorName": null
+      }
+    }
+  }
+}

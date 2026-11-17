@@ -1,0 +1,37 @@
+{
+  "name": "firestore-query-compose-where-orderby-limit",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "query(coll, where(...), orderBy(...), limit(...)) composes single-field filter, direction, and result cap in order.",
+  "observedAt": "2026-11-17T23:56:07.012Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "gteTwentyAscTopTwo": {
+      "threw": false,
+      "ids": [
+        "d2",
+        "d3"
+      ],
+      "code": null,
+      "errorName": null
+    },
+    "gteTwentyDescTopTwo": {
+      "threw": false,
+      "ids": [
+        "d4",
+        "d3"
+      ],
+      "code": null,
+      "errorName": null
+    },
+    "ltFortyDescTopOne": {
+      "threw": false,
+      "ids": [
+        "d3"
+      ],
+      "code": null,
+      "errorName": null
+    }
+  }
+}

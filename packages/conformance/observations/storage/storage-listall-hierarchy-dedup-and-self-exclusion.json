@@ -1,0 +1,22 @@
+{
+  "name": "storage-listall-hierarchy-dedup-and-self-exclusion",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "listAll(ref) hierarchy, deduplication, and self-exclusion: excludes an object stored at the exact scanned prefix path, excludes grandchildren from items, and deduplicates multiple files under one subfolder into a single prefix entry.",
+  "observedAt": "2026-11-17T23:56:39.841Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "exactPrefixObjectExists": true,
+    "scannedRefIncludedInItems": false,
+    "grandchildrenIncludedInItems": false,
+    "itemNames": [
+      "direct-one.bin",
+      "direct-two.bin"
+    ],
+    "prefixNames": [
+      "deep-folder",
+      "shared-folder"
+    ]
+  }
+}

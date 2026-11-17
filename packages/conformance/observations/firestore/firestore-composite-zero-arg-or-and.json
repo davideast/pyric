@@ -1,0 +1,61 @@
+{
+  "name": "firestore-composite-zero-arg-or-and",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "Zero-argument or() and and() behavior on client construction and live getDocs(query(coll, or())) / getDocs(query(coll, and())) execution.",
+  "observedAt": "2026-11-17T23:55:39.983Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "clientConstruction": {
+      "orZeroArgs": {
+        "threw": false,
+        "errorName": null,
+        "isTypeError": false,
+        "code": null,
+        "message": null
+      },
+      "andZeroArgs": {
+        "threw": false,
+        "errorName": null,
+        "isTypeError": false,
+        "code": null,
+        "message": null
+      },
+      "queryWithOrZeroArgs": {
+        "threw": false,
+        "errorName": null,
+        "isTypeError": false,
+        "code": null,
+        "message": null
+      },
+      "queryWithAndZeroArgs": {
+        "threw": false,
+        "errorName": null,
+        "isTypeError": false,
+        "code": null,
+        "message": null
+      }
+    },
+    "liveExecution": {
+      "getDocsWithOrZeroArgs": {
+        "threw": false,
+        "ids": [
+          "d1",
+          "d2"
+        ],
+        "code": null,
+        "errorName": null
+      },
+      "getDocsWithAndZeroArgs": {
+        "threw": false,
+        "ids": [
+          "d1",
+          "d2"
+        ],
+        "code": null,
+        "errorName": null
+      }
+    }
+  }
+}

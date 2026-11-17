@@ -1,0 +1,43 @@
+{
+  "name": "firestore-orderby-implicit-inequality-and-name-tiebreak",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "Implicit orderBy on an inequality-filtered field without explicit orderBy and deterministic document-key tiebreak on equal field values.",
+  "observedAt": "2026-11-17T23:55:59.794Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "equalValueAscTiebreak": {
+      "threw": false,
+      "ids": [
+        "k2",
+        "k1",
+        "k3",
+        "k0"
+      ],
+      "code": null,
+      "errorName": null
+    },
+    "equalValueDescTiebreak": {
+      "threw": false,
+      "ids": [
+        "k0",
+        "k3",
+        "k1",
+        "k2"
+      ],
+      "code": null,
+      "errorName": null
+    },
+    "inequalityWithoutExplicitOrderBy": {
+      "threw": false,
+      "ids": [
+        "k1",
+        "k3",
+        "k0"
+      ],
+      "code": null,
+      "errorName": null
+    }
+  }
+}

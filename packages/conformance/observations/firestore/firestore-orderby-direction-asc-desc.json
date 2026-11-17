@@ -1,0 +1,41 @@
+{
+  "name": "firestore-orderby-direction-asc-desc",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "orderBy(field) default direction versus explicit asc and desc direction arguments.",
+  "observedAt": "2026-11-17T23:55:52.385Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "defaultDirection": {
+      "threw": false,
+      "ids": [
+        "d2",
+        "d3",
+        "d1"
+      ],
+      "code": null,
+      "errorName": null
+    },
+    "explicitAsc": {
+      "threw": false,
+      "ids": [
+        "d2",
+        "d3",
+        "d1"
+      ],
+      "code": null,
+      "errorName": null
+    },
+    "explicitDesc": {
+      "threw": false,
+      "ids": [
+        "d1",
+        "d3",
+        "d2"
+      ],
+      "code": null,
+      "errorName": null
+    }
+  }
+}

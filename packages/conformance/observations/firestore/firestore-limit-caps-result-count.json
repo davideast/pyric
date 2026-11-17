@@ -1,0 +1,66 @@
+{
+  "name": "firestore-limit-caps-result-count",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "limit(n) caps returned document count across ascending, descending, and over-collection bounds, and rejects non-positive limits on construction.",
+  "observedAt": "2026-11-17T23:55:44.001Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "clientBounds": {
+      "limitZero": {
+        "threw": true,
+        "errorName": "FirebaseError",
+        "isTypeError": false,
+        "code": "invalid-argument",
+        "message": "Function limit() requires a positive number, but it was: 0."
+      },
+      "limitNegativeOne": {
+        "threw": true,
+        "errorName": "FirebaseError",
+        "isTypeError": false,
+        "code": "invalid-argument",
+        "message": "Function limit() requires a positive number, but it was: -1."
+      },
+      "limitPositiveTwo": {
+        "threw": false,
+        "errorName": null,
+        "isTypeError": false,
+        "code": null,
+        "message": null
+      }
+    },
+    "live": {
+      "ascLimitTwo": {
+        "threw": false,
+        "ids": [
+          "d1",
+          "d2"
+        ],
+        "code": null,
+        "errorName": null
+      },
+      "descLimitThree": {
+        "threw": false,
+        "ids": [
+          "d4",
+          "d3",
+          "d2"
+        ],
+        "code": null,
+        "errorName": null
+      },
+      "ascLimitExceedsCount": {
+        "threw": false,
+        "ids": [
+          "d1",
+          "d2",
+          "d3",
+          "d4"
+        ],
+        "code": null,
+        "errorName": null
+      }
+    }
+  }
+}

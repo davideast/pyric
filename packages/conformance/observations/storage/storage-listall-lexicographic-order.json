@@ -1,0 +1,39 @@
+{
+  "name": "storage-listall-lexicographic-order",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "listAll(ref) deterministic ordering: uploads items and sub-folder prefixes in scrambled numeric and mixed-case order and observes exact lexicographic ordering of items and prefixes.",
+  "observedAt": "2026-11-17T23:56:45.867Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "uploadedItemOrder": [
+      "z.bin",
+      "a.bin",
+      "10.bin",
+      "2.bin",
+      "B.bin"
+    ],
+    "uploadedPrefixOrder": [
+      "p-z",
+      "p-a",
+      "p-10",
+      "p-2",
+      "p-B"
+    ],
+    "observedItemNames": [
+      "10.bin",
+      "2.bin",
+      "B.bin",
+      "a.bin",
+      "z.bin"
+    ],
+    "observedPrefixNames": [
+      "p-10",
+      "p-2",
+      "p-B",
+      "p-a",
+      "p-z"
+    ]
+  }
+}
