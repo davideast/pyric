@@ -676,7 +676,7 @@ describe('pyric-admin remote dispatch — Auth', () => {
   it('unmodeled surface throws the canonical remote "not implemented" error', () => {
     const { app } = makeStack();
     const auth = getAuth(app);
-    expect(auth.createSessionCookie('x', { expiresIn: 1 })).rejects.toThrow(
+    expect(auth.createSessionCookie('x', { expiresIn: 300_000 })).rejects.toThrow(
       /not implemented in pyric-admin\/auth remote sandbox backend/,
     );
     expect(() => auth.tenantManager()).toThrow(/not implemented/);

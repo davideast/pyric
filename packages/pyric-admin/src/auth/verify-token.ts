@@ -9,7 +9,8 @@ import type { DecodedIdToken } from './types.js';
 import { checkClientIdToken, type IdTokenFailureCode, type IdTokenVerdict } from './token-decoders.js';
 
 /** The codes `checkRevoked`, `revokeRefreshTokens`, and admin user-management add to a token check's. */
-type AccountFailureCode =
+export type AccountFailureCode =
+  | 'internal-error'
   | 'user-not-found'
   | 'user-disabled'
   | 'id-token-revoked'
@@ -18,6 +19,26 @@ type AccountFailureCode =
   | 'uid-already-exists'
   | 'invalid-password'
   | 'invalid-email'
+  | 'invalid-new-email'
+  | 'invalid-phone-number'
+  | 'invalid-display-name'
+  | 'invalid-photo-url'
+  | 'invalid-email-verified'
+  | 'invalid-disabled-field'
+  | 'invalid-provider-id'
+  | 'invalid-provider-uid'
+  | 'invalid-enrolled-factors'
+  | 'invalid-enrollment-time'
+  | 'unsupported-second-factor'
+  | 'maximum-user-count-exceeded'
+  | 'invalid-id-token'
+  | 'invalid-session-cookie-duration'
+  | 'missing-continue-uri'
+  | 'invalid-continue-uri'
+  | 'invalid-dynamic-link-domain'
+  | 'invalid-hosting-link-domain'
+  | 'missing-ios-bundle-id'
+  | 'missing-android-pkg-name'
   | 'invalid-page-token'
   | 'claims-too-large';
 

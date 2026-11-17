@@ -4,7 +4,7 @@
  * bridge, every frame JSON round-tripped as the wire would carry it).
  */
 import 'fake-indexeddb/auto';
-import { initializeSandbox, type Sandbox } from 'pyric/sandbox';
+import { initializeSandbox, type LocalSandbox } from 'pyric/sandbox';
 import { getClock } from 'pyric/sandbox/internal';
 import { getFirestore } from 'pyric/firestore';
 import { getStorageSandbox } from 'pyric/storage';
@@ -31,7 +31,7 @@ export interface ArmOptions {
 }
 
 /** A fresh host sandbox, its clock pinned when the arm asks. */
-function hostSandbox(fixedClockAt: number | undefined): Sandbox {
+function hostSandbox(fixedClockAt: number | undefined): LocalSandbox {
   const sandbox = initializeSandbox();
   if (fixedClockAt !== undefined) getClock(sandbox).set(fixedClockAt);
   return sandbox;
@@ -57,10 +57,13 @@ export function sharedWorkerApp({ fixedClockAt, ...options }: ArmOptions = {}): 
     postMessage(raw: unknown) {
       const message = raw as OutboundMessage;
       if (message.t !== 'res') return;
-      const reply = message.ok
-        ? { type: 'worker-res', id: message.id, ok: true, value: message.value }
-        : { type: 'worker-res', id: message.id, ok: false, error: message.error };
-      bridge.handleSandboxMessage(overWire(reply) as BridgeMessage, generation);
+      let reply: BridgeMessage;
+      if (message.ok) {
+        reply = { type: 'worker-res', id: message.id, ok: true, value: message.value };
+      } else {
+        reply = { type: 'worker-res', id: message.id, ok: false, error: message.error };
+      }
+      bridge.handleSandboxMessage(overWire(reply), generation);
     },
   };
   bridge.registerSandboxPeer((message: BridgeMessage) => {

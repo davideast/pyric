@@ -7,6 +7,8 @@ import type { AuthAccountStanding } from 'pyric/sandbox/internal';
 import type { AuthUserRecord } from 'pyric/auth';
 import type { PyricAdminApp } from '../app/index.js';
 import { assertAdminAppActive } from '../app/lifecycle.js';
+import { validateCreateUserPreflight } from './preflight-validation.js';
+import { buildUnmodeledAuthPreflightMethods } from './session-and-link-preflight.js';
 import type {
   Auth,
   CreateRequest,
@@ -17,16 +19,15 @@ import type {
 } from './types.js';
 import {
   assertCustomTokenArguments,
-  assertValidCustomUserClaims,
   fromAuthUserRecord,
   idTokenProjectId,
   mintSandboxCustomToken,
+  normalizeCustomUserClaims,
   paginateUserRecords,
   prepareSandboxUpdateRequest,
   toSandboxCreateRequest,
   translateAdminBackendError,
   validateAdminEmail,
-  validateAdminPassword,
   validateListUsersArguments,
 } from './validation.js';
 import {
@@ -82,22 +83,11 @@ export function makeRemoteAuth(app: PyricAdminApp, sandbox: RemoteSandbox): Auth
 
     async createUser(properties: CreateRequest): Promise<UserRecord> {
       assertAdminAppActive(app);
-      if (properties.uid !== undefined) {
-        const uidErr = invalidUid(properties.uid);
-        if (uidErr !== null) throw uidErr;
-      }
-      if (properties.email !== undefined) {
-        const emailErr = validateAdminEmail(properties.email);
-        if (emailErr !== null) throw emailErr;
-      }
-      if (properties.password !== undefined) {
-        const pwErr = validateAdminPassword(properties.password);
-        if (pwErr !== null) throw pwErr;
-      }
+      const validated = validateCreateUserPreflight(properties);
       try {
         const record = await channel.op({
           method: 'auth.adminCreateUser',
-          request: toSandboxCreateRequest(properties) as unknown as Record<string, unknown>,
+          request: toSandboxCreateRequest(validated) as unknown as Record<string, unknown>,
         });
         return fromAuthUserRecord(record as AuthUserRecord);
       } catch (err) {
@@ -173,38 +163,18 @@ export function makeRemoteAuth(app: PyricAdminApp, sandbox: RemoteSandbox): Auth
       assertAdminAppActive(app);
       const uidErr = invalidUid(uid);
       if (uidErr !== null) throw uidErr;
-      assertValidCustomUserClaims(customUserClaims);
+      const claimsMap = normalizeCustomUserClaims(customUserClaims);
       try {
         await channel.op({
           method: 'auth.adminUpdateUser',
           uid,
-          request: { customClaims: customUserClaims ?? {} },
+          request: { customClaims: claimsMap },
         });
       } catch (err) {
         throw translateAdminBackendError(err);
       }
     },
 
-    getUserByPhoneNumber(): Promise<UserRecord> {
-      assertAdminAppActive(app);
-      return Promise.reject(notImplemented('getUserByPhoneNumber'));
-    },
-    getUserByProviderUid(): Promise<UserRecord> {
-      assertAdminAppActive(app);
-      return Promise.reject(notImplemented('getUserByProviderUid'));
-    },
-    getUsers(): Promise<unknown> {
-      assertAdminAppActive(app);
-      return Promise.reject(notImplemented('getUsers'));
-    },
-    deleteUsers(): Promise<unknown> {
-      assertAdminAppActive(app);
-      return Promise.reject(notImplemented('deleteUsers'));
-    },
-    importUsers(): Promise<unknown> {
-      assertAdminAppActive(app);
-      return Promise.reject(notImplemented('importUsers'));
-    },
     async revokeRefreshTokens(uid: string): Promise<void> {
       assertAdminAppActive(app);
       const uidError = invalidUid(uid);
@@ -215,50 +185,7 @@ export function makeRemoteAuth(app: PyricAdminApp, sandbox: RemoteSandbox): Auth
         throw translateAdminBackendError(err);
       }
     },
-    createSessionCookie(): Promise<string> {
-      assertAdminAppActive(app);
-      return Promise.reject(notImplemented('createSessionCookie'));
-    },
-    verifySessionCookie(): Promise<DecodedIdToken> {
-      assertAdminAppActive(app);
-      return Promise.reject(notImplemented('verifySessionCookie'));
-    },
-    generatePasswordResetLink(): Promise<string> {
-      assertAdminAppActive(app);
-      return Promise.reject(notImplemented('generatePasswordResetLink'));
-    },
-    generateEmailVerificationLink(): Promise<string> {
-      assertAdminAppActive(app);
-      return Promise.reject(notImplemented('generateEmailVerificationLink'));
-    },
-    generateSignInWithEmailLink(): Promise<string> {
-      assertAdminAppActive(app);
-      return Promise.reject(notImplemented('generateSignInWithEmailLink'));
-    },
-    generateVerifyAndChangeEmailLink(): Promise<string> {
-      assertAdminAppActive(app);
-      return Promise.reject(notImplemented('generateVerifyAndChangeEmailLink'));
-    },
-    createProviderConfig(): Promise<unknown> {
-      assertAdminAppActive(app);
-      return Promise.reject(notImplemented('createProviderConfig'));
-    },
-    getProviderConfig(): Promise<unknown> {
-      assertAdminAppActive(app);
-      return Promise.reject(notImplemented('getProviderConfig'));
-    },
-    listProviderConfigs(): Promise<unknown> {
-      assertAdminAppActive(app);
-      return Promise.reject(notImplemented('listProviderConfigs'));
-    },
-    updateProviderConfig(): Promise<unknown> {
-      assertAdminAppActive(app);
-      return Promise.reject(notImplemented('updateProviderConfig'));
-    },
-    deleteProviderConfig(): Promise<void> {
-      assertAdminAppActive(app);
-      return Promise.reject(notImplemented('deleteProviderConfig'));
-    },
+    ...buildUnmodeledAuthPreflightMethods(app, notImplemented),
     get tenantManager(): never {
       assertAdminAppActive(app);
       throw notImplemented('tenantManager');

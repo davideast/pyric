@@ -92,9 +92,32 @@ import {
 import { getDefaultServiceApp } from '../app/default-service-app.js';
 import { assertAdminAppActive } from '../app/lifecycle.js';
 import { defineDeferredMembers } from 'pyric/app/internal';
+import {
+  DEFAULT_SANDBOX_BUCKET,
+  assertDeleteFileOptions,
+  byteRange,
+  copyTargetOf,
+  declaredByteLengthOf,
+  normalizeBucketName,
+  normalizeByteBounds,
+  normalizeCopyOptions,
+  normalizeDownloadOptions,
+  normalizeFileObjectPath,
+  normalizeResumableUploadOptions,
+  normalizeSaveOptions,
+  normalizeWriteStreamOptions,
+  resolveDefaultBucketName,
+  stubSignedUrl,
+  toBytesAsync,
+  tryNormalizeBucketName,
+} from './argument-validation.js';
 import { BUCKET_DEFERRED_MEMBERS, FILE_DEFERRED_MEMBERS } from './deferred-members.js';
 import { deletedNamesFound, deleteListedFiles } from './delete-files.js';
-import { assertQuery, type DeleteFilesOptions, type GetFilesOptions } from './file-query.js';
+import {
+  normalizeListingQuery,
+  type DeleteFilesOptions,
+  type GetFilesOptions,
+} from './file-query.js';
 import { getFilesResponse, pageNamesFound, type GetFilesResponse } from './get-files.js';
 import {
   fileMetadataOf,
@@ -325,25 +348,29 @@ export type StorageApp = PyricAdminApp;
  *   lives on the `Sandbox`. `sandbox.reset()` wipes it.
  */
 export function getStorage(app?: StorageApp): Storage {
-  // No-arg call resolves the default app; nothing initialized → captured
-  // `app/no-app` FirebaseAppError (see pyric-admin/app getApp).
-  const resolved: PyricAdminApp = app ?? getDefaultServiceApp();
-  assertAdminAppActive(resolved);
-  if (resolved[ADMIN_APP_TARGET] === 'sandbox') {
-    // Remote brand checked BEFORE the local arm (same dispatch order as
-    // auth/database): the local arm's WeakMap state + `onEvent` reset hook
-    // must never touch a remote handle — local state keyed off a remote
-    // handle would be a private server-side store the browser never sees,
-    // and `onEvent` throws on remote handles by design.
-    const configuredBucket = resolved.options.storageBucket;
-    if (isRemoteSandbox(resolved.sandbox)) {
-      return getRemoteStorage(resolved, resolved.sandbox, configuredBucket);
-    }
-    return getSandboxStorage(resolved, configuredBucket);
+  let resolved: unknown = app;
+  if (resolved === undefined) {
+    resolved = getDefaultServiceApp();
   }
-  // Defensive: the union is closed at the type level. A runtime value
-  // that lands here means a caller forged a handle without going
-  // through `initializeApp`.
+  if (
+    resolved === null ||
+    typeof resolved !== 'object' ||
+    !(ADMIN_APP_TARGET in resolved)
+  ) {
+    throw new TypeError(
+      'pyric-admin/storage: getStorage expected a PyricAdminApp from `initializeApp`; ' +
+        'received a value with no recognized ADMIN_APP_TARGET brand.',
+    );
+  }
+  const adminApp = resolved as PyricAdminApp;
+  assertAdminAppActive(adminApp);
+  if (adminApp[ADMIN_APP_TARGET] === 'sandbox') {
+    const configuredBucket = adminApp.options.storageBucket;
+    if (isRemoteSandbox(adminApp.sandbox)) {
+      return getRemoteStorage(adminApp, adminApp.sandbox, configuredBucket);
+    }
+    return getSandboxStorage(adminApp, configuredBucket);
+  }
   throw new TypeError(
     'pyric-admin/storage: getStorage expected a PyricAdminApp from `initializeApp`; ' +
       'received a value with no recognized ADMIN_APP_TARGET brand.',
@@ -366,22 +393,22 @@ interface DownloadUrlSource {
  * carries the bytes.
  */
 export async function getDownloadURL(file: File): Promise<string> {
-  const source = file as File & Partial<DownloadUrlSource>;
-  const served = typeof source[DOWNLOAD_URL] === 'function';
-  if (!served) {
-    throw new Error('pyric-admin/storage: getDownloadURL expects a File from getStorage().bucket().file().');
+  if (file === null || typeof file !== 'object') {
+    throw new TypeError(
+      'pyric-admin/storage: getDownloadURL expects a File from getStorage().bucket().file().',
+    );
   }
-  return source[DOWNLOAD_URL]!();
+  const source = file as File & Partial<DownloadUrlSource>;
+  const downloadFn = source[DOWNLOAD_URL];
+  if (typeof downloadFn !== 'function') {
+    throw new TypeError(
+      'pyric-admin/storage: getDownloadURL expects a File from getStorage().bucket().file().',
+    );
+  }
+  return downloadFn.call(source);
 }
 
-// ─── Sandbox path ───────────────────────────────────────────────────────
-
-/**
- * Default sandbox bucket name. Matches the `pyric-default` used by the
- * `pyric/storage` modular sandbox so consumers that switch between
- * surfaces don't see an unexpected bucket name change.
- */
-const DEFAULT_SANDBOX_BUCKET = 'pyric-default';
+// --- Sandbox path ---------------------------------------------------------
 
 interface SandboxStorageState {
   readonly dbName: string;
@@ -546,19 +573,27 @@ class SandboxBucket implements Bucket {
 
   file(path: string): File {
     this.storage.assertActive();
-    return new SandboxFile(path, this);
+    return new SandboxFile(normalizeFileObjectPath(path), this);
   }
 
   async getFiles(query: GetFilesOptions = {}): Promise<GetFilesResponse<File>> {
     this.storage.assertActive();
-    assertQuery(query, 'getFiles');
-    return getFilesResponse(await this.namesUnder(query.prefix ?? ''), query, (name) => this.file(name));
+    const normalized = normalizeListingQuery<GetFilesOptions>(query, 'getFiles');
+    return getFilesResponse(
+      await this.namesUnder(normalized.prefix ?? ''),
+      normalized,
+      (name) => this.file(name),
+    );
   }
 
   async deleteFiles(query: DeleteFilesOptions = {}): Promise<void> {
     this.storage.assertActive();
-    assertQuery(query, 'deleteFiles');
-    await deleteListedFiles(await this.namesUnder(query.prefix ?? ''), query, (name) => this.file(name).delete());
+    const normalized = normalizeListingQuery<DeleteFilesOptions>(query, 'deleteFiles');
+    await deleteListedFiles(
+      await this.namesUnder(normalized.prefix ?? ''),
+      normalized,
+      (name) => this.file(name).delete(),
+    );
   }
 
   private async namesUnder(prefix: string): Promise<string[]> {
@@ -584,24 +619,28 @@ class SandboxFile implements File {
     options: SaveOptions = {},
   ): Promise<void> {
     this.bucket.storage.assertActive();
-    const rawLength = typeof data === 'string' ? Buffer.byteLength(data, 'utf8') : data.byteLength;
-    if (rawLength > MAX_STORAGE_OBJECT_BYTES) {
-      throw quotaExceeded(rawLength, `save() payload for '${this.name}'`);
+    const normalizedOptions = normalizeSaveOptions(options);
+    const declaredBytes = declaredByteLengthOf(data);
+    if (declaredBytes !== undefined && declaredBytes > MAX_STORAGE_OBJECT_BYTES) {
+      throw quotaExceeded(declaredBytes, `save() payload for '${this.name}'`);
+    }
+    const bytes = await toBytesAsync(data);
+    if (bytes.byteLength > MAX_STORAGE_OBJECT_BYTES) {
+      throw quotaExceeded(bytes.byteLength, `save() payload for '${this.name}'`);
     }
     await this.bucket.storage.waitForReset();
-    const bytes = toBytes(data);
-    const saved = savedMetadataOf(options.metadata ?? {});
-    const contentType = options.contentType ?? saved.settable.contentType;
-    const settable: SettableMetadata = {
-      ...saved.settable,
-      ...(contentType !== undefined ? { contentType } : {}),
-      ...(Object.keys(saved.custom).length > 0 ? { customMetadata: saved.custom } : {}),
-    };
+    const saved = savedMetadataOf(normalizedOptions.metadata ?? {});
+    const contentType = normalizedOptions.contentType ?? saved.settable.contentType;
+    const settable: SettableMetadata = { ...saved.settable };
+    if (contentType !== undefined) settable.contentType = contentType;
+    if (Object.keys(saved.custom).length > 0) settable.customMetadata = saved.custom;
+    const uploadOpts: { downloadTokens?: string } = {};
+    if (saved.downloadTokens !== undefined) uploadOpts.downloadTokens = saved.downloadTokens;
     await uploadObject(
       storageRef(this.bucket.adminStorage(), this.name),
       bytes,
       settable,
-      { ...(saved.downloadTokens !== undefined ? { downloadTokens: saved.downloadTokens } : {}) },
+      uploadOpts,
     );
   }
 
@@ -648,26 +687,26 @@ class SandboxFile implements File {
 
   async download(options: DownloadOptions = {}): Promise<[Buffer]> {
     this.bucket.storage.assertActive();
+    const normalizedOptions = normalizeDownloadOptions(options);
     await this.bucket.storage.waitForReset();
     const adminStorage = this.bucket.adminStorage();
     const r = storageRef(adminStorage, this.name);
     const service = await getStorageService(adminStorage);
     const object = await service.backend.getObject(r.fullPath, this.bucket.storeBucket);
     if (!object) {
-      // Mirror the gcs/firebase-admin error message shape so consumer
-      // catch-blocks that string-match `No such object` keep working.
       throw new Error(
         `No such object: ${this.bucket.name}/${this.name}`,
       );
     }
     const bytes = new Uint8Array(await object.blob.arrayBuffer());
-    return [Buffer.from(byteRange(bytes, options))];
+    return [Buffer.from(byteRange(bytes, normalizedOptions))];
   }
 
   createReadStream(options: CreateReadStreamOptions = {}): Readable {
     this.bucket.storage.assertActive();
+    const normalizedOptions = normalizeDownloadOptions(options);
     const read = async function* (file: SandboxFile): AsyncGenerator<Uint8Array> {
-      const [bytes] = await file.download(options);
+      const [bytes] = await file.download(normalizedOptions);
       yield bytes;
     };
     return Readable.from(read(this), { objectMode: false });
@@ -675,11 +714,13 @@ class SandboxFile implements File {
 
   createWriteStream(options: CreateWriteStreamOptions = {}): Writable {
     this.bucket.storage.assertActive();
-    return spooledWriteStream(async spooled => this.save(await readFile(spooled), options));
+    const normalizedOptions = normalizeWriteStreamOptions(options);
+    return spooledWriteStream(async spooled => this.save(await readFile(spooled), normalizedOptions));
   }
 
-  async createResumableUpload(): Promise<[string]> {
+  async createResumableUpload(options?: CreateResumableUploadOptions): Promise<[string]> {
     this.bucket.storage.assertActive();
+    normalizeResumableUploadOptions(options);
     throw new Error(
       'not implemented in pyric-admin/storage sandbox backend: resumable upload sessions (createResumableUpload). ' +
         'The in-process sandbox has no HTTP host to take the bytes; upload with file.save() or file.createWriteStream().',
@@ -688,12 +729,19 @@ class SandboxFile implements File {
 
   async copy(destination: CopyDestination, options: CopyOptions = {}): Promise<[File, FileMetadata]> {
     this.bucket.storage.assertActive();
-    const target = copyTargetOf(this, destination, this.bucket.storage);
+    const normalizedOptions = normalizeCopyOptions(options);
+    const target = copyTargetOf(
+      this,
+      destination,
+      this.bucket.storage,
+      isBucketHandle,
+      isFileHandle,
+    );
     const local = target instanceof SandboxFile && target.bucket.storage.sandbox === this.bucket.storage.sandbox;
     if (!local) throw new Error('pyric-admin/storage: File.copy copies to a File from the same getStorage() sandbox.');
     target.bucket.storage.assertActive();
     await this.bucket.storage.waitForReset();
-    const patch = patchOf(copyMetadataOf(options), { strict: false });
+    const patch = patchOf(copyMetadataOf(normalizedOptions), { strict: false });
     const full = (await this.missingAsNoSuchObject(
       copyObject(
         storageRef(this.bucket.adminStorage(), this.name),
@@ -704,8 +752,9 @@ class SandboxFile implements File {
     return [target, fileMetadataOf({ ...full, bucket: target.bucket.name })];
   }
 
-  async delete(): Promise<void> {
+  async delete(options?: unknown): Promise<void> {
     this.bucket.storage.assertActive();
+    assertDeleteFileOptions(options);
     await this.bucket.storage.waitForReset();
     await storageDeleteObject(storageRef(this.bucket.adminStorage(), this.name));
   }
@@ -845,21 +894,21 @@ class RemoteBucket implements Bucket {
 
   file(path: string): File {
     this.storage.assertActive();
-    return new RemoteFile(path, this, this.channel);
+    return new RemoteFile(normalizeFileObjectPath(path), this, this.channel);
   }
 
   async getFiles(query: GetFilesOptions = {}): Promise<GetFilesResponse<File>> {
     this.storage.assertActive();
-    assertQuery(query, 'getFiles');
-    const names = await this.namesFor(query, pageNamesFound(query));
-    return getFilesResponse(names, query, name => this.file(name));
+    const normalized = normalizeListingQuery<GetFilesOptions>(query, 'getFiles');
+    const names = await this.namesFor(normalized, pageNamesFound(normalized));
+    return getFilesResponse(names, normalized, name => this.file(name));
   }
 
   async deleteFiles(query: DeleteFilesOptions = {}): Promise<void> {
     this.storage.assertActive();
-    assertQuery(query, 'deleteFiles');
-    const names = await this.namesFor(query, deletedNamesFound(query));
-    await deleteListedFiles(names, query, name => this.file(name).delete());
+    const normalized = normalizeListingQuery<DeleteFilesOptions>(query, 'deleteFiles');
+    const names = await this.namesFor(normalized, deletedNamesFound(normalized));
+    await deleteListedFiles(names, normalized, name => this.file(name).delete());
   }
 
   /** The host's object names `query` reads, walked folder by folder with `storage.listAll` until `enough`. */
@@ -889,34 +938,42 @@ class RemoteFile implements File {
     options: SaveOptions = {},
   ): Promise<void> {
     this.bucket.storage.assertActive();
-    const rawLength = typeof data === 'string' ? Buffer.byteLength(data, 'utf8') : data.byteLength;
-    if (rawLength > MAX_STORAGE_OBJECT_BYTES) {
-      throw quotaExceeded(rawLength, `save() payload for '${this.name}'`);
+    const normalizedOptions = normalizeSaveOptions(options);
+    const declaredBytes = declaredByteLengthOf(data);
+    if (declaredBytes !== undefined && declaredBytes > MAX_STORAGE_OBJECT_BYTES) {
+      throw quotaExceeded(declaredBytes, `save() payload for '${this.name}'`);
     }
-    await this.upload(new Blob([toBytes(data) as Uint8Array<ArrayBuffer>]), options);
+    const bytes = await toBytesAsync(data);
+    if (bytes.byteLength > MAX_STORAGE_OBJECT_BYTES) {
+      throw quotaExceeded(bytes.byteLength, `save() payload for '${this.name}'`);
+    }
+    await this.upload(new Blob([bytes as Uint8Array<ArrayBuffer>]), normalizedOptions);
   }
 
   async download(options: DownloadOptions = {}): Promise<[Buffer]> {
     this.bucket.storage.assertActive();
+    const normalizedOptions = normalizeDownloadOptions(options);
     const parts: Uint8Array[] = [];
-    for await (const part of this.read(options)) parts.push(part);
+    for await (const part of this.read(normalizedOptions)) parts.push(part);
     return [Buffer.concat(parts)];
   }
 
   createReadStream(options: CreateReadStreamOptions = {}): Readable {
     this.bucket.storage.assertActive();
-    return Readable.from(this.read(options), { objectMode: false });
+    const normalizedOptions = normalizeDownloadOptions(options);
+    return Readable.from(this.read(normalizedOptions), { objectMode: false });
   }
 
   createWriteStream(options: CreateWriteStreamOptions = {}): Writable {
     this.bucket.storage.assertActive();
+    const normalizedOptions = normalizeWriteStreamOptions(options);
     return spooledWriteStream(async spooled => {
       this.bucket.storage.assertActive();
       const data = await openAsBlob(spooled);
       if (data.size > MAX_STORAGE_OBJECT_BYTES) {
         throw quotaExceeded(data.size, `createWriteStream() payload for '${this.name}'`);
       }
-      await this.upload(data, options);
+      await this.upload(data, normalizedOptions);
     });
   }
 
@@ -929,8 +986,9 @@ class RemoteFile implements File {
    * requests. A host without a byte route (a browser tab's SharedWorker) has
    * no URL to give, so this rejects there.
    */
-  async createResumableUpload(options: CreateResumableUploadOptions = {}): Promise<[string]> {
+  async createResumableUpload(options?: CreateResumableUploadOptions): Promise<[string]> {
     this.bucket.storage.assertActive();
+    const normalizedOptions = normalizeResumableUploadOptions(options);
     const route = await this.channel.byteRoute?.();
     const routed = route !== undefined;
     if (!routed) {
@@ -939,21 +997,31 @@ class RemoteFile implements File {
           'on a host without an HTTP byte route. Upload with file.save() or file.createWriteStream().',
       );
     }
-    const { uploadUrl } = (await this.channel.op({
+    const uploadInput: CreateWriteStreamOptions = {};
+    if (normalizedOptions.metadata !== undefined) uploadInput.metadata = normalizedOptions.metadata;
+    const opPayload: { method: string } & Record<string, unknown> = {
       method: 'storage.createUploadSession',
       ...this.bucket.wire,
       path: this.name,
-      ...uploadRequestOf({ ...(options.metadata !== undefined ? { metadata: options.metadata } : {}) }),
-      ...(options.origin !== undefined ? { origin: options.origin } : {}),
+      ...uploadRequestOf(uploadInput),
       actAs: STORAGE_REMOTE_ADMIN_LENS,
-    })) as { uploadUrl: string };
+    };
+    if (normalizedOptions.origin !== undefined) opPayload.origin = normalizedOptions.origin;
+    const { uploadUrl } = (await this.channel.op(opPayload)) as { uploadUrl: string };
     return [new URL(uploadUrl, route.baseUrl).href];
   }
 
   /** Copy this object, with its metadata, to `destination`; `options` change the copy's metadata. */
   async copy(destination: CopyDestination, options: CopyOptions = {}): Promise<[File, FileMetadata]> {
     this.bucket.storage.assertActive();
-    const target = copyTargetOf(this, destination, this.bucket.storage);
+    const normalizedOptions = normalizeCopyOptions(options);
+    const target = copyTargetOf(
+      this,
+      destination,
+      this.bucket.storage,
+      isBucketHandle,
+      isFileHandle,
+    );
     const remote = target instanceof RemoteFile && target.channel === this.channel;
     if (!remote) throw new Error('pyric-admin/storage: File.copy copies to a File from the same remote sandbox.');
     target.bucket.storage.assertActive();
@@ -963,7 +1031,7 @@ class RemoteFile implements File {
       ...this.bucket.wire,
       path: this.name,
       destinationPath: target.name,
-      patch: patchOf(copyMetadataOf(options), { strict: false }),
+      patch: patchOf(copyMetadataOf(normalizedOptions), { strict: false }),
       actAs: STORAGE_REMOTE_ADMIN_LENS,
     };
     if (destinationWire.bucket !== undefined) {
@@ -1040,10 +1108,10 @@ class RemoteFile implements File {
     })) as { bucket: string; fullPath: string; size: number; generation: string };
     const bounds = normalizeByteBounds(metadata.size, options);
     if (bounds === null) return;
-    const normalizedOptions: DownloadOptions =
-      bounds.start === 0 && bounds.endExclusive === metadata.size
-        ? {}
-        : { start: bounds.start, end: bounds.endExclusive - 1 };
+    let normalizedOptions: DownloadOptions = {};
+    if (bounds.start !== 0 || bounds.endExclusive !== metadata.size) {
+      normalizedOptions = { start: bounds.start, end: bounds.endExclusive - 1 };
+    }
     const route = await this.channel.byteRoute?.();
     const routed = route !== undefined;
     if (!routed) {
@@ -1150,8 +1218,9 @@ class RemoteFile implements File {
     }
   }
 
-  async delete(): Promise<void> {
+  async delete(options?: unknown): Promise<void> {
     this.bucket.storage.assertActive();
+    assertDeleteFileOptions(options);
     try {
       await this.channel.op({
         method: 'storage.deleteObject',
@@ -1160,9 +1229,6 @@ class RemoteFile implements File {
         actAs: STORAGE_REMOTE_ADMIN_LENS,
       });
     } catch (err) {
-      // The worker store's delete is already idempotent, but swallow a
-      // not-found defensively so the local arm's idempotent-delete contract
-      // holds even if `pyric/storage` adopts stricter delete semantics later.
       if (isObjectNotFound(err)) return;
       throw err;
     }
@@ -1184,7 +1250,7 @@ class RemoteFile implements File {
     }
   }
 
-  /** Local stub — byte-identical to the local arm's (no data needed, so it
+  /** Local stub -- byte-identical to the local arm's (no data needed, so it
    *  never relays). The sandbox does NOT serve the URL. */
   async getSignedUrl(options: GetSignedUrlOptions): Promise<[string]> {
     this.bucket.storage.assertActive();
@@ -1192,94 +1258,57 @@ class RemoteFile implements File {
   }
 }
 
+function isBucketHandle(candidate: unknown): candidate is Bucket {
+  return candidate instanceof SandboxBucket || candidate instanceof RemoteBucket;
+}
+
+function isFileHandle(candidate: unknown): candidate is File {
+  return candidate instanceof SandboxFile || candidate instanceof RemoteFile;
+}
+
 /** Is this relayed error the worker's `storage/object-not-found`? */
 function isObjectNotFound(err: unknown): boolean {
   return (err as { code?: unknown })?.code === 'storage/object-not-found';
 }
 
-function storageInvalidArgument(message: string): Error & { code: string } {
-  const err = new Error(message) as Error & { code: string };
-  err.code = 'storage/invalid-argument';
-  return err;
-}
-
-function tryNormalizeBucketName(raw: string | undefined): string | undefined {
-  if (typeof raw !== 'string') return undefined;
-  const stripped = raw.replace(/^gs:\/\//, '').replace(/\/+$/, '');
-  if (stripped.length === 0) return undefined;
-  return stripped;
-}
-
-function resolveDefaultBucketName(configuredBucket: string | undefined): string {
-  if (configuredBucket === undefined) {
-    return DEFAULT_SANDBOX_BUCKET;
-  }
-  return normalizeBucketName(configuredBucket);
-}
-
-/**
- * Validate and normalize a bucket name (`gs://` prefix and trailing `/`
- * stripped) matching `firebase-admin/storage` and `@google-cloud/storage`.
- */
-function normalizeBucketName(raw: unknown): string {
-  if (typeof raw !== 'string') {
-    throw storageInvalidArgument(
-      'Bucket name not specified or invalid. Specify a valid bucket name via the ' +
-        'storageBucket option when initializing the app, or specify the bucket name ' +
-        'explicitly when calling the bucket() method.',
-    );
-  }
-  const stripped = raw.replace(/^gs:\/\//, '').replace(/\/+$/, '');
-  if (stripped.length === 0) {
-    throw storageInvalidArgument(
-      'Bucket name not specified or invalid. Specify a valid bucket name via the ' +
-        'storageBucket option when initializing the app, or specify the bucket name ' +
-        'explicitly when calling the bucket() method.',
-    );
-  }
-  return stripped;
-}
-
-/** Over-cap rejection (code `storage/quota-exceeded`) — mirrors the worker host's message shape. */
+/** Over-cap rejection (code `storage/quota-exceeded`) -- mirrors the worker host's message shape. */
 function quotaExceeded(sizeBytes: number, what: string): Error & { code: string } {
   const err = new Error(
-    `pyric-admin/storage: ${what} is ${sizeBytes} bytes — over the ` +
+    `pyric-admin/storage: ${what} is ${sizeBytes} bytes -- over the ` +
       `${MAX_STORAGE_OBJECT_BYTES / (1024 * 1024)} MiB maximum storage object cap (MAX_STORAGE_OBJECT_BYTES).`,
   ) as Error & { code: string };
   err.code = 'storage/quota-exceeded';
   return err;
 }
 
-// ─── Helpers ────────────────────────────────────────────────────────────
-
-/**
- * The File a copy writes: a path in the source's bucket, a `gs://` URL, the
- * source's path in another Bucket, or a File.
- */
-function copyTargetOf(source: File, destination: CopyDestination, storage: Storage): File {
-  if (typeof destination === 'string') {
-    const url = /^gs:\/\/([^/]+)\/(.+)$/.exec(destination);
-    return url === null ? source.bucket.file(destination) : storage.bucket(url[1]).file(url[2]!);
-  }
-  const isFile = 'save' in destination;
-  return isFile ? destination : destination.file(source.name);
-}
+// --- Helpers ---------------------------------------------------------------
 
 /** {@link CopyOptions} as the metadata `save` takes: settable fields, and custom keys under `metadata`. */
 function copyMetadataOf(options: CopyOptions): Record<string, unknown> {
   const { metadata, ...settable } = options;
-  return { ...settable, ...(metadata !== undefined ? { metadata } : {}) };
+  const out: Record<string, unknown> = { ...settable };
+  if (metadata !== undefined) out.metadata = metadata;
+  return out;
 }
 
 /** What an upload sends besides its bytes: settable fields and custom metadata, with the download tokens apart. */
 function uploadRequestOf(options: CreateWriteStreamOptions): { contentType?: string; metadata?: Record<string, unknown>; downloadTokens?: string } {
-  const saved = options.metadata === undefined ? undefined : savedMetadataOf(options.metadata);
-  const hasCustom = saved !== undefined && Object.keys(saved.custom).length > 0;
-  return {
-    ...(options.contentType !== undefined ? { contentType: options.contentType } : {}),
-    ...(saved !== undefined ? { metadata: { ...saved.settable, ...(hasCustom ? { metadata: saved.custom } : {}) } } : {}),
-    ...(saved?.downloadTokens !== undefined ? { downloadTokens: saved.downloadTokens } : {}),
-  };
+  const out: { contentType?: string; metadata?: Record<string, unknown>; downloadTokens?: string } = {};
+  if (options.contentType !== undefined) {
+    out.contentType = options.contentType;
+  }
+  if (options.metadata !== undefined) {
+    const saved = savedMetadataOf(options.metadata);
+    const metaOut: Record<string, unknown> = { ...saved.settable };
+    if (Object.keys(saved.custom).length > 0) {
+      metaOut.metadata = saved.custom;
+    }
+    out.metadata = metaOut;
+    if (saved.downloadTokens !== undefined) {
+      out.downloadTokens = saved.downloadTokens;
+    }
+  }
+  return out;
 }
 
 /** A `data:` URI carrying `bytes`, the download URL where no host serves them over HTTP. */
@@ -1290,35 +1319,6 @@ function dataUri(bytes: Uint8Array, contentType: string | undefined): string {
 /** `bytes` as base64, for a frame. */
 function base64Of(bytes: Uint8Array): string {
   return Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength).toString('base64');
-}
-
-/**
- * Normalize `DownloadOptions` (`start..end` inclusive, with negative `end`
- * treated as a trailing byte count matching `@google-cloud/storage`'s
- * `Range: bytes=-N` tail request). Returns `null` when the slice is empty.
- */
-function normalizeByteBounds(
-  size: number,
-  options: DownloadOptions,
-): { start: number; endExclusive: number } | null {
-  if (options.end !== undefined && options.end < 0) {
-    const tailLength = Math.min(Math.trunc(-options.end) || 0, size);
-    if (tailLength <= 0) return null;
-    return { start: size - tailLength, endExclusive: size };
-  }
-  const rawStart = options.start === undefined ? 0 : Math.trunc(options.start) || 0;
-  const rawEnd = options.end === undefined ? size : Math.trunc(options.end + 1) || 0;
-  const start = rawStart < 0 ? Math.max(size + rawStart, 0) : Math.min(rawStart, size);
-  const endExclusive = rawEnd < 0 ? Math.max(size + rawEnd, 0) : Math.min(rawEnd, size);
-  if (endExclusive <= start) return null;
-  return { start, endExclusive };
-}
-
-/** The inclusive range `start..end` (or trailing `-end` bytes) of `bytes`, as `@google-cloud/storage` reads it. */
-function byteRange(bytes: Uint8Array, options: DownloadOptions): Uint8Array {
-  const bounds = normalizeByteBounds(bytes.byteLength, options);
-  if (bounds === null) return bytes.subarray(0, 0);
-  return bytes.subarray(bounds.start, bounds.endExclusive);
 }
 
 /**
@@ -1333,15 +1333,26 @@ function spooledWriteStream(commit: (spooled: string) => Promise<void>): Writabl
       mkdtemp(join(tmpdir(), 'pyric-admin-upload-')).then(created => {
         directory = created;
         sink = createFileWriteStream(join(created, 'object'));
+        sink.on('error', () => {});
         callback();
       }, callback);
     },
     write(chunk: Buffer, _encoding, callback) {
-      sink!.write(chunk, callback);
+      if (sink === undefined) {
+        callback(new Error('Upload spool stream not initialized.'));
+        return;
+      }
+      sink.write(chunk, callback);
     },
     final(callback) {
-      sink!.end(() => {
-        commit(join(directory!, 'object')).then(() => callback(), callback);
+      const activeSink = sink;
+      const activeDir = directory;
+      if (activeSink === undefined || activeDir === undefined) {
+        callback(new Error('Upload spool stream not initialized.'));
+        return;
+      }
+      activeSink.end(() => {
+        commit(join(activeDir, 'object')).then(() => callback(), callback);
       });
     },
     destroy(error, callback) {
@@ -1356,55 +1367,7 @@ function spooledWriteStream(commit: (spooled: string) => Promise<void>): Writabl
   });
 }
 
-/**
- * The deterministic sandbox signed-URL stub, shared by the local and remote
- * arms so their output is byte-identical (the URL is never served — it's a
- * stable placeholder for logs/fixtures/replay).
- */
-function stubSignedUrl(
-  bucketName: string,
-  path: string,
-  options: GetSignedUrlOptions,
-): string {
-  const expiresMs = normalizeExpires(options.expires);
-  return `pyric-sandbox-storage://${bucketName}/${path}?expires=${expiresMs}&action=${options.action}`;
-}
-
-/**
- * Normalize `Buffer | string | Uint8Array` into a fresh `Uint8Array`.
- * We copy on ingest so callers can mutate their input buffer without
- * corrupting stored state — mirrors how `firebase-admin/storage` /
- * `@google-cloud/storage` treat `save` inputs.
- */
-function toBytes(data: Buffer | string | Uint8Array): Uint8Array {
-  if (typeof data === 'string') {
-    return new TextEncoder().encode(data);
-  }
-  // Both Buffer (Node) and Uint8Array land here — copy into a new
-  // Uint8Array so the stored bytes are independent of the caller's
-  // reference. `slice()` produces a copy in both cases.
-  return new Uint8Array(data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength));
-}
-
-/**
- * Normalize the `expires` field into ms-since-epoch. Mirrors the
- * accepted shapes from `@google-cloud/storage`'s `GetSignedUrlOptions`.
- * The sandbox doesn't enforce expiration — the value is only embedded
- * in the stub URL so consumers can round-trip it.
- */
-function normalizeExpires(expires: number | string | Date): number {
-  if (typeof expires === 'number') return expires;
-  if (expires instanceof Date) return expires.getTime();
-  // String form — accept anything `Date` parses. Bogus input becomes
-  // `NaN`, which is still embeddable in the URL; we don't enforce
-  // strictness because the value only feeds the deterministic sandbox stub.
-  return new Date(expires).getTime();
-}
-
-// ─── Deferred members ────────────────────────────────────────────────────
-//
-// The `Bucket` and `File` methods neither arm models fail with an error that
-// names the method instead of reading as `undefined`. See deferred-members.ts.
+// --- Deferred members ------------------------------------------------------
 
 for (const bucket of [SandboxBucket, RemoteBucket]) {
   defineDeferredMembers(bucket.prototype, 'pyric-admin/storage', 'Bucket', BUCKET_DEFERRED_MEMBERS);

@@ -48,11 +48,43 @@ export interface ListingPage {
 const DEFAULT_PAGE_SIZE = 1000;
 
 /** Refuse the callback form, which would otherwise never be called. */
-export function assertQuery(query: unknown, method: string): void {
+function assertQuery(query: unknown, method: string): void {
   const isCallback = typeof query === 'function';
   if (isCallback) {
     throw new TypeError(`pyric-admin/storage: Bucket.${method} returns a promise; the callback form is not supported.`);
   }
+}
+
+/** Normalize optional `GetFilesOptions` / `DeleteFilesOptions`, matching `@google-cloud/storage`. */
+export function normalizeListingQuery<T extends DeleteFilesOptions>(
+  rawQuery: unknown,
+  method: string,
+): T {
+  assertQuery(rawQuery, method);
+  if (rawQuery === null || typeof rawQuery !== 'object' || Array.isArray(rawQuery)) {
+    return {} as T;
+  }
+  const q = rawQuery as Record<string, unknown>;
+  const out: DeleteFilesOptions = {};
+  if (typeof q.prefix === 'string') {
+    out.prefix = q.prefix;
+  }
+  if (typeof q.delimiter === 'string') {
+    out.delimiter = q.delimiter;
+  }
+  if (typeof q.pageToken === 'string') {
+    out.pageToken = q.pageToken;
+  }
+  if (typeof q.maxResults === 'number' && !Number.isNaN(q.maxResults)) {
+    out.maxResults = q.maxResults;
+  }
+  if (typeof q.autoPaginate === 'boolean') {
+    out.autoPaginate = q.autoPaginate;
+  }
+  if (typeof q.force === 'boolean') {
+    out.force = q.force;
+  }
+  return out as T;
 }
 
 /** Does this query read every page, as `@google-cloud/paginator` decides? */
@@ -65,42 +97,53 @@ export function readsEveryPage(query: GetFilesOptions): boolean {
 export function listingPage(names: readonly string[], query: GetFilesOptions, pageSize = pageSizeOf(query)): ListingPage {
   const entries = entriesOf(names, query);
   const after = resumesAfter(query);
-  const remaining = after === undefined ? entries : entries.filter(entry => entry.key > after);
+  let remaining = entries;
+  if (after !== undefined) {
+    remaining = entries.filter(entry => entry.key > after);
+  }
   const page = remaining.slice(0, pageSize);
   const more = remaining.length > page.length;
   const last = page[page.length - 1];
-  return {
+  const result: ListingPage = {
     names: page.filter(entry => !entry.rolledUp).map(entry => entry.key),
     prefixes: page.filter(entry => entry.rolledUp).map(entry => entry.key),
-    ...(more && last !== undefined ? { nextPageToken: encodeToken(last.key) } : {}),
   };
+  if (more && last !== undefined) {
+    result.nextPageToken = encodeToken(last.key);
+  }
+  return result;
 }
 
 /** Every file name `query` lists from its `pageToken` on, up to `maxResults` of them, across pages. */
 export function everyListedName(names: readonly string[], query: GetFilesOptions): string[] {
   const { maxResults, ...rest } = query;
   const listed = listingPage(names, rest, Number.POSITIVE_INFINITY).names;
-  const limited = typeof maxResults === 'number' && maxResults > 0;
-  return limited ? listed.slice(0, maxResults) : listed;
+  if (typeof maxResults === 'number' && maxResults > 0) {
+    return listed.slice(0, maxResults);
+  }
+  return listed;
 }
 
 /** The JSON API response for `page`. */
 export function apiResponseOf(page: ListingPage): GetFilesApiResponse {
-  return {
-    kind: 'storage#objects',
-    ...(page.prefixes.length > 0 ? { prefixes: page.prefixes } : {}),
-    ...(page.nextPageToken !== undefined ? { nextPageToken: page.nextPageToken } : {}),
-  };
+  const response: GetFilesApiResponse = { kind: 'storage#objects' };
+  if (page.prefixes.length > 0) response.prefixes = page.prefixes;
+  if (page.nextPageToken !== undefined) response.nextPageToken = page.nextPageToken;
+  return response;
 }
 
 /** The entry key a query's `pageToken` resumes after, if it has one. */
 export function resumesAfter(query: GetFilesOptions): string | undefined {
-  return query.pageToken === undefined ? undefined : decodeToken(query.pageToken);
+  if (typeof query.pageToken !== 'string') return undefined;
+  return decodeToken(query.pageToken);
 }
 
 export function pageSizeOf(query: GetFilesOptions): number {
-  const limited = typeof query.maxResults === 'number' && query.maxResults > 0;
-  return limited ? Math.min(query.maxResults!, DEFAULT_PAGE_SIZE) : DEFAULT_PAGE_SIZE;
+  const maxResults = query.maxResults;
+  if (typeof maxResults === 'number' && maxResults > 0) {
+    return Math.min(maxResults, DEFAULT_PAGE_SIZE);
+  }
+  return DEFAULT_PAGE_SIZE;
 }
 
 /** A listed entry: a file name, or a prefix that names roll up to at the delimiter. */
@@ -115,9 +158,15 @@ export function entryOf(name: string, query: GetFilesOptions): Entry | undefined
   const delimiter = query.delimiter ?? '';
   if (!name.startsWith(prefix)) return undefined;
   const rest = name.slice(prefix.length);
-  const cut = delimiter === '' ? -1 : rest.indexOf(delimiter);
+  let cut = -1;
+  if (delimiter !== '') {
+    cut = rest.indexOf(delimiter);
+  }
   const rolledUp = cut !== -1;
-  const key = rolledUp ? prefix + rest.slice(0, cut + delimiter.length) : name;
+  let key = name;
+  if (rolledUp) {
+    key = prefix + rest.slice(0, cut + delimiter.length);
+  }
   return { key, rolledUp };
 }
 

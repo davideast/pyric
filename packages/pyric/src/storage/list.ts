@@ -22,7 +22,12 @@
  * folder-like references for ANY path with descendants; we match
  * that semantic exactly.
  */
-import { ref, type StorageReference } from './reference.js';
+import {
+  isAdminLiteralSchemePath,
+  literalStorageReference,
+  ref,
+  type StorageReference,
+} from './reference.js';
 import { getStorageService, storageAuth, storageOperationProvenance, targetOf } from './service.js';
 import { enforceRules } from './enforce.js';
 
@@ -68,21 +73,32 @@ export async function listAll(refIn: StorageReference): Promise<ListResult> {
   const seenPrefixes = new Set<string>();
   const prefixes: StorageReference[] = [];
 
+  const isAdminPlane = target.admin === true;
+  const makeRef = (fullPath: string): StorageReference => {
+    if (isAdminPlane) return literalStorageReference(storage, fullPath);
+    return ref(storage, fullPath);
+  };
+
   for (const md of records) {
     if (!md.fullPath.startsWith(scanPrefix)) continue; // defensive
     const relative = md.fullPath.slice(scanPrefix.length);
-    if (relative === '') continue;
+    if (relative === '') {
+      if (isAdminPlane && refIn.fullPath !== '' && isAdminLiteralSchemePath(md.fullPath)) {
+        items.push(makeRef(md.fullPath));
+      }
+      continue;
+    }
 
     const slashIdx = relative.indexOf('/');
     if (slashIdx === -1) {
       // Direct child file.
-      items.push(ref(storage, md.fullPath));
+      items.push(makeRef(md.fullPath));
     } else {
       const folderName = relative.slice(0, slashIdx);
       const folderPath = `${scanPrefix}${folderName}`;
       if (!seenPrefixes.has(folderPath)) {
         seenPrefixes.add(folderPath);
-        prefixes.push(ref(storage, folderPath));
+        prefixes.push(makeRef(folderPath));
       }
     }
   }
@@ -90,7 +106,11 @@ export async function listAll(refIn: StorageReference): Promise<ListResult> {
   // IDB key order already sorts items; prefixes are first-appearance
   // order, sort for determinism so consumer code can rely on a stable
   // shape.
-  prefixes.sort((a, b) => (a.fullPath < b.fullPath ? -1 : a.fullPath > b.fullPath ? 1 : 0));
+  prefixes.sort((a, b) => {
+    if (a.fullPath < b.fullPath) return -1;
+    if (a.fullPath > b.fullPath) return 1;
+    return 0;
+  });
 
   return { items, prefixes };
 }

@@ -499,6 +499,28 @@ describe('sandbox backend — reset clears state', () => {
 });
 
 describe('sandbox backend — explicitly-not-implemented surface', () => {
+  const validSessionCookieSample = unsignedJwt(
+    { alg: 'RS256', kid: 'sample-kid', typ: 'JWT' },
+    {
+      aud: SANDBOX_PROJECT_ID,
+      iss: `https://session.firebase.google.com/${SANDBOX_PROJECT_ID}`,
+      sub: 'alice',
+      iat: 1_700_000_000,
+      exp: 1_700_003_600,
+    },
+  );
+  const validPreflightArgsByMethod: Record<string, readonly unknown[]> = {
+    getUserByPhoneNumber: ['+15555550100'],
+    getUsers: [[{ uid: 'alice' }]],
+    deleteUsers: [['alice']],
+    createSessionCookie: ['sample-id-token', { expiresIn: 300_000 }],
+    verifySessionCookie: [validSessionCookieSample],
+    generatePasswordResetLink: ['alice@example.com'],
+    generateEmailVerificationLink: ['alice@example.com'],
+    generateSignInWithEmailLink: ['alice@example.com', { url: 'https://example.com/finish' }],
+    generateVerifyAndChangeEmailLink: ['alice@example.com', 'next@example.com'],
+  };
+
   it.each([
     'getUserByPhoneNumber',
     'getUserByProviderUid',
@@ -521,7 +543,8 @@ describe('sandbox backend — explicitly-not-implemented surface', () => {
     const auth = getAuth(initializeApp({ sandbox }));
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const fn = (auth as any)[method] as (...args: unknown[]) => Promise<unknown>;
-    await expect(fn.call(auth)).rejects.toThrow(
+    const sampleArgs = validPreflightArgsByMethod[method] ?? [];
+    await expect(fn.apply(auth, [...sampleArgs])).rejects.toThrow(
       /not implemented in pyric-admin\/auth sandbox backend/,
     );
   });
