@@ -1,4 +1,5 @@
 import type { Probe } from '../../rigs/types.ts';
+import { observeFirestoreNotInQuery } from '../../src/firestore-not-in-probe.ts';
 import { observeFirestoreIdQuery } from '../../src/firestore-probe-outcomes.ts';
 import { withFirestoreProbeSession } from '../../src/sdk-probe-runtime.ts';
 
@@ -13,7 +14,8 @@ export const probe: Probe = {
   async observe() {
     return withFirestoreProbeSession(async ({ db, firestoreSdk, collectionPath }) => {
       const { collection, doc, getDocs, query, setDoc, where } = firestoreSdk;
-      const items = collection(db, collectionPath('where-ten-ops'));
+      const itemsPath = collectionPath('where-ten-ops');
+      const items = collection(db, itemsPath);
       await setDoc(doc(items, 'd1'), { num: 10, tags: ['red', 'blue'] });
       await setDoc(doc(items, 'd2'), { num: 20, tags: ['blue', 'green'] });
       await setDoc(doc(items, 'd3'), { num: 30, tags: ['yellow'] });
@@ -29,9 +31,12 @@ export const probe: Probe = {
         inOp: await observeFirestoreIdQuery(() =>
           getDocs(query(items, where('num', 'in', [10, 30]))),
         ),
-        notInOp: await observeFirestoreIdQuery(() =>
-          getDocs(query(items, where('num', 'not-in', [10, 30]))),
-        ),
+        notInOp: await observeFirestoreNotInQuery({
+          webConfig: db.app.options,
+          collectionPath: itemsPath,
+          field: 'num',
+          values: [10, 30],
+        }),
         arrayContains: await observeFirestoreIdQuery(() =>
           getDocs(query(items, where('tags', 'array-contains', 'blue'))),
         ),
