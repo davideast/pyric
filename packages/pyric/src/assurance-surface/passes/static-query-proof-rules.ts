@@ -25,6 +25,7 @@ import {
 } from '@pyric/rules/internal';
 
 export function rulesetHasRootForDatabase(ast: FirestoreRules, resourceId: string): boolean {
+  if (ast.service?.name !== 'cloud.firestore') return false;
   for (const rootBlock of topLevelMatches(ast.service)) {
     const segments = rootBlock.path.segments;
     const first = segments[0];

@@ -174,9 +174,9 @@
       "unprobeable": 11
     },
     "productionEvidence": {
-      "verified": 134,
+      "verified": 135,
       "diverged": 2,
-      "unverified": 4
+      "unverified": 3
     }
   },
   "counts": {
@@ -686,6 +686,10 @@
         "stdlib-timestamp-duration",
         "storage-lookup-path-interpolation",
         "storage-named-bucket-binding",
+        "storage-path-bind-forms",
+        "storage-path-literal-brace-bind",
+        "storage-path-literal-dollar-bound-bind",
+        "storage-path-literal-dollar-unbound-bind",
         "storage-two-top-level-bucket-matches",
         "strict-boolean-allow-and-ternary",
         "ternary-and-error-absorption",
@@ -1333,9 +1337,15 @@
       "classification": "conformant",
       "verifiedBy": [
         "conversion-functions",
+        "storage-path-bind-forms",
+        "storage-path-literal-brace-bind",
+        "storage-path-literal-dollar-bound-bind",
+        "storage-path-literal-dollar-unbound-bind",
         "upload-primitives-boundaries"
       ],
-      "verifiedByRows": [],
+      "verifiedByRows": [
+        "storage-rules#223"
+      ],
       "divergedByRows": []
     },
     "storage.function.hashing.md5": {
@@ -2312,10 +2322,20 @@
       "localAcceptance": "unprobeable",
       "localCapability": "unprobeable",
       "acceptanceProbeBound": false,
-      "productionEvidence": "unverified",
+      "productionEvidence": "verified",
       "classification": "unprobeable",
-      "verifiedBy": [],
-      "verifiedByRows": [],
+      "verifiedBy": [
+        "storage-path-bind-forms",
+        "storage-path-literal-brace-bind",
+        "storage-path-literal-dollar-bound-bind",
+        "storage-path-literal-dollar-unbound-bind"
+      ],
+      "verifiedByRows": [
+        "storage-rules#223",
+        "storage-rules#224",
+        "storage-rules#225",
+        "storage-rules#226"
+      ],
       "divergedByRows": []
     },
     "storage.operator.eq": {
@@ -2364,6 +2384,10 @@
         "stdlib-string-bytes-hashing",
         "stdlib-timestamp-duration",
         "storage-named-bucket-binding",
+        "storage-path-bind-forms",
+        "storage-path-literal-brace-bind",
+        "storage-path-literal-dollar-bound-bind",
+        "storage-path-literal-dollar-unbound-bind",
         "ternary-and-error-absorption",
         "upload-primitives-boundaries",
         "verbs-umbrella-granular",
@@ -3053,6 +3077,10 @@
         "stdlib-sets-and-mapdiff",
         "stdlib-string-bytes-hashing",
         "stdlib-timestamp-duration",
+        "storage-path-bind-forms",
+        "storage-path-literal-brace-bind",
+        "storage-path-literal-dollar-bound-bind",
+        "storage-path-literal-dollar-unbound-bind",
         "upload-primitives-boundaries",
         "verbs-umbrella-granular"
       ],
@@ -3236,6 +3264,10 @@
         "stdlib-timestamp-duration",
         "storage-lookup-path-interpolation",
         "storage-named-bucket-binding",
+        "storage-path-bind-forms",
+        "storage-path-literal-brace-bind",
+        "storage-path-literal-dollar-bound-bind",
+        "storage-path-literal-dollar-unbound-bind",
         "storage-two-top-level-bucket-matches",
         "strict-boolean-allow-and-ternary",
         "ternary-and-error-absorption",
@@ -3347,6 +3379,10 @@
         "stdlib-timestamp-duration",
         "storage-lookup-path-interpolation",
         "storage-named-bucket-binding",
+        "storage-path-bind-forms",
+        "storage-path-literal-brace-bind",
+        "storage-path-literal-dollar-bound-bind",
+        "storage-path-literal-dollar-unbound-bind",
         "storage-two-top-level-bucket-matches",
         "strict-boolean-allow-and-ternary",
         "ternary-and-error-absorption",

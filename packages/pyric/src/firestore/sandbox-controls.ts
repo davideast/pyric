@@ -114,7 +114,10 @@ export function inspect(
   const recentLimit = options.recentEventLimit ?? 10;
   const env = getInternalEnv(sandbox);
   const rulesSource = env.getRules();
-  const lint = rulesSource ? lintFirestoreRules(rulesSource) : { warnings: [] };
+  let lint: { warnings: ReturnType<typeof lintFirestoreRules>['warnings'] } = { warnings: [] };
+  if (rulesSource) {
+    lint = lintFirestoreRules(rulesSource, { targetService: 'cloud.firestore' });
+  }
   const findings = lint.warnings.map((warning) => ({
     rule: warning.rule,
     severity: warning.severity,

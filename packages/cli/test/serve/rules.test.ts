@@ -109,15 +109,21 @@ ${Array.from({ length: 12 }, (_, i) => `      let v${i} = ${i};`).join('\n')}
     );
   });
 
-  it('fails to prepare a Storage ruleset as Firestore rules, with the reason every plane gives', () => {
+  it('prepares a Storage ruleset as Firestore rules without a false allow-all error (#1434), while refusing duplicate Firestore services', () => {
     const storage = `rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
     match /{allPaths=**} { allow read, write: if true; }
   }
 }`;
-    expect(() => prepareProjectRules(storage, 'firestore.rules')).toThrow(
-      "pyric sandbox: firestore.rules: Firestore rules did not compile: Expected 'service cloud.firestore', got 'service firebase.storage'. Fix the rules before serving.",
+    expect(prepareProjectRules(storage, 'firestore.rules')).toEqual({
+      rules: storage,
+      moduleFiles: [],
+    });
+
+    const duplicate = `${PLAIN}\n${PLAIN.replace("rules_version = '2';\n", '')}`;
+    expect(() => prepareProjectRules(duplicate, 'firestore.rules')).toThrow(
+      'pyric sandbox: firestore.rules: Firestore rules did not compile: Duplicate service name declaration. Fix the rules before serving.',
     );
   });
 

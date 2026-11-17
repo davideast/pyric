@@ -2,9 +2,9 @@
 // (this runtime ships to the browser, so the Node-only `internal/rtdb` entry is
 // not reachable from here):
 //
-//   rulesSourceRejection — production's Firestore load check, the one every
-//   CLI load path runs: the source parses, its service is cloud.firestore,
-//   and it is within the compile limits. rulesGrammarRejection is its parse
+//   rulesSourceRejection -- production's Firestore load check, the one every
+//   CLI load path runs: the source parses, declares no duplicate services,
+//   and is within the compile limits. rulesGrammarRejection is its parse
 //   and compile-limit half, for Storage, which checks its own service.
 //
 //   parseToASTOrError / MatchBlock / PathSegment — the public API exposes
@@ -377,7 +377,7 @@ function firestoreRequirements(
   if (!parsed.ok) return requirements;
 
   const operations = [probe.control, probe.mutation.operation];
-  const overlapping = operations.some((operation) =>
+  const overlapping = parsed.ast.service?.name === "cloud.firestore" && operations.some((operation) =>
     hasOverlappingFirestoreMatch(parsed.ast.service.match, operation),
   );
   requirements.push(

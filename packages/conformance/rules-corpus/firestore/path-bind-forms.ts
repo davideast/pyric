@@ -11,7 +11,6 @@ import type { ScenarioRecord } from './types.ts';
 
 export const scenario: ScenarioRecord = {
   group: 'fix-class',
-  pendingRowLink: true,
   fm: 'Path.bind placeholder syntax and value types',
   rationale:
     'Pins how Firestore Rules evaluates Path.bind() on path() strings across {x} and $(x) placeholders plus integer and float map values.',
@@ -47,7 +46,7 @@ service cloud.firestore {
     },
     {
       description: "path('/a/{x}').bind({'x': 1.5}) == path('/a/1.5')",
-      expectation: 'DENY',
+      expectation: 'ALLOW',
       method: 'get',
       path: 'floatValue/d1',
     },

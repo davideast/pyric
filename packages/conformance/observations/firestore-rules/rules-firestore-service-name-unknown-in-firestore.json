@@ -1,7 +1,9 @@
 {
   "name": "rules-firestore-service-name-unknown-in-firestore",
   "matrixRow": "",
-  "rowIds": [],
+  "rowIds": [
+    "firestore-rules#238"
+  ],
   "description": "Firestore Rules Test API verdicts for corpus scenario \"service-name-unknown-in-firestore\" (Service declaration validation (#1434)). Records whether projects.test rejects an unknown service name (service foo.bar) and captures the exact issue message, line, and column.",
   "observedAt": "2026-11-17T03:30:42.951Z",
   "fbSdkVersion": "12.19.0",

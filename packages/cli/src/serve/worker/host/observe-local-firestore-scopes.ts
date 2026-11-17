@@ -105,7 +105,7 @@ function indexFunctionMaps(ast: FirestoreRules): {
     rootLexical.set(fn.name, fn);
     appendAllFunction(allFunctions, fn);
   }
-  for (const fn of ast.service.functions ?? []) {
+  for (const fn of ast.service?.functions ?? []) {
     rootLexical.set(fn.name, fn);
     appendAllFunction(allFunctions, fn);
   }
@@ -136,7 +136,11 @@ function indexFunctionMaps(ast: FirestoreRules): {
     }
   };
 
-  for (const rootBlock of topLevelMatches(ast.service)) {
+  let roots: readonly MatchBlock[] = [];
+  if (ast.service?.name === 'cloud.firestore') {
+    roots = topLevelMatches(ast.service);
+  }
+  for (const rootBlock of roots) {
     const rootWithBlock = new Map(rootLexical);
     for (const fn of rootBlock.functions) {
       rootWithBlock.set(fn.name, fn);

@@ -27,7 +27,7 @@ function createPort() {
 }
 
 describe('serve worker host dispatch & session coherence regression suite (#1124)', () => {
-  it('SW-DIS-1: rejects non-cloud.firestore service blocks (including 2+modules) and preserves active Firestore rules', async () => {
+  it('rejects unresolved 2+modules rulesets and preserves active Firestore rules', async () => {
     const sandbox = initializeSandbox();
     sandbox.admin.setDocument('public/doc1', { title: 'hello' });
     const ctx: HostCtx = {
@@ -78,7 +78,7 @@ service firebase.storage {
     expect(badRes.messages).toEqual([
       expect.objectContaining({
         severity: 'error',
-        text: "Firestore rules did not compile: Expected 'service cloud.firestore', got 'service firebase.storage'.",
+        text: expect.stringContaining('2+modules'),
       }),
     ]);
 

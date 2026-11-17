@@ -296,14 +296,8 @@ function walkExpr(
   }
 }
 
-// ─── Post-parse hallucination check ───────────────────────────────────
+// --- Post-parse hallucination check ---
 
-/**
- * Walks every expression in the rules and flags JS-style code that
- * Firestore parses but cannot evaluate. Returns one warning per
- * distinct (rule, key, location) tuple — duplicate identical patterns
- * within the same rule are de-duplicated.
- */
 /**
  * A `debug(...)` call that resolves to NOTHING. Production has no built-in
  * `debug`, but a ruleset is free to declare `function debug(v) { ... }`, and
@@ -458,7 +452,13 @@ export function checkHallucinations(ast: FirestoreRules, options: { allowDebug?:
   const outerScope = new Set<string>(globalScope);
   for (const fn of ast.service.functions ?? []) outerScope.add(fn.name);
 
+  const boundPathLiterals = new WeakSet<Expression>();
   const visitNode: ExprVisitor = (expr, loc, scope, localVars) => {
+    if (expr.type === 'methodCall' && expr.method === 'bind') {
+      let target = expr.object;
+      while (target.type === 'methodCall' && target.method === 'bind') target = target.object;
+      if (target.type === 'pathLiteral') boundPathLiterals.add(target);
+    }
     if (isUnresolvedDebugCall(expr, scope, options.allowDebug)) {
       emit('HALLUCINATED_GLOBAL', 'debug', loc, {
         rule: 'HALLUCINATED_GLOBAL',
@@ -581,7 +581,7 @@ export function checkHallucinations(ast: FirestoreRules, options: { allowDebug?:
       });
     }
 
-    if (expr.type === 'pathLiteral') {
+    if (expr.type === 'pathLiteral' && !boundPathLiterals.has(expr)) {
       for (const seg of expr.segments) {
         if (typeof seg !== 'string') continue;
         const m = seg.match(/^\{([A-Za-z_][A-Za-z0-9_]*)\}$/);
@@ -591,8 +591,8 @@ export function checkHallucinations(ast: FirestoreRules, options: { allowDebug?:
           rule: 'INVALID_PATH_INTERPOLATION',
           severity: 'error',
           message:
-            `\`{${name}}\` is not valid inside a path literal — Firestore rejects this at deploy. ` +
-            `The \`{var}\` syntax is for match statement wildcards (e.g. \`match /users/{userId}\`); ` +
+            `\`{${name}}\` inside an unbound path literal stays a literal segment rather than interpolating a variable -- ` +
+            `the \`{var}\` syntax is for match statement wildcards or \`(/path/{var}).bind(...)\` templates, while ` +
             `path interpolation in get()/exists()/getAfter()/existsAfter() requires \`$(var)\`. ` +
             `Replace \`{${name}}\` with \`$(${name})\` in path \`${expr.raw}\`.`,
           location: loc,

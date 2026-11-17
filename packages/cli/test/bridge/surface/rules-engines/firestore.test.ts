@@ -137,7 +137,7 @@ describe('install', () => {
     }
   });
 
-  it('rejects service firebase.storage rulesets in compileFailure and install (ST-CON-5)', async () => {
+  it('compiles service firebase.storage rulesets, denies simulated Firestore requests, and warns on lint (#1434)', async () => {
     const storageSource = `rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
@@ -146,12 +146,16 @@ service firebase.storage {
     }
   }
 }`;
-    const failure = FIRESTORE_RULES.compileFailure(storageSource);
-    expect(failure).not.toBeNull();
-    expect(failure?.body).toContain("Expected 'service cloud.firestore', got 'service firebase.storage'.");
-    const res = await FIRESTORE_RULES.install(freshContext(), storageSource);
-    expect(res.ok).toBe(false);
-    expect(res.summary).toContain("Expected 'service cloud.firestore', got 'service firebase.storage'.");
+    expect(FIRESTORE_RULES.compileFailure(storageSource)).toBeNull();
+    const ctx = freshContext();
+    const res = await FIRESTORE_RULES.install(ctx, storageSource);
+    expect(res.ok).toBe(true);
+    const simulated = await FIRESTORE_RULES.simulate(ctx, { operation: 'get', path: 'posts/p1' });
+    expect(simulated.ok).toBe(true);
+    expect((simulated.data as { allowed: boolean }).allowed).toBe(false);
+    const lintRes = await FIRESTORE_RULES.lint(ctx, undefined);
+    expect(lintRes.ok).toBe(true);
+    expect(JSON.stringify(lintRes.data)).toContain('MISSING_FIRESTORE_SERVICE');
   });
 });
 

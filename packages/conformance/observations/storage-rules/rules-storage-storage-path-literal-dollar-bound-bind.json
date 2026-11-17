@@ -1,7 +1,9 @@
 {
   "name": "rules-storage-storage-path-literal-dollar-bound-bind",
   "matrixRow": "",
-  "rowIds": [],
+  "rowIds": [
+    "storage-rules#225"
+  ],
   "description": "Storage Rules Test API verdicts for corpus scenario \"storage-path-literal-dollar-bound-bind\" (Path literal bound $(x) interpolation with bind()). Pins whether (/a/$(x)).bind({'x': '1'}) substitutes the match wildcard x ('orig') at literal evaluation or rebinds $(x) to '1'.",
   "observedAt": "2026-11-17T03:33:06.817Z",
   "fbSdkVersion": "12.19.0",

@@ -9,11 +9,7 @@
  */
 import type { FirestoreRules, FunctionDef, Expression, AllowRule, MatchBlock, PathSegment } from '../grammar/FirestoreAST.js';
 import { parseToASTOrError, type ParseError } from '../grammar/FirestoreParser.js';
-import {
-  DUPLICATE_SERVICE_REASON,
-  duplicateServiceRejection,
-  sourceSizeViolation,
-} from '../grammar/source-compile-limits.js';
+import { sourceSizeViolation } from '../grammar/source-compile-limits.js';
 import type { TestCase } from '../test/spec.js';
 import {
   deepestChain,
@@ -35,6 +31,7 @@ import { checkSyntaxHints, checkHallucinations } from './hallucinations.js';
 import { countDocumentAccessCalls } from '../grammar/document-access-count.js';
 import { recursiveScope, type RecursiveScope } from '../grammar/recursive-scope.js';
 import { allServiceBlocks, isStorageServiceName, topLevelMatches, withSingleService } from '../grammar/service-blocks.js';
+import { checkServiceDeclarations, selectServicesToAnalyze } from './service-declarations.js';
 import {
   analyzeCallChains,
   collectRulesetScopes,
@@ -1010,29 +1007,8 @@ export function lintFirestoreRules(source: string, options: LintOptions = {}): L
   if (!parsed.ok) {
     return { warnings, metrics: sourceOnlyMetrics(source), parseError: parsed.error };
   }
-  const duplicateService = duplicateServiceRejection(parsed.ast);
-  if (duplicateService !== null) {
-    warnings.push({
-      rule: 'DUPLICATE_SERVICE',
-      severity: 'error',
-      message: DUPLICATE_SERVICE_REASON,
-      location: { line: duplicateService.line },
-      fix: 'Declare each service block at most once per rules file and place every match block for that service inside it.',
-    });
-  }
-  const allServices = allServiceBlocks(parsed.ast);
-  const servicesToAnalyze =
-    options.targetService === 'all'
-      ? allServices
-      : options.targetService !== undefined
-        ? allServices.filter((s) =>
-            options.targetService === 'firebase.storage'
-              ? isStorageServiceName(s.name)
-              : s.name === options.targetService,
-          )
-        : parsed.ast.service
-          ? [parsed.ast.service]
-          : [];
+  warnings.push(...checkServiceDeclarations(parsed.ast, options.targetService));
+  const servicesToAnalyze = selectServicesToAnalyze(parsed.ast, options.targetService);
   if (servicesToAnalyze.length === 0) {
     return { warnings, metrics: sourceOnlyMetrics(source) };
   }

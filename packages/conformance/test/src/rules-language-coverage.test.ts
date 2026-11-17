@@ -40,7 +40,7 @@ describe('rules-language production coverage', () => {
       unknownMethod('method:abs'),
       unknownMethod('method:foo'),
     ]);
-    expect(storage?.verifiedScenarioCount).toBe(48);
-    expect(storage?.verifiedConstructs).toBe(133);
+    expect(storage?.verifiedScenarioCount).toBe(52);
+    expect(storage?.verifiedConstructs).toBe(134);
   }, FULL_GRAPH_TIMEOUT_MS);
 });

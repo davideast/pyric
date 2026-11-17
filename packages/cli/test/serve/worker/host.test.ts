@@ -794,10 +794,9 @@ ${lets}
     expect(write.ok).toBe(true);
   });
 
-  it('setFirestoreRules refuses a Storage ruleset with the reason every plane gives and keeps the active one', async () => {
-    const ctx = await makeCtx(DENY_ALL_RULES);
+  it('setFirestoreRules installs a Storage ruleset with an advisory warning and denies Firestore writes (#1434)', async () => {
+    const ctx = await makeCtx(PERMISSIVE_RULES);
     const port = fakePort();
-    await sendOp(ctx, port, { t: 'op', id: 'sw-good', method: 'setFirestoreRules', source: DENY_ALL_RULES });
     const storageRules = `rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
@@ -805,20 +804,13 @@ service firebase.storage {
   }
 }`;
     const deployed = deployFirestoreRulesToHost(ctx, storageRules);
-    expect(deployed.ok).toBe(false);
-    expect(deployed.rejectionMessage).toBe(
-      "Firestore rules did not compile: Expected 'service cloud.firestore', got 'service firebase.storage'.",
+    expect(deployed.ok).toBe(true);
+    expect(deployed.rejectionMessage).toBeNull();
+    expect(deployed.messages).toContainEqual(
+      expect.objectContaining({ severity: 'warn', text: expect.stringContaining('no \'service cloud.firestore\' block') }),
     );
-    expect(deployed.rejectionMessage).toBe(`Firestore ${rulesSourceRejection(storageRules)!.message}`);
-    expect(deployed.messages).toEqual([{
-      severity: 'error',
-      text: "Firestore rules did not compile: Expected 'service cloud.firestore', got 'service firebase.storage'.",
-      line: 2,
-      column: 1,
-    }]);
-    expect(ctx.activeRules?.firestore).toMatchObject({ status: 'error', source: DENY_ALL_RULES });
+    expect(ctx.activeRules?.firestore).toMatchObject({ status: 'active', source: storageRules });
 
-    // The deny-all rules are still the ones requests evaluate.
     const write = await sendOp(ctx, port, {
       t: 'op', id: 'sw-write', method: 'setDoc', path: 'c/1', data: { v: 1 },
     });

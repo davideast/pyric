@@ -224,9 +224,9 @@ export function enforcedFirestoreRulesState(
 
 /**
  * Deploy Firestore rules to the sandbox and update `ctx.activeRules.firestore`.
- * A source production's load check refuses (it does not parse, names a
- * service other than `cloud.firestore`, or is past a compile limit) is not
- * installed, and is reported with the reason every plane gives.
+ * A source production's load check refuses (it does not parse, declares one
+ * service twice, or is past a compile limit) is not installed, and is reported
+ * with the reason every plane gives.
  */
 export function deployFirestoreRulesToHost(ctx: HostCtx, source: string): {
   ok: boolean;
@@ -236,7 +236,10 @@ export function deployFirestoreRulesToHost(ctx: HostCtx, source: string): {
 } {
   const rejection = rulesSourceRejection(source);
   const refused = rejection !== null;
-  const result = refused ? lintFirestoreRules(source) : setRules(ctx.sandbox, source);
+  let result = lintFirestoreRules(source, { targetService: 'cloud.firestore' });
+  if (!refused) {
+    result = setRules(ctx.sandbox, source);
+  }
   const messages = rejection === null ? firestoreRuleMessages(result) : rejectionMessages(rejection);
   // `ok` reports whether the rules took effect. An installed ruleset with an
   // error-severity lint finding (an always-true `match /{document=**}`) is
@@ -277,7 +280,7 @@ export function syncHostRulesAfterCheckpointRestore(ctx: HostCtx, rules: Sandbox
     ctx.activeRules.firestore = enforcedFirestoreRulesState(
       rules.firestore,
       ctx.activeRules.firestore,
-      firestoreRuleMessages(lintFirestoreRules(rules.firestore)),
+      firestoreRuleMessages(lintFirestoreRules(rules.firestore, { targetService: 'cloud.firestore' })),
     );
   } else if (ctx.activeRules) {
     delete ctx.activeRules.firestore;

@@ -148,12 +148,8 @@ export function prepareProjectRules(raw: string, sourcePath: string): PreparedRu
     }
     source = resolved.data.resolved;
   }
-  // Production rejects a ruleset that does not parse, or is past its compile
-  // limits, or names a service other than cloud.firestore, before it
-  // evaluates any request, so the sandbox does not serve one either: the
-  // check every rules load path runs, with the reason every plane gives. A
-  // parse-kind refusal of a source that parses names its service blocks (the
-  // wrong service, or one declared twice), so the check's message is the reason.
+  // Production rejects a ruleset that does not parse, declares one service
+  // twice, or is past its compile limits before it evaluates any request.
   const rejection = rulesSourceRejection(source);
   if (rejection?.kind === 'parse' && parseToASTOrError(source).ok) {
     throw new RulesPrepareError(
@@ -173,7 +169,7 @@ export function prepareProjectRules(raw: string, sourcePath: string): PreparedRu
       moduleFiles,
     );
   }
-  const lint = lintFirestoreRules(source);
+  const lint = lintFirestoreRules(source, { targetService: 'cloud.firestore' });
   const errors = lint.warnings.filter((w) => w.severity === 'error');
   if (errors.length > 0) {
     throw new RulesPrepareError(

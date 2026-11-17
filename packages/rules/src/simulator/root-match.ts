@@ -57,7 +57,12 @@ export function resolveRootBlockMatch(
   return resolveRootSegments(rootBlock.path.segments, request, recursiveWildcardMinimum(rulesVersion));
 }
 
+function isFirestoreService(ast: FirestoreRules): boolean {
+  return ast.service?.name === 'cloud.firestore';
+}
+
 export function resolveRootMatch(ast: FirestoreRules, documentPath: string): RootMatch | null {
+  if (!isFirestoreService(ast)) return null;
   for (const rootBlock of topLevelMatches(ast.service)) {
     const matched = resolveRootBlockMatch(rootBlock, ast.version, documentPath);
     if (matched !== null) return matched;
@@ -153,6 +158,7 @@ export function collectRootMatches(
   functions: FunctionDef[],
   recorder?: { push(entry: PathResolutionEntry): void },
 ): MatchResult[] {
+  if (!isFirestoreService(ast)) return [];
   const allMatches: MatchResult[] = [];
   for (const rootBlock of topLevelMatches(ast.service)) {
     const root = resolveRootBlockMatch(rootBlock, ast.version, documentPath);
@@ -305,14 +311,22 @@ export function rootBlockGovernsEveryDocument(rootBlock: MatchBlock, rulesVersio
 }
 
 export function rootGovernsEveryDocument(ast: FirestoreRules): boolean {
+  if (!isFirestoreService(ast)) return false;
   return topLevelMatches(ast.service).some((rootBlock) =>
     rootBlockGovernsEveryDocument(rootBlock, ast.version),
   );
 }
 
-/** The notes for a request no match block resolves: the root names the
- *  request it does not apply to, and otherwise no block under it matched. */
+/** The notes for a request no match block resolves: a non-Firestore service
+ *  declares no Firestore rules, the root names the request it does not apply
+ *  to, and otherwise no block under it matched. */
 export function noMatchNotes(ast: FirestoreRules, documentPath: string): string[] {
+  if (!isFirestoreService(ast)) {
+    const declared = ast.service?.name ?? '(none)';
+    return [
+      `Ruleset declares 'service ${declared}', not 'service cloud.firestore', so no match block applies and the request is denied.`,
+    ];
+  }
   const rootApplies = resolveRootMatch(ast, documentPath) !== null;
   if (rootApplies) {
     return [`No match block found for path '${documentPath}', so the request is denied by default.`, DOCUMENT_PATH_FORM];

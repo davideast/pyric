@@ -1,6 +1,7 @@
 import { describe, test, expect } from 'bun:test';
 import { parseRulesFile } from '../../src/grammar/FirestoreParser.js';
 import { checkRulesSource } from '../../src/grammar/source-compile-limits.js';
+import { firestoreRules, lint } from '../../src/index.js';
 import { readdirSync, readFileSync } from 'fs';
 import { join } from 'path';
 
@@ -45,19 +46,53 @@ describe('Firestore Grammar — Full Corpus', () => {
     const files = loadCorpusFiles('invalid');
     for (const { name, content } of files) {
       // 006-function-no-return: our grammar requires return, so it's a syntax error
-      // 008-wrong-service: serviceName accepts any letter sequence; production's Firestore load check refuses it (FS2-ENF-2)
+      // 008-wrong-service: serviceName accepts any letter sequence; production compiles it and denies Firestore requests (#1434)
       // 012-unsupported-rules-version, 013-invalid-regex-lookahead: grammar accepts tokens, compile check rejects them.
       const shouldParse =
         name.includes('008-wrong-service') ||
         name.includes('012-unsupported-rules-version') ||
         name.includes('013-invalid-regex-lookahead');
+      const shouldCompile = name.includes('008-wrong-service');
 
-      test(name + (shouldParse ? ' (semantic/compile error — parser accepts)' : ''), () => {
+      test(name + (shouldParse ? ' (semantic/compile check -- parser accepts)' : ''), () => {
         const result = parseRulesFile(content);
         expect(result.valid).toBe(shouldParse);
         const compiled = checkRulesSource(content);
-        expect(compiled.ok).toBe(false);
+        expect(compiled.ok).toBe(shouldCompile);
       });
     }
+
+    test('008-wrong-service and unknown service blocks compile in firestoreRules(), deny all Firestore operations, and surface advisory lint warnings', () => {
+      const wrongServiceContent = readFileSync(join(CORPUS, 'invalid', '008-wrong-service.rules'), 'utf-8');
+      const storageRuleset = firestoreRules(wrongServiceContent);
+      const storageSummary = storageRuleset.simulate([
+        { description: 'get items/d1', expectation: 'DENY', method: 'get', path: 'items/d1' },
+        { description: 'list items', expectation: 'DENY', method: 'list', path: 'items' },
+        { description: 'create items/d1', expectation: 'DENY', method: 'create', path: 'items/d1', data: { v: 1 } },
+      ]);
+      expect(storageSummary.passed).toBe(3);
+      expect(storageSummary.cases.every((c) => c.decision === 'DENY')).toBe(true);
+      expect(storageSummary.cases[0]?.notes.join(' ')).toContain("service firebase.storage");
+      expect(storageRuleset.lint()).toContainEqual(
+        expect.objectContaining({ code: 'MISSING_FIRESTORE_SERVICE', severity: 'warning', line: 2 }),
+      );
+      expect(lint(wrongServiceContent).some((i) => i.code === 'MISSING_FIRESTORE_SERVICE')).toBe(false);
+
+      const unknownService = `rules_version = '2';\nservice foo.bar {\n  match /items/{id} {\n    allow read: if true;\n  }\n}`;
+      const unknownRuleset = firestoreRules(unknownService);
+      const unknownSummary = unknownRuleset.simulate([
+        { description: 'get items/d1', expectation: 'DENY', method: 'get', path: 'items/d1' },
+      ]);
+      expect(unknownSummary.passed).toBe(1);
+      expect(unknownSummary.cases[0]?.decision).toBe('DENY');
+      expect(lint(unknownService)).toContainEqual(
+        expect.objectContaining({
+          code: 'INVALID_SERVICE_NAME',
+          severity: 'warning',
+          line: 2,
+          message: 'Invalid service name: foo.bar.',
+        }),
+      );
+    });
   });
 });

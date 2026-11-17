@@ -8,7 +8,7 @@ import { Path } from '../../../src/simulator/wrappers/path.js';
 import { NO_OP } from '../../../src/simulator/wrappers/base.js';
 import { IndexAccessFailure, indexValue, readMember } from '../../../src/simulator/index-access.js';
 import { SimulateFirestoreRulesHandler } from '../../../src/simulator/handler.js';
-import type { TestCase } from '../../../../../src/rules/firestore/test/spec.js';
+import type { TestCase } from '../../../src/test/spec.js';
 
 // ─── Wrapper-level tests ───────────────────────────────────────────────────
 
@@ -87,10 +87,11 @@ describe('Path — bind', () => {
     expect(bound.segments).toEqual(['users', 'alice', 'posts', '{postId}']);
   });
 
-  test('extra bindings are silently ignored', () => {
+  test('binding a key absent from the path template throws', () => {
     const p = Path.fromString('/users/{uid}');
-    const bound = p.bind({ uid: 'alice', extra: 'ignored' });
-    expect(bound.segments).toEqual(['users', 'alice']);
+    expect(() => p.bind({ uid: 'alice', extra: 'ignored' })).toThrow(
+      'Variable(s) extra do not exist in the path template.',
+    );
   });
 
   test('null binding value throws', () => {
@@ -101,7 +102,10 @@ describe('Path — bind', () => {
   test('non-identifier-shaped placeholder is treated as literal', () => {
     // {123} is not a valid placeholder name (must start with letter/_)
     const p = new Path(['{123}']);
-    expect(p.bind({ '123': 'x' }).segments).toEqual(['{123}']);
+    expect(p.bind({}).segments).toEqual(['{123}']);
+    expect(() => p.bind({ '123': 'x' })).toThrow(
+      'Variable(s) 123 do not exist in the path template.',
+    );
   });
 });
 
@@ -230,10 +234,10 @@ describe('path() builtin — through evaluator', () => {
     expect(r.success && r.data.passed).toBe(1);
   });
 
-  test("Path.bind() with no matching placeholder returns same path", () => {
+  test("Path.bind() with no matching placeholder raises a runtime error and denies", () => {
     const r = sim.simulate(
       rules("path('users/alice').bind({'uid': 'x'}) == path('users/alice')"),
-      [tc('bind without placeholder', 'ALLOW')],
+      [tc('bind without placeholder', 'DENY')],
     );
     expect(r.success && r.data.passed).toBe(1);
   });

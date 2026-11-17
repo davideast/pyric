@@ -180,7 +180,7 @@ service cloud.firestore {
     );
   });
 
-  it("refuses a non-Firestore service block in target.rules.firestore as invalid-probe (AV-RUN-2)", async () => {
+  it("compiles a non-Firestore service block in target.rules.firestore and evaluates Firestore operations to DENY (#1434)", async () => {
     const report = await runAuthorizationCampaign(
       campaign(
         {
@@ -198,14 +198,10 @@ service firebase.storage {
       ),
     );
     const [result] = report.results;
-    expect(result!.classification).toBe("invalid-probe");
-    expect(result!.control.error).toEqual({
-      code: "rules-refused",
-      message: "Firestore rules did not compile: Expected 'service cloud.firestore', got 'service firebase.storage'.",
-    });
-    expect(result!.qualification.requirements).toContainEqual(
-      expect.objectContaining({ id: "firestore.rules-load", supported: false }),
+    expect(result?.qualification.requirements).toContainEqual(
+      expect.objectContaining({ id: "firestore.rules-load", supported: true }),
     );
+    expect(result?.control.decision).toBe("DENY");
   });
 
   it("refuses non-deployable RTDB rules as invalid-probe instead of throwing (AV-RUN-3)", async () => {
