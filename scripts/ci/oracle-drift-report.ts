@@ -9,24 +9,18 @@
  * means cloud behavior moved and the affected registry rows need human review
  * (see packages/conformance/docs/how-to-run-the-conformance-system.md).
  *
- * Why not a bare `git diff --exit-code`: every observation envelope stamps a
- * fresh `observedAt` timestamp on every write, and short arrays can serialize
- * differently across writer versions. Those are noise, not drift. This report
- * strips `observedAt` and re-canonicalizes both sides before comparing, so it
- * fires ONLY on a real change to a captured fact — anything other than the
- * timestamp. That is the same judgement a human applies reading the diff
- * locally, made mechanical so the scheduled lane can gate on it.
- *
- * It NEVER commits, pushes, or otherwise persists the change. On drift it
- * writes the (timestamp-free) diff into the GitHub Actions job summary and
- * exits non-zero so the run goes red — a visible, reviewable artifact.
+ * Strips `observedAt` and re-canonicalizes both sides before comparing, so it
+ * fires ONLY on a real change to a captured fact. It never commits or pushes.
+ * On drift it writes the timestamp-free diff to BOTH stdout (so CLI inspection
+ * via `gh run view --log-failed` has the full diff) and `GITHUB_STEP_SUMMARY`,
+ * then exits 1.
  *
  * Usage: bun scripts/ci/oracle-drift-report.ts <rig-label>
  * Exit:  0 = no drift; 1 = drift detected; 2 = usage error.
  * Output: `found=true` in GITHUB_OUTPUT when it detects drift.
  */
 import { execFileSync } from 'node:child_process';
-import { appendFileSync, mkdtempSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { canonicalizeObservation } from './oracle-observation-diff.ts';
@@ -34,52 +28,50 @@ import { canonicalizeObservation } from './oracle-observation-diff.ts';
 const OBS_TREE = 'packages/conformance/observations';
 const DOC = 'packages/conformance/docs/how-to-run-the-conformance-system.md';
 
-const label = process.argv[2];
-if (!label) {
-  console.error('usage: bun scripts/ci/oracle-drift-report.ts <rig-label>');
-  process.exit(2);
+export interface DriftReportOptions {
+  label: string;
+  cwd?: string;
+  env?: NodeJS.ProcessEnv;
+  log?: (message: string) => void;
+  error?: (message: string) => void;
 }
 
-function git(args: string[]): string {
-  return execFileSync('git', args, { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
+function runGit(cwd: string, args: string[]): string {
+  return execFileSync('git', args, { cwd, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
 }
 
-/** Content of a path at HEAD, or null if it did not exist there. */
-function headContent(path: string): string | null {
+function headContent(cwd: string, path: string): string | null {
   try {
-    return git(['show', `HEAD:${path}`]);
+    return runGit(cwd, ['show', `HEAD:${path}`]);
   } catch {
     return null;
   }
 }
 
-/** Content of a path in the working tree, or null if it was deleted. */
-function workingContent(path: string): string | null {
+function workingContent(cwd: string, path: string): string | null {
   try {
-    return readFileSync(path, 'utf8');
+    return readFileSync(join(cwd, path), 'utf8');
   } catch {
     return null;
   }
 }
 
-/** Changed observation paths (modified, added, or deleted) vs HEAD. */
-function changedObservationPaths(): string[] {
-  const out = git(['status', '--porcelain', '--', OBS_TREE]);
+function changedObservationPaths(cwd: string): string[] {
+  const out = runGit(cwd, ['status', '--porcelain', '--', OBS_TREE]);
   const paths: string[] = [];
   for (const line of out.split('\n')) {
     if (!line.trim()) continue;
-    // Porcelain: 2 status chars, a space, then the path (possibly "old -> new").
-    const path = line.slice(3).split(' -> ').pop()!.trim().replace(/^"|"$/g, '');
+    const segments = line.slice(3).split(' -> ');
+    const lastSegment = segments[segments.length - 1] ?? '';
+    const path = lastSegment.trim().replace(/^"|"$/g, '');
     if (path.endsWith('.json')) paths.push(path);
   }
   return paths.sort();
 }
 
-/** A timestamp-free unified diff between HEAD and working versions of one
- *  file, or '' when the only difference was the stamp / formatting. */
-function normalizedDiff(path: string, tmp: string): string {
-  const head = canonicalizeObservation(headContent(path));
-  const work = canonicalizeObservation(workingContent(path));
+function normalizedDiff(cwd: string, path: string, tmp: string): string {
+  const head = canonicalizeObservation(headContent(cwd, path));
+  const work = canonicalizeObservation(workingContent(cwd, path));
   if (head === work) return '';
 
   const headFile = join(tmp, 'HEAD', path);
@@ -89,15 +81,12 @@ function normalizedDiff(path: string, tmp: string): string {
   writeFileSync(headFile, head ?? '');
   writeFileSync(workFile, work ?? '');
 
-  let raw: string;
+  let raw = '';
   try {
-    // --no-index diff; exits 1 when the files differ, which execFileSync
-    // throws on — the diff text is on the thrown error's stdout.
-    raw = git(['--no-pager', 'diff', '--no-index', '--unified=3', '--', headFile, workFile]);
+    raw = runGit(cwd, ['--no-pager', 'diff', '--no-index', '--unified=3', '--', headFile, workFile]);
   } catch (err) {
     raw = (err as { stdout?: string }).stdout ?? '';
   }
-  // Relabel the temp file headers back to the real observation path.
   return raw
     .split('\n')
     .filter((l) => !l.startsWith('index ') && !l.startsWith('diff --git '))
@@ -110,51 +99,94 @@ function normalizedDiff(path: string, tmp: string): string {
     .trim();
 }
 
-const tmp = mkdtempSync(join(tmpdir(), 'oracle-drift-'));
-const drifted: { path: string; diff: string }[] = [];
-for (const path of changedObservationPaths()) {
-  const diff = normalizedDiff(path, tmp);
-  if (diff) drifted.push({ path, diff });
+function resolveArtifactSlug(label: string, env: NodeJS.ProcessEnv): string {
+  const rawRig = env.RIG ?? '';
+  const rigEnv = rawRig.trim();
+  if (rigEnv) return rigEnv;
+  if (label.startsWith('unattended')) return 'unattended';
+  return label.replace(/[^a-z0-9-]+/gi, '-').replace(/^-|-$/g, '').toLowerCase();
 }
 
-if (drifted.length === 0) {
-  console.log(`[oracle-drift] ${label}: no drift — production still matches the pinned observations.`);
-  process.exit(0);
-}
+export function runOracleDriftReport(options: DriftReportOptions): number {
+  const label = options.label.trim();
+  const cwd = options.cwd ?? process.cwd();
+  const env = options.env ?? process.env;
+  const log = options.log ?? ((msg: string) => console.log(msg));
+  const error = options.error ?? ((msg: string) => console.error(msg));
 
-const lines: string[] = [];
-lines.push(`## Oracle drift detected — ${label}`);
-lines.push('');
-lines.push(
-  `The re-capture changed **${drifted.length}** committed observation(s) under \`${OBS_TREE}\` ` +
-    '(beyond the per-run `observedAt` timestamp). Production behavior moved since these facts were ' +
-    'last pinned. Nothing was committed.',
-);
-lines.push('');
-lines.push(`Review the diff below and follow the drift-response procedure in \`${DOC}\` before ` + 're-capturing deliberately on a branch.');
-lines.push('');
-for (const { path, diff } of drifted) {
-  lines.push(`### \`${path}\``);
+  if (!label) {
+    error('usage: bun scripts/ci/oracle-drift-report.ts <rig-label>');
+    return 2;
+  }
+
+  const tmp = mkdtempSync(join(tmpdir(), 'oracle-drift-'));
+  const drifted: { path: string; diff: string }[] = [];
+  try {
+    for (const path of changedObservationPaths(cwd)) {
+      const diff = normalizedDiff(cwd, path, tmp);
+      if (diff) drifted.push({ path, diff });
+    }
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+
+  if (drifted.length === 0) {
+    log(`[oracle-drift] ${label}: no drift - production still matches the pinned observations.`);
+    return 0;
+  }
+
+  const artifactSlug = resolveArtifactSlug(label, env);
+  const artifactName = `observation-drift-${artifactSlug}`;
+  const rawRunId = env.GITHUB_RUN_ID ?? '';
+  const runId = rawRunId.trim();
+
+  const lines: string[] = [];
+  lines.push(`## Oracle drift detected - ${label}`);
   lines.push('');
-  lines.push('```diff');
-  lines.push(diff);
-  lines.push('```');
+  lines.push(
+    `The re-capture changed **${drifted.length}** committed observation(s) under \`${OBS_TREE}\` ` +
+      '(beyond the per-run `observedAt` timestamp). Production behavior moved since these facts were ' +
+      'last pinned. Nothing was committed.',
+  );
   lines.push('');
+  lines.push(
+    `Review the diff below and follow the drift-response procedure in \`${DOC}\` before ` +
+      're-capturing deliberately on a branch.',
+  );
+  if (runId) {
+    lines.push(
+      `Rewritten observation files were uploaded as artifact \`${artifactName}\` ` +
+        `(\`gh run download ${runId} -n ${artifactName}\`).`,
+    );
+  }
+  lines.push('');
+  for (const { path, diff } of drifted) {
+    lines.push(`### \`${path}\``);
+    lines.push('');
+    lines.push('```diff');
+    lines.push(diff);
+    lines.push('```');
+    lines.push('');
+  }
+  const report = lines.join('\n');
+
+  log(report);
+  const summaryPath = env.GITHUB_STEP_SUMMARY;
+  if (summaryPath) {
+    appendFileSync(summaryPath, `${report}\n`);
+  }
+
+  const outputPath = env.GITHUB_OUTPUT;
+  if (outputPath) {
+    appendFileSync(outputPath, 'found=true\n');
+  }
+
+  error(
+    `::error::Oracle observation drift detected for ${label} (${drifted.length} file(s)) - see log and job summary above.`,
+  );
+  return 1;
 }
-const report = lines.join('\n');
 
-const summaryPath = process.env.GITHUB_STEP_SUMMARY;
-if (summaryPath) {
-  appendFileSync(summaryPath, report + '\n');
-} else {
-  console.log(report);
+if (import.meta.main) {
+  process.exit(runOracleDriftReport({ label: process.argv[2] ?? '' }));
 }
-
-// Tells the workflow this exit is drift. A crash also exits non-zero but never
-// reaches this line, and scripts/ci/oracle-leg-report.ts records it as a
-// failed capture.
-const outputPath = process.env.GITHUB_OUTPUT;
-if (outputPath) appendFileSync(outputPath, 'found=true\n');
-
-console.error(`::error::Oracle observation drift detected for ${label} — see the job summary for the diff.`);
-process.exit(1);

@@ -36,6 +36,10 @@ import { readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import type { Probe } from '../rigs/types.ts';
+import {
+  resolveProbeObservationLinkage,
+  shouldIncludeProbeInUnfilteredRun,
+} from './observation-linkage.ts';
 import { resolvedAdminVersion } from './package-version.ts';
 import { readSingleProbeSelector } from './probe-cli-args.ts';
 
@@ -184,31 +188,43 @@ async function verify(probes: LoadedProbe[], installedVersion: string): Promise<
   return results;
 }
 
-async function write(probes: LoadedProbe[], installedVersion: string): Promise<void> {
+export async function writeAdminAppObservations(
+  probes: readonly LoadedProbe[],
+  installedVersion: string,
+  obsDir = OBS_DIR,
+): Promise<void> {
   for (const { id, probe } of probes) {
     await resetAppRegistry();
     const behavior = await probe.observe();
     await resetAppRegistry();
+    const outPath = join(obsDir, `${id}.json`);
+    const linkage = resolveProbeObservationLinkage(probe, outPath);
     const envelope: ObservationEnvelope = {
       name: id,
-      matrixRow: probe.matrixRow,
-      rowIds: probe.rowIds,
+      matrixRow: linkage.matrixRow,
+      rowIds: linkage.rowIds,
       description: probe.description,
       observedAt: new Date().toISOString(),
       adminSdkVersion: installedVersion,
       behavior,
     };
-    writeFileSync(observationPath(id), JSON.stringify(envelope, null, 2) + '\n');
+    writeFileSync(outPath, `${JSON.stringify(envelope, null, 2)}\n`);
     console.log(`  wrote ${id}.json`);
   }
 }
 
-export function selectAdminAppProbes<T extends { id: string }>(
+export function selectAdminAppProbes<T extends { id: string; probe?: Pick<Probe, 'pendingRowLink'> }>(
   loaded: readonly T[],
   args: readonly string[],
+  obsDir = OBS_DIR,
 ): T[] {
   const probeFilter = readSingleProbeSelector(args);
-  if (probeFilter === undefined) return [...loaded];
+  if (probeFilter === undefined) {
+    return loaded.filter((entry) => {
+      if (!entry.probe) return true;
+      return shouldIncludeProbeInUnfilteredRun(entry.probe, join(obsDir, `${entry.id}.json`));
+    });
+  }
   const selected = loaded.filter(({ id }) => id === probeFilter);
   if (selected.length === 0) {
     throw new Error(`unknown admin-app probe: ${probeFilter}`);
@@ -226,7 +242,7 @@ async function main(): Promise<void> {
     console.log(
       `[admin-app-probes] recapturing ${probes.length} observation(s) against firebase-admin ${installedVersion}\n`,
     );
-    await write(probes, installedVersion);
+    await writeAdminAppObservations(probes, installedVersion);
     console.log('\n[admin-app-probes] capture complete.');
     process.exit(0);
   }
