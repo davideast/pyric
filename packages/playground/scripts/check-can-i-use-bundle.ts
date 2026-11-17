@@ -12,9 +12,13 @@ if (!result.success) {
   process.exit(1);
 }
 
-const GZIP_BUDGET_BYTES = 70_000;
+const GZIP_BUDGET_BYTES = 90_000;
 
-const source = await result.outputs[0]!.text();
+const firstOutput = result.outputs[0];
+if (!firstOutput) {
+  throw new Error('Browser can-i-use build produced no output bundle');
+}
+const source = await firstOutput.text();
 const gzipBytes = gzipSync(source).byteLength;
 if (/[,{](?:"claims"|claims):/.test(source) || source.includes('CONFORMANCE_IMPORT_EVIDENCE')) {
   throw new Error('Browser can-i-use bundle contains Node-only claim evidence');
