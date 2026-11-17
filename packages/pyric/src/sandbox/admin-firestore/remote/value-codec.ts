@@ -38,6 +38,8 @@ import type { WireDocData } from './wire-types.js';
 
 // ─── Write-data encoding (client → wire marker forms) ─────────────────────
 
+const UNESCAPED_MAP_TAG = Symbol.for('pyric.unescapedMap');
+
 const SENTINEL_TYPES: ReadonlySet<string> = new Set([
   'serverTimestamp',
   'increment',
@@ -50,6 +52,7 @@ function isFieldValueSentinel(v: unknown): v is FieldValueSentinel {
   return (
     v !== null &&
     typeof v === 'object' &&
+    (v as Record<symbol, unknown>)[UNESCAPED_MAP_TAG] !== true &&
     typeof (v as { __type?: unknown }).__type === 'string' &&
     SENTINEL_TYPES.has((v as { __type: string }).__type)
   );
