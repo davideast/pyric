@@ -1,0 +1,46 @@
+{
+  "name": "admin-auth-listusers-deleted-cursor",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "firebase-admin/auth listUsers(1, pageToken) cursor progression when either the last-returned user or the next boundary user at pageToken is deleted between pages.",
+  "observedAt": "2026-11-17T11:18:24.579Z",
+  "adminSdkVersion": "13.10.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "deleteLastReturnedUser": {
+      "observedBaselineOrder": [
+        "a1",
+        "a2",
+        "a3"
+      ],
+      "deletedRelativeUid": "a1",
+      "threw": false,
+      "errorCode": null,
+      "immediateNextRelativeUid": "a2",
+      "remainingRelativeUidsVisited": [
+        "a2",
+        "a3"
+      ],
+      "duplicatedAnyUser": false,
+      "tokenPresentAfterFirstUser": true,
+      "skippedAnySurvivingUser": false
+    },
+    "deleteNextBoundaryUser": {
+      "observedBaselineOrder": [
+        "b1",
+        "b2",
+        "b3"
+      ],
+      "deletedRelativeUid": "b2",
+      "threw": false,
+      "errorCode": null,
+      "immediateNextRelativeUid": "b3",
+      "remainingRelativeUidsVisited": [
+        "b3"
+      ],
+      "duplicatedAnyUser": false,
+      "tokenPresentBeforeDeletedUser": true,
+      "skippedSurvivingTailUser": false
+    }
+  }
+}
