@@ -29,8 +29,94 @@ import {
   assertDedicatedOracleRtdbUrl,
   assertWebConfigProject,
   webConfigFromEnv,
+  type OracleWebConfig,
 } from './oracle-run-setup.ts';
 import { installOracleSignalRestoreGuard } from './oracle-signal-restore.ts';
+
+const FIREBASE_MANAGEMENT_API = 'https://firebase.googleapis.com/v1beta1';
+const FIREBASE_MANAGEMENT_SCOPE = 'https://www.googleapis.com/auth/firebase';
+
+type ProbeFetch = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
+
+async function readHttpErrorDetail(response: Response): Promise<string> {
+  try {
+    const raw = (await response.text()).trim();
+    if (raw.length > 300) {
+      return `${raw.slice(0, 300)}...`;
+    }
+    return raw;
+  } catch {
+    return '';
+  }
+}
+
+async function discoverOracleWebConfig(
+  projectId: string,
+  token: string,
+  fetchImpl: ProbeFetch,
+): Promise<OracleWebConfig> {
+  const encodedProject = encodeURIComponent(projectId);
+  const authHeaders = { Authorization: `Bearer ${token}` };
+  const listUrl = `${FIREBASE_MANAGEMENT_API}/projects/${encodedProject}/webApps`;
+  const listResponse = await fetchImpl(listUrl, { headers: authHeaders });
+  if (!listResponse.ok) {
+    const detail = await readHttpErrorDetail(listResponse);
+    let suffix = '';
+    if (detail) {
+      suffix = `: ${detail}`;
+    }
+    throw new Error(
+      `Firebase Web App discovery failed for project '${projectId}' (HTTP ${listResponse.status} from firebase.googleapis.com; ensure roles/firebase.viewer is granted)${suffix}`,
+    );
+  }
+
+  const listBody = (await listResponse.json()) as { apps?: Array<{ appId?: unknown }> };
+  const firstApp = listBody.apps?.[0];
+  let appId = '';
+  if (firstApp && typeof firstApp.appId === 'string') {
+    appId = firstApp.appId.trim();
+  }
+  if (!appId) {
+    throw new Error(
+      `Oracle project '${projectId}' has no registered Firebase Web App (firebase.googleapis.com webApps returned 0 apps); register a Web App in the project before running client probes (refusing to auto-create persistent project resources).`,
+    );
+  }
+
+  const configUrl = `${FIREBASE_MANAGEMENT_API}/projects/${encodedProject}/webApps/${encodeURIComponent(appId)}/config`;
+  const configResponse = await fetchImpl(configUrl, { headers: authHeaders });
+  if (!configResponse.ok) {
+    const detail = await readHttpErrorDetail(configResponse);
+    let suffix = '';
+    if (detail) {
+      suffix = `: ${detail}`;
+    }
+    throw new Error(
+      `Firebase Web App config fetch failed for app '${appId}' in project '${projectId}' (HTTP ${configResponse.status} from firebase.googleapis.com; ensure roles/firebase.viewer is granted)${suffix}`,
+    );
+  }
+
+  return (await configResponse.json()) as OracleWebConfig;
+}
+
+export async function resolveProbeWebConfig(
+  sa: OracleServiceAccount,
+  options: {
+    env?: Record<string, string | undefined>;
+    fetchImpl?: ProbeFetch;
+  } = {},
+): Promise<OracleWebConfig> {
+  const env = options.env ?? process.env;
+  const fromEnv = webConfigFromEnv(env);
+  if (fromEnv) {
+    assertWebConfigProject(fromEnv, sa.project_id);
+    return fromEnv;
+  }
+  const fetchImpl = options.fetchImpl ?? fetch;
+  const token = await oracleAccessToken(sa, FIREBASE_MANAGEMENT_SCOPE);
+  const discovered = await discoverOracleWebConfig(sa.project_id, token, fetchImpl);
+  assertWebConfigProject(discovered, sa.project_id);
+  return discovered;
+}
 
 function nextProbeRunId(prefix: string): string {
   const stamp = Date.now().toString(36);
@@ -64,19 +150,13 @@ export async function withFirestoreProbeSession(
   ]);
 
   const sa = await loadOracleServiceAccount();
-  const webConfig = webConfigFromEnv(process.env);
-  if (!webConfig) {
-    throw new Error(
-      'Missing PYRIC_ORACLE_FIREBASE_CONFIG: set repository secret PYRIC_ORACLE_FIREBASE_CONFIG (Web SDK config JSON) to run Firestore client probes.',
-    );
-  }
-  assertWebConfigProject(webConfig, sa.project_id);
+  const webConfig = await resolveProbeWebConfig(sa);
 
   const runId = nextProbeRunId('fs');
   const basePath = `pyric_oracle/${runId}`;
   const session = new OracleRulesSession({
     projectId: sa.project_id,
-    accessToken: () => oracleAccessToken(sa, 'https://www.googleapis.com/auth/firebase'),
+    accessToken: () => oracleAccessToken(sa, FIREBASE_MANAGEMENT_SCOPE),
   });
   const detachSignals = installOracleSignalRestoreGuard('[sdk-probes]', () =>
     session.restoreAll(),
@@ -157,15 +237,13 @@ export async function withRtdbProbeSession(
     ]);
 
   const sa = await loadOracleServiceAccount();
-  const webConfig = webConfigFromEnv(process.env);
-  if (!webConfig) {
-    throw new Error(
-      'Missing PYRIC_ORACLE_FIREBASE_CONFIG: set repository secret PYRIC_ORACLE_FIREBASE_CONFIG to run RTDB client probes.',
-    );
-  }
-  assertWebConfigProject(webConfig, sa.project_id);
+  const webConfig = await resolveProbeWebConfig(sa);
 
-  const rawRtdbUrl = process.env.PYRIC_ORACLE_RTDB_URL ?? webConfig.databaseURL;
+  let rawRtdbUrl = webConfig.databaseURL;
+  const envRtdbUrl = process.env.PYRIC_ORACLE_RTDB_URL?.trim();
+  if (envRtdbUrl) {
+    rawRtdbUrl = envRtdbUrl;
+  }
   const databaseUrl = assertDedicatedOracleRtdbUrl(rawRtdbUrl, sa.project_id);
   const runId = nextProbeRunId('rtdb');
   const runPath = `/pyric_oracle/${runId}`;
@@ -176,7 +254,7 @@ export async function withRtdbProbeSession(
 
   const session = new OracleRulesSession({
     projectId: sa.project_id,
-    accessToken: () => oracleAccessToken(sa, 'https://www.googleapis.com/auth/firebase'),
+    accessToken: () => oracleAccessToken(sa, FIREBASE_MANAGEMENT_SCOPE),
   });
   const detachSignals = installOracleSignalRestoreGuard('[sdk-probes]', () =>
     session.restoreAll(),

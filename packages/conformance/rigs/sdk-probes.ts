@@ -20,18 +20,20 @@ export const rig: RigManifestRecord = {
         name: 'PYRIC_ORACLE_PROJECT_ID',
         description:
           'Oracle Firebase project id when authenticating through Workload Identity Federation or Application Default Credentials.',
-        permission: 'roles/datastore.user, roles/firebaserules.admin, roles/firebasedatabase.admin',
+        permission:
+          'roles/firebase.viewer, roles/datastore.user, roles/firebaserules.admin, roles/firebasedatabase.admin',
       },
       {
         name: 'PYRIC_ORACLE_SA_PATH',
         description:
           'Optional service-account key JSON path when not using Application Default Credentials.',
-        permission: 'roles/datastore.user, roles/firebaserules.admin, roles/firebasedatabase.admin',
+        permission:
+          'roles/firebase.viewer, roles/datastore.user, roles/firebaserules.admin, roles/firebasedatabase.admin',
       },
       {
         name: 'PYRIC_ORACLE_FIREBASE_CONFIG',
         description:
-          'Web SDK config JSON for the dedicated oracle project.',
+          'Optional Web SDK config JSON override for the dedicated oracle project; when unset, discovered automatically via the Firebase Management REST API.',
       },
       {
         name: 'PYRIC_ORACLE_RTDB_URL',

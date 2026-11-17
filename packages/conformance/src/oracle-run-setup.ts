@@ -35,7 +35,7 @@ export interface OracleWebConfig {
 /** The web config from `PYRIC_ORACLE_FIREBASE_CONFIG`, or undefined when unset. */
 export function webConfigFromEnv(env: Record<string, string | undefined>): OracleWebConfig | undefined {
   const raw = env.PYRIC_ORACLE_FIREBASE_CONFIG;
-  if (!raw) return undefined;
+  if (!raw || raw.trim() === '') return undefined;
   try {
     return JSON.parse(raw) as OracleWebConfig;
   } catch (e) {
@@ -51,7 +51,7 @@ export function webConfigFromEnv(env: Record<string, string | undefined>): Oracl
 export function assertWebConfigProject(config: OracleWebConfig, credentialProjectId: string): void {
   if (config.projectId !== credentialProjectId) {
     throw new Error(
-      `PYRIC_ORACLE_FIREBASE_CONFIG is for project '${config.projectId}' but the oracle credential is for '${credentialProjectId}'.`,
+      `Firebase Web SDK config is for project '${String(config.projectId ?? '')}' but the oracle credential is for '${credentialProjectId}'.`,
     );
   }
 }

@@ -14,6 +14,7 @@ import { loadModularProbes } from '../../src/sdk-probes.ts';
 import {
   discoverUncapturedStagedTargets,
   loadPendingRowLinkObservations,
+  loadStagedCaptureItems,
 } from '../../src/staged-captures.ts';
 import { validateCompatibilityRegistry } from '../../src/validate-registry.ts';
 import { surfaceDescriptors } from '../../surfaces/load.ts';
@@ -125,55 +126,108 @@ describe('staged modular probes (auth-admin and rtdb-modular)', () => {
     expect(rtdbLeafPromotionPriorityProbe.requires).toEqual(['web-config', 'dedicated-rtdb']);
   });
 
-  it('discovers all three probes as uncaptured staged targets and validates cleanly in both PR #1 and PR #2 states', async () => {
-    const uncaptured = discoverUncapturedStagedTargets();
-    const uncapturedNames = uncaptured.map((item) => item.observationName);
-    expect(uncapturedNames).toContain('admin-auth-listusers-deleted-cursor');
-    expect(uncapturedNames).toContain('rtdb-modular-query-limit-infinity');
-    expect(uncapturedNames).toContain('rtdb-modular-leaf-promotion-priority');
+  it('discovers uncaptured staged targets and validates cleanly both before and after observation files exist', async () => {
+    const stagedModularSpecs = [
+      { surfaceDir: 'auth-admin', name: 'admin-auth-listusers-deleted-cursor' },
+      { surfaceDir: 'rtdb-modular', name: 'rtdb-modular-query-limit-infinity' },
+      { surfaceDir: 'rtdb-modular', name: 'rtdb-modular-leaf-promotion-priority' },
+    ] as const;
+    const stagedModularNameSet = new Set<string>(stagedModularSpecs.map((spec) => spec.name));
+
+    const stagedItems = loadStagedCaptureItems();
+    const stagedItemNames = stagedItems.map((item) => item.observationName);
+    for (const spec of stagedModularSpecs) {
+      expect(stagedItemNames).toContain(spec.name);
+    }
+
+    const currentObservations = loadObservations();
+    const existingNames = new Set(currentObservations.map((obs) => obs.name));
+    expect(discoverUncapturedStagedTargets()).toEqual(
+      stagedItems.filter((item) => !existingNames.has(item.observationName)),
+    );
 
     const rigManifests = await loadRigManifests();
     const probeFiles = listProbeFiles();
     const pendingStems = loadPendingRowLinkObservations();
-
     const rtdbScenarioIds = [
       ...ALL_RULES_RTDB_SCENARIOS.map((s) => s.id),
       ...ALL_RULES_RTDB_DEPLOY_SCENARIOS.map((s) => s.id),
     ];
 
-    const pr1Problems = validateCompatibilityRegistry({
-      rows: allCompatibilityRows,
-      descriptors: surfaceDescriptors,
-      observations: loadObservations(),
-      observationExceptions,
-      rigManifests,
-      probeFiles,
-      rulesFirestoreScenarioIds: ALL_RULES_FIRESTORE_SCENARIOS.map((s) => s.id),
-      rulesStorageScenarioIds: ALL_RULES_STORAGE_SCENARIOS.map((s) => s.id),
-      rulesRtdbScenarioIds: rtdbScenarioIds,
-      pendingRowLinkObservations: pendingStems,
-    });
-    expect(pr1Problems).toEqual([]);
+    const validateWithObservations = (observations: Observation[]): string[] =>
+      validateCompatibilityRegistry({
+        rows: allCompatibilityRows,
+        descriptors: surfaceDescriptors,
+        observations,
+        observationExceptions,
+        rigManifests,
+        probeFiles,
+        rulesFirestoreScenarioIds: ALL_RULES_FIRESTORE_SCENARIOS.map((s) => s.id),
+        rulesStorageScenarioIds: ALL_RULES_STORAGE_SCENARIOS.map((s) => s.id),
+        rulesRtdbScenarioIds: rtdbScenarioIds,
+        pendingRowLinkObservations: pendingStems,
+      });
 
-    const pr2Observations = [
-      ...loadObservations(),
+    // Current filesystem state (whether 0, 1, or all 3 staged observations are already committed)
+    expect(validateWithObservations(currentObservations)).toEqual([]);
+
+    // Deduplicated post-capture PR #2 state against currentObservations
+    const deduplicatedPostCapture = new Map(currentObservations.map((obs) => [obs.name, obs]));
+    for (const spec of stagedModularSpecs) {
+      if (!deduplicatedPostCapture.has(spec.name)) {
+        deduplicatedPostCapture.set(
+          spec.name,
+          makeSyntheticCapturedObservation(spec.surfaceDir, spec.name),
+        );
+      }
+    }
+    expect(validateWithObservations([...deduplicatedPostCapture.values()])).toEqual([]);
+
+    // Explicit pre-capture vs partial-capture vs all-captured transition checks
+    const preCaptureObservations = currentObservations.filter(
+      (obs) => !stagedModularNameSet.has(obs.name),
+    );
+    const preCaptureNames = new Set(preCaptureObservations.map((obs) => obs.name));
+    const uncapturedBefore = discoverUncapturedStagedTargets({
+      stagedItems,
+      existingObservationNames: preCaptureNames,
+    }).map((item) => item.observationName);
+    for (const spec of stagedModularSpecs) {
+      expect(uncapturedBefore).toContain(spec.name);
+    }
+    expect(validateWithObservations(preCaptureObservations)).toEqual([]);
+
+    const afterAuthCaptureByName = new Map(preCaptureObservations.map((obs) => [obs.name, obs]));
+    afterAuthCaptureByName.set(
+      'admin-auth-listusers-deleted-cursor',
       makeSyntheticCapturedObservation('auth-admin', 'admin-auth-listusers-deleted-cursor'),
+    );
+    const uncapturedAfterAuth = discoverUncapturedStagedTargets({
+      stagedItems,
+      existingObservationNames: new Set(afterAuthCaptureByName.keys()),
+    }).map((item) => item.observationName);
+    expect(uncapturedAfterAuth).not.toContain('admin-auth-listusers-deleted-cursor');
+    expect(uncapturedAfterAuth).toContain('rtdb-modular-query-limit-infinity');
+    expect(uncapturedAfterAuth).toContain('rtdb-modular-leaf-promotion-priority');
+    expect(validateWithObservations([...afterAuthCaptureByName.values()])).toEqual([]);
+
+    const afterAllCapturedByName = new Map(afterAuthCaptureByName);
+    afterAllCapturedByName.set(
+      'rtdb-modular-query-limit-infinity',
       makeSyntheticCapturedObservation('rtdb-modular', 'rtdb-modular-query-limit-infinity'),
+    );
+    afterAllCapturedByName.set(
+      'rtdb-modular-leaf-promotion-priority',
       makeSyntheticCapturedObservation('rtdb-modular', 'rtdb-modular-leaf-promotion-priority'),
-    ];
-    const pr2Problems = validateCompatibilityRegistry({
-      rows: allCompatibilityRows,
-      descriptors: surfaceDescriptors,
-      observations: pr2Observations,
-      observationExceptions,
-      rigManifests,
-      probeFiles,
-      rulesFirestoreScenarioIds: ALL_RULES_FIRESTORE_SCENARIOS.map((s) => s.id),
-      rulesStorageScenarioIds: ALL_RULES_STORAGE_SCENARIOS.map((s) => s.id),
-      rulesRtdbScenarioIds: rtdbScenarioIds,
-      pendingRowLinkObservations: pendingStems,
-    });
-    expect(pr2Problems).toEqual([]);
+    );
+    const uncapturedAfterAll = discoverUncapturedStagedTargets({
+      stagedItems,
+      existingObservationNames: new Set(afterAllCapturedByName.keys()),
+    }).map((item) => item.observationName);
+    for (const spec of stagedModularSpecs) {
+      expect(uncapturedAfterAll).not.toContain(spec.name);
+    }
+    expect(validateWithObservations([...afterAllCapturedByName.values()])).toEqual([]);
   });
 
   it('observeListUsersDeletedCursor captures progression cleanly on contiguous lexicographical order', async () => {

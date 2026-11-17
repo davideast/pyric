@@ -30,7 +30,11 @@ import {
   oracleCredentialConfigured,
   type OracleEnv,
 } from './oracle-credential.ts';
-import { isDedicatedOracleRtdbUrl, webConfigFromEnv } from './oracle-run-setup.ts';
+import {
+  assertWebConfigProject,
+  isDedicatedOracleRtdbUrl,
+  webConfigFromEnv,
+} from './oracle-run-setup.ts';
 import { resolvedAdminVersion, resolvedFirebaseVersion } from './package-version.ts';
 import { readProbeSelectors } from './probe-cli-args.ts';
 import { readDeclaredProbeRig } from './staged-captures.ts';
@@ -93,9 +97,9 @@ export function selectModularProbes(
 
 const REQUIREMENT_HINTS: Readonly<Record<ProbeSdkRequirement, string>> = {
   'web-config':
-    'PYRIC_ORACLE_FIREBASE_CONFIG (Web SDK config JSON secret for digame-mas)',
+    'IAM role roles/firebase.viewer on firebase.googleapis.com (or optional PYRIC_ORACLE_FIREBASE_CONFIG override)',
   'dedicated-rtdb':
-    'PYRIC_ORACLE_RTDB_URL (dedicated non-default RTDB instance URL, e.g. https://pyric-oracle-rtdb-2.firebaseio.com) + IAM role roles/firebasedatabase.admin on firebasedatabase.googleapis.com',
+    'PYRIC_ORACLE_RTDB_URL (dedicated non-default RTDB instance URL) + IAM role roles/firebasedatabase.admin on firebasedatabase.googleapis.com',
   'firestore-rules':
     'IAM roles roles/firebaserules.admin (firebaserules.googleapis.com) and roles/datastore.user (firestore.googleapis.com)',
   'admin-auth':
@@ -129,15 +133,21 @@ export function validateModularProbeRequirements(
   if (probes.length === 0) return;
 
   const webConfig = webConfigFromEnv(env as Record<string, string | undefined>);
-  if (needed.has('web-config') && !webConfig) {
-    throw new Error(
-      `Missing required secret PYRIC_ORACLE_FIREBASE_CONFIG: ${REQUIREMENT_HINTS['web-config']}.`,
-    );
+  const envProjectId = env.PYRIC_ORACLE_PROJECT_ID?.trim();
+  if (webConfig && envProjectId) {
+    assertWebConfigProject(webConfig, envProjectId);
   }
 
   if (needed.has('dedicated-rtdb')) {
-    const candidateRtdb = env.PYRIC_ORACLE_RTDB_URL ?? webConfig?.databaseURL;
-    const projectId = env.PYRIC_ORACLE_PROJECT_ID ?? webConfig?.projectId;
+    let candidateRtdb = webConfig?.databaseURL;
+    const envRtdbUrl = env.PYRIC_ORACLE_RTDB_URL?.trim();
+    if (envRtdbUrl) {
+      candidateRtdb = envRtdbUrl;
+    }
+    let projectId = webConfig?.projectId;
+    if (envProjectId) {
+      projectId = envProjectId;
+    }
     if (!isDedicatedOracleRtdbUrl(candidateRtdb, projectId)) {
       throw new Error(
         `Missing dedicated RTDB endpoint: set ${REQUIREMENT_HINTS['dedicated-rtdb']} (refusing missing or default RTDB instance '${String(candidateRtdb ?? '')}').`,
