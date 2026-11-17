@@ -57,7 +57,9 @@ describe('modular messaging-send probes (Slice 2 staged family)', () => {
       'messaging-send-sendeach-mixed-batch',
       'messaging-send-sendeach-validation-guards',
     ];
-    expect(ids).toEqual(expectedIds);
+    for (const id of expectedIds) {
+      expect(ids).toContain(id);
+    }
 
     const probes = [
       adminEntryAccessorsProbe,

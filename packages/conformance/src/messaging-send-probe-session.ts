@@ -30,6 +30,30 @@ export function nameFacts(name: string, projectId: string): NameFacts {
   };
 }
 
+export type AcceptedSendPairOutcome = {
+  realSend: NameFacts;
+  dryRunSend: NameFacts;
+  dryRunSameShapeAsReal: boolean;
+};
+
+export async function captureAcceptedSendPair(
+  sendClient: (message: Record<string, unknown>, dryRun: boolean) => Promise<string>,
+  projectId: string,
+  message: Record<string, unknown>,
+): Promise<AcceptedSendPairOutcome> {
+  const realName = await sendClient(structuredClone(message), false);
+  const dryName = await sendClient(structuredClone(message), true);
+  const realFacts = nameFacts(realName, projectId);
+  const dryFacts = nameFacts(dryName, projectId);
+  return {
+    realSend: realFacts,
+    dryRunSend: dryFacts,
+    dryRunSameShapeAsReal:
+      realFacts.matchesProjectsMessagesFormat === dryFacts.matchesProjectsMessagesFormat &&
+      realFacts.projectSegmentMatchesProject === dryFacts.projectSegmentMatchesProject,
+  };
+}
+
 export function assertFcmProbeHttpStatus(status: number, body: unknown): void {
   if (status === 401 || status === 403 || status >= 500) {
     throw new Error(
