@@ -1,0 +1,16 @@
+{
+  "name": "rules-storage-storage-path-literal-brace-bind",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "Storage Rules Test API verdicts for corpus scenario \"storage-path-literal-brace-bind\" (Path literal brace placeholder with bind()). Pins whether Storage Rules compiles or rejects (/a/{x}).bind({'x': '1'}) in an expression path literal, and records the runtime verdict if compiled.",
+  "observedAt": "2026-11-17T03:33:06.789Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "inputDigest": {
+    "algorithm": "sha256",
+    "value": "daa59338d3ca0bfe5479a9cb3f6919c577642c0f779a63a2a44c9e1f569f5973"
+  },
+  "behavior": {
+    "(/a/{x}).bind({'x': '1'}) == path('/a/1')": "ALLOW"
+  }
+}
