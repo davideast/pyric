@@ -1,0 +1,40 @@
+{
+  "name": "rules-firestore-service-name-unknown-in-firestore",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "Firestore Rules Test API verdicts for corpus scenario \"service-name-unknown-in-firestore\" (Service declaration validation (#1434)). Records whether projects.test rejects an unknown service name (service foo.bar) and captures the exact issue message, line, and column.",
+  "observedAt": "2026-11-17T03:30:42.951Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "inputDigest": {
+    "algorithm": "sha256",
+    "value": "096012da4a365ba49e0f6644076059536c8ad79ee858713b351bed2b8cc24319"
+  },
+  "behavior": {
+    "firestore get request against an unknown service foo.bar ruleset": "DENY"
+  },
+  "diagnostics": {
+    "compileIssues": {
+      "notes": [
+        "WARNING@2:9 Invalid service name: foo.bar.",
+        "WARNING@4:11 Invalid method name: read."
+      ],
+      "api": {
+        "issues": [
+          {
+            "severity": "WARNING",
+            "description": "Invalid service name: foo.bar.",
+            "line": 2,
+            "column": 9
+          },
+          {
+            "severity": "WARNING",
+            "description": "Invalid method name: read.",
+            "line": 4,
+            "column": 11
+          }
+        ]
+      }
+    }
+  }
+}

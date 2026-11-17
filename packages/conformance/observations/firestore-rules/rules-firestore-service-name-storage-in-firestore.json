@@ -1,0 +1,16 @@
+{
+  "name": "rules-firestore-service-name-storage-in-firestore",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "Firestore Rules Test API verdicts for corpus scenario \"service-name-storage-in-firestore\" (Service declaration validation (#1434)). Records whether projects.test compiles or rejects a ruleset whose sole service block is service firebase.storage when evaluated against a Firestore document request.",
+  "observedAt": "2026-11-17T03:30:42.701Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "inputDigest": {
+    "algorithm": "sha256",
+    "value": "af4e4e986c4b16de0fa19f14208575aab9bbd9fe4ea39fb495af5f2081dfb7f0"
+  },
+  "behavior": {
+    "firestore get request against a sole service firebase.storage ruleset": "DENY"
+  }
+}
