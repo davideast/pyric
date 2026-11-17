@@ -1,0 +1,23 @@
+{
+  "name": "rules-firestore-path-literal-dollar-bound-bind",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "Firestore Rules Test API verdicts for corpus scenario \"path-literal-dollar-bound-bind\" (Path literal bound $(x) interpolation with bind()). Pins whether (/a/$(x)).bind({'x': '1'}) substitutes the match wildcard x ('orig') at literal evaluation or rebinds $(x) to '1'.",
+  "observedAt": "2026-11-17T03:30:39.033Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "inputDigest": {
+    "algorithm": "sha256",
+    "value": "10da969b1b05a7a51714b0c223b8dc109530b543c1a1f21fd9bd186ed7c1b2f3"
+  },
+  "behavior": {
+    "(/a/$(x)).bind({'x': '1'}) == path('/a/1') with wildcard x='orig'": "DENY"
+  },
+  "diagnostics": {
+    "(/a/$(x)).bind({'x': '1'}) == path('/a/1') with wildcard x='orig'": {
+      "notes": [
+        "Error: firestore.rules line [5], column [31]. Variable(s) x do not exist in the path template."
+      ]
+    }
+  }
+}

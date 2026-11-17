@@ -1,0 +1,35 @@
+{
+  "name": "rules-firestore-path-bind-forms",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "Firestore Rules Test API verdicts for corpus scenario \"path-bind-forms\" (Path.bind placeholder syntax and value types). Pins how Firestore Rules evaluates Path.bind() on path() strings across {x} and $(x) placeholders plus integer and float map values.",
+  "observedAt": "2026-11-17T03:30:38.701Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "inputDigest": {
+    "algorithm": "sha256",
+    "value": "8af16a9c0326d5397f47fd1d7b6927038f734e88df48afc2646cb95779f3ebc2"
+  },
+  "behavior": {
+    "path('/a/{x}').bind({'x': '1'}) == path('/a/1')": "ALLOW",
+    "path('/a/$(x)').bind({'x': '1'}) == path('/a/1')": "DENY",
+    "path('/a/{x}').bind({'x': 1.5}) == path('/a/1.5')": "ALLOW",
+    "path('/a/{x}').bind({'x': 1}) == path('/a/1')": "ALLOW"
+  },
+  "diagnostics": {
+    "path('/a/$(x)').bind({'x': '1'}) == path('/a/1')": {
+      "notes": [
+        "Error: firestore.rules line [8], column [37]. Variable(s) x do not exist in the path template."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "firestore.rules",
+          "line": 8,
+          "column": 37,
+          "currentOffset": 261,
+          "endOffset": 264
+        }
+      }
+    }
+  }
+}

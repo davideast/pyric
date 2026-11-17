@@ -1,0 +1,38 @@
+{
+  "name": "rules-firestore-path-literal-dollar-unbound-bind",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "Firestore Rules Test API verdicts for corpus scenario \"path-literal-dollar-unbound-bind\" (Path literal unbound $(x) interpolation with bind()). Pins whether Firestore Rules rejects unbound $(x) inside (/a/$(x)).bind({'x': '1'}) at compile time or evaluates bind() at runtime.",
+  "observedAt": "2026-11-17T03:30:39.114Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "inputDigest": {
+    "algorithm": "sha256",
+    "value": "3aa0d5648ed285848bb841dc8663b8c0139df305cfa8c5aa2b26937a27558913"
+  },
+  "behavior": {
+    "(/a/$(x)).bind({'x': '1'}) == path('/a/1') with unbound x": "DENY"
+  },
+  "diagnostics": {
+    "compileIssues": {
+      "notes": [
+        "WARNING@5:27 Invalid variable name: x."
+      ],
+      "api": {
+        "issues": [
+          {
+            "severity": "WARNING",
+            "description": "Invalid variable name: x.",
+            "line": 5,
+            "column": 27
+          }
+        ]
+      }
+    },
+    "(/a/$(x)).bind({'x': '1'}) == path('/a/1') with unbound x": {
+      "notes": [
+        "Error: firestore.rules line [5], column [27]. Null value error."
+      ]
+    }
+  }
+}
