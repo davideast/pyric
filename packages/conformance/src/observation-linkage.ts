@@ -1,4 +1,5 @@
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
+import type { Probe } from '../rigs/types.ts';
 
 export interface ObservationLinkage {
   matrixRow: string;
@@ -25,4 +26,30 @@ export function readObservationLinkage(path: string): ObservationLinkage {
     }
     throw error;
   }
+}
+
+export function resolveProbeObservationLinkage(
+  probe: Pick<Probe, 'matrixRow' | 'rowIds'>,
+  observationPath: string,
+): ObservationLinkage {
+  const existing = readObservationLinkage(observationPath);
+  let matrixRow = existing.matrixRow;
+  if (probe.matrixRow !== '') {
+    matrixRow = probe.matrixRow;
+  }
+  let rowIds = existing.rowIds;
+  if (probe.rowIds.length > 0) {
+    rowIds = [...probe.rowIds];
+  }
+  return { matrixRow, rowIds };
+}
+
+export function shouldIncludeProbeInUnfilteredRun(
+  probe: Pick<Probe, 'pendingRowLink'>,
+  observationPath: string,
+): boolean {
+  if (probe.pendingRowLink === true && !existsSync(observationPath)) {
+    return false;
+  }
+  return true;
 }
