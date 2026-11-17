@@ -356,7 +356,13 @@ export function createOfflineUpstreamAuthHarness(): OfflineUpstreamAuthHarness {
     }
 
     if (parsedUrl.pathname.endsWith('/accounts')) {
-      const uid = typeof body.localId === 'string' ? body.localId : `wire-auto-${++mintedSeq}`;
+      let uid: string;
+      if (typeof body.localId === 'string') {
+        uid = body.localId;
+      } else {
+        mintedSeq += 1;
+        uid = `wire-auto-${mintedSeq}`;
+      }
       if (usersByUid.has(uid)) {
         return identityToolkitError(400, 'DUPLICATE_LOCAL_ID');
       }
@@ -497,30 +503,6 @@ function isEmptyBatchClientBypass(methodName: string, rawArgs: readonly unknown[
   return Array.isArray(rawArgs[0]) && rawArgs[0].length === 0;
 }
 
-function isCreateSessionCookieDurationRangeDeferral(
-  methodName: string,
-  rawArgs: readonly unknown[],
-  upstream: NormalizedAuthOutcome,
-  pyric: NormalizedAuthOutcome,
-): boolean {
-  if (methodName !== 'createSessionCookie') return false;
-  const idToken = rawArgs[0];
-  const opts = rawArgs[1] as { expiresIn?: unknown } | null | undefined;
-  const hasStringToken = typeof idToken === 'string' && idToken.length > 0;
-  const hasNumericDuration =
-    opts !== null &&
-    typeof opts === 'object' &&
-    !Array.isArray(opts) &&
-    typeof opts.expiresIn === 'number' &&
-    !Number.isNaN(opts.expiresIn);
-  return (
-    hasStringToken &&
-    hasNumericDuration &&
-    upstream.code === 'auth/invalid-session-cookie-duration' &&
-    pyric.errorKind === 'NotImplementedError'
-  );
-}
-
 export function isDocumentedUnmodeledAuthBackendDiff(
   methodName: string,
   rawArgs: readonly unknown[],
@@ -529,9 +511,6 @@ export function isDocumentedUnmodeledAuthBackendDiff(
 ): boolean {
   if (pyric.errorKind !== 'NotImplementedError') {
     return false;
-  }
-  if (isCreateSessionCookieDurationRangeDeferral(methodName, rawArgs, upstream, pyric)) {
-    return true;
   }
   if (UNMODELED_BACKEND_AUTH_METHODS.has(methodName)) {
     if (upstream.acceptedPreflight === true) return true;

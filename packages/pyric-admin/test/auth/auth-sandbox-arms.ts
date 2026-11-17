@@ -27,11 +27,11 @@ import {
   deleteApp,
   initializeApp,
   type PyricAdminApp,
-} from 'pyric-admin/app';
+} from '../../src/app/index.js';
 import {
   getAuth,
   type Auth,
-} from 'pyric-admin/auth';
+} from '../../src/auth/index.js';
 
 export const AUTH_DIFF_PROJECT_ID = 'demo-project';
 export const AUTH_FIXED_NOW_MS = Date.UTC(2026, 5, 1, 12, 0, 0);

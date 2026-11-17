@@ -114,6 +114,9 @@ function buildClaimsMapCandidates(includeSizeCap: boolean): CandidateValue[] {
     const over1001Value = 'x'.repeat(1001 - '{"d":""}'.length);
     candidates.push(makeCandidate('payload-len=1000', () => ({ d: exact1000Value })));
     candidates.push(makeCandidate('payload-len=1001', () => ({ d: over1001Value })));
+    candidates.push(
+      makeCandidate('reserved-and-over-1001', () => ({ sub: 'x', d: over1001Value })),
+    );
   }
   return candidates;
 }
@@ -170,6 +173,47 @@ export function buildAuthMethodSchemas(seed: AuthSchemaSeed): AuthMethodSchemas 
     makeCandidate('missing-uid', () => 'missing-user-999'),
   ]);
 
+  const mfaCreateFactorObj = objectSchema({
+    validBase: () => ({ factorId: 'phone', phoneNumber: '+15555550199' }),
+    fields: {
+      factorId: scalarSchema({ extraCandidates: () => [makeCandidate('totp', () => 'totp')] }),
+      phoneNumber: buildPhoneFieldSchema(),
+      displayName: scalarSchema(),
+    },
+  });
+
+  const mfaUpdateFactorObj = objectSchema({
+    validBase: () => ({ factorId: 'phone', phoneNumber: '+15555550199' }),
+    fields: {
+      uid: scalarSchema(),
+      factorId: scalarSchema({ extraCandidates: () => [makeCandidate('totp', () => 'totp')] }),
+      phoneNumber: buildPhoneFieldSchema(),
+      displayName: scalarSchema(),
+      enrollmentTime: scalarSchema({
+        extraCandidates: () => [
+          makeCandidate('valid-utc', () => 'Thu, 01 Jan 2026 00:00:00 GMT'),
+          makeCandidate('invalid-utc', () => 'not-a-utc-date'),
+        ],
+      }),
+    },
+  });
+
+  const providerToLinkObj = objectSchema({
+    validBase: () => ({ providerId: 'google.com', uid: 'prov-u1' }),
+    fields: {
+      providerId: scalarSchema({
+        extraCandidates: () => [
+          makeCandidate('email', () => 'email'),
+          makeCandidate('phone', () => 'phone'),
+        ],
+      }),
+      uid: scalarSchema(),
+      displayName: scalarSchema(),
+      email: buildEmailFieldSchema(),
+      photoUrl: buildUrlFieldSchema(),
+    },
+  });
+
   const createUserObj = objectSchema({
     validBase: () => ({ email: 'created@example.com' }),
     fields: {
@@ -181,6 +225,16 @@ export function buildAuthMethodSchemas(seed: AuthSchemaSeed): AuthMethodSchemas 
       photoURL: buildUrlFieldSchema(),
       disabled: scalarSchema(),
       password: buildPasswordFieldSchema(),
+      multiFactor: objectSchema({
+        validBase: () => ({}),
+        fields: {
+          enrolledFactors: boundedArraySchema({
+            maxLength: 2,
+            createValidElement: (i) => ({ factorId: 'phone', phoneNumber: `+1555555019${i}` }),
+            itemSchema: mfaCreateFactorObj,
+          }),
+        },
+      }),
     },
   });
 
@@ -194,6 +248,22 @@ export function buildAuthMethodSchemas(seed: AuthSchemaSeed): AuthMethodSchemas 
       photoURL: buildUrlFieldSchema(),
       disabled: scalarSchema(),
       password: buildPasswordFieldSchema(),
+      multiFactor: objectSchema({
+        validBase: () => ({}),
+        fields: {
+          enrolledFactors: boundedArraySchema({
+            maxLength: 2,
+            createValidElement: (i) => ({ factorId: 'phone', phoneNumber: `+1555555019${i}` }),
+            itemSchema: mfaUpdateFactorObj,
+          }),
+        },
+      }),
+      providerToLink: providerToLinkObj,
+      providersToUnlink: boundedArraySchema({
+        maxLength: 2,
+        createValidElement: (i) => `provider-${i}.com`,
+        itemSchema: scalarSchema(),
+      }),
     },
   });
 
@@ -249,8 +319,13 @@ export function buildAuthMethodSchemas(seed: AuthSchemaSeed): AuthMethodSchemas 
                 ],
               },
             })),
-            makeCandidate('mfa-unsupported-factor', () => ({
-              multiFactor: { enrolledFactors: [{ factorId: 'totp' }] },
+            makeCandidate('client-email-plus-short-password', () => ({
+              email: 'user@localhost',
+              password: '123',
+            })),
+            makeCandidate('client-phone-plus-short-password', () => ({
+              phoneNumber: '+abc',
+              password: '123',
             })),
           ]),
         },
@@ -277,40 +352,13 @@ export function buildAuthMethodSchemas(seed: AuthSchemaSeed): AuthMethodSchemas 
               phoneNumber: null,
               providersToUnlink: ['phone'],
             })),
-            makeCandidate('providerToLink-empty-providerId', () => ({
-              providerToLink: { providerId: '', uid: 'prov-u1' },
+            makeCandidate('client-email-plus-short-password', () => ({
+              email: 'user@localhost',
+              password: '123',
             })),
-            makeCandidate('providerToLink-empty-uid', () => ({
-              providerToLink: { providerId: 'google.com', uid: '' },
-            })),
-            makeCandidate('providerToLink-bad-email', () => ({
-              providerToLink: { providerId: 'google.com', uid: 'prov-u1', email: 'not-an-email' },
-            })),
-            makeCandidate('providerToLink-bad-photoURL', () => ({
-              providerToLink: { providerId: 'google.com', uid: 'prov-u1', photoURL: 'not-a-url' },
-            })),
-            makeCandidate('providerToLink-valid', () => ({
-              providerToLink: { providerId: 'google.com', uid: 'prov-u1' },
-            })),
-            makeCandidate('providersToUnlink-non-array-num', () => ({ providersToUnlink: 123 })),
-            makeCandidate('providersToUnlink-non-array-str', () => ({
-              providersToUnlink: 'google.com',
-            })),
-            makeCandidate('providersToUnlink-empty-entry', () => ({ providersToUnlink: [''] })),
-            makeCandidate('providersToUnlink-valid', () => ({
-              providersToUnlink: ['google.com'],
-            })),
-            makeCandidate('mfa-bad-enrollmentTime', () => ({
-              multiFactor: {
-                enrolledFactors: [
-                  {
-                    uid: 'f1',
-                    factorId: 'phone',
-                    phoneNumber: '+15555550199',
-                    enrollmentTime: 'not-a-utc-date',
-                  },
-                ],
-              },
+            makeCandidate('client-phone-plus-short-password', () => ({
+              phoneNumber: '+abc',
+              password: '123',
             })),
           ]),
         },
@@ -460,10 +508,12 @@ export function buildAuthMethodSchemas(seed: AuthSchemaSeed): AuthMethodSchemas 
             fields: {
               expiresIn: scalarSchema({
                 extraCandidates: () => [
-                  makeCandidate('expiresIn=299000', () => 299_000),
+                  makeCandidate('expiresIn=-Infinity', () => Number.NEGATIVE_INFINITY),
+                  makeCandidate('expiresIn=299999', () => 299_999),
                   makeCandidate('expiresIn=300000', () => 300_000),
-                  makeCandidate('expiresIn=1209600000', () => 1_209_600_000),
+                  makeCandidate('expiresIn=1209600999', () => 1_209_600_999),
                   makeCandidate('expiresIn=1209601000', () => 1_209_601_000),
+                  makeCandidate('expiresIn=Infinity', () => Number.POSITIVE_INFINITY),
                 ],
               }),
             },

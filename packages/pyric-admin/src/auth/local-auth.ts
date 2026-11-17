@@ -13,17 +13,8 @@ import {
 } from 'pyric/auth';
 import type { PyricAdminApp } from '../app/index.js';
 import { assertAdminAppActive } from '../app/lifecycle.js';
-import {
-  assertDeleteUsersPreflight,
-  assertGetUsersPreflight,
-  assertPhoneNumberPreflight,
-  validateCreateUserPreflight,
-} from './preflight-validation.js';
-import {
-  assertCreateSessionCookiePreflight,
-  assertEmailActionLinkPreflight,
-  assertVerifySessionCookiePreflight,
-} from './session-and-link-preflight.js';
+import { validateCreateUserPreflight } from './preflight-validation.js';
+import { buildUnmodeledAuthPreflightMethods } from './session-and-link-preflight.js';
 import type {
   Auth,
   CreateRequest,
@@ -237,29 +228,6 @@ export function makeSandboxAuth(app: PyricAdminApp, sandbox: Sandbox): Auth {
         return Promise.reject(translateAdminBackendError(err));
       }
     },
-    getUserByPhoneNumber(phoneNumber?: unknown): Promise<UserRecord> {
-      assertAdminAppActive(app);
-      try {
-        assertPhoneNumberPreflight(phoneNumber);
-      } catch (err) {
-        return Promise.reject(err);
-      }
-      return Promise.reject(notImplemented('getUserByPhoneNumber'));
-    },
-    getUserByProviderUid(): Promise<UserRecord> {
-      assertAdminAppActive(app);
-      return Promise.reject(notImplemented('getUserByProviderUid'));
-    },
-    getUsers(identifiers?: unknown): Promise<unknown> {
-      assertAdminAppActive(app);
-      assertGetUsersPreflight(identifiers);
-      return Promise.reject(notImplemented('getUsers'));
-    },
-    deleteUsers(uids?: unknown): Promise<unknown> {
-      assertAdminAppActive(app);
-      assertDeleteUsersPreflight(uids);
-      return Promise.reject(notImplemented('deleteUsers'));
-    },
     listUsers(maxResults?: number, pageToken?: string): Promise<ListUsersResult> {
       assertAdminAppActive(app);
       try {
@@ -269,10 +237,6 @@ export function makeSandboxAuth(app: PyricAdminApp, sandbox: Sandbox): Auth {
       } catch (err) {
         return Promise.reject(err);
       }
-    },
-    importUsers(): Promise<unknown> {
-      assertAdminAppActive(app);
-      return Promise.reject(notImplemented('importUsers'));
     },
     revokeRefreshTokens(uid: string): Promise<void> {
       assertAdminAppActive(app);
@@ -284,92 +248,7 @@ export function makeSandboxAuth(app: PyricAdminApp, sandbox: Sandbox): Auth {
       authAccountsFor(sandbox)?.revokeRefreshTokens(uid);
       return Promise.resolve();
     },
-    createSessionCookie(idToken?: unknown, sessionCookieOptions?: unknown): Promise<string> {
-      assertAdminAppActive(app);
-      try {
-        assertCreateSessionCookiePreflight(idToken, sessionCookieOptions);
-      } catch (err) {
-        return Promise.reject(err);
-      }
-      return Promise.reject(notImplemented('createSessionCookie'));
-    },
-    verifySessionCookie(sessionCookie?: unknown): Promise<DecodedIdToken> {
-      assertAdminAppActive(app);
-      if (typeof sessionCookie !== 'string') {
-        assertVerifySessionCookiePreflight(sessionCookie, idTokenProjectId(app));
-      }
-      try {
-        assertVerifySessionCookiePreflight(sessionCookie, idTokenProjectId(app));
-      } catch (err) {
-        return Promise.reject(err);
-      }
-      return Promise.reject(notImplemented('verifySessionCookie'));
-    },
-    generatePasswordResetLink(email?: unknown, actionCodeSettings?: unknown): Promise<string> {
-      assertAdminAppActive(app);
-      try {
-        assertEmailActionLinkPreflight('PASSWORD_RESET', email, actionCodeSettings);
-      } catch (err) {
-        return Promise.reject(err);
-      }
-      return Promise.reject(notImplemented('generatePasswordResetLink'));
-    },
-    generateEmailVerificationLink(email?: unknown, actionCodeSettings?: unknown): Promise<string> {
-      assertAdminAppActive(app);
-      try {
-        assertEmailActionLinkPreflight('VERIFY_EMAIL', email, actionCodeSettings);
-      } catch (err) {
-        return Promise.reject(err);
-      }
-      return Promise.reject(notImplemented('generateEmailVerificationLink'));
-    },
-    generateSignInWithEmailLink(email?: unknown, actionCodeSettings?: unknown): Promise<string> {
-      assertAdminAppActive(app);
-      try {
-        assertEmailActionLinkPreflight('EMAIL_SIGNIN', email, actionCodeSettings);
-      } catch (err) {
-        return Promise.reject(err);
-      }
-      return Promise.reject(notImplemented('generateSignInWithEmailLink'));
-    },
-    generateVerifyAndChangeEmailLink(
-      email?: unknown,
-      newEmail?: unknown,
-      actionCodeSettings?: unknown,
-    ): Promise<string> {
-      assertAdminAppActive(app);
-      try {
-        assertEmailActionLinkPreflight(
-          'VERIFY_AND_CHANGE_EMAIL',
-          email,
-          actionCodeSettings,
-          newEmail,
-        );
-      } catch (err) {
-        return Promise.reject(err);
-      }
-      return Promise.reject(notImplemented('generateVerifyAndChangeEmailLink'));
-    },
-    createProviderConfig(): Promise<unknown> {
-      assertAdminAppActive(app);
-      return Promise.reject(notImplemented('createProviderConfig'));
-    },
-    getProviderConfig(): Promise<unknown> {
-      assertAdminAppActive(app);
-      return Promise.reject(notImplemented('getProviderConfig'));
-    },
-    listProviderConfigs(): Promise<unknown> {
-      assertAdminAppActive(app);
-      return Promise.reject(notImplemented('listProviderConfigs'));
-    },
-    updateProviderConfig(): Promise<unknown> {
-      assertAdminAppActive(app);
-      return Promise.reject(notImplemented('updateProviderConfig'));
-    },
-    deleteProviderConfig(): Promise<void> {
-      assertAdminAppActive(app);
-      return Promise.reject(notImplemented('deleteProviderConfig'));
-    },
+    ...buildUnmodeledAuthPreflightMethods(app, notImplemented),
     get tenantManager(): never {
       assertAdminAppActive(app);
       throw notImplemented('tenantManager');

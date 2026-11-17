@@ -77,14 +77,14 @@ export function normalizeCustomUserClaims(customUserClaims: object | null): Reco
     throw new FirebaseAuthError('argument-error', 'CustomUserClaims argument must be an object or null.');
   }
   const serialized = JSON.stringify(customUserClaims);
+  const parsed = JSON.parse(serialized) as Record<string, unknown>;
+  assertNoReservedCustomClaims(parsed);
   if (serialized.length > MAX_CLAIMS_PAYLOAD_SIZE) {
     throw new FirebaseAuthError(
       'claims-too-large',
       `Developer claims payload should not exceed ${MAX_CLAIMS_PAYLOAD_SIZE} characters.`,
     );
   }
-  const parsed = JSON.parse(serialized) as Record<string, unknown>;
-  assertNoReservedCustomClaims(parsed);
   return parsed;
 }
 

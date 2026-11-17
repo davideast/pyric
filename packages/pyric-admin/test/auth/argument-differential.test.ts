@@ -12,9 +12,9 @@ import {
 } from 'firebase-admin/app';
 import { getAuth as getUpstreamAuth } from 'firebase-admin/auth';
 import { initializeSandbox } from 'pyric/sandbox';
-import pyricAdmin, { auth as legacyAuth } from 'pyric-admin';
-import { deleteApp, getApps, initializeApp } from 'pyric-admin/app';
-import { getAuth } from 'pyric-admin/auth';
+import pyricAdmin, { auth as legacyAuth } from '../../src/index.js';
+import { deleteApp, getApps, initializeApp } from '../../src/app/index.js';
+import { getAuth } from '../../src/auth/index.js';
 
 import {
   emitTypeWrongnessCandidates,

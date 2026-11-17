@@ -108,7 +108,7 @@ import {
   normalizeWriteStreamOptions,
   resolveDefaultBucketName,
   stubSignedUrl,
-  toBytes,
+  toBytesAsync,
   tryNormalizeBucketName,
 } from './argument-validation.js';
 import { BUCKET_DEFERRED_MEMBERS, FILE_DEFERRED_MEMBERS } from './deferred-members.js';
@@ -624,7 +624,7 @@ class SandboxFile implements File {
     if (declaredBytes !== undefined && declaredBytes > MAX_STORAGE_OBJECT_BYTES) {
       throw quotaExceeded(declaredBytes, `save() payload for '${this.name}'`);
     }
-    const bytes = toBytes(data);
+    const bytes = await toBytesAsync(data);
     if (bytes.byteLength > MAX_STORAGE_OBJECT_BYTES) {
       throw quotaExceeded(bytes.byteLength, `save() payload for '${this.name}'`);
     }
@@ -943,7 +943,7 @@ class RemoteFile implements File {
     if (declaredBytes !== undefined && declaredBytes > MAX_STORAGE_OBJECT_BYTES) {
       throw quotaExceeded(declaredBytes, `save() payload for '${this.name}'`);
     }
-    const bytes = toBytes(data);
+    const bytes = await toBytesAsync(data);
     if (bytes.byteLength > MAX_STORAGE_OBJECT_BYTES) {
       throw quotaExceeded(bytes.byteLength, `save() payload for '${this.name}'`);
     }

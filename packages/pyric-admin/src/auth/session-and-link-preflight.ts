@@ -9,22 +9,38 @@ import {
   latin1FromBase64url,
   utf8FromBase64url,
 } from 'pyric/sandbox/internal';
+import type { PyricAdminApp } from '../app/index.js';
+import { assertAdminAppActive } from '../app/lifecycle.js';
 import {
+  assertDeleteUsersPreflight,
+  assertGetUsersPreflight,
+  assertPhoneNumberPreflight,
   isClientEmail,
   isNonEmptyString,
   isNonNullPlainRecord,
   isWebUrl,
 } from './preflight-validation.js';
+import type { Auth, DecodedIdToken, UserRecord } from './types.js';
+import { idTokenProjectId } from './validation.js';
 import { FirebaseAuthError } from './verify-token.js';
 
 const SESSION_COOKIE_ISSUER_PREFIX = 'https://session.firebase.google.com/';
+const MIN_SESSION_COOKIE_DURATION_SEC = 5 * 60;
+const MAX_SESSION_COOKIE_DURATION_SEC = 14 * 24 * 60 * 60;
 
-export function assertCreateSessionCookiePreflight(idToken: unknown, options: unknown): void {
-  if (
-    !isNonNullPlainRecord(options) ||
-    typeof options.expiresIn !== 'number' ||
-    Number.isNaN(options.expiresIn)
-  ) {
+function isValidSessionCookieDurationMs(expiresIn: unknown): expiresIn is number {
+  if (typeof expiresIn !== 'number' || !Number.isFinite(expiresIn)) {
+    return false;
+  }
+  const durationSec = Math.floor(expiresIn / 1000);
+  return (
+    durationSec >= MIN_SESSION_COOKIE_DURATION_SEC &&
+    durationSec <= MAX_SESSION_COOKIE_DURATION_SEC
+  );
+}
+
+function assertCreateSessionCookiePreflight(idToken: unknown, options: unknown): void {
+  if (!isNonNullPlainRecord(options) || !isValidSessionCookieDurationMs(options.expiresIn)) {
     throw new FirebaseAuthError(
       'invalid-session-cookie-duration',
       'The session cookie duration must be a valid number in milliseconds between 5 minutes and 2 weeks.',
@@ -38,7 +54,7 @@ export function assertCreateSessionCookiePreflight(idToken: unknown, options: un
   }
 }
 
-export function assertVerifySessionCookiePreflight(
+function assertVerifySessionCookiePreflight(
   sessionCookie: unknown,
   projectId: string,
 ): void {
@@ -204,7 +220,7 @@ function assertActionCodeSettingsPreflight(actionCodeSettings: unknown): void {
   }
 }
 
-export function assertEmailActionLinkPreflight(
+function assertEmailActionLinkPreflight(
   requestType: 'PASSWORD_RESET' | 'VERIFY_EMAIL' | 'EMAIL_SIGNIN' | 'VERIFY_AND_CHANGE_EMAIL',
   email: unknown,
   actionCodeSettings?: unknown,
@@ -231,4 +247,146 @@ export function assertEmailActionLinkPreflight(
   if (newEmail !== undefined && !isClientEmail(newEmail)) {
     throw new FirebaseAuthError('invalid-new-email', 'The new email address is improperly formatted.');
   }
+}
+
+type UnmodeledAuthMethodNames =
+  | 'getUserByPhoneNumber'
+  | 'getUserByProviderUid'
+  | 'getUsers'
+  | 'deleteUsers'
+  | 'importUsers'
+  | 'createSessionCookie'
+  | 'verifySessionCookie'
+  | 'generatePasswordResetLink'
+  | 'generateEmailVerificationLink'
+  | 'generateSignInWithEmailLink'
+  | 'generateVerifyAndChangeEmailLink'
+  | 'createProviderConfig'
+  | 'getProviderConfig'
+  | 'listProviderConfigs'
+  | 'updateProviderConfig'
+  | 'deleteProviderConfig';
+
+export function buildUnmodeledAuthPreflightMethods(
+  app: PyricAdminApp,
+  notImplemented: (method: string) => Error,
+): Pick<Auth, UnmodeledAuthMethodNames> {
+  return {
+    getUserByPhoneNumber(phoneNumber?: unknown): Promise<UserRecord> {
+      assertAdminAppActive(app);
+      try {
+        assertPhoneNumberPreflight(phoneNumber);
+      } catch (err) {
+        return Promise.reject(err);
+      }
+      return Promise.reject(notImplemented('getUserByPhoneNumber'));
+    },
+    getUserByProviderUid(): Promise<UserRecord> {
+      assertAdminAppActive(app);
+      return Promise.reject(notImplemented('getUserByProviderUid'));
+    },
+    getUsers(identifiers?: unknown): Promise<unknown> {
+      assertAdminAppActive(app);
+      assertGetUsersPreflight(identifiers);
+      return Promise.reject(notImplemented('getUsers'));
+    },
+    deleteUsers(uids?: unknown): Promise<unknown> {
+      assertAdminAppActive(app);
+      assertDeleteUsersPreflight(uids);
+      return Promise.reject(notImplemented('deleteUsers'));
+    },
+    importUsers(): Promise<unknown> {
+      assertAdminAppActive(app);
+      return Promise.reject(notImplemented('importUsers'));
+    },
+    createSessionCookie(idToken?: unknown, sessionCookieOptions?: unknown): Promise<string> {
+      assertAdminAppActive(app);
+      try {
+        assertCreateSessionCookiePreflight(idToken, sessionCookieOptions);
+      } catch (err) {
+        return Promise.reject(err);
+      }
+      return Promise.reject(notImplemented('createSessionCookie'));
+    },
+    verifySessionCookie(sessionCookie?: unknown): Promise<DecodedIdToken> {
+      assertAdminAppActive(app);
+      if (typeof sessionCookie !== 'string') {
+        throw new FirebaseAuthError(
+          'argument-error',
+          'First argument to verifySessionCookie() must be a Firebase session cookie string.',
+        );
+      }
+      try {
+        assertVerifySessionCookiePreflight(sessionCookie, idTokenProjectId(app));
+      } catch (err) {
+        return Promise.reject(err);
+      }
+      return Promise.reject(notImplemented('verifySessionCookie'));
+    },
+    generatePasswordResetLink(email?: unknown, actionCodeSettings?: unknown): Promise<string> {
+      assertAdminAppActive(app);
+      try {
+        assertEmailActionLinkPreflight('PASSWORD_RESET', email, actionCodeSettings);
+      } catch (err) {
+        return Promise.reject(err);
+      }
+      return Promise.reject(notImplemented('generatePasswordResetLink'));
+    },
+    generateEmailVerificationLink(email?: unknown, actionCodeSettings?: unknown): Promise<string> {
+      assertAdminAppActive(app);
+      try {
+        assertEmailActionLinkPreflight('VERIFY_EMAIL', email, actionCodeSettings);
+      } catch (err) {
+        return Promise.reject(err);
+      }
+      return Promise.reject(notImplemented('generateEmailVerificationLink'));
+    },
+    generateSignInWithEmailLink(email?: unknown, actionCodeSettings?: unknown): Promise<string> {
+      assertAdminAppActive(app);
+      try {
+        assertEmailActionLinkPreflight('EMAIL_SIGNIN', email, actionCodeSettings);
+      } catch (err) {
+        return Promise.reject(err);
+      }
+      return Promise.reject(notImplemented('generateSignInWithEmailLink'));
+    },
+    generateVerifyAndChangeEmailLink(
+      email?: unknown,
+      newEmail?: unknown,
+      actionCodeSettings?: unknown,
+    ): Promise<string> {
+      assertAdminAppActive(app);
+      try {
+        assertEmailActionLinkPreflight(
+          'VERIFY_AND_CHANGE_EMAIL',
+          email,
+          actionCodeSettings,
+          newEmail,
+        );
+      } catch (err) {
+        return Promise.reject(err);
+      }
+      return Promise.reject(notImplemented('generateVerifyAndChangeEmailLink'));
+    },
+    createProviderConfig(): Promise<unknown> {
+      assertAdminAppActive(app);
+      return Promise.reject(notImplemented('createProviderConfig'));
+    },
+    getProviderConfig(): Promise<unknown> {
+      assertAdminAppActive(app);
+      return Promise.reject(notImplemented('getProviderConfig'));
+    },
+    listProviderConfigs(): Promise<unknown> {
+      assertAdminAppActive(app);
+      return Promise.reject(notImplemented('listProviderConfigs'));
+    },
+    updateProviderConfig(): Promise<unknown> {
+      assertAdminAppActive(app);
+      return Promise.reject(notImplemented('updateProviderConfig'));
+    },
+    deleteProviderConfig(): Promise<void> {
+      assertAdminAppActive(app);
+      return Promise.reject(notImplemented('deleteProviderConfig'));
+    },
+  };
 }

@@ -25,6 +25,7 @@ import {
 export interface NormalizedStorageOutcome {
   readonly accepted: boolean;
   readonly acceptedPreflight?: boolean;
+  readonly threwSynchronously?: boolean;
   readonly errorKind?:
     | 'TypeError'
     | 'RangeError'
@@ -66,6 +67,11 @@ function isCallbackUnsupportedError(error: unknown): boolean {
   return error.message.includes('callback form is not supported');
 }
 
+function isAppOrStorageError(error: unknown): error is { code: string } {
+  if (!hasStringCode(error)) return false;
+  return error.code.startsWith('app/') || error.code.startsWith('storage/');
+}
+
 export function classifyStorageError(error: unknown): {
   errorKind: NonNullable<NormalizedStorageOutcome['errorKind']>;
   code?: string;
@@ -90,7 +96,7 @@ export function classifyStorageError(error: unknown): {
   if (isNotImplementedStorageError(error)) {
     return { errorKind: 'NotImplementedError', message };
   }
-  if (hasStringCode(error) && error.code.startsWith('app/') || hasStringCode(error) && error.code.startsWith('storage/')) {
+  if (isAppOrStorageError(error)) {
     return { errorKind: 'FirebaseError', code: error.code, message };
   }
   return {
@@ -109,8 +115,22 @@ export async function captureStorageOutcome(
   invoke: () => unknown,
   didReachTransport?: () => boolean,
 ): Promise<NormalizedStorageOutcome> {
+  let raw: unknown;
   try {
-    await invoke();
+    raw = invoke();
+  } catch (error) {
+    const info = classifyStorageError(error);
+    return {
+      accepted: false,
+      acceptedPreflight: readFlag(didReachTransport),
+      threwSynchronously: true,
+      errorKind: info.errorKind,
+      code: info.code,
+      message: info.message,
+    };
+  }
+  try {
+    await raw;
     return {
       accepted: true,
       acceptedPreflight: readFlag(didReachTransport),
@@ -120,6 +140,7 @@ export async function captureStorageOutcome(
     return {
       accepted: false,
       acceptedPreflight: readFlag(didReachTransport),
+      threwSynchronously: false,
       errorKind: info.errorKind,
       code: info.code,
       message: info.message,
@@ -530,18 +551,6 @@ export function isDocumentedStorageSandboxDivergence(
     if (cfg !== null && typeof cfg === 'object' && isPastValidExpirationInput(cfg.expires)) {
       return true;
     }
-  }
-
-  // 5. `pyric-admin/storage` shares its object store with `pyric/storage` (`ref()`),
-  //    which rejects malformed `^[A-Za-z]+://` URL-scheme strings with `storage/invalid-url`.
-  if (
-    methodName === 'copy' &&
-    upstream.accepted &&
-    pyric.code === 'storage/invalid-url' &&
-    typeof rawArgs[0] === 'string' &&
-    /^[A-Za-z]+:\/\//.test(rawArgs[0])
-  ) {
-    return true;
   }
 
   return false;

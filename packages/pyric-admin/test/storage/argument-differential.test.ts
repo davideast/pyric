@@ -15,15 +15,15 @@ import {
 } from 'firebase-admin/app';
 import { getStorage as getUpstreamStorage } from 'firebase-admin/storage';
 import { initializeSandbox } from 'pyric/sandbox';
-import pyricAdmin, { storage as legacyStorage } from 'pyric-admin';
-import { deleteApp, getApps, initializeApp } from 'pyric-admin/app';
+import pyricAdmin, { storage as legacyStorage } from '../../src/index.js';
+import { deleteApp, getApps, initializeApp } from '../../src/app/index.js';
 import {
   getDownloadURL,
   getStorage,
   type Bucket,
   type File,
   type Storage,
-} from 'pyric-admin/storage';
+} from '../../src/storage/index.js';
 
 import {
   emitTypeWrongnessCandidates,
@@ -349,7 +349,19 @@ describe.each(STORAGE_ARMS)(
           },
         });
 
-        const reseedBoth = async (): Promise<void> => {
+        const MUTATING_METHODS = new Set([
+          'deleteFiles',
+          'save',
+          'createWriteStream',
+          'delete',
+          'setMetadata',
+          'copy',
+          'move',
+        ]);
+        let needsReseed = true;
+
+        const ensureSeeded = async (): Promise<void> => {
+          if (!needsReseed) return;
           await pyBucket.file(STORAGE_EXISTING_PATH).save('hello world', {
             contentType: 'text/plain',
           });
@@ -362,13 +374,14 @@ describe.each(STORAGE_ARMS)(
               downloadTokens: 'tok-1',
             },
           ]);
+          needsReseed = false;
         };
 
         const mismatches: string[] = [];
 
         const runBucketCases = async (cases: readonly GeneratedArgumentCase[]): Promise<void> => {
           for (const testCase of cases) {
-            await reseedBoth();
+            await ensureSeeded();
             upstream.resetTransportFlag();
             targetSide = 'upstream';
             const uArgs = testCase.buildArgs();
@@ -387,6 +400,9 @@ describe.each(STORAGE_ARMS)(
               upstream.didReachTransport,
             );
             const pOut = await captureStorageOutcome(() => pFn?.apply(pyBucket, pArgs));
+            if (MUTATING_METHODS.has(testCase.methodName) && (uOut.accepted || pOut.accepted)) {
+              needsReseed = true;
+            }
             const diff = compareStorageOutcomes(
               `${testCase.methodName}:${testCase.label}`,
               testCase.methodName,
@@ -403,7 +419,7 @@ describe.each(STORAGE_ARMS)(
           cases: readonly GeneratedArgumentCase[],
         ): Promise<void> => {
           for (const testCase of cases) {
-            await reseedBoth();
+            await ensureSeeded();
             upstream.resetTransportFlag();
             const upFile = upBucket.file(filePath);
             const pyFile: File = pyBucket.file(filePath);
@@ -458,6 +474,13 @@ describe.each(STORAGE_ARMS)(
             const pOut = await captureStorageOutcome(() =>
               invokeTargetMethod(pyFile, pArgs, false),
             );
+            if (
+              filePath === STORAGE_EXISTING_PATH &&
+              MUTATING_METHODS.has(testCase.methodName) &&
+              (uOut.accepted || pOut.accepted)
+            ) {
+              needsReseed = true;
+            }
             const diff = compareStorageOutcomes(
               `${testCase.methodName}(${filePath}):${testCase.label}`,
               testCase.methodName,
@@ -500,6 +523,36 @@ describe.each(STORAGE_ARMS)(
         ]);
 
         expect(mismatches).toEqual([]);
+
+        // Verify literal gs:// object paths round-trip bytes and list verbatim on both arms.
+        const literalBucket = pyricStorage.bucket('literal-key-bucket');
+        await literalBucket.file('seed.txt').save(new Set(['seed-', 'payload']) as never);
+        await literalBucket.file('gs://other-bucket/sub/file.txt').save('saved-literal');
+        await literalBucket.file('seed.txt').copy('gs://UpperBucket/a.txt');
+        await literalBucket.file('seed.txt').copy('gs://archive-bucket/');
+        const [listedLiteralFiles] = await literalBucket.getFiles();
+        expect(listedLiteralFiles.map((f) => f.name)).toEqual([
+          'gs://UpperBucket/a.txt',
+          'gs://archive-bucket/',
+          'gs://other-bucket/sub/file.txt',
+          'seed.txt',
+        ]);
+        const [upperBytes] = await literalBucket.file('gs://UpperBucket/a.txt').download();
+        expect(upperBytes.toString('utf8')).toBe('seed-payload');
+
+        const syncThrowRead = await captureStorageOutcome(() =>
+          literalBucket.file('seed.txt').createReadStream({ start: 0, validation: true }),
+        );
+        expect(syncThrowRead.threwSynchronously).toBe(true);
+        const asyncErrRead = await captureStorageOutcome(() => {
+          const s = literalBucket.file('missing-stream.txt').createReadStream();
+          return new Promise<void>((resolve, reject) => {
+            s.once('error', reject);
+            s.once('end', () => resolve());
+            s.resume();
+          });
+        });
+        expect(asyncErrRead.threwSynchronously).toBe(false);
       } finally {
         await upstream.dispose();
       }

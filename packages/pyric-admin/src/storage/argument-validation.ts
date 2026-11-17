@@ -185,32 +185,72 @@ export function declaredByteLengthOf(data: unknown): number | undefined {
   return undefined;
 }
 
-export function toBytes(data: unknown): Uint8Array {
+function chunkToBuffer(item: unknown): Buffer {
+  if (typeof item === 'string') {
+    return Buffer.from(item, 'utf8');
+  }
+  if (item instanceof Uint8Array) {
+    return Buffer.from(item.buffer, item.byteOffset, item.byteLength);
+  }
+  throw new TypeError(
+    'The "chunk" argument must be of type string or an instance of Buffer or Uint8Array.',
+  );
+}
+
+function concatChunks(chunks: readonly Buffer[]): Uint8Array {
+  const joined = Buffer.concat(chunks);
+  return new Uint8Array(joined.buffer, joined.byteOffset, joined.byteLength);
+}
+
+function isSyncIterable(value: object): value is Iterable<unknown> {
+  return (
+    Symbol.iterator in value &&
+    typeof (value as { [Symbol.iterator]?: unknown })[Symbol.iterator] === 'function'
+  );
+}
+
+function isAsyncIterable(value: object): value is AsyncIterable<unknown> {
+  return (
+    Symbol.asyncIterator in value &&
+    typeof (value as { [Symbol.asyncIterator]?: unknown })[Symbol.asyncIterator] === 'function'
+  );
+}
+
+export async function toBytesAsync(data: unknown): Promise<Uint8Array> {
   if (typeof data === 'string') {
     return new TextEncoder().encode(data);
   }
   if (data instanceof Uint8Array) {
     return new Uint8Array(data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength));
   }
-  if (Array.isArray(data)) {
-    const chunks: Buffer[] = [];
-    for (const item of data) {
-      if (typeof item === 'string') {
-        chunks.push(Buffer.from(item, 'utf8'));
-      } else if (item instanceof Uint8Array) {
-        chunks.push(Buffer.from(item.buffer, item.byteOffset, item.byteLength));
-      } else {
-        throw new TypeError(
-          'The "chunk" argument must be of type string or an instance of Buffer or Uint8Array.',
-        );
+  if (data !== null && typeof data === 'object') {
+    if (isSyncIterable(data)) {
+      const chunks: Buffer[] = [];
+      for (const item of data) {
+        chunks.push(chunkToBuffer(item));
       }
+      return concatChunks(chunks);
     }
-    const joined = Buffer.concat(chunks);
-    return new Uint8Array(joined.buffer, joined.byteOffset, joined.byteLength);
+    if (isAsyncIterable(data)) {
+      const chunks: Buffer[] = [];
+      for await (const item of data) {
+        chunks.push(chunkToBuffer(item));
+      }
+      return concatChunks(chunks);
+    }
   }
   throw new TypeError(
     'The "data" argument must be of type string or an instance of Buffer or Uint8Array.',
   );
+}
+
+/**
+ * Trigger `ToNumber` coercion on `options.end` in the same order as
+ * `@google-cloud/storage` (`options.end < 0`), throwing `TypeError` on
+ * uncoercible objects such as `Object.create(null)`.
+ */
+function probeEndNumericCoercion(rawEnd: unknown): void {
+  void ((rawEnd as number) < 0);
 }
 
 export function normalizeDownloadOptions(rawOptions: unknown): DownloadOptions {
@@ -225,7 +265,7 @@ export function normalizeDownloadOptions(rawOptions: unknown): DownloadOptions {
   const opts = rawOptions as Record<string, unknown>;
   const hasStart = typeof opts.start === 'number';
   const hasEnd = typeof opts.end === 'number';
-  void ((opts.end as number) < 0);
+  probeEndNumericCoercion(opts.end);
   const rangeRequest = hasStart || hasEnd;
   if (rangeRequest && (typeof opts.validation === 'string' || opts.validation === true)) {
     throw new Error('Cannot use validation with file ranges (start/end).');
@@ -325,11 +365,17 @@ export function copyTargetOf(
   throw new Error('Destination file should have a name.');
 }
 
+function probeNullPrototypeNumberCoercion(value: object): void {
+  if (Object.getPrototypeOf(value) === null) {
+    // `@google-cloud/storage` evaluates `isNaN(expires)`, which invokes
+    // `ToNumber` and throws `TypeError` on null-prototype objects.
+    Number(value);
+  }
+}
+
 function normalizeExpires(rawExpires: unknown): number {
   if (rawExpires !== null && typeof rawExpires === 'object' && !(rawExpires instanceof Date)) {
-    if (Object.getPrototypeOf(rawExpires) === null) {
-      Number(rawExpires);
-    }
+    probeNullPrototypeNumberCoercion(rawExpires);
     throw new Error('The expiration date provided was invalid.');
   }
   if (rawExpires === undefined || rawExpires === null || typeof rawExpires === 'boolean') {

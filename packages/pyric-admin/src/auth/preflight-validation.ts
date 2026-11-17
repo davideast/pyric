@@ -86,23 +86,30 @@ export function isWebUrl(urlStr: unknown): urlStr is string {
 
 function validateMfaEnrollmentFactors(factors: readonly unknown[], isCreate: boolean): void {
   for (const entry of factors) {
-    let factor: Record<string, unknown> = {};
-    if (isNonNullPlainRecord(entry)) {
-      factor = entry;
-    }
-    if (isCreate && isNonNullPlainRecord(entry)) {
-      if ('enrollmentTime' in entry) {
+    if (isCreate) {
+      // `firebase-admin` checks `'enrollmentTime' in entry` and `'uid' in entry`,
+      // which throws `TypeError` on `null` or primitive elements.
+      const asObject = entry as Record<string, unknown>;
+      if ('enrollmentTime' in asObject) {
         throw new FirebaseAuthError(
           'argument-error',
           '"enrollmentTime" is not supported when adding second factors via "createUser()"',
         );
       }
-      if ('uid' in entry) {
+      if ('uid' in asObject) {
         throw new FirebaseAuthError(
           'argument-error',
           '"uid" is not supported when adding second factors via "createUser()"',
         );
       }
+    } else if (entry === undefined || entry === null) {
+      // `convertMultiFactorInfoToServerFormat` accesses `entry.enrollmentTime`,
+      // throwing `TypeError` on `undefined` or `null`.
+      throw new TypeError('Cannot read properties of null or undefined (reading "enrollmentTime").');
+    }
+    let factor: Record<string, unknown> = {};
+    if (isNonNullPlainRecord(entry)) {
+      factor = entry;
     }
     if (factor.enrollmentTime !== undefined && !isUtcDateString(factor.enrollmentTime)) {
       throw new FirebaseAuthError(
@@ -130,9 +137,10 @@ function validateMfaEnrollmentFactors(factors: readonly unknown[], isCreate: boo
     }
     if (factor.phoneNumber !== undefined) {
       if (!isClientPhoneNumber(factor.phoneNumber)) {
+        const renderedPhone = String(factor.phoneNumber);
         throw new FirebaseAuthError(
           'invalid-phone-number',
-          'The second factor "phoneNumber" must be a non-empty E.164 compliant string.',
+          `The second factor "phoneNumber" for "${renderedPhone}" must be a non-empty E.164 compliant string.`,
         );
       }
     } else {
@@ -176,10 +184,10 @@ export function validateCreateUserPreflight(rawProperties: unknown): CreateReque
     const uidErr = invalidUid(rawProperties.uid);
     if (uidErr !== null) throw uidErr;
   }
-  if (rawProperties.email !== undefined && !isStrictEmail(rawProperties.email)) {
+  if (rawProperties.email !== undefined && !isClientEmail(rawProperties.email)) {
     throw new FirebaseAuthError('invalid-email', 'The email address is improperly formatted.');
   }
-  if (rawProperties.phoneNumber !== undefined && !isE164PhoneNumber(rawProperties.phoneNumber)) {
+  if (rawProperties.phoneNumber !== undefined && !isClientPhoneNumber(rawProperties.phoneNumber)) {
     throw new FirebaseAuthError(
       'invalid-phone-number',
       'The phoneNumber must be a non-empty E.164 standard compliant identifier string.',
@@ -202,6 +210,16 @@ export function validateCreateUserPreflight(rawProperties: unknown): CreateReque
   }
   if (rawProperties.disabled !== undefined && typeof rawProperties.disabled !== 'boolean') {
     throw new FirebaseAuthError('invalid-disabled-field', 'The disabled field must be a boolean.');
+  }
+  // Server-side Identity Toolkit checks run after all client-preflight checks succeed.
+  if (rawProperties.email !== undefined && !isStrictEmail(rawProperties.email)) {
+    throw new FirebaseAuthError('invalid-email', 'The email address is improperly formatted.');
+  }
+  if (rawProperties.phoneNumber !== undefined && !isE164PhoneNumber(rawProperties.phoneNumber)) {
+    throw new FirebaseAuthError(
+      'invalid-phone-number',
+      'The phoneNumber must be a non-empty E.164 standard compliant identifier string.',
+    );
   }
   return rawProperties as unknown as CreateRequest;
 }
@@ -286,6 +304,14 @@ export function validateUpdateUserPreflight(
     }
   }
 
+  if (rewritten.providerToLink !== undefined && !isNonNullPlainRecord(rewritten.providerToLink)) {
+    if (rewritten.providerToLink === null || typeof rewritten.providerToLink !== 'object') {
+      // `updateExistingAccount` assigns `request.linkProviderUserInfo.rawId = ...`,
+      // throwing `TypeError` on `null` or primitive `providerToLink` values.
+      throw new TypeError('Cannot assign "rawId" on non-object providerToLink value.');
+    }
+  }
+
   if (isNonNullPlainRecord(rewritten.multiFactor)) {
     const enrolled = rewritten.multiFactor.enrolledFactors;
     if (Array.isArray(enrolled) && enrolled.length > 0) {
@@ -306,7 +332,7 @@ export function validateUpdateUserPreflight(
   ) {
     throw new FirebaseAuthError('invalid-display-name', 'The displayName field must be a valid string.');
   }
-  if (rewritten.email !== undefined && !isStrictEmail(rewritten.email)) {
+  if (rewritten.email !== undefined && !isClientEmail(rewritten.email)) {
     throw new FirebaseAuthError('invalid-email', 'The email address is improperly formatted.');
   }
   if (
@@ -342,6 +368,12 @@ export function validateUpdateUserPreflight(
     throw new FirebaseAuthError('invalid-disabled-field', 'The disabled field must be a boolean.');
   }
 
+  if (Array.isArray(rewritten.providerToLink)) {
+    throw new FirebaseAuthError(
+      'invalid-provider-id',
+      'The providerId must be a valid supported provider identifier string.',
+    );
+  }
   if (isNonNullPlainRecord(rewritten.providerToLink)) {
     const linkInfo = rewritten.providerToLink;
     if (linkInfo.displayName !== undefined && typeof linkInfo.displayName !== 'string') {
@@ -366,6 +398,10 @@ export function validateUpdateUserPreflight(
   );
   if (unsupported.length > 0) {
     throw notImplemented(`updateUser({ ${unsupported.join(', ')} })`);
+  }
+
+  if (rewritten.email !== undefined && !isStrictEmail(rewritten.email)) {
+    throw new FirebaseAuthError('invalid-email', 'The email address is improperly formatted.');
   }
 
   const typed = rawProperties as unknown as UpdateRequest;

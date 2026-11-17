@@ -4,6 +4,7 @@
  * combinator module.
  */
 
+import { Readable } from 'node:stream';
 import {
   emitFieldCandidates,
   makeCandidate,
@@ -65,7 +66,8 @@ export function buildStorageMethodSchemas(ctx: StorageSchemaContext): StorageMet
     extraCandidates: () => [
       makeCandidate('path="docs/item-1.txt"', () => 'docs/item-1.txt'),
       makeCandidate('path="nested/a/b/c.bin"', () => 'nested/a/b/c.bin'),
-      makeCandidate('path="take one.wav"', () => 'take one.wav'),
+      makeCandidate('path="file with spaces.txt"', () => 'file with spaces.txt'),
+      makeCandidate('path="gs://other-bucket/sub/file.txt"', () => 'gs://other-bucket/sub/file.txt'),
     ],
   });
 
@@ -169,6 +171,9 @@ export function buildStorageMethodSchemas(ctx: StorageSchemaContext): StorageMet
     extraCandidates: () => [
       makeCandidate('dest="docs/copied.txt"', () => 'docs/copied.txt'),
       makeCandidate('dest="gs://archive-bucket/copied.txt"', () => 'gs://archive-bucket/copied.txt'),
+      makeCandidate('dest="gs://UpperBucket/a.txt"', () => 'gs://UpperBucket/a.txt'),
+      makeCandidate('dest="gs://archive-bucket/"', () => 'gs://archive-bucket/'),
+      makeCandidate('dest="https://example.com/a.txt"', () => 'https://example.com/a.txt'),
       makeCandidate('dest="gs://"', () => 'gs://'),
       makeCandidate('dest="gs:///missing-bucket"', () => 'gs:///missing-bucket'),
       makeCandidate('dest=Bucket', () => ctx.makeDestBucket()),
@@ -268,6 +273,22 @@ export function buildStorageMethodSchemas(ctx: StorageSchemaContext): StorageMet
             extraCandidates: () => [
               makeCandidate('Buffer("bytes")', () => Buffer.from('bytes', 'utf8')),
               makeCandidate('Uint8Array([1,2,3])', () => new Uint8Array([1, 2, 3])),
+              makeCandidate('Set(["he","llo"])', () => new Set(['he', 'llo'])),
+              makeCandidate('syncGenerator', () =>
+                (function* () {
+                  yield 'he';
+                  yield Buffer.from('llo', 'utf8');
+                })(),
+              ),
+              makeCandidate('asyncGenerator', () =>
+                (async function* () {
+                  yield 'he';
+                  yield new Uint8Array([108, 108, 111]);
+                })(),
+              ),
+              makeCandidate('Readable(["he","llo"])', () => Readable.from(['he', 'llo'])),
+              makeCandidate('Set([123])', () => new Set([123])),
+              makeCandidate('Readable([123])', () => Readable.from([123], { objectMode: true })),
             ],
           }),
         },

@@ -43,6 +43,8 @@ export interface StorageReference {
  *                             `./url.ts` describes.
  *   `ref(parent, path)`     — `path` is relative to `parent.fullPath`.
  */
+const ADMIN_LITERAL_SCHEME_PATH = /^[A-Za-z]+:\//;
+
 export function ref(storage: FirebaseStorage, path?: string): StorageReference;
 export function ref(parent: StorageReference, path: string): StorageReference;
 export function ref(
@@ -55,8 +57,20 @@ export function ref(
     return new SandboxStorageReference(target.storage, joinPaths(target.fullPath, refPathOf(path, false)));
   }
   // Storage-rooted overload.
-  targetOf(target);
+  const resolvedTarget = targetOf(target);
+  if (resolvedTarget.admin === true && typeof path === 'string' && ADMIN_LITERAL_SCHEME_PATH.test(path)) {
+    return new SandboxStorageReference(target, path);
+  }
   return new SandboxStorageReference(target, normalizePath(refPathOf(path, true)));
+}
+
+/** Construct a reference with `fullPath` verbatim, without URL parsing or slash collapsing. */
+export function literalStorageReference(
+  storage: FirebaseStorage,
+  fullPath: string,
+): StorageReference {
+  targetOf(storage);
+  return new SandboxStorageReference(storage, fullPath);
 }
 
 // ─── Sandbox impl ──────────────────────────────────────────────────
@@ -77,13 +91,17 @@ class SandboxStorageReference implements StorageReference {
   get name(): string {
     if (this.fullPath === '') return '';
     const idx = this.fullPath.lastIndexOf('/');
-    return idx === -1 ? this.fullPath : this.fullPath.slice(idx + 1);
+    if (idx === -1) return this.fullPath;
+    return this.fullPath.slice(idx + 1);
   }
 
   get parent(): StorageReference | null {
     if (this.fullPath === '') return null;
     const idx = this.fullPath.lastIndexOf('/');
-    const parentPath = idx === -1 ? '' : this.fullPath.slice(0, idx);
+    let parentPath = '';
+    if (idx !== -1) {
+      parentPath = this.fullPath.slice(0, idx);
+    }
     return new SandboxStorageReference(this.storage, parentPath);
   }
 
@@ -119,7 +137,7 @@ export function normalizePath(path: string): string {
  * Join a parent path with a child path, normalizing the result.
  * Used by the `ref(parent, path)` overload and by `child` helpers.
  */
-export function joinPaths(parent: string, child: string): string {
+function joinPaths(parent: string, child: string): string {
   const childNorm = normalizePath(child);
   if (parent === '') return childNorm;
   if (childNorm === '') return parent;
