@@ -22,7 +22,12 @@
  * folder-like references for ANY path with descendants; we match
  * that semantic exactly.
  */
-import { literalStorageReference, type StorageReference } from './reference.js';
+import {
+  isAdminLiteralSchemePath,
+  literalStorageReference,
+  ref,
+  type StorageReference,
+} from './reference.js';
 import { getStorageService, storageAuth, storageOperationProvenance, targetOf } from './service.js';
 import { enforceRules } from './enforce.js';
 
@@ -68,12 +73,18 @@ export async function listAll(refIn: StorageReference): Promise<ListResult> {
   const seenPrefixes = new Set<string>();
   const prefixes: StorageReference[] = [];
 
+  const isAdminPlane = target.admin === true;
+  const makeRef = (fullPath: string): StorageReference => {
+    if (isAdminPlane) return literalStorageReference(storage, fullPath);
+    return ref(storage, fullPath);
+  };
+
   for (const md of records) {
     if (!md.fullPath.startsWith(scanPrefix)) continue; // defensive
     const relative = md.fullPath.slice(scanPrefix.length);
     if (relative === '') {
-      if (refIn.fullPath !== '') {
-        items.push(literalStorageReference(storage, md.fullPath));
+      if (isAdminPlane && refIn.fullPath !== '' && isAdminLiteralSchemePath(md.fullPath)) {
+        items.push(makeRef(md.fullPath));
       }
       continue;
     }
@@ -81,13 +92,13 @@ export async function listAll(refIn: StorageReference): Promise<ListResult> {
     const slashIdx = relative.indexOf('/');
     if (slashIdx === -1) {
       // Direct child file.
-      items.push(literalStorageReference(storage, md.fullPath));
+      items.push(makeRef(md.fullPath));
     } else {
       const folderName = relative.slice(0, slashIdx);
       const folderPath = `${scanPrefix}${folderName}`;
       if (!seenPrefixes.has(folderPath)) {
         seenPrefixes.add(folderPath);
-        prefixes.push(literalStorageReference(storage, folderPath));
+        prefixes.push(makeRef(folderPath));
       }
     }
   }

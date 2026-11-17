@@ -45,6 +45,10 @@ export interface StorageReference {
  */
 const ADMIN_LITERAL_SCHEME_PATH = /^[A-Za-z]+:\//;
 
+export function isAdminLiteralSchemePath(path: string): boolean {
+  return ADMIN_LITERAL_SCHEME_PATH.test(path);
+}
+
 export function ref(storage: FirebaseStorage, path?: string): StorageReference;
 export function ref(parent: StorageReference, path: string): StorageReference;
 export function ref(
