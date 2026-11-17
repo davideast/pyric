@@ -58,6 +58,12 @@ export function firestoreScenarioRecordProblems(file: string, id: string, value:
   if (typeof record.group !== 'string' || !SCENARIO_GROUPS.has(record.group as ScenarioGroup)) {
     fail(`invalid 'group' (${JSON.stringify(record.group)}) — must be 'stress' or 'fix-class'`);
   }
+  if ('pendingRowLink' in record && record.pendingRowLink !== undefined && typeof record.pendingRowLink !== 'boolean') {
+    fail("'pendingRowLink' must be a boolean when present");
+  }
+  if ('allowCompileError' in record && record.allowCompileError !== undefined && typeof record.allowCompileError !== 'boolean') {
+    fail("'allowCompileError' must be a boolean when present");
+  }
 
   if (!Array.isArray(record.cases) || record.cases.length === 0) {
     fail("'cases' must be a non-empty array");
@@ -93,7 +99,7 @@ export function firestoreScenarioRecordProblems(file: string, id: string, value:
 /** Loads every Firestore rules scenario in this directory, validating each
  *  record and injecting its id from the filename. Throws with every problem
  *  found rather than silently dropping a bad file. */
-export function loadFirestoreScenarioRecords(): (Scenario & { group: ScenarioGroup })[] {
+function loadFirestoreScenarioRecords(): (Scenario & { group: ScenarioGroup })[] {
   const files = readdirSync(HERE)
     .filter((file) => file.endsWith('.ts') && !NON_RECORD_FILES.has(file))
     .sort();

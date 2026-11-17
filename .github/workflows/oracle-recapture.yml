@@ -1,24 +1,25 @@
-# Oracle re-capture lane — weekly production drift detection.
+# Oracle re-capture lane - weekly production drift detection.
 #
 # Nothing else in CI re-consults production: build.yml only checks committed
 # observations against the offline model and the version guard, so a `conforms`
 # claim can silently outlive the behavior it was captured against. This lane
 # re-runs the schedulable capture rigs against live Firebase, overwriting the
 # observation files in place, then reports any change to the observations tree
-# as drift — the same "the diff is the drift report" mechanism a human uses
+# as drift - the same "the diff is the drift report" mechanism a human uses
 # locally (see packages/conformance/docs/how-to-run-the-conformance-system.md).
 # The comparison ignores the per-run `observedAt` timestamp every capture
 # stamps, so it fires only on a real change to a captured fact.
 #
 # Two tiers of rig run here (the guide's rig fleet section is the map):
-#   1. unattended — admin-app + app-registry: pure in-process probes of the
-#      installed firebase / firebase-admin packages. No secret, no network;
-#      they always run.
-#   2. credentialed — oracle-run, messaging-send, rules-firestore,
-#      rules-storage: each reaches a real Firebase project and needs a
-#      provisioned credential. oracle-run and messaging-send gate on their
-#      secrets; the two rules legs authenticate through Workload Identity
-#      Federation and gate on the GCP_WIF_PROVIDER repository variable.
+#   1. unattended - admin-app + app-registry + client-storage: pure in-process
+#      probes of the installed firebase / firebase-admin packages. No secret, no
+#      network; they always run.
+#   2. credentialed - oracle-run, messaging-send, rules-firestore,
+#      rules-storage, storage-stdlib-discovery: each reaches a real Firebase
+#      project and needs a provisioned credential. oracle-run gates on its
+#      secret; messaging-send, the two rules legs, and storage-stdlib-discovery
+#      authenticate through Workload Identity Federation and gate on the
+#      GCP_WIF_PROVIDER repository variable.
 #      A leg whose `disabled` field names a blocking issue skips with that
 #      reason. Any other leg whose guard is absent fails on a scheduled run,
 #      so the weekly check never goes green with nothing checked against
@@ -35,13 +36,13 @@
 # with no drift (scripts/ci/oracle-leg-report.ts).
 #
 # Deliberately excluded:
-#   - rtdb-rules      — the one rig that MUTATES a live project (deploys a
+#   - rtdb-rules      - the one rig that MUTATES a live project (deploys a
 #                       ruleset, then restores). Its deploy/capture/restore/
 #                       read-back invariant is a human-witnessed correctness
 #                       contract; it is not run unattended here.
-#   - messaging-web   — human-witnessed, headed Chromium with a persistent
+#   - messaging-web   - human-witnessed, headed Chromium with a persistent
 #                       profile. Cannot run on a CI worker by nature.
-#   - ai-logic        — credentialed, but every run consumes paid model quota
+#   - ai-logic        - credentialed, but every run consumes paid model quota
 #                       and it sits outside this lane's scoped rig set. It can
 #                       be added as another credentialed matrix leg (guard
 #                       PYRIC_AI_FIREBASE_CONFIG) when that trade is accepted.
@@ -56,7 +57,7 @@ name: Oracle re-capture
 
 on:
   schedule:
-    # Weekly, Monday 06:00 UTC — off-peak and clear of the daily build (09:17)
+    # Weekly, Monday 06:00 UTC - off-peak and clear of the daily build (09:17)
     # and playground (10:43) crons.
     - cron: '0 6 * * 1'
   workflow_dispatch:
@@ -106,9 +107,12 @@ jobs:
       - name: Re-capture app-registry observations
         # In-process probes of the installed firebase/app client registry.
         run: bun run packages/conformance/src/app-registry-probes.ts --write
+      - name: Re-capture client-storage observations
+        # In-process probes of the installed firebase/storage URL parser.
+        run: bun run packages/conformance/src/client-storage-probes.ts --write
       - name: Detect observation drift
         id: drift
-        run: bun scripts/ci/oracle-drift-report.ts "unattended rigs (admin-app, app-registry)"
+        run: bun scripts/ci/oracle-drift-report.ts "unattended rigs (admin-app, app-registry, client-storage)"
       # The diff above names the drifted files; these steps keep the
       # rewritten files themselves, so a person can review and commit them.
       # Timestamp-only rewrites come along too and are harmless to commit.
@@ -163,18 +167,23 @@ jobs:
             script: packages/conformance/src/run.ts
             guard: PYRIC_ORACLE_FIREBASE_CONFIG
             disabled: '#1270 and #1271 (credentials without a key file)'
+          # The FCM send-plane, Rules Test API, and Storage stdlib discovery
+          # legs authenticate through Workload Identity Federation, so their
+          # guard is the GCP_WIF_PROVIDER variable.
           - rig: messaging-send
             script: packages/conformance/src/messaging-send-probes.ts
-            guard: PYRIC_MESSAGING_SA_BASE64
-            disabled: '#1387 (credentials without a key file)'
-          # The Rules Test API legs authenticate through Workload Identity
-          # Federation, so their guard is the GCP_WIF_PROVIDER variable.
+            guard: GCP_WIF_PROVIDER
+            wif: true
           - rig: rules-firestore
             script: packages/conformance/src/run-rules.ts
             guard: GCP_WIF_PROVIDER
             wif: true
           - rig: rules-storage
             script: packages/conformance/src/run-rules-storage.ts
+            guard: GCP_WIF_PROVIDER
+            wif: true
+          - rig: storage-stdlib-discovery
+            script: packages/conformance/src/run-storage-stdlib-discovery.ts
             guard: GCP_WIF_PROVIDER
             wif: true
     # id-token: write lets google-github-actions/auth exchange this job's
@@ -202,7 +211,6 @@ jobs:
           EVENT: ${{ github.event_name }}
           WIF: ${{ matrix.wif && 'true' || 'false' }}
           PYRIC_ORACLE_FIREBASE_CONFIG: ${{ secrets.PYRIC_ORACLE_FIREBASE_CONFIG }}
-          PYRIC_MESSAGING_SA_BASE64: ${{ secrets.PYRIC_MESSAGING_SA_BASE64 }}
           GCP_WIF_PROVIDER: ${{ vars.GCP_WIF_PROVIDER }}
           PARITY_SA_EMAIL: ${{ vars.PARITY_SA_EMAIL }}
         run: |
@@ -257,7 +265,8 @@ jobs:
         if: steps.secret-check.outputs.available == 'true'
         env:
           PYRIC_ORACLE_FIREBASE_CONFIG: ${{ secrets.PYRIC_ORACLE_FIREBASE_CONFIG }}
-          PYRIC_MESSAGING_SA_BASE64: ${{ secrets.PYRIC_MESSAGING_SA_BASE64 }}
+          PYRIC_ORACLE_PROJECT_ID: digame-mas
+          PARITY_PROJECT_ID: digame-mas
           # On a wif leg, a missing credential exits 1 instead of printing the
           # inert plan, which would otherwise report no drift.
           PARITY_REQUIRE_CREDENTIAL: ${{ matrix.wif && '1' || '' }}

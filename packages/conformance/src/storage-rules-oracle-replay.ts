@@ -19,11 +19,12 @@ import {
 import { evaluateStorageRules } from '../../rules/src/storage/rules-evaluator.ts';
 import { storageRulesTestInputDigest } from './storage-rules-input-digest.ts';
 import { loadStorageRulesExceptions } from './storage-rules-exceptions.ts';
+import { hasEmptyObservationRowIds } from './staged-captures.ts';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const OBS_DIR = join(HERE, '..', 'observations', 'storage-rules');
 
-export interface StorageRulesObservation {
+interface StorageRulesObservation {
   name: string;
   rowIds?: string[];
   behavior: Record<string, unknown>;
@@ -117,7 +118,7 @@ function toEvaluationInput(tc: StorageTestCase): EvaluationInput {
   return { request, resource: existing };
 }
 
-export function evaluateStorageScenarioVerdicts(scenario: StorageScenario): Record<string, Verdict> {
+function evaluateStorageScenarioVerdicts(scenario: StorageScenario): Record<string, Verdict> {
   const rules = parseStorageRules(scenario.rules);
   const table: Record<string, Verdict> = {};
   for (const tc of scenario.cases) {
@@ -148,7 +149,7 @@ function pinRowProblems(key: string, observation: StorageRulesObservation, rowId
   return linkedToRow ? [] : [`${key}: divergence belongs to ${rowId}, which ${observation.name} does not cite`];
 }
 
-export function storageOracleReplayProblems(
+function storageOracleReplayProblems(
   scenario: StorageScenario,
   observation: StorageRulesObservation,
   evaluatorVerdicts: Readonly<Record<string, Verdict>>,
@@ -193,7 +194,7 @@ export function storageOracleReplayProblems(
  * holds only while pyric still refuses it with the pinned error, and the
  * observation must still match the scenario's cases and inputs.
  */
-export function storageParsePinProblems(
+function storageParsePinProblems(
   scenario: StorageScenario,
   observation: StorageRulesObservation,
   error: Error,
@@ -246,6 +247,9 @@ export function replayStorageRulesObservations(): StorageOracleReplayResult[] {
     const observation = JSON.parse(readFileSync(join(OBS_DIR, file), 'utf8')) as StorageRulesObservation;
     observation.name ||= file.replace(/\.json$/, '');
     const scenario = scenarioByObservation.get(observation.name);
+    if (scenario?.pendingRowLink && hasEmptyObservationRowIds(observation.rowIds)) {
+      continue;
+    }
     if (!scenario) {
       replays.push({
         name: observation.name,

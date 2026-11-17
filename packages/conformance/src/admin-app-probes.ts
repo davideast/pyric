@@ -37,6 +37,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import type { Probe } from '../rigs/types.ts';
 import { resolvedAdminVersion } from './package-version.ts';
+import { readSingleProbeSelector } from './probe-cli-args.ts';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 // admin-app-* observations and probes both live under the 'auth' surface
@@ -202,9 +203,23 @@ async function write(probes: LoadedProbe[], installedVersion: string): Promise<v
   }
 }
 
+export function selectAdminAppProbes<T extends { id: string }>(
+  loaded: readonly T[],
+  args: readonly string[],
+): T[] {
+  const probeFilter = readSingleProbeSelector(args);
+  if (probeFilter === undefined) return [...loaded];
+  const selected = loaded.filter(({ id }) => id === probeFilter);
+  if (selected.length === 0) {
+    throw new Error(`unknown admin-app probe: ${probeFilter}`);
+  }
+  return selected;
+}
+
 async function main(): Promise<void> {
-  const wantsWrite = process.argv.includes('--write');
-  const probes = await loadProbes();
+  const args = process.argv.slice(2);
+  const wantsWrite = args.includes('--write');
+  const probes = selectAdminAppProbes(await loadProbes(), args);
   const installedVersion = resolvedAdminVersion();
 
   if (wantsWrite) {

@@ -35,6 +35,7 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { hasParityCredential, NO_CREDENTIAL_MESSAGE } from '../../../packages/pyric/test/rules/parity/credential.ts';
+import type { ProjectScope } from '../../../packages/pyric/src/project-scope.ts';
 import { fileURLToPath } from 'node:url';
 import type { TestFirestoreRulesResult, TestResult } from '../../rules/src/test/spec.ts';
 import {
@@ -45,6 +46,10 @@ import {
 } from '../rules-corpus/storage/index.ts';
 import { readObservationLinkage } from './observation-linkage.ts';
 import { resolvedFirebaseVersion } from './package-version.ts';
+import {
+  captureRulesTestApiCompileCheck,
+  type CompileCheckCaptureResult,
+} from './rules-compile-check.ts';
 import { storageRulesTestInputDigest, type StorageScenarioInputDigest } from './storage-rules-input-digest.ts';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -61,7 +66,7 @@ interface Observation {
   projectId: string;
   inputDigest: StorageScenarioInputDigest;
   behavior: Record<string, unknown>;
-  diagnostics?: Record<string, { notes?: string[]; api?: TestResult['api'] }>;
+  diagnostics?: Record<string, { notes?: string[]; api?: unknown }>;
 }
 
 /** Absolute path an observation for `scenario` writes to. */
@@ -155,6 +160,24 @@ function printInertPlan(scenarios: StorageScenario[]): void {
   console.log('      bun run packages/conformance/src/run-rules-storage.ts');
 }
 
+export async function captureStorageCompileCheckScenario(
+  scenario: StorageScenario,
+  scope: ProjectScope,
+  fetchImpl: typeof fetch = fetch,
+): Promise<CompileCheckCaptureResult> {
+  const { buildStorageApiTestCase } = await import('../../rules/src/test/spec.ts');
+  const apiTestCases = scenario.cases.map((tc) => buildStorageApiTestCase(tc));
+  return captureRulesTestApiCompileCheck({
+    scenarioId: scenario.id,
+    sourceFileName: 'storage.rules',
+    rules: scenario.rules,
+    cases: scenario.cases,
+    apiTestCases,
+    scope,
+    fetchImpl,
+  });
+}
+
 async function capture(scenarios: StorageScenario[]): Promise<void> {
   // Heavy imports (firebase-admin credential + handler) deferred to the
   // credentialed path so the inert preview stays dependency-light.
@@ -173,15 +196,23 @@ async function capture(scenarios: StorageScenario[]): Promise<void> {
   console.log(`[oracle:rules-storage] firebase ${fbSdkVersion}\n`);
 
   for (const scenario of scenarios) {
-    const res = await handler.execute(scope, scenario.rules, scenario.cases);
-    if (!res.success) {
-      throw new Error(
-        `Production Rules Test API failed for scenario "${scenario.id}": ` +
-          `${res.error.code} ${res.error.message}`,
-      );
+    let behavior: Record<string, unknown>;
+    let diagnostics: Record<string, { notes?: string[]; api?: unknown }>;
+    if (scenario.allowCompileError) {
+      const compileOut = await captureStorageCompileCheckScenario(scenario, scope);
+      behavior = compileOut.behavior;
+      diagnostics = compileOut.diagnostics;
+    } else {
+      const res = await handler.execute(scope, scenario.rules, scenario.cases);
+      if (!res.success) {
+        throw new Error(
+          `Production Rules Test API failed for scenario "${scenario.id}": ` +
+            `${res.error.code} ${res.error.message}`,
+        );
+      }
+      behavior = verdictTable(scenario, res);
+      diagnostics = diagnosticTable(res.data.results);
     }
-    const behavior = verdictTable(scenario, res);
-    const diagnostics = diagnosticTable(res.data.results);
     const linkage = readObservationLinkage(observationPath(scenario));
     const obs: Observation = {
       name: storageObservationName(scenario),
@@ -193,8 +224,10 @@ async function capture(scenarios: StorageScenario[]): Promise<void> {
       projectId: scope.projectId,
       inputDigest: storageRulesTestInputDigest(scenario.rules, scenario.cases),
       behavior,
-      ...(Object.keys(diagnostics).length > 0 ? { diagnostics } : {}),
     };
+    if (Object.keys(diagnostics).length > 0) {
+      obs.diagnostics = diagnostics;
+    }
     const path = observationPath(scenario);
     writeFileSync(path, JSON.stringify(obs, null, 2) + '\n');
     const allows = Object.values(behavior).filter((v) => v === 'ALLOW').length;

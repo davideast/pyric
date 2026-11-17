@@ -56,6 +56,10 @@
  */
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
+import {
+  isUnlinkedStagedObservation,
+  loadPendingRowLinkObservations,
+} from './staged-captures.ts';
 
 export interface ObservationGateConfig {
   /** Absolute path to the surface's observation directory. */
@@ -76,9 +80,15 @@ export interface ObservationGateConfig {
    * sibling source contains a `load('<stem>')` / `obs('<stem>')` call for it.
    */
   siblingSources?: string[];
+  /**
+   * Optional override of staged `pendingRowLink` observation stems. Defaults to
+   * `loadPendingRowLinkObservations()`. Unlinked (`rowIds: []`) staged captures
+   * are ignored until PR #3 wires registry row linkage.
+   */
+  pendingRowLinkStems?: ReadonlySet<string>;
 }
 
-export interface ObservationGateReport {
+interface ObservationGateReport {
   /** All committed observation stems under the prefix (no `.json`). */
   committed: string[];
   /** Committed stems that were loaded in-process AND had ≥1 behavior field read. */
@@ -122,8 +132,21 @@ function siblingLoadsStem(source: string, id: string): boolean {
 
 export function createObservationGate(config: ObservationGateConfig): ObservationGate {
   const naStems = new Set(Object.keys(config.notApplicable ?? {}).map(stem));
+  const pendingStems = config.pendingRowLinkStems ?? loadPendingRowLinkObservations();
   /** stem → set of top-level behavior keys read through the proxy. */
   const reads = new Map<string, Set<string>>();
+
+  function isUnlinkedStagedStem(id: string): boolean {
+    if (!pendingStems.has(id) || reads.has(id)) return false;
+    try {
+      const parsed = JSON.parse(readFileSync(join(config.dir, `${id}.json`), 'utf8')) as {
+        rowIds?: unknown;
+      };
+      return isUnlinkedStagedObservation(id, parsed.rowIds, pendingStems);
+    } catch {
+      return false;
+    }
+  }
 
   function record(name: string, key: string): void {
     let set = reads.get(name);
@@ -159,6 +182,7 @@ export function createObservationGate(config: ObservationGateConfig): Observatio
     const committed = readdirSync(config.dir)
       .filter((f) => f.endsWith('.json') && config.match(f))
       .map(stem)
+      .filter((id) => !isUnlinkedStagedStem(id))
       .sort();
 
     const siblingText =

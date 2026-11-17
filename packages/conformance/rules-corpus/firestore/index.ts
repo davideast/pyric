@@ -18,7 +18,7 @@
 import { loadedFirestoreScenarios } from './load.ts';
 import type { Scenario } from './types.ts';
 
-export type { Scenario, ScenarioGroup } from './types.ts';
+export type { Scenario } from './types.ts';
 
 /** The observation filename prefix for every Firestore rules capture. */
 export const RULES_FIRESTORE_OBSERVATION_PREFIX = 'rules-firestore-';
@@ -29,27 +29,20 @@ export const RULES_FIRESTORE_OBSERVATION_PREFIX = 'rules-firestore-';
 export const ALL_RULES_FIRESTORE_SCENARIOS: Scenario[] = loadedFirestoreScenarios.map(({ group: _group, ...scenario }) => scenario);
 
 /** The resurrected pre-cutover stress scenarios (formerly stress-scenarios.ts),
- *  for the live parity suite (parity-stress.test.ts). */
+ *  for the live parity suite (parity-stress.test.ts). Staged pendingRowLink and
+ *  compile-error probes stay out until captured and linked. */
 export const STRESS_SCENARIOS: Scenario[] = loadedFirestoreScenarios
-  .filter((p) => p.group === 'stress')
+  .filter((p) => p.group === 'stress' && !p.pendingRowLink && !p.allowCompileError)
   .map(({ group: _group, ...scenario }) => scenario);
 
 /** The round-1/2 fix-class scenarios (formerly fix-class-scenarios.ts), for the
- *  live parity suite (round-fix-classes.test.ts). */
+ *  live parity suite (round-fix-classes.test.ts). Staged pendingRowLink and
+ *  compile-error probes stay out until captured and linked. */
 export const FIX_CLASS_SCENARIOS: Scenario[] = loadedFirestoreScenarios
-  .filter((p) => p.group === 'fix-class')
+  .filter((p) => p.group === 'fix-class' && !p.pendingRowLink && !p.allowCompileError)
   .map(({ group: _group, ...scenario }) => scenario);
 
 /** The observation stem (no extension) a given scenario captures into. */
 export function observationName(scenario: Scenario): string {
   return `${RULES_FIRESTORE_OBSERVATION_PREFIX}${scenario.id}`;
-}
-
-/**
- * Stable per-case key for the observation verdict table. Case descriptions are
- * unique within a scenario; using the description keeps the observation human
- * diffable while remaining reproducible from the corpus at replay time.
- */
-export function caseKey(scenario: Scenario, index: number): string {
-  return scenario.cases[index].description;
 }

@@ -36,6 +36,7 @@ export const LEGS: readonly Leg[] = [
   { rig: 'messaging-send', credentialed: true },
   { rig: 'rules-firestore', credentialed: true },
   { rig: 'rules-storage', credentialed: true },
+  { rig: 'storage-stdlib-discovery', credentialed: true },
 ];
 
 export type LegState =

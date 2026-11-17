@@ -38,6 +38,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import type { Probe } from '../rigs/types.ts';
 import { resolvedFirebaseVersion } from './package-version.ts';
+import { readSingleProbeSelector } from './probe-cli-args.ts';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const PROBES_DIR = join(HERE, '..', 'probes', 'app');
@@ -200,14 +201,23 @@ async function write(probes: LoadedProbe[], installedVersion: string): Promise<v
   }
 }
 
-async function main(): Promise<void> {
-  const wantsWrite = process.argv.includes('--write');
-  const only = process.argv.find((arg) => arg.startsWith('--only='))?.slice('--only='.length);
-  const loaded = await loadProbes();
-  const probes = only ? loaded.filter(({ id }) => id === only) : loaded;
-  if (only && probes.length === 0) {
+export function selectAppRegistryProbes<T extends { id: string }>(
+  loaded: readonly T[],
+  args: readonly string[],
+): T[] {
+  const only = readSingleProbeSelector(args, ['--only=']);
+  if (only === undefined) return [...loaded];
+  const selected = loaded.filter(({ id }) => id === only);
+  if (selected.length === 0) {
     throw new Error(`unknown app-registry probe: ${only}`);
   }
+  return selected;
+}
+
+async function main(): Promise<void> {
+  const args = process.argv.slice(2);
+  const wantsWrite = args.includes('--write');
+  const probes = selectAppRegistryProbes(await loadProbes(), args);
   const installedVersion = resolvedFirebaseVersion();
 
   if (wantsWrite) {

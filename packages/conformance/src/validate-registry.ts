@@ -23,6 +23,7 @@ import {
   isMockBridgeUnitTestPath,
   normalizeConformanceTestPath,
 } from './integration-host-evidence.ts';
+import { loadPendingRowLinkObservations } from './staged-captures.ts';
 
 const allowedStatus = new Set<CompatStatus>([
   'conforms',
@@ -73,10 +74,16 @@ export interface ValidationInput {
    *  always passes it, so the entry-path CLIFF's citation integrity is
    *  CI-enforced. */
   entryPathCensus?: EntryPathCensusRow[];
+  /** Staged observation stems (`pendingRowLink: true` on their owning scenario
+   *  or probe) that may legitimately carry `rowIds: []` in a post-capture
+   *  observations-only PR before PR #3 wires registry row linkage. */
+  pendingRowLinkObservations?: ReadonlySet<string>;
 }
 
 export function validateCompatibilityRegistry(input: ValidationInput): string[] {
   const problems: string[] = [];
+  const pendingRowLinkObservations =
+    input.pendingRowLinkObservations ?? loadPendingRowLinkObservations();
   const ids = new Map<string, number>();
   const observationNames = new Set(input.observations.map((obs) => obs.name));
   const observationByName = new Map(input.observations.map((obs) => [obs.name, obs]));
@@ -242,6 +249,12 @@ export function validateCompatibilityRegistry(input: ValidationInput): string[] 
       problems.push(`${obs.file}: lives under observations/${obs.surfaceDir}/ but its prefix maps to surface '${expectedSurface}' (observations/${expectedSurface}/)`);
     }
     if (input.observationExceptions[obs.name]) continue;
+    if (pendingRowLinkObservations.has(obs.name)) {
+      if (obs.rowIds.length > 0 || referencedObservations.has(obs.name)) {
+        problems.push(`${obs.file}: observation is linked to registry rows; remove pendingRowLink from its staged probe or scenario`);
+      }
+      continue;
+    }
     if (!referencedObservations.has(obs.name)) problems.push(`${obs.file}: observation is not referenced by a registry row`);
     if (obs.rowIds.length === 0) problems.push(`${obs.file}: observation has no rowIds`);
   }
@@ -413,6 +426,7 @@ if (import.meta.main) {
     rulesStorageScenarioIds: ALL_RULES_STORAGE_SCENARIOS.map((scenario) => scenario.id),
     rulesRtdbScenarioIds: [...ALL_RULES_RTDB_SCENARIOS, ...ALL_RULES_RTDB_DEPLOY_SCENARIOS].map((scenario) => scenario.id),
     entryPathCensus: [...model.census],
+    pendingRowLinkObservations: loadPendingRowLinkObservations(),
   });
 
   const wantJson = process.argv.includes('--json');

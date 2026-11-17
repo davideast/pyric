@@ -35,6 +35,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { hasParityCredential, NO_CREDENTIAL_MESSAGE } from '../../../packages/pyric/test/rules/parity/credential.ts';
+import type { ProjectScope } from '../../../packages/pyric/src/project-scope.ts';
 import { fileURLToPath } from 'node:url';
 import type { TestFirestoreRulesResult, TestResult } from '../../rules/src/test/spec.ts';
 import {
@@ -48,6 +49,10 @@ import {
   type FirestoreScenarioInputDigest,
 } from './firestore-rules-input-digest.ts';
 import { resolvedFirebaseVersion } from './package-version.ts';
+import {
+  captureRulesTestApiCompileCheck,
+  type CompileCheckCaptureResult,
+} from './rules-compile-check.ts';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 // rules-firestore-* observations belong to the native 'firestore-rules' surface.
@@ -111,9 +116,9 @@ export function isRealDatabaseObservation(path: string): boolean {
 /** Scenarios `run-firestore-real.ts` captures: the Rules Test API reports
  *  "Function not found: getAfter" for them, so only a real database can
  *  answer, and this rig must not overwrite the file. */
-export const REAL_DATABASE_SCENARIO_IDS: ReadonlySet<string> = new Set(['atomic-batch-sibling-merge']);
+const REAL_DATABASE_SCENARIO_IDS: ReadonlySet<string> = new Set(['atomic-batch-sibling-merge']);
 
-export function isOwnedByRealDatabaseRig(scenario: Scenario): boolean {
+function isOwnedByRealDatabaseRig(scenario: Scenario): boolean {
   return REAL_DATABASE_SCENARIO_IDS.has(scenario.id)
     || isRealDatabaseObservation(observationPath(scenario));
 }
@@ -194,6 +199,30 @@ export function diagnosticTable(
   );
 }
 
+/**
+ * Captures a scenario marked `allowCompileError: true` directly against
+ * `projects.test`, preserving verbatim compile issues (`severity`, `line`,
+ * `column`, `description`) or HTTP 400 `INVALID_ARGUMENT` JSON rejections
+ * instead of throwing.
+ */
+export async function captureCompileCheckScenario(
+  scenario: Scenario,
+  scope: ProjectScope,
+  fetchImpl: typeof fetch = fetch,
+): Promise<CompileCheckCaptureResult> {
+  const { buildApiTestCase } = await import('../../rules/src/test/spec.ts');
+  const apiTestCases = scenario.cases.map((tc) => buildApiTestCase(tc));
+  return captureRulesTestApiCompileCheck({
+    scenarioId: scenario.id,
+    sourceFileName: 'firestore.rules',
+    rules: scenario.rules,
+    cases: scenario.cases,
+    apiTestCases,
+    scope,
+    fetchImpl,
+  });
+}
+
 function printInertPlan(scenarios: Scenario[]): void {
   console.log('[oracle:rules] No Rules Test API credential: INERT preview, no network calls.\n');
   console.log(`  ${NO_CREDENTIAL_MESSAGE}\n`);
@@ -234,10 +263,18 @@ async function capture(scenarios: Scenario[]): Promise<void> {
   console.log(`[oracle:rules] firebase ${fbSdkVersion}\n`);
 
   for (const scenario of scenarios) {
-    const res = await handler.execute(scope, scenario.rules, scenario.cases);
-    assertSuccessfulRulesResult(scenario, res);
-    const behavior = verdictTable(scenario, res);
-    const diagnostics = diagnosticTable(res.data.results);
+    let behavior: Record<string, unknown>;
+    let diagnostics: Record<string, { notes: string[]; api?: unknown }>;
+    if (scenario.allowCompileError) {
+      const compileOut = await captureCompileCheckScenario(scenario, scope);
+      behavior = compileOut.behavior;
+      diagnostics = compileOut.diagnostics;
+    } else {
+      const res = await handler.execute(scope, scenario.rules, scenario.cases);
+      assertSuccessfulRulesResult(scenario, res);
+      behavior = verdictTable(scenario, res);
+      diagnostics = diagnosticTable(res.data.results);
+    }
     const path = observationPath(scenario);
     const linkage = existingLinkage(path);
     const obs: Observation = {

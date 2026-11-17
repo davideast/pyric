@@ -52,6 +52,12 @@ function recordProblems(file: string, id: string, value: unknown): string[] {
   if (typeof record.fm !== 'string' || !record.fm.trim()) fail("missing 'fm'");
   if (typeof record.rationale !== 'string' || !record.rationale.trim()) fail("missing 'rationale'");
   if (typeof record.rules !== 'string' || !record.rules.trim()) fail("'rules' must be a non-empty string");
+  if ('pendingRowLink' in record && record.pendingRowLink !== undefined && typeof record.pendingRowLink !== 'boolean') {
+    fail("'pendingRowLink' must be a boolean when present");
+  }
+  if ('allowCompileError' in record && record.allowCompileError !== undefined && typeof record.allowCompileError !== 'boolean') {
+    fail("'allowCompileError' must be a boolean when present");
+  }
 
   if (!Array.isArray(record.cases) || record.cases.length === 0) {
     fail("'cases' must be a non-empty array");
@@ -81,7 +87,7 @@ function recordProblems(file: string, id: string, value: unknown): string[] {
 /** Loads every Storage rules scenario in this directory, validating each record
  *  and injecting its id from the filename. Throws with every problem found
  *  rather than silently dropping a bad file. */
-export function loadStorageScenarioRecords(): StorageScenario[] {
+function loadStorageScenarioRecords(): StorageScenario[] {
   const files = readdirSync(HERE)
     .filter((file) => file.endsWith('.ts') && !NON_RECORD_FILES.has(file))
     .sort();

@@ -6,9 +6,12 @@ import { generatedRowLineNumbers } from './generate-docs.ts';
 import type { ConformanceModel } from './conformance-model.ts';
 export { loadObservations, type Observation } from '../observations/load.ts';
 import type { Observation } from '../observations/load.ts';
+import {
+  isUnlinkedStagedObservation,
+  loadPendingRowLinkObservations,
+} from './staged-captures.ts';
 
-export type { Automation, CompatibilityRow, CompatStatus, OracleConformanceCheck, Surface } from '../registry/index.ts';
-export type { SurfaceDescriptor } from '../surfaces/types.ts';
+export type { OracleConformanceCheck } from '../registry/index.ts';
 
 export interface RegistryEntry extends CompatibilityRow {
   matrix: Surface;
@@ -44,7 +47,10 @@ function generatedLocations(model: ConformanceModel): Map<string, { file: string
   return out;
 }
 
-export function buildCompatibilityLedger(model: ConformanceModel): CompatibilityLedger {
+export function buildCompatibilityLedger(
+  model: ConformanceModel,
+  pendingRowLinkObservations: ReadonlySet<string> = loadPendingRowLinkObservations(),
+): CompatibilityLedger {
   const observations = [...model.evidence.observations];
   const observationExceptions = { ...model.evidence.observationExceptions };
   const locations = generatedLocations(model);
@@ -68,6 +74,7 @@ export function buildCompatibilityLedger(model: ConformanceModel): Compatibility
 
   const orphanObservations = observations.filter((obs) => {
     if (observationExceptions[obs.name]) return false;
+    if (isUnlinkedStagedObservation(obs.name, obs.rowIds, pendingRowLinkObservations)) return false;
     return !referencedObservations.has(obs.name);
   });
 

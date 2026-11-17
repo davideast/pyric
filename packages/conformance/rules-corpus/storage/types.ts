@@ -35,6 +35,13 @@ export interface StorageScenario extends Omit<Scenario, 'cases'> {
   /** The cases to run against `rules`. Each `description` is unique within the
    *  scenario and is the verdict-table key in observations. */
   cases: StorageTestCase[];
+  /** True while the scenario is staged for automated main-branch capture or
+   *  awaiting follow-up rowIds linkage in registry/storage.ts. */
+  pendingRowLink?: boolean;
+  /** True when the scenario intentionally probes whether `projects.test`
+   *  accepts or rejects the ruleset at compile time, recording compile
+   *  diagnostics (`COMPILE_ERROR` / `INVALID_ARGUMENT`) instead of throwing. */
+  allowCompileError?: boolean;
 }
 
 /**
