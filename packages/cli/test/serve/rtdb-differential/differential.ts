@@ -206,6 +206,36 @@ export function readFixtures(path: string): Sequence[] {
   return fixtureFiles(path).map((file) => (JSON.parse(readFileSync(file, 'utf8')) as { sequence: Sequence }).sequence);
 }
 
+export function replayCommandForRtdbSeed(seed: number, fixedSteps?: number): string {
+  let suffix = '';
+  if (fixedSteps !== undefined) {
+    suffix = ` --steps=${fixedSteps}`;
+  }
+  return `bun packages/cli/test/serve/rtdb-differential/differential.ts --start=${seed} --count=1${suffix}`;
+}
+
+export function formatRtdbFailureReport(
+  original: Verdict,
+  shrunk: Verdict,
+  fixedSteps?: number,
+): string {
+  const origMismatch = original.mismatch;
+  const shrunkMismatch = shrunk.mismatch;
+  if (origMismatch === null || shrunkMismatch === null) {
+    return '';
+  }
+  let size = `${original.sequence.steps.length} steps, not shrunk`;
+  if (shrunk !== original) {
+    size = `shrunk to ${shrunk.sequence.steps.length} steps`;
+  }
+  return [
+    `seed ${original.sequence.seed}: ${origMismatch.where} (${size})`,
+    `  replay: ${replayCommandForRtdbSeed(original.sequence.seed, fixedSteps)}`,
+    `  ${shrunkMismatch.where}: ${JSON.stringify(shrunkMismatch.values).slice(0, 1500)}`,
+    `  steps: ${JSON.stringify(shrunk.sequence.steps).slice(0, 3000)}`,
+  ].join('\n');
+}
+
 async function main(): Promise<void> {
   const args = Object.fromEntries(process.argv.slice(2).map((arg) => {
     const [key, value = 'true'] = arg.replace(/^--/, '').split('=');
@@ -215,11 +245,24 @@ async function main(): Promise<void> {
   reportKnownDivergences(args['strict'] === 'true');
   const start = Number(args['start'] ?? 1);
   const count = Number(args['count'] ?? 200);
-  const sequences = args['replay'] !== undefined
-    ? readFixtures(resolve(args['replay']))
-    : Array.from({ length: count }, (_, index) => generateSequence(start + index, {
-      ...(args['steps'] === undefined ? {} : { minSteps: Number(args['steps']), maxSteps: Number(args['steps']) }),
-    }));
+  let fixedSteps: number | undefined;
+  if (args['steps'] !== undefined) {
+    fixedSteps = Number(args['steps']);
+  }
+  const stepOpts: { minSteps?: number; maxSteps?: number } = {};
+  if (fixedSteps !== undefined) {
+    stepOpts.minSteps = fixedSteps;
+    stepOpts.maxSteps = fixedSteps;
+  }
+  let sequences: Sequence[];
+  const replayArg = args['replay'];
+  if (replayArg !== undefined) {
+    sequences = readFixtures(resolve(replayArg));
+  } else {
+    sequences = Array.from({ length: count }, (_, index) =>
+      generateSequence(start + index, stepOpts),
+    );
+  }
   const runner = await createPlaneRunner({ chunks: Number(args['chunks'] ?? 4) });
   try {
     const began = Date.now();
@@ -232,10 +275,7 @@ async function main(): Promise<void> {
       const key = signature(verdict.mismatch!);
       const shrunk = args['shrink'] === 'false' || seen.has(key) ? verdict : await shrink(runner, planes, verdict);
       seen.add(key);
-      const size = shrunk === verdict ? `${verdict.sequence.steps.length} steps, not shrunk` : `shrunk to ${shrunk.sequence.steps.length} steps`;
-      console.log(`\nseed ${verdict.sequence.seed}: ${verdict.mismatch!.where} (${size})`);
-      console.log(`  ${shrunk.mismatch!.where}: ${JSON.stringify(shrunk.mismatch!.values).slice(0, 1500)}`);
-      console.log(`  steps: ${JSON.stringify(shrunk.sequence.steps).slice(0, 3000)}`);
+      console.log(`\n${formatRtdbFailureReport(verdict, shrunk, fixedSteps)}`);
       if (save !== undefined) {
         mkdirSync(save, { recursive: true });
         writeFileSync(join(save, `seed-${verdict.sequence.seed}.json`), `${JSON.stringify({ sequence: shrunk.sequence, mismatch: shrunk.mismatch }, null, 2)}\n`);
