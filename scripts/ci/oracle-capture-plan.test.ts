@@ -196,6 +196,23 @@ describe('oracle-capture-plan WIF SDK write flags and sibling invocation isolati
     );
     expect(rtdbUrlMissing).toContain('PYRIC_ORACLE_RTDB_URL');
     expect(rtdbUrlMissing).toContain('Action:');
+
+    const webAppsDenied = diagnoseCaptureFailure(
+      'sdk-probes',
+      "Error: Firebase Web App discovery failed for project 'example-oracle' (HTTP 403 from firebase.googleapis.com): Permission 'firebase.projects.get' denied on resource 'projects/example-oracle'.",
+      { CAPTURE_SA_EMAIL: 'capture-sa@example.iam.gserviceaccount.com' },
+    );
+    expect(webAppsDenied).toContain('firebase.projects.get');
+    expect(webAppsDenied).toContain('roles/firebase.viewer');
+    expect(webAppsDenied).toContain('firebase.googleapis.com');
+
+    const genericSdkDenied = diagnoseCaptureFailure(
+      'sdk-probes',
+      'HTTP 403 PERMISSION_DENIED: The caller does not have permission',
+      { CAPTURE_SA_EMAIL: 'capture-sa@example.iam.gserviceaccount.com' },
+    );
+    expect(genericSdkDenied).toContain('roles/firebase.viewer');
+    expect(genericSdkDenied).toContain('firebase.googleapis.com');
   });
 
   test('executeCapturePlan preserves passing sibling --scenario captures when one sibling fails', () => {

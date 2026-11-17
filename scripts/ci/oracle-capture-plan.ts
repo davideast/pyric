@@ -36,9 +36,9 @@ const RULES_VIEWER_IAM_HINT: RigIamHint = {
 
 const LIVE_SDK_IAM_HINT: RigIamHint = {
   permission:
-    'datastore.entities.create, firebaserules.releases.update, firebasedatabase.instances.update',
-  role: 'roles/datastore.user, roles/firebaserules.admin, roles/firebasedatabase.admin',
-  api: 'firestore.googleapis.com, firebaserules.googleapis.com, firebasedatabase.googleapis.com',
+    'firebase.projects.get, firebase.clients.list, firebase.clients.get, datastore.entities.create, firebaserules.releases.update, firebasedatabase.instances.update',
+  role: 'roles/firebase.viewer, roles/datastore.user, roles/firebaserules.admin, roles/firebasedatabase.admin',
+  api: 'firebase.googleapis.com, firestore.googleapis.com, firebaserules.googleapis.com, firebasedatabase.googleapis.com',
 };
 
 /**
@@ -168,6 +168,13 @@ function hintForExtractedPermission(permission: string): RigIamHint | undefined 
       permission,
       role: 'roles/firebaserules.admin',
       api: 'firebaserules.googleapis.com',
+    };
+  }
+  if (permission.startsWith('firebase.')) {
+    return {
+      permission,
+      role: 'roles/firebase.viewer',
+      api: 'firebase.googleapis.com',
     };
   }
   return undefined;
