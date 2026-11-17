@@ -13,8 +13,9 @@ import type {
 } from 'pyric/auth';
 import type { PyricAdminApp } from '../app/index.js';
 import { explicitProjectId } from '../app/project-id.js';
+import { validateUpdateUserPreflight } from './preflight-validation.js';
 import type { CreateRequest, ListUsersResult, UpdateRequest, UserInfo, UserRecord } from './types.js';
-import { FirebaseAuthError, invalidUid } from './verify-token.js';
+import { FirebaseAuthError } from './verify-token.js';
 
 const RESERVED_CUSTOM_TOKEN_CLAIMS = new Set([
   'acr',
@@ -31,19 +32,11 @@ const RESERVED_CUSTOM_TOKEN_CLAIMS = new Set([
   'jti',
   'nbf',
   'nonce',
-  'sub',
 ]);
 
 const MAX_CLAIMS_PAYLOAD_SIZE = 1000;
 const MAX_DOWNLOAD_ACCOUNT_PAGE_SIZE = 1000;
 const BASIC_EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-const UNSUPPORTED_UPDATE_KEYS = [
-  'photoURL',
-  'phoneNumber',
-  'multiFactor',
-  'providerToLink',
-  'providersToUnlink',
-] as const;
 
 interface DecodedPageToken {
   readonly offset: number;
@@ -78,18 +71,25 @@ export function assertCustomTokenArguments(uid: unknown, developerClaims?: unkno
   }
 }
 
-export function assertValidCustomUserClaims(customUserClaims: object | null): void {
-  if (customUserClaims === null) return;
+export function normalizeCustomUserClaims(customUserClaims: object | null): Record<string, unknown> {
+  if (customUserClaims === null) return {};
   if (typeof customUserClaims !== 'object' || Array.isArray(customUserClaims)) {
     throw new FirebaseAuthError('argument-error', 'CustomUserClaims argument must be an object or null.');
   }
-  assertNoReservedCustomClaims(customUserClaims as Record<string, unknown>);
-  if (JSON.stringify(customUserClaims).length > MAX_CLAIMS_PAYLOAD_SIZE) {
+  const serialized = JSON.stringify(customUserClaims);
+  if (serialized.length > MAX_CLAIMS_PAYLOAD_SIZE) {
     throw new FirebaseAuthError(
       'claims-too-large',
       `Developer claims payload should not exceed ${MAX_CLAIMS_PAYLOAD_SIZE} characters.`,
     );
   }
+  const parsed = JSON.parse(serialized) as Record<string, unknown>;
+  assertNoReservedCustomClaims(parsed);
+  return parsed;
+}
+
+export function assertValidCustomUserClaims(customUserClaims: object | null): void {
+  normalizeCustomUserClaims(customUserClaims);
 }
 
 export function validateAdminEmail(email: unknown): FirebaseAuthError | null {
@@ -132,33 +132,7 @@ export function prepareSandboxUpdateRequest(
   properties: UpdateRequest,
   notImplemented: (method: string) => Error,
 ): SandboxUpdateUserRequest {
-  const uidErr = invalidUid(uid);
-  if (uidErr !== null) throw uidErr;
-  if (typeof properties !== 'object' || properties === null || Array.isArray(properties)) {
-    throw new FirebaseAuthError('argument-error', 'Properties argument must be a non-null object.');
-  }
-  const propRecord = properties as Record<string, unknown>;
-  const unsupported = UNSUPPORTED_UPDATE_KEYS.filter(
-    (key) => Object.hasOwn(propRecord, key) && propRecord[key] !== undefined,
-  );
-  if (unsupported.length > 0) {
-    throw notImplemented(`updateUser({ ${unsupported.join(', ')} })`);
-  }
-  if (properties.email !== undefined) {
-    const emailErr = validateAdminEmail(properties.email);
-    if (emailErr !== null) throw emailErr;
-  }
-  if (properties.password !== undefined) {
-    const pwErr = validateAdminPassword(properties.password);
-    if (pwErr !== null) throw pwErr;
-  }
-  return {
-    displayName: properties.displayName,
-    email: properties.email,
-    password: properties.password,
-    disabled: properties.disabled,
-    emailVerified: properties.emailVerified,
-  };
+  return validateUpdateUserPreflight(uid, properties, notImplemented);
 }
 
 function encodePageToken(offset: number, uid: string): string {
@@ -199,7 +173,7 @@ export function validateListUsersArguments(
   }
   if (
     typeof maxResults !== 'number' ||
-    !Number.isInteger(maxResults) ||
+    Number.isNaN(maxResults) ||
     maxResults <= 0 ||
     maxResults > MAX_DOWNLOAD_ACCOUNT_PAGE_SIZE
   ) {
@@ -208,10 +182,17 @@ export function validateListUsersArguments(
       `Required "maxResults" must be a positive integer that does not exceed ${MAX_DOWNLOAD_ACCOUNT_PAGE_SIZE}.`,
     );
   }
-  return {
-    max: maxResults,
-    cursor: pageToken !== undefined ? decodePageToken(pageToken) : null,
-  };
+  if (!Number.isInteger(maxResults)) {
+    throw new FirebaseAuthError(
+      'internal-error',
+      'Invalid non-integer maxResults value provided.',
+    );
+  }
+  let cursor: DecodedPageToken | null = null;
+  if (pageToken !== undefined) {
+    cursor = decodePageToken(pageToken);
+  }
+  return { max: maxResults, cursor };
 }
 
 export function paginateUserRecords(
@@ -227,10 +208,11 @@ export function paginateUserRecords(
   }
   const slice = records.slice(startIndex, startIndex + max);
   const users = slice.map(fromAuthUserRecord);
-  if (slice.length > 0 && startIndex + slice.length < records.length) {
+  const lastRecord = slice[slice.length - 1];
+  if (lastRecord !== undefined && startIndex + slice.length < records.length) {
     return {
       users,
-      pageToken: encodePageToken(startIndex + slice.length, slice[slice.length - 1]!.uid),
+      pageToken: encodePageToken(startIndex + slice.length, lastRecord.uid),
     };
   }
   return { users };
@@ -254,7 +236,10 @@ export function mintSandboxCustomToken(
   uid: string,
   developerClaims?: object,
 ): Promise<string> {
-  const claims = developerClaims as Record<string, unknown> | undefined;
+  let claims: Record<string, unknown> | undefined;
+  if (developerClaims !== undefined) {
+    claims = JSON.parse(JSON.stringify(developerClaims)) as Record<string, unknown>;
+  }
   return Promise.resolve(mintCustomToken({ uid, claims, projectId: idTokenProjectId(app), nowMs }));
 }
 
@@ -287,7 +272,8 @@ function formatTokensValidAfterTime(r: AuthUserRecord): string | undefined {
   }
   if (validAfterMs === undefined) return undefined;
   const date = new Date(validAfterMs);
-  return Number.isNaN(date.getTime()) ? undefined : date.toUTCString();
+  if (Number.isNaN(date.getTime())) return undefined;
+  return date.toUTCString();
 }
 
 /**

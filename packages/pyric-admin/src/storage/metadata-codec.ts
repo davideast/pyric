@@ -6,10 +6,10 @@
 import { defineOwnMetadataKey } from 'pyric/storage/internal';
 
 /** The custom metadata key holding a file's download tokens, comma-separated. */
-export const DOWNLOAD_TOKENS_KEY = 'firebaseStorageDownloadTokens';
+const DOWNLOAD_TOKENS_KEY = 'firebaseStorageDownloadTokens';
 
 /** Settable fields the sandbox keeps, besides custom metadata. */
-export const SETTABLE_FIELDS = [
+const SETTABLE_FIELDS = [
   'contentType',
   'cacheControl',
   'contentDisposition',
@@ -17,7 +17,7 @@ export const SETTABLE_FIELDS = [
   'contentLanguage',
 ] as const;
 
-export type SettableField = (typeof SETTABLE_FIELDS)[number];
+type SettableField = (typeof SETTABLE_FIELDS)[number];
 
 /** A file's metadata. Subset of `@google-cloud/storage`'s `FileMetadata`. */
 export interface FileMetadata {
@@ -92,7 +92,7 @@ export function fileMetadataOf(host: HostMetadata): FileMetadata {
     if (value !== undefined) settable[field] = value;
   }
   const hasCustom = Object.keys(custom).length > 0;
-  return {
+  const out: FileMetadata = {
     name: host.fullPath,
     bucket: host.bucket,
     generation: host.generation,
@@ -101,9 +101,10 @@ export function fileMetadataOf(host: HostMetadata): FileMetadata {
     timeCreated: host.timeCreated,
     updated: host.updated,
     ...settable,
-    ...(host.md5Hash !== undefined ? { md5Hash: host.md5Hash } : {}),
-    ...(hasCustom ? { metadata: custom } : {}),
   };
+  if (host.md5Hash !== undefined) out.md5Hash = host.md5Hash;
+  if (hasCustom) out.metadata = custom;
+  return out;
 }
 
 /**
@@ -111,11 +112,20 @@ export function fileMetadataOf(host: HostMetadata): FileMetadata {
  * `setMetadata` is strict and refuses fields the sandbox does not keep;
  * `save` has always stored what it was given and ignores them.
  */
+function stringifyCustomMetadataValue(value: unknown): string {
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+  return JSON.stringify(value) ?? '';
+}
+
 export function patchOf(
   metadata: FileMetadataUpdate | Record<string, unknown>,
   { strict }: { strict: boolean },
 ): MetadataPatch {
-  const source = metadata as Record<string, unknown>;
+  if (metadata === undefined || metadata === null) {
+    throw new TypeError('Metadata argument must be a non-null object.');
+  }
+  const source: Record<string, unknown> = { ...(metadata as Record<string, unknown>) };
   const unsupported = Object.keys(source).filter(
     (key) => key !== 'metadata' && !(SETTABLE_FIELDS as readonly string[]).includes(key),
   );
@@ -131,11 +141,14 @@ export function patchOf(
     if (typeof value === 'string' || value === null) patch.settable[field] = value;
   }
   const custom = source.metadata;
-  const hasCustom = custom !== null && typeof custom === 'object';
+  const hasCustom = custom !== null && typeof custom === 'object' && !Array.isArray(custom);
   if (!hasCustom) return patch;
   for (const [key, value] of Object.entries(custom as Record<string, unknown>)) {
     if (value === undefined) continue;
-    const next = value === null ? null : String(value);
+    let next: string | null = null;
+    if (value !== null) {
+      next = stringifyCustomMetadataValue(value);
+    }
     if (key === DOWNLOAD_TOKENS_KEY) patch.downloadTokens = next;
     else defineOwnMetadataKey(patch.customMetadata, key, next);
   }
@@ -159,5 +172,7 @@ export function savedMetadataOf(metadata: Record<string, unknown>): SavedMetadat
     if (value !== null) defineOwnMetadataKey(custom, key, value);
   }
   const tokens = patch.downloadTokens;
-  return { settable, custom, ...(typeof tokens === 'string' ? { downloadTokens: tokens } : {}) };
+  const saved: SavedMetadata = { settable, custom };
+  if (typeof tokens === 'string') saved.downloadTokens = tokens;
+  return saved;
 }

@@ -7,6 +7,17 @@ import type { AuthAccountStanding } from 'pyric/sandbox/internal';
 import type { AuthUserRecord } from 'pyric/auth';
 import type { PyricAdminApp } from '../app/index.js';
 import { assertAdminAppActive } from '../app/lifecycle.js';
+import {
+  assertDeleteUsersPreflight,
+  assertGetUsersPreflight,
+  assertPhoneNumberPreflight,
+  validateCreateUserPreflight,
+} from './preflight-validation.js';
+import {
+  assertCreateSessionCookiePreflight,
+  assertEmailActionLinkPreflight,
+  assertVerifySessionCookiePreflight,
+} from './session-and-link-preflight.js';
 import type {
   Auth,
   CreateRequest,
@@ -17,16 +28,15 @@ import type {
 } from './types.js';
 import {
   assertCustomTokenArguments,
-  assertValidCustomUserClaims,
   fromAuthUserRecord,
   idTokenProjectId,
   mintSandboxCustomToken,
+  normalizeCustomUserClaims,
   paginateUserRecords,
   prepareSandboxUpdateRequest,
   toSandboxCreateRequest,
   translateAdminBackendError,
   validateAdminEmail,
-  validateAdminPassword,
   validateListUsersArguments,
 } from './validation.js';
 import {
@@ -82,22 +92,11 @@ export function makeRemoteAuth(app: PyricAdminApp, sandbox: RemoteSandbox): Auth
 
     async createUser(properties: CreateRequest): Promise<UserRecord> {
       assertAdminAppActive(app);
-      if (properties.uid !== undefined) {
-        const uidErr = invalidUid(properties.uid);
-        if (uidErr !== null) throw uidErr;
-      }
-      if (properties.email !== undefined) {
-        const emailErr = validateAdminEmail(properties.email);
-        if (emailErr !== null) throw emailErr;
-      }
-      if (properties.password !== undefined) {
-        const pwErr = validateAdminPassword(properties.password);
-        if (pwErr !== null) throw pwErr;
-      }
+      const validated = validateCreateUserPreflight(properties);
       try {
         const record = await channel.op({
           method: 'auth.adminCreateUser',
-          request: toSandboxCreateRequest(properties) as unknown as Record<string, unknown>,
+          request: toSandboxCreateRequest(validated) as unknown as Record<string, unknown>,
         });
         return fromAuthUserRecord(record as AuthUserRecord);
       } catch (err) {
@@ -173,32 +172,39 @@ export function makeRemoteAuth(app: PyricAdminApp, sandbox: RemoteSandbox): Auth
       assertAdminAppActive(app);
       const uidErr = invalidUid(uid);
       if (uidErr !== null) throw uidErr;
-      assertValidCustomUserClaims(customUserClaims);
+      const claimsMap = normalizeCustomUserClaims(customUserClaims);
       try {
         await channel.op({
           method: 'auth.adminUpdateUser',
           uid,
-          request: { customClaims: customUserClaims ?? {} },
+          request: { customClaims: claimsMap },
         });
       } catch (err) {
         throw translateAdminBackendError(err);
       }
     },
 
-    getUserByPhoneNumber(): Promise<UserRecord> {
+    getUserByPhoneNumber(phoneNumber?: unknown): Promise<UserRecord> {
       assertAdminAppActive(app);
+      try {
+        assertPhoneNumberPreflight(phoneNumber);
+      } catch (err) {
+        return Promise.reject(err);
+      }
       return Promise.reject(notImplemented('getUserByPhoneNumber'));
     },
     getUserByProviderUid(): Promise<UserRecord> {
       assertAdminAppActive(app);
       return Promise.reject(notImplemented('getUserByProviderUid'));
     },
-    getUsers(): Promise<unknown> {
+    getUsers(identifiers?: unknown): Promise<unknown> {
       assertAdminAppActive(app);
+      assertGetUsersPreflight(identifiers);
       return Promise.reject(notImplemented('getUsers'));
     },
-    deleteUsers(): Promise<unknown> {
+    deleteUsers(uids?: unknown): Promise<unknown> {
       assertAdminAppActive(app);
+      assertDeleteUsersPreflight(uids);
       return Promise.reject(notImplemented('deleteUsers'));
     },
     importUsers(): Promise<unknown> {
@@ -215,28 +221,70 @@ export function makeRemoteAuth(app: PyricAdminApp, sandbox: RemoteSandbox): Auth
         throw translateAdminBackendError(err);
       }
     },
-    createSessionCookie(): Promise<string> {
+    createSessionCookie(idToken?: unknown, sessionCookieOptions?: unknown): Promise<string> {
       assertAdminAppActive(app);
+      try {
+        assertCreateSessionCookiePreflight(idToken, sessionCookieOptions);
+      } catch (err) {
+        return Promise.reject(err);
+      }
       return Promise.reject(notImplemented('createSessionCookie'));
     },
-    verifySessionCookie(): Promise<DecodedIdToken> {
+    verifySessionCookie(sessionCookie?: unknown): Promise<DecodedIdToken> {
       assertAdminAppActive(app);
+      if (typeof sessionCookie !== 'string') {
+        assertVerifySessionCookiePreflight(sessionCookie, idTokenProjectId(app));
+      }
+      try {
+        assertVerifySessionCookiePreflight(sessionCookie, idTokenProjectId(app));
+      } catch (err) {
+        return Promise.reject(err);
+      }
       return Promise.reject(notImplemented('verifySessionCookie'));
     },
-    generatePasswordResetLink(): Promise<string> {
+    generatePasswordResetLink(email?: unknown, actionCodeSettings?: unknown): Promise<string> {
       assertAdminAppActive(app);
+      try {
+        assertEmailActionLinkPreflight('PASSWORD_RESET', email, actionCodeSettings);
+      } catch (err) {
+        return Promise.reject(err);
+      }
       return Promise.reject(notImplemented('generatePasswordResetLink'));
     },
-    generateEmailVerificationLink(): Promise<string> {
+    generateEmailVerificationLink(email?: unknown, actionCodeSettings?: unknown): Promise<string> {
       assertAdminAppActive(app);
+      try {
+        assertEmailActionLinkPreflight('VERIFY_EMAIL', email, actionCodeSettings);
+      } catch (err) {
+        return Promise.reject(err);
+      }
       return Promise.reject(notImplemented('generateEmailVerificationLink'));
     },
-    generateSignInWithEmailLink(): Promise<string> {
+    generateSignInWithEmailLink(email?: unknown, actionCodeSettings?: unknown): Promise<string> {
       assertAdminAppActive(app);
+      try {
+        assertEmailActionLinkPreflight('EMAIL_SIGNIN', email, actionCodeSettings);
+      } catch (err) {
+        return Promise.reject(err);
+      }
       return Promise.reject(notImplemented('generateSignInWithEmailLink'));
     },
-    generateVerifyAndChangeEmailLink(): Promise<string> {
+    generateVerifyAndChangeEmailLink(
+      email?: unknown,
+      newEmail?: unknown,
+      actionCodeSettings?: unknown,
+    ): Promise<string> {
       assertAdminAppActive(app);
+      try {
+        assertEmailActionLinkPreflight(
+          'VERIFY_AND_CHANGE_EMAIL',
+          email,
+          actionCodeSettings,
+          newEmail,
+        );
+      } catch (err) {
+        return Promise.reject(err);
+      }
       return Promise.reject(notImplemented('generateVerifyAndChangeEmailLink'));
     },
     createProviderConfig(): Promise<unknown> {
