@@ -254,7 +254,8 @@ Check the send plane before a capture. It makes three dry-run sends and
 delivers nothing:
 
 ```sh
-bun --env-file=.env packages/conformance/src/check-messaging-provisioning.ts
+PYRIC_ORACLE_PROJECT_ID=<project> \
+  bun run packages/conformance/src/check-messaging-provisioning.ts
 ```
 
 ## Running the harness

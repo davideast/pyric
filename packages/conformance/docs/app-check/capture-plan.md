@@ -94,7 +94,8 @@ The capture's mode is recorded in `app-check-ai-gate-wire`.
 ## Run
 
 ```sh
-bun --env-file=<repo>/.env packages/conformance/src/app-check-probes.ts
+PYRIC_ORACLE_PROJECT_ID=<project> PYRIC_AI_FIREBASE_CONFIG='<web-config-json>' \
+  bun run packages/conformance/src/app-check-probes.ts --write
 ```
 
 A run registers one debug token named `pyric-app-check-capture-<runId>` and deletes it in a `finally` block.

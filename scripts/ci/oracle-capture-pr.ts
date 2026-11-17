@@ -2,18 +2,6 @@
 /**
  * Main-only production oracle capture runner and isolated PR opener for
  * `.github/workflows/oracle-capture.yml`.
- *
- * Security split across two GitHub Actions jobs:
- *   - `plan` + `capture` run in Job 1 (`contents: read`, `id-token: write`),
- *     authenticating to GCP via keyless Workload Identity Federation, running
- *     only approved capture rigs, reverting `observedAt`-only changes, failing
- *     closed on any modification outside `packages/conformance/observations/**`,
- *     and exporting a validated bundle artifact.
- *   - `open-pr` runs in Job 2 (`contents: write`, `pull-requests: write`, NO
- *     GCP WIF credentials), re-verifies every file in the downloaded artifact
- *     against symlinks, traversal, unexpected paths, and JSON schema drift,
- *     pushes `chore/oracle-capture-<rig>`, and opens or updates a strict-ASCII
- *     pull request against `main`.
  */
 import { execFileSync, spawnSync } from 'node:child_process';
 import {
@@ -32,6 +20,12 @@ import { dirname, join, relative, resolve } from 'node:path';
 import { loadRigManifests } from '../../packages/conformance/rigs/load.ts';
 import type { Gh } from './github-issues.ts';
 import { spawnGh } from './github-issues.ts';
+import {
+  createOrUpdatePullRequestWithFallback,
+  formatPullRequestOutcomesSummary,
+  spawnGhWithToken,
+  type OpenedPullRequestOutcome,
+} from './oracle-capture-open-pr.ts';
 import {
   appendGithubOutput,
   appendStepSummary,
@@ -64,13 +58,6 @@ export interface CaptureBundleManifest {
   rigs: CaptureBundleRigEntry[];
 }
 
-export interface OpenedPullRequestOutcome {
-  rig: string;
-  branch: string;
-  action: 'created' | 'updated' | 'unchanged';
-  prUrl: string;
-}
-
 function resetObservationsTree(cwd: string): void {
   const tracked = execFileSync(
     'git',
@@ -95,6 +82,33 @@ function groupInvocationsByRig(
   return grouped;
 }
 
+export function buildInvocationEnv(
+  baseEnv: NodeJS.ProcessEnv,
+  inv: PlannedRigInvocation,
+): NodeJS.ProcessEnv {
+  const nextEnv: NodeJS.ProcessEnv = { ...baseEnv };
+  delete nextEnv.GOOGLE_APPLICATION_CREDENTIALS;
+
+  if (inv.wifTier === 'parity-readonly') {
+    const parityCredFile = (baseEnv.PARITY_WIF_CREDENTIALS_FILE ?? '').trim();
+    if (!parityCredFile) {
+      throw new Error(
+        `Missing PARITY_WIF_CREDENTIALS_FILE for parity-readonly rig '${inv.rig}'`,
+      );
+    }
+    nextEnv.GOOGLE_APPLICATION_CREDENTIALS = parityCredFile;
+  } else if (inv.wifTier === 'capture-write') {
+    const captureCredFile = (baseEnv.CAPTURE_WIF_CREDENTIALS_FILE ?? '').trim();
+    if (!captureCredFile) {
+      throw new Error(
+        `Missing CAPTURE_WIF_CREDENTIALS_FILE for capture-write rig '${inv.rig}'`,
+      );
+    }
+    nextEnv.GOOGLE_APPLICATION_CREDENTIALS = captureCredFile;
+  }
+  return nextEnv;
+}
+
 export interface InvocationRunOutcome {
   status: number | null;
   stdout?: string;
@@ -117,7 +131,7 @@ export function executeCapturePlan(options: {
       );
       const out = spawnSync('bun', ['run', inv.script, ...inv.args], {
         cwd,
-        env,
+        env: buildInvocationEnv(env, inv),
         encoding: 'utf8',
         maxBuffer: 64 * 1024 * 1024,
       });
@@ -170,7 +184,9 @@ export function executeCapturePlan(options: {
           for (const item of collected) {
             collectedByPath.set(item.path, item);
           }
-          const filterArg = inv.args.filter((a) => a !== '--write' && !a.startsWith('--')).join(',');
+          const filterArg = inv.args
+            .filter((a) => a !== '--write' && a !== '--capture' && !a.startsWith('--'))
+            .join(',');
           if (filterArg) succeededFilters.push(filterArg);
         }
       } catch (boundaryErr) {
@@ -320,8 +336,11 @@ export async function verifyAndOpenCapturePullRequests(options: {
   artifactDir: string;
   repository: string;
   gh: Gh;
+  fallbackGh?: Gh;
+  hasPatPushAuth?: boolean;
 }): Promise<OpenedPullRequestOutcome[]> {
   const { cwd, artifactDir, repository, gh } = options;
+  const hasPatPushAuth = options.hasPatPushAuth ?? true;
   const allBundleFiles = assertNoSymlinksAndCollectRegularFiles(artifactDir);
   if (!allBundleFiles.includes('manifest.json')) {
     throw new Error('Artifact bundle is missing manifest.json');
@@ -426,27 +445,23 @@ export async function verifyAndOpenCapturePullRequests(options: {
         }),
       );
 
-      const openPrs = JSON.parse(
-        gh([
-          'pr', 'list', '--repo', repository, '--head', branch,
-          '--base', 'main', '--state', 'open', '--json', 'number,url',
-        ]),
-      ) as Array<{ number: number; url: string }>;
-
-      const existing = openPrs[0];
-      if (existing) {
-        gh([
-          'pr', 'edit', String(existing.number), '--repo', repository,
-          '--title', title, '--body-file', bodyFile,
-        ]);
-        outcomes.push({ rig: entry.rig, branch, action: 'updated', prUrl: existing.url });
-      } else {
-        const prUrl = gh([
-          'pr', 'create', '--repo', repository, '--base', 'main',
-          '--head', branch, '--title', title, '--body-file', bodyFile,
-        ]).trim();
-        outcomes.push({ rig: entry.rig, branch, action: 'created', prUrl });
-      }
+      outcomes.push(
+        createOrUpdatePullRequestWithFallback({
+          cwd,
+          target: {
+            repository,
+            rig: entry.rig,
+            branch,
+            title,
+            bodyFile,
+          },
+          auth: {
+            primaryGh: gh,
+            fallbackGh: options.fallbackGh,
+            hasPatPushAuth,
+          },
+        }),
+      );
     }
   } finally {
     rmSync(scratch, { recursive: true, force: true });
@@ -463,11 +478,13 @@ async function runPlanCli(env: NodeJS.ProcessEnv): Promise<void> {
   writeFileSync(resolve(planFile), `${JSON.stringify(plan, null, 2)}\n`);
   appendGithubOutput(env, 'should_run', String(plan.shouldRun));
   appendGithubOutput(env, 'needs_wif', String(plan.needsWif));
+  appendGithubOutput(env, 'needs_parity_wif', String(Boolean(plan.needsParityWif)));
+  appendGithubOutput(env, 'needs_capture_wif', String(Boolean(plan.needsCaptureWif)));
   if (!plan.shouldRun) {
-    console.log('[oracle-capture] No uncaptured staged probes or pending rig prefixes found; skipping.');
+    console.log('[oracle-capture] No runnable uncaptured staged probes or pending rig prefixes; skipping.');
   } else {
     console.log(
-      `[oracle-capture] Planned ${plan.invocations.length} invocation(s) (needs_wif=${String(plan.needsWif)}).`,
+      `[oracle-capture] Planned ${plan.invocations.length} invocation(s) (parity_wif=${String(Boolean(plan.needsParityWif))}, capture_wif=${String(Boolean(plan.needsCaptureWif))}).`,
     );
   }
 }
@@ -479,19 +496,35 @@ async function runOpenPrCli(cwd: string, env: NodeJS.ProcessEnv): Promise<void> 
   if (!artifactDir || !repository) {
     throw new Error('ARTIFACT_DIR and GITHUB_REPOSITORY environment variables are required');
   }
+
+  const patToken = (env.PAT_TOKEN ?? '').trim();
+  const githubToken = (env.GITHUB_TOKEN ?? '').trim();
+  let primaryGh: Gh;
+  let fallbackGh: Gh | undefined;
+  const hasPatPushAuth = patToken !== '';
+
+  if (patToken !== '') {
+    primaryGh = spawnGhWithToken(cwd, patToken);
+    if (githubToken !== '' && githubToken !== patToken) {
+      fallbackGh = spawnGhWithToken(cwd, githubToken);
+    }
+  } else if (githubToken !== '') {
+    primaryGh = spawnGhWithToken(cwd, githubToken);
+  } else {
+    primaryGh = spawnGh(cwd);
+  }
+
   const outcomes = await verifyAndOpenCapturePullRequests({
     cwd,
     artifactDir: resolve(artifactDir),
     repository,
-    gh: spawnGh(cwd),
+    gh: primaryGh,
+    fallbackGh,
+    hasPatPushAuth,
   });
-  const outcomeBullets = outcomes.map((o) => {
-    const suffix = o.prUrl ? ` - ${o.prUrl}` : '';
-    return `- **${o.rig}** (\`${o.branch}\`): ${o.action}${suffix}`;
-  });
-  const lines = ['## Oracle capture pull requests', '', ...outcomeBullets];
-  appendStepSummary(env, lines.join('\n'));
-  console.log(lines.join('\n'));
+  const summary = formatPullRequestOutcomesSummary(outcomes);
+  appendStepSummary(env, summary);
+  console.log(summary);
 }
 
 if (import.meta.main) {

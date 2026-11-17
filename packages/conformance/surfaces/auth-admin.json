@@ -10,7 +10,9 @@
   ],
   "coverage": false,
   "scopeNote": "The firebase-admin Auth plane (pyric-admin/auth: getAuth, user management, custom tokens, ID token verification, custom claims, and refresh-token revocation). Its rows share the auth registry and are tracked without a client runtime census.",
-  "captureRigs": [],
+  "captureRigs": [
+    "admin-auth"
+  ],
   "climb": true,
   "registry": "auth"
 }

@@ -45,6 +45,7 @@ import { fileURLToPath } from 'node:url';
 import type { FirebaseApp } from 'firebase/app';
 import type { Auth } from 'firebase/auth';
 import type { FirebaseStorage, StorageReference, UploadTask } from 'firebase/storage';
+import { requireCaptureMode } from '../../capture-mode-guard.ts';
 import { oracleCredentialConfigured } from '../../oracle-credential.ts';
 import { resolvedFirebaseVersion } from '../../package-version.ts';
 import { loadLiveContext, withTimeout, writeRecording } from '../rtdb-live/live-capture.ts';
@@ -235,14 +236,23 @@ export function sequenceFailures(results: Partial<Record<Operation, Result>>, ex
 }
 
 async function main(): Promise<void> {
+  requireCaptureMode({
+    label: 'storage-live:capture-s',
+    scriptPath: 'packages/conformance/src/capture/storage-live/capture-s-wire.ts',
+    summary: 'would record modular firebase/storage and firebase/auth HTTP exchanges.',
+    missingCredentials: () => {
+      const refusal = captureRefusal(process.env);
+      if (refusal) return refusal;
+      if (!oracleCredentialConfigured(process.env)) {
+        return 'PYRIC_ORACLE_PROJECT_ID or PYRIC_ORACLE_SA_PATH';
+      }
+      return null;
+    },
+  });
   const refusal = captureRefusal(process.env);
   if (refusal) {
     console.error(`[storage-live:capture-s] ${refusal}`);
     process.exit(2);
-  }
-  if (!oracleCredentialConfigured(process.env)) {
-    console.log('[storage-live:capture-s] inert: set PYRIC_ORACLE_PROJECT_ID (Application Default Credentials) or PYRIC_ORACLE_SA_PATH to capture.');
-    process.exit(0);
   }
 
   const ctx = await loadLiveContext();

@@ -22,6 +22,10 @@
  * and a restore that threw on a 429 would leave the oracle block in place.
  */
 import { fetchWithRateLimitRetry, rateLimitDeps, type RateLimitDeps } from './rtdb-rules-rate-limit.ts';
+import {
+  mergeOracleRtdbRules,
+  type OracleRtdbProbeSubtree,
+} from './oracle-signal-restore.ts';
 import { RequestBudget } from './storage-stdlib-real-budget.ts';
 import { restoreRulesRelease } from './storage-stdlib-real-rules.ts';
 
@@ -38,55 +42,20 @@ export interface OracleRtdbRulesTarget {
    * which the rules endpoint requires. Called again when the restore starts.
    */
   accessToken: () => Promise<string>;
+  /** Optional run-scoped subtree mounted under `pyric_oracle[runId]` by modular probes. */
+  probeSubtree?: OracleRtdbProbeSubtree;
 }
 
 /** The RTDB target for one database. */
-export function rtdbOracleTarget(databaseUrl: string, accessToken: () => Promise<string>): OracleRtdbRulesTarget {
-  return { databaseUrl, accessToken };
-}
-
-const ORACLE_RTDB_NAMESPACE_KEY = 'pyric_oracle';
-
-// Grants the harness read and write under `/pyric_oracle/*`. The `.indexOn`
-// at `$run/$probe/list` lets the query probes (orderByChild, equalTo) run:
-// RTDB rejects queries on unindexed fields. The indexed fields are the union of
-// what the modular-SDK query probes use.
-const ORACLE_RTDB_BLOCK = {
-  '.read': 'auth != null',
-  '.write': 'auth != null',
-  $run: {
-    $probe: {
-      list: {
-        '.indexOn': ['pos', 'group'],
-      },
-    },
-  },
-};
-
-type RtdbRulesMerge = { outcome: 'already-configured' } | { outcome: 'fresh' | 'merged'; next: string };
-
-/**
- * Merge the oracle block into an RTDB rules source. Every other top-level key
- * is kept. A block whose shape has drifted from `ORACLE_RTDB_BLOCK` is
- * replaced, so a new indexed field is deployed on the next run.
- */
-export function mergeOracleRtdbRules(source: string): RtdbRulesMerge {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(source);
-  } catch (error) {
-    throw new Error(`parse RTDB rules failed: ${error instanceof Error ? error.message : String(error)}`);
+export function rtdbOracleTarget(
+  databaseUrl: string,
+  accessToken: () => Promise<string>,
+  probeSubtree?: OracleRtdbProbeSubtree,
+): OracleRtdbRulesTarget {
+  if (probeSubtree) {
+    return { databaseUrl, accessToken, probeSubtree };
   }
-  const current = (parsed ?? {}) as { rules?: Record<string, unknown> };
-  const currentRules = current.rules ?? {};
-  const existing = currentRules[ORACLE_RTDB_NAMESPACE_KEY];
-  const blockMatches = JSON.stringify(existing) === JSON.stringify(ORACLE_RTDB_BLOCK);
-  if (existing !== undefined && blockMatches) return { outcome: 'already-configured' };
-  const isEmpty = Object.keys(currentRules).length === 0;
-  const rules = isEmpty
-    ? { '.read': false, '.write': false, [ORACLE_RTDB_NAMESPACE_KEY]: ORACLE_RTDB_BLOCK }
-    : { ...currentRules, [ORACLE_RTDB_NAMESPACE_KEY]: ORACLE_RTDB_BLOCK };
-  return { outcome: isEmpty ? 'fresh' : 'merged', next: JSON.stringify({ rules }) };
+  return { databaseUrl, accessToken };
 }
 
 /** One service's release, the block merged into it, and the source for a release that does not exist yet. */
@@ -199,14 +168,76 @@ export class OracleRulesSession {
   private readonly rateLimit: RateLimitDeps;
   private headers: { auth: Record<string, string>; json: Record<string, string> } = { auth: {}, json: {} };
   private baselines: Baseline[] = [];
+  private activeRestore: Promise<void> | null = null;
+  private readonly probeCleanups = new Set<() => Promise<void>>();
+  private readonly inFlightMutations = new Set<Promise<unknown>>();
+  private didRestoreRtdb = false;
+  private didRestoreRelease = false;
+  private stopping = false;
 
   constructor(options: OracleRulesSessionOptions) {
     this.projectId = options.projectId;
     this.accessToken = options.accessToken;
-    this.rateLimit = rateLimitDeps({
-      ...(options.fetch ? { fetch: options.fetch } : {}),
-      ...(options.sleep ? { sleep: options.sleep } : {}),
+    const rateOptions: {
+      fetch?: (url: string, init?: RequestInit) => Promise<Response>;
+      sleep?: (ms: number) => Promise<void>;
+    } = {};
+    if (options.fetch) rateOptions.fetch = options.fetch;
+    if (options.sleep) rateOptions.sleep = options.sleep;
+    this.rateLimit = rateLimitDeps(rateOptions);
+  }
+
+  get restoredRtdb(): boolean {
+    return this.didRestoreRtdb;
+  }
+
+  get restoredFirestoreOrStorage(): boolean {
+    return this.didRestoreRelease;
+  }
+
+  get isStopping(): boolean {
+    return this.stopping;
+  }
+
+  hasBaseline(kind: 'Firestore' | 'Storage' | 'rtdb'): boolean {
+    if (kind === 'rtdb') {
+      return this.baselines.some((b) => b.kind === 'rtdb');
+    }
+    return this.baselines.some((b) => b.kind === 'release' && b.service === kind);
+  }
+
+  /**
+   * Registers an in-probe rules cleanup callback so an interrupt arriving while
+   * a probe temporarily rewrites rules runs the probe's cleanup before the
+   * session restores its pre-run baseline.
+   */
+  registerProbeCleanup(cleanup: () => Promise<void>): () => void {
+    this.probeCleanups.add(cleanup);
+    return () => {
+      this.probeCleanups.delete(cleanup);
+    };
+  }
+
+  /**
+   * Tracks an in-flight rules deploy or probe-level rules PUT so `restoreAll()`
+   * waits for it to settle before writing session baselines back.
+   */
+  trackMutation<T>(promise: Promise<T>): Promise<T> {
+    const settled = promise.then(
+      () => undefined,
+      () => undefined,
+    );
+    this.inFlightMutations.add(settled);
+    void settled.finally(() => {
+      this.inFlightMutations.delete(settled);
     });
+    return promise;
+  }
+
+  private async drainInFlightMutations(): Promise<void> {
+    while (this.inFlightMutations.size > 0) {
+      await Promise.allSettled([...this.inFlightMutations]);
+    }
   }
 
   /** One rules call, sent again after each 429 until the back-off cap. */
@@ -285,25 +316,29 @@ export class OracleRulesSession {
       `create ${service} oracle ruleset`,
     );
 
-    const patch = await this.send(releaseUrl, {
-      method: 'PATCH',
-      headers: this.headers.json,
-      body: JSON.stringify({ release: { name: releaseName, rulesetName: created.name } }),
-    }, `activate ${service} oracle ruleset`);
+    const patch = await this.trackMutation(
+      this.send(releaseUrl, {
+        method: 'PATCH',
+        headers: this.headers.json,
+        body: JSON.stringify({ release: { name: releaseName, rulesetName: created.name } }),
+      }, `activate ${service} oracle ruleset`),
+    );
     if (patch.ok) return outcome;
     const patchText = await patch.text();
     if (patch.status !== 404) {
       throw new Error(`activate ${service} oracle ruleset failed: ${patch.status} ${patchText}`);
     }
     // A bucket with no release yet: create it.
-    await this.request(
-      `${RULES_API}/projects/${project}/releases`,
-      {
-        method: 'POST',
-        headers: this.headers.json,
-        body: JSON.stringify({ name: releaseName, rulesetName: created.name }),
-      },
-      `create ${service} oracle release`,
+    await this.trackMutation(
+      this.request(
+        `${RULES_API}/projects/${project}/releases`,
+        {
+          method: 'POST',
+          headers: this.headers.json,
+          body: JSON.stringify({ name: releaseName, rulesetName: created.name }),
+        },
+        `create ${service} oracle release`,
+      ),
     );
     return outcome;
   }
@@ -316,10 +351,12 @@ export class OracleRulesSession {
   async deployRtdb(target: OracleRtdbRulesTarget): Promise<OracleRulesOutcome> {
     const token = await target.accessToken();
     const source = await this.readRtdbRules(target.databaseUrl, token);
-    const merge = mergeOracleRtdbRules(source);
+    const merge = mergeOracleRtdbRules(source, target.probeSubtree);
     if (merge.outcome === 'already-configured') return merge.outcome;
     this.baselines.push({ kind: 'rtdb', target, source });
-    await this.writeRtdbRules(target.databaseUrl, token, merge.next, 'deploy RTDB oracle rules');
+    await this.trackMutation(
+      this.writeRtdbRules(target.databaseUrl, token, merge.next, 'deploy RTDB oracle rules'),
+    );
     return merge.outcome;
   }
 
@@ -342,15 +379,59 @@ export class OracleRulesSession {
 
   /**
    * Point every release this session changed back at the ruleset recorded for
-   * it and read each one back. Every release is attempted even when an earlier
-   * one fails. Throws one error naming each release that could not be
-   * confirmed.
+   * it and read each one back. Concurrent callers (such as SIGINT/SIGTERM
+   * arriving during end-of-run restoration) await the in-flight restore rather
+   * than returning early while writes are still pending.
    */
   async restoreAll(): Promise<void> {
+    this.stopping = true;
+    if (this.activeRestore !== null) {
+      return this.activeRestore;
+    }
+    if (
+      this.baselines.length === 0 &&
+      this.probeCleanups.size === 0 &&
+      this.inFlightMutations.size === 0
+    ) {
+      return;
+    }
+    const pendingRestore = this.performRestoreAll();
+    this.activeRestore = pendingRestore;
+    try {
+      await pendingRestore;
+    } finally {
+      this.activeRestore = null;
+    }
+  }
+
+  private async performRestoreAll(): Promise<void> {
+    await this.drainInFlightMutations();
+    const cleanups = [...this.probeCleanups];
+    this.probeCleanups.clear();
+    const failures: string[] = [];
+
+    for (const cleanup of cleanups) {
+      try {
+        await cleanup();
+      } catch (error) {
+        let detail = String(error);
+        if (error instanceof Error) {
+          detail = error.message;
+        }
+        failures.push(`in-probe rules cleanup: ${detail}.`);
+      }
+    }
+    await this.drainInFlightMutations();
+
     const pending = this.baselines;
     this.baselines = [];
-    if (pending.length === 0) return;
-    const failures: string[] = [];
+    if (pending.length === 0) {
+      if (failures.length > 0) {
+        throw new Error(`ORACLE RULES RESTORE FAILED. ${failures.join(' ')}`);
+      }
+      return;
+    }
+
     let tokenError: unknown;
     try {
       await this.refreshHeaders();
@@ -361,17 +442,28 @@ export class OracleRulesSession {
       try {
         if (baseline.kind === 'rtdb') {
           await this.restoreRtdb(baseline);
+          this.didRestoreRtdb = true;
           continue;
         }
         if (tokenError) {
-          throw new Error(
-            `could not obtain an access token: ${tokenError instanceof Error ? tokenError.message : String(tokenError)}`,
-          );
+          let reason = String(tokenError);
+          if (tokenError instanceof Error) {
+            reason = tokenError.message;
+          }
+          throw new Error(`could not obtain an access token: ${reason}`);
         }
         await this.restore(baseline);
+        this.didRestoreRelease = true;
       } catch (error) {
-        const cause = error instanceof Error && error.cause instanceof Error ? ` (${error.cause.message})` : '';
-        const detail = (error instanceof Error ? error.message : String(error)) + cause;
+        let cause = '';
+        if (error instanceof Error && error.cause instanceof Error) {
+          cause = ` (${error.cause.message})`;
+        }
+        let baseMsg = String(error);
+        if (error instanceof Error) {
+          baseMsg = error.message;
+        }
+        const detail = `${baseMsg}${cause}`;
         failures.push(
           `${baselineLabel(baseline)}: ${detail}. ` +
           `The live rules may still contain the oracle block. Restore by hand: ${restoreByHand(baseline)}.`,
@@ -456,7 +548,10 @@ export async function runWithOracleRulesRestored<T>(
     try {
       await session.restoreAll();
     } catch (restoreError) {
-      const message = restoreError instanceof Error ? restoreError.message : String(restoreError);
+      let message = String(restoreError);
+      if (restoreError instanceof Error) {
+        message = restoreError.message;
+      }
       throw new AggregateError([bodyError, restoreError], `${message} The run itself also failed.`);
     }
     throw bodyError;

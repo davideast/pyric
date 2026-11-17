@@ -1,80 +1,15 @@
 #!/usr/bin/env bun
 /**
- * RTDB rules oracle capture runner.
+ * RTDB rules oracle capture runner (`deploy -> observe -> restore + read-back`).
  *
- * The RTDB sibling of run-rules.ts / run-rules-storage.ts — but RTDB has NO
- * server-side rules test API (no `firebaserules projects.test` equivalent), so
- * production truth cannot be read from an endpoint. This runner captures it the
- * way the `rtdb-simulator-vs-prod-agreement` probe does: it DEPLOYS each corpus
- * scenario's ruleset subtree to the dedicated oracle database under a unique
- * run-scoped audit namespace (merged with, never replacing, the existing
- * rules), EXECUTES each op against the live service to record the production
- * allow/deny verdict, then RESTORES the prior ruleset and VERIFIES the restore
- * by reading the rules back and comparing (canonical JSON) to the pre-run
- * snapshot. One observation per scenario is written into
- * `packages/conformance/observations/rtdb-rules/rules-rtdb-<scenario.id>.json`.
+ * Enforces two invariants before writing observations into `observations/rtdb-rules/`:
+ *   1. RULES RESTORED: pre-run rules rewritten and read back (3-attempt retry,
+ *      guarded against SIGINT/SIGTERM and in-flight PUT races).
+ *   2. DATA & USERS REMOVED: `/pyric_oracle_rulesrtdb_<runId>` deleted and
+ *      proven absent via shallow root read, and run-created Auth users deleted.
  *
- * TWO INVARIANTS ARE THE GATE, and the run is clean only if BOTH read back
- * verified:
- *   RULES RESTORED — the pre-run ruleset is rewritten and read back, canonical-
- *     JSON identical to the pre-run snapshot.
- *   DATA REMOVED — the corpus ops write synthetic data beneath the run-scoped
- *     namespace `/pyric_oracle_rulesrtdb_<runId>`, so the runner deletes that
- *     namespace and proves it gone with a shallow read of the root.
- * deploy → capture → restore + cleanup → read-back verify runs as one guarded
- * sequence: ANY failure mid-run (deploy, op loop, or either read-back) aborts
- * loudly AND still attempts both the restore and the data cleanup before exit.
- * Observations are written only once both invariants verify — a run that cannot
- * prove it left the database as it found it is not a clean capture.
- *
- * DEPLOY SCENARIOS (records with `deployCases`) record whether production's
- * rules endpoint accepts a ruleset. Each case is sent as a dry run,
- * `PUT /.settings/rules.json?dryRun=true`, the validation request
- * `firebase deploy` sends before it deploys: production validates and answers
- * 200 or 400 with an error text, and deploys nothing. The dry-run body is the
- * pre-run ruleset with the case's subtree merged under the run-scoped mount, so
- * an endpoint that ignored the flag would still keep every existing rule. After
- * every case the runner reads the live rules back and requires them unchanged.
- * A deploy scenario with a `largeRuleset` policy (r51, r61) runs after the
- * operation scenarios and their rules restore, so the throttling an unanswered
- * dry run sets off cannot reach a rules write. When production does not answer
- * a scenario whose policy allows it (r61), that scenario gets no observation:
- * every other observation is still written, and the run exits 1
- * (src/rtdb-rules-deploy-run.ts).
- *
- * CUSTOM CLAIMS: a case with `claims` signs in with a custom token minted by the
- * service account for one run-scoped uid. Custom-token sign-in needs no sign-in
- * provider, so no Auth configuration changes. Every sign-in creates an Auth user,
- * the custom-token uid and each anonymous uid, so the runner deletes each one at
- * the end and proves the deletion with a lookup.
- *
- * CREDENTIAL CONTRACT (mirrors the moved oracle run's RTDB rules deploy):
- *   PYRIC_ORACLE_FIREBASE_CONFIG — Web SDK config JSON (must carry databaseURL
- *     and apiKey). Provides the client used to run corpus ops and the RTDB
- *     instance URL. Its presence gates capture.
- *   PYRIC_ORACLE_SA_PATH — path to a service-account JSON. Unset, the runner
- *     uses Application Default Credentials and PYRIC_ORACLE_PROJECT_ID names
- *     the project (src/oracle-credential.ts). The credential mints the
- *     firebase.database-scoped OAuth token the /.settings/rules.json deploy
- *     endpoint demands, seeds data via the admin SDK, and signs custom tokens.
- *     A web config alone cannot deploy RTDB rules.
- *
- * RUNNABLE-BUT-INERT WITHOUT CREDENTIALS:
- *   With PYRIC_ORACLE_FIREBASE_CONFIG absent, this runner makes NO network
- *   calls. It prints exactly what it WOULD capture (every scenario, its case count,
- *   the observation file each lands in) plus the env vars it needs, then exits
- *   0. No observation files are fabricated.
- *
- * Usage:
- *   # inert preview (no creds):
- *   bun run packages/conformance/src/run-rules-rtdb.ts
- *   # real capture (credentialed):
- *   PYRIC_ORACLE_FIREBASE_CONFIG="$(cat oracle-web-config.json)" \
- *     PYRIC_ORACLE_PROJECT_ID=<oracle project id> \
- *     bun run packages/conformance/src/run-rules-rtdb.ts \
- *     --scenario r15-validate-ancestor-scope
- *   # several scenarios in one run (comma-separated, or the flag repeated):
- *   ... run-rules-rtdb.ts --scenario r15-validate-ancestor-scope,r29-deploy-rejections
+ * Requires `--write` plus `PYRIC_ORACLE_FIREBASE_CONFIG` (or `PYRIC_ORACLE_RTDB_URL`
+ * naming a dedicated non-default RTDB instance) and an oracle credential.
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -95,15 +30,26 @@ import {
   loadOracleServiceAccount,
   oracleAccessToken,
   oracleAppOptions,
+  oracleCredentialConfigured,
   oracleServiceAccountEmail,
   signOracleJwt,
   type OracleServiceAccount,
 } from './oracle-credential.ts';
+import { assertDedicatedOracleRtdbUrl } from './oracle-run-setup.ts';
+import {
+  createSignalRestoreCoordinator,
+  restoreRtdbRulesWithRetry,
+} from './oracle-signal-restore.ts';
 import { resolvedFirebaseVersion } from './package-version.ts';
 import { canonicalize, type RulesDeployEndpoint } from './rtdb-rules-deploy.ts';
 import { orderDeployScenarios, runDeployScenarios } from './rtdb-rules-deploy-run.ts';
 import { restoreRulesBeforeLatePhase, runCapturePhases, type CapturedObservation } from './rtdb-rules-capture-run.ts';
 import { fetchWithRateLimitRetry } from './rtdb-rules-rate-limit.ts';
+import {
+  formatInertPreviewFooter,
+  requireCaptureMode,
+  stripCaptureFlags,
+} from './capture-mode-guard.ts';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 // rules-rtdb-* observations belong to the 'rtdb-rules' surface subdirectory
@@ -162,11 +108,13 @@ function scenarioIdsOf(value: string | undefined): string[] {
 
 /** Every id the `--scenario` flags name, in either form and repeated or not. */
 function selectedScenarioIds(args: readonly string[]): Set<string> {
+  const cleaned = stripCaptureFlags(args);
   const ids = new Set<string>();
-  for (let index = 0; index < args.length; index++) {
-    const arg = args[index]!;
+  for (let index = 0; index < cleaned.length; index++) {
+    const arg = cleaned[index];
+    if (!arg) continue;
     if (arg === '--scenario') {
-      for (const id of scenarioIdsOf(args[index + 1])) ids.add(id);
+      for (const id of scenarioIdsOf(cleaned[index + 1])) ids.add(id);
       index++;
       continue;
     }
@@ -432,18 +380,22 @@ async function capture({ scenarios, deployScenarios }: RtdbSelection): Promise<n
   const { getDatabaseWithUrl: getAdminDatabase } = await import('firebase-admin/database');
   const { getAuth: getAdminAuth } = await import('firebase-admin/auth');
 
-  const config = JSON.parse(process.env.PYRIC_ORACLE_FIREBASE_CONFIG!) as FirebaseWebConfig;
-  if (!config.databaseURL) {
-    throw new Error('PYRIC_ORACLE_FIREBASE_CONFIG has no databaseURL — an RTDB instance URL is required to deploy and run rules.');
-  }
+  const rawConfigText = process.env.PYRIC_ORACLE_FIREBASE_CONFIG ?? '{}';
+  const config = JSON.parse(rawConfigText) as FirebaseWebConfig;
   const serviceAccount = await loadOracleServiceAccount();
   assertMatchingOracleProjects(config, serviceAccount);
+  config.databaseURL = assertDedicatedOracleRtdbUrl(
+    process.env.PYRIC_ORACLE_RTDB_URL ?? config.databaseURL,
+    config.projectId,
+  );
   const fbSdkVersion = resolvedFirebaseVersion();
 
   console.log(`[oracle:rules-rtdb] project: ${config.projectId}`);
   console.log(`[oracle:rules-rtdb] database: ${config.databaseURL}`);
   console.log(`[oracle:rules-rtdb] firebase ${fbSdkVersion}\n`);
 
+  const coordinator = createSignalRestoreCoordinator('[oracle:rules-rtdb]');
+  const uninstallSignals = coordinator.installSignals();
   const rtdbAdminToken = await oracleAccessToken(serviceAccount, RTDB_RULES_SCOPE);
   const rulesGetUrl = `${config.databaseURL}/.settings/rules.json?access_token=${encodeURIComponent(rtdbAdminToken)}`;
   const rulesPutUrl = `${config.databaseURL}/.settings/rules.json?access_token=${encodeURIComponent(rtdbAdminToken)}&print=silent`;
@@ -476,11 +428,13 @@ async function capture({ scenarios, deployScenarios }: RtdbSelection): Promise<n
     readRules,
   };
   async function writeRules(rules: Record<string, unknown>): Promise<void> {
-    const res = await fetchWithRateLimitRetry(rulesPutUrl, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ rules }),
-    }, 'write rules');
+    const res = await coordinator.trackMutation(
+      fetchWithRateLimitRetry(rulesPutUrl, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ rules }),
+      }, 'write rules'),
+    );
     if (!res.ok) throw new Error(`write rules failed: ${res.status} ${await res.text()}`);
   }
 
@@ -571,6 +525,17 @@ async function capture({ scenarios, deployScenarios }: RtdbSelection): Promise<n
   let userCleanupVerified = false;
   // Set before the rules write, so a write that fails partway is still restored.
   let deployed = false;
+  coordinator.registerCleanup(async () => {
+    if (!deployed) return;
+    await restoreRtdbRulesWithRetry({
+      beforeText: JSON.stringify(beforeRules),
+      writeText: (text) => writeRules(JSON.parse(text) as Record<string, unknown>),
+      readText: async () => JSON.stringify(await readRules()),
+      canonicalize: (text) => canonicalize(JSON.parse(text)),
+    });
+    deployed = false;
+    restoreVerified = true;
+  });
 
   async function captureOperations(): Promise<CapturedObservation[]> {
     const observations: CapturedObservation[] = [];
@@ -696,16 +661,18 @@ async function capture({ scenarios, deployScenarios }: RtdbSelection): Promise<n
   }
 
   async function restoreAndCleanUp(): Promise<void> {
-    // Restore + read-back verify ALWAYS runs, success or failure. A run that
-    // only dry-ran deploys never wrote rules, so it only reads back.
     try {
-      if (deployed) await writeRules(beforeRules);
-      const afterRules = await readRules();
-      if (canonicalize(afterRules) === beforeCanonical) {
-        restoreVerified = true;
-        console.log('[oracle:rules-rtdb] restore verified — rules read back identical to pre-run snapshot.');
+      if (deployed) {
+        await coordinator.runRestore();
+        console.log('[oracle:rules-rtdb] restore verified -- rules read back identical to pre-run snapshot.');
       } else {
-        console.error('[oracle:rules-rtdb] RESTORE VERIFY FAILED — read-back rules differ from the pre-run snapshot!');
+        const afterRules = await readRules();
+        if (canonicalize(afterRules) === beforeCanonical) {
+          restoreVerified = true;
+          console.log('[oracle:rules-rtdb] restore verified -- rules read back identical to pre-run snapshot.');
+        } else {
+          console.error('[oracle:rules-rtdb] RESTORE VERIFY FAILED -- read-back rules differ from the pre-run snapshot.');
+        }
       }
     } catch (e) {
       console.error(`[oracle:rules-rtdb] RESTORE FAILED: ${e instanceof Error ? e.message : String(e)}`);
@@ -778,18 +745,21 @@ async function capture({ scenarios, deployScenarios }: RtdbSelection): Promise<n
     console.log(`  → wrote ${rtdbObservationName(scenario)}.json`);
   }
 
-  const exitCode = await runCapturePhases({
-    earlyDeploys: () => runDeployScenarios(endpoint, deployOrder.beforeOperations, deployInput),
-    operations: captureOperations,
-    restoreBeforeLate,
-    // Large-ruleset deploy scenarios last (#1692). A failure here keeps every
-    // observation captured before it; the run then ends non-zero.
-    lateDeploys: () => runDeployScenarios(endpoint, deployOrder.afterOperations, deployInput),
-    restoreAndCleanUp,
-    assertClean: assertCleanRun,
-    write: writeObservation,
-    log: (line) => console.error(line),
-  });
+  let exitCode = 1;
+  try {
+    exitCode = await runCapturePhases({
+      earlyDeploys: () => runDeployScenarios(endpoint, deployOrder.beforeOperations, deployInput),
+      operations: captureOperations,
+      restoreBeforeLate,
+      lateDeploys: () => runDeployScenarios(endpoint, deployOrder.afterOperations, deployInput),
+      restoreAndCleanUp,
+      assertClean: assertCleanRun,
+      write: writeObservation,
+      log: (line) => console.error(line),
+    });
+  } finally {
+    uninstallSignals();
+  }
 
   const outcome = exitCode === 0 ? 'capture complete' : 'capture incomplete (the scenarios named above have no observation)';
   console.log(`\n[oracle:rules-rtdb] ${outcome}: rules restored, run data and run users removed, all read-back verified.`);
@@ -812,24 +782,12 @@ export const MULTI_INSTANCE_RULES = {
   },
 } as const;
 
-/**
- * The rules text deployed to an instance for the capture: the instance's
- * rules with `subtree` added under `auditKey`, so every existing rule stays in
- * force. Refuses to run, before anything is deployed, when the existing rules
- * cannot be merged (they are not plain JSON, for example they carry comments)
- * or when their root grants a read or a write, because a root grant cascades
- * into the run's subtree and the recorded verdicts would be wrong.
- */
+/** Merges `subtree` under `auditKey` after verifying strict JSON and `false` root grants. */
 export function instanceRulesForCapture(instance: string, beforeText: string, auditKey: string, subtree: unknown): string {
   const before = capturableRules(instance, beforeText);
   return JSON.stringify({ ...before, rules: { ...before.rules, [auditKey]: subtree } });
 }
 
-/**
- * The parsed rules document of an instance the capture may merge a run-scoped
- * subtree into. Throws, before anything is deployed, when the rules text is
- * not plain JSON or when the root `.read` or `.write` is anything but false.
- */
 export function capturableRules(
   instance: string,
   beforeText: string,
@@ -850,12 +808,6 @@ export function capturableRules(
   return { ...before, rules: root };
 }
 
-
-/**
- * RULES RESTORED, per instance: the restored text must read back as the
- * pre-run text, byte for byte, or as the same rules when the endpoint
- * reformats it. Returns whether the text matched exactly.
- */
 export function verifyRulesTextRestored(instance: string, beforeText: string, afterText: string): { exact: boolean } {
   if (afterText === beforeText) return { exact: true };
   let same = false;
@@ -868,19 +820,7 @@ export function verifyRulesTextRestored(instance: string, beforeText: string, af
   return { exact: false };
 }
 
-/**
- * Capture how production serves two RTDB instances of one project: each
- * instance's data, each instance's rules, one Auth user's ID token on both,
- * and the SDK's behavior for an instance that does not exist.
- *
- * Deploy-observe-restore on BOTH instances: each instance's rules text is
- * snapshotted, a run-scoped subtree is deployed under `/<auditKey>`, the
- * operations run through the client SDK, then each instance's text is
- * restored verbatim and read back. The run's data on both instances and the
- * one Auth user the run signs in as are deleted and the deletion proven.
- * Project configuration is never changed: no instance is created and no
- * provider is enabled (custom-token sign-in needs none).
- */
+/** Captures cross-instance RTDB isolation (`deploy -> observe -> restore + read-back` on both instances). */
 async function captureMultiInstance(): Promise<void> {
   const { initializeApp, deleteApp } = await import('firebase/app');
   const { getAuth, signInWithCustomToken, signOut } = await import('firebase/auth');
@@ -888,12 +828,13 @@ async function captureMultiInstance(): Promise<void> {
   const { initializeApp: adminInitializeApp, deleteApp: adminDeleteApp } = await import('firebase-admin/app');
   const { getAuth: getAdminAuth } = await import('firebase-admin/auth');
 
-  const config = JSON.parse(process.env.PYRIC_ORACLE_FIREBASE_CONFIG!) as FirebaseWebConfig;
+  const rawConfigText = process.env.PYRIC_ORACLE_FIREBASE_CONFIG ?? '{}';
+  const config = JSON.parse(rawConfigText) as FirebaseWebConfig;
   const secondUrl = process.env.PYRIC_ORACLE_SECOND_DATABASE_URL;
   if (!config.databaseURL) throw new Error('PYRIC_ORACLE_FIREBASE_CONFIG has no databaseURL.');
   if (!secondUrl) throw new Error('PYRIC_ORACLE_SECOND_DATABASE_URL names the second instance the capture runs against.');
   const defaultUrl = config.databaseURL.replace(/\/$/, '');
-  const second = secondUrl.replace(/\/$/, '');
+  const second = assertDedicatedOracleRtdbUrl(secondUrl, config.projectId);
   const serviceAccount = await loadOracleServiceAccount();
   assertMatchingOracleProjects(config, serviceAccount);
   const fbSdkVersion = resolvedFirebaseVersion();
@@ -901,6 +842,8 @@ async function captureMultiInstance(): Promise<void> {
   console.log(`[oracle:rtdb-instances] project: ${config.projectId}`);
   console.log(`[oracle:rtdb-instances] instances: ${new URL(defaultUrl).host}, ${new URL(second).host}`);
 
+  const coordinator = createSignalRestoreCoordinator('[oracle:rtdb-instances]');
+  const uninstallSignals = coordinator.installSignals();
   const adminToken = encodeURIComponent(await oracleAccessToken(serviceAccount, RTDB_RULES_SCOPE));
   async function readRulesText(url: string): Promise<string> {
     const res = await fetch(`${url}/.settings/rules.json?access_token=${adminToken}`);
@@ -908,7 +851,9 @@ async function captureMultiInstance(): Promise<void> {
     return res.text();
   }
   async function writeRulesText(url: string, text: string): Promise<void> {
-    const res = await fetch(`${url}/.settings/rules.json?access_token=${adminToken}&print=silent`, { method: 'PUT', body: text });
+    const res = await coordinator.trackMutation(
+      fetch(`${url}/.settings/rules.json?access_token=${adminToken}&print=silent`, { method: 'PUT', body: text }),
+    );
     if (!res.ok) throw new Error(`write rules failed on ${new URL(url).host}: ${res.status} ${await res.text()}`);
   }
   async function adminRead(url: string, path: string): Promise<unknown> {
@@ -963,6 +908,35 @@ async function captureMultiInstance(): Promise<void> {
   const behavior: Record<string, unknown> = {};
   const restored: Record<string, { exact: boolean } | string> = {};
   let deployed = false;
+  coordinator.registerCleanup(async () => {
+    for (const [name, url] of Object.entries(instances)) {
+      const targetBefore = before[name as keyof typeof before];
+      try {
+        if (deployed) {
+          await restoreRtdbRulesWithRetry({
+            beforeText: targetBefore,
+            writeText: (text) => writeRulesText(url, text),
+            readText: () => readRulesText(url),
+            canonicalize: (text) => canonicalize(JSON.parse(text)),
+          });
+        }
+        const checked = verifyRulesTextRestored(name, targetBefore, await readRulesText(url));
+        restored[name] = checked;
+        let suffix = ' (same rules, reformatted)';
+        if (checked.exact) {
+          suffix = ' (text identical)';
+        }
+        console.log(`[oracle:rtdb-instances] restore verified on ${name}${suffix}.`);
+      } catch (e) {
+        if (e instanceof Error) {
+          restored[name] = e.message;
+        } else {
+          restored[name] = String(e);
+        }
+        console.error(`[oracle:rtdb-instances] RESTORE FAILED on ${name}: ${restored[name]}`);
+      }
+    }
+  });
   let dataCleanupVerified = false;
   let userCleanupVerified = false;
 
@@ -1037,15 +1011,10 @@ async function captureMultiInstance(): Promise<void> {
       console.warn = warn;
     }
   } finally {
-    for (const [name, url] of Object.entries(instances)) {
-      try {
-        if (deployed) await writeRulesText(url, before[name as keyof typeof before]);
-        restored[name] = verifyRulesTextRestored(name, before[name as keyof typeof before], await readRulesText(url));
-        console.log(`[oracle:rtdb-instances] restore verified on ${name}${(restored[name] as { exact: boolean }).exact ? ' (text identical)' : ' (same rules, reformatted)'}.`);
-      } catch (e) {
-        restored[name] = e instanceof Error ? e.message : String(e);
-        console.error(`[oracle:rtdb-instances] RESTORE FAILED on ${name}: ${restored[name]}`);
-      }
+    try {
+      await coordinator.runRestore();
+    } finally {
+      uninstallSignals();
     }
     try {
       for (const url of Object.values(instances)) await verifyRunDataCleanup(dataStore(url), auditKey);
@@ -1135,6 +1104,11 @@ export async function captureMultiInstanceSdk(): Promise<Record<string, unknown>
 }
 
 if (import.meta.main && process.argv.includes('--multi-instance-sdk')) {
+  requireCaptureMode({
+    label: 'oracle:rtdb-instances',
+    scriptPath: 'packages/conformance/src/run-rules-rtdb.ts',
+    extraFlags: '--multi-instance-sdk',
+  });
   const path = join(HERE, '..', 'observations', 'rtdb-modular', `${MULTI_INSTANCE_OBSERVATION}.json`);
   const observation = JSON.parse(readFileSync(path, 'utf8')) as Observation;
   if (observation.fbSdkVersion !== resolvedFirebaseVersion()) {
@@ -1142,24 +1116,49 @@ if (import.meta.main && process.argv.includes('--multi-instance-sdk')) {
   }
   observation.behavior.sdk = await captureMultiInstanceSdk();
   writeFileSync(path, `${JSON.stringify(observation, null, 2)}\n`);
-  console.log(`  → recorded behavior.sdk in ${MULTI_INSTANCE_OBSERVATION}.json`);
+  console.log(`  -> recorded behavior.sdk in ${MULTI_INSTANCE_OBSERVATION}.json`);
   process.exit(0);
 }
 
 if (import.meta.main && process.argv.includes('--multi-instance')) {
-  if (!process.env.PYRIC_ORACLE_FIREBASE_CONFIG) {
-    console.log('[oracle:rtdb-instances] PYRIC_ORACLE_FIREBASE_CONFIG not set; INERT. Set it, PYRIC_ORACLE_SECOND_DATABASE_URL, and PYRIC_ORACLE_SA_PATH or PYRIC_ORACLE_PROJECT_ID to capture.');
-    process.exit(0);
-  }
+  requireCaptureMode({
+    label: 'oracle:rtdb-instances',
+    scriptPath: 'packages/conformance/src/run-rules-rtdb.ts',
+    extraFlags: '--multi-instance',
+    missingCredentials: () => {
+      const missing: string[] = [];
+      if (!process.env.PYRIC_ORACLE_FIREBASE_CONFIG) missing.push('PYRIC_ORACLE_FIREBASE_CONFIG');
+      if (!process.env.PYRIC_ORACLE_SECOND_DATABASE_URL) {
+        missing.push('PYRIC_ORACLE_SECOND_DATABASE_URL');
+      }
+      if (!oracleCredentialConfigured(process.env)) {
+        missing.push('PYRIC_ORACLE_SA_PATH or PYRIC_ORACLE_PROJECT_ID');
+      }
+      if (missing.length > 0) return missing.join(', ');
+      return null;
+    },
+  });
   await captureMultiInstance();
   process.exit(0);
 }
 
 if (import.meta.main) {
-  const selection = selectRtdbScenarios(process.argv.slice(2));
-  if (!process.env.PYRIC_ORACLE_FIREBASE_CONFIG) {
-    printInertPlan(selection);
-    process.exit(0);
-  }
+  const args = process.argv.slice(2);
+  const selection = selectRtdbScenarios(args);
+  requireCaptureMode({
+    label: 'oracle:rules-rtdb',
+    scriptPath: 'packages/conformance/src/run-rules-rtdb.ts',
+    argv: args,
+    preview: () => printInertPlan(selection),
+    missingCredentials: () => {
+      const missing: string[] = [];
+      if (!process.env.PYRIC_ORACLE_FIREBASE_CONFIG) missing.push('PYRIC_ORACLE_FIREBASE_CONFIG');
+      if (!oracleCredentialConfigured(process.env)) {
+        missing.push('PYRIC_ORACLE_SA_PATH or PYRIC_ORACLE_PROJECT_ID');
+      }
+      if (missing.length > 0) return missing.join(', ');
+      return null;
+    },
+  });
   process.exitCode = await capture(selection);
 }

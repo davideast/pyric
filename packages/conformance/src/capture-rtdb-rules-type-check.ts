@@ -22,13 +22,15 @@
  *   PYRIC_ORACLE_PROJECT_ID       naming the oracle project.
  *
  * Usage:
- *   bun --env-file=.env run packages/conformance/src/capture-rtdb-rules-type-check.ts
+ *   PYRIC_ORACLE_PROJECT_ID=<project> PYRIC_ORACLE_FIREBASE_CONFIG="$(cat oracle-web-config.json)" \
+ *     bun run packages/conformance/src/capture-rtdb-rules-type-check.ts --write
  */
 import { writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { formatInertPreviewFooter, requireCaptureMode } from './capture-mode-guard.ts';
 import { RTDB_RULES_SCOPE, rtdbRulesEndpoint } from './oracle-access-token.ts';
-import { loadOracleServiceAccount, oracleAccessToken } from './oracle-credential.ts';
+import { loadOracleServiceAccount, oracleAccessToken, oracleCredentialConfigured } from './oracle-credential.ts';
 import { resolvedFirebaseVersion } from './package-version.ts';
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
@@ -433,8 +435,26 @@ export function rejectionMessage(body: string): string {
 }
 
 async function main(): Promise<void> {
-  const rawConfig = process.env.PYRIC_ORACLE_FIREBASE_CONFIG;
-  if (!rawConfig) throw new Error('PYRIC_ORACLE_FIREBASE_CONFIG is not set.');
+  requireCaptureMode({
+    label: 'rtdb-type-check',
+    scriptPath: 'packages/conformance/src/capture-rtdb-rules-type-check.ts',
+    preview: () => {
+      console.log(
+        `[rtdb-type-check] INERT preview: would dry-run ${PROBES.length} RTDB type-check probe(s) -> ${OBSERVATION_NAME}.json.`,
+      );
+      console.log(`  ${formatInertPreviewFooter('packages/conformance/src/capture-rtdb-rules-type-check.ts')}`);
+    },
+    missingCredentials: () => {
+      const missing: string[] = [];
+      if (!process.env.PYRIC_ORACLE_FIREBASE_CONFIG) missing.push('PYRIC_ORACLE_FIREBASE_CONFIG');
+      if (!oracleCredentialConfigured(process.env)) {
+        missing.push('PYRIC_ORACLE_SA_PATH or PYRIC_ORACLE_PROJECT_ID');
+      }
+      if (missing.length > 0) return missing.join(', ');
+      return null;
+    },
+  });
+  const rawConfig = process.env.PYRIC_ORACLE_FIREBASE_CONFIG ?? '{}';
   const config = JSON.parse(rawConfig) as FirebaseWebConfig;
   if (!config.databaseURL) throw new Error('PYRIC_ORACLE_FIREBASE_CONFIG has no databaseURL.');
   const sa = await loadOracleServiceAccount();

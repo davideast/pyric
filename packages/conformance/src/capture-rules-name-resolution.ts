@@ -19,6 +19,8 @@
  */
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { hasParityCredential, NO_CREDENTIAL_MESSAGE } from '../../pyric/test/rules/parity/credential.ts';
+import { formatInertPreviewFooter, requireCaptureMode } from './capture-mode-guard.ts';
 import { REPO_ROOT } from './rules-expression-cost-suites.ts';
 import { tools, type Issue, type ProbeCase } from './capture-rules-compile-limits.ts';
 
@@ -113,5 +115,16 @@ async function main(): Promise<void> {
 }
 
 if (import.meta.main) {
+  requireCaptureMode({
+    label: 'name-resolution',
+    scriptPath: 'packages/conformance/src/capture-rules-name-resolution.ts',
+    preview: () => {
+      console.log(`[name-resolution] INERT preview. ${formatInertPreviewFooter('packages/conformance/src/capture-rules-name-resolution.ts')}`);
+    },
+    missingCredentials: () => {
+      if (hasParityCredential()) return null;
+      return NO_CREDENTIAL_MESSAGE;
+    },
+  });
   await main();
 }

@@ -24,6 +24,7 @@ import { getAuth as getAdminAuth } from 'firebase-admin/auth';
 import { getFirestore as getAdminFirestore } from 'firebase-admin/firestore';
 import { chromium } from '@playwright/test';
 import { acquireRunLock } from './storage-stdlib-real-lock.ts';
+import { requireCaptureMode } from './capture-mode-guard.ts';
 import { loadOracleServiceAccount, oracleAppOptions, oracleCredentialConfigured } from './oracle-credential.ts';
 import { resolvedFirebaseVersion } from './package-version.ts';
 import {
@@ -35,16 +36,15 @@ import {
   type WebConfig,
 } from './storage-stdlib-real-api.ts';
 import {
-  activateFirestoreRules,
   collectionGroupProbeId,
   collectionGroupSiblingId,
   hostedTestApiDiagnostics,
   injectFirestoreProbeRules,
   replaceSelectedRulesFile,
-  restoreFirestoreRules,
   selectFirestoreRulesFile,
   snapshotFirestoreRules,
   transactionCasePath,
+  withSignalGuardedFirestoreRules,
 } from './firestore-real-rules.ts';
 import {
   SIBLING_MERGE_CASE_IDS,
@@ -54,43 +54,13 @@ import {
 } from './firestore-real-sibling-merge.ts';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const OBSERVATION_PATH = join(
-  HERE,
-  '..',
-  'observations',
-  'firestore',
-  'firestore-transaction-contention-retries.json',
-);
-const BROWSER_OBSERVATION_PATH = join(
-  HERE,
-  '..',
-  'observations',
-  'firestore',
-  'firestore-browser-lifecycle.json',
-);
-const RULES_GET_AFTER_OBSERVATION_PATH = join(
-  HERE,
-  '..',
-  'observations',
-  'firestore-rules',
-  'rules-firestore-get-after-and-exists-after.json',
-);
-const RULES_SIBLING_MERGE_OBSERVATION_PATH = join(
-  HERE,
-  '..',
-  'observations',
-  'firestore-rules',
-  'rules-firestore-atomic-batch-sibling-merge.json',
-);
+const OBSERVATION_PATH = join(HERE, '..', 'observations', 'firestore', 'firestore-transaction-contention-retries.json');
+const BROWSER_OBSERVATION_PATH = join(HERE, '..', 'observations', 'firestore', 'firestore-browser-lifecycle.json');
+const RULES_GET_AFTER_OBSERVATION_PATH = join(HERE, '..', 'observations', 'firestore-rules', 'rules-firestore-get-after-and-exists-after.json');
+const RULES_SIBLING_MERGE_OBSERVATION_PATH = join(HERE, '..', 'observations', 'firestore-rules', 'rules-firestore-atomic-batch-sibling-merge.json');
 /** The one case of corpus scenario `atomic-batch-sibling-merge`. */
 const SIBLING_MERGE_CASE = 'getAfter reflects merged pre-existing fields alongside batch updates ALLOW';
-const COLLECTION_GROUP_OBSERVATION_PATH = join(
-  HERE,
-  '..',
-  'observations',
-  'firestore',
-  'firestore-collection-group-listener.json',
-);
+const COLLECTION_GROUP_OBSERVATION_PATH = join(HERE, '..', 'observations', 'firestore', 'firestore-collection-group-listener.json');
 const LOCK_PATH = '/tmp/pyric-firestore-real.lock';
 
 async function discoverWebConfig(
@@ -741,15 +711,18 @@ globalThis.runFirestoreLifecycleProbe = async (config, token, runId, siblingMerg
 }
 
 async function run(): Promise<void> {
-  if (!oracleCredentialConfigured(process.env)) {
-    console.log('[firestore:real] inert — set PYRIC_ORACLE_SA_PATH, or PYRIC_ORACLE_PROJECT_ID with Application Default Credentials, to capture.');
-    return;
-  }
+  const cliArgs = requireCaptureMode({
+    label: 'firestore:real',
+    scriptPath: 'packages/conformance/src/run-firestore-real.ts',
+    summary: 'would capture Firestore transaction contention, Chromium persistence lifecycle, and getAfter() rules.',
+    missingCredentials: () => {
+      if (oracleCredentialConfigured(process.env)) return null;
+      return 'PYRIC_ORACLE_SA_PATH or PYRIC_ORACLE_PROJECT_ID';
+    },
+  });
   const releaseLock = acquireRunLock(LOCK_PATH);
-  const browserOnly = Bun.argv.includes('--browser-only');
-  // Captures only the collection-group listener observation.
-  const collectionGroupOnly = Bun.argv.includes('--collection-group-listener');
-  let restoreVerified = false;
+  const browserOnly = cliArgs.includes('--browser-only');
+  const collectionGroupOnly = cliArgs.includes('--collection-group-listener');
   try {
     const sa = await loadOracleServiceAccount();
     const headers = await accessHeaders(sa);
@@ -760,29 +733,30 @@ async function run(): Promise<void> {
     const selected = selectFirestoreRulesFile(snapshot.ruleset);
     const content = injectFirestoreProbeRules(selected.content, runId);
     const files = replaceSelectedRulesFile(snapshot.ruleset, selected, content);
-    let activationAttempted = false;
     let behavior: Record<string, unknown> | undefined;
     let browserBehavior: Record<string, unknown> | undefined;
-    let probeRulesetName: string | undefined;
     let collectionGroupBehavior: Record<string, unknown> | undefined;
-    try {
-      activationAttempted = true;
-      probeRulesetName = await activateFirestoreRules(sa, headers, snapshot, files);
-      await waitForRulesPropagation();
-      if (collectionGroupOnly) {
-        collectionGroupBehavior = await captureCollectionGroupListener(web, sa, runId);
-      } else {
-        behavior = browserOnly
-          ? (JSON.parse(readFileSync(OBSERVATION_PATH, 'utf8')) as { behavior: Record<string, unknown> }).behavior
-          : await captureTransactionContention(web, sa, runId);
+    const { probeRulesetName, restoreVerified } = await withSignalGuardedFirestoreRules({
+      label: '[firestore:real]',
+      sa,
+      headers,
+      snapshot,
+      files,
+      onRestored: () => console.log('[firestore:real] firestore rules restored and verified'),
+      body: async () => {
+        await waitForRulesPropagation();
+        if (collectionGroupOnly) {
+          collectionGroupBehavior = await captureCollectionGroupListener(web, sa, runId);
+          return;
+        }
+        if (browserOnly) {
+          behavior = (JSON.parse(readFileSync(OBSERVATION_PATH, 'utf8')) as { behavior: Record<string, unknown> }).behavior;
+        } else {
+          behavior = await captureTransactionContention(web, sa, runId);
+        }
         browserBehavior = await captureBrowserLifecycle(web, sa, runId);
-      }
-    } finally {
-      if (activationAttempted) {
-        await restoreFirestoreRules(headers, snapshot);
-        restoreVerified = true;
-      }
-    }
+      },
+    });
     if (collectionGroupOnly) {
       if (!collectionGroupBehavior || !probeRulesetName || !restoreVerified) {
         throw new Error('probe did not complete with verified rules restoration');

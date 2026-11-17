@@ -32,6 +32,11 @@ import {
 } from './messaging-send-probe-catalog.ts';
 import { oracleAppOptions, type OracleServiceAccount } from './oracle-credential.ts';
 import { resolvedAdminVersion } from './package-version.ts';
+import {
+  formatInertPreviewFooter,
+  requireCaptureMode,
+  stripCaptureFlags,
+} from './capture-mode-guard.ts';
 import { readProbeSelectors } from './probe-cli-args.ts';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -315,8 +320,29 @@ function resolveObservationEnvelopeMeta(
   };
 }
 
+export function assertFcmProbeHttpStatus(status: number, body: unknown): void {
+  if (status === 401 || status === 403 || status >= 500) {
+    throw new Error(
+      `FCM probe HTTP ${status} infrastructure/IAM failure (refusing to record as observation): ${JSON.stringify(body)}`,
+    );
+  }
+}
+
 async function runMessagingSendProbes(args: readonly string[]): Promise<void> {
-  const selected = selectMessagingSendProbes(args);
+  const selected = selectMessagingSendProbes(stripCaptureFlags(args));
+  requireCaptureMode({
+    label: 'messaging-send',
+    scriptPath: 'packages/conformance/src/messaging-send-probes.ts',
+    argv: args,
+    extraFlags: '[--probe <name>]',
+    preview: () => {
+      console.log('[messaging-send] INERT preview (no --write flag): zero credential reads, zero network calls.');
+      for (const item of selected) {
+        console.log(`  - ${item.name}`);
+      }
+      console.log(`  ${formatInertPreviewFooter('packages/conformance/src/messaging-send-probes.ts', '[--probe <name>]')}`);
+    },
+  });
   let sa: OracleServiceAccount;
   try {
     sa = await loadMessagingServiceAccount();
@@ -343,7 +369,9 @@ async function runMessagingSendProbes(args: readonly string[]): Promise<void> {
       headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     });
-    return { status: res.status, body: (await res.json()) as Record<string, unknown> };
+    const body = (await res.json()) as Record<string, unknown>;
+    assertFcmProbeHttpStatus(res.status, body);
+    return { status: res.status, body };
   };
 
   const errorEnvelopeParity = async (message: Record<string, unknown>) => {

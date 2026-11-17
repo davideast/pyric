@@ -42,6 +42,8 @@ export interface RigManifestRecord {
    *  produces AND has at least one captured observation for. Every entry is
    *  validated to match a real observation file. */
   observationPrefixes: string[];
+  /** True when probe files under `probes/<surface>/<name>.ts` declare `rig: '<id>'` directly, so no per-probe prefix needs to be duplicated here. */
+  probeDeclaredOwnership?: boolean;
   /** Prefixes this rig WILL produce once captured, but has NO observation for
    *  yet — staged machinery ahead of the first capture (e.g. a rules oracle
    *  whose credentialed run hasn't been performed). Validated to be a
@@ -81,19 +83,30 @@ export interface RigManifest extends RigManifestRecord {
   id: string;
 }
 
+export type ProbeSdkRequirement =
+  | 'web-config'
+  | 'dedicated-rtdb'
+  | 'firestore-rules'
+  | 'admin-auth'
+  | 'admin-firestore';
+
 /**
- * One capture probe against the installed firebase-admin app registry. The
- * observation filename (`observations/<surface>/<name>.json`) IS the
- * probe filename (`probes/<surface>/<name>.ts`) minus its extension —
- * neither side carries a separate `name` field, so the two cannot drift apart.
+ * One capture probe against an installed or live Firebase SDK. The observation
+ * filename (`observations/<surface>/<name>.json`) IS the probe filename
+ * (`probes/<surface>/<name>.ts`) minus its extension -- neither side carries a
+ * separate `name` field, so the two cannot drift apart.
  */
 export interface Probe {
   description: string;
-  /** Display prose only; machines read rowIds. Empty until admin matrix rows land. */
+  /** Display prose only; machines read rowIds. Empty until matrix rows land. */
   matrixRow: string;
-  /** Structured registry links. Empty until admin matrix rows land post-publish. */
+  /** Structured registry links. Empty until matrix rows land. */
   rowIds: string[];
   /** True while staged for automated main-branch capture before rowIds linkage. */
   pendingRowLink?: boolean;
+  /** Capture rig id that executes this probe (e.g. 'sdk-probes' or 'admin-auth'). */
+  rig?: string;
+  /** Live-project capabilities this probe requires, checked before execution. */
+  requires?: readonly ProbeSdkRequirement[];
   observe(): Promise<Record<string, unknown>>;
 }

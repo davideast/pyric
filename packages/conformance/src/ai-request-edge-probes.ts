@@ -20,6 +20,7 @@ import { randomBytes } from 'node:crypto';
 import { deleteApp, initializeApp } from 'firebase-admin/app';
 import { getAppCheck } from 'firebase-admin/app-check';
 import { loadOracleServiceAccount, oracleCredentialConfigured } from './oracle-credential.ts';
+import { formatInertPreviewFooter, requireCaptureMode } from './capture-mode-guard.ts';
 import { mintWithRetry } from './capture/app-check/mint.ts';
 import type { Secrets } from './capture/app-check/redact.ts';
 import { REQUEST_EDGE_CASES } from './capture/ai/request-edge-cases.ts';
@@ -31,15 +32,26 @@ interface WebConfig {
   projectId: string;
 }
 
-const rawConfig = process.env.PYRIC_AI_FIREBASE_CONFIG;
-const credentialsMissing = !oracleCredentialConfigured(process.env) || !rawConfig;
+requireCaptureMode({
+  label: 'ai-request-edge',
+  scriptPath: 'packages/conformance/src/ai-request-edge-probes.ts',
+  preview: () => {
+    console.log('[ai-request-edge] INERT preview; no network call was made.');
+    for (const testCase of REQUEST_EDGE_CASES) console.log(`  ${testCase.name} (model ${testCase.model}): ${testCase.description}`);
+    console.log(`  ${formatInertPreviewFooter('packages/conformance/src/ai-request-edge-probes.ts')}`);
+  },
+  missingCredentials: () => {
+    const missing: string[] = [];
+    if (!process.env.PYRIC_AI_FIREBASE_CONFIG) missing.push('PYRIC_AI_FIREBASE_CONFIG');
+    if (!oracleCredentialConfigured(process.env)) {
+      missing.push('PYRIC_ORACLE_SA_PATH or PYRIC_ORACLE_PROJECT_ID');
+    }
+    if (missing.length > 0) return missing.join(', ');
+    return null;
+  },
+});
 
-if (credentialsMissing) {
-  console.log('PYRIC_AI_FIREBASE_CONFIG and an oracle credential (PYRIC_ORACLE_SA_PATH or PYRIC_ORACLE_PROJECT_ID) are not both set; no network call was made.');
-  console.log('With both set, this runner mints one App Check token and sends one generateContent request per case:');
-  for (const testCase of REQUEST_EDGE_CASES) console.log(`  ${testCase.name} (model ${testCase.model}): ${testCase.description}`);
-  process.exit(0);
-}
+const rawConfig = process.env.PYRIC_AI_FIREBASE_CONFIG ?? '{}';
 
 const sa = await loadOracleServiceAccount();
 const web = JSON.parse(rawConfig) as WebConfig;

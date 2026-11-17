@@ -4,7 +4,7 @@
   "rowIds": [
     "firestore#61"
   ],
-  "description": "limitToLast without orderBy — error class/code prod throws; with orderBy returns the trailing window.",
+  "description": "limitToLast without orderBy -- error class/code prod throws; with orderBy returns the trailing window.",
   "observedAt": "2026-10-30T15:17:09.048Z",
   "fbSdkVersion": "12.19.0",
   "projectId": "digame-mas",

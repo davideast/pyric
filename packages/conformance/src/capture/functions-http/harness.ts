@@ -27,6 +27,7 @@
 import { randomUUID } from 'node:crypto';
 import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
+import { requireCaptureMode } from '../../capture-mode-guard.ts';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { cert, deleteApp, initializeApp } from 'firebase-admin/app';
@@ -115,6 +116,21 @@ function need(name: string): string {
   if (!value) throw new Error(`${name} is required`);
   return value;
 }
+
+const rawArgs = process.argv.slice(2);
+const checkOnly = rawArgs.includes('--check-permissions');
+const cliArgs = checkOnly
+  ? rawArgs
+  : requireCaptureMode({
+      label: 'functions-http',
+      scriptPath: 'packages/conformance/src/capture/functions-http/harness.ts',
+      argv: rawArgs,
+      summary: 'would deploy fixture functions + Hosting preview channel and capture HTTP probes.',
+      missingCredentials: () => {
+        if (process.env.PYRIC_ORACLE_SA_PATH?.trim()) return null;
+        return 'PYRIC_ORACLE_SA_PATH';
+      },
+    });
 
 const firebaseTools = resolveFirebaseTools();
 
@@ -358,8 +374,7 @@ const saPath = need('PYRIC_ORACLE_SA_PATH');
 if (!existsSync(saPath)) throw new Error('PYRIC_ORACLE_SA_PATH does not name a file');
 const serviceAccountJson = JSON.parse(readFileSync(saPath, 'utf8')) as ServiceAccount & Record<string, string>;
 const projectId = serviceAccountJson.project_id;
-const keepDeployed = process.argv.includes('--keep-deployed');
-const checkOnly = process.argv.includes('--check-permissions');
+const keepDeployed = cliArgs.includes('--keep-deployed');
 
 const app = initializeApp({ credential: cert(saPath) }, 'functions-http-capture');
 const accessToken = async (): Promise<string> => (await app.options.credential!.getAccessToken()).access_token;

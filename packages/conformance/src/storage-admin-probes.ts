@@ -4,7 +4,13 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Probe } from '../rigs/types.ts';
 import { probe } from '../probes/storage-admin/admin-storage-metadata-download-url.ts';
+import { oracleCredentialConfigured } from './oracle-credential.ts';
 import { resolvedAdminVersion } from './package-version.ts';
+import {
+  formatInertPreviewFooter,
+  requireCaptureMode,
+  stripCaptureFlags,
+} from './capture-mode-guard.ts';
 import { readSingleProbeSelector } from './probe-cli-args.ts';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -59,11 +65,35 @@ export function selectStorageAdminProbeId(args: readonly string[]): string {
 
 async function main(): Promise<void> {
   const args = process.argv.slice(2);
-  selectStorageAdminProbeId(args);
+  selectStorageAdminProbeId(stripCaptureFlags(args));
+  const wantsVerify = args.includes('--verify');
+  if (!wantsVerify) {
+    requireCaptureMode({
+      label: 'storage-admin-probes',
+      scriptPath: 'packages/conformance/src/storage-admin-probes.ts',
+      argv: args,
+      preview: () => {
+        console.log(`[storage-admin-probes] INERT preview for ${ID}.`);
+        console.log(`  ${formatInertPreviewFooter('packages/conformance/src/storage-admin-probes.ts')}`);
+      },
+      missingCredentials: () => {
+        const missing: string[] = [];
+        if (!oracleCredentialConfigured(process.env)) {
+          missing.push('PYRIC_ORACLE_SA_PATH or PYRIC_ORACLE_PROJECT_ID');
+        }
+        if (!process.env.PYRIC_ORACLE_STORAGE_BUCKET) {
+          missing.push('PYRIC_ORACLE_STORAGE_BUCKET');
+        }
+        if (missing.length > 0) return missing.join(', ');
+        return null;
+      },
+    });
+  }
+  const wantsWrite = !wantsVerify;
   const adminSdkVersion = resolvedAdminVersion();
   const actual = await capture(probe, adminSdkVersion);
 
-  if (args.includes('--write')) {
+  if (wantsWrite) {
     writeFileSync(OBSERVATION_PATH, `${JSON.stringify(actual, null, 2)}\n`);
     console.log(`wrote ${ID}.json against firebase-admin ${adminSdkVersion}`);
     return;

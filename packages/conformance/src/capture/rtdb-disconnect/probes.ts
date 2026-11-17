@@ -14,6 +14,8 @@ import {
 import { deleteApp as deleteAdminApp, initializeApp as initializeAdminApp } from 'firebase-admin/app';
 import { getAuth as getAdminAuth } from 'firebase-admin/auth';
 import { oracleAppOptions, type OracleServiceAccount } from '../../oracle-credential.ts';
+import type { OracleRulesSession } from '../../oracle-rules-session.ts';
+import { ORACLE_RESTORE_ATTEMPTS } from '../../oracle-signal-restore.ts';
 
 export interface OracleProbe {
   name: string;
@@ -28,6 +30,7 @@ export interface RtdbDisconnectContext {
   serviceAccount: OracleServiceAccount;
   rtdbAdminToken: string;
   runId: string;
+  rulesSession?: OracleRulesSession | null;
 }
 
 interface Clients {
@@ -404,13 +407,52 @@ export function createRtdbDisconnectProbes(ctx: RtdbDisconnectContext): OraclePr
           if (!response.ok) throw new Error(`rules read failed: ${response.status}`);
           return response.json() as Promise<Record<string, unknown>>;
         };
+        const trackPut = <T>(p: Promise<T>): Promise<T> => {
+          if (ctx.rulesSession) {
+            return ctx.rulesSession.trackMutation(p);
+          }
+          return p;
+        };
         const writeRules = async (body: Record<string, unknown>) => {
-          const response = await fetch(`${rulesUrl}&print=silent`, {
-            method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
-          });
+          const response = await trackPut(
+            fetch(`${rulesUrl}&print=silent`, {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(body),
+            }),
+          );
           if (!response.ok) throw new Error(`rules write failed: ${response.status}`);
         };
         const before = await readRules();
+        const beforeStable = stable(before);
+        let restorePromise: Promise<void> | null = null;
+        const restoreBeforeOnce = (): Promise<void> => {
+          if (restorePromise === null) {
+            restorePromise = (async () => {
+              for (let attempt = 1; attempt <= ORACLE_RESTORE_ATTEMPTS; attempt += 1) {
+                const isLast = attempt === ORACLE_RESTORE_ATTEMPTS;
+                try {
+                  await writeRules(before);
+                  if (stable(await readRules()) === beforeStable) {
+                    return;
+                  }
+                  if (isLast) {
+                    throw new Error('rules restore verification failed');
+                  }
+                } catch (err) {
+                  if (isLast) {
+                    throw err;
+                  }
+                }
+              }
+            })();
+          }
+          return restorePromise;
+        };
+        let unregisterCleanup: () => void = () => undefined;
+        if (ctx.rulesSession) {
+          unregisterCleanup = ctx.rulesSession.registerProbeCleanup(restoreBeforeOnce);
+        }
         const clients = await createClients(ctx.config, `${ctx.runId}-rules-${index}`);
         const observerEvents: unknown[] = [];
         const unsubscribe = observeValues(clients.observerDb, rootPath, observerEvents);
@@ -487,15 +529,15 @@ export function createRtdbDisconnectProbes(ctx: RtdbDisconnectContext): OraclePr
             terminalAfterExecutionDenial,
           };
         } finally {
-          await cleanupAfterRulesProbe(
-            [() => unsubscribe(), () => clients.close(), () => adminRemove(ctx, rootPath)],
-            () => writeRules(before),
-            async () => {
-              if (stable(await readRules()) !== stable(before)) {
-                throw new Error('rules restore verification failed');
-              }
-            },
-          );
+          try {
+            await cleanupAfterRulesProbe(
+              [() => unsubscribe(), () => clients.close(), () => adminRemove(ctx, rootPath)],
+              () => restoreBeforeOnce(),
+              async () => undefined,
+            );
+          } finally {
+            unregisterCleanup();
+          }
         }
       }),
     ),

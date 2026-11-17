@@ -35,6 +35,8 @@ import { fileURLToPath } from 'node:url';
 import { deleteApp, initializeApp, type FirebaseApp } from 'firebase/app';
 import { deleteUser, getAuth, signInAnonymously, type Auth } from 'firebase/auth';
 import type { Database } from 'firebase/database';
+import { requireCaptureMode } from '../../capture-mode-guard.ts';
+import { oracleCredentialConfigured } from '../../oracle-credential.ts';
 import { resolvedFirebaseVersion } from '../../package-version.ts';
 import {
   adminRest,
@@ -59,10 +61,27 @@ const PROFILE_WARMUP_MS = 10_000;
 /** Gap after each operation so its events and the next operation's do not overlap. */
 const GAP_MS = 2_500;
 
+requireCaptureMode({
+  label: 'rtdb-live:capture-b',
+  scriptPath: 'packages/conformance/src/capture/rtdb-live/capture-b-bandwidth.ts',
+  summary: 'would profile RTDB billed bandwidth alongside client WebSocket frame byte counts.',
+  missingCredentials: () => {
+    const missing: string[] = [];
+    if (!instanceFromEnv(process.env, DEFAULT_INSTANCE_VARIABLE, 'default')) {
+      missing.push(DEFAULT_INSTANCE_VARIABLE);
+    }
+    if (!oracleCredentialConfigured(process.env)) {
+      missing.push('PYRIC_ORACLE_PROJECT_ID or PYRIC_ORACLE_SA_PATH');
+    }
+    if (missing.length > 0) {
+      return missing.join(', ');
+    }
+    return null;
+  },
+});
 const instance = instanceFromEnv(process.env, DEFAULT_INSTANCE_VARIABLE, 'default');
 if (!instance) {
-  console.log(`[rtdb-live:capture-b] inert: set ${DEFAULT_INSTANCE_VARIABLE} to the default instance URL to capture.`);
-  process.exit(0);
+  process.exit(1);
 }
 
 const ctx = await loadLiveContext();

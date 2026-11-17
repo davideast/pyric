@@ -35,6 +35,15 @@ import {
   oracleCredentialConfigured,
   type OracleServiceAccount,
 } from './oracle-credential.ts';
+import {
+  formatInertPreviewFooter,
+  requireCaptureMode,
+} from './capture-mode-guard.ts';
+import { assertDedicatedOracleRtdbUrl } from './oracle-run-setup.ts';
+import {
+  createSignalRestoreCoordinator,
+  restoreRtdbRulesWithRetry,
+} from './oracle-signal-restore.ts';
 import { resolvedFirebaseVersion } from './package-version.ts';
 
 const OBSERVATIONS = join(import.meta.dir, '..', 'observations');
@@ -46,20 +55,16 @@ interface Credentials {
   rtdbUrl: string | undefined;
 }
 
-async function credentials(): Promise<Credentials | null> {
+async function credentials(): Promise<Credentials> {
   const rawConfig = process.env.PYRIC_ORACLE_FIREBASE_CONFIG;
-  if (!oracleCredentialConfigured(process.env) || !rawConfig) return null;
+  if (!oracleCredentialConfigured(process.env) || !rawConfig) {
+    throw new Error('missing PYRIC_ORACLE_FIREBASE_CONFIG or PYRIC_ORACLE_SA_PATH / PYRIC_ORACLE_PROJECT_ID');
+  }
   return {
     serviceAccount: await loadOracleServiceAccount(),
     config: JSON.parse(rawConfig),
     rtdbUrl: process.env.PYRIC_ORACLE_RTDB_URL,
   };
-}
-
-function assertDedicatedInstance(url: string | undefined): string {
-  const isDefaultInstance = url === undefined || url.includes('-default-rtdb.');
-  if (isDefaultInstance) throw new Error('refusing: set PYRIC_ORACLE_RTDB_URL to a dedicated RTDB oracle instance, not the default one');
-  return url.replace(/\/+$/, '');
 }
 
 const runId = () => `sdkhunt-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
@@ -128,17 +133,42 @@ async function rtdbAdminHeaders(serviceAccount: OracleServiceAccount): Promise<R
 const canonicalRules = (text: string) => JSON.stringify(JSON.parse(text.replace(/^\s*\/\/.*$/gm, '')));
 
 async function captureRtdb(scenario: RtdbScenario, creds: Credentials): Promise<void> {
-  const url = assertDedicatedInstance(creds.rtdbUrl);
+  const url = assertDedicatedOracleRtdbUrl(creds.rtdbUrl, creds.config.projectId);
+  const coordinator = createSignalRestoreCoordinator('[sdk-scenarios]');
+  const uninstallSignals = coordinator.installSignals();
   const headers = await rtdbAdminHeaders(creds.serviceAccount);
   const rulesUrl = `${url}/.settings/rules.json`;
-  const before = await (await fetch(rulesUrl, { headers })).text();
+  const readRulesText = async (): Promise<string> => {
+    const res = await fetch(rulesUrl, { headers });
+    if (!res.ok) throw new Error(`rules GET ${res.status}`);
+    return res.text();
+  };
+  const writeRulesText = async (body: string): Promise<void> => {
+    const res = await coordinator.trackMutation(
+      fetch(rulesUrl, { method: 'PUT', headers, body }),
+    );
+    if (!res.ok) throw new Error(`rules PUT ${res.status}`);
+  };
+  const before = await readRulesText();
   const id = runId();
   const base = `/pyric_oracle/${id}`;
   const merged = { rules: { ...JSON.parse(before.replace(/^\s*\/\/.*$/gm, '')).rules, pyric_oracle: { $run: scenario.rules ?? SIGNED_IN_RULES } } };
   const pool = clientPool(creds.config, id, url);
+  let deployed = false;
+  let restored = false;
+  coordinator.registerCleanup(async () => {
+    if (!deployed) return;
+    await restoreRtdbRulesWithRetry({
+      beforeText: before,
+      writeText: writeRulesText,
+      readText: readRulesText,
+      canonicalize: canonicalRules,
+    });
+    restored = true;
+  });
   try {
-    const deployed = await fetch(rulesUrl, { method: 'PUT', headers, body: JSON.stringify(merged) });
-    if (!deployed.ok) throw new Error(`rules PUT ${deployed.status}`);
+    deployed = true;
+    await writeRulesText(JSON.stringify(merged));
     const open = async (name: string) => ({ db: databaseSdk.getDatabase(await pool.open(name)) });
     const main = await open('main');
     const ctx = { ...productionTiming, rtdb: databaseSdk, db: main.db, base, newClient: open };
@@ -147,25 +177,47 @@ async function captureRtdb(scenario: RtdbScenario, creds: Credentials): Promise<
   } finally {
     await pool.closeAll();
     await fetch(`${url}${base}.json`, { method: 'DELETE', headers });
-    await fetch(rulesUrl, { method: 'PUT', headers, body: before });
-    const restored = canonicalRules(await (await fetch(rulesUrl, { headers })).text()) === canonicalRules(before);
+    try {
+      await coordinator.runRestore();
+    } finally {
+      uninstallSignals();
+    }
     const left = await (await fetch(`${url}${base}.json?shallow=true`, { headers })).text();
     console.log(`[sdk-scenarios] rules restored: ${restored}; ${base} after cleanup: ${left}`);
-    if (!restored) throw new Error('RTDB rules restore verification failed');
+    if (deployed && !restored) throw new Error('RTDB rules restore verification failed');
   }
 }
 
 async function main(): Promise<void> {
-  const names = process.argv.slice(2).filter((arg) => !arg.startsWith('-'));
   const firestore = await loadFirestoreScenarios();
   const rtdb = await loadRtdbScenarios();
   const all = [...firestore, ...rtdb].map((scenario) => scenario.observation.name);
-  const creds = await credentials();
-  if (names.length === 0 || creds === null) {
-    console.log('[sdk-scenarios] plan (pass scenario names and credentials to capture):');
-    for (const name of all) console.log(`  ${name}`);
-    return;
+  const cliArgs = requireCaptureMode({
+    label: 'sdk-scenarios',
+    scriptPath: 'packages/conformance/src/run-sdk-scenarios.ts',
+    extraFlags: '<scenario-name>...',
+    preview: () => {
+      console.log('[sdk-scenarios] INERT preview (pass --write and scenario names to capture):');
+      for (const name of all) console.log(`  ${name}`);
+      console.log(`  ${formatInertPreviewFooter('packages/conformance/src/run-sdk-scenarios.ts', '<scenario-name>...')}`);
+    },
+    missingCredentials: () => {
+      const missing: string[] = [];
+      if (!oracleCredentialConfigured(process.env)) {
+        missing.push('PYRIC_ORACLE_SA_PATH or PYRIC_ORACLE_PROJECT_ID');
+      }
+      if (!process.env.PYRIC_ORACLE_FIREBASE_CONFIG) {
+        missing.push('PYRIC_ORACLE_FIREBASE_CONFIG');
+      }
+      if (missing.length > 0) return missing.join(', ');
+      return null;
+    },
+  });
+  const names = cliArgs.filter((arg) => !arg.startsWith('-'));
+  if (names.length === 0) {
+    throw new Error('pass one or more <scenario-name> arguments with --write');
   }
+  const creds = await credentials();
   const unknown = names.filter((name) => !all.includes(name));
   if (unknown.length > 0) throw new Error(`unknown scenario: ${unknown.join(', ')}`);
   for (const scenario of firestore.filter((s) => names.includes(s.observation.name))) await captureFirestore(scenario, creds);

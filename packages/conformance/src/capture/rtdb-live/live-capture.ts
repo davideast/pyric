@@ -227,14 +227,25 @@ export async function runWithCaptureRules<T>(
   const deploy = JSON.stringify(captureRules(prior.text, run.runId));
 
   let cleanup: Promise<RunInvariants> | undefined;
-  const cleanupOnce = () => (cleanup ??= cleanupCaptureRun(label, rest, run.runPath, prior.text, options));
+  let inFlightDeploy: Promise<unknown> | null = null;
+  const cleanupOnce = () => {
+    if (cleanup === undefined) {
+      cleanup = (async () => {
+        if (inFlightDeploy !== null) {
+          await inFlightDeploy.catch(() => undefined);
+        }
+        return cleanupCaptureRun(label, rest, run.runPath, prior.text, options);
+      })();
+    }
+    return cleanup;
+  };
   const onSignal = (signal: NodeJS.Signals) => {
     console.error(`[rtdb-live] ${label}: ${signal}; cleaning up before exit.`);
     void cleanupOnce().then((invariants) => process.exit(invariants.dataRemoved && invariants.rulesRestored ? 130 : 3));
   };
   if (options.handleSignals) {
-    process.once('SIGINT', onSignal);
-    process.once('SIGTERM', onSignal);
+    process.on('SIGINT', onSignal);
+    process.on('SIGTERM', onSignal);
   }
 
   let result: T | undefined;
@@ -242,11 +253,19 @@ export async function runWithCaptureRules<T>(
   try {
     const dry = await rest.request('PUT', '.settings/rules', deploy, '?dryRun=true');
     if (dry.status !== 200) throw new Error(`${label}: capture rules refused by dry run: ${dry.text.slice(0, 200)}`);
-    const put = await rest.request('PUT', '.settings/rules', deploy);
+    const deployPromise = rest.request('PUT', '.settings/rules', deploy);
+    inFlightDeploy = deployPromise;
+    const put = await deployPromise;
+    inFlightDeploy = null;
     if (put.status !== 200) throw new Error(`${label}: capture rules deploy failed: ${put.status}`);
     result = await body();
   } catch (e) {
-    error = e instanceof Error ? e : new Error(String(e));
+    inFlightDeploy = null;
+    if (e instanceof Error) {
+      error = e;
+    } else {
+      error = new Error(String(e));
+    }
   }
   const invariants = await cleanupOnce();
   if (options.handleSignals) {

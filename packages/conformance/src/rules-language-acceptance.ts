@@ -59,15 +59,20 @@
  * a load test.
  *
  * Usage:
- *   # inert preview (no secret):
+ *   # inert preview:
  *   bun run packages/conformance/src/rules-language-acceptance.ts
- *   # real probe (credentialed, reads env from the primary checkout):
- *   bun --env-file=/path/to/.env run packages/conformance/src/rules-language-acceptance.ts
+ *   # real probe (credentialed):
+ *   PARITY_PROJECT_ID=<project> bun run packages/conformance/src/rules-language-acceptance.ts --write
  */
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import {
+  formatInertPreviewFooter,
+  requireCaptureMode,
+  stripCaptureFlags,
+} from './capture-mode-guard.ts';
 import type { StorageFunctionMock, TestCase } from '../../rules/src/test/spec.ts';
 import type { EvaluationInput } from '../../rules/src/storage/rules.ts';
 import {
@@ -95,9 +100,10 @@ const LANG_DIR = join(HERE, '..', 'rules-language');
 const PROBED_ENGINES: readonly RulesEngine[] = ['firestore', 'storage'] as const;
 
 function selectedEngines(args: readonly string[] = process.argv.slice(2)): readonly RulesEngine[] {
-  const at = args.indexOf('--engine');
+  const cleaned = stripCaptureFlags(args);
+  const at = cleaned.indexOf('--engine');
   if (at < 0) return PROBED_ENGINES;
-  const engine = args[at + 1];
+  const engine = cleaned[at + 1];
   if (engine !== 'firestore' && engine !== 'storage') {
     throw new Error('--engine requires firestore or storage');
   }
@@ -205,8 +211,7 @@ function printInertPlan(): void {
     );
   }
   console.log(`\n  Grand total: ${grandTotal} constructs, ${grandNetwork} would require a network acceptance call.`);
-  console.log('\n  To probe for real:');
-  console.log('    bun --env-file=/path/to/.env run packages/conformance/src/rules-language-acceptance.ts');
+  console.log(`\n  ${formatInertPreviewFooter('packages/conformance/src/rules-language-acceptance.ts', '[--engine firestore|storage]')}`);
 }
 
 // ── Evaluation-time rejection detection ─────────────────────────────────
@@ -492,11 +497,16 @@ async function run(): Promise<void> {
 }
 
 if (import.meta.main) {
-  const { hasParityCredential } = await import('../../../packages/pyric/test/rules/parity/credential.ts');
-  if (!hasParityCredential()) {
-    printInertPlan();
-    process.exit(0);
-  }
+  const { hasParityCredential, NO_CREDENTIAL_MESSAGE } = await import('../../../packages/pyric/test/rules/parity/credential.ts');
+  requireCaptureMode({
+    label: 'rules-language:acceptance',
+    scriptPath: 'packages/conformance/src/rules-language-acceptance.ts',
+    preview: printInertPlan,
+    missingCredentials: () => {
+      if (hasParityCredential()) return null;
+      return NO_CREDENTIAL_MESSAGE;
+    },
+  });
   try {
     await run();
   } catch (e) {

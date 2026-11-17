@@ -469,13 +469,14 @@ describe('the workflow', () => {
     ]);
     const messaging = include.find((entry) => entry.rig === 'messaging-send');
     expect(messaging).toEqual({
-      rig: 'messaging-send', script: 'packages/conformance/src/messaging-send-probes.ts', guard: 'GCP_WIF_PROVIDER', wif: true,
+      rig: 'messaging-send', script: 'packages/conformance/src/messaging-send-probes.ts', guard: 'CAPTURE_WIF_PROVIDER', wif: true,
     });
     const stdlib = include.find((entry) => entry.rig === 'storage-stdlib-discovery');
     expect(stdlib).toEqual({
       rig: 'storage-stdlib-discovery', script: 'packages/conformance/src/run-storage-stdlib-discovery.ts', guard: 'GCP_WIF_PROVIDER', wif: true,
     });
-    const recaptureStep = stepRunning(stepsOf('credentialed'), 'bun run ${{ matrix.script }}');
+    const recaptureStep = stepRunning(stepsOf('credentialed'), 'bun run "$SCRIPT" --write');
+    expect(recaptureStep?.env?.SCRIPT).toBe('${{ matrix.script }}');
     expect(recaptureStep?.env?.PYRIC_ORACLE_PROJECT_ID).toBe('digame-mas');
     expect(stepRunning(stepsOf('unattended'), 'client-storage-probes.ts --write')).toBeDefined();
     expect(LEGS.find((leg) => !leg.credentialed)?.rig).toBe('unattended');

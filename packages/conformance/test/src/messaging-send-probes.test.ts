@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { MESSAGING_SEND_PROBES } from '../../src/messaging-send-probe-catalog.ts';
 import {
+  assertFcmProbeHttpStatus,
   probeWebpushLowercaseTtl,
   selectMessagingSendProbes,
 } from '../../src/messaging-send-probes.ts';
@@ -114,5 +115,31 @@ describe('messaging-send-probes selection and lowercase webpush.headers.ttl prob
         dryRunMatchesRealSend: true,
       },
     });
+  });
+
+  test('throws on HTTP 401, 403 PERMISSION_DENIED, and 5xx so IAM/server errors never poison observations', () => {
+    expect(() => assertFcmProbeHttpStatus(200, { name: 'projects/p/messages/1' })).not.toThrow();
+    expect(() =>
+      assertFcmProbeHttpStatus(400, { error: { code: 400, status: 'INVALID_ARGUMENT' } }),
+    ).not.toThrow();
+    expect(() =>
+      assertFcmProbeHttpStatus(404, { error: { code: 404, status: 'NOT_FOUND' } }),
+    ).not.toThrow();
+
+    expect(() =>
+      assertFcmProbeHttpStatus(401, { error: { code: 401, status: 'UNAUTHENTICATED' } }),
+    ).toThrow(/FCM probe HTTP 401 infrastructure\/IAM failure/);
+    expect(() =>
+      assertFcmProbeHttpStatus(403, {
+        error: {
+          code: 403,
+          status: 'PERMISSION_DENIED',
+          message: "Permission 'cloudmessaging.messages.create' denied on resource '//cloudresourcemanager.googleapis.com/projects/digame-mas'",
+        },
+      }),
+    ).toThrow(/cloudmessaging\.messages\.create/);
+    expect(() =>
+      assertFcmProbeHttpStatus(503, { error: { code: 503, status: 'UNAVAILABLE' } }),
+    ).toThrow(/FCM probe HTTP 503 infrastructure\/IAM failure/);
   });
 });

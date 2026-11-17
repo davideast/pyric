@@ -20,7 +20,9 @@ import {
   isUnlinkedStagedObservation,
   loadPendingRowLinkObservations,
   loadStagedCaptureItems,
+  resolveProbeRigFromSource,
 } from '../../src/staged-captures.ts';
+import { soleLongestPrefixOwner } from '../../src/observation-surface.ts';
 import { ALL_RULES_FIRESTORE_SCENARIOS } from '../../rules-corpus/firestore/index.ts';
 import { scenario as firestorePathBindForms } from '../../rules-corpus/firestore/path-bind-forms.ts';
 import { scenario as firestorePathLiteralBraceBind } from '../../rules-corpus/firestore/path-literal-brace-bind.ts';
@@ -66,12 +68,11 @@ function syntheticObservation(
 }
 
 function surfaceDirForObservationName(obsName: string): string {
-  if (obsName.startsWith('rules-firestore-')) return 'firestore-rules';
-  if (obsName.startsWith('rules-storage-')) return 'storage-rules';
-  if (obsName.startsWith('messaging-send-')) return 'messaging-admin';
-  if (obsName.startsWith('admin-storage-')) return 'storage-admin';
-  if (obsName.startsWith('admin-firestore-')) return 'firestore';
-  return 'app';
+  const owner = soleLongestPrefixOwner(
+    `${obsName}.json`,
+    surfaceDescriptors.map((d) => ({ id: d.surface, observationPrefixes: d.observationPrefixes })),
+  );
+  return owner ?? 'app';
 }
 
 describe('staged pendingRowLink observation lifecycle', () => {
@@ -309,9 +310,12 @@ describe('staged pendingRowLink observation lifecycle', () => {
 
   test('checked-in staged probes validate cleanly with default pendingRowLinkObservations both pre-capture and post-capture', async () => {
     const stagedItems = loadStagedCaptureItems();
-    expect(stagedItems.map((i) => i.observationName)).toEqual([
+    expect(stagedItems.map((i) => i.observationName)).toContain(
       'messaging-send-webpush-lowercase-ttl',
-    ]);
+    );
+    for (const item of stagedItems) {
+      expect(item.rig.length).toBeGreaterThan(0);
+    }
 
     const currentObservations = loadObservations();
     const existingNames = new Set(currentObservations.map((o) => o.name));
@@ -404,5 +408,179 @@ describe('staged pendingRowLink observation lifecycle', () => {
     expect(firestoreServiceStorage.allowCompileError).toBe(true);
     expect(firestoreServiceUnknown.pendingRowLink).toBeUndefined();
     expect(firestoreServiceUnknown.allowCompileError).toBe(true);
+  });
+
+  test('resolves explicit rig declarations on modular probe files and supports pendingPrefixes across PR #1 -> PR #2 -> PR #3', async () => {
+    expect(
+      resolveProbeRigFromSource(
+        "export const probe = { rig: 'sdk-probes', pendingRowLink: true, rowIds: [] };",
+        'rtdb-modular-query-limit-infinity',
+      ),
+    ).toBe('sdk-probes');
+    expect(
+      resolveProbeRigFromSource(
+        "export const probe = { rig: 'admin-auth', pendingRowLink: true, rowIds: [] };",
+        'admin-auth-listusers-deleted-cursor',
+      ),
+    ).toBe('admin-auth');
+    expect(
+      resolveProbeRigFromSource(
+        'export const probe = { pendingRowLink: true, rowIds: [] };',
+        'client-storage-new-probe',
+      ),
+    ).toBe('client-storage');
+
+    const rigManifests = await loadRigManifests();
+    const adminAuthRig = rigManifests.find((m) => m.id === 'admin-auth');
+    expect(adminAuthRig).toBeDefined();
+    expect(adminAuthRig?.pendingPrefixes).toContain('admin-auth-');
+
+    // PR #2 state: raw observation JSON under a pendingPrefix lands with rowIds: [] while pendingRowLink is active
+    const stagedAdminAuthObs = syntheticObservation({
+      file: 'admin-auth-listusers-deleted-cursor.json',
+      surfaceDir: 'auth-admin',
+      name: 'admin-auth-listusers-deleted-cursor',
+      rowIds: [],
+    });
+    const pr2Problems = validateCompatibilityRegistry({
+      rows: allCompatibilityRows,
+      descriptors: surfaceDescriptors,
+      observations: [...loadObservations(), stagedAdminAuthObs],
+      observationExceptions,
+      rigManifests,
+      pendingRowLinkObservations: new Set([
+        ...loadPendingRowLinkObservations(),
+        'admin-auth-listusers-deleted-cursor',
+      ]),
+    });
+    expect(pr2Problems).toEqual([]);
+
+    // PR #3 state: once pendingRowLink is removed (linked to a row), pendingPrefixes must be promoted to observationPrefixes
+    const authAdminRow = allCompatibilityRows.find((r) => r.surface === 'auth-admin');
+    const authRowId = authAdminRow ? authAdminRow.id : 'auth-admin#1';
+    const linkedAdminAuthObs = syntheticObservation({
+      file: 'admin-auth-listusers-deleted-cursor.json',
+      surfaceDir: 'auth-admin',
+      name: 'admin-auth-listusers-deleted-cursor',
+      rowIds: [authRowId],
+    });
+    const pr3Rows = allCompatibilityRows.map((row) => {
+      if (row.id !== authRowId) return row;
+      return {
+        ...row,
+        oracleObservations: [...row.oracleObservations, 'admin-auth-listusers-deleted-cursor'],
+      };
+    });
+    const pr3ProblemsWithoutPromotion = validateCompatibilityRegistry({
+      rows: pr3Rows,
+      descriptors: surfaceDescriptors,
+      observations: [...loadObservations(), linkedAdminAuthObs],
+      observationExceptions,
+      rigManifests,
+      pendingRowLinkObservations: loadPendingRowLinkObservations(),
+    });
+    expect(
+      pr3ProblemsWithoutPromotion.some((p) =>
+        p.includes("pending prefix 'admin-auth-' now matches a captured observation"),
+      ),
+    ).toBe(true);
+  });
+
+  test('modular sdk-probes probe files own their observations across PR #1 -> PR #2 -> PR #3 without editing rigs or surfaces', async () => {
+    const rigManifests = await loadRigManifests();
+    const baseProbeFiles = listProbeFiles();
+    const probeFilesWithNewRtdb = [
+      ...baseProbeFiles,
+      {
+        surfaceDir: 'rtdb-modular',
+        name: 'rtdb-modular-synthetic-self-contained',
+        declaredRig: 'sdk-probes',
+      },
+    ];
+
+    // PR #1: probe file added with pendingRowLink: true, zero observation JSON yet
+    expect(
+      validateCompatibilityRegistry({
+        rows: allCompatibilityRows,
+        descriptors: surfaceDescriptors,
+        observations: loadObservations(),
+        observationExceptions,
+        rigManifests,
+        probeFiles: probeFilesWithNewRtdb,
+        pendingRowLinkObservations: new Set([
+          ...loadPendingRowLinkObservations(),
+          'rtdb-modular-synthetic-self-contained',
+        ]),
+      }),
+    ).toEqual([]);
+
+    // PR #2: unlinked observation JSON lands with rowIds: []
+    const pr2Obs = syntheticObservation({
+      file: 'rtdb-modular-synthetic-self-contained.json',
+      surfaceDir: 'rtdb-modular',
+      name: 'rtdb-modular-synthetic-self-contained',
+      rowIds: [],
+    });
+    expect(
+      validateCompatibilityRegistry({
+        rows: allCompatibilityRows,
+        descriptors: surfaceDescriptors,
+        observations: [...loadObservations(), pr2Obs],
+        observationExceptions,
+        rigManifests,
+        probeFiles: probeFilesWithNewRtdb,
+        pendingRowLinkObservations: new Set([
+          ...loadPendingRowLinkObservations(),
+          'rtdb-modular-synthetic-self-contained',
+        ]),
+      }),
+    ).toEqual([]);
+
+    // PR #3: linked to a registry row, pendingRowLink removed -- zero edits to rigs/sdk-probes.ts or surfaces/rtdb-modular.json
+    const rtdbRow = allCompatibilityRows.find((r) => r.surface === 'rtdb');
+    const rtdbRowId = rtdbRow ? rtdbRow.id : 'rtdb-modular#1';
+    const pr3Obs = syntheticObservation({
+      file: 'rtdb-modular-synthetic-self-contained.json',
+      surfaceDir: 'rtdb-modular',
+      name: 'rtdb-modular-synthetic-self-contained',
+      rowIds: [rtdbRowId],
+    });
+    const pr3Rows = allCompatibilityRows.map((row) => {
+      if (row.id !== rtdbRowId) return row;
+      return {
+        ...row,
+        oracleObservations: [...row.oracleObservations, 'rtdb-modular-synthetic-self-contained'],
+      };
+    });
+    const pr3Problems = validateCompatibilityRegistry({
+      rows: pr3Rows,
+      descriptors: surfaceDescriptors,
+      observations: [...loadObservations(), pr3Obs],
+      observationExceptions,
+      rigManifests,
+      probeFiles: probeFilesWithNewRtdb,
+      pendingRowLinkObservations: loadPendingRowLinkObservations(),
+    }).filter((p) => !p.includes('generated link targets untracked observation'));
+    expect(pr3Problems).toEqual([]);
+
+    // Guardrail: declaring a rig not in the surface's captureRigs fails validation
+    const badSurfaceRigProblems = validateCompatibilityRegistry({
+      rows: allCompatibilityRows,
+      descriptors: surfaceDescriptors,
+      observations: loadObservations(),
+      observationExceptions,
+      rigManifests,
+      probeFiles: [
+        ...baseProbeFiles,
+        {
+          surfaceDir: 'rtdb-modular',
+          name: 'rtdb-modular-wrong-rig',
+          declaredRig: 'admin-auth',
+        },
+      ],
+    });
+    expect(
+      badSurfaceRigProblems.some((p) => p.includes("not listed in surface 'rtdb-modular' captureRigs")),
+    ).toBe(true);
   });
 });

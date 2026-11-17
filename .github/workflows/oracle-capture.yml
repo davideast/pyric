@@ -4,17 +4,21 @@
 # against the dedicated oracle project (digame-mas) and opens or updates a
 # reviewable pull request on chore/oracle-capture-<rig>.
 #
-# Security isolation across two jobs:
-#   1. capture - holds `contents: read` + `id-token: write` ONLY. Authenticates
-#      to Google Cloud via keyless Workload Identity Federation, runs the
-#      approved rig(s), reverts `observedAt`-only timestamp rewrites, fails
-#      closed if any path outside packages/conformance/observations/** changes,
-#      and uploads the validated observation bundle as a workflow artifact.
+# Security isolation across two jobs and two WIF tiers:
+#   1. capture - holds `contents: read` + `id-token: write` ONLY. Read-only
+#      Rules Test API rigs authenticate through `GCP_WIF_PROVIDER` +
+#      `PARITY_SA_EMAIL`; messaging and live-project write rigs authenticate
+#      through the optional main-only `CAPTURE_WIF_PROVIDER` + `CAPTURE_SA_EMAIL`
+#      identity (skipping cleanly when not yet configured so write roles are
+#      never granted to the PR-reachable identity). Reverts `observedAt`-only
+#      rewrites, fails closed on any path outside `observations/**`, and uploads
+#      the validated observation bundle as a workflow artifact.
 #   2. open-pr - holds `contents: write` + `pull-requests: write` ONLY (zero
 #      GCP WIF credentials or Firebase secrets). Downloads the bundle,
 #      re-verifies every file against symlinks, path traversal, and JSON schema
 #      drift, commits onto chore/oracle-capture-<rig>, pushes, and opens or
-#      updates the pull request.
+#      updates the pull request (falling back to github.token + PAT synchronize
+#      push when the PAT lacks createPullRequest permission).
 
 name: Oracle capture
 
@@ -29,11 +33,11 @@ on:
   workflow_dispatch:
     inputs:
       rig:
-        description: 'Oracle rig id (e.g. rules-firestore, rules-storage, storage-stdlib-discovery, messaging-send, client-storage, admin-app, app-registry)'
+        description: 'Oracle rig id or comma-separated rig ids (e.g. rules-firestore, rules-storage, sdk-probes, admin-auth, messaging-send)'
         required: true
         type: string
       filter:
-        description: 'Optional scenario or probe id passed as --scenario / --probe when supported by the rig'
+        description: 'Optional scenario or probe id passed as --scenario / --probe when dispatching a single rig'
         required: false
         default: ''
         type: string
@@ -42,7 +46,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: oracle-capture
+  group: oracle-capture-${{ inputs.rig || 'push' }}
   cancel-in-progress: false
 
 jobs:
@@ -81,14 +85,24 @@ jobs:
           INPUT_FILTER: ${{ inputs.filter }}
           GCP_WIF_PROVIDER: ${{ vars.GCP_WIF_PROVIDER }}
           PARITY_SA_EMAIL: ${{ vars.PARITY_SA_EMAIL }}
+          CAPTURE_WIF_PROVIDER: ${{ vars.CAPTURE_WIF_PROVIDER }}
+          CAPTURE_SA_EMAIL: ${{ vars.CAPTURE_SA_EMAIL }}
           PLAN_FILE: ${{ runner.temp }}/oracle-capture-plan.json
         run: bun scripts/ci/oracle-capture-pr.ts plan
-      - name: Authenticate to Google Cloud
-        if: steps.plan.outputs.should_run == 'true' && steps.plan.outputs.needs_wif == 'true'
+      - name: Authenticate read-only Rules Test API identity
+        id: auth-parity
+        if: steps.plan.outputs.should_run == 'true' && steps.plan.outputs.needs_parity_wif == 'true'
         uses: google-github-actions/auth@v2
         with:
           workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
           service_account: ${{ vars.PARITY_SA_EMAIL }}
+      - name: Authenticate main-only capture identity
+        id: auth-capture
+        if: steps.plan.outputs.should_run == 'true' && steps.plan.outputs.needs_capture_wif == 'true'
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.CAPTURE_WIF_PROVIDER }}
+          service_account: ${{ vars.CAPTURE_SA_EMAIL }}
       - name: Build rules engine
         if: steps.plan.outputs.should_run == 'true'
         run: bun run build:rules
@@ -104,7 +118,11 @@ jobs:
           PARITY_PROJECT_ID: digame-mas
           PARITY_REQUIRE_CREDENTIAL: '1'
           PARITY_SA_EMAIL: ${{ vars.PARITY_SA_EMAIL }}
+          CAPTURE_SA_EMAIL: ${{ vars.CAPTURE_SA_EMAIL }}
+          PARITY_WIF_CREDENTIALS_FILE: ${{ steps.auth-parity.outputs.credentials_file_path }}
+          CAPTURE_WIF_CREDENTIALS_FILE: ${{ steps.auth-capture.outputs.credentials_file_path }}
           PYRIC_ORACLE_FIREBASE_CONFIG: ${{ secrets.PYRIC_ORACLE_FIREBASE_CONFIG }}
+          PYRIC_ORACLE_RTDB_URL: ${{ vars.PYRIC_ORACLE_RTDB_URL || secrets.PYRIC_ORACLE_RTDB_URL }}
         run: bun scripts/ci/oracle-capture-pr.ts capture
       - name: Upload validated observations bundle
         if: always() && steps.capture.outputs.has_captures == 'true'
@@ -149,5 +167,7 @@ jobs:
           GITHUB_REF: ${{ github.ref }}
           ARTIFACT_DIR: ${{ runner.temp }}/oracle-capture-bundle
           GITHUB_REPOSITORY: ${{ github.repository }}
+          PAT_TOKEN: ${{ secrets.MERGE_QUEUE_TOKEN || secrets.MERQUE_QUEUE_TOKEN }}
+          GITHUB_TOKEN: ${{ github.token }}
           GH_TOKEN: ${{ secrets.MERGE_QUEUE_TOKEN || secrets.MERQUE_QUEUE_TOKEN || github.token }}
         run: bun scripts/ci/oracle-capture-pr.ts open-pr

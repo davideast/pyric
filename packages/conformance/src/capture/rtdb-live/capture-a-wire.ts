@@ -38,6 +38,8 @@ import { fileURLToPath } from 'node:url';
 import { deleteApp, initializeApp, type FirebaseApp } from 'firebase/app';
 import { deleteUser, getAuth, signInAnonymously, type Auth } from 'firebase/auth';
 import type { Database, DataSnapshot } from 'firebase/database';
+import { requireCaptureMode } from '../../capture-mode-guard.ts';
+import { oracleCredentialConfigured } from '../../oracle-credential.ts';
 import { resolvedFirebaseVersion } from '../../package-version.ts';
 import {
   DEFAULT_INSTANCE_VARIABLE,
@@ -65,11 +67,31 @@ type Operation = (typeof OPERATIONS)[number];
 /** Time after an operation settles for its trailing frames (acks, events) to arrive under its label. */
 const SETTLE_MS = 750;
 
+requireCaptureMode({
+  label: 'rtdb-live:capture-a',
+  scriptPath: 'packages/conformance/src/capture/rtdb-live/capture-a-wire.ts',
+  summary: 'would record modular firebase/database WebSocket wire frames across default and named instances.',
+  missingCredentials: () => {
+    const missing: string[] = [];
+    if (!instanceFromEnv(process.env, DEFAULT_INSTANCE_VARIABLE, 'default')) {
+      missing.push(DEFAULT_INSTANCE_VARIABLE);
+    }
+    if (!instanceFromEnv(process.env, NAMED_INSTANCE_VARIABLE, 'named')) {
+      missing.push(NAMED_INSTANCE_VARIABLE);
+    }
+    if (!oracleCredentialConfigured(process.env)) {
+      missing.push('PYRIC_ORACLE_PROJECT_ID or PYRIC_ORACLE_SA_PATH');
+    }
+    if (missing.length > 0) {
+      return missing.join(', ');
+    }
+    return null;
+  },
+});
 const defaultInstance = instanceFromEnv(process.env, DEFAULT_INSTANCE_VARIABLE, 'default');
 const namedInstance = instanceFromEnv(process.env, NAMED_INSTANCE_VARIABLE, 'named');
 if (!defaultInstance || !namedInstance) {
-  console.log(`[rtdb-live:capture-a] inert: set ${DEFAULT_INSTANCE_VARIABLE} and ${NAMED_INSTANCE_VARIABLE} to the default and a named instance URL to capture.`);
-  process.exit(0);
+  process.exit(1);
 }
 const instances = [defaultInstance, namedInstance];
 

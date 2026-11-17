@@ -25,7 +25,8 @@
   "coverage": true,
   "captureRigs": [
     "oracle-run",
-    "client-storage"
+    "client-storage",
+    "sdk-probes"
   ],
   "registry": "storage",
   "dispositions": [

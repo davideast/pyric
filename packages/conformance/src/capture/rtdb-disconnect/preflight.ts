@@ -2,8 +2,23 @@
 import { initializeApp, deleteApp } from 'firebase/app';
 import { getAuth, signInAnonymously } from 'firebase/auth';
 import { getDatabase, ref, set, get, remove } from 'firebase/database';
+import { requireCaptureMode } from '../../capture-mode-guard.ts';
 import { RTDB_RULES_SCOPE } from '../../oracle-access-token.ts';
-import { loadOracleServiceAccount, oracleAccessToken } from '../../oracle-credential.ts';
+import {
+  loadOracleServiceAccount,
+  oracleAccessToken,
+  oracleCredentialConfigured,
+} from '../../oracle-credential.ts';
+import {
+  assertDedicatedOracleRtdbUrl,
+  isDedicatedOracleRtdbUrl,
+  selectDedicatedRtdbInstanceUrl,
+  type RtdbInstanceSummary,
+} from '../../oracle-run-setup.ts';
+import {
+  createSignalRestoreCoordinator,
+  restoreRtdbRulesWithRetry,
+} from '../../oracle-signal-restore.ts';
 
 interface FirebaseWebConfig {
   apiKey: string;
@@ -22,7 +37,6 @@ function canonical(value: unknown): string {
   return JSON.stringify(value);
 }
 
-
 async function discoverConfig(token: string, projectId: string): Promise<FirebaseWebConfig> {
   const appsResponse = await fetch(
     `https://firebase.googleapis.com/v1beta1/projects/${encodeURIComponent(projectId)}/webApps`,
@@ -37,24 +51,39 @@ async function discoverConfig(token: string, projectId: string): Promise<Firebas
   );
   if (!configResponse.ok) throw new Error(`web config discovery failed: ${configResponse.status}`);
   const config = (await configResponse.json()) as FirebaseWebConfig;
-  if (!config.databaseURL) {
+  const explicitUrl = process.env.PYRIC_ORACLE_RTDB_URL?.trim();
+  if (explicitUrl) {
+    config.databaseURL = assertDedicatedOracleRtdbUrl(explicitUrl, projectId);
+  } else if (!config.databaseURL || !isDedicatedOracleRtdbUrl(config.databaseURL, projectId)) {
     const instancesResponse = await fetch(
       `https://firebasedatabase.googleapis.com/v1beta/projects/${encodeURIComponent(projectId)}/locations/-/instances`,
       { headers: { Authorization: `Bearer ${token}` } },
     );
     if (!instancesResponse.ok) throw new Error(`RTDB discovery failed: ${instancesResponse.status}`);
     const instances = ((await instancesResponse.json()) as {
-      instances?: Array<{ databaseUrl?: string; state?: string; type?: string }>;
+      instances?: RtdbInstanceSummary[];
     }).instances ?? [];
-    const active = instances.filter((instance) => instance.state === 'ACTIVE');
-    const pool = active.length > 0 ? active : instances;
-    config.databaseURL = (pool.find((instance) => instance.type === 'DEFAULT_DATABASE') ?? pool[0])?.databaseUrl;
+    const selected = selectDedicatedRtdbInstanceUrl(instances, projectId);
+    if (!selected) {
+      throw new Error('oracle project has no discoverable dedicated RTDB instance');
+    }
+    config.databaseURL = selected;
   }
-  if (!config.databaseURL) throw new Error('oracle project has no discoverable RTDB instance');
+  config.databaseURL = assertDedicatedOracleRtdbUrl(config.databaseURL, projectId);
   return config;
 }
 
 async function main(): Promise<void> {
+  requireCaptureMode({
+    label: 'oracle:rtdb-disconnect:preflight',
+    scriptPath: 'packages/conformance/src/capture/rtdb-disconnect/preflight.ts',
+    summary: 'would verify dedicated RTDB rules backup, anonymous scratch read/write/delete, and rules restore.',
+    missingCredentials: () => {
+      if (oracleCredentialConfigured(process.env)) return null;
+      return 'PYRIC_ORACLE_SA_PATH or PYRIC_ORACLE_PROJECT_ID';
+    },
+  });
+
   const serviceAccount = await loadOracleServiceAccount();
   const firebaseToken = await oracleAccessToken(serviceAccount, 'https://www.googleapis.com/auth/firebase');
   const config = await discoverConfig(firebaseToken, serviceAccount.project_id);
@@ -63,29 +92,38 @@ async function main(): Promise<void> {
   console.log(`[oracle:rtdb-disconnect:preflight] project: ${config.projectId}`);
   console.log(`[oracle:rtdb-disconnect:preflight] database: ${config.databaseURL}`);
 
+  const coordinator = createSignalRestoreCoordinator('[oracle:rtdb-disconnect:preflight]');
+  const uninstallSignals = coordinator.installSignals();
+
   const databaseToken = await oracleAccessToken(serviceAccount, RTDB_RULES_SCOPE);
   const rulesUrl = `${config.databaseURL}/.settings/rules.json?access_token=${encodeURIComponent(databaseToken)}`;
-  const readRules = async (): Promise<Record<string, unknown>> => {
+  const readRulesText = async (): Promise<string> => {
     const response = await fetch(rulesUrl);
     if (!response.ok) throw new Error(`rules backup/read failed: ${response.status}`);
-    return (await response.json()) as Record<string, unknown>;
+    return response.text();
   };
-  const writeRules = async (rules: Record<string, unknown>): Promise<void> => {
-    const response = await fetch(`${rulesUrl}&print=silent`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(rules),
-    });
+  const writeRulesText = async (bodyText: string): Promise<void> => {
+    const response = await coordinator.trackMutation(
+      fetch(`${rulesUrl}&print=silent`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: bodyText,
+      }),
+    );
     if (!response.ok) throw new Error(`rules write failed: ${response.status}`);
   };
 
-  const before = await readRules();
-  const beforeCanonical = canonical(before);
+  const beforeText = await readRulesText();
+  const before = JSON.parse(beforeText) as Record<string, unknown>;
   console.log('[oracle:rtdb-disconnect:preflight] rules backup: ok');
-  const currentRules = (before.rules && typeof before.rules === 'object'
-    ? before.rules : {}) as Record<string, unknown>;
-  const currentOracleRules = (currentRules.pyric_oracle && typeof currentRules.pyric_oracle === 'object'
-    ? currentRules.pyric_oracle : {}) as Record<string, unknown>;
+  let currentRules: Record<string, unknown> = {};
+  if (before.rules && typeof before.rules === 'object') {
+    currentRules = before.rules as Record<string, unknown>;
+  }
+  let currentOracleRules: Record<string, unknown> = {};
+  if (currentRules.pyric_oracle && typeof currentRules.pyric_oracle === 'object') {
+    currentOracleRules = currentRules.pyric_oracle as Record<string, unknown>;
+  }
   const scratchKey = `__disconnect_preflight_${Date.now()}`;
   const temporary = {
     ...before,
@@ -99,10 +137,17 @@ async function main(): Promise<void> {
   };
 
   const app = initializeApp(config, `rtdb-disconnect-preflight-${Date.now()}`);
-  let restored = false;
   let temporaryUser: Awaited<ReturnType<typeof signInAnonymously>>['user'] | undefined;
+  coordinator.registerCleanup(() =>
+    restoreRtdbRulesWithRetry({
+      beforeText,
+      writeText: writeRulesText,
+      readText: readRulesText,
+      canonicalize: (text) => canonical(JSON.parse(text)),
+    }),
+  );
   try {
-    await writeRules(temporary);
+    await writeRulesText(JSON.stringify(temporary));
     await new Promise((resolve) => setTimeout(resolve, 5_000));
     const auth = getAuth(app);
     const credential = await signInAnonymously(auth);
@@ -116,11 +161,12 @@ async function main(): Promise<void> {
   } finally {
     await temporaryUser?.delete().catch(() => undefined);
     await deleteApp(app).catch(() => undefined);
-    await writeRules(before);
-    const after = await readRules();
-    restored = canonical(after) === beforeCanonical;
+    try {
+      await coordinator.runRestore();
+    } finally {
+      uninstallSignals();
+    }
   }
-  if (!restored) throw new Error('rules restore read-back differs from the preflight backup');
   console.log('[oracle:rtdb-disconnect:preflight] rules restore/read-back: ok');
 }
 

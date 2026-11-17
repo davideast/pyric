@@ -1,10 +1,14 @@
+import { createSignalRestoreCoordinator, ORACLE_RESTORE_ATTEMPTS } from './oracle-signal-restore.ts';
 import {
   RULES_API,
   jsonRequest,
   type AccessHeaders,
   type ServiceAccount,
 } from './storage-stdlib-real-api.ts';
-import { type RequestBudget } from './storage-stdlib-real-budget.ts';
+import { RequestBudget, STORAGE_CLEANUP_LIMITS } from './storage-stdlib-real-budget.ts';
+
+export const storageStdlibSignalCoordinator = createSignalRestoreCoordinator('[storage-stdlib:real]');
+const activeStorageRestores = new Map<string, { restoreOnce: () => Promise<boolean>; unregister: () => void }>();
 
 export interface Release { name: string; rulesetName: string }
 export interface RulesFile { name: string; content: string }
@@ -89,19 +93,46 @@ export async function activateStorageSource(
   files: Ruleset['source']['files'],
 ): Promise<void> {
   budget.take('rules', 2);
-  const created = await jsonRequest<{ name: string }>(
-    `${RULES_API}/projects/${sa.project_id}/rulesets`,
-    { method: 'POST', headers: headers.json, body: JSON.stringify({ source: { files } }) },
-    'create probe Storage ruleset',
+  let restorePromise: Promise<boolean> | null = null;
+  const restoreOnce = (): Promise<boolean> => {
+    if (restorePromise === null) {
+      const emergencyBudget = new RequestBudget({ ...STORAGE_CLEANUP_LIMITS });
+      restorePromise = restoreRulesRelease(
+        headers,
+        emergencyBudget,
+        snapshot.releaseUrl,
+        snapshot.releaseName,
+        snapshot.release.rulesetName,
+      );
+    }
+    return restorePromise;
+  };
+  if (!activeStorageRestores.has(snapshot.releaseUrl)) {
+    const unregister = storageStdlibSignalCoordinator.registerCleanup(async () => {
+      const ok = await restoreOnce();
+      if (!ok) {
+        throw new Error(`failed to restore Storage release ${snapshot.releaseName}`);
+      }
+    });
+    activeStorageRestores.set(snapshot.releaseUrl, { restoreOnce, unregister });
+  }
+  const created = await storageStdlibSignalCoordinator.trackMutation(
+    jsonRequest<{ name: string }>(
+      `${RULES_API}/projects/${sa.project_id}/rulesets`,
+      { method: 'POST', headers: headers.json, body: JSON.stringify({ source: { files } }) },
+      'create probe Storage ruleset',
+    ),
   );
-  await jsonRequest(
-    snapshot.releaseUrl,
-    {
-      method: 'PATCH',
-      headers: headers.json,
-      body: JSON.stringify({ release: { name: snapshot.releaseName, rulesetName: created.name } }),
-    },
-    'activate probe Storage ruleset',
+  await storageStdlibSignalCoordinator.trackMutation(
+    jsonRequest(
+      snapshot.releaseUrl,
+      {
+        method: 'PATCH',
+        headers: headers.json,
+        body: JSON.stringify({ release: { name: snapshot.releaseName, rulesetName: created.name } }),
+      },
+      'activate probe Storage ruleset',
+    ),
   );
 }
 
@@ -111,14 +142,22 @@ export async function restoreStorageRelease(
   snapshot: Awaited<ReturnType<typeof storageRulesSnapshot>>,
   request: ReleaseRequest = (url, init, label) => jsonRequest<Release>(url, init, label),
 ): Promise<boolean> {
-  return restoreRulesRelease(
-    headers,
-    budget,
-    snapshot.releaseUrl,
-    snapshot.releaseName,
-    snapshot.release.rulesetName,
-    request,
-  );
+  const tracked = activeStorageRestores.get(snapshot.releaseUrl);
+  try {
+    return await restoreRulesRelease(
+      headers,
+      budget,
+      snapshot.releaseUrl,
+      snapshot.releaseName,
+      snapshot.release.rulesetName,
+      request,
+    );
+  } finally {
+    if (tracked) {
+      tracked.unregister();
+      activeStorageRestores.delete(snapshot.releaseUrl);
+    }
+  }
 }
 
 type ReleaseRequest = (url: string, init: RequestInit, label: string) => Promise<Release>;
@@ -130,7 +169,7 @@ export async function restoreRulesRelease(
   releaseName: string,
   rulesetName: string,
   request: ReleaseRequest = (url, init, label) => jsonRequest<Release>(url, init, label),
-  attempts = 2,
+  attempts = ORACLE_RESTORE_ATTEMPTS,
 ): Promise<boolean> {
   let lastError: unknown;
   for (let attempt = 0; attempt < attempts; attempt += 1) {

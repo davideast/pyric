@@ -36,7 +36,7 @@
  * the client SDK. See `packages/conformance/docs/oracle-project-setup.md` for that and
  * the one-time project setup.
  */
-import { initializeApp, deleteApp } from 'firebase/app';
+import { initializeApp, deleteApp, type FirebaseApp } from 'firebase/app';
 import * as fbAuthNs from 'firebase/auth';
 import {
   ActionCodeOperation,
@@ -164,12 +164,22 @@ import {
 } from 'firebase/database';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import {
+  assertDedicatedOracleRtdbUrl,
   assertWebConfigProject,
   manualWebConfig,
   oracleRunMode,
+  resolveOracleRtdbUrl,
+  selectDedicatedRtdbInstanceUrl,
   skipReason,
   webConfigFromEnv,
+  type RtdbInstanceSummary,
 } from './oracle-run-setup.ts';
+import {
+  buildLazyRtdbRunProbes,
+  printRunInertPreview,
+  selectFilteredRunProbes,
+  withGuardedProbeRtdbRules,
+} from './oracle-run-rtdb-probes.ts';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
@@ -185,6 +195,7 @@ import {
   runWithOracleRulesRestored,
   storageOracleTarget,
 } from './oracle-rules-session.ts';
+import { installOracleSignalRestoreGuard } from './oracle-signal-restore.ts';
 import { surfaceDescriptors } from '../surfaces/load.ts';
 import { soleLongestPrefixOwner } from './observation-surface.ts';
 import {
@@ -199,8 +210,6 @@ import {
   type CompiledRtdbRules,
   type SimulationInput,
 } from 'pyric/rules/internal/rtdb';
-import { createRtdbDisconnectProbes } from './capture/rtdb-disconnect/probes.ts';
-import { loadRtdbClimbProbes } from './capture/rtdb-climb/load-probes.ts';
 import { resolvedFirebaseVersion } from './package-version.ts';
 
 // ─── Setup ────────────────────────────────────────────────────────────
@@ -305,7 +314,7 @@ async function fetchWebConfig(token: string, projectId: string): Promise<Firebas
  *
  * with body `{ "type": "DEFAULT_DATABASE" }`.
  */
-async function discoverRtdbInstance(
+async function discoverDedicatedRtdbInstance(
   token: string,
   projectId: string,
 ): Promise<string | null> {
@@ -313,47 +322,30 @@ async function discoverRtdbInstance(
   const resp = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
   if (!resp.ok) {
     if (resp.status === 403 || resp.status === 404) return null;
-    console.log(`[oracle] discoverRtdbInstance: ${resp.status} ${await resp.text()}`);
+    console.log(`[oracle] discoverDedicatedRtdbInstance: ${resp.status} ${await resp.text()}`);
     return null;
   }
-  const body = (await resp.json()) as {
-    instances?: Array<{
-      name: string;
-      databaseUrl?: string;
-      state?: string;
-      type?: string;
-    }>;
-  };
-  const instances = body.instances ?? [];
-  if (instances.length === 0) return null;
-  const active = instances.filter((i) => i.state === 'ACTIVE');
-  const pool = active.length > 0 ? active : instances;
-  const def = pool.find((i) => i.type === 'DEFAULT_DATABASE') ?? pool[0];
-  return def.databaseUrl ?? null;
+  const body = (await resp.json()) as { instances?: RtdbInstanceSummary[] };
+  return selectDedicatedRtdbInstanceUrl(body.instances ?? [], projectId);
 }
 
-// Module-level handles to the service account + RTDB admin token, set
-// after `loadConfig()` runs. Probes that need to PUT to the
-// `/.settings/rules.json` endpoint (rules round-trip, propagation
-// timing) read these. `null` when the harness ran via
-// `PYRIC_ORACLE_FIREBASE_CONFIG` (no SA available) or when the project
-// has no RTDB instance.
 let serviceAccount: ServiceAccount | null = null;
 let rtdbAdminToken: string | null = null;
-// The Firestore, Storage, and RTDB rules deployments, restored when the run ends.
-// `null` under `PYRIC_ORACLE_FIREBASE_CONFIG`: without a service account the
-// harness deploys nothing and restores nothing.
 let oracleRulesSession: OracleRulesSession | null = null;
 
 async function loadConfig(): Promise<FirebaseWebConfig> {
   if (oracleRunMode(process.argv) === 'manual') {
     console.log('[oracle] --manual-config: no oracle credential; no rules are deployed, and probes that need the credential are reported as skipped.');
-    return manualWebConfig(process.env);
+    const manual = manualWebConfig(process.env);
+    const explicitRtdb = process.env.PYRIC_ORACLE_RTDB_URL;
+    if (explicitRtdb) {
+      manual.databaseURL = assertDedicatedOracleRtdbUrl(explicitRtdb, manual.projectId);
+    } else if (manual.databaseURL) {
+      manual.databaseURL = assertDedicatedOracleRtdbUrl(manual.databaseURL, manual.projectId);
+    }
+    return manual;
   }
 
-  // The oracle credential: the key file PYRIC_ORACLE_SA_PATH names, or
-  // Application Default Credentials for PYRIC_ORACLE_PROJECT_ID. See
-  // packages/conformance/docs/oracle-project-setup.md.
   const sa = await loadOracleServiceAccount();
   serviceAccount = sa;
   console.log(`[oracle] project: ${sa.project_id}`);
@@ -361,64 +353,36 @@ async function loadConfig(): Promise<FirebaseWebConfig> {
   const envConfig = webConfigFromEnv(process.env);
   if (envConfig) assertWebConfigProject(envConfig, sa.project_id);
   const cfg = envConfig ?? await fetchWebConfig(token, sa.project_id);
-  // The Firestore, Storage, and RTDB oracle rules are deployed by `main` inside
-  // `runWithOracleRulesRestored`, so the project's rules are put back when the
-  // run ends. The session mints a fresh token for each phase because a run can
-  // outlast one token.
   oracleRulesSession = new OracleRulesSession({
     projectId: sa.project_id,
     accessToken: () => oracleAccessToken(sa, 'https://www.googleapis.com/auth/firebase'),
   });
-  // Pick up the RTDB instance URL if the Web App config didn't carry
-  // one. The Web App config only embeds `databaseURL` when an RTDB
-  // existed at app-creation time, so we fall back to discovery via
-  // the Database Management API.
-  if (!cfg.databaseURL) {
-    const rtdbUrl = await discoverRtdbInstance(token, sa.project_id);
-    if (rtdbUrl) {
-      cfg.databaseURL = rtdbUrl;
-      console.log(`[oracle] discovered rtdb instance: ${rtdbUrl}`);
-    } else {
-      console.log(`[oracle] no rtdb instance found on ${sa.project_id} — rtdb probes will be skipped`);
-    }
-  }
-  // The per-database `/.settings/rules.json` endpoint requires the
-  // `firebase.database` and `userinfo.email` scopes; the `firebase` scope the
-  // Rules and Management APIs take is not accepted there. Probes that read or
-  // rewrite the RTDB rules use this token. `deployOracleRules` mints its own.
+  const dedicatedRtdbUrl = await resolveOracleRtdbUrl({
+    projectId: sa.project_id,
+    env: process.env,
+    webConfigDatabaseUrl: cfg.databaseURL,
+    discoverDedicated: () => discoverDedicatedRtdbInstance(token, sa.project_id),
+  });
+  cfg.databaseURL = dedicatedRtdbUrl;
   if (cfg.databaseURL) {
-    try {
-      rtdbAdminToken = await oracleAccessToken(sa, RTDB_RULES_SCOPE);
-    } catch (e) {
-      console.log(`[oracle] rtdb token: error: ${e instanceof Error ? e.message : String(e)}`);
-    }
+    console.log(`[oracle] dedicated rtdb instance: ${cfg.databaseURL}`);
+    rtdbAdminToken = await oracleAccessToken(sa, RTDB_RULES_SCOPE);
+  } else {
+    console.log(`[oracle] no dedicated rtdb instance found on ${sa.project_id} -- rtdb probes will report skipped`);
   }
   return cfg;
 }
 
-const config = await loadConfig();
-// Resolve the firebase package version via the centralized walk-up resolver.
 const FB_SDK_VERSION = resolvedFirebaseVersion();
-
 const appName = `pyric-oracle-${Date.now()}`;
-const app = initializeApp(config, appName);
-const db: Firestore = getFirestore(app);
-const auth: Auth = getAuth(app);
 
-// Storage handle is lazy: if the project doesn't have a `storageBucket`
-// in its Web SDK config, Storage isn't enabled and `getStorage(app)`
-// won't have a default bucket to bind to. Storage probes guard on this
-// and skip-with-explanation rather than failing the whole run.
-const STORAGE_BUCKET = config.storageBucket;
-const storage: FirebaseStorage | null = STORAGE_BUCKET
-  ? getStorage(app)
-  : null;
-
-// RTDB handle is lazy: same as storage. The Web SDK config carries
-// `databaseURL` only when RTDB existed at app-creation time; we fall
-// back to discovery via the Management API in loadConfig. Probes guard
-// on `rtdb !== null` and skip with `{ skipped: true }` otherwise.
-const rtdb: Database | null = config.databaseURL ? getDatabase(app) : null;
+let config: FirebaseWebConfig;
+let app: FirebaseApp;
+let db: Firestore;
+let auth: Auth;
+let STORAGE_BUCKET: string | undefined;
+let storage: FirebaseStorage | null = null;
+let rtdb: Database | null = null;
 
 const RUN_ID = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 // All probe data lives under pyric_oracle/<RUN_ID>/<probe>/* — keeps
@@ -532,24 +496,11 @@ async function attemptCode(step: () => Promise<unknown>): Promise<string | null>
 
 // ─── Probes ───────────────────────────────────────────────────────────
 
-const rtdbClimbProbes = config.databaseURL && rtdbAdminToken
-  ? await loadRtdbClimbProbes({
-        config: { ...config, databaseURL: config.databaseURL },
-        rtdbAdminToken,
-        runId: RUN_ID,
-      })
-  : [];
-
 const probes: Probe[] = [
-  ...rtdbClimbProbes,
-  ...(config.databaseURL && serviceAccount && rtdbAdminToken
-    ? createRtdbDisconnectProbes({
-        config: { ...config, databaseURL: config.databaseURL },
-        serviceAccount,
-        rtdbAdminToken,
-        runId: RUN_ID,
-      })
-    : []),
+  ...(await buildLazyRtdbRunProbes({
+    runId: RUN_ID,
+    getLiveState: () => ({ config, serviceAccount, rtdbAdminToken, rulesSession: oracleRulesSession }),
+  })),
   {
     name: 'firestore-deletedoc-missing',
     matrixRow: 'firestore #39',
@@ -4320,9 +4271,10 @@ const probes: Probe[] = [
         };
       }
       await signInAnonymously(auth);
+      const activeStorage = storage;
       const dir = RUN_STORAGE_PATH('listall', '');
       // Trailing slash → strip — we use the parent ref.
-      const dirRef = storageRef(storage, dir.replace(/\/$/, ''));
+      const dirRef = storageRef(activeStorage, dir.replace(/\/$/, ''));
 
       const childPaths = [
         `${dir}a.bin`,
@@ -4330,7 +4282,7 @@ const probes: Probe[] = [
         `${dir}c.bin`,
         `${dir}sub/x.bin`,
       ];
-      const childRefs = childPaths.map((p) => storageRef(storage, p));
+      const childRefs = childPaths.map((p) => storageRef(activeStorage, p));
 
       let uploadedAll = false;
       let itemPaths: string[] = [];
@@ -6851,39 +6803,39 @@ const probes: Probe[] = [
           [probeKey]: desiredSubtree,
         },
       };
-      const putUrl = `${config.databaseURL!}/.settings/rules.json?access_token=${encodeURIComponent(rtdbAdminToken)}&print=silent`;
-      const putRes = await fetch(putUrl, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(nextBody),
-      });
-      let putStatus = putRes.status;
-      let putOk = putRes.ok;
+      const putUrl = `${config.databaseURL}/.settings/rules.json?access_token=${encodeURIComponent(rtdbAdminToken)}&print=silent`;
+      let putStatus = 0;
+      let putOk = false;
       let putText: string | null = null;
-      if (!putRes.ok) putText = await putRes.text();
-      // Fetch back.
       let fetchedSubtree: unknown = null;
       let fetchedAt: number | null = null;
       let getStatus: number | null = null;
-      if (putOk) {
-        // Small wait for the deploy to settle (RTDB rules are eventually
-        // consistent; the same propagation row #46 measures the bound).
-        await new Promise((r) => setTimeout(r, 2000));
-        const getRes = await fetch(rulesUrl);
-        getStatus = getRes.status;
-        if (getRes.ok) {
-          const got = (await getRes.json()) as Record<string, unknown>;
-          fetchedSubtree = (got.rules as Record<string, unknown>)?.[probeKey] ?? null;
-          fetchedAt = Date.now();
-        }
-      }
-      // Restore the original rules — flush our probe key out.
-      const restoreRes = await fetch(putUrl, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ rules: beforeRules }),
+
+      const guarded = await withGuardedProbeRtdbRules({
+        session: oracleRulesSession,
+        putUrl,
+        beforeRules,
+        nextRulesBody: nextBody,
+        body: async (putRes) => {
+          putStatus = putRes.status;
+          putOk = putRes.ok;
+          if (!putRes.ok) {
+            putText = await putRes.text();
+            return;
+          }
+          await new Promise((r) => setTimeout(r, 2000));
+          if (oracleRulesSession?.isStopping) return;
+          const getRes = await fetch(rulesUrl);
+          getStatus = getRes.status;
+          if (getRes.ok) {
+            const got = (await getRes.json()) as Record<string, unknown>;
+            fetchedSubtree = (got.rules as Record<string, unknown>)?.[probeKey] ?? null;
+            fetchedAt = Date.now();
+          }
+        },
       });
-      const restoreOk = restoreRes.ok;
+      const restoreOk = guarded.restoreOk;
+      const restoreStatus = guarded.restoreStatus;
       const desiredJson = JSON.stringify(desiredSubtree);
       const fetchedJson = JSON.stringify(fetchedSubtree);
       // Compare structurally: path-variable segments, `.indexOn` array,
@@ -6902,7 +6854,7 @@ const probes: Probe[] = [
         putError: putText,
         getStatus,
         restoreOk,
-        restoreStatus: restoreRes.status,
+        restoreStatus,
         // Structural assertions:
         pathVariableSegmentPreserved:
           fs !== null && (fs.users as Record<string, unknown> | undefined)?.$userId !== undefined,
@@ -6959,7 +6911,8 @@ const probes: Probe[] = [
         baselineDenied = true;
         baselineCode = (e as { code?: string }).code ?? null;
       }
-      // Deploy the new rules — add a permissive block for our key.
+      // Deploy the new rules -- add a permissive block for our key, guarded against SIGINT/SIGTERM.
+      const activePropRtdb = rtdb;
       const permissiveRules = {
         rules: {
           ...beforeRules,
@@ -6970,17 +6923,9 @@ const probes: Probe[] = [
         },
       };
       const deployStart = Date.now();
-      const putRes = await fetch(putUrl, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(permissiveRules),
-      });
-      const putOk = putRes.ok;
-      const putStatus = putRes.status;
+      let putOk = false;
+      let putStatus = 0;
       let putError: string | null = null;
-      if (!putOk) putError = await putRes.text();
-      // Poll the write at short intervals; record the first time it
-      // succeeds.
       const pollIntervalMs = 200;
       const maxWaitMs = 30_000;
       let firstSuccessElapsed: number | null = null;
@@ -6988,37 +6933,47 @@ const probes: Probe[] = [
       let lastCode: string | null = null;
       let lastMessage: string | null = null;
       const attempts: Array<{ elapsedMs: number; ok: boolean; code: string | null }> = [];
-      if (putOk) {
-        const deadline = deployStart + maxWaitMs;
-        while (Date.now() < deadline) {
-          totalAttempts++;
-          const t = Date.now();
-          let attemptOk = false;
-          let attemptCode: string | null = null;
-          try {
-            await rtdbSet(rtdbRef(rtdb, probePath), { v: t });
-            attemptOk = true;
-            firstSuccessElapsed = t - deployStart;
-            attempts.push({ elapsedMs: t - deployStart, ok: true, code: null });
-            break;
-          } catch (e) {
-            attemptCode = (e as { code?: string }).code ?? null;
-            lastCode = attemptCode;
-            lastMessage = e instanceof Error ? e.message : String(e);
-            attempts.push({ elapsedMs: t - deployStart, ok: false, code: attemptCode });
+      const guardedProp = await withGuardedProbeRtdbRules({
+        session: oracleRulesSession,
+        putUrl,
+        readUrl: rulesUrl,
+        beforeRules,
+        nextRulesBody: permissiveRules,
+        body: async (putRes) => {
+          putOk = putRes.ok;
+          putStatus = putRes.status;
+          if (!putOk) putError = await putRes.text();
+          if (putOk) {
+            const deadline = deployStart + maxWaitMs;
+            while (Date.now() < deadline && !oracleRulesSession?.isStopping) {
+              totalAttempts++;
+              const t = Date.now();
+              let attemptOk = false;
+              let attemptCode: string | null = null;
+              try {
+                await rtdbSet(rtdbRef(activePropRtdb, probePath), { v: t });
+                attemptOk = true;
+                firstSuccessElapsed = t - deployStart;
+                attempts.push({ elapsedMs: t - deployStart, ok: true, code: null });
+                break;
+              } catch (e) {
+                attemptCode = (e as { code?: string }).code ?? null;
+                lastCode = attemptCode;
+                if (e instanceof Error) {
+                  lastMessage = e.message;
+                } else {
+                  lastMessage = String(e);
+                }
+                attempts.push({ elapsedMs: t - deployStart, ok: false, code: attemptCode });
+              }
+              if (!attemptOk) {
+                await new Promise((r) => setTimeout(r, pollIntervalMs));
+              }
+            }
           }
-          if (!attemptOk) {
-            await new Promise((r) => setTimeout(r, pollIntervalMs));
-          }
-        }
-      }
-      // Restore the original rules, then clean up the test path.
-      const restoreRes = await fetch(putUrl, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ rules: beforeRules }),
+        },
       });
-      const restoreOk = restoreRes.ok;
+      const restoreOk = guardedProp.restoreOk;
       // Best-effort delete via admin SDK so the cleanup isn't blocked
       // by the post-restore deny rule.
       // (Skipped — the path is under a non-`pyric_oracle/*` namespace
@@ -7037,7 +6992,7 @@ const probes: Probe[] = [
         lastMessage,
         attempts,
         restoreOk,
-        restoreStatus: restoreRes.status,
+        restoreStatus: guardedProp.restoreStatus,
         // The harness currently waits 5s after a rules deploy — is that enough?
         within5s: firstSuccessElapsed !== null && firstSuccessElapsed <= 5_000,
         within10s: firstSuccessElapsed !== null && firstSuccessElapsed <= 10_000,
@@ -7598,25 +7553,6 @@ const probes: Probe[] = [
         ...beforeRules,
         [auditKey]: auditRulesSubtree,
       };
-      const putRes = await fetch(putUrl, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ rules: nextRules }),
-      });
-      if (!putRes.ok) {
-        await dropCurrentUser();
-        const txt = await putRes.text();
-        return { skipped: true, reason: `deploy audit rules failed: ${putRes.status} ${txt}` };
-      }
-      // Wait for the rules to propagate. We'll measure this loosely
-      // by waiting 8s (above the 5s the harness uses for general
-      // propagation) so we're not racing the rules-update.
-      await new Promise((r) => setTimeout(r, 8_000));
-      // For each (rule, op), execute the op against prod RTDB,
-      // capture allow/deny. Then compile the same rules for the
-      // SAME rule subtree (wrapped in a deny-all root for safety),
-      // and run the same op through the simulator with the same
-      // auth context.
       type DivergenceRow = {
         ruleId: string;
         opLabel: string;
@@ -7632,6 +7568,22 @@ const probes: Probe[] = [
       };
       const allResults: DivergenceRow[] = [];
       const divergences: DivergenceRow[] = [];
+      const activeRtdb = rtdb;
+      let earlySkip: Record<string, unknown> | null = null;
+      const guardedAudit = await withGuardedProbeRtdbRules({
+        session: oracleRulesSession,
+        putUrl,
+        beforeRules,
+        nextRulesBody: { rules: nextRules },
+        body: async (putRes) => {
+          if (!putRes.ok) {
+            await dropCurrentUser();
+            const txt = await putRes.text();
+            earlySkip = { skipped: true, reason: `deploy audit rules failed: ${putRes.status} ${txt}` };
+            return;
+          }
+          await new Promise((r) => setTimeout(r, 8_000));
+          if (oracleRulesSession?.isStopping) return;
       // Need to be signed-in anonymously for the authed cases. For
       // anon cases, the simplest path: sign out, run the op, sign
       // back in. (Each rule's op set groups authed and anon ops
@@ -7701,7 +7653,7 @@ const probes: Probe[] = [
               // admin SDK if needed — but since the simulator's
               // mockData is per-op, just rely on whatever the live
               // path holds (empty for fresh runs).
-              await rtdbGet(rtdbRef(rtdb, fullProdPath));
+              await rtdbGet(rtdbRef(activeRtdb, fullProdPath));
             } else {
               // For r3 (data.exists) "write to populated path
               // denied" — first seed the path so prod sees it
@@ -7724,7 +7676,7 @@ const probes: Probe[] = [
                   }
                 } catch { /* seed best-effort */ }
               }
-              await rtdbSet(rtdbRef(rtdb, fullProdPath), newDataSubst ?? null);
+              await rtdbSet(rtdbRef(activeRtdb, fullProdPath), newDataSubst ?? null);
             }
             prodAllowed = true;
           } catch (e) {
@@ -7801,14 +7753,12 @@ const probes: Probe[] = [
           if (!row.agree) divergences.push(row);
         }
       }
-      // Restore rules + cleanup.
-      const restoreRes = await fetch(putUrl, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ rules: beforeRules }),
+        },
       });
-      const restoreOk = restoreRes.ok;
-      // Sign back in just to satisfy the cleanup invariant.
+      if (earlySkip !== null) {
+        return earlySkip;
+      }
+      const restoreOk = guardedAudit.restoreOk;
       if (!auth.currentUser) {
         try { await signInAnonymously(auth); } catch { /* ignored */ }
       }
@@ -7824,7 +7774,7 @@ const probes: Probe[] = [
         divergences,
         allResults,
         restoreOk,
-        restoreStatus: restoreRes.status,
+        restoreStatus: guardedAudit.restoreStatus,
       };
     },
   },
@@ -8830,79 +8780,6 @@ const probes: Probe[] = [
     },
   },
   {
-    name: 'firestore-updatedoc-dotpath-fieldpath',
-    matrixRow: 'firestore #33',
-    rowIds: ['firestore#33'],
-    description: 'updateDoc top-level dot-separated string keys parse as FieldPaths (nested write preserving siblings), not literal keys.',
-    async observe() {
-      await signInAnonymously(auth);
-      const ref = doc(db, RUN_DOC('updatedoc-dotpath'), 'a');
-      try {
-        await setDoc(ref, { a: { b: 1, c: 3 }, top: 1 });
-        await updateDoc(ref, { 'a.b': 2 });
-        const data = (await getDoc(ref)).data() as { a: { b: number; c: number }; top: number };
-        return {
-          data,
-          nestedUpdated: data.a.b,
-          siblingPreserved: data.a.c,
-          literalDotKeyPresent: 'a.b' in data,
-        };
-      } finally {
-        await purge('updatedoc-dotpath');
-        await dropCurrentUser();
-      }
-    },
-  },
-  {
-    name: 'firestore-limittolast-preconditions',
-    matrixRow: 'firestore #61',
-    rowIds: ['firestore#61'],
-    description: 'limitToLast without orderBy — error class/code prod throws; with orderBy returns the trailing window.',
-    async observe() {
-      await signInAnonymously(auth);
-      const c = collection(db, RUN_DOC('limittolast'));
-      try {
-        await setDoc(doc(c, 'a'), { pos: 1 });
-        await setDoc(doc(c, 'b'), { pos: 2 });
-        let noOrderByThrew = false;
-        let code: string | null = null;
-        let message: string | null = null;
-        try {
-          await getDocs(query(c, limitToLast(2)));
-        } catch (e) {
-          noOrderByThrew = true;
-          code = (e as { code?: string }).code ?? null;
-          message = e instanceof Error ? e.message : String(e);
-        }
-        const trailing = await getDocs(query(c, orderBy('pos'), limitToLast(1)));
-        return { noOrderByThrew, code, message, trailingIds: trailing.docs.map((d) => d.id) };
-      } finally {
-        await purge('limittolast');
-        await dropCurrentUser();
-      }
-    },
-  },
-  {
-    name: 'firestore-startat-snapshot-implicit-name',
-    matrixRow: 'firestore #71',
-    rowIds: ['firestore#71'],
-    description: 'startAt(snapshot) disambiguates equal-valued docs via the implicit __name__ tiebreak.',
-    async observe() {
-      await signInAnonymously(auth);
-      const c = collection(db, RUN_DOC('startat-snapshot'));
-      try {
-        for (const id of ['a', 'b', 'c']) await setDoc(doc(c, id), { pos: 1 });
-        const anchor = await getDoc(doc(c, 'b'));
-        const snap = await getDocs(query(c, orderBy('pos'), startAt(anchor)));
-        const idsFromB = snap.docs.map((d) => d.id);
-        return { idsFromB, excludedEqualValuedPredecessor: !idsFromB.includes('a') };
-      } finally {
-        await purge('startat-snapshot');
-        await dropCurrentUser();
-      }
-    },
-  },
-  {
     name: 'storage-uploadstring-unknown-format',
     matrixRow: 'storage #41',
     rowIds: ['storage#41'],
@@ -8937,22 +8814,37 @@ const probes: Probe[] = [
 
 // ─── Runner ───────────────────────────────────────────────────────────
 
+const argv = process.argv.slice(2);
+const { selected, filters } = selectFilteredRunProbes(probes, argv);
+
+if (oracleRunMode(process.argv) === 'preview') {
+  printRunInertPreview({
+    fbSdkVersion: FB_SDK_VERSION,
+    totalCount: probes.length,
+    selected,
+    filters,
+  });
+  process.exit(0);
+}
+
+config = await loadConfig();
+app = initializeApp(config, appName);
+db = getFirestore(app);
+auth = getAuth(app);
+STORAGE_BUCKET = config.storageBucket;
+if (STORAGE_BUCKET) {
+  storage = getStorage(app);
+}
+if (config.databaseURL) {
+  rtdb = getDatabase(app);
+}
+
 async function main(): Promise<void> {
   console.log(`[oracle] firebase-js-sdk ${FB_SDK_VERSION}`);
   console.log(`[oracle] project: ${config.projectId}`);
   console.log(`[oracle] run id: ${RUN_ID}`);
-
-  // Optional CLI filter: `bun run packages/conformance/src/run.ts foo bar` runs
-  // only probes whose name contains any of those substrings. Empty →
-  // run them all. Lets you re-run a subset without churning every
-  // observation file.
-  const argv = process.argv.slice(2);
-  const filters = argv.filter((a) => !a.startsWith('-'));
-  const selected = filters.length === 0
-    ? probes
-    : probes.filter((p) => filters.some((f) => p.name.includes(f)));
   if (filters.length > 0) {
-    console.log(`[oracle] filter: ${filters.join(', ')} → ${selected.length} of ${probes.length} probes`);
+    console.log(`[oracle] filter: ${filters.join(', ')} -> ${selected.length} of ${probes.length} probes`);
   } else {
     console.log(`[oracle] running ${probes.length} probes against real cloud services`);
   }
@@ -8997,29 +8889,22 @@ async function main(): Promise<void> {
   if (session === null) {
     await runProbes();
   } else {
-    // An interrupted run restores the project's rules before it exits.
-    const interrupted = (signal: NodeJS.Signals) => {
-      console.error(`[oracle] ${signal}: restoring the project's rules before exit`);
-      session.restoreAll().then(
-        () => process.exit(130),
-        (error: unknown) => {
-          console.error(error instanceof Error ? error.message : String(error));
-          process.exit(1);
-        },
-      );
-    };
-    process.once('SIGINT', interrupted);
-    process.once('SIGTERM', interrupted);
+    const detachSignals = installOracleSignalRestoreGuard('[oracle]', () =>
+      session.restoreAll(),
+    );
     try {
       await runWithOracleRulesRestored(session, async () => {
         await deployOracleRules(session);
         await runProbes();
       });
-      console.log("[oracle] the project's Firestore and Storage rules are restored and verified");
-      if (config.databaseURL) console.log('[oracle] rtdb rules restored and verified');
+      if (session.restoredFirestoreOrStorage) {
+        console.log("[oracle] the project's Firestore and Storage rules are restored and verified");
+      }
+      if (session.restoredRtdb) {
+        console.log('[oracle] rtdb rules restored and verified');
+      }
     } finally {
-      process.off('SIGINT', interrupted);
-      process.off('SIGTERM', interrupted);
+      detachSignals();
     }
   }
   console.log('[oracle] observations written to observations/<surface>/');

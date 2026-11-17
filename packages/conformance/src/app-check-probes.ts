@@ -17,7 +17,8 @@
  *
  * Requires PYRIC_AI_FIREBASE_CONFIG and an oracle credential (PYRIC_ORACLE_SA_PATH, or PYRIC_ORACLE_PROJECT_ID with Application Default Credentials),
  * both for the same project.
- * Run: bun --env-file=<repo>/.env packages/conformance/src/app-check-probes.ts
+ * Run: PYRIC_ORACLE_PROJECT_ID=<project> PYRIC_AI_FIREBASE_CONFIG='<web config json>' \
+ *   bun run packages/conformance/src/app-check-probes.ts --write
  *
  * `--only=<name>,<name>` runs just those standalone browser probes
  * (STANDALONE_BROWSER_PROBES) and skips the admin, wire, and main-flow
@@ -29,6 +30,7 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import { deleteApp, initializeApp } from 'firebase-admin/app';
 import { getAppCheck } from 'firebase-admin/app-check';
 import { loadOracleServiceAccount, oracleCredentialConfigured } from './oracle-credential.ts';
+import { formatInertPreviewFooter, requireCaptureMode } from './capture-mode-guard.ts';
 import { accessHeaders } from './storage-stdlib-real-api.ts';
 import { registerDebugToken, deleteDebugToken, listRunTokens, sweepRunTokens } from './capture/app-check/debug-tokens.ts';
 import { runAdminProbes } from './capture/app-check/admin-probes.ts';
@@ -60,11 +62,25 @@ function selectedProbes(): string[] | undefined {
 
 const only = selectedProbes();
 
-const webConfigJson = process.env.PYRIC_AI_FIREBASE_CONFIG;
-if (!oracleCredentialConfigured(process.env) || !webConfigJson) {
-  console.error('PYRIC_AI_FIREBASE_CONFIG and PYRIC_ORACLE_SA_PATH or PYRIC_ORACLE_PROJECT_ID are required; nothing was run.');
-  process.exit(1);
-}
+requireCaptureMode({
+  label: 'app-check-probes',
+  scriptPath: 'packages/conformance/src/app-check-probes.ts',
+  extraFlags: '[--only=<name>,<name>]',
+  preview: () => {
+    console.log(`[app-check-probes] INERT preview (no --write flag): ${formatInertPreviewFooter('packages/conformance/src/app-check-probes.ts', '[--only=<name>,<name>]')}`);
+  },
+  missingCredentials: () => {
+    const missing: string[] = [];
+    if (!process.env.PYRIC_AI_FIREBASE_CONFIG) missing.push('PYRIC_AI_FIREBASE_CONFIG');
+    if (!oracleCredentialConfigured(process.env)) {
+      missing.push('PYRIC_ORACLE_SA_PATH or PYRIC_ORACLE_PROJECT_ID');
+    }
+    if (missing.length > 0) return missing.join(', ');
+    return null;
+  },
+});
+
+const webConfigJson = process.env.PYRIC_AI_FIREBASE_CONFIG ?? '{}';
 const sa = await loadOracleServiceAccount();
 const web = JSON.parse(webConfigJson) as WebConfig;
 if (web.projectId !== sa.project_id) throw new Error('Web config and oracle service account target different projects');

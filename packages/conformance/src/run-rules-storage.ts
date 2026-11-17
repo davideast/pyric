@@ -50,6 +50,11 @@ import {
   captureRulesTestApiCompileCheck,
   type CompileCheckCaptureResult,
 } from './rules-compile-check.ts';
+import {
+  formatInertPreviewFooter,
+  requireCaptureMode,
+  stripCaptureFlags,
+} from './capture-mode-guard.ts';
 import { storageRulesTestInputDigest, type StorageScenarioInputDigest } from './storage-rules-input-digest.ts';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -112,11 +117,13 @@ export function selectStorageScenarios(
   args: string[],
   scenarios: StorageScenario[] = ALL_RULES_STORAGE_SCENARIOS,
 ): StorageScenario[] {
+  const cleaned = stripCaptureFlags(args);
   const requested: string[] = [];
-  for (let i = 0; i < args.length; i += 1) {
-    const arg = args[i];
+  for (let i = 0; i < cleaned.length; i += 1) {
+    const arg = cleaned[i];
+    if (!arg) continue;
     if (arg === '--scenario') {
-      const id = args[i + 1];
+      const id = cleaned[i + 1];
       if (!id || id.startsWith('--')) throw new Error('--scenario requires a scenario id');
       requested.push(id);
       i += 1;
@@ -155,9 +162,7 @@ function printInertPlan(scenarios: StorageScenario[]): void {
     );
   }
   console.log(`\n  Total: ${scenarios.length} scenarios, ${totalCases} cases.`);
-  console.log('\n  To capture for real:');
-  console.log('    GOOGLE_APPLICATION_CREDENTIALS=/path/to/credentials.json \\');
-  console.log('      bun run packages/conformance/src/run-rules-storage.ts');
+  console.log(`\n  ${formatInertPreviewFooter('packages/conformance/src/run-rules-storage.ts', '[--scenario <id>]')}`);
 }
 
 export async function captureStorageCompileCheckScenario(
@@ -245,10 +250,17 @@ async function capture(scenarios: StorageScenario[]): Promise<void> {
 }
 
 if (import.meta.main) {
-  const scenarios = selectStorageScenarios(Bun.argv.slice(2));
-  if (!hasParityCredential()) {
-    printInertPlan(scenarios);
-    process.exit(0);
-  }
+  const args = process.argv.slice(2);
+  const scenarios = selectStorageScenarios(args);
+  requireCaptureMode({
+    label: 'oracle:rules-storage',
+    scriptPath: 'packages/conformance/src/run-rules-storage.ts',
+    argv: args,
+    preview: () => printInertPlan(scenarios),
+    missingCredentials: () => {
+      if (hasParityCredential()) return null;
+      return NO_CREDENTIAL_MESSAGE;
+    },
+  });
   await capture(scenarios);
 }
