@@ -6,17 +6,10 @@
  */
 import type { ServiceBlock } from '@pyric/rules/internal';
 import {
-  parseToASTOrError,
-  resolveModulesBrowser,
-  STDLIB_INLINE,
-  topLevelMatches,
-  type Expression,
-  type FirestoreRules,
-  type FunctionDef,
-  type MatchBlock,
-  type Operation,
-  type ParseError,
-  type PathSegment,
+  allServiceBlocks, DUPLICATE_SERVICE_REASON, duplicateServiceRejection, firestoreServiceBlock,
+  isFirestoreServiceName, isStorageServiceName, parseToASTOrError, resolveModulesBrowser,
+  STDLIB_INLINE, topLevelMatches, type Expression, type FirestoreRules, type FunctionDef,
+  type MatchBlock, type Operation, type ParseError, type PathSegment,
 } from '../../rules/internal/index.js';
 import type { RtdbExpressionTree } from '../../rules/internal/rtdb.js';
 
@@ -650,9 +643,7 @@ export function lowerModularRulesInMemory(
 }
 
 function buildDirectServiceMatches(ast: FirestoreRules): ParsedServiceMatches[] {
-  let services = [ast.service];
-  if (ast.services && ast.services.length > 0) services = ast.services;
-  const parsed = services.map((svc) => ({
+  const parsed = allServiceBlocks(ast).map((svc) => ({
     name: svc.name,
     functions: [ast.functions ?? [], svc.functions ?? []],
     matches: topLevelMatches(svc),
@@ -662,9 +653,7 @@ function buildDirectServiceMatches(ast: FirestoreRules): ParsedServiceMatches[] 
 }
 
 function buildNormalizedServiceMatches(fallback: FirestoreRules): ParsedServiceMatches[] {
-  let services = [fallback.service];
-  if (fallback.services && fallback.services.length > 0) services = fallback.services;
-  const parsed = services.map((svc) => {
+  const parsed = allServiceBlocks(fallback).map((svc) => {
     const topMatches = topLevelMatches(svc);
     const root = topMatches[0];
     const globalFns = (fallback.functions ?? []).map(restoreFunctionSentinels);
@@ -739,39 +728,33 @@ export function parseFirestoreRulesAstWithMultiMatch(
 
   const direct = parseToASTOrError(effectiveSource);
   if (direct.ok) {
-    const services =
-      direct.ast.services && direct.ast.services.length > 0
-        ? direct.ast.services
-        : [direct.ast.service];
-    const fsService = services.find((svc) => svc.name === 'cloud.firestore');
-    if (!fsService) return null;
-    const ast: FirestoreRules =
-      fsService === direct.ast.service ? direct.ast : { ...direct.ast, service: fsService };
+    if (duplicateServiceRejection(direct.ast) !== null) return null;
+    const fsService = firestoreServiceBlock(direct.ast) ?? direct.ast.service;
+    let ast = direct.ast;
+    if (fsService && fsService !== direct.ast.service) ast = { ...direct.ast, service: fsService };
     return { source: effectiveSource, ast };
   }
 
   const normalized = normalizeMultiMatchSource(effectiveSource);
   const fallback = parseToASTOrError(normalized);
-  if (!fallback.ok) return null;
+  if (!fallback.ok || duplicateServiceRejection(fallback.ast) !== null) return null;
 
-  const rawServices =
-    fallback.ast.services && fallback.ast.services.length > 0
-      ? fallback.ast.services
-      : [fallback.ast.service];
   const unwrappedServices: ServiceBlock[] = [];
-  for (const svc of rawServices) {
+  for (const svc of allServiceBlocks(fallback.ast)) {
     const unwrapped = unwrapNormalizedServiceBlock(svc);
     if (unwrapped) unwrappedServices.push(unwrapped);
   }
-  const fsService = unwrappedServices.find((svc) => svc.name === 'cloud.firestore');
+  const fsService = unwrappedServices.find((svc) => isFirestoreServiceName(svc.name)) ?? unwrappedServices[0];
   if (!fsService) return null;
-  const ast: FirestoreRules = {
-    ...fallback.ast,
-    functions: (fallback.ast.functions ?? []).map(restoreFunctionSentinels),
-    service: fsService,
-    services: unwrappedServices,
+  return {
+    source: effectiveSource,
+    ast: {
+      ...fallback.ast,
+      functions: (fallback.ast.functions ?? []).map(restoreFunctionSentinels),
+      service: fsService,
+      services: unwrappedServices,
+    },
   };
-  return { source: effectiveSource, ast };
 }
 
 export function parseRulesAstWithMultiMatchOrError(
@@ -795,11 +778,13 @@ export function parseRulesAstWithMultiMatchOrError(
 
   const primary = direct.error;
   const secondary = fallback.error;
-  const chosen =
+  let chosen = primary;
+  if (
     secondary.line > primary.line
     || (secondary.line === primary.line && secondary.column > primary.column)
-      ? secondary
-      : primary;
+  ) {
+    chosen = secondary;
+  }
   return { ok: false, message: formatRulesParseFailure(chosen) };
 }
 
@@ -810,14 +795,18 @@ export function validateRulesSourceSyntax(
 ): { ok: true } | { ok: false; message: string } {
   const parsed = parseRulesAstWithMultiMatchOrError(source, options);
   if (!parsed.ok) return parsed;
+  const seen = new Set<string>();
+  for (const svc of parsed.services) {
+    if (seen.has(svc.name)) {
+      return { ok: false, message: `rules did not compile: ${DUPLICATE_SERVICE_REASON}` };
+    }
+    seen.add(svc.name);
+  }
   if (
-    expectedService !== undefined
-    && !parsed.services.some((svc) => svc.name === expectedService)
+    expectedService === 'firebase.storage'
+    && !parsed.services.some((svc) => isStorageServiceName(svc.name))
   ) {
-    return {
-      ok: false,
-      message: `Missing 'service ${expectedService}' block.`,
-    };
+    return { ok: false, message: `Missing 'service ${expectedService}' block.` };
   }
   return { ok: true };
 }

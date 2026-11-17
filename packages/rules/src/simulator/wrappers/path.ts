@@ -25,11 +25,29 @@
  * makes parity behavior obvious: an unbound path renders as "/users/{uid}"
  * and the resolver returns null.
  */
+import { describeRulesType, isRulesMap } from '../rules-type.js';
 import { RulesValue, NO_OP, type NoOp } from './base.js';
 import { formatRulesFloat, RulesFloat } from './float.js';
 
 /** Recognises {name} placeholders. Spec is restrictive: identifier chars only. */
 const PLACEHOLDER = /^\{([A-Za-z_][A-Za-z0-9_]*)\}$/;
+
+export function validatePathBindArity(argCount: number): void {
+  if (argCount !== 1) {
+    throw new TypeError(
+      `Incorrect number of arguments. Received: ${argCount}. Expected: path.bind(map).`,
+    );
+  }
+}
+
+export function requirePathBindMap(arg: unknown): Record<string, unknown> {
+  if (!isRulesMap(arg)) {
+    throw new TypeError(
+      `Path.bind() requires a Map argument, got ${describeRulesType(arg)}`,
+    );
+  }
+  return arg;
+}
 
 function formatBoundSegment(name: string, value: unknown): string {
   if (value === null || value === undefined) {
@@ -70,15 +88,10 @@ export function bindPathSegments(
   }
 
   const next: string[] = [];
-  const nextBindings: Record<string, string> = {};
-  for (const [key, val] of Object.entries(currentBindings)) {
-    Object.defineProperty(nextBindings, key, {
-      value: val,
-      enumerable: true,
-      writable: true,
-      configurable: true,
-    });
-  }
+  const nextBindings = Object.assign(
+    Object.create(null) as Record<string, string>,
+    currentBindings,
+  );
   for (const seg of segments) {
     const name = PLACEHOLDER.exec(seg)?.[1];
     if (!name) {
@@ -88,12 +101,7 @@ export function bindPathSegments(
     if (Object.hasOwn(bindings, name)) {
       const sv = formatBoundSegment(name, bindings[name]);
       next.push(sv);
-      Object.defineProperty(nextBindings, name, {
-        value: sv,
-        enumerable: true,
-        writable: true,
-        configurable: true,
-      });
+      nextBindings[name] = sv;
     } else {
       next.push(seg);
     }
@@ -176,18 +184,8 @@ export class Path extends RulesValue {
   callMethod(method: string, args: unknown[]): unknown | NoOp {
     switch (method) {
       case 'bind': {
-        if (args.length !== 1) {
-          throw new TypeError(
-            `Incorrect number of arguments. Received: ${args.length}. Expected: path.bind(map).`,
-          );
-        }
-        const m = args[0];
-        if (m === null || m === undefined || typeof m !== 'object' || Array.isArray(m) || m instanceof RulesValue) {
-          throw new TypeError(
-            `Path.bind() requires a Map argument, got ${m === null ? 'null' : typeof m}`,
-          );
-        }
-        return this.bind(m as Record<string, unknown>);
+        validatePathBindArity(args.length);
+        return this.bind(requirePathBindMap(args[0]));
       }
       default:
         return NO_OP;

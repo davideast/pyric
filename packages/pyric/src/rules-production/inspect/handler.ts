@@ -1,9 +1,12 @@
 import type { ProjectScope } from '../../project-scope.js';
 import type { InspectFirestoreRulesResult, RulesSummary } from '@pyric/rules/internal';
-import type { MatchBlock, AllowRule, Expression } from '@pyric/rules/internal';
-import { parseToASTOrError } from '@pyric/rules/internal';
-import { topLevelMatches } from '@pyric/rules/internal';
-import { validateFirestoreRules } from '@pyric/rules/internal';
+import type { MatchBlock, Expression } from '@pyric/rules/internal';
+import {
+  firestoreServiceBlock,
+  parseToASTOrError,
+  topLevelMatches,
+  validateFirestoreRules,
+} from '@pyric/rules/internal';
 
 const RULES_API = 'https://firebaserules.googleapis.com/v1';
 
@@ -45,7 +48,7 @@ export class InspectFirestoreRulesHandler {
 
       // 2. Get the most recent ruleset
       const latest = rulesets[0];
-      const rulesetId = latest.name.split('/').pop()!;
+      const rulesetId = latest.name.split('/').pop() ?? '';
 
       const getRes = await fetch(`${RULES_API}/${latest.name}`, {
         headers: { Authorization: `Bearer ${token}` },
@@ -81,9 +84,10 @@ export class InspectFirestoreRulesHandler {
       }
       const ast = parsed.ast;
 
-      // 4. Build summary + validate
-      const summary = buildSummary(topLevelMatches(ast.service));
-      const findings = validateFirestoreRules(ast);
+      // 4. Build summary + validate against the Firestore service block only
+      const fsService = firestoreServiceBlock(ast);
+      const summary = buildSummary(topLevelMatches(fsService));
+      const findings = validateFirestoreRules(ast, { targetService: 'cloud.firestore' });
 
       return {
         success: true,

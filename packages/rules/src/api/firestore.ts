@@ -14,6 +14,7 @@
 import type { FirestoreRules, ImportDecl } from '../grammar/FirestoreAST.js';
 import { parseToASTOrError } from '../grammar/FirestoreParser.js';
 import { describeCompileLimitViolations } from '../grammar/compile-limits.js';
+import { isFirestoreServiceName } from '../grammar/service-blocks.js';
 import {
   checkRulesSource,
   DUPLICATE_SERVICE_REASON,
@@ -249,7 +250,7 @@ export function firestoreRules(source: string): FirestoreRuleset {
     if (
       initial.ok &&
       initial.ast.version === '2+modules' &&
-      (initial.ast.service === undefined || initial.ast.service.name === 'cloud.firestore') &&
+      (initial.ast.service === undefined || isFirestoreServiceName(initial.ast.service.name)) &&
       duplicateServiceRejection(initial.ast) === null &&
       !initial.ast.imports?.some((imp) => isLocalRelativeModuleSpecifier(imp.module))
     ) {

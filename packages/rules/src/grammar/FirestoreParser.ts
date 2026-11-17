@@ -42,7 +42,7 @@ export interface ParseError {
   message: string;
 }
 
-// ---- Semantics for AST generation ----
+import { isFirestoreServiceName } from './service-blocks.js';
 
 const semantics = grammar.createSemantics();
 
@@ -66,7 +66,7 @@ function placedAt<T extends object>(expr: T, node: { source: { startIdx: number 
  * block keeps its first block, so a Storage ruleset reads as before.
  */
 function serviceFields(blocks: ServiceBlock[]): Pick<FirestoreRules, 'service' | 'services'> {
-  const service = blocks.find((block) => block.name === 'cloud.firestore') ?? blocks[0];
+  const service = blocks.find((block) => isFirestoreServiceName(block.name)) ?? blocks[0];
   return { service, services: blocks };
 }
 

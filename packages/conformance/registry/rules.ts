@@ -829,6 +829,7 @@ export const rulesRegistry = {
           conformanceTests: [
             "packages/pyric/test/rules/oracle-conformance.test.ts",
             "packages/rules/test/simulator/path-bind-parity.test.ts",
+            "packages/rules/test/linter/path-interpolation.test.ts",
           ],
           constructs: ["firestore.method.path.bind"],
         }),
@@ -878,6 +879,7 @@ export const rulesRegistry = {
             "packages/pyric/test/rules/oracle-conformance.test.ts",
             "packages/pyric/test/rules/grammar/source-service-check.test.ts",
             "packages/rules/test/grammar/corpus.test.ts",
+            "packages/rules/test/linter/service-declarations.test.ts",
           ],
         }),
         row1({
@@ -894,6 +896,7 @@ export const rulesRegistry = {
             "packages/pyric/test/rules/oracle-conformance.test.ts",
             "packages/pyric/test/rules/grammar/source-service-check.test.ts",
             "packages/rules/test/grammar/corpus.test.ts",
+            "packages/rules/test/linter/service-declarations.test.ts",
           ],
         }),
       ],

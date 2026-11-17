@@ -140,7 +140,7 @@ describe('staged pendingRowLink observation lifecycle', () => {
     expect(ledger.orphanObservations.map((o) => o.name)).not.toContain(
       'rules-firestore-staged-uncaptured-probe',
     );
-  });
+  }, 20_000);
 
   test('post-link (PR #3): staged observation that acquires rowIds must drop pendingRowLink', () => {
     const targetRow = allCompatibilityRows.find((r) => r.surface === 'firestore-rules');

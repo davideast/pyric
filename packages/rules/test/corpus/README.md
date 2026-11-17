@@ -37,20 +37,22 @@ corpus/
 | 020-complex-real-world | Full blog app with functions, validation, cross-doc |
 | 021-production-blockingfun | Real deployed rules from the blockingfun project |
 
-## Invalid (8 files)
+## Invalid (10 files)
 
 | File | Tests |
 |---|---|
-| 001-missing-version | No `rules_version` declaration |
 | 002-missing-semicolon | Allow statement without trailing `;` |
 | 003-unclosed-match | Missing closing brace |
 | 004-invalid-operation | `allow readwrite` (not a valid operation) |
 | 005-expression-syntax-error | Incomplete expression (`!= ;`) |
 | 006-function-no-return | Function body without `return` |
 | 007-unclosed-paren | Unbalanced parentheses |
-| 008-wrong-service | `service firebase.storage` (not Firestore) |
+| 009-import-after-function | `import` placed after a `function` declaration |
+| 010-function-before-version | `function` placed before `rules_version` |
+| 012-unsupported-rules-version | Unsupported `rules_version = '3'` |
+| 013-invalid-regex-lookahead | Invalid RE2 lookahead in `matches()` |
 
-## Edge Cases (8 files)
+## Edge Cases (10 files)
 
 | File | Tests |
 |---|---|
@@ -62,6 +64,8 @@ corpus/
 | 006-null-checks | Optional fields, null comparisons |
 | 007-map-diff | `diff()`, `affectedKeys()` methods |
 | 008-timestamp-operations | `request.time`, `duration.value()` |
+| 009-wrong-service | `service firebase.storage` (compiles and denies all Firestore requests) |
+| 030-missing-version | Optional `rules_version` (defaults to version 1) |
 
 ## How to use
 

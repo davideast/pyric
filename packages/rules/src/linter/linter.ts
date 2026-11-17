@@ -30,8 +30,14 @@ import {
 import { checkSyntaxHints, checkHallucinations } from './hallucinations.js';
 import { countDocumentAccessCalls } from '../grammar/document-access-count.js';
 import { recursiveScope, type RecursiveScope } from '../grammar/recursive-scope.js';
-import { allServiceBlocks, isStorageServiceName, topLevelMatches, withSingleService } from '../grammar/service-blocks.js';
-import { checkServiceDeclarations, selectServicesToAnalyze } from './service-declarations.js';
+import {
+  allServiceBlocks,
+  isStorageServiceName,
+  selectServicesToAnalyze,
+  topLevelMatches,
+  withSingleService,
+} from '../grammar/service-blocks.js';
+import { checkServiceDeclarations } from './service-declarations.js';
 import {
   analyzeCallChains,
   collectRulesetScopes,

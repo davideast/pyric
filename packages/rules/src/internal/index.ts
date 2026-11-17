@@ -39,7 +39,16 @@ export {
 export type { ParseError, ParseResult } from '../grammar/FirestoreParser.js';
 export { assembleRules, assembleExpression, assembleExpression as printExpression } from '../grammar/FirestoreAssembler.js';
 export { validateFirestoreRules } from '../grammar/FirestoreValidator.js';
-export { isStorageServiceName, topLevelMatches } from '../grammar/service-blocks.js';
+export {
+  allServiceBlocks,
+  firestoreServiceBlock,
+  isFirestoreServiceName,
+  isRecognizedServiceName,
+  isStorageServiceName,
+  selectServicesToAnalyze,
+  topLevelMatches,
+} from '../grammar/service-blocks.js';
+export type { LintTargetService } from '../grammar/service-blocks.js';
 export { compileLimitViolations, describeCompileLimitViolations } from '../grammar/compile-limits.js';
 export {
   checkRulesSource,

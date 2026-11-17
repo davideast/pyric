@@ -16,12 +16,8 @@
 //   no IR to lint against). The per-expression parse check below therefore
 //   reaches the expression parser directly.
 import {
-  parseToASTOrError,
-  parseRtdbExpression,
-  rulesGrammarRejection,
-  rulesSourceRejection,
-  type MatchBlock,
-  type PathSegment,
+  firestoreServiceBlock, parseToASTOrError, parseRtdbExpression,
+  rulesGrammarRejection, rulesSourceRejection, type MatchBlock, type PathSegment,
 } from "pyric/rules/internal";
 import { rtdbRulesSourceRejection } from "pyric/rules/internal/rtdb";
 import { resolveDatabaseInstance } from "pyric/sandbox/internal";
@@ -376,9 +372,10 @@ function firestoreRequirements(
   const parsed = parseToASTOrError(rules);
   if (!parsed.ok) return requirements;
 
+  const fsService = firestoreServiceBlock(parsed.ast);
   const operations = [probe.control, probe.mutation.operation];
-  const overlapping = parsed.ast.service?.name === "cloud.firestore" && operations.some((operation) =>
-    hasOverlappingFirestoreMatch(parsed.ast.service.match, operation),
+  const overlapping = fsService !== undefined && operations.some((operation) =>
+    hasOverlappingFirestoreMatch(fsService.match, operation),
   );
   requirements.push(
     requirement(

@@ -25,6 +25,11 @@ import type {
 import { isStorageServiceName, topLevelMatches } from '../grammar/service-blocks.js';
 import type { LintWarning } from './linter.js';
 import { stripCommentsAndStrings } from './ast-utils.js';
+import {
+  emitPathInterpolationWarnings,
+  markBoundLetPathLiteralsInAst,
+  markPathLiteralRoles,
+} from './path-interpolation.js';
 
 // ─── Known-bad sets ───────────────────────────────────────────────────
 
@@ -453,12 +458,10 @@ export function checkHallucinations(ast: FirestoreRules, options: { allowDebug?:
   for (const fn of ast.service.functions ?? []) outerScope.add(fn.name);
 
   const boundPathLiterals = new WeakSet<Expression>();
+  const lookupPathLiterals = new WeakSet<Expression>();
+  markBoundLetPathLiteralsInAst(ast, boundPathLiterals);
   const visitNode: ExprVisitor = (expr, loc, scope, localVars) => {
-    if (expr.type === 'methodCall' && expr.method === 'bind') {
-      let target = expr.object;
-      while (target.type === 'methodCall' && target.method === 'bind') target = target.object;
-      if (target.type === 'pathLiteral') boundPathLiterals.add(target);
-    }
+    markPathLiteralRoles(expr, scope, localVars, boundPathLiterals, lookupPathLiterals);
     if (isUnresolvedDebugCall(expr, scope, options.allowDebug)) {
       emit('HALLUCINATED_GLOBAL', 'debug', loc, {
         rule: 'HALLUCINATED_GLOBAL',
@@ -581,25 +584,9 @@ export function checkHallucinations(ast: FirestoreRules, options: { allowDebug?:
       });
     }
 
-    if (expr.type === 'pathLiteral' && !boundPathLiterals.has(expr)) {
-      for (const seg of expr.segments) {
-        if (typeof seg !== 'string') continue;
-        const m = seg.match(/^\{([A-Za-z_][A-Za-z0-9_]*)\}$/);
-        if (!m) continue;
-        const name = m[1];
-        emit('INVALID_PATH_INTERPOLATION', `${expr.raw}|${name}`, loc, {
-          rule: 'INVALID_PATH_INTERPOLATION',
-          severity: 'error',
-          message:
-            `\`{${name}}\` inside an unbound path literal stays a literal segment rather than interpolating a variable -- ` +
-            `the \`{var}\` syntax is for match statement wildcards or \`(/path/{var}).bind(...)\` templates, while ` +
-            `path interpolation in get()/exists()/getAfter()/existsAfter() requires \`$(var)\`. ` +
-            `Replace \`{${name}}\` with \`$(${name})\` in path \`${expr.raw}\`.`,
-          location: loc,
-          fix: `Replace \`{${name}}\` with \`$(${name})\` inside the path argument.`,
-        });
-      }
-    }
+    emitPathInterpolationWarnings(expr, loc, boundPathLiterals, lookupPathLiterals, (rule, key, w) => {
+      emit(rule, key, loc, w);
+    });
 
     if (isMethodMissingParens(expr, isStorage)) {
       if (expr.type === 'memberAccess') {

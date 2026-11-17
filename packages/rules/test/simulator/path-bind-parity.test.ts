@@ -1,7 +1,13 @@
 import { describe, expect, test } from 'bun:test';
-import { firestoreRules, lint } from '../../src/index.js';
-import { parseStorageRules } from '../../src/storage/rules.js';
+import { firestoreRules } from '../../src/index.js';
+import { Path } from '../../src/simulator/wrappers/path.js';
+import { parseStorageRules, type Expr } from '../../src/storage/rules.js';
 import { evaluateStorageRules } from '../../src/storage/rules-evaluator.js';
+import {
+  clearPreEvaluatedArguments,
+  setPreEvaluatedArguments,
+} from '../../src/storage/rules-method-calls.js';
+import { pathMethods } from '../../src/storage/rules-path.js';
 
 function evalFirestore(condition: string, matchPath = '/items/{id}', requestPath = 'items/d1') {
   const ruleset = firestoreRules(`rules_version = '2';
@@ -56,7 +62,6 @@ describe('Cross-engine Path.bind() parity', () => {
     expect(fsDirect.trace[0]?.verdict).toBe('ERROR');
     expect(fsDirect.trace[0]?.message).toContain('Variable(s) x do not exist in the path template.');
 
-    // Because .bind() errors rather than returning an unchanged path, != and == raw path also deny:
     expect(evalFirestore("path('/a/$(x)').bind({'x': '1'}) != path('/a/1')").decision).toBe('DENY');
     expect(evalFirestore("path('/a/$(x)').bind({'x': '1'}) == path('/a/$(x)')").decision).toBe('DENY');
     expect(evalFirestore("(path('/a/$(x)').bind({'x': '1'}) == path('/a/1')) || true").decision).toBe('ALLOW');
@@ -97,26 +102,34 @@ describe('Cross-engine Path.bind() parity', () => {
     expect(evalStorage("((/a/$(x)).bind({'x': '1'}) == path('/a/1')) || true").allowed).toBe(true);
   });
 
-  test('lint() and firestoreRules().lint() accept {x} placeholders on (/a/{x}).bind(...) while still flagging unbound lookup paths', () => {
-    const validBindRules = `rules_version = '2';
-service cloud.firestore {
-  match /databases/{database}/documents {
-    match /items/{id} {
-      allow get: if request.auth != null && (/a/{x}).bind({'x': '1'}) == path('/a/1');
-    }
-  }
-}`;
-    expect(lint(validBindRules).filter((i) => i.code === 'INVALID_PATH_INTERPOLATION')).toEqual([]);
-    expect(firestoreRules(validBindRules).lint().filter((i) => i.code === 'INVALID_PATH_INTERPOLATION')).toEqual([]);
+  test('rejects non-Map Rules wrappers such as Set or MapDiff with map-argument error in both engines', () => {
+    const fsSet = evalFirestore("path('/a/{items}').bind(['x'].toSet()) == path('/a/x')");
+    expect(fsSet.decision).toBe('DENY');
+    expect(fsSet.trace[0]?.message).toContain('requires a Map argument');
 
-    const uninterpolatedLookup = `rules_version = '2';
-service cloud.firestore {
-  match /databases/{database}/documents {
-    match /items/{id} {
-      allow get: if request.auth != null && exists(/databases/{database}/documents/items/{id});
+    const stSet = evalStorage("path('/a/{items}').bind(['x'].toSet()) == path('/a/x')");
+    expect(stSet.allowed).toBe(false);
+    expect(stSet.reasons.join(' ')).toContain('requires a Map argument');
+  });
+
+  test('Storage evalPathBind preserves existing bindings when converting a Path receiver', () => {
+    const receiver = new Path(['a', '1', '{y}'], { x: '1' });
+    const call: Extract<Expr, { kind: 'methodcall' }> = {
+      kind: 'methodcall',
+      target: { kind: 'ident', name: 'p' },
+      method: 'bind',
+      args: [{ kind: 'map', entries: [] }],
+    };
+    setPreEvaluatedArguments(call, [{ y: '2' }]);
+    try {
+      const bound = pathMethods.bind(receiver, call, {} as never) as {
+        bindings?: Readonly<Record<string, string>>;
+        segments?: string[];
+      };
+      expect(bound.segments).toEqual(['a', '1', '2']);
+      expect(bound.bindings).toEqual({ x: '1', y: '2' });
+    } finally {
+      clearPreEvaluatedArguments(call);
     }
-  }
-}`;
-    expect(lint(uninterpolatedLookup).filter((i) => i.code === 'INVALID_PATH_INTERPOLATION')).toHaveLength(2);
   });
 });

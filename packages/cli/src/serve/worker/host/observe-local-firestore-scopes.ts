@@ -4,6 +4,7 @@
  */
 import {
   checkRulesSource,
+  firestoreServiceBlock,
   indexRulesetScopes,
   readAuthoredSourceMap,
   renderMatchBlockPath,
@@ -100,12 +101,13 @@ function indexFunctionMaps(ast: FirestoreRules): {
   const fnLexicalScopes = new Map<FunctionDef, FunctionScopeMap>();
   const allFunctions = new Map<string, readonly FunctionDef[]>();
 
+  const fsService = firestoreServiceBlock(ast);
   const rootLexical = new Map<string, FunctionDef>();
   for (const fn of ast.functions ?? []) {
     rootLexical.set(fn.name, fn);
     appendAllFunction(allFunctions, fn);
   }
-  for (const fn of ast.service?.functions ?? []) {
+  for (const fn of fsService?.functions ?? []) {
     rootLexical.set(fn.name, fn);
     appendAllFunction(allFunctions, fn);
   }
@@ -136,10 +138,7 @@ function indexFunctionMaps(ast: FirestoreRules): {
     }
   };
 
-  let roots: readonly MatchBlock[] = [];
-  if (ast.service?.name === 'cloud.firestore') {
-    roots = topLevelMatches(ast.service);
-  }
+  const roots = topLevelMatches(fsService);
   for (const rootBlock of roots) {
     const rootWithBlock = new Map(rootLexical);
     for (const fn of rootBlock.functions) {

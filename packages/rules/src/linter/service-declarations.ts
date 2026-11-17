@@ -1,16 +1,15 @@
-import type { FirestoreRules, ServiceBlock } from '../grammar/FirestoreAST.js';
-import { allServiceBlocks, isStorageServiceName } from '../grammar/service-blocks.js';
+import type { FirestoreRules } from '../grammar/FirestoreAST.js';
+import {
+  allServiceBlocks,
+  firestoreServiceBlock,
+  isRecognizedServiceName,
+  type LintTargetService,
+} from '../grammar/service-blocks.js';
 import {
   DUPLICATE_SERVICE_REASON,
   duplicateServiceRejection,
 } from '../grammar/source-compile-limits.js';
 import type { LintWarning } from './linter.js';
-
-export type LintTargetService = 'cloud.firestore' | 'firebase.storage' | 'all';
-
-function isRecognizedServiceName(name: string): boolean {
-  return name === 'cloud.firestore' || isStorageServiceName(name);
-}
 
 /**
  * Check `service` block declarations in a parsed rules file:
@@ -53,8 +52,7 @@ export function checkServiceDeclarations(
   }
   if (targetService === 'cloud.firestore') {
     const first = services[0];
-    const hasFirestoreService = services.some((s) => s.name === 'cloud.firestore');
-    if (first !== undefined && !hasFirestoreService) {
+    if (first !== undefined && firestoreServiceBlock(ast) === undefined) {
       let location: LintWarning['location'];
       if (first.loc) {
         location = { line: first.loc.line };
@@ -71,24 +69,4 @@ export function checkServiceDeclarations(
     }
   }
   return warnings;
-}
-
-export function selectServicesToAnalyze(
-  ast: FirestoreRules,
-  targetService: LintTargetService | undefined,
-): ServiceBlock[] {
-  const allServices = allServiceBlocks(ast);
-  if (targetService === 'all') {
-    return allServices.filter((s) => isRecognizedServiceName(s.name));
-  }
-  if (targetService === 'firebase.storage') {
-    return allServices.filter((s) => isStorageServiceName(s.name));
-  }
-  if (targetService === 'cloud.firestore') {
-    return allServices.filter((s) => s.name === 'cloud.firestore');
-  }
-  if (ast.service && isRecognizedServiceName(ast.service.name)) {
-    return [ast.service];
-  }
-  return [];
 }

@@ -6,6 +6,7 @@ import {
   analyzeListRulePathInvariance,
   attachOrBudgetStep,
   buildListRuleFunctionScope,
+  firestoreServiceBlock,
   indexRulesetScopes,
   projectWorstCaseBudgetExpr,
   resolveRootBlockMatch,
@@ -25,8 +26,9 @@ import {
 } from '@pyric/rules/internal';
 
 export function rulesetHasRootForDatabase(ast: FirestoreRules, resourceId: string): boolean {
-  if (ast.service?.name !== 'cloud.firestore') return false;
-  for (const rootBlock of topLevelMatches(ast.service)) {
+  const service = firestoreServiceBlock(ast);
+  if (!service) return false;
+  for (const rootBlock of topLevelMatches(service)) {
     const segments = rootBlock.path.segments;
     const first = segments[0];
     const second = segments[1];
@@ -455,19 +457,20 @@ export function projectCollectionGroupAst(
   collectionId: string,
 ): FirestoreRules | null {
   indexRulesetScopes(ast);
-  if (!rootGovernsEveryDocument(ast)) return null;
+  const service = firestoreServiceBlock(ast);
+  if (!service || !rootGovernsEveryDocument(ast)) return null;
 
   const requiredFunctionDefs = new Set<FunctionDef>();
   const projectedRoots: MatchBlock[] = [];
 
-  for (const rootBlock of topLevelMatches(ast.service)) {
+  for (const rootBlock of topLevelMatches(service)) {
     if (!rootBlockGovernsEveryDocument(rootBlock, ast.version)) continue;
     const rootMatch = resolveRootBlockMatch(rootBlock, ast.version, '');
     if (!rootMatch) continue;
 
     const outerFunctions = [
       ...(ast.functions ?? []),
-      ...(ast.service.functions ?? []),
+      ...(service.functions ?? []),
       ...rootBlock.functions,
     ];
     const blockRequiredDefs = new Set<FunctionDef>();
