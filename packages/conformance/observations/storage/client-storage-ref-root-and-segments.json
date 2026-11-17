@@ -1,0 +1,57 @@
+{
+  "name": "client-storage-ref-root-and-segments",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "firebase/storage ref(storage) and ref(storage, path) root and segment properties: observes fullPath, name, parent, root value-object semantics, and gs://<bucket>/<fullPath> string formatting.",
+  "observedAt": "2026-11-17T23:55:21.167Z",
+  "fbSdkVersion": "12.19.0",
+  "behavior": {
+    "bareRoot": {
+      "bucket": "buckets-default",
+      "fullPath": "",
+      "name": "",
+      "hasParent": false,
+      "parentFullPath": null,
+      "rootFullPath": "",
+      "toStringValue": "gs://buckets-default/",
+      "rootStrictEqualSelf": false,
+      "rootToStringMatchesSelf": true
+    },
+    "emptyStringRoot": {
+      "bucket": "buckets-default",
+      "fullPath": "",
+      "name": "",
+      "hasParent": false,
+      "parentFullPath": null,
+      "rootFullPath": "",
+      "toStringValue": "gs://buckets-default/"
+    },
+    "singleSegment": {
+      "bucket": "buckets-default",
+      "fullPath": "readme.txt",
+      "name": "readme.txt",
+      "hasParent": true,
+      "parentFullPath": "",
+      "rootFullPath": "",
+      "toStringValue": "gs://buckets-default/readme.txt"
+    },
+    "nestedSegments": {
+      "bucket": "buckets-default",
+      "fullPath": "sessions/s1.json",
+      "name": "s1.json",
+      "hasParent": true,
+      "parentFullPath": "sessions",
+      "rootFullPath": "",
+      "toStringValue": "gs://buckets-default/sessions/s1.json"
+    },
+    "deepSegments": {
+      "bucket": "buckets-default",
+      "fullPath": "orgs/acme/projects/p1/report.csv",
+      "name": "report.csv",
+      "hasParent": true,
+      "parentFullPath": "orgs/acme/projects/p1",
+      "rootFullPath": "",
+      "toStringValue": "gs://buckets-default/orgs/acme/projects/p1/report.csv"
+    }
+  }
+}
