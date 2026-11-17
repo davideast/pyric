@@ -19,7 +19,7 @@ async function loadBrowserSupports(source: string): Promise<unknown> {
   return projection.CONFORMANCE_SUPPORTS;
 }
 
-function syntheticSupport(feature: string, caveats: string[]): FeatureSupport {
+function syntheticSupport(feature: string, caveats: string[], summary = `${feature} summary`): FeatureSupport {
   return {
     feature,
     surface: 'storage',
@@ -28,7 +28,7 @@ function syntheticSupport(feature: string, caveats: string[]): FeatureSupport {
     availability: 'available',
     fidelity: 'diverged',
     assurance: 'eligible',
-    summary: `${feature} summary`,
+    summary,
     caveats,
     claims: [],
   };
@@ -55,8 +55,19 @@ describe('can-i-use source template', () => {
     expect(source).toContain('export interface BrowserFeatureSupport');
     expect(source).not.toContain('FeatureClaim');
     expect(source).not.toContain('"claims":');
-    // 600,000 until the App Check and AI Logic hunt rows (601 KB with one-sentence caveats); the reviewer decides budget or caveat format.
-    expect(Buffer.byteLength(source)).toBeLessThan(610_000);
+    expect(Buffer.byteLength(source)).toBeLessThan(400_000);
+  });
+
+  it('stores each shared summary suffix once in the browser projection', () => {
+    const source = renderBrowserQuery(model);
+    const suffixes = model.supports
+      .filter((support) => support.summary.startsWith(support.feature))
+      .map((support) => support.summary.slice(support.feature.length));
+    const sharedSuffix = suffixes.find(
+      (suffix, index, all) => suffix.length > 30 && all.indexOf(suffix) !== index,
+    );
+    expect(sharedSuffix).toBeDefined();
+    expect(source.split(JSON.stringify(sharedSuffix)).length - 1).toBe(1);
   });
 
   it('stores each shared caveat text once in the browser projection', () => {
@@ -88,12 +99,12 @@ describe('can-i-use source template', () => {
     expect(new Set(lists).size).toBe(lists.length);
   }, 60_000);
 
-  it('round-trips repeated, empty, and special-character caveats through the browser projection', async () => {
-    const special = 'quote " backslash \\ newline \n tab \t separator   emoji \u{1F600} `code` ${template} </script>';
+  it('round-trips repeated, empty, custom-summary, and special-character rows through the browser projection', async () => {
+    const special = 'quote " backslash \\ newline \n tab \t separator \u2028 emoji \u{1F600} `code` ${template} </script>';
     const supports = [
       syntheticSupport('first', ['shared', special, '', 'shared']),
       syntheticSupport('second', ['', 'only-second', special]),
-      syntheticSupport('third', []),
+      syntheticSupport('third', [], 'custom standalone summary without feature prefix'),
       syntheticSupport('fourth', ['shared', 'shared', 'shared']),
     ];
     const synthetic: ConformanceModel = { ...model, supports };

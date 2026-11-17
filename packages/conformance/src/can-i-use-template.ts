@@ -54,6 +54,8 @@ class InternTable<T> {
   }
 }
 
+type EncodedSummary = number | string;
+
 /** One support as a positional row. The order here, the generated
  * `SupportRow` type, and `DECODE_SUPPORTS` must agree. */
 type SupportRow = [
@@ -64,7 +66,7 @@ type SupportRow = [
   availability: number,
   fidelity: number,
   assurance: number,
-  summary: string,
+  summary: EncodedSummary,
   caveats: number[],
 ];
 
@@ -75,6 +77,7 @@ interface SupportTables {
   availabilities: InternTable<string>;
   fidelities: InternTable<string>;
   assurances: InternTable<string>;
+  summarySuffixes: InternTable<string>;
   caveats: InternTable<string>;
 }
 
@@ -86,8 +89,20 @@ function emptyTables(): SupportTables {
     availabilities: new InternTable(),
     fidelities: new InternTable(),
     assurances: new InternTable(),
+    summarySuffixes: new InternTable(),
     caveats: new InternTable(),
   };
+}
+
+function encodeSummary(
+  feature: string,
+  summary: string,
+  summarySuffixes: InternTable<string>,
+): EncodedSummary {
+  if (summary.startsWith(feature)) {
+    return summarySuffixes.index(summary.slice(feature.length));
+  }
+  return summary;
 }
 
 function toRow(support: FeatureSupport, tables: SupportTables): SupportRow {
@@ -99,7 +114,7 @@ function toRow(support: FeatureSupport, tables: SupportTables): SupportRow {
     tables.availabilities.index(support.availability),
     tables.fidelities.index(support.fidelity),
     tables.assurances.index(support.assurance),
-    support.summary,
+    encodeSummary(support.feature, support.summary, tables.summarySuffixes),
     support.caveats.map((caveat) => tables.caveats.index(caveat)),
   ];
 }
@@ -108,11 +123,15 @@ function tableConstant(name: string, elementType: string, table: InternTable<unk
   return `const ${name}: readonly ${elementType}[] = ${JSON.stringify(table.values)};`;
 }
 
-const GENERATED_SUPPORT_ROW_TYPE = 'type SupportRow = readonly [feature: string, surface: number, importPaths: number, evidenceSlug: number, availability: number, fidelity: number, assurance: number, summary: string, caveats: readonly number[]];';
+const GENERATED_SUPPORT_ROW_TYPE = 'type SupportRow = readonly [feature: string, surface: number, importPaths: number, evidenceSlug: number, availability: number, fidelity: number, assurance: number, summary: number | string, caveats: readonly number[]];';
 
 /** Decodes each row into the same object, with the same key order, that the
  * model holds. Every row gets its own import path and caveat arrays. */
 const DECODE_SUPPORTS = [
+  'function decodeSummary(feature: string, summary: number | string): string {',
+  "  if (typeof summary === 'number') return feature + (SUMMARY_SUFFIXES[summary] ?? '');",
+  '  return summary;',
+  '}',
   'export const CONFORMANCE_SUPPORTS: readonly BrowserFeatureSupport[] = SUPPORT_ROWS.map(',
   '  ([feature, surface, importPaths, evidenceSlug, availability, fidelity, assurance, summary, caveats]) => ({',
   '    feature,',
@@ -122,7 +141,7 @@ const DECODE_SUPPORTS = [
   '    availability: AVAILABILITY_VALUES[availability]!,',
   '    fidelity: FIDELITY_VALUES[fidelity]!,',
   '    assurance: ASSURANCE_VALUES[assurance]!,',
-  '    summary,',
+  '    summary: decodeSummary(feature, summary),',
   '    caveats: caveats.map((index) => CAVEAT_TEXT[index]!),',
   '  }),',
   ');',
@@ -145,6 +164,7 @@ export function renderBrowserQuery(model: ConformanceModel): string {
     tableConstant('AVAILABILITY_VALUES', 'Availability', tables.availabilities),
     tableConstant('FIDELITY_VALUES', 'Fidelity', tables.fidelities),
     tableConstant('ASSURANCE_VALUES', 'Assurance', tables.assurances),
+    tableConstant('SUMMARY_SUFFIXES', 'string', tables.summarySuffixes),
     tableConstant('CAVEAT_TEXT', 'string', tables.caveats),
     GENERATED_SUPPORT_ROW_TYPE,
     `const SUPPORT_ROWS: readonly SupportRow[] = ${JSON.stringify(rows)};`,
