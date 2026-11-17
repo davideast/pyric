@@ -10,6 +10,7 @@
 
 import { createHash, generateKeyPairSync } from 'node:crypto';
 import { PassThrough, Writable } from 'node:stream';
+import { finished } from 'node:stream/promises';
 import {
   cert,
   deleteApp as deleteUpstreamApp,
@@ -180,6 +181,7 @@ const activeWriteSinkByStorage = new WeakMap<
   (bucket: string, name: string, data: Buffer) => void
 >();
 const transportHookByStorage = new WeakMap<object, () => void>();
+const activeStreamsByStorage = new WeakMap<object, Set<Writable>>();
 
 function ensureGcsWriteStreamPatched(sampleFile: object): void {
   if (patchedGcsFilePrototype) return;
@@ -198,22 +200,44 @@ function ensureGcsWriteStreamPatched(sampleFile: object): void {
     transportHookByStorage.get(this.storage)?.();
     const chunks: Buffer[] = [];
     const sink = activeWriteSinkByStorage.get(this.storage);
+    const tracked = activeStreamsByStorage.get(this.storage);
     const bucketName = this.bucket.name;
     const objectName = this.name;
-    return new Writable({
-      write(chunk: Buffer | string, encoding, cb) {
+    // Use `objectMode: true` and reject non-byte chunks via `cb(TypeError)` so
+    // `stream.pipeline` inside `@google-cloud/storage` `File.save` receives the
+    // error cleanly without an uncaught `ondata` throw on Bun 1.3.11.
+    const stream = new Writable({
+      objectMode: true,
+      write(chunk: unknown, encoding, cb) {
         if (typeof chunk === 'string') {
           chunks.push(Buffer.from(chunk, encoding));
-        } else {
-          chunks.push(Buffer.from(chunk));
+          cb();
+          return;
         }
-        cb();
+        if (chunk instanceof Uint8Array) {
+          chunks.push(Buffer.from(chunk.buffer, chunk.byteOffset, chunk.byteLength));
+          cb();
+          return;
+        }
+        cb(
+          new TypeError(
+            'The "chunk" argument must be of type string or an instance of Buffer or Uint8Array.',
+          ),
+        );
       },
       final(cb) {
         sink?.(bucketName, objectName, Buffer.concat(chunks));
         cb();
       },
     });
+    if (tracked !== undefined) {
+      tracked.add(stream);
+      finished(stream).then(
+        () => tracked.delete(stream),
+        () => tracked.delete(stream),
+      );
+    }
+    return stream;
   };
   patchedGcsFilePrototype = true;
 }
@@ -289,9 +313,12 @@ export function createOfflineUpstreamStorageHarness(
   ensureGcsWriteStreamPatched(probeFile);
 
   let reachedTransport = false;
+  let disposed = false;
   const objects = new Map<string, StoredWireObject>();
+  const activeStreams = new Set<Writable>();
   const keyOf = (bucket: string, name: string): string => `${bucket}\0${name}`;
 
+  activeStreamsByStorage.set(gcsClient, activeStreams);
   transportHookByStorage.set(gcsClient, () => {
     reachedTransport = true;
   });
@@ -477,9 +504,23 @@ export function createOfflineUpstreamStorageHarness(
       return reachedTransport;
     },
     async dispose() {
+      if (disposed) return;
+      disposed = true;
+      for (const s of [...activeStreams]) {
+        s.on('error', () => {});
+        if (!s.destroyed) {
+          s.destroy();
+        }
+        await finished(s).catch(() => {});
+      }
+      activeStreamsByStorage.delete(gcsClient);
       activeWriteSinkByStorage.delete(gcsClient);
       transportHookByStorage.delete(gcsClient);
-      await deleteUpstreamApp(app).catch(() => {});
+      try {
+        await deleteUpstreamApp(app);
+      } catch {
+        // Ignore if `afterEach` already deleted the app.
+      }
     },
   };
 }

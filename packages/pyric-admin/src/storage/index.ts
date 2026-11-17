@@ -1333,6 +1333,7 @@ function spooledWriteStream(commit: (spooled: string) => Promise<void>): Writabl
       mkdtemp(join(tmpdir(), 'pyric-admin-upload-')).then(created => {
         directory = created;
         sink = createFileWriteStream(join(created, 'object'));
+        sink.on('error', () => {});
         callback();
       }, callback);
     },

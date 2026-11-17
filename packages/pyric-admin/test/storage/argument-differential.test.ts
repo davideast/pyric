@@ -6,6 +6,7 @@
 
 import 'fake-indexeddb/auto';
 import type { Readable, Writable } from 'node:stream';
+import { finished } from 'node:stream/promises';
 import { afterEach, describe, expect, it } from 'bun:test';
 import admin from 'firebase-admin';
 import {
@@ -95,9 +96,43 @@ function compareStorageOutcomes(
   return null;
 }
 
+async function settleReadable(stream: Readable): Promise<void> {
+  let streamErr: unknown;
+  stream.on('error', (err) => {
+    if (streamErr === undefined) streamErr = err;
+  });
+  const done = finished(stream).catch((err) => {
+    if (streamErr === undefined) streamErr = err;
+  });
+  stream.resume();
+  await done;
+  if (streamErr !== undefined) throw streamErr;
+}
+
+async function settleWritable(stream: Writable): Promise<void> {
+  let streamErr: unknown;
+  stream.on('error', (err) => {
+    if (streamErr === undefined) streamErr = err;
+  });
+  const done = finished(stream).catch((err) => {
+    if (streamErr === undefined) streamErr = err;
+  });
+  stream.end('abc');
+  await done;
+  if (streamErr !== undefined) throw streamErr;
+}
+
 afterEach(async () => {
-  for (const app of getApps()) await deleteApp(app).catch(() => {});
-  for (const app of getUpstreamApps()) await deleteUpstreamApp(app).catch(() => {});
+  for (const app of getApps()) {
+    try {
+      await deleteApp(app);
+    } catch {}
+  }
+  for (const app of getUpstreamApps()) {
+    try {
+      await deleteUpstreamApp(app);
+    } catch {}
+  }
 });
 
 describe('generative Admin Storage argument differential: getStorage, storage, and getDownloadURL', () => {
@@ -449,20 +484,10 @@ describe.each(STORAGE_ARMS)(
               ];
               const rawResult = fn?.apply(target, [...args]);
               if (testCase.methodName === 'createReadStream') {
-                const stream = rawResult as Readable;
-                return new Promise<void>((resolve, reject) => {
-                  stream.once('error', reject);
-                  stream.once('end', () => resolve());
-                  stream.resume();
-                });
+                return settleReadable(rawResult as Readable);
               }
               if (testCase.methodName === 'createWriteStream') {
-                const stream = rawResult as Writable;
-                return new Promise<void>((resolve, reject) => {
-                  stream.once('error', reject);
-                  stream.once('finish', () => resolve());
-                  stream.end('abc');
-                });
+                return settleWritable(rawResult as Writable);
               }
               return rawResult;
             };
@@ -544,14 +569,9 @@ describe.each(STORAGE_ARMS)(
           literalBucket.file('seed.txt').createReadStream({ start: 0, validation: true }),
         );
         expect(syncThrowRead.threwSynchronously).toBe(true);
-        const asyncErrRead = await captureStorageOutcome(() => {
-          const s = literalBucket.file('missing-stream.txt').createReadStream();
-          return new Promise<void>((resolve, reject) => {
-            s.once('error', reject);
-            s.once('end', () => resolve());
-            s.resume();
-          });
-        });
+        const asyncErrRead = await captureStorageOutcome(() =>
+          settleReadable(literalBucket.file('missing-stream.txt').createReadStream()),
+        );
         expect(asyncErrRead.threwSynchronously).toBe(false);
       } finally {
         await upstream.dispose();

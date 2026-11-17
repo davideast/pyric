@@ -481,7 +481,9 @@ export function createOfflineUpstreamAuthHarness(): OfflineUpstreamAuthHarness {
     },
     didReachTransport: () => reachedTransport,
     dispose: async () => {
-      await deleteUpstreamApp(app).catch(() => {});
+      try {
+        await deleteUpstreamApp(app);
+      } catch {}
     },
   };
 }

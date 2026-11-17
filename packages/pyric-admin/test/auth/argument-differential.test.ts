@@ -77,8 +77,16 @@ function compareAuthOutcomes(
 }
 
 afterEach(async () => {
-  for (const app of getApps()) await deleteApp(app).catch(() => {});
-  for (const app of getUpstreamApps()) await deleteUpstreamApp(app).catch(() => {});
+  for (const app of getApps()) {
+    try {
+      await deleteApp(app);
+    } catch {}
+  }
+  for (const app of getUpstreamApps()) {
+    try {
+      await deleteUpstreamApp(app);
+    } catch {}
+  }
 });
 
 describe('generative Admin Auth argument differential: getAuth & auth', () => {

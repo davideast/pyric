@@ -232,6 +232,9 @@ export async function toBytesAsync(data: unknown): Promise<Uint8Array> {
       return concatChunks(chunks);
     }
     if (isAsyncIterable(data)) {
+      if ('on' in data && typeof (data as { on?: unknown }).on === 'function') {
+        (data as { on: (event: string, listener: () => void) => void }).on('error', () => {});
+      }
       const chunks: Buffer[] = [];
       for await (const item of data) {
         chunks.push(chunkToBuffer(item));
