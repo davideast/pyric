@@ -211,7 +211,6 @@ jobs:
           EVENT: ${{ github.event_name }}
           WIF: ${{ matrix.wif && 'true' || 'false' }}
           PYRIC_ORACLE_FIREBASE_CONFIG: ${{ secrets.PYRIC_ORACLE_FIREBASE_CONFIG }}
-          PYRIC_MESSAGING_SA_BASE64: ${{ secrets.PYRIC_MESSAGING_SA_BASE64 }}
           GCP_WIF_PROVIDER: ${{ vars.GCP_WIF_PROVIDER }}
           PARITY_SA_EMAIL: ${{ vars.PARITY_SA_EMAIL }}
         run: |

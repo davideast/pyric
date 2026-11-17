@@ -19,6 +19,7 @@ import {
 import { evaluateStorageRules } from '../../rules/src/storage/rules-evaluator.ts';
 import { storageRulesTestInputDigest } from './storage-rules-input-digest.ts';
 import { loadStorageRulesExceptions } from './storage-rules-exceptions.ts';
+import { hasEmptyObservationRowIds } from './staged-captures.ts';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const OBS_DIR = join(HERE, '..', 'observations', 'storage-rules');
@@ -246,7 +247,7 @@ export function replayStorageRulesObservations(): StorageOracleReplayResult[] {
     const observation = JSON.parse(readFileSync(join(OBS_DIR, file), 'utf8')) as StorageRulesObservation;
     observation.name ||= file.replace(/\.json$/, '');
     const scenario = scenarioByObservation.get(observation.name);
-    if (scenario?.pendingRowLink && (observation.rowIds?.length ?? 0) === 0) {
+    if (scenario?.pendingRowLink && hasEmptyObservationRowIds(observation.rowIds)) {
       continue;
     }
     if (!scenario) {

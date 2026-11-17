@@ -94,7 +94,7 @@ describe('oracle-capture.yml security and trigger contract', () => {
       'packages/conformance/probes/**',
       'packages/conformance/rules-corpus/**',
       'packages/conformance/rigs/**',
-      'packages/conformance/src/*probes*.ts',
+      'packages/conformance/src/*probe*.ts',
     ]);
     expect(wf.on.workflow_dispatch?.inputs?.rig?.required).toBe(true);
     expect(wf.on.workflow_dispatch?.inputs?.rig?.type).toBe('string');

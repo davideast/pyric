@@ -32,8 +32,7 @@ import {
 } from './messaging-send-probe-catalog.ts';
 import { oracleAppOptions, type OracleServiceAccount } from './oracle-credential.ts';
 import { resolvedAdminVersion } from './package-version.ts';
-
-export { MESSAGING_SEND_PROBES, type MessagingSendProbeMetadata };
+import { readProbeSelectors } from './probe-cli-args.ts';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const OBS_DIR = join(HERE, '..', 'observations', 'messaging-admin');
@@ -59,22 +58,7 @@ function nameFacts(name: string, projectId: string) {
 }
 
 export function selectMessagingSendProbes(args: readonly string[]): MessagingSendProbeMetadata[] {
-  const requested: string[] = [];
-  for (let i = 0; i < args.length; i += 1) {
-    const arg = args[i];
-    if (arg === '--probe') {
-      const name = args[i + 1];
-      if (!name || name.startsWith('--')) {
-        throw new Error('--probe requires a messaging-send probe name');
-      }
-      requested.push(name);
-      i += 1;
-    } else if (arg && arg.startsWith('--probe=')) {
-      const name = arg.slice('--probe='.length);
-      if (!name) throw new Error('--probe requires a messaging-send probe name');
-      requested.push(name);
-    }
-  }
+  const requested = readProbeSelectors(args);
   if (requested.length === 0) return [...MESSAGING_SEND_PROBES];
 
   const byName = new Map(MESSAGING_SEND_PROBES.map((probe) => [probe.name, probe]));

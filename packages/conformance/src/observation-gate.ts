@@ -56,7 +56,10 @@
  */
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { loadPendingRowLinkObservations } from './staged-captures.ts';
+import {
+  isUnlinkedStagedObservation,
+  loadPendingRowLinkObservations,
+} from './staged-captures.ts';
 
 export interface ObservationGateConfig {
   /** Absolute path to the surface's observation directory. */
@@ -139,7 +142,7 @@ export function createObservationGate(config: ObservationGateConfig): Observatio
       const parsed = JSON.parse(readFileSync(join(config.dir, `${id}.json`), 'utf8')) as {
         rowIds?: unknown;
       };
-      return Array.isArray(parsed.rowIds) && parsed.rowIds.length === 0;
+      return isUnlinkedStagedObservation(id, parsed.rowIds, pendingStems);
     } catch {
       return false;
     }

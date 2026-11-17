@@ -12,7 +12,13 @@ import {
 
 const DEFAULT_ORACLE_SA = 'parity-test-sa@digame-mas.iam.gserviceaccount.com';
 
-const WRITE_FLAG_RIGS = new Set(['admin-app', 'app-registry', 'client-storage']);
+const WRITE_FLAG_RIGS = new Set([
+  'admin-app',
+  'admin-firestore',
+  'app-registry',
+  'client-storage',
+  'storage-admin',
+]);
 
 const FILTER_FLAG_BY_RIG: Readonly<Record<string, '--scenario' | '--probe'>> = {
   'rules-firestore': '--scenario',
@@ -20,8 +26,10 @@ const FILTER_FLAG_BY_RIG: Readonly<Record<string, '--scenario' | '--probe'>> = {
   'storage-stdlib-discovery': '--probe',
   'messaging-send': '--probe',
   'admin-app': '--probe',
+  'admin-firestore': '--probe',
   'app-registry': '--probe',
   'client-storage': '--probe',
+  'storage-admin': '--probe',
 };
 
 /** Rigs eligible for automatic `on: push` capture on `main`. Paid generative

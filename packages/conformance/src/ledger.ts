@@ -6,7 +6,10 @@ import { generatedRowLineNumbers } from './generate-docs.ts';
 import type { ConformanceModel } from './conformance-model.ts';
 export { loadObservations, type Observation } from '../observations/load.ts';
 import type { Observation } from '../observations/load.ts';
-import { loadPendingRowLinkObservations } from './staged-captures.ts';
+import {
+  isUnlinkedStagedObservation,
+  loadPendingRowLinkObservations,
+} from './staged-captures.ts';
 
 export type { OracleConformanceCheck } from '../registry/index.ts';
 
@@ -71,7 +74,7 @@ export function buildCompatibilityLedger(
 
   const orphanObservations = observations.filter((obs) => {
     if (observationExceptions[obs.name]) return false;
-    if (pendingRowLinkObservations.has(obs.name) && obs.rowIds.length === 0) return false;
+    if (isUnlinkedStagedObservation(obs.name, obs.rowIds, pendingRowLinkObservations)) return false;
     return !referencedObservations.has(obs.name);
   });
 

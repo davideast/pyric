@@ -82,6 +82,8 @@ export interface ValidationInput {
 
 export function validateCompatibilityRegistry(input: ValidationInput): string[] {
   const problems: string[] = [];
+  const pendingRowLinkObservations =
+    input.pendingRowLinkObservations ?? loadPendingRowLinkObservations();
   const ids = new Map<string, number>();
   const observationNames = new Set(input.observations.map((obs) => obs.name));
   const observationByName = new Map(input.observations.map((obs) => [obs.name, obs]));
@@ -247,7 +249,7 @@ export function validateCompatibilityRegistry(input: ValidationInput): string[] 
       problems.push(`${obs.file}: lives under observations/${obs.surfaceDir}/ but its prefix maps to surface '${expectedSurface}' (observations/${expectedSurface}/)`);
     }
     if (input.observationExceptions[obs.name]) continue;
-    if (input.pendingRowLinkObservations?.has(obs.name)) {
+    if (pendingRowLinkObservations.has(obs.name)) {
       if (obs.rowIds.length > 0 || referencedObservations.has(obs.name)) {
         problems.push(`${obs.file}: observation is linked to registry rows; remove pendingRowLink from its staged probe or scenario`);
       }

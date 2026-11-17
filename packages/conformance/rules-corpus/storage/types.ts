@@ -38,6 +38,10 @@ export interface StorageScenario extends Omit<Scenario, 'cases'> {
   /** True while the scenario is staged for automated main-branch capture or
    *  awaiting follow-up rowIds linkage in registry/storage.ts. */
   pendingRowLink?: boolean;
+  /** True when the scenario intentionally probes whether `projects.test`
+   *  accepts or rejects the ruleset at compile time, recording compile
+   *  diagnostics (`COMPILE_ERROR` / `INVALID_ARGUMENT`) instead of throwing. */
+  allowCompileError?: boolean;
 }
 
 /**

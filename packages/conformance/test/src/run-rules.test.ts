@@ -231,4 +231,53 @@ describe('run-rules compile-check corpus capture', () => {
       },
     });
   });
+
+  it('records INVALID_ARGUMENT and diagnostics on HTTP 400 JSON rejection while still throwing on 403', async () => {
+    const fake400: typeof fetch = (async () =>
+      new Response(
+        JSON.stringify({
+          error: {
+            code: 400,
+            message: 'Invalid ruleset syntax or service block.',
+            status: 'INVALID_ARGUMENT',
+          },
+        }),
+        { status: 400, headers: { 'Content-Type': 'application/json' } },
+      )) as unknown as typeof fetch;
+
+    const out = await captureCompileCheckScenario(
+      {
+        id: 'service-name-unknown-in-firestore',
+        fm: 'Service declaration validation (#1434)',
+        rationale: 'Records HTTP 400 INVALID_ARGUMENT when projects.test rejects a service block.',
+        allowCompileError: true,
+        rules: "rules_version = '2';\nservice foo.bar {\n  match /items/{id} { allow read: if true; }\n}",
+        cases: [{ description: 'unknown service probe', expectation: 'DENY', method: 'get', path: 'items/1' }],
+      },
+      { projectId: 'digame-mas', resolveToken: async () => 'fake-token' },
+      fake400,
+    );
+
+    expect(out.behavior).toEqual({ 'unknown service probe': 'INVALID_ARGUMENT' });
+    expect(out.diagnostics.compileIssues?.notes).toEqual([
+      'INVALID_ARGUMENT Invalid ruleset syntax or service block.',
+    ]);
+
+    const fake403: typeof fetch = (async () =>
+      new Response('PERMISSION_DENIED', { status: 403 })) as unknown as typeof fetch;
+    await expect(
+      captureCompileCheckScenario(
+        {
+          id: 'service-name-unknown-in-firestore',
+          fm: 'Service declaration validation',
+          rationale: 'Throws on IAM 403.',
+          allowCompileError: true,
+          rules: "rules_version = '2';",
+          cases: [{ description: 'probe', expectation: 'DENY', method: 'get', path: 'items/1' }],
+        },
+        { projectId: 'digame-mas', resolveToken: async () => 'fake-token' },
+        fake403,
+      ),
+    ).rejects.toThrow(/HTTP 403/);
+  });
 });

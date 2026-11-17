@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
+import { MESSAGING_SEND_PROBES } from '../../src/messaging-send-probe-catalog.ts';
 import {
-  MESSAGING_SEND_PROBES,
   probeWebpushLowercaseTtl,
   selectMessagingSendProbes,
 } from '../../src/messaging-send-probes.ts';

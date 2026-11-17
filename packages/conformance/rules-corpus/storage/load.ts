@@ -55,6 +55,9 @@ function recordProblems(file: string, id: string, value: unknown): string[] {
   if ('pendingRowLink' in record && record.pendingRowLink !== undefined && typeof record.pendingRowLink !== 'boolean') {
     fail("'pendingRowLink' must be a boolean when present");
   }
+  if ('allowCompileError' in record && record.allowCompileError !== undefined && typeof record.allowCompileError !== 'boolean') {
+    fail("'allowCompileError' must be a boolean when present");
+  }
 
   if (!Array.isArray(record.cases) || record.cases.length === 0) {
     fail("'cases' must be a non-empty array");

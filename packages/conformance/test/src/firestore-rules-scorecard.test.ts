@@ -11,6 +11,10 @@ import {
   deriveFirestoreRulesScorecard,
   firestoreUniverseHash,
 } from '../../src/firestore-rules-scorecard.ts';
+import {
+  isUnlinkedStagedObservation,
+  loadPendingRowLinkObservations,
+} from '../../src/staged-captures.ts';
 
 // Loading the whole conformance graph takes about 3 s on a CI runner and up to 7 s on a slow one.
 const FULL_GRAPH_TIMEOUT_MS = 20_000;
@@ -204,7 +208,12 @@ describe('Firestore Rules scorecard', () => {
 
 describe('Firestore Rules scorecard CDD completeness', () => {
   const rows = allCompatibilityRows.filter(({ surface }) => surface === 'firestore-rules');
-  const observations = loadObservations().filter(({ name }) => name.startsWith('rules-firestore-'));
+  const pendingStems = loadPendingRowLinkObservations();
+  const observations = loadObservations().filter(
+    (obs) =>
+      obs.name.startsWith('rules-firestore-') &&
+      !isUnlinkedStagedObservation(obs.name, obs.rowIds, pendingStems),
+  );
 
   it('enables the climb only with the oracle suite attached', () => {
     const descriptor = surfaceDescriptors.find(({ surface }) => surface === 'firestore-rules');

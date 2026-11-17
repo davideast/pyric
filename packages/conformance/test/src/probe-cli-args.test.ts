@@ -1,15 +1,19 @@
 import { describe, expect, test } from 'bun:test';
-import { readSingleProbeSelector } from '../../src/probe-cli-args.ts';
+import { readProbeSelectors, readSingleProbeSelector } from '../../src/probe-cli-args.ts';
 import { selectAdminAppProbes } from '../../src/admin-app-probes.ts';
+import { selectAdminFirestoreProbeId } from '../../src/admin-firestore-probes.ts';
 import { selectAppRegistryProbes } from '../../src/app-registry-probes.ts';
 import {
   captureClientStorageObservation,
   selectClientStorageProbeId,
 } from '../../src/client-storage-probes.ts';
+import { selectStorageAdminProbeId } from '../../src/storage-admin-probes.ts';
 import type { Probe } from '../../rigs/types.ts';
 
 describe('probe CLI selector support', () => {
-  test('readSingleProbeSelector parses --probe <id>, --probe=<id>, and custom inline prefixes', () => {
+  test('readProbeSelectors and readSingleProbeSelector parse --probe <id>, --probe=<id>, and custom inline prefixes', () => {
+    expect(readProbeSelectors(['--write'])).toEqual([]);
+    expect(readProbeSelectors(['--probe', 'a', '--probe=b'])).toEqual(['a', 'b']);
     expect(readSingleProbeSelector(['--write'])).toBeUndefined();
     expect(readSingleProbeSelector(['--write', '--probe', 'admin-app-get-apps'])).toBe(
       'admin-app-get-apps',
@@ -31,7 +35,7 @@ describe('probe CLI selector support', () => {
     );
   });
 
-  test('selectAdminAppProbes and selectAppRegistryProbes filter by --probe and reject unknown ids', () => {
+  test('selectAdminAppProbes, selectAppRegistryProbes, selectAdminFirestoreProbeId, and selectStorageAdminProbeId filter by --probe', () => {
     const adminProbes = [{ id: 'admin-app-a' }, { id: 'admin-app-b' }];
     expect(selectAdminAppProbes(adminProbes, ['--write'])).toEqual(adminProbes);
     expect(selectAdminAppProbes(adminProbes, ['--probe', 'admin-app-b'])).toEqual([
@@ -50,6 +54,22 @@ describe('probe CLI selector support', () => {
     ]);
     expect(() => selectAppRegistryProbes(appProbes, ['--probe', 'unknown'])).toThrow(
       /unknown app-registry probe: unknown/,
+    );
+
+    expect(selectAdminFirestoreProbeId(['--write'])).toBe('admin-firestore-document-snapshot-get');
+    expect(
+      selectAdminFirestoreProbeId(['--probe', 'admin-firestore-document-snapshot-get']),
+    ).toBe('admin-firestore-document-snapshot-get');
+    expect(() => selectAdminFirestoreProbeId(['--probe', 'other'])).toThrow(
+      /unknown admin-firestore probe: other/,
+    );
+
+    expect(selectStorageAdminProbeId(['--write'])).toBe('admin-storage-metadata-download-url');
+    expect(selectStorageAdminProbeId(['--probe', 'admin-storage-metadata-download-url'])).toBe(
+      'admin-storage-metadata-download-url',
+    );
+    expect(() => selectStorageAdminProbeId(['--probe', 'other'])).toThrow(
+      /unknown storage-admin probe: other/,
     );
   });
 

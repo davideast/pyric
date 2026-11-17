@@ -49,6 +49,10 @@ import {
   type FirestoreScenarioInputDigest,
 } from './firestore-rules-input-digest.ts';
 import { resolvedFirebaseVersion } from './package-version.ts';
+import {
+  captureRulesTestApiCompileCheck,
+  type CompileCheckCaptureResult,
+} from './rules-compile-check.ts';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 // rules-firestore-* observations belong to the native 'firestore-rules' surface.
@@ -195,118 +199,28 @@ export function diagnosticTable(
   );
 }
 
-interface RawCompileIssue {
-  severity?: string;
-  description?: string;
-  sourcePosition?: { line?: number; column?: number };
-}
-
-interface RawTestApiResponse {
-  issues?: RawCompileIssue[];
-  testResults?: Array<{
-    state?: 'SUCCESS' | 'FAILURE';
-    debugMessages?: string[];
-    errorPosition?: unknown;
-    functionCalls?: unknown[];
-    visitedExpressions?: unknown[];
-    expressionReports?: unknown[];
-  }>;
-}
-
 /**
  * Captures a scenario marked `allowCompileError: true` directly against
  * `projects.test`, preserving verbatim compile issues (`severity`, `line`,
- * `column`, `description`) when production rejects the ruleset at compile time
+ * `column`, `description`) or HTTP 400 `INVALID_ARGUMENT` JSON rejections
  * instead of throwing.
  */
 export async function captureCompileCheckScenario(
   scenario: Scenario,
   scope: ProjectScope,
   fetchImpl: typeof fetch = fetch,
-): Promise<{
-  behavior: Record<string, 'ALLOW' | 'DENY' | 'COMPILE_ERROR'>;
-  diagnostics: Record<string, { notes: string[]; api?: unknown }>;
-}> {
+): Promise<CompileCheckCaptureResult> {
   const { buildApiTestCase } = await import('../../rules/src/test/spec.ts');
-  const token = await scope.resolveToken();
   const apiTestCases = scenario.cases.map((tc) => buildApiTestCase(tc));
-  const res = await fetchImpl(
-    `https://firebaserules.googleapis.com/v1/projects/${scope.projectId}:test`,
-    {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        source: { files: [{ name: 'firestore.rules', content: scenario.rules }] },
-        testSuite: { testCases: apiTestCases },
-      }),
-    },
-  );
-  if (!res.ok) {
-    const body = await res.text().catch(() => '');
-    throw new Error(
-      `Production Rules Test API HTTP ${res.status} for scenario "${scenario.id}": ${body}`,
-    );
-  }
-  const data = (await res.json()) as RawTestApiResponse;
-  const rawIssues = data.issues ?? [];
-  const normalizedIssues = rawIssues.map((issue) => {
-    const entry: { severity: string; description: string; line?: number; column?: number } = {
-      severity: issue.severity ?? 'SEVERITY_UNSPECIFIED',
-      description: issue.description ?? '',
-    };
-    if (issue.sourcePosition?.line !== undefined) entry.line = issue.sourcePosition.line;
-    if (issue.sourcePosition?.column !== undefined) entry.column = issue.sourcePosition.column;
-    return entry;
+  return captureRulesTestApiCompileCheck({
+    scenarioId: scenario.id,
+    sourceFileName: 'firestore.rules',
+    rules: scenario.rules,
+    cases: scenario.cases,
+    apiTestCases,
+    scope,
+    fetchImpl,
   });
-  const issueNotes = normalizedIssues.map((issue) => {
-    const pos = issue.line !== undefined ? `@${issue.line}:${issue.column ?? '?'}` : '';
-    return `${issue.severity}${pos} ${issue.description}`.trim();
-  });
-
-  const testResults = data.testResults ?? [];
-  const diagnostics: Record<string, { notes: string[]; api?: unknown }> = {};
-  if (normalizedIssues.length > 0) {
-    diagnostics.compileIssues = {
-      notes: issueNotes,
-      api: { issues: normalizedIssues },
-    };
-  }
-
-  if (testResults.length === 0 && normalizedIssues.length > 0) {
-    const behavior = Object.fromEntries(
-      scenario.cases.map((tc) => [tc.description, 'COMPILE_ERROR' as const]),
-    );
-    return { behavior, diagnostics };
-  }
-
-  if (testResults.length !== scenario.cases.length) {
-    throw new Error(
-      `Rules Test API returned ${testResults.length} result(s) for ${scenario.cases.length} case(s) in "${scenario.id}"`,
-    );
-  }
-
-  const behavior: Record<string, 'ALLOW' | 'DENY'> = {};
-  for (let i = 0; i < scenario.cases.length; i += 1) {
-    const tc = scenario.cases[i];
-    const apiResult = testResults[i];
-    if (!tc) continue;
-    const passed = apiResult?.state === 'SUCCESS';
-    let decision: 'ALLOW' | 'DENY';
-    if (passed) {
-      decision = tc.expectation;
-    } else {
-      decision = tc.expectation === 'ALLOW' ? 'DENY' : 'ALLOW';
-    }
-    behavior[tc.description] = decision;
-    const notes = apiResult?.debugMessages ?? [];
-    if (notes.length > 0) {
-      diagnostics[tc.description] = { notes: [...notes] };
-    }
-  }
-  return { behavior, diagnostics };
 }
 
 function printInertPlan(scenarios: Scenario[]): void {

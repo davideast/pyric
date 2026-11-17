@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import type { Probe } from '../rigs/types.ts';
 import { probe } from '../probes/storage-admin/admin-storage-metadata-download-url.ts';
 import { resolvedAdminVersion } from './package-version.ts';
+import { readSingleProbeSelector } from './probe-cli-args.ts';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ID = 'admin-storage-metadata-download-url';
@@ -48,19 +49,36 @@ async function capture(record: Probe, adminSdkVersion: string): Promise<Observat
   };
 }
 
-const adminSdkVersion = resolvedAdminVersion();
-const actual = await capture(probe, adminSdkVersion);
+export function selectStorageAdminProbeId(args: readonly string[]): string {
+  const probeFilter = readSingleProbeSelector(args);
+  if (probeFilter !== undefined && probeFilter !== ID) {
+    throw new Error(`unknown storage-admin probe: ${probeFilter}`);
+  }
+  return ID;
+}
 
-if (process.argv.includes('--write')) {
-  writeFileSync(OBSERVATION_PATH, `${JSON.stringify(actual, null, 2)}\n`);
-  console.log(`wrote ${ID}.json against firebase-admin ${adminSdkVersion}`);
-} else {
+async function main(): Promise<void> {
+  const args = process.argv.slice(2);
+  selectStorageAdminProbeId(args);
+  const adminSdkVersion = resolvedAdminVersion();
+  const actual = await capture(probe, adminSdkVersion);
+
+  if (args.includes('--write')) {
+    writeFileSync(OBSERVATION_PATH, `${JSON.stringify(actual, null, 2)}\n`);
+    console.log(`wrote ${ID}.json against firebase-admin ${adminSdkVersion}`);
+    return;
+  }
   const expected = JSON.parse(readFileSync(OBSERVATION_PATH, 'utf8')) as ObservationEnvelope;
   const matches = expected.adminSdkVersion === adminSdkVersion &&
     deepEqual(expected.behavior, actual.behavior);
+  const verdictLabel = matches ? 'MATCH' : 'MISMATCH';
   console.log(
-    `${matches ? 'MATCH' : 'MISMATCH'} ${ID} ` +
+    `${verdictLabel} ${ID} ` +
       `(captured ${expected.adminSdkVersion}, installed ${adminSdkVersion})`,
   );
   process.exit(matches ? 0 : 1);
+}
+
+if (import.meta.main) {
+  await main();
 }

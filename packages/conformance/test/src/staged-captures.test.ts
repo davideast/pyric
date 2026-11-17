@@ -17,18 +17,28 @@ import { loadRigManifests } from '../../rigs/load.ts';
 import { createObservationGate } from '../../src/observation-gate.ts';
 import {
   discoverUncapturedStagedTargets,
+  isUnlinkedStagedObservation,
   loadPendingRowLinkObservations,
+  loadStagedCaptureItems,
 } from '../../src/staged-captures.ts';
 import { ALL_RULES_FIRESTORE_SCENARIOS } from '../../rules-corpus/firestore/index.ts';
 import { scenario as firestorePathBindForms } from '../../rules-corpus/firestore/path-bind-forms.ts';
+import { scenario as firestorePathLiteralBraceBind } from '../../rules-corpus/firestore/path-literal-brace-bind.ts';
+import { scenario as firestorePathLiteralDollarBoundBind } from '../../rules-corpus/firestore/path-literal-dollar-bound-bind.ts';
+import { scenario as firestorePathLiteralDollarUnboundBind } from '../../rules-corpus/firestore/path-literal-dollar-unbound-bind.ts';
 import { scenario as firestoreServiceStorage } from '../../rules-corpus/firestore/service-name-storage-in-firestore.ts';
 import { scenario as firestoreServiceUnknown } from '../../rules-corpus/firestore/service-name-unknown-in-firestore.ts';
 import { ALL_RULES_STORAGE_SCENARIOS } from '../../rules-corpus/storage/index.ts';
 import { scenario as storagePathBindForms } from '../../rules-corpus/storage/storage-path-bind-forms.ts';
+import { scenario as storagePathLiteralBraceBind } from '../../rules-corpus/storage/storage-path-literal-brace-bind.ts';
+import { scenario as storagePathLiteralDollarBoundBind } from '../../rules-corpus/storage/storage-path-literal-dollar-bound-bind.ts';
+import { scenario as storagePathLiteralDollarUnboundBind } from '../../rules-corpus/storage/storage-path-literal-dollar-unbound-bind.ts';
 import type { StorageTestCase } from '../../rules-corpus/storage/types.ts';
 import { listProbeFiles } from '../../probes/load.ts';
 
-function syntheticObservation(overrides: Partial<Observation> & Pick<Observation, 'file' | 'surfaceDir' | 'name'>): Observation {
+function syntheticObservation(
+  overrides: Partial<Observation> & Pick<Observation, 'file' | 'surfaceDir' | 'name'>,
+): Observation {
   const base = {
     matrixRow: '',
     rowIds: [],
@@ -39,13 +49,29 @@ function syntheticObservation(overrides: Partial<Observation> & Pick<Observation
       name: overrides.name,
       matrixRow: '',
       rowIds: overrides.rowIds ?? [],
-      description: 'Synthetic staged observation for unit test.',
+      description: 'Staged observation awaiting follow-up row linkage.',
       observedAt: '2026-11-16T00:00:00.000Z',
       fbSdkVersion: '12.19.0',
       behavior: { sampleCase: 'ALLOW' },
     },
   };
-  return { ...base, ...overrides };
+  return {
+    ...base,
+    ...overrides,
+    raw: overrides.raw ?? {
+      ...base.raw,
+      rowIds: overrides.rowIds ?? [],
+    },
+  };
+}
+
+function surfaceDirForObservationName(obsName: string): string {
+  if (obsName.startsWith('rules-firestore-')) return 'firestore-rules';
+  if (obsName.startsWith('rules-storage-')) return 'storage-rules';
+  if (obsName.startsWith('messaging-send-')) return 'messaging-admin';
+  if (obsName.startsWith('admin-storage-')) return 'storage-admin';
+  if (obsName.startsWith('admin-firestore-')) return 'firestore';
+  return 'app';
 }
 
 describe('staged pendingRowLink observation lifecycle', () => {
@@ -58,7 +84,10 @@ describe('staged pendingRowLink observation lifecycle', () => {
       observationExceptions,
       rigManifests,
       rulesFirestoreScenarioIds: ['builtins-time-and-math', 'staged-uncaptured-probe'],
-      pendingRowLinkObservations: new Set(['rules-firestore-staged-uncaptured-probe']),
+      pendingRowLinkObservations: new Set([
+        ...loadPendingRowLinkObservations(),
+        'rules-firestore-staged-uncaptured-probe',
+      ]),
     });
     expect(problems.filter((p) => p.includes('staged-uncaptured-probe'))).toEqual([]);
   });
@@ -71,8 +100,13 @@ describe('staged pendingRowLink observation lifecycle', () => {
       name: 'rules-firestore-staged-uncaptured-probe',
       rowIds: [],
     });
-    const observations = [...loadObservations(), stagedObs];
-    const pendingRowLinkObservations = new Set(['rules-firestore-staged-uncaptured-probe']);
+    const byName = new Map(loadObservations().map((o) => [o.name, o]));
+    byName.set(stagedObs.name, stagedObs);
+    const observations = [...byName.values()];
+    const pendingRowLinkObservations = new Set([
+      ...loadPendingRowLinkObservations(),
+      'rules-firestore-staged-uncaptured-probe',
+    ]);
 
     const problems = validateCompatibilityRegistry({
       rows: allCompatibilityRows,
@@ -81,9 +115,12 @@ describe('staged pendingRowLink observation lifecycle', () => {
       observationExceptions,
       rigManifests,
       rulesFirestoreScenarioIds: [
-        ...observations
-          .filter((o) => o.file.startsWith('rules-firestore-'))
-          .map((o) => o.name.slice('rules-firestore-'.length)),
+        ...new Set([
+          ...ALL_RULES_FIRESTORE_SCENARIOS.map((s) => s.id),
+          ...observations
+            .filter((o) => o.file.startsWith('rules-firestore-'))
+            .map((o) => o.name.slice('rules-firestore-'.length)),
+        ]),
       ],
       pendingRowLinkObservations,
     });
@@ -100,7 +137,9 @@ describe('staged pendingRowLink observation lifecycle', () => {
       },
       pendingRowLinkObservations,
     );
-    expect(ledger.orphanObservations.map((o) => o.name)).not.toContain('rules-firestore-staged-uncaptured-probe');
+    expect(ledger.orphanObservations.map((o) => o.name)).not.toContain(
+      'rules-firestore-staged-uncaptured-probe',
+    );
   });
 
   test('post-link (PR #3): staged observation that acquires rowIds must drop pendingRowLink', () => {
@@ -115,7 +154,10 @@ describe('staged pendingRowLink observation lifecycle', () => {
     });
     const rows = allCompatibilityRows.map((row) => {
       if (row.id === rowId) {
-        return { ...row, oracleObservations: [...row.oracleObservations, 'rules-firestore-staged-linked-probe'] };
+        return {
+          ...row,
+          oracleObservations: [...row.oracleObservations, 'rules-firestore-staged-linked-probe'],
+        };
       }
       return row;
     });
@@ -124,11 +166,51 @@ describe('staged pendingRowLink observation lifecycle', () => {
       descriptors: surfaceDescriptors,
       observations: [...loadObservations(), stagedObs],
       observationExceptions,
-      pendingRowLinkObservations: new Set(['rules-firestore-staged-linked-probe']),
+      pendingRowLinkObservations: new Set([
+        ...loadPendingRowLinkObservations(),
+        'rules-firestore-staged-linked-probe',
+      ]),
     });
     expect(
-      problems.some((p) =>
-        p.includes('rules-firestore-staged-linked-probe.json') && p.includes('pendingRowLink'),
+      problems.some(
+        (p) =>
+          p.includes('rules-firestore-staged-linked-probe.json') && p.includes('pendingRowLink'),
+      ),
+    ).toBe(true);
+
+    const checkEntry: OracleConformanceCheck = {
+      finding: 'staged-check-link',
+      observation: 'rules-firestore-staged-linked-probe',
+      expect: { sampleCase: 'ALLOW' },
+      probe: 'packages/conformance/test/src/staged-captures.test.ts',
+      guards: 'conformanceChecks reference forces pendingRowLink removal',
+    };
+    const rowsViaCheck = allCompatibilityRows.map((row) => {
+      if (row.id === rowId) {
+        return { ...row, conformanceChecks: [...(row.conformanceChecks ?? []), checkEntry] };
+      }
+      return row;
+    });
+    const unlinkedIdObs = syntheticObservation({
+      file: 'rules-firestore-staged-linked-probe.json',
+      surfaceDir: 'firestore-rules',
+      name: 'rules-firestore-staged-linked-probe',
+      rowIds: [],
+    });
+    const checkProblems = validateCompatibilityRegistry({
+      rows: rowsViaCheck,
+      descriptors: surfaceDescriptors,
+      observations: [...loadObservations(), unlinkedIdObs],
+      observationExceptions,
+      pendingRowLinkObservations: new Set([
+        ...loadPendingRowLinkObservations(),
+        'rules-firestore-staged-linked-probe',
+      ]),
+    });
+    expect(
+      checkProblems.some(
+        (p) =>
+          p.includes('rules-firestore-staged-linked-probe.json') && p.includes('pendingRowLink'),
       ),
     ).toBe(true);
   });
@@ -147,10 +229,21 @@ describe('staged pendingRowLink observation lifecycle', () => {
       observationExceptions,
       pendingRowLinkObservations: new Set(),
     });
-    expect(problems.some((p) => p.includes('rules-firestore-untracked-probe.json: observation has no rowIds'))).toBe(true);
+    expect(
+      problems.some((p) =>
+        p.includes('rules-firestore-untracked-probe.json: observation has no rowIds'),
+      ),
+    ).toBe(true);
   });
 
-  test('observation-gate skips unlinked pendingRowLink captures until PR #3 links rowIds', () => {
+  test('observation-gate and isUnlinkedStagedObservation skip unlinked pendingRowLink captures until PR #3 links rowIds', () => {
+    const pendingSet = new Set(['messaging-send-staged']);
+    expect(isUnlinkedStagedObservation('messaging-send-staged', [], pendingSet)).toBe(true);
+    expect(
+      isUnlinkedStagedObservation('messaging-send-staged', ['messaging-admin#4'], pendingSet),
+    ).toBe(false);
+    expect(isUnlinkedStagedObservation('messaging-send-other', [], pendingSet)).toBe(false);
+
     const dir = mkdtempSync(join(tmpdir(), 'staged-obs-gate-'));
     try {
       mkdirSync(dir, { recursive: true });
@@ -173,12 +266,11 @@ describe('staged pendingRowLink observation lifecycle', () => {
 
       const gate = createObservationGate({
         dir,
-        match: (f) => f.startsWith('messaging-send-'),
-        pendingRowLinkStems: new Set(['messaging-send-staged']),
+        match: (file) => file.startsWith('messaging-send-') && file.endsWith('.json'),
+        pendingRowLinkStems: pendingSet,
       });
       const existing = gate.load<{ status: number }>('messaging-send-existing');
       expect(existing.status).toBe(200);
-
       const report = gate.report();
       expect(report.committed).toEqual(['messaging-send-existing']);
       expect(report.uncovered).toEqual([]);
@@ -203,21 +295,9 @@ describe('staged pendingRowLink observation lifecycle', () => {
           filterFlag: '--scenario',
           filterValue: 'pending-one',
         },
-        {
-          rig: 'messaging-send',
-          observationName: 'messaging-send-pending-ttl',
-          filterFlag: '--probe',
-          filterValue: 'messaging-send-pending-ttl',
-        },
       ],
     });
     expect(targets).toEqual([
-      {
-        rig: 'messaging-send',
-        observationName: 'messaging-send-pending-ttl',
-        filterFlag: '--probe',
-        filterValue: 'messaging-send-pending-ttl',
-      },
       {
         rig: 'rules-firestore',
         observationName: 'rules-firestore-pending-one',
@@ -227,141 +307,104 @@ describe('staged pendingRowLink observation lifecycle', () => {
     ]);
   });
 
-  test('checked-in staged probes are discovered pre-capture and validate cleanly both pre-capture and post-capture', async () => {
-    const uncaptured = discoverUncapturedStagedTargets();
-    expect(uncaptured).toEqual([
-      {
-        rig: 'messaging-send',
-        observationName: 'messaging-send-webpush-lowercase-ttl',
-        filterFlag: '--probe',
-        filterValue: 'messaging-send-webpush-lowercase-ttl',
-      },
-      {
-        rig: 'rules-firestore',
-        observationName: 'rules-firestore-path-bind-forms',
-        filterFlag: '--scenario',
-        filterValue: 'path-bind-forms',
-      },
-      {
-        rig: 'rules-firestore',
-        observationName: 'rules-firestore-service-name-storage-in-firestore',
-        filterFlag: '--scenario',
-        filterValue: 'service-name-storage-in-firestore',
-      },
-      {
-        rig: 'rules-firestore',
-        observationName: 'rules-firestore-service-name-unknown-in-firestore',
-        filterFlag: '--scenario',
-        filterValue: 'service-name-unknown-in-firestore',
-      },
-      {
-        rig: 'rules-storage',
-        observationName: 'rules-storage-storage-path-bind-forms',
-        filterFlag: '--scenario',
-        filterValue: 'storage-path-bind-forms',
-      },
+  test('checked-in staged probes validate cleanly with default pendingRowLinkObservations both pre-capture and post-capture', async () => {
+    const stagedItems = loadStagedCaptureItems();
+    expect(stagedItems.map((i) => i.observationName)).toEqual([
+      'messaging-send-webpush-lowercase-ttl',
+      'rules-firestore-path-bind-forms',
+      'rules-firestore-path-literal-brace-bind',
+      'rules-firestore-path-literal-dollar-bound-bind',
+      'rules-firestore-path-literal-dollar-unbound-bind',
+      'rules-firestore-service-name-storage-in-firestore',
+      'rules-firestore-service-name-unknown-in-firestore',
+      'rules-storage-storage-path-bind-forms',
+      'rules-storage-storage-path-literal-brace-bind',
+      'rules-storage-storage-path-literal-dollar-bound-bind',
+      'rules-storage-storage-path-literal-dollar-unbound-bind',
     ]);
 
+    const currentObservations = loadObservations();
+    const existingNames = new Set(currentObservations.map((o) => o.name));
+    expect(discoverUncapturedStagedTargets()).toEqual(
+      stagedItems.filter((item) => !existingNames.has(item.observationName)),
+    );
+
     const rigManifests = await loadRigManifests();
-    const pendingRowLinkObservations = loadPendingRowLinkObservations();
     const rulesFirestoreScenarioIds = ALL_RULES_FIRESTORE_SCENARIOS.map((s) => s.id);
     const rulesStorageScenarioIds = ALL_RULES_STORAGE_SCENARIOS.map((s) => s.id);
     const probeFiles = listProbeFiles();
 
-    // Pre-capture (PR #1)
+    // Pre-capture (or current disk state) using DEFAULT pendingRowLinkObservations
     expect(
       validateCompatibilityRegistry({
         rows: allCompatibilityRows,
         descriptors: surfaceDescriptors,
-        observations: loadObservations(),
+        observations: currentObservations,
         observationExceptions,
         rigManifests,
         probeFiles,
         rulesFirestoreScenarioIds,
         rulesStorageScenarioIds,
-        pendingRowLinkObservations,
       }),
     ).toEqual([]);
 
-    // Post-capture (PR #2 touching ONLY packages/conformance/observations/**)
-    const postCaptureObservations = [
-      ...loadObservations(),
-      syntheticObservation({
-        file: 'messaging-send-webpush-lowercase-ttl.json',
-        surfaceDir: 'messaging-admin',
-        name: 'messaging-send-webpush-lowercase-ttl',
-        rowIds: [],
-      }),
-      syntheticObservation({
-        file: 'rules-firestore-path-bind-forms.json',
-        surfaceDir: 'firestore-rules',
-        name: 'rules-firestore-path-bind-forms',
-        rowIds: [],
-      }),
-      syntheticObservation({
-        file: 'rules-firestore-service-name-storage-in-firestore.json',
-        surfaceDir: 'firestore-rules',
-        name: 'rules-firestore-service-name-storage-in-firestore',
-        rowIds: [],
-      }),
-      syntheticObservation({
-        file: 'rules-firestore-service-name-unknown-in-firestore.json',
-        surfaceDir: 'firestore-rules',
-        name: 'rules-firestore-service-name-unknown-in-firestore',
-        rowIds: [],
-      }),
-      syntheticObservation({
-        file: 'rules-storage-storage-path-bind-forms.json',
-        surfaceDir: 'storage-rules',
-        name: 'rules-storage-storage-path-bind-forms',
-        rowIds: [],
-      }),
-    ];
+    // Post-capture (PR #2 touching ONLY packages/conformance/observations/**, deduplicated by name)
+    const obsByName = new Map(currentObservations.map((o) => [o.name, o]));
+    for (const item of stagedItems) {
+      if (!obsByName.has(item.observationName)) {
+        obsByName.set(
+          item.observationName,
+          syntheticObservation({
+            file: `${item.observationName}.json`,
+            surfaceDir: surfaceDirForObservationName(item.observationName),
+            name: item.observationName,
+            rowIds: [],
+          }),
+        );
+      }
+    }
 
     expect(
       validateCompatibilityRegistry({
         rows: allCompatibilityRows,
         descriptors: surfaceDescriptors,
-        observations: postCaptureObservations,
+        observations: [...obsByName.values()],
         observationExceptions,
         rigManifests,
         probeFiles,
         rulesFirestoreScenarioIds,
         rulesStorageScenarioIds,
-        pendingRowLinkObservations,
       }),
     ).toEqual([]);
   });
 
-  test('staged corpus scenarios cover Path.bind forms and wrong-service compile checks', () => {
-    const checkShape: OracleConformanceCheck = {
-      finding: 'sample',
-      observation: 'rules-firestore-path-bind-forms',
-      expect: { allow: 'ALLOW' },
-      probe: 'packages/conformance/rules-corpus/firestore/path-bind-forms.ts',
-      guards: 'Path.bind forms',
-    };
-    expect(checkShape.observation).toBe('rules-firestore-path-bind-forms');
-
+  test('staged corpus scenarios isolate path-literal bind forms and wrong-service compile checks', () => {
     expect(firestorePathBindForms.pendingRowLink).toBe(true);
     expect(firestorePathBindForms.allowCompileError).toBeUndefined();
-    expect(firestorePathBindForms.rules).toContain("path('/a/$(x)').bind({'x': '1'})");
-    expect(firestorePathBindForms.rules).toContain("(/a/$(x)).bind({'x': '1'})");
-    expect(firestorePathBindForms.rules).toContain("path('/a/{x}').bind({'x': 1.5})");
+    expect(firestorePathBindForms.cases).toHaveLength(4);
+    expect(firestorePathBindForms.rules).not.toContain('(/a/');
+
+    expect(firestorePathLiteralBraceBind.allowCompileError).toBe(true);
+    expect(firestorePathLiteralBraceBind.rules).toContain("(/a/{x}).bind({'x': '1'})");
+    expect(firestorePathLiteralDollarUnboundBind.allowCompileError).toBe(true);
+    expect(firestorePathLiteralDollarUnboundBind.rules).toContain("(/a/$(x)).bind({'x': '1'})");
+    expect(firestorePathLiteralDollarBoundBind.allowCompileError).toBe(true);
+    expect(firestorePathLiteralDollarBoundBind.rules).toContain('match /items/{x}');
 
     expect(storagePathBindForms.pendingRowLink).toBe(true);
-    expect(storagePathBindForms.rules).toContain("path('/a/$(x)').bind({'x': '1'})");
-    expect(storagePathBindForms.rules).toContain("(/a/$(x)).bind({'x': '1'})");
-    expect(storagePathBindForms.rules).toContain("path('/a/{x}').bind({'x': 1.5})");
+    expect(storagePathBindForms.allowCompileError).toBeUndefined();
     const storageCases: readonly StorageTestCase[] = storagePathBindForms.cases;
-    expect(storageCases).toHaveLength(7);
+    expect(storageCases).toHaveLength(4);
+    expect(storagePathBindForms.rules).not.toContain('(/a/');
 
-    expect(firestoreServiceStorage.pendingRowLink).toBe(true);
+    expect(storagePathLiteralBraceBind.allowCompileError).toBe(true);
+    expect(storagePathLiteralBraceBind.rules).toContain("(/a/{x}).bind({'x': '1'})");
+    expect(storagePathLiteralDollarUnboundBind.allowCompileError).toBe(true);
+    expect(storagePathLiteralDollarUnboundBind.rules).toContain("(/a/$(x)).bind({'x': '1'})");
+    expect(storagePathLiteralDollarBoundBind.allowCompileError).toBe(true);
+    expect(storagePathLiteralDollarBoundBind.rules).toContain('match /items/{x}');
+
     expect(firestoreServiceStorage.allowCompileError).toBe(true);
-    expect(firestoreServiceStorage.rules).toContain('service firebase.storage');
-
-    expect(firestoreServiceUnknown.pendingRowLink).toBe(true);
     expect(firestoreServiceUnknown.allowCompileError).toBe(true);
-    expect(firestoreServiceUnknown.rules).toContain('service foo.bar');
   });
 });

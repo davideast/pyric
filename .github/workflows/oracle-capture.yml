@@ -25,7 +25,7 @@ on:
       - 'packages/conformance/probes/**'
       - 'packages/conformance/rules-corpus/**'
       - 'packages/conformance/rigs/**'
-      - 'packages/conformance/src/*probes*.ts'
+      - 'packages/conformance/src/*probe*.ts'
   workflow_dispatch:
     inputs:
       rig:

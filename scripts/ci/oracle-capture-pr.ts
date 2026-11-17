@@ -71,7 +71,14 @@ export interface OpenedPullRequestOutcome {
 }
 
 function resetObservationsTree(cwd: string): void {
-  execFileSync('git', ['checkout', '--', 'packages/conformance/observations'], { cwd });
+  const tracked = execFileSync(
+    'git',
+    ['ls-files', '--', 'packages/conformance/observations'],
+    { cwd, encoding: 'utf8' },
+  ).trim();
+  if (tracked !== '') {
+    execFileSync('git', ['checkout', '--', 'packages/conformance/observations'], { cwd });
+  }
   execFileSync('git', ['clean', '-fd', '--', 'packages/conformance/observations'], { cwd });
 }
 
@@ -87,13 +94,36 @@ function groupInvocationsByRig(
   return grouped;
 }
 
-async function runCaptureCommand(cwd: string, env: NodeJS.ProcessEnv): Promise<void> {
-  assertMainBranchContext(env);
-  const planFile = env.PLAN_FILE;
-  const artifactDir = env.ARTIFACT_DIR;
-  if (!planFile || !artifactDir) {
-    throw new Error('PLAN_FILE and ARTIFACT_DIR environment variables are required');
-  }
+export interface InvocationRunOutcome {
+  status: number | null;
+  stdout?: string;
+  stderr?: string;
+}
+
+export function executeCapturePlan(options: {
+  cwd: string;
+  artifactDir: string;
+  env: NodeJS.ProcessEnv;
+  plan: CapturePlan;
+  runInvocation?: (inv: PlannedRigInvocation) => InvocationRunOutcome;
+}): { hasCaptures: boolean; hadRigFailure: boolean } {
+  const { cwd, artifactDir, env, plan } = options;
+  const runInvocation =
+    options.runInvocation ??
+    ((inv: PlannedRigInvocation): InvocationRunOutcome => {
+      console.log(
+        `[oracle-capture] running ${inv.rig}: bun run ${inv.script} ${inv.args.join(' ')}`.trim(),
+      );
+      const out = spawnSync('bun', ['run', inv.script, ...inv.args], {
+        cwd,
+        env,
+        encoding: 'utf8',
+        maxBuffer: 64 * 1024 * 1024,
+      });
+      if (out.stdout) process.stdout.write(out.stdout);
+      if (out.stderr) process.stderr.write(out.stderr);
+      return { status: out.status, stdout: out.stdout ?? '', stderr: out.stderr ?? '' };
+    });
 
   const initialStatus = execFileSync(
     'git',
@@ -104,10 +134,9 @@ async function runCaptureCommand(cwd: string, env: NodeJS.ProcessEnv): Promise<v
     throw new Error(`Working tree must be clean before capture starts:\n${initialStatus}`);
   }
 
-  const plan = JSON.parse(readFileSync(planFile, 'utf8')) as CapturePlan;
   if (!plan.shouldRun || plan.invocations.length === 0) {
     appendGithubOutput(env, 'has_captures', 'false');
-    return;
+    return { hasCaptures: false, hadRigFailure: false };
   }
 
   rmSync(artifactDir, { recursive: true, force: true });
@@ -124,59 +153,62 @@ async function runCaptureCommand(cwd: string, env: NodeJS.ProcessEnv): Promise<v
   let hadRigFailure = false;
 
   for (const [rig, rigInvocations] of grouped.entries()) {
-    let rigFailed = false;
+    const rigBundleDir = join(artifactDir, 'rigs', rig);
+    const collectedByPath = new Map<string, CollectedObservationChange>();
+    const succeededFilters: string[] = [];
+
     for (const inv of rigInvocations) {
-      console.log(`[oracle-capture] running ${inv.rig}: bun run ${inv.script} ${inv.args.join(' ')}`.trim());
-      const out = spawnSync('bun', ['run', inv.script, ...inv.args], {
-        cwd,
-        env,
-        encoding: 'utf8',
-        maxBuffer: 64 * 1024 * 1024,
-      });
-      if (out.stdout) process.stdout.write(out.stdout);
-      if (out.stderr) process.stderr.write(out.stderr);
-      if (out.status !== 0) {
+      const out = runInvocation(inv);
+      const invFailed = out.status !== 0;
+      if (invFailed) {
         const combined = `${out.stdout ?? ''}\n${out.stderr ?? ''}`;
         const report = diagnoseCaptureFailure(rig, combined, env);
         appendStepSummary(env, report);
         console.error(report);
-        rigFailed = true;
         hadRigFailure = true;
-        break;
+      }
+
+      const scratchDiscardDir = mkdtempSync(join(tmpdir(), 'oracle-capture-discard-'));
+      try {
+        const targetOutDir = invFailed ? scratchDiscardDir : rigBundleDir;
+        const collected = collectTimestampCleanObservations(cwd, targetOutDir);
+        if (!invFailed && collected.length > 0) {
+          for (const item of collected) {
+            collectedByPath.set(item.path, item);
+          }
+          const filterArg = inv.args.filter((a) => a !== '--write' && !a.startsWith('--')).join(',');
+          if (filterArg) succeededFilters.push(filterArg);
+        }
+      } catch (boundaryErr) {
+        rmSync(artifactDir, { recursive: true, force: true });
+        appendGithubOutput(env, 'has_captures', 'false');
+        throw boundaryErr;
+      } finally {
+        rmSync(scratchDiscardDir, { recursive: true, force: true });
+        resetObservationsTree(cwd);
       }
     }
 
-    try {
-      const rigBundleDir = join(artifactDir, 'rigs', rig);
-      const collected = collectTimestampCleanObservations(cwd, rigBundleDir);
-      if (!rigFailed && collected.length > 0) {
-        const filterSummary = rigInvocations
-          .map((item) => item.args.filter((a) => a !== '--write' && !a.startsWith('--')).join(','))
-          .filter(Boolean)
-          .join(', ');
-        const entry: CaptureBundleRigEntry = { rig, files: collected };
-        if (filterSummary) entry.filter = filterSummary;
-        bundleRigs.push(entry);
-      } else {
-        rmSync(rigBundleDir, { recursive: true, force: true });
-      }
-    } catch (boundaryErr) {
-      rmSync(artifactDir, { recursive: true, force: true });
-      appendGithubOutput(env, 'has_captures', 'false');
-      throw boundaryErr;
-    } finally {
-      resetObservationsTree(cwd);
+    if (collectedByPath.size > 0) {
+      const files = [...collectedByPath.values()].sort((a, b) => a.path.localeCompare(b.path));
+      const entry: CaptureBundleRigEntry = { rig, files };
+      const filterSummary = succeededFilters.join(', ');
+      if (filterSummary) entry.filter = filterSummary;
+      bundleRigs.push(entry);
+    } else {
+      rmSync(rigBundleDir, { recursive: true, force: true });
     }
   }
 
   if (bundleRigs.length === 0) {
     rmSync(artifactDir, { recursive: true, force: true });
     appendGithubOutput(env, 'has_captures', 'false');
-    if (hadRigFailure) process.exit(1);
-    const cleanMsg = '## Oracle capture: no non-timestamp observation changes produced.';
-    appendStepSummary(env, cleanMsg);
-    console.log(cleanMsg);
-    return;
+    if (!hadRigFailure) {
+      const cleanMsg = '## Oracle capture: no non-timestamp observation changes produced.';
+      appendStepSummary(env, cleanMsg);
+      console.log(cleanMsg);
+    }
+    return { hasCaptures: false, hadRigFailure };
   }
 
   const manifest: CaptureBundleManifest = { sourceSha, rigs: bundleRigs };
@@ -193,6 +225,18 @@ async function runCaptureCommand(cwd: string, env: NodeJS.ProcessEnv): Promise<v
     ]),
   ];
   appendStepSummary(env, summaryLines.join('\n'));
+  return { hasCaptures: true, hadRigFailure };
+}
+
+async function runCaptureCommand(cwd: string, env: NodeJS.ProcessEnv): Promise<void> {
+  assertMainBranchContext(env);
+  const planFile = env.PLAN_FILE;
+  const artifactDir = env.ARTIFACT_DIR;
+  if (!planFile || !artifactDir) {
+    throw new Error('PLAN_FILE and ARTIFACT_DIR environment variables are required');
+  }
+  const plan = JSON.parse(readFileSync(planFile, 'utf8')) as CapturePlan;
+  const { hadRigFailure } = executeCapturePlan({ cwd, artifactDir, env, plan });
   if (hadRigFailure) process.exit(1);
 }
 

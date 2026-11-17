@@ -39,10 +39,23 @@ export interface StagedCaptureItem {
 
 const PROBE_PREFIX_TO_RIG: ReadonlyArray<{ prefix: string; rig: string }> = [
   { prefix: 'admin-app-', rig: 'admin-app' },
+  { prefix: 'admin-firestore-', rig: 'admin-firestore' },
+  { prefix: 'admin-storage-', rig: 'storage-admin' },
   { prefix: 'app-registry-', rig: 'app-registry' },
   { prefix: 'client-storage-', rig: 'client-storage' },
-  { prefix: 'storage-admin-', rig: 'storage-admin' },
 ];
+
+export function hasEmptyObservationRowIds(rowIds: unknown): boolean {
+  return !Array.isArray(rowIds) || rowIds.length === 0;
+}
+
+export function isUnlinkedStagedObservation(
+  observationName: string,
+  rowIds: unknown,
+  pendingStems: ReadonlySet<string>,
+): boolean {
+  return pendingStems.has(observationName) && hasEmptyObservationRowIds(rowIds);
+}
 
 function stripComments(source: string): string {
   return source
@@ -61,7 +74,7 @@ function rigForProbeName(name: string): string | undefined {
 }
 
 /** Every authored scenario or probe currently marked `pendingRowLink: true`. */
-function loadStagedCaptureItems(): StagedCaptureItem[] {
+export function loadStagedCaptureItems(): StagedCaptureItem[] {
   const items: StagedCaptureItem[] = [];
 
   for (const scenario of ALL_RULES_FIRESTORE_SCENARIOS) {

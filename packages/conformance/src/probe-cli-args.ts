@@ -1,16 +1,16 @@
 /**
- * Single-probe CLI flag reader shared by the installed-SDK probe runners
- * (`admin-app-probes.ts`, `app-registry-probes.ts`, `client-storage-probes.ts`).
+ * Probe CLI flag readers shared across conformance probe runners.
  */
-export function readSingleProbeSelector(
+export function readProbeSelectors(
   args: readonly string[],
   extraPrefixes: readonly string[] = [],
-): string | undefined {
+): string[] {
   const prefixes = [...extraPrefixes, '--probe='];
   const selected: string[] = [];
 
   for (let i = 0; i < args.length; i += 1) {
     const arg = args[i];
+    if (!arg) continue;
     if (arg === '--probe') {
       const next = args[i + 1];
       if (!next || next.startsWith('--')) {
@@ -28,6 +28,14 @@ export function readSingleProbeSelector(
     }
   }
 
+  return selected;
+}
+
+export function readSingleProbeSelector(
+  args: readonly string[],
+  extraPrefixes: readonly string[] = [],
+): string | undefined {
+  const selected = readProbeSelectors(args, extraPrefixes);
   if (selected.length > 1) {
     throw new Error('only one --probe selector is allowed');
   }

@@ -10,6 +10,7 @@ import {
 import { allCompatibilityRows } from '../registry/index.ts';
 import { firestoreScenarioInputDigest } from './firestore-rules-input-digest.ts';
 import { loadFirestoreRulesExceptions } from './firestore-rules-exceptions.ts';
+import { hasEmptyObservationRowIds } from './staged-captures.ts';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const OBS_DIR = join(HERE, '..', 'observations', 'firestore-rules');
@@ -196,7 +197,7 @@ export async function replayFirestoreRulesObservations(): Promise<FirestoreOracl
     })
     .filter((observation) => {
       const scenario = scenarioByObservation.get(observation.name);
-      return !(scenario?.pendingRowLink && observation.rowIds.length === 0);
+      return !(scenario?.pendingRowLink && hasEmptyObservationRowIds(observation.rowIds));
     });
 
   const { SimulateFirestoreRulesHandler } = await import('../../rules/src/simulator/handler.ts');

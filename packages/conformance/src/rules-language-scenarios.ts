@@ -8,6 +8,7 @@ import { ALL_RULES_RTDB_DEPLOY_SCENARIOS, ALL_RULES_RTDB_SCENARIOS } from '../ru
 import { firestoreObservationMatchesScenario } from './firestore-rules-input-digest.ts';
 import { storageRulesTestInputDigest } from './storage-rules-input-digest.ts';
 import { loadStorageRulesExceptions } from './storage-rules-exceptions.ts';
+import { hasEmptyObservationRowIds } from './staged-captures.ts';
 
 interface StorageObservationIdentity {
   inputDigest?: { algorithm?: unknown; value?: unknown };
@@ -72,7 +73,7 @@ export function loadRulesLanguageScenarios(
       const observation = JSON.parse(
         readFileSync(join(observationDirectory, `${prefix}${id}.json`), 'utf8'),
       ) as { rowIds?: unknown; inputDigest?: { algorithm?: unknown; value?: unknown }; behavior?: Record<string, unknown> };
-      if (scenario.pendingRowLink && (!Array.isArray(observation.rowIds) || observation.rowIds.length === 0)) {
+      if (scenario.pendingRowLink && hasEmptyObservationRowIds(observation.rowIds)) {
         continue;
       }
       if (firestoreObservationMatchesScenario(scenario, observation)) twinIds.add(id);
@@ -108,7 +109,7 @@ export function loadRulesLanguageScenarios(
     const observation = JSON.parse(
       readFileSync(join(observationDirectory, `${prefix}${id}.json`), 'utf8'),
     ) as StorageObservationIdentity & { rowIds?: unknown };
-    if (scenario.pendingRowLink && (!Array.isArray(observation.rowIds) || observation.rowIds.length === 0)) {
+    if (scenario.pendingRowLink && hasEmptyObservationRowIds(observation.rowIds)) {
       continue;
     }
     if (storageObservationMatchesScenario(scenario, observation)) twinIds.add(id);
