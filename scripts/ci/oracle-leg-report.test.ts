@@ -28,13 +28,12 @@ function allLegs(overrides: Record<string, LegStatus> = {}): LegStatus[] {
 
 /** Every credentialed leg not run, as on a dispatch with nothing configured. */
 function nothingChecked(): LegStatus[] {
-  return allLegs({
-    'oracle-run': status('oracle-run', 'disabled', '#1270 and #1271 (credentials without a key file)'),
-    'messaging-send': status('messaging-send', 'guard-missing', 'GCP_WIF_PROVIDER'),
-    'rules-firestore': status('rules-firestore', 'guard-missing', 'GCP_WIF_PROVIDER'),
-    'rules-storage': status('rules-storage', 'guard-missing', 'GCP_WIF_PROVIDER'),
-    'storage-stdlib-discovery': status('storage-stdlib-discovery', 'guard-missing', 'GCP_WIF_PROVIDER'),
-  });
+  const captureWif = ['oracle-run', 'sdk-probes', 'admin-auth', 'storage-admin', 'admin-firestore', 'messaging-send'];
+  const parityWif = ['rules-firestore', 'rules-storage', 'storage-stdlib-discovery'];
+  return allLegs(Object.fromEntries([
+    ...captureWif.map((rig) => [rig, status(rig, 'guard-missing', 'CAPTURE_WIF_PROVIDER')]),
+    ...parityWif.map((rig) => [rig, status(rig, 'guard-missing', 'GCP_WIF_PROVIDER')]),
+  ]));
 }
 
 interface GhCall {
@@ -167,7 +166,11 @@ describe('reading the status files', () => {
     const written = [
       status('unattended', 'checked-drift'),
       status('oracle-run', 'disabled', '#1270'),
-      status('messaging-send', 'guard-missing', 'GCP_WIF_PROVIDER'),
+      status('sdk-probes', 'checked-clean'),
+      status('admin-auth', 'checked-clean'),
+      status('storage-admin', 'checked-clean'),
+      status('admin-firestore', 'checked-clean'),
+      status('messaging-send', 'guard-missing', 'CAPTURE_WIF_PROVIDER'),
       status('rules-firestore', 'capture-failed', 'the drift check skipped'),
       status('rules-storage', 'checked-clean'),
       status('storage-stdlib-discovery', 'checked-clean'),
@@ -224,22 +227,18 @@ describe('reading the status files', () => {
 
 describe('the headline and the table', () => {
   test('no credentialed leg checked production', () => {
-    expect(headline(summarize(nothingChecked()))).toBe('Production checked by 0 of 5 credentialed legs. Not run: 5.');
+    expect(headline(summarize(nothingChecked()))).toBe('Production checked by 0 of 9 credentialed legs. Not run: 9.');
   });
 
-  test('all five missing files read as not run: 5', () => {
-    const missing = allLegs({
-      'oracle-run': status('oracle-run', 'no-record'),
-      'messaging-send': status('messaging-send', 'no-record'),
-      'rules-firestore': status('rules-firestore', 'no-record'),
-      'rules-storage': status('rules-storage', 'no-record'),
-      'storage-stdlib-discovery': status('storage-stdlib-discovery', 'no-record'),
-    });
-    expect(headline(summarize(missing))).toBe('Production checked by 0 of 5 credentialed legs. Not run: 5.');
+  test('all nine missing files read as not run: 9', () => {
+    const missing = allLegs(
+      Object.fromEntries(LEGS.filter((l) => l.credentialed).map((l) => [l.rig, status(l.rig, 'no-record')])),
+    );
+    expect(headline(summarize(missing))).toBe('Production checked by 0 of 9 credentialed legs. Not run: 9.');
   });
 
   test('every leg clean says no drift', () => {
-    expect(headline(summarize(allLegs()))).toBe('Production checked by 5 of 5 credentialed legs. No drift.');
+    expect(headline(summarize(allLegs()))).toBe('Production checked by 9 of 9 credentialed legs. No drift.');
   });
 
   test('drift and a failed capture are counted apart from not run', () => {
@@ -249,21 +248,22 @@ describe('the headline and the table', () => {
       'rules-storage': status('rules-storage', 'capture-failed', 'the drift check skipped'),
     });
     expect(headline(summarize(mixed))).toBe(
-      'Production checked by 3 of 5 credentialed legs. Not run: 1. Capture failed: 1. Drift found: 1.',
+      'Production checked by 7 of 9 credentialed legs. Not run: 1. Capture failed: 1. Drift found: 1.',
     );
   });
 
   test('drift in the unattended rigs is named in the headline', () => {
     const unattended = allLegs({ unattended: status('unattended', 'checked-drift') });
     expect(headline(summarize(unattended))).toBe(
-      'Production checked by 5 of 5 credentialed legs. The unattended rigs need a person.',
+      'Production checked by 9 of 9 credentialed legs. The unattended rigs need a person.',
     );
   });
 
   test('the table lists every leg with its tier and result', () => {
     const table = legTable(nothingChecked());
     expect(table).toContain('| unattended | unattended | checked, no drift |');
-    expect(table).toContain('| oracle-run | credentialed | not run: disabled until #1270 and #1271 (credentials without a key file) |');
+    expect(table).toContain('| oracle-run | credentialed | not run: CAPTURE_WIF_PROVIDER not set |');
+    expect(table).toContain('| sdk-probes | credentialed | not run: CAPTURE_WIF_PROVIDER not set |');
     expect(table).toContain('| rules-storage | credentialed | not run: GCP_WIF_PROVIDER not set |');
     expect(table).toContain('| storage-stdlib-discovery | credentialed | not run: GCP_WIF_PROVIDER not set |');
     expect(table.split('\n')).toHaveLength(LEGS.length + 2);
@@ -271,20 +271,20 @@ describe('the headline and the table', () => {
 
   test('the issue title counts the legs that need a person and the legs that are disabled', () => {
     expect(issueTitle(summarize(nothingChecked()))).toBe(
-      `${ISSUE_TITLE_PREFIX}0 of 5 credentialed legs, 4 need a person, 1 disabled`,
+      `${ISSUE_TITLE_PREFIX}0 of 9 credentialed legs, 9 need a person`,
     );
     const one = allLegs({ 'rules-storage': status('rules-storage', 'checked-drift') });
-    expect(issueTitle(summarize(one))).toBe(`${ISSUE_TITLE_PREFIX}5 of 5 credentialed legs, 1 needs a person`);
+    expect(issueTitle(summarize(one))).toBe(`${ISSUE_TITLE_PREFIX}9 of 9 credentialed legs, 1 needs a person`);
   });
 
   test('the title never reads "0 need a person" while a leg is disabled', () => {
     const held = allLegs({ 'oracle-run': status('oracle-run', 'disabled', '#1270') });
-    expect(issueTitle(summarize(held))).toBe(`${ISSUE_TITLE_PREFIX}4 of 5 credentialed legs, 1 disabled`);
+    expect(issueTitle(summarize(held))).toBe(`${ISSUE_TITLE_PREFIX}8 of 9 credentialed legs, 1 disabled`);
   });
 
   test('a leg with no status file counts as needing a person in the title', () => {
     const lost = allLegs({ 'rules-storage': status('rules-storage', 'no-record') });
-    expect(issueTitle(summarize(lost))).toBe(`${ISSUE_TITLE_PREFIX}4 of 5 credentialed legs, 1 needs a person`);
+    expect(issueTitle(summarize(lost))).toBe(`${ISSUE_TITLE_PREFIX}8 of 9 credentialed legs, 1 needs a person`);
   });
 
   test('a failed download is named in the headline, not read as legs that ended early', () => {
@@ -336,7 +336,7 @@ describe('the report command', () => {
 
   test('it writes the headline and the table to the run summary', () => {
     const summary = runReport('success');
-    expect(summary).toContain('Production checked by 0 of 5 credentialed legs. Not run: 5.');
+    expect(summary).toContain('Production checked by 0 of 9 credentialed legs. Not run: 9.');
     expect(summary).toContain('| rules-storage | credentialed |');
   });
 });
@@ -356,9 +356,9 @@ describe('the issue', () => {
     const create = calls.find((call) => call.args[1] === 'create');
     expect(create?.args).toContain('divergence');
     expect(create?.args[create.args.indexOf('--title') + 1]).toBe(
-      `${ISSUE_TITLE_PREFIX}0 of 5 credentialed legs, 4 need a person, 1 disabled`,
+      `${ISSUE_TITLE_PREFIX}0 of 9 credentialed legs, 9 need a person`,
     );
-    expect(create?.bodyFile).toContain('Production checked by 0 of 5 credentialed legs. Not run: 5.');
+    expect(create?.bodyFile).toContain('Production checked by 0 of 9 credentialed legs. Not run: 9.');
     expect(create?.bodyFile).toContain(RUN_URL);
     expect(create?.bodyFile).toContain('| rules-firestore | credentialed | not run: GCP_WIF_PROVIDER not set |');
   });
@@ -433,7 +433,7 @@ interface WorkflowStep {
 interface MatrixEntry { rig: string; script: string; guard: string; wif?: boolean; disabled?: string }
 interface WorkflowJob {
   permissions?: Record<string, string>; needs?: string[]; if?: string;
-  steps?: WorkflowStep[]; strategy?: { matrix: { include: MatrixEntry[] } };
+  steps?: WorkflowStep[]; strategy?: { 'max-parallel'?: number; matrix: { include: MatrixEntry[] } };
 }
 
 function workflow(): { on: Record<string, unknown>; permissions: Record<string, string>; jobs: Record<string, WorkflowJob> } {
@@ -460,24 +460,25 @@ const RECORD_COMMAND = 'oracle-leg-report.ts record';
 const REPORT_COMMAND = 'oracle-leg-report.ts report';
 
 describe('the workflow', () => {
-  test('its legs are the legs this report knows, including client-storage, messaging-send WIF, and storage-stdlib-discovery', () => {
+  test('its legs cover every unattended-safe rig via CAPTURE_WIF_PROVIDER or GCP_WIF_PROVIDER', () => {
     const jobs = workflow().jobs;
     const include = jobs.credentialed?.strategy?.matrix.include ?? [];
+    expect(jobs.credentialed?.strategy?.['max-parallel']).toBe(1);
     expect(include.map((entry) => entry.rig)).toEqual(LEGS.filter((leg) => leg.credentialed).map((leg) => leg.rig));
     expect(include.map((entry) => entry.rig)).toEqual([
-      'oracle-run', 'messaging-send', 'rules-firestore', 'rules-storage', 'storage-stdlib-discovery',
+      'oracle-run', 'sdk-probes', 'admin-auth', 'storage-admin', 'admin-firestore',
+      'messaging-send', 'rules-firestore', 'rules-storage', 'storage-stdlib-discovery',
     ]);
-    const messaging = include.find((entry) => entry.rig === 'messaging-send');
-    expect(messaging).toEqual({
-      rig: 'messaging-send', script: 'packages/conformance/src/messaging-send-probes.ts', guard: 'CAPTURE_WIF_PROVIDER', wif: true,
-    });
-    const stdlib = include.find((entry) => entry.rig === 'storage-stdlib-discovery');
-    expect(stdlib).toEqual({
-      rig: 'storage-stdlib-discovery', script: 'packages/conformance/src/run-storage-stdlib-discovery.ts', guard: 'GCP_WIF_PROVIDER', wif: true,
-    });
+    for (const rig of ['oracle-run', 'sdk-probes', 'admin-auth', 'storage-admin', 'admin-firestore', 'messaging-send']) {
+      const leg = include.find((entry) => entry.rig === rig);
+      expect(leg?.guard).toBe('CAPTURE_WIF_PROVIDER');
+      expect(leg?.wif).toBe(true);
+      expect(leg?.disabled).toBeUndefined();
+    }
     const recaptureStep = stepRunning(stepsOf('credentialed'), 'bun run "$SCRIPT" --write');
     expect(recaptureStep?.env?.SCRIPT).toBe('${{ matrix.script }}');
     expect(recaptureStep?.env?.PYRIC_ORACLE_PROJECT_ID).toBe('digame-mas');
+    expect(recaptureStep?.env?.PYRIC_ORACLE_RTDB_URL).toContain('PYRIC_ORACLE_RTDB_URL');
     expect(stepRunning(stepsOf('unattended'), 'client-storage-probes.ts --write')).toBeDefined();
     expect(LEGS.find((leg) => !leg.credentialed)?.rig).toBe('unattended');
   });

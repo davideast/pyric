@@ -11,6 +11,7 @@ import {
   requireCaptureMode,
   stripCaptureFlags,
 } from './capture-mode-guard.ts';
+import { resolveProbeObservationLinkage } from './observation-linkage.ts';
 import { readSingleProbeSelector } from './probe-cli-args.ts';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -43,16 +44,30 @@ function deepEqual(a: unknown, b: unknown): boolean {
   return false;
 }
 
-async function capture(record: Probe, adminSdkVersion: string): Promise<ObservationEnvelope> {
+async function capture(
+  record: Probe,
+  adminSdkVersion: string,
+  observationPath = OBSERVATION_PATH,
+): Promise<ObservationEnvelope> {
+  const linkage = resolveProbeObservationLinkage(record, observationPath);
   return {
     name: ID,
-    matrixRow: record.matrixRow,
-    rowIds: record.rowIds,
+    matrixRow: linkage.matrixRow,
+    rowIds: linkage.rowIds,
     description: record.description,
     observedAt: new Date().toISOString(),
     adminSdkVersion,
     behavior: await record.observe(),
   };
+}
+
+export async function writeAdminFirestoreObservation(
+  record: Probe,
+  adminSdkVersion: string,
+  observationPath = OBSERVATION_PATH,
+): Promise<void> {
+  const actual = await capture(record, adminSdkVersion, observationPath);
+  writeFileSync(observationPath, `${JSON.stringify(actual, null, 2)}\n`);
 }
 
 export function selectAdminFirestoreProbeId(args: readonly string[]): string {
@@ -84,13 +99,12 @@ async function main(): Promise<void> {
   }
   const wantsWrite = !wantsVerify;
   const adminSdkVersion = resolvedAdminVersion();
-  const actual = await capture(probe, adminSdkVersion);
-
   if (wantsWrite) {
-    writeFileSync(OBSERVATION_PATH, `${JSON.stringify(actual, null, 2)}\n`);
+    await writeAdminFirestoreObservation(probe, adminSdkVersion, OBSERVATION_PATH);
     console.log(`wrote ${ID}.json against firebase-admin ${adminSdkVersion}`);
     return;
   }
+  const actual = await capture(probe, adminSdkVersion, OBSERVATION_PATH);
   const expected = JSON.parse(readFileSync(OBSERVATION_PATH, 'utf8')) as ObservationEnvelope;
   const matches = expected.adminSdkVersion === adminSdkVersion &&
     deepEqual(expected.behavior, actual.behavior);

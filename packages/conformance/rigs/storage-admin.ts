@@ -29,7 +29,8 @@ export const rig: RigManifestRecord = {
       },
       {
         name: 'PYRIC_ORACLE_STORAGE_BUCKET',
-        description: "The oracle project's Firebase Storage bucket, such as <project>.firebasestorage.app.",
+        description:
+          "The oracle project's Firebase Storage bucket, such as <project>.firebasestorage.app. Optional: unset, discovered from the oracle project's Firebase Web App config.",
       },
     ],
     projectFeatures: ['Firebase Storage enabled with a default bucket in the oracle project.'],
