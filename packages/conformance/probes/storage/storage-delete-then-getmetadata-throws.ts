@@ -76,9 +76,8 @@ export async function observeDeleteThenGetMetadata(
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: ['web-config'],
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'storage #67',
+  rowIds: ['storage#67'],
   description:
     'uploadBytes with customMetadata, verify getMetadata reads the stored metadata, call deleteObject, then call getMetadata on the deleted reference and observe the error shape.',
   async observe() {

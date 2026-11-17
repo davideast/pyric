@@ -47,7 +47,7 @@ export async function getBytes(
  * counterpart of the JS SDK's `getBlob` — the v1 scope doesn't ship
  * a Node-stream variant.
  */
-export async function getBlob(
+export function getBlob(
   ref: StorageReference,
   maxDownloadSizeBytes?: number,
 ): Promise<Blob> {
