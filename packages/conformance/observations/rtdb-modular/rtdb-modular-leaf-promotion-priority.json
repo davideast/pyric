@@ -1,0 +1,105 @@
+{
+  "name": "rtdb-modular-leaf-promotion-priority",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "RTDB leaf-to-parent promotion .priority retention when a scalar leaf carrying a numeric or string priority acquires a child via direct set/update, committed-leaf onDisconnect set/update, or same-session queued onDisconnect folding.",
+  "observedAt": "2026-11-17T12:31:11.311Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "directSetPromotion": {
+      "beforeServerExport": {
+        ".value": "leaf-val",
+        ".priority": 42
+      },
+      "afterWriterClientPriority": 42,
+      "afterWriterClientExport": {
+        "child": "v1",
+        ".priority": 42
+      },
+      "afterFreshClientPriority": 42,
+      "afterFreshClientExport": {
+        "child": "v1",
+        ".priority": 42
+      },
+      "afterServerExport": {
+        ".priority": 42,
+        "child": "v1"
+      }
+    },
+    "directUpdatePromotion": {
+      "beforeServerExport": {
+        ".value": 99,
+        ".priority": "prio-alpha"
+      },
+      "afterWriterClientPriority": "prio-alpha",
+      "afterWriterClientExport": {
+        "child": "v2",
+        ".priority": "prio-alpha"
+      },
+      "afterFreshClientPriority": "prio-alpha",
+      "afterFreshClientExport": {
+        "child": "v2",
+        ".priority": "prio-alpha"
+      },
+      "afterServerExport": {
+        ".priority": "prio-alpha",
+        "child": "v2"
+      }
+    },
+    "onDisconnectSetPromotion": {
+      "beforeServerExport": {
+        ".value": "leaf-val",
+        ".priority": 77
+      },
+      "afterFreshClientPriority": 77,
+      "afterFreshClientExport": {
+        "child": "from-disconnect",
+        ".priority": 77
+      },
+      "afterServerExport": {
+        ".priority": 77,
+        "child": "from-disconnect"
+      }
+    },
+    "onDisconnectUpdatePromotion": {
+      "beforeServerExport": {
+        ".value": "leaf-val",
+        ".priority": "prio-beta"
+      },
+      "afterFreshClientPriority": "prio-beta",
+      "afterFreshClientExport": {
+        "child": "from-disconnect-update",
+        ".priority": "prio-beta"
+      },
+      "afterServerExport": {
+        ".priority": "prio-beta",
+        "child": "from-disconnect-update"
+      }
+    },
+    "queuedOnDisconnectSetPromotion": {
+      "beforeServerExport": null,
+      "afterFreshClientPriority": 88,
+      "afterFreshClientExport": {
+        "child": "from-queued-set",
+        ".priority": 88
+      },
+      "afterServerExport": {
+        ".priority": 88,
+        "child": "from-queued-set"
+      }
+    },
+    "queuedOnDisconnectUpdatePromotion": {
+      "beforeServerExport": null,
+      "afterFreshClientPriority": "prio-gamma",
+      "afterFreshClientExport": {
+        "child": "from-queued-update",
+        ".priority": "prio-gamma"
+      },
+      "afterServerExport": {
+        ".priority": "prio-gamma",
+        "child": "from-queued-update"
+      }
+    }
+  }
+}
