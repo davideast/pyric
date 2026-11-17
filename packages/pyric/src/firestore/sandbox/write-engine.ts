@@ -171,7 +171,8 @@ export class WriteEngine {
       // silently destroying the sibling map. (`set`/`create` without merge
       // resolve deleteField via partitionDeletes, which the dispatch below
       // handles; the merge path adds it to the field mask.)
-      if (method === 'update' && resolvedData) {
+      const isNonMergeUpdate = method === 'update' && (merge === undefined || merge === false);
+      if (isNonMergeUpdate && resolvedData) {
         assertNoNestedDeleteField(resolvedData);
       }
     } catch (e) {

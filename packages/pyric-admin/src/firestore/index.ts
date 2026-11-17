@@ -1,5 +1,5 @@
 /**
- * `pyric-admin/firestore` — Admin-shape Firestore.
+ * `pyric-admin/firestore` -- Admin-shape Firestore.
  *
  * The implementation lives at `pyric/sandbox/admin-firestore` (the
  * pyric-internal admin-compat layer). This subpath is the consumer-
@@ -15,22 +15,22 @@
  * nothing is initialized. The original `getFirestore(ctx)` context form
  * (the load-bearing shape the existing suite uses) is preserved verbatim.
  *
- * RULES-BYPASS PARITY (#394): the two APP-resolution forms — `getFirestore(app)`
- * and no-arg `getFirestore()` — mirror `firebase-admin/firestore`'s
+ * RULES-BYPASS PARITY (#394): the two APP-resolution forms -- `getFirestore(app)`
+ * and no-arg `getFirestore()` -- mirror `firebase-admin/firestore`'s
  * `getFirestore(app?)`, and REAL firebase-admin bypasses security rules. So both
- * app forms resolve to the rules-BYPASS admin lens (`getAdminFirestore` →
+ * app forms resolve to the rules-BYPASS admin lens (`getAdminFirestore` ->
  * `{ mode: 'admin' }`), exactly as `pyric-admin/database`'s `getDatabase(app)`
  * and `pyric-admin/storage`'s `getStorage(app)` already do. Previously the app
  * forms routed through the anon-lens `getFirestore(sandbox.withAuth(null))`,
- * which evaluates `request.auth == null` and is DENIED by any real ruleset — a
- * deny-direction divergence from production that blocked the RTDB-trigger →
+ * which evaluates `request.auth == null` and is DENIED by any real ruleset -- a
+ * deny-direction divergence from production that blocked the RTDB-trigger ->
  * Firestore-stamp pattern (a Cloud Function's admin write).
  *
  * The `getFirestore(ctx)` CONTEXT form is UNCHANGED and stays rules-ENFORCED
  * (its captured identity is load-bearing for the rules-simulation suite). No
  * page ever reaches this module: a page's `firebase/firestore` resolves to
  * `pyric/firestore` (the rules-enforced client), not `pyric-admin`; only the
- * `firebase-admin/*` → `pyric-admin/*` swap in the trusted functions child
+ * `firebase-admin/*` -> `pyric-admin/*` swap in the trusted functions child
  * imports this. See {@link getFirestore}.
  */
 export * from 'pyric/sandbox/admin-firestore';
@@ -40,7 +40,7 @@ import {
   getAdminFirestore as baseGetAdminFirestore,
   type SandboxFirestore,
 } from 'pyric/sandbox/admin-firestore';
-import { SandboxContextImpl, type Sandbox, type SandboxContext } from 'pyric/sandbox';
+import { SandboxContextImpl, SandboxError, type Sandbox, type SandboxContext } from 'pyric/sandbox';
 import {
   ADMIN_APP_TARGET,
   isSandboxAdminApp,
@@ -54,8 +54,11 @@ import {
 } from '../app/lifecycle.js';
 import { defineDeferredMembers, deferredExport, type DeferredMembers } from 'pyric/app/internal';
 import { adminOnSnapshot, wrapAdminFirestoreHandle } from './admin-value-adapter.js';
+import { FieldValue } from './admin-field-value.js';
 
-// ─── Deferred surface ─────────────────────────────────────────────────────
+export { FieldValue };
+
+// --- Deferred surface --------------------------------------------------------
 //
 // `firebase-admin/firestore` values and `Firestore` methods the sandbox does
 // not model. Each fails with a `PyricDeferredApiError` naming it instead of
@@ -86,8 +89,22 @@ function withDeferredMembers(
 
 const appFirestoreCache = new WeakMap<PyricAdminApp, SandboxFirestore>();
 
-function getAppFirestore(app: PyricAdminApp): SandboxFirestore {
+function assertValidOptionalDatabaseId(databaseId: unknown): void {
+  let effectiveDatabaseId: unknown = '(default)';
+  if (databaseId) {
+    effectiveDatabaseId = databaseId;
+  }
+  if (typeof effectiveDatabaseId !== 'string') {
+    throw new SandboxError(
+      'invalid-argument',
+      'Value for argument "settings.databaseId" is not a valid string.',
+    );
+  }
+}
+
+function getAppFirestore(app: PyricAdminApp, databaseId?: unknown): SandboxFirestore {
   assertAdminAppActive(app);
+  assertValidOptionalDatabaseId(databaseId);
   const existing = appFirestoreCache.get(app);
   if (existing !== undefined) return existing;
   const rawDb = baseGetAdminFirestore(adminAppToContext(app));
@@ -97,15 +114,13 @@ function getAppFirestore(app: PyricAdminApp): SandboxFirestore {
   return wrapped;
 }
 
-/** Narrow a `PyricAdminApp` to the {@link SandboxContext} the admin
- *  firestore backend runs against. Sandbox apps expose their `Sandbox` —
- *  LOCAL and REMOTE alike: the base resolvers are remote-aware (they
- *  dispatch a remote-branded sandbox to the channel-backed arm), so no
- *  guard is needed here. The context's captured auth is IRRELEVANT on the
- *  admin path (rules are bypassed, so no rule reads `request.auth`); it is
- *  normalised to `withAuth(null)` only to obtain a context. Prod apps
- *  require firebase-admin's real Firestore, which the in-process backend
- *  does not model. */
+/**
+ * Narrow a `PyricAdminApp` to the {@link SandboxContext} the admin
+ * firestore backend runs against. Sandbox apps expose their `Sandbox` --
+ * LOCAL and REMOTE alike: the base resolvers are remote-aware (they
+ * dispatch a remote-branded sandbox to the channel-backed arm), so no
+ * guard is needed here.
+ */
 function adminAppToContext(app: PyricAdminApp): SandboxContext {
   if (isSandboxAdminApp(app)) {
     const candidateSandbox = (app as { sandbox?: unknown }).sandbox;
@@ -125,28 +140,22 @@ function adminAppToContext(app: PyricAdminApp): SandboxContext {
 /**
  * Return the admin Firestore handle.
  *
- *   - `getFirestore(ctx)` — the original context form (rules-APPLIED for the
+ *   - `getFirestore(ctx)` -- the original context form (rules-APPLIED for the
  *     ctx's captured identity). Unchanged; idempotent per `SandboxContext`.
- *     This is the pyric-internal rules-simulation shape, not a firebase-admin
- *     shape, so it keeps rule evaluation.
- *   - `getFirestore(app)` — resolves a {@link PyricAdminApp}'s sandbox to the
+ *   - `getFirestore(app)` -- resolves a {@link PyricAdminApp}'s sandbox to the
  *     rules-BYPASS admin lens (firebase-admin parity, #394).
- *   - `getFirestore()` — resolves the default app to the rules-BYPASS admin
+ *   - `getFirestore()` -- resolves the default app to the rules-BYPASS admin
  *     lens; throws `app/no-app` when nothing is initialized.
- *
- * The app forms mirror `firebase-admin/firestore`'s `getFirestore(app?)`,
- * which bypasses security rules — so a Cloud Function's admin write lands the
- * same way it does in production, instead of being denied as `request.auth ==
- * null` by the sandbox's anon lens (the #394 deny-direction divergence).
  */
 export function getFirestore(
   target?: SandboxContext | PyricAdminApp,
+  databaseId?: string,
 ): SandboxFirestore {
   if (target === undefined) {
-    return getAppFirestore(getDefaultServiceApp());
+    return getAppFirestore(getDefaultServiceApp(), databaseId);
   }
   if (typeof target === 'object' && target !== null && ADMIN_APP_TARGET in target) {
-    return getAppFirestore(target as PyricAdminApp);
+    return getAppFirestore(target as PyricAdminApp, databaseId);
   }
   if (target instanceof SandboxContextImpl) {
     return withDeferredMembers(baseGetFirestore(target));
