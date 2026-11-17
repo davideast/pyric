@@ -40,6 +40,10 @@ import {
 } from '@pyric/conformance/functions-http-fixture';
 import { doc, getDoc } from 'pyric/firestore';
 import {
+  isUnlinkedStagedObservation,
+  loadPendingRowLinkObservations,
+} from '../../../conformance/src/staged-captures.ts';
+import {
   connectFunctionsWorkerPeer,
   createFunctionsWorkerHostCtx,
 } from '../functions-rtdb/worker-peer.js';
@@ -405,12 +409,22 @@ climbDescribe('functions-http climb completeness', () => {
 
   test('every committed functions-http- observation is a probe this suite replays', () => {
     const probeNames = new Set(functionsHttpProbes.map((probe) => probe.name));
-    const committed = existsSync(OBS_DIR)
-      ? readdirSync(OBS_DIR).filter((file) => file.startsWith('functions-http-') && file.endsWith('.json'))
-      : [];
+    const pendingStems = loadPendingRowLinkObservations();
+    let committed: string[] = [];
+    if (existsSync(OBS_DIR)) {
+      committed = readdirSync(OBS_DIR).filter(
+        (file) => file.startsWith('functions-http-') && file.endsWith('.json'),
+      );
+    }
     const orphans = committed
       .map((file) => file.slice(0, -'.json'.length))
-      .filter((name) => !probeNames.has(name) && !(name in NOT_APPLICABLE));
+      .filter((name) => {
+        if (probeNames.has(name) || name in NOT_APPLICABLE) return false;
+        const parsed = JSON.parse(readFileSync(join(OBS_DIR, `${name}.json`), 'utf8')) as {
+          rowIds?: unknown;
+        };
+        return !isUnlinkedStagedObservation(name, parsed.rowIds, pendingStems);
+      });
     expect(orphans).toEqual([]);
   });
 });

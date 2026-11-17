@@ -51,6 +51,10 @@ import {
   type RtdbScenario,
 } from '../../../conformance/rules-corpus/rtdb/index.ts';
 import { replayRtdbScenario } from '../../../conformance/src/rules-rtdb-replay.ts';
+import {
+  isUnlinkedStagedObservation,
+  loadPendingRowLinkObservations,
+} from '../../../conformance/src/staged-captures.ts';
 
 // rules-rtdb-* observations live under the 'rtdb-rules' surface subdirectory
 // (surfaces/rtdb-rules.ts owns the prefix), NOT the SDK-plane 'rtdb' one.
@@ -93,9 +97,17 @@ function loadObservation(file: string): RulesObservation {
   return { name: raw.name ?? file.replace(/\.json$/, ''), behavior: raw.behavior ?? {} };
 }
 
+const pendingRowLinkStems = loadPendingRowLinkObservations();
+
 function capturedObservationFiles(): string[] {
   return readdirSync(OBS_DIR)
     .filter((f) => f.startsWith(RULES_RTDB_OBSERVATION_PREFIX) && f.endsWith('.json'))
+    .filter((f) => {
+      const name = f.replace(/\.json$/, '');
+      if (!pendingRowLinkStems.has(name)) return true;
+      const raw = JSON.parse(readFileSync(join(OBS_DIR, f), 'utf8')) as { rowIds?: unknown };
+      return !isUnlinkedStagedObservation(name, raw.rowIds, pendingRowLinkStems);
+    })
     .sort();
 }
 

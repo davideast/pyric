@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'bun:test';
 import { allCompatibilityRows } from '../../../../conformance/registry/index.ts';
 import { loadObservations } from '../../../../conformance/observations/load.ts';
+import { loadPendingRowLinkObservations } from '../../../../conformance/src/staged-captures.ts';
 import {
   auditObservationCompleteness,
   discoverCddAssertionRowIds,
@@ -20,6 +21,38 @@ describe('rtdb-modular CDD observation completeness', () => {
 
     expect(auditObservationCompleteness(input).uncovered).toEqual([
       'rtdb-modular-new-capture',
+    ]);
+  });
+
+  it('exempts unlinked pendingRowLink staged observations while failing on linked or non-staged uncovered observations', () => {
+    const pendingRowLinkStems = new Set([
+      'rtdb-modular-staged-unlinked',
+      'rtdb-modular-staged-linked',
+    ]);
+
+    const stagedOnly: ObservationCompletenessInput = {
+      observations: [{ name: 'rtdb-modular-staged-unlinked', rowIds: [] }],
+      rows: [],
+      assertedRowIds: [],
+      notApplicable: {},
+      pendingRowLinkStems,
+    };
+    expect(auditObservationCompleteness(stagedOnly).uncovered).toEqual([]);
+
+    const mixedUncovered: ObservationCompletenessInput = {
+      observations: [
+        { name: 'rtdb-modular-staged-unlinked', rowIds: [] },
+        { name: 'rtdb-modular-non-staged-unlinked', rowIds: [] },
+        { name: 'rtdb-modular-staged-linked', rowIds: ['rtdb-modular#999'] },
+      ],
+      rows: [],
+      assertedRowIds: [],
+      notApplicable: {},
+      pendingRowLinkStems,
+    };
+    expect(auditObservationCompleteness(mixedUncovered).uncovered).toEqual([
+      'rtdb-modular-non-staged-unlinked',
+      'rtdb-modular-staged-linked',
     ]);
   });
 
@@ -46,6 +79,7 @@ describe('rtdb-modular CDD observation completeness', () => {
       rows: allCompatibilityRows.filter(({ surface }) => surface === 'rtdb-modular'),
       assertedRowIds: discoverCddAssertionRowIds(import.meta.dir),
       notApplicable: NOT_APPLICABLE,
+      pendingRowLinkStems: loadPendingRowLinkObservations(),
     });
 
     expect(result).toEqual({
