@@ -1,0 +1,23 @@
+{
+  "name": "rules-storage-storage-path-literal-dollar-bound-bind",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "Storage Rules Test API verdicts for corpus scenario \"storage-path-literal-dollar-bound-bind\" (Path literal bound $(x) interpolation with bind()). Pins whether (/a/$(x)).bind({'x': '1'}) substitutes the match wildcard x ('orig') at literal evaluation or rebinds $(x) to '1'.",
+  "observedAt": "2026-11-17T03:33:06.817Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "inputDigest": {
+    "algorithm": "sha256",
+    "value": "22d4c77a1ca21bd3c6aa08b86e1ba2f4c506f001afb4d2752de05ccfaae86e9d"
+  },
+  "behavior": {
+    "(/a/$(x)).bind({'x': '1'}) == path('/a/1') with wildcard x='orig'": "DENY"
+  },
+  "diagnostics": {
+    "(/a/$(x)).bind({'x': '1'}) == path('/a/1') with wildcard x='orig'": {
+      "notes": [
+        "Error: storage.rules line [5], column [31]. Variable(s) x do not exist in the path template."
+      ]
+    }
+  }
+}
