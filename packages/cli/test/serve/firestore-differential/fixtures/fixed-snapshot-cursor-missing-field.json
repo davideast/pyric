@@ -1,0 +1,32 @@
+{
+  "sequence": {
+    "seed": 81,
+    "initialRules": 0,
+    "steps": [
+      {
+        "op": "setDoc",
+        "db": 0,
+        "path": "items/i1",
+        "data": { "$map": [["meta", { "$map": [["count", null]] }]] },
+        "mode": { "kind": "replace" }
+      },
+      {
+        "op": "setDoc",
+        "db": 0,
+        "path": "items/i3",
+        "data": { "$map": [["flag", true], ["label", "draft"]] },
+        "mode": { "kind": "replace" }
+      },
+      {
+        "op": "listenQuery",
+        "db": 0,
+        "id": 0,
+        "query": {
+          "source": { "kind": "collection", "path": "items" },
+          "orderBy": [{ "field": "meta.count", "dir": "desc" }],
+          "endBefore": { "mode": "docSnap", "path": "items/i3" }
+        }
+      }
+    ]
+  }
+}

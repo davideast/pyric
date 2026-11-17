@@ -1,0 +1,11 @@
+{
+  "sequence": {
+    "seed": 2,
+    "initialRules": 0,
+    "steps": [
+      { "op": "rules", "rules": 1 },
+      { "op": "listenDoc", "db": 0, "id": 0, "path": "rooms/r1/items/i2" },
+      { "op": "rules", "rules": 3 }
+    ]
+  }
+}

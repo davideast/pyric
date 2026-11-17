@@ -115,6 +115,33 @@ export function determineRtdbDifferential(input: {
     touches(path) || (previousPath !== undefined && touches(previousPath)));
 }
 
+/** The code the Firestore differential gate compares: the served hosts and
+ *  remote bridge, the Firestore and sandbox engines, the rules engines, and
+ *  the gate itself. */
+const FIRESTORE_DIFFERENTIAL_INPUTS = [
+  /^packages\/cli\/src\/serve\//,
+  /^packages\/cli\/src\/remote\//,
+  /^packages\/cli\/src\/bridge\//,
+  /^packages\/cli\/src\/register\//,
+  /^packages\/pyric\/src\/firestore\//,
+  /^packages\/pyric\/src\/sandbox\//,
+  /^packages\/pyric\/src\/rules\//,
+  /^packages\/rules\/src\//,
+  /^packages\/cli\/test\/serve\/firestore-differential\//,
+  /^\.github\/workflows\/build\.yml$/,
+];
+
+export function determineFirestoreDifferential(input: {
+  event: CheckSetInput['event'];
+  paths: ChangedPath[];
+}): boolean {
+  if (input.event !== 'pull_request') return true;
+  const touches = (path: string): boolean =>
+    FIRESTORE_DIFFERENTIAL_INPUTS.some((pattern) => pattern.test(path));
+  return input.paths.some(({ path, previousPath }) =>
+    touches(path) || (previousPath !== undefined && touches(previousPath)));
+}
+
 /** The labels that run every app scenario on a pull request. */
 const EVERY_APP_LABELS = ['ci-full', 'ci-slow-scenarios'];
 
@@ -313,6 +340,7 @@ function main(): void {
   const dispatchReleaseProof = process.env.CI_DISPATCH_RELEASE_PROOF === 'true';
   const releaseProof = determineReleaseProof({ event, labels: prLabels, dispatchReleaseProof });
   const rtdbDifferential = effectiveCheckSet === 'full' && determineRtdbDifferential({ event, paths });
+  const firestoreDifferential = effectiveCheckSet === 'full' && determineFirestoreDifferential({ event, paths });
   const root = resolve(import.meta.dir, '../..');
   const appSelection: AppScenarioSelection = effectiveCheckSet === 'full'
     ? selectAppScenarios({ event, labels: prLabels, paths, body: process.env.CI_PR_BODY ?? '', scenarios: discoverScenarios(root) })
@@ -323,7 +351,7 @@ function main(): void {
   mkdirSync(dirname(selectionFile), { recursive: true });
   writeFileSync(selectionFile, appSelectionFile(appSelection));
   const summary = JSON.stringify(
-    { mode, predictedCheckSet: checkSet, checkSet: effectiveCheckSet, shadowCheckSet, packaging, releaseProof, rtdbDifferential, appScenarios, appSelection, paths },
+    { mode, predictedCheckSet: checkSet, checkSet: effectiveCheckSet, shadowCheckSet, packaging, releaseProof, rtdbDifferential, firestoreDifferential, appScenarios, appSelection, paths },
     null,
     2,
   );
@@ -336,6 +364,7 @@ function main(): void {
     appendFileSync(output, `packaging=${String(packaging)}\n`);
     appendFileSync(output, `release-proof=${String(releaseProof)}\n`);
     appendFileSync(output, `rtdb-differential=${String(rtdbDifferential)}\n`);
+    appendFileSync(output, `firestore-differential=${String(firestoreDifferential)}\n`);
     appendFileSync(output, `app-scenarios=${String(appScenarios)}\n`);
     appendFileSync(output, `paths-json=${JSON.stringify(paths)}\n`);
   }

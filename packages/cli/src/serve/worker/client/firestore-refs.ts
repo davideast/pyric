@@ -27,6 +27,7 @@ import {
 } from 'pyric/firestore/internal/update-fields';
 import { generateAutoId } from 'pyric/sandbox/internal';
 import type { DocumentData, FieldPath, FirestoreDataConverter, QueryConstraintType } from 'pyric/firestore';
+import { validateResolvedQueryConstraint } from './firestore-query-validation.js';
 import { rawClientSnapshotForCursor, type RawCursorSnapshot } from './snapshots.js';
 
 // ─── Path factories (client-side only — no RPC) ──────────────────────────
@@ -287,9 +288,6 @@ function isSnapshotCursor(item: RawConstraintItem): item is PendingSnapshotCurso
 }
 
 function resolveQueryConstraints(items: readonly RawConstraintItem[]): QueryConstraintDescriptor[] {
-  const hasSnapshotCursor = items.some(isSnapshotCursor);
-  if (!hasSnapshotCursor) return items as QueryConstraintDescriptor[];
-
   const explicitOrders: Array<{ field: string; direction: 'asc' | 'desc' }> = [];
   const inequalityFields: string[] = [];
   for (const item of items) {
@@ -304,11 +302,14 @@ function resolveQueryConstraints(items: readonly RawConstraintItem[]): QueryCons
     }
   }
 
-  // One normalization for every plane: inequality fields in field-path
-  // order, then the document key (#1364, FL-4).
-  const normalizedOrders = normalizeQueryOrders(explicitOrders, inequalityFields);
+  let normalizedOrders: ReturnType<typeof normalizeQueryOrders> = [];
+  if (items.some(isSnapshotCursor)) {
+    normalizedOrders = normalizeQueryOrders(explicitOrders, inequalityFields);
+  }
 
   const resolved: QueryConstraintDescriptor[] = [];
+  const ordersSeenSoFar: string[] = [];
+  const allExplicitOrderFields = explicitOrders.map((entry) => entry.field);
 
   for (const item of items) {
     if (isSnapshotCursor(item)) {
@@ -319,20 +320,27 @@ function resolveQueryConstraints(items: readonly RawConstraintItem[]): QueryCons
           `Snapshot-based cursors require an existing document — got an empty snapshot for ${snapshot.id || '<unknown>'}.`,
         );
       }
+      const snapData = snapshot.data;
       const values = normalizedOrders.map((order) => {
         if (order.field === KEY_FIELD) {
           return { __type: 'reference', path: snapshot.path };
         }
-        return encodeDocValue(readSnapshotField(snapshot.data!, order.field));
+        return encodeDocValue(readSnapshotField(snapData, order.field));
       });
-      resolved.push({
+      const builtCursor: QueryConstraintDescriptor = {
         kind: item.kind,
         values,
         fromSnapshot: true,
         valueEncoding: DOC_VALUE_ENCODING,
-      });
+      };
+      validateResolvedQueryConstraint(builtCursor, ordersSeenSoFar);
+      resolved.push(builtCursor);
       continue;
     }
+    if (item.kind === 'orderBy') {
+      ordersSeenSoFar.push(canonicalConstraintFieldKey(item));
+    }
+    validateResolvedQueryConstraint(item, allExplicitOrderFields);
     resolved.push(item);
   }
   return resolved;

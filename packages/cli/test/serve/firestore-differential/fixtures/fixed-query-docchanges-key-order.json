@@ -1,0 +1,54 @@
+{
+  "sequence": {
+    "seed": 9001,
+    "initialRules": 0,
+    "steps": [
+      {
+        "op": "setDoc",
+        "db": 0,
+        "path": "items/i1",
+        "data": {
+          "$map": [
+            ["meta", { "$map": [["a", 1], ["b", 2]] }],
+            ["label", "stable"]
+          ]
+        },
+        "mode": { "kind": "replace" }
+      },
+      {
+        "op": "setDoc",
+        "db": 0,
+        "path": "items/i2",
+        "data": { "$map": [["n", 1]] },
+        "mode": { "kind": "replace" }
+      },
+      {
+        "op": "listenQuery",
+        "db": 0,
+        "id": 0,
+        "query": {
+          "source": { "kind": "collection", "path": "items" }
+        }
+      },
+      {
+        "op": "setDoc",
+        "db": 0,
+        "path": "items/i1",
+        "data": {
+          "$map": [
+            ["label", "stable"],
+            ["meta", { "$map": [["b", 2], ["a", 1]] }]
+          ]
+        },
+        "mode": { "kind": "replace" }
+      },
+      {
+        "op": "setDoc",
+        "db": 0,
+        "path": "items/i2",
+        "data": { "$map": [["n", 2]] },
+        "mode": { "kind": "replace" }
+      }
+    ]
+  }
+}

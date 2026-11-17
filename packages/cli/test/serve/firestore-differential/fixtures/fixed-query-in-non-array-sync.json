@@ -1,0 +1,26 @@
+{
+  "sequence": {
+    "seed": 1,
+    "initialRules": 0,
+    "steps": [
+      {
+        "op": "listenQuery",
+        "db": 0,
+        "id": 0,
+        "query": {
+          "source": { "kind": "collectionGroup", "collectionId": "items" },
+          "filter": {
+            "kind": "where",
+            "field": { "documentId": true },
+            "op": "in",
+            "value": "rooms/r1/items/i1"
+          },
+          "orderBy": [
+            { "field": "n", "dir": "desc" },
+            { "field": "label", "dir": "desc" }
+          ]
+        }
+      }
+    ]
+  }
+}
