@@ -15,6 +15,7 @@ import {
   discoverUncapturedStagedTargets,
   loadPendingRowLinkObservations,
   loadStagedCaptureItems,
+  resolveProbeRigFromSource,
 } from '../../src/staged-captures.ts';
 import { validateCompatibilityRegistry } from '../../src/validate-registry.ts';
 import { surfaceDescriptors } from '../../surfaces/load.ts';
@@ -30,17 +31,21 @@ import {
 } from '../../probes/rtdb-modular/rtdb-modular-query-limit-infinity.ts';
 import { probe as rtdbLeafPromotionPriorityProbe } from '../../probes/rtdb-modular/rtdb-modular-leaf-promotion-priority.ts';
 
-function makeSyntheticCapturedObservation(surfaceDir: string, name: string): Observation {
+function makeSyntheticCapturedObservation(
+  surfaceDir: string,
+  name: string,
+  rowIds: readonly string[] = [],
+): Observation {
   return {
     file: `${name}.json`,
     surfaceDir,
     name,
     matrixRow: '',
-    rowIds: [],
+    rowIds: [...rowIds],
     observedAt: '2026-11-17T00:00:00.000Z',
     fbSdkVersion: '12.19.0',
     behavior: { sample: true },
-    raw: { fbSdkVersion: '12.19.0' },
+    raw: { fbSdkVersion: '12.19.0', rowIds: [...rowIds] },
   };
 }
 
@@ -103,12 +108,12 @@ function createOrderedFakeAuth(
 }
 
 describe('staged modular probes (auth-admin and rtdb-modular)', () => {
-  it('registers all three pendingRowLink modular probes under their expected rigs and requirements', async () => {
+  it('registers all three linked modular probes under their expected rigs, requirements, and rowIds', async () => {
     const adminAuthProbes = await loadModularProbes('admin-auth');
     expect(adminAuthProbes.map((p) => p.id)).toContain('admin-auth-listusers-deleted-cursor');
     expect(adminAuthDeletedCursorProbe.rig).toBe('admin-auth');
-    expect(adminAuthDeletedCursorProbe.pendingRowLink).toBe(true);
-    expect(adminAuthDeletedCursorProbe.rowIds).toEqual([]);
+    expect(adminAuthDeletedCursorProbe.pendingRowLink).toBeUndefined();
+    expect(adminAuthDeletedCursorProbe.rowIds).toEqual(['auth-admin#9']);
     expect(adminAuthDeletedCursorProbe.requires).toEqual(['admin-auth']);
 
     const sdkProbes = await loadModularProbes('sdk-probes');
@@ -117,118 +122,151 @@ describe('staged modular probes (auth-admin and rtdb-modular)', () => {
     expect(sdkIds).toContain('rtdb-modular-leaf-promotion-priority');
 
     expect(rtdbLimitInfinityProbe.rig).toBe('sdk-probes');
-    expect(rtdbLimitInfinityProbe.pendingRowLink).toBe(true);
-    expect(rtdbLimitInfinityProbe.rowIds).toEqual([]);
+    expect(rtdbLimitInfinityProbe.pendingRowLink).toBeUndefined();
+    expect(rtdbLimitInfinityProbe.rowIds).toEqual(['rtdb-modular#query-limit-infinity']);
     expect(rtdbLimitInfinityProbe.requires).toEqual(['web-config', 'dedicated-rtdb']);
 
     expect(rtdbLeafPromotionPriorityProbe.rig).toBe('sdk-probes');
-    expect(rtdbLeafPromotionPriorityProbe.pendingRowLink).toBe(true);
-    expect(rtdbLeafPromotionPriorityProbe.rowIds).toEqual([]);
+    expect(rtdbLeafPromotionPriorityProbe.pendingRowLink).toBeUndefined();
+    expect(rtdbLeafPromotionPriorityProbe.rowIds).toEqual(['rtdb-modular#leaf-promotion-priority']);
     expect(rtdbLeafPromotionPriorityProbe.requires).toEqual(['web-config', 'dedicated-rtdb']);
   });
 
-  it('discovers uncaptured staged targets and validates cleanly both before and after observation files exist', async () => {
-    const stagedModularSpecs = [
-      { surfaceDir: 'auth-admin', name: 'admin-auth-listusers-deleted-cursor' },
-      { surfaceDir: 'rtdb-modular', name: 'rtdb-modular-query-limit-infinity' },
-      { surfaceDir: 'rtdb-modular', name: 'rtdb-modular-leaf-promotion-priority' },
+  it('discovers uncaptured staged targets and validates cleanly across pre-capture, partial-capture, and linked states', async () => {
+    const linkedModularNames = [
+      'admin-auth-listusers-deleted-cursor',
+      'rtdb-modular-query-limit-infinity',
+      'rtdb-modular-leaf-promotion-priority',
     ] as const;
-    const stagedModularNameSet = new Set<string>(stagedModularSpecs.map((spec) => spec.name));
 
-    const stagedItems = loadStagedCaptureItems();
-    const stagedItemNames = stagedItems.map((item) => item.observationName);
-    for (const spec of stagedModularSpecs) {
-      expect(stagedItemNames).toContain(spec.name);
+    const liveStagedItems = loadStagedCaptureItems();
+    const liveStagedNames = liveStagedItems.map((item) => item.observationName);
+    for (const linkedName of linkedModularNames) {
+      expect(liveStagedNames).not.toContain(linkedName);
     }
 
     const currentObservations = loadObservations();
     const existingNames = new Set(currentObservations.map((obs) => obs.name));
+    for (const linkedName of linkedModularNames) {
+      expect(existingNames.has(linkedName)).toBe(true);
+    }
     expect(discoverUncapturedStagedTargets()).toEqual(
-      stagedItems.filter((item) => !existingNames.has(item.observationName)),
+      liveStagedItems.filter((item) => !existingNames.has(item.observationName)),
     );
 
+    const syntheticStagedSpecs = [
+      {
+        rig: 'admin-auth',
+        surfaceDir: 'auth-admin',
+        name: 'admin-auth-synthetic-staged',
+      },
+      {
+        rig: 'sdk-probes',
+        surfaceDir: 'rtdb-modular',
+        name: 'rtdb-modular-synthetic-staged-a',
+      },
+      {
+        rig: 'sdk-probes',
+        surfaceDir: 'rtdb-modular',
+        name: 'rtdb-modular-synthetic-staged-b',
+      },
+    ] as const;
+    const syntheticStagedItems = [
+      ...liveStagedItems,
+      ...syntheticStagedSpecs.map((spec) => ({
+        rig: spec.rig,
+        observationName: spec.name,
+        filterFlag: '--probe' as const,
+        filterValue: spec.name,
+      })),
+    ];
+
     const rigManifests = await loadRigManifests();
-    const probeFiles = listProbeFiles();
-    const pendingStems = loadPendingRowLinkObservations();
+    const probeFiles = [
+      ...listProbeFiles(),
+      ...syntheticStagedSpecs.map((spec) => ({
+        surfaceDir: spec.surfaceDir,
+        name: spec.name,
+        declaredRig: spec.rig,
+      })),
+    ];
+    const pendingStems = new Set([
+      ...loadPendingRowLinkObservations(),
+      ...syntheticStagedSpecs.map((spec) => spec.name),
+    ]);
     const rtdbScenarioIds = [
       ...ALL_RULES_RTDB_SCENARIOS.map((s) => s.id),
       ...ALL_RULES_RTDB_DEPLOY_SCENARIOS.map((s) => s.id),
     ];
 
-    const validateWithObservations = (observations: Observation[]): string[] =>
+    const validateWithObservations = (
+      observations: Observation[],
+      activeProbeFiles = listProbeFiles(),
+      activePendingStems = loadPendingRowLinkObservations(),
+    ): string[] =>
       validateCompatibilityRegistry({
         rows: allCompatibilityRows,
         descriptors: surfaceDescriptors,
         observations,
         observationExceptions,
         rigManifests,
-        probeFiles,
+        probeFiles: activeProbeFiles,
         rulesFirestoreScenarioIds: ALL_RULES_FIRESTORE_SCENARIOS.map((s) => s.id),
         rulesStorageScenarioIds: ALL_RULES_STORAGE_SCENARIOS.map((s) => s.id),
         rulesRtdbScenarioIds: rtdbScenarioIds,
-        pendingRowLinkObservations: pendingStems,
+        pendingRowLinkObservations: activePendingStems,
       });
 
-    // Current filesystem state (whether 0, 1, or all 3 staged observations are already committed)
+    // Current linked filesystem state validates cleanly with default pendingRowLinkObservations
     expect(validateWithObservations(currentObservations)).toEqual([]);
 
-    // Deduplicated post-capture PR #2 state against currentObservations
-    const deduplicatedPostCapture = new Map(currentObservations.map((obs) => [obs.name, obs]));
-    for (const spec of stagedModularSpecs) {
-      if (!deduplicatedPostCapture.has(spec.name)) {
-        deduplicatedPostCapture.set(
-          spec.name,
-          makeSyntheticCapturedObservation(spec.surfaceDir, spec.name),
-        );
-      }
-    }
-    expect(validateWithObservations([...deduplicatedPostCapture.values()])).toEqual([]);
-
-    // Explicit pre-capture vs partial-capture vs all-captured transition checks
-    const preCaptureObservations = currentObservations.filter(
-      (obs) => !stagedModularNameSet.has(obs.name),
-    );
-    const preCaptureNames = new Set(preCaptureObservations.map((obs) => obs.name));
+    // Pre-capture state for synthetic staged probes
     const uncapturedBefore = discoverUncapturedStagedTargets({
-      stagedItems,
-      existingObservationNames: preCaptureNames,
+      stagedItems: syntheticStagedItems,
+      existingObservationNames: existingNames,
     }).map((item) => item.observationName);
-    for (const spec of stagedModularSpecs) {
+    for (const spec of syntheticStagedSpecs) {
       expect(uncapturedBefore).toContain(spec.name);
     }
-    expect(validateWithObservations(preCaptureObservations)).toEqual([]);
+    expect(validateWithObservations(currentObservations, probeFiles, pendingStems)).toEqual([]);
 
-    const afterAuthCaptureByName = new Map(preCaptureObservations.map((obs) => [obs.name, obs]));
+    // Partial-capture state (admin-auth captured, sdk-probes still uncaptured)
+    const afterAuthCaptureByName = new Map(currentObservations.map((obs) => [obs.name, obs]));
     afterAuthCaptureByName.set(
-      'admin-auth-listusers-deleted-cursor',
-      makeSyntheticCapturedObservation('auth-admin', 'admin-auth-listusers-deleted-cursor'),
+      'admin-auth-synthetic-staged',
+      makeSyntheticCapturedObservation('auth-admin', 'admin-auth-synthetic-staged'),
     );
     const uncapturedAfterAuth = discoverUncapturedStagedTargets({
-      stagedItems,
+      stagedItems: syntheticStagedItems,
       existingObservationNames: new Set(afterAuthCaptureByName.keys()),
     }).map((item) => item.observationName);
-    expect(uncapturedAfterAuth).not.toContain('admin-auth-listusers-deleted-cursor');
-    expect(uncapturedAfterAuth).toContain('rtdb-modular-query-limit-infinity');
-    expect(uncapturedAfterAuth).toContain('rtdb-modular-leaf-promotion-priority');
-    expect(validateWithObservations([...afterAuthCaptureByName.values()])).toEqual([]);
+    expect(uncapturedAfterAuth).not.toContain('admin-auth-synthetic-staged');
+    expect(uncapturedAfterAuth).toContain('rtdb-modular-synthetic-staged-a');
+    expect(uncapturedAfterAuth).toContain('rtdb-modular-synthetic-staged-b');
+    expect(
+      validateWithObservations([...afterAuthCaptureByName.values()], probeFiles, pendingStems),
+    ).toEqual([]);
 
+    // All-captured PR #2 state
     const afterAllCapturedByName = new Map(afterAuthCaptureByName);
     afterAllCapturedByName.set(
-      'rtdb-modular-query-limit-infinity',
-      makeSyntheticCapturedObservation('rtdb-modular', 'rtdb-modular-query-limit-infinity'),
+      'rtdb-modular-synthetic-staged-a',
+      makeSyntheticCapturedObservation('rtdb-modular', 'rtdb-modular-synthetic-staged-a'),
     );
     afterAllCapturedByName.set(
-      'rtdb-modular-leaf-promotion-priority',
-      makeSyntheticCapturedObservation('rtdb-modular', 'rtdb-modular-leaf-promotion-priority'),
+      'rtdb-modular-synthetic-staged-b',
+      makeSyntheticCapturedObservation('rtdb-modular', 'rtdb-modular-synthetic-staged-b'),
     );
     const uncapturedAfterAll = discoverUncapturedStagedTargets({
-      stagedItems,
+      stagedItems: syntheticStagedItems,
       existingObservationNames: new Set(afterAllCapturedByName.keys()),
     }).map((item) => item.observationName);
-    for (const spec of stagedModularSpecs) {
+    for (const spec of syntheticStagedSpecs) {
       expect(uncapturedAfterAll).not.toContain(spec.name);
     }
-    expect(validateWithObservations([...afterAllCapturedByName.values()])).toEqual([]);
+    expect(
+      validateWithObservations([...afterAllCapturedByName.values()], probeFiles, pendingStems),
+    ).toEqual([]);
   });
 
   it('observeListUsersDeletedCursor captures progression cleanly on contiguous lexicographical order', async () => {
@@ -376,5 +414,106 @@ describe('staged modular probes (auth-admin and rtdb-modular)', () => {
       "permission_denied at /pyric_oracle/<runId>/firstAtMostTwo/items: Client doesn't have permission to access the desired data.",
     );
     expect(scrubOracleRunPath('Permission denied')).toBe('Permission denied');
+  });
+
+  it('resolves explicit rig declarations on modular probe files and enforces pendingPrefixes promotion on PR #3', async () => {
+    expect(
+      resolveProbeRigFromSource(
+        "export const probe = { rig: 'sdk-probes', pendingRowLink: true, rowIds: [] };",
+        'rtdb-modular-query-limit-infinity',
+      ),
+    ).toBe('sdk-probes');
+    expect(
+      resolveProbeRigFromSource(
+        "export const probe = { rig: 'admin-auth', pendingRowLink: true, rowIds: [] };",
+        'admin-auth-listusers-deleted-cursor',
+      ),
+    ).toBe('admin-auth');
+    expect(
+      resolveProbeRigFromSource(
+        'export const probe = { pendingRowLink: true, rowIds: [] };',
+        'client-storage-new-probe',
+      ),
+    ).toBe('client-storage');
+
+    const rigManifests = await loadRigManifests();
+    const adminAuthRig = rigManifests.find((m) => m.id === 'admin-auth');
+    expect(adminAuthRig).toBeDefined();
+    expect(adminAuthRig?.observationPrefixes).toContain('admin-auth-');
+    expect(adminAuthRig?.pendingPrefixes).toEqual([]);
+
+    const unpromotedRigManifests = rigManifests.map((manifest) => {
+      if (manifest.id === 'admin-auth') {
+        return {
+          ...manifest,
+          observationPrefixes: [],
+          pendingPrefixes: ['admin-auth-'],
+        };
+      }
+      return manifest;
+    });
+    const baseObservationsWithoutAdminAuth = loadObservations().filter(
+      (obs) => obs.name !== 'admin-auth-listusers-deleted-cursor',
+    );
+    const baseRowsWithoutAdminAuthObs = allCompatibilityRows.map((row) => {
+      if (!row.oracleObservations.includes('admin-auth-listusers-deleted-cursor')) {
+        return row;
+      }
+      return {
+        ...row,
+        automation: 'unit-backed' as const,
+        oracleObservations: row.oracleObservations.filter(
+          (obs) => obs !== 'admin-auth-listusers-deleted-cursor',
+        ),
+      };
+    });
+
+    const stagedAdminAuthObs = makeSyntheticCapturedObservation(
+      'auth-admin',
+      'admin-auth-listusers-deleted-cursor',
+    );
+    const pr2Problems = validateCompatibilityRegistry({
+      rows: baseRowsWithoutAdminAuthObs,
+      descriptors: surfaceDescriptors,
+      observations: [...baseObservationsWithoutAdminAuth, stagedAdminAuthObs],
+      observationExceptions,
+      rigManifests: unpromotedRigManifests,
+      pendingRowLinkObservations: new Set([
+        ...loadPendingRowLinkObservations(),
+        'admin-auth-listusers-deleted-cursor',
+      ]),
+    });
+    expect(pr2Problems).toEqual([]);
+
+    const authAdminRow = baseRowsWithoutAdminAuthObs.find((r) => r.surface === 'auth-admin');
+    let authRowId = 'auth-admin#1';
+    if (authAdminRow !== undefined) {
+      authRowId = authAdminRow.id;
+    }
+    const linkedAdminAuthObs = makeSyntheticCapturedObservation(
+      'auth-admin',
+      'admin-auth-listusers-deleted-cursor',
+      [authRowId],
+    );
+    const pr3Rows = baseRowsWithoutAdminAuthObs.map((row) => {
+      if (row.id !== authRowId) return row;
+      return {
+        ...row,
+        oracleObservations: [...row.oracleObservations, 'admin-auth-listusers-deleted-cursor'],
+      };
+    });
+    const pr3ProblemsWithoutPromotion = validateCompatibilityRegistry({
+      rows: pr3Rows,
+      descriptors: surfaceDescriptors,
+      observations: [...baseObservationsWithoutAdminAuth, linkedAdminAuthObs],
+      observationExceptions,
+      rigManifests: unpromotedRigManifests,
+      pendingRowLinkObservations: loadPendingRowLinkObservations(),
+    });
+    expect(
+      pr3ProblemsWithoutPromotion.some((p) =>
+        p.includes("pending prefix 'admin-auth-' now matches a captured observation"),
+      ),
+    ).toBe(true);
   });
 });

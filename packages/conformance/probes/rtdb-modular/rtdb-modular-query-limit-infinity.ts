@@ -207,9 +207,8 @@ const RUN_RULES: Record<string, unknown> = {
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: ['web-config', 'dedicated-rtdb'],
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'rtdb-modular#query-limit-infinity',
+  rowIds: ['rtdb-modular#query-limit-infinity'],
   description:
     'RTDB modular client get()/onValue() and query.limitToFirst / query.limitToLast rules evaluation for limitToFirst(Infinity) and limitToLast(Infinity).',
   async observe() {

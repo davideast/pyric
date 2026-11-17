@@ -133,22 +133,6 @@ export class BackendState {
     return withPriorities(value, entries);
   }
 
-  /**
-   * Clear `.priority` on any proper ancestor of `path` that holds a primitive
-   * leaf before a non-null descendant write promotes that ancestor to an object.
-   */
-  clearPromotedAncestorPriorities(path: string, value: JsonValue): void {
-    if (value === null || this.priorities.size === 0) return;
-    const segments = pathSegments(path);
-    for (let depth = 0; depth < segments.length; depth += 1) {
-      const ancestorSegs = segments.slice(0, depth);
-      const current = this.tree.peekSegments(ancestorSegs);
-      if (current !== undefined && current !== null && typeof current !== 'object') {
-        this.priorities.set(joinPath(ancestorSegs), null);
-      }
-    }
-  }
-
   /** The stored priorities strictly below `path`, relative to it. */
   prioritiesBelow(path: string): InlinePriority[] {
     if (this.priorities.size === 0) return [];

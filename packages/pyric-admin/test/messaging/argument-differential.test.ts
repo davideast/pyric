@@ -356,6 +356,8 @@ for (const armKind of ['local', 'remote'] as const) {
           { condition: "'t0' in topics &&" },
           { topic: 'bad#topic' },
           { topic: 'alerts', webpush: { headers: { TTL: 'not-digits' } } },
+          { topic: 'alerts', webpush: { headers: { ttl: '-1' } } },
+          { topic: 'alerts', webpush: { headers: { ttl: 'abc' } } },
           { topic: 'alerts', data: { p: 'x'.repeat(5000) } },
         ];
         let expectedRejected = 0;
@@ -365,6 +367,21 @@ for (const armKind of ['local', 'remote'] as const) {
           });
           expectedRejected += 1;
           expect(countMessageRejectedEvents(arm.history())).toBe(expectedRejected);
+        }
+
+        for (const msg of [
+          { topic: 'alerts', webpush: { headers: { ttl: '60' } } },
+          { topic: 'alerts', webpush: { headers: { ttl: '-1' } } },
+          { topic: 'alerts', webpush: { headers: { ttl: 'abc' } } },
+        ]) {
+          upstream.resetTransportFlag();
+          const uOutcome = await captureOutcome(() => upstream.svc.send(msg), upstream.didReachHttp);
+          const pOutcome = await captureOutcome(() => arm.svc.send(msg));
+          expect(uOutcome.acceptedPreflight).toBe(true);
+          expect(compareOutcomes('send:lowercase-ttl', [msg], uOutcome, pOutcome)).toBeNull();
+          if (!pOutcome.accepted) {
+            expectedRejected += 1;
+          }
         }
 
         const batchRes = await arm.svc.sendEach([

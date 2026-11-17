@@ -1,7 +1,9 @@
 {
   "name": "rtdb-modular-query-limit-infinity",
-  "matrixRow": "",
-  "rowIds": [],
+  "matrixRow": "rtdb-modular#query-limit-infinity",
+  "rowIds": [
+    "rtdb-modular#query-limit-infinity"
+  ],
   "description": "RTDB modular client get()/onValue() and query.limitToFirst / query.limitToLast rules evaluation for limitToFirst(Infinity) and limitToLast(Infinity).",
   "observedAt": "2026-11-17T12:32:45.824Z",
   "fbSdkVersion": "12.19.0",

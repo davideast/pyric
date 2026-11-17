@@ -56,9 +56,9 @@ const OBS_DIR = join(import.meta.dir, '..', '..', '..', '..', 'packages', 'confo
  * Observations under `observations/messaging-admin/` that cannot be replayed
  * against the in-process admin mirror, each with a written reason.
  *
- * Intentionally EMPTY: all ten committed `messaging-send-*` captures — the five
- * accept-path resource-name shapes and the five `google.rpc` error envelopes —
- * are driven against the mirror's `send`/`dryRun` below and their behavior
+ * Intentionally EMPTY: all eleven committed `messaging-send-*` captures - the five
+ * accept-path resource-name shapes and the six `google.rpc` error / header validation
+ * captures - are driven against the mirror's `send`/`dryRun` below and their behavior
  * fields asserted. Nothing here is a send-plane reality the mirror cannot
  * exhibit. Type-only shapes such as messaging-admin#10 (`Message` union) have NO
  * committed observation file and are closed by the tier-2 assignability census
@@ -230,6 +230,16 @@ const assertions: Record<string, () => Promise<void> | void> = {
     ]) {
       assertEnvelope(obs(name));
     }
+    const lowercaseTtl = obs('messaging-send-webpush-lowercase-ttl');
+    const lowercaseAccept = await drivenAccept({
+      topic: 'oracle-topic',
+      webpush: { headers: { ttl: '60' } },
+    });
+    expect(sameResourceShape(lowercaseAccept)).toBe(lowercaseTtl.validSixtySeconds.dryRunMatchesRealSend);
+    assertEnvelope({ status: lowercaseTtl.negativeOne.realSendStatus, error: lowercaseTtl.negativeOne.realSendError });
+    assertEnvelope({ status: lowercaseTtl.nonNumericAbc.realSendStatus, error: lowercaseTtl.nonNumericAbc.realSendError });
+    await expectRejectedInvalidArgument({ topic: 'oracle-topic', webpush: { headers: { ttl: '-1' } } });
+    await expectRejectedInvalidArgument({ topic: 'oracle-topic', webpush: { headers: { ttl: 'abc' } } });
     // Documented data cap.
     expect(obs('messaging-send-oversized-payload-error-envelope').documentedCapBytes).toBe(4096);
   },
@@ -311,7 +321,7 @@ const assertions: Record<string, () => Promise<void> | void> = {
     expect(await loadAdmin()).toBeDefined();
   },
   'messaging-admin#18': async () => {
-    // WebpushConfig: headers.TTL + fcmOptions.link accepted; non-numeric TTL rejected.
+    // WebpushConfig: headers.TTL / headers.ttl + fcmOptions.link accepted; negative or non-numeric TTL/ttl rejected.
     expect(obs('messaging-send-webpush-config-accepted').realSend.matchesProjectsMessagesFormat).toBe(true);
     await expectAccepted({
       topic: 'oracle-topic',
@@ -321,6 +331,14 @@ const assertions: Record<string, () => Promise<void> | void> = {
     assertEnvelope(bad);
     expect(fieldViolationFields(bad)).toContain('message.webpush.headers.TTL');
     await expectRejectedInvalidArgument({ topic: 'oracle-topic', webpush: { headers: { TTL: 'not-a-number' } } });
+
+    const lowercase = obs('messaging-send-webpush-lowercase-ttl');
+    expect(lowercase.validSixtySeconds.realSendAccepted).toBe(true);
+    await expectAccepted({ topic: 'oracle-topic', webpush: { headers: { ttl: '60' } } });
+    expect(fieldViolationFields({ error: lowercase.negativeOne.realSendError })).toContain('message.webpush.headers.TTL');
+    expect(fieldViolationFields({ error: lowercase.nonNumericAbc.realSendError })).toContain('message.webpush.headers.TTL');
+    await expectRejectedInvalidArgument({ topic: 'oracle-topic', webpush: { headers: { ttl: '-1' } } });
+    await expectRejectedInvalidArgument({ topic: 'oracle-topic', webpush: { headers: { ttl: 'abc' } } });
   },
   'messaging-admin#19': async () => {
     // WebpushFcmOptions { link? } — link accepted on a webpush send.
@@ -422,7 +440,7 @@ describe('oracle conformance (messaging-admin send plane)', () => {
   // above (a comment mention or an unused load() does not count).
   it('completeness: every observations/messaging-admin/ capture is asserted (prefix gate)', () => {
     const r = messagingObsGate.report();
-    expect(r.committed.length).toBe(10);
+    expect(r.committed.length).toBe(11);
     expect(r.loadedButUnused).toEqual([]);
     expect(r.uncovered).toEqual([]);
   });

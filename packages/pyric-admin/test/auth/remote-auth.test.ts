@@ -16,6 +16,7 @@ import {
 import { createRemoteSandboxHandle } from '../../../cli/src/remote/index.js';
 import { deleteApp, getApps, initializeApp } from '../../src/app/index.js';
 import { getAuth } from '../../src/auth/index.js';
+import { createWorkerBridgeRemoteAuth } from './worker-bridge-helper.js';
 
 afterEach(async () => {
   await Promise.all(getApps().map((app) => deleteApp(app)));
@@ -226,6 +227,49 @@ describe('remote sandbox Auth arm', () => {
     for (const record of [fetched, byEmail, listed.users[0]]) {
       expect(record?.tokensValidAfterTime).toBe(expectedRevokedUtc);
       expect(record?.toJSON().tokensValidAfterTime).toBe(expectedRevokedUtc);
+    }
+  });
+
+  it('advances listUsers(maxResults, pageToken) over hosted worker-bridge RemoteSandbox when the last-returned or next-boundary user is deleted', async () => {
+    const stackA = await createWorkerBridgeRemoteAuth('remote-cursor-del-returned');
+    const stackB = await createWorkerBridgeRemoteAuth('remote-cursor-del-next');
+    try {
+      const authA = stackA.auth;
+      await authA.createUser({ uid: 'a1' });
+      await authA.createUser({ uid: 'a2' });
+      await authA.createUser({ uid: 'a3' });
+
+      const pageA1 = await authA.listUsers(1);
+      expect(pageA1.users.map((u) => u.uid)).toEqual(['a1']);
+      expect(typeof pageA1.pageToken).toBe('string');
+
+      await authA.deleteUser('a1');
+
+      const pageA2 = await authA.listUsers(1, pageA1.pageToken);
+      expect(pageA2.users.map((u) => u.uid)).toEqual(['a2']);
+      expect(typeof pageA2.pageToken).toBe('string');
+
+      const pageA3 = await authA.listUsers(1, pageA2.pageToken);
+      expect(pageA3.users.map((u) => u.uid)).toEqual(['a3']);
+      expect(pageA3.pageToken).toBeUndefined();
+
+      const authB = stackB.auth;
+      await authB.createUser({ uid: 'b1' });
+      await authB.createUser({ uid: 'b2' });
+      await authB.createUser({ uid: 'b3' });
+
+      const pageB1 = await authB.listUsers(1);
+      expect(pageB1.users.map((u) => u.uid)).toEqual(['b1']);
+      expect(typeof pageB1.pageToken).toBe('string');
+
+      await authB.deleteUser('b2');
+
+      const pageB2 = await authB.listUsers(1, pageB1.pageToken);
+      expect(pageB2.users.map((u) => u.uid)).toEqual(['b3']);
+      expect(pageB2.pageToken).toBeUndefined();
+    } finally {
+      stackA.dispose();
+      stackB.dispose();
     }
   });
 });

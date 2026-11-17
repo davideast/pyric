@@ -13,6 +13,7 @@ import {
 import {
   assertGettablePath,
   emptySpec,
+  hasNonFiniteQueryLimit,
   isDefaultQuerySpec,
   loadsAllData,
   type QueryReadResult,
@@ -198,6 +199,9 @@ function buildSandboxRef(
       async get(spec: QuerySpec): Promise<DataSnapshot> {
         assertGettablePath(canonical);
         lifecycle.assertActive();
+        if (hasNonFiniteQueryLimit(spec)) {
+          return new Promise<DataSnapshot>(() => {});
+        }
         if (!isDefaultQuerySpec(spec)) {
           const result = backend.adminGetQuery(canonical, spec);
           return buildLocalQuerySnapshot(refAt, adminDb, canonical, segs, result.rows, loadsAllData(spec), result.val);

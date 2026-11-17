@@ -30,6 +30,7 @@ import {
   type Query,
 } from 'pyric/database';
 import {
+  assertGettablePath,
   DisconnectOperationQueue,
   type DisconnectOperation,
 } from 'pyric/database/internal';
@@ -80,12 +81,25 @@ function normalizeWireQuerySpec(spec: RtdbWireQuerySpec): Query['_spec'] {
   if (spec.limit === null) {
     return { orderBy: spec.orderBy, bounds: spec.bounds, limit: null };
   }
-  const count = spec.limit.n === null ? Number.POSITIVE_INFINITY : spec.limit.n;
+  let count = spec.limit.n;
+  if (count === null) {
+    count = Number.POSITIVE_INFINITY;
+  }
   return {
     orderBy: spec.orderBy,
     bounds: spec.bounds,
     limit: { kind: spec.limit.kind, n: count },
   };
+}
+
+function hasUnansweredWireQueryLimit(spec?: RtdbWireQuerySpec): boolean {
+  if (spec === undefined || spec.limit === null) {
+    return false;
+  }
+  if (spec.limit.n === null) {
+    return true;
+  }
+  return !Number.isFinite(spec.limit.n);
 }
 
 export function rtdbTarget(
@@ -316,6 +330,10 @@ export async function handleRtdbOp(
             rtdbRunTransaction(rtdbRef(db, msg.path), () => undefined),
           );
           ok(port, msg.id, rtdbSnapToWire(aborted.snapshot));
+          break;
+        }
+        if (hasUnansweredWireQueryLimit(msg.query)) {
+          assertGettablePath(msg.path);
           break;
         }
         ok(port, msg.id, rtdbSnapToWire(await sdkActivity.silence(() => rtdbGet(rtdbTarget(db, msg.path, msg.query)))));

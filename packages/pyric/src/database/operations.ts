@@ -2,7 +2,7 @@ import { runSdkWrite } from '../sandbox/internal/sdk-write-activity.js';
 import { generatePushId } from './sandbox/push-id.js';
 import { joinPath, pathSegments, type JsonValue } from './sandbox/data-tree.js';
 import { authFor, isAdminFor, targetOf } from './routing.js';
-import { isDefaultQuerySpec, isQuery } from './query-shape.js';
+import { hasNonFiniteQueryLimit, isDefaultQuerySpec, isQuery } from './query-shape.js';
 import { finishSdkRead } from '../sandbox/internal/sdk-activity.js';
 import { beginDatabaseActivity } from './sdk-activity.js';
 import type { DataSnapshot, DatabaseReference, Query, ThenableReference } from './types.js';
@@ -34,6 +34,9 @@ export function get(r: DatabaseReference | Query): Promise<DataSnapshot> {
   return Promise.resolve().then(() => {
     try {
       assertGettablePath(ref0._path);
+      if (query !== undefined && hasNonFiniteQueryLimit(query._spec)) {
+        return new Promise<DataSnapshot>(() => {});
+      }
       if (query) {
         let result: ReturnType<typeof target.backend.adminGetQuery>;
         if (isAdminFor(target)) {

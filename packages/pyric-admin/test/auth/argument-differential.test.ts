@@ -286,6 +286,70 @@ for (const armKind of ['local', 'remote'] as const) {
       ]);
     });
 
+    it('matches firebase-admin listUsers(1, pageToken) progression when either the last-returned or next-boundary user is deleted', async () => {
+      const arm = createAuthArm(armKind);
+      const upstream = createOfflineUpstreamAuthHarness();
+      try {
+        // Subcase 1: deleteLastReturnedUser ([a1, a2, a3] -> delete a1 -> [a2], [a3])
+        await arm.resetAndSeed();
+        await arm.svc.deleteUser('user-1');
+        await arm.svc.deleteUser('user-2');
+        upstream.resetState([]);
+        for (const uid of ['a1', 'a2', 'a3']) {
+          await arm.svc.createUser({ uid });
+          await upstream.svc.createUser({ uid });
+        }
+
+        const uPageA1 = await upstream.svc.listUsers(1);
+        const pPageA1 = await arm.svc.listUsers(1);
+        expect(pPageA1.users.map((u) => u.uid)).toEqual(uPageA1.users.map((u) => u.uid));
+        expect(pPageA1.users.map((u) => u.uid)).toEqual(['a1']);
+
+        await upstream.svc.deleteUser('a1');
+        await arm.svc.deleteUser('a1');
+
+        const uPageA2 = await upstream.svc.listUsers(1, uPageA1.pageToken);
+        const pPageA2 = await arm.svc.listUsers(1, pPageA1.pageToken);
+        expect(pPageA2.users.map((u) => u.uid)).toEqual(uPageA2.users.map((u) => u.uid));
+        expect(pPageA2.users.map((u) => u.uid)).toEqual(['a2']);
+
+        const uPageA3 = await upstream.svc.listUsers(1, uPageA2.pageToken);
+        const pPageA3 = await arm.svc.listUsers(1, pPageA2.pageToken);
+        expect(pPageA3.users.map((u) => u.uid)).toEqual(uPageA3.users.map((u) => u.uid));
+        expect(pPageA3.users.map((u) => u.uid)).toEqual(['a3']);
+        expect(pPageA3.pageToken).toBe(uPageA3.pageToken);
+        expect(pPageA3.pageToken).toBeUndefined();
+
+        // Subcase 2: deleteNextBoundaryUser ([b1, b2, b3] -> delete b2 -> [b3])
+        await arm.resetAndSeed();
+        await arm.svc.deleteUser('user-1');
+        await arm.svc.deleteUser('user-2');
+        upstream.resetState([]);
+        for (const uid of ['b1', 'b2', 'b3']) {
+          await arm.svc.createUser({ uid });
+          await upstream.svc.createUser({ uid });
+        }
+
+        const uPageB1 = await upstream.svc.listUsers(1);
+        const pPageB1 = await arm.svc.listUsers(1);
+        expect(pPageB1.users.map((u) => u.uid)).toEqual(uPageB1.users.map((u) => u.uid));
+        expect(pPageB1.users.map((u) => u.uid)).toEqual(['b1']);
+
+        await upstream.svc.deleteUser('b2');
+        await arm.svc.deleteUser('b2');
+
+        const uPageB2 = await upstream.svc.listUsers(1, uPageB1.pageToken);
+        const pPageB2 = await arm.svc.listUsers(1, pPageB1.pageToken);
+        expect(pPageB2.users.map((u) => u.uid)).toEqual(uPageB2.users.map((u) => u.uid));
+        expect(pPageB2.users.map((u) => u.uid)).toEqual(['b3']);
+        expect(pPageB2.pageToken).toBe(uPageB2.pageToken);
+        expect(pPageB2.pageToken).toBeUndefined();
+      } finally {
+        await upstream.dispose();
+        await arm.dispose();
+      }
+    });
+
     it('matches firebase-admin preflight on getUserByPhoneNumber, getUsers [0,1,100,101], and deleteUsers [0,1,1000,1001]', async () => {
       await assertAuthMethodParity((schemas) => [
         ...generateMethodArgumentCases(schemas.getUserByPhoneNumber),

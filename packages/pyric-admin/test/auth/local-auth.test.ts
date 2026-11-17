@@ -285,4 +285,64 @@ service cloud.firestore {
     expect(disabled.tokensValidAfterTime).toBe(expectedRevokedUtc);
     expect(disabled.toJSON().tokensValidAfterTime).toBe(expectedRevokedUtc);
   });
+
+  it('advances listUsers(maxResults, pageToken) without skipping or duplicating users when the last-returned or next-boundary user is deleted', async () => {
+    // 1. deleteLastReturnedUser: [a1, a2, a3] -> listUsers(1) -> delete a1 -> [a2], [a3]
+    const sandboxA = initializeSandbox();
+    const authA = getAuth(initializeApp({ sandbox: sandboxA }, 'local-cursor-del-returned'));
+    await authA.createUser({ uid: 'a1' });
+    await authA.createUser({ uid: 'a2' });
+    await authA.createUser({ uid: 'a3' });
+
+    const pageA1 = await authA.listUsers(1);
+    expect(pageA1.users.map((u) => u.uid)).toEqual(['a1']);
+    expect(typeof pageA1.pageToken).toBe('string');
+
+    await authA.deleteUser('a1');
+
+    const pageA2 = await authA.listUsers(1, pageA1.pageToken);
+    expect(pageA2.users.map((u) => u.uid)).toEqual(['a2']);
+    expect(typeof pageA2.pageToken).toBe('string');
+
+    const pageA3 = await authA.listUsers(1, pageA2.pageToken);
+    expect(pageA3.users.map((u) => u.uid)).toEqual(['a3']);
+    expect(pageA3.pageToken).toBeUndefined();
+
+    // 2. deleteNextBoundaryUser: [b1, b2, b3] -> listUsers(1) -> delete b2 -> [b3]
+    const sandboxB = initializeSandbox();
+    const authB = getAuth(initializeApp({ sandbox: sandboxB }, 'local-cursor-del-next'));
+    await authB.createUser({ uid: 'b1' });
+    await authB.createUser({ uid: 'b2' });
+    await authB.createUser({ uid: 'b3' });
+
+    const pageB1 = await authB.listUsers(1);
+    expect(pageB1.users.map((u) => u.uid)).toEqual(['b1']);
+    expect(typeof pageB1.pageToken).toBe('string');
+
+    await authB.deleteUser('b2');
+
+    const pageB2 = await authB.listUsers(1, pageB1.pageToken);
+    expect(pageB2.users.map((u) => u.uid)).toEqual(['b3']);
+    expect(pageB2.pageToken).toBeUndefined();
+
+    // 3. Out-of-order creation, deleting multiple preceding users, and recreating the cursor uid
+    const sandboxC = initializeSandbox();
+    const authC = getAuth(initializeApp({ sandbox: sandboxC }, 'local-cursor-keyset'));
+    await authC.createUser({ uid: 'c3' });
+    await authC.createUser({ uid: 'c1' });
+    await authC.createUser({ uid: 'c4' });
+    await authC.createUser({ uid: 'c2' });
+
+    const pageC1 = await authC.listUsers(2);
+    expect(pageC1.users.map((u) => u.uid)).toEqual(['c1', 'c2']);
+    expect(typeof pageC1.pageToken).toBe('string');
+
+    await authC.deleteUser('c1');
+    await authC.deleteUser('c2');
+    await authC.createUser({ uid: 'c2' });
+
+    const pageC2 = await authC.listUsers(2, pageC1.pageToken);
+    expect(pageC2.users.map((u) => u.uid)).toEqual(['c3', 'c4']);
+    expect(pageC2.pageToken).toBeUndefined();
+  });
 });

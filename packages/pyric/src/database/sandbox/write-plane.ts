@@ -131,7 +131,6 @@ export class WritePlane {
     const now = this.state.clock.now();
     for (const [path, value] of Object.entries(seed)) {
       const { resolved, priority, nested } = this.resolveSetWrite(path, value, null, now);
-      this.state.clearPromotedAncestorPriorities(path, resolved);
       this.state.tree.write(path, resolved);
       this.state.priorities.replace(path, this.state.tree.read(path) === null ? null : priority);
       this.storeNestedPriorities(path, nested);
@@ -232,7 +231,6 @@ export class WritePlane {
     });
     const priors = this.children.snapshotParents();
     const rewindDetail = captureRewindDetail(this.state, path, before, priorNodePriority);
-    this.state.clearPromotedAncestorPriorities(path, resolved);
     this.state.tree.write(path, resolved);
     this.state.priorities.replace(path, resolved === null ? null : priority, (p) => this.state.tree.read(p) !== null);
     this.storeNestedPriorities(path, written.nested);
@@ -550,7 +548,6 @@ export class WritePlane {
     this.state.events.operation(auth, op, path, 'allow', evaluation, common);
     const priors = this.children.snapshotParents();
     const rewindDetail = captureRewindDetail(this.state, path, before, priorNodePriority);
-    this.state.clearPromotedAncestorPriorities(path, resolved);
     this.state.tree.write(path, resolved);
     this.state.priorities.replace(path, resolved === null ? null : priority, (p) => this.state.tree.read(p) !== null);
     this.storeNestedPriorities(path, written.nested);
@@ -636,9 +633,6 @@ export class WritePlane {
       }
     }
     if (Object.keys(dataExpanded).length > 0) {
-      for (const [writePath, value] of Object.entries(dataExpanded)) {
-        this.state.clearPromotedAncestorPriorities(writePath, value);
-      }
       if (multiPath) {
         this.state.tree.multiUpdate(dataExpanded);
       } else {

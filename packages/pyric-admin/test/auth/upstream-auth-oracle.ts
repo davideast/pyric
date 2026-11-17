@@ -99,26 +99,43 @@ function identityToolkitError(code: number, message: string): Promise<never> {
   return Promise.reject(new RequestResponseError(jsonHttpResponse(code, payload)));
 }
 
-function canDecodeCursorToken(token: string): boolean {
-  try {
-    const raw = JSON.parse(Buffer.from(token, 'base64url').toString('utf8')) as {
-      v?: unknown;
-      offset?: unknown;
-      uid?: unknown;
-    };
-    return (
-      raw !== null &&
-      typeof raw === 'object' &&
-      raw.v === 1 &&
-      typeof raw.offset === 'number' &&
-      Number.isInteger(raw.offset) &&
-      raw.offset >= 0 &&
-      typeof raw.uid === 'string' &&
-      raw.uid.length > 0
-    );
-  } catch {
+function compareWireUids(a: string, b: string): number {
+  if (a < b) return -1;
+  if (a > b) return 1;
+  return 0;
+}
+
+function encodeCursorToken(uid: string): string {
+  return Buffer.from(JSON.stringify({ v: 1, uid }), 'utf8').toString('base64url');
+}
+
+function isCanonicalWireCursorPayload(
+  raw: unknown,
+  token: string,
+): raw is { readonly v: 1; readonly uid: string } {
+  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) {
     return false;
   }
+  const candidate = raw as { v?: unknown; uid?: unknown };
+  if (candidate.v !== 1 || typeof candidate.uid !== 'string') {
+    return false;
+  }
+  if (candidate.uid.length === 0 || candidate.uid.length > 128) {
+    return false;
+  }
+  return encodeCursorToken(candidate.uid) === token;
+}
+
+function decodeCursorToken(token: string): string | null {
+  try {
+    const raw: unknown = JSON.parse(Buffer.from(token, 'base64url').toString('utf8'));
+    if (isCanonicalWireCursorPayload(raw, token)) {
+      return raw.uid;
+    }
+  } catch {
+    return null;
+  }
+  return null;
 }
 
 function toWireAccountPayload(account: WireUserState): Record<string, unknown> {
@@ -266,10 +283,25 @@ export function createOfflineUpstreamAuthHarness(): OfflineUpstreamAuthHarness {
       if (typeof body.nextPageToken === 'string') {
         nextToken = body.nextPageToken;
       }
-      if (nextToken !== null && !canDecodeCursorToken(nextToken)) {
-        return identityToolkitError(400, 'INVALID_PAGE_SELECTION');
+      let cursorUid: string | null = null;
+      if (nextToken !== null) {
+        cursorUid = decodeCursorToken(nextToken);
+        if (cursorUid === null) {
+          return identityToolkitError(400, 'INVALID_PAGE_SELECTION');
+        }
       }
-      const users = [...usersByUid.values()].slice(0, numMax).map(toWireAccountPayload);
+      const sorted = [...usersByUid.values()].sort((a, b) => compareWireUids(a.uid, b.uid));
+      let remaining = sorted;
+      if (cursorUid !== null) {
+        const afterUid = cursorUid;
+        remaining = sorted.filter((account) => compareWireUids(account.uid, afterUid) > 0);
+      }
+      const page = remaining.slice(0, numMax);
+      const users = page.map(toWireAccountPayload);
+      const last = page[page.length - 1];
+      if (last !== undefined && page.length < remaining.length) {
+        return jsonHttpResponse(200, { users, nextPageToken: encodeCursorToken(last.uid) });
+      }
       return jsonHttpResponse(200, { users });
     }
 

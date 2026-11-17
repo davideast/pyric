@@ -55,12 +55,13 @@ describe('RTDB priority and increment invariants (#1014)', () => {
     expect((await get(ref(db, 'viaTx'))).priority).toBeNull();
   });
 
-  test('ENF-3a: child write under prioritized primitive leaf in simulate() promotes parent and clears .value', () => {
+  test('ENF-3a: child write under prioritized primitive leaf in simulate() promotes parent, clears .value, and retains .priority', () => {
     const compiled = compileRtdbRules({
       rules: {
         leaf: {
           nested: {
-            '.write': "newData.parent().val() !== 42 && newData.parent().child('nested').val() === 'broken'",
+            '.write':
+              "newData.parent().val() !== 42 && newData.parent().child('nested').val() === 'broken' && newData.parent().getPriority() === 9",
           },
         },
       },
@@ -208,14 +209,24 @@ describe('RTDB priority and increment invariants (#1014)', () => {
     expect(snap.priority).toBe(3);
   });
 
-  test('ENF-3a: child writes promoting a prioritized primitive leaf clear ancestor .priority in sandbox across set, update, and runTransaction while preserving object .priority', async () => {
-    const nullPriorityRules = {
+  test('ENF-3a: child writes promoting a prioritized primitive leaf retain ancestor .priority across rules and sandbox (set, update, runTransaction)', async () => {
+    const retainedPriorityRules = {
       rules: {
         items: {
-          $id: {
+          i1: {
             '.read': true,
             '.write': 'auth != null',
-            '.validate': 'newData.getPriority() === null',
+            '.validate': 'newData.getPriority() === 50',
+          },
+          i2: {
+            '.read': true,
+            '.write': 'auth != null',
+            '.validate': 'newData.getPriority() === 60',
+          },
+          i3: {
+            '.read': true,
+            '.write': 'auth != null',
+            '.validate': 'newData.getPriority() === 70',
           },
         },
         keepObj: {
@@ -228,7 +239,7 @@ describe('RTDB priority and increment invariants (#1014)', () => {
       },
     };
 
-    const sim = rtdbRules(nullPriorityRules).explain({
+    const sim = rtdbRules(retainedPriorityRules).explain({
       operation: 'write',
       path: '/items/i1/title',
       auth: { uid: 'u1', token: {} },
@@ -241,22 +252,26 @@ describe('RTDB priority and increment invariants (#1014)', () => {
     const box = initializeSandbox();
     const db = getDatabase(box.withAuth({ uid: 'u1' }));
     const admin = getAdminDatabase(box);
-    setRules(box, nullPriorityRules);
+    setRules(box, retainedPriorityRules);
 
     await setWithPriority(ref(admin, 'items/i1'), 'leaf', 50);
     await set(ref(db, 'items/i1/title'), 'alpha');
-    expect((await get(ref(admin, 'items/i1'))).priority).toBeNull();
+    expect((await get(ref(admin, 'items/i1'))).priority).toBe(50);
     await set(ref(db, 'items/i1/owner'), 'u1');
-    expect((await get(ref(admin, 'items/i1'))).exportVal()).toEqual({ title: 'alpha', owner: 'u1' });
+    expect((await get(ref(admin, 'items/i1'))).exportVal()).toEqual({
+      '.priority': 50,
+      title: 'alpha',
+      owner: 'u1',
+    });
 
     await setWithPriority(ref(admin, 'items/i2'), 'leaf', 60);
     await update(ref(db, 'items/i2'), { title: 'beta' });
-    expect((await get(ref(admin, 'items/i2'))).priority).toBeNull();
+    expect((await get(ref(admin, 'items/i2'))).priority).toBe(60);
     await set(ref(db, 'items/i2/owner'), 'u1');
 
     await setWithPriority(ref(admin, 'items/i3'), 'leaf', 70);
     await runTransaction(ref(db, 'items/i3/title'), () => 'gamma');
-    expect((await get(ref(admin, 'items/i3'))).priority).toBeNull();
+    expect((await get(ref(admin, 'items/i3'))).priority).toBe(70);
     await set(ref(db, 'items/i3/owner'), 'u1');
 
     await setWithPriority(ref(admin, 'keepObj/o1'), { existing: true }, 7);

@@ -256,7 +256,7 @@ export function createQuerySurface(
 /**
  * Builds a constrained immutable `Query` view rooted at `hooks.getBaseRef()`.
  */
-export function buildAdminQuery(hooks: QueryExecutionHooks, spec: QuerySpec): Query {
+function buildAdminQuery(hooks: QueryExecutionHooks, spec: QuerySpec): Query {
   const methods = createQuerySurface(hooks, spec);
   const query: Query = {
     ...methods,
@@ -272,7 +272,7 @@ export function buildAdminQuery(hooks: QueryExecutionHooks, spec: QuerySpec): Qu
  * plan. Returns `undefined` for an unconstrained `Reference`.
  *
  * JSON serializes `+Infinity` to `null`; encoding infinite limits as
- * `{ kind, n: null }` preserves constrained-query semantics on the host.
+ * `{ kind, n: null }` preserves non-finite limit wire framing on the host.
  */
 export function toWireQuerySpec(spec: QuerySpec): WireQuerySpec | undefined {
   if (isDefaultQuerySpec(spec)) return undefined;

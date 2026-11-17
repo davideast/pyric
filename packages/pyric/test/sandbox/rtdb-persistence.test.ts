@@ -438,7 +438,7 @@ describe('rtdb persistence — incremental dirty-tracked records', () => {
 
     const promoted = await get(ref(db2, '/shallow/leaf'));
     expect(promoted.val()).toEqual({ deep: { node: { item: { ok: true } } } });
-    expect(promoted.priority).toBeNull();
+    expect(promoted.priority).toBe(11);
     expect((await get(ref(db2, '/ephemeral/a/b/c'))).exists()).toBe(false);
 
     sandbox1.dispose();

@@ -5,7 +5,7 @@ import { ListenerRegistry, type ListenerRegistration } from './listener-registry
 import type { ChildEventSnapshot, ValueListenerSnapshot } from './sandbox/listener-types.js';
 import type { JsonValue } from './sandbox/data-tree.js';
 import { authFor, isAdminFor, targetOf, type Target } from './routing.js';
-import { isDefaultQuerySpec, isQuery, queryIdentifier } from './query-shape.js';
+import { hasNonFiniteQueryLimit, isDefaultQuerySpec, isQuery, queryIdentifier } from './query-shape.js';
 import { loadsAllData, type QueryRow } from './internal/query-projection.js';
 import { isInfoPath } from './writable-path.js';
 import type { DataSnapshot, DatabaseReference, ListenOptions, Query, Unsubscribe } from './types.js';
@@ -169,6 +169,13 @@ function subscribeTrackedValue(
   registryCallback: (snap: DataSnapshot) => void,
   activity: SdkActivityHandle,
 ): Unsubscribe {
+  if (hasNonFiniteQueryLimit(spec)) {
+    return registerTracked(target, path, 'value', registryCallback, activity, scope, (unregister) => {
+      return () => {
+        unregister();
+      };
+    });
+  }
   return registerTracked(target, path, 'value', registryCallback, activity, scope, (unregister) => {
     if (target.admin === true) {
       const subscribed = target.backend.adminOnValue(path, deliver, spec, listenOptions?.event);
@@ -496,6 +503,13 @@ function onChildEvent(
       activity,
       scope,
     );
+  }
+  if (hasNonFiniteQueryLimit(spec)) {
+    return registerTracked(target, baseRef._path, event, registryCallback, activity, scope, (unregister) => {
+      return () => {
+        unregister();
+      };
+    });
   }
   const wrapper = (raw: ChildEventSnapshot): void => {
     // Synthesize a snapshot rooted at the child path so `snap.key`

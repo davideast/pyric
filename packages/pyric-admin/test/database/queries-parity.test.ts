@@ -138,15 +138,30 @@ describe('pyric-admin/database — queries and one-shot reads parity', () => {
         onceKeys: ['b', 'e'],
       });
 
-      // Positive Infinity limits are accepted and keep the entire matching window over wire and locally.
-      expect(await queryKeys(base.orderByChild('meta/rank').limitToFirst(Number.POSITIVE_INFINITY))).toEqual({
+      // Positive Infinity limits construct without throwing and remain unanswered over wire and locally,
+      // while finite limits >= child count keep the entire matching window.
+      let infSettled = false;
+      void base
+        .orderByChild('meta/rank')
+        .limitToFirst(Number.POSITIVE_INFINITY)
+        .get()
+        .then(
+          () => {
+            infSettled = true;
+          },
+          () => {
+            infSettled = true;
+          },
+        );
+      expect(await queryKeys(base.orderByChild('meta/rank').limitToFirst(10))).toEqual({
         getKeys: ['a', 'd', 'c', 'b', 'e'],
         onceKeys: ['a', 'd', 'c', 'b', 'e'],
       });
-      expect(await queryKeys(base.orderByChild('meta/rank').limitToLast(Number.POSITIVE_INFINITY))).toEqual({
+      expect(await queryKeys(base.orderByChild('meta/rank').limitToLast(10))).toEqual({
         getKeys: ['a', 'd', 'c', 'b', 'e'],
         onceKeys: ['a', 'd', 'c', 'b', 'e'],
       });
+      expect(infSettled).toBe(false);
 
       // Undefined on startAt / endAt normalizes to null lower/upper endpoints.
       expect(await queryKeys(base.orderByChild('score').startAt(undefined).endAt(10))).toEqual({

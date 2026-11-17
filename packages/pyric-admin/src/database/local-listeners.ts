@@ -19,6 +19,7 @@ import {
 } from 'pyric/database';
 import {
   exportDatabaseVal,
+  hasNonFiniteQueryLimit,
   isDefaultQuerySpec,
   isInfoPath,
   isScalarLeafValue,
@@ -49,7 +50,7 @@ import {
   type SnapshotCallback,
 } from './types.js';
 
-export interface LocalChildRawEvent {
+interface LocalChildRawEvent {
   key: string;
   val: JsonValue;
   previousChildName: string | null;
@@ -66,7 +67,12 @@ export interface LocalListenBackend {
   adminOnChild(
     event: ChildEventType,
     path: string,
-    cb: (snap: LocalChildRawEvent) => void,
+    cb: (snap: {
+      key: string;
+      val: JsonValue;
+      previousChildName: string | null;
+      priorities?: Record<string, Priority>;
+    }) => void,
     spec?: QuerySpec,
   ): () => void;
 }
@@ -292,6 +298,9 @@ function attachRawLocalSubscription(
 ): () => void {
   if (isInfoPath(target.canonical)) {
     return subscribeLocalInfo(target, segs, spec, eventType, onDelivery, onError);
+  }
+  if (hasNonFiniteQueryLimit(spec)) {
+    return () => {};
   }
   const isQuery = !isDefaultQuerySpec(spec);
   let queryArg: QuerySpec | undefined;
