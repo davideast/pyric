@@ -12,7 +12,7 @@ export function createProbe(ctx: RtdbClimbContext): RtdbClimbProbe {
   return {
     name: 'rtdb-modular-admin-query-index',
     matrixRow: 'rtdb-modular#144',
-    rowIds: ['rtdb-modular#144'],
+    rowIds: ['rtdb-modular#144', 'rtdb-admin#5'],
     description:
       'The Admin SDK, which bypasses rules, against an orderByChild query at a location with no `.indexOn`: get() limited and unlimited, and once(\'value\') limited, recording rejections, delivered keys and client log warnings.',
     observe: () => repeatStable(2, async (attempt) => {

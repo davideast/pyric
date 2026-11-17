@@ -14,12 +14,13 @@
 #   1. unattended - admin-app + app-registry + client-storage: pure in-process
 #      probes of the installed firebase / firebase-admin packages. No secret, no
 #      network; they always run.
-#   2. credentialed - oracle-run, messaging-send, rules-firestore,
-#      rules-storage, storage-stdlib-discovery: each reaches a real Firebase
-#      project and needs a provisioned credential. oracle-run gates on its
-#      secret; messaging-send, the two rules legs, and storage-stdlib-discovery
-#      authenticate through Workload Identity Federation and gate on the
-#      GCP_WIF_PROVIDER repository variable.
+#   2. credentialed - oracle-run, sdk-probes, admin-auth, storage-admin,
+#      admin-firestore, messaging-send, rules-firestore, rules-storage, and
+#      storage-stdlib-discovery: each reaches a real Firebase project through
+#      Workload Identity Federation. Live-project write legs (oracle-run,
+#      sdk-probes, admin-auth, storage-admin, admin-firestore, messaging-send)
+#      gate on CAPTURE_WIF_PROVIDER (+ CAPTURE_SA_EMAIL); read-only Rules Test
+#      API and stdlib discovery legs gate on GCP_WIF_PROVIDER (+ PARITY_SA_EMAIL).
 #      A leg whose `disabled` field names a blocking issue skips with that
 #      reason. Any other leg whose guard is absent fails on a scheduled run,
 #      so the weekly check never goes green with nothing checked against
@@ -158,18 +159,34 @@ jobs:
     strategy:
       # One rig's drift or absent secret must not cancel the others.
       fail-fast: false
+      # Run credentialed legs serially so oracle-run and sdk-probes never
+      # overlap temporary OracleRulesSession ruleset deploys/restores.
+      max-parallel: 1
       matrix:
         include:
-          # `disabled` names the issue that blocks a leg. A disabled leg
-          # never runs, even when its guard is set: the RTDB leg (#1323) adds
-          # PYRIC_ORACLE_FIREBASE_CONFIG, which must not start oracle-run.
+          # Live-project write legs authenticate through the main-only capture
+          # WIF identity (CAPTURE_WIF_PROVIDER + CAPTURE_SA_EMAIL); read-only
+          # Rules Test API and stdlib discovery legs use GCP_WIF_PROVIDER.
           - rig: oracle-run
             script: packages/conformance/src/run.ts
-            guard: PYRIC_ORACLE_FIREBASE_CONFIG
-            disabled: '#1270 and #1271 (credentials without a key file)'
-          # messaging-send authenticates through the optional main-only capture
-          # WIF identity (CAPTURE_WIF_PROVIDER + CAPTURE_SA_EMAIL); the read-only
-          # Rules Test API and stdlib discovery legs use GCP_WIF_PROVIDER.
+            guard: CAPTURE_WIF_PROVIDER
+            wif: true
+          - rig: sdk-probes
+            script: packages/conformance/src/sdk-probes.ts
+            guard: CAPTURE_WIF_PROVIDER
+            wif: true
+          - rig: admin-auth
+            script: packages/conformance/src/admin-auth-probes.ts
+            guard: CAPTURE_WIF_PROVIDER
+            wif: true
+          - rig: storage-admin
+            script: packages/conformance/src/storage-admin-probes.ts
+            guard: CAPTURE_WIF_PROVIDER
+            wif: true
+          - rig: admin-firestore
+            script: packages/conformance/src/admin-firestore-probes.ts
+            guard: CAPTURE_WIF_PROVIDER
+            wif: true
           - rig: messaging-send
             script: packages/conformance/src/messaging-send-probes.ts
             guard: CAPTURE_WIF_PROVIDER
@@ -275,6 +292,7 @@ jobs:
         env:
           SCRIPT: ${{ matrix.script }}
           PYRIC_ORACLE_FIREBASE_CONFIG: ${{ secrets.PYRIC_ORACLE_FIREBASE_CONFIG }}
+          PYRIC_ORACLE_RTDB_URL: ${{ vars.PYRIC_ORACLE_RTDB_URL || secrets.PYRIC_ORACLE_RTDB_URL }}
           PYRIC_ORACLE_PROJECT_ID: digame-mas
           PARITY_PROJECT_ID: digame-mas
           # On a wif leg, a missing credential exits 1 instead of printing the

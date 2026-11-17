@@ -8,7 +8,11 @@
  */
 import type { FirebaseOptions } from 'firebase/app';
 import type { FirebaseStorage, StorageReference } from 'firebase/storage';
-import { loadOracleServiceAccount, oracleAccessToken } from './oracle-credential.ts';
+import {
+  loadOracleServiceAccount,
+  oracleAccessToken,
+  type OracleServiceAccount,
+} from './oracle-credential.ts';
 import {
   OracleRulesSession,
   runWithOracleRulesRestored,
@@ -72,6 +76,18 @@ export function resolveProbeStorageBucket(
   throw new Error(
     `Firebase Web SDK config for project '${webConfig.projectId}' has no storageBucket; enable Firebase Storage on the project or set PYRIC_ORACLE_STORAGE_BUCKET.`,
   );
+}
+
+export async function resolveAdminStorageBucket(
+  sa: OracleServiceAccount,
+  env: Record<string, string | undefined> = process.env,
+): Promise<string> {
+  const fromEnv = stripBucketUriFormatting(env.PYRIC_ORACLE_STORAGE_BUCKET ?? '');
+  if (fromEnv !== '') {
+    return fromEnv;
+  }
+  const webConfig = await resolveProbeWebConfig(sa, { env });
+  return resolveProbeStorageBucket(webConfig, env);
 }
 
 export function normalizeStorageProbeSubpath(subpath: string): string {

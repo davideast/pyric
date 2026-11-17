@@ -13,7 +13,7 @@
  *   bun run packages/conformance/src/sdk-probes.ts                            # inert preview
  *   bun run packages/conformance/src/sdk-probes.ts --write --probe <name>     # live capture
  */
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { listProbeFiles } from '../probes/load.ts';
@@ -24,7 +24,10 @@ import {
   requireCaptureMode,
   stripCaptureFlags,
 } from './capture-mode-guard.ts';
-import { readObservationLinkage } from './observation-linkage.ts';
+import {
+  resolveProbeObservationLinkage,
+  shouldIncludeProbeInUnfilteredRun,
+} from './observation-linkage.ts';
 import {
   loadOracleServiceAccount,
   oracleCredentialConfigured,
@@ -71,14 +74,29 @@ export async function loadModularProbes(rigId: string): Promise<LoadedModularPro
   return loaded.sort((a, b) => a.id.localeCompare(b.id));
 }
 
+export interface SelectModularProbesOptions {
+  observationsRoot?: string;
+  includeUncapturedStaged?: boolean;
+}
+
 export function selectModularProbes(
   loaded: readonly LoadedModularProbe[],
   args: readonly string[],
   rigId: string,
+  options: SelectModularProbesOptions = {},
 ): LoadedModularProbe[] {
   const cleaned = stripCaptureFlags(args);
   const selectors = readProbeSelectors(cleaned);
   if (selectors.length === 0) {
+    if (options.includeUncapturedStaged === false) {
+      const obsRoot = options.observationsRoot ?? DEFAULT_OBS_ROOT;
+      return loaded.filter((item) =>
+        shouldIncludeProbeInUnfilteredRun(
+          item.probe,
+          join(obsRoot, item.surfaceDir, `${item.id}.json`),
+        ),
+      );
+    }
     return [...loaded];
   }
   const byId = new Map(loaded.map((item) => [item.id, item]));
@@ -202,21 +220,13 @@ export async function executeModularProbes(options: {
     const surfaceDir = join(outRoot, item.surfaceDir);
     mkdirSync(surfaceDir, { recursive: true });
     const outPath = join(surfaceDir, `${item.id}.json`);
-    let existing = { matrixRow: '', rowIds: [] as string[] };
-    if (existsSync(outPath)) {
-      existing = readObservationLinkage(outPath);
-    }
-    const matrixRow = item.probe.matrixRow || existing.matrixRow;
-    let rowIds = existing.rowIds;
-    if (item.probe.rowIds.length > 0) {
-      rowIds = item.probe.rowIds;
-    }
+    const linkage = resolveProbeObservationLinkage(item.probe, outPath);
 
     const behavior = await item.probe.observe();
     const envelope: Record<string, unknown> = {
       name: item.id,
-      matrixRow,
-      rowIds,
+      matrixRow: linkage.matrixRow,
+      rowIds: linkage.rowIds,
       description: item.probe.description,
       observedAt: new Date().toISOString(),
       [options.config.versionField]: options.sdkVersion,
@@ -232,20 +242,29 @@ export async function runModularProbesCli(options: {
   config: ModularProbeRigConfig;
   argv: readonly string[];
   env?: NodeJS.ProcessEnv;
+  observationsRoot?: string;
   exitOnCli?: boolean;
 }): Promise<void> {
   const env = options.env ?? process.env;
   const allProbes = await loadModularProbes(options.config.rig);
-  const selected = selectModularProbes(allProbes, options.argv, options.config.rig);
+  const previewProbes = selectModularProbes(allProbes, options.argv, options.config.rig, {
+    observationsRoot: options.observationsRoot,
+    includeUncapturedStaged: true,
+  });
 
   if (options.exitOnCli === false && !hasExplicitCaptureFlag(options.argv)) {
     printModularProbePreview({
       rig: options.config.rig,
       scriptPath: options.config.scriptPath,
-      probes: selected,
+      probes: previewProbes,
     });
     return;
   }
+
+  const selected = selectModularProbes(allProbes, options.argv, options.config.rig, {
+    observationsRoot: options.observationsRoot,
+    includeUncapturedStaged: false,
+  });
 
   requireCaptureMode({
     label: options.config.rig,
@@ -255,7 +274,7 @@ export async function runModularProbesCli(options: {
       printModularProbePreview({
         rig: options.config.rig,
         scriptPath: options.config.scriptPath,
-        probes: selected,
+        probes: previewProbes,
       }),
     missingCredentials: () => {
       try {
@@ -286,6 +305,7 @@ export async function runModularProbesCli(options: {
     config: options.config,
     sdkVersion,
     projectId: sa.project_id,
+    observationsRoot: options.observationsRoot,
     probes: selected,
   });
 }

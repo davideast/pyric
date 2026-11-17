@@ -3,6 +3,7 @@ import { deleteApp, initializeApp } from 'firebase-admin/app';
 import { getDownloadURL, getStorage } from 'firebase-admin/storage';
 import type { Probe } from '../../rigs/types.ts';
 import { loadOracleServiceAccount, oracleAppOptions } from '../../src/oracle-credential.ts';
+import { resolveAdminStorageBucket } from '../../src/storage-probe-session.ts';
 
 const ROWS = [...[1, 2, 3, 4, 5, 6].map((ref) => `storage-admin#${ref}`), 'storage#51'];
 
@@ -42,12 +43,10 @@ export const probe: Probe = {
   matrixRow: 'storage-admin #1',
   rowIds: ROWS,
   async observe() {
-    const bucketName = process.env.PYRIC_ORACLE_STORAGE_BUCKET;
-    if (!bucketName) {
-      throw new Error('PYRIC_ORACLE_STORAGE_BUCKET is required for the admin Storage oracle probe');
-    }
+    const sa = await loadOracleServiceAccount();
+    const bucketName = await resolveAdminStorageBucket(sa, process.env);
     const app = initializeApp(
-      { ...oracleAppOptions(await loadOracleServiceAccount()), storageBucket: bucketName },
+      { ...oracleAppOptions(sa), storageBucket: bucketName },
       `admin-storage-metadata-${Date.now()}-${Math.random().toString(36).slice(2)}`,
     );
     const bucket = getStorage(app).bucket();

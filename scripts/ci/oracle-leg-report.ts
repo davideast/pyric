@@ -33,6 +33,10 @@ export interface Leg {
 export const LEGS: readonly Leg[] = [
   { rig: 'unattended', credentialed: false },
   { rig: 'oracle-run', credentialed: true },
+  { rig: 'sdk-probes', credentialed: true },
+  { rig: 'admin-auth', credentialed: true },
+  { rig: 'storage-admin', credentialed: true },
+  { rig: 'admin-firestore', credentialed: true },
   { rig: 'messaging-send', credentialed: true },
   { rig: 'rules-firestore', credentialed: true },
   { rig: 'rules-storage', credentialed: true },
