@@ -75,8 +75,7 @@ export const MESSAGING_SEND_PROBES: readonly MessagingSendProbeMetadata[] = [
   },
   {
     name: 'messaging-send-webpush-lowercase-ttl',
-    rowIds: [],
-    pendingRowLink: true,
+    rowIds: ['messaging-admin#4', 'messaging-admin#18'],
     description:
       'v1 messages:send with lowercase webpush.headers.ttl set to "60", "-1", and "abc" across validate_only=true and validate_only=false on a zero-subscriber topic: records whether FCM validates lowercase headers.ttl case-insensitively like uppercase headers.TTL.',
   },

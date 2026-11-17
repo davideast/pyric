@@ -1,10 +1,12 @@
 import { describe, expect, it } from 'bun:test';
 import {
   BrokerSendError,
+  getMessagingBroker,
   validateClientMessage,
   validateMessage,
   type BrokerMessage,
 } from 'pyric/messaging/internal';
+import { initializeSandbox } from 'pyric/sandbox';
 
 function expectInvalidPayload(fn: () => void, expectedSubstring: string): void {
   let caught: unknown;
@@ -88,5 +90,60 @@ describe('payload-validation', () => {
     };
     expect(() => validateClientMessage(validMessage)).not.toThrow();
     expect(validateMessage(validMessage)).toEqual({ kind: 'topic', topic: 'alerts' });
+  });
+
+  it('validates lowercase and mixed-case webpush.headers.ttl and reports canonical message.webpush.headers.TTL', () => {
+    const sandbox = initializeSandbox();
+    const broker = getMessagingBroker(sandbox);
+
+    const acceptedReal = broker.send({ topic: 'alerts', webpush: { headers: { ttl: '60' } } });
+    const acceptedDry = broker.send(
+      { topic: 'alerts', webpush: { headers: { ttl: '60' } } },
+      { validateOnly: true },
+    );
+    expect(acceptedReal.name).toMatch(/^projects\/pyric-sandbox\/messages\/\d+$/);
+    expect(acceptedDry.name).toMatch(/^projects\/pyric-sandbox\/messages\/\d+$/);
+
+    const expectedEnvelope = {
+      status: 400,
+      error: {
+        code: 400,
+        message: 'TTL must be a non-negative integer.',
+        status: 'INVALID_ARGUMENT',
+        details: [
+          {
+            '@type': 'type.googleapis.com/google.rpc.BadRequest',
+            fieldViolations: [
+              {
+                field: 'message.webpush.headers.TTL',
+                description: 'TTL must be a non-negative integer.',
+              },
+            ],
+          },
+          {
+            '@type': 'type.googleapis.com/google.firebase.fcm.v1.FcmError',
+            errorCode: 'INVALID_ARGUMENT',
+          },
+        ],
+      },
+    };
+
+    for (const headers of [
+      { ttl: '-1' },
+      { ttl: 'abc' },
+      { Ttl: '-1' },
+      { TTL: '60', ttl: '-1' },
+    ]) {
+      for (const validateOnly of [false, true]) {
+        let caught: unknown;
+        try {
+          broker.send({ topic: 'alerts', webpush: { headers } }, { validateOnly });
+        } catch (err) {
+          caught = err;
+        }
+        expect(caught).toBeInstanceOf(BrokerSendError);
+        expect((caught as BrokerSendError).envelope).toEqual(expectedEnvelope);
+      }
+    }
   });
 });

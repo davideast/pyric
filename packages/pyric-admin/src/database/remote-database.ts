@@ -8,7 +8,7 @@ import type {
   RemoteSandboxChannel,
 } from 'pyric/sandbox';
 import type { DatabaseInstance } from 'pyric/sandbox/internal';
-import { assertGettablePath, emptySpec, type QuerySpec } from 'pyric/database/internal';
+import { assertGettablePath, emptySpec, hasNonFiniteQueryLimit, type QuerySpec } from 'pyric/database/internal';
 import type { PyricAdminApp } from '../app/index.js';
 import {
   createAdminServiceLifecycle,
@@ -171,6 +171,9 @@ function buildRemoteRef(
       async get(spec: QuerySpec): Promise<DataSnapshot> {
         assertGettablePath(canonical);
         state.lifecycle.assertActive();
+        if (hasNonFiniteQueryLimit(spec)) {
+          return new Promise<DataSnapshot>(() => {});
+        }
         const wireQuery = toWireQuerySpec(spec);
         const opPayload: RemoteRtdbOp = {
           method: 'rtdb.get',

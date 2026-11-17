@@ -307,9 +307,8 @@ export async function observeListUsersDeletedCursor(
 export const probe: Probe = {
   rig: 'admin-auth',
   requires: ['admin-auth'],
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'auth-admin#9',
+  rowIds: ['auth-admin#9'],
   description:
     'firebase-admin/auth listUsers(1, pageToken) cursor progression when either the last-returned user or the next boundary user at pageToken is deleted between pages.',
   async observe() {

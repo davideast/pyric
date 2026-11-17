@@ -26,7 +26,7 @@ function arrayToRecord(arr: readonly unknown[]): Record<string, unknown> {
 }
 
 /** The value stored at `path` in a root tree, or undefined. */
-export function valueAtPath(root: unknown, path: string): unknown {
+function valueAtPath(root: unknown, path: string): unknown {
   let cursor: unknown = root;
   const segments = path.split('/').filter(Boolean);
   for (let i = 0; i < segments.length; i++) {
@@ -149,11 +149,12 @@ export function projectPostWriteTree(
  *
  * Preserves RTDB node invariants across child writes and deletions:
  * - Writing a child under a `{ '.value': primitive, '.priority': p }` leaf
- *   promotes the node to an object and clears the primitive `.value` (`ENF-3a`).
+ *   promotes the node to an object, clears the primitive `.value`, and retains
+ *   `.priority`.
  * - Deleting the last data child of an object auto-trims the empty ancestor
  *   along with any `.priority` metadata (`ENF-3c`).
  */
-export function withValueAt(root: unknown, segments: string[], value: unknown): unknown {
+function withValueAt(root: unknown, segments: string[], value: unknown): unknown {
   if (segments.length === 0) return value ?? null;
 
   const [head, ...rest] = segments;
@@ -203,7 +204,7 @@ export function withValueAt(root: unknown, segments: string[], value: unknown): 
 
   const nextObj: Record<string, unknown> = isPlainObject ? { ...unwrapped } : {};
   defineChild(nextObj, head, childValue);
-  if (isWrapper && isPlainObject && Object.hasOwn(root, '.priority')) {
+  if (isWrapper && Object.hasOwn(root, '.priority')) {
     nextObj['.priority'] = root['.priority'];
   }
   return nextObj;

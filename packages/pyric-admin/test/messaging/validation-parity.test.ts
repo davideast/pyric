@@ -414,5 +414,68 @@ for (const arm of ARMS) {
         await cleanup();
       }
     });
+
+    it('validates lowercase and mixed-case webpush.headers.ttl identically to headers.TTL across send, dryRun, sendEach, and sendEachForMulticast', async () => {
+      const { svc, token, delivered, cleanup } = arm.create();
+      try {
+        const dryAccepted = await svc.send(
+          { topic: 'alerts', webpush: { headers: { ttl: '60' } }, data: { id: 'dry-60' } },
+          true,
+        );
+        expect(dryAccepted).toMatch(/^projects\/demo-project\/messages\/\d+$/);
+        expect(delivered).toHaveLength(0);
+
+        const realAccepted = await svc.send({
+          token,
+          webpush: { headers: { ttl: '60' } },
+          data: { id: 'real-60' },
+        });
+        expect(realAccepted).toMatch(/^projects\/demo-project\/messages\/[0-9a-f-]{36}$/);
+        expect(delivered.map((entry) => entry?.id)).toEqual(['real-60']);
+
+        for (const badHeaders of [
+          { ttl: '-1' },
+          { ttl: 'abc' },
+          { Ttl: '-1' },
+        ]) {
+          for (const dryRun of [false, true]) {
+            let caught: unknown;
+            try {
+              await svc.send({ topic: 'alerts', webpush: { headers: badHeaders } }, dryRun);
+            } catch (err) {
+              caught = err;
+            }
+            expect(caught).toBeInstanceOf(FirebaseMessagingError);
+            expect((caught as FirebaseMessagingError).code).toBe('messaging/invalid-argument');
+            expect((caught as FirebaseMessagingError).message).toBe(
+              'TTL must be a non-negative integer.',
+            );
+          }
+
+          const batchRes = await svc.sendEach([
+            { topic: 'alerts', webpush: { headers: badHeaders } },
+          ]);
+          expect(batchRes.successCount).toBe(0);
+          expect(batchRes.failureCount).toBe(1);
+          expect(batchRes.responses[0]?.error?.code).toBe('messaging/invalid-argument');
+          expect(batchRes.responses[0]?.error?.message).toBe('TTL must be a non-negative integer.');
+
+          const multicastRes = await svc.sendEachForMulticast({
+            tokens: [token],
+            webpush: { headers: badHeaders },
+          });
+          expect(multicastRes.successCount).toBe(0);
+          expect(multicastRes.failureCount).toBe(1);
+          expect(multicastRes.responses[0]?.error?.code).toBe('messaging/invalid-argument');
+          expect(multicastRes.responses[0]?.error?.message).toBe(
+            'TTL must be a non-negative integer.',
+          );
+        }
+
+        expect(delivered.map((entry) => entry?.id)).toEqual(['real-60']);
+      } finally {
+        await cleanup();
+      }
+    });
   });
 }

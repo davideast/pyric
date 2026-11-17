@@ -203,7 +203,6 @@ export class Transactions {
       groupId, groupKind: 'transaction',
     });
     const childPriors = this.children.snapshotParents();
-    this.state.clearPromotedAncestorPriorities(path, resolved);
     this.state.tree.write(path, resolved);
     this.state.priorities.replace(path, effectivePriority, hasNode);
     this.storeNestedPriorities(segments, written.nested, hasNode);

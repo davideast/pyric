@@ -72,15 +72,34 @@ afterEach(async () => {
 });
 
 describe.each(ARMS)('pyric-admin/database dual-arm connection & wire parity ($name)', ({ make }) => {
-  test('preserves limitToFirst(+Infinity) and limitToLast(+Infinity) as constrained queries on scalar leaves across get, once, and on', async () => {
+  test('leaves limitToFirst(+Infinity) and limitToLast(+Infinity) unanswered across get, once, and on while finite limits project scalar leaves as empty', async () => {
     const { app } = make();
     const db = getDatabase(app);
     await db.ref('orgs/o1/status').set('ready');
 
-    const firstGet = await db.ref('orgs/o1/status').limitToFirst(Number.POSITIVE_INFINITY).get();
-    const lastGet = await db.ref('orgs/o1/status').limitToLast(Number.POSITIVE_INFINITY).get();
-    const firstOnce = await db.ref('orgs/o1/status').limitToFirst(Number.POSITIVE_INFINITY).once('value');
-    const lastOnce = await db.ref('orgs/o1/status').limitToLast(Number.POSITIVE_INFINITY).once('value');
+    const didSettleWithin = async (op: Promise<unknown>, ms = 30): Promise<boolean> => {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      void op.catch(() => undefined);
+      try {
+        const marker = Symbol('timeout');
+        const race = await Promise.race([
+          op,
+          new Promise<symbol>((resolve) => {
+            timer = setTimeout(() => resolve(marker), ms);
+          }),
+        ]);
+        return race !== marker;
+      } finally {
+        if (timer !== undefined) {
+          clearTimeout(timer);
+        }
+      }
+    };
+
+    expect(await didSettleWithin(db.ref('orgs/o1/status').limitToFirst(Number.POSITIVE_INFINITY).get())).toBe(false);
+    expect(await didSettleWithin(db.ref('orgs/o1/status').limitToLast(Number.POSITIVE_INFINITY).get())).toBe(false);
+    expect(await didSettleWithin(db.ref('orgs/o1/status').limitToFirst(Number.POSITIVE_INFINITY).once('value'))).toBe(false);
+    expect(await didSettleWithin(db.ref('orgs/o1/status').limitToLast(Number.POSITIVE_INFINITY).once('value'))).toBe(false);
 
     const observedValues: Array<{ exists: boolean; val: unknown }> = [];
     const onTarget = db.ref('orgs/o1/status').limitToFirst(Number.POSITIVE_INFINITY);
@@ -89,12 +108,12 @@ describe.each(ARMS)('pyric-admin/database dual-arm connection & wire parity ($na
     });
     await tick();
     onTarget.off('value', cb);
+    expect(observedValues).toEqual([]);
 
-    expect([firstGet.exists(), firstGet.val()]).toEqual([false, null]);
-    expect([lastGet.exists(), lastGet.val()]).toEqual([false, null]);
-    expect([firstOnce.exists(), firstOnce.val()]).toEqual([false, null]);
-    expect([lastOnce.exists(), lastOnce.val()]).toEqual([false, null]);
-    expect(observedValues).toEqual([{ exists: false, val: null }]);
+    const finiteFirstGet = await db.ref('orgs/o1/status').limitToFirst(1).get();
+    const finiteLastOnce = await db.ref('orgs/o1/status').limitToLast(1).once('value');
+    expect([finiteFirstGet.exists(), finiteFirstGet.val()]).toEqual([false, null]);
+    expect([finiteLastOnce.exists(), finiteLastOnce.val()]).toEqual([false, null]);
   });
 
   test('isolates onDisconnect queues, cancel(), and goOffline() across multiple PyricAdminApp instances sharing one sandbox', async () => {

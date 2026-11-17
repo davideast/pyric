@@ -246,14 +246,17 @@ function evaluateFcmSendWireRequest(
   }
 
   const webpush = wireMessage.webpush as { headers?: Record<string, string> } | undefined;
-  const ttl = webpush?.headers?.TTL;
-  if (ttl !== undefined && !/^\d+$/.test(String(ttl))) {
-    return fcmErrorEnvelope(
-      400,
-      'INVALID_ARGUMENT',
-      'INVALID_ARGUMENT',
-      'TTL must be a non-negative integer.',
-    );
+  if (webpush?.headers !== undefined) {
+    for (const [headerName, headerValue] of Object.entries(webpush.headers)) {
+      if (headerName.toLowerCase() === 'ttl' && !/^\d+$/.test(String(headerValue))) {
+        return fcmErrorEnvelope(
+          400,
+          'INVALID_ARGUMENT',
+          'INVALID_ARGUMENT',
+          'TTL must be a non-negative integer.',
+        );
+      }
+    }
   }
 
   const data = wireMessage.data as Record<string, string> | undefined;

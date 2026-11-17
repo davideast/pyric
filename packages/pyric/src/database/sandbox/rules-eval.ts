@@ -51,7 +51,7 @@ function resolveRequiredIndexKey(
  * Convert a sandbox `QuerySpec` to the `SimulationInput['query']` shape
  * consumed by the RTDB rules simulator.
  */
-export function querySpecToSimulationQuery(
+function querySpecToSimulationQuery(
   spec: QuerySpec,
 ): NonNullable<SimulationInput['query']> & { orderByPriority?: boolean } {
   const q: NonNullable<SimulationInput['query']> & { orderByPriority?: boolean } = {
@@ -72,10 +72,13 @@ export function querySpecToSimulationQuery(
       q.endAt = val;
     }
   }
-  if (spec.limit?.kind === 'limitToFirst') {
-    q.limitToFirst = spec.limit.n;
-  } else if (spec.limit?.kind === 'limitToLast') {
-    q.limitToLast = spec.limit.n;
+  const hasFiniteLimit = spec.limit !== null && Number.isFinite(spec.limit.n);
+  if (hasFiniteLimit && spec.limit !== null) {
+    if (spec.limit.kind === 'limitToFirst') {
+      q.limitToFirst = spec.limit.n;
+    } else if (spec.limit.kind === 'limitToLast') {
+      q.limitToLast = spec.limit.n;
+    }
   }
   return q;
 }

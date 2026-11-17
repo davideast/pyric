@@ -39,7 +39,6 @@ const MAX_DOWNLOAD_ACCOUNT_PAGE_SIZE = 1000;
 const BASIC_EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 interface DecodedPageToken {
-  readonly offset: number;
   readonly uid: string;
 }
 
@@ -135,28 +134,38 @@ export function prepareSandboxUpdateRequest(
   return validateUpdateUserPreflight(uid, properties, notImplemented);
 }
 
-function encodePageToken(offset: number, uid: string): string {
-  return Buffer.from(JSON.stringify({ v: 1, offset, uid }), 'utf8').toString('base64url');
+function compareUids(a: string, b: string): number {
+  if (a < b) return -1;
+  if (a > b) return 1;
+  return 0;
+}
+
+function encodePageToken(uid: string): string {
+  return Buffer.from(JSON.stringify({ v: 1, uid }), 'utf8').toString('base64url');
+}
+
+function isCanonicalPageTokenPayload(
+  parsed: unknown,
+  pageToken: string,
+): parsed is { readonly v: 1; readonly uid: string } {
+  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    return false;
+  }
+  const candidate = parsed as { v?: unknown; uid?: unknown };
+  if (candidate.v !== 1 || typeof candidate.uid !== 'string') {
+    return false;
+  }
+  if (candidate.uid.length === 0 || candidate.uid.length > 128) {
+    return false;
+  }
+  return encodePageToken(candidate.uid) === pageToken;
 }
 
 function decodePageToken(pageToken: string): DecodedPageToken {
   try {
-    const parsed = JSON.parse(Buffer.from(pageToken, 'base64url').toString('utf8')) as {
-      v?: unknown;
-      offset?: unknown;
-      uid?: unknown;
-    };
-    if (
-      parsed !== null &&
-      typeof parsed === 'object' &&
-      parsed.v === 1 &&
-      typeof parsed.offset === 'number' &&
-      Number.isInteger(parsed.offset) &&
-      parsed.offset >= 0 &&
-      typeof parsed.uid === 'string' &&
-      parsed.uid.length > 0
-    ) {
-      return { offset: parsed.offset, uid: parsed.uid };
+    const parsed: unknown = JSON.parse(Buffer.from(pageToken, 'base64url').toString('utf8'));
+    if (isCanonicalPageTokenPayload(parsed, pageToken)) {
+      return { uid: parsed.uid };
     }
   } catch {
     // Fall through to FirebaseAuthError below.
@@ -201,18 +210,18 @@ export function paginateUserRecords(
   pageToken?: string,
 ): ListUsersResult {
   const { max, cursor } = validateListUsersArguments(maxResults, pageToken);
-  let startIndex = 0;
+  const sorted = [...records].sort((a, b) => compareUids(a.uid, b.uid));
+  let remaining = sorted;
   if (cursor !== null) {
-    const idx = records.findIndex((r) => r.uid === cursor.uid);
-    startIndex = idx >= 0 ? idx + 1 : cursor.offset;
+    remaining = sorted.filter((r) => compareUids(r.uid, cursor.uid) > 0);
   }
-  const slice = records.slice(startIndex, startIndex + max);
+  const slice = remaining.slice(0, max);
   const users = slice.map(fromAuthUserRecord);
   const lastRecord = slice[slice.length - 1];
-  if (lastRecord !== undefined && startIndex + slice.length < records.length) {
+  if (lastRecord !== undefined && slice.length < remaining.length) {
     return {
       users,
-      pageToken: encodePageToken(startIndex + slice.length, lastRecord.uid),
+      pageToken: encodePageToken(lastRecord.uid),
     };
   }
   return { users };

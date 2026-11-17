@@ -48,6 +48,13 @@ export function isDefaultQuerySpec(spec: QuerySpec): boolean {
   return spec.orderBy === null && spec.bounds.length === 0 && spec.limit === null;
 }
 
+export function hasNonFiniteQueryLimit(spec: QuerySpec | undefined): boolean {
+  if (spec === undefined || spec.limit === null) {
+    return false;
+  }
+  return !Number.isFinite(spec.limit.n);
+}
+
 type CanonicalBound = {
   kind: 'startAt' | 'startAfter' | 'endAt' | 'endBefore';
   value: QuerySpec['bounds'][number]['value'];

@@ -20,7 +20,6 @@ import {
   isUnlinkedStagedObservation,
   loadPendingRowLinkObservations,
   loadStagedCaptureItems,
-  resolveProbeRigFromSource,
 } from '../../src/staged-captures.ts';
 import { soleLongestPrefixOwner } from '../../src/observation-surface.ts';
 import { ALL_RULES_FIRESTORE_SCENARIOS } from '../../rules-corpus/firestore/index.ts';
@@ -310,7 +309,7 @@ describe('staged pendingRowLink observation lifecycle', () => {
 
   test('checked-in staged probes validate cleanly with default pendingRowLinkObservations both pre-capture and post-capture', async () => {
     const stagedItems = loadStagedCaptureItems();
-    expect(stagedItems.map((i) => i.observationName)).toContain(
+    expect(stagedItems.map((i) => i.observationName)).not.toContain(
       'messaging-send-webpush-lowercase-ttl',
     );
     for (const item of stagedItems) {
@@ -408,82 +407,6 @@ describe('staged pendingRowLink observation lifecycle', () => {
     expect(firestoreServiceStorage.allowCompileError).toBe(true);
     expect(firestoreServiceUnknown.pendingRowLink).toBeUndefined();
     expect(firestoreServiceUnknown.allowCompileError).toBe(true);
-  });
-
-  test('resolves explicit rig declarations on modular probe files and supports pendingPrefixes across PR #1 -> PR #2 -> PR #3', async () => {
-    expect(
-      resolveProbeRigFromSource(
-        "export const probe = { rig: 'sdk-probes', pendingRowLink: true, rowIds: [] };",
-        'rtdb-modular-query-limit-infinity',
-      ),
-    ).toBe('sdk-probes');
-    expect(
-      resolveProbeRigFromSource(
-        "export const probe = { rig: 'admin-auth', pendingRowLink: true, rowIds: [] };",
-        'admin-auth-listusers-deleted-cursor',
-      ),
-    ).toBe('admin-auth');
-    expect(
-      resolveProbeRigFromSource(
-        'export const probe = { pendingRowLink: true, rowIds: [] };',
-        'client-storage-new-probe',
-      ),
-    ).toBe('client-storage');
-
-    const rigManifests = await loadRigManifests();
-    const adminAuthRig = rigManifests.find((m) => m.id === 'admin-auth');
-    expect(adminAuthRig).toBeDefined();
-    expect(adminAuthRig?.pendingPrefixes).toContain('admin-auth-');
-
-    // PR #2 state: raw observation JSON under a pendingPrefix lands with rowIds: [] while pendingRowLink is active
-    const stagedAdminAuthObs = syntheticObservation({
-      file: 'admin-auth-listusers-deleted-cursor.json',
-      surfaceDir: 'auth-admin',
-      name: 'admin-auth-listusers-deleted-cursor',
-      rowIds: [],
-    });
-    const pr2Problems = validateCompatibilityRegistry({
-      rows: allCompatibilityRows,
-      descriptors: surfaceDescriptors,
-      observations: [...loadObservations(), stagedAdminAuthObs],
-      observationExceptions,
-      rigManifests,
-      pendingRowLinkObservations: new Set([
-        ...loadPendingRowLinkObservations(),
-        'admin-auth-listusers-deleted-cursor',
-      ]),
-    });
-    expect(pr2Problems).toEqual([]);
-
-    // PR #3 state: once pendingRowLink is removed (linked to a row), pendingPrefixes must be promoted to observationPrefixes
-    const authAdminRow = allCompatibilityRows.find((r) => r.surface === 'auth-admin');
-    const authRowId = authAdminRow ? authAdminRow.id : 'auth-admin#1';
-    const linkedAdminAuthObs = syntheticObservation({
-      file: 'admin-auth-listusers-deleted-cursor.json',
-      surfaceDir: 'auth-admin',
-      name: 'admin-auth-listusers-deleted-cursor',
-      rowIds: [authRowId],
-    });
-    const pr3Rows = allCompatibilityRows.map((row) => {
-      if (row.id !== authRowId) return row;
-      return {
-        ...row,
-        oracleObservations: [...row.oracleObservations, 'admin-auth-listusers-deleted-cursor'],
-      };
-    });
-    const pr3ProblemsWithoutPromotion = validateCompatibilityRegistry({
-      rows: pr3Rows,
-      descriptors: surfaceDescriptors,
-      observations: [...loadObservations(), linkedAdminAuthObs],
-      observationExceptions,
-      rigManifests,
-      pendingRowLinkObservations: loadPendingRowLinkObservations(),
-    });
-    expect(
-      pr3ProblemsWithoutPromotion.some((p) =>
-        p.includes("pending prefix 'admin-auth-' now matches a captured observation"),
-      ),
-    ).toBe(true);
   });
 
   test('modular sdk-probes probe files own their observations across PR #1 -> PR #2 -> PR #3 without editing rigs or surfaces', async () => {

@@ -7,8 +7,8 @@ export const rig: RigManifestRecord = {
   description:
     'Credentialed firebase-admin Auth behavior probes against the dedicated production oracle project.',
   script: 'packages/conformance/src/admin-auth-probes.ts',
-  observationPrefixes: [],
-  pendingPrefixes: ['admin-auth-'],
+  observationPrefixes: ['admin-auth-'],
+  pendingPrefixes: [],
   automation: 'credentialed',
   network: 'firebase-production',
   requires: {

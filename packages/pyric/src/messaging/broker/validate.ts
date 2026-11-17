@@ -91,6 +91,14 @@ function hasMalformedTopicPrefixOrSlash(rawTopic: string, bareTopic: string): bo
   return bareTopic.includes('/') || rawTopic.startsWith('/topics/');
 }
 
+function isWebpushTtlHeaderName(headerName: string): boolean {
+  return headerName.toLowerCase() === 'ttl';
+}
+
+function isNonNegativeIntegerDigits(value: string): boolean {
+  return /^\d+$/.test(value);
+}
+
 /**
  * Condition grammar: boolean expressions over `'name' in topics` with
  * `&&`, `||`, `!`, and parentheses. Keywords `in` and `topics` must be
@@ -279,10 +287,13 @@ export function validateMessage(message: BrokerMessage): ResolvedTarget {
     target.topics = parsed.topics;
   }
 
-  // 3. webpush headers.TTL digits and data payload byte cap.
-  const ttl = message.webpush?.headers?.TTL;
-  if (ttl !== undefined && !/^\d+$/.test(ttl)) {
-    throw new BrokerSendError(invalidWebpushTtlEnvelope());
+  // 3. webpush headers TTL digits (case-insensitive header key; canonical TTL field violation) and data payload byte cap.
+  if (message.webpush?.headers !== undefined) {
+    for (const [headerName, headerValue] of Object.entries(message.webpush.headers)) {
+      if (isWebpushTtlHeaderName(headerName) && !isNonNegativeIntegerDigits(headerValue)) {
+        throw new BrokerSendError(invalidWebpushTtlEnvelope());
+      }
+    }
   }
 
   if (dataBytes(message.data) > EMPIRICAL_DATA_CAP_BYTES) {
