@@ -70,6 +70,7 @@ jobs:
       packaging: ${{ steps.plan.outputs.packaging }}
       release-proof: ${{ steps.plan.outputs.release-proof }}
       rtdb-differential: ${{ steps.plan.outputs.rtdb-differential }}
+      firestore-differential: ${{ steps.plan.outputs.firestore-differential }}
       app-scenarios: ${{ steps.plan.outputs.app-scenarios }}
       app-plan: ${{ steps.app-plan.outputs.app-plan }}
       app-shards: ${{ steps.app-plan.outputs.app-shards }}
@@ -593,6 +594,43 @@ jobs:
         # shrunk sequence.
         if: github.event_name == 'schedule'
         run: bun packages/cli/test/serve/rtdb-differential/differential.ts --start=1000 --count=2000 --steps=40 --chunks=2
+
+  firestore-differential:
+    name: Firestore differential (sandbox, hosted HTTP/WS)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: [plan, build-packages]
+    # Selected by scripts/ci/plan.ts for changes to the served hosts, remote
+    # bridge, Firestore or sandbox engines, or the rules engine, and always
+    # outside pull requests.
+    if: needs.plan.outputs.firestore-differential == 'true'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - name: Cache Bun dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-bun-
+      - name: Install
+        run: bun install --frozen-lockfile --filter '!@pyric/playground'
+      - uses: ./.github/actions/restore-dist
+        with:
+          flavor: packages
+      - name: Fixed seeds and saved fixtures
+        run: bun test --cwd packages/cli ./test/serve/firestore-differential/firestore-differential.gate.ts
+      - name: Nightly sweep
+        # The nightly run adds 2000 40-step sequences; any mismatch prints its
+        # shrunk sequence and replay command.
+        if: github.event_name == 'schedule'
+        run: bun packages/cli/test/serve/firestore-differential/differential.ts --start=1000 --count=2000 --steps=40 --chunks=2
 
   app-scenarios:
     name: App scenarios (${{ matrix.shard.index }}/${{ matrix.shard.total }})
@@ -1366,7 +1404,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     if: always()
-    needs: [plan, deletion-guard, build-packages, pack-packages, build-and-test, library-tests, conformance-suite, browser-conformance, conformance-gates, native-conformance, release-contract, packaging, install-matrix, standalone, rtdb-differential, app-scenarios, node-24-stop]
+    needs: [plan, deletion-guard, build-packages, pack-packages, build-and-test, library-tests, conformance-suite, browser-conformance, conformance-gates, native-conformance, release-contract, packaging, install-matrix, standalone, rtdb-differential, firestore-differential, app-scenarios, node-24-stop]
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
@@ -1379,6 +1417,7 @@ jobs:
           CI_REQUIRE_PACKAGING_GATE: ${{ needs.plan.outputs.packaging }}
           CI_REQUIRE_INSTALL_MATRIX: ${{ needs.plan.outputs.packaging == 'true' && github.event_name == 'pull_request' }}
           CI_REQUIRE_RTDB_DIFFERENTIAL: ${{ needs.plan.outputs.rtdb-differential }}
+          CI_REQUIRE_FIRESTORE_DIFFERENTIAL: ${{ needs.plan.outputs.firestore-differential }}
           CI_REQUIRE_APP_SCENARIOS: ${{ needs.plan.outputs.app-scenarios }}
           CI_REQUIRE_DELETION_GUARD: ${{ github.event_name == 'pull_request' }}
           CI_NEEDS_JSON: ${{ toJSON(needs) }}

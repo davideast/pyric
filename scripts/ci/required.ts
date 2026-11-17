@@ -11,6 +11,8 @@ interface RequiredInput {
   requireInstallMatrix?: boolean;
   /** The plan selected the RTDB differential gate. */
   requireRtdbDifferential?: boolean;
+  /** The plan selected the Firestore differential gate. */
+  requireFirestoreDifferential?: boolean;
   /** The plan selected the app scenarios. */
   requireAppScenarios?: boolean;
   /** The run is a pull request, so the test and CI job removal guard ran.
@@ -37,6 +39,7 @@ export function requiredFailures(input: RequiredInput): string[] {
     if (input.requireInstallMatrix) required.push('install-matrix');
   }
   if (input.requireRtdbDifferential) required.push('rtdb-differential');
+  if (input.requireFirestoreDifferential) required.push('firestore-differential');
   // The Node 24.16 stop job runs with the app scenarios, on the same tarballs.
   if (input.requireAppScenarios) required.push('app-scenarios', 'node-24-stop');
   if (input.requireDeletionGuard) required.push('deletion-guard');
@@ -64,6 +67,7 @@ function main(): void {
     requirePackagingGate: process.env.CI_REQUIRE_PACKAGING_GATE === 'true',
     requireInstallMatrix: process.env.CI_REQUIRE_INSTALL_MATRIX === 'true',
     requireRtdbDifferential: process.env.CI_REQUIRE_RTDB_DIFFERENTIAL === 'true',
+    requireFirestoreDifferential: process.env.CI_REQUIRE_FIRESTORE_DIFFERENTIAL === 'true',
     requireAppScenarios: process.env.CI_REQUIRE_APP_SCENARIOS === 'true',
     requireDeletionGuard: process.env.CI_REQUIRE_DELETION_GUARD === 'true',
     results,

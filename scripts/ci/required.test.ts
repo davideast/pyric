@@ -75,6 +75,29 @@ describe('required CI result', () => {
     expect(requiredJob).toContain('CI_REQUIRE_RTDB_DIFFERENTIAL: ${{ needs.plan.outputs.rtdb-differential }}');
   });
 
+  test('requires the Firestore differential gate only when the plan selected it', () => {
+    expect(requiredFailures({
+      checkSet: 'full', requirePackaging: false, requireFirestoreDifferential: false,
+      results: { ...success, 'firestore-differential': 'skipped' },
+    })).toEqual([]);
+    expect(requiredFailures({
+      checkSet: 'full', requirePackaging: false, requireFirestoreDifferential: true,
+      results: { ...success, 'firestore-differential': 'skipped' },
+    })).toEqual(['firestore-differential: skipped']);
+    expect(requiredFailures({
+      checkSet: 'full', requirePackaging: false, requireFirestoreDifferential: true,
+      results: { ...success, 'firestore-differential': 'success' },
+    })).toEqual([]);
+  });
+
+  test('the aggregate job receives the Firestore differential result and the plan\'s selection', () => {
+    const workflow = readFileSync(resolve(import.meta.dir, '../../.github/workflows/build.yml'), 'utf8');
+    const requiredJob = workflow.slice(workflow.indexOf('\n  required:'));
+    const needsLine = requiredJob.match(/\n    needs: \[([^\]]+)\]/)?.[1] ?? '';
+    expect(needsLine.split(',').map((job) => job.trim())).toContain('firestore-differential');
+    expect(requiredJob).toContain('CI_REQUIRE_FIRESTORE_DIFFERENTIAL: ${{ needs.plan.outputs.firestore-differential }}');
+  });
+
   test('requires the app scenarios only when the plan selected them', () => {
     expect(requiredFailures({
       checkSet: 'full', requirePackaging: false, requireAppScenarios: false,

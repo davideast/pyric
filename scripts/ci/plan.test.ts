@@ -4,6 +4,7 @@ import { resolve } from 'node:path';
 import { discoverScenarios, type Scenario } from '../../test/apps/shard-plan.ts';
 import {
   appSelectionFile,
+  determineFirestoreDifferential,
   determinePackaging,
   determineReleaseProof,
   determineRtdbDifferential,
@@ -285,6 +286,44 @@ describe('RTDB differential selection', () => {
     expect(determineRtdbDifferential({ event: 'schedule', paths: [] })).toBe(true);
     expect(determineRtdbDifferential({ event: 'push', paths: [] })).toBe(true);
     expect(determineRtdbDifferential({ event: 'merge_group', paths: [] })).toBe(true);
+  });
+});
+
+describe('Firestore differential selection', () => {
+  test('runs for a pull request touching served hosts, remote bridge, Firestore, sandbox, or rules', () => {
+    for (const path of [
+      'packages/cli/src/serve/worker/host/firestore-writes.ts',
+      'packages/cli/src/remote/index.ts',
+      'packages/cli/src/bridge/protocol.ts',
+      'packages/cli/src/register/client/firestore.ts',
+      'packages/pyric/src/firestore/transactions.ts',
+      'packages/pyric/src/sandbox/admin-firestore/remote/value-codec.ts',
+      'packages/pyric/src/rules/index.ts',
+      'packages/rules/src/simulator/evaluator.ts',
+      'packages/cli/test/serve/firestore-differential/generator.ts',
+    ]) {
+      expect(determineFirestoreDifferential({ event: 'pull_request', paths: [{ path }] })).toBe(true);
+    }
+  });
+
+  test('runs for a rename out of a selected directory', () => {
+    expect(determineFirestoreDifferential({
+      event: 'pull_request',
+      paths: [{ path: 'packages/cli/src/other.ts', previousPath: 'packages/cli/src/serve/other.ts' }],
+    })).toBe(true);
+  });
+
+  test('skips a pull request that touches none of them', () => {
+    expect(determineFirestoreDifferential({
+      event: 'pull_request',
+      paths: [{ path: 'packages/pyric/src/storage/index.ts' }],
+    })).toBe(false);
+  });
+
+  test('always runs outside pull requests', () => {
+    expect(determineFirestoreDifferential({ event: 'schedule', paths: [] })).toBe(true);
+    expect(determineFirestoreDifferential({ event: 'push', paths: [] })).toBe(true);
+    expect(determineFirestoreDifferential({ event: 'merge_group', paths: [] })).toBe(true);
   });
 });
 

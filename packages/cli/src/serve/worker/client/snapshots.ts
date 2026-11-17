@@ -182,6 +182,53 @@ function isQueryResult(value: unknown): value is RawQueryResult {
  * a state replacement); the in-page sandbox re-evaluates in place and
  * delivers nothing in that case.
  */
+function compareJsonKeys(left: string, right: string): number {
+  if (left < right) return -1;
+  if (left > right) return 1;
+  return 0;
+}
+
+function jsonValuesEqual(left: unknown, right: unknown): boolean {
+  if (left === right) return true;
+  if (left === null || right === null || typeof left !== 'object' || typeof right !== 'object') {
+    return false;
+  }
+  if (Array.isArray(left) || Array.isArray(right)) {
+    if (!Array.isArray(left) || !Array.isArray(right) || left.length !== right.length) {
+      return false;
+    }
+    for (let i = 0; i < left.length; i++) {
+      if (!jsonValuesEqual(left[i], right[i])) return false;
+    }
+    return true;
+  }
+  const leftKeys = Object.keys(left as Record<string, unknown>).sort(compareJsonKeys);
+  const rightKeys = Object.keys(right as Record<string, unknown>).sort(compareJsonKeys);
+  if (leftKeys.length !== rightKeys.length) return false;
+  for (let i = 0; i < leftKeys.length; i++) {
+    const key = leftKeys[i];
+    if (key === undefined || key !== rightKeys[i]) return false;
+    if (!jsonValuesEqual((left as Record<string, unknown>)[key], (right as Record<string, unknown>)[key])) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function serializedDocDataEqual(
+  left: SerializedDocData | undefined,
+  right: SerializedDocData | undefined,
+): boolean {
+  if (left === undefined || right === undefined) return left === right;
+  if (left.valueEncoding !== right.valueEncoding) return false;
+  if (left.json === right.json) return true;
+  try {
+    return jsonValuesEqual(JSON.parse(left.json), JSON.parse(right.json));
+  } catch {
+    return false;
+  }
+}
+
 export function makeSnapshot(
   raw: unknown,
   port: ClientPort,
@@ -206,7 +253,7 @@ export function makeSnapshot(
     const previous = baseline.previousDocument;
     const isSameDocument = previous !== undefined
       && previous.exists === raw.exists
-      && (!raw.exists || previous.data?.json === raw.data?.json);
+      && (!raw.exists || serializedDocDataEqual(previous.data, raw.data));
     const isUnchanged = isSameDocument
       && (baseline.excludesMetadataChanges
         || metadata.hasPendingWrites === baseline.previousHasPendingWrites);
@@ -252,7 +299,7 @@ export function makeQuerySnapshot(
     previous,
     rows,
     docs,
-    (before, after) => before.doc.data?.json === after.doc.data?.json,
+    (before, after) => serializedDocDataEqual(before.doc.data, after.doc.data),
     (row) => snapshotOf(row.doc),
   );
   let changesWithMetadata: typeof changes | undefined;
@@ -262,7 +309,7 @@ export function makeQuerySnapshot(
       rows,
       docs,
       (before, after) =>
-        before.doc.data?.json === after.doc.data?.json
+        serializedDocDataEqual(before.doc.data, after.doc.data)
         && Boolean(before.doc.hasPendingWrites) === Boolean(after.doc.hasPendingWrites),
       (row) => snapshotOf(row.doc),
     );

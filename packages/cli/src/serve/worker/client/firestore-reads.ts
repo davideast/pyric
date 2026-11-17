@@ -12,6 +12,7 @@ import type {
 } from '../protocol.js';
 import { closeSubscription, nextId, nextSubId, dataRpc, _defaultLens, subscribeLens, openSnapshotSubscription, stampIssuer } from './core.js';
 import type { ClientDb, DocRefHandle, CollRefHandle, QueryHandle, Unsubscribe } from './handles.js';
+import { assertExecutableQueryDescriptor } from './firestore-query-validation.js';
 import { pageListenerOwners } from './listener-owners.js';
 import { deliverWithRegions } from './listener-delivery.js';
 import { makeDocSnapshot, makeQuerySnapshot, makeSnapshot } from './snapshots.js';
@@ -43,9 +44,16 @@ export function getDocs(source: CollRefHandle | QueryHandle): Promise<ClientQuer
   return readQueryAs(source, 'getDocs');
 }
 
+function assertExecutableTarget(target: DocRefHandle | CollRefHandle | QueryHandle): void {
+  if (target.__kind === 'query') {
+    assertExecutableQueryDescriptor(target.descriptor.constraints);
+  }
+}
+
 export async function readQueryAs(source: CollRefHandle | QueryHandle, method: string): Promise<ClientQuerySnapshot> {
   const activity = beginWorkerFirestoreActivity(source, method, 'operation');
   try {
+    assertExecutableTarget(source);
     const result = await dataRpc(source.port, {
       t: 'op',
       id: nextId(),
@@ -89,6 +97,7 @@ export async function getCountFromServer(
 ): Promise<{ readonly type: 'AggregateQuerySnapshot'; readonly query: CollRefHandle | QueryHandle; data(): { count: number } }> {
   const activity = beginWorkerFirestoreActivity(source, 'getCountFromServer', 'operation');
   try {
+    assertExecutableTarget(source);
     const result = await dataRpc(source.port, {
       t: 'op',
       id: nextId(),
@@ -144,6 +153,7 @@ export async function getAggregateFromServer<S extends AggregateSpecDescriptor>(
 ): Promise<{ readonly type: 'AggregateQuerySnapshot'; readonly query: CollRefHandle | QueryHandle; data(): { [K in keyof S]: number | null } }> {
   const activity = beginWorkerFirestoreActivity(source, 'getAggregateFromServer', 'operation');
   try {
+    assertExecutableTarget(source);
     const result = await dataRpc(source.port, {
       t: 'op',
       id: nextId(),
@@ -167,7 +177,7 @@ type SnapshotCallback = (snap: ClientDocSnapshot | ClientQuerySnapshot) => void;
 type SnapshotErrorCallback = (err: unknown) => void;
 
 /** Production's `PartialObserver`: any of `next`, `error` and `complete`. */
-export interface SnapshotObserver {
+interface SnapshotObserver {
   next?: SnapshotCallback;
   error?: SnapshotErrorCallback;
   complete?: () => void;
@@ -249,6 +259,7 @@ export function onSnapshot(
   third?: ObserverOrNext | SnapshotErrorCallback,
   fourth?: SnapshotErrorCallback,
 ): Unsubscribe {
+  assertExecutableTarget(target);
   const { options: listenOptions, next: callback, error: errorCallback } = listenerArguments(second, third, fourth);
   const reportError = errorCallback ?? reportUncaughtListenError;
   // Derived before the message is built: `captureCreationFrame` reads the
