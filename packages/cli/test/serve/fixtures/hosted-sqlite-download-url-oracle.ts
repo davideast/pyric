@@ -13,7 +13,7 @@ import { uploadTokenOf } from '../../../src/serve/worker/host/storage.js';
 import type { InboundMessage } from '../../../src/serve/worker/protocol.js';
 import { wirePort } from '../../../src/serve/worker/client/core.js';
 import type { ClientPort } from '../../../src/serve/worker/client/handles.js';
-import { deleteObject, getDownloadURL, getStorage, ref, uploadBytes } from '../../../src/serve/worker/client/storage.js';
+import { deleteObject, getBlob, getDownloadURL, getMetadata, getStorage, ref, uploadBytes } from '../../../src/serve/worker/client/storage.js';
 
 // The production observations, read from the conformance package beside the cli build.
 function observation(name: string): Record<string, unknown> {
@@ -92,6 +92,67 @@ try {
     try { await getDownloadURL(target); } catch (error) { code = (error as { code?: string }).code; }
     assert.equal(code !== undefined, produced.getUrlThrew);
     assert.equal(code, produced.code);
+  }
+
+  // client-storage-getblob-root-ref: getBlob(ref(storage)) throws synchronously before any route fetch.
+  {
+    const produced = observation('client-storage-getblob-root-ref');
+    const browserRoot = produced.browserRootRef as {
+      rootFullPath: string;
+      rootName: string;
+      threwSynchronously: boolean;
+      code: string;
+    };
+    const rootRef = ref(storage);
+    assert.equal(rootRef.fullPath, browserRoot.rootFullPath);
+    assert.equal(rootRef.name, browserRoot.rootName);
+    let threwSynchronously = false;
+    let code: string | undefined;
+    try {
+      getBlob(rootRef).catch(() => {});
+    } catch (error) {
+      threwSynchronously = true;
+      code = (error as { code?: string }).code;
+    }
+    assert.equal(threwSynchronously, browserRoot.threwSynchronously);
+    assert.equal(code, browserRoot.code);
+  }
+
+  // storage-delete-then-getmetadata-throws: getMetadata reads stored metadata, then throws after deleteObject.
+  {
+    const produced = observation('storage-delete-then-getmetadata-throws');
+    const beforeDelete = produced.beforeDelete as {
+      size: number;
+      contentType: string;
+      customMetadata: Record<string, string>;
+      hasGeneration: boolean;
+      metageneration: string;
+    };
+    const afterDelete = produced.afterDeleteGetMetadata as {
+      threw: boolean;
+      code: string;
+    };
+    const target = ref(storage, 'pyric_oracle/delete-then-getmetadata/ephemeral.bin');
+    await uploadBytes(target, new Uint8Array([0x70, 0x79, 0x72, 0x69, 0x63]), {
+      contentType: beforeDelete.contentType,
+      customMetadata: beforeDelete.customMetadata,
+    });
+    const preMeta = await getMetadata(target);
+    assert.equal(preMeta.size, beforeDelete.size);
+    assert.equal(preMeta.contentType, beforeDelete.contentType);
+    assert.deepEqual(preMeta.customMetadata, beforeDelete.customMetadata);
+    assert.equal(preMeta.generation.length > 0, beforeDelete.hasGeneration);
+    assert.equal(preMeta.metageneration, beforeDelete.metageneration);
+    await deleteObject(target);
+    assert.equal(produced.deleteCompleted, true);
+    let code: string | undefined;
+    try {
+      await getMetadata(target);
+    } catch (error) {
+      code = (error as { code?: string }).code;
+    }
+    assert.equal(code !== undefined, afterDelete.threw);
+    assert.equal(code, afterDelete.code);
   }
 } finally {
   server.close();

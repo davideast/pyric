@@ -61,27 +61,40 @@ describe('Storage conformance probes (storage#61 and storage#67)', () => {
     expect(ids).toContain('client-storage-ref-urls');
     expect(ids).toContain('client-storage-getblob-root-ref');
 
-    const capturedSet = new Set(['client-storage-ref-urls']);
-    const unfiltered = selectClientStorageProbes(loaded, ['--write'], (id) => capturedSet.has(id));
-    expect(unfiltered.map((item) => item.id)).toEqual(['client-storage-ref-urls']);
+    const withStagedSample = [
+      ...loaded,
+      {
+        id: 'client-storage-staged-sample',
+        probe: {
+          rig: 'client-storage' as const,
+          pendingRowLink: true,
+          matrixRow: '',
+          rowIds: [],
+          description: 'sample staged client-storage probe',
+          observe: async () => ({ ok: true }),
+        },
+      },
+    ];
+    const capturedSet = new Set(loaded.map((item) => item.id));
+    const unfiltered = selectClientStorageProbes(withStagedSample, ['--write'], (id) =>
+      capturedSet.has(id),
+    );
+    expect(unfiltered.map((item) => item.id)).toEqual(loaded.map((item) => item.id));
 
     const explicitStaged = selectClientStorageProbes(
-      loaded,
-      ['--write', '--probe', 'client-storage-getblob-root-ref'],
+      withStagedSample,
+      ['--write', '--probe', 'client-storage-staged-sample'],
       (id) => capturedSet.has(id),
     );
-    expect(explicitStaged.map((item) => item.id)).toEqual(['client-storage-getblob-root-ref']);
+    expect(explicitStaged.map((item) => item.id)).toEqual(['client-storage-staged-sample']);
 
-    const afterCaptureSet = new Set([
-      'client-storage-ref-urls',
-      'client-storage-getblob-root-ref',
-    ]);
-    const unfilteredAfterCapture = selectClientStorageProbes(loaded, [], (id) =>
+    const afterCaptureSet = new Set([...loaded.map((item) => item.id), 'client-storage-staged-sample']);
+    const unfilteredAfterCapture = selectClientStorageProbes(withStagedSample, [], (id) =>
       afterCaptureSet.has(id),
     );
     expect(unfilteredAfterCapture.map((item) => item.id)).toEqual([
-      'client-storage-getblob-root-ref',
-      'client-storage-ref-urls',
+      ...loaded.map((item) => item.id),
+      'client-storage-staged-sample',
     ]);
 
     expect(() =>
@@ -271,25 +284,22 @@ describe('Storage conformance probes (storage#61 and storage#67)', () => {
     );
   });
 
-  it('validates staged lifecycle cleanly before and after capture when pendingRowLink is active', async () => {
-    const currentObservations = loadObservations();
-    const existingNames = new Set(currentObservations.map((obs) => obs.name));
-    const uncaptured = discoverUncapturedStagedTargets();
+  it('validates linked storage#61 and storage#67 probes alongside synthetic pendingRowLink observations', async () => {
+    expect(getBlobRootProbe.pendingRowLink).toBeUndefined();
+    expect(getBlobRootProbe.matrixRow).toBe('storage #61');
+    expect(getBlobRootProbe.rowIds).toEqual(['storage#61']);
+    expect(deleteThenGetMetadataProbe.pendingRowLink).toBeUndefined();
+    expect(deleteThenGetMetadataProbe.matrixRow).toBe('storage #67');
+    expect(deleteThenGetMetadataProbe.rowIds).toEqual(['storage#67']);
 
-    if (getBlobRootProbe.pendingRowLink) {
-      if (!existingNames.has('client-storage-getblob-root-ref')) {
-        expect(uncaptured.map((item) => item.observationName)).toContain(
-          'client-storage-getblob-root-ref',
-        );
-      }
-    }
-    if (deleteThenGetMetadataProbe.pendingRowLink) {
-      if (!existingNames.has('storage-delete-then-getmetadata-throws')) {
-        expect(uncaptured.map((item) => item.observationName)).toContain(
-          'storage-delete-then-getmetadata-throws',
-        );
-      }
-    }
+    const currentObservations = loadObservations();
+    const uncaptured = discoverUncapturedStagedTargets();
+    expect(uncaptured.map((item) => item.observationName)).not.toContain(
+      'client-storage-getblob-root-ref',
+    );
+    expect(uncaptured.map((item) => item.observationName)).not.toContain(
+      'storage-delete-then-getmetadata-throws',
+    );
 
     const rigManifests = await loadRigManifests();
     const rtdbScenarioIds = [
@@ -297,7 +307,7 @@ describe('Storage conformance probes (storage#61 and storage#67)', () => {
       ...ALL_RULES_RTDB_DEPLOY_SCENARIOS.map((s) => s.id),
     ];
 
-    const preCaptureProblems = validateCompatibilityRegistry({
+    const linkedProblems = validateCompatibilityRegistry({
       rows: allCompatibilityRows,
       descriptors: surfaceDescriptors,
       observations: currentObservations,
@@ -309,38 +319,26 @@ describe('Storage conformance probes (storage#61 and storage#67)', () => {
       rulesRtdbScenarioIds: rtdbScenarioIds,
       pendingRowLinkObservations: loadPendingRowLinkObservations(),
     });
-    expect(preCaptureProblems).toEqual([]);
+    expect(linkedProblems).toEqual([]);
 
-    // Simulate PR #2 state where both observations are captured with rowIds: []
-    const simulatedObsByName = new Map(currentObservations.map((obs) => [obs.name, obs]));
-    if (!simulatedObsByName.has('client-storage-getblob-root-ref')) {
-      simulatedObsByName.set(
-        'client-storage-getblob-root-ref',
-        makeSyntheticObservation('storage', 'client-storage-getblob-root-ref'),
-      );
-    }
-    if (!simulatedObsByName.has('storage-delete-then-getmetadata-throws')) {
-      simulatedObsByName.set(
-        'storage-delete-then-getmetadata-throws',
-        makeSyntheticObservation('storage', 'storage-delete-then-getmetadata-throws'),
-      );
-    }
-    const simulatedPending = new Set([
+    const syntheticPending = new Set([
       ...loadPendingRowLinkObservations(),
-      'client-storage-getblob-root-ref',
-      'storage-delete-then-getmetadata-throws',
+      'storage-synthetic-staged-probe',
     ]);
     const pr2Problems = validateCompatibilityRegistry({
       rows: allCompatibilityRows,
       descriptors: surfaceDescriptors,
-      observations: [...simulatedObsByName.values()],
+      observations: [
+        ...currentObservations,
+        makeSyntheticObservation('storage', 'storage-synthetic-staged-probe'),
+      ],
       observationExceptions,
       rigManifests,
       probeFiles: listProbeFiles(),
       rulesFirestoreScenarioIds: ALL_RULES_FIRESTORE_SCENARIOS.map((s) => s.id),
       rulesStorageScenarioIds: ALL_RULES_STORAGE_SCENARIOS.map((s) => s.id),
       rulesRtdbScenarioIds: rtdbScenarioIds,
-      pendingRowLinkObservations: simulatedPending,
+      pendingRowLinkObservations: syntheticPending,
     });
     expect(pr2Problems).toEqual([]);
   });

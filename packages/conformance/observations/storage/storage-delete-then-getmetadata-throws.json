@@ -1,7 +1,9 @@
 {
   "name": "storage-delete-then-getmetadata-throws",
-  "matrixRow": "",
-  "rowIds": [],
+  "matrixRow": "storage #67",
+  "rowIds": [
+    "storage#67"
+  ],
   "description": "uploadBytes with customMetadata, verify getMetadata reads the stored metadata, call deleteObject, then call getMetadata on the deleted reference and observe the error shape.",
   "observedAt": "2026-11-17T21:29:53.623Z",
   "fbSdkVersion": "12.19.0",

@@ -30,6 +30,7 @@ import {
   ref,
   uploadBytes,
   uploadString,
+  getBlob,
   getDownloadURL,
   deleteObject,
   getMetadata,
@@ -148,6 +149,81 @@ describe('oracle conformance (storage)', () => {
     const e = await caught(() => getDownloadURL(r));
     expect(obs.getUrlThrew).toBe(true); // what prod did (the target)
     expect(e.code).toBe(obs.code as string);
+  });
+
+  it('storage#61: client-storage-getblob-root-ref throws synchronously on root reference', async () => {
+    const obs = load('client-storage-getblob-root-ref.json');
+    const browserRoot = obs.browserRootRef as {
+      rootFullPath: string;
+      rootName: string;
+      threw: boolean;
+      threwSynchronously: boolean;
+      code: string;
+      fetchCalls: number;
+    };
+    const nodeRoot = obs.nodeEntryRootRef as {
+      threw: boolean;
+      threwSynchronously: boolean;
+      code: string | null;
+    };
+    expect(nodeRoot.threw).toBe(true);
+    expect(nodeRoot.threwSynchronously).toBe(true);
+    expect(nodeRoot.code).toBeNull();
+
+    const storage = freshStorage('getblob-root-ref');
+    const rootRef = ref(storage);
+    expect(rootRef.fullPath).toBe(browserRoot.rootFullPath);
+    expect(rootRef.name).toBe(browserRoot.rootName);
+
+    let threwSynchronously = false;
+    let code: string | null = null;
+    try {
+      getBlob(rootRef).catch(() => {});
+    } catch (err) {
+      threwSynchronously = true;
+      code = (err as { code?: string }).code ?? null;
+    }
+    expect(threwSynchronously).toBe(browserRoot.threwSynchronously);
+    expect(code).toBe(browserRoot.code);
+
+    const missingErr = await caught(() => getBlob(ref(storage, 'items/missing.bin')));
+    expect(missingErr.code).toBe('storage/object-not-found');
+  });
+
+  it('storage#67: storage-delete-then-getmetadata-throws removes stored metadata on deleteObject', async () => {
+    const obs = load('storage-delete-then-getmetadata-throws.json');
+    const beforeDelete = obs.beforeDelete as {
+      size: number;
+      contentType: string;
+      customMetadata: Record<string, string>;
+      hasGeneration: boolean;
+      metageneration: string;
+    };
+    const afterDelete = obs.afterDeleteGetMetadata as {
+      threw: boolean;
+      code: string;
+    };
+
+    const storage = freshStorage('delete-then-getmetadata');
+    const r = ref(storage, 'delete-then-getmetadata/ephemeral.bin');
+    await uploadBytes(r, new Uint8Array([0x70, 0x79, 0x72, 0x69, 0x63]), {
+      contentType: beforeDelete.contentType,
+      customMetadata: beforeDelete.customMetadata,
+    });
+
+    const preMeta = await getMetadata(r);
+    expect(preMeta.size).toBe(beforeDelete.size);
+    expect(preMeta.contentType).toBe(beforeDelete.contentType);
+    expect(preMeta.customMetadata).toEqual(beforeDelete.customMetadata);
+    expect(preMeta.generation.length > 0).toBe(beforeDelete.hasGeneration);
+    expect(preMeta.metageneration).toBe(beforeDelete.metageneration);
+
+    await deleteObject(r);
+    expect(obs.deleteCompleted).toBe(true);
+
+    const err = await caught(() => getMetadata(r));
+    expect(afterDelete.threw).toBe(true);
+    expect(err.code).toBe(afterDelete.code);
   });
 
   it('storage-rules-denied-error-code', async () => {

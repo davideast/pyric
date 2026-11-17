@@ -403,18 +403,16 @@ export function uploadBlobOf(data: Blob | Uint8Array | ArrayBuffer): Blob {
 }
 
 /** Reconstruct binary data locally so reads work over MessagePort and JSON WebSocket. */
-export async function getBlob(
-  reference: ClientStorageReference,
-  maxDownloadSizeBytes?: number,
-): Promise<Blob> {
+export function getBlob(reference: ClientStorageReference, maxDownloadSizeBytes?: number): Promise<Blob> {
   guardClientNonRoot(reference, 'getBlob');
-  const result = await readStorageBytesInternal(reference);
-  const bytes =
-    typeof maxDownloadSizeBytes === 'number' && result.bytes.byteLength > maxDownloadSizeBytes
-      ? result.bytes.subarray(0, Math.max(0, maxDownloadSizeBytes))
-      : result.bytes;
-  const buffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
-  return new Blob([buffer], { type: result.contentType ?? 'application/octet-stream' });
+  return readStorageBytesInternal(reference).then((result) => {
+    let bytes = result.bytes;
+    if (typeof maxDownloadSizeBytes === 'number' && bytes.byteLength > maxDownloadSizeBytes) {
+      bytes = bytes.subarray(0, Math.max(0, maxDownloadSizeBytes));
+    }
+    const buffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+    return new Blob([buffer], { type: result.contentType ?? 'application/octet-stream' });
+  });
 }
 
 async function readStorageBytesInternal(

@@ -195,9 +195,8 @@ function observeIsolatedBrowserBundleRootGetBlob(): RootCallObservation {
 
 export const probe: Probe = {
   rig: 'client-storage',
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'storage #61',
+  rowIds: ['storage#61'],
   description:
     'firebase/storage getBlob(ref(storage)) on the root reference: observes the browser bundle client-side root preflight (throws FirebaseError storage/invalid-root-operation with zero network requests) alongside the Node bundle environment guard.',
   async observe() {
