@@ -21,47 +21,49 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { deleteApp, initializeApp, type App } from 'firebase-admin/app';
 import { getMessaging } from 'firebase-admin/messaging';
-import {
-  loadMessagingServiceAccount,
-  messagingAccessToken,
-  messagingSendEndpoint,
-} from './messaging-credential.ts';
-import {
-  MESSAGING_SEND_PROBES,
-  type MessagingSendProbeMetadata,
-} from './messaging-send-probe-catalog.ts';
-import { oracleAppOptions, type OracleServiceAccount } from './oracle-credential.ts';
-import { resolvedAdminVersion } from './package-version.ts';
+import type { Probe } from '../rigs/types.ts';
 import {
   formatInertPreviewFooter,
   requireCaptureMode,
   stripCaptureFlags,
 } from './capture-mode-guard.ts';
+import { loadMessagingServiceAccount } from './messaging-credential.ts';
+import {
+  MESSAGING_SEND_PROBES,
+  type MessagingSendProbeMetadata,
+} from './messaging-send-probe-catalog.ts';
+import {
+  assertFcmProbeHttpStatus,
+  createRawSendFunctions,
+  type ErrorEnvelopeParityOutcome,
+  nameFacts,
+  type RawSendFn,
+} from './messaging-send-probe-session.ts';
+import { readObservationLinkage } from './observation-linkage.ts';
+import { oracleAppOptions, type OracleServiceAccount } from './oracle-credential.ts';
+import { resolvedAdminVersion } from './package-version.ts';
 import { readProbeSelectors } from './probe-cli-args.ts';
+import { loadModularProbes, type LoadedModularProbe } from './sdk-probes.ts';
+
+export { assertFcmProbeHttpStatus, nameFacts, type RawSendFn };
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const OBS_DIR = join(HERE, '..', 'observations', 'messaging-admin');
 
-type RawSendPayload = {
-  validate_only: boolean;
-  message: Record<string, unknown>;
-};
-
-export type RawSendFn = (
-  payload: RawSendPayload,
-) => Promise<{ status: number; body: Record<string, unknown> }>;
-
-/** Strip run-specific noise: message ids vary per send; the resource-name format is the fact. */
-export function nameFacts(name: string, projectId: string): {
-  matchesProjectsMessagesFormat: boolean;
-  projectSegmentMatchesProject: boolean;
-} {
-  const match = /^projects\/([^/]+)\/messages\/([^/]+)$/.exec(name);
-  return {
-    matchesProjectsMessagesFormat: match !== null,
-    projectSegmentMatchesProject: match?.[1] === projectId,
-  };
-}
+export type MessagingSendTarget =
+  | {
+      kind: 'catalog';
+      name: string;
+      pendingRowLink: boolean;
+      catalog: MessagingSendProbeMetadata;
+    }
+  | {
+      kind: 'modular';
+      name: string;
+      pendingRowLink: boolean;
+      surfaceDir: string;
+      probe: Probe;
+    };
 
 export function selectMessagingSendProbes(args: readonly string[]): MessagingSendProbeMetadata[] {
   const requested = readProbeSelectors(args);
@@ -76,6 +78,68 @@ export function selectMessagingSendProbes(args: readonly string[]): MessagingSen
       );
     }
     return found;
+  });
+}
+
+export interface SelectMessagingSendTargetsOptions {
+  args: readonly string[];
+  modularProbes: readonly LoadedModularProbe[];
+  includeUncapturedStaged: boolean;
+  observationExists?: (name: string) => boolean;
+}
+
+export function selectMessagingSendTargets(
+  options: SelectMessagingSendTargetsOptions,
+): MessagingSendTarget[] {
+  const obsExists =
+    options.observationExists ?? ((name: string) => existsSync(join(OBS_DIR, `${name}.json`)));
+  const allTargets: MessagingSendTarget[] = [];
+
+  for (const catalog of MESSAGING_SEND_PROBES) {
+    allTargets.push({
+      kind: 'catalog',
+      name: catalog.name,
+      pendingRowLink: catalog.pendingRowLink === true,
+      catalog,
+    });
+  }
+  for (const entry of options.modularProbes) {
+    allTargets.push({
+      kind: 'modular',
+      name: entry.id,
+      pendingRowLink: entry.probe.pendingRowLink === true,
+      surfaceDir: entry.surfaceDir,
+      probe: entry.probe,
+    });
+  }
+
+  const requested = readProbeSelectors(options.args);
+  if (requested.length > 0) {
+    const byName = new Map(allTargets.map((target) => [target.name, target]));
+    const selected: MessagingSendTarget[] = [];
+    for (const selector of requested) {
+      const found = byName.get(selector);
+      if (!found) {
+        throw new Error(
+          `Unknown messaging-send probe '${selector}'. Available: ${allTargets.map((item) => item.name).join(', ')}`,
+        );
+      }
+      if (!selected.some((existing) => existing.name === found.name)) {
+        selected.push(found);
+      }
+    }
+    return selected;
+  }
+
+  if (options.includeUncapturedStaged) {
+    return allTargets;
+  }
+
+  return allTargets.filter((target) => {
+    if (!target.pendingRowLink) {
+      return true;
+    }
+    return obsExists(target.name);
   });
 }
 
@@ -135,15 +199,12 @@ interface ProbeExecutionContext {
   app: App;
   projectId: string;
   rawSend: RawSendFn;
-  errorEnvelopeParity: (message: Record<string, unknown>) => Promise<{
-    status: number;
-    error: unknown;
-    realStatus: number;
-    realSendEnvelopeIdentical: boolean;
-  }>;
+  errorEnvelopeParity: (message: Record<string, unknown>) => Promise<ErrorEnvelopeParityOutcome>;
 }
 
-const PROBE_RUNNERS: Readonly<Record<string, (ctx: ProbeExecutionContext) => Promise<Record<string, unknown>>>> = {
+const PROBE_RUNNERS: Readonly<
+  Record<string, (ctx: ProbeExecutionContext) => Promise<Record<string, unknown>>>
+> = {
   'messaging-send-topic-accepted': async ({ app, projectId }) => {
     const real = await getMessaging(app).send({
       topic: 'pyric-oracle-messaging-probe',
@@ -279,7 +340,7 @@ function extractStringArray(value: unknown, fallback: readonly string[]): string
   return value.filter((id): id is string => typeof id === 'string');
 }
 
-function resolveObservationEnvelopeMeta(
+function resolveCatalogEnvelopeMeta(
   probe: MessagingSendProbeMetadata,
   path: string,
 ): { rowIds: string[]; matrixRow: string; description: string } {
@@ -310,8 +371,14 @@ function resolveObservationEnvelopeMeta(
       description?: unknown;
     };
     const rowIds = extractStringArray(existing.rowIds, []);
-    const matrixRow = typeof existing.matrixRow === 'string' ? existing.matrixRow : '';
-    const description = typeof existing.description === 'string' ? existing.description : probe.description;
+    let matrixRow = '';
+    if (typeof existing.matrixRow === 'string') {
+      matrixRow = existing.matrixRow;
+    }
+    let description = probe.description;
+    if (typeof existing.description === 'string') {
+      description = existing.description;
+    }
     return { rowIds, matrixRow, description };
   }
   return {
@@ -321,29 +388,65 @@ function resolveObservationEnvelopeMeta(
   };
 }
 
-export function assertFcmProbeHttpStatus(status: number, body: unknown): void {
-  if (status === 401 || status === 403 || status >= 500) {
-    throw new Error(
-      `FCM probe HTTP ${status} infrastructure/IAM failure (refusing to record as observation): ${JSON.stringify(body)}`,
-    );
+function resolveModularEnvelopeMeta(
+  probe: Probe,
+  path: string,
+): { rowIds: string[]; matrixRow: string; description: string } {
+  let existing = { matrixRow: '', rowIds: [] as string[] };
+  if (existsSync(path)) {
+    existing = readObservationLinkage(path);
   }
+  let matrixRow = existing.matrixRow;
+  if (probe.matrixRow !== '') {
+    matrixRow = probe.matrixRow;
+  }
+  let rowIds = existing.rowIds;
+  if (probe.rowIds.length > 0) {
+    rowIds = [...probe.rowIds];
+  }
+  return {
+    rowIds,
+    matrixRow,
+    description: probe.description,
+  };
 }
 
 async function runMessagingSendProbes(args: readonly string[]): Promise<void> {
-  const selected = selectMessagingSendProbes(stripCaptureFlags(args));
+  const cleanedArgs = stripCaptureFlags(args);
+  const modularProbes = await loadModularProbes('messaging-send');
+  const previewTargets = selectMessagingSendTargets({
+    args: cleanedArgs,
+    modularProbes,
+    includeUncapturedStaged: true,
+  });
   requireCaptureMode({
     label: 'messaging-send',
     scriptPath: 'packages/conformance/src/messaging-send-probes.ts',
     argv: args,
     extraFlags: '[--probe <name>]',
     preview: () => {
-      console.log('[messaging-send] INERT preview (no --write flag): zero credential reads, zero network calls.');
-      for (const item of selected) {
-        console.log(`  - ${item.name}`);
+      console.log(
+        '[messaging-send] INERT preview (no --write flag): zero credential reads, zero network calls.',
+      );
+      for (const item of previewTargets) {
+        let stagedSuffix = '';
+        if (item.pendingRowLink) {
+          stagedSuffix = ' [pendingRowLink]';
+        }
+        console.log(`  - ${item.name}${stagedSuffix}`);
       }
-      console.log(`  ${formatInertPreviewFooter('packages/conformance/src/messaging-send-probes.ts', '[--probe <name>]')}`);
+      console.log(
+        `  ${formatInertPreviewFooter('packages/conformance/src/messaging-send-probes.ts', '[--probe <name>]')}`,
+      );
     },
   });
+
+  const writeTargets = selectMessagingSendTargets({
+    args: cleanedArgs,
+    modularProbes,
+    includeUncapturedStaged: false,
+  });
+
   let sa: OracleServiceAccount;
   try {
     sa = await loadMessagingServiceAccount();
@@ -360,54 +463,50 @@ async function runMessagingSendProbes(args: readonly string[]): Promise<void> {
   const projectId = sa.project_id;
   const adminSdkVersion = resolvedAdminVersion();
   const app = initializeApp(oracleAppOptions(sa), 'messaging-send-probes');
-  const endpoint = messagingSendEndpoint(sa);
+  const { rawSend, errorEnvelopeParity } = createRawSendFunctions(sa);
   mkdirSync(OBS_DIR, { recursive: true });
 
-  const rawSend: RawSendFn = async (payload) => {
-    const accessToken = await messagingAccessToken(sa);
-    const res = await fetch(endpoint, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
-    const body = (await res.json()) as Record<string, unknown>;
-    assertFcmProbeHttpStatus(res.status, body);
-    return { status: res.status, body };
-  };
-
-  const errorEnvelopeParity = async (message: Record<string, unknown>) => {
-    const dry = await rawSend({ validate_only: true, message });
-    const real = await rawSend({ validate_only: false, message });
-    return {
-      status: dry.status,
-      error: dry.body.error,
-      realStatus: real.status,
-      realSendEnvelopeIdentical:
-        dry.status === real.status && JSON.stringify(dry.body.error) === JSON.stringify(real.body.error),
-    };
-  };
-
   try {
-    for (const probe of selected) {
-      const runner = PROBE_RUNNERS[probe.name];
-      if (!runner) {
-        throw new Error(`No execution runner defined for messaging-send probe '${probe.name}'`);
+    for (const target of writeTargets) {
+      if (target.kind === 'catalog') {
+        const runner = PROBE_RUNNERS[target.name];
+        if (!runner) {
+          throw new Error(`No execution runner defined for messaging-send probe '${target.name}'`);
+        }
+        const behavior = await runner({ app, projectId, rawSend, errorEnvelopeParity });
+        const path = join(OBS_DIR, `${target.name}.json`);
+        const meta = resolveCatalogEnvelopeMeta(target.catalog, path);
+        const obs = {
+          name: target.name,
+          matrixRow: meta.matrixRow,
+          rowIds: meta.rowIds,
+          description: meta.description,
+          observedAt: new Date().toISOString(),
+          adminSdkVersion,
+          projectId,
+          behavior,
+        };
+        writeFileSync(path, `${JSON.stringify(obs, null, 2)}\n`);
+        console.log(`wrote ${target.name}`);
+      } else {
+        const outDir = join(HERE, '..', 'observations', target.surfaceDir);
+        mkdirSync(outDir, { recursive: true });
+        const path = join(outDir, `${target.name}.json`);
+        const meta = resolveModularEnvelopeMeta(target.probe, path);
+        const behavior = await target.probe.observe();
+        const obs = {
+          name: target.name,
+          matrixRow: meta.matrixRow,
+          rowIds: meta.rowIds,
+          description: meta.description,
+          observedAt: new Date().toISOString(),
+          adminSdkVersion,
+          projectId,
+          behavior,
+        };
+        writeFileSync(path, `${JSON.stringify(obs, null, 2)}\n`);
+        console.log(`wrote ${target.name}`);
       }
-      const behavior = await runner({ app, projectId, rawSend, errorEnvelopeParity });
-      const path = join(OBS_DIR, `${probe.name}.json`);
-      const meta = resolveObservationEnvelopeMeta(probe, path);
-      const obs = {
-        name: probe.name,
-        matrixRow: meta.matrixRow,
-        rowIds: meta.rowIds,
-        description: meta.description,
-        observedAt: new Date().toISOString(),
-        adminSdkVersion,
-        projectId,
-        behavior,
-      };
-      writeFileSync(path, `${JSON.stringify(obs, null, 2)}\n`);
-      console.log(`wrote ${probe.name}`);
     }
   } finally {
     await deleteApp(app);
