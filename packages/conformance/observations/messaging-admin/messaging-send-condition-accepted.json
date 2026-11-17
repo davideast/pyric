@@ -6,9 +6,9 @@
     "messaging-admin#14"
   ],
   "description": "firebase-admin/messaging send() with a condition target of the form \"'a' in topics && 'b' in topics\": FCM accepts and returns projects/<projectId>/messages/<numeric id>, the same resource-name shape as a direct topic send, with no subscribers required. dryRun=true returns the same shape. Cited by messaging-admin#4, messaging-admin#14 (surface climbing under CDD; cited, not yet replayed).",
-  "observedAt": "2026-07-09T05:00:44.711Z",
+  "observedAt": "2026-11-17T20:21:08.995Z",
   "adminSdkVersion": "13.10.0",
-  "projectId": "genkit-idx",
+  "projectId": "digame-mas",
   "behavior": {
     "realSend": {
       "matchesProjectsMessagesFormat": true,
