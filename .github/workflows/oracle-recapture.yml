@@ -287,6 +287,10 @@ jobs:
       - name: Build the rules engine
         if: steps.secret-check.outputs.available == 'true'
         run: bun run build:rules
+      # run.ts imports pyric/rules/internal/rtdb from packages/pyric/dist.
+      - name: Build pyric workspace for oracle-run
+        if: steps.secret-check.outputs.available == 'true' && matrix.rig == 'oracle-run'
+        run: bun run --cwd packages/pyric build
       - name: Re-capture ${{ matrix.rig }} against production
         if: steps.secret-check.outputs.available == 'true'
         env:
