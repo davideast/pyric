@@ -1,5 +1,9 @@
-import { isRulesMap } from '../simulator/rules-type.js';
 import { RulesValue } from '../simulator/wrappers/base.js';
+import {
+  bindPathSegments,
+  requirePathBindMap,
+  validatePathBindArity,
+} from '../simulator/wrappers/path.js';
 import type { EvalCtx } from './rules-evaluator.js';
 import { RuleEvalError } from './rules-evaluation-error.js';
 import {
@@ -9,17 +13,6 @@ import {
   type ReceiverMethods,
 } from './rules-method-calls.js';
 import { RuleError, isRuleError as isErr } from './rules-values.js';
-
-const PLACEHOLDER = /^(?:\{([A-Za-z_][A-Za-z0-9_]*)\}|\$\(([A-Za-z_][A-Za-z0-9_]*)\))$/;
-
-function copyBindings(source?: Readonly<Record<string, string>>): Record<string, string> {
-  const out: Record<string, string> = Object.create(null);
-  if (source === undefined) return out;
-  for (const [key, value] of Object.entries(source)) {
-    out[key] = value;
-  }
-  return out;
-}
 
 export class StoragePath extends RulesValue {
   readonly typeName = 'path';
@@ -32,7 +25,10 @@ export class StoragePath extends RulesValue {
     bindings?: Readonly<Record<string, string>>,
   ) {
     super();
-    this.bindings = copyBindings(bindings);
+    this.bindings = Object.assign(
+      Object.create(null) as Record<string, string>,
+      bindings,
+    );
   }
   /**
    * A path built from its segments. A path literal's interpolated string is
@@ -50,32 +46,8 @@ export class StoragePath extends RulesValue {
     return this.path.split('/').filter(Boolean);
   }
   bind(bindings: Record<string, unknown>): StoragePath {
-    const next: string[] = [];
-    const nextBindings = copyBindings(this.bindings);
-    for (const seg of this.segments) {
-      const m = PLACEHOLDER.exec(seg);
-      if (!m) {
-        next.push(seg);
-        continue;
-      }
-      const name = m[1] ?? m[2];
-      if (name === undefined) {
-        next.push(seg);
-        continue;
-      }
-      if (Object.hasOwn(bindings, name)) {
-        const v = bindings[name];
-        if (v === null || v === undefined || (typeof v !== 'string' && typeof v !== 'number' && typeof v !== 'bigint')) {
-          throw new TypeError(`Path.bind(): binding '${name}' must not be null`);
-        }
-        const sv = String(v);
-        next.push(sv);
-        nextBindings[name] = sv;
-      } else {
-        next.push(seg);
-      }
-    }
-    return StoragePath.fromSegments(next, nextBindings);
+    const bound = bindPathSegments(this.segments, this.bindings, bindings);
+    return StoragePath.fromSegments(bound.segments, bound.bindings);
   }
   valueOf(): number {
     return NaN;
@@ -133,20 +105,24 @@ export function interpolationSegments(value: unknown): string[] | undefined {
   return undefined;
 }
 
+function toStoragePath(value: RulesValue): StoragePath {
+  if (value instanceof StoragePath) return value;
+  const existing = (value as { bindings?: Readonly<Record<string, string>> }).bindings;
+  return StoragePath.fromSegments(pathValueSegments(value), existing);
+}
+
 function evalPathBind(receiver: unknown, expr: MethodCall, ctx: EvalCtx): unknown {
   if (!isPathValue(receiver)) throw functionNotFound('bind');
   const args = evalArguments(expr, ctx);
   if (isErr(args)) return args;
-  if (args.length !== 1) {
-    throw new RuleEvalError(`Incorrect number of arguments. Received: ${args.length}. Expected: path.bind(map).`);
-  }
-  const [m] = args;
-  if (!isRulesMap(m)) {
-    return new RuleError('path.bind() requires a map argument');
+  try {
+    validatePathBindArity(args.length);
+  } catch (err) {
+    throw new RuleEvalError((err as Error).message);
   }
   try {
-    const pathReceiver = receiver instanceof StoragePath ? receiver : StoragePath.fromSegments(pathValueSegments(receiver));
-    return pathReceiver.bind(m);
+    const mapArg = requirePathBindMap(args[0]);
+    return toStoragePath(receiver).bind(mapArg);
   } catch (err) {
     return new RuleError((err as Error).message);
   }

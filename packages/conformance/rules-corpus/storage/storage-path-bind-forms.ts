@@ -10,7 +10,6 @@
 import type { StorageScenarioRecord } from './types.ts';
 
 export const scenario: StorageScenarioRecord = {
-  pendingRowLink: true,
   fm: 'Path.bind placeholder syntax and value types',
   rationale:
     'Pins how Storage Rules evaluates Path.bind() on path() strings across {x} and $(x) placeholders plus integer and float map values.',
@@ -46,7 +45,7 @@ service firebase.storage {
     },
     {
       description: "path('/a/{x}').bind({'x': 1.5}) == path('/a/1.5')",
-      expectation: 'DENY',
+      expectation: 'ALLOW',
       method: 'get',
       path: 'floatValue/d1',
     },

@@ -201,17 +201,12 @@ describe('firestoreRules constructor', () => {
     expect(JSON.parse(JSON.stringify(ast))).toBeTruthy();
   });
 
-  test('rejects service firebase.storage rulesets with RulesCompileError (ST-CON-5)', () => {
-    const storageSource = `rules_version = '2';
-service firebase.storage {
-  match /b/{bucket}/o {
-    match /{allPaths=**} {
-      allow read, write: if true;
-    }
-  }
-}`;
-    expect(() => firestoreRules(storageSource)).toThrow(RulesCompileError);
-    expect(() => firestoreRules(storageSource)).toThrow("Expected 'service cloud.firestore', got 'service firebase.storage'.");
+  test('compiles service firebase.storage rulesets and denies Firestore cases (#1434)', () => {
+    const storageSource = `rules_version = '2';\nservice firebase.storage {\n  match /b/{bucket}/o {\n    match /{allPaths=**} { allow read, write: if true; }\n  }\n}`;
+    const ruleset = firestoreRules(storageSource);
+    const summary = ruleset.simulate([{ description: 'get items/d1', expectation: 'DENY', method: 'get', path: 'items/d1' }]);
+    expect(summary.passed).toBe(1);
+    expect(summary.cases[0]?.decision).toBe('DENY');
   });
 });
 

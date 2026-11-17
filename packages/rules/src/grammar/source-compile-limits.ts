@@ -1,15 +1,13 @@
 /**
  * Production's load check for a Firestore rules source, for a caller that
  * holds the source rather than its AST: the source must be smaller than
- * 262,144 bytes, it must parse, its service must be `cloud.firestore`, it
- * must not declare one service twice, and it must be within production's
- * compile limits. Every path that loads
- * Firestore rules runs this one check: the CLI's `rules.set`, the
- * in-process server's project rules, a seed's rules, the dev server's rules
- * load, the served worker's rules deploy, the simulator, and
- * `firestoreRules()` each refuse a source it rejects. The SDK
- * sandbox's `setRules` installs such a source, evaluates no request against
- * it, and reports the same reason as its status and its denial reason.
+ * 262,144 bytes, it must parse, it must not declare one service twice, and it
+ * must be within production's compile limits. Production compiles a ruleset
+ * whose sole service block is `firebase.storage` or an unknown service name
+ * and denies every Firestore request at runtime when no `service cloud.firestore`
+ * block is present (`rules-firestore-service-name-storage-in-firestore`,
+ * `rules-firestore-service-name-unknown-in-firestore`), so `checkRulesSource`
+ * accepts them too.
  *
  * Storage loads through `parseStorageRules`, which checks its own service. A
  * Storage caller that wants only the parse and compile-limit half runs
@@ -43,8 +41,6 @@ export type RulesSourceRejection =
       line: number;
       column: number;
       message: string;
-      /** The service the source names, when the rejection is that it is not `cloud.firestore`. */
-      otherService?: string;
     }
   | { kind: 'compile'; violations: CompileLimitViolation[]; message: string };
 
@@ -72,14 +68,10 @@ export function checkRulesSource(
   if (tooLarge !== null) return { ok: false, rejection: tooLarge };
   const parsed = parseOrRejection(source);
   if (!parsed.ok) return parsed;
-  const service = parsed.ast.service;
-  if (isOtherService(service)) return { ok: false, rejection: wrongServiceRejection(service) };
   const duplicate = duplicateServiceRejection(parsed.ast);
   if (duplicate !== null) return { ok: false, rejection: duplicate };
   return checkCompileLimits(parsed.ast);
 }
-
-const FIRESTORE_SERVICE = 'cloud.firestore';
 
 /**
  * The fewest UTF-8 bytes of source production refuses as Firestore rules.
@@ -149,9 +141,9 @@ function duplicateService(services: readonly ServiceBlock[]): ServiceBlock | und
  * Why production refuses a parsed file with two blocks for one service,
  * reported at the second block's `service` keyword (capture
  * c5b-two-firestore-services), or null when every block names its own
- * service. Kind `'parse'`, as the wrong-service rejection, so every caller
- * refuses it as it refuses a parse failure. The module resolver runs it
- * too, since it rebuilds the source from one block.
+ * service. Kind `'parse'`, so every caller refuses it as it refuses a parse
+ * failure. The module resolver runs it too, since it rebuilds the source from
+ * one block.
  */
 export function duplicateServiceRejection(ast: FirestoreRules): Extract<RulesSourceRejection, { kind: 'parse' }> | null {
   const block = duplicateService(ast.services ?? []);
@@ -162,30 +154,6 @@ export function duplicateServiceRejection(ast: FirestoreRules): Extract<RulesSou
     column: block.loc?.col ?? 1,
     message: `rules did not compile: ${DUPLICATE_SERVICE_REASON}`,
   };
-}
-
-function isOtherService(service: ServiceBlock | undefined): service is ServiceBlock {
-  return service !== undefined && service.name !== FIRESTORE_SERVICE;
-}
-
-/**
- * A ruleset for another service, reported at its `service` keyword. Kind
- * `'parse'`, as `firestoreRules()` reports it (`PARSE_ERROR`), so every
- * caller that switches on the kind refuses it as it refuses a parse failure.
- */
-function wrongServiceRejection(service: ServiceBlock): RulesSourceRejection {
-  return {
-    kind: 'parse',
-    line: service.loc?.line ?? 1,
-    column: service.loc?.col ?? 1,
-    message: `rules did not compile: ${wrongServiceReason(service.name)}`,
-    otherService: service.name,
-  };
-}
-
-/** Production's reason for a ruleset whose service is `name`, not Firestore's. */
-export function wrongServiceReason(name: string): string {
-  return `Expected 'service ${FIRESTORE_SERVICE}', got 'service ${name}'.`;
 }
 
 /** The parsed ruleset, or why `source` does not parse. */

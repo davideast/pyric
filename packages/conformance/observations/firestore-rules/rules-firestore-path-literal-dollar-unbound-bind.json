@@ -1,7 +1,9 @@
 {
   "name": "rules-firestore-path-literal-dollar-unbound-bind",
   "matrixRow": "",
-  "rowIds": [],
+  "rowIds": [
+    "firestore-rules#236"
+  ],
   "description": "Firestore Rules Test API verdicts for corpus scenario \"path-literal-dollar-unbound-bind\" (Path literal unbound $(x) interpolation with bind()). Pins whether Firestore Rules rejects unbound $(x) inside (/a/$(x)).bind({'x': '1'}) at compile time or evaluates bind() at runtime.",
   "observedAt": "2026-11-17T03:30:39.114Z",
   "fbSdkVersion": "12.19.0",

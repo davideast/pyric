@@ -4,7 +4,12 @@
  * `request.resource.data.status == 'open'`), so synthesized probe payloads
  * pass validation and probes test authorization instead.
  */
-import type { Expression, FunctionDef, MatchBlock } from '../../rules/internal/index.js';
+import {
+  isFirestoreServiceName,
+  type Expression,
+  type FunctionDef,
+  type MatchBlock,
+} from '../../rules/internal/index.js';
 import { parseRtdbExpressionTree, type RtdbExpressionTree } from '../../rules/internal/rtdb.js';
 import { extractServiceHeader } from '../../sandbox/internal/resource-pattern-header.js';
 import type { AccessService } from '../code/types.js';
@@ -196,7 +201,7 @@ export function firestoreValueHints(source: string): ValueHint[] {
   };
 
   for (const service of services) {
-    if (!/firestore/.test(service.name)) continue;
+    if (!isFirestoreServiceName(service.name)) continue;
     for (const topMatch of service.matches) {
       walk(topMatch, [], service.functions, new Set());
     }

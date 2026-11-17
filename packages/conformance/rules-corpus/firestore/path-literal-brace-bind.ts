@@ -5,7 +5,6 @@ import type { ScenarioRecord } from './types.ts';
 
 export const scenario: ScenarioRecord = {
   group: 'fix-class',
-  pendingRowLink: true,
   allowCompileError: true,
   fm: 'Path literal brace placeholder with bind()',
   rationale:

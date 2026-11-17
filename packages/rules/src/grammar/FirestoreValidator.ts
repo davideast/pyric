@@ -4,7 +4,13 @@ import type {
 import { countDocumentAccessCalls } from './document-access-count.js';
 import { compileLimitViolations } from './compile-limits.js';
 import { recursiveScope } from './recursive-scope.js';
-import { allServiceBlocks, isStorageServiceName, topLevelMatches, withSingleService } from './service-blocks.js';
+import {
+  allServiceBlocks,
+  isStorageServiceName,
+  selectServicesToAnalyze,
+  topLevelMatches,
+  withSingleService,
+} from './service-blocks.js';
 import {
   collectRulesetScopes, expandFunctionBody, exprContains, exprDepth,
   functionReferences, ruleReferences, walkExpr,
@@ -34,18 +40,7 @@ export function validateFirestoreRules(
   options?: ValidateRulesOptions,
 ): ValidationFinding[] {
   const allServices = allServiceBlocks(inputAst);
-  const selectedServices =
-    options?.targetService === 'all'
-      ? allServices
-      : options?.targetService !== undefined
-        ? allServices.filter((s) =>
-            options.targetService === 'firebase.storage'
-              ? isStorageServiceName(s.name)
-              : s.name === options.targetService,
-          )
-        : inputAst.service
-          ? [inputAst.service]
-          : [];
+  const selectedServices = selectServicesToAnalyze(inputAst, options?.targetService);
 
   if (selectedServices.length === 0) return [];
 
@@ -56,9 +51,10 @@ export function validateFirestoreRules(
   const prepareService = (service: ServiceBlock) => {
     const cached = preparedByService.get(service);
     if (cached !== undefined) return cached;
-    const svcTarget: 'cloud.firestore' | 'firebase.storage' = isStorageServiceName(service.name)
-      ? 'firebase.storage'
-      : 'cloud.firestore';
+    let svcTarget: 'cloud.firestore' | 'firebase.storage' = 'cloud.firestore';
+    if (isStorageServiceName(service.name)) {
+      svcTarget = 'firebase.storage';
+    }
     const ast = resolveBundledModulesForAnalysis(
       withSingleService(inputAst, service),
       options?.rawSource,
@@ -75,11 +71,12 @@ export function validateFirestoreRules(
 
   const prepared = selectedServices.map(prepareService);
 
-  // Track global functions called across any service block so multi-service files
-  // do not falsely report QUA-4 on a global helper used only by a sibling service.
+  // Track global functions called across any recognized service block so multi-service
+  // files do not falsely report QUA-4 on a global helper used only by a sibling service.
   const calledGlobalFnNames = new Set<string>();
-  if (allServices.length > 1) {
-    const allPrepared = options?.targetService !== undefined ? allServices.map(prepareService) : prepared;
+  const recognizedServices = selectServicesToAnalyze(inputAst, 'all');
+  if (recognizedServices.length > 1) {
+    const allPrepared = recognizedServices.map(prepareService);
     for (const { scopes, globalFns } of allPrepared) {
       for (const scoped of scopes.rules) {
         for (const callee of ruleReferences(scoped).callees) {

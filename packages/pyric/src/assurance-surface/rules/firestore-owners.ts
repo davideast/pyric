@@ -6,6 +6,7 @@
  */
 import {
   assembleExpression,
+  isFirestoreServiceName,
   type AllowRule,
   type Expression,
   type FunctionDef,
@@ -71,7 +72,7 @@ export function firestoreOwnerConditions(source: string, file: string): OwnerCon
   const services = parseRulesAstWithMultiMatch(source);
   const out: OwnerCondition[] = [];
   for (const service of services) {
-    if (!/firestore/.test(service.name)) continue;
+    if (!isFirestoreServiceName(service.name)) continue;
     for (const match of service.matches) {
       walkMatch(match, [], service.functions, new Set(), file, out);
     }

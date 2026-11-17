@@ -1,7 +1,9 @@
 {
   "name": "rules-storage-storage-path-literal-brace-bind",
   "matrixRow": "",
-  "rowIds": [],
+  "rowIds": [
+    "storage-rules#224"
+  ],
   "description": "Storage Rules Test API verdicts for corpus scenario \"storage-path-literal-brace-bind\" (Path literal brace placeholder with bind()). Pins whether Storage Rules compiles or rejects (/a/{x}).bind({'x': '1'}) in an expression path literal, and records the runtime verdict if compiled.",
   "observedAt": "2026-11-17T03:33:06.789Z",
   "fbSdkVersion": "12.19.0",

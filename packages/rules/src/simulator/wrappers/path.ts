@@ -25,10 +25,89 @@
  * makes parity behavior obvious: an unbound path renders as "/users/{uid}"
  * and the resolver returns null.
  */
+import { describeRulesType, isRulesMap } from '../rules-type.js';
 import { RulesValue, NO_OP, type NoOp } from './base.js';
+import { formatRulesFloat, RulesFloat } from './float.js';
 
 /** Recognises {name} placeholders. Spec is restrictive: identifier chars only. */
 const PLACEHOLDER = /^\{([A-Za-z_][A-Za-z0-9_]*)\}$/;
+
+export function validatePathBindArity(argCount: number): void {
+  if (argCount !== 1) {
+    throw new TypeError(
+      `Incorrect number of arguments. Received: ${argCount}. Expected: path.bind(map).`,
+    );
+  }
+}
+
+export function requirePathBindMap(arg: unknown): Record<string, unknown> {
+  if (!isRulesMap(arg)) {
+    throw new TypeError(
+      `Path.bind() requires a Map argument, got ${describeRulesType(arg)}`,
+    );
+  }
+  return arg;
+}
+
+function formatBoundSegment(name: string, value: unknown): string {
+  if (value === null || value === undefined) {
+    throw new TypeError(`Path.bind(): binding '${name}' must not be null`);
+  }
+  if (value instanceof RulesFloat) return value.toString();
+  if (typeof value === 'string' || typeof value === 'bigint') return String(value);
+  if (typeof value === 'number') {
+    if (Number.isSafeInteger(value)) return String(value);
+    return formatRulesFloat(value);
+  }
+  throw new TypeError(`Path.bind(): binding '${name}' must be a string, int, or float`);
+}
+
+/**
+ * Shared `Path.bind(map)` substitution for Firestore and Storage rules:
+ * - Only `{ident}` segments are template variables (`$(ident)` is not).
+ * - Every own key in `bindings` must match a `{key}` segment in `segments`,
+ *   otherwise production raises `"Variable(s) <names> do not exist in the path template."`.
+ * - String, int, and float values format into single segments.
+ */
+export function bindPathSegments(
+  segments: readonly string[],
+  currentBindings: Readonly<Record<string, string>>,
+  bindings: Record<string, unknown>,
+): { segments: string[]; bindings: Record<string, string> } {
+  const templateVars = new Set<string>();
+  for (const seg of segments) {
+    const match = PLACEHOLDER.exec(seg);
+    if (match?.[1]) templateVars.add(match[1]);
+  }
+  const missing: string[] = [];
+  for (const key of Object.keys(bindings)) {
+    if (!templateVars.has(key)) missing.push(key);
+  }
+  if (missing.length > 0) {
+    throw new TypeError(`Variable(s) ${missing.join(', ')} do not exist in the path template.`);
+  }
+
+  const next: string[] = [];
+  const nextBindings = Object.assign(
+    Object.create(null) as Record<string, string>,
+    currentBindings,
+  );
+  for (const seg of segments) {
+    const name = PLACEHOLDER.exec(seg)?.[1];
+    if (!name) {
+      next.push(seg);
+      continue;
+    }
+    if (Object.hasOwn(bindings, name)) {
+      const sv = formatBoundSegment(name, bindings[name]);
+      next.push(sv);
+      nextBindings[name] = sv;
+    } else {
+      next.push(seg);
+    }
+  }
+  return { segments: next, bindings: nextBindings };
+}
 
 export class Path extends RulesValue {
   readonly typeName = 'path';
@@ -62,44 +141,13 @@ export class Path extends RulesValue {
   }
 
   /**
-   * Replace `{name}` placeholders with values from `bindings`. Returns
-   * a fresh Path. If a binding value is null/undefined, throws — matches
-   * the rules.Path.bind() contract that "values must not be null".
-   *
-   * Passing a binding whose placeholder doesn't exist in the path is
-   * silently allowed (consistent with how the spec says binding by extra
-   * keys has no effect).
+   * Replace `{name}` placeholders with values from `bindings`, returning a
+   * fresh Path. Raises when a map key is absent from the path template or a
+   * bound value is null/non-scalar.
    */
   bind(bindings: Record<string, unknown>): Path {
-    const next: string[] = [];
-    const nextBindings: Record<string, string> = { ...this.bindings };
-    for (const seg of this.segments) {
-      const m = seg.match(PLACEHOLDER);
-      if (!m) {
-        next.push(seg);
-        continue;
-      }
-      const name = m[1];
-      if (Object.hasOwn(bindings, name)) {
-        const v = bindings[name];
-        if (v === null || v === undefined) {
-          throw new TypeError(`Path.bind(): binding '${name}' must not be null`);
-        }
-        const sv = String(v);
-        next.push(sv);
-        Object.defineProperty(nextBindings, name, {
-          value: sv,
-          enumerable: true,
-          writable: true,
-          configurable: true,
-        });
-      } else {
-        // Unbound — preserve the placeholder. get/exists will see the
-        // literal `{name}` and the resolver will return null.
-        next.push(seg);
-      }
-    }
-    return new Path(next, nextBindings);
+    const bound = bindPathSegments(this.segments, this.bindings, bindings);
+    return new Path(bound.segments, bound.bindings);
   }
 
   // ─── RulesValue contract ─────────────────────────────────────────────
@@ -136,18 +184,8 @@ export class Path extends RulesValue {
   callMethod(method: string, args: unknown[]): unknown | NoOp {
     switch (method) {
       case 'bind': {
-        if (args.length !== 1) {
-          throw new TypeError(
-            `Incorrect number of arguments. Received: ${args.length}. Expected: path.bind(map).`,
-          );
-        }
-        const m = args[0];
-        if (m === null || m === undefined || typeof m !== 'object' || Array.isArray(m) || m instanceof RulesValue) {
-          throw new TypeError(
-            `Path.bind() requires a Map argument, got ${m === null ? 'null' : typeof m}`,
-          );
-        }
-        return this.bind(m as Record<string, unknown>);
+        validatePathBindArity(args.length);
+        return this.bind(requirePathBindMap(args[0]));
       }
       default:
         return NO_OP;

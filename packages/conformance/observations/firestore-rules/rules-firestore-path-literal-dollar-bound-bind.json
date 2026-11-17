@@ -1,7 +1,9 @@
 {
   "name": "rules-firestore-path-literal-dollar-bound-bind",
   "matrixRow": "",
-  "rowIds": [],
+  "rowIds": [
+    "firestore-rules#235"
+  ],
   "description": "Firestore Rules Test API verdicts for corpus scenario \"path-literal-dollar-bound-bind\" (Path literal bound $(x) interpolation with bind()). Pins whether (/a/$(x)).bind({'x': '1'}) substitutes the match wildcard x ('orig') at literal evaluation or rebinds $(x) to '1'.",
   "observedAt": "2026-11-17T03:30:39.033Z",
   "fbSdkVersion": "12.19.0",

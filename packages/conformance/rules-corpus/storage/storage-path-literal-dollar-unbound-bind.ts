@@ -5,7 +5,6 @@
 import type { StorageScenarioRecord } from './types.ts';
 
 export const scenario: StorageScenarioRecord = {
-  pendingRowLink: true,
   allowCompileError: true,
   fm: 'Path literal unbound $(x) interpolation with bind()',
   rationale:

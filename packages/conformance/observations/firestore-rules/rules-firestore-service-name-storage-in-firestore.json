@@ -1,7 +1,9 @@
 {
   "name": "rules-firestore-service-name-storage-in-firestore",
   "matrixRow": "",
-  "rowIds": [],
+  "rowIds": [
+    "firestore-rules#237"
+  ],
   "description": "Firestore Rules Test API verdicts for corpus scenario \"service-name-storage-in-firestore\" (Service declaration validation (#1434)). Records whether projects.test compiles or rejects a ruleset whose sole service block is service firebase.storage when evaluated against a Firestore document request.",
   "observedAt": "2026-11-17T03:30:42.701Z",
   "fbSdkVersion": "12.19.0",

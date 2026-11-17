@@ -2,9 +2,9 @@
 // (this runtime ships to the browser, so the Node-only `internal/rtdb` entry is
 // not reachable from here):
 //
-//   rulesSourceRejection — production's Firestore load check, the one every
-//   CLI load path runs: the source parses, its service is cloud.firestore,
-//   and it is within the compile limits. rulesGrammarRejection is its parse
+//   rulesSourceRejection -- production's Firestore load check, the one every
+//   CLI load path runs: the source parses, declares no duplicate services,
+//   and is within the compile limits. rulesGrammarRejection is its parse
 //   and compile-limit half, for Storage, which checks its own service.
 //
 //   parseToASTOrError / MatchBlock / PathSegment — the public API exposes
@@ -16,12 +16,8 @@
 //   no IR to lint against). The per-expression parse check below therefore
 //   reaches the expression parser directly.
 import {
-  parseToASTOrError,
-  parseRtdbExpression,
-  rulesGrammarRejection,
-  rulesSourceRejection,
-  type MatchBlock,
-  type PathSegment,
+  firestoreServiceBlock, parseToASTOrError, parseRtdbExpression,
+  rulesGrammarRejection, rulesSourceRejection, type MatchBlock, type PathSegment,
 } from "pyric/rules/internal";
 import { rtdbRulesSourceRejection } from "pyric/rules/internal/rtdb";
 import { resolveDatabaseInstance } from "pyric/sandbox/internal";
@@ -376,9 +372,10 @@ function firestoreRequirements(
   const parsed = parseToASTOrError(rules);
   if (!parsed.ok) return requirements;
 
+  const fsService = firestoreServiceBlock(parsed.ast);
   const operations = [probe.control, probe.mutation.operation];
-  const overlapping = operations.some((operation) =>
-    hasOverlappingFirestoreMatch(parsed.ast.service.match, operation),
+  const overlapping = fsService !== undefined && operations.some((operation) =>
+    hasOverlappingFirestoreMatch(fsService.match, operation),
   );
   requirements.push(
     requirement(

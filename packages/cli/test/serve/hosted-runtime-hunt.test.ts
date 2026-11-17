@@ -314,10 +314,9 @@ service cloud.firestore {
       await assert.rejects(runtime.deployRules('firestore', 'THIS IS NOT VALID FIRESTORE RULES {{{'));
       await assert.rejects(
         runtime.deployRules('firestore', \`rules_version = '2';
-service firebase.storage {
-  match /b/{bucket}/o { allow read: if true; }
-}\`),
-        /Expected 'service cloud\\.firestore'/,
+service cloud.firestore { match /databases/{d}/documents { allow read: if true; } }
+service cloud.firestore { match /databases/{d}/documents { allow read: if false; } }\`),
+        /Duplicate service name declaration\\./,
       );
       await assert.rejects(runtime.deployRules('database', '{ broken json'));
 
@@ -714,7 +713,8 @@ service cloud.firestore {
       '}',
     ].join('\\n');
     const unparseable = openOnly.replace('if true;', 'if true');
-    const serviceReason = "Firestore rules did not compile: Expected 'service cloud.firestore', got 'service firebase.storage'.";
+    const duplicateFirestore = openOnly + '\\n' + openOnly.replace("rules_version = '2';\\n", '');
+    const duplicateReason = 'Firestore rules did not compile: Duplicate service name declaration.';
 
     const harness = createHarness(dir, { rules: openOnly });
     const { runtime, sendOp } = await harness.start();
@@ -738,23 +738,22 @@ service cloud.firestore {
       assert.equal(before.status, 'active');
       assert.equal(before.source, openOnly);
 
-      // FS2-ENF-3a: a Storage ruleset is refused with the shared reason.
-      const storage = await callTool('firestore_simulator_create', { rules: storageAllowAll, documents: { 'locked/b': { v: 1 } } });
-      assert.equal(storage.ok, false, JSON.stringify(storage));
-      assert.equal(storage.summary, serviceReason);
-      assert.equal(storage.data.code, 'RULES_REFUSED');
+      // Duplicate service declarations are refused with the shared reason.
+      const dup = await callTool('firestore_simulator_create', { rules: duplicateFirestore, documents: { 'locked/b': { v: 1 } } });
+      assert.equal(dup.ok, false, JSON.stringify(dup));
+      assert.equal(dup.summary, duplicateReason);
+      assert.equal(dup.data.code, 'RULES_REFUSED');
       assert.deepEqual(await activeRules(), before);
       await expectRulesInForce('open/b', 'locked/c');
       assert.equal((await sendOp('tab-1', { method: 'getDoc', path: 'open/a' })).ok, true);
-
-      // FS2-ENF-3b: a source that does not parse is refused too.
       const broken = await callTool('firestore_simulator_create', { rules: unparseable });
       assert.equal(broken.ok, false, JSON.stringify(broken));
       assert.match(broken.summary, /^Firestore rules did not parse at line 4, column \\d+: /);
       assert.deepEqual(await activeRules(), before);
       await expectRulesInForce('open/c', 'locked/d');
-
-      // A source production loads still seeds and reports active.
+      const storageLoaded = await callTool('firestore_simulator_create', { rules: storageAllowAll });
+      assert.equal(storageLoaded.ok, true, JSON.stringify(storageLoaded));
+      assert.equal((await sendOp('tab-1', { method: 'setDoc', path: 'open/denied', data: { v: 1 } })).ok, false);
       const otherOnly = firestoreRules('/other/{id}');
       const loaded = await callTool('firestore_simulator_create', { rules: otherOnly });
       assert.equal(loaded.ok, true, JSON.stringify(loaded));
@@ -762,24 +761,22 @@ service cloud.firestore {
       assert.equal(after.status, 'active');
       assert.equal(after.source, otherOnly);
       await expectRulesInForce('other/a', 'open/d');
-
-      // A path that installs rules without the tool (a branch forked with
-      // candidate rules, then promoted) never reports a refused source active.
+      // Promoted branch with a refused source reports status 'error' and keeps lastKnownGood.
       const forked = await runtime.runMethod(
-        { instanceId: runtime.instanceId, key: 'sandbox.fork', args: { branch: 'storage-rules', candidateRules: storageAllowAll }, projectDir: dir, allowProduction: false },
+        { instanceId: runtime.instanceId, key: 'sandbox.fork', args: { branch: 'dup-rules', candidateRules: duplicateFirestore }, projectDir: dir, allowProduction: false },
         {},
       );
       assert.equal(forked.ok, true, JSON.stringify(forked));
       const promoted = await runtime.runMethod(
-        { instanceId: runtime.instanceId, key: 'sandbox.promote', args: { branch: 'storage-rules', confirm: true }, projectDir: dir, allowProduction: false },
+        { instanceId: runtime.instanceId, key: 'sandbox.promote', args: { branch: 'dup-rules', confirm: true }, projectDir: dir, allowProduction: false },
         {},
       );
       assert.equal(promoted.ok, true, JSON.stringify(promoted));
       const promotedRules = await activeRules();
       assert.equal(promotedRules.status, 'error', JSON.stringify(promotedRules));
-      assert.equal(promotedRules.source, storageAllowAll);
+      assert.equal(promotedRules.source, duplicateFirestore);
       assert.equal(promotedRules.lastKnownGood, otherOnly);
-      assert.deepEqual(promotedRules.messages.map((m) => m.text), [serviceReason]);
+      assert.deepEqual(promotedRules.messages.map((m) => m.text), [duplicateReason]);
       assert.equal((await sendOp('tab-1', { method: 'setDoc', path: 'other/b', data: { v: 1 } })).ok, false);
     } finally {
       await runtime.close();

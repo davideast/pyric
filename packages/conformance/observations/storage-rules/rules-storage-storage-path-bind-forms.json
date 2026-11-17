@@ -1,7 +1,9 @@
 {
   "name": "rules-storage-storage-path-bind-forms",
   "matrixRow": "",
-  "rowIds": [],
+  "rowIds": [
+    "storage-rules#223"
+  ],
   "description": "Storage Rules Test API verdicts for corpus scenario \"storage-path-bind-forms\" (Path.bind placeholder syntax and value types). Pins how Storage Rules evaluates Path.bind() on path() strings across {x} and $(x) placeholders plus integer and float map values.",
   "observedAt": "2026-11-17T03:33:06.759Z",
   "fbSdkVersion": "12.19.0",

@@ -1,5 +1,5 @@
 /** The Firestore rules engine behind the `rules` tool. */
-import { DOCUMENT_PATH_FORM, parseToASTOrError, rulesSourceRejection, type RulesSourceRejection } from 'pyric/rules/internal';
+import { DOCUMENT_PATH_FORM, rulesSourceRejection, type RulesSourceRejection } from 'pyric/rules/internal';
 import { installFirestoreRules } from '../firestore-rules-load.js';
 import { callSandboxTool, operationFailure } from '../context.js';
 import {
@@ -25,15 +25,8 @@ const RECOMPILE_FIX =
  */
 function loadFailure(source: string): RulesSourceProblem | null {
   const rejection = rulesSourceRejection(source);
-  if (rejection !== null) return problemFor(rejection);
-  const parsed = parseToASTOrError(source);
-  if (parsed.ok && parsed.ast.service && parsed.ast.service.name !== 'cloud.firestore') {
-    return {
-      body: `rules did not compile: Expected 'service cloud.firestore', got 'service ${parsed.ast.service.name}'.`,
-      fix: REPARSE_FIX,
-    };
-  }
-  return null;
+  if (rejection === null) return null;
+  return problemFor(rejection);
 }
 
 /** A rejection in the caller's words, with the edit that fixes it. */

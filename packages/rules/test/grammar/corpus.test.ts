@@ -1,6 +1,7 @@
 import { describe, test, expect } from 'bun:test';
 import { parseRulesFile } from '../../src/grammar/FirestoreParser.js';
 import { checkRulesSource } from '../../src/grammar/source-compile-limits.js';
+import { firestoreRules } from '../../src/index.js';
 import { readdirSync, readFileSync } from 'fs';
 import { join } from 'path';
 
@@ -14,49 +15,65 @@ function loadCorpusFiles(dir: string): Array<{ name: string; content: string }> 
     .map(name => ({ name, content: readFileSync(join(fullDir, name), 'utf-8') }));
 }
 
-describe('Firestore Grammar — Full Corpus', () => {
-  describe('valid files (must parse)', () => {
+describe('Firestore Grammar -- Full Corpus', () => {
+  describe('valid files (must parse and compile)', () => {
     const files = loadCorpusFiles('valid');
     for (const { name, content } of files) {
       test(name, () => {
         const result = parseRulesFile(content);
-        if (!result.valid) {
-          console.log(`  ${name} FAILED:`, result.errors[0]?.message?.substring(0, 200));
-        }
         expect(result.valid).toBe(true);
+        expect(checkRulesSource(content).ok).toBe(true);
       });
     }
   });
 
-  describe('edge-case files (must parse)', () => {
+  describe('edge-case files (must parse and compile)', () => {
     const files = loadCorpusFiles('edge-cases');
     for (const { name, content } of files) {
       test(name, () => {
         const result = parseRulesFile(content);
-        if (!result.valid) {
-          console.log(`  ${name} FAILED:`, result.errors[0]?.message?.substring(0, 200));
-        }
         expect(result.valid).toBe(true);
+        expect(checkRulesSource(content).ok).toBe(true);
       });
     }
+
+    test('009-wrong-service and unknown service blocks compile in firestoreRules() and deny all Firestore operations', () => {
+      const wrongServiceContent = readFileSync(join(CORPUS, 'edge-cases', '009-wrong-service.rules'), 'utf-8');
+      const storageRuleset = firestoreRules(wrongServiceContent);
+      const storageSummary = storageRuleset.simulate([
+        { description: 'get items/d1', expectation: 'DENY', method: 'get', path: 'items/d1' },
+        { description: 'list items', expectation: 'DENY', method: 'list', path: 'items' },
+        { description: 'create items/d1', expectation: 'DENY', method: 'create', path: 'items/d1', data: { v: 1 } },
+      ]);
+      expect(storageSummary.passed).toBe(3);
+      expect(storageSummary.cases.every((c) => c.decision === 'DENY')).toBe(true);
+      expect(storageSummary.cases[0]?.notes.join(' ')).toContain('service firebase.storage');
+
+      const unknownService = `rules_version = '2';\nservice foo.bar {\n  match /items/{id} {\n    allow read: if true;\n  }\n}`;
+      const unknownSummary = firestoreRules(unknownService).simulate([
+        { description: 'get items/d1', expectation: 'DENY', method: 'get', path: 'items/d1' },
+      ]);
+      expect(unknownSummary.passed).toBe(1);
+      expect(unknownSummary.cases[0]?.decision).toBe('DENY');
+    });
   });
 
-  describe('invalid files (must reject)', () => {
+  describe('invalid files (must fail parse or compile)', () => {
     const files = loadCorpusFiles('invalid');
     for (const { name, content } of files) {
-      // 006-function-no-return: our grammar requires return, so it's a syntax error
-      // 008-wrong-service: serviceName accepts any letter sequence; production's Firestore load check refuses it (FS2-ENF-2)
       // 012-unsupported-rules-version, 013-invalid-regex-lookahead: grammar accepts tokens, compile check rejects them.
       const shouldParse =
-        name.includes('008-wrong-service') ||
         name.includes('012-unsupported-rules-version') ||
         name.includes('013-invalid-regex-lookahead');
+      let suffix = '';
+      if (shouldParse) {
+        suffix = ' (compile check -- parser accepts)';
+      }
 
-      test(name + (shouldParse ? ' (semantic/compile error — parser accepts)' : ''), () => {
+      test(name + suffix, () => {
         const result = parseRulesFile(content);
         expect(result.valid).toBe(shouldParse);
-        const compiled = checkRulesSource(content);
-        expect(compiled.ok).toBe(false);
+        expect(checkRulesSource(content).ok).toBe(false);
       });
     }
   });

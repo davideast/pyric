@@ -6,7 +6,11 @@
  * static passes (`static-query-proof`, `storage-contract`, `coverage-matrix`)
  * and dynamic probe generators one uniform `ResourcePattern`-keyed fact table.
  */
-import type { FunctionDef, MatchBlock } from '../../rules/internal/index.js';
+import {
+  isFirestoreServiceName,
+  type FunctionDef,
+  type MatchBlock,
+} from '../../rules/internal/index.js';
 import {
   extractServiceHeader,
   normalizeExplicitResourceId,
@@ -309,7 +313,7 @@ function projectFirestoreSource(item: FirestoreSurfaceSource): RuleSurfaceEntry[
   };
 
   for (const svc of services) {
-    if (!/firestore/.test(svc.name)) continue;
+    if (!isFirestoreServiceName(svc.name)) continue;
     for (const topMatch of svc.matches) {
       walk(topMatch, [], svc.functions, new Set());
     }

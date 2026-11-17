@@ -294,7 +294,7 @@ export function runStaticAssurancePasses(
     }
   }
 
-  if (project.ruleSurface.entries.length > 0) {
+  if (project.ruleSurface.entries.length > 0 || project.sources.firestore.length > 0) {
     const runtimeInput: {
       snapshot?: NonNullable<LiveRuntimeClone["snapshot"]>;
       history?: LiveRuntimeClone["history"];

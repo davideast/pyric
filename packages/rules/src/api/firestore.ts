@@ -14,12 +14,12 @@
 import type { FirestoreRules, ImportDecl } from '../grammar/FirestoreAST.js';
 import { parseToASTOrError } from '../grammar/FirestoreParser.js';
 import { describeCompileLimitViolations } from '../grammar/compile-limits.js';
+import { isFirestoreServiceName } from '../grammar/service-blocks.js';
 import {
   checkRulesSource,
   DUPLICATE_SERVICE_REASON,
   duplicateServiceRejection,
   sourceSizeViolation,
-  wrongServiceReason,
   type RulesSourceRejection,
 } from '../grammar/source-compile-limits.js';
 import { SimulateFirestoreRulesHandler } from '../simulator/handler.js';
@@ -209,10 +209,9 @@ function toEngineResult(r: CaseResult) {
 /**
  * Compile Firestore rules source into a deep, safe-by-default handle.
  *
- * @throws {RulesCompileError} when the source does not parse, names a
- *   service other than `cloud.firestore`, declares one service twice, or breaks one of production's
- *   compile limits. The thrown error carries the
- *   compile-blocking issues on `.issues`.
+ * @throws {RulesCompileError} when the source does not parse, declares one
+ *   service twice, or breaks one of production's compile limits. The thrown
+ *   error carries the compile-blocking issues on `.issues`.
  */
 function remapRejectionToAuthoredSource(
   rejection: RulesSourceRejection,
@@ -251,7 +250,7 @@ export function firestoreRules(source: string): FirestoreRuleset {
     if (
       initial.ok &&
       initial.ast.version === '2+modules' &&
-      (initial.ast.service === undefined || initial.ast.service.name === 'cloud.firestore') &&
+      (initial.ast.service === undefined || isFirestoreServiceName(initial.ast.service.name)) &&
       duplicateServiceRejection(initial.ast) === null &&
       !initial.ast.imports?.some((imp) => isLocalRelativeModuleSpecifier(imp.module))
     ) {
@@ -294,9 +293,8 @@ export function firestoreRules(source: string): FirestoreRuleset {
 
 /**
  * The error `firestoreRules()` throws for a source production's load check
- * refuses: it does not parse, its service is not `cloud.firestore`, it
- * declares one service twice, or it is past one of production's compile
- * limits (call depth, `let` count, nesting).
+ * refuses: it does not parse, it declares one service twice, or it is past one
+ * of production's compile limits (call depth, `let` count, nesting).
  */
 function compileError(source: string, rejection: RulesSourceRejection): RulesCompileError {
   if (rejection.kind === 'compile') {
@@ -304,9 +302,6 @@ function compileError(source: string, rejection: RulesSourceRejection): RulesCom
       `Firestore rules source failed to compile: ${describeCompileLimitViolations(rejection.violations)}`,
       rejection.violations.map(compileLimitViolationToIssue),
     );
-  }
-  if (rejection.otherService !== undefined) {
-    return serviceError(wrongServiceReason(rejection.otherService), rejection.line);
   }
   const parsed = parseToASTOrError(source);
   if (!parsed.ok) {

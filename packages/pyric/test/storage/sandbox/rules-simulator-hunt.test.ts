@@ -111,7 +111,9 @@ describe('Storage simulator hunt regressions (ST-SIM-1 .. ST-SIM-9)', () => {
     expect(evalCondition('latlng.value(95.0, 0.0) == latlng.value(95.0, 0.0)').allowed).toBe(false);
     expect(evalCondition('latlng.value(0.0, -185.0) == latlng.value(0.0, -185.0)').allowed).toBe(false);
     expect(evalCondition('path("/users/{uid}").bind({"uid": "alice"}) == path("/users/alice")').allowed).toBe(true);
-    expect(evalCondition('path("/users/$(uid)").bind({"uid": "alice"}) == path("/users/alice")').allowed).toBe(true);
+    expect(evalCondition('path("/users/$(uid)").bind({"uid": "alice"}) == path("/users/alice")').allowed).toBe(false);
+    expect(evalCondition('(path("/users/$(uid)").bind({"uid": "alice"}) == path("/users/alice")) || true').allowed).toBe(true);
+    expect(evalCondition('path("/users/{uid}").bind({"uid": 1.5}) == path("/users/1.5")').allowed).toBe(true);
     expect(evalCondition('path(path("/a/b")) == path("/a/b")').allowed).toBe(false);
     expect(evalCondition('path("/a//b") == path("/a/b")').allowed).toBe(false);
   });

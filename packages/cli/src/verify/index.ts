@@ -31,14 +31,9 @@ import type { ObservedCall } from 'pyric/sandbox';
 import { definedOnly } from '../serve/worker/host/observe-local-evaluation.js';
 import { evaluateFirestoreCall, type FirestoreSimulate } from '../serve/worker/host/observe-local-firestore.js';
 import {
-  parseToASTOrError,
-  resolveModulesBrowser,
-  rulesSourceRejection,
-  SimulateFirestoreRulesHandler,
-  Timestamp,
-  type ExpressionReportLevel,
-  type TestCase,
-  type TestResult,
+  isFirestoreServiceName, parseToASTOrError, resolveModulesBrowser,
+  rulesSourceRejection, SimulateFirestoreRulesHandler, Timestamp,
+  type ExpressionReportLevel, type TestCase, type TestResult,
 } from 'pyric/rules/internal';
 import { executeHostedRulesTest } from './hosted-rules-test.js';
 import type { ProjectScope } from '../credentials/core/types.js';
@@ -1476,7 +1471,7 @@ function requireFirestoreRules(input: VerifyRulesInput): string {
     if (
       parsed.ok &&
       parsed.ast.version === '2+modules' &&
-      (parsed.ast.service === undefined || parsed.ast.service.name === 'cloud.firestore')
+      (parsed.ast.service === undefined || isFirestoreServiceName(parsed.ast.service.name))
     ) {
       const resolved = resolveModulesBrowser(source, { targetService: 'cloud.firestore' });
       if (!resolved.success) {

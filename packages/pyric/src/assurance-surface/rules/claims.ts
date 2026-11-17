@@ -6,6 +6,7 @@
  */
 import {
   collectRootMatches,
+  isFirestoreServiceName,
   parseToAST,
   type FirestoreRules,
   type FunctionDef,
@@ -132,7 +133,7 @@ export function firestoreRequiredClaims(
 
   const matchingAllows: Claims[] = [];
   for (const service of services) {
-    if (!/firestore/.test(service.name)) continue;
+    if (!isFirestoreServiceName(service.name)) continue;
     const rootScope = [
       ...(ast.functions ?? []),
       ...(service.functions ?? []),

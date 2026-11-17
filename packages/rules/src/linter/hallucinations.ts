@@ -25,6 +25,11 @@ import type {
 import { isStorageServiceName, topLevelMatches } from '../grammar/service-blocks.js';
 import type { LintWarning } from './linter.js';
 import { stripCommentsAndStrings } from './ast-utils.js';
+import {
+  emitPathInterpolationWarnings,
+  markBoundLetPathLiteralsInAst,
+  markPathLiteralRoles,
+} from './path-interpolation.js';
 
 // ─── Known-bad sets ───────────────────────────────────────────────────
 
@@ -296,14 +301,8 @@ function walkExpr(
   }
 }
 
-// ─── Post-parse hallucination check ───────────────────────────────────
+// --- Post-parse hallucination check ---
 
-/**
- * Walks every expression in the rules and flags JS-style code that
- * Firestore parses but cannot evaluate. Returns one warning per
- * distinct (rule, key, location) tuple — duplicate identical patterns
- * within the same rule are de-duplicated.
- */
 /**
  * A `debug(...)` call that resolves to NOTHING. Production has no built-in
  * `debug`, but a ruleset is free to declare `function debug(v) { ... }`, and
@@ -458,7 +457,11 @@ export function checkHallucinations(ast: FirestoreRules, options: { allowDebug?:
   const outerScope = new Set<string>(globalScope);
   for (const fn of ast.service.functions ?? []) outerScope.add(fn.name);
 
+  const boundPathLiterals = new WeakSet<Expression>();
+  const lookupPathLiterals = new WeakSet<Expression>();
+  markBoundLetPathLiteralsInAst(ast, boundPathLiterals);
   const visitNode: ExprVisitor = (expr, loc, scope, localVars) => {
+    markPathLiteralRoles(expr, scope, localVars, boundPathLiterals, lookupPathLiterals);
     if (isUnresolvedDebugCall(expr, scope, options.allowDebug)) {
       emit('HALLUCINATED_GLOBAL', 'debug', loc, {
         rule: 'HALLUCINATED_GLOBAL',
@@ -581,25 +584,9 @@ export function checkHallucinations(ast: FirestoreRules, options: { allowDebug?:
       });
     }
 
-    if (expr.type === 'pathLiteral') {
-      for (const seg of expr.segments) {
-        if (typeof seg !== 'string') continue;
-        const m = seg.match(/^\{([A-Za-z_][A-Za-z0-9_]*)\}$/);
-        if (!m) continue;
-        const name = m[1];
-        emit('INVALID_PATH_INTERPOLATION', `${expr.raw}|${name}`, loc, {
-          rule: 'INVALID_PATH_INTERPOLATION',
-          severity: 'error',
-          message:
-            `\`{${name}}\` is not valid inside a path literal — Firestore rejects this at deploy. ` +
-            `The \`{var}\` syntax is for match statement wildcards (e.g. \`match /users/{userId}\`); ` +
-            `path interpolation in get()/exists()/getAfter()/existsAfter() requires \`$(var)\`. ` +
-            `Replace \`{${name}}\` with \`$(${name})\` in path \`${expr.raw}\`.`,
-          location: loc,
-          fix: `Replace \`{${name}}\` with \`$(${name})\` inside the path argument.`,
-        });
-      }
-    }
+    emitPathInterpolationWarnings(expr, loc, boundPathLiterals, lookupPathLiterals, (rule, key, w) => {
+      emit(rule, key, loc, w);
+    });
 
     if (isMethodMissingParens(expr, isStorage)) {
       if (expr.type === 'memberAccess') {

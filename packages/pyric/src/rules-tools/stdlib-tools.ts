@@ -220,7 +220,7 @@ export function createFirestoreRulesStdlibTools(): ToolHandler[] {
       },
       async execute(args) {
         const { source } = args as { source: string };
-        const result = lintFirestoreRules(source);
+        const result = lintFirestoreRules(source, { targetService: 'cloud.firestore' });
         // A parse error means the source didn't parse — warnings carry
         // no signal (the linter short-circuits its budget checks). Surface
         // the parse failure as the headline result so the agent doesn't
@@ -238,7 +238,7 @@ export function createFirestoreRulesStdlibTools(): ToolHandler[] {
         try {
           const ast = parseToAST(source);
           if (ast) {
-            for (const f of validateFirestoreRules(ast)) {
+            for (const f of validateFirestoreRules(ast, { targetService: 'cloud.firestore' })) {
               let severity: 'info' | 'warning' | 'error' = 'info';
               if (f.severity === 'critical' || f.severity === 'high') {
                 severity = 'error';

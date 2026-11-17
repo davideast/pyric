@@ -1,7 +1,7 @@
 import type { FirestoreRules, FunctionDef, MatchBlock, PathSegment } from '../grammar/FirestoreAST.js';
 import type { PathResolutionEntry } from '../test/spec.js';
 import { recursiveWildcardMinimum } from '../grammar/recursive-wildcard-minimum.js';
-import { topLevelMatches } from '../grammar/service-blocks.js';
+import { firestoreServiceBlock, topLevelMatches } from '../grammar/service-blocks.js';
 import {
   collectMatches,
   prependMatchScope,
@@ -58,7 +58,9 @@ export function resolveRootBlockMatch(
 }
 
 export function resolveRootMatch(ast: FirestoreRules, documentPath: string): RootMatch | null {
-  for (const rootBlock of topLevelMatches(ast.service)) {
+  const service = firestoreServiceBlock(ast);
+  if (!service) return null;
+  for (const rootBlock of topLevelMatches(service)) {
     const matched = resolveRootBlockMatch(rootBlock, ast.version, documentPath);
     if (matched !== null) return matched;
   }
@@ -153,8 +155,10 @@ export function collectRootMatches(
   functions: FunctionDef[],
   recorder?: { push(entry: PathResolutionEntry): void },
 ): MatchResult[] {
+  const service = firestoreServiceBlock(ast);
+  if (!service) return [];
   const allMatches: MatchResult[] = [];
-  for (const rootBlock of topLevelMatches(ast.service)) {
+  for (const rootBlock of topLevelMatches(service)) {
     const root = resolveRootBlockMatch(rootBlock, ast.version, documentPath);
     if (!root) continue;
     const blockFunctions = mergeRootFunctions(functions, rootBlock.functions);
@@ -305,21 +309,31 @@ export function rootBlockGovernsEveryDocument(rootBlock: MatchBlock, rulesVersio
 }
 
 export function rootGovernsEveryDocument(ast: FirestoreRules): boolean {
-  return topLevelMatches(ast.service).some((rootBlock) =>
+  const service = firestoreServiceBlock(ast);
+  if (!service) return false;
+  return topLevelMatches(service).some((rootBlock) =>
     rootBlockGovernsEveryDocument(rootBlock, ast.version),
   );
 }
 
-/** The notes for a request no match block resolves: the root names the
- *  request it does not apply to, and otherwise no block under it matched. */
+/** The notes for a request no match block resolves: a non-Firestore service
+ *  declares no Firestore rules, the root names the request it does not apply
+ *  to, and otherwise no block under it matched. */
 export function noMatchNotes(ast: FirestoreRules, documentPath: string): string[] {
+  const service = firestoreServiceBlock(ast);
+  if (!service) {
+    const declared = ast.service?.name ?? '(none)';
+    return [
+      `Ruleset declares 'service ${declared}', not 'service cloud.firestore', so no match block applies and the request is denied.`,
+    ];
+  }
   const rootApplies = resolveRootMatch(ast, documentPath) !== null;
   if (rootApplies) {
     return [`No match block found for path '${documentPath}', so the request is denied by default.`, DOCUMENT_PATH_FORM];
   }
-  const roots = topLevelMatches(ast.service);
+  const roots = topLevelMatches(service);
   if (roots.length <= 1) {
-    const rootPath = renderMatchBlockPath(ast.service.match);
+    const rootPath = renderMatchBlockPath(service.match);
     return [`The root match '${rootPath}' does not match '${requestResourceName(documentPath)}', so no match block applies and the request is denied.`];
   }
   const rootPaths = roots.map((r) => `'${renderMatchBlockPath(r)}'`).join(', ');

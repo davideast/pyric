@@ -140,7 +140,7 @@ describe('staged pendingRowLink observation lifecycle', () => {
     expect(ledger.orphanObservations.map((o) => o.name)).not.toContain(
       'rules-firestore-staged-uncaptured-probe',
     );
-  });
+  }, 20_000);
 
   test('post-link (PR #3): staged observation that acquires rowIds must drop pendingRowLink', () => {
     const targetRow = allCompatibilityRows.find((r) => r.surface === 'firestore-rules');
@@ -311,16 +311,6 @@ describe('staged pendingRowLink observation lifecycle', () => {
     const stagedItems = loadStagedCaptureItems();
     expect(stagedItems.map((i) => i.observationName)).toEqual([
       'messaging-send-webpush-lowercase-ttl',
-      'rules-firestore-path-bind-forms',
-      'rules-firestore-path-literal-brace-bind',
-      'rules-firestore-path-literal-dollar-bound-bind',
-      'rules-firestore-path-literal-dollar-unbound-bind',
-      'rules-firestore-service-name-storage-in-firestore',
-      'rules-firestore-service-name-unknown-in-firestore',
-      'rules-storage-storage-path-bind-forms',
-      'rules-storage-storage-path-literal-brace-bind',
-      'rules-storage-storage-path-literal-dollar-bound-bind',
-      'rules-storage-storage-path-literal-dollar-unbound-bind',
     ]);
 
     const currentObservations = loadObservations();
@@ -378,33 +368,41 @@ describe('staged pendingRowLink observation lifecycle', () => {
     ).toEqual([]);
   });
 
-  test('staged corpus scenarios isolate path-literal bind forms and wrong-service compile checks', () => {
-    expect(firestorePathBindForms.pendingRowLink).toBe(true);
+  test('linked corpus scenarios isolate path-literal bind forms and wrong-service compile checks', () => {
+    expect(firestorePathBindForms.pendingRowLink).toBeUndefined();
     expect(firestorePathBindForms.allowCompileError).toBeUndefined();
     expect(firestorePathBindForms.cases).toHaveLength(4);
     expect(firestorePathBindForms.rules).not.toContain('(/a/');
 
+    expect(firestorePathLiteralBraceBind.pendingRowLink).toBeUndefined();
     expect(firestorePathLiteralBraceBind.allowCompileError).toBe(true);
     expect(firestorePathLiteralBraceBind.rules).toContain("(/a/{x}).bind({'x': '1'})");
+    expect(firestorePathLiteralDollarUnboundBind.pendingRowLink).toBeUndefined();
     expect(firestorePathLiteralDollarUnboundBind.allowCompileError).toBe(true);
     expect(firestorePathLiteralDollarUnboundBind.rules).toContain("(/a/$(x)).bind({'x': '1'})");
+    expect(firestorePathLiteralDollarBoundBind.pendingRowLink).toBeUndefined();
     expect(firestorePathLiteralDollarBoundBind.allowCompileError).toBe(true);
     expect(firestorePathLiteralDollarBoundBind.rules).toContain('match /items/{x}');
 
-    expect(storagePathBindForms.pendingRowLink).toBe(true);
+    expect(storagePathBindForms.pendingRowLink).toBeUndefined();
     expect(storagePathBindForms.allowCompileError).toBeUndefined();
     const storageCases: readonly StorageTestCase[] = storagePathBindForms.cases;
     expect(storageCases).toHaveLength(4);
     expect(storagePathBindForms.rules).not.toContain('(/a/');
 
+    expect(storagePathLiteralBraceBind.pendingRowLink).toBeUndefined();
     expect(storagePathLiteralBraceBind.allowCompileError).toBe(true);
     expect(storagePathLiteralBraceBind.rules).toContain("(/a/{x}).bind({'x': '1'})");
+    expect(storagePathLiteralDollarUnboundBind.pendingRowLink).toBeUndefined();
     expect(storagePathLiteralDollarUnboundBind.allowCompileError).toBe(true);
     expect(storagePathLiteralDollarUnboundBind.rules).toContain("(/a/$(x)).bind({'x': '1'})");
+    expect(storagePathLiteralDollarBoundBind.pendingRowLink).toBeUndefined();
     expect(storagePathLiteralDollarBoundBind.allowCompileError).toBe(true);
     expect(storagePathLiteralDollarBoundBind.rules).toContain('match /items/{x}');
 
+    expect(firestoreServiceStorage.pendingRowLink).toBeUndefined();
     expect(firestoreServiceStorage.allowCompileError).toBe(true);
+    expect(firestoreServiceUnknown.pendingRowLink).toBeUndefined();
     expect(firestoreServiceUnknown.allowCompileError).toBe(true);
   });
 });

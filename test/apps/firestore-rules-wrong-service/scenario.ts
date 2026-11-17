@@ -1,17 +1,16 @@
-// A Storage ruleset is not Firestore rules (#1328, FS2-ENF-2). Production
-// won't deploy a `service firebase.storage` ruleset to Firestore, so no
-// pyric plane loads one either. The page's in-page sandbox, given a Storage
-// allow-all ruleset through `setRules`, denies its read and write of c/1 and
-// names the service in its rules status. A project whose `firestore.rules`
-// is a Storage ruleset makes `pyric sandbox` refuse it at load, with the
-// same reason, before it runs the app's command.
+// Production compiles a Firestore ruleset whose sole service block is
+// `service firebase.storage` and denies every Firestore request (#1434).
 //
-// The Node host's `firestore_simulator_create` MCP tool refuses what
-// production won't load too (#1329, FS2-ENF-3a, FS2-ENF-3b). An agent that
-// finds the host through `.pyric/serve.json` and seeds it with a Storage
-// ruleset, or with one that does not parse, gets `ok: false` with the
-// reason `rules.set` gives, and the rules `pyric rules set` locked stay in
-// force for the page and for a registered Node process.
+// - In-page sandbox: `setRules` compiles the Storage allow-all ruleset, denies
+//   `getDoc` and `setDoc` on `c/1` with `permission-denied`, and surfaces an
+//   advisory `MISSING_FIRESTORE_SERVICE` warning on `inspect()`.
+// - Node host MCP `firestore_simulator_create`: still refuses unloadable
+//   rulesets (syntax errors and duplicate service declarations) with `ok: false`
+//   and `RULES_REFUSED`, keeping the locked rules in force; when given a
+//   Storage ruleset, it compiles and denies writes across both the browser page
+//   and a registered Node process.
+// - `pyric sandbox`: prepares and serves a project whose `firestore.rules` is
+//   a Storage ruleset without a false compile error.
 import assert from 'node:assert/strict';
 import { join } from 'node:path';
 import { scenario, type App } from '../driver.ts';
@@ -19,7 +18,7 @@ import { scenario, type App } from '../driver.ts';
 declare const wrongService: { run(): Promise<{ read: string; write: string; status: string[] }> };
 declare const hostedRules: { write(id: string): Promise<{ open: string; locked: string }> };
 
-const REASON = "Firestore rules did not compile: Expected 'service cloud.firestore', got 'service firebase.storage'.";
+const DUPLICATE_REASON = 'Firestore rules did not compile: Duplicate service name declaration.';
 
 /** Writes to open/ are allowed; everything else is denied. */
 const OPEN_ONLY = `rules_version = '2';
@@ -27,6 +26,15 @@ service cloud.firestore {
   match /databases/{database}/documents {
     match /open/{id} {
       allow read, write: if true;
+    }
+  }
+}`;
+
+const DUPLICATE_FIRESTORE = `${OPEN_ONLY}
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /open/{id} {
+      allow read, write: if false;
     }
   }
 }`;
@@ -48,6 +56,7 @@ service cloud.firestore {
 }`;
 
 const LOCKED_RULES_IN_FORCE = { open: 'ok', locked: 'permission-denied' };
+const ALL_DENIED = { open: 'permission-denied', locked: 'permission-denied' };
 
 interface ToolBody {
   ok: boolean;
@@ -55,10 +64,6 @@ interface ToolBody {
   data?: { code?: string };
 }
 
-/**
- * An MCP session on the host `.pyric/serve.json` names, as `pyric mcp` opens
- * one: POST `/__pyric/mcp` with the host's instance id.
- */
 function hostMcp(app: App) {
   const pointer = JSON.parse(app.readFile('.pyric/serve.json')) as { url: string; instanceId: string; token?: string };
   let sessionId: string | null = null;
@@ -109,16 +114,15 @@ export default scenario(async (app) => {
   const host = await app.step('start the dev server', () => app.devServer());
   const env = { PYRIC_SANDBOX: `remote:${host.url}` };
 
-  const page = await app.step('the in-page sandbox denies c/1 under a Storage ruleset and names the service', async () => {
+  const page = await app.step('the in-page sandbox denies c/1 under a Storage ruleset with permission-denied and surfaces an advisory warning', async () => {
     const page = await app.page(host.url);
     await page.waitForFunction(() => 'wrongService' in window, undefined, { timeout: 30_000 });
     const result = await page.evaluate(() => wrongService.run());
-    // Refused as an unloadable ruleset is: the request fails with the reason.
     for (const outcome of [result.read, result.write]) {
-      assert.notEqual(outcome, 'ok');
-      assert.ok(outcome.includes(REASON), outcome);
+      assert.match(outcome, /^permission-denied:/, outcome);
     }
-    assert.deepEqual(result.status, [REASON]);
+    assert.equal(result.status.length, 1, JSON.stringify(result.status));
+    assert.match(result.status[0] ?? '', /^warning:.*no 'service cloud\.firestore' block/);
     return page;
   });
 
@@ -132,7 +136,7 @@ export default scenario(async (app) => {
   await app.step('an agent opens an MCP session on the discovered host', () => mcp.initialize());
 
   const refusals: Array<[string, string, RegExp]> = [
-    ['a Storage ruleset', STORAGE_ALLOW_ALL, new RegExp(`^${REASON.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`)],
+    ['duplicate service declarations', DUPLICATE_FIRESTORE, new RegExp(`^${DUPLICATE_REASON.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`)],
     ['a ruleset that does not parse', UNPARSEABLE, /^Firestore rules did not parse at line 4, column \d+: /],
   ];
   for (const [label, rules, reason] of refusals) {
@@ -150,7 +154,14 @@ export default scenario(async (app) => {
     });
   }
 
-  await app.step('pyric sandbox refuses a project whose firestore.rules is a Storage ruleset', async () => {
+  await app.step('firestore_simulator_create compiles a Storage ruleset and denies writes on both page and Node process', async () => {
+    const body = await mcp.callTool('firestore_simulator_create', { rules: STORAGE_ALLOW_ALL });
+    assert.equal(body.ok, true, JSON.stringify(body));
+    assert.deepEqual(await page.evaluate(() => hostedRules.write('page-storage')), ALL_DENIED);
+    assert.deepEqual(await serverWrites(app, 'server-storage', env), ALL_DENIED);
+  });
+
+  await app.step('pyric sandbox serves a project whose firestore.rules is a Storage ruleset', async () => {
     const port = await app.freePort();
     const cli = join('..', 'node_modules', '@pyric', 'cli', 'dist', 'cli', 'index.js');
     const result = await app.command(
@@ -158,8 +169,7 @@ export default scenario(async (app) => {
       [cli, 'sandbox', '--no-open', '--port', String(port), '--', 'node', '-e', 'console.log("app command ran")'],
       { cwd: 'wrong-service', timeoutMs: 90_000 },
     );
-    assert.notEqual(result.code, 0, result.output);
-    assert.ok(result.output.includes(REASON), result.output);
-    assert.doesNotMatch(result.output, /app command ran/);
+    assert.equal(result.code, 0, result.output);
+    assert.match(result.output, /app command ran/);
   });
 });

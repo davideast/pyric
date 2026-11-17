@@ -6,7 +6,6 @@ import type { ScenarioRecord } from './types.ts';
 
 export const scenario: ScenarioRecord = {
   group: 'fix-class',
-  pendingRowLink: true,
   allowCompileError: true,
   fm: 'Service declaration validation (#1434)',
   rationale:

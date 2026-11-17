@@ -321,7 +321,7 @@ export class LocalEnvironment {
     // nested refs are not aliased back into the live keyspace.
     this.seedSnapshot = options.baseDocuments ?? this.state.snapshot();
     this.eventLog.clear();
-    return lintFirestoreRules(options.rules);
+    return lintFirestoreRules(options.rules, { targetService: 'cloud.firestore' });
   }
 
   /**
@@ -341,7 +341,7 @@ export class LocalEnvironment {
    *     `added` / `removed` change entries.
    */
   deployRules(source: string): LintResult {
-    const lint = lintFirestoreRules(source);
+    const lint = lintFirestoreRules(source, { targetService: 'cloud.firestore' });
     // Always install regardless of lint errors; lint is diagnostic, not a gate.
     this.rules.set(source, source !== '');
     this.listeners.reEvaluateAllListeners();
