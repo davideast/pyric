@@ -70,6 +70,10 @@ function extractSnapshotSummary(snap: DataSnapshot): { keys: string[]; val: unkn
   return { keys, val: snap.val() };
 }
 
+export function scrubOracleRunPath(message: string): string {
+  return message.replace(/\/pyric_oracle\/rtdb_[a-z0-9_]+\//g, '/pyric_oracle/<runId>/');
+}
+
 function classifyError(err: unknown): { errorCode: string | null; errorMessage: string } {
   const code = (err as { code?: unknown }).code;
   let errorCode: string | null = null;
@@ -80,7 +84,7 @@ function classifyError(err: unknown): { errorCode: string | null; errorMessage: 
   if (err instanceof Error) {
     errorMessage = err.message;
   }
-  return { errorCode, errorMessage };
+  return { errorCode, errorMessage: scrubOracleRunPath(errorMessage) };
 }
 
 async function runBoundedGet(

@@ -85,4 +85,35 @@ describe('observation completeness gate', () => {
     expect(r.uncovered).toEqual([]);
     expect(r.committed.length).toBe(4);
   });
+
+  it('exempts unlinked pendingRowLink staged captures while still failing on linked uncovered captures', () => {
+    const stagedDir = mkdtempSync(join(tmpdir(), 'obs-gate-staged-'));
+    try {
+      writeFileSync(
+        join(stagedDir, 'demo-covered.json'),
+        JSON.stringify({ rowIds: ['demo#1'], behavior: { ok: true } }),
+      );
+      writeFileSync(
+        join(stagedDir, 'demo-staged-unlinked.json'),
+        JSON.stringify({ rowIds: [], behavior: { staged: true } }),
+      );
+      writeFileSync(
+        join(stagedDir, 'demo-staged-linked.json'),
+        JSON.stringify({ rowIds: ['demo#2'], behavior: { linked: true } }),
+      );
+
+      const gate = createObservationGate({
+        dir: stagedDir,
+        match: (f) => f.startsWith('demo-'),
+        pendingRowLinkStems: new Set(['demo-staged-unlinked', 'demo-staged-linked']),
+      });
+      expect(gate.load('demo-covered').ok).toBe(true);
+
+      const r = gate.report();
+      expect(r.committed).toEqual(['demo-covered', 'demo-staged-linked']);
+      expect(r.uncovered).toEqual(['demo-staged-linked']);
+    } finally {
+      rmSync(stagedDir, { recursive: true, force: true });
+    }
+  });
 });

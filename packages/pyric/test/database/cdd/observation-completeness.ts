@@ -1,6 +1,7 @@
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import ts from 'typescript';
+import { isUnlinkedStagedObservation } from '../../../../conformance/src/staged-captures.ts';
 
 interface ObservationLink {
   name: string;
@@ -18,6 +19,7 @@ export interface ObservationCompletenessInput {
   rows: EvidenceRow[];
   assertedRowIds: string[];
   notApplicable: Readonly<Record<string, string>>;
+  pendingRowLinkStems?: ReadonlySet<string>;
 }
 
 export interface ObservationCompletenessResult {
@@ -48,7 +50,9 @@ export function auditObservationCompleteness({
   rows,
   assertedRowIds,
   notApplicable,
+  pendingRowLinkStems,
 }: ObservationCompletenessInput): ObservationCompletenessResult {
+  const pendingStems = pendingRowLinkStems ?? new Set<string>();
   const observationNames = new Set(observations.map(({ name }) => name));
   const rowsById = new Map(rows.map((row) => [row.id, row]));
   const assertionCounts = new Map<string, number>();
@@ -80,6 +84,7 @@ export function auditObservationCompleteness({
   const uncovered = observations
     .filter(({ name, rowIds }) => {
       if (name in notApplicable) return false;
+      if (isUnlinkedStagedObservation(name, rowIds, pendingStems)) return false;
       return !rowIds.some((rowId) => {
         if (!rowId.startsWith(ROW_PREFIX)) return false;
         const row = rowsById.get(rowId);
@@ -138,6 +143,3 @@ export function discoverCddAssertionRowIds(directory: string): string[] {
       return rowIds;
     });
 }
-import { readFileSync, readdirSync } from 'node:fs';
-import { join } from 'node:path';
-import ts from 'typescript';

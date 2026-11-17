@@ -26,6 +26,7 @@ import {
 import {
   probeClientLimitValidation,
   probe as rtdbLimitInfinityProbe,
+  scrubOracleRunPath,
 } from '../../probes/rtdb-modular/rtdb-modular-query-limit-infinity.ts';
 import { probe as rtdbLeafPromotionPriorityProbe } from '../../probes/rtdb-modular/rtdb-modular-leaf-promotion-priority.ts';
 
@@ -364,5 +365,16 @@ describe('staged modular probes (auth-admin and rtdb-modular)', () => {
     expect(validation.limitToFirstZero.threw).toBe(true);
     expect(validation.limitToFirstNegativeInfinity.threw).toBe(true);
     expect(validation.limitToFirstNaN.threw).toBe(true);
+  });
+
+  it('scrubOracleRunPath replaces dynamic rtdb_<runId> segments with <runId> for idempotent re-captures', () => {
+    expect(
+      scrubOracleRunPath(
+        "permission_denied at /pyric_oracle/rtdb_mwkln89r_1pn2jn/firstAtMostTwo/items: Client doesn't have permission to access the desired data.",
+      ),
+    ).toBe(
+      "permission_denied at /pyric_oracle/<runId>/firstAtMostTwo/items: Client doesn't have permission to access the desired data.",
+    );
+    expect(scrubOracleRunPath('Permission denied')).toBe('Permission denied');
   });
 });
