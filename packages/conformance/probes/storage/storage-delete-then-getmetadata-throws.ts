@@ -1,5 +1,8 @@
 import type { Probe } from '../../rigs/types.ts';
-import { withStorageProbeSession } from '../../src/storage-probe-session.ts';
+import {
+  extractObservedErrorDetails,
+  withStorageProbeSession,
+} from '../../src/storage-probe-session.ts';
 
 interface ObservedObjectMetadataSnapshot {
   size: number;
@@ -43,32 +46,16 @@ export async function observeDeleteThenGetMetadata(
       survivingGeneration: surviving.generation,
     };
   } catch (err) {
-    let code: string | null = null;
-    let errorName: string | null = null;
-    let rawMessage: string | null = null;
-    if (err !== null && typeof err === 'object') {
-      const candidate = err as { code?: unknown; name?: unknown; message?: unknown };
-      if (typeof candidate.code === 'string') {
-        code = candidate.code;
-      }
-      if (typeof candidate.name === 'string') {
-        errorName = candidate.name;
-      }
-      if (typeof candidate.message === 'string') {
-        rawMessage = candidate.message;
-      }
-    } else {
-      rawMessage = String(err);
-    }
+    const details = extractObservedErrorDetails(err);
     let scrubbedMessage: string | null = null;
-    if (rawMessage !== null) {
-      scrubbedMessage = subject.scrubRunPath(rawMessage);
+    if (details.message !== null) {
+      scrubbedMessage = subject.scrubRunPath(details.message);
     }
     postDeleteOutcome = {
       threw: true,
-      code,
-      errorName,
-      isFirebaseError: errorName === 'FirebaseError',
+      code: details.code,
+      errorName: details.errorName,
+      isFirebaseError: details.isFirebaseError,
       message: scrubbedMessage,
     };
   }

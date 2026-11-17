@@ -100,7 +100,10 @@ export async function captureClientStorageObservation(
   id: string = DEFAULT_ID,
   existingLinkage: { matrixRow: string; rowIds: string[] } = { matrixRow: '', rowIds: [] },
 ): Promise<ObservationEnvelope> {
-  const matrixRow = record.matrixRow || existingLinkage.matrixRow;
+  let matrixRow = existingLinkage.matrixRow;
+  if (record.matrixRow !== '') {
+    matrixRow = record.matrixRow;
+  }
   let rowIds = existingLinkage.rowIds;
   if (record.rowIds.length > 0) {
     rowIds = record.rowIds;
@@ -124,18 +127,12 @@ export async function captureClientStorageObservation(
   }
 }
 
-export function selectClientStorageProbeId(
-  args: readonly string[],
-  knownIds: readonly string[] = [DEFAULT_ID],
-): string {
+export function selectClientStorageProbeId(args: readonly string[]): string {
   const probeFilter = readSingleProbeSelector(args);
-  if (probeFilter !== undefined) {
-    if (!knownIds.includes(probeFilter)) {
-      throw new Error(`unknown client-storage probe: ${probeFilter}`);
-    }
-    return probeFilter;
+  if (probeFilter !== undefined && probeFilter !== DEFAULT_ID) {
+    throw new Error(`unknown client-storage probe: ${probeFilter}`);
   }
-  return knownIds[0] ?? DEFAULT_ID;
+  return DEFAULT_ID;
 }
 
 function isStagedUncapturedProbe(

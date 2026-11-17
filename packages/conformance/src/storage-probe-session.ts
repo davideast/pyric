@@ -20,6 +20,39 @@ import { resolveProbeWebConfig } from './sdk-probe-runtime.ts';
 
 const FIREBASE_MANAGEMENT_SCOPE = 'https://www.googleapis.com/auth/firebase';
 
+interface ObservedErrorDetails {
+  code: string | null;
+  errorName: string | null;
+  isFirebaseError: boolean;
+  message: string | null;
+}
+
+export function extractObservedErrorDetails(err: unknown): ObservedErrorDetails {
+  let code: string | null = null;
+  let errorName: string | null = null;
+  let message: string | null = null;
+  if (err !== null && typeof err === 'object') {
+    const candidate = err as { code?: unknown; name?: unknown; message?: unknown };
+    if (typeof candidate.code === 'string') {
+      code = candidate.code;
+    }
+    if (typeof candidate.name === 'string') {
+      errorName = candidate.name;
+    }
+    if (typeof candidate.message === 'string') {
+      message = candidate.message;
+    }
+  } else if (err !== null && err !== undefined) {
+    message = String(err);
+  }
+  return {
+    code,
+    errorName,
+    isFirebaseError: errorName === 'FirebaseError',
+    message,
+  };
+}
+
 function stripBucketUriFormatting(raw: string): string {
   return raw.trim().replace(/^gs:\/\//, '').replace(/\/+$/, '');
 }
@@ -147,10 +180,10 @@ export async function withStorageProbeSession(
         if (clientAuth.currentUser) {
           await deleteUser(clientAuth.currentUser).catch(() => undefined);
         }
-        await deleteApp(clientApp).catch(() => undefined);
       }
     });
   } finally {
+    await deleteApp(clientApp).catch(() => undefined);
     detachSignals();
     if (session.restoredFirestoreOrStorage) {
       console.log('[sdk-probes] Storage rules restored and verified');

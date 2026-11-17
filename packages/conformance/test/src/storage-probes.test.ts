@@ -28,6 +28,7 @@ import {
   loadPendingRowLinkObservations,
 } from '../../src/staged-captures.ts';
 import {
+  extractObservedErrorDetails,
   normalizeStorageProbeSubpath,
   resolveProbeStorageBucket,
   scrubStorageOracleRunPath,
@@ -174,6 +175,23 @@ describe('Storage conformance probes (storage#61 and storage#67)', () => {
     ).toBe(
       "Firebase Storage: Object 'pyric_oracle/<runId>/items/doc.bin' does not exist. (storage/object-not-found)",
     );
+
+    const fbErr = Object.assign(new Error('root op denied'), {
+      name: 'FirebaseError',
+      code: 'storage/invalid-root-operation',
+    });
+    expect(extractObservedErrorDetails(fbErr)).toEqual({
+      code: 'storage/invalid-root-operation',
+      errorName: 'FirebaseError',
+      isFirebaseError: true,
+      message: 'root op denied',
+    });
+    expect(extractObservedErrorDetails('raw string error')).toEqual({
+      code: null,
+      errorName: null,
+      isFirebaseError: false,
+      message: 'raw string error',
+    });
   });
 
   it('storage-delete-then-getmetadata-throws observes pre-delete metadata and post-delete object-not-found while propagating setup errors', async () => {

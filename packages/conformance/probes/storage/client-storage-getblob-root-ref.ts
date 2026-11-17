@@ -6,6 +6,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { deleteApp, initializeApp } from 'firebase/app';
 import * as nodeStorageSdk from 'firebase/storage';
 import type { Probe } from '../../rigs/types.ts';
+import { extractObservedErrorDetails } from '../../src/storage-probe-session.ts';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = join(HERE, '..', '..', '..', '..');
@@ -104,33 +105,13 @@ async function observeRootGetBlobWithModule(
       caughtError = syncErr;
     }
 
-    let code: string | null = null;
-    let errorName: string | null = null;
-    let message: string | null = null;
-    if (caughtError !== null && typeof caughtError === 'object') {
-      const candidate = caughtError as { code?: unknown; name?: unknown; message?: unknown };
-      if (typeof candidate.code === 'string') {
-        code = candidate.code;
-      }
-      if (typeof candidate.name === 'string') {
-        errorName = candidate.name;
-      }
-      if (typeof candidate.message === 'string') {
-        message = candidate.message;
-      }
-    } else if (caughtError !== null) {
-      message = String(caughtError);
-    }
-
+    const details = extractObservedErrorDetails(caughtError);
     return {
       rootFullPath,
       rootName,
       threw,
       threwSynchronously,
-      code,
-      errorName,
-      isFirebaseError: errorName === 'FirebaseError',
-      message,
+      ...details,
       fetchCalls,
     };
   } finally {
@@ -170,9 +151,16 @@ function observeIsolatedBrowserBundleRootGetBlob(): RootCallObservation {
     '    threwSynchronously = true;',
     '    caught = e;',
     '  }',
-    '  const code = caught && typeof caught.code === "string" ? caught.code : null;',
-    '  const errorName = caught && typeof caught.name === "string" ? caught.name : null;',
-    '  const message = caught && typeof caught.message === "string" ? caught.message : (caught !== null ? String(caught) : null);',
+    '  let code = null;',
+    '  let errorName = null;',
+    '  let message = null;',
+    '  if (caught !== null && typeof caught === "object") {',
+    '    if (typeof caught.code === "string") { code = caught.code; }',
+    '    if (typeof caught.name === "string") { errorName = caught.name; }',
+    '    if (typeof caught.message === "string") { message = caught.message; }',
+    '  } else if (caught !== null && caught !== undefined) {',
+    '    message = String(caught);',
+    '  }',
     '  process.stdout.write(JSON.stringify({',
     '    rootFullPath: rootRef.fullPath,',
     '    rootName: rootRef.name,',
