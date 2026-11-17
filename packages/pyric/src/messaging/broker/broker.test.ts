@@ -121,7 +121,7 @@ describe('messaging broker — intake validation (captured envelopes, byte-match
     });
   }
 
-  it('enforces the bisected payload boundary (4505 accepted / 4506 rejected for the probe shape)', () => {
+  it('enforces the bisected payload boundary (4914 accepted / 4915 rejected for the probe shape)', () => {
     const broker = new MessagingBroker();
     const o = obs('messaging-send-oversized-payload-error-envelope');
     const mk = (len: number) => ({ topic: 'pyric-oracle-messaging-probe', data: { p: 'x'.repeat(len) } });

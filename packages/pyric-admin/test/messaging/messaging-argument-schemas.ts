@@ -197,7 +197,7 @@ function buildBaseMessageOptionFields(): Record<string, FieldSchema> {
     data: stringMapSchema({
       sampleKey: 'item',
       validValue: 'ok',
-      maxByteLength: 4506,
+      maxByteLength: 4915,
     }),
     notification: objectSchema({
       validBase: () => ({ title: 'Alert' }),

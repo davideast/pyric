@@ -264,11 +264,10 @@ export class MessagingBroker {
   // ── Message intake (the admin mirror / future op-channel entry point) ────
 
   /**
-   * Validate and accept a message — the send plane. Throws
+   * Validate and accept a message -- the send plane. Throws
    * {@link BrokerSendError} with the exact captured envelope on every
    * rejection; resolves an {@link AcceptedSend} whose `name` is the FCM
-   * resource name (`projects/<projectId>/messages/<id>`, numeric id for
-   * topic/condition targets, UUID-form for token targets).
+   * resource name (`projects/<projectId>/messages/<id>`).
    *
    * `validateOnly` (the admin SDK's `dryRun`) runs the IDENTICAL validation
    * path and returns the SAME shape with a fake id (captured:
@@ -329,7 +328,7 @@ export class MessagingBroker {
     return accepted;
   }
 
-  /** Numeric message-id mint for topic/condition targets (prod shape: long numeric string). */
+  /** Message-id mint for topic/condition targets (opaque single path segment). */
   private mintNumericId(): string {
     this.numericIdCounter = (this.numericIdCounter + 1) % 1_000_000;
     return `${Date.now()}${String(this.numericIdCounter).padStart(6, '0')}`;

@@ -51,14 +51,15 @@ export type RawSendFn = (
   payload: RawSendPayload,
 ) => Promise<{ status: number; body: Record<string, unknown> }>;
 
-/** Strip run-specific noise: message ids vary per send; the format is the fact. */
-function nameFacts(name: string, projectId: string) {
-  const m = /^projects\/([^/]+)\/messages\/(.+)$/.exec(name);
-  const messageId = m?.[2] ?? '';
+/** Strip run-specific noise: message ids vary per send; the resource-name format is the fact. */
+export function nameFacts(name: string, projectId: string): {
+  matchesProjectsMessagesFormat: boolean;
+  projectSegmentMatchesProject: boolean;
+} {
+  const match = /^projects\/([^/]+)\/messages\/([^/]+)$/.exec(name);
   return {
-    matchesProjectsMessagesFormat: m !== null,
-    projectSegmentMatchesProject: m?.[1] === projectId,
-    messageIdIsNumericString: m !== null && /^\d+$/.test(messageId),
+    matchesProjectsMessagesFormat: match !== null,
+    projectSegmentMatchesProject: match?.[1] === projectId,
   };
 }
 

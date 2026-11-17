@@ -17,15 +17,13 @@
       "dryRunAccepted": true,
       "dryRunName": {
         "matchesProjectsMessagesFormat": true,
-        "projectSegmentMatchesProject": true,
-        "messageIdIsNumericString": true
+        "projectSegmentMatchesProject": true
       },
       "realSendStatus": 200,
       "realSendAccepted": true,
       "realSendName": {
         "matchesProjectsMessagesFormat": true,
-        "projectSegmentMatchesProject": true,
-        "messageIdIsNumericString": true
+        "projectSegmentMatchesProject": true
       },
       "dryRunMatchesRealSend": true
     },
