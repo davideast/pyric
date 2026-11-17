@@ -42,6 +42,7 @@ import {
   type PlannedRigInvocation,
 } from './oracle-capture-plan.ts';
 import {
+  assertCleanWorkingTreeForCapture,
   assertValidObservationEnvelope,
   canonicalizeObservation,
   collectTimestampCleanObservations,
@@ -125,14 +126,7 @@ export function executeCapturePlan(options: {
       return { status: out.status, stdout: out.stdout ?? '', stderr: out.stderr ?? '' };
     });
 
-  const initialStatus = execFileSync(
-    'git',
-    ['-c', 'core.quotePath=false', 'status', '--porcelain', '-uall'],
-    { cwd, encoding: 'utf8' },
-  ).trim();
-  if (initialStatus !== '') {
-    throw new Error(`Working tree must be clean before capture starts:\n${initialStatus}`);
-  }
+  assertCleanWorkingTreeForCapture(cwd);
 
   if (!plan.shouldRun || plan.invocations.length === 0) {
     appendGithubOutput(env, 'has_captures', 'false');

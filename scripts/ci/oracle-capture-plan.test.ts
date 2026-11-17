@@ -1,12 +1,31 @@
 import { describe, expect, test } from 'bun:test';
-import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { execFileSync, spawnSync } from 'node:child_process';
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { planCaptureRun } from './oracle-capture-plan.ts';
 import { executeCapturePlan, type CaptureBundleManifest } from './oracle-capture-pr.ts';
+import {
+  assertCleanWorkingTreeForCapture,
+  collectTimestampCleanObservations,
+  validateObservationRelativePath,
+} from './oracle-observation-diff.ts';
 
-function initTempGitRepo(): { repoDir: string; cleanup: () => void } {
+const REPO_ROOT = resolve(import.meta.dir, '../..');
+
+function initTempGitRepo(options: { copyRepoGitignore?: boolean } = {}): {
+  repoDir: string;
+  cleanup: () => void;
+} {
   const base = mkdtempSync(join(tmpdir(), 'oracle-capture-sibling-'));
   const repoDir = join(base, 'work');
   mkdirSync(join(repoDir, 'packages/conformance/observations/firestore-rules'), {
@@ -16,6 +35,9 @@ function initTempGitRepo(): { repoDir: string; cleanup: () => void } {
   execFileSync('git', ['config', 'user.name', 'Test Bot'], { cwd: repoDir });
   execFileSync('git', ['config', 'user.email', 'bot@example.com'], { cwd: repoDir });
   writeFileSync(join(repoDir, 'README.md'), 'fixture\n');
+  if (options.copyRepoGitignore) {
+    copyFileSync(join(REPO_ROOT, '.gitignore'), join(repoDir, '.gitignore'));
+  }
   execFileSync('git', ['add', '.'], { cwd: repoDir });
   execFileSync('git', ['commit', '-m', 'initial'], { cwd: repoDir });
   return {
@@ -153,6 +175,184 @@ describe('oracle-capture-plan WIF SDK write flags and sibling invocation isolati
       expect(readFileSync(summaryFile, 'utf8')).toContain('PERMISSION_DENIED');
     } finally {
       rmSync(artifactDir, { recursive: true, force: true });
+      cleanup();
+    }
+  });
+
+  test('anchors .gitignore to root gha-creds-*.json files only and excludes observation-shaped root creds without .gitignore', () => {
+    const checkIgnore = (relPath: string): number | null =>
+      spawnSync('git', ['check-ignore', '-q', relPath], { cwd: REPO_ROOT }).status;
+
+    expect(checkIgnore('gha-creds-b2de1f6be4030177.json')).toBe(0);
+    expect(checkIgnore('nested/gha-creds-b2de1f6be4030177.json')).toBe(1);
+    expect(
+      checkIgnore('packages/conformance/observations/auth/gha-creds-b2de1f6be4030177.json'),
+    ).toBe(1);
+    expect(checkIgnore('gha-creds-dir.json/')).toBe(1);
+    expect(checkIgnore('gha-creds-dir.json/payload.ts')).toBe(1);
+
+    // Without .gitignore: root gha-creds-*.json carrying observation-shaped JSON is still excluded
+    const { repoDir, cleanup } = initTempGitRepo({ copyRepoGitignore: false });
+    const artifactDir = mkdtempSync(join(tmpdir(), 'oracle-capture-gha-creds-bare-'));
+    try {
+      writeFileSync(
+        join(repoDir, 'gha-creds-b2de1f6be4030177.json'),
+        `${JSON.stringify({
+          name: 'gha-creds-b2de1f6be4030177',
+          matrixRow: '',
+          rowIds: [],
+          description: 'observation-shaped credential decoy',
+          observedAt: '2026-11-17T00:00:00.000Z',
+          fbSdkVersion: '12.19.0',
+          behavior: { decoy: true },
+        })}\n`,
+      );
+
+      const bundlePath = join(artifactDir, 'bundle');
+      const result = executeCapturePlan({
+        cwd: repoDir,
+        artifactDir: bundlePath,
+        env: { GITHUB_EVENT_NAME: 'push', GITHUB_REF: 'refs/heads/main' },
+        plan: {
+          shouldRun: true,
+          needsWif: true,
+          invocations: [
+            {
+              rig: 'rules-firestore',
+              script: 'packages/conformance/src/run-rules.ts',
+              args: ['--scenario', 'sample-probe'],
+            },
+          ],
+        },
+        runInvocation: () => {
+          const obsPath = join(
+            repoDir,
+            'packages/conformance/observations/firestore-rules/rules-firestore-sample-probe.json',
+          );
+          mkdirSync(dirname(obsPath), { recursive: true });
+          writeFileSync(
+            obsPath,
+            `${JSON.stringify(
+              {
+                name: 'rules-firestore-sample-probe',
+                matrixRow: '',
+                rowIds: [],
+                description: 'sample probe',
+                observedAt: '2026-11-17T00:00:00.000Z',
+                fbSdkVersion: '12.19.0',
+                behavior: { probe: 'ALLOW' },
+              },
+              null,
+              2,
+            )}\n`,
+          );
+          return { status: 0, stdout: 'wrote rules-firestore-sample-probe' };
+        },
+      });
+
+      expect(result).toEqual({ hasCaptures: true, hadRigFailure: false });
+      expect(existsSync(join(bundlePath, 'gha-creds-b2de1f6be4030177.json'))).toBe(false);
+      const manifest = JSON.parse(
+        readFileSync(join(bundlePath, 'manifest.json'), 'utf8'),
+      ) as CaptureBundleManifest;
+      expect(manifest.rigs.flatMap((r) => r.files.map((f) => f.path))).toEqual([
+        'packages/conformance/observations/firestore-rules/rules-firestore-sample-probe.json',
+      ]);
+    } finally {
+      rmSync(artifactDir, { recursive: true, force: true });
+      cleanup();
+    }
+  });
+
+  test('with committed .gitignore present, fails closed on nested paths, observations stem, directories, symlinks, malformed names, and tracked/staged/renamed creds', () => {
+    const { repoDir, cleanup } = initTempGitRepo({ copyRepoGitignore: true });
+    const scratchOut = mkdtempSync(join(tmpdir(), 'oracle-capture-gitignore-bypass-'));
+
+    try {
+      // Valid regular root gha-creds-*.json passes with committed .gitignore
+      const validCredsPath = join(repoDir, 'gha-creds-b2de1f6be4030177.json');
+      writeFileSync(validCredsPath, '{"type":"external_account"}\n');
+      expect(() => assertCleanWorkingTreeForCapture(repoDir)).not.toThrow();
+      expect(collectTimestampCleanObservations(repoDir, scratchOut)).toEqual([]);
+
+      // 1. Nested, observations-tree, and malformed root file paths all fail closed
+      const bypassFiles = [
+        'nested/gha-creds-b2de1f6be4030177.json',
+        'packages/conformance/observations/auth/gha-creds-b2de1f6be4030177.json',
+        'gha-creds-.json',
+        'gha-creds-bad space.json',
+        'stray-untracked.json',
+      ];
+      for (const rel of bypassFiles) {
+        const abs = join(repoDir, rel);
+        mkdirSync(dirname(abs), { recursive: true });
+        writeFileSync(abs, '{"type":"external_account"}\n');
+        try {
+          expect(() => assertCleanWorkingTreeForCapture(repoDir)).toThrow();
+          expect(() => collectTimestampCleanObservations(repoDir, scratchOut)).toThrow();
+        } finally {
+          rmSync(abs, { force: true });
+        }
+      }
+
+      // 2. Directory named gha-creds-dir.json/x fails closed (and git check-ignore does not ignore it)
+      const dirCreds = join(repoDir, 'gha-creds-dir.json');
+      mkdirSync(dirCreds, { recursive: true });
+      writeFileSync(join(dirCreds, 'x.ts'), 'export const x = 1;\n');
+      try {
+        expect(
+          spawnSync('git', ['check-ignore', '-q', 'gha-creds-dir.json/x.ts'], { cwd: repoDir })
+            .status,
+        ).toBe(1);
+        expect(() => assertCleanWorkingTreeForCapture(repoDir)).toThrow();
+        expect(() => collectTimestampCleanObservations(repoDir, scratchOut)).toThrow();
+      } finally {
+        rmSync(dirCreds, { recursive: true, force: true });
+      }
+
+      // 3. Root symlink named gha-creds-*.json fails closed
+      rmSync(validCredsPath, { force: true });
+      symlinkSync(join(repoDir, 'README.md'), validCredsPath);
+      try {
+        expect(() => assertCleanWorkingTreeForCapture(repoDir)).toThrow(/non-regular/);
+        expect(() => collectTimestampCleanObservations(repoDir, scratchOut)).toThrow(/non-regular/);
+      } finally {
+        rmSync(validCredsPath, { force: true });
+      }
+
+      // 4. Staged (`git add -f`), tracked/modified, and renamed (`git mv`) gha-creds-*.json fail closed
+      writeFileSync(validCredsPath, '{"type":"external_account"}\n');
+      execFileSync('git', ['add', '-f', 'gha-creds-b2de1f6be4030177.json'], { cwd: repoDir });
+      expect(() => assertCleanWorkingTreeForCapture(repoDir)).toThrow(
+        /Working tree must be clean/,
+      );
+      expect(() => collectTimestampCleanObservations(repoDir, scratchOut)).toThrow();
+
+      execFileSync('git', ['commit', '-m', 'track creds for test'], { cwd: repoDir });
+      writeFileSync(validCredsPath, '{"type":"external_account","modified":true}\n');
+      expect(() => assertCleanWorkingTreeForCapture(repoDir)).toThrow(
+        /Working tree must be clean/,
+      );
+      expect(() => collectTimestampCleanObservations(repoDir, scratchOut)).toThrow();
+      execFileSync('git', ['checkout', '--', 'gha-creds-b2de1f6be4030177.json'], { cwd: repoDir });
+
+      execFileSync(
+        'git',
+        ['mv', 'README.md', 'gha-creds-renamed.json'],
+        { cwd: repoDir },
+      );
+      expect(() => assertCleanWorkingTreeForCapture(repoDir)).toThrow(
+        /Working tree must be clean/,
+      );
+      expect(() => collectTimestampCleanObservations(repoDir, scratchOut)).toThrow();
+
+      expect(() =>
+        validateObservationRelativePath(
+          'packages/conformance/observations/auth/gha-creds-b2de1f6be4030177.json',
+        ),
+      ).toThrow(/gha-creds-/);
+    } finally {
+      rmSync(scratchOut, { recursive: true, force: true });
       cleanup();
     }
   });
