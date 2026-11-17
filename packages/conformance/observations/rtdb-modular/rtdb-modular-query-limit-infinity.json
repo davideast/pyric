@@ -1,0 +1,275 @@
+{
+  "name": "rtdb-modular-query-limit-infinity",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "RTDB modular client get()/onValue() and query.limitToFirst / query.limitToLast rules evaluation for limitToFirst(Infinity) and limitToLast(Infinity).",
+  "observedAt": "2026-11-17T12:32:45.824Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "clientValidation": {
+      "limitToFirstInfinity": {
+        "threw": false,
+        "errorMessage": null
+      },
+      "limitToLastInfinity": {
+        "threw": false,
+        "errorMessage": null
+      },
+      "limitToFirstNegativeInfinity": {
+        "threw": true,
+        "errorMessage": "limitToFirst: First argument must be a positive integer."
+      },
+      "limitToFirstNaN": {
+        "threw": true,
+        "errorMessage": "limitToFirst: First argument must be a positive integer."
+      },
+      "limitToFirstZero": {
+        "threw": true,
+        "errorMessage": "limitToFirst: First argument must be a positive integer."
+      }
+    },
+    "live": {
+      "permissiveLimitFirstInfinity": {
+        "get": {
+          "status": "timeout",
+          "keys": null,
+          "val": null,
+          "errorCode": null,
+          "errorMessage": null
+        },
+        "onValue": {
+          "status": "timeout",
+          "keys": null,
+          "val": null,
+          "errorCode": null,
+          "errorMessage": null
+        }
+      },
+      "permissiveLimitLastInfinity": {
+        "get": {
+          "status": "timeout",
+          "keys": null,
+          "val": null,
+          "errorCode": null,
+          "errorMessage": null
+        },
+        "onValue": {
+          "status": "timeout",
+          "keys": null,
+          "val": null,
+          "errorCode": null,
+          "errorMessage": null
+        }
+      },
+      "rulesFirstNonNullControlTwo": {
+        "get": {
+          "status": "ok",
+          "keys": [
+            "a",
+            "b"
+          ],
+          "val": {
+            "a": 1,
+            "b": 2
+          },
+          "errorCode": null,
+          "errorMessage": null
+        },
+        "onValue": {
+          "status": "ok",
+          "keys": [
+            "a",
+            "b"
+          ],
+          "val": {
+            "a": 1,
+            "b": 2
+          },
+          "errorCode": null,
+          "errorMessage": null
+        }
+      },
+      "rulesFirstNonNullInfinity": {
+        "get": {
+          "status": "timeout",
+          "keys": null,
+          "val": null,
+          "errorCode": null,
+          "errorMessage": null
+        },
+        "onValue": {
+          "status": "timeout",
+          "keys": null,
+          "val": null,
+          "errorCode": null,
+          "errorMessage": null
+        }
+      },
+      "rulesFirstAtMostTwoControlTwo": {
+        "get": {
+          "status": "ok",
+          "keys": [
+            "a",
+            "b"
+          ],
+          "val": {
+            "a": 1,
+            "b": 2
+          },
+          "errorCode": null,
+          "errorMessage": null
+        },
+        "onValue": {
+          "status": "ok",
+          "keys": [
+            "a",
+            "b"
+          ],
+          "val": {
+            "a": 1,
+            "b": 2
+          },
+          "errorCode": null,
+          "errorMessage": null
+        }
+      },
+      "rulesFirstAtMostTwoNegativeControlThree": {
+        "get": {
+          "status": "error",
+          "keys": null,
+          "val": null,
+          "errorCode": null,
+          "errorMessage": "Permission denied"
+        },
+        "onValue": {
+          "status": "error",
+          "keys": null,
+          "val": null,
+          "errorCode": "PERMISSION_DENIED",
+          "errorMessage": "permission_denied at /pyric_oracle/<runId>/firstAtMostTwo/items: Client doesn't have permission to access the desired data."
+        }
+      },
+      "rulesFirstAtMostTwoInfinity": {
+        "get": {
+          "status": "timeout",
+          "keys": null,
+          "val": null,
+          "errorCode": null,
+          "errorMessage": null
+        },
+        "onValue": {
+          "status": "timeout",
+          "keys": null,
+          "val": null,
+          "errorCode": null,
+          "errorMessage": null
+        }
+      },
+      "rulesLastNonNullControlTwo": {
+        "get": {
+          "status": "ok",
+          "keys": [
+            "b",
+            "c"
+          ],
+          "val": {
+            "b": 2,
+            "c": 3
+          },
+          "errorCode": null,
+          "errorMessage": null
+        },
+        "onValue": {
+          "status": "ok",
+          "keys": [
+            "b",
+            "c"
+          ],
+          "val": {
+            "b": 2,
+            "c": 3
+          },
+          "errorCode": null,
+          "errorMessage": null
+        }
+      },
+      "rulesLastNonNullInfinity": {
+        "get": {
+          "status": "timeout",
+          "keys": null,
+          "val": null,
+          "errorCode": null,
+          "errorMessage": null
+        },
+        "onValue": {
+          "status": "timeout",
+          "keys": null,
+          "val": null,
+          "errorCode": null,
+          "errorMessage": null
+        }
+      },
+      "rulesLastAtMostTwoControlTwo": {
+        "get": {
+          "status": "ok",
+          "keys": [
+            "b",
+            "c"
+          ],
+          "val": {
+            "b": 2,
+            "c": 3
+          },
+          "errorCode": null,
+          "errorMessage": null
+        },
+        "onValue": {
+          "status": "ok",
+          "keys": [
+            "b",
+            "c"
+          ],
+          "val": {
+            "b": 2,
+            "c": 3
+          },
+          "errorCode": null,
+          "errorMessage": null
+        }
+      },
+      "rulesLastAtMostTwoNegativeControlThree": {
+        "get": {
+          "status": "error",
+          "keys": null,
+          "val": null,
+          "errorCode": null,
+          "errorMessage": "Permission denied"
+        },
+        "onValue": {
+          "status": "error",
+          "keys": null,
+          "val": null,
+          "errorCode": "PERMISSION_DENIED",
+          "errorMessage": "permission_denied at /pyric_oracle/<runId>/lastAtMostTwo/items: Client doesn't have permission to access the desired data."
+        }
+      },
+      "rulesLastAtMostTwoInfinity": {
+        "get": {
+          "status": "timeout",
+          "keys": null,
+          "val": null,
+          "errorCode": null,
+          "errorMessage": null
+        },
+        "onValue": {
+          "status": "timeout",
+          "keys": null,
+          "val": null,
+          "errorCode": null,
+          "errorMessage": null
+        }
+      }
+    }
+  }
+}
