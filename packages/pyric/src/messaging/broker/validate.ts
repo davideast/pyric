@@ -49,14 +49,14 @@ export const TOKEN_SHAPE_RE = /^[A-Za-z0-9_-]+:[A-Za-z0-9_-]+$/;
  * The EMPIRICAL data-payload enforcement boundary.
  *
  * oracle: `messaging-send-oversized-payload-error-envelope` bisected a
- * minimal single-entry topic message (`data: { p: 'x'.repeat(len) }`):
- * len 4505 accepted, 4506 rejected. Under the broker's size model --
- * summed UTF-8 bytes of every data key + value -- the flip sits at
- * 1 ('p') + 4505 = 4506 bytes accepted, 4507 rejected. The documented cap
- * (4096, quoted in the error message) is NOT the enforcement constant;
- * production enforces looser.
+ * minimal single-entry topic message (`data: { p: 'x'.repeat(len) }`)
+ * across repeated captures: len 4914 accepted, 4915 rejected.
+ * Under the broker's size model -- summed UTF-8 bytes of every data key +
+ * value -- the flip sits at 1 ('p') + 4914 = 4915 bytes accepted, 4916
+ * rejected. The documented cap (4096, quoted in the error message) is NOT
+ * the enforcement constant; production enforces looser.
  */
-export const EMPIRICAL_DATA_CAP_BYTES = 4506;
+export const EMPIRICAL_DATA_CAP_BYTES = 4915;
 
 /** Documented FCM limit on topic clauses per condition expression. */
 const MAX_CONDITION_TOPICS = 5;

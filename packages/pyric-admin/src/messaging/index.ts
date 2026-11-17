@@ -369,8 +369,7 @@ export class Messaging {
 
   /**
    * Send one message. Resolves the FCM resource name
-   * `projects/<projectId>/messages/<id>` -- numeric id for topic/condition
-   * targets, UUID-form for token targets. `dryRun` validates on the
+   * `projects/<projectId>/messages/<id>`. `dryRun` validates on the
    * identical path and returns the SAME shape with a fake id (captured
    * `dryRunSameShapeAsReal` / `realSendEnvelopeIdentical` parity).
    */

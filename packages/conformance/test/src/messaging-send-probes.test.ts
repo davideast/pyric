@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import { MESSAGING_SEND_PROBES } from '../../src/messaging-send-probe-catalog.ts';
 import {
   assertFcmProbeHttpStatus,
+  nameFacts,
   probeWebpushLowercaseTtl,
   selectMessagingSendProbes,
 } from '../../src/messaging-send-probes.ts';
@@ -37,9 +38,13 @@ describe('messaging-send-probes selection and lowercase webpush.headers.ttl prob
       calls.push(payload);
       const ttl = payload.message.webpush?.headers?.ttl;
       if (ttl === '60') {
+        let mintedName = 'projects/digame-mas/messages/9876543210';
+        if (payload.validate_only) {
+          mintedName = 'projects/digame-mas/messages/-4829104829104829104';
+        }
         return {
           status: 200,
-          body: { name: 'projects/digame-mas/messages/9876543210' },
+          body: { name: mintedName },
         };
       }
       return {
@@ -65,14 +70,12 @@ describe('messaging-send-probes selection and lowercase webpush.headers.ttl prob
         dryRunName: {
           matchesProjectsMessagesFormat: true,
           projectSegmentMatchesProject: true,
-          messageIdIsNumericString: true,
         },
         realSendStatus: 200,
         realSendAccepted: true,
         realSendName: {
           matchesProjectsMessagesFormat: true,
           projectSegmentMatchesProject: true,
-          messageIdIsNumericString: true,
         },
         dryRunMatchesRealSend: true,
       },
@@ -141,5 +144,34 @@ describe('messaging-send-probes selection and lowercase webpush.headers.ttl prob
     expect(() =>
       assertFcmProbeHttpStatus(503, { error: { code: 503, status: 'UNAVAILABLE' } }),
     ).toThrow(/FCM probe HTTP 503 infrastructure\/IAM failure/);
+  });
+
+  test('extracts stable resource-name facts across unsigned, negative-integer, and opaque message ids', () => {
+    expect(nameFacts('projects/demo-project/messages/9876543210', 'demo-project')).toEqual({
+      matchesProjectsMessagesFormat: true,
+      projectSegmentMatchesProject: true,
+    });
+    expect(nameFacts('projects/demo-project/messages/-4829104829104829104', 'demo-project')).toEqual({
+      matchesProjectsMessagesFormat: true,
+      projectSegmentMatchesProject: true,
+    });
+    expect(
+      nameFacts('projects/demo-project/messages/0:1700000000000000%abcd1234', 'demo-project'),
+    ).toEqual({
+      matchesProjectsMessagesFormat: true,
+      projectSegmentMatchesProject: true,
+    });
+    expect(nameFacts('projects/other-project/messages/9876543210', 'demo-project')).toEqual({
+      matchesProjectsMessagesFormat: true,
+      projectSegmentMatchesProject: false,
+    });
+    expect(nameFacts('projects/demo-project/messages/', 'demo-project')).toEqual({
+      matchesProjectsMessagesFormat: false,
+      projectSegmentMatchesProject: false,
+    });
+    expect(nameFacts('projects/demo-project/messages/extra/segment', 'demo-project')).toEqual({
+      matchesProjectsMessagesFormat: false,
+      projectSegmentMatchesProject: false,
+    });
   });
 });

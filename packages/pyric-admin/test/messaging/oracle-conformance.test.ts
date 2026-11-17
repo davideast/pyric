@@ -88,7 +88,7 @@ function obs(name: string): Record<string, any> {
 }
 
 /** The FCM resource name shape returned by an accepted send / dryRun. */
-const RESOURCE_NAME = /^projects\/[^/]+\/messages\/\d+$/;
+const RESOURCE_NAME = /^projects\/[^/]+\/messages\/[^/]+$/;
 
 /** Pull the `google.firebase.fcm.v1.FcmError` errorCode out of an envelope. */
 function fcmErrorCode(envelope: Record<string, any>): string | undefined {
@@ -240,8 +240,17 @@ const assertions: Record<string, () => Promise<void> | void> = {
     assertEnvelope({ status: lowercaseTtl.nonNumericAbc.realSendStatus, error: lowercaseTtl.nonNumericAbc.realSendError });
     await expectRejectedInvalidArgument({ topic: 'oracle-topic', webpush: { headers: { ttl: '-1' } } });
     await expectRejectedInvalidArgument({ topic: 'oracle-topic', webpush: { headers: { ttl: 'abc' } } });
-    // Documented data cap.
-    expect(obs('messaging-send-oversized-payload-error-envelope').documentedCapBytes).toBe(4096);
+    // Documented data cap and bisected enforcement boundary.
+    const oversized = obs('messaging-send-oversized-payload-error-envelope');
+    expect(oversized.documentedCapBytes).toBe(4096);
+    await expectAccepted({
+      topic: 'oracle-topic',
+      data: { p: 'x'.repeat(oversized.largestAcceptedDataValueLen) },
+    });
+    await expectRejectedInvalidArgument({
+      topic: 'oracle-topic',
+      data: { p: 'x'.repeat(oversized.smallestRejectedDataValueLen) },
+    });
   },
 
   'messaging-admin#5': async () => {

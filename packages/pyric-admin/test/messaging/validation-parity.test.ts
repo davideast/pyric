@@ -399,7 +399,7 @@ for (const arm of ARMS) {
         const sixTopics = `${fiveTopics} && 't6' in topics`;
 
         const acceptedId = await svc.send({ condition: fiveTopics, data: { k: 'ok' } });
-        expect(acceptedId).toMatch(/^projects\/demo-project\/messages\/\d+$/);
+        expect(acceptedId).toMatch(/^projects\/demo-project\/messages\/[^/]+$/);
 
         for (const badCondition of [sixTopics, "'alerts'intopics", "'alerts'in topics", "'alerts' intopics"]) {
           const code = await rejectionCode(() => svc.send({ condition: badCondition }));
@@ -422,7 +422,7 @@ for (const arm of ARMS) {
           { topic: 'alerts', webpush: { headers: { ttl: '60' } }, data: { id: 'dry-60' } },
           true,
         );
-        expect(dryAccepted).toMatch(/^projects\/demo-project\/messages\/\d+$/);
+        expect(dryAccepted).toMatch(/^projects\/demo-project\/messages\/[^/]+$/);
         expect(delivered).toHaveLength(0);
 
         const realAccepted = await svc.send({
@@ -473,6 +473,57 @@ for (const arm of ARMS) {
         }
 
         expect(delivered.map((entry) => entry?.id)).toEqual(['real-60']);
+      } finally {
+        await cleanup();
+      }
+    });
+
+    it('enforces the 4915-byte empirical data cap across send, dryRun, sendEach, and sendEachForMulticast', async () => {
+      const { svc, token, delivered, cleanup } = arm.create();
+      try {
+        const atCapSingle = { p: 'x'.repeat(4914) };
+        const atCapMulti = { ab: 'x'.repeat(2000), cd: 'y'.repeat(2911) };
+        const overCapSingle = { p: 'x'.repeat(4915) };
+        const overCapMulti = { ab: 'x'.repeat(2000), cd: 'y'.repeat(2912) };
+
+        const dryId = await svc.send({ topic: 'alerts', data: atCapSingle }, true);
+        expect(dryId).toMatch(/^projects\/demo-project\/messages\/[^/]+$/);
+        expect(delivered).toHaveLength(0);
+
+        const realId = await svc.send({ token, data: atCapMulti });
+        expect(realId).toMatch(/^projects\/demo-project\/messages\/[0-9a-f-]{36}$/);
+        expect(delivered).toHaveLength(1);
+
+        for (const oversizedData of [overCapSingle, overCapMulti]) {
+          for (const dryRun of [false, true]) {
+            let caught: unknown;
+            try {
+              await svc.send({ topic: 'alerts', data: oversizedData }, dryRun);
+            } catch (err) {
+              caught = err;
+            }
+            expect(caught).toBeInstanceOf(FirebaseMessagingError);
+            expect((caught as FirebaseMessagingError).code).toBe('messaging/invalid-argument');
+            expect((caught as FirebaseMessagingError).message).toBe(
+              'Message is too large. The maximum is 4K (4096 bytes).',
+            );
+          }
+
+          const batchRes = await svc.sendEach([{ topic: 'alerts', data: oversizedData }]);
+          expect(batchRes.successCount).toBe(0);
+          expect(batchRes.failureCount).toBe(1);
+          expect(batchRes.responses[0]?.error?.code).toBe('messaging/invalid-argument');
+
+          const multiRes = await svc.sendEachForMulticast({
+            tokens: [token],
+            data: oversizedData,
+          });
+          expect(multiRes.successCount).toBe(0);
+          expect(multiRes.failureCount).toBe(1);
+          expect(multiRes.responses[0]?.error?.code).toBe('messaging/invalid-argument');
+        }
+
+        expect(delivered).toHaveLength(1);
       } finally {
         await cleanup();
       }

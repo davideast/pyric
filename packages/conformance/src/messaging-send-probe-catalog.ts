@@ -17,7 +17,7 @@ export const MESSAGING_SEND_PROBES: readonly MessagingSendProbeMetadata[] = [
     name: 'messaging-send-topic-accepted',
     rowIds: ['messaging-admin#4', 'messaging-admin#13'],
     description:
-      'firebase-admin/messaging send() to a topic: FCM accepts and returns the message resource name projects/<projectId>/messages/<numeric id>. dryRun=true returns a name in the SAME format (fake id), so callers cannot distinguish validation from acceptance by shape alone.',
+      'firebase-admin/messaging send() to a topic: FCM accepts and returns the message resource name projects/<projectId>/messages/<messageId>. dryRun=true returns a name in the SAME format (fake id), so callers cannot distinguish validation from acceptance by shape alone.',
   },
   {
     name: 'messaging-send-no-target-error-envelope',
@@ -35,7 +35,7 @@ export const MESSAGING_SEND_PROBES: readonly MessagingSendProbeMetadata[] = [
     name: 'messaging-send-condition-accepted',
     rowIds: ['messaging-admin#4', 'messaging-admin#14'],
     description:
-      "firebase-admin/messaging send() with a condition target of the form \"'a' in topics && 'b' in topics\": FCM accepts and returns projects/<projectId>/messages/<numeric id>, the same resource-name shape as a direct topic send, with no subscribers required. dryRun=true returns the same shape.",
+      "firebase-admin/messaging send() with a condition target of the form \"'a' in topics && 'b' in topics\": FCM accepts and returns projects/<projectId>/messages/<messageId>, the same resource-name shape as a direct topic send, with no subscribers required. dryRun=true returns the same shape.",
   },
   {
     name: 'messaging-send-invalid-condition-error-envelope',
@@ -59,7 +59,7 @@ export const MESSAGING_SEND_PROBES: readonly MessagingSendProbeMetadata[] = [
     name: 'messaging-send-notification-only-vs-data-only-accepted',
     rowIds: ['messaging-admin#4', 'messaging-admin#11', 'messaging-admin#16'],
     description:
-      'firebase-admin/messaging send() to a topic with ONLY a notification block, and separately with ONLY a data block: FCM accepts both and returns the same projects/<projectId>/messages/<numeric id> resource-name shape; neither a data nor a notification block is individually required.',
+      'firebase-admin/messaging send() to a topic with ONLY a notification block, and separately with ONLY a data block: FCM accepts both and returns the same projects/<projectId>/messages/<messageId> resource-name shape; neither a data nor a notification block is individually required.',
   },
   {
     name: 'messaging-send-webpush-config-accepted',

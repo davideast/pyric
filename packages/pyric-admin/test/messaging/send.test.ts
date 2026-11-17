@@ -16,9 +16,9 @@ import { getMessagingBroker } from 'pyric/messaging/internal';
 import { deleteApp, getApps, initializeApp } from '../../src/app/index.js';
 import { FirebaseMessagingError, getMessaging, type Messaging } from '../../src/messaging/index.js';
 
-/** `projects/<projectId>/messages/<id>` — numeric id for topic/condition. */
-const NUMERIC_NAME = /^projects\/pyric-sandbox\/messages\/\d+$/;
-/** Token targets mint a UUID-form id, not a numeric one. */
+/** `projects/<projectId>/messages/<messageId>` -- single non-empty segment. */
+const RESOURCE_NAME = /^projects\/pyric-sandbox\/messages\/[^/]+$/;
+/** Token targets mint a UUID-form id. */
 const UUID_NAME = /^projects\/pyric-sandbox\/messages\/[0-9a-f-]{36}$/;
 
 // The registry is module-global (mirror of firebase-admin's defaultAppStore);
@@ -33,17 +33,17 @@ function freshMessaging(): { svc: Messaging; broker: ReturnType<typeof getMessag
   return { svc: getMessaging(app), broker: getMessagingBroker(sandbox) };
 }
 
-describe('send — accept shapes', () => {
-  it('topic target resolves a numeric FCM resource name', async () => {
+describe('send -- accept shapes', () => {
+  it('topic target resolves an FCM resource name', async () => {
     const { svc } = freshMessaging();
     const name = await svc.send({ topic: 'oracle-topic', notification: { title: 't', body: 'b' } });
-    expect(NUMERIC_NAME.test(name)).toBe(true);
+    expect(RESOURCE_NAME.test(name)).toBe(true);
   });
 
-  it('condition target resolves a numeric FCM resource name', async () => {
+  it('condition target resolves an FCM resource name', async () => {
     const { svc } = freshMessaging();
     const name = await svc.send({ condition: "'a' in topics && 'b' in topics", data: { k: 'v' } });
-    expect(NUMERIC_NAME.test(name)).toBe(true);
+    expect(RESOURCE_NAME.test(name)).toBe(true);
   });
 
   it('token target resolves a UUID-form resource name', async () => {
@@ -55,8 +55,8 @@ describe('send — accept shapes', () => {
 
   it('accepts notification-only and data-only messages', async () => {
     const { svc } = freshMessaging();
-    expect(NUMERIC_NAME.test(await svc.send({ topic: 'oracle-topic', notification: { title: 't' } }))).toBe(true);
-    expect(NUMERIC_NAME.test(await svc.send({ topic: 'oracle-topic', data: { k: 'v' } }))).toBe(true);
+    expect(RESOURCE_NAME.test(await svc.send({ topic: 'oracle-topic', notification: { title: 't' } }))).toBe(true);
+    expect(RESOURCE_NAME.test(await svc.send({ topic: 'oracle-topic', data: { k: 'v' } }))).toBe(true);
   });
 
   it('accepts a webpush config with headers.TTL and fcmOptions.link', async () => {
@@ -65,7 +65,7 @@ describe('send — accept shapes', () => {
       topic: 'oracle-topic',
       webpush: { headers: { TTL: '3600' }, fcmOptions: { link: 'https://example.com/oracle' } },
     });
-    expect(NUMERIC_NAME.test(name)).toBe(true);
+    expect(RESOURCE_NAME.test(name)).toBe(true);
   });
 
   it('uses the bound app projectId in returned FCM message resource names', async () => {
@@ -76,13 +76,13 @@ describe('send — accept shapes', () => {
     const svc = getMessaging(app);
 
     const topicName = await svc.send({ topic: 'news', data: { id: '1' } });
-    expect(topicName).toMatch(/^projects\/proj-alpha\/messages\/\d+$/);
+    expect(topicName).toMatch(/^projects\/proj-alpha\/messages\/[^/]+$/);
 
     const tokenName = await svc.send({ token, data: { id: '2' } });
     expect(tokenName).toMatch(/^projects\/proj-alpha\/messages\/[0-9a-f-]{36}$/);
 
     const batch = await svc.sendEach([{ topic: 'news', data: { id: '3' } }]);
-    expect(batch.responses[0]?.messageId).toMatch(/^projects\/proj-alpha\/messages\/\d+$/);
+    expect(batch.responses[0]?.messageId).toMatch(/^projects\/proj-alpha\/messages\/[^/]+$/);
   });
 
   it('rejects operations on a retained Messaging handle after deleteApp(app)', async () => {
@@ -103,13 +103,13 @@ describe('send — accept shapes', () => {
   });
 });
 
-describe('send — dryRun vs real parity', () => {
-  it('dryRun returns the SAME shape as a real send (topic → numeric)', async () => {
+describe('send -- dryRun vs real parity', () => {
+  it('dryRun returns the SAME shape as a real send (topic -> resource name)', async () => {
     const { svc } = freshMessaging();
     const real = await svc.send({ topic: 'oracle-topic' });
     const dry = await svc.send({ topic: 'oracle-topic' }, true);
-    expect(NUMERIC_NAME.test(real)).toBe(true);
-    expect(NUMERIC_NAME.test(dry)).toBe(true);
+    expect(RESOURCE_NAME.test(real)).toBe(true);
+    expect(RESOURCE_NAME.test(dry)).toBe(true);
   });
 
   it('dryRun returns the SAME shape as a real send (token → UUID)', async () => {
@@ -221,9 +221,11 @@ describe('send — wrapped rejection envelopes', () => {
     expect(err.code).toBe('messaging/invalid-argument');
   });
 
-  it('oversized data payload → invalid-argument', async () => {
-    // The broker's empirical enforcement boundary is 4506 summed data bytes.
-    const err = await rejectionOf({ topic: 'oracle-topic', data: { p: 'x'.repeat(4506) } });
+  it('oversized data payload -> invalid-argument above 4915 summed UTF-8 bytes', async () => {
+    const { svc } = freshMessaging();
+    const accepted = await svc.send({ topic: 'oracle-topic', data: { p: 'x'.repeat(4914) } });
+    expect(RESOURCE_NAME.test(accepted)).toBe(true);
+    const err = await rejectionOf({ topic: 'oracle-topic', data: { p: 'x'.repeat(4915) } });
     expect(err.code).toBe('messaging/invalid-argument');
   });
 });

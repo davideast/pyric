@@ -40,11 +40,12 @@ export type ResolvedTarget =
 
 /**
  * An accepted send. `name` is the FCM message resource name:
- * `projects/<projectId>/messages/<id>` where `<id>` is NUMERIC for topic and
- * condition targets and UUID-form for token targets (per-target formats are
- * part of the captured/spec'd contract). Shape-identical for dryRun — the
- * capture pins that callers cannot distinguish validation from acceptance
- * by shape (`dryRunSameShapeAsReal`).
+ * `projects/<projectId>/messages/<id>` where `<id>` is a non-empty single path
+ * segment (the sandbox mints decimal-integer strings for topic/condition
+ * targets and UUID-form strings for token targets; production topic/condition
+ * ids are opaque non-slash segments not guaranteed to be unsigned digits).
+ * Shape-identical for dryRun -- the capture pins that callers cannot
+ * distinguish validation from acceptance by shape (`dryRunSameShapeAsReal`).
  */
 export interface AcceptedSend {
   name: string;

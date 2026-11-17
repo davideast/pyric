@@ -37,7 +37,7 @@
  *        `messaging-web-deletetoken-unregistered.json`)
  *      - `webpush.headers.TTL` non-negative integer digits
  *        (`messaging-send-webpush-invalid-ttl-error-envelope.json`)
- *      - empirical `data` payload byte cap (`4506` UTF-8 key+value bytes,
+ *      - empirical `data` payload byte cap (`4915` UTF-8 key+value bytes,
  *        `messaging-send-oversized-payload-error-envelope.json`)
  *
  * 3. Documented CDD wire-observation vs client-SDK code notes:
@@ -102,7 +102,7 @@ interface HttpStubResponse {
 const WIRE_TOPIC_CHAR_RE = /^[a-zA-Z0-9-_.~%]+$/;
 const WIRE_TOKEN_SHAPE_RE = /^[A-Za-z0-9_-]+:[A-Za-z0-9_-]+$/;
 const WIRE_MAX_CONDITION_CLAUSES = 5;
-const WIRE_EMPIRICAL_DATA_CAP_BYTES = 4506;
+const WIRE_EMPIRICAL_DATA_CAP_BYTES = 4915;
 
 /**
  * Independent server-side FCM v1 condition grammar recognizer for requests that
