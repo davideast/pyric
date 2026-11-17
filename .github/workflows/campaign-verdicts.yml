@@ -1,13 +1,17 @@
-# Evaluates SHA-pinned two-axis Advisor campaign review verdicts on open pull
-# requests targeting `main` and adds the `merge-queue` label when both `spec`
-# and `standards` carry a trusted `MERGE` verdict (`OWNER`, `MEMBER`, or
-# `COLLABORATOR`) for the current head SHA with no subsequent `FIX` verdict.
+# Reconciles SHA-pinned two-axis Advisor campaign review verdicts on open pull
+# requests targeting `main`:
+#   - Adds `merge-queue` and dispatches `merge-queue.yml` when both `spec` and
+#     `standards` carry a trusted non-bot `MERGE` verdict (`OWNER`, `MEMBER`, or
+#     `COLLABORATOR`) for the current head SHA with no later `FIX` verdict.
+#   - Removes `merge-queue` and dispatches `merge-queue.yml` when a pull request
+#     with campaign-verdict history receives a new commit (`synchronize`), a
+#     subsequent `FIX` verdict, a verdict edit/deletion, draft conversion, or
+#     base-branch retargeting, while leaving manually labeled non-campaign pull
+#     requests untouched.
 #
 # Never checks out or executes pull request code: `actions/checkout@v4` pins
 # `ref: main` with `persist-credentials: false`, and all event inputs enter via
 # `env:` rather than inline `${{ }}` shell interpolation.
-# `.github/workflows/merge-queue.yml` waits for `CI / required` on the pull
-# request head before staging or landing.
 
 name: Campaign verdicts
 
@@ -15,7 +19,7 @@ on:
   issue_comment:
     types: [created, edited, deleted]
   pull_request:
-    types: [synchronize, ready_for_review, reopened]
+    types: [synchronize, ready_for_review, reopened, converted_to_draft, edited]
 
 permissions:
   contents: read
@@ -31,6 +35,7 @@ jobs:
       (github.event_name == 'issue_comment' &&
        github.event.issue.pull_request != null &&
        github.event.issue.state == 'open' &&
+       github.event.comment.user.type != 'Bot' &&
        (contains(github.event.comment.body, 'campaign-verdict') ||
         contains(github.event.changes.body.from, 'campaign-verdict')) &&
        (github.event.comment.author_association == 'OWNER' ||
@@ -38,12 +43,15 @@ jobs:
         github.event.comment.author_association == 'COLLABORATOR')) ||
       (github.event_name == 'pull_request' &&
        github.event.pull_request.state == 'open' &&
-       github.event.pull_request.draft == false &&
-       github.event.pull_request.base.ref == 'main' &&
-       github.event.pull_request.head.repo.full_name == github.repository)
+       github.event.pull_request.head.repo.full_name == github.repository &&
+       (github.event.action != 'edited' || github.event.changes.base != null) &&
+       (contains(github.event.pull_request.labels.*.name, 'merge-queue') ||
+        (github.event.pull_request.draft == false &&
+         github.event.pull_request.base.ref == 'main')))
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
+      actions: write
       contents: read
       issues: write
       pull-requests: write

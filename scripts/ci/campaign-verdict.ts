@@ -4,26 +4,21 @@
 // Print only:
 //   bun scripts/ci/campaign-verdict.ts --axis spec --verdict MERGE --sha <40-hex> --summary "All checks passed."
 //
-// Post to a pull request via `gh api`:
+// Post to a pull request via `gh api` (requires OWNER, MEMBER, or COLLABORATOR user token):
 //   bun scripts/ci/campaign-verdict.ts --pr 123 --repo davideast/pyric --axis spec --verdict MERGE --sha <40-hex> --summary-file review.md
 
 import { spawnSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-
-export type CampaignAxis = 'spec' | 'standards';
-export type CampaignVerdict = 'MERGE' | 'FIX';
-
-export interface VerdictMarkerInput {
-  axis: CampaignAxis;
-  verdict: CampaignVerdict;
-  sha: string;
-}
-
-export interface VerdictCommentInput extends VerdictMarkerInput {
-  summary: string;
-}
+import {
+  assertValidAxis,
+  assertValidVerdict,
+  formatVerdictComment,
+  normalizeCommitSha,
+  type CampaignAxis,
+  type CampaignVerdict,
+} from './campaign-verdict-markers.ts';
 
 export interface ParsedVerdictCliArgs {
   axis: CampaignAxis;
@@ -49,65 +44,7 @@ export interface VerdictCliResult {
   commentUrl?: string;
 }
 
-const VALID_AXES: ReadonlySet<string> = new Set(['spec', 'standards']);
-const VALID_VERDICTS: ReadonlySet<string> = new Set(['MERGE', 'FIX']);
-const FULL_HEX_SHA = /^[0-9a-f]{40}$/i;
-const PLAIN_ASCII = /^[\x00-\x7f]*$/;
 const REPO_NAME = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
-
-export function normalizeCommitSha(sha: string): string {
-  const trimmed = sha.trim();
-  if (!FULL_HEX_SHA.test(trimmed)) {
-    throw new Error(`Expected a 40-character hex commit SHA, received "${sha}".`);
-  }
-  return trimmed.toLowerCase();
-}
-
-function assertValidAxis(axis: string): asserts axis is CampaignAxis {
-  if (!VALID_AXES.has(axis)) {
-    throw new Error(`Expected --axis to be "spec" or "standards", received "${axis}".`);
-  }
-}
-
-function assertValidVerdict(verdict: string): asserts verdict is CampaignVerdict {
-  if (!VALID_VERDICTS.has(verdict)) {
-    throw new Error(`Expected --verdict to be "MERGE" or "FIX", received "${verdict}".`);
-  }
-}
-
-function assertValidSummary(summary: string): string {
-  const trimmed = summary.trim();
-  if (trimmed.length === 0) {
-    throw new Error('Verdict summary must not be empty.');
-  }
-  if (!PLAIN_ASCII.test(trimmed)) {
-    throw new Error('Verdict summary must contain only plain ASCII characters (<= 127).');
-  }
-  if (trimmed.includes('<!--') || trimmed.includes('-->')) {
-    throw new Error('Verdict summary must not contain HTML comment delimiters.');
-  }
-  return trimmed;
-}
-
-export function formatVerdictMarker(input: VerdictMarkerInput): string {
-  assertValidAxis(input.axis);
-  assertValidVerdict(input.verdict);
-  const sha = normalizeCommitSha(input.sha);
-  return `<!-- campaign-verdict axis=${input.axis} verdict=${input.verdict} sha=${sha} -->`;
-}
-
-export function formatVerdictComment(input: VerdictCommentInput): string {
-  const marker = formatVerdictMarker(input);
-  const sha = normalizeCommitSha(input.sha);
-  const summary = assertValidSummary(input.summary);
-  return [
-    `**Campaign review (\`${input.axis}\`):** \`${input.verdict}\` at \`${sha}\``,
-    '',
-    summary,
-    '',
-    marker,
-  ].join('\n');
-}
 
 export function parsePositiveInteger(raw: string | undefined, label: string): number {
   const parsed = Number(raw);
@@ -137,6 +74,14 @@ export function resolveDefaultRepo(
   return undefined;
 }
 
+export function resolveTempRoot(env: Readonly<Record<string, string | undefined>>): string {
+  const runnerTemp = env.RUNNER_TEMP;
+  if (runnerTemp !== undefined && runnerTemp.trim() !== '') {
+    return runnerTemp.trim();
+  }
+  return tmpdir();
+}
+
 function splitFlagName(token: string): string {
   const equalOffset = token.indexOf('=');
   if (equalOffset === -1) return token;
@@ -155,7 +100,12 @@ export function runGhCommand(args: readonly string[]): string {
   }
   return out.stdout;
 }
-function readFlagValue(argv: readonly string[], index: number, flag: string): { value: string; nextIndex: number } {
+
+function readFlagValue(
+  argv: readonly string[],
+  index: number,
+  flag: string,
+): { value: string; nextIndex: number } {
   const equalOffset = flag.indexOf('=');
   if (equalOffset !== -1) {
     return { value: flag.slice(equalOffset + 1), nextIndex: index };
@@ -242,7 +192,7 @@ export function runVerdictCli(args: ParsedVerdictCliArgs, io: VerdictCliIo): Ver
   let summaryText = args.summary;
   if (summaryText === undefined) {
     if (args.summaryFile === undefined) {
-      throw new Error('Pass either --summary <text> or --summary-file <path>.');
+      throw new Error('Pass either --summary or --summary-file.');
     }
     summaryText = io.readText(args.summaryFile);
   }
@@ -282,7 +232,9 @@ function defaultIo(): VerdictCliIo {
     gh: (args) => runGhCommand(args),
     readText: (path) => readFileSync(path, 'utf8'),
     withBodyFile: (body, fn) => {
-      const dir = mkdtempSync(join(process.env.RUNNER_TEMP ?? tmpdir(), 'campaign-verdict-'));
+      const tempRoot = resolveTempRoot(process.env);
+      const prefix = join(tempRoot, 'campaign-verdict-');
+      const dir = mkdtempSync(prefix);
       try {
         const bodyFile = join(dir, 'verdict-comment.md');
         writeFileSync(bodyFile, body, 'utf8');

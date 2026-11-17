@@ -1,19 +1,21 @@
 #!/usr/bin/env bun
-// Evaluates SHA-pinned two-axis Advisor campaign review verdicts on a pull
-// request and adds the `merge-queue` label only when both `spec` and
-// `standards` carry a trusted `MERGE` verdict for the current head SHA with no
-// later `FIX` verdict.
+// Reconciles SHA-pinned two-axis Advisor campaign review verdicts on a pull
+// request (`add-label`, `remove-label`, or `noop` for `merge-queue`) and
+// dispatches `merge-queue.yml` whenever `merge-queue` is added or removed.
 
-import { appendFileSync } from 'node:fs';
+import { appendFileSync, readFileSync } from 'node:fs';
 import {
-  formatErrorMessage,
   normalizeCommitSha,
-  parsePositiveInteger,
-  resolveDefaultRepo,
-  runGhCommand,
+  parseCommentVerdictTokens,
   type CampaignAxis,
   type CampaignVerdict,
   type VerdictMarkerInput,
+} from './campaign-verdict-markers.ts';
+import {
+  formatErrorMessage,
+  parsePositiveInteger,
+  resolveDefaultRepo,
+  runGhCommand,
 } from './campaign-verdict.ts';
 import { QUEUE_LABEL } from './merge-queue.ts';
 
@@ -23,7 +25,9 @@ export const TRUSTED_AUTHOR_ASSOCIATIONS: ReadonlySet<string> = new Set([
   'COLLABORATOR',
 ]);
 
+const MERGE_QUEUE_WORKFLOW = 'merge-queue.yml';
 const DEFAULT_MAX_COMMENT_PAGES = 50;
+const LABEL_NOT_FOUND = /\b404\b|label does not exist/i;
 
 export interface CampaignPullState {
   number: number;
@@ -38,6 +42,9 @@ export interface CampaignPullState {
 export interface CampaignComment {
   id: number;
   authorAssociation: string;
+  userType?: string;
+  updatedAt?: string;
+  createdAt?: string;
   body: string;
 }
 
@@ -45,21 +52,26 @@ export interface CampaignVerdictFacts {
   repo: string;
   pull: CampaignPullState;
   comments: readonly CampaignComment[];
+  triggerHadTrustedVerdict?: boolean;
 }
+
+export type CampaignDecisionAction = 'add-label' | 'remove-label' | 'noop';
 
 export type CampaignDecisionReason =
   | 'ready'
+  | 'already-labeled'
   | 'not-open'
   | 'wrong-base'
   | 'fork-pull-request'
   | 'draft'
-  | 'already-labeled'
+  | 'malformed-verdict'
   | 'fix-verdict'
   | 'missing-verdict';
 
 export interface CampaignVerdictDecision {
-  shouldLabel: boolean;
+  action: CampaignDecisionAction;
   reason: CampaignDecisionReason;
+  hasTrustedVerdictHistory: boolean;
   headSha: string;
   latestByAxis: {
     spec: CampaignVerdict | undefined;
@@ -67,6 +79,7 @@ export interface CampaignVerdictDecision {
   };
   staleVerdictCount: number;
   untrustedVerdictCount: number;
+  malformedVerdictCount: number;
 }
 
 export interface CampaignVerdictsIo {
@@ -87,77 +100,28 @@ interface PullApiResponse {
 interface CommentApiItem {
   id: number;
   author_association?: string | null;
+  user?: { type?: string | null } | null;
+  updated_at?: string | null;
+  created_at?: string | null;
   body?: string | null;
 }
 
-const STANDALONE_MARKER =
-  /^ {0,3}<!--\s*campaign-verdict\s+axis=(spec|standards)\s+verdict=(MERGE|FIX)\s+sha=([0-9a-fA-F]{40})\s*-->[ \t]*$/;
-const FENCE_OPEN = /^ {0,3}(`{3,}|~{3,})(.*)$/;
-
-function closingFenceMatches(line: string, fenceChar: string, fenceLength: number): boolean {
-  if (line.startsWith('    ')) return false;
-  const trimmedStart = line.replace(/^ {0,3}/, '');
-  let runLength = 0;
-  while (runLength < trimmedStart.length && trimmedStart[runLength] === fenceChar) {
-    runLength++;
-  }
-  if (runLength < fenceLength) return false;
-  const trailing = trimmedStart.slice(runLength);
-  return /^[ \t]*$/.test(trailing);
-}
-
-export function parseVerdictMarkers(body: string): VerdictMarkerInput[] {
-  const markers: VerdictMarkerInput[] = [];
-  const lines = body.replace(/\r\n/g, '\n').split('\n');
-  let activeFence: { char: string; length: number } | undefined;
-
-  for (const line of lines) {
-    if (activeFence !== undefined) {
-      if (closingFenceMatches(line, activeFence.char, activeFence.length)) {
-        activeFence = undefined;
-      }
-      continue;
-    }
-
-    const fenceMatch = FENCE_OPEN.exec(line);
-    if (fenceMatch !== null) {
-      const delimiter = fenceMatch[1] ?? '';
-      const info = fenceMatch[2] ?? '';
-      const fenceChar = delimiter[0] ?? '';
-      const backtickFenceWithInlineTick = fenceChar === '`' && info.includes('`');
-      if (!backtickFenceWithInlineTick && fenceChar !== '') {
-        activeFence = { char: fenceChar, length: delimiter.length };
-        continue;
-      }
-    }
-
-    const match = STANDALONE_MARKER.exec(line);
-    if (match === null) continue;
-    const axis = match[1] as CampaignAxis;
-    const verdict = match[2] as CampaignVerdict;
-    const sha = normalizeCommitSha(match[3] ?? '');
-    markers.push({ axis, verdict, sha });
-  }
-
-  return markers;
+interface IssueCommentEventPayload {
+  action?: string;
+  comment?: {
+    author_association?: string | null;
+    user?: { type?: string | null } | null;
+    body?: string | null;
+  } | null;
+  changes?: {
+    body?: {
+      from?: string | null;
+    } | null;
+  } | null;
 }
 
 function emptyAxisState(): CampaignVerdictDecision['latestByAxis'] {
   return { spec: undefined, standards: undefined };
-}
-
-function earlyReject(
-  reason: Exclude<CampaignDecisionReason, 'ready' | 'fix-verdict' | 'missing-verdict'>,
-  headSha: string,
-): CampaignVerdictDecision {
-  return {
-    shouldLabel: false,
-    reason,
-    headSha,
-    latestByAxis: emptyAxisState(),
-    staleVerdictCount: 0,
-    untrustedVerdictCount: 0,
-  };
 }
 
 function isSameRepo(headRepoFullName: string, targetRepo: string): boolean {
@@ -165,68 +129,174 @@ function isSameRepo(headRepoFullName: string, targetRepo: string): boolean {
   return headRepoFullName.toLowerCase() === targetRepo.toLowerCase();
 }
 
+function isTrustedHumanAuthor(
+  authorAssociation: string,
+  userType: string | undefined,
+): boolean {
+  if (userType !== undefined && userType.toLowerCase() === 'bot') {
+    return false;
+  }
+  return TRUSTED_AUTHOR_ASSOCIATIONS.has(authorAssociation);
+}
+
+function commentTimestampMs(comment: CampaignComment): number {
+  const rawTimestamp = comment.updatedAt ?? comment.createdAt;
+  if (rawTimestamp === undefined || rawTimestamp === '') return 0;
+  const parsed = Date.parse(rawTimestamp);
+  if (Number.isNaN(parsed)) return 0;
+  return parsed;
+}
+
+function compareCommentsChronologically(
+  left: CampaignComment,
+  right: CampaignComment,
+): number {
+  const delta = commentTimestampMs(left) - commentTimestampMs(right);
+  if (delta !== 0) return delta;
+  return left.id - right.id;
+}
+
+function resolveSingleCommentAxisVerdict(
+  markers: readonly VerdictMarkerInput[],
+  axis: CampaignAxis,
+): CampaignVerdict | undefined {
+  let sawMerge = false;
+  for (const marker of markers) {
+    if (marker.axis !== axis) continue;
+    if (marker.verdict === 'FIX') return 'FIX';
+    sawMerge = true;
+  }
+  if (sawMerge) return 'MERGE';
+  return undefined;
+}
+
+function containsAnyVerdictToken(body: string): boolean {
+  const parsed = parseCommentVerdictTokens(body);
+  return parsed.markers.length + parsed.malformedMarkers.length > 0;
+}
+
+export function detectTrustedTriggerVerdict(
+  eventName: string | undefined,
+  eventPayload: unknown,
+): boolean {
+  if (eventName !== 'issue_comment') return false;
+  if (typeof eventPayload !== 'object' || eventPayload === null) return false;
+  const payload = eventPayload as IssueCommentEventPayload;
+  if (payload.action !== 'edited' && payload.action !== 'deleted') return false;
+  const comment = payload.comment;
+  if (comment === null || comment === undefined) return false;
+  const association = comment.author_association ?? '';
+  const userType = comment.user?.type ?? undefined;
+  if (!isTrustedHumanAuthor(association, userType)) return false;
+  const currentBody = comment.body ?? '';
+  const previousBody = payload.changes?.body?.from ?? '';
+  return containsAnyVerdictToken(currentBody) || containsAnyVerdictToken(previousBody);
+}
+
+function decideIneligibleAction(
+  currentlyLabeled: boolean,
+  hasTrustedVerdictHistory: boolean,
+  isOpen: boolean,
+): CampaignDecisionAction {
+  if (!isOpen) return 'noop';
+  if (currentlyLabeled && hasTrustedVerdictHistory) return 'remove-label';
+  return 'noop';
+}
+
 export function evaluateCampaignVerdicts(facts: CampaignVerdictFacts): CampaignVerdictDecision {
   const headSha = normalizeCommitSha(facts.pull.headSha);
-  if (facts.pull.state !== 'open') return earlyReject('not-open', headSha);
-  if (facts.pull.baseRef !== 'main') return earlyReject('wrong-base', headSha);
-  if (!isSameRepo(facts.pull.headRepoFullName, facts.repo)) {
-    return earlyReject('fork-pull-request', headSha);
-  }
-  if (facts.pull.isDraft) return earlyReject('draft', headSha);
-  if (facts.pull.labels.includes(QUEUE_LABEL)) return earlyReject('already-labeled', headSha);
-
-  const orderedComments = [...facts.comments].sort((left, right) => left.id - right.id);
+  const orderedComments = [...facts.comments].sort(compareCommentsChronologically);
   const latestByAxis = emptyAxisState();
   let staleVerdictCount = 0;
   let untrustedVerdictCount = 0;
+  let malformedVerdictCount = 0;
+  let trustedVerdictTokenCount = 0;
 
   for (const comment of orderedComments) {
-    const markers = parseVerdictMarkers(comment.body);
-    if (markers.length === 0) continue;
-    if (!TRUSTED_AUTHOR_ASSOCIATIONS.has(comment.authorAssociation)) {
-      untrustedVerdictCount += markers.length;
+    const tokens = parseCommentVerdictTokens(comment.body);
+    const totalTokens = tokens.markers.length + tokens.malformedMarkers.length;
+    if (totalTokens === 0) continue;
+
+    if (!isTrustedHumanAuthor(comment.authorAssociation, comment.userType)) {
+      untrustedVerdictCount += totalTokens;
       continue;
     }
-    for (const marker of markers) {
+
+    trustedVerdictTokenCount += totalTokens;
+    malformedVerdictCount += tokens.malformedMarkers.length;
+
+    const headMarkers: VerdictMarkerInput[] = [];
+    for (const marker of tokens.markers) {
       if (marker.sha !== headSha) {
         staleVerdictCount++;
-        continue;
+      } else {
+        headMarkers.push(marker);
       }
-      latestByAxis[marker.axis] = marker.verdict;
     }
+
+    const specVerdict = resolveSingleCommentAxisVerdict(headMarkers, 'spec');
+    if (specVerdict !== undefined) latestByAxis.spec = specVerdict;
+    const standardsVerdict = resolveSingleCommentAxisVerdict(headMarkers, 'standards');
+    if (standardsVerdict !== undefined) latestByAxis.standards = standardsVerdict;
   }
 
-  const hasFix = latestByAxis.spec === 'FIX' || latestByAxis.standards === 'FIX';
-  if (hasFix) {
+  const hasTrustedVerdictHistory =
+    trustedVerdictTokenCount > 0 || facts.triggerHadTrustedVerdict === true;
+  const currentlyLabeled = facts.pull.labels.includes(QUEUE_LABEL);
+  const isOpen = facts.pull.state === 'open';
+
+  let ineligibleReason: Exclude<CampaignDecisionReason, 'ready' | 'already-labeled'> | undefined;
+  if (!isOpen) {
+    ineligibleReason = 'not-open';
+  } else if (!isSameRepo(facts.pull.headRepoFullName, facts.repo)) {
+    ineligibleReason = 'fork-pull-request';
+  } else if (facts.pull.baseRef !== 'main') {
+    ineligibleReason = 'wrong-base';
+  } else if (facts.pull.isDraft) {
+    ineligibleReason = 'draft';
+  } else if (malformedVerdictCount > 0) {
+    ineligibleReason = 'malformed-verdict';
+  } else if (latestByAxis.spec === 'FIX' || latestByAxis.standards === 'FIX') {
+    ineligibleReason = 'fix-verdict';
+  } else if (latestByAxis.spec !== 'MERGE' || latestByAxis.standards !== 'MERGE') {
+    ineligibleReason = 'missing-verdict';
+  }
+
+  if (ineligibleReason !== undefined) {
     return {
-      shouldLabel: false,
-      reason: 'fix-verdict',
+      action: decideIneligibleAction(currentlyLabeled, hasTrustedVerdictHistory, isOpen),
+      reason: ineligibleReason,
+      hasTrustedVerdictHistory,
       headSha,
       latestByAxis,
       staleVerdictCount,
       untrustedVerdictCount,
+      malformedVerdictCount,
     };
   }
 
-  const bothApproved = latestByAxis.spec === 'MERGE' && latestByAxis.standards === 'MERGE';
-  if (!bothApproved) {
+  if (currentlyLabeled) {
     return {
-      shouldLabel: false,
-      reason: 'missing-verdict',
+      action: 'noop',
+      reason: 'already-labeled',
+      hasTrustedVerdictHistory,
       headSha,
       latestByAxis,
       staleVerdictCount,
       untrustedVerdictCount,
+      malformedVerdictCount,
     };
   }
 
   return {
-    shouldLabel: true,
+    action: 'add-label',
     reason: 'ready',
+    hasTrustedVerdictHistory,
     headSha,
     latestByAxis,
     staleVerdictCount,
     untrustedVerdictCount,
+    malformedVerdictCount,
   };
 }
 
@@ -259,17 +329,50 @@ function fetchPullComments(
     const raw = io.gh(['api', `repos/${io.repo}/issues/${prNumber}/comments?${pageQuery(page)}`]);
     const batch = JSON.parse(raw) as CommentApiItem[];
     for (const item of batch) {
-      comments.push({
+      const entry: CampaignComment = {
         id: item.id,
         authorAssociation: item.author_association ?? '',
         body: item.body ?? '',
-      });
+      };
+      const userType = item.user?.type;
+      if (userType !== undefined && userType !== null) entry.userType = userType;
+      if (item.updated_at !== undefined && item.updated_at !== null) {
+        entry.updatedAt = item.updated_at;
+      }
+      if (item.created_at !== undefined && item.created_at !== null) {
+        entry.createdAt = item.created_at;
+      }
+      comments.push(entry);
     }
     if (batch.length < 100) return comments;
   }
   throw new Error(
     `Refusing to evaluate truncated comment history on PR #${prNumber} (> ${maxPages * 100} comments).`,
   );
+}
+
+function dispatchMergeQueue(io: CampaignVerdictsIo): void {
+  io.gh([
+    'workflow',
+    'run',
+    MERGE_QUEUE_WORKFLOW,
+    '--repo',
+    io.repo,
+    '--ref',
+    'main',
+    '-f',
+    'dry_run=false',
+  ]);
+}
+
+function removeQueueLabel(io: CampaignVerdictsIo, prNumber: number): void {
+  try {
+    io.gh(['api', '-X', 'DELETE', `repos/${io.repo}/issues/${prNumber}/labels/${QUEUE_LABEL}`]);
+  } catch (error) {
+    if (!LABEL_NOT_FOUND.test(formatErrorMessage(error))) {
+      throw error;
+    }
+  }
 }
 
 function formatDecisionSummary(
@@ -279,44 +382,91 @@ function formatDecisionSummary(
 ): string {
   const specState = decision.latestByAxis.spec ?? 'none';
   const standardsState = decision.latestByAxis.standards ?? 'none';
-  if (decision.shouldLabel) {
-    let actionText = `Added ${QUEUE_LABEL}`;
-    if (dryRun) {
-      actionText = `Dry run: would add ${QUEUE_LABEL}`;
-    }
-    return `${actionText} to #${prNumber} at ${decision.headSha} (spec=${specState}, standards=${standardsState}).`;
+  if (decision.action === 'add-label') {
+    let prefix = `Added ${QUEUE_LABEL}`;
+    if (dryRun) prefix = `Dry run: would add ${QUEUE_LABEL}`;
+    return `${prefix} to #${prNumber} at ${decision.headSha} (spec=${specState}, standards=${standardsState}).`;
   }
-  return `Skipped ${QUEUE_LABEL} on #${prNumber} at ${decision.headSha}: ${decision.reason} (spec=${specState}, standards=${standardsState}, stale=${decision.staleVerdictCount}, untrusted=${decision.untrustedVerdictCount}).`;
+  if (decision.action === 'remove-label') {
+    let prefix = `Removed ${QUEUE_LABEL}`;
+    if (dryRun) prefix = `Dry run: would remove ${QUEUE_LABEL}`;
+    return `${prefix} from #${prNumber} at ${decision.headSha}: ${decision.reason} (spec=${specState}, standards=${standardsState}, stale=${decision.staleVerdictCount}).`;
+  }
+  return `No label change on #${prNumber} at ${decision.headSha}: ${decision.reason} (spec=${specState}, standards=${standardsState}, stale=${decision.staleVerdictCount}, untrusted=${decision.untrustedVerdictCount}, malformed=${decision.malformedVerdictCount}).`;
 }
 
 export function reconcileCampaignVerdicts(
   io: CampaignVerdictsIo,
   prNumber: number,
-  options: { dryRun?: boolean; maxCommentPages?: number } = {},
+  options: {
+    dryRun?: boolean;
+    maxCommentPages?: number;
+    triggerHadTrustedVerdict?: boolean;
+  } = {},
 ): CampaignVerdictDecision {
   const dryRun = options.dryRun === true;
   const maxPages = options.maxCommentPages ?? DEFAULT_MAX_COMMENT_PAGES;
+  const triggerHadTrustedVerdict = options.triggerHadTrustedVerdict === true;
   const pull = fetchPullState(io, prNumber);
-  const precheck = evaluateCampaignVerdicts({ repo: io.repo, pull, comments: [] });
-  if (precheck.reason !== 'missing-verdict') {
-    io.log(formatDecisionSummary(prNumber, precheck, dryRun));
-    return precheck;
+
+  // An unlabeled or closed PR that already fails structural PR gates needs neither
+  // add-label nor remove-label, so comment pagination can be skipped safely.
+  const canSkipComments =
+    pull.state !== 'open'
+    || (!pull.labels.includes(QUEUE_LABEL)
+      && (!isSameRepo(pull.headRepoFullName, io.repo) || pull.baseRef !== 'main' || pull.isDraft));
+  if (canSkipComments) {
+    const early = evaluateCampaignVerdicts({
+      repo: io.repo,
+      pull,
+      comments: [],
+      triggerHadTrustedVerdict,
+    });
+    io.log(formatDecisionSummary(prNumber, early, dryRun));
+    return early;
   }
 
   const comments = fetchPullComments(io, prNumber, maxPages);
-  const decision = evaluateCampaignVerdicts({ repo: io.repo, pull, comments });
-  if (decision.shouldLabel && !dryRun) {
-    io.gh([
-      'api',
-      '-X',
-      'POST',
-      `repos/${io.repo}/issues/${prNumber}/labels`,
-      '-f',
-      `labels[]=${QUEUE_LABEL}`,
-    ]);
+  const decision = evaluateCampaignVerdicts({
+    repo: io.repo,
+    pull,
+    comments,
+    triggerHadTrustedVerdict,
+  });
+
+  if (!dryRun) {
+    if (decision.action === 'add-label') {
+      io.gh([
+        'api',
+        '-X',
+        'POST',
+        `repos/${io.repo}/issues/${prNumber}/labels`,
+        '-f',
+        `labels[]=${QUEUE_LABEL}`,
+      ]);
+      dispatchMergeQueue(io);
+    } else if (decision.action === 'remove-label') {
+      removeQueueLabel(io, prNumber);
+      dispatchMergeQueue(io);
+    }
   }
+
   io.log(formatDecisionSummary(prNumber, decision, dryRun));
   return decision;
+}
+
+function readTriggerVerdictFromEnv(env: Readonly<Record<string, string | undefined>>): boolean {
+  const eventName = env.GITHUB_EVENT_NAME;
+  const eventPath = env.GITHUB_EVENT_PATH;
+  if (eventName !== 'issue_comment' || eventPath === undefined || eventPath.trim() === '') {
+    return false;
+  }
+  try {
+    const raw = readFileSync(eventPath, 'utf8');
+    return detectTrustedTriggerVerdict(eventName, JSON.parse(raw));
+  } catch {
+    return false;
+  }
 }
 
 function defaultIo(repo: string): CampaignVerdictsIo {
@@ -339,7 +489,11 @@ if (import.meta.main) {
     }
     const prNumber = parsePositiveInteger(process.env.PR_NUMBER, 'PR_NUMBER');
     const dryRun = process.env.DRY_RUN === 'true';
-    reconcileCampaignVerdicts(defaultIo(repo), prNumber, { dryRun });
+    const triggerHadTrustedVerdict = readTriggerVerdictFromEnv(process.env);
+    reconcileCampaignVerdicts(defaultIo(repo), prNumber, {
+      dryRun,
+      triggerHadTrustedVerdict,
+    });
   } catch (error) {
     console.error(formatErrorMessage(error));
     process.exit(2);

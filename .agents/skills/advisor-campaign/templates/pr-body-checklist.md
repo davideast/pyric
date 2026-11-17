@@ -3,35 +3,50 @@
 Use this checklist only **after** independent `Spec` and `Standards` reviews
 both return `MERGE` on the slice's local commit.
 
-## 1. Push and open sequence
+## 1. Rebase, push, and open sequence
 
-1. If `origin/main` advanced across overlapping files or shared baselines,
-   `git fetch origin main && git rebase origin/main`, regenerate any derived
-   artifacts, and re-run affected gates so the reviewed tree is verified on
-   latest `origin/main`.
+1. **Rebase onto latest `origin/main` before pushing** whenever sibling PRs
+   have landed on `main` (`git fetch origin main && git rebase origin/main`),
+   then re-run affected gates so cross-PR semantic interactions are caught
+   locally before `merge-queue/staging`.
+   - Prefer rebasing *before* final two-axis review whenever overlapping files
+     or shared baselines moved.
+   - Because rebasing rewrites the commit SHA (`<reviewed-sha>` ->
+     `<rebased-sha>`), if you rebase mechanically *after* review, confirm zero
+     conflicts, an empty `git range-diff <old-base>..<reviewed-sha> origin/main..<rebased-sha>`,
+     and green post-rebase gates, then post verdicts for `<rebased-sha>`. If any
+     conflict was resolved, any baseline/projection was regenerated, or any hunk
+     changed, run an incremental `Spec` + `Standards` re-check on `<rebased-sha>`
+     before pushing.
 2. Push the branch: `git push -u origin <branch-name>`.
 3. Open the pull request against `main` **without** manually adding the
    `merge-queue` label (`gh pr create --repo <owner/repo> --base main --head <branch-name> --title "<title>" --body-file <body-file>`).
+   When updating an existing PR body later, use REST
+   (`gh api -X PATCH 'repos/{owner}/{repo}/pulls/<pr>' -F body=@<body-file>`),
+   because `gh pr edit` is broken on this repository.
 4. Verify `0` non-ASCII bytes (`<= 127`) in the live title and body:
    ```sh
    gh pr view <pr-number> --repo <owner/repo> --json title,body \
      | LC_ALL=C grep -v '^[ -~	]*$' && exit 1 || true
    ```
-5. Post both SHA-pinned `MERGE` verdicts for the exact 40-char `HEAD` SHA:
+5. Post both SHA-pinned `MERGE` verdicts for the PR's pushed 40-char `HEAD` SHA
+   using an `OWNER`, `MEMBER`, or `COLLABORATOR` user token (never
+   `GITHUB_TOKEN` or a bot token, which `campaign-verdicts.ts` ignores):
    ```sh
    bun scripts/ci/campaign-verdict.ts \
      --pr <pr-number> --repo <owner/repo> \
-     --axis spec --verdict MERGE --sha <40-char-head-sha> \
+     --axis spec --verdict MERGE --sha <40-char-pr-head-sha> \
      --summary "<plain-ASCII Spec summary>"
 
    bun scripts/ci/campaign-verdict.ts \
      --pr <pr-number> --repo <owner/repo> \
-     --axis standards --verdict MERGE --sha <40-char-head-sha> \
+     --axis standards --verdict MERGE --sha <40-char-pr-head-sha> \
      --summary "<plain-ASCII Standards summary>"
    ```
-   `.github/workflows/campaign-verdicts.yml` validates both trusted SHA-pinned
-   `MERGE` markers and adds `merge-queue`, and `.github/workflows/merge-queue.yml`
-   waits for `CI / required` before staging and landing.
+   `.github/workflows/campaign-verdicts.yml` validates both trusted non-bot
+   SHA-pinned `MERGE` markers, adds `merge-queue`, and dispatches
+   `merge-queue.yml --ref main -f dry_run=false` (which waits for `CI / required`
+   before staging and landing).
 
 ## 2. Pull request body skeleton
 

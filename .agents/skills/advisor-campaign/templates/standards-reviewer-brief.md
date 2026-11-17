@@ -35,15 +35,17 @@ in `<base-sha>..<head-sha>`:
      event/input values passed via `env:`).
    - Verify least-privilege `permissions:` per job, `ref: main` +
      `persist-credentials: false` when untrusted PR events trigger without
-     needing PR code, action version parity (`actions/checkout@v4`,
-     `oven-sh/setup-bun@v2`), and `bun test scripts/ci/workflow-paths.test.ts`.
+     needing PR code, action and toolchain version parity with
+     `.github/workflows/build.yml` (`BUN_VERSION`, `NODE_VERSION`,
+     `NODE_24_VERSION`), and `bun test scripts/ci/workflow-paths.test.ts`.
 3. **`docs/code-conventions.md` and CI gates:**
    - Check file sizes: every new or non-legacy file `<= 600` lines, and confirm
      no legacy `> 600`-line file grew (`wc -l` at `<base-sha>` vs `<head-sha>`).
    - Check test placement (`0` `.test.ts` under `packages/*/src/`), barrel purity
      (`index.ts` re-exports only), `0` junk-drawer filenames, `0` added `!`
-     non-null assertions, `0` nested/multi-line/work-performing ternaries
-     (section 3b), and `0` conditional object spreads (section 3c).
+     non-null assertions, `0` nested/multi-line/work-performing ternaries or
+     combined fallback-plus-transform expressions (section 3b), and `0`
+     conditional object spreads (section 3c).
    - Run `CI_BASE_SHA=<base-sha> CI_HEAD_SHA=<head-sha> bun scripts/ci/knip-audit.ts`,
      `PR_BODY_FILE=/dev/null bun scripts/ci/deletion-guard.ts <base-sha> <head-sha>`,
      strict `tsc --noEmit` (including modified tests), and affected CI test suites.
@@ -60,10 +62,12 @@ Report:
 - `(a)` hard standard violations (citing file, line, and rule),
 - `(b)` Fowler code-smell judgement calls,
 - authoritative non-slow `test/apps/<scenario>` list for the PR body,
-- final verdict for `<40-char-head-sha>`: **`MERGE`** or **`FIX`**.
+- final verdict for `<40-char-reviewed-sha>`: **`MERGE`** or **`FIX`**.
 
-Once a pull request is open for `<40-char-head-sha>`, post (or hand to the
-coordinator to post) the SHA-pinned verdict comment:
+Once a pull request is open, post (using an `OWNER`, `MEMBER`, or `COLLABORATOR`
+user token, never `GITHUB_TOKEN`) the verdict pinned to the PR's pushed
+`<40-char-pr-head-sha>` (matching `<40-char-reviewed-sha>`, or verified via an
+empty `git range-diff` + green gates after a clean mechanical rebase):
 
 ```sh
 bun scripts/ci/campaign-verdict.ts \
@@ -71,7 +75,7 @@ bun scripts/ci/campaign-verdict.ts \
   --repo <owner/repo> \
   --axis standards \
   --verdict <MERGE|FIX> \
-  --sha <40-char-head-sha> \
+  --sha <40-char-pr-head-sha> \
   --summary "<concise plain-ASCII summary>"
 ```
 

@@ -31,16 +31,20 @@ coordinator-approved exceptions).
 1. **Clause-by-clause fidelity**: map every requirement in the originating issue,
    ADR, observation, or builder brief to concrete code and tests. Flag missing or
    partial requirements (`(a)`) and unrequested behavior or scope creep (`(b)`).
-2. **Empirical upstream SDK and observation checks**: never guess what production
-   Firebase does. Run small read-only probes in an external scratch directory
-   against the workspace's installed `firebase` and `firebase-admin` packages
-   (check error codes, preflight check ordering, synchronous throws vs rejected
-   promises, and edge inputs) and cross-check `packages/conformance/observations/`.
+2. **Empirical upstream SDK and CI-pinned runtime checks**: never guess what
+   production Firebase does. Run small read-only probes in an external scratch
+   directory against the workspace's installed `firebase` and `firebase-admin`
+   packages (checking error codes, preflight check ordering, synchronous throws
+   vs rejected promises, stream lifecycles, and edge inputs) and cross-check
+   `packages/conformance/observations/`. For stream, timer, or teardown paths,
+   verify under the CI-pinned Bun version (`bunx bun@<BUN_VERSION> test ...` from
+   `.github/workflows/build.yml`) and 2-core budgets (`taskset -c 0,1`).
 3. **Simulated follow-up states and cross-plane parity**: trace what happens on
-   the next step of a multi-PR or multi-plane workflow (for example: an
-   observation-only PR before source links `rowIds`; a rebase that regenerates
-   scorecards; parity across in-process sandbox, SharedWorker, and Node host; and
-   reverting the production fix to verify new tests fail RED).
+   the next step of a multi-PR or multi-event workflow (for example: an
+   `observations/**`-only PR before source links `rowIds`; a temp git repo seeded
+   with the real `.gitignore`; an unreviewed push or `FIX` verdict after
+   `merge-queue` was applied; parity across in-process sandbox, SharedWorker, and
+   Node host; and reverting the production fix to verify new tests fail RED).
 
 ## 3. Standards axis checks
 
@@ -58,13 +62,15 @@ Audit against `AGENTS.md`, `PRIORITIES.md`, `docs/code-conventions.md`,
    `common`, `shared`, `misc`).
 3. **Control flow and TypeScript discipline**: `0` added `!` non-null assertions;
    `0` nested, multi-line, or work-performing ternaries (`docs/code-conventions.md`
-   section 3b); `0` conditional object spreads encoding feature presence (section
-   3c); strict `tsc --noEmit` clean on both `src/` and `test/`.
+   section 3b); `0` fallback-plus-transform one-liners hiding empty-string cases;
+   `0` conditional object spreads encoding feature presence (section 3c); strict
+   `tsc --noEmit` clean on both `src/` and `test/`.
 4. **GitHub Actions security** (when `.github/workflows/` or `scripts/ci/`
    changes): minimal `permissions:` per job; untrusted `pull_request` /
    `issue_comment` workflows never check out or execute PR code (`ref: main`,
    `persist-credentials: false`); zero `${{ ... }}` interpolation inside `run:`
-   blocks (pass untrusted values via `env:`); `workflow-paths.test.ts` green.
+   blocks (pass untrusted values via `env:`); action and toolchain versions
+   aligned with `.github/workflows/build.yml`; `workflow-paths.test.ts` green.
 5. **Repository CI gates and app scenario list**: run `knip-audit.ts` (`0` PR
    findings), `deletion-guard.ts`, and compute the authoritative non-slow
    `test/apps/<scenario>` list via `scripts/ci/plan.ts` (`selectAppScenarios`)
@@ -107,8 +113,10 @@ Keep `## Spec` and `## Standards` separate without merging or re-ranking finding
 across axes. End with findings per axis, highest-risk item per axis, and overall
 `MERGE` vs `FIX`.
 
-Once the branch is pushed and the PR is open, record each axis's SHA-pinned
-verdict on the PR using `scripts/ci/campaign-verdict.ts`:
+Once the branch is pushed (and any clean mechanical rebase verified via empty
+`git range-diff`) and the PR is open, record each axis's verdict against the PR's
+pushed 40-char `HEAD` SHA using an `OWNER`, `MEMBER`, or `COLLABORATOR` user
+token (never `GITHUB_TOKEN` or a bot account):
 
 ```sh
 bun scripts/ci/campaign-verdict.ts \
@@ -116,10 +124,10 @@ bun scripts/ci/campaign-verdict.ts \
   --repo <owner/repo> \
   --axis spec \
   --verdict MERGE \
-  --sha <40-char-head-sha> \
+  --sha <40-char-pr-head-sha> \
   --summary "All spec clauses and upstream SDK checks pass."
 ```
 
-Each verdict comment ends with a standalone hidden marker line:
+Each verdict comment ends with a column-0 hidden marker line:
 
 `<!-- campaign-verdict axis=spec|standards verdict=MERGE|FIX sha=<40-char head sha> -->`

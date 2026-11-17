@@ -6,13 +6,17 @@ import { join, resolve } from 'node:path';
 import {
   formatVerdictComment,
   formatVerdictMarker,
-  parseVerdictCliArgs,
-  runVerdictCli,
+  parseVerdictMarkers,
   type CampaignAxis,
   type CampaignVerdict,
-  type VerdictCliIo,
   type VerdictCommentInput,
   type VerdictMarkerInput,
+} from './campaign-verdict-markers.ts';
+import {
+  parseVerdictCliArgs,
+  resolveTempRoot,
+  runVerdictCli,
+  type VerdictCliIo,
 } from './campaign-verdict.ts';
 
 const SHA_A = '803cd688bfb1305a2b8e7ebff2f36c34fbee9b35';
@@ -56,8 +60,8 @@ describe('formatVerdictMarker', () => {
   });
 });
 
-describe('formatVerdictComment', () => {
-  test('renders human summary header, trimmed body, and trailing hidden marker', () => {
+describe('formatVerdictComment and round-trip parsing', () => {
+  test('renders human summary header, trimmed body, and trailing hidden marker that round-trips', () => {
     const input: VerdictCommentInput = {
       axis: 'standards',
       verdict: 'FIX',
@@ -75,9 +79,30 @@ describe('formatVerdictComment', () => {
         `<!-- campaign-verdict axis=standards verdict=FIX sha=${SHA_A} -->`,
       ].join('\n'),
     );
+    expect(parseVerdictMarkers(comment)).toEqual([
+      { axis: 'standards', verdict: 'FIX', sha: SHA_A },
+    ]);
   });
 
-  test('rejects empty, non-ASCII, or marker-spoofing summaries', () => {
+  test('preserves trailing FIX marker after list-indented code fences and inline `<pre>` spans', () => {
+    const comment = formatVerdictComment({
+      axis: 'spec',
+      verdict: 'FIX',
+      sha: SHA_A,
+      summary: [
+        '1. Remove inside `<pre>` / `<code>`:',
+        '- ```ts',
+        '  console.log(1);',
+        '  ```',
+      ].join('\n'),
+    });
+
+    expect(parseVerdictMarkers(comment)).toEqual([
+      { axis: 'spec', verdict: 'FIX', sha: SHA_A },
+    ]);
+  });
+
+  test('rejects empty, non-ASCII, HTML-comment, or unclosed-fence/tag summaries that would swallow the marker', () => {
     expect(() =>
       formatVerdictComment({ axis: 'spec', verdict: 'MERGE', sha: SHA_A, summary: '   ' }),
     ).toThrow(/summary must not be empty/i);
@@ -99,10 +124,35 @@ describe('formatVerdictComment', () => {
         summary: 'Contains --> HTML comment terminator',
       }),
     ).toThrow(/HTML comment/i);
+
+    expect(() =>
+      formatVerdictComment({
+        axis: 'spec',
+        verdict: 'FIX',
+        sha: SHA_A,
+        summary: 'Broken:\n```ts\nconst x = 1;',
+      }),
+    ).toThrow(/unclosed|round-trip/i);
+
+    expect(() =>
+      formatVerdictComment({
+        axis: 'spec',
+        verdict: 'FIX',
+        sha: SHA_A,
+        summary: 'Broken HTML:\n<pre>\nconst x = 1;',
+      }),
+    ).toThrow(/unclosed|round-trip/i);
   });
 });
 
-describe('parseVerdictCliArgs and runVerdictCli', () => {
+describe('parseVerdictCliArgs, resolveTempRoot, and runVerdictCli', () => {
+  test('resolveTempRoot falls back to os.tmpdir() when RUNNER_TEMP is unset or empty', () => {
+    expect(resolveTempRoot({})).toBe(tmpdir());
+    expect(resolveTempRoot({ RUNNER_TEMP: '' })).toBe(tmpdir());
+    expect(resolveTempRoot({ RUNNER_TEMP: '   ' })).toBe(tmpdir());
+    expect(resolveTempRoot({ RUNNER_TEMP: '/var/tmp' })).toBe('/var/tmp');
+  });
+
   test('prints the formatted comment when --pr is omitted or --dry-run is passed', () => {
     const ghCalls: string[][] = [];
     const logs: string[] = [];
@@ -112,7 +162,7 @@ describe('parseVerdictCliArgs and runVerdictCli', () => {
         return '{}';
       },
       readText: () => '',
-      withBodyFile: (_body, fn) => fn('/unused'),
+      withBodyFile: (_body, fn) => fn('unused.md'),
       log: (text) => logs.push(text),
     };
 
@@ -232,7 +282,7 @@ describe('parseVerdictCliArgs and runVerdictCli', () => {
     ).toThrow(/owner\/name/i);
   });
 
-  test('CLI entrypoint posts formatted verdict via gh subprocess and cleans up its temp file', () => {
+  test('CLI entrypoint posts formatted verdict via gh subprocess and cleans up its temp file even when RUNNER_TEMP is empty', () => {
     const root = mkdtempSync(join(tmpdir(), 'campaign-verdict-cli-'));
     const scriptPath = resolve(import.meta.dir, 'campaign-verdict.ts');
     try {
@@ -281,7 +331,7 @@ describe('parseVerdictCliArgs and runVerdictCli', () => {
           env: {
             ...process.env,
             PATH: `${root}:${process.env.PATH ?? ''}`,
-            RUNNER_TEMP: root,
+            RUNNER_TEMP: '',
             CAPTURED_ARGS: capturedArgsFile,
             CAPTURED_BODY: capturedBodyFile,
             CAPTURED_BODY_PATH: capturedBodyPathFile,
@@ -308,4 +358,3 @@ describe('parseVerdictCliArgs and runVerdictCli', () => {
     }
   });
 });
-

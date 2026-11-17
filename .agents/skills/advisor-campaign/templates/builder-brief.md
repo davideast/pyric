@@ -38,16 +38,24 @@ Builder for **<slice title and issue/ADR reference>** in `<worktree-dir>`
 
 ### Concrete deliverables
 
-1. **<Deliverable 1: behavioral invariant and contract>**
-   - <Behavioral requirement, expected upstream Firebase parity, and concrete
-     counterexamples to cover via vertical `RED -> GREEN` TDD slices.>
-   - <Sibling planes to keep in sync: in-process sandbox, SharedWorker bridge in
-     `packages/cli/src/serve/`, Node host, CLI/MCP surfaces.>
-2. **<Deliverable 2: standing check / conformance / CI wiring>**
-   - <Standing mechanical test, `test/apps/<scenario>` scenario, or conformance
-     evidence / `Conformance-Exempt: <reason>` git trailer when engine paths move.>
+1. **<Deliverable 1: behavioral invariant and upstream Firebase parity>**
+   - Before coding unpinned edge cases, run read-only empirical probes from an
+     external scratch directory against installed `firebase` / `firebase-admin`
+     in `<worktree-dir>/node_modules` (error codes, sync throws vs async
+     rejections, stream settlement, check ordering), then clean up scratch files.
+   - Implement via vertical `RED -> GREEN` TDD slices across all sibling planes
+     (in-process sandbox, SharedWorker bridge in `packages/cli/src/serve/`, Node
+     host, CLI/MCP surfaces).
+2. **<Deliverable 2: stateful follow-up tests, standing checks, and CI wiring>**
+   - Cover multi-step stateful transitions (for example: pre-capture PR #1 +
+     post-capture `observations/**`-only PR #2, temp git repos seeded with real
+     committed `.gitignore`, or multi-event PR label lifecycles) plus
+     `test/apps/<scenario>` or `Conformance-Exempt: <reason>` trailer as needed.
 3. **Verify locally before committing:**
    - `<targeted package builds and unit/integration test commands>`
+   - CI-pinned toolchain check (`.github/workflows/build.yml` `BUN_VERSION`,
+     `NODE_VERSION`): run `bunx bun@<BUN_VERSION> test <version-sensitive suites>`
+     (under `unshare -rn` where applicable) and `taskset -c 0,1` on timed gates.
    - Strict `tsc --noEmit` on touched packages and new/modified `test/**/*.test.ts`
    - `CI_BASE_SHA=<base-sha> CI_HEAD_SHA=HEAD bun scripts/ci/knip-audit.ts` (`0` PR findings)
    - `PR_BODY_FILE=/dev/null bun scripts/ci/deletion-guard.ts <base-sha> HEAD`

@@ -25,33 +25,38 @@ in `<worktree-dir>`.
    - **Clause-by-clause fidelity:** verify every requirement and edge case in the
      spec is implemented and covered at public seams, and check that nothing
      outside scope was added.
-   - **Empirical checks against installed upstream Firebase SDKs and observations:**
-     run read-only probes from `<external-scratch-dir>` against the installed
-     `firebase` and `firebase-admin` packages in `<worktree-dir>/node_modules`
-     (error codes, synchronous throws vs rejected promises, validation check
-     ordering, boundary inputs) and compare against
-     `packages/conformance/observations/`.
+   - **Empirical upstream SDK and CI-pinned runtime checks:** run read-only
+     probes from `<external-scratch-dir>` against the installed `firebase` and
+     `firebase-admin` packages in `<worktree-dir>/node_modules` (error codes,
+     synchronous throws vs rejected promises, stream lifecycles, validation check
+     ordering, boundary inputs), compare against
+     `packages/conformance/observations/`, and run version- or timing-sensitive
+     tests under `bunx bun@<BUN_VERSION>` (from `.github/workflows/build.yml`)
+     and `taskset -c 0,1`.
    - **Simulated follow-up states and cross-plane parity:**
-     - <Simulate downstream states, e.g., what happens on an observations-only
-       capture PR before `rowIds` are linked, after rebase/regeneration, or
-       across in-process sandbox, SharedWorker, and Node host.>
-     - Verify new regression or standing checks actually fail (`RED`) against
-       `<base-sha>`'s production logic and pass (`GREEN`) at `<head-sha>`.
+     - <Simulate downstream states, e.g., an `observations/**`-only capture PR
+       before `rowIds` are linked, a temp git repo seeded with real `.gitignore`,
+       an unreviewed push or `FIX` comment after labeling, or parity across
+       in-process sandbox, SharedWorker, and Node host.>
+     - Verify new regression or standing checks fail (`RED`) against `<base-sha>`
+       and pass (`GREEN`) at `<head-sha>`.
    - **Security and trust boundaries (when CI/host/bridge code changes):**
-     trace untrusted inputs, credential boundaries, pagination truncation, and
-     fail-closed behavior.
+     trace untrusted inputs, bot/outsider actors, credential/ignore-rule bypasses,
+     pagination truncation, and fail-closed behavior.
 
 ### Output
 
 Report:
 - `(a)` missing or partial spec requirements (citing spec clauses),
 - `(b)` unrequested behavior or scope creep,
-- `(c)` upstream-parity, follow-up state, or edge-case bugs (with reproduction
-  output),
-- final verdict for `<40-char-head-sha>`: **`MERGE`** or **`FIX`**.
+- `(c)` upstream-parity, follow-up state, or security/edge-case bugs (with
+  reproduction output),
+- final verdict for `<40-char-reviewed-sha>`: **`MERGE`** or **`FIX`**.
 
-Once a pull request is open for `<40-char-head-sha>`, post (or hand to the
-coordinator to post) the SHA-pinned verdict comment:
+Once a pull request is open, post (using an `OWNER`, `MEMBER`, or `COLLABORATOR`
+user token, never `GITHUB_TOKEN`) the verdict pinned to the PR's pushed
+`<40-char-pr-head-sha>` (matching `<40-char-reviewed-sha>`, or verified via an
+empty `git range-diff` + green gates after a clean mechanical rebase):
 
 ```sh
 bun scripts/ci/campaign-verdict.ts \
@@ -59,7 +64,7 @@ bun scripts/ci/campaign-verdict.ts \
   --repo <owner/repo> \
   --axis spec \
   --verdict <MERGE|FIX> \
-  --sha <40-char-head-sha> \
+  --sha <40-char-pr-head-sha> \
   --summary "<concise plain-ASCII summary>"
 ```
 

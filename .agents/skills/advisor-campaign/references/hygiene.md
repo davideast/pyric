@@ -51,8 +51,10 @@ request titles and bodies, and verdict comments strictly within 7-bit ASCII
 - write straight quotes (`"` and `'`) instead of curly quotes;
 - avoid emoji or decorative Unicode symbols in authored text.
 
-Verify before committing or opening a pull request:
+Verify your slice's changed files and commit message before committing or opening
+a pull request:
 
 ```sh
-LC_ALL=C grep -rn '[^ -~	]' .agents/skills/advisor-campaign scripts/ci/campaign-verdict*
+LC_ALL=C grep -rn '[^ -~	]' <changed-paths>
+git log -1 --format=%B HEAD | LC_ALL=C grep -n '[^ -~	]'
 ```

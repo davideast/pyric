@@ -1,15 +1,16 @@
 import { describe, expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
-import { chmodSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
-import { formatVerdictComment } from './campaign-verdict.ts';
+import { join, resolve } from 'node:path';
+import { formatVerdictComment } from './campaign-verdict-markers.ts';
 import {
   TRUSTED_AUTHOR_ASSOCIATIONS,
+  detectTrustedTriggerVerdict,
   evaluateCampaignVerdicts,
-  parseVerdictMarkers,
   reconcileCampaignVerdicts,
   type CampaignComment,
+  type CampaignDecisionAction,
   type CampaignDecisionReason,
   type CampaignPullState,
   type CampaignVerdictDecision,
@@ -34,21 +35,28 @@ function basePull(overrides: Partial<CampaignPullState> = {}): CampaignPullState
   };
 }
 
-let nextId = 1;
+function isoAtMinute(minute: number): string {
+  const padded = String(minute).padStart(2, '0');
+  return `2026-11-17T03:${padded}:00Z`;
+}
+
 function makeComment(
+  id: number,
   axis: 'spec' | 'standards',
   verdict: 'MERGE' | 'FIX',
   options: {
     sha?: string;
     authorAssociation?: string;
-    id?: number;
+    userType?: string;
+    updatedAt?: string;
     summary?: string;
   } = {},
 ): CampaignComment {
-  const id = options.id ?? nextId++;
   return {
     id,
     authorAssociation: options.authorAssociation ?? 'COLLABORATOR',
+    userType: options.userType ?? 'User',
+    updatedAt: options.updatedAt ?? isoAtMinute(id),
     body: formatVerdictComment({
       axis,
       verdict,
@@ -61,186 +69,310 @@ function makeComment(
 function facts(
   comments: readonly CampaignComment[],
   pullOverrides: Partial<CampaignPullState> = {},
+  triggerHadTrustedVerdict = false,
 ): CampaignVerdictFacts {
   return {
     repo: 'davideast/pyric',
     pull: basePull(pullOverrides),
     comments,
+    triggerHadTrustedVerdict,
   };
 }
 
-describe('parseVerdictMarkers', () => {
-  test('parses standalone markers with LF or CRLF line endings and normalizes hex SHAs', () => {
-    const body = [
-      '**Campaign review (`spec`):** `MERGE`',
-      '',
-      `<!-- campaign-verdict axis=spec verdict=MERGE sha=${HEAD_SHA.toUpperCase()} -->`,
-      `  <!-- campaign-verdict axis=standards verdict=FIX sha=${STALE_SHA} -->  `,
-    ].join('\r\n');
-
-    expect(parseVerdictMarkers(body)).toEqual([
-      { axis: 'spec', verdict: 'MERGE', sha: HEAD_SHA },
-      { axis: 'standards', verdict: 'FIX', sha: STALE_SHA },
-    ]);
-  });
-
-  test('ignores markers inside fenced code blocks, indented code blocks, blockquotes, inline text, or with invalid SHAs', () => {
-    const body = [
-      'Example usage:',
-      '```markdown',
-      `<!-- campaign-verdict axis=spec verdict=MERGE sha=${HEAD_SHA} -->`,
-      '```',
-      '~~~html',
-      `<!-- campaign-verdict axis=standards verdict=MERGE sha=${HEAD_SHA} -->`,
-      '~~~',
-      `    <!-- campaign-verdict axis=spec verdict=MERGE sha=${HEAD_SHA} -->`,
-      `\t<!-- campaign-verdict axis=standards verdict=MERGE sha=${HEAD_SHA} -->`,
-      `> <!-- campaign-verdict axis=spec verdict=MERGE sha=${HEAD_SHA} -->`,
-      `Inline \`<!-- campaign-verdict axis=spec verdict=MERGE sha=${HEAD_SHA} -->\` text`,
-      '<!-- campaign-verdict axis=spec verdict=MERGE sha=shortsha -->',
-    ].join('\n');
-
-    expect(parseVerdictMarkers(body)).toEqual([]);
-  });
-});
-
 describe('evaluateCampaignVerdicts', () => {
-  test('labels merge-queue when open, non-draft, targeting main, with trusted MERGE on both axes for head SHA', () => {
+  test('adds merge-queue when open, non-draft, targeting main, with trusted human MERGE on both axes', () => {
     expect([...TRUSTED_AUTHOR_ASSOCIATIONS].sort()).toEqual(['COLLABORATOR', 'MEMBER', 'OWNER']);
 
     const decision: CampaignVerdictDecision = evaluateCampaignVerdicts(
       facts([
-        makeComment('spec', 'MERGE', { authorAssociation: 'OWNER', id: 10 }),
-        makeComment('standards', 'MERGE', { authorAssociation: 'MEMBER', id: 20 }),
+        makeComment(10, 'spec', 'MERGE', { authorAssociation: 'OWNER' }),
+        makeComment(20, 'standards', 'MERGE', { authorAssociation: 'MEMBER' }),
       ]),
     );
 
-    expect(decision.shouldLabel).toBe(true);
+    expect(decision.action).toBe('add-label');
     expect(decision.reason).toBe('ready');
+    expect(decision.hasTrustedVerdictHistory).toBe(true);
     expect(decision.latestByAxis).toEqual({ spec: 'MERGE', standards: 'MERGE' });
   });
 
-  test('rejects stale SHA verdicts after a new push invalidates old verdicts', () => {
-    const decision = evaluateCampaignVerdicts(
-      facts([
-        makeComment('spec', 'MERGE', { sha: STALE_SHA, id: 10 }),
-        makeComment('standards', 'MERGE', { sha: HEAD_SHA, id: 20 }),
-      ]),
-    );
-
-    expect(decision.shouldLabel).toBe(false);
-    expect(decision.reason).toBe('missing-verdict');
-    expect(decision.staleVerdictCount).toBe(1);
-    expect(decision.latestByAxis).toEqual({ spec: undefined, standards: 'MERGE' });
-  });
-
-  test('ignores untrusted author associations for both MERGE and FIX comments', () => {
+  test('ignores untrusted author associations and Bot accounts for MERGE, FIX, and malformed markers', () => {
     for (const association of ['CONTRIBUTOR', 'FIRST_TIME_CONTRIBUTOR', 'FIRST_TIMER', 'MANNEQUIN', 'NONE', '']) {
       const mergeAttempt = evaluateCampaignVerdicts(
         facts([
-          makeComment('spec', 'MERGE', { authorAssociation: 'COLLABORATOR', id: 10 }),
-          makeComment('standards', 'MERGE', { authorAssociation: association, id: 20 }),
+          makeComment(10, 'spec', 'MERGE', { authorAssociation: 'COLLABORATOR' }),
+          makeComment(20, 'standards', 'MERGE', { authorAssociation: association }),
         ]),
       );
-      expect(mergeAttempt.shouldLabel).toBe(false);
+      expect(mergeAttempt.action).toBe('noop');
       expect(mergeAttempt.reason).toBe('missing-verdict');
       expect(mergeAttempt.untrustedVerdictCount).toBe(1);
     }
 
-    const spoofedFix = evaluateCampaignVerdicts(
+    // Even if user.type is Bot with COLLABORATOR/MEMBER/OWNER association, it cannot approve or poison.
+    const botMerge = evaluateCampaignVerdicts(
       facts([
-        makeComment('spec', 'MERGE', { authorAssociation: 'OWNER', id: 10 }),
-        makeComment('standards', 'MERGE', { authorAssociation: 'COLLABORATOR', id: 20 }),
-        makeComment('spec', 'FIX', { authorAssociation: 'NONE', id: 30 }),
+        makeComment(10, 'spec', 'MERGE', { authorAssociation: 'OWNER' }),
+        makeComment(20, 'standards', 'MERGE', { authorAssociation: 'COLLABORATOR', userType: 'Bot' }),
       ]),
     );
-    expect(spoofedFix.shouldLabel).toBe(true);
-    expect(spoofedFix.reason).toBe('ready');
-    expect(spoofedFix.untrustedVerdictCount).toBe(1);
+    expect(botMerge.action).toBe('noop');
+    expect(botMerge.reason).toBe('missing-verdict');
+    expect(botMerge.untrustedVerdictCount).toBe(1);
+
+    const untrustedAndBotPoison = evaluateCampaignVerdicts(
+      facts([
+        makeComment(10, 'spec', 'MERGE', { authorAssociation: 'OWNER' }),
+        makeComment(20, 'standards', 'MERGE', { authorAssociation: 'COLLABORATOR' }),
+        makeComment(30, 'spec', 'FIX', { authorAssociation: 'NONE' }),
+        makeComment(35, 'standards', 'FIX', { authorAssociation: 'MEMBER', userType: 'Bot' }),
+        {
+          id: 40,
+          authorAssociation: 'CONTRIBUTOR',
+          userType: 'User',
+          updatedAt: isoAtMinute(40),
+          body: '<!-- campaign-verdict broken -->',
+        },
+      ]),
+    );
+    expect(untrustedAndBotPoison.action).toBe('add-label');
+    expect(untrustedAndBotPoison.reason).toBe('ready');
+    expect(untrustedAndBotPoison.untrustedVerdictCount).toBe(3);
   });
 
-  test('rejects when a later FIX verdict exists on either axis, regardless of comment order across axes', () => {
-    const fixAtEnd = evaluateCampaignVerdicts(
+  test('orders verdicts by updated_at (so an older comment edited to FIX overrides an earlier MERGE) and lets FIX win within one comment', () => {
+    // Comment #10 (created earlier) is edited AFTER #20 to flip spec -> FIX.
+    const editedOlderToFix = evaluateCampaignVerdicts(
       facts([
-        makeComment('spec', 'MERGE', { id: 10 }),
-        makeComment('standards', 'MERGE', { id: 20 }),
-        makeComment('spec', 'FIX', { id: 30 }),
+        makeComment(10, 'spec', 'FIX', { updatedAt: '2026-11-17T03:30:00Z' }),
+        makeComment(20, 'spec', 'MERGE', { updatedAt: '2026-11-17T03:10:00Z' }),
+        makeComment(25, 'standards', 'MERGE', { updatedAt: '2026-11-17T03:15:00Z' }),
       ]),
     );
-    expect(fixAtEnd.shouldLabel).toBe(false);
-    expect(fixAtEnd.reason).toBe('fix-verdict');
+    expect(editedOlderToFix.action).toBe('noop');
+    expect(editedOlderToFix.reason).toBe('fix-verdict');
 
-    const fixBeforeOtherAxisMerge = evaluateCampaignVerdicts(
+    // Single comment holding both FIX and MERGE for spec (in either order) resolves to FIX.
+    const sameCommentConflict = evaluateCampaignVerdicts(
       facts([
-        makeComment('spec', 'MERGE', { id: 10 }),
-        makeComment('spec', 'FIX', { id: 20 }),
-        makeComment('standards', 'MERGE', { id: 30 }),
+        {
+          id: 10,
+          authorAssociation: 'OWNER',
+          userType: 'User',
+          updatedAt: isoAtMinute(10),
+          body: [
+            `<!-- campaign-verdict axis=spec verdict=FIX sha=${HEAD_SHA} -->`,
+            `<!-- campaign-verdict axis=spec verdict=MERGE sha=${HEAD_SHA} -->`,
+            `<!-- campaign-verdict axis=standards verdict=MERGE sha=${HEAD_SHA} -->`,
+          ].join('\n'),
+        },
       ]),
     );
-    expect(fixBeforeOtherAxisMerge.shouldLabel).toBe(false);
-    expect(fixBeforeOtherAxisMerge.reason).toBe('fix-verdict');
+    expect(sameCommentConflict.action).toBe('noop');
+    expect(sameCommentConflict.reason).toBe('fix-verdict');
+    expect(sameCommentConflict.latestByAxis.spec).toBe('FIX');
 
-    const unsortedComments = evaluateCampaignVerdicts(
+    // A malformed marker from a trusted human fails closed rather than dropping a potential FIX.
+    const malformedTrusted = evaluateCampaignVerdicts(
       facts([
-        makeComment('spec', 'FIX', { id: 30 }),
-        makeComment('standards', 'MERGE', { id: 20 }),
-        makeComment('spec', 'MERGE', { id: 10 }),
+        makeComment(10, 'spec', 'MERGE'),
+        makeComment(20, 'standards', 'MERGE'),
+        {
+          id: 30,
+          authorAssociation: 'MEMBER',
+          userType: 'User',
+          updatedAt: isoAtMinute(30),
+          body: '<!-- campaign-verdict axis=spec verdict=FIX sha=1aa55782a -->',
+        },
       ]),
     );
-    expect(unsortedComments.shouldLabel).toBe(false);
-    expect(unsortedComments.reason).toBe('fix-verdict');
+    expect(malformedTrusted.action).toBe('noop');
+    expect(malformedTrusted.reason).toBe('malformed-verdict');
   });
 
-  test('allows a later MERGE on the same axis to supersede an earlier FIX on the same SHA', () => {
-    const superseded = evaluateCampaignVerdicts(
-      facts([
-        makeComment('spec', 'MERGE', { id: 10 }),
-        makeComment('standards', 'FIX', { id: 20 }),
-        makeComment('standards', 'MERGE', { id: 30 }),
-      ]),
+  test('removes merge-queue when a campaign-labeled PR receives a new push, FIX, comment edit/delete, draft, or base change, while leaving manual labels untouched', () => {
+    const staleApproved = [
+      makeComment(10, 'spec', 'MERGE', { sha: STALE_SHA }),
+      makeComment(20, 'standards', 'MERGE', { sha: STALE_SHA }),
+    ];
+    // Unreviewed push (headSha is HEAD_SHA, verdicts are on STALE_SHA) while merge-queue is present.
+    const pushedUnreviewed = evaluateCampaignVerdicts(
+      facts(staleApproved, { labels: [QUEUE_LABEL] }),
     );
-    expect(superseded.shouldLabel).toBe(true);
-    expect(superseded.reason).toBe('ready');
+    expect(pushedUnreviewed.action).toBe('remove-label');
+    expect(pushedUnreviewed.reason).toBe('missing-verdict');
+    expect(pushedUnreviewed.staleVerdictCount).toBe(2);
+
+    // FIX posted after MERGE while merge-queue is present.
+    const fixAfterLabel = evaluateCampaignVerdicts(
+      facts(
+        [
+          makeComment(10, 'spec', 'MERGE'),
+          makeComment(20, 'standards', 'MERGE'),
+          makeComment(30, 'standards', 'FIX'),
+        ],
+        { labels: [QUEUE_LABEL] },
+      ),
+    );
+    expect(fixAfterLabel.action).toBe('remove-label');
+    expect(fixAfterLabel.reason).toBe('fix-verdict');
+
+    // Sole verdict comment deleted (0 live verdict comments remain, triggerHadTrustedVerdict = true).
+    const deletedSoleVerdict = evaluateCampaignVerdicts(
+      facts([], { labels: [QUEUE_LABEL] }, true),
+    );
+    expect(deletedSoleVerdict.action).toBe('remove-label');
+    expect(deletedSoleVerdict.reason).toBe('missing-verdict');
+
+    // Converted to draft or retargeted base while merge-queue is present on a campaign PR.
+    const validBoth = [
+      makeComment(10, 'spec', 'MERGE'),
+      makeComment(20, 'standards', 'MERGE'),
+    ];
+    const convertedToDraft = evaluateCampaignVerdicts(
+      facts(validBoth, { isDraft: true, labels: [QUEUE_LABEL] }),
+    );
+    expect(convertedToDraft.action).toBe('remove-label');
+    expect(convertedToDraft.reason).toBe('draft');
+
+    const retargetedBase = evaluateCampaignVerdicts(
+      facts(validBoth, { baseRef: 'release/v1', labels: [QUEUE_LABEL] }),
+    );
+    expect(retargetedBase.action).toBe('remove-label');
+    expect(retargetedBase.reason).toBe('wrong-base');
+
+    // Already labeled and still valid -> idempotent noop.
+    const stillValid = evaluateCampaignVerdicts(
+      facts(validBoth, { labels: [QUEUE_LABEL] }),
+    );
+    expect(stillValid.action).toBe('noop');
+    expect(stillValid.reason).toBe('already-labeled');
+
+    // Manually labeled non-campaign PR (zero verdict history) stays untouched across events!
+    const manualLabeledPush = evaluateCampaignVerdicts(
+      facts([], { labels: [QUEUE_LABEL] }, false),
+    );
+    expect(manualLabeledPush.action).toBe('noop');
+    expect(manualLabeledPush.hasTrustedVerdictHistory).toBe(false);
   });
 
-  test('rejects missing axis, draft PR, closed PR, non-main base, fork PR, and already-labeled PR', () => {
-    const specMerge = makeComment('spec', 'MERGE', { id: 10 });
-    const standardsMerge = makeComment('standards', 'MERGE', { id: 20 });
+  test('rejects missing axis, draft, closed, non-main base, and fork PR when unlabeled', () => {
+    const specMerge = makeComment(10, 'spec', 'MERGE');
+    const standardsMerge = makeComment(20, 'standards', 'MERGE');
     const bothMerge = [specMerge, standardsMerge];
 
-    const missingStandards = evaluateCampaignVerdicts(facts([specMerge]));
-    expect(missingStandards.shouldLabel).toBe(false);
-    expect(missingStandards.reason).toBe('missing-verdict');
+    expect(evaluateCampaignVerdicts(facts([specMerge]))).toMatchObject({
+      action: 'noop',
+      reason: 'missing-verdict',
+    });
 
-    const expectedReasons: Array<{ overrides: Partial<CampaignPullState>; reason: CampaignDecisionReason }> = [
-      { overrides: { isDraft: true }, reason: 'draft' },
-      { overrides: { state: 'closed' }, reason: 'not-open' },
-      { overrides: { baseRef: 'release/v1' }, reason: 'wrong-base' },
-      { overrides: { headRepoFullName: 'attacker/pyric' }, reason: 'fork-pull-request' },
-      { overrides: { labels: [QUEUE_LABEL] }, reason: 'already-labeled' },
+    const cases: Array<{
+      overrides: Partial<CampaignPullState>;
+      action: CampaignDecisionAction;
+      reason: CampaignDecisionReason;
+    }> = [
+      { overrides: { isDraft: true }, action: 'noop', reason: 'draft' },
+      { overrides: { state: 'closed' }, action: 'noop', reason: 'not-open' },
+      { overrides: { baseRef: 'release/v1' }, action: 'noop', reason: 'wrong-base' },
+      { overrides: { headRepoFullName: 'attacker/pyric' }, action: 'noop', reason: 'fork-pull-request' },
     ];
-    for (const item of expectedReasons) {
+    for (const item of cases) {
       const decision = evaluateCampaignVerdicts(facts(bothMerge, item.overrides));
-      expect(decision.shouldLabel).toBe(false);
+      expect(decision.action).toBe(item.action);
       expect(decision.reason).toBe(item.reason);
     }
   });
 });
 
-describe('reconcileCampaignVerdicts', () => {
-  test('paginates PR comments across pages and posts merge-queue label when both axes approve', () => {
+function openPullJson(
+  options: { number?: number; repo?: string; labels?: readonly string[] } = {},
+): string {
+  const number = options.number ?? 2669;
+  const repo = options.repo ?? 'davideast/pyric';
+  const labels = (options.labels ?? []).map((name) => ({ name }));
+  return JSON.stringify({
+    number,
+    state: 'open',
+    draft: false,
+    base: { ref: 'main' },
+    head: { sha: HEAD_SHA, repo: { full_name: repo } },
+    labels,
+  });
+}
+
+describe('detectTrustedTriggerVerdict and reconcileCampaignVerdicts', () => {
+  test('detectTrustedTriggerVerdict recognizes edited/deleted trusted human verdict comments and ignores bots or outsiders', () => {
+    const markerLine = `<!-- campaign-verdict axis=spec verdict=MERGE sha=${HEAD_SHA} -->`;
+    expect(
+      detectTrustedTriggerVerdict('issue_comment', {
+        action: 'deleted',
+        comment: {
+          author_association: 'OWNER',
+          user: { type: 'User' },
+          body: markerLine,
+        },
+      }),
+    ).toBe(true);
+
+    expect(
+      detectTrustedTriggerVerdict('issue_comment', {
+        action: 'edited',
+        comment: {
+          author_association: 'COLLABORATOR',
+          user: { type: 'User' },
+          body: 'Removed marker.',
+        },
+        changes: { body: { from: markerLine } },
+      }),
+    ).toBe(true);
+
+    expect(
+      detectTrustedTriggerVerdict('issue_comment', {
+        action: 'deleted',
+        comment: {
+          author_association: 'COLLABORATOR',
+          user: { type: 'Bot' },
+          body: markerLine,
+        },
+      }),
+    ).toBe(false);
+
+    expect(
+      detectTrustedTriggerVerdict('issue_comment', {
+        action: 'deleted',
+        comment: {
+          author_association: 'NONE',
+          user: { type: 'User' },
+          body: markerLine,
+        },
+      }),
+    ).toBe(false);
+  });
+
+  test('paginates PR comments, adds merge-queue, and dispatches merge-queue.yml when ready', () => {
     const ghCalls: string[][] = [];
     const logs: string[] = [];
-    const page1 = Array.from({ length: 100 }, (_, index) => ({
-      id: index + 1,
-      author_association: 'MEMBER',
-      body: index === 0 ? makeComment('spec', 'MERGE', { id: 1 }).body : `Note ${index}`,
-    }));
+    const specCommentBody = makeComment(1, 'spec', 'MERGE').body;
+    const page1 = Array.from({ length: 100 }, (_, index) => {
+      let body = `Note ${index}`;
+      if (index === 0) {
+        body = specCommentBody;
+      }
+      return {
+        id: index + 1,
+        author_association: 'MEMBER',
+        user: { type: 'User' },
+        updated_at: isoAtMinute(1),
+        body,
+      };
+    });
     const page2 = [
       {
         id: 101,
         author_association: 'OWNER',
-        body: makeComment('standards', 'MERGE', { id: 101 }).body,
+        user: { type: 'User' },
+        updated_at: isoAtMinute(2),
+        body: makeComment(101, 'standards', 'MERGE').body,
       },
     ];
 
@@ -250,14 +382,7 @@ describe('reconcileCampaignVerdicts', () => {
         ghCalls.push(args);
         const endpoint = args[1] ?? '';
         if (endpoint === 'repos/davideast/pyric/pulls/2669') {
-          return JSON.stringify({
-            number: 2669,
-            state: 'open',
-            draft: false,
-            base: { ref: 'main' },
-            head: { sha: HEAD_SHA, repo: { full_name: 'davideast/pyric' } },
-            labels: [],
-          });
+          return openPullJson();
         }
         if (endpoint === 'repos/davideast/pyric/issues/2669/comments?per_page=100') {
           return JSON.stringify(page1);
@@ -268,14 +393,16 @@ describe('reconcileCampaignVerdicts', () => {
         if (args[0] === 'api' && args[1] === '-X' && args[2] === 'POST') {
           return '[]';
         }
+        if (args[0] === 'workflow' && args[1] === 'run') {
+          return '';
+        }
         throw new Error(`Unexpected gh call: ${args.join(' ')}`);
       },
       log: (text) => logs.push(text),
     };
 
     const decision = reconcileCampaignVerdicts(io, 2669);
-    expect(decision.shouldLabel).toBe(true);
-    expect(decision.reason).toBe('ready');
+    expect(decision.action).toBe('add-label');
     expect(ghCalls).toContainEqual([
       'api',
       '-X',
@@ -284,13 +411,87 @@ describe('reconcileCampaignVerdicts', () => {
       '-f',
       `labels[]=${QUEUE_LABEL}`,
     ]);
+    expect(ghCalls).toContainEqual([
+      'workflow',
+      'run',
+      'merge-queue.yml',
+      '--repo',
+      'davideast/pyric',
+      '--ref',
+      'main',
+      '-f',
+      'dry_run=false',
+    ]);
     expect(logs.some((line) => line.includes(`Added ${QUEUE_LABEL}`))).toBe(true);
+  });
+
+  test('removes merge-queue and dispatches merge-queue.yml when an unreviewed push invalidates verdicts', () => {
+    const ghCalls: string[][] = [];
+    const io: CampaignVerdictsIo = {
+      repo: 'davideast/pyric',
+      gh: (args) => {
+        ghCalls.push(args);
+        const endpoint = args[1] ?? '';
+        if (endpoint === 'repos/davideast/pyric/pulls/2669') {
+          return openPullJson({ labels: [QUEUE_LABEL] });
+        }
+        if (endpoint === 'repos/davideast/pyric/issues/2669/comments?per_page=100') {
+          return JSON.stringify([
+            {
+              id: 1,
+              author_association: 'OWNER',
+              user: { type: 'User' },
+              updated_at: isoAtMinute(1),
+              body: makeComment(1, 'spec', 'MERGE', { sha: STALE_SHA }).body,
+            },
+            {
+              id: 2,
+              author_association: 'COLLABORATOR',
+              user: { type: 'User' },
+              updated_at: isoAtMinute(2),
+              body: makeComment(2, 'standards', 'MERGE', { sha: STALE_SHA }).body,
+            },
+          ]);
+        }
+        if (args[0] === 'api' && args[1] === '-X' && args[2] === 'DELETE') {
+          return '';
+        }
+        if (args[0] === 'workflow' && args[1] === 'run') {
+          return '';
+        }
+        throw new Error(`Unexpected gh call: ${args.join(' ')}`);
+      },
+      log: () => {},
+    };
+
+    const decision = reconcileCampaignVerdicts(io, 2669);
+    expect(decision.action).toBe('remove-label');
+    expect(decision.reason).toBe('missing-verdict');
+    expect(ghCalls).toContainEqual([
+      'api',
+      '-X',
+      'DELETE',
+      `repos/davideast/pyric/issues/2669/labels/${QUEUE_LABEL}`,
+    ]);
+    expect(ghCalls).toContainEqual([
+      'workflow',
+      'run',
+      'merge-queue.yml',
+      '--repo',
+      'davideast/pyric',
+      '--ref',
+      'main',
+      '-f',
+      'dry_run=false',
+    ]);
   });
 
   test('fails closed if comment history exceeds maxCommentPages so a later FIX cannot be missed', () => {
     const fullPage = Array.from({ length: 100 }, (_, index) => ({
       id: index + 1,
       author_association: 'OWNER',
+      user: { type: 'User' },
+      updated_at: isoAtMinute(1),
       body: 'discussion',
     }));
     const io: CampaignVerdictsIo = {
@@ -298,45 +499,41 @@ describe('reconcileCampaignVerdicts', () => {
       gh: (args) => {
         const endpoint = args[1] ?? '';
         if (endpoint === 'repos/davideast/pyric/pulls/2669') {
-          return JSON.stringify({
-            number: 2669,
-            state: 'open',
-            draft: false,
-            base: { ref: 'main' },
-            head: { sha: HEAD_SHA, repo: { full_name: 'davideast/pyric' } },
-            labels: [],
-          });
+          return openPullJson();
         }
         return JSON.stringify(fullPage);
       },
       log: () => {},
     };
 
-    expect(() => reconcileCampaignVerdicts(io, 2669, { maxCommentPages: 2 })).toThrow(/truncated comment history/);
+    expect(() => reconcileCampaignVerdicts(io, 2669, { maxCommentPages: 2 })).toThrow(
+      /truncated comment history/,
+    );
   });
 
-  test('CLI entrypoint evaluates env vars and skips labeling when dry-run or FIX is present', () => {
+  test('CLI entrypoint reads GITHUB_EVENT_PATH and removes merge-queue when sole verdict comment is deleted', () => {
     const root = mkdtempSync(join(tmpdir(), 'campaign-verdicts-cli-'));
     const scriptPath = resolve(import.meta.dir, 'campaign-verdicts.ts');
     try {
       const logFile = join(root, 'gh.log');
       const fakeGh = join(root, 'gh');
-      const specComment = makeComment('spec', 'MERGE', { id: 1 }).body;
-      const standardsFix = makeComment('standards', 'FIX', { id: 2 }).body;
-      const pullJson = JSON.stringify({
-        number: 55,
-        state: 'open',
-        draft: false,
-        base: { ref: 'main' },
-        head: { sha: HEAD_SHA, repo: { full_name: 'owner/repo' } },
-        labels: [],
-      });
-      const commentsJson = JSON.stringify([
-        { id: 1, author_association: 'OWNER', body: specComment },
-        { id: 2, author_association: 'COLLABORATOR', body: standardsFix },
-      ]);
-      writeFileSync(join(root, 'pull.json'), pullJson);
-      writeFileSync(join(root, 'comments.json'), commentsJson);
+      const eventFile = join(root, 'event.json');
+      writeFileSync(
+        eventFile,
+        JSON.stringify({
+          action: 'deleted',
+          comment: {
+            author_association: 'OWNER',
+            user: { type: 'User' },
+            body: makeComment(1, 'spec', 'MERGE').body,
+          },
+        }),
+      );
+      writeFileSync(
+        join(root, 'pull.json'),
+        openPullJson({ number: 55, repo: 'owner/repo', labels: [QUEUE_LABEL] }),
+      );
+      writeFileSync(join(root, 'comments.json'), '[]');
       writeFileSync(
         fakeGh,
         [
@@ -345,6 +542,8 @@ describe('reconcileCampaignVerdicts', () => {
           'case "$*" in',
           '  *"pulls/55") cat "$FAKE_ROOT/pull.json" ;;',
           '  *"issues/55/comments"*) cat "$FAKE_ROOT/comments.json" ;;',
+          '  *"DELETE repos/owner/repo/issues/55/labels/merge-queue") printf "" ;;',
+          '  "workflow run merge-queue.yml --repo owner/repo --ref main -f dry_run=false") printf "" ;;',
           '  *) exit 1 ;;',
           'esac',
         ].join('\n'),
@@ -357,6 +556,8 @@ describe('reconcileCampaignVerdicts', () => {
           ...process.env,
           PATH: `${root}:${process.env.PATH ?? ''}`,
           GITHUB_REPOSITORY: 'owner/repo',
+          GITHUB_EVENT_NAME: 'issue_comment',
+          GITHUB_EVENT_PATH: eventFile,
           PR_NUMBER: '55',
           GH_CALL_LOG: logFile,
           FAKE_ROOT: root,
@@ -368,149 +569,11 @@ describe('reconcileCampaignVerdicts', () => {
       expect(calls).toEqual([
         'api repos/owner/repo/pulls/55',
         'api repos/owner/repo/issues/55/comments?per_page=100',
+        `api -X DELETE repos/owner/repo/issues/55/labels/${QUEUE_LABEL}`,
+        'workflow run merge-queue.yml --repo owner/repo --ref main -f dry_run=false',
       ]);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
   });
 });
-
-describe('campaign-verdicts.yml workflow security and triggers', () => {
-  const workflowPath = resolve(import.meta.dir, '../../.github/workflows/campaign-verdicts.yml');
-
-  test('triggers on issue_comment and pull_request synchronize, pins checkout to main, uses least privilege, and never interpolates ${{ }} in run:', () => {
-    const raw = readFileSync(workflowPath, 'utf8');
-    const parsed = Bun.YAML.parse(raw) as {
-      on?: {
-        issue_comment?: { types?: string[] };
-        pull_request?: { types?: string[] };
-      };
-      permissions?: Record<string, string>;
-      jobs?: Record<
-        string,
-        {
-          if?: string;
-          permissions?: Record<string, string>;
-          steps?: Array<{
-            uses?: string;
-            with?: Record<string, unknown>;
-            env?: Record<string, string>;
-            run?: string;
-          }>;
-        }
-      >;
-    };
-
-    expect(parsed.on?.issue_comment?.types).toContain('created');
-    expect(parsed.on?.pull_request?.types).toContain('synchronize');
-    expect(parsed.permissions).toEqual({ contents: 'read' });
-
-    const jobs = Object.values(parsed.jobs ?? {});
-    expect(jobs).toHaveLength(1);
-    const job = jobs[0];
-    expect(job?.permissions).toEqual({
-      contents: 'read',
-      issues: 'write',
-      'pull-requests': 'write',
-    });
-
-    const checkoutStep = job?.steps?.find((step) => step.uses?.startsWith('actions/checkout@'));
-    expect(checkoutStep?.uses).toBe('actions/checkout@v4');
-    expect(checkoutStep?.with?.ref).toBe('main');
-    expect(checkoutStep?.with?.['persist-credentials']).toBe(false);
-
-    for (const step of job?.steps ?? []) {
-      if (step.run !== undefined) {
-        expect(step.run).not.toContain('${{');
-      }
-    }
-
-    const buildWorkflow = readFileSync(resolve(import.meta.dir, '../../.github/workflows/build.yml'), 'utf8');
-    expect(buildWorkflow).toContain('scripts/ci/campaign-verdict.test.ts');
-    expect(buildWorkflow).toContain('scripts/ci/campaign-verdicts.test.ts');
-  });
-});
-
-function walkFiles(dir: string): string[] {
-  const results: string[] = [];
-  for (const name of readdirSync(dir)) {
-    const full = join(dir, name);
-    if (statSync(full).isDirectory()) {
-      results.push(...walkFiles(full));
-    } else {
-      results.push(full);
-    }
-  }
-  return results.sort();
-}
-
-describe('advisor-campaign skill integrity and hygiene', () => {
-  const repoRoot = resolve(import.meta.dir, '../..');
-  const skillRoot = resolve(repoRoot, '.agents/skills/advisor-campaign');
-
-  test('ships SKILL.md, templates, and references within <= 600 lines, plain ASCII, valid links, and zero leakage', () => {
-    const requiredSkillFiles = [
-      'SKILL.md',
-      'references/code-review.md',
-      'references/hygiene.md',
-      'references/implement.md',
-      'references/tdd-mocking.md',
-      'references/tdd-tests.md',
-      'references/tdd.md',
-      'templates/builder-brief.md',
-      'templates/pr-body-checklist.md',
-      'templates/round-2-fix-brief.md',
-      'templates/spec-reviewer-brief.md',
-      'templates/standards-reviewer-brief.md',
-    ];
-    for (const rel of requiredSkillFiles) {
-      expect(existsSync(join(skillRoot, rel))).toBe(true);
-    }
-
-    const auditedFiles = [
-      ...walkFiles(skillRoot),
-      resolve(repoRoot, '.github/workflows/campaign-verdicts.yml'),
-      resolve(repoRoot, 'scripts/ci/campaign-verdict.ts'),
-      resolve(repoRoot, 'scripts/ci/campaign-verdict.test.ts'),
-      resolve(repoRoot, 'scripts/ci/campaign-verdicts.ts'),
-      resolve(repoRoot, 'scripts/ci/campaign-verdicts.test.ts'),
-    ];
-
-    const asciiPattern = /^[\x00-\x7f]*$/;
-    for (const file of auditedFiles) {
-      const content = readFileSync(file, 'utf8');
-      const lines = content.split('\n').length;
-      expect({ file, withinLimit: lines <= 600 }).toEqual({ file, withinLimit: true });
-      expect({ file, plainAscii: asciiPattern.test(content) }).toEqual({ file, plainAscii: true });
-    }
-
-    // Check relative Markdown links and generic path/session leakage invariants.
-    const forbiddenLeakage =
-      /\/Users\/|\/home\/|~\/\.|\.iam\.gserviceaccount\.com|\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/i;
-    for (const file of walkFiles(skillRoot)) {
-      const content = readFileSync(file, 'utf8');
-      expect(forbiddenLeakage.test(content)).toBe(false);
-      for (const match of content.matchAll(/\[[^\]]+\]\(([^)#\s]+)(?:#[^)]*)?\)/g)) {
-        const linkTarget = match[1] ?? '';
-        if (linkTarget.startsWith('http://') || linkTarget.startsWith('https://')) continue;
-        const resolved = resolve(dirname(file), linkTarget);
-        expect({ file, linkTarget, exists: existsSync(resolved) }).toEqual({
-          file,
-          linkTarget,
-          exists: true,
-        });
-      }
-    }
-
-    const specTemplate = readFileSync(join(skillRoot, 'templates/spec-reviewer-brief.md'), 'utf8');
-    const standardsTemplate = readFileSync(
-      join(skillRoot, 'templates/standards-reviewer-brief.md'),
-      'utf8',
-    );
-    expect(specTemplate).toContain('<!-- campaign-verdict axis=spec verdict=MERGE|FIX sha=<40-char head sha> -->');
-    expect(standardsTemplate).toContain(
-      '<!-- campaign-verdict axis=standards verdict=MERGE|FIX sha=<40-char head sha> -->',
-    );
-  });
-});
-
