@@ -1,3 +1,4 @@
+import net from 'node:net';
 import { describe, expect, it } from 'bun:test';
 import { observationExceptions } from '../../exceptions/load.ts';
 import { listProbeFiles } from '../../probes/load.ts';
@@ -10,6 +11,12 @@ import {
 } from '../../rules-corpus/rtdb/index.ts';
 import { ALL_RULES_STORAGE_SCENARIOS } from '../../rules-corpus/storage/index.ts';
 import {
+  observeFirestoreNotInQuery,
+  runFirestoreRestNotInQuery,
+  runNodeFirestoreNotInSubprocess,
+} from '../../src/firestore-not-in-probe.ts';
+import {
+  FirestoreQueryTimeoutError,
   observeFirestoreCall,
   observeFirestoreIdQuery,
   scrubFirestoreOracleRunPath,
@@ -163,7 +170,7 @@ describe('Firestore Query construction staged probes (sdk-probes)', () => {
     ).toEqual([]);
   });
 
-  it('normalizes sync call and async query outcomes and scrubs dynamic fs_<runId> segments', async () => {
+  it('normalizes sync and async outcomes, scrubs fs_<runId>, and fails closed on query timeouts', async () => {
     expect(
       scrubFirestoreOracleRunPath(
         'Missing permissions at pyric_oracle/fs_mwk123_abc987/items/d1 in project',
@@ -214,6 +221,222 @@ describe('Firestore Query construction staged probes (sdk-probes)', () => {
       errorName: 'FirebaseError',
       message: 'invalid constraint at pyric_oracle/<runId>/c',
     });
+
+    // Harness hangs must throw FirestoreQueryTimeoutError rather than returning
+    // a synthetic timeout outcome that would pollute committed observations.
+    let caughtTimeout: unknown = null;
+    try {
+      await observeFirestoreIdQuery(() => new Promise(() => {}), 25);
+    } catch (err) {
+      caughtTimeout = err;
+    }
+    expect(caughtTimeout).toBeInstanceOf(FirestoreQueryTimeoutError);
+    expect((caughtTimeout as Error).message).toContain(
+      'refusing to record a harness timeout as observed production behavior',
+    );
+  });
+
+  it('runs not-in probes through Node first, falls back to Firestore REST runQuery on timeout, and fails closed if both fail', async () => {
+    let restCalled = false;
+    const fromNode = await observeFirestoreNotInQuery({
+      webConfig: { projectId: 'demo-proj', apiKey: 'demo-key' },
+      collectionPath: 'pyric_oracle/fs_t1_aa/where-ten-ops',
+      field: 'num',
+      values: [10, 30],
+      runNodeQuery: async () => ({
+        threw: false,
+        ids: ['d2', 'd4'],
+        code: null,
+        errorName: null,
+        transport: 'firebase-js-sdk-node',
+      }),
+      runRestQuery: async () => {
+        restCalled = true;
+        throw new Error('unexpected REST fallback');
+      },
+    });
+    expect(restCalled).toBe(false);
+    expect(fromNode).toEqual({
+      threw: false,
+      ids: ['d2', 'd4'],
+      code: null,
+      errorName: null,
+      transport: 'firebase-js-sdk-node',
+    });
+
+    let capturedUrl = '';
+    let capturedAuth = '';
+    let capturedBody = '';
+    const fromRestDocs = await observeFirestoreNotInQuery({
+      webConfig: { projectId: 'demo-proj', apiKey: 'demo-key' },
+      collectionPath: 'pyric_oracle/fs_t2_bb/where-existence-null',
+      field: 'val',
+      values: [10],
+      runNodeQuery: async () => {
+        throw new FirestoreQueryTimeoutError(50, 'node firebase/firestore (query)');
+      },
+      runRestQuery: async (params) =>
+        runFirestoreRestNotInQuery({
+          projectId: 'demo-proj',
+          accessToken: 'tok-123',
+          collectionPath: params.collectionPath,
+          field: params.field,
+          values: params.values,
+          fetchImpl: async (url, init) => {
+            capturedUrl = url;
+            capturedAuth = init.headers.Authorization ?? '';
+            capturedBody = init.body;
+            return new Response(
+              JSON.stringify([
+                {
+                  document: {
+                    name: 'projects/demo-proj/databases/(default)/documents/pyric_oracle/fs_t2_bb/where-existence-null/twenty',
+                  },
+                },
+                { readTime: '2026-11-17T00:00:00Z' },
+              ]),
+              { status: 200, headers: { 'Content-Type': 'application/json' } },
+            );
+          },
+        }),
+    });
+    expect(capturedUrl).toBe(
+      'https://firestore.googleapis.com/v1/projects/demo-proj/databases/(default)/documents/pyric_oracle/fs_t2_bb:runQuery',
+    );
+    expect(capturedAuth).toBe('Bearer tok-123');
+    expect(JSON.parse(capturedBody)).toEqual({
+      structuredQuery: {
+        from: [{ collectionId: 'where-existence-null' }],
+        where: {
+          fieldFilter: {
+            field: { fieldPath: 'val' },
+            op: 'NOT_IN',
+            value: {
+              arrayValue: {
+                values: [{ integerValue: '10' }],
+              },
+            },
+          },
+        },
+        orderBy: [
+          { field: { fieldPath: 'val' }, direction: 'ASCENDING' },
+          { field: { fieldPath: '__name__' }, direction: 'ASCENDING' },
+        ],
+      },
+    });
+    expect(fromRestDocs).toEqual({
+      threw: false,
+      ids: ['twenty'],
+      code: null,
+      errorName: null,
+      transport: 'firestore-rest-runQuery',
+    });
+
+    let nullBody = '';
+    const fromRestInvalidArg = await runFirestoreRestNotInQuery({
+      projectId: 'demo-proj',
+      accessToken: 'tok-123',
+      collectionPath: 'pyric_oracle/fs_t3_cc/where-existence-null',
+      field: 'val',
+      values: [10, null],
+      fetchImpl: async (_url, init) => {
+        nullBody = init.body;
+        return new Response(
+          JSON.stringify([
+            {
+              error: {
+                code: 400,
+                status: 'INVALID_ARGUMENT',
+                message:
+                  'Null value is not allowed for NOT_IN at pyric_oracle/fs_t3_cc/where-existence-null',
+              },
+            },
+          ]),
+          { status: 400, headers: { 'Content-Type': 'application/json' } },
+        );
+      },
+    });
+    expect(JSON.parse(nullBody).structuredQuery.where.fieldFilter.value.arrayValue.values).toEqual([
+      { integerValue: '10' },
+      { nullValue: 'NULL_VALUE' },
+    ]);
+    expect(fromRestInvalidArg).toEqual({
+      threw: true,
+      ids: null,
+      code: 'invalid-argument',
+      errorName: 'FirebaseError',
+      message: 'Null value is not allowed for NOT_IN at pyric_oracle/<runId>/where-existence-null',
+      transport: 'firestore-rest-runQuery',
+    });
+
+    // Non-query HTTP statuses (403 IAM, 503 outage) and double timeouts fail closed.
+    let skipErr: unknown = null;
+    try {
+      await observeFirestoreNotInQuery({
+        webConfig: { projectId: 'demo-proj', apiKey: 'demo-key' },
+        collectionPath: 'pyric_oracle/fs_t4_dd/where-existence-null',
+        field: 'val',
+        values: [10],
+        runNodeQuery: async () => {
+          throw new FirestoreQueryTimeoutError(50, 'node timeout');
+        },
+        runRestQuery: async (params) =>
+          runFirestoreRestNotInQuery({
+            projectId: 'demo-proj',
+            accessToken: 'tok-123',
+            collectionPath: params.collectionPath,
+            field: params.field,
+            values: params.values,
+            fetchImpl: async () =>
+              new Response(JSON.stringify({ error: { code: 403, status: 'PERMISSION_DENIED' } }), {
+                status: 403,
+              }),
+          }),
+      });
+    } catch (err) {
+      skipErr = err;
+    }
+    expect(skipErr).toBeInstanceOf(Error);
+    expect((skipErr as Error).message).toContain('Skipped Firestore not-in probe');
+  });
+
+  it('bounds and terminates the real Node firebase/firestore subprocess cleanly when a stream stalls', async () => {
+    const sockets = new Set<net.Socket>();
+    const blackhole = net.createServer((sock) => {
+      sockets.add(sock);
+    });
+    await new Promise<void>((resolve) => {
+      blackhole.listen(0, '127.0.0.1', () => resolve());
+    });
+    const addr = blackhole.address();
+    let port = 0;
+    if (addr && typeof addr === 'object') {
+      port = addr.port;
+    }
+
+    let caught: unknown = null;
+    try {
+      await runNodeFirestoreNotInSubprocess({
+        webConfig: { projectId: 'demo-blackhole', apiKey: 'demo-key' },
+        collectionPath: 'pyric_oracle/fs_bh_1/items',
+        field: 'val',
+        values: [10],
+        timeoutMs: 80,
+        emulatorHost: { host: '127.0.0.1', port },
+      });
+    } catch (err) {
+      caught = err;
+    } finally {
+      for (const sock of sockets) {
+        sock.destroy();
+      }
+      await new Promise<void>((resolve) => {
+        blackhole.close(() => resolve());
+      });
+    }
+
+    expect(caught).toBeInstanceOf(FirestoreQueryTimeoutError);
+    expect((caught as Error).message).toContain('node firebase/firestore');
   });
 
   it('observes upstream firebase/firestore client behavior for non-filter composites, zero-arg composites, and limit bounds', async () => {

@@ -1,4 +1,5 @@
 import type { Probe } from '../../rigs/types.ts';
+import { observeFirestoreNotInQuery } from '../../src/firestore-not-in-probe.ts';
 import { observeFirestoreIdQuery } from '../../src/firestore-probe-outcomes.ts';
 import { withFirestoreProbeSession } from '../../src/sdk-probe-runtime.ts';
 
@@ -13,7 +14,8 @@ export const probe: Probe = {
   async observe() {
     return withFirestoreProbeSession(async ({ db, firestoreSdk, collectionPath }) => {
       const { collection, doc, getDocs, query, setDoc, where } = firestoreSdk;
-      const items = collection(db, collectionPath('where-existence-null'));
+      const itemsPath = collectionPath('where-existence-null');
+      const items = collection(db, itemsPath);
       await setDoc(doc(items, 'missing'), { label: 'absent' });
       await setDoc(doc(items, 'null_val'), { val: null });
       await setDoc(doc(items, 'ten'), { val: 10 });
@@ -44,12 +46,18 @@ export const probe: Probe = {
         neqNull: await observeFirestoreIdQuery(() =>
           getDocs(query(items, where('val', '!=', null))),
         ),
-        notInTen: await observeFirestoreIdQuery(() =>
-          getDocs(query(items, where('val', 'not-in', [10]))),
-        ),
-        notInWithNull: await observeFirestoreIdQuery(() =>
-          getDocs(query(items, where('val', 'not-in', [10, null]))),
-        ),
+        notInTen: await observeFirestoreNotInQuery({
+          webConfig: db.app.options,
+          collectionPath: itemsPath,
+          field: 'val',
+          values: [10],
+        }),
+        notInWithNull: await observeFirestoreNotInQuery({
+          webConfig: db.app.options,
+          collectionPath: itemsPath,
+          field: 'val',
+          values: [10, null],
+        }),
       };
     });
   },
