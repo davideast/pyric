@@ -1,0 +1,153 @@
+# Main-only production oracle capture workflow.
+#
+# Captures new or updated observations under packages/conformance/observations/**
+# against the dedicated oracle project (digame-mas) and opens or updates a
+# reviewable pull request on chore/oracle-capture-<rig>.
+#
+# Security isolation across two jobs:
+#   1. capture - holds `contents: read` + `id-token: write` ONLY. Authenticates
+#      to Google Cloud via keyless Workload Identity Federation, runs the
+#      approved rig(s), reverts `observedAt`-only timestamp rewrites, fails
+#      closed if any path outside packages/conformance/observations/** changes,
+#      and uploads the validated observation bundle as a workflow artifact.
+#   2. open-pr - holds `contents: write` + `pull-requests: write` ONLY (zero
+#      GCP WIF credentials or Firebase secrets). Downloads the bundle,
+#      re-verifies every file against symlinks, path traversal, and JSON schema
+#      drift, commits onto chore/oracle-capture-<rig>, pushes, and opens or
+#      updates the pull request.
+
+name: Oracle capture
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'packages/conformance/probes/**'
+      - 'packages/conformance/rules-corpus/**'
+      - 'packages/conformance/rigs/**'
+      - 'packages/conformance/src/*probes*.ts'
+  workflow_dispatch:
+    inputs:
+      rig:
+        description: 'Oracle rig id (e.g. rules-firestore, rules-storage, storage-stdlib-discovery, messaging-send, client-storage, admin-app, app-registry)'
+        required: true
+        type: string
+      filter:
+        description: 'Optional scenario or probe id passed as --scenario / --probe when supported by the rig'
+        required: false
+        default: ''
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: oracle-capture
+  cancel-in-progress: false
+
+jobs:
+  capture:
+    name: Capture observations on main
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      id-token: write
+    outputs:
+      has_captures: ${{ steps.capture.outputs.has_captures }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.11'
+      - name: Cache Bun dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-bun-
+      - name: Install
+        run: bun install --frozen-lockfile --filter '!@pyric/playground'
+      - name: Plan capture targets
+        id: plan
+        env:
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
+          GITHUB_REF: ${{ github.ref }}
+          INPUT_RIG: ${{ inputs.rig }}
+          INPUT_FILTER: ${{ inputs.filter }}
+          GCP_WIF_PROVIDER: ${{ vars.GCP_WIF_PROVIDER }}
+          PARITY_SA_EMAIL: ${{ vars.PARITY_SA_EMAIL }}
+          PLAN_FILE: ${{ runner.temp }}/oracle-capture-plan.json
+        run: bun scripts/ci/oracle-capture-pr.ts plan
+      - name: Authenticate to Google Cloud
+        if: steps.plan.outputs.should_run == 'true' && steps.plan.outputs.needs_wif == 'true'
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.PARITY_SA_EMAIL }}
+      - name: Build rules engine
+        if: steps.plan.outputs.should_run == 'true'
+        run: bun run build:rules
+      - name: Run capture and validate observation diffs
+        id: capture
+        if: steps.plan.outputs.should_run == 'true'
+        env:
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
+          GITHUB_REF: ${{ github.ref }}
+          PLAN_FILE: ${{ runner.temp }}/oracle-capture-plan.json
+          ARTIFACT_DIR: ${{ runner.temp }}/oracle-capture-bundle
+          PYRIC_ORACLE_PROJECT_ID: digame-mas
+          PARITY_PROJECT_ID: digame-mas
+          PARITY_REQUIRE_CREDENTIAL: '1'
+          PARITY_SA_EMAIL: ${{ vars.PARITY_SA_EMAIL }}
+          PYRIC_ORACLE_FIREBASE_CONFIG: ${{ secrets.PYRIC_ORACLE_FIREBASE_CONFIG }}
+        run: bun scripts/ci/oracle-capture-pr.ts capture
+      - name: Upload validated observations bundle
+        if: always() && steps.capture.outputs.has_captures == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: oracle-capture-observations-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/oracle-capture-bundle
+          retention-days: 7
+          if-no-files-found: error
+
+  open-pr:
+    name: Open or update capture pull request
+    needs: [capture]
+    if: >-
+      always() &&
+      github.event_name != 'pull_request' &&
+      github.ref == 'refs/heads/main' &&
+      needs.capture.result != 'cancelled' &&
+      needs.capture.outputs.has_captures == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+          token: ${{ secrets.MERGE_QUEUE_TOKEN || secrets.MERQUE_QUEUE_TOKEN || github.token }}
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.11'
+      - name: Download validated observations bundle
+        uses: actions/download-artifact@v4
+        with:
+          name: oracle-capture-observations-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/oracle-capture-bundle
+      - name: Verify bundle, push branch, and open or update PR
+        env:
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
+          GITHUB_REF: ${{ github.ref }}
+          ARTIFACT_DIR: ${{ runner.temp }}/oracle-capture-bundle
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GH_TOKEN: ${{ secrets.MERGE_QUEUE_TOKEN || secrets.MERQUE_QUEUE_TOKEN || github.token }}
+        run: bun scripts/ci/oracle-capture-pr.ts open-pr

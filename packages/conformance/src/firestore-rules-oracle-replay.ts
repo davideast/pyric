@@ -188,11 +188,16 @@ export async function replayFirestoreRulesObservations(): Promise<FirestoreOracl
     name: 'firestore-rules-observation-set', rowId: '',
     problems: ['Firestore Rules oracle replay has no committed observations'],
   }];
-  const observations = files.map((file) => {
-    const observation = JSON.parse(readFileSync(join(OBS_DIR, file), 'utf8')) as FirestoreRulesObservation;
-    observation.name ||= file.replace(/\.json$/, '');
-    return observation;
-  });
+  const observations = files
+    .map((file) => {
+      const observation = JSON.parse(readFileSync(join(OBS_DIR, file), 'utf8')) as FirestoreRulesObservation;
+      observation.name ||= file.replace(/\.json$/, '');
+      return observation;
+    })
+    .filter((observation) => {
+      const scenario = scenarioByObservation.get(observation.name);
+      return !(scenario?.pendingRowLink && observation.rowIds.length === 0);
+    });
 
   const { SimulateFirestoreRulesHandler } = await import('../../rules/src/simulator/handler.ts');
   const simulator = new SimulateFirestoreRulesHandler();
@@ -244,7 +249,8 @@ export async function replayFirestoreRulesObservations(): Promise<FirestoreOracl
       ),
     });
   }
-  for (const name of scenarioByObservation.keys()) {
+  for (const [name, scenario] of scenarioByObservation.entries()) {
+    if (scenario.pendingRowLink) continue;
     if (!observedNames.has(name)) replays.push({
       name, rowId: '', problems: [`${name}: corpus scenario has no committed observation`],
     });

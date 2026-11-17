@@ -23,6 +23,7 @@ import { fileURLToPath } from 'node:url';
 import type { Probe } from '../rigs/types.ts';
 import { probe } from '../probes/storage/client-storage-ref-urls.ts';
 import { resolvedFirebaseVersion } from './package-version.ts';
+import { readSingleProbeSelector } from './probe-cli-args.ts';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ID = 'client-storage-ref-urls';
@@ -54,7 +55,10 @@ function deepEqual(a: unknown, b: unknown): boolean {
   return false;
 }
 
-async function capture(record: Probe, fbSdkVersion: string): Promise<ObservationEnvelope> {
+export async function captureClientStorageObservation(
+  record: Probe,
+  fbSdkVersion: string,
+): Promise<ObservationEnvelope> {
   return {
     name: ID,
     matrixRow: record.matrixRow,
@@ -67,19 +71,37 @@ async function capture(record: Probe, fbSdkVersion: string): Promise<Observation
   };
 }
 
-const fbSdkVersion = resolvedFirebaseVersion();
-const actual = await capture(probe, fbSdkVersion);
+export function selectClientStorageProbeId(args: readonly string[]): string {
+  const probeFilter = readSingleProbeSelector(args);
+  if (probeFilter !== undefined && probeFilter !== ID) {
+    throw new Error(`unknown client-storage probe: ${probeFilter}`);
+  }
+  return ID;
+}
 
-if (process.argv.includes('--write')) {
-  writeFileSync(OBSERVATION_PATH, `${JSON.stringify(actual, null, 2)}\n`);
-  console.log(`wrote ${ID}.json against firebase ${fbSdkVersion}`);
-} else {
+async function main(): Promise<void> {
+  const args = process.argv.slice(2);
+  selectClientStorageProbeId(args);
+
+  const fbSdkVersion = resolvedFirebaseVersion();
+  const actual = await captureClientStorageObservation(probe, fbSdkVersion);
+
+  if (args.includes('--write')) {
+    writeFileSync(OBSERVATION_PATH, `${JSON.stringify(actual, null, 2)}\n`);
+    console.log(`wrote ${ID}.json against firebase ${fbSdkVersion}`);
+    return;
+  }
   const expected = JSON.parse(readFileSync(OBSERVATION_PATH, 'utf8')) as ObservationEnvelope;
   const matches = expected.fbSdkVersion === fbSdkVersion &&
     deepEqual(expected.behavior, actual.behavior);
+  const verdictLabel = matches ? 'MATCH' : 'MISMATCH';
   console.log(
-    `${matches ? 'MATCH' : 'MISMATCH'} ${ID} ` +
+    `${verdictLabel} ${ID} ` +
       `(captured ${expected.fbSdkVersion}, installed ${fbSdkVersion})`,
   );
   process.exit(matches ? 0 : 1);
+}
+
+if (import.meta.main) {
+  await main();
 }

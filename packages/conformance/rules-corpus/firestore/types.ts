@@ -31,6 +31,12 @@ export interface Scenario {
   /** The cases to run against `rules`. Each case's `description` is unique
    *  within the scenario and is used as the verdict-table key in observations. */
   cases: TestCase[];
+  /** True while the scenario is staged for automated main-branch capture or
+   *  awaiting follow-up rowIds linkage in registry/firestore-rules.ts. */
+  pendingRowLink?: boolean;
+  /** True when the scenario probes a ruleset that production may reject at
+   *  compile time (issues without testResults) rather than evaluating cases. */
+  allowCompileError?: boolean;
 }
 
 /**

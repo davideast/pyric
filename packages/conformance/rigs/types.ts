@@ -20,7 +20,7 @@
  */
 export type RigAutomation = 'unattended' | 'credentialed' | 'human-witnessed';
 
-export interface RigEnvRequirement {
+interface RigEnvRequirement {
   /** Exact environment variable name. */
   name: string;
   /** What the variable holds and how the rig uses it. */
@@ -93,5 +93,7 @@ export interface Probe {
   matrixRow: string;
   /** Structured registry links. Empty until admin matrix rows land post-publish. */
   rowIds: string[];
+  /** True while staged for automated main-branch capture before rowIds linkage. */
+  pendingRowLink?: boolean;
   observe(): Promise<Record<string, unknown>>;
 }

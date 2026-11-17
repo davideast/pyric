@@ -35,6 +35,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { hasParityCredential, NO_CREDENTIAL_MESSAGE } from '../../../packages/pyric/test/rules/parity/credential.ts';
+import type { ProjectScope } from '../../../packages/pyric/src/project-scope.ts';
 import { fileURLToPath } from 'node:url';
 import type { TestFirestoreRulesResult, TestResult } from '../../rules/src/test/spec.ts';
 import {
@@ -111,9 +112,9 @@ export function isRealDatabaseObservation(path: string): boolean {
 /** Scenarios `run-firestore-real.ts` captures: the Rules Test API reports
  *  "Function not found: getAfter" for them, so only a real database can
  *  answer, and this rig must not overwrite the file. */
-export const REAL_DATABASE_SCENARIO_IDS: ReadonlySet<string> = new Set(['atomic-batch-sibling-merge']);
+const REAL_DATABASE_SCENARIO_IDS: ReadonlySet<string> = new Set(['atomic-batch-sibling-merge']);
 
-export function isOwnedByRealDatabaseRig(scenario: Scenario): boolean {
+function isOwnedByRealDatabaseRig(scenario: Scenario): boolean {
   return REAL_DATABASE_SCENARIO_IDS.has(scenario.id)
     || isRealDatabaseObservation(observationPath(scenario));
 }
@@ -194,6 +195,120 @@ export function diagnosticTable(
   );
 }
 
+interface RawCompileIssue {
+  severity?: string;
+  description?: string;
+  sourcePosition?: { line?: number; column?: number };
+}
+
+interface RawTestApiResponse {
+  issues?: RawCompileIssue[];
+  testResults?: Array<{
+    state?: 'SUCCESS' | 'FAILURE';
+    debugMessages?: string[];
+    errorPosition?: unknown;
+    functionCalls?: unknown[];
+    visitedExpressions?: unknown[];
+    expressionReports?: unknown[];
+  }>;
+}
+
+/**
+ * Captures a scenario marked `allowCompileError: true` directly against
+ * `projects.test`, preserving verbatim compile issues (`severity`, `line`,
+ * `column`, `description`) when production rejects the ruleset at compile time
+ * instead of throwing.
+ */
+export async function captureCompileCheckScenario(
+  scenario: Scenario,
+  scope: ProjectScope,
+  fetchImpl: typeof fetch = fetch,
+): Promise<{
+  behavior: Record<string, 'ALLOW' | 'DENY' | 'COMPILE_ERROR'>;
+  diagnostics: Record<string, { notes: string[]; api?: unknown }>;
+}> {
+  const { buildApiTestCase } = await import('../../rules/src/test/spec.ts');
+  const token = await scope.resolveToken();
+  const apiTestCases = scenario.cases.map((tc) => buildApiTestCase(tc));
+  const res = await fetchImpl(
+    `https://firebaserules.googleapis.com/v1/projects/${scope.projectId}:test`,
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        source: { files: [{ name: 'firestore.rules', content: scenario.rules }] },
+        testSuite: { testCases: apiTestCases },
+      }),
+    },
+  );
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    throw new Error(
+      `Production Rules Test API HTTP ${res.status} for scenario "${scenario.id}": ${body}`,
+    );
+  }
+  const data = (await res.json()) as RawTestApiResponse;
+  const rawIssues = data.issues ?? [];
+  const normalizedIssues = rawIssues.map((issue) => {
+    const entry: { severity: string; description: string; line?: number; column?: number } = {
+      severity: issue.severity ?? 'SEVERITY_UNSPECIFIED',
+      description: issue.description ?? '',
+    };
+    if (issue.sourcePosition?.line !== undefined) entry.line = issue.sourcePosition.line;
+    if (issue.sourcePosition?.column !== undefined) entry.column = issue.sourcePosition.column;
+    return entry;
+  });
+  const issueNotes = normalizedIssues.map((issue) => {
+    const pos = issue.line !== undefined ? `@${issue.line}:${issue.column ?? '?'}` : '';
+    return `${issue.severity}${pos} ${issue.description}`.trim();
+  });
+
+  const testResults = data.testResults ?? [];
+  const diagnostics: Record<string, { notes: string[]; api?: unknown }> = {};
+  if (normalizedIssues.length > 0) {
+    diagnostics.compileIssues = {
+      notes: issueNotes,
+      api: { issues: normalizedIssues },
+    };
+  }
+
+  if (testResults.length === 0 && normalizedIssues.length > 0) {
+    const behavior = Object.fromEntries(
+      scenario.cases.map((tc) => [tc.description, 'COMPILE_ERROR' as const]),
+    );
+    return { behavior, diagnostics };
+  }
+
+  if (testResults.length !== scenario.cases.length) {
+    throw new Error(
+      `Rules Test API returned ${testResults.length} result(s) for ${scenario.cases.length} case(s) in "${scenario.id}"`,
+    );
+  }
+
+  const behavior: Record<string, 'ALLOW' | 'DENY'> = {};
+  for (let i = 0; i < scenario.cases.length; i += 1) {
+    const tc = scenario.cases[i];
+    const apiResult = testResults[i];
+    if (!tc) continue;
+    const passed = apiResult?.state === 'SUCCESS';
+    let decision: 'ALLOW' | 'DENY';
+    if (passed) {
+      decision = tc.expectation;
+    } else {
+      decision = tc.expectation === 'ALLOW' ? 'DENY' : 'ALLOW';
+    }
+    behavior[tc.description] = decision;
+    const notes = apiResult?.debugMessages ?? [];
+    if (notes.length > 0) {
+      diagnostics[tc.description] = { notes: [...notes] };
+    }
+  }
+  return { behavior, diagnostics };
+}
+
 function printInertPlan(scenarios: Scenario[]): void {
   console.log('[oracle:rules] No Rules Test API credential: INERT preview, no network calls.\n');
   console.log(`  ${NO_CREDENTIAL_MESSAGE}\n`);
@@ -234,10 +349,18 @@ async function capture(scenarios: Scenario[]): Promise<void> {
   console.log(`[oracle:rules] firebase ${fbSdkVersion}\n`);
 
   for (const scenario of scenarios) {
-    const res = await handler.execute(scope, scenario.rules, scenario.cases);
-    assertSuccessfulRulesResult(scenario, res);
-    const behavior = verdictTable(scenario, res);
-    const diagnostics = diagnosticTable(res.data.results);
+    let behavior: Record<string, unknown>;
+    let diagnostics: Record<string, { notes: string[]; api?: unknown }>;
+    if (scenario.allowCompileError) {
+      const compileOut = await captureCompileCheckScenario(scenario, scope);
+      behavior = compileOut.behavior;
+      diagnostics = compileOut.diagnostics;
+    } else {
+      const res = await handler.execute(scope, scenario.rules, scenario.cases);
+      assertSuccessfulRulesResult(scenario, res);
+      behavior = verdictTable(scenario, res);
+      diagnostics = diagnosticTable(res.data.results);
+    }
     const path = observationPath(scenario);
     const linkage = existingLinkage(path);
     const obs: Observation = {

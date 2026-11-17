@@ -35,6 +35,9 @@ export interface StorageScenario extends Omit<Scenario, 'cases'> {
   /** The cases to run against `rules`. Each `description` is unique within the
    *  scenario and is the verdict-table key in observations. */
   cases: StorageTestCase[];
+  /** True while the scenario is staged for automated main-branch capture or
+   *  awaiting follow-up rowIds linkage in registry/storage.ts. */
+  pendingRowLink?: boolean;
 }
 
 /**

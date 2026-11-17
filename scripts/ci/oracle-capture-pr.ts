@@ -1,0 +1,471 @@
+#!/usr/bin/env bun
+/**
+ * Main-only production oracle capture runner and isolated PR opener for
+ * `.github/workflows/oracle-capture.yml`.
+ *
+ * Security split across two GitHub Actions jobs:
+ *   - `plan` + `capture` run in Job 1 (`contents: read`, `id-token: write`),
+ *     authenticating to GCP via keyless Workload Identity Federation, running
+ *     only approved capture rigs, reverting `observedAt`-only changes, failing
+ *     closed on any modification outside `packages/conformance/observations/**`,
+ *     and exporting a validated bundle artifact.
+ *   - `open-pr` runs in Job 2 (`contents: write`, `pull-requests: write`, NO
+ *     GCP WIF credentials), re-verifies every file in the downloaded artifact
+ *     against symlinks, traversal, unexpected paths, and JSON schema drift,
+ *     pushes `chore/oracle-capture-<rig>`, and opens or updates a strict-ASCII
+ *     pull request against `main`.
+ */
+import { execFileSync, spawnSync } from 'node:child_process';
+import {
+  copyFileSync,
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, join, relative, resolve } from 'node:path';
+import { loadRigManifests } from '../../packages/conformance/rigs/load.ts';
+import type { Gh } from './github-issues.ts';
+import { spawnGh } from './github-issues.ts';
+import {
+  appendGithubOutput,
+  appendStepSummary,
+  assertMainBranchContext,
+  diagnoseCaptureFailure,
+  planCaptureRun,
+  type CapturePlan,
+  type PlannedRigInvocation,
+} from './oracle-capture-plan.ts';
+import {
+  assertValidObservationEnvelope,
+  canonicalizeObservation,
+  collectTimestampCleanObservations,
+  validateObservationRelativePath,
+  type CollectedObservationChange,
+} from './oracle-observation-diff.ts';
+
+const SAFE_RIG_ID = /^[a-z0-9-]+$/;
+
+export interface CaptureBundleRigEntry {
+  rig: string;
+  filter?: string;
+  files: CollectedObservationChange[];
+}
+
+export interface CaptureBundleManifest {
+  sourceSha: string;
+  runUrl?: string;
+  rigs: CaptureBundleRigEntry[];
+}
+
+export interface OpenedPullRequestOutcome {
+  rig: string;
+  branch: string;
+  action: 'created' | 'updated' | 'unchanged';
+  prUrl: string;
+}
+
+function resetObservationsTree(cwd: string): void {
+  execFileSync('git', ['checkout', '--', 'packages/conformance/observations'], { cwd });
+  execFileSync('git', ['clean', '-fd', '--', 'packages/conformance/observations'], { cwd });
+}
+
+function groupInvocationsByRig(
+  invocations: readonly PlannedRigInvocation[],
+): Map<string, PlannedRigInvocation[]> {
+  const grouped = new Map<string, PlannedRigInvocation[]>();
+  for (const inv of invocations) {
+    const list = grouped.get(inv.rig) ?? [];
+    list.push(inv);
+    grouped.set(inv.rig, list);
+  }
+  return grouped;
+}
+
+async function runCaptureCommand(cwd: string, env: NodeJS.ProcessEnv): Promise<void> {
+  assertMainBranchContext(env);
+  const planFile = env.PLAN_FILE;
+  const artifactDir = env.ARTIFACT_DIR;
+  if (!planFile || !artifactDir) {
+    throw new Error('PLAN_FILE and ARTIFACT_DIR environment variables are required');
+  }
+
+  const initialStatus = execFileSync(
+    'git',
+    ['-c', 'core.quotePath=false', 'status', '--porcelain', '-uall'],
+    { cwd, encoding: 'utf8' },
+  ).trim();
+  if (initialStatus !== '') {
+    throw new Error(`Working tree must be clean before capture starts:\n${initialStatus}`);
+  }
+
+  const plan = JSON.parse(readFileSync(planFile, 'utf8')) as CapturePlan;
+  if (!plan.shouldRun || plan.invocations.length === 0) {
+    appendGithubOutput(env, 'has_captures', 'false');
+    return;
+  }
+
+  rmSync(artifactDir, { recursive: true, force: true });
+  mkdirSync(artifactDir, { recursive: true });
+
+  const sourceSha = execFileSync('git', ['rev-parse', 'HEAD'], { cwd, encoding: 'utf8' }).trim();
+  let runUrl: string | undefined;
+  if (env.GITHUB_SERVER_URL && env.GITHUB_REPOSITORY && env.GITHUB_RUN_ID) {
+    runUrl = `${env.GITHUB_SERVER_URL}/${env.GITHUB_REPOSITORY}/actions/runs/${env.GITHUB_RUN_ID}`;
+  }
+
+  const grouped = groupInvocationsByRig(plan.invocations);
+  const bundleRigs: CaptureBundleRigEntry[] = [];
+  let hadRigFailure = false;
+
+  for (const [rig, rigInvocations] of grouped.entries()) {
+    let rigFailed = false;
+    for (const inv of rigInvocations) {
+      console.log(`[oracle-capture] running ${inv.rig}: bun run ${inv.script} ${inv.args.join(' ')}`.trim());
+      const out = spawnSync('bun', ['run', inv.script, ...inv.args], {
+        cwd,
+        env,
+        encoding: 'utf8',
+        maxBuffer: 64 * 1024 * 1024,
+      });
+      if (out.stdout) process.stdout.write(out.stdout);
+      if (out.stderr) process.stderr.write(out.stderr);
+      if (out.status !== 0) {
+        const combined = `${out.stdout ?? ''}\n${out.stderr ?? ''}`;
+        const report = diagnoseCaptureFailure(rig, combined, env);
+        appendStepSummary(env, report);
+        console.error(report);
+        rigFailed = true;
+        hadRigFailure = true;
+        break;
+      }
+    }
+
+    try {
+      const rigBundleDir = join(artifactDir, 'rigs', rig);
+      const collected = collectTimestampCleanObservations(cwd, rigBundleDir);
+      if (!rigFailed && collected.length > 0) {
+        const filterSummary = rigInvocations
+          .map((item) => item.args.filter((a) => a !== '--write' && !a.startsWith('--')).join(','))
+          .filter(Boolean)
+          .join(', ');
+        const entry: CaptureBundleRigEntry = { rig, files: collected };
+        if (filterSummary) entry.filter = filterSummary;
+        bundleRigs.push(entry);
+      } else {
+        rmSync(rigBundleDir, { recursive: true, force: true });
+      }
+    } catch (boundaryErr) {
+      rmSync(artifactDir, { recursive: true, force: true });
+      appendGithubOutput(env, 'has_captures', 'false');
+      throw boundaryErr;
+    } finally {
+      resetObservationsTree(cwd);
+    }
+  }
+
+  if (bundleRigs.length === 0) {
+    rmSync(artifactDir, { recursive: true, force: true });
+    appendGithubOutput(env, 'has_captures', 'false');
+    if (hadRigFailure) process.exit(1);
+    const cleanMsg = '## Oracle capture: no non-timestamp observation changes produced.';
+    appendStepSummary(env, cleanMsg);
+    console.log(cleanMsg);
+    return;
+  }
+
+  const manifest: CaptureBundleManifest = { sourceSha, rigs: bundleRigs };
+  if (runUrl) manifest.runUrl = runUrl;
+  writeFileSync(join(artifactDir, 'manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`);
+  appendGithubOutput(env, 'has_captures', 'true');
+
+  const summaryLines = [
+    '## Oracle capture bundle prepared',
+    '',
+    ...bundleRigs.flatMap((entry) => [
+      `- **${entry.rig}** (${entry.files.length} file(s)):`,
+      ...entry.files.map((f) => `  - \`${f.path}\` (${f.kind})`),
+    ]),
+  ];
+  appendStepSummary(env, summaryLines.join('\n'));
+  if (hadRigFailure) process.exit(1);
+}
+
+function assertNoSymlinksAndCollectRegularFiles(rootDir: string): string[] {
+  const rootStat = lstatSync(rootDir);
+  if (rootStat.isSymbolicLink() || !rootStat.isDirectory()) {
+    throw new Error(`Artifact directory '${rootDir}' is missing or a symlink`);
+  }
+  const files: string[] = [];
+  const walk = (dir: string): void => {
+    for (const entry of readdirSync(dir).sort()) {
+      const full = join(dir, entry);
+      const stat = lstatSync(full);
+      if (stat.isSymbolicLink()) {
+        throw new Error(`Refusing symlink in downloaded artifact bundle: ${relative(rootDir, full)}`);
+      }
+      if (stat.isDirectory()) {
+        walk(full);
+      } else if (stat.isFile()) {
+        files.push(relative(rootDir, full).replace(/\\/g, '/'));
+      } else {
+        throw new Error(`Refusing non-regular file in artifact bundle: ${relative(rootDir, full)}`);
+      }
+    }
+  };
+  walk(rootDir);
+  return files;
+}
+
+function sanitizeAsciiText(text: string): string {
+  let out = '';
+  for (const ch of text) {
+    const code = ch.codePointAt(0) ?? 0;
+    if (code <= 127) {
+      out += ch;
+    } else {
+      out += '?';
+    }
+  }
+  return out;
+}
+
+export function buildCapturePullRequestBody(input: {
+  rig: string;
+  files: readonly CollectedObservationChange[];
+  sourceSha: string;
+  filter?: string;
+  runUrl?: string;
+}): string {
+  const firstFile = input.files[0]?.path ?? 'packages/conformance/observations/';
+  const fileBullets = input.files.map((f) => `- \`${f.path}\` (${f.kind})`).join('\n');
+  const filterNote = input.filter ? ` (filter: \`${input.filter}\`)` : '';
+  const runNote = input.runUrl ? `- Capture workflow run: ${input.runUrl}` : '- Capture workflow run: local/dispatch';
+
+  const raw = [
+    `Pins ${input.files.length} production Firebase observation file(s) captured by the \`${input.rig}\` oracle rig${filterNote} against project \`digame-mas\`.`,
+    '',
+    '```bash',
+    `# Verify registry and observation invariants against ${firstFile}`,
+    'bun run compat:check',
+    '```',
+    '',
+    `## ${input.rig} observations captured from main`,
+    '',
+    fileBullets,
+    '',
+    '## Risk',
+    '',
+    'Touches only static JSON files under `packages/conformance/observations/`. No runtime package code is modified, so there is no `test/apps/<name>` runtime path to add. Staged unlinked observations carry `rowIds: []` until the follow-up conformance PR links registry rows and replays verdicts.',
+    '',
+    '<details>',
+    '<summary>Implementation notes</summary>',
+    '',
+    `- Source \`main\` commit: \`${input.sourceSha}\``,
+    `- Oracle rig: \`${input.rig}\``,
+    runNote,
+    '',
+    '</details>',
+    '',
+  ].join('\n');
+
+  return sanitizeAsciiText(raw);
+}
+
+export async function verifyAndOpenCapturePullRequests(options: {
+  cwd: string;
+  artifactDir: string;
+  repository: string;
+  gh: Gh;
+}): Promise<OpenedPullRequestOutcome[]> {
+  const { cwd, artifactDir, repository, gh } = options;
+  const allBundleFiles = assertNoSymlinksAndCollectRegularFiles(artifactDir);
+  if (!allBundleFiles.includes('manifest.json')) {
+    throw new Error('Artifact bundle is missing manifest.json');
+  }
+
+  const manifest = JSON.parse(
+    readFileSync(join(artifactDir, 'manifest.json'), 'utf8'),
+  ) as CaptureBundleManifest;
+  if (!manifest || typeof manifest !== 'object' || !Array.isArray(manifest.rigs)) {
+    throw new Error('Invalid manifest.json in artifact bundle');
+  }
+
+  const rigManifests = await loadRigManifests();
+  const validRigIds = new Set(rigManifests.map((m) => m.id));
+
+  const expectedBundleFiles = new Set<string>(['manifest.json']);
+  for (const entry of manifest.rigs) {
+    if (!SAFE_RIG_ID.test(entry.rig) || !validRigIds.has(entry.rig)) {
+      throw new Error(`Manifest names invalid or unknown rig '${String(entry.rig)}'`);
+    }
+    if (!Array.isArray(entry.files) || entry.files.length === 0) {
+      throw new Error(`Manifest entry for '${entry.rig}' has no observation files`);
+    }
+    for (const file of entry.files) {
+      validateObservationRelativePath(file.path);
+      const bundleRel = `rigs/${entry.rig}/${file.path}`;
+      expectedBundleFiles.add(bundleRel);
+      const fullPath = join(artifactDir, bundleRel);
+      if (!existsSync(fullPath)) {
+        throw new Error(`Manifest observation '${bundleRel}' is missing from artifact bundle`);
+      }
+      assertValidObservationEnvelope(file.path, readFileSync(fullPath, 'utf8'));
+    }
+  }
+
+  for (const actual of allBundleFiles) {
+    if (!expectedBundleFiles.has(actual)) {
+      throw new Error(`Unexpected file in artifact bundle: '${actual}'`);
+    }
+  }
+
+  execFileSync('git', ['config', 'user.name', 'github-actions[bot]'], { cwd });
+  execFileSync(
+    'git',
+    ['config', 'user.email', '41898282+github-actions[bot]@users.noreply.github.com'],
+    { cwd },
+  );
+
+  const scratch = mkdtempSync(join(tmpdir(), 'oracle-capture-pr-body-'));
+  const outcomes: OpenedPullRequestOutcome[] = [];
+
+  try {
+    for (const entry of manifest.rigs) {
+      const branch = `chore/oracle-capture-${entry.rig}`;
+      execFileSync('git', ['checkout', '-B', branch, 'origin/main'], { cwd });
+
+      for (const file of entry.files) {
+        const src = join(artifactDir, 'rigs', entry.rig, file.path);
+        const dest = join(cwd, file.path);
+        mkdirSync(dirname(dest), { recursive: true });
+        copyFileSync(src, dest);
+      }
+
+      const meaningfulFiles = entry.files.filter((file) => {
+        let baseText: string | null = null;
+        try {
+          baseText = execFileSync('git', ['show', `origin/main:${file.path}`], {
+            cwd,
+            encoding: 'utf8',
+            stdio: ['ignore', 'pipe', 'ignore'],
+          });
+        } catch {
+          baseText = null;
+        }
+        const nextText = readFileSync(join(cwd, file.path), 'utf8');
+        if (baseText !== null && canonicalizeObservation(baseText) === canonicalizeObservation(nextText)) {
+          execFileSync('git', ['checkout', '--', file.path], { cwd });
+          return false;
+        }
+        return true;
+      });
+
+      if (meaningfulFiles.length === 0) {
+        outcomes.push({ rig: entry.rig, branch, action: 'unchanged', prUrl: '' });
+        continue;
+      }
+
+      execFileSync('git', ['add', '--', ...meaningfulFiles.map((f) => f.path)], { cwd });
+      const title = sanitizeAsciiText(`chore(conformance): capture ${entry.rig} oracle observations`);
+      execFileSync('git', ['commit', '-m', title], { cwd });
+      execFileSync('git', ['push', '--force', 'origin', `HEAD:refs/heads/${branch}`], { cwd });
+
+      const bodyFile = join(scratch, `${entry.rig}-pr-body.md`);
+      writeFileSync(
+        bodyFile,
+        buildCapturePullRequestBody({
+          rig: entry.rig,
+          files: meaningfulFiles,
+          sourceSha: manifest.sourceSha,
+          filter: entry.filter,
+          runUrl: manifest.runUrl,
+        }),
+      );
+
+      const openPrs = JSON.parse(
+        gh([
+          'pr', 'list', '--repo', repository, '--head', branch,
+          '--base', 'main', '--state', 'open', '--json', 'number,url',
+        ]),
+      ) as Array<{ number: number; url: string }>;
+
+      const existing = openPrs[0];
+      if (existing) {
+        gh([
+          'pr', 'edit', String(existing.number), '--repo', repository,
+          '--title', title, '--body-file', bodyFile,
+        ]);
+        outcomes.push({ rig: entry.rig, branch, action: 'updated', prUrl: existing.url });
+      } else {
+        const prUrl = gh([
+          'pr', 'create', '--repo', repository, '--base', 'main',
+          '--head', branch, '--title', title, '--body-file', bodyFile,
+        ]).trim();
+        outcomes.push({ rig: entry.rig, branch, action: 'created', prUrl });
+      }
+    }
+  } finally {
+    rmSync(scratch, { recursive: true, force: true });
+  }
+
+  return outcomes;
+}
+
+async function runPlanCli(env: NodeJS.ProcessEnv): Promise<void> {
+  const planFile = env.PLAN_FILE;
+  if (!planFile) throw new Error('PLAN_FILE environment variable is required');
+  const plan = await planCaptureRun(env);
+  mkdirSync(dirname(resolve(planFile)), { recursive: true });
+  writeFileSync(resolve(planFile), `${JSON.stringify(plan, null, 2)}\n`);
+  appendGithubOutput(env, 'should_run', String(plan.shouldRun));
+  appendGithubOutput(env, 'needs_wif', String(plan.needsWif));
+  if (!plan.shouldRun) {
+    console.log('[oracle-capture] No uncaptured staged probes or pending rig prefixes found; skipping.');
+  } else {
+    console.log(
+      `[oracle-capture] Planned ${plan.invocations.length} invocation(s) (needs_wif=${String(plan.needsWif)}).`,
+    );
+  }
+}
+
+async function runOpenPrCli(cwd: string, env: NodeJS.ProcessEnv): Promise<void> {
+  assertMainBranchContext(env);
+  const artifactDir = env.ARTIFACT_DIR;
+  const repository = env.GITHUB_REPOSITORY;
+  if (!artifactDir || !repository) {
+    throw new Error('ARTIFACT_DIR and GITHUB_REPOSITORY environment variables are required');
+  }
+  const outcomes = await verifyAndOpenCapturePullRequests({
+    cwd,
+    artifactDir: resolve(artifactDir),
+    repository,
+    gh: spawnGh(cwd),
+  });
+  const outcomeBullets = outcomes.map((o) => {
+    const suffix = o.prUrl ? ` - ${o.prUrl}` : '';
+    return `- **${o.rig}** (\`${o.branch}\`): ${o.action}${suffix}`;
+  });
+  const lines = ['## Oracle capture pull requests', '', ...outcomeBullets];
+  appendStepSummary(env, lines.join('\n'));
+  console.log(lines.join('\n'));
+}
+
+if (import.meta.main) {
+  const subcommand = process.argv[2];
+  if (subcommand === 'plan') {
+    await runPlanCli(process.env);
+  } else if (subcommand === 'capture') {
+    await runCaptureCommand(process.cwd(), process.env);
+  } else if (subcommand === 'open-pr') {
+    await runOpenPrCli(process.cwd(), process.env);
+  } else {
+    console.error('usage: bun scripts/ci/oracle-capture-pr.ts plan|capture|open-pr');
+    process.exit(2);
+  }
+}

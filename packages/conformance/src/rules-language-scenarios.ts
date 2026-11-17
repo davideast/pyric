@@ -9,13 +9,13 @@ import { firestoreObservationMatchesScenario } from './firestore-rules-input-dig
 import { storageRulesTestInputDigest } from './storage-rules-input-digest.ts';
 import { loadStorageRulesExceptions } from './storage-rules-exceptions.ts';
 
-export interface StorageObservationIdentity {
+interface StorageObservationIdentity {
   inputDigest?: { algorithm?: unknown; value?: unknown };
   behavior?: Record<string, unknown>;
 }
 
 /** True only when the Storage observation covers this exact input and case-key set. */
-export function storageObservationMatchesScenario(
+function storageObservationMatchesScenario(
   scenario: Pick<StorageScenario, 'rules' | 'cases'>,
   observation: StorageObservationIdentity,
 ): boolean {
@@ -71,7 +71,10 @@ export function loadRulesLanguageScenarios(
       if (!scenario) continue;
       const observation = JSON.parse(
         readFileSync(join(observationDirectory, `${prefix}${id}.json`), 'utf8'),
-      ) as { inputDigest?: { algorithm?: unknown; value?: unknown }; behavior?: Record<string, unknown> };
+      ) as { rowIds?: unknown; inputDigest?: { algorithm?: unknown; value?: unknown }; behavior?: Record<string, unknown> };
+      if (scenario.pendingRowLink && (!Array.isArray(observation.rowIds) || observation.rowIds.length === 0)) {
+        continue;
+      }
       if (firestoreObservationMatchesScenario(scenario, observation)) twinIds.add(id);
     }
     return { scenarios, twinIds };
@@ -104,7 +107,10 @@ export function loadRulesLanguageScenarios(
     if (!scenario) continue;
     const observation = JSON.parse(
       readFileSync(join(observationDirectory, `${prefix}${id}.json`), 'utf8'),
-    ) as StorageObservationIdentity;
+    ) as StorageObservationIdentity & { rowIds?: unknown };
+    if (scenario.pendingRowLink && (!Array.isArray(observation.rowIds) || observation.rowIds.length === 0)) {
+      continue;
+    }
     if (storageObservationMatchesScenario(scenario, observation)) twinIds.add(id);
   }
   return {

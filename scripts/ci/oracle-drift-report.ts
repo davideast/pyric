@@ -29,6 +29,7 @@ import { execFileSync } from 'node:child_process';
 import { appendFileSync, mkdtempSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
+import { canonicalizeObservation } from './oracle-observation-diff.ts';
 
 const OBS_TREE = 'packages/conformance/observations';
 const DOC = 'packages/conformance/docs/how-to-run-the-conformance-system.md';
@@ -61,46 +62,6 @@ function workingContent(path: string): string | null {
   }
 }
 
-/** Parse an observation, drop the volatile `observedAt` stamp wherever it
- *  appears, and re-serialize with sorted keys so formatting never registers
- *  as drift. Non-JSON content is returned verbatim so a malformed capture
- *  still surfaces as a difference rather than being silently swallowed. */
-function canonicalize(content: string | null): string | null {
-  if (content === null) return null;
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(content);
-  } catch {
-    return content;
-  }
-  const stripped = strip(parsed);
-  return JSON.stringify(stripped, sortedReplacer(), 2) + '\n';
-}
-
-function strip(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(strip);
-  if (value && typeof value === 'object') {
-    const out: Record<string, unknown> = {};
-    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
-      if (k === 'observedAt') continue;
-      out[k] = strip(v);
-    }
-    return out;
-  }
-  return value;
-}
-
-/** Stable key order so re-serialization is deterministic. */
-function sortedReplacer() {
-  return function (this: unknown, _key: string, value: unknown): unknown {
-    if (value && typeof value === 'object' && !Array.isArray(value)) {
-      const record = value as Record<string, unknown>;
-      return Object.fromEntries(Object.keys(record).sort().map((k) => [k, record[k]]));
-    }
-    return value;
-  };
-}
-
 /** Changed observation paths (modified, added, or deleted) vs HEAD. */
 function changedObservationPaths(): string[] {
   const out = git(['status', '--porcelain', '--', OBS_TREE]);
@@ -117,8 +78,8 @@ function changedObservationPaths(): string[] {
 /** A timestamp-free unified diff between HEAD and working versions of one
  *  file, or '' when the only difference was the stamp / formatting. */
 function normalizedDiff(path: string, tmp: string): string {
-  const head = canonicalize(headContent(path));
-  const work = canonicalize(workingContent(path));
+  const head = canonicalizeObservation(headContent(path));
+  const work = canonicalizeObservation(workingContent(path));
   if (head === work) return '';
 
   const headFile = join(tmp, 'HEAD', path);
