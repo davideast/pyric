@@ -1,9 +1,11 @@
 {
   "name": "messaging-send-apns-fcm-options",
-  "matrixRow": "",
-  "rowIds": [],
+  "matrixRow": "interface ApnsFcmOptions { analyticsLabel?; imageUrl? }",
+  "rowIds": [
+    "messaging-admin#26"
+  ],
   "description": "firebase-admin/messaging ApnsFcmOptions: FCM accepts analyticsLabel and imageUrl (mapped to wire image), while malformed URLs or simultaneous imageUrl and image keys fail client preflight with messaging/invalid-payload.",
-  "observedAt": "2026-11-18T00:42:51.875Z",
+  "observedAt": "2026-11-17T23:55:27.871Z",
   "adminSdkVersion": "13.10.0",
   "projectId": "digame-mas",
   "behavior": {

@@ -39,9 +39,8 @@ export async function observeSendEachValidationGuards(
 
 export const probe: Probe = {
   rig: 'messaging-send',
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: "Messaging.sendEach(messages, dryRun?) input guards and FirebaseMessagingError",
+  rowIds: ['messaging-admin#5', 'messaging-admin#38'],
   description:
     'firebase-admin/messaging sendEach(messages, dryRun?) input guards: empty array, >500-message batch, and non-boolean dryRun fail preflight with FirebaseMessagingError messaging/invalid-argument.',
   async observe() {

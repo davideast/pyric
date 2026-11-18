@@ -1,9 +1,11 @@
 {
   "name": "messaging-send-fcm-options-analytics-label",
-  "matrixRow": "",
-  "rowIds": [],
-  "description": "firebase-admin/messaging FcmOptions.analyticsLabel: accepted on topic send and dryRun, non-string rejected in client preflight with messaging/invalid-payload, and >50-char label rejected on FCM v1 wire with HTTP 400 INVALID_ARGUMENT.",
-  "observedAt": "2026-11-18T00:42:53.940Z",
+  "matrixRow": "interface FcmOptions { analyticsLabel? }",
+  "rowIds": [
+    "messaging-admin#17"
+  ],
+  "description": "firebase-admin/messaging FcmOptions.analyticsLabel: accepted on topic send and dryRun, non-string rejected in client preflight with messaging/invalid-payload, and >50-char top-level analytics_label accepted on FCM v1 wire with HTTP 200.",
+  "observedAt": "2026-11-17T23:55:29.194Z",
   "adminSdkVersion": "13.10.0",
   "projectId": "digame-mas",
   "behavior": {

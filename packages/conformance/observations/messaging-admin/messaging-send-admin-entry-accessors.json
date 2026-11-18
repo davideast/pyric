@@ -1,9 +1,13 @@
 {
   "name": "messaging-send-admin-entry-accessors",
-  "matrixRow": "",
-  "rowIds": [],
+  "matrixRow": "getMessaging(app?), messaging(app?), and Messaging.app",
+  "rowIds": [
+    "messaging-admin#1",
+    "messaging-admin#2",
+    "messaging-admin#3"
+  ],
   "description": "firebase-admin/messaging getMessaging(app?), admin.messaging(app?), and Messaging.app: default vs named app resolution, per-app instance caching across modular and namespace entrypoints, invalid-app TypeError guard, and live dryRun topic send.",
-  "observedAt": "2026-11-18T00:42:43.853Z",
+  "observedAt": "2026-11-17T23:55:21.971Z",
   "adminSdkVersion": "13.10.0",
   "projectId": "digame-mas",
   "behavior": {

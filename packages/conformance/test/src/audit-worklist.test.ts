@@ -27,9 +27,9 @@ function withEntries(entries: RegistryEntry[]): CompatibilityLedger {
 describe('evidence-tier audit worklist', () => {
   it('keeps climb risk on every unit-backed messaging conforms row (nothing stripped by flipping)', () => {
     const unitBacked = messagingRows.filter((row) => row.status === 'conforms' && row.automation === 'unit-backed');
-    // 40 after #440 downgraded messaging#10 (FcmOptions, a type-only shape with
-    // no runtime carrier) from unit-backed to the type-backed shape tier.
-    expect(unitBacked.length).toBe(40);
+    // 17 remaining after promoting 23 messaging-admin send/config/batch rows to oracle-backed
+    // (10 client/sw messaging rows + 7 messaging-admin topic-management and legacy payload rows).
+    expect(unitBacked.length).toBe(17);
     for (const row of unitBacked) {
       expect(row.riskReasons.length).toBeGreaterThan(0);
       expect(row.risk.some((token) => token === 'unobserved' || token === 'cited-not-replayed')).toBe(true);
@@ -52,7 +52,7 @@ describe('evidence-tier audit worklist', () => {
     const messagingUnitBacked = messagingRows.filter(
       (row) => row.status === 'conforms' && row.automation === 'unit-backed',
     );
-    expect(messagingUnitBacked.length).toBe(40); // #440 downgraded messaging#10 to type-backed
+    expect(messagingUnitBacked.length).toBe(17);
     for (const row of messagingUnitBacked) expect(ids.has(row.id)).toBe(true);
   });
 

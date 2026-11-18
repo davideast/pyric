@@ -1,9 +1,11 @@
 {
   "name": "messaging-send-apns-config-and-headers",
-  "matrixRow": "",
-  "rowIds": [],
+  "matrixRow": "interface ApnsConfig { liveActivityToken?; headers?; payload?; fcmOptions? }",
+  "rowIds": [
+    "messaging-admin#21"
+  ],
   "description": "firebase-admin/messaging ApnsConfig: FCM accepts apns.headers with apns.payload, while empty liveActivityToken and non-string header values fail client preflight with messaging/invalid-payload.",
-  "observedAt": "2026-11-18T00:42:50.240Z",
+  "observedAt": "2026-11-17T23:55:26.458Z",
   "adminSdkVersion": "13.10.0",
   "projectId": "digame-mas",
   "behavior": {

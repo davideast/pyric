@@ -1,9 +1,11 @@
 {
   "name": "messaging-send-multiple-targets-rejected",
-  "matrixRow": "",
-  "rowIds": [],
+  "matrixRow": "type Message = TokenMessage | TopicMessage | ConditionMessage",
+  "rowIds": [
+    "messaging-admin#10"
+  ],
   "description": "firebase-admin/messaging Message target union exclusivity: payloads specifying more than one of token, topic, or condition fail client preflight with messaging/invalid-payload and fail raw FCM v1 wire validation with HTTP 400 INVALID_ARGUMENT.",
-  "observedAt": "2026-11-18T00:42:56.153Z",
+  "observedAt": "2026-11-17T23:55:30.417Z",
   "adminSdkVersion": "13.10.0",
   "projectId": "digame-mas",
   "behavior": {

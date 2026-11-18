@@ -1,9 +1,14 @@
 {
   "name": "messaging-send-multicast-batch",
-  "matrixRow": "",
-  "rowIds": [],
+  "matrixRow": "Messaging.sendEachForMulticast(message, dryRun?), MulticastMessage, BatchResponse, and SendResponse",
+  "rowIds": [
+    "messaging-admin#6",
+    "messaging-admin#15",
+    "messaging-admin#36",
+    "messaging-admin#37"
+  ],
   "description": "firebase-admin/messaging sendEachForMulticast(MulticastMessage, dryRun?): ordered per-token SendResponse outcomes and preflight guards for null message, empty tokens array, and >500 tokens.",
-  "observedAt": "2026-11-18T00:42:55.476Z",
+  "observedAt": "2026-11-17T23:55:30.030Z",
   "adminSdkVersion": "13.10.0",
   "projectId": "digame-mas",
   "behavior": {

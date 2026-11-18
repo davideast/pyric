@@ -51,9 +51,8 @@ export async function observeApnsPayloadCustomData(
 
 export const probe: Probe = {
   rig: 'messaging-send',
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: "interface ApnsPayload { aps; [customData] }",
+  rowIds: ['messaging-admin#22'],
   description:
     'firebase-admin/messaging ApnsPayload: FCM accepts apns.payload carrying aps alongside arbitrary custom top-level keys, while non-object apns.payload fails client preflight with messaging/invalid-payload.',
   async observe() {

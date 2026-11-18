@@ -392,6 +392,7 @@ for (const arm of ARMS) {
     });
 
     it('enforces condition whitespace separation, five-topic maximum, and target exclusivity', async () => {
+      const upstream = freshUpstreamMessaging();
       const { svc, token, cleanup } = arm.create();
       try {
         const fiveTopics =
@@ -406,10 +407,24 @@ for (const arm of ARMS) {
           expect(code).toBe('messaging/invalid-argument');
         }
 
-        const twoTargetCode = await rejectionCode(() =>
+        const wireTwoTargetCode = await rejectionCode(() =>
           svc.send({ token, topic: '' } as never),
         );
-        expect(twoTargetCode).toBe('messaging/invalid-argument');
+        expect(wireTwoTargetCode).toBe('messaging/invalid-argument');
+
+        for (const multiTarget of [
+          { token, topic: 'alerts' },
+          { topic: 'alerts', condition: "'b' in topics" },
+        ]) {
+          const upstreamMultiCode = await rejectionCode(() =>
+            upstream.send(multiTarget as never),
+          );
+          const pyricMultiCode = await rejectionCode(() =>
+            svc.send(multiTarget as never),
+          );
+          expect(upstreamMultiCode).toBe('messaging/invalid-payload');
+          expect(pyricMultiCode).toBe(upstreamMultiCode);
+        }
       } finally {
         await cleanup();
       }

@@ -52,11 +52,10 @@ export async function observeFcmOptionsAnalyticsLabel(
 
 export const probe: Probe = {
   rig: 'messaging-send',
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: "interface FcmOptions { analyticsLabel? }",
+  rowIds: ['messaging-admin#17'],
   description:
-    'firebase-admin/messaging FcmOptions.analyticsLabel: accepted on topic send and dryRun, non-string rejected in client preflight with messaging/invalid-payload, and >50-char label rejected on FCM v1 wire with HTTP 400 INVALID_ARGUMENT.',
+    'firebase-admin/messaging FcmOptions.analyticsLabel: accepted on topic send and dryRun, non-string rejected in client preflight with messaging/invalid-payload, and >50-char top-level analytics_label accepted on FCM v1 wire with HTTP 200.',
   async observe() {
     return withMessagingSendProbeSession(async ({ app, projectId, errorEnvelopeParity }) =>
       observeFcmOptionsAnalyticsLabel({

@@ -2,7 +2,7 @@ import { deleteApp, initializeApp, type App } from 'firebase-admin/app';
 import { getMessaging, type Message } from 'firebase-admin/messaging';
 import { describe, expect, test } from 'bun:test';
 import { loadModularProbes } from '../../src/sdk-probes.ts';
-import { expectStagedUntilCaptured } from './staged-capture-assertions.ts';
+import { loadPendingRowLinkObservations } from '../../src/staged-captures.ts';
 import {
   observeAndroidConfig,
   probe as androidConfigProbe,
@@ -89,8 +89,8 @@ async function withFakeTransportSend(
   }
 }
 
-describe('modular messaging-send config option probes (Slice 3 staged family)', () => {
-  test('registers all twelve config-shape probes under rig messaging-send with pendingRowLink and empty rowIds', async () => {
+describe('modular messaging-send config option probes (Slice 3 family)', () => {
+  test('registers all twelve row-linked config-shape probes under rig messaging-send with populated rowIds', async () => {
     const modular = await loadModularProbes('messaging-send');
     const ids = modular.map((entry) => entry.id);
     const expectedConfigIds = [
@@ -127,16 +127,16 @@ describe('modular messaging-send config option probes (Slice 3 staged family)', 
     ];
     for (const probeRecord of probes) {
       expect(probeRecord.rig).toBe('messaging-send');
-      expect(probeRecord.pendingRowLink).toBe(true);
-      expect(probeRecord.matrixRow).toBe('');
-      expect(probeRecord.rowIds).toEqual([]);
+      expect(probeRecord.pendingRowLink).toBeUndefined();
+      expect(probeRecord.matrixRow.length).toBeGreaterThan(0);
+      expect(probeRecord.rowIds.length).toBeGreaterThan(0);
       expect(probeRecord.description.length).toBeGreaterThan(20);
     }
 
-    expectStagedUntilCaptured(expectedConfigIds, {
-      rig: 'messaging-send',
-      filterFlag: '--probe',
-    });
+    const pending = loadPendingRowLinkObservations();
+    for (const id of expectedConfigIds) {
+      expect(pending.has(id)).toBe(false);
+    }
   });
 
   test('observes FcmOptions, WebpushNotification, and APNs config/payload/aps/alert/sound/fcmOptions validation and acceptance', async () => {

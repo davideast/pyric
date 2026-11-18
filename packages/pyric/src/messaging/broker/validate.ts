@@ -15,6 +15,7 @@
  */
 import {
   BrokerSendError,
+  invalidAndroidAnalyticsLabelEnvelope,
   invalidConditionEnvelope,
   invalidPayloadEnvelope,
   invalidTokenEnvelope,
@@ -61,6 +62,9 @@ export const EMPIRICAL_DATA_CAP_BYTES = 4915;
 /** Documented FCM limit on topic clauses per condition expression. */
 const MAX_CONDITION_TOPICS = 5;
 
+/** Production FCM v1 wire limit on `message.android.fcm_options.analytics_label`. */
+const MAX_ANDROID_ANALYTICS_LABEL_LENGTH = 50;
+
 const utf8 = new TextEncoder();
 
 function dataBytes(data: Record<string, string> | undefined): number {
@@ -97,6 +101,15 @@ function isWebpushTtlHeaderName(headerName: string): boolean {
 
 function isNonNegativeIntegerDigits(value: string): boolean {
   return /^\d+$/.test(value);
+}
+
+function readAndroidAnalyticsLabel(android: unknown): string | undefined {
+  if (!isNonNullPlainObject(android)) return undefined;
+  const fcmOptions = android.fcmOptions;
+  if (!isNonNullPlainObject(fcmOptions)) return undefined;
+  const label = fcmOptions.analyticsLabel;
+  if (typeof label === 'string') return label;
+  return undefined;
 }
 
 /**
@@ -209,23 +222,21 @@ export function validateClientMessage(message: BrokerMessage): void {
 
   const targetKeys = ['token', 'topic', 'condition'] as const;
   const presentKeys = targetKeys.filter((key) => key in rawMessage);
-  const definedKeys = targetKeys.filter((key) => rawMessage[key] !== undefined);
-  if (definedKeys.length === 0 && presentKeys.length > 0) {
+  const nonEmptyStringKeys = targetKeys.filter((key) => {
+    const val = rawMessage[key];
+    return typeof val === 'string' && val.length > 0;
+  });
+  if (nonEmptyStringKeys.length > 1 || (nonEmptyStringKeys.length === 0 && presentKeys.length > 0)) {
     throw new BrokerSendError(
       invalidPayloadEnvelope('Exactly one of topic, token or condition is required'),
     );
   }
-  if (definedKeys.length === 1) {
-    const soleKey = definedKeys[0];
-    const rawValue = soleKey !== undefined ? rawMessage[soleKey] : undefined;
-    if (typeof rawValue !== 'string' || rawValue.length === 0) {
-      throw new BrokerSendError(
-        invalidPayloadEnvelope('Exactly one of topic, token or condition is required'),
-      );
-    }
+  if (nonEmptyStringKeys.length === 1) {
+    const soleKey = nonEmptyStringKeys[0];
     if (soleKey === 'topic') {
-      const bareTopic = canonicalTopicName(rawValue);
-      if (!isValidBareTopicName(bareTopic) && hasMalformedTopicPrefixOrSlash(rawValue, bareTopic)) {
+      const rawTopic = String(rawMessage.topic);
+      const bareTopic = canonicalTopicName(rawTopic);
+      if (!isValidBareTopicName(bareTopic) && hasMalformedTopicPrefixOrSlash(rawTopic, bareTopic)) {
         throw new BrokerSendError(invalidPayloadEnvelope('Malformed topic name'));
       }
     }
@@ -241,7 +252,8 @@ function resolveWireTarget(rawMessage: Record<string, unknown>): ResolvedTarget 
     throw new BrokerSendError(noTargetEnvelope());
   }
   if (definedKeys.length > 1) {
-    throw new BrokerSendError(multipleTargetsEnvelope());
+    const conflicting = definedKeys[1] ?? 'condition';
+    throw new BrokerSendError(multipleTargetsEnvelope(conflicting));
   }
   const soleKey = definedKeys[0];
   if (soleKey === undefined) {
@@ -294,6 +306,11 @@ export function validateMessage(message: BrokerMessage): ResolvedTarget {
         throw new BrokerSendError(invalidWebpushTtlEnvelope());
       }
     }
+  }
+
+  const androidLabel = readAndroidAnalyticsLabel(message.android);
+  if (androidLabel !== undefined && androidLabel.length > MAX_ANDROID_ANALYTICS_LABEL_LENGTH) {
+    throw new BrokerSendError(invalidAndroidAnalyticsLabelEnvelope(androidLabel));
   }
 
   if (dataBytes(message.data) > EMPIRICAL_DATA_CAP_BYTES) {

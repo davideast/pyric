@@ -1,22 +1,24 @@
 /**
- * Captured FCM v1 error envelopes — the send plane's rejection contract.
+ * Captured FCM v1 error envelopes -- the send plane's rejection contract.
  *
  * Every constructor here reproduces a committed oracle observation
  * byte-for-byte (`packages/conformance/observations/messaging-admin/messaging-send-*.json`),
  * INCLUDING the per-case ordering of the `details` array. Detail order
  * differs across cases in production and "is not a contract"
- * (`messaging-send-no-target-error-envelope.json` description) — but the
+ * (`messaging-send-no-target-error-envelope.json` description) -- but the
  * broker mirrors each captured case exactly so the conformance suite can
  * deep-equal against the pinned envelope rather than a normalized shape.
  *
  * Per-case detail ordering, as captured:
- *   - no-target:        BadRequest, FcmError
- *   - invalid token:    FcmError, BadRequest   ← the one flipped case
- *   - invalid topic:    BadRequest, FcmError
- *   - oversized:        BadRequest (NO fieldViolations key), FcmError
- *   - webpush bad TTL:  BadRequest, FcmError
- *   - invalid condition: NO details at all (the "bare" envelope)
- *   - unregistered:     FcmError only (404 / NOT_FOUND)
+ *   - no-target:               BadRequest, FcmError
+ *   - multiple-targets wire:   BadRequest only (Protobuf oneof target rejection)
+ *   - invalid token:           FcmError, BadRequest   <-- the one flipped case
+ *   - invalid topic:           BadRequest, FcmError
+ *   - oversized:               BadRequest (NO fieldViolations key), FcmError
+ *   - webpush bad TTL:         BadRequest, FcmError
+ *   - android analyticsLabel:  BadRequest, FcmError
+ *   - invalid condition:       NO details at all (the "bare" envelope)
+ *   - unregistered:            FcmError only (404 / NOT_FOUND)
  */
 
 /** `type.googleapis.com/google.rpc.BadRequest` detail. */
@@ -73,17 +75,22 @@ export function noTargetEnvelope(): FcmErrorEnvelope {
 }
 
 /**
- * Multiple targets set at once. UNOBSERVED: production was only captured for
- * the zero-target case; the multi-target message text below is stated from
- * firebase-admin's own validator, not a wire capture — a probe candidate.
- * The envelope shape mirrors the no-target case (same fault family).
+ * oracle: `messaging-send-multiple-targets-rejected` (`wireTopicAndCondition`,
+ * details: BadRequest only, no FcmError). Raw FCM HTTP v1 Protobuf JSON
+ * deserialization rejects duplicate `oneof target` fields before service
+ * handling, while `firebase-admin/messaging` rejects multiple targets in client
+ * preflight (`messaging/invalid-payload`).
  */
-export function multipleTargetsEnvelope(): FcmErrorEnvelope {
-  const message = 'Exactly one of token, topic or condition is required.';
-  return invalidArgument(message, [badRequest('message', message), fcmError('INVALID_ARGUMENT')]);
+export function multipleTargetsEnvelope(
+  conflictingField: 'token' | 'topic' | 'condition' = 'condition',
+): FcmErrorEnvelope {
+  const message =
+    `Invalid value at 'message' (oneof), oneof field 'target' is already set. ` +
+    `Cannot set '${conflictingField}'`;
+  return invalidArgument(message, [badRequest('message', message)]);
 }
 
-/** oracle: `messaging-send-invalid-token-error-envelope` (details: FcmError, BadRequest — the flipped order). */
+/** oracle: `messaging-send-invalid-token-error-envelope` (details: FcmError, BadRequest -- the flipped order). */
 export function invalidTokenEnvelope(): FcmErrorEnvelope {
   const message = 'The registration token is not a valid FCM registration token';
   return invalidArgument(message, [fcmError('INVALID_ARGUMENT'), badRequest('message.token', message)]);
@@ -98,14 +105,14 @@ export function invalidTopicNameEnvelope(): FcmErrorEnvelope {
 /**
  * Payload validation failure surfaced as `messaging/invalid-payload` by
  * `firebase-admin/messaging` (for example non-string data values, non-object
- * data maps, or malformed topic prefixes).
+ * data maps, multiple targets, or malformed topic prefixes).
  */
 export function invalidPayloadEnvelope(message: string): FcmErrorEnvelope {
   return invalidArgument(message, [badRequest('message', message), fcmError('INVALID_PAYLOAD')]);
 }
 
 /**
- * oracle: `messaging-send-invalid-condition-error-envelope` — the BARE
+ * oracle: `messaging-send-invalid-condition-error-envelope` -- the BARE
  * envelope: no `details` key at all, only code/message/status.
  */
 export function invalidConditionEnvelope(): FcmErrorEnvelope {
@@ -120,7 +127,7 @@ export function invalidConditionEnvelope(): FcmErrorEnvelope {
 }
 
 /**
- * oracle: `messaging-send-oversized-payload-error-envelope` — the BadRequest
+ * oracle: `messaging-send-oversized-payload-error-envelope` -- the BadRequest
  * detail carries NO `fieldViolations` key (captured exactly so).
  */
 export function oversizedPayloadEnvelope(): FcmErrorEnvelope {
@@ -140,7 +147,22 @@ export function invalidWebpushTtlEnvelope(): FcmErrorEnvelope {
 }
 
 /**
- * oracle: `messaging-web-deletetoken-unregistered` — the send plane's
+ * oracle: `messaging-send-android-fcm-options` (`wireOversizedLabel51`,
+ * details: BadRequest, FcmError). Production FCM v1 rejects
+ * `message.android.fcm_options.analytics_label` exceeding 50 characters, while
+ * >50-char top-level `message.fcm_options.analytics_label` is accepted
+ * (`messaging-send-fcm-options-analytics-label`).
+ */
+export function invalidAndroidAnalyticsLabelEnvelope(label: string): FcmErrorEnvelope {
+  const message = `Invalid analytics label: ${label}`;
+  return invalidArgument(message, [
+    badRequest('message.android.fcm_options.analytics_label', message),
+    fcmError('INVALID_ARGUMENT'),
+  ]);
+}
+
+/**
+ * oracle: `messaging-web-deletetoken-unregistered` -- the send plane's
  * eventual answer for a deleted (or never-registered, well-formed) token:
  * HTTP 404, status NOT_FOUND, a single FcmError detail with errorCode
  * UNREGISTERED. The observation pins the message as *present* but drops its
@@ -169,12 +191,12 @@ export function fcmErrorCodeOf(envelope: FcmErrorEnvelope): string | undefined {
 
 /**
  * A rejected broker operation. Carries the full captured-shape envelope so
- * admin mirrors (and, later, worker-host op handlers) can re-wrap it into
- * their own error surface without losing wire fidelity.
+ * admin mirrors (and worker-host op handlers) can re-wrap it into their own
+ * error surface without losing wire fidelity.
  */
 export class BrokerSendError extends Error {
   readonly envelope: FcmErrorEnvelope;
-  /** The FcmError errorCode when the envelope carries one (`INVALID_ARGUMENT`, `UNREGISTERED`, …). */
+  /** The FcmError errorCode when the envelope carries one (`INVALID_ARGUMENT`, `UNREGISTERED`, etc.). */
   readonly errorCode: string | undefined;
 
   constructor(envelope: FcmErrorEnvelope) {

@@ -62,9 +62,8 @@ export async function observeApnsConfigAndHeaders(
 
 export const probe: Probe = {
   rig: 'messaging-send',
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: "interface ApnsConfig { liveActivityToken?; headers?; payload?; fcmOptions? }",
+  rowIds: ['messaging-admin#21'],
   description:
     'firebase-admin/messaging ApnsConfig: FCM accepts apns.headers with apns.payload, while empty liveActivityToken and non-string header values fail client preflight with messaging/invalid-payload.',
   async observe() {

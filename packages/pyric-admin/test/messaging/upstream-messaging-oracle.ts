@@ -259,6 +259,24 @@ function evaluateFcmSendWireRequest(
     }
   }
 
+  const android = wireMessage.android as
+    | { fcm_options?: { analytics_label?: unknown }; fcmOptions?: { analyticsLabel?: unknown } }
+    | undefined;
+  let wireAndroidLabel: unknown;
+  if (android?.fcm_options !== undefined) {
+    wireAndroidLabel = android.fcm_options.analytics_label;
+  } else if (android?.fcmOptions !== undefined) {
+    wireAndroidLabel = android.fcmOptions.analyticsLabel;
+  }
+  if (typeof wireAndroidLabel === 'string' && wireAndroidLabel.length > 50) {
+    return fcmErrorEnvelope(
+      400,
+      'INVALID_ARGUMENT',
+      'INVALID_ARGUMENT',
+      `Invalid analytics label: ${wireAndroidLabel}`,
+    );
+  }
+
   const data = wireMessage.data as Record<string, string> | undefined;
   if (data !== undefined) {
     const encoder = new TextEncoder();

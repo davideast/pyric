@@ -29,6 +29,7 @@ export {
   invalidConditionEnvelope,
   oversizedPayloadEnvelope,
   invalidWebpushTtlEnvelope,
+  invalidAndroidAnalyticsLabelEnvelope,
   unregisteredTokenEnvelope,
 } from './envelopes.js';
 export type { FcmErrorEnvelope, ErrorDetail, BadRequestDetail, FcmErrorDetail } from './envelopes.js';

@@ -61,9 +61,8 @@ export async function observeMulticastBatch(
 
 export const probe: Probe = {
   rig: 'messaging-send',
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: "Messaging.sendEachForMulticast(message, dryRun?), MulticastMessage, BatchResponse, and SendResponse",
+  rowIds: ['messaging-admin#6', 'messaging-admin#15', 'messaging-admin#36', 'messaging-admin#37'],
   description:
     'firebase-admin/messaging sendEachForMulticast(MulticastMessage, dryRun?): ordered per-token SendResponse outcomes and preflight guards for null message, empty tokens array, and >500 tokens.',
   async observe() {

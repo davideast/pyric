@@ -1,9 +1,11 @@
 {
   "name": "messaging-send-android-config",
-  "matrixRow": "",
-  "rowIds": [],
+  "matrixRow": "interface AndroidConfig",
+  "rowIds": [
+    "messaging-admin#27"
+  ],
   "description": "firebase-admin/messaging AndroidConfig: FCM accepts collapseKey, priority, millisecond ttl, data, and directBootOk, while negative ttl or non-string android.data values fail client preflight with messaging/invalid-payload.",
-  "observedAt": "2026-11-18T00:42:44.792Z",
+  "observedAt": "2026-11-17T23:55:22.555Z",
   "adminSdkVersion": "13.10.0",
   "projectId": "digame-mas",
   "behavior": {

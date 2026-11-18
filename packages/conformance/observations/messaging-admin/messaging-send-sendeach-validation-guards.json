@@ -1,9 +1,12 @@
 {
   "name": "messaging-send-sendeach-validation-guards",
-  "matrixRow": "",
-  "rowIds": [],
+  "matrixRow": "Messaging.sendEach(messages, dryRun?) input guards and FirebaseMessagingError",
+  "rowIds": [
+    "messaging-admin#5",
+    "messaging-admin#38"
+  ],
   "description": "firebase-admin/messaging sendEach(messages, dryRun?) input guards: empty array, >500-message batch, and non-boolean dryRun fail preflight with FirebaseMessagingError messaging/invalid-argument.",
-  "observedAt": "2026-11-18T00:42:57.988Z",
+  "observedAt": "2026-11-17T23:55:32.019Z",
   "adminSdkVersion": "13.10.0",
   "projectId": "digame-mas",
   "behavior": {
