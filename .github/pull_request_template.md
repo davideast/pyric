@@ -63,6 +63,13 @@ THE SHAPE:
    re-run the job. If it is not intended, a rebase probably reverted merged work:
    restore the files instead.
 
+9. DELETES DIRECTORIES: ALLOWED-LOCATION + OWNERSHIP-MARKER. Any code that deletes
+   directories (cache eviction, temp reaper, worktree removal) must enforce both an
+   allowlisted parent location (strictly inside `~/.pyric/<subroot>` or `~/.cache/pyric-*`,
+   never `/`, `/tmp`, `tmpdir()`, `/run`, `/dev/shm`, `XDG_RUNTIME_DIR`, or `$HOME`) via
+   `realpathSync` + non-symlink `lstatSync` and an explicit ownership marker file inside
+   each target directory before calling `rm` / `rmSync`. Reviewers must check both.
+
 WHAT THIS IS NOT: a report of what an agent did. Nobody is reviewing the work session.
 They are reviewing the change.
 

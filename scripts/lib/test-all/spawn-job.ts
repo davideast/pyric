@@ -10,9 +10,8 @@
 // and can do nothing.
 
 import { execFileSync, spawn, type ChildProcess } from 'node:child_process';
-import { createWriteStream, existsSync, mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { createWriteStream } from 'node:fs';
+import { createPrivateJobTmpDir, removePrivateJobTmpDir } from '../private-job-tmpdir.ts';
 import { addCounts, readCounts } from './counts.ts';
 import { failuresWithFiles } from './failures.ts';
 import type { TestJob } from './plan.ts';
@@ -32,19 +31,15 @@ function summarize(exitCode: number, stdout: string, stderr: string, note: strin
   return { exitCode, counts, failedTests, tail };
 }
 
-function createJobTmpDir(): string {
-  const hostTmp = tmpdir();
-  let baseDir = hostTmp;
-  if (hostTmp.length > 40 && existsSync('/tmp')) {
-    baseDir = '/tmp';
-  }
-  return mkdtempSync(join(baseDir, 'pyric-jt-'));
-}
-
 export function spawnJob(job: TestJob, options: { logPath: string; echo: boolean }): Promise<JobOutcome> {
   return new Promise((resolve) => {
-    const jobTmpDir = createJobTmpDir();
-    const childEnv: NodeJS.ProcessEnv = { ...process.env, TMPDIR: jobTmpDir };
+    const jobTmpDir = createPrivateJobTmpDir(job.name);
+    const childEnv: NodeJS.ProcessEnv = {
+      ...process.env,
+      TMPDIR: jobTmpDir,
+      TMP: jobTmpDir,
+      TEMP: jobTmpDir,
+    };
     const file = createWriteStream(options.logPath);
     let logError = '';
     file.on('error', (error) => { logError = `\n[test-all] could not write ${options.logPath}: ${error.message}\n`; });
@@ -63,11 +58,7 @@ export function spawnJob(job: TestJob, options: { logPath: string; echo: boolean
       if (settled) return;
       settled = true;
       runningChildren.delete(child);
-      try {
-        rmSync(jobTmpDir, { recursive: true, force: true });
-      } catch {
-        // Best-effort per-job temp cleanup.
-      }
+      removePrivateJobTmpDir(jobTmpDir);
       const done = () => resolve(summarize(exitCode, text.stdout, text.stderr, `${note}${logError}`));
       if (file.destroyed) done();
       else file.end(note, done);

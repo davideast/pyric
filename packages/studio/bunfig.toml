@@ -1,0 +1,3 @@
+[test]
+# Isolate each direct `bun test` run under ~/.cache/pyric-tmp/run-* (never /tmp).
+preload = ["../../scripts/lib/test-tmpdir-preload.ts"]

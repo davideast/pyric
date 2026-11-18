@@ -1,0 +1,4 @@
+[test]
+# Isolate every `bun test` invocation under ~/.cache/pyric-tmp/run-* so local
+# test runs never write into shared /tmp, removing the run directory afterAll.
+preload = ["./scripts/lib/test-tmpdir-preload.ts"]
