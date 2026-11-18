@@ -38,6 +38,8 @@ interface OracleRunAuthSession {
 }
 
 const DEFAULT_SIGNUP_BACKOFF_MS: readonly number[] = [15_000, 30_000, 60_000];
+const INTENTIONAL_THROWING_OBSERVER_PROBE = 'auth-row-35-throwing-observer-doesnt-block-others';
+const INTENTIONAL_THROWING_OBSERVER_MESSAGE = 'intentional throw from oracle probe observer #1';
 
 /**
  * Non-`auth-*` probes in `run.ts` that mutate `auth` via `signOut(auth)` and
@@ -199,6 +201,27 @@ export function createOracleRunAuthSession(
     }
   }
 
+  async function runWithIntentionalObserverThrowGuard<T>(
+    probeName: string,
+    observe: () => Promise<T>,
+  ): Promise<T> {
+    if (probeName !== INTENTIONAL_THROWING_OBSERVER_PROBE) {
+      return observe();
+    }
+    const onUncaught = (err: unknown): void => {
+      if (err instanceof Error && err.message === INTENTIONAL_THROWING_OBSERVER_MESSAGE) {
+        return;
+      }
+      throw err;
+    };
+    process.on('uncaughtException', onUncaught);
+    try {
+      return await observe();
+    } finally {
+      process.off('uncaughtException', onUncaught);
+    }
+  }
+
   async function observeWithRateLimitRetry<T>(
     probeName: string,
     observe: () => Promise<T>,
@@ -206,7 +229,7 @@ export function createOracleRunAuthSession(
     let attemptIndex = 0;
     for (;;) {
       try {
-        return await observe();
+        return await runWithIntentionalObserverThrowGuard(probeName, observe);
       } catch (err) {
         if (!isAuthTooManyRequestsError(err) || attemptIndex >= backoffMs.length) {
           throw err;

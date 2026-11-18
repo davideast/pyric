@@ -197,6 +197,10 @@ import {
 } from './oracle-rules-session.ts';
 import { installOracleSignalRestoreGuard } from './oracle-signal-restore.ts';
 import { createOracleRunAuthSession } from './oracle-run-auth-session.ts';
+import {
+  createAuthUserSlotTracker, describeAuthFireSequence, describeAuthUid,
+  describeFencedAuthFireSequence, describeUserUid, isFirebaseAuthUid, isOracleProbeEmail,
+} from './oracle-run-stable-shapes.ts';
 import { surfaceDescriptors } from '../surfaces/load.ts';
 import { soleLongestPrefixOwner } from './observation-surface.ts';
 import {
@@ -1246,7 +1250,7 @@ const probes: Probe[] = [
         baselineFires,
         afterRedundantSignOut,
         redundantSignOutFiredListener: afterRedundantSignOut > baselineFires,
-        leakedAnonymousUid: minted?.uid ?? null,
+        mintedAnonymousUid: describeUserUid(minted),
       };
     },
   },
@@ -1633,7 +1637,7 @@ const probes: Probe[] = [
         firesAfterSignIn,
         firesAfterRefresh,
         refreshFiredListener: firesAfterRefresh > firesAfterSignIn,
-        fires,
+        fires: describeAuthFireSequence(fires),
       };
     },
   },
@@ -1692,7 +1696,7 @@ const probes: Probe[] = [
           wrongPassword: message?.includes('wrong-password') ?? false,
           invalidCredential: message?.includes('invalid-credential') ?? false,
         },
-        createdUid: created?.uid ?? null,
+        createdUid: describeUserUid(created),
       };
     },
   },
@@ -1702,9 +1706,7 @@ const probes: Probe[] = [
     rowIds: ['auth#14'],
     description: 'signInWithEmailAndPassword with an email that was never registered — locks the FirebaseError code prod actually emits (older "auth/user-not-found" vs newer "auth/invalid-credential").',
     async observe() {
-      // Build a uniquely-randomized email that has not been seeded /
-      // created in the project. The probe asserts on the error code
-      // returned by the SDK when signing in with such an email.
+      // Unregistered throwaway email to observe signInWithEmailAndPassword rejection code.
       const email = `oracle-never-registered-${Date.now()}-${Math.random().toString(36).slice(2, 8)}@oracle.test`;
       let code: string | null = null;
       let message: string | null = null;
@@ -1716,9 +1718,6 @@ const probes: Probe[] = [
         code = (e as { code?: string }).code ?? null;
         message = e instanceof Error ? e.message : String(e);
       }
-      // No user was ever signed in, so nothing to drop. If the call
-      // unexpectedly succeeded (it shouldn't), clean up so we don't
-      // leak.
       await dropCurrentUser();
       return {
         threw,
@@ -1728,7 +1727,7 @@ const probes: Probe[] = [
           invalidCredential: message?.includes('invalid-credential') ?? false,
           invalidLoginCredentials: message?.includes('invalid-login-credentials') ?? false,
         },
-        attemptedEmail: email,
+        attemptedEmailMatchesProbePattern: isOracleProbeEmail(email),
       };
     },
   },
@@ -1745,8 +1744,9 @@ const probes: Probe[] = [
         operationType: cred.operationType,
         providerId: cred.providerId,
         userIsAnonymous: cred.user.isAnonymous,
-        userEmail: cred.user.email,
-        createdUid: cred.user.uid,
+        userEmailMatchesInput: cred.user.email === email,
+        uidLength: cred.user.uid.length,
+        uidMatchesPattern: isFirebaseAuthUid(cred.user.uid),
       };
       // Clean up the freshly-created user so we don't leak.
       let cleanupLeaked = false;
@@ -1767,11 +1767,8 @@ const probes: Probe[] = [
     async observe() {
       const email = `oracle-dup-${Date.now()}-${Math.random().toString(36).slice(2, 8)}@oracle.test`;
       const password = 'oracle-pw-123';
-      // First create succeeds — gives us a user we can clean up later.
+      // First create succeeds; sign out before duplicate registration attempt.
       await createUserWithEmailAndPassword(auth, email, password);
-      // Sign out so the second attempt isn't a no-op against an
-      // already-signed-in account (createUserWithEmailAndPassword
-      // doesn't care, but keeps the state clean).
       await signOut(auth);
 
       let threw = false;
@@ -1801,7 +1798,7 @@ const probes: Probe[] = [
         messageContains: {
           emailAlreadyInUse: message?.includes('email-already-in-use') ?? false,
         },
-        attemptedEmail: email,
+        attemptedEmailMatchesProbePattern: isOracleProbeEmail(email),
         cleanupLeaked,
       };
     },
@@ -1891,9 +1888,9 @@ const probes: Probe[] = [
         code,
         errorName,
         message,
-        attemptedEmail: email,
+        attemptedEmailMatchesProbePattern: isOracleProbeEmail(email),
         attemptedPasswordLength: shortPassword.length,
-        createdUid,
+        createdUid: describeAuthUid(createdUid),
         cleanupLeaked,
       };
     },
@@ -3250,28 +3247,20 @@ const probes: Probe[] = [
     description: 'signOut sets currentUser to null synchronously after the returned promise resolves — read auth.currentUser BEFORE any await/microtask runs after `await signOut(auth)`.',
     async observe() {
       await signInAnonymously(auth);
-      const userBefore = auth.currentUser;
-      const uidBefore = userBefore ? userBefore.uid : null;
+      const userBefore = describeUserUid(auth.currentUser);
       await signOut(auth);
-      // Critical: do NOT await, queueMicrotask, or setTimeout between
-      // signOut resolution and this read. This captures whether
-      // currentUser is already null at the *synchronous continuation*
-      // immediately after the awaited promise resolved.
+      // Critical: read auth.currentUser at the synchronous continuation before any microtask/macrotask.
       const currentUserImmediatelyAfter = auth.currentUser;
-      const uidImmediatelyAfter = currentUserImmediatelyAfter
-        ? currentUserImmediatelyAfter.uid
-        : null;
-      // Fence #2: after a microtask flush.
+      const immediatelyAfter = describeUserUid(currentUserImmediatelyAfter);
       await Promise.resolve();
-      const uidAfterMicrotask = auth.currentUser ? auth.currentUser.uid : null;
-      // Fence #3: after a macrotask.
+      const afterMicrotask = describeUserUid(auth.currentUser);
       await new Promise((r) => setTimeout(r, 0));
-      const uidAfterMacrotask = auth.currentUser ? auth.currentUser.uid : null;
+      const afterMacrotask = describeUserUid(auth.currentUser);
       return {
-        uidBefore,
-        uidImmediatelyAfter,
-        uidAfterMicrotask,
-        uidAfterMacrotask,
+        uidBefore: userBefore,
+        uidImmediatelyAfter: immediatelyAfter,
+        uidAfterMicrotask: afterMicrotask,
+        uidAfterMacrotask: afterMacrotask,
         currentUserIsNullSync: currentUserImmediatelyAfter === null,
       };
     },
@@ -3305,12 +3294,13 @@ const probes: Probe[] = [
       unsub();
       await dropCurrentUser();
       return {
-        signedInUid,
+        signedInUid: describeAuthUid(signedInUid),
+        firstFireMatchesSignedInUid: fires[0]?.uid === signedInUid,
         firedSynchronously,
         firedAfterMicrotask,
         firedAfterMacrotask,
         firedAfterLongDelay,
-        fires,
+        fires: describeFencedAuthFireSequence(fires),
       };
     },
   },
@@ -3344,8 +3334,8 @@ const probes: Probe[] = [
         totalFires: fires.length,
         sawInitialNull,
         sawNewUser,
-        newUid,
-        fires,
+        newUid: describeAuthUid(newUid),
+        fires: describeAuthFireSequence(fires),
       };
     },
   },
@@ -3422,10 +3412,11 @@ const probes: Probe[] = [
         afterSecondSignIn,
         firstSignInProducedFire: afterFirstSignIn > initialFires,
         secondSignInProducedFire: afterSecondSignIn > afterFirstSignIn,
-        uidAfterFirst,
-        uidAfterSecond,
+        uidAfterFirst: describeAuthUid(uidAfterFirst),
+        uidAfterSecond: describeAuthUid(uidAfterSecond),
+        uidAfterSecondMatchesFirst: uidAfterFirst !== null && uidAfterFirst === uidAfterSecond,
         sameUserAcrossCalls: cred1.user.uid === cred2.user.uid,
-        fires,
+        fires: describeAuthFireSequence(fires),
       };
     },
   },
@@ -3467,10 +3458,10 @@ const probes: Probe[] = [
         firstSignInFired: afterSignIn1 > initialFires,
         signOutFired: afterSignOut > afterSignIn1,
         secondSignInFired: afterSignIn2 > afterSignOut,
-        uid1: cred1.user.uid,
-        uid2: cred2.user.uid,
+        uid1: describeAuthUid(cred1.user.uid),
+        uid2: describeAuthUid(cred2.user.uid),
         differentUids: cred1.user.uid !== cred2.user.uid,
-        fires,
+        fires: describeAuthFireSequence(fires),
       };
     },
   },
@@ -3567,7 +3558,7 @@ const probes: Probe[] = [
           firesForTransition1 === 1 &&
           firesForTransition2 === 1 &&
           firesForTransition3 === 1,
-        fires,
+        fires: describeAuthFireSequence(fires),
       };
     },
   },
@@ -3619,10 +3610,11 @@ const probes: Probe[] = [
         firesForSignIn,
         signInFiredExactlyOnce: firesForSignIn === 1,
         lastFireUidMatches: lastFire?.uid === cred.user.uid,
-        createdUid,
-        signedInUid: cred.user.uid,
+        createdUid: describeAuthUid(createdUid),
+        signedInUid: describeAuthUid(cred.user.uid),
+        signedInSameAsCreatedUid: cred.user.uid === createdUid,
         cleanupLeaked,
-        fires,
+        fires: describeAuthFireSequence(fires),
       };
     },
   },
@@ -3669,9 +3661,9 @@ const probes: Probe[] = [
         firesForCreate,
         createFiredExactlyOnce: firesForCreate === 1,
         lastFireUidMatches: lastFire?.uid === cred.user.uid,
-        createdUid: cred.user.uid,
+        createdUid: describeAuthUid(cred.user.uid),
         cleanupLeaked,
-        fires,
+        fires: describeAuthFireSequence(fires),
       };
     },
   },
@@ -3713,7 +3705,7 @@ const probes: Probe[] = [
         firesForSignOut,
         signOutFiredExactlyOnce: firesForSignOut === 1,
         lastFireUidWasNull: lastFire?.uid === null,
-        fires,
+        fires: describeAuthFireSequence(fires),
       };
     },
   },
@@ -3772,7 +3764,7 @@ const probes: Probe[] = [
           fire1 >= 1 && fire2 >= 1 && fire3 >= 1 && fire4 >= 1,
         eachTransitionFiredExactlyOnce:
           fire1 === 1 && fire2 === 1 && fire3 === 1 && fire4 === 1,
-        fires,
+        fires: describeAuthFireSequence(fires),
       };
     },
   },
@@ -3826,7 +3818,7 @@ const probes: Probe[] = [
         afterPostUnsubSecondSignOut,
         postUnsubFires,
         unsubscribeStoppedFires: postUnsubFires === 0,
-        fires,
+        fires: describeAuthFireSequence(fires),
       };
     },
   },
@@ -3874,6 +3866,7 @@ const probes: Probe[] = [
       const bSignInFires = afterSignInB - initialB;
       const aSignOutFires = afterSignOutA - afterSignInA;
       const bSignOutFires = afterSignOutB - afterSignInB;
+      const slots = createAuthUserSlotTracker();
       return {
         initialA,
         initialB,
@@ -3887,8 +3880,8 @@ const probes: Probe[] = [
         bSignOutFires,
         bothFiredOnSignIn: aSignInFires >= 1 && bSignInFires >= 1,
         bothFiredOnSignOut: aSignOutFires >= 1 && bSignOutFires >= 1,
-        firesA,
-        firesB,
+        firesA: slots.describeSequence(firesA),
+        firesB: slots.describeSequence(firesB),
       };
     },
   },
@@ -3909,9 +3902,7 @@ const probes: Probe[] = [
       const unsubFn = onAuthStateChanged(auth, (u) => {
         firesFn.push({ uid: u ? u.uid : null, ts: Date.now() - start });
       });
-      // Observer object form. Cast through `as never` to satisfy the
-      // overload picker; the runtime accepts a {next, error, complete}
-      // shape per the Observer<T> contract from @firebase/util.
+      // Observer object form ({next, error, complete} contract from @firebase/util).
       const unsubObs = onAuthStateChanged(
         auth,
         {
@@ -3948,6 +3939,7 @@ const probes: Probe[] = [
       const obsSignInFires = afterSignInObs - initialObs;
       const fnSignOutFires = afterSignOutFn - afterSignInFn;
       const obsSignOutFires = afterSignOutObs - afterSignInObs;
+      const slots = createAuthUserSlotTracker();
       return {
         initialFn,
         initialObs,
@@ -3961,8 +3953,8 @@ const probes: Probe[] = [
         obsSignOutFires,
         bothFormsFiredOnSignIn: fnSignInFires >= 1 && obsSignInFires >= 1,
         bothFormsFiredOnSignOut: fnSignOutFires >= 1 && obsSignOutFires >= 1,
-        firesFn,
-        firesObs,
+        firesFn: slots.describeSequence(firesFn),
+        firesObs: slots.describeSequence(firesObs),
       };
     },
   },
@@ -7894,20 +7886,24 @@ const probes: Probe[] = [
       const invalidUrl = await codeOf(
         sendSignInLinkToEmail(auth, email, { url: 'not-a-url', handleCodeInApp: true }),
       );
-      // handleCodeInApp explicitly false — upstream requires it be true for
-      // the email-link sign-in flow.
+      // handleCodeInApp explicitly false (upstream requires true for email-link sign-in).
       const handleCodeInAppFalse = await codeOf(
         sendSignInLinkToEmail(auth, email, { url: 'https://example.com/finish', handleCodeInApp: false }),
       );
-      // A well-formed URL on a domain that is NOT in the project's
-      // authorized-domains list — the server-side arm of the contract.
+      // Domain off the project's authorized-domains allowlist (server-side arm).
       const unauthorizedDomain = await codeOf(
         sendSignInLinkToEmail(auth, email, {
           url: 'https://pyric-oracle-not-authorized.example.com/finish',
           handleCodeInApp: true,
         }),
       );
-      return { missingUrl, invalidUrl, handleCodeInAppFalse, unauthorizedDomain, attemptedEmail: email };
+      return {
+        missingUrl,
+        invalidUrl,
+        handleCodeInAppFalse,
+        unauthorizedDomain,
+        attemptedEmailMatchesProbePattern: isOracleProbeEmail(email),
+      };
     },
   },
   {
@@ -8041,7 +8037,7 @@ const probes: Probe[] = [
         code,
         resolved: code === null,
         projectBlocksOutboundEmail: code === 'auth/operation-not-allowed',
-        emailAfterCall,
+        emailPresentAfterCall: emailAfterCall !== null,
         emailUnchangedUntilLinkClicked: emailAfterCall === email,
         malformedTargetCode: malformedCode,
         cleanupLeaked,
@@ -8068,9 +8064,8 @@ const probes: Probe[] = [
           credentialProviderId: linked.providerId,
           uidPreserved: linked.user.uid === anonUid,
           isAnonymousAfterLink: linked.user.isAnonymous,
-          emailAfterLink: linked.user.email,
+          emailMatchesLinkedAddress: linked.user.email === email,
           providerIds: linked.user.providerData.map((p) => p.providerId),
-          // The linked identity is the live current user.
           isCurrentUser: auth.currentUser?.uid === anonUid,
           additionalUserInfoIsNewUser: getAdditionalUserInfo(linked)?.isNewUser ?? null,
           additionalUserInfoProviderId: getAdditionalUserInfo(linked)?.providerId ?? null,
@@ -8186,8 +8181,8 @@ const probes: Probe[] = [
         noSuchProviderCode,
         unlinkCode,
         unlinkedProviders,
-        emailAfterUnlink,
-        // Does unlinking the last provider send the user back to anonymous?
+        emailRetainedAfterUnlink: emailAfterUnlink === email,
+        emailNullAfterUnlink: emailAfterUnlink === null,
         isAnonymousAfterUnlink,
         cleanupLeaked,
       };

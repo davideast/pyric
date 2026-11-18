@@ -217,4 +217,39 @@ describe('createOracleRunAuthSession', () => {
     ).rejects.toThrow('permission-denied');
     expect(sleeps).toEqual([15_000, 30_000]);
   });
+
+  test('absorbs auth-row-35 intentional async observer throw so Bun exits 0 cleanly without masking real uncaught errors', async () => {
+    const moduleUrl = new URL('../../src/oracle-run-auth-session.ts', import.meta.url).href;
+    const okProc = Bun.spawn(
+      [
+        process.execPath,
+        '-e',
+        `import { createOracleRunAuthSession } from ${JSON.stringify(moduleUrl)};
+         const s = createOracleRunAuthSession(() => ({ currentUser: null }));
+         await s.observeWithRateLimitRetry('auth-row-35-throwing-observer-doesnt-block-others', async () => {
+           setTimeout(() => { throw new Error('intentional throw from oracle probe observer #1'); }, 0);
+           await new Promise((r) => setTimeout(r, 30));
+           return { ok: true };
+         });`,
+      ],
+      { stdout: 'pipe', stderr: 'pipe' },
+    );
+    expect(await okProc.exited).toBe(0);
+
+    const failProc = Bun.spawn(
+      [
+        process.execPath,
+        '-e',
+        `import { createOracleRunAuthSession } from ${JSON.stringify(moduleUrl)};
+         const s = createOracleRunAuthSession(() => ({ currentUser: null }));
+         await s.observeWithRateLimitRetry('auth-row-35-throwing-observer-doesnt-block-others', async () => {
+           setTimeout(() => { throw new Error('unexpected observer crash'); }, 0);
+           await new Promise((r) => setTimeout(r, 30));
+           return { ok: true };
+         });`,
+      ],
+      { stdout: 'pipe', stderr: 'pipe' },
+    );
+    expect(await failProc.exited).not.toBe(0);
+  });
 });

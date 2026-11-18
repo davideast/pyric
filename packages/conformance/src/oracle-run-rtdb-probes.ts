@@ -179,6 +179,7 @@ export async function withGuardedProbeRtdbRules<T>(options: {
     unregister = options.session.registerProbeCleanup(restoreOnce);
   }
 
+  let result: T;
   try {
     deployAttempted = true;
     const putRes = await track(
@@ -191,8 +192,7 @@ export async function withGuardedProbeRtdbRules<T>(options: {
     if (!putRes.ok) {
       deployAttempted = false;
     }
-    const result = await options.body(putRes);
-    return { result, restoreOk, restoreStatus };
+    result = await options.body(putRes);
   } finally {
     try {
       if (!options.session?.isStopping) {
@@ -202,6 +202,7 @@ export async function withGuardedProbeRtdbRules<T>(options: {
       unregister();
     }
   }
+  return { result, restoreOk, restoreStatus };
 }
 
 export function selectFilteredRunProbes<T extends { name: string }>(
