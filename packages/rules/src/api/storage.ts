@@ -524,11 +524,10 @@ class StorageRulesetImpl implements StorageRuleset {
 /**
  * Compile Storage rules source into a deep, safe-by-default handle.
  *
- * @throws {RulesCompileError} when the source does not parse, names a
- *   service other than `firebase.storage`, declares one service twice,
- *   breaks one of production's compile limits, or imports a module that
- *   does not resolve. The thrown error carries the compile-blocking issues
- *   on `.issues`.
+ * @throws {RulesCompileError} when the source does not parse, declares one
+ *   service twice, breaks one of production's compile limits, or imports a
+ *   module that does not resolve. The thrown error carries the
+ *   compile-blocking issues on `.issues`.
  */
 export function storageRules(source: string, options: StorageRulesOptions = {}): StorageRuleset {
   let rules: StorageRules;

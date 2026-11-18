@@ -30,38 +30,43 @@ import {
   type EvaluationInput,
 } from '../../../rules/src/storage/rules.ts';
 import { evaluateStorageRules } from '../../../rules/src/storage/rules-evaluator.ts';
-import { expectStagedUntilCaptured } from './staged-capture-assertions.ts';
 
-const STAGED_SCENARIO_RECORDS: ReadonlyArray<{
+const LINKED_SCENARIO_RECORDS: ReadonlyArray<{
   id: string;
+  matrixRow: string;
+  rowIds: readonly string[];
   allowCompileError: boolean;
   record: StorageScenarioRecord;
 }> = [
   {
     id: 'parse-compound-storage-ruleset',
+    matrixRow: 'storage-rules#94',
+    rowIds: ['storage-rules#94'],
     allowCompileError: false,
     record: parseCompoundStorageRuleset,
   },
   {
     id: 'service-name-firestore-in-storage',
+    matrixRow: 'storage-rules#95',
+    rowIds: ['storage-rules#95'],
     allowCompileError: true,
     record: serviceNameFirestoreInStorage,
   },
   {
     id: 'service-name-unknown-in-storage',
+    matrixRow: 'storage-rules#95',
+    rowIds: ['storage-rules#95'],
     allowCompileError: true,
     record: serviceNameUnknownInStorage,
   },
   {
     id: 'unterminated-string-literal',
+    matrixRow: 'storage-rules#97',
+    rowIds: ['storage-rules#97'],
     allowCompileError: true,
     record: unterminatedStringLiteral,
   },
 ];
-
-const STAGED_OBSERVATION_NAMES = STAGED_SCENARIO_RECORDS.map(
-  ({ id }) => `${RULES_STORAGE_OBSERVATION_PREFIX}${id}`,
-);
 
 function toEvalInput(tc: StorageTestCase): EvaluationInput {
   const path = normalizeStoragePath(tc.path, tc.bucket);
@@ -88,39 +93,33 @@ function toEvalInput(tc: StorageTestCase): EvaluationInput {
   return { request, resource: null };
 }
 
-describe('staged rules-storage scenarios for storage-rules#94, #95, #97', () => {
-  test('registers all 4 scenarios under rules-storage and tracks staged discovery via expectStagedUntilCaptured', () => {
+describe('linked rules-storage scenarios for storage-rules#94, #95, #97', () => {
+  test('links all 4 scenarios to captured storage-rules observations and drops pendingRowLink', () => {
     const byId = new Map(ALL_RULES_STORAGE_SCENARIOS.map((s) => [s.id, s]));
+    const obsByName = new Map(loadObservations().map((o) => [o.name, o]));
     const unfilteredWriteIds = new Set(
       selectStorageScenarios(['--write'], ALL_RULES_STORAGE_SCENARIOS).map((s) => s.id),
     );
 
-    for (const { id, allowCompileError, record } of STAGED_SCENARIO_RECORDS) {
-      expect(record.pendingRowLink).toBe(true);
+    for (const { id, matrixRow, rowIds, allowCompileError, record } of LINKED_SCENARIO_RECORDS) {
+      expect(record.pendingRowLink).toBeUndefined();
       const scenario = byId.get(id);
       expect(scenario).toBeDefined();
       if (!scenario) continue;
-      expect(scenario.pendingRowLink).toBe(true);
+      expect(scenario.pendingRowLink).toBeUndefined();
       expect(Boolean(scenario.allowCompileError)).toBe(allowCompileError);
-      expect(storageObservationName(scenario)).toBe(`${RULES_STORAGE_OBSERVATION_PREFIX}${id}`);
+      expect(unfilteredWriteIds.has(id)).toBe(true);
 
       const selected = selectStorageScenarios(['--write', '--scenario', id]);
       expect(selected.map((s) => s.id)).toEqual([id]);
-    }
 
-    expectStagedUntilCaptured(STAGED_OBSERVATION_NAMES, {
-      rig: 'rules-storage',
-      filterFlag: '--scenario',
-      filterValueFor: (obsName) => obsName.slice(RULES_STORAGE_OBSERVATION_PREFIX.length),
-      whenUncaptured: (obsName) => {
-        const scenarioId = obsName.slice(RULES_STORAGE_OBSERVATION_PREFIX.length);
-        expect(unfilteredWriteIds.has(scenarioId)).toBe(false);
-      },
-      whenCaptured: (obsName) => {
-        const scenarioId = obsName.slice(RULES_STORAGE_OBSERVATION_PREFIX.length);
-        expect(unfilteredWriteIds.has(scenarioId)).toBe(true);
-      },
-    });
+      const obsName = storageObservationName(scenario);
+      const obs = obsByName.get(obsName);
+      expect(obs).toBeDefined();
+      if (!obs) continue;
+      expect(obs.matrixRow).toBe(matrixRow);
+      expect(obs.rowIds).toEqual([...rowIds]);
+    }
   });
 
   test('parse-compound-storage-ruleset parses cleanly and matches evaluateStorageRules across all 6 cases', () => {

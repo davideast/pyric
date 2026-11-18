@@ -239,8 +239,8 @@ service firebase.storage {
     expect(Array.isArray(ruleset.lint())).toBe(true);
   });
 
-  test('rejects service cloud.firestore rulesets with RulesCompileError', () => {
-    expect(() => storageRules(NOTES_RULES)).toThrow(RulesCompileError);
+  test('compiles service cloud.firestore rulesets to a deny-all handle', () => {
+    expect(storageRules(NOTES_RULES).explain({ ...OWNER_READ, expectation: 'DENY' }).decision).toBe('DENY');
   });
 });
 

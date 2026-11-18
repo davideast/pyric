@@ -129,7 +129,7 @@ service cloud.firestore {
     });
   });
 
-  it("refuses Storage rules with invalid RE2 patterns or wrong service block as invalid-probe (AV-RUN-1)", async () => {
+  it("refuses Storage rules with invalid RE2 patterns as invalid-probe while compiling non-Storage service blocks to DENY (AV-RUN-1)", async () => {
     const readOp = (path: string): FirebaseOperation => ({
       service: "storage",
       method: "get",
@@ -151,9 +151,9 @@ service firebase.storage {
         "path",
       ),
     );
-    expect(invalidRegexReport.results[0]!.classification).toBe("invalid-probe");
-    expect(invalidRegexReport.results[0]!.control.error?.code).toBe("rules-refused");
-    expect(invalidRegexReport.results[0]!.qualification.requirements).toContainEqual(
+    expect(invalidRegexReport.results[0]?.classification).toBe("invalid-probe");
+    expect(invalidRegexReport.results[0]?.control.error?.code).toBe("rules-refused");
+    expect(invalidRegexReport.results[0]?.qualification.requirements).toContainEqual(
       expect.objectContaining({ id: "storage.rules-load", supported: false }),
     );
 
@@ -173,11 +173,10 @@ service cloud.firestore {
         "path",
       ),
     );
-    expect(wrongServiceReport.results[0]!.classification).toBe("invalid-probe");
-    expect(wrongServiceReport.results[0]!.control.error?.code).toBe("rules-refused");
-    expect(wrongServiceReport.results[0]!.qualification.requirements).toContainEqual(
-      expect.objectContaining({ id: "storage.rules-load", supported: false }),
+    expect(wrongServiceReport.results[0]?.qualification.requirements).toContainEqual(
+      expect.objectContaining({ id: "storage.rules-load", supported: true }),
     );
+    expect(wrongServiceReport.results[0]?.control.decision).toBe("DENY");
   });
 
   it("compiles a non-Firestore service block in target.rules.firestore and evaluates Firestore operations to DENY (#1434)", async () => {

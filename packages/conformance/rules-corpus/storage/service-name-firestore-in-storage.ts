@@ -6,7 +6,6 @@
 import type { StorageScenarioRecord } from './types.ts';
 
 export const scenario: StorageScenarioRecord = {
-  pendingRowLink: true,
   allowCompileError: true,
   fm: 'STORAGE-SERVICE-DECLARATION',
   rationale:

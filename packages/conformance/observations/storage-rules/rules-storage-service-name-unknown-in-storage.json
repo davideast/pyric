@@ -1,7 +1,9 @@
 {
   "name": "rules-storage-service-name-unknown-in-storage",
-  "matrixRow": "",
-  "rowIds": [],
+  "matrixRow": "storage-rules#95",
+  "rowIds": [
+    "storage-rules#95"
+  ],
   "description": "Storage Rules Test API verdicts for corpus scenario \"service-name-unknown-in-storage\" (STORAGE-SERVICE-DECLARATION). Records whether projects.test compiles or rejects a storage.rules source declaring an unknown service name (service foo.bar) and captures any compile diagnostics alongside the Storage get verdict.",
   "observedAt": "2026-11-18T11:37:53.263Z",
   "fbSdkVersion": "12.19.0",
