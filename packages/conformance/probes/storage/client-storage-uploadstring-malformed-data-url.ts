@@ -55,9 +55,8 @@ async function observeMalformedCase(
 
 export const probe: Probe = {
   rig: 'client-storage',
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'storage#45',
+  rowIds: ['storage#45'],
   description:
     'firebase/storage uploadString(ref, value, "data_url") on malformed data URLs (missing data: prefix, missing comma, invalid percent-encoding): observes client-side error class, error code, synchronous vs async rejection, and zero network fetches.',
   async observe() {

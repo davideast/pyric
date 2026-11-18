@@ -119,7 +119,7 @@ describe('storageUpload static metadata & byte-size extraction', () => {
 
       const raw = byPath.get('uploadString:files/{uid}/raw.txt')!;
       expect(raw.storageUpload).toEqual({
-        contentType: 'text/plain;charset=utf-8',
+        contentType: 'application/octet-stream',
         sizeBytes: 5,
       });
 
@@ -184,7 +184,7 @@ describe('storageUpload static metadata & byte-size extraction', () => {
     expect(c.storageUpload).toEqual({ contentType: 'text/plain' });
 
     const d = usage.operations.find((op) => op.path === 'files/d.txt')!;
-    expect(d.storageUpload).toEqual({ contentType: 'text/plain;charset=utf-8' });
+    expect(d.storageUpload).toEqual({ contentType: 'application/octet-stream' });
 
     const e = usage.operations.find((op) => op.path === 'files/e.bin')!;
     expect(e.storageUpload).toMatchObject({

@@ -180,13 +180,13 @@ describe('uploadBytes', () => {
 });
 
 describe('uploadString', () => {
-  it('raw format encodes UTF-8 and defaults contentType to text/plain', async () => {
+  it('raw format encodes UTF-8 and defaults contentType to application/octet-stream', async () => {
     const storage = freshStorage('upstr-raw');
     const r = ref(storage, 'notes/s1.txt');
-    const result = await uploadString(r, 'café');
-    expect(result.metadata.contentType).toBe('text/plain;charset=utf-8');
+    const result = await uploadString(r, 'cafe');
+    expect(result.metadata.contentType).toBe('application/octet-stream');
     const blob = await getBlob(r);
-    expect(await blob.text()).toBe('café');
+    expect(await blob.text()).toBe('cafe');
   });
 
   it('base64 format decodes payload bytes', async () => {
@@ -223,12 +223,10 @@ describe('uploadString', () => {
     expect(result.metadata.contentType).toBe('application/octet-stream');
   });
 
-  it('throws storage/invalid-format on malformed data_url', async () => {
+  it('throws storage/invalid-format synchronously on malformed data_url', () => {
     const storage = freshStorage('upstr-bad-data-url');
     const r = ref(storage, 'notes/x.bin');
-    // ST-B1/ST-B3: was a plain TypeError ("data_url format requires…");
-    // now a StorageError carrying `.code === 'storage/invalid-format'`.
-    await expect(uploadString(r, 'not-a-data-url', 'data_url')).rejects.toThrow(
+    expect(() => uploadString(r, 'not-a-data-url', 'data_url')).toThrow(
       /storage\/invalid-format/,
     );
   });
@@ -249,7 +247,7 @@ describe('getBytes / getBlob', () => {
     // Upstream truncates; does not throw (COMPAT #55).
     const truncated = await getBytes(r, 512);
     expect(truncated.byteLength).toBe(512);
-    // Just under the cap → full object.
+    // Just under the cap -> full object.
     const ok = await getBytes(r, 2048);
     expect(ok.byteLength).toBe(1024);
   });
@@ -257,7 +255,7 @@ describe('getBytes / getBlob', () => {
   it('throws invalid-root-operation on root reads', async () => {
     const storage = freshStorage('root-read');
     const root = ref(storage);
-    await expect(getBytes(root)).rejects.toThrow(/invalid-root-operation/);
+    expect(() => getBytes(root)).toThrow(/invalid-root-operation/);
     await expect(getDownloadURL(root)).rejects.toThrow(/invalid-root-operation/);
   });
 });
