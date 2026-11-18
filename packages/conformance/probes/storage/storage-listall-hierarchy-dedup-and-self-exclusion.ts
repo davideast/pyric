@@ -46,9 +46,8 @@ export async function observeListAllHierarchyDedupAndSelfExclusion(
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: ['web-config'],
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'storage#70',
+  rowIds: ['storage#70', 'storage#71', 'storage#74'],
   description:
     'listAll(ref) hierarchy, deduplication, and self-exclusion: excludes an object stored at the exact scanned prefix path, excludes grandchildren from items, and deduplicates multiple files under one subfolder into a single prefix entry.',
   async observe() {

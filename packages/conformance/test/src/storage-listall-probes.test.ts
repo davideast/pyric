@@ -30,33 +30,37 @@ import {
   ALL_RULES_RTDB_SCENARIOS,
 } from '../../rules-corpus/rtdb/index.ts';
 import { ALL_RULES_STORAGE_SCENARIOS } from '../../rules-corpus/storage/index.ts';
-import { loadObservations, type Observation } from '../../src/ledger.ts';
+import { loadObservations } from '../../src/ledger.ts';
 import { loadModularProbes } from '../../src/sdk-probes.ts';
-import { loadPendingRowLinkObservations } from '../../src/staged-captures.ts';
 import { validateCompatibilityRegistry } from '../../src/validate-registry.ts';
 import { surfaceDescriptors } from '../../surfaces/load.ts';
-import { expectStagedUntilCaptured } from './staged-capture-assertions.ts';
 
-const STAGED_LISTALL_PROBE_NAMES = [
-  'storage-listall-empty-and-result-shape',
-  'storage-listall-hierarchy-dedup-and-self-exclusion',
-  'storage-listall-lexicographic-order',
-  'storage-listall-rules-enforcement',
+const LINKED_LISTALL_PROBES = [
+  {
+    name: 'storage-listall-empty-and-result-shape',
+    probe: listAllShapeProbe,
+    matrixRow: 'storage#68',
+    rowIds: ['storage#68', 'storage#69', 'storage#76'],
+  },
+  {
+    name: 'storage-listall-hierarchy-dedup-and-self-exclusion',
+    probe: listAllHierarchyProbe,
+    matrixRow: 'storage#70',
+    rowIds: ['storage#70', 'storage#71', 'storage#74'],
+  },
+  {
+    name: 'storage-listall-lexicographic-order',
+    probe: listAllOrderProbe,
+    matrixRow: 'storage#72',
+    rowIds: ['storage#72', 'storage#73'],
+  },
+  {
+    name: 'storage-listall-rules-enforcement',
+    probe: listAllRulesProbe,
+    matrixRow: 'storage#77a',
+    rowIds: ['storage#77a'],
+  },
 ] as const;
-
-function makeSyntheticObservation(name: string): Observation {
-  return {
-    file: `${name}.json`,
-    surfaceDir: 'storage',
-    name,
-    matrixRow: '',
-    rowIds: [],
-    observedAt: '2026-11-17T00:00:00.000Z',
-    fbSdkVersion: '12.19.0',
-    behavior: { sample: true },
-    raw: { fbSdkVersion: '12.19.0', rowIds: [] },
-  };
-}
 
 describe('Storage listAll() conformance probes (storage#68..74, #76, #77a)', () => {
   it('storage-listall-empty-and-result-shape observes empty directory and StorageReference fields on items and prefixes', async () => {
@@ -246,28 +250,23 @@ describe('Storage listAll() conformance probes (storage#68..74, #76, #77a)', () 
     });
   });
 
-  it('discovers all 4 listAll() probes on sdk-probes and validates pre-capture and simulated post-capture staged states cleanly', async () => {
+  it('links all 4 listAll() probes and observations to storage#68..74, #76, #77a with zero registry validation problems', async () => {
     const sdkProbes = await loadModularProbes('sdk-probes');
     const ids = sdkProbes.map((item) => item.id);
-    for (const name of STAGED_LISTALL_PROBE_NAMES) {
-      expect(ids).toContain(name);
-    }
+    const observationsByName = new Map(loadObservations().map((obs) => [obs.name, obs]));
 
-    const currentObservations = loadObservations();
-    const probes = [
-      { name: 'storage-listall-empty-and-result-shape', probe: listAllShapeProbe },
-      { name: 'storage-listall-hierarchy-dedup-and-self-exclusion', probe: listAllHierarchyProbe },
-      { name: 'storage-listall-lexicographic-order', probe: listAllOrderProbe },
-      { name: 'storage-listall-rules-enforcement', probe: listAllRulesProbe },
-    ];
-    for (const entry of probes) {
+    for (const entry of LINKED_LISTALL_PROBES) {
+      expect(ids).toContain(entry.name);
       expect(entry.probe.requires).toEqual(['web-config']);
-      if (entry.probe.pendingRowLink) {
-        expectStagedUntilCaptured(entry.name, {
-          rig: 'sdk-probes',
-          filterFlag: '--probe',
-        });
-      }
+      expect(entry.probe.pendingRowLink).toBeUndefined();
+      expect(entry.probe.matrixRow).toBe(entry.matrixRow);
+      expect(entry.probe.rowIds).toEqual([...entry.rowIds]);
+
+      const obs = observationsByName.get(entry.name);
+      expect(obs).toBeDefined();
+      if (!obs) continue;
+      expect(obs.matrixRow).toBe(entry.matrixRow);
+      expect(obs.rowIds).toEqual([...entry.rowIds]);
     }
 
     const rigManifests = await loadRigManifests();
@@ -276,42 +275,17 @@ describe('Storage listAll() conformance probes (storage#68..74, #76, #77a)', () 
       ...ALL_RULES_RTDB_DEPLOY_SCENARIOS.map((s) => s.id),
     ];
 
-    const preCaptureProblems = validateCompatibilityRegistry({
+    const problems = validateCompatibilityRegistry({
       rows: allCompatibilityRows,
       descriptors: surfaceDescriptors,
-      observations: currentObservations,
+      observations: loadObservations(),
       observationExceptions,
       rigManifests,
       probeFiles: listProbeFiles(),
       rulesFirestoreScenarioIds: ALL_RULES_FIRESTORE_SCENARIOS.map((s) => s.id),
       rulesStorageScenarioIds: ALL_RULES_STORAGE_SCENARIOS.map((s) => s.id),
       rulesRtdbScenarioIds: rtdbScenarioIds,
-      pendingRowLinkObservations: loadPendingRowLinkObservations(),
     });
-    expect(preCaptureProblems).toEqual([]);
-
-    const simulatedMap = new Map(currentObservations.map((obs) => [obs.name, obs]));
-    for (const name of STAGED_LISTALL_PROBE_NAMES) {
-      if (!simulatedMap.has(name)) {
-        simulatedMap.set(name, makeSyntheticObservation(name));
-      }
-    }
-    const simulatedPending = new Set([
-      ...loadPendingRowLinkObservations(),
-      ...STAGED_LISTALL_PROBE_NAMES,
-    ]);
-    const pr2Problems = validateCompatibilityRegistry({
-      rows: allCompatibilityRows,
-      descriptors: surfaceDescriptors,
-      observations: [...simulatedMap.values()],
-      observationExceptions,
-      rigManifests,
-      probeFiles: listProbeFiles(),
-      rulesFirestoreScenarioIds: ALL_RULES_FIRESTORE_SCENARIOS.map((s) => s.id),
-      rulesStorageScenarioIds: ALL_RULES_STORAGE_SCENARIOS.map((s) => s.id),
-      rulesRtdbScenarioIds: rtdbScenarioIds,
-      pendingRowLinkObservations: simulatedPending,
-    });
-    expect(pr2Problems).toEqual([]);
+    expect(problems).toEqual([]);
   });
 });

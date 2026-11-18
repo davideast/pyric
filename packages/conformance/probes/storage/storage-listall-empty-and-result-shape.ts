@@ -53,9 +53,8 @@ export async function observeListAllEmptyAndResultShape(
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: ['web-config'],
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'storage#68',
+  rowIds: ['storage#68', 'storage#69', 'storage#76'],
   description:
     'listAll(ref) on empty and populated directories: observes empty items/prefixes arrays, undefined nextPageToken, and full StorageReference properties (storage, bucket, name, fullPath, parent, root, toString) on returned items and prefixes.',
   async observe() {

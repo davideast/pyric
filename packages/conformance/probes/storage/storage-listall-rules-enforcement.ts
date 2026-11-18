@@ -62,9 +62,8 @@ export async function observeListAllRulesEnforcement(
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: ['web-config'],
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'storage#77a',
+  rowIds: ['storage#77a'],
   description:
     'listAll(ref) security-rules enforcement: observes allowed listAll under an authenticated read grant and FirebaseError storage/unauthorized both on paths outside any grant and from a signed-out client.',
   async observe() {

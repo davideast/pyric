@@ -38,6 +38,7 @@ import {
   listAll,
 } from '../../src/storage/index.js';
 import { parseStorageUrl } from '../../src/storage/url.js';
+import { registerOracleListAllSuite } from './oracle-listall-cases.js';
 import { registerOracleRefSuite } from './oracle-ref-cases.js';
 import { registerOracleUploadBytesSuite } from './oracle-uploadbytes-cases.js';
 
@@ -496,6 +497,7 @@ service firebase.storage {
     expectRefCase(freshStorage('ref-url-child'), obs.childRefWithUrl as RefCase);
   });
 
+  registerOracleListAllSuite({ load, freshStorage });
   registerOracleRefSuite({ load, freshStorage });
   registerOracleUploadBytesSuite({ load, freshStorage });
 

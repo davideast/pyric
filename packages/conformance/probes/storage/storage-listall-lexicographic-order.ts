@@ -34,9 +34,8 @@ export async function observeListAllLexicographicOrder(
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: ['web-config'],
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'storage#72',
+  rowIds: ['storage#72', 'storage#73'],
   description:
     'listAll(ref) deterministic ordering: uploads items and sub-folder prefixes in scrambled numeric and mixed-case order and observes exact lexicographic ordering of items and prefixes.',
   async observe() {
