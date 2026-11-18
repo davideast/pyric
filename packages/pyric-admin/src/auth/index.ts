@@ -2,13 +2,16 @@
  * `pyric-admin/auth` public re-export barrel.
  */
 export { getAuth } from './auth-service.js';
-export type {
+export { AuthClientErrorCode, type AuthErrorCodeInfo } from './error-codes.js';
+export {
   Auth,
-  CreateRequest,
-  DecodedIdToken,
-  ListUsersResult,
-  UpdateRequest,
+  BaseAuth,
   UserInfo,
   UserMetadata,
   UserRecord,
+  type CreateRequest,
+  type DecodedIdToken,
+  type ListUsersResult,
+  type UpdateRequest,
 } from './types.js';
+export { FirebaseAuthError } from './verify-token.js';

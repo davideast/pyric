@@ -20,7 +20,7 @@ import {
   isNonNullPlainRecord,
   isWebUrl,
 } from './preflight-validation.js';
-import type { Auth, DecodedIdToken, UserRecord } from './types.js';
+import type { BaseAuthDelegate, DecodedIdToken, UserRecord } from './types.js';
 import { idTokenProjectId } from './validation.js';
 import { FirebaseAuthError } from './verify-token.js';
 
@@ -270,7 +270,7 @@ type UnmodeledAuthMethodNames =
 export function buildUnmodeledAuthPreflightMethods(
   app: PyricAdminApp,
   notImplemented: (method: string) => Error,
-): Pick<Auth, UnmodeledAuthMethodNames> {
+): Pick<BaseAuthDelegate, UnmodeledAuthMethodNames> {
   return {
     getUserByPhoneNumber(phoneNumber?: unknown): Promise<UserRecord> {
       assertAdminAppActive(app);

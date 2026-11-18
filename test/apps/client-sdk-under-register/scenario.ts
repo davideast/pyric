@@ -135,6 +135,11 @@ export default scenario(async (app) => {
     expectOk(output, 'admin.database', 'from client sdk');
     expectOk(output, 'admin.firestore', { from: 'client sdk' });
     expectOk(output, 'admin.auth', 'node@example.com');
+    expectOk(output, 'admin.auth.exports', {
+      authInstance: true,
+      recordInstance: true,
+      errorInstance: true,
+    });
     expectOk(output, 'admin.ownPath', 'mine');
     expectOk(output, 'admin.otherPath', null);
     expectOk(output, 'admin.presence', 'gone');

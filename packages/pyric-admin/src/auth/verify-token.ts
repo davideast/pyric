@@ -4,7 +4,7 @@
  * current time on its own clock.
  */
 import type { AuthAccountStanding } from 'pyric/sandbox/internal';
-import { PrefixedFirebaseError } from '../app/firebase-error.js';
+import { PrefixedFirebaseError, type ErrorInfo } from '../app/firebase-error.js';
 import type { DecodedIdToken } from './types.js';
 import { checkClientIdToken, type IdTokenFailureCode, type IdTokenVerdict } from './token-decoders.js';
 
@@ -41,18 +41,43 @@ export type AccountFailureCode =
   | 'missing-ios-bundle-id'
   | 'missing-android-pkg-name'
   | 'invalid-page-token'
-  | 'claims-too-large';
+  | 'claims-too-large'
+  | 'reserved-claim';
 
 /**
  * firebase-admin's FirebaseAuthError: a PrefixedFirebaseError with prefix
- * `auth`. A refusal pyric adds to firebase-admin's, such as a token from the
- * other mode, keeps the upstream code and names itself in `pyricCode`.
+ * `auth`. Accepts upstream `(info: ErrorInfo, message?: string)` as well as
+ * internal `(code, message, pyricCode?)`. A refusal pyric adds to
+ * firebase-admin's, such as a token from the other mode, keeps the upstream
+ * code and names itself in `pyricCode`.
  */
 export class FirebaseAuthError extends PrefixedFirebaseError {
   declare readonly pyricCode?: string;
 
-  constructor(code: IdTokenFailureCode | AccountFailureCode, message: string, pyricCode?: string) {
-    super('auth', code, message);
+  constructor(info: ErrorInfo, message?: string);
+  constructor(code: IdTokenFailureCode | AccountFailureCode, message: string, pyricCode?: string);
+  constructor(
+    infoOrCode: ErrorInfo | IdTokenFailureCode | AccountFailureCode,
+    message?: string,
+    pyricCode?: string,
+  ) {
+    let rawCode: string;
+    let resolvedMessage: string;
+    if (typeof infoOrCode === 'string') {
+      rawCode = infoOrCode;
+      resolvedMessage = message ?? '';
+    } else {
+      rawCode = infoOrCode.code;
+      if (message !== undefined && message.length > 0) {
+        resolvedMessage = message;
+      } else {
+        resolvedMessage = infoOrCode.message;
+      }
+    }
+    if (rawCode.startsWith('auth/')) {
+      rawCode = rawCode.slice('auth/'.length);
+    }
+    super('auth', rawCode, resolvedMessage);
     if (pyricCode !== undefined) this.pyricCode = pyricCode;
   }
 }

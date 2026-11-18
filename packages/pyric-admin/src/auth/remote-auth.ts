@@ -9,13 +9,14 @@ import type { PyricAdminApp } from '../app/index.js';
 import { assertAdminAppActive } from '../app/lifecycle.js';
 import { validateCreateUserPreflight } from './preflight-validation.js';
 import { buildUnmodeledAuthPreflightMethods } from './session-and-link-preflight.js';
-import type {
+import {
   Auth,
-  CreateRequest,
-  DecodedIdToken,
-  ListUsersResult,
-  UpdateRequest,
-  UserRecord,
+  type BaseAuthDelegate,
+  type CreateRequest,
+  type DecodedIdToken,
+  type ListUsersResult,
+  type UpdateRequest,
+  type UserRecord,
 } from './types.js';
 import {
   assertCustomTokenArguments,
@@ -59,11 +60,7 @@ export function makeRemoteAuth(app: PyricAdminApp, sandbox: RemoteSandbox): Auth
   const relayedStanding = async (uid: string): Promise<AuthAccountStanding> =>
     (await channel.op({ method: 'auth.adminGetAccountStanding', uid })) as AuthAccountStanding;
 
-  const handle: Auth = {
-    get app(): PyricAdminApp {
-      return app;
-    },
-
+  const delegate: BaseAuthDelegate = {
     createCustomToken(uid: string, developerClaims?: object): Promise<string> {
       assertAdminAppActive(app);
       assertCustomTokenArguments(uid, developerClaims);
@@ -186,14 +183,9 @@ export function makeRemoteAuth(app: PyricAdminApp, sandbox: RemoteSandbox): Auth
       }
     },
     ...buildUnmodeledAuthPreflightMethods(app, notImplemented),
-    get tenantManager(): never {
-      assertAdminAppActive(app);
-      throw notImplemented('tenantManager');
-    },
-    get projectConfigManager(): never {
-      assertAdminAppActive(app);
-      throw notImplemented('projectConfigManager');
-    },
   };
-  return handle;
+  return new Auth(app, delegate, (method) => {
+    assertAdminAppActive(app);
+    throw notImplemented(method);
+  });
 }

@@ -15,7 +15,7 @@
  */
 import * as appModule from './app/index.js';
 import * as firestoreModule from './firestore/index.js';
-import { getAuth } from './auth/index.js';
+import { Auth, getAuth } from './auth/index.js';
 import { enableLogging, getDatabase, ServerValue } from './database/index.js';
 import { getStorage } from './storage/index.js';
 import { getMessaging } from './messaging/index.js';
@@ -49,7 +49,9 @@ export const firestore = Object.assign(
     Timestamp: firestoreModule.Timestamp,
   },
 );
-export const auth = (app?: appModule.PyricAdminApp) => getAuth(app);
+export const auth = Object.assign((app?: appModule.PyricAdminApp) => getAuth(app), {
+  Auth,
+});
 export const database = Object.assign((app?: appModule.PyricAdminApp) => getDatabase(app), {
   enableLogging,
   ServerValue,

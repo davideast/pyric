@@ -3,7 +3,16 @@
 import { initializeApp } from "firebase-admin/app";
 import { getDatabase } from "firebase-admin/database";
 import { getFirestore } from "firebase-admin/firestore";
-import { getAuth } from "firebase-admin/auth";
+import {
+  Auth,
+  AuthClientErrorCode,
+  BaseAuth,
+  FirebaseAuthError,
+  UserInfo,
+  UserMetadata,
+  UserRecord,
+  getAuth,
+} from "firebase-admin/auth";
 import { getStorage } from "firebase-admin/storage";
 
 const app = initializeApp({
@@ -25,10 +34,22 @@ if (process.argv[2] === "seed") {
   await outcome("admin.seed.firestore", () => getFirestore(app).doc("server/fromAdmin").set({ from: "admin" }));
 } else {
   const db = getDatabase(app);
-  const user = await getAuth(app).getUserByEmail("node@example.com").catch(() => null);
+  const auth = getAuth(app);
+  const user = await auth.getUserByEmail("node@example.com").catch(() => null);
+  const missingErr = await auth.getUser("missing-node-uid").catch((err) => err);
   await outcome("admin.database", async () => (await db.ref("server/client").get()).val());
   await outcome("admin.firestore", async () => (await getFirestore(app).doc("server/client").get()).data() ?? null);
   await outcome("admin.auth", async () => user?.email ?? null);
+  await outcome("admin.auth.exports", async () => ({
+    authInstance: auth instanceof Auth && auth instanceof BaseAuth,
+    recordInstance:
+      user instanceof UserRecord &&
+      user.metadata instanceof UserMetadata &&
+      user.providerData[0] instanceof UserInfo,
+    errorInstance:
+      missingErr instanceof FirebaseAuthError &&
+      missingErr.hasCode(AuthClientErrorCode.USER_NOT_FOUND.code),
+  }));
   await outcome("admin.ownPath", async () => (await db.ref(`users/${user?.uid}`).get()).val());
   await outcome("admin.otherPath", async () => (await db.ref("users/someone-else").get()).val());
   await outcome("admin.presence", async () => (await db.ref("server/presence").get()).val());

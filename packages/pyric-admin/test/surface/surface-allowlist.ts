@@ -94,8 +94,6 @@ export const ALLOWLIST: readonly AllowlistGroup[] = [
     entry: 'auth',
     owner: '(exports)',
     members: [
-      'Auth',
-      'BaseAuth',
       'MultiFactorInfo',
       'MultiFactorSettings',
       'PhoneMultiFactorInfo',
@@ -104,13 +102,9 @@ export const ALLOWLIST: readonly AllowlistGroup[] = [
       'Tenant',
       'TenantAwareAuth',
       'TenantManager',
-      'UserInfo',
-      'UserMetadata',
-      'UserRecord',
     ],
     reason: CLASS_EXPORT,
   },
-  { entry: 'auth', owner: '(exports)', members: ['AuthClientErrorCode', 'FirebaseAuthError'], reason: ERROR_CLASS },
   {
     entry: 'auth',
     owner: 'UserRecord',
