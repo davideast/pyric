@@ -1,0 +1,28 @@
+{
+  "name": "messaging-web-client-error-codes",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "firebase/messaging @internal ErrorCode non-export on client and sw entries plus FirebaseError rejection codes for denied notification permission (messaging/permission-blocked) and invalid serviceWorkerRegistration inputs (messaging/invalid-sw-registration).",
+  "observedAt": "2026-11-18T17:35:01.885Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "hasClientErrorCodeExport": false,
+    "hasSwErrorCodeExport": false,
+    "permissionDeniedGetToken": {
+      "threw": true,
+      "name": "FirebaseError",
+      "code": "messaging/permission-blocked"
+    },
+    "primitiveSwRegistrationGetToken": {
+      "threw": true,
+      "name": "FirebaseError",
+      "code": "messaging/invalid-sw-registration"
+    },
+    "malformedObjectSwRegistrationGetToken": {
+      "threw": true,
+      "name": "FirebaseError",
+      "code": "messaging/invalid-sw-registration"
+    }
+  }
+}

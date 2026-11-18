@@ -1,0 +1,70 @@
+{
+  "name": "auth-provider-classes-and-saml-guard",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "Provider classes expose canonical PROVIDER_ID and providerId values, chainable scope/parameter methods where supported, and SAMLAuthProvider enforces the saml. prefix while omitting client credential() factories.",
+  "observedAt": "2026-11-18T17:35:01.464Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "google": {
+      "staticProviderId": "google.com",
+      "staticSignInMethod": "google.com",
+      "instanceProviderId": "google.com",
+      "addScopeChainsSelf": true,
+      "setCustomParamsChainsSelf": true,
+      "credentialFromErrorNull": true
+    },
+    "email": {
+      "staticProviderId": "password",
+      "staticPasswordMethod": "password",
+      "staticLinkMethod": "emailLink",
+      "instanceProviderId": "password"
+    },
+    "facebook": {
+      "staticProviderId": "facebook.com",
+      "staticSignInMethod": "facebook.com",
+      "instanceProviderId": "facebook.com",
+      "addScopeChainsSelf": true,
+      "credentialFromErrorNull": true
+    },
+    "github": {
+      "staticProviderId": "github.com",
+      "staticSignInMethod": "github.com",
+      "instanceProviderId": "github.com",
+      "addScopeChainsSelf": true,
+      "credentialFromErrorNull": true
+    },
+    "twitter": {
+      "staticProviderId": "twitter.com",
+      "staticSignInMethod": "twitter.com",
+      "instanceProviderId": "twitter.com",
+      "addScopeChainsSelf": true,
+      "credentialFromErrorNull": true
+    },
+    "oauth": {
+      "instanceProviderId": "apple.com",
+      "addScopeChainsSelf": true,
+      "setCustomParamsChainsSelf": true,
+      "credentialFromErrorNull": true
+    },
+    "saml": {
+      "instanceProviderId": "saml.corp-sso",
+      "hasStaticCredentialFactory": false,
+      "hasInstanceCredentialFactory": false,
+      "credentialFromErrorNull": true,
+      "invalidMissingPrefix": {
+        "threw": true,
+        "errorName": "FirebaseError",
+        "isFirebaseError": true,
+        "code": "auth/argument-error"
+      },
+      "invalidEmptyPrefix": {
+        "threw": true,
+        "errorName": "FirebaseError",
+        "isFirebaseError": true,
+        "code": "auth/argument-error"
+      }
+    }
+  }
+}
