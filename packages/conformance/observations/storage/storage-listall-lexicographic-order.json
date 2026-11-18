@@ -1,7 +1,10 @@
 {
   "name": "storage-listall-lexicographic-order",
-  "matrixRow": "",
-  "rowIds": [],
+  "matrixRow": "storage#72",
+  "rowIds": [
+    "storage#72",
+    "storage#73"
+  ],
   "description": "listAll(ref) deterministic ordering: uploads items and sub-folder prefixes in scrambled numeric and mixed-case order and observes exact lexicographic ordering of items and prefixes.",
   "observedAt": "2026-11-17T23:56:45.867Z",
   "fbSdkVersion": "12.19.0",

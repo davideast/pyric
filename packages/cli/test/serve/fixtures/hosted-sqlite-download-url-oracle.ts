@@ -13,7 +13,7 @@ import { uploadTokenOf } from '../../../src/serve/worker/host/storage.js';
 import type { InboundMessage } from '../../../src/serve/worker/protocol.js';
 import { wirePort } from '../../../src/serve/worker/client/core.js';
 import type { ClientPort } from '../../../src/serve/worker/client/handles.js';
-import { deleteObject, getBlob, getBytes, getDownloadURL, getMetadata, getStorage, ref, uploadBytes } from '../../../src/serve/worker/client/storage.js';
+import { deleteObject, getBlob, getBytes, getDownloadURL, getMetadata, getStorage, listAll, ref, uploadBytes } from '../../../src/serve/worker/client/storage.js';
 
 // The production observations, read from the conformance package beside the cli build.
 function observation(name: string): Record<string, unknown> {
@@ -269,6 +269,46 @@ try {
     assert.equal(firstSame === secondSame, idObs.samePathStrictEqual);
     assert.equal(firstSame.storage === storage, idObs.directPreservesStorageHandle);
     assert.equal(firstSame.root.storage === storage, idObs.rootPreservesStorageHandle);
+  }
+
+  // storage-listall-empty-and-result-shape + hierarchy + lexicographic-order + rules-enforcement on hosted SQLite.
+  {
+    const shapeObs = observation('storage-listall-empty-and-result-shape');
+    const emptyExpected = shapeObs.emptyDirectory as { itemCount: number; prefixCount: number; hasNextPageTokenOwnProperty: boolean };
+    const emptyRes = await listAll(ref(storage, 'pyric_oracle/listall-empty'));
+    assert.equal(emptyRes.items.length, emptyExpected.itemCount);
+    assert.equal(emptyRes.prefixes.length, emptyExpected.prefixCount);
+    assert.equal('nextPageToken' in emptyRes, emptyExpected.hasNextPageTokenOwnProperty);
+
+    const hierObs = observation('storage-listall-hierarchy-dedup-and-self-exclusion');
+    for (const sub of ['scan-tree', 'scan-tree/direct-two.bin', 'scan-tree/direct-one.bin', 'scan-tree/shared-folder/part-a.bin', 'scan-tree/shared-folder/part-b.bin', 'scan-tree/deep-folder/nested/grandchild.bin']) {
+      await uploadBytes(ref(storage, `pyric_oracle/listall-hier/${sub}`), new Uint8Array([0x41]));
+    }
+    const hierRes = await listAll(ref(storage, 'pyric_oracle/listall-hier/scan-tree'));
+    assert.deepEqual(hierRes.items.map(i => i.name), hierObs.itemNames);
+    assert.deepEqual(hierRes.prefixes.map(p => p.name), hierObs.prefixNames);
+
+    const orderObs = observation('storage-listall-lexicographic-order');
+    for (const itemName of orderObs.uploadedItemOrder as string[]) {
+      await uploadBytes(ref(storage, `pyric_oracle/listall-order/${itemName}`), new Uint8Array([0x01]));
+    }
+    for (const prefixName of orderObs.uploadedPrefixOrder as string[]) {
+      await uploadBytes(ref(storage, `pyric_oracle/listall-order/${prefixName}/leaf.bin`), new Uint8Array([0x01]));
+    }
+    const orderRes = await listAll(ref(storage, 'pyric_oracle/listall-order'));
+    assert.deepEqual(orderRes.items.map(i => i.name), orderObs.observedItemNames);
+    assert.deepEqual(orderRes.prefixes.map(p => p.name), orderObs.observedPrefixNames);
+
+    const rulesObs = observation('storage-listall-rules-enforcement');
+    const outsideExpected = rulesObs.authenticatedOutsideGrant as { threw: boolean; code: string };
+    let deniedCode: string | undefined;
+    try {
+      await listAll(ref(storage, 'pyric_oracle_denied_list/forbidden-dir'));
+    } catch (error) {
+      deniedCode = (error as { code?: string }).code;
+    }
+    assert.equal(deniedCode !== undefined, outsideExpected.threw);
+    assert.equal(deniedCode, outsideExpected.code);
   }
 } finally {
   server.close();

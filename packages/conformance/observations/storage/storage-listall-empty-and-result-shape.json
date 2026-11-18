@@ -1,7 +1,11 @@
 {
   "name": "storage-listall-empty-and-result-shape",
-  "matrixRow": "",
-  "rowIds": [],
+  "matrixRow": "storage#68",
+  "rowIds": [
+    "storage#68",
+    "storage#69",
+    "storage#76"
+  ],
   "description": "listAll(ref) on empty and populated directories: observes empty items/prefixes arrays, undefined nextPageToken, and full StorageReference properties (storage, bucket, name, fullPath, parent, root, toString) on returned items and prefixes.",
   "observedAt": "2026-11-17T23:56:34.602Z",
   "fbSdkVersion": "12.19.0",
