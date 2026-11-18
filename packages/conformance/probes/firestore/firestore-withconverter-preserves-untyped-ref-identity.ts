@@ -5,9 +5,8 @@ import { withFirestoreProbeSession } from '../../src/sdk-probe-runtime.ts';
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: ['web-config', 'firestore-rules'],
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'firestore#50',
+  rowIds: ['firestore#50'],
   description:
     'Original untyped DocumentReference keeps its identity and untyped view after withConverter(converter) creates a typed view on the same path.',
   async observe() {

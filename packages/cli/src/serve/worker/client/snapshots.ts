@@ -8,7 +8,13 @@ import { deserializeDocData } from '../protocol.js';
 import type { ClientPort, DocRefHandle } from './handles.js';
 import { createDocumentReference } from './firestore-reference.js';
 import { FirebaseError } from 'pyric/app';
-import type { DocumentData, FirestoreDataConverter, QueryDocumentSnapshot, SnapshotMetadata } from 'pyric/firestore';
+import type {
+  DocumentData,
+  FirestoreDataConverter,
+  QueryDocumentSnapshot,
+  SnapshotMetadata,
+  SnapshotOptions,
+} from 'pyric/firestore';
 import {
   computeDocumentChanges,
   createDocChanges,
@@ -80,7 +86,7 @@ export function makeDocSnapshot<T = DocumentData>(
   const data = freshData();
   const path = raw.path ?? raw.id;
   const ref = reference ?? createDocumentReference<T>(port, path);
-  const read = (): T | undefined => {
+  const read = (options?: SnapshotOptions): T | undefined => {
     const document = freshData();
     const isMissing = document === undefined;
     if (isMissing) return undefined;
@@ -95,7 +101,8 @@ export function makeDocSnapshot<T = DocumentData>(
         data: () => document,
         get: (fieldPath) => readField(document, fieldPath),
       };
-      return (converter as FirestoreDataConverter<T>).fromFirestore(snapshot);
+      const resolvedOptions: SnapshotOptions = options ?? {};
+      return (converter as FirestoreDataConverter<T>).fromFirestore(snapshot, resolvedOptions);
     }
     return document as T;
   };
@@ -333,7 +340,7 @@ export interface ClientDocSnapshot<T = DocumentData> {
   readonly ref: DocRefHandle<T>;
   readonly metadata: SnapshotMetadata;
   exists(): boolean;
-  data(): T | undefined;
+  data(options?: SnapshotOptions): T | undefined;
   /** Production's `DocumentSnapshot.get`: the stored field at `fieldPath`, or `undefined`. */
   get(fieldPath: SnapshotFieldPath): unknown;
 }

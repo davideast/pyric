@@ -9,9 +9,8 @@ import { withFirestoreProbeSession } from '../../src/sdk-probe-runtime.ts';
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: ['web-config', 'firestore-rules'],
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'firestore#53a',
+  rowIds: ['firestore#53a'],
   description:
     'CollectionReference.withConverter(c) is an instance method on collection() and collectionGroup() values and propagates across doc(typedColl, id), doc(typedColl), query(), addDoc, getDocs, and onSnapshot.',
   async observe() {

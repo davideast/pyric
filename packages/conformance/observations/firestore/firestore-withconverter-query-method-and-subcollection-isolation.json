@@ -1,7 +1,9 @@
 {
   "name": "firestore-withconverter-query-method-and-subcollection-isolation",
-  "matrixRow": "",
-  "rowIds": [],
+  "matrixRow": "firestore#53b",
+  "rowIds": [
+    "firestore#53b"
+  ],
   "description": "Query.withConverter(c) is an instance method on query() values; withConverter(null) on a collection or query removes the converter, and collection(typedDocRef, id) stays untyped.",
   "observedAt": "2026-11-18T02:35:33.069Z",
   "fbSdkVersion": "12.19.0",

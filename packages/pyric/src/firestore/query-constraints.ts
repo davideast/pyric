@@ -124,11 +124,14 @@ export function query<T = DocumentData>(
   } catch (error) {
     throw toFirestoreFirebaseError(error);
   }
-  const tagged = attachConverterMethod(tagSandboxRef(
-    q as unknown as Query<T>,
-    target,
-    (fresh) => buildAt(fresh) as unknown as object,
-  ));
+  const tagged = attachConverterMethod(
+    tagSandboxRef(
+      q as unknown as Query<T>,
+      target,
+      (fresh) => buildAt(fresh) as unknown as object,
+    ),
+    'query',
+  );
   if (conv) {
     return convertedView(tagged, conv) as Query<T>;
   }

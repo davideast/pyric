@@ -1,7 +1,9 @@
 {
   "name": "firestore-withconverter-setdoc-invokes-tofirestore",
-  "matrixRow": "",
-  "rowIds": [],
+  "matrixRow": "firestore#51",
+  "rowIds": [
+    "firestore#51"
+  ],
   "description": "setDoc through a converted DocumentReference invokes converter.toFirestore(data) on full writes and converter.toFirestore(data, options) on merge and mergeFields writes.",
   "observedAt": "2026-11-18T02:35:36.914Z",
   "fbSdkVersion": "12.19.0",

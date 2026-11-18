@@ -1,7 +1,9 @@
 {
   "name": "firestore-withconverter-doc-roundtrip",
-  "matrixRow": "",
-  "rowIds": [],
+  "matrixRow": "firestore#46",
+  "rowIds": [
+    "firestore#46"
+  ],
   "description": "DocumentReference.withConverter(converter) returns a typed reference that runs toFirestore on writes and fromFirestore on reads.",
   "observedAt": "2026-11-18T02:35:16.775Z",
   "fbSdkVersion": "12.19.0",

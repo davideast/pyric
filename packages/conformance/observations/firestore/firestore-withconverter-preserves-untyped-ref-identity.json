@@ -1,7 +1,9 @@
 {
   "name": "firestore-withconverter-preserves-untyped-ref-identity",
-  "matrixRow": "",
-  "rowIds": [],
+  "matrixRow": "firestore#50",
+  "rowIds": [
+    "firestore#50"
+  ],
   "description": "Original untyped DocumentReference keeps its identity and untyped view after withConverter(converter) creates a typed view on the same path.",
   "observedAt": "2026-11-18T02:35:28.495Z",
   "fbSdkVersion": "12.19.0",

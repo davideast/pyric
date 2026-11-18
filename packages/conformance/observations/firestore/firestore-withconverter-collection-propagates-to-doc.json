@@ -1,7 +1,9 @@
 {
   "name": "firestore-withconverter-collection-propagates-to-doc",
-  "matrixRow": "",
-  "rowIds": [],
+  "matrixRow": "firestore#47",
+  "rowIds": [
+    "firestore#47"
+  ],
   "description": "CollectionReference.withConverter(converter) propagates onto doc(typedColl, id) and auto-id doc(typedColl) for writes and reads.",
   "observedAt": "2026-11-18T02:35:08.862Z",
   "fbSdkVersion": "12.19.0",

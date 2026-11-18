@@ -5,9 +5,8 @@ import { withFirestoreProbeSession } from '../../src/sdk-probe-runtime.ts';
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: ['web-config', 'firestore-rules'],
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'firestore#52',
+  rowIds: ['firestore#52'],
   description:
     'getDoc through a converted DocumentReference invokes converter.fromFirestore(snapshot, options) on existing documents and returns undefined without invoking fromFirestore on missing documents.',
   async observe() {

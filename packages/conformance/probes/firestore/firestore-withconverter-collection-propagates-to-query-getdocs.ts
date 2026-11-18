@@ -5,9 +5,8 @@ import { withFirestoreProbeSession } from '../../src/sdk-probe-runtime.ts';
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: ['web-config', 'firestore-rules'],
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'firestore#48',
+  rowIds: ['firestore#48'],
   description:
     'CollectionReference.withConverter(converter) propagates through query(typedColl, ...) + getDocs().',
   async observe() {

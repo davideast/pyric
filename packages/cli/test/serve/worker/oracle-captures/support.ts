@@ -13,6 +13,7 @@ import { setRules } from 'pyric/sandbox/firestore';
 import * as ipDatabase from 'pyric/database';
 import * as client from '../../../../src/serve/worker/index.js';
 import { readDocumentAs, readQueryAs } from '../../../../src/serve/worker/client/firestore-reads.js';
+import { refEqual } from '../../../../src/serve/worker/client/firestore-reference-equality.js';
 import { setDatabaseRules } from '../../../../src/serve/worker/host/rules.js';
 import { connectClientToHost, makeHostCtx, sleep } from '../integration-support.js';
 import { replayTiming } from '../../../../../conformance/src/capture/sdk-scenarios/scenario-timing.ts';
@@ -57,6 +58,7 @@ export async function servedFirestoreContext(): Promise<FirestoreScenarioContext
   // The served entry routes these two reads through the worker client (entries/firestore-surface.ts).
   const fs = {
     ...client,
+    refEqual,
     getDocFromServer: (ref: Parameters<typeof readDocumentAs>[0]) => readDocumentAs(ref, 'getDocFromServer'),
     getDocsFromServer: (source: Parameters<typeof readQueryAs>[0]) => readQueryAs(source, 'getDocsFromServer'),
   } as unknown as FirestoreSdk;

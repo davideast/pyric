@@ -11,17 +11,30 @@ import {
   where,
 } from 'firebase/firestore';
 import { describe, expect, test } from 'bun:test';
+import { observationExceptions } from '../../exceptions/load.ts';
+import { listProbeFiles } from '../../probes/load.ts';
+import { allCompatibilityRows } from '../../registry/index.ts';
+import { loadRigManifests } from '../../rigs/load.ts';
+import { ALL_RULES_FIRESTORE_SCENARIOS } from '../../rules-corpus/firestore/index.ts';
+import {
+  ALL_RULES_RTDB_DEPLOY_SCENARIOS,
+  ALL_RULES_RTDB_SCENARIOS,
+} from '../../rules-corpus/rtdb/index.ts';
+import { ALL_RULES_STORAGE_SCENARIOS } from '../../rules-corpus/storage/index.ts';
 import { FirestoreQueryTimeoutError } from '../../src/firestore-probe-outcomes.ts';
 import {
   createRecordedItemConverter,
   observeInitialQuerySnapshot,
 } from '../../src/firestore-withconverter-probe-model.ts';
+import { loadObservations } from '../../src/ledger.ts';
 import {
   loadModularProbes,
   printModularProbePreview,
   selectModularProbes,
 } from '../../src/sdk-probes.ts';
-import { expectStagedUntilCaptured } from './staged-capture-assertions.ts';
+import { loadPendingRowLinkObservations } from '../../src/staged-captures.ts';
+import { validateCompatibilityRegistry } from '../../src/validate-registry.ts';
+import { surfaceDescriptors } from '../../surfaces/load.ts';
 import { probe as collMethodProbe } from '../../probes/firestore/firestore-withconverter-collection-method-propagation.ts';
 import { probe as collToDocProbe } from '../../probes/firestore/firestore-withconverter-collection-propagates-to-doc.ts';
 import { probe as collToQueryProbe } from '../../probes/firestore/firestore-withconverter-collection-propagates-to-query-getdocs.ts';
@@ -33,65 +46,65 @@ import { probe as queryMethodProbe } from '../../probes/firestore/firestore-with
 import { probe as setDocProbe } from '../../probes/firestore/firestore-withconverter-setdoc-invokes-tofirestore.ts';
 import { probe as updateDocProbe } from '../../probes/firestore/firestore-withconverter-updatedoc-bypasses-converter.ts';
 
-const WITHCONVERTER_PROBE_IDS = [
-  'firestore-withconverter-collection-method-propagation',
-  'firestore-withconverter-collection-propagates-to-doc',
-  'firestore-withconverter-collection-propagates-to-query-getdocs',
-  'firestore-withconverter-doc-roundtrip',
-  'firestore-withconverter-getdoc-invokes-fromfirestore',
-  'firestore-withconverter-null-strips-converter',
-  'firestore-withconverter-preserves-untyped-ref-identity',
-  'firestore-withconverter-query-method-and-subcollection-isolation',
-  'firestore-withconverter-setdoc-invokes-tofirestore',
-  'firestore-withconverter-updatedoc-bypasses-converter',
+const EXPECTED_WITHCONVERTER_LINKS = [
+  ['firestore-withconverter-doc-roundtrip', docRoundtripProbe, 'firestore#46'],
+  [
+    'firestore-withconverter-collection-propagates-to-doc',
+    collToDocProbe,
+    'firestore#47',
+  ],
+  [
+    'firestore-withconverter-collection-propagates-to-query-getdocs',
+    collToQueryProbe,
+    'firestore#48',
+  ],
+  ['firestore-withconverter-null-strips-converter', nullStripProbe, 'firestore#49'],
+  [
+    'firestore-withconverter-preserves-untyped-ref-identity',
+    untypedIdentityProbe,
+    'firestore#50',
+  ],
+  ['firestore-withconverter-setdoc-invokes-tofirestore', setDocProbe, 'firestore#51'],
+  [
+    'firestore-withconverter-getdoc-invokes-fromfirestore',
+    getDocProbe,
+    'firestore#52',
+  ],
+  ['firestore-withconverter-updatedoc-bypasses-converter', updateDocProbe, 'firestore#53'],
+  [
+    'firestore-withconverter-collection-method-propagation',
+    collMethodProbe,
+    'firestore#53a',
+  ],
+  [
+    'firestore-withconverter-query-method-and-subcollection-isolation',
+    queryMethodProbe,
+    'firestore#53b',
+  ],
 ] as const;
 
-describe('Firestore withConverter staged probes (sdk-probes)', () => {
-  test('registers all 10 withConverter probes on sdk-probes with pendingRowLink and empty rowIds', async () => {
+describe('Firestore withConverter linked probes (sdk-probes)', () => {
+  test('registers all 10 withConverter probes on sdk-probes linked to their target registry rows', async () => {
     const loaded = await loadModularProbes('sdk-probes');
-    const loadedIds = loaded.map((entry) => entry.id);
-    for (const id of WITHCONVERTER_PROBE_IDS) {
-      expect(loadedIds).toContain(id);
-    }
-
-    const probes = [
-      collMethodProbe,
-      collToDocProbe,
-      collToQueryProbe,
-      docRoundtripProbe,
-      getDocProbe,
-      nullStripProbe,
-      untypedIdentityProbe,
-      queryMethodProbe,
-      setDocProbe,
-      updateDocProbe,
-    ];
-    for (const probeRecord of probes) {
-      expect(probeRecord.rig).toBe('sdk-probes');
-      expect(probeRecord.requires).toEqual(['web-config', 'firestore-rules']);
-      expect(probeRecord.pendingRowLink).toBe(true);
-      expect(probeRecord.matrixRow).toBe('');
-      expect(probeRecord.rowIds).toEqual([]);
-      expect(probeRecord.description.length).toBeGreaterThan(20);
-    }
-
+    const byId = new Map(loaded.map((entry) => [entry.id, entry]));
     const unfilteredIds = new Set(
       selectModularProbes(loaded, [], 'sdk-probes', {
         includeUncapturedStaged: false,
       }).map((entry) => entry.id),
     );
 
-    expectStagedUntilCaptured(WITHCONVERTER_PROBE_IDS, {
-      rig: 'sdk-probes',
-      filterFlag: '--probe',
-      filterValueFor: (name) => name,
-      whenUncaptured(name) {
-        expect(unfilteredIds.has(name)).toBe(false);
-      },
-      whenCaptured(name) {
-        expect(unfilteredIds.has(name)).toBe(true);
-      },
-    });
+    for (const [id, probeRecord, expectedRowId] of EXPECTED_WITHCONVERTER_LINKS) {
+      const found = byId.get(id);
+      expect(found, `missing modular probe ${id}`).toBeDefined();
+      expect(found?.probe).toBe(probeRecord);
+      expect(probeRecord.rig).toBe('sdk-probes');
+      expect(probeRecord.requires).toEqual(['web-config', 'firestore-rules']);
+      expect(probeRecord.pendingRowLink).toBeUndefined();
+      expect(probeRecord.matrixRow).toBe(expectedRowId);
+      expect(probeRecord.rowIds).toEqual([expectedRowId]);
+      expect(probeRecord.description.length).toBeGreaterThan(20);
+      expect(unfilteredIds.has(id)).toBe(true);
+    }
 
     const lines: string[] = [];
     printModularProbePreview({
@@ -103,6 +116,49 @@ describe('Firestore withConverter staged probes (sdk-probes)', () => {
     expect(lines.some((line) => line.includes('firestore-withconverter-doc-roundtrip'))).toBe(
       true,
     );
+  });
+
+  test('links all 10 committed observations to oracle-backed registry rows with zero validation problems', async () => {
+    const existingObservations = loadObservations();
+    const obsByName = new Map(existingObservations.map((obs) => [obs.name, obs]));
+    const rowsById = new Map(allCompatibilityRows.map((row) => [row.id, row]));
+
+    for (const [id, , expectedRowId] of EXPECTED_WITHCONVERTER_LINKS) {
+      const obs = obsByName.get(id);
+      expect(obs, `missing committed observation ${id}`).toBeDefined();
+      expect(obs?.rowIds).toEqual([expectedRowId]);
+      expect(obs?.matrixRow).toBe(expectedRowId);
+
+      const row = rowsById.get(expectedRowId);
+      expect(row, `missing compatibility row ${expectedRowId}`).toBeDefined();
+      expect(row?.automation).toBe('oracle-backed');
+      expect(row?.oracleObservations).toContain(id);
+    }
+
+    const rigManifests = await loadRigManifests();
+    const probeFiles = listProbeFiles();
+    const pendingRowLinkObservations = loadPendingRowLinkObservations();
+    const rulesFirestoreScenarioIds = ALL_RULES_FIRESTORE_SCENARIOS.map((s) => s.id);
+    const rulesStorageScenarioIds = ALL_RULES_STORAGE_SCENARIOS.map((s) => s.id);
+    const rulesRtdbScenarioIds = [
+      ...ALL_RULES_RTDB_SCENARIOS.map((s) => s.id),
+      ...ALL_RULES_RTDB_DEPLOY_SCENARIOS.map((s) => s.id),
+    ];
+
+    expect(
+      validateCompatibilityRegistry({
+        rows: allCompatibilityRows,
+        descriptors: surfaceDescriptors,
+        observations: existingObservations,
+        observationExceptions,
+        rigManifests,
+        probeFiles,
+        rulesFirestoreScenarioIds,
+        rulesStorageScenarioIds,
+        rulesRtdbScenarioIds,
+        pendingRowLinkObservations,
+      }),
+    ).toEqual([]);
   });
 
   test('records converter toFirestore and fromFirestore call metadata and enforces snapshot timeout cleanup', async () => {

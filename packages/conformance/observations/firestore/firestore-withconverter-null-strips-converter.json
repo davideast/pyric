@@ -1,7 +1,9 @@
 {
   "name": "firestore-withconverter-null-strips-converter",
-  "matrixRow": "",
-  "rowIds": [],
+  "matrixRow": "firestore#49",
+  "rowIds": [
+    "firestore#49"
+  ],
   "description": "DocumentReference.withConverter(null) strips the converter and returns an untyped DocumentData view.",
   "observedAt": "2026-11-18T02:35:24.431Z",
   "fbSdkVersion": "12.19.0",

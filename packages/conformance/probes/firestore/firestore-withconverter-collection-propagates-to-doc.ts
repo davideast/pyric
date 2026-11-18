@@ -5,9 +5,8 @@ import { withFirestoreProbeSession } from '../../src/sdk-probe-runtime.ts';
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: ['web-config', 'firestore-rules'],
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'firestore#47',
+  rowIds: ['firestore#47'],
   description:
     'CollectionReference.withConverter(converter) propagates onto doc(typedColl, id) and auto-id doc(typedColl) for writes and reads.',
   async observe() {

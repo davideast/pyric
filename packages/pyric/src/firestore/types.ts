@@ -22,6 +22,7 @@ import {
 } from 'pyric/sandbox/admin-firestore';
 import type { SetOptions } from './writes.js';
 import type { FieldPath } from './field-values.js';
+import type { SnapshotOptions } from './ssr-snapshots.js';
 import type { OperationOptions } from './sandbox/admin-compat/types.js';
 import type { AuthState, Sandbox, SandboxContext } from 'pyric/sandbox';
 import type { FirebaseApp } from '../app/types.js';
@@ -47,7 +48,10 @@ export interface FirestoreDataConverter<
     modelObject: PartialWithFieldValue<AppModelType>,
     options: SetOptions,
   ): PartialWithFieldValue<DbModelType>;
-  fromFirestore(snapshot: QueryDocumentSnapshot<DbModelType>): AppModelType;
+  fromFirestore(
+    snapshot: QueryDocumentSnapshot<DbModelType>,
+    options?: SnapshotOptions,
+  ): AppModelType;
 }
 
 // ─── Public Firestore handle ──────────────────────────────────────────
@@ -80,20 +84,27 @@ export type AppFirestore = Firestore & { readonly app: FirebaseApp };
 
 /** A reference to a Firestore document. Backend-opaque. */
 export interface DocumentReference<_T = DocumentData> {
+  readonly type: 'document';
   readonly id: string;
   readonly path: string;
+  readonly converter: FirestoreDataConverter<any, any> | null;
+  readonly parent: CollectionReference<_T>;
   withConverter<T, D extends DocumentData = DocumentData>(converter: FirestoreDataConverter<T, D>): DocumentReference<T>;
   withConverter(converter: null): DocumentReference<DocumentData>;
 }
 /** A reference to a Firestore collection. Backend-opaque. */
 export interface CollectionReference<_T = DocumentData> extends Query<_T> {
+  readonly type: 'collection';
   readonly id: string;
   readonly path: string;
+  readonly converter: FirestoreDataConverter<any, any> | null;
   withConverter<T, D extends DocumentData = DocumentData>(converter: FirestoreDataConverter<T, D>): CollectionReference<T>;
   withConverter(converter: null): CollectionReference<DocumentData>;
 }
 /** A Firestore query (a collection ref or one with where/orderBy/limit applied). */
 export interface Query<_T = DocumentData> {
+  readonly type: 'query' | 'collection';
+  readonly converter: FirestoreDataConverter<any, any> | null;
   readonly _isQuery?: true;
   withConverter<T, D extends DocumentData = DocumentData>(converter: FirestoreDataConverter<T, D>): Query<T>;
   withConverter(converter: null): Query<DocumentData>;
@@ -108,7 +119,7 @@ export interface DocumentSnapshot<T = DocumentData> {
   readonly ref: DocumentReference<T>;
   readonly exists: boolean | (() => boolean);
   readonly metadata: SnapshotMetadata;
-  data(): T | undefined;
+  data(options?: SnapshotOptions): T | undefined;
   get(fieldPath: string | FieldPath): unknown;
 }
 /**
@@ -118,7 +129,7 @@ export interface DocumentSnapshot<T = DocumentData> {
  * callbacks. Mirrors the JS SDK's narrowing.
  */
 export interface QueryDocumentSnapshot<T = DocumentData> extends DocumentSnapshot<T> {
-  data(): T;
+  data(options?: SnapshotOptions): T;
 }
 /** A point-in-time view of a query result. */
 export interface QuerySnapshot<T = DocumentData> {
@@ -165,9 +176,10 @@ export class Firestore {
 }
 export class DocumentReference<_T = DocumentData> {
   static [Symbol.hasInstance](instance: unknown): boolean {
+    if (instance === null || typeof instance !== 'object') return false;
+    const kind = (instance as { type?: unknown }).type;
+    if (kind === 'collection' || kind === 'query') return false;
     return Boolean(
-      instance &&
-      typeof instance === 'object' &&
       'id' in instance &&
       'path' in instance &&
       typeof (instance as any).path === 'string' &&
@@ -180,9 +192,9 @@ export class DocumentReference<_T = DocumentData> {
 }
 export class CollectionReference<_T = DocumentData> {
   static [Symbol.hasInstance](instance: unknown): boolean {
+    if (instance === null || typeof instance !== 'object') return false;
+    if ((instance as { type?: unknown }).type === 'collection') return true;
     return Boolean(
-      instance &&
-      typeof instance === 'object' &&
       'id' in instance &&
       'path' in instance &&
       typeof (instance as any).path === 'string' &&
@@ -192,10 +204,11 @@ export class CollectionReference<_T = DocumentData> {
 }
 export class Query<_T = DocumentData> {
   static [Symbol.hasInstance](instance: unknown): boolean {
+    if (instance === null || typeof instance !== 'object') return false;
+    const kind = (instance as { type?: unknown }).type;
+    if (kind === 'query' || kind === 'collection') return true;
     return Boolean(
-      instance &&
-      typeof instance === 'object' &&
-      (('_isQuery' in instance) || ('where' in instance) || ('orderBy' in instance) || ('doc' in instance) || ('add' in instance))
+      ('_isQuery' in instance) || ('where' in instance) || ('orderBy' in instance) || ('doc' in instance) || ('add' in instance)
     );
   }
 }
