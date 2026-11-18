@@ -1,7 +1,9 @@
 {
   "name": "firestore-admin-batches-and-transactions",
-  "matrixRow": "",
-  "rowIds": [],
+  "matrixRow": "firestore-admin#8",
+  "rowIds": [
+    "firestore-admin#8"
+  ],
   "description": "firebase-admin/firestore WriteBatch atomic create/set/update/delete/commit (including post-commit mutation rejection and failed-batch rollback) and runTransaction with tx.get(docRef), tx.get(query), read-before-write enforcement, and readOnly transactions.",
   "observedAt": "2026-11-18T11:15:12.702Z",
   "fbSdkVersion": "12.19.0",

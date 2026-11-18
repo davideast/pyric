@@ -26,42 +26,35 @@ import {
   type FirestoreAdminBatchesTxSubject,
 } from '../../probes/firestore-admin/firestore-admin-batches-and-transactions.ts';
 import { loadModularProbes } from '../../src/sdk-probes.ts';
-import { expectStagedUntilCaptured } from './staged-capture-assertions.ts';
 
-const STAGED_FIRESTORE_ADMIN_SLICE9_PROBES = [
+const LINKED_FIRESTORE_ADMIN_SLICE9_PROBES = [
   'firestore-admin-crud-operations',
   'firestore-admin-queries-and-snapshots',
   'firestore-admin-batches-and-transactions',
 ] as const;
 
-describe('staged firestore-admin CRUD, queries/onSnapshot, and batch/transaction probes', () => {
-  it('registers all three probes under sdk-probes and tracks staged discovery via expectStagedUntilCaptured', async () => {
+describe('linked firestore-admin CRUD, queries/onSnapshot, and batch/transaction probes', () => {
+  it('registers all three probes under sdk-probes with linked rowIds and pendingRowLink dropped', async () => {
     const loaded = await loadModularProbes('sdk-probes');
     const loadedIds = loaded.map((item) => item.id);
-    for (const id of STAGED_FIRESTORE_ADMIN_SLICE9_PROBES) {
+    for (const id of LINKED_FIRESTORE_ADMIN_SLICE9_PROBES) {
       expect(loadedIds).toContain(id);
     }
 
     expect(crudProbe.rig).toBe('sdk-probes');
-    expect(crudProbe.pendingRowLink).toBe(true);
-    expect(crudProbe.rowIds).toEqual([]);
+    expect(crudProbe.pendingRowLink).toBeUndefined();
+    expect(crudProbe.rowIds).toEqual(['firestore-admin#4']);
     expect(crudProbe.requires).toEqual(['admin-firestore']);
 
     expect(queriesAndSnapshotsProbe.rig).toBe('sdk-probes');
-    expect(queriesAndSnapshotsProbe.pendingRowLink).toBe(true);
-    expect(queriesAndSnapshotsProbe.rowIds).toEqual([]);
+    expect(queriesAndSnapshotsProbe.pendingRowLink).toBeUndefined();
+    expect(queriesAndSnapshotsProbe.rowIds).toEqual(['firestore-admin#7']);
     expect(queriesAndSnapshotsProbe.requires).toEqual(['admin-firestore']);
 
     expect(batchesAndTransactionsProbe.rig).toBe('sdk-probes');
-    expect(batchesAndTransactionsProbe.pendingRowLink).toBe(true);
-    expect(batchesAndTransactionsProbe.rowIds).toEqual([]);
+    expect(batchesAndTransactionsProbe.pendingRowLink).toBeUndefined();
+    expect(batchesAndTransactionsProbe.rowIds).toEqual(['firestore-admin#8']);
     expect(batchesAndTransactionsProbe.requires).toEqual(['admin-firestore']);
-
-    expectStagedUntilCaptured(STAGED_FIRESTORE_ADMIN_SLICE9_PROBES, {
-      rig: 'sdk-probes',
-      filterFlag: '--probe',
-      filterValueFor: (name) => name,
-    });
   });
 
   it('produces deterministic two-run observations on pyric-admin/firestore across CRUD, queries/listeners, and batches/transactions', async () => {

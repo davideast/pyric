@@ -115,8 +115,10 @@ const firestoreAdminRows: CompatibilityRow[] = [
     status: 'diverged-documented',
     statusNote:
       'create, set, update, and delete resolve to undefined instead of WriteResult ({ writeTime }), and Precondition options on update/delete are not modeled',
-    automation: 'unit-backed',
+    automation: 'oracle-backed',
+    oracleObservations: ['firestore-admin-crud-operations'],
     conformanceTests: [
+      'packages/pyric-admin/test/firestore/oracle-conformance.test.ts',
       'packages/pyric-admin/test/firestore/firestore/sandbox-ops.test.ts',
       'packages/pyric-admin/test/firestore/firestore/deletedoc-missing.test.ts',
       'packages/pyric-admin/test/firestore/firestore/error-translation.test.ts',
@@ -124,7 +126,7 @@ const firestoreAdminRows: CompatibilityRow[] = [
       'packages/pyric-admin/test/remote/remote-firestore-parity.test.ts',
     ],
     evidence:
-      'Pinned across local and remote arms in `sandbox-ops.test.ts`, `deletedoc-missing.test.ts`, `error-translation.test.ts`, `remote-firestore.test.ts`, and `remote-firestore-parity.test.ts`.',
+      'Production capture `firestore-admin-crud-operations` (firebase-admin 13.10.0) replayed across local and remote arms in `oracle-conformance.test.ts`, plus `sandbox-ops.test.ts`, `deletedoc-missing.test.ts`, `error-translation.test.ts`, `remote-firestore.test.ts`, and `remote-firestore-parity.test.ts`.',
     risk: ['error-code', 'stateful'],
     riskScore: 3,
     riskReasons: ['asserts create/update error codes, merge semantics, and void return divergence'],
@@ -192,15 +194,17 @@ const firestoreAdminRows: CompatibilityRow[] = [
     status: 'diverged-documented',
     statusNote:
       'Filter is deferred, query.aggregate(spec) resolves directly without .get(), and cursors use startCursor/endCursor rather than startAt/startAfter/endAt/endBefore',
-    automation: 'unit-backed',
+    automation: 'oracle-backed',
+    oracleObservations: ['firestore-admin-queries-and-snapshots'],
     conformanceTests: [
+      'packages/pyric-admin/test/firestore/oracle-conformance.test.ts',
       'packages/pyric-admin/test/firestore/field-path-queries.test.ts',
       'packages/pyric-admin/test/firestore/firestore/onSnapshot.test.ts',
       'packages/pyric-admin/test/remote/remote-firestore.test.ts',
       'packages/pyric-admin/test/remote/remote-firestore-parity.test.ts',
     ],
     evidence:
-      'Pinned across local and remote arms in `field-path-queries.test.ts`, `onSnapshot.test.ts`, `remote-firestore.test.ts`, and `remote-firestore-parity.test.ts`.',
+      'Production capture `firestore-admin-queries-and-snapshots` (firebase-admin 13.10.0) replayed across local and remote arms in `oracle-conformance.test.ts`, plus `field-path-queries.test.ts`, `onSnapshot.test.ts`, `remote-firestore.test.ts`, and `remote-firestore-parity.test.ts`.',
     risk: ['listener', 'specific-value'],
     riskScore: 3,
     riskReasons: ['asserts query filtering, ordering, and listener delivery'],
@@ -219,14 +223,16 @@ const firestoreAdminRows: CompatibilityRow[] = [
     status: 'diverged-documented',
     statusNote:
       'WriteBatch.commit() resolves to undefined instead of WriteResult[], write Precondition options are not modeled, and Transaction.getAll() is absent',
-    automation: 'unit-backed',
+    automation: 'oracle-backed',
+    oracleObservations: ['firestore-admin-batches-and-transactions'],
     conformanceTests: [
+      'packages/pyric-admin/test/firestore/oracle-conformance.test.ts',
       'packages/pyric-admin/test/firestore/transaction-query-isolation.test.ts',
       'packages/pyric-admin/test/remote/remote-firestore.test.ts',
       'packages/pyric-admin/test/remote/remote-firestore-parity.test.ts',
     ],
     evidence:
-      'Pinned across local and remote arms in `transaction-query-isolation.test.ts`, `remote-firestore.test.ts`, and `remote-firestore-parity.test.ts`.',
+      'Production capture `firestore-admin-batches-and-transactions` (firebase-admin 13.10.0) replayed across local and remote arms in `oracle-conformance.test.ts`, plus `transaction-query-isolation.test.ts`, `remote-firestore.test.ts`, and `remote-firestore-parity.test.ts`.',
     risk: ['stateful', 'error-code'],
     riskScore: 3,
     riskReasons: ['asserts atomic batch/transaction execution and WriteResult[]/getAll divergences'],
