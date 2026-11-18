@@ -1,5 +1,9 @@
 import { deleteApp, getApps, initializeApp, type App } from 'firebase-admin/app';
-import { FirebaseMessagingError, type BatchResponse } from 'firebase-admin/messaging';
+import {
+  FirebaseMessagingError,
+  type BatchResponse,
+  type MessagingTopicManagementResponse,
+} from 'firebase-admin/messaging';
 import {
   loadMessagingServiceAccount,
   messagingAccessToken,
@@ -170,6 +174,86 @@ export function summarizeBatchResponse(
     failureCount: batch.failureCount,
     responseCount: responses.length,
     responses,
+  };
+}
+
+export type CapturedSyncOrAsyncMessagingOutcome = ExtractedMessagingErrorDetails & {
+  threw: boolean;
+  synchronousThrow: boolean;
+};
+
+export async function captureSyncOrAsyncMessagingCall(
+  invoke: () => Promise<unknown>,
+): Promise<CapturedSyncOrAsyncMessagingOutcome> {
+  let pending: Promise<unknown>;
+  try {
+    pending = invoke();
+  } catch (syncErr) {
+    return {
+      threw: true,
+      synchronousThrow: true,
+      ...extractMessagingErrorDetails(syncErr),
+    };
+  }
+  try {
+    await pending;
+    return {
+      threw: false,
+      synchronousThrow: false,
+      code: null,
+      message: '',
+      isFirebaseMessagingError: false,
+      name: null,
+    };
+  } catch (asyncErr) {
+    return {
+      threw: true,
+      synchronousThrow: false,
+      ...extractMessagingErrorDetails(asyncErr),
+    };
+  }
+}
+
+interface SummarizedTopicErrorItem {
+  index: number;
+  error: ExtractedMessagingErrorDetails;
+}
+
+export interface SummarizedTopicManagementResponse {
+  successCount: number;
+  failureCount: number;
+  errorCount: number;
+  errors: SummarizedTopicErrorItem[];
+}
+
+const TRANSIENT_OR_AUTH_MESSAGING_CODES = new Set([
+  'messaging/authentication-error',
+  'messaging/mismatched-credential',
+  'messaging/server-unavailable',
+  'messaging/internal-error',
+  'messaging/unknown-error',
+]);
+
+export function summarizeTopicManagementResponse(
+  response: MessagingTopicManagementResponse,
+): SummarizedTopicManagementResponse {
+  const errors: SummarizedTopicErrorItem[] = response.errors.map((entry) => {
+    const details = extractMessagingErrorDetails(entry.error);
+    if (details.code !== null && TRANSIENT_OR_AUTH_MESSAGING_CODES.has(details.code)) {
+      throw new Error(
+        `Topic management probe received infrastructure/auth error ${details.code} at index ${entry.index}: ${details.message}`,
+      );
+    }
+    return {
+      index: entry.index,
+      error: details,
+    };
+  });
+  return {
+    successCount: response.successCount,
+    failureCount: response.failureCount,
+    errorCount: errors.length,
+    errors,
   };
 }
 
