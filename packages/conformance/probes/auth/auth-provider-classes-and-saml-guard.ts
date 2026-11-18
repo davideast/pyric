@@ -5,9 +5,8 @@ import { observeSyncAuthAttempt } from '../../src/auth-user-probe-session.ts';
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: [],
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'auth#50',
+  rowIds: ['auth#50', 'auth#52', 'auth#181'],
   description:
     'Provider classes expose canonical PROVIDER_ID and providerId values, chainable scope/parameter methods where supported, and SAMLAuthProvider enforces the saml. prefix while omitting client credential() factories.',
   async observe() {

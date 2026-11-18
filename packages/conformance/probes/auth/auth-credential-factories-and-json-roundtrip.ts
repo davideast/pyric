@@ -5,9 +5,8 @@ import { observeSyncAuthAttempt } from '../../src/auth-user-probe-session.ts';
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: [],
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'auth#51',
+  rowIds: ['auth#51', 'auth#180', 'auth#181'],
   description:
     'Provider static and instance credential factories produce AuthCredential, EmailAuthCredential, and OAuthCredential instances with deterministic toJSON and fromJSON round-trips and email-link URL validation.',
   async observe() {

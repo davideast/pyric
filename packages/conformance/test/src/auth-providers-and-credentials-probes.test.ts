@@ -4,7 +4,6 @@ import {
   printModularProbePreview,
   selectModularProbes,
 } from '../../src/sdk-probes.ts';
-import { expectStagedUntilCaptured } from './staged-capture-assertions.ts';
 import { probe as credentialFactoriesProbe } from '../../probes/auth/auth-credential-factories-and-json-roundtrip.ts';
 import { probe as emailCredAndProviderDataProbe } from '../../probes/auth/auth-email-credential-signin-and-providerdata.ts';
 import { probe as providerClassesProbe } from '../../probes/auth/auth-provider-classes-and-saml-guard.ts';
@@ -15,28 +14,30 @@ const AUTH_PROVIDER_CREDENTIAL_PROBE_IDS = [
   'auth-provider-classes-and-saml-guard',
 ] as const;
 
-describe('Auth provider classes, credentials, and providerData staged probes (sdk-probes)', () => {
-  test('registers all 3 Auth provider/credential probes with pendingRowLink and empty rowIds', async () => {
+describe('Auth provider classes, credentials, and providerData linked probes (sdk-probes)', () => {
+  test('registers all 3 Auth provider/credential probes with linked rowIds', async () => {
     const loaded = await loadModularProbes('sdk-probes');
     const loadedIds = loaded.map((entry) => entry.id);
     for (const id of AUTH_PROVIDER_CREDENTIAL_PROBE_IDS) {
       expect(loadedIds).toContain(id);
     }
 
-    const probes = [
-      providerClassesProbe,
-      credentialFactoriesProbe,
-      emailCredAndProviderDataProbe,
-    ];
-    for (const probeRecord of probes) {
-      expect(probeRecord.rig).toBe('sdk-probes');
-      expect(probeRecord.pendingRowLink).toBe(true);
-      expect(probeRecord.matrixRow).toBe('');
-      expect(probeRecord.rowIds).toEqual([]);
-      expect(probeRecord.description.length).toBeGreaterThan(20);
-    }
+    expect(providerClassesProbe.rig).toBe('sdk-probes');
+    expect(providerClassesProbe.pendingRowLink).toBeUndefined();
+    expect(providerClassesProbe.matrixRow).toBe('auth#50');
+    expect(providerClassesProbe.rowIds).toEqual(['auth#50', 'auth#52', 'auth#181']);
     expect(providerClassesProbe.requires).toEqual([]);
+
+    expect(credentialFactoriesProbe.rig).toBe('sdk-probes');
+    expect(credentialFactoriesProbe.pendingRowLink).toBeUndefined();
+    expect(credentialFactoriesProbe.matrixRow).toBe('auth#51');
+    expect(credentialFactoriesProbe.rowIds).toEqual(['auth#51', 'auth#180', 'auth#181']);
     expect(credentialFactoriesProbe.requires).toEqual([]);
+
+    expect(emailCredAndProviderDataProbe.rig).toBe('sdk-probes');
+    expect(emailCredAndProviderDataProbe.pendingRowLink).toBeUndefined();
+    expect(emailCredAndProviderDataProbe.matrixRow).toBe('auth#182');
+    expect(emailCredAndProviderDataProbe.rowIds).toEqual(['auth#180', 'auth#182']);
     expect(emailCredAndProviderDataProbe.requires).toEqual(['web-config', 'admin-auth']);
 
     const unfilteredIds = new Set(
@@ -44,18 +45,9 @@ describe('Auth provider classes, credentials, and providerData staged probes (sd
         includeUncapturedStaged: false,
       }).map((entry) => entry.id),
     );
-
-    expectStagedUntilCaptured(AUTH_PROVIDER_CREDENTIAL_PROBE_IDS, {
-      rig: 'sdk-probes',
-      filterFlag: '--probe',
-      filterValueFor: (name) => name,
-      whenUncaptured(name) {
-        expect(unfilteredIds.has(name)).toBe(false);
-      },
-      whenCaptured(name) {
-        expect(unfilteredIds.has(name)).toBe(true);
-      },
-    });
+    for (const id of AUTH_PROVIDER_CREDENTIAL_PROBE_IDS) {
+      expect(unfilteredIds.has(id)).toBe(true);
+    }
 
     const lines: string[] = [];
     printModularProbePreview({
