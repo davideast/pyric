@@ -1,7 +1,9 @@
 {
   "name": "admin-storage-bucket-getfiles",
-  "matrixRow": "",
-  "rowIds": [],
+  "matrixRow": "storage-admin #7",
+  "rowIds": [
+    "storage-admin#7"
+  ],
   "description": "firebase-admin Bucket.getFiles({ prefix, delimiter, maxResults, pageToken, autoPaginate }): observes verbatim prefix matching, delimiter prefix roll-up, [files, nextQuery, apiResponse] tuple shape, and pageToken pagination.",
   "observedAt": "2026-11-18T04:27:28.584Z",
   "adminSdkVersion": "13.10.0",

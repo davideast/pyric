@@ -28,14 +28,21 @@ async function namesIn(bucket: Bucket, prefix?: string): Promise<string[]> {
 }
 
 describe.each(STORAGE_ARMS)('Bucket.getFiles and deleteFiles, %s', (_arm, open) => {
-  it('getFiles({ prefix }) lists the files under it in name order, as handles that read', async () => {
+  it('getFiles({ prefix }) lists the files under it in name order, with file.metadata and apiResponse.items populated', async () => {
     const bucket = await seeded(getStorage(open()).bucket());
+    expect(bucket.file('users/123/avatar.png').metadata).toEqual({});
     const [files, nextQuery, apiResponse] = await bucket.getFiles({ prefix: 'users/123/' });
     expect(files.map((file) => file.name)).toEqual(UNDER);
     expect(files.every((file) => file.bucket.name === bucket.name)).toBe(true);
-    expect((await files[0]!.download())[0].toString()).toBe(UNDER[0]);
+    expect(files.map((file) => file.metadata.name)).toEqual(UNDER);
+    const first = files[0];
+    if (first === undefined) throw new Error('expected listed file');
+    expect((await first.download())[0].toString()).toBe(UNDER[0]);
     expect(nextQuery).toEqual({ prefix: 'users/123/' });
-    expect(apiResponse).toEqual({ kind: 'storage#objects' });
+    expect(apiResponse).toEqual({ kind: 'storage#objects', items: files.map((file) => file.metadata as never) });
+    const [emptyFiles, , emptyResponse] = await bucket.getFiles({ prefix: 'nothing/' });
+    expect(emptyFiles).toEqual([]);
+    expect(emptyResponse).toEqual({ kind: 'storage#objects' });
   });
 
   it('a prefix matches the start of a name, not a folder', async () => {

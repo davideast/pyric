@@ -20,35 +20,19 @@ import {
   ALL_RULES_RTDB_SCENARIOS,
 } from '../../rules-corpus/rtdb/index.ts';
 import { ALL_RULES_STORAGE_SCENARIOS } from '../../rules-corpus/storage/index.ts';
-import { loadObservations, type Observation } from '../../src/ledger.ts';
+import { loadObservations } from '../../src/ledger.ts';
 import { loadPendingRowLinkObservations } from '../../src/staged-captures.ts';
 import {
   loadStorageAdminProbes,
   selectStorageAdminProbes,
-  type LoadedStorageAdminProbe,
 } from '../../src/storage-admin-probes.ts';
 import { validateCompatibilityRegistry } from '../../src/validate-registry.ts';
 import { surfaceDescriptors } from '../../surfaces/load.ts';
-import { expectStagedUntilCaptured } from './staged-capture-assertions.ts';
 
-const STAGED_ADMIN_PROBES = [
-  { name: 'admin-storage-bucket-getfiles', probe: getFilesProbe },
-  { name: 'admin-storage-bucket-deletefiles', probe: deleteFilesProbe },
+const ADMIN_BUCKET_PROBES = [
+  { name: 'admin-storage-bucket-getfiles', probe: getFilesProbe, rowIds: ['storage-admin#7'] },
+  { name: 'admin-storage-bucket-deletefiles', probe: deleteFilesProbe, rowIds: ['storage-admin#8'] },
 ] as const;
-
-function makeSyntheticObservation(name: string): Observation {
-  return {
-    file: `${name}.json`,
-    surfaceDir: 'storage-admin',
-    name,
-    matrixRow: '',
-    rowIds: [],
-    observedAt: '2026-11-18T00:00:00.000Z',
-    fbSdkVersion: '13.10.0',
-    behavior: { sample: true },
-    raw: { adminSdkVersion: '13.10.0', rowIds: [] },
-  };
-}
 
 describe('storage-admin Bucket.getFiles and Bucket.deleteFiles probes (storage-admin#7, #8)', () => {
   it('observeAdminBucketGetFiles records verbatim prefix, delimiter roll-up, tuple shape, and two-page pagination', async () => {
@@ -144,22 +128,18 @@ describe('storage-admin Bucket.getFiles and Bucket.deleteFiles probes (storage-a
     });
   });
 
-  it('discovers staged storage-admin probes via loadStorageAdminProbes and expectStagedUntilCaptured', async () => {
+  it('discovers linked storage-admin bucket probes and validates registry linkage', async () => {
     const loaded = await loadStorageAdminProbes();
     const ids = loaded.map((item) => item.id);
     expect(ids).toContain('admin-storage-metadata-download-url');
 
-    for (const entry of STAGED_ADMIN_PROBES) {
+    for (const entry of ADMIN_BUCKET_PROBES) {
       expect(ids).toContain(entry.name);
+      expect(entry.probe.pendingRowLink).toBeUndefined();
+      expect(entry.probe.rowIds).toEqual([...entry.rowIds]);
       expect(
         selectStorageAdminProbes(loaded, ['--write', '--probe', entry.name]).map((p) => p.id),
       ).toEqual([entry.name]);
-      if (entry.probe.pendingRowLink) {
-        expectStagedUntilCaptured(entry.name, {
-          rig: 'storage-admin',
-          filterFlag: '--probe',
-        });
-      }
     }
 
     const unfilteredWhenUncaptured = selectStorageAdminProbes(
@@ -173,6 +153,8 @@ describe('storage-admin Bucket.getFiles and Bucket.deleteFiles probes (storage-a
       },
     );
     expect(unfilteredWhenUncaptured.map((p) => p.id)).toEqual([
+      'admin-storage-bucket-deletefiles',
+      'admin-storage-bucket-getfiles',
       'admin-storage-metadata-download-url',
     ]);
 
@@ -181,12 +163,10 @@ describe('storage-admin Bucket.getFiles and Bucket.deleteFiles probes (storage-a
       ...ALL_RULES_RTDB_SCENARIOS.map((s) => s.id),
       ...ALL_RULES_RTDB_DEPLOY_SCENARIOS.map((s) => s.id),
     ];
-    const currentObservations = loadObservations();
-
-    const preCaptureProblems = validateCompatibilityRegistry({
+    const problems = validateCompatibilityRegistry({
       rows: allCompatibilityRows,
       descriptors: surfaceDescriptors,
-      observations: currentObservations,
+      observations: loadObservations(),
       observationExceptions,
       rigManifests,
       probeFiles: listProbeFiles(),
@@ -195,30 +175,6 @@ describe('storage-admin Bucket.getFiles and Bucket.deleteFiles probes (storage-a
       rulesRtdbScenarioIds: rtdbScenarioIds,
       pendingRowLinkObservations: loadPendingRowLinkObservations(),
     });
-    expect(preCaptureProblems).toEqual([]);
-
-    const simulatedMap = new Map(currentObservations.map((obs) => [obs.name, obs]));
-    for (const entry of STAGED_ADMIN_PROBES) {
-      if (!simulatedMap.has(entry.name)) {
-        simulatedMap.set(entry.name, makeSyntheticObservation(entry.name));
-      }
-    }
-    const simulatedPending = new Set([
-      ...loadPendingRowLinkObservations(),
-      ...STAGED_ADMIN_PROBES.map((e) => e.name),
-    ]);
-    const pr2Problems = validateCompatibilityRegistry({
-      rows: allCompatibilityRows,
-      descriptors: surfaceDescriptors,
-      observations: [...simulatedMap.values()],
-      observationExceptions,
-      rigManifests,
-      probeFiles: listProbeFiles(),
-      rulesFirestoreScenarioIds: ALL_RULES_FIRESTORE_SCENARIOS.map((s) => s.id),
-      rulesStorageScenarioIds: ALL_RULES_STORAGE_SCENARIOS.map((s) => s.id),
-      rulesRtdbScenarioIds: rtdbScenarioIds,
-      pendingRowLinkObservations: simulatedPending,
-    });
-    expect(pr2Problems).toEqual([]);
+    expect(problems).toEqual([]);
   });
 });

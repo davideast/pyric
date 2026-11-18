@@ -292,7 +292,6 @@ export const ALLOWLIST: readonly AllowlistGroup[] = [
       'instancePreconditionOpts',
       'interceptors',
       'kmsKeyName',
-      'metadata',
       'parent',
       'projectId',
       'restoreToken',
@@ -301,6 +300,6 @@ export const ALLOWLIST: readonly AllowlistGroup[] = [
       'userProject',
     ],
     reason:
-      '@google-cloud/storage client properties (ACL helper, request plumbing, cached metadata); read metadata through getMetadata()',
+      '@google-cloud/storage client properties (ACL helper, request plumbing) a stub cannot stand in for',
   },
 ];

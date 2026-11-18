@@ -75,13 +75,8 @@ import {
   type SettableMetadata,
 } from 'pyric/storage';
 import {
-  copyObject,
-  fetchFromByteRoute,
-  getAdminStorageSandbox,
-  getStorageService,
-  patchObjectMetadata,
-  uploadObject,
-  uploadOverByteRoute,
+  copyObject, fetchFromByteRoute, getAdminStorageSandbox, getStorageService,
+  patchObjectMetadata, toFullMetadata, uploadObject, uploadOverByteRoute,
 } from 'pyric/storage/internal';
 
 import {
@@ -118,7 +113,7 @@ import {
   type DeleteFilesOptions,
   type GetFilesOptions,
 } from './file-query.js';
-import { getFilesResponse, pageNamesFound, type GetFilesResponse } from './get-files.js';
+import { getFilesWithMetadata, pageNamesFound, type GetFilesResponse } from './get-files.js';
 import {
   fileMetadataOf,
   patchOf,
@@ -188,6 +183,8 @@ export interface File {
   readonly name: string;
   /** Bucket the file belongs to. Same handle the `file()` call came from. */
   readonly bucket: Bucket;
+  /** Last fetched or listed metadata (`{}` before `getFiles`, `getMetadata`, or `setMetadata`). */
+  metadata: Partial<FileMetadata>;
   /**
    * Persist `data` at this file's path. Replaces any existing content
    * (no append semantics). `options.metadata` is stored alongside the
@@ -579,32 +576,32 @@ class SandboxBucket implements Bucket {
   async getFiles(query: GetFilesOptions = {}): Promise<GetFilesResponse<File>> {
     this.storage.assertActive();
     const normalized = normalizeListingQuery<GetFilesOptions>(query, 'getFiles');
-    return getFilesResponse(
-      await this.namesUnder(normalized.prefix ?? ''),
-      normalized,
-      (name) => this.file(name),
-    );
+    const byName = await this.storedUnder(normalized.prefix);
+    return getFilesWithMetadata([...byName.keys()], normalized, (name) => this.file(name), async (file) => byName.get(file.name));
   }
 
   async deleteFiles(query: DeleteFilesOptions = {}): Promise<void> {
     this.storage.assertActive();
     const normalized = normalizeListingQuery<DeleteFilesOptions>(query, 'deleteFiles');
-    await deleteListedFiles(
-      await this.namesUnder(normalized.prefix ?? ''),
-      normalized,
-      (name) => this.file(name).delete(),
-    );
+    const byName = await this.storedUnder(normalized.prefix);
+    await deleteListedFiles([...byName.keys()], normalized, (name) => this.file(name).delete());
   }
 
-  private async namesUnder(prefix: string): Promise<string[]> {
+  private async storedUnder(prefix = ''): Promise<Map<string, FileMetadata>> {
     await this.storage.waitForReset();
     const service = await getStorageService(this.adminStorage());
     const items = await service.backend.listByPrefix(prefix, this.storeBucket);
-    return items.map((item) => item.fullPath);
+    const byName = new Map<string, FileMetadata>();
+    for (const item of items) {
+      const full = toFullMetadata(item, 'admin') as HostMetadata;
+      byName.set(item.fullPath, fileMetadataOf({ ...full, bucket: this.name }));
+    }
+    return byName;
   }
 }
 
 class SandboxFile implements File {
+  metadata: Partial<FileMetadata> = {};
   constructor(
     readonly name: string,
     readonly bucket: SandboxBucket,
@@ -647,20 +644,20 @@ class SandboxFile implements File {
   async getMetadata(): Promise<[FileMetadata]> {
     this.bucket.storage.assertActive();
     await this.bucket.storage.waitForReset();
-    const full = (await this.missingAsNoSuchObject(
-      storageGetMetadata(storageRef(this.bucket.adminStorage(), this.name)),
-    )) as HostMetadata;
-    return [fileMetadataOf({ ...full, bucket: this.bucket.name })];
+    const full = (await this.missingAsNoSuchObject(storageGetMetadata(storageRef(this.bucket.adminStorage(), this.name)))) as HostMetadata;
+    const out = fileMetadataOf({ ...full, bucket: this.bucket.name });
+    this.metadata = out;
+    return [out];
   }
 
   async setMetadata(metadata: FileMetadataUpdate): Promise<[FileMetadata]> {
     this.bucket.storage.assertActive();
     await this.bucket.storage.waitForReset();
     const patch = patchOf(metadata, { strict: true });
-    const full = (await this.missingAsNoSuchObject(
-      patchObjectMetadata(storageRef(this.bucket.adminStorage(), this.name), patch),
-    )) as HostMetadata;
-    return [fileMetadataOf({ ...full, bucket: this.bucket.name })];
+    const full = (await this.missingAsNoSuchObject(patchObjectMetadata(storageRef(this.bucket.adminStorage(), this.name), patch))) as HostMetadata;
+    const out = fileMetadataOf({ ...full, bucket: this.bucket.name });
+    this.metadata = out;
+    return [out];
   }
 
   async [DOWNLOAD_URL](): Promise<string> {
@@ -901,7 +898,7 @@ class RemoteBucket implements Bucket {
     this.storage.assertActive();
     const normalized = normalizeListingQuery<GetFilesOptions>(query, 'getFiles');
     const names = await this.namesFor(normalized, pageNamesFound(normalized));
-    return getFilesResponse(names, normalized, name => this.file(name));
+    return getFilesWithMetadata(names, normalized, (name) => this.file(name), async (file) => (await file.getMetadata())[0]);
   }
 
   async deleteFiles(query: DeleteFilesOptions = {}): Promise<void> {
@@ -923,6 +920,7 @@ class RemoteBucket implements Bucket {
 }
 
 class RemoteFile implements File {
+  metadata: Partial<FileMetadata> = {};
   constructor(
     readonly name: string,
     readonly bucket: RemoteBucket,
@@ -1172,24 +1170,21 @@ class RemoteFile implements File {
   async getMetadata(): Promise<[FileMetadata]> {
     this.bucket.storage.assertActive();
     const full = await this.missingAsNoSuchObject(this.channel.op({
-      method: 'storage.getMetadata',
-      ...this.bucket.wire,
-      path: this.name,
-      actAs: STORAGE_REMOTE_ADMIN_LENS,
+      method: 'storage.getMetadata', ...this.bucket.wire, path: this.name, actAs: STORAGE_REMOTE_ADMIN_LENS,
     })) as HostMetadata;
-    return [fileMetadataOf(full)];
+    const out = fileMetadataOf(full);
+    this.metadata = out;
+    return [out];
   }
 
   async setMetadata(metadata: FileMetadataUpdate): Promise<[FileMetadata]> {
     this.bucket.storage.assertActive();
     const full = await this.missingAsNoSuchObject(this.channel.op({
-      method: 'storage.setMetadata',
-      ...this.bucket.wire,
-      path: this.name,
-      patch: patchOf(metadata, { strict: true }),
-      actAs: STORAGE_REMOTE_ADMIN_LENS,
+      method: 'storage.setMetadata', ...this.bucket.wire, path: this.name, patch: patchOf(metadata, { strict: true }), actAs: STORAGE_REMOTE_ADMIN_LENS,
     })) as HostMetadata;
-    return [fileMetadataOf(full)];
+    const out = fileMetadataOf(full);
+    this.metadata = out;
+    return [out];
   }
 
   /** The host mints the token; the Node host serves the URL, a SharedWorker host has nowhere to. */

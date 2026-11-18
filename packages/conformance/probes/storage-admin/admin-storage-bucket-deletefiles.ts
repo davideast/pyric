@@ -65,9 +65,8 @@ export async function observeAdminBucketDeleteFiles(
 
 export const probe: Probe = {
   rig: 'storage-admin',
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'storage-admin #8',
+  rowIds: ['storage-admin#8'],
   description:
     'firebase-admin Bucket.deleteFiles({ prefix, maxResults, force }): observes prefix-scoped deletion, maxResults bounding, sibling prefix isolation, and empty-prefix behavior.',
   async observe() {

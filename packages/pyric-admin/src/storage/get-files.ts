@@ -6,7 +6,7 @@
  * for the next page, with its `pageToken`, or `null` on the last page. Reading
  * every page gives a copy of the query the call was made with in that
  * position, as `@google-cloud/paginator` resolves it, and the last page's
- * response.
+ * response (including `items` when that page listed at least one object).
  */
 import {
   apiResponseOf,
@@ -18,6 +18,8 @@ import {
   type GetFilesApiResponse,
   type GetFilesOptions,
 } from './file-query.js';
+import type { FileMetadata } from './metadata-codec.js';
+import { WALK_CONCURRENCY } from './remote-names.js';
 
 export type GetFilesResponse<F> = [F[], GetFilesOptions | null, GetFilesApiResponse];
 
@@ -35,10 +37,99 @@ export function getFilesResponse<F>(names: readonly string[], query: GetFilesOpt
   }
 }
 
+/**
+ * Resolve `getFiles` with `file.metadata` populated on every listed `File` and
+ * `apiResponse.items` populated with the final page's `FileMetadata` entries
+ * (omitted when that page listed zero objects, matching GCS `objects.list`).
+ */
+export async function getFilesWithMetadata<F extends { metadata: Partial<FileMetadata> }>(
+  names: readonly string[],
+  query: GetFilesOptions,
+  fileOf: (name: string) => F,
+  readMetadata: (file: F) => Promise<FileMetadata | undefined>,
+  concurrency = WALK_CONCURRENCY,
+): Promise<GetFilesResponse<F>> {
+  let files: F[];
+  let nextQuery: GetFilesOptions | null;
+  let apiResponse: GetFilesApiResponse;
+  let lastPageFiles: F[];
+
+  if (!readsEveryPage(query)) {
+    const single = onePage(names, query, fileOf);
+    files = single[0];
+    nextQuery = single[1];
+    apiResponse = single[2];
+    lastPageFiles = files;
+  } else {
+    files = [];
+    lastPageFiles = [];
+    let pageQuery: GetFilesOptions = { ...query };
+    for (;;) {
+      const page = listingPage(names, pageQuery);
+      const created = page.names.map(fileOf);
+      files.push(...created);
+      const token = page.nextPageToken;
+      if (token === undefined) {
+        lastPageFiles = created;
+        nextQuery = { ...query };
+        apiResponse = apiResponseOf(page);
+        break;
+      }
+      pageQuery = { ...pageQuery, pageToken: token };
+    }
+  }
+
+  const byFile = await loadAllMetadata(files, readMetadata, concurrency);
+  const lastItems: FileMetadata[] = [];
+  for (const file of lastPageFiles) {
+    const meta = byFile.get(file);
+    if (meta !== undefined) {
+      lastItems.push(meta);
+    }
+  }
+  if (lastItems.length > 0) {
+    apiResponse.items = lastItems;
+  }
+  return [files, nextQuery, apiResponse];
+}
+
+async function loadAllMetadata<F extends { metadata: Partial<FileMetadata> }>(
+  files: readonly F[],
+  readMetadata: (file: F) => Promise<FileMetadata | undefined>,
+  concurrency: number,
+): Promise<Map<F, FileMetadata>> {
+  const byFile = new Map<F, FileMetadata>();
+  if (files.length === 0) return byFile;
+  const workerCount = Math.max(1, Math.min(concurrency, files.length));
+  let nextIndex = 0;
+  const worker = async (): Promise<void> => {
+    for (;;) {
+      const index = nextIndex;
+      if (index >= files.length) return;
+      nextIndex += 1;
+      const file = files[index];
+      if (file === undefined) continue;
+      const meta = await readMetadata(file);
+      if (meta !== undefined) {
+        file.metadata = meta;
+        byFile.set(file, meta);
+      }
+    }
+  };
+  const workers: Array<Promise<void>> = [];
+  for (let i = 0; i < workerCount; i += 1) {
+    workers.push(worker());
+  }
+  await Promise.all(workers);
+  return byFile;
+}
+
 function onePage<F>(names: readonly string[], query: GetFilesOptions, fileOf: (name: string) => F): GetFilesResponse<F> {
   const page = listingPage(names, query);
-  const token = page.nextPageToken;
-  const nextQuery = token === undefined ? null : { ...query, pageToken: token };
+  let nextQuery: GetFilesOptions | null = null;
+  if (page.nextPageToken !== undefined) {
+    nextQuery = { ...query, pageToken: page.nextPageToken };
+  }
   return [page.names.map(fileOf), nextQuery, apiResponseOf(page)];
 }
 
