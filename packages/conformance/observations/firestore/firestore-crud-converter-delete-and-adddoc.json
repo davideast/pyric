@@ -1,7 +1,12 @@
 {
   "name": "firestore-crud-converter-delete-and-adddoc",
-  "matrixRow": "",
-  "rowIds": [],
+  "matrixRow": "firestore#35",
+  "rowIds": [
+    "firestore#35",
+    "firestore#38",
+    "firestore#41",
+    "firestore#44"
+  ],
   "description": "addDoc on a converted CollectionReference returns a 20-char auto-ID DocumentReference carrying the parent converter, updateDoc bypasses converter hooks on partial writes, and deleteDoc removes the document so subsequent getDoc reports exists() === false.",
   "observedAt": "2026-11-18T18:24:05.119Z",
   "fbSdkVersion": "12.19.0",
