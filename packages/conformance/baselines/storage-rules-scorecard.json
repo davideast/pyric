@@ -202,6 +202,7 @@
       "classification": "conformant",
       "verifiedBy": [
         "arithmetic-operand-types",
+        "auth-non-null-read-guard",
         "bool-function",
         "common-auth-membership",
         "conversion-functions",
@@ -221,6 +222,9 @@
         "metadata-access",
         "metadata-verbs-and-arithmetic",
         "ordering-operand-types",
+        "path-param-binding-in-condition",
+        "request-resource-content-type-equality",
+        "request-resource-size-strict-less-than",
         "request-time-timestamp",
         "resource-object-identity",
         "st3-wildcard-shadows-global",
@@ -252,6 +256,7 @@
       "classification": "conformant",
       "verifiedBy": [
         "arithmetic-operand-types",
+        "auth-non-null-read-guard",
         "common-auth-membership",
         "firestore-lookup",
         "firestore-lookup-budget",
@@ -260,6 +265,7 @@
         "h1-auth-token-default",
         "metadata-access",
         "metadata-verbs-and-arithmetic",
+        "path-param-binding-in-condition",
         "stdlib-storage-modules",
         "stdlib-string-bytes-hashing",
         "strict-boolean-allow-and-ternary",
@@ -290,6 +296,7 @@
         "functions-let-scope",
         "metadata-access",
         "metadata-verbs-and-arithmetic",
+        "path-param-binding-in-condition",
         "stdlib-storage-modules",
         "stdlib-string-bytes-hashing",
         "strict-boolean-allow-and-ternary"
@@ -346,6 +353,9 @@
         "matches-regex",
         "metadata-access",
         "metadata-verbs-and-arithmetic",
+        "path-param-binding-in-condition",
+        "request-resource-content-type-equality",
+        "request-resource-size-strict-less-than",
         "resource-object-identity",
         "stdlib-sets-and-mapdiff",
         "stdlib-storage-modules",
@@ -378,6 +388,7 @@
         "h1-in-is-precedence-deploy",
         "in-membership-and-proto-keys",
         "metadata-verbs-and-arithmetic",
+        "request-resource-size-strict-less-than",
         "stdlib-storage-modules",
         "ternary-and-error-absorption",
         "type-checks-is",
@@ -406,6 +417,7 @@
         "in-membership-and-proto-keys",
         "matches-regex",
         "metadata-verbs-and-arithmetic",
+        "request-resource-content-type-equality",
         "stdlib-storage-modules",
         "type-checks-is",
         "upload-primitives-boundaries"
@@ -436,6 +448,7 @@
         "in-membership-and-proto-keys",
         "metadata-access",
         "metadata-verbs-and-arithmetic",
+        "path-param-binding-in-condition",
         "stdlib-sets-and-mapdiff",
         "stdlib-storage-modules",
         "type-checks-is",
@@ -647,6 +660,7 @@
       "classification": "conformant",
       "verifiedBy": [
         "arithmetic-operand-types",
+        "auth-non-null-read-guard",
         "bool-function",
         "bytes-literal",
         "common-auth-membership",
@@ -675,6 +689,9 @@
         "metadata-access",
         "metadata-verbs-and-arithmetic",
         "ordering-operand-types",
+        "path-param-binding-in-condition",
+        "request-resource-content-type-equality",
+        "request-resource-size-strict-less-than",
         "request-time-timestamp",
         "resource-object-identity",
         "st3-case-mapping",
@@ -695,6 +712,7 @@
         "ternary-and-error-absorption",
         "type-checks-is",
         "upload-primitives-boundaries",
+        "v2-recursive-wildcard-zero-or-more",
         "verbs-umbrella-granular",
         "xref-root-literal-bucket",
         "xref-shared-language-semantics"
@@ -2375,6 +2393,8 @@
         "metadata-access",
         "metadata-verbs-and-arithmetic",
         "ordering-operand-types",
+        "path-param-binding-in-condition",
+        "request-resource-content-type-equality",
         "resource-object-identity",
         "st3-case-mapping",
         "st3-case-mapping-ascii",
@@ -2413,6 +2433,7 @@
       "classification": "conformant",
       "verifiedBy": [
         "arithmetic-operand-types",
+        "auth-non-null-read-guard",
         "common-auth-membership",
         "conversion-functions",
         "firestore-lookup-budget",
@@ -2422,6 +2443,7 @@
         "metadata-access",
         "metadata-verbs-and-arithmetic",
         "ordering-operand-types",
+        "path-param-binding-in-condition",
         "resource-object-identity",
         "stdlib-sets-and-mapdiff",
         "stdlib-storage-modules",
@@ -2458,6 +2480,7 @@
         "math-namespace",
         "metadata-verbs-and-arithmetic",
         "ordering-operand-types",
+        "request-resource-size-strict-less-than",
         "request-time-timestamp",
         "resource-object-identity",
         "stdlib-storage-modules",
@@ -2612,7 +2635,8 @@
         "arithmetic-operand-types",
         "float-modulo-unary-minus",
         "functions-let-scope",
-        "metadata-verbs-and-arithmetic"
+        "metadata-verbs-and-arithmetic",
+        "request-resource-size-strict-less-than"
       ],
       "verifiedByRows": [
         "storage-rules#123"
@@ -2675,6 +2699,7 @@
         "math-namespace",
         "metadata-verbs-and-arithmetic",
         "ordering-operand-types",
+        "path-param-binding-in-condition",
         "resource-object-identity",
         "stdlib-sets-and-mapdiff",
         "stdlib-storage-modules",
@@ -2781,6 +2806,7 @@
       "classification": "conformant",
       "verifiedBy": [
         "arithmetic-operand-types",
+        "auth-non-null-read-guard",
         "bool-function",
         "common-auth-membership",
         "conversion-functions",
@@ -2801,6 +2827,9 @@
         "metadata-access",
         "metadata-verbs-and-arithmetic",
         "ordering-operand-types",
+        "path-param-binding-in-condition",
+        "request-resource-content-type-equality",
+        "request-resource-size-strict-less-than",
         "request-time-timestamp",
         "resource-object-identity",
         "st3-case-mapping",
@@ -3011,6 +3040,7 @@
       "classification": "conformant",
       "verifiedBy": [
         "arithmetic-operand-types",
+        "auth-non-null-read-guard",
         "error-absorption-and-direction",
         "float-modulo-unary-minus",
         "function-scopes-and-shadowing",
@@ -3021,10 +3051,12 @@
         "math-namespace",
         "metadata-verbs-and-arithmetic",
         "ordering-operand-types",
+        "path-param-binding-in-condition",
         "storage-named-bucket-binding",
         "storage-two-top-level-bucket-matches",
         "strict-boolean-allow-and-ternary",
         "ternary-and-error-absorption",
+        "v2-recursive-wildcard-zero-or-more",
         "verbs-umbrella-granular",
         "xref-root-literal-bucket"
       ],
@@ -3045,6 +3077,8 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
+        "request-resource-content-type-equality",
+        "request-resource-size-strict-less-than",
         "storage-named-bucket-binding",
         "verbs-umbrella-granular",
         "xref-root-literal-bucket"
@@ -3144,6 +3178,7 @@
         "matches-regex",
         "metadata-access",
         "metadata-verbs-and-arithmetic",
+        "path-param-binding-in-condition",
         "request-time-timestamp",
         "resource-object-identity",
         "stdlib-storage-modules",
@@ -3225,6 +3260,7 @@
       "classification": "conformant",
       "verifiedBy": [
         "arithmetic-operand-types",
+        "auth-non-null-read-guard",
         "bool-function",
         "bytes-literal",
         "common-auth-membership",
@@ -3253,6 +3289,9 @@
         "metadata-access",
         "metadata-verbs-and-arithmetic",
         "ordering-operand-types",
+        "path-param-binding-in-condition",
+        "request-resource-content-type-equality",
+        "request-resource-size-strict-less-than",
         "request-time-timestamp",
         "resource-object-identity",
         "st3-case-mapping",
@@ -3273,6 +3312,7 @@
         "ternary-and-error-absorption",
         "type-checks-is",
         "upload-primitives-boundaries",
+        "v2-recursive-wildcard-zero-or-more",
         "verbs-umbrella-granular",
         "xref-root-literal-bucket",
         "xref-shared-language-semantics"
@@ -3341,6 +3381,7 @@
       "classification": "conformant",
       "verifiedBy": [
         "arithmetic-operand-types",
+        "auth-non-null-read-guard",
         "bool-function",
         "bytes-literal",
         "common-auth-membership",
@@ -3368,6 +3409,9 @@
         "metadata-access",
         "metadata-verbs-and-arithmetic",
         "ordering-operand-types",
+        "path-param-binding-in-condition",
+        "request-resource-content-type-equality",
+        "request-resource-size-strict-less-than",
         "request-time-timestamp",
         "resource-object-identity",
         "st3-case-mapping",
@@ -3388,6 +3432,7 @@
         "ternary-and-error-absorption",
         "type-checks-is",
         "upload-primitives-boundaries",
+        "v2-recursive-wildcard-zero-or-more",
         "verbs-umbrella-granular",
         "xref-root-literal-bucket",
         "xref-shared-language-semantics"
@@ -3410,6 +3455,7 @@
       "classification": "conformant",
       "verifiedBy": [
         "arithmetic-operand-types",
+        "auth-non-null-read-guard",
         "error-absorption-and-direction",
         "float-modulo-unary-minus",
         "function-scopes-and-shadowing",
@@ -3420,10 +3466,12 @@
         "math-namespace",
         "metadata-verbs-and-arithmetic",
         "ordering-operand-types",
+        "path-param-binding-in-condition",
         "storage-named-bucket-binding",
         "storage-two-top-level-bucket-matches",
         "strict-boolean-allow-and-ternary",
         "ternary-and-error-absorption",
+        "v2-recursive-wildcard-zero-or-more",
         "verbs-umbrella-granular",
         "xref-root-literal-bucket"
       ],
@@ -3444,6 +3492,8 @@
       "productionEvidence": "verified",
       "classification": "conformant",
       "verifiedBy": [
+        "request-resource-content-type-equality",
+        "request-resource-size-strict-less-than",
         "storage-named-bucket-binding",
         "verbs-umbrella-granular",
         "xref-root-literal-bucket"
@@ -3469,6 +3519,7 @@
         "metadata-verbs-and-arithmetic",
         "storage-lookup-path-interpolation",
         "storage-two-top-level-bucket-matches",
+        "v2-recursive-wildcard-zero-or-more",
         "xref-root-literal-bucket"
       ],
       "verifiedByRows": [

@@ -6,7 +6,6 @@
 import type { StorageScenarioRecord } from './types.ts';
 
 export const scenario: StorageScenarioRecord = {
-  pendingRowLink: true,
   fm: 'STORAGE-AUTH-NON-NULL-READ',
   rationale:
     'Pins that allow read: if request.auth != null under match /sessions/{id} grants signed-in get/list requests and denies anonymous get/list requests.',

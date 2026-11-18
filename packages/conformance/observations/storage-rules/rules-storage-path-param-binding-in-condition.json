@@ -1,7 +1,9 @@
 {
   "name": "rules-storage-path-param-binding-in-condition",
-  "matrixRow": "",
-  "rowIds": [],
+  "matrixRow": "storage-rules#103",
+  "rowIds": [
+    "storage-rules#103"
+  ],
   "description": "Storage Rules Test API verdicts for corpus scenario \"path-param-binding-in-condition\" (STORAGE-PATH-PARAM-IN-CONDITION). Pins single and nested path-parameter bindings ({sessionId}, {userId}/{sessionId}) read directly inside allow condition expressions.",
   "observedAt": "2026-11-18T00:43:00.889Z",
   "fbSdkVersion": "12.19.0",

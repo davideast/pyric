@@ -1,7 +1,9 @@
 {
   "name": "rules-storage-request-resource-content-type-equality",
-  "matrixRow": "",
-  "rowIds": [],
+  "matrixRow": "storage-rules#101",
+  "rowIds": [
+    "storage-rules#101"
+  ],
   "description": "Storage Rules Test API verdicts for corpus scenario \"request-resource-content-type-equality\" (STORAGE-REQUEST-RESOURCE-CONTENT-TYPE-EQ). Pins exact case-sensitive MIME equality on request.resource.contentType against exact match, charset parameter, uppercase variant, different type, and omitted contentType.",
   "observedAt": "2026-11-18T00:43:01.716Z",
   "fbSdkVersion": "12.19.0",

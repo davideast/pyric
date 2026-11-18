@@ -5,7 +5,6 @@
 import type { StorageScenarioRecord } from './types.ts';
 
 export const scenario: StorageScenarioRecord = {
-  pendingRowLink: true,
   fm: 'STORAGE-REQUEST-RESOURCE-CONTENT-TYPE-EQ',
   rationale:
     'Pins exact case-sensitive MIME equality on request.resource.contentType against exact match, charset parameter, uppercase variant, different type, and omitted contentType.',
