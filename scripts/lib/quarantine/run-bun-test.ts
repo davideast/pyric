@@ -4,7 +4,7 @@
 // through unchanged, so the main failure lane reads the same log.
 
 import { spawn, type StdioOptions } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
 import { REPO_ROOT, todayUtc, type LoadedEntry } from './entries.ts';
@@ -94,16 +94,20 @@ export async function runBunTest(run: BunTestRun): Promise<number> {
 /** Runs the suite with a JUnit report and returns its quarantine verdict. */
 export async function runBunTestVerdict(run: BunTestRun): Promise<Verdict> {
   const dir = mkdtempSync(join(process.env.RUNNER_TEMP ?? tmpdir(), 'quarantine-'));
-  const junitFile = join(dir, 'junit.xml');
-  const args = ['test', '--reporter=junit', `--reporter-outfile=${junitFile}`, ...run.args];
-  const finished = await runForwarding(run.cwd, args, run.forward ?? ((chunk) => process.stderr.write(chunk)));
-  const evidence: RunEvidence = {
-    exitCode: finished.exitCode,
-    results: readResults(junitFile, run.cwd),
-    totals: consoleTotals(finished.stderrTail),
-  };
-  const entries = run.entries ?? honouredEntries(runEntries(run.env ?? process.env));
-  const verdict = decide(evidence, entries, run.today ?? todayUtc());
-  publish(run.suite, verdict, run.env ?? process.env);
-  return verdict;
+  try {
+    const junitFile = join(dir, 'junit.xml');
+    const args = ['test', '--reporter=junit', `--reporter-outfile=${junitFile}`, ...run.args];
+    const finished = await runForwarding(run.cwd, args, run.forward ?? ((chunk) => process.stderr.write(chunk)));
+    const evidence: RunEvidence = {
+      exitCode: finished.exitCode,
+      results: readResults(junitFile, run.cwd),
+      totals: consoleTotals(finished.stderrTail),
+    };
+    const entries = run.entries ?? honouredEntries(runEntries(run.env ?? process.env));
+    const verdict = decide(evidence, entries, run.today ?? todayUtc());
+    publish(run.suite, verdict, run.env ?? process.env);
+    return verdict;
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 }

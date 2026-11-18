@@ -1,7 +1,6 @@
-/** `pyric dev` SDK bundler (plan step 1.1) — the stub-list generator, cache
- *  key, and a real esbuild smoke against the workspace pyric dist. */
-import { describe, expect, it } from 'bun:test';
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, writeFileSync, readFileSync } from 'node:fs';
+/** `pyric dev` SDK bundler: stub-list generator, cache key, and esbuild smoke. */
+import { afterEach, describe, expect, it } from 'bun:test';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -18,6 +17,16 @@ import {
   workerSourceHash,
 } from '../../src/serve/bundler.js';
 
+const tempDirs: string[] = [];
+function makeTempDir(prefix: string): string {
+  const dir = mkdtempSync(join(tmpdir(), prefix));
+  tempDirs.push(dir);
+  return dir;
+}
+afterEach(() => {
+  for (const dir of tempDirs.splice(0)) rmSync(dir, { recursive: true, force: true });
+});
+
 describe('pyric dist discovery', () => {
   it('locates the pyric package root + version', () => {
     const root = pyricPackageRoot();
@@ -28,7 +37,7 @@ describe('pyric dist discovery', () => {
 
 describe('resolveSiteUiDir (embed fallback)', () => {
   it('selects the first existing unified site tree without requiring a prior site build', () => {
-    const root = mkdtempSync(join(tmpdir(), 'pyric-site-ui-'));
+    const root = makeTempDir('pyric-site-ui-');
     const missing = join(root, 'missing');
     const site = join(root, 'site');
     mkdirSync(join(site, 'assets'), { recursive: true });
@@ -41,26 +50,14 @@ describe('resolveSiteUiDir (embed fallback)', () => {
 
 describe('sandbox mirror isolation', () => {
   it('bundles the public database mirror without a firebase/database runtime', async () => {
-    const manifest = JSON.parse(
-      readFileSync(join(pyricPackageRoot(), 'package.json'), 'utf8'),
-    ) as { exports: Record<string, unknown> };
-    expect(manifest.exports['./database']).toEqual({
-      types: './dist/database/index.d.ts',
-      import: './dist/database/index.js',
-    });
+    const manifest = JSON.parse(readFileSync(join(pyricPackageRoot(), 'package.json'), 'utf8')) as { exports: Record<string, unknown> };
+    expect(manifest.exports['./database']).toEqual({ types: './dist/database/index.d.ts', import: './dist/database/index.js' });
     expect(manifest.exports['./database/modular']).toBeUndefined();
 
-    const dir = mkdtempSync(join(tmpdir(), 'pyric-database-isolation-'));
+    const dir = makeTempDir('pyric-database-isolation-');
     const entry = join(dir, 'database.ts');
-    writeFileSync(
-      entry,
-      `export * from 'pyric/database';`,
-    );
-    const result = await bundleSdk({
-      entries: { database: entry },
-      cacheRoot: join(dir, 'cache'),
-      minify: false,
-    });
+    writeFileSync(entry, `export * from 'pyric/database';`);
+    const result = await bundleSdk({ entries: { database: entry }, cacheRoot: join(dir, 'cache'), minify: false });
     const source = readFileSync(
       result.files.find((file) => file.endsWith('/database.js'))!,
       'utf8',
@@ -71,7 +68,7 @@ describe('sandbox mirror isolation', () => {
 
 describe('cache key', () => {
   function entryFixture(content: string): Record<string, string> {
-    const dir = mkdtempSync(join(tmpdir(), 'pyric-serve-key-'));
+    const dir = makeTempDir('pyric-serve-key-');
     const file = join(dir, 'entry.ts');
     writeFileSync(file, content);
     return { auth: file };
@@ -90,7 +87,7 @@ describe('cache key', () => {
 
   it("covers the project's resolved firebase version in production AI mode only", () => {
     const a = entryFixture('export const x = 1;');
-    const project = mkdtempSync(join(tmpdir(), 'pyric-serve-key-firebase-'));
+    const project = makeTempDir('pyric-serve-key-firebase-');
     const manifest = join(project, 'node_modules', 'firebase', 'package.json');
     mkdirSync(join(project, 'node_modules', 'firebase'), { recursive: true });
     writeFileSync(manifest, JSON.stringify({ name: 'firebase', version: '12.13.0' }));
@@ -103,7 +100,7 @@ describe('cache key', () => {
   });
 
   it('changes when an imported worker client outside the entries directory changes', () => {
-    const root = mkdtempSync(join(tmpdir(), 'pyric-serve-key-graph-'));
+    const root = makeTempDir('pyric-serve-key-graph-');
     const entries = join(root, 'serve', 'entries');
     const workerClient = join(root, 'serve', 'worker', 'client');
     mkdirSync(entries, { recursive: true });
@@ -121,7 +118,7 @@ describe('cache key', () => {
   });
 
   it('changes when the installed pyric implementation changes without a version bump', () => {
-    const root = mkdtempSync(join(tmpdir(), 'pyric-serve-key-pyric-'));
+    const root = makeTempDir('pyric-serve-key-pyric-');
     const cliRoot = join(root, 'cli');
     const pyricRoot = join(root, 'pyric');
     mkdirSync(cliRoot, { recursive: true });
@@ -137,7 +134,7 @@ describe('cache key', () => {
   });
 
   it('changes when dependency resolution metadata changes without a CLI version bump', () => {
-    const root = mkdtempSync(join(tmpdir(), 'pyric-serve-key-dependencies-'));
+    const root = makeTempDir('pyric-serve-key-dependencies-');
     const cliRoot = join(root, 'cli');
     const pyricRoot = join(root, 'pyric');
     mkdirSync(cliRoot, { recursive: true });
@@ -167,9 +164,8 @@ describe('cache key', () => {
 
 describe('worker source hashing', () => {
   it('changes when a nested worker source changes', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'pyric-worker-source-hash-'));
+    const dir = makeTempDir('pyric-worker-source-hash-');
     const nested = join(dir, 'client');
-    const { mkdirSync } = require('node:fs') as typeof import('node:fs');
     mkdirSync(nested, { recursive: true });
     writeFileSync(join(dir, 'entry.ts'), 'export const entry = true;');
     writeFileSync(join(nested, 'auth.ts'), 'export const generation = 1;');
@@ -181,7 +177,7 @@ describe('worker source hashing', () => {
   });
 
   it('changes when the installed pyric implementation changes without a version bump', () => {
-    const pyricRoot = mkdtempSync(join(tmpdir(), 'pyric-worker-hash-pyric-'));
+    const pyricRoot = makeTempDir('pyric-worker-hash-pyric-');
     mkdirSync(join(pyricRoot, 'dist'), { recursive: true });
     writeFileSync(join(pyricRoot, 'package.json'), JSON.stringify({ version: '1.2.3' }));
     writeFileSync(join(pyricRoot, 'dist', 'app.js'), 'export const generation = 1;');
@@ -193,7 +189,7 @@ describe('worker source hashing', () => {
   });
 
   it('changes when an executable worker dependency outside serve/worker changes', () => {
-    const root = mkdtempSync(join(tmpdir(), 'pyric-worker-hash-cli-'));
+    const root = makeTempDir('pyric-worker-hash-cli-');
     const cliRoot = join(root, 'cli');
     const pyricRoot = join(root, 'pyric');
     mkdirSync(join(cliRoot, 'bridge', 'client'), { recursive: true });
@@ -210,7 +206,7 @@ describe('worker source hashing', () => {
   });
 
   it('changes when worker dependency resolution changes without a CLI version bump', () => {
-    const root = mkdtempSync(join(tmpdir(), 'pyric-worker-hash-dependencies-'));
+    const root = makeTempDir('pyric-worker-hash-dependencies-');
     const cliRoot = join(root, 'cli');
     const pyricRoot = join(root, 'pyric');
     mkdirSync(cliRoot, { recursive: true });
@@ -238,7 +234,7 @@ describe('worker source hashing', () => {
 
 describe('bundleSdk smoke (real esbuild, real pyric dist)', () => {
   it('keeps concurrent no-cache generations in distinct immutable directories', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'pyric-serve-no-cache-'));
+    const dir = makeTempDir('pyric-serve-no-cache-');
     const entry = join(dir, 'entry.ts');
     writeFileSync(entry, 'export const generation = true;');
     const options = {
@@ -268,7 +264,7 @@ describe('bundleSdk smoke (real esbuild, real pyric dist)', () => {
   }, 30_000);
 
   it('removes a no-cache generation when bundling fails before a server starts', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'pyric-serve-no-cache-failure-'));
+    const dir = makeTempDir('pyric-serve-no-cache-failure-');
     const cacheRoot = join(dir, 'cache');
     const brokenEntry = join(dir, 'broken.ts');
     writeFileSync(brokenEntry, 'export const = ;');
@@ -284,7 +280,7 @@ describe('bundleSdk smoke (real esbuild, real pyric dist)', () => {
   }, 30_000);
 
   it('bundles a browser-standalone entry importing pyric/firestore; cache round-trips', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'pyric-serve-bundle-'));
+    const dir = makeTempDir('pyric-serve-bundle-');
     const entry = join(dir, 'smoke.ts');
     writeFileSync(
       entry,
@@ -334,8 +330,7 @@ describe('the real wrapper entries (plan step 1.2)', () => {
 
   it('bundles browser-standalone with a SINGLE shared runtime chunk', async () => {
     const { bundleSdk, defaultSdkEntries } = await import('../../src/serve/bundler.js');
-    const { mkdtempSync } = await import('node:fs');
-    const dir = mkdtempSync(join(tmpdir(), 'pyric-serve-entries-'));
+    const dir = makeTempDir('pyric-serve-entries-');
     const result = await bundleSdk({ entries: defaultSdkEntries(), cacheRoot: join(dir, 'cache'), minify: false });
     const names = result.files.map((f) => f.split('/').pop()!);
     expect(names).toContain('ai.js');
@@ -386,7 +381,7 @@ describe('the real wrapper entries (plan step 1.2)', () => {
 
   it("production AI mode builds the project's Firebase SDK with one shared @firebase/app", async () => {
     const { bundleSdk, defaultSdkEntries } = await import('../../src/serve/bundler.js');
-    const dir = mkdtempSync(join(tmpdir(), 'pyric-serve-firebase-sdk-'));
+    const dir = makeTempDir('pyric-serve-firebase-sdk-');
     const projectDir = join(import.meta.dir, '..', '..');
     const firebase = resolveProjectFirebase(projectDir);
     const result = await bundleSdk({
@@ -417,12 +412,12 @@ describe('the real wrapper entries (plan step 1.2)', () => {
   }, 60_000);
 
   it('a project without firebase fails with a message that says to install it', () => {
-    const project = mkdtempSync(join(tmpdir(), 'pyric-serve-no-firebase-'));
+    const project = makeTempDir('pyric-serve-no-firebase-');
     expect(() => resolveProjectFirebase(project)).toThrow(/npm install firebase/);
   });
 
   it('the install message names the setting that turned production mode on', () => {
-    const project = mkdtempSync(join(tmpdir(), 'pyric-serve-no-firebase-'));
+    const project = makeTempDir('pyric-serve-no-firebase-');
     const saved = { mode: process.env.PYRIC_AI_MODE, passthrough: process.env.PYRIC_AI_PASSTHROUGH };
     try {
       process.env.PYRIC_AI_MODE = 'production';
@@ -441,7 +436,7 @@ describe('the real wrapper entries (plan step 1.2)', () => {
   });
 
   it('plans no build and a warning for a child command when firebase does not resolve', () => {
-    const project = mkdtempSync(join(tmpdir(), 'pyric-serve-no-firebase-'));
+    const project = makeTempDir('pyric-serve-no-firebase-');
     const plan = planProjectFirebase(project, true, { PYRIC_AI_PASSTHROUGH: '1' });
     expect(plan.projectFirebase).toBeUndefined();
     expect(plan.warning).toContain('PYRIC_AI_PASSTHROUGH=1');
@@ -451,8 +446,7 @@ describe('the real wrapper entries (plan step 1.2)', () => {
 
   it('built bundles export the section 3c tier-2 surface (import-time failure class)', async () => {
     const { bundleSdk, defaultSdkEntries } = await import('../../src/serve/bundler.js');
-    const { mkdtempSync } = await import('node:fs');
-    const dir = mkdtempSync(join(tmpdir(), 'pyric-serve-tier2-'));
+    const dir = makeTempDir('pyric-serve-tier2-');
     const result = await bundleSdk({ entries: defaultSdkEntries(), cacheRoot: join(dir, 'cache'), minify: false });
     // The bundles are browser-platform and are not executed here, so assert
     // the NAMED EXPORTS (what a missing name would fail on at import time)
@@ -489,8 +483,7 @@ describe('the real wrapper entries (plan step 1.2)', () => {
     // paths by construction. Lock the full set so a dropped export regresses
     // loudly. Runtime branch behavior is the browser gate's job.
     const { bundleSdk, defaultSdkEntries } = await import('../../src/serve/bundler.js');
-    const { mkdtempSync } = await import('node:fs');
-    const dir = mkdtempSync(join(tmpdir(), 'pyric-serve-surface-'));
+    const dir = makeTempDir('pyric-serve-surface-');
     const result = await bundleSdk({ entries: defaultSdkEntries(), cacheRoot: join(dir, 'cache'), minify: false });
     const exportedNames = (file: string): Set<string> => {
       const src = readFileSync(file, 'utf8');
@@ -559,7 +552,7 @@ describe('bundleWorker — the SharedWorker script (Phase 3c.A)', () => {
   });
 
   it('bundles the real worker entry as a classic-worker iife; marker caches', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'pyric-worker-bundle-'));
+    const dir = makeTempDir('pyric-worker-bundle-');
     const { outFile: file } = await bundleWorker({ outDir: dir, noCache: true, minify: false });
     expect(file.endsWith('/worker.js')).toBe(true);
     const src = readFileSync(file, 'utf8');
@@ -592,7 +585,7 @@ describe('bundleWorker — the SharedWorker script (Phase 3c.A)', () => {
   }, 30_000);
 
   it('derives the worker epoch from executable output, not unrelated files', async () => {
-    const root = mkdtempSync(join(tmpdir(), 'pyric-worker-epoch-'));
+    const root = makeTempDir('pyric-worker-epoch-');
     const entry = join(root, 'worker.ts');
     const unrelated = join(root, 'runtime-chip.ts');
     writeFileSync(entry, 'globalThis.workerEpoch = __PYRIC_WORKER_VERSION__;');
@@ -610,7 +603,7 @@ describe('bundleWorker — the SharedWorker script (Phase 3c.A)', () => {
   }, 30_000);
 
   it('includes restart-required configuration in the baked worker epoch', async () => {
-    const root = mkdtempSync(join(tmpdir(), 'pyric-worker-config-epoch-'));
+    const root = makeTempDir('pyric-worker-config-epoch-');
     const entry = join(root, 'worker.ts');
     writeFileSync(entry, 'globalThis.workerEpoch = __PYRIC_WORKER_VERSION__;');
 
