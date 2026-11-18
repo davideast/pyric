@@ -28,7 +28,7 @@ import { dirname, join, relative, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as esbuild from 'esbuild';
 import { WORKER_BUILD_STALE_MS, withWorkerBuildLock, type WorkerBuildLock } from './worker-build-lock.js';
-import { evictServeCache, touchBundleCacheDir } from './bundle-cache-evict.js';
+import { createNoCacheGenerationDir, disposeNoCacheGenerationDir, evictServeCache, touchBundleCacheDir } from './bundle-cache-evict.js';
 import {
   WORKER_EPOCH_FILE,
   WORKER_FILE,
@@ -444,13 +444,13 @@ export async function bundleSdk(opts: BundleOptions): Promise<BundleResult> {
   // `--no-cache` gets an isolated directory so concurrent bypass builds never
   // overwrite shared warm-cache chunks while another server serves them.
   const needsFreshBundle = opts.noCache === true;
-  const generationRoot = needsFreshBundle
-    ? mkdtempSync(join(cacheRoot, `.no-cache-${key}-`))
-    : join(cacheRoot, key);
+  let generationRoot = join(cacheRoot, key);
+  let dispose = () => {};
+  if (needsFreshBundle) {
+    generationRoot = createNoCacheGenerationDir(cacheRoot, key);
+    dispose = () => disposeNoCacheGenerationDir(generationRoot);
+  }
   const outDir = join(generationRoot, 'sdk');
-  const dispose = needsFreshBundle
-    ? () => rmSync(generationRoot, { recursive: true, force: true })
-    : () => {};
 
   const hasCachedBundle = !needsFreshBundle && existsSync(join(outDir, '.complete'));
   if (hasCachedBundle) {
@@ -524,11 +524,11 @@ export function workerEntryPath(): string {
 }
 
 export interface WorkerBundleOptions {
-  /** Where to write `worker.js` — normally the SDK bundle's `outDir` so the
-   *  existing `/__pyric/sdk/<file>` route serves it with no extra wiring. */
+  /** Destination directory for `worker.js` (`/__pyric/sdk/<file>`). */
   outDir: string;
   /** Bypass + overwrite the cached worker bundle. */
   noCache?: boolean;
+  evictCache?: boolean; // Prune stale sibling worker generations in `dirname(outDir)`.
   minify?: boolean;
   /** Test seam for proving epoch identity from an isolated executable graph. */
   entryPath?: string;
@@ -647,7 +647,7 @@ async function buildUnderLock(opts: WorkerBundleOptions, hash: string, lock: Wor
     const built = await buildWhileHeld(stagingDir, opts, lock);
     if (!built) return null;
     // A builder whose lock was taken over as abandoned leaves the directory to the new holder.
-    if (lock.isHeld()) publishWorkerBundle(stagingDir, opts.outDir, hash, opts.epochSalt);
+    if (lock.isHeld()) publishWorkerBundle(stagingDir, opts.outDir, hash, opts);
   } finally {
     rmSync(stagingDir, { recursive: true, force: true });
   }

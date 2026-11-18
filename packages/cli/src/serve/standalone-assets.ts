@@ -19,8 +19,7 @@
  */
 import { mkdirSync, writeFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { basename, dirname, join } from 'node:path';
-import { evictStandaloneTempDirs, touchBundleCacheDir } from './bundle-cache-evict.js';
+import { dirname, join } from 'node:path';
 
 /** The shape the compiled standalone entry installs on `globalThis`. */
 export interface EmbeddedAssets {
@@ -145,10 +144,6 @@ export async function materializeServeAssets(): Promise<{ outDir: string; cached
   const outDir = join(root, 'sdk');
   const cached = existsSync(join(outDir, '.complete'));
   materialize(outDir, await e.sdk(), e.version);
-  touchBundleCacheDir(root);
-  if (cached === false) {
-    evictStandaloneTempDirs(tmpdir(), basename(root));
-  }
   sdkDirOnce = outDir;
   return { outDir, cached };
 }
