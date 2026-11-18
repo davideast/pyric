@@ -14,7 +14,8 @@
   "conformanceSuite": "packages/pyric-admin/test/app-check/oracle-conformance.test.ts",
   "captureRigs": [
     "app-check",
-    "app-check-admin-options"
+    "app-check-admin-options",
+    "sdk-probes"
   ],
   "climb": true,
   "registry": "app-check"

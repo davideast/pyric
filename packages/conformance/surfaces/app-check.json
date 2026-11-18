@@ -15,7 +15,8 @@
   "scopeNote": "pyric/app-check is a deferred stub that resolves every upstream name and throws on use, so the census sees the names as exported, not as working; coverage stays off until rows flip. The firebase-admin plane is the app-check-admin surface; App Check rows on the AI path live in the ai registry.",
   "conformanceSuite": "packages/pyric/test/app-check/oracle-conformance.test.ts",
   "captureRigs": [
-    "app-check"
+    "app-check",
+    "sdk-probes"
   ],
   "climb": true,
   "registry": "app-check",
