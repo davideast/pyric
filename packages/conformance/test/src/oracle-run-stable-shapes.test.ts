@@ -1,10 +1,12 @@
 import { describe, expect, test } from 'bun:test';
+import { referenceStringShape } from '../../src/capture/rtdb-climb/probe-runtime.ts';
 import {
   createAuthUserSlotTracker,
   describeAuthFireSequence,
   describeAuthUid,
   describeFencedAuthFireSequence,
   describeFirestoreQueryFires,
+  describeRtdbServerTimestampReadBack,
   describeUserUid,
   isDecimalDigitString,
   isFirebaseAuthUid,
@@ -12,6 +14,7 @@ import {
   isNanosecondsInRange,
   isOracleProbeEmail,
   isPositiveSafeInteger,
+  isRtdbPushKey,
   scrubOracleRunToken,
   scrubOracleRunTokenList,
 } from '../../src/oracle-run-stable-shapes.ts';
@@ -142,5 +145,35 @@ describe('oracle-run-stable-shapes (Auth)', () => {
     expect(isNanosecondsInRange(1_000_000_000)).toBe(false);
     expect(isDecimalDigitString('1794968123452973')).toBe(true);
     expect(isDecimalDigitString('12a')).toBe(false);
+  });
+
+  test('normalizes RTDB push keys, serverTimestamp readbacks, and instance-independent reference URLs', () => {
+    expect(isRtdbPushKey('-P6gR0yP6rm64lELQx-5')).toBe(true);
+    expect(isRtdbPushKey('P6gR0yP6rm64lELQx-5')).toBe(false);
+
+    expect(
+      describeRtdbServerTimestampReadBack({ label: 'hello', createdAt: 1794968131936 }),
+    ).toEqual({
+      label: 'hello',
+      createdAtIsPositiveInteger: true,
+    });
+
+    const defaultInstanceShape = referenceStringShape(
+      'https://demo-project-default-rtdb.firebaseio.com/parent/child',
+      'parent/child',
+      'demo-project',
+    );
+    const dedicatedInstanceShape = referenceStringShape(
+      'https://demo-project-oracle.firebaseio.com/parent/child',
+      'parent/child',
+      'demo-project',
+    );
+    expect(defaultInstanceShape).toEqual({
+      protocol: 'https:',
+      hostIsProjectScoped: true,
+      endsWithFirebaseio: true,
+      pathMatches: true,
+    });
+    expect(dedicatedInstanceShape).toEqual(defaultInstanceShape);
   });
 });

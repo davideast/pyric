@@ -50,14 +50,16 @@ describe('refFromURL checks the URL host against the database (RT-12)', () => {
 
   it('matches the captured production error for the reference-shape oracle', () => {
     const obs = load('rtdb-modular-reference-shape-url.json');
-    const expected = (obs.mismatchedHost as { message: string }).message;
+    const expected = String((obs.mismatchedHost as { message: string }).message);
+    const hostMatch = /expected ([^)]+)\)/.exec(expected);
+    const expectedHost = hostMatch?.[1] ?? 'example-project-rtdb.firebaseio.com';
     const app = createAppForSandbox(
       initializeSandbox(),
-      { projectId: 'digame-mas', databaseURL: 'https://digame-mas-default-rtdb.firebaseio.com' },
+      { projectId: 'demo-oracle', databaseURL: `https://${expectedHost}` },
       appName(),
     );
     const db = getDatabase(app);
-    expect(thrownMessage(() => refFromURL(db, 'https://other-digame-mas-default-rtdb.firebaseio.com/a'))).toBe(expected);
+    expect(thrownMessage(() => refFromURL(db, `https://other-${expectedHost}/a`))).toBe(expected);
   });
 
   it('checks a named instance opened from a sandbox by name', () => {

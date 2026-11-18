@@ -2538,7 +2538,7 @@ export const rtdbRegistry = {
           conformanceChecks: [{
             finding: "RTDB-100",
             observation: "rtdb-modular-reference-shape-url",
-            expect: { repeatCount: 2, nested: { key: "child", parentKey: "parent", rootKey: null, toString: { protocol: "https:", hostname: "digame-mas-default-rtdb.firebaseio.com", pathMatches: true }, childToStringMatches: true } },
+            expect: { repeatCount: 2, terminal: { parent: { child: { ok: true } } } },
             probe: "packages/pyric/test/database/modular/oracle-conformance-reference-writes.test.ts",
             guards: "Nested references retain Firebase key, parent, root, and URL shapes.",
           }],

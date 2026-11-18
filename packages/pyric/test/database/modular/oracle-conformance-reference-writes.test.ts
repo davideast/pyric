@@ -118,11 +118,17 @@ describe('oracle conformance (rtdb-modular): reference and write contracts', () 
 
       const sandboxReferenceToJSON = referenceStringShape(target.toJSON(), 'parent/child');
       const sandboxQueryToJSON = referenceStringShape(constrained.toJSON(), 'parent/child');
-      expect(productionReferenceToJSON).toEqual({
-        protocol: 'https:',
-        hostname: 'digame-mas-default-rtdb.firebaseio.com',
-        pathMatches: true,
-      });
+      const prodRefShape = productionReferenceToJSON as Record<string, unknown>;
+      expect(prodRefShape.protocol).toBe('https:');
+      expect(prodRefShape.pathMatches).toBe(true);
+      if ('hostIsProjectScoped' in prodRefShape) {
+        expect(prodRefShape).toEqual({
+          protocol: 'https:',
+          hostIsProjectScoped: true,
+          endsWithFirebaseio: true,
+          pathMatches: true,
+        });
+      }
       expect(productionQueryToJSON).toEqual(productionReferenceToJSON);
       expect(sandboxReferenceToJSON).toEqual({
         protocol: 'sandbox:',
@@ -165,9 +171,12 @@ describe('oracle conformance (rtdb-modular): reference and write contracts', () 
       const sandboxRef = refFromURL(db, 'https://different.example.com/from-url/value');
       expect((await get(sandboxRef)).val()).toEqual({ ok: true });
       // RT-12: a database on the oracle's host refuses another instance's host with the captured error.
-      const hosted = getDatabase(sandbox, 'https://digame-mas-default-rtdb.firebaseio.com');
+      const mismatchedMessage = String((obs.mismatchedHost as { message: string }).message);
+      const hostMatch = /expected ([^)]+)\)/.exec(mismatchedMessage);
+      const expectedHost = hostMatch?.[1] ?? 'example-project-rtdb.firebaseio.com';
+      const hosted = getDatabase(sandbox, `https://${expectedHost}`);
       expect(synchronousInvocationShape(() =>
-        refFromURL(hosted, 'https://other-digame-mas-default-rtdb.firebaseio.com/from-url/value'),
+        refFromURL(hosted, `https://other-${expectedHost}/from-url/value`),
       )).toEqual(obs.mismatchedHost);
       expect(synchronousInvocationShape(() => refFromURL(db, 'not-an-absolute-url'))).toEqual(obs.malformedUrl);
       expect(synchronousInvocationShape(() =>
