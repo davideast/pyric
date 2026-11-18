@@ -1,0 +1,45 @@
+{
+  "name": "firestore-onsnapshot-filtered-timestamp-and-refs",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "onSnapshot honors where, orderBy, and limit constraints across initial and live write emissions, translates Timestamp fields identically to getDoc, and exposes usable tagged DocumentReference handles on snapshots.",
+  "observedAt": "2026-11-18T18:24:09.543Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "filteredListener": {
+      "initialFilteredIds": [
+        "doc-c",
+        "doc-b"
+      ],
+      "initialMatchesGetDocs": true,
+      "afterMatchingInsertIds": [
+        "doc-c",
+        "doc-d"
+      ],
+      "afterNonMatchingInsertIds": [
+        "doc-c",
+        "doc-d"
+      ],
+      "finalMatchesGetDocs": true
+    },
+    "timestampTranslation": {
+      "docIsTimestamp": true,
+      "docSeconds": 1700000000,
+      "docNanoseconds": 123000000,
+      "docEqualsGetDoc": true,
+      "queryIsTimestamp": true,
+      "querySeconds": 1700000000,
+      "queryNanoseconds": 123000000,
+      "queryEqualsGetDoc": true
+    },
+    "snapshotRefs": {
+      "docRefType": "document",
+      "docRefEqualsOriginal": true,
+      "docRefFollowupScore": 30,
+      "queryDocRefType": "document",
+      "queryDocRefEqualsDocC": true,
+      "updatedScoreViaQueryDocRef": 60
+    }
+  }
+}

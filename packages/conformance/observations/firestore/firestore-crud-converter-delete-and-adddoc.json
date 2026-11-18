@@ -1,0 +1,42 @@
+{
+  "name": "firestore-crud-converter-delete-and-adddoc",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "addDoc on a converted CollectionReference returns a 20-char auto-ID DocumentReference carrying the parent converter, updateDoc bypasses converter hooks on partial writes, and deleteDoc removes the document so subsequent getDoc reports exists() === false.",
+  "observedAt": "2026-11-18T18:24:05.119Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "addDocShape": {
+      "refType": "document",
+      "autoIdLength": 20,
+      "autoIdAlphanumeric": true,
+      "parentPathMatches": true,
+      "converterPropagated": true,
+      "toCallsAfterAddDoc": 1,
+      "fromCallsAfterInitialRead": 0,
+      "initialTypedData": {
+        "label": "ALPHA",
+        "count": 1
+      },
+      "rawStoredData": {
+        "rawLabel": "alpha",
+        "count": 1
+      }
+    },
+    "updateDocBypass": {
+      "toCallsUnchanged": true,
+      "fromCallsUnchangedDuringWrite": true,
+      "updatedTypedData": {
+        "label": "ALPHA",
+        "count": 7
+      },
+      "fromCallsAfterUpdatedRead": 0
+    },
+    "deleteDocRemoval": {
+      "existsAfterDelete": false,
+      "dataUndefinedAfterDelete": true,
+      "fromCallsUnchangedOnMissingRead": true
+    }
+  }
+}
