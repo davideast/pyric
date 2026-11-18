@@ -19,7 +19,10 @@ import {
   AggregateQuerySnapshot,
   aggregateFieldEqual,
   aggregateQuerySnapshotEqual,
+  DocumentSnapshot,
   FieldPath,
+  QueryDocumentSnapshot,
+  QuerySnapshot,
 } from 'pyric/firestore';
 import { setRules } from 'pyric/sandbox/firestore';
 import * as ipDatabase from 'pyric/database';
@@ -81,7 +84,9 @@ export function restoreSharedWorker(): void {
   afterEach(() => { (globalThis as { SharedWorker?: unknown }).SharedWorker = previous; });
 }
 
-export async function servedFirestoreContext(): Promise<FirestoreScenarioContext> {
+export async function servedFirestoreContext(): Promise<
+  FirestoreScenarioContext & { dispose(): void }
+> {
   const ctx = await makeHostCtx();
   setRules(ctx.sandbox, OPEN_FIRESTORE_RULES);
   // The served entry routes these two reads through the worker client (entries/firestore-surface.ts).
@@ -91,7 +96,10 @@ export async function servedFirestoreContext(): Promise<FirestoreScenarioContext
     AggregateQuerySnapshot,
     aggregateFieldEqual,
     aggregateQuerySnapshotEqual,
+    DocumentSnapshot,
     FieldPath,
+    QueryDocumentSnapshot,
+    QuerySnapshot,
     refEqual,
     getDocFromServer: (ref: Parameters<typeof readDocumentAs>[0]) => readDocumentAs(ref, 'getDocFromServer'),
     getDocsFromServer: (source: Parameters<typeof readQueryAs>[0]) => readQueryAs(source, 'getDocsFromServer'),
@@ -104,6 +112,7 @@ export async function servedFirestoreContext(): Promise<FirestoreScenarioContext
     base: 'pyric_oracle/replay',
     deniedDocPath: 'pyric_oracle_denied_replay/x',
     newClient: async (name) => open(name),
+    dispose: () => ctx.sandbox.dispose(),
   };
 }
 

@@ -1,7 +1,9 @@
 {
   "name": "firestore-getdocs-foreach-thisarg-and-arity",
-  "matrixRow": "",
-  "rowIds": [],
+  "matrixRow": "firestore#22a",
+  "rowIds": [
+    "firestore#22a"
+  ],
   "description": "QuerySnapshot.forEach(callback, thisArg) invokes callback.call(thisArg, doc) once per document in query order with single-argument arity across raw and withConverter queries.",
   "observedAt": "2026-11-18T11:05:42.076Z",
   "fbSdkVersion": "12.19.0",
