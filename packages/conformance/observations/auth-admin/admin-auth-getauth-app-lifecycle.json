@@ -1,0 +1,19 @@
+{
+  "name": "admin-auth-getauth-app-lifecycle",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "firebase-admin/auth getAuth(app) handle routing, per-app handle caching (getAuth(app) === getAuth(app)), cross-app handle isolation, and synchronous app/app-deleted rejection after deleteApp(app).",
+  "observedAt": "2026-11-18T07:58:15.743Z",
+  "adminSdkVersion": "13.10.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "authAppMatchesExplicitApp": true,
+    "cachedSameAppHandle": true,
+    "distinctHandlesAcrossApps": true,
+    "getAuthAfterDeleteApp": {
+      "mode": "sync-throw",
+      "code": "app/app-deleted",
+      "message": "Firebase app named \"<appName>\" has already been deleted."
+    }
+  }
+}
