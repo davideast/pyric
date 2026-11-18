@@ -8,42 +8,17 @@
  * - `node`: the served entries over the hosted transport to the Node host,
  *   with its SQLite persistence. This plane runs under Node.
  */
-import { accessSync, constants, mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { realpathSync } from 'node:fs';
+import {
+  createPrivateJobTmpDir,
+  removePrivateJobTmpDir,
+} from '../../../../../scripts/lib/private-job-tmpdir.ts';
+import type { HostedPersistence } from '../../../src/serve/hosted/persistence.js';
 import { INSTANCE_URLS, PROJECT_ID } from './sequence.js';
 import type { PlaneSession } from './interpreter.js';
 import { openServedPlane, portPair, tick, type PagePort, type ServedHost } from './served-plane.js';
 
 export type PlaneName = 'sandbox' | 'worker' | 'node';
-
-interface ScratchRootOptions {
-  platform?: NodeJS.Platform;
-  shmDir?: string;
-  checkWritable?: (path: string) => void;
-  fallbackTmpDir?: () => string;
-}
-
-/**
- * Prefer RAM-backed `/dev/shm` on Linux so per-sequence hosted SQLite `WAL`
- * commits (`PRAGMA synchronous=FULL`) never stall on cloud OS-disk `fsync`
- * throttling; fall back to `os.tmpdir()` everywhere else.
- */
-export function scratchRoot(options: ScratchRootOptions = {}): string {
-  const platform = options.platform ?? process.platform;
-  const shmDir = options.shmDir ?? '/dev/shm';
-  const checkWritable = options.checkWritable ?? ((path: string) => accessSync(path, constants.W_OK | constants.X_OK));
-  const fallbackTmpDir = options.fallbackTmpDir ?? tmpdir;
-  if (platform === 'linux') {
-    try {
-      checkWritable(shmDir);
-      return shmDir;
-    } catch {
-      // Fall back to os.tmpdir() when /dev/shm is missing or unwritable.
-    }
-  }
-  return fallbackTmpDir();
-}
 
 let sandboxApps = 0;
 
@@ -132,12 +107,56 @@ export async function openWorkerPlane(): Promise<PlaneSession> {
   return openServedPlane(host);
 }
 
+/**
+ * Open hosted SQLite WAL persistence in an ephemeral private job directory with
+ * `PRAGMA synchronous=NORMAL` so per-sequence commits exercise real SQLite WAL
+ * transactions without blocking on ~2,900 cloud OS-disk `fdatasync` calls.
+ */
+async function openEphemeralNodePersistence(projectDir: string): Promise<HostedPersistence> {
+  const { HOSTED_NAMESPACE, hostedStateDirectory } = await import('../../../src/serve/hosted/persistence.js');
+  const { openHostedDatabase } = await import('../../../src/serve/hosted/persistence/database.js');
+  const { createHostedStateView } = await import('../../../src/serve/hosted/persistence/state-view.js');
+  const { validateHostedDatabase } = await import('../../../src/serve/hosted/persistence/validate.js');
+  const stateDir = hostedStateDirectory(projectDir);
+  const database = await openHostedDatabase(stateDir);
+  try {
+    database.connection.exec('PRAGMA synchronous=NORMAL');
+    const repairedObjects = validateHostedDatabase(database);
+    database.activate();
+    const state = createHostedStateView(projectDir, stateDir, database, HOSTED_NAMESPACE);
+    return {
+      backend: database.records,
+      storage: database.storage,
+      checkpoints: database.checkpoints,
+      state,
+      repairedObjects,
+      sweep: Promise.resolve({ removed: 0, bytesRemoved: 0 }),
+      close(): void {
+        database.close();
+      },
+      status: database.status,
+      onFailure: database.onFailure,
+      markUnhealthy: database.markUnhealthy,
+      seed: state.seed,
+    };
+  } catch (error) {
+    database.close();
+    throw error;
+  }
+}
+
 let nodeSessions = 0;
 
 export async function openNodePlane(): Promise<PlaneSession> {
   const { createHostedRuntime } = await import('../../../src/serve/hosted/runtime.js');
-  const parentDir = process.env.PYRIC_RTDB_DIFF_SCRATCH_DIR ?? scratchRoot();
-  const directory = mkdtempSync(join(parentDir, 'pyric-rtdb-diff-'));
+  const directory = realpathSync(createPrivateJobTmpDir('rtdb-seq'));
+  let persistence: HostedPersistence;
+  try {
+    persistence = await openEphemeralNodePersistence(directory);
+  } catch (error) {
+    removePrivateJobTmpDir(directory);
+    throw error;
+  }
   const payload = {
     rules: null, rulesHash: null, storageRules: null, storageRulesHash: null,
     bridgeUrl: null, seed: null, capture: false, hosted: true, projectKey: directory,
@@ -145,17 +164,25 @@ export async function openNodePlane(): Promise<PlaneSession> {
   const pages = new Map<string, PagePort>();
   const replies = new Map<string, (message: OutboundLike) => void>();
   const CONTROL = 'diff-control';
-  const runtime = await createHostedRuntime(payload as never, 'http://127.0.0.1:1', (frame) => {
-    if (frame.type !== 'worker-message-result') return;
-    // The hosted transport carries JSON.
-    const message = JSON.parse(JSON.stringify(frame.message)) as OutboundLike;
-    if (frame.clientSessionId === CONTROL) {
-      if (message.t === 'res' && message.id) replies.get(message.id)?.(message);
-      return;
-    }
-    const page = pages.get(frame.clientSessionId!);
-    setImmediate(() => page?.onmessage?.({ data: message }));
-  }, directory, { record: false });
+  let runtime: Awaited<ReturnType<typeof createHostedRuntime>>;
+  try {
+    runtime = await createHostedRuntime(payload as never, 'http://127.0.0.1:1', (frame) => {
+      if (frame.type !== 'worker-message-result') return;
+      // The hosted transport carries JSON.
+      const message = JSON.parse(JSON.stringify(frame.message)) as OutboundLike;
+      if (frame.clientSessionId === CONTROL) {
+        if (message.t === 'res' && message.id) replies.get(message.id)?.(message);
+        return;
+      }
+      if (!frame.clientSessionId) return;
+      const page = pages.get(frame.clientSessionId);
+      setImmediate(() => page?.onmessage?.({ data: message }));
+    }, directory, { persistence, record: false });
+  } catch (error) {
+    persistence.close();
+    removePrivateJobTmpDir(directory);
+    throw error;
+  }
   const receive = (clientSessionId: string, message: unknown) => {
     runtime.receive({ type: 'worker-message', clientSessionId, message: JSON.parse(JSON.stringify(message)) } as never);
   };
@@ -181,8 +208,12 @@ export async function openNodePlane(): Promise<PlaneSession> {
       { method: 'rtdb.adminSnapshot', actAs: { mode: 'admin' }, ...(instance === undefined ? {} : { instance }) },
     ),
     async close() {
-      await runtime.close();
-      rmSync(directory, { recursive: true, force: true });
+      try {
+        await runtime.close();
+      } finally {
+        persistence.close();
+        removePrivateJobTmpDir(directory);
+      }
     },
   };
   return openServedPlane(host);

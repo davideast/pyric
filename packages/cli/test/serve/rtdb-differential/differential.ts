@@ -14,13 +14,18 @@
  * The Node plane runs the CLI's built `dist`, so build the CLI first. The exit
  * code is 1 when any sequence mismatches.
  */
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import {
+  createPrivateJobTmpDir,
+  reapDeadPrivateJobTmpDirs,
+  removePrivateJobTmpDir,
+} from '../../../../../scripts/lib/private-job-tmpdir.ts';
 import { firstMismatch, normalize, type Mismatch, type NormalTrace } from './compare.js';
 import { generateSequence } from './generator.js';
 import type { Trace } from './interpreter.js';
-import { scratchRoot, type PlaneName } from './planes.js';
+import type { PlaneName } from './planes.js';
 import type { PlaneOutcome } from './run-plane.js';
 import type { Sequence } from './sequence.js';
 import { knownDivergence } from './known-divergences.js';
@@ -75,9 +80,11 @@ export async function buildForNode(directory: string, script: string): Promise<s
 }
 
 export async function createPlaneRunner(
-  options: { chunks?: number; scratchRoot?: string } = {},
+  options: { chunks?: number; env?: NodeJS.ProcessEnv } = {},
 ): Promise<PlaneRunner> {
-  const directory = mkdtempSync(join(options.scratchRoot ?? scratchRoot(), 'pyric-rtdb-differential-'));
+  const runnerEnv = options.env ?? process.env;
+  reapDeadPrivateJobTmpDirs(runnerEnv);
+  const directory = createPrivateJobTmpDir('rtdb-diff', runnerEnv);
   const nodeRunner = await buildNodeRunner(directory);
   const chunks = Math.max(1, options.chunks ?? 1);
   let batch = 0;
@@ -87,12 +94,15 @@ export async function createPlaneRunner(
     const input = join(directory, `${id}.in.json`);
     const output = join(directory, `${id}.out.json`);
     writeFileSync(input, JSON.stringify(sequences));
-    const command = plane === 'node'
-      ? [process.env.PYRIC_TEST_NODE ?? 'node', nodeRunner, plane, input, output]
-      : [process.execPath, join(HERE, 'run-plane.ts'), plane, input, output];
+    let command: string[];
+    if (plane === 'node') {
+      command = [runnerEnv.PYRIC_TEST_NODE ?? 'node', nodeRunner, plane, input, output];
+    } else {
+      command = [process.execPath, join(HERE, 'run-plane.ts'), plane, input, output];
+    }
     const child = Bun.spawn(command, {
       cwd: CLI_ROOT,
-      env: { ...process.env, PYRIC_RTDB_DIFF_SCRATCH_DIR: directory },
+      env: runnerEnv,
       stdout: 'pipe',
       stderr: 'pipe',
     });
@@ -109,7 +119,7 @@ export async function createPlaneRunner(
       for (let i = 0; i < sequences.length; i += size) parts.push(sequences.slice(i, i + size));
       return (await Promise.all(parts.map((part) => runChunk(plane, part)))).flat();
     },
-    dispose() { rmSync(directory, { recursive: true, force: true }); },
+    dispose() { removePrivateJobTmpDir(directory, runnerEnv); },
   };
 }
 

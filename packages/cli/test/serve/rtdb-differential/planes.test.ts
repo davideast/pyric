@@ -1,71 +1,66 @@
 import { describe, expect, test } from 'bun:test';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { chmodSync, existsSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import {
+  createPrivateJobTmpDir,
+  JOB_TMP_MARKER,
+  removePrivateJobTmpDir,
+} from '../../../../../scripts/lib/private-job-tmpdir.ts';
 import { createPlaneRunner } from './differential.js';
 import { generateSequence } from './generator.js';
-import { scratchRoot } from './planes.js';
 import { portPair, tick } from './served-plane.js';
 
-describe('RTDB differential scratch storage and Node plane isolation', () => {
-  test('scratchRoot prefers /dev/shm on Linux when writable and falls back to tmpdir otherwise', () => {
-    expect(
-      scratchRoot({
-        platform: 'linux',
-        shmDir: '/dev/shm',
-        checkWritable: () => {},
-        fallbackTmpDir: () => '/fallback/tmp',
-      }),
-    ).toBe('/dev/shm');
-
-    expect(
-      scratchRoot({
-        platform: 'linux',
-        shmDir: '/dev/shm',
-        checkWritable: () => {
-          throw new Error('EACCES');
-        },
-        fallbackTmpDir: () => '/fallback/tmp',
-      }),
-    ).toBe('/fallback/tmp');
-
-    expect(
-      scratchRoot({
-        platform: 'darwin',
-        shmDir: '/dev/shm',
-        checkWritable: () => {},
-        fallbackTmpDir: () => '/var/folders/tmp',
-      }),
-    ).toBe('/var/folders/tmp');
-  });
-
-  test('Node plane keeps SQLite state under the runner scratch root without touching OS tmpdir', async () => {
-    const outer = mkdtempSync(join(tmpdir(), 'pyric-rtdb-planes-test-'));
-    const customScratch = join(outer, 'shm');
-    const readOnlyOsTmp = join(outer, 'os-tmp');
-    mkdirSync(customScratch, { recursive: true });
-    mkdirSync(readOnlyOsTmp, { recursive: true });
+describe('RTDB differential private scratch storage and Node plane isolation', () => {
+  test('Node plane isolates SQLite state inside PYRIC_TEST_TMP_ROOT, reaps stale markers, and never touches OS tmpdir', async () => {
+    const outerEnv: NodeJS.ProcessEnv = { ...process.env };
+    const dedicatedTmp = createPrivateJobTmpDir('rtdb-ut-root', outerEnv);
+    const readOnlyOsTmp = createPrivateJobTmpDir('rtdb-ut-ostmp', outerEnv);
+    const staleChild = join(dedicatedTmp, 'rtdb-stale-dead');
+    mkdirSync(staleChild);
+    writeFileSync(join(staleChild, JOB_TMP_MARKER), '2147483646\n');
+    expect(existsSync(staleChild)).toBe(true);
     chmodSync(readOnlyOsTmp, 0o555);
 
-    const prevTmpDir = process.env.TMPDIR;
+    const runnerEnv: NodeJS.ProcessEnv = {
+      ...outerEnv,
+      PYRIC_TEST_TMP_ROOT: dedicatedTmp,
+      TMPDIR: readOnlyOsTmp,
+      TMP: readOnlyOsTmp,
+      TEMP: readOnlyOsTmp,
+    };
+
     try {
-      const runner = await createPlaneRunner({ chunks: 1, scratchRoot: customScratch });
+      const runner = await createPlaneRunner({ chunks: 1, env: runnerEnv });
       try {
-        expect(readdirSync(customScratch).length).toBe(1);
-        process.env.TMPDIR = readOnlyOsTmp;
+        expect(existsSync(staleChild)).toBe(false);
+        const activeEntries = readdirSync(dedicatedTmp).filter((name) => name !== JOB_TMP_MARKER);
+        expect(activeEntries).toHaveLength(1);
+        const runnerDirName = activeEntries[0];
+        expect(runnerDirName).toBeDefined();
+        if (runnerDirName === undefined) {
+          throw new Error('Expected active runner scratch directory');
+        }
+        expect(runnerDirName.startsWith('rtdb-diff-')).toBe(true);
+        expect(existsSync(join(dedicatedTmp, runnerDirName, JOB_TMP_MARKER))).toBe(true);
+
         const outcomes = await runner.run('node', [generateSequence(1, { minSteps: 6, maxSteps: 6 })]);
         expect(outcomes).toHaveLength(1);
-        expect('fatal' in outcomes[0]!).toBe(false);
-        expect(readdirSync(readOnlyOsTmp)).toEqual([]);
+        const firstOutcome = outcomes[0];
+        expect(firstOutcome).toBeDefined();
+        if (firstOutcome === undefined) {
+          throw new Error('Expected one sequence outcome');
+        }
+        expect('fatal' in firstOutcome).toBe(false);
+        expect(readdirSync(dedicatedTmp).filter((name) => name !== JOB_TMP_MARKER)).toEqual([runnerDirName]);
+        expect(readdirSync(readOnlyOsTmp)).toEqual([JOB_TMP_MARKER]);
       } finally {
-        if (prevTmpDir === undefined) delete process.env.TMPDIR;
-        else process.env.TMPDIR = prevTmpDir;
         runner.dispose();
       }
-      expect(readdirSync(customScratch)).toEqual([]);
+      expect(readdirSync(dedicatedTmp)).toEqual([JOB_TMP_MARKER]);
     } finally {
       chmodSync(readOnlyOsTmp, 0o755);
-      if (existsSync(outer)) rmSync(outer, { recursive: true, force: true });
+      expect(removePrivateJobTmpDir(readOnlyOsTmp, outerEnv)).toBe(true);
+      expect(removePrivateJobTmpDir(dedicatedTmp, outerEnv)).toBe(true);
     }
   }, 60_000);
 
