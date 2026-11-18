@@ -161,12 +161,12 @@ export class AppCheck {
     if (!check.ok && check.reason === 'malformed') {
       throw new FirebaseAppCheckError('invalid-argument', MESSAGES.decode);
     }
+    verifyContent(check.header, check.claims, projectId);
     const isFirebaseToken = !check.ok && check.reason === 'kid';
     if (isFirebaseToken) {
       const verified = await verifyFirebaseToken(appCheckToken, projectId);
       return this.#recordConsume(verified, appCheckToken, options);
     }
-    verifyContent(check.header, check.claims, projectId);
     if (!check.ok) throw new FirebaseAppCheckError('invalid-argument', MESSAGES.signature);
     verifyNotBefore(check.claims.nbf);
     verifyExpiry(check.claims.exp);

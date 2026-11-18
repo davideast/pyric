@@ -24,22 +24,34 @@ import {
   loadModularProbes,
   SDK_PROBES_RIG_CONFIG,
 } from '../../src/sdk-probes.ts';
-import { expectStagedUntilCaptured } from './staged-capture-assertions.ts';
 
-const STAGED_APP_CHECK_PROBES = [
+const LINKED_APP_CHECK_PROBES = [
   'app-check-custom-provider-without-debug-token',
   'app-check-recaptcha-providers-without-document',
   'app-check-admin-verify-token-content-checks',
   'app-check-admin-project-from-cert',
 ] as const;
 
-describe('staged app-check and app-check-admin sdk-probes', () => {
-  it('registers all four probes under sdk-probes and tracks staged discovery via expectStagedUntilCaptured', async () => {
+describe('linked app-check and app-check-admin sdk-probes', () => {
+  it('registers all four probes under sdk-probes with linked rowIds and pendingRowLink dropped', async () => {
     const loaded = await loadModularProbes('sdk-probes');
     const loadedIds = loaded.map((item) => item.id);
-    for (const id of STAGED_APP_CHECK_PROBES) {
+    for (const id of LINKED_APP_CHECK_PROBES) {
       expect(loadedIds).toContain(id);
     }
+
+    expect(customProviderProbe.pendingRowLink).toBeUndefined();
+    expect(customProviderProbe.rowIds).toEqual(['app-check#custom-provider-without-debug-token']);
+    expect(recaptchaWithoutDocumentProbe.pendingRowLink).toBeUndefined();
+    expect(recaptchaWithoutDocumentProbe.rowIds).toEqual([
+      'app-check#recaptcha-providers-without-document',
+    ]);
+    expect(verifyTokenContentChecksProbe.pendingRowLink).toBeUndefined();
+    expect(verifyTokenContentChecksProbe.rowIds).toEqual([
+      'app-check-admin#verify-token-content-checks',
+    ]);
+    expect(projectFromCertProbe.pendingRowLink).toBeUndefined();
+    expect(projectFromCertProbe.rowIds).toEqual(['app-check-admin#project-from-cert']);
 
     for (const probe of [
       customProviderProbe,
@@ -50,12 +62,6 @@ describe('staged app-check and app-check-admin sdk-probes', () => {
       expect(probe.rig).toBe('sdk-probes');
       expect(probe.requires).toEqual(['web-config']);
     }
-
-    expectStagedUntilCaptured(STAGED_APP_CHECK_PROBES, {
-      rig: 'sdk-probes',
-      filterFlag: '--probe',
-      filterValueFor: (name) => name,
-    });
   });
 
   it('stamps both fbSdkVersion and adminSdkVersion when sdk-probes writes an *-admin observation', async () => {
@@ -83,7 +89,7 @@ describe('staged app-check and app-check-admin sdk-probes', () => {
       ) as Record<string, unknown>;
       expect(written.fbSdkVersion).toBe(resolvedFirebaseVersion());
       expect(written.adminSdkVersion).toBe(resolvedAdminVersion());
-      expect(written.rowIds).toEqual([]);
+      expect(written.rowIds).toEqual(['app-check-admin#verify-token-content-checks']);
     } finally {
       rmSync(tempDir, { recursive: true, force: true });
     }

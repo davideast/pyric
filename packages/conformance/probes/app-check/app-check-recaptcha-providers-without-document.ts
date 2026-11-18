@@ -184,9 +184,8 @@ export async function observeRecaptchaProvidersWithoutDocument(): Promise<Recapt
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: ['web-config'],
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'app-check#recaptcha-providers-without-document',
+  rowIds: ['app-check#recaptcha-providers-without-document'],
   description:
     'firebase/app-check initializeAppCheck with ReCaptchaV3Provider and ReCaptchaEnterpriseProvider in a runtime without global document, both with and without FIREBASE_APPCHECK_DEBUG_TOKEN: throws ReferenceError("document is not defined") synchronously after registering the instance, returns the handle on a second call with the same siteKey, and throws appCheck/already-initialized on a different siteKey.',
   async observe() {

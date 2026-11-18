@@ -129,7 +129,11 @@ describe('a Firebase App Check token with a verifier installed', () => {
     const { calls, verifier } = stubVerifier();
     install(verifier);
     const service = appCheck({ credential: cert({ project_id: 'demo-cert' }) });
-    await rejection(async () => service.verifyToken(await firebaseToken()));
+    const certToken = await signAppCheckToken(FIREBASE_HEADER, {
+      ...CLAIMS(),
+      aud: [`projects/${PROJECT_NUMBER}`, 'projects/demo-cert'],
+    });
+    await service.verifyToken(certToken);
     expect(calls.map((call) => call.projectId)).toEqual(['demo-cert']);
   });
 

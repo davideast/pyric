@@ -1,7 +1,9 @@
 {
   "name": "app-check-admin-verify-token-content-checks",
-  "matrixRow": "",
-  "rowIds": [],
+  "matrixRow": "app-check-admin#verify-token-content-checks",
+  "rowIds": [
+    "app-check-admin#verify-token-content-checks"
+  ],
   "description": "firebase-admin/app-check verifyToken pre-signature validation order and error contracts: synchronous throws for non-object options and non-string token, async rejection with app-check/invalid-credential when no projectId is configured, base64url decode rejection, and ordered content checks for alg, aud, iss, missing sub, non-string sub, and empty sub.",
   "observedAt": "2026-11-18T06:44:31.647Z",
   "fbSdkVersion": "12.19.0",
