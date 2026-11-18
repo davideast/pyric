@@ -157,11 +157,10 @@ export async function observeOnValueInitialDescendantAndSuppression(
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: ['web-config', 'dedicated-rtdb'],
-  pendingRowLink: true,
   description:
     'Modular RTDB onValue() immediate initial fire on present and absent paths, no-change suppression across identical rewrites, -0 over 0, and unchanged-subtree ancestor updates, plus descendant-write re-firing.',
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'rtdb-modular#M26',
+  rowIds: ['rtdb-modular#M26', 'rtdb-modular#M27', 'rtdb-modular#M28', 'rtdb-modular#M29'],
   observe() {
     return withRtdbProbeSession({}, async ({ runPath, db, rtdbSdk }) => {
       return observeOnValueInitialDescendantAndSuppression(

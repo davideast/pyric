@@ -24,12 +24,13 @@ import {
   type QueryChildRemovedRecord,
   type QueryWindowChildListenersSdk,
 } from '../../probes/rtdb-modular/rtdb-modular-query-window-child-listeners.ts';
+import { loadObservations } from '../../src/ledger.ts';
 import {
   loadModularProbes,
   printModularProbePreview,
   selectModularProbes,
 } from '../../src/sdk-probes.ts';
-import { expectStagedUntilCaptured } from './staged-capture-assertions.ts';
+import { loadPendingRowLinkObservations } from '../../src/staged-captures.ts';
 
 const RTDB_LISTENERS_PROBE_IDS = [
   'rtdb-modular-off-targeted-and-child-registrars',
@@ -48,46 +49,65 @@ function createListenerSandbox(rulesObj: Record<string, unknown>) {
   return rawDb as unknown as OnValueSuppressionProbeSdk['db'];
 }
 
-describe('RTDB modular listeners, unsubscribe, and query child-window staged probes (sdk-probes)', () => {
-  test('registers all 4 listener and unsubscribe probes on sdk-probes with pendingRowLink and empty rowIds', async () => {
+describe('RTDB modular listeners, unsubscribe, and query child-window probes (sdk-probes)', () => {
+  test('links all 4 listener and unsubscribe probes and committed observations to registry rows', async () => {
     const loaded = await loadModularProbes('sdk-probes');
     const loadedIds = loaded.map((entry) => entry.id);
     for (const id of RTDB_LISTENERS_PROBE_IDS) {
       expect(loadedIds).toContain(id);
     }
 
-    const probes = [
-      offTargetedProbe,
-      onValueSuppressionProbe,
-      onlyOnceAndUnsubProbe,
-      queryWindowChildProbe,
-    ];
-    for (const probeRecord of probes) {
-      expect(probeRecord.rig).toBe('sdk-probes');
-      expect(probeRecord.requires).toEqual(['web-config', 'dedicated-rtdb']);
-      expect(probeRecord.pendingRowLink).toBe(true);
-      expect(probeRecord.matrixRow).toBe('');
-      expect(probeRecord.rowIds).toEqual([]);
-      expect(probeRecord.description.length).toBeGreaterThan(20);
-    }
+    const expectedLinks = [
+      [
+        'rtdb-modular-onvalue-initial-descendant-and-suppression',
+        onValueSuppressionProbe,
+        'rtdb-modular#M26',
+        ['rtdb-modular#M26', 'rtdb-modular#M27', 'rtdb-modular#M28', 'rtdb-modular#M29'],
+      ],
+      [
+        'rtdb-modular-onvalue-onlyonce-and-unsub-return',
+        onlyOnceAndUnsubProbe,
+        'rtdb-modular#M30',
+        ['rtdb-modular#M30', 'rtdb-modular#M74', 'rtdb-modular#132'],
+      ],
+      [
+        'rtdb-modular-off-targeted-and-child-registrars',
+        offTargetedProbe,
+        'rtdb-modular#M31',
+        ['rtdb-modular#M31', 'rtdb-modular#M44', 'rtdb-modular#M48', 'rtdb-modular#140'],
+      ],
+      [
+        'rtdb-modular-query-window-child-listeners',
+        queryWindowChildProbe,
+        'rtdb-modular#M75b',
+        ['rtdb-modular#M75b'],
+      ],
+    ] as const;
 
+    const observations = new Map(
+      loadObservations().map((item) => [item.name, item] as const),
+    );
+    const pendingRowLinkIds = loadPendingRowLinkObservations();
     const unfilteredIds = new Set(
       selectModularProbes(loaded, [], 'sdk-probes', {
         includeUncapturedStaged: false,
       }).map((entry) => entry.id),
     );
 
-    expectStagedUntilCaptured(RTDB_LISTENERS_PROBE_IDS, {
-      rig: 'sdk-probes',
-      filterFlag: '--probe',
-      filterValueFor: (name) => name,
-      whenUncaptured(name) {
-        expect(unfilteredIds.has(name)).toBe(false);
-      },
-      whenCaptured(name) {
-        expect(unfilteredIds.has(name)).toBe(true);
-      },
-    });
+    for (const [id, probeRecord, expectedMatrixRow, expectedRowIds] of expectedLinks) {
+      expect(probeRecord.rig).toBe('sdk-probes');
+      expect(probeRecord.requires).toEqual(['web-config', 'dedicated-rtdb']);
+      expect(probeRecord.pendingRowLink).toBeUndefined();
+      expect(probeRecord.matrixRow).toBe(expectedMatrixRow);
+      expect(probeRecord.rowIds).toEqual([...expectedRowIds]);
+      expect(probeRecord.description.length).toBeGreaterThan(20);
+      expect(pendingRowLinkIds.has(id)).toBe(false);
+      expect(unfilteredIds.has(id)).toBe(true);
+      const committed = observations.get(id);
+      expect(committed).toBeDefined();
+      expect(committed?.matrixRow).toBe(expectedMatrixRow);
+      expect(committed?.rowIds).toEqual([...expectedRowIds]);
+    }
 
     const lines: string[] = [];
     printModularProbePreview({
