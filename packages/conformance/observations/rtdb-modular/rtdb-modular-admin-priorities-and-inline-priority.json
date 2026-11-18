@@ -1,0 +1,109 @@
+{
+  "name": "rtdb-modular-admin-priorities-and-inline-priority",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "firebase-admin/database Reference.setPriority, Reference.setWithPriority, inline .priority/.value in set() and update(), DataSnapshot.getPriority()/exportVal(), orderByPriority() ordering, and synchronous invalid-priority throws.",
+  "observedAt": "2026-11-18T06:45:28.321Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "setWithPriorityAndSetPriority": {
+      "initialVal": {
+        "label": "alpha"
+      },
+      "initialPriority": 25,
+      "initialExportVal": {
+        "label": "alpha",
+        ".priority": 25
+      },
+      "afterSetPriorityNumber": 5,
+      "afterSetPriorityString": "rank-b",
+      "afterClearPriorityNull": null,
+      "afterClearExportVal": {
+        "label": "alpha"
+      },
+      "setPriorityOnAbsentNode": {
+        "rejected": true,
+        "code": "INVALID_PARAMETERS",
+        "message": "INVALID_PARAMETERS: could not set priority on non-existent node",
+        "callbackReceivedMatchingError": true,
+        "afterAttemptPriority": null
+      },
+      "callbacksDeliveredNullError": {
+        "setWithPriority": true,
+        "setPriority": true
+      }
+    },
+    "inlinePriorityInSetAndUpdate": {
+      "inlinePrimitiveVal": "scalar-payload",
+      "inlinePrimitivePriority": 12,
+      "inlinePrimitiveExportVal": {
+        ".value": "scalar-payload",
+        ".priority": 12
+      },
+      "inlineObjectVal": {
+        "count": 2,
+        "title": "doc"
+      },
+      "inlineObjectPriority": "p-high",
+      "inlineObjectExportVal": {
+        "count": 2,
+        "title": "doc",
+        ".priority": "p-high"
+      },
+      "afterUpdateInlineChildOrderByPriorityKeys": [
+        "b",
+        "c",
+        "a"
+      ],
+      "afterUpdateChildExportVal": {
+        ".value": "second",
+        ".priority": 20
+      }
+    },
+    "validationThrows": [
+      {
+        "label": "setPriority-undefined",
+        "threwSynchronously": true,
+        "errorName": "Error",
+        "message": "setPriority failed: priority argument must be a valid Firebase priority (a string, finite number, server value, or null)."
+      },
+      {
+        "label": "setPriority-nan",
+        "threwSynchronously": true,
+        "errorName": "Error",
+        "message": "setPriority failed: priority argument is NaN, but must be a valid Firebase priority (a string, finite number, server value, or null)."
+      },
+      {
+        "label": "setPriority-boolean",
+        "threwSynchronously": true,
+        "errorName": "Error",
+        "message": "setPriority failed: priority argument must be a valid Firebase priority (a string, finite number, server value, or null)."
+      },
+      {
+        "label": "setPriority-object",
+        "threwSynchronously": true,
+        "errorName": "Error",
+        "message": "setPriority failed: priority argument must be a valid Firebase priority (a string, finite number, server value, or null)."
+      },
+      {
+        "label": "setWithPriority-nan-prio",
+        "threwSynchronously": true,
+        "errorName": "Error",
+        "message": "setWithPriority failed: priority argument is NaN, but must be a valid Firebase priority (a string, finite number, server value, or null)."
+      },
+      {
+        "label": "setWithPriority-undefined-val",
+        "threwSynchronously": true,
+        "errorName": "Error",
+        "message": "setWithPriority failed: value argument contains undefined in property 'adminPrio.validationTarget'"
+      },
+      {
+        "label": "inline-value-undefined",
+        "threwSynchronously": true,
+        "errorName": "Error",
+        "message": "set failed: value argument contains undefined in property 'adminPrio.validationTarget..value'"
+      }
+    ]
+  }
+}

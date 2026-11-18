@@ -1,0 +1,34 @@
+{
+  "name": "firestore-collection-db-path-reference-shape",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "collection(db, path, ...pathSegments) returns a CollectionReference with type, id, path, parent (null at root, DocumentReference when nested), and even-segment rejection.",
+  "observedAt": "2026-11-18T06:44:36.573Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "root": {
+      "type": "collection",
+      "id": "items",
+      "path": "items",
+      "parentIsNull": true
+    },
+    "nested": {
+      "type": "collection",
+      "id": "projects",
+      "path": "orgs/o1/projects",
+      "parentPath": "orgs/o1",
+      "parentType": "document"
+    },
+    "variadicEqualsNested": true,
+    "evenSegmentError": {
+      "threw": true,
+      "isFirebaseError": true,
+      "isTypeError": false,
+      "code": "invalid-argument"
+    },
+    "liveDocIds": [
+      "c1"
+    ]
+  }
+}

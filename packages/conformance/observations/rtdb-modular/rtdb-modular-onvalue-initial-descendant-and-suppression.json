@@ -1,0 +1,36 @@
+{
+  "name": "rtdb-modular-onvalue-initial-descendant-and-suppression",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "Modular RTDB onValue() immediate initial fire on present and absent paths, no-change suppression across identical rewrites, -0 over 0, and unchanged-subtree ancestor updates, plus descendant-write re-firing.",
+  "observedAt": "2026-11-18T06:46:13.151Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "absentInitialFire": {
+      "exists": false,
+      "val": null
+    },
+    "watchedDeliverySequence": [
+      {
+        "n": 0,
+        "nested": {
+          "step": 1
+        }
+      },
+      {
+        "n": 2,
+        "nested": {
+          "step": 1
+        }
+      },
+      {
+        "n": 2,
+        "nested": {
+          "step": 9
+        }
+      }
+    ],
+    "watchedFireCount": 3
+  }
+}

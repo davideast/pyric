@@ -1,0 +1,69 @@
+{
+  "name": "rtdb-modular-admin-ref-navigation-and-url-errors",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "firebase-admin/database Reference navigation and URL resolution: observes db.ref(), db.ref(\"/\"), db.ref(\"\") throw, child/parent/root/key/toString/toJSON, isEqual() and isEqual(null) throw, and live db.refFromURL() routing plus host-mismatch/fragment/malformed URL throws.",
+  "observedAt": "2026-11-18T06:45:36.876Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "rootRef": {
+      "noArgKey": null,
+      "noArgParentIsNull": true,
+      "noArgToString": "<databaseOrigin>/",
+      "slashArgEqualsNoArg": true,
+      "undefinedArgEqualsNoArg": true
+    },
+    "nestedNavigation": {
+      "leafKey": "ord-1",
+      "parentKey": "orders",
+      "rootKey": null,
+      "rootParentIsNull": true,
+      "toString": "<databaseOrigin>/<runPath>/nav/orders/ord-1",
+      "toJSONEqualsToString": true,
+      "slashNormalizedIsEqual": true,
+      "siblingIsEqual": false,
+      "childChainingIsEqual": true
+    },
+    "refFromUrlLiveRouting": {
+      "urlRefEqualsPathRef": true,
+      "queryStringIgnoredKey": "urlTarget",
+      "writtenViaRefFromUrlReadViaRef": {
+        "count": 3,
+        "routed": "ok"
+      }
+    },
+    "syncThrows": {
+      "emptyStringRef": {
+        "threw": true,
+        "errorName": "Error",
+        "code": null,
+        "message": "child failed: path argument was an invalid path = \"\". Paths must be non-empty strings and can't contain \".\", \"#\", \"$\", \"[\", or \"]\""
+      },
+      "isEqualNull": {
+        "threw": true,
+        "errorName": "Error",
+        "code": null,
+        "message": "Query.isEqual failed: First argument must be an instance of firebase.database.Query."
+      },
+      "refFromUrlHostMismatch": {
+        "threw": true,
+        "errorName": "Error",
+        "code": null,
+        "message": "FIREBASE FATAL ERROR: refFromURL: Host name does not match the current database: (found mismatched-other-instance.firebaseio.com but expected <databaseHost>) "
+      },
+      "refFromUrlWithFragment": {
+        "threw": true,
+        "errorName": "Error",
+        "code": null,
+        "message": "refFromURL failed: url argument must be a valid firebase URL and the path can't contain \".\", \"#\", \"$\", \"[\", or \"]\"."
+      },
+      "refFromUrlMalformed": {
+        "threw": true,
+        "errorName": "Error",
+        "code": null,
+        "message": "FIREBASE FATAL ERROR: Cannot parse Firebase url. Please use https://<YOUR FIREBASE>.firebaseio.com "
+      }
+    }
+  }
+}

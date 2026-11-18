@@ -1,0 +1,37 @@
+{
+  "name": "rtdb-modular-push-value-and-nested-servertimestamp",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "Modular RTDB push(ref, value) child write and serverTimestamp() sentinel marker ({ \".sv\": \"timestamp\" }) plus resolution when nested deep inside multi-path update() payloads.",
+  "observedAt": "2026-11-18T06:46:29.571Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "pushWithValue": {
+      "keyStartsWithHyphen": true,
+      "keyLength": 20,
+      "directGetVal": {
+        "done": false,
+        "title": "ship-probes"
+      },
+      "viaParentChildGetVal": {
+        "done": false,
+        "title": "ship-probes"
+      },
+      "parentSize": 1
+    },
+    "serverTimestampSentinelMarker": {
+      "markerShape": {
+        ".sv": "timestamp"
+      }
+    },
+    "nestedMultiPathServerTimestamp": {
+      "topAuditUpdatedIsInteger": true,
+      "deepItemTouchedIsInteger": true,
+      "bothWithinPlausibleWindow": true,
+      "bothEqualInSingleAtomicUpdate": true,
+      "preservedSiblingField": "preserved",
+      "deepNonSentinelField": "updated"
+    }
+  }
+}

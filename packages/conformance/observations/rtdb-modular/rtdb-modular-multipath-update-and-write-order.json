@@ -1,0 +1,72 @@
+{
+  "name": "rtdb-modular-multipath-update-and-write-order",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "Modular RTDB update() shallow merge, null-key deletion, multi-path atomic commit vs partial rules-denial rollback, synchronous overlapping-path rejection, and single-client write ordering with onValue delivery before update() resolves.",
+  "observedAt": "2026-11-18T06:45:55.870Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "shallowMergeAndNullDelete": {
+      "afterShallowMerge": {
+        "a": 1,
+        "b": 20,
+        "c": 3,
+        "dropMe": "old"
+      },
+      "afterNullKeyDelete": {
+        "a": 1,
+        "b": 20,
+        "c": 3
+      }
+    },
+    "multiPathAtomicAllowed": {
+      "val": {
+        "left": {
+          "keep": "L",
+          "v": 10
+        },
+        "right": {
+          "keep": "R",
+          "v": 20
+        }
+      }
+    },
+    "multiPathAtomicPartialDenialRollback": {
+      "rejected": true,
+      "errorCode": "PERMISSION_DENIED",
+      "allowedBranchUnchanged": {
+        "x": 1
+      },
+      "deniedBranchUnchanged": {
+        "y": 1
+      }
+    },
+    "overlappingPathsRejectedBeforeWrite": {
+      "ancestorFirstThrewSync": true,
+      "ancestorFirstMessage": "update failed: values argument contains a path /a that is ancestor of another path /a/y",
+      "descendantFirstThrewSync": true,
+      "storedAfterOverlappingCalls": {
+        "a": {
+          "initial": true
+        }
+      }
+    },
+    "singleClientWriteOrderAndListenerTiming": {
+      "updateThenChildSetVal": {
+        "keep": "ok",
+        "x": 3
+      },
+      "updateThenRemoveExists": false,
+      "listenerSawUpdateBeforeAwaitResolved": true,
+      "observedSequence": [
+        {
+          "step": 0
+        },
+        {
+          "step": 1
+        }
+      ]
+    }
+  }
+}

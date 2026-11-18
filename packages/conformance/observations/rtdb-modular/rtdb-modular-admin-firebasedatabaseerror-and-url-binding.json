@@ -1,0 +1,52 @@
+{
+  "name": "rtdb-modular-admin-firebasedatabaseerror-and-url-binding",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "firebase-admin/database FirebaseDatabaseError runtime constructor contract (database/ prefix, message override, toJSON) and getDatabase(app) / getDatabaseWithUrl(url, app) handle caching, live routing, and invalid-argument / format-mismatch throws.",
+  "observedAt": "2026-11-18T06:45:18.806Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "errorConstructorContract": {
+      "exportedAsFunction": true,
+      "defaultMessageInstanceIsError": true,
+      "defaultCodePrefixed": "database/invalid-argument",
+      "defaultMessage": "Default info message.",
+      "defaultToJson": {
+        "code": "database/invalid-argument",
+        "message": "Default info message."
+      },
+      "overrideMessageApplied": "Explicit override message.",
+      "overrideToJson": {
+        "code": "database/network-error",
+        "message": "Explicit override message."
+      }
+    },
+    "urlBindingAndHandleCaching": {
+      "sameExactUrlReturnsSameHandle": true,
+      "appOptionsUrlMatchesExplicitGetDatabaseWithUrl": true,
+      "liveWriteViaGetDatabaseReadViaGetDatabaseWithUrl": {
+        "bound": true,
+        "seq": 1
+      },
+      "trailingSlashVariantOnOpenInstance": {
+        "threw": true,
+        "isErrorInstance": true,
+        "code": null,
+        "message": "FIREBASE FATAL ERROR: Database initialized multiple times. Please make sure the format of the database URL matches with each database() call. "
+      },
+      "missingDatabaseUrlThrow": {
+        "threw": true,
+        "isErrorInstance": true,
+        "code": "database/invalid-argument",
+        "message": "Can't determine Firebase Database URL."
+      },
+      "emptyUrlGetDatabaseWithUrlThrow": {
+        "threw": true,
+        "isErrorInstance": true,
+        "code": "database/invalid-argument",
+        "message": "Database URL must be a valid, non-empty URL string."
+      }
+    }
+  }
+}

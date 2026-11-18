@@ -1,0 +1,36 @@
+{
+  "name": "rtdb-modular-onvalue-onlyonce-and-unsub-return",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "Modular RTDB onValue() returned unsubscribe function contract (typeof === \"function\", stops subsequent deliveries) and { onlyOnce: true } auto-unsubscription on populated and initially absent paths.",
+  "observedAt": "2026-11-18T06:46:21.483Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "unsubscribeReturnContract": {
+      "returnTypeOf": "function",
+      "isPlainObject": false,
+      "deliveriesBeforeUnsub": [
+        1,
+        2
+      ],
+      "deliveriesAfterUnsubAndSubsequentWrite": [
+        1,
+        2
+      ],
+      "companionSentinelSawPostUnsubWrite": true
+    },
+    "onlyOncePopulatedPath": {
+      "onlyOnceDeliveries": [
+        10
+      ],
+      "companionSawSubsequentWrite": true
+    },
+    "onlyOnceAbsentPath": {
+      "onlyOnceDeliveries": [
+        null
+      ],
+      "companionSawSubsequentPopulate": true
+    }
+  }
+}

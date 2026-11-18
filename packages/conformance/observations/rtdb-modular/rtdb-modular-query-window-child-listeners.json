@@ -1,0 +1,68 @@
+{
+  "name": "rtdb-modular-query-window-child-listeners",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "Modular RTDB child listeners (onChildAdded, onChildChanged, onChildRemoved, onChildMoved) on a bounded Query (orderByChild + limitToFirst): observes initial window replay, out-of-window write suppression, in-window reorder movement, and entering/displaced member add+remove events.",
+  "observedAt": "2026-11-18T06:46:37.729Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "initialWindowAdded": [
+      {
+        "key": "a",
+        "val": {
+          "score": 10,
+          "tag": "init"
+        },
+        "prevKey": null
+      },
+      {
+        "key": "b",
+        "val": {
+          "score": 20,
+          "tag": "init"
+        },
+        "prevKey": "a"
+      }
+    ],
+    "afterOutOfWindowEditThenInWindowEditChanged": [
+      {
+        "key": "b",
+        "val": {
+          "score": 20,
+          "tag": "edited-b"
+        },
+        "prevKey": "a"
+      }
+    ],
+    "afterInWindowReorderMoved": [
+      {
+        "key": "a",
+        "val": {
+          "score": 25,
+          "tag": "reordered-a"
+        },
+        "prevKey": "b"
+      }
+    ],
+    "afterEnteringChildZAdded": [
+      {
+        "key": "z",
+        "val": {
+          "score": 5,
+          "tag": "entered-z"
+        },
+        "prevKey": null
+      }
+    ],
+    "afterEnteringChildZDisplacedRemoved": [
+      {
+        "key": "a",
+        "val": {
+          "score": 25,
+          "tag": "reordered-a"
+        }
+      }
+    ]
+  }
+}

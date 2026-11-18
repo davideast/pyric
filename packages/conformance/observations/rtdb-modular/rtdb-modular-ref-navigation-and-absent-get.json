@@ -1,0 +1,50 @@
+{
+  "name": "rtdb-modular-ref-navigation-and-absent-get",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "Modular RTDB ref(db, path?), child(ref, subpath), parent, root, DataSnapshot shape (val, exists, key, child, hasChildren, size, toJSON, absence of numChildren), and get() on an absent path.",
+  "observedAt": "2026-11-18T06:46:45.861Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "rootAndPathRefs": {
+      "defaultRootKey": null,
+      "defaultRootParentIsNull": true,
+      "emptyStringPathThrewSync": true,
+      "emptyStringPathMessage": "child failed: path argument was an invalid path = \"\". Paths must be non-empty strings and can't contain \".\", \"#\", \"$\", \"[\", or \"]\"",
+      "pathRefKey": "ord-1",
+      "composedChildKey": "ord-1",
+      "composedParentKey": "orders",
+      "composedRootKey": null,
+      "composedRootParentIsNull": true,
+      "composedRootMatchesDefaultRoot": true,
+      "composedMatchesDirectPathRef": true,
+      "scrubbedComposedToString": "<rootOrigin>/<runPath>/refNav/orders/ord-1"
+    },
+    "populatedGetSnapshotShape": {
+      "exists": true,
+      "key": "ord-1",
+      "val": {
+        "item": "widget",
+        "qty": 2
+      },
+      "toJSON": {
+        "item": "widget",
+        "qty": 2
+      },
+      "size": 2,
+      "hasChildren": true,
+      "directChildVal": "widget",
+      "missingChildVal": null,
+      "hasNumChildrenProperty": false
+    },
+    "absentGetSnapshotShape": {
+      "exists": false,
+      "key": "missing-ord",
+      "val": null,
+      "toJSON": null,
+      "size": 0,
+      "hasChildren": false
+    }
+  }
+}
