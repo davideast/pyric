@@ -1,0 +1,112 @@
+{
+  "name": "rules-storage-request-resource-size-strict-less-than",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "Storage Rules Test API verdicts for corpus scenario \"request-resource-size-strict-less-than\" (STORAGE-REQUEST-RESOURCE-SIZE-LT). Pins strict less-than boundary evaluation for request.resource.size < 10 * 1024 * 1024 across zero, N - 1, exact N, N + 1, update, and delete.",
+  "observedAt": "2026-11-18T00:43:02.709Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "inputDigest": {
+    "algorithm": "sha256",
+    "value": "0975171d2a8617cd68e5c97dccd574d243bb1f59425a76c5b9f7ab77a61cce3c"
+  },
+  "behavior": {
+    "create with zero-byte payload allows": "ALLOW",
+    "create one byte below 10 * 1024 * 1024 allows": "ALLOW",
+    "create at exact 10 * 1024 * 1024 boundary denies": "DENY",
+    "create one byte above 10 * 1024 * 1024 denies": "DENY",
+    "update below 10 * 1024 * 1024 allows": "ALLOW",
+    "delete with no incoming request.resource denies": "DENY"
+  },
+  "diagnostics": {
+    "create with zero-byte payload allows": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 5,
+              "column": 23,
+              "currentOffset": 120,
+              "endOffset": 126
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "create one byte below 10 * 1024 * 1024 allows": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 5,
+              "column": 23,
+              "currentOffset": 120,
+              "endOffset": 126
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "create at exact 10 * 1024 * 1024 boundary denies": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 5,
+              "column": 23,
+              "currentOffset": 120,
+              "endOffset": 126
+            },
+            "value": false
+          }
+        ]
+      }
+    },
+    "create one byte above 10 * 1024 * 1024 denies": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 5,
+              "column": 23,
+              "currentOffset": 120,
+              "endOffset": 126
+            },
+            "value": false
+          }
+        ]
+      }
+    },
+    "update below 10 * 1024 * 1024 allows": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 5,
+              "column": 23,
+              "currentOffset": 120,
+              "endOffset": 126
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "delete with no incoming request.resource denies": {
+      "notes": [
+        "Error: storage.rules line [5], column [23]. Property resource is undefined on object."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 5,
+          "column": 23,
+          "currentOffset": 120,
+          "endOffset": 126
+        }
+      }
+    }
+  }
+}

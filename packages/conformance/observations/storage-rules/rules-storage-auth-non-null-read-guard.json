@@ -1,0 +1,80 @@
+{
+  "name": "rules-storage-auth-non-null-read-guard",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "Storage Rules Test API verdicts for corpus scenario \"auth-non-null-read-guard\" (STORAGE-AUTH-NON-NULL-READ). Pins that allow read: if request.auth != null under match /sessions/{id} grants signed-in get/list requests and denies anonymous get/list requests.",
+  "observedAt": "2026-11-18T00:42:59.859Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "inputDigest": {
+    "algorithm": "sha256",
+    "value": "d55777b18baaf1edc2a6718b43b9d1140e5baeeb0d5434c47e0fc1adf59a9b80"
+  },
+  "behavior": {
+    "signed-in get on /sessions/{id} allows": "ALLOW",
+    "signed-in list on /sessions/{id} allows": "ALLOW",
+    "anonymous get with explicit null auth denies": "DENY",
+    "anonymous list with omitted auth denies": "DENY",
+    "signed-in get outside /sessions/{id} denies": "DENY"
+  },
+  "diagnostics": {
+    "signed-in get on /sessions/{id} allows": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 5,
+              "column": 22,
+              "currentOffset": 120,
+              "endOffset": 126
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "signed-in list on /sessions/{id} allows": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 5,
+              "column": 22,
+              "currentOffset": 120,
+              "endOffset": 126
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "anonymous get with explicit null auth denies": {
+      "notes": [
+        "Error: storage.rules line [5], column [22]. Property auth is undefined on object."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 5,
+          "column": 22,
+          "currentOffset": 120,
+          "endOffset": 126
+        }
+      }
+    },
+    "anonymous list with omitted auth denies": {
+      "notes": [
+        "Error: storage.rules line [5], column [22]. Property auth is undefined on object."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 5,
+          "column": 22,
+          "currentOffset": 120,
+          "endOffset": 126
+        }
+      }
+    }
+  }
+}
