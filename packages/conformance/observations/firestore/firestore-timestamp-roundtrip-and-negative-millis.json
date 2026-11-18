@@ -1,0 +1,50 @@
+{
+  "name": "firestore-timestamp-roundtrip-and-negative-millis",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "Timestamp normalizes negative-epoch milliseconds to non-negative nanoseconds, exposes isEqual/toJSON/valueOf, and stores Timestamp, Date, and serverTimestamp() values in a unified queryable representation.",
+  "observedAt": "2026-11-18T12:30:57.485Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "valueApi": {
+      "negMillisSeconds": -1,
+      "negMillisNanoseconds": 500000000,
+      "negMillisRoundTrip": -500,
+      "negDateEqualsNegMillis": true,
+      "negMillisNotEqualsEarlier": true,
+      "negMillisJson": {
+        "type": "firestore/timestamp/1.0",
+        "seconds": -1,
+        "nanoseconds": 500000000
+      },
+      "valueOfOrdersChronologically": true
+    },
+    "roundTrip": {
+      "explicitIsTimestamp": true,
+      "explicitSeconds": 1700000000,
+      "explicitNanoseconds": 250000000,
+      "explicitMillis": 1700000000250,
+      "dateIsTimestamp": true,
+      "dateEqualsExplicit": true,
+      "negIsTimestamp": true,
+      "negSeconds": -1,
+      "negNanoseconds": 500000000,
+      "negMillis": -500,
+      "serverIsTimestamp": true,
+      "serverSecondsInteger": true,
+      "serverNanosecondsInRange": true
+    },
+    "unifiedQuery": {
+      "orderedAscIds": [
+        "a-explicit",
+        "b-date",
+        "c-server"
+      ],
+      "rangeGteIds": [
+        "b-date",
+        "c-server"
+      ]
+    }
+  }
+}
