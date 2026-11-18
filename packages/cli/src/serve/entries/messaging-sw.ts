@@ -7,7 +7,8 @@ import type {
   Observer,
   Unsubscribe,
 } from 'pyric/messaging/sw';
-import { getApp, type FirebaseApp } from 'pyric/app';
+import { FirebaseError, getApp, type FirebaseApp } from 'pyric/app';
+import { isSandboxAppDeleted } from 'pyric/app/internal';
 import { registerSandboxDelivery } from 'pyric/messaging/internal';
 import {
   messagingDeliver,
@@ -38,7 +39,12 @@ export function getMessaging(app?: FirebaseApp): Messaging {
   const resolved = app ?? getApp();
   const existing = workerMessagingByApp.get(resolved);
   if (existing) return existing;
-  inPage.getMessaging(resolved);
+  if (isSandboxAppDeleted(resolved)) {
+    throw new FirebaseError(
+      'app/app-deleted',
+      `Firebase: Firebase App named '${resolved.name}' already deleted (app/app-deleted).`,
+    );
+  }
   const handle: Messaging = { app: resolved };
   const client = messagingSwClient(resolved).then(db => db
     ? messagingGetMessaging(db, messagingRegistration(resolved))

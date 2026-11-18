@@ -115,10 +115,42 @@ function isValidSwRegistration(registration: unknown): registration is object {
   return typeof candidate.scope === 'string';
 }
 
-export function assertGetTokenPreconditions(options?: GetTokenOptions): void {
+async function isNotificationPermissionBlocked(): Promise<boolean> {
   const globalNotification = (globalThis as { Notification?: { permission?: unknown } })
     .Notification;
-  if (globalNotification?.permission === 'denied') {
+  if (globalNotification?.permission !== 'denied') {
+    return false;
+  }
+  const descriptor = Object.getOwnPropertyDescriptor(globalNotification, 'permission');
+  if (typeof globalNotification !== 'function' || typeof descriptor?.get !== 'function') {
+    return true;
+  }
+  const globalNavigator = (
+    globalThis as {
+      navigator?: {
+        permissions?: {
+          query?: (permDesc: { name: string }) => Promise<{ state?: unknown }>;
+        };
+      };
+    }
+  ).navigator;
+  const permissions = globalNavigator?.permissions;
+  const queryPermissions = permissions?.query;
+  if (permissions === undefined || typeof queryPermissions !== 'function') {
+    return true;
+  }
+  try {
+    const status = await queryPermissions.call(permissions, {
+      name: 'notifications',
+    });
+    return status?.state === 'denied';
+  } catch {
+    return true;
+  }
+}
+
+export async function assertGetTokenPreconditions(options?: GetTokenOptions): Promise<void> {
+  if (await isNotificationPermissionBlocked()) {
     throw new FirebaseError(
       'messaging/permission-blocked',
       'Messaging: The notification permission was not granted and blocked instead. (messaging/permission-blocked).',
@@ -135,7 +167,7 @@ export function assertGetTokenPreconditions(options?: GetTokenOptions): void {
 
 export async function getToken(messaging: Messaging, options?: GetTokenOptions): Promise<string> {
   const state = stateOf(messaging);
-  assertGetTokenPreconditions(options);
+  await assertGetTokenPreconditions(options);
   const registration = options?.serviceWorkerRegistration ?? defaultRegistration();
   const registrationId = registrationIdOf(registration);
   state.activeRegistrationId = registrationId;

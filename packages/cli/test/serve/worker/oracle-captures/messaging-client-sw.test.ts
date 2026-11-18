@@ -1,9 +1,12 @@
 import 'fake-indexeddb/auto';
-import { afterEach, describe, expect, it } from 'bun:test';
-import { deleteApp, getApp, initializeApp, type FirebaseApp } from 'pyric/app';
-import { createAppForSandbox } from 'pyric/app/internal';
-import * as inPageMessaging from 'pyric/messaging';
-import { handleMessage, type HostCtx, type PortLike } from '../../../../src/serve/worker/host.js';
+import { runInNewContext } from 'node:vm';
+import { afterEach, beforeAll, describe, expect, it } from 'bun:test';
+import { build } from 'esbuild';
+import { IDBFactory } from 'fake-indexeddb';
+import type { FirebaseApp } from 'pyric/app';
+import type * as inPageMessagingTypes from 'pyric/messaging';
+import type { Sandbox } from 'pyric/sandbox';
+import { handleMessage, type PortLike } from '../../../../src/serve/worker/host.js';
 import type { InboundMessage, OutboundMessage } from '../../../../src/serve/worker/protocol.js';
 import { type FakePort, makeHostCtx, portPair, sleep } from '../integration-support.js';
 import {
@@ -17,7 +20,22 @@ import { load, restoreSharedWorker } from './support.ts';
 
 restoreSharedWorker();
 
-let activeHostCtx: HostCtx | null = null;
+interface BundledServedRealm {
+  initializeSandbox(): Sandbox;
+  initializeApp(options: Record<string, unknown>, name?: string): FirebaseApp;
+  getApp(name?: string): FirebaseApp;
+  deleteApp(app: FirebaseApp): Promise<void>;
+  createAppForSandbox(
+    sandbox: Sandbox,
+    options: Record<string, unknown>,
+    name: string,
+  ): FirebaseApp;
+  inPageMessaging: typeof inPageMessagingTypes;
+  servedClient: MessagingClientSwReplayTarget['clientMod'];
+  servedSw: MessagingClientSwReplayTarget['swMod'];
+}
+
+let bundledSource = '';
 let appSeq = 0;
 
 interface ActiveCleanup {
@@ -25,6 +43,32 @@ interface ActiveCleanup {
 }
 
 const cleanups: ActiveCleanup[] = [];
+
+beforeAll(async () => {
+  const result = await build({
+    stdin: {
+      contents: [
+        "export { initializeSandbox } from 'pyric/sandbox';",
+        "export { initializeApp, getApp, deleteApp } from 'pyric/app';",
+        "export { createAppForSandbox } from 'pyric/app/internal';",
+        "export * as inPageMessaging from 'pyric/messaging';",
+        "export * as servedClient from './messaging.js';",
+        "export * as servedSw from './messaging-sw.js';",
+      ].join('\n'),
+      resolveDir: new URL('../../../../src/serve/entries/', import.meta.url).pathname,
+    },
+    bundle: true,
+    platform: 'browser',
+    format: 'iife',
+    globalName: 'servedSdk',
+    write: false,
+  });
+  const firstFile = result.outputFiles[0];
+  if (firstFile === undefined) {
+    throw new Error('Failed to bundle served messaging entries for worker replay.');
+  }
+  bundledSource = `${firstFile.text}\nservedSdk`;
+});
 
 afterEach(async () => {
   while (cleanups.length > 0) {
@@ -38,100 +82,115 @@ afterEach(async () => {
 async function createServedMessagingTarget(): Promise<MessagingClientSwReplayTarget> {
   const ctx = await makeHostCtx();
   ctx.messagingEnabled = true;
-  activeHostCtx = ctx;
 
-  const globalObj = globalThis as Record<string, unknown>;
-  const hadFetch = Object.prototype.hasOwnProperty.call(globalObj, 'fetch');
-  const prevFetch = globalObj.fetch;
-  const hadLocation = Object.prototype.hasOwnProperty.call(globalObj, 'location');
-  const prevLocation = globalObj.location;
-  const hadLocalStorage = Object.prototype.hasOwnProperty.call(globalObj, 'localStorage');
-  const prevLocalStorage = globalObj.localStorage;
-
+  const timers = new Set<ReturnType<typeof setTimeout>>();
   const storageMap = new Map<string, string>();
-  globalObj.fetch = async () => Response.json({ hosted: false });
-  globalObj.location = new URL('https://app.example/');
-  globalObj.localStorage = {
-    getItem: (key: string) => storageMap.get(key) ?? null,
-    setItem: (key: string, value: string) => {
-      storageMap.set(key, String(value));
-    },
-    removeItem: (key: string) => {
-      storageMap.delete(key);
-    },
-  };
 
-  globalObj.SharedWorker = class {
+  class RealmSharedWorker {
     port: FakePort;
     addEventListener(): void {}
     constructor() {
-      const targetCtx = activeHostCtx ?? ctx;
       const { a: clientPort, b: hostPort } = portPair();
       const hostPortLike: PortLike = {
         postMessage: (message: OutboundMessage) => hostPort.postMessage(message),
       };
       hostPort.onmessage = (event) => {
-        void handleMessage(targetCtx, hostPortLike, event.data as InboundMessage);
+        void handleMessage(ctx, hostPortLike, event.data as InboundMessage);
       };
       this.port = clientPort;
     }
+  }
+
+  const realmGlobals = {
+    console,
+    TextEncoder,
+    TextDecoder,
+    URL,
+    AbortController,
+    MessageEvent,
+    Response,
+    crypto,
+    performance,
+    queueMicrotask,
+    structuredClone,
+    indexedDB: new IDBFactory(),
+    location: new URL('https://app.example/'),
+    localStorage: {
+      getItem: (key: string) => storageMap.get(key) ?? null,
+      setItem: (key: string, value: string) => {
+        storageMap.set(key, String(value));
+      },
+      removeItem: (key: string) => {
+        storageMap.delete(key);
+      },
+    },
+    SharedWorker: RealmSharedWorker,
+    fetch: async () => Response.json({ hosted: false }),
+    setTimeout: (fn: () => void, ms?: number) => {
+      const handle = setTimeout(fn, ms);
+      timers.add(handle);
+      return handle;
+    },
+    clearTimeout: (handle: ReturnType<typeof setTimeout>) => {
+      timers.delete(handle);
+      clearTimeout(handle);
+    },
+    get Notification() {
+      return (globalThis as { Notification?: unknown }).Notification;
+    },
+    get ServiceWorkerRegistration() {
+      return (globalThis as { ServiceWorkerRegistration?: unknown }).ServiceWorkerRegistration;
+    },
+    get navigator() {
+      return (globalThis as { navigator?: unknown }).navigator;
+    },
   };
 
-  const servedClient = await import('../../../../src/serve/entries/messaging.js');
-  const servedSw = await import('../../../../src/serve/entries/messaging-sw.js');
+  const sdk = runInNewContext(bundledSource, realmGlobals) as BundledServedRealm;
+  const realmSandbox = sdk.initializeSandbox();
   const createdApps: FirebaseApp[] = [];
 
   cleanups.push({
     async close(): Promise<void> {
       for (const app of createdApps) {
-        await deleteApp(app).catch(() => undefined);
+        await sdk.deleteApp(app).catch(() => undefined);
       }
-      if (hadFetch) {
-        globalObj.fetch = prevFetch;
-      } else {
-        delete globalObj.fetch;
+      for (const timer of timers) {
+        clearTimeout(timer);
       }
-      if (hadLocation) {
-        globalObj.location = prevLocation;
-      } else {
-        delete globalObj.location;
-      }
-      if (hadLocalStorage) {
-        globalObj.localStorage = prevLocalStorage;
-      } else {
-        delete globalObj.localStorage;
-      }
+      timers.clear();
+      realmSandbox.dispose();
       ctx.sandbox.dispose();
     },
   });
 
   return {
-    clientMod: servedClient as unknown as MessagingClientSwReplayTarget['clientMod'],
-    swMod: servedSw as unknown as MessagingClientSwReplayTarget['swMod'],
+    clientMod: sdk.servedClient,
+    swMod: sdk.servedSw,
     async withNoDefaultApp(run) {
       try {
-        const existingDefault = getApp();
-        await deleteApp(existingDefault);
+        const existingDefault = sdk.getApp();
+        await sdk.deleteApp(existingDefault);
       } catch {
         // No default app present.
       }
       return await run();
     },
     async withDefaultApp(run) {
-      const fullDefault = initializeApp({
+      const fullDefault = sdk.initializeApp({
         projectId: 'test',
         databaseURL: 'https://test-default-rtdb.firebaseio.com',
       });
       try {
         return await run(fullDefault);
       } finally {
-        await deleteApp(fullDefault).catch(() => undefined);
+        await sdk.deleteApp(fullDefault).catch(() => undefined);
       }
     },
     createNamedApp(label) {
       appSeq += 1;
-      const app = createAppForSandbox(
-        ctx.sandbox,
+      const app = sdk.createAppForSandbox(
+        realmSandbox,
         { projectId: 'test', databaseURL: 'https://test-default-rtdb.firebaseio.com' },
         `served-msg-${label}-${appSeq}`,
       );
@@ -139,10 +198,13 @@ async function createServedMessagingTarget(): Promise<MessagingClientSwReplayTar
       return app;
     },
     async deleteApp(app) {
-      await deleteApp(app as FirebaseApp);
+      await sdk.deleteApp(app as FirebaseApp);
     },
     async deliver(messaging, spec) {
-      await inPageMessaging.sandbox.deliver(messaging as inPageMessaging.Messaging, spec);
+      await sdk.inPageMessaging.sandbox.deliver(
+        messaging as inPageMessagingTypes.Messaging,
+        spec,
+      );
       await sleep(25);
     },
     async settleSubscription() {

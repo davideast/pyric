@@ -133,7 +133,7 @@ export async function messagingGetToken(
   messaging: ClientMessaging,
   options?: GetTokenOptions,
 ): Promise<string> {
-  assertGetTokenPreconditions(options);
+  await assertGetTokenPreconditions(options);
   const registration = options?.serviceWorkerRegistration;
   const hasRegistration = registration !== undefined;
   if (hasRegistration) return getTokenForRegistration(messaging, registrationScope(registration));
