@@ -10,8 +10,7 @@
 import { afterEach, describe, expect, it } from 'bun:test';
 import { spawnSync } from 'node:child_process';
 import { createSign, generateKeyPairSync, randomBytes } from 'node:crypto';
-import { initializeSandbox } from 'pyric/sandbox';
-import { getClock } from 'pyric/sandbox/internal';
+import { getClock, initializeSandbox } from 'pyric/sandbox';
 import { createUserWithEmailAndPassword, getAuth as getClientAuth } from 'pyric/auth';
 import { deleteApp, getApps, initializeApp } from '../app/index.js';
 import { getAuth } from './index.js';
@@ -25,14 +24,16 @@ describe('verifyIdToken returns the client token claims', () => {
     const sandbox = initializeSandbox();
     const admin = getAuth(initializeApp({ sandbox }, 'verify-id-token-claims'));
     const client = getClientAuth(sandbox);
-    // Move the sandbox clock away from the wall clock, so a value made up at
-    // verify time cannot match by accident.
-    getClock(sandbox).advance(60 * 60 * 1000);
+    // Pin the sandbox clock an hour ahead of the wall clock, so a value made
+    // up at verify time cannot match by accident and wall-clock ticks between
+    // sign-in and refresh cannot cross a whole-second boundary.
+    getClock(sandbox).set(Date.now() + 60 * 60 * 1000);
     const { user } = await createUserWithEmailAndPassword(client, 'ada@example.com', 'secret-pw');
     getClock(sandbox).advance(10 * 60 * 1000);
     const idToken = await user.getIdToken(true);
     const { claims } = await user.getIdTokenResult();
 
+    getClock(sandbox).advance(5 * 60 * 1000);
     const decoded = await admin.verifyIdToken(idToken);
 
     for (const key of ['sub', 'aud', 'iss', 'iat', 'exp', 'auth_time'] as const) {
