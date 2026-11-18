@@ -9,9 +9,8 @@ import { withFirestoreProbeSession } from '../../src/sdk-probe-runtime.ts';
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: ['web-config', 'firestore-rules'],
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'firestore#11',
+  rowIds: ['firestore#11'],
   description:
     'doc(coll) with zero relative segments mints a 20-character alphanumeric auto-ID DocumentReference under coll.path while doc(db) with zero path segments throws.',
   async observe() {

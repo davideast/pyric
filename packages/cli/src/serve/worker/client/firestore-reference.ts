@@ -11,6 +11,14 @@ function parentCollectionPath(docPath: string): string {
   return docPath.slice(0, slashIndex);
 }
 
+function parentDocumentPath(collPath: string): string | null {
+  const slashIndex = collPath.lastIndexOf('/');
+  if (slashIndex <= 0) {
+    return null;
+  }
+  return collPath.slice(0, slashIndex);
+}
+
 /** Collection handles are rebuilt per view so each carries its own converter. */
 export function createCollectionReference<T = DocumentData>(
   port: ClientPort,
@@ -33,6 +41,13 @@ export function createCollectionReference<T = DocumentData>(
     id: lastSegment(path),
     path,
     converter,
+    get parent(): DocRefHandle | null {
+      const docPath = parentDocumentPath(path);
+      if (docPath === null) {
+        return null;
+      }
+      return createDocumentReference(port, docPath, null);
+    },
     withConverter,
   };
 }

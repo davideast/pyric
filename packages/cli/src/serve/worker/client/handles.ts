@@ -133,6 +133,7 @@ export interface CollRefHandle<_T = DocumentData> {
   readonly id: string;
   readonly path: string;
   readonly converter: FirestoreDataConverter<unknown> | null;
+  readonly parent: DocRefHandle | null;
   withConverter<T, D extends DocumentData = DocumentData>(converter: FirestoreDataConverter<T, D>): CollRefHandle<T>;
   withConverter(converter: null): CollRefHandle;
 }

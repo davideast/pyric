@@ -6,9 +6,8 @@ import { withFirestoreProbeSession } from '../../src/sdk-probe-runtime.ts';
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: ['web-config', 'firestore-rules'],
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'firestore#8',
+  rowIds: ['firestore#8'],
   description:
     'doc(db, path, ...pathSegments) joins variadic single and multi-segment arguments into an equivalent DocumentReference and rejects odd total segment counts.',
   async observe() {

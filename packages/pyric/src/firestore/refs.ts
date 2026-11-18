@@ -7,8 +7,11 @@
  */
 import type { DocumentData } from 'pyric/sandbox/admin-firestore';
 
+import { FirebaseError } from '../sandbox/internal/firebase-error.js';
+import { toFirestoreFirebaseError } from './errors.js';
 import {
   TARGET_SYMBOL,
+  refToTarget,
   targetOf,
   sandboxDb,
   tagSandboxRef,
@@ -27,6 +30,7 @@ import type {
 import {
   attachConverterMethod,
   convertedView,
+  registerCollectionParentDocumentResolver,
   registerDocumentParentCollectionResolver,
   registerDocumentReferenceValue,
 } from './converter-method.js';
@@ -39,25 +43,77 @@ registerDocumentParentCollectionResolver((owner, collectionPath, converter) => {
   return rawColl;
 });
 
-// ─── Path constructors ────────────────────────────────────────────────
+registerCollectionParentDocumentResolver((owner, docPath) => {
+  return doc({ [TARGET_SYMBOL]: owner }, docPath);
+});
 
+// --- Path constructors ---------------------------------------------------
+
+function parsePathSegments(
+  fnName: 'doc' | 'collection',
+  rawSegments: readonly string[],
+): string[] {
+  const segments: string[] = [];
+  for (const raw of rawSegments) {
+    if (typeof raw !== 'string') {
+      throw new FirebaseError('invalid-argument', `Function ${fnName}() called with non-string path.`);
+    }
+    if (raw.includes('//')) {
+      throw new FirebaseError(
+        'invalid-argument',
+        `Invalid path (${raw}). Paths must not contain '//' in them.`,
+      );
+    }
+    const trimmed = raw.replace(/^\/+|\/+$/g, '');
+    if (trimmed.length === 0) {
+      throw new FirebaseError('invalid-argument', `Invalid path (${raw}). Paths must not be empty.`);
+    }
+    segments.push(...trimmed.split('/'));
+  }
+  return segments;
+}
+
+function assertObjectParent(fnName: string, candidate: unknown): asserts candidate is object {
+  if (candidate === null || typeof candidate !== 'object') {
+    throw new FirebaseError(
+      'invalid-argument',
+      `Expected first argument to ${fnName}() to be a Firestore, a CollectionReference or a DocumentReference`,
+    );
+  }
+}
+
+export function doc(
+  parent: DocumentReference<unknown>,
+  path: string,
+  ...pathSegments: string[]
+): DocumentReference<DocumentData>;
 export function doc<T = DocumentData>(
-  parent: Firestore | CollectionReference<T>,
+  parent: Firestore | CollectionReference<T> | DocumentReference<unknown>,
+  ...pathSegments: string[]
+): DocumentReference<T>;
+export function doc<T = DocumentData>(
+  parent: Firestore | CollectionReference<T> | DocumentReference<unknown>,
   ...pathSegments: string[]
 ): DocumentReference<T> {
-  const target = targetOf(parent);
+  assertObjectParent('doc', parent);
   const isHandle = TARGET_SYMBOL in parent;
-  // Propagate any converter from a typed collection to the resulting
-  // doc — `doc(coll<User>, 'u1')` returns `DocumentReference<User>`.
-  const conv = isHandle ? undefined : converterOf(parent);
-  const db = sandboxDb(target);
   if (isHandle) {
-    const hasNoPath = pathSegments.length === 0;
-    if (hasNoPath) {
-      throw new TypeError('doc(db, path) requires at least one path segment.');
+    const target = targetOf(parent);
+    if (pathSegments.length === 0) {
+      throw new FirebaseError(
+        'invalid-argument',
+        'Function doc() cannot be called with an empty path.',
+      );
     }
-    const path = pathSegments.join('/');
-    const built = db.doc(path);
+    const segments = parsePathSegments('doc', pathSegments);
+    if (segments.length % 2 !== 0) {
+      throw new FirebaseError(
+        'invalid-argument',
+        `Invalid document reference. Document references must have an even number of segments, but ${segments.join('/')} has ${segments.length}.`,
+      );
+    }
+    const path = segments.join('/');
+    const built = sandboxDb(target).doc(path);
     const tagged = tagSandboxRef(
       built,
       target,
@@ -65,19 +121,62 @@ export function doc<T = DocumentData>(
     );
     return registerDocumentReferenceValue<T>(tagged, path, target);
   }
+  const refKind = (parent as { type?: unknown }).type;
+  if (!refToTarget.has(parent) || (refKind !== 'collection' && refKind !== 'document')) {
+    throw new FirebaseError(
+      'invalid-argument',
+      'Expected first argument to doc() to be a Firestore, a CollectionReference or a DocumentReference',
+    );
+  }
+  const target = targetOf(parent);
+  if (refKind === 'document') {
+    if (pathSegments.length === 0) {
+      throw new FirebaseError(
+        'invalid-argument',
+        'Function doc() cannot be called with an empty path.',
+      );
+    }
+    const baseDoc = asChainDoc(underlyingOf(parent));
+    const relSegments = parsePathSegments('doc', pathSegments);
+    const allSegments = [...baseDoc.path.split('/'), ...relSegments];
+    if (allSegments.length % 2 !== 0) {
+      throw new FirebaseError(
+        'invalid-argument',
+        `Invalid document reference. Document references must have an even number of segments, but ${allSegments.join('/')} has ${allSegments.length}.`,
+      );
+    }
+    const absPath = allSegments.join('/');
+    const built = sandboxDb(target).doc(absPath);
+    const tagged = tagSandboxRef(
+      built,
+      target,
+      (fresh) => fresh.doc(absPath),
+    );
+    return registerDocumentReferenceValue<T>(tagged, absPath, target);
+  }
+  const conv = converterOf(parent);
   const coll = asChainColl(underlyingOf(parent));
-  const createsId = pathSegments.length === 0;
   let ref;
-  if (createsId) ref = coll.doc();
-  else ref = coll.doc(pathSegments.join('/'));
+  if (pathSegments.length === 0) {
+    ref = coll.doc();
+  } else {
+    const relSegments = parsePathSegments('doc', pathSegments);
+    const allSegments = [...coll.path.split('/'), ...relSegments];
+    if (allSegments.length % 2 !== 0) {
+      throw new FirebaseError(
+        'invalid-argument',
+        `Invalid document reference. Document references must have an even number of segments, but ${allSegments.join('/')} has ${allSegments.length}.`,
+      );
+    }
+    ref = coll.doc(relSegments.join('/'));
+  }
   const absPath = ref.path;
   const tagged = tagSandboxRef(
     ref,
     target,
     (fresh) => fresh.doc(absPath),
   );
-  const hasConverter = conv !== undefined && conv !== null;
-  if (hasConverter) {
+  if (conv !== undefined && conv !== null) {
     return registerDocumentReferenceValue<T>(tagged, absPath, target, conv);
   }
   return registerDocumentReferenceValue<T>(tagged, absPath, target);
@@ -92,8 +191,26 @@ export function doc<T = DocumentData>(
  * constraints as any other query.
  */
 export function collectionGroup(db: Firestore, collectionId: string): Query {
+  if (db === null || typeof db !== 'object' || !(TARGET_SYMBOL in db)) {
+    throw new FirebaseError(
+      'invalid-argument',
+      'Expected first argument to collectionGroup() to be a Firestore instance.',
+    );
+  }
   const target = targetOf(db);
-  const q = attachConverterMethod(sandboxDb(target).collectionGroup(collectionId), 'query');
+  if (typeof collectionId !== 'string' || collectionId.length === 0 || collectionId.includes('/')) {
+    throw new FirebaseError(
+      'invalid-argument',
+      `Invalid collection ID (${String(collectionId)}) passed to function collectionGroup(). Collection IDs must be non-empty strings without '/'.`,
+    );
+  }
+  let rawGroup;
+  try {
+    rawGroup = sandboxDb(target).collectionGroup(collectionId);
+  } catch (err) {
+    throw toFirestoreFirebaseError(err);
+  }
+  const q = attachConverterMethod(rawGroup, 'query');
   return tagSandboxRef(
     q as unknown as Query,
     target,
@@ -101,14 +218,28 @@ export function collectionGroup(db: Firestore, collectionId: string): Query {
   );
 }
 
-export function collection(parent: Firestore | DocumentReference, ...pathSegments: string[]): CollectionReference {
-  const target = targetOf(parent);
+export function collection(
+  parent: Firestore | CollectionReference<unknown> | DocumentReference<unknown>,
+  ...pathSegments: string[]
+): CollectionReference {
+  assertObjectParent('collection', parent);
   const isHandle = TARGET_SYMBOL in parent;
-  if (pathSegments.length === 0) {
-    throw new TypeError('collection() requires at least one path segment.');
-  }
   if (isHandle) {
-    const path = pathSegments.join('/');
+    const target = targetOf(parent);
+    if (pathSegments.length === 0) {
+      throw new FirebaseError(
+        'invalid-argument',
+        'Function collection() cannot be called with an empty path.',
+      );
+    }
+    const segments = parsePathSegments('collection', pathSegments);
+    if (segments.length % 2 !== 1) {
+      throw new FirebaseError(
+        'invalid-argument',
+        `Invalid collection reference. Collection references must have an odd number of segments, but ${segments.join('/')} has ${segments.length}.`,
+      );
+    }
+    const path = segments.join('/');
     const built = attachConverterMethod(sandboxDb(target).collection(path), 'collection');
     return tagSandboxRef(
       built as unknown as CollectionReference,
@@ -116,10 +247,31 @@ export function collection(parent: Firestore | DocumentReference, ...pathSegment
       (fresh) => fresh.collection(path) as unknown as object,
     );
   }
-  const docRef = asChainDoc(underlyingOf(parent));
-  const subPath = pathSegments.join('/');
-  const built = attachConverterMethod(docRef.collection(subPath), 'collection');
-  const absPath = (built as { path: string }).path;
+  const refKind = (parent as { type?: unknown }).type;
+  if (!refToTarget.has(parent) || (refKind !== 'document' && refKind !== 'collection')) {
+    throw new FirebaseError(
+      'invalid-argument',
+      'Expected first argument to collection() to be a Firestore, a CollectionReference or a DocumentReference',
+    );
+  }
+  const target = targetOf(parent);
+  if (pathSegments.length === 0) {
+    throw new FirebaseError(
+      'invalid-argument',
+      'Function collection() cannot be called with an empty path.',
+    );
+  }
+  const basePath = (underlyingOf(parent) as { path: string }).path;
+  const relSegments = parsePathSegments('collection', pathSegments);
+  const allSegments = [...basePath.split('/'), ...relSegments];
+  if (allSegments.length % 2 !== 1) {
+    throw new FirebaseError(
+      'invalid-argument',
+      `Invalid collection reference. Collection references must have an odd number of segments, but ${allSegments.join('/')} has ${allSegments.length}.`,
+    );
+  }
+  const absPath = allSegments.join('/');
+  const built = attachConverterMethod(sandboxDb(target).collection(absPath), 'collection');
   return tagSandboxRef(
     built as unknown as CollectionReference,
     target,

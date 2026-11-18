@@ -1,7 +1,9 @@
 {
   "name": "firestore-doc-from-collection-autoid",
-  "matrixRow": "",
-  "rowIds": [],
+  "matrixRow": "firestore#11",
+  "rowIds": [
+    "firestore#11"
+  ],
   "description": "doc(coll) with zero relative segments mints a 20-character alphanumeric auto-ID DocumentReference under coll.path while doc(db) with zero path segments throws.",
   "observedAt": "2026-11-18T06:44:49.090Z",
   "fbSdkVersion": "12.19.0",
