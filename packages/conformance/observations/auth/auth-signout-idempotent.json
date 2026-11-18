@@ -5,7 +5,7 @@
     "auth#27"
   ],
   "description": "signOut on already-signed-out auth — does prod throw, no-op, and does it fire onAuthStateChanged?",
-  "observedAt": "2026-10-30T10:45:51.179Z",
+  "observedAt": "2026-11-18T07:19:37.551Z",
   "fbSdkVersion": "12.19.0",
   "projectId": "digame-mas",
   "behavior": {
@@ -15,6 +15,10 @@
     "baselineFires": 3,
     "afterRedundantSignOut": 3,
     "redundantSignOutFiredListener": false,
-    "leakedAnonymousUid": "bhjIblkmDYXHVsUsjSf0ZSNZM133"
+    "mintedAnonymousUid": {
+      "present": true,
+      "uidLength": 28,
+      "uidMatchesPattern": true
+    }
   }
 }

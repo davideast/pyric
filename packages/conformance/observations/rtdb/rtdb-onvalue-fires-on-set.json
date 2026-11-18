@@ -5,7 +5,7 @@
     "rtdb-modular#130"
   ],
   "description": "Register an onValue listener at a path, perform a set(), observe the fire count. Locks the upstream firebase/database onValue semantics with real behavior evidence.",
-  "observedAt": "2026-10-30T16:54:54.719Z",
+  "observedAt": "2026-11-18T07:20:51.652Z",
   "fbSdkVersion": "12.19.0",
   "projectId": "digame-mas",
   "behavior": {
@@ -19,20 +19,17 @@
     "secondSetFires": 1,
     "fires": [
       {
-        "val": null,
-        "ts": 57
+        "val": null
       },
       {
         "val": {
           "v": 1
-        },
-        "ts": 505
+        }
       },
       {
         "val": {
           "v": 2
-        },
-        "ts": 1054
+        }
       }
     ]
   }

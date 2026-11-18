@@ -5,7 +5,7 @@
     "rtdb#71"
   ],
   "description": "Simulator-vs-prod allow/deny agreement audit — deploy N rules to live RTDB, run M ops per rule against prod and through the in-process engine, report per-op agreement / disagreement. Lists every divergence so the matrix can call them out.",
-  "observedAt": "2026-10-30T16:56:18.615Z",
+  "observedAt": "2026-11-18T07:21:36.647Z",
   "fbSdkVersion": "12.19.0",
   "projectId": "digame-mas",
   "behavior": {
@@ -80,7 +80,7 @@
       {
         "ruleId": "r2-own-uid",
         "opLabel": "matching uid read allowed",
-        "opPath": "/OzXSjoT2CYTP3sYadk5YQLCUWkc2/value",
+        "opPath": "/<UID>/value",
         "operation": "read",
         "authPresent": true,
         "prodAllowed": true,
@@ -93,7 +93,7 @@
       {
         "ruleId": "r2-own-uid",
         "opLabel": "matching uid write allowed",
-        "opPath": "/OzXSjoT2CYTP3sYadk5YQLCUWkc2/value",
+        "opPath": "/<UID>/value",
         "operation": "write",
         "authPresent": true,
         "prodAllowed": true,
@@ -132,7 +132,7 @@
       {
         "ruleId": "r2-own-uid",
         "opLabel": "anon read denied (no auth.uid)",
-        "opPath": "//value",
+        "opPath": "/<UID>/value",
         "operation": "read",
         "authPresent": false,
         "prodAllowed": false,
@@ -301,7 +301,7 @@
       {
         "ruleId": "r7-pathvar-binding",
         "opLabel": "matching pathvar allows",
-        "opPath": "/sessions/nhh200UtF3TKW3EtGOFOtDQyjLp2",
+        "opPath": "/sessions/<UID>",
         "operation": "read",
         "authPresent": true,
         "prodAllowed": true,
@@ -314,7 +314,7 @@
       {
         "ruleId": "r7-pathvar-binding",
         "opLabel": "matching pathvar allows write",
-        "opPath": "/sessions/nhh200UtF3TKW3EtGOFOtDQyjLp2",
+        "opPath": "/sessions/<UID>",
         "operation": "write",
         "authPresent": true,
         "prodAllowed": true,
@@ -340,7 +340,7 @@
       {
         "ruleId": "r7-pathvar-binding",
         "opLabel": "anon denied (no auth.uid)",
-        "opPath": "/sessions/",
+        "opPath": "/sessions/<UID>",
         "operation": "read",
         "authPresent": false,
         "prodAllowed": false,

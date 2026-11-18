@@ -5,22 +5,28 @@
     "auth#31"
   ],
   "description": "onAuthStateChanged dedup — subscribe then immediately (same tick) trigger a sign-in; matrix claims 1 fire (new value), not 2 (initial-null replay + new). Probe counts fires after enough time for both to settle.",
-  "observedAt": "2026-10-30T12:08:09.494Z",
+  "observedAt": "2026-11-18T07:20:19.675Z",
   "fbSdkVersion": "12.19.0",
   "projectId": "digame-mas",
   "behavior": {
     "totalFires": 2,
     "sawInitialNull": true,
     "sawNewUser": true,
-    "newUid": "TGE13WWBdPZZTZl62oCLRrMNbxJ2",
+    "newUid": {
+      "present": true,
+      "uidLength": 28,
+      "uidMatchesPattern": true
+    },
     "fires": [
       {
-        "uid": null,
-        "ts": 1
+        "userSlot": null,
+        "uidLength": null,
+        "uidMatchesPattern": false
       },
       {
-        "uid": "TGE13WWBdPZZTZl62oCLRrMNbxJ2",
-        "ts": 549
+        "userSlot": 1,
+        "uidLength": 28,
+        "uidMatchesPattern": true
       }
     ]
   }

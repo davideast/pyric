@@ -5,7 +5,7 @@
     "rtdb-modular#129"
   ],
   "description": "onValue on a NONEXISTENT path — does it fire at all? Locks the RTDB-vs-Firestore divergence: Firestore fires with exists=false; RTDB fires with val=null (or might not fire at all).",
-  "observedAt": "2026-10-30T16:55:11.321Z",
+  "observedAt": "2026-11-18T07:20:55.495Z",
   "fbSdkVersion": "12.19.0",
   "projectId": "digame-mas",
   "behavior": {
@@ -15,8 +15,7 @@
     "initialFires": 1,
     "firstFire": {
       "val": null,
-      "exists": false,
-      "ts": 53
+      "exists": false
     },
     "firedOnEmptyPath": true,
     "firstFireVal": null,
