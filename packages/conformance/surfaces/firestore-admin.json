@@ -10,7 +10,9 @@
   ],
   "coverage": false,
   "scopeNote": "The firebase-admin Firestore plane (pyric-admin/firestore: getFirestore, chainable CollectionReference/DocumentReference/Query CRUD, WriteBatch, Transaction, FieldValue, FieldPath, Timestamp, and rules-bypass app handles). Its rows share the firestore registry and are tracked without a client runtime census.",
-  "captureRigs": [],
+  "captureRigs": [
+    "sdk-probes"
+  ],
   "climb": true,
   "registry": "firestore"
 }
