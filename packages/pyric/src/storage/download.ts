@@ -30,13 +30,12 @@ import type { StoredMetadata } from './persistence.js';
  * `ArrayBuffer`. Honors the optional `maxDownloadSizeBytes` cap by
  * truncating to that length.
  */
-export async function getBytes(
+export function getBytes(
   ref: StorageReference,
   maxDownloadSizeBytes?: number,
 ): Promise<ArrayBuffer> {
   guardNonRoot(ref, 'getBytes');
-  const blob = await fetchBlob(ref, maxDownloadSizeBytes);
-  return blob.arrayBuffer();
+  return fetchBlob(ref, maxDownloadSizeBytes).then((blob) => blob.arrayBuffer());
 }
 
 /**

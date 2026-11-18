@@ -57,9 +57,8 @@ export function decodeValidUtf8OrNull(bytes: Uint8Array): string | null {
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: ['web-config'],
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'storage#39, #40',
+  rowIds: ['storage#39', 'storage#40'],
   description:
     'firebase/storage uploadString(ref, value, format?): observes default and explicit format="raw" UTF-8 encoding and default contentType alongside format="base64" binary decoding.',
   async observe() {

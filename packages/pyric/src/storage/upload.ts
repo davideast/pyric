@@ -171,23 +171,30 @@ export async function uploadObjectReplacing(
  * Upload a string in one of three formats:
  *
  *   - `raw` (default): UTF-8 text. Defaults `contentType` to
- *     `text/plain;charset=utf-8` if neither metadata nor the data
- *     specify one.
+ *     `application/octet-stream` unless caller `metadata.contentType` sets one.
  *   - `base64`: standard base64-encoded bytes.
- *   - `data_url`: a `data:` URL — the MIME prefix is honored as
+ *   - `data_url`: a `data:` URL -- the MIME prefix is honored as
  *     `contentType` unless the caller overrides it explicitly.
  */
-export async function uploadString(
+export function uploadString(
   ref: StorageReference,
   value: string,
   format: StringFormat = 'raw',
   metadata?: SettableMetadata,
   provenance?: EventProvenance,
 ): Promise<UploadResult> {
+  guardNonRoot(ref, 'uploadString');
   const { bytes, inferredType } = decodeString(value, format);
+  let resolvedContentType = defaultRawContentType(format);
+  if (inferredType !== undefined) {
+    resolvedContentType = inferredType;
+  }
+  if (metadata?.contentType !== undefined) {
+    resolvedContentType = metadata.contentType;
+  }
   const effective: SettableMetadata = {
     ...metadata,
-    contentType: metadata?.contentType ?? inferredType ?? defaultRawContentType(format),
+    contentType: resolvedContentType,
   };
   return uploadBytes(ref, bytes, effective, provenance);
 }
@@ -333,8 +340,8 @@ function base64ToBytes(b64: string): Uint8Array {
   return out;
 }
 
-export function defaultRawContentType(format: StringFormat): string {
-  return format === 'raw' ? 'text/plain;charset=utf-8' : OCTET;
+export function defaultRawContentType(_format: StringFormat): string {
+  return OCTET;
 }
 
 function guardNonRoot(ref: StorageReference, op: string): void {

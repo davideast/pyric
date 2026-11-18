@@ -1,7 +1,10 @@
 {
   "name": "storage-uploadstring-raw-and-base64",
-  "matrixRow": "",
-  "rowIds": [],
+  "matrixRow": "storage#39, #40",
+  "rowIds": [
+    "storage#39",
+    "storage#40"
+  ],
   "description": "firebase/storage uploadString(ref, value, format?): observes default and explicit format=\"raw\" UTF-8 encoding and default contentType alongside format=\"base64\" binary decoding.",
   "observedAt": "2026-11-18T08:40:28.250Z",
   "fbSdkVersion": "12.19.0",
