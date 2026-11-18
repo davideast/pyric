@@ -1,7 +1,9 @@
 {
   "name": "firestore-snapshot-get-dotted-and-fieldpath",
-  "matrixRow": "",
-  "rowIds": [],
+  "matrixRow": "firestore#22a",
+  "rowIds": [
+    "firestore#22a"
+  ],
   "description": "DocumentSnapshot.get(fieldPath) resolves dotted string paths and FieldPath instances (including literal-dot keys and falsy scalar values), returning undefined on missing documents or absent fields.",
   "observedAt": "2026-11-18T11:05:51.562Z",
   "fbSdkVersion": "12.19.0",

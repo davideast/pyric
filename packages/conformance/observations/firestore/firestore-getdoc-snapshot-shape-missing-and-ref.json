@@ -1,7 +1,12 @@
 {
   "name": "firestore-getdoc-snapshot-shape-missing-and-ref",
-  "matrixRow": "",
-  "rowIds": [],
+  "matrixRow": "firestore#16",
+  "rowIds": [
+    "firestore#16",
+    "firestore#17",
+    "firestore#18",
+    "firestore#19"
+  ],
   "description": "getDoc(ref) returns a DocumentSnapshot with id, exists() method, data() (undefined when missing), and a tagged snap.ref usable in follow-up updateDoc, getDoc, and deleteDoc calls.",
   "observedAt": "2026-11-18T11:05:37.596Z",
   "fbSdkVersion": "12.19.0",

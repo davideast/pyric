@@ -68,7 +68,8 @@ function docRefOnRoot(rootDb: SandboxFirestore, path: string): DocumentReference
   return wrapDocRef(rawRoot.doc(path), rootDb);
 }
 
-export const adminOnSnapshot = createAdminOnSnapshot(docRefOnRoot);
+export const adminOnSnapshot = createAdminOnSnapshot(docRefOnRoot, false);
+const adminInstanceOnSnapshot = createAdminOnSnapshot(docRefOnRoot, true);
 
 function wrapQueryMethods(
   target: Query,
@@ -184,7 +185,10 @@ function wrapQuery(
         const underlying = Reflect.get(t, prop, t);
         if (typeof underlying === 'function') {
           return (...args: unknown[]) =>
-            (adminOnSnapshot as (ref: unknown, ...rest: unknown[]) => Unsubscribe)(receiver, ...args);
+            (adminInstanceOnSnapshot as (ref: unknown, ...rest: unknown[]) => Unsubscribe)(
+              receiver,
+              ...args,
+            );
         }
       }
       const queryMethod = wrapQueryMethods(t, prop, rootDb, meta);
@@ -234,7 +238,10 @@ function wrapCollectionRef(
         const underlying = Reflect.get(t, prop, t);
         if (typeof underlying === 'function') {
           return (...args: unknown[]) =>
-            (adminOnSnapshot as (ref: unknown, ...rest: unknown[]) => Unsubscribe)(receiver, ...args);
+            (adminInstanceOnSnapshot as (ref: unknown, ...rest: unknown[]) => Unsubscribe)(
+              receiver,
+              ...args,
+            );
         }
       }
       const queryMethod = wrapQueryMethods(t, prop, rootDb, meta);
@@ -304,7 +311,10 @@ function wrapDocRef(rawRef: DocumentReference, rootDb: SandboxFirestore): Docume
           const underlying = Reflect.get(t, prop, t);
           if (typeof underlying === 'function') {
             return (...args: unknown[]) =>
-              (adminOnSnapshot as (ref: unknown, ...rest: unknown[]) => Unsubscribe)(receiver, ...args);
+              (adminInstanceOnSnapshot as (ref: unknown, ...rest: unknown[]) => Unsubscribe)(
+                receiver,
+                ...args,
+              );
           }
           return underlying;
         }

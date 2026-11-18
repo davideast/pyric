@@ -162,9 +162,8 @@ export async function observeFirestoreAdminQueriesAndSnapshots(
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: ['admin-firestore'],
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'firestore-admin#7',
+  rowIds: ['firestore-admin#7'],
   description:
     'firebase-admin/firestore Query.where, orderBy, limit, limitToLast (including missing-orderBy rejection), collectionGroup discovery across nested subcollections, and DocumentReference/Query onSnapshot initial and live update deliveries.',
   async observe(): Promise<Record<string, unknown>> {

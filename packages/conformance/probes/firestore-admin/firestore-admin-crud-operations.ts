@@ -146,9 +146,8 @@ export async function observeFirestoreAdminCrud(
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: ['admin-firestore'],
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'firestore-admin#4',
+  rowIds: ['firestore-admin#4'],
   description:
     'firebase-admin/firestore DocumentReference CRUD: get() on missing and existing docs, create() already-exists rejection, set() full replace vs merge vs mergeFields (including literal-dot FieldPath), update() map and variadic field/value pairs with missing-doc not-found rejection, and idempotent delete().',
   async observe(): Promise<Record<string, unknown>> {
