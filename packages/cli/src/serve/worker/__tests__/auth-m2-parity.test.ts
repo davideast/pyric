@@ -463,7 +463,7 @@ describe('Web SharedWorker Auth Parity & Bridge RPCs (M2)', () => {
     unsub();
   });
 
-  it('7. onAuthStateChanged suppresses same-UID mutations while onIdTokenChanged fires on reload, updateEmail, updatePassword, and updateProfile', async () => {
+  it('7. onAuthStateChanged suppresses same-UID mutations while onIdTokenChanged fires on reload, updateEmail, and updatePassword (not updateProfile)', async () => {
     const { clientAuth } = await createTestHarness();
 
     const cred = await createUserWithEmailAndPassword(clientAuth, 'observer@example.com', 'password123');
@@ -505,12 +505,12 @@ describe('Web SharedWorker Auth Parity & Bridge RPCs (M2)', () => {
     expect(authStateCount).toBe(1);
     expect(idTokenCount).toBe(4);
 
-    // updateProfile(user) — same UID: authState must NOT fire, idToken MUST fire
+    // updateProfile(user) mutates user/currentUser in place without minting a new ID token (0 extra fires; auth-updateprofile-in-place-and-persistence.json)
     await updateProfile(user, { displayName: 'Observer Updated Name' });
     await tick(20);
     expect(authStateCount).toBe(1);
-    expect(idTokenCount).toBe(5);
-    expect(lastIdTokenUser?.displayName).toBe('Observer Updated Name');
+    expect(idTokenCount).toBe(4);
+    expect(clientAuth.currentUser?.displayName).toBe('Observer Updated Name');
 
     unsubAuthState();
     unsubIdToken();

@@ -60,15 +60,20 @@ describe('updateProfile — sandbox', () => {
     expect(record?.photoUrl).toBe('http://example.com/bob.png');
   });
 
-  it('null clears a field; an omitted field is untouched', async () => {
+  it('null and undefined leave fields intact; empty string clears to null', async () => {
     const sandbox = initializeSandbox();
     const auth = getAuth(sandbox);
     const cred = await createUserWithEmailAndPassword(auth, 'carol@example.com', 'password123');
 
     await updateProfile(cred.user, { displayName: 'Carol', photoURL: 'http://example.com/c.png' });
-    // Clear displayName only; photoURL omitted → untouched.
+    // Matches live Identity Toolkit /v1/accounts:update (`auth-updateprofile-in-place-and-persistence.json`):
+    // client updateProfile sends `{ displayName, photoUrl }` without `deleteAttribute`, so `null` and
+    // `undefined` leave the stored field intact while `""` clears to `null`.
     await updateProfile(cred.user, { displayName: null });
+    expect(auth.currentUser?.displayName).toBe('Carol');
+    expect(auth.currentUser?.photoURL).toBe('http://example.com/c.png');
 
+    await updateProfile(cred.user, { displayName: '' });
     expect(auth.currentUser?.displayName).toBeNull();
     expect(auth.currentUser?.photoURL).toBe('http://example.com/c.png');
   });

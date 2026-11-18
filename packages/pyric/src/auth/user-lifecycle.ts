@@ -1,6 +1,7 @@
 /** Auth observers, token accessors, and user lifecycle operations. */
 import { makeAuthError } from './sandbox-backend.js';
 import { assertMatchingTenant } from './sandbox/tenant-isolation.js';
+import { normalizeClientProfileUpdate } from './sandbox/user-info-projection.js';
 import { targetOf } from './target.js';
 import {
   USER_INTERNAL,
@@ -55,7 +56,12 @@ export async function updateProfile(
   user: User,
   profile: { displayName?: string | null; photoURL?: string | null },
 ): Promise<void> {
-  return userInternal(user, 'updateProfile').updateProfile(profile);
+  const internal = userInternal(user, 'updateProfile');
+  const normalized = normalizeClientProfileUpdate(profile);
+  if (normalized.displayName === undefined && normalized.photoURL === undefined) {
+    return;
+  }
+  return internal.updateProfile(normalized);
 }
 
 export async function deleteUser(user: User): Promise<void> {

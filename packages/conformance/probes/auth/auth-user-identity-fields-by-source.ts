@@ -4,9 +4,8 @@ import { withClientAuthProbeSession } from '../../src/auth-user-probe-session.ts
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: ['web-config', 'admin-auth'],
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'auth#57',
+  rowIds: ['auth#57'],
   description:
     'user.uid, user.email, user.displayName, and user.isAnonymous reflect the sign-in source across anonymous and email/password users.',
   async observe() {

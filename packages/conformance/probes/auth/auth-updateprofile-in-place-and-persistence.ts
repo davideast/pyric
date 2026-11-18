@@ -4,9 +4,8 @@ import { withClientAuthProbeSession } from '../../src/auth-user-probe-session.ts
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: ['web-config', 'admin-auth'],
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'auth#62',
+  rowIds: ['auth#62'],
   description:
     'updateProfile(user, { displayName, photoURL }) mutates the held User and stored record in place (null clears a field, omitted fields stay intact) without an extra onAuthStateChanged fire and survives signOut -> signInWithEmailAndPassword.',
   async observe() {

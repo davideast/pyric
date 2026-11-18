@@ -40,6 +40,8 @@ export function load(name: string): Behavior {
   let surface = 'firestore';
   if (name.startsWith('rtdb-modular-')) {
     surface = 'rtdb-modular';
+  } else if (name.startsWith('auth-')) {
+    surface = 'auth';
   }
   return JSON.parse(readFileSync(join(OBSERVATIONS, surface, `${name}.json`), 'utf8')).behavior as Behavior;
 }

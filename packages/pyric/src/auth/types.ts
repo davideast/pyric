@@ -55,6 +55,8 @@ export interface IdTokenResult {
    * is backend-owned.
    */
   signInProvider?: string | null;
+  /** Second factor identifier when MFA completed the session, or `null`. */
+  signInSecondFactor?: string | null;
 }
 
 /**

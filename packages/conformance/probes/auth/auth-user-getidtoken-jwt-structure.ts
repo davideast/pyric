@@ -8,9 +8,8 @@ import {
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: ['web-config', 'admin-auth'],
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'auth#54',
+  rowIds: ['auth#54'],
   description:
     'user.getIdToken() returns a three-segment base64url JWT (alg RS256, typ JWT, non-empty kid) whose decoded payload matches user.getIdTokenResult().claims.',
   async observe() {

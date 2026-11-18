@@ -1,11 +1,24 @@
 import { describe, expect, test } from 'bun:test';
+import { observationExceptions } from '../../exceptions/load.ts';
+import { listProbeFiles } from '../../probes/load.ts';
+import { allCompatibilityRows } from '../../registry/index.ts';
+import { loadRigManifests } from '../../rigs/load.ts';
+import { ALL_RULES_FIRESTORE_SCENARIOS } from '../../rules-corpus/firestore/index.ts';
+import {
+  ALL_RULES_RTDB_DEPLOY_SCENARIOS,
+  ALL_RULES_RTDB_SCENARIOS,
+} from '../../rules-corpus/rtdb/index.ts';
+import { ALL_RULES_STORAGE_SCENARIOS } from '../../rules-corpus/storage/index.ts';
 import { decodeJwtParts, deepEqualJsonValues } from '../../src/auth-user-probe-session.ts';
+import { loadObservations } from '../../src/ledger.ts';
 import {
   loadModularProbes,
   printModularProbePreview,
   selectModularProbes,
 } from '../../src/sdk-probes.ts';
-import { expectStagedUntilCaptured } from './staged-capture-assertions.ts';
+import { loadPendingRowLinkObservations } from '../../src/staged-captures.ts';
+import { validateCompatibilityRegistry } from '../../src/validate-registry.ts';
+import { surfaceDescriptors } from '../../surfaces/load.ts';
 import { probe as updateProfileProbe } from '../../probes/auth/auth-updateprofile-in-place-and-persistence.ts';
 import { probe as emailVerifiedProbe } from '../../probes/auth/auth-user-email-verified-passthrough.ts';
 import { probe as getIdTokenJwtProbe } from '../../probes/auth/auth-user-getidtoken-jwt-structure.ts';
@@ -13,57 +26,41 @@ import { probe as getIdTokenResultProbe } from '../../probes/auth/auth-user-geti
 import { probe as identityFieldsProbe } from '../../probes/auth/auth-user-identity-fields-by-source.ts';
 import { probe as photoPhoneProviderProbe } from '../../probes/auth/auth-user-photo-phone-and-provider-data.ts';
 
-const AUTH_USER_PROBE_IDS = [
-  'auth-updateprofile-in-place-and-persistence',
-  'auth-user-email-verified-passthrough',
-  'auth-user-getidtoken-jwt-structure',
-  'auth-user-getidtokenresult-claims-shape',
-  'auth-user-identity-fields-by-source',
-  'auth-user-photo-phone-and-provider-data',
+const EXPECTED_AUTH_USER_PROBES = [
+  ['auth-user-getidtoken-jwt-structure', getIdTokenJwtProbe, 'auth#54', ['auth#54']],
+  ['auth-user-getidtokenresult-claims-shape', getIdTokenResultProbe, 'auth#56', ['auth#56']],
+  ['auth-user-identity-fields-by-source', identityFieldsProbe, 'auth#57', ['auth#57']],
+  ['auth-user-email-verified-passthrough', emailVerifiedProbe, 'auth#58', ['auth#58']],
+  [
+    'auth-user-photo-phone-and-provider-data',
+    photoPhoneProviderProbe,
+    'auth#58a',
+    ['auth#58a', 'auth#58b'],
+  ],
+  ['auth-updateprofile-in-place-and-persistence', updateProfileProbe, 'auth#62', ['auth#62']],
 ] as const;
 
-describe('Auth User methods staged probes (sdk-probes)', () => {
-  test('registers all 6 Auth User method probes on sdk-probes with pendingRowLink and empty rowIds', async () => {
+describe('Auth User methods linked probes (sdk-probes)', () => {
+  test('registers all 6 Auth User method probes on sdk-probes linked to their target registry rows', async () => {
     const loaded = await loadModularProbes('sdk-probes');
-    const loadedIds = loaded.map((entry) => entry.id);
-    for (const id of AUTH_USER_PROBE_IDS) {
-      expect(loadedIds).toContain(id);
-    }
-
-    const probes = [
-      updateProfileProbe,
-      emailVerifiedProbe,
-      getIdTokenJwtProbe,
-      getIdTokenResultProbe,
-      identityFieldsProbe,
-      photoPhoneProviderProbe,
-    ];
-    for (const probeRecord of probes) {
-      expect(probeRecord.rig).toBe('sdk-probes');
-      expect(probeRecord.requires).toEqual(['web-config', 'admin-auth']);
-      expect(probeRecord.pendingRowLink).toBe(true);
-      expect(probeRecord.matrixRow).toBe('');
-      expect(probeRecord.rowIds).toEqual([]);
-      expect(probeRecord.description.length).toBeGreaterThan(20);
-    }
-
     const unfilteredIds = new Set(
       selectModularProbes(loaded, [], 'sdk-probes', {
         includeUncapturedStaged: false,
       }).map((entry) => entry.id),
     );
 
-    expectStagedUntilCaptured(AUTH_USER_PROBE_IDS, {
-      rig: 'sdk-probes',
-      filterFlag: '--probe',
-      filterValueFor: (name) => name,
-      whenUncaptured(name) {
-        expect(unfilteredIds.has(name)).toBe(false);
-      },
-      whenCaptured(name) {
-        expect(unfilteredIds.has(name)).toBe(true);
-      },
-    });
+    for (const [id, probeRecord, expectedMatrixRow, expectedRowIds] of EXPECTED_AUTH_USER_PROBES) {
+      const found = loaded.find((entry) => entry.id === id);
+      expect(found, `missing modular probe ${id}`).toBeDefined();
+      expect(found?.probe).toBe(probeRecord);
+      expect(probeRecord.rig).toBe('sdk-probes');
+      expect(probeRecord.requires).toEqual(['web-config', 'admin-auth']);
+      expect(probeRecord.pendingRowLink).toBeUndefined();
+      expect(probeRecord.matrixRow).toBe(expectedMatrixRow);
+      expect(probeRecord.rowIds).toEqual([...expectedRowIds]);
+      expect(probeRecord.description.length).toBeGreaterThan(20);
+      expect(unfilteredIds.has(id)).toBe(true);
+    }
 
     const lines: string[] = [];
     printModularProbePreview({
@@ -73,6 +70,51 @@ describe('Auth User methods staged probes (sdk-probes)', () => {
       log: (line) => lines.push(line),
     });
     expect(lines.some((line) => line.includes('auth-user-getidtoken-jwt-structure'))).toBe(true);
+  });
+
+  test('links all 6 committed observations to 7 oracle-backed registry rows with zero validation problems', async () => {
+    const existingObservations = loadObservations();
+    const obsByName = new Map(existingObservations.map((obs) => [obs.name, obs]));
+    const rowsById = new Map(allCompatibilityRows.map((row) => [row.id, row]));
+
+    for (const [id, , expectedMatrixRow, expectedRowIds] of EXPECTED_AUTH_USER_PROBES) {
+      const obs = obsByName.get(id);
+      expect(obs, `missing committed observation ${id}`).toBeDefined();
+      expect(obs?.matrixRow).toBe(expectedMatrixRow);
+      expect(obs?.rowIds).toEqual([...expectedRowIds]);
+
+      for (const rowId of expectedRowIds) {
+        const row = rowsById.get(rowId);
+        expect(row, `missing compatibility row ${rowId}`).toBeDefined();
+        expect(row?.automation).toBe('oracle-backed');
+        expect(row?.oracleObservations).toContain(id);
+      }
+    }
+
+    const rigManifests = await loadRigManifests();
+    const probeFiles = listProbeFiles();
+    const pendingRowLinkObservations = loadPendingRowLinkObservations();
+    const rulesFirestoreScenarioIds = ALL_RULES_FIRESTORE_SCENARIOS.map((s) => s.id);
+    const rulesStorageScenarioIds = ALL_RULES_STORAGE_SCENARIOS.map((s) => s.id);
+    const rulesRtdbScenarioIds = [
+      ...ALL_RULES_RTDB_SCENARIOS.map((s) => s.id),
+      ...ALL_RULES_RTDB_DEPLOY_SCENARIOS.map((s) => s.id),
+    ];
+
+    expect(
+      validateCompatibilityRegistry({
+        rows: allCompatibilityRows,
+        descriptors: surfaceDescriptors,
+        observations: existingObservations,
+        observationExceptions,
+        rigManifests,
+        probeFiles,
+        rulesFirestoreScenarioIds,
+        rulesStorageScenarioIds,
+        rulesRtdbScenarioIds,
+        pendingRowLinkObservations,
+      }),
+    ).toEqual([]);
   });
 
   test('decodes base64url JWT segments and compares nested JSON claim objects independent of key order', () => {

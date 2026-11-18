@@ -14,10 +14,13 @@ import type {
   ResolvedIdentity,
   OpMessage,
 } from '../protocol.js';
-import type { SerializedAuthCredential } from '../protocol/auth.js';
-import type { AuthCredential } from 'pyric/auth';
 import { FirebaseError } from 'pyric/app';
 import { absolutePhotoUrl, realmOrigin } from 'pyric/sandbox/internal';
+import {
+  credentialWire,
+  normalizeWorkerProfileUpdate,
+  type SignInCredential,
+} from './auth-credential-wire.js';
 import { closeSubscription, isDisconnectedPort, nextId, nextSubId, openSnapshotSubscription, rpc, wirePort } from './core.js';
 import type { ClientDb, ClientPort, Unsubscribe } from './handles.js';
 
@@ -95,6 +98,7 @@ const CLIENT_USER_PORT: unique symbol = Symbol('pyric.clientUser.port');
 /** Hidden per-`ClientUser` worker session key ({@link SerializedUser.sessionKey}).
  *  Non-enumerable, like the port. */
 const CLIENT_USER_SESSION_KEY: unique symbol = Symbol('pyric.clientUser.sessionKey');
+const authHandlesByPort = new WeakMap<ClientPort, Set<ClientAuth>>();
 
 /** The worker session key `user` carries, which a page stores to resume the
  *  session after a reload; undefined when the worker sent none. */
@@ -239,6 +243,13 @@ export function getAuth(source: ClientDb | string | URL, name?: string): ClientA
     },
   }, { t: 'sub', subId, target: 'idToken' } satisfies InboundMessage);
 
+  let registered = authHandlesByPort.get(port);
+  if (registered === undefined) {
+    registered = new Set<ClientAuth>();
+    authHandlesByPort.set(port, registered);
+  }
+  registered.add(auth);
+
   return auth;
 }
 
@@ -286,6 +297,7 @@ export async function signInAnonymously(auth: ClientAuth): Promise<ClientUserCre
   return hydrateCred(auth, raw);
 }
 
+/** @public */
 export async function signInWithCustomToken(auth: ClientAuth, customToken: string): Promise<ClientUserCredential> {
   const raw = await rpc(auth.port, { t: 'op', id: nextId(), method: 'auth.signInWithCustomToken',
     customToken, tenantId: auth.tenantId }) as SerializedUserCredential;
@@ -502,14 +514,29 @@ export async function updateProfile(
   profile: { displayName?: string | null; photoURL?: string | null },
 ): Promise<void> {
   const port = requireUserPort(user, 'updateProfile');
+  const normalized = normalizeWorkerProfileUpdate(profile);
+  if (normalized.displayName === undefined && normalized.photoURL === undefined) {
+    return;
+  }
   const raw = (await rpc(port, {
-    t: 'op', id: nextId(), method: 'auth.updateProfile',
-    displayName: profile.displayName, photoURL: profile.photoURL,
+    t: 'op',
+    id: nextId(),
+    method: 'auth.updateProfile',
+    displayName: normalized.displayName,
+    photoURL: normalized.photoURL,
   })) as SerializedUser;
   const mutable = user as { -readonly [K in keyof ClientUser]: ClientUser[K] };
   mutable.displayName = raw.displayName;
   mutable.photoURL = absolutePhotoUrl(raw.photoURL, realmOrigin());
   mutable.providerData = raw.providerData;
+  const handles = authHandlesByPort.get(port);
+  if (handles !== undefined) {
+    for (const authHandle of handles) {
+      if (authHandle.currentUser !== null && authHandle.currentUser.uid === raw.uid) {
+        reconcileClientUser(authHandle, raw);
+      }
+    }
+  }
 }
 
 export async function reload(user: ClientUser): Promise<void> {
@@ -563,20 +590,6 @@ export async function updateCurrentUser(
   reconcileClientUser(auth, raw);
 }
 
-/** The fields of an `AuthCredential` the served client reads. */
-type SignInCredential = {
-  providerId: string;
-  signInMethod?: string;
-  toJSON?: () => Record<string, unknown>;
-};
-
-/**
- * Credential sign-in (`auth.signInWithCredential`) over the SharedWorker.
- * An email credential crosses as `toJSON()`, which carries its password or
- * link, so the host can check it. A federated credential sends only its
- * provider and sign-in method: the host signs in as the result staged for
- * that provider and reads nothing else from it.
- */
 export async function signInWithCredential(
   auth: ClientAuth,
   credential: SignInCredential,
@@ -591,39 +604,7 @@ export async function signInWithCredential(
   return hydrateCred(auth, raw);
 }
 
-type CredentialWire = NonNullable<Extract<OpMessage, { method: 'auth.signInWithCredential' }>['credential']>;
-
-/** A credential with no sign-in method sends an empty one, which the host refuses. */
-function credentialWire(credential: SignInCredential): CredentialWire {
-  const isEmailCredential = credential.providerId === 'password';
-  if (isEmailCredential) {
-    const serialized = credential.toJSON?.() ?? {};
-    return { ...serialized, providerId: credential.providerId, signInMethod: credential.signInMethod ?? '' };
-  }
-  return federatedCredentialWire(credential);
-}
-
-/** A federated credential as the host reads it: its provider and, when it has one, its sign-in method. */
-function federatedCredentialWire(credential: { providerId: string; signInMethod?: string }): {
-  providerId: string;
-  signInMethod?: string;
-} {
-  const { providerId, signInMethod } = credential;
-  return signInMethod === undefined ? { providerId } : { providerId, signInMethod };
-}
-
-/**
- * A credential a signed-in user links or reauthenticates with, as it crosses
- * to the host: an email credential as `toJSON()`, with the password or link
- * the engine verifies, and any other as its provider and sign-in method, all
- * the host's `AuthCredential.fromJSON` reads.
- */
-export function credentialWireOf(credential: AuthCredential): SerializedAuthCredential {
-  const { providerId, signInMethod } = credential;
-  if (providerId === 'password') return { ...credential.toJSON(), providerId, signInMethod };
-  return { providerId, signInMethod };
-}
-
+/** @public */
 export function beforeAuthStateChanged(): never {
   const err = new Error(
     'beforeAuthStateChanged is not supported over the SharedWorker yet.',

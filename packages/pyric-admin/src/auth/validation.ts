@@ -257,7 +257,7 @@ export function mintSandboxCustomToken(
  * `null`s become `undefined` because a fresh user has nothing to clear.
  */
 export function toSandboxCreateRequest(props: CreateRequest): SandboxCreateUserRequest {
-  return {
+  const req: SandboxCreateUserRequest = {
     uid: props.uid,
     email: props.email,
     password: props.password,
@@ -267,6 +267,10 @@ export function toSandboxCreateRequest(props: CreateRequest): SandboxCreateUserR
     disabled: props.disabled,
     emailVerified: props.emailVerified,
   };
+  if (typeof props.phoneNumber === 'string' && props.phoneNumber.length > 0) {
+    req.providerUserInfo = [{ providerId: 'phone' }];
+  }
+  return req;
 }
 
 function formatTokensValidAfterTime(r: AuthUserRecord): string | undefined {
@@ -296,15 +300,23 @@ export function fromAuthUserRecord(r: AuthUserRecord): UserRecord {
     lastSignInTime,
     toJSON: () => ({ creationTime: r.createdAt, lastSignInTime }),
   };
-  const providerData: UserInfo[] = r.providerUserInfo.map((p) => ({
-    providerId: p.providerId,
-    uid: r.uid,
-    displayName: r.displayName ?? undefined,
-    email: r.email ?? undefined,
-    photoURL: r.photoUrl ?? undefined,
-    phoneNumber: r.phoneNumber ?? undefined,
-    toJSON: () => ({ providerId: p.providerId, uid: r.uid }),
-  }));
+  const providerData: UserInfo[] = r.providerUserInfo.map((p) => {
+    let providerUid = r.uid;
+    if (p.providerId === 'password' && r.email !== null) {
+      providerUid = r.email;
+    } else if (p.providerId === 'phone' && r.phoneNumber !== null) {
+      providerUid = r.phoneNumber;
+    }
+    return {
+      providerId: p.providerId,
+      uid: providerUid,
+      displayName: r.displayName ?? undefined,
+      email: r.email ?? undefined,
+      photoURL: r.photoUrl ?? undefined,
+      phoneNumber: r.phoneNumber ?? undefined,
+      toJSON: () => ({ providerId: p.providerId, uid: providerUid }),
+    };
+  });
   let customClaims: Record<string, unknown> | undefined;
   if (Object.keys(r.customClaims).length > 0) {
     customClaims = r.customClaims as Record<string, unknown>;
