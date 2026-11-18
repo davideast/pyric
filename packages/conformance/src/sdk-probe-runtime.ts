@@ -8,6 +8,9 @@
  * `installOracleSignalRestoreGuard` for 3-attempt verified rules restoration on
  * completion or `SIGINT`/`SIGTERM`, and cleans up data/users in `finally`.
  */
+import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { dirname, join, relative } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import type { FirebaseApp, FirebaseOptions } from 'firebase/app';
 import type { Database } from 'firebase/database';
 import type { Firestore } from 'firebase/firestore';
@@ -137,13 +140,15 @@ export async function withFirestoreProbeSession(
 ): Promise<Record<string, unknown>> {
   const [
     { deleteApp, initializeApp },
-    { deleteUser, getAuth, signInAnonymously },
+    { deleteUser, getAuth },
+    { signInOracleClientAuth },
     firestoreSdk,
     adminAppMod,
     { getFirestore: getAdminFirestore },
   ] = await Promise.all([
     import('firebase/app'),
     import('firebase/auth'),
+    import('./oracle-run-auth-session.ts'),
     import('firebase/firestore'),
     import('firebase-admin/app'),
     import('firebase-admin/firestore'),
@@ -174,7 +179,7 @@ export async function withFirestoreProbeSession(
       if (outcome !== 'already-configured') {
         await new Promise((resolve) => setTimeout(resolve, 10_000));
       }
-      await signInAnonymously(clientAuth);
+      await signInOracleClientAuth(clientAuth, sa, `sdk-fs-${runId}`);
       try {
         return await runProbe({
           runId,
@@ -223,18 +228,25 @@ interface RtdbProbeSessionOptions {
   runRules?: Record<string, unknown>;
   /** Propagation settle time in ms after merging `runRules`. Defaults to 5000. */
   propagationMs?: number;
+  /** Client auth mode; defaults to `'custom-token'` unless `'anonymous'` is requested. */
+  authMode?: 'custom-token' | 'anonymous';
 }
 
 export async function withRtdbProbeSession(
   options: RtdbProbeSessionOptions,
   runProbe: (ctx: RtdbProbeContext) => Promise<Record<string, unknown>>,
 ): Promise<Record<string, unknown>> {
-  const [{ deleteApp, initializeApp }, { deleteUser, getAuth, signInAnonymously }, rtdbSdk] =
-    await Promise.all([
-      import('firebase/app'),
-      import('firebase/auth'),
-      import('firebase/database'),
-    ]);
+  const [
+    { deleteApp, initializeApp },
+    { deleteUser, getAuth, signInAnonymously },
+    { retryAuthTooManyRequests, signInOracleClientAuth },
+    rtdbSdk,
+  ] = await Promise.all([
+    import('firebase/app'),
+    import('firebase/auth'),
+    import('./oracle-run-auth-session.ts'),
+    import('firebase/database'),
+  ]);
 
   const sa = await loadOracleServiceAccount();
   const webConfig = await resolveProbeWebConfig(sa);
@@ -266,11 +278,22 @@ export async function withRtdbProbeSession(
       { ...(webConfig as FirebaseOptions), databaseURL: databaseUrl },
       `sdk-probe-${runId}-${label}`,
     );
-    const cred = await signInAnonymously(getAuth(app));
+    const clientAuth = getAuth(app);
+    if (options.authMode === 'anonymous') {
+      await retryAuthTooManyRequests(`sdk-rtdb-${runId}-${label}`, () =>
+        signInAnonymously(clientAuth),
+      );
+    } else {
+      await signInOracleClientAuth(clientAuth, sa, `sdk-rtdb-${runId}-${label}`);
+    }
+    const signedIn = clientAuth.currentUser;
+    if (!signedIn) {
+      throw new Error(`RTDB probe client '${label}' failed to establish currentUser`);
+    }
     const handle: RtdbProbeClientHandle = {
       app,
       db: rtdbSdk.getDatabase(app),
-      uid: cred.user.uid,
+      uid: signedIn.uid,
     };
     openedClients.push(handle);
     return handle;
@@ -404,4 +427,52 @@ export async function withAdminAuthProbeSession(
     }
     await adminAppMod.deleteApp(adminApp).catch(() => undefined);
   }
+}
+
+const DEFAULT_PROBES_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', 'probes');
+const ANON_RULE_OR_CLAIM_PATTERN = /\b(sign_in_provider|isAnonymous)\b/;
+const SHARED_SESSION_OR_RULES_PATTERN =
+  /\b(withRtdbProbeSession|withFirestoreProbeSession|withStorageProbeSession|runRules|OracleRulesTarget|rules_version|deployRtdb)\b|['"]\.(read|write)['"]\s*:|\ballow\s+(read|write|get|list|create|update|delete)\b/;
+const EXPLICIT_ANONYMOUS_AUTH_MODE_PATTERN = /\bauthMode\s*:\s*['"]anonymous['"]/;
+
+function stripCodeComments(source: string): string {
+  return source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1');
+}
+
+function collectProbeTsFiles(dir: string): string[] {
+  const results: string[] = [];
+  for (const entry of readdirSync(dir).sort()) {
+    const full = join(dir, entry);
+    const stat = statSync(full);
+    if (stat.isDirectory()) {
+      results.push(...collectProbeTsFiles(full));
+    } else if (entry.endsWith('.ts') && !entry.endsWith('.test.ts')) {
+      results.push(full);
+    }
+  }
+  return results;
+}
+
+/**
+ * Returns violation strings for any probe file whose security rules or shared
+ * session code references `sign_in_provider` or `isAnonymous` without opting
+ * into `authMode: 'anonymous'`.
+ */
+export function auditProbeSessionAuthModes(probesRoot = DEFAULT_PROBES_ROOT): string[] {
+  const violations: string[] = [];
+  for (const filePath of collectProbeTsFiles(probesRoot)) {
+    const raw = readFileSync(filePath, 'utf8');
+    const code = stripCodeComments(raw);
+    if (
+      SHARED_SESSION_OR_RULES_PATTERN.test(code) &&
+      ANON_RULE_OR_CLAIM_PATTERN.test(code) &&
+      !EXPLICIT_ANONYMOUS_AUTH_MODE_PATTERN.test(code)
+    ) {
+      const rel = relative(probesRoot, filePath).replace(/\\/g, '/');
+      violations.push(
+        `${rel}: mentions sign_in_provider or isAnonymous in rules/session without authMode: 'anonymous'`,
+      );
+    }
+  }
+  return violations;
 }

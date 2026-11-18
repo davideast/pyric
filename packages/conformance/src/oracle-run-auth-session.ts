@@ -131,6 +131,54 @@ function isAuthTooManyRequestsError(err: unknown): boolean {
   return false;
 }
 
+interface RetryAuthRateLimitOptions {
+  backoffMs?: readonly number[];
+  sleep?: (ms: number) => Promise<void>;
+  log?: (line: string) => void;
+  beforeRetry?: () => Promise<void>;
+}
+
+export async function retryAuthTooManyRequests<T>(
+  label: string,
+  run: () => Promise<T>,
+  options: RetryAuthRateLimitOptions = {},
+): Promise<T> {
+  let backoffMs = DEFAULT_SIGNUP_BACKOFF_MS;
+  if (options.backoffMs !== undefined) {
+    backoffMs = options.backoffMs;
+  }
+  let sleep = defaultSleep;
+  if (options.sleep !== undefined) {
+    sleep = options.sleep;
+  }
+  let log: (line: string) => void = (line) => console.log(line);
+  if (options.log !== undefined) {
+    log = options.log;
+  }
+
+  let attemptIndex = 0;
+  for (;;) {
+    try {
+      return await run();
+    } catch (err) {
+      if (!isAuthTooManyRequestsError(err) || attemptIndex >= backoffMs.length) {
+        throw err;
+      }
+      const waitMs = backoffMs[attemptIndex];
+      attemptIndex += 1;
+      log(
+        `\n[oracle] ${label} hit auth/too-many-requests; waiting ${waitMs}ms before retry ${attemptIndex}/${backoffMs.length}`,
+      );
+      if (options.beforeRetry !== undefined) {
+        await options.beforeRetry();
+      }
+      if (waitMs !== undefined) {
+        await sleep(waitMs);
+      }
+    }
+  }
+}
+
 export function createOracleRunAuthSession(
   getAuthSubject: () => AuthSessionSubject,
   options: OracleRunAuthSessionOptions = {},
@@ -230,25 +278,16 @@ export function createOracleRunAuthSession(
     probeName: string,
     observe: () => Promise<T>,
   ): Promise<T> {
-    let attemptIndex = 0;
-    for (;;) {
-      try {
-        return await runWithIntentionalObserverThrowGuard(probeName, observe);
-      } catch (err) {
-        if (!isAuthTooManyRequestsError(err) || attemptIndex >= backoffMs.length) {
-          throw err;
-        }
-        const waitMs = backoffMs[attemptIndex];
-        attemptIndex += 1;
-        log(
-          `\n[oracle] ${probeName} hit auth/too-many-requests; waiting ${waitMs}ms before retry ${attemptIndex}/${backoffMs.length}`,
-        );
-        await beforeProbe(probeName);
-        if (waitMs !== undefined) {
-          await sleep(waitMs);
-        }
-      }
-    }
+    return retryAuthTooManyRequests(
+      probeName,
+      () => runWithIntentionalObserverThrowGuard(probeName, observe),
+      {
+        backoffMs,
+        sleep,
+        log,
+        beforeRetry: () => beforeProbe(probeName),
+      },
+    );
   }
 
   async function finishRun(): Promise<void> {

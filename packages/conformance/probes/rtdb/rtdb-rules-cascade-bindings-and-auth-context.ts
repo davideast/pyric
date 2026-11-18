@@ -263,7 +263,7 @@ export const probe: Probe = {
   rowIds: [],
   observe() {
     return withRtdbProbeSession(
-      { runRules: { ...CASCADE_BINDINGS_AUTH_RULES } },
+      { runRules: { ...CASCADE_BINDINGS_AUTH_RULES }, authMode: 'anonymous' },
       async ({ runId, runPath, databaseUrl, rtdbSdk, openClient, adminWrite }) => {
         const [{ deleteApp, initializeApp }, authedClient] = await Promise.all([
           import('firebase/app'),
