@@ -6,7 +6,6 @@ import { loadRigManifests } from '../../rigs/load.ts';
 import {
   ALL_RULES_STORAGE_SCENARIOS,
   storageObservationName,
-  type StorageScenario,
 } from '../../rules-corpus/storage/index.ts';
 import { scenario as authNonNullReadGuard } from '../../rules-corpus/storage/auth-non-null-read-guard.ts';
 import { scenario as pathParamBindingInCondition } from '../../rules-corpus/storage/path-param-binding-in-condition.ts';
@@ -14,12 +13,10 @@ import { scenario as requestResourceContentTypeEquality } from '../../rules-corp
 import { scenario as requestResourceSizeStrictLessThan } from '../../rules-corpus/storage/request-resource-size-strict-less-than.ts';
 import { scenario as v2RecursiveWildcardZeroOrMore } from '../../rules-corpus/storage/v2-recursive-wildcard-zero-or-more.ts';
 import type { StorageScenarioRecord } from '../../rules-corpus/storage/types.ts';
-import { loadObservations, type Observation } from '../../src/ledger.ts';
+import { loadObservations } from '../../src/ledger.ts';
 import { selectStorageScenarios } from '../../src/run-rules-storage.ts';
-import { loadPendingRowLinkObservations } from '../../src/staged-captures.ts';
 import { validateCompatibilityRegistry } from '../../src/validate-registry.ts';
 import { surfaceDescriptors } from '../../surfaces/load.ts';
-import { expectStagedUntilCaptured } from './staged-capture-assertions.ts';
 import {
   buildStorageApiTestCase,
   normalizeStoragePath,
@@ -31,15 +28,43 @@ import {
 } from '../../../rules/src/storage/rules.ts';
 import { evaluateStorageRules } from '../../../rules/src/storage/rules-evaluator.ts';
 
-const STAGED_SCENARIO_RECORDS: ReadonlyArray<{ id: string; record: StorageScenarioRecord }> = [
-  { id: 'auth-non-null-read-guard', record: authNonNullReadGuard },
-  { id: 'path-param-binding-in-condition', record: pathParamBindingInCondition },
-  { id: 'request-resource-content-type-equality', record: requestResourceContentTypeEquality },
-  { id: 'request-resource-size-strict-less-than', record: requestResourceSizeStrictLessThan },
-  { id: 'v2-recursive-wildcard-zero-or-more', record: v2RecursiveWildcardZeroOrMore },
+const LINKED_SCENARIO_RECORDS: ReadonlyArray<{
+  id: string;
+  matrixRow: string;
+  rowIds: readonly string[];
+  record: StorageScenarioRecord;
+}> = [
+  {
+    id: 'auth-non-null-read-guard',
+    matrixRow: 'storage-rules#98',
+    rowIds: ['storage-rules#98', 'storage-rules#99'],
+    record: authNonNullReadGuard,
+  },
+  {
+    id: 'request-resource-size-strict-less-than',
+    matrixRow: 'storage-rules#100',
+    rowIds: ['storage-rules#100'],
+    record: requestResourceSizeStrictLessThan,
+  },
+  {
+    id: 'request-resource-content-type-equality',
+    matrixRow: 'storage-rules#101',
+    rowIds: ['storage-rules#101'],
+    record: requestResourceContentTypeEquality,
+  },
+  {
+    id: 'v2-recursive-wildcard-zero-or-more',
+    matrixRow: 'storage-rules#102',
+    rowIds: ['storage-rules#102'],
+    record: v2RecursiveWildcardZeroOrMore,
+  },
+  {
+    id: 'path-param-binding-in-condition',
+    matrixRow: 'storage-rules#103',
+    rowIds: ['storage-rules#103'],
+    record: pathParamBindingInCondition,
+  },
 ];
-
-const STAGED_SCENARIO_IDS = STAGED_SCENARIO_RECORDS.map((entry) => entry.id);
 
 function toEvalInput(tc: StorageTestCase): EvaluationInput {
   const path = normalizeStoragePath(tc.path, tc.bucket);
@@ -78,81 +103,39 @@ function toEvalInput(tc: StorageTestCase): EvaluationInput {
   return { request, resource: existing };
 }
 
-function buildSyntheticStorageRulesObservation(scenario: StorageScenario): Observation {
-  const obsName = storageObservationName(scenario);
-  const behavior: Record<string, string> = {};
-  for (const tc of scenario.cases) {
-    behavior[tc.description] = tc.expectation;
-  }
-  return {
-    file: `${obsName}.json`,
-    surfaceDir: 'storage-rules',
-    name: obsName,
-    matrixRow: '',
-    rowIds: [],
-    observedAt: '2026-11-17T00:00:00.000Z',
-    fbSdkVersion: '12.19.0',
-    behavior,
-    raw: {
-      name: obsName,
-      matrixRow: '',
-      rowIds: [],
-      description: scenario.rationale,
-      observedAt: '2026-11-17T00:00:00.000Z',
-      fbSdkVersion: '12.19.0',
-      behavior,
-    },
-  };
-}
-
-describe('staged rules-storage scenarios for storage-rules#98..103', () => {
-  test('registers all 5 scenarios as uncaptured rules-storage targets with --scenario filters', () => {
+describe('linked rules-storage scenarios for storage-rules#98..103', () => {
+  test('links all 5 scenarios to captured storage-rules observations and drops pendingRowLink', () => {
     const byId = new Map(ALL_RULES_STORAGE_SCENARIOS.map((s) => [s.id, s]));
+    const obsByName = new Map(loadObservations().map((o) => [o.name, o]));
+    const unfilteredWriteIds = new Set(
+      selectStorageScenarios(['--write'], ALL_RULES_STORAGE_SCENARIOS).map((s) => s.id),
+    );
 
-    const inertSelectedIds = new Set(selectStorageScenarios([]).map((s) => s.id));
-    const unfilteredWriteIds = new Set(selectStorageScenarios(['--write']).map((s) => s.id));
-    expect(unfilteredWriteIds.has('common-auth-membership')).toBe(true);
-
-    for (const { id, record } of STAGED_SCENARIO_RECORDS) {
-      expect(record.pendingRowLink).toBe(true);
+    for (const { id, matrixRow, rowIds, record } of LINKED_SCENARIO_RECORDS) {
+      expect(record.pendingRowLink).toBeUndefined();
       const scenario = byId.get(id);
       expect(scenario).toBeDefined();
       if (!scenario) continue;
-      expect(scenario.pendingRowLink).toBe(true);
+      expect(scenario.pendingRowLink).toBeUndefined();
       expect(scenario.rules).toBe(record.rules);
-
-      expect(inertSelectedIds.has(id)).toBe(true);
-
-      const obsName = storageObservationName(scenario);
-      expectStagedUntilCaptured(obsName, {
-        rig: 'rules-storage',
-        filterFlag: '--scenario',
-        filterValueFor: () => id,
-        whenUncaptured: () => {
-          expect(unfilteredWriteIds.has(id)).toBe(false);
-        },
-        whenCaptured: () => {
-          expect(unfilteredWriteIds.has(id)).toBe(true);
-        },
-      });
+      expect(unfilteredWriteIds.has(id)).toBe(true);
 
       const selected = selectStorageScenarios(['--write', '--scenario', id]);
       expect(selected.map((s) => s.id)).toEqual([id]);
 
-      const existingCapturedPath = () => import.meta.path;
-      const selectedOnceCaptured = selectStorageScenarios(
-        ['--write'],
-        [scenario],
-        existingCapturedPath,
-      );
-      expect(selectedOnceCaptured.map((s) => s.id)).toEqual([id]);
+      const obsName = storageObservationName(scenario);
+      const obs = obsByName.get(obsName);
+      expect(obs).toBeDefined();
+      if (!obs) continue;
+      expect(obs.matrixRow).toBe(matrixRow);
+      expect(obs.rowIds).toEqual([...rowIds]);
     }
   });
 
-  test('every staged scenario parses, builds valid Rules Test API wire cases, and matches evaluateStorageRules', () => {
+  test('every linked scenario parses, builds valid Rules Test API wire cases, and matches evaluateStorageRules', () => {
     const byId = new Map(ALL_RULES_STORAGE_SCENARIOS.map((s) => [s.id, s]));
 
-    for (const id of STAGED_SCENARIO_IDS) {
+    for (const { id } of LINKED_SCENARIO_RECORDS) {
       const scenario = byId.get(id);
       expect(scenario).toBeDefined();
       if (!scenario) continue;
@@ -173,13 +156,12 @@ describe('staged rules-storage scenarios for storage-rules#98..103', () => {
     }
   });
 
-  test('validates cleanly both pre-capture and with unlinked post-capture observations', async () => {
+  test('validates cleanly against the compatibility registry', async () => {
     const rigManifests = await loadRigManifests();
     const probeFiles = listProbeFiles();
     const rulesStorageScenarioIds = ALL_RULES_STORAGE_SCENARIOS.map((s) => s.id);
-    const pendingRowLinkObservations = loadPendingRowLinkObservations();
 
-    const preCaptureProblems = validateCompatibilityRegistry({
+    const problems = validateCompatibilityRegistry({
       rows: allCompatibilityRows,
       descriptors: surfaceDescriptors,
       observations: loadObservations(),
@@ -187,28 +169,7 @@ describe('staged rules-storage scenarios for storage-rules#98..103', () => {
       rigManifests,
       probeFiles,
       rulesStorageScenarioIds,
-      pendingRowLinkObservations,
     });
-    expect(preCaptureProblems).toEqual([]);
-
-    const byName = new Map(loadObservations().map((o) => [o.name, o]));
-    for (const id of STAGED_SCENARIO_IDS) {
-      const scenario = ALL_RULES_STORAGE_SCENARIOS.find((s) => s.id === id);
-      if (!scenario) continue;
-      const obs = buildSyntheticStorageRulesObservation(scenario);
-      byName.set(obs.name, obs);
-    }
-
-    const postCaptureProblems = validateCompatibilityRegistry({
-      rows: allCompatibilityRows,
-      descriptors: surfaceDescriptors,
-      observations: [...byName.values()],
-      observationExceptions,
-      rigManifests,
-      probeFiles,
-      rulesStorageScenarioIds,
-      pendingRowLinkObservations,
-    });
-    expect(postCaptureProblems).toEqual([]);
+    expect(problems).toEqual([]);
   });
 });

@@ -5,7 +5,6 @@
 import type { StorageScenarioRecord } from './types.ts';
 
 export const scenario: StorageScenarioRecord = {
-  pendingRowLink: true,
   fm: 'STORAGE-PATH-PARAM-IN-CONDITION',
   rationale:
     'Pins single and nested path-parameter bindings ({sessionId}, {userId}/{sessionId}) read directly inside allow condition expressions.',

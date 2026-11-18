@@ -5,7 +5,6 @@
 import type { StorageScenarioRecord } from './types.ts';
 
 export const scenario: StorageScenarioRecord = {
-  pendingRowLink: true,
   fm: 'STORAGE-REQUEST-RESOURCE-SIZE-LT',
   rationale:
     'Pins strict less-than boundary evaluation for request.resource.size < 10 * 1024 * 1024 across zero, N - 1, exact N, N + 1, update, and delete.',

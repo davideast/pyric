@@ -1,7 +1,9 @@
 {
   "name": "rules-storage-request-resource-size-strict-less-than",
-  "matrixRow": "",
-  "rowIds": [],
+  "matrixRow": "storage-rules#100",
+  "rowIds": [
+    "storage-rules#100"
+  ],
   "description": "Storage Rules Test API verdicts for corpus scenario \"request-resource-size-strict-less-than\" (STORAGE-REQUEST-RESOURCE-SIZE-LT). Pins strict less-than boundary evaluation for request.resource.size < 10 * 1024 * 1024 across zero, N - 1, exact N, N + 1, update, and delete.",
   "observedAt": "2026-11-18T00:43:02.709Z",
   "fbSdkVersion": "12.19.0",

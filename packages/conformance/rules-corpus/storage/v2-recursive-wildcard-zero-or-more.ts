@@ -5,7 +5,6 @@
 import type { StorageScenarioRecord } from './types.ts';
 
 export const scenario: StorageScenarioRecord = {
-  pendingRowLink: true,
   fm: 'STORAGE-V2-RECURSIVE-WILDCARD-ZERO-OR-MORE',
   rationale:
     'Pins that rules_version 2 recursive wildcard {allPaths=**} matches zero, one, and multiple remaining path segments.',
