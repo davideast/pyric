@@ -1,0 +1,61 @@
+{
+  "name": "storage-uploadstring-data-url-variants",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "firebase/storage uploadString(ref, value, \"data_url\", metadata?): observes MIME inference and base64 decoding, percent-decoded non-base64 bodies, and caller metadata.contentType precedence.",
+  "observedAt": "2026-11-18T08:40:24.274Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "base64JsonDataUrl": {
+      "size": 11,
+      "uploadedContentType": "application/json",
+      "fetchedContentType": "application/json",
+      "decodedBytes": [
+        123,
+        34,
+        111,
+        107,
+        34,
+        58,
+        116,
+        114,
+        117,
+        101,
+        125
+      ],
+      "decodedUtf8": "{\"ok\":true}"
+    },
+    "percentEncodedDataUrl": {
+      "size": 12,
+      "uploadedContentType": "text/plain",
+      "fetchedContentType": "text/plain",
+      "decodedBytes": [
+        104,
+        101,
+        108,
+        108,
+        111,
+        32,
+        119,
+        111,
+        114,
+        108,
+        100,
+        33
+      ],
+      "decodedUtf8": "hello world!"
+    },
+    "callerContentTypeOverride": {
+      "size": 3,
+      "uploadedContentType": "text/csv",
+      "fetchedContentType": "text/csv",
+      "decodedBytes": [
+        97,
+        44,
+        49
+      ],
+      "decodedUtf8": "a,1"
+    }
+  }
+}

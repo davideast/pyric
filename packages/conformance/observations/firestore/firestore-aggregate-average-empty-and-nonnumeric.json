@@ -1,0 +1,31 @@
+{
+  "name": "firestore-aggregate-average-empty-and-nonnumeric",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "average(field) returns null on empty collections, zero-match filtered queries, missing-field collections, and non-numeric field collections while sum(field) returns 0.",
+  "observedAt": "2026-11-18T08:39:28.855Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "emptyCollection": {
+      "docCount": 0,
+      "totalScore": 0,
+      "meanScore": null
+    },
+    "zeroMatchFiltered": {
+      "docCount": 0,
+      "totalScore": 0,
+      "meanScore": null
+    },
+    "missingFieldDocs": {
+      "docCount": 0,
+      "totalScore": 0,
+      "meanScore": null
+    },
+    "nonNumericFieldDocs": {
+      "docCount": 3,
+      "totalScore": 0,
+      "meanScore": null
+    }
+  }
+}
