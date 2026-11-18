@@ -6,7 +6,7 @@ interface UploadedStringObservation {
   uploadedContentType: string | null;
   fetchedContentType: string | null;
   decodedBytes: number[];
-  decodedUtf8: string;
+  decodedUtf8: string | null;
 }
 
 export interface StorageUploadStringRawAndBase64Subject {
@@ -46,6 +46,14 @@ function nullableContentType(value: string | undefined): string | null {
   return null;
 }
 
+export function decodeValidUtf8OrNull(bytes: Uint8Array): string | null {
+  try {
+    return new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+  } catch {
+    return null;
+  }
+}
+
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: ['web-config'],
@@ -56,7 +64,6 @@ export const probe: Probe = {
     'firebase/storage uploadString(ref, value, format?): observes default and explicit format="raw" UTF-8 encoding and default contentType alongside format="base64" binary decoding.',
   async observe() {
     return withStorageProbeSession(async ({ objectRef, storageSdk }) => {
-      const decoder = new TextDecoder('utf-8', { fatal: false });
       return observeStorageUploadStringRawAndBase64({
         async uploadAndRead(subpath, value, format) {
           const targetRef = objectRef(subpath);
@@ -74,7 +81,7 @@ export const probe: Probe = {
             uploadedContentType: nullableContentType(uploaded.metadata.contentType),
             fetchedContentType: nullableContentType(fetched.contentType),
             decodedBytes: [...bytes],
-            decodedUtf8: decoder.decode(bytes),
+            decodedUtf8: decodeValidUtf8OrNull(bytes),
           };
         },
       });
