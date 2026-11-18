@@ -1,0 +1,57 @@
+{
+  "name": "firestore-scalar-bytes-geopoint-vector-roundtrip",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "Bytes, GeoPoint, VectorValue (via vector()), FieldPath, and documentId() expose value equality and serialization helpers and round-trip cleanly through setDoc and getDoc.",
+  "observedAt": "2026-11-18T12:28:48.917Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "bytes": {
+      "isBytes": true,
+      "base64": "AH//",
+      "uint8Array": [
+        0,
+        127,
+        255
+      ],
+      "equalsOriginal": true,
+      "equalsFromBase64": true
+    },
+    "geoPoint": {
+      "isGeoPoint": true,
+      "latitude": 37.7749,
+      "longitude": -122.4194,
+      "equalsOriginal": true,
+      "json": {
+        "latitude": 37.7749,
+        "longitude": -122.4194,
+        "type": "firestore/geoPoint/1.0"
+      }
+    },
+    "vector": {
+      "isVectorValue": true,
+      "array": [
+        1.5,
+        -2,
+        3.25
+      ],
+      "equalsOriginal": true,
+      "json": {
+        "type": "firestore/vectorValue/1.0",
+        "vectorValues": [
+          1.5,
+          -2,
+          3.25
+        ]
+      }
+    },
+    "fieldPath": {
+      "isFieldPath": true,
+      "equalsSameSegments": true,
+      "equalsLiteralDot": false,
+      "documentIdIsFieldPath": true,
+      "documentIdEqualsSecondCall": true
+    }
+  }
+}

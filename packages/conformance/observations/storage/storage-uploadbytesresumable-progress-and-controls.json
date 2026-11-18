@@ -1,0 +1,58 @@
+{
+  "name": "storage-uploadbytesresumable-progress-and-controls",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "firebase/storage uploadBytesResumable(ref, data, metadata): observes UploadTask control methods, state_changed progress snapshots, pause()/resume() state transitions, and cancel() rejecting with storage/canceled without persisting the object.",
+  "observedAt": "2026-11-18T11:59:04.327Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "payloadByteLength": 307200,
+    "progressAndComplete": {
+      "hasPauseMethod": true,
+      "hasResumeMethod": true,
+      "hasCancelMethod": true,
+      "hasOnMethod": true,
+      "unsubscribeIsFunction": true,
+      "sawRunningSnapshot": true,
+      "bytesMonotonicNonDecreasing": true,
+      "allTotalBytesMatchPayload": true,
+      "completeCallbackFiredOnce": true,
+      "errorCallbackFired": false,
+      "finalSnapshotState": "success",
+      "finalBytesTransferred": 307200,
+      "finalTotalBytes": 307200,
+      "metadataContentType": "application/octet-stream",
+      "storedByteLength": 307200,
+      "firstFourBytes": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "lastFourBytes": [
+        223,
+        224,
+        225,
+        226
+      ]
+    },
+    "pauseAndResume": {
+      "pauseReturnedTrue": true,
+      "sawPausedSnapshot": true,
+      "pauseWhilePausedReturnedFalse": true,
+      "resumeReturnedTrue": true,
+      "finalSnapshotState": "success",
+      "storedByteLength": 307200
+    },
+    "cancelFlow": {
+      "cancelReturnedTrue": true,
+      "taskRejected": true,
+      "taskErrorCode": "storage/canceled",
+      "taskErrorIsFirebaseError": true,
+      "observerErrorCode": "storage/canceled",
+      "completeCalledOnCancel": false,
+      "postCancelGetMetadataCode": "storage/object-not-found"
+    }
+  }
+}
