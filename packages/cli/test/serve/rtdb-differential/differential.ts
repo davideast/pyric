@@ -14,10 +14,14 @@
  * The Node plane runs the CLI's built `dist`, so build the CLI first. The exit
  * code is 1 when any sequence mismatches.
  */
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import {
+  createPrivateJobTmpDir,
+  reapDeadPrivateJobTmpDirs,
+  removePrivateJobTmpDir,
+} from '../../../../../scripts/lib/private-job-tmpdir.ts';
 import { firstMismatch, normalize, type Mismatch, type NormalTrace } from './compare.js';
 import { generateSequence } from './generator.js';
 import type { Trace } from './interpreter.js';
@@ -75,8 +79,12 @@ export async function buildForNode(directory: string, script: string): Promise<s
   return join(directory, naming);
 }
 
-export async function createPlaneRunner(options: { chunks?: number } = {}): Promise<PlaneRunner> {
-  const directory = mkdtempSync(join(tmpdir(), 'pyric-rtdb-differential-'));
+export async function createPlaneRunner(
+  options: { chunks?: number; env?: NodeJS.ProcessEnv } = {},
+): Promise<PlaneRunner> {
+  const runnerEnv = options.env ?? process.env;
+  reapDeadPrivateJobTmpDirs(runnerEnv);
+  const directory = createPrivateJobTmpDir('rtdb-diff', runnerEnv);
   const nodeRunner = await buildNodeRunner(directory);
   const chunks = Math.max(1, options.chunks ?? 1);
   let batch = 0;
@@ -86,10 +94,18 @@ export async function createPlaneRunner(options: { chunks?: number } = {}): Prom
     const input = join(directory, `${id}.in.json`);
     const output = join(directory, `${id}.out.json`);
     writeFileSync(input, JSON.stringify(sequences));
-    const command = plane === 'node'
-      ? [process.env.PYRIC_TEST_NODE ?? 'node', nodeRunner, plane, input, output]
-      : [process.execPath, join(HERE, 'run-plane.ts'), plane, input, output];
-    const child = Bun.spawn(command, { cwd: CLI_ROOT, stdout: 'pipe', stderr: 'pipe' });
+    let command: string[];
+    if (plane === 'node') {
+      command = [runnerEnv.PYRIC_TEST_NODE ?? 'node', nodeRunner, plane, input, output];
+    } else {
+      command = [process.execPath, join(HERE, 'run-plane.ts'), plane, input, output];
+    }
+    const child = Bun.spawn(command, {
+      cwd: CLI_ROOT,
+      env: runnerEnv,
+      stdout: 'pipe',
+      stderr: 'pipe',
+    });
     const [code, stderr] = await Promise.all([child.exited, new Response(child.stderr).text()]);
     if (code !== 0) throw new Error(`${plane} plane exited ${code}: ${stderr.slice(-4000)}`);
     return JSON.parse(readFileSync(output, 'utf8')) as PlaneOutcome[];
@@ -103,7 +119,7 @@ export async function createPlaneRunner(options: { chunks?: number } = {}): Prom
       for (let i = 0; i < sequences.length; i += size) parts.push(sequences.slice(i, i + size));
       return (await Promise.all(parts.map((part) => runChunk(plane, part)))).flat();
     },
-    dispose() { rmSync(directory, { recursive: true, force: true }); },
+    dispose() { removePrivateJobTmpDir(directory, runnerEnv); },
   };
 }
 
