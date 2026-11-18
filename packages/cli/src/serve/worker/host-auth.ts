@@ -36,6 +36,7 @@ import {
   credReply,
   makeNoUserError,
   requirePortSession,
+  requireReloadSession,
   remintSessionWithClaims,
   applyProfileToUser,
   resolveOAuthCredentialUser,
@@ -516,12 +517,10 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
 
     case 'auth.reload': {
       try {
-        const session = requirePortSession(portSession(ctx, port), 'reload');
+        const session = requireReloadSession(auth, portSession(ctx, port), msg.uid);
         // `reload(user)` refreshes `User` profile properties in-place via
         // `accounts:lookup` without exchanging the refresh token or minting a
-        // new ID token (`auth-request-auth-per-sign-in.json` -> `reloadAfterAdminChanges`,
-        // `customTokenReload`). Keep `session.state.token` and the backend
-        // `tokenCache` at the last minted ID token until `getIdToken(true)`.
+        // new ID token (`auth-request-auth-per-sign-in.json`).
         await reload(session.user);
         const serialized = serializeUser(session.user);
         for (const [subId, target] of authSubsFor(ctx).get(port) ?? []) {

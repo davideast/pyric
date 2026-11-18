@@ -1,7 +1,9 @@
 {
   "name": "auth-initializeauth-lifecycle-and-deps",
-  "matrixRow": "",
-  "rowIds": [],
+  "matrixRow": "auth#82",
+  "rowIds": [
+    "auth#82"
+  ],
   "description": "initializeAuth(app, deps?) returns a live Auth handle shared with getAuth(app), while repeated initializeAuth calls (or initializeAuth with deps after getAuth) throw auth/already-initialized.",
   "observedAt": "2026-11-18T09:41:29.418Z",
   "fbSdkVersion": "12.19.0",

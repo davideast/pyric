@@ -9,9 +9,8 @@ import { waitForCondition } from '../../src/oracle-run-stable-shapes.ts';
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: ['web-config', 'admin-auth'],
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'auth#87',
+  rowIds: ['auth#87'],
   description:
     'updateCurrentUser(auth, user) sets auth.currentUser (and fires onAuthStateChanged), passing null clears auth.currentUser to sign out, and mismatched tenantId rejects with auth/tenant-id-mismatch.',
   async observe() {

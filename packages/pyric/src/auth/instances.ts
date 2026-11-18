@@ -6,6 +6,7 @@ import {
   resolveClientApp,
   type ClientAppRuntime,
 } from '../sandbox/internal/client-app.js';
+import { makeAuthError } from './auth-errors.js';
 import { SandboxBackend } from './sandbox-backend.js';
 import { registerAuthPersistence } from './sandbox/persistence.js';
 // The package specifier, as the backend imports it, so the registry is the
@@ -27,6 +28,54 @@ import { TARGET_SYMBOL, type AppAuth, type Auth, type User } from './types.js';
 const sandboxBackends = new WeakMap<Sandbox, SandboxBackend>();
 const projectStores = new WeakMap<Sandbox, AuthProjectStore>();
 const sandboxHandles = new WeakMap<Sandbox, Auth>();
+const initializedOptions = new WeakMap<object, unknown>();
+
+function deepEqualInitOptions(left: unknown, right: unknown): boolean {
+  if (Object.is(left, right)) {
+    return true;
+  }
+  if (typeof left !== 'object' || left === null || typeof right !== 'object' || right === null) {
+    return false;
+  }
+  if (Array.isArray(left) !== Array.isArray(right)) {
+    return false;
+  }
+  if (Array.isArray(left) && Array.isArray(right)) {
+    if (left.length !== right.length) {
+      return false;
+    }
+    return left.every((item, idx) => deepEqualInitOptions(item, right[idx]));
+  }
+  const leftRecord = left as Record<string, unknown>;
+  const rightRecord = right as Record<string, unknown>;
+  const leftKeys = Object.keys(leftRecord).filter((key) => leftRecord[key] !== undefined);
+  const rightKeys = Object.keys(rightRecord).filter((key) => rightRecord[key] !== undefined);
+  if (leftKeys.length !== rightKeys.length) {
+    return false;
+  }
+  return leftKeys.every((key) => deepEqualInitOptions(leftRecord[key], rightRecord[key]));
+}
+
+export function recordDefaultAuthInitOptions(owner: object): void {
+  if (!initializedOptions.has(owner)) {
+    initializedOptions.set(owner, {});
+  }
+}
+
+export function assertOrRecordAuthInitOptions(owner: object, deps: unknown): void {
+  const normalized = deps ?? {};
+  if (initializedOptions.has(owner)) {
+    const initial = initializedOptions.get(owner);
+    if (!deepEqualInitOptions(initial, normalized)) {
+      throw makeAuthError(
+        'auth/already-initialized',
+        'initializeAuth() has already been called with different options. To avoid this error, call initializeAuth() with the same options as when it was originally called, or call getAuth() to return the already initialized instance.',
+      );
+    }
+    return;
+  }
+  initializedOptions.set(owner, normalized);
+}
 
 function projectStoreFor(sandbox: Sandbox): AuthProjectStore {
   let store = projectStores.get(sandbox);
@@ -102,6 +151,7 @@ export function getAuth(target?: Sandbox | FirebaseApp): Auth {
   if (target === undefined) return getAuth(defaultClientApp() as FirebaseApp);
   const appRuntime = resolveClientApp(target);
   if (appRuntime) {
+    recordDefaultAuthInitOptions(target);
     return appRuntime.service('auth/default', () => {
       const t: SandboxTarget = {
         kind: 'sandbox',
@@ -114,6 +164,7 @@ export function getAuth(target?: Sandbox | FirebaseApp): Auth {
     });
   }
   if (isSandbox(target)) {
+    recordDefaultAuthInitOptions(target);
     let handle = sandboxHandles.get(target);
     if (handle) return handle;
     handle = makeAuthHandle({ kind: 'sandbox', sandbox: target, backend: backendFor(target) });
@@ -128,7 +179,10 @@ export function getAuth(target?: Sandbox | FirebaseApp): Auth {
 export function initializeAuth(app: FirebaseApp, deps?: unknown): AppAuth;
 export function initializeAuth(app: Sandbox, deps?: unknown): Auth;
 export function initializeAuth(app: Sandbox | FirebaseApp, deps?: unknown): Auth {
-  void deps;
+  const isKnownOwner = Boolean(resolveClientApp(app)) || isSandbox(app);
+  if (isKnownOwner) {
+    assertOrRecordAuthInitOptions(app, deps);
+  }
   return getAuth(app as never);
 }
 

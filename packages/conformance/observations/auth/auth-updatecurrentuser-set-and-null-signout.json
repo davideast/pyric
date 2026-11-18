@@ -1,7 +1,9 @@
 {
   "name": "auth-updatecurrentuser-set-and-null-signout",
-  "matrixRow": "",
-  "rowIds": [],
+  "matrixRow": "auth#87",
+  "rowIds": [
+    "auth#87"
+  ],
   "description": "updateCurrentUser(auth, user) sets auth.currentUser (and fires onAuthStateChanged), passing null clears auth.currentUser to sign out, and mismatched tenantId rejects with auth/tenant-id-mismatch.",
   "observedAt": "2026-11-18T09:41:35.695Z",
   "fbSdkVersion": "12.19.0",

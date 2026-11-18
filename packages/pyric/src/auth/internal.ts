@@ -33,4 +33,5 @@ export {
 } from './sandbox/tenant-isolation.js';
 /** The key a page stores to resume its session after a reload (#1950). */
 export { sessionKeyOf } from './sandbox/session-ledger.js';
+export { assertOrRecordAuthInitOptions, recordDefaultAuthInitOptions } from './instances.js';
 export type { ServedSandboxHook } from './sandbox/driver.js';

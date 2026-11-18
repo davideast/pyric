@@ -9,9 +9,8 @@ import { waitForCondition } from '../../src/oracle-run-stable-shapes.ts';
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: ['web-config', 'admin-auth'],
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'auth#86',
+  rowIds: ['auth#86'],
   description:
     'reload(user) updates held User fields in place after out-of-band mutations, and rejects while signing out currentUser when the account is disabled or deleted out-of-band.',
   async observe() {

@@ -10,7 +10,6 @@ import {
   printModularProbePreview,
   selectModularProbes,
 } from '../../src/sdk-probes.ts';
-import { expectStagedUntilCaptured } from './staged-capture-assertions.ts';
 import { probe as deleteUserProbe } from '../../probes/auth/auth-deleteuser-signout-and-followup-errors.ts';
 import { probe as initAuthProbe } from '../../probes/auth/auth-initializeauth-lifecycle-and-deps.ts';
 import { probe as reloadProbe } from '../../probes/auth/auth-reload-out-of-band-and-disabled-deleted.ts';
@@ -60,21 +59,26 @@ async function observeOfflineInitAuthLifecycle(runLabel: string) {
   }
 }
 
-describe('Auth user-management and session staged probes (sdk-probes)', () => {
-  test('registers all 4 Auth user-management probes on sdk-probes with pendingRowLink and empty rowIds', async () => {
+describe('Auth user-management and session linked probes (sdk-probes)', () => {
+  test('registers all 4 Auth user-management probes on sdk-probes linked to auth#82, #83, #86, #87', async () => {
     const loaded = await loadModularProbes('sdk-probes');
     const loadedIds = loaded.map((entry) => entry.id);
     for (const id of AUTH_MGMT_PROBE_IDS) {
       expect(loadedIds).toContain(id);
     }
 
-    const probes = [deleteUserProbe, initAuthProbe, reloadProbe, updateCurrentUserProbe];
-    for (const probeRecord of probes) {
+    const expectedLinks = [
+      { probeRecord: initAuthProbe, rowId: 'auth#82' },
+      { probeRecord: deleteUserProbe, rowId: 'auth#83' },
+      { probeRecord: reloadProbe, rowId: 'auth#86' },
+      { probeRecord: updateCurrentUserProbe, rowId: 'auth#87' },
+    ];
+    for (const { probeRecord, rowId } of expectedLinks) {
       expect(probeRecord.rig).toBe('sdk-probes');
       expect(probeRecord.requires).toEqual(['web-config', 'admin-auth']);
-      expect(probeRecord.pendingRowLink).toBe(true);
-      expect(probeRecord.matrixRow).toBe('');
-      expect(probeRecord.rowIds).toEqual([]);
+      expect(probeRecord.pendingRowLink).toBeUndefined();
+      expect(probeRecord.matrixRow).toBe(rowId);
+      expect(probeRecord.rowIds).toEqual([rowId]);
       expect(probeRecord.description.length).toBeGreaterThan(20);
     }
 
@@ -83,18 +87,9 @@ describe('Auth user-management and session staged probes (sdk-probes)', () => {
         includeUncapturedStaged: false,
       }).map((entry) => entry.id),
     );
-
-    expectStagedUntilCaptured(AUTH_MGMT_PROBE_IDS, {
-      rig: 'sdk-probes',
-      filterFlag: '--probe',
-      filterValueFor: (name) => name,
-      whenUncaptured(name) {
-        expect(unfilteredIds.has(name)).toBe(false);
-      },
-      whenCaptured(name) {
-        expect(unfilteredIds.has(name)).toBe(true);
-      },
-    });
+    for (const id of AUTH_MGMT_PROBE_IDS) {
+      expect(unfilteredIds.has(id)).toBe(true);
+    }
 
     const lines: string[] = [];
     printModularProbePreview({

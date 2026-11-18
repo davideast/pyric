@@ -1430,40 +1430,11 @@ export class SandboxBackend {
   }
 
   /**
-   * The gated entry point for REAL sign-in / sign-out transitions —
-   * runs {@link runBeforeStateChange} first, and only calls
-   * {@link setCurrentUser} (committing the transition + firing
-   * `onAuthStateChanged` / `onIdTokenChanged`) if every before-callback
-   * allows it. If a before-callback throws, this rejects and
-   * `setCurrentUser` is never called — the sign-in call site's promise
-   * rejects, `currentUser` is unchanged, and no listener fires.
-   *
-   * NOT used by the `sandbox.setUser` test driver — that bypass has no
-   * prod analog (documented on {@link setCurrentUser}) and stays a raw,
-   * ungated identity force, same as before this hook existed.
-   *
-   * FAST PATH (deliberate, documented divergence): when NO
-   * `beforeAuthStateChanged` callback is registered, this commits
-   * `setCurrentUser` SYNCHRONOUSLY — before returning the resolved
-   * promise — rather than unconditionally going through an async
-   * `await`. Every JS `await` (even of an already-resolved value)
-   * defers to a microtask; unconditionally awaiting here would push the
-   * commit at least one microtask later for every sign-in, even ones
-   * nobody gates, and would break the existing sandbox-only
-   * same-tick-dedup guarantee `onAuthStateChanged` callers rely on
-   * (COMPAT row 31: subscribe(); signInAnonymously(); with no
-   * await-gap between them must not double-fire). Once a caller
-   * registers a `beforeAuthStateChanged` callback, the transition
-   * genuinely becomes async (an unavoidable consequence of "blocking,
-   * awaitable middleware"), matching prod's own async gate — this
-   * method is NOT declared `async` for that reason; it returns a
-   * pre-resolved promise on the fast path instead of ever suspending.
+   * Gated entry point for sign-in / sign-out transitions: runs `beforeAuthStateChanged`
+   * callbacks first, committing `setCurrentUser` synchronously when no gate is active
+   * so same-tick `subscribe(); signIn()` deduplication (COMPAT row 31) holds.
    */
   transitionCurrentUser(user: User | null, signInProvider?: string | null): Promise<void> {
-    // A `signInProvider` argument marks a REAL sign-in, which is the moment
-    // the tenant is fixed (the test driver omits it and leaves the tenant
-    // alone). Applied before the gate runs so a `beforeAuthStateChanged`
-    // callback inspecting the user sees the tenant it will sign in under.
     if (user !== null && signInProvider !== undefined) {
       this.scopeSignInToTenant(user);
     }
@@ -1475,6 +1446,44 @@ export class SandboxBackend {
     return this.runBeforeStateChange(user).then(() => {
       this.setCurrentUser(user, signInProvider);
     });
+  }
+
+  /** Clone `source` onto this backend while continuing its session (#1950), matching `AuthImpl.updateCurrentUser`. */
+  updateCurrentUserFrom(source: User | null): Promise<void> {
+    if (source === null) return this.transitionCurrentUser(null);
+    const stored = this.usersByUid.get(source.uid);
+    let cloned: User;
+    if (stored !== undefined) {
+      cloned = this.buildUserFromStored(stored);
+    } else {
+      cloned = this.makeUser({
+        uid: source.uid,
+        email: source.email,
+        displayName: source.displayName,
+        isAnonymous: source.isAnonymous,
+        claims: {},
+        photoURL: source.photoURL,
+        emailVerified: source.emailVerified,
+        phoneNumber: source.phoneNumber,
+        tenantId: source.tenantId,
+      });
+    }
+    (cloned as Mutable<User>).tenantId = source.tenantId;
+    this.sessions.continue(cloned, source);
+    const applyResumed = () => {
+      this.resumingSession = cloned;
+      try {
+        this.setCurrentUser(cloned);
+      } finally {
+        this.resumingSession = null;
+      }
+    };
+    const hasActiveGate = this.beforeStateSubs.some((reg) => reg.active);
+    if (!hasActiveGate) {
+      applyResumed();
+      return Promise.resolve();
+    }
+    return this.runBeforeStateChange(cloned).then(applyResumed);
   }
 
   // ─── Identity mutation ──────────────────────────────────────────────
@@ -2418,22 +2427,8 @@ export class SandboxBackend {
     // caller explicitly supplied it (AUTH-GAP).
     const emailVerified = args.emailVerified ?? false;
     const providerId = 'firebase';
-    // `providerData` is one entry PER LINKED PROVIDER, read from the stored
-    // record. It used to be a synthesized single `{providerId: 'password'}`
-    // entry for every non-anonymous user, which was wrong the moment an
-    // identity carried anything else: a Google popup sign-in reported its
-    // provider as `'password'`, and after the linking climb an account with
-    // two providers would still have reported one. Consumer code branches on
-    // this array (that is what it is FOR — "is this account linked to
-    // Google?"), so the synthesized version was actively misleading.
-    //
-    // ABSENT vs EMPTY is the distinction that matters, and conflating them is
-    // a real bug: `undefined` means "no stored record to read" (a popup/mock
-    // user the backend never saw) and falls back to the old single-entry
-    // synthesis so nothing that worked before regresses; `[]` means "this
-    // identity genuinely has no linked providers", which is exactly what
-    // `unlink` of the last provider produces. Falling back on `[]` would
-    // resurrect the very provider the user just removed.
+    // `undefined` means no stored record (legacy mock fallback); `[]` means no
+    // linked providers (e.g. after unlinking the last provider -- never resurrect it).
     const linked: ProviderUserInfo[] = args.providers ?? [{ providerId: 'password' }];
     const providerData = buildClientUserInfoList({
       isAnonymous: args.isAnonymous === true,
