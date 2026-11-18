@@ -15,6 +15,7 @@ import {
   evictServeCache,
   evictViteWorkerCache,
 } from '../../packages/cli/src/serve/bundle-cache-evict.ts';
+import { evictStandaloneServeCache } from '../../packages/cli/src/serve/standalone-cache-evict.ts';
 import { HELD_SLOT_ENV, processStartOf } from '../../scripts/lib/heavy-run-slots.ts';
 import {
   JOB_TMP_MARKER,
@@ -328,6 +329,7 @@ describe('dependency-store, scenario npm-cache, and private-job-tmpdir eviction'
         ).toEqual([]);
         expect(evictServeCache(forbidden, 'keep', 1, { maxEntries: 0, minAgeMs: 1, nowMs })).toEqual([]);
         expect(evictViteWorkerCache(forbidden, 'keep', { maxEntries: 0, minAgeMs: 1, nowMs })).toEqual([]);
+        expect(evictStandaloneServeCache(forbidden, 'keep', { maxEntries: 0, minAgeMs: 1, nowMs })).toEqual([]);
         expect(removePrivateJobTmpDir(forbidden)).toBe(false);
         expect(
           removePrivateJobTmpDir(forbidden, {

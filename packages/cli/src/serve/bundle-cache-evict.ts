@@ -104,7 +104,7 @@ function protectedSharedRoots(): Set<string> {
   return roots;
 }
 
-function isUnsafeCacheRoot(cacheRoot: string): boolean {
+export function isUnsafeCacheRoot(cacheRoot: string): boolean {
   if (cacheRoot.trim() === '') {
     return true;
   }

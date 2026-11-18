@@ -4,22 +4,29 @@
  * In a `bun build --compile` binary, `pyric dev` cannot run its esbuild SDK
  * bundler: esbuild's native helper and the on-disk `pyric` dist it scans both
  * live outside the embedded `/$bunfs` filesystem. The bundle is deterministic,
- * though — a pure function of @pyric/cli' wrapper entries and the `pyric`
- * version baked into @pyric/cli — so the compile step (`scripts/compile.ts`)
+ * though -- a pure function of @pyric/cli' wrapper entries and the `pyric`
+ * version baked into @pyric/cli -- so the compile step (`scripts/compile.ts`)
  * runs the bundler ONCE on the build host and embeds the output (the SDK +
  * worker bundles and the Studio UI) into the binary via
- * `globalThis.__PYRIC_EMBEDDED__`. At runtime we materialize those bytes to a
- * real temp dir so the existing serve namespace — which `createReadStream`s
- * from a directory — works unchanged.
+ * `globalThis.__PYRIC_EMBEDDED__`. At runtime we materialize those bytes under
+ * `~/.pyric/standalone-serve/<identity>` so the existing serve namespace --
+ * which `createReadStream`s from a directory -- works unchanged without writing
+ * to shared `/tmp`.
  *
  * The npm build never sets the global. `isStandalone()` is false there and
  * `serve` keeps its runtime esbuild path untouched. The heavy base64 blobs are
  * exposed behind lazy loaders so commands such as `rules lint --service
  * firestore` never pay to parse them.
  */
-import { mkdirSync, writeFileSync, existsSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { dirname, join, resolve } from 'node:path';
+import { touchBundleCacheDir } from './bundle-cache-evict.js';
+import {
+  STANDALONE_SERVE_MARKER,
+  evictStandaloneServeCache,
+  isAllowlistedStandaloneServeRoot,
+} from './standalone-cache-evict.js';
 
 /** The shape the compiled standalone entry installs on `globalThis`. */
 export interface EmbeddedAssets {
@@ -59,7 +66,7 @@ export function isStandalone(): boolean {
 
 function embedded(): EmbeddedAssets {
   const e = globalThis.__PYRIC_EMBEDDED__;
-  if (!e) {
+  if (e === undefined) {
     throw new Error('pyric: embedded serve assets are unavailable (not a standalone build)');
   }
   return e;
@@ -70,7 +77,7 @@ export function embeddedWorkerVersion(): string {
   return embedded().workerVersion;
 }
 
-/** The `pyric`/`@pyric/cli` version baked into this binary (for npm-mode pinning). */
+/** The `pyric`/`@pyric/cli` version baked in at compile time (for npm-mode pinning). */
 export function embeddedVersion(): string {
   return embedded().version;
 }
@@ -91,14 +98,14 @@ const SCOPED_TARBALL_PACKAGES: Readonly<Record<string, string>> = {
  * `pyric-admin`, `create-pyric`, `@pyric/cli`) into `<projectDir>/vendor/` and return the
  * `package.json` dep spec for each (`file:vendor/<name>.tgz`). The scaffold's
  * `.gitignore` ignores `.pyric/`, so we use `vendor/` to keep the tarballs
- * committable — a clone then `bun install`s offline. Filenames are stable
+ * committable -- a clone then `bun install`s offline. Filenames are stable
  * (version-free) so the specs never churn across versions.
  */
 export async function materializeVendorTarballs(
   projectDir: string,
 ): Promise<Record<string, string>> {
   const e = embedded();
-  if (!e.tarballs) {
+  if (e.tarballs === undefined) {
     throw new Error('pyric: this binary has no embedded package tarballs to vendor');
   }
   const vendorDir = join(projectDir, 'vendor');
@@ -106,16 +113,66 @@ export async function materializeVendorTarballs(
   const specs: Record<string, string> = {};
   for (const [filename, b64] of Object.entries(await e.tarballs())) {
     writeFileSync(join(vendorDir, filename), Buffer.from(b64, 'base64'));
-    const pkg = SCOPED_TARBALL_PACKAGES[filename] ?? filename.replace(/\.tgz$/, '');
+    let pkg = SCOPED_TARBALL_PACKAGES[filename];
+    if (pkg === undefined) {
+      pkg = filename.replace(/\.tgz$/, '');
+    }
     specs[pkg] = `file:vendor/${filename}`;
   }
   return specs;
 }
 
+function sanitizeStandaloneIdentity(raw: string): string {
+  const cleaned = raw
+    .replace(/[^A-Za-z0-9._-]+/g, '-')
+    .replace(/^[.-]+|[.-]+$/g, '');
+  if (cleaned === '') {
+    return 'standalone';
+  }
+  return cleaned;
+}
+
+function standaloneIdentity(e: EmbeddedAssets): string {
+  let raw = e.version;
+  if (typeof e.assetVersion === 'string' && e.assetVersion !== '') {
+    raw = `${e.version}-${e.assetVersion}`;
+  }
+  return sanitizeStandaloneIdentity(raw);
+}
+
+/**
+ * Resolves the managed standalone materialization parent root.
+ * Defaults to `~/.pyric/standalone-serve`; accepts `PYRIC_STANDALONE_SERVE_CACHE_DIR`
+ * only when it resolves inside `~/.pyric/standalone-serve` or `~/.cache/pyric-*`
+ * (never `/tmp`, `tmpdir()`, or `$HOME`).
+ */
+export function resolveStandaloneServeCacheRoot(
+  env: NodeJS.ProcessEnv = process.env,
+): string {
+  const overrideRaw = env.PYRIC_STANDALONE_SERVE_CACHE_DIR;
+  if (typeof overrideRaw === 'string') {
+    const trimmed = overrideRaw.trim();
+    if (trimmed !== '' && isAllowlistedStandaloneServeRoot(trimmed)) {
+      return resolve(trimmed);
+    }
+  }
+  return resolve(join(homedir(), '.pyric', 'standalone-serve'));
+}
+
+function ensureEntryMarker(entryRoot: string, version: string): void {
+  mkdirSync(entryRoot, { recursive: true });
+  const markerPath = join(entryRoot, STANDALONE_SERVE_MARKER);
+  if (existsSync(markerPath) === false) {
+    writeFileSync(markerPath, `${version}\n`);
+  }
+}
+
 /** Write a base64 file map under `root`, preserving nested relpaths, idempotently. */
 function materialize(root: string, files: Record<string, string>, version: string): void {
   const marker = join(root, '.complete');
-  if (existsSync(marker)) return;
+  if (existsSync(marker)) {
+    return;
+  }
   mkdirSync(root, { recursive: true });
   for (const [rel, b64] of Object.entries(files)) {
     const dest = join(root, rel);
@@ -125,37 +182,53 @@ function materialize(root: string, files: Record<string, string>, version: strin
   writeFileSync(marker, version);
 }
 
-function materializationRoot(e: EmbeddedAssets): string {
-  const identity = e.assetVersion ? `${e.version}-${e.assetVersion}` : e.version;
-  return join(tmpdir(), `pyric-serve-${identity}`);
-}
-
-let sdkDirOnce: string | null = null;
+let sdkMemo: { entryRoot: string; outDir: string } | null = null;
 
 /**
- * Materialize the embedded SDK + worker bundles to a temp dir and return it as
- * the `outDir` the serve namespace serves `/__pyric/sdk/*` from. Stand-in for
+ * Materialize the embedded SDK + worker bundles under `~/.pyric/standalone-serve/<identity>/sdk`
+ * and return it as the `outDir` the serve namespace serves `/__pyric/sdk/*` from. Stand-in for
  * `bundleSdk()` + `bundleWorker()` in the standalone build.
  */
 export async function materializeServeAssets(): Promise<{ outDir: string; cached: boolean }> {
-  if (sdkDirOnce) return { outDir: sdkDirOnce, cached: true };
   const e = embedded();
-  const root = materializationRoot(e);
-  const outDir = join(root, 'sdk');
+  const cacheRoot = resolveStandaloneServeCacheRoot();
+  const identity = standaloneIdentity(e);
+  const entryRoot = join(cacheRoot, identity);
+  const outDir = join(entryRoot, 'sdk');
+  if (sdkMemo !== null && sdkMemo.entryRoot === entryRoot && existsSync(join(outDir, '.complete'))) {
+    touchBundleCacheDir(entryRoot);
+    return { outDir: sdkMemo.outDir, cached: true };
+  }
   const cached = existsSync(join(outDir, '.complete'));
-  materialize(outDir, await e.sdk(), e.version);
-  sdkDirOnce = outDir;
+  ensureEntryMarker(entryRoot, e.version);
+  if (cached === false) {
+    materialize(outDir, await e.sdk(), e.version);
+  }
+  touchBundleCacheDir(entryRoot);
+  evictStandaloneServeCache(cacheRoot, identity);
+  sdkMemo = { entryRoot, outDir };
   return { outDir, cached };
 }
 
-let siteDirOnce: string | null = null;
+let siteMemo: { entryRoot: string; dir: string } | null = null;
 
 /** Materialize the embedded Astro documentation + Studio tree for `dev --ui`. */
 export async function materializeSiteUi(): Promise<string> {
-  if (siteDirOnce) return siteDirOnce;
   const e = embedded();
-  const dir = join(materializationRoot(e), 'site-ui');
-  materialize(dir, await e.site(), e.version);
-  siteDirOnce = dir;
+  const cacheRoot = resolveStandaloneServeCacheRoot();
+  const identity = standaloneIdentity(e);
+  const entryRoot = join(cacheRoot, identity);
+  const dir = join(entryRoot, 'site-ui');
+  if (siteMemo !== null && siteMemo.entryRoot === entryRoot && existsSync(join(dir, '.complete'))) {
+    touchBundleCacheDir(entryRoot);
+    return siteMemo.dir;
+  }
+  ensureEntryMarker(entryRoot, e.version);
+  if (existsSync(join(dir, '.complete')) === false) {
+    materialize(dir, await e.site(), e.version);
+  }
+  touchBundleCacheDir(entryRoot);
+  evictStandaloneServeCache(cacheRoot, identity);
+  siteMemo = { entryRoot, dir };
   return dir;
 }
