@@ -1,0 +1,47 @@
+{
+  "name": "messaging-send-android-light-settings",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "firebase-admin/messaging LightSettings: FCM accepts #RRGGBB and #RRGGBBAA LED colors with millisecond on/off durations, while negative durations or malformed hex colors fail client preflight with messaging/invalid-payload.",
+  "observedAt": "2026-11-18T00:42:46.854Z",
+  "adminSdkVersion": "13.10.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "acceptedHex6": {
+      "realSend": {
+        "matchesProjectsMessagesFormat": true,
+        "projectSegmentMatchesProject": true
+      },
+      "dryRunSend": {
+        "matchesProjectsMessagesFormat": true,
+        "projectSegmentMatchesProject": true
+      },
+      "dryRunSameShapeAsReal": true
+    },
+    "acceptedHex8": {
+      "realSend": {
+        "matchesProjectsMessagesFormat": true,
+        "projectSegmentMatchesProject": true
+      },
+      "dryRunSend": {
+        "matchesProjectsMessagesFormat": true,
+        "projectSegmentMatchesProject": true
+      },
+      "dryRunSameShapeAsReal": true
+    },
+    "negativeLightOnDuration": {
+      "threw": true,
+      "code": "messaging/invalid-payload",
+      "message": "android.notification.lightSettings.lightOnDurationMillis must be a non-negative duration in milliseconds",
+      "isFirebaseMessagingError": true,
+      "name": "Error"
+    },
+    "malformedColorShortHex": {
+      "threw": true,
+      "code": "messaging/invalid-payload",
+      "message": "android.notification.lightSettings.color must be in the form #RRGGBB or #RRGGBBAA format",
+      "isFirebaseMessagingError": true,
+      "name": "Error"
+    }
+  }
+}

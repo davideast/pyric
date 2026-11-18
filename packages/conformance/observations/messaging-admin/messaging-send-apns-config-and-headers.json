@@ -1,0 +1,36 @@
+{
+  "name": "messaging-send-apns-config-and-headers",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "firebase-admin/messaging ApnsConfig: FCM accepts apns.headers with apns.payload, while empty liveActivityToken and non-string header values fail client preflight with messaging/invalid-payload.",
+  "observedAt": "2026-11-18T00:42:50.240Z",
+  "adminSdkVersion": "13.10.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "accepted": {
+      "realSend": {
+        "matchesProjectsMessagesFormat": true,
+        "projectSegmentMatchesProject": true
+      },
+      "dryRunSend": {
+        "matchesProjectsMessagesFormat": true,
+        "projectSegmentMatchesProject": true
+      },
+      "dryRunSameShapeAsReal": true
+    },
+    "emptyLiveActivityToken": {
+      "threw": true,
+      "code": "messaging/invalid-payload",
+      "message": "apns.liveActivityToken must be a non-empty string",
+      "isFirebaseMessagingError": true,
+      "name": "Error"
+    },
+    "nonStringHeaderValue": {
+      "threw": true,
+      "code": "messaging/invalid-payload",
+      "message": "apns.headers must only contain string values",
+      "isFirebaseMessagingError": true,
+      "name": "Error"
+    }
+  }
+}

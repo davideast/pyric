@@ -1,0 +1,43 @@
+{
+  "name": "messaging-send-legacy-http-transport",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "firebase-admin/messaging Messaging.enableLegacyHttpTransport(): returns undefined and switches sendEach to HTTP/1.1 transport with identical BatchResponse semantics.",
+  "observedAt": "2026-11-18T00:42:54.729Z",
+  "adminSdkVersion": "13.10.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "enableReturnIsUndefined": true,
+    "dryRunBatch": {
+      "successCount": 1,
+      "failureCount": 1,
+      "responseCount": 2,
+      "responses": [
+        {
+          "index": 0,
+          "success": true,
+          "hasMessageId": true,
+          "nameFacts": {
+            "matchesProjectsMessagesFormat": true,
+            "projectSegmentMatchesProject": true
+          },
+          "hasError": false,
+          "error": null
+        },
+        {
+          "index": 1,
+          "success": false,
+          "hasMessageId": false,
+          "nameFacts": null,
+          "hasError": true,
+          "error": {
+            "code": "messaging/invalid-argument",
+            "message": "The registration token is not a valid FCM registration token",
+            "isFirebaseMessagingError": true,
+            "name": "Error"
+          }
+        }
+      ]
+    }
+  }
+}

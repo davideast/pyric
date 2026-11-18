@@ -1,0 +1,65 @@
+{
+  "name": "messaging-send-multicast-batch",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "firebase-admin/messaging sendEachForMulticast(MulticastMessage, dryRun?): ordered per-token SendResponse outcomes and preflight guards for null message, empty tokens array, and >500 tokens.",
+  "observedAt": "2026-11-18T00:42:55.476Z",
+  "adminSdkVersion": "13.10.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "mixedInvalidTokensDryRun": {
+      "successCount": 0,
+      "failureCount": 2,
+      "responseCount": 2,
+      "responses": [
+        {
+          "index": 0,
+          "success": false,
+          "hasMessageId": false,
+          "nameFacts": null,
+          "hasError": true,
+          "error": {
+            "code": "messaging/invalid-argument",
+            "message": "The registration token is not a valid FCM registration token",
+            "isFirebaseMessagingError": true,
+            "name": "Error"
+          }
+        },
+        {
+          "index": 1,
+          "success": false,
+          "hasMessageId": false,
+          "nameFacts": null,
+          "hasError": true,
+          "error": {
+            "code": "messaging/invalid-payload",
+            "message": "Exactly one of topic, token or condition is required",
+            "isFirebaseMessagingError": true,
+            "name": "Error"
+          }
+        }
+      ]
+    },
+    "nullMessage": {
+      "threw": true,
+      "code": "messaging/invalid-argument",
+      "message": "MulticastMessage must be a non-null object",
+      "isFirebaseMessagingError": true,
+      "name": "Error"
+    },
+    "emptyTokensArray": {
+      "threw": true,
+      "code": "messaging/invalid-argument",
+      "message": "tokens must be a non-empty array",
+      "isFirebaseMessagingError": true,
+      "name": "Error"
+    },
+    "overMaxTokens501": {
+      "threw": true,
+      "code": "messaging/invalid-argument",
+      "message": "tokens list must not contain more than 500 items",
+      "isFirebaseMessagingError": true,
+      "name": "Error"
+    }
+  }
+}
