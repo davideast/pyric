@@ -1,0 +1,71 @@
+{
+  "name": "firestore-getdocs-snapshot-empty-and-doc-refs",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "getDocs(query) returns an empty QuerySnapshot (size: 0, empty: true, docs: []) when no documents match, and returns QueryDocumentSnapshot entries with tagged refs usable in follow-up operations when populated.",
+  "observedAt": "2026-11-18T11:05:46.937Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "emptyCollectionResult": {
+      "isQuerySnapshot": true,
+      "size": 0,
+      "empty": true,
+      "docsLength": 0
+    },
+    "zeroMatchQueryResult": {
+      "size": 0,
+      "empty": true,
+      "docsLength": 0
+    },
+    "populatedResult": {
+      "isQuerySnapshot": true,
+      "size": 3,
+      "empty": false,
+      "docsLength": 3,
+      "docEntries": [
+        {
+          "id": "item-a",
+          "exists": true,
+          "data": {
+            "rank": 1,
+            "label": "A"
+          },
+          "isQueryDocumentSnapshot": true,
+          "refParentMatchesCollection": true
+        },
+        {
+          "id": "item-b",
+          "exists": true,
+          "data": {
+            "rank": 2,
+            "label": "B"
+          },
+          "isQueryDocumentSnapshot": true,
+          "refParentMatchesCollection": true
+        },
+        {
+          "id": "item-c",
+          "exists": true,
+          "data": {
+            "rank": 3,
+            "label": "C"
+          },
+          "isQueryDocumentSnapshot": true,
+          "refParentMatchesCollection": true
+        }
+      ]
+    },
+    "followUpViaDocsRef": {
+      "rereadFirstData": {
+        "rank": 1,
+        "label": "A-updated"
+      },
+      "remainingSizeAfterDelete": 2,
+      "remainingIds": [
+        "item-b",
+        "item-c"
+      ]
+    }
+  }
+}

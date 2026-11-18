@@ -1,0 +1,64 @@
+{
+  "name": "firestore-getdocs-foreach-thisarg-and-arity",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "QuerySnapshot.forEach(callback, thisArg) invokes callback.call(thisArg, doc) once per document in query order with single-argument arity across raw and withConverter queries.",
+  "observedAt": "2026-11-18T11:05:42.076Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "emptyCallCount": 0,
+    "rawVisits": [
+      {
+        "id": "step-1",
+        "code": "one",
+        "argCount": 1,
+        "thisBoundToReceiver": true,
+        "exists": true
+      },
+      {
+        "id": "step-2",
+        "code": "two",
+        "argCount": 1,
+        "thisBoundToReceiver": true,
+        "exists": true
+      },
+      {
+        "id": "step-3",
+        "code": "three",
+        "argCount": 1,
+        "thisBoundToReceiver": true,
+        "exists": true
+      }
+    ],
+    "converterVisits": [
+      {
+        "id": "step-3",
+        "data": {
+          "seq": 3,
+          "upperCode": "THREE"
+        },
+        "argCount": 1,
+        "thisBoundToReceiver": true
+      },
+      {
+        "id": "step-2",
+        "data": {
+          "seq": 2,
+          "upperCode": "TWO"
+        },
+        "argCount": 1,
+        "thisBoundToReceiver": true
+      },
+      {
+        "id": "step-1",
+        "data": {
+          "seq": 1,
+          "upperCode": "ONE"
+        },
+        "argCount": 1,
+        "thisBoundToReceiver": true
+      }
+    ]
+  }
+}

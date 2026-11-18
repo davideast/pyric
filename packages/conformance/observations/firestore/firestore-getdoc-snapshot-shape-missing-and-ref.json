@@ -1,0 +1,41 @@
+{
+  "name": "firestore-getdoc-snapshot-shape-missing-and-ref",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "getDoc(ref) returns a DocumentSnapshot with id, exists() method, data() (undefined when missing), and a tagged snap.ref usable in follow-up updateDoc, getDoc, and deleteDoc calls.",
+  "observedAt": "2026-11-18T11:05:37.596Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "missingDoc": {
+      "isDocumentSnapshot": true,
+      "id": "missing-doc",
+      "existsIsFunction": true,
+      "exists": false,
+      "dataIsUndefined": true,
+      "refPathMatchesInput": true,
+      "refParentMatchesCollection": true
+    },
+    "seededDoc": {
+      "isDocumentSnapshot": true,
+      "id": "alpha-doc",
+      "existsIsFunction": true,
+      "exists": true,
+      "data": {
+        "title": "Alpha",
+        "count": 3
+      },
+      "refPathMatchesInput": true,
+      "refParentMatchesCollection": true
+    },
+    "followUpViaSnapRef": {
+      "afterUpdateExists": true,
+      "afterUpdateData": {
+        "title": "Alpha",
+        "count": 10
+      },
+      "afterDeleteExists": false,
+      "afterDeleteDataIsUndefined": true
+    }
+  }
+}
