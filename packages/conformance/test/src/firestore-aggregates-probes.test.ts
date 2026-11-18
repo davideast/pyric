@@ -12,7 +12,6 @@ import {
   printModularProbePreview,
   selectModularProbes,
 } from '../../src/sdk-probes.ts';
-import { expectStagedUntilCaptured } from './staged-capture-assertions.ts';
 import { probe as avgEmptyProbe } from '../../probes/firestore/firestore-aggregate-average-empty-and-nonnumeric.ts';
 import { probe as composeDottedProbe } from '../../probes/firestore/firestore-aggregate-compose-dotted-and-fieldpath.ts';
 import { probe as countShapeProbe } from '../../probes/firestore/firestore-getcountfromserver-data-shape.ts';
@@ -49,21 +48,26 @@ function observeSyncAggregateDescriptors() {
   };
 }
 
-describe('Firestore Aggregates staged probes (sdk-probes)', () => {
-  test('registers all 4 Aggregates probes on sdk-probes with pendingRowLink and empty rowIds', async () => {
+describe('Firestore Aggregates probes (sdk-probes)', () => {
+  test('registers all 4 Aggregates probes on sdk-probes linked to firestore#74, #75, #77, #78', async () => {
     const loaded = await loadModularProbes('sdk-probes');
     const loadedIds = loaded.map((entry) => entry.id);
     for (const id of AGGREGATE_PROBE_IDS) {
       expect(loadedIds).toContain(id);
     }
 
-    const probes = [avgEmptyProbe, composeDottedProbe, countShapeProbe, countWhereProbe];
-    for (const probeRecord of probes) {
+    const expectedLinks = [
+      { probeRecord: countShapeProbe, rowId: 'firestore#74' },
+      { probeRecord: countWhereProbe, rowId: 'firestore#75' },
+      { probeRecord: composeDottedProbe, rowId: 'firestore#77' },
+      { probeRecord: avgEmptyProbe, rowId: 'firestore#78' },
+    ];
+    for (const { probeRecord, rowId } of expectedLinks) {
       expect(probeRecord.rig).toBe('sdk-probes');
       expect(probeRecord.requires).toEqual(['web-config', 'firestore-rules']);
-      expect(probeRecord.pendingRowLink).toBe(true);
-      expect(probeRecord.matrixRow).toBe('');
-      expect(probeRecord.rowIds).toEqual([]);
+      expect(probeRecord.pendingRowLink).toBeUndefined();
+      expect(probeRecord.matrixRow).toBe(rowId);
+      expect(probeRecord.rowIds).toEqual([rowId]);
       expect(probeRecord.description.length).toBeGreaterThan(20);
     }
 
@@ -72,18 +76,9 @@ describe('Firestore Aggregates staged probes (sdk-probes)', () => {
         includeUncapturedStaged: false,
       }).map((entry) => entry.id),
     );
-
-    expectStagedUntilCaptured(AGGREGATE_PROBE_IDS, {
-      rig: 'sdk-probes',
-      filterFlag: '--probe',
-      filterValueFor: (name) => name,
-      whenUncaptured(name) {
-        expect(unfilteredIds.has(name)).toBe(false);
-      },
-      whenCaptured(name) {
-        expect(unfilteredIds.has(name)).toBe(true);
-      },
-    });
+    for (const id of AGGREGATE_PROBE_IDS) {
+      expect(unfilteredIds.has(id)).toBe(true);
+    }
 
     const lines: string[] = [];
     printModularProbePreview({

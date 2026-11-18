@@ -79,7 +79,7 @@ export interface AiAppCheckWire {
 /**
  * Wire form of the Gemini error envelope an `AiBrokerError` carries.
  */
-export interface AiErrorEnvelopeWire {
+interface AiErrorEnvelopeWire {
   error: {
     code: number;
     message: string;
@@ -106,7 +106,7 @@ export interface StorageBucketWire {
 }
 
 /** A metadata change from the admin plane, as `pyric/storage/internal`'s `patchObjectMetadata` takes it. */
-export interface StorageMetadataPatchWire {
+interface StorageMetadataPatchWire {
   settable?: {
     contentType?: string | null;
     cacheControl?: string | null;
@@ -202,7 +202,7 @@ export type OpMessage = (
   | { t: 'op'; id: string; method: 'auth.getCurrentUser' }
   | { t: 'op'; id: string; method: 'auth.updateProfile'; displayName?: string | null; photoURL?: string | null }
   | { t: 'op'; id: string; method: 'auth.setTenantId'; tenantId: string | null }
-  | { t: 'op'; id: string; method: 'auth.reload' }
+  | { t: 'op'; id: string; method: 'auth.reload'; uid?: string }
   | { t: 'op'; id: string; method: 'auth.deleteUser' }
   | { t: 'op'; id: string; method: 'auth.updateEmail'; email?: string; newEmail?: string; uid?: string }
   | { t: 'op'; id: string; method: 'auth.updatePassword'; password?: string; newPassword?: string; uid?: string }
@@ -369,7 +369,7 @@ export type OpMessage = (
 /**
  * Wire form of the broker's `deliver` spec (`messaging.deliver`).
  */
-export interface MessagingDeliverSpec {
+interface MessagingDeliverSpec {
   visibilityState?: ClientVisibilityState;
   data?: Record<string, string>;
   notification?: { title?: string; body?: string; image?: string };
@@ -503,7 +503,7 @@ export interface UnsubMessage {
 }
 
 /** Explicit app-port teardown; MessagePort close events are unreliable in Chrome. */
-export interface DisconnectMessage {
+interface DisconnectMessage {
   t: 'disconnect';
   id: string;
 }
@@ -541,7 +541,7 @@ export interface AppConfigMessage {
  * So the state is mirrored rather than fetched. The host answers with the
  * current {@link ClockMessage} and sends another on every later move.
  */
-export interface ClockSubscribeMessage {
+interface ClockSubscribeMessage {
   t: 'clock-subscribe';
 }
 
@@ -598,7 +598,7 @@ export interface ObserveMessage {
  * under the process's client (`live-clients.ts`) and the sandbox answers
  * `res`. A frame whose lists are malformed is refused with `invalid-argument`.
  */
-export interface UnobservedMessage extends NodeUnobservedLists {
+interface UnobservedMessage extends NodeUnobservedLists {
   t: 'unobserved';
   id: string;
 }
@@ -651,7 +651,7 @@ export interface RuntimeReloadMessage {
 }
 
 /** The sandbox clock's whole state, for a port that asked to mirror it. */
-export interface ClockMessage {
+interface ClockMessage {
   t: 'clock';
   state: SandboxClockState;
 }

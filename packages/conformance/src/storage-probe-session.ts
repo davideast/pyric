@@ -129,11 +129,13 @@ export async function withStorageProbeSession(
 ): Promise<Record<string, unknown>> {
   const [
     { deleteApp, initializeApp },
-    { deleteUser, getAuth, signInAnonymously },
+    { deleteUser, getAuth },
+    { signInOracleClientAuth },
     storageSdk,
   ] = await Promise.all([
     import('firebase/app'),
     import('firebase/auth'),
+    import('./oracle-run-auth-session.ts'),
     import('firebase/storage'),
   ]);
 
@@ -177,7 +179,7 @@ export async function withStorageProbeSession(
       if (outcome !== 'already-configured') {
         await new Promise((resolve) => setTimeout(resolve, 10_000));
       }
-      await signInAnonymously(clientAuth);
+      await signInOracleClientAuth(clientAuth, sa, `sdk-st-${runId}`);
       try {
         return await runProbe({
           runId,

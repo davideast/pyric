@@ -219,7 +219,7 @@ function defaultUploadStringContentType(
   format: StringEncodingFormat | null,
 ): string | undefined {
   if (spec.formatArg === undefined) return 'application/octet-stream';
-  if (format === 'raw') return 'text/plain;charset=utf-8';
+  if (format === 'raw') return 'application/octet-stream';
   if (format === 'base64' || format === 'base64url') return 'application/octet-stream';
   return undefined;
 }

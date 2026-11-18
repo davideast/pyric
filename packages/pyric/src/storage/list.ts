@@ -103,12 +103,13 @@ export async function listAll(refIn: StorageReference): Promise<ListResult> {
     }
   }
 
-  // IDB key order already sorts items; prefixes are first-appearance
-  // order, sort for determinism so consumer code can rely on a stable
-  // shape.
+  // GCS orders delimiter-rolled-up prefixes with their trailing '/' before the
+  // client SDK strips that slash (so 'foo-bar/' sorts before 'foo/').
   prefixes.sort((a, b) => {
-    if (a.fullPath < b.fullPath) return -1;
-    if (a.fullPath > b.fullPath) return 1;
+    const aSlash = `${a.fullPath}/`;
+    const bSlash = `${b.fullPath}/`;
+    if (aSlash < bSlash) return -1;
+    if (aSlash > bSlash) return 1;
     return 0;
   });
 

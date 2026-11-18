@@ -1,0 +1,29 @@
+{
+  "name": "auth-beforeauthstatechanged-onabort-reverse-and-swallow",
+  "matrixRow": "auth#76a",
+  "rowIds": [
+    "auth#76a"
+  ],
+  "description": "beforeAuthStateChanged invokes onAbort callbacks in reverse registration order only for gates that already succeeded in the current pass, swallowing errors thrown inside onAbort without masking auth/login-blocked.",
+  "observedAt": "2026-11-18T12:52:19.697Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "blockedAttempt": {
+      "threw": true,
+      "errorName": "FirebaseError",
+      "isFirebaseError": true,
+      "code": "auth/login-blocked"
+    },
+    "currentUserRemainsNull": true,
+    "runOrder": [
+      "gate-1-ok",
+      "gate-2-ok",
+      "gate-3-throws"
+    ],
+    "abortOrder": [
+      "abort-2-throws",
+      "abort-1"
+    ]
+  }
+}

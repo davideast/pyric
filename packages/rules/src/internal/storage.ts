@@ -25,3 +25,4 @@ export * from '../storage/rules-resolution.js';
 export * from '../storage/rules-string-methods.js';
 export * from '../storage/rules-time-methods.js';
 export * from '../storage/rules-values.js';
+export { createMd5Hasher, md5, type Md5Hasher } from '../simulator/hashing-builtins.js';

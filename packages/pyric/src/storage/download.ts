@@ -30,13 +30,12 @@ import type { StoredMetadata } from './persistence.js';
  * `ArrayBuffer`. Honors the optional `maxDownloadSizeBytes` cap by
  * truncating to that length.
  */
-export async function getBytes(
+export function getBytes(
   ref: StorageReference,
   maxDownloadSizeBytes?: number,
 ): Promise<ArrayBuffer> {
   guardNonRoot(ref, 'getBytes');
-  const blob = await fetchBlob(ref, maxDownloadSizeBytes);
-  return blob.arrayBuffer();
+  return fetchBlob(ref, maxDownloadSizeBytes).then((blob) => blob.arrayBuffer());
 }
 
 /**
@@ -92,11 +91,18 @@ export async function getDownloadURL(ref: StorageReference): Promise<string> {
  * awaits the backend before emitting, so it escapes the sandbox's
  * synchronous ambient-provenance window — see the note on `uploadBytes`.
  */
-export async function deleteObject(
+export function deleteObject(
   ref: StorageReference,
   provenance?: EventProvenance,
 ): Promise<void> {
   guardNonRoot(ref, 'deleteObject');
+  return performDeleteObject(ref, provenance);
+}
+
+async function performDeleteObject(
+  ref: StorageReference,
+  provenance?: EventProvenance,
+): Promise<void> {
   const target = targetOf(ref.storage);
   const operationProvenance = storageOperationProvenance(target, provenance);
   const service = await getStorageService(ref.storage);

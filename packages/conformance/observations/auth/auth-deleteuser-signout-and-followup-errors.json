@@ -1,0 +1,28 @@
+{
+  "name": "auth-deleteuser-signout-and-followup-errors",
+  "matrixRow": "auth#83",
+  "rowIds": [
+    "auth#83"
+  ],
+  "description": "deleteUser(user) removes the account, clears auth.currentUser with an onAuthStateChanged(null) transition, and causes subsequent reload(user) and signInWithEmailAndPassword calls to reject.",
+  "observedAt": "2026-11-18T09:41:27.429Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "currentUserNullAfterDelete": true,
+    "firedNullAuthStateOnDelete": true,
+    "adminLookupCodeAfterDelete": "auth/user-not-found",
+    "reloadAfterDelete": {
+      "threw": true,
+      "errorName": "FirebaseError",
+      "isFirebaseError": true,
+      "code": "auth/user-token-expired"
+    },
+    "signInAfterDelete": {
+      "threw": true,
+      "errorName": "FirebaseError",
+      "isFirebaseError": true,
+      "code": "auth/invalid-credential"
+    }
+  }
+}

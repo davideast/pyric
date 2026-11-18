@@ -316,23 +316,17 @@ describe('IsolatedSandbox live Orbit integration & hygiene', () => {
 
     // Create a clean temp project without .pyric to verify non-mutation from scratch
     const cleanProjectDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pyric-clean-proj-'));
-    fs.writeFileSync(
-      path.join(cleanProjectDir, 'firebase.json'),
-      JSON.stringify({ database: { rules: 'database.rules.json' } }),
-    );
-    fs.copyFileSync(
-      path.join(ORBIT_EXAMPLE_DIR, 'database.rules.json'),
-      path.join(cleanProjectDir, 'database.rules.json'),
-    );
     const snapOutDir = path.join(os.tmpdir(), `pyric-snap-${Date.now()}`);
-    const snapRes = createSnapshot({ projectDir: cleanProjectDir, outDir: snapOutDir });
-    assert.equal(snapRes.exists, false);
-    assert.equal(
-      fs.existsSync(path.join(cleanProjectDir, '.pyric')),
-      false,
-      'createSnapshot must not create .pyric on an uninitialized project',
-    );
-    fs.rmSync(cleanProjectDir, { recursive: true, force: true });
+    try {
+      fs.writeFileSync(path.join(cleanProjectDir, 'firebase.json'), JSON.stringify({ database: { rules: 'database.rules.json' } }));
+      fs.copyFileSync(path.join(ORBIT_EXAMPLE_DIR, 'database.rules.json'), path.join(cleanProjectDir, 'database.rules.json'));
+      const snapRes = createSnapshot({ projectDir: cleanProjectDir, outDir: snapOutDir });
+      assert.equal(snapRes.exists, false);
+      assert.equal(fs.existsSync(path.join(cleanProjectDir, '.pyric')), false, 'createSnapshot must not create .pyric on an uninitialized project');
+    } finally {
+      fs.rmSync(cleanProjectDir, { recursive: true, force: true });
+      fs.rmSync(snapOutDir, { recursive: true, force: true });
+    }
 
     // Record baseline of Orbit example's .pyric directory before starting IsolatedSandbox
     const orbitPyricDir = path.join(ORBIT_EXAMPLE_DIR, '.pyric');

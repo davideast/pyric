@@ -86,11 +86,11 @@ describe('S3 data_url percent-decode (upstream storage probes)', () => {
     expect(text).toBe('a data');
   });
 
-  it('malformed percent-encoding throws storage/invalid-format', async () => {
+  it('malformed percent-encoding throws storage/invalid-format synchronously', () => {
     const storage = freshStorage('s3-bad-percent');
     const r = ref(storage, 'notes/bad.txt');
-    await expect(uploadString(r, 'data:,%%0', 'data_url')).rejects.toMatchObject({
-      code: 'storage/invalid-format',
-    });
+    expect(() => uploadString(r, 'data:,%%0', 'data_url')).toThrow(
+      expect.objectContaining({ code: 'storage/invalid-format' }),
+    );
   });
 });

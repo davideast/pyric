@@ -11,6 +11,7 @@
 
 import { execFileSync, spawn, type ChildProcess } from 'node:child_process';
 import { createWriteStream } from 'node:fs';
+import { createPrivateJobTmpDir, removePrivateJobTmpDir } from '../private-job-tmpdir.ts';
 import { addCounts, readCounts } from './counts.ts';
 import { failuresWithFiles } from './failures.ts';
 import type { TestJob } from './plan.ts';
@@ -32,10 +33,17 @@ function summarize(exitCode: number, stdout: string, stderr: string, note: strin
 
 export function spawnJob(job: TestJob, options: { logPath: string; echo: boolean }): Promise<JobOutcome> {
   return new Promise((resolve) => {
+    const jobTmpDir = createPrivateJobTmpDir(job.name);
+    const childEnv: NodeJS.ProcessEnv = {
+      ...process.env,
+      TMPDIR: jobTmpDir,
+      TMP: jobTmpDir,
+      TEMP: jobTmpDir,
+    };
     const file = createWriteStream(options.logPath);
     let logError = '';
     file.on('error', (error) => { logError = `\n[test-all] could not write ${options.logPath}: ${error.message}\n`; });
-    const child = spawn(job.command, job.args, { cwd: job.cwd, env: process.env, stdio: ['ignore', 'pipe', 'pipe'] });
+    const child = spawn(job.command, job.args, { cwd: job.cwd, env: childEnv, stdio: ['ignore', 'pipe', 'pipe'] });
     runningChildren.add(child);
     const text = { stdout: '', stderr: '' };
     const record = (name: 'stdout' | 'stderr', stream: NodeJS.WriteStream) => (chunk: Buffer) => {
@@ -50,6 +58,7 @@ export function spawnJob(job: TestJob, options: { logPath: string; echo: boolean
       if (settled) return;
       settled = true;
       runningChildren.delete(child);
+      removePrivateJobTmpDir(jobTmpDir);
       const done = () => resolve(summarize(exitCode, text.stdout, text.stderr, `${note}${logError}`));
       if (file.destroyed) done();
       else file.end(note, done);

@@ -10,6 +10,16 @@ import { ALL_RULES_FIRESTORE_SCENARIOS } from '../../rules-corpus/firestore/inde
 import { ALL_RULES_STORAGE_SCENARIOS } from '../../rules-corpus/storage/index.ts';
 import { loadStorageRulesExceptions } from '../../src/storage-rules-exceptions.ts';
 import { ALL_RULES_RTDB_SCENARIOS } from '../../rules-corpus/rtdb/index.ts';
+import { parseStorageRules } from '../../../rules/src/storage/rules.ts';
+
+function canParseStorageScenario(rules: string): boolean {
+  try {
+    parseStorageRules(rules);
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 describe('rules-language analyzer', () => {
   const FS_FIXTURE = `rules_version = '2';
@@ -96,6 +106,9 @@ service firebase.storage {
       const pinnedError = parsePinned.get(`rules-storage-${pack.id}`);
       if (pinnedError !== undefined) {
         expect(() => analyze('storage', pack.rules)).toThrow(pinnedError);
+        continue;
+      }
+      if (pack.allowCompileError && !canParseStorageScenario(pack.rules)) {
         continue;
       }
       const res = analyze('storage', pack.rules);

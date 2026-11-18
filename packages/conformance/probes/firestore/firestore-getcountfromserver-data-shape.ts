@@ -4,9 +4,8 @@ import { withFirestoreProbeSession } from '../../src/sdk-probe-runtime.ts';
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: ['web-config', 'firestore-rules'],
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'firestore#74',
+  rowIds: ['firestore#74'],
   description:
     'getCountFromServer(query) returns an AggregateQuerySnapshot whose data() yields { count: N } across empty, populated, and limit-capped queries, preserving query identity and snapshot equality.',
   async observe() {

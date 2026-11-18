@@ -16,7 +16,8 @@
   "conformanceSuite": "packages/pyric/test/ai",
   "captureRigs": [
     "ai-logic",
-    "ai-request-edge"
+    "ai-request-edge",
+    "sdk-probes"
   ],
   "registry": "ai",
   "dispositions": [

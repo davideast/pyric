@@ -158,7 +158,18 @@ describe('two-number conformance split: capture-proven vs self-tested', () => {
     expect(captureBacked.match).toBe('exact');
     expect(captureBacked.supports[0]?.summary).toContain('proven by a Firebase capture');
 
-    const selfTested = canIUse(model, 'auth/TwitterAuthProvider');
+    const twitterProvider = canIUse(model, 'auth/TwitterAuthProvider');
+    expect(twitterProvider.match).toBe('exact');
+    expect(twitterProvider.supports[0]?.summary).toContain('proven by a Firebase capture');
+
+    const authSelfTestedEntry = model.supports.find(
+      (entry) =>
+        entry.surface === 'auth' && entry.summary.includes("passes Pyric's own tests only"),
+    );
+    if (!authSelfTestedEntry) {
+      throw new Error('expected at least one self-tested auth feature');
+    }
+    const selfTested = canIUse(model, `auth/${authSelfTestedEntry.feature}`);
     expect(selfTested.match).toBe('exact');
     expect(selfTested.supports[0]?.summary).toContain("passes Pyric's own tests only");
 

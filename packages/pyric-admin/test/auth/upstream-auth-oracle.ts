@@ -381,6 +381,9 @@ export function createOfflineUpstreamAuthHarness(): OfflineUpstreamAuthHarness {
       if (typeof body.disableUser === 'boolean') {
         existing.disabled = body.disableUser;
       }
+      if (typeof body.phoneNumber === 'string' && !WIRE_E164_PHONE_RE.test(body.phoneNumber)) {
+        return identityToolkitError(400, 'INVALID_PHONE_NUMBER');
+      }
       if (typeof body.validSince === 'number') {
         existing.validSinceSec = body.validSince;
       }

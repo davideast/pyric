@@ -1,0 +1,49 @@
+{
+  "name": "firestore-runtime-classes-and-instanceof",
+  "matrixRow": "firestore#151",
+  "rowIds": [
+    "firestore#151"
+  ],
+  "description": "firebase/firestore exports runtime ES classes, query constraint constructors, and CACHE_SIZE_UNLIMITED satisfying instanceof checks across live database, reference, snapshot, batch, transaction, and aggregate handles.",
+  "observedAt": "2026-11-18T20:16:11.644Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "constantsAndExports": {
+      "cacheSizeUnlimited": -1,
+      "hasAbstractUserDataWriter": true
+    },
+    "handleInstanceOf": {
+      "dbIsFirestore": true,
+      "collIsCollectionReference": true,
+      "collIsQuery": true,
+      "builtQueryIsQuery": true,
+      "docRefIsDocumentReference": true,
+      "docSnapIsDocumentSnapshot": true,
+      "docSnapMetadataIsSnapshotMetadata": true,
+      "querySnapIsQuerySnapshot": true,
+      "queryDocIsQueryDocumentSnapshot": true,
+      "queryDocIsDocumentSnapshot": true,
+      "batchIsWriteBatch": true,
+      "txnIsTransaction": true,
+      "countIsAggregateField": true,
+      "aggSnapIsAggregateQuerySnapshot": true,
+      "invalidPathIsFirestoreError": false,
+      "invalidPathIsError": false
+    },
+    "constraintInstanceOf": {
+      "fieldFilterIsFieldFilter": true,
+      "fieldFilterIsQueryConstraint": true,
+      "compositeIsCompositeFilter": true,
+      "compositeIsQueryConstraint": false,
+      "orderIsOrderByConstraint": true,
+      "orderIsQueryConstraint": true,
+      "limitIsLimitConstraint": true,
+      "limitIsQueryConstraint": true,
+      "startIsStartAtConstraint": true,
+      "startIsQueryConstraint": true,
+      "endIsEndAtConstraint": true,
+      "endIsQueryConstraint": true
+    }
+  }
+}

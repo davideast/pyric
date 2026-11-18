@@ -37,22 +37,22 @@ const authAdminRows: CompatibilityRow[] = [
   adminRow({
     rowRef: '1a',
     featureKeys: ['getAuth'],
-    api: 'getAuth(app) (explicit app routing, post-deleteApp rejection, and uncached handle divergence)',
+    api: 'getAuth(app) (explicit app routing, per-app handle caching, and post-deleteApp rejection)',
     behavior:
-      'Routes `getAuth(app)` across in-process and remote worker sandboxes (`auth.app === app`), rejects non-`PyricAdminApp` inputs with `TypeError`, and rejects `getAuth(app)` after `deleteApp(app)` with `app/app-deleted`; unlike `firebase-admin/auth`, `getAuth(app)` constructs a fresh `Auth` wrapper per call (`getAuth(app) !== getAuth(app)`).',
-    status: 'diverged-documented',
-    statusNote:
-      'getAuth(app) constructs a fresh Auth wrapper per call (getAuth(app) !== getAuth(app)) rather than caching one handle per app',
-    automation: 'unit-backed',
+      'Routes `getAuth(app)` across in-process and remote worker sandboxes (`auth.app === app`), caches one `Auth` handle per active `PyricAdminApp` (`getAuth(app) === getAuth(app)`), isolates handles across apps, rejects non-`PyricAdminApp` inputs with `TypeError`, and throws `app/app-deleted` synchronously after `deleteApp(app)`.',
+    status: 'conforms',
+    automation: 'oracle-backed',
+    oracleObservations: ['admin-auth-getauth-app-lifecycle'],
     conformanceTests: [
+      'packages/pyric-admin/test/auth/oracle-conformance.test.ts',
       'packages/pyric-admin/test/auth/auth-service.test.ts',
       'packages/pyric-admin/test/app/registry.test.ts',
     ],
     evidence:
-      'Pinned across local and remote arms in `auth-service.test.ts` and post-delete lifecycle checks in `registry.test.ts`.',
+      'Production capture `admin-auth-getauth-app-lifecycle` (firebase-admin 13.10.0) replayed across local and remote worker-bridge arms by `oracle-conformance.test.ts`, plus brand and lifecycle checks in `auth-service.test.ts` and `registry.test.ts`.',
     risk: ['error-code', 'stateful'],
-    riskScore: 2,
-    riskReasons: ['asserts app brand check, app/app-deleted, and uncached wrapper behavior'],
+    riskScore: 3,
+    riskReasons: ['asserts per-app handle caching, app brand check, and synchronous app/app-deleted'],
   }),
   adminRow({
     rowRef: '2',
@@ -97,15 +97,17 @@ const authAdminRows: CompatibilityRow[] = [
     featureKeys: ['Auth.verifyIdToken'],
     api: 'auth.verifyIdToken(idToken, checkRevoked?) (signature, audience, expiry, and revocation-cutoff checks)',
     behavior:
-      'Rejects malformed, tampered-signature, wrong-audience/issuer, and expired ID tokens with `auth/argument-error` or `auth/id-token-expired`, and with `checkRevoked: true` rejects tokens issued prior to the user revocation cutoff with `auth/id-token-revoked`.',
+      'Rejects non-string inputs synchronously (`auth/argument-error`) and rejects malformed, missing-`kid`, non-`RS256`, tampered-signature, wrong-audience/issuer, and expired ID tokens with `auth/argument-error` or `auth/id-token-expired`, and with `checkRevoked: true` rejects tokens issued prior to the user revocation cutoff with `auth/id-token-revoked`.',
     status: 'conforms',
-    automation: 'unit-backed',
+    automation: 'oracle-backed',
+    oracleObservations: ['admin-auth-verify-id-token-errors', 'admin-auth-revoke-refresh-tokens'],
     conformanceTests: [
+      'packages/pyric-admin/test/auth/oracle-conformance.test.ts',
       'packages/pyric-admin/test/auth/verify-token.test.ts',
       'packages/pyric-admin/src/auth/oracle-admin-answers.test.ts',
     ],
     evidence:
-      'Verified by `verify-token.test.ts` and `oracle-admin-answers.test.ts`; no standalone production capture records tampered/expired/wrong-audience or revocation-cutoff ID tokens.',
+      'Production captures `admin-auth-verify-id-token-errors` and `admin-auth-revoke-refresh-tokens` (firebase-admin 13.10.0) replayed across local and remote worker-bridge arms by `oracle-conformance.test.ts`, plus `verify-token.test.ts` and `oracle-admin-answers.test.ts`.',
     risk: ['error-code', 'stateful'],
     riskScore: 3,
     riskReasons: ['asserts JWT signature/aud/exp validation and auth/id-token-revoked'],
@@ -115,16 +117,18 @@ const authAdminRows: CompatibilityRow[] = [
     featureKeys: ['Auth.revokeRefreshTokens'],
     api: 'auth.revokeRefreshTokens(uid)',
     behavior:
-      'Advances the user revocation timestamp across local and remote arms so earlier ID tokens fail `verifyIdToken(token, true)` with `auth/id-token-revoked` and forced client token refreshes reject with `auth/user-token-expired`; rejects unknown UIDs with `auth/user-not-found`.',
+      'Advances the user revocation timestamp across local and remote arms so earlier ID tokens still pass `verifyIdToken(token)` / `verifyIdToken(token, false)` while failing `verifyIdToken(token, true)` with `auth/id-token-revoked`, forced client token refreshes reject with `auth/user-token-expired`, fresh post-revocation sessions pass `verifyIdToken(token, true)`, and unknown UIDs reject with `auth/user-not-found`.',
     status: 'conforms',
-    automation: 'unit-backed',
+    automation: 'oracle-backed',
+    oracleObservations: ['admin-auth-revoke-refresh-tokens'],
     conformanceTests: [
+      'packages/pyric-admin/test/auth/oracle-conformance.test.ts',
       'packages/pyric-admin/src/auth/oracle-admin-answers.test.ts',
       'packages/pyric-admin/test/auth/local-auth.test.ts',
       'packages/pyric-admin/test/auth/remote-auth.test.ts',
     ],
     evidence:
-      'Verified by `oracle-admin-answers.test.ts`, `local-auth.test.ts`, and `remote-auth.test.ts`; no standalone production capture records `revokeRefreshTokens` directly.',
+      'Production capture `admin-auth-revoke-refresh-tokens` (firebase-admin 13.10.0) replayed across local and remote worker-bridge arms by `oracle-conformance.test.ts`, plus `oracle-admin-answers.test.ts`, `local-auth.test.ts`, and `remote-auth.test.ts`.',
     risk: ['error-code', 'stateful'],
     riskScore: 3,
     riskReasons: ['asserts revocation cutoff and auth/id-token-revoked'],
@@ -193,21 +197,23 @@ const authAdminRows: CompatibilityRow[] = [
     featureKeys: ['Auth.updateUser'],
     api: 'auth.updateUser(uid, properties)',
     behavior:
-      'Updates email, password, `emailVerified`, `displayName`, `photoURL`, `phoneNumber`, and `disabled` flags across local and remote arms; `multiFactor`, `providerToLink`, and `providersToUnlink` properties are not modeled and reject explicitly.',
+      'Updates email, password, `emailVerified`, `displayName`, `photoURL`, `phoneNumber` (including `null` profile/phone clears and `phone` `providerData` addition/removal), and `disabled` flags across local and remote arms; `multiFactor`, `providerToLink`, and `providersToUnlink` properties are not modeled and reject explicitly.',
     status: 'diverged-documented',
     statusNote:
-      'profile, credential, and disabled fields update; multiFactor, providerToLink, and providersToUnlink reject as unimplemented',
-    automation: 'unit-backed',
+      'profile, credential, phone, and disabled fields update; multiFactor, providerToLink, and providersToUnlink reject as unimplemented',
+    automation: 'oracle-backed',
+    oracleObservations: ['admin-auth-update-user-fields'],
     conformanceTests: [
+      'packages/pyric-admin/test/auth/oracle-conformance.test.ts',
       'packages/pyric-admin/test/auth/local-auth.test.ts',
       'packages/pyric-admin/test/auth/remote-auth.test.ts',
       'packages/pyric-admin/test/auth/validation.test.ts',
     ],
     evidence:
-      'Pinned across local and remote arms in `local-auth.test.ts`, `remote-auth.test.ts`, and `validation.test.ts`.',
+      'Production capture `admin-auth-update-user-fields` (firebase-admin 13.10.0) replayed across local and remote worker-bridge arms by `oracle-conformance.test.ts`, plus unmodeled-property checks in `local-auth.test.ts`, `remote-auth.test.ts`, and `validation.test.ts`.',
     risk: ['stateful'],
     riskScore: 2,
-    riskReasons: ['asserts partial UpdateRequest field coverage'],
+    riskReasons: ['asserts UpdateRequest field mutations, null clears, and unmodeled-key rejections'],
   }),
   adminRow({
     rowRef: '9',

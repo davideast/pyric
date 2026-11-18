@@ -1,0 +1,35 @@
+{
+  "name": "rules-storage-unterminated-string-literal",
+  "matrixRow": "storage-rules#97",
+  "rowIds": [
+    "storage-rules#97"
+  ],
+  "description": "Storage Rules Test API verdicts for corpus scenario \"unterminated-string-literal\" (STORAGE-SYNTAX-UNTERMINATED-STRING). Records how projects.test rejects a storage.rules source containing an unterminated single-quoted string literal at compile time (COMPILE_ERROR with ERROR sourcePosition diagnostics).",
+  "observedAt": "2026-11-18T11:37:54.033Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "inputDigest": {
+    "algorithm": "sha256",
+    "value": "1e8d6ccdbc0c1ecbe200ebbbcf23b7ebaf16489d841dc0a82aa5300255e9fdc7"
+  },
+  "behavior": {
+    "storage get request against ruleset with unterminated string literal": "COMPILE_ERROR"
+  },
+  "diagnostics": {
+    "compileIssues": {
+      "notes": [
+        "ERROR@6:5 Missing a closing '"
+      ],
+      "api": {
+        "issues": [
+          {
+            "severity": "ERROR",
+            "description": "Missing a closing '",
+            "line": 6,
+            "column": 5
+          }
+        ]
+      }
+    }
+  }
+}

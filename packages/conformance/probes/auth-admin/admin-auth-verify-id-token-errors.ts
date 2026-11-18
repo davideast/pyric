@@ -163,12 +163,94 @@ export async function observeLocalVerifyIdTokenPreSignatureChecks(
   }
 }
 
+export interface VerifyIdTokenErrorsSubject {
+  readonly projectId: string;
+  readonly subjectUid: string;
+  readonly validIdToken: string;
+  verifyPrimary(idToken: string): Promise<unknown>;
+  verifyForeignProject(idToken: string): Promise<unknown>;
+}
+
+export async function observeVerifyIdTokenErrors(
+  subject: VerifyIdTokenErrorsSubject,
+): Promise<Record<string, unknown>> {
+  const { projectId, subjectUid, validIdToken } = subject;
+  const baseClaims = {
+    aud: projectId,
+    iss: `https://securetoken.google.com/${projectId}`,
+    sub: subjectUid,
+    iat: 1_700_000_000,
+    exp: 1_700_003_600,
+  };
+
+  const nonStringToken = await captureVerifyIdTokenCall(
+    () => subject.verifyPrimary(123 as unknown as string),
+    projectId,
+  );
+  const emptyStringToken = await captureVerifyIdTokenCall(
+    () => subject.verifyPrimary(''),
+    projectId,
+  );
+  const malformedJwt = await captureVerifyIdTokenCall(
+    () => subject.verifyPrimary('not-a-jwt'),
+    projectId,
+  );
+  const missingKidJwt = await captureVerifyIdTokenCall(
+    () => subject.verifyPrimary(encodeJwt({ alg: 'RS256', typ: 'JWT' }, baseClaims)),
+    projectId,
+  );
+  const wrongAlgorithmJwt = await captureVerifyIdTokenCall(
+    () =>
+      subject.verifyPrimary(
+        encodeJwt({ alg: 'HS256', typ: 'JWT', kid: 'demo-kid' }, baseClaims),
+      ),
+    projectId,
+  );
+  const wrongAudienceApp = await captureVerifyIdTokenCall(
+    () => subject.verifyForeignProject(validIdToken),
+    projectId,
+  );
+  const wrongIssuerJwt = await captureVerifyIdTokenCall(
+    () =>
+      subject.verifyPrimary(
+        rewriteJwtClaim(validIdToken, 'iss', 'https://example.com/issuer'),
+      ),
+    projectId,
+  );
+  const tamperedSignatureJwt = await captureVerifyIdTokenCall(
+    () => subject.verifyPrimary(tamperJwtSignature(validIdToken)),
+    projectId,
+  );
+
+  const behavior: VerifyIdTokenErrorsBehavior = {
+    nonStringToken,
+    emptyStringToken,
+    malformedJwt,
+    missingKidJwt,
+    wrongAlgorithmJwt,
+    wrongAudienceApp,
+    wrongIssuerJwt,
+    tamperedSignatureJwt,
+  };
+  return { ...behavior };
+}
+
+export async function runWithVerifyAppsDisposed<T>(
+  work: () => Promise<T>,
+  dispose: () => Promise<void>,
+): Promise<T> {
+  try {
+    return await work();
+  } finally {
+    await dispose();
+  }
+}
+
 export const probe: Probe = {
   rig: 'admin-auth',
   requires: ['admin-auth', 'web-config'],
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'auth-admin#3a',
+  rowIds: ['auth-admin#3a'],
   description:
     'firebase-admin/auth verifyIdToken rejection modes and error codes across non-string input, empty string, malformed JWT, missing kid, non-RS256 alg, wrong project audience, wrong issuer, and tampered RSA signature on a real Firebase ID token.',
   async observe(): Promise<Record<string, unknown>> {
@@ -185,78 +267,29 @@ export const probe: Probe = {
           `admin-auth-verify-foreign-${runId}`,
         );
 
-        try {
-          const uid = `${uidPrefix}-verify`;
-          await createProbeUser({ uid });
-          const customToken = await adminAuth.createCustomToken(uid);
-          const clientAuth = clientAuthMod.getAuth(clientApp);
-          await clientAuth.setPersistence(clientAuthMod.inMemoryPersistence);
-          const cred = await clientAuthMod.signInWithCustomToken(clientAuth, customToken);
-          const validIdToken = await cred.user.getIdToken();
+        return runWithVerifyAppsDisposed(
+          async () => {
+            const uid = `${uidPrefix}-verify`;
+            await createProbeUser({ uid });
+            const customToken = await adminAuth.createCustomToken(uid);
+            const clientAuth = clientAuthMod.getAuth(clientApp);
+            await clientAuth.setPersistence(clientAuthMod.inMemoryPersistence);
+            const cred = await clientAuthMod.signInWithCustomToken(clientAuth, customToken);
+            const validIdToken = await cred.user.getIdToken();
 
-          const projectId = serviceAccount.project_id;
-          const baseClaims = {
-            aud: projectId,
-            iss: `https://securetoken.google.com/${projectId}`,
-            sub: uid,
-            iat: 1_700_000_000,
-            exp: 1_700_003_600,
-          };
-
-          const nonStringToken = await captureVerifyIdTokenCall(
-            () => adminAuth.verifyIdToken(123 as unknown as string),
-            projectId,
-          );
-          const emptyStringToken = await captureVerifyIdTokenCall(
-            () => adminAuth.verifyIdToken(''),
-            projectId,
-          );
-          const malformedJwt = await captureVerifyIdTokenCall(
-            () => adminAuth.verifyIdToken('not-a-jwt'),
-            projectId,
-          );
-          const missingKidJwt = await captureVerifyIdTokenCall(
-            () => adminAuth.verifyIdToken(encodeJwt({ alg: 'RS256', typ: 'JWT' }, baseClaims)),
-            projectId,
-          );
-          const wrongAlgorithmJwt = await captureVerifyIdTokenCall(
-            () =>
-              adminAuth.verifyIdToken(
-                encodeJwt({ alg: 'HS256', typ: 'JWT', kid: 'demo-kid' }, baseClaims),
-              ),
-            projectId,
-          );
-          const wrongAudienceApp = await captureVerifyIdTokenCall(
-            () => getAdminAuth(foreignApp).verifyIdToken(validIdToken),
-            projectId,
-          );
-          const wrongIssuerJwt = await captureVerifyIdTokenCall(
-            () =>
-              adminAuth.verifyIdToken(
-                rewriteJwtClaim(validIdToken, 'iss', 'https://example.com/issuer'),
-              ),
-            projectId,
-          );
-          const tamperedSignatureJwt = await captureVerifyIdTokenCall(
-            () => adminAuth.verifyIdToken(tamperJwtSignature(validIdToken)),
-            projectId,
-          );
-
-          const behavior: VerifyIdTokenErrorsBehavior = {
-            nonStringToken,
-            emptyStringToken,
-            malformedJwt,
-            missingKidJwt,
-            wrongAlgorithmJwt,
-            wrongAudienceApp,
-            wrongIssuerJwt,
-            tamperedSignatureJwt,
-          };
-          return { ...behavior };
-        } finally {
-          await deleteApp(clientApp).catch(() => undefined);
-          await deleteAdminApp(foreignApp).catch(() => undefined);
-        }
+            return await observeVerifyIdTokenErrors({
+              projectId: serviceAccount.project_id,
+              subjectUid: uid,
+              validIdToken,
+              verifyPrimary: (idToken) => adminAuth.verifyIdToken(idToken),
+              verifyForeignProject: (idToken) => getAdminAuth(foreignApp).verifyIdToken(idToken),
+            });
+          },
+          async () => {
+            await deleteApp(clientApp).catch(() => undefined);
+            await deleteAdminApp(foreignApp).catch(() => undefined);
+          },
+        );
       },
     );
   },

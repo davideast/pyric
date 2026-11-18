@@ -1,0 +1,40 @@
+{
+  "name": "firestore-admin-getfirestore-bypass-and-lifecycle",
+  "matrixRow": "firestore-admin#1a",
+  "rowIds": [
+    "firestore-admin#1a"
+  ],
+  "description": "firebase-admin/firestore getFirestore(app) caches one Firestore handle per active app, isolates handles across apps, throws TypeError on non-app objects/null, bypasses Firestore Security Rules that deny unauthenticated client reads with permission-denied, and throws app/app-deleted synchronously after deleteApp(app) while preserving sibling apps.",
+  "observedAt": "2026-11-18T09:28:53.197Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "cachedSameAppHandle": true,
+    "distinctHandlesAcrossApps": true,
+    "nonAppObjectThrowsTypeError": true,
+    "nullAppThrowsTypeError": true,
+    "adminBypassRead": {
+      "exists": true,
+      "data": {
+        "scope": "admin-bypass",
+        "level": 7
+      }
+    },
+    "unauthenticatedClientRead": {
+      "threw": true,
+      "code": "permission-denied"
+    },
+    "getFirestoreAfterDeleteApp": {
+      "mode": "sync-throw",
+      "code": "app/app-deleted",
+      "message": "Firebase app named \"<appName>\" has already been deleted."
+    },
+    "retainedHandleReadAfterDeleteApp": {
+      "threw": false,
+      "code": null,
+      "exists": true
+    },
+    "siblingReadAfterPrimaryDelete": true
+  },
+  "adminSdkVersion": "13.10.0"
+}

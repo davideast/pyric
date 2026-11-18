@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -20,6 +20,7 @@ import {
   withGuardedProbeRtdbRules,
 } from '../../src/oracle-run-rtdb-probes.ts';
 import {
+  auditProbeSessionAuthModes,
   resolveProbeWebConfig,
   withAdminAuthProbeSession,
   withFirestoreProbeSession,
@@ -71,21 +72,12 @@ describe('modular one-file-per-probe SDK runner (sdk-probes.ts)', () => {
     await runAdminAuthProbesCli([], {}, false);
     const rtdbProbes = await buildLazyRtdbRunProbes({
       runId: 'test',
-      getLiveState: () => ({
-        config: { apiKey: 'k', authDomain: 'd', projectId: 'p' },
-        serviceAccount: null,
-        rtdbAdminToken: null,
-      }),
+      getLiveState: () => ({ config: { apiKey: 'k', authDomain: 'd', projectId: 'p' }, serviceAccount: null, rtdbAdminToken: null }),
     });
     expect(rtdbProbes.length).toBeGreaterThan(0);
     const filtered = selectFilteredRunProbes(rtdbProbes, ['--write', rtdbProbes[0]?.name ?? '']);
     expect(filtered.selected.length).toBeGreaterThan(0);
-    printRunInertPreview({
-      fbSdkVersion: '12.19.0',
-      totalCount: rtdbProbes.length,
-      selected: [],
-      filters: ['none'],
-    });
+    printRunInertPreview({ fbSdkVersion: '12.19.0', totalCount: rtdbProbes.length, selected: [], filters: ['none'] });
     expect(typeof withGuardedProbeRtdbRules).toBe('function');
   });
 
@@ -172,60 +164,21 @@ describe('modular one-file-per-probe SDK runner (sdk-probes.ts)', () => {
   it('reports exact missing credentials, secrets, or dedicated RTDB URLs before running live probes', () => {
     expect(() =>
       validateModularProbeRequirements(
-        [
-          {
-            id: 'admin-auth-sample',
-            surfaceDir: 'auth-admin',
-            probe: {
-              rig: 'admin-auth',
-              requires: ['admin-auth'],
-              description: 'sample',
-              matrixRow: '',
-              rowIds: [],
-              observe: async () => ({}),
-            },
-          },
-        ],
+        [{ id: 'admin-auth-sample', surfaceDir: 'auth-admin', probe: { rig: 'admin-auth', requires: ['admin-auth'], description: 'sample', matrixRow: '', rowIds: [], observe: async () => ({}) } }],
         {},
       ),
     ).toThrow(/PYRIC_ORACLE_PROJECT_ID.*roles\/firebaseauth\.admin/);
 
     expect(() =>
       validateModularProbeRequirements(
-        [
-          {
-            id: 'firestore-modular-sample',
-            surfaceDir: 'firestore',
-            probe: {
-              rig: 'sdk-probes',
-              requires: ['web-config', 'firestore-rules'],
-              description: 'sample',
-              matrixRow: '',
-              rowIds: [],
-              observe: async () => ({}),
-            },
-          },
-        ],
+        [{ id: 'firestore-modular-sample', surfaceDir: 'firestore', probe: { rig: 'sdk-probes', requires: ['web-config', 'firestore-rules'], description: 'sample', matrixRow: '', rowIds: [], observe: async () => ({}) } }],
         { PYRIC_ORACLE_PROJECT_ID: 'example-oracle', PYRIC_ORACLE_FIREBASE_CONFIG: '' },
       ),
     ).not.toThrow();
 
     expect(() =>
       validateModularProbeRequirements(
-        [
-          {
-            id: 'rtdb-modular-sample',
-            surfaceDir: 'rtdb-modular',
-            probe: {
-              rig: 'sdk-probes',
-              requires: ['web-config', 'dedicated-rtdb'],
-              description: 'sample',
-              matrixRow: '',
-              rowIds: [],
-              observe: async () => ({}),
-            },
-          },
-        ],
+        [{ id: 'rtdb-modular-sample', surfaceDir: 'rtdb-modular', probe: { rig: 'sdk-probes', requires: ['web-config', 'dedicated-rtdb'], description: 'sample', matrixRow: '', rowIds: [], observe: async () => ({}) } }],
         { PYRIC_ORACLE_PROJECT_ID: 'example-oracle' },
       ),
     ).toThrow(/PYRIC_ORACLE_RTDB_URL.*roles\/firebasedatabase\.admin/);
@@ -557,5 +510,73 @@ describe('resolveProbeWebConfig (sdk-probe-runtime.ts)', () => {
     await expect(
       resolveProbeWebConfig(sa, { env: {}, fetchImpl: forbiddenConfigFetch }),
     ).rejects.toThrow(/HTTP 403.*firebase\.googleapis\.com.*roles\/firebase\.viewer.*firebase\.clients\.get/);
+  });
+
+  it('retries modular probes on auth/too-many-requests and enforces explicit authMode anonymous for provider-sensitive rules', async () => {
+    const outRoot = mkdtempSync(join(tmpdir(), 'sdk-probes-rate-limit-'));
+    try {
+      const sleeps: number[] = [];
+      let attempts = 0;
+      await executeModularProbes({
+        config: SDK_PROBES_RIG_CONFIG,
+        sdkVersion: '12.19.0',
+        projectId: 'example-oracle',
+        observationsRoot: outRoot,
+        backoffMs: [15_000, 30_000],
+        sleep: async (ms) => {
+          sleeps.push(ms);
+        },
+        probes: [
+          {
+            id: 'firestore-limittolast-preconditions',
+            surfaceDir: 'firestore',
+            probe: {
+              ...limitToLastProbe,
+              observe: async () => {
+                attempts += 1;
+                if (attempts < 3) {
+                  throw Object.assign(new Error('Firebase: Error (auth/too-many-requests).'), {
+                    code: 'auth/too-many-requests',
+                  });
+                }
+                return { ok: true };
+              },
+            },
+          },
+        ],
+      });
+      expect(attempts).toBe(3);
+      expect(sleeps).toEqual([15_000, 30_000]);
+
+      const runtimeSrc = readFileSync(join(HERE, '..', '..', 'src', 'sdk-probe-runtime.ts'), 'utf8');
+      const storageSessionSrc = readFileSync(join(HERE, '..', '..', 'src', 'storage-probe-session.ts'), 'utf8');
+      expect(runtimeSrc).toContain('signInOracleClientAuth');
+      expect(runtimeSrc).toContain('retryAuthTooManyRequests');
+      expect(runtimeSrc).toContain("options.authMode === 'anonymous'");
+      expect(storageSessionSrc).toContain('signInOracleClientAuth');
+      expect(storageSessionSrc).not.toContain('signInAnonymously');
+
+      expect(auditProbeSessionAuthModes()).toEqual([]);
+      const fakeProbes = join(outRoot, 'fake-probes');
+      mkdirSync(join(fakeProbes, 'rtdb'), { recursive: true });
+      writeFileSync(
+        join(fakeProbes, 'rtdb', 'missing-anon-mode.ts'),
+        "withRtdbProbeSession({ runRules: { '.read': \"auth.token.firebase.sign_in_provider === 'anonymous'\" } }, async () => ({}));\n",
+      );
+      writeFileSync(
+        join(fakeProbes, 'rtdb', 'missing-isanon.ts'),
+        'withFirestoreProbeSession(async () => ({ anon: user.isAnonymous }));\n',
+      );
+      writeFileSync(
+        join(fakeProbes, 'rtdb', 'explicit-anon-mode.ts'),
+        "withRtdbProbeSession({ runRules: { '.read': \"auth.token.firebase.sign_in_provider === 'anonymous'\" }, authMode: 'anonymous' }, async () => ({}));\n",
+      );
+      expect(auditProbeSessionAuthModes(fakeProbes)).toEqual([
+        "rtdb/missing-anon-mode.ts: mentions sign_in_provider or isAnonymous in rules/session without authMode: 'anonymous'",
+        "rtdb/missing-isanon.ts: mentions sign_in_provider or isAnonymous in rules/session without authMode: 'anonymous'",
+      ]);
+    } finally {
+      rmSync(outRoot, { recursive: true, force: true });
+    }
   });
 });

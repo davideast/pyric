@@ -1,0 +1,43 @@
+{
+  "name": "auth-beforeauthstatechanged-block-signin-and-signout",
+  "matrixRow": "auth#76",
+  "rowIds": [
+    "auth#76",
+    "auth#76b"
+  ],
+  "description": "beforeAuthStateChanged blocks both sign-in and signOut transitions with auth/login-blocked when a registered callback throws or rejects, leaving currentUser unchanged and suppressing state/token listener notifications.",
+  "observedAt": "2026-11-18T12:52:17.802Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "gateDirections": [
+      "user",
+      "user",
+      "null"
+    ],
+    "afterBlockedSignIn": {
+      "attempt": {
+        "threw": true,
+        "errorName": "FirebaseError",
+        "isFirebaseError": true,
+        "code": "auth/login-blocked"
+      },
+      "currentUserRemainsNull": true,
+      "authListenerSilent": true,
+      "idTokenListenerSilent": true
+    },
+    "signedInAfterUnblock": true,
+    "afterBlockedSignOut": {
+      "attempt": {
+        "threw": true,
+        "errorName": "FirebaseError",
+        "isFirebaseError": true,
+        "code": "auth/login-blocked"
+      },
+      "previousUserRemainsSignedIn": true,
+      "authListenerSilent": true,
+      "idTokenListenerSilent": true
+    },
+    "signedOutAfterGateRemoved": true
+  }
+}

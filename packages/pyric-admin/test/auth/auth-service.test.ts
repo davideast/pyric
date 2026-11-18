@@ -47,8 +47,23 @@ describe('getAuth service routing', () => {
     });
     const app = initializeApp({ sandbox: remote }, 'remote-app');
     const auth = getAuth(app);
+    expect(getAuth(app)).toBe(auth);
     const page = await auth.listUsers();
     expect(page.users).toEqual([]);
     expect(calls).toEqual(['auth.listUsers']);
+  });
+
+  it('caches one Auth handle per active PyricAdminApp and isolates distinct apps', () => {
+    const sandbox = initializeSandbox();
+    const defaultApp = initializeApp({ sandbox });
+    const secondaryApp = initializeApp({ sandbox: initializeSandbox() }, 'secondary-app');
+
+    const defaultAuth = getAuth();
+    expect(getAuth(defaultApp)).toBe(defaultAuth);
+    expect(getAuth()).toBe(defaultAuth);
+
+    const secondaryAuth = getAuth(secondaryApp);
+    expect(getAuth(secondaryApp)).toBe(secondaryAuth);
+    expect(secondaryAuth).not.toBe(defaultAuth);
   });
 });

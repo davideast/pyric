@@ -20,7 +20,13 @@ import * as ipAuth from 'pyric/auth';
 import { getAuth as pyricGetAuth, setPersistence as pyricSetPersistence } from 'pyric/auth';
 import * as wcRaw from '../worker/client.js';
 import { acceptProviderCredential, clientUserSessionKey, restorePortSession, stageSignInResult, type ClientUser } from '../worker/client.js';
-import { SERVED_SANDBOX_HOOK, sessionKeyOf, type ServedSandboxHook } from 'pyric/auth/internal';
+import {
+  assertOrRecordAuthInitOptions,
+  recordDefaultAuthInitOptions,
+  SERVED_SANDBOX_HOOK,
+  sessionKeyOf,
+  type ServedSandboxHook,
+} from 'pyric/auth/internal';
 import { useWorker } from './worker-runtime.js';
 import { sessionStoreForApp } from './app-session-store.js';
 import { helperCustomClaims } from './auth-helper-core.js';
@@ -165,6 +171,7 @@ function attachServedSandboxHook(
 
 export const getAuth = ((app?: FirebaseApp) => {
   const resolved = app ?? getApp();
+  recordDefaultAuthInitOptions(resolved);
   markServiceUsed();
   if (!useWorker) {
     const handle = pyricGetAuth(resolved);
@@ -304,10 +311,13 @@ export const signInWithCredential = (
   useWorker ? wc.signInWithCredential : afterPageBackend(ipAuth.signInWithCredential)
 ) as typeof ipAuth.signInWithCredential;
 
-/** `initializeAuth(app, deps?)` — aliases the picked `getAuth` (worker- or
- *  in-page-backed). Path-independent: `deps` is accepted for parity, ignored. */
-export const initializeAuth = ((app?: unknown, _deps?: unknown) =>
-  getAuth(app as never)) as typeof ipAuth.initializeAuth;
+/** `initializeAuth(app, deps?)` -- shares the `getAuth(app)` handle while
+ *  enforcing `auth/already-initialized` when re-called with mismatched `deps`. */
+export const initializeAuth = ((app?: unknown, deps?: unknown) => {
+  const resolved = (app as FirebaseApp | undefined) ?? getApp();
+  assertOrRecordAuthInitOptions(resolved, deps);
+  return getAuth(resolved);
+}) as typeof ipAuth.initializeAuth;
 
 /** `useDeviceLanguage(auth)` — accepted no-op (no device locale in the served
  *  sandbox). Path-independent. */

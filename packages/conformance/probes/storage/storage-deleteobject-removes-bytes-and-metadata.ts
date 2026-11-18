@@ -57,9 +57,8 @@ export async function observeStorageDeleteRemovesBytesAndMetadata(
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: ['web-config'],
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'storage#63',
+  rowIds: ['storage#63'],
   description:
     'firebase/storage deleteObject(ref): observes atomic removal of both stored bytes and object metadata so post-delete getBytes and getMetadata both reject with storage/object-not-found.',
   async observe() {

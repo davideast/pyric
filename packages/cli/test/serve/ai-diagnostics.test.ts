@@ -1,28 +1,9 @@
 /**
- * AI broker diagnostics relay: headless dev visibility for the events that
- * carry a refusal or a silent swap.
- *
- * The broker lands a `service_mutation` event (`service: 'ai'`,
- * `op: 'request_rejected'`) on the sandbox's unified stream whenever it
- * refuses a request. That stream is browser-side (worker host / in-page
- * runtime); it never reaches the dev server, so an agent driving `pyric dev`
- * in process saw NOTHING when the broker rejected. The relay rides the
- * denial relay's existing channel (`POST /__pyric/denials`) so the dev
- * server prints a compact block through the same `ServeLogger`.
- *
- * The same relay carries the broker's OTHER silent refusal, `response_blocked`
- * (a safety or recitation filter block, which unlike a rejection throws
- * nothing at all, since production answers 200 with an empty candidate), and
- * `model_substituted`, which is not a refusal at all: the answer arrives, from
- * a model the developer never named.
- *
- * These tests drive the REAL worker host (an `ai.generateContent` op with a
- * role production rejects, one scripted to answer a blocked envelope, or one
- * whose engine redirects the model onto a stub OpenAI-compatible upstream)
- * through a REAL dev server, and assert on what the terminal logger received.
+ * AI broker diagnostics relay: headless dev visibility for broker rejections,
+ * safety/recitation blocks, and silent model substitutions over `POST /__pyric/denials`.
  */
 import { afterEach, describe, expect, it } from 'bun:test';
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { initializeSandbox } from 'pyric/sandbox';
@@ -39,8 +20,11 @@ import { handleMessage, type HostCtx, type PortLike } from '../../src/serve/work
 import type { OutboundMessage } from '../../src/serve/worker/protocol.js';
 import { startStaticServer, type ServeHandle, type ServeLogger } from '../../src/serve/server.js';
 
+const tempDirs: string[] = [];
+
 function fixture() {
   const dir = mkdtempSync(join(tmpdir(), 'pyric-serve-ai-rejections-'));
+  tempDirs.push(dir);
   const site = join(dir, 'public');
   const sdk = join(dir, 'sdk');
   for (const d of [site, sdk]) mkdirSync(d);
@@ -54,11 +38,20 @@ function recordingLogger(): { logger: ServeLogger; notes: string[] } {
 }
 
 const handles: ServeHandle[] = [];
-/** Stub upstreams started by the model-substitution tests below. */
 const upstreams: Array<{ stop(): void }> = [];
 afterEach(async () => {
-  while (handles.length) await handles.pop()!.stop();
-  while (upstreams.length) upstreams.pop()!.stop();
+  while (handles.length > 0) {
+    const h = handles.pop();
+    if (h !== undefined) await h.stop();
+  }
+  while (upstreams.length > 0) {
+    const u = upstreams.pop();
+    if (u !== undefined) u.stop();
+  }
+  while (tempDirs.length > 0) {
+    const dir = tempDirs.pop();
+    if (dir !== undefined) rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 const TEST_TOKEN = 'test-ai-diagnostics-session-token';

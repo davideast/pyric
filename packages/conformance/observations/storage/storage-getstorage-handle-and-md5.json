@@ -1,0 +1,33 @@
+{
+  "name": "storage-getstorage-handle-and-md5",
+  "matrixRow": "storage #3, #91",
+  "rowIds": [
+    "storage#3",
+    "storage#91"
+  ],
+  "description": "firebase/storage getStorage(app) + FullMetadata.md5Hash: observes per-app handle identity, retry-time properties, round-trip upload/read via getStorage(app), and base64 MD5 digests on empty and non-empty uploads.",
+  "observedAt": "2026-11-18T11:58:56.194Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "sameAppIdentityStable": true,
+    "differentAppDistinctHandle": true,
+    "appPropertyMatches": true,
+    "defaultMaxOperationRetryTime": 120000,
+    "defaultMaxUploadRetryTime": 600000,
+    "updatedMaxOperationRetryTime": 45000,
+    "updatedMaxUploadRetryTime": 180000,
+    "emptyPayloadMd5OnUpload": "1B2M2Y8AsgTpgAmY7PhCfg==",
+    "emptyPayloadMd5OnGetMetadata": "1B2M2Y8AsgTpgAmY7PhCfg==",
+    "emptyPayloadMd5MatchesUploadAndGet": true,
+    "fourBytePayloadMd5OnUpload": "CNbAWiFRKnmh3+udKo8mLw==",
+    "fourBytePayloadMd5OnGetMetadata": "CNbAWiFRKnmh3+udKo8mLw==",
+    "fourBytePayloadMd5MatchesUploadAndGet": true,
+    "roundtripBytes": [
+      1,
+      2,
+      3,
+      4
+    ]
+  }
+}

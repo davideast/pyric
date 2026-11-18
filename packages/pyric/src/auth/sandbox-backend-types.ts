@@ -54,7 +54,7 @@ export type MintSessionRequest = TenantScope & PageOriginScope & (
  *  {@link MintSessionRequest} because a detached session has no `Auth` handle
  *  to read `tenantId` from: the caller (the SharedWorker host, acting for one
  *  port's `ClientAuth`) states it per request. Absent means untenanted. */
-export interface TenantScope {
+interface TenantScope {
   tenantId?: string | null;
 }
 
@@ -62,7 +62,7 @@ export interface TenantScope {
  *  host outside the page (the Node host) has no origin of its own, so the
  *  caller states it; the backend resolves the stored relative photo URL
  *  against it for the token `picture`, admin records, and `User.photoURL`. */
-export interface PageOriginScope {
+interface PageOriginScope {
   origin?: string;
 }
 
@@ -208,13 +208,16 @@ export interface CreateUserRequest {
   providerUserInfo?: ProviderUserInfo[];
 }
 
-/** `sandbox.updateUser` request — `undefined` fields are left
- *  untouched; `displayName: null` clears it. `customClaims` replaces
- *  the whole map (admin `setCustomUserClaims` semantics). */
+/** `sandbox.updateUser` request - `undefined` fields are left
+ *  untouched; `displayName`, `photoUrl`, or `phoneNumber` set to `null`
+ *  clears that field. `customClaims` replaces the whole map (admin
+ *  `setCustomUserClaims` semantics). */
 export interface UpdateUserRequest {
   displayName?: string | null;
   email?: string;
   password?: string;
+  phoneNumber?: string | null;
+  photoUrl?: string | null;
   customClaims?: Record<string, unknown>;
   disabled?: boolean;
   emailVerified?: boolean;

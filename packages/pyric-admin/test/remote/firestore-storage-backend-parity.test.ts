@@ -170,8 +170,8 @@ describe('Admin Firestore & Storage dual-arm backend parity + upstream different
       activeDisposers.pop()?.();
     }
   });
-  describe.each(['local', 'remote'] as const)('arm=%s: deleteApp Firestore lifecycle teardown', (arm) => {
-    it('detaches active onSnapshot listeners and rejects retained Firestore, ref, query, batch, and transaction handles while preserving sibling apps', async () => {
+  describe.each(['local', 'remote'] as const)('arm=%s: deleteApp Firestore lifecycle parity', (arm) => {
+    it('rejects getFirestore(deletedApp) synchronously with app/app-deleted while keeping retained Firestore handles and sibling apps usable', async () => {
       const h = createHarness(arm);
       const appPrimary = h.createApp(`primary-${arm}`);
       const appSibling = h.createApp(`sibling-${arm}`);
@@ -188,93 +188,45 @@ describe('Admin Firestore & Storage dual-arm backend parity + upstream different
       await heldDoc.set({ status: 'active', owner: db.doc('users/u1') });
       const preDeleteSnap = await heldDoc.get();
 
-      let postDeleteDocDeliveries = 0;
       let postDeleteQueryDeliveries = 0;
       let deleted = false;
-
-      const heldDocWithListener = heldDoc as unknown as {
-        onSnapshot(cb: () => void): () => void;
-      };
-      const unsubDoc = heldDocWithListener.onSnapshot(() => {
-        if (deleted) postDeleteDocDeliveries += 1;
-      });
       const unsubQuery = onSnapshot(heldQuery, () => {
-        if (deleted) postDeleteQueryDeliveries += 1;
+        if (deleted) {
+          postDeleteQueryDeliveries += 1;
+        }
       });
       await new Promise((r) => setTimeout(r, 20));
 
       deleted = true;
       await deleteApp(appPrimary);
 
-      // Sibling app mutates the watched document after primary app deletion:
-      // detached listeners on appPrimary must not fire.
+      expect(await rejectedWithCode(() => getFirestore(appPrimary))).toBe('app/app-deleted');
+
       await siblingDb.doc('items/doc-1').set({ status: 'active', updatedBy: 'sibling' });
       await new Promise((r) => setTimeout(r, 20));
-      expect(postDeleteDocDeliveries).toBe(0);
-      expect(postDeleteQueryDeliveries).toBe(0);
-
-      unsubDoc();
+      expect(postDeleteQueryDeliveries).toBeGreaterThanOrEqual(1);
       unsubQuery();
 
-      expect(await rejectedWithCode(() => db.doc('items/doc-1'))).toBe('app/app-deleted');
-      expect(await rejectedWithCode(() => db.collection('items'))).toBe('app/app-deleted');
-      expect(await rejectedWithCode(() => db.collectionGroup('items'))).toBe('app/app-deleted');
-      expect(await rejectedWithCode(() => db.batch())).toBe('app/app-deleted');
-      expect(await rejectedWithCode(() => db.runTransaction(async () => 1))).toBe('app/app-deleted');
-      expect(await rejectedWithCode(() => heldDoc.get())).toBe('app/app-deleted');
-      expect(await rejectedWithCode(() => heldDoc.set({ status: 'stale' }))).toBe('app/app-deleted');
-      expect(await rejectedWithCode(() => heldColl.add({ status: 'stale' }))).toBe('app/app-deleted');
-      expect(await rejectedWithCode(() => heldQuery.get())).toBe('app/app-deleted');
-      expect(await rejectedWithCode(() => heldDocWithListener.onSnapshot(() => {}))).toBe('app/app-deleted');
-      expect(await rejectedWithCode(() => {
-        heldBatch.set(heldDoc, { status: 'stale' });
-        return heldBatch.commit();
-      })).toBe('app/app-deleted');
+      const retainedRead = await heldDoc.get();
+      expect(retainedRead.exists).toBe(true);
+      expect(retainedRead.data()).toEqual({ status: 'active', updatedBy: 'sibling' });
 
-      // Already-fetched snapshot remains readable in memory, while I/O on refs
-      // derived from it rejects with app/app-deleted.
-      const preDeleteData = preDeleteSnap.data() as { status: string; owner: { get(): Promise<unknown> } };
+      const querySnap = await heldQuery.get();
+      expect(querySnap.docs.map((doc) => doc.id)).toEqual(['doc-1']);
+
+      heldBatch.set(db.doc('items/doc-batch'), { status: 'active' });
+      await heldBatch.commit();
+      const batchSnap = await db.doc('items/doc-batch').get();
+      expect(batchSnap.exists).toBe(true);
+
+      const txResult = await db.runTransaction(async (tx) => {
+        const snap = await tx.get(heldDoc);
+        return snap.exists;
+      });
+      expect(txResult).toBe(true);
+
+      const preDeleteData = preDeleteSnap.data() as { status: string };
       expect(preDeleteData.status).toBe('active');
-      expect(await rejectedWithCode(() => preDeleteSnap.ref.get())).toBe('app/app-deleted');
-      expect(await rejectedWithCode(() => preDeleteData.owner.get())).toBe('app/app-deleted');
-
-      const siblingSnap = await siblingDb.doc('items/doc-1').get();
-      expect(siblingSnap.data()).toEqual({ status: 'active', updatedBy: 'sibling' });
-    });
-
-    it('rejects an in-flight runTransaction with app/app-deleted without committing when deleteApp resolves mid-attempt', async () => {
-      const h = createHarness(arm);
-      const appInFlight = h.createApp(`inflight-${arm}`);
-      const appObserver = h.createApp(`observer-${arm}`);
-      const db = getFirestore(appInFlight);
-      const observerDb = getFirestore(appObserver);
-
-      await db.doc('items/tx-doc').set({ writtenAfterDelete: false });
-
-      let markInsideAttempt!: () => void;
-      const insideAttempt = new Promise<void>((resolve) => {
-        markInsideAttempt = resolve;
-      });
-      let releaseAttempt!: () => void;
-      const attemptGate = new Promise<void>((resolve) => {
-        releaseAttempt = resolve;
-      });
-
-      const txPromise = db.runTransaction(async (tx) => {
-        await tx.get(db.doc('items/tx-doc'));
-        tx.set(db.doc('items/tx-doc'), { writtenAfterDelete: true });
-        markInsideAttempt();
-        await attemptGate;
-        return 'committed';
-      });
-
-      await insideAttempt;
-      await deleteApp(appInFlight);
-      releaseAttempt();
-
-      expect(await rejectedWithCode(() => txPromise)).toBe('app/app-deleted');
-      const finalSnap = await observerDb.doc('items/tx-doc').get();
-      expect(finalSnap.data()).toEqual({ writtenAfterDelete: false });
     });
   });
 

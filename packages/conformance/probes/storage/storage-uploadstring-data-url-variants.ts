@@ -51,9 +51,8 @@ function nullableContentType(value: string | undefined): string | null {
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: ['web-config'],
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'storage#42, #43, #44',
+  rowIds: ['storage#42', 'storage#43', 'storage#44'],
   description:
     'firebase/storage uploadString(ref, value, "data_url", metadata?): observes MIME inference and base64 decoding, percent-decoded non-base64 bodies, and caller metadata.contentType precedence.',
   async observe() {

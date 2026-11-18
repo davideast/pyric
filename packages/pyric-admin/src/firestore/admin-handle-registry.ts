@@ -3,33 +3,16 @@
  */
 
 import type { SandboxFirestore } from 'pyric/sandbox/admin-firestore';
-import type { AdminServiceLifecycle } from '../app/lifecycle.js';
 
 export const adminToUnderlying = new WeakMap<object, object>();
 export const adminToRootDb = new WeakMap<object, SandboxFirestore>();
-export const adminToLifecycle = new WeakMap<object, AdminServiceLifecycle>();
+export const appBackedFirestoreRoots = new WeakSet<object>();
 export const wrappedDbCache = new WeakMap<SandboxFirestore, SandboxFirestore>();
 export const adminDocumentRefBrand = new WeakSet<object>();
 export const adminQueryBrand = new WeakSet<object>();
 
-export function lifecycleOf(target: object): AdminServiceLifecycle | undefined {
-  return adminToLifecycle.get(target);
-}
-
-export function assertRootActive(rootDb: SandboxFirestore): void {
-  lifecycleOf(rootDb)?.assertActive();
-}
-
-export function runAsyncWithLifecycle<R>(
-  rootDb: SandboxFirestore,
-  fn: () => Promise<R>,
-): Promise<R> {
-  try {
-    assertRootActive(rootDb);
-  } catch (err) {
-    return Promise.reject(err);
-  }
-  return fn();
+export function isAppBackedRoot(target: object): boolean {
+  return appBackedFirestoreRoots.has(target);
 }
 
 export function unwrapAdminObject<T>(value: T): T {

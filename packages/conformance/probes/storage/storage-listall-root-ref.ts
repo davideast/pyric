@@ -80,14 +80,19 @@ export async function observeStorageListAllRootRef(
   };
 }
 
-function rootListOracleTarget(bucketId: string, runId: string, uid: string): OracleRulesTarget {
+export function rootListOracleTarget(bucketId: string, runId: string, uid: string): OracleRulesTarget {
   const marker = `@pyric/oracle/storage-root-list/${runId}`;
   const scopedBlock = `    // ${marker}
-    allow list: if request.auth != null && request.auth.uid == '${uid}';
+    match /{allPaths=**} {
+      allow list: if request.auth != null && request.auth.uid == '${uid}';
+    }
     match /pyric_oracle_root_${runId}.bin {
       allow read, write: if request.auth != null && request.auth.uid == '${uid}';
     }
     match /pyric_oracle_root_${runId}/{allPaths=**} {
+      allow read, write: if request.auth != null && request.auth.uid == '${uid}';
+    }
+    match /pyric_oracle_root_${runId}-dash/{allPaths=**} {
       allow read, write: if request.auth != null && request.auth.uid == '${uid}';
     }`;
   return {
@@ -111,20 +116,21 @@ ${scopedBlock}
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: ['web-config'],
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'storage#75',
+  rowIds: ['storage#75'],
   description:
     'firebase/storage listAll(ref(storage)) on the root reference: observes bucket-root listing returning direct root items and top-level prefixes without recursing into nested children.',
   async observe() {
     const [
       { deleteApp, initializeApp },
-      { deleteUser, getAuth, signInAnonymously },
+      { deleteUser, getAuth },
       storageSdk,
+      { signInOracleClientAuth },
     ] = await Promise.all([
       import('firebase/app'),
       import('firebase/auth'),
       import('firebase/storage'),
+      import('../../src/oracle-run-auth-session.ts'),
     ]);
 
     const sa = await loadOracleServiceAccount();
@@ -151,15 +157,20 @@ export const probe: Probe = {
     const rootPrefixName = `pyric_oracle_root_${runId}`;
     const rootItemName = `${rootPrefixName}.bin`;
     const nestedChildFullPath = `${rootPrefixName}/nested/child.bin`;
+    const dashNestedChildFullPath = `${rootPrefixName}-dash/nested/child.bin`;
     const rootItemRef = storageSdk.ref(storage, rootItemName);
     const nestedChildRef = storageSdk.ref(storage, nestedChildFullPath);
+    const dashNestedChildRef = storageSdk.ref(storage, dashNestedChildFullPath);
 
     try {
       return await runWithOracleRulesRestored(session, async () => {
-        const cred = await signInAnonymously(clientAuth);
-        const uid = cred.user.uid;
+        await signInOracleClientAuth(clientAuth, sa, `storage-root-list-${runId}`);
+        let uid = '';
+        if (clientAuth.currentUser !== null) {
+          uid = clientAuth.currentUser.uid;
+        }
         if (!/^[A-Za-z0-9_-]+$/.test(uid)) {
-          throw new Error('unexpected characters in anonymous uid');
+          throw new Error('unexpected characters in oracle client uid');
         }
         await session.deploy(rootListOracleTarget(storageBucket, runId, uid));
         await new Promise((resolve) => setTimeout(resolve, 10_000));
@@ -176,6 +187,7 @@ export const probe: Probe = {
                 try {
                   await storageSdk.uploadBytes(rootItemRef, new Uint8Array([0x41]));
                   await storageSdk.uploadBytes(nestedChildRef, new Uint8Array([0x42, 0x43]));
+                  await storageSdk.uploadBytes(dashNestedChildRef, new Uint8Array([0x44]));
                   const res = await storageSdk.listAll(rootRef);
                   return {
                     rootFullPath: rootRef.fullPath,
@@ -221,6 +233,7 @@ export const probe: Probe = {
         } finally {
           await storageSdk.deleteObject(rootItemRef).catch(() => undefined);
           await storageSdk.deleteObject(nestedChildRef).catch(() => undefined);
+          await storageSdk.deleteObject(dashNestedChildRef).catch(() => undefined);
           if (clientAuth.currentUser) {
             await deleteUser(clientAuth.currentUser).catch(() => undefined);
           }

@@ -63,6 +63,7 @@ import {
   type AuthProjectStore,
 } from './sandbox/project-store.js';
 import { defaultAvatarMint, type AvatarMint } from './sandbox/default-avatar.js';
+import { applyAdminUserUpdateFields, assertTenantPhoneAvailable } from './sandbox/admin-user-update.js';
 import { applyEmailChangeToUser, applyUserEmailUpdate, propagateRefreshedToken } from './sandbox/email-update.js';
 import { SessionLedger } from './sandbox/session-ledger.js';
 import { buildClientUserInfoList } from './sandbox/user-info-projection.js';
@@ -1429,40 +1430,48 @@ export class SandboxBackend {
   }
 
   /**
-   * The gated entry point for REAL sign-in / sign-out transitions —
-   * runs {@link runBeforeStateChange} first, and only calls
-   * {@link setCurrentUser} (committing the transition + firing
-   * `onAuthStateChanged` / `onIdTokenChanged`) if every before-callback
-   * allows it. If a before-callback throws, this rejects and
-   * `setCurrentUser` is never called — the sign-in call site's promise
-   * rejects, `currentUser` is unchanged, and no listener fires.
-   *
-   * NOT used by the `sandbox.setUser` test driver — that bypass has no
-   * prod analog (documented on {@link setCurrentUser}) and stays a raw,
-   * ungated identity force, same as before this hook existed.
-   *
-   * FAST PATH (deliberate, documented divergence): when NO
-   * `beforeAuthStateChanged` callback is registered, this commits
-   * `setCurrentUser` SYNCHRONOUSLY — before returning the resolved
-   * promise — rather than unconditionally going through an async
-   * `await`. Every JS `await` (even of an already-resolved value)
-   * defers to a microtask; unconditionally awaiting here would push the
-   * commit at least one microtask later for every sign-in, even ones
-   * nobody gates, and would break the existing sandbox-only
-   * same-tick-dedup guarantee `onAuthStateChanged` callers rely on
-   * (COMPAT row 31: subscribe(); signInAnonymously(); with no
-   * await-gap between them must not double-fire). Once a caller
-   * registers a `beforeAuthStateChanged` callback, the transition
-   * genuinely becomes async (an unavoidable consequence of "blocking,
-   * awaitable middleware"), matching prod's own async gate — this
-   * method is NOT declared `async` for that reason; it returns a
-   * pre-resolved promise on the fast path instead of ever suspending.
+   * Gated entry point for sign-in, sign-out, and `updateCurrentUser` transitions:
+   * runs `beforeAuthStateChanged` callbacks first, committing `setCurrentUser`
+   * synchronously when no gate is active (COMPAT row 31). When `signInProvider`
+   * is omitted (`updateCurrentUser`), clones `user` onto this backend while
+   * continuing its session lineage (#1950), matching `AuthImpl.updateCurrentUser`.
    */
   transitionCurrentUser(user: User | null, signInProvider?: string | null): Promise<void> {
-    // A `signInProvider` argument marks a REAL sign-in, which is the moment
-    // the tenant is fixed (the test driver omits it and leaves the tenant
-    // alone). Applied before the gate runs so a `beforeAuthStateChanged`
-    // callback inspecting the user sees the tenant it will sign in under.
+    if (user !== null && signInProvider === undefined) {
+      const stored = this.usersByUid.get(user.uid);
+      let cloned: User;
+      if (stored !== undefined) {
+        cloned = this.buildUserFromStored(stored);
+      } else {
+        cloned = this.makeUser({
+          uid: user.uid,
+          email: user.email,
+          displayName: user.displayName,
+          isAnonymous: user.isAnonymous,
+          claims: {},
+          photoURL: user.photoURL,
+          emailVerified: user.emailVerified,
+          phoneNumber: user.phoneNumber,
+          tenantId: user.tenantId,
+        });
+      }
+      (cloned as Mutable<User>).tenantId = user.tenantId;
+      this.sessions.continue(cloned, user);
+      const applyResumed = () => {
+        this.resumingSession = cloned;
+        try {
+          this.setCurrentUser(cloned);
+        } finally {
+          this.resumingSession = null;
+        }
+      };
+      const hasGate = this.beforeStateSubs.some((reg) => reg.active);
+      if (!hasGate) {
+        applyResumed();
+        return Promise.resolve();
+      }
+      return this.runBeforeStateChange(cloned).then(applyResumed);
+    }
     if (user !== null && signInProvider !== undefined) {
       this.scopeSignInToTenant(user);
     }
@@ -1893,6 +1902,9 @@ export class SandboxBackend {
         );
       }
     }
+    if (req.phoneNumber !== undefined) {
+      assertTenantPhoneAvailable(this.usersByUid, req.phoneNumber, tenantId);
+    }
     const record = this.makeStored({
       uid,
       email: req.email ?? null,
@@ -1923,7 +1935,7 @@ export class SandboxBackend {
   /** Admin user update. `undefined` fields untouched; `customClaims`
    *  replaces the whole map (admin `setCustomUserClaims` semantics).
    *  Claims changes reach an ACTIVE session only on the next token
-   *  refresh / sign-in — same propagation story as prod. */
+   *  refresh / sign-in - same propagation story as prod. */
   updateUser(uid: string, update: UpdateUserRequest): AuthUserRecord {
     const stored = this.usersByUid.get(uid);
     if (!stored) {
@@ -1931,31 +1943,19 @@ export class SandboxBackend {
     }
     if (update.customClaims !== undefined) assertNoReservedCustomClaims(update.customClaims);
     const before = this.toRecord(stored);
-    if (update.email !== undefined) {
-      validateEmailFormat(update.email);
-      const key = update.email.toLowerCase();
-      const targetTenant = stored.tenantId ?? null;
-      const emailTakenInTenant = [...this.usersByUid.values()].some(
-        (u) => u !== stored && u.email?.toLowerCase() === key && (u.tenantId ?? null) === targetTenant,
-      );
-      if (emailTakenInTenant) {
-        throw makeAuthError(
-          'auth/email-already-in-use',
-          `An account already exists for ${update.email}.`,
-        );
-      }
-      unindexStoredUserEmail(this.usersByEmail, stored);
-      stored.email = update.email;
-      this.usersByEmail.set(tenantEmailKey(targetTenant, update.email), stored);
-    }
     if (update.password !== undefined) {
       validatePasswordStrength(update.password);
+    }
+    applyAdminUserUpdateFields({
+      stored,
+      update,
+      usersByUid: this.usersByUid,
+      usersByEmail: this.usersByEmail,
+      photoOriginByUid: this.photoOriginByUid,
+    });
+    if (update.password !== undefined) {
       stored.password = update.password;
-      // A password change revokes the account's refresh tokens, as in production.
       revokeTokensAt(this.projectStore, uid, this.now().getTime());
-      // Setting a password links the password provider — matches the
-      // Identity Toolkit (an account gains providerUserInfo entry
-      // when a password is set on it).
       if (!stored.providerUserInfo.some((p) => p.providerId === 'password')) {
         stored.providerUserInfo.push({ providerId: 'password' });
       }
@@ -1967,12 +1967,9 @@ export class SandboxBackend {
         'updateUser',
       );
     }
-    if (update.displayName !== undefined) stored.displayName = update.displayName;
     if (update.customClaims !== undefined) {
       stored.customClaims = cloneClaimData(update.customClaims);
     }
-    if (update.disabled !== undefined) stored.disabled = update.disabled;
-    if (update.emailVerified !== undefined) stored.emailVerified = update.emailVerified;
     this.notifyUsersChanged();
     const after = this.toRecord(stored);
     this.emitAuthEvent('user_update', { path: uid, auth: null, before, after });
@@ -2429,22 +2426,8 @@ export class SandboxBackend {
     // caller explicitly supplied it (AUTH-GAP).
     const emailVerified = args.emailVerified ?? false;
     const providerId = 'firebase';
-    // `providerData` is one entry PER LINKED PROVIDER, read from the stored
-    // record. It used to be a synthesized single `{providerId: 'password'}`
-    // entry for every non-anonymous user, which was wrong the moment an
-    // identity carried anything else: a Google popup sign-in reported its
-    // provider as `'password'`, and after the linking climb an account with
-    // two providers would still have reported one. Consumer code branches on
-    // this array (that is what it is FOR — "is this account linked to
-    // Google?"), so the synthesized version was actively misleading.
-    //
-    // ABSENT vs EMPTY is the distinction that matters, and conflating them is
-    // a real bug: `undefined` means "no stored record to read" (a popup/mock
-    // user the backend never saw) and falls back to the old single-entry
-    // synthesis so nothing that worked before regresses; `[]` means "this
-    // identity genuinely has no linked providers", which is exactly what
-    // `unlink` of the last provider produces. Falling back on `[]` would
-    // resurrect the very provider the user just removed.
+    // `undefined` means no stored record (legacy mock fallback); `[]` means no
+    // linked providers (e.g. after unlinking the last provider -- never resurrect it).
     const linked: ProviderUserInfo[] = args.providers ?? [{ providerId: 'password' }];
     const providerData = buildClientUserInfoList({
       isAnonymous: args.isAnonymous === true,

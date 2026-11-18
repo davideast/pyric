@@ -12,10 +12,12 @@ import { makeSandboxAuth } from './local-auth.js';
 import { makeRemoteAuth } from './remote-auth.js';
 import type { Auth } from './types.js';
 
+const authHandles = new WeakMap<PyricAdminApp, Auth>();
+
 /**
- * Return an `Auth` handle for `app` (or for the default app when omitted).
- * Local sandboxes use the shared in-process store; remote sandboxes relay to
- * the worker channel.
+ * Return an `Auth` handle for `app` (or for the default app when omitted),
+ * caching one handle per active `PyricAdminApp`. Local sandboxes use the shared
+ * in-process store; remote sandboxes relay to the worker channel.
  */
 export function getAuth(app?: PyricAdminApp): Auth {
   let resolvedApp = app;
@@ -33,8 +35,16 @@ export function getAuth(app?: PyricAdminApp): Auth {
   if (resolvedApp[ADMIN_APP_TARGET] !== 'sandbox') {
     throw new TypeError('pyric-admin/auth: getAuth expected a sandbox admin app.');
   }
-  if (isRemoteSandbox(resolvedApp.sandbox)) {
-    return makeRemoteAuth(resolvedApp, resolvedApp.sandbox);
+  const cached = authHandles.get(resolvedApp);
+  if (cached !== undefined) {
+    return cached;
   }
-  return makeSandboxAuth(resolvedApp, resolvedApp.sandbox);
+  let created: Auth;
+  if (isRemoteSandbox(resolvedApp.sandbox)) {
+    created = makeRemoteAuth(resolvedApp, resolvedApp.sandbox);
+  } else {
+    created = makeSandboxAuth(resolvedApp, resolvedApp.sandbox);
+  }
+  authHandles.set(resolvedApp, created);
+  return created;
 }

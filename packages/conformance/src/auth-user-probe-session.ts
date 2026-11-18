@@ -6,11 +6,71 @@
  * stays fast, isolates all accounts under run-scoped UIDs and emails, and
  * deletes every tracked client or Admin UID in `finally`.
  */
-import type { FirebaseOptions } from 'firebase/app';
+import type { FirebaseApp, FirebaseOptions } from 'firebase/app';
 import type { Auth as ClientAuth } from 'firebase/auth';
 import type { Auth as AdminAuth, CreateRequest, UserRecord } from 'firebase-admin/auth';
 import { loadOracleServiceAccount, oracleAppOptions } from './oracle-credential.ts';
 import { resolveProbeWebConfig } from './sdk-probe-runtime.ts';
+
+interface AuthAttemptOutcome {
+  [key: string]: unknown;
+  threw: boolean;
+  errorName: string | null;
+  isFirebaseError: boolean;
+  code: string | null;
+}
+
+export function observeSyncAuthAttempt(
+  attempt: () => unknown,
+  firebaseErrorCtor: abstract new (...args: never[]) => Error,
+): AuthAttemptOutcome {
+  try {
+    attempt();
+    return { threw: false, errorName: null, isFirebaseError: false, code: null };
+  } catch (err) {
+    const candidate = err as { name?: unknown; code?: unknown };
+    let errorName: string | null = null;
+    if (typeof candidate?.name === 'string') {
+      errorName = candidate.name;
+    }
+    let code: string | null = null;
+    if (typeof candidate?.code === 'string') {
+      code = candidate.code;
+    }
+    return {
+      threw: true,
+      errorName,
+      isFirebaseError: err instanceof firebaseErrorCtor,
+      code,
+    };
+  }
+}
+
+export async function observeAsyncAuthAttempt(
+  attempt: () => Promise<unknown>,
+  firebaseErrorCtor: abstract new (...args: never[]) => Error,
+): Promise<AuthAttemptOutcome> {
+  try {
+    await attempt();
+    return { threw: false, errorName: null, isFirebaseError: false, code: null };
+  } catch (err) {
+    const candidate = err as { name?: unknown; code?: unknown };
+    let errorName: string | null = null;
+    if (typeof candidate?.name === 'string') {
+      errorName = candidate.name;
+    }
+    let code: string | null = null;
+    if (typeof candidate?.code === 'string') {
+      code = candidate.code;
+    }
+    return {
+      threw: true,
+      errorName,
+      isFirebaseError: err instanceof firebaseErrorCtor,
+      code,
+    };
+  }
+}
 
 interface ClientAuthProbeContext {
   runId: string;
@@ -18,6 +78,7 @@ interface ClientAuthProbeContext {
   auth: ClientAuth;
   authSdk: typeof import('firebase/auth');
   adminAuth: AdminAuth;
+  createAuxiliaryClientApp(label: string, customOptions?: FirebaseOptions): FirebaseApp;
   nextUid(label: string): string;
   nextEmail(label: string): string;
   nextPhoneNumber(): string;
@@ -112,6 +173,7 @@ export async function withClientAuthProbeSession(
   );
   const adminAuth = getAdminAuth(adminApp);
   const trackedUids = new Set<string>();
+  const auxiliaryApps: FirebaseApp[] = [];
 
   try {
     return await runProbe({
@@ -120,6 +182,12 @@ export async function withClientAuthProbeSession(
       auth,
       authSdk,
       adminAuth,
+      createAuxiliaryClientApp(label: string, customOptions?: FirebaseOptions): FirebaseApp {
+        const opts = customOptions ?? (webConfig as FirebaseOptions);
+        const auxApp = initializeApp(opts, `sdk-probe-auth-aux-${runId}-${label}`);
+        auxiliaryApps.push(auxApp);
+        return auxApp;
+      },
       nextUid(label: string): string {
         const uid = `${uidPrefix}-${label}`;
         trackedUids.add(uid);
@@ -143,6 +211,9 @@ export async function withClientAuthProbeSession(
     });
   } finally {
     await authSdk.signOut(auth).catch(() => undefined);
+    for (const auxApp of auxiliaryApps) {
+      await deleteApp(auxApp).catch(() => undefined);
+    }
     await deleteApp(clientApp).catch(() => undefined);
     for (const uid of trackedUids) {
       try {
