@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, test } from 'bun:test';
+import type { ChildProcess } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
@@ -15,6 +16,7 @@ import {
   npmInstallArgs,
   retryOnceOnTimeout,
   runCommand,
+  runTimedCommand,
   shouldRetryOnline,
   type CommandResult,
   type TimedResult,
@@ -302,6 +304,41 @@ describe('the infrastructure retry of a nested install that hangs (#1476)', () =
     expect(tail).toContain('7 silly fetch manifest pkg-7');
     expect(tail).not.toContain('6 silly');
     expect(tail).not.toContain('old');
+  });
+
+  test('startTimeoutAfter holds the timeout clock until a stand-in finishes setup or exits (#2853)', async () => {
+    const work = tempDir();
+    const waitForReadyLine = (child: ChildProcess) => new Promise<void>((resolve) => {
+      let seen = '';
+      const done = () => {
+        child.stdout?.off('data', onData);
+        child.off('close', done);
+        child.off('error', done);
+        resolve();
+      };
+      const onData = (chunk: unknown) => {
+        seen += String(chunk);
+        if (seen.includes('ready\n')) done();
+      };
+      child.stdout?.on('data', onData);
+      child.once('close', done);
+      child.once('error', done);
+    });
+
+    const hung = await runTimedCommand(
+      'sh',
+      ['-c', 'sleep 0.15; printf "log-ready\\n" > debug.log; printf "ready\\n"; sleep 10'],
+      { cwd: work, env: { PATH: process.env.PATH }, timeoutMs: 50, startTimeoutAfter: waitForReadyLine },
+    );
+    expect(hung.timedOut).toBe(true);
+    expect(readFileSync(join(work, 'debug.log'), 'utf8')).toBe('log-ready\n');
+
+    const passed = await runTimedCommand(
+      'sh',
+      ['-c', 'sleep 0.15; printf "done\\n"'],
+      { cwd: work, env: { PATH: process.env.PATH }, timeoutMs: 50, startTimeoutAfter: waitForReadyLine },
+    );
+    expect(passed).toEqual({ code: 0, output: 'done\n', timedOut: false });
   });
 });
 

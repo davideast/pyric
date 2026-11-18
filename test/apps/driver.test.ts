@@ -240,10 +240,10 @@ describe('app ports', () => {
 
 /**
  * A stand-in npm: every call writes a debug log to its --logs-dir and leaves
- * a file in node_modules. The calls listed in `hangs` (1-based) then wait on
- * a child, as npm waits on an install script, until stopped; the others
- * write a lockfile and exit 0. A call that finds an earlier call's
- * node_modules says so in `leftovers`.
+ * a file in node_modules. The calls listed in `hangs` (1-based) then start a
+ * child, print its pid, and wait on it, as npm waits on an install script,
+ * until stopped; the others write a lockfile and exit 0. A call that finds an
+ * earlier call's node_modules says so in `leftovers`.
  */
 function fakeNpm(dir: string, hangs: number[]): string {
   const script = join(dir, 'fake-npm.sh');
@@ -257,12 +257,64 @@ mkdir -p "$logs"
 printf '0 verbose cli fake npm call %s\\n1 http fetch GET https://registry.npmjs.org/stalled-%s\\n' "$n" "$n" > "$logs/2026-10-28T12_0\${n}_00_000Z-debug-0.log"
 [ -e node_modules/left-by-call ] && echo "call $n found node_modules from an earlier call" >> "${dir}/leftovers"
 mkdir -p node_modules && touch node_modules/left-by-call
-case " ${hangs.join(' ')} " in *" $n "*) sleep 31 & wait;; esac
+case " ${hangs.join(' ')} " in *" $n "*) sleep 31 & printf 'hanging %s\\n' "$!" && wait;; esac
 echo '{"lockfileVersion":3,"packages":{"":{}}}' > package-lock.json
 echo "added 1 package"
 `);
   chmodSync(script, 0o755);
   return script;
+}
+
+/** Whether `pid` has finished exec'ing `sleep` (off Linux there is no /proc to check). */
+function isRunningSleep(pid: number): boolean {
+  if (process.platform !== 'linux') return true;
+  try {
+    return /^(?:\/\S+\/)?sleep\0/.test(readFileSync(`/proc/${pid}/cmdline`, 'utf8'));
+  } catch {
+    return true;
+  }
+}
+
+/**
+ * Resolves once `fakeNpm` either closes (a passing call) or has written its
+ * debug log and started `sleep 31` (a hanging call), so a runner stalled in
+ * disk I/O during child startup cannot burn the 1 s attempt limit (#2853).
+ */
+function waitUntilHanging(child: ChildProcess): Promise<void> {
+  return new Promise((resolve) => {
+    let done = false;
+    let seen = '';
+    let poll: ReturnType<typeof setInterval> | undefined;
+    const finish = () => {
+      if (done) return;
+      done = true;
+      clearTimeout(safety);
+      clearInterval(poll);
+      child.stdout?.off('data', onData);
+      child.off('close', finish);
+      child.off('error', finish);
+      resolve();
+    };
+    const safety = setTimeout(finish, 10_000);
+    safety.unref();
+    const onData = (chunk: unknown) => {
+      seen += String(chunk);
+      const match = /^hanging (\d+)\n/m.exec(seen);
+      if (!match || poll !== undefined) return;
+      const sleepPid = Number(match[1]);
+      if (isRunningSleep(sleepPid)) {
+        finish();
+        return;
+      }
+      poll = setInterval(() => {
+        if (isRunningSleep(sleepPid)) finish();
+      }, 10);
+      poll.unref();
+    };
+    child.stdout?.on('data', onData);
+    child.once('close', finish);
+    child.once('error', finish);
+  });
 }
 
 /** An app run whose nested installs come from a store in its own directory, warmed by the stand-in npm. */
@@ -278,7 +330,12 @@ function installRun(hangs: number[], app = 'create-pyric-chat-app-check') {
     packed: [],
     platform: { nodeMajor: '24', npm: '11.13.0', os: 'linux', arch: 'x64' },
     npmCache: join(work, 'cache'),
-    runNpm: (args, { cwd, timeoutMs }) => runTimedCommand(npm, args, { cwd, timeoutMs }),
+    runNpm: (args, { cwd, timeoutMs }) => runTimedCommand(npm, args, {
+      cwd,
+      env: { PATH: process.env.PATH },
+      timeoutMs,
+      startTimeoutAfter: waitUntilHanging,
+    }),
   });
   const noBrowser = () => Promise.reject(new Error('no browser in this test'));
   const nested = { tarballs: new Map(), store, attemptMs: 1_000, report: (line: string) => lines.push(line) };
