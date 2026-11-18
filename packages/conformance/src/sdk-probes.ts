@@ -38,6 +38,7 @@ import {
   isDedicatedOracleRtdbUrl,
   webConfigFromEnv,
 } from './oracle-run-setup.ts';
+import { isTransientAuthCaptureError } from './oracle-run-auth-session.ts';
 import { resolvedAdminVersion, resolvedFirebaseVersion } from './package-version.ts';
 import { readProbeSelectors } from './probe-cli-args.ts';
 import { readDeclaredProbeRig } from './staged-captures.ts';
@@ -214,19 +215,6 @@ function defaultModularProbeSleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function isAuthTooManyRequests(err: unknown): boolean {
-  if (typeof err === 'object' && err !== null && 'code' in err) {
-    const code = (err as { code?: unknown }).code;
-    if (code === 'auth/too-many-requests') {
-      return true;
-    }
-  }
-  if (err instanceof Error && err.message.includes('auth/too-many-requests')) {
-    return true;
-  }
-  return false;
-}
-
 async function observeModularProbeWithRetry(
   probeId: string,
   rigName: string,
@@ -239,13 +227,13 @@ async function observeModularProbeWithRetry(
     try {
       return await observe();
     } catch (err) {
-      if (!isAuthTooManyRequests(err) || attemptIndex >= backoffMs.length) {
+      if (!isTransientAuthCaptureError(err) || attemptIndex >= backoffMs.length) {
         throw err;
       }
       const waitMs = backoffMs[attemptIndex];
       attemptIndex += 1;
       console.log(
-        `[${rigName}] ${probeId} hit auth/too-many-requests; waiting ${waitMs}ms before retry ${attemptIndex}/${backoffMs.length}`,
+        `[${rigName}] ${probeId} hit auth/too-many-requests or transient unavailable; waiting ${waitMs}ms before retry ${attemptIndex}/${backoffMs.length}`,
       );
       if (waitMs !== undefined) {
         await sleep(waitMs);

@@ -24,8 +24,10 @@ import {
 } from '../../probes/auth-admin/admin-auth-update-user-fields.ts';
 import {
   observeLocalVerifyIdTokenPreSignatureChecks,
+  observeVerifyIdTokenErrors,
   probe as verifyIdTokenErrorsProbe,
   rewriteJwtClaim,
+  runWithVerifyAppsDisposed,
   scrubVerifyIdTokenMessage,
   tamperJwtSignature,
 } from '../../probes/auth-admin/admin-auth-verify-id-token-errors.ts';
@@ -193,6 +195,56 @@ describe('linked auth-admin probes', () => {
         phoneNumberMatchesExpected: true,
         disabled: false,
         providerIds: ['password'],
+      });
+
+      // Verify runWithVerifyAppsDisposed awaits all 8 verifyIdToken checks (including wrongAudienceApp)
+      // before disposing clientApp and foreignApp.
+      const uid = 'unit-verify-order';
+      await adminAuth.createUser({ uid });
+      const customToken = await adminAuth.createCustomToken(uid);
+      const clientAuth = getClientAuth(sandbox);
+      await setPersistence(clientAuth, inMemoryPersistence);
+      const cred = await signInWithCustomToken(clientAuth, customToken);
+      const validIdToken = await cred.user.getIdToken();
+
+      const testProjectId = 'demo-project';
+      let foreignDisposed = false;
+      const verifyObserved = await runWithVerifyAppsDisposed(
+        () =>
+          observeVerifyIdTokenErrors({
+            projectId: testProjectId,
+            subjectUid: uid,
+            validIdToken,
+            verifyPrimary: async (idToken) => {
+              await Promise.resolve();
+              return adminAuth.verifyIdToken(idToken);
+            },
+            verifyForeignProject: async () => {
+              if (foreignDisposed) {
+                const deletedErr = Object.assign(
+                  new Error('Firebase app named "foreign" has already been deleted.'),
+                  { code: 'app/app-deleted' },
+                );
+                throw deletedErr;
+              }
+              throw Object.assign(
+                new Error(
+                  `Firebase ID token has incorrect "aud" (audience) claim. Expected "another-project" but got "${testProjectId}".`,
+                ),
+                { code: 'auth/argument-error' },
+              );
+            },
+          }),
+        async () => {
+          foreignDisposed = true;
+        },
+      );
+      expect(foreignDisposed).toBe(true);
+      expect(verifyObserved.wrongAudienceApp).toEqual({
+        mode: 'rejected',
+        code: 'auth/argument-error',
+        message:
+          'Firebase ID token has incorrect "aud" (audience) claim. Expected "another-project" but got "<projectId>".',
       });
     } finally {
       await deleteApp(app);
