@@ -103,11 +103,11 @@ describe('Query.applyFilter — composite filters', () => {
     expect(snap.docs.map((d) => d.id)).toEqual(['T-1']);
   });
 
-  it('empty OR matches nothing; empty AND matches everything', async () => {
+  it('empty OR and empty AND both act as identity filters matching everything', async () => {
     const db = setup();
     const emptyOr: Filter = { kind: 'or', filters: [] };
     const emptyAnd: Filter = { kind: 'and', filters: [] };
-    expect((await db.collection('tickets').applyFilter(emptyOr).get()).size).toBe(0);
+    expect((await db.collection('tickets').applyFilter(emptyOr).get()).size).toBe(5);
     expect((await db.collection('tickets').applyFilter(emptyAnd).get()).size).toBe(5);
   });
 

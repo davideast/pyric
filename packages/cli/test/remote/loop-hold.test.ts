@@ -253,8 +253,8 @@ describe('remote core — a listener error is terminal (auto-unsubscribe)', () =
     const node = connectNode(bridge);
     await node.core.ready;
 
-    // A registration that FAILS worker-side: an empty composite filter is
-    // rejected by the modular and() factory and comes back as an __error
+    // A registration that FAILS worker-side: a non-positive limit constraint
+    // is rejected by modular limit(0) on the host and comes back as an __error
     // snap (the same wire shape a mid-stream listener denial uses).
     const errors: Array<Error & { code: string }> = [];
     const snaps: unknown[] = [];
@@ -263,7 +263,7 @@ describe('remote core — a listener error is terminal (auto-unsubscribe)', () =
         target: {
           __ref: 'query',
           source: { __ref: 'collection', path: 'x' },
-          constraints: [{ kind: 'and', filters: [] }],
+          constraints: [{ kind: 'limit', n: 0 }],
         },
       },
       (v) => snaps.push(v),
