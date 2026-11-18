@@ -199,9 +199,8 @@ export async function observeFirestoreAdminBypassAndLifecycle<AppHandle, DbHandl
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: ['web-config', 'firestore-rules', 'admin-firestore'],
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'firestore-admin#1a',
+  rowIds: ['firestore-admin#1a'],
   description:
     'firebase-admin/firestore getFirestore(app) caches one Firestore handle per active app, isolates handles across apps, throws TypeError on non-app objects/null, bypasses Firestore Security Rules that deny unauthenticated client reads with permission-denied, and throws app/app-deleted synchronously after deleteApp(app) while preserving sibling apps.',
   async observe(): Promise<Record<string, unknown>> {

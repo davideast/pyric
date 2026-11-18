@@ -19,7 +19,6 @@ import {
   type WhereFilterOp,
 } from 'pyric/sandbox/admin-compat';
 import type { SandboxFirestore, Unsubscribe } from 'pyric/sandbox/admin-firestore';
-import type { AdminServiceLifecycle } from '../app/lifecycle.js';
 import {
   executeAdminRunTransaction,
   wrapWriteBatch,
@@ -27,12 +26,10 @@ import {
 import {
   adminDocumentRefBrand,
   adminQueryBrand,
-  adminToLifecycle,
   adminToRootDb,
   adminToUnderlying,
-  assertRootActive,
-  lifecycleOf,
-  runAsyncWithLifecycle,
+  appBackedFirestoreRoots,
+  isAppBackedRoot,
   wrappedDbCache,
 } from './admin-handle-registry.js';
 import {
@@ -82,7 +79,6 @@ function wrapQueryMethods(
   switch (prop) {
     case 'where':
       return (field: SnapshotFieldPath, op: WhereFilterOp, value: unknown) => {
-        assertRootActive(rootDb);
         const normalized = validateAndNormalizeWhereArgs(field, op, value, meta, rootDb);
         return wrapQuery(
           target.where(normalized.field, normalized.op, normalized.value),
@@ -92,12 +88,10 @@ function wrapQueryMethods(
       };
     case 'applyFilter':
       return (filter: Filter) => {
-        assertRootActive(rootDb);
         return wrapQuery(target.applyFilter(normalizeCompositeFilter(filter, rootDb)), rootDb, meta);
       };
     case 'orderBy':
       return (field: SnapshotFieldPath, direction?: unknown) => {
-        assertRootActive(rootDb);
         const normalized = validateAndNormalizeOrderByArgs(field, direction);
         const nextMeta: AdminQueryMetadata = {
           ...meta,
@@ -107,7 +101,6 @@ function wrapQueryMethods(
       };
     case 'limit':
       return (n: number) => {
-        assertRootActive(rootDb);
         const parsed = validateAdminLimitInteger('limit', n);
         const nextMeta: AdminQueryMetadata = {
           ...meta,
@@ -117,7 +110,6 @@ function wrapQueryMethods(
       };
     case 'limitToLast':
       return (n: number) => {
-        assertRootActive(rootDb);
         const parsed = validateAdminLimitInteger('limitToLast', n);
         const nextMeta: AdminQueryMetadata = {
           ...meta,
@@ -127,7 +119,6 @@ function wrapQueryMethods(
       };
     case 'startCursor':
       return (values: unknown[], inclusive: boolean, fromSnapshot?: boolean) => {
-        assertRootActive(rootDb);
         return wrapQuery(
           target.startCursor(
             values.map((item) => normalizeLegacyQueryOperand(item, rootDb)),
@@ -140,7 +131,6 @@ function wrapQueryMethods(
       };
     case 'endCursor':
       return (values: unknown[], inclusive: boolean, fromSnapshot?: boolean) => {
-        assertRootActive(rootDb);
         return wrapQuery(
           target.endCursor(
             values.map((item) => normalizeLegacyQueryOperand(item, rootDb)),
@@ -153,7 +143,6 @@ function wrapQueryMethods(
       };
     case 'startCursorFromSnapshot':
       return (snapshot: DocumentSnapshot, inclusive: boolean) => {
-        assertRootActive(rootDb);
         return wrapQuery(
           target.startCursorFromSnapshot(unwrapCursorSnapshotForAdmin(snapshot, rootDb), inclusive),
           rootDb,
@@ -162,7 +151,6 @@ function wrapQueryMethods(
       };
     case 'endCursorFromSnapshot':
       return (snapshot: DocumentSnapshot, inclusive: boolean) => {
-        assertRootActive(rootDb);
         return wrapQuery(
           target.endCursorFromSnapshot(unwrapCursorSnapshotForAdmin(snapshot, rootDb), inclusive),
           rootDb,
@@ -170,18 +158,16 @@ function wrapQueryMethods(
         );
       };
     case 'get':
-      return (opts?: OperationOptions) =>
-        runAsyncWithLifecycle(rootDb, async () => {
-          assertQueryExecutable(meta);
-          const snap = await target.get(opts);
-          return wrapQuerySnapshot(snap, rootDb, docRefOnRoot);
-        });
+      return async (opts?: OperationOptions) => {
+        assertQueryExecutable(meta);
+        const snap = await target.get(opts);
+        return wrapQuerySnapshot(snap, rootDb, docRefOnRoot);
+      };
     case 'aggregate':
-      return (...args: Parameters<Query['aggregate']>) =>
-        runAsyncWithLifecycle(rootDb, async () => {
-          assertQueryExecutable(meta);
-          return target.aggregate(...args);
-        });
+      return async (...args: Parameters<Query['aggregate']>) => {
+        assertQueryExecutable(meta);
+        return target.aggregate(...args);
+      };
     default:
       return undefined;
   }
@@ -226,7 +212,6 @@ function wrapCollectionRef(
     get(t, prop, receiver) {
       if (prop === 'doc') {
         return (...args: [id?: string]) => {
-          assertRootActive(rootDb);
           if (args.length === 0) {
             return wrapDocRef(t.doc(), rootDb);
           }
@@ -235,16 +220,15 @@ function wrapCollectionRef(
         };
       }
       if (prop === 'add') {
-        return (data: DocumentData, opts?: OperationOptions) =>
-          runAsyncWithLifecycle(rootDb, () => {
-            const normalized = validateAndNormalizeDocumentData(
-              'data',
-              data,
-              'none',
-              lifecycleOf(rootDb) !== undefined,
-            );
-            return t.add(normalized, opts).then((ref) => wrapDocRef(ref, rootDb));
-          });
+        return (data: DocumentData, opts?: OperationOptions) => {
+          const normalized = validateAndNormalizeDocumentData(
+            'data',
+            data,
+            'none',
+            isAppBackedRoot(rootDb),
+          );
+          return t.add(normalized, opts).then((ref) => wrapDocRef(ref, rootDb));
+        };
       }
       if (prop === 'onSnapshot') {
         const underlying = Reflect.get(t, prop, t);
@@ -277,52 +261,45 @@ function wrapDocRef(rawRef: DocumentReference, rootDb: SandboxFirestore): Docume
           return wrapCollectionRef(t.parent, rootDb);
         case 'collection':
           return (name: string) => {
-            assertRootActive(rootDb);
             const normalizedSub = normalizeCollectionPath(name);
             return wrapCollectionRef(t.collection(normalizedSub), rootDb);
           };
         case 'get':
           return (opts?: OperationOptions) =>
-            runAsyncWithLifecycle(rootDb, () =>
-              t.get(opts).then((snap) => wrapDocSnapshot(snap, rootDb, docRefOnRoot)),
-            );
+            t.get(opts).then((snap) => wrapDocSnapshot(snap, rootDb, docRefOnRoot));
         case 'create':
-          return (data: DocumentData, opts?: OperationOptions) =>
-            runAsyncWithLifecycle(rootDb, () => {
-              const normalized = validateAndNormalizeDocumentData(
-                'data',
-                data,
-                'none',
-                lifecycleOf(rootDb) !== undefined,
-              );
-              return t.create(normalized, opts);
-            });
+          return (data: DocumentData, opts?: OperationOptions) => {
+            const normalized = validateAndNormalizeDocumentData(
+              'data',
+              data,
+              'none',
+              isAppBackedRoot(rootDb),
+            );
+            return t.create(normalized, opts);
+          };
         case 'set':
-          return (data: DocumentData, options?: SetOptions) =>
-            runAsyncWithLifecycle(rootDb, () => {
-              const validated = validateAndNormalizeSetCall(
-                data,
-                options,
-                true,
-                lifecycleOf(rootDb) !== undefined,
-              );
-              return t.set(validated.data, validated.options);
-            });
+          return (data: DocumentData, options?: SetOptions) => {
+            const validated = validateAndNormalizeSetCall(
+              data,
+              options,
+              true,
+              isAppBackedRoot(rootDb),
+            );
+            return t.set(validated.data, validated.options);
+          };
         case 'update':
-          return (...args: unknown[]) =>
-            runAsyncWithLifecycle(rootDb, () => {
-              const normalized = validateAndNormalizeUpdateArgs(
-                args,
-                lifecycleOf(rootDb) !== undefined,
-              );
-              return (t.update as (...a: unknown[]) => Promise<void>)(...normalized);
-            });
+          return (...args: unknown[]) => {
+            const normalized = validateAndNormalizeUpdateArgs(
+              args,
+              isAppBackedRoot(rootDb),
+            );
+            return (t.update as (...a: unknown[]) => Promise<void>)(...normalized);
+          };
         case 'delete':
-          return (...args: [opts?: OperationOptions]) =>
-            runAsyncWithLifecycle(rootDb, () => {
-              const validatedOpts = validatePreconditionObject('precondition', args[0]);
-              return t.delete(validatedOpts);
-            });
+          return (...args: [opts?: OperationOptions]) => {
+            const validatedOpts = validatePreconditionObject('precondition', args[0]);
+            return t.delete(validatedOpts);
+          };
         case 'onSnapshot': {
           const underlying = Reflect.get(t, prop, t);
           if (typeof underlying === 'function') {
@@ -350,9 +327,9 @@ function wrapDocRef(rawRef: DocumentReference, rootDb: SandboxFirestore): Docume
 
 export function wrapAdminFirestoreHandle(
   rawDb: SandboxFirestore,
-  lifecycle?: AdminServiceLifecycle,
+  appBacked = false,
 ): SandboxFirestore {
-  if (lifecycle === undefined) {
+  if (!appBacked) {
     const cached = wrappedDbCache.get(rawDb);
     if (cached !== undefined) return cached;
   }
@@ -361,18 +338,11 @@ export function wrapAdminFirestoreHandle(
     get(t, prop) {
       switch (prop) {
         case 'doc':
-          return (path: string) => {
-            lifecycle?.assertActive();
-            return wrapDocRef(t.doc(normalizeRootDocumentPath(path)), proxy);
-          };
+          return (path: string) => wrapDocRef(t.doc(normalizeRootDocumentPath(path)), proxy);
         case 'collection':
-          return (path: string) => {
-            lifecycle?.assertActive();
-            return wrapCollectionRef(t.collection(normalizeCollectionPath(path)), proxy);
-          };
+          return (path: string) => wrapCollectionRef(t.collection(normalizeCollectionPath(path)), proxy);
         case 'collectionGroup':
           return (collectionId: string) => {
-            lifecycle?.assertActive();
             const validatedId = validateCollectionGroupId(collectionId);
             return wrapQuery(
               t.collectionGroup(validatedId),
@@ -381,10 +351,7 @@ export function wrapAdminFirestoreHandle(
             );
           };
         case 'batch':
-          return () => {
-            lifecycle?.assertActive();
-            return wrapWriteBatch(t, proxy);
-          };
+          return () => wrapWriteBatch(t, proxy);
         case 'runTransaction':
           return <R>(
             fn: (tx: Transaction) => Promise<R> | R,
@@ -392,14 +359,13 @@ export function wrapAdminFirestoreHandle(
           ): Promise<R> => executeAdminRunTransaction<R>(t, proxy, fn, opts, docRefOnRoot);
         case 'seed':
           return (options?: { documents?: Record<string, DocumentData> }) => {
-            lifecycle?.assertActive();
             if (options?.documents === undefined) return t.seed(options);
             const normalizedDocs = Object.fromEntries(
               Object.entries(options.documents).map(
                 ([docPath, docData]) =>
                   [
                     docPath,
-                    validateAndNormalizeDocumentData('data', docData, 'none', lifecycle !== undefined),
+                    validateAndNormalizeDocumentData('data', docData, 'none', appBacked),
                   ] as const,
               ),
             );
@@ -410,10 +376,7 @@ export function wrapAdminFirestoreHandle(
           // so `isDeferredApi(descriptor.value)` and property identity remain intact.
           const value = Reflect.get(t, prop, t);
           if ((prop === 'setRules' || prop === 'snapshot') && typeof value === 'function') {
-            return (...args: unknown[]) => {
-              lifecycle?.assertActive();
-              return (value as (...a: unknown[]) => unknown).apply(t, args);
-            };
+            return (...args: unknown[]) => (value as (...a: unknown[]) => unknown).apply(t, args);
           }
           return value;
         }
@@ -421,10 +384,10 @@ export function wrapAdminFirestoreHandle(
     },
   });
 
-  if (lifecycle === undefined) {
-    wrappedDbCache.set(rawDb, proxy);
+  if (appBacked) {
+    appBackedFirestoreRoots.add(proxy);
   } else {
-    adminToLifecycle.set(proxy, lifecycle);
+    wrappedDbCache.set(rawDb, proxy);
   }
   adminToUnderlying.set(proxy, rawDb);
   adminToRootDb.set(proxy, proxy);

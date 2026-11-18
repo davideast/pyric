@@ -30,9 +30,7 @@ import {
 import {
   adminToRootDb,
   adminToUnderlying,
-  assertRootActive,
   isPlainMap,
-  lifecycleOf,
   unwrapAdminObject,
 } from './admin-handle-registry.js';
 
@@ -196,10 +194,8 @@ function wrapObserverOrCallbackArg(
   rootDb: SandboxFirestore,
   buildDocRef: DocRefBuilder,
 ): unknown {
-  const lifecycle = lifecycleOf(rootDb);
   if (typeof arg === 'function') {
     return (snapshot: unknown) => {
-      if (lifecycle?.isDeleted) return;
       (arg as (s: unknown) => void)(wrapLiveSnapshot(snapshot, rootDb, buildDocRef));
     };
   }
@@ -215,7 +211,6 @@ function wrapObserverOrCallbackArg(
     if (typeof obs.next === 'function') {
       const boundNext = obs.next.bind(obs);
       wrapped.next = (snapshot: unknown) => {
-        if (lifecycle?.isDeleted) return;
         boundNext(wrapLiveSnapshot(snapshot, rootDb, buildDocRef));
       };
     }
@@ -299,9 +294,6 @@ export function createAdminOnSnapshot(buildDocRef: DocRefBuilder) {
       );
     }
 
-    assertRootActive(rootDb);
-    const lifecycle = lifecycleOf(rootDb);
-
     const arg2IsOptions =
       typeof arg2 === 'object' &&
       arg2 !== null &&
@@ -309,29 +301,22 @@ export function createAdminOnSnapshot(buildDocRef: DocRefBuilder) {
       typeof (arg2 as { error?: unknown }).error !== 'function' &&
       typeof (arg2 as { complete?: unknown }).complete !== 'function';
 
-    let unsubscribe: Unsubscribe;
     if (arg2IsOptions) {
-      unsubscribe = (baseOnSnapshot as (...a: unknown[]) => Unsubscribe)(
+      return (baseOnSnapshot as (...a: unknown[]) => Unsubscribe)(
         rawReference,
         arg2,
         wrapObserverOrCallbackArg(arg3, rootDb, buildDocRef),
         arg4,
         arg5,
       );
-    } else {
-      unsubscribe = (baseOnSnapshot as (...a: unknown[]) => Unsubscribe)(
-        rawReference,
-        wrapObserverOrCallbackArg(arg2, rootDb, buildDocRef),
-        arg3,
-        arg4,
-        arg5,
-      );
     }
-
-    if (lifecycle !== undefined) {
-      return lifecycle.trackSubscription(unsubscribe);
-    }
-    return unsubscribe;
+    return (baseOnSnapshot as (...a: unknown[]) => Unsubscribe)(
+      rawReference,
+      wrapObserverOrCallbackArg(arg2, rootDb, buildDocRef),
+      arg3,
+      arg4,
+      arg5,
+    );
   }
 
   return adminOnSnapshotImpl;
