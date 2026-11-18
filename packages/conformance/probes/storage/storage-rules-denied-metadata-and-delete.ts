@@ -80,9 +80,8 @@ export async function observeStorageRulesDeniedMetadataAndDelete(
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: ['web-config'],
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'storage#106, #107, #108',
+  rowIds: ['storage#106', 'storage#107', 'storage#108'],
   description:
     'firebase/storage op-level security-rules denials: observes getMetadata, updateMetadata, and deleteObject rejecting with FirebaseError storage/unauthorized both outside any grant and from a signed-out client against an existing object.',
   async observe() {

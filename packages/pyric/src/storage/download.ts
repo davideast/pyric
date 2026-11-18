@@ -91,11 +91,18 @@ export async function getDownloadURL(ref: StorageReference): Promise<string> {
  * awaits the backend before emitting, so it escapes the sandbox's
  * synchronous ambient-provenance window — see the note on `uploadBytes`.
  */
-export async function deleteObject(
+export function deleteObject(
   ref: StorageReference,
   provenance?: EventProvenance,
 ): Promise<void> {
   guardNonRoot(ref, 'deleteObject');
+  return performDeleteObject(ref, provenance);
+}
+
+async function performDeleteObject(
+  ref: StorageReference,
+  provenance?: EventProvenance,
+): Promise<void> {
   const target = targetOf(ref.storage);
   const operationProvenance = storageOperationProvenance(target, provenance);
   const service = await getStorageService(ref.storage);

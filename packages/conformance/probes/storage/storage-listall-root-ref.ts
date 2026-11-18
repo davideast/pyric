@@ -91,6 +91,9 @@ export function rootListOracleTarget(bucketId: string, runId: string, uid: strin
     }
     match /pyric_oracle_root_${runId}/{allPaths=**} {
       allow read, write: if request.auth != null && request.auth.uid == '${uid}';
+    }
+    match /pyric_oracle_root_${runId}-dash/{allPaths=**} {
+      allow read, write: if request.auth != null && request.auth.uid == '${uid}';
     }`;
   return {
     service: 'Storage',
@@ -113,9 +116,8 @@ ${scopedBlock}
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: ['web-config'],
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'storage#75',
+  rowIds: ['storage#75'],
   description:
     'firebase/storage listAll(ref(storage)) on the root reference: observes bucket-root listing returning direct root items and top-level prefixes without recursing into nested children.',
   async observe() {
@@ -155,8 +157,10 @@ export const probe: Probe = {
     const rootPrefixName = `pyric_oracle_root_${runId}`;
     const rootItemName = `${rootPrefixName}.bin`;
     const nestedChildFullPath = `${rootPrefixName}/nested/child.bin`;
+    const dashNestedChildFullPath = `${rootPrefixName}-dash/nested/child.bin`;
     const rootItemRef = storageSdk.ref(storage, rootItemName);
     const nestedChildRef = storageSdk.ref(storage, nestedChildFullPath);
+    const dashNestedChildRef = storageSdk.ref(storage, dashNestedChildFullPath);
 
     try {
       return await runWithOracleRulesRestored(session, async () => {
@@ -183,6 +187,7 @@ export const probe: Probe = {
                 try {
                   await storageSdk.uploadBytes(rootItemRef, new Uint8Array([0x41]));
                   await storageSdk.uploadBytes(nestedChildRef, new Uint8Array([0x42, 0x43]));
+                  await storageSdk.uploadBytes(dashNestedChildRef, new Uint8Array([0x44]));
                   const res = await storageSdk.listAll(rootRef);
                   return {
                     rootFullPath: rootRef.fullPath,
@@ -228,6 +233,7 @@ export const probe: Probe = {
         } finally {
           await storageSdk.deleteObject(rootItemRef).catch(() => undefined);
           await storageSdk.deleteObject(nestedChildRef).catch(() => undefined);
+          await storageSdk.deleteObject(dashNestedChildRef).catch(() => undefined);
           if (clientAuth.currentUser) {
             await deleteUser(clientAuth.currentUser).catch(() => undefined);
           }

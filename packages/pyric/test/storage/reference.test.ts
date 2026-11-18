@@ -290,9 +290,9 @@ describe('deleteObject', () => {
     await deleteObject(r); // should resolve without error
   });
 
-  it('throws invalid-root-operation on root', async () => {
+  it('throws invalid-root-operation synchronously on root', () => {
     const storage = freshStorage('delete-root');
     const root = ref(storage);
-    await expect(deleteObject(root)).rejects.toThrow(/invalid-root-operation/);
+    expect(() => deleteObject(root)).toThrow(/invalid-root-operation/);
   });
 });

@@ -21,7 +21,6 @@ import {
   probe as deniedMetadataAndDeleteProbe,
   type StorageDeniedMetadataAndDeleteSubject,
 } from '../../probes/storage/storage-rules-denied-metadata-and-delete.ts';
-import { expectStagedUntilCaptured } from './staged-capture-assertions.ts';
 
 const SDK_PROBES = [
   { name: 'storage-deleteobject-removes-bytes-and-metadata', probe: deleteAtomicProbe },
@@ -134,6 +133,11 @@ describe('storage deleteObject, root listAll, and rules-enforcement staged probe
           ],
           prefixes: [
             {
+              fullPath: 'pyric_oracle_root_r1-dash',
+              name: 'pyric_oracle_root_r1-dash',
+              parentFullPath: '',
+            },
+            {
               fullPath: 'pyric_oracle_root_r1',
               name: 'pyric_oracle_root_r1',
               parentFullPath: '',
@@ -152,11 +156,12 @@ describe('storage deleteObject, root listAll, and rules-enforcement staged probe
       containsSeededRootPrefix: true,
       nestedChildExcludedFromRootItems: true,
       itemsSortedLexicographically: true,
-      prefixesSortedLexicographically: true,
+      prefixesSortedLexicographically: false,
       nextPageTokenIsUndefined: true,
     });
     const rootTarget = rootListOracleTarget('demo-bucket', 'r1', 'uid_1');
     expect(rootTarget.block).toContain('match /{allPaths=**} {\n      allow list:');
+    expect(rootTarget.block).toContain('match /pyric_oracle_root_r1-dash/{allPaths=**}');
     expect(rootTarget.freshRules).toContain('match /{allPaths=**} {\n      allow list:');
 
     const deniedOutcome = {
@@ -252,20 +257,14 @@ describe('storage deleteObject, root listAll, and rules-enforcement staged probe
     });
 
     for (const entry of SDK_PROBES) {
-      if (entry.probe.pendingRowLink) {
-        expectStagedUntilCaptured(entry.name, {
-          rig: 'sdk-probes',
-          filterFlag: '--probe',
-        });
-      }
+      expect(entry.probe.pendingRowLink).toBeUndefined();
+      expect(entry.probe.rowIds?.length).toBeGreaterThan(0);
+      expect(entry.probe.matrixRow.length).toBeGreaterThan(0);
     }
     for (const entry of CLIENT_STORAGE_PROBES) {
-      if (entry.probe.pendingRowLink) {
-        expectStagedUntilCaptured(entry.name, {
-          rig: 'client-storage',
-          filterFlag: '--probe',
-        });
-      }
+      expect(entry.probe.pendingRowLink).toBeUndefined();
+      expect(entry.probe.rowIds?.length).toBeGreaterThan(0);
+      expect(entry.probe.matrixRow.length).toBeGreaterThan(0);
     }
   });
 });

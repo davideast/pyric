@@ -37,9 +37,8 @@ export async function observeStorageCanonicalBucketNamespace(
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: ['web-config'],
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'storage#109',
+  rowIds: ['storage#109'],
   description:
     'firebase/storage canonical /b/{bucket}/o/{object} rules namespace mapping: observes ordinary SDK object paths matching /b/{bucket}/o/... rules while preserving ordinary fullPath in StorageReference and FullMetadata, whereas pre-prefixed /b/<bucket>/o/... SDK paths evaluate outside the object grant.',
   async observe() {
