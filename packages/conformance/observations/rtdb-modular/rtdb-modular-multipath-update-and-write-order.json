@@ -1,7 +1,13 @@
 {
   "name": "rtdb-modular-multipath-update-and-write-order",
-  "matrixRow": "",
-  "rowIds": [],
+  "matrixRow": "rtdb-modular#M13",
+  "rowIds": [
+    "rtdb-modular#M13",
+    "rtdb-modular#M14",
+    "rtdb-modular#M15",
+    "rtdb-modular#M16",
+    "rtdb-modular#M16b"
+  ],
   "description": "Modular RTDB update() shallow merge, null-key deletion, multi-path atomic commit vs partial rules-denial rollback, synchronous overlapping-path rejection, and single-client write ordering with onValue delivery before update() resolves.",
   "observedAt": "2026-11-18T06:45:55.870Z",
   "fbSdkVersion": "12.19.0",

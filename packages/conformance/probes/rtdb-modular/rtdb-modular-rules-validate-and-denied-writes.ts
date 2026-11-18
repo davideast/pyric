@@ -233,11 +233,16 @@ export async function observeRulesValidateAndDeniedWrites(
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: ['web-config', 'dedicated-rtdb'],
-  pendingRowLink: true,
   description:
     'Modular RTDB rules-denied remove() and runTransaction() state preservation, update-fn defensive clone on abort, committed transaction onValue fan-out, and .validate rule enforcement across set(), atomic update(), and runTransaction().',
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'rtdb-modular#M25',
+  rowIds: [
+    'rtdb-modular#M25',
+    'rtdb-modular#M37c',
+    'rtdb-modular#M37f',
+    'rtdb-modular#M37g',
+    'rtdb-modular#M76',
+  ],
   observe() {
     return withRtdbProbeSession(
       {

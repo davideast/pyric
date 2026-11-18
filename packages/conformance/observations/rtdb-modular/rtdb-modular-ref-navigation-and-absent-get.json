@@ -1,7 +1,14 @@
 {
   "name": "rtdb-modular-ref-navigation-and-absent-get",
-  "matrixRow": "",
-  "rowIds": [],
+  "matrixRow": "rtdb-modular#M4",
+  "rowIds": [
+    "rtdb-modular#M4",
+    "rtdb-modular#M5",
+    "rtdb-modular#M6",
+    "rtdb-modular#M7",
+    "rtdb-modular#M8",
+    "rtdb-modular#M9"
+  ],
   "description": "Modular RTDB ref(db, path?), child(ref, subpath), parent, root, DataSnapshot shape (val, exists, key, child, hasChildren, size, toJSON, absence of numChildren), and get() on an absent path.",
   "observedAt": "2026-11-18T06:46:45.861Z",
   "fbSdkVersion": "12.19.0",

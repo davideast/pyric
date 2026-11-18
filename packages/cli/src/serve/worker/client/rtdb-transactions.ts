@@ -35,6 +35,9 @@ export function rtdbRunTransaction<T>(
   options?: RtdbTransactionOptions,
 ): Promise<RtdbTransactionResult> {
   validateWritablePath('Reference.transaction', ref.path);
+  if (typeof transactionUpdate !== 'function') {
+    throw new TypeError('transactionUpdate must be a function');
+  }
   const run = () =>
     withRtdbTransactionBarrier(ref, async () => {
       for (let attempt = 0; attempt < 25; attempt++) {

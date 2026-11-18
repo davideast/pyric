@@ -1,7 +1,13 @@
 {
   "name": "rtdb-modular-rules-validate-and-denied-writes",
-  "matrixRow": "",
-  "rowIds": [],
+  "matrixRow": "rtdb-modular#M25",
+  "rowIds": [
+    "rtdb-modular#M25",
+    "rtdb-modular#M37c",
+    "rtdb-modular#M37f",
+    "rtdb-modular#M37g",
+    "rtdb-modular#M76"
+  ],
   "description": "Modular RTDB rules-denied remove() and runTransaction() state preservation, update-fn defensive clone on abort, committed transaction onValue fan-out, and .validate rule enforcement across set(), atomic update(), and runTransaction().",
   "observedAt": "2026-11-18T06:46:54.682Z",
   "fbSdkVersion": "12.19.0",

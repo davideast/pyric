@@ -221,11 +221,16 @@ export async function observeMultiPathUpdateAndWriteOrder(
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: ['web-config', 'dedicated-rtdb'],
-  pendingRowLink: true,
   description:
     'Modular RTDB update() shallow merge, null-key deletion, multi-path atomic commit vs partial rules-denial rollback, synchronous overlapping-path rejection, and single-client write ordering with onValue delivery before update() resolves.',
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'rtdb-modular#M13',
+  rowIds: [
+    'rtdb-modular#M13',
+    'rtdb-modular#M14',
+    'rtdb-modular#M15',
+    'rtdb-modular#M16',
+    'rtdb-modular#M16b',
+  ],
   observe() {
     return withRtdbProbeSession(
       {

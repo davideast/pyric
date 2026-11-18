@@ -89,6 +89,9 @@ export function runTransaction<T>(
   options?: TransactionOptions,
 ): Promise<TransactionResult> {
   validateWritablePath('Reference.transaction', r._path);
+  if (typeof transactionUpdate !== 'function') {
+    throw new TypeError('transactionUpdate must be a function');
+  }
   const target = targetOf(r as unknown as object);
   return runSdkWrite(beginDatabaseActivity(r, 'runTransaction', 'operation'), () => {
     let txOptions: (TransactionOptions & { readonly admin?: boolean }) | undefined = options;
