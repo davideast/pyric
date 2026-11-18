@@ -57,9 +57,8 @@ export async function observeUploadBytesContentTypePrecedence(
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: ['web-config'],
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'storage#27',
+  rowIds: ['storage#27', 'storage#28', 'storage#30'],
   description:
     'uploadBytes contentType precedence and Blob rewrap: caller metadata.contentType overrides Blob.type, non-empty Blob.type wins when caller omits contentType, and empty Blob.type or raw Uint8Array defaults to application/octet-stream while preserving exact bytes.',
   async observe() {

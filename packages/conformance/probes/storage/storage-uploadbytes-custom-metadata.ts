@@ -38,9 +38,8 @@ export async function observeUploadBytesCustomMetadata(
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: ['web-config'],
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'storage#29',
+  rowIds: ['storage#29'],
   description:
     'uploadBytes customMetadata round-trip: observes UploadResult.metadata.customMetadata and follow-up getMetadata().customMetadata both when omitted and when populated with multiple string keys.',
   async observe() {

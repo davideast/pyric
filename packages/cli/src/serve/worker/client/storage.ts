@@ -539,14 +539,13 @@ export interface ClientSettableMetadata {
 
 /** Upload bytes at the reference's path (replaces existing content).
  *  Mirrors `pyric/storage`'s `uploadBytes` result shape. */
-export async function uploadBytes(
+export function uploadBytes(
   reference: ClientStorageReference,
   data: Blob | Uint8Array | ArrayBuffer,
   metadata?: ClientSettableMetadata,
 ): Promise<{ ref: ClientStorageReference; metadata: FullMetadata }> {
   guardClientNonRoot(reference, 'uploadBytes');
-  const committed = await commitUpload(reference, data, metadata, false);
-  return { ref: reference, metadata: committed.metadata };
+  return commitUpload(reference, data, metadata, false).then((committed) => ({ ref: reference, metadata: committed.metadata }));
 }
 
 /**

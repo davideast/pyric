@@ -13,7 +13,7 @@ import { uploadTokenOf } from '../../../src/serve/worker/host/storage.js';
 import type { InboundMessage } from '../../../src/serve/worker/protocol.js';
 import { wirePort } from '../../../src/serve/worker/client/core.js';
 import type { ClientPort } from '../../../src/serve/worker/client/handles.js';
-import { deleteObject, getBlob, getDownloadURL, getMetadata, getStorage, ref, uploadBytes } from '../../../src/serve/worker/client/storage.js';
+import { deleteObject, getBlob, getBytes, getDownloadURL, getMetadata, getStorage, ref, uploadBytes } from '../../../src/serve/worker/client/storage.js';
 
 // The production observations, read from the conformance package beside the cli build.
 function observation(name: string): Record<string, unknown> {
@@ -153,6 +153,97 @@ try {
     }
     assert.equal(code !== undefined, afterDelete.threw);
     assert.equal(code, afterDelete.code);
+  }
+
+  // client-storage-uploadbytes-root-ref: uploadBytes(ref(storage), data) throws synchronously before any route fetch.
+  {
+    const produced = observation('client-storage-uploadbytes-root-ref');
+    const rootRef = ref(storage);
+    assert.equal(rootRef.fullPath, produced.rootFullPath);
+    assert.equal(rootRef.name, produced.rootName);
+    let threwSynchronously = false;
+    let code: string | undefined;
+    try {
+      uploadBytes(rootRef, new Uint8Array([0x01])).catch(() => {});
+    } catch (error) {
+      threwSynchronously = true;
+      code = (error as { code?: string }).code;
+    }
+    assert.equal(threwSynchronously, produced.threwSynchronously);
+    assert.equal(code, produced.code);
+  }
+
+  // storage-uploadbytes-payload-types: Blob, Uint8Array, and ArrayBuffer round-trip over the hosted SQLite byte route.
+  {
+    const produced = observation('storage-uploadbytes-payload-types');
+    const inputBytes = produced.inputBytes as number[];
+    const raw = new Uint8Array(inputBytes);
+    const padded = new ArrayBuffer(8);
+    new Uint8Array(padded).set([99, 98, ...inputBytes, 97, 96]);
+    const sliced = padded.slice(2, 6);
+
+    const payloadCases = [
+      { subpath: 'pyric_oracle/uploadbytes-payloads/from-blob.bin', data: new Blob([raw]), expected: produced.blobPayload as { metadataName: string; metadataSize: number; readBytes: number[] } },
+      { subpath: 'pyric_oracle/uploadbytes-payloads/from-uint8array.bin', data: raw, expected: produced.uint8ArrayPayload as { metadataName: string; metadataSize: number; readBytes: number[] } },
+      { subpath: 'pyric_oracle/uploadbytes-payloads/from-arraybuffer.bin', data: sliced, expected: produced.arrayBufferPayload as { metadataName: string; metadataSize: number; readBytes: number[] } },
+    ];
+    for (const item of payloadCases) {
+      const target = ref(storage, item.subpath);
+      const uploaded = await uploadBytes(target, item.data);
+      const readBack = Array.from(new Uint8Array(await getBytes(target)));
+      assert.equal(uploaded.ref.fullPath, target.fullPath);
+      assert.equal(uploaded.metadata.fullPath, target.fullPath);
+      assert.equal(uploaded.metadata.name, item.expected.metadataName);
+      assert.equal(uploaded.metadata.bucket, bucket);
+      assert.equal(uploaded.metadata.size, item.expected.metadataSize);
+      assert.deepEqual(readBack, item.expected.readBytes);
+    }
+  }
+
+  // storage-uploadbytes-contenttype-precedence + storage-uploadbytes-custom-metadata + storage-uploadbytes-overwrite-generations.
+  {
+    const ctObs = observation('storage-uploadbytes-contenttype-precedence');
+    const ctRaw = new Uint8Array(ctObs.expectedBytes as number[]);
+    const overrideExpected = ctObs.typedBlobCallerOverride as { uploadContentType: string; storedContentType: string; size: number; readBytes: number[] };
+    const emptyExpected = ctObs.emptyBlobNoHint as { uploadContentType: string; storedContentType: string; size: number; readBytes: number[] };
+
+    const emptyTarget = ref(storage, 'pyric_oracle/uploadbytes-ct/empty-blob.bin');
+    const emptyUp = await uploadBytes(emptyTarget, new Blob([ctRaw]));
+    assert.equal(emptyUp.metadata.contentType, emptyExpected.uploadContentType);
+    assert.equal((await getMetadata(emptyTarget)).contentType, emptyExpected.storedContentType);
+
+    const overrideTarget = ref(storage, 'pyric_oracle/uploadbytes-ct/override.pdf');
+    const overrideUp = await uploadBytes(overrideTarget, new Blob([ctRaw], { type: 'image/png' }), { contentType: 'application/pdf' });
+    assert.equal(overrideUp.metadata.contentType, overrideExpected.uploadContentType);
+    assert.equal((await getMetadata(overrideTarget)).contentType, overrideExpected.storedContentType);
+    assert.deepEqual(Array.from(new Uint8Array(await getBytes(overrideTarget))), overrideExpected.readBytes);
+
+    const customObs = observation('storage-uploadbytes-custom-metadata');
+    const withoutExpected = customObs.withoutCustomMetadata as { uploadHasCustomMetadataProperty: boolean };
+    const withExpected = customObs.withCustomMetadata as { uploadHasCustomMetadataProperty: boolean; uploadCustomMetadata: Record<string, string> };
+
+    const plainTarget = ref(storage, 'pyric_oracle/uploadbytes-meta/plain.bin');
+    const plainUp = await uploadBytes(plainTarget, new Uint8Array([1, 2, 3, 4]));
+    assert.equal('customMetadata' in plainUp.metadata, withoutExpected.uploadHasCustomMetadataProperty);
+    assert.equal('customMetadata' in (await getMetadata(plainTarget)), withoutExpected.uploadHasCustomMetadataProperty);
+
+    const richTarget = ref(storage, 'pyric_oracle/uploadbytes-meta/rich.bin');
+    const richUp = await uploadBytes(richTarget, new Uint8Array([1, 2, 3, 4]), { customMetadata: withExpected.uploadCustomMetadata });
+    assert.equal('customMetadata' in richUp.metadata, withExpected.uploadHasCustomMetadataProperty);
+    assert.deepEqual(richUp.metadata.customMetadata, withExpected.uploadCustomMetadata);
+    assert.deepEqual((await getMetadata(richTarget)).customMetadata, withExpected.uploadCustomMetadata);
+
+    const overwriteObs = observation('storage-uploadbytes-overwrite-generations');
+    const firstExpected = overwriteObs.firstUpload as { contentType: string; customMetadata: Record<string, string>; metageneration: string };
+    const secondExpected = overwriteObs.secondUpload as { contentType: string; customMetadata: Record<string, string>; metageneration: string };
+    const overwriteTarget = ref(storage, 'pyric_oracle/uploadbytes-overwrite/versioned.bin');
+    const first = await uploadBytes(overwriteTarget, new Uint8Array([1, 2, 3, 4, 5, 6, 7]), { contentType: firstExpected.contentType, customMetadata: firstExpected.customMetadata });
+    const second = await uploadBytes(overwriteTarget, new Uint8Array(overwriteObs.afterOverwriteReadBytes as number[]), { contentType: secondExpected.contentType, customMetadata: secondExpected.customMetadata });
+    assert.equal(first.metadata.metageneration, firstExpected.metageneration);
+    assert.equal(second.metadata.metageneration, secondExpected.metageneration);
+    assert.equal(BigInt(second.metadata.generation) > BigInt(first.metadata.generation), overwriteObs.generationStrictlyIncreased);
+    assert.deepEqual(Array.from(new Uint8Array(await getBytes(overwriteTarget))), overwriteObs.afterOverwriteReadBytes);
+    assert.deepEqual((await getMetadata(overwriteTarget)).customMetadata, secondExpected.customMetadata);
   }
 } finally {
   server.close();

@@ -32,35 +32,12 @@ import {
 } from '../../rules-corpus/rtdb/index.ts';
 import { ALL_RULES_STORAGE_SCENARIOS } from '../../rules-corpus/storage/index.ts';
 import { loadClientStorageProbes } from '../../src/client-storage-probes.ts';
-import { loadObservations, type Observation } from '../../src/ledger.ts';
+import { loadObservations } from '../../src/ledger.ts';
 import { loadModularProbes } from '../../src/sdk-probes.ts';
 import { loadPendingRowLinkObservations } from '../../src/staged-captures.ts';
 import { scrubStorageOracleRunPath } from '../../src/storage-probe-session.ts';
 import { validateCompatibilityRegistry } from '../../src/validate-registry.ts';
 import { surfaceDescriptors } from '../../surfaces/load.ts';
-import { expectStagedUntilCaptured } from './staged-capture-assertions.ts';
-
-const STAGED_UPLOADBYTES_NAMES = [
-  'client-storage-uploadbytes-root-ref',
-  'storage-uploadbytes-payload-types',
-  'storage-uploadbytes-contenttype-precedence',
-  'storage-uploadbytes-custom-metadata',
-  'storage-uploadbytes-overwrite-generations',
-] as const;
-
-function makeSyntheticStagedObservation(name: string): Observation {
-  return {
-    file: `${name}.json`,
-    surfaceDir: 'storage',
-    name,
-    matrixRow: '',
-    rowIds: [],
-    observedAt: '2026-11-17T00:00:00.000Z',
-    fbSdkVersion: '12.19.0',
-    behavior: { sample: true },
-    raw: { fbSdkVersion: '12.19.0', rowIds: [] },
-  };
-}
 
 describe('Storage uploadBytes conformance probes (storage#24..35, #38, #118)', () => {
   it('client-storage-uploadbytes-root-ref observes synchronous invalid-root-operation with zero network calls', async () => {
@@ -308,7 +285,7 @@ describe('Storage uploadBytes conformance probes (storage#24..35, #38, #118)', (
     });
   });
 
-  it('discovers all 5 uploadBytes probes and validates pre-capture and simulated post-capture staged states cleanly', async () => {
+  it('links all 5 uploadBytes probes and observations to storage#24..35, #38, #118 with zero registry validation problems', async () => {
     const sdkProbes = await loadModularProbes('sdk-probes');
     const sdkIds = sdkProbes.map((item) => item.id);
     expect(sdkIds).toContain('storage-uploadbytes-payload-types');
@@ -317,16 +294,43 @@ describe('Storage uploadBytes conformance probes (storage#24..35, #38, #118)', (
     expect(sdkIds).toContain('storage-uploadbytes-overwrite-generations');
 
     const currentObservations = loadObservations();
-    const probes = [
-      { name: 'client-storage-uploadbytes-root-ref', probe: uploadRootRefProbe },
-      { name: 'storage-uploadbytes-payload-types', probe: uploadPayloadTypesProbe },
-      { name: 'storage-uploadbytes-contenttype-precedence', probe: uploadContentTypeProbe },
-      { name: 'storage-uploadbytes-custom-metadata', probe: uploadCustomMetadataProbe },
-      { name: 'storage-uploadbytes-overwrite-generations', probe: uploadOverwriteProbe },
+    const obsByName = new Map(currentObservations.map((obs) => [obs.name, obs]));
+
+    const expectedLinks = [
+      {
+        name: 'client-storage-uploadbytes-root-ref',
+        probe: uploadRootRefProbe,
+        rowIds: ['storage#31'],
+      },
+      {
+        name: 'storage-uploadbytes-payload-types',
+        probe: uploadPayloadTypesProbe,
+        rowIds: ['storage#24', 'storage#25', 'storage#26', 'storage#32', 'storage#33', 'storage#34'],
+      },
+      {
+        name: 'storage-uploadbytes-contenttype-precedence',
+        probe: uploadContentTypeProbe,
+        rowIds: ['storage#27', 'storage#28', 'storage#30'],
+      },
+      {
+        name: 'storage-uploadbytes-custom-metadata',
+        probe: uploadCustomMetadataProbe,
+        rowIds: ['storage#29'],
+      },
+      {
+        name: 'storage-uploadbytes-overwrite-generations',
+        probe: uploadOverwriteProbe,
+        rowIds: ['storage#35', 'storage#38', 'storage#118'],
+      },
     ];
-    for (const entry of probes) {
-      if (entry.probe.pendingRowLink) {
-        expectStagedUntilCaptured(entry.name, { filterFlag: '--probe' });
+
+    for (const entry of expectedLinks) {
+      expect(entry.probe.pendingRowLink).toBeUndefined();
+      expect(entry.probe.rowIds).toEqual(entry.rowIds);
+      const committed = obsByName.get(entry.name);
+      expect(committed).toBeDefined();
+      if (committed) {
+        expect(committed.rowIds).toEqual(entry.rowIds);
       }
     }
 
@@ -336,7 +340,7 @@ describe('Storage uploadBytes conformance probes (storage#24..35, #38, #118)', (
       ...ALL_RULES_RTDB_DEPLOY_SCENARIOS.map((s) => s.id),
     ];
 
-    const preCaptureProblems = validateCompatibilityRegistry({
+    const problems = validateCompatibilityRegistry({
       rows: allCompatibilityRows,
       descriptors: surfaceDescriptors,
       observations: currentObservations,
@@ -348,30 +352,6 @@ describe('Storage uploadBytes conformance probes (storage#24..35, #38, #118)', (
       rulesRtdbScenarioIds: rtdbScenarioIds,
       pendingRowLinkObservations: loadPendingRowLinkObservations(),
     });
-    expect(preCaptureProblems).toEqual([]);
-
-    const simulatedMap = new Map(currentObservations.map((obs) => [obs.name, obs]));
-    for (const name of STAGED_UPLOADBYTES_NAMES) {
-      if (!simulatedMap.has(name)) {
-        simulatedMap.set(name, makeSyntheticStagedObservation(name));
-      }
-    }
-    const simulatedPending = new Set([
-      ...loadPendingRowLinkObservations(),
-      ...STAGED_UPLOADBYTES_NAMES,
-    ]);
-    const pr2Problems = validateCompatibilityRegistry({
-      rows: allCompatibilityRows,
-      descriptors: surfaceDescriptors,
-      observations: [...simulatedMap.values()],
-      observationExceptions,
-      rigManifests,
-      probeFiles: listProbeFiles(),
-      rulesFirestoreScenarioIds: ALL_RULES_FIRESTORE_SCENARIOS.map((s) => s.id),
-      rulesStorageScenarioIds: ALL_RULES_STORAGE_SCENARIOS.map((s) => s.id),
-      rulesRtdbScenarioIds: rtdbScenarioIds,
-      pendingRowLinkObservations: simulatedPending,
-    });
-    expect(pr2Problems).toEqual([]);
+    expect(problems).toEqual([]);
   });
 });

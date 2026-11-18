@@ -5,9 +5,8 @@ import { extractObservedErrorDetails } from '../../src/storage-probe-session.ts'
 
 export const probe: Probe = {
   rig: 'client-storage',
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'storage#31',
+  rowIds: ['storage#31'],
   description:
     'firebase/storage uploadBytes(ref(storage), data) on the root reference: observes synchronous FirebaseError storage/invalid-root-operation client-side preflight with zero network requests.',
   async observe() {

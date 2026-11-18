@@ -56,12 +56,13 @@ export type { StringFormat } from './string-format.js';
  * uploads cannot exchange source or auth-lens identity, and
  * `service: 'storage'` always wins.
  */
-export async function uploadBytes(
+export function uploadBytes(
   ref: StorageReference,
   data: Blob | Uint8Array | ArrayBuffer,
   metadata?: SettableMetadata,
   provenance?: EventProvenance,
 ): Promise<UploadResult> {
+  guardNonRoot(ref, 'uploadBytes');
   return uploadObject(ref, data, metadata, { provenance });
 }
 

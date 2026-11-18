@@ -110,15 +110,16 @@ export function cloneSettableMetadata<T extends { customMetadata?: { [key: strin
  * it; the admin plane reads the stored record as is.
  */
 export function toFullMetadata(stored: StoredMetadata, plane: StoragePlane): FullMetadata {
-  const custom = cloneCustomMetadata(stored.customMetadata);
-  if (plane === 'admin') {
-    return { ...stored, ...(custom !== undefined ? { customMetadata: custom } : {}) };
+  const { customMetadata: rawCustomMetadata, ...rest } = stored;
+  const custom = cloneCustomMetadata(rawCustomMetadata);
+  const out: FullMetadata = { ...rest };
+  if (plane !== 'admin') {
+    out.contentEncoding = clientContentEncoding(stored.contentEncoding);
   }
-  return {
-    ...stored,
-    ...(custom !== undefined ? { customMetadata: custom } : {}),
-    contentEncoding: clientContentEncoding(stored.contentEncoding),
-  };
+  if (custom !== undefined) {
+    out.customMetadata = custom;
+  }
+  return out;
 }
 
 /**
@@ -132,7 +133,7 @@ export function toFullMetadata(stored: StoredMetadata, plane: StoragePlane): Ful
  * Used by `updateMetadata` in Slice 6. Defined here in Slice 5 so
  * the types stay close to the rest of the metadata model.
  */
-export function applyMetadataPatch(
+function applyMetadataPatch(
   base: StoredMetadata,
   patch: SettableMetadata,
   now: Date = new Date(),
@@ -152,8 +153,8 @@ export function applyMetadataPatch(
   };
 }
 
-/** Bump a base-10 numeric string by 1; `'5'` → `'6'`. */
-export function bump(value: string): string {
+/** Bump a base-10 numeric string by 1; `'5'` -> `'6'`. */
+function bump(value: string): string {
   const parsed = Number.parseInt(value, 10);
   if (!Number.isFinite(parsed)) return '1';
   return String(parsed + 1);
