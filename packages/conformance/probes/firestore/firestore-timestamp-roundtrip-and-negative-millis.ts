@@ -8,10 +8,21 @@ export const probe: Probe = {
   matrixRow: '',
   rowIds: [],
   description:
-    'Timestamp normalizes negative-epoch milliseconds to non-negative nanoseconds, exposes isEqual/toJSON/valueOf, and round-trips consistently alongside Date and serverTimestamp() through setDoc and getDoc.',
+    'Timestamp normalizes negative-epoch milliseconds to non-negative nanoseconds, exposes isEqual/toJSON/valueOf, and stores Timestamp, Date, and serverTimestamp() values in a unified queryable representation.',
   async observe() {
     return withFirestoreProbeSession(async ({ db, firestoreSdk, collectionPath }) => {
-      const { Timestamp, collection, doc, getDoc, serverTimestamp, setDoc } = firestoreSdk;
+      const {
+        Timestamp,
+        collection,
+        doc,
+        getDoc,
+        getDocs,
+        orderBy,
+        query,
+        serverTimestamp,
+        setDoc,
+        where,
+      } = firestoreSdk;
 
       const negMillis = Timestamp.fromMillis(-500);
       const negDate = Timestamp.fromDate(new Date(-500));
@@ -50,6 +61,22 @@ export const probe: Probe = {
       const readNeg = raw.negTs as InstanceType<typeof Timestamp>;
       const readServer = raw.serverTs as InstanceType<typeof Timestamp>;
 
+      const unifiedColl = collection(db, collectionPath('timestamp-unified-query'));
+      await setDoc(doc(unifiedColl, 'c-server'), { ts: serverTimestamp() });
+      await setDoc(doc(unifiedColl, 'b-date'), { ts: new Date(1_700_000_005_000) });
+      await setDoc(doc(unifiedColl, 'a-explicit'), {
+        ts: Timestamp.fromMillis(1_700_000_000_000),
+      });
+
+      const orderedUnifiedSnap = await getDocs(query(unifiedColl, orderBy('ts', 'asc')));
+      const rangeUnifiedSnap = await getDocs(
+        query(
+          unifiedColl,
+          where('ts', '>=', Timestamp.fromMillis(1_700_000_002_000)),
+          orderBy('ts', 'asc'),
+        ),
+      );
+
       return {
         valueApi,
         roundTrip: {
@@ -70,6 +97,10 @@ export const probe: Probe = {
             Number.isInteger(readServer.nanoseconds) &&
             readServer.nanoseconds >= 0 &&
             readServer.nanoseconds < 1_000_000_000,
+        },
+        unifiedQuery: {
+          orderedAscIds: orderedUnifiedSnap.docs.map((entry) => entry.id),
+          rangeGteIds: rangeUnifiedSnap.docs.map((entry) => entry.id),
         },
       };
     });
