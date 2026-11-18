@@ -13,12 +13,14 @@ import { join } from 'node:path';
 import { createMemoryBackend } from 'pyric/sandbox';
 import { setRules } from 'pyric/sandbox/firestore';
 import * as ipDatabase from 'pyric/database';
+import { queryIdentifier } from 'pyric/database/internal';
 import { openStorageBackend } from '../../../../../pyric/src/storage/persistence.js';
 import type { BridgeMessage } from '../../../../src/bridge/protocol.js';
 import { createHostedRuntime } from '../../../../src/serve/hosted/runtime.js';
 import * as client from '../../../../src/serve/worker/index.js';
 import { readDocumentAs, readQueryAs } from '../../../../src/serve/worker/client/firestore-reads.js';
 import { refEqual } from '../../../../src/serve/worker/client/firestore-reference-equality.js';
+import { sameRtdbInstance } from '../../../../src/serve/worker/client/rtdb-references.js';
 import { getHostedFirestore } from '../../../../src/serve/worker/client/websocket-connection.js';
 import { setDatabaseRules } from '../../../../src/serve/worker/host/rules.js';
 import { connectClientToHost, makeHostCtx, sleep, until } from '../integration-support.js';
@@ -94,10 +96,47 @@ function databaseSdk(): DatabaseSdk {
     named[name.charAt(0).toLowerCase() + name.slice(1)] = value;
   }
   // The served entry builds queries with pyric/database over worker refs (entries/database-surface.ts).
-  const constraints = ['query', 'orderByValue', 'orderByKey', 'orderByPriority', 'limitToFirst', 'limitToLast', 'startAt', 'endAt', 'endBefore'] as const;
+  const constraints = [
+    'orderByChild',
+    'orderByValue',
+    'orderByKey',
+    'orderByPriority',
+    'limitToFirst',
+    'limitToLast',
+    'startAt',
+    'startAfter',
+    'endAt',
+    'endBefore',
+    'equalTo',
+  ] as const;
   for (const name of constraints) named[name] = ipDatabase[name];
+  named.query = (
+    target: Parameters<typeof ipDatabase.query>[0],
+    ...items: Parameters<typeof ipDatabase.query>[1][]
+  ) => {
+    const built = ipDatabase.query(target, ...items);
+    return {
+      ...built,
+      isEqual(other: ipDatabase.Query | null) {
+        if (!other || typeof other !== 'object' || !('ref' in other) || !('_spec' in other)) {
+          return false;
+        }
+        return Boolean(other.ref && typeof other.ref === 'object')
+          && 'port' in built.ref
+          && 'port' in other.ref
+          && built.ref.port === other.ref.port
+          && sameRtdbInstance(built.ref as never, other.ref as never)
+          && built.ref._path === other.ref._path
+          && queryIdentifier(built._spec) === queryIdentifier(other._spec);
+      },
+    };
+  };
   return named as unknown as DatabaseSdk;
 }
+
+const OPEN_DATABASE_RULES: Record<string, unknown> = {
+  rules: { '.read': true, '.write': true },
+};
 
 const hostedCleanups: Array<() => Promise<void> | void> = [];
 
@@ -107,9 +146,11 @@ afterEach(async () => {
   }
 });
 
-export async function servedRtdbContext(): Promise<RtdbScenarioContext> {
+export async function servedRtdbContext(
+  databaseRules: Record<string, unknown> = OPEN_DATABASE_RULES,
+): Promise<RtdbScenarioContext> {
   const ctx = await makeHostCtx();
-  setDatabaseRules(ctx, undefined, { rules: { '.read': true, '.write': true } });
+  setDatabaseRules(ctx, undefined, databaseRules);
   const rtdb = databaseSdk();
   const open = (name: string) => ({ db: rtdb.getDatabase(connectClientToHost(ctx, `worker://capture-${name}-${Math.random()}`).db as never) });
   return { ...servedTiming, rtdb, db: open('main').db, base: '/pyric_oracle/replay', newClient: async (name) => open(name) };
@@ -119,7 +160,9 @@ export async function servedRtdbContext(): Promise<RtdbScenarioContext> {
  * Replays an RTDB scenario against `createHostedRuntime` (the Node host plane)
  * over loopback WebSockets wired through `getHostedFirestore`.
  */
-export async function hostedRtdbContext(): Promise<RtdbScenarioContext> {
+export async function hostedRtdbContext(
+  databaseRules: Record<string, unknown> = OPEN_DATABASE_RULES,
+): Promise<RtdbScenarioContext> {
   const projectDir = mkdtempSync(join(tmpdir(), 'pyric-hosted-rtdb-capture-'));
   const sockets = new Map<string, { send(data: string): void }>();
   const clientPorts: Array<{ close(): void }> = [];
@@ -139,7 +182,7 @@ export async function hostedRtdbContext(): Promise<RtdbScenarioContext> {
     {
       rules: OPEN_FIRESTORE_RULES,
       rulesHash: null,
-      databaseRules: { rules: { '.read': true, '.write': true } },
+      databaseRules,
       databaseRulesHash: null,
       bridgeUrl: '/__pyric/sandbox',
       seed: null,

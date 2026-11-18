@@ -1,7 +1,9 @@
 {
   "name": "rtdb-modular-query-constraint-conflicts",
-  "matrixRow": "",
-  "rowIds": [],
+  "matrixRow": "rtdb-modular#M69",
+  "rowIds": [
+    "rtdb-modular#M69"
+  ],
   "description": "RTDB modular synchronous query() constraint-conflict validation across duplicate orderBy*, duplicate limits, duplicate start/end bounds, equalTo() combinations, and chained query() calls.",
   "observedAt": "2026-11-18T04:35:43.314Z",
   "fbSdkVersion": "12.19.0",

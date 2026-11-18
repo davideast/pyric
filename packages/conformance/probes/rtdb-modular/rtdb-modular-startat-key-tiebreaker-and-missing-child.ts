@@ -85,9 +85,8 @@ export async function observeStartAtKeyTieBreakerAndMissingChild(
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: ['web-config', 'dedicated-rtdb'],
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'rtdb-modular#M62',
+  rowIds: ['rtdb-modular#M62', 'rtdb-modular#M63'],
   description:
     'RTDB modular startAt(value, key) and endAt(value, key) inclusive nameCompare tie-breaking on equal child values plus orderByChild() null-first ordering for missing direct and nested fields.',
   async observe() {
