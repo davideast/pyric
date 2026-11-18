@@ -152,6 +152,11 @@ describe('staged firestore-admin probes', () => {
         code: 'app/app-deleted',
         message: 'Firebase app named "<appName>" has already been deleted.',
       },
+      retainedHandleReadAfterDeleteApp: {
+        threw: true,
+        code: 'app/app-deleted',
+        exists: null,
+      },
       siblingReadAfterPrimaryDelete: true,
     });
   });

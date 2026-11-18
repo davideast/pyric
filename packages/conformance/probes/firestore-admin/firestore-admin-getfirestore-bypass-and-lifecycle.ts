@@ -13,6 +13,12 @@ interface UnauthenticatedReadOutcome {
   readonly code: string | null;
 }
 
+interface RetainedHandleReadOutcome {
+  readonly threw: boolean;
+  readonly code: string | null;
+  readonly exists: boolean | null;
+}
+
 export interface FirestoreAdminBypassLifecycleSubject<AppHandle, DbHandle> {
   initializeNamedAdminApp(name: string): AppHandle;
   getAdminFirestore(app: AppHandle): DbHandle;
@@ -87,6 +93,45 @@ async function captureUnauthenticatedRead(
   }
 }
 
+async function captureRetainedHandleRead(
+  operation: () => Promise<{ readonly exists: boolean }>,
+): Promise<RetainedHandleReadOutcome> {
+  let pending: Promise<{ readonly exists: boolean }>;
+  try {
+    pending = operation();
+  } catch (error) {
+    const shaped = error as { code?: unknown };
+    let code: string | null = null;
+    if (typeof shaped.code === 'string') {
+      code = shaped.code;
+    }
+    return {
+      threw: true,
+      code,
+      exists: null,
+    };
+  }
+  try {
+    const snap = await pending;
+    return {
+      threw: false,
+      code: null,
+      exists: snap.exists,
+    };
+  } catch (error) {
+    const shaped = error as { code?: unknown };
+    let code: string | null = null;
+    if (typeof shaped.code === 'string') {
+      code = shaped.code;
+    }
+    return {
+      threw: true,
+      code,
+      exists: null,
+    };
+  }
+}
+
 export async function observeFirestoreAdminBypassAndLifecycle<AppHandle, DbHandle>(
   subject: FirestoreAdminBypassLifecycleSubject<AppHandle, DbHandle>,
   protectedDocPath: string,
@@ -128,6 +173,9 @@ export async function observeFirestoreAdminBypassAndLifecycle<AppHandle, DbHandl
       () => subject.getAdminFirestore(appA),
       appAName,
     );
+    const retainedHandleReadAfterDeleteApp = await captureRetainedHandleRead(() =>
+      subject.readViaAdmin(dbAFirst, protectedDocPath),
+    );
     const siblingReadAfterPrimaryDelete = await subject.readViaAdmin(dbB, protectedDocPath);
 
     return {
@@ -138,6 +186,7 @@ export async function observeFirestoreAdminBypassAndLifecycle<AppHandle, DbHandl
       adminBypassRead,
       unauthenticatedClientRead,
       getFirestoreAfterDeleteApp,
+      retainedHandleReadAfterDeleteApp,
       siblingReadAfterPrimaryDelete: siblingReadAfterPrimaryDelete.exists,
     };
   } finally {
