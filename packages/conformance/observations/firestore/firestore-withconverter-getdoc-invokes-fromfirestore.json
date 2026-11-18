@@ -1,7 +1,9 @@
 {
   "name": "firestore-withconverter-getdoc-invokes-fromfirestore",
-  "matrixRow": "",
-  "rowIds": [],
+  "matrixRow": "firestore#52",
+  "rowIds": [
+    "firestore#52"
+  ],
   "description": "getDoc through a converted DocumentReference invokes converter.fromFirestore(snapshot, options) on existing documents and returns undefined without invoking fromFirestore on missing documents.",
   "observedAt": "2026-11-18T02:35:20.835Z",
   "fbSdkVersion": "12.19.0",

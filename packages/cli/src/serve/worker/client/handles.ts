@@ -110,14 +110,16 @@ export interface RtdbDataSnapshot {
   readonly ref: RtdbRefHandle;
 }
 
-/** Client-side document reference — carries a DocRef descriptor + port. */
+/** Client-side document reference -- carries a DocRef descriptor + port. */
 export interface DocRefHandle<_T = DocumentData> {
   readonly __kind: 'doc-ref';
+  readonly type: 'document';
   readonly descriptor: DocRef;
   readonly port: ClientPort;
   readonly id: string;
   readonly path: string;
   readonly converter: FirestoreDataConverter<unknown> | null;
+  readonly parent: CollRefHandle<_T>;
   withConverter<T, D extends DocumentData = DocumentData>(converter: FirestoreDataConverter<T, D>): DocRefHandle<T>;
   withConverter(converter: null): DocRefHandle;
 }
@@ -125,6 +127,7 @@ export interface DocRefHandle<_T = DocumentData> {
 /** Client-side collection reference. */
 export interface CollRefHandle<_T = DocumentData> {
   readonly __kind: 'coll-ref';
+  readonly type: 'collection';
   readonly descriptor: CollRef;
   readonly port: ClientPort;
   readonly id: string;
@@ -137,6 +140,7 @@ export interface CollRefHandle<_T = DocumentData> {
 /** Client-side query. */
 export interface QueryHandle<_T = DocumentData> {
   readonly __kind: 'query';
+  readonly type: 'query';
   readonly descriptor: QueryDescriptor;
   readonly port: ClientPort;
   readonly converter: FirestoreDataConverter<unknown> | null;

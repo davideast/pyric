@@ -1,7 +1,9 @@
 {
   "name": "firestore-withconverter-collection-method-propagation",
-  "matrixRow": "",
-  "rowIds": [],
+  "matrixRow": "firestore#53a",
+  "rowIds": [
+    "firestore#53a"
+  ],
   "description": "CollectionReference.withConverter(c) is an instance method on collection() and collectionGroup() values and propagates across doc(typedColl, id), doc(typedColl), query(), addDoc, getDocs, and onSnapshot.",
   "observedAt": "2026-11-18T02:35:04.477Z",
   "fbSdkVersion": "12.19.0",

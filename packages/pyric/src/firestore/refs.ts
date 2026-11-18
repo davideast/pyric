@@ -14,10 +14,8 @@ import {
   tagSandboxRef,
   converterOf,
   underlyingOf,
-  buildSandboxShell,
   asChainColl,
   asChainDoc,
-  type Target,
 } from './state.js';
 import { DocumentReference } from './types.js';
 import type {
@@ -27,37 +25,19 @@ import type {
   FirestoreDataConverter,
 } from './types.js';
 import {
-  boundedActivityIdentity,
-  registerActivityValue,
-} from './sandbox/activity-value-registry.js';
-import {
-  registerReferenceQueryValue,
-  copyQueryValueRegistration,
-} from './sandbox/query-value-registry.js';
-import { attachConverterMethod, convertedView } from './converter-method.js';
+  attachConverterMethod,
+  convertedView,
+  registerDocumentParentCollectionResolver,
+  registerDocumentReferenceValue,
+} from './converter-method.js';
 
-function registerDocumentValue<T extends { id: string; path: string }>(
-  ref: T,
-  path: string,
-  owner: Target,
-  converter: FirestoreDataConverter<unknown> | null = null,
-) {
-  function convert<A, D extends DocumentData = DocumentData>(converter: FirestoreDataConverter<A, D>): DocumentReference<A>;
-  function convert(converter: null): DocumentReference<DocumentData>;
-  function convert(converter: FirestoreDataConverter<unknown> | null): DocumentReference<unknown> {
-    const removesConverter = converter === null;
-    if (removesConverter) return withConverter(reference, null);
-    return withConverter(reference, converter);
+registerDocumentParentCollectionResolver((owner, collectionPath, converter) => {
+  const rawColl = collection({ [TARGET_SYMBOL]: owner }, collectionPath);
+  if (converter !== null) {
+    return rawColl.withConverter(converter);
   }
-  // Modular methods must live outside the Admin error-translation proxy.
-  const underlying = underlyingOf(ref) as { id?: string; path?: string };
-  const shell = buildSandboxShell(underlying, owner, converter);
-  const reference = Object.assign(shell, { withConverter: convert });
-  registerActivityValue(reference, boundedActivityIdentity('reference', path));
-  registerReferenceQueryValue(underlying, path, owner);
-  copyQueryValueRegistration(underlying, reference);
-  return reference;
-}
+  return rawColl;
+});
 
 // ─── Path constructors ────────────────────────────────────────────────
 
@@ -83,7 +63,7 @@ export function doc<T = DocumentData>(
       target,
       (fresh) => fresh.doc(path),
     );
-    return registerDocumentValue(tagged, path, target) as DocumentReference<T>;
+    return registerDocumentReferenceValue<T>(tagged, path, target);
   }
   const coll = asChainColl(underlyingOf(parent));
   const createsId = pathSegments.length === 0;
@@ -98,13 +78,13 @@ export function doc<T = DocumentData>(
   );
   const hasConverter = conv !== undefined && conv !== null;
   if (hasConverter) {
-    return registerDocumentValue(tagged, absPath, target, conv) as DocumentReference<T>;
+    return registerDocumentReferenceValue<T>(tagged, absPath, target, conv);
   }
-  return registerDocumentValue(tagged, absPath, target) as DocumentReference<T>;
+  return registerDocumentReferenceValue<T>(tagged, absPath, target);
 }
 
 /**
- * Cross-collection query — scans every document under every
+ * Cross-collection query -- scans every document under every
  * collection whose final segment matches `collectionId`. Mirrors
  * `firebase/firestore`'s `collectionGroup(db, id)` shape.
  *
@@ -113,7 +93,7 @@ export function doc<T = DocumentData>(
  */
 export function collectionGroup(db: Firestore, collectionId: string): Query {
   const target = targetOf(db);
-  const q = attachConverterMethod(sandboxDb(target).collectionGroup(collectionId));
+  const q = attachConverterMethod(sandboxDb(target).collectionGroup(collectionId), 'query');
   return tagSandboxRef(
     q as unknown as Query,
     target,
@@ -127,13 +107,9 @@ export function collection(parent: Firestore | DocumentReference, ...pathSegment
   if (pathSegments.length === 0) {
     throw new TypeError('collection() requires at least one path segment.');
   }
-  // Note: any converter on `parent` (typed DocumentReference<T>) does
-  // NOT propagate to the sub-collection — matches `firebase/firestore`'s
-  // `collection(typedDoc, path)` returning `CollectionReference<DocumentData>`.
-  // A parent doc's T describes its own data, not its subcollections'.
   if (isHandle) {
     const path = pathSegments.join('/');
-    const built = attachConverterMethod(sandboxDb(target).collection(path));
+    const built = attachConverterMethod(sandboxDb(target).collection(path), 'collection');
     return tagSandboxRef(
       built as unknown as CollectionReference,
       target,
@@ -142,7 +118,7 @@ export function collection(parent: Firestore | DocumentReference, ...pathSegment
   }
   const docRef = asChainDoc(underlyingOf(parent));
   const subPath = pathSegments.join('/');
-  const built = attachConverterMethod(docRef.collection(subPath));
+  const built = attachConverterMethod(docRef.collection(subPath), 'collection');
   const absPath = (built as { path: string }).path;
   return tagSandboxRef(
     built as unknown as CollectionReference,
@@ -214,7 +190,13 @@ export function withConverter(
   const underlying = underlyingOf(source) as { id?: string; path?: string };
   const isDocument = underlying instanceof DocumentReference;
   if (isDocument) {
-    return registerDocumentValue(underlying, underlying.path, target, converter);
+    const resolvedPath = underlying.path ?? '';
+    return registerDocumentReferenceValue(
+      underlying as { id: string; path: string },
+      resolvedPath,
+      target,
+      converter,
+    );
   }
   return convertedView(source, converter);
 }

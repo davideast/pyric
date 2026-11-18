@@ -20,9 +20,8 @@ import {
   chainDocFor,
   chainCollFor,
   tagSandboxRef,
-  buildSandboxShell,
 } from './state.js';
-import { withConverter } from './refs.js';
+import { registerDocumentReferenceValue } from './converter-method.js';
 import type {
   DocumentReference,
   CollectionReference,
@@ -33,14 +32,6 @@ import type {
 } from './types.js';
 import { withFirestoreFirebaseError } from './errors.js';
 import { clientStateFor } from './client-state.js';
-import {
-  boundedActivityIdentity,
-  registerActivityValue,
-} from './sandbox/activity-value-registry.js';
-import {
-  copyQueryValueRegistration,
-  registerReferenceQueryValue,
-} from './sandbox/query-value-registry.js';
 import { markUserWriteValue } from './sandbox/unescaped-map.js';
 
 // ─── Writes ───────────────────────────────────────────────────────────
@@ -168,41 +159,25 @@ export async function addDoc<T = DocumentData>(
   const target = targetOf(coll);
   return runSdkWrite(beginFirestoreActivity(target, coll, 'addDoc', 'operation'), async () => {
     const conv = converterOf(coll);
-    const rawPayload = conv
-      ? (conv as FirestoreDataConverter<T>).toFirestore(data)
-      : (data as unknown as DocumentData);
+    let rawPayload: unknown = data;
+    if (conv !== undefined && conv !== null) {
+      rawPayload = (conv as FirestoreDataConverter<T>).toFirestore(data);
+    }
     const payload = markUserWriteValue(rawPayload) as DocumentData;
     const ref = await clientStateFor(target).runWrite(async () => {
       const created = await withFirestoreFirebaseError(() => chainCollFor(target, coll).add(payload));
       clientStateFor(target).cachePath(created.path);
       return created;
     });
-    const absPath = (ref as unknown as { path: string }).path;
+    const createdRef = ref as unknown as { id: string; path: string };
+    const absPath = createdRef.path;
     const tagged = tagSandboxRef(
-      ref as object,
+      createdRef,
       target,
-      (fresh) => fresh.doc(absPath) as unknown as object,
+      (fresh) => fresh.doc(absPath) as unknown as { id: string; path: string },
     );
-    registerActivityValue(tagged, boundedActivityIdentity('reference', absPath));
-    registerReferenceQueryValue(tagged, absPath, target, tagged);
-    if (conv) {
-      const shell = buildSandboxShell(
-        tagged as { id: string; path: string },
-        target,
-        conv,
-      );
-      const reference = Object.assign(shell, {
-        withConverter: (next: FirestoreDataConverter<unknown, DocumentData> | null) =>
-          withConverter(reference as never, next as never),
-      });
-      copyQueryValueRegistration(tagged, reference);
-      return reference as DocumentReference<T>;
-    }
-    const reference = Object.assign(tagged, {
-      withConverter: (next: FirestoreDataConverter<unknown, DocumentData> | null) =>
-        withConverter(reference as never, next as never),
-    });
-    return reference as DocumentReference<T>;
+    const resolvedConverter = conv ?? null;
+    return registerDocumentReferenceValue<T>(tagged, absPath, target, resolvedConverter);
   });
 }
 

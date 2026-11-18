@@ -5,9 +5,8 @@ import { withFirestoreProbeSession } from '../../src/sdk-probe-runtime.ts';
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: ['web-config', 'firestore-rules'],
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'firestore#53b',
+  rowIds: ['firestore#53b'],
   description:
     'Query.withConverter(c) is an instance method on query() values; withConverter(null) on a collection or query removes the converter, and collection(typedDocRef, id) stays untyped.',
   async observe() {

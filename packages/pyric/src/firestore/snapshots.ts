@@ -27,6 +27,8 @@ import {
   type Target,
 } from './state.js';
 import { doc } from './refs.js';
+import { decorateUntypedSnapshotRef } from './converter-method.js';
+import type { SnapshotOptions } from './ssr-snapshots.js';
 import type { ReferenceDecoder } from './internal/value-codec.js';
 import { firestoreValuesEqual } from './sandbox/value-equality.js';
 import { registerReferenceQueryValue } from './sandbox/query-value-registry.js';
@@ -353,14 +355,10 @@ export function applyConverterToDocSnap<AppModel>(
     ref: reference,
     exists: () => snapshotExists(snap),
     metadata: mergedMeta,
-    data: () => {
-      // Sandbox snaps expose `exists` as a property (Admin shape).
+    data: (options?: SnapshotOptions) => {
       const isMissing = !snapshotExists(snap);
       if (isMissing) return undefined;
       if (snap.data() === undefined) return undefined;
-      // fromFirestore receives a QueryDocumentSnapshot-narrowed view —
-      // doc is known to exist at this branch, so `data()` returns a fresh
-      // finalized value per call (FP-13) and `get()` reads pre-finalized data once.
       const queryDocSnap: QueryDocumentSnapshot = {
         id: snap.id,
         ref: rawReference,
@@ -369,7 +367,8 @@ export function applyConverterToDocSnap<AppModel>(
         data: () => finalizeSandboxData(snap.data() as DocumentData, references) as DocumentData,
         get: readRawField,
       };
-      return conv.fromFirestore(queryDocSnap);
+      const resolvedOptions: SnapshotOptions = options ?? {};
+      return conv.fromFirestore(queryDocSnap, resolvedOptions);
     },
     get: readRawField,
   };
@@ -423,7 +422,7 @@ export function applyConverterToDeliveredSnap(
   const converted = rawReference.withConverter(conv as FirestoreDataConverter<unknown, DocumentData>);
   Object.defineProperty(s, 'ref', { value: converted, configurable: true, writable: true });
   Object.defineProperty(s, 'data', {
-    value: () => {
+    value: (options?: SnapshotOptions) => {
       const raw = readRaw();
       const isMissing = raw === undefined;
       if (isMissing) return undefined;
@@ -436,7 +435,8 @@ export function applyConverterToDeliveredSnap(
         data: () => readRaw() as DocumentData,
         get: readRawField,
       };
-      return conv.fromFirestore(queryDocSnap);
+      const resolvedOptions: SnapshotOptions = options ?? {};
+      return conv.fromFirestore(queryDocSnap, resolvedOptions);
     },
     configurable: true,
     writable: true,
@@ -524,7 +524,7 @@ export function tagSnapshotRefs(snap: unknown, target: Target): unknown {
  * ref the chainable adapter exposes its op methods on. No-op for refs that
  * already have a registered underlying.
  */
-export function wireSnapshotRefToUnderlying(
+function wireSnapshotRefToUnderlying(
   snapRef: { path?: string },
   target: Target,
 ): void {
@@ -540,14 +540,7 @@ export function wireSnapshotRefToUnderlying(
     const full = existing ?? sandboxDb(target).doc(path) as unknown as object;
     if (existing === undefined) refToUnderlying.set(snapRef as object, full);
     registerReferenceQueryValue(snapRef as object, path, target, full);
-    if (typeof (snapRef as { withConverter?: unknown }).withConverter !== 'function') {
-      Object.defineProperty(snapRef, 'withConverter', {
-        value: (converter: FirestoreDataConverter<unknown, DocumentData> | null) =>
-          doc({ [TARGET_SYMBOL]: target }, path).withConverter(converter as never),
-        configurable: true,
-        writable: true,
-      });
-    }
+    decorateUntypedSnapshotRef(snapRef, path, target);
     if (target.kind === 'sandbox-live') {
       sandboxLiveRebuild.set(
         full,
@@ -571,7 +564,7 @@ export function wireSnapshotRefToUnderlying(
  * `configurable: true` so a later normalize (over a re-yielded
  * snapshot from the same listener) can re-install cleanly.
  */
-export function normalizeExists(obj: {
+function normalizeExists(obj: {
   exists?: boolean | (() => boolean);
 }): void {
   const current = obj.exists;

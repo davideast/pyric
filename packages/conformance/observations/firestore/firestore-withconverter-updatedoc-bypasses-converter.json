@@ -1,7 +1,9 @@
 {
   "name": "firestore-withconverter-updatedoc-bypasses-converter",
-  "matrixRow": "",
-  "rowIds": [],
+  "matrixRow": "firestore#53",
+  "rowIds": [
+    "firestore#53"
+  ],
   "description": "updateDoc through a converted DocumentReference bypasses converter.toFirestore and converter.fromFirestore across object and field/value forms.",
   "observedAt": "2026-11-18T02:35:40.842Z",
   "fbSdkVersion": "12.19.0",

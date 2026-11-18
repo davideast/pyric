@@ -1,7 +1,9 @@
 {
   "name": "firestore-withconverter-collection-propagates-to-query-getdocs",
-  "matrixRow": "",
-  "rowIds": [],
+  "matrixRow": "firestore#48",
+  "rowIds": [
+    "firestore#48"
+  ],
   "description": "CollectionReference.withConverter(converter) propagates through query(typedColl, ...) + getDocs().",
   "observedAt": "2026-11-18T02:35:12.889Z",
   "fbSdkVersion": "12.19.0",

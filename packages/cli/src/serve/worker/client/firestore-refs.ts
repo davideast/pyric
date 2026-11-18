@@ -14,9 +14,8 @@ import type {
   TargetDescriptor,
   SentinelMarker,
 } from '../protocol.js';
-import { lastSegment } from './handles.js';
 import type { ClientDb, DocRefHandle, CollRefHandle, QueryHandle } from './handles.js';
-import { createDocumentReference } from './firestore-reference.js';
+import { createCollectionReference, createDocumentReference } from './firestore-reference.js';
 import { FirebaseError } from 'pyric/app';
 import { encodeDocValue, DOC_VALUE_ENCODING } from 'pyric/firestore/internal/value-codec';
 import { normalizeQueryOrders } from 'pyric/firestore/internal/implicit-order';
@@ -130,29 +129,6 @@ export function collection(
   return createCollectionReference(port, path, null);
 }
 
-/** Collection handles are rebuilt per view so each carries its own converter. */
-function createCollectionReference<T = DocumentData>(
-  port: ClientDb['port'],
-  path: string,
-  converter: FirestoreDataConverter<unknown> | null,
-): CollRefHandle<T> {
-  function withConverter<A, D extends DocumentData = DocumentData>(next: FirestoreDataConverter<A, D>): CollRefHandle<A>;
-  function withConverter(next: null): CollRefHandle;
-  function withConverter(next: FirestoreDataConverter<unknown> | null): CollRefHandle<unknown> {
-    return createCollectionReference(port, path, next);
-  }
-  const descriptor: CollRef = { __ref: 'collection', path };
-  return {
-    __kind: 'coll-ref',
-    descriptor,
-    port,
-    id: lastSegment(path),
-    path,
-    converter,
-    withConverter,
-  };
-}
-
 /** Query handles are rebuilt per view so each carries its own converter. */
 function createQueryHandle<T = DocumentData>(
   port: ClientDb['port'],
@@ -165,7 +141,14 @@ function createQueryHandle<T = DocumentData>(
   function withConverter(next: FirestoreDataConverter<unknown> | null): QueryHandle<unknown> {
     return createQueryHandle(port, descriptor, next, rawQueryItems.get(handle));
   }
-  const handle: QueryHandle<T> = { __kind: 'query', descriptor, port, converter, withConverter };
+  const handle: QueryHandle<T> = {
+    __kind: 'query',
+    type: 'query',
+    descriptor,
+    port,
+    converter,
+    withConverter,
+  };
   if (items !== undefined) rawQueryItems.set(handle, items);
   return handle;
 }

@@ -5,9 +5,8 @@ import { withFirestoreProbeSession } from '../../src/sdk-probe-runtime.ts';
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: ['web-config', 'firestore-rules'],
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'firestore#53',
+  rowIds: ['firestore#53'],
   description:
     'updateDoc through a converted DocumentReference bypasses converter.toFirestore and converter.fromFirestore across object and field/value forms.',
   async observe() {
