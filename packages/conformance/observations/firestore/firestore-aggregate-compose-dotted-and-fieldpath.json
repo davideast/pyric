@@ -1,0 +1,40 @@
+{
+  "name": "firestore-aggregate-compose-dotted-and-fieldpath",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "count(), sum(field), and average(field) compose under one getAggregateFromServer spec across dotted nested string paths and FieldPath instances, and expose AggregateField descriptor metadata.",
+  "observedAt": "2026-11-18T08:39:33.098Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "descriptors": {
+      "sumIsAggregateField": true,
+      "sumType": "AggregateField",
+      "sumAggregateType": "sum",
+      "avgIsAggregateField": true,
+      "avgType": "AggregateField",
+      "avgAggregateType": "avg",
+      "equalCount": true,
+      "equalSumStringVsFieldPath": true,
+      "equalAvgStringVsFieldPath": true,
+      "equalSumVsAvgSameField": false,
+      "equalNestedVsLiteralDot": false
+    },
+    "dottedResult": {
+      "docCount": 3,
+      "totalPages": 900,
+      "meanPages": 300
+    },
+    "dottedQueryMatchesInput": true,
+    "fieldPathResult": {
+      "docCount": 3,
+      "totalPages": 900,
+      "meanPages": 300
+    },
+    "literalDotResult": {
+      "docCount": 2,
+      "totalLiteral": 30,
+      "meanLiteral": 15
+    }
+  }
+}
