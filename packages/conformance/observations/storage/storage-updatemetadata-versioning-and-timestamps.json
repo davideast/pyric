@@ -1,0 +1,22 @@
+{
+  "name": "storage-updatemetadata-versioning-and-timestamps",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "updateMetadata(ref, patch) versioning and timestamps: observes +1 metageneration increments across consecutive updates, pinned generation and timeCreated, and advancing updated timestamps.",
+  "observedAt": "2026-11-18T04:36:36.144Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "initialMetageneration": "1",
+    "firstUpdateMetageneration": "2",
+    "secondUpdateMetageneration": "3",
+    "generationIsDigits": true,
+    "generationPinnedAcrossUpdates": true,
+    "timeCreatedPinnedAcrossUpdates": true,
+    "isoTimestampsValid": true,
+    "firstUpdatedNotBeforeTimeCreated": true,
+    "firstUpdatedNotBeforeInitialUpdated": true,
+    "secondUpdatedStrictlyAfterInitialUpdated": true,
+    "secondUpdatedNotBeforeFirstUpdated": true
+  }
+}

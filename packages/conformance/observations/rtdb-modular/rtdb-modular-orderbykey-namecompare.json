@@ -1,0 +1,69 @@
+{
+  "name": "rtdb-modular-orderbykey-namecompare",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "RTDB modular orderByKey() nameCompare ordering across negative, zero, leading-zero, multi-digit integer, and non-integer keys plus startAt/endAt numeric-key cursor windows on get() and onValue().",
+  "observedAt": "2026-11-18T04:35:34.998Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "unfilteredMixedOrder": {
+      "forEachKeys": [
+        "-10",
+        "-2",
+        "0",
+        "1",
+        "01",
+        "2",
+        "10",
+        "a",
+        "b"
+      ],
+      "forEachValues": [
+        "neg10",
+        "neg2",
+        "z0",
+        "a",
+        "lead01",
+        "b",
+        "j",
+        "alpha",
+        "beta"
+      ]
+    },
+    "negativeAndLeadingZeroWindow": {
+      "forEachKeys": [
+        "-2",
+        "0",
+        "1",
+        "01"
+      ],
+      "forEachValues": [
+        "neg2",
+        "z0",
+        "a",
+        "lead01"
+      ]
+    },
+    "numericCursorWindowGet": {
+      "forEachKeys": [
+        "2",
+        "10"
+      ],
+      "forEachValues": [
+        "b",
+        "j"
+      ]
+    },
+    "numericCursorWindowOnValue": {
+      "forEachKeys": [
+        "2",
+        "10"
+      ],
+      "forEachValues": [
+        "b",
+        "j"
+      ]
+    }
+  }
+}

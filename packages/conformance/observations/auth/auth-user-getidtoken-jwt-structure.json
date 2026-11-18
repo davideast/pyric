@@ -1,0 +1,49 @@
+{
+  "name": "auth-user-getidtoken-jwt-structure",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "user.getIdToken() returns a three-segment base64url JWT (alg RS256, typ JWT, non-empty kid) whose decoded payload matches user.getIdTokenResult().claims.",
+  "observedAt": "2026-11-18T04:35:02.264Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "segmentCount": 3,
+    "allSegmentsBase64Url": true,
+    "headerAlg": "RS256",
+    "headerTyp": "JWT",
+    "hasNonEmptyKid": true,
+    "tokenEqualsResultToken": true,
+    "payloadMatchesResultClaims": true,
+    "payloadKeysSorted": [
+      "aud",
+      "auth_time",
+      "email",
+      "email_verified",
+      "exp",
+      "firebase",
+      "iat",
+      "iss",
+      "name",
+      "sub",
+      "user_id"
+    ],
+    "resultClaimKeysSorted": [
+      "aud",
+      "auth_time",
+      "email",
+      "email_verified",
+      "exp",
+      "firebase",
+      "iat",
+      "iss",
+      "name",
+      "sub",
+      "user_id"
+    ],
+    "subMatchesUid": true,
+    "userIdMatchesUid": true,
+    "emailMatchesAccount": true,
+    "nameClaim": "Jwt Probe",
+    "expMinusIatSeconds": 3600
+  }
+}

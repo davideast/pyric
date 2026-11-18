@@ -1,0 +1,44 @@
+{
+  "name": "auth-user-photo-phone-and-provider-data",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "user.photoURL, user.phoneNumber, user.providerId, and user.providerData reflect empty anonymous providers, default-null password profiles, and configured account attributes.",
+  "observedAt": "2026-11-18T04:35:10.560Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "anonymousShape": {
+      "photoURL": null,
+      "phoneNumber": null,
+      "providerId": "firebase",
+      "providerDataLength": 0
+    },
+    "defaultPasswordShape": {
+      "photoURL": null,
+      "phoneNumber": null,
+      "providerId": "firebase",
+      "providerDataLength": 1,
+      "defaultProviderEntry": {
+        "providerId": "password",
+        "uidMatchesEmail": true,
+        "emailMatchesAccount": true,
+        "displayName": null,
+        "photoURL": null,
+        "phoneNumber": null
+      }
+    },
+    "configuredUserShape": {
+      "photoURL": "https://example.com/avatars/grace.png",
+      "phoneNumberMatchesAssigned": true,
+      "providerId": "firebase",
+      "clientProviderIdsSorted": [
+        "password",
+        "phone"
+      ],
+      "adminProviderIdsSorted": [
+        "password",
+        "phone"
+      ]
+    }
+  }
+}

@@ -1,0 +1,45 @@
+{
+  "name": "rtdb-modular-null-and-empty-ancestor-pruning",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "Modular RTDB write-boundary null and empty-object ancestor pruning: set(ref, {}) deletes existing subtrees and collapses empty parents, nested null/empty children are dropped on set(), and setting the sole deep leaf to null or nulling via multi-path update collapses empty ancestors.",
+  "observedAt": "2026-11-18T04:35:27.033Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "setEmptyObjectRemovesSubtree": {
+      "beforeExists": true,
+      "afterLeafExists": false,
+      "afterLeafVal": null,
+      "afterParentExists": false
+    },
+    "nestedNullAndEmptyObjectWrite": {
+      "exists": true,
+      "val": {
+        "a": 1
+      },
+      "forEachKeys": [
+        "a"
+      ],
+      "hasNullChildB": false,
+      "hasEmptyNestedChildC": false,
+      "hasAllNullArrayChildF": false
+    },
+    "deepLeafNullCollapsesAncestors": {
+      "beforeBranchExists": true,
+      "afterLeafExists": false,
+      "afterTwigExists": false,
+      "afterBranchExists": false,
+      "afterTreeExists": false
+    },
+    "multiPathUpdateNullPruning": {
+      "val": {
+        "right": {
+          "b": 2
+        }
+      },
+      "hasCollapsedLeftChild": false,
+      "hasRemainingRightChild": true
+    }
+  }
+}
