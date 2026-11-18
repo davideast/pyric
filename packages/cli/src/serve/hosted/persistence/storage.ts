@@ -1,17 +1,17 @@
 import { randomUUID } from 'node:crypto';
 import { openAsBlob } from 'node:fs';
 import { FirebaseError } from 'pyric/app';
-import { assertPriorAt, higherGeneration, raisedMark, type GenerationIssuer, type StorageBackend, type StorageReferenceRecord, type StoredMetadata, type StoredObject } from 'pyric/storage/internal';
+import { assertPriorAt, attachPrecomputedMd5, higherGeneration, raisedMark, type GenerationIssuer, type StorageBackend, type StorageReferenceRecord, type StoredMetadata, type StoredObject } from 'pyric/storage/internal';
 import { storedMetadataSchema } from 'pyric/sandbox/internal';
 import { MAX_STORAGE_OBJECT_BYTES, storageQuotaExceeded } from '../../worker/protocol/storage.js';
 import type { BlobStore, StagedFile, StoredBytes } from './blob-store.js';
 import type { Commit } from './commits.js';
 import { sqlText, type SqlConnection, type SqlRow } from './sqlite.js';
 
-export type PutStorageBytes = (path: string, bytes: Uint8Array, mime: string, metadata: StoredMetadata) => void;
+type PutStorageBytes = (path: string, bytes: Uint8Array, mime: string, metadata: StoredMetadata) => void;
 
 /** Store an object whose bytes are the file `source`, which must hash to `stored.sha256`. */
-export type PutStorageFile = (path: string, source: string, stored: StoredBytes, mime: string, metadata: StoredMetadata) => void;
+type PutStorageFile = (path: string, source: string, stored: StoredBytes, mime: string, metadata: StoredMetadata) => void;
 
 /** The writes a seed transaction can make. */
 export interface StorageWrites {
@@ -44,7 +44,7 @@ export interface StorageGenerationMark {
   generation: string;
 }
 
-export interface StoredObjectFile {
+interface StoredObjectFile {
   file: string;
   size: number;
   mime: string;
@@ -365,8 +365,9 @@ export function createSqliteStorage(connection: SqlConnection, commit: Commit, o
               `storage/invalid-argument: Uploaded bytes (${received}) did not match declared size (${upload.size}).`,
             );
           }
-          upload.file.seal();
+          const sealed = upload.file.seal();
           const blob = await openAsBlob(upload.file.path, { type: upload.contentType });
+          attachPrecomputedMd5(blob, sealed.md5Base64);
           finishedUploads.set(blob, upload);
           return blob;
         });

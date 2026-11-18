@@ -46,9 +46,8 @@ export async function observeUploadStringBase64UrlRoundtrip(
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: ['web-config'],
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'storage #41',
+  rowIds: ['storage#41'],
   description:
     "firebase/storage uploadString(ref, value, 'base64url') + unknown format: observes unpadded and padded URL-safe base64 decoding ('-' -> 62, '_' -> 63) round-tripping through getBytes alongside unrecognized format error code and throw timing.",
   async observe() {

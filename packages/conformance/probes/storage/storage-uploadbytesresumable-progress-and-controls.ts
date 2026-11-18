@@ -81,9 +81,8 @@ export async function observeUploadBytesResumableLifecycle(
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: ['web-config'],
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'storage #47, #48, #49, #50',
+  rowIds: ['storage#47', 'storage#48', 'storage#49', 'storage#50'],
   description:
     "firebase/storage uploadBytesResumable(ref, data, metadata): observes UploadTask control methods, state_changed progress snapshots, pause()/resume() state transitions, and cancel() rejecting with storage/canceled without persisting the object.",
   async observe() {

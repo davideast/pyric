@@ -1,7 +1,9 @@
 {
   "name": "storage-updatemetadata-undefined-and-null-clear",
-  "matrixRow": "",
-  "rowIds": [],
+  "matrixRow": "storage #86",
+  "rowIds": [
+    "storage#86"
+  ],
   "description": "firebase/storage updateMetadata(ref, patch): observes undefined field values preserving prior stored metadata vs null clearing writable scalar fields and customMetadata entries/maps.",
   "observedAt": "2026-11-18T11:59:00.249Z",
   "fbSdkVersion": "12.19.0",

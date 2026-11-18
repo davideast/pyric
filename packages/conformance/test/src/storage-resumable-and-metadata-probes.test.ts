@@ -30,40 +30,54 @@ import { ALL_RULES_STORAGE_SCENARIOS } from '../../rules-corpus/storage/index.ts
 import { loadObservations } from '../../src/ledger.ts';
 import { validateCompatibilityRegistry } from '../../src/validate-registry.ts';
 import { surfaceDescriptors } from '../../surfaces/load.ts';
-import { expectStagedUntilCaptured } from './staged-capture-assertions.ts';
 
 const SLICE11_PROBES = [
-  { name: 'storage-getstorage-handle-and-md5', probe: getStorageMd5Probe },
-  { name: 'storage-uploadstring-base64url-roundtrip', probe: base64UrlProbe },
-  { name: 'storage-uploadbytesresumable-progress-and-controls', probe: resumableProbe },
+  {
+    name: 'storage-getstorage-handle-and-md5',
+    probe: getStorageMd5Probe,
+    matrixRow: 'storage #3, #91',
+    rowIds: ['storage#3', 'storage#91'],
+  },
+  {
+    name: 'storage-uploadstring-base64url-roundtrip',
+    probe: base64UrlProbe,
+    matrixRow: 'storage #41',
+    rowIds: ['storage#41'],
+  },
+  {
+    name: 'storage-uploadbytesresumable-progress-and-controls',
+    probe: resumableProbe,
+    matrixRow: 'storage #47, #48, #49, #50',
+    rowIds: ['storage#47', 'storage#48', 'storage#49', 'storage#50'],
+  },
   {
     name: 'storage-updatemetadata-undefined-and-null-clear',
     probe: updateMetadataUndefinedNullProbe,
+    matrixRow: 'storage #86',
+    rowIds: ['storage#86'],
   },
 ] as const;
 
-const SLICE11_PROBE_NAMES = SLICE11_PROBES.map((entry) => entry.name);
-
-describe('staged storage probes for getStorage, base64url, uploadBytesResumable, updateMetadata null/undefined, and md5Hash (storage#3, #41, #47..50, #86, #91)', () => {
-  it('registers all 4 probes under sdk-probes and tracks staged discovery via expectStagedUntilCaptured', () => {
+describe('storage probes for getStorage, base64url, uploadBytesResumable, updateMetadata null/undefined, and md5Hash (storage#3, #41, #47..50, #86, #91)', () => {
+  it('registers all 4 probes under sdk-probes with linked rowIds and captured observations', () => {
     const probeFileNames = new Set(
       listProbeFiles()
         .filter((f) => f.surfaceDir === 'storage')
         .map((f) => f.name),
     );
+    const observationNames = new Set(
+      loadObservations()
+        .filter((o) => o.surfaceDir === 'storage')
+        .map((o) => o.name),
+    );
     for (const entry of SLICE11_PROBES) {
       expect(probeFileNames.has(entry.name)).toBe(true);
+      expect(observationNames.has(entry.name)).toBe(true);
       expect(entry.probe.rig).toBe('sdk-probes');
-      expect(entry.probe.pendingRowLink).toBe(true);
-      expect(entry.probe.matrixRow).toBe('');
-      expect(entry.probe.rowIds).toEqual([]);
+      expect(entry.probe.pendingRowLink).toBeUndefined();
+      expect(entry.probe.matrixRow).toBe(entry.matrixRow);
+      expect(entry.probe.rowIds).toEqual([...entry.rowIds]);
     }
-
-    expectStagedUntilCaptured(SLICE11_PROBE_NAMES, {
-      rig: 'sdk-probes',
-      filterFlag: '--probe',
-      filterValueFor: (name) => name,
-    });
   });
 
   it('observeStorageGetStorageAndMd5 records handle identity, retry times, and matching upload/getMetadata MD5 digests', async () => {

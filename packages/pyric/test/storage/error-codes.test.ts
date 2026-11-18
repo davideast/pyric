@@ -136,18 +136,20 @@ describe('ST-B1 — sandbox errors carry .code === storage/<code>', () => {
     expect(e.code).toBe('storage/invalid-format');
   });
 
-  it('invalid-format names the bad format on an unknown uploadString format (ST-B3)', async () => {
+  it('unknown uploadString format throws storage/unknown synchronously while base64url succeeds', async () => {
     const storage = freshStorage('unknown-format');
     const r = ref(storage, 'x/y.bin');
-    // A JS caller can pass a format the StringFormat type rules out.
-    // Pre-fix this mis-parsed as `data_url`, so the message misleadingly
-    // blamed `data_url`. Now the error names the actual bad format.
-    const e = await caught(() =>
-      uploadString(r, 'hello', 'base64url' as unknown as 'raw'),
-    );
-    expect(e.code).toBe('storage/invalid-format');
-    expect(String((e as Error).message)).toContain('base64url');
-    expect(String((e as Error).message)).toContain('unknown uploadString format');
+    let syncErr: unknown = null;
+    try {
+      void uploadString(r, 'hello', 'totally-unknown-format' as unknown as 'raw');
+    } catch (err) {
+      syncErr = err;
+    }
+    expect(syncErr).toBeDefined();
+    expect((syncErr as { code?: string }).code).toBe('storage/unknown');
+
+    await uploadString(r, '-_8BAg', 'base64url');
+    expect([...new Uint8Array(await getBytes(r))]).toEqual([251, 255, 1, 2]);
   });
 
   it('the prefixed code is also embedded in the message (substring probes still match)', async () => {

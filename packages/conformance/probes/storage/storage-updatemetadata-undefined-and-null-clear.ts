@@ -86,9 +86,8 @@ export async function observeUpdateMetadataUndefinedAndNullClear(
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: ['web-config'],
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'storage #86',
+  rowIds: ['storage#86'],
   description:
     'firebase/storage updateMetadata(ref, patch): observes undefined field values preserving prior stored metadata vs null clearing writable scalar fields and customMetadata entries/maps.',
   async observe() {
