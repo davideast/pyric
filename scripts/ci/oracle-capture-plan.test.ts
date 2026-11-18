@@ -197,6 +197,17 @@ describe('oracle-capture-plan WIF SDK write flags and sibling invocation isolati
     expect(rtdbUrlMissing).toContain('PYRIC_ORACLE_RTDB_URL');
     expect(rtdbUrlMissing).toContain('Action:');
 
+    const rtdbUrlAlreadyConfigured = diagnoseCaptureFailure(
+      'oracle-run',
+      '[oracle] dedicated rtdb instance: https://demo-oracle.firebaseio.com\nUnhandled failure',
+      {
+        CAPTURE_SA_EMAIL: 'capture-sa@example.iam.gserviceaccount.com',
+        PYRIC_ORACLE_RTDB_URL: 'https://demo-oracle.firebaseio.com',
+      },
+    );
+    expect(rtdbUrlAlreadyConfigured).not.toContain('Missing dedicated oracle RTDB instance');
+    expect(rtdbUrlAlreadyConfigured).toContain('Capture script exited non-zero');
+
     const webAppsDenied = diagnoseCaptureFailure(
       'sdk-probes',
       "Error: Firebase Web App discovery failed for project 'example-oracle' (HTTP 403 from firebase.googleapis.com): Permission 'firebase.projects.get' denied on resource 'projects/example-oracle'.",
@@ -484,6 +495,21 @@ describe('oracle-capture-plan WIF SDK write flags and sibling invocation isolati
           'packages/conformance/observations/auth/gha-creds-b2de1f6be4030177.json',
         ),
       ).toThrow(/gha-creds-/);
+      expect(() =>
+        validateObservationRelativePath(
+          'packages/conformance/observations/auth/GHA-CREDS-b2de1f6be4030177.json',
+        ),
+      ).toThrow(/gha-creds-/i);
+      expect(
+        validateObservationRelativePath(
+          'packages/conformance/observations/auth/auth-createUser-operationType.json',
+        ),
+      ).toEqual({ surface: 'auth', stem: 'auth-createUser-operationType' });
+      expect(
+        validateObservationRelativePath(
+          'packages/conformance/observations/rtdb-modular/rtdb-modular-equalTo-filter.json',
+        ),
+      ).toEqual({ surface: 'rtdb-modular', stem: 'rtdb-modular-equalTo-filter' });
     } finally {
       rmSync(scratchOut, { recursive: true, force: true });
       cleanup();

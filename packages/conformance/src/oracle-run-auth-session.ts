@@ -208,17 +208,21 @@ export function createOracleRunAuthSession(
     if (probeName !== INTENTIONAL_THROWING_OBSERVER_PROBE) {
       return observe();
     }
-    const onUncaught = (err: unknown): void => {
+    const onIntentionalThrow = (err: unknown): void => {
       if (err instanceof Error && err.message === INTENTIONAL_THROWING_OBSERVER_MESSAGE) {
         return;
       }
       throw err;
     };
-    process.on('uncaughtException', onUncaught);
+    process.on('uncaughtException', onIntentionalThrow);
+    process.on('unhandledRejection', onIntentionalThrow);
     try {
-      return await observe();
+      const result = await observe();
+      await defaultSleep(0);
+      return result;
     } finally {
-      process.off('uncaughtException', onUncaught);
+      process.off('uncaughtException', onIntentionalThrow);
+      process.off('unhandledRejection', onIntentionalThrow);
     }
   }
 

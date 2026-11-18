@@ -202,7 +202,7 @@ import {
   describeFencedAuthFireSequence, describeFirestoreQueryFires,
   describeRtdbServerTimestampReadBack, describeUserUid, isDecimalDigitString,
   isFirebaseAuthUid, isFirestoreAutoId, isNanosecondsInRange, isOracleProbeEmail,
-  isPositiveSafeInteger, isRtdbPushKey, scrubOracleRunToken, scrubOracleRunTokenList,
+  isPositiveSafeInteger, isRtdbPushKey, scrubOracleRunToken, scrubOracleRunTokenList, waitForCondition,
 } from './oracle-run-stable-shapes.ts';
 import { surfaceDescriptors } from '../surfaces/load.ts';
 import { soleLongestPrefixOwner } from './observation-surface.ts';
@@ -1050,11 +1050,11 @@ const probes: Probe[] = [
               void setDoc(metadataRef, { v: 1 }).catch(reject);
               return;
             }
-            if (pending === undefined && snapshot.metadata.hasPendingWrites) {
-              pending = snapshot;
+            if (snapshot.metadata.hasPendingWrites) {
+              if (pending === undefined) pending = snapshot;
               return;
             }
-            if (pending !== undefined) {
+            if (pending !== undefined && !snapshot.metadata.fromCache) {
               unsubscribe();
               resolve([pending, snapshot]);
             }
@@ -5210,9 +5210,9 @@ const probes: Probe[] = [
       let postUnsubFires = 0;
       try {
         const unsub = rtdbOnValue(rtdbRef(rtdb, path), () => { fires.push(Date.now()); });
-        await new Promise((r) => setTimeout(r, 300));
+        await waitForCondition(() => fires.length >= 1, 5000);
         await rtdbSet(rtdbRef(rtdb, path), { v: 1 });
-        await new Promise((r) => setTimeout(r, 300));
+        await waitForCondition(() => fires.length >= 2, 5000);
         preUnsubFires = fires.length;
         unsub();
         await rtdbSet(rtdbRef(rtdb, path), { v: 2 });

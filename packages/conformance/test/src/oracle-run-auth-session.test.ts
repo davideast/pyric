@@ -218,7 +218,7 @@ describe('createOracleRunAuthSession', () => {
     expect(sleeps).toEqual([15_000, 30_000]);
   });
 
-  test('absorbs auth-row-35 intentional async observer throw so Bun exits 0 cleanly without masking real uncaught errors', async () => {
+  test('absorbs auth-row-35 intentional observer uncaughtException and unhandledRejection so Bun exits 0 cleanly without masking real errors', async () => {
     const moduleUrl = new URL('../../src/oracle-run-auth-session.ts', import.meta.url).href;
     const okProc = Bun.spawn(
       [
@@ -228,6 +228,9 @@ describe('createOracleRunAuthSession', () => {
          const s = createOracleRunAuthSession(() => ({ currentUser: null }));
          await s.observeWithRateLimitRetry('auth-row-35-throwing-observer-doesnt-block-others', async () => {
            setTimeout(() => { throw new Error('intentional throw from oracle probe observer #1'); }, 0);
+           Promise.resolve()
+             .then(() => { throw new Error('intentional throw from oracle probe observer #1'); })
+             .catch((err) => { throw err; });
            await new Promise((r) => setTimeout(r, 30));
            return { ok: true };
          });`,
@@ -235,6 +238,24 @@ describe('createOracleRunAuthSession', () => {
       { stdout: 'pipe', stderr: 'pipe' },
     );
     expect(await okProc.exited).toBe(0);
+
+    const failRejectionProc = Bun.spawn(
+      [
+        process.execPath,
+        '-e',
+        `import { createOracleRunAuthSession } from ${JSON.stringify(moduleUrl)};
+         const s = createOracleRunAuthSession(() => ({ currentUser: null }));
+         await s.observeWithRateLimitRetry('auth-row-35-throwing-observer-doesnt-block-others', async () => {
+           Promise.resolve()
+             .then(() => { throw new Error('unexpected observer rejection'); })
+             .catch((err) => { throw err; });
+           await new Promise((r) => setTimeout(r, 30));
+           return { ok: true };
+         });`,
+      ],
+      { stdout: 'pipe', stderr: 'pipe' },
+    );
+    expect(await failRejectionProc.exited).not.toBe(0);
 
     const failProc = Bun.spawn(
       [

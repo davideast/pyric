@@ -209,3 +209,14 @@ export function describeRtdbServerTimestampReadBack(
     createdAtIsPositiveInteger: isPositiveSafeInteger(record.createdAt),
   };
 }
+
+export async function waitForCondition(
+  predicate: () => boolean,
+  timeoutMs = 5000,
+  pollMs = 25,
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (!predicate() && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, pollMs));
+  }
+}

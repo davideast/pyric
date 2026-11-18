@@ -21,10 +21,14 @@ import { loadRigManifests } from '../../packages/conformance/rigs/load.ts';
 import type { Gh } from './github-issues.ts';
 import { spawnGh } from './github-issues.ts';
 import {
+  assertStagedPathsAreObservationsOnly,
   createOrUpdatePullRequestWithFallback,
   formatPullRequestOutcomesSummary,
+  preserveIdenticalProtectedObservations,
+  resolveCaptureTargetBranch,
   spawnGhWithToken,
   type OpenedPullRequestOutcome,
+  type PullRequestAuth,
 } from './oracle-capture-open-pr.ts';
 import {
   appendGithubOutput,
@@ -302,7 +306,7 @@ export function buildCapturePullRequestBody(input: {
   const runNote = input.runUrl ? `- Capture workflow run: ${input.runUrl}` : '- Capture workflow run: local/dispatch';
 
   const raw = [
-    `Pins ${input.files.length} production Firebase observation file(s) captured by the \`${input.rig}\` oracle rig${filterNote} against project \`digame-mas\`.`,
+    `Pins ${input.files.length} production Firebase observation file(s) captured by the \`${input.rig}\` oracle rig${filterNote} against the oracle project.`,
     '',
     '```bash',
     `# Verify registry and observation invariants against ${firstFile}`,
@@ -392,10 +396,16 @@ export async function verifyAndOpenCapturePullRequests(options: {
   const scratch = mkdtempSync(join(tmpdir(), 'oracle-capture-pr-body-'));
   const outcomes: OpenedPullRequestOutcome[] = [];
 
+  const prAuth: PullRequestAuth = {
+    primaryGh: gh,
+    fallbackGh: options.fallbackGh,
+    hasPatPushAuth,
+  };
+
   try {
     for (const entry of manifest.rigs) {
-      const branch = `chore/oracle-capture-${entry.rig}`;
-      execFileSync('git', ['checkout', '-B', branch, 'origin/main'], { cwd });
+      const canonicalBranch = `chore/oracle-capture-${entry.rig}`;
+      execFileSync('git', ['checkout', '--detach', 'origin/main'], { cwd });
 
       for (const file of entry.files) {
         const src = join(artifactDir, 'rigs', entry.rig, file.path);
@@ -424,11 +434,23 @@ export async function verifyAndOpenCapturePullRequests(options: {
       });
 
       if (meaningfulFiles.length === 0) {
-        outcomes.push({ rig: entry.rig, branch, action: 'unchanged', prUrl: '' });
+        outcomes.push({ rig: entry.rig, branch: canonicalBranch, action: 'unchanged', prUrl: '' });
         continue;
       }
 
+      const { branch, divertedFromBranch } = resolveCaptureTargetBranch({
+        repository,
+        rig: entry.rig,
+        sourceSha: manifest.sourceSha,
+        auth: prAuth,
+      });
+      if (divertedFromBranch !== null) {
+        preserveIdenticalProtectedObservations(cwd, divertedFromBranch, meaningfulFiles);
+      }
+
+      execFileSync('git', ['checkout', '-B', branch], { cwd });
       execFileSync('git', ['add', '--', ...meaningfulFiles.map((f) => f.path)], { cwd });
+      assertStagedPathsAreObservationsOnly(cwd);
       const title = sanitizeAsciiText(`chore(conformance): capture ${entry.rig} oracle observations`);
       execFileSync('git', ['commit', '-m', title], { cwd });
       execFileSync('git', ['push', '--force', 'origin', `HEAD:refs/heads/${branch}`], { cwd });
@@ -455,11 +477,7 @@ export async function verifyAndOpenCapturePullRequests(options: {
             title,
             bodyFile,
           },
-          auth: {
-            primaryGh: gh,
-            fallbackGh: options.fallbackGh,
-            hasPatPushAuth,
-          },
+          auth: prAuth,
         }),
       );
     }

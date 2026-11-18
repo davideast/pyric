@@ -17,6 +17,7 @@ import {
   isRtdbPushKey,
   scrubOracleRunToken,
   scrubOracleRunTokenList,
+  waitForCondition,
 } from '../../src/oracle-run-stable-shapes.ts';
 
 describe('oracle-run-stable-shapes (Auth)', () => {
@@ -175,5 +176,18 @@ describe('oracle-run-stable-shapes (Auth)', () => {
       pathMatches: true,
     });
     expect(dedicatedInstanceShape).toEqual(defaultInstanceShape);
+  });
+
+  test('waitForCondition resolves once predicate turns true and stops at timeout bound', async () => {
+    let count = 0;
+    setTimeout(() => {
+      count = 2;
+    }, 15);
+    await waitForCondition(() => count >= 2, 500, 5);
+    expect(count).toBe(2);
+
+    const start = Date.now();
+    await waitForCondition(() => false, 25, 5);
+    expect(Date.now() - start).toBeGreaterThanOrEqual(20);
   });
 });

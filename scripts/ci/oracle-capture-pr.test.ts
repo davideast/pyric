@@ -399,85 +399,64 @@ describe('collectTimestampCleanObservations', () => {
 });
 
 describe('verifyAndOpenCapturePullRequests', () => {
-  test('rejects symlinks and unexpected paths in the downloaded bundle', async () => {
-    const { repoDir, cleanup } = initTempGitRepo();
-    const artifactDir = mkdtempSync(join(tmpdir(), 'oracle-bad-artifact-'));
-    try {
-      const manifest: CaptureBundleManifest = {
-        sourceSha: 'deadbeef',
-        rigs: [
-          {
-            rig: 'rules-firestore',
-            files: [
-              {
-                path: 'packages/conformance/observations/firestore-rules/rules-firestore-evil.json',
-                kind: 'added',
-              },
-            ],
-          },
-        ],
-      };
-      writeFileSync(join(artifactDir, 'manifest.json'), JSON.stringify(manifest, null, 2));
-      const obsDir = join(
-        artifactDir,
-        'rigs/rules-firestore/packages/conformance/observations/firestore-rules',
-      );
-      mkdirSync(obsDir, { recursive: true });
-      symlinkSync(
-        join(repoDir, 'README.md'),
-        join(obsDir, 'rules-firestore-evil.json'),
-      );
+  function writeObs(filePath: string, name: string, observedAt: string, behavior: Record<string, unknown>): void {
+    mkdirSync(dirname(filePath), { recursive: true });
+    writeFileSync(
+      filePath,
+      `${JSON.stringify({ name, matrixRow: '', rowIds: [], description: 'Staged capture.', observedAt, fbSdkVersion: '12.19.0', behavior }, null, 2)}\n`,
+    );
+  }
 
+  test('rejects symlinks and path traversal entries in the downloaded bundle', async () => {
+    const { repoDir, cleanup } = initTempGitRepo();
+    const symDir = mkdtempSync(join(tmpdir(), 'oracle-bad-artifact-'));
+    const travDir = mkdtempSync(join(tmpdir(), 'oracle-traversal-artifact-'));
+    try {
+      const obsRel = 'packages/conformance/observations/firestore-rules/rules-firestore-evil.json';
+      writeFileSync(
+        join(symDir, 'manifest.json'),
+        JSON.stringify({ sourceSha: 'deadbeef', rigs: [{ rig: 'rules-firestore', files: [{ path: obsRel, kind: 'added' }] }] }),
+      );
+      const obsDir = join(symDir, 'rigs/rules-firestore/packages/conformance/observations/firestore-rules');
+      mkdirSync(obsDir, { recursive: true });
+      symlinkSync(join(repoDir, 'README.md'), join(obsDir, 'rules-firestore-evil.json'));
       await expect(
-        verifyAndOpenCapturePullRequests({
-          cwd: repoDir,
-          artifactDir,
-          repository: 'davideast/pyric',
-          gh: () => '[]',
-        }),
+        verifyAndOpenCapturePullRequests({ cwd: repoDir, artifactDir: symDir, repository: 'davideast/pyric', gh: () => '[]' }),
       ).rejects.toThrow(/symlink/i);
+
+      writeFileSync(
+        join(travDir, 'manifest.json'),
+        JSON.stringify({
+          sourceSha: 'deadbeef',
+          rigs: [{ rig: 'rules-firestore', files: [{ path: 'packages/conformance/observations/firestore-rules/../../../evil.json', kind: 'added' }] }],
+        }),
+      );
+      await expect(
+        verifyAndOpenCapturePullRequests({ cwd: repoDir, artifactDir: travDir, repository: 'davideast/pyric', gh: () => '[]' }),
+      ).rejects.toThrow(/Unsafe observation path rejected/);
     } finally {
-      rmSync(artifactDir, { recursive: true, force: true });
+      rmSync(symDir, { recursive: true, force: true });
+      rmSync(travDir, { recursive: true, force: true });
       cleanup();
     }
   }, 20_000);
 
-  test('pushes chore/oracle-capture-<rig> and opens or updates a strict-ASCII PR', async () => {
+  test('omits project id in PR body and commit message, updates idle PR in place, and diverts when under review or merge-queue', async () => {
     const { repoDir, remoteDir, cleanup } = initTempGitRepo();
     const artifactDir = mkdtempSync(join(tmpdir(), 'oracle-good-artifact-'));
+    const gitRemote = (...args: string[]): string =>
+      execFileSync('git', ['--git-dir', remoteDir, ...args], { encoding: 'utf8' }).trim();
     try {
-      const obsRel =
-        'packages/conformance/observations/firestore-rules/rules-firestore-path-bind-forms.json';
-      const manifest: CaptureBundleManifest = {
-        sourceSha: 'abc123456789',
-        runUrl: 'https://github.com/davideast/pyric/actions/runs/42',
-        rigs: [
-          {
-            rig: 'rules-firestore',
-            filter: 'path-bind-forms',
-            files: [{ path: obsRel, kind: 'added' }],
-          },
-        ],
-      };
-      writeFileSync(join(artifactDir, 'manifest.json'), JSON.stringify(manifest, null, 2));
-      const targetFile = join(artifactDir, 'rigs/rules-firestore', obsRel);
-      mkdirSync(dirname(targetFile), { recursive: true });
+      const obsRel = 'packages/conformance/observations/firestore-rules/rules-firestore-path-bind-forms.json';
       writeFileSync(
-        targetFile,
-        `${JSON.stringify(
-          {
-            name: 'rules-firestore-path-bind-forms',
-            matrixRow: '',
-            rowIds: [],
-            description: 'Staged capture.',
-            observedAt: '2026-11-16T12:00:00.000Z',
-            fbSdkVersion: '12.19.0',
-            behavior: { caseA: 'ALLOW' },
-          },
-          null,
-          2,
-        )}\n`,
+        join(artifactDir, 'manifest.json'),
+        JSON.stringify({
+          sourceSha: 'abc123456789',
+          runUrl: 'https://github.com/davideast/pyric/actions/runs/42',
+          rigs: [{ rig: 'rules-firestore', filter: 'path-bind-forms', files: [{ path: obsRel, kind: 'added' }] }],
+        }),
       );
+      writeObs(join(artifactDir, 'rigs/rules-firestore', obsRel), 'rules-firestore-path-bind-forms', '2026-11-16T12:00:00.000Z', { caseA: 'ALLOW' });
 
       const ghCalls: Array<{ args: string[]; body?: string }> = [];
       const outcomes = await verifyAndOpenCapturePullRequests({
@@ -486,52 +465,43 @@ describe('verifyAndOpenCapturePullRequests', () => {
         repository: 'davideast/pyric',
         gh: (args) => {
           const bodyIdx = args.indexOf('--body-file');
-          const bodyPath = bodyIdx >= 0 ? args[bodyIdx + 1] : undefined;
           let body: string | undefined;
-          if (bodyPath) body = readFileSync(bodyPath, 'utf8');
+          if (bodyIdx >= 0) {
+            const bodyPath = args[bodyIdx + 1];
+            if (bodyPath) body = readFileSync(bodyPath, 'utf8');
+          }
           ghCalls.push({ args, body });
           if (args[0] === 'pr' && args[1] === 'list') return '[]';
-          if (args[0] === 'pr' && args[1] === 'create') {
-            return 'https://github.com/davideast/pyric/pull/999\n';
-          }
+          if (args[0] === 'pr' && args[1] === 'create') return 'https://github.com/davideast/pyric/pull/999\n';
           return '';
         },
       });
+      expect(outcomes).toEqual([{
+        rig: 'rules-firestore',
+        branch: 'chore/oracle-capture-rules-firestore',
+        action: 'created',
+        prUrl: 'https://github.com/davideast/pyric/pull/999',
+        authMode: 'pat',
+      }]);
 
-      expect(outcomes).toEqual([
-        {
-          rig: 'rules-firestore',
-          branch: 'chore/oracle-capture-rules-firestore',
-          action: 'created',
-          prUrl: 'https://github.com/davideast/pyric/pull/999',
-          authMode: 'pat',
-        },
-      ]);
+      const canonicalSha1 = gitRemote('rev-parse', 'refs/heads/chore/oracle-capture-rules-firestore');
+      const commitMessage = gitRemote('log', '-1', '--format=%B', canonicalSha1);
+      expect(commitMessage).toBe('chore(conformance): capture rules-firestore oracle observations');
+      expect(commitMessage).not.toContain('digame-mas');
 
-      // Remote branch exists and contains the observation commit.
-      const remoteRef = execFileSync(
-        'git',
-        ['--git-dir', remoteDir, 'rev-parse', 'refs/heads/chore/oracle-capture-rules-firestore'],
-        { encoding: 'utf8' },
-      ).trim();
-      expect(remoteRef).toMatch(/^[0-9a-f]{40}$/);
-
-      const createCall = ghCalls.find((c) => c.args[0] === 'pr' && c.args[1] === 'create');
-      expect(createCall).toBeDefined();
-      const prBody = createCall?.body ?? '';
+      const prBody = ghCalls.find((c) => c.args[0] === 'pr' && c.args[1] === 'create')?.body ?? '';
+      expect(prBody).toContain('against the oracle project.');
+      expect(prBody).not.toContain('digame-mas');
       expect(prBody).toContain('## Risk');
       expect(prBody).toContain('<details>');
       expect(prBody).toContain('test/apps/');
       expect([...prBody].every((ch) => (ch.codePointAt(0) ?? 0) <= 127)).toBe(true);
 
-      const directBody = buildCapturePullRequestBody({
-        rig: 'rules-firestore',
-        files: [{ path: obsRel, kind: 'added' }],
-        sourceSha: 'abc123456789',
-      });
-      expect([...directBody].every((ch) => (ch.codePointAt(0) ?? 0) <= 127)).toBe(true);
+      const directBody = buildCapturePullRequestBody({ rig: 'rules-firestore', files: [{ path: obsRel, kind: 'added' }], sourceSha: 'abc123456789' });
+      expect(directBody).toContain('against the oracle project.');
+      expect(directBody).not.toContain('digame-mas');
 
-      // Re-running when an open PR already exists updates it via `gh pr edit`.
+      // Idle open PR (no merge-queue label, no review activity) updates in place.
       const editCalls: string[][] = [];
       const updatedOutcomes = await verifyAndOpenCapturePullRequests({
         cwd: repoDir,
@@ -540,57 +510,53 @@ describe('verifyAndOpenCapturePullRequests', () => {
         gh: (args) => {
           editCalls.push(args);
           if (args[0] === 'pr' && args[1] === 'list') {
-            return JSON.stringify([{ number: 999, url: 'https://github.com/davideast/pyric/pull/999' }]);
+            return JSON.stringify([{ number: 999, url: 'https://github.com/davideast/pyric/pull/999', labels: [], reviews: [], reviewRequests: [], reviewDecision: '', comments: [] }]);
           }
           return '';
         },
       });
-      expect(updatedOutcomes).toEqual([
-        {
-          rig: 'rules-firestore',
-          branch: 'chore/oracle-capture-rules-firestore',
-          action: 'updated',
-          prUrl: 'https://github.com/davideast/pyric/pull/999',
-          authMode: 'pat',
-        },
-      ]);
-      expect(editCalls.some((args) => args[0] === 'pr' && args[1] === 'edit' && args[2] === '999')).toBe(
-        true,
+      expect(updatedOutcomes[0]?.action).toBe('updated');
+      expect(updatedOutcomes[0]?.branch).toBe('chore/oracle-capture-rules-firestore');
+      expect(editCalls.some((args) => args[0] === 'pr' && args[1] === 'edit' && args[2] === '999')).toBe(true);
+      const protectedSha = gitRemote('rev-parse', 'refs/heads/chore/oracle-capture-rules-firestore');
+
+      // Busy open PR (merge-queue or review activity) diverts to chore/oracle-capture-<rig>-<shortsha> without force-pushing canonical.
+      const secondRel = 'packages/conformance/observations/firestore-rules/rules-firestore-second-probe.json';
+      writeFileSync(
+        join(artifactDir, 'manifest.json'),
+        JSON.stringify({ sourceSha: 'deadbeef9876543210', rigs: [{ rig: 'rules-firestore', files: [{ path: obsRel, kind: 'added' }, { path: secondRel, kind: 'added' }] }] }),
       );
-    } finally {
-      rmSync(artifactDir, { recursive: true, force: true });
-      cleanup();
-    }
-  }, 20_000);
+      writeObs(join(artifactDir, 'rigs/rules-firestore', obsRel), 'rules-firestore-path-bind-forms', '2026-11-18T06:00:00.000Z', { caseA: 'ALLOW' });
+      writeObs(join(artifactDir, 'rigs/rules-firestore', secondRel), 'rules-firestore-second-probe', '2026-11-18T06:00:00.000Z', { caseB: 'DENY' });
 
-  test('rejects path traversal entries in manifest.json', async () => {
-    const { repoDir, cleanup } = initTempGitRepo();
-    const artifactDir = mkdtempSync(join(tmpdir(), 'oracle-traversal-artifact-'));
-    try {
-      const manifest: CaptureBundleManifest = {
-        sourceSha: 'deadbeef',
-        rigs: [
-          {
-            rig: 'rules-firestore',
-            files: [
-              {
-                path: 'packages/conformance/observations/firestore-rules/../../../evil.json',
-                kind: 'added',
-              },
-            ],
-          },
-        ],
-      };
-      writeFileSync(join(artifactDir, 'manifest.json'), JSON.stringify(manifest, null, 2));
-
-      await expect(
-        verifyAndOpenCapturePullRequests({
-          cwd: repoDir,
-          artifactDir,
-          repository: 'davideast/pyric',
-          gh: () => '[]',
-        }),
-      ).rejects.toThrow(/Unsafe observation path rejected/);
+      const divertedCalls: string[][] = [];
+      const divertedOutcomes = await verifyAndOpenCapturePullRequests({
+        cwd: repoDir,
+        artifactDir,
+        repository: 'davideast/pyric',
+        gh: (args) => {
+          divertedCalls.push(args);
+          if (args[0] === 'pr' && args[1] === 'list') {
+            const headIdx = args.indexOf('--head');
+            let head = '';
+            if (headIdx >= 0) head = args[headIdx + 1] ?? '';
+            if (head === 'chore/oracle-capture-rules-firestore') {
+              return JSON.stringify([{ number: 999, url: 'https://github.com/davideast/pyric/pull/999', labels: [{ name: 'merge-queue' }] }]);
+            }
+            return '[]';
+          }
+          if (args[0] === 'pr' && args[1] === 'create') return 'https://github.com/davideast/pyric/pull/1000\n';
+          return '';
+        },
+      });
+      expect(divertedOutcomes[0]?.branch).toBe('chore/oracle-capture-rules-firestore-deadbeef');
+      expect(divertedOutcomes[0]?.action).toBe('created');
+      expect(gitRemote('rev-parse', 'refs/heads/chore/oracle-capture-rules-firestore')).toBe(protectedSha);
+      expect(divertedCalls.some((args) => args[0] === 'pr' && args[1] === 'edit')).toBe(false);
+      expect(gitRemote('diff', '--name-only', 'refs/heads/main..refs/heads/chore/oracle-capture-rules-firestore-deadbeef').split('\n')).toEqual([obsRel, secondRel]);
+      expect(gitRemote('rev-parse', `refs/heads/chore/oracle-capture-rules-firestore-deadbeef:${obsRel}`)).toBe(
+        gitRemote('rev-parse', `refs/heads/chore/oracle-capture-rules-firestore:${obsRel}`),
+      );
     } finally {
       rmSync(artifactDir, { recursive: true, force: true });
       cleanup();

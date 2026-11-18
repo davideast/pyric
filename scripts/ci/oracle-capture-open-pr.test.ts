@@ -4,8 +4,12 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import {
+  assertStagedPathsAreObservationsOnly,
   createOrUpdatePullRequestWithFallback,
   formatPullRequestOutcomesSummary,
+  formatShortCaptureSha,
+  hasCapturePullRequestActivity,
+  resolveCaptureTargetBranch,
 } from './oracle-capture-open-pr.ts';
 
 const ROOT = resolve(import.meta.dir, '../..');
@@ -244,5 +248,99 @@ describe('oracle-capture-open-pr PAT fallback and CI synchronize push', () => {
     const prStep = openPrSteps.find((s) => s.run?.includes('oracle-capture-pr.ts open-pr'));
     expect(prStep?.env?.PAT_TOKEN).toContain('secrets.MERGE_QUEUE_TOKEN');
     expect(prStep?.env?.GITHUB_TOKEN).toContain('github.token');
+  });
+
+  test('detects merge-queue and review activity, allocates fresh branches on collision, and enforces observations-only staging', () => {
+    expect(hasCapturePullRequestActivity({ number: 1, url: 'https://example.com/1' })).toBe(false);
+    expect(
+      hasCapturePullRequestActivity({
+        number: 1,
+        url: 'https://example.com/1',
+        labels: [{ name: 'documentation' }],
+        reviews: [],
+        reviewRequests: [],
+        reviewDecision: '',
+        comments: [],
+      }),
+    ).toBe(false);
+    expect(
+      hasCapturePullRequestActivity({
+        number: 1,
+        url: 'https://example.com/1',
+        labels: [{ name: 'merge-queue' }],
+      }),
+    ).toBe(true);
+    expect(
+      hasCapturePullRequestActivity({
+        number: 1,
+        url: 'https://example.com/1',
+        reviews: [{ state: 'COMMENTED' }],
+      }),
+    ).toBe(true);
+    expect(
+      hasCapturePullRequestActivity({
+        number: 1,
+        url: 'https://example.com/1',
+        reviewRequests: [{ login: 'reviewer' }],
+      }),
+    ).toBe(true);
+    expect(
+      hasCapturePullRequestActivity({
+        number: 1,
+        url: 'https://example.com/1',
+        reviewDecision: 'REVIEW_REQUIRED',
+      }),
+    ).toBe(true);
+    expect(
+      hasCapturePullRequestActivity({
+        number: 1,
+        url: 'https://example.com/1',
+        comments: [{ body: '<!-- advisor-verdict: spec=MERGE -->' }],
+      }),
+    ).toBe(true);
+
+    expect(formatShortCaptureSha('642C609A7545D22231843D24370AFC124738742D')).toBe('642c609a');
+    expect(formatShortCaptureSha('not-hex-!@#')).toBe('nothex');
+
+    // Diverts past both canonical (under review) and first -<shortsha> (labeled merge-queue) to -<shortsha>-2 via fallbackGh.
+    const resolved = resolveCaptureTargetBranch({
+      repository: 'davideast/pyric',
+      rig: 'sdk-probes',
+      sourceSha: '642c609a7545d22231843d24370afc124738742d',
+      auth: {
+        primaryGh: () => {
+          throw new Error('PAT lacks read pull-requests');
+        },
+        fallbackGh: (args) => {
+          const headIdx = args.indexOf('--head');
+          let head = '';
+          if (headIdx >= 0) head = args[headIdx + 1] ?? '';
+          if (head === 'chore/oracle-capture-sdk-probes') {
+            return JSON.stringify([{ number: 10, url: 'https://example.com/10', comments: [{ id: 1 }] }]);
+          }
+          if (head === 'chore/oracle-capture-sdk-probes-642c609a') {
+            return JSON.stringify([{ number: 11, url: 'https://example.com/11', labels: [{ name: 'merge-queue' }] }]);
+          }
+          return '[]';
+        },
+        hasPatPushAuth: true,
+      },
+    });
+    expect(resolved).toEqual({
+      branch: 'chore/oracle-capture-sdk-probes-642c609a-2',
+      divertedFromBranch: 'chore/oracle-capture-sdk-probes',
+    });
+
+    const { repoDir, cleanup } = initRepoWithRemoteBranch();
+    try {
+      execFileSync('git', ['checkout', '-B', 'test-stage', 'origin/main'], { cwd: repoDir });
+      expect(() => assertStagedPathsAreObservationsOnly(repoDir)).toThrow(/empty staged diff/);
+
+      writeFileSync(join(repoDir, 'README.md'), 'tampered\n');
+      execFileSync('git', ['add', 'README.md'], { cwd: repoDir });
+      expect(() => assertStagedPathsAreObservationsOnly(repoDir)).toThrow(/outside packages\/conformance\/observations/);
+    } finally {
+      cleanup();
+    }
   });
 });
