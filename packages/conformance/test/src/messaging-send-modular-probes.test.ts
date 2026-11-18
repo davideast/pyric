@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { FirebaseMessagingError } from 'firebase-admin/messaging';
+import { loadObservations } from '../../src/ledger.ts';
 import { loadModularProbes } from '../../src/sdk-probes.ts';
 import {
   discoverUncapturedStagedTargets,
@@ -77,11 +78,14 @@ describe('modular messaging-send probes (Slice 2 staged family)', () => {
       expect(probeRecord.description.length).toBeGreaterThan(20);
     }
 
+    const existingNames = new Set(loadObservations().map((obs) => obs.name));
     const pending = loadPendingRowLinkObservations();
     const uncaptured = discoverUncapturedStagedTargets().map((item) => item.observationName);
     for (const id of expectedIds) {
       expect(pending.has(id)).toBe(true);
-      expect(uncaptured).toContain(id);
+      if (!existingNames.has(id)) {
+        expect(uncaptured).toContain(id);
+      }
     }
   });
 
