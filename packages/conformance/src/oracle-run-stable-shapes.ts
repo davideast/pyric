@@ -192,3 +192,20 @@ export function isDecimalDigitString(value: string | null | undefined): boolean 
   }
   return DECIMAL_DIGITS_PATTERN.test(value);
 }
+
+export function isRtdbPushKey(key: string | null | undefined): boolean {
+  return typeof key === 'string' && key.length === 20 && key.startsWith('-');
+}
+
+export function describeRtdbServerTimestampReadBack(
+  readBack: unknown,
+): Record<string, unknown> | null {
+  if (typeof readBack !== 'object' || readBack === null || Array.isArray(readBack)) {
+    return null;
+  }
+  const record = readBack as Record<string, unknown>;
+  return {
+    label: record.label ?? null,
+    createdAtIsPositiveInteger: isPositiveSafeInteger(record.createdAt),
+  };
+}

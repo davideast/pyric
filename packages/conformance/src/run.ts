@@ -199,9 +199,10 @@ import { installOracleSignalRestoreGuard } from './oracle-signal-restore.ts';
 import { createOracleRunAuthSession } from './oracle-run-auth-session.ts';
 import {
   createAuthUserSlotTracker, describeAuthFireSequence, describeAuthUid,
-  describeFencedAuthFireSequence, describeFirestoreQueryFires, describeUserUid,
-  isDecimalDigitString, isFirebaseAuthUid, isFirestoreAutoId, isNanosecondsInRange,
-  isOracleProbeEmail, isPositiveSafeInteger, scrubOracleRunToken, scrubOracleRunTokenList,
+  describeFencedAuthFireSequence, describeFirestoreQueryFires,
+  describeRtdbServerTimestampReadBack, describeUserUid, isDecimalDigitString,
+  isFirebaseAuthUid, isFirestoreAutoId, isNanosecondsInRange, isOracleProbeEmail,
+  isPositiveSafeInteger, isRtdbPushKey, scrubOracleRunToken, scrubOracleRunTokenList,
 } from './oracle-run-stable-shapes.ts';
 import { surfaceDescriptors } from '../surfaces/load.ts';
 import { soleLongestPrefixOwner } from './observation-surface.ts';
@@ -4520,8 +4521,7 @@ const probes: Probe[] = [
       if (!rtdb) return { skipped: true, reason: 'no rtdb instance on project' };
       await signInAnonymously(auth);
       const path = `${RTDB_RUN_PATH('onvalue')}/data`;
-      const fires: Array<{ val: unknown; ts: number }> = [];
-      const start = Date.now();
+      const fires: Array<{ val: unknown }> = [];
       let threw = false;
       let code: string | null = null;
       let message: string | null = null;
@@ -4530,7 +4530,7 @@ const probes: Probe[] = [
       let firesAfterSecondSet = 0;
       try {
         const unsub = rtdbOnValue(rtdbRef(rtdb, path), (snap) => {
-          fires.push({ val: snap.val(), ts: Date.now() - start });
+          fires.push({ val: snap.val() });
         });
         await new Promise((r) => setTimeout(r, 500));
         initialFires = fires.length;
@@ -4636,7 +4636,8 @@ const probes: Probe[] = [
         threw,
         code,
         message,
-        sampleKeys: keys,
+        keyCount: keys.length,
+        allUnique: new Set(keys).size === keys.length,
         lengths,
         allLength20: lengths.every((l) => l === 20),
         allStartWithDash: startsWithDash.every(Boolean),
@@ -4673,7 +4674,7 @@ const probes: Probe[] = [
         threw,
         code,
         message,
-        readBack,
+        readBack: describeRtdbServerTimestampReadBack(readBack),
         createdAtType: typeof createdAt,
         createdAtIsNumber: typeof createdAt === 'number',
         createdAtSentinelShape:
@@ -5102,7 +5103,7 @@ const probes: Probe[] = [
         threw,
         code,
         message,
-        pushedKey,
+        pushedKeyStartsWithDash: isRtdbPushKey(pushedKey),
         pushedKeyLength: pushedKey?.length ?? null,
         readBackInitial,
         readBackAfterSet,
@@ -5126,13 +5127,12 @@ const probes: Probe[] = [
       let threw = false;
       let code: string | null = null;
       let message: string | null = null;
-      const fires: Array<{ val: unknown; ts: number }> = [];
+      const fires: Array<{ val: unknown }> = [];
       let initialFires = 0;
       try {
         await rtdbSet(rtdbRef(rtdb, path), { seeded: true });
-        const start = Date.now();
         const unsub = rtdbOnValue(rtdbRef(rtdb, path), (snap) => {
-          fires.push({ val: snap.val(), ts: Date.now() - start });
+          fires.push({ val: snap.val() });
         });
         await new Promise((r) => setTimeout(r, 600));
         initialFires = fires.length;
@@ -5166,12 +5166,11 @@ const probes: Probe[] = [
       let threw = false;
       let code: string | null = null;
       let message: string | null = null;
-      const fires: Array<{ val: unknown; exists: boolean; ts: number }> = [];
+      const fires: Array<{ val: unknown; exists: boolean }> = [];
       let initialFires = 0;
       try {
-        const start = Date.now();
         const unsub = rtdbOnValue(rtdbRef(rtdb, path), (snap) => {
-          fires.push({ val: snap.val(), exists: snap.exists(), ts: Date.now() - start });
+          fires.push({ val: snap.val(), exists: snap.exists() });
         });
         await new Promise((r) => setTimeout(r, 600));
         initialFires = fires.length;
@@ -5950,7 +5949,7 @@ const probes: Probe[] = [
       return {
         threw,
         code,
-        message,
+        message: scrubOracleRunToken(message, RUN_ID),
         matchedKeys,
         values,
         ascendingFirstThree: JSON.stringify(values) === JSON.stringify([10, 20, 30]),
@@ -6794,7 +6793,6 @@ const probes: Probe[] = [
       let putOk = false;
       let putText: string | null = null;
       let fetchedSubtree: unknown = null;
-      let fetchedAt: number | null = null;
       let getStatus: number | null = null;
 
       const guarded = await withGuardedProbeRtdbRules({
@@ -6816,7 +6814,6 @@ const probes: Probe[] = [
           if (getRes.ok) {
             const got = (await getRes.json()) as Record<string, unknown>;
             fetchedSubtree = (got.rules as Record<string, unknown>)?.[probeKey] ?? null;
-            fetchedAt = Date.now();
           }
         },
       });
@@ -6854,9 +6851,7 @@ const probes: Probe[] = [
         validateRulePreserved:
           validateExpr === "newData.hasChildren(['title', 'body'])",
         exactRoundTrip: desiredJson === fetchedJson,
-        fetchedAt,
-        // Capture the fetched subtree so the observation file shows
-        // the exact return shape if any field diverged.
+        fetchedSubtreePresent: fetchedSubtree !== null,
         fetchedSubtree,
       };
     },
@@ -6915,10 +6910,7 @@ const probes: Probe[] = [
       const pollIntervalMs = 200;
       const maxWaitMs = 30_000;
       let firstSuccessElapsed: number | null = null;
-      let totalAttempts = 0;
-      let lastCode: string | null = null;
-      let lastMessage: string | null = null;
-      const attempts: Array<{ elapsedMs: number; ok: boolean; code: string | null }> = [];
+      const attempts: Array<{ ok: boolean; code: string | null }> = [];
       const guardedProp = await withGuardedProbeRtdbRules({
         session: oracleRulesSession,
         putUrl,
@@ -6932,25 +6924,17 @@ const probes: Probe[] = [
           if (putOk) {
             const deadline = deployStart + maxWaitMs;
             while (Date.now() < deadline && !oracleRulesSession?.isStopping) {
-              totalAttempts++;
               const t = Date.now();
               let attemptOk = false;
-              let attemptCode: string | null = null;
               try {
                 await rtdbSet(rtdbRef(activePropRtdb, probePath), { v: t });
                 attemptOk = true;
                 firstSuccessElapsed = t - deployStart;
-                attempts.push({ elapsedMs: t - deployStart, ok: true, code: null });
+                attempts.push({ ok: true, code: null });
                 break;
               } catch (e) {
-                attemptCode = (e as { code?: string }).code ?? null;
-                lastCode = attemptCode;
-                if (e instanceof Error) {
-                  lastMessage = e.message;
-                } else {
-                  lastMessage = String(e);
-                }
-                attempts.push({ elapsedMs: t - deployStart, ok: false, code: attemptCode });
+                const attemptCode = (e as { code?: string }).code ?? null;
+                attempts.push({ ok: false, code: attemptCode });
               }
               if (!attemptOk) {
                 await new Promise((r) => setTimeout(r, pollIntervalMs));
@@ -6972,14 +6956,10 @@ const probes: Probe[] = [
         putOk,
         putStatus,
         putError,
-        firstSuccessElapsedMs: firstSuccessElapsed,
-        totalAttempts,
-        lastCode,
-        lastMessage,
-        attempts,
+        succeededEventually: firstSuccessElapsed !== null,
+        finalAttemptOk: attempts.at(-1)?.ok === true,
         restoreOk,
         restoreStatus: guardedProp.restoreStatus,
-        // The harness currently waits 5s after a rules deploy — is that enough?
         within5s: firstSuccessElapsed !== null && firstSuccessElapsed <= 5_000,
         within10s: firstSuccessElapsed !== null && firstSuccessElapsed <= 10_000,
       };
@@ -7725,7 +7705,7 @@ const probes: Probe[] = [
           const row: DivergenceRow = {
             ruleId: r.id,
             opLabel: op.label,
-            opPath: opPathSubst,
+            opPath: op.opPath,
             operation: op.operation,
             authPresent: op.authPresent,
             prodAllowed,

@@ -41,39 +41,48 @@ export function createProbe(ctx: RtdbClimbContext): RtdbClimbProbe {
           const nested = ref(client.db, `${path}/parent/child`);
           const viaChild = child(ref(client.db, `${path}/parent`), 'child');
           await set(nested, { ok: true });
+          const projectId = ctx.config.projectId ?? '';
+          const configuredHost = new URL(ctx.config.databaseURL).hostname;
           const matchingUrl = `${ctx.config.databaseURL.replace(/\/$/, '')}/${path}/parent/child`;
           const matching = refFromURL(client.db, matchingUrl);
           const otherHost = new URL(ctx.config.databaseURL);
-          otherHost.hostname = `other-${otherHost.hostname}`;
+          otherHost.hostname = `other-${configuredHost}`;
           otherHost.pathname = `/${path}/parent/child`;
           const constrained = query(nested, orderByValue(), startAt(1), endAt(2));
           const equivalent = query(nested, endAt(2), orderByValue(), startAt(1));
           const invalidPathCharacters = ['.', '#', '$', '[', ']'];
           const ftpReference = refFromURL(
             client.db,
-            `ftp://${new URL(ctx.config.databaseURL).hostname}/${path}/ftp-child`,
+            `ftp://${configuredHost}/${path}/ftp-child`,
           );
           const queryReference = refFromURL(
             client.db,
             `${ctx.config.databaseURL.replace(/\/$/, '')}/${path}/query-child?ignored=true`,
           );
+          const rawMismatched = await captureInvocation(() => refFromURL(client.db, otherHost.toString()));
+          const scrubbedMismatched: Record<string, unknown> = { ...rawMismatched };
+          if (typeof rawMismatched.message === 'string' && configuredHost.length > 0) {
+            scrubbedMismatched.message = rawMismatched.message
+              .split(configuredHost)
+              .join('example-project-rtdb.firebaseio.com');
+          }
           return {
             root: {
               key: root.key,
               parent: root.parent,
               rootKey: root.root.key,
-              toString: referenceStringShape(root.toString(), '/'),
+              toString: referenceStringShape(root.toString(), '/', projectId),
             },
             nested: {
               key: nested.key,
               parentKey: nested.parent?.key ?? null,
               rootKey: nested.root.key,
-              toString: referenceStringShape(nested.toString(), `${path}/parent/child`),
+              toString: referenceStringShape(nested.toString(), `${path}/parent/child`, projectId),
               childToStringMatches: viaChild.toString() === nested.toString(),
             },
             queryIdentity: {
-              referenceToJSON: referenceStringShape(nested.toJSON(), `${path}/parent/child`),
-              queryToJSON: referenceStringShape(constrained.toJSON(), `${path}/parent/child`),
+              referenceToJSON: referenceStringShape(nested.toJSON(), `${path}/parent/child`, projectId),
+              queryToJSON: referenceStringShape(constrained.toJSON(), `${path}/parent/child`, projectId),
               sameReference: nested.isEqual(viaChild),
               defaultQueryEqualsReference: nested.isEqual(query(nested)),
               referenceEqualsDefaultQuery: query(nested).isEqual(nested),
@@ -93,15 +102,15 @@ export function createProbe(ctx: RtdbClimbContext): RtdbClimbProbe {
                 client.db,
                 `${ctx.config.databaseURL.replace(/\/$/, '')}/${path}/fragment#bad`,
               )),
-              ftpUrl: referenceStringShape(ftpReference.toString(), `${path}/ftp-child`),
-              queryUrl: referenceStringShape(queryReference.toString(), `${path}/query-child`),
+              ftpUrl: referenceStringShape(ftpReference.toString(), `${path}/ftp-child`, projectId),
+              queryUrl: referenceStringShape(queryReference.toString(), `${path}/query-child`, projectId),
             },
             matchingUrl: {
               key: matching.key,
               value: (await get(matching)).val(),
-              toString: referenceStringShape(matching.toString(), `${path}/parent/child`),
+              toString: referenceStringShape(matching.toString(), `${path}/parent/child`, projectId),
             },
-            mismatchedHost: await captureInvocation(() => refFromURL(client.db, otherHost.toString())),
+            mismatchedHost: scrubbedMismatched,
             malformedUrl: await captureInvocation(() => refFromURL(client.db, 'not-an-absolute-url')),
             forgedReference: await captureInvocation(() => get({} as never)),
             terminal: await adminRead(ctx, path),

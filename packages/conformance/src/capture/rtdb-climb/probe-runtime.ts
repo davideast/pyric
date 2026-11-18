@@ -106,12 +106,18 @@ export function directConstruction(constructor: new () => object): Record<string
   }
 }
 
-export function referenceStringShape(value: string, expectedPath: string): Record<string, unknown> {
+export function referenceStringShape(
+  value: string,
+  expectedPath: string,
+  projectId: string,
+): Record<string, unknown> {
   const parsed = new URL(value);
   const normalizedExpected = `/${expectedPath.split('/').filter(Boolean).join('/')}`;
   return {
     protocol: parsed.protocol,
-    hostname: parsed.hostname,
+    hostIsProjectScoped:
+      projectId.length > 0 && parsed.hostname.startsWith(`${projectId}-`),
+    endsWithFirebaseio: parsed.hostname.endsWith('.firebaseio.com'),
     pathMatches: parsed.pathname.replace(/\/$/, '') === normalizedExpected.replace(/\/$/, ''),
   };
 }
