@@ -24,6 +24,11 @@ import {
   markSaltedWorkerDir,
   touchBundleCacheDir,
 } from '../../src/serve/bundle-cache-evict.js';
+import {
+  STANDALONE_SERVE_MARKER,
+  evictStandaloneServeCache,
+  isAllowlistedStandaloneServeRoot,
+} from '../../src/serve/standalone-cache-evict.js';
 import { createViteWorkerRuntime } from '../../src/serve/vite-worker-runtime.js';
 import { LOCK_DIR } from '../../src/serve/worker-build-lock.js';
 
@@ -303,6 +308,13 @@ describe('bundle cache eviction (serve-cache and vite-worker)', () => {
 
     expect(evictViteWorkerCache(nonAllowlistedSubdir, 'current', { maxEntries: 1, minAgeMs: 1, nowMs })).toEqual([]);
     expect(evictServeCache(nonAllowlistedSubdir, 'current', 1, { maxEntries: 1, minAgeMs: 1, nowMs })).toEqual([]);
+    expect(evictStandaloneServeCache(nonAllowlistedSubdir, 'current', { maxEntries: 1, minAgeMs: 1, nowMs })).toEqual([]);
+    expect(isAllowlistedStandaloneServeRoot(nonAllowlistedSubdir)).toBe(false);
+    expect(isAllowlistedStandaloneServeRoot(tmpdir())).toBe(false);
+    expect(isAllowlistedStandaloneServeRoot('/tmp')).toBe(false);
+    expect(isAllowlistedStandaloneServeRoot(join(homedir(), '.pyric'))).toBe(false);
+    expect(isAllowlistedStandaloneServeRoot(join(homedir(), '.pyric', 'vite-worker'))).toBe(false);
+    expect(isAllowlistedStandaloneServeRoot(allowlistedCacheDir)).toBe(true);
     expect(existsSync(join(nonAllowlistedSubdir, 'pyric-worker-old'))).toBe(true);
     expect(existsSync(join(nonAllowlistedSubdir, '0.1.0-old'))).toBe(true);
 
@@ -332,6 +344,14 @@ describe('bundle cache eviction (serve-cache and vite-worker)', () => {
           ).toEqual([]);
           expect(
             evictServeCache(candidate, 'current', 1, {
+              maxEntries: 1,
+              minAgeMs: 1,
+              nowMs,
+              allowCustomRootForTesting: true,
+            }),
+          ).toEqual([]);
+          expect(
+            evictStandaloneServeCache(candidate, 'current', {
               maxEntries: 1,
               minAgeMs: 1,
               nowMs,
@@ -466,6 +486,46 @@ describe('bundle cache eviction (serve-cache and vite-worker)', () => {
     symlinkSync(externalTarget, symSaltedDir);
     runtime.dispose?.();
     expect(lstatSync(symSaltedDir).isSymbolicLink()).toBe(true);
+    expect(existsSync(externalTarget)).toBe(true);
+  });
+
+  it('evicts overflow standalone-serve builds only when both .pyric-standalone and .complete markers exist, skipping unmarked dirs and symlinks', () => {
+    const root = makeAllowlistedCacheRoot('standalone-evict');
+    const externalTarget = makeTempRoot('pyric-standalone-ext-');
+    const nowMs = 1_800_000_000_000;
+
+    for (let i = 0; i < 4; i += 1) {
+      const entry = join(root, `0.2.${String(i)}-hash`);
+      mkdirSync(join(entry, 'sdk'), { recursive: true });
+      writeFileSync(join(entry, STANDALONE_SERVE_MARKER), `0.2.${String(i)}\n`);
+      writeFileSync(join(entry, 'sdk', '.complete'), `0.2.${String(i)}`);
+      setAgeMs(entry, nowMs, (i + 3) * 3_600_000);
+    }
+
+    const unmarked = join(root, '0.1.9-unmarked');
+    mkdirSync(join(unmarked, 'sdk'), { recursive: true });
+    writeFileSync(join(unmarked, 'sdk', '.complete'), '0.1.9');
+    setAgeMs(unmarked, nowMs, 10 * 3_600_000);
+
+    mkdirSync(join(externalTarget, 'sdk'), { recursive: true });
+    writeFileSync(join(externalTarget, STANDALONE_SERVE_MARKER), 'ext\n');
+    writeFileSync(join(externalTarget, 'sdk', '.complete'), 'ext');
+    setAgeMs(externalTarget, nowMs, 10 * 3_600_000);
+    const symEntry = join(root, '0.1.8-symlink');
+    symlinkSync(externalTarget, symEntry);
+
+    touchBundleCacheDir(join(root, '0.2.3-hash'), nowMs);
+
+    const removed = evictStandaloneServeCache(root, '0.3.0-current', {
+      maxEntries: 2,
+      minAgeMs: 7_200_000,
+      nowMs,
+    });
+
+    expect(removed.sort()).toEqual(['0.2.0-hash', '0.2.1-hash', '0.2.2-hash']);
+    expect(existsSync(join(root, '0.2.3-hash'))).toBe(true);
+    expect(existsSync(unmarked)).toBe(true);
+    expect(lstatSync(symEntry).isSymbolicLink()).toBe(true);
     expect(existsSync(externalTarget)).toBe(true);
   });
 });
