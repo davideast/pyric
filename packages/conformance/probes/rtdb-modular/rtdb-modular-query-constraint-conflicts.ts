@@ -146,9 +146,8 @@ export async function probeQueryConstraintConflicts(): Promise<
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: ['web-config', 'dedicated-rtdb'],
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'rtdb-modular#M69',
+  rowIds: ['rtdb-modular#M69'],
   description:
     'RTDB modular synchronous query() constraint-conflict validation across duplicate orderBy*, duplicate limits, duplicate start/end bounds, equalTo() combinations, and chained query() calls.',
   async observe() {

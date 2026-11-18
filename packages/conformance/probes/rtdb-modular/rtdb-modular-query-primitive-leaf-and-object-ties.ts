@@ -194,9 +194,8 @@ export async function observeQueryPrimitiveLeafAndObjectTies(
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: ['web-config', 'dedicated-rtdb'],
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'rtdb-modular#M64',
+  rowIds: ['rtdb-modular#M64', 'rtdb-modular#M72'],
   description:
     'RTDB modular query behavior on a primitive scalar leaf (unfiltered vs bounded/limited) and orderByValue() nameCompare tie-breaking plus no-change suppression on object-valued children.',
   async observe() {

@@ -1,7 +1,9 @@
 {
   "name": "rtdb-modular-orderbykey-namecompare",
-  "matrixRow": "",
-  "rowIds": [],
+  "matrixRow": "rtdb-modular#M50",
+  "rowIds": [
+    "rtdb-modular#M50"
+  ],
   "description": "RTDB modular orderByKey() nameCompare ordering across negative, zero, leading-zero, multi-digit integer, and non-integer keys plus startAt/endAt numeric-key cursor windows on get() and onValue().",
   "observedAt": "2026-11-18T04:35:34.998Z",
   "fbSdkVersion": "12.19.0",

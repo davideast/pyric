@@ -169,9 +169,8 @@ export async function observeQueryChainingAndForEachOrder(
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: ['web-config', 'dedicated-rtdb'],
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'rtdb-modular#M36',
+  rowIds: ['rtdb-modular#M36', 'rtdb-modular#M60', 'rtdb-modular#M61'],
   description:
     'RTDB modular nested query(query(ref, c1), c2) constraint folding parity with flat query() and DataSnapshot.forEach() executor sort order vs Object.keys(snap.val()) across non-integer and sparse integer keys.',
   async observe() {

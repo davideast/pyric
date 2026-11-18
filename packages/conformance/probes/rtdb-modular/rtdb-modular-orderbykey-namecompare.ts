@@ -117,9 +117,8 @@ export async function observeOrderByKeyNameCompare(
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: ['web-config', 'dedicated-rtdb'],
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'rtdb-modular#M50',
+  rowIds: ['rtdb-modular#M50'],
   description:
     'RTDB modular orderByKey() nameCompare ordering across negative, zero, leading-zero, multi-digit integer, and non-integer keys plus startAt/endAt numeric-key cursor windows on get() and onValue().',
   async observe() {

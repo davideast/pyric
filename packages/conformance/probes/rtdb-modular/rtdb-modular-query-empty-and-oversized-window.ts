@@ -134,9 +134,8 @@ export async function observeQueryEmptyAndOversizedWindow(
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: ['web-config', 'dedicated-rtdb'],
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'rtdb-modular#M53',
+  rowIds: ['rtdb-modular#M53', 'rtdb-modular#M56', 'rtdb-modular#M59'],
   description:
     'RTDB modular query empty-match equalTo(), oversized limitToFirst()/limitToLast() windows, and initial onValue(query) snapshot shape on an absent path.',
   async observe() {

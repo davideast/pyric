@@ -1,12 +1,13 @@
 import { describe, expect, test } from 'bun:test';
 import { initializeSandbox } from 'pyric/sandbox';
 import * as pyricRtdb from 'pyric/database';
+import { loadObservations } from '../../src/ledger.ts';
 import {
   loadModularProbes,
   printModularProbePreview,
   selectModularProbes,
 } from '../../src/sdk-probes.ts';
-import { expectStagedUntilCaptured } from './staged-capture-assertions.ts';
+import { loadPendingRowLinkObservations } from '../../src/staged-captures.ts';
 import {
   observeOrderByKeyNameCompare,
   probe as orderByKeyProbe,
@@ -94,48 +95,80 @@ function createSandboxProbeHandle(): {
   return { db, sdk: pyricRtdb };
 }
 
-describe('RTDB modular query semantics staged probes (sdk-probes)', () => {
-  test('registers all 6 RTDB query semantics probes on sdk-probes with pendingRowLink and empty rowIds', async () => {
+describe('RTDB modular query semantics probes (sdk-probes)', () => {
+  test('links all 6 RTDB query semantics probes and committed observations to registry rows', async () => {
     const loaded = await loadModularProbes('sdk-probes');
     const loadedIds = loaded.map((entry) => entry.id);
     for (const id of RTDB_QUERY_SEMANTICS_PROBE_IDS) {
       expect(loadedIds).toContain(id);
     }
 
-    const probes = [
-      orderByKeyProbe,
-      queryChainingProbe,
-      queryConflictProbe,
-      emptyAndOversizedProbe,
-      primitiveLeafAndObjectTiesProbe,
-      tieBreakerAndMissingChildProbe,
-    ];
-    for (const probeRecord of probes) {
-      expect(probeRecord.rig).toBe('sdk-probes');
-      expect(probeRecord.requires).toEqual(['web-config', 'dedicated-rtdb']);
-      expect(probeRecord.pendingRowLink).toBe(true);
-      expect(probeRecord.matrixRow).toBe('');
-      expect(probeRecord.rowIds).toEqual([]);
-      expect(probeRecord.description.length).toBeGreaterThan(20);
-    }
+    const expectedLinks = [
+      [
+        'rtdb-modular-orderbykey-namecompare',
+        orderByKeyProbe,
+        'rtdb-modular#M50',
+        ['rtdb-modular#M50'],
+      ],
+      [
+        'rtdb-modular-query-chaining-and-foreach-order',
+        queryChainingProbe,
+        'rtdb-modular#M36',
+        ['rtdb-modular#M36', 'rtdb-modular#M60', 'rtdb-modular#M61'],
+      ],
+      [
+        'rtdb-modular-query-constraint-conflicts',
+        queryConflictProbe,
+        'rtdb-modular#M69',
+        ['rtdb-modular#M69'],
+      ],
+      [
+        'rtdb-modular-query-empty-and-oversized-window',
+        emptyAndOversizedProbe,
+        'rtdb-modular#M53',
+        ['rtdb-modular#M53', 'rtdb-modular#M56', 'rtdb-modular#M59'],
+      ],
+      [
+        'rtdb-modular-query-primitive-leaf-and-object-ties',
+        primitiveLeafAndObjectTiesProbe,
+        'rtdb-modular#M64',
+        ['rtdb-modular#M64', 'rtdb-modular#M72'],
+      ],
+      [
+        'rtdb-modular-startat-key-tiebreaker-and-missing-child',
+        tieBreakerAndMissingChildProbe,
+        'rtdb-modular#M62',
+        ['rtdb-modular#M62', 'rtdb-modular#M63'],
+      ],
+    ] as const;
 
+    const observations = new Map(
+      loadObservations().map((item) => [item.name, item] as const),
+    );
+    const pendingRowLinkIds = loadPendingRowLinkObservations();
     const unfilteredIds = new Set(
       selectModularProbes(loaded, [], 'sdk-probes', {
         includeUncapturedStaged: false,
       }).map((entry) => entry.id),
     );
 
-    expectStagedUntilCaptured(RTDB_QUERY_SEMANTICS_PROBE_IDS, {
-      rig: 'sdk-probes',
-      filterFlag: '--probe',
-      filterValueFor: (name) => name,
-      whenUncaptured(name) {
-        expect(unfilteredIds.has(name)).toBe(false);
-      },
-      whenCaptured(name) {
-        expect(unfilteredIds.has(name)).toBe(true);
-      },
-    });
+    for (const [id, probeRecord, expectedMatrixRow, expectedRowIds] of expectedLinks) {
+      expect(probeRecord.rig).toBe('sdk-probes');
+      expect(probeRecord.requires).toEqual(['web-config', 'dedicated-rtdb']);
+      expect(probeRecord.pendingRowLink).toBeUndefined();
+      expect(probeRecord.matrixRow).toBe(expectedMatrixRow);
+      expect(probeRecord.rowIds).toEqual([...expectedRowIds]);
+      expect(probeRecord.description.length).toBeGreaterThan(20);
+      expect(unfilteredIds.has(id)).toBe(true);
+      expect(pendingRowLinkIds.has(id)).toBe(false);
+
+      const committed = observations.get(id);
+      expect(committed).toBeDefined();
+      if (committed !== undefined) {
+        expect(committed.matrixRow).toBe(expectedMatrixRow);
+        expect(committed.rowIds).toEqual([...expectedRowIds]);
+      }
+    }
 
     const lines: string[] = [];
     printModularProbePreview({
