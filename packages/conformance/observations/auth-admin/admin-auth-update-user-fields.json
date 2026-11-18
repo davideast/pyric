@@ -1,0 +1,61 @@
+{
+  "name": "admin-auth-update-user-fields",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "firebase-admin/auth updateUser(uid, properties) mutates email, password, emailVerified, displayName, photoURL, phoneNumber, and disabled, clears nullable profile and phone fields with null, updates providerData accordingly, and rejects unknown UIDs with auth/user-not-found.",
+  "observedAt": "2026-11-18T07:58:21.493Z",
+  "adminSdkVersion": "13.10.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "updatedReturned": {
+      "emailMatchesExpected": true,
+      "emailVerified": true,
+      "displayName": "Updated Name",
+      "photoURL": "https://example.com/avatar.png",
+      "phoneNumberMatchesExpected": true,
+      "disabled": true,
+      "providerIds": [
+        "password",
+        "phone"
+      ]
+    },
+    "updatedFetched": {
+      "emailMatchesExpected": true,
+      "emailVerified": true,
+      "displayName": "Updated Name",
+      "photoURL": "https://example.com/avatar.png",
+      "phoneNumberMatchesExpected": true,
+      "disabled": true,
+      "providerIds": [
+        "password",
+        "phone"
+      ]
+    },
+    "clearedReturned": {
+      "emailMatchesExpected": true,
+      "emailVerified": true,
+      "displayName": null,
+      "photoURL": null,
+      "phoneNumberMatchesExpected": true,
+      "disabled": false,
+      "providerIds": [
+        "password"
+      ]
+    },
+    "clearedFetched": {
+      "emailMatchesExpected": true,
+      "emailVerified": true,
+      "displayName": null,
+      "photoURL": null,
+      "phoneNumberMatchesExpected": true,
+      "disabled": false,
+      "providerIds": [
+        "password"
+      ]
+    },
+    "missingUserError": {
+      "threw": true,
+      "code": "auth/user-not-found"
+    }
+  }
+}
