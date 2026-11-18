@@ -221,6 +221,24 @@ try {
     );
   }
 
+  // storage-delete-missing-throws
+  {
+    const produced = observation('storage-delete-missing-throws');
+    const expected = {
+      threw: produced.threw,
+      code: produced.code,
+      errorName: produced.errorName,
+      isFirebaseError: produced.isFirebaseError,
+    };
+    const missingRef = ref(storage, 'pyric_oracle/run-1/delete-missing/never-existed.bin');
+    assert.deepEqual(await captureClientError(() => deleteObject(missingRef)), expected);
+
+    const onceRef = ref(storage, 'pyric_oracle/run-1/delete-missing/once.bin');
+    await uploadBytes(onceRef, new Uint8Array([7, 8, 9]));
+    await deleteObject(onceRef);
+    assert.deepEqual(await captureClientError(() => deleteObject(onceRef)), expected);
+  }
+
   // storage-listall-root-ref
   {
     const produced = observation('storage-listall-root-ref');

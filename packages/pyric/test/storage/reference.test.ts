@@ -284,10 +284,19 @@ describe('deleteObject', () => {
     await expect(getBlob(r)).rejects.toThrow(/object-not-found/);
   });
 
-  it('is a no-op on missing paths (does not throw)', async () => {
+  it('throws storage/object-not-found on missing paths and on re-delete', async () => {
     const storage = freshStorage('delete-missing');
-    const r = ref(storage, 'sessions/never.json');
-    await deleteObject(r); // should resolve without error
+    const missing = ref(storage, 'sessions/never.json');
+    await expect(deleteObject(missing)).rejects.toMatchObject({
+      code: 'storage/object-not-found',
+    });
+
+    const once = ref(storage, 'sessions/once.json');
+    await uploadBytes(once, new Blob(['x']));
+    await deleteObject(once);
+    await expect(deleteObject(once)).rejects.toMatchObject({
+      code: 'storage/object-not-found',
+    });
   });
 
   it('throws invalid-root-operation synchronously on root', () => {

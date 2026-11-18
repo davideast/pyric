@@ -55,6 +55,21 @@ function heldNamedStorageBuckets(sandbox: SandboxSurfaceContext['sandbox']): str
 export const RESET_SCOPES = ['all', 'firestore', 'database', 'storage', 'auth'] as const;
 type Scope = (typeof RESET_SCOPES)[number];
 
+function isStorageObjectNotFound(error: unknown): boolean {
+  return (error as { code?: unknown } | null)?.code === 'storage/object-not-found';
+}
+
+async function removeStoredObject(
+  storage: ReturnType<typeof getAdminStorageSandbox>,
+  path: string,
+): Promise<void> {
+  try {
+    await deleteObject(storageRef(storage, path));
+  } catch (error) {
+    if (!isStorageObjectNotFound(error)) throw error;
+  }
+}
+
 async function resetScope(scope: Scope, ctx: SandboxSurfaceContext): Promise<void> {
   if (scope === 'firestore') {
     const db = getAdminFirestore(ctx.sandbox);
@@ -75,7 +90,7 @@ async function resetScope(scope: Scope, ctx: SandboxSurfaceContext): Promise<voi
   if (scope === 'storage') {
     const storage = getAdminStorageSandbox(ctx.sandbox);
     for (const path of await listStoredPaths(storage)) {
-      await deleteObject(storageRef(storage, path));
+      await removeStoredObject(storage, path);
     }
     const namedBuckets = new Set([
       ...storageBucketsWithRules(ctx.sandbox),
@@ -85,7 +100,7 @@ async function resetScope(scope: Scope, ctx: SandboxSurfaceContext): Promise<voi
       if (!bucket || bucket === DEFAULT_BUCKET) continue;
       const namedStorage = getAdminStorageSandbox(ctx.sandbox, { bucket });
       for (const path of await listStoredPaths(namedStorage)) {
-        await deleteObject(storageRef(namedStorage, path));
+        await removeStoredObject(namedStorage, path);
       }
     }
     return;

@@ -3,7 +3,7 @@
  *
  * Object browse (`storage.listAll`/`getMetadata`), the MessagePort-only
  * `getBlob`, and the relay-safe base64 byte transfer (`putBytes`/`getBytes`)
- * plus idempotent `deleteObject`. A host with an HTTP byte route refuses
+ * plus `deleteObject`. A host with an HTTP byte route refuses
  * the byte-carrying frames (see `HostCtx.storageByteRoute`); its uploads
  * begin and finish here. Owns the storage lens resolver
  * (`lensStorage` — the storage mirror of the firestore/rtdb lens resolvers),
@@ -853,11 +853,9 @@ export async function handleStorageOp(
     }
 
     case 'storage.deleteObject': {
-      // `pyric/storage`'s sandbox delete is idempotent (no-op on missing) —
-      // matching the pyric-admin local arm's delete semantics. Rules enforce
-      // `write` under the op's lens; deletes emit `service_mutation` events.
-      // Async dispatch escapes the ambient window — thread provenance
-      // explicitly (issue #84 item 3).
+      // Rules enforce `delete` under the op's lens before checking existence,
+      // and missing objects reject with `storage/object-not-found`. Async
+      // dispatch escapes the ambient window; thread provenance explicitly.
       try {
         const storage = bindStorageOperationContext(
           opStorage(ctx, msg, port),

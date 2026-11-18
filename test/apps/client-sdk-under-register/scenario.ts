@@ -18,7 +18,13 @@ import { scenario, sleep, type App } from '../driver.ts';
 /** How long the host is paused: past two of discovery's one-second health probes. */
 const HOST_STALL_MS = 2_500;
 
-declare function readBack(): Promise<{ database: unknown; firestore: unknown; aggregate: unknown }>;
+declare function readBack(): Promise<{
+  database: unknown;
+  firestore: unknown;
+  aggregate: unknown;
+  storageDeleteMissing: unknown;
+  storageDeleteDeniedMissing: unknown;
+}>;
 
 type Outcome = { ok: true; value: unknown } | { ok: false; code: string | null; message: string };
 
@@ -85,6 +91,8 @@ export default scenario(async (app) => {
   await app.step('an upload issued before the connection attached went over the byte route', () => {
     expectOk(client, 'storage.upload', 'server/client.txt');
     expectOk(client, 'storage.url', '/__pyric/storage/v0/b/demo-app.appspot.com/o/server%2Fclient.txt');
+    expectCode(client, 'storage.deleteMissing', 'storage/object-not-found');
+    expectCode(client, 'storage.deleteDeniedMissing', 'storage/unauthorized');
   });
 
   await app.step('a resumable upload canceled after its last slice leaves no object once it rejects', () => {
@@ -146,7 +154,11 @@ export default scenario(async (app) => {
     const page = await app.page(host.url);
     await page.waitForFunction(() => 'readBack' in window);
     assert.deepEqual(await page.evaluate(() => readBack()), {
-      database: 'from client sdk', firestore: { from: 'client sdk' }, aggregate: { n: 4 },
+      database: 'from client sdk',
+      firestore: { from: 'client sdk' },
+      aggregate: { n: 4 },
+      storageDeleteMissing: 'storage/object-not-found',
+      storageDeleteDeniedMissing: 'storage/unauthorized',
     });
   });
 

@@ -136,9 +136,10 @@ describe('served entry + SharedWorker deleteObject, root listAll, and rules pari
     };
   }
 
-  test('storage#65 and storage#63: root deleteObject throws synchronously with zero RPCs and deleteObject removes bytes and metadata atomically', async () => {
+  test('storage#63..65: root deleteObject throws synchronously, deleteObject removes bytes and metadata atomically, and missing deleteObject rejects with storage/object-not-found', async () => {
     const rootObs = loadBehavior('client-storage-deleteobject-root-ref');
     const atomicObs = loadBehavior('storage-deleteobject-removes-bytes-and-metadata');
+    const missingObs = loadBehavior('storage-delete-missing-throws');
     const session = await setupServedStorage();
 
     try {
@@ -166,6 +167,20 @@ describe('served entry + SharedWorker deleteObject, root listAll, and rules pari
       expect(errorName).toBe(rootObs.errorName);
       expect(isFbError).toBe(rootObs.isFirebaseError);
       expect(session.getStorageOpCount() - beforeRootDelete).toBe(rootObs.fetchCalls);
+
+      const expectedMissing = {
+        threw: missingObs.threw,
+        code: missingObs.code,
+        errorName: missingObs.errorName,
+        isFirebaseError: missingObs.isFirebaseError,
+      };
+      const neverExistedRef = session.servedStorage.ref(
+        session.storage,
+        'delete-missing/never-existed.bin',
+      );
+      expect(
+        await captureServedError(() => session.servedStorage.deleteObject(neverExistedRef)),
+      ).toEqual(expectedMissing);
 
       const targetRef = session.servedStorage.ref(session.storage, 'delete-atomic/item.bin');
       await session.servedStorage.uploadBytes(targetRef, new Uint8Array([16, 32, 48, 64]), {
@@ -196,6 +211,10 @@ describe('served entry + SharedWorker deleteObject, root listAll, and rules pari
       const deleteOut = await session.servedStorage.deleteObject(targetRef);
       expect(deleteOut === undefined).toBe(atomicObs.deleteResolvedUndefined);
 
+      expect(
+        await captureServedError(() => session.servedStorage.deleteObject(targetRef)),
+      ).toEqual(expectedMissing);
+
       const afterBytesErr = await captureServedError(() => session.servedStorage.getBytes(targetRef));
       expect({ ...afterBytesErr, byteLength: null, bytes: null }).toEqual(atomicObs.afterDeleteBytes);
 
@@ -206,6 +225,30 @@ describe('served entry + SharedWorker deleteObject, root listAll, and rules pari
         contentType: null,
         customMetadata: null,
       }).toEqual(atomicObs.afterDeleteMetadata);
+
+      await replaceStorageRules(
+        session.ctx.sandbox,
+        `rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /{allPaths=**} {
+      allow delete: if request.auth != null && resource.metadata.owner == request.auth.uid;
+    }
+  }
+}`,
+      );
+      await session.servedAuth.signInAnonymously(session.auth);
+      const guardedMissingErr = await captureServedError(() =>
+        session.servedStorage.deleteObject(
+          session.servedStorage.ref(session.storage, 'delete-missing/guarded.bin'),
+        ),
+      );
+      expect(guardedMissingErr).toEqual({
+        threw: true,
+        code: 'storage/unauthorized',
+        errorName: 'FirebaseError',
+        isFirebaseError: true,
+      });
     } finally {
       await session.cleanup();
     }

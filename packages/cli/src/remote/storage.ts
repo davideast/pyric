@@ -107,7 +107,13 @@ export function buildRemoteStorage(channel: RemoteStorageChannel): RemoteStorage
       return Buffer.from(res.dataB64, 'base64');
     },
     async deleteObject(path) {
-      await channel.op({ method: 'storage.deleteObject', path, actAs: ADMIN_LENS });
+      try {
+        await channel.op({ method: 'storage.deleteObject', path, actAs: ADMIN_LENS });
+      } catch (err) {
+        if (!isStorageObjectNotFound(err)) {
+          throw err;
+        }
+      }
     },
     async getMetadata(path) {
       return (await channel.op({

@@ -25,7 +25,7 @@ import { AUTH_REVOCATIONS_PATH, diffFullStates } from '../../../src/sandbox/bran
 import { getClock } from '../../../src/sandbox/clock.js';
 import { authAccountsFor } from 'pyric/sandbox/internal';
 import { getAdminStorageSandbox } from '../../../src/storage/internal.js';
-import { getBytes, ref as storageRef, uploadBytes } from '../../../src/storage/index.js';
+import { deleteObject, getBytes, ref as storageRef, uploadBytes } from '../../../src/storage/index.js';
 import { sandbox as authDriver } from '../../../src/auth/sandbox/driver.js';
 import { CANDIDATE_FIRESTORE_RULES, populatedSandbox } from './fixtures.js';
 
@@ -135,6 +135,22 @@ describe('promoteFullState lands the divergences the diff reports', () => {
     expect(landed.auth).toEqual(base.auth);
     expect(landed.database).toEqual(base.database);
     expect(landed.rules).toEqual(base.rules);
+  });
+
+  it('promotes a Storage object deletion even when the target already deleted the same path', async () => {
+    const source = await populatedSandbox();
+    const base = await captureFullState(source);
+    const next = await branchFrom(base, async (sandbox) => {
+      await deleteObject(storageRef(getAdminStorageSandbox(sandbox), 'docs/hello.txt'));
+    });
+    expect(diffFullStates(base, next).map((d) => d.service)).toEqual(['storage']);
+
+    const target = await targetOn(base);
+    await deleteObject(storageRef(getAdminStorageSandbox(target), 'docs/hello.txt'));
+    await promoteFullState(target, base, next);
+
+    const landed = await captureFullState(target);
+    expect(landed.storage).toEqual([]);
   });
 
   it('preserves full Storage object metadata on promotion and leaves zero storage divergences (ST-ENF-6)', async () => {

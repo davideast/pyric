@@ -205,8 +205,11 @@ describe('storage worker ops — putBytes / getBytes / deleteObject', () => {
     expect(err.code).toBe('storage/object-not-found');
   });
 
-  it('deleteObject removes the object and is idempotent on re-delete', async () => {
+  it('deleteObject removes the object and fails storage/object-not-found on missing or re-deleted paths', async () => {
     const ctx = makeCtx();
+    const neverErr = await opFail(ctx, { method: 'storage.deleteObject', path: 'tmp/never' });
+    expect(neverErr.code).toBe('storage/object-not-found');
+
     await opOk(ctx, {
       method: 'storage.putBytes',
       path: 'tmp/scratch',
@@ -215,8 +218,8 @@ describe('storage worker ops — putBytes / getBytes / deleteObject', () => {
     await opOk(ctx, { method: 'storage.deleteObject', path: 'tmp/scratch' });
     const err = await opFail(ctx, { method: 'storage.getBytes', path: 'tmp/scratch' });
     expect(err.code).toBe('storage/object-not-found');
-    // Idempotent: deleting the now-missing path still succeeds.
-    await opOk(ctx, { method: 'storage.deleteObject', path: 'tmp/scratch' });
+    const redeleteErr = await opFail(ctx, { method: 'storage.deleteObject', path: 'tmp/scratch' });
+    expect(redeleteErr.code).toBe('storage/object-not-found');
   });
 });
 
@@ -313,6 +316,15 @@ describe('storage worker ops — actAs lens against page-configured rules', () =
     await opOk(ctx, { method: 'storage.deleteObject', path: 'locked/x', ...ADMIN });
     const gone = await opFail(ctx, { method: 'storage.getBytes', path: 'locked/x', ...ADMIN });
     expect(gone.code).toBe('storage/object-not-found');
+
+    const deniedMissing = await opFail(ctx, { method: 'storage.deleteObject', path: 'locked/never' });
+    expect(deniedMissing.code).toBe('storage/unauthorized');
+    const adminMissing = await opFail(ctx, {
+      method: 'storage.deleteObject',
+      path: 'locked/never',
+      ...ADMIN,
+    });
+    expect(adminMissing.code).toBe('storage/object-not-found');
   });
 
   it('the { as: uid } lens evaluates rules AS that user (owner-only ruleset)', async () => {
