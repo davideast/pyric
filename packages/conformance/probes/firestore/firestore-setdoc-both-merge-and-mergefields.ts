@@ -6,9 +6,8 @@ import { withFirestoreProbeSession } from '../../src/sdk-probe-runtime.ts';
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: ['web-config', 'firestore-rules'],
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'firestore#29',
+  rowIds: ['firestore#29'],
   description:
     'Observes setDoc(ref, data, options) when both merge and mergeFields are supplied on the options object ({ merge: true, mergeFields } and { merge: false, mergeFields }).',
   async observe() {

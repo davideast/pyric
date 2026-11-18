@@ -1,7 +1,9 @@
 {
   "name": "firestore-setdoc-converter-options-forwarding",
-  "matrixRow": "",
-  "rowIds": [],
+  "matrixRow": "firestore#31",
+  "rowIds": [
+    "firestore#31"
+  ],
   "description": "setDoc on a converted DocumentReference invokes converter.toFirestore before writing, passing 1 arg on full writes and forwarding SetOptions as arg 2 on merge/mergeFields writes.",
   "observedAt": "2026-11-18T07:00:36.886Z",
   "fbSdkVersion": "12.19.0",

@@ -139,28 +139,35 @@ export class DocumentRefImpl implements DocumentReference {
     //     top-level fields, then dispatch the same way as merge:true.
     const auth = options?.auth !== undefined ? options.auth : this.auth;
 
-    if (options?.mergeFields !== undefined) {
-      // FS-B6: pass the full data + the field-path mask to the merge
-      // engine. It deep-merges only the listed (dot-separated) paths into
-      // the existing doc — dropping the old shallow top-level projection.
-      const mergeFields = normalizeMergeFields(options.mergeFields);
+    if (options?.merge === true) {
+      // FS-B6: deep-merge nested maps into the existing doc instead of the
+      // old shallow top-level spread. Checked before mergeFields to match
+      // firebase/firestore parseSetData precedence.
       const existing = this.env.getDocument(this.path);
-      const method = existing === null ? 'create' : 'update';
+      let method: 'create' | 'update' = 'update';
+      if (existing === null) {
+        method = 'create';
+      }
       const result = this.env.execute({
-        method, path: this.path, data, auth, merge: { mergeFields },
+        method, path: this.path, data, auth, merge: true,
         bypassRules: this.bypassRules,
       });
       if (!result.allowed) throwFromDenial(result, `set denied (as ${method})`);
       return;
     }
 
-    if (options?.merge === true) {
-      // FS-B6: deep-merge nested maps into the existing doc instead of the
-      // old shallow top-level spread.
+    if (options?.mergeFields !== undefined) {
+      // FS-B6: pass the full data + the field-path mask to the merge
+      // engine. It deep-merges only the listed (dot-separated) paths into
+      // the existing doc.
+      const mergeFields = normalizeMergeFields(options.mergeFields);
       const existing = this.env.getDocument(this.path);
-      const method = existing === null ? 'create' : 'update';
+      let method: 'create' | 'update' = 'update';
+      if (existing === null) {
+        method = 'create';
+      }
       const result = this.env.execute({
-        method, path: this.path, data, auth, merge: true,
+        method, path: this.path, data, auth, merge: { mergeFields },
         bypassRules: this.bypassRules,
       });
       if (!result.allowed) throwFromDenial(result, `set denied (as ${method})`);

@@ -60,13 +60,10 @@ export class WriteBatchImpl implements WriteBatch {
   set(ref: DocumentReference, data: DocumentData, options?: SetOptions): WriteBatch {
     this.assertNotCommitted();
     const operation: BatchOperationInput = { method: 'set', path: ref.path, data: cloneDoc(data) };
-    const mergeFields = options?.mergeFields;
-    const hasFieldMask = mergeFields !== undefined;
-    if (hasFieldMask) {
-      operation.merge = { mergeFields: normalizeMergeFields(mergeFields) };
-    } else {
-      const mergesAllFields = options?.merge === true;
-      if (mergesAllFields) operation.merge = true;
+    if (options?.merge === true) {
+      operation.merge = true;
+    } else if (options?.mergeFields !== undefined) {
+      operation.merge = { mergeFields: normalizeMergeFields(options.mergeFields) };
     }
     this.ops.push(operation);
     return this;

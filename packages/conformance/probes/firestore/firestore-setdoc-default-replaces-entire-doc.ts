@@ -4,9 +4,8 @@ import { withFirestoreProbeSession } from '../../src/sdk-probe-runtime.ts';
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: ['web-config', 'firestore-rules'],
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'firestore#26',
+  rowIds: ['firestore#26'],
   description:
     'setDoc(ref, data) without options (and with { merge: false }) replaces the existing document completely, removing unmentioned top-level and nested fields.',
   async observe() {

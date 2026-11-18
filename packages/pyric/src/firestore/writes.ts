@@ -49,9 +49,10 @@ import { markUserWriteValue } from './sandbox/unescaped-map.js';
  *     top-level fields, then merge. Other fields in `data` are
  *     ignored; other fields in the existing doc are preserved.
  *
- * `merge` and `mergeFields` are mutually exclusive; passing both is
- * a programming error (`mergeFields` wins on the sandbox path,
- * matching the JS SDK's effective behavior).
+ * When both `merge` and `mergeFields` are supplied on the same options
+ * object, `merge: true` takes precedence over `mergeFields`, whereas
+ * `{ merge: false, mergeFields }` applies `mergeFields` (matching
+ * `firebase/firestore` `parseSetData` order).
  */
 export interface SetOptions {
   merge?: boolean;
