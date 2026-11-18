@@ -1,0 +1,19 @@
+{
+  "name": "client-storage-getmetadata-root-ref",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "firebase/storage getMetadata(ref(storage)) on the root reference: observes client-side invalid-root-operation preflight with zero network requests.",
+  "observedAt": "2026-11-18T05:05:38.968Z",
+  "fbSdkVersion": "12.19.0",
+  "behavior": {
+    "rootFullPath": "",
+    "rootName": "",
+    "threw": true,
+    "threwSynchronously": true,
+    "code": "storage/invalid-root-operation",
+    "errorName": "FirebaseError",
+    "isFirebaseError": true,
+    "message": "Firebase Storage: The operation 'getMetadata' cannot be performed on a root reference, create a non-root reference using child, such as .child('file.png'). (storage/invalid-root-operation)",
+    "fetchCalls": 0
+  }
+}
