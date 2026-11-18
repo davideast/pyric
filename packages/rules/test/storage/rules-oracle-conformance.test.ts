@@ -39,11 +39,12 @@ describe('oracle conformance (rules-storage)', () => {
     for (const scenario of ALL_RULES_STORAGE_SCENARIOS) {
       const pinnedError = parsePins.get(storageObservationName(scenario));
       const error = parseError(scenario.rules);
-      if (pinnedError === undefined) {
-        expect(error, `scenario "${scenario.id}" must parse`).toBeUndefined();
+      if (pinnedError !== undefined) {
+        expect(error, `scenario "${scenario.id}" is pinned as a parse divergence`).toContain(pinnedError);
         continue;
       }
-      expect(error, `scenario "${scenario.id}" is pinned as a parse divergence`).toContain(pinnedError);
+      if (scenario.allowCompileError) continue;
+      expect(error, `scenario "${scenario.id}" must parse`).toBeUndefined();
     }
   });
 

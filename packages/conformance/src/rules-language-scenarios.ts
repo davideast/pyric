@@ -9,6 +9,16 @@ import { firestoreObservationMatchesScenario } from './firestore-rules-input-dig
 import { storageRulesTestInputDigest } from './storage-rules-input-digest.ts';
 import { loadStorageRulesExceptions } from './storage-rules-exceptions.ts';
 import { hasEmptyObservationRowIds } from './staged-captures.ts';
+import { parseStorageRules } from '../../rules/src/storage/rules.ts';
+
+function canParseStorageScenario(rules: string): boolean {
+  try {
+    parseStorageRules(rules);
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 interface StorageObservationIdentity {
   inputDigest?: { algorithm?: unknown; value?: unknown };
@@ -98,9 +108,15 @@ export function loadRulesLanguageScenarios(
   const parsePinned = new Set([...loadStorageRulesExceptions()]
     .filter(([, pin]) => pin.kind === 'parse')
     .map(([name]) => name));
-  const scenarios = ALL_RULES_STORAGE_SCENARIOS.map(({ id, rules }): RulesLanguageScenario => (
-    parsePinned.has(`${prefix}${id}`) ? { id, rules, constructs: [] } : { id, rules }
-  ));
+  const scenarios = ALL_RULES_STORAGE_SCENARIOS.map(({ id, rules, allowCompileError }): RulesLanguageScenario => {
+    if (parsePinned.has(`${prefix}${id}`)) {
+      return { id, rules, constructs: [] };
+    }
+    if (allowCompileError && !canParseStorageScenario(rules)) {
+      return { id, rules, constructs: [] };
+    }
+    return { id, rules };
+  });
   const scenariosById = new Map(ALL_RULES_STORAGE_SCENARIOS.map((scenario) => [scenario.id, scenario]));
   const twinIds = new Set<string>();
   for (const id of candidateTwinIds) {
