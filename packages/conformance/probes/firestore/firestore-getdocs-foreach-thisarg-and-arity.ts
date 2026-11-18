@@ -4,9 +4,8 @@ import { withFirestoreProbeSession } from '../../src/sdk-probe-runtime.ts';
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: ['web-config', 'firestore-rules'],
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'firestore#22a',
+  rowIds: ['firestore#22a'],
   description:
     'QuerySnapshot.forEach(callback, thisArg) invokes callback.call(thisArg, doc) once per document in query order with single-argument arity across raw and withConverter queries.',
   async observe() {

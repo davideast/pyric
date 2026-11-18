@@ -4,9 +4,8 @@ import { withFirestoreProbeSession } from '../../src/sdk-probe-runtime.ts';
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: ['web-config', 'firestore-rules'],
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'firestore#16',
+  rowIds: ['firestore#16', 'firestore#17', 'firestore#18', 'firestore#19'],
   description:
     'getDoc(ref) returns a DocumentSnapshot with id, exists() method, data() (undefined when missing), and a tagged snap.ref usable in follow-up updateDoc, getDoc, and deleteDoc calls.',
   async observe() {
