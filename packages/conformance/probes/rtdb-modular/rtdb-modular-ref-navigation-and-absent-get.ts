@@ -133,11 +133,17 @@ export async function observeRefNavigationAndAbsentGet(
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: ['web-config', 'dedicated-rtdb'],
-  pendingRowLink: true,
   description:
     'Modular RTDB ref(db, path?), child(ref, subpath), parent, root, DataSnapshot shape (val, exists, key, child, hasChildren, size, toJSON, absence of numChildren), and get() on an absent path.',
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'rtdb-modular#M4',
+  rowIds: [
+    'rtdb-modular#M4',
+    'rtdb-modular#M5',
+    'rtdb-modular#M6',
+    'rtdb-modular#M7',
+    'rtdb-modular#M8',
+    'rtdb-modular#M9',
+  ],
   observe() {
     return withRtdbProbeSession({}, async ({ runPath, db, rtdbSdk }) => {
       return observeRefNavigationAndAbsentGet(

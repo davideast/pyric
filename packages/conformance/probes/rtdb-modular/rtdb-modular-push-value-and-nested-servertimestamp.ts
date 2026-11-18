@@ -130,11 +130,10 @@ export async function observePushValueAndNestedServerTimestamp(
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: ['web-config', 'dedicated-rtdb'],
-  pendingRowLink: true,
   description:
     'Modular RTDB push(ref, value) child write and serverTimestamp() sentinel marker ({ ".sv": "timestamp" }) plus resolution when nested deep inside multi-path update() payloads.',
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'rtdb-modular#M18',
+  rowIds: ['rtdb-modular#M18', 'rtdb-modular#M20', 'rtdb-modular#M22'],
   observe() {
     return withRtdbProbeSession({}, async ({ runPath, db, rtdbSdk }) => {
       return observePushValueAndNestedServerTimestamp(

@@ -196,11 +196,10 @@ export function makeRtdbRef(port: ClientPort, path: string, instance?: ClientRtd
   return self;
 }
 
-function validateRtdbPath(path: string, allowEmpty: boolean): void {
+function validateRtdbPath(path: string): void {
   const normalized = path.replace(/^\/*\.info(\/|$)/, '/');
-  const isInvalidLength = !allowEmpty && path.length === 0;
   const containsForbiddenChars = /[.#$[\]]/.test(normalized);
-  if (isInvalidLength || containsForbiddenChars) {
+  if (path.length === 0 || containsForbiddenChars) {
     throw new Error(
       `child failed: path argument was an invalid path = "${path}". Paths must be non-empty strings and can't contain ".", "#", "$", "[", or "]"`,
     );
@@ -211,12 +210,12 @@ export function rtdbRef(db: ClientRtdb, path?: string): RtdbRefHandle {
   if (isDisconnectedPort(db.port)) {
     throw new Error('FIREBASE FATAL ERROR: Cannot call ref on a deleted database. ');
   }
-  if (path !== undefined) validateRtdbPath(path, true);
+  if (path !== undefined) validateRtdbPath(path);
   return makeRtdbRef(db.port, path ?? '/', db.instance);
 }
 
 export function rtdbChild(parent: RtdbRefHandle, path: string): RtdbRefHandle {
-  validateRtdbPath(path, false);
+  validateRtdbPath(path);
   return makeRtdbRef(parent.port, `${parent.path}/${path}`, parent.instance);
 }
 

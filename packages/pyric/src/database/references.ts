@@ -12,11 +12,11 @@ import { queryIdentifier } from './query-shape.js';
  * Build a {@link DatabaseReference} at `path` (default root).
  *
  * Path normalisation: leading + trailing slashes are stripped;
- * empty path / `'/'` becomes the root.
+ * `'/'` becomes the root while `''` throws like `child()`.
  */
 export function ref(db: Database, path?: string): DatabaseReference {
   const target = targetOf(db);
-  if (path !== undefined) validateReferencePath(path, true);
+  if (path !== undefined) validateReferencePath(path, false);
   return buildSandboxRef(target, path ?? '/');
 }
 

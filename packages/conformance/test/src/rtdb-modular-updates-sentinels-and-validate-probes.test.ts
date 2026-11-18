@@ -24,12 +24,13 @@ import {
   type RejectedWriteShape,
   type RulesValidateAndDeniedWritesSdk,
 } from '../../probes/rtdb-modular/rtdb-modular-rules-validate-and-denied-writes.ts';
+import { loadObservations } from '../../src/ledger.ts';
 import {
   loadModularProbes,
   printModularProbePreview,
   selectModularProbes,
 } from '../../src/sdk-probes.ts';
-import { expectStagedUntilCaptured } from './staged-capture-assertions.ts';
+import { loadPendingRowLinkObservations } from '../../src/staged-captures.ts';
 
 const RTDB_UPDATES_AND_VALIDATE_PROBE_IDS = [
   'rtdb-modular-multipath-update-and-write-order',
@@ -60,46 +61,84 @@ function createSandboxHandle(rulesObject: Record<string, unknown>) {
   };
 }
 
-describe('RTDB modular updates, sentinels, and .validate staged probes (sdk-probes)', () => {
-  test('registers all 4 updates, sentinels, and .validate probes on sdk-probes with pendingRowLink and empty rowIds', async () => {
+describe('RTDB modular updates, sentinels, and .validate probes (sdk-probes)', () => {
+  test('links all 4 updates, sentinels, and .validate probes and committed observations to registry rows', async () => {
     const loaded = await loadModularProbes('sdk-probes');
     const loadedIds = loaded.map((entry) => entry.id);
     for (const id of RTDB_UPDATES_AND_VALIDATE_PROBE_IDS) {
       expect(loadedIds).toContain(id);
     }
 
-    const probes = [
-      multiPathUpdateProbe,
-      pushAndServerTimestampProbe,
-      refNavAndAbsentGetProbe,
-      rulesValidateAndDeniedProbe,
-    ];
-    for (const probeRecord of probes) {
-      expect(probeRecord.rig).toBe('sdk-probes');
-      expect(probeRecord.requires).toEqual(['web-config', 'dedicated-rtdb']);
-      expect(probeRecord.pendingRowLink).toBe(true);
-      expect(probeRecord.matrixRow).toBe('');
-      expect(probeRecord.rowIds).toEqual([]);
-      expect(probeRecord.description.length).toBeGreaterThan(20);
-    }
+    const expectedLinks = [
+      [
+        'rtdb-modular-ref-navigation-and-absent-get',
+        refNavAndAbsentGetProbe,
+        'rtdb-modular#M4',
+        [
+          'rtdb-modular#M4',
+          'rtdb-modular#M5',
+          'rtdb-modular#M6',
+          'rtdb-modular#M7',
+          'rtdb-modular#M8',
+          'rtdb-modular#M9',
+        ],
+      ],
+      [
+        'rtdb-modular-multipath-update-and-write-order',
+        multiPathUpdateProbe,
+        'rtdb-modular#M13',
+        [
+          'rtdb-modular#M13',
+          'rtdb-modular#M14',
+          'rtdb-modular#M15',
+          'rtdb-modular#M16',
+          'rtdb-modular#M16b',
+        ],
+      ],
+      [
+        'rtdb-modular-push-value-and-nested-servertimestamp',
+        pushAndServerTimestampProbe,
+        'rtdb-modular#M18',
+        ['rtdb-modular#M18', 'rtdb-modular#M20', 'rtdb-modular#M22'],
+      ],
+      [
+        'rtdb-modular-rules-validate-and-denied-writes',
+        rulesValidateAndDeniedProbe,
+        'rtdb-modular#M25',
+        [
+          'rtdb-modular#M25',
+          'rtdb-modular#M37c',
+          'rtdb-modular#M37f',
+          'rtdb-modular#M37g',
+          'rtdb-modular#M76',
+        ],
+      ],
+    ] as const;
 
+    const observations = new Map(
+      loadObservations().map((item) => [item.name, item] as const),
+    );
+    const pendingRowLinkIds = loadPendingRowLinkObservations();
     const unfilteredIds = new Set(
       selectModularProbes(loaded, [], 'sdk-probes', {
         includeUncapturedStaged: false,
       }).map((entry) => entry.id),
     );
 
-    expectStagedUntilCaptured(RTDB_UPDATES_AND_VALIDATE_PROBE_IDS, {
-      rig: 'sdk-probes',
-      filterFlag: '--probe',
-      filterValueFor: (name) => name,
-      whenUncaptured(name) {
-        expect(unfilteredIds.has(name)).toBe(false);
-      },
-      whenCaptured(name) {
-        expect(unfilteredIds.has(name)).toBe(true);
-      },
-    });
+    for (const [id, probeRecord, expectedMatrixRow, expectedRowIds] of expectedLinks) {
+      expect(probeRecord.rig).toBe('sdk-probes');
+      expect(probeRecord.requires).toEqual(['web-config', 'dedicated-rtdb']);
+      expect(probeRecord.pendingRowLink).toBeUndefined();
+      expect(probeRecord.matrixRow).toBe(expectedMatrixRow);
+      expect(probeRecord.rowIds).toEqual([...expectedRowIds]);
+      expect(probeRecord.description.length).toBeGreaterThan(20);
+      expect(pendingRowLinkIds.has(id)).toBe(false);
+      expect(unfilteredIds.has(id)).toBe(true);
+      const committed = observations.get(id);
+      expect(committed).toBeDefined();
+      expect(committed?.matrixRow).toBe(expectedMatrixRow);
+      expect(committed?.rowIds).toEqual([...expectedRowIds]);
+    }
 
     const lines: string[] = [];
     printModularProbePreview({
@@ -130,8 +169,9 @@ describe('RTDB modular updates, sentinels, and .validate staged probes (sdk-prob
     expect(result.rootAndPathRefs).toEqual({
       defaultRootKey: null,
       defaultRootParentIsNull: true,
-      emptyStringPathThrewSync: false,
-      emptyStringPathMessage: null,
+      emptyStringPathThrewSync: true,
+      emptyStringPathMessage:
+        'child failed: path argument was an invalid path = "". Paths must be non-empty strings and can\'t contain ".", "#", "$", "[", or "]"',
       pathRefKey: 'ord-1',
       composedChildKey: 'ord-1',
       composedParentKey: 'orders',
@@ -345,10 +385,9 @@ describe('RTDB modular updates, sentinels, and .validate staged probes (sdk-prob
         item: { title: 'valid-seed', qty: 3 },
       },
     });
-    expect(
-      result.nonFunctionTransactionValidation.timing === 'synchronous-throw' ||
-        result.nonFunctionTransactionValidation.timing === 'asynchronous-reject',
-    ).toBe(true);
-    expect(result.nonFunctionTransactionValidation.isTypeError).toBe(true);
+    expect(result.nonFunctionTransactionValidation).toEqual({
+      timing: 'synchronous-throw',
+      isTypeError: true,
+    });
   });
 });
