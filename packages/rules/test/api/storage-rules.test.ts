@@ -106,10 +106,10 @@ describe('storageRules', () => {
     expect(issues[0]).toMatchObject({ code: 'PARSE_ERROR', severity: 'error', origin: 'parse', line: 1 });
   });
 
-  test('refuses a Firestore ruleset by naming the service it expected', () => {
-    const firestore = `rules_version = '2';
-service cloud.firestore { match /databases/{d}/documents { allow read: if true; } }`;
-    expect(() => storageRules(firestore)).toThrow(/Expected 'service firebase.storage'/);
+  test('compiles a non-Storage ruleset and denies Storage requests with a warning', () => {
+    const handle = storageRules(`rules_version = '2'; service cloud.firestore { match /databases/{d}/documents { allow read: if true; } }`, { bucket: BUCKET });
+    expect(handle.simulate([{ description: 'get', expectation: 'DENY', method: 'get', path: 'avatars/u1/a.png' }]).passed).toBe(1);
+    expect(handle.lint().map((i) => i.code)).toContain('MISSING_STORAGE_SERVICE');
   });
 
   test('explain returns the verdict, the deciding rule and the reasons without the case', () => {

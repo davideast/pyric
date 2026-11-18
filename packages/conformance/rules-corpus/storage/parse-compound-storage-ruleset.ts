@@ -8,7 +8,6 @@
 import type { StorageScenarioRecord } from './types.ts';
 
 export const scenario: StorageScenarioRecord = {
-  pendingRowLink: true,
   fm: 'STORAGE-PARSE-COMPOUND-RULESET',
   rationale:
     'Pins that projects.test compiles a compound service firebase.storage ruleset combining nested match blocks, allow read/write guards, request.method short-circuiting, arithmetic size bounds, and contentType equality, and evaluates read/create/delete requests as expected.',

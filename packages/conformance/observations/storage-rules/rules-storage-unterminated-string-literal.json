@@ -1,7 +1,9 @@
 {
   "name": "rules-storage-unterminated-string-literal",
-  "matrixRow": "",
-  "rowIds": [],
+  "matrixRow": "storage-rules#97",
+  "rowIds": [
+    "storage-rules#97"
+  ],
   "description": "Storage Rules Test API verdicts for corpus scenario \"unterminated-string-literal\" (STORAGE-SYNTAX-UNTERMINATED-STRING). Records how projects.test rejects a storage.rules source containing an unterminated single-quoted string literal at compile time (COMPILE_ERROR with ERROR sourcePosition diagnostics).",
   "observedAt": "2026-11-18T11:37:54.033Z",
   "fbSdkVersion": "12.19.0",

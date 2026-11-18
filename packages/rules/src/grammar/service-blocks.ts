@@ -35,6 +35,15 @@ export function firestoreServiceBlock(
   return ast.services?.find((service) => isFirestoreServiceName(service.name));
 }
 
+export function storageServiceBlock(
+  ast: Pick<FirestoreRules, 'service' | 'services'>,
+): ServiceBlock | undefined {
+  if (isStorageServiceName(ast.service?.name)) {
+    return ast.service;
+  }
+  return ast.services?.find((service) => isStorageServiceName(service.name));
+}
+
 export function selectServicesToAnalyze(
   ast: Pick<FirestoreRules, 'service' | 'services'>,
   targetService: LintTargetService | undefined,

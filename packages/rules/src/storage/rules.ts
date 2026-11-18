@@ -91,7 +91,7 @@ import { parseToASTOrError } from '../grammar/FirestoreParser.js';
 import { parseErrorWording } from '../grammar/parse-error-wording.js';
 import { compileLimitViolations, describeCompileLimitViolations } from '../grammar/compile-limits.js';
 import { DUPLICATE_SERVICE_REASON, duplicateServiceRejection } from '../grammar/source-compile-limits.js';
-import { withSingleService } from '../grammar/service-blocks.js';
+import { storageServiceBlock, topLevelMatches, withSingleService } from '../grammar/service-blocks.js';
 import {
   completionPosition,
   copyExpressionPosition,
@@ -599,42 +599,34 @@ export function parseStorageRules(source: string): StorageRules {
   if (duplicate !== null) {
     throw new SyntaxError(`Storage rules do not compile: ${DUPLICATE_SERVICE_REASON}`);
   }
-  const storageService = (parsed.ast.services ?? [parsed.ast.service]).find(
-    (block) => block.name === 'firebase.storage' || block.name === 'cloud.storage',
-  );
-  if (!storageService) {
-    throw new SyntaxError(
-      `Expected 'service firebase.storage', got 'service ${parsed.ast.service.name}'.`,
-    );
-  }
-  const ast: SharedRules = withSingleService(parsed.ast, storageService);
+  const storageService = storageServiceBlock(parsed.ast);
   const sourceMap = readAuthoredSourceMap(source);
+  let astForLimits: SharedRules = parsed.ast;
+  if (storageService !== undefined) {
+    astForLimits = withSingleService(parsed.ast, storageService);
+  }
   // Production rejects a ruleset past its compile limits (call depth, `let`
   // count, nesting) before evaluating any request. Regex patterns are checked
   // below by validateMatchRegexes so low-level callers keep the exact message.
-  const rawViolations = compileLimitViolations(ast, { allowUnresolvedImports: true }).filter(
+  const rawViolations = compileLimitViolations(astForLimits, { allowUnresolvedImports: true }).filter(
     (v) => v.code !== 'INVALID_REGEX_PATTERN',
   );
   if (rawViolations.length > 0) {
-    const violations =
-      sourceMap.size > 0
-        ? rawViolations.map((v) => {
-            if (v.line === undefined) return v;
-            const mapped = resolveAuthoredLoc(sourceMap, v.line)?.line;
-            return mapped === undefined ? v : { ...v, line: mapped };
-          })
-        : rawViolations;
+    let violations = rawViolations;
+    if (sourceMap.size > 0) {
+      violations = rawViolations.map((v) => {
+        if (v.line === undefined) return v;
+        const mappedLoc = resolveAuthoredLoc(sourceMap, v.line);
+        if (mappedLoc === undefined) return v;
+        return { ...v, line: mappedLoc.line };
+      });
+    }
     throw new SyntaxError(`Storage rules do not compile: ${describeCompileLimitViolations(violations)}`);
   }
-  // The service's own DocumentsMatch (`match /b/{bucket}/o`) becomes a child
-  // of a synthetic path-less root so path matching starts at the request
-  // path's first segment, as before.
-  //
-  // Global and service-scope function declarations attach to the root block:
-  // root visibility equals everywhere-in-service visibility, and the array
-  // order (global, then service, then none of root's own) preserves
-  // inner-shadows-outer resolution in `resolveFunctions`.
-  const importStubs: FunctionDef[] = (ast.imports ?? []).flatMap((imp) =>
+  // When no `firebase.storage` / `cloud.storage` block is declared (e.g.
+  // `service cloud.firestore` or `service foo.bar`), `topLevelMatches` is `[]`,
+  // so the compiled handle denies every Storage request (`#95`).
+  const importStubs: FunctionDef[] = (parsed.ast.imports ?? []).flatMap((imp) =>
     imp.functions.map((name): FunctionDef => ({
       name,
       params: [],
@@ -645,7 +637,7 @@ export function parseStorageRules(source: string): StorageRules {
       declCaptures: new Set(),
     })),
   );
-  const globalFuncs: FunctionDef[] = (ast.functions ?? []).map((fn) => {
+  const globalFuncs: FunctionDef[] = (parsed.ast.functions ?? []).map((fn) => {
     const converted = convertFunction(fn, sourceMap);
     converted.scopeKind = 'global';
     converted.declCaptures = new Set();
@@ -656,7 +648,7 @@ export function parseStorageRules(source: string): StorageRules {
   for (const fn of globalFuncs) globalScope.set(fn.name, fn);
   for (const fn of globalScope.values()) fn.declScope = globalScope;
 
-  const serviceFuncs: FunctionDef[] = (ast.service.functions ?? []).map((fn) => {
+  const serviceFuncs: FunctionDef[] = (storageService?.functions ?? []).map((fn) => {
     const converted = convertFunction(fn, sourceMap);
     converted.scopeKind = 'service';
     converted.declCaptures = new Set();
@@ -668,7 +660,7 @@ export function parseStorageRules(source: string): StorageRules {
 
   const root: MatchBlock = {
     segments: [],
-    children: (ast.service.matches ?? [ast.service.match]).map((block) => convertMatch(block, sourceMap)),
+    children: topLevelMatches(storageService).map((block) => convertMatch(block, sourceMap)),
     allows: [],
     functions: [...importStubs, ...globalFuncs, ...serviceFuncs],
     visibleFuncs: serviceScope,
@@ -677,7 +669,7 @@ export function parseStorageRules(source: string): StorageRules {
     resolveFunctions(child, serviceScope, new Set());
   }
   validateMatchRegexes(root);
-  return { _root: root, _version: ast.version };
+  return { _root: root, _version: parsed.ast.version };
 }
 
 function validateExpressionRegexes(expression: Expr): void {

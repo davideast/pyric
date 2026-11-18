@@ -1,7 +1,9 @@
 {
   "name": "rules-storage-service-name-firestore-in-storage",
-  "matrixRow": "",
-  "rowIds": [],
+  "matrixRow": "storage-rules#95",
+  "rowIds": [
+    "storage-rules#95"
+  ],
   "description": "Storage Rules Test API verdicts for corpus scenario \"service-name-firestore-in-storage\" (STORAGE-SERVICE-DECLARATION). Records whether projects.test compiles or rejects a storage.rules source whose sole service block is service cloud.firestore when evaluated against a Storage get request.",
   "observedAt": "2026-11-18T11:37:52.504Z",
   "fbSdkVersion": "12.19.0",

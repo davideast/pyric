@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'bun:test';
 import { parseStorageRules } from '../../../src/storage/rules.js';
+import { evaluateStorageRules } from '../../../src/storage/rules-evaluator.js';
 
 const SESSION_ARCHIVE_RULES = `
 service firebase.storage {
@@ -20,10 +21,24 @@ describe('parseStorageRules', () => {
     expect(rules).toBeDefined();
   });
 
-  it('rejects unknown service header', () => {
-    expect(() =>
-      parseStorageRules(`service cloud.firestore { match /x { allow read: if true; } }`),
-    ).toThrow();
+  it('compiles non-storage service headers (cloud.firestore and unknown foo.bar) to a deny-all handle', () => {
+    for (const source of [
+      `rules_version = '2'; service cloud.firestore { match /databases/{d}/documents { match /items/{id} { allow read, write: if true; } } }`,
+      `rules_version = '2'; service foo.bar { match /items/{id} { allow read, write: if true; } }`,
+    ]) {
+      const rules = parseStorageRules(source);
+      for (const method of ['get', 'list', 'create', 'update', 'delete'] as const) {
+        const res = evaluateStorageRules(rules, {
+          request: {
+            auth: { uid: 'u1' },
+            method,
+            path: '/b/demo-pyric.appspot.com/o/items/d1',
+          },
+          resource: null,
+        });
+        expect(res.allowed).toBe(false);
+      }
+    }
   });
 
   it('parses the granular verbs (get/list/create/update/delete)', () => {
