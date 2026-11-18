@@ -64,6 +64,25 @@ export function makeNoUserError(api: string): Error & { code: string } {
   return err;
 }
 
+/** Ensure a port session is present or throw `auth/no-current-user` (or `auth/user-token-expired` when `uid` was deleted). */
+export function requireReloadSession(
+  auth: Auth,
+  session: MintedSession | null,
+  uid?: string,
+): MintedSession {
+  if (session !== null) return session;
+  if (typeof uid === 'string') {
+    const exists = authSandboxOps.listUsers(auth).some((record) => record.uid === uid);
+    if (!exists) {
+      throw new FirebaseError(
+        'auth/user-token-expired',
+        "The user's credential is no longer valid. The user must sign in again.",
+      );
+    }
+  }
+  throw makeNoUserError('reload');
+}
+
 /** Ensure a port session is present or throw `auth/no-current-user`. */
 export function requirePortSession(session: MintedSession | null, api: string): MintedSession {
   if (!session) throw makeNoUserError(api);
@@ -80,11 +99,6 @@ export function requireMatchingPortSession(
   const isStaleUser = !sameUser;
   if (isStaleUser) throw new FirebaseError('auth/user-mismatch', 'The user no longer owns this connection’s session.');
   return session;
-}
-
-/** The port session's User, or throw `auth/no-current-user`. */
-export function requireSessionUser(session: MintedSession | null, api: string): User {
-  return requirePortSession(session, api).user;
 }
 
 /**

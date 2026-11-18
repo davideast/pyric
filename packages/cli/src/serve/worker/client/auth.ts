@@ -106,12 +106,6 @@ export function clientUserSessionKey(user: ClientUser): string | undefined {
   return (user as { [CLIENT_USER_SESSION_KEY]?: string })[CLIENT_USER_SESSION_KEY];
 }
 
-/** `{ sessionKey }` for a user that carries one, so the worker continues its session. */
-function sessionKeyField(user: ClientUser): { sessionKey?: string } {
-  const sessionKey = clientUserSessionKey(user);
-  return sessionKey === undefined ? {} : { sessionKey };
-}
-
 /** Build a token-capable ClientUser from a wire SerializedUser. */
 function makeClientUser(port: ClientPort, raw: SerializedUser): ClientUser {
   const user: ClientUser = {
@@ -541,7 +535,7 @@ export async function updateProfile(
 
 export async function reload(user: ClientUser): Promise<void> {
   const port = requireUserPort(user, 'reload');
-  const raw = (await rpc(port, { t: 'op', id: nextId(), method: 'auth.reload' })) as SerializedUser;
+  const raw = (await rpc(port, { t: 'op', id: nextId(), method: 'auth.reload', uid: user.uid })) as SerializedUser;
   const mutable = user as { -readonly [K in keyof ClientUser]: ClientUser[K] };
   mutable.email = raw.email;
   mutable.emailVerified = raw.emailVerified;
@@ -574,20 +568,24 @@ export async function updatePassword(user: ClientUser, newPassword: string): Pro
   });
 }
 
-export async function updateCurrentUser(
-  auth: ClientAuth,
-  user: ClientUser | null,
-): Promise<void> {
-  const raw = (await rpc(auth.port, {
+export async function updateCurrentUser(auth: ClientAuth, user: ClientUser | null): Promise<void> {
+  const clearedSameHandle = user !== null && auth.currentUser === user;
+  if (clearedSameHandle) auth.currentUser = null;
+  const opMessage: OpMessage = {
     t: 'op', id: nextId(), method: 'auth.updateCurrentUser', uid: user?.uid ?? null,
     tenantId: auth.tenantId ?? user?.tenantId ?? null,
-    ...(user === null ? {} : sessionKeyField(user)),
-  })) as SerializedUser | null;
-  if (raw !== null && user !== null && user.uid === raw.uid) {
-    auth.currentUser = applySerializedUserFields(user, raw);
-    return;
+  };
+  if (user !== null) {
+    const key = clientUserSessionKey(user);
+    if (key !== undefined) opMessage.sessionKey = key;
   }
-  reconcileClientUser(auth, raw);
+  try {
+    const raw = (await rpc(auth.port, opMessage)) as SerializedUser | null;
+    reconcileClientUser(auth, raw);
+  } catch (err) {
+    if (clearedSameHandle && auth.currentUser === null) auth.currentUser = user;
+    throw err;
+  }
 }
 
 export async function signInWithCredential(

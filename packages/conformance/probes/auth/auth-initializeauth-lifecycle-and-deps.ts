@@ -8,9 +8,8 @@ import {
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: ['web-config', 'admin-auth'],
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'auth#82',
+  rowIds: ['auth#82'],
   description:
     'initializeAuth(app, deps?) returns a live Auth handle shared with getAuth(app), while repeated initializeAuth calls (or initializeAuth with deps after getAuth) throw auth/already-initialized.',
   async observe() {

@@ -1,7 +1,9 @@
 {
   "name": "auth-reload-out-of-band-and-disabled-deleted",
-  "matrixRow": "",
-  "rowIds": [],
+  "matrixRow": "auth#86",
+  "rowIds": [
+    "auth#86"
+  ],
   "description": "reload(user) updates held User fields in place after out-of-band mutations, and rejects while signing out currentUser when the account is disabled or deleted out-of-band.",
   "observedAt": "2026-11-18T09:41:33.796Z",
   "fbSdkVersion": "12.19.0",

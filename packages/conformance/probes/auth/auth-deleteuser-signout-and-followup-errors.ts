@@ -9,9 +9,8 @@ import { waitForCondition } from '../../src/oracle-run-stable-shapes.ts';
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: ['web-config', 'admin-auth'],
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'auth#83',
+  rowIds: ['auth#83'],
   description:
     'deleteUser(user) removes the account, clears auth.currentUser with an onAuthStateChanged(null) transition, and causes subsequent reload(user) and signInWithEmailAndPassword calls to reject.',
   async observe() {
