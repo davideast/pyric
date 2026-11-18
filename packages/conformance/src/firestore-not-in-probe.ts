@@ -1,13 +1,15 @@
 /**
- * Production capture helper for Firestore `where(field, 'not-in', values)` probes.
+ * Production capture helper for Firestore `where(field, op, value)` probes that
+ * trigger Bun `@grpc/grpc-js` `Listen` stream stalls (`not-in`, `!= null`, `in [..., null]`).
  *
  * Under Bun, `@firebase/firestore`'s Node bundle (`@grpc/grpc-js` over `node:http2`)
- * hangs indefinitely without settling `getDocs` on `not-in` queries. To capture
- * genuine production behavior rather than a Bun transport timeout artifact:
+ * can stall indefinitely without settling `getDocs` on `not-in` or server-rejected
+ * null/disjunctive `Listen` targets. To capture genuine production behavior rather
+ * than a Bun transport timeout artifact:
  *   1. Runs the `firebase/firestore` query inside a bounded `node` subprocess
  *      (`transport: 'firebase-js-sdk-node'`).
  *   2. If the Node `Listen` stream still does not settle within the bound, executes
- *      the identical `StructuredQuery` against Cloud Firestore's REST `:runQuery`
+ *      the wire-identical `StructuredQuery` against Cloud Firestore's REST `:runQuery`
  *      endpoint using the oracle credential (`transport: 'firestore-rest-runQuery'`).
  *   3. Fails closed (throws without writing an observation) if neither transport
  *      produces a settled Firestore query outcome.
@@ -21,46 +23,33 @@ import {
   scrubFirestoreOracleRunPath,
   type FirestoreIdQueryOutcome,
 } from './firestore-probe-outcomes.ts';
+import {
+  runFirestoreRestFieldQuery,
+  type FirestoreQueryOperand,
+  type FirestoreQueryScalar,
+  type FirestoreRestFieldQueryOptions,
+  type SupportedFieldFilterOp,
+} from './firestore-rest-run-query.ts';
 import { loadOracleServiceAccount, oracleAccessToken } from './oracle-credential.ts';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const CONFORMANCE_PACKAGE_ROOT = join(HERE, '..');
-const FIRESTORE_REST_API = 'https://firestore.googleapis.com/v1';
 const FIRESTORE_DATASTORE_SCOPE = 'https://www.googleapis.com/auth/datastore';
-const DEFAULT_NODE_NOT_IN_TIMEOUT_MS = 12_000;
-const DEFAULT_REST_NOT_IN_TIMEOUT_MS = 15_000;
+const DEFAULT_NODE_QUERY_TIMEOUT_MS = 12_000;
+const DEFAULT_REST_QUERY_TIMEOUT_MS = 15_000;
 
-type FirestoreNotInScalar = number | string | boolean | null;
-
-interface FirestoreNotInQueryParams {
+interface FirestoreNodeFieldQueryParams {
   webConfig: FirebaseOptions;
   collectionPath: string;
   field: string;
-  values: readonly FirestoreNotInScalar[];
+  op?: SupportedFieldFilterOp;
+  value?: FirestoreQueryOperand;
+  values?: readonly FirestoreQueryScalar[];
   timeoutMs: number;
   emulatorHost?: { host: string; port: number };
 }
 
-interface RestQueryFetchInit {
-  method: string;
-  headers: Record<string, string>;
-  body: string;
-  signal: AbortSignal;
-}
-
-type RestQueryFetch = (url: string, init: RestQueryFetchInit) => Promise<Response>;
-
-interface FirestoreRestNotInOptions {
-  projectId: string;
-  accessToken: string;
-  collectionPath: string;
-  field: string;
-  values: readonly FirestoreNotInScalar[];
-  timeoutMs?: number;
-  fetchImpl?: RestQueryFetch;
-}
-
-const NODE_NOT_IN_WORKER_SOURCE = `
+const NODE_FIELD_QUERY_WORKER_SOURCE = `
 import { deleteApp, initializeApp } from 'firebase/app';
 import { deleteUser, getAuth, signInAnonymously } from 'firebase/auth';
 import {
@@ -75,7 +64,7 @@ import {
 
 const rawPayload = process.env.PYRIC_NODE_NOT_IN_PAYLOAD ?? '{}';
 const payload = JSON.parse(rawPayload);
-const appName = 'node-not-in-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 7);
+const appName = 'node-fs-q-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 7);
 const app = initializeApp(payload.webConfig, appName);
 const db = getFirestore(app);
 let auth = null;
@@ -84,6 +73,12 @@ if (payload.emulatorHost) {
   connectFirestoreEmulator(db, payload.emulatorHost.host, payload.emulatorHost.port);
 } else {
   auth = getAuth(app);
+}
+
+const filterOp = payload.op ?? 'not-in';
+let filterValue = payload.values;
+if ('value' in payload) {
+  filterValue = payload.value;
 }
 
 let timer = undefined;
@@ -109,7 +104,7 @@ try {
 
   const target = query(
     collection(db, payload.collectionPath),
-    where(payload.field, 'not-in', payload.values),
+    where(payload.field, filterOp, filterValue),
   );
   const raced = await Promise.race([
     getDocs(target).then(
@@ -182,13 +177,13 @@ process.exit(0);
 `;
 
 export async function runNodeFirestoreNotInSubprocess(
-  params: FirestoreNotInQueryParams,
+  params: FirestoreNodeFieldQueryParams,
 ): Promise<FirestoreIdQueryOutcome> {
   const hardKillMs = params.timeoutMs + 4_000;
   const stdout = await new Promise<string>((resolve, reject) => {
     execFile(
       'node',
-      ['--input-type=module', '-e', NODE_NOT_IN_WORKER_SOURCE],
+      ['--input-type=module', '-e', NODE_FIELD_QUERY_WORKER_SOURCE],
       {
         cwd: CONFORMANCE_PACKAGE_ROOT,
         env: {
@@ -210,7 +205,7 @@ export async function runNodeFirestoreNotInSubprocess(
           if (stderr && stderr.trim().length > 0) {
             detail = `${err.message}: ${stderr.trim()}`;
           }
-          reject(new Error(`Node not-in subprocess failed: ${detail}`));
+          reject(new Error(`Node Firestore probe subprocess failed: ${detail}`));
           return;
         }
         resolve(out);
@@ -224,7 +219,7 @@ export async function runNodeFirestoreNotInSubprocess(
     .filter((line) => line.trim().length > 0)
     .pop();
   if (!lastLine) {
-    throw new Error('Node not-in subprocess exited 0 without emitting JSON output');
+    throw new Error('Node Firestore probe subprocess exited 0 without emitting JSON output');
   }
   const parsed = JSON.parse(lastLine) as
     | { status: 'timeout'; stage?: string }
@@ -252,189 +247,48 @@ export async function runNodeFirestoreNotInSubprocess(
   };
 }
 
-function encodeFirestoreRestScalar(value: FirestoreNotInScalar): Record<string, unknown> {
-  if (value === null) {
-    return { nullValue: 'NULL_VALUE' };
-  }
-  if (typeof value === 'boolean') {
-    return { booleanValue: value };
-  }
-  if (typeof value === 'string') {
-    return { stringValue: value };
-  }
-  if (Number.isInteger(value) && !Object.is(value, -0)) {
-    return { integerValue: String(value) };
-  }
-  return { doubleValue: value };
-}
-
-function splitCollectionParentAndId(collectionPath: string): {
-  parentDocPath: string;
-  collectionId: string;
-} {
-  const segments = collectionPath
-    .split('/')
-    .map((segment) => segment.trim())
-    .filter((segment) => segment.length > 0);
-  if (segments.length === 0 || segments.length % 2 === 0) {
-    throw new Error(`Expected odd-segment Firestore collection path, got '${collectionPath}'`);
-  }
-  const collectionId = segments[segments.length - 1] ?? '';
-  const parentDocPath = segments.slice(0, -1).join('/');
-  return { parentDocPath, collectionId };
-}
-
-function mapGrpcStatusToFirestoreCode(status: string | undefined): string | null {
-  if (!status || status.trim().length === 0) {
-    return null;
-  }
-  return status.trim().toLowerCase().replace(/_/g, '-');
-}
-
 export async function runFirestoreRestNotInQuery(
-  options: FirestoreRestNotInOptions,
+  options: FirestoreRestFieldQueryOptions,
 ): Promise<FirestoreIdQueryOutcome> {
-  const timeoutMs = options.timeoutMs ?? DEFAULT_REST_NOT_IN_TIMEOUT_MS;
-  const fetchImpl: RestQueryFetch = options.fetchImpl ?? ((url, init) => fetch(url, init));
-  const { parentDocPath, collectionId } = splitCollectionParentAndId(options.collectionPath);
-
-  let parentSegment = '';
-  if (parentDocPath.length > 0) {
-    parentSegment = `/${parentDocPath}`;
-  }
-  const url = `${FIRESTORE_REST_API}/projects/${encodeURIComponent(options.projectId)}/databases/(default)/documents${parentSegment}:runQuery`;
-
-  const structuredQuery = {
-    from: [{ collectionId }],
-    where: {
-      fieldFilter: {
-        field: { fieldPath: options.field },
-        op: 'NOT_IN',
-        value: {
-          arrayValue: {
-            values: options.values.map((entry) => encodeFirestoreRestScalar(entry)),
-          },
-        },
-      },
-    },
-    orderBy: [
-      { field: { fieldPath: options.field }, direction: 'ASCENDING' },
-      { field: { fieldPath: '__name__' }, direction: 'ASCENDING' },
-    ],
-  };
-
-  let response: Response;
-  try {
-    response = await fetchImpl(url, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${options.accessToken}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ structuredQuery }),
-      signal: AbortSignal.timeout(timeoutMs),
-    });
-  } catch (err) {
-    if (err instanceof Error && (err.name === 'TimeoutError' || err.name === 'AbortError')) {
-      throw new FirestoreQueryTimeoutError(timeoutMs, 'Firestore REST runQuery');
-    }
-    throw err;
-  }
-
-  const rawText = await response.text();
-  if (response.status === 200) {
-    const entries = JSON.parse(rawText) as Array<{ document?: { name?: unknown } }>;
-    const ids: string[] = [];
-    for (const entry of entries) {
-      const docName = entry.document?.name;
-      if (typeof docName === 'string') {
-        const lastSlash = docName.lastIndexOf('/');
-        const id = docName.slice(lastSlash + 1);
-        if (id.length > 0) {
-          ids.push(id);
-        }
-      }
-    }
-    return {
-      threw: false,
-      ids,
-      code: null,
-      errorName: null,
-      transport: 'firestore-rest-runQuery',
-    };
-  }
-
-  // Only HTTP 400 (INVALID_ARGUMENT / FAILED_PRECONDITION) represents a Firestore
-  // query-semantics rejection; auth/IAM/quota/5xx failures must fail closed so
-  // infrastructure issues are never recorded as query behavior.
-  if (response.status === 400) {
-    const parsed = JSON.parse(rawText) as
-      | { error?: { status?: string; message?: string } }
-      | Array<{ error?: { status?: string; message?: string } }>;
-    let errEnvelope: { status?: string; message?: string } | undefined;
-    if (Array.isArray(parsed)) {
-      errEnvelope = parsed[0]?.error;
-    } else {
-      errEnvelope = parsed.error;
-    }
-    const mappedCode = mapGrpcStatusToFirestoreCode(errEnvelope?.status);
-    let code = 'invalid-argument';
-    if (mappedCode !== null) {
-      code = mappedCode;
-    }
-    let rawMessage = rawText;
-    if (typeof errEnvelope?.message === 'string' && errEnvelope.message.length > 0) {
-      rawMessage = errEnvelope.message;
-    }
-    const message = scrubFirestoreOracleRunPath(rawMessage);
-    return {
-      threw: true,
-      ids: null,
-      code,
-      errorName: 'FirebaseError',
-      message,
-      transport: 'firestore-rest-runQuery',
-    };
-  }
-
-  throw new Error(
-    `Firestore REST runQuery failed with HTTP ${response.status} (refusing to record non-query error as observation): ${rawText.slice(0, 300)}`,
-  );
+  return runFirestoreRestFieldQuery(options);
 }
 
-interface ObserveFirestoreNotInQueryOptions {
+interface ObserveFirestoreFieldQueryOptions {
   webConfig: FirebaseOptions;
   collectionPath: string;
   field: string;
-  values: readonly FirestoreNotInScalar[];
+  op: SupportedFieldFilterOp;
+  value: FirestoreQueryOperand;
   nodeTimeoutMs?: number;
   restTimeoutMs?: number;
-  runNodeQuery?: (params: FirestoreNotInQueryParams) => Promise<FirestoreIdQueryOutcome>;
+  runNodeQuery?: (params: FirestoreNodeFieldQueryParams) => Promise<FirestoreIdQueryOutcome>;
   runRestQuery?: (params: {
     collectionPath: string;
     field: string;
-    values: readonly FirestoreNotInScalar[];
+    op: SupportedFieldFilterOp;
+    value: FirestoreQueryOperand;
     timeoutMs: number;
   }) => Promise<FirestoreIdQueryOutcome>;
 }
 
-export async function observeFirestoreNotInQuery(
-  options: ObserveFirestoreNotInQueryOptions,
+export async function observeFirestoreFieldQuery(
+  options: ObserveFirestoreFieldQueryOptions,
 ): Promise<FirestoreIdQueryOutcome> {
-  const nodeTimeoutMs = options.nodeTimeoutMs ?? DEFAULT_NODE_NOT_IN_TIMEOUT_MS;
-  const restTimeoutMs = options.restTimeoutMs ?? DEFAULT_REST_NOT_IN_TIMEOUT_MS;
+  const nodeTimeoutMs = options.nodeTimeoutMs ?? DEFAULT_NODE_QUERY_TIMEOUT_MS;
+  const restTimeoutMs = options.restTimeoutMs ?? DEFAULT_REST_QUERY_TIMEOUT_MS;
   const runNode = options.runNodeQuery ?? runNodeFirestoreNotInSubprocess;
   const runRest =
     options.runRestQuery ??
     (async (restParams) => {
       const sa = await loadOracleServiceAccount();
       const accessToken = await oracleAccessToken(sa, FIRESTORE_DATASTORE_SCOPE);
-      return runFirestoreRestNotInQuery({
+      return runFirestoreRestFieldQuery({
         projectId: sa.project_id,
         accessToken,
         collectionPath: restParams.collectionPath,
         field: restParams.field,
-        values: restParams.values,
+        op: restParams.op,
+        value: restParams.value,
         timeoutMs: restParams.timeoutMs,
       });
     });
@@ -445,7 +299,8 @@ export async function observeFirestoreNotInQuery(
       webConfig: options.webConfig,
       collectionPath: options.collectionPath,
       field: options.field,
-      values: options.values,
+      op: options.op,
+      value: options.value,
       timeoutMs: nodeTimeoutMs,
     });
   } catch (nodeErr) {
@@ -455,7 +310,7 @@ export async function observeFirestoreNotInQuery(
       nodeFailureReason = String(nodeErr);
     }
     console.warn(
-      `[sdk-probes] Node firebase/firestore did not settle not-in on '${options.field}' (${nodeFailureReason}); falling back to Firestore REST runQuery.`,
+      `[sdk-probes] Node firebase/firestore did not settle '${options.op}' on '${options.field}' (${nodeFailureReason}); falling back to Firestore REST runQuery.`,
     );
   }
 
@@ -463,7 +318,8 @@ export async function observeFirestoreNotInQuery(
     return await runRest({
       collectionPath: options.collectionPath,
       field: options.field,
-      values: options.values,
+      op: options.op,
+      value: options.value,
       timeoutMs: restTimeoutMs,
     });
   } catch (restErr) {
@@ -472,7 +328,50 @@ export async function observeFirestoreNotInQuery(
       restReason = restErr.message;
     }
     throw new Error(
-      `Skipped Firestore not-in probe on '${options.field}' (neither Node firebase/firestore [${nodeFailureReason}] nor Firestore REST runQuery [${restReason}] produced a settled production answer).`,
+      `Skipped Firestore ${options.op} probe on '${options.field}' (neither Node firebase/firestore [${nodeFailureReason}] nor Firestore REST runQuery [${restReason}] produced a settled production answer).`,
     );
   }
+}
+
+interface ObserveFirestoreNotInQueryOptions {
+  webConfig: FirebaseOptions;
+  collectionPath: string;
+  field: string;
+  values: readonly FirestoreQueryScalar[];
+  nodeTimeoutMs?: number;
+  restTimeoutMs?: number;
+  runNodeQuery?: (params: FirestoreNodeFieldQueryParams) => Promise<FirestoreIdQueryOutcome>;
+  runRestQuery?: (params: {
+    collectionPath: string;
+    field: string;
+    values: readonly FirestoreQueryScalar[];
+    timeoutMs: number;
+  }) => Promise<FirestoreIdQueryOutcome>;
+}
+
+export async function observeFirestoreNotInQuery(
+  options: ObserveFirestoreNotInQueryOptions,
+): Promise<FirestoreIdQueryOutcome> {
+  let adaptedRest: ObserveFirestoreFieldQueryOptions['runRestQuery'];
+  if (options.runRestQuery !== undefined) {
+    const callerRest = options.runRestQuery;
+    adaptedRest = async (restParams) =>
+      callerRest({
+        collectionPath: restParams.collectionPath,
+        field: restParams.field,
+        values: options.values,
+        timeoutMs: restParams.timeoutMs,
+      });
+  }
+  return observeFirestoreFieldQuery({
+    webConfig: options.webConfig,
+    collectionPath: options.collectionPath,
+    field: options.field,
+    op: 'not-in',
+    value: options.values,
+    nodeTimeoutMs: options.nodeTimeoutMs,
+    restTimeoutMs: options.restTimeoutMs,
+    runNodeQuery: options.runNodeQuery,
+    runRestQuery: adaptedRest,
+  });
 }
