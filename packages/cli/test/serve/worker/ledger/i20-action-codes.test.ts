@@ -96,7 +96,7 @@ test('served password reset sends a real code, rejects weak passwords without co
     expect(await f.send('auth.confirmPasswordReset', { code, newPassword: 'changed-password' })).toMatchObject({ ok: true });
     expect(await f.send('auth.verifyPasswordResetCode', { code })).toMatchObject({ ok: false, error: { code: 'auth/invalid-action-code' } });
     expect(await f.send('auth.signInEmail', { email: 'owner@example.com', password: 'secret-password', tenantId: 'red' }))
-      .toMatchObject({ ok: false, error: { code: 'auth/wrong-password' } });
+      .toMatchObject({ ok: false, error: { code: 'auth/invalid-credential' } });
     expect(await f.send('auth.signInEmail', { email: 'owner@example.com', password: 'changed-password', tenantId: 'red' }))
       .toMatchObject({ ok: true, value: { user: { uid, tenantId: 'red' } } });
   } finally { await f.close(); }

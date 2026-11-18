@@ -144,7 +144,7 @@ export function buildActionLink(
 
 /** The `mode` query param for each operation — the inverse of the
  *  parser's map. */
-export const OPERATION_TO_MODE: Record<string, string> = {
+const OPERATION_TO_MODE: Record<string, string> = {
   [ActionCodeOperation.PASSWORD_RESET]: 'resetPassword',
   [ActionCodeOperation.VERIFY_EMAIL]: 'verifyEmail',
   [ActionCodeOperation.EMAIL_SIGNIN]: 'signIn',
@@ -376,7 +376,7 @@ export async function verifyPasswordResetCode(auth: Auth, code: string): Promise
  *
  * Real behavior on the sandbox: afterwards
  * `signInWithEmailAndPassword(auth, email, newPassword)` succeeds and
- * the OLD password throws `auth/wrong-password`. The new password runs
+ * the OLD password throws `auth/invalid-credential`. The new password runs
  * the same strength check `createUserWithEmailAndPassword` does, so a
  * reset cannot install a password the create path would have rejected
  * (`auth/weak-password`).

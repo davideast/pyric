@@ -63,6 +63,7 @@ import {
   type AuthProjectStore,
 } from './sandbox/project-store.js';
 import { defaultAvatarMint, type AvatarMint } from './sandbox/default-avatar.js';
+import { verifyPasswordSignIn } from './sandbox/password-sign-in.js';
 import { applyAdminUserUpdateFields, assertTenantPhoneAvailable } from './sandbox/admin-user-update.js';
 import { applyEmailChangeToUser, applyUserEmailUpdate, propagateRefreshedToken } from './sandbox/email-update.js';
 import { SessionLedger } from './sandbox/session-ledger.js';
@@ -2814,56 +2815,13 @@ export class SandboxBackend {
     }
   }
 
-  /** Internal validator for email/password — checks the password
-   *  matches the stored record. Throws `auth/invalid-email` on a
-   *  malformed email, `auth/wrong-password` on mismatch,
-   *  `auth/user-not-found` if the email isn't seeded.
-   *
-   *  Format validation fires BEFORE the user-DB lookup so callers
-   *  shipping malformed inputs see the same `auth/invalid-email`
-   *  prod returns — they wouldn't reach the missing-user path in
-   *  production either. Password-strength is NOT enforced on sign-in
-   *  (a previously-weak seeded password should still let the user
-   *  in); only `createUserWithEmailAndPassword` runs the strength
-   *  check, mirroring prod. */
+  /** Validate an email/password login against the stored user pool under Email Enumeration Protection (`auth/invalid-credential` for unknown email or wrong password). */
   validatePassword(
     email: string,
     password: string,
     tenantId: string | null = this.tenantId,
   ): StoredUser {
-    validateEmailFormat(email);
-    // Empty password → `auth/missing-password`, fired BEFORE the user-DB
-    // lookup (same anti-enumeration ordering as the email check). Prod's
-    // signInWithPassword returns the MISSING_PASSWORD server error, mapped
-    // to `auth/missing-password` with message "A non-empty password must
-    // be provided" (`core/errors.ts:92,282,563`) — NOT wrong-password /
-    // user-not-found (AUTH-B11).
-    if (typeof password !== 'string' || password.length === 0) {
-      throw makeAuthError(
-        'auth/missing-password',
-        'A non-empty password must be provided',
-      );
-    }
-    const stored = this.findByEmail(email, tenantId);
-    if (!stored) {
-      throw makeAuthError(
-        'auth/user-not-found',
-        `No user found for ${email}.`,
-      );
-    }
-    // Disabled check BEFORE the password compare so a disabled
-    // account can't be password-probed. Best-known semantics — the
-    // exact prod ordering (disabled-vs-wrong-password) is flagged for
-    // an oracle capture; the code (`auth/user-disabled`) and message
-    // match prod's documented shape.
-    this.assertUserEnabled(stored);
-    if (stored.password !== password) {
-      throw makeAuthError(
-        'auth/wrong-password',
-        'Invalid password.',
-      );
-    }
-    return stored;
+    return verifyPasswordSignIn(email, password, (targetEmail) => this.findByEmail(targetEmail, tenantId));
   }
 }
 

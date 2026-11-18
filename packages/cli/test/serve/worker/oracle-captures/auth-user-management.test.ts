@@ -7,7 +7,6 @@ import type { InboundMessage, OutboundMessage } from '../../../../src/serve/work
 import { type FakePort, makeHostCtx, portPair } from '../integration-support.js';
 import {
   createUserManagementAdminSession,
-  DELETE_USER_SIGNIN_ENUMERATION_PIN,
   replayAuthDeleteUserSignOutAndFollowupErrors,
   replayAuthInitializeAuthLifecycleAndDeps,
   replayAuthReloadOutOfBandAndDisabledDeleted,
@@ -118,11 +117,7 @@ describe('Auth user-management and session oracle captures (served worker client
     const pyric = await replayAuthDeleteUserSignOutAndFollowupErrors(
       await servedWorkerUserManagementContext(),
     );
-    expectReplay({
-      production,
-      pyric,
-      pins: [DELETE_USER_SIGNIN_ENUMERATION_PIN],
-    });
+    expectReplay({ production, pyric });
   });
 
   it('auth-reload-out-of-band-and-disabled-deleted (auth#86)', async () => {

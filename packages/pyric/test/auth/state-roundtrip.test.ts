@@ -54,7 +54,7 @@ describe('sandbox.exportUsers', () => {
       authSandbox.seedUsers(restored, [{ ...exported[0]!, password }]);
       for (const attempted of ['some-password', NO_PASSWORD_SENTINEL, '__pyric_popup_no_password__']) {
         await expect(signInWithEmailAndPassword(restored, 'provider@example.com', attempted))
-          .rejects.toMatchObject({ code: 'auth/wrong-password' });
+          .rejects.toMatchObject({ code: 'auth/invalid-credential' });
       }
     }
   });

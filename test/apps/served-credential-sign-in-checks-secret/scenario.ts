@@ -1,9 +1,11 @@
-// signInWithCredential with an email credential checks its password or link
-// on every plane (#1448). The served client used to send only the OAuth
-// fields, so the host signed in as whoever owned the email, and Security Rules
-// saw that account. The page creates an account with a password and writes its
-// private document; then a wrong password, an empty password, an unknown email
-// and a made-up email link are each refused with the in-page codes, nobody is
+// signInWithEmailAndPassword and signInWithCredential with an email credential
+// check the password or link on every plane (#1448, #1689). The served client
+// used to send only the OAuth fields, so the host signed in as whoever owned
+// the email, and Security Rules saw that account. The page creates an account
+// with a password and writes its private document; then a wrong password and
+// an unknown email are refused with auth/invalid-credential (Email Enumeration
+// Protection default), an empty password is refused with auth/missing-password,
+// and a made-up email link is refused with auth/invalid-action-code, nobody is
 // signed in after, and the document stays denied. The right password signs in
 // with a null providerId and reads it. In-page is the control; the SharedWorker
 // page, a `node --import @pyric/cli/register` process and a page on the Node
@@ -32,15 +34,19 @@ const REFUSED = { ok: false, signedIn: null, read: 'permission-denied' };
 const NO_MOCK = { ...REFUSED, code: 'auth/no-mock-configured' };
 const EXPECTED: Run = {
   checks: {
-    wrongPassword: { ...REFUSED, code: 'auth/wrong-password' },
+    directWrongPassword: { ...REFUSED, code: 'auth/invalid-credential' },
+    directEmptyPassword: { ...REFUSED, code: 'auth/missing-password' },
+    directUnknownEmail: { ...REFUSED, code: 'auth/invalid-credential' },
+    wrongPassword: { ...REFUSED, code: 'auth/invalid-credential' },
     emptyPassword: { ...REFUSED, code: 'auth/missing-password' },
-    unknownEmail: { ...REFUSED, code: 'auth/user-not-found' },
+    unknownEmail: { ...REFUSED, code: 'auth/invalid-credential' },
     madeUpLink: { ...REFUSED, code: 'auth/invalid-action-code' },
     capitalPassword: NO_MOCK,
     trailingSpacePassword: NO_MOCK,
     emailLinkProvider: NO_MOCK,
     phoneWithOwnerUid: NO_MOCK,
     madeUpProvider: NO_MOCK,
+    directRightPassword: { ok: true, providerId: null, signedIn: 'owner', read: 'allowed' },
     rightPassword: { ok: true, providerId: null, signedIn: 'owner', read: 'allowed' },
   },
   ownerProviderIds: ['password'],

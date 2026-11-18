@@ -32,6 +32,10 @@ export const MISSING_ACCOUNT_FIX =
 export const WRONG_PASSWORD_FIX =
   'Set a password with auth.updateUser, or present the password the account was seeded with.';
 
+/** The fix for an email/password credential rejected under Email Enumeration Protection. */
+export const INVALID_CREDENTIAL_FIX =
+  'Create the account with auth.createUser, or update its password with auth.updateUser, then sign in again.';
+
 /** The fix for an account the project has disabled. */
 export const DISABLED_ACCOUNT_FIX =
   'Enable the account with auth.updateUser and disabled: false, then sign in again.';
@@ -102,6 +106,10 @@ interface Refusal {
  * which already names the code, and is pointed at the pool.
  */
 const REFUSALS: Readonly<Record<string, Refusal>> = {
+  'auth/invalid-credential': {
+    cause: 'no account in the pool matched the email and password',
+    fix: INVALID_CREDENTIAL_FIX,
+  },
   'auth/user-not-found': {
     cause: 'no account in the pool matched the credential',
     fix: MISSING_ACCOUNT_FIX,

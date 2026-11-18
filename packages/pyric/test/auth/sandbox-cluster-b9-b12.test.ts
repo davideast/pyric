@@ -33,7 +33,7 @@ describe('AUTH-B9: re-seed with new email drops the stale email', () => {
     // Old email is gone:
     await expect(
       signInWithEmailAndPassword(auth, 'old@example.com', 'pw1'),
-    ).rejects.toMatchObject({ code: 'auth/user-not-found' });
+    ).rejects.toMatchObject({ code: 'auth/invalid-credential' });
   });
 });
 

@@ -35,8 +35,9 @@ import type { AuthFlowRequest, AuthFlowResolver, User, UserCredential } from './
  * `firebase/auth`.
  *
  * Really re-verifies: an email credential is checked against the stored
- * password exactly as `signInWithEmailAndPassword` checks it, so a wrong
- * password throws `auth/wrong-password` and a credential belonging to a
+ * password using the same `/v1/accounts:signInWithPassword` validation as
+ * `signInWithEmailAndPassword`, so a wrong password throws
+ * `auth/invalid-credential` and a credential belonging to a
  * DIFFERENT account throws `auth/user-mismatch` (the check that stops
  * "reauthenticate as someone else" from silently succeeding).
  *
@@ -72,8 +73,7 @@ export async function reauthenticateWithCredential(
         'reauthenticateWithCredential: an email-link credential carries no password to verify.',
       );
     }
-    // The real check — same path signInWithEmailAndPassword takes, so it
-    // throws the same `auth/wrong-password` / `auth/user-disabled`.
+    // Same password check as signInWithEmailAndPassword (`auth/invalid-credential` / `auth/user-disabled`).
     target.backend.validatePassword(credential.email, password, userTenant);
     return completeReauth(user, target, null, credential.providerId);
   }

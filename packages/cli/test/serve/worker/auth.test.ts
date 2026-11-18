@@ -629,7 +629,7 @@ describe('worker auth — error serialization', () => {
     });
     expect(res.ok).toBe(false);
     if (!res.ok) {
-      expect(res.error.code).toMatch(/^auth\/(wrong-password|invalid-credential)$/);
+      expect(res.error.code).toBe('auth/invalid-credential');
     }
   });
 
@@ -947,7 +947,7 @@ describe('auth.acceptIdentity — provider sign-in bridge', () => {
       const stalePassword = await sendOp(ctx, port, {
         t: 'op', id: id(), method: 'auth.signInEmail', tenantId: 'account-tenant', email: 'preserved@example.com', password: 'original-password',
       });
-      expect(stalePassword).toMatchObject({ ok: false, error: { code: 'auth/wrong-password' } });
+      expect(stalePassword).toMatchObject({ ok: false, error: { code: 'auth/invalid-credential' } });
     } finally {
       ctx.sandbox.dispose();
     }

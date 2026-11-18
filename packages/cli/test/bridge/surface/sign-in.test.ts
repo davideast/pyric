@@ -14,6 +14,7 @@ import { switchHeldIdentity } from '../../../src/bridge/surface/held-identity.js
 import {
   customTokenSubject,
   DISABLED_ACCOUNT_FIX,
+  INVALID_CREDENTIAL_FIX,
   MISSING_ACCOUNT_FIX,
   POOL_FIX,
   reportAppSession,
@@ -91,6 +92,27 @@ function raised(code: string, message: string): Error {
 }
 
 describe('signInFailure', () => {
+  it('advises creating or updating the account when Email Enumeration Protection raises auth/invalid-credential', async () => {
+    const sandbox = seeded();
+    let caught: unknown;
+    try {
+      await signInWithEmailAndPassword(getAuth(sandbox), 'nobody@example.test', 'hunter22');
+    } catch (error) {
+      caught = error;
+    }
+    const result = signInFailure('signInWithEmailAndPassword', caught);
+    expect(result.ok).toBe(false);
+    expect(result.summary).toBe(
+      'auth.signInWithEmailAndPassword: no account in the pool matched the email and password ' +
+        `(auth/invalid-credential). ${INVALID_CREDENTIAL_FIX}`,
+    );
+    expect(result.data).toMatchObject({
+      code: 'auth/invalid-credential',
+      tool: 'auth',
+      fix: INVALID_CREDENTIAL_FIX,
+    });
+  });
+
   it('advises creating or seeding the account when the pool holds no such user', () => {
     const result = signInFailure(
       'signInWithEmailAndPassword',
@@ -151,6 +173,7 @@ describe('signInFailure', () => {
 
   it('names the code once in every summary it writes', () => {
     const codes = [
+      'auth/invalid-credential',
       'auth/user-not-found',
       'auth/wrong-password',
       'auth/user-disabled',

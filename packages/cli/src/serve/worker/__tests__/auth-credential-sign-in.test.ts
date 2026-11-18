@@ -90,11 +90,11 @@ describe('served signInWithCredential with an email credential', () => {
     const before = h.userCount();
 
     const wrong = EmailAuthProvider.credential(OWNER, 'wrong-password');
-    expect(await refusal(signInWithCredential(h.clientAuth, wrong))).toBe('auth/wrong-password');
+    expect(await refusal(signInWithCredential(h.clientAuth, wrong))).toBe('auth/invalid-credential');
     const empty = EmailAuthProvider.credential(OWNER, '');
     expect(await refusal(signInWithCredential(h.clientAuth, empty))).toBe('auth/missing-password');
     const unknown = EmailAuthProvider.credential('nobody@example.com', PASSWORD);
-    expect(await refusal(signInWithCredential(h.clientAuth, unknown))).toBe('auth/user-not-found');
+    expect(await refusal(signInWithCredential(h.clientAuth, unknown))).toBe('auth/invalid-credential');
 
     expect(portSession(h.ctx, h.hostPort)).toBeNull();
     expect(h.clientAuth.currentUser).toBeNull();

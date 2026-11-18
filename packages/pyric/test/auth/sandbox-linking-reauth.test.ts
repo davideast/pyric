@@ -172,7 +172,7 @@ describe('unlink', () => {
     expect(providerIds(updated)).not.toContain('password');
     // The observable point of unlinking it: the password no longer signs in.
     await signOut(auth);
-    await expectCode(signInWithEmailAndPassword(auth, 'ada@example.com', 'pw123456'), 'auth/wrong-password');
+    await expectCode(signInWithEmailAndPassword(auth, 'ada@example.com', 'pw123456'), 'auth/invalid-credential');
   });
 
   it('throws no-such-provider for a provider that was never linked', async () => {
@@ -240,12 +240,12 @@ describe('reauthenticateWithCredential', () => {
     expect(refreshed.claims.storedRole).toBe('member');
   });
 
-  it('throws wrong-password for a bad password', async () => {
+  it('throws invalid-credential for a bad password', async () => {
     const auth = freshAuth();
     await createUserWithEmailAndPassword(auth, 'ada@example.com', 'pw123456');
     await expectCode(
       reauthenticateWithCredential(auth.currentUser!, EmailAuthProvider.credential('ada@example.com', 'nope999')),
-      'auth/wrong-password',
+      'auth/invalid-credential',
     );
   });
 
@@ -329,7 +329,7 @@ describe('signInWithCredential with a real email credential', () => {
     await signOut(auth);
     await expectCode(
       signInWithCredential(auth, EmailAuthProvider.credential('ada@example.com', 'wrong999')),
-      'auth/wrong-password',
+      'auth/invalid-credential',
     );
   });
 });
