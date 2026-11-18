@@ -1,0 +1,18 @@
+{
+  "name": "messaging-web-sw-delivery-metrics-toggle",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "firebase/messaging/sw experimentalSetDeliveryMetricsExportedToBigQueryEnabled(messaging, enable) runtime toggle return contract, preservation of onBackgroundMessage delivery across enabled and disabled states, and synchronous rejection of null handles.",
+  "observedAt": "2026-11-18T17:35:03.155Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "enableReturnsUndefined": true,
+    "disableReturnsUndefined": true,
+    "deliveredStepsAcrossToggleStates": [
+      "enabled",
+      "disabled"
+    ],
+    "nullMessagingThrowsSynchronously": true
+  }
+}

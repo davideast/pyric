@@ -1,0 +1,47 @@
+{
+  "name": "messaging-web-observer-and-unsubscribe",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "firebase/messaging onMessage and firebase/messaging/sw onBackgroundMessage NextFn, Observer ({ next, error, complete }), and idempotent Unsubscribe teardown behavior.",
+  "observedAt": "2026-11-18T17:35:02.746Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "foregroundOnMessage": {
+      "nextFn": {
+        "unsubscribeIsFunction": true,
+        "countBeforeUnsubscribe": 1,
+        "firstDataStep": "fg-next-1",
+        "unsubscribeReturnsUndefined": true,
+        "secondUnsubscribeReturnsUndefined": true,
+        "countAfterUnsubscribeAndRedeliver": 1
+      },
+      "observer": {
+        "unsubscribeIsFunction": true,
+        "countBeforeUnsubscribe": 1,
+        "firstDataStep": "fg-obs-1",
+        "unsubscribeReturnsUndefined": true,
+        "secondUnsubscribeReturnsUndefined": true,
+        "countAfterUnsubscribeAndRedeliver": 1
+      }
+    },
+    "backgroundOnBackgroundMessage": {
+      "nextFn": {
+        "unsubscribeIsFunction": true,
+        "countBeforeUnsubscribe": 1,
+        "firstDataStep": "bg-next-1",
+        "unsubscribeReturnsUndefined": true,
+        "secondUnsubscribeReturnsUndefined": true,
+        "countAfterUnsubscribeAndRedeliver": 1
+      },
+      "observer": {
+        "unsubscribeIsFunction": true,
+        "countBeforeUnsubscribe": 1,
+        "firstDataStep": "bg-obs-1",
+        "unsubscribeReturnsUndefined": true,
+        "secondUnsubscribeReturnsUndefined": true,
+        "countAfterUnsubscribeAndRedeliver": 1
+      }
+    }
+  }
+}
