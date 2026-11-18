@@ -5,7 +5,7 @@
     "auth#37"
   ],
   "description": "signInAnonymously twice in a row — does the second call (which prod treats as \"already signed in anonymously, return same user\") fire onAuthStateChanged again? Matrix claims no double-fire for same-user.",
-  "observedAt": "2026-10-30T12:08:13.264Z",
+  "observedAt": "2026-11-18T07:20:22.372Z",
   "fbSdkVersion": "12.19.0",
   "projectId": "digame-mas",
   "behavior": {
@@ -14,17 +14,28 @@
     "afterSecondSignIn": 2,
     "firstSignInProducedFire": true,
     "secondSignInProducedFire": false,
-    "uidAfterFirst": "ccThscNkyWNJsPACOg9dRz9y0753",
-    "uidAfterSecond": "ccThscNkyWNJsPACOg9dRz9y0753",
+    "uidAfterFirst": {
+      "present": true,
+      "uidLength": 28,
+      "uidMatchesPattern": true
+    },
+    "uidAfterSecond": {
+      "present": true,
+      "uidLength": 28,
+      "uidMatchesPattern": true
+    },
+    "uidAfterSecondMatchesFirst": true,
     "sameUserAcrossCalls": true,
     "fires": [
       {
-        "uid": null,
-        "ts": 0
+        "userSlot": null,
+        "uidLength": null,
+        "uidMatchesPattern": false
       },
       {
-        "uid": "ccThscNkyWNJsPACOg9dRz9y0753",
-        "ts": 619
+        "userSlot": 1,
+        "uidLength": 28,
+        "uidMatchesPattern": true
       }
     ]
   }

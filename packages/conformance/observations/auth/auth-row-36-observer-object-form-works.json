@@ -5,7 +5,7 @@
     "auth#36"
   ],
   "description": "Observer object form ({next, error, complete}) works alongside the function form. Register one observer as a NextFn and another as {next}; trigger a transition; verify both fire.",
-  "observedAt": "2026-10-30T12:08:33.115Z",
+  "observedAt": "2026-11-18T07:20:41.247Z",
   "fbSdkVersion": "12.19.0",
   "projectId": "digame-mas",
   "behavior": {
@@ -23,30 +23,36 @@
     "bothFormsFiredOnSignOut": true,
     "firesFn": [
       {
-        "uid": null,
-        "ts": 0
+        "userSlot": null,
+        "uidLength": null,
+        "uidMatchesPattern": false
       },
       {
-        "uid": "sX9R2cg8J0VvMksDTCd8JMNr8Kj2",
-        "ts": 733
+        "userSlot": 1,
+        "uidLength": 28,
+        "uidMatchesPattern": true
       },
       {
-        "uid": null,
-        "ts": 1142
+        "userSlot": null,
+        "uidLength": null,
+        "uidMatchesPattern": false
       }
     ],
     "firesObs": [
       {
-        "uid": null,
-        "ts": 0
+        "userSlot": null,
+        "uidLength": null,
+        "uidMatchesPattern": false
       },
       {
-        "uid": "sX9R2cg8J0VvMksDTCd8JMNr8Kj2",
-        "ts": 733
+        "userSlot": 1,
+        "uidLength": 28,
+        "uidMatchesPattern": true
       },
       {
-        "uid": null,
-        "ts": 1142
+        "userSlot": null,
+        "uidLength": null,
+        "uidMatchesPattern": false
       }
     ]
   }

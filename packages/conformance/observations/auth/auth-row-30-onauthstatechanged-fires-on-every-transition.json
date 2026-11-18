@@ -5,7 +5,7 @@
     "auth#30"
   ],
   "description": "onAuthStateChanged fires on every subsequent identity change. Subscribe, then run signIn → signOut → signIn → signOut; verify the listener receives a fire for each of the 4 transitions.",
-  "observedAt": "2026-10-30T12:08:27.002Z",
+  "observedAt": "2026-11-18T07:20:35.384Z",
   "fbSdkVersion": "12.19.0",
   "projectId": "digame-mas",
   "behavior": {
@@ -18,24 +18,29 @@
     "eachTransitionFiredExactlyOnce": true,
     "fires": [
       {
-        "uid": null,
-        "ts": 0
+        "userSlot": null,
+        "uidLength": null,
+        "uidMatchesPattern": false
       },
       {
-        "uid": "CxoWAiYclYcmkHJPvfdNKTrHko72",
-        "ts": 673
+        "userSlot": 1,
+        "uidLength": 28,
+        "uidMatchesPattern": true
       },
       {
-        "uid": null,
-        "ts": 1080
+        "userSlot": null,
+        "uidLength": null,
+        "uidMatchesPattern": false
       },
       {
-        "uid": "RE1MmFYpRMWkPPsuC7aYJ3dAukW2",
-        "ts": 1893
+        "userSlot": 2,
+        "uidLength": 28,
+        "uidMatchesPattern": true
       },
       {
-        "uid": null,
-        "ts": 2300
+        "userSlot": null,
+        "uidLength": null,
+        "uidMatchesPattern": false
       }
     ]
   }

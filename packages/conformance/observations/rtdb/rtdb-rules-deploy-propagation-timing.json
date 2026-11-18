@@ -5,7 +5,7 @@
     "rtdb#46"
   ],
   "description": "Rules-deploy propagation timing — write a permissive rule for a fresh path, then poll a write-under-that-rule to measure how long until the new rules take effect. Locks the empirical upper bound the harness needs to wait between rule deploys and dependent writes.",
-  "observedAt": "2026-10-30T16:55:57.293Z",
+  "observedAt": "2026-11-18T07:21:18.866Z",
   "fbSdkVersion": "12.19.0",
   "projectId": "digame-mas",
   "behavior": {
@@ -14,17 +14,8 @@
     "putOk": true,
     "putStatus": 200,
     "putError": null,
-    "firstSuccessElapsedMs": 170,
-    "totalAttempts": 1,
-    "lastCode": null,
-    "lastMessage": null,
-    "attempts": [
-      {
-        "elapsedMs": 170,
-        "ok": true,
-        "code": null
-      }
-    ],
+    "succeededEventually": true,
+    "finalAttemptOk": true,
     "restoreOk": true,
     "restoreStatus": 200,
     "within5s": true,

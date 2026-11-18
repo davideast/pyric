@@ -7,7 +7,7 @@
     "storage#52"
   ],
   "description": "Upload, deleteObject, then getDownloadURL on the deleted ref — observe the error code (expected: storage/object-not-found).",
-  "observedAt": "2026-10-30T13:36:16.614Z",
+  "observedAt": "2026-11-18T07:20:44.839Z",
   "fbSdkVersion": "12.19.0",
   "projectId": "digame-mas",
   "behavior": {
@@ -15,7 +15,7 @@
     "deleteOk": true,
     "getUrlThrew": true,
     "code": "storage/object-not-found",
-    "message": "Firebase Storage: Object 'pyric_oracle/1793367358513-tulcp8/delete-then-get/soon-gone.bin' does not exist. (storage/object-not-found)",
+    "message": "Firebase Storage: Object 'pyric_oracle/<runId>/delete-then-get/soon-gone.bin' does not exist. (storage/object-not-found)",
     "errorName": "FirebaseError",
     "isFirebaseError": true,
     "setupError": null,

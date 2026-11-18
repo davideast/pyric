@@ -6,15 +6,16 @@
     "auth#13"
   ],
   "description": "createUserWithEmailAndPassword returns UserCredential with operationType: \"signIn\" (NOT \"register\") per matrix claim — empirically lock the value prod actually emits.",
-  "observedAt": "2026-10-30T10:46:07.808Z",
+  "observedAt": "2026-11-18T07:19:49.573Z",
   "fbSdkVersion": "12.19.0",
   "projectId": "digame-mas",
   "behavior": {
     "operationType": "signIn",
     "providerId": null,
     "userIsAnonymous": false,
-    "userEmail": "oracle-create-1793357167206-7hlsdi@oracle.test",
-    "createdUid": "muqpqfndMZYInBNdfS6T5GNpStz1",
+    "userEmailMatchesInput": true,
+    "uidLength": 28,
+    "uidMatchesPattern": true,
     "cleanupLeaked": false
   }
 }

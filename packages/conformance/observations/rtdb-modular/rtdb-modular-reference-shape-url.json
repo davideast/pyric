@@ -12,7 +12,7 @@
     "rtdb-modular#M93"
   ],
   "description": "Reference navigation/string shape, ref/child/refFromURL validation, forged-reference failure timing, and a successful normal read control.",
-  "observedAt": "2026-10-30T10:44:28.552Z",
+  "observedAt": "2026-11-18T07:18:30.041Z",
   "fbSdkVersion": "12.19.0",
   "projectId": "digame-mas",
   "behavior": {
@@ -23,7 +23,8 @@
       "rootKey": null,
       "toString": {
         "protocol": "https:",
-        "hostname": "digame-mas-default-rtdb.firebaseio.com",
+        "hostIsProjectScoped": true,
+        "endsWithFirebaseio": true,
         "pathMatches": true
       }
     },
@@ -33,7 +34,8 @@
       "rootKey": null,
       "toString": {
         "protocol": "https:",
-        "hostname": "digame-mas-default-rtdb.firebaseio.com",
+        "hostIsProjectScoped": true,
+        "endsWithFirebaseio": true,
         "pathMatches": true
       },
       "childToStringMatches": true
@@ -41,12 +43,14 @@
     "queryIdentity": {
       "referenceToJSON": {
         "protocol": "https:",
-        "hostname": "digame-mas-default-rtdb.firebaseio.com",
+        "hostIsProjectScoped": true,
+        "endsWithFirebaseio": true,
         "pathMatches": true
       },
       "queryToJSON": {
         "protocol": "https:",
-        "hostname": "digame-mas-default-rtdb.firebaseio.com",
+        "hostIsProjectScoped": true,
+        "endsWithFirebaseio": true,
         "pathMatches": true
       },
       "sameReference": true,
@@ -112,12 +116,14 @@
       },
       "ftpUrl": {
         "protocol": "https:",
-        "hostname": "digame-mas-default-rtdb.firebaseio.com",
+        "hostIsProjectScoped": true,
+        "endsWithFirebaseio": true,
         "pathMatches": true
       },
       "queryUrl": {
         "protocol": "https:",
-        "hostname": "digame-mas-default-rtdb.firebaseio.com",
+        "hostIsProjectScoped": true,
+        "endsWithFirebaseio": true,
         "pathMatches": true
       }
     },
@@ -128,7 +134,8 @@
       },
       "toString": {
         "protocol": "https:",
-        "hostname": "digame-mas-default-rtdb.firebaseio.com",
+        "hostIsProjectScoped": true,
+        "endsWithFirebaseio": true,
         "pathMatches": true
       }
     },
@@ -136,7 +143,7 @@
       "timing": "synchronous-throw",
       "name": "Error",
       "code": null,
-      "message": "FIREBASE FATAL ERROR: refFromURL: Host name does not match the current database: (found other-digame-mas-default-rtdb.firebaseio.com but expected digame-mas-default-rtdb.firebaseio.com) "
+      "message": "FIREBASE FATAL ERROR: refFromURL: Host name does not match the current database: (found other-example-project-rtdb.firebaseio.com but expected example-project-rtdb.firebaseio.com) "
     },
     "malformedUrl": {
       "timing": "synchronous-throw",

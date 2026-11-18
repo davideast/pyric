@@ -5,7 +5,7 @@
     "auth#24"
   ],
   "description": "createUserWithEmailAndPassword fires onAuthStateChanged with the new user exactly once. Subscribe, createUser, count fires for the create transition.",
-  "observedAt": "2026-10-30T12:08:22.368Z",
+  "observedAt": "2026-11-18T07:20:30.989Z",
   "fbSdkVersion": "12.19.0",
   "projectId": "digame-mas",
   "behavior": {
@@ -14,16 +14,22 @@
     "firesForCreate": 1,
     "createFiredExactlyOnce": true,
     "lastFireUidMatches": true,
-    "createdUid": "Nf1P506lwOaF0v8XnYJGKHtQU7k2",
+    "createdUid": {
+      "present": true,
+      "uidLength": 28,
+      "uidMatchesPattern": true
+    },
     "cleanupLeaked": false,
     "fires": [
       {
-        "uid": null,
-        "ts": 0
+        "userSlot": null,
+        "uidLength": null,
+        "uidMatchesPattern": false
       },
       {
-        "uid": "Nf1P506lwOaF0v8XnYJGKHtQU7k2",
-        "ts": 727
+        "userSlot": 1,
+        "uidLength": 28,
+        "uidMatchesPattern": true
       }
     ]
   }

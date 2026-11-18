@@ -5,7 +5,7 @@
     "firestore#81"
   ],
   "description": "onSnapshot(query, cb) fires on writes to the underlying collection. Probes: register a listener on a collection-level query, then perform writes (add a doc, modify, delete) and confirm each write produces a fire reflecting the new state.",
-  "observedAt": "2026-10-30T10:46:22.996Z",
+  "observedAt": "2026-11-18T07:20:00.188Z",
   "fbSdkVersion": "12.19.0",
   "projectId": "digame-mas",
   "behavior": {
@@ -28,13 +28,13 @@
       {
         "size": 1,
         "ids": [
-          "iTL8ILqXOkNBE7RhZFYG"
+          "<autoId>"
         ]
       },
       {
         "size": 2,
         "ids": [
-          "iTL8ILqXOkNBE7RhZFYG",
+          "<autoId>",
           "known-id"
         ]
       },

@@ -5,7 +5,7 @@
     "auth#39"
   ],
   "description": "onIdTokenChanged on getIdToken(true) — observes whether prod fires the listener on a forced refresh.",
-  "observedAt": "2026-10-30T10:46:04.881Z",
+  "observedAt": "2026-11-18T07:19:47.282Z",
   "fbSdkVersion": "12.19.0",
   "projectId": "digame-mas",
   "behavior": {
@@ -14,16 +14,19 @@
     "refreshFiredListener": true,
     "fires": [
       {
-        "uid": null,
-        "ts": 0
+        "userSlot": null,
+        "uidLength": null,
+        "uidMatchesPattern": false
       },
       {
-        "uid": "c4PJI4lCnXfVEVT9bSy1gYOD6sH2",
-        "ts": 428
+        "userSlot": 1,
+        "uidLength": 28,
+        "uidMatchesPattern": true
       },
       {
-        "uid": "c4PJI4lCnXfVEVT9bSy1gYOD6sH2",
-        "ts": 264
+        "userSlot": 1,
+        "uidLength": 28,
+        "uidMatchesPattern": true
       }
     ]
   }
