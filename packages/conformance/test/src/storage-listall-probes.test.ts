@@ -32,12 +32,10 @@ import {
 import { ALL_RULES_STORAGE_SCENARIOS } from '../../rules-corpus/storage/index.ts';
 import { loadObservations, type Observation } from '../../src/ledger.ts';
 import { loadModularProbes } from '../../src/sdk-probes.ts';
-import {
-  discoverUncapturedStagedTargets,
-  loadPendingRowLinkObservations,
-} from '../../src/staged-captures.ts';
+import { loadPendingRowLinkObservations } from '../../src/staged-captures.ts';
 import { validateCompatibilityRegistry } from '../../src/validate-registry.ts';
 import { surfaceDescriptors } from '../../surfaces/load.ts';
+import { expectStagedUntilCaptured } from './staged-capture-assertions.ts';
 
 const STAGED_LISTALL_PROBE_NAMES = [
   'storage-listall-empty-and-result-shape',
@@ -256,9 +254,6 @@ describe('Storage listAll() conformance probes (storage#68..74, #76, #77a)', () 
     }
 
     const currentObservations = loadObservations();
-    const existingNames = new Set(currentObservations.map((obs) => obs.name));
-    const uncaptured = discoverUncapturedStagedTargets();
-
     const probes = [
       { name: 'storage-listall-empty-and-result-shape', probe: listAllShapeProbe },
       { name: 'storage-listall-hierarchy-dedup-and-self-exclusion', probe: listAllHierarchyProbe },
@@ -267,8 +262,11 @@ describe('Storage listAll() conformance probes (storage#68..74, #76, #77a)', () 
     ];
     for (const entry of probes) {
       expect(entry.probe.requires).toEqual(['web-config']);
-      if (entry.probe.pendingRowLink && !existingNames.has(entry.name)) {
-        expect(uncaptured.map((item) => item.observationName)).toContain(entry.name);
+      if (entry.probe.pendingRowLink) {
+        expectStagedUntilCaptured(entry.name, {
+          rig: 'sdk-probes',
+          filterFlag: '--probe',
+        });
       }
     }
 

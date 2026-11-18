@@ -36,6 +36,10 @@ import { scenario as storagePathLiteralDollarBoundBind } from '../../rules-corpu
 import { scenario as storagePathLiteralDollarUnboundBind } from '../../rules-corpus/storage/storage-path-literal-dollar-unbound-bind.ts';
 import type { StorageTestCase } from '../../rules-corpus/storage/types.ts';
 import { listProbeFiles } from '../../probes/load.ts';
+import {
+  auditStagedCaptureTestFiles,
+  expectStagedUntilCaptured,
+} from './staged-capture-assertions.ts';
 
 function syntheticObservation(
   overrides: Partial<Observation> & Pick<Observation, 'file' | 'surfaceDir' | 'name'>,
@@ -505,5 +509,68 @@ describe('staged pendingRowLink observation lifecycle', () => {
     expect(
       badSurfaceRigProblems.some((p) => p.includes("not listed in surface 'rtdb-modular' captureRigs")),
     ).toBe(true);
+  });
+
+  test('expectStagedUntilCaptured verifies both pre-capture uncaptured and post-capture captured states', () => {
+    const stagedItems = [
+      {
+        rig: 'rules-storage',
+        observationName: 'rules-storage-staged-alpha',
+        filterFlag: '--scenario' as const,
+        filterValue: 'staged-alpha',
+      },
+      {
+        rig: 'rules-storage',
+        observationName: 'rules-storage-staged-beta',
+        filterFlag: '--scenario' as const,
+        filterValue: 'staged-beta',
+      },
+    ];
+    const uncapturedSeen: string[] = [];
+    const capturedSeen: string[] = [];
+
+    expectStagedUntilCaptured(['rules-storage-staged-alpha', 'rules-storage-staged-beta'], {
+      rig: 'rules-storage',
+      filterFlag: '--scenario',
+      filterValueFor: (obsName) => obsName.replace(/^rules-storage-/, ''),
+      existingObservationNames: new Set(['rules-storage-staged-beta']),
+      stagedItems,
+      whenUncaptured: (obsName) => uncapturedSeen.push(obsName),
+      whenCaptured: (obsName) => capturedSeen.push(obsName),
+    });
+
+    expect(uncapturedSeen).toEqual(['rules-storage-staged-alpha']);
+    expect(capturedSeen).toEqual(['rules-storage-staged-beta']);
+    expect(() =>
+      expectStagedUntilCaptured('rules-storage-missing', {
+        existingObservationNames: new Set(),
+        stagedItems,
+      }),
+    ).toThrow(/expected rules-storage-missing to declare pendingRowLink: true/);
+  });
+
+  test('conformance test files assert uncaptured staged state exclusively via expectStagedUntilCaptured', () => {
+    expect(
+      auditStagedCaptureTestFiles([
+        {
+          relPath: 'src/synthetic-probe.test.ts',
+          source: 'const uncaptured = discoverUncapturedStagedTargets();',
+        },
+        {
+          relPath: 'src/synthetic-scenarios.test.ts',
+          source: "const ids = selectStorageScenarios(['--write']);",
+        },
+        {
+          relPath: 'src/synthetic-clean.test.ts',
+          source:
+            "const ids = selectStorageScenarios(['--write']); expectStagedUntilCaptured('x', { whenUncaptured: () => {} });",
+        },
+      ]),
+    ).toEqual([
+      'src/synthetic-probe.test.ts: references discoverUncapturedStagedTargets directly; use expectStagedUntilCaptured from test/src/staged-capture-assertions.ts so PR #2 observation captures stay green',
+      "src/synthetic-scenarios.test.ts: calls live select*Scenarios(['--write']) without expectStagedUntilCaptured(..., { whenUncaptured, whenCaptured }); guard live runner-exclusion assertions for PR #2 captures",
+    ]);
+
+    expect(auditStagedCaptureTestFiles()).toEqual([]);
   });
 });

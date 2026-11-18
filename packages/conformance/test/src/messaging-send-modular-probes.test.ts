@@ -1,12 +1,8 @@
 import { describe, expect, test } from 'bun:test';
 import { FirebaseMessagingError } from 'firebase-admin/messaging';
-import { loadObservations } from '../../src/ledger.ts';
 import { loadModularProbes } from '../../src/sdk-probes.ts';
-import {
-  discoverUncapturedStagedTargets,
-  loadPendingRowLinkObservations,
-} from '../../src/staged-captures.ts';
 import { selectMessagingSendTargets } from '../../src/messaging-send-probes.ts';
+import { expectStagedUntilCaptured } from './staged-capture-assertions.ts';
 import {
   extractMessagingErrorDetails,
   summarizeBatchResponse,
@@ -78,15 +74,10 @@ describe('modular messaging-send probes (Slice 2 staged family)', () => {
       expect(probeRecord.description.length).toBeGreaterThan(20);
     }
 
-    const existingNames = new Set(loadObservations().map((obs) => obs.name));
-    const pending = loadPendingRowLinkObservations();
-    const uncaptured = discoverUncapturedStagedTargets().map((item) => item.observationName);
-    for (const id of expectedIds) {
-      expect(pending.has(id)).toBe(true);
-      if (!existingNames.has(id)) {
-        expect(uncaptured).toContain(id);
-      }
-    }
+    expectStagedUntilCaptured(expectedIds, {
+      rig: 'messaging-send',
+      filterFlag: '--probe',
+    });
   });
 
   test('selectMessagingSendTargets skips uncaptured pendingRowLink probes on unfiltered write runs and runs explicit --probe selectors', async () => {

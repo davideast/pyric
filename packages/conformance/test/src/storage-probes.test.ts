@@ -23,10 +23,7 @@ import {
 } from '../../src/client-storage-probes.ts';
 import { loadObservations, type Observation } from '../../src/ledger.ts';
 import { loadModularProbes } from '../../src/sdk-probes.ts';
-import {
-  discoverUncapturedStagedTargets,
-  loadPendingRowLinkObservations,
-} from '../../src/staged-captures.ts';
+import { loadPendingRowLinkObservations } from '../../src/staged-captures.ts';
 import {
   extractObservedErrorDetails,
   normalizeStorageProbeSubpath,
@@ -293,13 +290,9 @@ describe('Storage conformance probes (storage#61 and storage#67)', () => {
     expect(deleteThenGetMetadataProbe.rowIds).toEqual(['storage#67']);
 
     const currentObservations = loadObservations();
-    const uncaptured = discoverUncapturedStagedTargets();
-    expect(uncaptured.map((item) => item.observationName)).not.toContain(
-      'client-storage-getblob-root-ref',
-    );
-    expect(uncaptured.map((item) => item.observationName)).not.toContain(
-      'storage-delete-then-getmetadata-throws',
-    );
+    const pendingObservations = loadPendingRowLinkObservations();
+    expect(pendingObservations.has('client-storage-getblob-root-ref')).toBe(false);
+    expect(pendingObservations.has('storage-delete-then-getmetadata-throws')).toBe(false);
 
     const rigManifests = await loadRigManifests();
     const rtdbScenarioIds = [
