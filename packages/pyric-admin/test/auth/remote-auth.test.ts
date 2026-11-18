@@ -106,6 +106,15 @@ describe('remote sandbox Auth arm', () => {
     expect(updated.providerData.map((p) => p.providerId).sort()).toEqual(['password', 'phone']);
     expect(updated.disabled).toBe(true);
 
+    await expect(
+      auth.updateUser('user-r2', {
+        email: 'changed-second@example.com',
+        phoneNumber: '+15555550177',
+      }),
+    ).rejects.toMatchObject({ code: 'auth/phone-number-already-exists' });
+    expect((await auth.getUser('user-r2')).email).toBe('second@example.com');
+    expect((await auth.getUserByEmail('second@example.com')).uid).toBe('user-r2');
+
     const cleared = await auth.updateUser('user-r1', {
       displayName: null,
       photoURL: null,

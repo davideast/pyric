@@ -7,6 +7,11 @@ import type { StoredUser, UpdateUserRequest } from '../sandbox-backend-types.js'
 import { validateEmailFormat } from '../sandbox-credential-validators.js';
 import { tenantEmailKey, unindexStoredUserEmail } from './tenant-isolation.js';
 
+function belongsToTenant(user: StoredUser, tenantId: string | null): boolean {
+  const userTenant = user.tenantId ?? null;
+  return userTenant === tenantId;
+}
+
 export function assertTenantPhoneAvailable(
   usersByUid: ReadonlyMap<string, StoredUser>,
   phoneNumber: string,
@@ -17,7 +22,7 @@ export function assertTenantPhoneAvailable(
     (user) =>
       user !== excludeUser &&
       user.phoneNumber === phoneNumber &&
-      (user.tenantId ?? null) === tenantId,
+      belongsToTenant(user, tenantId),
   );
   if (taken) {
     throw makeAuthError(
@@ -37,6 +42,7 @@ export function applyAdminUserUpdateFields(params: {
   const { stored, update, usersByUid, usersByEmail, photoOriginByUid } = params;
   const targetTenant = stored.tenantId ?? null;
 
+  // Validate all candidate field constraints before mutating stored state or indexes.
   if (update.email !== undefined) {
     validateEmailFormat(update.email);
     const key = update.email.toLowerCase();
@@ -44,7 +50,7 @@ export function applyAdminUserUpdateFields(params: {
       (user) =>
         user !== stored &&
         user.email?.toLowerCase() === key &&
-        (user.tenantId ?? null) === targetTenant,
+        belongsToTenant(user, targetTenant),
     );
     if (emailTakenInTenant) {
       throw makeAuthError(
@@ -52,6 +58,12 @@ export function applyAdminUserUpdateFields(params: {
         `An account already exists for ${update.email}.`,
       );
     }
+  }
+  if (update.phoneNumber !== undefined && update.phoneNumber !== null) {
+    assertTenantPhoneAvailable(usersByUid, update.phoneNumber, targetTenant, stored);
+  }
+
+  if (update.email !== undefined) {
     unindexStoredUserEmail(usersByEmail, stored);
     stored.email = update.email;
     usersByEmail.set(tenantEmailKey(targetTenant, update.email), stored);
@@ -64,7 +76,6 @@ export function applyAdminUserUpdateFields(params: {
         (provider) => provider.providerId !== 'phone',
       );
     } else {
-      assertTenantPhoneAvailable(usersByUid, update.phoneNumber, targetTenant, stored);
       stored.phoneNumber = update.phoneNumber;
       const hasPhoneProvider = stored.providerUserInfo.some(
         (provider) => provider.providerId === 'phone',

@@ -236,8 +236,17 @@ service cloud.firestore {
     expect(updated.emailVerified).toBe(true);
 
     await expect(
-      adminAuth.updateUser('user-2', { phoneNumber: '+15555550101' }),
+      adminAuth.updateUser('user-2', {
+        email: 'changed-u2@example.com',
+        phoneNumber: '+15555550101',
+      }),
     ).rejects.toMatchObject({ code: 'auth/phone-number-already-exists' });
+    const unchangedUser2 = await adminAuth.getUser('user-2');
+    expect(unchangedUser2.email).toBe('u2@example.com');
+    expect((await adminAuth.getUserByEmail('u2@example.com')).uid).toBe('user-2');
+    await expect(adminAuth.getUserByEmail('changed-u2@example.com')).rejects.toMatchObject({
+      code: 'auth/user-not-found',
+    });
 
     const cleared = await adminAuth.updateUser('user-1', {
       displayName: null,
