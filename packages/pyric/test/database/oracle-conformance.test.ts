@@ -43,6 +43,7 @@ import { rtdbRules } from '@pyric/rules';
 import { buildRuleExpression } from '@pyric/rules/internal/rtdb';
 import { rtdbRulesSourceRejection } from '@pyric/rules/internal/rtdb';
 import { toStrictRulesJson } from '../../src/database/sandbox-controls.js';
+import { registerRtdbRulesOracleConformanceTests } from './capture-rules-simulation-and-roundtrip.ts';
 import { initializeSandbox } from 'pyric/sandbox';
 import {
   getDatabase,
@@ -487,11 +488,13 @@ describe('oracle conformance (rtdb)', () => {
     expect(mismatches).toEqual([]);
   });
 
+  registerRtdbRulesOracleConformanceTests(load);
+
   // ── completeness: every `rtdb-*` (non-modular) observation is covered ──
 
   it('every rtdb (non-modular) observation is covered (no silent gaps)', () => {
     const r = obsGate.report();
-    expect(r.committed.length).toBe(17);
+    expect(r.committed.length).toBe(21);
     expect(r.loadedButUnused).toEqual([]); // a bare load() with no field read fails
     expect(r.uncovered).toEqual([]); // every capture is asserted or explicitly N/A
   });

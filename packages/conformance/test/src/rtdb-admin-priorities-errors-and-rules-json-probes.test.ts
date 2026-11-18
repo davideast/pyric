@@ -22,16 +22,11 @@ import {
   printModularProbePreview,
   selectModularProbes,
 } from '../../src/sdk-probes.ts';
-import { expectStagedUntilCaptured } from './staged-capture-assertions.ts';
-
-const STAGED_RULES_SLICE7_PROBE_IDS = [
-  'rtdb-rules-json-wildcard-and-indexon-roundtrip',
-] as const;
 
 const SLICE7_PROBE_IDS = [
   'rtdb-modular-admin-priorities-and-inline-priority',
   'rtdb-modular-admin-firebasedatabaseerror-and-url-binding',
-  ...STAGED_RULES_SLICE7_PROBE_IDS,
+  'rtdb-rules-json-wildcard-and-indexon-roundtrip',
 ] as const;
 
 function assertValidPriority(fnName: string, prio: unknown): void {
@@ -176,7 +171,7 @@ function createAdminPriorityTestHarness() {
 }
 
 describe('RTDB Slice 7 probes: admin priorities, FirebaseDatabaseError/URL binding, and rules JSON round-trip', () => {
-  test('links admin Slice 7 probes to registry rows while keeping unlinked rules probe staged', async () => {
+  test('links all 3 Slice 7 probes to registry rows under expected surface directories', async () => {
     const loaded = await loadModularProbes('sdk-probes');
     const byId = new Map(loaded.map((entry) => [entry.id, entry]));
 
@@ -208,9 +203,9 @@ describe('RTDB Slice 7 probes: admin priorities, FirebaseDatabaseError/URL bindi
 
     expect(rulesJsonRoundtripProbe.rig).toBe('sdk-probes');
     expect(rulesJsonRoundtripProbe.requires).toEqual(['web-config', 'dedicated-rtdb']);
-    expect(rulesJsonRoundtripProbe.pendingRowLink).toBe(true);
-    expect(rulesJsonRoundtripProbe.matrixRow).toBe('');
-    expect(rulesJsonRoundtripProbe.rowIds).toEqual([]);
+    expect(rulesJsonRoundtripProbe.pendingRowLink).toBeUndefined();
+    expect(rulesJsonRoundtripProbe.matrixRow).toBe('rtdb#90, rtdb#91, rtdb#92, rtdb#93');
+    expect(rulesJsonRoundtripProbe.rowIds).toEqual(['rtdb#90', 'rtdb#91', 'rtdb#92', 'rtdb#93']);
     expect(rulesJsonRoundtripProbe.description.length).toBeGreaterThan(20);
 
     const unfilteredIds = new Set(
@@ -218,22 +213,9 @@ describe('RTDB Slice 7 probes: admin priorities, FirebaseDatabaseError/URL bindi
         includeUncapturedStaged: false,
       }).map((entry) => entry.id),
     );
-    expect(unfilteredIds.has('rtdb-modular-admin-priorities-and-inline-priority')).toBe(true);
-    expect(unfilteredIds.has('rtdb-modular-admin-firebasedatabaseerror-and-url-binding')).toBe(
-      true,
-    );
-
-    expectStagedUntilCaptured(STAGED_RULES_SLICE7_PROBE_IDS, {
-      rig: 'sdk-probes',
-      filterFlag: '--probe',
-      filterValueFor: (name) => name,
-      whenUncaptured(name) {
-        expect(unfilteredIds.has(name)).toBe(false);
-      },
-      whenCaptured(name) {
-        expect(unfilteredIds.has(name)).toBe(true);
-      },
-    });
+    for (const id of SLICE7_PROBE_IDS) {
+      expect(unfilteredIds.has(id)).toBe(true);
+    }
 
     const previewLines: string[] = [];
     printModularProbePreview({

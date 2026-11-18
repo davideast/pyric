@@ -27,7 +27,6 @@ import {
   printModularProbePreview,
   selectModularProbes,
 } from '../../src/sdk-probes.ts';
-import { expectStagedUntilCaptured } from './staged-capture-assertions.ts';
 
 const RTDB_RULES_EVALUATION_PROBE_IDS = [
   'rtdb-rules-cascade-bindings-and-auth-context',
@@ -66,8 +65,8 @@ function createScopedRulesSandbox(basePath: string, scopedRules: Record<string, 
   };
 }
 
-describe('RTDB Security Rules evaluation staged probes on surface rtdb (sdk-probes)', () => {
-  test('registers all 3 RTDB Security Rules evaluation probes under probes/rtdb with pendingRowLink and empty rowIds', async () => {
+describe('RTDB Security Rules evaluation probes on surface rtdb (sdk-probes)', () => {
+  test('registers all 3 RTDB Security Rules evaluation probes under probes/rtdb with linked rowIds', async () => {
     const loaded = await loadModularProbes('sdk-probes');
     const loadedIds = loaded.map((entry) => entry.id);
     for (const id of RTDB_RULES_EVALUATION_PROBE_IDS) {
@@ -76,17 +75,17 @@ describe('RTDB Security Rules evaluation staged probes on surface rtdb (sdk-prob
       expect(entry?.surfaceDir).toBe('rtdb');
     }
 
-    const probes = [
-      cascadeBindingsAuthProbe,
-      dataNewDataSnapshotProbe,
-      defaultDenyAndErrorsProbe,
+    const expectedRowIds: ReadonlyArray<[typeof cascadeBindingsAuthProbe, string[]]> = [
+      [cascadeBindingsAuthProbe, ['rtdb#61', 'rtdb#62', 'rtdb#63']],
+      [dataNewDataSnapshotProbe, ['rtdb#64', 'rtdb#65']],
+      [defaultDenyAndErrorsProbe, ['rtdb#68', 'rtdb#69', 'rtdb#70']],
     ];
-    for (const probeRecord of probes) {
+    for (const [probeRecord, rowIds] of expectedRowIds) {
       expect(probeRecord.rig).toBe('sdk-probes');
       expect(probeRecord.requires).toEqual(['web-config', 'dedicated-rtdb']);
-      expect(probeRecord.pendingRowLink).toBe(true);
-      expect(probeRecord.matrixRow).toBe('');
-      expect(probeRecord.rowIds).toEqual([]);
+      expect(probeRecord.pendingRowLink).toBeUndefined();
+      expect(probeRecord.matrixRow).toBe(rowIds.join(', '));
+      expect(probeRecord.rowIds).toEqual(rowIds);
       expect(probeRecord.description.length).toBeGreaterThan(20);
     }
 
@@ -95,18 +94,9 @@ describe('RTDB Security Rules evaluation staged probes on surface rtdb (sdk-prob
         includeUncapturedStaged: false,
       }).map((entry) => entry.id),
     );
-
-    expectStagedUntilCaptured(RTDB_RULES_EVALUATION_PROBE_IDS, {
-      rig: 'sdk-probes',
-      filterFlag: '--probe',
-      filterValueFor: (name) => name,
-      whenUncaptured(name) {
-        expect(unfilteredIds.has(name)).toBe(false);
-      },
-      whenCaptured(name) {
-        expect(unfilteredIds.has(name)).toBe(true);
-      },
-    });
+    for (const id of RTDB_RULES_EVALUATION_PROBE_IDS) {
+      expect(unfilteredIds.has(id)).toBe(true);
+    }
 
     const lines: string[] = [];
     printModularProbePreview({

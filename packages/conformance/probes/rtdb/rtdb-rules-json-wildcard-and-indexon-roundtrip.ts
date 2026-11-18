@@ -138,11 +138,10 @@ export async function observeRulesJsonWildcardAndIndexOnRoundtrip(
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: ['web-config', 'dedicated-rtdb'],
-  pendingRowLink: true,
   description:
     'Live RTDB Security Rules JSON deploy/fetch round-trip preserving nested $userId / $gameId path variables, .read/.write/.validate strings, and .indexOn array/string entries, plus live wildcard write and indexed orderByChild execution.',
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'rtdb#90, rtdb#91, rtdb#92, rtdb#93',
+  rowIds: ['rtdb#90', 'rtdb#91', 'rtdb#92', 'rtdb#93'],
   observe() {
     return withRtdbProbeSession(
       { runRules: { ...WILDCARD_AND_INDEXON_ROUNDTRIP_RULES } },

@@ -256,11 +256,10 @@ export async function observeRulesCascadeBindingsAndAuthContext(
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: ['web-config', 'dedicated-rtdb'],
-  pendingRowLink: true,
   description:
     'Live RTDB Security Rules evaluation for upward grant cascading (ancestor true overriding child false), $userId path-variable binding, and auth == null vs auth.uid / auth.token.firebase.sign_in_provider context.',
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'rtdb#61, rtdb#62, rtdb#63',
+  rowIds: ['rtdb#61', 'rtdb#62', 'rtdb#63'],
   observe() {
     return withRtdbProbeSession(
       { runRules: { ...CASCADE_BINDINGS_AUTH_RULES }, authMode: 'anonymous' },

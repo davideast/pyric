@@ -1,7 +1,10 @@
 {
   "name": "rtdb-rules-data-newdata-and-snapshot-methods",
-  "matrixRow": "",
-  "rowIds": [],
+  "matrixRow": "rtdb#64, rtdb#65",
+  "rowIds": [
+    "rtdb#64",
+    "rtdb#65"
+  ],
   "description": "Live RTDB Security Rules evaluation for data vs newData state transitions and RuleDataSnapshot methods (data.exists(), data.val(), data.child(...), and data.parent()).",
   "observedAt": "2026-11-18T06:47:13.701Z",
   "fbSdkVersion": "12.19.0",
