@@ -118,7 +118,7 @@ describe('staged rules-storage scenarios for storage-rules#94, #95, #97', () => 
       },
       whenCaptured: (obsName) => {
         const scenarioId = obsName.slice(RULES_STORAGE_OBSERVATION_PREFIX.length);
-        expect(unfilteredWriteIds.has(scenarioId)).toBe(false);
+        expect(unfilteredWriteIds.has(scenarioId)).toBe(true);
       },
     });
   });
