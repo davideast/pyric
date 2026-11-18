@@ -1,0 +1,270 @@
+import { describe, expect, test } from 'bun:test';
+import * as pyricRtdb from 'pyric/database';
+import { initializeSandbox } from 'pyric/sandbox';
+import {
+  observeOffTargetedAndChildRegistrars,
+  probe as offTargetedProbe,
+  type OffTargetedAndChildRegistrarsSdk,
+  type PlainChildEventRecord,
+} from '../../probes/rtdb-modular/rtdb-modular-off-targeted-and-child-registrars.ts';
+import {
+  observeOnValueInitialDescendantAndSuppression,
+  probe as onValueSuppressionProbe,
+  type OnValueSuppressionProbeSdk,
+} from '../../probes/rtdb-modular/rtdb-modular-onvalue-initial-descendant-and-suppression.ts';
+import {
+  observeOnValueOnlyOnceAndUnsubReturn,
+  probe as onlyOnceAndUnsubProbe,
+  type OnValueOnlyOnceAndUnsubSdk,
+} from '../../probes/rtdb-modular/rtdb-modular-onvalue-onlyonce-and-unsub-return.ts';
+import {
+  observeQueryWindowChildListeners,
+  probe as queryWindowChildProbe,
+  type QueryChildEventRecord,
+  type QueryChildRemovedRecord,
+  type QueryWindowChildListenersSdk,
+} from '../../probes/rtdb-modular/rtdb-modular-query-window-child-listeners.ts';
+import {
+  loadModularProbes,
+  printModularProbePreview,
+  selectModularProbes,
+} from '../../src/sdk-probes.ts';
+import { expectStagedUntilCaptured } from './staged-capture-assertions.ts';
+
+const RTDB_LISTENERS_PROBE_IDS = [
+  'rtdb-modular-off-targeted-and-child-registrars',
+  'rtdb-modular-onvalue-initial-descendant-and-suppression',
+  'rtdb-modular-onvalue-onlyonce-and-unsub-return',
+  'rtdb-modular-query-window-child-listeners',
+] as const;
+
+let sandboxIdx = 0;
+
+function createListenerSandbox(rulesObj: Record<string, unknown>) {
+  sandboxIdx += 1;
+  const sandbox = initializeSandbox({ projectId: `demo-rtdb-listeners-${sandboxIdx}` });
+  const rawDb = pyricRtdb.getDatabase(sandbox.withAuth({ uid: 'listener-user' }));
+  pyricRtdb.sandbox.setRules(rawDb, { rules: rulesObj });
+  return rawDb as unknown as OnValueSuppressionProbeSdk['db'];
+}
+
+describe('RTDB modular listeners, unsubscribe, and query child-window staged probes (sdk-probes)', () => {
+  test('registers all 4 listener and unsubscribe probes on sdk-probes with pendingRowLink and empty rowIds', async () => {
+    const loaded = await loadModularProbes('sdk-probes');
+    const loadedIds = loaded.map((entry) => entry.id);
+    for (const id of RTDB_LISTENERS_PROBE_IDS) {
+      expect(loadedIds).toContain(id);
+    }
+
+    const probes = [
+      offTargetedProbe,
+      onValueSuppressionProbe,
+      onlyOnceAndUnsubProbe,
+      queryWindowChildProbe,
+    ];
+    for (const probeRecord of probes) {
+      expect(probeRecord.rig).toBe('sdk-probes');
+      expect(probeRecord.requires).toEqual(['web-config', 'dedicated-rtdb']);
+      expect(probeRecord.pendingRowLink).toBe(true);
+      expect(probeRecord.matrixRow).toBe('');
+      expect(probeRecord.rowIds).toEqual([]);
+      expect(probeRecord.description.length).toBeGreaterThan(20);
+    }
+
+    const unfilteredIds = new Set(
+      selectModularProbes(loaded, [], 'sdk-probes', {
+        includeUncapturedStaged: false,
+      }).map((entry) => entry.id),
+    );
+
+    expectStagedUntilCaptured(RTDB_LISTENERS_PROBE_IDS, {
+      rig: 'sdk-probes',
+      filterFlag: '--probe',
+      filterValueFor: (name) => name,
+      whenUncaptured(name) {
+        expect(unfilteredIds.has(name)).toBe(false);
+      },
+      whenCaptured(name) {
+        expect(unfilteredIds.has(name)).toBe(true);
+      },
+    });
+
+    const lines: string[] = [];
+    printModularProbePreview({
+      rig: 'sdk-probes',
+      scriptPath: 'packages/conformance/src/sdk-probes.ts',
+      probes: loaded,
+      log: (line) => lines.push(line),
+    });
+    for (const id of RTDB_LISTENERS_PROBE_IDS) {
+      expect(lines.some((line) => line.includes(id))).toBe(true);
+    }
+  });
+
+  test('observes immediate initial fire, no-change suppression (-0, rewrite, sibling update), and descendant re-firing', async () => {
+    const db = createListenerSandbox({
+      '.read': 'auth != null',
+      '.write': 'auth != null',
+    });
+    const sdk: OnValueSuppressionProbeSdk = {
+      db,
+      ref: pyricRtdb.ref as unknown as OnValueSuppressionProbeSdk['ref'],
+      child: pyricRtdb.child as unknown as OnValueSuppressionProbeSdk['child'],
+      set: pyricRtdb.set as unknown as OnValueSuppressionProbeSdk['set'],
+      update: pyricRtdb.update as unknown as OnValueSuppressionProbeSdk['update'],
+      onValue: pyricRtdb.onValue as unknown as OnValueSuppressionProbeSdk['onValue'],
+    };
+
+    const result = await observeOnValueInitialDescendantAndSuppression(sdk, '/probe_suppress');
+    expect(result.absentInitialFire).toEqual({
+      exists: false,
+      val: null,
+    });
+    expect(result.watchedFireCount).toBe(3);
+    expect(result.watchedDeliverySequence).toEqual([
+      { n: 0, nested: { step: 1 } },
+      { n: 2, nested: { step: 1 } },
+      { n: 2, nested: { step: 9 } },
+    ]);
+  });
+
+  test('observes returned unsubscribe function contract and { onlyOnce: true } on present and absent paths', async () => {
+    const db = createListenerSandbox({
+      '.read': 'auth != null',
+      '.write': 'auth != null',
+    });
+    const sdk: OnValueOnlyOnceAndUnsubSdk = {
+      db,
+      ref: pyricRtdb.ref as unknown as OnValueOnlyOnceAndUnsubSdk['ref'],
+      set: pyricRtdb.set as unknown as OnValueOnlyOnceAndUnsubSdk['set'],
+      onValue: pyricRtdb.onValue as unknown as OnValueOnlyOnceAndUnsubSdk['onValue'],
+    };
+
+    const result = await observeOnValueOnlyOnceAndUnsubReturn(sdk, '/probe_once');
+    expect(result.unsubscribeReturnContract).toEqual({
+      returnTypeOf: 'function',
+      isPlainObject: false,
+      deliveriesBeforeUnsub: [1, 2],
+      deliveriesAfterUnsubAndSubsequentWrite: [1, 2],
+      companionSentinelSawPostUnsubWrite: true,
+    });
+    expect(result.onlyOncePopulatedPath).toEqual({
+      onlyOnceDeliveries: [10],
+      companionSawSubsequentWrite: true,
+    });
+    expect(result.onlyOnceAbsentPath).toEqual({
+      onlyOnceDeliveries: [null],
+      companionSawSubsequentPopulate: true,
+    });
+  });
+
+  test('observes child registrar isolation (no onChildChanged on add/delete) and targeted off() precision', async () => {
+    const db = createListenerSandbox({
+      '.read': 'auth != null',
+      '.write': 'auth != null',
+    });
+    const sdk: OffTargetedAndChildRegistrarsSdk = {
+      db,
+      ref: pyricRtdb.ref as unknown as OffTargetedAndChildRegistrarsSdk['ref'],
+      child: pyricRtdb.child as unknown as OffTargetedAndChildRegistrarsSdk['child'],
+      setWithPriority:
+        pyricRtdb.setWithPriority as unknown as OffTargetedAndChildRegistrarsSdk['setWithPriority'],
+      setPriority:
+        pyricRtdb.setPriority as unknown as OffTargetedAndChildRegistrarsSdk['setPriority'],
+      remove: pyricRtdb.remove as unknown as OffTargetedAndChildRegistrarsSdk['remove'],
+      onValue: pyricRtdb.onValue as unknown as OffTargetedAndChildRegistrarsSdk['onValue'],
+      onChildAdded:
+        pyricRtdb.onChildAdded as unknown as OffTargetedAndChildRegistrarsSdk['onChildAdded'],
+      onChildChanged:
+        pyricRtdb.onChildChanged as unknown as OffTargetedAndChildRegistrarsSdk['onChildChanged'],
+      onChildRemoved:
+        pyricRtdb.onChildRemoved as unknown as OffTargetedAndChildRegistrarsSdk['onChildRemoved'],
+      onChildMoved:
+        pyricRtdb.onChildMoved as unknown as OffTargetedAndChildRegistrarsSdk['onChildMoved'],
+      off: pyricRtdb.off as unknown as OffTargetedAndChildRegistrarsSdk['off'],
+    };
+
+    const result = await observeOffTargetedAndChildRegistrars(sdk, '/probe_off');
+    const expectedInitialAdded: PlainChildEventRecord[] = [
+      { key: 'a', val: { v: 1 }, prevKey: null },
+      { key: 'b', val: { v: 2 }, prevKey: 'a' },
+    ];
+    expect(result.childRegistrarIsolation.initialAdded).toEqual(expectedInitialAdded);
+    expect(result.childRegistrarIsolation.initialChangedCount).toBe(0);
+    expect(result.childRegistrarIsolation.changedCountAfterAddChildC).toBe(0);
+    expect(result.childRegistrarIsolation.changedAfterMutateChildB).toEqual([
+      { key: 'b', val: { v: 20 }, prevKey: 'a' },
+    ]);
+    expect(result.childRegistrarIsolation.movedAfterPriorityChangeOnC).toEqual([
+      { key: 'c', val: { v: 3 }, prevKey: null },
+    ]);
+    expect(result.childRegistrarIsolation.removedKeysAfterDeleteChildA).toEqual(['a']);
+    expect(result.childRegistrarIsolation.changedCountAfterDeleteChildA).toBe(0);
+    expect(result.targetedOffPrecision.valCb1CountAfterOffCb1AndWrite).toBe(
+      result.targetedOffPrecision.valCb1CountBeforeOffCb1,
+    );
+    expect(result.targetedOffPrecision.valCb2CountAfterOffCb1AndWrite).toBe(
+      result.targetedOffPrecision.valCb2CountBeforeOffCb1 + 1,
+    );
+    expect(result.targetedOffPrecision.valCb2CountAfterOffAllValueAndWrite).toBe(
+      result.targetedOffPrecision.valCb2CountAfterOffCb1AndWrite,
+    );
+    expect(result.targetedOffPrecision.childChangedStillFiredAfterOffAllValue).toBe(true);
+    expect(result.targetedOffPrecision.addedCountAfterUnsubChildAddedAndAddD).toBe(0);
+    expect(result.targetedOffPrecision.changedCountAfterOffChildChangedCbAndWrite).toBe(0);
+  });
+
+  test('observes query-window child listeners respecting bounded orderByChild + limitToFirst windows', async () => {
+    const db = createListenerSandbox({
+      probe_qchild: {
+        '.read': 'auth != null',
+        '.write': 'auth != null',
+        scores: {
+          '.indexOn': ['score'],
+        },
+      },
+    });
+    const sdk: QueryWindowChildListenersSdk = {
+      db,
+      ref: pyricRtdb.ref as unknown as QueryWindowChildListenersSdk['ref'],
+      child: pyricRtdb.child as unknown as QueryWindowChildListenersSdk['child'],
+      set: pyricRtdb.set as unknown as QueryWindowChildListenersSdk['set'],
+      query: pyricRtdb.query as unknown as QueryWindowChildListenersSdk['query'],
+      orderByChild:
+        pyricRtdb.orderByChild as unknown as QueryWindowChildListenersSdk['orderByChild'],
+      limitToFirst:
+        pyricRtdb.limitToFirst as unknown as QueryWindowChildListenersSdk['limitToFirst'],
+      onValue: pyricRtdb.onValue as unknown as QueryWindowChildListenersSdk['onValue'],
+      onChildAdded:
+        pyricRtdb.onChildAdded as unknown as QueryWindowChildListenersSdk['onChildAdded'],
+      onChildChanged:
+        pyricRtdb.onChildChanged as unknown as QueryWindowChildListenersSdk['onChildChanged'],
+      onChildRemoved:
+        pyricRtdb.onChildRemoved as unknown as QueryWindowChildListenersSdk['onChildRemoved'],
+      onChildMoved:
+        pyricRtdb.onChildMoved as unknown as QueryWindowChildListenersSdk['onChildMoved'],
+    };
+
+    const result = await observeQueryWindowChildListeners(sdk, 'probe_qchild');
+    const expectedAdded: QueryChildEventRecord[] = [
+      { key: 'a', val: { score: 10, tag: 'init' }, prevKey: null },
+      { key: 'b', val: { score: 20, tag: 'init' }, prevKey: 'a' },
+    ];
+    const expectedDisplaced: QueryChildRemovedRecord[] = [
+      { key: 'a', val: { score: 25, tag: 'reordered-a' } },
+    ];
+    expect(result).toEqual({
+      initialWindowAdded: expectedAdded,
+      afterOutOfWindowEditThenInWindowEditChanged: [
+        { key: 'b', val: { score: 20, tag: 'edited-b' }, prevKey: 'a' },
+      ],
+      afterInWindowReorderMoved: [
+        { key: 'a', val: { score: 25, tag: 'reordered-a' }, prevKey: 'b' },
+      ],
+      afterEnteringChildZAdded: [
+        { key: 'z', val: { score: 5, tag: 'entered-z' }, prevKey: null },
+      ],
+      afterEnteringChildZDisplacedRemoved: expectedDisplaced,
+    });
+  });
+});
