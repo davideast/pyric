@@ -1,0 +1,40 @@
+{
+  "name": "firestore-withconverter-collection-propagates-to-query-getdocs",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "CollectionReference.withConverter(converter) propagates through query(typedColl, ...) + getDocs().",
+  "observedAt": "2026-11-18T02:35:12.889Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "filteredQueryType": "query",
+    "filteredQueryConverterMatches": true,
+    "resultIds": [
+      "b",
+      "c"
+    ],
+    "docs": [
+      {
+        "id": "b",
+        "data": {
+          "title": "Two",
+          "count": 2,
+          "label": "Two#20",
+          "tag": "match"
+        },
+        "refConverterMatches": true
+      },
+      {
+        "id": "c",
+        "data": {
+          "title": "Three",
+          "count": 3,
+          "label": "Three#30",
+          "tag": "match"
+        },
+        "refConverterMatches": true
+      }
+    ],
+    "fromFirestoreCallCount": 2
+  }
+}

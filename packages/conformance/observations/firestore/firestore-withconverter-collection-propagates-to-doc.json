@@ -1,0 +1,38 @@
+{
+  "name": "firestore-withconverter-collection-propagates-to-doc",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "CollectionReference.withConverter(converter) propagates onto doc(typedColl, id) and auto-id doc(typedColl) for writes and reads.",
+  "observedAt": "2026-11-18T02:35:08.862Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "rawCollType": "collection",
+    "typedCollType": "collection",
+    "rawCollConverterIsNull": true,
+    "typedCollConverterMatches": true,
+    "namedDocConverterMatches": true,
+    "autoDocConverterMatches": true,
+    "autoDocIdLength": 20,
+    "rawNamedStored": {
+      "convertedWrite": true,
+      "dbTitle": "Named",
+      "dbCount": 20,
+      "dbTag": "fixed"
+    },
+    "typedNamedRead": {
+      "title": "Named",
+      "count": 2,
+      "label": "Named#20",
+      "tag": "fixed"
+    },
+    "typedAutoRead": {
+      "title": "Auto",
+      "count": 4,
+      "label": "Auto#40",
+      "tag": null
+    },
+    "toFirestoreCallCount": 2,
+    "fromFirestoreCallCount": 2
+  }
+}

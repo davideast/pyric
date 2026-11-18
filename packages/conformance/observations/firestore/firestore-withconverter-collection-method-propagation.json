@@ -1,0 +1,91 @@
+{
+  "name": "firestore-withconverter-collection-method-propagation",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "CollectionReference.withConverter(c) is an instance method on collection() and collectionGroup() values and propagates across doc(typedColl, id), doc(typedColl), query(), addDoc, getDocs, and onSnapshot.",
+  "observedAt": "2026-11-18T02:35:04.477Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "hasCollectionMethod": true,
+    "hasCollectionGroupMethod": true,
+    "rawGroupType": "query",
+    "typedGroupType": "query",
+    "rawGroupConverterIsNull": true,
+    "typedGroupConverterMatches": true,
+    "typedGroupFilteredConverterMatches": true,
+    "typedGroupNullStripsConverter": true,
+    "groupQueryEqualUntypedVsTyped": false,
+    "groupQueryEqualUntypedVsStripped": true,
+    "fixedDocConverterMatches": true,
+    "autoDocConverterMatches": true,
+    "autoDocIdLength": 20,
+    "addedRefConverterMatches": true,
+    "addedRefIdLength": 20,
+    "toCallsDuringAddDoc": 1,
+    "addedReadData": {
+      "title": "Added",
+      "count": 3,
+      "label": "Added#30",
+      "tag": "add-doc"
+    },
+    "getDocsItems": [
+      {
+        "data": {
+          "title": "Fixed",
+          "count": 1,
+          "label": "Fixed#10",
+          "tag": "doc-id"
+        },
+        "refConverterMatches": true
+      },
+      {
+        "data": {
+          "title": "AutoDoc",
+          "count": 2,
+          "label": "AutoDoc#20",
+          "tag": "doc-auto"
+        },
+        "refConverterMatches": true
+      },
+      {
+        "data": {
+          "title": "Added",
+          "count": 3,
+          "label": "Added#30",
+          "tag": "add-doc"
+        },
+        "refConverterMatches": true
+      }
+    ],
+    "onSnapshotItems": [
+      {
+        "data": {
+          "title": "Fixed",
+          "count": 1,
+          "label": "Fixed#10",
+          "tag": "doc-id"
+        },
+        "refHasConverter": true
+      },
+      {
+        "data": {
+          "title": "AutoDoc",
+          "count": 2,
+          "label": "AutoDoc#20",
+          "tag": "doc-auto"
+        },
+        "refHasConverter": true
+      },
+      {
+        "data": {
+          "title": "Added",
+          "count": 3,
+          "label": "Added#30",
+          "tag": "add-doc"
+        },
+        "refHasConverter": true
+      }
+    ]
+  }
+}

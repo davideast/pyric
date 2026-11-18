@@ -1,0 +1,44 @@
+{
+  "name": "firestore-withconverter-getdoc-invokes-fromfirestore",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "getDoc through a converted DocumentReference invokes converter.fromFirestore(snapshot, options) on existing documents and returns undefined without invoking fromFirestore on missing documents.",
+  "observedAt": "2026-11-18T02:35:20.835Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "missingExists": false,
+    "missingDataIsUndefined": true,
+    "callsAfterMissingGetDoc": 0,
+    "callsAfterMissingData": 0,
+    "existingExists": true,
+    "snapshotRefConverterMatches": true,
+    "callsAfterGetDocBeforeData": 0,
+    "callsAfterFirstData": 1,
+    "callsAfterSecondData": 2,
+    "firstData": {
+      "title": "Present",
+      "count": 8,
+      "label": "Present#80",
+      "tag": "ok"
+    },
+    "secondData": {
+      "title": "Present",
+      "count": 8,
+      "label": "Present#80",
+      "tag": "ok"
+    },
+    "recordedCalls": [
+      {
+        "id": "existing",
+        "argCount": 2,
+        "hasOptions": true
+      },
+      {
+        "id": "existing",
+        "argCount": 2,
+        "hasOptions": true
+      }
+    ]
+  }
+}

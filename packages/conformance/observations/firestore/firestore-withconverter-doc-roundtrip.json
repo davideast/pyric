@@ -1,0 +1,32 @@
+{
+  "name": "firestore-withconverter-doc-roundtrip",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "DocumentReference.withConverter(converter) returns a typed reference that runs toFirestore on writes and fromFirestore on reads.",
+  "observedAt": "2026-11-18T02:35:16.775Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "hasTopLevelWithConverterExport": false,
+    "hasDocWithConverterMethod": true,
+    "rawDocType": "document",
+    "typedDocType": "document",
+    "rawConverterIsNull": true,
+    "typedConverterMatches": true,
+    "typedParentConverterMatches": true,
+    "rawStoredData": {
+      "convertedWrite": true,
+      "dbTitle": "Alpha",
+      "dbCount": 30,
+      "dbTag": "v1"
+    },
+    "typedReadData": {
+      "title": "Alpha",
+      "count": 3,
+      "label": "Alpha#30",
+      "tag": "v1"
+    },
+    "toFirestoreCallCount": 1,
+    "fromFirestoreCallCount": 1
+  }
+}

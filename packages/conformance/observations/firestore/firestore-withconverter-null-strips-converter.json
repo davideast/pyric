@@ -1,0 +1,26 @@
+{
+  "name": "firestore-withconverter-null-strips-converter",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "DocumentReference.withConverter(null) strips the converter and returns an untyped DocumentData view.",
+  "observedAt": "2026-11-18T02:35:24.431Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "strippedConverterIsNull": true,
+    "refEqualRawAndStripped": true,
+    "refEqualTypedAndStripped": false,
+    "strippedReadData": {
+      "convertedWrite": true,
+      "dbTitle": "TypedFirst",
+      "dbCount": 50,
+      "dbTag": "init"
+    },
+    "fromCallsDuringStrippedRead": 0,
+    "toCallsDuringStrippedWrite": 0,
+    "afterRawWriteStored": {
+      "rawField": "untyped-overwrite",
+      "rawNum": 9
+    }
+  }
+}

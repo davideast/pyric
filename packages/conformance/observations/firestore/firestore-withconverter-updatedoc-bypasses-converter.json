@@ -1,0 +1,25 @@
+{
+  "name": "firestore-withconverter-updatedoc-bypasses-converter",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "updateDoc through a converted DocumentReference bypasses converter.toFirestore and converter.fromFirestore across object and field/value forms.",
+  "observedAt": "2026-11-18T02:35:40.842Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "toCallsDuringUpdateDoc": 0,
+    "fromCallsDuringUpdateDoc": 0,
+    "rawAfterUpdate": {
+      "convertedWrite": true,
+      "dbTitle": "Seed",
+      "dbCount": 90,
+      "dbTag": "patched-via-field-arg"
+    },
+    "typedAfterUpdate": {
+      "title": "Seed",
+      "count": 9,
+      "label": "Seed#90",
+      "tag": "patched-via-field-arg"
+    }
+  }
+}
