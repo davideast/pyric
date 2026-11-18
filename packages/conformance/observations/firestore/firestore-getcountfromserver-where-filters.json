@@ -1,7 +1,9 @@
 {
   "name": "firestore-getcountfromserver-where-filters",
-  "matrixRow": "",
-  "rowIds": [],
+  "matrixRow": "firestore#75",
+  "rowIds": [
+    "firestore#75"
+  ],
   "description": "getCountFromServer(query) honors equality, range, in-membership, composite or(), and zero-match where() filters.",
   "observedAt": "2026-11-18T08:39:40.988Z",
   "fbSdkVersion": "12.19.0",

@@ -1,7 +1,9 @@
 {
   "name": "firestore-aggregate-compose-dotted-and-fieldpath",
-  "matrixRow": "",
-  "rowIds": [],
+  "matrixRow": "firestore#77",
+  "rowIds": [
+    "firestore#77"
+  ],
   "description": "count(), sum(field), and average(field) compose under one getAggregateFromServer spec across dotted nested string paths and FieldPath instances, and expose AggregateField descriptor metadata.",
   "observedAt": "2026-11-18T08:39:33.098Z",
   "fbSdkVersion": "12.19.0",

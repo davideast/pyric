@@ -56,10 +56,12 @@ function normalizeAggregateField(field: string | FieldPath): { field: string; pa
  * `average(field)`.
  */
 export type AggregateFieldType = 'count' | 'sum' | 'average';
-export type AggregateType = 'count' | 'sum' | 'average';
+export type AggregateType = 'count' | 'sum' | 'avg';
 export type AggregateSpecData<T> = Record<string, unknown>;
 
 export interface AggregateField {
+  readonly type: 'AggregateField';
+  readonly aggregateType: AggregateType;
   readonly kind: AggregateFieldType;
   readonly field?: string;
   readonly path?: readonly string[];
@@ -142,17 +144,19 @@ export function aggregateQuerySnapshotEqual(a: any, b: any): boolean {
 
 /** Factory: count() aggregate. */
 export function count(): AggregateField {
-  return { kind: 'count' };
+  return { type: 'AggregateField', aggregateType: 'count', kind: 'count' };
 }
 
 /** Factory: sum-of-`field` aggregate. */
 export function sum(field: string | FieldPath): AggregateField {
-  return { kind: 'sum', ...normalizeAggregateField(field) };
+  const normalized = normalizeAggregateField(field);
+  return { type: 'AggregateField', aggregateType: 'sum', kind: 'sum', ...normalized };
 }
 
 /** Factory: average-of-`field` aggregate. */
 export function average(field: string | FieldPath): AggregateField {
-  return { kind: 'average', ...normalizeAggregateField(field) };
+  const normalized = normalizeAggregateField(field);
+  return { type: 'AggregateField', aggregateType: 'avg', kind: 'average', ...normalized };
 }
 
 /**
