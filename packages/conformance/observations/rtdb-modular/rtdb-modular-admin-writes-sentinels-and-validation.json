@@ -1,0 +1,114 @@
+{
+  "name": "rtdb-modular-admin-writes-sentinels-and-validation",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "firebase-admin/database writes, ServerValue sentinels, and synchronous validation: observes set, multi-path atomic update, array update merging, remove, ordered 20-char push keys, onComplete callbacks, ServerValue.TIMESTAMP and ServerValue.increment(delta), and synchronous payload/key validation throws.",
+  "observedAt": "2026-11-18T06:45:46.532Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "setUpdateRemove": {
+      "afterMultiPathUpdate": {
+        "count": 1,
+        "keep": true,
+        "profile": {
+          "name": "Ada",
+          "role": "engineer"
+        }
+      },
+      "afterRemoveExists": false
+    },
+    "arrayUpdateBehavior": {
+      "threwSynchronously": false,
+      "storedAfterArrayUpdate": {
+        "0": "new0",
+        "1": "new1",
+        "2": "keep2",
+        "extra": "preserved"
+      }
+    },
+    "pushAndCallbacks": {
+      "pushKeyCount": 3,
+      "allKeysLength20": true,
+      "keysStrictlyIncreasing": true,
+      "syncKeyAvailableBeforeAwait": true,
+      "pushedValuesInOrder": [
+        "first",
+        "second",
+        "third"
+      ],
+      "callbacksDeliveredNullError": {
+        "set": true,
+        "update": true,
+        "remove": true,
+        "push": true
+      }
+    },
+    "sentinels": {
+      "timestampIsFiniteInteger": true,
+      "timestampWithinPlausibleWindow": true,
+      "incrementFromMissing": 5,
+      "incrementPositiveThenNegative": 7,
+      "incrementFloatFromNumber": 3.75
+    },
+    "validationCases": [
+      {
+        "label": "set-undefined",
+        "threwSynchronously": true,
+        "errorName": "Error",
+        "message": "set failed: value argument contains undefined in property 'adminWrites.validationNode'"
+      },
+      {
+        "label": "set-nan-child",
+        "threwSynchronously": true,
+        "errorName": "Error",
+        "message": "set failed: value argument contains NaN in property 'adminWrites.validationNode.n'"
+      },
+      {
+        "label": "set-infinity",
+        "threwSynchronously": true,
+        "errorName": "Error",
+        "message": "set failed: value argument contains Infinity in property 'adminWrites.validationNode.n'"
+      },
+      {
+        "label": "set-function",
+        "threwSynchronously": true,
+        "errorName": "Error",
+        "message": "set failed: value argument contains a function in property 'adminWrites.validationNode' with contents = () => 1"
+      },
+      {
+        "label": "set-invalid-dot-key",
+        "threwSynchronously": true,
+        "errorName": "Error",
+        "message": "set failed: value argument  contains an invalid key (bad.key) in property 'adminWrites.validationNode'.  Keys must be non-empty strings and can't contain \".\", \"#\", \"$\", \"/\", \"[\", or \"]\""
+      },
+      {
+        "label": "update-null",
+        "threwSynchronously": true,
+        "errorName": "Error",
+        "message": "update failed: values argument  must be an object containing the children to replace."
+      },
+      {
+        "label": "update-primitive",
+        "threwSynchronously": true,
+        "errorName": "Error",
+        "message": "update failed: values argument  must be an object containing the children to replace."
+      },
+      {
+        "label": "update-invalid-key",
+        "threwSynchronously": true,
+        "errorName": "Error",
+        "message": "update failed: values argument contains an invalid key (bad#key) in path /bad#key. Keys must be non-empty strings and can't contain \".\", \"#\", \"$\", \"/\", \"[\", or \"]\""
+      },
+      {
+        "label": "push-nan",
+        "threwSynchronously": true,
+        "errorName": "Error",
+        "message": "push failed: value argument contains NaN in property 'adminWrites.validationNode'"
+      }
+    ],
+    "baselineUnchangedAfterRefusedWrites": {
+      "intact": true
+    }
+  }
+}

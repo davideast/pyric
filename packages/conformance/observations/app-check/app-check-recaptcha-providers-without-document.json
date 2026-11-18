@@ -1,0 +1,96 @@
+{
+  "name": "app-check-recaptcha-providers-without-document",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "firebase/app-check initializeAppCheck with ReCaptchaV3Provider and ReCaptchaEnterpriseProvider in a runtime without global document, both with and without FIREBASE_APPCHECK_DEBUG_TOKEN: throws ReferenceError(\"document is not defined\") synchronously after registering the instance, returns the handle on a second call with the same siteKey, and throws appCheck/already-initialized on a different siteKey.",
+  "observedAt": "2026-11-18T06:44:32.112Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "hasGlobalDocument": false,
+    "withoutDebugToken": {
+      "recaptchaV3": {
+        "firstInitialize": {
+          "synchronousThrow": true,
+          "name": "ReferenceError",
+          "code": null,
+          "message": "document is not defined",
+          "customDataMatchesAppName": false
+        },
+        "secondSameSiteKey": {
+          "synchronousThrow": false,
+          "returnsAppCheckForSameApp": true
+        },
+        "thirdDifferentSiteKey": {
+          "synchronousThrow": true,
+          "name": "FirebaseError",
+          "code": "appCheck/already-initialized",
+          "message": "AppCheck: You have already called initializeAppCheck() for FirebaseApp <appName> with different options. To avoid this error, call initializeAppCheck() with the same options as when it was originally called. This will return the already initialized instance. (appCheck/already-initialized).",
+          "customDataMatchesAppName": true
+        }
+      },
+      "recaptchaEnterprise": {
+        "firstInitialize": {
+          "synchronousThrow": true,
+          "name": "ReferenceError",
+          "code": null,
+          "message": "document is not defined",
+          "customDataMatchesAppName": false
+        },
+        "secondSameSiteKey": {
+          "synchronousThrow": false,
+          "returnsAppCheckForSameApp": true
+        },
+        "thirdDifferentSiteKey": {
+          "synchronousThrow": true,
+          "name": "FirebaseError",
+          "code": "appCheck/already-initialized",
+          "message": "AppCheck: You have already called initializeAppCheck() for FirebaseApp <appName> with different options. To avoid this error, call initializeAppCheck() with the same options as when it was originally called. This will return the already initialized instance. (appCheck/already-initialized).",
+          "customDataMatchesAppName": true
+        }
+      }
+    },
+    "withDebugTokenTrue": {
+      "recaptchaV3": {
+        "firstInitialize": {
+          "synchronousThrow": true,
+          "name": "ReferenceError",
+          "code": null,
+          "message": "document is not defined",
+          "customDataMatchesAppName": false
+        },
+        "secondSameSiteKey": {
+          "synchronousThrow": false,
+          "returnsAppCheckForSameApp": true
+        },
+        "thirdDifferentSiteKey": {
+          "synchronousThrow": true,
+          "name": "FirebaseError",
+          "code": "appCheck/already-initialized",
+          "message": "AppCheck: You have already called initializeAppCheck() for FirebaseApp <appName> with different options. To avoid this error, call initializeAppCheck() with the same options as when it was originally called. This will return the already initialized instance. (appCheck/already-initialized).",
+          "customDataMatchesAppName": true
+        }
+      },
+      "recaptchaEnterprise": {
+        "firstInitialize": {
+          "synchronousThrow": true,
+          "name": "ReferenceError",
+          "code": null,
+          "message": "document is not defined",
+          "customDataMatchesAppName": false
+        },
+        "secondSameSiteKey": {
+          "synchronousThrow": false,
+          "returnsAppCheckForSameApp": true
+        },
+        "thirdDifferentSiteKey": {
+          "synchronousThrow": true,
+          "name": "FirebaseError",
+          "code": "appCheck/already-initialized",
+          "message": "AppCheck: You have already called initializeAppCheck() for FirebaseApp <appName> with different options. To avoid this error, call initializeAppCheck() with the same options as when it was originally called. This will return the already initialized instance. (appCheck/already-initialized).",
+          "customDataMatchesAppName": true
+        }
+      }
+    }
+  }
+}

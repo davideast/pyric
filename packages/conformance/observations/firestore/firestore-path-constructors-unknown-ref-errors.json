@@ -1,0 +1,46 @@
+{
+  "name": "firestore-path-constructors-unknown-ref-errors",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "doc, collection, and collectionGroup reject unrecognized or foreign first-argument objects with a deterministic error class and code.",
+  "observedAt": "2026-11-18T06:45:00.765Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "docPlainObject": {
+      "threw": true,
+      "errorName": "FirebaseError",
+      "isTypeError": false,
+      "isFirebaseError": true,
+      "code": "invalid-argument"
+    },
+    "docFakeCollection": {
+      "threw": true,
+      "errorName": "FirebaseError",
+      "isTypeError": false,
+      "isFirebaseError": true,
+      "code": "invalid-argument"
+    },
+    "collectionPlainObject": {
+      "threw": true,
+      "errorName": "FirebaseError",
+      "isTypeError": false,
+      "isFirebaseError": true,
+      "code": "invalid-argument"
+    },
+    "collectionFakeDoc": {
+      "threw": true,
+      "errorName": "FirebaseError",
+      "isTypeError": false,
+      "isFirebaseError": true,
+      "code": "invalid-argument"
+    },
+    "collectionGroupPlainObject": {
+      "threw": true,
+      "errorName": "FirebaseError",
+      "isTypeError": false,
+      "isFirebaseError": true,
+      "code": "invalid-argument"
+    }
+  }
+}

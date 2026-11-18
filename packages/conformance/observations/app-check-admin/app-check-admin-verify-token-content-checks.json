@@ -1,0 +1,62 @@
+{
+  "name": "app-check-admin-verify-token-content-checks",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "firebase-admin/app-check verifyToken pre-signature validation order and error contracts: synchronous throws for non-object options and non-string token, async rejection with app-check/invalid-credential when no projectId is configured, base64url decode rejection, and ordered content checks for alg, aud, iss, missing sub, non-string sub, and empty sub.",
+  "observedAt": "2026-11-18T06:44:31.647Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "optionsNull": {
+      "mode": "sync-throw",
+      "code": "app-check/invalid-argument",
+      "message": "VerifyAppCheckTokenOptions must be a non-null object."
+    },
+    "nonStringToken": {
+      "mode": "sync-throw",
+      "code": "app-check/invalid-argument",
+      "message": "App check token must be a non-null string."
+    },
+    "missingProjectId": {
+      "mode": "rejected",
+      "code": "app-check/invalid-credential",
+      "message": "Must initialize app with a cert credential or set your Firebase project ID as the GOOGLE_CLOUD_PROJECT environment variable to verify an App Check token."
+    },
+    "invalidBase64UrlSegment": {
+      "mode": "rejected",
+      "code": "app-check/invalid-argument",
+      "message": "Decoding App Check token failed. Make sure you passed the entire string JWT which represents the Firebase App Check token."
+    },
+    "wrongAlgorithm": {
+      "mode": "rejected",
+      "code": "app-check/invalid-argument",
+      "message": "The provided App Check token has incorrect algorithm. Expected \"RS256\" but got \"HS256\"."
+    },
+    "wrongAudience": {
+      "mode": "rejected",
+      "code": "app-check/invalid-argument",
+      "message": "The provided App Check token has incorrect \"aud\" (audience) claim. Expected \"projects/another-project\" but got \"projects/123456789012,projects/demo-project\". Make sure the App Check token comes from the same Firebase project as the service account used to authenticate this SDK."
+    },
+    "wrongIssuer": {
+      "mode": "rejected",
+      "code": "app-check/invalid-argument",
+      "message": "The provided App Check token has incorrect \"iss\" (issuer) claim."
+    },
+    "missingSub": {
+      "mode": "rejected",
+      "code": "app-check/invalid-argument",
+      "message": "The provided App Check token has no \"sub\" (subject) claim."
+    },
+    "nonStringSub": {
+      "mode": "rejected",
+      "code": "app-check/invalid-argument",
+      "message": "The provided App Check token has no \"sub\" (subject) claim."
+    },
+    "emptySub": {
+      "mode": "rejected",
+      "code": "app-check/invalid-argument",
+      "message": "The provided App Check token has an empty string \"sub\" (subject) claim."
+    }
+  },
+  "adminSdkVersion": "13.10.0"
+}

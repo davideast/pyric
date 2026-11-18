@@ -1,0 +1,73 @@
+{
+  "name": "rtdb-rules-default-deny-and-runtime-errors",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "Live RTDB Security Rules evaluation for ancestor false verdicts when descendants carry only .validate or the opposite operation, default deny when no rule exists on the path, and runtime type errors (beginsWith on number/null) failing closed as deny verdicts.",
+  "observedAt": "2026-11-18T06:47:22.623Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "explicitFalseAncestorWithChildValidateOrOppositeOp": {
+      "readOnReadOnlyChildAllowed": {
+        "allowed": true,
+        "permissionDenied": false
+      },
+      "writeOnReadOnlyChildWithValidateDenied": {
+        "allowed": false,
+        "permissionDenied": true
+      },
+      "writeOnWriteOnlyGrandchildAllowed": {
+        "allowed": true,
+        "permissionDenied": false
+      },
+      "readOnWriteOnlyChildrenOnlyNodeDenied": {
+        "allowed": false,
+        "permissionDenied": true
+      },
+      "readOnWriteOnlyGrandchildDenied": {
+        "allowed": false,
+        "permissionDenied": true
+      },
+      "readOnChildWithOnlyWriteRuleDenied": {
+        "allowed": false,
+        "permissionDenied": true
+      },
+      "writeOnChildWithOnlyWriteRuleAllowed": {
+        "allowed": true,
+        "permissionDenied": false
+      }
+    },
+    "defaultDenyWhenNoRuleForOperationExists": {
+      "readOnRulelessBranchDenied": {
+        "allowed": false,
+        "permissionDenied": true
+      },
+      "writeOnRulelessBranchDenied": {
+        "allowed": false,
+        "permissionDenied": true
+      }
+    },
+    "runtimeTypeErrorsFailClosedAsVerdicts": {
+      "readCallingBeginsWithOnNumberDenied": {
+        "allowed": false,
+        "permissionDenied": true
+      },
+      "childBelowErroringReadStillAllowed": {
+        "allowed": true,
+        "permissionDenied": false
+      },
+      "writeCallingBeginsWithOnNullDenied": {
+        "allowed": false,
+        "permissionDenied": true
+      },
+      "validateCallingBeginsWithOnNumberDenied": {
+        "allowed": false,
+        "permissionDenied": true
+      },
+      "validateCallingBeginsWithOnValidStringAllowed": {
+        "allowed": true,
+        "permissionDenied": false
+      }
+    }
+  }
+}
