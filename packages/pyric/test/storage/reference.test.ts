@@ -46,13 +46,15 @@ function freshStorage(label: string) {
 }
 
 describe('StorageReference', () => {
-  it('root reference has empty fullPath, null parent, and equal root', () => {
+  it('root reference has empty fullPath, null parent, and fresh root instance', () => {
     const storage = freshStorage('root');
     const root = ref(storage);
     expect(root.fullPath).toBe('');
     expect(root.name).toBe('');
     expect(root.parent).toBeNull();
-    expect(root.root).toBe(root);
+    expect(root.root).not.toBe(root);
+    expect(root.root.fullPath).toBe('');
+    expect(root.root.toString()).toBe(root.toString());
     expect(root.bucket).toBe('pyric-default');
   });
 

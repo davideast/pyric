@@ -17,9 +17,8 @@ function walkParentChain(start: StorageReference): Array<{ fullPath: string; nam
 
 export const probe: Probe = {
   rig: 'client-storage',
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'storage#18',
+  rowIds: ['storage#18', 'storage#19', 'storage#20'],
   description:
     'firebase/storage ref(parent, child), parent chain traversal, and root accessor across depths: observes relative path joining, step-by-step parent stripping down to null at root, and root returning the bucket root from every depth.',
   async observe() {

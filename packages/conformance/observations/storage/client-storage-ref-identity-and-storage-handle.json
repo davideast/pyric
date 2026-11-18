@@ -1,7 +1,10 @@
 {
   "name": "client-storage-ref-identity-and-storage-handle",
-  "matrixRow": "",
-  "rowIds": [],
+  "matrixRow": "storage#22",
+  "rowIds": [
+    "storage#22",
+    "storage#23"
+  ],
   "description": "firebase/storage StorageReference value-object identity and owning handle preservation: observes non-interned reference instances across ref(), parent, and root alongside preserved storage and bucket properties.",
   "observedAt": "2026-11-17T23:55:21.004Z",
   "fbSdkVersion": "12.19.0",

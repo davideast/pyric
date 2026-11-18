@@ -38,6 +38,7 @@ import {
   listAll,
 } from '../../src/storage/index.js';
 import { parseStorageUrl } from '../../src/storage/url.js';
+import { registerOracleRefSuite } from './oracle-ref-cases.js';
 import { registerOracleUploadBytesSuite } from './oracle-uploadbytes-cases.js';
 
 // storage-* and client-storage-* observations live under the 'storage' surface subdirectory.
@@ -495,6 +496,7 @@ service firebase.storage {
     expectRefCase(freshStorage('ref-url-child'), obs.childRefWithUrl as RefCase);
   });
 
+  registerOracleRefSuite({ load, freshStorage });
   registerOracleUploadBytesSuite({ load, freshStorage });
 
   // ── completeness: every observation is asserted or explicitly N/A ─────

@@ -4,9 +4,8 @@ import { withIsolatedClientStorage } from '../../src/client-storage-ref-session.
 
 export const probe: Probe = {
   rig: 'client-storage',
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'storage#22',
+  rowIds: ['storage#22', 'storage#23'],
   description:
     'firebase/storage StorageReference value-object identity and owning handle preservation: observes non-interned reference instances across ref(), parent, and root alongside preserved storage and bucket properties.',
   async observe() {
