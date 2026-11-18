@@ -1,0 +1,31 @@
+{
+  "name": "auth-updateprofile-in-place-and-persistence",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "updateProfile(user, { displayName, photoURL }) mutates the held User and stored record in place (null clears a field, omitted fields stay intact) without an extra onAuthStateChanged fire and survives signOut -> signInWithEmailAndPassword.",
+  "observedAt": "2026-11-18T04:34:56.745Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "afterSetBoth": {
+      "sameCurrentUserRef": true,
+      "displayName": "Builder One",
+      "photoURL": "https://example.com/avatars/builder.png",
+      "passwordProviderDisplayName": "Builder One",
+      "passwordProviderPhotoURL": "https://example.com/avatars/builder.png",
+      "extraAuthStateFires": 0,
+      "extraIdTokenFires": 0
+    },
+    "afterClearPhotoOnly": {
+      "displayName": "Builder One",
+      "photoURL": "https://example.com/avatars/builder.png",
+      "adminDisplayName": "Builder One",
+      "adminPhotoURL": "https://example.com/avatars/builder.png",
+      "extraAuthStateFiresTotal": 0
+    },
+    "afterReSignIn": {
+      "displayName": "Builder One",
+      "photoURL": "https://example.com/avatars/builder.png"
+    }
+  }
+}

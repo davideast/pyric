@@ -1,0 +1,75 @@
+{
+  "name": "rtdb-modular-array-write-normalization",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "Modular RTDB write-boundary array normalization: arrays written via set() store integer-keyed children addressable via child(ref, \"1\"), iterate \"0\",\"1\",\"2\" in forEach(), prune interior and trailing null elements, and preserve keyed objects in exportVal().",
+  "observedAt": "2026-11-18T04:35:18.738Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "denseArray": {
+      "isArray": true,
+      "val": [
+        "alpha",
+        "beta",
+        "gamma"
+      ],
+      "exportVal": {
+        "0": "alpha",
+        "1": "beta",
+        "2": "gamma"
+      },
+      "size": 3,
+      "hasChildren": true,
+      "hasChild1": true,
+      "hasLeadingZeroChild01": false,
+      "directChild1Exists": true,
+      "directChild1Val": "beta",
+      "forEachEntries": [
+        {
+          "key": "0",
+          "val": "alpha"
+        },
+        {
+          "key": "1",
+          "val": "beta"
+        },
+        {
+          "key": "2",
+          "val": "gamma"
+        }
+      ],
+      "afterChild1OverwriteVal": [
+        "alpha",
+        "BETA",
+        "gamma"
+      ]
+    },
+    "arrayWithNulls": {
+      "isArray": true,
+      "length": 3,
+      "ownKeys": [
+        "0",
+        "2"
+      ],
+      "hasIndex1InOperator": false,
+      "size": 2,
+      "hasChild1": false,
+      "directChild1Exists": false,
+      "exportVal": {
+        "0": "x",
+        "2": "z"
+      },
+      "forEachEntries": [
+        {
+          "key": "0",
+          "val": "x"
+        },
+        {
+          "key": "2",
+          "val": "z"
+        }
+      ]
+    }
+  }
+}

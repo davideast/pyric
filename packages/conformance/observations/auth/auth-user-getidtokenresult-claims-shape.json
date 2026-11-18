@@ -1,0 +1,30 @@
+{
+  "name": "auth-user-getidtokenresult-claims-shape",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "user.getIdTokenResult() returns the parsed IdTokenResult shape including standard and custom claims, signInProvider, and ISO timestamp fields.",
+  "observedAt": "2026-11-18T04:35:04.379Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "resultKeysSorted": [
+      "authTime",
+      "claims",
+      "expirationTime",
+      "issuedAtTime",
+      "signInProvider",
+      "signInSecondFactor",
+      "token"
+    ],
+    "tokenIsNonEmptyString": true,
+    "signInProvider": "password",
+    "signInSecondFactor": null,
+    "authTimeValidIso": true,
+    "issuedAtTimeValidIso": true,
+    "expirationTimeValidIso": true,
+    "customRoleClaim": "editor",
+    "customTierClaim": 2,
+    "subMatchesUid": true,
+    "firebaseSignInProvider": "password"
+  }
+}

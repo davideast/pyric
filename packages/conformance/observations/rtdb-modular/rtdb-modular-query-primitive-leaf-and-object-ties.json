@@ -1,0 +1,62 @@
+{
+  "name": "rtdb-modular-query-primitive-leaf-and-object-ties",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "RTDB modular query behavior on a primitive scalar leaf (unfiltered vs bounded/limited) and orderByValue() nameCompare tie-breaking plus no-change suppression on object-valued children.",
+  "observedAt": "2026-11-18T04:35:59.492Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "primitiveLeafOrderByKeyUnfiltered": {
+      "exists": true,
+      "size": 0,
+      "val": 42,
+      "forEachKeys": []
+    },
+    "primitiveLeafOrderByValueUnfiltered": {
+      "exists": true,
+      "size": 0,
+      "val": 42,
+      "forEachKeys": []
+    },
+    "primitiveLeafLimited": {
+      "exists": false,
+      "size": 0,
+      "val": null,
+      "forEachKeys": []
+    },
+    "primitiveLeafBounded": {
+      "exists": false,
+      "size": 0,
+      "val": null,
+      "forEachKeys": []
+    },
+    "objectChildrenOrderByValueKeys": [
+      "2",
+      "10",
+      "a",
+      "b"
+    ],
+    "keyReorderedRewriteDelivery": {
+      "fireCount": 2,
+      "deliveredKeysPerFire": [
+        [
+          "2",
+          "10",
+          "a",
+          "b"
+        ],
+        [
+          "2",
+          "10",
+          "a",
+          "b"
+        ]
+      ],
+      "bFieldASequence": [
+        1,
+        2
+      ]
+    }
+  }
+}

@@ -1,0 +1,71 @@
+{
+  "name": "rtdb-modular-query-constraint-conflicts",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "RTDB modular synchronous query() constraint-conflict validation across duplicate orderBy*, duplicate limits, duplicate start/end bounds, equalTo() combinations, and chained query() calls.",
+  "observedAt": "2026-11-18T04:35:43.314Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "orderByChildThenOrderByKey": {
+      "threw": true,
+      "errorMessage": "orderByKey: You can't combine multiple orderBy calls."
+    },
+    "orderByKeyThenOrderByValue": {
+      "threw": true,
+      "errorMessage": "orderByValue: You can't combine multiple orderBy calls."
+    },
+    "orderByValueThenOrderByPriority": {
+      "threw": true,
+      "errorMessage": "orderByPriority: You can't combine multiple orderBy calls."
+    },
+    "limitFirstThenLimitLast": {
+      "threw": true,
+      "errorMessage": "limitToLast: Limit was already set (by another call to limitToFirst or limitToLast)."
+    },
+    "limitFirstThenLimitFirst": {
+      "threw": true,
+      "errorMessage": "limitToFirst: Limit was already set (by another call to limitToFirst or limitToLast)."
+    },
+    "startAtThenStartAfter": {
+      "threw": true,
+      "errorMessage": "startAfter: Starting point was already set (by another call to startAt, startAfter, or equalTo)."
+    },
+    "startAtThenEqualTo": {
+      "threw": true,
+      "errorMessage": "equalTo: Starting point was already set (by another call to startAt/startAfter or equalTo)."
+    },
+    "startAtThenStartAt": {
+      "threw": true,
+      "errorMessage": "startAt: Starting point was already set (by another call to startAt, startBefore or equalTo)."
+    },
+    "endAtThenEndBefore": {
+      "threw": true,
+      "errorMessage": "endBefore: Starting point was already set (by another call to endAt, endBefore or equalTo)."
+    },
+    "equalToThenEndAt": {
+      "threw": true,
+      "errorMessage": "endAt: Starting point was already set (by another call to endAt, endBefore or equalTo)."
+    },
+    "endAtThenEndAt": {
+      "threw": true,
+      "errorMessage": "endAt: Starting point was already set (by another call to endAt, endBefore or equalTo)."
+    },
+    "chainedDuplicateOrderBy": {
+      "threw": true,
+      "errorMessage": "orderByChild: You can't combine multiple orderBy calls."
+    },
+    "chainedDuplicateLimit": {
+      "threw": true,
+      "errorMessage": "limitToLast: Limit was already set (by another call to limitToFirst or limitToLast)."
+    },
+    "validRangeAndLimitControl": {
+      "threw": false,
+      "errorMessage": null
+    },
+    "validChainedRangeAndLimitControl": {
+      "threw": false,
+      "errorMessage": null
+    }
+  }
+}

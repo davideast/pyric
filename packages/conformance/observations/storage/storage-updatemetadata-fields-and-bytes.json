@@ -1,0 +1,63 @@
+{
+  "name": "storage-updatemetadata-fields-and-bytes",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "updateMetadata(ref, patch) wholesale settable-field replacement and byte preservation: observes contentType, cacheControl, contentDisposition, contentEncoding, contentLanguage, and customMetadata replacement alongside unchanged object bytes.",
+  "observedAt": "2026-11-18T04:36:32.840Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "initialBytes": [
+      222,
+      173,
+      190,
+      239,
+      33
+    ],
+    "beforeUpdate": {
+      "size": 5,
+      "contentType": "text/plain",
+      "cacheControl": "no-cache",
+      "contentDisposition": "inline",
+      "contentEncoding": "identity",
+      "contentLanguage": "en",
+      "customMetadata": {
+        "k1": "v1",
+        "k2": "v2"
+      }
+    },
+    "updateReturn": {
+      "size": 5,
+      "contentType": "application/octet-stream",
+      "cacheControl": "public, max-age=60",
+      "contentDisposition": "attachment; filename=\"item.bin\"",
+      "contentEncoding": "identity",
+      "contentLanguage": "fr",
+      "customMetadata": {
+        "k1": "v1",
+        "k2": "v2-next",
+        "k3": "v3"
+      }
+    },
+    "afterGetMetadata": {
+      "size": 5,
+      "contentType": "application/octet-stream",
+      "cacheControl": "public, max-age=60",
+      "contentDisposition": "attachment; filename=\"item.bin\"",
+      "contentEncoding": "identity",
+      "contentLanguage": "fr",
+      "customMetadata": {
+        "k1": "v1",
+        "k2": "v2-next",
+        "k3": "v3"
+      }
+    },
+    "afterReadBytes": [
+      222,
+      173,
+      190,
+      239,
+      33
+    ]
+  }
+}

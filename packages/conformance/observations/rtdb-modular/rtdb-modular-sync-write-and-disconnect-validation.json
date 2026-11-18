@@ -1,0 +1,205 @@
+{
+  "name": "rtdb-modular-sync-write-and-disconnect-validation",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "Modular RTDB synchronous write, priority, and OnDisconnect validation: observes synchronous Error throws (vs async rejections), scrubbed SDK error messages, push(ref, undefined) key-only overload vs push(ref, invalid) throw, and unchanged stored RTDB data across set, update, push, setPriority, setWithPriority, and onDisconnect.",
+  "observedAt": "2026-11-18T04:36:23.676Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "cases": [
+      {
+        "label": "set-undefined",
+        "timing": "synchronous-throw",
+        "errorName": "Error",
+        "hasCode": false,
+        "message": "set failed: value argument contains undefined in property 'validation.node'"
+      },
+      {
+        "label": "set-nan-child",
+        "timing": "synchronous-throw",
+        "errorName": "Error",
+        "hasCode": false,
+        "message": "set failed: value argument contains NaN in property 'validation.node.a'"
+      },
+      {
+        "label": "set-positive-infinity",
+        "timing": "synchronous-throw",
+        "errorName": "Error",
+        "hasCode": false,
+        "message": "set failed: value argument contains Infinity in property 'validation.node.a'"
+      },
+      {
+        "label": "set-negative-infinity",
+        "timing": "synchronous-throw",
+        "errorName": "Error",
+        "hasCode": false,
+        "message": "set failed: value argument contains -Infinity in property 'validation.node.a'"
+      },
+      {
+        "label": "set-function",
+        "timing": "synchronous-throw",
+        "errorName": "Error",
+        "hasCode": false,
+        "message": "set failed: value argument contains a function in property 'validation.node' with contents = () => 1"
+      },
+      {
+        "label": "set-dot-key",
+        "timing": "synchronous-throw",
+        "errorName": "Error",
+        "hasCode": false,
+        "message": "set failed: value argument  contains an invalid key (bad.key) in property 'validation.node'.  Keys must be non-empty strings and can't contain \".\", \"#\", \"$\", \"/\", \"[\", or \"]\""
+      },
+      {
+        "label": "set-hash-key",
+        "timing": "synchronous-throw",
+        "errorName": "Error",
+        "hasCode": false,
+        "message": "set failed: value argument  contains an invalid key (bad#key) in property 'validation.node'.  Keys must be non-empty strings and can't contain \".\", \"#\", \"$\", \"/\", \"[\", or \"]\""
+      },
+      {
+        "label": "set-dollar-key",
+        "timing": "synchronous-throw",
+        "errorName": "Error",
+        "hasCode": false,
+        "message": "set failed: value argument  contains an invalid key (bad$key) in property 'validation.node'.  Keys must be non-empty strings and can't contain \".\", \"#\", \"$\", \"/\", \"[\", or \"]\""
+      },
+      {
+        "label": "set-slash-key",
+        "timing": "synchronous-throw",
+        "errorName": "Error",
+        "hasCode": false,
+        "message": "set failed: value argument  contains an invalid key (bad/key) in property 'validation.node'.  Keys must be non-empty strings and can't contain \".\", \"#\", \"$\", \"/\", \"[\", or \"]\""
+      },
+      {
+        "label": "set-lbracket-key",
+        "timing": "synchronous-throw",
+        "errorName": "Error",
+        "hasCode": false,
+        "message": "set failed: value argument  contains an invalid key (bad[key) in property 'validation.node'.  Keys must be non-empty strings and can't contain \".\", \"#\", \"$\", \"/\", \"[\", or \"]\""
+      },
+      {
+        "label": "set-rbracket-key",
+        "timing": "synchronous-throw",
+        "errorName": "Error",
+        "hasCode": false,
+        "message": "set failed: value argument  contains an invalid key (bad]key) in property 'validation.node'.  Keys must be non-empty strings and can't contain \".\", \"#\", \"$\", \"/\", \"[\", or \"]\""
+      },
+      {
+        "label": "set-value-beside-child",
+        "timing": "synchronous-throw",
+        "errorName": "Error",
+        "hasCode": false,
+        "message": "set failed: value argument  contains \".value\" child in property 'validation.node' in addition to actual children."
+      },
+      {
+        "label": "update-null-map",
+        "timing": "synchronous-throw",
+        "errorName": "Error",
+        "hasCode": false,
+        "message": "update failed: values argument  must be an object containing the children to replace."
+      },
+      {
+        "label": "update-primitive-map",
+        "timing": "synchronous-throw",
+        "errorName": "Error",
+        "hasCode": false,
+        "message": "update failed: values argument  must be an object containing the children to replace."
+      },
+      {
+        "label": "update-nan-child",
+        "timing": "synchronous-throw",
+        "errorName": "Error",
+        "hasCode": false,
+        "message": "update failed: values argument contains NaN in property 'validation.node.a'"
+      },
+      {
+        "label": "update-invalid-path-key",
+        "timing": "synchronous-throw",
+        "errorName": "Error",
+        "hasCode": false,
+        "message": "update failed: values argument contains an invalid key (bad#key) in path /bad#key. Keys must be non-empty strings and can't contain \".\", \"#\", \"$\", \"/\", \"[\", or \"]\""
+      },
+      {
+        "label": "push-nan",
+        "timing": "synchronous-throw",
+        "errorName": "Error",
+        "hasCode": false,
+        "message": "push failed: value argument contains NaN in property 'validation.node'"
+      },
+      {
+        "label": "push-nested-undefined",
+        "timing": "synchronous-throw",
+        "errorName": "Error",
+        "hasCode": false,
+        "message": "push failed: value argument contains undefined in property 'validation.node.a'"
+      },
+      {
+        "label": "setPriority-object",
+        "timing": "synchronous-throw",
+        "errorName": "Error",
+        "hasCode": false,
+        "message": "setPriority failed: priority argument must be a valid Firebase priority (a string, finite number, server value, or null)."
+      },
+      {
+        "label": "setPriority-nan",
+        "timing": "synchronous-throw",
+        "errorName": "Error",
+        "hasCode": false,
+        "message": "setPriority failed: priority argument is NaN, but must be a valid Firebase priority (a string, finite number, server value, or null)."
+      },
+      {
+        "label": "setWithPriority-nan-value",
+        "timing": "synchronous-throw",
+        "errorName": "Error",
+        "hasCode": false,
+        "message": "setWithPriority failed: value argument contains NaN in property 'validation.node'"
+      },
+      {
+        "label": "setWithPriority-boolean-priority",
+        "timing": "synchronous-throw",
+        "errorName": "Error",
+        "hasCode": false,
+        "message": "setWithPriority failed: priority argument must be a valid Firebase priority (a string, finite number, server value, or null)."
+      },
+      {
+        "label": "onDisconnect-set-nan",
+        "timing": "synchronous-throw",
+        "errorName": "Error",
+        "hasCode": false,
+        "message": "OnDisconnect.set failed: value argument contains NaN in property 'validation.node'"
+      },
+      {
+        "label": "onDisconnect-setWithPriority-nan",
+        "timing": "synchronous-throw",
+        "errorName": "Error",
+        "hasCode": false,
+        "message": "OnDisconnect.setWithPriority failed: value argument contains NaN in property 'validation.node'"
+      },
+      {
+        "label": "onDisconnect-update-nan",
+        "timing": "synchronous-throw",
+        "errorName": "Error",
+        "hasCode": false,
+        "message": "OnDisconnect.update failed: values argument contains NaN in property 'validation.node.a'"
+      },
+      {
+        "label": "onDisconnect-update-null-map",
+        "timing": "synchronous-throw",
+        "errorName": "Error",
+        "hasCode": false,
+        "message": "OnDisconnect.update failed: values argument  must be an object containing the children to replace."
+      }
+    ],
+    "pushUndefinedArgMintsKeyWithoutThrowing": {
+      "threwSynchronously": false,
+      "mintedKeyLength": 20
+    },
+    "storedDataAfterRefusedCalls": {
+      "val": {
+        "baseline": "intact"
+      },
+      "priority": null
+    }
+  }
+}

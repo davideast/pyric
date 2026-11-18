@@ -1,0 +1,48 @@
+{
+  "name": "storage-getmetadata-full-shape",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "getMetadata(ref) after uploadBytes with full SettableMetadata: observes field-by-field FullMetadata parity against UploadResult.metadata.",
+  "observedAt": "2026-11-18T04:36:26.592Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "uploadedShape": {
+      "name": "doc.json",
+      "scrubbedFullPath": "pyric_oracle/<runId>/metadata-full-shape/doc.json",
+      "size": 7,
+      "metageneration": "1",
+      "contentType": "application/json",
+      "cacheControl": "public, max-age=300",
+      "contentDisposition": "inline; filename=\"doc.json\"",
+      "contentEncoding": "identity",
+      "contentLanguage": "en",
+      "customMetadata": {
+        "owner": "user-1",
+        "tier": "standard"
+      },
+      "bucketMatchesHandle": true,
+      "generationIsDigits": true
+    },
+    "fetchedShape": {
+      "name": "doc.json",
+      "scrubbedFullPath": "pyric_oracle/<runId>/metadata-full-shape/doc.json",
+      "size": 7,
+      "metageneration": "1",
+      "contentType": "application/json",
+      "cacheControl": "public, max-age=300",
+      "contentDisposition": "inline; filename=\"doc.json\"",
+      "contentEncoding": "identity",
+      "contentLanguage": "en",
+      "customMetadata": {
+        "owner": "user-1",
+        "tier": "standard"
+      },
+      "bucketMatchesHandle": true,
+      "generationIsDigits": true,
+      "generationMatchesUpload": true,
+      "timeCreatedMatchesUpload": true,
+      "updatedMatchesUpload": true
+    }
+  }
+}

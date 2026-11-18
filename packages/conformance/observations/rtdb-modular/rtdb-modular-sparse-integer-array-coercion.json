@@ -1,0 +1,259 @@
+{
+  "name": "rtdb-modular-sparse-integer-array-coercion",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "Modular client and firebase-admin RTDB read-side integer-key array coercion: compares snap.val() sparse holes (maxKey < 2 * numKeys vs >= 2 * numKeys and non-canonical keys), exportVal(), toJSON(), priority, child/hasChild/numChildren/size, and early-exit forEach().",
+  "observedAt": "2026-11-18T04:36:07.739Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "sparseUnderThreshold": {
+      "client": {
+        "exists": true,
+        "isArray": true,
+        "length": 4,
+        "ownKeys": [
+          "0",
+          "1",
+          "3"
+        ],
+        "hasHoleIndexInOperator": false,
+        "holeIndexIsUndefined": true,
+        "exportVal": {
+          "0": "a",
+          "1": "b",
+          "3": "d"
+        },
+        "toJSON": {
+          "0": "a",
+          "1": "b",
+          "3": "d"
+        },
+        "priority": null,
+        "childCount": 3,
+        "hasChildren": true,
+        "hasPresentChild": true,
+        "hasMissingHoleChild": false,
+        "presentChildVal": "b",
+        "missingHoleChildExists": false,
+        "forEachKeys": [
+          "0",
+          "1",
+          "3"
+        ],
+        "earlyExitVisitedKeys": [
+          "0",
+          "1"
+        ],
+        "earlyExitReturnedTrue": true
+      },
+      "admin": {
+        "exists": true,
+        "isArray": true,
+        "length": 4,
+        "ownKeys": [
+          "0",
+          "1",
+          "3"
+        ],
+        "hasHoleIndexInOperator": false,
+        "holeIndexIsUndefined": true,
+        "exportVal": {
+          "0": "a",
+          "1": "b",
+          "3": "d"
+        },
+        "toJSON": {
+          "0": "a",
+          "1": "b",
+          "3": "d"
+        },
+        "priority": null,
+        "childCount": 3,
+        "hasChildren": true,
+        "hasPresentChild": true,
+        "hasMissingHoleChild": false,
+        "presentChildVal": "b",
+        "missingHoleChildExists": false,
+        "forEachKeys": [
+          "0",
+          "1",
+          "3"
+        ],
+        "earlyExitVisitedKeys": [
+          "0",
+          "1"
+        ],
+        "earlyExitReturnedTrue": true
+      }
+    },
+    "exactBoundaryCoerced": {
+      "client": {
+        "exists": true,
+        "isArray": true,
+        "length": 4,
+        "ownKeys": [
+          "0",
+          "3"
+        ],
+        "hasHoleIndexInOperator": false,
+        "holeIndexIsUndefined": true,
+        "exportVal": {
+          "0": "first",
+          "3": "fourth"
+        },
+        "toJSON": {
+          "0": "first",
+          "3": "fourth"
+        },
+        "priority": null,
+        "childCount": 2,
+        "hasChildren": true,
+        "hasPresentChild": true,
+        "hasMissingHoleChild": false,
+        "presentChildVal": "fourth",
+        "missingHoleChildExists": false,
+        "forEachKeys": [
+          "0",
+          "3"
+        ],
+        "earlyExitVisitedKeys": [
+          "0"
+        ],
+        "earlyExitReturnedTrue": true
+      },
+      "admin": {
+        "exists": true,
+        "isArray": true,
+        "length": 4,
+        "ownKeys": [
+          "0",
+          "3"
+        ],
+        "hasHoleIndexInOperator": false,
+        "holeIndexIsUndefined": true,
+        "exportVal": {
+          "0": "first",
+          "3": "fourth"
+        },
+        "toJSON": {
+          "0": "first",
+          "3": "fourth"
+        },
+        "priority": null,
+        "childCount": 2,
+        "hasChildren": true,
+        "hasPresentChild": true,
+        "hasMissingHoleChild": false,
+        "presentChildVal": "fourth",
+        "missingHoleChildExists": false,
+        "forEachKeys": [
+          "0",
+          "3"
+        ],
+        "earlyExitVisitedKeys": [
+          "0"
+        ],
+        "earlyExitReturnedTrue": true
+      }
+    },
+    "exactBoundaryObject": {
+      "client": {
+        "exists": true,
+        "isArray": false,
+        "length": null,
+        "ownKeys": [
+          "0",
+          "4"
+        ],
+        "hasHoleIndexInOperator": false,
+        "holeIndexIsUndefined": false,
+        "exportVal": {
+          "0": "first",
+          "4": "fifth"
+        },
+        "toJSON": {
+          "0": "first",
+          "4": "fifth"
+        },
+        "priority": null,
+        "childCount": 2,
+        "hasChildren": true,
+        "hasPresentChild": true,
+        "hasMissingHoleChild": false,
+        "presentChildVal": "fifth",
+        "missingHoleChildExists": false,
+        "forEachKeys": [
+          "0",
+          "4"
+        ],
+        "earlyExitVisitedKeys": [
+          "0"
+        ],
+        "earlyExitReturnedTrue": true
+      },
+      "admin": {
+        "exists": true,
+        "isArray": false,
+        "length": null,
+        "ownKeys": [
+          "0",
+          "4"
+        ],
+        "hasHoleIndexInOperator": false,
+        "holeIndexIsUndefined": false,
+        "exportVal": {
+          "0": "first",
+          "4": "fifth"
+        },
+        "toJSON": {
+          "0": "first",
+          "4": "fifth"
+        },
+        "priority": null,
+        "childCount": 2,
+        "hasChildren": true,
+        "hasPresentChild": true,
+        "hasMissingHoleChild": false,
+        "presentChildVal": "fifth",
+        "missingHoleChildExists": false,
+        "forEachKeys": [
+          "0",
+          "4"
+        ],
+        "earlyExitVisitedKeys": [
+          "0"
+        ],
+        "earlyExitReturnedTrue": true
+      }
+    },
+    "nonCanonicalKeys": {
+      "leadingZeroClientIsArray": false,
+      "leadingZeroAdminIsArray": false,
+      "negativeKeyClientIsArray": false,
+      "negativeKeyAdminIsArray": false
+    },
+    "arrayWithPriority": {
+      "clientVal": [
+        "p0",
+        "p1"
+      ],
+      "clientExportVal": {
+        "0": "p0",
+        "1": "p1",
+        ".priority": 7
+      },
+      "clientPriority": 7,
+      "adminVal": [
+        "p0",
+        "p1"
+      ],
+      "adminExportVal": {
+        "0": "p0",
+        "1": "p1",
+        ".priority": 7
+      },
+      "adminPriority": 7
+    }
+  }
+}
