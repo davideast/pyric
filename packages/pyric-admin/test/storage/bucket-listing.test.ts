@@ -7,7 +7,8 @@
 import { describe, expect, it } from 'bun:test';
 import { deletedNamesFound, deleteListedFiles } from '../../src/storage/delete-files.js';
 import { everyListedName, listingPage, type GetFilesOptions } from '../../src/storage/file-query.js';
-import { getFilesResponse, pageNamesFound } from '../../src/storage/get-files.js';
+import { getFilesResponse, getFilesWithMetadata, pageNamesFound } from '../../src/storage/get-files.js';
+import type { FileMetadata } from '../../src/storage/metadata-codec.js';
 import { namesForQuery, WALK_CONCURRENCY, type FolderListing } from '../../src/storage/remote-names.js';
 
 const NAMES = ['users/123/a.png', 'users/123/b/c.png', 'users/124/a.png', 'users/2/x', 'readme.txt', 'users'];
@@ -69,6 +70,38 @@ describe('getFilesResponse', () => {
     const [files, nextQuery] = getFilesResponse(['a', 'b'], { maxResults: 5 }, (name) => name);
     expect(files).toEqual(['a', 'b']);
     expect(nextQuery).toBeNull();
+  });
+
+  it('populates file.metadata across all pages and puts the final page items on apiResponse', async () => {
+    const metaOf = (name: string): FileMetadata => ({
+      name,
+      bucket: 'demo',
+      generation: '1',
+      metageneration: '1',
+      size: '2',
+      timeCreated: '2026-01-01T00:00:00.000Z',
+      updated: '2026-01-01T00:00:00.000Z',
+    });
+    const [files, nextQuery, apiResponse] = await getFilesWithMetadata(
+      many,
+      { prefix: 'logs/' },
+      (name) => ({ name, metadata: {} as Partial<FileMetadata> }),
+      async (file) => metaOf(file.name),
+    );
+    expect(files).toHaveLength(2500);
+    expect(files[0]?.metadata.name).toBe('logs/00000');
+    expect(files[2499]?.metadata.name).toBe('logs/02499');
+    expect(nextQuery).toEqual({ prefix: 'logs/' });
+    expect(apiResponse.items).toHaveLength(500);
+    expect(apiResponse.items?.[0]?.name).toBe('logs/02000');
+    const [emptyFiles, , emptyResponse] = await getFilesWithMetadata(
+      [],
+      {},
+      (name) => ({ name, metadata: {} as Partial<FileMetadata> }),
+      async (file) => metaOf(file.name),
+    );
+    expect(emptyFiles).toEqual([]);
+    expect(emptyResponse).toEqual({ kind: 'storage#objects' });
   });
 });
 

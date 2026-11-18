@@ -14,6 +14,13 @@ import { afterEach, describe, expect, it } from 'bun:test';
 import { join } from 'node:path';
 import { isRemoteSandbox } from 'pyric/sandbox';
 import { createObservationGate } from '../../../../packages/conformance/src/observation-gate.ts';
+import {
+  observeAdminBucketDeleteFiles,
+} from '../../../../packages/conformance/probes/storage-admin/admin-storage-bucket-deletefiles.ts';
+import {
+  observeAdminBucketGetFiles,
+  summarizeBucketGetFilesTuple,
+} from '../../../../packages/conformance/probes/storage-admin/admin-storage-bucket-getfiles.ts';
 import { deleteApp, getApps, type PyricAdminApp } from '../../src/app/index.js';
 import { getDownloadURL, getStorage, type File } from '../../src/storage/index.js';
 import { STORAGE_ARMS } from './arms.ts';
@@ -30,6 +37,8 @@ const obsGate = createObservationGate({
 });
 
 const production = () => obsGate.load('admin-storage-metadata-download-url');
+const productionGetFiles = () => obsGate.load('admin-storage-bucket-getfiles');
+const productionDeleteFiles = () => obsGate.load('admin-storage-bucket-deletefiles');
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const BYTES = Buffer.from(Array.from({ length: 64 }, (_, index) => index));
@@ -140,6 +149,99 @@ describe.each(ARMS)('storage-admin conformance, %s', (_arm, open) => {
     const ranged = await fetch(url, { headers: { range: 'bytes=2-5' } });
     expect(ranged.status).toBe(200);
     expect(Buffer.from(await ranged.arrayBuffer()).byteLength).toBe(BYTES.byteLength);
+  });
+
+  it('storage-admin#7: Bucket.getFiles prefix, delimiter, nextQuery, pagination, apiResponse.items, and file.metadata', async () => {
+    const observed = productionGetFiles();
+    const bucket = getStorage(open()).bucket();
+    const basePrefixWithSlash = 'pyric_oracle/admin_getfiles/';
+    const actual = await observeAdminBucketGetFiles({
+      async seedRelative(relativePath) {
+        await bucket.file(`${basePrefixWithSlash}${relativePath}`).save(Buffer.from([0x67, 0x66]), {
+          contentType: 'application/octet-stream',
+        });
+      },
+      async queryVerbatimSubPrefix(subPrefix) {
+        const inputPrefix = `${basePrefixWithSlash}${subPrefix}`;
+        const [files, nextQuery, apiResponse] = await bucket.getFiles({ prefix: inputPrefix });
+        return summarizeBucketGetFilesTuple(
+          basePrefixWithSlash,
+          inputPrefix,
+          files as unknown as ReadonlyArray<{ name: string; metadata?: Record<string, unknown> }>,
+          nextQuery as Record<string, unknown> | null | undefined,
+          apiResponse,
+        );
+      },
+      async queryDelimiterRoot() {
+        const [files, nextQuery, apiResponse] = await bucket.getFiles({
+          prefix: basePrefixWithSlash,
+          delimiter: '/',
+        });
+        return summarizeBucketGetFilesTuple(
+          basePrefixWithSlash,
+          basePrefixWithSlash,
+          files as unknown as ReadonlyArray<{ name: string; metadata?: Record<string, unknown> }>,
+          nextQuery as Record<string, unknown> | null | undefined,
+          apiResponse,
+        );
+      },
+      async queryTwoPagesWithDelimiter(maxResults) {
+        const [files1, next1, api1] = await bucket.getFiles({
+          prefix: basePrefixWithSlash,
+          delimiter: '/',
+          maxResults,
+          autoPaginate: false,
+        });
+        const page1 = summarizeBucketGetFilesTuple(
+          basePrefixWithSlash,
+          basePrefixWithSlash,
+          files1 as unknown as ReadonlyArray<{ name: string; metadata?: Record<string, unknown> }>,
+          next1 as Record<string, unknown> | null | undefined,
+          api1,
+        );
+        if (!next1) throw new Error('expected first paginated Bucket.getFiles call to return nextQuery');
+        const [files2, next2, api2] = await bucket.getFiles({
+          ...next1,
+          autoPaginate: false,
+        });
+        const page2 = summarizeBucketGetFilesTuple(
+          basePrefixWithSlash,
+          basePrefixWithSlash,
+          files2 as unknown as ReadonlyArray<{ name: string; metadata?: Record<string, unknown> }>,
+          next2 as Record<string, unknown> | null | undefined,
+          api2,
+        );
+        return { page1, page2 };
+      },
+    });
+
+    expect(actual).toEqual(observed);
+  });
+
+  it('storage-admin#8: Bucket.deleteFiles prefix deletion, maxResults cap, sibling isolation, and empty prefix', async () => {
+    const observed = productionDeleteFiles();
+    const bucket = getStorage(open()).bucket();
+    const basePrefixWithSlash = 'pyric_oracle/admin_deletefiles/';
+    const actual = await observeAdminBucketDeleteFiles({
+      async seedRelative(relativePath) {
+        await bucket.file(`${basePrefixWithSlash}${relativePath}`).save(Buffer.from([0x64, 0x66]), {
+          contentType: 'application/octet-stream',
+        });
+      },
+      async existsRelative(relativePath) {
+        const [exists] = await bucket.file(`${basePrefixWithSlash}${relativePath}`).exists();
+        return exists;
+      },
+      async deleteSubPrefix(subPrefix, options) {
+        const query: { prefix: string; maxResults?: number; force?: boolean } = {
+          prefix: `${basePrefixWithSlash}${subPrefix}`,
+        };
+        if (options?.maxResults !== undefined) query.maxResults = options.maxResults;
+        if (options?.force !== undefined) query.force = options.force;
+        await bucket.deleteFiles(query);
+      },
+    });
+    expect(actual).toEqual(observed);
   });
 });
 

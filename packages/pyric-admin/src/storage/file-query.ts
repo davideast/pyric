@@ -15,6 +15,8 @@
  *     `false`) reads every page, as `@google-cloud/paginator` does.
  */
 
+import type { FileMetadata } from './metadata-codec.js';
+
 /** Options for `Bucket.getFiles`. Subset of `@google-cloud/storage`'s `GetFilesOptions`. */
 export interface GetFilesOptions {
   prefix?: string;
@@ -30,9 +32,10 @@ export interface DeleteFilesOptions extends GetFilesOptions {
   force?: boolean;
 }
 
-/** The JSON API response a page came from. The sandbox leaves out `items`, the objects' full metadata. */
+/** The JSON API response a page came from, carrying `items` when the page listed at least one object. */
 export interface GetFilesApiResponse {
   kind: 'storage#objects';
+  items?: FileMetadata[];
   prefixes?: string[];
   nextPageToken?: string;
 }

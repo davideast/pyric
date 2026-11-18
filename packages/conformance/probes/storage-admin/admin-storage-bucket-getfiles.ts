@@ -53,7 +53,7 @@ export async function observeAdminBucketGetFiles(
   };
 }
 
-function summarizeTuple(
+export function summarizeBucketGetFilesTuple(
   basePrefixWithSlash: string,
   inputPrefix: string,
   files: ReadonlyArray<{ name: string; metadata?: Record<string, unknown> }>,
@@ -116,9 +116,8 @@ function summarizeTuple(
 
 export const probe: Probe = {
   rig: 'storage-admin',
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'storage-admin #7',
+  rowIds: ['storage-admin#7'],
   description:
     'firebase-admin Bucket.getFiles({ prefix, delimiter, maxResults, pageToken, autoPaginate }): observes verbatim prefix matching, delimiter prefix roll-up, [files, nextQuery, apiResponse] tuple shape, and pageToken pagination.',
   async observe() {
@@ -146,7 +145,7 @@ export const probe: Probe = {
         async queryVerbatimSubPrefix(subPrefix) {
           const inputPrefix = `${basePrefixWithSlash}${subPrefix}`;
           const [files, nextQuery, apiResponse] = await bucket.getFiles({ prefix: inputPrefix });
-          return summarizeTuple(
+          return summarizeBucketGetFilesTuple(
             basePrefixWithSlash,
             inputPrefix,
             files as unknown as ReadonlyArray<{ name: string; metadata?: Record<string, unknown> }>,
@@ -159,7 +158,7 @@ export const probe: Probe = {
             prefix: basePrefixWithSlash,
             delimiter: '/',
           });
-          return summarizeTuple(
+          return summarizeBucketGetFilesTuple(
             basePrefixWithSlash,
             basePrefixWithSlash,
             files as unknown as ReadonlyArray<{ name: string; metadata?: Record<string, unknown> }>,
@@ -174,7 +173,7 @@ export const probe: Probe = {
             maxResults,
             autoPaginate: false,
           });
-          const page1 = summarizeTuple(
+          const page1 = summarizeBucketGetFilesTuple(
             basePrefixWithSlash,
             basePrefixWithSlash,
             files1 as unknown as ReadonlyArray<{ name: string; metadata?: Record<string, unknown> }>,
@@ -188,7 +187,7 @@ export const probe: Probe = {
             ...(next1 as Record<string, unknown>),
             autoPaginate: false,
           });
-          const page2 = summarizeTuple(
+          const page2 = summarizeBucketGetFilesTuple(
             basePrefixWithSlash,
             basePrefixWithSlash,
             files2 as unknown as ReadonlyArray<{ name: string; metadata?: Record<string, unknown> }>,
