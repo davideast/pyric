@@ -1,0 +1,40 @@
+{
+  "name": "rules-storage-service-name-unknown-in-storage",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "Storage Rules Test API verdicts for corpus scenario \"service-name-unknown-in-storage\" (STORAGE-SERVICE-DECLARATION). Records whether projects.test compiles or rejects a storage.rules source declaring an unknown service name (service foo.bar) and captures any compile diagnostics alongside the Storage get verdict.",
+  "observedAt": "2026-11-18T11:37:53.263Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "inputDigest": {
+    "algorithm": "sha256",
+    "value": "a37ebbd5151c2588b1227b4364211d5b882dc7ff0fd48d1d0507c1f5c32e79f3"
+  },
+  "behavior": {
+    "storage get request against an unknown service foo.bar ruleset": "DENY"
+  },
+  "diagnostics": {
+    "compileIssues": {
+      "notes": [
+        "WARNING@2:9 Invalid service name: foo.bar.",
+        "WARNING@4:11 Invalid method name: read."
+      ],
+      "api": {
+        "issues": [
+          {
+            "severity": "WARNING",
+            "description": "Invalid service name: foo.bar.",
+            "line": 2,
+            "column": 9
+          },
+          {
+            "severity": "WARNING",
+            "description": "Invalid method name: read.",
+            "line": 4,
+            "column": 11
+          }
+        ]
+      }
+    }
+  }
+}
