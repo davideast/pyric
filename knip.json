@@ -12,7 +12,7 @@
     },
     "packages/conformance": {
       "entry": [
-        "registry/*.ts",
+        "registry/**/*.ts",
         "src/run.ts",
         "src/capture/rtdb-climb/*.probe.ts",
         "src/capture/rtdb-disconnect/preflight.ts"
