@@ -147,69 +147,73 @@ service firebase.storage {
   }
 }`;
     const sandbox = initializeSandbox({});
-    const auth = getAuth(sandbox);
-    await signInAnonymously(auth);
-    const storage = getStorageSandbox(sandbox, {
-      dbName: `pyric-storage-denied-ops-${Math.random().toString(36).slice(2, 10)}`,
-      rules,
-    });
-
-    const protectedRef = ref(storage, 'pyric_oracle/run-1/denied-ops/protected.txt');
-    const outsideRef = ref(storage, 'pyric_oracle_denied_ops/run-1/forbidden.txt');
-    await uploadBytes(protectedRef, new Uint8Array([104, 101, 108, 108, 111]), {
-      contentType: 'text/plain',
-      customMetadata: { stage: 'initial' },
-    });
-
-    const outsideChecks: Array<{
-      key: string;
-      run: () => Promise<unknown>;
-    }> = [
-      { key: 'getMetadataOutsideGrant', run: () => getMetadata(outsideRef) },
-      {
-        key: 'updateMetadataOutsideGrant',
-        run: () => updateMetadata(outsideRef, { customMetadata: { stage: 'mutated' } }),
-      },
-      { key: 'deleteObjectOutsideGrant', run: () => deleteObject(outsideRef) },
-    ];
-
-    for (const check of outsideChecks) {
-      const expected = obs[check.key] as Record<string, unknown>;
-      expect(expected.isFirebaseError).toBe(true);
-      expect(await captureSandboxError(check.run)).toEqual({
-        threw: expected.threw as boolean,
-        code: expected.code as string,
+    try {
+      const auth = getAuth(sandbox);
+      await signInAnonymously(auth);
+      const storage = getStorageSandbox(sandbox, {
+        dbName: `pyric-storage-denied-ops-${Math.random().toString(36).slice(2, 10)}`,
+        rules,
       });
-    }
 
-    await signOut(auth);
-    const signedOutChecks: Array<{
-      key: string;
-      run: () => Promise<unknown>;
-    }> = [
-      { key: 'getMetadataSignedOutExisting', run: () => getMetadata(protectedRef) },
-      {
-        key: 'updateMetadataSignedOutExisting',
-        run: () => updateMetadata(protectedRef, { customMetadata: { stage: 'mutated' } }),
-      },
-      { key: 'deleteObjectSignedOutExisting', run: () => deleteObject(protectedRef) },
-    ];
-
-    for (const check of signedOutChecks) {
-      const expected = obs[check.key] as Record<string, unknown>;
-      expect(expected.isFirebaseError).toBe(true);
-      expect(await captureSandboxError(check.run)).toEqual({
-        threw: expected.threw as boolean,
-        code: expected.code as string,
+      const protectedRef = ref(storage, 'pyric_oracle/run-1/denied-ops/protected.txt');
+      const outsideRef = ref(storage, 'pyric_oracle_denied_ops/run-1/forbidden.txt');
+      await uploadBytes(protectedRef, new Uint8Array([104, 101, 108, 108, 111]), {
+        contentType: 'text/plain',
+        customMetadata: { stage: 'initial' },
       });
-    }
 
-    await signInAnonymously(auth);
-    const preserved = await getMetadata(protectedRef);
-    expect({
-      size: preserved.size,
-      customMetadata: preserved.customMetadata ?? null,
-    }).toEqual(obs.existingPreservedAfterDenials);
+      const outsideChecks: Array<{
+        key: string;
+        run: () => Promise<unknown>;
+      }> = [
+        { key: 'getMetadataOutsideGrant', run: () => getMetadata(outsideRef) },
+        {
+          key: 'updateMetadataOutsideGrant',
+          run: () => updateMetadata(outsideRef, { customMetadata: { stage: 'mutated' } }),
+        },
+        { key: 'deleteObjectOutsideGrant', run: () => deleteObject(outsideRef) },
+      ];
+
+      for (const check of outsideChecks) {
+        const expected = obs[check.key] as Record<string, unknown>;
+        expect(expected.isFirebaseError).toBe(true);
+        expect(await captureSandboxError(check.run)).toEqual({
+          threw: expected.threw as boolean,
+          code: expected.code as string,
+        });
+      }
+
+      await signOut(auth);
+      const signedOutChecks: Array<{
+        key: string;
+        run: () => Promise<unknown>;
+      }> = [
+        { key: 'getMetadataSignedOutExisting', run: () => getMetadata(protectedRef) },
+        {
+          key: 'updateMetadataSignedOutExisting',
+          run: () => updateMetadata(protectedRef, { customMetadata: { stage: 'mutated' } }),
+        },
+        { key: 'deleteObjectSignedOutExisting', run: () => deleteObject(protectedRef) },
+      ];
+
+      for (const check of signedOutChecks) {
+        const expected = obs[check.key] as Record<string, unknown>;
+        expect(expected.isFirebaseError).toBe(true);
+        expect(await captureSandboxError(check.run)).toEqual({
+          threw: expected.threw as boolean,
+          code: expected.code as string,
+        });
+      }
+
+      await signInAnonymously(auth);
+      const preserved = await getMetadata(protectedRef);
+      expect({
+        size: preserved.size,
+        customMetadata: preserved.customMetadata ?? null,
+      }).toEqual(obs.existingPreservedAfterDenials);
+    } finally {
+      sandbox.dispose();
+    }
   });
 
   it('storage#109: storage-rules-canonical-bucket-namespace evaluates ordinary object paths under /b/{bucket}/o/... while preserving ordinary metadata paths', async () => {
@@ -223,42 +227,46 @@ service firebase.storage {
   }
 }`;
     const sandbox = initializeSandbox({});
-    const auth = getAuth(sandbox);
-    await signInAnonymously(auth);
-    const storage = getStorageSandbox(sandbox, {
-      dbName: `pyric-storage-canonical-ns-${Math.random().toString(36).slice(2, 10)}`,
-      rules,
-    });
+    try {
+      const auth = getAuth(sandbox);
+      await signInAnonymously(auth);
+      const storage = getStorageSandbox(sandbox, {
+        dbName: `pyric-storage-canonical-ns-${Math.random().toString(36).slice(2, 10)}`,
+        rules,
+      });
 
-    const ordinaryPath = 'pyric_oracle/<runId>/namespace-mapping/item.txt';
-    const ordinaryRef = ref(storage, ordinaryPath);
-    const uploaded = await uploadBytes(ordinaryRef, new Uint8Array([111, 107]), {
-      contentType: 'text/plain',
-    });
-    const fetched = await getMetadata(ordinaryRef);
+      const ordinaryPath = 'pyric_oracle/<runId>/namespace-mapping/item.txt';
+      const ordinaryRef = ref(storage, ordinaryPath);
+      const uploaded = await uploadBytes(ordinaryRef, new Uint8Array([111, 107]), {
+        contentType: 'text/plain',
+      });
+      const fetched = await getMetadata(ordinaryRef);
 
-    expect({
-      refFullPath: ordinaryRef.fullPath,
-      uploadMetadataFullPath: uploaded.metadata.fullPath,
-      fetchedMetadataFullPath: fetched.fullPath,
-      fetchedMetadataName: fetched.name,
-      startsWithCanonicalBucketPrefix: fetched.fullPath.startsWith('b/'),
-      metadataMatchesRefFullPath: fetched.fullPath === ordinaryRef.fullPath,
-    }).toEqual(obs.ordinaryObjectPath);
+      expect({
+        refFullPath: ordinaryRef.fullPath,
+        uploadMetadataFullPath: uploaded.metadata.fullPath,
+        fetchedMetadataFullPath: fetched.fullPath,
+        fetchedMetadataName: fetched.name,
+        startsWithCanonicalBucketPrefix: fetched.fullPath.startsWith('b/'),
+        metadataMatchesRefFullPath: fetched.fullPath === ordinaryRef.fullPath,
+      }).toEqual(obs.ordinaryObjectPath);
 
-    const prefixedRef = ref(storage, `/b/${ordinaryRef.bucket}/o/${ordinaryPath}`);
-    const expectedPrefixed = obs.explicitRulesPrefixPath as Record<string, unknown>;
-    expect(expectedPrefixed.uploadIsFirebaseError).toBe(true);
-    expect(prefixedRef.fullPath.startsWith('b/')).toBe(
-      expectedPrefixed.normalizedRefStartsWithB as boolean,
-    );
-    const prefixedUpload = await captureSandboxError(() =>
-      uploadBytes(prefixedRef, new Uint8Array([111, 107])),
-    );
-    expect(prefixedUpload).toEqual({
-      threw: expectedPrefixed.uploadThrew as boolean,
-      code: expectedPrefixed.uploadCode as string,
-    });
+      const prefixedRef = ref(storage, `/b/${ordinaryRef.bucket}/o/${ordinaryPath}`);
+      const expectedPrefixed = obs.explicitRulesPrefixPath as Record<string, unknown>;
+      expect(expectedPrefixed.uploadIsFirebaseError).toBe(true);
+      expect(prefixedRef.fullPath.startsWith('b/')).toBe(
+        expectedPrefixed.normalizedRefStartsWithB as boolean,
+      );
+      const prefixedUpload = await captureSandboxError(() =>
+        uploadBytes(prefixedRef, new Uint8Array([111, 107])),
+      );
+      expect(prefixedUpload).toEqual({
+        threw: expectedPrefixed.uploadThrew as boolean,
+        code: expectedPrefixed.uploadCode as string,
+      });
+    } finally {
+      sandbox.dispose();
+    }
   });
 
   it('storage#75: storage-listall-root-ref lists direct root items and top-level prefixes without recursing', async () => {

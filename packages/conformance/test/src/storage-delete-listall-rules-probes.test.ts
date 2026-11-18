@@ -133,6 +133,11 @@ describe('storage deleteObject, root listAll, and rules-enforcement staged probe
           ],
           prefixes: [
             {
+              fullPath: 'pyric_oracle_root_r1-dash',
+              name: 'pyric_oracle_root_r1-dash',
+              parentFullPath: '',
+            },
+            {
               fullPath: 'pyric_oracle_root_r1',
               name: 'pyric_oracle_root_r1',
               parentFullPath: '',
@@ -151,11 +156,12 @@ describe('storage deleteObject, root listAll, and rules-enforcement staged probe
       containsSeededRootPrefix: true,
       nestedChildExcludedFromRootItems: true,
       itemsSortedLexicographically: true,
-      prefixesSortedLexicographically: true,
+      prefixesSortedLexicographically: false,
       nextPageTokenIsUndefined: true,
     });
     const rootTarget = rootListOracleTarget('demo-bucket', 'r1', 'uid_1');
     expect(rootTarget.block).toContain('match /{allPaths=**} {\n      allow list:');
+    expect(rootTarget.block).toContain('match /pyric_oracle_root_r1-dash/{allPaths=**}');
     expect(rootTarget.freshRules).toContain('match /{allPaths=**} {\n      allow list:');
 
     const deniedOutcome = {
