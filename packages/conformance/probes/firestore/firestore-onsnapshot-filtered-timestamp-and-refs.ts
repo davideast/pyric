@@ -1,7 +1,9 @@
 import type { DocumentData, DocumentSnapshot, QuerySnapshot } from 'firebase/firestore';
 import type { Probe } from '../../rigs/types.ts';
-import { waitForCondition } from '../../src/oracle-run-stable-shapes.ts';
+import { FirestoreQueryTimeoutError } from '../../src/firestore-probe-outcomes.ts';
 import { withFirestoreProbeSession } from '../../src/sdk-probe-runtime.ts';
+
+const WATCH_TIMEOUT_MS = 15_000;
 
 export const probe: Probe = {
   rig: 'sdk-probes',
@@ -49,24 +51,95 @@ export const probe: Probe = {
       const state: {
         docSnap: DocumentSnapshot<DocumentData> | null;
         querySnap: QuerySnapshot<DocumentData> | null;
+        lowDocExists: boolean;
+        streamError: unknown;
       } = {
         docSnap: null,
         querySnap: null,
+        lowDocExists: false,
+        streamError: null,
       };
       const queryEmissions: string[][] = [];
+      const waiters = new Set<() => void>();
 
-      const unsubDoc = onSnapshot(doc(items, 'doc-b'), (snap) => {
-        state.docSnap = snap;
-      });
-      const unsubQuery = onSnapshot(filteredQuery, (snap) => {
-        state.querySnap = snap;
-        queryEmissions.push(snap.docs.map((d) => d.id));
-      });
+      const notifyWaiters = (): void => {
+        for (const check of [...waiters]) {
+          check();
+        }
+      };
+
+      const recordStreamError = (err: unknown): void => {
+        if (state.streamError === null) {
+          state.streamError = err;
+        }
+        notifyWaiters();
+      };
+
+      const awaitWatch = (label: string, predicate: () => boolean): Promise<void> =>
+        new Promise<void>((resolve, reject) => {
+          let settled = false;
+          let timer: ReturnType<typeof setTimeout> | undefined;
+
+          const finish = (outcome: () => void): void => {
+            if (settled) return;
+            settled = true;
+            waiters.delete(evaluate);
+            if (timer !== undefined) {
+              clearTimeout(timer);
+            }
+            outcome();
+          };
+
+          const evaluate = (): void => {
+            if (state.streamError !== null) {
+              const err = state.streamError;
+              finish(() => reject(err));
+              return;
+            }
+            if (predicate()) {
+              finish(() => resolve());
+            }
+          };
+
+          timer = setTimeout(() => {
+            finish(() => reject(new FirestoreQueryTimeoutError(WATCH_TIMEOUT_MS, label)));
+          }, WATCH_TIMEOUT_MS);
+
+          waiters.add(evaluate);
+          evaluate();
+        });
+
+      const unsubDoc = onSnapshot(
+        doc(items, 'doc-b'),
+        (snap) => {
+          state.docSnap = snap;
+          notifyWaiters();
+        },
+        recordStreamError,
+      );
+      const unsubQuery = onSnapshot(
+        filteredQuery,
+        (snap) => {
+          state.querySnap = snap;
+          queryEmissions.push(snap.docs.map((d) => d.id));
+          notifyWaiters();
+        },
+        recordStreamError,
+      );
+      const unsubLowDoc = onSnapshot(
+        doc(items, 'doc-low'),
+        (snap) => {
+          state.lowDocExists = snap.exists();
+          notifyWaiters();
+        },
+        recordStreamError,
+      );
 
       try {
-        await waitForCondition(
-          () => state.docSnap !== null && state.querySnap !== null && queryEmissions.length >= 1,
-          5000,
+        await awaitWatch(
+          'onSnapshot(initial doc-b and filteredQuery)',
+          () =>
+            state.docSnap !== null && state.querySnap !== null && queryEmissions.length >= 1,
         );
 
         const firstDocSnap = state.docSnap;
@@ -90,16 +163,14 @@ export const probe: Probe = {
         const updatedDocCSnap = await getDoc(doc(items, 'doc-c'));
 
         await setDoc(doc(items, 'doc-d'), { score: 45, createdAt: explicitTs });
-        await waitForCondition(() => {
+        await awaitWatch('onSnapshot(filteredQuery after doc-d insert)', () => {
           const tail = queryEmissions[queryEmissions.length - 1] ?? [];
           return tail.length === 2 && tail[0] === 'doc-c' && tail[1] === 'doc-d';
-        }, 5000);
+        });
         const afterMatchingInsertIds = [...(queryEmissions[queryEmissions.length - 1] ?? [])];
 
         await setDoc(doc(items, 'doc-low'), { score: 5, createdAt: explicitTs });
-        await new Promise<void>((resolve) => {
-          setTimeout(resolve, 200);
-        });
+        await awaitWatch('onSnapshot(doc-low fence)', () => state.lowDocExists);
         const finalGetDocsIds = (await getDocs(filteredQuery)).docs.map((d) => d.id);
         const afterNonMatchingInsertIds = [...(queryEmissions[queryEmissions.length - 1] ?? [])];
 
@@ -135,6 +206,7 @@ export const probe: Probe = {
       } finally {
         unsubDoc();
         unsubQuery();
+        unsubLowDoc();
       }
     });
   },
