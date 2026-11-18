@@ -12,9 +12,8 @@ const AUTO_ID_RE = /^[A-Za-z0-9]{20}$/;
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: ['web-config', 'firestore-rules'],
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'firestore#35',
+  rowIds: ['firestore#35', 'firestore#38', 'firestore#41', 'firestore#44'],
   description:
     'addDoc on a converted CollectionReference returns a 20-char auto-ID DocumentReference carrying the parent converter, updateDoc bypasses converter hooks on partial writes, and deleteDoc removes the document so subsequent getDoc reports exists() === false.',
   async observe() {

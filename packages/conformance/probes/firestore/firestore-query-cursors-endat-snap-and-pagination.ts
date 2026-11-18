@@ -4,9 +4,8 @@ import { withFirestoreProbeSession } from '../../src/sdk-probe-runtime.ts';
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: ['web-config', 'firestore-rules'],
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'firestore#72',
+  rowIds: ['firestore#72', 'firestore#73'],
   description:
     'endAt(snapshot) bounds ordered queries inclusively at the anchor snapshot in both directions, and startAfter + limit paginates deterministically through ordered result sets until exhausted.',
   async observe() {

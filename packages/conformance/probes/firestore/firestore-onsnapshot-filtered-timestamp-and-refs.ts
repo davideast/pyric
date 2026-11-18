@@ -8,9 +8,8 @@ const WATCH_TIMEOUT_MS = 15_000;
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: ['web-config', 'firestore-rules'],
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'firestore#81a',
+  rowIds: ['firestore#81a', 'firestore#81b', 'firestore#86'],
   description:
     'onSnapshot honors where, orderBy, and limit constraints across initial and live write emissions, translates Timestamp fields identically to getDoc, and exposes usable tagged DocumentReference handles on snapshots.',
   async observe() {
