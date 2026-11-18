@@ -1,0 +1,29 @@
+{
+  "name": "auth-updatecurrentuser-set-and-null-signout",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "updateCurrentUser(auth, user) sets auth.currentUser (and fires onAuthStateChanged), passing null clears auth.currentUser to sign out, and mismatched tenantId rejects with auth/tenant-id-mismatch.",
+  "observedAt": "2026-11-18T09:41:35.695Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "afterSetUser": {
+      "currentUserNonNull": true,
+      "uidMatchesSource": true,
+      "clonesAcrossAuthInstances": true,
+      "firedMatchedUidTransition": true
+    },
+    "afterClearNull": {
+      "secondaryCurrentUserIsNull": true,
+      "primaryCurrentUserIntact": true,
+      "firedNullTransition": true
+    },
+    "tenantMismatchAttempt": {
+      "threw": true,
+      "errorName": "FirebaseError",
+      "isFirebaseError": true,
+      "code": "auth/tenant-id-mismatch"
+    },
+    "tenantCurrentUserRemainsNull": true
+  }
+}
