@@ -68,7 +68,8 @@ describe('admin SDK surfaces: auth-admin, firestore-admin, rtdb-admin', () => {
 
     // Honest divergence and unmodeled-API classifications on admin rows:
     const byId = new Map(ledger.entries.map((e) => [e.id, e]));
-    expect(byId.get('auth-admin#1a')?.status).toBe('diverged-documented');
+    expect(byId.get('auth-admin#1a')?.status).toBe('conforms');
+    expect(byId.get('auth-admin#8')?.status).toBe('diverged-documented');
     expect(byId.get('auth-admin#14')?.status).toBe('diverged-documented');
     expect(byId.get('firestore-admin#4')?.status).toBe('diverged-documented');
     expect(byId.get('firestore-admin#8')?.status).toBe('diverged-documented');

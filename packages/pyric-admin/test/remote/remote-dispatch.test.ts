@@ -540,10 +540,10 @@ describe('pyric-admin remote dispatch — Auth', () => {
     await auth.setCustomUserClaims('ada', null);
     expect((await auth.getUser('ada')).customClaims).toBeUndefined();
 
-    // Fields the worker can't express throw instead of silently dropping.
-    expect(auth.updateUser('ada', { photoURL: 'https://x/y.png' })).rejects.toThrow(
-      /photoURL/,
-    );
+    // Unmodeled provider-link fields throw instead of silently dropping.
+    await expect(
+      auth.updateUser('ada', { providersToUnlink: ['google.com'] }),
+    ).rejects.toThrow(/providersToUnlink/);
   });
 
   it('deleteUser relays; worker errors (missing uid, dup uid) surface with their message', async () => {
