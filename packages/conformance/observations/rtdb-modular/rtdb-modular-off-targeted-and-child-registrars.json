@@ -1,7 +1,12 @@
 {
   "name": "rtdb-modular-off-targeted-and-child-registrars",
-  "matrixRow": "",
-  "rowIds": [],
+  "matrixRow": "rtdb-modular#M31",
+  "rowIds": [
+    "rtdb-modular#M31",
+    "rtdb-modular#M44",
+    "rtdb-modular#M48",
+    "rtdb-modular#140"
+  ],
   "description": "Modular RTDB plain-ref child listener registrars (onChildAdded/Changed/Removed/Moved), onChildChanged isolation from adds and deletes, and targeted off(ref, eventType?, callback?) vs returned-unsubscribe precision.",
   "observedAt": "2026-11-18T06:46:04.428Z",
   "fbSdkVersion": "12.19.0",

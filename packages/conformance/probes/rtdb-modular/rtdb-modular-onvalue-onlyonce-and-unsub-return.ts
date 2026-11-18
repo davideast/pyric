@@ -279,11 +279,10 @@ export async function observeOnValueOnlyOnceAndUnsubReturn(
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: ['web-config', 'dedicated-rtdb'],
-  pendingRowLink: true,
   description:
     'Modular RTDB onValue() returned unsubscribe function contract (typeof === "function", stops subsequent deliveries) and { onlyOnce: true } auto-unsubscription on populated and initially absent paths.',
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'rtdb-modular#M30',
+  rowIds: ['rtdb-modular#M30', 'rtdb-modular#M74', 'rtdb-modular#132'],
   observe() {
     return withRtdbProbeSession({}, async ({ runPath, db, rtdbSdk }) => {
       return observeOnValueOnlyOnceAndUnsubReturn(

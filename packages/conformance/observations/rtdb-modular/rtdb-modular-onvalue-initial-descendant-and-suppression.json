@@ -1,7 +1,12 @@
 {
   "name": "rtdb-modular-onvalue-initial-descendant-and-suppression",
-  "matrixRow": "",
-  "rowIds": [],
+  "matrixRow": "rtdb-modular#M26",
+  "rowIds": [
+    "rtdb-modular#M26",
+    "rtdb-modular#M27",
+    "rtdb-modular#M28",
+    "rtdb-modular#M29"
+  ],
   "description": "Modular RTDB onValue() immediate initial fire on present and absent paths, no-change suppression across identical rewrites, -0 over 0, and unchanged-subtree ancestor updates, plus descendant-write re-firing.",
   "observedAt": "2026-11-18T06:46:13.151Z",
   "fbSdkVersion": "12.19.0",

@@ -217,11 +217,10 @@ export async function observeQueryWindowChildListeners(
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: ['web-config', 'dedicated-rtdb'],
-  pendingRowLink: true,
   description:
     'Modular RTDB child listeners (onChildAdded, onChildChanged, onChildRemoved, onChildMoved) on a bounded Query (orderByChild + limitToFirst): observes initial window replay, out-of-window write suppression, in-window reorder movement, and entering/displaced member add+remove events.',
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'rtdb-modular#M75b',
+  rowIds: ['rtdb-modular#M75b'],
   observe() {
     return withRtdbProbeSession(
       {

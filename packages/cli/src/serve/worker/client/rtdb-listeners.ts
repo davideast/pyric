@@ -42,6 +42,106 @@ export type RtdbEventType =
   | 'child_removed'
   | 'child_moved';
 
+const EVENT_PRIORITY: Readonly<Record<RtdbEventType, number>> = {
+  child_removed: 0,
+  child_added: 1,
+  child_moved: 2,
+  child_changed: 3,
+  value: 4,
+};
+
+interface InitialGroupMember {
+  readonly eventType: RtdbEventType;
+  readonly order: number;
+  active: boolean;
+  ready: boolean;
+  deliverInitial: (() => void) | null;
+}
+
+interface InitialTargetGroup {
+  sealed: boolean;
+  flushed: boolean;
+  readonly members: InitialGroupMember[];
+}
+
+const openInitialGroups = new WeakMap<ClientPort, Map<string, InitialTargetGroup>>();
+
+function flushInitialTargetGroupIfReady(group: InitialTargetGroup): void {
+  if (group.flushed || !group.sealed) return;
+  for (const member of group.members) {
+    if (member.active && !member.ready) return;
+  }
+  group.flushed = true;
+  const ordered = [...group.members].sort((left, right) => {
+    const diff = EVENT_PRIORITY[left.eventType] - EVENT_PRIORITY[right.eventType];
+    if (diff !== 0) return diff;
+    return left.order - right.order;
+  });
+  for (const member of ordered) {
+    if (member.active && member.deliverInitial !== null) {
+      const fn = member.deliverInitial;
+      member.deliverInitial = null;
+      fn();
+    }
+  }
+}
+
+function joinInitialTargetGroup(
+  port: ClientPort,
+  groupKey: string,
+  eventType: RtdbEventType,
+): {
+  onInitialSnapshot(deliver: () => void): void;
+  leaveGroup(): void;
+} {
+  let byKey = openInitialGroups.get(port);
+  if (byKey === undefined) {
+    byKey = new Map();
+    openInitialGroups.set(port, byKey);
+  }
+  let group = byKey.get(groupKey);
+  if (group === undefined || group.sealed) {
+    const created: InitialTargetGroup = { sealed: false, flushed: false, members: [] };
+    group = created;
+    byKey.set(groupKey, created);
+    const mapRef = byKey;
+    queueMicrotask(() => {
+      created.sealed = true;
+      if (mapRef.get(groupKey) === created) {
+        mapRef.delete(groupKey);
+      }
+      flushInitialTargetGroupIfReady(created);
+    });
+  }
+  const member: InitialGroupMember = {
+    eventType,
+    order: group.members.length,
+    active: true,
+    ready: false,
+    deliverInitial: null,
+  };
+  group.members.push(member);
+  const owningGroup = group;
+  return {
+    onInitialSnapshot(deliver: () => void): void {
+      if (owningGroup.flushed) {
+        member.ready = true;
+        deliver();
+        return;
+      }
+      member.ready = true;
+      member.deliverInitial = deliver;
+      flushInitialTargetGroupIfReady(owningGroup);
+    },
+    leaveGroup(): void {
+      if (!member.active) return;
+      member.active = false;
+      member.deliverInitial = null;
+      flushInitialTargetGroupIfReady(owningGroup);
+    },
+  };
+}
+
 interface ListenerRegistration {
   readonly port: ClientPort;
   readonly instance?: ClientRtdbInstance;
@@ -134,27 +234,40 @@ function openValueSubscription(
   // identity change does not change data, so a snapshot equal to the last
   // one delivered is not a new event.
   let delivered: string | undefined;
+  let initialSeen = false;
+  const groupKey = `${ref.instance?.name ?? ''}\0${ref.path}\0${targetScope(target)}`;
+  const initialGroup = joinInitialTargetGroup(ref.port, groupKey, eventType);
 
   const subHandler = {
     port: ref.port,
     next: (wire: unknown) => {
-      if (listenOptions?.onlyOnce && fired) return;
-      const content = deliveredContent(wire);
-      if (fired && content === delivered) return;
-      const warning = (wire as RtdbWireSnapshot | null)?.warning;
-      if (typeof warning === 'string') logDatabaseWarning(warning);
-      delivered = content;
-      fired = true;
-      // Reported on the subscription id the sandbox also records as the
-      // listener id, immediately before the application's callback runs.
-      if (listenOptions?.onlyOnce) {
-        unsubLens();
-        closeSubscription(ref.port, currentSubId);
+      const deliverWire = (): void => {
+        if (unsubscribed) return;
+        if (listenOptions?.onlyOnce && fired) return;
+        const content = deliveredContent(wire);
+        if (fired && content === delivered) return;
+        const warning = (wire as RtdbWireSnapshot | null)?.warning;
+        if (typeof warning === 'string') logDatabaseWarning(warning);
+        delivered = content;
+        fired = true;
+        // Reported on the subscription id the sandbox also records as the
+        // listener id, immediately before the application's callback runs.
+        if (listenOptions?.onlyOnce) {
+          unsubLens();
+          closeSubscription(ref.port, currentSubId);
+        }
+        next(hydrateRtdbSnapshot(ref, wire));
+      };
+      if (!initialSeen) {
+        initialSeen = true;
+        initialGroup.onInitialSnapshot(deliverWire);
+        return;
       }
-      next(hydrateRtdbSnapshot(ref, wire));
+      deliverWire();
     },
     error: (cause: unknown) => {
       unsubscribed = true;
+      initialGroup.leaveGroup();
       unsubLens();
       activity.fail();
       error?.(cause);
@@ -168,7 +281,10 @@ function openValueSubscription(
     subHandler,
     stampIssuer(makeSubMsg(currentSubId, _defaultLens)),
   );
-  if (!opened) activity.fail();
+  if (!opened) {
+    initialGroup.leaveGroup();
+    activity.fail();
+  }
   if (!opened && error) {
     queueMicrotask(() => error(new Error('FIREBASE FATAL ERROR: Database has been deleted.')));
   }
@@ -189,6 +305,7 @@ function openValueSubscription(
   return () => {
     if (unsubscribed) return;
     unsubscribed = true;
+    initialGroup.leaveGroup();
     activity.close();
     unsubLens();
     closeSubscription(ref.port, currentSubId);
