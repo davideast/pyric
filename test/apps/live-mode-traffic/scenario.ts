@@ -387,7 +387,8 @@ export default scenario(async (app) => {
     );
 
     await studio.getByRole('tab', { name: 'Timeline' }).click();
-    const activeBucket = studio.locator('[data-pyric-bucket]:not([data-pyric-bucket-count="0"])').last();
+    // Trailing Firestore snapshot deliveries carry no local rules verdict and can land in their own bucket after setDoc.
+    const activeBucket = studio.locator('[data-pyric-bucket][data-pyric-has-denies]').last();
     await activeBucket.waitFor({ timeout: 30_000 });
     await activeBucket.click();
     await studio.locator('.traffic__time-focus').waitFor({ timeout: 10_000 });
@@ -396,7 +397,7 @@ export default scenario(async (app) => {
     await eventually(async () => ({
       allows: Number(await metricValue('allows')),
       denies: Number(await metricValue('denies')),
-    }), ({ allows, denies }) => allows + denies >= 1, 'brushed active interval retains in-window Rules evaluations');
+    }), ({ allows, denies }) => allows >= 0 && denies >= 1, 'brushed active interval retains in-window Rules evaluations');
 
     await studio.getByRole('tab', { name: 'Timeline' }).click();
     const quietBucket = studio.locator('[data-pyric-bucket][data-pyric-bucket-count="0"]').first();
