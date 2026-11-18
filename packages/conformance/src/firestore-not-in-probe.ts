@@ -179,7 +179,7 @@ process.exit(0);
 export async function runNodeFirestoreNotInSubprocess(
   params: FirestoreNodeFieldQueryParams,
 ): Promise<FirestoreIdQueryOutcome> {
-  const hardKillMs = params.timeoutMs + 4_000;
+  const hardKillMs = params.timeoutMs + 12_000;
   const stdout = await new Promise<string>((resolve, reject) => {
     execFile(
       'node',
