@@ -1,0 +1,37 @@
+{
+  "name": "client-storage-uploadstring-malformed-data-url",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "firebase/storage uploadString(ref, value, \"data_url\") on malformed data URLs (missing data: prefix, missing comma, invalid percent-encoding): observes client-side error class, error code, synchronous vs async rejection, and zero network fetches.",
+  "observedAt": "2026-11-18T07:35:44.828Z",
+  "fbSdkVersion": "12.19.0",
+  "behavior": {
+    "missingDataPrefix": {
+      "threw": true,
+      "threwSynchronously": true,
+      "code": "storage/invalid-format",
+      "errorName": "FirebaseError",
+      "isFirebaseError": true,
+      "mentionsDataUrlFormat": true,
+      "fetchCalls": 0
+    },
+    "missingComma": {
+      "threw": true,
+      "threwSynchronously": true,
+      "code": "storage/invalid-format",
+      "errorName": "FirebaseError",
+      "isFirebaseError": true,
+      "mentionsDataUrlFormat": true,
+      "fetchCalls": 0
+    },
+    "invalidPercentEncoding": {
+      "threw": true,
+      "threwSynchronously": true,
+      "code": "storage/invalid-format",
+      "errorName": "FirebaseError",
+      "isFirebaseError": true,
+      "mentionsDataUrlFormat": true,
+      "fetchCalls": 0
+    }
+  }
+}
