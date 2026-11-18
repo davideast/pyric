@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import {
   createOracleRunAuthSession,
   FRESH_AUTH_NON_AUTH_PROBES,
+  retryAuthTooManyRequests,
   sanitizeOracleCustomUid,
   signInOracleClientAuth,
 } from '../../src/oracle-run-auth-session.ts';
@@ -216,6 +217,21 @@ describe('createOracleRunAuthSession', () => {
       }),
     ).rejects.toThrow('permission-denied');
     expect(sleeps).toEqual([15_000, 30_000]);
+
+    let directCalls = 0;
+    const direct = await retryAuthTooManyRequests(
+      'sdk-rtdb-anon',
+      async () => {
+        directCalls += 1;
+        if (directCalls === 1) {
+          throw new Error('Firebase: Error (auth/too-many-requests).');
+        }
+        return 'signed-in';
+      },
+      { backoffMs: [5_000], sleep: async (ms) => { sleeps.push(ms); }, log: () => {} },
+    );
+    expect(direct).toBe('signed-in');
+    expect(sleeps).toEqual([15_000, 30_000, 5_000]);
   });
 
   test('absorbs auth-row-35 intentional observer uncaughtException and unhandledRejection so Bun exits 0 cleanly without masking real errors', async () => {

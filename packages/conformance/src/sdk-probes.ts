@@ -208,21 +208,83 @@ export const SDK_PROBES_RIG_CONFIG: ModularProbeRigConfig = {
   versionField: 'fbSdkVersion',
 };
 
+const DEFAULT_MODULAR_PROBE_BACKOFF_MS: readonly number[] = [15_000, 30_000, 60_000];
+
+function defaultModularProbeSleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isAuthTooManyRequests(err: unknown): boolean {
+  if (typeof err === 'object' && err !== null && 'code' in err) {
+    const code = (err as { code?: unknown }).code;
+    if (code === 'auth/too-many-requests') {
+      return true;
+    }
+  }
+  if (err instanceof Error && err.message.includes('auth/too-many-requests')) {
+    return true;
+  }
+  return false;
+}
+
+async function observeModularProbeWithRetry(
+  probeId: string,
+  rigName: string,
+  observe: () => Promise<Record<string, unknown>>,
+  backoffMs: readonly number[],
+  sleep: (ms: number) => Promise<void>,
+): Promise<Record<string, unknown>> {
+  let attemptIndex = 0;
+  for (;;) {
+    try {
+      return await observe();
+    } catch (err) {
+      if (!isAuthTooManyRequests(err) || attemptIndex >= backoffMs.length) {
+        throw err;
+      }
+      const waitMs = backoffMs[attemptIndex];
+      attemptIndex += 1;
+      console.log(
+        `[${rigName}] ${probeId} hit auth/too-many-requests; waiting ${waitMs}ms before retry ${attemptIndex}/${backoffMs.length}`,
+      );
+      if (waitMs !== undefined) {
+        await sleep(waitMs);
+      }
+    }
+  }
+}
+
 export async function executeModularProbes(options: {
   config: ModularProbeRigConfig;
   sdkVersion: string;
   projectId: string;
   observationsRoot?: string;
   probes: readonly LoadedModularProbe[];
+  backoffMs?: readonly number[];
+  sleep?: (ms: number) => Promise<void>;
 }): Promise<void> {
   const outRoot = options.observationsRoot ?? DEFAULT_OBS_ROOT;
+  let backoffMs = DEFAULT_MODULAR_PROBE_BACKOFF_MS;
+  if (options.backoffMs !== undefined) {
+    backoffMs = options.backoffMs;
+  }
+  let sleep = defaultModularProbeSleep;
+  if (options.sleep !== undefined) {
+    sleep = options.sleep;
+  }
   for (const item of options.probes) {
     const surfaceDir = join(outRoot, item.surfaceDir);
     mkdirSync(surfaceDir, { recursive: true });
     const outPath = join(surfaceDir, `${item.id}.json`);
     const linkage = resolveProbeObservationLinkage(item.probe, outPath);
 
-    const behavior = await item.probe.observe();
+    const behavior = await observeModularProbeWithRetry(
+      item.id,
+      options.config.rig,
+      () => item.probe.observe(),
+      backoffMs,
+      sleep,
+    );
     const envelope: Record<string, unknown> = {
       name: item.id,
       matrixRow: linkage.matrixRow,
