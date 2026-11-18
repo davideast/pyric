@@ -294,7 +294,12 @@ describe('OracleRulesSession concurrent interrupt safety and baseline tracking (
     expect(putLog).not.toContain('session-original');
 
     probeRestoreGate.resolve();
-    await Promise.all([probePromise, interruptRestore]);
+    const [probeOutcome] = await Promise.all([probePromise, interruptRestore]);
+    expect(probeOutcome).toEqual({
+      result: 'done',
+      restoreOk: true,
+      restoreStatus: 200,
+    });
 
     // Exact order: probe's merged rules land FIRST, session's RTDB_ORIGINAL lands LAST!
     expect(putLog).toEqual([

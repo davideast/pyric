@@ -106,6 +106,9 @@ jobs:
       - name: Build rules engine
         if: steps.plan.outputs.should_run == 'true'
         run: bun run build:rules
+      - name: Build pyric runtime for oracle-run
+        if: steps.plan.outputs.should_run == 'true'
+        run: bun run --cwd packages/pyric build
       - name: Run capture and validate observation diffs
         id: capture
         if: steps.plan.outputs.should_run == 'true'
