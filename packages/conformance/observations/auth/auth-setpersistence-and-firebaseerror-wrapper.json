@@ -1,7 +1,11 @@
 {
   "name": "auth-setpersistence-and-firebaseerror-wrapper",
-  "matrixRow": "",
-  "rowIds": [],
+  "matrixRow": "auth#41",
+  "rowIds": [
+    "auth#41",
+    "auth#42",
+    "auth#49f"
+  ],
   "description": "setPersistence accepts inMemoryPersistence, browserSessionPersistence, and browserLocalPersistence markers returning Promise<void>, and Auth errors are FirebaseError instances formatted with Firebase: <message> (<auth/...>).",
   "observedAt": "2026-11-18T20:32:11.126Z",
   "fbSdkVersion": "12.19.0",

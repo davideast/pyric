@@ -10,9 +10,8 @@ const PROBE_PASSWORD = 'ProbePassword!123';
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: ['web-config', 'admin-auth'],
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'auth#69',
+  rowIds: ['auth#69'],
   description:
     'Disabling a user leaves an existing client session signed in until forced token refresh rejects with auth/user-disabled and signs out, and rejects subsequent password and custom-token sign-in attempts.',
   async observe() {
