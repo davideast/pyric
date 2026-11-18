@@ -1,7 +1,9 @@
 {
   "name": "auth-updateprofile-in-place-and-persistence",
-  "matrixRow": "",
-  "rowIds": [],
+  "matrixRow": "auth#62",
+  "rowIds": [
+    "auth#62"
+  ],
   "description": "updateProfile(user, { displayName, photoURL }) mutates the held User and stored record in place (null clears a field, omitted fields stay intact) without an extra onAuthStateChanged fire and survives signOut -> signInWithEmailAndPassword.",
   "observedAt": "2026-11-18T04:34:56.745Z",
   "fbSdkVersion": "12.19.0",

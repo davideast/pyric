@@ -1,7 +1,10 @@
 {
   "name": "auth-user-photo-phone-and-provider-data",
-  "matrixRow": "",
-  "rowIds": [],
+  "matrixRow": "auth#58a",
+  "rowIds": [
+    "auth#58a",
+    "auth#58b"
+  ],
   "description": "user.photoURL, user.phoneNumber, user.providerId, and user.providerData reflect empty anonymous providers, default-null password profiles, and configured account attributes.",
   "observedAt": "2026-11-18T04:35:10.560Z",
   "fbSdkVersion": "12.19.0",

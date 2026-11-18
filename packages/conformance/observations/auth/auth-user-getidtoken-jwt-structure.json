@@ -1,7 +1,9 @@
 {
   "name": "auth-user-getidtoken-jwt-structure",
-  "matrixRow": "",
-  "rowIds": [],
+  "matrixRow": "auth#54",
+  "rowIds": [
+    "auth#54"
+  ],
   "description": "user.getIdToken() returns a three-segment base64url JWT (alg RS256, typ JWT, non-empty kid) whose decoded payload matches user.getIdTokenResult().claims.",
   "observedAt": "2026-11-18T04:35:02.264Z",
   "fbSdkVersion": "12.19.0",

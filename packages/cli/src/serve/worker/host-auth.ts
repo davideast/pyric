@@ -465,6 +465,7 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
           issuedAtTime: r.issuedAtTime,
           authTime: r.authTime,
           signInProvider: r.signInProvider ?? null,
+          signInSecondFactor: r.signInSecondFactor ?? null,
         });
       } catch (e) {
         signOutPortIfInvalidated(ctx, port, e);
@@ -508,12 +509,6 @@ export async function handleAuthOp(ctx: HostCtx, port: PortLike, msg: OpMessage)
         applyProfileToUser(session.user, profile);
         await bestEffortFlush(ctx, msg.method);
         const serialized = serializeUser(session.user);
-        for (const [subId, target] of authSubsFor(ctx).get(port) ?? []) {
-          const isTokenSubscription = target === 'idToken';
-          if (isTokenSubscription) {
-            post(port, { t: 'snap', subId, value: serialized });
-          }
-        }
         ok(port, msg.id, serialized);
       } catch (e) { fail(port, msg.id, e); }
       break;

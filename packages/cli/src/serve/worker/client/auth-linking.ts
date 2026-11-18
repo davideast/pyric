@@ -1,6 +1,7 @@
 import type { AuthCredential } from 'pyric/auth';
 import type { SerializedUser, SerializedUserCredential } from '../protocol.js';
-import { credentialWireOf, requireUserPort, type ClientUser, type ClientUserCredential } from './auth.js';
+import { credentialWireOf } from './auth-credential-wire.js';
+import { requireUserPort, type ClientUser, type ClientUserCredential } from './auth.js';
 import { nextId, rpc } from './core.js';
 
 export async function linkWithCredential(user: ClientUser, credential: AuthCredential): Promise<ClientUserCredential> {

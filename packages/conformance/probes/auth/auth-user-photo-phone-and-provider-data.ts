@@ -4,9 +4,8 @@ import { withClientAuthProbeSession } from '../../src/auth-user-probe-session.ts
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: ['web-config', 'admin-auth'],
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'auth#58a',
+  rowIds: ['auth#58a', 'auth#58b'],
   description:
     'user.photoURL, user.phoneNumber, user.providerId, and user.providerData reflect empty anonymous providers, default-null password profiles, and configured account attributes.',
   async observe() {

@@ -4,9 +4,8 @@ import { withClientAuthProbeSession } from '../../src/auth-user-probe-session.ts
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: ['web-config', 'admin-auth'],
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'auth#58',
+  rowIds: ['auth#58'],
   description:
     'user.emailVerified defaults to false on anonymous and unverified password users, reflects true when verified on the account, and matches Admin UserRecord.emailVerified.',
   async observe() {

@@ -65,6 +65,7 @@ import {
 import { defaultAvatarMint, type AvatarMint } from './sandbox/default-avatar.js';
 import { applyEmailChangeToUser, applyUserEmailUpdate, propagateRefreshedToken } from './sandbox/email-update.js';
 import { SessionLedger } from './sandbox/session-ledger.js';
+import { buildClientUserInfoList } from './sandbox/user-info-projection.js';
 
 import { normalizeAuthState, type AuthState, type Sandbox } from 'pyric/sandbox';
 import {
@@ -2337,6 +2338,7 @@ export class SandboxBackend {
       issuedAtTime: issuedAt.toISOString(),
       authTime: authenticatedAt.toISOString(),
       signInProvider,
+      signInSecondFactor: null,
     };
     const entry = { token, result };
     const tokens = this.tokenCache.get(uid) ?? new Map<string | null, typeof entry>();
@@ -2444,17 +2446,15 @@ export class SandboxBackend {
     // `unlink` of the last provider produces. Falling back on `[]` would
     // resurrect the very provider the user just removed.
     const linked: ProviderUserInfo[] = args.providers ?? [{ providerId: 'password' }];
-    const isAnonymous = args.isAnonymous === true;
-    const providerData: UserInfo[] = isAnonymous
-      ? []
-      : linked.map((p) => ({
-        uid: args.uid,
-        displayName: args.displayName,
-        email: args.email,
-        phoneNumber,
-        photoURL,
-        providerId: p.providerId,
-      }));
+    const providerData = buildClientUserInfoList({
+      isAnonymous: args.isAnonymous === true,
+      uid: args.uid,
+      displayName: args.displayName,
+      email: args.email,
+      phoneNumber,
+      photoURL,
+      providers: linked,
+    });
     // Production signs the user out only when the invalidated user is the
     // Auth instance's current user: the same account in the same session,
     // not a newer sign-in to the uid.
@@ -2803,16 +2803,15 @@ export class SandboxBackend {
     m.emailVerified = stored.emailVerified;
     m.phoneNumber = stored.phoneNumber;
     if (stored.tenantId !== null) m.tenantId = stored.tenantId;
-    m.providerData = stored.isAnonymous
-      ? []
-      : stored.providerUserInfo.map((p) => ({
-        uid: stored.uid,
-        displayName: stored.displayName,
-        email: stored.email,
-        phoneNumber: stored.phoneNumber,
-        photoURL,
-        providerId: p.providerId,
-      }));
+    m.providerData = buildClientUserInfoList({
+      isAnonymous: stored.isAnonymous,
+      uid: stored.uid,
+      displayName: stored.displayName,
+      email: stored.email,
+      phoneNumber: stored.phoneNumber,
+      photoURL,
+      providers: stored.providerUserInfo,
+    });
   }
 
   /** Live customClaims for a uid — the current value in the user DB,

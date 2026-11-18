@@ -99,6 +99,7 @@ export interface SerializedIdTokenResult {
   readonly issuedAtTime: string;
   readonly authTime: string;
   readonly signInProvider: string | null;
+  readonly signInSecondFactor: string | null;
 }
 
 /**

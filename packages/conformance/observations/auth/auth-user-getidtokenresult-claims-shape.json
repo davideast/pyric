@@ -1,7 +1,9 @@
 {
   "name": "auth-user-getidtokenresult-claims-shape",
-  "matrixRow": "",
-  "rowIds": [],
+  "matrixRow": "auth#56",
+  "rowIds": [
+    "auth#56"
+  ],
   "description": "user.getIdTokenResult() returns the parsed IdTokenResult shape including standard and custom claims, signInProvider, and ISO timestamp fields.",
   "observedAt": "2026-11-18T04:35:04.379Z",
   "fbSdkVersion": "12.19.0",

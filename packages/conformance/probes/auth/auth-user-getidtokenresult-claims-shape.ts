@@ -4,9 +4,8 @@ import { withClientAuthProbeSession } from '../../src/auth-user-probe-session.ts
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: ['web-config', 'admin-auth'],
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'auth#56',
+  rowIds: ['auth#56'],
   description:
     'user.getIdTokenResult() returns the parsed IdTokenResult shape including standard and custom claims, signInProvider, and ISO timestamp fields.',
   async observe() {

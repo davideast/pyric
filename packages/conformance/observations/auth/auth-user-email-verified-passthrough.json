@@ -1,7 +1,9 @@
 {
   "name": "auth-user-email-verified-passthrough",
-  "matrixRow": "",
-  "rowIds": [],
+  "matrixRow": "auth#58",
+  "rowIds": [
+    "auth#58"
+  ],
   "description": "user.emailVerified defaults to false on anonymous and unverified password users, reflects true when verified on the account, and matches Admin UserRecord.emailVerified.",
   "observedAt": "2026-11-18T04:35:00.191Z",
   "fbSdkVersion": "12.19.0",

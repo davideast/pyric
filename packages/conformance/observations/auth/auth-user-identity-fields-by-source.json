@@ -1,7 +1,9 @@
 {
   "name": "auth-user-identity-fields-by-source",
-  "matrixRow": "",
-  "rowIds": [],
+  "matrixRow": "auth#57",
+  "rowIds": [
+    "auth#57"
+  ],
   "description": "user.uid, user.email, user.displayName, and user.isAnonymous reflect the sign-in source across anonymous and email/password users.",
   "observedAt": "2026-11-18T04:35:07.005Z",
   "fbSdkVersion": "12.19.0",
