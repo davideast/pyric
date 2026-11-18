@@ -1,0 +1,159 @@
+{
+  "name": "ai-offline-schema-builders-and-guards",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "Pure offline firebase/ai Schema.object, primitive/array/enumString builders, and Schema.anyOf serialization and empty-anyOf AIError guard with zero network calls.",
+  "observedAt": "2026-11-18T21:55:02.001Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "fetchCalls": 0,
+    "schemaTypes": {
+      "STRING": "string",
+      "NUMBER": "number",
+      "INTEGER": "integer",
+      "BOOLEAN": "boolean",
+      "ARRAY": "array",
+      "OBJECT": "object"
+    },
+    "primitives": {
+      "stringInstance": true,
+      "stringJson": {
+        "type": "string",
+        "description": "label",
+        "nullable": false
+      },
+      "nullableStringJson": {
+        "type": "string",
+        "nullable": true
+      },
+      "integerInstance": true,
+      "integerJson": {
+        "type": "integer",
+        "nullable": false
+      },
+      "numberInstance": true,
+      "numberJson": {
+        "type": "number",
+        "nullable": false
+      },
+      "booleanInstance": true,
+      "booleanJson": {
+        "type": "boolean",
+        "nullable": false
+      },
+      "enumStringJson": {
+        "type": "string",
+        "enum": [
+          "red",
+          "green",
+          "blue"
+        ],
+        "nullable": false
+      },
+      "arrayInstance": true,
+      "arrayJson": {
+        "type": "array",
+        "items": {
+          "type": "string",
+          "nullable": false
+        },
+        "nullable": false
+      }
+    },
+    "objectSchemas": {
+      "isObjectSchema": true,
+      "withOptionalJson": {
+        "type": "object",
+        "properties": {
+          "city": {
+            "type": "string",
+            "nullable": false
+          },
+          "days": {
+            "type": "integer",
+            "nullable": false
+          }
+        },
+        "nullable": false,
+        "required": [
+          "city"
+        ]
+      },
+      "withOptionalPropertyKeysSorted": [
+        "city",
+        "days"
+      ],
+      "emptyOptionalJson": {
+        "type": "object",
+        "properties": {
+          "alpha": {
+            "type": "string",
+            "nullable": false
+          },
+          "beta": {
+            "type": "integer",
+            "nullable": false
+          }
+        },
+        "nullable": false,
+        "required": [
+          "alpha",
+          "beta"
+        ]
+      },
+      "orderedJson": {
+        "type": "object",
+        "title": "Profile",
+        "properties": {
+          "name": {
+            "type": "string",
+            "nullable": false
+          },
+          "age": {
+            "type": "integer",
+            "nullable": false
+          },
+          "email": {
+            "type": "string",
+            "nullable": false
+          }
+        },
+        "propertyOrdering": [
+          "name",
+          "email",
+          "age"
+        ],
+        "nullable": false,
+        "required": [
+          "name",
+          "age",
+          "email"
+        ]
+      }
+    },
+    "anyOfSchemas": {
+      "isAnyOfSchema": true,
+      "hasTopLevelType": false,
+      "anyOfJson": {
+        "anyOf": [
+          {
+            "type": "string",
+            "nullable": false
+          },
+          {
+            "type": "integer",
+            "nullable": false
+          }
+        ],
+        "nullable": false
+      },
+      "emptyAnyOfGuard": {
+        "threw": true,
+        "isAIError": true,
+        "isFirebaseError": true,
+        "code": "invalid-schema"
+      }
+    }
+  }
+}

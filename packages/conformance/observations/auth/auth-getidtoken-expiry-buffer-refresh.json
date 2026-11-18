@@ -1,0 +1,26 @@
+{
+  "name": "auth-getidtoken-expiry-buffer-refresh",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "getIdToken() mints a 3600s JWT, returns the cached token before expirationTime minus 30s, and refreshes non-forced inside the 30s expiry buffer while firing onIdTokenChanged without firing onAuthStateChanged.",
+  "observedAt": "2026-11-18T21:55:11.395Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "initialExpMinusIatSeconds": 3600,
+    "beforeRefreshBuffer": {
+      "returnedCachedToken": true,
+      "carriesUpdatedClaim": false,
+      "idTokenChangedFires": 0,
+      "authStateChangedFires": 0
+    },
+    "insideRefreshBuffer": {
+      "mintedFreshToken": true,
+      "carriesUpdatedClaim": true,
+      "refreshedExpMinusIatSeconds": 3600,
+      "idTokenChangedFires": 1,
+      "authStateChangedFires": 0,
+      "subsequentReadReturnsNewCachedToken": true
+    }
+  }
+}
