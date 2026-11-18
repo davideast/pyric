@@ -1,0 +1,121 @@
+{
+  "name": "firestore-where-existence-and-null-guards",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "where() field-existence and null-value behavior across ==, <, <=, >, >=, in, !=, and not-in (including null operands).",
+  "observedAt": "2026-11-18T00:43:20.133Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "eqTen": {
+      "threw": false,
+      "ids": [
+        "ten"
+      ],
+      "code": null,
+      "errorName": null,
+      "transport": "firebase-js-sdk-node"
+    },
+    "eqNull": {
+      "threw": false,
+      "ids": [
+        "null_val"
+      ],
+      "code": null,
+      "errorName": null,
+      "transport": "firebase-js-sdk-node"
+    },
+    "ltTwenty": {
+      "threw": false,
+      "ids": [
+        "ten"
+      ],
+      "code": null,
+      "errorName": null,
+      "transport": "firebase-js-sdk-node"
+    },
+    "lteTwenty": {
+      "threw": false,
+      "ids": [
+        "ten",
+        "twenty"
+      ],
+      "code": null,
+      "errorName": null,
+      "transport": "firebase-js-sdk-node"
+    },
+    "gtTen": {
+      "threw": false,
+      "ids": [
+        "twenty"
+      ],
+      "code": null,
+      "errorName": null,
+      "transport": "firebase-js-sdk-node"
+    },
+    "gteTen": {
+      "threw": false,
+      "ids": [
+        "ten",
+        "twenty"
+      ],
+      "code": null,
+      "errorName": null,
+      "transport": "firebase-js-sdk-node"
+    },
+    "inTenTwenty": {
+      "threw": false,
+      "ids": [
+        "ten",
+        "twenty"
+      ],
+      "code": null,
+      "errorName": null,
+      "transport": "firebase-js-sdk-node"
+    },
+    "inWithNull": {
+      "threw": false,
+      "ids": [
+        "ten"
+      ],
+      "code": null,
+      "errorName": null,
+      "transport": "firebase-js-sdk-node"
+    },
+    "neqTen": {
+      "threw": false,
+      "ids": [
+        "twenty"
+      ],
+      "code": null,
+      "errorName": null,
+      "transport": "firebase-js-sdk-node"
+    },
+    "neqNull": {
+      "threw": false,
+      "ids": [
+        "ten",
+        "twenty"
+      ],
+      "code": null,
+      "errorName": null,
+      "transport": "firebase-js-sdk-node"
+    },
+    "notInTen": {
+      "threw": false,
+      "ids": [
+        "twenty"
+      ],
+      "code": null,
+      "errorName": null,
+      "transport": "firebase-js-sdk-node"
+    },
+    "notInWithNull": {
+      "threw": false,
+      "ids": [],
+      "code": null,
+      "errorName": null,
+      "transport": "firebase-js-sdk-node"
+    }
+  }
+}
