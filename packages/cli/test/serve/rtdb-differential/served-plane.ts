@@ -57,7 +57,7 @@ function loadEntries() {
   return entries;
 }
 
-export const tick = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
+export const tick = () => new Promise<void>((resolve) => setImmediate(resolve));
 
 let appCounter = 0;
 
@@ -94,11 +94,11 @@ export function portPair(): { page: PagePort; host: PagePort } {
   const host: PagePort = { onmessage: null, postMessage() {}, start() {}, close() {}, addEventListener() {} };
   page.postMessage = (message) => {
     const copy = structuredClone(message);
-    setTimeout(() => host.onmessage?.({ data: copy }), 0);
+    setImmediate(() => host.onmessage?.({ data: copy }));
   };
   host.postMessage = (message) => {
     const copy = structuredClone(message);
-    setTimeout(() => page.onmessage?.({ data: copy }), 0);
+    setImmediate(() => page.onmessage?.({ data: copy }));
   };
   return { page, host };
 }

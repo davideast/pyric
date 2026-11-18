@@ -17,8 +17,11 @@ const PLANES: PlaneName[] = ['sandbox', 'worker', 'node'];
 /** The fixed seed set every change touching serve, database or rules runs. */
 const SEEDS = { start: 1, count: 160 };
 
+/** Bundling the Node runner can exceed Bun's 5 s hook default on a loaded CI runner (#1593). */
+const BUILD_TIMEOUT_MS = 60_000;
+
 let runner: PlaneRunner;
-beforeAll(async () => { runner = await createPlaneRunner({ chunks: 2 }); });
+beforeAll(async () => { runner = await createPlaneRunner({ chunks: 2 }); }, BUILD_TIMEOUT_MS);
 afterAll(() => runner?.dispose());
 
 function describeMismatch(verdict: Awaited<ReturnType<typeof runAll>>[number]): string {

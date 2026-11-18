@@ -8,7 +8,7 @@
  * - `node`: the served entries over the hosted transport to the Node host,
  *   with its SQLite persistence. This plane runs under Node.
  */
-import { mkdtempSync, rmSync } from 'node:fs';
+import { accessSync, constants, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { INSTANCE_URLS, PROJECT_ID } from './sequence.js';
@@ -16,6 +16,34 @@ import type { PlaneSession } from './interpreter.js';
 import { openServedPlane, portPair, tick, type PagePort, type ServedHost } from './served-plane.js';
 
 export type PlaneName = 'sandbox' | 'worker' | 'node';
+
+interface ScratchRootOptions {
+  platform?: NodeJS.Platform;
+  shmDir?: string;
+  checkWritable?: (path: string) => void;
+  fallbackTmpDir?: () => string;
+}
+
+/**
+ * Prefer RAM-backed `/dev/shm` on Linux so per-sequence hosted SQLite `WAL`
+ * commits (`PRAGMA synchronous=FULL`) never stall on cloud OS-disk `fsync`
+ * throttling; fall back to `os.tmpdir()` everywhere else.
+ */
+export function scratchRoot(options: ScratchRootOptions = {}): string {
+  const platform = options.platform ?? process.platform;
+  const shmDir = options.shmDir ?? '/dev/shm';
+  const checkWritable = options.checkWritable ?? ((path: string) => accessSync(path, constants.W_OK | constants.X_OK));
+  const fallbackTmpDir = options.fallbackTmpDir ?? tmpdir;
+  if (platform === 'linux') {
+    try {
+      checkWritable(shmDir);
+      return shmDir;
+    } catch {
+      // Fall back to os.tmpdir() when /dev/shm is missing or unwritable.
+    }
+  }
+  return fallbackTmpDir();
+}
 
 let sandboxApps = 0;
 
@@ -108,7 +136,8 @@ let nodeSessions = 0;
 
 export async function openNodePlane(): Promise<PlaneSession> {
   const { createHostedRuntime } = await import('../../../src/serve/hosted/runtime.js');
-  const directory = mkdtempSync(join(tmpdir(), 'pyric-rtdb-diff-'));
+  const parentDir = process.env.PYRIC_RTDB_DIFF_SCRATCH_DIR ?? scratchRoot();
+  const directory = mkdtempSync(join(parentDir, 'pyric-rtdb-diff-'));
   const payload = {
     rules: null, rulesHash: null, storageRules: null, storageRulesHash: null,
     bridgeUrl: null, seed: null, capture: false, hosted: true, projectKey: directory,
@@ -125,8 +154,8 @@ export async function openNodePlane(): Promise<PlaneSession> {
       return;
     }
     const page = pages.get(frame.clientSessionId!);
-    setTimeout(() => page?.onmessage?.({ data: message }), 0);
-  }, directory);
+    setImmediate(() => page?.onmessage?.({ data: message }));
+  }, directory, { record: false });
   const receive = (clientSessionId: string, message: unknown) => {
     runtime.receive({ type: 'worker-message', clientSessionId, message: JSON.parse(JSON.stringify(message)) } as never);
   };
@@ -135,7 +164,7 @@ export async function openNodePlane(): Promise<PlaneSession> {
       const clientSessionId = `diff-page-${++nodeSessions}`;
       const page: PagePort = {
         onmessage: null,
-        postMessage(message) { setTimeout(() => receive(clientSessionId, message), 0); },
+        postMessage(message) { setImmediate(() => receive(clientSessionId, message)); },
         start() {},
         close() { runtime.receive({ type: 'worker-client-disconnect', clientSessionId } as never); },
         addEventListener() {},

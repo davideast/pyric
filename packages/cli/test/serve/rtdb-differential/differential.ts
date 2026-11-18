@@ -15,13 +15,12 @@
  * code is 1 when any sequence mismatches.
  */
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { firstMismatch, normalize, type Mismatch, type NormalTrace } from './compare.js';
 import { generateSequence } from './generator.js';
 import type { Trace } from './interpreter.js';
-import type { PlaneName } from './planes.js';
+import { scratchRoot, type PlaneName } from './planes.js';
 import type { PlaneOutcome } from './run-plane.js';
 import type { Sequence } from './sequence.js';
 import { knownDivergence } from './known-divergences.js';
@@ -75,8 +74,10 @@ export async function buildForNode(directory: string, script: string): Promise<s
   return join(directory, naming);
 }
 
-export async function createPlaneRunner(options: { chunks?: number } = {}): Promise<PlaneRunner> {
-  const directory = mkdtempSync(join(tmpdir(), 'pyric-rtdb-differential-'));
+export async function createPlaneRunner(
+  options: { chunks?: number; scratchRoot?: string } = {},
+): Promise<PlaneRunner> {
+  const directory = mkdtempSync(join(options.scratchRoot ?? scratchRoot(), 'pyric-rtdb-differential-'));
   const nodeRunner = await buildNodeRunner(directory);
   const chunks = Math.max(1, options.chunks ?? 1);
   let batch = 0;
@@ -89,7 +90,12 @@ export async function createPlaneRunner(options: { chunks?: number } = {}): Prom
     const command = plane === 'node'
       ? [process.env.PYRIC_TEST_NODE ?? 'node', nodeRunner, plane, input, output]
       : [process.execPath, join(HERE, 'run-plane.ts'), plane, input, output];
-    const child = Bun.spawn(command, { cwd: CLI_ROOT, stdout: 'pipe', stderr: 'pipe' });
+    const child = Bun.spawn(command, {
+      cwd: CLI_ROOT,
+      env: { ...process.env, PYRIC_RTDB_DIFF_SCRATCH_DIR: directory },
+      stdout: 'pipe',
+      stderr: 'pipe',
+    });
     const [code, stderr] = await Promise.all([child.exited, new Response(child.stderr).text()]);
     if (code !== 0) throw new Error(`${plane} plane exited ${code}: ${stderr.slice(-4000)}`);
     return JSON.parse(readFileSync(output, 'utf8')) as PlaneOutcome[];
