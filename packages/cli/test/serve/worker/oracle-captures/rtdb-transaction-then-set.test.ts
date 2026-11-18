@@ -1,7 +1,7 @@
 import { it } from 'bun:test';
 import { scenario as cold } from '../../../../../conformance/src/capture/sdk-scenarios/rtdb/rtdb-modular-transaction-then-set.scenario.ts';
 import { scenario as warm } from '../../../../../conformance/src/capture/sdk-scenarios/rtdb/rtdb-modular-transaction-then-set-warm.scenario.ts';
-import { expectReplay, load, restoreSharedWorker, servedRtdbContext } from './support.ts';
+import { expectReplay, hostedRtdbContext, load, restoreSharedWorker, servedRtdbContext } from './support.ts';
 
 restoreSharedWorker();
 
@@ -26,10 +26,18 @@ it('rtdb-modular-transaction-then-set, served', async () => {
   });
 });
 
-it('rtdb-modular-transaction-then-set-warm, served', async () => {
+it('rtdb-modular-transaction-then-set-warm, served SharedWorker', async () => {
   expectReplay({
     production: load('rtdb-modular-transaction-then-set-warm'),
     pyric: await warm.run(await servedRtdbContext()),
+    pins: [],
+  });
+});
+
+it('rtdb-modular-transaction-then-set-warm, served Node host', async () => {
+  expectReplay({
+    production: load('rtdb-modular-transaction-then-set-warm'),
+    pyric: await warm.run(await hostedRtdbContext()),
     pins: [],
   });
 });
