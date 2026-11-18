@@ -1269,7 +1269,7 @@ async function verifyStorage(
   };
 }
 
-/** Evaluate one replayed request under its bucket's rules; a locked bucket denies it. */
+/** Evaluate one replayed request under its bucket's rules; a locked bucket or missing update target denies it. */
 function evaluateReplayedStorageRequest(
   bucketRules: StorageBucketRules,
   input: Parameters<typeof evaluateStorageRules>[1],
@@ -1278,14 +1278,12 @@ function evaluateReplayedStorageRequest(
   pointInTimeFirestoreDocs: Record<string, Record<string, unknown>>,
 ): { allowed: boolean; reasons: string[] } {
   if (bucketRules.kind === 'locked') return { allowed: false, reasons: [lockedBucketReason(bucketRules.bucket)] };
-  const hasRecordedTime = typeof opEvent.at === 'number' && Number.isFinite(opEvent.at);
-  const requestTime = hasRecordedTime ? new Date(opEvent.at) : new Date();
-  return evaluateStorageRules(
-    bucketRules.rules,
-    input,
-    requestTime,
-    fixtureFirestoreLookup(fixture, pointInTimeFirestoreDocs),
-  );
+  if (input.request.method === 'update' && !input.resource) {
+    return { allowed: false, reasons: ['Client updateMetadata requires an existing object to synthesize request.resource.'] };
+  }
+  let requestTime = new Date();
+  if (typeof opEvent.at === 'number' && Number.isFinite(opEvent.at)) requestTime = new Date(opEvent.at);
+  return evaluateStorageRules(bucketRules.rules, input, requestTime, fixtureFirestoreLookup(fixture, pointInTimeFirestoreDocs));
 }
 
 function readOwnDocument(

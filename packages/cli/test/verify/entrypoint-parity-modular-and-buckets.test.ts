@@ -257,6 +257,42 @@ describe('verifyStorage bucket- and method-scoped service_mutation pairing', () 
     expect(res.services.storage?.divergences).toEqual([]);
     expect(res.ok).toBe(true);
   });
+
+  it('denies missing-object updateMetadata under candidate rules in permissive captures while still flagging relaxed existing-object denials', async () => {
+    const sb = initializeSandbox();
+    const openSt = getStorageSandbox(sb.withAuth({ uid: 'u1', token: {} }), {
+      dbName: `storage-pairing-open-${Math.random().toString(36).slice(2, 8)}`,
+    });
+    await expect(
+      updateMetadata(storageRef(openSt, 'items/missing.png'), { contentType: 'image/png' }),
+    ).rejects.toThrow();
+    const openFixture = buildVerifyFixture({ sandbox: sb });
+    const openRes = await verifyFixture(openFixture, { rules: { storage: PNG_128_RULES } });
+    expect(openRes.services.storage?.divergences).toEqual([]);
+
+    const sb2 = initializeSandbox();
+    const ruledSt = getStorageSandbox(sb2.withAuth({ uid: 'u1', token: {} }), {
+      dbName: `storage-pairing-existing-${Math.random().toString(36).slice(2, 8)}`,
+      rules: PNG_128_RULES,
+    });
+    await uploadBytes(storageRef(ruledSt, 'tagged/doc.png'), new Uint8Array(16), {
+      contentType: 'image/png',
+    });
+    await expect(
+      updateMetadata(storageRef(ruledSt, 'tagged/doc.png'), { customMetadata: { tag: 'wrong' } }),
+    ).rejects.toThrow();
+    const deniedFixture = buildVerifyFixture({ sandbox: sb2, storageRules: PNG_128_RULES });
+    const wideOpenRules = [
+      "rules_version = '2';",
+      'service firebase.storage {',
+      '  match /b/{bucket}/o {',
+      '    match /{allPaths=**} { allow read, write: if true; }',
+      '  }',
+      '}',
+    ].join('\n');
+    const relaxedRes = await verifyFixture(deniedFixture, { rules: { storage: wideOpenRules } });
+    expect(relaxedRes.services.storage?.divergences.map((d) => d.kind)).toEqual(['now-allowed']);
+  });
 });
 
 describe('gs:// Storage bucket URL normalization across sandbox and verifyFixture', () => {
