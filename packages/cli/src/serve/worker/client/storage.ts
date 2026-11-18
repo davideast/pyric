@@ -201,9 +201,9 @@ async function fetchMetadataFromHost(reference: ClientStorageReference): Promise
 }
 
 /** Read an object's metadata (Pyric Studio inspector). */
-export async function getMetadata(reference: ClientStorageReference): Promise<FullMetadata> {
+export function getMetadata(reference: ClientStorageReference): Promise<FullMetadata> {
   guardClientNonRoot(reference, 'getMetadata');
-  return withReferenceBucket(reference, await fetchMetadataFromHost(reference));
+  return fetchMetadataFromHost(reference).then((meta) => withReferenceBucket(reference, meta));
 }
 
 // ─── The byte route ────────────────────────────────────────────────────────

@@ -1,7 +1,10 @@
 {
   "name": "storage-updatemetadata-fields-and-bytes",
-  "matrixRow": "",
-  "rowIds": [],
+  "matrixRow": "storage / updateMetadata(ref, metadata) / #82, #85",
+  "rowIds": [
+    "storage#82",
+    "storage#85"
+  ],
   "description": "updateMetadata(ref, patch) wholesale settable-field replacement and byte preservation: observes contentType, cacheControl, contentDisposition, contentEncoding, contentLanguage, and customMetadata replacement alongside unchanged object bytes.",
   "observedAt": "2026-11-18T04:36:32.840Z",
   "fbSdkVersion": "12.19.0",

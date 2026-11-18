@@ -1,7 +1,9 @@
 {
   "name": "storage-getmetadata-full-shape",
-  "matrixRow": "",
-  "rowIds": [],
+  "matrixRow": "storage / getMetadata(ref) / #79",
+  "rowIds": [
+    "storage#79"
+  ],
   "description": "getMetadata(ref) after uploadBytes with full SettableMetadata: observes field-by-field FullMetadata parity against UploadResult.metadata.",
   "observedAt": "2026-11-18T04:36:26.592Z",
   "fbSdkVersion": "12.19.0",

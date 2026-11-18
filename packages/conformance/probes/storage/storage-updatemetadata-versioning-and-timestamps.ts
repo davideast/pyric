@@ -58,9 +58,8 @@ export async function observeUpdateMetadataVersioningAndTimestamps(
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: ['web-config'],
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'storage / updateMetadata(ref, metadata) / #83, #84',
+  rowIds: ['storage#83', 'storage#84'],
   description:
     'updateMetadata(ref, patch) versioning and timestamps: observes +1 metageneration increments across consecutive updates, pinned generation and timeCreated, and advancing updated timestamps.',
   async observe() {

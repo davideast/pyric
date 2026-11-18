@@ -70,11 +70,10 @@ function toSettableSnapshot(md: {
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: ['web-config'],
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'storage / updateMetadata(ref, metadata) / #82, #85',
+  rowIds: ['storage#82', 'storage#85'],
   description:
-    'updateMetadata(ref, patch) wholesale settable-field replacement and byte preservation: observes contentType, cacheControl, contentDisposition, contentEncoding, contentLanguage, and customMetadata replacement alongside unchanged object bytes.',
+    'updateMetadata(ref, patch) settable-field updates, RFC 7396 customMetadata merge, and byte preservation: observes contentType, cacheControl, contentDisposition, contentEncoding, contentLanguage, and customMetadata alongside unchanged object bytes.',
   async observe() {
     return withStorageProbeSession(async ({ objectRef, storageSdk }) => {
       return observeUpdateMetadataFieldsAndBytes({

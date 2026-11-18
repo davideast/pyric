@@ -5,6 +5,7 @@ import { createServer } from 'node:http';
 import { join } from 'node:path';
 import { createSandboxRoot } from 'pyric/sandbox/internal';
 import { getFirestore } from 'pyric/firestore';
+import { getStorageSandbox, ref as ipRef, updateMetadata as ipUpdateMetadata } from 'pyric/storage';
 import { installStorageBackend, replaceStorageRules } from 'pyric/storage/internal';
 import { createHostedPersistence } from '../../../src/serve/hosted/persistence.js';
 import { createStorageByteRoute } from '../../../src/serve/hosted/storage-byte-route.js';
@@ -309,6 +310,136 @@ try {
     }
     assert.equal(deniedCode !== undefined, outsideExpected.threw);
     assert.equal(deniedCode, outsideExpected.code);
+  }
+
+  // getMetadata + updateMetadata observations (storage#79..85, #87, #88) on hosted SQLite.
+  {
+    const sqliteDirect = getStorageSandbox(sandbox);
+    const getRootObs = observation('client-storage-getmetadata-root-ref');
+    const updateRootObs = observation('client-storage-updatemetadata-root-ref');
+
+    let getRootSync = false;
+    let getRootCode: string | undefined;
+    try {
+      void getMetadata(ref(storage));
+    } catch (error) {
+      getRootSync = true;
+      getRootCode = (error as { code?: string }).code;
+    }
+    assert.equal(getRootSync, getRootObs.threwSynchronously);
+    assert.equal(getRootCode, getRootObs.code);
+
+    let updateRootSync = false;
+    let updateRootCode: string | undefined;
+    try {
+      void ipUpdateMetadata(ipRef(sqliteDirect), { contentType: 'text/plain' });
+    } catch (error) {
+      updateRootSync = true;
+      updateRootCode = (error as { code?: string }).code;
+    }
+    assert.equal(updateRootSync, updateRootObs.threwSynchronously);
+    assert.equal(updateRootCode, updateRootObs.code);
+
+    const shapeObs = observation('storage-getmetadata-full-shape');
+    const upShape = shapeObs.uploadedShape as {
+      name: string;
+      size: number;
+      metageneration: string;
+      contentType: string;
+      cacheControl: string;
+      contentDisposition: string;
+      contentEncoding: string;
+      contentLanguage: string;
+      customMetadata: Record<string, string>;
+    };
+    const fetchedShape = shapeObs.fetchedShape as typeof upShape & {
+      generationMatchesUpload: boolean;
+      timeCreatedMatchesUpload: boolean;
+      updatedMatchesUpload: boolean;
+    };
+    const shapeTarget = ref(storage, 'pyric_oracle/metadata-full-shape/doc.json');
+    const shapeUp = await uploadBytes(shapeTarget, new Uint8Array([0x7b, 0x22, 0x76, 0x22, 0x3a, 0x31, 0x7d]), {
+      contentType: upShape.contentType,
+      cacheControl: upShape.cacheControl,
+      contentDisposition: upShape.contentDisposition,
+      contentEncoding: upShape.contentEncoding,
+      contentLanguage: upShape.contentLanguage,
+      customMetadata: upShape.customMetadata,
+    });
+    const shapeGot = await getMetadata(shapeTarget);
+    assert.equal(shapeGot.name, fetchedShape.name);
+    assert.equal(shapeGot.size, fetchedShape.size);
+    assert.equal(shapeGot.metageneration, fetchedShape.metageneration);
+    assert.equal(shapeGot.contentType, fetchedShape.contentType);
+    assert.equal(shapeGot.cacheControl, fetchedShape.cacheControl);
+    assert.equal(shapeGot.contentDisposition, fetchedShape.contentDisposition);
+    assert.equal(shapeGot.contentEncoding, fetchedShape.contentEncoding);
+    assert.equal(shapeGot.contentLanguage, fetchedShape.contentLanguage);
+    assert.deepEqual(shapeGot.customMetadata, fetchedShape.customMetadata);
+    assert.equal(shapeGot.generation === shapeUp.metadata.generation, fetchedShape.generationMatchesUpload);
+    assert.equal(shapeGot.timeCreated === shapeUp.metadata.timeCreated, fetchedShape.timeCreatedMatchesUpload);
+    assert.equal(shapeGot.updated === shapeUp.metadata.updated, fetchedShape.updatedMatchesUpload);
+
+    const missingObs = observation('storage-metadata-missing-object-errors');
+    const getMissingExp = missingObs.getMetadataMissing as { threw: boolean; code: string };
+    const updMissingExp = missingObs.updateMetadataMissing as { threw: boolean; code: string };
+    let missingGetCode: string | undefined;
+    try {
+      await getMetadata(ref(storage, 'pyric_oracle/metadata-missing/absent.bin'));
+    } catch (error) {
+      missingGetCode = (error as { code?: string }).code;
+    }
+    assert.equal(missingGetCode !== undefined, getMissingExp.threw);
+    assert.equal(missingGetCode, getMissingExp.code);
+
+    let missingUpdCode: string | undefined;
+    try {
+      await ipUpdateMetadata(ipRef(sqliteDirect, 'pyric_oracle/metadata-missing/absent.bin'), { contentType: 'text/plain' });
+    } catch (error) {
+      missingUpdCode = (error as { code?: string }).code;
+    }
+    assert.equal(missingUpdCode !== undefined, updMissingExp.threw);
+    assert.equal(missingUpdCode, updMissingExp.code);
+
+    const fieldsObs = observation('storage-updatemetadata-fields-and-bytes');
+    const beforeExp = fieldsObs.beforeUpdate as {
+      contentType: string;
+      cacheControl: string;
+      contentDisposition: string;
+      contentEncoding: string;
+      contentLanguage: string;
+      customMetadata: Record<string, string>;
+    };
+    const afterExp = fieldsObs.afterGetMetadata as typeof beforeExp;
+    const fieldsPath = 'pyric_oracle/metadata-fields/item.bin';
+    await uploadBytes(ref(storage, fieldsPath), new Uint8Array(fieldsObs.initialBytes as number[]), beforeExp);
+    await ipUpdateMetadata(ipRef(sqliteDirect, fieldsPath), {
+      contentType: afterExp.contentType,
+      cacheControl: afterExp.cacheControl,
+      contentDisposition: afterExp.contentDisposition,
+      contentEncoding: afterExp.contentEncoding,
+      contentLanguage: afterExp.contentLanguage,
+      customMetadata: { k2: 'v2-next', k3: 'v3' },
+    });
+    const afterMeta = await getMetadata(ref(storage, fieldsPath));
+    assert.deepEqual(afterMeta.customMetadata, afterExp.customMetadata);
+    assert.equal(afterMeta.contentLanguage, afterExp.contentLanguage);
+    assert.deepEqual(Array.from(new Uint8Array(await getBytes(ref(storage, fieldsPath)))), fieldsObs.afterReadBytes);
+
+    const verObs = observation('storage-updatemetadata-versioning-and-timestamps');
+    const verPath = 'pyric_oracle/metadata-ver/item.bin';
+    const v0 = await uploadBytes(ref(storage, verPath), new Uint8Array([1, 2, 3, 4]), { contentType: 'text/plain' });
+    await new Promise(resolve => setTimeout(resolve, 5));
+    const v1 = await ipUpdateMetadata(ipRef(sqliteDirect, verPath), { customMetadata: { step: '1' } });
+    await new Promise(resolve => setTimeout(resolve, 5));
+    await ipUpdateMetadata(ipRef(sqliteDirect, verPath), { customMetadata: { step: '2' } });
+    const v2 = await getMetadata(ref(storage, verPath));
+    assert.equal(v0.metadata.metageneration, verObs.initialMetageneration);
+    assert.equal(v1.metageneration, verObs.firstUpdateMetageneration);
+    assert.equal(v2.metageneration, verObs.secondUpdateMetageneration);
+    assert.equal(v2.generation === v0.metadata.generation, verObs.generationPinnedAcrossUpdates);
+    assert.equal(v2.timeCreated === v0.metadata.timeCreated, verObs.timeCreatedPinnedAcrossUpdates);
+    assert.equal(Date.parse(v2.updated) > Date.parse(v0.metadata.updated), verObs.secondUpdatedStrictlyAfterInitialUpdated);
   }
 } finally {
   server.close();

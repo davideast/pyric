@@ -244,14 +244,31 @@ export function useMetadataEditor(
   const { draft, initial, errorCount } = state;
 
   const toPatch = useCallback((): SettableMetadata => {
+    let contentType: string | undefined;
+    if (draft.contentType.trim() !== '') {
+      contentType = draft.contentType;
+    }
+    let cacheControl: string | undefined;
+    if (draft.cacheControl.trim() !== '') {
+      cacheControl = draft.cacheControl;
+    }
+    const customMetadata: Record<string, string | null> = {};
+    for (const prev of initial.custom) {
+      if (prev.key.trim() !== '') {
+        customMetadata[prev.key] = null;
+      }
+    }
+    for (const entry of draft.custom) {
+      if (entry.key.trim() !== '') {
+        customMetadata[entry.key] = entry.value;
+      }
+    }
     return {
-      contentType: draft.contentType.trim() === '' ? undefined : draft.contentType,
-      cacheControl: draft.cacheControl.trim() === '' ? undefined : draft.cacheControl,
-      customMetadata: Object.fromEntries(
-        draft.custom.filter((e) => e.key.trim() !== '').map((e) => [e.key, e.value]),
-      ),
+      contentType,
+      cacheControl,
+      customMetadata: customMetadata as Record<string, string>,
     };
-  }, [draft]);
+  }, [draft, initial]);
 
   const save = useCallback(async (): Promise<FullMetadata | undefined> => {
     const myGen = ++generationRef.current;

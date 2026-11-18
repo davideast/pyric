@@ -39,6 +39,7 @@ import {
 } from '../../src/storage/index.js';
 import { parseStorageUrl } from '../../src/storage/url.js';
 import { registerOracleListAllSuite } from './oracle-listall-cases.js';
+import { registerOracleMetadataSuite } from './oracle-metadata-cases.js';
 import { registerOracleRefSuite } from './oracle-ref-cases.js';
 import { registerOracleUploadBytesSuite } from './oracle-uploadbytes-cases.js';
 
@@ -498,6 +499,7 @@ service firebase.storage {
   });
 
   registerOracleListAllSuite({ load, freshStorage });
+  registerOracleMetadataSuite({ load, freshStorage });
   registerOracleRefSuite({ load, freshStorage });
   registerOracleUploadBytesSuite({ load, freshStorage });
 
