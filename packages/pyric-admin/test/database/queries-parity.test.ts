@@ -402,7 +402,9 @@ describe('pyric-admin/database — queries and one-shot reads parity', () => {
       // Default ordering is priority ordering (`PRIORITY_INDEX`), so `ref.orderByPriority()` shares `'default'` queryIdentifier.
       expect(base.isEqual(base.orderByPriority())).toBe(true);
       expect(base.isEqual(db.ref('other'))).toBe(false);
-      expect(base.isEqual(null)).toBe(false);
+      expect(() => base.isEqual(null)).toThrow(
+        'Query.isEqual failed: First argument must be an instance of firebase.database.Query.',
+      );
 
       const shard = getDatabaseWithUrl('https://demo-proj-shard.firebaseio.com', app);
       expect(base.isEqual(shard.ref('tasks'))).toBe(false);

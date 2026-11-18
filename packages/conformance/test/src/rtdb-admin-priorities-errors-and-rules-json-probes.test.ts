@@ -22,15 +22,10 @@ import {
   printModularProbePreview,
   selectModularProbes,
 } from '../../src/sdk-probes.ts';
-import { expectStagedUntilCaptured } from './staged-capture-assertions.ts';
-
-const STAGED_ADMIN_SLICE7_PROBE_IDS = [
-  'rtdb-modular-admin-priorities-and-inline-priority',
-  'rtdb-modular-admin-firebasedatabaseerror-and-url-binding',
-] as const;
 
 const SLICE7_PROBE_IDS = [
-  ...STAGED_ADMIN_SLICE7_PROBE_IDS,
+  'rtdb-modular-admin-priorities-and-inline-priority',
+  'rtdb-modular-admin-firebasedatabaseerror-and-url-binding',
   'rtdb-rules-json-wildcard-and-indexon-roundtrip',
 ] as const;
 
@@ -175,8 +170,8 @@ function createAdminPriorityTestHarness() {
   };
 }
 
-describe('RTDB Slice 7 staged probes: admin priorities, FirebaseDatabaseError/URL binding, and rules JSON round-trip', () => {
-  test('registers all 3 Slice 7 probes with pendingRowLink and empty rowIds under expected surface directories', async () => {
+describe('RTDB Slice 7 probes: admin priorities, FirebaseDatabaseError/URL binding, and rules JSON round-trip', () => {
+  test('links all 3 Slice 7 probes to registry rows under expected surface directories', async () => {
     const loaded = await loadModularProbes('sdk-probes');
     const byId = new Map(loaded.map((entry) => [entry.id, entry]));
 
@@ -188,14 +183,23 @@ describe('RTDB Slice 7 staged probes: admin priorities, FirebaseDatabaseError/UR
     );
     expect(byId.get('rtdb-rules-json-wildcard-and-indexon-roundtrip')?.surfaceDir).toBe('rtdb');
 
-    for (const p of [adminPrioritiesProbe, adminErrorAndUrlProbe]) {
-      expect(p.rig).toBe('sdk-probes');
-      expect(p.requires).toEqual(['web-config', 'dedicated-rtdb']);
-      expect(p.pendingRowLink).toBe(true);
-      expect(p.matrixRow).toBe('');
-      expect(p.rowIds).toEqual([]);
-      expect(p.description.length).toBeGreaterThan(20);
-    }
+    expect(adminPrioritiesProbe.rig).toBe('sdk-probes');
+    expect(adminPrioritiesProbe.requires).toEqual(['web-config', 'dedicated-rtdb']);
+    expect(adminPrioritiesProbe.pendingRowLink).toBeUndefined();
+    expect(adminPrioritiesProbe.matrixRow).toBe('rtdb-admin#7');
+    expect(adminPrioritiesProbe.rowIds).toEqual(['rtdb-admin#7']);
+    expect(adminPrioritiesProbe.description.length).toBeGreaterThan(20);
+
+    expect(adminErrorAndUrlProbe.rig).toBe('sdk-probes');
+    expect(adminErrorAndUrlProbe.requires).toEqual(['web-config', 'dedicated-rtdb']);
+    expect(adminErrorAndUrlProbe.pendingRowLink).toBeUndefined();
+    expect(adminErrorAndUrlProbe.matrixRow).toBe('rtdb-admin#1, rtdb-admin#10, rtdb-modular#MI4');
+    expect(adminErrorAndUrlProbe.rowIds).toEqual([
+      'rtdb-admin#1',
+      'rtdb-admin#10',
+      'rtdb-modular#MI4',
+    ]);
+    expect(adminErrorAndUrlProbe.description.length).toBeGreaterThan(20);
 
     expect(rulesJsonRoundtripProbe.rig).toBe('sdk-probes');
     expect(rulesJsonRoundtripProbe.requires).toEqual(['web-config', 'dedicated-rtdb']);
@@ -209,19 +213,9 @@ describe('RTDB Slice 7 staged probes: admin priorities, FirebaseDatabaseError/UR
         includeUncapturedStaged: false,
       }).map((entry) => entry.id),
     );
-    expect(unfilteredIds.has('rtdb-rules-json-wildcard-and-indexon-roundtrip')).toBe(true);
-
-    expectStagedUntilCaptured(STAGED_ADMIN_SLICE7_PROBE_IDS, {
-      rig: 'sdk-probes',
-      filterFlag: '--probe',
-      filterValueFor: (name) => name,
-      whenUncaptured(name) {
-        expect(unfilteredIds.has(name)).toBe(false);
-      },
-      whenCaptured(name) {
-        expect(unfilteredIds.has(name)).toBe(true);
-      },
-    });
+    for (const id of SLICE7_PROBE_IDS) {
+      expect(unfilteredIds.has(id)).toBe(true);
+    }
 
     const previewLines: string[] = [];
     printModularProbePreview({

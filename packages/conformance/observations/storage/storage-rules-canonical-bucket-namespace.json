@@ -1,0 +1,27 @@
+{
+  "name": "storage-rules-canonical-bucket-namespace",
+  "matrixRow": "storage#109",
+  "rowIds": [
+    "storage#109"
+  ],
+  "description": "firebase/storage canonical /b/{bucket}/o/{object} rules namespace mapping: observes ordinary SDK object paths matching /b/{bucket}/o/... rules while preserving ordinary fullPath in StorageReference and FullMetadata, whereas pre-prefixed /b/<bucket>/o/... SDK paths evaluate outside the object grant.",
+  "observedAt": "2026-11-18T08:40:16.694Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "ordinaryObjectPath": {
+      "refFullPath": "pyric_oracle/<runId>/namespace-mapping/item.txt",
+      "uploadMetadataFullPath": "pyric_oracle/<runId>/namespace-mapping/item.txt",
+      "fetchedMetadataFullPath": "pyric_oracle/<runId>/namespace-mapping/item.txt",
+      "fetchedMetadataName": "item.txt",
+      "startsWithCanonicalBucketPrefix": false,
+      "metadataMatchesRefFullPath": true
+    },
+    "explicitRulesPrefixPath": {
+      "normalizedRefStartsWithB": true,
+      "uploadThrew": true,
+      "uploadCode": "storage/unauthorized",
+      "uploadIsFirebaseError": true
+    }
+  }
+}

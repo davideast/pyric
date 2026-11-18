@@ -1,8 +1,9 @@
 import { FirebaseError } from 'pyric/app';
-import { AuthCredential, OAuthProvider, reauthenticateWithCredential, reauthenticateWithPopup,
+import { OAuthProvider, reauthenticateWithCredential, reauthenticateWithPopup,
   type MintedSession, type UserCredential } from 'pyric/auth';
 import { rulesTokenFromIdToken } from 'pyric/sandbox/internal';
 import type { OpMessage } from '../protocol.js';
+import { credentialFromWirePayload } from './auth-credential-sign-in.js';
 import { requireMatchingPortSession } from './auth-session-seeder.js';
 
 type ReauthenticationOperation = Extract<OpMessage, {
@@ -15,7 +16,7 @@ export async function reauthenticateSession(current: MintedSession | null, messa
   const isCredential = message.method === 'auth.reauthenticateWithCredential';
   let result: UserCredential;
   if (isCredential) {
-    const credential = AuthCredential.fromJSON(message.credential);
+    const credential = credentialFromWirePayload(message.credential);
     const isInvalid = credential === null;
     if (isInvalid) throw new FirebaseError('auth/invalid-credential', 'The reauthentication credential is invalid.');
     result = await reauthenticateWithCredential(original.user, credential);

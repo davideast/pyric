@@ -14,6 +14,39 @@ import { WebSocket } from 'ws';
 import { deleteApp as deleteAdminApp, initializeApp as initializeAdminApp } from 'pyric-admin/app';
 import { getDatabase as getAdminDatabase, type Database as AdminDatabase } from 'pyric-admin/database';
 import { createMemoryBackend } from 'pyric/sandbox';
+import {
+  AbstractUserDataWriter,
+  AggregateField,
+  AggregateQuerySnapshot,
+  aggregateFieldEqual,
+  aggregateQuerySnapshotEqual,
+  Bytes,
+  CACHE_SIZE_UNLIMITED,
+  CollectionReference,
+  DocumentReference,
+  DocumentSnapshot,
+  documentId,
+  FieldPath,
+  Firestore,
+  FirestoreError,
+  GeoPoint,
+  Query,
+  QueryCompositeFilterConstraint,
+  QueryConstraint,
+  QueryDocumentSnapshot,
+  QueryEndAtConstraint,
+  QueryFieldFilterConstraint,
+  QueryLimitConstraint,
+  QueryOrderByConstraint,
+  QuerySnapshot,
+  QueryStartAtConstraint,
+  SnapshotMetadata,
+  Timestamp,
+  Transaction,
+  VectorValue,
+  vector,
+  WriteBatch,
+} from 'pyric/firestore';
 import { setRules } from 'pyric/sandbox/firestore';
 import * as ipDatabase from 'pyric/database';
 import { queryIdentifier } from 'pyric/database/internal';
@@ -41,7 +74,8 @@ import type {
 export { withoutMessages, type Pin } from '../../../../../conformance/src/capture/sdk-scenarios/replay-comparison.ts';
 
 export interface ServedRtdbAdminContext extends RtdbScenarioContext {
-  openAdminDb(): Promise<AdminDatabase>;
+  openAdminDb(databaseUrl?: string): Promise<AdminDatabase>;
+  openRemoteSandbox(): Promise<ReturnType<typeof createRemoteSandboxHandle>>;
   openAuthedClient(name: string): Promise<{ db: RtdbScenarioContext['db']; uid: string }>;
 }
 
@@ -56,6 +90,8 @@ export function load(name: string): Behavior {
     surface = 'rtdb';
   } else if (name.startsWith('auth-')) {
     surface = 'auth';
+  } else if (name.startsWith('messaging-web-')) {
+    surface = 'messaging';
   }
   return JSON.parse(readFileSync(join(OBSERVATIONS, surface, `${name}.json`), 'utf8')).behavior as Behavior;
 }
@@ -77,12 +113,45 @@ export function restoreSharedWorker(): void {
   afterEach(() => { (globalThis as { SharedWorker?: unknown }).SharedWorker = previous; });
 }
 
-export async function servedFirestoreContext(): Promise<FirestoreScenarioContext> {
+export async function servedFirestoreContext(): Promise<
+  FirestoreScenarioContext & { dispose(): void }
+> {
   const ctx = await makeHostCtx();
   setRules(ctx.sandbox, OPEN_FIRESTORE_RULES);
   // The served entry routes these two reads through the worker client (entries/firestore-surface.ts).
   const fs = {
     ...client,
+    AbstractUserDataWriter,
+    AggregateField,
+    AggregateQuerySnapshot,
+    aggregateFieldEqual,
+    aggregateQuerySnapshotEqual,
+    CACHE_SIZE_UNLIMITED,
+    CollectionReference,
+    DocumentReference,
+    DocumentSnapshot,
+    documentId,
+    FieldPath,
+    Firestore,
+    FirestoreError,
+    GeoPoint,
+    Bytes,
+    Query,
+    QueryCompositeFilterConstraint,
+    QueryConstraint,
+    QueryDocumentSnapshot,
+    QueryEndAtConstraint,
+    QueryFieldFilterConstraint,
+    QueryLimitConstraint,
+    QueryOrderByConstraint,
+    QuerySnapshot,
+    QueryStartAtConstraint,
+    SnapshotMetadata,
+    Timestamp,
+    Transaction,
+    VectorValue,
+    vector,
+    WriteBatch,
     refEqual,
     getDocFromServer: (ref: Parameters<typeof readDocumentAs>[0]) => readDocumentAs(ref, 'getDocFromServer'),
     getDocsFromServer: (source: Parameters<typeof readQueryAs>[0]) => readQueryAs(source, 'getDocsFromServer'),
@@ -95,6 +164,7 @@ export async function servedFirestoreContext(): Promise<FirestoreScenarioContext
     base: 'pyric_oracle/replay',
     deniedDocPath: 'pyric_oracle_denied_replay/x',
     newClient: async (name) => open(name),
+    dispose: () => ctx.sandbox.dispose(),
   };
 }
 
@@ -177,7 +247,7 @@ export async function servedRtdbContext(
     return { db: rtdb.getDatabase(raw as never), uid: cred.user.uid };
   };
 
-  const openAdminDb = async (): Promise<AdminDatabase> => {
+  const openRemoteSandbox = async () => {
     let deliver: (message: BridgeMessage) => void = () => {};
     const relayPort: PortLike = {
       postMessage(raw: unknown) {
@@ -224,16 +294,29 @@ export async function servedRtdbContext(
     deliver = core.handleMessage;
     core.start();
     await core.ready;
-    const remote = createRemoteSandboxHandle({
+    hostedCleanups.push(() => {
+      core.dispose('closed');
+    });
+    return createRemoteSandboxHandle({
       channel: core.channel,
       serveUrl: 'http://localhost:5000',
       close: () => core.dispose('closed'),
     });
+  };
+
+  const openAdminDb = async (databaseUrl?: string): Promise<AdminDatabase> => {
+    const remote = await openRemoteSandbox();
     adminAppCounter += 1;
-    const adminApp = initializeAdminApp({ sandbox: remote }, `served-oracle-admin-${adminAppCounter}`);
-    hostedCleanups.push(async () => {
+    const options: { sandbox: typeof remote; projectId: string; databaseURL?: string } = {
+      sandbox: remote,
+      projectId: 'demo-oracle',
+    };
+    if (databaseUrl !== undefined) {
+      options.databaseURL = databaseUrl;
+    }
+    const adminApp = initializeAdminApp(options, `served-oracle-admin-${adminAppCounter}`);
+    hostedCleanups.unshift(async () => {
       await deleteAdminApp(adminApp);
-      core.dispose('closed');
     });
     return getAdminDatabase(adminApp);
   };
@@ -245,6 +328,7 @@ export async function servedRtdbContext(
     base: '/pyric_oracle/replay',
     newClient: async (name) => open(name),
     openAdminDb,
+    openRemoteSandbox,
     openAuthedClient,
   };
 }
@@ -367,7 +451,7 @@ export async function hostedRtdbContext(
   const wsUrl = `ws://127.0.0.1:${server.port}/__pyric/sandbox`;
   const serveUrl = `http://127.0.0.1:${server.port}`;
 
-  const openAdminDb = async (): Promise<AdminDatabase> => {
+  const openRemoteSandbox = async () => {
     const ws = new WebSocket(wsUrl);
     await new Promise<void>((resolve, reject) => {
       ws.once('open', () => resolve());
@@ -388,7 +472,13 @@ export async function hostedRtdbContext(
     });
     core.start();
     await core.ready;
-    const remote = createRemoteSandboxHandle({
+    clientPorts.push({
+      close() {
+        core.dispose('closed');
+        ws.close();
+      },
+    });
+    return createRemoteSandboxHandle({
       channel: core.channel,
       serveUrl,
       close: () => {
@@ -396,14 +486,19 @@ export async function hostedRtdbContext(
         ws.close();
       },
     });
+  };
+
+  const openAdminDb = async (databaseUrl?: string): Promise<AdminDatabase> => {
+    const remote = await openRemoteSandbox();
     adminAppCounter += 1;
-    const adminApp = initializeAdminApp({ sandbox: remote }, `hosted-oracle-admin-${adminAppCounter}`);
-    clientPorts.push({
-      close() {
-        core.dispose('closed');
-        ws.close();
-      },
-    });
+    const options: { sandbox: typeof remote; projectId: string; databaseURL?: string } = {
+      sandbox: remote,
+      projectId: 'demo-oracle',
+    };
+    if (databaseUrl !== undefined) {
+      options.databaseURL = databaseUrl;
+    }
+    const adminApp = initializeAdminApp(options, `hosted-oracle-admin-${adminAppCounter}`);
     hostedCleanups.unshift(async () => {
       await deleteAdminApp(adminApp);
     });
@@ -455,6 +550,7 @@ export async function hostedRtdbContext(
     base: '/pyric_oracle/replay',
     newClient: (name) => openHostedClient(name),
     openAdminDb,
+    openRemoteSandbox,
     openAuthedClient,
   };
 }

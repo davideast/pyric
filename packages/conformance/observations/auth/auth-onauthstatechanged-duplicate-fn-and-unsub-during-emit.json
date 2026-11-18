@@ -1,0 +1,41 @@
+{
+  "name": "auth-onauthstatechanged-duplicate-fn-and-unsub-during-emit",
+  "matrixRow": "auth#33a",
+  "rowIds": [
+    "auth#33a",
+    "auth#34"
+  ],
+  "description": "onAuthStateChanged maintains independent per-registration entries for duplicate observer references (firing again on resubscribe) and does not skip sibling subscribers when one unsubscribes during emission.",
+  "observedAt": "2026-11-18T12:52:21.801Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "duplicateObserver": {
+      "initialDupEvents": [
+        "null",
+        "null"
+      ],
+      "signInFiresWhileBothActive": [
+        "user",
+        "user"
+      ],
+      "signOutFiresAfterOneUnsub": [
+        "null"
+      ],
+      "resubscribeInitialEvents": [
+        "null"
+      ]
+    },
+    "unsubDuringEmission": {
+      "signInTransitionVisitors": [
+        "sub-a",
+        "sub-b",
+        "sub-c"
+      ],
+      "subsequentSignOutVisitors": [
+        "sub-b",
+        "sub-c"
+      ]
+    }
+  }
+}

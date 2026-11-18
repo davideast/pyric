@@ -295,11 +295,10 @@ export async function observeOffTargetedAndChildRegistrars(
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: ['web-config', 'dedicated-rtdb'],
-  pendingRowLink: true,
   description:
     'Modular RTDB plain-ref child listener registrars (onChildAdded/Changed/Removed/Moved), onChildChanged isolation from adds and deletes, and targeted off(ref, eventType?, callback?) vs returned-unsubscribe precision.',
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'rtdb-modular#M31',
+  rowIds: ['rtdb-modular#M31', 'rtdb-modular#M44', 'rtdb-modular#M48', 'rtdb-modular#140'],
   observe() {
     return withRtdbProbeSession({}, async ({ runPath, db, rtdbSdk }) => {
       return observeOffTargetedAndChildRegistrars(

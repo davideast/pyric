@@ -30,6 +30,7 @@ import {
   ref,
   uploadBytes,
   uploadString,
+  getBytes,
   getBlob,
   getDownloadURL,
   deleteObject,
@@ -38,9 +39,12 @@ import {
   listAll,
 } from '../../src/storage/index.js';
 import { parseStorageUrl } from '../../src/storage/url.js';
+import { registerOracleDeleteListAllRulesSuite } from './oracle-delete-listall-rules-cases.js';
+import { registerOracleGetBytesUploadStringSuite } from './oracle-getbytes-uploadstring-cases.js';
 import { registerOracleListAllSuite } from './oracle-listall-cases.js';
 import { registerOracleMetadataSuite } from './oracle-metadata-cases.js';
 import { registerOracleRefSuite } from './oracle-ref-cases.js';
+import { registerOracleResumableMetadataSuite } from './oracle-resumable-metadata-cases.js';
 import { registerOracleUploadBytesSuite } from './oracle-uploadbytes-cases.js';
 
 // storage-* and client-storage-* observations live under the 'storage' surface subdirectory.
@@ -274,43 +278,23 @@ service firebase.storage {
     expect(anonymousNamespace.threw).toBe(false);
   });
 
-  it('storage-uploadstring-unknown-format (KNOWN DIVERGENCE)', async () => {
-    // Prod capture: a genuinely-unknown uploadString format string
-    // throws storage/unknown; `base64url` (a format Firebase upstream
-    // supports, just not exposed by this SDK's StringFormat type) is
-    // accepted and uploads successfully (base64urlOk: true,
-    // base64urlCode: null).
-    //
-    // The sandbox (src/storage/upload.ts `decodeString`) instead:
-    //   - throws storage/invalid-format for ANY string outside
-    //     'raw' | 'base64' | 'data_url' — including base64url, which
-    //     it deliberately deny-lists (per that file's own comment,
-    //     which asserts upstream throws "invalid-argument", itself not
-    //     what the oracle recorded either: prod throws storage/unknown
-    //     for a truly-unknown format, and doesn't error at all for
-    //     base64url).
-    // Two divergences from the same capture, pinned together: pin BOTH
-    // sides so neither drifts unnoticed.
+  it('storage-uploadstring-unknown-format', async () => {
     const obs = load('storage-uploadstring-unknown-format.json');
-    expect(obs.unknownCode).toBe('storage/unknown'); // prod: truly-unknown format
-    expect(obs.base64urlOk).toBe(true); // prod: base64url is a VALID format
+    expect(obs.unknownCode).toBe('storage/unknown');
+    expect(obs.base64urlOk).toBe(true);
     expect(obs.base64urlCode).toBeNull();
 
     const storage = freshStorage('unknown-format');
 
-    // Sandbox today: a truly-unknown format string throws invalid-format,
-    // not storage/unknown.
     const eUnknown = await caught(() =>
       uploadString(ref(storage, 'a.bin'), 'hello', 'totally-bogus-format' as unknown as 'raw'),
     );
-    expect(eUnknown.code).toBe('storage/invalid-format');
+    expect(eUnknown.code).toBe(obs.unknownCode as string);
 
-    // Sandbox today: base64url is deny-listed and throws invalid-format
-    // instead of succeeding like prod does.
-    const eBase64url = await caught(() =>
-      uploadString(ref(storage, 'b.bin'), 'aGVsbG8=', 'base64url' as unknown as 'raw'),
-    );
-    expect(eBase64url.code).toBe('storage/invalid-format');
+    const b64urlRef = ref(storage, 'b.bin');
+    await uploadString(b64urlRef, 'aGVsbG8=', 'base64url');
+    const readBack = new TextDecoder().decode(await getBytes(b64urlRef));
+    expect(readBack).toBe('hello');
   });
 
   // ── round-trips ──────────────────────────────────────────────────────
@@ -344,7 +328,7 @@ service firebase.storage {
     expect(text === (obs.downloadText as string)).toBe(obs.textMatches as boolean);
   });
 
-  it('storage-upload-then-getmetadata (KNOWN DIVERGENCE: md5Hash)', async () => {
+  it('storage-upload-then-getmetadata', async () => {
     const obs = load('storage-upload-then-getmetadata.json');
     const storage = freshStorage('upload-then-getmetadata');
     const r = ref(storage, 'upload-getmd/octet.bin');
@@ -360,12 +344,8 @@ service firebase.storage {
     expect(md.size === (obs.metadataSize as number)).toBe(obs.sizeMatches as boolean);
     expect(md.fullPath).toBe(r.fullPath);
 
-    // Prod always returns an md5Hash (hasMd5Hash: true in the capture).
-    // The sandbox's `buildStoredMetadata` (src/storage/upload.ts) never
-    // populates `md5Hash` at all — a gap the oracle surfaces, not a
-    // silently-passing assertion.
-    expect(obs.hasMd5Hash).toBe(true); // prod: always present
-    expect(md.md5Hash).toBeUndefined(); // sandbox today: never set
+    const hasMd5Hash = typeof md.md5Hash === 'string' && md.md5Hash.length > 0;
+    expect(hasMd5Hash).toBe(obs.hasMd5Hash as boolean);
   });
 
   it('storage-update-metadata-roundtrip', async () => {
@@ -498,9 +478,12 @@ service firebase.storage {
     expectRefCase(freshStorage('ref-url-child'), obs.childRefWithUrl as RefCase);
   });
 
+  registerOracleDeleteListAllRulesSuite({ load, freshStorage });
+  registerOracleGetBytesUploadStringSuite({ load, freshStorage });
   registerOracleListAllSuite({ load, freshStorage });
   registerOracleMetadataSuite({ load, freshStorage });
   registerOracleRefSuite({ load, freshStorage });
+  registerOracleResumableMetadataSuite({ load, freshStorage });
   registerOracleUploadBytesSuite({ load, freshStorage });
 
   // ── completeness: every observation is asserted or explicitly N/A ─────

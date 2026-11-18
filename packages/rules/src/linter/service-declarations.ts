@@ -3,6 +3,7 @@ import {
   allServiceBlocks,
   firestoreServiceBlock,
   isRecognizedServiceName,
+  storageServiceBlock,
   type LintTargetService,
 } from '../grammar/service-blocks.js';
 import {
@@ -65,6 +66,24 @@ export function checkServiceDeclarations(
           'production compiles it and denies every Firestore request.',
         location,
         fix: "Declare a 'service cloud.firestore' block for Firestore rules.",
+      });
+    }
+  }
+  if (targetService === 'firebase.storage') {
+    const first = services[0];
+    if (first !== undefined && storageServiceBlock(ast) === undefined) {
+      let location: LintWarning['location'];
+      if (first.loc) {
+        location = { line: first.loc.line };
+      }
+      warnings.push({
+        rule: 'MISSING_STORAGE_SERVICE',
+        severity: 'warning',
+        message:
+          `Ruleset declares 'service ${first.name}' with no 'service firebase.storage' block; ` +
+          'production compiles it and denies every Storage request.',
+        location,
+        fix: "Declare a 'service firebase.storage' block for Storage rules.",
       });
     }
   }

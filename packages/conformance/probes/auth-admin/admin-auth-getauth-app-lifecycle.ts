@@ -52,33 +52,42 @@ function captureSyncGetAuthOutcome(
   }
 }
 
-export async function observeGetAuthAppLifecycle(): Promise<GetAuthAppLifecycleBehavior> {
-  const createdApps: App[] = [];
+export interface GetAuthAppLifecycleSubject<
+  AppHandle,
+  AuthHandle extends { readonly app: AppHandle },
+> {
+  initializeNamedApp(name: string): AppHandle;
+  getAuth(app: AppHandle): AuthHandle;
+  deleteApp(app: AppHandle): Promise<void>;
+}
+
+export async function observeGetAuthAppLifecycleFor<
+  AppHandle,
+  AuthHandle extends { readonly app: AppHandle },
+>(subject: GetAuthAppLifecycleSubject<AppHandle, AuthHandle>): Promise<GetAuthAppLifecycleBehavior> {
+  const createdApps: AppHandle[] = [];
   const runSuffix = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const appAName = `admin-auth-lifecycle-a-${runSuffix}`;
   const appBName = `admin-auth-lifecycle-b-${runSuffix}`;
 
-  const appA = initializeApp(
-    { credential: INERT_CREDENTIAL, projectId: 'demo-project' },
-    appAName,
-  );
-  const appB = initializeApp(
-    { credential: INERT_CREDENTIAL, projectId: 'demo-project' },
-    appBName,
-  );
+  const appA = subject.initializeNamedApp(appAName);
+  const appB = subject.initializeNamedApp(appBName);
   createdApps.push(appB);
 
   try {
-    const firstHandle = getAuth(appA);
-    const secondHandle = getAuth(appA);
-    const otherAppHandle = getAuth(appB);
+    const firstHandle = subject.getAuth(appA);
+    const secondHandle = subject.getAuth(appA);
+    const otherAppHandle = subject.getAuth(appB);
 
     const authAppMatchesExplicitApp = firstHandle.app === appA;
     const cachedSameAppHandle = firstHandle === secondHandle;
     const distinctHandlesAcrossApps = firstHandle !== otherAppHandle;
 
-    await deleteApp(appA);
-    const getAuthAfterDeleteApp = captureSyncGetAuthOutcome(() => getAuth(appA), appAName);
+    await subject.deleteApp(appA);
+    const getAuthAfterDeleteApp = captureSyncGetAuthOutcome(
+      () => subject.getAuth(appA),
+      appAName,
+    );
 
     return {
       authAppMatchesExplicitApp,
@@ -87,16 +96,31 @@ export async function observeGetAuthAppLifecycle(): Promise<GetAuthAppLifecycleB
       getAuthAfterDeleteApp,
     };
   } finally {
-    await Promise.all(createdApps.map((app) => deleteApp(app).catch(() => undefined)));
+    await Promise.all(
+      createdApps.map((app) => subject.deleteApp(app).catch(() => undefined)),
+    );
   }
+}
+
+export async function observeGetAuthAppLifecycle(): Promise<GetAuthAppLifecycleBehavior> {
+  return observeGetAuthAppLifecycleFor({
+    initializeNamedApp(name: string): App {
+      return initializeApp({ credential: INERT_CREDENTIAL, projectId: 'demo-project' }, name);
+    },
+    getAuth(app: App) {
+      return getAuth(app);
+    },
+    deleteApp(app: App): Promise<void> {
+      return deleteApp(app);
+    },
+  });
 }
 
 export const probe: Probe = {
   rig: 'admin-auth',
   requires: ['admin-auth'],
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'auth-admin#1a',
+  rowIds: ['auth-admin#1a'],
   description:
     'firebase-admin/auth getAuth(app) handle routing, per-app handle caching (getAuth(app) === getAuth(app)), cross-app handle isolation, and synchronous app/app-deleted rejection after deleteApp(app).',
   async observe() {

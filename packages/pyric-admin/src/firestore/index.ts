@@ -47,11 +47,7 @@ import {
   type PyricAdminApp,
 } from '../app/index.js';
 import { getDefaultServiceApp } from '../app/default-service-app.js';
-import {
-  assertAdminAppActive,
-  createAdminServiceLifecycle,
-  type AdminServiceLifecycle,
-} from '../app/lifecycle.js';
+import { assertAdminAppActive } from '../app/lifecycle.js';
 import { defineDeferredMembers, deferredExport, type DeferredMembers } from 'pyric/app/internal';
 import { adminOnSnapshot, wrapAdminFirestoreHandle } from './admin-value-adapter.js';
 import { FieldValue } from './admin-field-value.js';
@@ -81,10 +77,10 @@ const FIRESTORE_DEFERRED_MEMBERS: DeferredMembers = {
 /** Define the deferred `Firestore` methods on a handle either arm built. */
 function withDeferredMembers(
   db: SandboxFirestore,
-  lifecycle?: AdminServiceLifecycle,
+  appBacked = false,
 ): SandboxFirestore {
   defineDeferredMembers(db, SUBPATH, 'Firestore', FIRESTORE_DEFERRED_MEMBERS);
-  return wrapAdminFirestoreHandle(db, lifecycle);
+  return wrapAdminFirestoreHandle(db, appBacked);
 }
 
 const appFirestoreCache = new WeakMap<PyricAdminApp, SandboxFirestore>();
@@ -108,8 +104,7 @@ function getAppFirestore(app: PyricAdminApp, databaseId?: unknown): SandboxFires
   const existing = appFirestoreCache.get(app);
   if (existing !== undefined) return existing;
   const rawDb = baseGetAdminFirestore(adminAppToContext(app));
-  const lifecycle = createAdminServiceLifecycle(app);
-  const wrapped = withDeferredMembers(rawDb, lifecycle);
+  const wrapped = withDeferredMembers(rawDb, true);
   appFirestoreCache.set(app, wrapped);
   return wrapped;
 }

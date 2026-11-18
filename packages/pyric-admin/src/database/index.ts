@@ -28,10 +28,12 @@ import {
   originOfDatabaseUrl,
   type DatabaseUrlMetadata,
 } from './database-shell.js';
+import { FirebaseDatabaseError } from './error.js';
 import { getLocalDatabase } from './local-database.js';
 import { getRemoteDatabase } from './remote-database.js';
 import type { Database } from './types.js';
 
+export { FirebaseDatabaseError } from './error.js';
 export type {
   Database,
   DataSnapshot,
@@ -55,6 +57,7 @@ export const ServerValue: {
 };
 
 const databasesByApp = new WeakMap<PyricAdminApp, Map<string, Database>>();
+const rawDatabaseUrlsByApp = new WeakMap<PyricAdminApp, Map<string, string>>();
 
 /**
  * Returns the {@link Database} service for the supplied app (or the default
@@ -72,6 +75,20 @@ export function getDatabase(
     if (handles === undefined) {
       handles = new Map();
       databasesByApp.set(resolvedApp, handles);
+    }
+    let rawUrls = rawDatabaseUrlsByApp.get(resolvedApp);
+    if (rawUrls === undefined) {
+      rawUrls = new Map();
+      rawDatabaseUrlsByApp.set(resolvedApp, rawUrls);
+    }
+    if (resolved.rawUrl !== undefined) {
+      const existingRaw = rawUrls.get(resolved.cacheKey);
+      if (existingRaw !== undefined && existingRaw !== resolved.rawUrl) {
+        throw new Error(
+          'FIREBASE FATAL ERROR: Database initialized multiple times. Please make sure the format of the database URL matches with each database() call. ',
+        );
+      }
+      rawUrls.set(resolved.cacheKey, resolved.rawUrl);
     }
     let db = handles.get(resolved.cacheKey);
     if (db === undefined) {
@@ -106,11 +123,11 @@ export function getDatabaseWithUrl(
   return getDatabase(app, url);
 }
 
-function invalidDatabaseUrl(): Error {
-  return Object.assign(
-    new Error('Database URL must be a valid, non-empty URL string.'),
-    { code: 'database/invalid-argument' },
-  );
+function invalidDatabaseUrl(): FirebaseDatabaseError {
+  return new FirebaseDatabaseError({
+    code: 'invalid-argument',
+    message: 'Database URL must be a valid, non-empty URL string.',
+  });
 }
 
 function resolveAdminDatabaseTarget(
@@ -118,6 +135,7 @@ function resolveAdminDatabaseTarget(
   url: string | undefined,
 ): {
   cacheKey: string;
+  rawUrl: string | undefined;
   routingInstance: DatabaseInstance | undefined;
   urlMeta: DatabaseUrlMetadata;
 } {
@@ -129,6 +147,7 @@ function resolveAdminDatabaseTarget(
     const fallbackHost = parseDatabaseLocationUrl(fallback.url).host;
     return {
       cacheKey: fallback.url,
+      rawUrl: undefined,
       routingInstance: undefined,
       urlMeta: {
         expectedHost: fallbackHost,
@@ -139,9 +158,13 @@ function resolveAdminDatabaseTarget(
   const instance = parseDatabaseUrl(source);
   const expectedHost = parseDatabaseLocationUrl(source).host;
   const isProjectDefault = isDefaultDatabaseInstance(instance.name, projectId);
-  const routingInstance = isProjectDefault ? undefined : instance;
+  let routingInstance: DatabaseInstance | undefined;
+  if (isProjectDefault === false) {
+    routingInstance = instance;
+  }
   return {
     cacheKey: instance.url,
+    rawUrl: source,
     routingInstance,
     urlMeta: {
       expectedHost,

@@ -124,9 +124,9 @@ export function isSentinelMarker(v: unknown): v is SentinelMarker {
  * `null`, matching the SDKs).
  */
 export type AggregateFieldDescriptor =
-  | { kind: 'count' }
-  | { kind: 'sum'; field: string; path?: readonly string[] }
-  | { kind: 'average'; field: string; path?: readonly string[] };
+  | { kind: 'count'; type?: 'AggregateField'; aggregateType?: 'count' }
+  | { kind: 'sum'; field: string; path?: readonly string[]; type?: 'AggregateField'; aggregateType?: 'sum' }
+  | { kind: 'average'; field: string; path?: readonly string[]; type?: 'AggregateField'; aggregateType?: 'avg' };
 
 /** Spec passed on the `aggregate` op — aliases become the result's keys. */
 export type AggregateSpecDescriptor = Record<string, AggregateFieldDescriptor>;

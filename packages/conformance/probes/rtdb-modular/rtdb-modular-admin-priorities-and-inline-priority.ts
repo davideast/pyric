@@ -250,11 +250,10 @@ export async function observeAdminPrioritiesAndInlinePriority(
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: ['web-config', 'dedicated-rtdb'],
-  pendingRowLink: true,
   description:
     'firebase-admin/database Reference.setPriority, Reference.setWithPriority, inline .priority/.value in set() and update(), DataSnapshot.getPriority()/exportVal(), orderByPriority() ordering, and synchronous invalid-priority throws.',
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'rtdb-admin#7',
+  rowIds: ['rtdb-admin#7'],
   observe() {
     return withRtdbProbeSession({}, async ({ runId, runPath, databaseUrl }) => {
       const [adminAppMod, { getDatabaseWithUrl }] = await Promise.all([

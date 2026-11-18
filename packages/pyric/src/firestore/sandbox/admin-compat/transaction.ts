@@ -45,7 +45,7 @@ import {
  * Internal retry signal when a rules-enforced transactional query's matched
  * document set changed before commit.
  */
-export class QuerySetConflictError extends RetryableTransactionConflictError {
+class QuerySetConflictError extends RetryableTransactionConflictError {
   constructor() {
     super();
     this.message = 'A query read in the transaction changed before commit.';
@@ -140,20 +140,24 @@ export class TransactionImpl implements Transaction {
 
   set(ref: DocumentReference, data: DocumentData, options?: SetOptions): Transaction {
     const path = ref.path;
-    const mergeFields = options?.mergeFields;
-    const hasFieldMask = mergeFields !== undefined;
-    if (hasFieldMask) {
-      const normalized = normalizeMergeFields(mergeFields);
+    if (options?.merge === true) {
+      this.writeStarted = true;
+      this.bufferedWrites.push(() => {
+        this.simTx.set(path, data, true);
+      });
+      return this;
+    }
+    if (options?.mergeFields !== undefined) {
+      const normalized = normalizeMergeFields(options.mergeFields);
       this.writeStarted = true;
       this.bufferedWrites.push(() => {
         this.simTx.set(path, data, { mergeFields: normalized });
       });
       return this;
     }
-    const mergesAllFields = options?.merge === true;
     this.writeStarted = true;
     this.bufferedWrites.push(() => {
-      this.simTx.set(path, data, mergesAllFields ? true : undefined);
+      this.simTx.set(path, data, undefined);
     });
     return this;
   }

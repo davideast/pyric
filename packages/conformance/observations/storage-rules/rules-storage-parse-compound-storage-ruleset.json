@@ -1,0 +1,114 @@
+{
+  "name": "rules-storage-parse-compound-storage-ruleset",
+  "matrixRow": "storage-rules#94",
+  "rowIds": [
+    "storage-rules#94"
+  ],
+  "description": "Storage Rules Test API verdicts for corpus scenario \"parse-compound-storage-ruleset\" (STORAGE-PARSE-COMPOUND-RULESET). Pins that projects.test compiles a compound service firebase.storage ruleset combining nested match blocks, allow read/write guards, request.method short-circuiting, arithmetic size bounds, and contentType equality, and evaluates read/create/delete requests as expected.",
+  "observedAt": "2026-11-18T11:37:51.728Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "inputDigest": {
+    "algorithm": "sha256",
+    "value": "55a9790056c59b404186fd34613bd5feab99f1e00102c5e5d15c6a307f14343a"
+  },
+  "behavior": {
+    "signed-in get on /items/{itemId} allows": "ALLOW",
+    "anonymous get on /items/{itemId} denies": "DENY",
+    "signed-in create under 10 MiB json allows": "ALLOW",
+    "signed-in create at 10 MiB boundary denies": "DENY",
+    "signed-in create with non-json contentType denies": "DENY",
+    "signed-in delete without request.resource allows": "ALLOW"
+  },
+  "diagnostics": {
+    "signed-in get on /items/{itemId} allows": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 9,
+              "column": 22,
+              "currentOffset": 366,
+              "endOffset": 372
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "anonymous get on /items/{itemId} denies": {
+      "notes": [
+        "Error: storage.rules line [9], column [22]. Property auth is undefined on object."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 9,
+          "column": 22,
+          "currentOffset": 366,
+          "endOffset": 372
+        }
+      }
+    },
+    "signed-in create under 10 MiB json allows": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 5,
+              "column": 23,
+              "currentOffset": 122,
+              "endOffset": 128
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "signed-in create at 10 MiB boundary denies": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 5,
+              "column": 23,
+              "currentOffset": 122,
+              "endOffset": 128
+            },
+            "value": false
+          }
+        ]
+      }
+    },
+    "signed-in create with non-json contentType denies": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 5,
+              "column": 23,
+              "currentOffset": 122,
+              "endOffset": 128
+            },
+            "value": false
+          }
+        ]
+      }
+    },
+    "signed-in delete without request.resource allows": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 5,
+              "column": 23,
+              "currentOffset": 122,
+              "endOffset": 128
+            },
+            "value": true
+          }
+        ]
+      }
+    }
+  }
+}

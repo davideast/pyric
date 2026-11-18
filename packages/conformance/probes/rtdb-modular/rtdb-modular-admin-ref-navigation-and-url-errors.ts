@@ -202,11 +202,10 @@ export async function observeAdminRefNavigationAndUrlErrors(
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: ['web-config', 'dedicated-rtdb'],
-  pendingRowLink: true,
   description:
     'firebase-admin/database Reference navigation and URL resolution: observes db.ref(), db.ref("/"), db.ref("") throw, child/parent/root/key/toString/toJSON, isEqual() and isEqual(null) throw, and live db.refFromURL() routing plus host-mismatch/fragment/malformed URL throws.',
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'rtdb-admin#2',
+  rowIds: ['rtdb-admin#2'],
   observe() {
     return withRtdbProbeSession({}, async ({ runId, runPath, databaseUrl }) => {
       const [adminAppMod, { getDatabaseWithUrl }] = await Promise.all([

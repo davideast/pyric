@@ -10,7 +10,6 @@ import {
   printModularProbePreview,
   selectModularProbes,
 } from '../../src/sdk-probes.ts';
-import { expectStagedUntilCaptured } from './staged-capture-assertions.ts';
 import { probe as bothFlagsProbe } from '../../probes/firestore/firestore-setdoc-both-merge-and-mergefields.ts';
 import { probe as converterOptsProbe } from '../../probes/firestore/firestore-setdoc-converter-options-forwarding.ts';
 import { probe as replaceProbe } from '../../probes/firestore/firestore-setdoc-default-replaces-entire-doc.ts';
@@ -25,27 +24,27 @@ const SETDOC_PROBE_IDS = [
   'firestore-setdoc-mergefields-dotted-and-fieldpath',
 ] as const;
 
-describe('Firestore setDoc staged probes (sdk-probes)', () => {
-  test('registers all 5 setDoc probes on sdk-probes with pendingRowLink and empty rowIds', async () => {
+describe('Firestore setDoc probes (sdk-probes)', () => {
+  test('registers all 5 setDoc probes on sdk-probes linked to firestore#26..#29, #31', async () => {
     const loaded = await loadModularProbes('sdk-probes');
     const loadedIds = loaded.map((entry) => entry.id);
     for (const id of SETDOC_PROBE_IDS) {
       expect(loadedIds).toContain(id);
     }
 
-    const probes = [
-      bothFlagsProbe,
-      converterOptsProbe,
-      replaceProbe,
-      mergeTrueProbe,
-      mergeFieldsProbe,
+    const expectedLinks = [
+      { probeRecord: replaceProbe, rowId: 'firestore#26' },
+      { probeRecord: mergeTrueProbe, rowId: 'firestore#27' },
+      { probeRecord: mergeFieldsProbe, rowId: 'firestore#28' },
+      { probeRecord: bothFlagsProbe, rowId: 'firestore#29' },
+      { probeRecord: converterOptsProbe, rowId: 'firestore#31' },
     ];
-    for (const probeRecord of probes) {
+    for (const { probeRecord, rowId } of expectedLinks) {
       expect(probeRecord.rig).toBe('sdk-probes');
       expect(probeRecord.requires).toEqual(['web-config', 'firestore-rules']);
-      expect(probeRecord.pendingRowLink).toBe(true);
-      expect(probeRecord.matrixRow).toBe('');
-      expect(probeRecord.rowIds).toEqual([]);
+      expect(probeRecord.pendingRowLink).toBeUndefined();
+      expect(probeRecord.matrixRow).toBe(rowId);
+      expect(probeRecord.rowIds).toEqual([rowId]);
       expect(probeRecord.description.length).toBeGreaterThan(20);
     }
 
@@ -54,18 +53,9 @@ describe('Firestore setDoc staged probes (sdk-probes)', () => {
         includeUncapturedStaged: false,
       }).map((entry) => entry.id),
     );
-
-    expectStagedUntilCaptured(SETDOC_PROBE_IDS, {
-      rig: 'sdk-probes',
-      filterFlag: '--probe',
-      filterValueFor: (name) => name,
-      whenUncaptured(name) {
-        expect(unfilteredIds.has(name)).toBe(false);
-      },
-      whenCaptured(name) {
-        expect(unfilteredIds.has(name)).toBe(true);
-      },
-    });
+    for (const id of SETDOC_PROBE_IDS) {
+      expect(unfilteredIds.has(id)).toBe(true);
+    }
 
     const lines: string[] = [];
     printModularProbePreview({

@@ -1,0 +1,41 @@
+{
+  "name": "auth-disabled-account-signin-and-refresh",
+  "matrixRow": "auth#69",
+  "rowIds": [
+    "auth#69"
+  ],
+  "description": "Disabling a user leaves an existing client session signed in until forced token refresh rejects with auth/user-disabled and signs out, and rejects subsequent password and custom-token sign-in attempts.",
+  "observedAt": "2026-11-18T20:32:07.985Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "signedInBeforeDisable": true,
+    "heldSessionStillPresentBeforeRefresh": true,
+    "forcedRefreshAfterDisable": {
+      "threw": true,
+      "errorName": "FirebaseError",
+      "isFirebaseError": true,
+      "code": "auth/user-disabled"
+    },
+    "signedOutAfterDisabledRefresh": true,
+    "signInRightPasswordDisabled": {
+      "threw": true,
+      "errorName": "FirebaseError",
+      "isFirebaseError": true,
+      "code": "auth/user-disabled"
+    },
+    "signInWrongPasswordDisabled": {
+      "threw": true,
+      "errorName": "FirebaseError",
+      "isFirebaseError": true,
+      "code": "auth/user-disabled"
+    },
+    "signInCustomTokenDisabled": {
+      "threw": true,
+      "errorName": "FirebaseError",
+      "isFirebaseError": true,
+      "code": "auth/user-disabled"
+    },
+    "remainsSignedOutAfterRejectedSignIns": true
+  }
+}

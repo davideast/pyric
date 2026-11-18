@@ -4,7 +4,7 @@
  * builder read another's half-written `worker.js`: it threw "omitted its
  * epoch placeholder" or returned an epoch no file on disk carried (#1214).
  */
-import { describe, expect, it } from 'bun:test';
+import { afterEach, describe, expect, it } from 'bun:test';
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, renameSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { hostname, tmpdir } from 'node:os';
@@ -20,8 +20,20 @@ interface Fixture {
   entry(variant?: number): string;
 }
 
+const fixtureRoots: string[] = [];
+
+afterEach(() => {
+  while (fixtureRoots.length > 0) {
+    const dir = fixtureRoots.pop();
+    if (dir !== undefined) {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }
+});
+
 function workerFixture(): Fixture {
   const root = mkdtempSync(join(tmpdir(), 'pyric-worker-cache-'));
+  fixtureRoots.push(root);
   return {
     root,
     outDir: join(root, 'cache'),

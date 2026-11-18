@@ -1,0 +1,46 @@
+{
+  "name": "auth-reload-out-of-band-and-disabled-deleted",
+  "matrixRow": "auth#86",
+  "rowIds": [
+    "auth#86"
+  ],
+  "description": "reload(user) updates held User fields in place after out-of-band mutations, and rejects while signing out currentUser when the account is disabled or deleted out-of-band.",
+  "observedAt": "2026-11-18T09:41:33.796Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "outOfBandUpdate": {
+      "beforeReload": {
+        "displayName": null,
+        "photoURL": null,
+        "emailVerified": false
+      },
+      "afterReload": {
+        "sameCurrentUserRef": true,
+        "displayName": "Reloaded Name",
+        "photoURL": "https://example.com/reloaded.png",
+        "emailVerified": true
+      }
+    },
+    "disabledAccountReload": {
+      "attempt": {
+        "threw": true,
+        "errorName": "FirebaseError",
+        "isFirebaseError": true,
+        "code": "auth/user-disabled"
+      },
+      "currentUserNullAfterFailure": true,
+      "firedNullAuthState": true
+    },
+    "deletedAccountReload": {
+      "attempt": {
+        "threw": true,
+        "errorName": "FirebaseError",
+        "isFirebaseError": true,
+        "code": "auth/user-token-expired"
+      },
+      "currentUserNullAfterFailure": true,
+      "firedNullAuthState": true
+    }
+  }
+}

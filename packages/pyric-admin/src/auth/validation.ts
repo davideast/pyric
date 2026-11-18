@@ -114,6 +114,9 @@ export function translateAdminBackendError(err: unknown): unknown {
   if (code === 'auth/email-already-in-use') {
     return new FirebaseAuthError('email-already-exists', message);
   }
+  if (code === 'auth/phone-number-already-exists') {
+    return new FirebaseAuthError('phone-number-already-exists', message);
+  }
   if (code === 'auth/weak-password') {
     return new FirebaseAuthError('invalid-password', message);
   }

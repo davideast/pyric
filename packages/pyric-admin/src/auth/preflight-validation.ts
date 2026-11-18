@@ -4,7 +4,10 @@
  * unmodeled-backend deferral runs.
  */
 
-import type { CreateUserRequest as SandboxCreateUserRequest } from 'pyric/auth';
+import type {
+  CreateUserRequest as SandboxCreateUserRequest,
+  UpdateUserRequest as SandboxUpdateUserRequest,
+} from 'pyric/auth';
 import type { CreateRequest, UpdateRequest } from './types.js';
 import { FirebaseAuthError, invalidUid } from './verify-token.js';
 
@@ -21,8 +24,6 @@ const MAX_GET_ACCOUNTS_BATCH_SIZE = 100;
 const MAX_DELETE_ACCOUNTS_BATCH_SIZE = 1000;
 
 const UNSUPPORTED_UPDATE_KEYS = [
-  'photoURL',
-  'phoneNumber',
   'multiFactor',
   'providerToLink',
   'providersToUnlink',
@@ -228,7 +229,7 @@ export function validateUpdateUserPreflight(
   uid: unknown,
   rawProperties: unknown,
   notImplemented: (method: string) => Error,
-): SandboxCreateUserRequest {
+): SandboxUpdateUserRequest {
   if (isNonNullPlainRecord(rawProperties)) {
     const link = rawProperties.providerToLink;
     if (Boolean(link)) {
@@ -403,12 +404,24 @@ export function validateUpdateUserPreflight(
   if (rewritten.email !== undefined && !isStrictEmail(rewritten.email)) {
     throw new FirebaseAuthError('invalid-email', 'The email address is improperly formatted.');
   }
+  if (
+    rewritten.phoneNumber !== undefined &&
+    rewritten.phoneNumber !== null &&
+    !isE164PhoneNumber(rewritten.phoneNumber)
+  ) {
+    throw new FirebaseAuthError(
+      'invalid-phone-number',
+      'The phoneNumber must be a non-empty E.164 standard compliant identifier string.',
+    );
+  }
 
   const typed = rawProperties as unknown as UpdateRequest;
   return {
-    displayName: typed.displayName as string | undefined,
+    displayName: typed.displayName,
     email: typed.email,
     password: typed.password,
+    phoneNumber: typed.phoneNumber,
+    photoUrl: typed.photoURL,
     disabled: typed.disabled,
     emailVerified: typed.emailVerified,
   };

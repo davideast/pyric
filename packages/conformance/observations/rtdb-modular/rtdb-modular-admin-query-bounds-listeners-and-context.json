@@ -1,0 +1,469 @@
+{
+  "name": "rtdb-modular-admin-query-bounds-listeners-and-context",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "firebase-admin/database Query ordering (orderByChild, orderByKey, orderByValue, orderByPriority), unindexed vs indexed get()/once(\"value\"), cursor bounds/limits, 3-arg and 4-arg context this-binding on once/on, scoped off(eventType, cb, context), and windowed child_* events.",
+  "observedAt": "2026-11-18T09:29:10.988Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "unindexedGetChecks": {
+      "orderByChild": {
+        "getResolved": false,
+        "getKeys": null,
+        "getCode": null,
+        "getMessage": "Index not defined, add \".indexOn\": \"score\", for path \"/<base>/adminQuery/unindexedItems\", to the rules",
+        "onceResolved": true,
+        "onceKeys": [
+          "a",
+          "b",
+          "c"
+        ]
+      },
+      "orderByValue": {
+        "getResolved": false,
+        "getKeys": null,
+        "getCode": null,
+        "getMessage": "Index not defined, add \".indexOn\": \".value\", for path \"/<base>/adminQuery/unindexedScalars\", to the rules",
+        "onceResolved": true,
+        "onceKeys": [
+          "k1",
+          "k2",
+          "k3"
+        ]
+      },
+      "orderByKey": {
+        "getResolved": true,
+        "getKeys": [
+          "a",
+          "b",
+          "c"
+        ],
+        "getCode": null,
+        "getMessage": null,
+        "onceResolved": true,
+        "onceKeys": [
+          "a",
+          "b",
+          "c"
+        ]
+      },
+      "orderByPriority": {
+        "getResolved": true,
+        "getKeys": [
+          "k3",
+          "k2",
+          "k1",
+          "k4"
+        ],
+        "getCode": null,
+        "getMessage": null,
+        "onceResolved": true,
+        "onceKeys": [
+          "k3",
+          "k2",
+          "k1",
+          "k4"
+        ]
+      }
+    },
+    "indexedQueriesAndBounds": {
+      "orderByChildScoreAll": {
+        "getKeys": [
+          "c",
+          "b",
+          "a",
+          "d",
+          "e"
+        ],
+        "onceKeys": [
+          "c",
+          "b",
+          "a",
+          "d",
+          "e"
+        ]
+      },
+      "orderByNestedChildAll": {
+        "getKeys": [
+          "a",
+          "d",
+          "c",
+          "b",
+          "e"
+        ],
+        "onceKeys": [
+          "a",
+          "d",
+          "c",
+          "b",
+          "e"
+        ]
+      },
+      "inclusiveRangeStartAtEndAt": {
+        "getKeys": [
+          "b",
+          "a",
+          "d"
+        ],
+        "onceKeys": [
+          "b",
+          "a",
+          "d"
+        ]
+      },
+      "exclusiveRangeStartAfterEndBefore": {
+        "getKeys": [
+          "a",
+          "d"
+        ],
+        "onceKeys": [
+          "a",
+          "d"
+        ]
+      },
+      "cursorStartAtWithKey": {
+        "getKeys": [
+          "d",
+          "e"
+        ],
+        "onceKeys": [
+          "d",
+          "e"
+        ]
+      },
+      "cursorStartAfterWithKey": {
+        "getKeys": [
+          "d",
+          "e"
+        ],
+        "onceKeys": [
+          "d",
+          "e"
+        ]
+      },
+      "cursorEndAtWithKey": {
+        "getKeys": [
+          "c",
+          "b",
+          "a"
+        ],
+        "onceKeys": [
+          "c",
+          "b",
+          "a"
+        ]
+      },
+      "cursorEndBeforeWithKey": {
+        "getKeys": [
+          "c",
+          "b",
+          "a"
+        ],
+        "onceKeys": [
+          "c",
+          "b",
+          "a"
+        ]
+      },
+      "equalToValue": {
+        "getKeys": [
+          "a",
+          "d"
+        ],
+        "onceKeys": [
+          "a",
+          "d"
+        ]
+      },
+      "equalToValueAndKey": {
+        "getKeys": [
+          "d"
+        ],
+        "onceKeys": [
+          "d"
+        ]
+      },
+      "limitToFirstTwo": {
+        "getKeys": [
+          "a",
+          "d"
+        ],
+        "onceKeys": [
+          "a",
+          "d"
+        ]
+      },
+      "limitToLastTwo": {
+        "getKeys": [
+          "b",
+          "e"
+        ],
+        "onceKeys": [
+          "b",
+          "e"
+        ]
+      },
+      "orderByKeyNumericAndLexical": {
+        "getKeys": [
+          "2",
+          "10",
+          "a",
+          "b",
+          "c"
+        ],
+        "onceKeys": [
+          "2",
+          "10",
+          "a",
+          "b",
+          "c"
+        ]
+      },
+      "orderByKeyBounded": {
+        "getKeys": [
+          "10",
+          "a",
+          "b"
+        ],
+        "onceKeys": [
+          "10",
+          "a",
+          "b"
+        ]
+      },
+      "orderByKeyEqualTo": {
+        "getKeys": [
+          "a"
+        ],
+        "onceKeys": [
+          "a"
+        ]
+      },
+      "orderByValueMixedTypesAll": {
+        "getKeys": [
+          "b1",
+          "b2",
+          "n0",
+          "n1",
+          "n2",
+          "s1",
+          "s2"
+        ],
+        "onceKeys": [
+          "b1",
+          "b2",
+          "n0",
+          "n1",
+          "n2",
+          "s1",
+          "s2"
+        ]
+      },
+      "orderByValueEqualTo": {
+        "getKeys": [
+          "n1",
+          "n2"
+        ],
+        "onceKeys": [
+          "n1",
+          "n2"
+        ]
+      },
+      "orderByValueCursorAndLimitFirstTwo": {
+        "getKeys": [
+          "n2",
+          "s1"
+        ],
+        "onceKeys": [
+          "n2",
+          "s1"
+        ]
+      },
+      "orderByValueLimitLastTwo": {
+        "getKeys": [
+          "s1",
+          "s2"
+        ],
+        "onceKeys": [
+          "s1",
+          "s2"
+        ]
+      },
+      "orderByPriorityAll": {
+        "getKeys": [
+          "k3",
+          "k2",
+          "k1",
+          "k4"
+        ],
+        "onceKeys": [
+          "k3",
+          "k2",
+          "k1",
+          "k4"
+        ]
+      },
+      "orderByPriorityBounded": {
+        "getKeys": [
+          "k2",
+          "k1"
+        ],
+        "onceKeys": [
+          "k2",
+          "k1"
+        ]
+      },
+      "defaultOrderLimitFirstTwo": {
+        "getKeys": [
+          "k3",
+          "k2"
+        ],
+        "onceKeys": [
+          "k3",
+          "k2"
+        ]
+      }
+    },
+    "onceContextBinding": {
+      "threeArgTag": "once-ctx-3",
+      "threeArgKeys": [
+        "a",
+        "d"
+      ],
+      "fourArgTag": "once-ctx-4",
+      "fourArgKeys": [
+        "a",
+        "d"
+      ],
+      "promiseMatchedCallbackKeys": true
+    },
+    "valueContextAndScopedOff": {
+      "returnedOriginalCallback": true,
+      "initialDeliveries": [
+        {
+          "tag": "ctx-A",
+          "val": {
+            "step": 1
+          }
+        },
+        {
+          "tag": "ctx-B",
+          "val": {
+            "step": 1
+          }
+        },
+        {
+          "tag": null,
+          "val": {
+            "step": 1
+          }
+        }
+      ],
+      "afterOffCtxA": [
+        {
+          "tag": "ctx-B",
+          "val": {
+            "step": 2
+          }
+        },
+        {
+          "tag": null,
+          "val": {
+            "step": 2
+          }
+        }
+      ],
+      "afterOffContextless": [
+        {
+          "tag": "ctx-B",
+          "val": {
+            "step": 3
+          }
+        }
+      ],
+      "afterOffAllValue": []
+    },
+    "queryChildWindowAndZeroArgOff": {
+      "initialWindowAdded": [
+        {
+          "event": "child_added",
+          "key": "a",
+          "prevKey": null,
+          "val": {
+            "rank": 1
+          },
+          "tag": "win-ctx"
+        },
+        {
+          "event": "child_added",
+          "key": "d",
+          "prevKey": "a",
+          "val": {
+            "rank": 2
+          },
+          "tag": "win-ctx"
+        }
+      ],
+      "afterInWindowReorderAndChange": [
+        {
+          "event": "child_moved",
+          "key": "d",
+          "prevKey": null,
+          "val": {
+            "rank": 0
+          },
+          "tag": "win-ctx"
+        },
+        {
+          "event": "child_changed",
+          "key": "d",
+          "prevKey": null,
+          "val": {
+            "rank": 0
+          },
+          "tag": "win-ctx"
+        }
+      ],
+      "afterWindowEvictAndEnter": [
+        {
+          "event": "child_moved",
+          "key": "a",
+          "prevKey": "d",
+          "val": {
+            "rank": 9
+          },
+          "tag": "win-ctx"
+        },
+        {
+          "event": "child_changed",
+          "key": "a",
+          "prevKey": "d",
+          "val": {
+            "rank": 9
+          },
+          "tag": "win-ctx"
+        },
+        {
+          "event": "child_removed",
+          "key": "a",
+          "prevKey": null,
+          "val": {
+            "rank": 9
+          },
+          "tag": "win-ctx"
+        },
+        {
+          "event": "child_added",
+          "key": "c",
+          "prevKey": "d",
+          "val": {
+            "rank": 3
+          },
+          "tag": "win-ctx"
+        }
+      ],
+      "countAfterZeroArgQueryOff": 0
+    }
+  }
+}

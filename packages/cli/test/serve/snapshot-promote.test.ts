@@ -1,14 +1,14 @@
 /** `pyric snapshot` + state-file `--seed` round-trip (pyric-persist 3.1/3.2). */
 import { afterAll, describe, expect, it } from 'bun:test';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { runSnapshot } from '../../src/cli/snapshot.js';
 import { startServe, type ServeRuntime } from '../../src/cli/serve.js';
 import { silentServeLogger } from '../../src/serve/server.js';
 import { createStateStore, type PyricStateFile } from '../../src/serve/state-store.js';
 import type { ParsedArgs } from '../../src/cli/parse-args.js';
+import { trackTempDirs } from '../use-temp-dirs.js';
 
 const args = (flags: Record<string, string | boolean> = {}): ParsedArgs => ({
   subcommand: 'snapshot',
@@ -44,8 +44,10 @@ const INLINE = { dataBase64: Buffer.from(BYTES).toString('base64'), blobType: 'a
 /** Where a snapshot directory keeps an object's bytes. */
 const objectIn = (directory: string, sha256: string) => join(directory, 'objects', sha256.slice(0, 2), sha256);
 
+const { makeTempDir, cleanupTempDirs } = trackTempDirs('pyric-snap-');
+
 function project(): string {
-  const dir = mkdtempSync(join(tmpdir(), 'pyric-snap-'));
+  const dir = makeTempDir();
   writeFileSync(join(dir, 'firebase.json'), JSON.stringify({ hosting: { public: 'public' } }));
   mkdirSync(join(dir, 'public'));
   writeFileSync(join(dir, 'public', 'index.html'), '<!doctype html><html><head></head><body>s</body></html>');
@@ -55,6 +57,7 @@ function project(): string {
 const stops: ServeRuntime[] = [];
 afterAll(async () => {
   for (const r of stops) await r.handle.stop();
+  cleanupTempDirs();
 });
 
 describe('pyric snapshot', () => {

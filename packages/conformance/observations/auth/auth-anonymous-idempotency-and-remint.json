@@ -1,0 +1,33 @@
+{
+  "name": "auth-anonymous-idempotency-and-remint",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "signInAnonymously sets currentUser and ID token uid claims, returns the existing anonymous user without minting a new uid when already signed in anonymously, and mints a fresh uid after signOut.",
+  "observedAt": "2026-11-18T21:55:04.714Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "initialSignIn": {
+      "setsCurrentUser": true,
+      "isAnonymous": true,
+      "email": null,
+      "displayName": null,
+      "tokenSubMatchesUid": true,
+      "tokenUserIdMatchesUid": true,
+      "tokenSignInProvider": "anonymous"
+    },
+    "repeatWhileSignedIn": {
+      "sameUid": true,
+      "sameUserRef": true,
+      "currentUserUnchanged": true,
+      "operationType": "signIn",
+      "providerId": null
+    },
+    "afterSignOut": {
+      "currentUserNullAfterSignOut": true,
+      "mintedFreshUid": true,
+      "isAnonymous": true,
+      "setsCurrentUser": true
+    }
+  }
+}

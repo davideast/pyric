@@ -128,17 +128,19 @@ function normalizeAggregateField(field: string | FieldPath): { field: string; pa
 
 /** Factory: count() aggregate field. Mirrors `pyric/firestore`'s `count()`. */
 export function count(): AggregateFieldDescriptor {
-  return { kind: 'count' };
+  return { type: 'AggregateField', aggregateType: 'count', kind: 'count' };
 }
 
 /** Factory: sum-of-`field` aggregate. Mirrors `pyric/firestore`'s `sum()`. */
 export function sum(field: string | FieldPath): AggregateFieldDescriptor {
-  return { kind: 'sum', ...normalizeAggregateField(field) };
+  const normalized = normalizeAggregateField(field);
+  return { type: 'AggregateField', aggregateType: 'sum', kind: 'sum', ...normalized };
 }
 
 /** Factory: average-of-`field` aggregate. Empty input yields `null`. */
 export function average(field: string | FieldPath): AggregateFieldDescriptor {
-  return { kind: 'average', ...normalizeAggregateField(field) };
+  const normalized = normalizeAggregateField(field);
+  return { type: 'AggregateField', aggregateType: 'avg', kind: 'average', ...normalized };
 }
 
 /**

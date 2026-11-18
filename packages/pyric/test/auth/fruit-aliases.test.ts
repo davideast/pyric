@@ -40,13 +40,20 @@ describe('Auth low-hanging-fruit exports (issue #149)', () => {
     }
   });
 
-  it('initializeAuth aliases getAuth — same instance, live currentUser', async () => {
+  it('initializeAuth shares the getAuth handle and enforces auth/already-initialized on mismatched options', async () => {
     const sandbox = initializeSandbox();
     const viaInit = initializeAuth(sandbox);
     const viaGet = getAuth(sandbox);
     expect(viaInit).toBe(viaGet);
-    // The Dependencies arg is accepted for parity.
-    expect(initializeAuth(sandbox, { persistence: [] })).toBe(viaGet);
+    expect(initializeAuth(sandbox)).toBe(viaGet);
+    expect(() => initializeAuth(sandbox, { persistence: [] })).toThrow(
+      expect.objectContaining({ code: 'auth/already-initialized' }),
+    );
+
+    const sandboxWithDeps = initializeSandbox();
+    const withDeps = initializeAuth(sandboxWithDeps, { persistence: [] });
+    expect(initializeAuth(sandboxWithDeps, { persistence: [] })).toBe(withDeps);
+    expect(getAuth(sandboxWithDeps)).toBe(withDeps);
 
     authSandbox.seedUsers(viaInit, [{ uid: 'bob', email: 'bob@example.com', password: 'pw' }]);
     await signInWithEmailAndPassword(viaInit, 'bob@example.com', 'pw');

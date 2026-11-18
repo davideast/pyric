@@ -24,7 +24,7 @@ test('sign-in and sign-out deliver nothing to a listener that may still read', a
   client.rtdbOnValue(client.rtdbRef(rtdb, 'items'), (snapshot) => events.push(`value ${JSON.stringify(snapshot.val())}`));
   client.rtdbOnChildAdded(client.rtdbRef(rtdb, 'items'), (snapshot) => events.push(`added ${snapshot.key}`));
   await until(() => events.length >= 2, 'the initial value and child');
-  expect(events).toEqual(['value {"a":1}', 'added a']);
+  expect(events).toEqual(['added a', 'value {"a":1}']);
 
   const auth = client.getAuth(db);
   await client.signInAnonymously(auth);
@@ -35,7 +35,7 @@ test('sign-in and sign-out deliver nothing to a listener that may still read', a
   // by which anything the sign-in or the sign-outs fired would have arrived.
   await client.rtdbSet(client.rtdbRef(rtdb, 'items/b'), 2);
   await until(() => events.includes('added b') && events.includes('value {"a":1,"b":2}'), 'the marker write');
-  expect(events.slice(0, 2)).toEqual(['value {"a":1}', 'added a']);
+  expect(events.slice(0, 2)).toEqual(['added a', 'value {"a":1}']);
   expect(events.slice(2).sort()).toEqual(['added b', 'value {"a":1,"b":2}']);
 });
 

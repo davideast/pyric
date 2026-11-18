@@ -40,9 +40,8 @@ export async function observeStorageGetBytesRoundtripAndCap(
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: ['web-config'],
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'storage#53, #55, #56',
+  rowIds: ['storage#53', 'storage#55', 'storage#56'],
   description:
     'firebase/storage getBytes(ref, maxDownloadSize?): observes ArrayBuffer return type and byte fidelity without a cap, truncated prefix return when object exceeds maxDownloadSize, and full-length return when at or under maxDownloadSize.',
   async observe() {

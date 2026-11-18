@@ -207,14 +207,14 @@ const clientRows: CompatibilityRow[] = [
     surface: 'messaging',
     ref: 1,
     featureKeys: ["Messaging"],
-    flipped: 'unit-backed',
+    flipped: 'oracle-backed',
     section: CLIENT,
     api: 'getMessaging(app?): Messaging',
     behavior:
       'Returns the FCM `Messaging` instance associated with the given (or default) `FirebaseApp`. Bound to the client component registered under the name `messaging`.',
-    evidence:
-      'Upstream typings/JSDoc (firebase 12.13.0, `@firebase/messaging` 0.12.26); in-process mirror suite plus canonical-import SharedWorker replay `messaging-app-boundary.pw.ts`.',
-    tests: ['packages/cli/test/e2e/messaging-app-boundary.pw.ts'],
+    evidence: 'oracle: `messaging-web-module-boundary-and-accessors.json` (default vs named caching, `app/no-app`, post-`deleteApp` retention vs first-access `app/app-deleted`). Replayed in-page and over SharedWorker.',
+    observations: ['messaging-web-module-boundary-and-accessors'],
+    tests: ['packages/cli/test/e2e/messaging-app-boundary.pw.ts', 'packages/cli/test/serve/worker/oracle-captures/messaging-client-sw.test.ts'],
   }),
   row({
     surface: 'messaging',
@@ -330,24 +330,27 @@ const clientRows: CompatibilityRow[] = [
     surface: 'messaging',
     ref: 11,
     featureKeys: ["onMessage"],
-    flipped: 'unit-backed',
+    flipped: 'oracle-backed',
     section: CLIENT,
     api: 'NextFn, Observer, Unsubscribe (re-exported from @firebase/util)',
     behavior:
       'The callback, observer, and teardown types consumed by `onMessage` / `onBackgroundMessage` are re-exported from `@firebase/util`.',
-    evidence: 'Upstream typings (`@firebase/messaging` 0.12.26 re-exports); no observation yet.',
+    evidence: 'oracle: `messaging-web-observer-and-unsubscribe.json` (`NextFn`, `Observer` `{ next, error, complete }`, and idempotent `Unsubscribe` across `onMessage` and `onBackgroundMessage`). Replayed in-page and over SharedWorker.',
+    observations: ['messaging-web-observer-and-unsubscribe'],
+    tests: ['packages/cli/test/serve/worker/oracle-captures/messaging-client-sw.test.ts'],
   }),
   row({
     surface: 'messaging',
     ref: 12,
     featureKeys: ["ErrorCode"],
-    flipped: 'unit-backed',
+    flipped: 'oracle-backed',
     section: CLIENT,
     api: 'const enum ErrorCode (client)',
     behavior:
       'Client failures surface as thrown `FirebaseError`s carrying one of the 18 documented `ErrorCode` values (`missing-app-config-values`, `only-available-in-window`, `only-available-in-sw`, `permission-default`, `permission-blocked`, `unsupported-browser`, `indexed-db-unsupported`, `failed-service-worker-registration`, `token-subscribe-failed`, `token-subscribe-no-token`, `token-unsubscribe-failed`, `token-update-failed`, `token-update-no-token`, `invalid-bg-handler`, `use-sw-after-get-token`, `invalid-sw-registration`, `use-vapid-key-after-get-token`, `invalid-vapid-key`). The enum itself is `@internal`, not a public export.',
-    evidence:
-      'Upstream typings (`@firebase/messaging` 0.12.26 `src/util/errors`); no client-error observation among the committed set.',
+    evidence: 'oracle: `messaging-web-client-error-codes.json` (`ErrorCode` `@internal` non-export plus `messaging/permission-blocked` and `messaging/invalid-sw-registration` `FirebaseError` rejections). Replayed in-page and over SharedWorker.',
+    observations: ['messaging-web-client-error-codes'],
+    tests: ['packages/cli/test/serve/worker/oracle-captures/messaging-client-sw.test.ts'],
   }),
 ];
 
@@ -358,16 +361,15 @@ const swRows: CompatibilityRow[] = [
     surface: 'messaging',
     ref: 13,
     featureKeys: ["getMessaging","Messaging"],
-    flipped: 'unit-backed',
+    flipped: 'oracle-backed',
     section: SW,
     api: 'getMessaging(app?): Messaging (sw)',
     behavior:
       'Returns the FCM instance within a service-worker context (bound to `getMessagingInSw`); registers under the component name `messaging-sw`.',
-    evidence:
-      'Upstream typings (`@firebase/messaging` 0.12.26 `sw/index-public`) plus real module-ServiceWorker served-entry replay `messaging-app-boundary.pw.ts`.',
-    tests: ['packages/cli/test/e2e/messaging-app-boundary.pw.ts'],
-    notes:
-      'The static-server witness imports the generated `/__pyric/sdk/*.js` entry URLs because native module workers do not inherit the page import map. Application source may use `firebase/messaging/sw` through the Vite/register bundler alias, just as production Firebase package imports require a build step.',
+    evidence: 'oracle: `messaging-web-module-boundary-and-accessors.json` (`messaging-sw` per-app caching, separation from `messaging`, `app/no-app`, and post-`deleteApp` retention vs `app/app-deleted`). Replayed in-page and over SharedWorker.',
+    observations: ['messaging-web-module-boundary-and-accessors'],
+    tests: ['packages/cli/test/e2e/messaging-app-boundary.pw.ts', 'packages/cli/test/serve/worker/oracle-captures/messaging-client-sw.test.ts'],
+    notes: 'The static-server witness imports the generated `/__pyric/sdk/*.js` entry URLs because native module workers do not inherit the page import map. Application source may use `firebase/messaging/sw` through the Vite/register bundler alias, just as production Firebase package imports require a build step.',
   }),
   row({
     surface: 'messaging',
@@ -380,22 +382,20 @@ const swRows: CompatibilityRow[] = [
       'Called when a message arrives while the app has no visible window client. Production routes background deliveries here rather than to `onMessage`; the delivered payload carries `data` / `from` / `messageId` and, for notification messages, a `notification` block. A DATA-ONLY message still fires `onBackgroundMessage` with no `notification` key, and a registered handler suppresses the SDK auto-display.',
     evidence:
       'oracle: `messaging-web-onbackgroundmessage.json` (no visible client → onBackgroundMessage) + `messaging-web-visibility-routing.json` + `messaging-web-data-only-background.json` (data-only fires, no notification key). Replayed by the conformance suite and by a real module Service Worker connected to the canonical SharedWorker broker in `messaging-app-boundary.pw.ts`.',
-    observations: [
-      'messaging-web-onbackgroundmessage',
-      'messaging-web-visibility-routing',
-      'messaging-web-data-only-background',
-    ],
+    observations: ['messaging-web-onbackgroundmessage', 'messaging-web-visibility-routing', 'messaging-web-data-only-background'],
     tests: ['packages/cli/test/e2e/messaging-app-boundary.pw.ts'],
   }),
   row({
     surface: 'messaging',
     ref: 15,
     featureKeys: ["experimentalSetDeliveryMetricsExportedToBigQueryEnabled"],
-    flipped: 'unit-backed',
+    flipped: 'oracle-backed',
     section: SW,
     api: 'experimentalSetDeliveryMetricsExportedToBigQueryEnabled(messaging, enable): void',
     behavior: 'Enables or disables delivery-metrics export to BigQuery at runtime; default off.',
-    evidence: 'Upstream typings (`@firebase/messaging` 0.12.26 `sw/index-public`); no observation yet.',
+    evidence: 'oracle: `messaging-web-sw-delivery-metrics-toggle.json` (`undefined` return, continued `onBackgroundMessage` delivery across enabled/disabled states, and sync `null`-handle rejection). Replayed in-page and over SharedWorker.',
+    observations: ['messaging-web-sw-delivery-metrics-toggle'],
+    tests: ['packages/cli/test/serve/worker/oracle-captures/messaging-client-sw.test.ts'],
   }),
   row({
     surface: 'messaging',
@@ -412,14 +412,14 @@ const swRows: CompatibilityRow[] = [
     surface: 'messaging',
     ref: 17,
     featureKeys: ["getMessaging","onBackgroundMessage","experimentalSetDeliveryMetricsExportedToBigQueryEnabled","isSupported","Messaging"],
-    flipped: 'unit-backed',
+    flipped: 'oracle-backed',
     section: SW,
     api: 'firebase/messaging/sw module boundary + shared type parity',
     behavior:
       'The sw entry exports `onBackgroundMessage`, `getMessaging`, `experimentalSetDeliveryMetricsExportedToBigQueryEnabled`, and `isSupported`, but NOT `getToken` / `deleteToken` / `onMessage`; the client entry exports the latter but NOT `onBackgroundMessage` / the metrics toggle. The two modules register under different component names (`messaging` vs `messaging-sw`) and re-export identical `Messaging` / `GetTokenOptions` / `MessagePayload` / `NotificationPayload` / `FcmOptions` type declarations.',
-    evidence:
-      'Upstream typings (`@firebase/messaging` 0.12.26 `index.d.ts` / `index.sw.d.ts`) plus Window and real module-ServiceWorker boundary replay `messaging-app-boundary.pw.ts`.',
-    tests: ['packages/cli/test/e2e/messaging-app-boundary.pw.ts'],
+    evidence: 'oracle: `messaging-web-module-boundary-and-accessors.json` (symmetric client vs sw export matrix and distinct `messaging` vs `messaging-sw` component instances). Replayed in-page and over SharedWorker.',
+    observations: ['messaging-web-module-boundary-and-accessors'],
+    tests: ['packages/cli/test/e2e/messaging-app-boundary.pw.ts', 'packages/cli/test/serve/worker/oracle-captures/messaging-client-sw.test.ts'],
   }),
 ];
 

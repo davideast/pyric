@@ -3,6 +3,11 @@ import type { CompatibilityRow, CompatibilityTableBlock } from './types.ts';
 
 const SECTION = 'firebase-admin `getDatabase()` (`pyric-admin/database`)';
 
+const adminCaptureTests = [
+  'packages/pyric-admin/test/database/capture-admin-database-and-priorities.test.ts',
+  'packages/cli/test/serve/worker/oracle-captures/rtdb-admin-database-and-priorities.test.ts',
+];
+
 const adminRow = defineRows({
   surface: 'rtdb-admin',
   defaults: {
@@ -16,7 +21,7 @@ const rtdbAdminRows: CompatibilityRow[] = [
     featureKeys: ['getDatabase', 'getDatabaseWithUrl'],
     api: 'getDatabase(app?, url?) / getDatabaseWithUrl(url, app?)',
     behavior:
-      'Resolves the default or explicit `PyricAdminApp`, caches handles per `(app, instanceUrl)`, isolates named RTDB instances by URL, bypasses RTDB Security Rules as admin, throws `app/no-app` when no default app exists, throws `database/invalid-argument` on an empty URL, and rejects calls after `deleteApp(app)`. When `databaseURL` is omitted from `app.options`, falls back to the project default RTDB instance rather than throwing `database/invalid-argument`.',
+      'Resolves the default or explicit `PyricAdminApp`, caches handles per `(app, instanceUrl)` while rejecting mismatched URL string formats on an already-open instance, isolates named RTDB instances by URL, bypasses RTDB Security Rules as admin, throws `app/no-app` when no default app exists, throws `database/invalid-argument` (`FirebaseDatabaseError`) on an empty URL, and rejects calls after `deleteApp(app)`. When `databaseURL` is omitted from `app.options`, falls back to the project default RTDB instance rather than throwing `database/invalid-argument`.',
     status: 'diverged-documented',
     statusNote:
       'omitting app.options.databaseURL resolves the default project instance so zero-config local apps run, whereas production throws database/invalid-argument',
@@ -24,6 +29,7 @@ const rtdbAdminRows: CompatibilityRow[] = [
     oracleObservations: [
       'admin-app-no-app-error',
       'admin-app-getdatabase-missing-url',
+      'rtdb-modular-admin-firebasedatabaseerror-and-url-binding',
     ],
     conformanceTests: [
       'packages/pyric-admin/test/app/oracle-conformance.test.ts',
@@ -31,9 +37,10 @@ const rtdbAdminRows: CompatibilityRow[] = [
       'packages/pyric-admin/test/database/get-database-with-url.test.ts',
       'packages/pyric-admin/test/database/legacy-default-url.test.ts',
       'packages/pyric-admin/test/database/app-and-url-parity.test.ts',
+      ...adminCaptureTests,
     ],
     evidence:
-      'Production captures `admin-app-no-app-error` and `admin-app-getdatabase-missing-url` (firebase-admin 13.10.0) alongside lifecycle and multi-instance routing tests in `registry.test.ts`, `get-database-with-url.test.ts`, `legacy-default-url.test.ts`, and `app-and-url-parity.test.ts`.',
+      'Production captures `admin-app-no-app-error`, `admin-app-getdatabase-missing-url` (firebase-admin 13.10.0), and `rtdb-modular-admin-firebasedatabaseerror-and-url-binding` alongside lifecycle and multi-instance routing tests in `registry.test.ts`, `get-database-with-url.test.ts`, `legacy-default-url.test.ts`, `app-and-url-parity.test.ts`, and 3-plane capture replays.',
     risk: ['error-code', 'stateful'],
     riskScore: 3,
     riskReasons: ['asserts instance isolation, app/no-app, and zero-config URL fallback'],
@@ -43,15 +50,17 @@ const rtdbAdminRows: CompatibilityRow[] = [
     featureKeys: ['Database.ref', 'Database.refFromURL', 'Reference.child'],
     api: 'db.ref(path?) / db.refFromURL(url) and Reference navigation (key, parent, root, child, toString, toJSON, isEqual)',
     behavior:
-      'Normalizes slash-delimited paths, validates full URLs against the database origin host in `refFromURL`, and exposes `key`, `parent`, `root`, `child(path)`, `toString()`, `toJSON()`, and `isEqual()` identically across local and remote arms.',
+      'Normalizes slash-delimited paths while rejecting `db.ref("")` synchronously, validates full URLs against the database origin host in `refFromURL`, and exposes `key`, `parent`, `root`, `child(path)`, `toString()`, `toJSON()`, and `isEqual()` (including synchronous throw on `isEqual(null)`) identically across local and remote arms.',
     status: 'conforms',
-    automation: 'unit-backed',
+    automation: 'oracle-backed',
+    oracleObservations: ['rtdb-modular-admin-ref-navigation-and-url-errors'],
     conformanceTests: [
       'packages/pyric-admin/test/database/app-and-url-parity.test.ts',
       'packages/pyric-admin/test/database/firebase-admin-differential.test.ts',
+      ...adminCaptureTests,
     ],
     evidence:
-      'Verified against `firebase-admin` offline behavior in `firebase-admin-differential.test.ts` and `app-and-url-parity.test.ts`.',
+      'Production capture `rtdb-modular-admin-ref-navigation-and-url-errors` records root/nested Reference navigation, `refFromURL` routing and host/fragment/malformed URL throws, `db.ref("")`, and `isEqual(null)`; replayed verbatim across in-process, SharedWorker, and Node host arms alongside `firebase-admin-differential.test.ts` and `app-and-url-parity.test.ts`.',
     risk: ['specific-value'],
     riskScore: 2,
     riskReasons: ['asserts Reference URL formatting, host validation, and equality'],
@@ -67,16 +76,18 @@ const rtdbAdminRows: CompatibilityRow[] = [
     ],
     api: 'ref.set / update / remove / push and ServerValue.TIMESTAMP / ServerValue.increment(delta)',
     behavior:
-      'Executes admin writes, multi-path atomic updates, removals, chronologically ordered `push()` keys, `onComplete` callbacks, `ServerValue` sentinels, and synchronous payload/key validation matching `firebase-admin` 13.10.0 error text across local and remote arms.',
+      'Executes admin writes, multi-path atomic updates (including array `update()` index coercion), removals, chronologically ordered `push()` keys, `onComplete` callbacks, `ServerValue` sentinels, and synchronous payload/key validation matching `firebase-admin` 13.10.0 error text across local and remote arms.',
     status: 'conforms',
-    automation: 'unit-backed',
+    automation: 'oracle-backed',
+    oracleObservations: ['rtdb-modular-admin-writes-sentinels-and-validation'],
     conformanceTests: [
       'packages/pyric-admin/test/database/write-validation.test.ts',
       'packages/pyric-admin/test/database/sentinels-and-callbacks.test.ts',
       'packages/pyric-admin/test/database/shared-backend-parity.test.ts',
+      ...adminCaptureTests,
     ],
     evidence:
-      'Verified across local and remote arms in `write-validation.test.ts`, `sentinels-and-callbacks.test.ts`, and `shared-backend-parity.test.ts`.',
+      'Production capture `rtdb-modular-admin-writes-sentinels-and-validation` records `set`, multi-path and array `update`, `remove`, ordered 20-char `push` keys, `onComplete` callbacks, `ServerValue.TIMESTAMP` / `increment`, and synchronous validation throws; replayed verbatim across in-process, SharedWorker, and Node host arms.',
     risk: ['error-code', 'stateful'],
     riskScore: 3,
     riskReasons: ['asserts synchronous write validation and ServerValue sentinel resolution'],
@@ -141,15 +152,17 @@ const rtdbAdminRows: CompatibilityRow[] = [
     ],
     api: 'db.goOffline() / db.goOnline() and ref.onDisconnect() (set, setWithPriority, update, remove, cancel)',
     behavior:
-      'Registers, cancels, and executes queued `OnDisconnect` mutations when `goOffline()` disconnects the admin database handle across local and remote arms.',
+      'Registers, cancels, and atomically executes queued `OnDisconnect` mutations (`set`, `setWithPriority`, `update`, `remove`, `cancel`) when `goOffline()` disconnects the admin database handle across local and remote arms, with one-shot drain semantics after `goOnline()`.',
     status: 'conforms',
-    automation: 'unit-backed',
+    automation: 'oracle-backed',
+    oracleObservations: ['rtdb-modular-admin-connection-and-ondisconnect'],
     conformanceTests: [
       'packages/pyric-admin/test/database/on-disconnect-parity.test.ts',
       'packages/pyric-admin/test/database/connection-and-wire-parity.test.ts',
+      ...adminCaptureTests,
     ],
     evidence:
-      'Verified across local and remote arms in `on-disconnect-parity.test.ts` and `connection-and-wire-parity.test.ts`.',
+      'Production capture `rtdb-modular-admin-connection-and-ondisconnect` records queued `onDisconnect` `set`, `setWithPriority`, multi-path `update`, `remove`, `cancel`, and one-shot drain across `goOffline()` / `goOnline()`; replayed verbatim across in-process, SharedWorker, and Node host arms.',
     risk: ['stateful'],
     riskScore: 3,
     riskReasons: ['asserts disconnect queue execution and cancellation across goOffline/goOnline'],
@@ -159,16 +172,19 @@ const rtdbAdminRows: CompatibilityRow[] = [
     featureKeys: ['Reference.setPriority', 'Reference.setWithPriority'],
     api: 'ref.setPriority(priority, onComplete) / ref.setWithPriority(newVal, newPriority, onComplete?) and inline .priority',
     behavior:
-      '`Reference#setPriority` and `Reference#setWithPriority` throw explicit not-implemented errors on `pyric-admin/database`; inline `.priority` values in `set()` and `update()` are validated synchronously for invalid types and dropped on both arms.',
-    status: 'diverged-documented',
-    statusNote:
-      'Reference.setPriority and setWithPriority throw not-implemented; inline priorities in set/update are validated and dropped',
-    automation: 'unit-backed',
-    conformanceTests: ['packages/pyric-admin/test/database/write-validation.test.ts'],
-    evidence: 'Pinned on both local and remote arms in `write-validation.test.ts`.',
-    risk: ['error-code'],
-    riskScore: 2,
-    riskReasons: ['asserts priority validation and not-implemented boundary'],
+      'Executes `Reference#setPriority` and `Reference#setWithPriority` with `onComplete` callbacks, preserves inline `.priority` and `.value` metadata in `set()` and `update()` for `DataSnapshot#getPriority()`, `exportVal()`, and `orderByPriority()`, rejects non-null `setPriority` on absent nodes with `INVALID_PARAMETERS: could not set priority on non-existent node`, and validates priorities synchronously across local and remote arms.',
+    status: 'conforms',
+    automation: 'oracle-backed',
+    oracleObservations: ['rtdb-modular-admin-priorities-and-inline-priority'],
+    conformanceTests: [
+      'packages/pyric-admin/test/database/write-validation.test.ts',
+      ...adminCaptureTests,
+    ],
+    evidence:
+      'Production capture `rtdb-modular-admin-priorities-and-inline-priority` records `setWithPriority`, `setPriority`, absent-node `INVALID_PARAMETERS` rejection, inline `.priority` / `.value` in `set()` and `update()`, `orderByPriority()` ordering, and synchronous priority validation throws; replayed verbatim across in-process, SharedWorker, and Node host arms.',
+    risk: ['error-code', 'stateful'],
+    riskScore: 3,
+    riskReasons: ['asserts priority persistence, absent-node INVALID_PARAMETERS, and priority validation'],
   }),
   adminRow({
     rowRef: '8',
@@ -215,17 +231,19 @@ const rtdbAdminRows: CompatibilityRow[] = [
     featureKeys: ['FirebaseDatabaseError'],
     api: 'FirebaseDatabaseError runtime export',
     behavior:
-      'Errors thrown by `pyric-admin/database` carry the upstream `code` and `message` strings on standard `Error` instances; `FirebaseDatabaseError` is not exported as a runtime constructor (`instanceof FirebaseDatabaseError` is unavailable).',
-    status: 'diverged-documented',
-    statusNote:
-      'errors carry upstream code and message on Error instances; FirebaseDatabaseError constructor is not exported at runtime',
-    automation: 'unit-backed',
-    conformanceTests: ['packages/pyric-admin/test/surface/admin-surface.test.ts'],
+      'Exports `FirebaseDatabaseError` as a runtime `Error` subclass from `pyric-admin/database` that prefixes error codes with `database/`, accepts an optional message override, and implements `toJSON()` returning `{ code, message }`.',
+    status: 'conforms',
+    automation: 'oracle-backed',
+    oracleObservations: ['rtdb-modular-admin-firebasedatabaseerror-and-url-binding'],
+    conformanceTests: [
+      'packages/pyric-admin/test/surface/admin-surface.test.ts',
+      ...adminCaptureTests,
+    ],
     evidence:
-      'Allowlisted and audited against `firebase-admin/database` in `packages/pyric-admin/test/surface/admin-surface.test.ts`.',
+      'Production capture `rtdb-modular-admin-firebasedatabaseerror-and-url-binding` records `FirebaseDatabaseError` `instanceof Error`, `database/` code prefixing, message override, and `toJSON()`; verified in `admin-surface.test.ts` and replayed across all planes.',
     risk: ['specific-field'],
     riskScore: 2,
-    riskReasons: ['asserts runtime error export boundary'],
+    riskReasons: ['asserts FirebaseDatabaseError code prefixing, message override, and toJSON'],
   }),
 ];
 

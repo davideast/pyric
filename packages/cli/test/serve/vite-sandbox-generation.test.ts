@@ -106,6 +106,7 @@ function harness(options: { functions?: boolean; rulesFile?: string | null; data
       prepare: async () => {},
       status: () => ({ sdkDir: '/sdk', ready: true, epoch: 'worker-v1' }),
       headTag: () => '',
+      dispose: () => { events.push('close:worker-runtime'); },
     },
     options: {
       bridge: options.functions ? null : {},
@@ -143,6 +144,7 @@ describe('active Vite sandbox generation', () => {
       'close:bridge-host',
       'close:bridge',
       'close:session',
+      'close:worker-runtime',
     ]);
     expect(h.watcher.listenerCount('change')).toBe(0);
     expect(h.httpServer.listenerCount('close')).toBe(0);
@@ -176,6 +178,7 @@ describe('active Vite sandbox generation', () => {
       'close:bridge-host',
       'close:bridge',
       'close:session',
+      'close:worker-runtime',
     ]);
     expect(h.watcher.listenerCount('change')).toBe(0);
     expect(h.httpServer.listenerCount('close')).toBe(0);
@@ -192,6 +195,7 @@ describe('active Vite sandbox generation', () => {
       'close:bridge-host',
       'close:bridge',
       'close:session',
+      'close:worker-runtime',
     ]);
   });
 

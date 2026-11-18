@@ -8,8 +8,8 @@ import type {
   Observer,
   Unsubscribe,
 } from 'pyric/messaging';
-import { getApp, type FirebaseApp } from 'pyric/app';
-import { registerAppCleanup } from 'pyric/app/internal';
+import { FirebaseError, getApp, type FirebaseApp } from 'pyric/app';
+import { isSandboxAppDeleted, registerAppCleanup } from 'pyric/app/internal';
 import { registerSandboxDelivery } from 'pyric/messaging/internal';
 import {
   messagingDeleteToken,
@@ -59,6 +59,12 @@ export function getMessaging(app?: FirebaseApp): Messaging {
   if (!useWorker) return inPage.getMessaging(resolved);
   const existing = workerMessagingByApp.get(resolved);
   if (existing) return existing;
+  if (isSandboxAppDeleted(resolved)) {
+    throw new FirebaseError(
+      'app/app-deleted',
+      `Firebase: Firebase App named '${resolved.name}' already deleted (app/app-deleted).`,
+    );
+  }
   const handle = Object.assign(
     messagingGetMessaging(workerClientForApp(resolved), messagingRegistration(resolved)),
     { app: resolved },

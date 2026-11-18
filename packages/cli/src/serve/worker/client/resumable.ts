@@ -14,6 +14,7 @@ import {
  * resuming asks the host how much it holds before continuing. Elsewhere it
  * emits one intermediate progress event before a single `uploadBytes` call.
  */
+import { FirebaseError } from 'pyric/app';
 import type { FullMetadata } from 'pyric/storage';
 import { sandboxNow } from './clock.js';
 import type { ClientStorageReference, ClientSettableMetadata, CommittedUpload, RouteUpload } from './storage.js';
@@ -29,7 +30,7 @@ function asError(value: unknown): Error {
   return new Error(String(value));
 }
 
-export type ClientTaskState = 'running' | 'paused' | 'success' | 'canceled' | 'error';
+type ClientTaskState = 'running' | 'paused' | 'success' | 'canceled' | 'error';
 
 export interface ClientUploadTaskSnapshot {
   readonly bytesTransferred: number;
@@ -74,16 +75,12 @@ function computePayloadSize(data: Blob | Uint8Array | ArrayBuffer): number {
   return data.byteLength;
 }
 
-function createCanceledError(): Error & { code: string } {
-  const err = new Error('storage/canceled: User canceled the upload/download.') as Error & { code: string };
-  err.code = 'storage/canceled';
-  return err;
+function createCanceledError(): FirebaseError {
+  return new FirebaseError('storage/canceled', 'storage/canceled: User canceled the upload/download.');
 }
 
-function createRootOpError(): Error & { code: string } {
-  const err = new Error('storage/invalid-root-operation: uploadBytesResumable cannot operate on root reference.') as Error & { code: string };
-  err.code = 'storage/invalid-root-operation';
-  return err;
+function createRootOpError(): FirebaseError {
+  return new FirebaseError('storage/invalid-root-operation', 'storage/invalid-root-operation: uploadBytesResumable cannot operate on root reference.');
 }
 
 class ClientUploadTaskImpl implements ClientUploadTask {

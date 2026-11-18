@@ -20,10 +20,16 @@
  * and writing it last narrows the window in which it names a half-published
  * bundle, but a reader does not rely on that.
  */
-import { existsSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 
 import { ABANDONED_LOCK_PREFIX, WORKER_BUILD_STALE_MS } from './worker-build-lock.js';
+import {
+  evictViteWorkerCache,
+  isDefaultViteWorkerCacheRoot,
+  markSaltedWorkerDir,
+  touchBundleCacheDir,
+} from './bundle-cache-evict.js';
 
 export const WORKER_FILE = 'worker.js';
 export const WORKER_EPOCH_FILE = '.worker-epoch';
@@ -40,7 +46,11 @@ export function readCompletedWorkerBundle(outDir: string, hash: string): string 
     const hasValidEpoch = EPOCH_PATTERN.test(epoch);
     if (!hasValidEpoch) return null;
     const workerCarriesEpoch = readFileSync(join(outDir, WORKER_FILE), 'utf8').includes(epoch);
-    return workerCarriesEpoch ? epoch : null;
+    if (workerCarriesEpoch === false) {
+      return null;
+    }
+    touchBundleCacheDir(outDir);
+    return epoch;
   } catch {
     return null;
   }
@@ -75,16 +85,45 @@ export function removeBuildLeftovers(outDir: string): void {
 }
 
 function isOlderThan(path: string, ms: number): boolean {
-  const stats = statSync(path, { throwIfNoEntry: false });
-  return stats !== undefined && Date.now() - stats.mtimeMs > ms;
+  const stats = lstatSync(path, { throwIfNoEntry: false });
+  return (
+    stats !== undefined &&
+    stats.isSymbolicLink() === false &&
+    stats.isDirectory() &&
+    Date.now() - stats.mtimeMs > ms
+  );
+}
+
+interface PublishWorkerBundleOptions {
+  epochSalt?: string;
+  noCache?: boolean;
+  evictCache?: boolean;
 }
 
 /** Move a finished build into `outDir`. Each rename replaces one file whole. */
-export function publishWorkerBundle(stagingDir: string, outDir: string, hash: string): void {
+export function publishWorkerBundle(
+  stagingDir: string,
+  outDir: string,
+  hash: string,
+  options: PublishWorkerBundleOptions = {},
+): void {
   rmSync(join(outDir, WORKER_MARKER_FILE), { force: true });
   writeFileSync(join(stagingDir, WORKER_MARKER_FILE), hash);
   for (const name of [WORKER_FILE, WORKER_MAP_FILE, WORKER_EPOCH_FILE, WORKER_MARKER_FILE]) {
     const staged = join(stagingDir, name);
     if (existsSync(staged)) renameSync(staged, join(outDir, name));
+  }
+  const epochSalt = options.epochSalt;
+  if (epochSalt !== undefined && epochSalt.length > 0) {
+    markSaltedWorkerDir(outDir, epochSalt);
+  }
+  touchBundleCacheDir(outDir);
+  if (options.noCache === true) {
+    return;
+  }
+  const parentDir = dirname(outDir);
+  const shouldEvict = options.evictCache === true || isDefaultViteWorkerCacheRoot(parentDir);
+  if (shouldEvict) {
+    evictViteWorkerCache(parentDir, basename(outDir));
   }
 }

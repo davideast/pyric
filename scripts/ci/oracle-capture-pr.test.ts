@@ -105,10 +105,12 @@ describe('oracle-capture.yml security and trigger contract', () => {
   test('isolates WIF credentials in capture job and PR write permissions in open-pr job', () => {
     const wf = loadCaptureWorkflow();
     expect(wf.permissions).toEqual({ contents: 'read' });
-    expect(Object.keys(wf.jobs)).toEqual(['capture', 'open-pr']);
+    expect(Object.keys(wf.jobs)).toEqual(['capture', 'open-pr', 'reconcile-diverted-prs']);
 
     const captureJob = wf.jobs.capture;
     const openPrJob = wf.jobs['open-pr'];
+    const reconcileJob = wf.jobs['reconcile-diverted-prs'];
+    expect(reconcileJob?.steps?.some((s) => s.uses?.startsWith('google-github-actions/auth'))).toBe(false);
     expect(captureJob?.if).toContain("github.ref == 'refs/heads/main'");
     expect(captureJob?.if).toContain("github.event_name != 'pull_request'");
     expect(captureJob?.permissions).toEqual({

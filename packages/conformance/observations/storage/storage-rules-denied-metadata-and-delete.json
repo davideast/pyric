@@ -1,0 +1,57 @@
+{
+  "name": "storage-rules-denied-metadata-and-delete",
+  "matrixRow": "storage#106, #107, #108",
+  "rowIds": [
+    "storage#106",
+    "storage#107",
+    "storage#108"
+  ],
+  "description": "firebase/storage op-level security-rules denials: observes getMetadata, updateMetadata, and deleteObject rejecting with FirebaseError storage/unauthorized both outside any grant and from a signed-out client against an existing object.",
+  "observedAt": "2026-11-18T08:40:20.278Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "getMetadataOutsideGrant": {
+      "threw": true,
+      "code": "storage/unauthorized",
+      "errorName": "FirebaseError",
+      "isFirebaseError": true
+    },
+    "updateMetadataOutsideGrant": {
+      "threw": true,
+      "code": "storage/unauthorized",
+      "errorName": "FirebaseError",
+      "isFirebaseError": true
+    },
+    "deleteObjectOutsideGrant": {
+      "threw": true,
+      "code": "storage/unauthorized",
+      "errorName": "FirebaseError",
+      "isFirebaseError": true
+    },
+    "getMetadataSignedOutExisting": {
+      "threw": true,
+      "code": "storage/unauthorized",
+      "errorName": "FirebaseError",
+      "isFirebaseError": true
+    },
+    "updateMetadataSignedOutExisting": {
+      "threw": true,
+      "code": "storage/unauthorized",
+      "errorName": "FirebaseError",
+      "isFirebaseError": true
+    },
+    "deleteObjectSignedOutExisting": {
+      "threw": true,
+      "code": "storage/unauthorized",
+      "errorName": "FirebaseError",
+      "isFirebaseError": true
+    },
+    "existingPreservedAfterDenials": {
+      "size": 5,
+      "customMetadata": {
+        "stage": "initial"
+      }
+    }
+  }
+}

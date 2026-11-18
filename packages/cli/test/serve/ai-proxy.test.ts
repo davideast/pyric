@@ -1,17 +1,6 @@
-/**
- * `/__pyric/ai-proxy` — the same-origin passthrough to an OpenAI-compatible
- * upstream (pyric/ai, cdd-deltas #98.2). Exercised over the REAL serve
- * server with a tiny Bun.serve upstream:
- *   - POST forwards path suffix + query + body + headers, minus the
- *     origin-sensitive set (origin/referer/cookie stripped; authorization kept)
- *   - the response body STREAMS through — the client sees the first SSE event
- *     while the upstream is still holding the stream open (no buffering)
- *   - POST-only (405), unreachable upstream → 502
- *   - upstream failures (unreachable / non-2xx / mid-stream abort) reach the
- *     dev server's terminal logger as structured warnings
- */
+/** `/__pyric/ai-proxy` same-origin passthrough to an OpenAI-compatible upstream. */
 import { afterEach, describe, expect, it } from 'bun:test';
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer as createNetServer, type AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -20,8 +9,11 @@ import { AI_PROXY_BODY_LIMIT_BYTES, fetchAiUpstream, formatAiProxyWarning } from
 import { silentServeLogger, startStaticServer, type ServeHandle, type ServeLogger } from '../../src/serve/server.js';
 import { expectClosedEarlyAnswer } from './early-answer.js';
 
+const tempDirs: string[] = [];
+
 function fixture() {
   const dir = mkdtempSync(join(tmpdir(), 'pyric-serve-aiproxy-'));
+  tempDirs.push(dir);
   const site = join(dir, 'public');
   const sdk = join(dir, 'sdk');
   for (const d of [site, sdk]) mkdirSync(d);
@@ -32,8 +24,9 @@ function fixture() {
 const handles: ServeHandle[] = [];
 const upstreams: Array<{ stop(): void }> = [];
 afterEach(async () => {
-  while (handles.length) await handles.pop()!.stop();
-  while (upstreams.length) upstreams.pop()!.stop();
+  for (const h of handles.splice(0)) await h.stop();
+  for (const u of upstreams.splice(0)) u.stop();
+  for (const dir of tempDirs.splice(0)) rmSync(dir, { recursive: true, force: true });
 });
 
 function recordingLogger(): { logger: ServeLogger; notes: string[] } {

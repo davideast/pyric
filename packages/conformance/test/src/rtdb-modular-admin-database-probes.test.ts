@@ -27,7 +27,6 @@ import {
   printModularProbePreview,
   selectModularProbes,
 } from '../../src/sdk-probes.ts';
-import { expectStagedUntilCaptured } from './staged-capture-assertions.ts';
 
 const RTDB_ADMIN_PROBE_IDS = [
   'rtdb-modular-admin-connection-and-ondisconnect',
@@ -61,21 +60,25 @@ function createSharedAdminHandles() {
   };
 }
 
-describe('RTDB modular firebase-admin staged probes (sdk-probes)', () => {
-  test('registers all 3 firebase-admin RTDB probes on sdk-probes with pendingRowLink and empty rowIds', async () => {
+describe('RTDB modular firebase-admin probes (sdk-probes)', () => {
+  test('registers all 3 firebase-admin RTDB probes on sdk-probes with linked rowIds', async () => {
     const loaded = await loadModularProbes('sdk-probes');
     const loadedIds = loaded.map((entry) => entry.id);
     for (const id of RTDB_ADMIN_PROBE_IDS) {
       expect(loadedIds).toContain(id);
     }
 
-    const probes = [adminDisconnectProbe, adminRefNavProbe, adminWritesProbe];
-    for (const probeRecord of probes) {
+    const expectedLinks: ReadonlyArray<[typeof adminDisconnectProbe, string[]]> = [
+      [adminDisconnectProbe, ['rtdb-admin#6']],
+      [adminRefNavProbe, ['rtdb-admin#2']],
+      [adminWritesProbe, ['rtdb-admin#3']],
+    ];
+    for (const [probeRecord, rowIds] of expectedLinks) {
       expect(probeRecord.rig).toBe('sdk-probes');
       expect(probeRecord.requires).toEqual(['web-config', 'dedicated-rtdb']);
-      expect(probeRecord.pendingRowLink).toBe(true);
-      expect(probeRecord.matrixRow).toBe('');
-      expect(probeRecord.rowIds).toEqual([]);
+      expect(probeRecord.pendingRowLink).toBeUndefined();
+      expect(probeRecord.matrixRow).toBe(rowIds.join(', '));
+      expect(probeRecord.rowIds).toEqual(rowIds);
       expect(probeRecord.description.length).toBeGreaterThan(20);
     }
 
@@ -84,18 +87,9 @@ describe('RTDB modular firebase-admin staged probes (sdk-probes)', () => {
         includeUncapturedStaged: false,
       }).map((entry) => entry.id),
     );
-
-    expectStagedUntilCaptured(RTDB_ADMIN_PROBE_IDS, {
-      rig: 'sdk-probes',
-      filterFlag: '--probe',
-      filterValueFor: (name) => name,
-      whenUncaptured(name) {
-        expect(unfilteredIds.has(name)).toBe(false);
-      },
-      whenCaptured(name) {
-        expect(unfilteredIds.has(name)).toBe(true);
-      },
-    });
+    for (const id of RTDB_ADMIN_PROBE_IDS) {
+      expect(unfilteredIds.has(id)).toBe(true);
+    }
 
     const lines: string[] = [];
     printModularProbePreview({

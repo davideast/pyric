@@ -257,6 +257,27 @@ export function replayStorageRulesObservations(): StorageOracleReplayResult[] {
       });
       continue;
     }
+    const observedValues = Object.values(observation.behavior);
+    const isCompileRejectionCapture =
+      Boolean(scenario.allowCompileError) &&
+      observedValues.length > 0 &&
+      observedValues.every((v) => v === 'COMPILE_ERROR' || v === 'INVALID_ARGUMENT');
+    if (isCompileRejectionCapture) {
+      const shapeProblems = observationShapeProblems(scenario, observation);
+      let parseThrew = false;
+      try {
+        parseStorageRules(scenario.rules);
+      } catch {
+        parseThrew = true;
+      }
+      if (!parseThrew) {
+        shapeProblems.push(
+          `${observation.name}: production rejected rules at compile time, but parseStorageRules succeeded`,
+        );
+      }
+      replays.push({ name: observation.name, problems: shapeProblems });
+      continue;
+    }
     let verdicts: Record<string, Verdict>;
     try {
       verdicts = evaluateStorageScenarioVerdicts(scenario);

@@ -1,0 +1,53 @@
+{
+  "name": "admin-auth-verify-id-token-errors",
+  "matrixRow": "auth-admin#3a",
+  "rowIds": [
+    "auth-admin#3a"
+  ],
+  "description": "firebase-admin/auth verifyIdToken rejection modes and error codes across non-string input, empty string, malformed JWT, missing kid, non-RS256 alg, wrong project audience, wrong issuer, and tampered RSA signature on a real Firebase ID token.",
+  "observedAt": "2026-11-18T07:58:23.908Z",
+  "adminSdkVersion": "13.10.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "nonStringToken": {
+      "mode": "sync-throw",
+      "code": "auth/argument-error",
+      "message": "First argument to verifyIdToken() must be a Firebase ID token string."
+    },
+    "emptyStringToken": {
+      "mode": "rejected",
+      "code": "auth/argument-error",
+      "message": "Decoding Firebase ID token failed. Make sure you passed the entire string JWT which represents an ID token. See https://firebase.google.com/docs/auth/admin/verify-id-tokens for details on how to retrieve an ID token."
+    },
+    "malformedJwt": {
+      "mode": "rejected",
+      "code": "auth/argument-error",
+      "message": "Decoding Firebase ID token failed. Make sure you passed the entire string JWT which represents an ID token. See https://firebase.google.com/docs/auth/admin/verify-id-tokens for details on how to retrieve an ID token."
+    },
+    "missingKidJwt": {
+      "mode": "rejected",
+      "code": "auth/argument-error",
+      "message": "Firebase ID token has no \"kid\" claim. See https://firebase.google.com/docs/auth/admin/verify-id-tokens for details on how to retrieve an ID token."
+    },
+    "wrongAlgorithmJwt": {
+      "mode": "rejected",
+      "code": "auth/argument-error",
+      "message": "Firebase ID token has incorrect algorithm. Expected \"RS256\" but got \"HS256\". See https://firebase.google.com/docs/auth/admin/verify-id-tokens for details on how to retrieve an ID token."
+    },
+    "wrongAudienceApp": {
+      "mode": "rejected",
+      "code": "auth/argument-error",
+      "message": "Firebase ID token has incorrect \"aud\" (audience) claim. Expected \"another-project\" but got \"<projectId>\". Make sure the ID token comes from the same Firebase project as the service account used to authenticate this SDK. See https://firebase.google.com/docs/auth/admin/verify-id-tokens for details on how to retrieve an ID token."
+    },
+    "wrongIssuerJwt": {
+      "mode": "rejected",
+      "code": "auth/argument-error",
+      "message": "Firebase ID token has incorrect \"iss\" (issuer) claim. Expected \"https://securetoken.google.com/<projectId>\" but got \"https://example.com/issuer\". Make sure the ID token comes from the same Firebase project as the service account used to authenticate this SDK. See https://firebase.google.com/docs/auth/admin/verify-id-tokens for details on how to retrieve an ID token."
+    },
+    "tamperedSignatureJwt": {
+      "mode": "rejected",
+      "code": "auth/argument-error",
+      "message": "Firebase ID token has invalid signature. See https://firebase.google.com/docs/auth/admin/verify-id-tokens for details on how to retrieve an ID token."
+    }
+  }
+}

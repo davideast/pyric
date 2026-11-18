@@ -12,11 +12,11 @@ import {
   type StorageUploadStringDataUrlSubject,
 } from '../../probes/storage/storage-uploadstring-data-url-variants.ts';
 import {
+  decodeValidUtf8OrNull,
   observeStorageUploadStringRawAndBase64,
   probe as rawAndBase64Probe,
   type StorageUploadStringRawAndBase64Subject,
 } from '../../probes/storage/storage-uploadstring-raw-and-base64.ts';
-import { expectStagedUntilCaptured } from './staged-capture-assertions.ts';
 
 const SDK_PROBES = [
   { name: 'storage-getbytes-roundtrip-and-cap', probe: getBytesCapProbe },
@@ -93,7 +93,7 @@ describe('storage getBytes and uploadString staged probes (storage#39, #40, #42.
           uploadedContentType: contentType,
           fetchedContentType: contentType,
           decodedBytes: [...bytes],
-          decodedUtf8: new TextDecoder().decode(bytes),
+          decodedUtf8: decodeValidUtf8OrNull(bytes),
         };
       },
     };
@@ -106,6 +106,7 @@ describe('storage getBytes and uploadString staged probes (storage#39, #40, #42.
     expect(rawObserved.standardBase64).toMatchObject({
       size: 4,
       decodedBytes: [1, 2, 3, 255],
+      decodedUtf8: null,
     });
 
     const dataUrlSubject: StorageUploadStringDataUrlSubject = {
@@ -187,20 +188,14 @@ describe('storage getBytes and uploadString staged probes (storage#39, #40, #42.
     });
 
     for (const entry of SDK_PROBES) {
-      if (entry.probe.pendingRowLink) {
-        expectStagedUntilCaptured(entry.name, {
-          rig: 'sdk-probes',
-          filterFlag: '--probe',
-        });
-      }
+      expect(entry.probe.pendingRowLink).toBeUndefined();
+      expect(entry.probe.rowIds?.length).toBeGreaterThan(0);
+      expect(entry.probe.matrixRow.length).toBeGreaterThan(0);
     }
     for (const entry of CLIENT_STORAGE_PROBES) {
-      if (entry.probe.pendingRowLink) {
-        expectStagedUntilCaptured(entry.name, {
-          rig: 'client-storage',
-          filterFlag: '--probe',
-        });
-      }
+      expect(entry.probe.pendingRowLink).toBeUndefined();
+      expect(entry.probe.rowIds?.length).toBeGreaterThan(0);
+      expect(entry.probe.matrixRow.length).toBeGreaterThan(0);
     }
   });
 });

@@ -1,12 +1,12 @@
 // Runs `bun test`. With quarantine on (`--quarantine`, source.ts), it adds a JUnit report
 // beside the usual console output and lets the quarantine verdict decide the
-// exit code; otherwise it is plain `bun test`. The console output passes
-// through unchanged, so the main failure lane reads the same log.
+// exit code; otherwise it is plain `bun test`. Each run gets its own private
+// TMPDIR under ~/.cache/pyric-tmp/<suite> removed on finish.
 
 import { spawn, type StdioOptions } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { join, relative } from 'node:path';
+import { createPrivateJobTmpDir, removePrivateJobTmpDir } from '../private-job-tmpdir.ts';
 import { REPO_ROOT, todayUtc, type LoadedEntry } from './entries.ts';
 import { consoleTotals, parseJunit } from './junit.ts';
 import { publish } from './report.ts';
@@ -41,9 +41,27 @@ interface Finished {
   stderrTail: string;
 }
 
-function runForwarding(cwd: string, args: string[], forward: (chunk: string) => void): Promise<Finished> {
+function childEnvWithPrivateTmp(jobTmpDir: string): NodeJS.ProcessEnv {
+  return {
+    ...process.env,
+    TMPDIR: jobTmpDir,
+    TMP: jobTmpDir,
+    TEMP: jobTmpDir,
+  };
+}
+
+function runForwarding(
+  cwd: string,
+  args: string[],
+  jobTmpDir: string,
+  forward: (chunk: string) => void,
+): Promise<Finished> {
   return new Promise((resolvePromise, reject) => {
-    const child = spawn('bun', args, { cwd, stdio: ['inherit', 'inherit', 'pipe'] });
+    const child = spawn('bun', args, {
+      cwd,
+      env: childEnvWithPrivateTmp(jobTmpDir),
+      stdio: ['inherit', 'inherit', 'pipe'],
+    });
     let tail = '';
     child.stderr.setEncoding('utf8');
     child.stderr.on('data', (chunk: string) => {
@@ -60,7 +78,11 @@ function readResults(junitFile: string, cwd: string): RunEvidence['results'] {
   try {
     return parseJunit(readFileSync(junitFile, 'utf8'), relative(REPO_ROOT, cwd));
   } catch (error) {
-    console.error(`quarantine: could not read ${junitFile}: ${error instanceof Error ? error.message : String(error)}`);
+    let reason = String(error);
+    if (error instanceof Error) {
+      reason = error.message;
+    }
+    console.error(`quarantine: could not read ${junitFile}: ${reason}`);
     return undefined;
   }
 }
@@ -71,17 +93,26 @@ function plainStdio(forward: BunTestRun['forward']): StdioOptions {
   return ['inherit', 'pipe', 'pipe'];
 }
 
-function runPlain(run: BunTestRun): Promise<number> {
-  return new Promise((resolvePromise, reject) => {
-    const forward = run.forward;
-    const child = spawn('bun', ['test', ...run.args], { cwd: run.cwd, stdio: plainStdio(forward) });
-    if (forward) {
-      child.stdout?.setEncoding('utf8').on('data', forward);
-      child.stderr?.setEncoding('utf8').on('data', forward);
-    }
-    child.on('error', reject);
-    child.on('close', (code) => resolvePromise(code ?? 1));
-  });
+async function runPlain(run: BunTestRun): Promise<number> {
+  const jobTmpDir = createPrivateJobTmpDir(run.suite);
+  try {
+    return await new Promise<number>((resolvePromise, reject) => {
+      const forward = run.forward;
+      const child = spawn('bun', ['test', ...run.args], {
+        cwd: run.cwd,
+        env: childEnvWithPrivateTmp(jobTmpDir),
+        stdio: plainStdio(forward),
+      });
+      if (forward) {
+        child.stdout?.setEncoding('utf8').on('data', forward);
+        child.stderr?.setEncoding('utf8').on('data', forward);
+      }
+      child.on('error', reject);
+      child.on('close', (code) => resolvePromise(code ?? 1));
+    });
+  } finally {
+    removePrivateJobTmpDir(jobTmpDir);
+  }
 }
 
 /** Runs the suite and returns the exit code it should end with. Unless
@@ -93,17 +124,41 @@ export async function runBunTest(run: BunTestRun): Promise<number> {
 
 /** Runs the suite with a JUnit report and returns its quarantine verdict. */
 export async function runBunTestVerdict(run: BunTestRun): Promise<Verdict> {
-  const dir = mkdtempSync(join(process.env.RUNNER_TEMP ?? tmpdir(), 'quarantine-'));
-  const junitFile = join(dir, 'junit.xml');
-  const args = ['test', '--reporter=junit', `--reporter-outfile=${junitFile}`, ...run.args];
-  const finished = await runForwarding(run.cwd, args, run.forward ?? ((chunk) => process.stderr.write(chunk)));
-  const evidence: RunEvidence = {
-    exitCode: finished.exitCode,
-    results: readResults(junitFile, run.cwd),
-    totals: consoleTotals(finished.stderrTail),
-  };
-  const entries = run.entries ?? honouredEntries(runEntries(run.env ?? process.env));
-  const verdict = decide(evidence, entries, run.today ?? todayUtc());
-  publish(run.suite, verdict, run.env ?? process.env);
-  return verdict;
+  const jobTmpDir = createPrivateJobTmpDir(run.suite);
+  const junitBase = process.env.RUNNER_TEMP ?? jobTmpDir;
+  const junitDir = mkdtempSync(join(junitBase, 'quarantine-'));
+  try {
+    const junitFile = join(junitDir, 'junit.xml');
+    const args = ['test', '--reporter=junit', `--reporter-outfile=${junitFile}`, ...run.args];
+    let forward = (chunk: string) => {
+      process.stderr.write(chunk);
+    };
+    if (run.forward !== undefined) {
+      forward = run.forward;
+    }
+    const finished = await runForwarding(run.cwd, args, jobTmpDir, forward);
+    const evidence: RunEvidence = {
+      exitCode: finished.exitCode,
+      results: readResults(junitFile, run.cwd),
+      totals: consoleTotals(finished.stderrTail),
+    };
+    let effectiveEnv = process.env;
+    if (run.env !== undefined) {
+      effectiveEnv = run.env;
+    }
+    let entries = run.entries;
+    if (entries === undefined) {
+      entries = honouredEntries(runEntries(effectiveEnv));
+    }
+    let today = run.today;
+    if (today === undefined) {
+      today = todayUtc();
+    }
+    const verdict = decide(evidence, entries, today);
+    publish(run.suite, verdict, effectiveEnv);
+    return verdict;
+  } finally {
+    rmSync(junitDir, { recursive: true, force: true });
+    removePrivateJobTmpDir(jobTmpDir);
+  }
 }

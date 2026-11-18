@@ -31,11 +31,6 @@ import { reserveSend, type SendReservation } from './send-order.js';
 import type { ByteRouteAccess, ClientDb, ClientPort } from './handles.js';
 import { withinHoldDeadline } from './held-messages.js';
 
-// ─── Storage (Pyric Studio data browse) ───────────────────────────────────
-// A worker-backed `FirebaseStorage` mirror: `ref` is client-side (path math),
-// `listAll`/`getMetadata`/`getBlob`/`getDownloadURL` RPC to the host (which enforces rules).
-// Mutations are a follow-up.
-
 /** Worker-backed Storage handle (carries the shared `MessagePort`). */
 export interface ClientFirebaseStorage {
   readonly __kind: 'client-storage';
@@ -43,6 +38,8 @@ export interface ClientFirebaseStorage {
   readonly bucket: string;
   /** True for a handle `getStorage` opened on a bucket by name, rather than the app's default bucket. */
   readonly namedBucket?: boolean;
+  maxOperationRetryTime: number;
+  maxUploadRetryTime: number;
 }
 
 /** Worker-backed Storage reference (path + name; carries the port for ops). */
@@ -125,7 +122,10 @@ export function getStorage(
     port.start();
     wirePort(port);
   }
-  return { __kind: 'client-storage', port, bucket: bucketUrl ?? 'pyric-default', ...(namedBucket ? { namedBucket } : {}) };
+  const resolvedBucket = bucketUrl ?? 'pyric-default';
+  const base = { __kind: 'client-storage' as const, port, bucket: resolvedBucket, maxOperationRetryTime: 120_000, maxUploadRetryTime: 600_000 };
+  if (namedBucket) return { ...base, namedBucket: true };
+  return base;
 }
 
 /**
@@ -477,16 +477,6 @@ async function readStorageBytesAsFrames(
   }
 }
 
-function readStorageBytes(reference: ClientStorageReference): Promise<{
-  dataB64: string;
-  contentType?: string;
-  size: number;
-}> {
-  return dataRpc(reference.port, {
-    t: 'op', id: nextId(), method: 'storage.getBytes', path: reference.fullPath, ...bucketWire(reference),
-  }) as Promise<{ dataB64: string; contentType?: string; size: number }>;
-}
-
 /**
  * Return a `data:<contentType>;base64,<payload>` URI for an object read
  * through the SharedWorker. Same shape the in-process `pyric/storage`
@@ -512,18 +502,8 @@ export async function getDownloadURL(reference: ClientStorageReference): Promise
   return `data:${contentType};base64,${base64}`;
 }
 
-// ─── Storage mutations + JSON-safe reads (worker-mode byte ops) ───────────
-// Backed by the base64 `storage.putBytes` / `storage.getBytes` /
-// `storage.deleteObject` ops (remote sandbox, slice 2). Studio's data lens is
-// attached by `dataRpc`; ordinary served-app bundles have no default lens and
-// therefore remain app-session operations. Storage rules apply when the
-// HOST configured them on the sandbox's storage service — the served
-// worker's `applyServeInit` (serve-init.ts) does this at boot, before any op
-// can reach the host, so worker-mode storage enforces the project's
-// storage.rules the same as Firestore/RTDB (open only when the project has
-// none); the admin lens matters for embedding/test hosts that pre-open the
-// service with rules. Raw payloads are capped at 8 MiB
-// (`MAX_STORAGE_OP_BYTES`) — same cap the host enforces.
+// Worker-mode byte ops (`storage.putBytes` / `storage.getBytes` / `storage.deleteObject`),
+// capped at `MAX_STORAGE_OP_BYTES` (8 MiB) and enforced against configured storage.rules.
 
 /** Mirror of `pyric/storage`'s `SettableMetadata` (plain JSON on the wire). */
 export interface ClientSettableMetadata {
@@ -706,42 +686,54 @@ async function uploadOverRoute(
 
 /** Upload string payload at the reference's path.
  *  Mirrors `pyric/storage`'s `uploadString` result shape. */
-export async function uploadString(
+export function uploadString(
   reference: ClientStorageReference,
   value: string,
   format: StringFormat = 'raw',
   metadata?: ClientSettableMetadata,
 ): Promise<{ ref: ClientStorageReference; metadata: FullMetadata }> {
-  const { bytes, inferredType } = decodeString(value, format);
-  const effective: ClientSettableMetadata = {
-    ...metadata,
-    contentType: metadata?.contentType ?? inferredType ?? defaultRawContentType(format),
-  };
-  return uploadBytes(reference, bytes, effective);
+  guardClientNonRoot(reference, 'uploadString');
+  let decoded: { bytes: Uint8Array; inferredType: string | undefined };
+  try {
+    decoded = decodeString(value, format);
+  } catch (err) {
+    const code = (err as { code?: unknown }).code;
+    const message = (err as { message?: unknown }).message;
+    if (typeof code === 'string' && typeof message === 'string') {
+      throw new FirebaseError(code, message);
+    }
+    throw err;
+  }
+  let resolvedContentType = defaultRawContentType(format);
+  if (decoded.inferredType !== undefined) resolvedContentType = decoded.inferredType;
+  if (metadata?.contentType !== undefined) resolvedContentType = metadata.contentType;
+  const effective: ClientSettableMetadata = { ...metadata, contentType: resolvedContentType };
+  return uploadBytes(reference, decoded.bytes, effective);
 }
 
-/** Read an object's bytes (JSON-safe base64 op → `ArrayBuffer`). Mirrors
+/** Read an object's bytes (JSON-safe base64 op -> `ArrayBuffer`). Mirrors
  *  `pyric/storage`'s `getBytes`, including the optional client-side cap. */
-export async function getBytes(
+export function getBytes(
   reference: ClientStorageReference,
   maxDownloadSizeBytes?: number,
 ): Promise<ArrayBuffer> {
   guardClientNonRoot(reference, 'getBytes');
-  const res = await readStorageBytesInternal(reference);
-  const bytes =
-    typeof maxDownloadSizeBytes === 'number' && res.bytes.byteLength > maxDownloadSizeBytes
-      ? res.bytes.subarray(0, Math.max(0, maxDownloadSizeBytes))
-      : res.bytes;
-  return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+  return readStorageBytesInternal(reference).then((res) => {
+    let bytes = res.bytes;
+    if (typeof maxDownloadSizeBytes === 'number' && bytes.byteLength > maxDownloadSizeBytes) {
+      bytes = bytes.subarray(0, Math.max(0, maxDownloadSizeBytes));
+    }
+    return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+  });
 }
 
 /** Delete the object at the reference's path (idempotent — missing = no-op,
  *  matching the sandbox backend's delete semantics). */
-export async function deleteObject(reference: ClientStorageReference): Promise<void> {
+export function deleteObject(reference: ClientStorageReference): Promise<void> {
   guardClientNonRoot(reference, 'deleteObject');
-  await dataRpc(reference.port, {
+  return dataRpc(reference.port, {
     t: 'op', id: nextId(), method: 'storage.deleteObject', path: reference.fullPath, ...bucketWire(reference),
-  });
+  }).then(() => undefined);
 }
 
 export { uploadBytesResumable } from './resumable.js';

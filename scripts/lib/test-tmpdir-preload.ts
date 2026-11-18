@@ -1,0 +1,32 @@
+// Preloaded by bunfig.toml so every `bun test` invocation isolates TMPDIR
+// inside ~/.cache/pyric-tmp/run-* (never shared /tmp) and removes its
+// marker-verified directory after the last test file finishes.
+import { afterAll } from 'bun:test';
+import {
+  createPrivateJobTmpDir,
+  reapDeadPrivateJobTmpDirs,
+  removePrivateJobTmpDir,
+} from './private-job-tmpdir.ts';
+
+function restoreEnvVar(name: string, value: string | undefined): void {
+  if (value === undefined) {
+    delete process.env[name];
+  } else {
+    process.env[name] = value;
+  }
+}
+
+reapDeadPrivateJobTmpDirs();
+const previousTmpDir = process.env.TMPDIR;
+const previousTmp = process.env.TMP;
+const previousTemp = process.env.TEMP;
+const runDir = createPrivateJobTmpDir(`run-${String(process.pid)}`);
+process.env.TMPDIR = runDir;
+process.env.TMP = runDir;
+process.env.TEMP = runDir;
+afterAll(() => {
+  restoreEnvVar('TMPDIR', previousTmpDir);
+  restoreEnvVar('TMP', previousTmp);
+  restoreEnvVar('TEMP', previousTemp);
+  removePrivateJobTmpDir(runDir);
+});

@@ -30,9 +30,7 @@ import {
 import {
   adminToRootDb,
   adminToUnderlying,
-  assertRootActive,
   isPlainMap,
-  lifecycleOf,
   unwrapAdminObject,
 } from './admin-handle-registry.js';
 
@@ -72,9 +70,21 @@ function wrapDocSnapshotLike<
     data: () => DocumentData | undefined;
     get: (fieldPath: SnapshotFieldPath) => unknown;
   },
->(rawSnap: T, rootDb: SandboxFirestore, buildDocRef: DocRefBuilder): T {
+>(
+  rawSnap: T,
+  rootDb: SandboxFirestore,
+  buildDocRef: DocRefBuilder,
+  booleanExists = false,
+): T {
   const proxy = new Proxy(rawSnap, {
     get(t, prop) {
+      if (prop === 'exists' && booleanExists) {
+        const rawExists = Reflect.get(t, 'exists', t);
+        if (typeof rawExists === 'function') {
+          return Boolean((rawExists as () => boolean).call(t));
+        }
+        return Boolean(rawExists);
+      }
       if (prop === 'ref' && t.ref && typeof t.ref.path === 'string') {
         return buildDocRef(rootDb, t.ref.path);
       }
@@ -121,12 +131,17 @@ function wrapQuerySnapshotLike<
     docs: readonly TDoc[];
     docChanges: (options?: { includeMetadataChanges?: boolean }) => Array<{ doc: TDoc }>;
   },
->(rawSnap: TSnap, rootDb: SandboxFirestore, buildDocRef: DocRefBuilder): TSnap {
+>(
+  rawSnap: TSnap,
+  rootDb: SandboxFirestore,
+  buildDocRef: DocRefBuilder,
+  booleanExists = false,
+): TSnap {
   const wrappedByRaw = new Map<TDoc, TDoc>();
   const wrapOne = (doc: TDoc): TDoc => {
     const existing = wrappedByRaw.get(doc);
     if (existing !== undefined) return existing;
-    const wrapped = wrapDocSnapshotLike(doc, rootDb, buildDocRef);
+    const wrapped = wrapDocSnapshotLike(doc, rootDb, buildDocRef, booleanExists);
     wrappedByRaw.set(doc, wrapped);
     return wrapped;
   };
@@ -172,6 +187,7 @@ function wrapLiveSnapshot(
   snapshot: unknown,
   rootDb: SandboxFirestore,
   buildDocRef: DocRefBuilder,
+  booleanExists: boolean,
 ): unknown {
   if (snapshot === null || typeof snapshot !== 'object') return snapshot;
   const candidate = snapshot as {
@@ -183,10 +199,16 @@ function wrapLiveSnapshot(
       snapshot as LiveQuerySnapshot,
       rootDb,
       buildDocRef,
+      booleanExists,
     );
   }
   if (typeof candidate.data === 'function') {
-    return wrapDocSnapshotLike(snapshot as LiveDocumentSnapshot, rootDb, buildDocRef);
+    return wrapDocSnapshotLike(
+      snapshot as LiveDocumentSnapshot,
+      rootDb,
+      buildDocRef,
+      booleanExists,
+    );
   }
   return snapshot;
 }
@@ -195,12 +217,11 @@ function wrapObserverOrCallbackArg(
   arg: unknown,
   rootDb: SandboxFirestore,
   buildDocRef: DocRefBuilder,
+  booleanExists: boolean,
 ): unknown {
-  const lifecycle = lifecycleOf(rootDb);
   if (typeof arg === 'function') {
     return (snapshot: unknown) => {
-      if (lifecycle?.isDeleted) return;
-      (arg as (s: unknown) => void)(wrapLiveSnapshot(snapshot, rootDb, buildDocRef));
+      (arg as (s: unknown) => void)(wrapLiveSnapshot(snapshot, rootDb, buildDocRef, booleanExists));
     };
   }
   if (
@@ -215,8 +236,7 @@ function wrapObserverOrCallbackArg(
     if (typeof obs.next === 'function') {
       const boundNext = obs.next.bind(obs);
       wrapped.next = (snapshot: unknown) => {
-        if (lifecycle?.isDeleted) return;
-        boundNext(wrapLiveSnapshot(snapshot, rootDb, buildDocRef));
+        boundNext(wrapLiveSnapshot(snapshot, rootDb, buildDocRef, booleanExists));
       };
     }
     if (typeof obs.error === 'function') {
@@ -230,7 +250,7 @@ function wrapObserverOrCallbackArg(
   return arg;
 }
 
-export function createAdminOnSnapshot(buildDocRef: DocRefBuilder) {
+export function createAdminOnSnapshot(buildDocRef: DocRefBuilder, booleanExists = false) {
   function adminOnSnapshotImpl(
     reference: DocumentReference,
     observer: SnapshotObserver<LiveDocumentSnapshot>,
@@ -299,9 +319,6 @@ export function createAdminOnSnapshot(buildDocRef: DocRefBuilder) {
       );
     }
 
-    assertRootActive(rootDb);
-    const lifecycle = lifecycleOf(rootDb);
-
     const arg2IsOptions =
       typeof arg2 === 'object' &&
       arg2 !== null &&
@@ -309,29 +326,22 @@ export function createAdminOnSnapshot(buildDocRef: DocRefBuilder) {
       typeof (arg2 as { error?: unknown }).error !== 'function' &&
       typeof (arg2 as { complete?: unknown }).complete !== 'function';
 
-    let unsubscribe: Unsubscribe;
     if (arg2IsOptions) {
-      unsubscribe = (baseOnSnapshot as (...a: unknown[]) => Unsubscribe)(
+      return (baseOnSnapshot as (...a: unknown[]) => Unsubscribe)(
         rawReference,
         arg2,
-        wrapObserverOrCallbackArg(arg3, rootDb, buildDocRef),
-        arg4,
-        arg5,
-      );
-    } else {
-      unsubscribe = (baseOnSnapshot as (...a: unknown[]) => Unsubscribe)(
-        rawReference,
-        wrapObserverOrCallbackArg(arg2, rootDb, buildDocRef),
-        arg3,
+        wrapObserverOrCallbackArg(arg3, rootDb, buildDocRef, booleanExists),
         arg4,
         arg5,
       );
     }
-
-    if (lifecycle !== undefined) {
-      return lifecycle.trackSubscription(unsubscribe);
-    }
-    return unsubscribe;
+    return (baseOnSnapshot as (...a: unknown[]) => Unsubscribe)(
+      rawReference,
+      wrapObserverOrCallbackArg(arg2, rootDb, buildDocRef, booleanExists),
+      arg3,
+      arg4,
+      arg5,
+    );
   }
 
   return adminOnSnapshotImpl;

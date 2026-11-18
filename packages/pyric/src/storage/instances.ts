@@ -4,11 +4,13 @@ import {
   defaultClientApp,
   resolveClientApp,
 } from '../sandbox/internal/client-app.js';
+import { createStorageRetryHandle } from './handle-retry-times.js';
 import {
   getStorageSandbox,
   TARGET_SYMBOL,
   type AppFirebaseStorage,
   type FirebaseStorage,
+  type SandboxTarget,
 } from './service.js';
 import { rulesBucketName } from '@pyric/rules/internal/storage';
 
@@ -52,14 +54,21 @@ export function getStorage(app?: FirebaseApp, bucketUrl?: string): AppFirebaseSt
     // The store keeps its own bucket key; rules see the bucket under the name
     // the app knows it by (ST-H2-4).
     const bucketName = bucketUrl ?? appBucket;
-    return Object.freeze({
-      [TARGET_SYMBOL]: {
-        ...handle[TARGET_SYMBOL],
-        currentAuth: () => session.currentUser,
-        ...(bucketName ? { bucketName } : {}),
+    const baseTarget = handle[TARGET_SYMBOL];
+    let target: SandboxTarget = {
+      ...baseTarget,
+      currentAuth: () => session.currentUser,
+    };
+    if (bucketName) {
+      target = { ...target, bucketName };
+    }
+    return createStorageRetryHandle<AppFirebaseStorage>(
+      {
+        [TARGET_SYMBOL]: target,
+        app: resolvedApp,
       },
-      app: resolvedApp,
-    });
+      handle,
+    );
   });
 }
 

@@ -453,18 +453,25 @@ describe('staged modular probes (auth-admin and rtdb-modular)', () => {
       return manifest;
     });
     const baseObservationsWithoutAdminAuth = loadObservations().filter(
-      (obs) => obs.name !== 'admin-auth-listusers-deleted-cursor',
+      (obs) => !obs.name.startsWith('admin-auth-'),
     );
     const baseRowsWithoutAdminAuthObs = allCompatibilityRows.map((row) => {
-      if (!row.oracleObservations.includes('admin-auth-listusers-deleted-cursor')) {
+      if (!row.oracleObservations.some((obs) => obs.startsWith('admin-auth-'))) {
         return row;
+      }
+      const remainingObservations = row.oracleObservations.filter(
+        (obs) => !obs.startsWith('admin-auth-'),
+      );
+      if (remainingObservations.length > 0) {
+        return {
+          ...row,
+          oracleObservations: remainingObservations,
+        };
       }
       return {
         ...row,
         automation: 'unit-backed' as const,
-        oracleObservations: row.oracleObservations.filter(
-          (obs) => obs !== 'admin-auth-listusers-deleted-cursor',
-        ),
+        oracleObservations: [],
       };
     });
 

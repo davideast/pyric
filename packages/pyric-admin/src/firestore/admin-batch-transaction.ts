@@ -26,9 +26,7 @@ import {
   adminQueryBrand,
   adminToRootDb,
   adminToUnderlying,
-  assertRootActive,
-  lifecycleOf,
-  runAsyncWithLifecycle,
+  isAppBackedRoot,
   unwrapAdminObject,
 } from './admin-handle-registry.js';
 import {
@@ -96,13 +94,12 @@ export function wrapWriteBatch(rawDb: SandboxFirestore, rootDb: SandboxFirestore
       switch (prop) {
         case 'create':
           return (ref: DocumentReference, data: DocumentData) => {
-            assertRootActive(rootDb);
             assertAdminDocumentReference('documentRef', ref);
             const normalized = validateAndNormalizeDocumentData(
               'data',
               data,
               'none',
-              lifecycleOf(rootDb) !== undefined,
+              isAppBackedRoot(rootDb),
             );
             assertBatchMutable();
             bufferedOps.push({
@@ -114,12 +111,11 @@ export function wrapWriteBatch(rawDb: SandboxFirestore, rootDb: SandboxFirestore
           };
         case 'set':
           return (ref: DocumentReference, data: DocumentData, ...rest: [options?: SetOptions]) => {
-            assertRootActive(rootDb);
             const validated = validateAndNormalizeSetCall(
               data,
               rest[0],
               false,
-              lifecycleOf(rootDb) !== undefined,
+              isAppBackedRoot(rootDb),
             );
             assertAdminDocumentReference('documentRef', ref);
             assertBatchMutable();
@@ -133,7 +129,6 @@ export function wrapWriteBatch(rawDb: SandboxFirestore, rootDb: SandboxFirestore
           };
         case 'update':
           return (...allArgs: unknown[]) => {
-            assertRootActive(rootDb);
             if (allArgs.length < 2) {
               throw new SandboxError(
                 'invalid-argument',
@@ -145,7 +140,7 @@ export function wrapWriteBatch(rawDb: SandboxFirestore, rootDb: SandboxFirestore
             assertBatchMutable();
             const normalizedArgs = validateAndNormalizeUpdateArgs(
               allArgs.slice(1),
-              lifecycleOf(rootDb) !== undefined,
+              isAppBackedRoot(rootDb),
             );
             bufferedOps.push({
               kind: 'update',
@@ -156,7 +151,6 @@ export function wrapWriteBatch(rawDb: SandboxFirestore, rootDb: SandboxFirestore
           };
         case 'delete':
           return (ref: DocumentReference, ...rest: [precondition?: unknown]) => {
-            assertRootActive(rootDb);
             assertAdminDocumentReference('documentRef', ref);
             validatePreconditionObject('precondition', rest[0], false);
             assertBatchMutable();
@@ -167,26 +161,25 @@ export function wrapWriteBatch(rawDb: SandboxFirestore, rootDb: SandboxFirestore
             return proxy;
           };
         case 'commit':
-          return (opts?: OperationOptions) =>
-            runAsyncWithLifecycle(rootDb, () => {
-              committed = true;
-              const executionBatch = rawDb.batch();
-              for (const op of bufferedOps) {
-                if (op.kind === 'create') {
-                  executionBatch.create(op.ref, op.data);
-                } else if (op.kind === 'set') {
-                  executionBatch.set(op.ref, op.data, op.options);
-                } else if (op.kind === 'update') {
-                  (executionBatch.update as (r: DocumentReference, ...a: unknown[]) => WriteBatch)(
-                    op.ref,
-                    ...op.args,
-                  );
-                } else {
-                  executionBatch.delete(op.ref);
-                }
+          return (opts?: OperationOptions) => {
+            committed = true;
+            const executionBatch = rawDb.batch();
+            for (const op of bufferedOps) {
+              if (op.kind === 'create') {
+                executionBatch.create(op.ref, op.data);
+              } else if (op.kind === 'set') {
+                executionBatch.set(op.ref, op.data, op.options);
+              } else if (op.kind === 'update') {
+                (executionBatch.update as (r: DocumentReference, ...a: unknown[]) => WriteBatch)(
+                  op.ref,
+                  ...op.args,
+                );
+              } else {
+                executionBatch.delete(op.ref);
               }
-              return executionBatch.commit(opts);
-            });
+            }
+            return executionBatch.commit(opts);
+          };
         default: {
           const value = Reflect.get(t, prop, t);
           if (typeof value === 'function') {
@@ -230,47 +223,44 @@ function wrapTransaction(
     get(t, prop) {
       switch (prop) {
         case 'get':
-          return (refOrQuery: DocumentReference | Query) =>
-            runAsyncWithLifecycle<QuerySnapshot | DocumentSnapshot>(rootDb, async () => {
-              if (isAdminQueryTarget(refOrQuery)) {
-                assertQueryExecutable(adminQueryMetadata.get(refOrQuery));
-                const unwrappedQuery = unwrapAdminObject(refOrQuery);
-                const snap = await t.get(unwrappedQuery);
-                return wrapQuerySnapshot(snap, rootDb, docRefOnRoot);
-              }
-              if (isAdminDocRefTarget(refOrQuery)) {
-                const unwrappedRef = unwrapAdminObject(refOrQuery);
-                const snap = await t.get(unwrappedRef);
-                return wrapDocSnapshot(snap, rootDb, docRefOnRoot);
-              }
-              throw new SandboxError(
-                'invalid-argument',
-                'Value for argument "refOrQuery" must be a DocumentReference, Query, or AggregateQuery.',
-              );
-            });
+          return async (refOrQuery: DocumentReference | Query): Promise<QuerySnapshot | DocumentSnapshot> => {
+            if (isAdminQueryTarget(refOrQuery)) {
+              assertQueryExecutable(adminQueryMetadata.get(refOrQuery));
+              const unwrappedQuery = unwrapAdminObject(refOrQuery);
+              const snap = await t.get(unwrappedQuery);
+              return wrapQuerySnapshot(snap, rootDb, docRefOnRoot);
+            }
+            if (isAdminDocRefTarget(refOrQuery)) {
+              const unwrappedRef = unwrapAdminObject(refOrQuery);
+              const snap = await t.get(unwrappedRef);
+              return wrapDocSnapshot(snap, rootDb, docRefOnRoot);
+            }
+            throw new SandboxError(
+              'invalid-argument',
+              'Value for argument "refOrQuery" must be a DocumentReference, Query, or AggregateQuery.',
+            );
+          };
         case 'create':
           return (ref: DocumentReference, data: DocumentData) => {
-            assertRootActive(rootDb);
             assertWritable();
             assertAdminDocumentReference('documentRef', ref);
             const normalized = validateAndNormalizeDocumentData(
               'data',
               data,
               'none',
-              lifecycleOf(rootDb) !== undefined,
+              isAppBackedRoot(rootDb),
             );
             t.create(unwrapAdminObject(ref), normalized);
             return proxy;
           };
         case 'set':
           return (ref: DocumentReference, data: DocumentData, options?: SetOptions) => {
-            assertRootActive(rootDb);
             assertWritable();
             const validated = validateAndNormalizeSetCall(
               data,
               options,
               true,
-              lifecycleOf(rootDb) !== undefined,
+              isAppBackedRoot(rootDb),
             );
             assertAdminDocumentReference('documentRef', ref);
             t.set(unwrapAdminObject(ref), validated.data, validated.options);
@@ -278,7 +268,6 @@ function wrapTransaction(
           };
         case 'update':
           return (...allArgs: unknown[]) => {
-            assertRootActive(rootDb);
             assertWritable();
             if (allArgs.length < 2) {
               throw new SandboxError(
@@ -290,7 +279,7 @@ function wrapTransaction(
             assertAdminDocumentReference('documentRef', ref);
             const normalizedArgs = validateAndNormalizeUpdateArgs(
               allArgs.slice(1),
-              lifecycleOf(rootDb) !== undefined,
+              isAppBackedRoot(rootDb),
             );
             (t.update as (r: DocumentReference, ...a: unknown[]) => Transaction)(
               unwrapAdminObject(ref),
@@ -300,7 +289,6 @@ function wrapTransaction(
           };
         case 'delete':
           return (ref: DocumentReference, ...rest: [precondition?: unknown]) => {
-            assertRootActive(rootDb);
             assertWritable();
             assertAdminDocumentReference('documentRef', ref);
             validatePreconditionObject('precondition', rest[0], false);
@@ -406,31 +394,26 @@ export function executeAdminRunTransaction<R>(
   rawOptions: unknown,
   docRefOnRoot: (db: SandboxFirestore, path: string) => DocumentReference,
 ): Promise<R> {
-  return runAsyncWithLifecycle(rootDb, () => {
-    if (typeof updateFunction !== 'function') {
-      throw new SandboxError(
-        'invalid-argument',
-        'Value for argument "updateFunction" is not a valid function.',
-      );
-    }
-    const parsedOpts = parseTransactionOptions(rawOptions);
-    const callback = updateFunction as (tx: Transaction) => Promise<R>;
+  if (typeof updateFunction !== 'function') {
+    throw new SandboxError(
+      'invalid-argument',
+      'Value for argument "updateFunction" is not a valid function.',
+    );
+  }
+  const parsedOpts = parseTransactionOptions(rawOptions);
+  const callback = updateFunction as (tx: Transaction) => Promise<R>;
 
-    return rawDb
-      .runTransaction(async (rawTx) => {
-        assertRootActive(rootDb);
-        const wrappedTx = wrapTransaction(rawTx, rootDb, parsedOpts.readOnly, docRefOnRoot);
-        const returned = callback(wrappedTx);
-        if (!isThenable(returned)) {
-          throw new SandboxError(
-            'invalid-argument',
-            'You must return a Promise in your transaction()-callback.',
-          );
-        }
-        const result = await returned;
-        assertRootActive(rootDb);
-        return result;
-      }, parsedOpts.forwarded)
-      .catch(translateAdminTransactionError);
-  });
+  return rawDb
+    .runTransaction(async (rawTx) => {
+      const wrappedTx = wrapTransaction(rawTx, rootDb, parsedOpts.readOnly, docRefOnRoot);
+      const returned = callback(wrappedTx);
+      if (!isThenable(returned)) {
+        throw new SandboxError(
+          'invalid-argument',
+          'You must return a Promise in your transaction()-callback.',
+        );
+      }
+      return await returned;
+    }, parsedOpts.forwarded)
+    .catch(translateAdminTransactionError);
 }

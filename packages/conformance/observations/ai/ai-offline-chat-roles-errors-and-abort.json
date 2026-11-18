@@ -1,0 +1,89 @@
+{
+  "name": "ai-offline-chat-roles-errors-and-abort",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "Pure offline firebase/ai pre-aborted SingleRequestOptions.signal rejection before fetch, startChat seeded history and validateChatHistory guards, POSSIBLE_ROLES vocabulary, and AIErrorCode / AIError constructor contract with zero network calls.",
+  "observedAt": "2026-11-18T21:55:01.429Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "fetchCalls": 0,
+    "abortSignal": {
+      "abortContentRequest": {
+        "threw": true,
+        "isAIError": false,
+        "isFirebaseError": false,
+        "code": null,
+        "name": "AbortError"
+      },
+      "abortStringRequest": {
+        "threw": true,
+        "isAIError": false,
+        "isFirebaseError": false,
+        "code": null,
+        "name": "AbortError"
+      }
+    },
+    "startChat": {
+      "isChatSession": true,
+      "defaultHistoryLength": 0,
+      "seededRoles": [
+        "user",
+        "model",
+        "function"
+      ],
+      "seededHistoryMatchesInput": true,
+      "emptyPartsHistoryThrow": {
+        "threw": true,
+        "isAIError": true,
+        "isFirebaseError": true,
+        "code": "invalid-content",
+        "name": "FirebaseError"
+      },
+      "modelFirstHistoryThrow": {
+        "threw": true,
+        "isAIError": true,
+        "isFirebaseError": true,
+        "code": "invalid-content",
+        "name": "FirebaseError"
+      }
+    },
+    "possibleRoles": [
+      "user",
+      "model",
+      "function",
+      "system"
+    ],
+    "errorVocabulary": {
+      "codeCount": 14,
+      "codesSorted": [
+        "api-not-enabled",
+        "error",
+        "fetch-error",
+        "invalid-content",
+        "invalid-schema",
+        "no-api-key",
+        "no-app-id",
+        "no-model",
+        "no-project-id",
+        "parse-failed",
+        "request-error",
+        "response-error",
+        "session-closed",
+        "unsupported"
+      ],
+      "constructedIsAIError": true,
+      "constructedIsFirebaseError": true,
+      "constructedCode": "fetch-error",
+      "constructedCustomErrorData": {
+        "status": 400,
+        "statusText": "Bad Request",
+        "errorDetails": [
+          {
+            "reason": "API_KEY_INVALID"
+          }
+        ]
+      }
+    }
+  }
+}

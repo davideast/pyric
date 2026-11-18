@@ -23,6 +23,47 @@ export interface CredentialSignIn {
 }
 
 const EMAIL_PROVIDER_ID = 'password';
+const EMAIL_LINK_METHOD = 'emailLink';
+
+/**
+ * Reconstruct a worker-wire credential payload while keeping public
+ * `AuthCredential.fromJSON` / `EmailAuthCredential.fromJSON` strict per
+ * upstream `firebase/auth` 12.19.0: when `providerId === 'password'` and
+ * `signInMethod` is `'password'` or `'emailLink'`, preserve empty or omitted
+ * `email` / `password` strings so the engine surfaces `auth/missing-password`
+ * or `auth/invalid-email` identically to in-page `signInWithCredential`.
+ */
+export function credentialFromWirePayload(
+  payload: Record<string, unknown>,
+): AuthCredential | null {
+  const parsed = AuthCredential.fromJSON(payload);
+  if (parsed !== null) {
+    return parsed;
+  }
+  const providerId = payload['providerId'];
+  const signInMethod = payload['signInMethod'];
+  if (providerId !== EMAIL_PROVIDER_ID || typeof signInMethod !== 'string') {
+    return null;
+  }
+  const isSupportedMethod =
+    signInMethod === EMAIL_PROVIDER_ID || signInMethod === EMAIL_LINK_METHOD;
+  if (!isSupportedMethod) {
+    return null;
+  }
+  let email = '';
+  if (typeof payload['email'] === 'string') {
+    email = payload['email'];
+  }
+  let secret = '';
+  if (typeof payload['password'] === 'string') {
+    secret = payload['password'];
+  }
+  let tenantId: string | null = null;
+  if (typeof payload['tenantId'] === 'string') {
+    tenantId = payload['tenantId'];
+  }
+  return new EmailAuthCredential(email, secret, signInMethod, { tenantId });
+}
 
 /**
  * Sign a port in with a credential.
@@ -76,7 +117,7 @@ function signInWithEmailCredential(
   payload: CredentialPayload,
   scope: CredentialSignInScope,
 ): CredentialSignIn {
-  const credential = AuthCredential.fromJSON(payload);
+  const credential = credentialFromWirePayload(payload);
   const isEmail = credential instanceof EmailAuthCredential;
   if (!isEmail) throw invalidCredential();
   const usesPassword = credential.password !== null;
