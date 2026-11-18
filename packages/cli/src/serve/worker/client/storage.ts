@@ -734,11 +734,11 @@ export function getBytes(
 
 /** Delete the object at the reference's path (idempotent — missing = no-op,
  *  matching the sandbox backend's delete semantics). */
-export async function deleteObject(reference: ClientStorageReference): Promise<void> {
+export function deleteObject(reference: ClientStorageReference): Promise<void> {
   guardClientNonRoot(reference, 'deleteObject');
-  await dataRpc(reference.port, {
+  return dataRpc(reference.port, {
     t: 'op', id: nextId(), method: 'storage.deleteObject', path: reference.fullPath, ...bucketWire(reference),
-  });
+  }).then(() => undefined);
 }
 
 export { uploadBytesResumable } from './resumable.js';

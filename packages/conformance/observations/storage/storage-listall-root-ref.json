@@ -1,7 +1,9 @@
 {
   "name": "storage-listall-root-ref",
-  "matrixRow": "",
-  "rowIds": [],
+  "matrixRow": "storage#75",
+  "rowIds": [
+    "storage#75"
+  ],
   "description": "firebase/storage listAll(ref(storage)) on the root reference: observes bucket-root listing returning direct root items and top-level prefixes without recursing into nested children.",
   "observedAt": "2026-11-18T09:42:07.906Z",
   "fbSdkVersion": "12.19.0",

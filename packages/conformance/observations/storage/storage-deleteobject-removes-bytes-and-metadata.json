@@ -1,7 +1,9 @@
 {
   "name": "storage-deleteobject-removes-bytes-and-metadata",
-  "matrixRow": "",
-  "rowIds": [],
+  "matrixRow": "storage#63",
+  "rowIds": [
+    "storage#63"
+  ],
   "description": "firebase/storage deleteObject(ref): observes atomic removal of both stored bytes and object metadata so post-delete getBytes and getMetadata both reject with storage/object-not-found.",
   "observedAt": "2026-11-18T08:39:45.183Z",
   "fbSdkVersion": "12.19.0",

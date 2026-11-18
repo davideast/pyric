@@ -113,9 +113,8 @@ ${scopedBlock}
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: ['web-config'],
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'storage#75',
+  rowIds: ['storage#75'],
   description:
     'firebase/storage listAll(ref(storage)) on the root reference: observes bucket-root listing returning direct root items and top-level prefixes without recursing into nested children.',
   async observe() {

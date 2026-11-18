@@ -118,6 +118,10 @@ test('the Node host replays the production getBytes and uploadString observation
   expect(await runNodeFixture('getbytes-uploadstring-oracle', 30_000)).toBe('GetBytes and uploadString oracle replay passed');
 }, 60_000);
 
+test('the Node host replays the production deleteObject, root listAll, and rules observations', async () => {
+  expect(await runNodeFixture('delete-listall-rules-oracle', 30_000)).toBe('Delete, listAll root, and rules oracle replay passed');
+}, 60_000);
+
 test('pyric-admin and the Node remote client move Storage bytes over the byte route, with ranges and streams', async () => {
   expect(await runNodeFixture('node-byte-route', 60_000)).toBe('Node byte route passed');
 }, 90_000);
