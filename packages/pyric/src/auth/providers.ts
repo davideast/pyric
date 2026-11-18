@@ -15,6 +15,7 @@
  * result (see `sandbox.mockSignInResult`).
  */
 
+import { ActionCodeURL } from './action-code-url.js';
 import { makeAuthError } from './auth-errors.js';
 import { AuthCredential, EmailAuthCredential, OAuthCredential } from './credentials.js';
 import { SignInMethod } from './enums.js';
@@ -68,10 +69,19 @@ export class EmailAuthProvider {
     return new EmailAuthCredential(email, password, SignInMethod.EMAIL_PASSWORD);
   }
 
-  /** Build an email-LINK credential from a link the user received. Its
-   *  secret is the link itself. */
+  /** Build an email-link credential after validating the action link URL
+   *  via `ActionCodeURL.parseLink`, matching upstream `firebase/auth`. */
   static credentialWithLink(email: string, emailLink: string): EmailAuthCredential {
-    return new EmailAuthCredential(email, emailLink, SignInMethod.EMAIL_LINK);
+    const parsed = ActionCodeURL.parseLink(emailLink);
+    if (parsed === null) {
+      throw makeAuthError(
+        'auth/argument-error',
+        'credentialWithLink: the supplied emailLink is not a valid action link.',
+      );
+    }
+    return new EmailAuthCredential(email, parsed.code, SignInMethod.EMAIL_LINK, {
+      rawLink: emailLink,
+    });
   }
 }
 
@@ -134,6 +144,7 @@ export class OAuthProvider {
     return new OAuthCredential(this.providerId, this.providerId, {
       idToken: args.idToken,
       accessToken: args.accessToken,
+      rawNonce: args.rawNonce,
     });
   }
 

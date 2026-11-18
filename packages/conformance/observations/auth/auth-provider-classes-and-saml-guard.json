@@ -1,7 +1,11 @@
 {
   "name": "auth-provider-classes-and-saml-guard",
-  "matrixRow": "",
-  "rowIds": [],
+  "matrixRow": "auth#50",
+  "rowIds": [
+    "auth#50",
+    "auth#52",
+    "auth#181"
+  ],
   "description": "Provider classes expose canonical PROVIDER_ID and providerId values, chainable scope/parameter methods where supported, and SAMLAuthProvider enforces the saml. prefix while omitting client credential() factories.",
   "observedAt": "2026-11-18T17:35:01.464Z",
   "fbSdkVersion": "12.19.0",

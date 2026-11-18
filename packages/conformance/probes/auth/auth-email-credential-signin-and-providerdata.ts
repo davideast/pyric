@@ -6,9 +6,8 @@ const PROBE_PASSWORD = 'ProbePassword!123';
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: ['web-config', 'admin-auth'],
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'auth#182',
+  rowIds: ['auth#180', 'auth#182'],
   description:
     'User.providerData reflects linked providers accurately (empty on custom-token birth, populated on linkWithCredential, preserved across signInWithCredential with EmailAuthProvider.credential, and emptied on unlink without re-anonymizing).',
   async observe() {
