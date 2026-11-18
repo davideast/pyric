@@ -7,15 +7,21 @@
  */
 import 'fake-indexeddb/auto';
 import { afterEach, beforeEach, expect } from 'bun:test';
-import { readFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { createMemoryBackend } from 'pyric/sandbox';
 import { setRules } from 'pyric/sandbox/firestore';
 import * as ipDatabase from 'pyric/database';
+import { openStorageBackend } from '../../../../../pyric/src/storage/persistence.js';
+import type { BridgeMessage } from '../../../../src/bridge/protocol.js';
+import { createHostedRuntime } from '../../../../src/serve/hosted/runtime.js';
 import * as client from '../../../../src/serve/worker/index.js';
 import { readDocumentAs, readQueryAs } from '../../../../src/serve/worker/client/firestore-reads.js';
 import { refEqual } from '../../../../src/serve/worker/client/firestore-reference-equality.js';
+import { getHostedFirestore } from '../../../../src/serve/worker/client/websocket-connection.js';
 import { setDatabaseRules } from '../../../../src/serve/worker/host/rules.js';
-import { connectClientToHost, makeHostCtx, sleep } from '../integration-support.js';
+import { connectClientToHost, makeHostCtx, sleep, until } from '../integration-support.js';
 import { replayTiming } from '../../../../../conformance/src/capture/sdk-scenarios/scenario-timing.ts';
 import { replayMismatches, type Behavior, type Replay } from '../../../../../conformance/src/capture/sdk-scenarios/replay-comparison.ts';
 import type {
@@ -31,7 +37,10 @@ const OBSERVATIONS = join(import.meta.dir, '..', '..', '..', '..', '..', 'confor
 
 /** The committed observation's behavior block. */
 export function load(name: string): Behavior {
-  const surface = name.startsWith('rtdb-modular-') ? 'rtdb-modular' : 'firestore';
+  let surface = 'firestore';
+  if (name.startsWith('rtdb-modular-')) {
+    surface = 'rtdb-modular';
+  }
   return JSON.parse(readFileSync(join(OBSERVATIONS, surface, `${name}.json`), 'utf8')).behavior as Behavior;
 }
 
@@ -88,12 +97,156 @@ function databaseSdk(): DatabaseSdk {
   return named as unknown as DatabaseSdk;
 }
 
+const hostedCleanups: Array<() => Promise<void> | void> = [];
+
+afterEach(async () => {
+  for (const cleanup of hostedCleanups.splice(0)) {
+    await cleanup();
+  }
+});
+
 export async function servedRtdbContext(): Promise<RtdbScenarioContext> {
   const ctx = await makeHostCtx();
   setDatabaseRules(ctx, undefined, { rules: { '.read': true, '.write': true } });
   const rtdb = databaseSdk();
   const open = (name: string) => ({ db: rtdb.getDatabase(connectClientToHost(ctx, `worker://capture-${name}-${Math.random()}`).db as never) });
   return { ...servedTiming, rtdb, db: open('main').db, base: '/pyric_oracle/replay', newClient: async (name) => open(name) };
+}
+
+/**
+ * Replays an RTDB scenario against `createHostedRuntime` (the Node host plane)
+ * over loopback WebSockets wired through `getHostedFirestore`.
+ */
+export async function hostedRtdbContext(): Promise<RtdbScenarioContext> {
+  const projectDir = mkdtempSync(join(tmpdir(), 'pyric-hosted-rtdb-capture-'));
+  const sockets = new Map<string, { send(data: string): void }>();
+  const clientPorts: Array<{ close(): void }> = [];
+  const persistence = {
+    backend: createMemoryBackend(),
+    storage: await openStorageBackend(`mem-hosted-rtdb-${Math.random()}`),
+    checkpoints: {},
+    state: { seed: async () => false },
+    repairedObjects: [],
+    sweep: Promise.resolve({ removed: 0, bytesRemoved: 0 }),
+    close() {},
+    status: () => ({ state: 'healthy' as const }),
+    onFailure: () => () => {},
+    markUnhealthy() {},
+  };
+  const runtime = await createHostedRuntime(
+    {
+      rules: OPEN_FIRESTORE_RULES,
+      rulesHash: null,
+      databaseRules: { rules: { '.read': true, '.write': true } },
+      databaseRulesHash: null,
+      bridgeUrl: '/__pyric/sandbox',
+      seed: null,
+      capture: false,
+      hosted: true,
+      permissive: false,
+      projectKey: 'oracle-hosted',
+      sessionToken: 'tok-hosted-rtdb',
+      appOptions: { projectId: 'demo-oracle' },
+    },
+    'http://127.0.0.1:4400',
+    (frame) => {
+      if (frame.type !== 'worker-message-result') return;
+      const sessionId = frame.clientSessionId;
+      if (typeof sessionId !== 'string') return;
+      const socket = sockets.get(sessionId);
+      if (socket !== undefined) {
+        socket.send(JSON.stringify(frame));
+      }
+    },
+    projectDir,
+    { persistence: persistence as never, record: false },
+  );
+
+  let nextSession = 0;
+  const server = Bun.serve<{ sessionId: string }>({
+    hostname: '127.0.0.1',
+    port: 0,
+    fetch(request, bunServer) {
+      const sessionId = `hosted-rtdb-${++nextSession}`;
+      if (bunServer.upgrade(request, { data: { sessionId } })) return undefined;
+      return new Response('upgrade required', { status: 426 });
+    },
+    websocket: {
+      open(socket) {
+        sockets.set(socket.data.sessionId, socket);
+      },
+      message(socket, raw) {
+        const message = JSON.parse(String(raw)) as BridgeMessage;
+        if (message.type === 'attach') {
+          socket.send(JSON.stringify({
+            type: 'attach-ack',
+            protocol: 1,
+            bridgeVersion: 'test',
+            peerConnected: true,
+            clientSessionId: socket.data.sessionId,
+            projectKey: 'oracle-hosted',
+            hostInstanceId: runtime.instanceId,
+            capabilities: ['worker-port'],
+          } satisfies BridgeMessage));
+          return;
+        }
+        if (message.type === 'worker-message') {
+          runtime.receive({
+            type: 'worker-message',
+            clientSessionId: socket.data.sessionId,
+            message: message.message,
+            platform: 'node',
+          });
+        }
+      },
+      close(socket) {
+        sockets.delete(socket.data.sessionId);
+        runtime.receive({
+          type: 'worker-client-disconnect',
+          clientSessionId: socket.data.sessionId,
+        });
+      },
+    },
+  });
+
+  hostedCleanups.push(async () => {
+    for (const port of clientPorts.splice(0)) {
+      try {
+        port.close();
+      } catch {
+        // Ignore already-closed client socket ports during teardown.
+      }
+    }
+    await runtime.close();
+    await server.stop(true);
+    rmSync(projectDir, { recursive: true, force: true });
+  });
+
+  const wsUrl = `ws://127.0.0.1:${server.port}/__pyric/sandbox`;
+  const rtdb = databaseSdk();
+  const openHostedClient = async (label: string) => {
+    let attached = false;
+    const clientDb = getHostedFirestore({
+      url: wsUrl,
+      projectKey: 'oracle-hosted',
+      retryInitialConnection: false,
+      onConnection: (state) => {
+        if (state === 'attached') attached = true;
+      },
+    });
+    clientPorts.push(clientDb.port);
+    await until(() => attached, `hosted RTDB attach (${label})`);
+    return { db: rtdb.getDatabase(clientDb as never) };
+  };
+
+  const main = await openHostedClient('main');
+  return {
+    ...servedTiming,
+    rtdb,
+    db: main.db,
+    base: '/pyric_oracle/replay',
+    newClient: (name) => openHostedClient(name),
+  };
 }
 
 export function expectReplay(replay: Replay): void {

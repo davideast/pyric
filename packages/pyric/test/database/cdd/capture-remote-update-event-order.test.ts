@@ -12,14 +12,6 @@ const PRODUCTION_LOG = [
   '-- setPriority a 9',
   'A value', 'R changed a', 'R value', 'Q moved a', 'Q changed a', 'L moved a',
 ];
-const SANDBOX_LOG = [
-  '-- update',
-  'R value', 'A value',
-  'Q changed b', 'Q changed a', 'Q moved b', 'Q moved a',
-  'R added d', 'R changed a', 'R changed b', 'R removed c', 'A changed x',
-  '-- setPriority a 9',
-  'R value', 'A value',
-];
 
 const afterPriority = (log: unknown) => {
   const lines = log as string[];

@@ -30,7 +30,7 @@ describe('SDK hunt captures: runTransaction then set', () => {
     expectReplay({ production: obs('rtdb-modular-transaction-then-set-warm'), pyric: await runInPage(warm) });
   });
 
-  // RP-4 is a served-plane finding, pinned in
+  // RP-4 is a served-plane finding, replayed in
   // packages/cli/test/serve/worker/oracle-captures/rtdb-transaction-then-set.test.ts.
   // The sandbox side: a warm client's transaction commits once and the set lands on top.
   row('served-transaction-then-set', async () => {
