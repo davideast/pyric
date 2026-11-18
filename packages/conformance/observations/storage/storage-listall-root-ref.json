@@ -1,0 +1,20 @@
+{
+  "name": "storage-listall-root-ref",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "firebase/storage listAll(ref(storage)) on the root reference: observes bucket-root listing returning direct root items and top-level prefixes without recursing into nested children.",
+  "observedAt": "2026-11-18T09:54:26.958Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "rootFullPath": "",
+    "rootName": "",
+    "rootParentIsNull": true,
+    "containsSeededRootItem": true,
+    "containsSeededRootPrefix": true,
+    "nestedChildExcludedFromRootItems": true,
+    "itemsSortedLexicographically": true,
+    "prefixesSortedLexicographically": false,
+    "nextPageTokenIsUndefined": true
+  }
+}
