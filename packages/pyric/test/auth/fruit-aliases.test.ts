@@ -67,10 +67,10 @@ describe('Auth low-hanging-fruit exports (issue #149)', () => {
 
     await deleteUser(user);
     expect(auth.currentUser).toBeNull();
-    // The identity is gone: re-sign-in throws user-not-found.
+    // The identity is gone: re-sign-in throws auth/invalid-credential.
     await expect(
       signInWithEmailAndPassword(auth, 'alice@example.com', 'pw-original'),
-    ).rejects.toMatchObject({ code: 'auth/user-not-found' });
+    ).rejects.toMatchObject({ code: 'auth/invalid-credential' });
   });
 
   it('updateEmail changes the stored email (next sign-in uses the new one)', async () => {
@@ -84,7 +84,7 @@ describe('Auth low-hanging-fruit exports (issue #149)', () => {
     // Old email no longer resolves; new one does.
     await expect(
       signInWithEmailAndPassword(auth, 'alice@example.com', 'pw-original'),
-    ).rejects.toMatchObject({ code: 'auth/user-not-found' });
+    ).rejects.toMatchObject({ code: 'auth/invalid-credential' });
     const again = await signInWithEmailAndPassword(auth, 'alice2@example.com', 'pw-original');
     expect(again.user.uid).toBe('alice');
   });
@@ -96,14 +96,13 @@ describe('Auth low-hanging-fruit exports (issue #149)', () => {
     await updatePassword(user, 'pw-brand-new');
     await signOut(auth);
 
-    // New password signs in; the old one is rejected — the sandbox really
-    // verifies passwords.
+    // New password signs in; the old one is rejected because the sandbox verifies passwords.
     const ok = await signInWithEmailAndPassword(auth, 'alice@example.com', 'pw-brand-new');
     expect(ok.user.uid).toBe('alice');
     await signOut(auth);
     await expect(
       signInWithEmailAndPassword(auth, 'alice@example.com', 'pw-original'),
-    ).rejects.toMatchObject({ code: 'auth/wrong-password' });
+    ).rejects.toMatchObject({ code: 'auth/invalid-credential' });
   });
 
   it('reload re-reads the stored record into the held user', async () => {

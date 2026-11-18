@@ -186,7 +186,10 @@ describe('multi-tenant Auth BACKEND-PARITY across in-process, node, and worker p
       expect(inProcBeta.user.tenantId).toBe('org-beta');
       await expect(
         signInWithEmailAndPassword(inProcAuth, 'shared@example.test', 'AlphaPassword123!'),
-      ).rejects.toMatchObject({ code: 'auth/wrong-password' });
+      ).rejects.toMatchObject({ code: 'auth/invalid-credential' });
+      await expect(
+        signInWithEmailAndPassword(inProcAuth, 'missing@example.test', 'BetaPassword456!'),
+      ).rejects.toMatchObject({ code: 'auth/invalid-credential' });
 
       // 2 & 3. Hosted Node and SharedWorker planes
       for (const served of [node, worker]) {
@@ -214,7 +217,10 @@ describe('multi-tenant Auth BACKEND-PARITY across in-process, node, and worker p
         expect(betaCred.user.tenantId).toBe('org-beta');
         await expect(
           clientSignInWithEmailAndPassword(cBeta, 'shared@example.test', 'AlphaPassword123!'),
-        ).rejects.toMatchObject({ code: 'auth/wrong-password' });
+        ).rejects.toMatchObject({ code: 'auth/invalid-credential' });
+        await expect(
+          clientSignInWithEmailAndPassword(cBeta, 'missing@example.test', 'BetaPassword456!'),
+        ).rejects.toMatchObject({ code: 'auth/invalid-credential' });
       }
     } finally {
       inProcSb.dispose();

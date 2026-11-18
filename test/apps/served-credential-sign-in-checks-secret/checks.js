@@ -42,19 +42,34 @@ function whoIsSignedIn(ownerUid) {
   return "someone else";
 }
 
-/** Presents one credential and reports the outcome, who is signed in after, and the owner's document read. */
-async function present(credential, ownerUid) {
+function errorCodeOf(error) {
+  if (typeof error?.code === "string") return error.code;
+  return String(error);
+}
+
+/** Runs one sign-in call and reports the outcome, who is signed in after, and the owner's document read. */
+async function observeSignIn(attempt, ownerUid) {
   let outcome;
   try {
-    const result = await signInWithCredential(auth, credential);
+    const result = await attempt();
     outcome = { ok: true, providerId: result.providerId };
   } catch (error) {
-    outcome = { ok: false, code: error?.code ?? String(error) };
+    outcome = { ok: false, code: errorCodeOf(error) };
   }
   const signedIn = whoIsSignedIn(ownerUid);
-  const read = await getDoc(doc(db, "private", ownerUid)).then(() => "allowed", (error) => error?.code ?? String(error));
+  const read = await getDoc(doc(db, "private", ownerUid)).then(() => "allowed", errorCodeOf);
   await signOut(auth);
   return { ...outcome, signedIn, read };
+}
+
+/** Presents one credential to signInWithCredential. */
+function present(credential, ownerUid) {
+  return observeSignIn(() => signInWithCredential(auth, credential), ownerUid);
+}
+
+/** Calls signInWithEmailAndPassword with one email and password pair. */
+function presentEmailPassword(email, password, ownerUid) {
+  return observeSignIn(() => signInWithEmailAndPassword(auth, email, password), ownerUid);
 }
 
 /** The provider ids on the owner's account, read after signing in with the right password. */
@@ -79,6 +94,9 @@ function lookAlikes(ownerUid) {
 export async function runChecks() {
   const ownerUid = await createOwner();
   const checks = {
+    directWrongPassword: await presentEmailPassword(OWNER, "wrong-password", ownerUid),
+    directEmptyPassword: await presentEmailPassword(OWNER, "", ownerUid),
+    directUnknownEmail: await presentEmailPassword("nobody@example.com", PASSWORD, ownerUid),
     wrongPassword: await present(EmailAuthProvider.credential(OWNER, "wrong-password"), ownerUid),
     emptyPassword: await present(EmailAuthProvider.credential(OWNER, ""), ownerUid),
     unknownEmail: await present(EmailAuthProvider.credential("nobody@example.com", PASSWORD), ownerUid),
@@ -87,6 +105,7 @@ export async function runChecks() {
   for (const [name, credential] of Object.entries(lookAlikes(ownerUid))) {
     checks[name] = await present(credential, ownerUid);
   }
+  checks.directRightPassword = await presentEmailPassword(OWNER, PASSWORD, ownerUid);
   checks.rightPassword = await present(EmailAuthProvider.credential(OWNER, PASSWORD), ownerUid);
   return { checks, ownerProviderIds: await ownerProviderIds() };
 }

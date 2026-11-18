@@ -2,7 +2,7 @@
  * Email/password sign-in — sandbox target.
  *
  * Covers `signInWithEmailAndPassword` against a seeded user DB
- * (success + `auth/user-not-found` + `auth/wrong-password`),
+ * (success + `auth/invalid-credential` for unknown email and wrong password),
  * `createUserWithEmailAndPassword` (success + `auth/email-already-in-use`),
  * custom claims surfacing in `getIdTokenResult`, and the
  * sandbox.currentUser bridge (rules engine reads `auth.token.role`
@@ -38,18 +38,18 @@ describe('sandbox email/password sign-in', () => {
     expect(auth.currentUser?.uid).toBe('alice');
   });
 
-  it('throws auth/user-not-found for unknown email', async () => {
+  it('throws auth/invalid-credential for unknown email', async () => {
     const sandbox = initializeSandbox();
     const auth = getAuth(sandbox);
     try {
       await signInWithEmailAndPassword(auth, 'ghost@example.com', 'pw');
       throw new Error('expected throw');
     } catch (e) {
-      expect((e as { code: string }).code).toBe('auth/user-not-found');
+      expect((e as { code: string }).code).toBe('auth/invalid-credential');
     }
   });
 
-  it('throws auth/wrong-password for bad password', async () => {
+  it('throws auth/invalid-credential for bad password', async () => {
     const sandbox = initializeSandbox();
     const auth = getAuth(sandbox);
     authSandbox.seedUsers(auth, [
@@ -59,7 +59,7 @@ describe('sandbox email/password sign-in', () => {
       await signInWithEmailAndPassword(auth, 'alice@example.com', 'wrong');
       throw new Error('expected throw');
     } catch (e) {
-      expect((e as { code: string }).code).toBe('auth/wrong-password');
+      expect((e as { code: string }).code).toBe('auth/invalid-credential');
     }
   });
 

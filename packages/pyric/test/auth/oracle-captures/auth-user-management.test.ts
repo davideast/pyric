@@ -17,7 +17,6 @@ import {
 import { initializeSandbox } from 'pyric/sandbox';
 import {
   createUserManagementAdminSession,
-  DELETE_USER_SIGNIN_ENUMERATION_PIN,
   replayAuthDeleteUserSignOutAndFollowupErrors,
   replayAuthInitializeAuthLifecycleAndDeps,
   replayAuthReloadOutOfBandAndDisabledDeleted,
@@ -120,11 +119,7 @@ describe('Auth user-management and session oracle captures (in-page pyric/auth)'
     const pyric = await replayAuthDeleteUserSignOutAndFollowupErrors(
       inPageUserManagementContext(),
     );
-    expectReplay({
-      production,
-      pyric,
-      pins: [DELETE_USER_SIGNIN_ENUMERATION_PIN],
-    });
+    expectReplay({ production, pyric });
   });
 
   it('auth-reload-out-of-band-and-disabled-deleted (auth#86)', async () => {

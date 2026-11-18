@@ -244,7 +244,7 @@ describe('sandbox.createSignInCredential (A2)', () => {
       spec: { email: 'oauth@x.com' },
     });
     expect(signInWithEmailAndPassword(auth, 'oauth@x.com', 'whatever'))
-      .rejects.toMatchObject({ code: 'auth/wrong-password' });
+      .rejects.toMatchObject({ code: 'auth/invalid-credential' });
   });
 
   it('{spec} with an existing email reuses that identity', () => {
@@ -423,14 +423,14 @@ describe('sandbox.updateUser (A3)', () => {
     expect(r.customClaims).toEqual({}); // wholesale replace, not merge
   });
 
-  it('re-keys the email index — sign-in works with the new email only', async () => {
+  it('re-keys the email index so sign-in works with the new email only', async () => {
     const auth = freshAuth();
     authSandbox.createUser(auth, { uid: 'u1', email: 'old@x.com', password: 'pw1234' });
     authSandbox.updateUser(auth, 'u1', { email: 'new@x.com' });
     const { user } = await signInWithEmailAndPassword(auth, 'new@x.com', 'pw1234');
     expect(user.uid).toBe('u1');
     expect(signInWithEmailAndPassword(auth, 'old@x.com', 'pw1234'))
-      .rejects.toMatchObject({ code: 'auth/user-not-found' });
+      .rejects.toMatchObject({ code: 'auth/invalid-credential' });
   });
 
   it('rejects an email update that collides with another account', () => {
@@ -520,13 +520,13 @@ describe('sandbox.updateUser (A3)', () => {
 });
 
 describe('sandbox.deleteUser / clearUsers (A3)', () => {
-  it('deleteUser removes the record; subsequent sign-in is user-not-found', async () => {
+  it('deleteUser removes the record; subsequent sign-in is invalid-credential', async () => {
     const auth = freshAuth();
     authSandbox.createUser(auth, { uid: 'u1', email: 'u1@x.com', password: 'pw1234' });
     authSandbox.deleteUser(auth, 'u1');
     expect(authSandbox.listUsers(auth)).toEqual([]);
     expect(signInWithEmailAndPassword(auth, 'u1@x.com', 'pw1234'))
-      .rejects.toMatchObject({ code: 'auth/user-not-found' });
+      .rejects.toMatchObject({ code: 'auth/invalid-credential' });
   });
 
   it('deleteUser throws auth/user-not-found for unknown uids', () => {

@@ -165,7 +165,7 @@ describe('email-link sign-in — the round trip', () => {
     await signOut(auth);
     await expectCode(
       signInWithEmailAndPassword(auth, 'ada@example.com', 'anything123'),
-      'auth/wrong-password',
+      'auth/invalid-credential',
     );
   });
 });
@@ -216,7 +216,7 @@ describe('password reset', () => {
     const cred = await signInWithEmailAndPassword(auth, 'ada@example.com', 'newpw456');
     expect(cred.user.email).toBe('ada@example.com');
     await signOut(auth);
-    await expectCode(signInWithEmailAndPassword(auth, 'ada@example.com', 'oldpw123'), 'auth/wrong-password');
+    await expectCode(signInWithEmailAndPassword(auth, 'ada@example.com', 'oldpw123'), 'auth/invalid-credential');
   });
 
   it('does not leak account existence for an unknown address', async () => {

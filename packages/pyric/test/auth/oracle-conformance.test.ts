@@ -180,33 +180,33 @@ describe('oracle conformance (auth)', () => {
     );
   });
 
-  it('auth-user-not-found-error-code (KNOWN DIVERGENCE, #1819)', async () => {
-    const obs = load('auth-user-not-found-error-code.json');
-    // Production with Email Enumeration Protection on answers
-    // auth/invalid-credential, the sandbox answers auth/user-not-found (#1819).
-    // Both sides are pinned; when #1819 lands, assert the sandbox against obs.code.
-    expect(obs.code).toBe('auth/invalid-credential');
-    await expectCode(
+  it('auth-user-not-found-error-code', async () => {
+    const obs = load('auth-user-not-found-error-code.json') as {
+      code: string;
+      messageContains: { userNotFound: boolean; invalidCredential: boolean; invalidLoginCredentials: boolean };
+    };
+    const err = await expectCode(
       signInWithEmailAndPassword(freshAuth(), 'never-registered@example.com', 'pw123456'),
-      'auth/user-not-found',
+      obs.code,
     );
+    expect(err.message.includes('user-not-found')).toBe(obs.messageContains.userNotFound);
+    expect(err.message.includes('invalid-credential')).toBe(obs.messageContains.invalidCredential);
+    expect(err.message.includes('INVALID_LOGIN_CREDENTIALS')).toBe(obs.messageContains.invalidLoginCredentials);
   });
 
-  it('auth-wrong-password-error-code (KNOWN DIVERGENCE, #1819)', async () => {
-    const obs = load('auth-wrong-password-error-code.json');
+  it('auth-wrong-password-error-code', async () => {
+    const obs = load('auth-wrong-password-error-code.json') as {
+      code: string;
+      messageContains: { wrongPassword: boolean; invalidCredential: boolean };
+    };
     const auth = freshAuth();
     authSandbox.seedUsers(auth, [{ uid: 'wp', email: 'wp@example.com', password: 'correct123' }]);
-    // Production with Email Enumeration Protection on answers
-    // auth/invalid-credential, the sandbox answers auth/wrong-password (#1819).
-    // Both sides are pinned; when #1819 lands, assert the sandbox against obs.code.
-    expect(obs.code).toBe('auth/invalid-credential');
-    await expectCode(
-      signInWithEmailAndPassword(auth, 'wp@example.com', 'wrong9999'),
-      'auth/wrong-password',
-    );
+    const err = await expectCode(signInWithEmailAndPassword(auth, 'wp@example.com', 'wrong9999'), obs.code);
+    expect(err.message.includes('wrong-password')).toBe(obs.messageContains.wrongPassword);
+    expect(err.message.includes('invalid-credential')).toBe(obs.messageContains.invalidCredential);
   });
 
-  it('auth-reauthenticate-with-credential (KNOWN DIVERGENCE on a wrong password, #1819)', async () => {
+  it('auth-reauthenticate-with-credential', async () => {
     const obs = load('auth-reauthenticate-with-credential.json') as {
       setupCode: string | null;
       reauthCode: string | null;
@@ -237,13 +237,9 @@ describe('oracle conformance (auth)', () => {
       reauthenticateWithCredential(auth.currentUser!, EmailAuthProvider.credential('reauth-other@example.com', password)),
       obs.userMismatchCode,
     );
-    // A wrong password: production answers auth/invalid-credential, the sandbox
-    // answers auth/wrong-password (#1819). Both sides are pinned; when #1819
-    // lands, assert the sandbox against obs.wrongPasswordCode.
-    expect(obs.wrongPasswordCode).toBe('auth/invalid-credential');
     await expectCode(
       reauthenticateWithCredential(auth.currentUser!, EmailAuthProvider.credential('reauth@example.com', 'wrong-pw-999')),
-      'auth/wrong-password',
+      obs.wrongPasswordCode,
     );
   });
 

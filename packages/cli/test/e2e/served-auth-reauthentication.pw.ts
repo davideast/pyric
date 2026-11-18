@@ -100,7 +100,7 @@ for (const hosted of [false, true]) {
       expect(refreshed.claims.firebase.tenant).toBe('red');
       expect(Date.parse(refreshed.after)).toBeGreaterThan(Date.parse(refreshed.before));
       expect(refreshed.transitions).toEqual([refreshed.originalUid]);
-      await action('wrong', 'auth/wrong-password');
+      await action('wrong', 'auth/invalid-credential');
       await action('mismatch', 'auth/user-mismatch');
       await action('popup');
       await action('redirect');

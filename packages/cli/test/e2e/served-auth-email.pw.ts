@@ -84,7 +84,7 @@ for (const hosted of [false, true]) {
       await expect(page.locator('#status')).toHaveText('Ready');
       const result = await page.evaluate(() => Reflect.get(window, 'runEmailFlows')());
       expect(result).toMatchObject({ returnedUid: result.uid, email: 'owner@example.com', empty: null,
-        weakPassword: 'auth/weak-password', replay: 'auth/invalid-action-code', oldPassword: 'auth/wrong-password',
+        weakPassword: 'auth/weak-password', replay: 'auth/invalid-action-code', oldPassword: 'auth/invalid-credential',
         verified: true, verificationOperation: 'VERIFY_EMAIL', originalEmail: 'owner@example.com', changedEmail: 'changed@example.com',
         predicate: [true, false, false], wrongEmail: 'auth/invalid-email', linkReplay: 'auth/invalid-action-code',
         linkedEmail: 'link@example.com', linkedVerified: true, linkedTenant: 'red', tenantClaim: 'red',

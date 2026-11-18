@@ -2,7 +2,7 @@ import { deleteApp as deleteAdminApp, initializeApp as initializeAdminApp } from
 import { getAuth as getAdminAuth } from 'pyric-admin/auth';
 import type { Sandbox } from 'pyric/sandbox';
 import { observeAsyncAuthAttempt, observeSyncAuthAttempt } from './auth-user-probe-session.ts';
-import type { Behavior, Pin } from './capture/sdk-scenarios/replay-comparison.ts';
+import type { Behavior } from './capture/sdk-scenarios/replay-comparison.ts';
 import { waitForCondition } from './oracle-run-stable-shapes.ts';
 
 interface ReplayUserShape {
@@ -90,24 +90,6 @@ export function createUserManagementAdminSession(sandbox: Sandbox, label: string
     },
   };
 }
-
-export const DELETE_USER_SIGNIN_ENUMERATION_PIN: Pin = {
-  key: 'signInAfterDelete',
-  finding:
-    'auth#14 (#1819): Email Enumeration Protection answers auth/invalid-credential in production while Pyric throws auth/user-not-found',
-  production: {
-    threw: true,
-    errorName: 'FirebaseError',
-    isFirebaseError: true,
-    code: 'auth/invalid-credential',
-  },
-  pyric: {
-    threw: true,
-    errorName: 'FirebaseError',
-    isFirebaseError: true,
-    code: 'auth/user-not-found',
-  },
-};
 
 const PROBE_PASSWORD = 'ProbePassword!123';
 
