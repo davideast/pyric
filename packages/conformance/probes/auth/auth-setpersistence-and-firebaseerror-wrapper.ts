@@ -46,9 +46,8 @@ function inspectErrorShape(err: unknown): ObservedFirebaseErrorShape {
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: ['web-config', 'admin-auth'],
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'auth#41',
+  rowIds: ['auth#41', 'auth#42', 'auth#49f'],
   description:
     'setPersistence accepts inMemoryPersistence, browserSessionPersistence, and browserLocalPersistence markers returning Promise<void>, and Auth errors are FirebaseError instances formatted with Firebase: <message> (<auth/...>).',
   async observe() {

@@ -6,9 +6,8 @@ const PROBE_PASSWORD = 'ProbePassword!123';
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: ['web-config', 'admin-auth'],
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'auth#1',
+  rowIds: ['auth#1', 'auth#5', 'auth#16', 'auth#49e'],
   description:
     'getAuth(app) caches one Auth handle per FirebaseApp, auth.currentUser reads live session state across sign-in and both auth.signOut() method and free signOut(auth) calls, and signInWithEmailAndPassword returns the same uid on re-sign-in.',
   async observe() {

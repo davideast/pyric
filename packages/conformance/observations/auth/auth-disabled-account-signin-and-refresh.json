@@ -1,7 +1,9 @@
 {
   "name": "auth-disabled-account-signin-and-refresh",
-  "matrixRow": "",
-  "rowIds": [],
+  "matrixRow": "auth#69",
+  "rowIds": [
+    "auth#69"
+  ],
   "description": "Disabling a user leaves an existing client session signed in until forced token refresh rejects with auth/user-disabled and signs out, and rejects subsequent password and custom-token sign-in attempts.",
   "observedAt": "2026-11-18T20:32:07.985Z",
   "fbSdkVersion": "12.19.0",
