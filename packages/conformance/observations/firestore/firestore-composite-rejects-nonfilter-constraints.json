@@ -1,0 +1,53 @@
+{
+  "name": "firestore-composite-rejects-nonfilter-constraints",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "Passing non-filter constraints (orderBy, limit, limitToLast, startAt) into or() or and() throws FirebaseError invalid-argument vs TypeError.",
+  "observedAt": "2026-11-17T23:55:36.991Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "orWithOrderBy": {
+      "threw": true,
+      "errorName": "FirebaseError",
+      "isTypeError": false,
+      "code": "invalid-argument",
+      "message": "Function or() requires AppliableConstraints created with a call to 'where(...)', 'or(...)', or 'and(...)'."
+    },
+    "orWithLimit": {
+      "threw": true,
+      "errorName": "FirebaseError",
+      "isTypeError": false,
+      "code": "invalid-argument",
+      "message": "Function or() requires AppliableConstraints created with a call to 'where(...)', 'or(...)', or 'and(...)'."
+    },
+    "orWithLimitToLast": {
+      "threw": true,
+      "errorName": "FirebaseError",
+      "isTypeError": false,
+      "code": "invalid-argument",
+      "message": "Function or() requires AppliableConstraints created with a call to 'where(...)', 'or(...)', or 'and(...)'."
+    },
+    "andWithOrderBy": {
+      "threw": true,
+      "errorName": "FirebaseError",
+      "isTypeError": false,
+      "code": "invalid-argument",
+      "message": "Function and() requires AppliableConstraints created with a call to 'where(...)', 'or(...)', or 'and(...)'."
+    },
+    "andWithLimit": {
+      "threw": true,
+      "errorName": "FirebaseError",
+      "isTypeError": false,
+      "code": "invalid-argument",
+      "message": "Function and() requires AppliableConstraints created with a call to 'where(...)', 'or(...)', or 'and(...)'."
+    },
+    "andWithStartAt": {
+      "threw": true,
+      "errorName": "FirebaseError",
+      "isTypeError": false,
+      "code": "invalid-argument",
+      "message": "Function and() requires AppliableConstraints created with a call to 'where(...)', 'or(...)', or 'and(...)'."
+    }
+  }
+}

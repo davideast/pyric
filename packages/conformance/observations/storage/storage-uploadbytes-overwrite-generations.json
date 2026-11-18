@@ -1,0 +1,50 @@
+{
+  "name": "storage-uploadbytes-overwrite-generations",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "uploadBytes overwrite and generation semantics: uploading twice to the same path replaces bytes and metadata instead of appending, issues a strictly larger numeric string generation, and resets metageneration to \"1\" on each fresh version.",
+  "observedAt": "2026-11-17T23:56:57.697Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "firstUpload": {
+      "size": 7,
+      "contentType": "application/octet-stream",
+      "customMetadata": {
+        "extra": "removed-on-overwrite",
+        "revision": "first"
+      },
+      "generationType": "string",
+      "generationIsDecimalDigits": true,
+      "metagenerationType": "string",
+      "metageneration": "1"
+    },
+    "secondUpload": {
+      "size": 3,
+      "contentType": "application/json",
+      "customMetadata": {
+        "revision": "second"
+      },
+      "generationType": "string",
+      "generationIsDecimalDigits": true,
+      "metagenerationType": "string",
+      "metageneration": "1"
+    },
+    "generationChanged": true,
+    "generationStrictlyIncreased": true,
+    "afterOverwriteReadBytes": [
+      10,
+      20,
+      30
+    ],
+    "afterOverwriteGetMetadata": {
+      "size": 3,
+      "contentType": "application/json",
+      "customMetadata": {
+        "revision": "second"
+      },
+      "generationMatchesSecondUpload": true,
+      "metageneration": "1"
+    }
+  }
+}

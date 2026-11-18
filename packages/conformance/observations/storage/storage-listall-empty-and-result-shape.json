@@ -1,0 +1,45 @@
+{
+  "name": "storage-listall-empty-and-result-shape",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "listAll(ref) on empty and populated directories: observes empty items/prefixes arrays, undefined nextPageToken, and full StorageReference properties (storage, bucket, name, fullPath, parent, root, toString) on returned items and prefixes.",
+  "observedAt": "2026-11-17T23:56:34.602Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "emptyDirectory": {
+      "itemCount": 0,
+      "prefixCount": 0,
+      "nextPageTokenIsUndefined": true,
+      "hasNextPageTokenOwnProperty": false
+    },
+    "populatedDirectory": {
+      "itemCount": 1,
+      "prefixCount": 1,
+      "nextPageTokenIsUndefined": true,
+      "hasNextPageTokenOwnProperty": false,
+      "items": [
+        {
+          "name": "direct.bin",
+          "scrubbedFullPath": "pyric_oracle/<runId>/listall-shape-populated/direct.bin",
+          "storageMatchesHandle": true,
+          "bucketMatchesHandle": true,
+          "parentMatchesScannedRef": true,
+          "rootFullPath": "",
+          "toStringMatchesGsUri": true
+        }
+      ],
+      "prefixes": [
+        {
+          "name": "nested-folder",
+          "scrubbedFullPath": "pyric_oracle/<runId>/listall-shape-populated/nested-folder",
+          "storageMatchesHandle": true,
+          "bucketMatchesHandle": true,
+          "parentMatchesScannedRef": true,
+          "rootFullPath": "",
+          "toStringMatchesGsUri": true
+        }
+      ]
+    }
+  }
+}

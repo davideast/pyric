@@ -1,0 +1,65 @@
+{
+  "name": "storage-uploadbytes-payload-types",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "uploadBytes accepts Blob, Uint8Array, and ArrayBuffer binary payloads, round-trips exact bytes via getBytes, and returns UploadResult metadata matching fullPath, name, size, and bucket.",
+  "observedAt": "2026-11-17T23:57:00.819Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "inputBytes": [
+      0,
+      127,
+      128,
+      255
+    ],
+    "blobPayload": {
+      "scrubbedFullPath": "pyric_oracle/<runId>/uploadbytes-payloads/from-blob.bin",
+      "resultRefMatchesTarget": true,
+      "metadataFullPathMatchesTarget": true,
+      "metadataNameMatchesTarget": true,
+      "metadataName": "from-blob.bin",
+      "metadataBucketMatchesHandle": true,
+      "metadataBucketNonEmpty": true,
+      "metadataSize": 4,
+      "readBytes": [
+        0,
+        127,
+        128,
+        255
+      ]
+    },
+    "uint8ArrayPayload": {
+      "scrubbedFullPath": "pyric_oracle/<runId>/uploadbytes-payloads/from-uint8array.bin",
+      "resultRefMatchesTarget": true,
+      "metadataFullPathMatchesTarget": true,
+      "metadataNameMatchesTarget": true,
+      "metadataName": "from-uint8array.bin",
+      "metadataBucketMatchesHandle": true,
+      "metadataBucketNonEmpty": true,
+      "metadataSize": 4,
+      "readBytes": [
+        0,
+        127,
+        128,
+        255
+      ]
+    },
+    "arrayBufferPayload": {
+      "scrubbedFullPath": "pyric_oracle/<runId>/uploadbytes-payloads/from-arraybuffer.bin",
+      "resultRefMatchesTarget": true,
+      "metadataFullPathMatchesTarget": true,
+      "metadataNameMatchesTarget": true,
+      "metadataName": "from-arraybuffer.bin",
+      "metadataBucketMatchesHandle": true,
+      "metadataBucketNonEmpty": true,
+      "metadataSize": 4,
+      "readBytes": [
+        0,
+        127,
+        128,
+        255
+      ]
+    }
+  }
+}

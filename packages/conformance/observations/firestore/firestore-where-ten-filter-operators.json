@@ -1,0 +1,104 @@
+{
+  "name": "firestore-where-ten-filter-operators",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "where(field, op, value) evaluation across all 10 filter operators (<, <=, ==, >=, >, !=, in, not-in, array-contains, array-contains-any).",
+  "observedAt": "2026-11-17T23:56:31.256Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "lt": {
+      "threw": false,
+      "ids": [
+        "d1",
+        "d2"
+      ],
+      "code": null,
+      "errorName": null
+    },
+    "lte": {
+      "threw": false,
+      "ids": [
+        "d1",
+        "d2",
+        "d3"
+      ],
+      "code": null,
+      "errorName": null
+    },
+    "eq": {
+      "threw": false,
+      "ids": [
+        "d2"
+      ],
+      "code": null,
+      "errorName": null
+    },
+    "gte": {
+      "threw": false,
+      "ids": [
+        "d2",
+        "d3",
+        "d4"
+      ],
+      "code": null,
+      "errorName": null
+    },
+    "gt": {
+      "threw": false,
+      "ids": [
+        "d3",
+        "d4"
+      ],
+      "code": null,
+      "errorName": null
+    },
+    "neq": {
+      "threw": false,
+      "ids": [
+        "d1",
+        "d3",
+        "d4"
+      ],
+      "code": null,
+      "errorName": null
+    },
+    "inOp": {
+      "threw": false,
+      "ids": [
+        "d1",
+        "d3"
+      ],
+      "code": null,
+      "errorName": null
+    },
+    "notInOp": {
+      "threw": false,
+      "ids": [
+        "d2",
+        "d4"
+      ],
+      "code": null,
+      "errorName": null,
+      "transport": "firebase-js-sdk-node"
+    },
+    "arrayContains": {
+      "threw": false,
+      "ids": [
+        "d1",
+        "d2"
+      ],
+      "code": null,
+      "errorName": null
+    },
+    "arrayContainsAny": {
+      "threw": false,
+      "ids": [
+        "d1",
+        "d3"
+      ],
+      "code": null,
+      "errorName": null
+    }
+  }
+}

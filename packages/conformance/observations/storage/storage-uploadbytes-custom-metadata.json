@@ -1,0 +1,29 @@
+{
+  "name": "storage-uploadbytes-custom-metadata",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "uploadBytes customMetadata round-trip: observes UploadResult.metadata.customMetadata and follow-up getMetadata().customMetadata both when omitted and when populated with multiple string keys.",
+  "observedAt": "2026-11-17T23:56:55.256Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "withoutCustomMetadata": {
+      "uploadHasCustomMetadataProperty": false,
+      "uploadCustomMetadata": null,
+      "getMetadataCustomMetadata": null
+    },
+    "withCustomMetadata": {
+      "uploadHasCustomMetadataProperty": true,
+      "uploadCustomMetadata": {
+        "owner": "user-1",
+        "emptyValue": "",
+        "label": "alpha release"
+      },
+      "getMetadataCustomMetadata": {
+        "owner": "user-1",
+        "emptyValue": "",
+        "label": "alpha release"
+      }
+    }
+  }
+}

@@ -1,0 +1,40 @@
+{
+  "name": "firestore-query-chaining-retags-constraints",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "Nested query(query(coll, where(...)), orderBy(...)) chaining accumulates constraints without mutating intermediate Query handles.",
+  "observedAt": "2026-11-17T23:56:03.439Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "chainedThreeStep": {
+      "threw": false,
+      "ids": [
+        "d4",
+        "d3"
+      ],
+      "code": null,
+      "errorName": null
+    },
+    "intermediateOrderedUnmutated": {
+      "threw": false,
+      "ids": [
+        "d4",
+        "d3",
+        "d2"
+      ],
+      "code": null,
+      "errorName": null
+    },
+    "intermediateFilteredUnmutated": {
+      "threw": false,
+      "ids": [
+        "d2",
+        "d3",
+        "d4"
+      ],
+      "code": null,
+      "errorName": null
+    }
+  }
+}

@@ -1,0 +1,72 @@
+{
+  "name": "storage-uploadbytes-contenttype-precedence",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "uploadBytes contentType precedence and Blob rewrap: caller metadata.contentType overrides Blob.type, non-empty Blob.type wins when caller omits contentType, and empty Blob.type or raw Uint8Array defaults to application/octet-stream while preserving exact bytes.",
+  "observedAt": "2026-11-17T23:56:52.824Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "expectedBytes": [
+      82,
+      73,
+      70,
+      70
+    ],
+    "emptyBlobNoHint": {
+      "uploadContentType": "application/octet-stream",
+      "storedContentType": "application/octet-stream",
+      "size": 4,
+      "readBytes": [
+        82,
+        73,
+        70,
+        70
+      ]
+    },
+    "typedBlobNoHint": {
+      "uploadContentType": "image/png",
+      "storedContentType": "image/png",
+      "size": 4,
+      "readBytes": [
+        82,
+        73,
+        70,
+        70
+      ]
+    },
+    "typedBlobCallerOverride": {
+      "uploadContentType": "application/pdf",
+      "storedContentType": "application/pdf",
+      "size": 4,
+      "readBytes": [
+        82,
+        73,
+        70,
+        70
+      ]
+    },
+    "emptyBlobCallerHint": {
+      "uploadContentType": "audio/wav",
+      "storedContentType": "audio/wav",
+      "size": 4,
+      "readBytes": [
+        82,
+        73,
+        70,
+        70
+      ]
+    },
+    "uint8NoHint": {
+      "uploadContentType": "application/octet-stream",
+      "storedContentType": "application/octet-stream",
+      "size": 4,
+      "readBytes": [
+        82,
+        73,
+        70,
+        70
+      ]
+    }
+  }
+}

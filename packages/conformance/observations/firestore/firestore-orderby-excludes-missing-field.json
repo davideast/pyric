@@ -1,0 +1,42 @@
+{
+  "name": "firestore-orderby-excludes-missing-field",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "orderBy(field) excludes documents lacking the ordered field while retaining null-valued documents.",
+  "observedAt": "2026-11-17T23:55:56.119Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "unfiltered": {
+      "threw": false,
+      "ids": [
+        "missing_field",
+        "present_high",
+        "present_low",
+        "present_null"
+      ],
+      "code": null,
+      "errorName": null
+    },
+    "orderByAsc": {
+      "threw": false,
+      "ids": [
+        "present_null",
+        "present_low",
+        "present_high"
+      ],
+      "code": null,
+      "errorName": null
+    },
+    "orderByDesc": {
+      "threw": false,
+      "ids": [
+        "present_high",
+        "present_low",
+        "present_null"
+      ],
+      "code": null,
+      "errorName": null
+    }
+  }
+}
