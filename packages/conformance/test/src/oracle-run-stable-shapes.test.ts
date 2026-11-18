@@ -4,9 +4,16 @@ import {
   describeAuthFireSequence,
   describeAuthUid,
   describeFencedAuthFireSequence,
+  describeFirestoreQueryFires,
   describeUserUid,
+  isDecimalDigitString,
   isFirebaseAuthUid,
+  isFirestoreAutoId,
+  isNanosecondsInRange,
   isOracleProbeEmail,
+  isPositiveSafeInteger,
+  scrubOracleRunToken,
+  scrubOracleRunTokenList,
 } from '../../src/oracle-run-stable-shapes.ts';
 
 describe('oracle-run-stable-shapes (Auth)', () => {
@@ -92,5 +99,48 @@ describe('oracle-run-stable-shapes (Auth)', () => {
         fence: 'microtask',
       },
     ]);
+  });
+
+  test('normalizes Firestore and Storage run tokens, auto-IDs, timestamps, and generations deterministically', () => {
+    const runA = '1793367358513-tulcp8';
+    const runB = '1794967912343-z59mlf';
+    expect(
+      scrubOracleRunToken(
+        `Firebase Storage: Object 'pyric_oracle/${runA}/delete-missing/never-existed.bin' does not exist.`,
+        runA,
+      ),
+    ).toBe(
+      scrubOracleRunToken(
+        `Firebase Storage: Object 'pyric_oracle/${runB}/delete-missing/never-existed.bin' does not exist.`,
+        runB,
+      ),
+    );
+    expect(scrubOracleRunTokenList([`pyric_oracle/${runA}/listall/a.bin`], runA)).toEqual([
+      'pyric_oracle/<runId>/listall/a.bin',
+    ]);
+
+    expect(isFirestoreAutoId('6spENGYxU5BA1u6yyrTQ')).toBe(true);
+    expect(isFirestoreAutoId('short')).toBe(false);
+
+    // Ordering stays identical regardless of whether random autoId sorts before or after 'known-id'.
+    const earlyAutoId = 'A5D561LqHmjWGPmO8Af6';
+    const lateAutoId = 'z5D561LqHmjWGPmO8Af6';
+    const earlyFires = describeFirestoreQueryFires(
+      [{ size: 2, ids: [earlyAutoId, 'known-id'] }],
+      earlyAutoId,
+    );
+    const lateFires = describeFirestoreQueryFires(
+      [{ size: 2, ids: ['known-id', lateAutoId] }],
+      lateAutoId,
+    );
+    expect(earlyFires).toEqual(lateFires);
+    expect(earlyFires).toEqual([{ size: 2, ids: ['<autoId>', 'known-id'] }]);
+
+    expect(isPositiveSafeInteger(1794968091)).toBe(true);
+    expect(isPositiveSafeInteger(0)).toBe(false);
+    expect(isNanosecondsInRange(353000000)).toBe(true);
+    expect(isNanosecondsInRange(1_000_000_000)).toBe(false);
+    expect(isDecimalDigitString('1794968123452973')).toBe(true);
+    expect(isDecimalDigitString('12a')).toBe(false);
   });
 });

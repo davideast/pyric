@@ -199,7 +199,9 @@ import { installOracleSignalRestoreGuard } from './oracle-signal-restore.ts';
 import { createOracleRunAuthSession } from './oracle-run-auth-session.ts';
 import {
   createAuthUserSlotTracker, describeAuthFireSequence, describeAuthUid,
-  describeFencedAuthFireSequence, describeUserUid, isFirebaseAuthUid, isOracleProbeEmail,
+  describeFencedAuthFireSequence, describeFirestoreQueryFires, describeUserUid,
+  isDecimalDigitString, isFirebaseAuthUid, isFirestoreAutoId, isNanosecondsInRange,
+  isOracleProbeEmail, isPositiveSafeInteger, scrubOracleRunToken, scrubOracleRunTokenList,
 } from './oracle-run-stable-shapes.ts';
 import { surfaceDescriptors } from '../surfaces/load.ts';
 import { soleLongestPrefixOwner } from './observation-surface.ts';
@@ -1047,7 +1049,7 @@ const probes: Probe[] = [
               void setDoc(metadataRef, { v: 1 }).catch(reject);
               return;
             }
-            if (snapshot.metadata.hasPendingWrites) {
+            if (pending === undefined && snapshot.metadata.hasPendingWrites) {
               pending = snapshot;
               return;
             }
@@ -1265,9 +1267,7 @@ const probes: Probe[] = [
       const ref = await addDoc(c, {});
       const id = ref.id;
       const len = id.length;
-      // Firestore docs describe auto-ids as 20-char base64-ish. Capture
-      // the actual length + character classification so the matrix row
-      // is locked to whatever prod actually mints.
+      // Lock actual auto-id length and character classification minted by prod.
       const isAllAlphanumeric = /^[A-Za-z0-9]+$/.test(id);
       const hasUpper = /[A-Z]/.test(id);
       const hasLower = /[a-z]/.test(id);
@@ -1276,7 +1276,7 @@ const probes: Probe[] = [
       await deleteDoc(ref);
       await dropCurrentUser();
       return {
-        sampleId: id,
+        nonEmpty: len > 0,
         length: len,
         isAllAlphanumeric,
         hasUpper,
@@ -1931,7 +1931,7 @@ const probes: Probe[] = [
       return {
         threw,
         code: code ?? null,
-        message: message ?? null,
+        message: scrubOracleRunToken(message, RUN_ID),
         errorName: name ?? null,
         constructorName: constructorName ?? null,
         isFirebaseError,
@@ -2190,8 +2190,9 @@ const probes: Probe[] = [
       await deleteDoc(ref);
       await dropCurrentUser();
       return {
-        addedId,
-        addedPath,
+        addedIdLength: addedId.length,
+        addedIdIsAlphanumeric: isFirestoreAutoId(addedId),
+        addedPathMatchesCollectionAndId: addedPath === `${c.path}/${addedId}`,
         getDocExists,
         getDocV,
         setDocThrew,
@@ -2266,7 +2267,7 @@ const probes: Probe[] = [
         addFired: afterAddFireCount > initialFireCount,
         setFired: afterSetFireCount > afterAddFireCount,
         deleteFired: afterDeleteFireCount > afterSetFireCount,
-        fires,
+        fires: describeFirestoreQueryFires(fires, ref1.id),
       };
     },
   },
@@ -2469,14 +2470,14 @@ const probes: Probe[] = [
       await deleteDoc(ref);
       await dropCurrentUser();
       return {
-        docRefPath,
+        docRefPath: scrubOracleRunToken(docRefPath, RUN_ID),
         docRefGetOK,
         docRefGetV,
         docRefGetThrew,
         docRefSetThrew,
         docRefSetV,
         docRefSetMarker,
-        queryDocPath,
+        queryDocPath: scrubOracleRunToken(queryDocPath, RUN_ID),
         queryDocRefGetOK,
         queryDocRefGetV,
         docRefRoundTrips:
@@ -2722,8 +2723,8 @@ const probes: Probe[] = [
         atCtorName: atObj?.constructor?.name ?? null,
         atHasSeconds: !!atObj && typeof atObj.seconds === 'number',
         atHasNanoseconds: !!atObj && typeof atObj.nanoseconds === 'number',
-        atSeconds: atObj && typeof atObj.seconds === 'number' ? atObj.seconds : null,
-        atNanoseconds: atObj && typeof atObj.nanoseconds === 'number' ? atObj.nanoseconds : null,
+        atSecondsIsPositiveInteger: isPositiveSafeInteger(atObj?.seconds),
+        atNanosecondsInRange: isNanosecondsInRange(atObj?.nanoseconds),
       };
       await deleteDoc(ref);
       await dropCurrentUser();
@@ -4081,9 +4082,9 @@ const probes: Probe[] = [
         uploadOk,
         metadataContentType,
         metadataSize,
-        metadataFullPath,
+        metadataFullPath: scrubOracleRunToken(metadataFullPath, RUN_ID),
         metadataBucket,
-        metadataGeneration,
+        generationIsDigits: isDecimalDigitString(metadataGeneration),
         metadataMetageneration,
         contentTypeMatches: metadataContentType === 'application/octet-stream',
         sizeMatches: metadataSize === payload.length,
@@ -4172,9 +4173,7 @@ const probes: Probe[] = [
           await deleteObject(ref);
           deleteOk = true;
         } catch (e) {
-          // Upload or delete failed (most often: rules-denied). Record
-          // the failure and bail; the post-delete getDownloadURL claim
-          // can't be observed here.
+          // Record setup failure if upload or delete was rejected.
           setupError = e instanceof Error ? e.message : String(e);
           setupCode = (e as { code?: string }).code ?? null;
         }
@@ -4199,10 +4198,10 @@ const probes: Probe[] = [
         deleteOk,
         getUrlThrew,
         code,
-        message,
+        message: scrubOracleRunToken(message, RUN_ID),
         errorName,
         isFirebaseError,
-        setupError,
+        setupError: scrubOracleRunToken(setupError, RUN_ID),
         setupCode,
       };
     },
@@ -4243,7 +4242,7 @@ const probes: Probe[] = [
       return {
         threw,
         code,
-        message,
+        message: scrubOracleRunToken(message, RUN_ID),
         errorName,
         isFirebaseError,
       };
@@ -4268,12 +4267,7 @@ const probes: Probe[] = [
       // Trailing slash → strip — we use the parent ref.
       const dirRef = storageRef(activeStorage, dir.replace(/\/$/, ''));
 
-      const childPaths = [
-        `${dir}a.bin`,
-        `${dir}b.bin`,
-        `${dir}c.bin`,
-        `${dir}sub/x.bin`,
-      ];
+      const childPaths = [`${dir}a.bin`, `${dir}b.bin`, `${dir}c.bin`, `${dir}sub/x.bin`];
       const childRefs = childPaths.map((p) => storageRef(activeStorage, p));
 
       let uploadedAll = false;
@@ -4300,8 +4294,8 @@ const probes: Probe[] = [
       }
       return {
         uploadedAll,
-        itemPaths,
-        prefixPaths,
+        itemPaths: scrubOracleRunTokenList(itemPaths, RUN_ID),
+        prefixPaths: scrubOracleRunTokenList(prefixPaths, RUN_ID),
         itemCount: itemPaths.length,
         prefixCount: prefixPaths.length,
         threeDirectChildren: itemPaths.length === 3,
@@ -4344,7 +4338,7 @@ const probes: Probe[] = [
         beforeCustom = mdBefore.customMetadata ?? null;
         metagenerationBefore = mdBefore.metageneration;
         await updateMetadata(ref, {
-          customMetadata: { conformance: 'storage-row-90', run: RUN_ID },
+          customMetadata: { conformance: 'storage-row-90', updated: 'true' },
         });
         updateOk = true;
         const mdAfter = await getMetadata(ref);
@@ -4364,7 +4358,7 @@ const probes: Probe[] = [
         afterCustom,
         customSurvived:
           afterCustom?.conformance === 'storage-row-90' &&
-          afterCustom?.run === RUN_ID,
+          afterCustom?.updated === 'true',
         metagenerationBefore,
         metagenerationAfter,
         metagenerationBumped:
@@ -4390,10 +4384,7 @@ const probes: Probe[] = [
         };
       }
       await signInAnonymously(auth);
-      // Path outside pyric_oracle/* so the namespaced rule does NOT
-      // grant access. Whether this is denied depends on the bucket's
-      // current rules; if they default-allow, this observation
-      // records the open-bucket reality.
+      // Path outside pyric_oracle/* so the namespaced rule denies access.
       const path = `pyric_oracle_denied_storage/${RUN_ID}/forbidden.bin`;
       const ref = storageRef(storage, path);
       let threw = false;
@@ -4420,7 +4411,7 @@ const probes: Probe[] = [
       return {
         threw,
         code,
-        message,
+        message: scrubOracleRunToken(message, RUN_ID),
         errorName,
         isFirebaseError,
       };
@@ -4456,11 +4447,15 @@ const probes: Probe[] = [
           return { threw: false, code: null, status: null, message: null, errorName: null, isFirebaseError: false };
         } catch (e) {
           const err = e as { code?: string; message?: string; name?: string; status?: number };
+          let status: number | null = null;
+          if (typeof err.status === 'number') {
+            status = err.status;
+          }
           return {
             threw: true,
             code: err.code ?? null,
-            status: typeof err.status === 'number' ? err.status : null,
-            message: err.message ?? null,
+            status,
+            message: scrubOracleRunToken(err.message, RUN_ID),
             errorName: err.name ?? null,
             isFirebaseError: err.name === 'FirebaseError',
           };

@@ -115,3 +115,80 @@ export function describeFencedAuthFireSequence(
 ): FencedAuthFireShape[] {
   return createAuthUserSlotTracker().describeFencedSequence(fires);
 }
+
+const FIRESTORE_AUTO_ID_PATTERN = /^[A-Za-z0-9]{20}$/;
+const DECIMAL_DIGITS_PATTERN = /^[0-9]+$/;
+
+interface FirestoreQueryFireShape {
+  size: number;
+  ids: string[];
+}
+
+export function scrubOracleRunToken(
+  value: string | null | undefined,
+  runId: string,
+): string | null {
+  if (typeof value !== 'string') {
+    return null;
+  }
+  if (runId.length === 0) {
+    return value;
+  }
+  return value.split(runId).join('<runId>');
+}
+
+export function scrubOracleRunTokenList(
+  values: readonly string[],
+  runId: string,
+): string[] {
+  if (runId.length === 0) {
+    return [...values];
+  }
+  return values.map((item) => item.split(runId).join('<runId>'));
+}
+
+export function isFirestoreAutoId(id: string | null | undefined): boolean {
+  if (typeof id !== 'string') {
+    return false;
+  }
+  return FIRESTORE_AUTO_ID_PATTERN.test(id);
+}
+
+export function describeFirestoreQueryFires(
+  fires: ReadonlyArray<{ size: number; ids: readonly string[] }>,
+  autoId: string,
+): FirestoreQueryFireShape[] {
+  return fires.map((entry) => {
+    const mapped = entry.ids.map((docId) => {
+      if (docId === autoId) {
+        return '<autoId>';
+      }
+      return docId;
+    });
+    mapped.sort();
+    return {
+      size: entry.size,
+      ids: mapped,
+    };
+  });
+}
+
+export function isPositiveSafeInteger(value: unknown): boolean {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value > 0;
+}
+
+export function isNanosecondsInRange(value: unknown): boolean {
+  return (
+    typeof value === 'number' &&
+    Number.isSafeInteger(value) &&
+    value >= 0 &&
+    value < 1_000_000_000
+  );
+}
+
+export function isDecimalDigitString(value: string | null | undefined): boolean {
+  if (typeof value !== 'string') {
+    return false;
+  }
+  return DECIMAL_DIGITS_PATTERN.test(value);
+}
