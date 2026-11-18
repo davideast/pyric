@@ -167,11 +167,10 @@ export async function observeAdminFirebaseDatabaseErrorAndUrlBinding(
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: ['web-config', 'dedicated-rtdb'],
-  pendingRowLink: true,
   description:
     'firebase-admin/database FirebaseDatabaseError runtime constructor contract (database/ prefix, message override, toJSON) and getDatabase(app) / getDatabaseWithUrl(url, app) handle caching, live routing, and invalid-argument / format-mismatch throws.',
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'rtdb-admin#1, rtdb-admin#10, rtdb-modular#MI4',
+  rowIds: ['rtdb-admin#1', 'rtdb-admin#10', 'rtdb-modular#MI4'],
   observe() {
     return withRtdbProbeSession({}, async ({ runId, runPath, databaseUrl }) => {
       const [adminAppMod, adminDbMod] = await Promise.all([

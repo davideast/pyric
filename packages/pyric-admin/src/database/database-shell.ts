@@ -53,7 +53,7 @@ export function buildDatabaseShell(
       if (isAdminReference(path)) {
         return db.refFromURL(path.toString());
       }
-      if (path !== undefined && typeof path !== 'string') {
+      if (path !== undefined && (typeof path !== 'string' || path.length === 0)) {
         throw new Error(
           `child failed: path argument was an invalid path = "${String(path)}". Paths must be non-empty strings and can't contain ".", "#", "$", "[", or "]"`,
         );

@@ -1,6 +1,9 @@
 import { expect, test } from 'bun:test';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { createAppForSandbox } from 'pyric/app/internal';
 import { initializeSandbox } from 'pyric/sandbox';
-import { getDatabase, ref, get, set, query, orderByChild } from 'pyric/database';
+import { getAdminDatabase, getDatabase, ref, get, set, query, orderByChild } from 'pyric/database';
 import { createDatabaseRulesDeployment } from '../../src/serve/entries/database-rules.js';
 
 const OPEN = { rules: { '.read': true, '.write': true } };
@@ -167,4 +170,132 @@ test('a refused ruleset names its instance, and the other instances still get th
   // A refused reload leaves that instance's rules in force.
   expect(() => deployment.deployInstance('good', { rules: { '.read': 'newData.exists()' } })).toThrow('database instance "good"');
   expect((await get(ref(getDatabase(sandbox, 'https://good.firebaseio.com'), 'x'))).exists()).toBe(false);
+});
+
+test('replays rtdb-modular-multiple-instances across the served in-page fallback (rtdb-modular#MI2)', async () => {
+  const rawObs = JSON.parse(
+    readFileSync(
+      join(
+        import.meta.dir,
+        '..',
+        '..',
+        '..',
+        'conformance',
+        'observations',
+        'rtdb-modular',
+        'rtdb-modular-multiple-instances.json',
+      ),
+      'utf8',
+    ),
+  ) as {
+    behavior: {
+      rules: { default: Record<string, unknown>; second: Record<string, unknown> };
+      signedOut: { defaultWrite: string; secondWrite: string };
+      isolation: { secondWriteReadOnSecond: string; secondWriteReadOnDefault: null };
+      signedIn: {
+        defaultWrite: string;
+        secondOwnUserPath: string;
+        secondOtherUserPath: string;
+        secondPathWithoutRules: string;
+        defaultReadOfSecondOnlyPath: string;
+      };
+      isolationAfterBothWrites: {
+        defaultHolds: string;
+        secondHolds: string;
+        secondUserPathOnDefault: null;
+      };
+      sdk: {
+        referenceUrls: {
+          defaultRoot: string;
+          secondPath: string;
+          regional: string;
+          namespaceQuery: string;
+        };
+        sameArgumentSameHandle: boolean;
+        defaultUrlAfterDefault: { error: string };
+        trailingSlashAfterOpen: { error: string };
+        refFromUrlSameHost: { value: string };
+        refFromUrlOtherHost: { error: string };
+        noProjectNoUrl: { error: string };
+      };
+    };
+  };
+  const obs = rawObs.behavior;
+  const projectId = 'sdk-project';
+  const secondUrl = 'https://second.firebaseio.com';
+  const sandbox = initializeSandbox({ projectId });
+  const deployment = createDatabaseRulesDeployment(sandbox);
+  deployment.deploy({
+    defaultInstance: `${projectId}-default-rtdb`,
+    rules: {
+      [`${projectId}-default-rtdb`]: { rules: obs.rules.default },
+      second: { rules: obs.rules.second },
+    },
+  });
+  deployment.register(undefined, projectId);
+  deployment.register(secondUrl, projectId);
+
+  const attemptWrite = async (targetDb: ReturnType<typeof getDatabase>, path: string, value: unknown) => {
+    try {
+      await set(ref(targetDb, path), value);
+      return 'ALLOW';
+    } catch {
+      return 'DENY';
+    }
+  };
+  const attemptRead = async (targetDb: ReturnType<typeof getDatabase>, path: string) => {
+    try {
+      await get(ref(targetDb, path));
+      return 'ALLOW';
+    } catch {
+      return 'DENY';
+    }
+  };
+
+  const unauthedCtx = sandbox.withAuth(null);
+  const unauthedDefault = getDatabase(unauthedCtx);
+  const unauthedSecond = getDatabase(unauthedCtx, secondUrl);
+  expect({
+    defaultWrite: await attemptWrite(unauthedDefault, 'open/item', 'default'),
+    secondWrite: await attemptWrite(unauthedSecond, 'open/item', 'second'),
+  }).toEqual(obs.signedOut);
+
+  const adminDefault = getAdminDatabase(sandbox);
+  const adminSecond = getAdminDatabase(sandbox, secondUrl);
+  expect({
+    secondWriteReadOnSecond: (await get(ref(adminSecond, 'open/item'))).val(),
+    secondWriteReadOnDefault: (await get(ref(adminDefault, 'open/item'))).val(),
+  }).toEqual(obs.isolation);
+
+  const uid = 'user-mi2';
+  const authedCtx = sandbox.withAuth({ uid });
+  const authedDefault = getDatabase(authedCtx);
+  const authedSecond = getDatabase(authedCtx, secondUrl);
+  expect({
+    defaultWrite: await attemptWrite(authedDefault, 'open/item', 'default'),
+    secondOwnUserPath: await attemptWrite(authedSecond, `users/${uid}`, 'mine'),
+    secondOtherUserPath: await attemptWrite(authedSecond, 'users/other-uid', 'theirs'),
+    secondPathWithoutRules: await attemptWrite(authedSecond, 'unlisted/item', 'blocked'),
+    defaultReadOfSecondOnlyPath: await attemptRead(authedDefault, 'unlisted/item'),
+  }).toEqual(obs.signedIn);
+
+  expect({
+    defaultHolds: (await get(ref(adminDefault, 'open/item'))).val(),
+    secondHolds: (await get(ref(adminSecond, 'open/item'))).val(),
+    secondUserPathOnDefault: (await get(ref(adminDefault, `users/${uid}`))).val(),
+  }).toEqual(obs.isolationAfterBothWrites);
+
+  const pageApp = createAppForSandbox(sandbox, { projectId }, 'mi2-page-app');
+  const pageDefault = getDatabase(pageApp);
+  const pageSecond = getDatabase(pageApp, secondUrl);
+  expect(pageDefault).not.toBe(pageSecond);
+  expect(getDatabase(pageApp, secondUrl)).toBe(pageSecond);
+  expect(obs.sdk.sameArgumentSameHandle).toBe(true);
+  expect(() => getDatabase(pageApp, `https://${projectId}-default-rtdb.firebaseio.com`)).toThrow(
+    obs.sdk.defaultUrlAfterDefault.error,
+  );
+  expect(() => getDatabase(pageApp, `${secondUrl}/`)).toThrow(obs.sdk.trailingSlashAfterOpen.error);
+
+  const emptyApp = createAppForSandbox(initializeSandbox(), {}, 'mi2-empty-app');
+  expect(() => getDatabase(emptyApp)).toThrow(obs.sdk.noProjectNoUrl.error);
 });

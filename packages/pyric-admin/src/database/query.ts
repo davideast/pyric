@@ -121,7 +121,11 @@ export function createQuerySurface(
 
     isEqual(other: Query | null): boolean {
       const otherMeta = readQueryMetadata(other);
-      if (otherMeta === undefined) return false;
+      if (otherMeta === undefined) {
+        throw new Error(
+          'Query.isEqual failed: First argument must be an instance of firebase.database.Query.',
+        );
+      }
       const isSameRepo = otherMeta.repoToken === metadata.repoToken;
       const isSamePath = otherMeta.canonicalPath === metadata.canonicalPath;
       const isSameSpec = queryIdentifier(otherMeta.spec) === queryIdentifier(metadata.spec);

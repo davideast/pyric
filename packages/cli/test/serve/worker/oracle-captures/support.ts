@@ -42,7 +42,8 @@ import type {
 export { withoutMessages, type Pin } from '../../../../../conformance/src/capture/sdk-scenarios/replay-comparison.ts';
 
 export interface ServedRtdbAdminContext extends RtdbScenarioContext {
-  openAdminDb(): Promise<AdminDatabase>;
+  openAdminDb(databaseUrl?: string): Promise<AdminDatabase>;
+  openRemoteSandbox(): Promise<ReturnType<typeof createRemoteSandboxHandle>>;
 }
 
 const OBSERVATIONS = join(import.meta.dir, '..', '..', '..', '..', '..', 'conformance', 'observations');
@@ -170,7 +171,7 @@ export async function servedRtdbContext(
   const rtdb = databaseSdk();
   const open = (name: string) => ({ db: rtdb.getDatabase(connectClientToHost(ctx, `worker://capture-${name}-${Math.random()}`).db as never) });
 
-  const openAdminDb = async (): Promise<AdminDatabase> => {
+  const openRemoteSandbox = async () => {
     let deliver: (message: BridgeMessage) => void = () => {};
     const relayPort: PortLike = {
       postMessage(raw: unknown) {
@@ -217,16 +218,29 @@ export async function servedRtdbContext(
     deliver = core.handleMessage;
     core.start();
     await core.ready;
-    const remote = createRemoteSandboxHandle({
+    hostedCleanups.push(() => {
+      core.dispose('closed');
+    });
+    return createRemoteSandboxHandle({
       channel: core.channel,
       serveUrl: 'http://localhost:5000',
       close: () => core.dispose('closed'),
     });
+  };
+
+  const openAdminDb = async (databaseUrl?: string): Promise<AdminDatabase> => {
+    const remote = await openRemoteSandbox();
     adminAppCounter += 1;
-    const adminApp = initializeAdminApp({ sandbox: remote }, `served-oracle-admin-${adminAppCounter}`);
-    hostedCleanups.push(async () => {
+    const options: { sandbox: typeof remote; projectId: string; databaseURL?: string } = {
+      sandbox: remote,
+      projectId: 'demo-oracle',
+    };
+    if (databaseUrl !== undefined) {
+      options.databaseURL = databaseUrl;
+    }
+    const adminApp = initializeAdminApp(options, `served-oracle-admin-${adminAppCounter}`);
+    hostedCleanups.unshift(async () => {
       await deleteAdminApp(adminApp);
-      core.dispose('closed');
     });
     return getAdminDatabase(adminApp);
   };
@@ -238,6 +252,7 @@ export async function servedRtdbContext(
     base: '/pyric_oracle/replay',
     newClient: async (name) => open(name),
     openAdminDb,
+    openRemoteSandbox,
   };
 }
 
@@ -359,7 +374,7 @@ export async function hostedRtdbContext(
   const wsUrl = `ws://127.0.0.1:${server.port}/__pyric/sandbox`;
   const serveUrl = `http://127.0.0.1:${server.port}`;
 
-  const openAdminDb = async (): Promise<AdminDatabase> => {
+  const openRemoteSandbox = async () => {
     const ws = new WebSocket(wsUrl);
     await new Promise<void>((resolve, reject) => {
       ws.once('open', () => resolve());
@@ -380,7 +395,13 @@ export async function hostedRtdbContext(
     });
     core.start();
     await core.ready;
-    const remote = createRemoteSandboxHandle({
+    clientPorts.push({
+      close() {
+        core.dispose('closed');
+        ws.close();
+      },
+    });
+    return createRemoteSandboxHandle({
       channel: core.channel,
       serveUrl,
       close: () => {
@@ -388,14 +409,19 @@ export async function hostedRtdbContext(
         ws.close();
       },
     });
+  };
+
+  const openAdminDb = async (databaseUrl?: string): Promise<AdminDatabase> => {
+    const remote = await openRemoteSandbox();
     adminAppCounter += 1;
-    const adminApp = initializeAdminApp({ sandbox: remote }, `hosted-oracle-admin-${adminAppCounter}`);
-    clientPorts.push({
-      close() {
-        core.dispose('closed');
-        ws.close();
-      },
-    });
+    const options: { sandbox: typeof remote; projectId: string; databaseURL?: string } = {
+      sandbox: remote,
+      projectId: 'demo-oracle',
+    };
+    if (databaseUrl !== undefined) {
+      options.databaseURL = databaseUrl;
+    }
+    const adminApp = initializeAdminApp(options, `hosted-oracle-admin-${adminAppCounter}`);
     hostedCleanups.unshift(async () => {
       await deleteAdminApp(adminApp);
     });
@@ -439,6 +465,7 @@ export async function hostedRtdbContext(
     base: '/pyric_oracle/replay',
     newClient: (name) => openHostedClient(name),
     openAdminDb,
+    openRemoteSandbox,
   };
 }
 

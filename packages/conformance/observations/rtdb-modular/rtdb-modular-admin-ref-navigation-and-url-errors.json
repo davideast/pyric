@@ -1,7 +1,9 @@
 {
   "name": "rtdb-modular-admin-ref-navigation-and-url-errors",
-  "matrixRow": "",
-  "rowIds": [],
+  "matrixRow": "rtdb-admin#2",
+  "rowIds": [
+    "rtdb-admin#2"
+  ],
   "description": "firebase-admin/database Reference navigation and URL resolution: observes db.ref(), db.ref(\"/\"), db.ref(\"\") throw, child/parent/root/key/toString/toJSON, isEqual() and isEqual(null) throw, and live db.refFromURL() routing plus host-mismatch/fragment/malformed URL throws.",
   "observedAt": "2026-11-18T06:45:36.876Z",
   "fbSdkVersion": "12.19.0",

@@ -16,6 +16,7 @@ import {
   hasNonFiniteQueryLimit,
   isDefaultQuerySpec,
   loadsAllData,
+  type Priority,
   type QueryReadResult,
   type QuerySpec,
 } from 'pyric/database/internal';
@@ -47,10 +48,12 @@ import {
 } from './on-disconnect.js';
 import { createQuerySurface } from './query.js';
 import {
+  absentNodeSetPriorityError,
   generatePushId,
   joinPath,
   pathSegments,
   settled,
+  validateAdminPriorityArg,
   validateValueArg,
   validateValuesArg,
 } from './tree-store.js';
@@ -69,6 +72,8 @@ import {
 interface SharedRtdbBackend extends LocalListenBackend {
   adminGetQuery(path: string, spec: QuerySpec): QueryReadResult;
   adminSet(path: string, value: JsonValue): void;
+  adminSetWithPriority(path: string, value: JsonValue, priority: Priority): void;
+  adminSetPriority(path: string, priority: Priority): void;
   adminUpdate(path: string, patch: Record<string, JsonValue>): void;
   adminRemove(path: string): void;
   mintKey(): string;
@@ -314,11 +319,38 @@ function buildSandboxRef(
     transaction(..._args: unknown[]): never {
       throw notImplemented('transaction');
     },
-    setPriority(..._args: unknown[]): never {
-      throw notImplemented('setPriority');
+    setPriority(
+      priority: string | number | null,
+      onComplete?: (error: Error | null) => unknown,
+    ): Promise<void> {
+      const validatedPriority = validateAdminPriorityArg('setPriority', priority);
+      validateCallbackArg('Reference.setPriority', 'onComplete', onComplete, true);
+      return settled(
+        () => {
+          lifecycle.assertActive();
+          if (validatedPriority !== null && backend.adminGet(canonical) === null) {
+            throw absentNodeSetPriorityError();
+          }
+          backend.adminSetPriority(canonical, validatedPriority);
+        },
+        onComplete as ((err: Error | null) => void) | undefined,
+      );
     },
-    setWithPriority(..._args: unknown[]): never {
-      throw notImplemented('setWithPriority');
+    setWithPriority(
+      newVal: unknown,
+      newPriority: string | number | null,
+      onComplete?: (error: Error | null) => unknown,
+    ): Promise<void> {
+      const stored = validateValueArg('setWithPriority', segs, newVal);
+      const validatedPriority = validateAdminPriorityArg('setWithPriority', newPriority);
+      validateCallbackArg('Reference.setWithPriority', 'onComplete', onComplete, true);
+      return settled(
+        () => {
+          lifecycle.assertActive();
+          backend.adminSetWithPriority(canonical, stored, validatedPriority);
+        },
+        onComplete as ((err: Error | null) => void) | undefined,
+      );
     },
     get database(): Database {
       return db;

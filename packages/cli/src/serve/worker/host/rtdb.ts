@@ -263,29 +263,42 @@ export async function drainPortRtdbDisconnects(ctx: HostCtx, port: PortLike, ins
   if (queues.size === 0) disconnectQueues.get(ctx)?.delete(port);
   if (operations.length === 0) return;
   const failures: unknown[] = [];
+  const pending: Promise<unknown>[] = [];
   for (const operation of operations) {
     try {
       const db = lensRtdb(ctx, operation.actAs, port, operation.instance);
       const target = rtdbRef(db, operation.path);
-      if (operation.kind === 'update') await rtdbUpdate(target, resolveRtdbSentinels(operation.values) as Record<string, unknown>);
-      else if (operation.kind === 'remove') await rtdbRemove(target);
-      else if (
+      if (operation.kind === 'update') {
+        pending.push(rtdbUpdate(target, resolveRtdbSentinels(operation.values) as Record<string, unknown>));
+      } else if (operation.kind === 'remove') {
+        pending.push(rtdbRemove(target));
+      } else if (
         operation.mergeAfterChildRegistration && operation.value !== null &&
         typeof operation.value === 'object' && !Array.isArray(operation.value)
       ) {
-        await rtdbUpdate(target, resolveRtdbSentinels(operation.value) as Record<string, unknown>);
+        pending.push(rtdbUpdate(target, resolveRtdbSentinels(operation.value) as Record<string, unknown>));
         if (operation.priority !== undefined) {
-          await rtdbSetPriority(target, operation.priority);
+          pending.push(rtdbSetPriority(target, operation.priority));
         }
       } else if (operation.priority !== undefined) {
-        await rtdbSetWithPriority(
-          target,
-          resolveRtdbSentinels(operation.value) as never,
-          operation.priority,
+        pending.push(
+          rtdbSetWithPriority(
+            target,
+            resolveRtdbSentinels(operation.value) as never,
+            operation.priority,
+          ),
         );
-      } else await rtdbSet(target, resolveRtdbSentinels(operation.value) as never);
+      } else {
+        pending.push(rtdbSet(target, resolveRtdbSentinels(operation.value) as never));
+      }
     } catch (error) {
       failures.push(error);
+    }
+  }
+  const outcomes = await Promise.allSettled(pending);
+  for (const outcome of outcomes) {
+    if (outcome.status === 'rejected') {
+      failures.push(outcome.reason);
     }
   }
   await bestEffortFlush(ctx, 'disconnect');

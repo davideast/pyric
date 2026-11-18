@@ -182,11 +182,10 @@ export async function observeAdminConnectionAndOnDisconnect(
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: ['web-config', 'dedicated-rtdb'],
-  pendingRowLink: true,
   description:
     'firebase-admin/database goOffline()/goOnline() and Reference.onDisconnect(): observes queued set, setWithPriority, multi-path update, remove, and cancel() across two live admin handles, plus one-shot drain semantics after goOnline() reconnect.',
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'rtdb-admin#6',
+  rowIds: ['rtdb-admin#6'],
   observe() {
     return withRtdbProbeSession({}, async ({ runId, runPath, databaseUrl }) => {
       const [adminAppMod, { getDatabaseWithUrl }] = await Promise.all([

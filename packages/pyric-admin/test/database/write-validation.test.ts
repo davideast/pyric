@@ -93,17 +93,19 @@ describe('both pyric-admin arms refuse the writes firebase-admin refuses (#1121)
     }
   }
 
-  // Priorities are not modeled on either arm: a valid priority is accepted
-  // and dropped, so `val()`, `numChildren()` and `exportVal()` read as the
-  // SDK's `val()` does, with no `.priority`.
-  test('a valid priority in update() or set() is accepted and dropped', async () => {
+  test('a valid priority in update() or set() is preserved in exportVal() while hidden from val() and numChildren()', async () => {
     for (const [arm, makeApp] of ARMS) {
       const db = getDatabase(makeApp());
       await db.ref('node').set({ a: 1, '.priority': 3, b: { c: 2, '.priority': 'p' } });
       await db.ref('node').update({ '.priority': 1, 'b/.priority': 2, d: 4 });
       const snap = await db.ref('node').get();
       const read = { arm, val: snap.val(), exportVal: snap.exportVal(), numChildren: snap.numChildren() };
-      expect(read).toStrictEqual({ arm, val: { a: 1, b: { c: 2 }, d: 4 }, exportVal: { a: 1, b: { c: 2 }, d: 4 }, numChildren: 3 });
+      expect(read).toStrictEqual({
+        arm,
+        val: { a: 1, b: { c: 2 }, d: 4 },
+        exportVal: { a: 1, b: { c: 2, '.priority': 2 }, d: 4, '.priority': 1 },
+        numChildren: 3,
+      });
     }
   });
 

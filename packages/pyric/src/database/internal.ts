@@ -48,6 +48,8 @@ export {
   validateUpdate,
   validateWrite,
   withPriorities,
+  writePriority,
+  type InlinePriority,
 } from './sandbox/normalize.js';
 export { resolveSentinels } from './sandbox/sentinels.js';
 export { exportDatabaseVal } from './internal/export-val.js';
