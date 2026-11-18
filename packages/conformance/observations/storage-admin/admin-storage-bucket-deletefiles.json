@@ -1,0 +1,25 @@
+{
+  "name": "admin-storage-bucket-deletefiles",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "firebase-admin Bucket.deleteFiles({ prefix, maxResults, force }): observes prefix-scoped deletion, maxResults bounding, sibling prefix isolation, and empty-prefix behavior.",
+  "observedAt": "2026-11-18T05:22:57.115Z",
+  "adminSdkVersion": "13.10.0",
+  "behavior": {
+    "cappedMaxResults2": {
+      "seededCount": 3,
+      "remainingRelativeNames": [
+        "capped/c.bin"
+      ],
+      "siblingStillExists": true
+    },
+    "fullPrefixDelete": {
+      "seededCount": 2,
+      "remainingRelativeNames": [],
+      "siblingStillExists": true
+    },
+    "emptyPrefixDelete": {
+      "threw": false
+    }
+  }
+}
