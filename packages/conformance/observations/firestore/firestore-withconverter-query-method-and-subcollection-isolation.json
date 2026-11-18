@@ -1,0 +1,75 @@
+{
+  "name": "firestore-withconverter-query-method-and-subcollection-isolation",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "Query.withConverter(c) is an instance method on query() values; withConverter(null) on a collection or query removes the converter, and collection(typedDocRef, id) stays untyped.",
+  "observedAt": "2026-11-18T02:35:33.069Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "hasQueryWithConverterMethod": true,
+    "baseQueryConverterIsNull": true,
+    "typedQueryConverterMatches": true,
+    "untypedQueryConverterIsNull": true,
+    "queryEqualBaseAndStripped": true,
+    "queryEqualBaseAndTyped": false,
+    "untypedCollConverterIsNull": true,
+    "refEqualBaseCollAndStripped": true,
+    "typedQueryDocs": [
+      {
+        "id": "d2",
+        "data": {
+          "title": "High",
+          "count": 4,
+          "label": "High#40",
+          "tag": "q"
+        },
+        "refConverterMatches": true
+      }
+    ],
+    "fromCallsDuringTypedQuery": 1,
+    "untypedQueryDocs": [
+      {
+        "id": "d2",
+        "data": {
+          "dbTag": "q",
+          "dbCount": 40,
+          "convertedWrite": true,
+          "dbTitle": "High"
+        },
+        "refConverterIsNull": true
+      }
+    ],
+    "fromCallsDuringUntypedQuery": 0,
+    "untypedCollDocs": [
+      {
+        "id": "d1",
+        "data": {
+          "convertedWrite": true,
+          "dbTitle": "Low",
+          "dbCount": 10
+        },
+        "refConverterIsNull": true
+      },
+      {
+        "id": "d2",
+        "data": {
+          "dbTag": "q",
+          "dbCount": 40,
+          "convertedWrite": true,
+          "dbTitle": "High"
+        },
+        "refConverterIsNull": true
+      }
+    ],
+    "fromCallsDuringUntypedColl": 0,
+    "subCollType": "collection",
+    "subCollConverterIsNull": true,
+    "subDocConverterIsNull": true,
+    "subDocStoredData": {
+      "noteText": "raw-subcollection-doc"
+    },
+    "toCallsDuringSubcollectionWrite": 0,
+    "fromCallsDuringSubcollectionRead": 0
+  }
+}

@@ -1,0 +1,51 @@
+{
+  "name": "firestore-withconverter-setdoc-invokes-tofirestore",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "setDoc through a converted DocumentReference invokes converter.toFirestore(data) on full writes and converter.toFirestore(data, options) on merge and mergeFields writes.",
+  "observedAt": "2026-11-18T02:35:36.914Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "toFirestoreCalls": [
+      {
+        "argCount": 1,
+        "hasOptions": false,
+        "merge": null,
+        "mergeFields": null
+      },
+      {
+        "argCount": 2,
+        "hasOptions": true,
+        "merge": true,
+        "mergeFields": null
+      },
+      {
+        "argCount": 2,
+        "hasOptions": true,
+        "merge": null,
+        "mergeFields": [
+          "dbTag"
+        ]
+      }
+    ],
+    "afterFullWrite": {
+      "convertedWrite": true,
+      "dbTitle": "Initial",
+      "dbCount": 10,
+      "dbTag": "base"
+    },
+    "afterMergeTrue": {
+      "dbTitle": "Initial",
+      "dbCount": 70,
+      "convertedWrite": true,
+      "dbTag": "base"
+    },
+    "afterMergeFields": {
+      "dbCount": 70,
+      "dbTitle": "Initial",
+      "dbTag": "masked-tag",
+      "convertedWrite": true
+    }
+  }
+}

@@ -1,0 +1,31 @@
+{
+  "name": "firestore-withconverter-preserves-untyped-ref-identity",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "Original untyped DocumentReference keeps its identity and untyped view after withConverter(converter) creates a typed view on the same path.",
+  "observedAt": "2026-11-18T02:35:28.495Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "sameObjectIdentity": false,
+    "samePath": true,
+    "sameId": true,
+    "untypedConverterRemainsNull": true,
+    "typedConverterMatches": true,
+    "refEqualUntypedAndTyped": false,
+    "toCallsDuringUntypedWrite": 0,
+    "typedReadData": {
+      "title": "RawSeed",
+      "count": 6,
+      "label": "RawSeed#60",
+      "tag": "raw"
+    },
+    "fromCallsDuringTypedRead": 1,
+    "untypedReadData": {
+      "dbCount": 60,
+      "dbTag": "raw",
+      "dbTitle": "RawSeed"
+    },
+    "fromCallsDuringUntypedRead": 0
+  }
+}
