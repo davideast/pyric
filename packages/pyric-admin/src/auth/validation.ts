@@ -14,14 +14,10 @@ import type {
 import type { PyricAdminApp } from '../app/index.js';
 import { explicitProjectId } from '../app/project-id.js';
 import { validateUpdateUserPreflight } from './preflight-validation.js';
-import {
-  UserInfo,
-  UserMetadata,
-  UserRecord,
-  type CreateRequest,
-  type ListUsersResult,
-  type UpdateRequest,
-} from './types.js';
+import type { CreateRequest, ListUsersResult, UpdateRequest } from './types.js';
+import { UserInfo } from './user-info.js';
+import { UserMetadata } from './user-metadata.js';
+import { UserRecord } from './user-record.js';
 import { FirebaseAuthError } from './verify-token.js';
 
 const RESERVED_CUSTOM_TOKEN_CLAIMS = new Set([

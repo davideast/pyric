@@ -2,7 +2,7 @@ import type { CreateRequest, ListUsersResult, UserRecord } from 'firebase-admin/
 import type { Probe } from '../../rigs/types.ts';
 import { withAdminAuthProbeSession } from '../../src/sdk-probe-runtime.ts';
 
-export interface AuthErrorInfoLike {
+interface AuthErrorInfoLike {
   readonly code: string;
   readonly message: string;
 }

@@ -20,7 +20,8 @@ import {
   isNonNullPlainRecord,
   isWebUrl,
 } from './preflight-validation.js';
-import type { BaseAuthDelegate, DecodedIdToken, UserRecord } from './types.js';
+import type { BaseAuthDelegate, DecodedIdToken } from './types.js';
+import type { UserRecord } from './user-record.js';
 import { idTokenProjectId } from './validation.js';
 import { FirebaseAuthError } from './verify-token.js';
 

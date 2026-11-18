@@ -9,15 +9,15 @@ import type { PyricAdminApp } from '../app/index.js';
 import { assertAdminAppActive } from '../app/lifecycle.js';
 import { validateCreateUserPreflight } from './preflight-validation.js';
 import { buildUnmodeledAuthPreflightMethods } from './session-and-link-preflight.js';
-import {
-  Auth,
-  type BaseAuthDelegate,
-  type CreateRequest,
-  type DecodedIdToken,
-  type ListUsersResult,
-  type UpdateRequest,
-  type UserRecord,
+import { Auth } from './auth.js';
+import type {
+  BaseAuthDelegate,
+  CreateRequest,
+  DecodedIdToken,
+  ListUsersResult,
+  UpdateRequest,
 } from './types.js';
+import type { UserRecord } from './user-record.js';
 import {
   assertCustomTokenArguments,
   fromAuthUserRecord,
