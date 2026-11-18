@@ -1,0 +1,56 @@
+{
+  "name": "firestore-admin-sentinels-and-value-types",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "firebase-admin/firestore FieldValue.{serverTimestamp, increment, arrayUnion, arrayRemove, delete}, FieldPath and FieldPath.documentId(), Timestamp range validation and round-trip, Uint8Array byte buffers, and DocumentReference field values.",
+  "observedAt": "2026-11-18T09:28:58.493Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "serverTimestampResolved": true,
+    "initialCounter": 5,
+    "updatedCounter": 3,
+    "initialTags": [
+      "alpha",
+      "beta"
+    ],
+    "updatedTags": [
+      "beta",
+      "gamma"
+    ],
+    "obsoletePresentInitially": true,
+    "obsoletePresentAfterDelete": false,
+    "literalDotInitial": "initial",
+    "literalDotUpdated": "updated-literal",
+    "documentIdQueryIds": [
+      "sentinel-doc"
+    ],
+    "timestampRoundTrip": {
+      "isTimestamp": true,
+      "seconds": 1700000123,
+      "nanoseconds": 456000000,
+      "toMillis": 1700000123456
+    },
+    "bytesRoundTrip": [
+      0,
+      1,
+      127,
+      255
+    ],
+    "refRoundTrip": {
+      "isRef": true,
+      "idMatches": true,
+      "pathMatchesTarget": true
+    },
+    "validation": {
+      "emptyFieldPathArgsThrows": true,
+      "emptySegmentFieldPathThrows": true,
+      "negativeNanosThrows": true,
+      "billionNanosThrows": true,
+      "emptyIncrementArgsThrows": false,
+      "emptyArrayUnionArgsThrows": true,
+      "emptyArrayRemoveArgsThrows": true
+    }
+  },
+  "adminSdkVersion": "13.10.0"
+}
