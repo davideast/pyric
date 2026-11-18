@@ -1,0 +1,39 @@
+{
+  "name": "auth-setpersistence-and-firebaseerror-wrapper",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "setPersistence accepts inMemoryPersistence, browserSessionPersistence, and browserLocalPersistence markers returning Promise<void>, and Auth errors are FirebaseError instances formatted with Firebase: <message> (<auth/...>).",
+  "observedAt": "2026-11-18T20:32:11.126Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "setPersistenceMarkers": {
+      "inMemoryIsPromise": true,
+      "inMemoryResolvesUndefined": true,
+      "sessionIsPromise": true,
+      "sessionResolvesUndefined": true,
+      "localIsPromise": true,
+      "localResolvesUndefined": true
+    },
+    "firebaseErrorShape": {
+      "syncArgumentError": {
+        "threw": true,
+        "isFirebaseError": true,
+        "isError": true,
+        "name": "FirebaseError",
+        "code": "auth/argument-error",
+        "startsWithFirebasePrefix": true,
+        "endsWithWrappedCode": true
+      },
+      "asyncInvalidEmail": {
+        "threw": true,
+        "isFirebaseError": true,
+        "isError": true,
+        "name": "FirebaseError",
+        "code": "auth/invalid-email",
+        "startsWithFirebasePrefix": true,
+        "endsWithWrappedCode": true
+      }
+    }
+  }
+}

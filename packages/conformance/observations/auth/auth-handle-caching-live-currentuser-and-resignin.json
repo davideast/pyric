@@ -1,0 +1,27 @@
+{
+  "name": "auth-handle-caching-live-currentuser-and-resignin",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "getAuth(app) caches one Auth handle per FirebaseApp, auth.currentUser reads live session state across sign-in and both auth.signOut() method and free signOut(auth) calls, and signInWithEmailAndPassword returns the same uid on re-sign-in.",
+  "observedAt": "2026-11-18T20:32:10.015Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "handleCaching": {
+      "sameAppReturnsSameHandle": true,
+      "distinctAppReturnsDistinctHandle": true,
+      "auxSameAppReturnsSameHandle": true
+    },
+    "liveCurrentUserAndReSignIn": {
+      "initialCurrentUserNull": true,
+      "firstSignInMatchesSeededUid": true,
+      "liveGetterReadsSignedInUid": true,
+      "methodSignOutResolvesUndefined": true,
+      "liveGetterNullAfterMethodSignOut": true,
+      "reSignInReturnsSameUid": true,
+      "liveGetterReadsReSignedInUid": true,
+      "freeSignOutResolvesUndefined": true,
+      "liveGetterNullAfterFreeSignOut": true
+    }
+  }
+}
