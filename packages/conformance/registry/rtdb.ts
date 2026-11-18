@@ -2352,11 +2352,7 @@ export const rtdbRegistry = {
           automation: "oracle-backed",
           evidence: "`packages/cli/test/serve/database-rules-deployment.test.ts` deploys two rulesets to two instances and asserts each instance allows and denies its own paths, that replacing one instance's rules leaves the other's in force, that a database opened without a URL gets the default instance's rules, that a refused ruleset names its instance while the other instance loads, and replays oracle `rtdb-modular-multiple-instances` across the served in-page fallback. Oracle `rtdb-modular-multiple-instances` records production enforcing a different ruleset on each of two instances of one project. CDD assertion `rtdb-modular#MI2` pins the sandbox side: `setRules` on one URL's database leaves the other URL's rules unchanged. `packages/cli/test/serve/database-rules-legacy-default-instance.test.ts` asserts an app on `https://<projectId>.firebaseio.com` gets the default rules from each `firebase.json` shape with no locked `<projectId>` instance, and the refusal of different rules for both names.",
           oracleObservations: ["rtdb-modular-multiple-instances"],
-          conformanceTests: [
-            "packages/cli/test/serve/database-rules-deployment.test.ts",
-            "packages/cli/test/serve/database-rules-legacy-default-instance.test.ts",
-            ...cddLifecycleTests,
-          ],
+          conformanceTests: ["packages/cli/test/serve/database-rules-deployment.test.ts", "packages/cli/test/serve/database-rules-legacy-default-instance.test.ts", ...cddLifecycleTests],
         }),
         multiInstanceRow({
           rowRef: "MI3",
@@ -2389,12 +2385,8 @@ export const rtdbRegistry = {
           oracleObservations: ["rtdb-modular-admin-firebasedatabaseerror-and-url-binding"],
           conformanceTests: [
             "packages/pyric-admin/test/database/capture-admin-database-and-priorities.test.ts", "packages/cli/test/serve/worker/oracle-captures/rtdb-admin-database-and-priorities.test.ts",
-            "packages/pyric-admin/test/database/get-database-with-url.test.ts",
-            "packages/pyric-admin/test/database/legacy-default-url.test.ts",
-            "packages/pyric-admin/test/remote/remote-dispatch.test.ts",
-            "packages/cli/test/serve/hosted-sqlite.test.ts",
-            "packages/cli/test/functions-rtdb/child.integration.test.ts",
-            ...cddLifecycleTests,
+            "packages/pyric-admin/test/database/get-database-with-url.test.ts", "packages/pyric-admin/test/database/legacy-default-url.test.ts",
+            "packages/pyric-admin/test/remote/remote-dispatch.test.ts", "packages/cli/test/serve/hosted-sqlite.test.ts", "packages/cli/test/functions-rtdb/child.integration.test.ts", ...cddLifecycleTests,
           ],
         }),
         multiInstanceRow({

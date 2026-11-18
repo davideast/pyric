@@ -28,10 +28,12 @@ import {
   originOfDatabaseUrl,
   type DatabaseUrlMetadata,
 } from './database-shell.js';
+import { FirebaseDatabaseError } from './error.js';
 import { getLocalDatabase } from './local-database.js';
 import { getRemoteDatabase } from './remote-database.js';
 import type { Database } from './types.js';
 
+export { FirebaseDatabaseError } from './error.js';
 export type {
   Database,
   DataSnapshot,
@@ -44,40 +46,6 @@ export type {
 
 /** `firebase-admin/database`'s `enableLogging` (deferred in the sandbox). */
 export const enableLogging = deferredExport('pyric-admin/database', 'enableLogging');
-
-export interface FirebaseErrorInfo {
-  readonly code: string;
-  readonly message: string;
-}
-
-/**
- * Runtime error constructor mirroring `firebase-admin/database`'s
- * `FirebaseDatabaseError` (`database/` code prefix, optional message override,
- * and `toJSON()`).
- */
-export class FirebaseDatabaseError extends Error {
-  readonly code: string;
-  override readonly message: string;
-
-  constructor(info: FirebaseErrorInfo, message?: string) {
-    let resolvedMessage = info.message;
-    if (message !== undefined && message !== '') {
-      resolvedMessage = message;
-    }
-    super(resolvedMessage);
-    let prefixedCode = info.code;
-    if (prefixedCode.startsWith('database/') === false) {
-      prefixedCode = `database/${prefixedCode}`;
-    }
-    this.code = prefixedCode;
-    this.message = resolvedMessage;
-    Object.setPrototypeOf(this, FirebaseDatabaseError.prototype);
-  }
-
-  toJSON(): { code: string; message: string } {
-    return { code: this.code, message: this.message };
-  }
-}
 
 /** Mirror of `firebase-admin/database`'s `ServerValue` constant and sentinel constructors. */
 export const ServerValue: {

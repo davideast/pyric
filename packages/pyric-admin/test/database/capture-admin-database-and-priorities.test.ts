@@ -154,6 +154,21 @@ describe('RTDB admin database, priorities, and URL binding oracle captures (in-p
     );
 
     expect(actual.errorConstructorContract).toEqual(expected.errorConstructorContract as never);
+    const sampleErr = new FirebaseDatabaseError(
+      { code: 'invalid-argument', message: 'Default info message.' },
+      'Explicit override message.',
+    );
+    expect(Object.keys(sampleErr)).toEqual(['errorInfo']);
+    expect(sampleErr.errorInfo).toEqual({
+      code: 'database/invalid-argument',
+      message: 'Explicit override message.',
+    });
+    expect(sampleErr.name).toBe('Error');
+    const prefixedInputErr = new FirebaseDatabaseError({
+      code: 'database/invalid-argument',
+      message: 'Already prefixed.',
+    });
+    expect(prefixedInputErr.code).toBe('database/database/invalid-argument');
     expect(actual.urlBindingAndHandleCaching.sameExactUrlReturnsSameHandle).toBe(
       expected.urlBindingAndHandleCaching.sameExactUrlReturnsSameHandle,
     );
