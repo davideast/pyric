@@ -16,13 +16,10 @@ import { scenario as v2RecursiveWildcardZeroOrMore } from '../../rules-corpus/st
 import type { StorageScenarioRecord } from '../../rules-corpus/storage/types.ts';
 import { loadObservations, type Observation } from '../../src/ledger.ts';
 import { selectStorageScenarios } from '../../src/run-rules-storage.ts';
-import {
-  discoverUncapturedStagedTargets,
-  loadPendingRowLinkObservations,
-  loadStagedCaptureItems,
-} from '../../src/staged-captures.ts';
+import { loadPendingRowLinkObservations } from '../../src/staged-captures.ts';
 import { validateCompatibilityRegistry } from '../../src/validate-registry.ts';
 import { surfaceDescriptors } from '../../surfaces/load.ts';
+import { expectStagedUntilCaptured } from './staged-capture-assertions.ts';
 import {
   buildStorageApiTestCase,
   normalizeStoragePath,
@@ -111,9 +108,6 @@ function buildSyntheticStorageRulesObservation(scenario: StorageScenario): Obser
 describe('staged rules-storage scenarios for storage-rules#98..103', () => {
   test('registers all 5 scenarios as uncaptured rules-storage targets with --scenario filters', () => {
     const byId = new Map(ALL_RULES_STORAGE_SCENARIOS.map((s) => [s.id, s]));
-    const existingNames = new Set(loadObservations().map((o) => o.name));
-    const stagedItems = loadStagedCaptureItems();
-    const uncaptured = discoverUncapturedStagedTargets();
 
     const inertSelectedIds = new Set(selectStorageScenarios([]).map((s) => s.id));
     const unfilteredWriteIds = new Set(selectStorageScenarios(['--write']).map((s) => s.id));
@@ -130,20 +124,17 @@ describe('staged rules-storage scenarios for storage-rules#98..103', () => {
       expect(inertSelectedIds.has(id)).toBe(true);
 
       const obsName = storageObservationName(scenario);
-      const expectedTarget = {
+      expectStagedUntilCaptured(obsName, {
         rig: 'rules-storage',
-        observationName: obsName,
-        filterFlag: '--scenario' as const,
-        filterValue: id,
-      };
-      expect(stagedItems).toContainEqual(expectedTarget);
-      if (!existingNames.has(obsName)) {
-        expect(unfilteredWriteIds.has(id)).toBe(false);
-        expect(uncaptured).toContainEqual(expectedTarget);
-      } else {
-        expect(unfilteredWriteIds.has(id)).toBe(true);
-        expect(uncaptured).not.toContainEqual(expectedTarget);
-      }
+        filterFlag: '--scenario',
+        filterValueFor: () => id,
+        whenUncaptured: () => {
+          expect(unfilteredWriteIds.has(id)).toBe(false);
+        },
+        whenCaptured: () => {
+          expect(unfilteredWriteIds.has(id)).toBe(true);
+        },
+      });
 
       const selected = selectStorageScenarios(['--write', '--scenario', id]);
       expect(selected.map((s) => s.id)).toEqual([id]);

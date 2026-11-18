@@ -16,12 +16,10 @@ import {
 import { ALL_RULES_STORAGE_SCENARIOS } from '../../rules-corpus/storage/index.ts';
 import { loadClientStorageProbes } from '../../src/client-storage-probes.ts';
 import { loadObservations, type Observation } from '../../src/ledger.ts';
-import {
-  discoverUncapturedStagedTargets,
-  loadPendingRowLinkObservations,
-} from '../../src/staged-captures.ts';
+import { loadPendingRowLinkObservations } from '../../src/staged-captures.ts';
 import { validateCompatibilityRegistry } from '../../src/validate-registry.ts';
 import { surfaceDescriptors } from '../../surfaces/load.ts';
+import { expectStagedUntilCaptured } from './staged-capture-assertions.ts';
 
 const STAGED_REF_PROBE_NAMES = [
   'client-storage-ref-root-and-segments',
@@ -133,9 +131,6 @@ describe('Storage ref() client-storage conformance probes (storage#13..23)', () 
     }
 
     const currentObservations = loadObservations();
-    const existingNames = new Set(currentObservations.map((obs) => obs.name));
-    const uncaptured = discoverUncapturedStagedTargets();
-
     const probes = [
       { name: 'client-storage-ref-root-and-segments', probe: refRootSegmentsProbe },
       { name: 'client-storage-ref-slash-normalization', probe: refSlashNormProbe },
@@ -143,8 +138,11 @@ describe('Storage ref() client-storage conformance probes (storage#13..23)', () 
       { name: 'client-storage-ref-identity-and-storage-handle', probe: refIdentityProbe },
     ];
     for (const entry of probes) {
-      if (entry.probe.pendingRowLink && !existingNames.has(entry.name)) {
-        expect(uncaptured.map((item) => item.observationName)).toContain(entry.name);
+      if (entry.probe.pendingRowLink) {
+        expectStagedUntilCaptured(entry.name, {
+          rig: 'client-storage',
+          filterFlag: '--probe',
+        });
       }
     }
 

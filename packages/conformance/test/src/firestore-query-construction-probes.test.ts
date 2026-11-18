@@ -23,12 +23,10 @@ import {
 } from '../../src/firestore-probe-outcomes.ts';
 import { loadObservations, type Observation } from '../../src/ledger.ts';
 import { loadModularProbes, printModularProbePreview } from '../../src/sdk-probes.ts';
-import {
-  discoverUncapturedStagedTargets,
-  loadPendingRowLinkObservations,
-} from '../../src/staged-captures.ts';
+import { loadPendingRowLinkObservations } from '../../src/staged-captures.ts';
 import { validateCompatibilityRegistry } from '../../src/validate-registry.ts';
 import { surfaceDescriptors } from '../../surfaces/load.ts';
+import { expectStagedUntilCaptured } from './staged-capture-assertions.ts';
 import {
   probe as compositeOrOrderByLimitProbe,
   probeClientTopLevelCompositeFilterMixing,
@@ -117,13 +115,13 @@ describe('Firestore Query construction staged probes (sdk-probes)', () => {
 
   it('discovers all 12 probes as uncaptured targets and validates cleanly pre-capture and post-capture', async () => {
     const existingObservations = loadObservations();
-    const existingNames = new Set(existingObservations.map((obs) => obs.name));
-    const uncaptured = discoverUncapturedStagedTargets().map((item) => item.observationName);
-    for (const [id] of EXPECTED_QUERY_CONSTRUCTION_PROBES) {
-      if (!existingNames.has(id)) {
-        expect(uncaptured).toContain(id);
-      }
-    }
+    expectStagedUntilCaptured(
+      EXPECTED_QUERY_CONSTRUCTION_PROBES.map(([id]) => id),
+      {
+        rig: 'sdk-probes',
+        filterFlag: '--probe',
+      },
+    );
 
     const rigManifests = await loadRigManifests();
     const probeFiles = listProbeFiles();

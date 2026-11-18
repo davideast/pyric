@@ -1,12 +1,8 @@
 import { deleteApp, initializeApp, type App } from 'firebase-admin/app';
 import { getMessaging, type Message } from 'firebase-admin/messaging';
 import { describe, expect, test } from 'bun:test';
-import { loadObservations } from '../../src/ledger.ts';
 import { loadModularProbes } from '../../src/sdk-probes.ts';
-import {
-  discoverUncapturedStagedTargets,
-  loadPendingRowLinkObservations,
-} from '../../src/staged-captures.ts';
+import { expectStagedUntilCaptured } from './staged-capture-assertions.ts';
 import {
   observeAndroidConfig,
   probe as androidConfigProbe,
@@ -137,15 +133,10 @@ describe('modular messaging-send config option probes (Slice 3 staged family)', 
       expect(probeRecord.description.length).toBeGreaterThan(20);
     }
 
-    const existingNames = new Set(loadObservations().map((obs) => obs.name));
-    const pending = loadPendingRowLinkObservations();
-    const uncaptured = discoverUncapturedStagedTargets().map((item) => item.observationName);
-    for (const id of expectedConfigIds) {
-      expect(pending.has(id)).toBe(true);
-      if (!existingNames.has(id)) {
-        expect(uncaptured).toContain(id);
-      }
-    }
+    expectStagedUntilCaptured(expectedConfigIds, {
+      rig: 'messaging-send',
+      filterFlag: '--probe',
+    });
   });
 
   test('observes FcmOptions, WebpushNotification, and APNs config/payload/aps/alert/sound/fcmOptions validation and acceptance', async () => {

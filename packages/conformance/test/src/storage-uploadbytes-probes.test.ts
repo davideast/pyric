@@ -34,13 +34,11 @@ import { ALL_RULES_STORAGE_SCENARIOS } from '../../rules-corpus/storage/index.ts
 import { loadClientStorageProbes } from '../../src/client-storage-probes.ts';
 import { loadObservations, type Observation } from '../../src/ledger.ts';
 import { loadModularProbes } from '../../src/sdk-probes.ts';
-import {
-  discoverUncapturedStagedTargets,
-  loadPendingRowLinkObservations,
-} from '../../src/staged-captures.ts';
+import { loadPendingRowLinkObservations } from '../../src/staged-captures.ts';
 import { scrubStorageOracleRunPath } from '../../src/storage-probe-session.ts';
 import { validateCompatibilityRegistry } from '../../src/validate-registry.ts';
 import { surfaceDescriptors } from '../../surfaces/load.ts';
+import { expectStagedUntilCaptured } from './staged-capture-assertions.ts';
 
 const STAGED_UPLOADBYTES_NAMES = [
   'client-storage-uploadbytes-root-ref',
@@ -319,9 +317,6 @@ describe('Storage uploadBytes conformance probes (storage#24..35, #38, #118)', (
     expect(sdkIds).toContain('storage-uploadbytes-overwrite-generations');
 
     const currentObservations = loadObservations();
-    const existingNames = new Set(currentObservations.map((obs) => obs.name));
-    const uncaptured = discoverUncapturedStagedTargets();
-
     const probes = [
       { name: 'client-storage-uploadbytes-root-ref', probe: uploadRootRefProbe },
       { name: 'storage-uploadbytes-payload-types', probe: uploadPayloadTypesProbe },
@@ -330,8 +325,8 @@ describe('Storage uploadBytes conformance probes (storage#24..35, #38, #118)', (
       { name: 'storage-uploadbytes-overwrite-generations', probe: uploadOverwriteProbe },
     ];
     for (const entry of probes) {
-      if (entry.probe.pendingRowLink && !existingNames.has(entry.name)) {
-        expect(uncaptured.map((item) => item.observationName)).toContain(entry.name);
+      if (entry.probe.pendingRowLink) {
+        expectStagedUntilCaptured(entry.name, { filterFlag: '--probe' });
       }
     }
 
