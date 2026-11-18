@@ -1,4 +1,4 @@
-import { signInAnonymously, signOut } from 'firebase/auth';
+import { signOut } from 'firebase/auth';
 import {
   child,
   get,
@@ -21,6 +21,7 @@ import {
   waitFor,
 } from './probe-runtime.ts';
 import type { RtdbClimbContext, RtdbClimbProbe } from './probe-types.ts';
+import { signInOracleClientAuth } from '../../oracle-run-auth-session.ts';
 import { climbRulesEndpoint } from './rules-endpoint.ts';
 
 export function createProbe(ctx: RtdbClimbContext): RtdbClimbProbe {
@@ -150,7 +151,11 @@ export function createProbe(ctx: RtdbClimbContext): RtdbClimbProbe {
           ));
           await waitFor('callbackless listener signed-out denial readiness', () =>
             signedOutCancellations.length === 1);
-          await signInAnonymously(client.auth);
+          await signInOracleClientAuth(
+            client.auth,
+            ctx.serviceAccount,
+            `rtdb-climb-${ctx.runId}-listener-cancellation-${attempt}`,
+          );
           const freshControlDeliveries: unknown[] = [];
           unsubs.push(onValue(ref(client.db, `${path}/callbackless`), (snapshot) => {
             freshControlDeliveries.push(snapshot.val());

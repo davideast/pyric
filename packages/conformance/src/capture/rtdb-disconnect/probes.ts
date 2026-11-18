@@ -1,5 +1,5 @@
 import { initializeApp, deleteApp, type FirebaseOptions } from 'firebase/app';
-import { deleteUser, getAuth, signInAnonymously } from 'firebase/auth';
+import { deleteUser, getAuth, type Auth } from 'firebase/auth';
 import {
   getDatabase,
   goOffline,
@@ -14,6 +14,7 @@ import {
 import { deleteApp as deleteAdminApp, initializeApp as initializeAdminApp } from 'firebase-admin/app';
 import { getAuth as getAdminAuth } from 'firebase-admin/auth';
 import { oracleAppOptions, type OracleServiceAccount } from '../../oracle-credential.ts';
+import { signInOracleClientAuth } from '../../oracle-run-auth-session.ts';
 import type { OracleRulesSession } from '../../oracle-rules-session.ts';
 import { ORACLE_RESTORE_ATTEMPTS } from '../../oracle-signal-restore.ts';
 
@@ -57,21 +58,24 @@ async function attempt(task: () => Promise<unknown>): Promise<Record<string, unk
   }
 }
 
-async function createClients(config: RtdbDisconnectContext['config'], suffix: string): Promise<Clients> {
-  const writerApp = initializeApp(config, `disconnect-writer-${suffix}`);
-  const observerApp = initializeApp(config, `disconnect-observer-${suffix}`);
+async function deleteAuthUser(auth: Auth): Promise<void> {
+  if (auth.currentUser) {
+    await deleteUser(auth.currentUser).catch(() => undefined);
+  }
+}
+
+async function createClients(ctx: RtdbDisconnectContext, suffix: string): Promise<Clients> {
+  const writerApp = initializeApp(ctx.config, `disconnect-writer-${suffix}`);
+  const observerApp = initializeApp(ctx.config, `disconnect-observer-${suffix}`);
   const writerAuth = getAuth(writerApp);
   const observerAuth = getAuth(observerApp);
   const signIns = await Promise.allSettled([
-    signInAnonymously(writerAuth),
-    signInAnonymously(observerAuth),
+    signInOracleClientAuth(writerAuth, ctx.serviceAccount, `dc-w-${suffix}`),
+    signInOracleClientAuth(observerAuth, ctx.serviceAccount, `dc-o-${suffix}`),
   ]);
   const signInFailure = signIns.find((result): result is PromiseRejectedResult => result.status === 'rejected');
   if (signInFailure) {
-    await Promise.all([
-      writerAuth.currentUser ? deleteUser(writerAuth.currentUser).catch(() => undefined) : undefined,
-      observerAuth.currentUser ? deleteUser(observerAuth.currentUser).catch(() => undefined) : undefined,
-    ]);
+    await Promise.all([deleteAuthUser(writerAuth), deleteAuthUser(observerAuth)]);
     await Promise.all([deleteApp(writerApp).catch(() => undefined), deleteApp(observerApp).catch(() => undefined)]);
     throw signInFailure.reason;
   }
@@ -80,10 +84,7 @@ async function createClients(config: RtdbDisconnectContext['config'], suffix: st
     observerDb: getDatabase(observerApp),
     async close() {
       goOnline(getDatabase(writerApp));
-      await Promise.all([
-        writerAuth.currentUser ? deleteUser(writerAuth.currentUser).catch(() => undefined) : undefined,
-        observerAuth.currentUser ? deleteUser(observerAuth.currentUser).catch(() => undefined) : undefined,
-      ]);
+      await Promise.all([deleteAuthUser(writerAuth), deleteAuthUser(observerAuth)]);
       await Promise.all([deleteApp(writerApp), deleteApp(observerApp)]);
     },
   };
@@ -241,7 +242,7 @@ export function createRtdbDisconnectProbes(ctx: RtdbDisconnectContext): OraclePr
       'onDisconnect handle shape, promise acknowledgements, and proof that registration alone does not mutate server data.',
       () => repeatStable(2, async (index) => {
         const path = scenarioPath(ctx, 'registration', index);
-        const clients = await createClients(ctx.config, `${ctx.runId}-registration-${index}`);
+        const clients = await createClients(ctx, `${ctx.runId}-registration-${index}`);
         try {
           await set(ref(clients.writerDb, path), { state: 'online' });
           const handle = onDisconnect(ref(clients.writerDb, path));
@@ -284,7 +285,7 @@ export function createRtdbDisconnectProbes(ctx: RtdbDisconnectContext): OraclePr
       'Normal write, queued set, clean goOffline delivery, observer ordering, and one-shot behavior after goOnline.',
       () => repeatStable(2, async (index) => {
         const path = scenarioPath(ctx, 'clean-set', index);
-        const clients = await createClients(ctx.config, `${ctx.runId}-clean-${index}`);
+        const clients = await createClients(ctx, `${ctx.runId}-clean-${index}`);
         const events: unknown[] = [];
         const unsubscribe = observeValues(clients.observerDb, path, events);
         try {
@@ -326,7 +327,7 @@ export function createRtdbDisconnectProbes(ctx: RtdbDisconnectContext): OraclePr
       'Queued set, update, remove, setWithPriority, cancellation scope, and overlapping parent/child registrations.',
       () => repeatStable(2, async (index) => {
         const rootPath = scenarioPath(ctx, 'operations-cancel', index);
-        const clients = await createClients(ctx.config, `${ctx.runId}-ops-${index}`);
+        const clients = await createClients(ctx, `${ctx.runId}-ops-${index}`);
         const events: unknown[] = [];
         const unsubscribe = observeValues(clients.observerDb, rootPath, events);
         try {
@@ -453,7 +454,7 @@ export function createRtdbDisconnectProbes(ctx: RtdbDisconnectContext): OraclePr
         if (ctx.rulesSession) {
           unregisterCleanup = ctx.rulesSession.registerProbeCleanup(restoreBeforeOnce);
         }
-        const clients = await createClients(ctx.config, `${ctx.runId}-rules-${index}`);
+        const clients = await createClients(ctx, `${ctx.runId}-rules-${index}`);
         const observerEvents: unknown[] = [];
         const unsubscribe = observeValues(clients.observerDb, rootPath, observerEvents);
         const run = rootPath.split('/')[1]!;
@@ -550,7 +551,7 @@ export function createRtdbDisconnectProbes(ctx: RtdbDisconnectContext): OraclePr
         const path = scenarioPath(ctx, 'abrupt-exit', index);
         const observerApp = initializeApp(ctx.config, `disconnect-abrupt-observer-${ctx.runId}-${index}`);
         const observerAuth = getAuth(observerApp);
-        await signInAnonymously(observerAuth);
+        await signInOracleClientAuth(observerAuth, ctx.serviceAccount, `dc-abrupt-obs-${ctx.runId}-${index}`);
         const events: unknown[] = [];
         const unsubscribe = observeValues(getDatabase(observerApp), path, events);
         const adminApp = initializeAdminApp({

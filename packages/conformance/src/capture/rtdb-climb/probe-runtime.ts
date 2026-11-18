@@ -1,6 +1,7 @@
 import { deleteApp, initializeApp } from 'firebase/app';
-import { deleteUser, getAuth, signInAnonymously } from 'firebase/auth';
+import { deleteUser, getAuth } from 'firebase/auth';
 import { getDatabase } from 'firebase/database';
+import { signInOracleClientAuth } from '../../oracle-run-auth-session.ts';
 import type { RtdbClimbClient, RtdbClimbContext } from './probe-types.ts';
 
 export function stable(value: unknown): string {
@@ -29,15 +30,20 @@ export async function createClient(ctx: RtdbClimbContext, suffix: string): Promi
   const app = initializeApp(ctx.config, `rtdb-climb-${ctx.runId}-${suffix}`);
   const auth = getAuth(app);
   try {
-    await signInAnonymously(auth);
+    await signInOracleClientAuth(auth, ctx.serviceAccount, `rtdb-climb-${ctx.runId}-${suffix}`);
   } catch (error) {
     await deleteApp(app).catch(() => undefined);
     throw error;
   }
+  const signedInUser = auth.currentUser;
+  if (!signedInUser) {
+    await deleteApp(app).catch(() => undefined);
+    throw new Error(`RTDB climb client '${suffix}' missing currentUser after sign-in`);
+  }
   return {
     db: getDatabase(app),
     auth,
-    authToken: await auth.currentUser!.getIdToken(),
+    authToken: await signedInUser.getIdToken(),
     async close() {
       if (auth.currentUser) await deleteUser(auth.currentUser).catch(() => undefined);
       await deleteApp(app);
@@ -119,7 +125,7 @@ export function errorShape(error: unknown): Record<string, unknown> {
   };
 }
 
-export async function pause(ms: number): Promise<void> {
+async function pause(ms: number): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, ms));
 }
 

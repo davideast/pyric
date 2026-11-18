@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 import { initializeApp, deleteApp } from 'firebase/app';
-import { getAuth, signInAnonymously } from 'firebase/auth';
+import { deleteUser, getAuth } from 'firebase/auth';
 import { getDatabase, ref, set, get, remove } from 'firebase/database';
 import { requireCaptureMode } from '../../capture-mode-guard.ts';
 import { RTDB_RULES_SCOPE } from '../../oracle-access-token.ts';
@@ -9,6 +9,7 @@ import {
   oracleAccessToken,
   oracleCredentialConfigured,
 } from '../../oracle-credential.ts';
+import { signInOracleClientAuth } from '../../oracle-run-auth-session.ts';
 import {
   assertDedicatedOracleRtdbUrl,
   isDedicatedOracleRtdbUrl,
@@ -137,7 +138,7 @@ async function main(): Promise<void> {
   };
 
   const app = initializeApp(config, `rtdb-disconnect-preflight-${Date.now()}`);
-  let temporaryUser: Awaited<ReturnType<typeof signInAnonymously>>['user'] | undefined;
+  const auth = getAuth(app);
   coordinator.registerCleanup(() =>
     restoreRtdbRulesWithRetry({
       beforeText,
@@ -149,9 +150,7 @@ async function main(): Promise<void> {
   try {
     await writeRulesText(JSON.stringify(temporary));
     await new Promise((resolve) => setTimeout(resolve, 5_000));
-    const auth = getAuth(app);
-    const credential = await signInAnonymously(auth);
-    temporaryUser = credential.user;
+    await signInOracleClientAuth(auth, serviceAccount, scratchKey);
     const scratch = ref(getDatabase(app), `pyric_oracle/${scratchKey}/control`);
     await set(scratch, { control: true });
     if ((await get(scratch)).val()?.control !== true) throw new Error('anonymous scratch read did not match write');
@@ -159,7 +158,9 @@ async function main(): Promise<void> {
     if ((await get(scratch)).exists()) throw new Error('anonymous scratch cleanup did not remove data');
     console.log('[oracle:rtdb-disconnect:preflight] anonymous write/read/remove control: ok');
   } finally {
-    await temporaryUser?.delete().catch(() => undefined);
+    if (auth.currentUser) {
+      await deleteUser(auth.currentUser).catch(() => undefined);
+    }
     await deleteApp(app).catch(() => undefined);
     try {
       await coordinator.runRestore();
