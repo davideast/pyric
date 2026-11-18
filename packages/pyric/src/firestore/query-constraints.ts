@@ -418,9 +418,24 @@ export type QueryConstraintType = 'where' | 'orderBy' | 'limit' | 'limitToLast' 
 export type QueryNonFilterConstraint = any;
 export type QueryFilterConstraint = any;
 
+const NON_COMPOSITE_CONSTRAINT_TYPES = new Set<unknown>([
+  'where',
+  'orderBy',
+  'limit',
+  'limitToLast',
+  'startAt',
+  'startAfter',
+  'endAt',
+  'endBefore',
+]);
+
 export class QueryConstraint {
   static [Symbol.hasInstance](instance: unknown): boolean {
-    return Boolean(instance && typeof instance === 'object' && ('type' in instance || '_sandboxFilter' in instance || 'applySandbox' in instance));
+    if (instance === null || typeof instance !== 'object') return false;
+    if (!('type' in instance)) return false;
+    const kind = (instance as { type?: unknown }).type;
+    if (!NON_COMPOSITE_CONSTRAINT_TYPES.has(kind)) return false;
+    return 'applySandbox' in instance || '_descriptor' in instance;
   }
 }
 
@@ -430,9 +445,20 @@ export class QueryFieldFilterConstraint extends QueryConstraint {
   }
 }
 
-export class QueryCompositeFilterConstraint extends QueryConstraint {
+export class QueryCompositeFilterConstraint {
   static [Symbol.hasInstance](instance: unknown): boolean {
-    return Boolean(instance && typeof instance === 'object' && (('type' in instance && ((instance as any).type === 'and' || (instance as any).type === 'or')) || ('_sandboxFilter' in instance && ((instance as any)._sandboxFilter?.kind === 'and' || (instance as any)._sandboxFilter?.kind === 'or'))));
+    if (instance === null || typeof instance !== 'object') return false;
+    if ('type' in instance) {
+      const kind = (instance as { type?: unknown }).type;
+      if (kind === 'and' || kind === 'or') return true;
+    }
+    if ('_sandboxFilter' in instance) {
+      const filter = (instance as { _sandboxFilter?: { kind?: unknown } })._sandboxFilter;
+      if (filter !== undefined && (filter.kind === 'and' || filter.kind === 'or')) {
+        return true;
+      }
+    }
+    return false;
   }
 }
 

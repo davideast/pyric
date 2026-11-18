@@ -4,9 +4,8 @@ import { withFirestoreProbeSession } from '../../src/sdk-probe-runtime.ts';
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: ['web-config', 'firestore-rules'],
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'firestore#91',
+  rowIds: ['firestore#91', 'firestore#95'],
   description:
     'runTransaction performs consistent snapshot reads and commits multi-document set, update, and delete mutations atomically while writeBatch queues mutations without applying them prior to commit().',
   async observe() {
