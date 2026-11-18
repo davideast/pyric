@@ -14,7 +14,7 @@ import { dirname, join } from 'node:path';
 
 const OBSERVATIONS_PREFIX = 'packages/conformance/observations/';
 const SAFE_OBSERVATION_REL_PATH =
-  /^packages\/conformance\/observations\/([a-z0-9-]+)\/([a-z0-9][a-z0-9._-]*)\.json$/;
+  /^packages\/conformance\/observations\/([a-z0-9-]+)\/([A-Za-z0-9][A-Za-z0-9._-]*)\.json$/;
 const ROOT_GHA_CREDS_FILE = /^gha-creds-[A-Za-z0-9._-]+\.json$/;
 
 export interface CollectedObservationChange {
@@ -85,7 +85,7 @@ export function validateObservationRelativePath(relPath: string): {
   }
   const surface = match[1] ?? '';
   const stem = match[2] ?? '';
-  if (stem.startsWith('gha-creds-')) {
+  if (stem.toLowerCase().startsWith('gha-creds-')) {
     throw new Error(`Refusing credential filename stem '${stem}' in observation path '${relPath}'`);
   }
   return { surface, stem };

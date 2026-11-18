@@ -494,9 +494,14 @@ export function diagnoseCaptureFailure(
     }
   }
 
+  let configuredRtdbUrl = '';
+  if (typeof env.PYRIC_ORACLE_RTDB_URL === 'string') {
+    configuredRtdbUrl = env.PYRIC_ORACLE_RTDB_URL.trim();
+  }
   const mentionsSignBlob = /signBlob|iamcredentials\.googleapis\.com/i.test(output);
   const mentionsMissingFirebaseConfig = /PYRIC_ORACLE_FIREBASE_CONFIG/i.test(output);
-  const mentionsMissingRtdbUrl = /PYRIC_ORACLE_RTDB_URL|dedicated RTDB/i.test(output);
+  const mentionsMissingRtdbUrl =
+    configuredRtdbUrl === '' && /PYRIC_ORACLE_RTDB_URL|dedicated RTDB/i.test(output);
   const mentionsApiDisabled = /accessNotConfigured|has not been used in project|API .* is disabled/i.test(output);
   const mentionsPermissionDenied =
     Boolean(extractedPerm) ||

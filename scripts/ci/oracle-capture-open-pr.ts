@@ -12,12 +12,30 @@
  * PAT-authenticated `origin` remote to fire `pull_request: synchronize`.
  */
 import { execFileSync, spawnSync } from 'node:child_process';
+import { readFileSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import type { Gh } from './github-issues.ts';
+import {
+  assertValidObservationEnvelope,
+  canonicalizeObservation,
+  validateObservationRelativePath,
+  type CollectedObservationChange,
+} from './oracle-observation-diff.ts';
 
 type PullRequestAuthMode =
   | 'pat'
   | 'github-token-with-pat-synchronize'
   | 'github-token-only';
+
+export interface OpenPullRequestSummary {
+  number: number;
+  url: string;
+  labels?: ReadonlyArray<{ name?: string | null }>;
+  reviews?: readonly unknown[];
+  reviewRequests?: readonly unknown[];
+  reviewDecision?: string | null;
+  comments?: readonly unknown[];
+}
 
 export interface OpenedPullRequestOutcome {
   rig: string;
@@ -35,10 +53,165 @@ interface PullRequestTarget {
   bodyFile: string;
 }
 
-interface PullRequestAuth {
+export interface PullRequestAuth {
   primaryGh: Gh;
   fallbackGh?: Gh;
   hasPatPushAuth: boolean;
+}
+
+export function hasCapturePullRequestActivity(pr: OpenPullRequestSummary): boolean {
+  if (Array.isArray(pr.labels)) {
+    for (const label of pr.labels) {
+      if (
+        typeof label?.name === 'string' &&
+        label.name.trim().toLowerCase() === 'merge-queue'
+      ) {
+        return true;
+      }
+    }
+  }
+  if (Array.isArray(pr.reviews) && pr.reviews.length > 0) {
+    return true;
+  }
+  if (Array.isArray(pr.reviewRequests) && pr.reviewRequests.length > 0) {
+    return true;
+  }
+  if (typeof pr.reviewDecision === 'string' && pr.reviewDecision.trim() !== '') {
+    return true;
+  }
+  if (Array.isArray(pr.comments) && pr.comments.length > 0) {
+    return true;
+  }
+  return false;
+}
+
+export function formatShortCaptureSha(sourceSha: string): string {
+  const trimmed = sourceSha.trim().toLowerCase();
+  if (/^[0-9a-f]{7,40}$/.test(trimmed)) {
+    return trimmed.slice(0, 8);
+  }
+  const cleaned = trimmed.replace(/[^a-z0-9]+/g, '').slice(0, 8);
+  if (cleaned === '') {
+    return 'capture';
+  }
+  return cleaned;
+}
+
+function listOpenPullRequests(
+  gh: Gh,
+  repository: string,
+  branch: string,
+): OpenPullRequestSummary[] {
+  return JSON.parse(
+    gh([
+      'pr',
+      'list',
+      '--repo',
+      repository,
+      '--head',
+      branch,
+      '--base',
+      'main',
+      '--state',
+      'open',
+      '--json',
+      'number,url,labels,reviews,reviewRequests,reviewDecision,comments',
+    ]),
+  ) as OpenPullRequestSummary[];
+}
+
+function listOpenPullRequestsWithFallback(
+  auth: PullRequestAuth,
+  repository: string,
+  branch: string,
+): OpenPullRequestSummary[] {
+  try {
+    return listOpenPullRequests(auth.primaryGh, repository, branch);
+  } catch (err) {
+    if (!auth.fallbackGh) {
+      throw err;
+    }
+    return listOpenPullRequests(auth.fallbackGh, repository, branch);
+  }
+}
+
+export function resolveCaptureTargetBranch(options: {
+  repository: string;
+  rig: string;
+  sourceSha: string;
+  auth: PullRequestAuth;
+}): { branch: string; divertedFromBranch: string | null } {
+  const { repository, rig, sourceSha, auth } = options;
+  const canonicalBranch = `chore/oracle-capture-${rig}`;
+  const canonicalPrs = listOpenPullRequestsWithFallback(auth, repository, canonicalBranch);
+  const existingCanonical = canonicalPrs[0];
+  if (!existingCanonical || !hasCapturePullRequestActivity(existingCanonical)) {
+    return { branch: canonicalBranch, divertedFromBranch: null };
+  }
+
+  const shortSha = formatShortCaptureSha(sourceSha);
+  const baseFreshBranch = `chore/oracle-capture-${rig}-${shortSha}`;
+  for (let attempt = 1; attempt <= 20; attempt += 1) {
+    let candidate = baseFreshBranch;
+    if (attempt > 1) {
+      candidate = `${baseFreshBranch}-${attempt}`;
+    }
+    const candidatePrs = listOpenPullRequestsWithFallback(auth, repository, candidate);
+    const existingCandidate = candidatePrs[0];
+    if (!existingCandidate || !hasCapturePullRequestActivity(existingCandidate)) {
+      return { branch: candidate, divertedFromBranch: canonicalBranch };
+    }
+  }
+  throw new Error(`Unable to allocate an unreviewed capture branch for rig '${rig}'`);
+}
+
+export function preserveIdenticalProtectedObservations(
+  cwd: string,
+  protectedBranch: string,
+  files: readonly CollectedObservationChange[],
+): void {
+  try {
+    execFileSync('git', ['fetch', '--no-tags', 'origin', `refs/heads/${protectedBranch}`], {
+      cwd,
+      stdio: 'ignore',
+    });
+  } catch {
+    return;
+  }
+  for (const file of files) {
+    let protectedText: string;
+    try {
+      protectedText = execFileSync('git', ['show', `FETCH_HEAD:${file.path}`], {
+        cwd,
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'ignore'],
+      });
+    } catch {
+      continue;
+    }
+    const currentPath = join(cwd, file.path);
+    const nextText = readFileSync(currentPath, 'utf8');
+    if (canonicalizeObservation(protectedText) === canonicalizeObservation(nextText)) {
+      assertValidObservationEnvelope(file.path, protectedText);
+      writeFileSync(currentPath, protectedText);
+    }
+  }
+}
+
+export function assertStagedPathsAreObservationsOnly(cwd: string): void {
+  const stagedPaths = execFileSync('git', ['diff', '--cached', '--name-only'], {
+    cwd,
+    encoding: 'utf8',
+  })
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line !== '');
+  if (stagedPaths.length === 0) {
+    throw new Error('Refusing empty staged diff for capture pull request');
+  }
+  for (const stagedPath of stagedPaths) {
+    validateObservationRelativePath(stagedPath);
+  }
 }
 
 export function spawnGhWithToken(cwd: string, token: string): Gh {
@@ -59,12 +232,7 @@ function createOrEditPullRequest(
   gh: Gh,
   target: PullRequestTarget,
 ): { action: 'created' | 'updated'; prUrl: string } {
-  const openPrs = JSON.parse(
-    gh([
-      'pr', 'list', '--repo', target.repository, '--head', target.branch,
-      '--base', 'main', '--state', 'open', '--json', 'number,url',
-    ]),
-  ) as Array<{ number: number; url: string }>;
+  const openPrs = listOpenPullRequests(gh, target.repository, target.branch);
 
   const existing = openPrs[0];
   if (existing) {
