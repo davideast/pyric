@@ -55,7 +55,7 @@ export async function buildLazyRtdbRunProbes(options: {
     rowIds: template.rowIds,
     description: template.description,
     async observe() {
-      const { config, rtdbAdminToken, rulesSession } = options.getLiveState();
+      const { config, serviceAccount, rtdbAdminToken, rulesSession } = options.getLiveState();
       if (!config.databaseURL || !rtdbAdminToken) {
         return {
           skipped: true,
@@ -66,6 +66,7 @@ export async function buildLazyRtdbRunProbes(options: {
         config: { ...config, databaseURL: config.databaseURL },
         rtdbAdminToken,
         runId: options.runId,
+        serviceAccount,
         rulesSession,
       });
       const live = liveList.find((item) => item.name === template.name);

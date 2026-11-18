@@ -9,6 +9,13 @@
         "src/serve/worker/entry.ts!",
         "src/serve/vite-plugin.ts!"
       ]
+    },
+    "packages/conformance": {
+      "entry": [
+        "src/run.ts",
+        "src/capture/rtdb-climb/*.probe.ts",
+        "src/capture/rtdb-disconnect/preflight.ts"
+      ]
     }
   }
 }

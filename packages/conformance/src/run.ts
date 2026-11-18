@@ -196,6 +196,7 @@ import {
   storageOracleTarget,
 } from './oracle-rules-session.ts';
 import { installOracleSignalRestoreGuard } from './oracle-signal-restore.ts';
+import { createOracleRunAuthSession } from './oracle-run-auth-session.ts';
 import { surfaceDescriptors } from '../surfaces/load.ts';
 import { soleLongestPrefixOwner } from './observation-surface.ts';
 import {
@@ -456,12 +457,11 @@ async function purge(probeId: string): Promise<void> {
   }
 }
 
-async function dropCurrentUser(): Promise<void> {
-  const u: User | null = auth.currentUser;
-  if (u && u.isAnonymous) {
-    try { await u.delete(); } catch { /* ignored */ }
-  }
-}
+const authSession = createOracleRunAuthSession(() => auth, {
+  getServiceAccount: () => serviceAccount,
+  signOutAuth: () => signOut(auth),
+});
+const dropCurrentUser = (): Promise<void> => authSession.dropAfterProbeBody();
 
 /**
  * Read the `.type` discriminant off one of `firebase/auth`'s persistence
@@ -4474,14 +4474,13 @@ const probes: Probe[] = [
           };
         }
       };
-      await signOut(auth);
+      await authSession.signOutAndDeleteCurrentUser();
       const signedOutCurrentUser = auth.currentUser === null ? null : 'present';
       const signedOutNamespace = await attempt(`pyric_oracle/${RUN_ID}/signed-out/forbidden.bin`);
       const signedOutOutside = await attempt(`pyric_oracle_denied_storage/${RUN_ID}/signed-out.bin`);
-      await signInAnonymously(auth);
+      await authSession.signInProbeUser(`storage-denied-${RUN_ID}`);
       const anonymousNamespace = await attempt(`pyric_oracle/${RUN_ID}/anonymous/control.bin`);
-      await dropCurrentUser();
-      await signOut(auth);
+      await authSession.signOutAndDeleteCurrentUser();
       return {
         signedOutCurrentUser,
         signedOutNamespace,
@@ -7632,9 +7631,9 @@ const probes: Probe[] = [
           // re-signing in so paths/newData with `<UID>` substitute
           // correctly (anonymous re-sign-ins mint fresh uids).
           if (op.authPresent && !auth.currentUser) {
-            await signInAnonymously(auth);
+            await authSession.signInProbeUser(`rtdb-sim-${RUN_ID}`);
           } else if (!op.authPresent && auth.currentUser) {
-            await signOut(auth);
+            await authSession.signOutAndDeleteCurrentUser();
           }
           const liveUid = auth.currentUser?.uid ?? '';
           const opPathSubst = substituteUid(op.opPath, liveUid);
@@ -7759,10 +7758,7 @@ const probes: Probe[] = [
         return earlySkip;
       }
       const restoreOk = guardedAudit.restoreOk;
-      if (!auth.currentUser) {
-        try { await signInAnonymously(auth); } catch { /* ignored */ }
-      }
-      await dropCurrentUser();
+      await authSession.signOutAndDeleteCurrentUser();
       return {
         totalOps: allResults.length,
         agreements: allResults.filter((r) => r.agree).length,
@@ -8852,10 +8848,11 @@ async function main(): Promise<void> {
   const skippedProbes: string[] = [];
   const runProbes = async (): Promise<void> => {
     for (const probe of selected) {
+      await authSession.beforeProbe(probe.name);
       process.stdout.write(`[oracle] ${probe.name} (${probe.matrixRow}) ... `);
       const t0 = Date.now();
       try {
-        const behavior = await probe.observe();
+        const behavior = await authSession.observeWithRateLimitRetry(probe.name, () => probe.observe());
         const skip = skipReason(behavior);
         if (skip !== null) {
           skippedProbes.push(`${probe.name}: ${skip}`);
@@ -8882,6 +8879,7 @@ async function main(): Promise<void> {
         await purge(probe.name.replace(/^firestore-|^auth-/, ''));
       }
     }
+    await authSession.finishRun();
     await deleteApp(app);
   };
 
