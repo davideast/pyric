@@ -1,7 +1,8 @@
 import { FirebaseError } from 'pyric/app';
-import { AuthCredential, linkWithCredential, unlink, sandbox, type Auth, type MintedSession } from 'pyric/auth';
+import { linkWithCredential, unlink, sandbox, type Auth, type MintedSession } from 'pyric/auth';
 import { sessionKeyOf } from 'pyric/auth/internal';
 import type { OpMessage } from '../protocol.js';
+import { credentialFromWirePayload } from './auth-credential-sign-in.js';
 import { requireMatchingPortSession } from './auth-session-seeder.js';
 
 type LinkingOperation = Extract<OpMessage, { method: 'auth.linkWithCredential' | 'auth.unlink' }>;
@@ -15,7 +16,7 @@ export async function linkSessionProvider(
   const session = requireMatchingPortSession(current, message);
   const isLink = message.method === 'auth.linkWithCredential';
   if (isLink) {
-    const credential = AuthCredential.fromJSON(message.credential);
+    const credential = credentialFromWirePayload(message.credential);
     const isInvalid = credential === null;
     if (isInvalid) throw new FirebaseError('auth/invalid-credential', 'The linking credential is invalid.');
     await linkWithCredential(session.user, credential);
