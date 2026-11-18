@@ -26,6 +26,8 @@ import {
   assertConfigObservation,
   assertDrivenAcceptedPair,
   assertDrivenMessagingThrow,
+  assertTopicManagementMatchesObserved,
+  assertTopicManagementObservation,
   CONFIG_ROW_SPECS,
 } from './oracle-conformance-cases.ts';
 
@@ -302,11 +304,21 @@ const assertions: Record<string, () => Promise<void> | void> = {
   },
   'messaging-admin#7': async () => {
     const m = await loadAdmin();
-    expect(typeof m.getMessaging().subscribeToTopic).toBe('function');
+    const svc = await messaging();
+    await assertTopicManagementObservation(
+      (tokens, topic) => svc.subscribeToTopic(tokens, topic),
+      obs('messaging-send-topic-subscribe-batch'),
+      m.FirebaseMessagingError,
+    );
   },
   'messaging-admin#8': async () => {
     const m = await loadAdmin();
-    expect(typeof m.getMessaging().unsubscribeFromTopic).toBe('function');
+    const svc = await messaging();
+    await assertTopicManagementObservation(
+      (tokens, topic) => svc.unsubscribeFromTopic(tokens, topic),
+      obs('messaging-send-topic-unsubscribe-batch'),
+      m.FirebaseMessagingError,
+    );
   },
   'messaging-admin#9': async () => {
     const m = await loadAdmin();
@@ -470,7 +482,22 @@ const assertions: Record<string, () => Promise<void> | void> = {
   'messaging-admin#34': async () => { expect(await loadAdmin()).toBeDefined(); },
 
   // -- response shapes --------------------------------------------------------
-  'messaging-admin#35': async () => { expect(await loadAdmin()).toBeDefined(); },
+  'messaging-admin#35': async () => {
+    const m = await loadAdmin();
+    const svc = await messaging();
+    const subObs = obs('messaging-send-topic-subscribe-batch');
+    const unsubObs = obs('messaging-send-topic-unsubscribe-batch');
+    const subRes = await svc.subscribeToTopic(
+      ['not-a-valid-fcm-token', 'also-not-a-valid-fcm-token'],
+      'oracle-topic',
+    );
+    assertTopicManagementMatchesObserved(subRes, subObs.mixedInvalidTokensBareTopic, m.FirebaseMessagingError);
+    const unsubRes = await svc.unsubscribeFromTopic(
+      ['not-a-valid-fcm-token', 'also-not-a-valid-fcm-token'],
+      'oracle-topic',
+    );
+    assertTopicManagementMatchesObserved(unsubRes, unsubObs.mixedInvalidTokensBareTopic, m.FirebaseMessagingError);
+  },
   'messaging-admin#36': async () => {
     const m = await loadAdmin();
     const svc = await messaging();
@@ -544,7 +571,7 @@ describe('oracle conformance (messaging-admin send plane)', () => {
 
   it('completeness: every observations/messaging-admin/ capture is asserted (prefix gate)', () => {
     const r = messagingObsGate.report();
-    expect(r.committed.length).toBe(29);
+    expect(r.committed.length).toBe(31);
     expect(r.loadedButUnused).toEqual([]);
     expect(r.uncovered).toEqual([]);
   });

@@ -82,9 +82,8 @@ export async function observeTopicSubscribeBatch(subject: TopicSubscribeSubject)
 
 export const probe: Probe = {
   rig: 'messaging-send',
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'messaging-admin#7, messaging-admin#35',
+  rowIds: ['messaging-admin#7', 'messaging-admin#35'],
   description:
     'firebase-admin/messaging subscribeToTopic(tokenOrTokens, topic): live IID /iid/v1:batchAdd MessagingTopicManagementResponse per-index error mapping, /topics/ prefix normalization, and synchronous vs asynchronous input validation guards.',
   async observe() {

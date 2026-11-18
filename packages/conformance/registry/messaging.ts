@@ -538,8 +538,7 @@ const adminEntryRows: CompatibilityRow[] = [
     api: 'Messaging.send(message, dryRun?): Promise<string>',
     behavior:
       'Sends one message via FCM v1 and resolves with the resource name `projects/<projectId>/messages/<messageId>`. `dryRun=true` returns the SAME shape (fake id), so callers cannot distinguish validation from acceptance by shape. Topic, condition, token, notification-only, data-only, and webpush-config sends are all accepted. Malformed sends fail server-side validation with HTTP 4xx `google.rpc` error envelopes carrying both a `google.rpc.BadRequest` (fieldViolations) and a `google.firebase.fcm.v1.FcmError` (errorCode); detail ordering is not contractual. The documented data-payload cap is 4096 bytes.',
-    evidence:
-      'oracle: 11 send-plane observations - accept paths `messaging-send-topic-accepted`, `messaging-send-condition-accepted`, `messaging-send-notification-only-vs-data-only-accepted`, `messaging-send-webpush-config-accepted`; error envelopes and case-insensitive header checks `messaging-send-no-target-error-envelope`, `messaging-send-invalid-token-error-envelope`, `messaging-send-invalid-condition-error-envelope`, `messaging-send-invalid-topic-name-error-envelope`, `messaging-send-oversized-payload-error-envelope`, `messaging-send-webpush-invalid-ttl-error-envelope`, `messaging-send-webpush-lowercase-ttl`. Replayed by the conformance suite.',
+    evidence: 'oracle: 11 send-plane observations - accept paths `messaging-send-topic-accepted`, `messaging-send-condition-accepted`, `messaging-send-notification-only-vs-data-only-accepted`, `messaging-send-webpush-config-accepted`; error envelopes and case-insensitive header checks `messaging-send-no-target-error-envelope`, `messaging-send-invalid-token-error-envelope`, `messaging-send-invalid-condition-error-envelope`, `messaging-send-invalid-topic-name-error-envelope`, `messaging-send-oversized-payload-error-envelope`, `messaging-send-webpush-invalid-ttl-error-envelope`, `messaging-send-webpush-lowercase-ttl`. Replayed by the conformance suite.',
     observations: ['messaging-send-topic-accepted', 'messaging-send-condition-accepted', 'messaging-send-notification-only-vs-data-only-accepted', 'messaging-send-webpush-config-accepted', 'messaging-send-no-target-error-envelope', 'messaging-send-invalid-token-error-envelope', 'messaging-send-invalid-condition-error-envelope', 'messaging-send-invalid-topic-name-error-envelope', 'messaging-send-oversized-payload-error-envelope', 'messaging-send-webpush-invalid-ttl-error-envelope', 'messaging-send-webpush-lowercase-ttl'],
   }),
   row({
@@ -569,21 +568,23 @@ const adminEntryRows: CompatibilityRow[] = [
     surface: 'messaging-admin',
     ref: 7,
     featureKeys: ["Messaging","subscribeToTopic"],
-    flipped: 'unit-backed',
+    flipped: 'oracle-backed',
     section: ADMIN_ENTRY,
     api: 'Messaging.subscribeToTopic(tokenOrTokens, topic): Promise<MessagingTopicManagementResponse>',
     behavior: 'Subscribes one or many registration tokens to a topic; resolves a `MessagingTopicManagementResponse`.',
-    evidence: 'Upstream typings/JSDoc (firebase-admin 13.10.0 `messaging`); no observation yet.',
+    evidence: 'oracle: `messaging-send-topic-subscribe-batch.json` (live IID `/iid/v1:batchAdd` per-index error mapping, `/topics/` normalization, and sync vs async validation guards). Replayed by the conformance suite.',
+    observations: ['messaging-send-topic-subscribe-batch'],
   }),
   row({
     surface: 'messaging-admin',
     ref: 8,
     featureKeys: ["Messaging","unsubscribeFromTopic"],
-    flipped: 'unit-backed',
+    flipped: 'oracle-backed',
     section: ADMIN_ENTRY,
     api: 'Messaging.unsubscribeFromTopic(tokenOrTokens, topic): Promise<MessagingTopicManagementResponse>',
     behavior: 'Unsubscribes one or many registration tokens from a topic; resolves a `MessagingTopicManagementResponse`.',
-    evidence: 'Upstream typings/JSDoc (firebase-admin 13.10.0 `messaging`); no observation yet.',
+    evidence: 'oracle: `messaging-send-topic-unsubscribe-batch.json` (live IID `/iid/v1:batchRemove` per-index error mapping, `/topics/` normalization, and sync vs async validation guards). Replayed by the conformance suite.',
+    observations: ['messaging-send-topic-unsubscribe-batch'],
   }),
   row({
     surface: 'messaging-admin',
@@ -620,8 +621,7 @@ const adminTargetRows: CompatibilityRow[] = [
     api: 'interface BaseMessage { data?; notification?; android?; webpush?; apns?; fcmOptions? }',
     behavior:
       'Common message fields shared by every target variant. Production accepts a message carrying ONLY a `notification` block and, separately, ONLY a `data` block — neither is individually required.',
-    evidence:
-      'oracle: `messaging-send-notification-only-vs-data-only-accepted.json` (both accepted). Replayed by the conformance suite.',
+    evidence: 'oracle: `messaging-send-notification-only-vs-data-only-accepted.json` (both accepted). Replayed by the conformance suite.',
     observations: ['messaging-send-notification-only-vs-data-only-accepted'],
   }),
   row({
@@ -633,8 +633,7 @@ const adminTargetRows: CompatibilityRow[] = [
     api: 'interface TokenMessage extends BaseMessage { token: string }',
     behavior:
       'A device-token target. A syntactically invalid token is rejected with HTTP 400 INVALID_ARGUMENT whose fieldViolations name `message.token`.',
-    evidence:
-      'oracle: `messaging-send-invalid-token-error-envelope.json` (fieldViolations names message.token). Replayed by the conformance suite.',
+    evidence: 'oracle: `messaging-send-invalid-token-error-envelope.json` (fieldViolations names message.token). Replayed by the conformance suite.',
     observations: ['messaging-send-invalid-token-error-envelope'],
   }),
   row({
@@ -646,8 +645,7 @@ const adminTargetRows: CompatibilityRow[] = [
     api: 'interface TopicMessage extends BaseMessage { topic: string }',
     behavior:
       'A topic target. A well-formed topic send is accepted and returns the standard resource name (no subscribers required); a topic name containing characters outside the documented `[a-zA-Z0-9-_.~%]` set is rejected with an INVALID_ARGUMENT error envelope.',
-    evidence:
-      'oracle: `messaging-send-topic-accepted.json` (accepted) + `messaging-send-invalid-topic-name-error-envelope.json` (bad name rejected). Replayed by the conformance suite.',
+    evidence: 'oracle: `messaging-send-topic-accepted.json` (accepted) + `messaging-send-invalid-topic-name-error-envelope.json` (bad name rejected). Replayed by the conformance suite.',
     observations: ['messaging-send-topic-accepted', 'messaging-send-invalid-topic-name-error-envelope'],
   }),
   row({
@@ -896,11 +894,12 @@ const adminResponseRows: CompatibilityRow[] = [
     surface: 'messaging-admin',
     ref: 35,
     featureKeys: ["MessagingTopicManagementResponse"],
-    flipped: 'unit-backed',
+    flipped: 'oracle-backed',
     section: ADMIN_RESPONSES,
     api: 'interface MessagingTopicManagementResponse { failureCount; successCount; errors }',
     behavior: 'Topic subscribe / unsubscribe result carrying per-index errors as `FirebaseArrayIndexError[]`.',
-    evidence: 'Upstream typings (firebase-admin 13.10.0 `messaging-api`); no observation yet.',
+    evidence: 'oracle: `messaging-send-topic-subscribe-batch.json` + `messaging-send-topic-unsubscribe-batch.json` (`successCount`, `failureCount`, and per-index `errors` with `FirebaseMessagingError`). Replayed by the conformance suite.',
+    observations: ['messaging-send-topic-subscribe-batch', 'messaging-send-topic-unsubscribe-batch'],
   }),
   row({
     surface: 'messaging-admin',

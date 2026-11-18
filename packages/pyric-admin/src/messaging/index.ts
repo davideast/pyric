@@ -32,6 +32,7 @@ import { initializeSandbox, isRemoteSandbox, type Sandbox } from 'pyric/sandbox'
 import {
   getMessagingBroker,
   BrokerSendError,
+  isValidTopicName,
   validateClientMessage,
   type BrokerMessage,
   type TopicManagementOutcome,
@@ -225,11 +226,11 @@ function assertValidDryRun(dryRun: unknown): void {
   }
 }
 
-function validateTopicManagementRequest(
-  tokenOrTokens: unknown,
-  topic: unknown,
-  fnName: string,
-): string[] {
+function topicFormatErrorMessage(fnName: string): string {
+  return `Topic provided to ${fnName}() must be a string which matches the format "/topics/[a-zA-Z0-9-_.~%]+".`;
+}
+
+function validateTopicManagementTokensType(tokenOrTokens: unknown, fnName: string): void {
   const isNonEmptyString = typeof tokenOrTokens === 'string' && tokenOrTokens.length > 0;
   const isNonEmptyArray = Array.isArray(tokenOrTokens) && tokenOrTokens.length > 0;
   if (!isNonEmptyString && !isNonEmptyArray) {
@@ -237,29 +238,42 @@ function validateTopicManagementRequest(
       `Registration token(s) provided to ${fnName}() must be a non-empty string or a non-empty array.`,
     );
   }
+}
+
+function validateTopicManagementTopicType(topic: unknown, fnName: string): void {
   if (typeof topic !== 'string' || topic.length === 0) {
+    throw invalidArgument(topicFormatErrorMessage(fnName));
+  }
+}
+
+function normalizeTopicManagementTopic(topic: string): string {
+  if (topic.startsWith('/topics/')) return topic;
+  return `/topics/${topic}`;
+}
+
+function validateTopicManagementTokens(tokenOrTokens: string | string[], fnName: string): string[] {
+  if (!Array.isArray(tokenOrTokens)) return [tokenOrTokens];
+  if (tokenOrTokens.length > MAX_TOPIC_MANAGEMENT_TOKENS) {
     throw invalidArgument(
-      `Topic provided to ${fnName}() must be a string which matches the format "/topics/[a-zA-Z0-9-_.~%]+".`,
+      `Too many registration tokens provided in a single request to ${fnName}(). Batch ` +
+        'your requests to contain no more than 1,000 registration tokens per request.',
     );
   }
-  if (Array.isArray(tokenOrTokens)) {
-    if (tokenOrTokens.length > MAX_TOPIC_MANAGEMENT_TOKENS) {
+  for (let index = 0; index < tokenOrTokens.length; index++) {
+    const token: unknown = tokenOrTokens[index];
+    if (typeof token !== 'string' || token.length === 0) {
       throw invalidArgument(
-        `Too many registration tokens provided in a single request to ${fnName}(). Batch ` +
-          'your requests to contain no more than 1,000 registration tokens per request.',
+        `Registration token provided to ${fnName}() at index ${index} must be a non-empty string.`,
       );
     }
-    for (let index = 0; index < tokenOrTokens.length; index++) {
-      const token: unknown = tokenOrTokens[index];
-      if (typeof token !== 'string' || token.length === 0) {
-        throw invalidArgument(
-          `Registration token provided to ${fnName}() at index ${index} must be a non-empty string.`,
-        );
-      }
-    }
-    return tokenOrTokens;
   }
-  return [tokenOrTokens as string];
+  return tokenOrTokens;
+}
+
+function validateTopicManagementTopic(normalizedTopic: string, fnName: string): void {
+  if (!isValidTopicName(normalizedTopic)) {
+    throw invalidArgument(topicFormatErrorMessage(fnName));
+  }
 }
 
 function hasErrorEnvelope(
@@ -453,7 +467,7 @@ export class Messaging {
   }
 
   /** Subscribe one or many registration tokens to a topic. */
-  async subscribeToTopic(
+  subscribeToTopic(
     tokenOrTokens: string | string[],
     topic: string,
   ): Promise<MessagingTopicManagementResponse> {
@@ -461,28 +475,42 @@ export class Messaging {
   }
 
   /** Unsubscribe one or many registration tokens from a topic. */
-  async unsubscribeFromTopic(
+  unsubscribeFromTopic(
     tokenOrTokens: string | string[],
     topic: string,
   ): Promise<MessagingTopicManagementResponse> {
     return this.manageTopic(tokenOrTokens, topic, 'unsubscribe');
   }
 
-  private async manageTopic(
+  private manageTopic(
     tokenOrTokens: string | string[],
     topic: string,
     action: 'subscribe' | 'unsubscribe',
   ): Promise<MessagingTopicManagementResponse> {
+    let fnName = 'unsubscribeFromTopic';
+    if (action === 'subscribe') fnName = 'subscribeToTopic';
+    validateTopicManagementTokensType(tokenOrTokens, fnName);
+    validateTopicManagementTopicType(topic, fnName);
+    const normalizedTopic = normalizeTopicManagementTopic(topic);
+    return this.executeTopicOp(tokenOrTokens, normalizedTopic, action, fnName);
+  }
+
+  private async executeTopicOp(
+    tokenOrTokens: string | string[],
+    normalizedTopic: string,
+    action: 'subscribe' | 'unsubscribe',
+    fnName: string,
+  ): Promise<MessagingTopicManagementResponse> {
+    const tokens = validateTopicManagementTokens(tokenOrTokens, fnName);
+    validateTopicManagementTopic(normalizedTopic, fnName);
     assertAdminAppActive(this.boundApp);
-    const fnName = action === 'subscribe' ? 'subscribeToTopic' : 'unsubscribeFromTopic';
-    const tokens = validateTopicManagementRequest(tokenOrTokens, topic, fnName);
     let outcome: TopicManagementOutcome;
     try {
       outcome = await dispatchTopicOp(
         this.boundApp.sandbox,
         action,
         tokens,
-        topic,
+        normalizedTopic,
       );
     } catch (error) {
       rethrowWrapped(error);

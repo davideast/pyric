@@ -99,40 +99,84 @@ describe('topic management — per-token error entries', () => {
 });
 
 describe('topic management — rejections', () => {
-  it('an invalid topic name rejects the whole call with invalid-argument', async () => {
+  it('an invalid topic name rejects asynchronously with the firebase-admin format error', async () => {
     const { svc, broker } = freshMessaging();
-    let err: unknown;
-    try {
-      await svc.subscribeToTopic(broker.getTokenFor('a'), 'bad topic!');
-    } catch (e) {
-      err = e;
-    }
-    expect(err).toBeInstanceOf(FirebaseMessagingError);
-    expect((err as FirebaseMessagingError).code).toBe('messaging/invalid-argument');
+    const token = broker.getTokenFor('a');
+    const subPromise = svc.subscribeToTopic(token, 'bad topic!');
+    await expect(subPromise).rejects.toEqual(
+      expect.objectContaining({
+        code: 'messaging/invalid-argument',
+        message:
+          'Topic provided to subscribeToTopic() must be a string which matches the format "/topics/[a-zA-Z0-9-_.~%]+".',
+      }),
+    );
+
+    const unsubPromise = svc.unsubscribeFromTopic(token, '/topics//topics/news');
+    await expect(unsubPromise).rejects.toEqual(
+      expect.objectContaining({
+        code: 'messaging/invalid-argument',
+        message:
+          'Topic provided to unsubscribeFromTopic() must be a string which matches the format "/topics/[a-zA-Z0-9-_.~%]+".',
+      }),
+    );
   });
 
-  it('an empty token array rejects with invalid-argument', async () => {
+  it('empty token string or empty token array throws synchronously with invalid-argument', () => {
     const { svc } = freshMessaging();
-    let err: unknown;
-    try {
-      await svc.subscribeToTopic([], 'news');
-    } catch (e) {
-      err = e;
+    for (const badTokens of ['', []]) {
+      let subErr: unknown;
+      try {
+        void svc.subscribeToTopic(badTokens, 'news');
+      } catch (e) {
+        subErr = e;
+      }
+      expect(subErr).toBeInstanceOf(FirebaseMessagingError);
+      expect((subErr as FirebaseMessagingError).code).toBe('messaging/invalid-argument');
+      expect((subErr as Error).message).toBe(
+        'Registration token(s) provided to subscribeToTopic() must be a non-empty string or a non-empty array.',
+      );
+
+      let unsubErr: unknown;
+      try {
+        void svc.unsubscribeFromTopic(badTokens, 'news');
+      } catch (e) {
+        unsubErr = e;
+      }
+      expect(unsubErr).toBeInstanceOf(FirebaseMessagingError);
+      expect((unsubErr as FirebaseMessagingError).code).toBe('messaging/invalid-argument');
+      expect((unsubErr as Error).message).toBe(
+        'Registration token(s) provided to unsubscribeFromTopic() must be a non-empty string or a non-empty array.',
+      );
     }
-    expect((err as FirebaseMessagingError).code).toBe('messaging/invalid-argument');
-    expect((err as Error).message).toMatch(/non-empty/);
   });
 
-  it('non-string or empty topic rejects with FirebaseMessagingError invalid-argument', async () => {
+  it('non-string or empty topic throws synchronously with FirebaseMessagingError invalid-argument', () => {
     const { svc, broker } = freshMessaging();
     const token = broker.getTokenFor('reg-non-str');
     for (const badTopic of [null, undefined, 123, '', {}]) {
-      await expect(svc.subscribeToTopic(token, badTopic as never)).rejects.toMatchObject({
-        code: 'messaging/invalid-argument',
-      });
-      await expect(svc.unsubscribeFromTopic(token, badTopic as never)).rejects.toMatchObject({
-        code: 'messaging/invalid-argument',
-      });
+      let subErr: unknown;
+      try {
+        void svc.subscribeToTopic(token, badTopic as never);
+      } catch (e) {
+        subErr = e;
+      }
+      expect(subErr).toBeInstanceOf(FirebaseMessagingError);
+      expect((subErr as FirebaseMessagingError).code).toBe('messaging/invalid-argument');
+      expect((subErr as Error).message).toBe(
+        'Topic provided to subscribeToTopic() must be a string which matches the format "/topics/[a-zA-Z0-9-_.~%]+".',
+      );
+
+      let unsubErr: unknown;
+      try {
+        void svc.unsubscribeFromTopic(token, badTopic as never);
+      } catch (e) {
+        unsubErr = e;
+      }
+      expect(unsubErr).toBeInstanceOf(FirebaseMessagingError);
+      expect((unsubErr as FirebaseMessagingError).code).toBe('messaging/invalid-argument');
+      expect((unsubErr as Error).message).toBe(
+        'Topic provided to unsubscribeFromTopic() must be a string which matches the format "/topics/[a-zA-Z0-9-_.~%]+".',
+      );
     }
   });
 });

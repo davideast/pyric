@@ -38,6 +38,7 @@ export async function assertDrivenMessagingThrow(
   invoke: () => Promise<unknown>,
   expectedObs: {
     threw: boolean;
+    synchronousThrow?: boolean;
     code?: string;
     message?: string;
     isFirebaseMessagingError?: boolean;
@@ -45,12 +46,25 @@ export async function assertDrivenMessagingThrow(
   ErrorClass: Function,
 ): Promise<void> {
   let caught: unknown;
+  let didThrowSync = false;
+  let returnedPromise: Promise<unknown> | undefined;
   try {
-    await invoke();
+    returnedPromise = invoke();
   } catch (err) {
     caught = err;
+    didThrowSync = true;
+  }
+  if (!didThrowSync && returnedPromise !== undefined) {
+    try {
+      await returnedPromise;
+    } catch (err) {
+      caught = err;
+    }
   }
   expect(caught !== undefined).toBe(expectedObs.threw);
+  if (expectedObs.synchronousThrow !== undefined) {
+    expect(didThrowSync).toBe(expectedObs.synchronousThrow);
+  }
   const errRecord = caught as { code?: string; message?: string };
   if (expectedObs.code !== undefined) {
     expect(errRecord.code).toBe(expectedObs.code);
@@ -293,4 +307,97 @@ export function assertBatchMatchesObserved(
       expect(got.error instanceof ErrorClass).toBe(expItem.error.isFirebaseMessagingError);
     }
   }
+}
+
+export function assertTopicManagementMatchesObserved(
+  actual: {
+    successCount: number;
+    failureCount: number;
+    errors: Array<{ index: number; error: any }>;
+  },
+  expected: {
+    successCount: number;
+    failureCount: number;
+    errorCount: number;
+    errors: Array<{
+      index: number;
+      error: { code: string; message: string; isFirebaseMessagingError: boolean };
+    }>;
+  },
+  ErrorClass: Function,
+): void {
+  expect(actual.successCount).toBe(expected.successCount);
+  expect(actual.failureCount).toBe(expected.failureCount);
+  expect(actual.errors.length).toBe(expected.errorCount);
+  for (let i = 0; i < expected.errors.length; i++) {
+    const expItem = expected.errors[i];
+    const gotItem = actual.errors[i];
+    expect(gotItem).toBeDefined();
+    if (expItem === undefined || gotItem === undefined) continue;
+    expect(gotItem.index).toBe(expItem.index);
+    expect(gotItem.error.code).toBe(expItem.error.code);
+    expect(gotItem.error.message).toBe(expItem.error.message);
+    expect(gotItem.error instanceof ErrorClass).toBe(expItem.error.isFirebaseMessagingError);
+  }
+}
+
+export async function assertTopicManagementObservation(
+  invokeOp: (tokenOrTokens: unknown, topic: unknown) => Promise<{
+    successCount: number;
+    failureCount: number;
+    errors: Array<{ index: number; error: any }>;
+  }>,
+  obsBehavior: Record<string, any>,
+  ErrorClass: Function,
+): Promise<void> {
+  const mixed = await invokeOp(
+    ['not-a-valid-fcm-token', 'also-not-a-valid-fcm-token'],
+    'oracle-topic',
+  );
+  assertTopicManagementMatchesObserved(mixed, obsBehavior.mixedInvalidTokensBareTopic, ErrorClass);
+
+  const prefixed = await invokeOp('not-a-valid-fcm-token', '/topics/oracle-topic');
+  assertTopicManagementMatchesObserved(prefixed, obsBehavior.prefixedTopicNormalized, ErrorClass);
+  const matchesBare =
+    prefixed.failureCount === 1 && prefixed.errors[0]?.error.code === mixed.errors[0]?.error.code;
+  expect(matchesBare).toBe(obsBehavior.prefixedMatchesSingleBareError);
+
+  await assertDrivenMessagingThrow(
+    () => invokeOp('', 'oracle-topic'),
+    obsBehavior.emptyStringTokenSync,
+    ErrorClass,
+  );
+  if (obsBehavior.emptyArrayTokensSync !== undefined) {
+    await assertDrivenMessagingThrow(
+      () => invokeOp([], 'oracle-topic'),
+      obsBehavior.emptyArrayTokensSync,
+      ErrorClass,
+    );
+  }
+  await assertDrivenMessagingThrow(
+    () => invokeOp('tok-1', ''),
+    obsBehavior.emptyTopicSync,
+    ErrorClass,
+  );
+  await assertDrivenMessagingThrow(
+    () => invokeOp(['tok-1', ''], 'oracle-topic'),
+    obsBehavior.emptyElementInArrayAsync,
+    ErrorClass,
+  );
+  const overLimitTokens = Array.from({ length: 1001 }, (_, idx) => `tok-${idx}`);
+  await assertDrivenMessagingThrow(
+    () => invokeOp(overLimitTokens, 'oracle-topic'),
+    obsBehavior.overMax1001TokensAsync,
+    ErrorClass,
+  );
+  await assertDrivenMessagingThrow(
+    () => invokeOp('tok-1', 'bad#topic!'),
+    obsBehavior.invalidTopicCharsetAsync,
+    ErrorClass,
+  );
+  await assertDrivenMessagingThrow(
+    () => invokeOp('tok-1', '/topics//topics/oracle-topic'),
+    obsBehavior.doubleTopicsPrefixAsync,
+    ErrorClass,
+  );
 }

@@ -248,10 +248,26 @@ describe('remote messaging dispatch', () => {
     const name = await messaging.send({ topic: 'news', data: { id: '1' } });
     expect(name).toMatch(/^projects\/proj-remote\/messages\/\d+$/);
 
-    await expect(messaging.subscribeToTopic(token, null as never)).rejects.toMatchObject({
+    let syncSubErr: unknown;
+    try {
+      void messaging.subscribeToTopic(token, null as never);
+    } catch (e) {
+      syncSubErr = e;
+    }
+    expect(syncSubErr).toMatchObject({ code: 'messaging/invalid-argument' });
+
+    let syncUnsubErr: unknown;
+    try {
+      void messaging.unsubscribeFromTopic(token, null as never);
+    } catch (e) {
+      syncUnsubErr = e;
+    }
+    expect(syncUnsubErr).toMatchObject({ code: 'messaging/invalid-argument' });
+
+    await expect(messaging.subscribeToTopic(token, 'bad#topic!')).rejects.toMatchObject({
       code: 'messaging/invalid-argument',
     });
-    await expect(messaging.unsubscribeFromTopic(token, null as never)).rejects.toMatchObject({
+    await expect(messaging.unsubscribeFromTopic(token, 'bad#topic!')).rejects.toMatchObject({
       code: 'messaging/invalid-argument',
     });
 

@@ -4,7 +4,7 @@ import { describe, expect, test } from 'bun:test';
 import { loadObservations } from '../../src/ledger.ts';
 import { loadModularProbes } from '../../src/sdk-probes.ts';
 import { selectMessagingSendTargets } from '../../src/messaging-send-probes.ts';
-import { expectStagedUntilCaptured } from './staged-capture-assertions.ts';
+import { loadPendingRowLinkObservations } from '../../src/staged-captures.ts';
 import {
   captureSyncOrAsyncMessagingCall,
   summarizeTopicManagementResponse,
@@ -50,8 +50,8 @@ async function withStubbedIidTransport(
   }
 }
 
-describe('modular messaging-send topic management probes (Slice 4 staged family)', () => {
-  test('registers subscribeToTopic and unsubscribeFromTopic staged probes under rig messaging-send', async () => {
+describe('modular messaging-send topic management probes (Slice 4 family)', () => {
+  test('registers subscribeToTopic and unsubscribeFromTopic row-linked probes under rig messaging-send', async () => {
     const modular = await loadModularProbes('messaging-send');
     const ids = modular.map((entry) => entry.id);
     const expectedIds = [
@@ -64,12 +64,15 @@ describe('modular messaging-send topic management probes (Slice 4 staged family)
 
     for (const probeRecord of [topicSubscribeProbe, topicUnsubscribeProbe]) {
       expect(probeRecord.rig).toBe('messaging-send');
-      expect(probeRecord.pendingRowLink).toBe(true);
-      expect(probeRecord.matrixRow).toBe('');
-      expect(probeRecord.rowIds).toEqual([]);
+      expect(probeRecord.pendingRowLink).toBeUndefined();
+      expect(probeRecord.matrixRow.length).toBeGreaterThan(0);
+      expect(probeRecord.rowIds.length).toBe(2);
       expect(probeRecord.description.length).toBeGreaterThan(20);
     }
+    expect(topicSubscribeProbe.rowIds).toEqual(['messaging-admin#7', 'messaging-admin#35']);
+    expect(topicUnsubscribeProbe.rowIds).toEqual(['messaging-admin#8', 'messaging-admin#35']);
 
+    const pending = loadPendingRowLinkObservations();
     const existingNames = new Set(loadObservations().map((obs) => obs.name));
     const unfilteredNames = new Set(
       selectMessagingSendTargets({
@@ -79,16 +82,10 @@ describe('modular messaging-send topic management probes (Slice 4 staged family)
         observationExists: (name) => existingNames.has(name),
       }).map((item) => item.name),
     );
-    expectStagedUntilCaptured(expectedIds, {
-      rig: 'messaging-send',
-      filterFlag: '--probe',
-      whenUncaptured: (id) => {
-        expect(unfilteredNames.has(id)).toBe(false);
-      },
-      whenCaptured: (id) => {
-        expect(unfilteredNames.has(id)).toBe(true);
-      },
-    });
+    for (const id of expectedIds) {
+      expect(pending.has(id)).toBe(false);
+      expect(unfilteredNames.has(id)).toBe(true);
+    }
   });
 
   test('observes subscribeToTopic and unsubscribeFromTopic IID response mapping and sync vs async validation', async () => {
