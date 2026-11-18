@@ -186,6 +186,7 @@ export async function createViteSandboxGeneration(
       await bridge?.close();
       await session?.close();
       stateOwner?.close();
+      workerRuntime.dispose?.();
     })();
     return closePromise;
   };

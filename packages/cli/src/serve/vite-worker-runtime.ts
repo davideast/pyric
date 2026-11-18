@@ -1,3 +1,4 @@
+import { existsSync, rmSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
@@ -7,6 +8,7 @@ import {
   type WorkerBundleOptions,
   type WorkerBundleResult,
 } from './bundler.js';
+import { LOCK_DIR } from './worker-build-lock.js';
 
 export interface ViteWorkerRuntimeStatus {
   sdkDir: string;
@@ -18,6 +20,7 @@ export interface ViteWorkerRuntime {
   prepare(epochSalt?: string): Promise<void>;
   status(): ViteWorkerRuntimeStatus;
   headTag(marker: string): string;
+  dispose?(): void;
 }
 
 interface ViteWorkerRuntimeOptions {
@@ -53,6 +56,17 @@ export function createViteWorkerRuntime(
       return current.ready && current.epoch
         ? `<meta name="pyric-worker-v" content="${current.epoch}" ${marker}>`
         : `<script ${marker}>globalThis.__PYRIC_FORCE_INPAGE__=true;</script>`;
+    },
+    dispose() {
+      const activeDir = current.sdkDir;
+      current = { sdkDir: defaultSdkDir, ready: false, epoch: null };
+      if (activeDir === defaultSdkDir) {
+        return;
+      }
+      if (existsSync(join(activeDir, LOCK_DIR))) {
+        return;
+      }
+      rmSync(activeDir, { recursive: true, force: true });
     },
   };
 }

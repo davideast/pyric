@@ -24,6 +24,11 @@ import { existsSync, readFileSync, readdirSync, renameSync, rmSync, statSync, wr
 import { basename, dirname, join } from 'node:path';
 
 import { ABANDONED_LOCK_PREFIX, WORKER_BUILD_STALE_MS } from './worker-build-lock.js';
+import {
+  evictViteWorkerCache,
+  markSaltedWorkerDir,
+  touchBundleCacheDir,
+} from './bundle-cache-evict.js';
 
 export const WORKER_FILE = 'worker.js';
 export const WORKER_EPOCH_FILE = '.worker-epoch';
@@ -40,7 +45,11 @@ export function readCompletedWorkerBundle(outDir: string, hash: string): string 
     const hasValidEpoch = EPOCH_PATTERN.test(epoch);
     if (!hasValidEpoch) return null;
     const workerCarriesEpoch = readFileSync(join(outDir, WORKER_FILE), 'utf8').includes(epoch);
-    return workerCarriesEpoch ? epoch : null;
+    if (workerCarriesEpoch === false) {
+      return null;
+    }
+    touchBundleCacheDir(outDir);
+    return epoch;
   } catch {
     return null;
   }
@@ -80,11 +89,21 @@ function isOlderThan(path: string, ms: number): boolean {
 }
 
 /** Move a finished build into `outDir`. Each rename replaces one file whole. */
-export function publishWorkerBundle(stagingDir: string, outDir: string, hash: string): void {
+export function publishWorkerBundle(
+  stagingDir: string,
+  outDir: string,
+  hash: string,
+  epochSalt?: string,
+): void {
   rmSync(join(outDir, WORKER_MARKER_FILE), { force: true });
   writeFileSync(join(stagingDir, WORKER_MARKER_FILE), hash);
   for (const name of [WORKER_FILE, WORKER_MAP_FILE, WORKER_EPOCH_FILE, WORKER_MARKER_FILE]) {
     const staged = join(stagingDir, name);
     if (existsSync(staged)) renameSync(staged, join(outDir, name));
   }
+  if (epochSalt !== undefined && epochSalt.length > 0) {
+    markSaltedWorkerDir(outDir, epochSalt);
+  }
+  touchBundleCacheDir(outDir);
+  evictViteWorkerCache(dirname(outDir), basename(outDir));
 }
