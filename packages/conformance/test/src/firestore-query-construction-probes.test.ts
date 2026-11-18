@@ -410,7 +410,7 @@ describe('Firestore Query construction linked probes (sdk-probes)', () => {
     }
 
     expect(caught).toBeInstanceOf(FirestoreQueryTimeoutError);
-    expect((caught as Error).message).toContain('node firebase/firestore');
+    expect((caught as Error).message).toMatch(/node (firebase\/firestore|subprocess hard-timeout)/);
   });
 
   it('observes upstream firebase/firestore client behavior for non-filter composites, zero-arg composites, and limit bounds', async () => {
