@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'bun:test';
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnJob } from './spawn-job.ts';
 
@@ -15,8 +15,8 @@ afterEach(() => {
   }
 });
 
-describe('spawnJob scoped TMPDIR cleanup', () => {
-  it('assigns an isolated TMPDIR to each child job and unlinks it even when the child leaves files or fails', async () => {
+describe('spawnJob private ~/.cache/pyric-tmp/<job> TMPDIR isolation', () => {
+  it('assigns a private TMPDIR under ~/.cache/pyric-tmp (never /tmp) and unlinks it even when the child fails', async () => {
     const work = mkdtempSync(join(tmpdir(), 'pyric-spawn-job-ut-'));
     scratchDirs.push(work);
     const scriptPath = join(work, 'leak-tmp.mjs');
@@ -29,7 +29,7 @@ describe('spawnJob scoped TMPDIR cleanup', () => {
         "const childTmp = tmpdir();",
         "const leaked = mkdtempSync(join(childTmp, 'leaked-sub-'));",
         "writeFileSync(join(leaked, 'payload.txt'), 'leftover');",
-        "console.log(JSON.stringify({ childTmp, leaked }));",
+        "console.log(JSON.stringify({ childTmp, leaked, envTmp: process.env.TMPDIR }));",
         'process.exit(1);',
       ].join('\n'),
     );
@@ -47,8 +47,14 @@ describe('spawnJob scoped TMPDIR cleanup', () => {
     expect(outcome.exitCode).toBe(1);
     const jsonLine = outcome.tail.find((line) => line.startsWith('{'));
     expect(jsonLine).toBeDefined();
-    const parsed = JSON.parse(jsonLine ?? '{}') as { childTmp?: string; leaked?: string };
-    expect(parsed.childTmp).toContain('pyric-jt-');
+    const parsed = JSON.parse(jsonLine ?? '{}') as {
+      childTmp?: string;
+      leaked?: string;
+      envTmp?: string;
+    };
+    const expectedPrefix = join(homedir(), '.cache', 'pyric-tmp', 'leak-tmp-');
+    expect((parsed.childTmp ?? '').startsWith(expectedPrefix)).toBe(true);
+    expect(parsed.envTmp).toBe(parsed.childTmp);
     expect(existsSync(parsed.childTmp ?? '')).toBe(false);
     expect(existsSync(parsed.leaked ?? '')).toBe(false);
   });
