@@ -14,10 +14,8 @@ g.Node = dom.window.Node;
 g.Event = dom.window.Event;
 g.getComputedStyle = dom.window.getComputedStyle.bind(dom.window);
 g.IS_REACT_ACT_ENVIRONMENT = true;
-// The rules source hook asks the host for its rules; this test has no host.
-g.fetch = async () => new Response('null', { status: 404 });
 
-import { afterEach, describe, expect, it } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { cleanup, fireEvent, render } from '@testing-library/react';
 import { TrafficRow } from '@pyric/ui/traffic';
 import type { LiveHostStatus } from 'pyric/sandbox/internal';
@@ -32,7 +30,17 @@ import {
 import { fromOptions, inFromScope, inRawEventFromScope, methodLabel } from '../../../src/features/traffic/live-row.js';
 import type { StudioTrafficEvent } from '../../../src/features/traffic/verdict.js';
 
-afterEach(() => cleanup());
+const originalFetch = globalThis.fetch;
+
+beforeEach(() => {
+  // The rules source hook asks the host for its rules; this test has no host.
+  g.fetch = async () => new Response('null', { status: 404 });
+});
+
+afterEach(() => {
+  cleanup();
+  globalThis.fetch = originalFetch;
+});
 
 type LiveClient = NonNullable<LiveHostStatus['clients']>[number];
 

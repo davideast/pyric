@@ -17,7 +17,7 @@ g.IS_REACT_ACT_ENVIRONMENT = true;
 // jsdom doesn't implement scrollIntoView; the deep-link selection calls it.
 g.HTMLElement.prototype.scrollIntoView = () => {};
 
-import { afterEach, describe, expect, it } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react';
 import type { SandboxEvent } from 'pyric/sandbox';
 import { ListenersView } from '../../../src/features/listeners/ListenersView.js';
@@ -46,6 +46,10 @@ function installLiveHostHealth(): void {
     return new Response('null', { status: 404 });
   };
 }
+
+beforeEach(() => {
+  resetLiveStatusPollerForTesting();
+});
 
 afterEach(() => {
   cleanup();
