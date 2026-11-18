@@ -102,27 +102,14 @@ async function performDeleteObject(
   const target = targetOf(ref.storage);
   const operationProvenance = storageOperationProvenance(target, provenance);
   const service = await getStorageService(ref.storage);
-  let existing = await service.backend.getMetadata(ref.fullPath);
-  enforceRules(service, {
-    request: {
-      auth: storageAuth(target),
-      method: 'delete',
-      path: ref.fullPath,
-    },
-    resource: resourceFromStored(existing),
-  }, target, operationProvenance);
-  if (existing === undefined) {
-    throw objectNotFound(ref.fullPath);
-  }
   for (let attempt = 0; attempt < 4; attempt += 1) {
-    const deleted = await service.backend.deleteIfGeneration(ref.fullPath, existing.generation);
-    if (deleted) {
-      emitObjectDelete(ref, existing, operationProvenance);
-      return;
-    }
-    existing = await service.backend.getMetadata(ref.fullPath);
-    if (existing === undefined) {
-      throw objectNotFound(ref.fullPath);
+    const existing = await service.backend.getMetadata(ref.fullPath);
+    let options: { record: 'denials' } | undefined;
+    if (attempt > 0) {
+      if (existing === undefined) {
+        throw objectNotFound(ref.fullPath);
+      }
+      options = { record: 'denials' };
     }
     enforceRules(service, {
       request: {
@@ -131,7 +118,15 @@ async function performDeleteObject(
         path: ref.fullPath,
       },
       resource: resourceFromStored(existing),
-    }, target, operationProvenance, { record: 'denials' });
+    }, target, operationProvenance, options);
+    if (existing === undefined) {
+      throw objectNotFound(ref.fullPath);
+    }
+    const deleted = await service.backend.deleteIfGeneration(ref.fullPath, existing.generation);
+    if (deleted) {
+      emitObjectDelete(ref, existing, operationProvenance);
+      return;
+    }
   }
   throw objectNotFound(ref.fullPath);
 }
