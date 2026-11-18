@@ -37,7 +37,7 @@ export function load(name: string): Behavior {
 }
 
 /** A scenario context over a fresh in-page sandbox with the oracle rules. */
-export function inPageContext(): FirestoreScenarioContext {
+export function inPageContext(): FirestoreScenarioContext & { dispose(): void } {
   const sandbox = initializeSandbox();
   setRules(sandbox, ORACLE_RULES);
   const fs = pyricFirestore as unknown as FirestoreSdk;
@@ -49,6 +49,7 @@ export function inPageContext(): FirestoreScenarioContext {
     base: 'pyric_oracle/replay',
     deniedDocPath: 'pyric_oracle_denied_replay/x',
     newClient: async (name) => open(name),
+    dispose: () => sandbox.dispose(),
   };
 }
 

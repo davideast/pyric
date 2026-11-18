@@ -15,11 +15,37 @@ import { deleteApp as deleteAdminApp, initializeApp as initializeAdminApp } from
 import { getDatabase as getAdminDatabase, type Database as AdminDatabase } from 'pyric-admin/database';
 import { createMemoryBackend } from 'pyric/sandbox';
 import {
+  AbstractUserDataWriter,
   AggregateField,
   AggregateQuerySnapshot,
   aggregateFieldEqual,
   aggregateQuerySnapshotEqual,
+  Bytes,
+  CACHE_SIZE_UNLIMITED,
+  CollectionReference,
+  DocumentReference,
+  DocumentSnapshot,
+  documentId,
   FieldPath,
+  Firestore,
+  FirestoreError,
+  GeoPoint,
+  Query,
+  QueryCompositeFilterConstraint,
+  QueryConstraint,
+  QueryDocumentSnapshot,
+  QueryEndAtConstraint,
+  QueryFieldFilterConstraint,
+  QueryLimitConstraint,
+  QueryOrderByConstraint,
+  QuerySnapshot,
+  QueryStartAtConstraint,
+  SnapshotMetadata,
+  Timestamp,
+  Transaction,
+  VectorValue,
+  vector,
+  WriteBatch,
 } from 'pyric/firestore';
 import { setRules } from 'pyric/sandbox/firestore';
 import * as ipDatabase from 'pyric/database';
@@ -60,6 +86,8 @@ export function load(name: string): Behavior {
     surface = 'rtdb-modular';
   } else if (name.startsWith('auth-')) {
     surface = 'auth';
+  } else if (name.startsWith('messaging-web-')) {
+    surface = 'messaging';
   }
   return JSON.parse(readFileSync(join(OBSERVATIONS, surface, `${name}.json`), 'utf8')).behavior as Behavior;
 }
@@ -81,17 +109,45 @@ export function restoreSharedWorker(): void {
   afterEach(() => { (globalThis as { SharedWorker?: unknown }).SharedWorker = previous; });
 }
 
-export async function servedFirestoreContext(): Promise<FirestoreScenarioContext> {
+export async function servedFirestoreContext(): Promise<
+  FirestoreScenarioContext & { dispose(): void }
+> {
   const ctx = await makeHostCtx();
   setRules(ctx.sandbox, OPEN_FIRESTORE_RULES);
   // The served entry routes these two reads through the worker client (entries/firestore-surface.ts).
   const fs = {
     ...client,
+    AbstractUserDataWriter,
     AggregateField,
     AggregateQuerySnapshot,
     aggregateFieldEqual,
     aggregateQuerySnapshotEqual,
+    CACHE_SIZE_UNLIMITED,
+    CollectionReference,
+    DocumentReference,
+    DocumentSnapshot,
+    documentId,
     FieldPath,
+    Firestore,
+    FirestoreError,
+    GeoPoint,
+    Bytes,
+    Query,
+    QueryCompositeFilterConstraint,
+    QueryConstraint,
+    QueryDocumentSnapshot,
+    QueryEndAtConstraint,
+    QueryFieldFilterConstraint,
+    QueryLimitConstraint,
+    QueryOrderByConstraint,
+    QuerySnapshot,
+    QueryStartAtConstraint,
+    SnapshotMetadata,
+    Timestamp,
+    Transaction,
+    VectorValue,
+    vector,
+    WriteBatch,
     refEqual,
     getDocFromServer: (ref: Parameters<typeof readDocumentAs>[0]) => readDocumentAs(ref, 'getDocFromServer'),
     getDocsFromServer: (source: Parameters<typeof readQueryAs>[0]) => readQueryAs(source, 'getDocsFromServer'),
@@ -104,6 +160,7 @@ export async function servedFirestoreContext(): Promise<FirestoreScenarioContext
     base: 'pyric_oracle/replay',
     deniedDocPath: 'pyric_oracle_denied_replay/x',
     newClient: async (name) => open(name),
+    dispose: () => ctx.sandbox.dispose(),
   };
 }
 

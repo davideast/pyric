@@ -66,7 +66,8 @@ import { join, resolve } from 'node:path';
 import { cleanUpApp, removeTree, summarize } from './cleanup.ts';
 import { AppRun, launchScenarioBrowser, StepFailure, type ExpectedCrash, type Scenario } from './driver.ts';
 import { checkExpectedCrashes, describeVerdict, isFailing } from './crash-watch.ts';
-import { currentPlatform, DependencyStore, readPackedPackages } from './dependency-store.ts';
+import { currentPlatform, DependencyStore, readPackedPackages, STORE_FORMAT } from './dependency-store.ts';
+import { pruneDependencyStore, pruneScenarioNpmCache } from './dependency-store-evict.ts';
 import { npmInstall, packWorkspace, prepareApp, runCommand, runTimedCommand, tarballsIn, type CommandResult, type Tarballs } from './install.ts';
 import { SharedBrowser } from './shared-browser.ts';
 import { SharedInstalls } from './shared-installs.ts';
@@ -269,6 +270,7 @@ function installAlone(npmCache: string, offline: boolean): (cwd: string) => Prom
 /** The dependency store for this run's tarballs, where PYRIC_APPS_DEPS_STORE points. */
 async function openStore(tarballs: Tarballs, npmCache: string, offline: boolean): Promise<DependencyStore> {
   const dir = process.env.PYRIC_APPS_DEPS_STORE ?? join(homedir(), '.cache', 'pyric-app-scenarios', 'deps');
+  pruneDependencyStore(dir, STORE_FORMAT);
   const npmVersion = await runCommand('npm', ['--version'], { cwd: root });
   if (npmVersion.code !== 0) throw new Error(`npm --version exited with code ${npmVersion.code}:\n${npmVersion.output}`);
   console.log(`▸ dependency store ${dir}${offline ? ' (offline: a set it does not hold fails)' : ''}`);
@@ -351,6 +353,7 @@ async function main(): Promise<void> {
   const npmCache = process.env.PYRIC_APPS_NPM_CACHE ?? join(homedir(), '.cache', 'pyric-app-scenarios-npm');
   rmSync(resultsDir, { recursive: true, force: true });
   const offline = process.env.PYRIC_APPS_OFFLINE === '1';
+  pruneScenarioNpmCache(npmCache, { offline });
   const store = await openStore(tarballs, npmCache, offline);
   const installsDir = mkdtempSync(join(tmpdir(), 'pyric-app-installs-'));
   const installs = new SharedInstalls(installsDir, installAlone(npmCache, offline), {

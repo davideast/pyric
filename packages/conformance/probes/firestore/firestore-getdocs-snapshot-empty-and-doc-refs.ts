@@ -4,9 +4,8 @@ import { withFirestoreProbeSession } from '../../src/sdk-probe-runtime.ts';
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: ['web-config', 'firestore-rules'],
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'firestore#22',
+  rowIds: ['firestore#22', 'firestore#23', 'firestore#25'],
   description:
     'getDocs(query) returns an empty QuerySnapshot (size: 0, empty: true, docs: []) when no documents match, and returns QueryDocumentSnapshot entries with tagged refs usable in follow-up operations when populated.',
   async observe() {

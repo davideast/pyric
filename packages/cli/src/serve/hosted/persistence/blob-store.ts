@@ -45,13 +45,18 @@ export interface StoredBytes {
   size: number;
 }
 
+/** A sealed staged upload's SHA-256 hex digest, size, and base64 MD5 digest. */
+export interface SealedStagedBytes extends StoredBytes {
+  md5Base64: string;
+}
+
 /** An upload in progress: one file its parts append to, hashed as they arrive. */
 export interface StagedFile {
   readonly path: string;
   readonly received: number;
   append(bytes: Uint8Array): void;
-  /** The hash and size of everything appended; no append may follow. Sealing again returns the same. */
-  seal(): StoredBytes;
+  /** The hashes and size of everything appended; no append may follow. Sealing again returns the same. */
+  seal(): SealedStagedBytes;
   discard(): void;
 }
 
@@ -163,28 +168,35 @@ export function createBlobStore(directory: string): BlobStore {
     const path = stagingPath(name);
     closeSync(openSync(path, 'wx'));
     let hash: Hash | undefined = createHash('sha256');
-    let sealedAs: StoredBytes | undefined;
+    let md5: Hash | undefined = createHash('md5');
+    let sealedAs: SealedStagedBytes | undefined;
     let received = 0;
     return {
       path,
       get received() { return received; },
       append(bytes) {
         const current = hash;
-        const sealed = current === undefined;
+        const currentMd5 = md5;
+        const sealed = current === undefined || currentMd5 === undefined;
         if (sealed) throw new Error('A sealed staged file cannot be appended to.');
         const descriptor = openSync(path, 'a');
         try { appendTo(descriptor, bytes); } finally { closeSync(descriptor); }
         current.update(bytes);
+        currentMd5.update(bytes);
         received += bytes.byteLength;
       },
       seal() {
         const current = hash;
-        const unsealed = current !== undefined;
-        if (unsealed) {
-          sealedAs = { sha256: current.digest('hex'), size: received };
+        const currentMd5 = md5;
+        if (current !== undefined && currentMd5 !== undefined) {
+          sealedAs = { sha256: current.digest('hex'), size: received, md5Base64: currentMd5.digest('base64') };
           hash = undefined;
+          md5 = undefined;
         }
-        return sealedAs!;
+        if (sealedAs === undefined) {
+          throw new Error('Staged file failed to seal.');
+        }
+        return sealedAs;
       },
       discard() {
         rmSync(path, { force: true });

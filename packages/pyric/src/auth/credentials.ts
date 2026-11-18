@@ -30,8 +30,35 @@
  * mock registry) keeps working unchanged.
  */
 
+import { ActionCodeURL } from './action-code-url.js';
+import { buildActionLink } from './action-codes.js';
 import { ProviderId, SignInMethod } from './enums.js';
 import type { UserCredential } from './types.js';
+
+interface EmailCredentialSecret {
+  readonly secret: string;
+  readonly rawLink: string | null;
+}
+
+const EMAIL_CREDENTIAL_SECRETS = new WeakMap<EmailAuthCredential, EmailCredentialSecret>();
+
+function parseJsonRecord(json: string | Record<string, unknown>): Record<string, unknown> | null {
+  if (typeof json === 'string') {
+    try {
+      const parsed: unknown = JSON.parse(json);
+      if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) {
+        return parsed as Record<string, unknown>;
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  }
+  if (typeof json === 'object' && json !== null && !Array.isArray(json)) {
+    return json;
+  }
+  return null;
+}
 
 /**
  * Base auth credential. Mirrors `firebase/auth`'s abstract
@@ -41,7 +68,7 @@ import type { UserCredential } from './types.js';
  * Concrete, not abstract, so `instanceof AuthCredential` narrowing and
  * direct construction both work in consumer code. Upstream marks it
  * abstract, but nothing in the modular surface constructs a bare
- * `AuthCredential` — the providers' static factories do.
+ * `AuthCredential` -- the providers' static factories do.
  */
 export class AuthCredential {
   /** Provider identifier (e.g. `'google.com'`, `'password'`). */
@@ -62,30 +89,31 @@ export class AuthCredential {
 
   /**
    * Deserialize a credential previously produced by {@link toJSON}.
-   * Returns `null` for input that isn't a credential payload — matching
+   * Returns `null` for input that isn't a credential payload -- matching
    * upstream, which never throws here.
    */
   static fromJSON(json: string | Record<string, unknown>): AuthCredential | null {
-    const obj = typeof json === 'string' ? safeParse(json) : json;
-    if (!obj) return null;
+    const obj = parseJsonRecord(json);
+    if (obj === null) {
+      return null;
+    }
+    const emailCred = EmailAuthCredential.fromJSON(obj);
+    if (emailCred !== null) {
+      return emailCred;
+    }
+    const oauthCred = OAuthCredential.fromJSON(obj);
+    if (oauthCred !== null) {
+      return oauthCred;
+    }
     const providerId = obj['providerId'];
     const signInMethod = obj['signInMethod'];
-    if (typeof providerId !== 'string' || typeof signInMethod !== 'string') return null;
+    if (typeof providerId !== 'string' || typeof signInMethod !== 'string') {
+      return null;
+    }
     if (providerId === ProviderId.PASSWORD) {
-      const email = typeof obj['email'] === 'string' ? obj['email'] : '';
-      const secret = typeof obj['password'] === 'string' ? obj['password'] : '';
-      return new EmailAuthCredential(email, secret, signInMethod);
+      return null;
     }
     return new AuthCredential(providerId, signInMethod);
-  }
-}
-
-function safeParse(json: string): Record<string, unknown> | null {
-  try {
-    const parsed: unknown = JSON.parse(json);
-    return typeof parsed === 'object' && parsed !== null ? (parsed as Record<string, unknown>) : null;
-  } catch {
-    return null;
   }
 }
 
@@ -93,90 +121,209 @@ function safeParse(json: string): Record<string, unknown> | null {
  * Email/password (or email-link) credential. Mirrors `firebase/auth`'s
  * `EmailAuthCredential`.
  *
- * Carries the SECRET — which is the whole reason the linking and reauth
- * families are decidable in the sandbox without a resolver (see the file
- * docstring). The secret is `password` for the `'password'` sign-in
- * method and the email LINK for the `'emailLink'` method.
- *
- * `_secret` is deliberately non-enumerable: it must not leak into a
- * `JSON.stringify(cred)` in host/log code. {@link toJSON} exposes it
- * only for the round-trip upstream also supports.
+ * Carries the secret off-instance in a private `WeakMap` so `Object.keys`
+ * and object spreads never enumerate it, while {@link toJSON} and
+ * {@link fromJSON} round-trip `{ email, password, signInMethod, tenantId }`
+ * identically to upstream `firebase/auth` (where `password` holds the
+ * password for `'password'` credentials and the parsed `oobCode` for
+ * `'emailLink'` credentials).
  */
 export class EmailAuthCredential extends AuthCredential {
   /** The account this credential is for. */
   readonly email: string;
+  /** Tenant scope serialized by upstream `EmailAuthCredential.toJSON()`. */
+  readonly tenantId: string | null;
 
-  /** The password, or (for `signInMethod === 'emailLink'`) the link.
-   *  Assigned via `defineProperty` in the constructor (to make it
-   *  non-enumerable), which TS cannot see — hence the `!`. */
-  private readonly secret!: string;
-
-  constructor(email: string, secret: string, signInMethod: string = SignInMethod.EMAIL_PASSWORD) {
+  constructor(
+    email: string,
+    secret: string,
+    signInMethod: string = SignInMethod.EMAIL_PASSWORD,
+    options: { tenantId?: string | null; rawLink?: string | null } = {},
+  ) {
     super(ProviderId.PASSWORD, signInMethod);
     this.email = email;
-    // Non-enumerable so an accidental `JSON.stringify(user.credential)`
-    // in host or log code does not print the password.
-    Object.defineProperty(this, 'secret', {
-      value: secret,
-      enumerable: false,
-      writable: false,
+    let resolvedTenant: string | null = null;
+    if (typeof options.tenantId === 'string') {
+      resolvedTenant = options.tenantId;
+    }
+    this.tenantId = resolvedTenant;
+    let resolvedLink: string | null = null;
+    if (typeof options.rawLink === 'string') {
+      resolvedLink = options.rawLink;
+    }
+    EMAIL_CREDENTIAL_SECRETS.set(this, {
+      secret,
+      rawLink: resolvedLink,
     });
   }
 
   /** The password carried by a `'password'`-method credential, else `null`. */
   get password(): string | null {
-    return this.signInMethod === SignInMethod.EMAIL_PASSWORD ? this.secret : null;
+    if (this.signInMethod !== SignInMethod.EMAIL_PASSWORD) {
+      return null;
+    }
+    const entry = EMAIL_CREDENTIAL_SECRETS.get(this);
+    if (entry === undefined) {
+      return null;
+    }
+    return entry.secret;
   }
 
   /** The email link carried by an `'emailLink'`-method credential, else `null`. */
   get emailLink(): string | null {
-    return this.signInMethod === SignInMethod.EMAIL_LINK ? this.secret : null;
+    if (this.signInMethod !== SignInMethod.EMAIL_LINK) {
+      return null;
+    }
+    const entry = EMAIL_CREDENTIAL_SECRETS.get(this);
+    if (entry === undefined || entry.secret.length === 0) {
+      return null;
+    }
+    if (entry.rawLink !== null) {
+      return entry.rawLink;
+    }
+    if (ActionCodeURL.parseLink(entry.secret) !== null) {
+      return entry.secret;
+    }
+    return buildActionLink('signIn', entry.secret, null);
   }
 
   override toJSON(): Record<string, unknown> {
+    const entry = EMAIL_CREDENTIAL_SECRETS.get(this);
+    let serializedSecret = '';
+    if (entry !== undefined) {
+      serializedSecret = entry.secret;
+    }
     return {
-      providerId: this.providerId,
-      signInMethod: this.signInMethod,
       email: this.email,
-      password: this.secret,
+      password: serializedSecret,
+      signInMethod: this.signInMethod,
+      tenantId: this.tenantId,
     };
+  }
+
+  static override fromJSON(json: string | Record<string, unknown>): EmailAuthCredential | null {
+    const obj = parseJsonRecord(json);
+    if (obj === null) {
+      return null;
+    }
+    const email = obj['email'];
+    const secret = obj['password'];
+    const signInMethod = obj['signInMethod'];
+    if (
+      typeof email !== 'string' ||
+      typeof secret !== 'string' ||
+      typeof signInMethod !== 'string'
+    ) {
+      return null;
+    }
+    const isSupportedMethod =
+      signInMethod === SignInMethod.EMAIL_PASSWORD || signInMethod === SignInMethod.EMAIL_LINK;
+    if (!isSupportedMethod || email.length === 0 || secret.length === 0) {
+      return null;
+    }
+    let tenantId: string | null = null;
+    if (typeof obj['tenantId'] === 'string') {
+      tenantId = obj['tenantId'];
+    }
+    return new EmailAuthCredential(email, secret, signInMethod, { tenantId });
   }
 }
 
 /**
  * OAuth credential. Mirrors `firebase/auth`'s `OAuthCredential`.
- *
- * Carries the IdP tokens the real flow would have obtained. The sandbox
- * does NOT and cannot verify them — it is not the identity provider —
- * so flows consuming one of these still resolve through the
- * `AuthFlowResolver` / `mockSignInResult` seam. Keeping the tokens on
- * the object anyway means a resolver implementation (a playground
- * picker, a test fixture) can read whatever the caller passed.
  */
 export class OAuthCredential extends AuthCredential {
   readonly idToken?: string;
   readonly accessToken?: string;
   readonly secret?: string;
+  readonly nonce?: string;
+  private readonly pendingToken: string | null;
 
   constructor(
     providerId: string,
     signInMethod: string,
-    tokens: { idToken?: string; accessToken?: string; secret?: string } = {},
+    tokens: {
+      idToken?: string;
+      accessToken?: string;
+      secret?: string;
+      rawNonce?: string;
+      pendingToken?: string | null;
+    } = {},
   ) {
     super(providerId, signInMethod);
     this.idToken = tokens.idToken;
     this.accessToken = tokens.accessToken;
     this.secret = tokens.secret;
+    this.nonce = tokens.rawNonce;
+    let resolvedPending: string | null = null;
+    if (typeof tokens.pendingToken === 'string') {
+      resolvedPending = tokens.pendingToken;
+    }
+    this.pendingToken = resolvedPending;
   }
 
   override toJSON(): Record<string, unknown> {
-    return {
-      providerId: this.providerId,
-      signInMethod: this.signInMethod,
-      idToken: this.idToken,
-      accessToken: this.accessToken,
-      secret: this.secret,
-    };
+    const out: Record<string, unknown> = {};
+    if (this.idToken !== undefined) {
+      out['idToken'] = this.idToken;
+    }
+    if (this.accessToken !== undefined) {
+      out['accessToken'] = this.accessToken;
+    }
+    if (this.secret !== undefined) {
+      out['secret'] = this.secret;
+    }
+    if (this.nonce !== undefined) {
+      out['nonce'] = this.nonce;
+    }
+    out['pendingToken'] = this.pendingToken;
+    out['providerId'] = this.providerId;
+    out['signInMethod'] = this.signInMethod;
+    return out;
+  }
+
+  static override fromJSON(json: string | Record<string, unknown>): OAuthCredential | null {
+    const obj = parseJsonRecord(json);
+    if (obj === null) {
+      return null;
+    }
+    const providerId = obj['providerId'];
+    const signInMethod = obj['signInMethod'];
+    if (typeof providerId !== 'string' || typeof signInMethod !== 'string') {
+      return null;
+    }
+    const hasTokenField =
+      typeof obj['idToken'] === 'string' ||
+      typeof obj['accessToken'] === 'string' ||
+      typeof obj['secret'] === 'string' ||
+      typeof obj['nonce'] === 'string' ||
+      'pendingToken' in obj;
+    if (!hasTokenField) {
+      return null;
+    }
+    const tokens: {
+      idToken?: string;
+      accessToken?: string;
+      secret?: string;
+      rawNonce?: string;
+      pendingToken?: string | null;
+    } = {};
+    if (typeof obj['idToken'] === 'string') {
+      tokens.idToken = obj['idToken'];
+    }
+    if (typeof obj['accessToken'] === 'string') {
+      tokens.accessToken = obj['accessToken'];
+    }
+    if (typeof obj['secret'] === 'string') {
+      tokens.secret = obj['secret'];
+    }
+    if (typeof obj['nonce'] === 'string') {
+      tokens.rawNonce = obj['nonce'];
+    }
+    if (typeof obj['pendingToken'] === 'string') {
+      tokens.pendingToken = obj['pendingToken'];
+    }
+    return new OAuthCredential(providerId, signInMethod, tokens);
   }
 }
 

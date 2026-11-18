@@ -1,8 +1,7 @@
 /** Rules wiring (plan step 1.5) — plain v2 passthrough, 2+modules resolution,
  *  parse/lint failure, file discovery semantics. */
 import { describe, expect, it } from 'bun:test';
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   loadProjectRules,
@@ -11,6 +10,9 @@ import {
   prepareStorageRulesSource,
   rulesHashOf,
 } from '../../src/serve/rules.js';
+import { useTempDirs } from '../use-temp-dirs.js';
+
+const makeTempDir = useTempDirs('pyric-serve-rules-');
 
 const PLAIN = `rules_version = '2';
 service cloud.firestore {
@@ -202,7 +204,7 @@ service firebase.storage { match /b/{bucket}/o { match /u/{f} { allow read: if t
 
 describe('loadProjectRules', () => {
   it('loads via the firebase.json path, hashes, records source path', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'pyric-serve-rules-'));
+    const dir = makeTempDir();
     writeFileSync(join(dir, 'custom.rules'), PLAIN);
     const loaded = await loadProjectRules(dir, { firestore: { rules: 'custom.rules' } });
     expect(loaded.rules).toBe(PLAIN);
@@ -211,17 +213,17 @@ describe('loadProjectRules', () => {
   });
 
   it('defaults to ./firestore.rules when unconfigured; null when absent', async () => {
-    const withFile = mkdtempSync(join(tmpdir(), 'pyric-serve-rules-'));
+    const withFile = makeTempDir();
     writeFileSync(join(withFile, 'firestore.rules'), PLAIN);
     expect((await loadProjectRules(withFile, null)).rules).toBe(PLAIN);
 
-    const empty = mkdtempSync(join(tmpdir(), 'pyric-serve-rules-'));
+    const empty = makeTempDir();
     const none = await loadProjectRules(empty, null);
     expect(none).toEqual({ rules: null, rulesHash: null, sourcePath: null, moduleFiles: [], warnings: [] });
   });
 
   it('throws when firebase.json names a missing file (explicit config = contract)', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'pyric-serve-rules-'));
+    const dir = makeTempDir();
     await expect(loadProjectRules(dir, { firestore: { rules: 'gone.rules' } })).rejects.toThrow(/does not exist/);
   });
 });
@@ -245,7 +247,7 @@ service cloud.firestore {
   }
 
   it('carries the missing module it looked for, as an absolute path', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'pyric-serve-rules-'));
+    const dir = makeTempDir();
     const main = join(dir, 'firestore.modules.rules');
     const error = failure(() => prepareProjectRules(importing('./b'), main));
     expect(error.message).toMatch(/module resolution failed/);
@@ -253,7 +255,7 @@ service cloud.firestore {
   });
 
   it('carries the modules it imported when the resolved rules fail lint', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'pyric-serve-rules-'));
+    const dir = makeTempDir();
     const main = join(dir, 'firestore.modules.rules');
     writeFileSync(join(dir, 'b.rules'), `rules_version = '2+modules';
 export function canRead() { return true; }`);
@@ -264,7 +266,7 @@ export function canRead() { return true; }`);
   });
 
   it('records a nested import in the directory of the module that imports it', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'pyric-serve-rules-'));
+    const dir = makeTempDir();
     mkdirSync(join(dir, 'games', 'pool'), { recursive: true });
     const main = join(dir, 'firestore.modules.rules');
     writeFileSync(join(dir, 'games', 'pool', 'pool.rules'), `rules_version = '2+modules';

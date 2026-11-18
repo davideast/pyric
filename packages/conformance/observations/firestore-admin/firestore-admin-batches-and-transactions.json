@@ -1,0 +1,62 @@
+{
+  "name": "firestore-admin-batches-and-transactions",
+  "matrixRow": "firestore-admin#8",
+  "rowIds": [
+    "firestore-admin#8"
+  ],
+  "description": "firebase-admin/firestore WriteBatch atomic create/set/update/delete/commit (including post-commit mutation rejection and failed-batch rollback) and runTransaction with tx.get(docRef), tx.get(query), read-before-write enforcement, and readOnly transactions.",
+  "observedAt": "2026-11-18T11:15:12.702Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "batchCommit": {
+      "createdData": {
+        "fresh": true
+      },
+      "mergedData": {
+        "keep": true,
+        "stage": "after"
+      },
+      "updatedData": {
+        "count": 25
+      },
+      "deletedExists": false,
+      "postCommitMutationThrows": true
+    },
+    "atomicFailedBatch": {
+      "rejected": true,
+      "guardDocData": {
+        "intact": true
+      }
+    },
+    "transaction": {
+      "returnValue": {
+        "transferred": 35,
+        "activeIds": [
+          "acct-a",
+          "acct-b"
+        ]
+      },
+      "acctAData": {
+        "active": true,
+        "balance": 65
+      },
+      "acctBData": {
+        "active": true,
+        "balance": 75
+      },
+      "logData": {
+        "amount": 35,
+        "activeIds": [
+          "acct-a",
+          "acct-b"
+        ]
+      },
+      "staleExists": false,
+      "readAfterWriteRejected": true,
+      "readOnlyTxBalance": 65,
+      "readOnlyWriteRejected": true
+    }
+  },
+  "adminSdkVersion": "13.10.0"
+}

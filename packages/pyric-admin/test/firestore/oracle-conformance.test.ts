@@ -27,6 +27,25 @@ import {
   observeFirestoreAdminSentinelsAndValues,
   type FirestoreAdminSentinelsSubject,
 } from '../../../conformance/probes/firestore-admin/firestore-admin-sentinels-and-value-types.ts';
+import {
+  classifyGrpcOrStringFirestoreError,
+  observeFirestoreAdminCrud,
+  type FirestoreAdminCrudSubject,
+} from '../../../conformance/probes/firestore-admin/firestore-admin-crud-operations.ts';
+import {
+  observeFirestoreAdminQueriesAndSnapshots,
+  type AdminQueryCollectionRefLike,
+  type AdminQueryDocRefLike,
+  type AdminQueryLike,
+  type FirestoreAdminQueriesSubject,
+} from '../../../conformance/probes/firestore-admin/firestore-admin-queries-and-snapshots.ts';
+import {
+  observeFirestoreAdminBatchesAndTransactions,
+  type AdminWriteBatchLike,
+  type BatchTxDocRefLike,
+  type BatchTxQueryLike,
+  type FirestoreAdminBatchesTxSubject,
+} from '../../../conformance/probes/firestore-admin/firestore-admin-batches-and-transactions.ts';
 import { deleteApp, getApps, initializeApp, type PyricAdminApp } from '../../src/app/index.js';
 import {
   FieldPath,
@@ -297,11 +316,86 @@ describe('pyric-admin/firestore oracle conformance (observations/firestore-admin
       );
       expect(actual).toEqual(expected);
     });
+
+    it('replays firestore-admin-crud-operations verbatim', async () => {
+      const expected = firestoreAdminObsGate.load<Record<string, unknown>>(
+        'firestore-admin-crud-operations',
+      );
+      const env = createOracleArm(arm);
+      const app = initializeApp(
+        { sandbox: env.adminSandbox, projectId: 'proj-1' },
+        `fs-admin-crud-${arm}`,
+      );
+      const db = getFirestore(app);
+      const subject: FirestoreAdminCrudSubject = {
+        doc: (path) => db.doc(path),
+        createFieldPath: (...names) => new FieldPath(...names),
+        classifyError: classifyGrpcOrStringFirestoreError,
+      };
+
+      const actual = await observeFirestoreAdminCrud(
+        subject,
+        `pyric_oracle/replay_${arm}_crud`,
+      );
+      expect(actual).toEqual(expected);
+    });
+
+    it('replays firestore-admin-queries-and-snapshots verbatim', async () => {
+      const expected = firestoreAdminObsGate.load<Record<string, unknown>>(
+        'firestore-admin-queries-and-snapshots',
+      );
+      const env = createOracleArm(arm);
+      const app = initializeApp(
+        { sandbox: env.adminSandbox, projectId: 'proj-1' },
+        `fs-admin-queries-${arm}`,
+      );
+      const db = getFirestore(app);
+      const subject: FirestoreAdminQueriesSubject = {
+        collection: (path) => db.collection(path) as unknown as AdminQueryCollectionRefLike,
+        doc: (path) => db.doc(path) as unknown as AdminQueryDocRefLike,
+        collectionGroup: (id) => db.collectionGroup(id) as unknown as AdminQueryLike,
+      };
+
+      const actual = await observeFirestoreAdminQueriesAndSnapshots(
+        subject,
+        `pyric_oracle/replay_${arm}_queries`,
+        `cg_replay_${arm}`,
+      );
+      expect(actual).toEqual(expected);
+    });
+
+    it('replays firestore-admin-batches-and-transactions verbatim', async () => {
+      const expected = firestoreAdminObsGate.load<Record<string, unknown>>(
+        'firestore-admin-batches-and-transactions',
+      );
+      const env = createOracleArm(arm);
+      const app = initializeApp(
+        { sandbox: env.adminSandbox, projectId: 'proj-1' },
+        `fs-admin-batches-tx-${arm}`,
+      );
+      const db = getFirestore(app);
+      const subject: FirestoreAdminBatchesTxSubject = {
+        doc: (path) => db.doc(path) as unknown as BatchTxDocRefLike,
+        collection: (path) => db.collection(path) as unknown as BatchTxQueryLike,
+        batch: () => db.batch() as unknown as AdminWriteBatchLike,
+        runTransaction: (fn, opts) =>
+          db.runTransaction(
+            fn as unknown as Parameters<typeof db.runTransaction>[0],
+            opts,
+          ) as Promise<never>,
+      };
+
+      const actual = await observeFirestoreAdminBatchesAndTransactions(
+        subject,
+        `pyric_oracle/replay_${arm}_batches_tx`,
+      );
+      expect(actual).toEqual(expected);
+    });
   });
 
   it('completeness: every observations/firestore-admin/ capture is asserted', () => {
     const report = firestoreAdminObsGate.report();
-    expect(report.committed.length).toBe(3);
+    expect(report.committed.length).toBe(6);
     expect(report.loadedButUnused).toEqual([]);
     expect(report.uncovered).toEqual([]);
   });

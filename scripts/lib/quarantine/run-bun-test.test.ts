@@ -3,8 +3,8 @@
 // with. No browser and no network.
 
 import { afterAll, describe, expect, test } from 'bun:test';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { homedir, tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
 import { REPO_ROOT, addDays, entryFileName, type LoadedEntry } from './entries.ts';
 import { runBunTest, runBunTestVerdict } from './run-bun-test.ts';
@@ -169,8 +169,58 @@ describe('the quarantine runner on real bun test runs', () => {
     expect(flagged.exitCode).toBe(0);
   });
 
-  test('a passing run exits 0', async () => {
-    const run = suite({ 'pass.test.ts': 'import { test } from \'bun:test\';\ntest(\'ok\', () => {});\n' });
-    expect(await exitCode(run.cwd, [])).toBe(0);
+  test('a passing run exits 0 and removes its temporary JUnit directory', async () => {
+    const runnerTemp = mkdtempSync(join(tmpdir(), 'quarantine-runner-temp-'));
+    dirs.push(runnerTemp);
+    const savedRunnerTemp = process.env.RUNNER_TEMP;
+    process.env.RUNNER_TEMP = runnerTemp;
+    try {
+      const run = suite({ 'pass.test.ts': 'import { test } from \'bun:test\';\ntest(\'ok\', () => {});\n' });
+      expect(await exitCode(run.cwd, [])).toBe(0);
+      expect(readdirSync(runnerTemp)).toEqual([]);
+    } finally {
+      if (savedRunnerTemp === undefined) {
+        delete process.env.RUNNER_TEMP;
+      } else {
+        process.env.RUNNER_TEMP = savedRunnerTemp;
+      }
+    }
+  });
+
+  test('isolates child bun test TMPDIR under ~/.cache/pyric-tmp/<suite> and removes it on exit', async () => {
+    const recordPath = join(mkdtempSync(join(tmpdir(), 'quarantine-tmp-check-')), 'observed.json');
+    dirs.push(join(recordPath, '..'));
+    const probeTest = [
+      "import { mkdtempSync, writeFileSync } from 'node:fs';",
+      "import { tmpdir } from 'node:os';",
+      "import { join } from 'node:path';",
+      "import { test } from 'bun:test';",
+      "test('records tmpdir', () => {",
+      "  const observedTmp = tmpdir();",
+      "  const sub = mkdtempSync(join(observedTmp, 'inner-'));",
+      `  writeFileSync(${JSON.stringify(recordPath)}, JSON.stringify({ observedTmp, sub }));`,
+      '});',
+      '',
+    ].join('\n');
+    const run = suite({ 'tmp.test.ts': probeTest });
+    expect(
+      await runBunTest({
+        cwd: run.cwd,
+        args: ['./'],
+        suite: 'privsuite',
+        entries: [],
+        today: TODAY,
+        forward: () => {},
+        env: {},
+        quarantine: false,
+      }),
+    ).toBe(0);
+    const parsed = JSON.parse(readFileSync(recordPath, 'utf8')) as {
+      observedTmp: string;
+      sub: string;
+    };
+    expect(parsed.observedTmp.startsWith(join(homedir(), '.cache', 'pyric-tmp', ''))).toBe(true);
+    expect(existsSync(parsed.observedTmp)).toBe(false);
+    expect(existsSync(parsed.sub)).toBe(false);
   });
 });

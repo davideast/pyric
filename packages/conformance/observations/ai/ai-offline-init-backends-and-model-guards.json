@@ -1,0 +1,78 @@
+{
+  "name": "ai-offline-init-backends-and-model-guards",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "Pure offline firebase/ai initialization, GoogleAIBackend default vs VertexAIBackend location defaults, getAI handle idempotency, short model name normalization, and synchronous no-model / missing-config AIError guards with zero network calls.",
+  "observedAt": "2026-11-18T21:55:01.722Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "fetchCalls": 0,
+    "defaultBackend": {
+      "carriesApp": true,
+      "isGoogleAIBackend": true,
+      "backendType": "GOOGLE_AI",
+      "matchesEnumGoogleAi": true,
+      "location": ""
+    },
+    "idempotency": {
+      "sameAppDefaultSameHandle": true,
+      "sameAppExplicitGoogleSameHandle": true,
+      "sameAppVertexSameHandle": true,
+      "googleAndVertexDistinctOnSameApp": true,
+      "vertexLocationsDistinctOnSameApp": true,
+      "distinctAppsDistinctHandles": true
+    },
+    "vertexBackend": {
+      "isVertexAIBackend": true,
+      "backendType": "VERTEX_AI",
+      "matchesEnumVertexAi": true,
+      "defaultBackendLocation": "us-central1",
+      "defaultHandleLocation": "us-central1",
+      "customBackendLocation": "europe-west1",
+      "customHandleLocation": "europe-west1"
+    },
+    "modelNames": {
+      "googleShortNormalized": "models/gemini-flash-lite-latest",
+      "googlePrefixedNormalized": "models/models/gemini-flash-lite-latest",
+      "vertexShortNormalized": "publishers/google/models/gemini-flash-lite-latest"
+    },
+    "guards": {
+      "emptyModelThrow": {
+        "threw": true,
+        "isAIError": true,
+        "isFirebaseError": true,
+        "code": "no-model",
+        "name": "FirebaseError"
+      },
+      "missingModelPropThrow": {
+        "threw": true,
+        "isAIError": true,
+        "isFirebaseError": true,
+        "code": "no-model",
+        "name": "FirebaseError"
+      },
+      "missingApiKeyThrow": {
+        "threw": true,
+        "isAIError": true,
+        "isFirebaseError": true,
+        "code": "no-api-key",
+        "name": "FirebaseError"
+      },
+      "missingProjectIdThrow": {
+        "threw": true,
+        "isAIError": true,
+        "isFirebaseError": true,
+        "code": "no-project-id",
+        "name": "FirebaseError"
+      },
+      "missingAppIdThrow": {
+        "threw": true,
+        "isAIError": true,
+        "isFirebaseError": true,
+        "code": "no-app-id",
+        "name": "FirebaseError"
+      }
+    }
+  }
+}

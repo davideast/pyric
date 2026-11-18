@@ -199,9 +199,8 @@ export async function observeFirestoreAdminBatchesAndTransactions(
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: ['admin-firestore'],
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'firestore-admin#8',
+  rowIds: ['firestore-admin#8'],
   description:
     'firebase-admin/firestore WriteBatch atomic create/set/update/delete/commit (including post-commit mutation rejection and failed-batch rollback) and runTransaction with tx.get(docRef), tx.get(query), read-before-write enforcement, and readOnly transactions.',
   async observe(): Promise<Record<string, unknown>> {

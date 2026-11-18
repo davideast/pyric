@@ -1,4 +1,6 @@
+import { createHash } from 'node:crypto';
 import { describe, it, expect } from 'bun:test';
+import { createMd5Hasher, md5 } from '../../../src/internal/storage.js';
 import { parseStorageRules } from '../../../src/storage/rules.js';
 import { evaluateStorageRules } from '../../../src/storage/rules-evaluator.js';
 
@@ -65,5 +67,25 @@ describe('evaluateStorageRules — hashing and bytes', () => {
   it('denies a wrong argument count', () => {
     expect(evalHash("hashing.md5('a', 'b').size() == 16").allowed).toBe(false);
     expect(evalHash("'a'.toUtf8().toBase64('x') == 'YQ=='").allowed).toBe(false);
+  });
+
+  it('streams chunks through createMd5Hasher identically to single-shot md5 and node:crypto across padding boundaries', () => {
+    const lengths = [0, 1, 55, 56, 57, 63, 64, 65, 128, 1000];
+    const stepSizes = [1, 7, 63, 64, 65];
+    for (const len of lengths) {
+      const payload = new Uint8Array(len);
+      for (let i = 0; i < len; i += 1) {
+        payload[i] = (i * 31 + 17) & 0xff;
+      }
+      const expected = new Uint8Array(createHash('md5').update(payload).digest());
+      expect([...md5(payload)]).toEqual([...expected]);
+      for (const step of stepSizes) {
+        const hasher = createMd5Hasher();
+        for (let offset = 0; offset < len; offset += step) {
+          hasher.update(payload.subarray(offset, Math.min(offset + step, len)));
+        }
+        expect([...hasher.digest()]).toEqual([...expected]);
+      }
+    }
   });
 });

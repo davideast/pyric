@@ -30,6 +30,7 @@ import {
   type OpenedPullRequestOutcome,
   type PullRequestAuth,
 } from './oracle-capture-open-pr.ts';
+import { runReconcileDivertedCli } from './oracle-capture-reconcile-diverted.ts';
 import {
   appendGithubOutput,
   appendStepSummary,
@@ -553,8 +554,10 @@ if (import.meta.main) {
     await runCaptureCommand(process.cwd(), process.env);
   } else if (subcommand === 'open-pr') {
     await runOpenPrCli(process.cwd(), process.env);
+  } else if (subcommand === 'reconcile-diverted') {
+    await runReconcileDivertedCli(process.cwd(), process.env);
   } else {
-    console.error('usage: bun scripts/ci/oracle-capture-pr.ts plan|capture|open-pr');
+    console.error('usage: bun scripts/ci/oracle-capture-pr.ts plan|capture|open-pr|reconcile-diverted');
     process.exit(2);
   }
 }

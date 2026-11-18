@@ -124,7 +124,7 @@ jobs:
             bun scripts/ci/quarantine-base.ts "$(git rev-parse HEAD^1)"
           fi
       - name: Test fail-closed selection policy
-        run: bun test scripts/ci/check-set.test.ts scripts/ci/plan.test.ts scripts/ci/required.test.ts scripts/ci/merge-group.test.ts scripts/ci/merge-queue.test.ts scripts/ci/merge-queue-github.test.ts scripts/ci/campaign-verdict-markers.test.ts scripts/ci/campaign-verdict.test.ts scripts/ci/campaign-verdicts.test.ts scripts/ci/advisor-campaign-skill.test.ts scripts/ci/nightly-differential-sweep.test.ts scripts/ci/workflow-paths.test.ts scripts/ci/test-shard.test.ts scripts/ci/build-input-key.test.ts test/apps/shard-plan.test.ts
+        run: bun test scripts/ci/check-set.test.ts scripts/ci/plan.test.ts scripts/ci/required.test.ts scripts/ci/merge-group.test.ts scripts/ci/merge-queue.test.ts scripts/ci/merge-queue-github.test.ts scripts/ci/campaign-verdict-markers.test.ts scripts/ci/campaign-verdict.test.ts scripts/ci/campaign-verdicts.test.ts scripts/ci/advisor-campaign-skill.test.ts scripts/ci/nightly-differential-sweep.test.ts scripts/ci/workflow-paths.test.ts scripts/ci/test-shard.test.ts scripts/ci/build-input-key.test.ts scripts/ci/oracle-capture-reconcile-diverted.test.ts test/apps/shard-plan.test.ts
       - name: Select proof
         # On a pull request, the app scenarios are the ones under
         # test/apps/<name>/ the diff changes and the test/apps/<name> paths
@@ -708,7 +708,7 @@ jobs:
         # One shard runs these, and the plan counts their time against it. The
         # replay directory runs whole, so a new test there needs no edit here.
         if: matrix.shard.runnerTests
-        run: bun test test/apps/selection.test.ts test/apps/driver.test.ts test/apps/driver-network.test.ts test/apps/driver-stopping-host.test.ts test/apps/host-errors.test.ts test/apps/copy-tree.test.ts test/apps/install.test.ts test/apps/dependency-store.test.ts test/apps/packed-files.test.ts test/apps/unreaped-exit.test.ts test/apps/schedule.test.ts test/apps/cleanup.test.ts test/apps/browser-children.test.ts test/apps/crash-watch.test.ts test/apps/crash-output.test.ts test/apps/crash-targets.test.ts test/apps/soak.test.ts ./test/apps/replay/
+        run: bun test test/apps/selection.test.ts test/apps/driver.test.ts test/apps/driver-network.test.ts test/apps/driver-stopping-host.test.ts test/apps/host-errors.test.ts test/apps/copy-tree.test.ts test/apps/install.test.ts test/apps/dependency-store.test.ts test/apps/dependency-store-evict.test.ts test/apps/packed-files.test.ts test/apps/unreaped-exit.test.ts test/apps/schedule.test.ts test/apps/cleanup.test.ts test/apps/browser-children.test.ts test/apps/crash-watch.test.ts test/apps/crash-output.test.ts test/apps/crash-targets.test.ts test/apps/soak.test.ts ./test/apps/replay/
       - name: Write the shard plan
         env:
           APP_PLAN: ${{ needs.plan.outputs.app-plan }}

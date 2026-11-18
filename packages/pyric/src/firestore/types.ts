@@ -172,7 +172,17 @@ export class FirestoreError extends Error {
 }
 export class Firestore {
   static [Symbol.hasInstance](instance: unknown): boolean {
-    return Boolean(instance && typeof instance === 'object' && TARGET_SYMBOL in instance && !('path' in instance) && !('docs' in instance));
+    if (instance === null || typeof instance !== 'object') return false;
+    if ('path' in instance || 'docs' in instance) return false;
+    if (TARGET_SYMBOL in instance) return true;
+    if (
+      '__kind' in instance &&
+      (instance as { __kind?: unknown }).__kind === 'client-db' &&
+      'port' in instance
+    ) {
+      return true;
+    }
+    return false;
   }
 }
 export class DocumentReference<_T = DocumentData> {

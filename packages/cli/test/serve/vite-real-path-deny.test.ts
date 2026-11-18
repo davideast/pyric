@@ -4,7 +4,7 @@
  * refuses a request whose file resolves into `.pyric/` or a `.env` file.
  */
 import { afterEach, describe, expect, it } from 'bun:test';
-import { mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { request } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -12,12 +12,27 @@ import { createServer, type InlineConfig, type Plugin, type ViteDevServer } from
 import { attachViteRealPathDeny } from '../../src/serve/vite-real-path-deny.js';
 
 const servers: ViteDevServer[] = [];
+const tempDirs: string[] = [];
+
+function makeTempDir(prefix: string): string {
+  const dir = mkdtempSync(join(tmpdir(), prefix));
+  tempDirs.push(dir);
+  return dir;
+}
+
 afterEach(async () => {
-  while (servers.length) await servers.pop()!.close();
+  while (servers.length > 0) {
+    const server = servers.pop();
+    if (server !== undefined) await server.close();
+  }
+  while (tempDirs.length > 0) {
+    const dir = tempDirs.pop();
+    if (dir !== undefined) rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 function project(): string {
-  const root = mkdtempSync(join(tmpdir(), 'pyric-vite-real-path-'));
+  const root = makeTempDir('pyric-vite-real-path-');
   mkdirSync(join(root, '.pyric', 'state', 'hosted'), { recursive: true });
   writeFileSync(join(root, '.pyric', 'state', 'hosted', 'state.sqlite'), 'users and data');
   writeFileSync(join(root, '.env'), 'API_KEY=secret');
@@ -124,7 +139,7 @@ describe('Vite real-path guard', () => {
   });
 
   it('serves a project whose own path passes through a denied name', async () => {
-    const parent = mkdtempSync(join(tmpdir(), 'pyric-vite-real-path-parent-'));
+    const parent = makeTempDir('pyric-vite-real-path-parent-');
     const root = join(parent, '.pyric', 'app');
     mkdirSync(root, { recursive: true });
     writeFileSync(join(root, 'main.js'), 'export const ok = 1;');
@@ -163,7 +178,7 @@ describe('Vite real-path guard', () => {
 
   it('checks the public directory, which is a root of its own', async () => {
     const root = project();
-    const publicDir = mkdtempSync(join(tmpdir(), 'pyric-vite-real-path-public-'));
+    const publicDir = makeTempDir('pyric-vite-real-path-public-');
     symlinkSync(join(root, '.env'), join(publicDir, 'pub-env'));
     const base = await serve(root, [guardPlugin(root)], { publicDir });
     const res = await fetch(`${base}/pub-env`);
@@ -172,7 +187,7 @@ describe('Vite real-path guard', () => {
   });
 
   it('does not count the project directory\'s own path against a file inside it', async () => {
-    const parent = mkdtempSync(join(tmpdir(), 'pyric-vite-real-path-parent-'));
+    const parent = makeTempDir('pyric-vite-real-path-parent-');
     const projectDir = join(parent, '.pyric', 'project');
     const root = join(projectDir, 'web');
     mkdirSync(join(projectDir, 'shared'), { recursive: true });

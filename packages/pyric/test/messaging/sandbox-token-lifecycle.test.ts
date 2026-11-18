@@ -66,6 +66,88 @@ describe('getToken (sandbox)', () => {
     const foreign = { app: sandboxApp() } as ReturnType<typeof getMessaging>;
     await expect(getToken(foreign)).rejects.toThrow(/was not produced by/);
   });
+
+  it('mints a token when a headless shell getter reports Notification.permission denied but origin permission is prompt or granted', async () => {
+    const sb = initializeSandbox();
+    const app = createAppForSandbox(sb, { projectId: 'messaging-test' }, `msg-headless-${Math.random().toString(36).slice(2)}`);
+    const globalObj = globalThis as Record<string, unknown>;
+    const hadNotif = Object.prototype.hasOwnProperty.call(globalObj, 'Notification');
+    const prevNotif = globalObj.Notification;
+    const prevNavigator = globalObj.navigator;
+    function FakeNativeNotification(): void {}
+    Object.defineProperty(FakeNativeNotification, 'permission', {
+      configurable: true,
+      get: () => 'denied',
+    });
+    Object.defineProperty(globalObj, 'navigator', {
+      configurable: true,
+      writable: true,
+      value: {
+        permissions: {
+          query: async () => ({ state: 'prompt' }),
+        },
+      },
+    });
+    globalObj.Notification = FakeNativeNotification;
+    try {
+      const token = await getToken(getMessaging(app));
+      expect(token.length).toBe(142);
+    } finally {
+      if (hadNotif) {
+        globalObj.Notification = prevNotif;
+      } else {
+        delete globalObj.Notification;
+      }
+      Object.defineProperty(globalObj, 'navigator', {
+        configurable: true,
+        writable: true,
+        value: prevNavigator,
+      });
+      sb.dispose();
+    }
+  });
+
+  it('rejects with messaging/permission-blocked when both Notification.permission getter and navigator.permissions report denied', async () => {
+    const sb = initializeSandbox();
+    const app = createAppForSandbox(sb, { projectId: 'messaging-test' }, `msg-blocked-${Math.random().toString(36).slice(2)}`);
+    const globalObj = globalThis as Record<string, unknown>;
+    const hadNotif = Object.prototype.hasOwnProperty.call(globalObj, 'Notification');
+    const prevNotif = globalObj.Notification;
+    const prevNavigator = globalObj.navigator;
+    function FakeNativeNotification(): void {}
+    Object.defineProperty(FakeNativeNotification, 'permission', {
+      configurable: true,
+      get: () => 'denied',
+    });
+    Object.defineProperty(globalObj, 'navigator', {
+      configurable: true,
+      writable: true,
+      value: {
+        permissions: {
+          query: async () => ({ state: 'denied' }),
+        },
+      },
+    });
+    globalObj.Notification = FakeNativeNotification;
+    try {
+      await expect(getToken(getMessaging(app))).rejects.toMatchObject({
+        name: 'FirebaseError',
+        code: 'messaging/permission-blocked',
+      });
+    } finally {
+      if (hadNotif) {
+        globalObj.Notification = prevNotif;
+      } else {
+        delete globalObj.Notification;
+      }
+      Object.defineProperty(globalObj, 'navigator', {
+        configurable: true,
+        writable: true,
+        value: prevNavigator,
+      });
+      sb.dispose();
+    }
+  });
 });
 
 describe('deleteToken (sandbox)', () => {

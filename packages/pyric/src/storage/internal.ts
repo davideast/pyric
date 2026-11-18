@@ -78,8 +78,10 @@ export {
   type AdminSettableMetadataPatch,
 } from './metadata.js';
 export {
+  attachPrecomputedMd5,
   decodeString,
   defaultRawContentType,
+  precomputedMd5Of,
   uploadObject,
   uploadObjectReplacing,
   type ReplacingUploadResult,

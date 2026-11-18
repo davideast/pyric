@@ -4,8 +4,9 @@ import {
   firestoreServiceBlock,
   isFirestoreServiceName,
   selectServicesToAnalyze,
+  storageServiceBlock,
 } from '../../src/grammar/service-blocks.js';
-import { firestoreRules, lint } from '../../src/index.js';
+import { firestoreRules, lint, storageRules } from '../../src/index.js';
 import { checkServiceDeclarations } from '../../src/linter/service-declarations.js';
 
 const STORAGE_ALLOW_ALL = `rules_version = '2';
@@ -95,7 +96,27 @@ describe('service-blocks and service-declarations linter', () => {
         'INVALID_SERVICE_NAME',
         'MISSING_FIRESTORE_SERVICE',
       ]);
+      expect(checkServiceDeclarations(fooAst, 'firebase.storage').map((w) => w.rule)).toEqual([
+        'INVALID_SERVICE_NAME',
+        'MISSING_STORAGE_SERVICE',
+      ]);
+      expect(storageServiceBlock(fooAst)).toBeUndefined();
     }
+    const storageAst = parseToAST(STORAGE_ALLOW_ALL);
+    expect(storageAst).not.toBeNull();
+    if (storageAst) {
+      expect(storageServiceBlock(storageAst)?.name).toBe('firebase.storage');
+    }
+    const unknownStorageHandle = storageRules(UNKNOWN_FOO_BAR, { bucket: 'demo-app.appspot.com' });
+    expect(
+      unknownStorageHandle.simulate([
+        { description: 'get d1', expectation: 'DENY', method: 'get', path: 'items/d1' },
+      ]).passed,
+    ).toBe(1);
+    expect(unknownStorageHandle.lint().map((i) => i.code)).toEqual([
+      'INVALID_SERVICE_NAME',
+      'MISSING_STORAGE_SERVICE',
+    ]);
   });
 
   test('public lint() reports INVALID_SERVICE_NAME warning and zero false SEC/QUA errors on unknown services', () => {

@@ -1,0 +1,75 @@
+{
+  "name": "storage-updatemetadata-undefined-and-null-clear",
+  "matrixRow": "storage #86",
+  "rowIds": [
+    "storage#86"
+  ],
+  "description": "firebase/storage updateMetadata(ref, patch): observes undefined field values preserving prior stored metadata vs null clearing writable scalar fields and customMetadata entries/maps.",
+  "observedAt": "2026-11-18T11:59:00.249Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "seeded": {
+      "contentType": "text/plain",
+      "cacheControl": "public, max-age=60",
+      "contentDisposition": "inline",
+      "contentLanguage": "en",
+      "customMetadata": {
+        "drop": "soon",
+        "keep": "yes"
+      }
+    },
+    "afterUndefinedFields": {
+      "contentType": "text/plain",
+      "cacheControl": "public, max-age=60",
+      "contentDisposition": "inline",
+      "contentLanguage": "fr",
+      "customMetadata": {
+        "drop": "soon",
+        "keep": "yes"
+      }
+    },
+    "readAfterUndefined": {
+      "contentType": "text/plain",
+      "cacheControl": "public, max-age=60",
+      "contentDisposition": "inline",
+      "contentLanguage": "fr",
+      "customMetadata": {
+        "drop": "soon",
+        "keep": "yes"
+      }
+    },
+    "afterNullScalarAndKeyClear": {
+      "contentType": "text/plain",
+      "cacheControl": null,
+      "contentDisposition": null,
+      "contentLanguage": "fr",
+      "customMetadata": {
+        "keep": "yes"
+      }
+    },
+    "readAfterNullScalarAndKeyClear": {
+      "contentType": "text/plain",
+      "cacheControl": null,
+      "contentDisposition": null,
+      "contentLanguage": "fr",
+      "customMetadata": {
+        "keep": "yes"
+      }
+    },
+    "afterNullCustomMetadataMap": {
+      "contentType": "text/plain",
+      "cacheControl": null,
+      "contentDisposition": null,
+      "contentLanguage": "fr",
+      "customMetadata": null
+    },
+    "readAfterNullCustomMetadataMap": {
+      "contentType": "text/plain",
+      "cacheControl": null,
+      "contentDisposition": null,
+      "contentLanguage": "fr",
+      "customMetadata": null
+    }
+  }
+}

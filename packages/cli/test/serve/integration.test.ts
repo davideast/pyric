@@ -3,13 +3,13 @@
  *  (The in-browser 6/6 behavioral check is the scripted manual gate — see
  *  the step doc; no playwright dep in @pyric/cli.) */
 import { afterAll, describe, expect, it } from 'bun:test';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { extractHosting, runServe, serveJsonLine, startServe, undeployedStorageLine, wantsSpaRewrite, type ServeRuntime } from '../../src/cli/serve.js';
 import { parseArgs } from '../../src/cli/index.js';
 import { silentServeLogger, type ServeLogger } from '../../src/serve/server.js';
 import { CAPTURE_RELATIVE_PATH } from '../../src/serve/capture-store.js';
+import { trackTempDirs } from '../use-temp-dirs.js';
 
 /** Logger that records every line so a test can assert on the banner. */
 function capturingLogger(): { logger: ServeLogger; info: string[]; note: string[] } {
@@ -26,8 +26,10 @@ service cloud.firestore {
   }
 }`;
 
+const { makeTempDir, cleanupTempDirs } = trackTempDirs('pyric-serve-proj-');
+
 function fixtureProject(): string {
-  const dir = mkdtempSync(join(tmpdir(), 'pyric-serve-proj-'));
+  const dir = makeTempDir('pyric-serve-proj-');
   writeFileSync(
     join(dir, 'firebase.json'),
     JSON.stringify({
@@ -57,6 +59,7 @@ function fixtureProject(): string {
 const stops: ServeRuntime[] = [];
 afterAll(async () => {
   for (const r of stops) await r.handle.stop();
+  cleanupTempDirs();
 });
 
 describe('pyric dev end-to-end (HTTP)', () => {
@@ -152,7 +155,7 @@ describe('pyric dev end-to-end (HTTP)', () => {
       startServe({ cwd: broken, port: 0, cacheRoot: join(broken, '.cache'), logger: silentServeLogger() }),
     ).rejects.toThrow(/failed to parse/);
 
-    const bare = mkdtempSync(join(tmpdir(), 'pyric-serve-bare-'));
+    const bare = makeTempDir('pyric-serve-bare-');
     writeFileSync(join(bare, 'index.html'), '<!doctype html><html><head></head><body>bare</body></html>');
     const cap = capturingLogger();
     const runtime = await startServe({ cwd: bare, port: 0, cacheRoot: join(bare, '.cache'), logger: cap.logger });
@@ -173,7 +176,7 @@ describe('pyric dev end-to-end (HTTP)', () => {
   }, 30_000);
 
   it('serves hosting only when firebase.json declares a hosting block (#1779)', async () => {
-    const cwd = mkdtempSync(join(tmpdir(), 'pyric-serve-hosting-block-'));
+    const cwd = makeTempDir('pyric-serve-hosting-block-');
     writeFileSync(join(cwd, 'index.html'), '<!doctype html><html><head></head><body>bare</body></html>');
     writeFileSync(join(cwd, 'firebase.json'), JSON.stringify({ firestore: {} }));
     const cap = capturingLogger();
@@ -194,7 +197,7 @@ describe('pyric dev end-to-end (HTTP)', () => {
   }, 30_000);
 
   it('serves `public` for a hosting block that names no directory, as production does', async () => {
-    const cwd = mkdtempSync(join(tmpdir(), 'pyric-serve-hosting-default-'));
+    const cwd = makeTempDir('pyric-serve-hosting-default-');
     writeFileSync(join(cwd, 'index.html'), '<!doctype html><html><head></head><body>project root</body></html>');
     mkdirSync(join(cwd, 'public'));
     writeFileSync(join(cwd, 'public', 'index.html'), '<!doctype html><html><head></head><body>public page</body></html>');
@@ -218,7 +221,7 @@ describe('pyric dev end-to-end (HTTP)', () => {
   }, 30_000);
 
   it('HARD-REFUSES a dist that inlined the real firebase SDK (no marker)', async () => {
-    const cwd = mkdtempSync(join(tmpdir(), 'pyric-serve-inlined-'));
+    const cwd = makeTempDir('pyric-serve-inlined-');
     writeFileSync(
       join(cwd, 'firebase.json'),
       JSON.stringify({ hosting: { public: 'dist' } }),
@@ -236,7 +239,7 @@ describe('pyric dev end-to-end (HTTP)', () => {
   }, 30_000);
 
   it('TRUSTS a marked sandbox build even when an asset carries a fingerprint', async () => {
-    const cwd = mkdtempSync(join(tmpdir(), 'pyric-serve-marked-'));
+    const cwd = makeTempDir('pyric-serve-marked-');
     writeFileSync(
       join(cwd, 'firebase.json'),
       JSON.stringify({ hosting: { public: 'dist' } }),

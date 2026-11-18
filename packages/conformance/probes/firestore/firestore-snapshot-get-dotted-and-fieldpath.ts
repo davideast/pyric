@@ -4,9 +4,8 @@ import { withFirestoreProbeSession } from '../../src/sdk-probe-runtime.ts';
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: ['web-config', 'firestore-rules'],
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'firestore#22a',
+  rowIds: ['firestore#22a'],
   description:
     'DocumentSnapshot.get(fieldPath) resolves dotted string paths and FieldPath instances (including literal-dot keys and falsy scalar values), returning undefined on missing documents or absent fields.',
   async observe() {

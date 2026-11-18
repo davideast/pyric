@@ -27,7 +27,8 @@ import { homedir } from 'node:os';
 import { dirname, join, relative, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as esbuild from 'esbuild';
-import { withWorkerBuildLock, type WorkerBuildLock } from './worker-build-lock.js';
+import { WORKER_BUILD_STALE_MS, withWorkerBuildLock, type WorkerBuildLock } from './worker-build-lock.js';
+import { createNoCacheGenerationDir, disposeNoCacheGenerationDir, evictServeCache, touchBundleCacheDir } from './bundle-cache-evict.js';
 import {
   WORKER_EPOCH_FILE,
   WORKER_FILE,
@@ -231,7 +232,7 @@ export function resolveProjectFirebase(projectDir: string): ProjectFirebase {
  * The environment setting that turned production AI mode on, for messages.
  * `PYRIC_AI_MODE=production` wins; otherwise the passthrough switch did it.
  */
-export function productionModeSetting(env: NodeJS.ProcessEnv): string {
+function productionModeSetting(env: NodeJS.ProcessEnv): string {
   const isModeSet = env.PYRIC_AI_MODE === 'production';
   return isModeSet ? 'PYRIC_AI_MODE=production' : 'PYRIC_AI_PASSTHROUGH=1';
 }
@@ -408,12 +409,8 @@ export function cacheKey(
   const h = createHash('sha256');
   h.update(`rev${BUNDLER_REV}`);
   h.update(version);
-  // Hash the WHOLE local CLI graph, not just entries or entries/ siblings.
-  // Page adapters import worker/client, worker/protocol, bridge, and verify
-  // leaves outside that directory; missing one can pair a stale page client
-  // with a freshly rebuilt worker. The installed pyric implementation is
-  // hashed separately: workspace and prerelease builds can change dist bytes
-  // without changing package.json's version.
+  // Hash the entire local CLI graph and pyric dist tree so any adapter,
+  // protocol, or workspace dist change invalidates the shared cache key.
   h.update(sourceTreeHash(graphRoot));
   h.update(sourceTreeHash(join(pyricRoot, 'dist')));
   h.update(packageResolutionHash(graphRoot, pyricRoot));
@@ -421,12 +418,13 @@ export function cacheKey(
     h.update(name);
     h.update(readFileSync(file, 'utf8'));
   }
-  // Production AI mode also serves the project's Firebase SDK, so upgrading
-  // `firebase`, or a project resolving another copy, rebuilds it.
+  // Production AI mode serves the project's Firebase SDK; hash package.json
+  // rather than its directory path so identical versions share one cache key.
   const projectFirebase = opts.projectFirebase;
   if (projectFirebase) {
     const firebase = resolveProjectFirebase(projectFirebase.projectDir);
-    h.update(`firebase-sdk\0${firebase.root}\0${firebase.version}`);
+    h.update(`firebase-sdk\0${firebase.version}\0`);
+    h.update(readFileSync(join(firebase.root, 'package.json')));
   }
   return `${version}-${h.digest('hex').slice(0, 12)}`;
 }
@@ -443,24 +441,20 @@ export async function bundleSdk(opts: BundleOptions): Promise<BundleResult> {
   const key = cacheKey(opts, version);
   const cacheRoot = opts.cacheRoot ?? join(homedir(), '.pyric', 'serve-cache');
   mkdirSync(cacheRoot, { recursive: true });
-  // A running server keeps serving this directory after bundleSdk returns.
-  // Therefore `--no-cache` must never overwrite the deterministic warm-cache
-  // path: another concurrent `pyric dev --no-cache` could otherwise replace
-  // an entry and its shared chunks between browser requests, splitting
-  // singleton module state (notably the app registry). Each bypass build gets
-  // an immutable generation; the OS-level mkdir primitive makes concurrent
-  // callers distinct without coordination.
+  // `--no-cache` gets an isolated directory so concurrent bypass builds never
+  // overwrite shared warm-cache chunks while another server serves them.
   const needsFreshBundle = opts.noCache === true;
-  const generationRoot = needsFreshBundle
-    ? mkdtempSync(join(cacheRoot, `.no-cache-${key}-`))
-    : join(cacheRoot, key);
+  let generationRoot = join(cacheRoot, key);
+  let dispose = () => {};
+  if (needsFreshBundle) {
+    generationRoot = createNoCacheGenerationDir(cacheRoot, key);
+    dispose = () => disposeNoCacheGenerationDir(generationRoot);
+  }
   const outDir = join(generationRoot, 'sdk');
-  const dispose = needsFreshBundle
-    ? () => rmSync(generationRoot, { recursive: true, force: true })
-    : () => {};
 
   const hasCachedBundle = !needsFreshBundle && existsSync(join(outDir, '.complete'));
   if (hasCachedBundle) {
+    touchBundleCacheDir(generationRoot);
     const files = readdirSync(outDir)
       .filter((f) => f.endsWith('.js'))
       .map((f) => join(outDir, f));
@@ -499,6 +493,10 @@ export async function bundleSdk(opts: BundleOptions): Promise<BundleResult> {
       await bundleProjectFirebase(outDir, projectFirebase.projectDir, projectFirebase.firebase, opts.minify ?? true);
     }
     writeFileSync(join(outDir, '.complete'), new Date().toISOString());
+    if (needsFreshBundle === false) {
+      touchBundleCacheDir(generationRoot);
+      evictServeCache(cacheRoot, key, WORKER_BUILD_STALE_MS);
+    }
     const files = readdirSync(outDir)
       .filter((f) => f.endsWith('.js'))
       .map((f) => join(outDir, f));
@@ -526,11 +524,11 @@ export function workerEntryPath(): string {
 }
 
 export interface WorkerBundleOptions {
-  /** Where to write `worker.js` — normally the SDK bundle's `outDir` so the
-   *  existing `/__pyric/sdk/<file>` route serves it with no extra wiring. */
+  /** Destination directory for `worker.js` (`/__pyric/sdk/<file>`). */
   outDir: string;
   /** Bypass + overwrite the cached worker bundle. */
   noCache?: boolean;
+  evictCache?: boolean; // Prune stale sibling worker generations in `dirname(outDir)`.
   minify?: boolean;
   /** Test seam for proving epoch identity from an isolated executable graph. */
   entryPath?: string;
@@ -649,7 +647,7 @@ async function buildUnderLock(opts: WorkerBundleOptions, hash: string, lock: Wor
     const built = await buildWhileHeld(stagingDir, opts, lock);
     if (!built) return null;
     // A builder whose lock was taken over as abandoned leaves the directory to the new holder.
-    if (lock.isHeld()) publishWorkerBundle(stagingDir, opts.outDir, hash);
+    if (lock.isHeld()) publishWorkerBundle(stagingDir, opts.outDir, hash, opts);
   } finally {
     rmSync(stagingDir, { recursive: true, force: true });
   }

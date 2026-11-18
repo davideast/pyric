@@ -196,7 +196,7 @@ import {
   storageOracleTarget,
 } from './oracle-rules-session.ts';
 import { installOracleSignalRestoreGuard } from './oracle-signal-restore.ts';
-import { createOracleRunAuthSession } from './oracle-run-auth-session.ts';
+import { createOracleRunAuthSession, retryAuthTooManyRequests } from './oracle-run-auth-session.ts';
 import {
   createAuthUserSlotTracker, describeAuthFireSequence, describeAuthUid,
   describeFencedAuthFireSequence, describeFirestoreQueryFires,
@@ -8576,7 +8576,7 @@ const probes: Probe[] = [
       };
       const arm = async (step: () => Promise<unknown>): Promise<unknown> => {
         try {
-          return await step();
+          return await retryAuthTooManyRequests('auth-id-token-standard-claims', step);
         } catch (e) {
           const err = e as { code?: string };
           return { error: err.code ?? String(e) };

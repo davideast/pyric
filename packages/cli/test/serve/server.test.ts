@@ -1,7 +1,7 @@
 /** `pyric dev` static server (plan step 1.3) — real HTTP over ephemeral
  *  ports: static files, traversal, SPA rewrite, seams, port scan-forward. */
 import { afterEach, describe, expect, it } from 'bun:test';
-import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -35,8 +35,16 @@ describe('loopback host binding', () => {
   });
 });
 
+const tempDirs: string[] = [];
+
+function makeTempDir(prefix: string): string {
+  const dir = mkdtempSync(join(tmpdir(), prefix));
+  tempDirs.push(dir);
+  return dir;
+}
+
 function fixtureSite(): string {
-  const dir = mkdtempSync(join(tmpdir(), 'pyric-serve-site-'));
+  const dir = makeTempDir('pyric-serve-site-');
   writeFileSync(join(dir, 'index.html'), '<!doctype html><head></head><body>home</body>');
   writeFileSync(join(dir, 'app.js'), 'export const x = 1;');
   mkdirSync(join(dir, 'nested'));
@@ -46,7 +54,14 @@ function fixtureSite(): string {
 
 const handles: ServeHandle[] = [];
 afterEach(async () => {
-  while (handles.length) await handles.pop()!.stop();
+  while (handles.length > 0) {
+    const h = handles.pop();
+    if (h !== undefined) await h.stop();
+  }
+  while (tempDirs.length > 0) {
+    const dir = tempDirs.pop();
+    if (dir !== undefined) rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 async function start(opts: Partial<Parameters<typeof startStaticServer>[0]> & { publicDir: string }) {
@@ -90,7 +105,7 @@ describe('static server', () => {
   });
 
   it('redirects root GET and HEAD to /__pyric/ui/studio when no index.html exists and namespaceHandler is active', async () => {
-    const emptyDir = mkdtempSync(join(tmpdir(), 'pyric-empty-site-'));
+    const emptyDir = makeTempDir('pyric-empty-site-');
     const h = await start({
       publicDir: emptyDir,
       namespaceHandler: () => false,
@@ -122,7 +137,7 @@ describe('static server', () => {
   });
 
   it('honors redirectRootToStudio override when explicitly set', async () => {
-    const emptyDir = mkdtempSync(join(tmpdir(), 'pyric-empty-site-'));
+    const emptyDir = makeTempDir('pyric-empty-site-');
     const disabled = await start({
       publicDir: emptyDir,
       namespaceHandler: () => false,

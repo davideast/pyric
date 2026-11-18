@@ -164,14 +164,18 @@ function applyMetadataPatch(
 ): StoredMetadata {
   const next: StoredMetadata = {
     ...base,
-    contentType: patch.contentType ?? base.contentType,
-    cacheControl: patch.cacheControl ?? base.cacheControl,
-    contentDisposition: patch.contentDisposition ?? base.contentDisposition,
-    contentEncoding: patch.contentEncoding ?? base.contentEncoding,
-    contentLanguage: patch.contentLanguage ?? base.contentLanguage,
     metageneration: bump(base.metageneration),
     updated: now.toISOString(),
   };
+  const rawPatch = patch as AdminSettableMetadataPatch;
+  for (const field of ADMIN_SETTABLE_FIELDS) {
+    const value = rawPatch[field];
+    if (value === null) {
+      delete next[field];
+    } else if (value !== undefined) {
+      next[field] = value;
+    }
+  }
   const mergedCustom = mergePatchCustomMetadata(
     base.customMetadata,
     patch.customMetadata as { [key: string]: string } | null | undefined,
@@ -232,10 +236,8 @@ async function readObjectMetadata(ref: StorageReference): Promise<FullMetadata> 
  * `size`, `md5Hash`) are preserved; `metageneration` bumps and
  * `updated` refreshes. The blob is untouched.
  *
- * Pass `undefined` for a field to leave the previous value in
- * place. To explicitly clear a field, the JS SDK accepts `null` —
- * we don't model that in the v1 scope to keep the patch logic simple.
- * Documented for Slice 9's deferred-features section.
+ * Pass `undefined` for a field to leave the previous value in place, or
+ * `null` to explicitly clear a writable field or `customMetadata` entry/map.
  *
  * `provenance` (host-only): op {@link EventProvenance} bound at ISSUE time,
  * threaded EXPLICITLY onto the emitted `metadata_update` event. Emit runs

@@ -32,12 +32,19 @@
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { join } from 'node:path';
 import { messagingRows } from '../../../../packages/conformance/registry/messaging.ts';
+import {
+  replayMessagingClientErrorCodes,
+  replayMessagingModuleBoundaryAndAccessors,
+  replayMessagingObserverAndUnsubscribe,
+  replayMessagingSwDeliveryMetricsToggle,
+} from '../../../../packages/conformance/src/messaging-client-sw-replay.ts';
 import { createObservationGate } from '../../../../packages/conformance/src/observation-gate.ts';
 import { initializeApp } from 'pyric/app';
 import { bindAppRegistryRefusal, clientSdkRefusal, clientSdkRefusalFor, createAppForSandbox } from 'pyric/app/internal';
 import { initializeSandbox } from 'pyric/sandbox';
 import { BrokerSendError, DEFAULT_SENDER_ID, getMessagingBroker } from 'pyric/messaging/internal';
 import { resetAppRegistryForTests } from '../../dist/app/registry.js';
+import { withInPageMessagingTarget } from './in-page-replay-target.ts';
 
 beforeAll(async () => {
   await resetAppRegistryForTests();
@@ -117,9 +124,26 @@ const deliveredTo = (result: { route: string }): string =>
 const assertions: Record<string, () => Promise<void> | void> = {
   // ── firebase/messaging (client) ───────────────────────────────────────────
   'messaging#1': async () => {
-    // getMessaging(app?) returns the FCM client instance bound to component `messaging`.
-    const m = await loadClient();
-    expect(typeof m.getMessaging).toBe('function');
+    const expected = obs('messaging-web-module-boundary-and-accessors');
+    const actual = await withInPageMessagingTarget(loadClient, loadSw, (target) =>
+      replayMessagingModuleBoundaryAndAccessors(target),
+    );
+    expect(actual.noDefaultApp.clientGetMessaging).toEqual(expected.noDefaultApp.clientGetMessaging);
+    expect(actual.cachingAndPlaneSeparation.clientDefaultMatchesExplicitDefault).toBe(
+      expected.cachingAndPlaneSeparation.clientDefaultMatchesExplicitDefault,
+    );
+    expect(actual.cachingAndPlaneSeparation.clientSameAppCached).toBe(
+      expected.cachingAndPlaneSeparation.clientSameAppCached,
+    );
+    expect(actual.cachingAndPlaneSeparation.clientDistinctAcrossNamedApps).toBe(
+      expected.cachingAndPlaneSeparation.clientDistinctAcrossNamedApps,
+    );
+    expect(actual.afterDeleteApp.priorClientInstanceReturnedAfterDelete).toBe(
+      expected.afterDeleteApp.priorClientInstanceReturnedAfterDelete,
+    );
+    expect(actual.afterDeleteApp.firstClientGetMessagingAfterDelete).toEqual(
+      expected.afterDeleteApp.firstClientGetMessagingAfterDelete,
+    );
   },
 
   'messaging#2': async () => {
@@ -339,49 +363,52 @@ const assertions: Record<string, () => Promise<void> | void> = {
   },
 
   'messaging#11': async () => {
-    // NextFn / Observer / Unsubscribe: the callback / observer / teardown types
-    // onMessage consumes. Driven, not asserted off `toBeDefined()`: onMessage
-    // accepts BOTH the bare-NextFn form and the full-Observer form, delivers to
-    // each via the broker, and returns a callable Unsubscribe that stops
-    // delivery. Deep type parity with the @firebase/util re-exports is closed
-    // by the assignability census (resolved decision #5).
-    const m = await loadClient();
-    const messaging = m.getMessaging();
-    const nextForm: any[] = [];
-    const observerForm: any[] = [];
-    // NextFn form.
-    const unsubNext: () => void = m.onMessage(messaging, (p: any) => nextForm.push(p));
-    // Observer form { next, error, complete }.
-    const unsubObserver: () => void = m.onMessage(messaging, {
-      next: (p: any) => observerForm.push(p),
-      error: () => {},
-      complete: () => {},
+    const expected = obs('messaging-web-observer-and-unsubscribe');
+    const actual = await withInPageMessagingTarget(loadClient, loadSw, (target) =>
+      replayMessagingObserverAndUnsubscribe(target),
+    );
+    expect(actual).toEqual({
+      foregroundOnMessage: expected.foregroundOnMessage,
+      backgroundOnBackgroundMessage: expected.backgroundOnBackgroundMessage,
     });
-    expect(typeof unsubNext).toBe('function');
-    expect(typeof unsubObserver).toBe('function');
-    await m.sandbox.deliver(messaging, { visibilityState: 'visible', data: { demo: '1' } });
-    expect(nextForm.length).toBe(1);
-    expect(observerForm.length).toBe(1); // Observer.next received the same delivery
-    // Unsubscribe stops further delivery to that handler only.
-    unsubNext();
-    await m.sandbox.deliver(messaging, { visibilityState: 'visible', data: { demo: '2' } });
-    expect(nextForm.length).toBe(1); // no further delivery after unsubscribe
-    expect(observerForm.length).toBe(2); // the still-subscribed observer keeps receiving
-    unsubObserver();
   },
 
   'messaging#12': async () => {
-    // const enum ErrorCode is @internal — NOT a public export. The mirror must
-    // not leak it, even though its 18 values back thrown FirebaseErrors.
-    const m = await loadClient();
-    expect(m.ErrorCode).toBeUndefined();
+    const expected = obs('messaging-web-client-error-codes');
+    const actual = await withInPageMessagingTarget(loadClient, loadSw, (target) =>
+      replayMessagingClientErrorCodes(target),
+    );
+    expect(actual).toEqual({
+      hasClientErrorCodeExport: expected.hasClientErrorCodeExport,
+      hasSwErrorCodeExport: expected.hasSwErrorCodeExport,
+      permissionDeniedGetToken: expected.permissionDeniedGetToken,
+      primitiveSwRegistrationGetToken: expected.primitiveSwRegistrationGetToken,
+      malformedObjectSwRegistrationGetToken: expected.malformedObjectSwRegistrationGetToken,
+    });
   },
 
   // ── firebase/messaging/sw (service worker) ────────────────────────────────
   'messaging#13': async () => {
-    // getMessaging in a service-worker context (bound to getMessagingInSw).
-    const sw = await loadSw();
-    expect(typeof sw.getMessaging).toBe('function');
+    const expected = obs('messaging-web-module-boundary-and-accessors');
+    const actual = await withInPageMessagingTarget(loadClient, loadSw, (target) =>
+      replayMessagingModuleBoundaryAndAccessors(target),
+    );
+    expect(actual.noDefaultApp.swGetMessaging).toEqual(expected.noDefaultApp.swGetMessaging);
+    expect(actual.cachingAndPlaneSeparation.swDefaultMatchesExplicitDefault).toBe(
+      expected.cachingAndPlaneSeparation.swDefaultMatchesExplicitDefault,
+    );
+    expect(actual.cachingAndPlaneSeparation.swSameAppCached).toBe(
+      expected.cachingAndPlaneSeparation.swSameAppCached,
+    );
+    expect(actual.cachingAndPlaneSeparation.swDistinctAcrossNamedApps).toBe(
+      expected.cachingAndPlaneSeparation.swDistinctAcrossNamedApps,
+    );
+    expect(actual.afterDeleteApp.priorSwInstanceReturnedAfterDelete).toBe(
+      expected.afterDeleteApp.priorSwInstanceReturnedAfterDelete,
+    );
+    expect(actual.afterDeleteApp.firstSwGetMessagingAfterDelete).toEqual(
+      expected.afterDeleteApp.firstSwGetMessagingAfterDelete,
+    );
   },
 
   'messaging#14': async () => {
@@ -415,9 +442,16 @@ const assertions: Record<string, () => Promise<void> | void> = {
   },
 
   'messaging#15': async () => {
-    // experimentalSetDeliveryMetricsExportedToBigQueryEnabled(messaging, enable): void
-    const sw = await loadSw();
-    expect(typeof sw.experimentalSetDeliveryMetricsExportedToBigQueryEnabled).toBe('function');
+    const expected = obs('messaging-web-sw-delivery-metrics-toggle');
+    const actual = await withInPageMessagingTarget(loadClient, loadSw, (target) =>
+      replayMessagingSwDeliveryMetricsToggle(target),
+    );
+    expect(actual).toEqual({
+      enableReturnsUndefined: expected.enableReturnsUndefined,
+      disableReturnsUndefined: expected.disableReturnsUndefined,
+      deliveredStepsAcrossToggleStates: expected.deliveredStepsAcrossToggleStates,
+      nullMessagingThrowsSynchronously: expected.nullMessagingThrowsSynchronously,
+    });
   },
 
   'messaging#16': async () => {
@@ -428,27 +462,15 @@ const assertions: Record<string, () => Promise<void> | void> = {
   },
 
   'messaging#17': async () => {
-    // Module boundary + shared type parity: the sw entry exports the background
-    // handler/metrics toggle but NOT getToken/deleteToken/onMessage, and the
-    // client entry is the mirror image.
-    const client = await loadClient();
-    const sw = await loadSw();
-    // sw HAS these:
-    for (const name of ['onBackgroundMessage', 'getMessaging', 'experimentalSetDeliveryMetricsExportedToBigQueryEnabled', 'isSupported']) {
-      expect(typeof sw[name]).toBe('function');
-    }
-    // sw does NOT export the client-only receive/token functions:
-    for (const name of ['getToken', 'deleteToken', 'onMessage']) {
-      expect(sw[name]).toBeUndefined();
-    }
-    // client HAS the client-only functions:
-    for (const name of ['getToken', 'deleteToken', 'onMessage']) {
-      expect(typeof client[name]).toBe('function');
-    }
-    // client does NOT export the sw-only surface:
-    for (const name of ['onBackgroundMessage', 'experimentalSetDeliveryMetricsExportedToBigQueryEnabled']) {
-      expect(client[name]).toBeUndefined();
-    }
+    const expected = obs('messaging-web-module-boundary-and-accessors');
+    const actual = await withInPageMessagingTarget(loadClient, loadSw, (target) =>
+      replayMessagingModuleBoundaryAndAccessors(target),
+    );
+    expect(actual.clientExports).toEqual(expected.clientExports);
+    expect(actual.swExports).toEqual(expected.swExports);
+    expect(actual.cachingAndPlaneSeparation.clientAndSwDistinctOnSameApp).toBe(
+      expected.cachingAndPlaneSeparation.clientAndSwDistinctOnSameApp,
+    );
   },
 
   // ── behavior classes over time & across clients (born non-conforms) ────────
@@ -538,7 +560,7 @@ describe('oracle conformance (messaging client + sw)', () => {
   // (a comment mention or an unused load() does not count).
   it('completeness: every observations/messaging/ capture is asserted (prefix gate)', () => {
     const r = messagingObsGate.report();
-    expect(r.committed.length).toBe(7);
+    expect(r.committed.length).toBe(11);
     expect(r.loadedButUnused).toEqual([]);
     expect(r.uncovered).toEqual([]);
   });

@@ -12,15 +12,18 @@
  *   - always 204s, even for a malformed body
  */
 import { afterEach, describe, expect, it } from 'bun:test';
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createDenialThrottle, createPyricNamespace, DENIAL_BODY_LIMIT_BYTES, formatDenialBlock } from '../../src/serve/namespace.js';
 import { startStaticServer, type ServeHandle, type ServeLogger } from '../../src/serve/server.js';
 import { expectClosedEarlyAnswer } from './early-answer.js';
 
+const tempDirs: string[] = [];
+
 function fixture() {
   const dir = mkdtempSync(join(tmpdir(), 'pyric-serve-denials-'));
+  tempDirs.push(dir);
   const site = join(dir, 'public');
   const sdk = join(dir, 'sdk');
   for (const d of [site, sdk]) mkdirSync(d);
@@ -35,7 +38,14 @@ function recordingLogger(): { logger: ServeLogger; notes: string[] } {
 
 const handles: ServeHandle[] = [];
 afterEach(async () => {
-  while (handles.length) await handles.pop()!.stop();
+  while (handles.length > 0) {
+    const h = handles.pop();
+    if (h !== undefined) await h.stop();
+  }
+  while (tempDirs.length > 0) {
+    const dir = tempDirs.pop();
+    if (dir !== undefined) rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 const TEST_TOKEN = 'test-denials-session-token';

@@ -1,6 +1,6 @@
 /** `/__pyric/` namespace + HTML injection (plan step 1.4). */
 import { afterEach, describe, expect, it } from 'bun:test';
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createPyricNamespace, createEventHub } from '../../src/serve/namespace.js';
@@ -9,11 +9,14 @@ import { silentServeLogger, startStaticServer, type ServeHandle } from '../../sr
 import { createStateStore, type StateStore } from '../../src/serve/state-store.js';
 import { diskWorkspace } from '../../src/serve/studio/index.js';
 
+const tempDirs: string[] = [];
+
 function fixture() {
   const dir = mkdtempSync(join(tmpdir(), 'pyric-serve-ns-'));
+  tempDirs.push(dir);
   const site = join(dir, 'public');
   const sdk = join(dir, 'sdk');
-  for (const d of [site, sdk]) require('node:fs').mkdirSync(d);
+  for (const d of [site, sdk]) mkdirSync(d);
   writeFileSync(join(site, 'index.html'), '<!doctype html><html><head><title>t</title></head><body></body></html>');
   writeFileSync(join(sdk, 'auth.js'), 'export const getAuth = 1;');
   writeFileSync(join(sdk, 'database.js'), 'export const getDatabase = 1;');
@@ -24,7 +27,8 @@ function fixture() {
 
 const handles: ServeHandle[] = [];
 afterEach(async () => {
-  while (handles.length) await handles.pop()!.stop();
+  for (const h of handles.splice(0)) await h.stop();
+  for (const dir of tempDirs.splice(0)) rmSync(dir, { recursive: true, force: true });
 });
 
 describe('namespace over the real server', () => {
@@ -38,13 +42,8 @@ describe('namespace over the real server', () => {
       sessionToken: token,
     });
     const h = await startStaticServer({
-      publicDir: site,
-      port: 0,
-      host: '127.0.0.1',
-      portScanLimit: 200,
-      logger: silentServeLogger(),
-      namespaceHandler: ns,
-      sessionToken: token,
+      publicDir: site, port: 0, host: '127.0.0.1', portScanLimit: 200,
+      logger: silentServeLogger(), namespaceHandler: ns, sessionToken: token,
     });
     handles.push(h);
 

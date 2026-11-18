@@ -1,0 +1,45 @@
+{
+  "name": "firestore-query-cursors-endat-snap-and-pagination",
+  "matrixRow": "firestore#72",
+  "rowIds": [
+    "firestore#72",
+    "firestore#73"
+  ],
+  "description": "endAt(snapshot) bounds ordered queries inclusively at the anchor snapshot in both directions, and startAfter + limit paginates deterministically through ordered result sets until exhausted.",
+  "observedAt": "2026-11-18T18:24:14.102Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "endAtSnapshot": {
+      "ascIds": [
+        "item-1",
+        "item-2",
+        "item-3"
+      ],
+      "descIds": [
+        "item-5",
+        "item-4",
+        "item-3"
+      ]
+    },
+    "pagination": {
+      "page1Ids": [
+        "item-1",
+        "item-2"
+      ],
+      "page2Ids": [
+        "item-3",
+        "item-4"
+      ],
+      "page3Ids": [
+        "item-5"
+      ],
+      "page4Ids": [],
+      "page4Empty": true,
+      "valueCursorPageIds": [
+        "item-3",
+        "item-4"
+      ]
+    }
+  }
+}

@@ -32,6 +32,7 @@ import { debugLogTail, npmInstall, npmOfflineInstallArgs, pinPyricPackages, runC
 import type { NestedProject } from './nested-projects.ts';
 import { installedFileProblems, tarFiles } from './packed-files.ts';
 import { installManifest, sortedObject, type Manifest, type SetInstallResult } from './shared-installs.ts';
+import { WARM_ENTRY_MARKER, touchDependencyStoreEntry } from './dependency-store-evict.ts';
 
 /** Bumped when the layout or the key's inputs change, so old entries are never read. */
 export const STORE_FORMAT = 1;
@@ -392,6 +393,9 @@ export class DependencyStore {
     const entry = join(this.options.dir, key);
     const isMiss = !existsSync(entry);
     if (isMiss && this.options.offline) return this.offlineMiss(key, app);
+    if (isMiss === false) {
+      touchDependencyStoreEntry(entry);
+    }
     const warm = isMiss ? await this.warmOnce(key, inputs, options) : undefined;
     if (warm !== undefined && warm.code !== 0) {
       return { ...warm, source: `warming store entry ${key} from the registry`, retryable: warm.timedOut === true };
@@ -432,6 +436,7 @@ export class DependencyStore {
     mkdirSync(this.options.dir, { recursive: true });
     const building = mkdtempSync(join(this.options.dir, `.warm-${key}-`));
     try {
+      writeFileSync(join(building, WARM_ENTRY_MARKER), `${key}\n`);
       writeFileSync(join(building, 'package.json'), inputs.manifest);
       if (inputs.npmrc !== undefined) writeFileSync(join(building, '.npmrc'), inputs.npmrc);
       const result = await this.installFromRegistry(building, options.warmAttemptMs ?? this.options.warmAttemptMs ?? WARM_ATTEMPT_MS);
