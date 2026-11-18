@@ -1,0 +1,41 @@
+{
+  "name": "firestore-sentinel-type-mismatch-overwrite",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "increment, arrayUnion, and arrayRemove overwrite absent or type-mismatched prior field values using base 0 or [] across updateDoc and setDoc({ merge: true }) without failing validation.",
+  "observedAt": "2026-11-18T12:52:38.765Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "afterUpdate": {
+      "strScore": 5,
+      "mapScore": -3,
+      "nullScore": 2,
+      "strTags": [
+        "alpha",
+        "beta"
+      ],
+      "numTags": [
+        7
+      ],
+      "strDrop": [],
+      "arrDrop": [
+        "keep"
+      ],
+      "absentScore": 5,
+      "absentTags": [
+        "x",
+        "y"
+      ],
+      "absentDrop": []
+    },
+    "afterMergeSet": {
+      "priorStr": 4,
+      "priorNum": [
+        "item"
+      ],
+      "untouched": "kept",
+      "freshCount": 1
+    }
+  }
+}
