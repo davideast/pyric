@@ -233,6 +233,9 @@ export async function executeModularProbes(options: {
       projectId: options.projectId,
       behavior,
     };
+    if (item.surfaceDir.endsWith('-admin') && envelope.adminSdkVersion === undefined) {
+      envelope.adminSdkVersion = resolvedAdminVersion();
+    }
     writeFileSync(outPath, `${JSON.stringify(envelope, null, 2)}\n`);
     console.log(`[${options.config.rig}] wrote observations/${item.surfaceDir}/${item.id}.json`);
   }
