@@ -5,9 +5,8 @@ import { withFirestoreProbeSession } from '../../src/sdk-probe-runtime.ts';
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: ['web-config', 'firestore-rules'],
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'firestore#65',
+  rowIds: ['firestore#65'],
   description:
     'Nested query(query(coll, where(...)), orderBy(...)) chaining accumulates constraints without mutating intermediate Query handles.',
   async observe() {

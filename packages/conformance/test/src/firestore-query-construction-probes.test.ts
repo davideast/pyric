@@ -21,12 +21,11 @@ import {
   observeFirestoreIdQuery,
   scrubFirestoreOracleRunPath,
 } from '../../src/firestore-probe-outcomes.ts';
-import { loadObservations, type Observation } from '../../src/ledger.ts';
+import { loadObservations } from '../../src/ledger.ts';
 import { loadModularProbes, printModularProbePreview } from '../../src/sdk-probes.ts';
 import { loadPendingRowLinkObservations } from '../../src/staged-captures.ts';
 import { validateCompatibilityRegistry } from '../../src/validate-registry.ts';
 import { surfaceDescriptors } from '../../surfaces/load.ts';
-import { expectStagedUntilCaptured } from './staged-capture-assertions.ts';
 import {
   probe as compositeOrOrderByLimitProbe,
   probeClientTopLevelCompositeFilterMixing,
@@ -53,48 +52,38 @@ import { probe as whereExistenceAndNullGuardsProbe } from '../../probes/firestor
 import { probe as whereTenFilterOperatorsProbe } from '../../probes/firestore/firestore-where-ten-filter-operators.ts';
 
 const EXPECTED_QUERY_CONSTRUCTION_PROBES = [
-  ['firestore-composite-or-with-orderby-and-limit', compositeOrOrderByLimitProbe],
-  ['firestore-composite-rejects-nonfilter-constraints', compositeRejectsNonFilterProbe],
-  ['firestore-composite-zero-arg-or-and', compositeZeroArgProbe],
-  ['firestore-limit-caps-result-count', limitCapsResultCountProbe],
-  ['firestore-orderby-canonical-type-order', orderByCanonicalTypeOrderProbe],
-  ['firestore-orderby-direction-asc-desc', orderByDirectionAscDescProbe],
-  ['firestore-orderby-excludes-missing-field', orderByExcludesMissingFieldProbe],
-  ['firestore-orderby-implicit-inequality-and-name-tiebreak', orderByImplicitInequalityTiebreakProbe],
-  ['firestore-query-chaining-retags-constraints', queryChainingRetagsConstraintsProbe],
-  ['firestore-query-compose-where-orderby-limit', queryComposeWhereOrderByLimitProbe],
-  ['firestore-where-existence-and-null-guards', whereExistenceAndNullGuardsProbe],
-  ['firestore-where-ten-filter-operators', whereTenFilterOperatorsProbe],
+  ['firestore-composite-or-with-orderby-and-limit', 'firestore#62', compositeOrOrderByLimitProbe],
+  ['firestore-composite-rejects-nonfilter-constraints', 'firestore#63', compositeRejectsNonFilterProbe],
+  ['firestore-composite-zero-arg-or-and', 'firestore#64', compositeZeroArgProbe],
+  ['firestore-limit-caps-result-count', 'firestore#60', limitCapsResultCountProbe],
+  ['firestore-orderby-canonical-type-order', 'firestore#59a', orderByCanonicalTypeOrderProbe],
+  ['firestore-orderby-direction-asc-desc', 'firestore#59', orderByDirectionAscDescProbe],
+  ['firestore-orderby-excludes-missing-field', 'firestore#59b', orderByExcludesMissingFieldProbe],
+  [
+    'firestore-orderby-implicit-inequality-and-name-tiebreak',
+    'firestore#59c',
+    orderByImplicitInequalityTiebreakProbe,
+  ],
+  ['firestore-query-chaining-retags-constraints', 'firestore#65', queryChainingRetagsConstraintsProbe],
+  ['firestore-query-compose-where-orderby-limit', 'firestore#54', queryComposeWhereOrderByLimitProbe],
+  ['firestore-where-existence-and-null-guards', 'firestore#55a', whereExistenceAndNullGuardsProbe],
+  ['firestore-where-ten-filter-operators', 'firestore#55', whereTenFilterOperatorsProbe],
 ] as const;
 
-function makePostCaptureObservation(name: string): Observation {
-  return {
-    file: `${name}.json`,
-    surfaceDir: 'firestore',
-    name,
-    matrixRow: '',
-    rowIds: [],
-    observedAt: '2026-11-17T00:00:00.000Z',
-    fbSdkVersion: '12.19.0',
-    behavior: { captured: true },
-    raw: { fbSdkVersion: '12.19.0', rowIds: [] },
-  };
-}
-
-describe('Firestore Query construction staged probes (sdk-probes)', () => {
-  it('registers all 12 query-construction probes on sdk-probes with pendingRowLink and empty rowIds', async () => {
+describe('Firestore Query construction linked probes (sdk-probes)', () => {
+  it('registers all 12 query-construction probes on sdk-probes linked to their target registry rows', async () => {
     const loaded = await loadModularProbes('sdk-probes');
     const byId = new Map(loaded.map((entry) => [entry.id, entry]));
 
-    for (const [id, staticProbe] of EXPECTED_QUERY_CONSTRUCTION_PROBES) {
+    for (const [id, expectedRowId, staticProbe] of EXPECTED_QUERY_CONSTRUCTION_PROBES) {
       const found = byId.get(id);
       expect(found, `missing modular probe ${id}`).toBeDefined();
       expect(found?.probe).toBe(staticProbe);
       expect(found?.surfaceDir).toBe('firestore');
       expect(found?.probe.rig).toBe('sdk-probes');
-      expect(found?.probe.pendingRowLink).toBe(true);
-      expect(found?.probe.matrixRow).toBe('');
-      expect(found?.probe.rowIds).toEqual([]);
+      expect(found?.probe.pendingRowLink).toBeUndefined();
+      expect(found?.probe.matrixRow).toBe(expectedRowId);
+      expect(found?.probe.rowIds).toEqual([expectedRowId]);
       expect(found?.probe.description.length).toBeGreaterThan(10);
       expect(typeof found?.probe.observe).toBe('function');
     }
@@ -109,19 +98,25 @@ describe('Firestore Query construction staged probes (sdk-probes)', () => {
     const preview = previewLines.join('\n');
     for (const [id] of EXPECTED_QUERY_CONSTRUCTION_PROBES) {
       expect(preview).toContain(`${id} (observations/firestore/${id}.json`);
-      expect(preview).toContain('[pendingRowLink]');
     }
   });
 
-  it('discovers all 12 probes as uncaptured targets and validates cleanly pre-capture and post-capture', async () => {
+  it('links all 12 committed observations to oracle-backed registry rows with zero validation problems', async () => {
     const existingObservations = loadObservations();
-    expectStagedUntilCaptured(
-      EXPECTED_QUERY_CONSTRUCTION_PROBES.map(([id]) => id),
-      {
-        rig: 'sdk-probes',
-        filterFlag: '--probe',
-      },
-    );
+    const obsByName = new Map(existingObservations.map((obs) => [obs.name, obs]));
+    const rowsById = new Map(allCompatibilityRows.map((row) => [row.id, row]));
+
+    for (const [id, expectedRowId] of EXPECTED_QUERY_CONSTRUCTION_PROBES) {
+      const obs = obsByName.get(id);
+      expect(obs, `missing committed observation ${id}`).toBeDefined();
+      expect(obs?.rowIds).toEqual([expectedRowId]);
+      expect(obs?.matrixRow).toBe(expectedRowId);
+
+      const row = rowsById.get(expectedRowId);
+      expect(row, `missing compatibility row ${expectedRowId}`).toBeDefined();
+      expect(row?.automation).toBe('oracle-backed');
+      expect(row?.oracleObservations).toContain(id);
+    }
 
     const rigManifests = await loadRigManifests();
     const probeFiles = listProbeFiles();
@@ -138,25 +133,6 @@ describe('Firestore Query construction staged probes (sdk-probes)', () => {
         rows: allCompatibilityRows,
         descriptors: surfaceDescriptors,
         observations: existingObservations,
-        observationExceptions,
-        rigManifests,
-        probeFiles,
-        rulesFirestoreScenarioIds,
-        rulesStorageScenarioIds,
-        rulesRtdbScenarioIds,
-        pendingRowLinkObservations,
-      }),
-    ).toEqual([]);
-
-    const postCaptureByName = new Map(existingObservations.map((obs) => [obs.name, obs]));
-    for (const [id] of EXPECTED_QUERY_CONSTRUCTION_PROBES) {
-      postCaptureByName.set(id, makePostCaptureObservation(id));
-    }
-    expect(
-      validateCompatibilityRegistry({
-        rows: allCompatibilityRows,
-        descriptors: surfaceDescriptors,
-        observations: [...postCaptureByName.values()],
         observationExceptions,
         rigManifests,
         probeFiles,

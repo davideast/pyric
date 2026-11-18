@@ -5,9 +5,8 @@ import { withFirestoreProbeSession } from '../../src/sdk-probe-runtime.ts';
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: ['web-config', 'firestore-rules'],
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'firestore#59c',
+  rowIds: ['firestore#59c'],
   description:
     'Implicit orderBy on an inequality-filtered field without explicit orderBy and deterministic document-key tiebreak on equal field values.',
   async observe() {

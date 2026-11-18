@@ -98,9 +98,11 @@ function constructTarget(
   if (hasUnsupportedTarget) {
     throw new FirebaseError('invalid-argument', 'Unsupported Firestore target descriptor.');
   }
-  const source = constructTarget(db, target.source);
-  const constraints = target.constraints.map((constraint) => resolveConstraint(constraint, db));
-  return pyricQuery(source, ...constraints);
+  let current = constructTarget(db, target.source) as CollectionReference | Query;
+  for (const constraint of target.constraints) {
+    current = pyricQuery(current, resolveConstraint(constraint, db));
+  }
+  return current;
 }
 
 function resolveConstraint(constraint: QueryConstraintDescriptor, db: Firestore): ReturnType<typeof pyricWhere> {
@@ -322,7 +324,7 @@ export function lensProvenance(actAs?: AuthLens): AuthLens {
  * host-auth updates the port session, clears all session-bound service
  * caches, and re-establishes that port's listeners under the new token.
  */
-export function sessionDb(ctx: HostCtx, port: PortLike): Firestore {
+function sessionDb(ctx: HostCtx, port: PortLike): Firestore {
   const session = portSession(ctx, port);
   if (!session) return ctx.db;
   const cache = (ctx.sessionDbs ??= new Map());

@@ -24,7 +24,7 @@ import type { DocStore } from './local-state.js';
 import type { QueryConstraints, QueryWhereConstraint } from './list-query-proof.js';
 import type { FirestoreSimError } from './errors.js';
 
-export type QueryDocumentData = Record<string, unknown>;
+type QueryDocumentData = Record<string, unknown>;
 export type { QueryWhereFilterOp } from './query-operators.js';
 export type QueryOrderDirection = 'asc' | 'desc';
 export type QueryFilter =
@@ -524,7 +524,7 @@ function matchesWhere(
     case '>': return present && greaterThan(value, target);
     case '>=': return present && greaterOrEqual(value, target);
     case 'in':
-      return present && Array.isArray(target) && target.some((t) => firestoreValuesEqual(value, t));
+      return present && value !== null && Array.isArray(target) && target.some((t) => t !== null && firestoreValuesEqual(value, t));
     case 'not-in':
       // not-in requires existence + non-null; a null in the operand list
       // makes the filter match nothing (clones/.../core/filter.ts
@@ -595,7 +595,7 @@ function matchesQueryFilter(row: QueryRow, filter: QueryFilter): boolean {
   if (filter.kind === 'and') {
     return filter.filters.every((sub) => matchesQueryFilter(row, sub));
   }
-  // 'or'
+  if (filter.filters.length === 0) return true;
   return filter.filters.some((sub) => matchesQueryFilter(row, sub));
 }
 

@@ -1,7 +1,9 @@
 {
   "name": "firestore-orderby-canonical-type-order",
-  "matrixRow": "",
-  "rowIds": [],
+  "matrixRow": "firestore#59a",
+  "rowIds": [
+    "firestore#59a"
+  ],
   "description": "orderBy cross-type canonical sort order (null, boolean, NaN/number, Timestamp, string, Bytes, DocumentReference, GeoPoint, array, map) and same-type range filter isolation.",
   "observedAt": "2026-11-17T23:55:48.731Z",
   "fbSdkVersion": "12.19.0",

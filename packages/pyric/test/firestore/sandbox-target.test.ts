@@ -744,29 +744,25 @@ service cloud.firestore {
     expect(ids).toEqual(['T-1', 'T-2', 'T-3']);
   });
 
-  it('composite filters AND with other query constraints', async () => {
-    const { collection, getDocs, query, where, or } = await import('../../src/firestore/index.js');
+  it('composite filters compose via and() or chained query(), and reject top-level mixing', async () => {
+    const { collection, getDocs, query, where, or, and } = await import('../../src/firestore/index.js');
     const { db } = await setupTickets();
-    // assignee=alice AND (priority=1 OR priority=4) — only T-1
-    const snap = await getDocs(
-      query(
-        collection(db, 'tickets'),
-        where('assignee', '==', 'alice'),
-        or(where('priority', '==', 1), where('priority', '==', 4)),
-      ),
-    );
+    const snap = await getDocs(query(collection(db, 'tickets'), and(where('assignee', '==', 'alice'), or(where('priority', '==', 1), where('priority', '==', 4)))));
     expect(snap.docs.map((d) => (d as unknown as { ref: { id: string } }).ref.id)).toEqual(['T-1']);
+    const queryUntyped = query as (...args: unknown[]) => unknown;
+    expect(() => queryUntyped(collection(db, 'tickets'), where('assignee', '==', 'alice'), or(where('priority', '==', 1)))).toThrow(/When using composite filters/);
   });
 
-  it('passing orderBy / limit to or() throws TypeError', async () => {
+  it('passing orderBy / limit to or() throws FirebaseError invalid-argument', async () => {
     const { or, orderBy } = await import('../../src/firestore/index.js');
-    expect(() => or(orderBy('priority'))).toThrow(/non-filter constraint/);
+    expect(() => or(orderBy('priority'))).toThrow(/AppliableConstraints/);
   });
 
-  it('passing zero arguments to or()/and() throws TypeError', async () => {
-    const { or, and } = await import('../../src/firestore/index.js');
-    expect(() => or()).toThrow(/at least one filter/);
-    expect(() => and()).toThrow(/at least one filter/);
+  it('zero-argument or()/and() act as no-op identity filters matching all documents', async () => {
+    const { collection, getDocs, query, or, and } = await import('../../src/firestore/index.js');
+    const { db } = await setupTickets();
+    expect((await getDocs(query(collection(db, 'tickets'), or()))).size).toBe(4);
+    expect((await getDocs(query(collection(db, 'tickets'), and()))).size).toBe(4);
   });
 });
 

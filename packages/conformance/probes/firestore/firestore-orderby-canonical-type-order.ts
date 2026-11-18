@@ -5,9 +5,8 @@ import { withFirestoreProbeSession } from '../../src/sdk-probe-runtime.ts';
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: ['web-config', 'firestore-rules'],
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'firestore#59a',
+  rowIds: ['firestore#59a'],
   description:
     'orderBy cross-type canonical sort order (null, boolean, NaN/number, Timestamp, string, Bytes, DocumentReference, GeoPoint, array, map) and same-type range filter isolation.',
   async observe() {

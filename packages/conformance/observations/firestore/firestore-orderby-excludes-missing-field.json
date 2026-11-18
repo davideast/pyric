@@ -1,7 +1,9 @@
 {
   "name": "firestore-orderby-excludes-missing-field",
-  "matrixRow": "",
-  "rowIds": [],
+  "matrixRow": "firestore#59b",
+  "rowIds": [
+    "firestore#59b"
+  ],
   "description": "orderBy(field) excludes documents lacking the ordered field while retaining null-valued documents.",
   "observedAt": "2026-11-17T23:55:56.119Z",
   "fbSdkVersion": "12.19.0",

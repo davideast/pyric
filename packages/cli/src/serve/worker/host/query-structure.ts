@@ -99,8 +99,6 @@ function assertConstraintStructure(constraint: unknown, depth: number, requiresF
   if (isComposite) {
     assertNextLayer(depth);
     assertChildren(constraint.filters);
-    const hasNoFilters = constraint.filters.length === 0;
-    if (hasNoFilters) invalidStructure('A composite filter requires at least one filter.');
     for (const filter of constraint.filters) assertConstraintStructure(filter, depth + 1, true);
     return;
   }

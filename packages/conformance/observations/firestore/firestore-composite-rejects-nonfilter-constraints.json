@@ -1,7 +1,9 @@
 {
   "name": "firestore-composite-rejects-nonfilter-constraints",
-  "matrixRow": "",
-  "rowIds": [],
+  "matrixRow": "firestore#63",
+  "rowIds": [
+    "firestore#63"
+  ],
   "description": "Passing non-filter constraints (orderBy, limit, limitToLast, startAt) into or() or and() throws FirebaseError invalid-argument vs TypeError.",
   "observedAt": "2026-11-17T23:55:36.991Z",
   "fbSdkVersion": "12.19.0",
