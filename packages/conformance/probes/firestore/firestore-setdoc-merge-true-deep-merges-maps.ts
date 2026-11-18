@@ -4,9 +4,8 @@ import { withFirestoreProbeSession } from '../../src/sdk-probe-runtime.ts';
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: ['web-config', 'firestore-rules'],
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'firestore#27',
+  rowIds: ['firestore#27'],
   description:
     'setDoc(ref, data, { merge: true }) deep-merges nested maps while preserving unspecified sibling fields at every depth, replacing arrays, and creating absent documents.',
   async observe() {

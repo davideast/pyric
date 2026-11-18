@@ -13,6 +13,9 @@ export type WireSetOptions = NonNullable<Extract<WireWrite, { method: 'set' }>['
 
 export function toWireSetOptions(options?: SetOptions): WireSetOptions | undefined {
   if (options === undefined) return undefined;
+  if ('merge' in options && options.merge === true) {
+    return { merge: true };
+  }
   const wireOptions: WireSetOptions = {};
   if ('merge' in options && options.merge !== undefined) {
     wireOptions.merge = options.merge;

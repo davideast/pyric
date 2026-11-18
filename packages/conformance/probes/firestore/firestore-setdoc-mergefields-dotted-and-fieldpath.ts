@@ -4,9 +4,8 @@ import { withFirestoreProbeSession } from '../../src/sdk-probe-runtime.ts';
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: ['web-config', 'firestore-rules'],
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'firestore#28',
+  rowIds: ['firestore#28'],
   description:
     'setDoc(ref, data, { mergeFields }) writes only the listed dot-separated string and FieldPath paths, ignoring unmasked input keys and preserving other stored fields.',
   async observe() {

@@ -31,6 +31,9 @@ function captureSetOptions(
   options: ClientSetOptions | undefined,
 ): { merge?: boolean; mergeFields?: string[] } | undefined {
   if (options === undefined) return undefined;
+  if (options.merge === true) {
+    return { merge: true };
+  }
   const captured: { merge?: boolean; mergeFields?: string[] } = {};
   if (options.merge !== undefined) captured.merge = options.merge;
   if (options.mergeFields !== undefined) {

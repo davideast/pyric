@@ -14,6 +14,7 @@ import { WebSocket } from 'ws';
 import { deleteApp as deleteAdminApp, initializeApp as initializeAdminApp } from 'pyric-admin/app';
 import { getDatabase as getAdminDatabase, type Database as AdminDatabase } from 'pyric-admin/database';
 import { createMemoryBackend } from 'pyric/sandbox';
+import { FieldPath } from 'pyric/firestore';
 import { setRules } from 'pyric/sandbox/firestore';
 import * as ipDatabase from 'pyric/database';
 import { queryIdentifier } from 'pyric/database/internal';
@@ -80,6 +81,7 @@ export async function servedFirestoreContext(): Promise<FirestoreScenarioContext
   // The served entry routes these two reads through the worker client (entries/firestore-surface.ts).
   const fs = {
     ...client,
+    FieldPath,
     refEqual,
     getDocFromServer: (ref: Parameters<typeof readDocumentAs>[0]) => readDocumentAs(ref, 'getDocFromServer'),
     getDocsFromServer: (source: Parameters<typeof readQueryAs>[0]) => readQueryAs(source, 'getDocsFromServer'),

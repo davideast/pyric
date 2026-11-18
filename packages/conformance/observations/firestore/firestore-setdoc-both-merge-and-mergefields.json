@@ -1,7 +1,9 @@
 {
   "name": "firestore-setdoc-both-merge-and-mergefields",
-  "matrixRow": "",
-  "rowIds": [],
+  "matrixRow": "firestore#29",
+  "rowIds": [
+    "firestore#29"
+  ],
   "description": "Observes setDoc(ref, data, options) when both merge and mergeFields are supplied on the options object ({ merge: true, mergeFields } and { merge: false, mergeFields }).",
   "observedAt": "2026-11-18T07:00:32.943Z",
   "fbSdkVersion": "12.19.0",

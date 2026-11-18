@@ -1,7 +1,9 @@
 {
   "name": "firestore-setdoc-default-replaces-entire-doc",
-  "matrixRow": "",
-  "rowIds": [],
+  "matrixRow": "firestore#26",
+  "rowIds": [
+    "firestore#26"
+  ],
   "description": "setDoc(ref, data) without options (and with { merge: false }) replaces the existing document completely, removing unmentioned top-level and nested fields.",
   "observedAt": "2026-11-18T07:00:40.892Z",
   "fbSdkVersion": "12.19.0",

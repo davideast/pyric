@@ -1,7 +1,9 @@
 {
   "name": "firestore-setdoc-mergefields-dotted-and-fieldpath",
-  "matrixRow": "",
-  "rowIds": [],
+  "matrixRow": "firestore#28",
+  "rowIds": [
+    "firestore#28"
+  ],
   "description": "setDoc(ref, data, { mergeFields }) writes only the listed dot-separated string and FieldPath paths, ignoring unmasked input keys and preserving other stored fields.",
   "observedAt": "2026-11-18T07:00:48.650Z",
   "fbSdkVersion": "12.19.0",
