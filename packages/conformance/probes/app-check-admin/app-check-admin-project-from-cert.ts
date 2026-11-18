@@ -160,9 +160,8 @@ export async function observeProjectFromCert(): Promise<ProjectFromCertBehavior>
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: ['web-config'],
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'app-check-admin#project-from-cert',
+  rowIds: ['app-check-admin#project-from-cert'],
   description:
     'firebase-admin projectId resolution for getAppCheck(): cert({ project_id }) and cert({ projectId }) supply the project without copying projectId into app.options, explicit options.projectId wins over cert(), and cert() wins over GOOGLE_CLOUD_PROJECT and GCLOUD_PROJECT.',
   async observe() {

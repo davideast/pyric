@@ -179,9 +179,8 @@ export async function observeCustomProviderWithoutDebugToken(): Promise<CustomPr
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: ['web-config'],
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'app-check#custom-provider-without-debug-token',
+  rowIds: ['app-check#custom-provider-without-debug-token'],
   description:
     'firebase/app-check CustomProvider behavior with FIREBASE_APPCHECK_DEBUG_TOKEN unset: getToken returns and caches the provider token until expireTimeMillis, getLimitedUseToken invokes the provider without using the cached token, and a provider rejection propagates the exact error to getToken, getLimitedUseToken, and onTokenChanged error listeners.',
   async observe() {

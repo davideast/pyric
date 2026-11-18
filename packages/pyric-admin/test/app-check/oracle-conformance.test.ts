@@ -152,50 +152,75 @@ const assertions: Record<string, () => Promise<void>> = {
     expect(await rejection(() => service.verifyToken(''))).toEqual(o.emptyString);
   },
   'app-check-admin#verify-token-content-checks': async () => {
-    // Upstream-documented (firebase-admin token-verifier.js verifyContent); no capture.
-    const { token } = await appCheck().createToken(APP_ID);
-    const aud = JSON.stringify([`projects/${PROJECT_NUMBER}`, `projects/${PROJECT_ID}`].join(','));
-    expect(await rejection(() => appCheck('another-project').verifyToken(token))).toEqual({
-      threw: true,
-      code: 'app-check/invalid-argument',
-      message: `The provided App Check token has incorrect "aud" (audience) claim. Expected "projects/another-project" but got ${aud}. Make sure the App Check token comes from the same Firebase project as the service account used to authenticate this SDK.`,
-    });
-    expect(await rejection(() => appCheck().verifyToken(withClaim(token, 'iss', 'https://example.com/123')))).toEqual({
-      threw: true,
-      code: 'app-check/invalid-argument',
-      message: 'The provided App Check token has incorrect "iss" (issuer) claim.',
-    });
-    const noProject = await rejection(() => appCheck(null).verifyToken(token));
-    expect(noProject).toMatchObject({ threw: true, code: 'app-check/invalid-credential' });
-    const invalid = (message: string) => ({ threw: true, code: 'app-check/invalid-argument', message });
-    expect(await rejection(() => appCheck().verifyToken(42 as unknown as string))).toEqual(invalid('App check token must be a non-null string.'));
-    const [headerPart, payloadPart] = token.split('.');
-    const header = JSON.parse(Buffer.from(headerPart!, 'base64url').toString('utf8')) as Record<string, unknown>;
-    const claims = JSON.parse(Buffer.from(payloadPart!, 'base64url').toString('utf8')) as Record<string, unknown>;
+    const o = obs('app-check-admin-verify-token-content-checks');
+    const captureModeOutcome = async (invoke: () => Promise<unknown>) => {
+      let pending: Promise<unknown>;
+      try {
+        pending = invoke();
+      } catch (error) {
+        const shaped = error as { code?: unknown; message?: unknown };
+        let code: string | null = null;
+        if (typeof shaped.code === 'string') {
+          code = shaped.code;
+        }
+        return { mode: 'sync-throw', code, message: String(shaped.message) };
+      }
+      try {
+        await pending;
+        return { mode: 'resolved', code: null, message: null };
+      } catch (error) {
+        const shaped = error as { code?: unknown; message?: unknown };
+        let code: string | null = null;
+        if (typeof shaped.code === 'string') {
+          code = shaped.code;
+        }
+        return { mode: 'rejected', code, message: String(shaped.message) };
+      }
+    };
+    const demoService = appCheck('demo-project');
+    const { token } = await demoService.createToken(APP_ID);
+    const segments = token.split('.');
+    const headerPart = segments[0] ?? '';
+    const payloadPart = segments[1] ?? '';
+    const header = JSON.parse(Buffer.from(headerPart, 'base64url').toString('utf8')) as Record<string, unknown>;
+    const claims = JSON.parse(Buffer.from(payloadPart, 'base64url').toString('utf8')) as Record<string, unknown>;
     const signed = (h: Record<string, unknown>, c: Record<string, unknown>) => signAppCheckToken(h, c);
-    expect(await rejection(async () => appCheck().verifyToken(await signed({ ...header, alg: 'HS256' }, claims)))).toEqual(
-      invalid('The provided App Check token has incorrect algorithm. Expected "RS256" but got "HS256".'),
-    );
+
+    expect(await captureModeOutcome(() => demoService.verifyToken(token, null as never))).toEqual(o.optionsNull);
+    expect(await captureModeOutcome(() => demoService.verifyToken(42 as unknown as string))).toEqual(o.nonStringToken);
+
+    const savedGoogle = process.env.GOOGLE_CLOUD_PROJECT;
+    const savedGcloud = process.env.GCLOUD_PROJECT;
+    delete process.env.GOOGLE_CLOUD_PROJECT;
+    delete process.env.GCLOUD_PROJECT;
+    try {
+      expect(await captureModeOutcome(() => appCheck(null).verifyToken(token))).toEqual(o.missingProjectId);
+    } finally {
+      if (savedGoogle !== undefined) {
+        process.env.GOOGLE_CLOUD_PROJECT = savedGoogle;
+      }
+      if (savedGcloud !== undefined) {
+        process.env.GCLOUD_PROJECT = savedGcloud;
+      }
+    }
+
+    expect(await captureModeOutcome(() => demoService.verifyToken(`${token}=`))).toEqual(o.invalidBase64UrlSegment);
+    expect(await captureModeOutcome(async () => demoService.verifyToken(await signed({ ...header, alg: 'HS256' }, claims)))).toEqual(o.wrongAlgorithm);
+    expect(await captureModeOutcome(() => appCheck('another-project').verifyToken(token))).toEqual(o.wrongAudience);
+    expect(await captureModeOutcome(() => demoService.verifyToken(withClaim(token, 'iss', 'https://example.com/123')))).toEqual(o.wrongIssuer);
     const { sub: _sub, ...withoutSub } = claims;
-    expect(await rejection(async () => appCheck().verifyToken(await signed(header, withoutSub)))).toEqual(
-      invalid('The provided App Check token has no "sub" (subject) claim.'),
-    );
-    expect(await rejection(async () => appCheck().verifyToken(await signed(header, { ...claims, sub: '' })))).toEqual(
-      invalid('The provided App Check token has an empty string "sub" (subject) claim.'),
-    );
-    expect(await rejection(async () => appCheck().verifyToken(await signed({ ...header, kid: 'not-a-key' }, claims)))).toEqual(invalid(NOT_SANDBOX_MESSAGE));
-    expect(await rejection(async () => appCheck().verifyToken(await signed(header, { ...claims, exp: 'soon' })))).toEqual(
+    expect(await captureModeOutcome(async () => demoService.verifyToken(await signed(header, withoutSub)))).toEqual(o.missingSub);
+    expect(await captureModeOutcome(async () => demoService.verifyToken(await signed(header, { ...claims, sub: 123 })))).toEqual(o.nonStringSub);
+    expect(await captureModeOutcome(async () => demoService.verifyToken(await signed(header, { ...claims, sub: '' })))).toEqual(o.emptySub);
+
+    const invalid = (message: string) => ({ threw: true, code: 'app-check/invalid-argument', message });
+    expect(await rejection(async () => demoService.verifyToken(await signed({ ...header, kid: 'not-a-key' }, claims)))).toEqual(invalid(NOT_SANDBOX_MESSAGE));
+    expect(await rejection(async () => demoService.verifyToken(await signed(header, { ...claims, exp: 'soon' })))).toEqual(
       invalid('The provided App Check token has invalid signature.'),
     );
-    expect(await rejection(async () => appCheck().verifyToken(await signed(header, { ...claims, nbf: Number.MAX_SAFE_INTEGER })))).toEqual(
+    expect(await rejection(async () => demoService.verifyToken(await signed(header, { ...claims, nbf: Number.MAX_SAFE_INTEGER })))).toEqual(
       invalid('The provided App Check token has invalid signature.'),
     );
-    expect(await rejection(() => appCheck().verifyToken(token, null as never))).toEqual(invalid('VerifyAppCheckTokenOptions must be a non-null object.'));
-    expect(await rejection(() => appCheck().verifyToken(`${token}=`))).toEqual({
-      threw: true,
-      code: 'app-check/invalid-argument',
-      message: 'Decoding App Check token failed. Make sure you passed the entire string JWT which represents the Firebase App Check token.',
-    });
   },
   'app-check-admin#verify-token-consume': async () => {
     const o = obs('app-check-admin-verify-consume');
@@ -259,24 +284,50 @@ const assertions: Record<string, () => Promise<void>> = {
     expect(calls.map((call) => call.extra)).toEqual([0, 0, 0]);
   },
   'app-check-admin#project-from-cert': async () => {
-    // Upstream-documented (firebase-admin getExplicitProjectId); no capture.
+    const o = obs('app-check-admin-project-from-cert');
     const serviceAccount = { project_id: 'demo-cert', private_key: 'placeholder-private-key', client_email: 'sa@demo-cert.iam.gserviceaccount.com' };
-    const audience = async (options: Record<string, unknown>) => {
+    const inspectProjectResolution = async (options: Record<string, unknown>) => {
       appSeq += 1;
       const app = initializeApp({ sandbox: initializeSandbox(), ...options } as Parameters<typeof initializeApp>[0], `app-check-admin-${appSeq}`);
       const service = getAppCheck(app) as unknown as AdminAppCheck;
       const { token } = await service.createToken(APP_ID);
-      return { aud: (await service.verifyToken(token)).token.aud, options: app.options };
+      const verified = await service.verifyToken(token);
+      const audList = verified.token.aud as string[];
+      let resolvedProjectId: string | null = null;
+      const secondAudience = audList[1];
+      if (typeof secondAudience === 'string' && secondAudience.startsWith('projects/')) {
+        resolvedProjectId = secondAudience.slice('projects/'.length);
+      }
+      let appOptionsProjectId: string | null = null;
+      if (typeof app.options.projectId === 'string') {
+        appOptionsProjectId = app.options.projectId;
+      }
+      return {
+        resolvedProjectId,
+        appOptionsHasProjectIdKey: Object.prototype.hasOwnProperty.call(app.options, 'projectId'),
+        appOptionsProjectId,
+      };
     };
-    const savedEnv = process.env.GOOGLE_CLOUD_PROJECT;
+    const savedGoogle = process.env.GOOGLE_CLOUD_PROJECT;
+    const savedGcloud = process.env.GCLOUD_PROJECT;
     process.env.GOOGLE_CLOUD_PROJECT = 'demo-env';
+    process.env.GCLOUD_PROJECT = 'demo-gcloud';
     try {
-      expect(await audience({ credential: cert(serviceAccount) })).toEqual({ aud: [`projects/${PROJECT_NUMBER}`, 'projects/demo-cert'], options: {} });
-      expect((await audience({ credential: cert({ projectId: 'demo-camel' }) })).aud).toContain('projects/demo-camel');
-      expect((await audience({ projectId: 'demo-option', credential: cert(serviceAccount) })).aud).toContain('projects/demo-option');
+      expect(await inspectProjectResolution({ credential: cert(serviceAccount) })).toEqual(o.snakeCaseCertOverEnv);
+      expect(await inspectProjectResolution({ credential: cert({ projectId: 'demo-camel' }) })).toEqual(o.camelCaseCertOverEnv);
+      expect(await inspectProjectResolution({ projectId: 'demo-option', credential: cert(serviceAccount) })).toEqual(o.explicitOptionOverCert);
+      expect(await inspectProjectResolution({})).toEqual(o.googleCloudProjectOverGcloudProject);
     } finally {
-      if (savedEnv === undefined) delete process.env.GOOGLE_CLOUD_PROJECT;
-      else process.env.GOOGLE_CLOUD_PROJECT = savedEnv;
+      if (savedGoogle === undefined) {
+        delete process.env.GOOGLE_CLOUD_PROJECT;
+      } else {
+        process.env.GOOGLE_CLOUD_PROJECT = savedGoogle;
+      }
+      if (savedGcloud === undefined) {
+        delete process.env.GCLOUD_PROJECT;
+      } else {
+        process.env.GCLOUD_PROJECT = savedGcloud;
+      }
     }
   },
 };
@@ -300,7 +351,7 @@ describe('oracle conformance (app-check admin)', () => {
 
   (isClimb ? it : it.skip)('completeness: every observations/app-check-admin/ capture is asserted (prefix gate)', () => {
     const report = gate.report();
-    expect(report.committed.length).toBe(8);
+    expect(report.committed.length).toBe(10);
     expect(report.loadedButUnused).toEqual([]);
     expect(report.uncovered).toEqual([]);
   });

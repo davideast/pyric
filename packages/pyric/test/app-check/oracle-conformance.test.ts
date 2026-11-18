@@ -25,6 +25,10 @@ import { jwtShape, type Secrets } from '../../../conformance/src/capture/app-che
 import { initializeApp } from 'pyric/app';
 import * as appCheck from 'pyric/app-check';
 import { resetAppRegistryForTests } from '../../dist/app/registry.js';
+import {
+  replayCustomProviderWithoutDebugToken,
+  replayRecaptchaProvidersWithoutDocumentMode,
+} from './client-provider-replays.ts';
 
 const isClimb = process.env.PYRIC_CLIMB === '1';
 const REPO = join(import.meta.dir, '..', '..', '..', '..');
@@ -123,22 +127,6 @@ async function withStandInDocument(operation: () => Promise<void>): Promise<void
   }
 }
 
-/** A CustomProvider that counts its calls and answers with `answer`. */
-function countingProvider(answer: () => Promise<{ token: string; expireTimeMillis: number }>) {
-  const counter = { calls: 0 };
-  const instance = new appCheck.CustomProvider({
-    getToken: async () => {
-      counter.calls += 1;
-      return answer();
-    },
-  });
-  return {
-    instance,
-    get calls(): number {
-      return counter.calls;
-    },
-  };
-}
 afterEach(async () => {
   await resetAppRegistryForTests();
 });
@@ -223,28 +211,10 @@ const assertions: Record<string, Assertion> = {
 
   'app-check#custom-provider-without-debug-token': () =>
     withoutDebugToken(async () => {
-      const expireTimeMillis = Date.now() + 3_600_000;
-      const garbage = countingProvider(async () => ({ token: 'not-an-app-check-token', expireTimeMillis }));
-      const given = appCheck.initializeAppCheck(freshApp('custom-given'), { provider: garbage.instance, isTokenAutoRefreshEnabled: false });
-      expect(await appCheck.getToken(given)).toEqual({ token: 'not-an-app-check-token' });
-      expect(await appCheck.getToken(given)).toEqual({ token: 'not-an-app-check-token' });
-      expect(garbage.calls).toBe(1);
-      expect(await appCheck.getLimitedUseToken(given)).toEqual({ token: 'not-an-app-check-token' });
-      expect(garbage.calls).toBe(2);
-
-      const failure = new Error('attestation failed');
-      const failing = countingProvider(async () => {
-        throw failure;
-      });
-      const refused = appCheck.initializeAppCheck(freshApp('custom-rejects'), { provider: failing.instance, isTokenAutoRefreshEnabled: false });
-      const observed: unknown[] = [];
-      const unsubscribe = appCheck.onTokenChanged(refused, () => observed.push('next'), (error) => observed.push(error));
-      await expect(appCheck.getToken(refused)).rejects.toBe(failure);
-      await expect(appCheck.getLimitedUseToken(refused)).rejects.toBe(failure);
-      await sleep(10);
-      unsubscribe();
-      expect(observed).toEqual([failure]);
-      expect(failing.calls).toBe(2);
+      const o = obs('app-check-custom-provider-without-debug-token');
+      const actual = await replayCustomProviderWithoutDebugToken((label) => freshApp(label));
+      expect(actual.customTokenCachingAndLimitedUse).toEqual(o.customTokenCachingAndLimitedUse);
+      expect(actual.providerRejection).toEqual(o.providerRejection);
     }),
 
   'app-check#recaptcha-providers-construct': () =>
@@ -256,24 +226,12 @@ const assertions: Record<string, Assertion> = {
     }),
 
   'app-check#recaptcha-providers-without-document': async () => {
-    expect(typeof (globalThis as { document?: unknown }).document).toBe('undefined');
-    const providers = [
-      (siteKey: string) => new appCheck.ReCaptchaV3Provider(siteKey),
-      (siteKey: string) => new appCheck.ReCaptchaEnterpriseProvider(siteKey),
-    ];
-    const attempt = (app: ReturnType<typeof freshApp>, provider: appCheck.ReCaptchaV3Provider | appCheck.ReCaptchaEnterpriseProvider) => () =>
-      appCheck.initializeAppCheck(app, { provider });
-    const check = async () => {
-      for (const make of providers) {
-        const app = freshApp('recaptcha-no-document');
-        expect(attempt(app, make('demo-site-key'))).toThrow(new ReferenceError('document is not defined'));
-        const handle = appCheck.initializeAppCheck(app, { provider: make('demo-site-key') });
-        expect(handle.app).toBe(app);
-        expect(await rejection(attempt(app, make('another-site-key')))).toMatchObject({ threw: true, code: 'appCheck/already-initialized' });
-      }
-    };
-    await check();
-    await withoutDebugToken(check);
+    const o = obs('app-check-recaptcha-providers-without-document');
+    expect(typeof (globalThis as { document?: unknown }).document !== 'undefined').toBe(o.hasGlobalDocument);
+    expect(replayRecaptchaProvidersWithoutDocumentMode((label) => freshApp(label))).toEqual(o.withDebugTokenTrue);
+    await withoutDebugToken(async () => {
+      expect(replayRecaptchaProvidersWithoutDocumentMode((label) => freshApp(label))).toEqual(o.withoutDebugToken);
+    });
   },
 
   'app-check#get-token-before-initialize': async () => {
@@ -514,7 +472,7 @@ describe('oracle conformance (app-check client)', () => {
 
   (isClimb ? it : it.skip)('completeness: every observations/app-check/ capture is asserted (prefix gate)', () => {
     const report = gate.report();
-    expect(report.committed.length).toBe(12);
+    expect(report.committed.length).toBe(14);
     expect(report.loadedButUnused).toEqual([]);
     expect(report.uncovered).toEqual([]);
   });

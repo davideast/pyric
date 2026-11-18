@@ -187,9 +187,8 @@ export async function observeVerifyTokenContentChecks(): Promise<VerifyTokenCont
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: ['web-config'],
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'app-check-admin#verify-token-content-checks',
+  rowIds: ['app-check-admin#verify-token-content-checks'],
   description:
     'firebase-admin/app-check verifyToken pre-signature validation order and error contracts: synchronous throws for non-object options and non-string token, async rejection with app-check/invalid-credential when no projectId is configured, base64url decode rejection, and ordered content checks for alg, aud, iss, missing sub, non-string sub, and empty sub.',
   async observe() {
