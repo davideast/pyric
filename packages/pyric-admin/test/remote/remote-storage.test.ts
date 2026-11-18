@@ -37,10 +37,8 @@ import { getStorageSandbox } from 'pyric/storage';
 
 import { createBridge, type Bridge } from '../../../cli/src/bridge/server/bridge.js';
 import { createConsumerSession } from '../../../cli/src/bridge/server/peer.js';
-import {
-  WORKER_RELAY_CAPABILITY,
-  type BridgeMessage,
-} from '../../../cli/src/bridge/protocol.js';
+import { WORKER_RELAY_CAPABILITY, type BridgeMessage } from '../../../cli/src/bridge/protocol.js';
+import { stableGetFilesApiResponse } from './stable-api-response.js';
 import {
   createRemoteSandboxCore,
   createRemoteSandboxHandle,
@@ -369,7 +367,7 @@ describe('pyric-admin remote dispatch: getFiles over a wide, deep tree (#1183)',
       const [localFiles, localNext, localResponse] = await local.getFiles(query);
       expect({ query, names: fileNames(remoteFiles) }).toEqual({ query, names: fileNames(localFiles) });
       expect(remoteNext).toEqual(localNext);
-      expect(remoteResponse).toEqual(localResponse);
+      expect(stableGetFilesApiResponse(remoteResponse)).toEqual(stableGetFilesApiResponse(localResponse));
     }
     expect(fileNames((await remote.getFiles())[0])).toEqual([...NAMES].sort());
 
