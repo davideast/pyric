@@ -4,7 +4,6 @@ import {
   printModularProbePreview,
   selectModularProbes,
 } from '../../src/sdk-probes.ts';
-import { expectStagedUntilCaptured } from './staged-capture-assertions.ts';
 import { probe as beforeBlockProbe } from '../../probes/auth/auth-beforeauthstatechanged-block-signin-and-signout.ts';
 import { probe as beforeOnAbortProbe } from '../../probes/auth/auth-beforeauthstatechanged-onabort-reverse-and-swallow.ts';
 import { probe as dupAndUnsubProbe } from '../../probes/auth/auth-onauthstatechanged-duplicate-fn-and-unsub-during-emit.ts';
@@ -17,46 +16,38 @@ const AUTH_LISTENER_PROBE_IDS = [
   'auth-onauthstatechanged-same-uid-dedup-vs-idtoken',
 ] as const;
 
-describe('Auth listener and beforeAuthStateChanged staged probes (sdk-probes)', () => {
-  test('registers all 4 Auth listener/middleware probes on sdk-probes with pendingRowLink and empty rowIds', async () => {
+describe('Auth listener and beforeAuthStateChanged linked probes (sdk-probes)', () => {
+  test('registers all 4 Auth listener/middleware probes linked to auth#30a, #33a, #34, #38a, #76, #76a, #76b', async () => {
     const loaded = await loadModularProbes('sdk-probes');
     const loadedIds = loaded.map((entry) => entry.id);
     for (const id of AUTH_LISTENER_PROBE_IDS) {
       expect(loadedIds).toContain(id);
     }
 
-    const probes = [
-      beforeBlockProbe,
-      beforeOnAbortProbe,
-      dupAndUnsubProbe,
-      sameUidDedupProbe,
-    ];
-    for (const probeRecord of probes) {
-      expect(probeRecord.rig).toBe('sdk-probes');
-      expect(probeRecord.requires).toEqual(['web-config', 'admin-auth']);
-      expect(probeRecord.pendingRowLink).toBe(true);
-      expect(probeRecord.matrixRow).toBe('');
-      expect(probeRecord.rowIds).toEqual([]);
-      expect(probeRecord.description.length).toBeGreaterThan(20);
-    }
+    expect(sameUidDedupProbe.pendingRowLink).toBeUndefined();
+    expect(sameUidDedupProbe.matrixRow).toBe('auth#30a');
+    expect(sameUidDedupProbe.rowIds).toEqual(['auth#30a', 'auth#38a']);
+
+    expect(dupAndUnsubProbe.pendingRowLink).toBeUndefined();
+    expect(dupAndUnsubProbe.matrixRow).toBe('auth#33a');
+    expect(dupAndUnsubProbe.rowIds).toEqual(['auth#33a', 'auth#34']);
+
+    expect(beforeBlockProbe.pendingRowLink).toBeUndefined();
+    expect(beforeBlockProbe.matrixRow).toBe('auth#76');
+    expect(beforeBlockProbe.rowIds).toEqual(['auth#76', 'auth#76b']);
+
+    expect(beforeOnAbortProbe.pendingRowLink).toBeUndefined();
+    expect(beforeOnAbortProbe.matrixRow).toBe('auth#76a');
+    expect(beforeOnAbortProbe.rowIds).toEqual(['auth#76a']);
 
     const unfilteredIds = new Set(
       selectModularProbes(loaded, [], 'sdk-probes', {
         includeUncapturedStaged: false,
       }).map((entry) => entry.id),
     );
-
-    expectStagedUntilCaptured(AUTH_LISTENER_PROBE_IDS, {
-      rig: 'sdk-probes',
-      filterFlag: '--probe',
-      filterValueFor: (name) => name,
-      whenUncaptured(name) {
-        expect(unfilteredIds.has(name)).toBe(false);
-      },
-      whenCaptured(name) {
-        expect(unfilteredIds.has(name)).toBe(true);
-      },
-    });
+    for (const id of AUTH_LISTENER_PROBE_IDS) {
+      expect(unfilteredIds.has(id)).toBe(true);
+    }
 
     const lines: string[] = [];
     printModularProbePreview({

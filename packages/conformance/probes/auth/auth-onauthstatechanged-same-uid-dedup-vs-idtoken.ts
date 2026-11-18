@@ -11,9 +11,8 @@ async function drainAuthMicrotasks(): Promise<void> {
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: ['web-config', 'admin-auth'],
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'auth#30a',
+  rowIds: ['auth#30a', 'auth#38a'],
   description:
     'onAuthStateChanged deduplicates consecutive same-uid transitions (staying silent on same-uid re-sign-in), whereas onIdTokenChanged fires on every sign-in and mints a fresh ID token.',
   async observe() {

@@ -11,9 +11,8 @@ async function drainAuthMicrotasks(): Promise<void> {
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: ['web-config', 'admin-auth'],
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'auth#33a',
+  rowIds: ['auth#33a', 'auth#34'],
   description:
     'onAuthStateChanged maintains independent per-registration entries for duplicate observer references (firing again on resubscribe) and does not skip sibling subscribers when one unsubscribes during emission.',
   async observe() {

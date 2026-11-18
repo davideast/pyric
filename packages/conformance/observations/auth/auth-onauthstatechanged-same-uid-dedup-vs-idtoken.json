@@ -1,7 +1,10 @@
 {
   "name": "auth-onauthstatechanged-same-uid-dedup-vs-idtoken",
-  "matrixRow": "",
-  "rowIds": [],
+  "matrixRow": "auth#30a",
+  "rowIds": [
+    "auth#30a",
+    "auth#38a"
+  ],
   "description": "onAuthStateChanged deduplicates consecutive same-uid transitions (staying silent on same-uid re-sign-in), whereas onIdTokenChanged fires on every sign-in and mints a fresh ID token.",
   "observedAt": "2026-11-18T12:52:24.638Z",
   "fbSdkVersion": "12.19.0",

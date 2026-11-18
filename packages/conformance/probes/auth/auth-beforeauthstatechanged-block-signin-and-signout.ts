@@ -15,9 +15,8 @@ async function drainAuthMicrotasks(): Promise<void> {
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: ['web-config', 'admin-auth'],
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'auth#76',
+  rowIds: ['auth#76', 'auth#76b'],
   description:
     'beforeAuthStateChanged blocks both sign-in and signOut transitions with auth/login-blocked when a registered callback throws or rejects, leaving currentUser unchanged and suppressing state/token listener notifications.',
   async observe() {

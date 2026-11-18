@@ -8,9 +8,8 @@ import {
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: ['web-config', 'admin-auth'],
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'auth#76a',
+  rowIds: ['auth#76a'],
   description:
     'beforeAuthStateChanged invokes onAbort callbacks in reverse registration order only for gates that already succeeded in the current pass, swallowing errors thrown inside onAbort without masking auth/login-blocked.',
   async observe() {
