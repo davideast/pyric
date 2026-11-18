@@ -79,13 +79,26 @@ export async function runCommand(command: string, args: string[], options: Comma
 
 /**
  * `runCommand`, stopped at `timeoutMs` with its whole process group. The
- * result says it timed out and names what was still running.
+ * result says it timed out and names what was still running. When
+ * `startTimeoutAfter` is given, `timeoutMs` starts counting once it resolves
+ * for the spawned child, so a stand-in command with a short test limit can
+ * finish its setup before the timer runs (#2853).
  */
-export function runTimedCommand(command: string, args: string[], options: CommandOptions & { timeoutMs: number }): Promise<TimedResult> {
-  return spawnCommand(command, args, options, options.timeoutMs);
+export function runTimedCommand(
+  command: string,
+  args: string[],
+  options: CommandOptions & { timeoutMs: number; startTimeoutAfter?: (child: ChildProcess) => Promise<void> },
+): Promise<TimedResult> {
+  return spawnCommand(command, args, options, options.timeoutMs, options.startTimeoutAfter);
 }
 
-function spawnCommand(command: string, args: string[], options: CommandOptions, timeoutMs: number | undefined): Promise<TimedResult> {
+function spawnCommand(
+  command: string,
+  args: string[],
+  options: CommandOptions,
+  timeoutMs: number | undefined,
+  startTimeoutAfter?: (child: ChildProcess) => Promise<void>,
+): Promise<TimedResult> {
   return new Promise((resolvePromise, reject) => {
     const spawnChild = options.spawnChild ?? spawn;
     const timing = options.timing ?? DEFAULT_COMMAND_TIMING;
@@ -95,8 +108,11 @@ function spawnCommand(command: string, args: string[], options: CommandOptions, 
     let output = '';
     child.stdout?.on('data', (chunk) => { output += chunk; });
     child.stderr?.on('data', (chunk) => { output += chunk; });
+    let settled = false;
     let limit: ReturnType<typeof setTimeout> | undefined;
     const stopWatching = watchChildExit(child, command, (exit) => {
+      if (settled) return;
+      settled = true;
       clearTimeout(limit);
       const hasLeftovers = exit.leftovers.length > 0 && child.pid !== undefined;
       if (hasLeftovers) void endGroup(child.pid ?? 0, timing.leftoverTermMs);
@@ -104,18 +120,30 @@ function spawnCommand(command: string, args: string[], options: CommandOptions, 
       const whereOutputWent = isExitWithoutClose(exit.source) ? describeOutputSockets(command, outputSockets) : '';
       resolvePromise({ code: exit.code, output: `${output}${exit.note}${whereOutputWent}`, timedOut: false });
     }, timing.exit);
-    if (timeoutMs !== undefined) {
+    const armTimeout = (ms: number) => {
+      if (settled) return;
       limit = setTimeout(() => {
+        if (settled) return;
+        settled = true;
         stopWatching();
         const group = child.pid ?? 0;
         // Read before the stop ends them: what the command was still running.
         const running = group === 0 ? '(unknown)' : describeGroupProcesses(group);
-        const note = `\n[runner] ${command} stopped after ${timeoutMs / 1000} s; processes in its group:\n${running}\n`;
+        const note = `\n[runner] ${command} stopped after ${ms / 1000} s; processes in its group:\n${running}\n`;
         if (group !== 0) void endGroup(group, timing.leftoverTermMs);
         resolvePromise({ code: null, output: `${output}${note}`, timedOut: true });
-      }, timeoutMs);
+      }, ms);
+    };
+    if (timeoutMs !== undefined) {
+      if (startTimeoutAfter !== undefined) {
+        void startTimeoutAfter(child).then(() => armTimeout(timeoutMs), () => armTimeout(timeoutMs));
+      } else {
+        armTimeout(timeoutMs);
+      }
     }
     child.on('error', (error) => {
+      if (settled) return;
+      settled = true;
       clearTimeout(limit);
       stopWatching();
       reject(error);
