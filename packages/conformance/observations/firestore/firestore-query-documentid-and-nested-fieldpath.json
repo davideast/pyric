@@ -1,0 +1,61 @@
+{
+  "name": "firestore-query-documentid-and-nested-fieldpath",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "documentId() and FieldPath (multi-segment nested vs single-segment literal dot) filter and sort documents accurately in where() and orderBy() queries using built-in single-field indexes.",
+  "observedAt": "2026-11-18T12:52:30.192Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "documentIdQueries": {
+      "equalStringIds": [
+        "doc-b"
+      ],
+      "equalDocRefIds": [
+        "doc-c"
+      ],
+      "inIdsSorted": [
+        "doc-a",
+        "doc-d"
+      ],
+      "rangeGteIds": [
+        "doc-b",
+        "doc-c",
+        "doc-d"
+      ],
+      "orderByAscIds": [
+        "doc-a",
+        "doc-b",
+        "doc-c",
+        "doc-d"
+      ],
+      "nestedDescWithDocIdDescIds": [
+        "doc-c",
+        "doc-d",
+        "doc-b",
+        "doc-a"
+      ]
+    },
+    "fieldPathQueries": {
+      "nestedEqual20IdsSorted": [
+        "doc-b",
+        "doc-d"
+      ],
+      "literalDotEqual88Ids": [
+        "doc-b"
+      ],
+      "nestedOrderByDescIds": [
+        "doc-c",
+        "doc-d",
+        "doc-b",
+        "doc-a"
+      ],
+      "nestedOrderByDescTiers": [
+        30,
+        20,
+        20,
+        10
+      ]
+    }
+  }
+}

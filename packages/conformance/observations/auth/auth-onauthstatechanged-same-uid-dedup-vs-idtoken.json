@@ -1,0 +1,26 @@
+{
+  "name": "auth-onauthstatechanged-same-uid-dedup-vs-idtoken",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "onAuthStateChanged deduplicates consecutive same-uid transitions (staying silent on same-uid re-sign-in), whereas onIdTokenChanged fires on every sign-in and mints a fresh ID token.",
+  "observedAt": "2026-11-18T12:52:24.638Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "authStateFiredOnProfileUpdate": false,
+    "authStateFiredOnSameUidReSignIn": false,
+    "idTokenFiredOnSameUidReSignIn": true,
+    "jwtChangedAfterSameUidReSignIn": true,
+    "authStateSequence": [
+      "null",
+      "uid-a",
+      "uid-b"
+    ],
+    "idTokenSequence": [
+      "null",
+      "uid-a",
+      "uid-a",
+      "uid-b"
+    ]
+  }
+}
