@@ -23,6 +23,7 @@ import {
   updateMetadata,
 } from '../../src/storage/index.js';
 import { patchObjectMetadata } from '../../src/storage/metadata.js';
+import { getAdminStorageSandbox, lockUndeployedStorageBuckets } from '../../src/storage/service.js';
 
 const OPEN_RULES = `rules_version = '2';
 service firebase.storage {
@@ -67,9 +68,9 @@ describe('getMetadata', () => {
     await expect(getMetadata(r)).rejects.toThrow(/object-not-found/);
   });
 
-  it('throws invalid-root-operation on the root reference', async () => {
+  it('throws invalid-root-operation synchronously on the root reference', () => {
     const storage = freshStorage('get-md-root');
-    await expect(getMetadata(ref(storage))).rejects.toThrow(/invalid-root-operation/);
+    expect(() => getMetadata(ref(storage))).toThrow(/invalid-root-operation/);
   });
 });
 
@@ -115,35 +116,59 @@ describe('updateMetadata', () => {
     expect(await blob.text()).toBe('original');
   });
 
-  it('undefined-valued patch fields preserve the previous value', async () => {
+  it('undefined-valued patch fields and omitted customMetadata keys preserve previous values', async () => {
     const storage = freshStorage('update-md-undef');
     const r = ref(storage, 'sessions/s1.json');
     await uploadBytes(r, new Blob(['x']), {
       contentType: 'text/plain',
       cacheControl: 'no-cache',
-      customMetadata: { tag: 'orig' },
+      customMetadata: { keep: 'kept', tag: 'orig' },
     });
 
-    // contentType is undefined in the patch — should stay 'text/plain'.
+    // contentType is undefined in the patch -- should stay 'text/plain', and omitted customMetadata keys merge per RFC 7396.
     const next = await updateMetadata(r, {
-      customMetadata: { tag: 'new' },
+      customMetadata: { tag: 'new', added: 'yes' },
     });
     expect(next.contentType).toBe('text/plain');
     expect(next.cacheControl).toBe('no-cache');
-    expect(next.customMetadata).toEqual({ tag: 'new' });
+    expect(next.customMetadata).toEqual({ keep: 'kept', tag: 'new', added: 'yes' });
   });
 
-  it('throws object-not-found when the path is missing', async () => {
+  it('throws unauthorized across rules and open/permissive client planes when the path is missing while admin plane retains object-not-found', async () => {
     const storage = freshStorage('update-md-missing');
     const r = ref(storage, 'sessions/never.json');
     await expect(
       updateMetadata(r, { contentType: 'application/json' }),
+    ).rejects.toThrow(/unauthorized/);
+
+    const permissiveSandbox = initializeSandbox({});
+    lockUndeployedStorageBuckets(permissiveSandbox, 'allow');
+    const permissiveEvents: Array<{ kind: string; rulesDisposition?: unknown }> = [];
+    permissiveSandbox.onEvent((event) => {
+      permissiveEvents.push(event as { kind: string; rulesDisposition?: unknown });
+    });
+    const permissiveStorage = getStorageSandbox(permissiveSandbox, {
+      dbName: uniqueDbName('update-md-permissive'),
+    });
+    await expect(
+      updateMetadata(ref(permissiveStorage, 'sessions/never.json'), {
+        contentType: 'application/json',
+      }),
+    ).rejects.toThrow(/unauthorized/);
+    const opEvent = permissiveEvents.find((e) => e.kind === 'operation');
+    expect(opEvent?.rulesDisposition).toEqual({ kind: 'not-evaluated', reason: 'no-rules' });
+
+    const adminStorage = getAdminStorageSandbox(permissiveSandbox);
+    await expect(
+      patchObjectMetadata(ref(adminStorage, 'sessions/never.json'), {
+        settable: { contentType: 'application/json' },
+      }),
     ).rejects.toThrow(/object-not-found/);
   });
 
-  it('throws invalid-root-operation on the root reference', async () => {
+  it('throws invalid-root-operation synchronously on the root reference', () => {
     const storage = freshStorage('update-md-root');
-    await expect(updateMetadata(ref(storage), {})).rejects.toThrow(
+    expect(() => updateMetadata(ref(storage), {})).toThrow(
       /invalid-root-operation/,
     );
   });

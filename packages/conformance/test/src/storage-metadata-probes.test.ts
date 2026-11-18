@@ -33,38 +33,47 @@ import {
 } from '../../rules-corpus/rtdb/index.ts';
 import { ALL_RULES_STORAGE_SCENARIOS } from '../../rules-corpus/storage/index.ts';
 import { loadClientStorageProbes, selectClientStorageProbes } from '../../src/client-storage-probes.ts';
-import { loadObservations, type Observation } from '../../src/ledger.ts';
+import { loadObservations } from '../../src/ledger.ts';
 import { loadModularProbes } from '../../src/sdk-probes.ts';
 import { loadPendingRowLinkObservations } from '../../src/staged-captures.ts';
 import { validateCompatibilityRegistry } from '../../src/validate-registry.ts';
 import { surfaceDescriptors } from '../../surfaces/load.ts';
-import { expectStagedUntilCaptured } from './staged-capture-assertions.ts';
 
-const STAGED_CLIENT_STORAGE_PROBES = [
-  { name: 'client-storage-getmetadata-root-ref', probe: getMetadataRootProbe },
-  { name: 'client-storage-updatemetadata-root-ref', probe: updateMetadataRootProbe },
+const LINKED_CLIENT_STORAGE_PROBES = [
+  {
+    name: 'client-storage-getmetadata-root-ref',
+    probe: getMetadataRootProbe,
+    expectedRows: ['storage#81'],
+  },
+  {
+    name: 'client-storage-updatemetadata-root-ref',
+    probe: updateMetadataRootProbe,
+    expectedRows: ['storage#88'],
+  },
 ] as const;
 
-const STAGED_SDK_PROBES = [
-  { name: 'storage-getmetadata-full-shape', probe: getMetadataFullShapeProbe },
-  { name: 'storage-metadata-missing-object-errors', probe: missingMetadataProbe },
-  { name: 'storage-updatemetadata-fields-and-bytes', probe: updateFieldsProbe },
-  { name: 'storage-updatemetadata-versioning-and-timestamps', probe: updateVersioningProbe },
+const LINKED_SDK_PROBES = [
+  {
+    name: 'storage-getmetadata-full-shape',
+    probe: getMetadataFullShapeProbe,
+    expectedRows: ['storage#79'],
+  },
+  {
+    name: 'storage-metadata-missing-object-errors',
+    probe: missingMetadataProbe,
+    expectedRows: ['storage#80', 'storage#87'],
+  },
+  {
+    name: 'storage-updatemetadata-fields-and-bytes',
+    probe: updateFieldsProbe,
+    expectedRows: ['storage#82', 'storage#85'],
+  },
+  {
+    name: 'storage-updatemetadata-versioning-and-timestamps',
+    probe: updateVersioningProbe,
+    expectedRows: ['storage#83', 'storage#84'],
+  },
 ] as const;
-
-function makeSyntheticObservation(name: string): Observation {
-  return {
-    file: `${name}.json`,
-    surfaceDir: 'storage',
-    name,
-    matrixRow: '',
-    rowIds: [],
-    observedAt: '2026-11-18T00:00:00.000Z',
-    fbSdkVersion: '12.19.0',
-    behavior: { sample: true },
-    raw: { fbSdkVersion: '12.19.0', rowIds: [] },
-  };
-}
 
 describe('Storage metadata conformance probes (storage#79..85, #87, #88)', () => {
   it('client-storage-getmetadata-root-ref and client-storage-updatemetadata-root-ref observe synchronous invalid-root-operation with zero fetches', async () => {
@@ -233,33 +242,29 @@ describe('Storage metadata conformance probes (storage#79..85, #87, #88)', () =>
     });
   });
 
-  it('registers all 6 metadata probes with expectStagedUntilCaptured and validates pre-capture and simulated post-capture cleanly', async () => {
+  it('links all 6 metadata probes and observations to storage#79..85, #87, #88 with zero validation problems', async () => {
+    const observationsByName = new Map(loadObservations().map((obs) => [obs.name, obs]));
+
     const clientProbes = await loadClientStorageProbes();
     const clientIds = clientProbes.map((item) => item.id);
-    for (const entry of STAGED_CLIENT_STORAGE_PROBES) {
+    for (const entry of LINKED_CLIENT_STORAGE_PROBES) {
       expect(clientIds).toContain(entry.name);
+      expect(entry.probe.pendingRowLink).toBeUndefined();
+      expect(entry.probe.rowIds).toEqual([...entry.expectedRows]);
+      expect(observationsByName.get(entry.name)?.rowIds).toEqual([...entry.expectedRows]);
       expect(
         selectClientStorageProbes(clientProbes, ['--probe', entry.name]).map((p) => p.id),
       ).toEqual([entry.name]);
-      if (entry.probe.pendingRowLink) {
-        expectStagedUntilCaptured(entry.name, {
-          rig: 'client-storage',
-          filterFlag: '--probe',
-        });
-      }
     }
 
     const sdkProbes = await loadModularProbes('sdk-probes');
     const sdkIds = sdkProbes.map((item) => item.id);
-    for (const entry of STAGED_SDK_PROBES) {
+    for (const entry of LINKED_SDK_PROBES) {
       expect(sdkIds).toContain(entry.name);
       expect(entry.probe.requires).toEqual(['web-config']);
-      if (entry.probe.pendingRowLink) {
-        expectStagedUntilCaptured(entry.name, {
-          rig: 'sdk-probes',
-          filterFlag: '--probe',
-        });
-      }
+      expect(entry.probe.pendingRowLink).toBeUndefined();
+      expect(entry.probe.rowIds).toEqual([...entry.expectedRows]);
+      expect(observationsByName.get(entry.name)?.rowIds).toEqual([...entry.expectedRows]);
     }
 
     const rigManifests = await loadRigManifests();
@@ -267,12 +272,11 @@ describe('Storage metadata conformance probes (storage#79..85, #87, #88)', () =>
       ...ALL_RULES_RTDB_SCENARIOS.map((s) => s.id),
       ...ALL_RULES_RTDB_DEPLOY_SCENARIOS.map((s) => s.id),
     ];
-    const currentObservations = loadObservations();
 
-    const preCaptureProblems = validateCompatibilityRegistry({
+    const problems = validateCompatibilityRegistry({
       rows: allCompatibilityRows,
       descriptors: surfaceDescriptors,
-      observations: currentObservations,
+      observations: [...observationsByName.values()],
       observationExceptions,
       rigManifests,
       probeFiles: listProbeFiles(),
@@ -281,34 +285,6 @@ describe('Storage metadata conformance probes (storage#79..85, #87, #88)', () =>
       rulesRtdbScenarioIds: rtdbScenarioIds,
       pendingRowLinkObservations: loadPendingRowLinkObservations(),
     });
-    expect(preCaptureProblems).toEqual([]);
-
-    const allStagedNames = [
-      ...STAGED_CLIENT_STORAGE_PROBES.map((e) => e.name),
-      ...STAGED_SDK_PROBES.map((e) => e.name),
-    ];
-    const simulatedMap = new Map(currentObservations.map((obs) => [obs.name, obs]));
-    for (const name of allStagedNames) {
-      if (!simulatedMap.has(name)) {
-        simulatedMap.set(name, makeSyntheticObservation(name));
-      }
-    }
-    const simulatedPending = new Set([
-      ...loadPendingRowLinkObservations(),
-      ...allStagedNames,
-    ]);
-    const pr2Problems = validateCompatibilityRegistry({
-      rows: allCompatibilityRows,
-      descriptors: surfaceDescriptors,
-      observations: [...simulatedMap.values()],
-      observationExceptions,
-      rigManifests,
-      probeFiles: listProbeFiles(),
-      rulesFirestoreScenarioIds: ALL_RULES_FIRESTORE_SCENARIOS.map((s) => s.id),
-      rulesStorageScenarioIds: ALL_RULES_STORAGE_SCENARIOS.map((s) => s.id),
-      rulesRtdbScenarioIds: rtdbScenarioIds,
-      pendingRowLinkObservations: simulatedPending,
-    });
-    expect(pr2Problems).toEqual([]);
+    expect(problems).toEqual([]);
   });
 });

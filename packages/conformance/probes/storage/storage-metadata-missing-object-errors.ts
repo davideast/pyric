@@ -54,11 +54,10 @@ export async function observeMetadataMissingObjectErrors(
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: ['web-config'],
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'storage / getMetadata & updateMetadata missing object / #80, #87',
+  rowIds: ['storage#80', 'storage#87'],
   description:
-    'getMetadata(ref) and updateMetadata(ref, patch) on a missing object path: observes FirebaseError storage/object-not-found on both operations.',
+    'getMetadata(ref) and updateMetadata(ref, patch) on a missing object path: observes storage/object-not-found on getMetadata and storage/unauthorized on rules-governed updateMetadata.',
   async observe() {
     return withStorageProbeSession(async ({ storage, objectPath, storageSdk }) => {
       return observeMetadataMissingObjectErrors({

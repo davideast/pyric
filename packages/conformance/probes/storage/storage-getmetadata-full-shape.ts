@@ -60,9 +60,8 @@ function nullableCustomMetadata(
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: ['web-config'],
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'storage / getMetadata(ref) / #79',
+  rowIds: ['storage#79'],
   description:
     'getMetadata(ref) after uploadBytes with full SettableMetadata: observes field-by-field FullMetadata parity against UploadResult.metadata.',
   async observe() {

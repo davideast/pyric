@@ -1,7 +1,10 @@
 {
   "name": "storage-updatemetadata-versioning-and-timestamps",
-  "matrixRow": "",
-  "rowIds": [],
+  "matrixRow": "storage / updateMetadata(ref, metadata) / #83, #84",
+  "rowIds": [
+    "storage#83",
+    "storage#84"
+  ],
   "description": "updateMetadata(ref, patch) versioning and timestamps: observes +1 metageneration increments across consecutive updates, pinned generation and timeCreated, and advancing updated timestamps.",
   "observedAt": "2026-11-18T04:36:36.144Z",
   "fbSdkVersion": "12.19.0",

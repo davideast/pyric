@@ -90,11 +90,11 @@ describe('ST-B1 — sandbox errors carry .code === storage/<code>', () => {
     expect(e3.code).toBe('storage/object-not-found');
   });
 
-  it('object-not-found on getMetadata/updateMetadata of a missing object', async () => {
+  it('object-not-found on getMetadata and unauthorized on rules-governed updateMetadata of a missing object', async () => {
     const storage = freshStorage('not-found-md');
     const r = ref(storage, 'missing/never.bin');
     expect((await caught(() => getMetadata(r))).code).toBe('storage/object-not-found');
-    expect((await caught(() => updateMetadata(r, {}))).code).toBe('storage/object-not-found');
+    expect((await caught(() => updateMetadata(r, {}))).code).toBe('storage/unauthorized');
   });
 
   it('invalid-root-operation on a root reference', async () => {
@@ -106,6 +106,9 @@ describe('ST-B1 — sandbox errors carry .code === storage/<code>', () => {
     expect((await caught(() => getBytes(root))).code).toBe('storage/invalid-root-operation');
     expect((await caught(() => deleteObject(root))).code).toBe('storage/invalid-root-operation');
     expect((await caught(() => getMetadata(root))).code).toBe('storage/invalid-root-operation');
+    expect((await caught(() => updateMetadata(root, {}))).code).toBe(
+      'storage/invalid-root-operation',
+    );
   });
 
   it('unauthorized when rules deny the operation', async () => {

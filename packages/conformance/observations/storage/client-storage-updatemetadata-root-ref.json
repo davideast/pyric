@@ -1,7 +1,9 @@
 {
   "name": "client-storage-updatemetadata-root-ref",
-  "matrixRow": "",
-  "rowIds": [],
+  "matrixRow": "storage / updateMetadata(ref, metadata) / #88",
+  "rowIds": [
+    "storage#88"
+  ],
   "description": "firebase/storage updateMetadata(ref(storage), patch) on the root reference: observes client-side invalid-root-operation preflight with zero network requests.",
   "observedAt": "2026-11-18T05:05:39.129Z",
   "fbSdkVersion": "12.19.0",

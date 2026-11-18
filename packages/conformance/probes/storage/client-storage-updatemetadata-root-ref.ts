@@ -5,9 +5,8 @@ import { extractObservedErrorDetails } from '../../src/storage-probe-session.ts'
 
 export const probe: Probe = {
   rig: 'client-storage',
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'storage / updateMetadata(ref, metadata) / #88',
+  rowIds: ['storage#88'],
   description:
     'firebase/storage updateMetadata(ref(storage), patch) on the root reference: observes client-side invalid-root-operation preflight with zero network requests.',
   async observe() {

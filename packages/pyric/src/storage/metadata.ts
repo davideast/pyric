@@ -133,24 +133,55 @@ export function toFullMetadata(stored: StoredMetadata, plane: StoragePlane): Ful
  * Used by `updateMetadata` in Slice 6. Defined here in Slice 5 so
  * the types stay close to the rest of the metadata model.
  */
+function mergePatchCustomMetadata(
+  base: { [key: string]: string } | undefined,
+  patch: { [key: string]: string } | null | undefined,
+): { [key: string]: string } | undefined {
+  if (patch === undefined) {
+    return cloneCustomMetadata(base);
+  }
+  if (patch === null) {
+    return undefined;
+  }
+  const merged: Record<string, string> = cloneCustomMetadata(base) ?? {};
+  for (const [key, value] of Object.entries(patch as Record<string, string | null>)) {
+    if (value === null) {
+      delete merged[key];
+    } else if (typeof value === 'string') {
+      defineOwnMetadataKey(merged, key, value);
+    }
+  }
+  if (Object.keys(merged).length === 0) {
+    return undefined;
+  }
+  return merged;
+}
+
 function applyMetadataPatch(
   base: StoredMetadata,
   patch: SettableMetadata,
   now: Date = new Date(),
 ): StoredMetadata {
-  return {
+  const next: StoredMetadata = {
     ...base,
-    // Client-settable fields are REPLACED wholesale per Firebase
-    // semantics; passing `undefined` removes the field.
     contentType: patch.contentType ?? base.contentType,
     cacheControl: patch.cacheControl ?? base.cacheControl,
     contentDisposition: patch.contentDisposition ?? base.contentDisposition,
     contentEncoding: patch.contentEncoding ?? base.contentEncoding,
     contentLanguage: patch.contentLanguage ?? base.contentLanguage,
-    customMetadata: cloneCustomMetadata(patch.customMetadata ?? base.customMetadata),
     metageneration: bump(base.metageneration),
     updated: now.toISOString(),
   };
+  const mergedCustom = mergePatchCustomMetadata(
+    base.customMetadata,
+    patch.customMetadata as { [key: string]: string } | null | undefined,
+  );
+  if (mergedCustom !== undefined) {
+    next.customMetadata = mergedCustom;
+  } else {
+    delete next.customMetadata;
+  }
+  return next;
 }
 
 /** Bump a base-10 numeric string by 1; `'5'` -> `'6'`. */
@@ -171,8 +202,12 @@ function bump(value: string): string {
  * pinned at upload time, client-settable fields whatever the latest
  * write left them as.
  */
-export async function getMetadata(ref: StorageReference): Promise<FullMetadata> {
+export function getMetadata(ref: StorageReference): Promise<FullMetadata> {
   guardNonRoot(ref, 'getMetadata');
+  return readObjectMetadata(ref);
+}
+
+async function readObjectMetadata(ref: StorageReference): Promise<FullMetadata> {
   const target = targetOf(ref.storage);
   const operationProvenance = storageOperationProvenance(target);
   const service = await getStorageService(ref.storage);
@@ -207,11 +242,12 @@ export async function getMetadata(ref: StorageReference): Promise<FullMetadata> 
  * after the backend awaits, escaping the sandbox's synchronous
  * ambient-provenance window — see the note on `uploadBytes`.
  */
-export async function updateMetadata(
+export function updateMetadata(
   ref: StorageReference,
   patch: SettableMetadata,
   provenance?: EventProvenance,
 ): Promise<FullMetadata> {
+  guardNonRoot(ref, 'updateMetadata');
   return rewriteMetadata(ref, 'updateMetadata', (existing, now) => applyMetadataPatch(existing, patch, now), provenance);
 }
 

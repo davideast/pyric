@@ -315,14 +315,19 @@ export function enforceRules(
     return;
   }
   const inForce = rulesFor(service, target);
-  if (inForce.kind === 'open') {
-    emitOperation(allowTarget, input, 'allow', [openBucketReason(inForce.bucket)], 'user', false, boundProvenance, 'allow');
-    return;
-  }
-  if (inForce.kind !== 'rules') {
+  if (inForce.kind !== 'rules' && inForce.kind !== 'open') {
     const reason = noRulesReason(inForce);
     emitOperation(target, input, 'deny', [reason], 'user', false, boundProvenance);
     throw unauthorized(input.request.method, input.request.path, ` — ${reason}`, deniedBucketName(target));
+  }
+  if (input.request.method === 'update' && !input.resource) {
+    const reason = 'Client updateMetadata requires an existing object to synthesize request.resource.';
+    emitOperation(target, input, 'deny', [reason], 'user', inForce.kind === 'rules', boundProvenance);
+    throw unauthorized(input.request.method, input.request.path, ` - ${reason}`, deniedBucketName(target));
+  }
+  if (inForce.kind === 'open') {
+    emitOperation(allowTarget, input, 'allow', [openBucketReason(inForce.bucket)], 'user', false, boundProvenance, 'allow');
+    return;
   }
   const evaluationInput = target ? withCanonicalRulesPath(input, target) : input;
   // `request.time` is the sandbox's clock when the caller has a sandbox handle,
