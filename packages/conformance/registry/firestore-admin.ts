@@ -37,19 +37,21 @@ const firestoreAdminRows: CompatibilityRow[] = [
   adminRow({
     rowRef: '1a',
     featureKeys: ['getFirestore'],
-    api: 'getFirestore(app) (rules-bypass routing, per-app handle caching, and post-deleteApp rejection)',
+    api: 'getFirestore(app) (rules-bypass routing, per-app handle caching, and post-deleteApp factory rejection)',
     behavior:
-      'Resolves an explicit `PyricAdminApp` to a rules-bypassing Admin `Firestore` handle across in-process and remote worker sandboxes, caches one handle per active app (`getFirestore(app) === getFirestore(app)`), rejects non-`PyricAdminApp` inputs with `TypeError`, and rejects `getFirestore(app)` and retained-handle operations after `deleteApp(app)`.',
+      'Resolves an explicit `PyricAdminApp` to a rules-bypassing Admin `Firestore` handle across in-process and remote worker sandboxes, caches one handle per active app (`getFirestore(app) === getFirestore(app)`), rejects non-`PyricAdminApp` inputs with `TypeError`, and throws `FirebaseAppError` `app/app-deleted` synchronously on `getFirestore(app)` after `deleteApp(app)` while leaving previously retained `Firestore` handles and sibling apps usable.',
     status: 'conforms',
-    automation: 'unit-backed',
+    automation: 'oracle-backed',
+    oracleObservations: ['firestore-admin-getfirestore-bypass-and-lifecycle'],
     conformanceTests: [
+      'packages/pyric-admin/test/firestore/oracle-conformance.test.ts',
       'packages/pyric-admin/test/firestore/firestore/admin-bypass.test.ts',
       'packages/pyric-admin/test/firestore/app-brand-validation.test.ts',
       'packages/pyric-admin/test/remote/remote-firestore.test.ts',
       'packages/pyric-admin/test/app/registry.test.ts',
     ],
     evidence:
-      'Verified across local and remote arms in `admin-bypass.test.ts`, `app-brand-validation.test.ts`, `remote-firestore.test.ts`, and `registry.test.ts`; no standalone production capture records rules-bypass or post-delete service calls.',
+      'Production capture `firestore-admin-getfirestore-bypass-and-lifecycle` (firebase 12.19.0, firebase-admin 13.10.0) replayed across local and remote arms in `oracle-conformance.test.ts`, plus `admin-bypass.test.ts`, `app-brand-validation.test.ts`, `remote-firestore.test.ts`, and `registry.test.ts`.',
     risk: ['error-code', 'stateful'],
     riskScore: 3,
     riskReasons: ['asserts rules-bypass semantics, handle caching, and app/app-deleted'],
@@ -84,14 +86,16 @@ const firestoreAdminRows: CompatibilityRow[] = [
     behavior:
       'Validates odd/even slash-delimited collection and document paths, mints 20-character auto-IDs when `col.doc()` omits `id` or on `col.add(data)`, and navigates nested subcollections via `docRef.collection(name)` across local and remote arms.',
     status: 'conforms',
-    automation: 'unit-backed',
+    automation: 'oracle-backed',
+    oracleObservations: ['firestore-admin-paths-and-autoids'],
     conformanceTests: [
+      'packages/pyric-admin/test/firestore/oracle-conformance.test.ts',
       'packages/pyric-admin/test/firestore/firestore/sandbox-ops.test.ts',
       'packages/pyric-admin/test/remote/remote-firestore.test.ts',
       'packages/pyric-admin/test/remote/remote-firestore-parity.test.ts',
     ],
     evidence:
-      'Verified across local and remote arms in `sandbox-ops.test.ts`, `remote-firestore.test.ts`, and `remote-firestore-parity.test.ts`; no dedicated admin production capture.',
+      'Production capture `firestore-admin-paths-and-autoids` (firebase-admin 13.10.0) replayed across local and remote arms in `oracle-conformance.test.ts`, plus `sandbox-ops.test.ts`, `remote-firestore.test.ts`, and `remote-firestore-parity.test.ts`.',
     risk: ['specific-value'],
     riskScore: 2,
     riskReasons: ['asserts path parity and auto-ID format'],
@@ -159,14 +163,16 @@ const firestoreAdminRows: CompatibilityRow[] = [
     behavior:
       'Supports `FieldValue.serverTimestamp()`, `increment()`, `arrayUnion()`, `arrayRemove()`, and `delete()`, `FieldPath` construction and `FieldPath.documentId()`, `Timestamp` range validation and round-trip, byte buffers, and stored `DocumentReference` values across local and remote arms (`FieldValue.vector` is absent; see `#10`).',
     status: 'conforms',
-    automation: 'unit-backed',
+    automation: 'oracle-backed',
+    oracleObservations: ['firestore-admin-sentinels-and-value-types'],
     conformanceTests: [
+      'packages/pyric-admin/test/firestore/oracle-conformance.test.ts',
       'packages/pyric-admin/test/firestore/reference-and-bytes-fields.test.ts',
       'packages/pyric-admin/test/firestore/field-path-queries.test.ts',
       'packages/pyric-admin/test/remote/remote-firestore-parity.test.ts',
     ],
     evidence:
-      'Verified across local and remote arms in `reference-and-bytes-fields.test.ts`, `field-path-queries.test.ts`, and `remote-firestore-parity.test.ts`.',
+      'Production capture `firestore-admin-sentinels-and-value-types` (firebase-admin 13.10.0) replayed across local and remote arms in `oracle-conformance.test.ts`, plus `reference-and-bytes-fields.test.ts`, `field-path-queries.test.ts`, and `remote-firestore-parity.test.ts`.',
     risk: ['specific-value'],
     riskScore: 2,
     riskReasons: ['asserts sentinel transforms and value-type round-trips'],

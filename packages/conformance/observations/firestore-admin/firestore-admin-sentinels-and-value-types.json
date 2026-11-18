@@ -1,7 +1,9 @@
 {
   "name": "firestore-admin-sentinels-and-value-types",
-  "matrixRow": "",
-  "rowIds": [],
+  "matrixRow": "firestore-admin#6",
+  "rowIds": [
+    "firestore-admin#6"
+  ],
   "description": "firebase-admin/firestore FieldValue.{serverTimestamp, increment, arrayUnion, arrayRemove, delete}, FieldPath and FieldPath.documentId(), Timestamp range validation and round-trip, Uint8Array byte buffers, and DocumentReference field values.",
   "observedAt": "2026-11-18T09:28:58.493Z",
   "fbSdkVersion": "12.19.0",

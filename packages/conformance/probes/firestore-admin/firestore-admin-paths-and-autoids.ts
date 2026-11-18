@@ -109,9 +109,8 @@ export async function observeFirestoreAdminPathsAndAutoIds(
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: ['admin-firestore'],
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'firestore-admin#3',
+  rowIds: ['firestore-admin#3'],
   description:
     'firebase-admin/firestore db.collection(path), db.doc(path), col.doc(id?), col.add(data), and docRef.collection(name) validate odd/even slash-delimited paths synchronously, mint 20-character alphanumeric auto-IDs, and address nested subcollections.',
   async observe(): Promise<Record<string, unknown>> {

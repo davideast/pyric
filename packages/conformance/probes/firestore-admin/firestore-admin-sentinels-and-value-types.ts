@@ -155,9 +155,8 @@ export async function observeFirestoreAdminSentinelsAndValues(
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: ['admin-firestore'],
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'firestore-admin#6',
+  rowIds: ['firestore-admin#6'],
   description:
     'firebase-admin/firestore FieldValue.{serverTimestamp, increment, arrayUnion, arrayRemove, delete}, FieldPath and FieldPath.documentId(), Timestamp range validation and round-trip, Uint8Array byte buffers, and DocumentReference field values.',
   async observe(): Promise<Record<string, unknown>> {

@@ -1,7 +1,9 @@
 {
   "name": "firestore-admin-getfirestore-bypass-and-lifecycle",
-  "matrixRow": "",
-  "rowIds": [],
+  "matrixRow": "firestore-admin#1a",
+  "rowIds": [
+    "firestore-admin#1a"
+  ],
   "description": "firebase-admin/firestore getFirestore(app) caches one Firestore handle per active app, isolates handles across apps, throws TypeError on non-app objects/null, bypasses Firestore Security Rules that deny unauthenticated client reads with permission-denied, and throws app/app-deleted synchronously after deleteApp(app) while preserving sibling apps.",
   "observedAt": "2026-11-18T09:28:53.197Z",
   "fbSdkVersion": "12.19.0",

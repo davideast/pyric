@@ -24,9 +24,8 @@ import {
   type FirestoreAdminSentinelsSubject,
 } from '../../probes/firestore-admin/firestore-admin-sentinels-and-value-types.ts';
 import { loadModularProbes } from '../../src/sdk-probes.ts';
-import { expectStagedUntilCaptured } from './staged-capture-assertions.ts';
 
-const STAGED_FIRESTORE_ADMIN_PROBES = [
+const LINKED_FIRESTORE_ADMIN_PROBES = [
   'firestore-admin-getfirestore-bypass-and-lifecycle',
   'firestore-admin-paths-and-autoids',
   'firestore-admin-sentinels-and-value-types',
@@ -51,17 +50,17 @@ function isDocumentRefLike(value: unknown): value is { readonly id: string; read
   return typeof candidate.id === 'string' && typeof candidate.path === 'string';
 }
 
-describe('staged firestore-admin probes', () => {
-  it('registers all three probes under sdk-probes and tracks staged discovery via expectStagedUntilCaptured', async () => {
+describe('linked firestore-admin probes', () => {
+  it('registers all three probes under sdk-probes with linked rowIds and pendingRowLink dropped', async () => {
     const loaded = await loadModularProbes('sdk-probes');
     const loadedIds = loaded.map((item) => item.id);
-    for (const id of STAGED_FIRESTORE_ADMIN_PROBES) {
+    for (const id of LINKED_FIRESTORE_ADMIN_PROBES) {
       expect(loadedIds).toContain(id);
     }
 
     expect(bypassAndLifecycleProbe.rig).toBe('sdk-probes');
-    expect(bypassAndLifecycleProbe.pendingRowLink).toBe(true);
-    expect(bypassAndLifecycleProbe.rowIds).toEqual([]);
+    expect(bypassAndLifecycleProbe.pendingRowLink).toBeUndefined();
+    expect(bypassAndLifecycleProbe.rowIds).toEqual(['firestore-admin#1a']);
     expect(bypassAndLifecycleProbe.requires).toEqual([
       'web-config',
       'firestore-rules',
@@ -69,20 +68,14 @@ describe('staged firestore-admin probes', () => {
     ]);
 
     expect(pathsAndAutoIdsProbe.rig).toBe('sdk-probes');
-    expect(pathsAndAutoIdsProbe.pendingRowLink).toBe(true);
-    expect(pathsAndAutoIdsProbe.rowIds).toEqual([]);
+    expect(pathsAndAutoIdsProbe.pendingRowLink).toBeUndefined();
+    expect(pathsAndAutoIdsProbe.rowIds).toEqual(['firestore-admin#3']);
     expect(pathsAndAutoIdsProbe.requires).toEqual(['admin-firestore']);
 
     expect(sentinelsAndValuesProbe.rig).toBe('sdk-probes');
-    expect(sentinelsAndValuesProbe.pendingRowLink).toBe(true);
-    expect(sentinelsAndValuesProbe.rowIds).toEqual([]);
+    expect(sentinelsAndValuesProbe.pendingRowLink).toBeUndefined();
+    expect(sentinelsAndValuesProbe.rowIds).toEqual(['firestore-admin#6']);
     expect(sentinelsAndValuesProbe.requires).toEqual(['admin-firestore']);
-
-    expectStagedUntilCaptured(STAGED_FIRESTORE_ADMIN_PROBES, {
-      rig: 'sdk-probes',
-      filterFlag: '--probe',
-      filterValueFor: (name) => name,
-    });
   });
 
   it('produces deterministic two-run observations on pyric-admin/firestore for bypass and app lifecycle', async () => {
@@ -153,9 +146,9 @@ describe('staged firestore-admin probes', () => {
         message: 'Firebase app named "<appName>" has already been deleted.',
       },
       retainedHandleReadAfterDeleteApp: {
-        threw: true,
-        code: 'app/app-deleted',
-        exists: null,
+        threw: false,
+        code: null,
+        exists: true,
       },
       siblingReadAfterPrimaryDelete: true,
     });
