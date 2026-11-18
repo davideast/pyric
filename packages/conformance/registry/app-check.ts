@@ -1,6 +1,11 @@
 import { defineRows } from './define-rows.ts';
 import { appCheckHuntBlock } from './app-check-hunt-captures.ts';
-import type { CompatibilityRow, CompatibilitySurfaceRegistry, ConformanceDisposition } from './types.ts';
+import type {
+  CompatibilityRow,
+  CompatibilitySurfaceRegistry,
+  ConformanceDisposition,
+  OracleConformanceCheck,
+} from './types.ts';
 
 /**
  * The App Check registry, climbing under Conformance Driven Development
@@ -51,6 +56,10 @@ interface Seed {
   notes?: string;
   /** Set when the row's assertion set passes: the evidence tier it earned. */
   flipped?: 'oracle-backed' | 'unit-backed';
+  /** Additional test witnesses beyond the surface's default conformance suite. */
+  extraTests?: string[];
+  /** Structured observation-to-probe conformance checks executed by compat:oracle-check. */
+  conformanceChecks?: OracleConformanceCheck[];
   /** Set when the sandbox deliberately or knowingly differs (cdd.md Step 6). */
   diverged?: ConformanceDisposition;
   /** Set when the sandbox will never model the behavior. */
@@ -73,12 +82,21 @@ function riskFor(seed: Seed): Pick<CompatibilityRow, 'risk' | 'riskScore' | 'ris
 /** App scenario that drives the web SDK plane through a real dev server and Chromium. */
 const SANDBOX_SCENARIO = 'test/apps/sandbox-app-check/scenario.ts';
 
-function witnesses(plane: Plane): string[] {
-  return plane === 'app-check' ? [APP_CHECK_SUITES[plane], SANDBOX_SCENARIO] : [APP_CHECK_SUITES[plane]];
+function witnesses(seed: Seed): string[] {
+  let base: string[];
+  if (seed.plane === 'app-check') {
+    base = [APP_CHECK_SUITES[seed.plane], SANDBOX_SCENARIO];
+  } else {
+    base = [APP_CHECK_SUITES[seed.plane]];
+  }
+  if (!seed.extraTests) {
+    return base;
+  }
+  return [...base, ...seed.extraTests];
 }
 
 function tierFor(seed: Seed): Partial<CompatibilityRow> {
-  const suite = witnesses(seed.plane);
+  const suite = witnesses(seed);
   if (seed.unsupportedReason) {
     return { status: 'unsupported', automation: 'unsupported', exceptionReason: seed.unsupportedReason, risk: ['unsupported'], riskScore: 0, riskReasons: [seed.unsupportedReason] };
   }
@@ -95,7 +113,16 @@ function tierFor(seed: Seed): Partial<CompatibilityRow> {
 }
 
 function row(seed: Seed): CompatibilityRow {
-  const { plane, observations = [], errorText: _errorText, flipped: _flipped, diverged: _diverged, unsupportedReason: _unsupported, ...rest } = seed;
+  const {
+    plane,
+    observations = [],
+    errorText: _errorText,
+    flipped: _flipped,
+    extraTests: _extraTests,
+    diverged: _diverged,
+    unsupportedReason: _unsupported,
+    ...rest
+  } = seed;
   return build({ ...rest, surface: plane, oracleObservations: observations, ...riskFor(seed), ...tierFor(seed) });
 }
 
@@ -436,13 +463,37 @@ const adminRows: CompatibilityRow[] = [
   row({
     plane: 'app-check-admin',
     rowRef: 'verify-token-firebase-token-production-ai-mode',
+    flipped: 'oracle-backed',
+    extraTests: [
+      'packages/cli/test/register/app-bridge-admin-app-check.test.ts',
+      'packages/pyric-admin/test/app-check/firebase-token.test.ts',
+      'test/apps/ai-production-app-check/scenario.ts',
+    ],
+    conformanceChecks: [
+      {
+        finding: 'APP-CHECK-ADMIN-VERIFY-PROD-AI',
+        observation: 'app-check-admin-verify-token',
+        expect: {
+          debugExchanged: {
+            resultKeySet: ['appId', 'token'],
+            appIdEqualsConfig: true,
+            decodedClaimNames: ['app_id', 'aud', 'exp', 'iat', 'iss', 'jti', 'lu', 'provider', 'sub'],
+            decodedAppIdEqualsConfig: true,
+            alreadyConsumed: null,
+          },
+        },
+        probe: 'packages/pyric-admin/test/app-check/oracle-conformance.test.ts',
+        guards:
+          'getAppCheck().verifyToken(firebaseToken) under @pyric/cli/register in production AI mode delegates foreign-kid tokens to firebase-admin and resolves the production result shape.',
+      },
+    ],
     section: SEC_ADMIN,
     api: 'getAppCheck().verifyToken(firebaseToken) under @pyric/cli/register in production AI mode',
     featureKeys: ['verifyToken'],
     behavior: 'A token whose `kid` names a key other than the sandbox\'s goes to firebase-admin\'s own `verifyToken`, for an app scoped to the project the mirror resolves. It resolves with production\'s `{ appId, token }` shape, the decoded token carrying `app_id`, and firebase-admin\'s errors (signature, audience, issuer, expiry) pass through with their codes and messages. Sandbox tokens, tokens with no `kid`, and malformed tokens keep the sandbox path.',
-    evidence: 'capture `app-check-admin-verify-token` for the result shape; the verification itself is firebase-admin 13.10.0 `lib/app-check/token-verifier.js`, run unchanged.',
+    evidence: 'capture `app-check-admin-verify-token` (`debugExchanged`), replayed against firebase-admin 13.10.0 `lib/app-check/token-verifier.js` in `packages/pyric-admin/test/app-check/oracle-conformance.test.ts`, under `node --import @pyric/cli/register` in `packages/cli/test/register/app-bridge-admin-app-check.test.ts`, in `packages/pyric-admin/test/app-check/firebase-token.test.ts`, and in `test/apps/ai-production-app-check/scenario.ts`.',
     observations: ['app-check-admin-verify-token'],
-    notes: 'Unverified until the audit gate accepts its evidence: the assertion set runs in the climb lane, packages/pyric-admin/test/app-check/firebase-token.test.ts pins the hand-off on every run, and test/apps/ai-production-app-check/scenario.ts runs the real firebase-admin under `node --import @pyric/cli/register` against a stand-in for Firebase\'s public keys. The verifier\'s firebase-admin app holds no credentials: the only request it makes is the unauthenticated `GET https://firebaseappcheck.googleapis.com/v1/jwks`, cached for six hours. firebase-admin must be installed beside the server; without it the first such token rejects with `app-check/invalid-argument` and a message naming `npm install firebase-admin`. Not covered: a token Firebase itself issued, which would take a production capture through the bridge.',
+    notes: 'The verifier\'s firebase-admin app holds no credentials: the only request it makes is the unauthenticated `GET https://firebaseappcheck.googleapis.com/v1/jwks`, cached for six hours. firebase-admin must be installed beside the server; without it the first such token rejects with `app-check/invalid-argument` and a message naming `npm install firebase-admin`. Not covered: live attestation exchange against Google\'s App Check servers during local runs; JWKS public-key delivery is stood in locally with an RS256 key pair while firebase-admin runs unchanged.',
   }),
   row({
     plane: 'app-check-admin',

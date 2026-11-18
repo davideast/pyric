@@ -9,7 +9,18 @@
  * (`PYRIC_CLIMB=1`) runs every row and the prefix completeness gate.
  */
 import { afterEach, describe, expect, it } from 'bun:test';
+import { generateKeyPairSync, sign } from 'node:crypto';
+import { EventEmitter } from 'node:events';
+import { createRequire } from 'node:module';
 import { join } from 'node:path';
+import { Readable } from 'node:stream';
+import {
+  deleteApp as deleteRealAdminApp,
+  initializeApp as initializeRealAdminApp,
+  type App as RealAdminApp,
+  type Credential as RealAdminCredential,
+} from 'firebase-admin/app';
+import { getAppCheck as getRealAdminAppCheck } from 'firebase-admin/app-check';
 
 /** Token length is not claimed (see the rows' notes): the shape comparison drops it explicitly. */
 const WITHOUT_LENGTH = { length: undefined };
@@ -69,31 +80,152 @@ const NOT_SANDBOX_MESSAGE =
   "This App Check token was not minted by the Pyric sandbox, so the sandbox's firebase-admin/app-check cannot verify it. " +
   'A page in production AI mode gets its App Check tokens from Firebase. Start this server in production AI mode too ' +
   '(PYRIC_AI_MODE=production) and Pyric verifies them with firebase-admin. In sandbox AI mode, page tokens come from the sandbox and verify here.';
+const EXPIRED_MESSAGE =
+  'The provided App Check token has expired. Get a fresh App Check token from your client app and try again.';
 
-/** A token shaped like Firebase's: a production-style `kid` and the claim set of `app-check-admin-create-token-shape`. */
-async function firebaseToken(): Promise<string> {
-  const { token } = await appCheck().createToken(APP_ID);
+const FIREBASE_KID = 'vlhDMA';
+const FIREBASE_RSA_KEYS = generateKeyPairSync('rsa', { modulusLength: 2048 });
+const FIREBASE_JWKS_BODY = JSON.stringify({
+  keys: [{ ...FIREBASE_RSA_KEYS.publicKey.export({ format: 'jwk' }), kid: FIREBASE_KID, use: 'sig', alg: 'RS256' }],
+});
+
+const requireForHttps = createRequire(import.meta.url);
+const cjsHttps = requireForHttps('https') as {
+  request: (...args: unknown[]) => unknown;
+  get: (...args: unknown[]) => unknown;
+};
+const originalHttpsRequest = cjsHttps.request;
+const originalHttpsGet = cjsHttps.get;
+const realVerifierApps: RealAdminApp[] = [];
+let realAppSeq = 0;
+
+function extractHttpsTarget(args: unknown[]): { hostname: string; path: string } {
+  const first = args[0];
+  if (typeof first === 'string' || first instanceof URL) {
+    const parsed = new URL(String(first));
+    return { hostname: parsed.hostname, path: `${parsed.pathname}${parsed.search}` };
+  }
+  const options = (first ?? {}) as { hostname?: string; host?: string; path?: string };
+  let hostname = 'localhost';
+  if (typeof options.hostname === 'string') {
+    hostname = options.hostname;
+  } else if (typeof options.host === 'string') {
+    hostname = options.host;
+  }
+  let path = '/';
+  if (typeof options.path === 'string') {
+    path = options.path;
+  }
+  return { hostname, path };
+}
+
+function signRs256Jwt(header: Record<string, unknown>, claims: Record<string, unknown>): string {
+  const encodedHeader = Buffer.from(JSON.stringify(header)).toString('base64url');
+  const encodedPayload = Buffer.from(JSON.stringify(claims)).toString('base64url');
+  const signingInput = `${encodedHeader}.${encodedPayload}`;
+  const signature = sign('sha256', Buffer.from(signingInput), FIREBASE_RSA_KEYS.privateKey).toString('base64url');
+  return `${signingInput}.${signature}`;
+}
+
+/** An RS256 App Check token signed with `FIREBASE_RSA_KEYS` (`kid: 'vlhDMA'`) and the claim set of `app-check-admin-create-token-shape`. */
+async function firebaseToken(
+  projectId: string = PROJECT_ID,
+  claimOverrides: Record<string, unknown> = {},
+): Promise<string> {
+  const { token } = await appCheck(projectId).createToken(APP_ID);
   const claims = JSON.parse(Buffer.from(token.split('.')[1]!, 'base64url').toString('utf8')) as Record<string, unknown>;
-  return signAppCheckToken({ alg: 'RS256', kid: 'vlhDMA', typ: 'JWT' }, { ...claims, provider: 'debug' });
+  return signRs256Jwt({ alg: 'RS256', kid: FIREBASE_KID, typ: 'JWT' }, { ...claims, provider: 'debug', ...claimOverrides });
+}
+
+interface RealVerifierHarness {
+  calls: { token: string; projectId: string; extra: number }[];
+  servedJwks: string[];
+  refusedRequests: string[];
 }
 
 /**
- * Stands in for firebase-admin's `verifyToken` the way the register installs
- * it: `(token, projectId)`, resolving `{ appId, token }` with `app_id` added,
- * as token-verifier.js and app-check.js build it. Records each call.
+ * Installs firebase-admin's own `getAppCheck(app).verifyToken(token)` behind
+ * `FIREBASE_VERIFIER` with an access-token-refusing credential (matching
+ * `packages/cli/src/register/app-bridge-admin-app-check.ts`) and answers
+ * `https://firebaseappcheck.googleapis.com/v1/jwks` from `FIREBASE_JWKS_BODY`.
  */
-function installStandInVerifier(): { token: string; projectId: string; extra: number }[] {
+function installRealFirebaseAdminVerifier(): RealVerifierHarness {
   const calls: { token: string; projectId: string; extra: number }[] = [];
-  (globalThis as Record<symbol, unknown>)[FIREBASE_VERIFIER] = async (token: string, projectId: string, ...rest: unknown[]) => {
-    calls.push({ token, projectId, extra: rest.length });
-    const claims = JSON.parse(Buffer.from(token.split('.')[1]!, 'base64url').toString('utf8')) as Record<string, unknown>;
-    return { appId: claims.sub, token: { ...claims, app_id: claims.sub } };
+  const servedJwks: string[] = [];
+  const refusedRequests: string[] = [];
+  const appsByProject = new Map<string, RealAdminApp>();
+  const noCredentials: RealAdminCredential = {
+    getAccessToken: () => Promise.reject(new Error("Pyric's App Check verifier holds no credentials.")),
   };
-  return calls;
+
+  cjsHttps.request = (...args: unknown[]) => {
+    const callback = args.find((arg) => typeof arg === 'function') as ((res: unknown) => void) | undefined;
+    const { hostname, path } = extractHttpsTarget(args);
+    const request = new EventEmitter() as EventEmitter & {
+      setTimeout: () => unknown;
+      destroy: () => unknown;
+      write: () => boolean;
+      end: () => unknown;
+    };
+    request.setTimeout = () => request;
+    request.destroy = () => request;
+    request.write = () => true;
+    request.end = () => {
+      queueMicrotask(() => {
+        if (hostname === 'firebaseappcheck.googleapis.com' && path === '/v1/jwks') {
+          servedJwks.push(`${hostname}${path}`);
+          const response = Readable.from([FIREBASE_JWKS_BODY]) as Readable & {
+            statusCode?: number;
+            statusMessage?: string;
+            headers?: Record<string, string>;
+          };
+          response.statusCode = 200;
+          response.statusMessage = 'OK';
+          response.headers = { 'content-type': 'application/json' };
+          callback?.(response);
+          return;
+        }
+        refusedRequests.push(`${hostname}${path}`);
+        request.emit('error', new Error(`JWKS stand-in refused ${hostname}${path}`));
+      });
+      return request;
+    };
+    return request;
+  };
+  cjsHttps.get = (...args: unknown[]) => {
+    const request = cjsHttps.request(...args) as { end: () => unknown };
+    request.end();
+    return request;
+  };
+
+  (globalThis as Record<symbol, unknown>)[FIREBASE_VERIFIER] = async (
+    token: string,
+    projectId: string,
+    ...rest: unknown[]
+  ) => {
+    calls.push({ token, projectId, extra: rest.length });
+    let verifierApp = appsByProject.get(projectId);
+    if (verifierApp === undefined) {
+      realAppSeq += 1;
+      verifierApp = initializeRealAdminApp(
+        { projectId, credential: noCredentials },
+        `[pyric-test] app-check verifier ${projectId} ${realAppSeq}`,
+      );
+      appsByProject.set(projectId, verifierApp);
+      realVerifierApps.push(verifierApp);
+    }
+    return getRealAdminAppCheck(verifierApp).verifyToken(token);
+  };
+
+  return { calls, servedJwks, refusedRequests };
 }
 
 afterEach(async () => {
+  cjsHttps.request = originalHttpsRequest;
+  cjsHttps.get = originalHttpsGet;
   delete (globalThis as Record<symbol, unknown>)[FIREBASE_VERIFIER];
+  const createdRealApps = realVerifierApps.splice(0, realVerifierApps.length);
+  await Promise.all(createdRealApps.map((app) => deleteRealAdminApp(app)));
   await Promise.all(getApps().map((app) => deleteApp(app)));
 });
 
@@ -244,7 +376,9 @@ const assertions: Record<string, () => Promise<void>> = {
   },
   'app-check-admin#verify-token-firebase-token-production-ai-mode': async () => {
     const o = obs('app-check-admin-verify-token');
-    const calls = installStandInVerifier();
+    const oTampered = obs('app-check-admin-verify-tampered');
+    const oContent = obs('app-check-admin-verify-token-content-checks');
+    const harness = installRealFirebaseAdminVerifier();
     const service = appCheck();
     const token = await firebaseToken();
     const result = await service.verifyToken(token);
@@ -255,18 +389,54 @@ const assertions: Record<string, () => Promise<void>> = {
       decodedAppIdEqualsConfig: result.token.app_id === APP_ID,
       alreadyConsumed: result.alreadyConsumed ?? null,
     }).toEqual(o.debugExchanged);
-    expect(calls).toEqual([{ token, projectId: PROJECT_ID, extra: 0 }]);
-    // firebase-admin's errors pass through unchanged.
-    const failure = Object.assign(new Error('The provided App Check token has invalid signature.'), { code: 'app-check/invalid-argument' });
-    (globalThis as Record<symbol, unknown>)[FIREBASE_VERIFIER] = async () => {
-      throw failure;
-    };
-    expect(await rejection(() => service.verifyToken(token))).toEqual({ threw: true, code: 'app-check/invalid-argument', message: failure.message });
-    // A sandbox token keeps the sandbox path.
-    const sandboxCalls = installStandInVerifier();
+    expect(harness.calls).toEqual([{ token, projectId: PROJECT_ID, extra: 0 }]);
+    expect(harness.servedJwks).toEqual(['firebaseappcheck.googleapis.com/v1/jwks']);
+    await service.verifyToken(token);
+    expect(harness.servedJwks).toHaveLength(1);
+
+    // Project scoping follows the project resolved by the mirror, including cert().
+    appSeq += 1;
+    const certApp = initializeApp(
+      { sandbox: initializeSandbox(), credential: cert({ project_id: 'demo-cert' }) } as Parameters<typeof initializeApp>[0],
+      `app-check-admin-${appSeq}`,
+    );
+    const certService = getAppCheck(certApp) as unknown as AdminAppCheck;
+    const certToken = await firebaseToken('demo-cert');
+    const certVerified = await certService.verifyToken(certToken);
+    expect(certVerified.appId).toBe(APP_ID);
+    expect(harness.calls.at(-1)?.projectId).toBe('demo-cert');
+
+    // Signature, audience, issuer, and expiry errors match production's codes and messages.
+    expect(await rejection(() => service.verifyToken(tamperSignature(token)))).toEqual(oTampered.tamperedSignature);
+    const demoToken = await firebaseToken('demo-project');
+    expect(await rejection(() => appCheck('another-project').verifyToken(demoToken))).toEqual({
+      threw: true,
+      code: oContent.wrongAudience.code,
+      message: oContent.wrongAudience.message,
+    });
+    expect(await rejection(() => appCheck('demo-project').verifyToken(withClaim(demoToken, 'iss', 'https://example.com/123')))).toEqual({
+      threw: true,
+      code: oContent.wrongIssuer.code,
+      message: oContent.wrongIssuer.message,
+    });
+    const nowSeconds = Math.floor(Date.now() / 1000);
+    const expiredToken = await firebaseToken(PROJECT_ID, { iat: nowSeconds - 3700, exp: nowSeconds - 100 });
+    expect(await rejection(() => service.verifyToken(expiredToken))).toEqual({
+      threw: true,
+      code: 'app-check/app-check-token-expired',
+      message: EXPIRED_MESSAGE,
+    });
+
+    // Sandbox tokens, tokens with no kid, and malformed tokens keep the sandbox path.
+    const callCountBeforeLocal = harness.calls.length;
     const { token: sandboxToken } = await service.createToken(APP_ID);
     expect((await service.verifyToken(sandboxToken)).appId).toBe(APP_ID);
-    expect(sandboxCalls).toEqual([]);
+    const sandboxClaims = JSON.parse(Buffer.from(sandboxToken.split('.')[1]!, 'base64url').toString('utf8')) as Record<string, unknown>;
+    const noKidToken = await signAppCheckToken({ alg: 'RS256', typ: 'JWT' }, sandboxClaims);
+    expect((await service.verifyToken(noKidToken)).appId).toBe(APP_ID);
+    expect(await rejection(() => service.verifyToken('not-a-jwt'))).toEqual(oTampered.notJwt);
+    expect(harness.calls).toHaveLength(callCountBeforeLocal);
+    expect(harness.refusedRequests).toEqual([]);
   },
   'app-check-admin#verify-token-firebase-token-consume': async () => {
     const o = obs('app-check-admin-verify-consume');
@@ -274,14 +444,15 @@ const assertions: Record<string, () => Promise<void>> = {
     expect([o.firstConsume.alreadyConsumed, o.secondConsume.alreadyConsumed]).toEqual([false, true]);
     // Divergence, by design (row app-check-admin#verify-token-firebase-token-consume):
     // firebase-admin verifies without consume, and the mirror records it in the process.
-    const calls = installStandInVerifier();
+    const harness = installRealFirebaseAdminVerifier();
     const service = appCheck();
     const token = await firebaseToken();
     const describeResult = (r: { alreadyConsumed?: boolean }) => ({ resultKeySet: Object.keys(r).sort(), alreadyConsumed: r.alreadyConsumed ?? null });
     expect(describeResult(await service.verifyToken(token, { consume: true }))).toEqual(o.firstConsume);
     expect(describeResult(await service.verifyToken(token, { consume: true }))).toEqual(o.secondConsume);
     expect(describeResult(await service.verifyToken(token))).toEqual(o.plainVerifyAfterConsume);
-    expect(calls.map((call) => call.extra)).toEqual([0, 0, 0]);
+    expect(harness.calls.map((call) => call.extra)).toEqual([0, 0, 0]);
+    expect(harness.refusedRequests).toEqual([]);
   },
   'app-check-admin#project-from-cert': async () => {
     const o = obs('app-check-admin-project-from-cert');
