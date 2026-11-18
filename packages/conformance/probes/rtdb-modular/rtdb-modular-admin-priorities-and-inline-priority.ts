@@ -71,7 +71,13 @@ export async function observeAdminPrioritiesAndInlinePriority(
     afterSetPriorityString: string | number | null;
     afterClearPriorityNull: string | number | null;
     afterClearExportVal: unknown;
-    priorityOnEmptyNodeRemainsNull: string | number | null;
+    setPriorityOnAbsentNode: {
+      rejected: boolean;
+      code: string | null;
+      message: string | null;
+      callbackReceivedMatchingError: boolean;
+      afterAttemptPriority: string | number | null;
+    };
     callbacksDeliveredNullError: {
       setWithPriority: boolean;
       setPriority: boolean;
@@ -134,8 +140,25 @@ export async function observeAdminPrioritiesAndInlinePriority(
   const afterClearPrioSnap = await itemRef.get();
 
   const emptyRef = adminDb.ref(`${rootPrefix}/absentNode`);
-  await emptyRef.setPriority(99, () => undefined);
+  let absentRejected = false;
+  let absentCode: string | null = null;
+  let absentMessage: string | null = null;
+  let absentCbError: Error | null = null;
+  try {
+    await emptyRef.setPriority(99, (cbErr) => {
+      absentCbError = cbErr;
+    });
+  } catch (err) {
+    absentRejected = true;
+    const rawCode = (err as { code?: unknown }).code;
+    if (typeof rawCode === 'string') {
+      absentCode = rawCode;
+    }
+    absentMessage = (err as Error).message;
+  }
   const emptyAfterPrioSnap = await emptyRef.get();
+  const callbackReceivedMatchingError =
+    absentCbError !== null && (absentCbError as Error).message === absentMessage;
 
   const inlinePrimRef = adminDb.ref(`${rootPrefix}/inlinePrim`);
   await inlinePrimRef.set({ '.value': 'scalar-payload', '.priority': 12 });
@@ -198,7 +221,13 @@ export async function observeAdminPrioritiesAndInlinePriority(
       afterSetPriorityString: afterStrPrioSnap.getPriority(),
       afterClearPriorityNull: afterClearPrioSnap.getPriority(),
       afterClearExportVal: afterClearPrioSnap.exportVal(),
-      priorityOnEmptyNodeRemainsNull: emptyAfterPrioSnap.getPriority(),
+      setPriorityOnAbsentNode: {
+        rejected: absentRejected,
+        code: absentCode,
+        message: absentMessage,
+        callbackReceivedMatchingError,
+        afterAttemptPriority: emptyAfterPrioSnap.getPriority(),
+      },
       callbacksDeliveredNullError: {
         setWithPriority: swpCbNull,
         setPriority: spCbNull,

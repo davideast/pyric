@@ -137,7 +137,16 @@ function createAdminPriorityTestHarness() {
         onComplete: (a: Error | null) => void,
       ) {
         assertValidPriority('setPriority', priority);
-        return pyricRtdb.setPriority(underlying, priority).then(() => {
+        return pyricRtdb.get(underlying).then(async (existingSnap) => {
+          if (!existingSnap.exists() && priority !== null) {
+            const err = Object.assign(
+              new Error('INVALID_PARAMETERS: could not set priority on non-existent node'),
+              { code: 'INVALID_PARAMETERS' },
+            );
+            onComplete(err);
+            throw err;
+          }
+          await pyricRtdb.setPriority(underlying, priority);
           onComplete(null);
         });
       },
@@ -230,7 +239,13 @@ describe('RTDB Slice 7 staged probes: admin priorities, FirebaseDatabaseError/UR
       afterSetPriorityString: 'rank-b',
       afterClearPriorityNull: null,
       afterClearExportVal: { label: 'alpha' },
-      priorityOnEmptyNodeRemainsNull: null,
+      setPriorityOnAbsentNode: {
+        rejected: true,
+        code: 'INVALID_PARAMETERS',
+        message: 'INVALID_PARAMETERS: could not set priority on non-existent node',
+        callbackReceivedMatchingError: true,
+        afterAttemptPriority: null,
+      },
       callbacksDeliveredNullError: {
         setWithPriority: true,
         setPriority: true,

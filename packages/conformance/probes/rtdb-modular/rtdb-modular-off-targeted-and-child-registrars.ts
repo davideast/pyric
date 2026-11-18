@@ -69,8 +69,10 @@ export async function observeOffTargetedAndChildRegistrars(
   }
 
   const itemsRef = ref(db, `${scope}/items`);
+  const sentinelRef = ref(db, `${scope}/sentinel`);
   await setWithPriority(child(itemsRef, 'a'), { v: 1 }, 10);
   await setWithPriority(child(itemsRef, 'b'), { v: 2 }, 20);
+  await setWithPriority(sentinelRef, { seq: 0 }, null);
 
   const addedEvents: PlainChildEventRecord[] = [];
   const changedEvents: PlainChildEventRecord[] = [];
@@ -79,7 +81,7 @@ export async function observeOffTargetedAndChildRegistrars(
   let valCb1Count = 0;
   let valCb2Count = 0;
   let initialItemsValueResolve: (() => void) | undefined;
-  let sentinelLastVOfB: number | null = null;
+  let sentinelLastSeq: number | null = null;
   let sentinelWaitTarget: number | undefined;
   let sentinelWaitResolve: (() => void) | undefined;
 
@@ -103,17 +105,18 @@ export async function observeOffTargetedAndChildRegistrars(
     }
   };
 
-  const waitSentinelVOfB = async (targetV: number): Promise<void> => {
-    if (sentinelLastVOfB === targetV) {
+  const advanceAndWaitSentinel = async (nextSeq: number): Promise<void> => {
+    await setWithPriority(sentinelRef, { seq: nextSeq }, null);
+    if (sentinelLastSeq === nextSeq) {
       return;
     }
     let timer: ReturnType<typeof setTimeout> | undefined;
     try {
       await new Promise<void>((resolve, reject) => {
-        sentinelWaitTarget = targetV;
+        sentinelWaitTarget = nextSeq;
         sentinelWaitResolve = resolve;
         timer = setTimeout(() => {
-          reject(new Error(`Timed out waiting for sentinel b.v=${targetV}`));
+          reject(new Error(`Timed out waiting for sentinel seq=${nextSeq}`));
         }, 8_000);
       });
     } finally {
@@ -125,13 +128,34 @@ export async function observeOffTargetedAndChildRegistrars(
     }
   };
 
-  const sentinelRef = child(itemsRef, 'b');
+  const waitInitialSentinel = async (): Promise<void> => {
+    if (sentinelLastSeq === 0) {
+      return;
+    }
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await new Promise<void>((resolve, reject) => {
+        sentinelWaitTarget = 0;
+        sentinelWaitResolve = resolve;
+        timer = setTimeout(() => {
+          reject(new Error('Timed out waiting for initial sentinel seq=0'));
+        }, 8_000);
+      });
+    } finally {
+      if (timer !== undefined) {
+        clearTimeout(timer);
+      }
+      sentinelWaitTarget = undefined;
+      sentinelWaitResolve = undefined;
+    }
+  };
+
   const unsubSentinel = onValue(
     sentinelRef,
     (snap) => {
-      const v = (snap.val() as { v?: number } | null)?.v ?? null;
-      sentinelLastVOfB = v;
-      if (v !== null && sentinelWaitTarget === v && sentinelWaitResolve !== undefined) {
+      const seq = (snap.val() as { seq?: number } | null)?.seq ?? null;
+      sentinelLastSeq = seq;
+      if (seq !== null && sentinelWaitTarget === seq && sentinelWaitResolve !== undefined) {
         const done = sentinelWaitResolve;
         sentinelWaitTarget = undefined;
         sentinelWaitResolve = undefined;
@@ -189,15 +213,14 @@ export async function observeOffTargetedAndChildRegistrars(
   });
 
   try {
-    await Promise.all([waitInitialItemsValue(), waitSentinelVOfB(2)]);
+    await Promise.all([waitInitialItemsValue(), waitInitialSentinel()]);
     const initialAdded = [...addedEvents];
     const initialChangedCount = changedEvents.length;
 
     // Add child 'c' -> onChildAdded fires, onChildChanged MUST NOT fire (#M44)
     await setWithPriority(child(itemsRef, 'c'), { v: 3 }, 30);
     await setWithPriority(child(itemsRef, 'b'), { v: 20 }, 20);
-    await waitSentinelVOfB(20);
-    // Before b mutated to 20, adding 'c' produced 0 changed fires; mutating 'b' produced 1 changed fire ('b')
+    await advanceAndWaitSentinel(1);
     const changedSnapshotAfterCAndB = [...changedEvents];
     const changedCountAfterAddChildC = changedSnapshotAfterCAndB.filter(
       (e) => e.key === 'c',
@@ -205,15 +228,13 @@ export async function observeOffTargetedAndChildRegistrars(
 
     // Move 'c' ahead of 'a' and 'b' via priority 5 -> onChildMoved fires for 'c'
     await setPriority(child(itemsRef, 'c'), 5);
-    await setWithPriority(child(itemsRef, 'b'), { v: 21 }, 20);
-    await waitSentinelVOfB(21);
+    await advanceAndWaitSentinel(2);
     const movedAfterPriorityChangeOnC = [...movedEvents];
 
     // Delete child 'a' -> onChildRemoved fires for 'a', onChildChanged MUST NOT fire for 'a' (#M44)
     const changedBeforeRemoveA = changedEvents.length;
     await remove(child(itemsRef, 'a'));
-    await setWithPriority(child(itemsRef, 'b'), { v: 22 }, 20);
-    await waitSentinelVOfB(22);
+    await advanceAndWaitSentinel(3);
     const removedKeysAfterDeleteChildA = [...removedKeys];
     const changedForA = changedEvents.slice(changedBeforeRemoveA).filter((e) => e.key === 'a').length;
 
@@ -222,7 +243,7 @@ export async function observeOffTargetedAndChildRegistrars(
     const valCb2CountBeforeOffCb1 = valCb2Count;
     off(itemsRef, 'value', valCb1);
     await setWithPriority(child(itemsRef, 'b'), { v: 23 }, 20);
-    await waitSentinelVOfB(23);
+    await advanceAndWaitSentinel(4);
     const valCb1CountAfterOffCb1AndWrite = valCb1Count;
     const valCb2CountAfterOffCb1AndWrite = valCb2Count;
 
@@ -230,7 +251,7 @@ export async function observeOffTargetedAndChildRegistrars(
     const changedBeforeOffAllValue = changedEvents.length;
     off(itemsRef, 'value');
     await setWithPriority(child(itemsRef, 'b'), { v: 24 }, 20);
-    await waitSentinelVOfB(24);
+    await advanceAndWaitSentinel(5);
     const valCb2CountAfterOffAllValueAndWrite = valCb2Count;
     const childChangedStillFiredAfterOffAllValue = changedEvents.length > changedBeforeOffAllValue;
 
@@ -241,7 +262,7 @@ export async function observeOffTargetedAndChildRegistrars(
     off(itemsRef, 'child_changed', childChangedCb);
     await setWithPriority(child(itemsRef, 'd'), { v: 4 }, 40);
     await setWithPriority(child(itemsRef, 'b'), { v: 25 }, 20);
-    await waitSentinelVOfB(25);
+    await advanceAndWaitSentinel(6);
 
     return {
       childRegistrarIsolation: {
