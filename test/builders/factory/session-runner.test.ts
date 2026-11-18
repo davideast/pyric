@@ -5,7 +5,7 @@
 import { afterEach, describe, expect, test } from 'bun:test';
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
-import { basename, join, relative } from 'node:path';
+import { dirname, isAbsolute, join, relative } from 'node:path';
 import { npmCacheDir } from '../app-install.ts';
 import { chromiumExecutable, playwrightBrowsersPath, PLAYWRIGHT_CLIENT_ENV } from '../browser-server.ts';
 import { INVENTORY_TIMEOUT_MS, toolchainDirs } from '../namespace.ts';
@@ -29,8 +29,27 @@ afterEach(async () => {
   await Promise.all(upstreams.splice(0).map((upstream) => upstream.close()));
 });
 
+function childDirectoryUnder(parent: string, candidate: string): string | undefined {
+  const rel = relative(parent, candidate);
+  if (rel === '' || rel.startsWith('..') || isAbsolute(rel)) {
+    return undefined;
+  }
+  return rel.split('/')[0];
+}
+
+describe('childDirectoryUnder', () => {
+  test('extracts the direct child directory under browsers parent or HOME and ignores unrelated paths', () => {
+    expect(childDirectoryUnder('/h/me/.cache', '/h/me/.cache/ms-playwright')).toBe('ms-playwright');
+    expect(childDirectoryUnder('/h/me/.cache', '/h/me/.cache/pyric-tmp/run-4812')).toBe('pyric-tmp');
+    expect(childDirectoryUnder('/h/me/.cache', '/tmp/fr-abc')).toBeUndefined();
+    expect(childDirectoryUnder('/h/me/.cache', '/h/me/.cache')).toBeUndefined();
+    expect(childDirectoryUnder('/h/me', '/h/me/.cache/pyric-tmp/run-4812')).toBe('.cache');
+    expect(childDirectoryUnder('/h/me', '/tmp/fr-abc')).toBeUndefined();
+  });
+});
+
 describe('sessionPaths', () => {
-  test('keeps the seat’s HOME and network record in the run, and its log, sandbox directory and channel record in the host directory', () => {
+  test("keeps the seat's HOME and network record in the run, and its log, sandbox directory and channel record in the host directory", () => {
     expect(sessionPaths('/f/run', 'builder-1', '2026-11-02T00-00-00-000Z')).toEqual({
       home: '/f/run/homes/builder-1',
       log: '/f/run.host/logs/builder-1-2026-11-02T00-00-00-000Z.jsonl',
@@ -41,20 +60,20 @@ describe('sessionPaths', () => {
   });
 });
 
-describe('the role’s prompt and skill', () => {
+describe("the role's prompt and skill", () => {
   const options = { seat: 'builder-2', prompt: 'Take the next item.', deadline: '2026-11-02T08:00:00.000Z' };
   const dirs = { briefDir: '/briefs/narrations', runDir: '/f/run', appDir: '/f/run/app' };
 
-  test('names the role, seat and the three directories, the work-list rule and the run’s end, then the supervisor’s prompt', () => {
+  test("names the role, seat and the three directories, the work-list rule and the run's end, then the supervisor's prompt", () => {
     const prompt = rolePrompt('builder', options, dirs);
-    expect(prompt).toContain('You are the factory\'s builder, in seat builder-2. Your instructions are the factory-builder skill.');
+    expect(prompt).toContain("You are the factory's builder, in seat builder-2. Your instructions are the factory-builder skill.");
     expect(prompt).toContain('$BRIEF_DIR is /briefs/narrations (read-only), $RUN_DIR is /f/run and $APP_DIR is /f/run/app');
     expect(prompt).toContain('temporary file beside it, then renaming that file over /f/run/work-list.json');
     expect(prompt).toContain('2026-11-02T08:00:00.000Z');
     expect(prompt.endsWith('Take the next item.')).toBe(true);
   });
 
-  test('takes the role’s skill from the checkout, and fails naming the path when it is missing', () => {
+  test("takes the role's skill from the checkout, and fails naming the path when it is missing", () => {
     const skills = mkdtempSync(join(tmpdir(), 'factory-skills-'));
     mkdirSync(join(skills, 'factory-triage'));
     writeFileSync(join(skills, 'factory-triage', 'SKILL.md'), '');
@@ -78,7 +97,7 @@ function plantBrowsers(dir: string, revisions: readonly string[]): string {
 }
 
 describe('chromiumExecutable', () => {
-  test('finds the newest revision\'s chrome, by number, in either Linux directory, and skips the headless shell', () => {
+  test("finds the newest revision's chrome, by number, in either Linux directory, and skips the headless shell", () => {
     const browsers = plantBrowsers(mkdtempSync(join(tmpdir(), 'factory-browsers-')), ['999', '1208']);
     mkdirSync(join(browsers, 'chromium-1234', 'chrome-linux'), { recursive: true });
     writeFileSync(join(browsers, 'chromium-1234', 'chrome-linux', 'chrome'), '');
@@ -97,13 +116,13 @@ describe('chromiumExecutable', () => {
 });
 
 describe('bindProblems', () => {
-  test('refuses a bind that contains the home directory or reaches the agent’s credential directory, either way', () => {
+  test("refuses a bind that contains the home directory or reaches the agent's credential directory, either way", () => {
     const agent = fakeAgent({ credentialDirs: ['/h/me/.agent'] });
     const config = { agent, home: '/h/me' };
     expect(bindProblems(['/h/me/tools/agent', '/opt/agent'], config)).toEqual([]);
-    expect(bindProblems(['/h/me'], config)).toEqual(['the bind /h/me contains the home directory /h/me', 'the bind /h/me reaches the agent\'s credential directory']);
+    expect(bindProblems(['/h/me'], config)).toEqual(['the bind /h/me contains the home directory /h/me', "the bind /h/me reaches the agent's credential directory"]);
     expect(bindProblems(['/h'], config)).toHaveLength(2);
-    expect(bindProblems(['/h/me/.agent/bin'], config)).toEqual(['the bind /h/me/.agent/bin reaches the agent\'s credential directory']);
+    expect(bindProblems(['/h/me/.agent/bin'], config)).toEqual(["the bind /h/me/.agent/bin reaches the agent's credential directory"]);
   });
 
   test('sees through a link to the home directory or the credential directory', () => {
@@ -137,7 +156,7 @@ async function layout(): Promise<Layout> {
   const briefDir = mkdtempSync(join(tmpdir(), 'factory-brief-'));
   writeFileSync(join(briefDir, 'BRIEF.md'), 'what the app should do by morning');
   const skillFile = join(mkdtempSync(join(tmpdir(), 'factory-skill-')), 'SKILL.md');
-  writeFileSync(skillFile, 'the lead’s skill');
+  writeFileSync(skillFile, "the lead's skill");
   const upstream = await startFakeUpstream();
   upstreams.push(upstream);
   const agent = fakeAgent();
@@ -165,7 +184,7 @@ async function layout(): Promise<Layout> {
 }
 
 describe('layoutProblems', () => {
-  test('refuses a brief inside the run directory, an app outside it, a missing brief and a credential it can’t read', async () => {
+  test("refuses a brief inside the run directory, an app outside it, a missing brief and a credential it can't read", async () => {
     const { options, config } = await layout();
     const paths = sessionPaths(options.runDir, 'lead', 'stamp');
     expect(layoutProblems(options, config, paths)).toEqual([]);
@@ -178,7 +197,7 @@ describe('layoutProblems', () => {
     expect(layoutProblems({ ...options, briefDir: missing }, unreadable, paths)).toEqual(['the credential /x does not exist', `the brief directory ${missing} does not exist`]);
   });
 
-  test('refuses Playwright’s browsers when they are missing, contain the home directory or reach the agent’s credential', async () => {
+  test("refuses Playwright's browsers when they are missing, contain the home directory or reach the agent's credential", async () => {
     const { options, config } = await layout();
     const paths = sessionPaths(options.runDir, 'lead', 'stamp');
     const missing = join(tmpdir(), 'no-such-browsers');
@@ -190,7 +209,7 @@ describe('layoutProblems', () => {
     expect(layoutProblems(options, { ...config, agent, browsers: secret }, paths)).toEqual([`the bind ${secret} reaches the agent's credential directory`]);
   });
 
-  test('refuses Playwright\'s browsers when they hold no Chromium executable', async () => {
+  test("refuses Playwright's browsers when they hold no Chromium executable", async () => {
     const { options, config } = await layout();
     const paths = sessionPaths(options.runDir, 'lead', 'stamp');
     const empty = mkdtempSync(join(tmpdir(), 'factory-browsers-'));
@@ -224,11 +243,11 @@ function setUpTools(runDir: string): string {
 }
 
 describe('a session in its sandbox', () => {
-  test('sees $BRIEF_DIR, $RUN_DIR and $APP_DIR, reads the brief, writes the run and the app, can’t write the brief, and logs to the host directory', async () => {
+  test("sees $BRIEF_DIR, $RUN_DIR and $APP_DIR, reads the brief, writes the run and the app, can't write the brief, and logs to the host directory", async () => {
     const { options, config, upstream } = await layout();
     // Links a session could have planted in the run directory: the harness writes nothing through them.
     const decoy = join(mkdtempSync(join(tmpdir(), 'factory-decoy-')), 'host-file');
-    writeFileSync(decoy, 'the host’s own file');
+    writeFileSync(decoy, "the host's own file");
     for (const name of ['hosts', 'resolv.conf']) symlinkSync(decoy, join(options.runDir, name));
     const result = await runConfiguredSession('lead', options, config);
     expect(result).toMatchObject({ exitCode: 0, endedBy: 'exit' });
@@ -238,14 +257,14 @@ describe('a session in its sandbox', () => {
       brief: options.briefDir, run: options.runDir, app: options.appDir,
       readBrief: 'ok', writeRun: 'ok', writeApp: 'ok', writeBrief: 'EROFS',
     });
-    expect(lines.find((line) => line.type === 'instructions')?.text).toBe('the lead’s skill');
+    expect(lines.find((line) => line.type === 'instructions')?.text).toBe("the lead's skill");
     expect(readFileSync(join(options.runDir, 'from-session.txt'), 'utf8')).toBe('written in the session');
     expect(existsSync(join(options.briefDir, 'from-session.txt'))).toBe(false);
     expect(upstream.received).toHaveLength(1);
-    expect(readFileSync(decoy, 'utf8')).toBe('the host’s own file');
+    expect(readFileSync(decoy, 'utf8')).toBe("the host's own file");
   }, SANDBOX_TEST_TIMEOUT_MS);
 
-  test('starts a server on its own loopback and opens it in headless Chromium, with the browsers read-only and no more of the host’s HOME than its binds', async () => {
+  test("starts a server on its own loopback and opens it in headless Chromium, with the browsers read-only and no more of the host's HOME than its binds", async () => {
     const { options, config } = await layout();
     const plain = fakeAgent();
     const agent = fakeAgent({
@@ -276,16 +295,31 @@ describe('a session in its sandbox', () => {
     expect(names).toEqual(expect.arrayContaining(['PLAYWRIGHT_BROWSERS_PATH', PLAYWRIGHT_CLIENT_ENV, ONLINE_INIT_ENV, ...Object.keys(FAKE_MEDIA)]));
     // `next dev` can't take a second space-separated `--import` beside `pyric sandbox`'s.
     expect(names).not.toContain('NODE_OPTIONS');
-    // The browsers' directory is bound alone: beside it, only the npm cache when that lives there too.
-    const nameOf = (path: string) => basename(path);
-    expect((browser?.besideBrowsers as string[]).filter((entry) => ![nameOf(playwrightBrowsersPath()), nameOf(npmCacheDir())].includes(entry))).toEqual([]);
-    // Of the host's HOME, only what the sandbox binds on purpose: the browsers, the npm cache, the toolchain and the harness's repo.
-    const topUnderHome = (path: string) => relative(homedir(), path).split('/')[0];
-    const bound = new Set([playwrightBrowsersPath(), npmCacheDir(), ...toolchainDirs(), import.meta.dir].map(topUnderHome));
-    expect((browser?.hostHomeEntries as string[]).filter((entry) => !bound.has(entry))).toEqual([]);
+    // The browsers' directory is bound alone: beside it, only the npm cache or an explicit sandbox dir/bind under the same parent.
+    const browsersParent = dirname(playwrightBrowsersPath());
+    const allowedBesideBrowsers = new Set<string>();
+    for (const allowedPath of [playwrightBrowsersPath(), npmCacheDir(), tmpdir(), options.briefDir, config.skillFile]) {
+      const entry = childDirectoryUnder(browsersParent, allowedPath);
+      if (entry !== undefined) {
+        allowedBesideBrowsers.add(entry);
+      }
+    }
+    const besideBrowsers = (browser?.besideBrowsers as string[]) ?? [];
+    expect(besideBrowsers.filter((entry) => !allowedBesideBrowsers.has(entry))).toEqual([]);
+    // Of the host's HOME, only what the sandbox binds on purpose: the browsers, the npm cache, TMPDIR/test binds, the toolchain and the harness's repo.
+    const home = homedir();
+    const bound = new Set<string>();
+    for (const boundPath of [playwrightBrowsersPath(), npmCacheDir(), tmpdir(), options.briefDir, config.skillFile, ...toolchainDirs(), import.meta.dir]) {
+      const entry = childDirectoryUnder(home, boundPath);
+      if (entry !== undefined) {
+        bound.add(entry);
+      }
+    }
+    const hostHomeEntries = (browser?.hostHomeEntries as string[]) ?? [];
+    expect(hostHomeEntries.filter((entry) => !bound.has(entry))).toEqual([]);
   }, SANDBOX_TEST_TIMEOUT_MS);
 
-  test('finds the run\'s ffmpeg through the app\'s own ffmpeg-static, and Chromium through CHROME_PATH, both bound read-only', async () => {
+  test("finds the run's ffmpeg through the app's own ffmpeg-static, and Chromium through CHROME_PATH, both bound read-only", async () => {
     const { options, config } = await layout();
     const ffmpeg = setUpTools(options.runDir);
     const plain = fakeAgent();
