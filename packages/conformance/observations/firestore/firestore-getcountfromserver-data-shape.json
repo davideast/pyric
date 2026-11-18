@@ -1,0 +1,45 @@
+{
+  "name": "firestore-getcountfromserver-data-shape",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "getCountFromServer(query) returns an AggregateQuerySnapshot whose data() yields { count: N } across empty, populated, and limit-capped queries, preserving query identity and snapshot equality.",
+  "observedAt": "2026-11-18T08:39:36.933Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "countDescriptor": {
+      "isAggregateField": true,
+      "type": "AggregateField",
+      "aggregateType": "count"
+    },
+    "empty": {
+      "isAggregateQuerySnapshot": true,
+      "type": "AggregateQuerySnapshot",
+      "dataKeys": [
+        "count"
+      ],
+      "data": {
+        "count": 0
+      },
+      "queryMatchesInput": true
+    },
+    "populated": {
+      "dataKeys": [
+        "count"
+      ],
+      "data": {
+        "count": 3
+      },
+      "queryMatchesInput": true,
+      "equalSameQueryAndCount": true,
+      "equalDifferentCount": false,
+      "equalDifferentQuery": false
+    },
+    "cappedLimit2": {
+      "data": {
+        "count": 2
+      },
+      "queryMatchesInput": true
+    }
+  }
+}

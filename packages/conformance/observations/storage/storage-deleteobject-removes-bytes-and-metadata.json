@@ -1,0 +1,53 @@
+{
+  "name": "storage-deleteobject-removes-bytes-and-metadata",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "firebase/storage deleteObject(ref): observes atomic removal of both stored bytes and object metadata so post-delete getBytes and getMetadata both reject with storage/object-not-found.",
+  "observedAt": "2026-11-18T08:39:45.183Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "beforeDeleteBytes": {
+      "threw": false,
+      "code": null,
+      "errorName": null,
+      "isFirebaseError": false,
+      "byteLength": 4,
+      "bytes": [
+        16,
+        32,
+        48,
+        64
+      ]
+    },
+    "beforeDeleteMetadata": {
+      "threw": false,
+      "code": null,
+      "errorName": null,
+      "isFirebaseError": false,
+      "size": 4,
+      "contentType": "application/octet-stream",
+      "customMetadata": {
+        "tag": "ephemeral"
+      }
+    },
+    "deleteResolvedUndefined": true,
+    "afterDeleteBytes": {
+      "threw": true,
+      "code": "storage/object-not-found",
+      "errorName": "FirebaseError",
+      "isFirebaseError": true,
+      "byteLength": null,
+      "bytes": null
+    },
+    "afterDeleteMetadata": {
+      "threw": true,
+      "code": "storage/object-not-found",
+      "errorName": "FirebaseError",
+      "isFirebaseError": true,
+      "size": null,
+      "contentType": null,
+      "customMetadata": null
+    }
+  }
+}

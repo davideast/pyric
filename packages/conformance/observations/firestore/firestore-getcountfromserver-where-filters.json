@@ -1,0 +1,16 @@
+{
+  "name": "firestore-getcountfromserver-where-filters",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "getCountFromServer(query) honors equality, range, in-membership, composite or(), and zero-match where() filters.",
+  "observedAt": "2026-11-18T08:39:40.988Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "equalityActiveCount": 3,
+    "rangePriorityAtLeast25Count": 3,
+    "inQueuedOrArchivedCount": 2,
+    "compositeOrQueuedOrArchivedCount": 2,
+    "zeroMatchCount": 0
+  }
+}
