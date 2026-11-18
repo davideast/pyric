@@ -4,9 +4,8 @@ import { withFirestoreProbeSession } from '../../src/sdk-probe-runtime.ts';
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: ['web-config', 'firestore-rules'],
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'firestore#104',
+  rowIds: ['firestore#104', 'firestore#104a', 'firestore#104b'],
   description:
     'Timestamp normalizes negative-epoch milliseconds to non-negative nanoseconds, exposes isEqual/toJSON/valueOf, and stores Timestamp, Date, and serverTimestamp() values in a unified queryable representation.',
   async observe() {

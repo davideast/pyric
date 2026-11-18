@@ -1,7 +1,11 @@
 {
   "name": "firestore-timestamp-roundtrip-and-negative-millis",
-  "matrixRow": "",
-  "rowIds": [],
+  "matrixRow": "firestore#104",
+  "rowIds": [
+    "firestore#104",
+    "firestore#104a",
+    "firestore#104b"
+  ],
   "description": "Timestamp normalizes negative-epoch milliseconds to non-negative nanoseconds, exposes isEqual/toJSON/valueOf, and stores Timestamp, Date, and serverTimestamp() values in a unified queryable representation.",
   "observedAt": "2026-11-18T12:52:43.402Z",
   "fbSdkVersion": "12.19.0",

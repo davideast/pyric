@@ -4,9 +4,8 @@ import { withFirestoreProbeSession } from '../../src/sdk-probe-runtime.ts';
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: ['web-config', 'firestore-rules'],
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'firestore#106',
+  rowIds: ['firestore#106', 'firestore#111'],
   description:
     'Bytes, GeoPoint, VectorValue (via vector()), FieldPath, and documentId() expose value equality and serialization helpers and round-trip cleanly through setDoc and getDoc.',
   async observe() {
