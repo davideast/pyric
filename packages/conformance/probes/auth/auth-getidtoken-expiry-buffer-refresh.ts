@@ -50,15 +50,25 @@ export const probe: Probe = {
             () => idTokenFires >= 1 && authStateFires >= 1,
             5000,
           );
+          if (idTokenFires < 1 || authStateFires < 1) {
+            throw new Error(
+              'Initial onIdTokenChanged/onAuthStateChanged emissions did not arrive within 5000ms.',
+            );
+          }
           await adminAuth.setCustomUserClaims(uid, {
             refreshProbeStage: 'post-expiry',
           });
 
           const idTokenBaselineBefore = idTokenFires;
           const authStateBaselineBefore = authStateFires;
-          Date.now = () => expirationMs - 45_000;
-          const tokenBeforeBuffer = await cred.user.getIdToken();
-          Date.now = realDateNow;
+          let tokenBeforeBuffer: string;
+          try {
+            Date.now = () => expirationMs - 45_000;
+            tokenBeforeBuffer = await cred.user.getIdToken();
+          } finally {
+            Date.now = realDateNow;
+          }
+          await Promise.resolve();
           const jwtBeforeBuffer = decodeJwtParts(tokenBeforeBuffer);
           const beforeRefreshBuffer = {
             returnedCachedToken: tokenBeforeBuffer === token0,
@@ -70,13 +80,23 @@ export const probe: Probe = {
 
           const idTokenBaselineInside = idTokenFires;
           const authStateBaselineInside = authStateFires;
-          Date.now = () => expirationMs - 15_000;
-          const tokenInsideBuffer = await cred.user.getIdToken();
+          let tokenInsideBuffer: string;
+          try {
+            Date.now = () => expirationMs - 15_000;
+            tokenInsideBuffer = await cred.user.getIdToken();
+          } finally {
+            Date.now = realDateNow;
+          }
           await waitForCondition(
             () => idTokenFires > idTokenBaselineInside,
             5000,
           );
-          Date.now = realDateNow;
+          if (idTokenFires <= idTokenBaselineInside) {
+            throw new Error(
+              'onIdTokenChanged did not emit after non-forced refresh inside the 30s expiry buffer.',
+            );
+          }
+          await Promise.resolve();
 
           const jwtInsideBuffer = decodeJwtParts(tokenInsideBuffer);
           const tokenSubsequentCached = await cred.user.getIdToken();

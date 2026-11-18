@@ -66,6 +66,11 @@ export const probe: Probe = {
         let authStateTransitionsDuringFailure = 0;
         try {
           await waitForCondition(() => stateEmissions.length >= 1, 5000);
+          if (stateEmissions.length < 1) {
+            throw new Error(
+              'Initial onAuthStateChanged emission did not arrive within 5000ms.',
+            );
+          }
           const baselineCount = stateEmissions.length;
           disabledWhileSignedInAttempt = await observeAsyncAuthAttempt(
             () =>
@@ -75,6 +80,7 @@ export const probe: Probe = {
               ),
             FirebaseError,
           );
+          await Promise.resolve();
           currentUserPreservedRef = auth.currentUser === credActive.user;
           currentUserPreservedUid = auth.currentUser?.uid === uidActive;
           authStateTransitionsDuringFailure = stateEmissions.length - baselineCount;
