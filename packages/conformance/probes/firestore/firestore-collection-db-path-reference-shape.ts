@@ -6,9 +6,8 @@ import { withFirestoreProbeSession } from '../../src/sdk-probe-runtime.ts';
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: ['web-config', 'firestore-rules'],
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'firestore#9',
+  rowIds: ['firestore#9'],
   description:
     'collection(db, path, ...pathSegments) returns a CollectionReference with type, id, path, parent (null at root, DocumentReference when nested), and even-segment rejection.',
   async observe() {

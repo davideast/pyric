@@ -1,7 +1,9 @@
 {
   "name": "firestore-doc-variadic-segments",
-  "matrixRow": "",
-  "rowIds": [],
+  "matrixRow": "firestore#8",
+  "rowIds": [
+    "firestore#8"
+  ],
   "description": "doc(db, path, ...pathSegments) joins variadic single and multi-segment arguments into an equivalent DocumentReference and rejects odd total segment counts.",
   "observedAt": "2026-11-18T06:44:57.099Z",
   "fbSdkVersion": "12.19.0",

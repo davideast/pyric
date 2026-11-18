@@ -1,7 +1,9 @@
 {
   "name": "firestore-collection-db-path-reference-shape",
-  "matrixRow": "",
-  "rowIds": [],
+  "matrixRow": "firestore#9",
+  "rowIds": [
+    "firestore#9"
+  ],
   "description": "collection(db, path, ...pathSegments) returns a CollectionReference with type, id, path, parent (null at root, DocumentReference when nested), and even-segment rejection.",
   "observedAt": "2026-11-18T06:44:36.573Z",
   "fbSdkVersion": "12.19.0",

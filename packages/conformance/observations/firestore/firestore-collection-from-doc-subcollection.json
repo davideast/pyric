@@ -1,7 +1,9 @@
 {
   "name": "firestore-collection-from-doc-subcollection",
-  "matrixRow": "",
-  "rowIds": [],
+  "matrixRow": "firestore#12",
+  "rowIds": [
+    "firestore#12"
+  ],
   "description": "collection(docRef, name, ...pathSegments) builds subcollection references anchored at docRef.path, links parent DocumentReference, and rejects even relative segment counts.",
   "observedAt": "2026-11-18T06:44:40.542Z",
   "fbSdkVersion": "12.19.0",

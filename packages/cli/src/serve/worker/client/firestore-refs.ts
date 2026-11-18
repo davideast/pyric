@@ -49,40 +49,72 @@ function parseClientPathSegments(fnName: 'doc' | 'collection', rawSegments: read
   return segments;
 }
 
+function isClientPortCarrier(candidate: unknown): candidate is { __kind: string; port: ClientDb['port'] } {
+  if (candidate === null || typeof candidate !== 'object') {
+    return false;
+  }
+  const maybe = candidate as { __kind?: unknown; port?: { postMessage?: unknown } };
+  return typeof maybe.__kind === 'string' && typeof maybe.port?.postMessage === 'function';
+}
+
 /**
  * Build a document reference. Mirrors `pyric/firestore`'s `doc(db, path)`.
  *
- * WHY CLIENT-SIDE: Firebase's `doc()` is synchronous and path-only — it
+ * WHY CLIENT-SIDE: Firebase's `doc()` is synchronous and path-only -- it
  * needs no data from the sandbox. We build a descriptor object here and
  * include the port so execution calls can route to the worker.
  */
 export function doc(
-  parent: ClientDb | CollRefHandle,
+  parent: DocRefHandle<unknown>,
+  path: string,
   ...pathSegments: string[]
-): DocRefHandle {
+): DocRefHandle;
+export function doc<T = DocumentData>(
+  parent: ClientDb | CollRefHandle<T> | DocRefHandle<unknown>,
+  ...pathSegments: string[]
+): DocRefHandle<T>;
+export function doc<T = DocumentData>(
+  parent: ClientDb | CollRefHandle<T> | DocRefHandle<unknown>,
+  ...pathSegments: string[]
+): DocRefHandle<T> {
+  if (
+    !isClientPortCarrier(parent) ||
+    (parent.__kind !== 'client-db' && parent.__kind !== 'coll-ref' && parent.__kind !== 'doc-ref')
+  ) {
+    throw new FirebaseError(
+      'invalid-argument',
+      'Expected first argument to doc() to be a Firestore, a CollectionReference or a DocumentReference',
+    );
+  }
   const port = parent.port;
   let path: string;
   let converter: FirestoreDataConverter<unknown> | null = null;
 
-  const isDatabase = parent.__kind === 'client-db';
   const hasPath = pathSegments.length > 0;
-  if (isDatabase) {
-    const isPathMissing = !hasPath;
-    if (isPathMissing) throw new TypeError('doc(db, path) requires a path segment.');
-    const segments = parseClientPathSegments('doc', pathSegments);
-    if (segments.length % 2 !== 0) {
+  if (parent.__kind === 'client-db' || parent.__kind === 'doc-ref') {
+    if (!hasPath) {
       throw new FirebaseError(
         'invalid-argument',
-        `Invalid document reference. Document references must have an even number of segments, but ${segments.join('/')} has ${segments.length}.`,
+        'Function doc() cannot be called with an empty path.',
       );
     }
-    path = segments.join('/');
+    const relSegments = parseClientPathSegments('doc', pathSegments);
+    let baseSegments: string[] = [];
+    if (parent.__kind === 'doc-ref') {
+      baseSegments = (parent as DocRefHandle<unknown>).descriptor.path.split('/');
+    }
+    const allSegments = [...baseSegments, ...relSegments];
+    if (allSegments.length % 2 !== 0) {
+      throw new FirebaseError(
+        'invalid-argument',
+        `Invalid document reference. Document references must have an even number of segments, but ${allSegments.join('/')} has ${allSegments.length}.`,
+      );
+    }
+    path = allSegments.join('/');
   } else {
-    // parent is a CollRefHandle
-    const collPath = parent.descriptor.path;
-    converter = parent.converter;
-    // No segment means Firebase mints a client-side id for a document that
-    // does not exist yet; the collection path itself is not a document.
+    const collParent = parent as CollRefHandle<T>;
+    const collPath = collParent.descriptor.path;
+    converter = collParent.converter;
     if (hasPath) {
       const relSegments = parseClientPathSegments('doc', pathSegments);
       const allSegments = [...collPath.split('/'), ...relSegments];
@@ -98,23 +130,38 @@ export function doc(
     }
   }
 
-  return createDocumentReference(port, path, converter);
+  return createDocumentReference<T>(port, path, converter);
 }
 
 /**
  * Build a collection reference. Mirrors `pyric/firestore`'s `collection(db, path)`.
  */
 export function collection(
-  parent: ClientDb | DocRefHandle,
+  parent: ClientDb | CollRefHandle<unknown> | DocRefHandle<unknown>,
   ...pathSegments: string[]
 ): CollRefHandle {
+  if (
+    !isClientPortCarrier(parent) ||
+    (parent.__kind !== 'client-db' && parent.__kind !== 'doc-ref' && parent.__kind !== 'coll-ref')
+  ) {
+    throw new FirebaseError(
+      'invalid-argument',
+      'Expected first argument to collection() to be a Firestore, a CollectionReference or a DocumentReference',
+    );
+  }
   const port = parent.port;
-  if (pathSegments.length === 0) throw new TypeError('collection() requires a path segment.');
+  if (pathSegments.length === 0) {
+    throw new FirebaseError(
+      'invalid-argument',
+      'Function collection() cannot be called with an empty path.',
+    );
+  }
 
   const relSegments = parseClientPathSegments('collection', pathSegments);
-  const baseSegments = parent.__kind === 'client-db'
-    ? []
-    : (parent as DocRefHandle).descriptor.path.split('/');
+  let baseSegments: string[] = [];
+  if (parent.__kind !== 'client-db') {
+    baseSegments = (parent as DocRefHandle<unknown> | CollRefHandle<unknown>).descriptor.path.split('/');
+  }
   const allSegments = [...baseSegments, ...relSegments];
   if (allSegments.length % 2 !== 1) {
     throw new FirebaseError(
@@ -124,8 +171,6 @@ export function collection(
   }
   const path = allSegments.join('/');
 
-  // A parent document's converter describes that document, not the documents
-  // of a subcollection under it, so it is not inherited here.
   return createCollectionReference(port, path, null);
 }
 
@@ -157,6 +202,18 @@ function createQueryHandle<T = DocumentData>(
  * Build a collection-group query. Mirrors `pyric/firestore`'s `collectionGroup(db, id)`.
  */
 export function collectionGroup(db: ClientDb, collectionId: string): QueryHandle {
+  if (!isClientPortCarrier(db) || db.__kind !== 'client-db') {
+    throw new FirebaseError(
+      'invalid-argument',
+      'Expected first argument to collectionGroup() to be a Firestore instance.',
+    );
+  }
+  if (typeof collectionId !== 'string' || collectionId.length === 0 || collectionId.includes('/')) {
+    throw new FirebaseError(
+      'invalid-argument',
+      `Invalid collection ID (${String(collectionId)}) passed to function collectionGroup(). Collection IDs must be non-empty strings without '/'.`,
+    );
+  }
   const descriptor: QueryDescriptor = {
     __ref: 'query',
     source: { __ref: 'group', collectionId },

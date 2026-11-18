@@ -1,7 +1,9 @@
 {
   "name": "firestore-doc-from-collection-with-id",
-  "matrixRow": "",
-  "rowIds": [],
+  "matrixRow": "firestore#10",
+  "rowIds": [
+    "firestore#10"
+  ],
   "description": "doc(coll, id, ...pathSegments) appends relative segments under a CollectionReference, matches doc(db, fullPath) via refEqual, and rejects even relative segment counts.",
   "observedAt": "2026-11-18T06:44:53.054Z",
   "fbSdkVersion": "12.19.0",

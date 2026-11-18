@@ -22,9 +22,8 @@ function summarizeUnknownRefOutcome(raw: {
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: ['web-config', 'firestore-rules'],
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'firestore#14',
+  rowIds: ['firestore#14'],
   description:
     'doc, collection, and collectionGroup reject unrecognized or foreign first-argument objects with a deterministic error class and code.',
   async observe() {

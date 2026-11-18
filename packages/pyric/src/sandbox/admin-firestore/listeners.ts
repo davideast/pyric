@@ -139,12 +139,21 @@ function extractSnapshotScope(
 
 /**
  * Discriminate a `DocumentReference` from a `Query`/`CollectionReference`.
- * The Admin-shaped `DocumentReference` always has a `parent: CollectionReference`
- * field; `Query` and `CollectionReference` do not have a `parent` field.
+ * Modular `CollectionReference` values also expose `parent` (a `DocumentReference`
+ * on nested subcollections), so reject `collection`/`query` markers and
+ * `doc`/`snapshotScope` query methods first.
  */
 function isDocumentReference(ref: unknown): ref is DocumentReference {
   if (ref === null || typeof ref !== 'object') return false;
-  const obj = ref as { parent?: unknown; path?: unknown };
+  const obj = ref as {
+    type?: unknown;
+    parent?: unknown;
+    path?: unknown;
+    doc?: unknown;
+    snapshotScope?: unknown;
+  };
+  if (obj.type === 'collection' || obj.type === 'query') return false;
+  if (typeof obj.doc === 'function' || typeof obj.snapshotScope === 'function') return false;
   return (
     typeof obj.path === 'string' &&
     obj.path.length > 0 &&

@@ -98,6 +98,7 @@ export interface CollectionReference<_T = DocumentData> extends Query<_T> {
   readonly id: string;
   readonly path: string;
   readonly converter: FirestoreDataConverter<any, any> | null;
+  readonly parent: DocumentReference<DocumentData> | null;
   withConverter<T, D extends DocumentData = DocumentData>(converter: FirestoreDataConverter<T, D>): CollectionReference<T>;
   withConverter(converter: null): CollectionReference<DocumentData>;
 }

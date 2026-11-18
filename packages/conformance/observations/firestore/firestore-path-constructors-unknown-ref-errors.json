@@ -1,7 +1,9 @@
 {
   "name": "firestore-path-constructors-unknown-ref-errors",
-  "matrixRow": "",
-  "rowIds": [],
+  "matrixRow": "firestore#14",
+  "rowIds": [
+    "firestore#14"
+  ],
   "description": "doc, collection, and collectionGroup reject unrecognized or foreign first-argument objects with a deterministic error class and code.",
   "observedAt": "2026-11-18T06:45:00.765Z",
   "fbSdkVersion": "12.19.0",

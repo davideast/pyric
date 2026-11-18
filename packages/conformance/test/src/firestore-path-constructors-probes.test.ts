@@ -7,16 +7,29 @@ import {
   refEqual,
 } from 'firebase/firestore';
 import { describe, expect, test } from 'bun:test';
+import { observationExceptions } from '../../exceptions/load.ts';
+import { listProbeFiles } from '../../probes/load.ts';
+import { allCompatibilityRows } from '../../registry/index.ts';
+import { loadRigManifests } from '../../rigs/load.ts';
+import { ALL_RULES_FIRESTORE_SCENARIOS } from '../../rules-corpus/firestore/index.ts';
+import {
+  ALL_RULES_RTDB_DEPLOY_SCENARIOS,
+  ALL_RULES_RTDB_SCENARIOS,
+} from '../../rules-corpus/rtdb/index.ts';
+import { ALL_RULES_STORAGE_SCENARIOS } from '../../rules-corpus/storage/index.ts';
 import {
   isFirestoreAutoIdShape,
   observeFirestoreConstructorCall,
 } from '../../src/firestore-path-constructor-probe-helpers.ts';
+import { loadObservations } from '../../src/ledger.ts';
 import {
   loadModularProbes,
   printModularProbePreview,
   selectModularProbes,
 } from '../../src/sdk-probes.ts';
-import { expectStagedUntilCaptured } from './staged-capture-assertions.ts';
+import { loadPendingRowLinkObservations } from '../../src/staged-captures.ts';
+import { validateCompatibilityRegistry } from '../../src/validate-registry.ts';
+import { surfaceDescriptors } from '../../surfaces/load.ts';
 import { probe as collDbProbe } from '../../probes/firestore/firestore-collection-db-path-reference-shape.ts';
 import { probe as collSubProbe } from '../../probes/firestore/firestore-collection-from-doc-subcollection.ts';
 import { probe as docDbProbe } from '../../probes/firestore/firestore-doc-db-path-reference-shape.ts';
@@ -25,59 +38,38 @@ import { probe as docFromCollProbe } from '../../probes/firestore/firestore-doc-
 import { probe as docVariadicProbe } from '../../probes/firestore/firestore-doc-variadic-segments.ts';
 import { probe as unknownRefProbe } from '../../probes/firestore/firestore-path-constructors-unknown-ref-errors.ts';
 
-const PATH_CONSTRUCTOR_PROBE_IDS = [
-  'firestore-collection-db-path-reference-shape',
-  'firestore-collection-from-doc-subcollection',
-  'firestore-doc-db-path-reference-shape',
-  'firestore-doc-from-collection-autoid',
-  'firestore-doc-from-collection-with-id',
-  'firestore-doc-variadic-segments',
-  'firestore-path-constructors-unknown-ref-errors',
+const EXPECTED_PATH_CONSTRUCTOR_LINKS = [
+  ['firestore-doc-db-path-reference-shape', docDbProbe, 'firestore#7'],
+  ['firestore-doc-variadic-segments', docVariadicProbe, 'firestore#8'],
+  ['firestore-collection-db-path-reference-shape', collDbProbe, 'firestore#9'],
+  ['firestore-doc-from-collection-with-id', docFromCollProbe, 'firestore#10'],
+  ['firestore-doc-from-collection-autoid', docAutoIdProbe, 'firestore#11'],
+  ['firestore-collection-from-doc-subcollection', collSubProbe, 'firestore#12'],
+  ['firestore-path-constructors-unknown-ref-errors', unknownRefProbe, 'firestore#14'],
 ] as const;
 
-describe('Firestore Path constructors staged probes (sdk-probes)', () => {
-  test('registers all 7 Path constructor probes on sdk-probes with pendingRowLink and empty rowIds', async () => {
+describe('Firestore Path constructors linked probes (sdk-probes)', () => {
+  test('registers all 7 Path constructor probes on sdk-probes linked to their target registry rows', async () => {
     const loaded = await loadModularProbes('sdk-probes');
-    const loadedIds = loaded.map((entry) => entry.id);
-    for (const id of PATH_CONSTRUCTOR_PROBE_IDS) {
-      expect(loadedIds).toContain(id);
-    }
-
-    const probes = [
-      collDbProbe,
-      collSubProbe,
-      docDbProbe,
-      docAutoIdProbe,
-      docFromCollProbe,
-      docVariadicProbe,
-      unknownRefProbe,
-    ];
-    for (const probeRecord of probes) {
-      expect(probeRecord.rig).toBe('sdk-probes');
-      expect(probeRecord.requires).toEqual(['web-config', 'firestore-rules']);
-      expect(probeRecord.pendingRowLink).toBe(true);
-      expect(probeRecord.matrixRow).toBe('');
-      expect(probeRecord.rowIds).toEqual([]);
-      expect(probeRecord.description.length).toBeGreaterThan(20);
-    }
-
+    const byId = new Map(loaded.map((entry) => [entry.id, entry]));
     const unfilteredIds = new Set(
       selectModularProbes(loaded, [], 'sdk-probes', {
         includeUncapturedStaged: false,
       }).map((entry) => entry.id),
     );
 
-    expectStagedUntilCaptured(PATH_CONSTRUCTOR_PROBE_IDS, {
-      rig: 'sdk-probes',
-      filterFlag: '--probe',
-      filterValueFor: (name) => name,
-      whenUncaptured(name) {
-        expect(unfilteredIds.has(name)).toBe(false);
-      },
-      whenCaptured(name) {
-        expect(unfilteredIds.has(name)).toBe(true);
-      },
-    });
+    for (const [id, probeRecord, expectedRowId] of EXPECTED_PATH_CONSTRUCTOR_LINKS) {
+      const found = byId.get(id);
+      expect(found, `missing modular probe ${id}`).toBeDefined();
+      expect(found?.probe).toBe(probeRecord);
+      expect(probeRecord.rig).toBe('sdk-probes');
+      expect(probeRecord.requires).toEqual(['web-config', 'firestore-rules']);
+      expect(probeRecord.pendingRowLink).toBeUndefined();
+      expect(probeRecord.matrixRow).toBe(expectedRowId);
+      expect(probeRecord.rowIds).toEqual([expectedRowId]);
+      expect(probeRecord.description.length).toBeGreaterThan(20);
+      expect(unfilteredIds.has(id)).toBe(true);
+    }
 
     const lines: string[] = [];
     printModularProbePreview({
@@ -89,6 +81,49 @@ describe('Firestore Path constructors staged probes (sdk-probes)', () => {
     expect(
       lines.some((line) => line.includes('firestore-doc-db-path-reference-shape')),
     ).toBe(true);
+  });
+
+  test('links all 7 committed observations to oracle-backed registry rows with zero validation problems', async () => {
+    const existingObservations = loadObservations();
+    const obsByName = new Map(existingObservations.map((obs) => [obs.name, obs]));
+    const rowsById = new Map(allCompatibilityRows.map((row) => [row.id, row]));
+
+    for (const [id, , expectedRowId] of EXPECTED_PATH_CONSTRUCTOR_LINKS) {
+      const obs = obsByName.get(id);
+      expect(obs, `missing committed observation ${id}`).toBeDefined();
+      expect(obs?.rowIds).toEqual([expectedRowId]);
+      expect(obs?.matrixRow).toBe(expectedRowId);
+
+      const row = rowsById.get(expectedRowId);
+      expect(row, `missing compatibility row ${expectedRowId}`).toBeDefined();
+      expect(row?.automation).toBe('oracle-backed');
+      expect(row?.oracleObservations).toContain(id);
+    }
+
+    const rigManifests = await loadRigManifests();
+    const probeFiles = listProbeFiles();
+    const pendingRowLinkObservations = loadPendingRowLinkObservations();
+    const rulesFirestoreScenarioIds = ALL_RULES_FIRESTORE_SCENARIOS.map((s) => s.id);
+    const rulesStorageScenarioIds = ALL_RULES_STORAGE_SCENARIOS.map((s) => s.id);
+    const rulesRtdbScenarioIds = [
+      ...ALL_RULES_RTDB_SCENARIOS.map((s) => s.id),
+      ...ALL_RULES_RTDB_DEPLOY_SCENARIOS.map((s) => s.id),
+    ];
+
+    expect(
+      validateCompatibilityRegistry({
+        rows: allCompatibilityRows,
+        descriptors: surfaceDescriptors,
+        observations: existingObservations,
+        observationExceptions,
+        rigManifests,
+        probeFiles,
+        rulesFirestoreScenarioIds,
+        rulesStorageScenarioIds,
+        rulesRtdbScenarioIds,
+        pendingRowLinkObservations,
+      }),
+    ).toEqual([]);
   });
 
   test('observes upstream firebase/firestore synchronous path constructors and error classes without network I/O', async () => {

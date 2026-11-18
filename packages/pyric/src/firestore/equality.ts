@@ -2,6 +2,7 @@
 import { converterOf, targetOf, underlyingOf } from './state.js';
 import { taggedSnapshotsEqual } from './snapshots.js';
 import type {
+  CollectionReference,
   DocumentReference,
   Query,
   DocumentSnapshot,
@@ -22,7 +23,10 @@ function targetsShareOwner(
   return true;
 }
 
-export function refEqual(a: DocumentReference, b: DocumentReference): boolean {
+export function refEqual<T = unknown>(
+  a: DocumentReference<T> | CollectionReference<T>,
+  b: DocumentReference<T> | CollectionReference<T>,
+): boolean {
   const [targetA, targetB] = assertRecognizedPair(a as object, b as object);
   if (!targetsShareOwner(targetA, targetB)) return false;
   if ((converterOf(a as object) ?? null) !== (converterOf(b as object) ?? null)) return false;

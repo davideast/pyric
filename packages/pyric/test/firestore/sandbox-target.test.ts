@@ -153,7 +153,7 @@ describe('getFirestore + path constructors', () => {
   });
 
   it('throws TypeError for refs not produced by this package', () => {
-    expect(() => doc({} as never, 'x')).toThrow(/unrecognized reference/);
+    expect(() => query({} as never)).toThrow(/unrecognized reference/);
   });
 });
 

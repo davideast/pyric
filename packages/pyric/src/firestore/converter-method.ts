@@ -32,12 +32,24 @@ type CollectionParentResolver = (
   converter: FirestoreDataConverter<unknown, DocumentData> | null,
 ) => CollectionReference<unknown>;
 
+type DocumentParentResolver = (
+  owner: Target,
+  docPath: string,
+) => DocumentReference<DocumentData>;
+
 let resolveDocumentParentCollection: CollectionParentResolver | undefined;
+let resolveCollectionParentDocument: DocumentParentResolver | undefined;
 
 export function registerDocumentParentCollectionResolver(
   resolver: CollectionParentResolver,
 ): void {
   resolveDocumentParentCollection = resolver;
+}
+
+export function registerCollectionParentDocumentResolver(
+  resolver: DocumentParentResolver,
+): void {
+  resolveCollectionParentDocument = resolver;
 }
 
 function parentCollectionPathOf(docPath: string): string {
@@ -46,6 +58,14 @@ function parentCollectionPathOf(docPath: string): string {
     return '';
   }
   return docPath.slice(0, slashIndex);
+}
+
+function parentDocumentPathOf(collPath: string): string | null {
+  const slashIndex = collPath.lastIndexOf('/');
+  if (slashIndex <= 0) {
+    return null;
+  }
+  return collPath.slice(0, slashIndex);
 }
 
 export function registerDocumentReferenceValue<T = DocumentData>(
@@ -132,11 +152,29 @@ export function attachConverterMethod<V extends object>(
   ): object {
     return convertedView(value, nextConverter);
   }
-  return Object.assign(value, {
+  const decorated = Object.assign(value, {
     type: refType,
     converter,
     withConverter: convert,
   });
+  if (refType === 'collection' && Object.getOwnPropertyDescriptor(decorated, 'parent') === undefined) {
+    Object.defineProperty(decorated, 'parent', {
+      get(): DocumentReference<DocumentData> | null {
+        const collPath = (decorated as { path?: string }).path ?? '';
+        const parentDocPath = parentDocumentPathOf(collPath);
+        if (parentDocPath === null) {
+          return null;
+        }
+        if (resolveCollectionParentDocument === undefined) {
+          throw new Error('pyric/firestore: collection parent document resolver not initialized.');
+        }
+        return resolveCollectionParentDocument(targetOf(decorated), parentDocPath);
+      },
+      enumerable: true,
+      configurable: true,
+    });
+  }
+  return decorated;
 }
 
 /** Decorate a raw snapshot `.ref` object with `type`, `converter`, `parent`, and `withConverter`. */
