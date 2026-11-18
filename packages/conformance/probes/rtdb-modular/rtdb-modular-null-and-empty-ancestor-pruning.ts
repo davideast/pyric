@@ -125,11 +125,10 @@ export async function observeNullAndEmptyAncestorPruning(
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: ['web-config', 'dedicated-rtdb'],
-  pendingRowLink: true,
   description:
     'Modular RTDB write-boundary null and empty-object ancestor pruning: set(ref, {}) deletes existing subtrees and collapses empty parents, nested null/empty children are dropped on set(), and setting the sole deep leaf to null or nulling via multi-path update collapses empty ancestors.',
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'rtdb-modular#M67',
+  rowIds: ['rtdb-modular#M67'],
   observe() {
     return withRtdbProbeSession({}, async ({ runPath, db, rtdbSdk }) => {
       return observeNullAndEmptyAncestorPruning(

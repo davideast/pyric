@@ -112,11 +112,10 @@ export async function observeArrayWriteNormalization(
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: ['web-config', 'dedicated-rtdb'],
-  pendingRowLink: true,
   description:
     'Modular RTDB write-boundary array normalization: arrays written via set() store integer-keyed children addressable via child(ref, "1"), iterate "0","1","2" in forEach(), prune interior and trailing null elements, and preserve keyed objects in exportVal().',
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'rtdb-modular#M65',
+  rowIds: ['rtdb-modular#M65', 'rtdb-modular#AS1'],
   observe() {
     return withRtdbProbeSession({}, async ({ runPath, db, rtdbSdk }) => {
       return observeArrayWriteNormalization(

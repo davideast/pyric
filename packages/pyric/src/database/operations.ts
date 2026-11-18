@@ -9,7 +9,7 @@ import type { DataSnapshot, DatabaseReference, Query, ThenableReference } from '
 import { buildSandboxRef } from './references.js';
 import { assertGettablePath } from './info-read.js';
 import { validateUpdatePaths, validateWritablePath } from './writable-path.js';
-import { errorPrefix, validateUpdate, validateWrite } from './sandbox/normalize.js';
+import { errorPrefix, validatePriorityArg, validateUpdate, validateWrite } from './sandbox/normalize.js';
 import { loadsAllData } from './internal/query-projection.js';
 import { buildSandboxQuerySnap, buildSandboxSnap } from './snapshots.js';
 
@@ -73,6 +73,7 @@ export function get(r: DatabaseReference | Query): Promise<DataSnapshot> {
 export function set(r: DatabaseReference, value: unknown): Promise<void> {
   validateWritablePath('set', r._path);
   const target = targetOf(r as unknown as object);
+  validateWrite(value, r._path, errorPrefix('set', 'value'));
   return runSdkWrite(beginDatabaseActivity(r, 'set', 'operation'), () => {
     if (isAdminFor(target)) {
       target.backend.adminSet(r._path, value as JsonValue);
@@ -88,6 +89,7 @@ export function setPriority(
 ): Promise<void> {
   validateWritablePath('setPriority', r._path);
   const target = targetOf(r as unknown as object);
+  validatePriorityArg('setPriority', priority);
   return runSdkWrite(beginDatabaseActivity(r, 'setPriority', 'operation'), () => {
     if (isAdminFor(target)) {
       target.backend.adminSetPriority(r._path, priority);
@@ -104,8 +106,9 @@ export function setWithPriority(
 ): Promise<void> {
   validateWritablePath('setWithPriority', r._path);
   const target = targetOf(r as unknown as object);
+  validateWrite(value, r._path, errorPrefix('setWithPriority', 'value'));
+  validatePriorityArg('setWithPriority', priority);
   return runSdkWrite(beginDatabaseActivity(r, 'setWithPriority', 'operation'), () => {
-    validateWrite(value, r._path, errorPrefix('setWithPriority', 'value'));
     if (isAdminFor(target)) {
       target.backend.adminSetWithPriority(r._path, value as JsonValue, priority);
     } else {
@@ -184,6 +187,11 @@ export function remove(r: DatabaseReference): Promise<void> {
 export function push(r: DatabaseReference, value?: unknown): ThenableReference {
   validateWritablePath('push', r._path);
   const target = targetOf(r as unknown as object);
+  if (value !== undefined) {
+    // The SDK validates the optional value synchronously before minting a child
+    // key, naming the parent's path rather than a minted child's.
+    validateWrite(value, r._path, errorPrefix('push', 'value'));
+  }
   // Mint the key SYNCHRONOUSLY (client-side, no rule check) so the
   // returned ref + `.key` are available even if the optional write is
   // later denied (DB-B7). The write is deferred onto the thenable's
@@ -202,8 +210,6 @@ export function push(r: DatabaseReference, value?: unknown): ThenableReference {
     promise = Promise.resolve(pushRef);
   } else {
     promise = runSdkWrite(beginDatabaseActivity(pushRef, 'push', 'operation'), () => {
-      // The SDK names the parent's path, not the minted child's.
-      validateWrite(value, r._path, errorPrefix('push', 'value'));
       if (isAdminFor(target)) target.backend.adminSet(childPath, value as JsonValue);
       else target.backend.set(authFor(target), childPath, value as JsonValue);
       return pushRef;

@@ -81,24 +81,20 @@ describe('DB-B3 — null / empty pruning', () => {
 });
 
 describe('DB-B1 — write validation', () => {
-  it('rejects an undefined payload', async () => {
+  it('rejects an undefined payload', () => {
     const { db } = setup();
-    await expect(set(ref(db, 'x'), undefined as unknown)).rejects.toThrow(
-      /undefined/,
+    expect(() => set(ref(db, 'x'), undefined as unknown)).toThrow(/undefined/);
+  });
+
+  it('rejects an invalid key (contains a forbidden char)', () => {
+    const { db } = setup();
+    expect(() => set(ref(db, 'x'), { 'bad.key': 1 } as unknown)).toThrow(
+      /invalid key/,
     );
   });
 
-  it('rejects an invalid key (contains a forbidden char)', async () => {
+  it('rejects a non-finite number (NaN)', () => {
     const { db } = setup();
-    await expect(
-      set(ref(db, 'x'), { 'bad.key': 1 } as unknown),
-    ).rejects.toThrow(/invalid key/);
-  });
-
-  it('rejects a non-finite number (NaN)', async () => {
-    const { db } = setup();
-    await expect(set(ref(db, 'x'), { n: NaN } as unknown)).rejects.toThrow(
-      /NaN/,
-    );
+    expect(() => set(ref(db, 'x'), { n: NaN } as unknown)).toThrow(/NaN/);
   });
 });

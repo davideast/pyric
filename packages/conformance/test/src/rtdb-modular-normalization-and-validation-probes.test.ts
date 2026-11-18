@@ -28,12 +28,13 @@ import {
   type SyncWriteValidationProbeSdk,
   type ValidationCallOutcome,
 } from '../../probes/rtdb-modular/rtdb-modular-sync-write-and-disconnect-validation.ts';
+import { loadObservations } from '../../src/ledger.ts';
 import {
   loadModularProbes,
   printModularProbePreview,
   selectModularProbes,
 } from '../../src/sdk-probes.ts';
-import { expectStagedUntilCaptured } from './staged-capture-assertions.ts';
+import { loadPendingRowLinkObservations } from '../../src/staged-captures.ts';
 
 const RTDB_NORM_AND_VALIDATION_PROBE_IDS = [
   'rtdb-modular-array-write-normalization',
@@ -63,46 +64,68 @@ function createSandboxPair() {
   };
 }
 
-describe('RTDB modular normalization and validation staged probes (sdk-probes)', () => {
-  test('registers all 4 normalization and validation probes on sdk-probes with pendingRowLink and empty rowIds', async () => {
+describe('RTDB modular normalization and validation probes (sdk-probes)', () => {
+  test('links all 4 normalization and validation probes and committed observations to registry rows', async () => {
     const loaded = await loadModularProbes('sdk-probes');
     const loadedIds = loaded.map((entry) => entry.id);
     for (const id of RTDB_NORM_AND_VALIDATION_PROBE_IDS) {
       expect(loadedIds).toContain(id);
     }
 
-    const probes = [
-      arrayWriteNormProbe,
-      ancestorPruningProbe,
-      sparseArrayCoercionProbe,
-      syncValidationProbe,
-    ];
-    for (const probeRecord of probes) {
-      expect(probeRecord.rig).toBe('sdk-probes');
-      expect(probeRecord.requires).toEqual(['web-config', 'dedicated-rtdb']);
-      expect(probeRecord.pendingRowLink).toBe(true);
-      expect(probeRecord.matrixRow).toBe('');
-      expect(probeRecord.rowIds).toEqual([]);
-      expect(probeRecord.description.length).toBeGreaterThan(20);
-    }
+    const expectedLinks = [
+      [
+        'rtdb-modular-array-write-normalization',
+        arrayWriteNormProbe,
+        'rtdb-modular#M65',
+        ['rtdb-modular#M65', 'rtdb-modular#AS1'],
+      ],
+      [
+        'rtdb-modular-null-and-empty-ancestor-pruning',
+        ancestorPruningProbe,
+        'rtdb-modular#M67',
+        ['rtdb-modular#M67'],
+      ],
+      [
+        'rtdb-modular-sparse-integer-array-coercion',
+        sparseArrayCoercionProbe,
+        'rtdb-modular#M66',
+        ['rtdb-modular#M66', 'rtdb-modular#AS1', 'rtdb-admin#4'],
+      ],
+      [
+        'rtdb-modular-sync-write-and-disconnect-validation',
+        syncValidationProbe,
+        'rtdb-modular#M68',
+        ['rtdb-modular#M68', 'rtdb-modular#SW1'],
+      ],
+    ] as const;
 
+    const observations = new Map(
+      loadObservations().map((item) => [item.name, item] as const),
+    );
+    const pendingRowLinkIds = loadPendingRowLinkObservations();
     const unfilteredIds = new Set(
       selectModularProbes(loaded, [], 'sdk-probes', {
         includeUncapturedStaged: false,
       }).map((entry) => entry.id),
     );
 
-    expectStagedUntilCaptured(RTDB_NORM_AND_VALIDATION_PROBE_IDS, {
-      rig: 'sdk-probes',
-      filterFlag: '--probe',
-      filterValueFor: (name) => name,
-      whenUncaptured(name) {
-        expect(unfilteredIds.has(name)).toBe(false);
-      },
-      whenCaptured(name) {
-        expect(unfilteredIds.has(name)).toBe(true);
-      },
-    });
+    for (const [id, probeRecord, expectedMatrixRow, expectedRowIds] of expectedLinks) {
+      expect(probeRecord.rig).toBe('sdk-probes');
+      expect(probeRecord.requires).toEqual(['web-config', 'dedicated-rtdb']);
+      expect(probeRecord.pendingRowLink).toBeUndefined();
+      expect(probeRecord.matrixRow).toBe(expectedMatrixRow);
+      expect(probeRecord.rowIds).toEqual([...expectedRowIds]);
+      expect(probeRecord.description.length).toBeGreaterThan(20);
+      expect(unfilteredIds.has(id)).toBe(true);
+      expect(pendingRowLinkIds.has(id)).toBe(false);
+
+      const committed = observations.get(id);
+      expect(committed).toBeDefined();
+      if (committed !== undefined) {
+        expect(committed.matrixRow).toBe(expectedMatrixRow);
+        expect(committed.rowIds).toEqual([...expectedRowIds]);
+      }
+    }
 
     const lines: string[] = [];
     printModularProbePreview({
@@ -304,9 +327,7 @@ describe('RTDB modular normalization and validation staged probes (sdk-probes)',
       expect(result.cases.length).toBe(26);
       for (const entry of result.cases) {
         const typedEntry: ValidationCallOutcome = entry;
-        expect(typedEntry.timing === 'synchronous-throw' || typedEntry.timing === 'asynchronous-reject').toBe(
-          true,
-        );
+        expect(typedEntry.timing).toBe('synchronous-throw');
         expect(typedEntry.errorName).toBe('Error');
         expect(typedEntry.hasCode).toBe(false);
         expect(typedEntry.message !== null && !typedEntry.message.includes('rtdb-unit-run-1')).toBe(

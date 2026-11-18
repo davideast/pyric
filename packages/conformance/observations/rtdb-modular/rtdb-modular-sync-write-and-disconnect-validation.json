@@ -1,7 +1,10 @@
 {
   "name": "rtdb-modular-sync-write-and-disconnect-validation",
-  "matrixRow": "",
-  "rowIds": [],
+  "matrixRow": "rtdb-modular#M68",
+  "rowIds": [
+    "rtdb-modular#M68",
+    "rtdb-modular#SW1"
+  ],
   "description": "Modular RTDB synchronous write, priority, and OnDisconnect validation: observes synchronous Error throws (vs async rejections), scrubbed SDK error messages, push(ref, undefined) key-only overload vs push(ref, invalid) throw, and unchanged stored RTDB data across set, update, push, setPriority, setWithPriority, and onDisconnect.",
   "observedAt": "2026-11-18T04:36:23.676Z",
   "fbSdkVersion": "12.19.0",

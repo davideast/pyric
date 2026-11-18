@@ -13,18 +13,16 @@ export async function assertM68WriteValidationMatrix(): Promise<void> {
   const operations = (value: unknown) => {
     const db = setup();
     const target = api.ref(db, 'target');
-    return {
-      synchronous: [
-        () => api.set(target, value),
-        () => api.update(target, { child: value }),
-      ],
-      asynchronous: [
-        ...(value === undefined ? [] : [
-          () => Promise.resolve(api.push(target, value)),
-          () => api.runTransaction(target, () => value),
-        ]),
-      ],
-    };
+    const synchronous: Array<() => unknown> = [
+      () => api.set(target, value),
+      () => api.update(target, { child: value }),
+    ];
+    const asynchronous: Array<() => Promise<unknown>> = [];
+    if (value !== undefined) {
+      synchronous.push(() => api.push(target, value));
+      asynchronous.push(() => api.runTransaction(target, () => value));
+    }
+    return { synchronous, asynchronous };
   };
   for (const value of invalidValues) {
     const matrix = operations(value);

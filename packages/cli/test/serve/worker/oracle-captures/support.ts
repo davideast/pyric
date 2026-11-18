@@ -10,18 +10,23 @@ import { afterEach, beforeEach, expect } from 'bun:test';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { WebSocket } from 'ws';
+import { deleteApp as deleteAdminApp, initializeApp as initializeAdminApp } from 'pyric-admin/app';
+import { getDatabase as getAdminDatabase, type Database as AdminDatabase } from 'pyric-admin/database';
 import { createMemoryBackend } from 'pyric/sandbox';
 import { setRules } from 'pyric/sandbox/firestore';
 import * as ipDatabase from 'pyric/database';
 import { queryIdentifier } from 'pyric/database/internal';
 import { openStorageBackend } from '../../../../../pyric/src/storage/persistence.js';
 import type { BridgeMessage } from '../../../../src/bridge/protocol.js';
+import { createRemoteSandboxCore, createRemoteSandboxHandle } from '../../../../src/remote/index.js';
 import { createHostedRuntime } from '../../../../src/serve/hosted/runtime.js';
 import * as client from '../../../../src/serve/worker/index.js';
 import { readDocumentAs, readQueryAs } from '../../../../src/serve/worker/client/firestore-reads.js';
 import { refEqual } from '../../../../src/serve/worker/client/firestore-reference-equality.js';
 import { sameRtdbInstance } from '../../../../src/serve/worker/client/rtdb-references.js';
 import { getHostedFirestore } from '../../../../src/serve/worker/client/websocket-connection.js';
+import { handleMessage, type InboundMessage, type OutboundMessage, type PortLike } from '../../../../src/serve/worker/host.js';
 import { setDatabaseRules } from '../../../../src/serve/worker/host/rules.js';
 import { connectClientToHost, makeHostCtx, sleep, until } from '../integration-support.js';
 import { replayTiming } from '../../../../../conformance/src/capture/sdk-scenarios/scenario-timing.ts';
@@ -34,6 +39,10 @@ import type {
 } from '../../../../../conformance/src/capture/sdk-scenarios/scenario-types.ts';
 
 export { withoutMessages, type Pin } from '../../../../../conformance/src/capture/sdk-scenarios/replay-comparison.ts';
+
+export interface ServedRtdbAdminContext extends RtdbScenarioContext {
+  openAdminDb(): Promise<AdminDatabase>;
+}
 
 const OBSERVATIONS = join(import.meta.dir, '..', '..', '..', '..', '..', 'conformance', 'observations');
 
@@ -139,6 +148,7 @@ const OPEN_DATABASE_RULES: Record<string, unknown> = {
 };
 
 const hostedCleanups: Array<() => Promise<void> | void> = [];
+let adminAppCounter = 0;
 
 afterEach(async () => {
   for (const cleanup of hostedCleanups.splice(0)) {
@@ -146,23 +156,96 @@ afterEach(async () => {
   }
 });
 
+function overWire<T>(frame: T): T {
+  return JSON.parse(JSON.stringify(frame)) as T;
+}
+
 export async function servedRtdbContext(
   databaseRules: Record<string, unknown> = OPEN_DATABASE_RULES,
-): Promise<RtdbScenarioContext> {
+): Promise<ServedRtdbAdminContext> {
   const ctx = await makeHostCtx();
   setDatabaseRules(ctx, undefined, databaseRules);
   const rtdb = databaseSdk();
   const open = (name: string) => ({ db: rtdb.getDatabase(connectClientToHost(ctx, `worker://capture-${name}-${Math.random()}`).db as never) });
-  return { ...servedTiming, rtdb, db: open('main').db, base: '/pyric_oracle/replay', newClient: async (name) => open(name) };
+
+  const openAdminDb = async (): Promise<AdminDatabase> => {
+    let deliver: (message: BridgeMessage) => void = () => {};
+    const relayPort: PortLike = {
+      postMessage(raw: unknown) {
+        const message = raw as OutboundMessage;
+        if (message.t === 'res') {
+          let reply: BridgeMessage;
+          if (message.ok) {
+            reply = { type: 'worker-res', id: message.id, ok: true, value: message.value };
+          } else {
+            reply = { type: 'worker-res', id: message.id, ok: false, error: message.error };
+          }
+          deliver(overWire(reply));
+        } else if (message.t === 'snap') {
+          deliver(overWire({ type: 'worker-snap', subId: message.subId, value: message.value }));
+        }
+      },
+    };
+    const core = createRemoteSandboxCore(
+      {
+        send(rawMessage) {
+          const wire = overWire(rawMessage);
+          if (wire.type === 'attach') {
+            queueMicrotask(() => {
+              deliver({
+                type: 'attach-ack',
+                protocol: 1,
+                bridgeVersion: 'test',
+                peerConnected: true,
+                clientSessionId: 'served-admin-relay',
+                capabilities: ['worker-relay'],
+              });
+            });
+          } else if (wire.type === 'worker-op') {
+            void handleMessage(ctx, relayPort, { ...wire.op, t: 'op', id: wire.id } as InboundMessage);
+          } else if (wire.type === 'worker-sub') {
+            void handleMessage(ctx, relayPort, { ...wire.sub, t: 'sub', subId: wire.subId } as InboundMessage);
+          } else if (wire.type === 'worker-unsub') {
+            void handleMessage(ctx, relayPort, { t: 'unsub', subId: wire.subId } as InboundMessage);
+          }
+        },
+      },
+      { serveUrl: 'http://localhost:5000' },
+    );
+    deliver = core.handleMessage;
+    core.start();
+    await core.ready;
+    const remote = createRemoteSandboxHandle({
+      channel: core.channel,
+      serveUrl: 'http://localhost:5000',
+      close: () => core.dispose('closed'),
+    });
+    adminAppCounter += 1;
+    const adminApp = initializeAdminApp({ sandbox: remote }, `served-oracle-admin-${adminAppCounter}`);
+    hostedCleanups.push(async () => {
+      await deleteAdminApp(adminApp);
+      core.dispose('closed');
+    });
+    return getAdminDatabase(adminApp);
+  };
+
+  return {
+    ...servedTiming,
+    rtdb,
+    db: open('main').db,
+    base: '/pyric_oracle/replay',
+    newClient: async (name) => open(name),
+    openAdminDb,
+  };
 }
 
 /**
  * Replays an RTDB scenario against `createHostedRuntime` (the Node host plane)
- * over loopback WebSockets wired through `getHostedFirestore`.
+ * over loopback WebSockets wired through `getHostedFirestore` and `pyric-admin`.
  */
 export async function hostedRtdbContext(
   databaseRules: Record<string, unknown> = OPEN_DATABASE_RULES,
-): Promise<RtdbScenarioContext> {
+): Promise<ServedRtdbAdminContext> {
   const projectDir = mkdtempSync(join(tmpdir(), 'pyric-hosted-rtdb-capture-'));
   const sockets = new Map<string, { send(data: string): void }>();
   const clientPorts: Array<{ close(): void }> = [];
@@ -195,7 +278,13 @@ export async function hostedRtdbContext(
     },
     'http://127.0.0.1:4400',
     (frame) => {
-      if (frame.type !== 'worker-message-result') return;
+      if (
+        frame.type !== 'worker-message-result'
+        && frame.type !== 'worker-res'
+        && frame.type !== 'worker-snap'
+      ) {
+        return;
+      }
       const sessionId = frame.clientSessionId;
       if (typeof sessionId !== 'string') return;
       const socket = sockets.get(sessionId);
@@ -231,7 +320,7 @@ export async function hostedRtdbContext(
             clientSessionId: socket.data.sessionId,
             projectKey: 'oracle-hosted',
             hostInstanceId: runtime.instanceId,
-            capabilities: ['worker-port'],
+            capabilities: ['worker-port', 'worker-relay'],
           } satisfies BridgeMessage));
           return;
         }
@@ -241,6 +330,17 @@ export async function hostedRtdbContext(
             clientSessionId: socket.data.sessionId,
             message: message.message,
             platform: 'node',
+          });
+          return;
+        }
+        if (
+          message.type === 'worker-op'
+          || message.type === 'worker-sub'
+          || message.type === 'worker-unsub'
+        ) {
+          runtime.receive({
+            ...message,
+            clientSessionId: socket.data.sessionId,
           });
         }
       },
@@ -253,6 +353,52 @@ export async function hostedRtdbContext(
       },
     },
   });
+
+  const wsUrl = `ws://127.0.0.1:${server.port}/__pyric/sandbox`;
+  const serveUrl = `http://127.0.0.1:${server.port}`;
+
+  const openAdminDb = async (): Promise<AdminDatabase> => {
+    const ws = new WebSocket(wsUrl);
+    await new Promise<void>((resolve, reject) => {
+      ws.once('open', () => resolve());
+      ws.once('error', reject);
+    });
+    const core = createRemoteSandboxCore(
+      {
+        send(msg) {
+          if (ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify(msg));
+          }
+        },
+      },
+      { serveUrl },
+    );
+    ws.on('message', (data) => {
+      core.handleMessage(JSON.parse(String(data)) as BridgeMessage);
+    });
+    core.start();
+    await core.ready;
+    const remote = createRemoteSandboxHandle({
+      channel: core.channel,
+      serveUrl,
+      close: () => {
+        core.dispose('closed');
+        ws.close();
+      },
+    });
+    adminAppCounter += 1;
+    const adminApp = initializeAdminApp({ sandbox: remote }, `hosted-oracle-admin-${adminAppCounter}`);
+    clientPorts.push({
+      close() {
+        core.dispose('closed');
+        ws.close();
+      },
+    });
+    hostedCleanups.unshift(async () => {
+      await deleteAdminApp(adminApp);
+    });
+    return getAdminDatabase(adminApp);
+  };
 
   hostedCleanups.push(async () => {
     for (const port of clientPorts.splice(0)) {
@@ -267,7 +413,6 @@ export async function hostedRtdbContext(
     rmSync(projectDir, { recursive: true, force: true });
   });
 
-  const wsUrl = `ws://127.0.0.1:${server.port}/__pyric/sandbox`;
   const rtdb = databaseSdk();
   const openHostedClient = async (label: string) => {
     let attached = false;
@@ -291,6 +436,7 @@ export async function hostedRtdbContext(
     db: main.db,
     base: '/pyric_oracle/replay',
     newClient: (name) => openHostedClient(name),
+    openAdminDb,
   };
 }
 

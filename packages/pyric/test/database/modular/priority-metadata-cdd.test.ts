@@ -38,7 +38,7 @@ describe('RTDB CDD priority metadata cases', () => {
     expect((await get(target)).priority).toBe('later');
     await setPriority(target, null);
     expect((await get(target)).exportVal()).toEqual({ value: 4 });
-    await expect(setWithPriority(target, 1, Number.NaN)).rejects.toThrow(/priority/);
+    expect(() => setWithPriority(target, 1, Number.NaN)).toThrow(/priority/);
 
     const descendant = ref(first, 'priority/replaced/child/grandchild');
     await setWithPriority(descendant, 1, 9);
