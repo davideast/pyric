@@ -235,11 +235,7 @@ export interface File {
    * Removing `firebaseStorageDownloadTokens` revokes the file's download URL.
    */
   setMetadata(metadata: FileMetadataUpdate): Promise<[FileMetadata]>;
-  /**
-   * Remove the file from its bucket. Idempotent — deleting a missing
-   * file is a no-op (matches `@google-cloud/storage`'s
-   * `ignoreNotFound: true`, which is the only mode the sandbox models).
-   */
+  /** Remove the file from its bucket; missing files are ignored (`ignoreNotFound: true`). */
   delete(): Promise<void>;
   /** `[true]` if the file exists, `[false]` otherwise. Tuple shape mirrors `@google-cloud/storage`. */
   exists(): Promise<[boolean]>;
@@ -753,7 +749,7 @@ class SandboxFile implements File {
     this.bucket.storage.assertActive();
     assertDeleteFileOptions(options);
     await this.bucket.storage.waitForReset();
-    await storageDeleteObject(storageRef(this.bucket.adminStorage(), this.name));
+    await ignoreObjectNotFound(storageDeleteObject(storageRef(this.bucket.adminStorage(), this.name)));
   }
 
   async exists(): Promise<[boolean]> {
@@ -1216,17 +1212,12 @@ class RemoteFile implements File {
   async delete(options?: unknown): Promise<void> {
     this.bucket.storage.assertActive();
     assertDeleteFileOptions(options);
-    try {
-      await this.channel.op({
-        method: 'storage.deleteObject',
-        ...this.bucket.wire,
-        path: this.name,
-        actAs: STORAGE_REMOTE_ADMIN_LENS,
-      });
-    } catch (err) {
-      if (isObjectNotFound(err)) return;
-      throw err;
-    }
+    await ignoreObjectNotFound(this.channel.op({
+      method: 'storage.deleteObject',
+      ...this.bucket.wire,
+      path: this.name,
+      actAs: STORAGE_REMOTE_ADMIN_LENS,
+    }));
   }
 
   async exists(): Promise<[boolean]> {
@@ -1261,9 +1252,17 @@ function isFileHandle(candidate: unknown): candidate is File {
   return candidate instanceof SandboxFile || candidate instanceof RemoteFile;
 }
 
-/** Is this relayed error the worker's `storage/object-not-found`? */
+/** Is this error `pyric/storage` or the worker's `storage/object-not-found`? */
 function isObjectNotFound(err: unknown): boolean {
   return (err as { code?: unknown })?.code === 'storage/object-not-found';
+}
+
+async function ignoreObjectNotFound(pending: Promise<unknown>): Promise<void> {
+  try {
+    await pending;
+  } catch (err) {
+    if (!isObjectNotFound(err)) throw err;
+  }
 }
 
 /** Over-cap rejection (code `storage/quota-exceeded`) -- mirrors the worker host's message shape. */

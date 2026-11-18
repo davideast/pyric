@@ -45,8 +45,7 @@ import { isTrustedOrigin, tlsOptionsFor, trustedFetch, type HostFetch } from './
 import { WebSocket } from 'ws';
 import { Socket } from 'node:net';
 import type { AuthUserRecord, CreateUserRequest, UpdateUserRequest } from 'pyric/auth';
-import type { FullMetadata } from 'pyric/storage';
-import { fetchFromByteRoute, uploadOverByteRoute, type RemoteByteRoute } from 'pyric/storage/internal';
+import type { RemoteByteRoute } from 'pyric/storage/internal';
 import {
   REMOTE_SANDBOX,
   SandboxContextImpl,
@@ -71,7 +70,7 @@ import { encodeBridgeMessage } from '../bridge/frame-output.js';
 import { createOperationBudget } from '../bridge/operation-budget.js';
 import { watchHostLiveness, type HostLiveness } from './host-liveness.js';
 import { createHeldCalls, type ReleasedOp } from './held-calls.js';
-import { MAX_STORAGE_OP_BYTES, storagePayloadTooLarge } from '../serve/worker/protocol.js';
+import { buildRemoteStorage, type RemoteStorage } from './storage.js';
 import { hasValidAttachFields } from '../bridge/attach-validation.js';
 import { hasValidReplyOutcome, snapshotError } from '../serve/worker/outbound-validation.js';
 import { rtdbFateAtDrop, type DropFate } from '../serve/worker/rtdb-drop-fates.js';
@@ -225,37 +224,7 @@ export interface RemoteRtdb {
   forInstance(name: string): RemoteRtdb;
 }
 
-/**
- * Thin Storage conveniences over the channel: bytes plus browse/metadata.
- * Every call pins `actAs: { mode: 'admin' }` (firebase-admin's rules-bypass
- * semantics, matching {@link RemoteRtdb}); use the raw `channel` for lensed
- * (rules-evaluated) access. A host with an HTTP byte route moves bytes there
- * with no size cap; a host without one takes base64 frames capped at 8 MiB
- * raw ({@link MAX_STORAGE_OP_BYTES}) on both ends.
- */
-export interface RemoteStorage {
-  /** Upload `data` at `path` (replaces any existing object). Resolves with
-   *  the stored object's `FullMetadata`. */
-  putBytes(
-    path: string,
-    data: Uint8Array,
-    options?: { contentType?: string; metadata?: Record<string, unknown> },
-  ): Promise<FullMetadata>;
-  /** Download the object's bytes. Rejects `storage/object-not-found` when
-   *  absent, `payload-too-large` when over the op cap. */
-  getBytes(path: string): Promise<Buffer>;
-  /** Delete the object at `path`. Idempotent (missing = no-op). */
-  deleteObject(path: string): Promise<void>;
-  /** Read the object's `FullMetadata`. */
-  getMetadata(path: string): Promise<FullMetadata>;
-  /** Does an object exist at `path`? (`getMetadata` with not-found → false.) */
-  exists(path: string): Promise<boolean>;
-  /** Enumerate immediate child items + prefixes under `path`. */
-  listAll(path: string): Promise<{
-    items: Array<{ fullPath: string; name: string }>;
-    prefixes: Array<{ fullPath: string; name: string }>;
-  }>;
-}
+export { buildRemoteStorage, type RemoteStorage } from './storage.js';
 
 /** Admin auth user-CRUD passthrough (never lensed — auth ops operate the
  *  worker's user pool directly, mirroring `pyric/auth`'s sandbox ops). */
@@ -747,83 +716,6 @@ function sessionTokenFrom(base: string, fetchHost: HostFetch, initialToken?: str
     const value = await token;
     if (value === null) token = undefined;
     return value;
-  };
-}
-
-export function buildRemoteStorage(channel: RemoteSandboxChannel): RemoteStorage {
-  return {
-    async putBytes(path, data, options) {
-      const route = await channel.byteRoute?.();
-      const routed = route !== undefined;
-      if (routed) {
-        const operations = { op: (payload: { method: string }) => channel.op(payload as WorkerOpPayload) };
-        return (await uploadOverByteRoute(operations, route, {
-          path,
-          data: new Blob([data as Uint8Array<ArrayBuffer>]),
-          contentType: options?.contentType,
-          metadata: options?.metadata as Record<string, unknown> | undefined,
-          actAs: ADMIN_LENS,
-        })) as FullMetadata;
-      }
-      // A host without a byte route takes bytes as frames, capped per
-      // operation: reject before encoding so an oversized payload never
-      // reaches the wire (the host enforces the same cap on decode).
-      if (data.byteLength > MAX_STORAGE_OP_BYTES) {
-        throw storagePayloadTooLarge(data.byteLength, `storage payload for '${path}'`);
-      }
-      return (await channel.op({
-        method: 'storage.putBytes',
-        path,
-        dataB64: Buffer.from(data.buffer, data.byteOffset, data.byteLength).toString('base64'),
-        ...(options?.contentType !== undefined ? { contentType: options.contentType } : {}),
-        ...(options?.metadata !== undefined ? { metadata: options.metadata } : {}),
-        actAs: ADMIN_LENS,
-      })) as FullMetadata;
-    },
-    async getBytes(path) {
-      const route = await channel.byteRoute?.();
-      const routed = route !== undefined;
-      if (routed) {
-        const metadata = await this.getMetadata(path);
-        const response = await fetchFromByteRoute(route, { bucket: metadata.bucket, path });
-        return Buffer.from(await response.arrayBuffer());
-      }
-      const res = (await channel.op({
-        method: 'storage.getBytes',
-        path,
-        actAs: ADMIN_LENS,
-      })) as { dataB64: string };
-      return Buffer.from(res.dataB64, 'base64');
-    },
-    async deleteObject(path) {
-      await channel.op({ method: 'storage.deleteObject', path, actAs: ADMIN_LENS });
-    },
-    async getMetadata(path) {
-      return (await channel.op({
-        method: 'storage.getMetadata',
-        path,
-        actAs: ADMIN_LENS,
-      })) as FullMetadata;
-    },
-    async exists(path) {
-      try {
-        await this.getMetadata(path);
-        return true;
-      } catch (err) {
-        if ((err as { code?: string }).code === 'storage/object-not-found') return false;
-        throw err;
-      }
-    },
-    async listAll(path) {
-      return (await channel.op({
-        method: 'storage.listAll',
-        path,
-        actAs: ADMIN_LENS,
-      })) as {
-        items: Array<{ fullPath: string; name: string }>;
-        prefixes: Array<{ fullPath: string; name: string }>;
-      };
-    },
   };
 }
 

@@ -77,19 +77,15 @@ export async function getDownloadURL(ref: StorageReference): Promise<string> {
 }
 
 /**
- * Delete the object at `ref` — removes both the blob and the
- * metadata atomically. No-op when the path doesn't exist (the
- * persistence layer's `delete` is no-op on missing keys).
- *
- * NOTE: the JS SDK's `deleteObject` throws
- * `storage/object-not-found` when the path is missing. The v1 scope
- * keeps the persistence-layer no-op behavior for now; Slice 8 will
- * reconsider whether to mirror the strict throw.
+ * Delete the object at `ref`, removing both the blob and the metadata
+ * atomically. Throws `storage/object-not-found` when no object exists at
+ * `ref.fullPath`, after evaluating rules so unauthorized callers receive
+ * `storage/unauthorized` without learning whether the object exists.
  *
  * `provenance` (host-only): op {@link EventProvenance} bound at ISSUE time,
  * threaded EXPLICITLY onto the emitted `object_delete` event. The delete
  * awaits the backend before emitting, so it escapes the sandbox's
- * synchronous ambient-provenance window — see the note on `uploadBytes`.
+ * synchronous ambient-provenance window; see the note on `uploadBytes`.
  */
 export function deleteObject(
   ref: StorageReference,
@@ -106,17 +102,33 @@ async function performDeleteObject(
   const target = targetOf(ref.storage);
   const operationProvenance = storageOperationProvenance(target, provenance);
   const service = await getStorageService(ref.storage);
-  const existing = await service.backend.getMetadata(ref.fullPath);
-  enforceRules(service, {
-    request: {
-      auth: storageAuth(target),
-      method: 'delete',
-      path: ref.fullPath,
-    },
-    resource: resourceFromStored(existing),
-  }, target, operationProvenance);
-  await service.backend.delete(ref.fullPath);
-  emitObjectDelete(ref, existing, operationProvenance);
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    const existing = await service.backend.getMetadata(ref.fullPath);
+    let options: { record: 'denials' } | undefined;
+    if (attempt > 0) {
+      if (existing === undefined) {
+        throw objectNotFound(ref.fullPath);
+      }
+      options = { record: 'denials' };
+    }
+    enforceRules(service, {
+      request: {
+        auth: storageAuth(target),
+        method: 'delete',
+        path: ref.fullPath,
+      },
+      resource: resourceFromStored(existing),
+    }, target, operationProvenance, options);
+    if (existing === undefined) {
+      throw objectNotFound(ref.fullPath);
+    }
+    const deleted = await service.backend.deleteIfGeneration(ref.fullPath, existing.generation);
+    if (deleted) {
+      emitObjectDelete(ref, existing, operationProvenance);
+      return;
+    }
+  }
+  throw objectNotFound(ref.fullPath);
 }
 
 /**

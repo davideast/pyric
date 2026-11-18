@@ -6,7 +6,7 @@ import { initializeApp, deleteApp } from "firebase/app";
 import { getDatabase, ref, set, get, onValue, onDisconnect } from "firebase/database";
 import { getFirestore, doc, setDoc, getDoc, collection, getAggregateFromServer, count } from "firebase/firestore";
 import { getAuth, createUserWithEmailAndPassword } from "firebase/auth";
-import { getStorage, ref as storageRef, uploadString, uploadBytesResumable, getBytes, getMetadata, getDownloadURL } from "firebase/storage";
+import { getStorage, ref as storageRef, uploadString, uploadBytesResumable, getBytes, getMetadata, getDownloadURL, deleteObject } from "firebase/storage";
 import { getFunctions, httpsCallable } from "firebase/functions";
 
 const app = initializeApp({
@@ -31,6 +31,8 @@ const upload = outcome("storage.upload", async () =>
   (await uploadString(storageRef(getStorage(app), "server/client.txt"), "from client sdk")).metadata.fullPath);
 await upload;
 await outcome("storage.url", async () => new URL(await getDownloadURL(storageRef(getStorage(app), "server/client.txt"))).pathname);
+await outcome("storage.deleteMissing", () => deleteObject(storageRef(getStorage(app), "server/never-existed.txt")));
+await outcome("storage.deleteDeniedMissing", () => deleteObject(storageRef(getStorage(app), "uploads/never-existed.png")));
 
 // A resumable upload canceled once its last request is on the wire: that
 // request cannot be recalled, so the task rejects only after the object it

@@ -129,23 +129,58 @@ service firebase.storage {
 describe('oracle conformance (storage)', () => {
   // ── errors ───────────────────────────────────────────────────────────
 
-  it('storage-delete-missing-throws (KNOWN DIVERGENCE)', async () => {
-    // Prod capture: deleteObject on a never-uploaded path throws
-    // storage/object-not-found. The oracle's own description already
-    // flags this: "Sandbox is no-op; this oracle locks prod's shape."
-    // `deleteObject` in src/storage/download.ts is documented as
-    // deliberately no-op on missing keys (persistence-layer no-op,
-    // Slice 8 left as a follow-up to "reconsider whether to mirror the
-    // strict throw"). Pin BOTH sides so neither drifts unnoticed: the
-    // oracle's recorded prod value, and the sandbox's current behavior.
+  it('storage#64: storage-delete-missing-throws rejects with storage/object-not-found after rules check', async () => {
     const obs = load('storage-delete-missing-throws.json');
-    expect(obs.threw).toBe(true); // what prod did (the target)
+    expect(obs.threw).toBe(true);
     expect(obs.code).toBe('storage/object-not-found');
+    expect(obs.errorName).toBe('FirebaseError');
+    expect(obs.isFirebaseError).toBe(true);
+    expect((obs.message as string).length).toBeGreaterThan(0);
 
-    const storage = freshStorage('delete-missing');
-    const r = ref(storage, 'delete-missing/never-existed.bin');
-    // Sandbox today: resolves without throwing (no-op delete).
-    await expect(deleteObject(r)).resolves.toBeUndefined();
+    const sandbox = initializeSandbox({});
+    const storage = getStorageSandbox(sandbox, { dbName: uniqueDbName('delete-missing'), rules: OPEN_RULES });
+    const countDeletes = (path: string): number =>
+      sandbox
+        .history()
+        .filter((e) => e.kind === 'service_mutation' && e.service === 'storage' && e.op === 'object_delete' && e.path === path)
+        .length;
+
+    const missingRef = ref(storage, 'delete-missing/never-existed.bin');
+    const missingErr = await caught(() => deleteObject(missingRef));
+    expect(missingErr.code).toBe(obs.code as string);
+    expect(countDeletes(missingRef.fullPath)).toBe(0);
+
+    const ephemeralRef = ref(storage, 'delete-missing/once.bin');
+    await uploadBytes(ephemeralRef, new Uint8Array([1, 2, 3]));
+    await expect(deleteObject(ephemeralRef)).resolves.toBeUndefined();
+    expect(countDeletes(ephemeralRef.fullPath)).toBe(1);
+
+    const redeleteErr = await caught(() => deleteObject(ephemeralRef));
+    expect(redeleteErr.code).toBe(obs.code as string);
+    expect(countDeletes(ephemeralRef.fullPath)).toBe(1);
+
+    const raceRef = ref(storage, 'delete-missing/race.bin');
+    await uploadBytes(raceRef, new Uint8Array([4, 5, 6]));
+    const settled = await Promise.allSettled([deleteObject(raceRef), deleteObject(raceRef)]);
+    const fulfilledCount = settled.filter((r) => r.status === 'fulfilled').length;
+    const rejectedCodes = settled
+      .filter((r): r is PromiseRejectedResult => r.status === 'rejected')
+      .map((r) => (r.reason as { code?: unknown }).code);
+    expect(fulfilledCount).toBe(1);
+    expect(rejectedCodes).toEqual([obs.code]);
+    expect(countDeletes(raceRef.fullPath)).toBe(1);
+
+    const ownerMetadataRules = `rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /{allPaths=**} {
+      allow delete: if request.auth != null && resource.metadata.owner == request.auth.uid;
+    }
+  }
+}`;
+    const guarded = freshStorage('delete-missing-guarded', ownerMetadataRules);
+    const deniedMissingErr = await caught(() => deleteObject(ref(guarded, 'delete-missing/secret.bin')));
+    expect(deniedMissingErr.code).toBe('storage/unauthorized');
   });
 
   it('storage-delete-then-get-throws', async () => {

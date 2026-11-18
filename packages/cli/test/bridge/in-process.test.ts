@@ -231,17 +231,15 @@ describe('in-process MCP session', () => {
   });
 });
 
-/**
- * Under Node the sandbox storage backend is one in-memory store per database
- * name, so every sandbox in this test process shares a bucket. That is exactly
- * the durability gap the sidecar exists to close, and it means a test proves
- * nothing until the object is gone from memory: each of these deletes the
- * object before reading it back, so what comes back can only have come from the
- * file. It also means object counts are shared, so they are not asserted.
- */
+// Evict `path` from any shared default storage bucket so reload tests prove
+// bytes came from the sidecar file rather than in-process memory.
 async function forgetStoredObject(path: string): Promise<void> {
   const storage = getAdminStorageSandbox(initializeSandbox());
-  await deleteObject(storageRef(storage, path));
+  try {
+    await deleteObject(storageRef(storage, path));
+  } catch (err) {
+    if ((err as { code?: unknown }).code !== 'storage/object-not-found') throw err;
+  }
 }
 
 describe('in-process state that outlives the process', () => {

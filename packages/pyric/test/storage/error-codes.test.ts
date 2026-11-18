@@ -79,15 +79,17 @@ service firebase.storage {
 }`;
 
 describe('ST-B1 — sandbox errors carry .code === storage/<code>', () => {
-  it('object-not-found on getBytes/getBlob/getDownloadURL of a missing object', async () => {
+  it('object-not-found on getBytes/getBlob/getDownloadURL/deleteObject of a missing object', async () => {
     const storage = freshStorage('not-found-read');
     const r = ref(storage, 'missing/never.bin');
     const e1 = await caught(() => getBytes(r));
     const e2 = await caught(() => getBlob(r));
     const e3 = await caught(() => getDownloadURL(r));
+    const e4 = await caught(() => deleteObject(r));
     expect(e1.code).toBe('storage/object-not-found');
     expect(e2.code).toBe('storage/object-not-found');
     expect(e3.code).toBe('storage/object-not-found');
+    expect(e4.code).toBe('storage/object-not-found');
   });
 
   it('object-not-found on getMetadata and unauthorized on rules-governed updateMetadata of a missing object', async () => {

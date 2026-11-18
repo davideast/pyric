@@ -256,6 +256,21 @@ function settableOf(object: StorageObjectState): {
   return settable;
 }
 
+function isStorageObjectNotFound(error: unknown): boolean {
+  return (error as { code?: unknown } | null)?.code === 'storage/object-not-found';
+}
+
+async function removeTargetStorageObject(
+  storage: ReturnType<typeof getAdminStorageSandbox>,
+  path: string,
+): Promise<void> {
+  try {
+    await deleteObject(ref(storage, path));
+  } catch (error) {
+    if (!isStorageObjectNotFound(error)) throw error;
+  }
+}
+
 /** Land the Storage objects the branch added, changed, or removed. */
 async function promoteStorage(
   target: LocalSandbox,
@@ -267,7 +282,7 @@ async function promoteStorage(
   for (const path of divergedPaths(divergences)) {
     const object = objects.get(path);
     if (object === undefined) {
-      await deleteObject(ref(storage, path));
+      await removeTargetStorageObject(storage, path);
       continue;
     }
     // A branch is captured with its bytes inline; a reference names bytes only its own store holds.

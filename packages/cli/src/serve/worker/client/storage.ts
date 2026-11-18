@@ -727,8 +727,7 @@ export function getBytes(
   });
 }
 
-/** Delete the object at the reference's path (idempotent — missing = no-op,
- *  matching the sandbox backend's delete semantics). */
+/** Delete the object at the reference's path; rejects with storage/object-not-found when absent. */
 export function deleteObject(reference: ClientStorageReference): Promise<void> {
   guardClientNonRoot(reference, 'deleteObject');
   return dataRpc(reference.port, {
