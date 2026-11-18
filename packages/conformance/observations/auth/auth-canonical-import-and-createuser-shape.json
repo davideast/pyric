@@ -1,0 +1,37 @@
+{
+  "name": "auth-canonical-import-and-createuser-shape",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "Unswapped canonical firebase/auth imports resolve to upstream Firebase Auth without sandbox helpers, and createUserWithEmailAndPassword auto-signs in a non-anonymous user with input email and null profile fields.",
+  "observedAt": "2026-11-18T21:55:06.399Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "canonicalImportBoundary": {
+      "getAuthIsFunction": true,
+      "hasSandboxNamespaceOnModule": false,
+      "hasMockSignInResultOnModule": false,
+      "hasTakeAuthMailOnModule": false,
+      "hasSandboxPropertyOnAuth": false,
+      "apiHost": "identitytoolkit.googleapis.com",
+      "authNameMatchesAppName": true
+    },
+    "createUserAutoSignInAndShape": {
+      "autoSignedInAsCurrentUser": true,
+      "currentUserUidMatchesCreatedUid": true,
+      "operationType": "signIn",
+      "credentialProviderId": null,
+      "userShape": {
+        "isAnonymous": false,
+        "emailMatchesInput": true,
+        "displayName": null,
+        "photoURL": null,
+        "phoneNumber": null,
+        "emailVerified": false,
+        "providerIds": [
+          "password"
+        ]
+      }
+    }
+  }
+}
