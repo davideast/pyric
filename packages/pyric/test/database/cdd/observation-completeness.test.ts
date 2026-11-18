@@ -8,7 +8,16 @@ import {
   type ObservationCompletenessInput,
 } from './observation-completeness.js';
 
-const NOT_APPLICABLE: Readonly<Record<string, string>> = {};
+const NOT_APPLICABLE: Readonly<Record<string, string>> = {
+  'rtdb-modular-admin-connection-and-ondisconnect':
+    'Pure `rtdb-admin` capture (`rtdb-admin#6`, `firebase-admin/database` `goOffline`/`goOnline` and `Reference#onDisconnect`); replayed across in-process, remote, SharedWorker, and Node host planes in `packages/pyric-admin/test/database/capture-admin-database-and-priorities.test.ts` and `packages/cli/test/serve/worker/oracle-captures/rtdb-admin-database-and-priorities.test.ts`.',
+  'rtdb-modular-admin-priorities-and-inline-priority':
+    'Pure `rtdb-admin` capture (`rtdb-admin#7`, `firebase-admin/database` `Reference#setPriority`, `Reference#setWithPriority`, and inline `.priority`); replayed across all four admin planes in `packages/pyric-admin/test/database/capture-admin-database-and-priorities.test.ts` and `packages/cli/test/serve/worker/oracle-captures/rtdb-admin-database-and-priorities.test.ts`.',
+  'rtdb-modular-admin-ref-navigation-and-url-errors':
+    'Pure `rtdb-admin` capture (`rtdb-admin#2`, `firebase-admin/database` `Database#ref`, `refFromURL`, and `Reference` navigation); replayed across all four admin planes in `packages/pyric-admin/test/database/capture-admin-database-and-priorities.test.ts` and `packages/cli/test/serve/worker/oracle-captures/rtdb-admin-database-and-priorities.test.ts`.',
+  'rtdb-modular-admin-writes-sentinels-and-validation':
+    'Pure `rtdb-admin` capture (`rtdb-admin#3`, `firebase-admin/database` `Reference` writes, `ServerValue`, and synchronous validation); replayed across all four admin planes in `packages/pyric-admin/test/database/capture-admin-database-and-priorities.test.ts` and `packages/cli/test/serve/worker/oracle-captures/rtdb-admin-database-and-priorities.test.ts`.',
+};
 
 describe('rtdb-modular CDD observation completeness', () => {
   it('fails closed when a committed observation has no joined CDD row', () => {

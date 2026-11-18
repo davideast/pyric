@@ -1,7 +1,9 @@
 {
   "name": "rtdb-modular-admin-connection-and-ondisconnect",
-  "matrixRow": "",
-  "rowIds": [],
+  "matrixRow": "rtdb-admin#6",
+  "rowIds": [
+    "rtdb-admin#6"
+  ],
   "description": "firebase-admin/database goOffline()/goOnline() and Reference.onDisconnect(): observes queued set, setWithPriority, multi-path update, remove, and cancel() across two live admin handles, plus one-shot drain semantics after goOnline() reconnect.",
   "observedAt": "2026-11-18T06:45:10.083Z",
   "fbSdkVersion": "12.19.0",

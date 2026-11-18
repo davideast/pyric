@@ -39,10 +39,12 @@ import {
   type RemoteWireSnapshot,
 } from './remote-listeners.js';
 import {
+  absentNodeSetPriorityError,
   assertActivePromise,
   generatePushId,
   joinPath,
   pathSegments,
+  validateAdminPriorityArg,
   validateValueArg,
   validateValuesArg,
   withOnComplete,
@@ -313,11 +315,57 @@ function buildRemoteRef(
     transaction(..._args: unknown[]): never {
       throw notImplemented('transaction');
     },
-    setPriority(..._args: unknown[]): never {
-      throw notImplemented('setPriority');
+    setPriority(
+      priority: string | number | null,
+      onComplete?: (error: Error | null) => unknown,
+    ): Promise<void> {
+      const validatedPriority = validateAdminPriorityArg('setPriority', priority);
+      validateCallbackArg('Reference.setPriority', 'onComplete', onComplete, true);
+      const completionCb = onComplete as ((err: Error | null) => void) | undefined;
+      const deleted = assertActivePromise(state.lifecycle);
+      if (deleted !== null) {
+        return withOnComplete(deleted, completionCb);
+      }
+      const runRemoteSetPriority = async (): Promise<void> => {
+        if (validatedPriority !== null) {
+          const existing = (await relayRtdbOp(state, {
+            method: 'rtdb.get',
+            path: canonical,
+          })) as RemoteWireSnapshot;
+          if (existing.exists === false) {
+            throw absentNodeSetPriorityError();
+          }
+        }
+        await relayRtdbOp(state, {
+          method: 'rtdb.setPriority',
+          path: canonical,
+          priority: validatedPriority,
+        });
+      };
+      return withOnComplete(runRemoteSetPriority(), completionCb);
     },
-    setWithPriority(..._args: unknown[]): never {
-      throw notImplemented('setWithPriority');
+    setWithPriority(
+      newVal: unknown,
+      newPriority: string | number | null,
+      onComplete?: (error: Error | null) => unknown,
+    ): Promise<void> {
+      const stored = validateValueArg('setWithPriority', segs, newVal);
+      const validatedPriority = validateAdminPriorityArg('setWithPriority', newPriority);
+      validateCallbackArg('Reference.setWithPriority', 'onComplete', onComplete, true);
+      const completionCb = onComplete as ((err: Error | null) => void) | undefined;
+      const deleted = assertActivePromise(state.lifecycle);
+      if (deleted !== null) {
+        return withOnComplete(deleted, completionCb);
+      }
+      return withOnComplete(
+        relayRtdbOp(state, {
+          method: 'rtdb.setWithPriority',
+          path: canonical,
+          value: stored,
+          priority: validatedPriority,
+        }).then(() => undefined),
+        completionCb,
+      );
     },
     get database(): Database {
       return db;

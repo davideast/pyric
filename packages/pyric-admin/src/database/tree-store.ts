@@ -1,24 +1,22 @@
 /**
- * In-memory RTDB tree operations, path validation, write argument validation,
- * completion callback wrappers, and monotonic 20-char push-id generation.
+ * Path validation, write argument validation, completion callback wrappers,
+ * and monotonic 20-char push-id generation.
  */
 
-import type { Sandbox } from 'pyric/sandbox';
 import {
   errorPrefix,
   inlinePriorities,
   normalizeNode,
+  validatePriorityArg,
   validateUpdate,
   validateWrite,
+  withPriorities,
+  writePriority,
+  type InlinePriority,
+  type Priority,
 } from 'pyric/database/internal';
 import type { AdminServiceLifecycle } from '../app/lifecycle.js';
 import type { JsonValue } from './types.js';
-
-/** One RTDB instance's in-memory tree and owning sandbox clock source. */
-export interface SandboxState {
-  root: Record<string, JsonValue>;
-  sandbox: Sandbox;
-}
 
 const UNSAFE_SEGMENTS = new Set(['__proto__', 'prototype', 'constructor']);
 
@@ -44,105 +42,51 @@ export function joinPath(segments: string[]): string {
   return '/' + segments.join('/');
 }
 
-/** Read the stored value at `path` in `root`: integer-keyed children stay
- *  object keys. `null` for absent paths. Returns a fresh copy. */
-export function readPath(root: Record<string, JsonValue>, path: string): JsonValue {
-  const segs = pathSegments(path);
-  let node: JsonValue = root;
-  for (const seg of segs) {
-    if (node === null || typeof node !== 'object' || Array.isArray(node)) {
-      return null;
-    }
-    const obj = node as { [key: string]: JsonValue };
-    if (!Object.hasOwn(obj, seg)) return null;
-    node = obj[seg]!;
+function preserveNormalizedWithPriorities(value: unknown): JsonValue {
+  const normalized = normalizeNode(value);
+  if (normalized === null) {
+    return null;
   }
-  return structuredClone(node);
+  const extracted = writePriority(value, null);
+  const entries: InlinePriority[] = [];
+  if (extracted.inline) {
+    entries.push({ segments: [], priority: extracted.priority });
+  }
+  for (const nestedEntry of extracted.nested) {
+    entries.push(nestedEntry);
+  }
+  if (entries.length === 0) {
+    return normalized;
+  }
+  return withPriorities(normalized, entries);
 }
 
-/** Write a value `normalizeNode` built at `path`. `null` deletes and trims empty ancestors. */
-export function writePath(
-  root: Record<string, JsonValue>,
-  path: string,
-  value: JsonValue,
-): void {
-  const segs = pathSegments(path);
-  if (segs.length === 0) {
-    for (const k of Object.keys(root)) delete root[k];
-    if (value === null) return;
-    if (typeof value !== 'object' || Array.isArray(value)) {
-      throw new Error(
-        'pyric-admin/database sandbox: root write must be an object (or null to clear).',
-      );
-    }
-    Object.assign(root, value);
-    return;
-  }
-  let cursor: Record<string, JsonValue> = root;
-  for (let i = 0; i < segs.length - 1; i++) {
-    const k = segs[i]!;
-    const next = Object.hasOwn(cursor, k) ? cursor[k] : undefined;
-    if (
-      next === undefined ||
-      next === null ||
-      typeof next !== 'object' ||
-      Array.isArray(next)
-    ) {
-      const fresh: Record<string, JsonValue> = {};
-      cursor[k] = fresh;
-      cursor = fresh;
-    } else {
-      cursor = next as Record<string, JsonValue>;
-    }
-  }
-  const lastKey = segs[segs.length - 1]!;
-  if (value === null) {
-    delete cursor[lastKey];
-    trimEmptyAncestors(root, segs);
-  } else {
-    cursor[lastKey] = value;
-  }
-}
-
-function trimEmptyAncestors(root: Record<string, JsonValue>, segs: string[]): void {
-  for (let depth = segs.length - 1; depth >= 1; depth--) {
-    const parentSegs = segs.slice(0, depth);
-    const lastKey = segs[depth - 1]!;
-    let parent: Record<string, JsonValue> = root;
-    for (let i = 0; i < parentSegs.length - 1; i++) {
-      const next = parent[parentSegs[i]!];
-      if (
-        next === undefined ||
-        next === null ||
-        typeof next !== 'object' ||
-        Array.isArray(next)
-      ) {
-        return;
-      }
-      parent = next as Record<string, JsonValue>;
-    }
-    const child = parent[lastKey];
-    if (
-      child !== undefined &&
-      child !== null &&
-      typeof child === 'object' &&
-      !Array.isArray(child)
-    ) {
-      const obj = child as Record<string, JsonValue>;
-      if (Object.keys(obj).length === 0) {
-        delete parent[lastKey];
-        continue;
-      }
-    }
-    return;
-  }
-}
-
-/** Validate and normalize a `set` or `push` value synchronously. */
-export function validateValueArg(fnName: 'set' | 'push', segs: string[], value: unknown): JsonValue {
+/** Validate and normalize a `set`, `push`, or `setWithPriority` value synchronously, preserving inline `.priority` metadata. */
+export function validateValueArg(
+  fnName: 'set' | 'push' | 'setWithPriority',
+  segs: string[],
+  value: unknown,
+): JsonValue {
   validateWrite(value, joinPath(segs), errorPrefix(fnName, 'value'));
   inlinePriorities(value);
-  return normalizeNode(value);
+  return preserveNormalizedWithPriorities(value);
+}
+
+/** Validate a `setPriority` or `setWithPriority` priority argument synchronously. */
+export function validateAdminPriorityArg(
+  fnName: 'setPriority' | 'setWithPriority',
+  priority: unknown,
+): Priority {
+  validatePriorityArg(fnName, priority);
+  return priority as Priority;
+}
+
+/** Construct the server error thrown when `setPriority` targets a non-existent node with a non-null priority. */
+export function absentNodeSetPriorityError(): Error {
+  return Object.assign(
+    new Error('INVALID_PARAMETERS: could not set priority on non-existent node'),
+    { code: 'INVALID_PARAMETERS' },
+  );
 }
 
 function isPriorityKey(key: string): boolean {
@@ -150,12 +94,31 @@ function isPriorityKey(key: string): boolean {
   return segments[segments.length - 1] === '.priority';
 }
 
-/** Validate and normalize an `update` patch synchronously, dropping `.priority` keys. */
+/** Validate and normalize an `update` patch synchronously, coercing arrays and preserving `.priority` entries. */
 export function validateValuesArg(segs: string[], values: unknown): Record<string, JsonValue> {
-  const entries = Object.entries(validateUpdate(values, joinPath(segs)));
-  for (const [, value] of entries) inlinePriorities(value);
-  const dataEntries = entries.filter(([key]) => !isPriorityKey(key));
-  return Object.fromEntries(dataEntries.map(([key, value]) => [key, normalizeNode(value)]));
+  let candidateValues = values;
+  if (Array.isArray(values)) {
+    const coerced: Record<string, unknown> = {};
+    for (let i = 0; i < values.length; i += 1) {
+      if (i in values) {
+        coerced[String(i)] = values[i];
+      } else {
+        coerced[String(i)] = null;
+      }
+    }
+    candidateValues = coerced;
+  }
+  const entries = Object.entries(validateUpdate(candidateValues, joinPath(segs)));
+  const normalizedEntries: Array<[string, JsonValue]> = [];
+  for (const [key, value] of entries) {
+    inlinePriorities(value);
+    if (isPriorityKey(key)) {
+      normalizedEntries.push([key, value as JsonValue]);
+    } else {
+      normalizedEntries.push([key, preserveNormalizedWithPriorities(value)]);
+    }
+  }
+  return Object.fromEntries(normalizedEntries);
 }
 
 /** Run a synchronous in-memory write as a settled promise, invoking `onComplete` if supplied. */

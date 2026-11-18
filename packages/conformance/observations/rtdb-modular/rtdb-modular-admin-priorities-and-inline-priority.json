@@ -1,7 +1,9 @@
 {
   "name": "rtdb-modular-admin-priorities-and-inline-priority",
-  "matrixRow": "",
-  "rowIds": [],
+  "matrixRow": "rtdb-admin#7",
+  "rowIds": [
+    "rtdb-admin#7"
+  ],
   "description": "firebase-admin/database Reference.setPriority, Reference.setWithPriority, inline .priority/.value in set() and update(), DataSnapshot.getPriority()/exportVal(), orderByPriority() ordering, and synchronous invalid-priority throws.",
   "observedAt": "2026-11-18T06:45:28.321Z",
   "fbSdkVersion": "12.19.0",

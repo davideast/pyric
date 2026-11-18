@@ -1,7 +1,11 @@
 {
   "name": "rtdb-modular-admin-firebasedatabaseerror-and-url-binding",
-  "matrixRow": "",
-  "rowIds": [],
+  "matrixRow": "rtdb-admin#1, rtdb-admin#10, rtdb-modular#MI4",
+  "rowIds": [
+    "rtdb-admin#1",
+    "rtdb-admin#10",
+    "rtdb-modular#MI4"
+  ],
   "description": "firebase-admin/database FirebaseDatabaseError runtime constructor contract (database/ prefix, message override, toJSON) and getDatabase(app) / getDatabaseWithUrl(url, app) handle caching, live routing, and invalid-argument / format-mismatch throws.",
   "observedAt": "2026-11-18T06:45:18.806Z",
   "fbSdkVersion": "12.19.0",

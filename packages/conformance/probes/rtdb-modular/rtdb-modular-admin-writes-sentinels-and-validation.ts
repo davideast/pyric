@@ -286,11 +286,10 @@ export async function observeAdminWritesSentinelsAndValidation(
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: ['web-config', 'dedicated-rtdb'],
-  pendingRowLink: true,
   description:
     'firebase-admin/database writes, ServerValue sentinels, and synchronous validation: observes set, multi-path atomic update, array update merging, remove, ordered 20-char push keys, onComplete callbacks, ServerValue.TIMESTAMP and ServerValue.increment(delta), and synchronous payload/key validation throws.',
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'rtdb-admin#3',
+  rowIds: ['rtdb-admin#3'],
   observe() {
     return withRtdbProbeSession({}, async ({ runId, runPath, databaseUrl }) => {
       const [adminAppMod, { getDatabaseWithUrl, ServerValue }] = await Promise.all([
