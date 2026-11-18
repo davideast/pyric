@@ -289,12 +289,21 @@ describe('Cross-plane Storage SDK and Admin Storage parity', () => {
     const { ctx, served, servedStorage, ipStorage, cleanup } = await setupPlanes();
     try {
       for (const slashRoot of ['', '///']) {
-        await expect(
-          ip.uploadBytes(ip.ref(ipStorage, slashRoot), new Uint8Array([1])),
-        ).rejects.toMatchObject({ code: 'storage/invalid-root-operation' });
-        await expect(
-          served.uploadBytes(served.ref(servedStorage, slashRoot), new Uint8Array([1])),
-        ).rejects.toMatchObject({ code: 'storage/invalid-root-operation' });
+        let ipCode = '';
+        try {
+          void ip.uploadBytes(ip.ref(ipStorage, slashRoot), new Uint8Array([1]));
+        } catch (err) {
+          ipCode = String((err as { code?: unknown }).code);
+        }
+        expect(ipCode).toBe('storage/invalid-root-operation');
+
+        let servedCode = '';
+        try {
+          void served.uploadBytes(served.ref(servedStorage, slashRoot), new Uint8Array([1]));
+        } catch (err) {
+          servedCode = String((err as { code?: unknown }).code);
+        }
+        expect(servedCode).toBe('storage/invalid-root-operation');
       }
 
       // Host storage.beginUpload must also reject '///' as root and allow ' ' as valid object name
