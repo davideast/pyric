@@ -1,0 +1,80 @@
+{
+  "name": "admin-storage-bucket-getfiles",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "firebase-admin Bucket.getFiles({ prefix, delimiter, maxResults, pageToken, autoPaginate }): observes verbatim prefix matching, delimiter prefix roll-up, [files, nextQuery, apiResponse] tuple shape, and pageToken pagination.",
+  "observedAt": "2026-11-18T04:27:28.584Z",
+  "adminSdkVersion": "13.10.0",
+  "behavior": {
+    "partialFolderPrefix": {
+      "relativeNames": [
+        "items/123/a.bin",
+        "items/123/b/c.bin",
+        "items/124/a.bin"
+      ],
+      "relativePrefixes": [],
+      "nextQueryIsNull": false,
+      "nextQueryHasPageToken": false,
+      "nextQueryMatchesInputPrefix": true,
+      "apiResponseKind": "storage#objects",
+      "apiResponseHasItemsProperty": true,
+      "firstFileMetadataPopulated": true
+    },
+    "slashFolderPrefix": {
+      "relativeNames": [
+        "items/123/a.bin",
+        "items/123/b/c.bin"
+      ],
+      "relativePrefixes": [],
+      "nextQueryIsNull": false,
+      "nextQueryHasPageToken": false,
+      "nextQueryMatchesInputPrefix": true,
+      "apiResponseKind": "storage#objects",
+      "apiResponseHasItemsProperty": true,
+      "firstFileMetadataPopulated": true
+    },
+    "delimiterRollup": {
+      "relativeNames": [
+        "items",
+        "readme.txt"
+      ],
+      "relativePrefixes": [
+        "items/"
+      ],
+      "nextQueryIsNull": false,
+      "nextQueryHasPageToken": false,
+      "nextQueryMatchesInputPrefix": true,
+      "apiResponseKind": "storage#objects",
+      "apiResponseHasItemsProperty": true,
+      "firstFileMetadataPopulated": true
+    },
+    "paginated": {
+      "page1": {
+        "relativeNames": [
+          "items"
+        ],
+        "relativePrefixes": [
+          "items/"
+        ],
+        "nextQueryIsNull": false,
+        "nextQueryHasPageToken": true,
+        "nextQueryMatchesInputPrefix": true,
+        "apiResponseKind": "storage#objects",
+        "apiResponseHasItemsProperty": true,
+        "firstFileMetadataPopulated": true
+      },
+      "page2": {
+        "relativeNames": [
+          "readme.txt"
+        ],
+        "relativePrefixes": [],
+        "nextQueryIsNull": true,
+        "nextQueryHasPageToken": false,
+        "nextQueryMatchesInputPrefix": false,
+        "apiResponseKind": "storage#objects",
+        "apiResponseHasItemsProperty": true,
+        "firstFileMetadataPopulated": true
+      }
+    }
+  }
+}
