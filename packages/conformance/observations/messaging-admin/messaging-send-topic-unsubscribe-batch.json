@@ -1,7 +1,10 @@
 {
   "name": "messaging-send-topic-unsubscribe-batch",
-  "matrixRow": "",
-  "rowIds": [],
+  "matrixRow": "messaging-admin#8, messaging-admin#35",
+  "rowIds": [
+    "messaging-admin#8",
+    "messaging-admin#35"
+  ],
   "description": "firebase-admin/messaging unsubscribeFromTopic(tokenOrTokens, topic): live IID /iid/v1:batchRemove MessagingTopicManagementResponse per-index error mapping, /topics/ prefix normalization, and synchronous vs asynchronous input validation guards.",
   "observedAt": "2026-11-18T03:07:55.928Z",
   "adminSdkVersion": "13.10.0",
