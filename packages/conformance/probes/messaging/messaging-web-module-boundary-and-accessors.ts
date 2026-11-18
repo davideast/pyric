@@ -182,10 +182,9 @@ export async function observeMessagingModuleBoundaryAndAccessors(): Promise<Mess
 
 export const probe: Probe = {
   rig: 'sdk-probes',
-  pendingRowLink: true,
   requires: ['web-config'],
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'messaging#1',
+  rowIds: ['messaging#1', 'messaging#13', 'messaging#17'],
   description:
     'firebase/messaging and firebase/messaging/sw module export boundaries, separate messaging vs messaging-sw component caching per FirebaseApp, default-app resolution (including app/no-app), and post-deleteApp handle caching vs first-access app/app-deleted throws.',
   async observe() {

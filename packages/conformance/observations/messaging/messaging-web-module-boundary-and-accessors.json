@@ -1,7 +1,11 @@
 {
   "name": "messaging-web-module-boundary-and-accessors",
-  "matrixRow": "",
-  "rowIds": [],
+  "matrixRow": "messaging#1",
+  "rowIds": [
+    "messaging#1",
+    "messaging#13",
+    "messaging#17"
+  ],
   "description": "firebase/messaging and firebase/messaging/sw module export boundaries, separate messaging vs messaging-sw component caching per FirebaseApp, default-app resolution (including app/no-app), and post-deleteApp handle caching vs first-access app/app-deleted throws.",
   "observedAt": "2026-11-18T17:35:02.332Z",
   "fbSdkVersion": "12.19.0",

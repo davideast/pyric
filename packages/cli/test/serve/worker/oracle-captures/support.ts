@@ -69,6 +69,8 @@ export function load(name: string): Behavior {
     surface = 'rtdb-modular';
   } else if (name.startsWith('auth-')) {
     surface = 'auth';
+  } else if (name.startsWith('messaging-web-')) {
+    surface = 'messaging';
   }
   return JSON.parse(readFileSync(join(OBSERVATIONS, surface, `${name}.json`), 'utf8')).behavior as Behavior;
 }

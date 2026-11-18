@@ -38,6 +38,7 @@ export function getMessaging(app?: FirebaseApp): Messaging {
   const resolved = app ?? getApp();
   const existing = workerMessagingByApp.get(resolved);
   if (existing) return existing;
+  inPage.getMessaging(resolved);
   const handle: Messaging = { app: resolved };
   const client = messagingSwClient(resolved).then(db => db
     ? messagingGetMessaging(db, messagingRegistration(resolved))

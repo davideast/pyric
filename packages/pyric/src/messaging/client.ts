@@ -14,6 +14,7 @@
  * upstream counterpart and is additive to the mirrored surface.
  */
 import type { FirebaseApp } from '../app/types.js';
+import { FirebaseError } from '../sandbox/internal/firebase-error.js';
 import type { Sandbox, SandboxContext } from '../sandbox/index.js';
 import {
   defaultRegistration,
@@ -101,8 +102,40 @@ export function getMessaging(target?: FirebaseApp | Sandbox | SandboxContext): M
  * (simulated) service-worker registration — no per-call rotation.
  * Notification permission is modeled as granted in the sandbox.
  */
+function isValidSwRegistration(registration: unknown): registration is object {
+  if (registration === null || typeof registration !== 'object') {
+    return false;
+  }
+  const globalSwCtor = (globalThis as { ServiceWorkerRegistration?: unknown })
+    .ServiceWorkerRegistration;
+  if (typeof globalSwCtor === 'function' && registration instanceof globalSwCtor) {
+    return true;
+  }
+  const candidate = registration as { scope?: unknown };
+  return typeof candidate.scope === 'string';
+}
+
+export function assertGetTokenPreconditions(options?: GetTokenOptions): void {
+  const globalNotification = (globalThis as { Notification?: { permission?: unknown } })
+    .Notification;
+  if (globalNotification?.permission === 'denied') {
+    throw new FirebaseError(
+      'messaging/permission-blocked',
+      'Messaging: The notification permission was not granted and blocked instead. (messaging/permission-blocked).',
+    );
+  }
+  const registration = options?.serviceWorkerRegistration;
+  if (registration !== undefined && !isValidSwRegistration(registration)) {
+    throw new FirebaseError(
+      'messaging/invalid-sw-registration',
+      'Messaging: The input to useServiceWorker() must be a ServiceWorkerRegistration. (messaging/invalid-sw-registration).',
+    );
+  }
+}
+
 export async function getToken(messaging: Messaging, options?: GetTokenOptions): Promise<string> {
   const state = stateOf(messaging);
+  assertGetTokenPreconditions(options);
   const registration = options?.serviceWorkerRegistration ?? defaultRegistration();
   const registrationId = registrationIdOf(registration);
   state.activeRegistrationId = registrationId;

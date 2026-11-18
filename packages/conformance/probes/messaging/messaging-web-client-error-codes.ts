@@ -70,10 +70,9 @@ export async function observeMessagingClientErrorCodes(): Promise<MessagingClien
 
 export const probe: Probe = {
   rig: 'sdk-probes',
-  pendingRowLink: true,
   requires: ['web-config'],
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'messaging#12',
+  rowIds: ['messaging#12'],
   description:
     'firebase/messaging @internal ErrorCode non-export on client and sw entries plus FirebaseError rejection codes for denied notification permission (messaging/permission-blocked) and invalid serviceWorkerRegistration inputs (messaging/invalid-sw-registration).',
   async observe() {

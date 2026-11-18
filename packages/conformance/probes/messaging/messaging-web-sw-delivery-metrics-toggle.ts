@@ -89,10 +89,9 @@ export async function observeMessagingSwDeliveryMetricsToggle(): Promise<Messagi
 
 export const probe: Probe = {
   rig: 'sdk-probes',
-  pendingRowLink: true,
   requires: ['web-config'],
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'messaging#15',
+  rowIds: ['messaging#15'],
   description:
     'firebase/messaging/sw experimentalSetDeliveryMetricsExportedToBigQueryEnabled(messaging, enable) runtime toggle return contract, preservation of onBackgroundMessage delivery across enabled and disabled states, and synchronous rejection of null handles.',
   async observe() {
