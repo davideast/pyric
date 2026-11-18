@@ -568,11 +568,9 @@ export async function updatePassword(user: ClientUser, newPassword: string): Pro
   });
 }
 
-export async function updateCurrentUser(
-  auth: ClientAuth,
-  user: ClientUser | null,
-): Promise<void> {
-  if (user !== null && auth.currentUser === user) auth.currentUser = null;
+export async function updateCurrentUser(auth: ClientAuth, user: ClientUser | null): Promise<void> {
+  const clearedSameHandle = user !== null && auth.currentUser === user;
+  if (clearedSameHandle) auth.currentUser = null;
   const opMessage: OpMessage = {
     t: 'op', id: nextId(), method: 'auth.updateCurrentUser', uid: user?.uid ?? null,
     tenantId: auth.tenantId ?? user?.tenantId ?? null,
@@ -581,8 +579,13 @@ export async function updateCurrentUser(
     const key = clientUserSessionKey(user);
     if (key !== undefined) opMessage.sessionKey = key;
   }
-  const raw = (await rpc(auth.port, opMessage)) as SerializedUser | null;
-  reconcileClientUser(auth, raw);
+  try {
+    const raw = (await rpc(auth.port, opMessage)) as SerializedUser | null;
+    reconcileClientUser(auth, raw);
+  } catch (err) {
+    if (clearedSameHandle && auth.currentUser === null) auth.currentUser = user;
+    throw err;
+  }
 }
 
 export async function signInWithCredential(

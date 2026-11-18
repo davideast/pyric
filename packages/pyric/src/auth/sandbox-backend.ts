@@ -1430,11 +1430,48 @@ export class SandboxBackend {
   }
 
   /**
-   * Gated entry point for sign-in / sign-out transitions: runs `beforeAuthStateChanged`
-   * callbacks first, committing `setCurrentUser` synchronously when no gate is active
-   * so same-tick `subscribe(); signIn()` deduplication (COMPAT row 31) holds.
+   * Gated entry point for sign-in, sign-out, and `updateCurrentUser` transitions:
+   * runs `beforeAuthStateChanged` callbacks first, committing `setCurrentUser`
+   * synchronously when no gate is active (COMPAT row 31). When `signInProvider`
+   * is omitted (`updateCurrentUser`), clones `user` onto this backend while
+   * continuing its session lineage (#1950), matching `AuthImpl.updateCurrentUser`.
    */
   transitionCurrentUser(user: User | null, signInProvider?: string | null): Promise<void> {
+    if (user !== null && signInProvider === undefined) {
+      const stored = this.usersByUid.get(user.uid);
+      let cloned: User;
+      if (stored !== undefined) {
+        cloned = this.buildUserFromStored(stored);
+      } else {
+        cloned = this.makeUser({
+          uid: user.uid,
+          email: user.email,
+          displayName: user.displayName,
+          isAnonymous: user.isAnonymous,
+          claims: {},
+          photoURL: user.photoURL,
+          emailVerified: user.emailVerified,
+          phoneNumber: user.phoneNumber,
+          tenantId: user.tenantId,
+        });
+      }
+      (cloned as Mutable<User>).tenantId = user.tenantId;
+      this.sessions.continue(cloned, user);
+      const applyResumed = () => {
+        this.resumingSession = cloned;
+        try {
+          this.setCurrentUser(cloned);
+        } finally {
+          this.resumingSession = null;
+        }
+      };
+      const hasGate = this.beforeStateSubs.some((reg) => reg.active);
+      if (!hasGate) {
+        applyResumed();
+        return Promise.resolve();
+      }
+      return this.runBeforeStateChange(cloned).then(applyResumed);
+    }
     if (user !== null && signInProvider !== undefined) {
       this.scopeSignInToTenant(user);
     }
@@ -1446,44 +1483,6 @@ export class SandboxBackend {
     return this.runBeforeStateChange(user).then(() => {
       this.setCurrentUser(user, signInProvider);
     });
-  }
-
-  /** Clone `source` onto this backend while continuing its session (#1950), matching `AuthImpl.updateCurrentUser`. */
-  updateCurrentUserFrom(source: User | null): Promise<void> {
-    if (source === null) return this.transitionCurrentUser(null);
-    const stored = this.usersByUid.get(source.uid);
-    let cloned: User;
-    if (stored !== undefined) {
-      cloned = this.buildUserFromStored(stored);
-    } else {
-      cloned = this.makeUser({
-        uid: source.uid,
-        email: source.email,
-        displayName: source.displayName,
-        isAnonymous: source.isAnonymous,
-        claims: {},
-        photoURL: source.photoURL,
-        emailVerified: source.emailVerified,
-        phoneNumber: source.phoneNumber,
-        tenantId: source.tenantId,
-      });
-    }
-    (cloned as Mutable<User>).tenantId = source.tenantId;
-    this.sessions.continue(cloned, source);
-    const applyResumed = () => {
-      this.resumingSession = cloned;
-      try {
-        this.setCurrentUser(cloned);
-      } finally {
-        this.resumingSession = null;
-      }
-    };
-    const hasActiveGate = this.beforeStateSubs.some((reg) => reg.active);
-    if (!hasActiveGate) {
-      applyResumed();
-      return Promise.resolve();
-    }
-    return this.runBeforeStateChange(cloned).then(applyResumed);
   }
 
   // ─── Identity mutation ──────────────────────────────────────────────

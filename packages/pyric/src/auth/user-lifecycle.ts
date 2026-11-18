@@ -86,7 +86,7 @@ export async function updateCurrentUser(auth: Auth, user: User | null): Promise<
   if (user !== null && authTenant !== null) {
     assertMatchingTenant(user, authTenant);
   }
-  await target.backend.updateCurrentUserFrom(user);
+  await target.backend.transitionCurrentUser(user);
 }
 
 export function useDeviceLanguage(auth: Auth): void {
