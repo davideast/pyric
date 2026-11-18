@@ -1,7 +1,9 @@
 {
   "name": "client-storage-uploadbytes-root-ref",
-  "matrixRow": "",
-  "rowIds": [],
+  "matrixRow": "storage#31",
+  "rowIds": [
+    "storage#31"
+  ],
   "description": "firebase/storage uploadBytes(ref(storage), data) on the root reference: observes synchronous FirebaseError storage/invalid-root-operation client-side preflight with zero network requests.",
   "observedAt": "2026-11-17T23:55:21.485Z",
   "fbSdkVersion": "12.19.0",

@@ -82,9 +82,8 @@ export async function observeUploadBytesOverwriteGenerations(
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: ['web-config'],
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'storage#35',
+  rowIds: ['storage#35', 'storage#38', 'storage#118'],
   description:
     'uploadBytes overwrite and generation semantics: uploading twice to the same path replaces bytes and metadata instead of appending, issues a strictly larger numeric string generation, and resets metageneration to "1" on each fresh version.',
   async observe() {

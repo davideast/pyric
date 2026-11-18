@@ -168,10 +168,10 @@ describe('uploadBytes', () => {
     expect(await blob.text()).toBe('{}');
   });
 
-  it('throws on root reference', async () => {
+  it('throws on root reference', () => {
     const storage = freshStorage('upload-root');
     const root = ref(storage);
-    await expect(uploadBytes(root, new Blob(['x']))).rejects.toThrow(
+    expect(() => uploadBytes(root, new Blob(['x']))).toThrow(
       /invalid-root-operation/,
     );
   });

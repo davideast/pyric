@@ -93,9 +93,8 @@ export async function observeUploadBytesPayloadTypes(
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: ['web-config'],
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'storage#24',
+  rowIds: ['storage#24', 'storage#25', 'storage#26', 'storage#32', 'storage#33', 'storage#34'],
   description:
     'uploadBytes accepts Blob, Uint8Array, and ArrayBuffer binary payloads, round-trips exact bytes via getBytes, and returns UploadResult metadata matching fullPath, name, size, and bucket.',
   async observe() {
