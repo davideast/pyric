@@ -1,15 +1,29 @@
-import type { UpdateRequest, UserRecord } from 'firebase-admin/auth';
+import type { UpdateRequest } from 'firebase-admin/auth';
 import type { Probe } from '../../rigs/types.ts';
 import { withAdminAuthProbeSession } from '../../src/sdk-probe-runtime.ts';
 
+interface AdminUpdateUserRecord {
+  readonly email?: string;
+  readonly emailVerified: boolean;
+  readonly displayName?: string;
+  readonly photoURL?: string;
+  readonly phoneNumber?: string;
+  readonly disabled: boolean;
+  readonly providerData: readonly { readonly providerId: string }[];
+}
+
 export interface AdminUpdateUserSubject {
-  createUser(properties: { uid: string; email: string; password: string }): Promise<UserRecord>;
-  updateUser(uid: string, properties: UpdateRequest): Promise<UserRecord>;
-  getUser(uid: string): Promise<UserRecord>;
+  createUser(properties: {
+    uid: string;
+    email: string;
+    password: string;
+  }): Promise<AdminUpdateUserRecord>;
+  updateUser(uid: string, properties: UpdateRequest): Promise<AdminUpdateUserRecord>;
+  getUser(uid: string): Promise<AdminUpdateUserRecord>;
 }
 
 function summarizeUserRecord(
-  record: UserRecord,
+  record: AdminUpdateUserRecord,
   expectedEmail: string,
   expectedPhone: string | undefined,
 ): Record<string, unknown> {
@@ -95,9 +109,8 @@ export async function observeUpdateUserFields(
 export const probe: Probe = {
   rig: 'admin-auth',
   requires: ['admin-auth'],
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'auth-admin#8',
+  rowIds: ['auth-admin#8'],
   description:
     'firebase-admin/auth updateUser(uid, properties) mutates email, password, emailVerified, displayName, photoURL, phoneNumber, and disabled, clears nullable profile and phone fields with null, updates providerData accordingly, and rejects unknown UIDs with auth/user-not-found.',
   async observe(): Promise<Record<string, unknown>> {

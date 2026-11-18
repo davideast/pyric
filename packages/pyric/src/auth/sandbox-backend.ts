@@ -63,6 +63,7 @@ import {
   type AuthProjectStore,
 } from './sandbox/project-store.js';
 import { defaultAvatarMint, type AvatarMint } from './sandbox/default-avatar.js';
+import { applyAdminUserUpdateFields, assertTenantPhoneAvailable } from './sandbox/admin-user-update.js';
 import { applyEmailChangeToUser, applyUserEmailUpdate, propagateRefreshedToken } from './sandbox/email-update.js';
 import { SessionLedger } from './sandbox/session-ledger.js';
 import { buildClientUserInfoList } from './sandbox/user-info-projection.js';
@@ -1893,6 +1894,9 @@ export class SandboxBackend {
         );
       }
     }
+    if (req.phoneNumber !== undefined) {
+      assertTenantPhoneAvailable(this.usersByUid, req.phoneNumber, tenantId);
+    }
     const record = this.makeStored({
       uid,
       email: req.email ?? null,
@@ -1923,7 +1927,7 @@ export class SandboxBackend {
   /** Admin user update. `undefined` fields untouched; `customClaims`
    *  replaces the whole map (admin `setCustomUserClaims` semantics).
    *  Claims changes reach an ACTIVE session only on the next token
-   *  refresh / sign-in — same propagation story as prod. */
+   *  refresh / sign-in - same propagation story as prod. */
   updateUser(uid: string, update: UpdateUserRequest): AuthUserRecord {
     const stored = this.usersByUid.get(uid);
     if (!stored) {
@@ -1931,31 +1935,19 @@ export class SandboxBackend {
     }
     if (update.customClaims !== undefined) assertNoReservedCustomClaims(update.customClaims);
     const before = this.toRecord(stored);
-    if (update.email !== undefined) {
-      validateEmailFormat(update.email);
-      const key = update.email.toLowerCase();
-      const targetTenant = stored.tenantId ?? null;
-      const emailTakenInTenant = [...this.usersByUid.values()].some(
-        (u) => u !== stored && u.email?.toLowerCase() === key && (u.tenantId ?? null) === targetTenant,
-      );
-      if (emailTakenInTenant) {
-        throw makeAuthError(
-          'auth/email-already-in-use',
-          `An account already exists for ${update.email}.`,
-        );
-      }
-      unindexStoredUserEmail(this.usersByEmail, stored);
-      stored.email = update.email;
-      this.usersByEmail.set(tenantEmailKey(targetTenant, update.email), stored);
-    }
     if (update.password !== undefined) {
       validatePasswordStrength(update.password);
+    }
+    applyAdminUserUpdateFields({
+      stored,
+      update,
+      usersByUid: this.usersByUid,
+      usersByEmail: this.usersByEmail,
+      photoOriginByUid: this.photoOriginByUid,
+    });
+    if (update.password !== undefined) {
       stored.password = update.password;
-      // A password change revokes the account's refresh tokens, as in production.
       revokeTokensAt(this.projectStore, uid, this.now().getTime());
-      // Setting a password links the password provider — matches the
-      // Identity Toolkit (an account gains providerUserInfo entry
-      // when a password is set on it).
       if (!stored.providerUserInfo.some((p) => p.providerId === 'password')) {
         stored.providerUserInfo.push({ providerId: 'password' });
       }
@@ -1967,12 +1959,9 @@ export class SandboxBackend {
         'updateUser',
       );
     }
-    if (update.displayName !== undefined) stored.displayName = update.displayName;
     if (update.customClaims !== undefined) {
       stored.customClaims = cloneClaimData(update.customClaims);
     }
-    if (update.disabled !== undefined) stored.disabled = update.disabled;
-    if (update.emailVerified !== undefined) stored.emailVerified = update.emailVerified;
     this.notifyUsersChanged();
     const after = this.toRecord(stored);
     this.emitAuthEvent('user_update', { path: uid, auth: null, before, after });

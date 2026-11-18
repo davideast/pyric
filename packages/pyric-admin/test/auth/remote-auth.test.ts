@@ -94,9 +94,36 @@ describe('remote sandbox Auth arm', () => {
     const byEmail = await auth.getUserByEmail('REMOTE@EXAMPLE.COM');
     expect(byEmail.uid).toBe('user-r1');
 
-    const updated = await auth.updateUser('user-r1', { displayName: 'Updated Name', disabled: true });
+    const updated = await auth.updateUser('user-r1', {
+      displayName: 'Updated Name',
+      photoURL: 'https://example.com/p.png',
+      phoneNumber: '+15555550177',
+      disabled: true,
+    });
     expect(updated.displayName).toBe('Updated Name');
+    expect(updated.photoURL).toBe('https://example.com/p.png');
+    expect(updated.phoneNumber).toBe('+15555550177');
+    expect(updated.providerData.map((p) => p.providerId).sort()).toEqual(['password', 'phone']);
     expect(updated.disabled).toBe(true);
+
+    await expect(
+      auth.updateUser('user-r2', {
+        email: 'changed-second@example.com',
+        phoneNumber: '+15555550177',
+      }),
+    ).rejects.toMatchObject({ code: 'auth/phone-number-already-exists' });
+    expect((await auth.getUser('user-r2')).email).toBe('second@example.com');
+    expect((await auth.getUserByEmail('second@example.com')).uid).toBe('user-r2');
+
+    const cleared = await auth.updateUser('user-r1', {
+      displayName: null,
+      photoURL: null,
+      phoneNumber: null,
+    });
+    expect(cleared.displayName).toBeUndefined();
+    expect(cleared.photoURL).toBeUndefined();
+    expect(cleared.phoneNumber).toBeUndefined();
+    expect(cleared.providerData.map((p) => p.providerId)).toEqual(['password']);
 
     await auth.setCustomUserClaims('user-r1', { orgId: 'org-1' });
     const withClaims = await auth.getUser('user-r1');
@@ -124,9 +151,15 @@ describe('remote sandbox Auth arm', () => {
     const { auth } = createBackedRemoteAuth('remote-validation');
     await auth.createUser({ uid: 'user-r3', email: 'valid@example.com', password: 'secret-pw' });
 
-    await expect(auth.updateUser('user-r3', { photoURL: 'https://example.com/p.png' })).rejects.toThrow(
-      /not implemented/,
-    );
+    await expect(
+      auth.updateUser('user-r3', { providersToUnlink: ['google.com'] }),
+    ).rejects.toThrow(/not implemented/);
+    await expect(auth.updateUser('user-r3', { photoURL: 'not-a-url' })).rejects.toMatchObject({
+      code: 'auth/invalid-photo-url',
+    });
+    await expect(auth.updateUser('user-r3', { phoneNumber: '+abc' })).rejects.toMatchObject({
+      code: 'auth/invalid-phone-number',
+    });
     await expect(auth.createUser({ uid: '', email: 'a@b.com' })).rejects.toMatchObject({
       code: 'auth/invalid-uid',
     });

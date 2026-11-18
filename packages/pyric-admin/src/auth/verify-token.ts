@@ -16,6 +16,7 @@ export type AccountFailureCode =
   | 'id-token-revoked'
   | 'invalid-uid'
   | 'email-already-exists'
+  | 'phone-number-already-exists'
   | 'uid-already-exists'
   | 'invalid-password'
   | 'invalid-email'
