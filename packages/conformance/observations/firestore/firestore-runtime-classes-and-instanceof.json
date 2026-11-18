@@ -1,7 +1,9 @@
 {
   "name": "firestore-runtime-classes-and-instanceof",
-  "matrixRow": "",
-  "rowIds": [],
+  "matrixRow": "firestore#151",
+  "rowIds": [
+    "firestore#151"
+  ],
   "description": "firebase/firestore exports runtime ES classes, query constraint constructors, and CACHE_SIZE_UNLIMITED satisfying instanceof checks across live database, reference, snapshot, batch, transaction, and aggregate handles.",
   "observedAt": "2026-11-18T20:16:11.644Z",
   "fbSdkVersion": "12.19.0",

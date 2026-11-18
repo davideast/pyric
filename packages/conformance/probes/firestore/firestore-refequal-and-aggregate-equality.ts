@@ -5,9 +5,8 @@ import { withFirestoreProbeSession } from '../../src/sdk-probe-runtime.ts';
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: ['web-config', 'firestore-rules'],
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'firestore#112',
+  rowIds: ['firestore#112', 'firestore#114', 'firestore#118', 'firestore#147', 'firestore#155'],
   description:
     'refEqual compares document, collection, converter, and QuerySnapshot.docs[i].ref handles; getDocFromServer and getDocsFromServer return live server snapshots; and aggregateFieldEqual and aggregateQuerySnapshotEqual compare aggregate descriptors and snapshots.',
   async observe() {

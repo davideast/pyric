@@ -4,9 +4,8 @@ import { withFirestoreProbeSession } from '../../src/sdk-probe-runtime.ts';
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: ['web-config', 'firestore-rules'],
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'firestore#151',
+  rowIds: ['firestore#151'],
   description:
     'firebase/firestore exports runtime ES classes, query constraint constructors, and CACHE_SIZE_UNLIMITED satisfying instanceof checks across live database, reference, snapshot, batch, transaction, and aggregate handles.',
   async observe() {
