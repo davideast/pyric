@@ -115,15 +115,51 @@ function isValidSwRegistration(registration: unknown): registration is object {
   return typeof candidate.scope === 'string';
 }
 
-async function isNotificationPermissionBlocked(): Promise<boolean> {
+function throwPermissionBlocked(): never {
+  throw new FirebaseError(
+    'messaging/permission-blocked',
+    'Messaging: The notification permission was not granted and blocked instead. (messaging/permission-blocked).',
+  );
+}
+
+function assertValidSwRegistrationOption(options?: GetTokenOptions): void {
+  const registration = options?.serviceWorkerRegistration;
+  if (registration !== undefined && !isValidSwRegistration(registration)) {
+    throw new FirebaseError(
+      'messaging/invalid-sw-registration',
+      'Messaging: The input to useServiceWorker() must be a ServiceWorkerRegistration. (messaging/invalid-sw-registration).',
+    );
+  }
+}
+
+async function verifyNativeNotificationPermission(
+  permissions: object,
+  queryPermissions: (permDesc: { name: string }) => Promise<{ state?: unknown }>,
+  options?: GetTokenOptions,
+): Promise<void> {
+  let blocked = true;
+  try {
+    const status = await queryPermissions.call(permissions, { name: 'notifications' });
+    blocked = status?.state === 'denied';
+  } catch {
+    blocked = true;
+  }
+  if (blocked) {
+    throwPermissionBlocked();
+  }
+  assertValidSwRegistrationOption(options);
+}
+
+export function assertGetTokenPreconditions(options?: GetTokenOptions): void | Promise<void> {
   const globalNotification = (globalThis as { Notification?: { permission?: unknown } })
     .Notification;
   if (globalNotification?.permission !== 'denied') {
-    return false;
+    assertValidSwRegistrationOption(options);
+    return undefined;
   }
   const descriptor = Object.getOwnPropertyDescriptor(globalNotification, 'permission');
   if (typeof globalNotification !== 'function' || typeof descriptor?.get !== 'function') {
-    return true;
+    throwPermissionBlocked();
   }
   const globalNavigator = (
     globalThis as {
@@ -137,32 +173,9 @@ async function isNotificationPermissionBlocked(): Promise<boolean> {
   const permissions = globalNavigator?.permissions;
   const queryPermissions = permissions?.query;
   if (permissions === undefined || typeof queryPermissions !== 'function') {
-    return true;
+    throwPermissionBlocked();
   }
-  try {
-    const status = await queryPermissions.call(permissions, {
-      name: 'notifications',
-    });
-    return status?.state === 'denied';
-  } catch {
-    return true;
-  }
-}
-
-export async function assertGetTokenPreconditions(options?: GetTokenOptions): Promise<void> {
-  if (await isNotificationPermissionBlocked()) {
-    throw new FirebaseError(
-      'messaging/permission-blocked',
-      'Messaging: The notification permission was not granted and blocked instead. (messaging/permission-blocked).',
-    );
-  }
-  const registration = options?.serviceWorkerRegistration;
-  if (registration !== undefined && !isValidSwRegistration(registration)) {
-    throw new FirebaseError(
-      'messaging/invalid-sw-registration',
-      'Messaging: The input to useServiceWorker() must be a ServiceWorkerRegistration. (messaging/invalid-sw-registration).',
-    );
-  }
+  return verifyNativeNotificationPermission(permissions, queryPermissions, options);
 }
 
 export async function getToken(messaging: Messaging, options?: GetTokenOptions): Promise<string> {
