@@ -1,0 +1,109 @@
+{
+  "name": "messaging-send-topic-subscribe-batch",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "firebase-admin/messaging subscribeToTopic(tokenOrTokens, topic): live IID /iid/v1:batchAdd MessagingTopicManagementResponse per-index error mapping, /topics/ prefix normalization, and synchronous vs asynchronous input validation guards.",
+  "observedAt": "2026-11-18T03:07:55.254Z",
+  "adminSdkVersion": "13.10.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "mixedInvalidTokensBareTopic": {
+      "successCount": 0,
+      "failureCount": 2,
+      "errorCount": 2,
+      "errors": [
+        {
+          "index": 0,
+          "error": {
+            "code": "messaging/invalid-registration-token",
+            "message": "Invalid registration token provided. Make sure it matches the registration token the client app receives from registering with FCM.",
+            "isFirebaseMessagingError": true,
+            "name": "Error"
+          }
+        },
+        {
+          "index": 1,
+          "error": {
+            "code": "messaging/invalid-registration-token",
+            "message": "Invalid registration token provided. Make sure it matches the registration token the client app receives from registering with FCM.",
+            "isFirebaseMessagingError": true,
+            "name": "Error"
+          }
+        }
+      ]
+    },
+    "prefixedTopicNormalized": {
+      "successCount": 0,
+      "failureCount": 1,
+      "errorCount": 1,
+      "errors": [
+        {
+          "index": 0,
+          "error": {
+            "code": "messaging/invalid-registration-token",
+            "message": "Invalid registration token provided. Make sure it matches the registration token the client app receives from registering with FCM.",
+            "isFirebaseMessagingError": true,
+            "name": "Error"
+          }
+        }
+      ]
+    },
+    "prefixedMatchesSingleBareError": true,
+    "emptyStringTokenSync": {
+      "threw": true,
+      "synchronousThrow": true,
+      "code": "messaging/invalid-argument",
+      "message": "Registration token(s) provided to subscribeToTopic() must be a non-empty string or a non-empty array.",
+      "isFirebaseMessagingError": true,
+      "name": "Error"
+    },
+    "emptyArrayTokensSync": {
+      "threw": true,
+      "synchronousThrow": true,
+      "code": "messaging/invalid-argument",
+      "message": "Registration token(s) provided to subscribeToTopic() must be a non-empty string or a non-empty array.",
+      "isFirebaseMessagingError": true,
+      "name": "Error"
+    },
+    "emptyTopicSync": {
+      "threw": true,
+      "synchronousThrow": true,
+      "code": "messaging/invalid-argument",
+      "message": "Topic provided to subscribeToTopic() must be a string which matches the format \"/topics/[a-zA-Z0-9-_.~%]+\".",
+      "isFirebaseMessagingError": true,
+      "name": "Error"
+    },
+    "emptyElementInArrayAsync": {
+      "threw": true,
+      "synchronousThrow": false,
+      "code": "messaging/invalid-argument",
+      "message": "Registration token provided to subscribeToTopic() at index 1 must be a non-empty string.",
+      "isFirebaseMessagingError": true,
+      "name": "Error"
+    },
+    "overMax1001TokensAsync": {
+      "threw": true,
+      "synchronousThrow": false,
+      "code": "messaging/invalid-argument",
+      "message": "Too many registration tokens provided in a single request to subscribeToTopic(). Batch your requests to contain no more than 1,000 registration tokens per request.",
+      "isFirebaseMessagingError": true,
+      "name": "Error"
+    },
+    "invalidTopicCharsetAsync": {
+      "threw": true,
+      "synchronousThrow": false,
+      "code": "messaging/invalid-argument",
+      "message": "Topic provided to subscribeToTopic() must be a string which matches the format \"/topics/[a-zA-Z0-9-_.~%]+\".",
+      "isFirebaseMessagingError": true,
+      "name": "Error"
+    },
+    "doubleTopicsPrefixAsync": {
+      "threw": true,
+      "synchronousThrow": false,
+      "code": "messaging/invalid-argument",
+      "message": "Topic provided to subscribeToTopic() must be a string which matches the format \"/topics/[a-zA-Z0-9-_.~%]+\".",
+      "isFirebaseMessagingError": true,
+      "name": "Error"
+    }
+  }
+}
