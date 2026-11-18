@@ -1,0 +1,33 @@
+{
+  "name": "firestore-setdoc-both-merge-and-mergefields",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "Observes setDoc(ref, data, options) when both merge and mergeFields are supplied on the options object ({ merge: true, mergeFields } and { merge: false, mergeFields }).",
+  "observedAt": "2026-11-18T07:12:49.940Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "mergeTrueAndMergeFields": {
+      "threw": false,
+      "errorName": null,
+      "isFirebaseError": false,
+      "code": null,
+      "storedData": {
+        "existing": "stay",
+        "masked": "new-masked",
+        "unmasked": "new-unmasked"
+      }
+    },
+    "mergeFalseAndMergeFields": {
+      "threw": false,
+      "errorName": null,
+      "isFirebaseError": false,
+      "code": null,
+      "storedData": {
+        "existing": "stay",
+        "masked": "new-masked",
+        "unmasked": "old-unmasked"
+      }
+    }
+  }
+}

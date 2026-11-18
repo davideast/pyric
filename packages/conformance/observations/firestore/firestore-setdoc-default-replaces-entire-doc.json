@@ -1,0 +1,25 @@
+{
+  "name": "firestore-setdoc-default-replaces-entire-doc",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "setDoc(ref, data) without options (and with { merge: false }) replaces the existing document completely, removing unmentioned top-level and nested fields.",
+  "observedAt": "2026-11-18T07:12:57.684Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "noOptionsExists": true,
+    "noOptionsData": {
+      "title": "Replaced",
+      "count": 10
+    },
+    "noOptionsHasPriorStatus": false,
+    "noOptionsHasPriorNested": false,
+    "noOptionsHasPriorTags": false,
+    "mergeFalseData": {
+      "nested": {
+        "x": 9
+      }
+    },
+    "mergeFalseHasPriorKeepAttempt": false
+  }
+}

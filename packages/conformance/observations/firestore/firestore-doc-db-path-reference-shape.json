@@ -1,0 +1,41 @@
+{
+  "name": "firestore-doc-db-path-reference-shape",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "doc(db, path) returns a DocumentReference with type, id, normalized path, parent CollectionReference, odd-segment rejection, and live read/write usability.",
+  "observedAt": "2026-11-18T06:44:44.869Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "simple": {
+      "type": "document",
+      "id": "item-1",
+      "path": "items/item-1",
+      "parentPath": "items",
+      "parentType": "collection"
+    },
+    "nested": {
+      "id": "m2",
+      "path": "orgs/o1/members/m2",
+      "parentPath": "orgs/o1/members"
+    },
+    "slashTrimmedPath": "items/item-1",
+    "slashTrimmedEqualsSimple": true,
+    "oddSegmentError": {
+      "threw": true,
+      "isFirebaseError": true,
+      "isTypeError": false,
+      "code": "invalid-argument"
+    },
+    "emptyPathError": {
+      "threw": true,
+      "isFirebaseError": true,
+      "isTypeError": false,
+      "code": "invalid-argument"
+    },
+    "liveRoundtripData": {
+      "label": "doc-db-roundtrip",
+      "n": 1
+    }
+  }
+}

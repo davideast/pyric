@@ -1,0 +1,63 @@
+{
+  "name": "rtdb-modular-off-targeted-and-child-registrars",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "Modular RTDB plain-ref child listener registrars (onChildAdded/Changed/Removed/Moved), onChildChanged isolation from adds and deletes, and targeted off(ref, eventType?, callback?) vs returned-unsubscribe precision.",
+  "observedAt": "2026-11-18T06:46:04.428Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "childRegistrarIsolation": {
+      "initialAdded": [
+        {
+          "key": "a",
+          "val": {
+            "v": 1
+          },
+          "prevKey": null
+        },
+        {
+          "key": "b",
+          "val": {
+            "v": 2
+          },
+          "prevKey": "a"
+        }
+      ],
+      "initialChangedCount": 0,
+      "changedCountAfterAddChildC": 0,
+      "changedAfterMutateChildB": [
+        {
+          "key": "b",
+          "val": {
+            "v": 20
+          },
+          "prevKey": "a"
+        }
+      ],
+      "movedAfterPriorityChangeOnC": [
+        {
+          "key": "c",
+          "val": {
+            "v": 3
+          },
+          "prevKey": null
+        }
+      ],
+      "removedKeysAfterDeleteChildA": [
+        "a"
+      ],
+      "changedCountAfterDeleteChildA": 0
+    },
+    "targetedOffPrecision": {
+      "valCb1CountBeforeOffCb1": 5,
+      "valCb2CountBeforeOffCb1": 5,
+      "valCb1CountAfterOffCb1AndWrite": 5,
+      "valCb2CountAfterOffCb1AndWrite": 6,
+      "valCb2CountAfterOffAllValueAndWrite": 6,
+      "childChangedStillFiredAfterOffAllValue": true,
+      "addedCountAfterUnsubChildAddedAndAddD": 0,
+      "changedCountAfterOffChildChangedCbAndWrite": 0
+    }
+  }
+}

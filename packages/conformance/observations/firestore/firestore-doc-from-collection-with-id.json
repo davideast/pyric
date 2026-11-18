@@ -1,0 +1,33 @@
+{
+  "name": "firestore-doc-from-collection-with-id",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "doc(coll, id, ...pathSegments) appends relative segments under a CollectionReference, matches doc(db, fullPath) via refEqual, and rejects even relative segment counts.",
+  "observedAt": "2026-11-18T06:44:53.054Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "child": {
+      "type": "document",
+      "id": "item-42",
+      "path": "items/item-42",
+      "parentPath": "items",
+      "equalsDbDoc": true
+    },
+    "deepChild": {
+      "id": "note-1",
+      "path": "items/item-42/notes/note-1",
+      "parentPath": "items/item-42/notes",
+      "equalsDbDoc": true
+    },
+    "evenRelativeError": {
+      "threw": true,
+      "isFirebaseError": true,
+      "isTypeError": false,
+      "code": "invalid-argument"
+    },
+    "liveRoundtripData": {
+      "source": "doc-from-collection"
+    }
+  }
+}

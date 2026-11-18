@@ -1,0 +1,56 @@
+{
+  "name": "firestore-setdoc-converter-options-forwarding",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "setDoc on a converted DocumentReference invokes converter.toFirestore before writing, passing 1 arg on full writes and forwarding SetOptions as arg 2 on merge/mergeFields writes.",
+  "observedAt": "2026-11-18T07:12:53.975Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "toFirestoreCalls": [
+      {
+        "argCount": 1,
+        "hasOptions": false,
+        "merge": null,
+        "mergeFields": null
+      },
+      {
+        "argCount": 2,
+        "hasOptions": true,
+        "merge": true,
+        "mergeFields": null
+      },
+      {
+        "argCount": 2,
+        "hasOptions": true,
+        "merge": null,
+        "mergeFields": [
+          "dbLabel"
+        ]
+      }
+    ],
+    "afterFullRaw": {
+      "converted": true,
+      "dbLabel": "First",
+      "dbUnits": 10,
+      "dbNote": "init"
+    },
+    "afterMergeTrueRaw": {
+      "dbNote": "init",
+      "dbLabel": "First",
+      "converted": true,
+      "dbUnits": 30
+    },
+    "afterMergeFieldsRaw": {
+      "converted": true,
+      "dbUnits": 30,
+      "dbNote": "init",
+      "dbLabel": "MaskedLabel"
+    },
+    "afterMergeFieldsTyped": {
+      "label": "MaskedLabel",
+      "units": 6,
+      "note": "init"
+    }
+  }
+}

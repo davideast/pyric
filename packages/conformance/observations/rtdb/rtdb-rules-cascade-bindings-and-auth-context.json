@@ -1,0 +1,85 @@
+{
+  "name": "rtdb-rules-cascade-bindings-and-auth-context",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "Live RTDB Security Rules evaluation for upward grant cascading (ancestor true overriding child false), $userId path-variable binding, and auth == null vs auth.uid / auth.token.firebase.sign_in_provider context.",
+  "observedAt": "2026-11-18T06:47:04.977Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "ancestorCascadeOverridesChildFalse": {
+      "authedReadChildFalse": {
+        "allowed": true,
+        "permissionDenied": false
+      },
+      "unauthedReadChildFalse": {
+        "allowed": false,
+        "permissionDenied": true
+      },
+      "authedWriteChildFalse": {
+        "allowed": true,
+        "permissionDenied": false
+      },
+      "unauthedWriteChildFalse": {
+        "allowed": false,
+        "permissionDenied": true
+      }
+    },
+    "pathVariableBindings": {
+      "ownUidMatchingOwnerWrite": {
+        "allowed": true,
+        "permissionDenied": false
+      },
+      "ownUidMismatchedOwnerWrite": {
+        "allowed": false,
+        "permissionDenied": true
+      },
+      "otherUidWrite": {
+        "allowed": false,
+        "permissionDenied": true
+      },
+      "ownUidRead": {
+        "allowed": true,
+        "permissionDenied": false
+      },
+      "otherUidRead": {
+        "allowed": false,
+        "permissionDenied": true
+      }
+    },
+    "authNullVsBoundToken": {
+      "unauthedOnAuthNullRead": {
+        "allowed": true,
+        "permissionDenied": false
+      },
+      "unauthedOnAuthNullWrite": {
+        "allowed": true,
+        "permissionDenied": false
+      },
+      "authedOnAuthNullRead": {
+        "allowed": false,
+        "permissionDenied": true
+      },
+      "authedOnAuthNullWrite": {
+        "allowed": false,
+        "permissionDenied": true
+      },
+      "authedAnonymousProviderRead": {
+        "allowed": true,
+        "permissionDenied": false
+      },
+      "authedAnonymousProviderWrite": {
+        "allowed": true,
+        "permissionDenied": false
+      },
+      "unauthedAnonymousProviderRead": {
+        "allowed": false,
+        "permissionDenied": true
+      },
+      "unauthedAnonymousProviderWrite": {
+        "allowed": false,
+        "permissionDenied": true
+      }
+    }
+  }
+}

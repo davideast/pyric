@@ -1,0 +1,34 @@
+{
+  "name": "firestore-setdoc-merge-true-deep-merges-maps",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "setDoc(ref, data, { merge: true }) deep-merges nested maps while preserving unspecified sibling fields at every depth, replacing arrays, and creating absent documents.",
+  "observedAt": "2026-11-18T07:13:01.650Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "mergedExists": true,
+    "mergedData": {
+      "topKeep": "kept",
+      "meta": {
+        "a": 1,
+        "nested": {
+          "x": 10,
+          "y": 99,
+          "z": 30
+        },
+        "b": 2
+      },
+      "list": [
+        "new-only"
+      ]
+    },
+    "createdFromAbsentExists": true,
+    "createdFromAbsentData": {
+      "createdViaMerge": true,
+      "nested": {
+        "k": "v"
+      }
+    }
+  }
+}

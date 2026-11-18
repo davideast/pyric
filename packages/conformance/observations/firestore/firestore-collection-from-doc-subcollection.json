@@ -1,0 +1,34 @@
+{
+  "name": "firestore-collection-from-doc-subcollection",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "collection(docRef, name, ...pathSegments) builds subcollection references anchored at docRef.path, links parent DocumentReference, and rejects even relative segment counts.",
+  "observedAt": "2026-11-18T06:44:40.542Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "sub": {
+      "type": "collection",
+      "id": "tasks",
+      "path": "users/u1/tasks",
+      "parentPath": "users/u1",
+      "parentEqualsDocRef": true,
+      "equalsDbCollection": true
+    },
+    "deepSub": {
+      "id": "comments",
+      "path": "users/u1/tasks/t1/comments",
+      "parentPath": "users/u1/tasks/t1",
+      "equalsDbCollection": true
+    },
+    "evenRelativeError": {
+      "threw": true,
+      "isFirebaseError": true,
+      "isTypeError": false,
+      "code": "invalid-argument"
+    },
+    "liveSubDocIds": [
+      "task-1"
+    ]
+  }
+}
