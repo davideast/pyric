@@ -32,9 +32,8 @@ export async function probeClientLimitBounds(): Promise<{
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: ['web-config', 'firestore-rules'],
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'firestore#60',
+  rowIds: ['firestore#60'],
   description:
     'limit(n) caps returned document count across ascending, descending, and over-collection bounds, and rejects non-positive limits on construction.',
   async observe() {

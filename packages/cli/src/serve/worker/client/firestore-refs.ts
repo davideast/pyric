@@ -365,29 +365,70 @@ export function where(field: string | FieldPath, op: string, value: unknown): Qu
   };
 }
 
-/**
- * Extract a constraint's FILTER descriptor for composite embedding — throws
- * the same TypeError `pyric/firestore`'s `and()`/`or()` raise when handed a
- * non-filter (`orderBy` / `limit` / cursors are not valid inside composites).
- */
+const TOP_LEVEL_COMPOSITE_MIXING_MESSAGE =
+  'InvalidQuery. When using composite filters, you cannot use more than one filter at the top level. ' +
+  'Consider nesting the multiple filters within an `and(...)` statement. For example: ' +
+  'change `query(query, where(...), or(...))` to `query(query, and(where(...), or(...)))`.';
+
+function assertWorkerTopLevelCompositeFilterMixing(
+  constraints: readonly QueryConstraintHandle[],
+): void {
+  let compositeFilterCount = 0;
+  let fieldFilterCount = 0;
+  for (const constraint of constraints) {
+    if (constraint.type === 'or' || constraint.type === 'and') {
+      compositeFilterCount += 1;
+    } else if (constraint.type === 'where') {
+      fieldFilterCount += 1;
+    }
+  }
+  if (compositeFilterCount > 1 || (compositeFilterCount > 0 && fieldFilterCount > 0)) {
+    throw new FirebaseError('invalid-argument', TOP_LEVEL_COMPOSITE_MIXING_MESSAGE);
+  }
+}
+
+function assertPositiveWorkerLimit(
+  methodName: 'limit' | 'limitToLast',
+  n: number,
+): void {
+  if (n <= 0) {
+    throw new FirebaseError(
+      'invalid-argument',
+      `Function ${methodName}() requires a positive number, but it was: ${n}.`,
+    );
+  }
+}
+
 function toFilterDescriptor(
   kind: 'and' | 'or',
   c: QueryConstraintHandle,
 ): FilterConstraintDescriptor {
+  if (!c || typeof c !== 'object' || !('_descriptor' in c)) {
+    throw new FirebaseError(
+      'invalid-argument',
+      `Function ${kind}() requires AppliableConstraints created with a call to 'where(...)', 'or(...)', or 'and(...)'.`,
+    );
+  }
   const d = c._descriptor;
-  if (d.kind !== 'where' && d.kind !== 'and' && d.kind !== 'or') {
-    throw new TypeError(
-      `pyric worker client: ${kind}() received a non-filter constraint (orderBy / limit are not valid here).`,
+  if (!d || (d.kind !== 'where' && d.kind !== 'and' && d.kind !== 'or')) {
+    throw new FirebaseError(
+      'invalid-argument',
+      `Function ${kind}() requires AppliableConstraints created with a call to 'where(...)', 'or(...)', or 'and(...)'.`,
     );
   }
   return d;
 }
 
 function composite(kind: 'and' | 'or', filters: QueryConstraintHandle[]): QueryConstraintHandle {
-  if (filters.length === 0) {
-    throw new TypeError(`pyric worker client: ${kind}() requires at least one filter argument.`);
+  const subs: FilterConstraintDescriptor[] = [];
+  for (const filter of filters) {
+    const sub = toFilterDescriptor(kind, filter);
+    if (sub.kind !== 'where' && sub.filters.length === 0) {
+      continue;
+    }
+    subs.push(sub);
   }
-  return { type: kind, _descriptor: { kind, filters: filters.map((f) => toFilterDescriptor(kind, f)) } };
+  return { type: kind, _descriptor: { kind, filters: subs } };
 }
 
 /**
@@ -421,10 +462,12 @@ export function orderBy(field: string | FieldPath, direction?: 'asc' | 'desc'): 
 }
 
 export function limit(n: number): QueryConstraintHandle {
+  assertPositiveWorkerLimit('limit', n);
   return { type: 'limit', _descriptor: { kind: 'limit', n } };
 }
 
 export function limitToLast(n: number): QueryConstraintHandle {
+  assertPositiveWorkerLimit('limitToLast', n);
   return { type: 'limitToLast', _descriptor: { kind: 'limitToLast', n } };
 }
 
@@ -452,6 +495,7 @@ export function query(
   source: CollRefHandle | QueryHandle,
   ...constraints: QueryConstraintHandle[]
 ): QueryHandle {
+  assertWorkerTopLevelCompositeFilterMixing(constraints);
   const sourceDescriptor: TargetDescriptor =
     source.__kind === 'coll-ref'
       ? (source as CollRefHandle).descriptor

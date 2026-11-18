@@ -1,7 +1,9 @@
 {
   "name": "firestore-orderby-direction-asc-desc",
-  "matrixRow": "",
-  "rowIds": [],
+  "matrixRow": "firestore#59",
+  "rowIds": [
+    "firestore#59"
+  ],
   "description": "orderBy(field) default direction versus explicit asc and desc direction arguments.",
   "observedAt": "2026-11-17T23:55:52.385Z",
   "fbSdkVersion": "12.19.0",

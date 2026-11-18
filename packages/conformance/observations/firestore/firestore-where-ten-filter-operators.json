@@ -1,7 +1,9 @@
 {
   "name": "firestore-where-ten-filter-operators",
-  "matrixRow": "",
-  "rowIds": [],
+  "matrixRow": "firestore#55",
+  "rowIds": [
+    "firestore#55"
+  ],
   "description": "where(field, op, value) evaluation across all 10 filter operators (<, <=, ==, >=, >, !=, in, not-in, array-contains, array-contains-any).",
   "observedAt": "2026-11-17T23:56:31.256Z",
   "fbSdkVersion": "12.19.0",

@@ -6,9 +6,8 @@ import { withFirestoreProbeSession } from '../../src/sdk-probe-runtime.ts';
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: ['web-config', 'firestore-rules'],
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'firestore#55',
+  rowIds: ['firestore#55'],
   description:
     'where(field, op, value) evaluation across all 10 filter operators (<, <=, ==, >=, >, !=, in, not-in, array-contains, array-contains-any).',
   async observe() {

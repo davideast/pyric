@@ -1,7 +1,9 @@
 {
   "name": "firestore-composite-or-with-orderby-and-limit",
-  "matrixRow": "",
-  "rowIds": [],
+  "matrixRow": "firestore#62",
+  "rowIds": [
+    "firestore#62"
+  ],
   "description": "or(...) composite filter combined with orderBy(...), limit(...), nested and(...), chained query(...), and top-level multi-filter validation in query(coll, ...).",
   "observedAt": "2026-11-17T23:55:36.014Z",
   "fbSdkVersion": "12.19.0",

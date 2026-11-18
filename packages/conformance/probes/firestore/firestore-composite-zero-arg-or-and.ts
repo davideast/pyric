@@ -36,9 +36,8 @@ export async function probeClientZeroArgCompositeConstruction(): Promise<{
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: ['web-config', 'firestore-rules'],
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'firestore#64',
+  rowIds: ['firestore#64'],
   description:
     'Zero-argument or() and and() behavior on client construction and live getDocs(query(coll, or())) / getDocs(query(coll, and())) execution.',
   async observe() {

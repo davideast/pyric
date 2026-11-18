@@ -28,6 +28,7 @@ import {
   FieldPath as ChainFieldPath,
   type SnapshotFieldPath,
 } from './sandbox/admin-compat/field-path.js';
+import { FirebaseError } from '../sandbox/internal/firebase-error.js';
 import { toFirestoreFirebaseError } from './errors.js';
 import { captureQueryOperand } from './sandbox/query-operand-equality.js';
 import { fieldPathArgumentSegments } from './sandbox/update-fields.js';
@@ -62,12 +63,47 @@ export interface QueryConstraint {
   _sandboxFilter?: ChainFilter;
 }
 
+const TOP_LEVEL_COMPOSITE_MIXING_MESSAGE =
+  'InvalidQuery. When using composite filters, you cannot use more than one filter at the top level. ' +
+  'Consider nesting the multiple filters within an `and(...)` statement. For example: ' +
+  'change `query(query, where(...), or(...))` to `query(query, and(where(...), or(...)))`.';
+
+function assertTopLevelCompositeFilterMixing(
+  constraints: readonly QueryConstraint[],
+): void {
+  let compositeFilterCount = 0;
+  let fieldFilterCount = 0;
+  for (const constraint of constraints) {
+    if (constraint.type === 'or' || constraint.type === 'and') {
+      compositeFilterCount += 1;
+    } else if (constraint.type === 'where') {
+      fieldFilterCount += 1;
+    }
+  }
+  if (compositeFilterCount > 1 || (compositeFilterCount > 0 && fieldFilterCount > 0)) {
+    throw new FirebaseError('invalid-argument', TOP_LEVEL_COMPOSITE_MIXING_MESSAGE);
+  }
+}
+
+function assertPositiveLimitArgument(
+  methodName: 'limit' | 'limitToLast',
+  n: number,
+): void {
+  if (n <= 0) {
+    throw new FirebaseError(
+      'invalid-argument',
+      `Function ${methodName}() requires a positive number, but it was: ${n}.`,
+    );
+  }
+}
+
 export function query<T = DocumentData>(
   source: CollectionReference<T> | Query<T>,
   ...constraints: QueryConstraint[]
 ): Query<T> {
   const target = targetOf(source);
   const conv = converterOf(source);
+  assertTopLevelCompositeFilterMixing(constraints);
   // For sandbox-live, the rebuild closure applies the same constraint chain
   // against a fresh identity-bound handle at operation time.
   const sourceRebuild = parentRebuild(source);
@@ -159,29 +195,39 @@ function composite(
   filters: QueryConstraint[],
   prepared = false,
 ): QueryConstraint {
-  if (filters.length === 0) {
-    throw new TypeError(
-      `pyric/firestore: ${kind}() requires at least one filter argument.`,
-    );
-  }
   const sandboxSubs: ChainFilter[] = [];
   for (const c of filters) {
-    if (c._sandboxFilter === undefined) {
-      throw new TypeError(
-        `pyric/firestore: ${kind}() received a non-filter constraint (orderBy / limit are not valid here).`,
+    if (!c || typeof c !== 'object' || c._sandboxFilter === undefined) {
+      throw new FirebaseError(
+        'invalid-argument',
+        `Function ${kind}() requires AppliableConstraints created with a call to 'where(...)', 'or(...)', or 'and(...)'.`,
       );
     }
-    sandboxSubs.push(c._sandboxFilter);
+    const sub = c._sandboxFilter;
+    if (sub.kind !== 'where' && sub.filters.length === 0) {
+      continue;
+    }
+    sandboxSubs.push(sub);
   }
   const sandboxFilter: ChainFilter = { kind, filters: sandboxSubs };
+  let prepareComposite: QueryConstraint['prepareSandbox'];
+  if (!prepared) {
+    prepareComposite = (owner) => {
+      const nextFilters: QueryConstraint[] = [];
+      for (const filter of filters) {
+        if (filter.prepareSandbox !== undefined) {
+          nextFilters.push(filter.prepareSandbox(owner));
+        } else {
+          nextFilters.push(filter);
+        }
+      }
+      return composite(kind, nextFilters, true);
+    };
+  }
   return {
     type: kind,
     applySandbox: (q) => q.applyFilter(sandboxFilter),
-    prepareSandbox: prepared ? undefined : (owner) => composite(
-      kind,
-      filters.map((filter) => filter.prepareSandbox?.(owner) ?? filter),
-      true,
-    ),
+    prepareSandbox: prepareComposite,
     _sandboxFilter: sandboxFilter,
   };
 }
@@ -198,6 +244,7 @@ export function orderBy(
 }
 
 export function limit(n: number): QueryConstraint {
+  assertPositiveLimitArgument('limit', n);
   return {
     type: 'limit',
     applySandbox: (q) => q.limit(n),
@@ -223,6 +270,7 @@ export function limit(n: number): QueryConstraint {
  * the simulator throws at execute time without one).
  */
 export function limitToLast(n: number): QueryConstraint {
+  assertPositiveLimitArgument('limitToLast', n);
   return {
     type: 'limitToLast',
     applySandbox: (q) => q.limitToLast(n),

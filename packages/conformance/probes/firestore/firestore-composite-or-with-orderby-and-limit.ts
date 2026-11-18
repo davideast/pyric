@@ -73,9 +73,8 @@ export async function probeClientTopLevelCompositeFilterMixing(): Promise<{
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: ['web-config', 'firestore-rules'],
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'firestore#62',
+  rowIds: ['firestore#62'],
   description:
     'or(...) composite filter combined with orderBy(...), limit(...), nested and(...), chained query(...), and top-level multi-filter validation in query(coll, ...).',
   async observe() {

@@ -1,7 +1,9 @@
 {
   "name": "firestore-composite-zero-arg-or-and",
-  "matrixRow": "",
-  "rowIds": [],
+  "matrixRow": "firestore#64",
+  "rowIds": [
+    "firestore#64"
+  ],
   "description": "Zero-argument or() and and() behavior on client construction and live getDocs(query(coll, or())) / getDocs(query(coll, and())) execution.",
   "observedAt": "2026-11-17T23:55:39.983Z",
   "fbSdkVersion": "12.19.0",

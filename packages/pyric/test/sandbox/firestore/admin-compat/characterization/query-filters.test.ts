@@ -128,9 +128,10 @@ describe('characterization — where() in / not-in', () => {
     expect(await ids(db.collection('items').where('n', 'in', [5]))).toEqual([]);
   });
 
-  it('in with null in the list matches null-valued fields', async () => {
+  it('in with null in the list excludes null-valued fields', async () => {
     const db = seededDb(MIXED);
-    expect(await ids(db.collection('items').where('n', 'in', [null]))).toEqual(['d']);
+    expect(await ids(db.collection('items').where('n', 'in', [null]))).toEqual([]);
+    expect(await ids(db.collection('items').where('n', 'in', [1, null]))).toEqual(['a']);
   });
 
   it('in with an empty array matches nothing', async () => {

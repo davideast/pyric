@@ -5,9 +5,8 @@ import { withFirestoreProbeSession } from '../../src/sdk-probe-runtime.ts';
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: ['web-config', 'firestore-rules'],
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'firestore#54',
+  rowIds: ['firestore#54'],
   description:
     'query(coll, where(...), orderBy(...), limit(...)) composes single-field filter, direction, and result cap in order.',
   async observe() {

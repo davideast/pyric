@@ -5,9 +5,8 @@ import { withFirestoreProbeSession } from '../../src/sdk-probe-runtime.ts';
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: ['web-config', 'firestore-rules'],
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'firestore#59b',
+  rowIds: ['firestore#59b'],
   description:
     'orderBy(field) excludes documents lacking the ordered field while retaining null-valued documents.',
   async observe() {

@@ -5,9 +5,8 @@ import { withFirestoreProbeSession } from '../../src/sdk-probe-runtime.ts';
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: ['web-config', 'firestore-rules'],
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'firestore#55a',
+  rowIds: ['firestore#55a'],
   description:
     'where() field-existence and null-value behavior across ==, <, <=, >, >=, in, !=, and not-in (including null operands).',
   async observe() {

@@ -172,13 +172,9 @@ describe('composite filter descriptors — host', () => {
     const port = fakePort();
     await seedItems(ctx, port);
 
-    // Empty composite — modular factory TypeError, relayed as an error res.
-    const empty = await sendOp(ctx, port, {
-      t: 'op', id: id(), method: 'getDocs',
-      source: itemsQuery({ kind: 'or', filters: [] }),
-    });
-    expect(empty.ok).toBe(false);
-    if (!empty.ok) expect(empty.error.message).toContain('at least one filter');
+    // Empty composite is a valid identity/no-op filter in production Firebase JS SDK.
+    expect(await queryIds(ctx, port, { kind: 'or', filters: [] })).toEqual(['a', 'b', 'c', 'd']);
+    expect(await queryIds(ctx, port, { kind: 'and', filters: [] })).toEqual(['a', 'b', 'c', 'd']);
 
     // Non-filter nested inside a composite (malformed wire input).
     const nonFilter = await sendOp(ctx, port, {
@@ -213,10 +209,10 @@ describe('composite filter factories — client', () => {
     );
   });
 
-  it('reject non-filter operands and empty composites at build time', () => {
-    expect(() => and(orderBy('n'))).toThrow(TypeError);
-    expect(() => or(where('a', '==', 1), orderBy('n'))).toThrow(/non-filter/);
-    expect(() => or()).toThrow(/at least one filter/);
-    expect(() => and()).toThrow(TypeError);
+  it('reject non-filter operands with FirebaseError invalid-argument and allow empty composites', () => {
+    expect(() => and(orderBy('n'))).toThrow(/AppliableConstraints/);
+    expect(() => or(where('a', '==', 1), orderBy('n'))).toThrow(/AppliableConstraints/);
+    expect(or()._descriptor).toEqual({ kind: 'or', filters: [] });
+    expect(and()._descriptor).toEqual({ kind: 'and', filters: [] });
   });
 });

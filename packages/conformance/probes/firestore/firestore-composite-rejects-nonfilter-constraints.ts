@@ -28,9 +28,8 @@ export async function probeClientNonFilterCompositeRejection(): Promise<{
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: [],
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'firestore#63',
+  rowIds: ['firestore#63'],
   description:
     'Passing non-filter constraints (orderBy, limit, limitToLast, startAt) into or() or and() throws FirebaseError invalid-argument vs TypeError.',
   async observe() {

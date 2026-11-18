@@ -1,7 +1,9 @@
 {
   "name": "firestore-limit-caps-result-count",
-  "matrixRow": "",
-  "rowIds": [],
+  "matrixRow": "firestore#60",
+  "rowIds": [
+    "firestore#60"
+  ],
   "description": "limit(n) caps returned document count across ascending, descending, and over-collection bounds, and rejects non-positive limits on construction.",
   "observedAt": "2026-11-17T23:55:44.001Z",
   "fbSdkVersion": "12.19.0",
