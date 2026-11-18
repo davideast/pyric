@@ -12,6 +12,7 @@ import {
   type StorageUploadStringDataUrlSubject,
 } from '../../probes/storage/storage-uploadstring-data-url-variants.ts';
 import {
+  decodeValidUtf8OrNull,
   observeStorageUploadStringRawAndBase64,
   probe as rawAndBase64Probe,
   type StorageUploadStringRawAndBase64Subject,
@@ -93,7 +94,7 @@ describe('storage getBytes and uploadString staged probes (storage#39, #40, #42.
           uploadedContentType: contentType,
           fetchedContentType: contentType,
           decodedBytes: [...bytes],
-          decodedUtf8: new TextDecoder().decode(bytes),
+          decodedUtf8: decodeValidUtf8OrNull(bytes),
         };
       },
     };
@@ -106,6 +107,7 @@ describe('storage getBytes and uploadString staged probes (storage#39, #40, #42.
     expect(rawObserved.standardBase64).toMatchObject({
       size: 4,
       decodedBytes: [1, 2, 3, 255],
+      decodedUtf8: null,
     });
 
     const dataUrlSubject: StorageUploadStringDataUrlSubject = {
