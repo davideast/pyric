@@ -193,10 +193,9 @@ export async function observeMessagingObserverAndUnsubscribe(): Promise<Messagin
 
 export const probe: Probe = {
   rig: 'sdk-probes',
-  pendingRowLink: true,
   requires: ['web-config'],
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'messaging#11',
+  rowIds: ['messaging#11'],
   description:
     'firebase/messaging onMessage and firebase/messaging/sw onBackgroundMessage NextFn, Observer ({ next, error, complete }), and idempotent Unsubscribe teardown behavior.',
   async observe() {

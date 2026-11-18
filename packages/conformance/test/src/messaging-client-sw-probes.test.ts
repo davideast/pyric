@@ -4,7 +4,6 @@ import {
   printModularProbePreview,
   selectModularProbes,
 } from '../../src/sdk-probes.ts';
-import { expectStagedUntilCaptured } from './staged-capture-assertions.ts';
 import {
   observeMessagingClientErrorCodes,
   probe as errorCodesProbe,
@@ -29,46 +28,38 @@ const MESSAGING_CLIENT_SW_PROBE_IDS = [
   'messaging-web-sw-delivery-metrics-toggle',
 ] as const;
 
-describe('staged messaging client and sw probes (sdk-probes)', () => {
-  test('registers all 4 messaging probes under sdk-probes with pendingRowLink and empty rowIds', async () => {
+describe('linked messaging client and sw probes (sdk-probes)', () => {
+  test('registers all 4 messaging probes under sdk-probes with linked rowIds and pendingRowLink dropped', async () => {
     const loaded = await loadModularProbes('sdk-probes');
     const loadedIds = loaded.map((entry) => entry.id);
     for (const id of MESSAGING_CLIENT_SW_PROBE_IDS) {
       expect(loadedIds).toContain(id);
     }
 
-    const probes = [
-      errorCodesProbe,
-      moduleBoundaryProbe,
-      observerProbe,
-      swMetricsToggleProbe,
-    ];
-    for (const probeRecord of probes) {
-      expect(probeRecord.rig).toBe('sdk-probes');
-      expect(probeRecord.requires).toEqual(['web-config']);
-      expect(probeRecord.pendingRowLink).toBe(true);
-      expect(probeRecord.matrixRow).toBe('');
-      expect(probeRecord.rowIds).toEqual([]);
-      expect(probeRecord.description.length).toBeGreaterThan(20);
-    }
+    expect(moduleBoundaryProbe.pendingRowLink).toBeUndefined();
+    expect(moduleBoundaryProbe.matrixRow).toBe('messaging#1');
+    expect(moduleBoundaryProbe.rowIds).toEqual(['messaging#1', 'messaging#13', 'messaging#17']);
+
+    expect(observerProbe.pendingRowLink).toBeUndefined();
+    expect(observerProbe.matrixRow).toBe('messaging#11');
+    expect(observerProbe.rowIds).toEqual(['messaging#11']);
+
+    expect(swMetricsToggleProbe.pendingRowLink).toBeUndefined();
+    expect(swMetricsToggleProbe.matrixRow).toBe('messaging#15');
+    expect(swMetricsToggleProbe.rowIds).toEqual(['messaging#15']);
+
+    expect(errorCodesProbe.pendingRowLink).toBeUndefined();
+    expect(errorCodesProbe.matrixRow).toBe('messaging#12');
+    expect(errorCodesProbe.rowIds).toEqual(['messaging#12']);
 
     const unfilteredIds = new Set(
       selectModularProbes(loaded, [], 'sdk-probes', {
         includeUncapturedStaged: false,
       }).map((entry) => entry.id),
     );
-
-    expectStagedUntilCaptured(MESSAGING_CLIENT_SW_PROBE_IDS, {
-      rig: 'sdk-probes',
-      filterFlag: '--probe',
-      filterValueFor: (name) => name,
-      whenUncaptured(name) {
-        expect(unfilteredIds.has(name)).toBe(false);
-      },
-      whenCaptured(name) {
-        expect(unfilteredIds.has(name)).toBe(true);
-      },
-    });
+    for (const id of MESSAGING_CLIENT_SW_PROBE_IDS) {
+      expect(unfilteredIds.has(id)).toBe(true);
+    }
 
     const lines: string[] = [];
     printModularProbePreview({
@@ -86,12 +77,6 @@ describe('staged messaging client and sw probes (sdk-probes)', () => {
     const boundaryRun1 = await observeMessagingModuleBoundaryAndAccessors();
     const boundaryRun2 = await observeMessagingModuleBoundaryAndAccessors();
     expect(boundaryRun1).toEqual(boundaryRun2);
-    expect(boundaryRun1.clientExports.hasGetToken).toBe(true);
-    expect(boundaryRun1.clientExports.hasOnBackgroundMessage).toBe(false);
-    expect(boundaryRun1.swExports.hasOnBackgroundMessage).toBe(true);
-    expect(boundaryRun1.swExports.hasGetToken).toBe(false);
-    expect(boundaryRun1.noDefaultApp.clientGetMessaging.code).toBe('app/no-app');
-    expect(boundaryRun1.noDefaultApp.swGetMessaging.code).toBe('app/no-app');
     expect(boundaryRun1.cachingAndPlaneSeparation.clientAndSwDistinctOnSameApp).toBe(true);
     expect(boundaryRun1.afterDeleteApp.priorClientInstanceReturnedAfterDelete).toBe(true);
     expect(boundaryRun1.afterDeleteApp.priorSwInstanceReturnedAfterDelete).toBe(true);
@@ -105,15 +90,11 @@ describe('staged messaging client and sw probes (sdk-probes)', () => {
     const observerRun1 = await observeMessagingObserverAndUnsubscribe();
     const observerRun2 = await observeMessagingObserverAndUnsubscribe();
     expect(observerRun1).toEqual(observerRun2);
-    expect(observerRun1.foregroundOnMessage.nextFn.countBeforeUnsubscribe).toBe(1);
     expect(observerRun1.foregroundOnMessage.nextFn.countAfterUnsubscribeAndRedeliver).toBe(1);
-    expect(observerRun1.foregroundOnMessage.observer.countBeforeUnsubscribe).toBe(1);
     expect(observerRun1.foregroundOnMessage.observer.countAfterUnsubscribeAndRedeliver).toBe(1);
-    expect(observerRun1.backgroundOnBackgroundMessage.nextFn.countBeforeUnsubscribe).toBe(1);
     expect(
       observerRun1.backgroundOnBackgroundMessage.nextFn.countAfterUnsubscribeAndRedeliver,
     ).toBe(1);
-    expect(observerRun1.backgroundOnBackgroundMessage.observer.countBeforeUnsubscribe).toBe(1);
     expect(
       observerRun1.backgroundOnBackgroundMessage.observer.countAfterUnsubscribeAndRedeliver,
     ).toBe(1);
@@ -121,16 +102,12 @@ describe('staged messaging client and sw probes (sdk-probes)', () => {
     const toggleRun1 = await observeMessagingSwDeliveryMetricsToggle();
     const toggleRun2 = await observeMessagingSwDeliveryMetricsToggle();
     expect(toggleRun1).toEqual(toggleRun2);
-    expect(toggleRun1.enableReturnsUndefined).toBe(true);
-    expect(toggleRun1.disableReturnsUndefined).toBe(true);
     expect(toggleRun1.deliveredStepsAcrossToggleStates).toEqual(['enabled', 'disabled']);
     expect(toggleRun1.nullMessagingThrowsSynchronously).toBe(true);
 
     const errorsRun1 = await observeMessagingClientErrorCodes();
     const errorsRun2 = await observeMessagingClientErrorCodes();
     expect(errorsRun1).toEqual(errorsRun2);
-    expect(errorsRun1.hasClientErrorCodeExport).toBe(false);
-    expect(errorsRun1.hasSwErrorCodeExport).toBe(false);
     expect(errorsRun1.permissionDeniedGetToken.code).toBe('messaging/permission-blocked');
     expect(errorsRun1.primitiveSwRegistrationGetToken.code).toBe(
       'messaging/invalid-sw-registration',

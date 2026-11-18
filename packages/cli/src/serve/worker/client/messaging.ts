@@ -1,4 +1,4 @@
-import type { DeliveryStage } from 'pyric/messaging/internal';
+import { assertGetTokenPreconditions, type DeliveryStage } from 'pyric/messaging/internal';
 import { observeMessageDisplay } from './messaging-display.js';
 /** Worker-backed Firebase Messaging client/SW receive planes. */
 import type {
@@ -99,12 +99,20 @@ function messagingRpc(
   messaging: ClientMessaging,
   issuer: Issuer,
   build: (registrationId: string) => OpMessage,
+  existingReservation?: SendReservation,
 ): Promise<unknown> {
   const known = messaging.settledRegistrationId;
   const isKnown = known !== undefined;
-  if (isKnown) return rpc(messaging.port, build(known));
+  if (isKnown) {
+    const reply = rpc(messaging.port, build(known), existingReservation);
+    existingReservation?.release();
+    return reply;
+  }
   return new Promise<unknown>((resolve, reject) => {
-    const reservation = issuer === 'app' ? reserveSend(messaging.port) : undefined;
+    let reservation = existingReservation;
+    if (reservation === undefined && issuer === 'app') {
+      reservation = reserveSend(messaging.port);
+    }
     messaging.waiting.push({
       reservation,
       send(registrationId, place) {
@@ -129,10 +137,35 @@ function visibilityMessage(messaging: ClientMessaging, recipientId: string, stat
   return message;
 }
 
+async function messagingGetTokenAfterPrecheck(
+  messaging: ClientMessaging,
+  precheck: Promise<void>,
+  options: GetTokenOptions | undefined,
+  reservation: SendReservation,
+): Promise<string> {
+  try {
+    await precheck;
+  } catch (error) {
+    reservation.release();
+    throw error;
+  }
+  const registration = options?.serviceWorkerRegistration;
+  if (registration !== undefined) {
+    return getTokenForRegistration(messaging, registrationScope(registration), reservation);
+  }
+  const result = await messagingRpc(messaging, 'app', tokenMessage, reservation) as { token: string };
+  return result.token;
+}
+
 export async function messagingGetToken(
   messaging: ClientMessaging,
   options?: GetTokenOptions,
 ): Promise<string> {
+  const precheck = assertGetTokenPreconditions(options);
+  if (precheck !== undefined) {
+    const reservation = reserveSend(messaging.port);
+    return messagingGetTokenAfterPrecheck(messaging, precheck, options, reservation);
+  }
   const registration = options?.serviceWorkerRegistration;
   const hasRegistration = registration !== undefined;
   if (hasRegistration) return getTokenForRegistration(messaging, registrationScope(registration));
@@ -145,8 +178,12 @@ export async function messagingGetToken(
  * first, so it reserves its place at the call. Client ops still waiting for
  * the previous id ride in that place ahead of it.
  */
-async function getTokenForRegistration(messaging: ClientMessaging, scope: string | undefined): Promise<string> {
-  const reservation = reserveSend(messaging.port);
+async function getTokenForRegistration(
+  messaging: ClientMessaging,
+  scope: string | undefined,
+  existingReservation?: SendReservation,
+): Promise<string> {
+  const reservation = existingReservation ?? reserveSend(messaging.port);
   const noReply = (): void => { /* The token request's own reply reports a failure. */ };
   const isSettled = messaging.settledRegistrationId !== undefined;
   if (!isSettled) messaging.waiting.push({ reservation, send() {}, fail: noReply });

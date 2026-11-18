@@ -1,7 +1,9 @@
 {
   "name": "messaging-web-client-error-codes",
-  "matrixRow": "",
-  "rowIds": [],
+  "matrixRow": "messaging#12",
+  "rowIds": [
+    "messaging#12"
+  ],
   "description": "firebase/messaging @internal ErrorCode non-export on client and sw entries plus FirebaseError rejection codes for denied notification permission (messaging/permission-blocked) and invalid serviceWorkerRegistration inputs (messaging/invalid-sw-registration).",
   "observedAt": "2026-11-18T17:35:01.885Z",
   "fbSdkVersion": "12.19.0",

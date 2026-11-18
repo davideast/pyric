@@ -1,7 +1,9 @@
 {
   "name": "messaging-web-observer-and-unsubscribe",
-  "matrixRow": "",
-  "rowIds": [],
+  "matrixRow": "messaging#11",
+  "rowIds": [
+    "messaging#11"
+  ],
   "description": "firebase/messaging onMessage and firebase/messaging/sw onBackgroundMessage NextFn, Observer ({ next, error, complete }), and idempotent Unsubscribe teardown behavior.",
   "observedAt": "2026-11-18T17:35:02.746Z",
   "fbSdkVersion": "12.19.0",
