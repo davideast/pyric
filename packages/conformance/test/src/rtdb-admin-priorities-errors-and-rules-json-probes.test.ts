@@ -24,9 +24,13 @@ import {
 } from '../../src/sdk-probes.ts';
 import { expectStagedUntilCaptured } from './staged-capture-assertions.ts';
 
-const SLICE7_PROBE_IDS = [
+const STAGED_ADMIN_SLICE7_PROBE_IDS = [
   'rtdb-modular-admin-priorities-and-inline-priority',
   'rtdb-modular-admin-firebasedatabaseerror-and-url-binding',
+] as const;
+
+const SLICE7_PROBE_IDS = [
+  ...STAGED_ADMIN_SLICE7_PROBE_IDS,
   'rtdb-rules-json-wildcard-and-indexon-roundtrip',
 ] as const;
 
@@ -184,7 +188,7 @@ describe('RTDB Slice 7 staged probes: admin priorities, FirebaseDatabaseError/UR
     );
     expect(byId.get('rtdb-rules-json-wildcard-and-indexon-roundtrip')?.surfaceDir).toBe('rtdb');
 
-    for (const p of [adminPrioritiesProbe, adminErrorAndUrlProbe, rulesJsonRoundtripProbe]) {
+    for (const p of [adminPrioritiesProbe, adminErrorAndUrlProbe]) {
       expect(p.rig).toBe('sdk-probes');
       expect(p.requires).toEqual(['web-config', 'dedicated-rtdb']);
       expect(p.pendingRowLink).toBe(true);
@@ -193,13 +197,21 @@ describe('RTDB Slice 7 staged probes: admin priorities, FirebaseDatabaseError/UR
       expect(p.description.length).toBeGreaterThan(20);
     }
 
+    expect(rulesJsonRoundtripProbe.rig).toBe('sdk-probes');
+    expect(rulesJsonRoundtripProbe.requires).toEqual(['web-config', 'dedicated-rtdb']);
+    expect(rulesJsonRoundtripProbe.pendingRowLink).toBeUndefined();
+    expect(rulesJsonRoundtripProbe.matrixRow).toBe('rtdb#90, rtdb#91, rtdb#92, rtdb#93');
+    expect(rulesJsonRoundtripProbe.rowIds).toEqual(['rtdb#90', 'rtdb#91', 'rtdb#92', 'rtdb#93']);
+    expect(rulesJsonRoundtripProbe.description.length).toBeGreaterThan(20);
+
     const unfilteredIds = new Set(
       selectModularProbes(loaded, [], 'sdk-probes', {
         includeUncapturedStaged: false,
       }).map((entry) => entry.id),
     );
+    expect(unfilteredIds.has('rtdb-rules-json-wildcard-and-indexon-roundtrip')).toBe(true);
 
-    expectStagedUntilCaptured(SLICE7_PROBE_IDS, {
+    expectStagedUntilCaptured(STAGED_ADMIN_SLICE7_PROBE_IDS, {
       rig: 'sdk-probes',
       filterFlag: '--probe',
       filterValueFor: (name) => name,

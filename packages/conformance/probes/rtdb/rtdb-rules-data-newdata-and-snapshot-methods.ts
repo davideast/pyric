@@ -159,11 +159,10 @@ export async function observeRulesDataNewDataAndSnapshotMethods(
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: ['web-config', 'dedicated-rtdb'],
-  pendingRowLink: true,
   description:
     'Live RTDB Security Rules evaluation for data vs newData state transitions and RuleDataSnapshot methods (data.exists(), data.val(), data.child(...), and data.parent()).',
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'rtdb#64, rtdb#65',
+  rowIds: ['rtdb#64', 'rtdb#65'],
   observe() {
     return withRtdbProbeSession(
       { runRules: { ...DATA_NEWDATA_SNAPSHOT_RULES } },

@@ -227,11 +227,10 @@ export async function observeRulesDefaultDenyAndRuntimeErrors(
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: ['web-config', 'dedicated-rtdb'],
-  pendingRowLink: true,
   description:
     'Live RTDB Security Rules evaluation for ancestor false verdicts when descendants carry only .validate or the opposite operation, default deny when no rule exists on the path, and runtime type errors (beginsWith on number/null) failing closed as deny verdicts.',
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'rtdb#68, rtdb#69, rtdb#70',
+  rowIds: ['rtdb#68', 'rtdb#69', 'rtdb#70'],
   observe() {
     return withRtdbProbeSession(
       { runRules: { ...DEFAULT_DENY_AND_RUNTIME_ERROR_RULES } },

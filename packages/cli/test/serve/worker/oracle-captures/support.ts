@@ -42,6 +42,7 @@ export { withoutMessages, type Pin } from '../../../../../conformance/src/captur
 
 export interface ServedRtdbAdminContext extends RtdbScenarioContext {
   openAdminDb(): Promise<AdminDatabase>;
+  openAuthedClient(name: string): Promise<{ db: RtdbScenarioContext['db']; uid: string }>;
 }
 
 const OBSERVATIONS = join(import.meta.dir, '..', '..', '..', '..', '..', 'conformance', 'observations');
@@ -51,6 +52,8 @@ export function load(name: string): Behavior {
   let surface = 'firestore';
   if (name.startsWith('rtdb-modular-')) {
     surface = 'rtdb-modular';
+  } else if (name.startsWith('rtdb-')) {
+    surface = 'rtdb';
   } else if (name.startsWith('auth-')) {
     surface = 'auth';
   }
@@ -166,7 +169,13 @@ export async function servedRtdbContext(
   const ctx = await makeHostCtx();
   setDatabaseRules(ctx, undefined, databaseRules);
   const rtdb = databaseSdk();
-  const open = (name: string) => ({ db: rtdb.getDatabase(connectClientToHost(ctx, `worker://capture-${name}-${Math.random()}`).db as never) });
+  const openRaw = (name: string) => connectClientToHost(ctx, `worker://capture-${name}-${Math.random()}`).db;
+  const open = (name: string) => ({ db: rtdb.getDatabase(openRaw(name) as never) });
+  const openAuthedClient = async (name: string) => {
+    const raw = openRaw(name);
+    const cred = await client.signInAnonymously(client.getAuth(raw));
+    return { db: rtdb.getDatabase(raw as never), uid: cred.user.uid };
+  };
 
   const openAdminDb = async (): Promise<AdminDatabase> => {
     let deliver: (message: BridgeMessage) => void = () => {};
@@ -236,6 +245,7 @@ export async function servedRtdbContext(
     base: '/pyric_oracle/replay',
     newClient: async (name) => open(name),
     openAdminDb,
+    openAuthedClient,
   };
 }
 
@@ -414,7 +424,7 @@ export async function hostedRtdbContext(
   });
 
   const rtdb = databaseSdk();
-  const openHostedClient = async (label: string) => {
+  const openHostedRaw = async (label: string) => {
     let attached = false;
     const clientDb = getHostedFirestore({
       url: wsUrl,
@@ -426,7 +436,15 @@ export async function hostedRtdbContext(
     });
     clientPorts.push(clientDb.port);
     await until(() => attached, `hosted RTDB attach (${label})`);
-    return { db: rtdb.getDatabase(clientDb as never) };
+    return clientDb;
+  };
+  const openHostedClient = async (label: string) => ({
+    db: rtdb.getDatabase((await openHostedRaw(label)) as never),
+  });
+  const openAuthedClient = async (label: string) => {
+    const raw = await openHostedRaw(label);
+    const cred = await client.signInAnonymously(client.getAuth(raw));
+    return { db: rtdb.getDatabase(raw as never), uid: cred.user.uid };
   };
 
   const main = await openHostedClient('main');
@@ -437,6 +455,7 @@ export async function hostedRtdbContext(
     base: '/pyric_oracle/replay',
     newClient: (name) => openHostedClient(name),
     openAdminDb,
+    openAuthedClient,
   };
 }
 

@@ -1,7 +1,12 @@
 {
   "name": "rtdb-rules-json-wildcard-and-indexon-roundtrip",
-  "matrixRow": "",
-  "rowIds": [],
+  "matrixRow": "rtdb#90, rtdb#91, rtdb#92, rtdb#93",
+  "rowIds": [
+    "rtdb#90",
+    "rtdb#91",
+    "rtdb#92",
+    "rtdb#93"
+  ],
   "description": "Live RTDB Security Rules JSON deploy/fetch round-trip preserving nested $userId / $gameId path variables, .read/.write/.validate strings, and .indexOn array/string entries, plus live wildcard write and indexed orderByChild execution.",
   "observedAt": "2026-11-18T06:47:31.430Z",
   "fbSdkVersion": "12.19.0",
