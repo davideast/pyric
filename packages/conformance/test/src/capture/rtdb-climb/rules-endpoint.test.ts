@@ -71,9 +71,10 @@ describe('rtdb-climb rules endpoint', () => {
     expect(fake.waits).toEqual([5_000]);
   });
 
-  it('waits out 429s on a rules write and then writes', async () => {
+  it('waits out 429s on a rules write and then writes, including when write is detached', async () => {
     const fake = fakeRules((method, _body, index) => (method === 'PUT' && index <= 2 ? throttled() : undefined));
-    await climbRulesEndpoint(fake.ctx, 'probe').write({ rules: { changed: true } });
+    const writeRules = climbRulesEndpoint(fake.ctx, 'probe').write;
+    await writeRules({ rules: { changed: true } });
     expect(fake.waits).toEqual([5_000, 10_000]);
     expect(fake.live()).toEqual({ rules: { changed: true } });
   });

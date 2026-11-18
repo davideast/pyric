@@ -77,58 +77,60 @@ export function climbRulesEndpoint(ctx: RtdbClimbContext, label: string): ClimbR
     return restorePromise;
   };
 
-  return {
-    async read() {
-      const response = await fetchWithRateLimitRetry(rulesUrl, undefined, `${label} rules read`, options);
-      if (!response.ok) throw new Error(`${label} rules read failed: ${response.status}`);
-      const parsed = (await response.json()) as Record<string, unknown>;
-      if (baselineDoc === null) {
-        baselineDoc = parsed;
-        baselineStable = stable(parsed);
-      }
-      return parsed;
-    },
-    async put(document) {
-      if (baselineStable !== null && stable(document) === baselineStable && dirty) {
-        return restoreBaselineOnce();
-      }
-      if (session && unregister === null && baselineDoc !== null) {
-        unregister = session.registerProbeCleanup(async () => {
-          for (let attempt = 1; attempt <= ORACLE_RESTORE_ATTEMPTS; attempt += 1) {
-            const isLast = attempt === ORACLE_RESTORE_ATTEMPTS;
-            const res = await restoreBaselineOnce();
-            if (!res.ok) {
-              dirty = true;
-              if (isLast) {
-                throw new Error(`${label} rules interrupt restore failed: ${res.status}`);
-              }
-              continue;
-            }
-            const verifyRes = await fetchWithRateLimitRetry(
-              rulesUrl,
-              undefined,
-              `${label} rules read`,
-              options,
-            );
-            if (verifyRes.ok) {
-              const afterDoc = (await verifyRes.json()) as Record<string, unknown>;
-              if (stable(afterDoc) === baselineStable) {
-                return;
-              }
-            }
+  const read = async (): Promise<Record<string, unknown>> => {
+    const response = await fetchWithRateLimitRetry(rulesUrl, undefined, `${label} rules read`, options);
+    if (!response.ok) throw new Error(`${label} rules read failed: ${response.status}`);
+    const parsed = (await response.json()) as Record<string, unknown>;
+    if (baselineDoc === null) {
+      baselineDoc = parsed;
+      baselineStable = stable(parsed);
+    }
+    return parsed;
+  };
+
+  const put = async (document: Record<string, unknown>): Promise<Response> => {
+    if (baselineStable !== null && stable(document) === baselineStable && dirty) {
+      return restoreBaselineOnce();
+    }
+    if (session && unregister === null && baselineDoc !== null) {
+      unregister = session.registerProbeCleanup(async () => {
+        for (let attempt = 1; attempt <= ORACLE_RESTORE_ATTEMPTS; attempt += 1) {
+          const isLast = attempt === ORACLE_RESTORE_ATTEMPTS;
+          const res = await restoreBaselineOnce();
+          if (!res.ok) {
             dirty = true;
             if (isLast) {
-              throw new Error(`${label} rules interrupt read-back did not match prior rules`);
+              throw new Error(`${label} rules interrupt restore failed: ${res.status}`);
+            }
+            continue;
+          }
+          const verifyRes = await fetchWithRateLimitRetry(
+            rulesUrl,
+            undefined,
+            `${label} rules read`,
+            options,
+          );
+          if (verifyRes.ok) {
+            const afterDoc = (await verifyRes.json()) as Record<string, unknown>;
+            if (stable(afterDoc) === baselineStable) {
+              return;
             }
           }
-        });
-      }
-      dirty = true;
-      return sendPut(document);
-    },
-    async write(document) {
-      const response = await this.put(document);
-      if (!response.ok) throw new Error(`${label} rules write failed: ${response.status}`);
-    },
+          dirty = true;
+          if (isLast) {
+            throw new Error(`${label} rules interrupt read-back did not match prior rules`);
+          }
+        }
+      });
+    }
+    dirty = true;
+    return sendPut(document);
   };
+
+  const write = async (document: Record<string, unknown>): Promise<void> => {
+    const response = await put(document);
+    if (!response.ok) throw new Error(`${label} rules write failed: ${response.status}`);
+  };
+
+  return { read, put, write };
 }
