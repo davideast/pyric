@@ -14,7 +14,7 @@
  * proof-of-life).
  */
 import { afterEach, describe, expect, it } from 'bun:test';
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createPyricNamespace } from '../../src/serve/namespace.js';
@@ -24,9 +24,11 @@ import { BEACON_TOKEN_HEADER, type BeaconReport } from '../../src/register/beaco
 import { expectClosedEarlyAnswer } from './early-answer.js';
 
 const TOKEN = 'launch-secret-token';
+const tempDirs: string[] = [];
 
 function fixture() {
   const dir = mkdtempSync(join(tmpdir(), 'pyric-serve-beacon-'));
+  tempDirs.push(dir);
   const site = join(dir, 'public');
   const sdk = join(dir, 'sdk');
   for (const d of [site, sdk]) mkdirSync(d);
@@ -36,7 +38,14 @@ function fixture() {
 
 const handles: ServeHandle[] = [];
 afterEach(async () => {
-  while (handles.length) await handles.pop()!.stop();
+  while (handles.length > 0) {
+    const h = handles.pop();
+    if (h !== undefined) await h.stop();
+  }
+  while (tempDirs.length > 0) {
+    const dir = tempDirs.pop();
+    if (dir !== undefined) rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 async function startServe(beacon?: (report: BeaconReport) => void): Promise<ServeHandle> {

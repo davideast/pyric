@@ -3,7 +3,7 @@
 // with. No browser and no network.
 
 import { afterAll, describe, expect, test } from 'bun:test';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
 import { REPO_ROOT, addDays, entryFileName, type LoadedEntry } from './entries.ts';
@@ -169,8 +169,21 @@ describe('the quarantine runner on real bun test runs', () => {
     expect(flagged.exitCode).toBe(0);
   });
 
-  test('a passing run exits 0', async () => {
-    const run = suite({ 'pass.test.ts': 'import { test } from \'bun:test\';\ntest(\'ok\', () => {});\n' });
-    expect(await exitCode(run.cwd, [])).toBe(0);
+  test('a passing run exits 0 and removes its temporary JUnit directory', async () => {
+    const runnerTemp = mkdtempSync(join(tmpdir(), 'quarantine-runner-temp-'));
+    dirs.push(runnerTemp);
+    const savedRunnerTemp = process.env.RUNNER_TEMP;
+    process.env.RUNNER_TEMP = runnerTemp;
+    try {
+      const run = suite({ 'pass.test.ts': 'import { test } from \'bun:test\';\ntest(\'ok\', () => {});\n' });
+      expect(await exitCode(run.cwd, [])).toBe(0);
+      expect(readdirSync(runnerTemp)).toEqual([]);
+    } finally {
+      if (savedRunnerTemp === undefined) {
+        delete process.env.RUNNER_TEMP;
+      } else {
+        process.env.RUNNER_TEMP = savedRunnerTemp;
+      }
+    }
   });
 });

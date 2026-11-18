@@ -36,3 +36,7 @@ Generalize every issue and finding PR to pyric itself. State titles, prose, sche
 | CI or tooling | `CI: <what changes>` | ci | Problem, Change, Done when |
 
 Issue #1521 plans a `rules.yml` form; it is not added here.
+
+## Worktree and Temp Hygiene
+
+Remove finished linked Git worktrees via `bash scripts/worktree-remove.sh [--force] [--delete-branch <branch>] <worktree-path>` so `node_modules` and `dist` are unlinked directly and `git worktree prune` runs immediately (never rename worktrees into `.trash*` or `/tmp`). Every test that allocates `os.tmpdir()` directories cleans them up in `afterEach`, `afterAll`, or `finally` (`packages/cli/test/use-temp-dirs.ts`).

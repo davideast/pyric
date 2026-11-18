@@ -11,7 +11,7 @@
  */
 import { describe, expect, it } from 'bun:test';
 import { spawn } from 'node:child_process';
-import { mkdtempSync } from 'node:fs';
+import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -96,6 +96,7 @@ describe('the pyric command against a port whose connect never completes', () =>
       expect(run.wallMs).toBeLessThan(5_000);
     } finally {
       hole.close();
+      rmSync(cwd, { recursive: true, force: true });
     }
   }, 30_000);
 
@@ -116,7 +117,7 @@ describe('the dev server collision probe', () => {
     const run = await runInNode(`const { createBridgeMount } = await import(${JSON.stringify(dist('serve/bridge-mount.js'))});
 const { createServer } = await import('node:http');
 const { EventEmitter } = await import('node:events');
-const { mkdtempSync } = await import('node:fs');
+const { mkdtempSync, rmSync } = await import('node:fs');
 const { tmpdir } = await import('node:os');
 const { join } = await import('node:path');
 const rejections = [];
@@ -127,23 +128,28 @@ await new Promise((done) => silent.listen(0, '127.0.0.1', done));
 const port = silent.address().port;
 const host = Object.assign(new EventEmitter(), { listening: true, address: () => ({ port }) });
 const mount = createBridgeMount({ disableAuditLog: true });
-const attachment = mount.attachHost({
-  servers: [host],
-  projectDir: mkdtempSync(join(tmpdir(), 'pyric-collision-probe-close-')),
-  origin: () => ({ host: '127.0.0.1', port }),
-  collision: { warn() {} },
-});
-await new Promise((done) => setTimeout(done, 100));
-const accepted = await new Promise((done) => silent.getConnections((_error, count) => done(count)));
-const closeStarted = performance.now();
-await attachment.close();
-const closeMs = performance.now() - closeStarted;
-// A destroyed socket's close reaches the server a turn or two later.
-await new Promise((done) => setTimeout(done, 50));
-const openSockets = await new Promise((done) => silent.getConnections((_error, count) => done(count)));
-await mount.close();
-silent.close();
-result = { accepted, closeMs, openSockets, rejections };`);
+const probeDir = mkdtempSync(join(tmpdir(), 'pyric-collision-probe-close-'));
+try {
+  const attachment = mount.attachHost({
+    servers: [host],
+    projectDir: probeDir,
+    origin: () => ({ host: '127.0.0.1', port }),
+    collision: { warn() {} },
+  });
+  await new Promise((done) => setTimeout(done, 100));
+  const accepted = await new Promise((done) => silent.getConnections((_error, count) => done(count)));
+  const closeStarted = performance.now();
+  await attachment.close();
+  const closeMs = performance.now() - closeStarted;
+  // A destroyed socket's close reaches the server a turn or two later.
+  await new Promise((done) => setTimeout(done, 50));
+  const openSockets = await new Promise((done) => silent.getConnections((_error, count) => done(count)));
+  await mount.close();
+  silent.close();
+  result = { accepted, closeMs, openSockets, rejections };
+} finally {
+  rmSync(probeDir, { recursive: true, force: true });
+}`);
     const outcome = run.result as { accepted: number; closeMs: number; openSockets: number; rejections: string[] };
     expect(outcome.accepted).toBe(1);
     expect(outcome.closeMs).toBeLessThan(200);
@@ -168,6 +174,7 @@ result = await beforeSentinel(3000, () => runSnapshot(parseArgs(['snapshot', '--
       expect(run.lingerMs).toBeLessThan(PROMPT_EXIT_MS);
     } finally {
       hole.close();
+      rmSync(cwd, { recursive: true, force: true });
     }
   }, 30_000);
 

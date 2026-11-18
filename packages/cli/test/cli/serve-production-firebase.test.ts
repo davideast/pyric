@@ -1,13 +1,14 @@
 import { describe, expect, it } from 'bun:test';
-import { mkdtempSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { startServe } from '../../src/cli/serve.js';
+import { useTempDirs } from '../use-temp-dirs.js';
 
 const testTimeoutMs = 30_000;
+const makeTempDir = useTempDirs('pyric-serve-prod-no-firebase-');
 
 function projectWithoutFirebase(): string {
-  const cwd = mkdtempSync(join(tmpdir(), 'pyric-serve-prod-no-firebase-'));
+  const cwd = makeTempDir();
   writeFileSync(join(cwd, 'firebase.json'), JSON.stringify({ hosting: { public: '.' } }));
   return cwd;
 }
