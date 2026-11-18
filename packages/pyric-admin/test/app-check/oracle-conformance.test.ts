@@ -133,7 +133,8 @@ async function firebaseToken(
   claimOverrides: Record<string, unknown> = {},
 ): Promise<string> {
   const { token } = await appCheck(projectId).createToken(APP_ID);
-  const claims = JSON.parse(Buffer.from(token.split('.')[1]!, 'base64url').toString('utf8')) as Record<string, unknown>;
+  const payloadPart = token.split('.')[1] ?? '';
+  const claims = JSON.parse(Buffer.from(payloadPart, 'base64url').toString('utf8')) as Record<string, unknown>;
   return signRs256Jwt({ alg: 'RS256', kid: FIREBASE_KID, typ: 'JWT' }, { ...claims, provider: 'debug', ...claimOverrides });
 }
 
@@ -431,7 +432,8 @@ const assertions: Record<string, () => Promise<void>> = {
     const callCountBeforeLocal = harness.calls.length;
     const { token: sandboxToken } = await service.createToken(APP_ID);
     expect((await service.verifyToken(sandboxToken)).appId).toBe(APP_ID);
-    const sandboxClaims = JSON.parse(Buffer.from(sandboxToken.split('.')[1]!, 'base64url').toString('utf8')) as Record<string, unknown>;
+    const sandboxPayload = sandboxToken.split('.')[1] ?? '';
+    const sandboxClaims = JSON.parse(Buffer.from(sandboxPayload, 'base64url').toString('utf8')) as Record<string, unknown>;
     const noKidToken = await signAppCheckToken({ alg: 'RS256', typ: 'JWT' }, sandboxClaims);
     expect((await service.verifyToken(noKidToken)).appId).toBe(APP_ID);
     expect(await rejection(() => service.verifyToken('not-a-jwt'))).toEqual(oTampered.notJwt);

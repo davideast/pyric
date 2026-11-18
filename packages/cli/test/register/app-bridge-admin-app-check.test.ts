@@ -103,8 +103,16 @@ function parseTarget(args) {
     return { host: parsed.hostname, path: parsed.pathname + parsed.search };
   }
   const options = first ?? {};
-  const host = options.hostname ?? options.host ?? 'localhost';
-  const path = options.path ?? '/';
+  let host = 'localhost';
+  if (typeof options.hostname === 'string') {
+    host = options.hostname;
+  } else if (typeof options.host === 'string') {
+    host = options.host;
+  }
+  let path = '/';
+  if (typeof options.path === 'string') {
+    path = options.path;
+  }
   return { host, path };
 }
 
@@ -192,10 +200,15 @@ async function captureVerify(service, token, options) {
       jwksRequests: record.served.length - before,
     };
   } catch (error) {
+    let code = null;
+    if (typeof error?.code === 'string') {
+      code = error.code;
+    }
+    const rawMessage = error?.message ?? error;
     return {
       threw: true,
-      code: error?.code ?? null,
-      message: String(error?.message ?? error),
+      code,
+      message: String(rawMessage),
       jwksRequests: record.served.length - before,
     };
   }
@@ -226,7 +239,8 @@ if (payload.mode === 'sandbox') {
 
   const mintedSandbox = await defaultService.createToken(payload.appId);
   outcomes.sandboxToken = await captureVerify(defaultService, mintedSandbox.token);
-  const sandboxClaims = JSON.parse(Buffer.from(mintedSandbox.token.split('.')[1], 'base64url').toString('utf8'));
+  const sandboxPayload = mintedSandbox.token.split('.')[1] ?? '';
+  const sandboxClaims = JSON.parse(Buffer.from(sandboxPayload, 'base64url').toString('utf8'));
   const noKid = await signAppCheckToken({ alg: 'RS256', typ: 'JWT' }, sandboxClaims);
   outcomes.noKidToken = await captureVerify(defaultService, noKid);
   outcomes.malformed = await captureVerify(defaultService, 'not-a-jwt');
@@ -364,7 +378,10 @@ describe('app-check-admin#verify-token-firebase-token-production-ai-mode under @
       'firebaseappcheck.googleapis.com/v1/jwks',
     ]);
 
-    const valid = report.outcomes.valid!;
+    const valid = report.outcomes.valid;
+    if (!valid) {
+      throw new Error('expected valid verification outcome');
+    }
     expect({
       resultKeySet: valid.resultKeySet,
       appIdEqualsConfig: valid.appId === APP_ID,
