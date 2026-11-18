@@ -133,54 +133,117 @@ const MD5_K = new Uint32Array([
   0x6FA87E4F, 0xFE2CE6E0, 0xA3014314, 0x4E0811A1, 0xF7537E82, 0xBD3AF235, 0x2AD7D2BB, 0xEB86D391,
 ]);
 
-export function md5(data: Uint8Array): Uint8Array {
-  const view = padMessage(data, true);
-  let a0 = 0x67452301;
-  let b0 = 0xEFCDAB89;
-  let c0 = 0x98BADCFE;
-  let d0 = 0x10325476;
-  const m = new Uint32Array(16);
-  for (let offset = 0; offset < view.byteLength; offset += 64) {
-    for (let i = 0; i < 16; i++) m[i] = view.getUint32(offset + i * 4, true);
-    let a = a0;
-    let b = b0;
-    let c = c0;
-    let d = d0;
-    for (let i = 0; i < 64; i++) {
-      let f: number;
-      let g: number;
-      if (i < 16) {
-        f = (b & c) | (~b & d);
-        g = i;
-      } else if (i < 32) {
-        f = (d & b) | (~d & c);
-        g = (5 * i + 1) & 15;
-      } else if (i < 48) {
-        f = b ^ c ^ d;
-        g = (3 * i + 5) & 15;
-      } else {
-        f = c ^ (b | ~d);
-        g = (7 * i) & 15;
-      }
-      const sum = (a + f + MD5_K[i] + m[g]) | 0;
-      const s = MD5_SHIFTS[i];
-      a = d;
-      d = c;
-      c = b;
-      b = (b + ((sum << s) | (sum >>> (32 - s)))) | 0;
+export interface Md5Hasher {
+  update(chunk: Uint8Array): void;
+  digest(): Uint8Array;
+}
+
+function processMd5Block(
+  state: Uint32Array,
+  view: DataView,
+  offset: number,
+  m: Uint32Array,
+): void {
+  for (let i = 0; i < 16; i++) m[i] = view.getUint32(offset + i * 4, true);
+  let a = state[0];
+  let b = state[1];
+  let c = state[2];
+  let d = state[3];
+  for (let i = 0; i < 64; i++) {
+    let f: number;
+    let g: number;
+    if (i < 16) {
+      f = (b & c) | (~b & d);
+      g = i;
+    } else if (i < 32) {
+      f = (d & b) | (~d & c);
+      g = (5 * i + 1) & 15;
+    } else if (i < 48) {
+      f = b ^ c ^ d;
+      g = (3 * i + 5) & 15;
+    } else {
+      f = c ^ (b | ~d);
+      g = (7 * i) & 15;
     }
-    a0 = (a0 + a) | 0;
-    b0 = (b0 + b) | 0;
-    c0 = (c0 + c) | 0;
-    d0 = (d0 + d) | 0;
+    const sum = (a + f + MD5_K[i] + m[g]) | 0;
+    const s = MD5_SHIFTS[i];
+    a = d;
+    d = c;
+    c = b;
+    b = (b + ((sum << s) | (sum >>> (32 - s)))) | 0;
   }
-  const out = new Uint8Array(16);
-  const outView = new DataView(out.buffer);
-  outView.setUint32(0, a0 >>> 0, true);
-  outView.setUint32(4, b0 >>> 0, true);
-  outView.setUint32(8, c0 >>> 0, true);
-  outView.setUint32(12, d0 >>> 0, true);
-  return out;
+  state[0] = (state[0] + a) | 0;
+  state[1] = (state[1] + b) | 0;
+  state[2] = (state[2] + c) | 0;
+  state[3] = (state[3] + d) | 0;
+}
+
+export function createMd5Hasher(): Md5Hasher {
+  const state = new Uint32Array([0x67452301, 0xEFCDAB89, 0x98BADCFE, 0x10325476]);
+  const block = new Uint8Array(64);
+  const blockView = new DataView(block.buffer);
+  const m = new Uint32Array(16);
+  let buffered = 0;
+  let totalBytes = 0;
+
+  return {
+    update(chunk: Uint8Array): void {
+      if (chunk.byteLength === 0) return;
+      totalBytes += chunk.byteLength;
+      let pos = 0;
+      if (buffered > 0) {
+        const needed = 64 - buffered;
+        if (chunk.byteLength < needed) {
+          block.set(chunk, buffered);
+          buffered += chunk.byteLength;
+          return;
+        }
+        block.set(chunk.subarray(0, needed), buffered);
+        processMd5Block(state, blockView, 0, m);
+        buffered = 0;
+        pos = needed;
+      }
+      const chunkView = new DataView(chunk.buffer, chunk.byteOffset, chunk.byteLength);
+      while (pos + 64 <= chunk.byteLength) {
+        processMd5Block(state, chunkView, pos, m);
+        pos += 64;
+      }
+      if (pos < chunk.byteLength) {
+        const rem = chunk.subarray(pos);
+        block.set(rem, 0);
+        buffered = rem.byteLength;
+      }
+    },
+    digest(): Uint8Array {
+      block[buffered] = 0x80;
+      buffered += 1;
+      if (buffered > 56) {
+        block.fill(0, buffered, 64);
+        processMd5Block(state, blockView, 0, m);
+        buffered = 0;
+      }
+      block.fill(0, buffered, 56);
+      const bitLengthLow = (totalBytes * 8) >>> 0;
+      const bitLengthHigh = Math.floor(totalBytes / 0x20000000);
+      blockView.setUint32(56, bitLengthLow, true);
+      blockView.setUint32(60, bitLengthHigh, true);
+      processMd5Block(state, blockView, 0, m);
+
+      const out = new Uint8Array(16);
+      const outView = new DataView(out.buffer);
+      outView.setUint32(0, state[0] >>> 0, true);
+      outView.setUint32(4, state[1] >>> 0, true);
+      outView.setUint32(8, state[2] >>> 0, true);
+      outView.setUint32(12, state[3] >>> 0, true);
+      return out;
+    },
+  };
+}
+
+export function md5(data: Uint8Array): Uint8Array {
+  const hasher = createMd5Hasher();
+  hasher.update(data);
+  return hasher.digest();
 }
 
 // SHA-256 (FIPS 180-4, section 6.2). Round constants are the first 32 bits of

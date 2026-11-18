@@ -23,7 +23,7 @@
  *     payload's intrinsic type (`Blob.type`, data-url prefix) →
  *     `application/octet-stream`. Matches the JS SDK.
  */
-import { md5 } from '@pyric/rules/internal/storage';
+import { createMd5Hasher, md5 } from '@pyric/rules/internal/storage';
 import { emitSandboxEvent, getClock, makeServiceMutationEvent } from 'pyric/sandbox/internal';
 import type { EventProvenance } from 'pyric/sandbox';
 import { arrayBufferToBase64 } from './base64.js';
@@ -269,6 +269,20 @@ export function buildStoredMetadata(args: {
  * passing `new Blob([...], { type: 'application/json' })` don't
  * lose the type info.
  */
+const PRECOMPUTED_MD5_KEY = Symbol.for('pyric.storage.precomputed-md5');
+const globalPrecomputedMd5 = globalThis as { [PRECOMPUTED_MD5_KEY]?: WeakMap<Blob, string> };
+const PRECOMPUTED_MD5 = (globalPrecomputedMd5[PRECOMPUTED_MD5_KEY] ??= new WeakMap());
+
+/** Attach a precomputed RFC 1321 base64 MD5 digest to a staged file-backed `Blob` so finishing never re-reads the file. */
+export function attachPrecomputedMd5(blob: Blob, md5Base64: string): void {
+  PRECOMPUTED_MD5.set(blob, md5Base64);
+}
+
+/** Read any precomputed base64 MD5 digest attached to `blob`. */
+export function precomputedMd5Of(blob: Blob): string | undefined {
+  return PRECOMPUTED_MD5.get(blob);
+}
+
 function toBlob(
   data: Blob | Uint8Array | ArrayBuffer,
   contentTypeHint: string | undefined,
@@ -276,26 +290,49 @@ function toBlob(
   if (data instanceof Blob) {
     if (contentTypeHint && contentTypeHint !== data.type) {
       // Force the caller's hint by rewrapping. Same bytes, new type.
-      return new Blob([data], { type: contentTypeHint });
+      const rewrapped = new Blob([data], { type: contentTypeHint });
+      const existingMd5 = precomputedMd5Of(data);
+      if (existingMd5 !== undefined) {
+        attachPrecomputedMd5(rewrapped, existingMd5);
+      }
+      return rewrapped;
     }
     return data;
   }
-  // Uint8Array / ArrayBuffer → Blob. ArrayBuffer-passing through
+  // Uint8Array / ArrayBuffer -> Blob. ArrayBuffer-passing through
   // the Blob constructor's BlobPart accepts both shapes natively.
   return new Blob([data as ArrayBuffer], { type: contentTypeHint ?? '' });
 }
+
+const MD5_SLICE_BYTES = 64 * 1024;
 
 async function computePayloadMd5Base64(
   data: Blob | Uint8Array | ArrayBuffer,
   blob: Blob,
 ): Promise<string> {
+  if (data instanceof Blob) {
+    const precomputed = precomputedMd5Of(data);
+    if (precomputed !== undefined) {
+      return precomputed;
+    }
+    const hasher = createMd5Hasher();
+    for (let offset = 0; offset < blob.size; offset += MD5_SLICE_BYTES) {
+      const end = Math.min(offset + MD5_SLICE_BYTES, blob.size);
+      const chunk = new Uint8Array(await blob.slice(offset, end).arrayBuffer());
+      hasher.update(chunk);
+    }
+    const digest = hasher.digest();
+    const buf = digest.buffer.slice(
+      digest.byteOffset,
+      digest.byteOffset + digest.byteLength,
+    ) as ArrayBuffer;
+    return arrayBufferToBase64(buf);
+  }
   let bytes: Uint8Array;
   if (data instanceof Uint8Array) {
     bytes = data;
-  } else if (data instanceof ArrayBuffer) {
-    bytes = new Uint8Array(data);
   } else {
-    bytes = new Uint8Array(await blob.arrayBuffer());
+    bytes = new Uint8Array(data);
   }
   const digest = md5(bytes);
   const buf = digest.buffer.slice(
