@@ -235,6 +235,17 @@ export async function observeVerifyIdTokenErrors(
   return { ...behavior };
 }
 
+export async function runWithVerifyAppsDisposed<T>(
+  work: () => Promise<T>,
+  dispose: () => Promise<void>,
+): Promise<T> {
+  try {
+    return await work();
+  } finally {
+    await dispose();
+  }
+}
+
 export const probe: Probe = {
   rig: 'admin-auth',
   requires: ['admin-auth', 'web-config'],
@@ -256,26 +267,29 @@ export const probe: Probe = {
           `admin-auth-verify-foreign-${runId}`,
         );
 
-        try {
-          const uid = `${uidPrefix}-verify`;
-          await createProbeUser({ uid });
-          const customToken = await adminAuth.createCustomToken(uid);
-          const clientAuth = clientAuthMod.getAuth(clientApp);
-          await clientAuth.setPersistence(clientAuthMod.inMemoryPersistence);
-          const cred = await clientAuthMod.signInWithCustomToken(clientAuth, customToken);
-          const validIdToken = await cred.user.getIdToken();
+        return runWithVerifyAppsDisposed(
+          async () => {
+            const uid = `${uidPrefix}-verify`;
+            await createProbeUser({ uid });
+            const customToken = await adminAuth.createCustomToken(uid);
+            const clientAuth = clientAuthMod.getAuth(clientApp);
+            await clientAuth.setPersistence(clientAuthMod.inMemoryPersistence);
+            const cred = await clientAuthMod.signInWithCustomToken(clientAuth, customToken);
+            const validIdToken = await cred.user.getIdToken();
 
-          return observeVerifyIdTokenErrors({
-            projectId: serviceAccount.project_id,
-            subjectUid: uid,
-            validIdToken,
-            verifyPrimary: (idToken) => adminAuth.verifyIdToken(idToken),
-            verifyForeignProject: (idToken) => getAdminAuth(foreignApp).verifyIdToken(idToken),
-          });
-        } finally {
-          await deleteApp(clientApp).catch(() => undefined);
-          await deleteAdminApp(foreignApp).catch(() => undefined);
-        }
+            return await observeVerifyIdTokenErrors({
+              projectId: serviceAccount.project_id,
+              subjectUid: uid,
+              validIdToken,
+              verifyPrimary: (idToken) => adminAuth.verifyIdToken(idToken),
+              verifyForeignProject: (idToken) => getAdminAuth(foreignApp).verifyIdToken(idToken),
+            });
+          },
+          async () => {
+            await deleteApp(clientApp).catch(() => undefined);
+            await deleteAdminApp(foreignApp).catch(() => undefined);
+          },
+        );
       },
     );
   },

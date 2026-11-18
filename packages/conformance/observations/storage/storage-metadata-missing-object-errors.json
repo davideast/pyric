@@ -5,7 +5,7 @@
     "storage#80",
     "storage#87"
   ],
-  "description": "getMetadata(ref) and updateMetadata(ref, patch) on a missing object path: observes FirebaseError storage/object-not-found on both operations.",
+  "description": "getMetadata(ref) and updateMetadata(ref, patch) on a missing object path: observes storage/object-not-found on getMetadata and storage/unauthorized on rules-governed updateMetadata.",
   "observedAt": "2026-11-18T04:36:29.200Z",
   "fbSdkVersion": "12.19.0",
   "projectId": "digame-mas",
