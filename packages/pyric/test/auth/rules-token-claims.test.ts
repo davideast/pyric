@@ -15,7 +15,7 @@
  */
 import 'fake-indexeddb/auto';
 import { describe, expect, it } from 'bun:test';
-import { initializeSandbox } from 'pyric/sandbox';
+import { getClock, initializeSandbox } from 'pyric/sandbox';
 import { setRules } from 'pyric/sandbox/database';
 import { getDatabase, ref, set } from 'pyric/database';
 import { doc, getFirestore, setDoc } from 'pyric/firestore';
@@ -28,7 +28,6 @@ import {
   sandbox as authSandbox,
 } from '../../src/auth/index.js';
 import { getStorageSandbox, ref as storageRef, uploadString } from '../../src/storage/index.js';
-import { getClock } from '../../src/sandbox/internal/index.js';
 import type { Sandbox } from '../../src/sandbox/index.js';
 
 const STANDARD_CLAIMS = [
@@ -83,6 +82,7 @@ async function outcome(write: () => Promise<unknown>): Promise<'allowed' | 'deni
 
 async function signedIn(): Promise<{ sandbox: Sandbox; uid: string }> {
   const sandbox = initializeSandbox();
+  getClock(sandbox).set(Date.now());
   const auth = getAuth(sandbox);
   const record = authSandbox.createUser(auth, { email: 'ada@example.com', password: 'secret-pw' });
   await signInWithEmailAndPassword(auth, 'ada@example.com', 'secret-pw');
