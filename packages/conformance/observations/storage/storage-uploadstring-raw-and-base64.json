@@ -1,0 +1,69 @@
+{
+  "name": "storage-uploadstring-raw-and-base64",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "firebase/storage uploadString(ref, value, format?): observes default and explicit format=\"raw\" UTF-8 encoding and default contentType alongside format=\"base64\" binary decoding.",
+  "observedAt": "2026-11-18T08:40:28.250Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "defaultRaw": {
+      "size": 13,
+      "uploadedContentType": "application/octet-stream",
+      "fetchedContentType": "application/octet-stream",
+      "decodedBytes": [
+        72,
+        101,
+        108,
+        108,
+        111,
+        44,
+        32,
+        85,
+        84,
+        70,
+        45,
+        56,
+        33
+      ],
+      "decodedUtf8": "Hello, UTF-8!"
+    },
+    "explicitRaw": {
+      "size": 17,
+      "uploadedContentType": "application/octet-stream",
+      "fetchedContentType": "application/octet-stream",
+      "decodedBytes": [
+        69,
+        120,
+        112,
+        108,
+        105,
+        99,
+        105,
+        116,
+        32,
+        114,
+        97,
+        119,
+        32,
+        108,
+        105,
+        110,
+        101
+      ],
+      "decodedUtf8": "Explicit raw line"
+    },
+    "standardBase64": {
+      "size": 4,
+      "uploadedContentType": "application/octet-stream",
+      "fetchedContentType": "application/octet-stream",
+      "decodedBytes": [
+        1,
+        2,
+        3,
+        255
+      ],
+      "decodedUtf8": null
+    }
+  }
+}
