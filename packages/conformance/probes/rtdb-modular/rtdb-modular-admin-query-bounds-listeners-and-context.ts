@@ -519,11 +519,10 @@ export async function observeAdminQueryBoundsListenersAndContext(
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: ['web-config', 'dedicated-rtdb'],
-  pendingRowLink: true,
   description:
     'firebase-admin/database Query ordering (orderByChild, orderByKey, orderByValue, orderByPriority), unindexed vs indexed get()/once("value"), cursor bounds/limits, 3-arg and 4-arg context this-binding on once/on, scoped off(eventType, cb, context), and windowed child_* events.',
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'rtdb-admin#5',
+  rowIds: ['rtdb-admin#5'],
   observe() {
     return withRtdbProbeSession(
       { runRules: { ...ADMIN_QUERY_PROBE_RULES } },
