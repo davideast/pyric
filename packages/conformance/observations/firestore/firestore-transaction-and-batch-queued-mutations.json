@@ -1,0 +1,35 @@
+{
+  "name": "firestore-transaction-and-batch-queued-mutations",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "runTransaction performs consistent snapshot reads and commits multi-document set, update, and delete mutations atomically while writeBatch queues mutations without applying them prior to commit().",
+  "observedAt": "2026-11-18T20:16:17.881Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "transaction": {
+      "returnValue": "committed-25",
+      "readConsistentBalances": [
+        100,
+        40
+      ],
+      "missingExistsInTxn": false,
+      "postCommitBalances": [
+        75,
+        65
+      ],
+      "newDocData": {
+        "transferred": 25
+      },
+      "deletedDocExists": false
+    },
+    "writeBatchQueueing": {
+      "preCommitSetExists": false,
+      "preCommitUpdateCount": 1,
+      "preCommitDeleteExists": true,
+      "postCommitSetCount": 10,
+      "postCommitUpdateCount": 9,
+      "postCommitDeleteExists": false
+    }
+  }
+}

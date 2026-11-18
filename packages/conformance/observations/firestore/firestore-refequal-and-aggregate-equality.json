@@ -1,0 +1,45 @@
+{
+  "name": "firestore-refequal-and-aggregate-equality",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "refEqual compares document, collection, converter, and QuerySnapshot.docs[i].ref handles; getDocFromServer and getDocsFromServer return live server snapshots; and aggregateFieldEqual and aggregateQuerySnapshotEqual compare aggregate descriptors and snapshots.",
+  "observedAt": "2026-11-18T20:16:06.935Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "refEqualChecks": {
+      "sameDocPathEqual": true,
+      "sameCollectionPathEqual": true,
+      "differentDocPathEqual": false,
+      "differentCollectionPathEqual": false,
+      "docVsCollectionEqual": false,
+      "convertedVsRawEqual": false,
+      "sameConverterEqual": true,
+      "querySnapshotDoc0EqualsAlpha": true,
+      "querySnapshotDoc0EqualsBeta": false
+    },
+    "serverReads": {
+      "docExists": true,
+      "docFromCache": false,
+      "docPoints": 10,
+      "queryIds": [
+        "alpha",
+        "beta"
+      ],
+      "queryFromCache": false
+    },
+    "aggregateEquality": {
+      "countEqualsCount": true,
+      "sumStringEqualsFieldPath": true,
+      "sumDifferentFieldEquals": false,
+      "sumVsAverageEquals": false,
+      "sameAggregateSnapshotsEqual": true,
+      "differentQueryAggregateSnapshotsEqual": false,
+      "aggregateData": {
+        "total": 40,
+        "avg": 20,
+        "n": 2
+      }
+    }
+  }
+}
