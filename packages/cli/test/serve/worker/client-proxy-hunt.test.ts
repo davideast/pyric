@@ -371,8 +371,11 @@ describe('worker client proxy transport & parity hunt (#1124 / #1110)', () => {
     const eAt = client.endAt(1);
     const eBefore = client.endBefore(1);
 
-    for (const c of [w, orC, andC, ord, lim, limLast, sAt, sAfter, eAt, eBefore]) {
+    for (const c of [w, ord, lim, limLast, sAt, sAfter, eAt, eBefore]) {
       expect(c instanceof QueryConstraint).toBe(true);
+    }
+    for (const composite of [orC, andC]) {
+      expect(composite instanceof QueryConstraint).toBe(false);
     }
     expect(w instanceof QueryFieldFilterConstraint).toBe(true);
     expect(orC instanceof QueryCompositeFilterConstraint).toBe(true);
