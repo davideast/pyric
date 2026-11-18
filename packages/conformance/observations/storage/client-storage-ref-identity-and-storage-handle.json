@@ -1,0 +1,26 @@
+{
+  "name": "client-storage-ref-identity-and-storage-handle",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "firebase/storage StorageReference value-object identity and owning handle preservation: observes non-interned reference instances across ref(), parent, and root alongside preserved storage and bucket properties.",
+  "observedAt": "2026-11-17T23:55:21.004Z",
+  "fbSdkVersion": "12.19.0",
+  "behavior": {
+    "samePathStrictEqual": false,
+    "samePathFullPathEqual": true,
+    "samePathToStringEqual": true,
+    "rootCallsStrictEqual": false,
+    "rootGetterOnRootStrictEqualSelf": false,
+    "repeatedParentGetterStrictEqual": false,
+    "repeatedParentToStringEqual": true,
+    "repeatedRootGetterStrictEqual": false,
+    "repeatedRootToStringEqual": true,
+    "childJoinToStringMatchesDirect": true,
+    "childJoinStrictEqualDirect": false,
+    "directPreservesStorageHandle": true,
+    "parentPreservesStorageHandle": true,
+    "rootPreservesStorageHandle": true,
+    "childJoinPreservesStorageHandle": true,
+    "bucketPreservedAcrossChain": true
+  }
+}

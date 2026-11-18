@@ -1,0 +1,19 @@
+{
+  "name": "client-storage-uploadbytes-root-ref",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "firebase/storage uploadBytes(ref(storage), data) on the root reference: observes synchronous FirebaseError storage/invalid-root-operation client-side preflight with zero network requests.",
+  "observedAt": "2026-11-17T23:55:21.485Z",
+  "fbSdkVersion": "12.19.0",
+  "behavior": {
+    "rootFullPath": "",
+    "rootName": "",
+    "threw": true,
+    "threwSynchronously": true,
+    "code": "storage/invalid-root-operation",
+    "errorName": "FirebaseError",
+    "isFirebaseError": true,
+    "message": "Firebase Storage: The operation 'uploadBytes' cannot be performed on a root reference, create a non-root reference using child, such as .child('file.png'). (storage/invalid-root-operation)",
+    "fetchCalls": 0
+  }
+}

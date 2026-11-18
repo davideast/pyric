@@ -1,0 +1,82 @@
+{
+  "name": "client-storage-ref-slash-normalization",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "firebase/storage ref(storage, path) slash normalization: observes stripping leading slashes, stripping trailing slashes, collapsing repeated internal slashes, and normalizing all-slash inputs to root.",
+  "observedAt": "2026-11-17T23:55:21.328Z",
+  "fbSdkVersion": "12.19.0",
+  "behavior": {
+    "singleLeadingSlash": {
+      "bucket": "buckets-default",
+      "fullPath": "sessions/s1",
+      "name": "s1",
+      "hasParent": true,
+      "parentFullPath": "sessions",
+      "rootFullPath": "",
+      "toStringValue": "gs://buckets-default/sessions/s1"
+    },
+    "multipleLeadingSlashes": {
+      "bucket": "buckets-default",
+      "fullPath": "sessions/s1",
+      "name": "s1",
+      "hasParent": true,
+      "parentFullPath": "sessions",
+      "rootFullPath": "",
+      "toStringValue": "gs://buckets-default/sessions/s1"
+    },
+    "singleTrailingSlash": {
+      "bucket": "buckets-default",
+      "fullPath": "sessions/s1",
+      "name": "s1",
+      "hasParent": true,
+      "parentFullPath": "sessions",
+      "rootFullPath": "",
+      "toStringValue": "gs://buckets-default/sessions/s1"
+    },
+    "multipleTrailingSlashes": {
+      "bucket": "buckets-default",
+      "fullPath": "sessions/s1",
+      "name": "s1",
+      "hasParent": true,
+      "parentFullPath": "sessions",
+      "rootFullPath": "",
+      "toStringValue": "gs://buckets-default/sessions/s1"
+    },
+    "repeatedInternalSlashes": {
+      "bucket": "buckets-default",
+      "fullPath": "a/b",
+      "name": "b",
+      "hasParent": true,
+      "parentFullPath": "a",
+      "rootFullPath": "",
+      "toStringValue": "gs://buckets-default/a/b"
+    },
+    "manyInternalSlashes": {
+      "bucket": "buckets-default",
+      "fullPath": "a/b/c",
+      "name": "c",
+      "hasParent": true,
+      "parentFullPath": "a/b",
+      "rootFullPath": "",
+      "toStringValue": "gs://buckets-default/a/b/c"
+    },
+    "combinedSlashes": {
+      "bucket": "buckets-default",
+      "fullPath": "a/b/c",
+      "name": "c",
+      "hasParent": true,
+      "parentFullPath": "a/b",
+      "rootFullPath": "",
+      "toStringValue": "gs://buckets-default/a/b/c"
+    },
+    "onlySlashes": {
+      "bucket": "buckets-default",
+      "fullPath": "",
+      "name": "",
+      "hasParent": false,
+      "parentFullPath": null,
+      "rootFullPath": "",
+      "toStringValue": "gs://buckets-default/"
+    }
+  }
+}

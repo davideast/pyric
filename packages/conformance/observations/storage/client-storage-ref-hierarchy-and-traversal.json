@@ -1,0 +1,101 @@
+{
+  "name": "client-storage-ref-hierarchy-and-traversal",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "firebase/storage ref(parent, child), parent chain traversal, and root accessor across depths: observes relative path joining, step-by-step parent stripping down to null at root, and root returning the bucket root from every depth.",
+  "observedAt": "2026-11-17T23:55:20.834Z",
+  "fbSdkVersion": "12.19.0",
+  "behavior": {
+    "childFromRoot": {
+      "bucket": "buckets-default",
+      "fullPath": "items/doc.txt",
+      "name": "doc.txt",
+      "hasParent": true,
+      "parentFullPath": "items",
+      "rootFullPath": "",
+      "toStringValue": "gs://buckets-default/items/doc.txt"
+    },
+    "childFromFolder": {
+      "bucket": "buckets-default",
+      "fullPath": "users/u1/avatars/profile.png",
+      "name": "profile.png",
+      "hasParent": true,
+      "parentFullPath": "users/u1/avatars",
+      "rootFullPath": "",
+      "toStringValue": "gs://buckets-default/users/u1/avatars/profile.png"
+    },
+    "slashyChildJoin": {
+      "bucket": "buckets-default",
+      "fullPath": "users/u1/avatars/banner.png",
+      "name": "banner.png",
+      "hasParent": true,
+      "parentFullPath": "users/u1/avatars",
+      "rootFullPath": "",
+      "toStringValue": "gs://buckets-default/users/u1/avatars/banner.png"
+    },
+    "emptyChildJoin": {
+      "bucket": "buckets-default",
+      "fullPath": "users/u1/",
+      "name": "u1/",
+      "hasParent": true,
+      "parentFullPath": "users/u1",
+      "rootFullPath": "",
+      "toStringValue": "gs://buckets-default/users/u1/"
+    },
+    "slashOnlyChildJoin": {
+      "bucket": "buckets-default",
+      "fullPath": "users/u1/",
+      "name": "u1/",
+      "hasParent": true,
+      "parentFullPath": "users/u1",
+      "rootFullPath": "",
+      "toStringValue": "gs://buckets-default/users/u1/"
+    },
+    "parentChainFromDepth3": [
+      {
+        "fullPath": "alpha/beta/gamma",
+        "name": "gamma"
+      },
+      {
+        "fullPath": "alpha/beta",
+        "name": "beta"
+      },
+      {
+        "fullPath": "alpha",
+        "name": "alpha"
+      },
+      {
+        "fullPath": "",
+        "name": ""
+      }
+    ],
+    "terminalParentIsNull": true,
+    "rootAtDepth0": {
+      "bucket": "buckets-default",
+      "fullPath": "",
+      "name": "",
+      "hasParent": false,
+      "parentFullPath": null,
+      "rootFullPath": "",
+      "toStringValue": "gs://buckets-default/"
+    },
+    "rootAtDepth1": {
+      "bucket": "buckets-default",
+      "fullPath": "",
+      "name": "",
+      "hasParent": false,
+      "parentFullPath": null,
+      "rootFullPath": "",
+      "toStringValue": "gs://buckets-default/"
+    },
+    "rootAtDepth3": {
+      "bucket": "buckets-default",
+      "fullPath": "",
+      "name": "",
+      "hasParent": false,
+      "parentFullPath": null,
+      "rootFullPath": "",
+      "toStringValue": "gs://buckets-default/"
+    }
+  }
+}
