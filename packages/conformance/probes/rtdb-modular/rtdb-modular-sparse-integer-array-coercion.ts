@@ -266,11 +266,10 @@ export async function observeSparseIntegerArrayCoercion(
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: ['web-config', 'dedicated-rtdb'],
-  pendingRowLink: true,
   description:
     'Modular client and firebase-admin RTDB read-side integer-key array coercion: compares snap.val() sparse holes (maxKey < 2 * numKeys vs >= 2 * numKeys and non-canonical keys), exportVal(), toJSON(), priority, child/hasChild/numChildren/size, and early-exit forEach().',
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'rtdb-modular#M66',
+  rowIds: ['rtdb-modular#M66', 'rtdb-modular#AS1', 'rtdb-admin#4'],
   observe() {
     return withRtdbProbeSession({}, async ({ runId, runPath, databaseUrl, db, rtdbSdk }) => {
       const [adminAppMod, { getDatabaseWithUrl }] = await Promise.all([

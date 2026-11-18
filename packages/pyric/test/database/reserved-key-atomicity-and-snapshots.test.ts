@@ -120,7 +120,7 @@ describe('reserved prototype keys in writes and snapshot rendering', () => {
         const childBefore = childEvents.length;
 
         const payload = JSON.parse(`{"${reservedKey}":1,"other":99}`);
-        await expect(set(ref(db, 'items'), payload)).rejects.toThrow(
+        expect(() => set(ref(db, 'items'), payload)).toThrow(
           `Invalid RTDB path segment '${reservedKey}'`,
         );
 
@@ -164,13 +164,13 @@ describe('reserved prototype keys in writes and snapshot rendering', () => {
         `{"${reservedKey}":{"nested":{".value":2,".priority":5}}}`,
       );
 
-      await expect(set(ref(db, 'items'), reservedOnly)).rejects.toThrow(
+      expect(() => set(ref(db, 'items'), reservedOnly)).toThrow(
         `Invalid RTDB path segment '${reservedKey}'`,
       );
-      await expect(setWithPriority(ref(db, 'items'), reservedOnly, 7)).rejects.toThrow(
+      expect(() => setWithPriority(ref(db, 'items'), reservedOnly, 7)).toThrow(
         `Invalid RTDB path segment '${reservedKey}'`,
       );
-      await expect(Promise.resolve(push(ref(db, 'items'), reservedOnly))).rejects.toThrow(
+      expect(() => push(ref(db, 'items'), reservedOnly)).toThrow(
         `Invalid RTDB path segment '${reservedKey}'`,
       );
       expect(() => update(ref(db, 'items'), { other: 99, branch: reservedOnly })).toThrow(

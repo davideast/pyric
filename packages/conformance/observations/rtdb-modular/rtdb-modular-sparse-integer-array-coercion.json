@@ -1,7 +1,11 @@
 {
   "name": "rtdb-modular-sparse-integer-array-coercion",
-  "matrixRow": "",
-  "rowIds": [],
+  "matrixRow": "rtdb-modular#M66",
+  "rowIds": [
+    "rtdb-modular#M66",
+    "rtdb-modular#AS1",
+    "rtdb-admin#4"
+  ],
   "description": "Modular client and firebase-admin RTDB read-side integer-key array coercion: compares snap.val() sparse holes (maxKey < 2 * numKeys vs >= 2 * numKeys and non-canonical keys), exportVal(), toJSON(), priority, child/hasChild/numChildren/size, and early-exit forEach().",
   "observedAt": "2026-11-18T04:36:07.739Z",
   "fbSdkVersion": "12.19.0",

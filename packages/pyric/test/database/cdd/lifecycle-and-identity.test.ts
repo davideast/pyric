@@ -157,8 +157,8 @@ describe('rtdb-modular CDD: lifecycle and runtime identity rows', () => {
     await api.set(target, { value: 4 }); expect((await api.get(target)).priority).toBeNull();
     await api.setPriority(target, 'later'); expect((await api.get(target)).priority).toBe('later');
     await api.setPriority(target, null); expect((await api.get(target)).exportVal()).toEqual({ value: 4 });
-    await expect(api.setPriority(target, Number.NaN)).rejects.toThrow(/priority/);
-    await expect(api.setWithPriority(target, 1, Number.NaN)).rejects.toThrow(/priority/);
+    expect(() => api.setPriority(target, Number.NaN)).toThrow(/priority/);
+    expect(() => api.setWithPriority(target, 1, Number.NaN)).toThrow(/priority/);
 
     const parent = api.ref(db, 'priority-contract/children');
     await api.setWithPriority(api.child(parent, 'a'), { value: 1 }, 10);

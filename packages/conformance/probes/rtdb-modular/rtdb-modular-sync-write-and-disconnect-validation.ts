@@ -201,11 +201,10 @@ export async function observeSyncWriteAndDisconnectValidation(
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: ['web-config', 'dedicated-rtdb'],
-  pendingRowLink: true,
   description:
     'Modular RTDB synchronous write, priority, and OnDisconnect validation: observes synchronous Error throws (vs async rejections), scrubbed SDK error messages, push(ref, undefined) key-only overload vs push(ref, invalid) throw, and unchanged stored RTDB data across set, update, push, setPriority, setWithPriority, and onDisconnect.',
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'rtdb-modular#M68',
+  rowIds: ['rtdb-modular#M68', 'rtdb-modular#SW1'],
   observe() {
     return withRtdbProbeSession({}, async ({ runPath, db, rtdbSdk }) => {
       return observeSyncWriteAndDisconnectValidation(

@@ -1,7 +1,10 @@
 {
   "name": "rtdb-modular-array-write-normalization",
-  "matrixRow": "",
-  "rowIds": [],
+  "matrixRow": "rtdb-modular#M65",
+  "rowIds": [
+    "rtdb-modular#M65",
+    "rtdb-modular#AS1"
+  ],
   "description": "Modular RTDB write-boundary array normalization: arrays written via set() store integer-keyed children addressable via child(ref, \"1\"), iterate \"0\",\"1\",\"2\" in forEach(), prune interior and trailing null elements, and preserve keyed objects in exportVal().",
   "observedAt": "2026-11-18T04:35:18.738Z",
   "fbSdkVersion": "12.19.0",
