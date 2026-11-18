@@ -7,9 +7,8 @@ import {
 
 export const probe: Probe = {
   rig: 'client-storage',
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'storage#13',
+  rowIds: ['storage#13', 'storage#14', 'storage#21'],
   description:
     'firebase/storage ref(storage) and ref(storage, path) root and segment properties: observes fullPath, name, parent, root value-object semantics, and gs://<bucket>/<fullPath> string formatting.',
   async observe() {

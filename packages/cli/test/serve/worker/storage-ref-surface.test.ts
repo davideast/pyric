@@ -21,7 +21,9 @@ describe('worker ClientStorageReference surface', () => {
     expect(rootRef.bucket).toBe('test-bucket.appspot.com');
     expect(rootRef.toString()).toBe('gs://test-bucket.appspot.com/');
     expect(rootRef.parent).toBeNull();
-    expect(rootRef.root).toBe(rootRef);
+    expect(rootRef.root).not.toBe(rootRef);
+    expect(rootRef.root.fullPath).toBe('');
+    expect(rootRef.root.toString()).toBe('gs://test-bucket.appspot.com/');
 
     const childRef = ref(storage, 'feed/photo-123.png');
     expect(childRef.fullPath).toBe('feed/photo-123.png');

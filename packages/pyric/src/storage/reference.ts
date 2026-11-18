@@ -58,7 +58,7 @@ export function ref(
   if (isStorageReference(target)) {
     // Relative-to-parent overload.
     targetOf(target.storage);
-    return new SandboxStorageReference(target.storage, joinPaths(target.fullPath, refPathOf(path, false)));
+    return new SandboxStorageReference(target.storage, joinStorageRefPaths(target.fullPath, refPathOf(path, false)));
   }
   // Storage-rooted overload.
   const resolvedTarget = targetOf(target);
@@ -93,10 +93,7 @@ class SandboxStorageReference implements StorageReference {
   }
 
   get name(): string {
-    if (this.fullPath === '') return '';
-    const idx = this.fullPath.lastIndexOf('/');
-    if (idx === -1) return this.fullPath;
-    return this.fullPath.slice(idx + 1);
+    return storageLastComponent(this.fullPath);
   }
 
   get parent(): StorageReference | null {
@@ -110,7 +107,6 @@ class SandboxStorageReference implements StorageReference {
   }
 
   get root(): StorageReference {
-    if (this.fullPath === '') return this;
     return new SandboxStorageReference(this.storage, '');
   }
 
@@ -138,13 +134,26 @@ export function normalizePath(path: string): string {
 }
 
 /**
- * Join a parent path with a child path, normalizing the result.
- * Used by the `ref(parent, path)` overload and by `child` helpers.
+ * Return the final component of a Storage reference path, matching
+ * `@firebase/storage`'s `lastComponent`: scans from `path.length - 2` so a
+ * trailing slash (`users/u1/` from `ref(folderRef, '')`) stays part of `name`
+ * (`u1/`).
  */
-function joinPaths(parent: string, child: string): string {
+export function storageLastComponent(path: string): string {
+  if (path.length < 2) return path;
+  const idx = path.lastIndexOf('/', path.length - 2);
+  if (idx === -1) return path;
+  return path.slice(idx + 1);
+}
+
+/**
+ * Join a parent path with a child path, normalizing `child`. Matches
+ * `@firebase/storage`'s `child(path, childPath)`: when `parent` is non-empty
+ * and `child` normalizes to `""`, returns `${parent}/`.
+ */
+export function joinStorageRefPaths(parent: string, child: string): string {
   const childNorm = normalizePath(child);
   if (parent === '') return childNorm;
-  if (childNorm === '') return parent;
   return `${parent}/${childNorm}`;
 }
 

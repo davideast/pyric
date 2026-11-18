@@ -1,7 +1,11 @@
 {
   "name": "client-storage-ref-hierarchy-and-traversal",
-  "matrixRow": "",
-  "rowIds": [],
+  "matrixRow": "storage#18",
+  "rowIds": [
+    "storage#18",
+    "storage#19",
+    "storage#20"
+  ],
   "description": "firebase/storage ref(parent, child), parent chain traversal, and root accessor across depths: observes relative path joining, step-by-step parent stripping down to null at root, and root returning the bucket root from every depth.",
   "observedAt": "2026-11-17T23:55:20.834Z",
   "fbSdkVersion": "12.19.0",

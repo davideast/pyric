@@ -1,7 +1,11 @@
 {
   "name": "client-storage-ref-slash-normalization",
-  "matrixRow": "",
-  "rowIds": [],
+  "matrixRow": "storage#15",
+  "rowIds": [
+    "storage#15",
+    "storage#16",
+    "storage#17"
+  ],
   "description": "firebase/storage ref(storage, path) slash normalization: observes stripping leading slashes, stripping trailing slashes, collapsing repeated internal slashes, and normalizing all-slash inputs to root.",
   "observedAt": "2026-11-17T23:55:21.328Z",
   "fbSdkVersion": "12.19.0",

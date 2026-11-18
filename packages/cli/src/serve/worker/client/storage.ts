@@ -22,11 +22,12 @@ import {
   cloneSettableMetadata,
   decodeString,
   defaultRawContentType,
+  joinStorageRefPaths,
   refPathOf,
+  storageLastComponent,
 } from 'pyric/storage/internal';
 import { dataRpc, nextId, wirePort } from './core.js';
 import { reserveSend, type SendReservation } from './send-order.js';
-import { lastSegment } from './handles.js';
 import type { ByteRouteAccess, ClientDb, ClientPort } from './handles.js';
 import { withinHoldDeadline } from './held-messages.js';
 
@@ -69,7 +70,7 @@ class ClientStorageReferenceImpl implements ClientStorageReference {
     this.port = port;
     this.bucket = bucket;
     this.fullPath = fullPath;
-    this.name = lastSegment(fullPath);
+    this.name = storageLastComponent(fullPath);
     if (storage) {
       this.storage = storage;
     }
@@ -83,7 +84,6 @@ class ClientStorageReferenceImpl implements ClientStorageReference {
   }
 
   get root(): ClientStorageReference {
-    if (this.fullPath === '') return this;
     return new ClientStorageReferenceImpl(this.port, this.bucket, '', this.storage);
   }
 
@@ -144,20 +144,18 @@ export function ref(
   parent: ClientFirebaseStorage | ClientStorageReference,
   path?: string,
 ): ClientStorageReference {
-  const rel = normalizeStorageRefPath(refPathOf(path, parent.__kind === 'client-storage'));
   let fullPath: string;
   let port: ClientPort;
   let bucket = 'pyric-default';
   let storage: ClientFirebaseStorage | undefined;
 
   if (parent.__kind === 'client-storage') {
-    fullPath = rel;
+    fullPath = normalizeStorageRefPath(refPathOf(path, true));
     port = parent.port;
     bucket = parent.bucket;
     storage = parent;
   } else {
-    const base = parent.fullPath;
-    fullPath = rel ? (base ? `${base}/${rel}` : rel) : base;
+    fullPath = joinStorageRefPaths(parent.fullPath, refPathOf(path, false));
     port = parent.port;
     bucket = parent.bucket;
     storage = parent.storage;

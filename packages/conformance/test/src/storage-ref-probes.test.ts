@@ -15,32 +15,17 @@ import {
 } from '../../rules-corpus/rtdb/index.ts';
 import { ALL_RULES_STORAGE_SCENARIOS } from '../../rules-corpus/storage/index.ts';
 import { loadClientStorageProbes } from '../../src/client-storage-probes.ts';
-import { loadObservations, type Observation } from '../../src/ledger.ts';
+import { loadObservations } from '../../src/ledger.ts';
 import { loadPendingRowLinkObservations } from '../../src/staged-captures.ts';
 import { validateCompatibilityRegistry } from '../../src/validate-registry.ts';
 import { surfaceDescriptors } from '../../surfaces/load.ts';
-import { expectStagedUntilCaptured } from './staged-capture-assertions.ts';
 
-const STAGED_REF_PROBE_NAMES = [
+const LINKED_REF_PROBE_NAMES = [
   'client-storage-ref-root-and-segments',
   'client-storage-ref-slash-normalization',
   'client-storage-ref-hierarchy-and-traversal',
   'client-storage-ref-identity-and-storage-handle',
 ] as const;
-
-function makeSyntheticObservation(name: string): Observation {
-  return {
-    file: `${name}.json`,
-    surfaceDir: 'storage',
-    name,
-    matrixRow: '',
-    rowIds: [],
-    observedAt: '2026-11-17T00:00:00.000Z',
-    fbSdkVersion: '12.19.0',
-    behavior: { sample: true },
-    raw: { fbSdkVersion: '12.19.0', rowIds: [] },
-  };
-}
 
 describe('Storage ref() client-storage conformance probes (storage#13..23)', () => {
   it('executes client-storage-ref-root-and-segments and client-storage-ref-slash-normalization cleanly without leaking apps', async () => {
@@ -123,26 +108,46 @@ describe('Storage ref() client-storage conformance probes (storage#13..23)', () 
     });
   });
 
-  it('discovers all 4 ref() probes on client-storage and validates pre-capture and simulated post-capture staged states cleanly', async () => {
+  it('links all 4 ref() probes and observations to storage#13..23 with zero registry validation problems', async () => {
     const clientProbes = await loadClientStorageProbes();
     const ids = clientProbes.map((item) => item.id);
-    for (const name of STAGED_REF_PROBE_NAMES) {
+    for (const name of LINKED_REF_PROBE_NAMES) {
       expect(ids).toContain(name);
     }
 
     const currentObservations = loadObservations();
-    const probes = [
-      { name: 'client-storage-ref-root-and-segments', probe: refRootSegmentsProbe },
-      { name: 'client-storage-ref-slash-normalization', probe: refSlashNormProbe },
-      { name: 'client-storage-ref-hierarchy-and-traversal', probe: refHierarchyProbe },
-      { name: 'client-storage-ref-identity-and-storage-handle', probe: refIdentityProbe },
+    const obsByName = new Map(currentObservations.map((obs) => [obs.name, obs]));
+
+    const expectedLinks = [
+      {
+        name: 'client-storage-ref-root-and-segments',
+        probe: refRootSegmentsProbe,
+        rowIds: ['storage#13', 'storage#14', 'storage#21'],
+      },
+      {
+        name: 'client-storage-ref-slash-normalization',
+        probe: refSlashNormProbe,
+        rowIds: ['storage#15', 'storage#16', 'storage#17'],
+      },
+      {
+        name: 'client-storage-ref-hierarchy-and-traversal',
+        probe: refHierarchyProbe,
+        rowIds: ['storage#18', 'storage#19', 'storage#20'],
+      },
+      {
+        name: 'client-storage-ref-identity-and-storage-handle',
+        probe: refIdentityProbe,
+        rowIds: ['storage#22', 'storage#23'],
+      },
     ];
-    for (const entry of probes) {
-      if (entry.probe.pendingRowLink) {
-        expectStagedUntilCaptured(entry.name, {
-          rig: 'client-storage',
-          filterFlag: '--probe',
-        });
+
+    for (const entry of expectedLinks) {
+      expect(entry.probe.pendingRowLink).toBeUndefined();
+      expect(entry.probe.rowIds).toEqual(entry.rowIds);
+      const committed = obsByName.get(entry.name);
+      expect(committed).toBeDefined();
+      if (committed) {
+        expect(committed.rowIds).toEqual(entry.rowIds);
       }
     }
 
@@ -152,7 +157,7 @@ describe('Storage ref() client-storage conformance probes (storage#13..23)', () 
       ...ALL_RULES_RTDB_DEPLOY_SCENARIOS.map((s) => s.id),
     ];
 
-    const preCaptureProblems = validateCompatibilityRegistry({
+    const problems = validateCompatibilityRegistry({
       rows: allCompatibilityRows,
       descriptors: surfaceDescriptors,
       observations: currentObservations,
@@ -164,30 +169,6 @@ describe('Storage ref() client-storage conformance probes (storage#13..23)', () 
       rulesRtdbScenarioIds: rtdbScenarioIds,
       pendingRowLinkObservations: loadPendingRowLinkObservations(),
     });
-    expect(preCaptureProblems).toEqual([]);
-
-    const simulatedMap = new Map(currentObservations.map((obs) => [obs.name, obs]));
-    for (const name of STAGED_REF_PROBE_NAMES) {
-      if (!simulatedMap.has(name)) {
-        simulatedMap.set(name, makeSyntheticObservation(name));
-      }
-    }
-    const simulatedPending = new Set([
-      ...loadPendingRowLinkObservations(),
-      ...STAGED_REF_PROBE_NAMES,
-    ]);
-    const pr2Problems = validateCompatibilityRegistry({
-      rows: allCompatibilityRows,
-      descriptors: surfaceDescriptors,
-      observations: [...simulatedMap.values()],
-      observationExceptions,
-      rigManifests,
-      probeFiles: listProbeFiles(),
-      rulesFirestoreScenarioIds: ALL_RULES_FIRESTORE_SCENARIOS.map((s) => s.id),
-      rulesStorageScenarioIds: ALL_RULES_STORAGE_SCENARIOS.map((s) => s.id),
-      rulesRtdbScenarioIds: rtdbScenarioIds,
-      pendingRowLinkObservations: simulatedPending,
-    });
-    expect(pr2Problems).toEqual([]);
+    expect(problems).toEqual([]);
   });
 });

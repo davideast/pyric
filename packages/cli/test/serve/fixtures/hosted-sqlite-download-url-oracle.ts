@@ -245,6 +245,31 @@ try {
     assert.deepEqual(Array.from(new Uint8Array(await getBytes(overwriteTarget))), overwriteObs.afterOverwriteReadBytes);
     assert.deepEqual((await getMetadata(overwriteTarget)).customMetadata, secondExpected.customMetadata);
   }
+
+  // client-storage-ref-root-and-segments + hierarchy + identity on the Node-hosted client.
+  {
+    const rootObs = observation('client-storage-ref-root-and-segments');
+    const bareExpected = rootObs.bareRoot as { fullPath: string; name: string; rootStrictEqualSelf: boolean; rootToStringMatchesSelf: boolean };
+    const bareRoot = ref(storage);
+    assert.equal(bareRoot.fullPath, bareExpected.fullPath);
+    assert.equal(bareRoot.name, bareExpected.name);
+    assert.equal(bareRoot.root === bareRoot, bareExpected.rootStrictEqualSelf);
+    assert.equal(bareRoot.root.toString() === bareRoot.toString(), bareExpected.rootToStringMatchesSelf);
+
+    const hierObs = observation('client-storage-ref-hierarchy-and-traversal');
+    const emptyJoinExpected = hierObs.emptyChildJoin as { fullPath: string; name: string; parentFullPath: string };
+    const emptyChild = ref(ref(storage, 'users/u1'), '');
+    assert.equal(emptyChild.fullPath, emptyJoinExpected.fullPath);
+    assert.equal(emptyChild.name, emptyJoinExpected.name);
+    assert.equal(emptyChild.parent?.fullPath, emptyJoinExpected.parentFullPath);
+
+    const idObs = observation('client-storage-ref-identity-and-storage-handle');
+    const firstSame = ref(storage, 'a/b');
+    const secondSame = ref(storage, 'a/b');
+    assert.equal(firstSame === secondSame, idObs.samePathStrictEqual);
+    assert.equal(firstSame.storage === storage, idObs.directPreservesStorageHandle);
+    assert.equal(firstSame.root.storage === storage, idObs.rootPreservesStorageHandle);
+  }
 } finally {
   server.close();
   sandbox.dispose();
