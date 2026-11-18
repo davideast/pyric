@@ -80,10 +80,12 @@ export async function observeStorageListAllRootRef(
   };
 }
 
-function rootListOracleTarget(bucketId: string, runId: string, uid: string): OracleRulesTarget {
+export function rootListOracleTarget(bucketId: string, runId: string, uid: string): OracleRulesTarget {
   const marker = `@pyric/oracle/storage-root-list/${runId}`;
   const scopedBlock = `    // ${marker}
-    allow list: if request.auth != null && request.auth.uid == '${uid}';
+    match /{allPaths=**} {
+      allow list: if request.auth != null && request.auth.uid == '${uid}';
+    }
     match /pyric_oracle_root_${runId}.bin {
       allow read, write: if request.auth != null && request.auth.uid == '${uid}';
     }
@@ -119,12 +121,14 @@ export const probe: Probe = {
   async observe() {
     const [
       { deleteApp, initializeApp },
-      { deleteUser, getAuth, signInAnonymously },
+      { deleteUser, getAuth },
       storageSdk,
+      { signInOracleClientAuth },
     ] = await Promise.all([
       import('firebase/app'),
       import('firebase/auth'),
       import('firebase/storage'),
+      import('../../src/oracle-run-auth-session.ts'),
     ]);
 
     const sa = await loadOracleServiceAccount();
@@ -156,10 +160,13 @@ export const probe: Probe = {
 
     try {
       return await runWithOracleRulesRestored(session, async () => {
-        const cred = await signInAnonymously(clientAuth);
-        const uid = cred.user.uid;
+        await signInOracleClientAuth(clientAuth, sa, `storage-root-list-${runId}`);
+        let uid = '';
+        if (clientAuth.currentUser !== null) {
+          uid = clientAuth.currentUser.uid;
+        }
         if (!/^[A-Za-z0-9_-]+$/.test(uid)) {
-          throw new Error('unexpected characters in anonymous uid');
+          throw new Error('unexpected characters in oracle client uid');
         }
         await session.deploy(rootListOracleTarget(storageBucket, runId, uid));
         await new Promise((resolve) => setTimeout(resolve, 10_000));
