@@ -1,0 +1,34 @@
+{
+  "name": "messaging-send-fcm-options-analytics-label",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "firebase-admin/messaging FcmOptions.analyticsLabel: accepted on topic send and dryRun, non-string rejected in client preflight with messaging/invalid-payload, and >50-char label rejected on FCM v1 wire with HTTP 400 INVALID_ARGUMENT.",
+  "observedAt": "2026-11-18T00:42:53.940Z",
+  "adminSdkVersion": "13.10.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "accepted": {
+      "realSend": {
+        "matchesProjectsMessagesFormat": true,
+        "projectSegmentMatchesProject": true
+      },
+      "dryRunSend": {
+        "matchesProjectsMessagesFormat": true,
+        "projectSegmentMatchesProject": true
+      },
+      "dryRunSameShapeAsReal": true
+    },
+    "nonStringAnalyticsLabel": {
+      "threw": true,
+      "code": "messaging/invalid-payload",
+      "message": "analyticsLabel must be a string value",
+      "isFirebaseMessagingError": true,
+      "name": "Error"
+    },
+    "wireOversizedLabel51": {
+      "status": 200,
+      "realStatus": 200,
+      "realSendEnvelopeIdentical": true
+    }
+  }
+}

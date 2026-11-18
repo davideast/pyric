@@ -1,0 +1,43 @@
+{
+  "name": "messaging-send-apns-aps-alert",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "firebase-admin/messaging ApsAlert: FCM accepts title, subtitle, body, localization keys, and launchImage, while specifying locArgs, titleLocArgs, or subtitleLocArgs without its matching key fails client preflight with messaging/invalid-payload.",
+  "observedAt": "2026-11-18T00:42:48.515Z",
+  "adminSdkVersion": "13.10.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "accepted": {
+      "realSend": {
+        "matchesProjectsMessagesFormat": true,
+        "projectSegmentMatchesProject": true
+      },
+      "dryRunSend": {
+        "matchesProjectsMessagesFormat": true,
+        "projectSegmentMatchesProject": true
+      },
+      "dryRunSameShapeAsReal": true
+    },
+    "locArgsWithoutLocKey": {
+      "threw": true,
+      "code": "messaging/invalid-payload",
+      "message": "apns.payload.aps.alert.locKey is required when specifying locArgs",
+      "isFirebaseMessagingError": true,
+      "name": "Error"
+    },
+    "titleLocArgsWithoutTitleLocKey": {
+      "threw": true,
+      "code": "messaging/invalid-payload",
+      "message": "apns.payload.aps.alert.titleLocKey is required when specifying titleLocArgs",
+      "isFirebaseMessagingError": true,
+      "name": "Error"
+    },
+    "subtitleLocArgsWithoutSubtitleLocKey": {
+      "threw": true,
+      "code": "messaging/invalid-payload",
+      "message": "apns.payload.aps.alert.subtitleLocKey is required when specifying subtitleLocArgs",
+      "isFirebaseMessagingError": true,
+      "name": "Error"
+    }
+  }
+}

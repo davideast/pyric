@@ -1,0 +1,100 @@
+{
+  "name": "messaging-send-sendeach-mixed-batch",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "firebase-admin/messaging sendEach(messages, dryRun?): ordered BatchResponse and SendResponse shapes across a valid topic send, a wire-rejected invalid token, and a client-invalid empty topic settling per-index as FirebaseMessagingError.",
+  "observedAt": "2026-11-18T00:42:56.944Z",
+  "adminSdkVersion": "13.10.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "dryRun": {
+      "successCount": 1,
+      "failureCount": 2,
+      "responseCount": 3,
+      "responses": [
+        {
+          "index": 0,
+          "success": true,
+          "hasMessageId": true,
+          "nameFacts": {
+            "matchesProjectsMessagesFormat": true,
+            "projectSegmentMatchesProject": true
+          },
+          "hasError": false,
+          "error": null
+        },
+        {
+          "index": 1,
+          "success": false,
+          "hasMessageId": false,
+          "nameFacts": null,
+          "hasError": true,
+          "error": {
+            "code": "messaging/invalid-argument",
+            "message": "The registration token is not a valid FCM registration token",
+            "isFirebaseMessagingError": true,
+            "name": "Error"
+          }
+        },
+        {
+          "index": 2,
+          "success": false,
+          "hasMessageId": false,
+          "nameFacts": null,
+          "hasError": true,
+          "error": {
+            "code": "messaging/invalid-payload",
+            "message": "Exactly one of topic, token or condition is required",
+            "isFirebaseMessagingError": true,
+            "name": "Error"
+          }
+        }
+      ]
+    },
+    "realSend": {
+      "successCount": 1,
+      "failureCount": 2,
+      "responseCount": 3,
+      "responses": [
+        {
+          "index": 0,
+          "success": true,
+          "hasMessageId": true,
+          "nameFacts": {
+            "matchesProjectsMessagesFormat": true,
+            "projectSegmentMatchesProject": true
+          },
+          "hasError": false,
+          "error": null
+        },
+        {
+          "index": 1,
+          "success": false,
+          "hasMessageId": false,
+          "nameFacts": null,
+          "hasError": true,
+          "error": {
+            "code": "messaging/invalid-argument",
+            "message": "The registration token is not a valid FCM registration token",
+            "isFirebaseMessagingError": true,
+            "name": "Error"
+          }
+        },
+        {
+          "index": 2,
+          "success": false,
+          "hasMessageId": false,
+          "nameFacts": null,
+          "hasError": true,
+          "error": {
+            "code": "messaging/invalid-payload",
+            "message": "Exactly one of topic, token or condition is required",
+            "isFirebaseMessagingError": true,
+            "name": "Error"
+          }
+        }
+      ]
+    },
+    "dryRunMatchesRealSend": true
+  }
+}

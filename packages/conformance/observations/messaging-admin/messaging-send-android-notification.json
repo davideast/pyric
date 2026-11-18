@@ -1,0 +1,43 @@
+{
+  "name": "messaging-send-android-notification",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "firebase-admin/messaging AndroidNotification: FCM accepts Android notification fields including #RRGGBB color, Date eventTimestamp, vibrateTimingsMillis, and localization keys, while invalid color, missing bodyLocKey, or non-Date eventTimestamp fail client preflight with messaging/invalid-payload.",
+  "observedAt": "2026-11-18T00:42:47.683Z",
+  "adminSdkVersion": "13.10.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "accepted": {
+      "realSend": {
+        "matchesProjectsMessagesFormat": true,
+        "projectSegmentMatchesProject": true
+      },
+      "dryRunSend": {
+        "matchesProjectsMessagesFormat": true,
+        "projectSegmentMatchesProject": true
+      },
+      "dryRunSameShapeAsReal": true
+    },
+    "malformedColor": {
+      "threw": true,
+      "code": "messaging/invalid-payload",
+      "message": "android.notification.color must be in the form #RRGGBB",
+      "isFirebaseMessagingError": true,
+      "name": "Error"
+    },
+    "bodyLocArgsWithoutKey": {
+      "threw": true,
+      "code": "messaging/invalid-payload",
+      "message": "android.notification.bodyLocKey is required when specifying bodyLocArgs",
+      "isFirebaseMessagingError": true,
+      "name": "Error"
+    },
+    "nonDateEventTimestamp": {
+      "threw": true,
+      "code": "messaging/invalid-payload",
+      "message": "android.notification.eventTimestamp must be a valid `Date` object",
+      "isFirebaseMessagingError": true,
+      "name": "Error"
+    }
+  }
+}

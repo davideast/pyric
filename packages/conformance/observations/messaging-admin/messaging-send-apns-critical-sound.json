@@ -1,0 +1,43 @@
+{
+  "name": "messaging-send-apns-critical-sound",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "firebase-admin/messaging CriticalSound: FCM accepts aps.sound critical dictionary with name and volume in [0, 1], while empty name or out-of-range volume fails client preflight with messaging/invalid-payload.",
+  "observedAt": "2026-11-18T00:42:51.055Z",
+  "adminSdkVersion": "13.10.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "accepted": {
+      "realSend": {
+        "matchesProjectsMessagesFormat": true,
+        "projectSegmentMatchesProject": true
+      },
+      "dryRunSend": {
+        "matchesProjectsMessagesFormat": true,
+        "projectSegmentMatchesProject": true
+      },
+      "dryRunSameShapeAsReal": true
+    },
+    "emptySoundName": {
+      "threw": true,
+      "code": "messaging/invalid-payload",
+      "message": "apns.payload.aps.sound.name must be a non-empty string",
+      "isFirebaseMessagingError": true,
+      "name": "Error"
+    },
+    "negativeVolume": {
+      "threw": true,
+      "code": "messaging/invalid-payload",
+      "message": "apns.payload.aps.sound.volume must be in the interval [0, 1]",
+      "isFirebaseMessagingError": true,
+      "name": "Error"
+    },
+    "volumeAboveOne": {
+      "threw": true,
+      "code": "messaging/invalid-payload",
+      "message": "apns.payload.aps.sound.volume must be in the interval [0, 1]",
+      "isFirebaseMessagingError": true,
+      "name": "Error"
+    }
+  }
+}

@@ -1,0 +1,36 @@
+{
+  "name": "messaging-send-apns-fcm-options",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "firebase-admin/messaging ApnsFcmOptions: FCM accepts analyticsLabel and imageUrl (mapped to wire image), while malformed URLs or simultaneous imageUrl and image keys fail client preflight with messaging/invalid-payload.",
+  "observedAt": "2026-11-18T00:42:51.875Z",
+  "adminSdkVersion": "13.10.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "accepted": {
+      "realSend": {
+        "matchesProjectsMessagesFormat": true,
+        "projectSegmentMatchesProject": true
+      },
+      "dryRunSend": {
+        "matchesProjectsMessagesFormat": true,
+        "projectSegmentMatchesProject": true
+      },
+      "dryRunSameShapeAsReal": true
+    },
+    "invalidImageUrl": {
+      "threw": true,
+      "code": "messaging/invalid-payload",
+      "message": "imageUrl must be a valid URL string",
+      "isFirebaseMessagingError": true,
+      "name": "Error"
+    },
+    "duplicateImageAndImageUrl": {
+      "threw": true,
+      "code": "messaging/invalid-payload",
+      "message": "Multiple specifications for imageUrl in ApnsFcmOptions",
+      "isFirebaseMessagingError": true,
+      "name": "Error"
+    }
+  }
+}

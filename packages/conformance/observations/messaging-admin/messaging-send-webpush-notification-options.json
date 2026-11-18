@@ -1,0 +1,29 @@
+{
+  "name": "messaging-send-webpush-notification-options",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "firebase-admin/messaging WebpushNotification and webpush.data: FCM accepts Web Notification API fields plus open-ended index-signature keys, while non-string webpush.data values fail client preflight with messaging/invalid-payload.",
+  "observedAt": "2026-11-18T00:42:58.849Z",
+  "adminSdkVersion": "13.10.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "accepted": {
+      "realSend": {
+        "matchesProjectsMessagesFormat": true,
+        "projectSegmentMatchesProject": true
+      },
+      "dryRunSend": {
+        "matchesProjectsMessagesFormat": true,
+        "projectSegmentMatchesProject": true
+      },
+      "dryRunSameShapeAsReal": true
+    },
+    "nonStringWebpushData": {
+      "threw": true,
+      "code": "messaging/invalid-payload",
+      "message": "webpush.data must only contain string values",
+      "isFirebaseMessagingError": true,
+      "name": "Error"
+    }
+  }
+}

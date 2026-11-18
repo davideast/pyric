@@ -1,0 +1,54 @@
+{
+  "name": "messaging-send-android-fcm-options",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "firebase-admin/messaging AndroidFcmOptions: FCM accepts android.fcmOptions.analyticsLabel, while non-string values fail client preflight with messaging/invalid-payload and >50-char labels fail FCM v1 wire validation with HTTP 400 INVALID_ARGUMENT.",
+  "observedAt": "2026-11-18T00:42:45.828Z",
+  "adminSdkVersion": "13.10.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "accepted": {
+      "realSend": {
+        "matchesProjectsMessagesFormat": true,
+        "projectSegmentMatchesProject": true
+      },
+      "dryRunSend": {
+        "matchesProjectsMessagesFormat": true,
+        "projectSegmentMatchesProject": true
+      },
+      "dryRunSameShapeAsReal": true
+    },
+    "nonStringAnalyticsLabel": {
+      "threw": true,
+      "code": "messaging/invalid-payload",
+      "message": "analyticsLabel must be a string value",
+      "isFirebaseMessagingError": true,
+      "name": "Error"
+    },
+    "wireOversizedLabel51": {
+      "status": 400,
+      "error": {
+        "code": 400,
+        "message": "Invalid analytics label: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "status": "INVALID_ARGUMENT",
+        "details": [
+          {
+            "@type": "type.googleapis.com/google.rpc.BadRequest",
+            "fieldViolations": [
+              {
+                "field": "message.android.fcm_options.analytics_label",
+                "description": "Invalid analytics label: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+              }
+            ]
+          },
+          {
+            "@type": "type.googleapis.com/google.firebase.fcm.v1.FcmError",
+            "errorCode": "INVALID_ARGUMENT"
+          }
+        ]
+      },
+      "realStatus": 400,
+      "realSendEnvelopeIdentical": true
+    }
+  }
+}
