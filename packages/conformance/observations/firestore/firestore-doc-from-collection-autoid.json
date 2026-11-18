@@ -1,0 +1,27 @@
+{
+  "name": "firestore-doc-from-collection-autoid",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "doc(coll) with zero relative segments mints a 20-character alphanumeric auto-ID DocumentReference under coll.path while doc(db) with zero path segments throws.",
+  "observedAt": "2026-11-18T06:44:49.090Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "type": "document",
+    "idLength": 20,
+    "idIsAlphanumeric20": true,
+    "secondIdIsAlphanumeric20": true,
+    "twoCallsDistinct": true,
+    "pathMatchesCollectionAndId": true,
+    "parentPath": "items",
+    "docDbNoPathError": {
+      "threw": true,
+      "isFirebaseError": true,
+      "isTypeError": false,
+      "code": "invalid-argument"
+    },
+    "liveRoundtripData": {
+      "autoMinted": true
+    }
+  }
+}

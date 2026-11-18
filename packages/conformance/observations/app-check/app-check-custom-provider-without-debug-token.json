@@ -1,0 +1,46 @@
+{
+  "name": "app-check-custom-provider-without-debug-token",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "firebase/app-check CustomProvider behavior with FIREBASE_APPCHECK_DEBUG_TOKEN unset: getToken returns and caches the provider token until expireTimeMillis, getLimitedUseToken invokes the provider without using the cached token, and a provider rejection propagates the exact error to getToken, getLimitedUseToken, and onTokenChanged error listeners.",
+  "observedAt": "2026-11-18T06:44:31.895Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "customTokenCachingAndLimitedUse": {
+      "firstGetToken": {
+        "token": "not-an-app-check-token"
+      },
+      "secondGetToken": {
+        "token": "not-an-app-check-token"
+      },
+      "secondEqualsFirst": true,
+      "callsAfterFirstGetToken": 1,
+      "callsAfterSecondGetToken": 1,
+      "limitedUseToken": {
+        "token": "not-an-app-check-token"
+      },
+      "callsAfterLimitedUseToken": 2
+    },
+    "providerRejection": {
+      "getTokenOutcome": {
+        "threw": true,
+        "sameErrorInstance": true,
+        "message": "attestation failed"
+      },
+      "getLimitedUseTokenOutcome": {
+        "threw": true,
+        "sameErrorInstance": true,
+        "message": "attestation failed"
+      },
+      "listenerEvents": [
+        {
+          "kind": "error",
+          "sameErrorInstance": true,
+          "message": "attestation failed"
+        }
+      ],
+      "callsAfterBothRejections": 2
+    }
+  }
+}

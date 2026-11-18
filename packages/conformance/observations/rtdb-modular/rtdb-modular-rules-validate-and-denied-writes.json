@@ -1,0 +1,86 @@
+{
+  "name": "rtdb-modular-rules-validate-and-denied-writes",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "Modular RTDB rules-denied remove() and runTransaction() state preservation, update-fn defensive clone on abort, committed transaction onValue fan-out, and .validate rule enforcement across set(), atomic update(), and runTransaction().",
+  "observedAt": "2026-11-18T06:46:54.682Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "deniedRemove": {
+      "outcome": {
+        "rejected": true,
+        "errorName": "Error",
+        "code": "PERMISSION_DENIED",
+        "message": "PERMISSION_DENIED: Permission denied"
+      },
+      "preservedVal": {
+        "secret": "keep-me"
+      }
+    },
+    "deniedTransactionPreservesValue": {
+      "outcome": {
+        "rejected": true,
+        "errorName": "Error",
+        "code": null,
+        "message": "permission_denied"
+      },
+      "preservedVal": {
+        "balance": 100
+      }
+    },
+    "transactionDefensiveCloneAndCommitFanout": {
+      "mutatedAbortCommitted": false,
+      "valAfterMutatedAbort": {
+        "count": 10,
+        "nested": {
+          "tag": "v1"
+        }
+      },
+      "committedTxCommitted": true,
+      "committedSnapshotVal": {
+        "count": 15,
+        "nested": {
+          "tag": "v2"
+        }
+      },
+      "listenerObservedValues": [
+        {
+          "count": 10,
+          "nested": {
+            "tag": "v1"
+          }
+        },
+        {
+          "count": 15,
+          "nested": {
+            "tag": "v2"
+          }
+        }
+      ]
+    },
+    "validateRuleEnforcement": {
+      "validSetVal": {
+        "item": {
+          "qty": 3,
+          "title": "valid-seed"
+        },
+        "sibling": "unchanged"
+      },
+      "invalidSetRejected": true,
+      "invalidMultiPathUpdateRejected": true,
+      "invalidTransactionRejected": true,
+      "preservedAfterAllInvalidWrites": {
+        "item": {
+          "qty": 3,
+          "title": "valid-seed"
+        },
+        "sibling": "unchanged"
+      }
+    },
+    "nonFunctionTransactionValidation": {
+      "timing": "synchronous-throw",
+      "isTypeError": true
+    }
+  }
+}

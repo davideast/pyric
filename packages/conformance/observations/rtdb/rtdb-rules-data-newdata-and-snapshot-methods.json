@@ -1,0 +1,57 @@
+{
+  "name": "rtdb-rules-data-newdata-and-snapshot-methods",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "Live RTDB Security Rules evaluation for data vs newData state transitions and RuleDataSnapshot methods (data.exists(), data.val(), data.child(...), and data.parent()).",
+  "observedAt": "2026-11-18T06:47:13.701Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "createOnceLifecycle": {
+      "initialCreateAllowed": {
+        "allowed": true,
+        "permissionDenied": false
+      },
+      "overwriteExistingDenied": {
+        "allowed": false,
+        "permissionDenied": true
+      },
+      "deleteExistingDenied": {
+        "allowed": false,
+        "permissionDenied": true
+      }
+    },
+    "monotonicDataVsNewData": {
+      "lowerValueDenied": {
+        "allowed": false,
+        "permissionDenied": true
+      },
+      "equalValueDenied": {
+        "allowed": false,
+        "permissionDenied": true
+      },
+      "higherValueAllowed": {
+        "allowed": true,
+        "permissionDenied": false
+      }
+    },
+    "parentAndChildNavigation": {
+      "readWhileLockedDenied": {
+        "allowed": false,
+        "permissionDenied": true
+      },
+      "readAfterUnlockAllowed": {
+        "allowed": true,
+        "permissionDenied": false
+      },
+      "writeWrongTagDenied": {
+        "allowed": false,
+        "permissionDenied": true
+      },
+      "writeMatchingExpectedTagAllowed": {
+        "allowed": true,
+        "permissionDenied": false
+      }
+    }
+  }
+}
