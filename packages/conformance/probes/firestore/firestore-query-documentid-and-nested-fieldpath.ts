@@ -4,9 +4,8 @@ import { withFirestoreProbeSession } from '../../src/sdk-probe-runtime.ts';
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: ['web-config', 'firestore-rules'],
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'firestore#107',
+  rowIds: ['firestore#107', 'firestore#108'],
   description:
     'documentId() and FieldPath (multi-segment nested vs single-segment literal dot) filter and sort documents accurately in where() and orderBy() queries using built-in single-field indexes.',
   async observe() {

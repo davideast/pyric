@@ -4,9 +4,8 @@ import { withFirestoreProbeSession } from '../../src/sdk-probe-runtime.ts';
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: ['web-config', 'firestore-rules'],
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'firestore#105a',
+  rowIds: ['firestore#105a'],
   description:
     'increment, arrayUnion, and arrayRemove overwrite absent or type-mismatched prior field values using base 0 or [] across updateDoc and setDoc({ merge: true }) without failing validation.',
   async observe() {

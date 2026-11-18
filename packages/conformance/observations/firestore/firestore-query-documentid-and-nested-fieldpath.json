@@ -1,7 +1,10 @@
 {
   "name": "firestore-query-documentid-and-nested-fieldpath",
-  "matrixRow": "",
-  "rowIds": [],
+  "matrixRow": "firestore#107",
+  "rowIds": [
+    "firestore#107",
+    "firestore#108"
+  ],
   "description": "documentId() and FieldPath (multi-segment nested vs single-segment literal dot) filter and sort documents accurately in where() and orderBy() queries using built-in single-field indexes.",
   "observedAt": "2026-11-18T12:52:30.192Z",
   "fbSdkVersion": "12.19.0",

@@ -4,7 +4,6 @@ import {
   printModularProbePreview,
   selectModularProbes,
 } from '../../src/sdk-probes.ts';
-import { expectStagedUntilCaptured } from './staged-capture-assertions.ts';
 import { probe as docIdFieldPathQueryProbe } from '../../probes/firestore/firestore-query-documentid-and-nested-fieldpath.ts';
 import { probe as scalarRoundTripProbe } from '../../probes/firestore/firestore-scalar-bytes-geopoint-vector-roundtrip.ts';
 import { probe as sentinelMismatchProbe } from '../../probes/firestore/firestore-sentinel-type-mismatch-overwrite.ts';
@@ -17,26 +16,43 @@ const SENTINEL_SCALAR_PROBE_IDS = [
   'firestore-timestamp-roundtrip-and-negative-millis',
 ] as const;
 
-describe('Firestore Sentinels and Scalar types staged probes (sdk-probes)', () => {
-  test('registers all 4 Sentinels/Scalars probes on sdk-probes with pendingRowLink and empty rowIds', async () => {
+describe('Firestore Sentinels and Scalar types probes (sdk-probes)', () => {
+  test('registers all 4 Sentinels/Scalars probes linked to firestore#104, #104a, #104b, #105a, #106..108, #111', async () => {
     const loaded = await loadModularProbes('sdk-probes');
     const loadedIds = loaded.map((entry) => entry.id);
     for (const id of SENTINEL_SCALAR_PROBE_IDS) {
       expect(loadedIds).toContain(id);
     }
 
-    const probes = [
-      docIdFieldPathQueryProbe,
-      scalarRoundTripProbe,
-      sentinelMismatchProbe,
-      timestampProbe,
+    const expectedLinks = [
+      {
+        probeRecord: timestampProbe,
+        matrixRow: 'firestore#104',
+        rowIds: ['firestore#104', 'firestore#104a', 'firestore#104b'],
+      },
+      {
+        probeRecord: sentinelMismatchProbe,
+        matrixRow: 'firestore#105a',
+        rowIds: ['firestore#105a'],
+      },
+      {
+        probeRecord: scalarRoundTripProbe,
+        matrixRow: 'firestore#106',
+        rowIds: ['firestore#106', 'firestore#111'],
+      },
+      {
+        probeRecord: docIdFieldPathQueryProbe,
+        matrixRow: 'firestore#107',
+        rowIds: ['firestore#107', 'firestore#108'],
+      },
     ];
-    for (const probeRecord of probes) {
+
+    for (const { probeRecord, matrixRow, rowIds } of expectedLinks) {
       expect(probeRecord.rig).toBe('sdk-probes');
       expect(probeRecord.requires).toEqual(['web-config', 'firestore-rules']);
-      expect(probeRecord.pendingRowLink).toBe(true);
-      expect(probeRecord.matrixRow).toBe('');
-      expect(probeRecord.rowIds).toEqual([]);
+      expect(probeRecord.pendingRowLink).toBeUndefined();
+      expect(probeRecord.matrixRow).toBe(matrixRow);
+      expect(probeRecord.rowIds).toEqual(rowIds);
       expect(probeRecord.description.length).toBeGreaterThan(20);
     }
 
@@ -45,18 +61,9 @@ describe('Firestore Sentinels and Scalar types staged probes (sdk-probes)', () =
         includeUncapturedStaged: false,
       }).map((entry) => entry.id),
     );
-
-    expectStagedUntilCaptured(SENTINEL_SCALAR_PROBE_IDS, {
-      rig: 'sdk-probes',
-      filterFlag: '--probe',
-      filterValueFor: (name) => name,
-      whenUncaptured(name) {
-        expect(unfilteredIds.has(name)).toBe(false);
-      },
-      whenCaptured(name) {
-        expect(unfilteredIds.has(name)).toBe(true);
-      },
-    });
+    for (const id of SENTINEL_SCALAR_PROBE_IDS) {
+      expect(unfilteredIds.has(id)).toBe(true);
+    }
 
     const lines: string[] = [];
     printModularProbePreview({
