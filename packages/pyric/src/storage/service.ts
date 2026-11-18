@@ -1,26 +1,15 @@
 /**
- * Service module — sandbox handles and factories.
+ * Service module -- sandbox handles and factories.
  *
- * The public `FirebaseStorage` handle is opaque — it carries a
- * `TARGET_SYMBOL` field pointing to the sandbox state every operation
- * needs (IDB service, rules, identity, bucket, and admin lens).
- *
- * Caching:
- *
- * - **Per `Sandbox`** — the IDB-backed `StorageService` is shared.
- *   Two `getStorageSandbox` calls on the same sandbox hit the same
- *   backend.
- * - **Per `SandboxContext`** — the sandbox `FirebaseStorage` handle
- *   is identity-stable. `getStorageSandbox(ctx)` twice returns the
- *   same object.
- * Internal access:
- *
- * `getStorageService(storage)` returns the backing
- * `Promise<StorageService>` for sandbox handles.
+ * The public `FirebaseStorage` handle carries a `TARGET_SYMBOL` field pointing
+ * to the sandbox state every operation needs (IDB service, rules, identity,
+ * bucket, and admin lens). The IDB-backed `StorageService` is shared per
+ * `Sandbox`, while `getStorageSandbox(ctx)` is identity-stable per context.
  */
 import { SandboxContextImpl } from 'pyric/sandbox';
 import type { AuthState, EventCaller, EventProvenance, Sandbox, SandboxContext } from 'pyric/sandbox';
 import type { FirebaseApp } from '../app/types.js';
+import { createStorageRetryHandle } from './handle-retry-times.js';
 import {
   bindOperationContext,
   provenanceForOperationContext,
@@ -111,6 +100,8 @@ export function storageAuth(target: SandboxTarget): AuthState {
 export interface FirebaseStorage {
   readonly [TARGET_SYMBOL]: Target;
   readonly app?: FirebaseApp;
+  maxOperationRetryTime: number;
+  maxUploadRetryTime: number;
 }
 
 /** Storage handle returned by Firebase-shaped app overloads. */
@@ -755,7 +746,7 @@ export function getStorageSandbox(
     bucket,
     servicePromise,
   };
-  const handle: FirebaseStorage = Object.freeze({ [TARGET_SYMBOL]: sandboxTarget });
+  const handle = createStorageRetryHandle<FirebaseStorage>({ [TARGET_SYMBOL]: sandboxTarget });
 
   let ctxMap = SANDBOX_HANDLES.get(ctx);
   if (!ctxMap) {
@@ -835,7 +826,7 @@ export function getAdminStorageSandbox(
     servicePromise,
     admin: true,
   };
-  const handle: FirebaseStorage = Object.freeze({ [TARGET_SYMBOL]: sandboxTarget });
+  const handle = createStorageRetryHandle<FirebaseStorage>({ [TARGET_SYMBOL]: sandboxTarget });
 
   let ctxMap = ADMIN_CONTEXT_HANDLES.get(baseContext);
   if (!ctxMap) {
@@ -901,7 +892,9 @@ export function bindStorageOperationContext(
     context: bindOperationContext(target.context, context),
     ...(provenance.caller === undefined ? {} : { caller: provenance.caller }),
   };
-  return Object.freeze({ [TARGET_SYMBOL]: scopedTarget });
+  const props: { [TARGET_SYMBOL]: SandboxTarget; app?: FirebaseApp } = { [TARGET_SYMBOL]: scopedTarget };
+  if (storage.app !== undefined) props.app = storage.app;
+  return createStorageRetryHandle<FirebaseStorage>(props, storage);
 }
 
 /**
@@ -914,7 +907,9 @@ export function nameStorageBucket(storage: FirebaseStorage, name: string | undef
   const target = targetOf(storage);
   if (target.bucketName === name) return storage;
   const namedTarget: SandboxTarget = { ...target, bucketName: name };
-  return Object.freeze({ ...storage, [TARGET_SYMBOL]: namedTarget });
+  const props: { [TARGET_SYMBOL]: SandboxTarget; app?: FirebaseApp } = { [TARGET_SYMBOL]: namedTarget };
+  if (storage.app !== undefined) props.app = storage.app;
+  return createStorageRetryHandle<FirebaseStorage>(props, storage);
 }
 
 /**

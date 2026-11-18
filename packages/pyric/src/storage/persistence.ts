@@ -132,7 +132,7 @@ export interface StoredMetadata {
    * carries one; removing it from this list revokes that URL.
    */
   downloadTokens?: string;
-  /** Hex-encoded MD5 hash of the content. Populated when computable. */
+  /** Base64-encoded MD5 hash of the content. Populated on upload. */
   md5Hash?: string;
 }
 

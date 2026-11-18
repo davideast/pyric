@@ -122,6 +122,10 @@ test('the Node host replays the production deleteObject, root listAll, and rules
   expect(await runNodeFixture('delete-listall-rules-oracle', 30_000)).toBe('Delete, listAll root, and rules oracle replay passed');
 }, 60_000);
 
+test('the Node host replays the production resumable upload, getStorage, base64url, and metadata observations', async () => {
+  expect(await runNodeFixture('resumable-metadata-oracle', 30_000)).toBe('Resumable upload, getStorage, base64url, and metadata oracle replay passed');
+}, 60_000);
+
 test('pyric-admin and the Node remote client move Storage bytes over the byte route, with ranges and streams', async () => {
   expect(await runNodeFixture('node-byte-route', 60_000)).toBe('Node byte route passed');
 }, 90_000);

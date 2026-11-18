@@ -25,3 +25,4 @@ export * from '../storage/rules-resolution.js';
 export * from '../storage/rules-string-methods.js';
 export * from '../storage/rules-time-methods.js';
 export * from '../storage/rules-values.js';
+export { md5 } from '../simulator/hashing-builtins.js';

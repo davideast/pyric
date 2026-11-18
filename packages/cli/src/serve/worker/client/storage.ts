@@ -38,6 +38,8 @@ export interface ClientFirebaseStorage {
   readonly bucket: string;
   /** True for a handle `getStorage` opened on a bucket by name, rather than the app's default bucket. */
   readonly namedBucket?: boolean;
+  maxOperationRetryTime: number;
+  maxUploadRetryTime: number;
 }
 
 /** Worker-backed Storage reference (path + name; carries the port for ops). */
@@ -120,7 +122,10 @@ export function getStorage(
     port.start();
     wirePort(port);
   }
-  return { __kind: 'client-storage', port, bucket: bucketUrl ?? 'pyric-default', ...(namedBucket ? { namedBucket } : {}) };
+  const resolvedBucket = bucketUrl ?? 'pyric-default';
+  const base = { __kind: 'client-storage' as const, port, bucket: resolvedBucket, maxOperationRetryTime: 120_000, maxUploadRetryTime: 600_000 };
+  if (namedBucket) return { ...base, namedBucket: true };
+  return base;
 }
 
 /**
@@ -497,18 +502,8 @@ export async function getDownloadURL(reference: ClientStorageReference): Promise
   return `data:${contentType};base64,${base64}`;
 }
 
-// ─── Storage mutations + JSON-safe reads (worker-mode byte ops) ───────────
-// Backed by the base64 `storage.putBytes` / `storage.getBytes` /
-// `storage.deleteObject` ops (remote sandbox, slice 2). Studio's data lens is
-// attached by `dataRpc`; ordinary served-app bundles have no default lens and
-// therefore remain app-session operations. Storage rules apply when the
-// HOST configured them on the sandbox's storage service — the served
-// worker's `applyServeInit` (serve-init.ts) does this at boot, before any op
-// can reach the host, so worker-mode storage enforces the project's
-// storage.rules the same as Firestore/RTDB (open only when the project has
-// none); the admin lens matters for embedding/test hosts that pre-open the
-// service with rules. Raw payloads are capped at 8 MiB
-// (`MAX_STORAGE_OP_BYTES`) — same cap the host enforces.
+// Worker-mode byte ops (`storage.putBytes` / `storage.getBytes` / `storage.deleteObject`),
+// capped at `MAX_STORAGE_OP_BYTES` (8 MiB) and enforced against configured storage.rules.
 
 /** Mirror of `pyric/storage`'s `SettableMetadata` (plain JSON on the wire). */
 export interface ClientSettableMetadata {

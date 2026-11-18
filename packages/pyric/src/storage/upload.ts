@@ -23,8 +23,10 @@
  *     payload's intrinsic type (`Blob.type`, data-url prefix) →
  *     `application/octet-stream`. Matches the JS SDK.
  */
+import { md5 } from '@pyric/rules/internal/storage';
 import { emitSandboxEvent, getClock, makeServiceMutationEvent } from 'pyric/sandbox/internal';
 import type { EventProvenance } from 'pyric/sandbox';
+import { arrayBufferToBase64 } from './base64.js';
 import { getStorageService, storageAuth, storageOperationProvenance, targetOf } from './service.js';
 import { enforceRules } from './enforce.js';
 import { resourceFromStored, requestResourceFor } from './sandbox/rules-resources.js';
@@ -117,10 +119,11 @@ export async function uploadObjectReplacing(
   }
   const operationProvenance = storageOperationProvenance(target, provenance);
   const blob = toBlob(data, metadata?.contentType);
+  const md5Hash = await computePayloadMd5Base64(data, blob);
   // Server-set object times come from the sandbox clock, so `timeCreated` and
   // `updated` agree with the `request.time` the rules see for this same upload.
   const uploadedAt = getClock(target.sandbox).date();
-  const stored = buildStoredMetadata({ ref, blob, settable: metadata, now: uploadedAt });
+  const stored = buildStoredMetadata({ ref, blob, settable: metadata, now: uploadedAt, md5Hash });
   if (setsTokens) stored.downloadTokens = downloadTokens;
   const service = await getStorageService(ref.storage);
   const existing = await service.backend.getMetadata(ref.fullPath);
@@ -214,6 +217,7 @@ export function buildStoredMetadata(args: {
   blob: Blob;
   settable: SettableMetadata | undefined;
   now?: Date;
+  md5Hash?: string;
 }): StoredMetadata {
   const { ref, blob, settable } = args;
   const now = (args.now ?? new Date()).toISOString();
@@ -221,7 +225,11 @@ export function buildStoredMetadata(args: {
   const generation = String(clockGeneration((args.now ?? new Date()).getTime()));
   const name = ref.name;
   const client = planeOf(targetOf(ref.storage)) === 'client';
-  return {
+  let contentDisposition = settable?.contentDisposition;
+  if (client) {
+    contentDisposition = uploadContentDisposition(settable?.contentDisposition, ref.fullPath);
+  }
+  const stored: StoredMetadata = {
     fullPath: ref.fullPath,
     name,
     bucket: ref.bucket,
@@ -230,20 +238,22 @@ export function buildStoredMetadata(args: {
     timeCreated: now,
     updated: now,
     size: blob.size,
-    // `??` doesn't fold an empty `blob.type` into the fallback; `||`
+    // `??` does not fold an empty `blob.type` into the fallback; `||`
     // does. `Blob` returns `''` for "no type set" rather than
     // `undefined`, so without this an unhinted Uint8Array upload
     // would land with `contentType: ''` instead of the documented
     // `application/octet-stream` default.
     contentType: settable?.contentType || blob.type || OCTET,
     cacheControl: settable?.cacheControl,
-    contentDisposition: client
-      ? uploadContentDisposition(settable?.contentDisposition, ref.fullPath)
-      : settable?.contentDisposition,
+    contentDisposition,
     contentEncoding: settable?.contentEncoding,
     contentLanguage: settable?.contentLanguage,
     customMetadata: cloneCustomMetadata(settable?.customMetadata),
   };
+  if (args.md5Hash !== undefined) {
+    stored.md5Hash = args.md5Hash;
+  }
+  return stored;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────
@@ -275,6 +285,26 @@ function toBlob(
   return new Blob([data as ArrayBuffer], { type: contentTypeHint ?? '' });
 }
 
+async function computePayloadMd5Base64(
+  data: Blob | Uint8Array | ArrayBuffer,
+  blob: Blob,
+): Promise<string> {
+  let bytes: Uint8Array;
+  if (data instanceof Uint8Array) {
+    bytes = data;
+  } else if (data instanceof ArrayBuffer) {
+    bytes = new Uint8Array(data);
+  } else {
+    bytes = new Uint8Array(await blob.arrayBuffer());
+  }
+  const digest = md5(bytes);
+  const buf = digest.buffer.slice(
+    digest.byteOffset,
+    digest.byteOffset + digest.byteLength,
+  ) as ArrayBuffer;
+  return arrayBufferToBase64(buf);
+}
+
 /**
  * Decode an `uploadString` payload into bytes + inferred MIME.
  * `inferredType` is set only for `data_url` (which carries one
@@ -291,21 +321,16 @@ export function decodeString(
   if (format === 'base64') {
     return { bytes: base64ToBytes(value), inferredType: undefined };
   }
+  if (format === 'base64url') {
+    return { bytes: base64UrlToBytes(value), inferredType: undefined };
+  }
   if (format !== 'data_url') {
-    // A JS caller can pass a string the `StringFormat` type rules out
-    // (`'base64url'`, `'hex'`, …). Divergence, oracle-locked by
-    // `storage-uploadstring-unknown-format.json`: prod ACCEPTS
-    // `base64url` (uploads succeed) and throws `storage/unknown` for a
-    // genuinely-unrecognized format. The sandbox instead throws
-    // `storage/invalid-format` for anything outside the v1 scope's
-    // `raw`/`base64`/`data_url`, naming the bad format rather than
-    // mis-parsing it as a data_url. See storage#41 in COMPAT.md.
-    throw invalidFormat(
-      String(format),
-      `unknown uploadString format — expected "raw", "base64", or "data_url".`,
+    throw new StorageError(
+      'unknown',
+      'An unknown error occurred, please check the error payload for server response.',
     );
   }
-  // data_url — split on the first comma. Mime+params live before
+  // data_url -- split on the first comma. Mime+params live before
   // the comma; payload (raw or `;base64`-prefixed) lives after.
   const comma = value.indexOf(',');
   if (!value.startsWith('data:') || comma === -1) {
@@ -317,7 +342,13 @@ export function decodeString(
   const header = value.slice(5, comma); // strip leading "data:"
   const payload = value.slice(comma + 1);
   const isB64 = header.endsWith(';base64');
-  const mime = (isB64 ? header.slice(0, -7) : header) || 'application/octet-stream';
+  let mime = header;
+  if (isB64) {
+    mime = header.slice(0, -7);
+  }
+  if (mime === '') {
+    mime = 'application/octet-stream';
+  }
   if (isB64) {
     return { bytes: base64ToBytes(payload), inferredType: mime };
   }
@@ -330,6 +361,18 @@ export function decodeString(
     throw invalidFormat('data_url', 'Malformed data URL.');
   }
   return { bytes: new TextEncoder().encode(decoded), inferredType: mime };
+}
+
+function base64UrlToBytes(b64url: string): Uint8Array {
+  const standard = b64url.replace(/-/g, '+').replace(/_/g, '/');
+  const remainder = standard.length % 4;
+  let padded = standard;
+  if (remainder === 2) {
+    padded = `${standard}==`;
+  } else if (remainder === 3) {
+    padded = `${standard}=`;
+  }
+  return base64ToBytes(padded);
 }
 
 function base64ToBytes(b64: string): Uint8Array {

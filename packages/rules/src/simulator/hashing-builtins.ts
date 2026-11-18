@@ -133,7 +133,7 @@ const MD5_K = new Uint32Array([
   0x6FA87E4F, 0xFE2CE6E0, 0xA3014314, 0x4E0811A1, 0xF7537E82, 0xBD3AF235, 0x2AD7D2BB, 0xEB86D391,
 ]);
 
-function md5(data: Uint8Array): Uint8Array {
+export function md5(data: Uint8Array): Uint8Array {
   const view = padMessage(data, true);
   let a0 = 0x67452301;
   let b0 = 0xEFCDAB89;

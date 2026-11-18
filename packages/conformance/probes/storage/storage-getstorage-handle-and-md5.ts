@@ -52,9 +52,8 @@ export async function observeStorageGetStorageAndMd5(
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: ['web-config'],
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'storage #3, #91',
+  rowIds: ['storage#3', 'storage#91'],
   description:
     'firebase/storage getStorage(app) + FullMetadata.md5Hash: observes per-app handle identity, retry-time properties, round-trip upload/read via getStorage(app), and base64 MD5 digests on empty and non-empty uploads.',
   async observe() {
