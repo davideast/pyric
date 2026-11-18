@@ -1,0 +1,34 @@
+{
+  "name": "firestore-snapshot-get-dotted-and-fieldpath",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "DocumentSnapshot.get(fieldPath) resolves dotted string paths and FieldPath instances (including literal-dot keys and falsy scalar values), returning undefined on missing documents or absent fields.",
+  "observedAt": "2026-11-18T11:05:51.562Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "missingDocReads": {
+      "dottedIsUndefined": true,
+      "fieldPathIsUndefined": true
+    },
+    "docSnapValues": {
+      "dottedNestedHandle": "ada",
+      "dottedDeepWins": 7,
+      "fieldPathDeepWins": 7,
+      "dottedAB": "nested-b-value",
+      "fieldPathLiteralDotAB": "literal-dot-value",
+      "fieldPathTwoSegmentAB": "nested-b-value",
+      "zeroVal": 0,
+      "falseVal": false,
+      "nullVal": null,
+      "absentDottedIsUndefined": true,
+      "absentFieldPathIsUndefined": true
+    },
+    "queryDocMatchesDocSnap": true,
+    "withConverterSnapshot": {
+      "convertedDataWrapped": true,
+      "getStillReadsStoredField": "ada",
+      "getAbsentStillUndefined": true
+    }
+  }
+}
