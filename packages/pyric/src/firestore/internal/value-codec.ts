@@ -61,6 +61,71 @@ function encodeNumberScalar(value: number): unknown {
   return value;
 }
 
+type EncodedAggregateValue =
+  | number
+  | null
+  | { readonly __type: 'number'; readonly value: 'NaN' | 'Infinity' | '-Infinity' | '-0' };
+
+/** Encode non-finite and -0 aggregate results for JSON transports; returns undefined when plain JSON suffices. */
+export function encodeAggregateData(
+  data: Record<string, number | null>,
+): Record<string, EncodedAggregateValue> | undefined {
+  let hasSpecialNumber = false;
+  const encoded: Record<string, EncodedAggregateValue> = {};
+  for (const [alias, value] of Object.entries(data)) {
+    if (typeof value === 'number') {
+      const scalar = encodeNumberScalar(value) as EncodedAggregateValue;
+      if (scalar !== value) hasSpecialNumber = true;
+      Object.defineProperty(encoded, alias, {
+        value: scalar,
+        enumerable: true,
+        writable: true,
+        configurable: true,
+      });
+    } else {
+      Object.defineProperty(encoded, alias, {
+        value: null,
+        enumerable: true,
+        writable: true,
+        configurable: true,
+      });
+    }
+  }
+  if (!hasSpecialNumber) return undefined;
+  return encoded;
+}
+
+function decodeAggregateScalar(value: unknown): number | null {
+  if (typeof value === 'number' || value === null) return value;
+  const isRecord = typeof value === 'object' && value !== null;
+  if (!isRecord) return null;
+  const marker = value as { __type?: unknown; value?: unknown };
+  if (marker.__type !== 'number') return null;
+  if (marker.value === 'NaN') return Number.NaN;
+  if (marker.value === 'Infinity') return Infinity;
+  if (marker.value === '-Infinity') return -Infinity;
+  if (marker.value === '-0') return -0;
+  return null;
+}
+
+/** Restore non-finite and -0 aggregate results when an encoded sidecar accompanied a JSON reply. */
+export function decodeAggregateData<T extends Record<string, number | null>>(
+  data: T,
+  encodedData?: Record<string, unknown>,
+): T {
+  if (encodedData === undefined) return data;
+  const decoded: Record<string, number | null> = {};
+  for (const [alias, value] of Object.entries(encodedData)) {
+    Object.defineProperty(decoded, alias, {
+      value: decodeAggregateScalar(value),
+      enumerable: true,
+      writable: true,
+      configurable: true,
+    });
+  }
+  return decoded as T;
+}
+
 /** Encode SDK values before transport removes their class or copies their owner. */
 export function encodeDocValue(value: unknown): unknown {
   if (typeof value === 'number') return encodeNumberScalar(value);

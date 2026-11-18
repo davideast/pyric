@@ -5,7 +5,9 @@ import {
 } from '../../../src/firestore/sandbox/activity-value-registry.js';
 import {
   DOC_VALUE_ENCODING,
+  decodeAggregateData,
   decodeDocValue,
+  encodeAggregateData,
   encodeDocValue,
   rehydrateDocValue,
   rehydrateEncodedDocValue,
@@ -188,5 +190,34 @@ describe('rehydrateDocValue', () => {
     expect(snap.data()?.fakeMethod).toEqual(collidingDoc.fakeMethod);
     expect(snap.data()?.fakeClone).toEqual(collidingDoc.fakeClone);
     sb2.dispose();
+  });
+
+  it('encodes aggregate sidecars only when non-finite or -0 values are present', () => {
+    expect(encodeAggregateData({ n: 3, s: 16, a: null })).toBeUndefined();
+
+    const special: Record<string, number | null> = {
+      nan: Number.NaN,
+      inf: Infinity,
+      ninf: -Infinity,
+      negZero: -0,
+      finite: 42,
+      emptyAvg: null,
+      type: Number.NaN,
+      __type: Infinity,
+    };
+    const encoded = encodeAggregateData(special);
+    expect(encoded).toBeDefined();
+    const overJson = JSON.parse(JSON.stringify(encoded)) as Record<string, unknown>;
+    const fallback = JSON.parse(JSON.stringify(special)) as Record<string, number | null>;
+    const restored = decodeAggregateData(fallback, overJson);
+
+    expect(Number.isNaN(restored.nan)).toBe(true);
+    expect(restored.inf).toBe(Infinity);
+    expect(restored.ninf).toBe(-Infinity);
+    expect(Object.is(restored.negZero, -0)).toBe(true);
+    expect(restored.finite).toBe(42);
+    expect(restored.emptyAvg).toBeNull();
+    expect(Number.isNaN(restored.type)).toBe(true);
+    expect(restored.__type).toBe(Infinity);
   });
 });

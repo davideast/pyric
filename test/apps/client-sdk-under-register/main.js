@@ -1,6 +1,6 @@
 import { initializeApp } from "firebase/app";
 import { getDatabase, ref, get } from "firebase/database";
-import { getFirestore, doc, getDoc, collection, getAggregateFromServer, count } from "firebase/firestore";
+import { getFirestore, doc, getDoc, collection, getAggregateFromServer, count, sum, average } from "firebase/firestore";
 import { getStorage, ref as storageRef, deleteObject } from "firebase/storage";
 
 const app = initializeApp({
@@ -13,6 +13,18 @@ const app = initializeApp({
 const db = getDatabase(app);
 const firestore = getFirestore(app);
 const storage = getStorage(app);
+
+function encodeAggregate(data) {
+  const out = {};
+  for (const [key, value] of Object.entries(data)) {
+    if (typeof value === "number" && !Number.isFinite(value)) {
+      out[key] = String(value);
+    } else {
+      out[key] = value;
+    }
+  }
+  return out;
+}
 
 window.readBack = async () => ({
   database: (await get(ref(db, "server/client"))).val(),
@@ -27,4 +39,15 @@ window.readBack = async () => ({
     () => "ok",
     (error) => error.code,
   ),
+  aggregateSemantics: {
+    countAndSumY: encodeAggregate(
+      (await getAggregateFromServer(collection(firestore, "server/agg/sparse"), { n: count(), sy: sum("y") })).data(),
+    ),
+    nan: encodeAggregate(
+      (await getAggregateFromServer(collection(firestore, "server/agg/nan"), { s: sum("v"), a: average("v"), n: count() })).data(),
+    ),
+    inf: encodeAggregate(
+      (await getAggregateFromServer(collection(firestore, "server/agg/inf"), { s: sum("v"), a: average("v"), n: count() })).data(),
+    ),
+  },
 });

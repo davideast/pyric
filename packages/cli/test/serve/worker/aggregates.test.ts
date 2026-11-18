@@ -17,12 +17,13 @@ import {
   type HostCtx,
   type PortLike,
 } from '../../../src/serve/worker/host.js';
-import type {
-  InboundMessage,
-  OutboundMessage,
-  ResMessage,
-  TargetDescriptor,
-  AggregateSpecDescriptor,
+import {
+  decodeAggregateData,
+  type InboundMessage,
+  type OutboundMessage,
+  type ResMessage,
+  type TargetDescriptor,
+  type AggregateSpecDescriptor,
 } from '../../../src/serve/worker/protocol.js';
 import { count, sum, average } from '../../../src/serve/worker/client.js';
 import { initializeSandbox } from 'pyric/sandbox';
@@ -148,5 +149,84 @@ describe('aggregate op (count / sum / average)', () => {
       rows: count(), total: sum('n'), avg: average('n'),
     });
     expect(data).toEqual({ rows: 0, total: 0, avg: null });
+  });
+
+  it('pairs count() with sum(y) over only docs that carry y (FL-27)', async () => {
+    const ctx = await makeCtx();
+    const port = fakePort();
+    const docs: Array<[string, Record<string, unknown>]> = [
+      ['a', { x: 1, y: 10 }],
+      ['b', { x: 2 }],
+      ['c', { y: 5 }],
+      ['d', { x: 3, y: 1 }],
+    ];
+    for (const [docId, data] of docs) {
+      okValue(await sendOp(ctx, port, {
+        t: 'op', id: id(), method: 'setDoc', path: `sparse/${docId}`, data,
+      }));
+    }
+
+    const sparse: TargetDescriptor = { __ref: 'collection', path: 'sparse' };
+    const countOnly = await aggregate(ctx, port, sparse, { n: count() });
+    expect(countOnly).toEqual({ n: 4 });
+
+    const paired = await aggregate(ctx, port, sparse, { n: count(), sy: sum('y') });
+    expect(paired).toEqual({ n: 3, sy: 16 });
+  });
+
+  it('preserves NaN, Infinity, -Infinity, and -0 across JSON wire replies (FL-28)', async () => {
+    const ctx = await makeCtx();
+    const port = fakePort();
+    await ctx.sandbox.withAuth(null);
+    const { setDoc, doc } = await import('pyric/firestore');
+    await setDoc(doc(ctx.db, 'agnan/1'), { v: 1 });
+    await setDoc(doc(ctx.db, 'agnan/2'), { v: Number.NaN });
+    await setDoc(doc(ctx.db, 'agnan/3'), { v: 2 });
+    await setDoc(doc(ctx.db, 'aginf/1'), { v: 1 });
+    await setDoc(doc(ctx.db, 'aginf/2'), { v: Infinity });
+    await setDoc(doc(ctx.db, 'agneginf/1'), { v: 1 });
+    await setDoc(doc(ctx.db, 'agneginf/2'), { v: -Infinity });
+
+    const nanRes = overWire(await sendOp(ctx, port, {
+      t: 'op',
+      id: id(),
+      method: 'aggregate',
+      source: { __ref: 'collection', path: 'agnan' },
+      spec: { s: sum('v'), a: average('v'), n: count() },
+    }));
+    const nanWire = okValue<{ data: Record<string, number | null>; encodedData?: Record<string, unknown> }>(nanRes);
+    expect(nanWire.data).toEqual({ s: null, a: null, n: 3 });
+    const nanDecoded = decodeAggregateData(nanWire.data, nanWire.encodedData);
+    expect(nanDecoded.n).toBe(3);
+    expect(Number.isNaN(nanDecoded.s)).toBe(true);
+    expect(Number.isNaN(nanDecoded.a)).toBe(true);
+
+    const infRes = overWire(await sendOp(ctx, port, {
+      t: 'op',
+      id: id(),
+      method: 'aggregate',
+      source: { __ref: 'collection', path: 'aginf' },
+      spec: { s: sum('v'), a: average('v'), n: count() },
+    }));
+    const infWire = okValue<{ data: Record<string, number | null>; encodedData?: Record<string, unknown> }>(infRes);
+    expect(decodeAggregateData(infWire.data, infWire.encodedData)).toEqual({
+      s: Infinity,
+      a: Infinity,
+      n: 2,
+    });
+
+    const negInfRes = overWire(await sendOp(ctx, port, {
+      t: 'op',
+      id: id(),
+      method: 'aggregate',
+      source: { __ref: 'collection', path: 'agneginf' },
+      spec: { s: sum('v'), a: average('v'), n: count() },
+    }));
+    const negInfWire = okValue<{ data: Record<string, number | null>; encodedData?: Record<string, unknown> }>(negInfRes);
+    expect(decodeAggregateData(negInfWire.data, negInfWire.encodedData)).toEqual({
+      s: -Infinity,
+      a: -Infinity,
+      n: 2,
+    });
   });
 });

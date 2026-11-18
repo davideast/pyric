@@ -4,11 +4,12 @@
  * rehydrates the reply into the modular SDK's snapshot shapes.
  */
 
-import type {
-  TargetDescriptor,
-  AggregateFieldDescriptor,
-  AggregateSpecDescriptor,
-  InboundMessage,
+import {
+  decodeAggregateData,
+  type TargetDescriptor,
+  type AggregateFieldDescriptor,
+  type AggregateSpecDescriptor,
+  type InboundMessage,
 } from '../protocol.js';
 import { closeSubscription, nextId, nextSubId, dataRpc, _defaultLens, subscribeLens, openSnapshotSubscription, stampIssuer } from './core.js';
 import type { ClientDb, DocRefHandle, CollRefHandle, QueryHandle, Unsubscribe } from './handles.js';
@@ -156,19 +157,24 @@ export async function getAggregateFromServer<S extends AggregateSpecDescriptor>(
   const activity = beginWorkerFirestoreActivity(source, 'getAggregateFromServer', 'operation');
   try {
     assertExecutableTarget(source);
+    let targetDescriptor: TargetDescriptor;
+    if (source.__kind === 'coll-ref') {
+      targetDescriptor = (source as CollRefHandle).descriptor;
+    } else {
+      targetDescriptor = (source as QueryHandle).descriptor;
+    }
     const result = await dataRpc(source.port, {
       t: 'op',
       id: nextId(),
       method: 'aggregate',
-      source: source.__kind === 'coll-ref'
-        ? (source as CollRefHandle).descriptor
-        : (source as QueryHandle).descriptor,
+      source: targetDescriptor,
       spec,
-    }) as { data: { [K in keyof S]: number | null } };
+    }) as { data: { [K in keyof S]: number | null }; encodedData?: Record<string, unknown> };
+    const decoded = decodeAggregateData(result.data, result.encodedData);
     return finishSdkRead(activity, {
       type: 'AggregateQuerySnapshot',
       query: source,
-      data: () => result.data,
+      data: () => decoded,
     });
   } catch (error) { activity.fail(); throw error; }
 }

@@ -22,7 +22,7 @@ import {
 } from 'pyric/firestore';
 import { getInternalEnv, sdkActivity } from 'pyric/sandbox/internal';
 
-import type { OpMessage } from '../protocol.js';
+import { encodeAggregateData, type OpMessage } from '../protocol.js';
 import { type HostCtx, type PortLike, ok, fail } from '../host-context.js';
 import { resolveTarget, serializeDocSnap } from './core.js';
 import { getOrCreatePinnedTxnSnapshot } from './firestore-txn-snapshots.js';
@@ -105,9 +105,15 @@ export async function handleFirestoreReadOp(
         const source = resolveTarget(db, msg.source);
         const snap = await sdkActivity.silence(() => getAggregateFromServer(source as Query, msg.spec as AggregateSpec));
         // The sandbox's error-translation adapter wraps result objects in a Proxy.
-        // Copy numeric aggregate fields into a cloneable wire result.
+        // Copy numeric aggregate fields into a cloneable wire result, plus an
+        // encoded sidecar when non-finite or -0 values must cross JSON sockets.
         const data = { ...snap.data() };
-        ok(port, msg.id, { data });
+        const encodedData = encodeAggregateData(data);
+        if (encodedData === undefined) {
+          ok(port, msg.id, { data });
+        } else {
+          ok(port, msg.id, { data, encodedData });
+        }
       } catch (e) { fail(port, msg.id, e); }
       break;
     }

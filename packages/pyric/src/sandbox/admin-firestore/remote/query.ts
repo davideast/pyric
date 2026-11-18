@@ -9,6 +9,7 @@
  */
 
 import { SandboxError } from 'pyric/sandbox';
+import { decodeAggregateData } from 'pyric/firestore/internal/value-codec';
 import type {
   AggregateQuerySnapshot,
   AggregateSpec,
@@ -46,7 +47,7 @@ import type { WireConstraint, WireFilter, WireQuerySnap, WireTarget } from './wi
 
 /** Immutable query state accumulated by the chainable constraint calls.
  *  Cursors REPLACE on repeat (matching the local arm / production). */
-export interface CursorState {
+interface CursorState {
   readonly values: readonly unknown[];
   readonly inclusive: boolean;
   readonly snapshot?: DocumentSnapshot;
@@ -449,8 +450,9 @@ export function makeQuery(arm: RemoteArm, state: QueryState): Query {
         method: 'aggregate',
         source: buildDescriptor(state),
         spec: wireSpec,
-      })) as { data: Record<string, number | null> };
-      return { data: () => wire.data };
+      })) as { data: Record<string, number | null>; encodedData?: Record<string, unknown> };
+      const decoded = decodeAggregateData(wire.data, wire.encodedData);
+      return { data: () => decoded };
     },
 
     [REMOTE_SNAPSHOT_REGISTRAR]: (options, onNext, onError) => {

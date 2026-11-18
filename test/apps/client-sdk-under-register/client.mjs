@@ -4,7 +4,7 @@
 // app at the end and then exits on its own, with no process.exit.
 import { initializeApp, deleteApp } from "firebase/app";
 import { getDatabase, ref, set, get, onValue, onDisconnect } from "firebase/database";
-import { getFirestore, doc, setDoc, getDoc, collection, getAggregateFromServer, count } from "firebase/firestore";
+import { getFirestore, doc, setDoc, getDoc, collection, getAggregateFromServer, count, sum, average } from "firebase/firestore";
 import { getAuth, createUserWithEmailAndPassword } from "firebase/auth";
 import { getStorage, ref as storageRef, uploadString, uploadBytesResumable, getBytes, getMetadata, getDownloadURL, deleteObject } from "firebase/storage";
 import { getFunctions, httpsCallable } from "firebase/functions";
@@ -57,9 +57,42 @@ await outcome("database.connected", () =>
   new Promise((resolve) => onValue(ref(db, ".info/connected"), (snap) => resolve(snap.val()), { onlyOnce: true })));
 await outcome("firestore.setDoc", () => setDoc(doc(getFirestore(app), "server/client"), { from: "client sdk" }));
 await outcome("firestore.getDoc", async () => (await getDoc(doc(getFirestore(app), "server/fromAdmin"))).data() ?? null);
+function encodeAggregate(data) {
+  const out = {};
+  for (const [key, value] of Object.entries(data)) {
+    if (typeof value === "number" && !Number.isFinite(value)) {
+      out[key] = String(value);
+    } else {
+      out[key] = value;
+    }
+  }
+  return out;
+}
+
 // server/late, server/fromAdmin and server/client exist by now.
 await outcome("firestore.aggregate", async () =>
   (await getAggregateFromServer(collection(getFirestore(app), "server"), { n: count() })).data());
+
+const fsDb = getFirestore(app);
+await setDoc(doc(fsDb, "server/agg/sparse/a"), { x: 1, y: 10 });
+await setDoc(doc(fsDb, "server/agg/sparse/b"), { x: 2 });
+await setDoc(doc(fsDb, "server/agg/sparse/c"), { y: 6 });
+await setDoc(doc(fsDb, "server/agg/nan/1"), { v: 1 });
+await setDoc(doc(fsDb, "server/agg/nan/2"), { v: Number.NaN });
+await setDoc(doc(fsDb, "server/agg/nan/3"), { v: 2 });
+await setDoc(doc(fsDb, "server/agg/inf/1"), { v: 1 });
+await setDoc(doc(fsDb, "server/agg/inf/2"), { v: Number.POSITIVE_INFINITY });
+await outcome("firestore.aggregateSemantics", async () => ({
+  countAndSumY: encodeAggregate(
+    (await getAggregateFromServer(collection(fsDb, "server/agg/sparse"), { n: count(), sy: sum("y") })).data(),
+  ),
+  nan: encodeAggregate(
+    (await getAggregateFromServer(collection(fsDb, "server/agg/nan"), { s: sum("v"), a: average("v"), n: count() })).data(),
+  ),
+  inf: encodeAggregate(
+    (await getAggregateFromServer(collection(fsDb, "server/agg/inf"), { s: sum("v"), a: average("v"), n: count() })).data(),
+  ),
+}));
 
 await outcome("auth.createUser", async () =>
   (await createUserWithEmailAndPassword(getAuth(app), "node@example.com", "secret123")).user.uid);

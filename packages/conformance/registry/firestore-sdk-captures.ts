@@ -28,29 +28,29 @@ export const sdkCaptureBlock: CompatibilityTableBlock = {
   kind: 'table',
   prefix: '## Behavior checked against production captures\n\nEach row cites a production capture from the SDK behavior hunt. A `bug` row states production\'s behavior and pyric\'s; its test holds both answers until the fix lands.\n',
   rows: [
-    captureRow({
+    matchingRow({
       rowRef: 'aggregate-count-with-sum',
       featureKeys: ['getAggregateFromServer', 'count', 'sum'],
       api: 'getAggregateFromServer(query, { n: count(), s: sum(field) })',
-      behavior: 'Production: when count() is paired with sum(y), count includes only the docs that have y (3 of 4). Pyric counts every doc in the query (4). FL-27.',
-      evidence: '`oracle:firestore-aggregate-field-semantics` key `countAndSumY`.',
+      behavior: 'When count() is paired with sum(y), count includes only the docs that have y (3 of 4), as in production. FL-27.',
+      evidence: '`oracle:firestore-aggregate-field-semantics` key `countAndSumY`, replayed in-page and over the SharedWorker and Node-hosted planes.',
       risk: ['specific-value'],
       riskScore: 2,
       riskReasons: ['asserts 1 specific value(s)'],
       oracleObservations: ['firestore-aggregate-field-semantics'],
-      conformanceTests: [`${IN_PAGE}/firestore-aggregate-field-semantics.test.ts`],
+      conformanceTests: [`${IN_PAGE}/firestore-aggregate-field-semantics.test.ts`, `${SERVED}/firestore-served-surface.test.ts`],
     }),
-    captureRow({
+    matchingRow({
       rowRef: 'aggregate-non-finite',
       featureKeys: ['sum', 'average'],
       api: 'sum(field) / average(field) over NaN or Infinity',
-      behavior: 'Production: sum and average over a field holding NaN return NaN, and over Infinity return Infinity. Pyric skips the non-finite values (sum 3 and average 1.5; sum 1 and average 1). FL-28.',
-      evidence: '`oracle:firestore-aggregate-field-semantics` keys `nan` and `inf`.',
+      behavior: 'sum and average over a field holding NaN return NaN, and over Infinity return Infinity, across in-page, SharedWorker and Node-hosted planes, as in production. FL-28.',
+      evidence: '`oracle:firestore-aggregate-field-semantics` keys `nan` and `inf`, replayed in-page and over the SharedWorker and Node-hosted planes.',
       risk: ['specific-value'],
       riskScore: 2,
       riskReasons: ['asserts 2 specific value(s)'],
       oracleObservations: ['firestore-aggregate-field-semantics'],
-      conformanceTests: [`${IN_PAGE}/firestore-aggregate-field-semantics.test.ts`],
+      conformanceTests: [`${IN_PAGE}/firestore-aggregate-field-semantics.test.ts`, `${SERVED}/firestore-served-surface.test.ts`],
     }),
     captureRow({
       rowRef: 'composite-index-required',
