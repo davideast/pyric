@@ -225,10 +225,29 @@ service cloud.firestore {
 
     const updated = await adminAuth.updateUser('user-1', {
       displayName: 'User One',
+      photoURL: 'https://example.com/u1.png',
+      phoneNumber: '+15555550101',
       emailVerified: true,
     });
     expect(updated.displayName).toBe('User One');
+    expect(updated.photoURL).toBe('https://example.com/u1.png');
+    expect(updated.phoneNumber).toBe('+15555550101');
+    expect(updated.providerData.map((p) => p.providerId).sort()).toEqual(['password', 'phone']);
     expect(updated.emailVerified).toBe(true);
+
+    await expect(
+      adminAuth.updateUser('user-2', { phoneNumber: '+15555550101' }),
+    ).rejects.toMatchObject({ code: 'auth/phone-number-already-exists' });
+
+    const cleared = await adminAuth.updateUser('user-1', {
+      displayName: null,
+      photoURL: null,
+      phoneNumber: null,
+    });
+    expect(cleared.displayName).toBeUndefined();
+    expect(cleared.photoURL).toBeUndefined();
+    expect(cleared.phoneNumber).toBeUndefined();
+    expect(cleared.providerData.map((p) => p.providerId)).toEqual(['password']);
 
     const page1 = await adminAuth.listUsers(2);
     expect(page1.users.map((u) => u.uid)).toEqual(['user-1', 'user-2']);

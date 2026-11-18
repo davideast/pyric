@@ -95,9 +95,8 @@ export async function observeUpdateUserFields(
 export const probe: Probe = {
   rig: 'admin-auth',
   requires: ['admin-auth'],
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'auth-admin#8',
+  rowIds: ['auth-admin#8'],
   description:
     'firebase-admin/auth updateUser(uid, properties) mutates email, password, emailVerified, displayName, photoURL, phoneNumber, and disabled, clears nullable profile and phone fields with null, updates providerData accordingly, and rejects unknown UIDs with auth/user-not-found.',
   async observe(): Promise<Record<string, unknown>> {

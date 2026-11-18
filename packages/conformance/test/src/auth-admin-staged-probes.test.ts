@@ -30,37 +30,41 @@ import {
   tamperJwtSignature,
 } from '../../probes/auth-admin/admin-auth-verify-id-token-errors.ts';
 import { loadModularProbes } from '../../src/sdk-probes.ts';
-import { expectStagedUntilCaptured } from './staged-capture-assertions.ts';
 
-const STAGED_ADMIN_AUTH_PROBES = [
+const LINKED_ADMIN_AUTH_PROBES = [
   'admin-auth-getauth-app-lifecycle',
   'admin-auth-verify-id-token-errors',
   'admin-auth-revoke-refresh-tokens',
   'admin-auth-update-user-fields',
 ] as const;
 
-describe('staged auth-admin probes', () => {
-  it('registers all four probes under admin-auth and tracks staged discovery via expectStagedUntilCaptured', async () => {
+describe('linked auth-admin probes', () => {
+  it('registers all four probes under admin-auth with linked rowIds and pendingRowLink dropped', async () => {
     const loaded = await loadModularProbes('admin-auth');
     const loadedIds = loaded.map((item) => item.id);
-    for (const id of STAGED_ADMIN_AUTH_PROBES) {
+    for (const id of LINKED_ADMIN_AUTH_PROBES) {
       expect(loadedIds).toContain(id);
     }
 
     expect(getAuthLifecycleProbe.rig).toBe('admin-auth');
     expect(getAuthLifecycleProbe.requires).toEqual(['admin-auth']);
+    expect(getAuthLifecycleProbe.pendingRowLink).toBeUndefined();
+    expect(getAuthLifecycleProbe.rowIds).toEqual(['auth-admin#1a']);
+
     expect(verifyIdTokenErrorsProbe.rig).toBe('admin-auth');
     expect(verifyIdTokenErrorsProbe.requires).toEqual(['admin-auth', 'web-config']);
+    expect(verifyIdTokenErrorsProbe.pendingRowLink).toBeUndefined();
+    expect(verifyIdTokenErrorsProbe.rowIds).toEqual(['auth-admin#3a']);
+
     expect(revokeRefreshTokensProbe.rig).toBe('admin-auth');
     expect(revokeRefreshTokensProbe.requires).toEqual(['admin-auth', 'web-config']);
+    expect(revokeRefreshTokensProbe.pendingRowLink).toBeUndefined();
+    expect(revokeRefreshTokensProbe.rowIds).toEqual(['auth-admin#3a', 'auth-admin#4']);
+
     expect(updateUserFieldsProbe.rig).toBe('admin-auth');
     expect(updateUserFieldsProbe.requires).toEqual(['admin-auth']);
-
-    expectStagedUntilCaptured(STAGED_ADMIN_AUTH_PROBES, {
-      rig: 'admin-auth',
-      filterFlag: '--probe',
-      filterValueFor: (name) => name,
-    });
+    expect(updateUserFieldsProbe.pendingRowLink).toBeUndefined();
+    expect(updateUserFieldsProbe.rowIds).toEqual(['auth-admin#8']);
   });
 
   it('observes real firebase-admin/auth getAuth(app) caching, cross-app isolation, and deleted-app throw', async () => {
@@ -162,66 +166,10 @@ describe('staged auth-admin probes', () => {
         revokeMissingUser: { threw: true, code: 'auth/user-not-found' },
       });
 
-      const records = new Map<
-        string,
-        {
-          uid: string;
-          email: string;
-          emailVerified: boolean;
-          displayName?: string;
-          photoURL?: string;
-          phoneNumber?: string;
-          disabled: boolean;
-          providerData: Array<{ providerId: string }>;
-        }
-      >();
       const updateSubject: AdminUpdateUserSubject = {
-        async createUser(props) {
-          const entry = {
-            uid: props.uid,
-            email: props.email,
-            emailVerified: false,
-            disabled: false,
-            providerData: [{ providerId: 'password' }],
-          };
-          records.set(props.uid, entry);
-          return entry as unknown as Awaited<ReturnType<AdminUpdateUserSubject['createUser']>>;
-        },
-        async updateUser(uid, props) {
-          const existing = records.get(uid);
-          if (!existing) {
-            throw Object.assign(new Error('No user record'), { code: 'auth/user-not-found' });
-          }
-          if (typeof props.email === 'string') existing.email = props.email;
-          if (typeof props.emailVerified === 'boolean') existing.emailVerified = props.emailVerified;
-          if (props.displayName === null) delete existing.displayName;
-          if (typeof props.displayName === 'string') existing.displayName = props.displayName;
-          if (props.photoURL === null) delete existing.photoURL;
-          if (typeof props.photoURL === 'string') existing.photoURL = props.photoURL;
-          if (props.phoneNumber === null) {
-            delete existing.phoneNumber;
-            existing.providerData = existing.providerData.filter((p) => p.providerId !== 'phone');
-          }
-          if (typeof props.phoneNumber === 'string') {
-            existing.phoneNumber = props.phoneNumber;
-            if (!existing.providerData.some((p) => p.providerId === 'phone')) {
-              existing.providerData.push({ providerId: 'phone' });
-            }
-          }
-          if (typeof props.disabled === 'boolean') existing.disabled = props.disabled;
-          return { ...existing, providerData: [...existing.providerData] } as unknown as Awaited<
-            ReturnType<AdminUpdateUserSubject['updateUser']>
-          >;
-        },
-        async getUser(uid) {
-          const existing = records.get(uid);
-          if (!existing) {
-            throw Object.assign(new Error('No user record'), { code: 'auth/user-not-found' });
-          }
-          return { ...existing, providerData: [...existing.providerData] } as unknown as Awaited<
-            ReturnType<AdminUpdateUserSubject['getUser']>
-          >;
-        },
+        createUser: (props) => adminAuth.createUser(props),
+        updateUser: (uid, props) => adminAuth.updateUser(uid, props),
+        getUser: (uid) => adminAuth.getUser(uid),
       };
       const updateObserved = await observeUpdateUserFields(updateSubject, 'unit-update');
       expect(updateObserved.missingUserError).toEqual({

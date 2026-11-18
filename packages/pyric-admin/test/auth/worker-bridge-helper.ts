@@ -14,7 +14,10 @@ import { initializeApp } from '../../src/app/index.js';
 import { getAuth } from '../../src/auth/index.js';
 
 export async function createWorkerBridgeRemoteAuth(appName: string): Promise<{
+  app: ReturnType<typeof initializeApp>;
   auth: ReturnType<typeof getAuth>;
+  sandbox: ReturnType<typeof initializeSandbox>;
+  remote: RemoteSandbox;
   dispose: () => void;
 }> {
   const sandbox = initializeSandbox();
@@ -71,7 +74,10 @@ export async function createWorkerBridgeRemoteAuth(appName: string): Promise<{
   });
   const app = initializeApp({ sandbox: remote }, appName);
   return {
+    app,
     auth: getAuth(app),
+    sandbox,
+    remote,
     dispose: () => {
       remote.dispose();
       sandbox.dispose();

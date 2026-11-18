@@ -144,9 +144,8 @@ export async function observeRevokeRefreshTokens(
 export const probe: Probe = {
   rig: 'admin-auth',
   requires: ['admin-auth', 'web-config'],
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'auth-admin#4',
+  rowIds: ['auth-admin#3a', 'auth-admin#4'],
   description:
     'firebase-admin/auth revokeRefreshTokens(uid) advances UserRecord.tokensValidAfterTime so prior ID tokens still pass verifyIdToken(token) and verifyIdToken(token, false) while rejecting verifyIdToken(token, true) with auth/id-token-revoked, forced client getIdToken(true) rejects with auth/user-token-expired, newly minted sessions pass verifyIdToken(token, true), and unknown UIDs reject with auth/user-not-found.',
   async observe(): Promise<Record<string, unknown>> {

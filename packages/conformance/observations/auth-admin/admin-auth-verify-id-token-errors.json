@@ -1,7 +1,9 @@
 {
   "name": "admin-auth-verify-id-token-errors",
-  "matrixRow": "",
-  "rowIds": [],
+  "matrixRow": "auth-admin#3a",
+  "rowIds": [
+    "auth-admin#3a"
+  ],
   "description": "firebase-admin/auth verifyIdToken rejection modes and error codes across non-string input, empty string, malformed JWT, missing kid, non-RS256 alg, wrong project audience, wrong issuer, and tampered RSA signature on a real Firebase ID token.",
   "observedAt": "2026-11-18T07:58:23.908Z",
   "adminSdkVersion": "13.10.0",
