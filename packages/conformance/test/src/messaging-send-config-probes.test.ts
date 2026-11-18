@@ -1,6 +1,7 @@
 import { deleteApp, initializeApp, type App } from 'firebase-admin/app';
 import { getMessaging, type Message } from 'firebase-admin/messaging';
 import { describe, expect, test } from 'bun:test';
+import { loadObservations } from '../../src/ledger.ts';
 import { loadModularProbes } from '../../src/sdk-probes.ts';
 import {
   discoverUncapturedStagedTargets,
@@ -136,11 +137,14 @@ describe('modular messaging-send config option probes (Slice 3 staged family)', 
       expect(probeRecord.description.length).toBeGreaterThan(20);
     }
 
+    const existingNames = new Set(loadObservations().map((obs) => obs.name));
     const pending = loadPendingRowLinkObservations();
     const uncaptured = discoverUncapturedStagedTargets().map((item) => item.observationName);
     for (const id of expectedConfigIds) {
       expect(pending.has(id)).toBe(true);
-      expect(uncaptured).toContain(id);
+      if (!existingNames.has(id)) {
+        expect(uncaptured).toContain(id);
+      }
     }
   });
 
