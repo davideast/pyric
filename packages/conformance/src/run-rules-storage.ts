@@ -6,7 +6,7 @@
  * conformance corpus (rules-corpus/storage/) and, when
  * credentialed, replays each scenario against the PRODUCTION Rules Test API via
  * `TestStorageRulesHandler` (the SAME `projects.test` endpoint the Firestore
- * runner uses — live-confirmed to accept Storage rulesets). One observation
+ * runner uses -- live-confirmed to accept Storage rulesets). One observation
  * JSON is written per scenario into
  * `observations/storage/rules-storage-<scenario.id>.json`. Production is the
  * source of truth: the captured `behavior` is a verdict table keyed by case
@@ -44,7 +44,10 @@ import {
   storageObservationName,
   type StorageScenario,
 } from '../rules-corpus/storage/index.ts';
-import { readObservationLinkage } from './observation-linkage.ts';
+import {
+  readObservationLinkage,
+  shouldIncludeProbeInUnfilteredRun,
+} from './observation-linkage.ts';
 import { resolvedFirebaseVersion } from './package-version.ts';
 import {
   captureRulesTestApiCompileCheck,
@@ -79,7 +82,7 @@ function observationPath(scenario: StorageScenario): string {
   return join(OBS_DIR, `${storageObservationName(scenario)}.json`);
 }
 
-/** Build the verdict table (case description → prod decision) for a scenario. */
+/** Build the verdict table (case description -> prod decision) for a scenario. */
 function verdictTable(
   scenario: StorageScenario,
   res: TestFirestoreRulesResult,
@@ -104,10 +107,13 @@ export function diagnosticTable(
 ): Record<string, { notes?: string[]; api?: TestResult['api'] }> {
   const table: Record<string, { notes?: string[]; api?: TestResult['api'] }> = {};
   for (const result of results) {
-    const entry = {
-      ...(result.notes.length > 0 ? { notes: result.notes } : {}),
-      ...(result.api ? { api: result.api } : {}),
-    };
+    const entry: { notes?: string[]; api?: TestResult['api'] } = {};
+    if (result.notes.length > 0) {
+      entry.notes = result.notes;
+    }
+    if (result.api) {
+      entry.api = result.api;
+    }
     if (Object.keys(entry).length > 0) table[result.description] = entry;
   }
   return table;
@@ -116,6 +122,7 @@ export function diagnosticTable(
 export function selectStorageScenarios(
   args: string[],
   scenarios: StorageScenario[] = ALL_RULES_STORAGE_SCENARIOS,
+  resolveObservationPath: (scenario: StorageScenario) => string = observationPath,
 ): StorageScenario[] {
   const cleaned = stripCaptureFlags(args);
   const requested: string[] = [];
@@ -133,7 +140,14 @@ export function selectStorageScenarios(
       requested.push(id);
     }
   }
-  if (requested.length === 0) return scenarios;
+  if (requested.length === 0) {
+    if (args.includes('--write')) {
+      return scenarios.filter((scenario) =>
+        shouldIncludeProbeInUnfilteredRun(scenario, resolveObservationPath(scenario)),
+      );
+    }
+    return scenarios;
+  }
 
   const byId = new Map(scenarios.map((scenario) => [scenario.id, scenario]));
   return requested.map((id) => {
@@ -158,7 +172,7 @@ function printInertPlan(scenarios: StorageScenario[]): void {
     totalCases += scenario.cases.length;
     console.log(
       `    - ${scenario.id.padEnd(28)} [${scenario.fm.padEnd(13)}] ` +
-        `${String(scenario.cases.length).padStart(2)} cases → ${storageObservationName(scenario)}.json`,
+        `${String(scenario.cases.length).padStart(2)} cases -> ${storageObservationName(scenario)}.json`,
     );
   }
   console.log(`\n  Total: ${scenarios.length} scenarios, ${totalCases} cases.`);
@@ -238,7 +252,7 @@ async function capture(scenarios: StorageScenario[]): Promise<void> {
     const allows = Object.values(behavior).filter((v) => v === 'ALLOW').length;
     const denies = Object.values(behavior).filter((v) => v === 'DENY').length;
     console.log(
-      `  ✓ ${scenario.id.padEnd(28)} allow=${allows} deny=${denies} → ${storageObservationName(scenario)}.json`,
+      `  [ok] ${scenario.id.padEnd(28)} allow=${allows} deny=${denies} -> ${storageObservationName(scenario)}.json`,
     );
   }
 
