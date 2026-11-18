@@ -4,9 +4,8 @@ import { withFirestoreProbeSession } from '../../src/sdk-probe-runtime.ts';
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: ['web-config', 'firestore-rules'],
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'firestore#78',
+  rowIds: ['firestore#78'],
   description:
     'average(field) returns null on empty collections, zero-match filtered queries, missing-field collections, and non-numeric field collections while sum(field) returns 0.',
   async observe() {

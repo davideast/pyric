@@ -1,7 +1,9 @@
 {
   "name": "firestore-getcountfromserver-data-shape",
-  "matrixRow": "",
-  "rowIds": [],
+  "matrixRow": "firestore#74",
+  "rowIds": [
+    "firestore#74"
+  ],
   "description": "getCountFromServer(query) returns an AggregateQuerySnapshot whose data() yields { count: N } across empty, populated, and limit-capped queries, preserving query identity and snapshot equality.",
   "observedAt": "2026-11-18T08:39:36.933Z",
   "fbSdkVersion": "12.19.0",

@@ -4,9 +4,8 @@ import { withFirestoreProbeSession } from '../../src/sdk-probe-runtime.ts';
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: ['web-config', 'firestore-rules'],
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'firestore#77',
+  rowIds: ['firestore#77'],
   description:
     'count(), sum(field), and average(field) compose under one getAggregateFromServer spec across dotted nested string paths and FieldPath instances, and expose AggregateField descriptor metadata.',
   async observe() {

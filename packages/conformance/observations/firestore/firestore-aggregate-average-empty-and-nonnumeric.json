@@ -1,7 +1,9 @@
 {
   "name": "firestore-aggregate-average-empty-and-nonnumeric",
-  "matrixRow": "",
-  "rowIds": [],
+  "matrixRow": "firestore#78",
+  "rowIds": [
+    "firestore#78"
+  ],
   "description": "average(field) returns null on empty collections, zero-match filtered queries, missing-field collections, and non-numeric field collections while sum(field) returns 0.",
   "observedAt": "2026-11-18T08:39:28.855Z",
   "fbSdkVersion": "12.19.0",

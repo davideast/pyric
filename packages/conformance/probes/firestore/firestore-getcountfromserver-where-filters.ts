@@ -4,9 +4,8 @@ import { withFirestoreProbeSession } from '../../src/sdk-probe-runtime.ts';
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: ['web-config', 'firestore-rules'],
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'firestore#75',
+  rowIds: ['firestore#75'],
   description:
     'getCountFromServer(query) honors equality, range, in-membership, composite or(), and zero-match where() filters.',
   async observe() {
