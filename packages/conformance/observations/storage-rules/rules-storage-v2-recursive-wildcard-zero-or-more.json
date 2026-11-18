@@ -1,0 +1,98 @@
+{
+  "name": "rules-storage-v2-recursive-wildcard-zero-or-more",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "Storage Rules Test API verdicts for corpus scenario \"v2-recursive-wildcard-zero-or-more\" (STORAGE-V2-RECURSIVE-WILDCARD-ZERO-OR-MORE). Pins that rules_version 2 recursive wildcard {allPaths=**} matches zero, one, and multiple remaining path segments.",
+  "observedAt": "2026-11-18T00:43:03.721Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "inputDigest": {
+    "algorithm": "sha256",
+    "value": "49203ca5a5c191a660ce55d1716e25a7c4f11e45313ec94a4469a441a64b971c"
+  },
+  "behavior": {
+    "v2 glob under /trees/{allPaths=**} matches zero remaining segments": "ALLOW",
+    "v2 glob under /trees/{allPaths=**} matches one remaining segment": "ALLOW",
+    "v2 glob under /trees/{allPaths=**} matches three remaining segments": "ALLOW",
+    "v2 glob after single-segment wildcard matches zero remaining segments": "ALLOW",
+    "v2 glob after single-segment wildcard matches nested remaining segments": "ALLOW",
+    "unmatched prefix outside glob tree denies": "DENY"
+  },
+  "diagnostics": {
+    "v2 glob under /trees/{allPaths=**} matches zero remaining segments": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 5,
+              "column": 22,
+              "currentOffset": 126,
+              "endOffset": 129
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "v2 glob under /trees/{allPaths=**} matches one remaining segment": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 5,
+              "column": 22,
+              "currentOffset": 126,
+              "endOffset": 129
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "v2 glob under /trees/{allPaths=**} matches three remaining segments": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 5,
+              "column": 22,
+              "currentOffset": 126,
+              "endOffset": 129
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "v2 glob after single-segment wildcard matches zero remaining segments": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 8,
+              "column": 22,
+              "currentOffset": 202,
+              "endOffset": 205
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "v2 glob after single-segment wildcard matches nested remaining segments": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 8,
+              "column": 22,
+              "currentOffset": 202,
+              "endOffset": 205
+            },
+            "value": true
+          }
+        ]
+      }
+    }
+  }
+}

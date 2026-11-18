@@ -1,0 +1,96 @@
+{
+  "name": "rules-storage-request-resource-content-type-equality",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "Storage Rules Test API verdicts for corpus scenario \"request-resource-content-type-equality\" (STORAGE-REQUEST-RESOURCE-CONTENT-TYPE-EQ). Pins exact case-sensitive MIME equality on request.resource.contentType against exact match, charset parameter, uppercase variant, different type, and omitted contentType.",
+  "observedAt": "2026-11-18T00:43:01.716Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "inputDigest": {
+    "algorithm": "sha256",
+    "value": "923654331bd15d0122f5487a81f09091649bbd0ef5f3d705e6898d24261bcb5c"
+  },
+  "behavior": {
+    "exact application/json contentType allows": "ALLOW",
+    "charset parameter suffix denies under exact equality": "DENY",
+    "uppercase MIME type denies under exact equality": "DENY",
+    "different MIME type text/plain denies": "DENY",
+    "omitted contentType denies": "DENY"
+  },
+  "diagnostics": {
+    "exact application/json contentType allows": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 5,
+              "column": 23,
+              "currentOffset": 118,
+              "endOffset": 124
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "charset parameter suffix denies under exact equality": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 5,
+              "column": 23,
+              "currentOffset": 118,
+              "endOffset": 124
+            },
+            "value": false
+          }
+        ]
+      }
+    },
+    "uppercase MIME type denies under exact equality": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 5,
+              "column": 23,
+              "currentOffset": 118,
+              "endOffset": 124
+            },
+            "value": false
+          }
+        ]
+      }
+    },
+    "different MIME type text/plain denies": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 5,
+              "column": 23,
+              "currentOffset": 118,
+              "endOffset": 124
+            },
+            "value": false
+          }
+        ]
+      }
+    },
+    "omitted contentType denies": {
+      "notes": [
+        "Error: storage.rules line [5], column [23]. Property contentType is undefined on object."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 5,
+          "column": 23,
+          "currentOffset": 118,
+          "endOffset": 124
+        }
+      }
+    }
+  }
+}

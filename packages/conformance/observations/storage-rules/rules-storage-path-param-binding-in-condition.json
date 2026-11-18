@@ -1,0 +1,96 @@
+{
+  "name": "rules-storage-path-param-binding-in-condition",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "Storage Rules Test API verdicts for corpus scenario \"path-param-binding-in-condition\" (STORAGE-PATH-PARAM-IN-CONDITION). Pins single and nested path-parameter bindings ({sessionId}, {userId}/{sessionId}) read directly inside allow condition expressions.",
+  "observedAt": "2026-11-18T00:43:00.889Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "inputDigest": {
+    "algorithm": "sha256",
+    "value": "2cd6c00655a23055974f32a626041ab43466124f69371f8162cac45eee15d1d7"
+  },
+  "behavior": {
+    "single path parameter {sessionId} matching request.auth.uid allows": "ALLOW",
+    "single path parameter {sessionId} differing from request.auth.uid denies": "DENY",
+    "single path parameter {sessionId} with anonymous caller denies": "DENY",
+    "nested path parameters {userId} and {sessionId} both matching allow": "ALLOW",
+    "nested path parameter {sessionId} mismatching metadata denies": "DENY"
+  },
+  "diagnostics": {
+    "single path parameter {sessionId} matching request.auth.uid allows": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 5,
+              "column": 22,
+              "currentOffset": 127,
+              "endOffset": 133
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "single path parameter {sessionId} differing from request.auth.uid denies": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 5,
+              "column": 22,
+              "currentOffset": 127,
+              "endOffset": 133
+            },
+            "value": false
+          }
+        ]
+      }
+    },
+    "single path parameter {sessionId} with anonymous caller denies": {
+      "notes": [
+        "Error: storage.rules line [5], column [22]. Property auth is undefined on object."
+      ],
+      "api": {
+        "errorPosition": {
+          "fileName": "storage.rules",
+          "line": 5,
+          "column": 22,
+          "currentOffset": 127,
+          "endOffset": 133
+        }
+      }
+    },
+    "nested path parameters {userId} and {sessionId} both matching allow": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 8,
+              "column": 24,
+              "currentOffset": 260,
+              "endOffset": 266
+            },
+            "value": true
+          }
+        ]
+      }
+    },
+    "nested path parameter {sessionId} mismatching metadata denies": {
+      "api": {
+        "visitedExpressions": [
+          {
+            "sourcePosition": {
+              "line": 8,
+              "column": 24,
+              "currentOffset": 260,
+              "endOffset": 266
+            },
+            "value": false
+          }
+        ]
+      }
+    }
+  }
+}
