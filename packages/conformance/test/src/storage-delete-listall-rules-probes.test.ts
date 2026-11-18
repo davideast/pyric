@@ -8,6 +8,7 @@ import {
 import {
   observeStorageListAllRootRef,
   probe as listAllRootProbe,
+  rootListOracleTarget,
   type StorageListAllRootSubject,
 } from '../../probes/storage/storage-listall-root-ref.ts';
 import {
@@ -154,6 +155,9 @@ describe('storage deleteObject, root listAll, and rules-enforcement staged probe
       prefixesSortedLexicographically: true,
       nextPageTokenIsUndefined: true,
     });
+    const rootTarget = rootListOracleTarget('demo-bucket', 'r1', 'uid_1');
+    expect(rootTarget.block).toContain('match /{allPaths=**} {\n      allow list:');
+    expect(rootTarget.freshRules).toContain('match /{allPaths=**} {\n      allow list:');
 
     const deniedOutcome = {
       threw: true,
