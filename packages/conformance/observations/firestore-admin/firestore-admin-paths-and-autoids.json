@@ -1,0 +1,51 @@
+{
+  "name": "firestore-admin-paths-and-autoids",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "firebase-admin/firestore db.collection(path), db.doc(path), col.doc(id?), col.add(data), and docRef.collection(name) validate odd/even slash-delimited paths synchronously, mint 20-character alphanumeric auto-IDs, and address nested subcollections.",
+  "observedAt": "2026-11-18T09:28:55.957Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "invalidPaths": {
+      "emptyCollectionThrows": true,
+      "evenSegmentCollectionThrows": true,
+      "doubleSlashCollectionThrows": true,
+      "emptyDocThrows": true,
+      "oddSegmentDocThrows": true,
+      "evenSegmentChildDocThrows": true
+    },
+    "autoIds": {
+      "sampleCount": 10,
+      "allDocAutoIdsTwentyAlnum": true,
+      "allDocAutoIdsUnique": true,
+      "addedDocAutoIdTwentyAlnum": true
+    },
+    "explicitDoc": {
+      "idMatches": true,
+      "endsWithExpectedSuffix": true,
+      "exists": true,
+      "data": {
+        "label": "explicit",
+        "order": 1
+      }
+    },
+    "addedDoc": {
+      "pathMatchesCollectionPrefix": true,
+      "exists": true,
+      "data": {
+        "label": "added",
+        "order": 2
+      }
+    },
+    "nestedSubcollection": {
+      "endsWithExpectedSuffix": true,
+      "exists": true,
+      "data": {
+        "stage": "nested",
+        "ok": true
+      }
+    }
+  },
+  "adminSdkVersion": "13.10.0"
+}
