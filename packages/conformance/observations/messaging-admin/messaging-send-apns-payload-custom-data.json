@@ -1,9 +1,11 @@
 {
   "name": "messaging-send-apns-payload-custom-data",
-  "matrixRow": "",
-  "rowIds": [],
+  "matrixRow": "interface ApnsPayload { aps; [customData] }",
+  "rowIds": [
+    "messaging-admin#22"
+  ],
   "description": "firebase-admin/messaging ApnsPayload: FCM accepts apns.payload carrying aps alongside arbitrary custom top-level keys, while non-object apns.payload fails client preflight with messaging/invalid-payload.",
-  "observedAt": "2026-11-18T00:42:52.798Z",
+  "observedAt": "2026-11-17T23:55:28.443Z",
   "adminSdkVersion": "13.10.0",
   "projectId": "digame-mas",
   "behavior": {

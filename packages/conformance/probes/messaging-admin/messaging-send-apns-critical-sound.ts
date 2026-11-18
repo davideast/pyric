@@ -77,9 +77,8 @@ export async function observeApnsCriticalSound(
 
 export const probe: Probe = {
   rig: 'messaging-send',
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: "interface CriticalSound { critical?; name; volume? }",
+  rowIds: ['messaging-admin#25'],
   description:
     'firebase-admin/messaging CriticalSound: FCM accepts aps.sound critical dictionary with name and volume in [0, 1], while empty name or out-of-range volume fails client preflight with messaging/invalid-payload.',
   async observe() {

@@ -1,9 +1,11 @@
 {
   "name": "messaging-send-apns-critical-sound",
-  "matrixRow": "",
-  "rowIds": [],
+  "matrixRow": "interface CriticalSound { critical?; name; volume? }",
+  "rowIds": [
+    "messaging-admin#25"
+  ],
   "description": "firebase-admin/messaging CriticalSound: FCM accepts aps.sound critical dictionary with name and volume in [0, 1], while empty name or out-of-range volume fails client preflight with messaging/invalid-payload.",
-  "observedAt": "2026-11-18T00:42:51.055Z",
+  "observedAt": "2026-11-17T23:55:27.160Z",
   "adminSdkVersion": "13.10.0",
   "projectId": "digame-mas",
   "behavior": {

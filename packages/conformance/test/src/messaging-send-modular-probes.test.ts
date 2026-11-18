@@ -1,8 +1,8 @@
 import { describe, expect, test } from 'bun:test';
 import { FirebaseMessagingError } from 'firebase-admin/messaging';
 import { loadModularProbes } from '../../src/sdk-probes.ts';
+import { loadPendingRowLinkObservations } from '../../src/staged-captures.ts';
 import { selectMessagingSendTargets } from '../../src/messaging-send-probes.ts';
-import { expectStagedUntilCaptured } from './staged-capture-assertions.ts';
 import {
   extractMessagingErrorDetails,
   summarizeBatchResponse,
@@ -42,8 +42,8 @@ function makeMessagingError(code: string, message: string): FirebaseMessagingErr
   return err;
 }
 
-describe('modular messaging-send probes (Slice 2 staged family)', () => {
-  test('registers all six staged probes under rig messaging-send with pendingRowLink and empty rowIds', async () => {
+describe('modular messaging-send probes (Slice 2 family)', () => {
+  test('registers all six row-linked probes under rig messaging-send with populated rowIds', async () => {
     const modular = await loadModularProbes('messaging-send');
     const ids = modular.map((entry) => entry.id);
     const expectedIds = [
@@ -68,46 +68,72 @@ describe('modular messaging-send probes (Slice 2 staged family)', () => {
     ];
     for (const probeRecord of probes) {
       expect(probeRecord.rig).toBe('messaging-send');
-      expect(probeRecord.pendingRowLink).toBe(true);
-      expect(probeRecord.matrixRow).toBe('');
-      expect(probeRecord.rowIds).toEqual([]);
+      expect(probeRecord.pendingRowLink).toBeUndefined();
+      expect(probeRecord.matrixRow.length).toBeGreaterThan(0);
+      expect(probeRecord.rowIds.length).toBeGreaterThan(0);
       expect(probeRecord.description.length).toBeGreaterThan(20);
     }
 
-    expectStagedUntilCaptured(expectedIds, {
-      rig: 'messaging-send',
-      filterFlag: '--probe',
-    });
+    const pending = loadPendingRowLinkObservations();
+    for (const id of expectedIds) {
+      expect(pending.has(id)).toBe(false);
+    }
   });
 
   test('selectMessagingSendTargets skips uncaptured pendingRowLink probes on unfiltered write runs and runs explicit --probe selectors', async () => {
     const modular = await loadModularProbes('messaging-send');
+    const syntheticStaged = [
+      ...modular,
+      {
+        id: 'messaging-send-synthetic-staged',
+        surfaceDir: 'messaging-admin',
+        filePath: 'packages/conformance/probes/messaging-admin/messaging-send-synthetic-staged.ts',
+        probe: {
+          ...multicastBatchProbe,
+          pendingRowLink: true,
+          matrixRow: '',
+          rowIds: [],
+        },
+      },
+      {
+        id: 'messaging-send-synthetic-captured',
+        surfaceDir: 'messaging-admin',
+        filePath: 'packages/conformance/probes/messaging-admin/messaging-send-synthetic-captured.ts',
+        probe: {
+          ...multicastBatchProbe,
+          pendingRowLink: true,
+          matrixRow: '',
+          rowIds: [],
+        },
+      },
+    ];
     const unfilteredWrite = selectMessagingSendTargets({
       args: [],
-      modularProbes: modular,
+      modularProbes: syntheticStaged,
       includeUncapturedStaged: false,
-      observationExists: (name) => name === 'messaging-send-sendeach-mixed-batch',
+      observationExists: (name) => name === 'messaging-send-synthetic-captured',
     });
     const unfilteredNames = unfilteredWrite.map((target) => target.name);
     expect(unfilteredNames).toContain('messaging-send-topic-accepted');
-    expect(unfilteredNames).toContain('messaging-send-sendeach-mixed-batch');
-    expect(unfilteredNames).not.toContain('messaging-send-multicast-batch');
+    expect(unfilteredNames).toContain('messaging-send-multicast-batch');
+    expect(unfilteredNames).toContain('messaging-send-synthetic-captured');
+    expect(unfilteredNames).not.toContain('messaging-send-synthetic-staged');
 
     const previewAll = selectMessagingSendTargets({
       args: [],
-      modularProbes: modular,
+      modularProbes: syntheticStaged,
       includeUncapturedStaged: true,
       observationExists: () => false,
     });
-    expect(previewAll.map((target) => target.name)).toContain('messaging-send-multicast-batch');
+    expect(previewAll.map((target) => target.name)).toContain('messaging-send-synthetic-staged');
 
     const explicit = selectMessagingSendTargets({
-      args: ['--probe', 'messaging-send-multicast-batch'],
-      modularProbes: modular,
+      args: ['--probe', 'messaging-send-synthetic-staged'],
+      modularProbes: syntheticStaged,
       includeUncapturedStaged: false,
       observationExists: () => false,
     });
-    expect(explicit.map((target) => target.name)).toEqual(['messaging-send-multicast-batch']);
+    expect(explicit.map((target) => target.name)).toEqual(['messaging-send-synthetic-staged']);
   });
 
   test('extractMessagingErrorDetails and summarizeBatchResponse normalize resource names and error metadata', () => {

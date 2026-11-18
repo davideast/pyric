@@ -49,9 +49,8 @@ export async function observeSendEachMixedBatch(
 
 export const probe: Probe = {
   rig: 'messaging-send',
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: "Messaging.sendEach(messages, dryRun?), BatchResponse, SendResponse, and FirebaseMessagingError",
+  rowIds: ['messaging-admin#5', 'messaging-admin#36', 'messaging-admin#37', 'messaging-admin#38'],
   description:
     'firebase-admin/messaging sendEach(messages, dryRun?): ordered BatchResponse and SendResponse shapes across a valid topic send, a wire-rejected invalid token, and a client-invalid empty topic settling per-index as FirebaseMessagingError.',
   async observe() {

@@ -83,9 +83,8 @@ export async function observeApnsApsAlert(
 
 export const probe: Probe = {
   rig: 'messaging-send',
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: "interface ApsAlert",
+  rowIds: ['messaging-admin#24'],
   description:
     'firebase-admin/messaging ApsAlert: FCM accepts title, subtitle, body, localization keys, and launchImage, while specifying locArgs, titleLocArgs, or subtitleLocArgs without its matching key fails client preflight with messaging/invalid-payload.',
   async observe() {

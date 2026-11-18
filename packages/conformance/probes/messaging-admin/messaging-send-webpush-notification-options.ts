@@ -59,9 +59,8 @@ export async function observeWebpushNotificationOptions(
 
 export const probe: Probe = {
   rig: 'messaging-send',
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: "interface WebpushNotification",
+  rowIds: ['messaging-admin#20'],
   description:
     'firebase-admin/messaging WebpushNotification and webpush.data: FCM accepts Web Notification API fields plus open-ended index-signature keys, while non-string webpush.data values fail client preflight with messaging/invalid-payload.',
   async observe() {

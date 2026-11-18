@@ -94,9 +94,8 @@ export async function observeAdminEntryAccessors(
 
 export const probe: Probe = {
   rig: 'messaging-send',
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: "getMessaging(app?), messaging(app?), and Messaging.app",
+  rowIds: ['messaging-admin#1', 'messaging-admin#2', 'messaging-admin#3'],
   description:
     'firebase-admin/messaging getMessaging(app?), admin.messaging(app?), and Messaging.app: default vs named app resolution, per-app instance caching across modular and namespace entrypoints, invalid-app TypeError guard, and live dryRun topic send.',
   async observe() {

@@ -1,9 +1,14 @@
 {
   "name": "messaging-send-sendeach-mixed-batch",
-  "matrixRow": "",
-  "rowIds": [],
+  "matrixRow": "Messaging.sendEach(messages, dryRun?), BatchResponse, SendResponse, and FirebaseMessagingError",
+  "rowIds": [
+    "messaging-admin#5",
+    "messaging-admin#36",
+    "messaging-admin#37",
+    "messaging-admin#38"
+  ],
   "description": "firebase-admin/messaging sendEach(messages, dryRun?): ordered BatchResponse and SendResponse shapes across a valid topic send, a wire-rejected invalid token, and a client-invalid empty topic settling per-index as FirebaseMessagingError.",
-  "observedAt": "2026-11-18T00:42:56.944Z",
+  "observedAt": "2026-11-17T23:55:30.937Z",
   "adminSdkVersion": "13.10.0",
   "projectId": "digame-mas",
   "behavior": {

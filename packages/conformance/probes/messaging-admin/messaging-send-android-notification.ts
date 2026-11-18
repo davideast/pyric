@@ -84,9 +84,8 @@ export async function observeAndroidNotification(
 
 export const probe: Probe = {
   rig: 'messaging-send',
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: "interface AndroidNotification",
+  rowIds: ['messaging-admin#28'],
   description:
     'firebase-admin/messaging AndroidNotification: FCM accepts Android notification fields including #RRGGBB color, Date eventTimestamp, vibrateTimingsMillis, and localization keys, while invalid color, missing bodyLocKey, or non-Date eventTimestamp fail client preflight with messaging/invalid-payload.',
   async observe() {

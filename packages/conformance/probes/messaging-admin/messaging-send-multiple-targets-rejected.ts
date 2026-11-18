@@ -66,9 +66,8 @@ export async function observeMultipleTargetsRejected(
 
 export const probe: Probe = {
   rig: 'messaging-send',
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: "type Message = TokenMessage | TopicMessage | ConditionMessage",
+  rowIds: ['messaging-admin#10'],
   description:
     'firebase-admin/messaging Message target union exclusivity: payloads specifying more than one of token, topic, or condition fail client preflight with messaging/invalid-payload and fail raw FCM v1 wire validation with HTTP 400 INVALID_ARGUMENT.',
   async observe() {

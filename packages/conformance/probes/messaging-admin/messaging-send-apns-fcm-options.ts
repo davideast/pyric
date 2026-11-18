@@ -67,9 +67,8 @@ export async function observeApnsFcmOptions(
 
 export const probe: Probe = {
   rig: 'messaging-send',
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: "interface ApnsFcmOptions { analyticsLabel?; imageUrl? }",
+  rowIds: ['messaging-admin#26'],
   description:
     'firebase-admin/messaging ApnsFcmOptions: FCM accepts analyticsLabel and imageUrl (mapped to wire image), while malformed URLs or simultaneous imageUrl and image keys fail client preflight with messaging/invalid-payload.',
   async observe() {

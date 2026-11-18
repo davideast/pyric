@@ -60,9 +60,8 @@ export async function observeAndroidConfig(
 
 export const probe: Probe = {
   rig: 'messaging-send',
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: "interface AndroidConfig",
+  rowIds: ['messaging-admin#27'],
   description:
     'firebase-admin/messaging AndroidConfig: FCM accepts collapseKey, priority, millisecond ttl, data, and directBootOk, while negative ttl or non-string android.data values fail client preflight with messaging/invalid-payload.',
   async observe() {

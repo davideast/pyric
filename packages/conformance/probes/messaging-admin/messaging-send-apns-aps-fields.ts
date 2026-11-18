@@ -62,9 +62,8 @@ export async function observeApnsApsFields(
 
 export const probe: Probe = {
   rig: 'messaging-send',
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: "interface Aps { alert?; badge?; sound?; contentAvailable?; mutableContent?; category?; threadId?; [customData] }",
+  rowIds: ['messaging-admin#23'],
   description:
     'firebase-admin/messaging Aps dictionary: transforms camelCase contentAvailable, mutableContent, and threadId into APNs wire keys accepted by FCM, and rejects simultaneous camelCase and hyphenated keys with messaging/invalid-payload.',
   async observe() {

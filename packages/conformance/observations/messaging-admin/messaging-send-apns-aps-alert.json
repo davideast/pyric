@@ -1,9 +1,11 @@
 {
   "name": "messaging-send-apns-aps-alert",
-  "matrixRow": "",
-  "rowIds": [],
+  "matrixRow": "interface ApsAlert",
+  "rowIds": [
+    "messaging-admin#24"
+  ],
   "description": "firebase-admin/messaging ApsAlert: FCM accepts title, subtitle, body, localization keys, and launchImage, while specifying locArgs, titleLocArgs, or subtitleLocArgs without its matching key fails client preflight with messaging/invalid-payload.",
-  "observedAt": "2026-11-18T00:42:48.515Z",
+  "observedAt": "2026-11-17T23:55:25.302Z",
   "adminSdkVersion": "13.10.0",
   "projectId": "digame-mas",
   "behavior": {

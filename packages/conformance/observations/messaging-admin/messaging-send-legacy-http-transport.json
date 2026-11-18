@@ -1,9 +1,11 @@
 {
   "name": "messaging-send-legacy-http-transport",
-  "matrixRow": "",
-  "rowIds": [],
+  "matrixRow": "Messaging.enableLegacyHttpTransport(): void",
+  "rowIds": [
+    "messaging-admin#9"
+  ],
   "description": "firebase-admin/messaging Messaging.enableLegacyHttpTransport(): returns undefined and switches sendEach to HTTP/1.1 transport with identical BatchResponse semantics.",
-  "observedAt": "2026-11-18T00:42:54.729Z",
+  "observedAt": "2026-11-17T23:55:29.631Z",
   "adminSdkVersion": "13.10.0",
   "projectId": "digame-mas",
   "behavior": {

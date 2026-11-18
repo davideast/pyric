@@ -31,9 +31,8 @@ export async function observeLegacyHttpTransport(
 
 export const probe: Probe = {
   rig: 'messaging-send',
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: "Messaging.enableLegacyHttpTransport(): void",
+  rowIds: ['messaging-admin#9'],
   description:
     'firebase-admin/messaging Messaging.enableLegacyHttpTransport(): returns undefined and switches sendEach to HTTP/1.1 transport with identical BatchResponse semantics.',
   async observe() {

@@ -1,9 +1,11 @@
 {
   "name": "messaging-send-android-notification",
-  "matrixRow": "",
-  "rowIds": [],
+  "matrixRow": "interface AndroidNotification",
+  "rowIds": [
+    "messaging-admin#28"
+  ],
   "description": "firebase-admin/messaging AndroidNotification: FCM accepts Android notification fields including #RRGGBB color, Date eventTimestamp, vibrateTimingsMillis, and localization keys, while invalid color, missing bodyLocKey, or non-Date eventTimestamp fail client preflight with messaging/invalid-payload.",
-  "observedAt": "2026-11-18T00:42:47.683Z",
+  "observedAt": "2026-11-17T23:55:24.704Z",
   "adminSdkVersion": "13.10.0",
   "projectId": "digame-mas",
   "behavior": {

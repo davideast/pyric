@@ -95,9 +95,8 @@ export async function observeAndroidLightSettings(
 
 export const probe: Probe = {
   rig: 'messaging-send',
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: "interface LightSettings { color; lightOnDurationMillis; lightOffDurationMillis }",
+  rowIds: ['messaging-admin#29'],
   description:
     'firebase-admin/messaging LightSettings: FCM accepts #RRGGBB and #RRGGBBAA LED colors with millisecond on/off durations, while negative durations or malformed hex colors fail client preflight with messaging/invalid-payload.',
   async observe() {

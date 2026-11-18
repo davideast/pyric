@@ -57,9 +57,8 @@ export async function observeAndroidFcmOptions(
 
 export const probe: Probe = {
   rig: 'messaging-send',
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: "interface AndroidFcmOptions { analyticsLabel? }",
+  rowIds: ['messaging-admin#30'],
   description:
     'firebase-admin/messaging AndroidFcmOptions: FCM accepts android.fcmOptions.analyticsLabel, while non-string values fail client preflight with messaging/invalid-payload and >50-char labels fail FCM v1 wire validation with HTTP 400 INVALID_ARGUMENT.',
   async observe() {

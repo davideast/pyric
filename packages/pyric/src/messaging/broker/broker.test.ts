@@ -15,7 +15,7 @@ import { initializeSandbox } from '../../sandbox/index.js';
 import type { SandboxEvent, ServiceMutationEvent } from '../../sandbox/types/index.js';
 import { MessagingBroker } from './broker.js';
 import { getMessagingBroker } from './index.js';
-import { BrokerSendError } from './envelopes.js';
+import { BrokerSendError, multipleTargetsEnvelope } from './envelopes.js';
 import { EMPIRICAL_DATA_CAP_BYTES, parseCondition } from './validate.js';
 
 const OBS_DIR = join(import.meta.dir, '..', '..', '..', '..', '..', 'packages', 'conformance', 'observations');
@@ -107,6 +107,36 @@ describe('messaging broker — intake validation (captured envelopes, byte-match
       message: { topic: 'pyric-oracle-messaging-probe', data: { p: 'x'.repeat(8192) } },
     },
   ];
+
+  it('byte-matches messaging-send-multiple-targets-rejected wire oneof envelope and messaging-send-android-fcm-options oversized analyticsLabel envelope', () => {
+    const multiWire = obs('messaging-send-multiple-targets-rejected').wireTopicAndCondition;
+    const multiEnv = multipleTargetsEnvelope('condition');
+    expect(multiEnv.status).toBe(multiWire.status);
+    expect(multiEnv.error).toEqual(multiWire.error);
+
+    const broker = new MessagingBroker();
+    const androidWire = obs('messaging-send-android-fcm-options').wireOversizedLabel51;
+    const androidErr = rejectionOf(() =>
+      broker.send({
+        topic: 'pyric-oracle-messaging-probe',
+        android: { fcmOptions: { analyticsLabel: 'a'.repeat(51) } },
+      }),
+    );
+    expect(androidErr.envelope.status).toBe(androidWire.status);
+    expect(androidErr.envelope.error).toEqual(androidWire.error);
+
+    const topFcmWire = obs('messaging-send-fcm-options-analytics-label').wireOversizedLabel51;
+    expect(topFcmWire.status).toBe(200);
+    expect(() =>
+      broker.send(
+        {
+          topic: 'pyric-oracle-messaging-probe',
+          fcmOptions: { analyticsLabel: 'a'.repeat(51) },
+        },
+        { validateOnly: true },
+      ),
+    ).not.toThrow();
+  });
 
   for (const { observation, message } of cases) {
     it(`byte-matches ${observation} (including per-case detail ordering)`, () => {

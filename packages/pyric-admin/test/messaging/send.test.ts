@@ -1,9 +1,9 @@
 /**
- * `pyric-admin/messaging` — single `send(message, dryRun?)` on the sandbox arm.
+ * `pyric-admin/messaging` -- single `send(message, dryRun?)` on the sandbox arm.
  *
  * Covers the send-plane accept shapes (topic/condition numeric resource name,
  * token UUID-form resource name), dryRun-vs-real parity through the broker
- * (identical shape, identical validation — a rejected message rejects the same
+ * (identical shape, identical validation -- a rejected message rejects the same
  * way under dryRun), and the wrapped rejection envelopes for every captured
  * fault family, mapped to firebase-admin's client error codes.
  *
@@ -112,14 +112,14 @@ describe('send -- dryRun vs real parity', () => {
     expect(RESOURCE_NAME.test(dry)).toBe(true);
   });
 
-  it('dryRun returns the SAME shape as a real send (token → UUID)', async () => {
+  it('dryRun returns the SAME shape as a real send (token -> UUID)', async () => {
     const { svc, broker } = freshMessaging();
     const token = broker.getTokenFor('reg-1');
     expect(UUID_NAME.test(await svc.send({ token }))).toBe(true);
     expect(UUID_NAME.test(await svc.send({ token }, true))).toBe(true);
   });
 
-  it('dryRun runs the identical validation path — a bad message rejects under dryRun too', async () => {
+  it('dryRun runs the identical validation path -- a bad message rejects under dryRun too', async () => {
     const { svc } = freshMessaging();
     let real: unknown;
     let dry: unknown;
@@ -138,7 +138,7 @@ describe('send -- dryRun vs real parity', () => {
   });
 });
 
-describe('send — wrapped rejection envelopes', () => {
+describe('send -- wrapped rejection envelopes', () => {
   async function rejectionOf(message: Record<string, unknown>): Promise<FirebaseMessagingError> {
     const { svc } = freshMessaging();
     let err: unknown;
@@ -151,28 +151,29 @@ describe('send — wrapped rejection envelopes', () => {
     return err as FirebaseMessagingError;
   }
 
-  it('no target → invalid-argument, with the captured "Recipient" message', async () => {
+  it('no target -> invalid-argument, with the captured "Recipient" message', async () => {
     const err = await rejectionOf({});
     expect(err.code).toBe('messaging/invalid-argument');
     expect(err.message).toBe('Recipient of the message is not set.');
   });
 
-  it('multiple targets → invalid-argument', async () => {
+  it('multiple targets -> invalid-payload, matching firebase-admin preflight', async () => {
     const err = await rejectionOf({ token: 'a:APA91bZ', topic: 'oracle-topic' });
-    expect(err.code).toBe('messaging/invalid-argument');
+    expect(err.code).toBe('messaging/invalid-payload');
+    expect(err.message).toBe('Exactly one of topic, token or condition is required');
   });
 
-  it('malformed token → invalid-argument', async () => {
+  it('malformed token -> invalid-argument', async () => {
     const err = await rejectionOf({ token: 'not-a-valid-fcm-token' });
     expect(err.code).toBe('messaging/invalid-argument');
   });
 
-  it('well-formed unregistered token → registration-token-not-registered (the UNREGISTERED map)', async () => {
+  it('well-formed unregistered token -> registration-token-not-registered (the UNREGISTERED map)', async () => {
     const err = await rejectionOf({ token: 'aaaa:APA91bNEVERMINTED' });
     expect(err.code).toBe('messaging/registration-token-not-registered');
   });
 
-  it('a minted-then-deleted token → registration-token-not-registered', async () => {
+  it('a minted-then-deleted token -> registration-token-not-registered', async () => {
     const { svc, broker } = freshMessaging();
     const token = broker.getTokenFor('reg-dead');
     broker.deleteTokenFor('reg-dead');
@@ -185,17 +186,17 @@ describe('send — wrapped rejection envelopes', () => {
     expect((err as FirebaseMessagingError).code).toBe('messaging/registration-token-not-registered');
   });
 
-  it('invalid topic name → invalid-argument', async () => {
+  it('invalid topic name -> invalid-argument', async () => {
     const err = await rejectionOf({ topic: 'bad#topic!name', notification: { title: 't' } });
     expect(err.code).toBe('messaging/invalid-argument');
   });
 
-  it('malformed condition → invalid-argument', async () => {
+  it('malformed condition -> invalid-argument', async () => {
     const err = await rejectionOf({ condition: "'a' in topics &&", data: { k: 'v' } });
     expect(err.code).toBe('messaging/invalid-argument');
   });
 
-  it('/topics/-prefixed literal in condition → invalid-argument', async () => {
+  it('/topics/-prefixed literal in condition -> invalid-argument', async () => {
     const err = await rejectionOf({ condition: "'/topics/alpha' in topics", data: { k: 'v' } });
     expect(err.code).toBe('messaging/invalid-argument');
   });
@@ -216,7 +217,7 @@ describe('send — wrapped rejection envelopes', () => {
     expect(ids).toEqual(['precedence']);
   });
 
-  it('non-numeric webpush TTL → invalid-argument', async () => {
+  it('non-numeric webpush TTL -> invalid-argument', async () => {
     const err = await rejectionOf({ topic: 'oracle-topic', webpush: { headers: { TTL: 'not-a-number' } } });
     expect(err.code).toBe('messaging/invalid-argument');
   });
