@@ -174,3 +174,36 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
           GH_TOKEN: ${{ secrets.MERGE_QUEUE_TOKEN || secrets.MERQUE_QUEUE_TOKEN || github.token }}
         run: bun scripts/ci/oracle-capture-pr.ts open-pr
+
+  reconcile-diverted-prs:
+    name: Auto-close superseded diverted capture PRs
+    needs: [capture, open-pr]
+    if: >-
+      always() &&
+      github.event_name != 'pull_request' &&
+      github.ref == 'refs/heads/main' &&
+      needs.capture.result != 'cancelled' &&
+      needs['open-pr'].result != 'cancelled'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+          token: ${{ secrets.MERGE_QUEUE_TOKEN || secrets.MERQUE_QUEUE_TOKEN || github.token }}
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.11'
+      - name: Close superseded diverted capture PRs
+        env:
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
+          GITHUB_REF: ${{ github.ref }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          PAT_TOKEN: ${{ secrets.MERGE_QUEUE_TOKEN || secrets.MERQUE_QUEUE_TOKEN }}
+          GITHUB_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ github.token }}
+        run: bun scripts/ci/oracle-capture-pr.ts reconcile-diverted
