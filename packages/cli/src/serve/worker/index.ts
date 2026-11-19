@@ -203,7 +203,7 @@ export {
 
 // RTDB bridge families are exported directly from their owning modules. This
 // public package index is the sole aggregation point for the worker surface.
-export { rtdbGetDatabase, rtdbRef, rtdbRefFromURL, rtdbChild } from './client/rtdb-references.js';
+export { rtdbGetDatabase, rtdbRef, rtdbChild } from './client/rtdb-references.js';
 export { rtdbGet } from './client/rtdb-reads.js';
 export {
   rtdbSet,
@@ -231,7 +231,6 @@ export {
 export {
   rtdbServerTimestamp,
   rtdbConnectDatabaseEmulator,
-  rtdbEnableLogging,
 } from './client/rtdb-controls.js';
 export {
   adminReadRtdbState,

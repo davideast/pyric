@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'bun:test';
 import type * as fdb from 'firebase/database';
 import * as client from '../../../../src/serve/worker/index.js';
+import { rtdbEnableLogging } from '../../../../src/serve/worker/client/rtdb-controls.js';
+import { rtdbRefFromURL } from '../../../../src/serve/worker/client/rtdb-references.js';
 import {
   observeClientEmulatorContract,
   observeClientLoggingContract,
@@ -39,7 +41,7 @@ for (const [planeLabel, createContext] of PLANES) {
       const logging = await observeClientLoggingContract({
         db: ctx.db as unknown as fdb.Database,
         basePath: `${ctx.base}/emu_logging`,
-        enableLogging: client.rtdbEnableLogging,
+        enableLogging: rtdbEnableLogging,
         ref: rtdb.ref,
         get: rtdb.get,
         set: rtdb.set,
@@ -64,7 +66,7 @@ for (const [planeLabel, createContext] of PLANES) {
         connectDatabaseEmulator:
           client.rtdbConnectDatabaseEmulator as unknown as typeof fdb.connectDatabaseEmulator,
         ref: rtdb.ref,
-        refFromURL: client.rtdbRefFromURL as unknown as typeof fdb.refFromURL,
+        refFromURL: rtdbRefFromURL as unknown as typeof fdb.refFromURL,
       });
 
       expect({ logging, emulator }).toEqual(observed);
