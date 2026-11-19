@@ -8,6 +8,7 @@ import {
 } from 'pyric/sandbox/internal';
 import type { PyricAdminApp } from '../app/index.js';
 import type { AdminServiceLifecycle } from '../app/lifecycle.js';
+import type { DatabaseRulesControls } from './admin-rules.js';
 import {
   isAdminReference,
   type Database,
@@ -64,6 +65,7 @@ export function buildDatabaseShell(
   refFactory: (db: Database, path: string, urlMeta: DatabaseUrlMetadata) => Reference,
   connection?: DatabaseConnectionControls,
   lifecycle?: AdminServiceLifecycle,
+  rulesControls?: DatabaseRulesControls,
 ): Database {
   let activeUrlMeta: DatabaseUrlMetadata = {
     expectedHost: urlMeta.expectedHost,
@@ -107,13 +109,28 @@ export function buildDatabaseShell(
       return refFactory(db as unknown as Database, location.path, activeUrlMeta);
     },
     getRules(): Promise<string> {
-      throw new Error('pyric-admin/database sandbox: getRules not implemented');
+      assertDatabaseActive('getRules');
+      instanceStarted = true;
+      if (rulesControls === undefined) {
+        return Promise.reject(new Error('pyric-admin/database sandbox: getRules not configured'));
+      }
+      return rulesControls.getRules();
     },
     getRulesJSON(): Promise<object> {
-      throw new Error('pyric-admin/database sandbox: getRulesJSON not implemented');
+      assertDatabaseActive('getRulesJSON');
+      instanceStarted = true;
+      if (rulesControls === undefined) {
+        return Promise.reject(new Error('pyric-admin/database sandbox: getRulesJSON not configured'));
+      }
+      return rulesControls.getRulesJSON();
     },
-    setRules(_source: string | object | Buffer): Promise<void> {
-      throw new Error('pyric-admin/database sandbox: setRules not implemented');
+    setRules(source: string | object | Buffer): Promise<void> {
+      assertDatabaseActive('setRules');
+      instanceStarted = true;
+      if (rulesControls === undefined) {
+        return Promise.reject(new Error('pyric-admin/database sandbox: setRules not configured'));
+      }
+      return rulesControls.setRules(source);
     },
     useEmulator(host: string, port: number, options: { mockUserToken?: unknown } = {}): void {
       assertDatabaseActive('useEmulator');

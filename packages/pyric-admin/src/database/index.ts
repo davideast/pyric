@@ -16,7 +16,6 @@ import {
   type DatabaseInstance,
 } from 'pyric/sandbox/internal';
 import { increment, serverTimestamp } from 'pyric/database';
-import { deferredExport } from 'pyric/app/internal';
 import {
   ADMIN_APP_TARGET,
   type PyricAdminApp,
@@ -34,6 +33,7 @@ import { getRemoteDatabase } from './remote-database.js';
 import type { Database } from './types.js';
 
 export { FirebaseDatabaseError } from './error.js';
+export { enableLogging } from './logging.js';
 export type {
   Database,
   DataSnapshot,
@@ -43,9 +43,6 @@ export type {
   Reference,
   ThenableReference,
 } from './types.js';
-
-/** `firebase-admin/database`'s `enableLogging` (deferred in the sandbox). */
-export const enableLogging = deferredExport('pyric-admin/database', 'enableLogging');
 
 /** Mirror of `firebase-admin/database`'s `ServerValue` constant and sentinel constructors. */
 export const ServerValue: {

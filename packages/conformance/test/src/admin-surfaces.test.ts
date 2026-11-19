@@ -46,7 +46,9 @@ describe('admin SDK surfaces: auth-admin, firestore-admin, rtdb-admin', () => {
     for (const surface of ['auth-admin', 'firestore-admin', 'rtdb-admin'] as const) {
       const entries = ledger.entries.filter((e) => e.surface === surface);
       expect(entries.length, `${surface} should have thorough rows`).toBeGreaterThanOrEqual(8);
-      expect(entries.some((e) => e.status === 'unsupported')).toBe(true);
+      if (surface !== 'rtdb-admin') {
+        expect(entries.some((e) => e.status === 'unsupported')).toBe(true);
+      }
 
       for (const entry of entries) {
         if (entry.isCaptureProven) {
@@ -77,6 +79,7 @@ describe('admin SDK surfaces: auth-admin, firestore-admin, rtdb-admin', () => {
     expect(byId.get('firestore-admin#11')?.status).toBe('unsupported');
     expect(byId.get('rtdb-admin#5')?.status).toBe('conforms');
     expect(byId.get('rtdb-admin#7')?.status).toBe('conforms');
+    expect(byId.get('rtdb-admin#8')?.status).toBe('conforms');
     expect(byId.get('rtdb-admin#9')?.status).toBe('conforms');
     expect(byId.get('rtdb-admin#10')?.status).toBe('conforms');
   });

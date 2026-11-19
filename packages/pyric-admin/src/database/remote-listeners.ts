@@ -35,7 +35,7 @@ import {
 
 const REMOTE_ADMIN_LENS = { mode: 'admin' } as const;
 
-export interface RemoteWireEntry {
+interface RemoteWireEntry {
   key: string;
   value: unknown;
   priority?: string | number | null;
@@ -60,6 +60,8 @@ export interface RemoteListenTarget {
   readonly refAt: (path: string) => Reference;
   readonly observeConnection?: (next: (online: boolean) => void) => () => void;
   readonly waitConnectionBarrier?: () => Promise<void> | null;
+  readonly onWireSnapshot?: (canonical: string, wire: RemoteWireSnapshot) => void;
+  readonly readWarmCachedValue?: (canonical: string) => { found: boolean; stored: JsonValue };
 }
 
 function isJsonRecord(candidate: JsonValue): candidate is { [key: string]: JsonValue } {
@@ -319,6 +321,9 @@ export function onceRemoteListener(
         resolveOnce(childSnap, first.previousChildName);
         return;
       }
+      if (isDefaultQuerySpec(spec)) {
+        target.onWireSnapshot?.(target.canonical, wire);
+      }
       const snap = hydrateRemoteWireSnapshot(target.refAt, target.canonical, wire);
       resolveOnce(snap, null);
     };
@@ -397,6 +402,8 @@ export function attachRemoteListener(
     normalizedContext,
   );
   let unsub: (() => void) | undefined;
+  let hasDeliveredValue = false;
+  let lastDeliveredValue: JsonValue = null;
   entry.detach = () => {
     if (unsub !== undefined) {
       const fn = unsub;
@@ -408,6 +415,7 @@ export function attachRemoteListener(
   const handleWireDelivery = (wire: RemoteWireSnapshot): void => {
     if (!entry.active) return;
     if (differ !== null) {
+      entry.initialDelivered = true;
       const deltas = differ.consume(wire);
       for (const delta of deltas) {
         if (!entry.active) break;
@@ -422,9 +430,43 @@ export function attachRemoteListener(
       }
       return;
     }
+    if (isDefaultQuerySpec(spec)) {
+      target.onWireSnapshot?.(target.canonical, wire);
+      const wireStored = normalizeNode(wire.value ?? null);
+      const wireExport = (wire.exportValue ?? null) as JsonValue;
+      const wireComparable: JsonValue = [wire.exists, wireStored, wireExport];
+      if (hasDeliveredValue && jsonEqual(lastDeliveredValue, wireComparable)) {
+        return;
+      }
+      hasDeliveredValue = true;
+      entry.initialDelivered = true;
+      lastDeliveredValue = wireComparable;
+    }
     const snap = hydrateRemoteWireSnapshot(target.refAt, target.canonical, wire);
     deliverRemoteCallback('value', callback, normalizedContext, snap, null);
   };
+
+  const canDeliverWarmInitial =
+    !isInfoPath(target.canonical)
+    && eventType === 'value'
+    && isDefaultQuerySpec(spec)
+    && (target.waitConnectionBarrier?.() ?? null) === null
+    && target.listeners.hasActiveDefaultCoverage(target.canonical, entry);
+  if (canDeliverWarmInitial && target.readWarmCachedValue !== undefined) {
+    const cached = target.readWarmCachedValue(target.canonical);
+    if (cached.found) {
+      hasDeliveredValue = true;
+      entry.initialDelivered = true;
+      lastDeliveredValue = [cached.stored !== null, cached.stored, cached.stored];
+      const warmSnap = buildSandboxSnap(
+        target.refAt,
+        target.canonical,
+        cached.stored,
+        cached.stored,
+      );
+      deliverRemoteCallback('value', callback, normalizedContext, warmSnap, null);
+    }
+  }
 
   const startSubscribe = (): void => {
     if (!entry.active) return;

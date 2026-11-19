@@ -71,21 +71,56 @@ export function setDatabaseRules(
   source: unknown,
 ): DatabaseRulesDeployResult {
   const entry = rtdbInstance(ctx, instance);
+  let rawText: string | undefined;
+  if (typeof source === 'string') {
+    rawText = source;
+  }
   const rules = normalizeDatabaseRules(source);
-  const previous = entry.rules?.status === 'active' ? entry.rules.source : entry.rules?.lastKnownGood;
-  const lastKnownGood = previous === undefined ? {} : { lastKnownGood: previous };
+  let previous: unknown;
+  if (entry.rules?.status === 'active') {
+    previous = entry.rules.source;
+  } else {
+    previous = entry.rules?.lastKnownGood;
+  }
   // Production refuses a ruleset its deploy would reject. The sandbox keeps
   // the active ruleset, and the status carries the reason. `source` stays the
   // ruleset in force, absent when none was deployed, because a reset re-applies
   // it: the refused ruleset is never kept where a reset would install it.
-  const rejection = rules === null ? null : rtdbRulesSourceRejection(rules);
+  let rejection: ReturnType<typeof rtdbRulesSourceRejection> = null;
+  if (rules !== null) {
+    rejection = rtdbRulesSourceRejection(rules);
+  }
   if (rejection !== null) {
     const messages = [{ severity: 'error' as const, text: rejection.message }];
-    entry.rules = { source: entry.rules?.source, updatedAt: Date.now(), status: 'error', messages, ...lastKnownGood };
+    const errorState: ActiveRulesState = {
+      source: entry.rules?.source,
+      updatedAt: Date.now(),
+      status: 'error',
+      messages,
+    };
+    if (entry.rules?.rawText !== undefined) {
+      errorState.rawText = entry.rules.rawText;
+    }
+    if (previous !== undefined) {
+      errorState.lastKnownGood = previous;
+    }
+    entry.rules = errorState;
     return { ok: false, messages };
   }
   rtdbSandbox.setRules(entry.live, rules);
-  entry.rules = { source: rules, updatedAt: Date.now(), status: 'active', messages: [], ...lastKnownGood };
+  const activeState: ActiveRulesState = {
+    source: rules,
+    updatedAt: Date.now(),
+    status: 'active',
+    messages: [],
+  };
+  if (rawText !== undefined) {
+    activeState.rawText = rawText;
+  }
+  if (previous !== undefined) {
+    activeState.lastKnownGood = previous;
+  }
+  entry.rules = activeState;
   return { ok: true, messages: [] };
 }
 

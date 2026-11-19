@@ -246,19 +246,23 @@ describe('integer-keyed RTDB values read back the same on every plane (#1121)', 
     }
   });
 
-  test('transaction() is refused the same way on both pyric-admin arms', async () => {
-    const refusals = [inProcessApp(), sharedWorkerApp()].map((app) => {
-      try {
-        getDatabase(app).ref(NODE).transaction(() => ({ 0: 'a' }));
-        return null;
-      } catch (error) {
-        return (error as Error).message;
-      }
-    });
-    expect(refusals).toEqual([
-      'pyric-admin/database sandbox: transaction not implemented',
-      'pyric-admin/database sandbox: transaction not implemented',
-    ]);
+  test('transaction() on an integer-keyed node sees and stores an array across both pyric-admin arms', async () => {
+    for (const app of [inProcessApp(), sharedWorkerApp()]) {
+      const db = getDatabase(app);
+      await db.ref(NODE).set({ 0: 'a', 1: 'b' });
+      const seen: unknown[] = [];
+      const result = await db.ref(NODE).transaction((current: unknown) => {
+        seen.push(current);
+        if (Array.isArray(current)) {
+          return [...current, 'c'];
+        }
+        return current;
+      });
+      expect(seen.at(-1)).toEqual(['a', 'b']);
+      expect(result.committed).toBe(true);
+      expect(result.snapshot.val()).toEqual(['a', 'b', 'c']);
+      expect((await db.ref(NODE).get()).val()).toEqual(['a', 'b', 'c']);
+    }
   });
 
   test('a client transaction on an integer-keyed node sees and stores an array', async () => {

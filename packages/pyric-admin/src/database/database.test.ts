@@ -192,7 +192,7 @@ describe('pyric-admin/database — sandbox backend (Phase 4b)', () => {
     expect(seen).toContainEqual({ key: 'c', val: 3 });
   });
 
-  it('supports value listeners and onDisconnect while transactions keep throwing "not implemented"', async () => {
+  it('supports value listeners, onDisconnect, and atomic transactions', async () => {
     const sandbox = initializeSandbox();
     const db = getDatabase(sandboxApp(sandbox));
     const ref = db.ref('/x');
@@ -208,6 +208,11 @@ describe('pyric-admin/database — sandbox backend (Phase 4b)', () => {
     db.goOffline();
     expect((await ref.get()).val()).toEqual({ v: 1 });
     db.goOnline();
-    expect(() => ref.transaction(() => 1)).toThrow(/not implemented/);
+    const txRes = await ref.transaction((cur) => {
+      const prev = (cur as { v?: number } | null)?.v ?? 0;
+      return { v: prev + 1 };
+    });
+    expect(txRes.committed).toBe(true);
+    expect(txRes.snapshot.val()).toEqual({ v: 2 });
   });
 });

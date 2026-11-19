@@ -27,7 +27,7 @@ export interface Database {
   goOnline(): void;
   getRules(): Promise<string>;
   getRulesJSON(): Promise<object>;
-  setRules(source: string | object): Promise<void>;
+  setRules(source: string | object | Buffer): Promise<void>;
   readonly app: unknown;
 }
 
@@ -132,11 +132,6 @@ export type JsonValue =
   | string
   | JsonValue[]
   | { [key: string]: JsonValue };
-
-/** Sentinel error thrown by unmodeled listener / transaction / query / priority methods. */
-export function notImplemented(method: string): Error {
-  return new Error(`pyric-admin/database sandbox: ${method} not implemented`);
-}
 
 function isContextObject(candidate: unknown): candidate is object {
   return candidate !== null && typeof candidate === 'object' && !Array.isArray(candidate);

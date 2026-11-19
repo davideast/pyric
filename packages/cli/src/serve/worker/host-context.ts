@@ -346,6 +346,7 @@ export interface HostRtdbInstance {
 
 export interface ActiveRulesState {
   source: unknown;
+  rawText?: string;
   updatedAt: number;
   status: 'active' | 'error';
   messages: Array<{ severity: 'info' | 'warn' | 'error'; text: string; line?: number; column?: number }>;

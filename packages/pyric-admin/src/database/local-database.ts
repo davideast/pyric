@@ -27,6 +27,16 @@ import {
   type AdminServiceLifecycle,
 } from '../app/lifecycle.js';
 import {
+  localDatabaseRulesControls,
+  type LocalRulesBackend,
+} from './admin-rules.js';
+import {
+  AdminPathCache,
+  runLocalAdminTransaction,
+  type AdminTransactionOnComplete,
+  type AdminTransactionUpdate,
+} from './admin-transaction.js';
+import {
   buildDatabaseShell,
   formatReferenceUrl,
   type DatabaseUrlMetadata,
@@ -42,6 +52,7 @@ import {
   type LocalListenBackend,
   type LocalListenTarget,
 } from './local-listeners.js';
+import { emitAdminDatabaseLog } from './logging.js';
 import {
   buildLocalOnDisconnect,
   localDatabaseConnectionControls,
@@ -59,7 +70,6 @@ import {
 } from './tree-store.js';
 import {
   ADMIN_REFERENCE_BRAND,
-  notImplemented,
   validateCallbackArg,
   type Database,
   type DataSnapshot,
@@ -69,7 +79,7 @@ import {
   type ThenableReference,
 } from './types.js';
 
-interface SharedRtdbBackend extends LocalListenBackend {
+interface SharedRtdbBackend extends LocalListenBackend, LocalRulesBackend {
   adminGetQuery(path: string, spec: QuerySpec): QueryReadResult;
   adminSet(path: string, value: JsonValue): void;
   adminSetWithPriority(path: string, value: JsonValue, priority: Priority): void;
@@ -83,6 +93,7 @@ interface SharedRtdbBackend extends LocalListenBackend {
 interface LocalInstance {
   adminDb?: ModularDatabase;
   backend?: SharedRtdbBackend;
+  readonly cache: AdminPathCache;
   readonly lifecycle: AdminServiceLifecycle;
   readonly listeners: AdminListenerTable;
   readonly sandbox: Sandbox;
@@ -152,8 +163,15 @@ export function getLocalDatabase(
   const instances = localInstances(app);
   let entry = instances.get(cacheKey);
   if (entry === undefined) {
+    const cache = new AdminPathCache();
+    sandbox.onEvent((event) => {
+      if (event.kind === 'session_boundary' && event.phase === 'reset') {
+        cache.reset();
+      }
+    });
     entry = {
       sandbox,
+      cache,
       lifecycle: createAdminServiceLifecycle(app),
       listeners: new AdminListenerTable(),
     };
@@ -171,6 +189,7 @@ export function getLocalDatabase(
     (handle, path, meta) => buildSandboxRef(instanceState, handle, path, meta),
     localDatabaseConnectionControls(instanceState.adminDb),
     instanceState.lifecycle,
+    localDatabaseRulesControls(instanceState.backend, instanceState.lifecycle),
   );
 }
 
@@ -180,10 +199,16 @@ function buildSandboxRef(
   path: string,
   urlMeta: DatabaseUrlMetadata,
 ): Reference {
-  const { adminDb, backend, lifecycle, listeners } = instanceState;
+  const { adminDb, backend, cache, lifecycle, listeners } = instanceState;
   const canonical = joinPath(pathSegments(path));
   const segs = pathSegments(canonical);
-  const key = segs.length === 0 ? null : segs[segs.length - 1]!;
+  let key: string | null = null;
+  if (segs.length > 0) {
+    const lastSeg = segs[segs.length - 1];
+    if (lastSeg !== undefined) {
+      key = lastSeg;
+    }
+  }
   const formattedUrl = formatReferenceUrl(urlMeta.originUrl, segs);
   const refAt = (p: string): Reference => buildSandboxRef(instanceState, db, p, urlMeta);
   const listenTarget: LocalListenTarget = {
@@ -204,6 +229,7 @@ function buildSandboxRef(
       async get(spec: QuerySpec): Promise<DataSnapshot> {
         assertGettablePath(canonical);
         lifecycle.assertActive();
+        emitAdminDatabaseLog('get', canonical);
         if (hasNonFiniteQueryLimit(spec)) {
           return new Promise<DataSnapshot>(() => {});
         }
@@ -212,12 +238,23 @@ function buildSandboxRef(
           return buildLocalQuerySnapshot(refAt, adminDb, canonical, segs, result.rows, loadsAllData(spec), result.val);
         }
         const val = backend.adminGet(canonical);
+        cache.markWarm(canonical);
         return buildSandboxSnap(refAt, canonical, val, exportedLocalValueAt(adminDb, segs, val));
       },
-      once: (spec, eventType, successCb, failureCallbackOrContext, context) =>
-        onceLocalListener(listenTarget, spec, eventType, successCb, failureCallbackOrContext, context),
-      on: (spec, eventType, callback, cancelCallbackOrContext, context) =>
-        attachLocalListener(listenTarget, spec, eventType, callback, cancelCallbackOrContext, context),
+      once: (spec, eventType, successCb, failureCallbackOrContext, context) => {
+        emitAdminDatabaseLog('once', canonical);
+        if (isDefaultQuerySpec(spec)) {
+          cache.markWarm(canonical);
+        }
+        return onceLocalListener(listenTarget, spec, eventType, successCb, failureCallbackOrContext, context);
+      },
+      on: (spec, eventType, callback, cancelCallbackOrContext, context) => {
+        emitAdminDatabaseLog('on', canonical);
+        if (isDefaultQuerySpec(spec)) {
+          cache.markWarm(canonical);
+        }
+        return attachLocalListener(listenTarget, spec, eventType, callback, cancelCallbackOrContext, context);
+      },
       off: (spec, eventType, callback, context) =>
         detachLocalListener(listenTarget, spec, eventType, callback, context),
     },
@@ -242,28 +279,39 @@ function buildSandboxRef(
     set(value: unknown, onComplete?: (err: Error | null) => void): Promise<void> {
       validateCallbackArg('Reference.set', 'onComplete', onComplete, true);
       const stored = validateValueArg('set', segs, value);
+      emitAdminDatabaseLog('set', canonical);
       return settled(() => {
         lifecycle.assertActive();
         backend.adminSet(canonical, stored);
+        cache.markWarm(canonical);
       }, onComplete);
     },
 
     update(values: object, onComplete?: (err: Error | null) => void): Promise<void> {
       validateCallbackArg('Reference.update', 'onComplete', onComplete, true);
       const patch = validateValuesArg(segs, values);
+      emitAdminDatabaseLog('update', canonical);
       return settled(() => {
         lifecycle.assertActive();
         if (Object.keys(patch).length > 0) {
           backend.adminUpdate(canonical, patch);
+          for (const relKey of Object.keys(patch)) {
+            const relSegs = pathSegments(relKey);
+            if (relSegs[relSegs.length - 1] !== '.priority') {
+              cache.markWarm(joinPath([...segs, ...relSegs]));
+            }
+          }
         }
       }, onComplete);
     },
 
     remove(onComplete?: (err: Error | null) => void): Promise<void> {
       validateCallbackArg('Reference.remove', 'onComplete', onComplete, true);
+      emitAdminDatabaseLog('remove', canonical);
       return settled(() => {
         lifecycle.assertActive();
         backend.adminRemove(canonical);
+        cache.markWarm(canonical);
       }, onComplete);
     },
 
@@ -273,6 +321,7 @@ function buildSandboxRef(
       if (value !== undefined) {
         stored = validateValueArg('push', segs, value);
       }
+      emitAdminDatabaseLog('push', canonical);
       let id: string;
       let writeOutcome: Promise<void>;
       if (lifecycle.isDeleted) {
@@ -286,6 +335,7 @@ function buildSandboxRef(
         if (stored !== undefined) {
           writeOutcome = settled(() => {
             backend.adminSet(activeChildPath, stored);
+            cache.markWarm(activeChildPath);
           }, onComplete);
         } else {
           writeOutcome = settled(() => {}, onComplete);
@@ -316,8 +366,22 @@ function buildSandboxRef(
     onDisconnect(): OnDisconnect {
       return buildLocalOnDisconnect(adminDb, canonical, lifecycle);
     },
-    transaction(..._args: unknown[]): never {
-      throw notImplemented('transaction');
+    transaction(
+      transactionUpdate: AdminTransactionUpdate,
+      onComplete?: AdminTransactionOnComplete,
+      applyLocally?: boolean,
+    ): Promise<{ committed: boolean; snapshot: DataSnapshot }> {
+      return runLocalAdminTransaction({
+        adminDb,
+        cache,
+        lifecycle,
+        canonical,
+        segs,
+        refAt,
+        transactionUpdate,
+        onComplete,
+        applyLocally,
+      });
     },
     setPriority(
       priority: string | number | null,
@@ -325,6 +389,7 @@ function buildSandboxRef(
     ): Promise<void> {
       const validatedPriority = validateAdminPriorityArg('setPriority', priority);
       validateCallbackArg('Reference.setPriority', 'onComplete', onComplete, true);
+      emitAdminDatabaseLog('setPriority', canonical);
       return settled(
         () => {
           lifecycle.assertActive();
@@ -344,10 +409,12 @@ function buildSandboxRef(
       const stored = validateValueArg('setWithPriority', segs, newVal);
       const validatedPriority = validateAdminPriorityArg('setWithPriority', newPriority);
       validateCallbackArg('Reference.setWithPriority', 'onComplete', onComplete, true);
+      emitAdminDatabaseLog('setWithPriority', canonical);
       return settled(
         () => {
           lifecycle.assertActive();
           backend.adminSetWithPriority(canonical, stored, validatedPriority);
+          cache.markWarm(canonical);
         },
         onComplete as ((err: Error | null) => void) | undefined,
       );
