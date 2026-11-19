@@ -6,7 +6,7 @@ struct HeldOp: Sendable {
     /// Its place in the order operations were admitted.
     let sequence: Int
     /// When the app issued it. The hold deadline runs from here.
-    let issuedAt: ContinuousClock.Instant
+    let issuedAt: TimeInterval
     let method: String
     let payload: [String: AnySendable]
     let timeout: TimeInterval
@@ -24,6 +24,7 @@ struct HeldOperationQueue {
     private var ops: [HeldOp] = []
 
     var isEmpty: Bool { ops.isEmpty }
+    var count: Int { ops.count }
 
     mutating func insert(_ op: HeldOp) {
         let index = ops.firstIndex { $0.sequence > op.sequence } ?? ops.endIndex
