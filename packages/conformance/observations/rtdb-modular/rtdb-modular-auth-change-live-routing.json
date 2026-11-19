@@ -1,0 +1,189 @@
+{
+  "name": "rtdb-modular-auth-change-live-routing",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "Live firebase/auth custom-token sign-in, uninterrupted user switch, and sign-out routing on a single getDatabase(app) handle without re-binding: immediate next-op auth.uid enforcement, zero spurious deliveries on readable onValue/onChildAdded listeners, and permanent PERMISSION_DENIED cancellation without resurrection across user-scoped and auth-gated paths.",
+  "observedAt": "2026-11-19T06:26:34.717Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "initialSignedOut": {
+      "readAuthed": {
+        "ok": false,
+        "errorName": "Error",
+        "code": null,
+        "val": null
+      },
+      "writeAuthed": {
+        "ok": false,
+        "errorName": "Error",
+        "code": "PERMISSION_DENIED"
+      },
+      "readPublic": {
+        "ok": true,
+        "errorName": null,
+        "code": null,
+        "val": {
+          "a": 1
+        }
+      },
+      "initialPublicValues": [
+        {
+          "a": 1
+        }
+      ],
+      "initialPublicChildren": [
+        "a:1"
+      ]
+    },
+    "afterSignInAlice": {
+      "spuriousPublicValueDeliveries": 0,
+      "spuriousPublicChildDeliveries": 0,
+      "writeAliceOwn": {
+        "ok": true,
+        "errorName": null,
+        "code": null
+      },
+      "writeBobOther": {
+        "ok": false,
+        "errorName": "Error",
+        "code": "PERMISSION_DENIED"
+      },
+      "readAuthed": {
+        "ok": true,
+        "errorName": null,
+        "code": null,
+        "val": {
+          "seed": 10
+        }
+      },
+      "initialAuthedValues": [
+        {
+          "seed": 10
+        }
+      ],
+      "initialAuthedChildren": [
+        "seed:10"
+      ],
+      "initialAliceOwnValues": [
+        {
+          "role": "owner"
+        }
+      ]
+    },
+    "afterSwitchToBob": {
+      "aliceOwnCancelCodes": [
+        "PERMISSION_DENIED"
+      ],
+      "spuriousPublicValueDeliveries": 0,
+      "spuriousPublicChildDeliveries": 0,
+      "spuriousAuthedValueDeliveries": 0,
+      "spuriousAuthedChildDeliveries": 0,
+      "writeBobOwn": {
+        "ok": true,
+        "errorName": null,
+        "code": null
+      },
+      "writeAliceOther": {
+        "ok": false,
+        "errorName": "Error",
+        "code": "PERMISSION_DENIED"
+      },
+      "readBobOwn": {
+        "ok": true,
+        "errorName": null,
+        "code": null,
+        "val": {
+          "role": "member"
+        }
+      },
+      "readAliceOther": {
+        "ok": false,
+        "errorName": "Error",
+        "code": null,
+        "val": null
+      },
+      "authedWriteVisibleToSurvivingListeners": {
+        "authedValues": [
+          {
+            "seed": 10
+          },
+          {
+            "fromBob": 20,
+            "seed": 10
+          }
+        ],
+        "authedChildren": [
+          "seed:10",
+          "fromBob:20"
+        ]
+      }
+    },
+    "afterSignOut": {
+      "authedValueCancelCodes": [
+        "PERMISSION_DENIED"
+      ],
+      "authedChildCancelCodes": [
+        "PERMISSION_DENIED"
+      ],
+      "spuriousPublicValueDeliveries": 0,
+      "spuriousPublicChildDeliveries": 0,
+      "writeAuthedDenied": {
+        "ok": false,
+        "errorName": "Error",
+        "code": "PERMISSION_DENIED"
+      },
+      "readAuthedDenied": {
+        "ok": false,
+        "errorName": "Error",
+        "code": null,
+        "val": null
+      },
+      "publicWriteDeliveredToSurvivingListeners": {
+        "writeOutcome": {
+          "ok": true,
+          "errorName": null,
+          "code": null
+        },
+        "publicValues": [
+          {
+            "a": 1
+          },
+          {
+            "a": 1,
+            "b": 2
+          }
+        ],
+        "publicChildren": [
+          "a:1",
+          "b:2"
+        ]
+      }
+    },
+    "afterReSignInAlice": {
+      "writeAuthedAllowed": {
+        "ok": true,
+        "errorName": null,
+        "code": null
+      },
+      "writeAliceOwnAllowed": {
+        "ok": true,
+        "errorName": null,
+        "code": null
+      },
+      "readAuthedAllowed": {
+        "ok": true,
+        "errorName": null,
+        "code": null,
+        "val": {
+          "fromBob": 20,
+          "reauthed": 30,
+          "seed": 10
+        }
+      },
+      "cancelledAuthedValueCountUnchanged": true,
+      "cancelledAuthedChildCountUnchanged": true,
+      "cancelledAliceOwnValueCountUnchanged": true
+    }
+  }
+}
