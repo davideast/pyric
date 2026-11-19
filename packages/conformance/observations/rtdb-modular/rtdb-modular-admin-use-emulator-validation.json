@@ -1,0 +1,124 @@
+{
+  "name": "rtdb-modular-admin-use-emulator-validation",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "Pure offline firebase-admin/database Database#useEmulator(host, port) contract: pre-start HTTP host:port URL rebinding and overwrite, refFromURL custom-host resolution, host/port boundary interpolation, idempotent same-endpoint repeat after start, and fatal errors on post-start initialization/alteration, mockUserToken, and deleted databases.",
+  "observedAt": "2026-11-19T01:46:00.247Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "fetchCalls": 0,
+    "preStartBindingAndOverwrite": {
+      "baselineHttpsRefUrl": "https://demo-admin-emulator-base.firebaseio.com/items/k1",
+      "afterUseEmulatorRefUrl": "http://127.0.0.1:9000/items/k1",
+      "afterUseEmulatorRefJson": "http://127.0.0.1:9000/items/k1",
+      "afterUseEmulatorRootUrl": "http://127.0.0.1:9000/",
+      "overwrittenBeforeStartRefUrl": "http://localhost:9005/items/k1"
+    },
+    "refFromUrlAfterUseEmulator": {
+      "matchingEmulatorOriginUrl": "http://127.0.0.1:9000/orders/o1",
+      "originalNamespaceHttpsUrl": "http://127.0.0.1:9000/orders/o2",
+      "differentNamespaceHttpsUrl": "http://127.0.0.1:9000/orders/o3"
+    },
+    "argumentBoundaryBehavior": {
+      "emptyHost": {
+        "callOutcome": {
+          "threw": false,
+          "isErrorInstance": false,
+          "code": null,
+          "message": null
+        },
+        "resultingRefUrl": "http://:9000/items/k1"
+      },
+      "schemePrefixedHost": {
+        "callOutcome": {
+          "threw": false,
+          "isErrorInstance": false,
+          "code": null,
+          "message": null
+        },
+        "resultingRefUrl": "http://http://127.0.0.1:9000/items/k1"
+      },
+      "ipv6LoopbackHost": {
+        "callOutcome": {
+          "threw": false,
+          "isErrorInstance": false,
+          "code": null,
+          "message": null
+        },
+        "resultingRefUrl": "http://::1:9000/items/k1"
+      },
+      "zeroPort": {
+        "callOutcome": {
+          "threw": false,
+          "isErrorInstance": false,
+          "code": null,
+          "message": null
+        },
+        "resultingRefUrl": "http://127.0.0.1:0/items/k1"
+      },
+      "negativePort": {
+        "callOutcome": {
+          "threw": false,
+          "isErrorInstance": false,
+          "code": null,
+          "message": null
+        },
+        "resultingRefUrl": "http://127.0.0.1:-1/items/k1"
+      },
+      "nanPort": {
+        "callOutcome": {
+          "threw": false,
+          "isErrorInstance": false,
+          "code": null,
+          "message": null
+        },
+        "resultingRefUrl": "http://127.0.0.1:nan/items/k1"
+      }
+    },
+    "lifecycleAndPostStartGuards": {
+      "sameHostPortRepeatAfterRef": {
+        "threw": false,
+        "isErrorInstance": false,
+        "code": null,
+        "message": null
+      },
+      "differentPortAfterRef": {
+        "threw": true,
+        "isErrorInstance": true,
+        "code": null,
+        "message": "FIREBASE FATAL ERROR: connectDatabaseEmulator() cannot initialize or alter the emulator configuration after the database instance has started. "
+      },
+      "differentHostAfterRef": {
+        "threw": true,
+        "isErrorInstance": true,
+        "code": null,
+        "message": "FIREBASE FATAL ERROR: connectDatabaseEmulator() cannot initialize or alter the emulator configuration after the database instance has started. "
+      },
+      "firstCallAfterRef": {
+        "threw": true,
+        "isErrorInstance": true,
+        "code": null,
+        "message": "FIREBASE FATAL ERROR: connectDatabaseEmulator() cannot initialize or alter the emulator configuration after the database instance has started. "
+      },
+      "firstCallAfterGoOffline": {
+        "threw": true,
+        "isErrorInstance": true,
+        "code": null,
+        "message": "FIREBASE FATAL ERROR: connectDatabaseEmulator() cannot initialize or alter the emulator configuration after the database instance has started. "
+      },
+      "mockUserTokenOptionOnAdmin": {
+        "threw": true,
+        "isErrorInstance": true,
+        "code": null,
+        "message": "FIREBASE FATAL ERROR: mockUserToken is not supported by the Admin SDK. For client access with mock users, please use the \"firebase\" package instead of \"firebase-admin\". "
+      },
+      "callOnDeletedDatabase": {
+        "threw": true,
+        "isErrorInstance": true,
+        "code": null,
+        "message": "FIREBASE FATAL ERROR: Cannot call useEmulator on a deleted database. "
+      }
+    }
+  }
+}
