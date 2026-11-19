@@ -71,7 +71,7 @@ describe('RTDB modular firebase-admin probes (sdk-probes)', () => {
     const expectedLinks: ReadonlyArray<[typeof adminDisconnectProbe, string[]]> = [
       [adminDisconnectProbe, ['rtdb-admin#6']],
       [adminRefNavProbe, ['rtdb-admin#2']],
-      [adminWritesProbe, ['rtdb-admin#3']],
+      [adminWritesProbe, ['rtdb-admin#3', 'rtdb-modular#RS3']],
     ];
     for (const [probeRecord, rowIds] of expectedLinks) {
       expect(probeRecord.rig).toBe('sdk-probes');

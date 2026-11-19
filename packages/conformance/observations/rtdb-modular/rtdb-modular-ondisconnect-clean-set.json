@@ -1,8 +1,9 @@
 {
   "name": "rtdb-modular-ondisconnect-clean-set",
-  "matrixRow": "rtdb-modular#M79",
+  "matrixRow": "rtdb-modular#M79, rtdb-modular#RS1",
   "rowIds": [
-    "rtdb-modular#M79"
+    "rtdb-modular#M79",
+    "rtdb-modular#RS1"
   ],
   "description": "Normal write, queued set, clean goOffline delivery, observer ordering, and one-shot behavior after goOnline.",
   "observedAt": "2026-10-30T10:44:49.797Z",

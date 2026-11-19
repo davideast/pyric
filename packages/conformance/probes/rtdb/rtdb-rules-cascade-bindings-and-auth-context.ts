@@ -258,8 +258,17 @@ export const probe: Probe = {
   requires: ['web-config', 'dedicated-rtdb'],
   description:
     'Live RTDB Security Rules evaluation for upward grant cascading (ancestor true overriding child false), $userId path-variable binding, and auth == null vs auth.uid / auth.token.firebase.sign_in_provider context.',
-  matrixRow: 'rtdb#61, rtdb#62, rtdb#63, rtdb-modular#VR1',
-  rowIds: ['rtdb#61', 'rtdb#62', 'rtdb#63', 'rtdb-modular#VR1'],
+  matrixRow:
+    'rtdb#61, rtdb#62, rtdb#63, rtdb-modular#VR1, rtdb-modular#RS1, rtdb-modular#RS2, rtdb-modular#RS3',
+  rowIds: [
+    'rtdb#61',
+    'rtdb#62',
+    'rtdb#63',
+    'rtdb-modular#VR1',
+    'rtdb-modular#RS1',
+    'rtdb-modular#RS2',
+    'rtdb-modular#RS3',
+  ],
   observe() {
     return withRtdbProbeSession(
       { runRules: { ...CASCADE_BINDINGS_AUTH_RULES }, authMode: 'anonymous' },

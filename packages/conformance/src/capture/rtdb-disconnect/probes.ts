@@ -280,8 +280,8 @@ export function createRtdbDisconnectProbes(ctx: RtdbDisconnectContext): OraclePr
     ),
     probe(
       'rtdb-modular-ondisconnect-clean-set',
-      'rtdb-modular#M79',
-      ['rtdb-modular#M79'],
+      'rtdb-modular#M79, rtdb-modular#RS1',
+      ['rtdb-modular#M79', 'rtdb-modular#RS1'],
       'Normal write, queued set, clean goOffline delivery, observer ordering, and one-shot behavior after goOnline.',
       () => repeatStable(2, async (index) => {
         const path = scenarioPath(ctx, 'clean-set', index);
@@ -544,8 +544,8 @@ export function createRtdbDisconnectProbes(ctx: RtdbDisconnectContext): OraclePr
     ),
     probe(
       'rtdb-modular-ondisconnect-abrupt-exit',
-      'rtdb-modular#M84',
-      ['rtdb-modular#M84'],
+      'rtdb-modular#M84, rtdb-modular#RS1',
+      ['rtdb-modular#M84', 'rtdb-modular#RS1'],
       'Acknowledged onDisconnect registration followed by forced writer-process termination, observed independently.',
       () => repeatStable(3, async (index) => {
         const path = scenarioPath(ctx, 'abrupt-exit', index);
