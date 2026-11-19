@@ -176,4 +176,37 @@ describe('worker host AI request-edge parity (AI-21, AI-22, AI-23)', () => {
       ctx.sandbox.dispose();
     }
   });
+
+  it('does not block non-gemini model names when an openai engine owns the model catalog', async () => {
+    const seenModels: string[] = [];
+    const ctx = makeCtx();
+    ctx.aiUpstream = {
+      baseUrl: 'http://openai.test/v1',
+      fetch: (async (_input: RequestInfo | URL, init?: RequestInit) => {
+        const parsed = JSON.parse(String(init?.body)) as { model: string };
+        seenModels.push(parsed.model);
+        return Response.json({
+          id: 'chatcmpl-1',
+          model: 'llama3',
+          choices: [{ index: 0, message: { role: 'assistant', content: 'pong' }, finish_reason: 'stop' }],
+          usage: { prompt_tokens: 4, completion_tokens: 1, total_tokens: 5 },
+        });
+      }) as typeof fetch,
+    };
+    try {
+      const port = createFakePort();
+      const res = await sendOp(ctx, port, {
+        t: 'op',
+        id: 'edge-openai-llama3',
+        method: 'ai.generateContent',
+        model: 'models/llama3',
+        request: { contents: [{ role: 'user', parts: [{ text: 'hi' }] }] },
+        engine: { kind: 'openai', baseUrl: '/__pyric/ai-proxy', model: 'llama3' },
+      });
+      expect(res.ok).toBe(true);
+      expect(seenModels).toEqual(['llama3']);
+    } finally {
+      ctx.sandbox.dispose();
+    }
+  });
 });

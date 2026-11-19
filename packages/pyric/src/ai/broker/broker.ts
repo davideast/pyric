@@ -95,7 +95,7 @@ export interface AiBrokerOptions {
   engine?: EngineConfig | AnswerEngine;
   /** When present, ops land on the sandbox's unified event stream. */
   sandbox?: Sandbox;
-  /** Enforce production Gemini model routing (retired 1.5 and unknown model 404s) on non-gemini engines. */
+  /** Enforce production Gemini model routing (retired 1.5 and unknown model 404s) on the scripted engine. */
   validateModels?: boolean;
 }
 
@@ -436,7 +436,7 @@ export class AiBroker {
   // ── Production-shaped validation ──────────────────────────────────────────
 
   private validateModelIfEnabled(modelResource: string): void {
-    if (!this.validateModels || this.engineKind === 'gemini') {
+    if (!this.validateModels || this.engineKind !== 'scripted') {
       return;
     }
     let bare = modelResource;
