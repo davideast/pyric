@@ -17,7 +17,8 @@
   "conformanceSuite": "packages/pyric/test/rules/oracle-conformance.test.ts",
   "captureRigs": [
     "rules-firestore",
-    "firestore-real"
+    "firestore-real",
+    "firestore-rules-sibling-merge"
   ],
   "registry": "rules"
 }

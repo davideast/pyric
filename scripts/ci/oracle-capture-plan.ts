@@ -86,6 +86,9 @@ const RIG_CAPTURE_POLICIES: Readonly<Record<string, RigCapturePolicy>> = {
     autoPushSafe: true,
     perProbeStaged: true,
   },
+  'firestore-rules-sibling-merge': {
+    iamHint: LIVE_SDK_IAM_HINT,
+  },
   'messaging-send': {
     filterFlag: '--probe',
     autoPushSafe: true,
