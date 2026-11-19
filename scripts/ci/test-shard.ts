@@ -31,6 +31,7 @@ export const shardedPackages = {
 export const slowFiles: Record<keyof typeof shardedPackages, Readonly<Record<string, number>>> = {
   cli: {
     './test/serve/hosted-sqlite.test.ts': 66,
+    './test/bridge/five-surface-entrypoint-parity.test.ts': 24,
     './test/remote/reconnect.test.ts': 22,
     './test/cli/sandbox-command.test.ts': 21,
     './eval/test/run.test.ts': 17,
