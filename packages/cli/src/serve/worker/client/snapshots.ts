@@ -3,11 +3,23 @@
  * results rehydrated into the modular SDK's snapshot shapes. Shared by the
  * read, listener, and transaction families.
  */
-import type { SerializedDocData } from '../protocol.js';
+import type {
+  FilterConstraintDescriptor,
+  SerializedDocData,
+  TargetDescriptor,
+} from '../protocol.js';
 import { deserializeDocData } from '../protocol.js';
 import type { ClientPort, DocRefHandle } from './handles.js';
 import { createDocumentReference } from './firestore-reference.js';
 import { FirebaseError } from 'pyric/app';
+import { decodeDocValue } from 'pyric/firestore/internal/value-codec';
+import {
+  encodeDocumentSnapshotJson,
+  encodeQuerySnapshotJson,
+  type BundledFilterSpec,
+  type BundledQuerySourceSpec,
+  type BundledWhereOp,
+} from 'pyric/firestore/internal';
 import type {
   DocumentData,
   FirestoreDataConverter,
@@ -72,6 +84,45 @@ export function rawClientSnapshotForCursor(snapshot: object): RawCursorSnapshot 
   return rawCursorSnapshots.get(snapshot);
 }
 
+function mapDescriptorFilter(port: ClientPort, f: FilterConstraintDescriptor): BundledFilterSpec {
+  if (f.kind === 'where') {
+    const references = { create: (path: string) => createDocumentReference(port, path) };
+    return {
+      kind: 'where',
+      fieldPath: f.field,
+      op: f.op as BundledWhereOp,
+      value: decodeDocValue(f.value, references, f.valueEncoding),
+    };
+  }
+  return { kind: f.kind, filters: f.filters.map((sub) => mapDescriptorFilter(port, sub)) };
+}
+
+function descriptorToQuerySourceSpec(port: ClientPort, desc?: TargetDescriptor): BundledQuerySourceSpec {
+  if (desc === undefined) return { collectionPath: '', isCollectionGroup: false, filters: [], orders: [] };
+  if (desc.__ref === 'collection') return { collectionPath: desc.path, isCollectionGroup: false, filters: [], orders: [] };
+  if (desc.__ref === 'group') return { collectionPath: desc.collectionId, isCollectionGroup: true, filters: [], orders: [] };
+  if (desc.__ref === 'doc') return { collectionPath: desc.path, isCollectionGroup: false, filters: [], orders: [] };
+  let collectionPath = '';
+  let isCollectionGroup = false;
+  if (desc.source.__ref === 'group') {
+    collectionPath = desc.source.collectionId;
+    isCollectionGroup = true;
+  } else {
+    collectionPath = desc.source.path;
+  }
+  const filters: BundledFilterSpec[] = [];
+  const orders: Array<{ fieldPath: string; direction: 'asc' | 'desc' }> = [];
+  let limitCount: number | undefined;
+  let limitType: 'FIRST' | 'LAST' | undefined;
+  for (const c of desc.constraints) {
+    if (c.kind === 'where' || c.kind === 'and' || c.kind === 'or') filters.push(mapDescriptorFilter(port, c));
+    else if (c.kind === 'orderBy') orders.push({ fieldPath: c.field, direction: c.direction ?? 'asc' });
+    else if (c.kind === 'limit') { limitCount = c.n; limitType = 'FIRST'; }
+    else if (c.kind === 'limitToLast') { limitCount = c.n; limitType = 'LAST'; }
+  }
+  return { collectionPath, isCollectionGroup, filters, orders, limitCount, limitType };
+}
+
 export function makeDocSnapshot<T = DocumentData>(
   raw: RawDocResult,
   port: ClientPort,
@@ -118,6 +169,7 @@ export function makeDocSnapshot<T = DocumentData>(
         data: (innerOptions?: SnapshotOptions) => freshVariantData(innerOptions) as DocumentData,
         get: (fieldPath, innerOptions?: SnapshotOptions) =>
           readField(freshVariantData(innerOptions), fieldPath),
+        toJSON: () => encodeDocumentSnapshotJson('pyric', path, true, document),
       };
       const resolvedOptions: SnapshotOptions = options ?? {};
       return (converter as FirestoreDataConverter<T>).fromFirestore(snapshot, resolvedOptions);
@@ -131,7 +183,9 @@ export function makeDocSnapshot<T = DocumentData>(
     exists: () => raw.exists,
     metadata,
     data: read,
+    // Production reads the stored field without the converter, as the in-page snapshot does.
     get: (fieldPath, options) => readField(freshVariantData(options), fieldPath),
+    toJSON: () => encodeDocumentSnapshotJson('pyric', path, raw.exists, freshData()),
   };
   rawCursorSnapshots.set(docSnapshot, { id: raw.id, path, exists: raw.exists, data });
   return docSnapshot;
@@ -317,10 +371,12 @@ export function makeQuerySnapshot(
   port: ClientPort,
   converter: FirestoreDataConverter<unknown> | null = null,
   baseline: QueryChangeBaseline = { excludesMetadataChanges: false },
+  sourceDescriptor?: TargetDescriptor,
+  metadataOverride?: SnapshotMetadata,
 ): ClientQuerySnapshot {
   const isMalformed = !isQueryResult(raw);
   if (isMalformed) throw new FirebaseError('invalid-argument', 'The sandbox sent a malformed query result.');
-  const metadata = frameMetadata(raw);
+  const metadata = metadataOverride ?? frameMetadata(raw);
   // Each document carries its own pending state: production marks only the
   // documents with a pending write, not every document in the snapshot (FP-5).
   const snapshotOf = (doc: RawDocResult) => makeDocSnapshot(
@@ -362,6 +418,12 @@ export function makeQuerySnapshot(
     docs,
     forEach: forEachDocument(docs),
     docChanges: createDocChanges(changes, baseline.excludesMetadataChanges, changesWithMetadata),
+    toJSON: () =>
+      encodeQuerySnapshotJson(
+        'pyric',
+        descriptorToQuerySourceSpec(port, sourceDescriptor),
+        docs.map((d) => ({ path: d.ref.path, data: (d.data() as Record<string, unknown> | undefined) ?? {} })),
+      ),
   };
 }
 
@@ -377,6 +439,7 @@ export interface ClientDocSnapshot<T = DocumentData> {
   data(options?: SnapshotOptions): T | undefined;
   /** Production's `DocumentSnapshot.get`: the stored field at `fieldPath`, or `undefined`. */
   get(fieldPath: SnapshotFieldPath, options?: SnapshotOptions): unknown;
+  toJSON(): object;
 }
 
 export interface ClientQuerySnapshot {
@@ -389,4 +452,5 @@ export interface ClientQuerySnapshot {
   /** Production's `QuerySnapshot.docChanges`: the changes since the
    * listener's previous snapshot, or every document `added` on the first. */
   docChanges(options?: DocChangesOptions): DocumentChange<ClientDocSnapshot>[];
+  toJSON(): object;
 }

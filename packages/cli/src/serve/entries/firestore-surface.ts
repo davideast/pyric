@@ -35,11 +35,21 @@ import {
   enableNetwork as workerEnableNetwork,
   waitForPendingWrites as workerWaitForPendingWrites,
 } from '../worker/client/firestore-network.js';
+import {
+  clearIndexedDbPersistence as workerClearIndexedDbPersistence,
+  documentSnapshotFromJSON as workerDocumentSnapshotFromJSON,
+  loadBundle as workerLoadBundle,
+  markWorkerPortStarted,
+  markWorkerPortTerminated,
+  namedQuery as workerNamedQuery,
+  onSnapshotResume as workerOnSnapshotResume,
+  querySnapshotFromJSON as workerQuerySnapshotFromJSON,
+} from '../worker/client/firestore-bundles-ssr.js';
 import { getFirestore as pyricGetFirestore } from 'pyric/firestore';
 import { markServiceUsed } from './service-use.js';
 import * as wcRaw from '../worker/client.js';
 import { useWorker } from './worker-runtime.js';
-import { getApp, type FirebaseApp } from 'pyric/app';
+import { FirebaseError, getApp, type FirebaseApp } from 'pyric/app';
 import { workerClientForApp } from './app-client.js';
 
 // The worker client mirrors pyric/firestore's DATA surface (same names + arg
@@ -198,13 +208,30 @@ export async function enableMultiTabIndexedDbPersistence(db?: unknown): Promise<
   }
 }
 
-export async function clearIndexedDbPersistence(_db?: unknown): Promise<void> {
+const startedSurfaceHandles = new WeakSet<object>();
+const terminatedSurfaceHandles = new WeakSet<object>();
+
+export function clearIndexedDbPersistence(db?: unknown): Promise<void> {
   acceptedNoOp('clearIndexedDbPersistence');
+  if (db !== null && typeof db === 'object' && 'port' in db) {
+    return workerClearIndexedDbPersistence(db as Parameters<typeof workerClearIndexedDbPersistence>[0]);
+  }
+  if (db !== null && typeof db === 'object' && startedSurfaceHandles.has(db) && !terminatedSurfaceHandles.has(db)) {
+    throw new FirebaseError(
+      'failed-precondition',
+      'Persistence can only be cleared before a Firestore instance is initialized or after it is terminated.',
+    );
+  }
+  return ip.clearIndexedDbPersistence(db as ip.Firestore);
 }
 
 export async function waitForPendingWrites(db?: unknown): Promise<void> {
   if (db !== null && typeof db === 'object' && 'port' in db) {
+    markWorkerPortStarted((db as { port: object }).port);
     return workerWaitForPendingWrites(db as Parameters<typeof workerWaitForPendingWrites>[0]);
+  }
+  if (db !== null && typeof db === 'object') {
+    startedSurfaceHandles.add(db);
   }
   if (db !== null && typeof db === 'object' && ip.TARGET_SYMBOL in db) {
     return ip.waitForPendingWrites(db as ip.Firestore);
@@ -213,7 +240,11 @@ export async function waitForPendingWrites(db?: unknown): Promise<void> {
 
 export async function disableNetwork(db?: unknown): Promise<void> {
   if (db !== null && typeof db === 'object' && 'port' in db) {
+    markWorkerPortStarted((db as { port: object }).port);
     return workerDisableNetwork(db as Parameters<typeof workerDisableNetwork>[0]);
+  }
+  if (db !== null && typeof db === 'object') {
+    startedSurfaceHandles.add(db);
   }
   if (db !== null && typeof db === 'object' && ip.TARGET_SYMBOL in db) {
     return ip.disableNetwork(db as ip.Firestore);
@@ -222,7 +253,11 @@ export async function disableNetwork(db?: unknown): Promise<void> {
 
 export async function enableNetwork(db?: unknown): Promise<void> {
   if (db !== null && typeof db === 'object' && 'port' in db) {
+    markWorkerPortStarted((db as { port: object }).port);
     return workerEnableNetwork(db as Parameters<typeof workerEnableNetwork>[0]);
+  }
+  if (db !== null && typeof db === 'object') {
+    startedSurfaceHandles.add(db);
   }
   if (db !== null && typeof db === 'object' && ip.TARGET_SYMBOL in db) {
     return ip.enableNetwork(db as ip.Firestore);
@@ -242,6 +277,9 @@ export async function enableNetwork(db?: unknown): Promise<void> {
  */
 export async function terminate(db?: unknown): Promise<void> {
   if (useWorker) {
+    if (db !== null && typeof db === 'object' && 'port' in db) {
+      markWorkerPortTerminated((db as { port: object }).port);
+    }
     if (db !== null && typeof db === 'object' && 'app' in db) {
       const ownerApp = (db as { app?: unknown }).app;
       if (ownerApp !== null && typeof ownerApp === 'object') {
@@ -253,6 +291,9 @@ export async function terminate(db?: unknown): Promise<void> {
         'it is not torn down by a single tab calling terminate().',
     );
     return;
+  }
+  if (db !== null && typeof db === 'object') {
+    terminatedSurfaceHandles.add(db);
   }
   return ip.terminate(db as Parameters<typeof ip.terminate>[0]);
 }
@@ -353,6 +394,24 @@ export * from './unsupported/firestore.js';
 
 import { refEqual as workerRefEqual } from '../worker/client/firestore-reference-equality.js';
 export const refEqual = (useWorker ? workerRefEqual : ip.refEqual) as typeof ip.refEqual;
+
+let chosenLoadBundle: typeof ip.loadBundle = ip.loadBundle;
+let chosenNamedQuery: typeof ip.namedQuery = ip.namedQuery;
+let chosenDocFromJson: typeof ip.documentSnapshotFromJSON = ip.documentSnapshotFromJSON;
+let chosenQueryFromJson: typeof ip.querySnapshotFromJSON = ip.querySnapshotFromJSON;
+let chosenOnSnapshotResume: typeof ip.onSnapshotResume = ip.onSnapshotResume;
+if (useWorker) {
+  chosenLoadBundle = workerLoadBundle as unknown as typeof ip.loadBundle;
+  chosenNamedQuery = workerNamedQuery as unknown as typeof ip.namedQuery;
+  chosenDocFromJson = workerDocumentSnapshotFromJSON as unknown as typeof ip.documentSnapshotFromJSON;
+  chosenQueryFromJson = workerQuerySnapshotFromJSON as unknown as typeof ip.querySnapshotFromJSON;
+  chosenOnSnapshotResume = workerOnSnapshotResume as unknown as typeof ip.onSnapshotResume;
+}
+export const loadBundle = chosenLoadBundle;
+export const namedQuery = chosenNamedQuery;
+export const documentSnapshotFromJSON = chosenDocFromJson;
+export const querySnapshotFromJSON = chosenQueryFromJson;
+export const onSnapshotResume = chosenOnSnapshotResume;
 
 /** The served sandbox already provides the local backend. */
 export function connectFirestoreEmulator(..._args: unknown[]): void {

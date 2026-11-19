@@ -11,6 +11,7 @@ import { encodeDocValue, requireDocumentData, DOC_VALUE_ENCODING } from 'pyric/f
 import { nextId, dataRpc } from './core.js';
 import type { ClientDb, DocRefHandle, CollRefHandle } from './handles.js';
 import { makeDocSnapshot } from './snapshots.js';
+import { markWorkerPortStarted } from './firestore-bundles-ssr.js';
 import type { RawDocResult, ClientDocSnapshot } from './snapshots.js';
 import { createDocumentReference } from './firestore-reference.js';
 import {
@@ -88,6 +89,7 @@ export async function setDoc<T = DocumentData>(
   data: PartialWithFieldValue<T> | WithFieldValue<T>,
   options?: ClientSetOptions,
 ): Promise<void> {
+  markWorkerPortStarted(ref.port);
   return runSdkWrite(beginWorkerFirestoreActivity(ref, 'setDoc', 'operation'), async () => {
     const capturedOptions = captureSetOptions(options);
     const payload = convertSetData(ref, data, options);
@@ -144,6 +146,7 @@ export function updateDoc(
   dataOrField: Record<string, unknown> | string | FieldPath,
   ...valueAndMoreFieldsAndValues: unknown[]
 ): Promise<void> {
+  markWorkerPortStarted(ref.port);
   const fields = encodeUpdate('updateDoc', ref, dataOrField, valueAndMoreFieldsAndValues);
   return runSdkWrite(beginWorkerFirestoreActivity(ref, 'updateDoc', 'operation'), async () => {
     const mutation: WorkerOfflineMutation = {
@@ -170,6 +173,7 @@ export function updateDoc(
 }
 
 export async function deleteDoc(ref: DocRefHandle): Promise<void> {
+  markWorkerPortStarted(ref.port);
   return runSdkWrite(beginWorkerFirestoreActivity(ref, 'deleteDoc', 'operation'), async () => {
     const mutation: WorkerOfflineMutation = { kind: 'delete', path: ref.descriptor.path };
     const sendOnline = async (): Promise<void> => {
@@ -192,6 +196,7 @@ export async function addDoc(
   coll: CollRefHandle,
   data: Record<string, unknown>,
 ): Promise<DocRefHandle> {
+  markWorkerPortStarted(coll.port);
   return runSdkWrite(beginWorkerFirestoreActivity(coll, 'addDoc', 'operation'), async () => {
     const payload = convertSetData(coll, data);
     const encodedData = encodeDocValue(payload);
@@ -250,6 +255,7 @@ export interface ClientWriteBatch extends ClientSetOperations {
 }
 
 export function writeBatch(db: ClientDb): ClientWriteBatch {
+  markWorkerPortStarted(db.port);
   const writes: WriteDescriptor[] = [];
   const offlineMutations: WorkerOfflineMutation[] = [];
   const port = db.port;
@@ -365,6 +371,7 @@ export async function runTransaction<R>(
   updateFn: (txn: ClientTransaction) => Promise<R> | R,
   options?: { maxAttempts?: number },
 ): Promise<R> {
+  markWorkerPortStarted(db.port);
   return runSdkWrite(beginGroupActivity(db, 'runTransaction'), async () => {
     const port = db.port;
     const maxAttempts = options?.maxAttempts ?? TXN_MAX_ATTEMPTS;

@@ -25,6 +25,7 @@ import {
   tagSnapshotRefs,
   recordQuerySnapshot,
 } from './snapshots.js';
+import { buildQuerySnapshotToJson } from './ssr-snapshots.js';
 import type {
   DocumentReference,
   DocumentSnapshot,
@@ -146,6 +147,7 @@ export async function readQuery<T = DocumentData>(query: Query<T>, activity: Sdk
         forEach: forEachDocument(wrappedDocs),
         docChanges: createDocChanges(changes, false),
         metadata: client.querySnapshotMetadata(),
+        toJSON: buildQuerySnapshotToJson({ docs: wrappedDocs }, target, query as object),
       }, target);
       for (const document of wrappedDocs) client.cachePath(document.ref.path);
       recordQuerySnapshot(wrapped, snap as object, target, query as object, 'read');

@@ -83,8 +83,20 @@ export * from './aggregates.js';
 export * from './listeners.js';
 export * from './transactions.js';
 export * from './field-values.js';
-export * from './bundles.js';
-export * from './ssr-snapshots.js';
+export {
+  LoadBundleTask,
+  loadBundle,
+  namedQuery,
+  type LoadBundleTaskProgress,
+  type TaskState,
+} from './bundles.js';
+export {
+  documentSnapshotFromJSON,
+  onSnapshotResume,
+  querySnapshotFromJSON,
+  type ListenSource,
+  type SnapshotOptions,
+} from './ssr-snapshots.js';
 // ─── Tool factories (Slice 10) ────────────────────────────────────────
 export { createFirestoreDataTools, createFirestoreInspectTools } from './tools.js';
 export type {

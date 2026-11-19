@@ -1,44 +1,23 @@
 /**
  * `pyric/firestore` offline/persistence/network family (issue #144).
- *
- * A real app's init sequence commonly looks like:
- *
- *   const db = getFirestore(app);
- *   await enableIndexedDbPersistence(db);
- *   // ... later ...
- *   await enableNetwork(db);
- *   await disableNetwork(db);
- *   await waitForPendingWrites(db);
- *
- * Before this change, none of `enableIndexedDbPersistence`,
- * `enableMultiTabIndexedDbPersistence`, `clearIndexedDbPersistence`,
- * `enableNetwork`, `disableNetwork`, `waitForPendingWrites` were
- * exported from `pyric/firestore` at all — importing them from an app
- * bundled under pyric would fail at import time (a missing named
- * export), crashing before the app ever got to a read or write.
- *
- * These tests assert the full sequence now resolves without throwing,
- * and that the app can still read/write afterward. Each function also
- * gets its own resolve/return-contract test. See the HONEST-MIRROR
- * doc comments in `src/firestore/index.ts` (right above each function)
- * for why each one settles the way it does — this file only checks
- * the observable contract, not the rationale.
  */
-import { describe, it, expect } from 'bun:test';
-import { initializeSandbox } from 'pyric/sandbox';
-import { setRules } from 'pyric/sandbox/firestore';
+import { describe, expect, it } from 'bun:test';
+import { FirebaseError } from 'pyric/app';
 import {
-  getFirestore,
+  clearIndexedDbPersistence,
+  disableNetwork,
   doc,
-  setDoc,
-  getDoc,
   enableIndexedDbPersistence,
   enableMultiTabIndexedDbPersistence,
-  clearIndexedDbPersistence,
   enableNetwork,
-  disableNetwork,
+  getDoc,
+  getFirestore,
+  setDoc,
+  terminate,
   waitForPendingWrites,
-} from '../../src/firestore/index.js';
+} from 'pyric/firestore';
+import { initializeSandbox } from 'pyric/sandbox';
+import { setRules } from 'pyric/sandbox/firestore';
 
 const RULES = `rules_version = '2';
 service cloud.firestore {
@@ -56,7 +35,7 @@ function setup() {
   return { sandbox, db };
 }
 
-describe('real-app init sequence — offline/persistence/network family', () => {
+describe('real-app init sequence -- offline/persistence/network family', () => {
   it('resolves the full init sequence and the app can still read/write after', async () => {
     const { db } = setup();
 
@@ -105,17 +84,31 @@ describe('enableMultiTabIndexedDbPersistence', () => {
 });
 
 describe('clearIndexedDbPersistence', () => {
-  it('resolves, mapped onto Sandbox.clearPersistence()', async () => {
+  it('resolves before first use, mapped onto Sandbox.clearPersistence()', async () => {
     const { db } = setup();
     await expect(clearIndexedDbPersistence(db)).resolves.toBeUndefined();
   });
 
-  it('is a no-op when persistence was never enabled — data survives', async () => {
+  it('throws synchronous FirebaseError(failed-precondition) while the instance is running', async () => {
     const { db } = setup();
-    const ref = doc(db, 'notes/n1');
-    await setDoc(ref, { text: 'still here' });
-    await clearIndexedDbPersistence(db);
-    const snap = await getDoc(ref);
+    await setDoc(doc(db, 'notes/n1'), { text: 'running' });
+    let caught: unknown;
+    try {
+      clearIndexedDbPersistence(db);
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(FirebaseError);
+    expect((caught as FirebaseError).code).toBe('failed-precondition');
+  });
+
+  it('resolves after terminate(db) and preserves un-persisted in-memory sandbox data', async () => {
+    const { sandbox, db } = setup();
+    await setDoc(doc(db, 'notes/n1'), { text: 'still here' });
+    await terminate(db);
+    await expect(clearIndexedDbPersistence(db)).resolves.toBeUndefined();
+    const reopened = getFirestore(sandbox.withAuth({ uid: 'alice' }));
+    const snap = await getDoc(doc(reopened, 'notes/n1'));
     expect(snap.data()).toEqual({ text: 'still here' });
   });
 });

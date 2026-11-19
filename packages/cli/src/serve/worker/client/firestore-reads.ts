@@ -25,10 +25,11 @@ import {
   recordWorkerOnlineDoc,
   registerWorkerManagedListener,
 } from './firestore-network.js';
+import { markWorkerPortStarted } from './firestore-bundles-ssr.js';
 import { beginWorkerFirestoreActivity } from './sdk-activity.js';
 import { finishSdkRead, type UsageEvidence } from 'pyric/sandbox/internal';
 import type { RawDocResult, RawQueryResult, ClientDocSnapshot, ClientQuerySnapshot, QueryChangeBaseline } from './snapshots.js';
-import type { DocumentData, FieldPath } from 'pyric/firestore';
+import type { DocumentData, FieldPath, SnapshotMetadata } from 'pyric/firestore';
 
 // ─── Execution functions (RPC) ────────────────────────────────────────────
 
@@ -37,6 +38,7 @@ export function getDoc<T = DocumentData>(ref: DocRefHandle<T>): Promise<ClientDo
 }
 
 export async function readDocumentAs<T = DocumentData>(ref: DocRefHandle<T>, method: string): Promise<ClientDocSnapshot<T>> {
+  markWorkerPortStarted(ref.port);
   const activity = beginWorkerFirestoreActivity(ref, method, 'operation');
   try {
     const offlineDoc = readWorkerOfflineDoc(ref.port, ref.descriptor.path);
@@ -54,7 +56,11 @@ export async function readDocumentAs<T = DocumentData>(ref: DocRefHandle<T>, met
       path: ref.descriptor.path,
     }) as RawDocResult;
     recordWorkerOnlineDoc(ref.port, ref.descriptor.path, result.exists, result.data);
-    return finishSdkRead(activity, makeDocSnapshot(result, ref.port, ref));
+    let metadataOverride: SnapshotMetadata | undefined;
+    if (method === 'getDocFromCache') {
+      metadataOverride = Object.freeze({ fromCache: true, hasPendingWrites: Boolean(result.hasPendingWrites) });
+    }
+    return finishSdkRead(activity, makeDocSnapshot(result, ref.port, ref, metadataOverride));
   } catch (error) { activity.fail(); throw error; }
 }
 
@@ -69,25 +75,33 @@ function assertExecutableTarget(target: DocRefHandle | CollRefHandle | QueryHand
 }
 
 export async function readQueryAs(source: CollRefHandle | QueryHandle, method: string): Promise<ClientQuerySnapshot> {
+  markWorkerPortStarted(source.port);
   const activity = beginWorkerFirestoreActivity(source, method, 'operation');
   try {
     assertExecutableTarget(source);
-    let targetSource: TargetDescriptor = (source as QueryHandle).descriptor;
+    let sourceDescriptor: TargetDescriptor = (source as QueryHandle).descriptor;
     if (source.__kind === 'coll-ref') {
-      targetSource = (source as CollRefHandle).descriptor;
+      sourceDescriptor = (source as CollRefHandle).descriptor;
     }
     const result = await dataRpc(source.port, {
       t: 'op',
       id: nextId(),
       method: 'getDocs',
-      source: targetSource,
+      source: sourceDescriptor,
     }) as RawQueryResult;
     for (const d of result.docs) {
       if (d.path !== undefined) {
         recordWorkerOnlineDoc(source.port, d.path, d.exists, d.data);
       }
     }
-    return finishSdkRead(activity, makeQuerySnapshot(result, source.port, source.converter));
+    let metadataOverride: SnapshotMetadata | undefined;
+    if (method === 'getDocsFromCache') {
+      metadataOverride = Object.freeze({ fromCache: true, hasPendingWrites: Boolean(result.hasPendingWrites) });
+    }
+    return finishSdkRead(
+      activity,
+      makeQuerySnapshot(result, source.port, source.converter, undefined, sourceDescriptor, metadataOverride),
+    );
   } catch (error) { activity.fail(); throw error; }
 }
 
@@ -304,6 +318,7 @@ export function onSnapshot(
   const baseline: QueryChangeBaseline = { excludesMetadataChanges: !includeMetadataChanges };
   let currentSubId = nextSubId();
   const port = target.port;
+  markWorkerPortStarted(port);
   const activity = beginWorkerFirestoreActivity(target, 'onSnapshot', 'subscription', owners);
   activity.transport(currentSubId);
 
@@ -479,6 +494,7 @@ export function onSnapshotsInSync(
   }
   if (!cb) return () => undefined;
   const port = db.port as object;
+  markWorkerPortStarted(port);
   let observers = syncObserversByPort.get(port);
   if (!observers) {
     observers = new Set();

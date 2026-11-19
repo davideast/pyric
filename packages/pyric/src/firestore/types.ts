@@ -123,6 +123,7 @@ export interface DocumentSnapshot<T = DocumentData> {
   readonly metadata: SnapshotMetadata;
   data(options?: SnapshotOptions): T | undefined;
   get(fieldPath: string | FieldPath): unknown;
+  toJSON(): object;
 }
 /**
  * `QueryDocumentSnapshot` is a `DocumentSnapshot` known to exist —
@@ -141,6 +142,7 @@ export interface QuerySnapshot<T = DocumentData> {
   readonly metadata: SnapshotMetadata;
   /** Calls `callback.call(thisArg, doc)` once per document, in query order. */
   forEach(callback: (result: QueryDocumentSnapshot<T>) => void, thisArg?: unknown): void;
+  toJSON(): object;
 }
 interface FirestoreSetOperations {
   set<T = DocumentData>(ref: DocumentReference<T>, data: WithFieldValue<T>): this;

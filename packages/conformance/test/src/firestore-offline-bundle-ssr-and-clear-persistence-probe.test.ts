@@ -6,21 +6,20 @@ import {
   printModularProbePreview,
   selectModularProbes,
 } from '../../src/sdk-probes.ts';
-import { expectStagedUntilCaptured } from './staged-capture-assertions.ts';
 
 const PROBE_ID = 'firestore-offline-bundle-ssr-and-clear-persistence';
 
-describe('firestore-offline-bundle-ssr-and-clear-persistence staged probe (sdk-probes)', () => {
-  test('registers on sdk-probes with pendingRowLink and empty requires and stays skipped in unfiltered runs until captured', async () => {
+describe('firestore-offline-bundle-ssr-and-clear-persistence linked probe (sdk-probes)', () => {
+  test('registers on sdk-probes linked to firestore#142, firestore#153, and firestore#154 with empty requires', async () => {
     const loaded = await loadModularProbes('sdk-probes');
     const loadedIds = loaded.map((entry) => entry.id);
     expect(loadedIds).toContain(PROBE_ID);
 
     expect(bundleSsrProbe.rig).toBe('sdk-probes');
     expect(bundleSsrProbe.requires).toEqual([]);
-    expect(bundleSsrProbe.pendingRowLink).toBe(true);
-    expect(bundleSsrProbe.matrixRow).toBe('');
-    expect(bundleSsrProbe.rowIds).toEqual([]);
+    expect(bundleSsrProbe.pendingRowLink).toBeUndefined();
+    expect(bundleSsrProbe.matrixRow).toBe('firestore#153');
+    expect(bundleSsrProbe.rowIds).toEqual(['firestore#142', 'firestore#153', 'firestore#154']);
     expect(bundleSsrProbe.description.length).toBeGreaterThan(20);
 
     const unfilteredIds = new Set(
@@ -28,6 +27,7 @@ describe('firestore-offline-bundle-ssr-and-clear-persistence staged probe (sdk-p
         includeUncapturedStaged: false,
       }).map((entry) => entry.id),
     );
+    expect(unfilteredIds.has(PROBE_ID)).toBe(true);
     const explicitSelected = selectModularProbes(
       loaded,
       ['--probe', PROBE_ID],
@@ -35,18 +35,6 @@ describe('firestore-offline-bundle-ssr-and-clear-persistence staged probe (sdk-p
       { includeUncapturedStaged: false },
     );
     expect(explicitSelected.map((entry) => entry.id)).toEqual([PROBE_ID]);
-
-    expectStagedUntilCaptured(PROBE_ID, {
-      rig: 'sdk-probes',
-      filterFlag: '--probe',
-      filterValueFor: (name) => name,
-      whenUncaptured(name) {
-        expect(unfilteredIds.has(name)).toBe(false);
-      },
-      whenCaptured(name) {
-        expect(unfilteredIds.has(name)).toBe(true);
-      },
-    });
 
     const previewLines: string[] = [];
     printModularProbePreview({

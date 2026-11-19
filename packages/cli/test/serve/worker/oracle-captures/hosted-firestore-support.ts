@@ -18,6 +18,7 @@ import {
   Firestore,
   FirestoreError,
   GeoPoint,
+  LoadBundleTask,
   Query,
   QueryCompositeFilterConstraint,
   QueryConstraint,
@@ -42,6 +43,14 @@ import { createRemoteSandboxCore, createRemoteSandboxHandle } from '../../../../
 import { createHostedRuntime } from '../../../../src/serve/hosted/runtime.js';
 import * as client from '../../../../src/serve/worker/index.js';
 import { readDocumentAs, readQueryAs } from '../../../../src/serve/worker/client/firestore-reads.js';
+import {
+  clearIndexedDbPersistence,
+  documentSnapshotFromJSON,
+  loadBundle,
+  namedQuery,
+  onSnapshotResume,
+  querySnapshotFromJSON,
+} from '../../../../src/serve/worker/client/firestore-bundles-ssr.js';
 import { refEqual } from '../../../../src/serve/worker/client/firestore-reference-equality.js';
 import { getHostedFirestore } from '../../../../src/serve/worker/client/websocket-connection.js';
 import { sleep, until } from '../integration-support.js';
@@ -90,6 +99,7 @@ function buildHostedFirestoreSdk(): FirestoreSdk {
     FirestoreError,
     GeoPoint,
     Bytes,
+    LoadBundleTask,
     Query,
     QueryCompositeFilterConstraint,
     QueryConstraint,
@@ -107,6 +117,14 @@ function buildHostedFirestoreSdk(): FirestoreSdk {
     vector,
     WriteBatch,
     refEqual,
+    clearIndexedDbPersistence,
+    loadBundle,
+    namedQuery,
+    documentSnapshotFromJSON,
+    querySnapshotFromJSON,
+    onSnapshotResume,
+    getDocFromCache: (ref: Parameters<typeof readDocumentAs>[0]) => readDocumentAs(ref, 'getDocFromCache'),
+    getDocsFromCache: (source: Parameters<typeof readQueryAs>[0]) => readQueryAs(source, 'getDocsFromCache'),
     getDocFromServer: (ref: Parameters<typeof readDocumentAs>[0]) => readDocumentAs(ref, 'getDocFromServer'),
     getDocsFromServer: (source: Parameters<typeof readQueryAs>[0]) => readQueryAs(source, 'getDocsFromServer'),
   } as unknown as FirestoreSdk;

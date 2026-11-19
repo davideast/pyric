@@ -1,7 +1,11 @@
 {
   "name": "firestore-offline-bundle-ssr-and-clear-persistence",
-  "matrixRow": "",
-  "rowIds": [],
+  "matrixRow": "firestore#153",
+  "rowIds": [
+    "firestore#142",
+    "firestore#153",
+    "firestore#154"
+  ],
   "description": "Pure offline firebase/firestore loadBundle, LoadBundleTask, and namedQuery cache hydration; DocumentSnapshot.toJSON and QuerySnapshot.toJSON serialization into documentSnapshotFromJSON, querySnapshotFromJSON, and onSnapshotResume on fresh clients; and clearIndexedDbPersistence lifecycle preconditions with zero network calls.",
   "observedAt": "2026-11-19T02:06:57.832Z",
   "fbSdkVersion": "12.19.0",
