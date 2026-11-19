@@ -20,9 +20,14 @@ function sortedObjectKeys(value: unknown): string[] {
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: ['web-config'],
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'ai#generate-structured-output',
+  rowIds: [
+    'ai#generate-structured-output',
+    'ai#generate-system-instruction',
+    'ai#generate-thinking-signature',
+    'ai#helper-thoughtsummary',
+    'ai#schema-rides-request',
+  ],
   description:
     'Live firebase/ai client SDK top-level systemInstruction formatting, Schema.object serialization onto generationConfig.responseSchema with JSON structured output, and thinkingConfig thoughtSignature / thoughtSummary() behavior on GoogleAI with App Check.',
   async observe() {

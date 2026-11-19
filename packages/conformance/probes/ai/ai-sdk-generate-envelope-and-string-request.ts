@@ -20,9 +20,18 @@ function sortedObjectKeys(value: unknown): string[] {
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: ['web-config'],
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'ai#generate-envelope-keys',
+  rowIds: [
+    'ai#generate-candidate-keys',
+    'ai#generate-envelope-keys',
+    'ai#generate-finish-stop',
+    'ai#generate-modelversion-responseid',
+    'ai#generate-role-model',
+    'ai#generate-string-request',
+    'ai#generate-usage-key-set',
+    'ai#generate-usage-service-tier',
+    'ai#helper-text',
+  ],
   description:
     'Live firebase/ai client SDK generateContent string-prompt request normalization, raw wire envelope key sets (top-level, candidate, content, usageMetadata.serviceTier, modelVersion, responseId), and EnhancedGenerateContentResponse.text() / inlineDataParts() / functionCalls() helpers on GoogleAI with App Check.',
   async observe() {

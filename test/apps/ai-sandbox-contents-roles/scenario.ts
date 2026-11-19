@@ -76,6 +76,36 @@ interface InitBackendsOutcome extends Outcome {
   };
 }
 
+interface GenerateHelpersOutcome {
+  topLevelKeySet: string[];
+  candidateKeySet: string[];
+  candidateIndex: number;
+  contentRole: string;
+  contentKeySet: string[];
+  finishReason: string;
+  usageKeySet: string[];
+  usageServiceTierPresent: boolean;
+  modelVersionNonEmpty: boolean;
+  responseIdNonEmpty: boolean;
+  modelVersionStableAcrossCalls: boolean;
+  responseIdDistinctAcrossCalls: boolean;
+  helperTextNonEmpty: boolean;
+  helperInlineDataUndefined: boolean;
+  helperFunctionCallsUndefined: boolean;
+  sysTopLevelKeySet: string[];
+  sysFinishReason: string;
+  structuredParsedKeys: string[];
+  structuredFinishReason: string;
+  thinkingAnyThoughtPart: boolean;
+  thinkingAnyThoughtSignature: boolean;
+  thinkingSummaryUndefined: boolean;
+  wireFunctionCallKeys: string[];
+  wireFunctionCallSigned: boolean;
+  helperCallCount: number;
+  helperFirstCallName: string;
+  helperFirstCallArgsHasCity: boolean;
+}
+
 interface Roles {
   assistant: Outcome;
   system: Outcome;
@@ -85,6 +115,7 @@ interface Roles {
   schemaBuilders: SchemaBuildersOutcome;
   chatErrorsAbort: ChatErrorsAbortOutcome;
   initBackends: InitBackendsOutcome;
+  generateHelpers: GenerateHelpersOutcome;
 }
 
 declare function runRoles(): Promise<Roles>;
@@ -198,6 +229,42 @@ function assertRoles(roles: Roles): void {
     isFirebaseError: true,
     code: 'no-model',
     name: 'FirebaseError',
+  });
+
+  assert.deepEqual(roles.generateHelpers, {
+    topLevelKeySet: ['candidates', 'modelVersion', 'responseId', 'usageMetadata'],
+    candidateKeySet: ['content', 'finishReason', 'index'],
+    candidateIndex: 0,
+    contentRole: 'model',
+    contentKeySet: ['parts', 'role'],
+    finishReason: 'STOP',
+    usageKeySet: [
+      'candidatesTokenCount',
+      'promptTokenCount',
+      'promptTokensDetails',
+      'serviceTier',
+      'totalTokenCount',
+    ],
+    usageServiceTierPresent: true,
+    modelVersionNonEmpty: true,
+    responseIdNonEmpty: true,
+    modelVersionStableAcrossCalls: true,
+    responseIdDistinctAcrossCalls: true,
+    helperTextNonEmpty: true,
+    helperInlineDataUndefined: true,
+    helperFunctionCallsUndefined: true,
+    sysTopLevelKeySet: ['candidates', 'modelVersion', 'responseId', 'usageMetadata'],
+    sysFinishReason: 'STOP',
+    structuredParsedKeys: ['word'],
+    structuredFinishReason: 'STOP',
+    thinkingAnyThoughtPart: false,
+    thinkingAnyThoughtSignature: true,
+    thinkingSummaryUndefined: true,
+    wireFunctionCallKeys: ['args', 'id', 'name'],
+    wireFunctionCallSigned: true,
+    helperCallCount: 1,
+    helperFirstCallName: 'get_weather',
+    helperFirstCallArgsHasCity: true,
   });
 }
 

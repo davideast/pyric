@@ -1,7 +1,9 @@
 {
   "name": "ai-sdk-response-helpers-functioncalls",
-  "matrixRow": "",
-  "rowIds": [],
+  "matrixRow": "ai#helper-functioncalls",
+  "rowIds": [
+    "ai#helper-functioncalls"
+  ],
   "description": "Live firebase/ai client SDK toolConfig FunctionCallingMode.ANY forced function-call serialization and EnhancedGenerateContentResponse.functionCalls() / inlineDataParts() helper shapes on GoogleAI with App Check.",
   "observedAt": "2026-11-19T19:56:00.844Z",
   "fbSdkVersion": "12.19.0",
