@@ -424,12 +424,43 @@ export async function observeAuthChangeLiveRouting(subject: AuthChangeProbeSubje
   }
 }
 
+export type AuthChangeLiveRoutingObservation = Awaited<
+  ReturnType<typeof observeAuthChangeLiveRouting>
+>;
+
+/**
+ * Upstream `firebase/database` 12.19.0 cold `"g"`-wire `PersistentConnection.get`
+ * rejects rules-denied `get()` with `Error("Permission denied")` (`code: null`),
+ * whereas Pyric's `get()` sets `code: "PERMISSION_DENIED"` per `rtdb-modular#110`
+ * (`rtdb-rules-denied-error-code`). Normalize only the three denied-read `code`
+ * slots after explicitly asserting both shapes in replay suites.
+ */
+export function withDeniedGetCode(
+  observed: AuthChangeLiveRoutingObservation,
+  deniedReadCode: string | null,
+): AuthChangeLiveRoutingObservation {
+  return {
+    ...observed,
+    initialSignedOut: {
+      ...observed.initialSignedOut,
+      readAuthed: { ...observed.initialSignedOut.readAuthed, code: deniedReadCode },
+    },
+    afterSwitchToBob: {
+      ...observed.afterSwitchToBob,
+      readAliceOther: { ...observed.afterSwitchToBob.readAliceOther, code: deniedReadCode },
+    },
+    afterSignOut: {
+      ...observed.afterSignOut,
+      readAuthedDenied: { ...observed.afterSignOut.readAuthedDenied, code: deniedReadCode },
+    },
+  };
+}
+
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: ['web-config', 'dedicated-rtdb'],
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'rtdb-modular#M38',
+  rowIds: ['rtdb-modular#M38'],
   description:
     'Live firebase/auth custom-token sign-in, uninterrupted user switch, and sign-out routing on a single getDatabase(app) handle without re-binding: immediate next-op auth.uid enforcement, zero spurious deliveries on readable onValue/onChildAdded listeners, and permanent PERMISSION_DENIED cancellation without resurrection across user-scoped and auth-gated paths.',
   observe() {

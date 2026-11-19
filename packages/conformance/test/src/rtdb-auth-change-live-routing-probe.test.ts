@@ -21,25 +21,20 @@ import {
 } from '../../probes/rtdb-modular/rtdb-modular-auth-change-live-routing.ts';
 import { auditProbeSessionAuthModes } from '../../src/sdk-probe-runtime.ts';
 import { loadModularProbes } from '../../src/sdk-probes.ts';
-import { expectStagedUntilCaptured } from './staged-capture-assertions.ts';
 
 const PROBE_NAME = 'rtdb-modular-auth-change-live-routing';
 
-describe('rtdb-modular-auth-change-live-routing staged probe', () => {
-  it('registers as a staged sdk-probes probe and passes auditProbeSessionAuthModes and expectStagedUntilCaptured', async () => {
+describe('rtdb-modular-auth-change-live-routing linked probe', () => {
+  it('registers as a linked sdk-probes probe for rtdb-modular#M38 and passes auditProbeSessionAuthModes', async () => {
     expect(authChangeLiveRoutingProbe.rig).toBe('sdk-probes');
-    expect(authChangeLiveRoutingProbe.pendingRowLink).toBe(true);
-    expect(authChangeLiveRoutingProbe.rowIds).toEqual([]);
+    expect(authChangeLiveRoutingProbe.pendingRowLink).toBeUndefined();
+    expect(authChangeLiveRoutingProbe.matrixRow).toBe('rtdb-modular#M38');
+    expect(authChangeLiveRoutingProbe.rowIds).toEqual(['rtdb-modular#M38']);
     expect(authChangeLiveRoutingProbe.requires).toEqual(['web-config', 'dedicated-rtdb']);
     expect(auditProbeSessionAuthModes()).toEqual([]);
 
     const sdkProbes = await loadModularProbes('sdk-probes');
     expect(sdkProbes.map((entry) => entry.id)).toContain(PROBE_NAME);
-
-    expectStagedUntilCaptured(PROBE_NAME, {
-      rig: 'sdk-probes',
-      filterFlag: '--probe',
-    });
   });
 
   it('executes observeAuthChangeLiveRouting across public, authed, and user-scoped listeners without volatile leaks', async () => {

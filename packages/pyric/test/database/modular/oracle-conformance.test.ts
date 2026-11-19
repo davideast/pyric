@@ -18,6 +18,7 @@ const obsGate = createObservationGate({
   match: (file) => file.startsWith('rtdb-modular-'),
   notApplicable: NOT_APPLICABLE,
   siblingSources: [
+    join(import.meta.dir, '..', 'live-auth-listeners.test.ts'),
     join(import.meta.dir, '..', 'on-disconnect.test.ts'),
     join(import.meta.dir, 'admin-query-index.test.ts'),
     join(import.meta.dir, 'info-write-validation.test.ts'),
@@ -75,7 +76,7 @@ const obsGate = createObservationGate({
 describe('oracle conformance (rtdb-modular): completeness', () => {
   it('every rtdb-modular observation is covered (no silent gaps)', () => {
     const report = obsGate.report();
-    expect(report.committed.length).toBe(93);
+    expect(report.committed.length).toBe(94);
     expect(report.loadedButUnused).toEqual([]);
     expect(report.uncovered).toEqual([]);
   });
