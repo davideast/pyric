@@ -1,7 +1,10 @@
 {
   "name": "auth-anonymous-idempotency-and-remint",
-  "matrixRow": "",
-  "rowIds": [],
+  "matrixRow": "auth#8",
+  "rowIds": [
+    "auth#8",
+    "auth#9"
+  ],
   "description": "signInAnonymously sets currentUser and ID token uid claims, returns the existing anonymous user without minting a new uid when already signed in anonymously, and mints a fresh uid after signOut.",
   "observedAt": "2026-11-18T21:55:04.714Z",
   "fbSdkVersion": "12.19.0",

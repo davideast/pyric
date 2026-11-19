@@ -9,9 +9,8 @@ import { waitForCondition } from '../../src/oracle-run-stable-shapes.ts';
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: ['web-config', 'admin-auth'],
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'auth#47a',
+  rowIds: ['auth#47a', 'auth#70'],
   description:
     'signInWithCredential preserves rich User profile fields and reference identity with auth.currentUser, records the credential providerId, and rejects disabled accounts with auth/user-disabled before mutating auth state.',
   async observe() {
