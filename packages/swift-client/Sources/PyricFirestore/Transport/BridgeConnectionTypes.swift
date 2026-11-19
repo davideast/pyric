@@ -16,7 +16,7 @@ struct PendingOp: Sendable {
     let timeoutTask: Task<Void, Never>
     /// Its place in the order operations were admitted.
     let sequence: Int
-    let issuedAt: ContinuousClock.Instant
+    let issuedAt: TimeInterval
     /// False for Auth restore traffic and on a client that cannot reopen its
     /// channel: those fail as before instead of being held.
     let holdable: Bool

@@ -51,11 +51,12 @@ public actor PyricBridgeClient {
     private var heartbeatInterval: TimeInterval = defaultHeartbeatInterval
     /// Seconds of silence that count as a drop. Fixed at 45; only tests change it.
     private var livenessTimeout: TimeInterval = defaultLivenessTimeout
-    /// Measures silence. It keeps running while the device sleeps, so an app
-    /// resumed after a suspension sees the whole gap on its first heartbeat.
-    private let clock = ContinuousClock()
+    /// Measures silence and schedules timers; `ContinuousBridgeClock` in production.
+    private var clock: any BridgeClock
     /// When the current socket last delivered a frame.
-    private var lastFrameAt: ContinuousClock.Instant = ContinuousClock().now
+    private var lastFrameAt: TimeInterval
+    /// Monotonic count of frames delivered to `receiveLoop`, for test synchronization.
+    private(set) var receivedFrameCount: Int = 0
     private var heartbeatTask: Task<Void, Never>?
     private var pingCounter = 0
 
@@ -143,6 +144,9 @@ public actor PyricBridgeClient {
         self.attachTimeout = attachTimeout
         self.transportFactory = transportFactory
         self.fixedTransport = nil
+        let initialClock = ContinuousBridgeClock()
+        self.clock = initialClock
+        self.lastFrameAt = initialClock.now()
     }
 
     public init(
@@ -160,6 +164,9 @@ public actor PyricBridgeClient {
         self.transport = channel
         self.fixedTransport = channel
         self.transportFactory = nil
+        let initialClock = ContinuousBridgeClock()
+        self.clock = initialClock
+        self.lastFrameAt = initialClock.now()
     }
 
     /// Constructs a URLRequest populating the Host header for DNS-rebinding protection.
@@ -185,6 +192,18 @@ public actor PyricBridgeClient {
     func setHeartbeatForTesting(interval: TimeInterval?, livenessTimeout timeout: TimeInterval?) {
         heartbeatInterval = interval ?? defaultHeartbeatInterval
         livenessTimeout = timeout ?? defaultLivenessTimeout
+    }
+
+    /// Test-only: replaces the bridge clock before connecting so timer and
+    /// liveness tests advance virtual time without wall-clock races.
+    func setClockForTesting(_ testClock: any BridgeClock) {
+        clock = testClock
+        lastFrameAt = testClock.now()
+    }
+
+    /// Test-only: operations currently waiting in the held queue.
+    var heldOperationCount: Int {
+        heldOps.count
     }
 
     /// Runs on a re-attach to a replaced host, before subscriptions are re-sent.
@@ -268,9 +287,10 @@ public actor PyricBridgeClient {
             }
         }
         attachDeadlineTask?.cancel()
-        let timeout = attachTimeout
+        let activeClock = clock
+        let deadline = activeClock.now() + attachTimeout
         attachDeadlineTask = Task { [weak self] in
-            try? await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
+            try? await activeClock.sleepUntil(deadline: deadline)
             guard !Task.isCancelled else { return }
             await self?.attachDeadlinePassed(generation: generation)
         }
@@ -349,6 +369,7 @@ public actor PyricBridgeClient {
             throw PyricBridgeError.unavailable(connectionLostMessage)
         }
         transport = opened
+        lastFrameAt = clock.now()
         receiveTask?.cancel()
         receiveTask = Task { [weak self] in
             await self?.receiveLoop(generation: generation, transport: opened)
@@ -443,11 +464,13 @@ public actor PyricBridgeClient {
         }
 
         let delay = reconnectDelay(reconnectAttempt)
+        let activeClock = clock
+        let deadline = activeClock.now() + delay
         reconnectAttempt += 1
         reconnectTask?.cancel()
         reconnectTask = Task { [weak self] in
             if delay > 0 {
-                try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+                try? await activeClock.sleepUntil(deadline: deadline)
             }
             guard !Task.isCancelled else { return }
             await self?.reconnectTimerFired()
@@ -469,10 +492,11 @@ public actor PyricBridgeClient {
     /// reach the liveness timeout, so silence is detected at 45 seconds.
     private func startHeartbeat(generation: Int) {
         heartbeatTask?.cancel()
+        let activeClock = clock
         heartbeatTask = Task { [weak self] in
             while !Task.isCancelled {
                 guard let delay = await self?.heartbeatTick(generation: generation) else { return }
-                try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+                try? await activeClock.sleep(seconds: delay)
             }
         }
     }
@@ -502,9 +526,8 @@ public actor PyricBridgeClient {
         seconds(since: lastFrameAt)
     }
 
-    private func seconds(since instant: ContinuousClock.Instant) -> TimeInterval {
-        let parts = instant.duration(to: clock.now).components
-        return Double(parts.seconds) + Double(parts.attoseconds) / 1e18
+    private func seconds(since instant: TimeInterval) -> TimeInterval {
+        max(0, clock.now() - instant)
     }
 
     private func dropSilentConnection(generation: Int) {
@@ -659,7 +682,7 @@ public actor PyricBridgeClient {
         holdable: Bool
     ) async throws -> AnySendable {
         let (id, sequence) = nextOpId()
-        let issuedAt = clock.now
+        let issuedAt = clock.now()
         let opTimeout = timeout ?? defaultOpTimeout
         let payload = opPayload(method: method, params: params, actAs: actAs)
 
@@ -698,15 +721,17 @@ public actor PyricBridgeClient {
     private func registerPendingOp(
         id: String,
         sequence: Int,
-        issuedAt: ContinuousClock.Instant,
+        issuedAt: TimeInterval,
         holdable: Bool,
         method: String,
         payload: [String: AnySendable],
         timeout: TimeInterval,
         continuation: CheckedContinuation<AnySendable, Error>
     ) {
+        let activeClock = clock
+        let deadline = activeClock.now() + timeout
         let timeoutTask = Task { [weak self] in
-            try? await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
+            try? await activeClock.sleepUntil(deadline: deadline)
             if !Task.isCancelled {
                 await self?.handleOpTimeout(id: id, timeout: timeout, method: method)
             }
@@ -836,8 +861,10 @@ public actor PyricBridgeClient {
     }
 
     private func holdDeadlineTask(id: String, after seconds: TimeInterval) -> Task<Void, Never> {
-        Task { [weak self] in
-            try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+        let activeClock = clock
+        let deadline = activeClock.now() + seconds
+        return Task { [weak self] in
+            try? await activeClock.sleepUntil(deadline: deadline)
             guard !Task.isCancelled else { return }
             await self?.holdDeadlinePassed(id: id)
         }
@@ -852,7 +879,7 @@ public actor PyricBridgeClient {
         turn: OperationTurn?
     ) async throws -> AnySendable {
         let (id, sequence) = nextOpId()
-        let issuedAt = clock.now
+        let issuedAt = clock.now()
         let opTimeout = timeout ?? defaultOpTimeout
         let payload = opPayload(method: method, params: params, actAs: actAs)
 
@@ -1104,7 +1131,8 @@ public actor PyricBridgeClient {
             do {
                 let rawText = try await transport.receive()
                 guard isCurrent(generation) else { break }
-                lastFrameAt = clock.now
+                lastFrameAt = clock.now()
+                receivedFrameCount += 1
                 handleMessage(rawText, generation: generation)
             } catch {
                 handleConnectionLoss(

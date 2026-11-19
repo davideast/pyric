@@ -226,7 +226,7 @@ final class FakeReconnectBridge: @unchecked Sendable {
         let acks = _autoAck
         lock.unlock()
         if frame["type"]?.stringValue == "ping", socket.answersPings, let id = frame["id"]?.stringValue {
-            Task { socket.deliver(["type": "pong", "id": id]) }
+            socket.deliver(["type": "pong", "id": id])
             return
         }
         guard frame["type"]?.stringValue == "attach", acks else { return }
@@ -633,11 +633,25 @@ struct BridgeReconnectTests {
     func preAttachOperationPastDeadlineIsNeverSent() async throws {
         let bridge = FakeReconnectBridge()
         bridge.refuseConnections = true
+        let clock = TestBridgeClock()
         let client = makeReconnectingClient(bridge, retryInitialConnection: true, retryDelay: 0.02)
+        await client.setClockForTesting(clock)
         await client.setHoldDeadlineForTesting(0.1)
 
+        let opTask = Task {
+            try await client.op(method: "setDoc", params: ["path": .string("rooms/a")])
+        }
+        try await until {
+            bridge.connectCalls == 1 && clock.sleeperCount == 2 && clock.nextWakeMilliseconds == 20
+        }
+        clock.advance(by: 0.02)
+        try await until {
+            bridge.connectCalls == 2 && clock.sleeperCount == 2 && clock.nextWakeMilliseconds == 20
+        }
+        clock.advance(by: 0.08)
+
         do {
-            _ = try await client.op(method: "setDoc", params: ["path": .string("rooms/a")])
+            _ = try await opTask.value
             Issue.record("expected the hold to expire")
         } catch let error as PyricBridgeError {
             #expect(error.code == .unavailable)
@@ -646,8 +660,9 @@ struct BridgeReconnectTests {
         #expect(bridge.connectCalls >= 2)
 
         bridge.refuseConnections = false
+        try await until { clock.sleeperCount >= 1 }
+        clock.advance(by: 0.02)
         try await until { await client.isConnected }
-        try await Task.sleep(nanoseconds: 30_000_000)
         #expect(bridge.ops(named: "setDoc").isEmpty)
         await client.disconnect()
     }
