@@ -14,7 +14,7 @@ g.Event = dom.window.Event;
 g.getComputedStyle = dom.window.getComputedStyle.bind(dom.window);
 g.IS_REACT_ACT_ENVIRONMENT = true;
 
-import { afterEach, describe, expect, it } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { cleanup, fireEvent, render, waitFor } from '@testing-library/react';
 import {
   BillableMetricsView,
@@ -46,6 +46,10 @@ function installLiveHostHealth(): void {
     return new Response('null', { status: 404 });
   };
 }
+
+beforeEach(() => {
+  resetLiveStatusPollerForTesting();
+});
 
 afterEach(() => {
   cleanup();

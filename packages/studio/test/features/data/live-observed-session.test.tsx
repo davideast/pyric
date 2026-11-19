@@ -34,6 +34,7 @@ import { cleanup, fireEvent, render, waitFor } from '@testing-library/react';
 import { DataFeature } from '../../../src/features/data/DataFeature.js';
 import { RtdbSurface } from '../../../src/features/rtdb/RtdbSurface.js';
 import { EnvironmentProvider } from '../../../src/shell/environment.js';
+import { resetLiveStatusPollerForTesting } from '../../../src/shell/live-status.js';
 import { resetServeInitForTests } from '../../../src/shell/serve-init.js';
 
 interface MockLiveServerState {
@@ -83,6 +84,7 @@ function requestPath(input: RequestInfo | URL): string {
 const originalFetch = globalThis.fetch;
 
 beforeEach(() => {
+  resetLiveStatusPollerForTesting();
   resetServeInitForTests();
   serverState = {
     snapshot: {
@@ -160,6 +162,7 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
+  resetLiveStatusPollerForTesting();
   resetServeInitForTests();
   globalThis.fetch = originalFetch;
 });
@@ -506,8 +509,10 @@ describe('Studio Live-mode Observed Session Data & Opt-in Seeding', () => {
     await waitFor(() =>
       expect(view.container.querySelector('[data-rtdb-instance-bar]')).not.toBeNull(),
     );
-    await waitFor(() => expect(view.container.textContent).toContain('demo-live-shard-03 (observed)'));
-    expect(view.container.textContent).toContain('rooms');
+    await waitFor(() => {
+      expect(view.container.textContent).toContain('demo-live-shard-03 (observed)');
+      expect(view.container.textContent).toContain('rooms');
+    });
 
     const defaultPill = view.container.querySelector('[data-rtdb-instance="demo-live-default-rtdb"]')!;
     const shard01Pill = view.container.querySelector('[data-rtdb-instance="demo-live-shard-01"]')!;

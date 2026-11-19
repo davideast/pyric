@@ -22,7 +22,7 @@ g.cancelAnimationFrame = dom.window.cancelAnimationFrame.bind(dom.window);
 g.getComputedStyle = dom.window.getComputedStyle.bind(dom.window);
 g.IS_REACT_ACT_ENVIRONMENT = true;
 
-import { afterEach, describe, expect, it } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react';
 import type { SandboxEvent } from 'pyric/sandbox';
 import { TrafficSurface } from '../../../src/features/traffic/TrafficSurface.js';
@@ -105,6 +105,10 @@ function installLiveFetch() {
 }
 
 const flush = () => act(() => new Promise<void>((resolve) => setTimeout(resolve, 25)));
+
+beforeEach(() => {
+  resetLiveStatusPollerForTesting();
+});
 
 afterEach(() => {
   cleanup();

@@ -1,3 +1,4 @@
 [test]
-# Isolate each direct `bun test` run under ~/.cache/pyric-tmp/run-* (never /tmp).
-preload = ["../../scripts/lib/test-tmpdir-preload.ts"]
+# Isolate each direct `bun test` run under ~/.cache/pyric-tmp/run-* (never /tmp)
+# and reset Studio's module-level /__pyric/health and /__pyric/init.json singletons.
+preload = ["../../scripts/lib/test-tmpdir-preload.ts", "./test/reset-shell-singletons-preload.ts"]
