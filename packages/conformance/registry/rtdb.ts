@@ -517,7 +517,7 @@ export const rtdbRegistry = {
           evidence: "Oracle `rtdb-rules-type-check` (`snapshot-index-method-name`) and `rtdb-rules-deploy-refusals` (`matches with an unterminated character class`) record unparseable expressions evaluating as `unsupported: true` across `simulateRtdbRules` and `rtdbRules(...).simulate` alongside `unit:simulation/handler.test.ts`.",
           risk: ["specific-field"], riskScore: 1, riskReasons: ["asserts a specific field/property value"],
           automation: "oracle-backed", oracleObservations: ["rtdb-rules-type-check", "rtdb-rules-deploy-refusals"],
-          conformanceTests: ["packages/pyric/test/rules/rtdb/simulation/handler.test.ts", "packages/pyric/test/rules/rtdb/capture-stdlib-and-deploy-refusals.test.ts"],
+          conformanceTests: ["packages/pyric/test/rules/rtdb/simulation/handler.test.ts", "packages/conformance/test/rtdb-rules/capture-stdlib-and-deploy-refusals.test.ts"],
         }),
         row2({
           rowRef: "68",
@@ -583,7 +583,7 @@ export const rtdbRegistry = {
           behavior: "`compose` exports the boolean combinators `all`, `any`, `not`, `deny`, `always`, the raw `expr` constructor, and `lit`, the single-quoted rule literal every builder writes; `all` and `any` add only the parentheses an operand needs (an `||` or ternary under `&&`, an `&&` or ternary under `||`), and the RTDB standard library composes its builders from these. `all` or `any` with no non-empty operand throws, and `lit` throws on a string with a newline or another control character; its quote and backslash escapes match the Pyric simulator",
           evidence: "`unit:constraints/compose.test.ts` pins the grouping, including an `||` inside parentheses, quotes or a regex literal left ungrouped, that a composition still parses, the empty `all`/`any` errors, the `lit` control-character refusal, and that each escaped literal reads back as its value in the simulator. These errors are Pyric authoring checks with no production counterpart. The RTDB standard library captures `rules-rtdb-r27-stdlib-core-patterns`, `rules-rtdb-r28-stdlib-presence-timing` and `rules-rtdb-r34-stdlib-auth-membership-quota` were recaptured after the standard library moved onto these combinators, with every verdict unchanged, and replayed across simulator, sandbox, SharedWorker, and Node host.",
           automation: "oracle-backed", oracleObservations: ["rules-rtdb-r27-stdlib-core-patterns", "rules-rtdb-r28-stdlib-presence-timing", "rules-rtdb-r34-stdlib-auth-membership-quota"],
-          conformanceTests: ["packages/rules/test/rtdb/constraints/compose.test.ts", "packages/pyric/test/rules/rtdb/capture-stdlib-and-deploy-refusals.test.ts", "packages/cli/test/serve/worker/oracle-captures/rtdb-rules-stdlib-and-deploy-refusals.test.ts"],
+          conformanceTests: ["packages/rules/test/rtdb/constraints/compose.test.ts", "packages/conformance/test/rtdb-rules/capture-stdlib-and-deploy-refusals.test.ts", "packages/conformance/test/rtdb-rules/served-stdlib-and-deploy-refusals.test.ts"],
         }),
         row3({
           rowRef: "87",
@@ -594,7 +594,7 @@ export const rtdbRegistry = {
           conformanceTests: [
             "packages/rules/test/rtdb/constraints/ruleset.test.ts", "packages/rules/test/rtdb/lint-issues.test.ts",
             "packages/rules/test/rtdb/grammar/linter-literals.test.ts", "packages/rules/test/rtdb/grammar/regex-literals-and-constant-comparisons.test.ts",
-            "packages/rules/test/public-api.test.ts", "packages/pyric/test/rules/rtdb/capture-stdlib-and-deploy-refusals.test.ts", "packages/cli/test/serve/worker/oracle-captures/rtdb-rules-stdlib-and-deploy-refusals.test.ts",
+            "packages/rules/test/public-api.test.ts", "packages/conformance/test/rtdb-rules/capture-stdlib-and-deploy-refusals.test.ts", "packages/conformance/test/rtdb-rules/served-stdlib-and-deploy-refusals.test.ts",
           ],
         }),
         row3({
@@ -611,7 +611,7 @@ export const rtdbRegistry = {
             "packages/pyric/test/rules/rtdb/stdlib/timing.test.ts", "packages/pyric/test/rules/rtdb/stdlib/collections.test.ts",
             "packages/pyric/test/rules/rtdb/stdlib/auth.test.ts", "packages/pyric/test/rules/rtdb/stdlib/membership.test.ts",
             "packages/pyric/test/rules/rtdb/stdlib/quota.test.ts", "packages/pyric/test/rules/rtdb/stdlib/catalog.test.ts",
-            "packages/pyric/test/rules/rtdb/stdlib/corpus-lock.test.ts", "packages/pyric/test/rules/rtdb/capture-stdlib-and-deploy-refusals.test.ts", "packages/cli/test/serve/worker/oracle-captures/rtdb-rules-stdlib-and-deploy-refusals.test.ts",
+            "packages/pyric/test/rules/rtdb/stdlib/corpus-lock.test.ts", "packages/conformance/test/rtdb-rules/capture-stdlib-and-deploy-refusals.test.ts", "packages/conformance/test/rtdb-rules/served-stdlib-and-deploy-refusals.test.ts",
           ],
         }),
       ],
@@ -632,7 +632,7 @@ export const rtdbRegistry = {
             "packages/rules/test/rtdb/compiled-rules.test.ts", "packages/rules/test/public-api.test.ts",
             "packages/rules/test/rtdb/grammar/method-argument-types.test.ts", "packages/rules/test/rtdb/grammar/validator-types.test.ts",
             "packages/pyric/test/database/oracle-conformance.test.ts", "packages/rules/test/rtdb/source-rejection.test.ts",
-            "packages/pyric/test/rules/rtdb/capture-stdlib-and-deploy-refusals.test.ts", "packages/cli/test/serve/worker/oracle-captures/rtdb-rules-stdlib-and-deploy-refusals.test.ts",
+            "packages/conformance/test/rtdb-rules/capture-stdlib-and-deploy-refusals.test.ts", "packages/conformance/test/rtdb-rules/served-stdlib-and-deploy-refusals.test.ts",
           ],
         }),
         row4({

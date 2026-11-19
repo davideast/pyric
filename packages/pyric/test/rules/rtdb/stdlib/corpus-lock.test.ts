@@ -63,7 +63,10 @@ for (const { id, paths } of CAPTURES) {
   describe(id, () => {
     test('the deployed ruleset is what the standard library compiles to', () => {
       const { probes: _probes, ...patterns } = subtree;
-      expect(patterns).toEqual(rtdbRules(defineRtdbRules({ paths })).toJSON().rules);
+      const definitionHandle = rtdbRules(defineRtdbRules({ paths }));
+      const compiledPatterns = definitionHandle.toJSON().rules;
+      expect(patterns).toEqual(compiledPatterns);
+      expect(definitionHandle.lint()).toEqual(rtdbRules({ rules: compiledPatterns }).lint());
     });
 
     for (const c of mounted.cases) {

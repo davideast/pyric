@@ -8,18 +8,31 @@ import {
   restoreSandboxSnapshot,
 } from 'pyric/sandbox/internal';
 import { getDatabase, get, ref, sandbox as rtdbSandbox, set } from 'pyric/database';
-import { defineRtdbRules, rtdbRules, type PathDef } from 'pyric/rules';
-import { compileRtdbRules, rtdbRulesSourceRejection, simulateRtdbRules } from '@pyric/rules/internal/rtdb';
-import { ALL_RULES_RTDB_DEPLOY_SCENARIOS, ALL_RULES_RTDB_SCENARIOS } from '../../../../conformance/rules-corpus/rtdb/index.ts';
-import { RULES_DEPLOY_REFUSAL_CASES } from '../../../../conformance/src/capture/rtdb-climb/rules-deploy-refusals.cases.ts';
-import { identityToken } from '../../../../conformance/src/rules-rtdb-replay.ts';
-import { CORE_PATTERN_PATHS } from './stdlib/fixtures/match-rules.js';
-import { PRESENCE_TIMING_PATHS } from './stdlib/fixtures/presence-timing-rules.js';
-import { AUTH_MEMBERSHIP_PATHS } from './stdlib/fixtures/auth-membership-rules.js';
-import { simulateCase, type StdlibCase, type StdlibScenario } from './stdlib/harness.js';
+import { rtdbRules } from 'pyric/rules';
+import {
+  compileRtdbRules,
+  rtdbRulesSourceRejection,
+  simulateRtdbRules,
+} from 'pyric/rules/internal/rtdb';
+import {
+  ALL_RULES_RTDB_DEPLOY_SCENARIOS,
+  ALL_RULES_RTDB_SCENARIOS,
+} from '../../rules-corpus/rtdb/index.ts';
+import { RULES_DEPLOY_REFUSAL_CASES } from '../../src/capture/rtdb-climb/rules-deploy-refusals.cases.ts';
+import {
+  OBSERVATION_NAME as TYPE_CHECK_OBS_NAME,
+  PROBES as TYPE_CHECK_PROBES,
+  probeRules,
+  rejectionMessage,
+  TYPE_POSITIONS,
+  TYPE_SAMPLES,
+  type RtdbProbeKind,
+  type RtdbTypeProbe,
+  type RtdbTypeProbeRecord,
+} from '../../src/capture-rtdb-rules-type-check.ts';
+import { replayRtdbScenario } from '../../src/rules-rtdb-replay.ts';
 
-const OBS_ROOT = join(import.meta.dir, '..', '..', '..', '..', 'conformance', 'observations');
-const UID = 'corpus-user';
+const OBS_ROOT = join(import.meta.dir, '..', '..', 'observations');
 
 function readObservation(surfaceDir: string, stem: string): Record<string, unknown> {
   const raw = readFileSync(join(OBS_ROOT, surfaceDir, `${stem}.json`), 'utf8');
@@ -27,54 +40,24 @@ function readObservation(surfaceDir: string, stem: string): Record<string, unkno
   return parsed.behavior;
 }
 
-function substituteUid<T>(value: T): T {
-  let normalized: unknown = null;
-  if (value !== undefined) {
-    normalized = value;
-  }
-  const serialized = JSON.stringify(normalized).replaceAll('<UID>', UID);
-  return JSON.parse(serialized) as T;
-}
-
-function buildSeedTree(
-  scenarioId: string,
-  seed: Record<string, unknown> | undefined,
-): Record<string, unknown> {
-  const root: Record<string, unknown> = {};
-  if (seed === undefined) {
-    return root;
-  }
-  for (const [rawPath, rawValue] of Object.entries(seed)) {
-    const cleanPath = substituteUid(rawPath);
-    const segments = [scenarioId, ...cleanPath.split('/').filter(Boolean)];
-    let cursor: Record<string, unknown> = root;
-    for (const segment of segments.slice(0, -1)) {
-      const existing = cursor[segment];
-      if (typeof existing === 'object' && existing !== null) {
-        cursor = existing as Record<string, unknown>;
-      } else {
-        const next: Record<string, unknown> = {};
-        cursor[segment] = next;
-        cursor = next;
-      }
-    }
-    const leafKey = segments[segments.length - 1];
-    if (leafKey !== undefined) {
-      cursor[leafKey] = substituteUid(rawValue);
-    }
-  }
-  return root;
-}
-
-describe('RTDB rules parse-gap simulation, ruleset compilation, and deploy refusals', () => {
+describe('RTDB rules parse-gap simulation, stdlib corpus verdicts, and deploy refusals', () => {
   test('rtdb#67: simulateRtdbRules reports unsupported on unparseable expressions captured in rtdb-rules-type-check and rtdb-rules-deploy-refusals', () => {
-    const typeCheckObs = readObservation('rtdb', 'rtdb-rules-type-check');
-    const probes = typeCheckObs.probes as Array<{
-      name: string;
-      kind: 'read' | 'write' | 'validate';
-      expression: string;
-      accepted: boolean;
-    }>;
+    const typeCheckObs = readObservation('rtdb', TYPE_CHECK_OBS_NAME);
+    const probes = typeCheckObs.probes as RtdbTypeProbeRecord[];
+    expect(probes.length).toBe(TYPE_CHECK_PROBES.length);
+    expect(Object.keys(TYPE_SAMPLES).length).toBeGreaterThan(0);
+    expect(Object.keys(TYPE_POSITIONS).length).toBeGreaterThan(0);
+    expect(rejectionMessage('1:4: Expression must evaluate to a boolean.')).toBe(
+      'Expression must evaluate to a boolean.',
+    );
+    const sampleKind: RtdbProbeKind = 'read';
+    const sampleProbe: RtdbTypeProbe = {
+      name: 'sample',
+      kind: sampleKind,
+      expression: 'true',
+    };
+    expect(probeRules(sampleProbe)).toEqual({ rules: { p: { $id: { '.read': 'true' } } } });
+
     const indexCallProbe = probes.find((item) => item.name === 'snapshot-index-method-name');
     expect(indexCallProbe).toBeDefined();
     if (indexCallProbe === undefined) {
@@ -127,58 +110,32 @@ describe('RTDB rules parse-gap simulation, ruleset compilation, and deploy refus
     }
   });
 
-  test('rtdb#86, #87, #88: defineRtdbRules definition handles match compiled JSON lint and simulate verdicts across r27, r28, and r34 captures', () => {
-    const fixtures: ReadonlyArray<{ id: string; paths: Record<string, PathDef> }> = [
-      { id: 'r27-stdlib-core-patterns', paths: CORE_PATTERN_PATHS },
-      { id: 'r28-stdlib-presence-timing', paths: PRESENCE_TIMING_PATHS },
-      { id: 'r34-stdlib-auth-membership-quota', paths: AUTH_MEMBERSHIP_PATHS },
+  test('rtdb#86, #87, #88: simulator verdicts match every captured production verdict in r27, r28, and r34', () => {
+    const stdlibIds = [
+      'r27-stdlib-core-patterns',
+      'r28-stdlib-presence-timing',
+      'r34-stdlib-auth-membership-quota',
     ];
 
-    for (const { id, paths } of fixtures) {
+    for (const id of stdlibIds) {
       const scenario = ALL_RULES_RTDB_SCENARIOS.find((entry) => entry.id === id);
       expect(scenario).toBeDefined();
       if (scenario === undefined) {
         continue;
       }
       const capturedVerdicts = readObservation('rtdb-rules', `rules-rtdb-${id}`);
-      const definitionHandle = rtdbRules(defineRtdbRules({ paths }));
-      const generatedJson = definitionHandle.toJSON() as { rules: Record<string, unknown> };
-      const jsonHandle = rtdbRules(generatedJson);
-
-      expect(definitionHandle.lint()).toEqual(jsonHandle.lint());
-      const compileErrorIssues = definitionHandle
+      const subtreeJson = { rules: JSON.parse(scenario.rules) as Record<string, unknown> };
+      const compileErrors = rtdbRules(subtreeJson)
         .lint()
         .filter((issue) => issue.severity === 'error' && !issue.code.startsWith('RTDB-SEC-'));
-      expect(compileErrorIssues).toEqual([]);
+      expect(compileErrors).toEqual([]);
 
-      const subtree = JSON.parse(scenario.rules) as Record<string, unknown>;
-      const mounted: StdlibScenario = {
-        json: { rules: { '.read': false, '.write': false, [id]: subtree } },
-        cases: [],
-      };
-      for (const testCase of scenario.cases) {
-        let authValue: StdlibCase['auth'] = null;
-        if (testCase.authPresent) {
-          if (testCase.identity !== undefined) {
-            authValue = { uid: UID, token: identityToken(UID, testCase.identity) };
-          } else {
-            authValue = UID;
-          }
-        }
-        const stdlibCase: StdlibCase = {
-          description: testCase.description,
-          expectation: testCase.expectation,
-          operation: testCase.operation,
-          path: `/${id}${substituteUid(testCase.opPath)}`.replace(/\/$/, ''),
-          auth: authValue,
-          data: buildSeedTree(id, testCase.seed),
-        };
-        if (testCase.newData !== undefined) {
-          stdlibCase.newData = substituteUid(testCase.newData);
-        }
-        const expectedVerdict = capturedVerdicts[testCase.description];
-        expect(expectedVerdict).toBe(testCase.expectation);
-        expect(simulateCase(mounted, stdlibCase)).toBe(expectedVerdict);
+      const replayResults = replayRtdbScenario(scenario);
+      expect(replayResults.length).toBe(scenario.cases.length);
+      for (const item of replayResults) {
+        const expected = capturedVerdicts[item.caseKey];
+        expect(expected).toBe(item.production);
+        expect(item.simulator).toBe(item.production);
       }
     }
   });
@@ -221,8 +178,13 @@ describe('RTDB rules parse-gap simulation, ruleset compilation, and deploy refus
         expect(rejection).not.toBeNull();
         expect(rejection?.message ?? '').toContain(captured.error ?? '');
 
-        const badSnapshot = structuredClone(baseSnapshot);
-        badSnapshot.rules.rtdb = { [DEFAULT_SNAPSHOT_RESOURCE]: JSON.stringify(candidate) };
+        const badSnapshot = {
+          ...baseSnapshot,
+          rules: {
+            ...baseSnapshot.rules,
+            rtdb: { [DEFAULT_SNAPSHOT_RESOURCE]: JSON.stringify(candidate) },
+          },
+        };
         const restored = await restoreSandboxSnapshot(box, badSnapshot, { merge: true });
         expect(restored.refusals[0] ?? '').toContain(captured.error ?? '');
       }
@@ -245,8 +207,13 @@ describe('RTDB rules parse-gap simulation, ruleset compilation, and deploy refus
         expect(rejection?.message ?? '').toContain(outcome.message);
       }
 
-      const badSnapshot = structuredClone(baseSnapshot);
-      badSnapshot.rules.rtdb = { [DEFAULT_SNAPSHOT_RESOURCE]: JSON.stringify(candidate) };
+      const badSnapshot = {
+        ...baseSnapshot,
+        rules: {
+          ...baseSnapshot.rules,
+          rtdb: { [DEFAULT_SNAPSHOT_RESOURCE]: JSON.stringify(candidate) },
+        },
+      };
       const restored = await restoreSandboxSnapshot(box, badSnapshot, { merge: true });
       expect(restored.refusals.length).toBeGreaterThan(0);
     }

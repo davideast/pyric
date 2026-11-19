@@ -3,41 +3,23 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { deleteApp as deleteAdminApp, initializeApp as initializeAdminApp } from 'pyric-admin/app';
 import { getAuth as getAdminAuth } from 'pyric-admin/auth';
-import { defineRtdbRules, rtdbRules, type PathDef } from 'pyric/rules';
-import * as workerClient from '../../../../src/serve/worker/client.js';
+import { getDatabase as getAdminDatabase, type Database as AdminDatabase } from 'pyric-admin/database';
+import * as workerSurface from '../../../cli/dist/serve/worker/index.js';
+import { signInWithCustomToken } from '../../../cli/dist/serve/worker/client.js';
 import {
   ALL_RULES_RTDB_DEPLOY_SCENARIOS,
   ALL_RULES_RTDB_SCENARIOS,
-} from '../../../../../conformance/rules-corpus/rtdb/index.ts';
-import type { RtdbCaseIdentity } from '../../../../../conformance/rules-corpus/rtdb/types.ts';
-import { RULES_DEPLOY_REFUSAL_CASES } from '../../../../../conformance/src/capture/rtdb-climb/rules-deploy-refusals.cases.ts';
-import { CORE_PATTERN_PATHS } from '../../../../../pyric/test/rules/rtdb/stdlib/fixtures/match-rules.js';
-import { PRESENCE_TIMING_PATHS } from '../../../../../pyric/test/rules/rtdb/stdlib/fixtures/presence-timing-rules.js';
-import { AUTH_MEMBERSHIP_PATHS } from '../../../../../pyric/test/rules/rtdb/stdlib/fixtures/auth-membership-rules.js';
-import {
-  hostedRtdbContext,
-  load,
-  restoreSharedWorker,
-  servedRtdbContext,
-  type ServedRtdbAdminContext,
-} from './support.ts';
+} from '../../rules-corpus/rtdb/index.ts';
+import type { RtdbCaseIdentity } from '../../rules-corpus/rtdb/types.ts';
+import { RULES_DEPLOY_REFUSAL_CASES } from '../../src/capture/rtdb-climb/rules-deploy-refusals.cases.ts';
+import { registerServedRtdbHooks, SERVED_RTDB_PLANES } from './served-rtdb-harness.ts';
 
-restoreSharedWorker();
+registerServedRtdbHooks();
 
-const RULES_RTDB_OBS_DIR = join(
-  import.meta.dir,
-  '..',
-  '..',
-  '..',
-  '..',
-  '..',
-  'conformance',
-  'observations',
-  'rtdb-rules',
-);
+const OBS_ROOT = join(import.meta.dir, '..', '..', 'observations');
 
-function loadRulesRtdbObservation(name: string): Record<string, unknown> {
-  const raw = readFileSync(join(RULES_RTDB_OBS_DIR, `${name}.json`), 'utf8');
+function readObservation(surfaceDir: string, stem: string): Record<string, unknown> {
+  const raw = readFileSync(join(OBS_ROOT, surfaceDir, `${stem}.json`), 'utf8');
   const parsed = JSON.parse(raw) as { behavior: Record<string, unknown> };
   return parsed.behavior;
 }
@@ -81,24 +63,15 @@ function buildSeedSubtree(
   return root;
 }
 
-type RulesContextFactory = (
-  databaseRules?: Record<string, unknown>,
-) => Promise<ServedRtdbAdminContext>;
+const STDLIB_IDS = [
+  'r27-stdlib-core-patterns',
+  'r28-stdlib-presence-timing',
+  'r34-stdlib-auth-membership-quota',
+] as const;
 
-const PLANES: ReadonlyArray<[string, RulesContextFactory]> = [
-  ['served SharedWorker', (rules) => servedRtdbContext(rules)],
-  ['served Node host', (rules) => hostedRtdbContext(rules)],
-];
+let adminSeq = 0;
 
-const STDLIB_FIXTURES: ReadonlyArray<{ id: string; paths: Record<string, PathDef> }> = [
-  { id: 'r27-stdlib-core-patterns', paths: CORE_PATTERN_PATHS },
-  { id: 'r28-stdlib-presence-timing', paths: PRESENCE_TIMING_PATHS },
-  { id: 'r34-stdlib-auth-membership-quota', paths: AUTH_MEMBERSHIP_PATHS },
-];
-
-let authAppSeq = 0;
-
-for (const [planeLabel, createContext] of PLANES) {
+for (const [planeLabel, createHarness] of SERVED_RTDB_PLANES) {
   describe(`RTDB stdlib and deploy-refusal oracle captures (${planeLabel})`, () => {
     it('rtdb#89: setDatabaseRules refuses every rejected r29 and deploy-refusals ruleset while keeping active rules in force', async () => {
       const sentinelRules = {
@@ -111,16 +84,22 @@ for (const [planeLabel, createContext] of PLANES) {
           },
         },
       };
-      const ctx = await createContext(sentinelRules);
-      const authed = await ctx.openAuthedClient('sentinel-owner');
-      const unauthed = await ctx.newClient('sentinel-anon');
-      await ctx.rtdb.set(ctx.rtdb.ref(authed.db, `guarded/${authed.uid}`), 'kept');
+      const harness = await createHarness(sentinelRules);
+      const ownerClient = await harness.openClient('sentinel-owner');
+      const ownerCred = await workerSurface.signInAnonymously(
+        workerSurface.getAuth(ownerClient.raw),
+      );
+      const unauthedClient = await harness.openClient('sentinel-anon');
+      await workerSurface.rtdbSet(
+        workerSurface.rtdbRef(ownerClient.db, `guarded/${ownerCred.user.uid}`),
+        'kept',
+      );
 
       const r29Scenario = ALL_RULES_RTDB_DEPLOY_SCENARIOS.find(
         (entry) => entry.id === 'r29-deploy-rejections',
       );
       expect(r29Scenario).toBeDefined();
-      const r29Obs = loadRulesRtdbObservation('rules-rtdb-r29-deploy-rejections') as Record<
+      const r29Obs = readObservation('rtdb-rules', 'rules-rtdb-r29-deploy-rejections') as Record<
         string,
         { verdict: 'ACCEPTED' | 'REJECTED'; error?: string }
       >;
@@ -133,17 +112,14 @@ for (const [planeLabel, createContext] of PLANES) {
             continue;
           }
           const candidate = { rules: JSON.parse(deployCase.rules) as Record<string, unknown> };
-          const reply = await workerClient.setDatabaseRules(
-            ctx.db as unknown as workerClient.ClientRtdb,
-            candidate,
-          );
+          const reply = await workerSurface.setDatabaseRules(harness.mainDb, candidate);
           expect(reply.ok).toBe(false);
           const firstMsg = reply.messages[0] as { text?: string } | undefined;
           expect(firstMsg?.text ?? '').toContain(captured.error ?? '');
         }
       }
 
-      const deployRefusalsObs = load('rtdb-rules-deploy-refusals');
+      const deployRefusalsObs = readObservation('rtdb', 'rtdb-rules-deploy-refusals');
       const refusalOutcomes = deployRefusalsObs.outcomes as Record<
         string,
         { accepted: boolean; message: string | null }
@@ -153,10 +129,9 @@ for (const [planeLabel, createContext] of PLANES) {
         if (outcome === undefined || outcome.accepted) {
           continue;
         }
-        const reply = await workerClient.setDatabaseRules(
-          ctx.db as unknown as workerClient.ClientRtdb,
-          { rules: { probe: subtree } },
-        );
+        const reply = await workerSurface.setDatabaseRules(harness.mainDb, {
+          rules: { probe: subtree },
+        });
         expect(reply.ok).toBe(false);
         const firstMsg = reply.messages[0] as { text?: string } | undefined;
         if (label !== 'matches with an unterminated character class' && outcome.message !== null) {
@@ -164,12 +139,16 @@ for (const [planeLabel, createContext] of PLANES) {
         }
       }
 
-      const ownerRead = await ctx.rtdb.get(ctx.rtdb.ref(authed.db, `guarded/${authed.uid}`));
-      expect(ownerRead.val()).toBe('kept');
+      const ownerSnap = await workerSurface.rtdbGet(
+        workerSurface.rtdbRef(ownerClient.db, `guarded/${ownerCred.user.uid}`),
+      );
+      expect(ownerSnap.val()).toBe('kept');
 
       let unauthedDenied = false;
       try {
-        await ctx.rtdb.get(ctx.rtdb.ref(unauthed.db, `guarded/${authed.uid}`));
+        await workerSurface.rtdbGet(
+          workerSurface.rtdbRef(unauthedClient.db, `guarded/${ownerCred.user.uid}`),
+        );
       } catch {
         unauthedDenied = true;
       }
@@ -180,65 +159,57 @@ for (const [planeLabel, createContext] of PLANES) {
         if (outcome === undefined || !outcome.accepted) {
           continue;
         }
-        const reply = await workerClient.setDatabaseRules(
-          ctx.db as unknown as workerClient.ClientRtdb,
-          { rules: { probe: subtree } },
-        );
+        const reply = await workerSurface.setDatabaseRules(harness.mainDb, {
+          rules: { probe: subtree },
+        });
         expect(reply.ok).toBe(true);
       }
     });
 
-    for (const { id, paths } of STDLIB_FIXTURES) {
-      it(`rtdb#86, #87, #88: replays ${id} compiled from defineRtdbRules`, async () => {
+    for (const id of STDLIB_IDS) {
+      it(`rtdb#86, #87, #88: replays ${id} across ${planeLabel}`, async () => {
         const scenario = ALL_RULES_RTDB_SCENARIOS.find((entry) => entry.id === id);
         expect(scenario).toBeDefined();
         if (scenario === undefined) {
           return;
         }
 
-        const compiledRules = rtdbRules(defineRtdbRules({ paths })).toJSON() as {
-          rules: Record<string, unknown>;
-        };
-        const scenarioSubtree = JSON.parse(scenario.rules) as Record<string, unknown>;
-        const { probes: probeSubtree, ...expectedPatterns } = scenarioSubtree;
-        expect(expectedPatterns).toEqual(compiledRules.rules);
-
-        const mountedSubtree: Record<string, unknown> = { ...compiledRules.rules };
-        if (probeSubtree !== undefined) {
-          mountedSubtree.probes = probeSubtree;
-        }
+        const subtree = JSON.parse(scenario.rules) as Record<string, unknown>;
         const fullRules = {
           rules: {
             '.read': false,
             '.write': false,
-            [id]: mountedSubtree,
+            [id]: subtree,
           },
         };
 
-        const ctx = await createContext(fullRules);
-        const adminDb = await ctx.openAdminDb();
-        const remote = await ctx.openRemoteSandbox();
-        authAppSeq += 1;
-        const adminApp = initializeAdminApp(
-          { sandbox: remote },
-          `stdlib-auth-admin-${authAppSeq}`,
-        );
+        const harness = await createHarness(fullRules);
+        const remote = await harness.openRemote();
+        adminSeq += 1;
+        const adminApp = initializeAdminApp({ sandbox: remote }, `stdlib-admin-${adminSeq}`);
+        const adminDb: AdminDatabase = getAdminDatabase(adminApp);
         const adminAuth = getAdminAuth(adminApp);
 
         try {
-          const anonSession = await ctx.openAuthedClient(`${id}-anon`);
-          const unauthedSession = await ctx.newClient(`${id}-signed-out`);
-          const identityClients = new Map<string, { db: ServedRtdbAdminContext['db']; uid: string }>();
+          const anonClient = await harness.openClient(`${id}-anon`);
+          const anonCred = await workerSurface.signInAnonymously(
+            workerSurface.getAuth(anonClient.raw),
+          );
+          const unauthedClient = await harness.openClient(`${id}-signed-out`);
+          const identitySessions = new Map<
+            string,
+            { db: workerSurface.ClientRtdb; uid: string }
+          >();
 
           const openIdentitySession = async (
             identity: RtdbCaseIdentity,
-          ): Promise<{ db: ServedRtdbAdminContext['db']; uid: string }> => {
+          ): Promise<{ db: workerSurface.ClientRtdb; uid: string }> => {
             const cacheKey = JSON.stringify(identity);
-            const cached = identityClients.get(cacheKey);
+            const cached = identitySessions.get(cacheKey);
             if (cached !== undefined) {
               return cached;
             }
-            const uid = `id-user-${identityClients.size + 1}`;
+            const uid = `id-user-${identitySessions.size + 1}`;
             if (identity.emailDomain !== undefined) {
               await adminAuth.createUser({
                 uid,
@@ -247,28 +218,28 @@ for (const [planeLabel, createContext] of PLANES) {
               });
             }
             const customToken = await adminAuth.createCustomToken(uid, identity.claims);
-            const opened = await ctx.newClient(`${id}-${uid}`);
-            const clientAuth = workerClient.getAuth(opened.db as unknown as workerClient.ClientDb);
-            await workerClient.signInWithCustomToken(clientAuth, customToken);
+            const opened = await harness.openClient(`${id}-${uid}`);
+            const clientAuth = workerSurface.getAuth(opened.raw);
+            await signInWithCustomToken(clientAuth, customToken);
             const session = { db: opened.db, uid };
-            identityClients.set(cacheKey, session);
+            identitySessions.set(cacheKey, session);
             return session;
           };
 
-          const capturedVerdicts = loadRulesRtdbObservation(`rules-rtdb-${id}`);
+          const capturedVerdicts = readObservation('rtdb-rules', `rules-rtdb-${id}`);
           const mismatches: string[] = [];
 
           for (const testCase of scenario.cases) {
-            let activeDb = unauthedSession.db;
-            let activeUid = anonSession.uid;
+            let activeDb = unauthedClient.db;
+            let activeUid = anonCred.user.uid;
             if (testCase.authPresent) {
               if (testCase.identity !== undefined) {
                 const customSession = await openIdentitySession(testCase.identity);
                 activeDb = customSession.db;
                 activeUid = customSession.uid;
               } else {
-                activeDb = anonSession.db;
-                activeUid = anonSession.uid;
+                activeDb = anonClient.db;
+                activeUid = anonCred.user.uid;
               }
             }
 
@@ -280,17 +251,17 @@ for (const [planeLabel, createContext] of PLANES) {
             }
 
             const targetPath = `${id}${substituteUid(testCase.opPath, activeUid)}`.replace(/\/$/, '');
-            const targetRef = ctx.rtdb.ref(activeDb, targetPath);
+            const targetRef = workerSurface.rtdbRef(activeDb, targetPath);
             let actualVerdict: 'ALLOW' | 'DENY' = 'ALLOW';
             try {
               if (testCase.operation === 'read') {
-                await ctx.rtdb.get(targetRef);
+                await workerSurface.rtdbGet(targetRef);
               } else if (testCase.operation === 'update') {
                 const patch = substituteUid(testCase.newData, activeUid) as Record<string, unknown>;
-                await ctx.rtdb.update(targetRef, patch);
+                await workerSurface.rtdbUpdate(targetRef, patch);
               } else {
                 const payload = substituteUid(testCase.newData, activeUid);
-                await ctx.rtdb.set(targetRef, payload);
+                await workerSurface.rtdbSet(targetRef, payload);
               }
             } catch {
               actualVerdict = 'DENY';
