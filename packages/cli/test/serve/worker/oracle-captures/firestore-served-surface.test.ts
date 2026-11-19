@@ -17,6 +17,7 @@ import { connectClientToHost, makeHostCtx } from '../integration-support.js';
 import { scenario as aggregates } from '../../../../../conformance/src/capture/sdk-scenarios/firestore/firestore-aggregate-field-semantics.scenario.ts';
 import { replayTiming } from '../../../../../conformance/src/capture/sdk-scenarios/scenario-timing.ts';
 import type { FirestoreScenarioContext, FirestoreSdk } from '../../../../../conformance/src/capture/sdk-scenarios/scenario-types.ts';
+import { hostedFirestoreContext } from './hosted-firestore-support.ts';
 import { expectReplay, load, restoreSharedWorker, servedFirestoreContext, withoutMessages, type Pin } from './support.ts';
 
 restoreSharedWorker();
@@ -80,6 +81,29 @@ describe('served firestore surface', () => {
   it('getAggregateFromServer over the worker client and host aggregates as in-page', async () => {
     const pyric = withoutMessages(await aggregates.run(await servedFirestoreContext()));
     expectReplay({ production: AGGREGATE_PRODUCTION(), pyric, pins: AGGREGATE_PINS });
+  });
+
+  it('getAggregateFromServer over the Node host WebSocket aggregates as in-page', async () => {
+    const context = await hostedFirestoreContext();
+    const pyric = withoutMessages(await aggregates.run(context));
+    expectReplay({ production: AGGREGATE_PRODUCTION(), pyric, pins: AGGREGATE_PINS });
+
+    const adminDb = await context.openRemoteAdminFirestore();
+    const nanAdmin = await adminDb.collection(`${context.base}/agnan`).aggregate({
+      s: { kind: 'sum', field: 'v' },
+      a: { kind: 'average', field: 'v' },
+      n: { kind: 'count' },
+    });
+    expect(nanAdmin.data().n).toBe(3);
+    expect(Number.isNaN(nanAdmin.data().s)).toBe(true);
+    expect(Number.isNaN(nanAdmin.data().a)).toBe(true);
+
+    const infAdmin = await adminDb.collection(`${context.base}/aginf`).aggregate({
+      s: { kind: 'sum', field: 'v' },
+      a: { kind: 'average', field: 'v' },
+      n: { kind: 'count' },
+    });
+    expect(infAdmin.data()).toEqual({ s: Infinity, a: Infinity, n: 2 });
   });
 
   describe('FP-9: network and persistence calls are accepted no-ops', () => {

@@ -24,6 +24,7 @@ declare function readBack(): Promise<{
   aggregate: unknown;
   storageDeleteMissing: unknown;
   storageDeleteDeniedMissing: unknown;
+  aggregateSemantics: unknown;
 }>;
 
 type Outcome = { ok: true; value: unknown } | { ok: false; code: string | null; message: string };
@@ -109,6 +110,11 @@ export default scenario(async (app) => {
 
   await app.step('getAggregateFromServer aggregates over the host', () => {
     expectOk(client, 'firestore.aggregate', { n: 3 });
+    expectOk(client, 'firestore.aggregateSemantics', {
+      countAndSumY: { n: 2, sy: 16 },
+      nan: { s: 'NaN', a: 'NaN', n: 3 },
+      inf: { s: 'Infinity', a: 'Infinity', n: 2 },
+    });
   });
 
   await app.step("the host's rules apply as the process's signed-in user", () => {
@@ -164,6 +170,11 @@ export default scenario(async (app) => {
       aggregate: { n: 4 },
       storageDeleteMissing: 'storage/object-not-found',
       storageDeleteDeniedMissing: 'storage/unauthorized',
+      aggregateSemantics: {
+        countAndSumY: { n: 2, sy: 16 },
+        nan: { s: 'NaN', a: 'NaN', n: 3 },
+        inf: { s: 'Infinity', a: 'Infinity', n: 2 },
+      },
     });
   });
 

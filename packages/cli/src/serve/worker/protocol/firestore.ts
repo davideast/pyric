@@ -3,7 +3,12 @@
  * aggregate descriptors, write descriptors, and document data serialization.
  */
 import { decodeDocValue, encodeDocValue, rehydrateEncodedDocValue, DOC_VALUE_ENCODING, type DocValueEncoding, type ReferenceDecoder } from 'pyric/firestore/internal/value-codec';
-export { DOC_VALUE_ENCODING, type DocValueEncoding } from 'pyric/firestore/internal/value-codec';
+export {
+  decodeAggregateData,
+  encodeAggregateData,
+  DOC_VALUE_ENCODING,
+  type DocValueEncoding,
+} from 'pyric/firestore/internal/value-codec';
 import type { AuthLens, ListenerOwner } from 'pyric/sandbox';
 
 // ─── Ref descriptors (client-side, never cross the port directly) ──────────
