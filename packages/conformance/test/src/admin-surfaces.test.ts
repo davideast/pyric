@@ -75,6 +75,7 @@ describe('admin SDK surfaces: auth-admin, firestore-admin, rtdb-admin', () => {
     expect(byId.get('firestore-admin#8')?.status).toBe('diverged-documented');
     expect(byId.get('firestore-admin#10')?.status).toBe('unsupported');
     expect(byId.get('firestore-admin#11')?.status).toBe('unsupported');
+    expect(byId.get('rtdb-admin#5')?.status).toBe('conforms');
     expect(byId.get('rtdb-admin#7')?.status).toBe('conforms');
     expect(byId.get('rtdb-admin#9')?.status).toBe('diverged-documented');
     expect(byId.get('rtdb-admin#10')?.status).toBe('conforms');

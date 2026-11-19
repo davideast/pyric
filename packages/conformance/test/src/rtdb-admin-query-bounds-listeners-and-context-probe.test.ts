@@ -31,10 +31,8 @@ import {
   printModularProbePreview,
   selectModularProbes,
 } from '../../src/sdk-probes.ts';
-import { expectStagedUntilCaptured } from './staged-capture-assertions.ts';
 
 const PROBE_ID = 'rtdb-modular-admin-query-bounds-listeners-and-context';
-const STAGED_IDS = [PROBE_ID] as const;
 
 let seq = 0;
 
@@ -75,17 +73,17 @@ function createPyricAdminQueryHarness() {
   };
 }
 
-describe('RTDB modular firebase-admin query bounds, listeners, and context staged probe', () => {
-  test('registers on sdk-probes with pendingRowLink and empty rowIds until captured', async () => {
+describe('RTDB modular firebase-admin query bounds, listeners, and context linked probe', () => {
+  test('registers on sdk-probes linked to rtdb-admin#5 without pendingRowLink', async () => {
     const loaded = await loadModularProbes('sdk-probes');
     const loadedIds = loaded.map((entry) => entry.id);
     expect(loadedIds).toContain(PROBE_ID);
 
     expect(adminQueryBoundsProbe.rig).toBe('sdk-probes');
     expect(adminQueryBoundsProbe.requires).toEqual(['web-config', 'dedicated-rtdb']);
-    expect(adminQueryBoundsProbe.pendingRowLink).toBe(true);
-    expect(adminQueryBoundsProbe.matrixRow).toBe('');
-    expect(adminQueryBoundsProbe.rowIds).toEqual([]);
+    expect(adminQueryBoundsProbe.pendingRowLink).toBeUndefined();
+    expect(adminQueryBoundsProbe.matrixRow).toBe('rtdb-admin#5');
+    expect(adminQueryBoundsProbe.rowIds).toEqual(['rtdb-admin#5']);
     expect(adminQueryBoundsProbe.description.length).toBeGreaterThan(20);
 
     const unfilteredIds = new Set(
@@ -93,18 +91,7 @@ describe('RTDB modular firebase-admin query bounds, listeners, and context stage
         includeUncapturedStaged: false,
       }).map((entry) => entry.id),
     );
-
-    expectStagedUntilCaptured(STAGED_IDS, {
-      rig: 'sdk-probes',
-      filterFlag: '--probe',
-      filterValueFor: (name) => name,
-      whenUncaptured(name) {
-        expect(unfilteredIds.has(name)).toBe(false);
-      },
-      whenCaptured(name) {
-        expect(unfilteredIds.has(name)).toBe(true);
-      },
-    });
+    expect(unfilteredIds.has(PROBE_ID)).toBe(true);
 
     const previewLines: string[] = [];
     printModularProbePreview({
@@ -216,7 +203,9 @@ describe('RTDB modular firebase-admin query bounds, listeners, and context stage
           { event: 'child_changed', key: 'd', prevKey: null, val: { rank: 0 }, tag: 'win-ctx' },
         ],
         afterWindowEvictAndEnter: [
-          { event: 'child_removed', key: 'a', prevKey: null, val: { rank: 1 }, tag: 'win-ctx' },
+          { event: 'child_moved', key: 'a', prevKey: 'd', val: { rank: 9 }, tag: 'win-ctx' },
+          { event: 'child_changed', key: 'a', prevKey: 'd', val: { rank: 9 }, tag: 'win-ctx' },
+          { event: 'child_removed', key: 'a', prevKey: null, val: { rank: 9 }, tag: 'win-ctx' },
           { event: 'child_added', key: 'c', prevKey: 'd', val: { rank: 3 }, tag: 'win-ctx' },
         ],
         countAfterZeroArgQueryOff: 0,

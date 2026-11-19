@@ -292,9 +292,9 @@ export class ChildListeners {
     }
   }
 
-  fanOutQueryListener(listener: ChildListener): void {
+  fanOutQueryListener(listener: ChildListener, targetWindow?: QueryRow[]): void {
     if (!this.state.childListeners.has(listener)) return;
-    this.fanOutQuery(listener);
+    this.fanOutQuery(listener, targetWindow);
   }
 
   count(): number {
@@ -316,12 +316,20 @@ export class ChildListeners {
     return new Map(this.directChildren(path).map(({ key, val }) => [key, { val, priority: priorityOf(key) }]));
   }
 
-  private fanOutQuery(listener: ChildListener): void {
+  private fanOutQuery(listener: ChildListener, targetWindow?: QueryRow[]): void {
     const prior = listener.lastWindow ?? [];
-    const next = executeQuery(
-      this.state.tree.read(listener.path), listener.spec!,
-      this.state.priorities.forChild(listener.path),
-    );
+    let next: QueryRow[];
+    if (targetWindow !== undefined) {
+      next = targetWindow;
+    } else if (listener.spec !== undefined) {
+      next = executeQuery(
+        this.state.tree.read(listener.path),
+        listener.spec,
+        this.state.priorities.forChild(listener.path),
+      );
+    } else {
+      next = [];
+    }
     listener.lastWindow = next;
     const priorPriorities = listener.lastPriorities ?? {};
     listener.lastPriorities = this.state.priorities.atOrBelow(listener.path);

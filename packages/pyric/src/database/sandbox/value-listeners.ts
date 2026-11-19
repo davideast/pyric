@@ -13,6 +13,7 @@ import {
   evaluateQueryRead,
   loadsAllData,
   type Priority,
+  type QueryReadResult,
   type QueryRow,
   type QuerySpec,
 } from '../internal/query-projection.js';
@@ -155,7 +156,11 @@ export class ValueListeners {
     this.fanOutListeners([...this.state.valueListeners], touched);
   }
 
-  fanOutListeners(listeners: readonly ValueListener[], touched: string[]): void {
+  fanOutListeners(
+    listeners: readonly ValueListener[],
+    touched: string[],
+    queryOverride?: QueryReadResult,
+  ): void {
     if (listeners.length === 0) return;
     const touchedSet = touched.map((path) => joinPath(pathSegments(path)));
     for (const listener of listeners) {
@@ -163,11 +168,17 @@ export class ValueListeners {
       const listenerPath = joinPath(pathSegments(listener.path));
       if (!touchedSet.some((path) => pathsTouch(listenerPath, path))) continue;
       if (listener.query) {
-        const { val, rows } = evaluateQueryRead(
-          this.state.tree.read(listener.path),
-          listener.query,
-          this.state.priorities.forChild(listener.path),
-        );
+        let resolvedQuery: QueryReadResult;
+        if (queryOverride !== undefined) {
+          resolvedQuery = queryOverride;
+        } else {
+          resolvedQuery = evaluateQueryRead(
+            this.state.tree.read(listener.path),
+            listener.query,
+            this.state.priorities.forChild(listener.path),
+          );
+        }
+        const { val, rows } = resolvedQuery;
         const priorityState = this.queryPriorityState(listener.path, rows, val, listener.query);
         const isUnchangedQueryWindow =
           windowsEqual(listener.lastWindow ?? [], rows)

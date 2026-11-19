@@ -1,7 +1,9 @@
 {
   "name": "rtdb-modular-admin-query-bounds-listeners-and-context",
-  "matrixRow": "",
-  "rowIds": [],
+  "matrixRow": "rtdb-admin#5",
+  "rowIds": [
+    "rtdb-admin#5"
+  ],
   "description": "firebase-admin/database Query ordering (orderByChild, orderByKey, orderByValue, orderByPriority), unindexed vs indexed get()/once(\"value\"), cursor bounds/limits, 3-arg and 4-arg context this-binding on once/on, scoped off(eventType, cb, context), and windowed child_* events.",
   "observedAt": "2026-11-18T09:29:10.988Z",
   "fbSdkVersion": "12.19.0",
