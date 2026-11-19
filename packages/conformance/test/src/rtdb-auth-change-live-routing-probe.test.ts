@@ -19,17 +19,19 @@ import {
   observeAuthChangeLiveRouting,
   probe as authChangeLiveRoutingProbe,
 } from '../../probes/rtdb-modular/rtdb-modular-auth-change-live-routing.ts';
+import { auditProbeSessionAuthModes } from '../../src/sdk-probe-runtime.ts';
 import { loadModularProbes } from '../../src/sdk-probes.ts';
-import { expectStagedUntilCaptured } from '../src/staged-capture-assertions.ts';
+import { expectStagedUntilCaptured } from './staged-capture-assertions.ts';
 
 const PROBE_NAME = 'rtdb-modular-auth-change-live-routing';
 
 describe('rtdb-modular-auth-change-live-routing staged probe', () => {
-  it('registers as a staged sdk-probes probe with dedicated-rtdb requirements via expectStagedUntilCaptured', async () => {
+  it('registers as a staged sdk-probes probe and passes auditProbeSessionAuthModes and expectStagedUntilCaptured', async () => {
     expect(authChangeLiveRoutingProbe.rig).toBe('sdk-probes');
     expect(authChangeLiveRoutingProbe.pendingRowLink).toBe(true);
     expect(authChangeLiveRoutingProbe.rowIds).toEqual([]);
     expect(authChangeLiveRoutingProbe.requires).toEqual(['web-config', 'dedicated-rtdb']);
+    expect(auditProbeSessionAuthModes()).toEqual([]);
 
     const sdkProbes = await loadModularProbes('sdk-probes');
     expect(sdkProbes.map((entry) => entry.id)).toContain(PROBE_NAME);
@@ -40,7 +42,7 @@ describe('rtdb-modular-auth-change-live-routing staged probe', () => {
     });
   });
 
-  it('executes observeAuthChangeLiveRouting deterministically on a single getDatabase(app) handle without volatile leaks', async () => {
+  it('executes observeAuthChangeLiveRouting across public, authed, and user-scoped listeners without volatile leaks', async () => {
     const sandbox = initializeSandbox();
     const app = createAppForSandbox(
       sandbox,
@@ -49,9 +51,9 @@ describe('rtdb-modular-auth-change-live-routing staged probe', () => {
     );
 
     try {
+      const auth = getAuth(app);
       const db = getDatabase(app);
       const adminDb = getAdminDatabase(sandbox);
-      const auth = getAuth(app);
       const runId = 'rtdb_unit_run_secret_id';
       const basePath = `/pyric_oracle/${runId}`;
       const aliceUid = 'pyric-unit-alice-secret';
@@ -113,9 +115,11 @@ describe('rtdb-modular-auth-change-live-routing staged probe', () => {
         readAuthed: { ok: true, errorName: null, code: null, val: { seed: 10 } },
         initialAuthedValues: [{ seed: 10 }],
         initialAuthedChildren: ['seed:10'],
+        initialAliceOwnValues: [{ role: 'owner' }],
       });
 
       expect(observed.afterSwitchToBob).toEqual({
+        aliceOwnCancelCodes: ['PERMISSION_DENIED'],
         spuriousPublicValueDeliveries: 0,
         spuriousPublicChildDeliveries: 0,
         spuriousAuthedValueDeliveries: 0,
@@ -146,6 +150,7 @@ describe('rtdb-modular-auth-change-live-routing staged probe', () => {
 
       expect(observed.afterReSignInAlice).toEqual({
         writeAuthedAllowed: { ok: true, errorName: null, code: null },
+        writeAliceOwnAllowed: { ok: true, errorName: null, code: null },
         readAuthedAllowed: {
           ok: true,
           errorName: null,
@@ -154,6 +159,7 @@ describe('rtdb-modular-auth-change-live-routing staged probe', () => {
         },
         cancelledAuthedValueCountUnchanged: true,
         cancelledAuthedChildCountUnchanged: true,
+        cancelledAliceOwnValueCountUnchanged: true,
       });
     } finally {
       await deleteApp(app);

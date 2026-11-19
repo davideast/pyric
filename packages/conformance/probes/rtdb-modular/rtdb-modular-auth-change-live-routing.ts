@@ -1,7 +1,10 @@
 import type { Database, DataSnapshot } from 'firebase/database';
 import type { Probe } from '../../rigs/types.ts';
 import { loadOracleServiceAccount } from '../../src/oracle-credential.ts';
-import { sanitizeOracleCustomUid } from '../../src/oracle-run-auth-session.ts';
+import {
+  sanitizeOracleCustomUid,
+  signInOracleClientAuth,
+} from '../../src/oracle-run-auth-session.ts';
 import { withRtdbProbeSession } from '../../src/sdk-probe-runtime.ts';
 
 export const AUTH_CHANGE_LIVE_ROUTING_RUN_RULES: Record<string, unknown> = {
@@ -55,7 +58,8 @@ function extractErrorCode(err: unknown): { errorName: string; code: string | nul
   if (err instanceof Error) {
     errorName = err.name;
   }
-  let code: string | null = null;
+  let code: string | null;
+  code = null;
   if (typeof err === 'object' && err !== null && 'code' in err) {
     const rawCode = (err as { code?: unknown }).code;
     if (typeof rawCode === 'string') {
@@ -83,6 +87,10 @@ async function captureRead(invoke: () => Promise<DataSnapshot>): Promise<AuthCha
     const { errorName, code } = extractErrorCode(err);
     return { ok: false, errorName, code, val: null };
   }
+}
+
+function yieldMacrotask(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, 0));
 }
 
 async function waitForCondition(
@@ -115,8 +123,10 @@ export async function observeAuthChangeLiveRouting(subject: AuthChangeProbeSubje
     readAuthed: AuthChangeReadOutcome;
     initialAuthedValues: unknown[];
     initialAuthedChildren: string[];
+    initialAliceOwnValues: unknown[];
   };
   afterSwitchToBob: {
+    aliceOwnCancelCodes: Array<string | null>;
     spuriousPublicValueDeliveries: number;
     spuriousPublicChildDeliveries: number;
     spuriousAuthedValueDeliveries: number;
@@ -145,9 +155,11 @@ export async function observeAuthChangeLiveRouting(subject: AuthChangeProbeSubje
   };
   afterReSignInAlice: {
     writeAuthedAllowed: AuthChangeOpOutcome;
+    writeAliceOwnAllowed: AuthChangeOpOutcome;
     readAuthedAllowed: AuthChangeReadOutcome;
     cancelledAuthedValueCountUnchanged: boolean;
     cancelledAuthedChildCountUnchanged: boolean;
+    cancelledAliceOwnValueCountUnchanged: boolean;
   };
 }> {
   const { db, aliceUid, bobUid, ref, get, set, onValue, onChildAdded } = subject;
@@ -161,6 +173,7 @@ export async function observeAuthChangeLiveRouting(subject: AuthChangeProbeSubje
   await subject.seedAdminData('authed', { seed: 10 });
   await subject.seedAdminData('marker', { step: 0 });
   await subject.signOut();
+  await yieldMacrotask();
 
   const unsubs: Array<() => void> = [];
   let latestMarkerStep = -1;
@@ -221,6 +234,7 @@ export async function observeAuthChangeLiveRouting(subject: AuthChangeProbeSubje
     const pubValBeforeAlice = publicValues.length;
     const pubChildBeforeAlice = publicChildren.length;
     await subject.signInAs('alice');
+    await yieldMacrotask();
     await flushWireBarrier('after-signin-alice');
     const spuriousPublicValAlice = publicValues.length - pubValBeforeAlice;
     const spuriousPublicChildAlice = publicChildren.length - pubChildBeforeAlice;
@@ -233,6 +247,8 @@ export async function observeAuthChangeLiveRouting(subject: AuthChangeProbeSubje
     const authedChildren: string[] = [];
     const authedValueCancelCodes: Array<string | null> = [];
     const authedChildCancelCodes: Array<string | null> = [];
+    const aliceOwnValues: unknown[] = [];
+    const aliceOwnCancelCodes: Array<string | null> = [];
 
     unsubs.push(
       onValue(
@@ -256,21 +272,42 @@ export async function observeAuthChangeLiveRouting(subject: AuthChangeProbeSubje
         },
       ),
     );
+    unsubs.push(
+      onValue(
+        aliceRef,
+        (snap) => {
+          aliceOwnValues.push(snap.val());
+        },
+        (err) => {
+          aliceOwnCancelCodes.push(extractErrorCode(err).code);
+        },
+      ),
+    );
     await waitForCondition(
-      'initial authed value and child listeners',
-      () => authedValues.length >= 1 && authedChildren.length >= 1,
+      'initial authed and alice-own listeners',
+      () =>
+        authedValues.length >= 1
+        && authedChildren.length >= 1
+        && aliceOwnValues.length >= 1,
     );
     const initialAuthedValues = [...authedValues];
     const initialAuthedChildren = [...authedChildren];
+    const initialAliceOwnValues = [...aliceOwnValues];
 
-    // Transition 2: alice -> bob directly on the same Database handle.
+    // Transition 2: uninterrupted alice -> bob on the same Database handle (no mid-sequence signOut/deleteUser).
     const pubValBeforeBob = publicValues.length;
     const pubChildBeforeBob = publicChildren.length;
     const authValBeforeBob = authedValues.length;
     const authChildBeforeBob = authedChildren.length;
     await subject.signInAs('bob');
+    await yieldMacrotask();
+    await waitForCondition(
+      'alice-own listener cancels on direct alice -> bob switch',
+      () => aliceOwnCancelCodes.length >= 1,
+    );
     await flushWireBarrier('after-switch-bob');
 
+    const aliceOwnValCountAtCancel = aliceOwnValues.length;
     const spuriousPublicValBob = publicValues.length - pubValBeforeBob;
     const spuriousPublicChildBob = publicChildren.length - pubChildBeforeBob;
     const spuriousAuthedValBob = authedValues.length - authValBeforeBob;
@@ -293,6 +330,7 @@ export async function observeAuthChangeLiveRouting(subject: AuthChangeProbeSubje
     const pubValBeforeSignOut = publicValues.length;
     const pubChildBeforeSignOut = publicChildren.length;
     await subject.signOut();
+    await yieldMacrotask();
     await waitForCondition(
       'authed listeners cancel on signOut',
       () => authedValueCancelCodes.length >= 1 && authedChildCancelCodes.length >= 1,
@@ -315,10 +353,12 @@ export async function observeAuthChangeLiveRouting(subject: AuthChangeProbeSubje
     const publicValuesAfterWrite = [...publicValues];
     const publicChildrenAfterWrite = [...publicChildren];
 
-    // Transition 4: signedOut -> alice; cancelled authed listeners must not resurrect.
+    // Transition 4: signedOut -> alice; cancelled authed and alice-own listeners must not resurrect.
     await subject.signInAs('alice');
+    await yieldMacrotask();
     await flushWireBarrier('after-resignin-alice');
     const writeAuthedAllowed = await captureWrite(() => set(ref(db, `${prefix}authed/reauthed`), 30));
+    const writeAliceOwnAllowed = await captureWrite(() => set(aliceRef, { role: 'owner-v2' }));
     const readAuthedAllowed = await captureRead(() => get(authedRef));
     await flushWireBarrier('after-reauthed-write');
 
@@ -338,8 +378,10 @@ export async function observeAuthChangeLiveRouting(subject: AuthChangeProbeSubje
         readAuthed: aliceReadAuthed,
         initialAuthedValues,
         initialAuthedChildren,
+        initialAliceOwnValues,
       },
       afterSwitchToBob: {
+        aliceOwnCancelCodes: [...aliceOwnCancelCodes],
         spuriousPublicValueDeliveries: spuriousPublicValBob,
         spuriousPublicChildDeliveries: spuriousPublicChildBob,
         spuriousAuthedValueDeliveries: spuriousAuthedValBob,
@@ -368,9 +410,11 @@ export async function observeAuthChangeLiveRouting(subject: AuthChangeProbeSubje
       },
       afterReSignInAlice: {
         writeAuthedAllowed,
+        writeAliceOwnAllowed,
         readAuthedAllowed,
         cancelledAuthedValueCountUnchanged: authedValues.length === authedValCountAtCancel,
         cancelledAuthedChildCountUnchanged: authedChildren.length === authedChildCountAtCancel,
+        cancelledAliceOwnValueCountUnchanged: aliceOwnValues.length === aliceOwnValCountAtCancel,
       },
     };
   } finally {
@@ -387,67 +431,54 @@ export const probe: Probe = {
   matrixRow: '',
   rowIds: [],
   description:
-    'Live firebase/auth signInWithCustomToken and signOut routing on a single getDatabase(app) handle without re-binding: immediate next-op auth.uid enforcement, zero spurious deliveries on readable onValue/onChildAdded listeners across sign-in/user-switch/sign-out, and permanent PERMISSION_DENIED cancellation on sign-out without resurrection on re-sign-in.',
+    'Live firebase/auth custom-token sign-in, uninterrupted user switch, and sign-out routing on a single getDatabase(app) handle without re-binding: immediate next-op auth.uid enforcement, zero spurious deliveries on readable onValue/onChildAdded listeners, and permanent PERMISSION_DENIED cancellation without resurrection across user-scoped and auth-gated paths.',
   observe() {
     return withRtdbProbeSession(
       { runRules: AUTH_CHANGE_LIVE_ROUTING_RUN_RULES },
       async ({ runId, runPath, rtdbSdk, openClient, adminWrite }) => {
-        const [{ getAuth, signInWithCustomToken, signOut }, adminAppMod, { getAuth: getAdminAuth }, { oracleAppOptions }] =
-          await Promise.all([
-            import('firebase/auth'),
-            import('firebase-admin/app'),
-            import('firebase-admin/auth'),
-            import('../../src/oracle-credential.ts'),
-          ]);
+        const [{ deleteUser, getAuth, signOut }, sa] = await Promise.all([
+          import('firebase/auth'),
+          loadOracleServiceAccount(),
+        ]);
 
-        const sa = await loadOracleServiceAccount();
-        const adminApp = adminAppMod.initializeApp(
-          oracleAppOptions(sa),
-          `sdk-probe-auth-change-admin-${runId}`,
-        );
-        const adminAuth = getAdminAuth(adminApp);
-        const aliceUid = sanitizeOracleCustomUid(`rtdb-auth-change-${runId}-alice`);
-        const bobUid = sanitizeOracleCustomUid(`rtdb-auth-change-${runId}-bob`);
+        const actor = await openClient('actor');
+        const actorAuth = getAuth(actor.app);
+        const bootstrapHint = `sdk-rtdb-${runId}-actor`;
+        const aliceHint = `rtdb-auth-change-${runId}-alice`;
+        const bobHint = `rtdb-auth-change-${runId}-bob`;
+        const aliceUid = sanitizeOracleCustomUid(aliceHint);
+        const bobUid = sanitizeOracleCustomUid(bobHint);
 
         try {
-          const [aliceToken, bobToken, actor] = await Promise.all([
-            adminAuth.createCustomToken(aliceUid),
-            adminAuth.createCustomToken(bobUid),
-            openClient('actor'),
-          ]);
-          const actorAuth = getAuth(actor.app);
-          const initialBootstrapUid = actor.uid;
-
-          try {
-            return await observeAuthChangeLiveRouting({
-              db: actor.db,
-              basePath: runPath,
-              aliceUid,
-              bobUid,
-              ref: rtdbSdk.ref,
-              get: rtdbSdk.get,
-              set: rtdbSdk.set,
-              onValue: rtdbSdk.onValue,
-              onChildAdded: rtdbSdk.onChildAdded,
-              seedAdminData: adminWrite,
-              async signInAs(role) {
-                let token = bobToken;
-                if (role === 'alice') {
-                  token = aliceToken;
-                }
-                await signInWithCustomToken(actorAuth, token);
-              },
-              async signOut() {
-                await signOut(actorAuth);
-              },
-            });
-          } finally {
-            for (const uid of [initialBootstrapUid, aliceUid, bobUid]) {
-              await adminAuth.deleteUser(uid).catch(() => undefined);
+          return await observeAuthChangeLiveRouting({
+            db: actor.db,
+            basePath: runPath,
+            aliceUid,
+            bobUid,
+            ref: rtdbSdk.ref,
+            get: rtdbSdk.get,
+            set: rtdbSdk.set,
+            onValue: rtdbSdk.onValue,
+            onChildAdded: rtdbSdk.onChildAdded,
+            seedAdminData: adminWrite,
+            async signInAs(role) {
+              let hint = bobHint;
+              if (role === 'alice') {
+                hint = aliceHint;
+              }
+              await signInOracleClientAuth(actorAuth, sa, hint);
+            },
+            async signOut() {
+              await signOut(actorAuth);
+            },
+          });
+        } finally {
+          for (const hint of [bootstrapHint, aliceHint, bobHint]) {
+            await signInOracleClientAuth(actorAuth, sa, hint).catch(() => undefined);
+            if (actorAuth.currentUser) {
+              await deleteUser(actorAuth.currentUser).catch(() => undefined);
             }
           }
-        } finally {
-          await adminAppMod.deleteApp(adminApp).catch(() => undefined);
         }
       },
     );
