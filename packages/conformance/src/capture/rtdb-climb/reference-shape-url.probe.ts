@@ -24,11 +24,11 @@ import type { RtdbClimbContext, RtdbClimbProbe } from './probe-types.ts';
 export function createProbe(ctx: RtdbClimbContext): RtdbClimbProbe {
   return {
       name: 'rtdb-modular-reference-shape-url',
-      matrixRow: 'rtdb-modular#100-105, rtdb-modular#174, rtdb-modular#M93',
+      matrixRow: 'rtdb-modular#100-105, rtdb-modular#174, rtdb-modular#M40, rtdb-modular#M93',
       rowIds: [
         'rtdb-modular#100', 'rtdb-modular#101', 'rtdb-modular#102',
         'rtdb-modular#103', 'rtdb-modular#104', 'rtdb-modular#105',
-        'rtdb-modular#174', 'rtdb-modular#M93',
+        'rtdb-modular#174', 'rtdb-modular#M40', 'rtdb-modular#M93',
       ],
       description:
         'Reference navigation/string shape, ref/child/refFromURL validation, forged-reference failure timing, and a successful normal read control.',

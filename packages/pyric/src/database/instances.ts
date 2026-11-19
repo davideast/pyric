@@ -16,6 +16,8 @@ import { onAuthLensChanged } from '../sandbox/internal/auth-lens.js';
 import { authFor, isAdminFor, TARGET_SYMBOL, type SandboxLiveTarget, type SandboxTarget } from './routing.js';
 import { Database, type AppDatabase } from './types.js';
 
+const DEFAULT_SANDBOX_ROOT_URL = `https://${defaultDatabaseInstanceName('demo-pyric')}.firebaseio.com/`;
+
 // ─── Constructors ────────────────────────────────────────────────────
 
 /**
@@ -103,6 +105,14 @@ export function getDatabase(
         () => isAdminFor(t),
       );
       appRuntime.onDelete(() => connection.drain().catch(() => undefined));
+      let fallbackRootUrl = DEFAULT_SANDBOX_ROOT_URL;
+      if (rootUrl !== undefined) {
+        fallbackRootUrl = rootUrl;
+      } else if (parsed !== undefined) {
+        fallbackRootUrl = parsed.url;
+      } else if (projectId !== undefined && projectId.length > 0) {
+        fallbackRootUrl = `https://${defaultDatabaseInstanceName(projectId)}.firebaseio.com/`;
+      }
       t = {
         kind: 'sandbox-live',
         activityApp: app,
@@ -110,6 +120,7 @@ export function getDatabase(
         backend,
         connection,
         instanceUrl: rootUrl,
+        defaultRootUrl: fallbackRootUrl,
         sandbox,
         currentUser: () => session.currentUser,
         onCurrentUserChanged: (callback) => {
@@ -143,6 +154,7 @@ export function getDatabase(
       auth: target.auth,
       connection,
       instanceUrl: instance?.url,
+      defaultRootUrl: instance?.url ?? DEFAULT_SANDBOX_ROOT_URL,
     };
     return new Database(t);
   }
@@ -163,6 +175,7 @@ export function getDatabase(
       backend,
       connection,
       instanceUrl: instance?.url,
+      defaultRootUrl: instance?.url ?? DEFAULT_SANDBOX_ROOT_URL,
       sandbox: target,
       onCurrentUserChanged: (callback) => {
         const unsubSession = target.onCurrentUserChanged(callback);
@@ -195,20 +208,44 @@ export function getAdminDatabase(
   if (appRuntime) {
     appRuntime.assertAlive();
     const options = (target as FirebaseApp).options;
-    const effectiveUrl = url ?? options?.databaseURL;
-    const instance = projectDefaultAsUndefined(resolveDatabaseInstance(effectiveUrl), options?.projectId);
-    return getAdminDatabase(appRuntime.sandbox, instance?.name);
+    const effectiveUrl = url || options?.databaseURL;
+    const resolved = resolveDatabaseInstance(effectiveUrl);
+    const instance = projectDefaultAsUndefined(resolved, options?.projectId);
+    let appDefaultRootUrl = DEFAULT_SANDBOX_ROOT_URL;
+    if (resolved !== undefined) {
+      appDefaultRootUrl = resolved.url;
+    } else if (options?.projectId !== undefined && options.projectId.length > 0) {
+      appDefaultRootUrl = `https://${defaultDatabaseInstanceName(options.projectId)}.firebaseio.com/`;
+    }
+    return buildAdminDatabase(appRuntime.sandbox, instance, appDefaultRootUrl);
   }
-  const sandbox = isSandboxContext(target)
-    ? target.sandbox
-    : isSandbox(target)
-      ? target
-      : undefined;
+  let sandbox: Sandbox | undefined;
+  if (isSandboxContext(target)) {
+    sandbox = target.sandbox;
+  } else if (isSandbox(target)) {
+    sandbox = target;
+  }
   if (sandbox === undefined) throw packageResolutionError();
   const instance = resolveDatabaseInstance(url);
+  return buildAdminDatabase(sandbox, instance, instance?.url ?? DEFAULT_SANDBOX_ROOT_URL);
+}
+
+function buildAdminDatabase(
+  sandbox: Sandbox,
+  instance: DatabaseInstance | undefined,
+  defaultRootUrl: string,
+): Database {
   const backend = getOrCreateBackend(sandbox, instance);
   const connection = new RtdbConnectionLifecycle(backend, () => null, true);
-  const t: SandboxTarget = { kind: 'sandbox', backend, auth: null, admin: true, connection, instanceUrl: instance?.url };
+  const t: SandboxTarget = {
+    kind: 'sandbox',
+    backend,
+    auth: null,
+    admin: true,
+    connection,
+    instanceUrl: instance?.url,
+    defaultRootUrl,
+  };
   return new Database(t);
 }
 

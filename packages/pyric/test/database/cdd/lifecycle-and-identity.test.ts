@@ -227,7 +227,10 @@ describe('rtdb-modular CDD: lifecycle and runtime identity rows', () => {
       differentSpec: q.isEqual(api.query(a, api.orderByValue(), api.startAt(2))), differentPath: a.isEqual(api.ref(first.db, 'b')),
       differentApp: a.isEqual(api.ref(second.db, 'a')), nullValue: a.isEqual(null), nonQuery: a.isEqual({} as never),
     }).toEqual(Object.fromEntries(Object.entries(referenceObservation.queryIdentity).filter(([key]) => !key.endsWith('ToJSON'))));
-    expect([a.toJSON(), q.toJSON()]).toEqual(['sandbox://rtdb/a', 'sandbox://rtdb/a']);
+    expect([a.toJSON(), q.toJSON()]).toEqual([
+      'https://demo-pyric-default-rtdb.firebaseio.com/a',
+      'https://demo-pyric-default-rtdb.firebaseio.com/a',
+    ]);
   });
   row('M94', () => {
     const { db } = setup(); const target = api.ref(db, 'rows');

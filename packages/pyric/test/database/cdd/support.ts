@@ -220,7 +220,7 @@ export async function assertReferenceShape(): Promise<void> {
   const { db } = setup();
   const target = ref(db, 'a/b');
   expect([target.key, target.parent?.key, target.root.key]).toEqual(['b', 'a', null]);
-  expect(target.toString()).toBe('sandbox://rtdb/a/b');
+  expect(target.toString()).toBe('https://demo-pyric-default-rtdb.firebaseio.com/a/b');
   expect(child(target.parent!, 'b').isEqual(target)).toBe(true);
 }
 

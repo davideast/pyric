@@ -53,6 +53,8 @@ export type SandboxTarget = {
   connection: RtdbConnectionLifecycle;
   /** The instance's root URL when known, which `refFromURL` checks a URL's host against. */
   instanceUrl?: string;
+  /** Fallback root URL used by `DatabaseReference#toString()` when no explicit `instanceUrl` was configured. */
+  defaultRootUrl: string;
 };
 export type SandboxLiveTarget = {
   kind: 'sandbox-live';
@@ -68,6 +70,8 @@ export type SandboxLiveTarget = {
   connection: RtdbConnectionLifecycle;
   /** The instance's root URL when known, which `refFromURL` checks a URL's host against. */
   instanceUrl?: string;
+  /** Fallback root URL used by `DatabaseReference#toString()` when no explicit `instanceUrl` was configured. */
+  defaultRootUrl: string;
 };
 export type Target = SandboxTarget | SandboxLiveTarget;
 

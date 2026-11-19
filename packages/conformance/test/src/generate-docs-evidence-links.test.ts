@@ -49,10 +49,13 @@ describe('evidence linking and validation', () => {
   });
 
   it('renders target="_blank" rel="noopener noreferrer" anchor elements in consolidated gap disclosures', () => {
-    const row = model.documentation.rows.find((r) => r.id === 'rtdb-modular#M93');
+    const row = model.documentation.rows.find((r) => r.id === 'rtdb-modular#160');
     expect(row).toBeDefined();
-    const gaps = consolidatedGapSections([row!], model.documentation.observationPaths);
-    expect(gaps).toContain('<a href="https://github.com/davideast/pyric/blob/main/packages/conformance/observations/rtdb-modular/rtdb-modular-reference-shape-url.json" target="_blank" rel="noopener noreferrer">');
+    if (row === undefined) {
+      throw new Error('Expected rtdb-modular#160 in conformance model');
+    }
+    const gaps = consolidatedGapSections([row], model.documentation.observationPaths);
+    expect(gaps).toContain('<a href="https://github.com/davideast/pyric/blob/main/packages/conformance/observations/rtdb-modular/rtdb-modular-runtransaction-current-value-arg.json" target="_blank" rel="noopener noreferrer">');
   });
 
   it('throws when structured evidence points to a non-existent file or untracked observation', () => {

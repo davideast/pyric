@@ -61,6 +61,15 @@ function assertSameHost(found: string, expected: string): void {
   }
 }
 
+function formatReferenceUrl(baseUrl: string, segments: readonly string[]): string {
+  const origin = new URL(baseUrl).origin;
+  if (segments.length === 0) {
+    return `${origin}/`;
+  }
+  const encoded = segments.map((segment) => `/${encodeURIComponent(segment)}`).join('');
+  return `${origin}${encoded}`;
+}
+
 /**
  * Build a sandbox-backed `DatabaseReference`. Cached parent / root
  * pointers are computed lazily so a long chain doesn't materialise
@@ -72,7 +81,7 @@ export function buildSandboxRef(
 ): DatabaseReference {
   const canonical = joinPath(pathSegments(path));
   const segs = pathSegments(canonical);
-  const key = segs.length === 0 ? null : segs[segs.length - 1]!;
+  const key = segs.at(-1) ?? null;
   const self: DatabaseReference = {
     key,
     _path: canonical,
@@ -89,7 +98,8 @@ export function buildSandboxRef(
       return buildSandboxRef(target, '/');
     },
     toString() {
-      return `sandbox://rtdb${canonical}`;
+      const rootUrl = target.instanceUrl ?? target.defaultRootUrl;
+      return formatReferenceUrl(rootUrl, segs);
     },
     toJSON() {
       return self.toString();

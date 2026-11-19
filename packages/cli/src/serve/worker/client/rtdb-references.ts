@@ -152,18 +152,19 @@ function rtdbKey(path: string): string | null {
 }
 
 /**
- * A reference's string form. With a known instance it is production's:
- * `Repo.toString()`, the scheme and host, followed by each path segment
- * URL-encoded (`pathToUrlEncodedString`). A handle that names no URL keeps
- * the worker form.
+ * A reference's string form: `Repo.toString()`, the scheme and host, followed
+ * by each path segment URL-encoded (`pathToUrlEncodedString`), defaulting to
+ * the sandbox default instance URL when the handle was opened without one.
  */
 function referenceString(instance: ClientRtdbInstance | undefined, path: string): string {
-  if (instance === undefined) return `worker://rtdb${path}`;
-  const hostEnd = instance.url.indexOf('/', instance.url.indexOf('//') + 2);
-  const repo = instance.url.slice(0, hostEnd);
+  const baseUrl = instance?.url ?? 'https://demo-pyric-default-rtdb.firebaseio.com/';
+  const origin = new URL(baseUrl).origin;
   const segments = path.split('/').filter(Boolean);
+  if (segments.length === 0) {
+    return `${origin}/`;
+  }
   const encoded = segments.map((segment) => `/${encodeURIComponent(segment)}`).join('');
-  return repo + (encoded || '/');
+  return `${origin}${encoded}`;
 }
 
 export function makeRtdbRef(port: ClientPort, path: string, instance?: ClientRtdbInstance): RtdbRefHandle {
