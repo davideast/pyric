@@ -31,6 +31,10 @@ export interface AuthoredRowRecord {
   readonly build: (rowRef: string) => CompatibilityRow;
 }
 
+export type RowRefSeedFactory<D extends Partial<SeedFields>> = (
+  rowRef: string,
+) => Omit<FileRowSeed<D>, 'order'>;
+
 export interface RowSectionConfig<D extends Partial<SeedFields>> extends DefineRowsConfig<D> {
   order: number;
   prefix?: string;
@@ -44,6 +48,10 @@ export interface RowSection<D extends Partial<SeedFields>> {
   readonly prefix: string;
   readonly publishInCompatibilityDocs?: false;
   readonly row: (seed: FileRowSeed<D>) => AuthoredRowRecord;
+  readonly rowFromRef: (
+    order: number | undefined,
+    deriveSeed: RowRefSeedFactory<D>,
+  ) => AuthoredRowRecord;
 }
 
 export interface LoadRegistrySectionsOptions {
@@ -134,6 +142,7 @@ export function defineRowSection<const D extends Partial<SeedFields>>(
     prefix: string;
     publishInCompatibilityDocs?: false;
     row: (seed: FileRowSeed<D>) => AuthoredRowRecord;
+    rowFromRef: (order: number | undefined, deriveSeed: RowRefSeedFactory<D>) => AuthoredRowRecord;
   } = {
     [SECTION_BRAND]: true,
     surface: config.surface,
@@ -153,6 +162,26 @@ export function defineRowSection<const D extends Partial<SeedFields>>(
         [AUTHORED_ROW_BRAND]: true,
         order: resolvedOrder,
         build(rowRef: string): CompatibilityRow {
+          const fullSeed = { ...rest, rowRef } as unknown as RowSeed<D>;
+          return buildFromSeed(fullSeed);
+        },
+      };
+    },
+    rowFromRef(order: number | undefined, deriveSeed: RowRefSeedFactory<D>): AuthoredRowRecord {
+      const resolvedOrder = resolveRowOrder(order);
+      return {
+        [AUTHORED_ROW_BRAND]: true,
+        order: resolvedOrder,
+        build(rowRef: string): CompatibilityRow {
+          const derived = deriveSeed(rowRef);
+          const raw = derived as Record<string, unknown>;
+          if ('rowRef' in raw && raw.rowRef !== undefined) {
+            throw new Error("authored row record must not declare 'rowRef'; the filename is the rowRef");
+          }
+          if ('id' in raw && raw.id !== undefined) {
+            throw new Error("authored row record must not declare 'id'; id is derived from surface and filename");
+          }
+          const { rowRef: _rowRef, id: _id, ...rest } = derived;
           const fullSeed = { ...rest, rowRef } as unknown as RowSeed<D>;
           return buildFromSeed(fullSeed);
         },
