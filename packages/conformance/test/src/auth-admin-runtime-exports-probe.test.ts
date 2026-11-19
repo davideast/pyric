@@ -14,21 +14,20 @@ import {
   printModularProbePreview,
   selectModularProbes,
 } from '../../src/sdk-probes.ts';
-import { expectStagedUntilCaptured } from './staged-capture-assertions.ts';
 
 const PROBE_ID = 'admin-auth-runtime-exports-and-user-record-shape';
 
-describe('staged auth-admin runtime exports and UserRecord shape probe', () => {
-  test('registers on admin-auth with pendingRowLink and empty rowIds until captured', async () => {
+describe('linked auth-admin runtime exports and UserRecord shape probe', () => {
+  test('registers on admin-auth with linked auth-admin#14 rowIds and pendingRowLink dropped', async () => {
     const loaded = await loadModularProbes('admin-auth');
     const loadedIds = loaded.map((entry) => entry.id);
     expect(loadedIds).toContain(PROBE_ID);
 
     expect(runtimeExportsProbe.rig).toBe('admin-auth');
     expect(runtimeExportsProbe.requires).toEqual(['admin-auth']);
-    expect(runtimeExportsProbe.pendingRowLink).toBe(true);
-    expect(runtimeExportsProbe.matrixRow).toBe('');
-    expect(runtimeExportsProbe.rowIds).toEqual([]);
+    expect(runtimeExportsProbe.pendingRowLink).toBeUndefined();
+    expect(runtimeExportsProbe.matrixRow).toBe('auth-admin#14');
+    expect(runtimeExportsProbe.rowIds).toEqual(['auth-admin#14']);
     expect(runtimeExportsProbe.description.length).toBeGreaterThan(20);
 
     const unfilteredIds = new Set(
@@ -36,18 +35,7 @@ describe('staged auth-admin runtime exports and UserRecord shape probe', () => {
         includeUncapturedStaged: false,
       }).map((entry) => entry.id),
     );
-
-    expectStagedUntilCaptured([PROBE_ID], {
-      rig: 'admin-auth',
-      filterFlag: '--probe',
-      filterValueFor: (name) => name,
-      whenUncaptured(name) {
-        expect(unfilteredIds.has(name)).toBe(false);
-      },
-      whenCaptured(name) {
-        expect(unfilteredIds.has(name)).toBe(true);
-      },
-    });
+    expect(unfilteredIds.has(PROBE_ID)).toBe(true);
 
     const lines: string[] = [];
     printModularProbePreview({

@@ -29,6 +29,7 @@ import {
   observeVerifyIdTokenErrors,
   type VerifyIdTokenErrorsSubject,
 } from '../../../../packages/conformance/probes/auth-admin/admin-auth-verify-id-token-errors.ts';
+import { observeRuntimeExportsForAuth } from './runtime-exports-oracle-subject.js';
 import { deleteApp, getApps, initializeApp, type PyricAdminApp } from '../../src/app/index.js';
 import { getAuth, type Auth } from '../../src/auth/index.js';
 import { createWorkerBridgeRemoteAuth } from './worker-bridge-helper.js';
@@ -316,9 +317,239 @@ describe('oracle conformance (auth-admin)', () => {
     }
   });
 
+  it('admin-auth-runtime-exports-and-user-record-shape (local and worker-bridge remote arms)', async () => {
+    const expected = authAdminObsGate.load<Record<string, unknown>>(
+      'admin-auth-runtime-exports-and-user-record-shape',
+    );
+
+    let localActual: Record<string, unknown>;
+    const localSandbox = initializeSandbox();
+    try {
+      const localAuth = getAuth(
+        initializeApp({ sandbox: localSandbox }, 'oracle-exports-local'),
+      );
+      localActual = await observeRuntimeExportsForAuth(localAuth, 'oracle-local-exports');
+    } finally {
+      localSandbox.dispose();
+    }
+
+    let remoteActual: Record<string, unknown>;
+    const remoteStack = await createWorkerBridgeRemoteAuth('oracle-exports-remote');
+    try {
+      remoteActual = await observeRuntimeExportsForAuth(remoteStack.auth, 'oracle-remote-exports');
+    } finally {
+      remoteStack.dispose();
+    }
+
+    expect(remoteActual).toEqual(localActual);
+    expect(localActual.errorConstructorContract).toEqual(expected.errorConstructorContract);
+    expect(localActual.liveErrorInstanceOf).toEqual(expected.liveErrorInstanceOf);
+
+    const actualExports = localActual.moduleExports as Record<string, unknown>;
+    const expectedExports = expected.moduleExports as Record<string, unknown>;
+    expect({
+      rootAdminAuthHasAuthClass: actualExports.rootAdminAuthHasAuthClass,
+      authExtendsBaseAuth: actualExports.authExtendsBaseAuth,
+      authClientErrorCodeCount: actualExports.authClientErrorCodeCount,
+    }).toEqual({
+      rootAdminAuthHasAuthClass: expectedExports.rootAdminAuthHasAuthClass,
+      authExtendsBaseAuth: expectedExports.authExtendsBaseAuth,
+      authClientErrorCodeCount: expectedExports.authClientErrorCodeCount,
+    });
+    // auth-admin#14 divergence pin: pyric-admin/auth exports the 8 modeled symbols and
+    // omits the 8 unmodeled MFA, Tenant, and ProjectConfig constructors.
+    expect({
+      pyric: actualExports.exportKeys,
+      production: expectedExports.exportKeys,
+    }).toEqual({
+      pyric: [
+        'Auth',
+        'AuthClientErrorCode',
+        'BaseAuth',
+        'FirebaseAuthError',
+        'UserInfo',
+        'UserMetadata',
+        'UserRecord',
+        'getAuth',
+      ],
+      production: [
+        'Auth',
+        'AuthClientErrorCode',
+        'BaseAuth',
+        'FirebaseAuthError',
+        'MultiFactorInfo',
+        'MultiFactorSettings',
+        'PhoneMultiFactorInfo',
+        'ProjectConfig',
+        'ProjectConfigManager',
+        'Tenant',
+        'TenantAwareAuth',
+        'TenantManager',
+        'UserInfo',
+        'UserMetadata',
+        'UserRecord',
+        'getAuth',
+      ],
+    });
+
+    const actualHandles = localActual.handleAndRecordInstanceOf as Record<string, unknown>;
+    const expectedHandles = expected.handleAndRecordInstanceOf as Record<string, unknown>;
+    expect({
+      authIsAuth: actualHandles.authIsAuth,
+      authIsBaseAuth: actualHandles.authIsBaseAuth,
+      createdIsUserRecord: actualHandles.createdIsUserRecord,
+      fetchedIsUserRecord: actualHandles.fetchedIsUserRecord,
+      listedIsUserRecord: actualHandles.listedIsUserRecord,
+      metadataIsUserMetadata: actualHandles.metadataIsUserMetadata,
+      providerInfoIsUserInfo: actualHandles.providerInfoIsUserInfo,
+      providerInfoToJsonKeys: actualHandles.providerInfoToJsonKeys,
+    }).toEqual({
+      authIsAuth: expectedHandles.authIsAuth,
+      authIsBaseAuth: expectedHandles.authIsBaseAuth,
+      createdIsUserRecord: expectedHandles.createdIsUserRecord,
+      fetchedIsUserRecord: expectedHandles.fetchedIsUserRecord,
+      listedIsUserRecord: expectedHandles.listedIsUserRecord,
+      metadataIsUserMetadata: expectedHandles.metadataIsUserMetadata,
+      providerInfoIsUserInfo: expectedHandles.providerInfoIsUserInfo,
+      providerInfoToJsonKeys: expectedHandles.providerInfoToJsonKeys,
+    });
+    expect({
+      pyric: actualHandles.metadataToJsonKeys,
+      production: expectedHandles.metadataToJsonKeys,
+    }).toEqual({
+      pyric: ['creationTime', 'lastSignInTime'],
+      production: ['creationTime', 'lastRefreshTime', 'lastSignInTime'],
+    });
+
+    const actualPresence = localActual.userRecordFieldPresence as Record<
+      string,
+      Record<string, unknown>
+    >;
+    const expectedPresence = expected.userRecordFieldPresence as Record<
+      string,
+      Record<string, unknown>
+    >;
+    const recordSamples = [
+      'createdPasswordUser',
+      'fetchedPasswordUser',
+      'listedPasswordUser',
+      'createdPasswordlessUser',
+      'fetchedPasswordlessUser',
+      'listedPasswordlessUser',
+    ] as const;
+    for (const sample of recordSamples) {
+      const actualSample = actualPresence[sample];
+      const expectedSample = expectedPresence[sample];
+      if (actualSample === undefined || expectedSample === undefined) {
+        throw new Error(`Missing userRecordFieldPresence sample: ${sample}`);
+      }
+      expect({
+        isUserRecordInstance: actualSample.isUserRecordInstance,
+        passwordHashType: actualSample.passwordHashType,
+        passwordHashNonEmptyString: actualSample.passwordHashNonEmptyString,
+        passwordSaltType: actualSample.passwordSaltType,
+        passwordSaltNonEmptyString: actualSample.passwordSaltNonEmptyString,
+        hasOwnMultiFactor: actualSample.hasOwnMultiFactor,
+        multiFactorType: actualSample.multiFactorType,
+      }).toEqual({
+        isUserRecordInstance: expectedSample.isUserRecordInstance,
+        passwordHashType: expectedSample.passwordHashType,
+        passwordHashNonEmptyString: expectedSample.passwordHashNonEmptyString,
+        passwordSaltType: expectedSample.passwordSaltType,
+        passwordSaltNonEmptyString: expectedSample.passwordSaltNonEmptyString,
+        hasOwnMultiFactor: expectedSample.hasOwnMultiFactor,
+        multiFactorType: expectedSample.multiFactorType,
+      });
+      // auth-admin#14 divergence pin: UserRecord omits unmodeled passwordHash and
+      // passwordSalt own properties and stores customClaims as an own property.
+      expect({
+        pyric: {
+          hasOwnPasswordHash: actualSample.hasOwnPasswordHash,
+          hasOwnPasswordSalt: actualSample.hasOwnPasswordSalt,
+          ownKeys: actualSample.ownKeys,
+          toJsonKeys: actualSample.toJsonKeys,
+        },
+        production: {
+          hasOwnPasswordHash: expectedSample.hasOwnPasswordHash,
+          hasOwnPasswordSalt: expectedSample.hasOwnPasswordSalt,
+          ownKeys: expectedSample.ownKeys,
+          toJsonKeys: expectedSample.toJsonKeys,
+        },
+      }).toEqual({
+        pyric: {
+          hasOwnPasswordHash: false,
+          hasOwnPasswordSalt: false,
+          ownKeys: [
+            'customClaims',
+            'disabled',
+            'displayName',
+            'email',
+            'emailVerified',
+            'metadata',
+            'phoneNumber',
+            'photoURL',
+            'providerData',
+            'tenantId',
+            'tokensValidAfterTime',
+            'uid',
+          ],
+          toJsonKeys: [
+            'customClaims',
+            'disabled',
+            'displayName',
+            'email',
+            'emailVerified',
+            'metadata',
+            'phoneNumber',
+            'photoURL',
+            'providerData',
+            'tenantId',
+            'tokensValidAfterTime',
+            'uid',
+          ],
+        },
+        production: {
+          hasOwnPasswordHash: true,
+          hasOwnPasswordSalt: true,
+          ownKeys: [
+            'disabled',
+            'displayName',
+            'email',
+            'emailVerified',
+            'metadata',
+            'passwordHash',
+            'passwordSalt',
+            'phoneNumber',
+            'photoURL',
+            'providerData',
+            'tenantId',
+            'tokensValidAfterTime',
+            'uid',
+          ],
+          toJsonKeys: [
+            'customClaims',
+            'disabled',
+            'displayName',
+            'email',
+            'emailVerified',
+            'metadata',
+            'passwordHash',
+            'passwordSalt',
+            'phoneNumber',
+            'photoURL',
+            'providerData',
+            'tenantId',
+            'tokensValidAfterTime',
+            'uid',
+          ],
+        },
+      });
+    }
+  });
+
   it('completeness: every observations/auth-admin/ capture is asserted', () => {
     const report = authAdminObsGate.report();
-    expect(report.committed.length).toBe(5);
+    expect(report.committed.length).toBe(6);
     expect(report.loadedButUnused).toEqual([]);
     expect(report.uncovered).toEqual([]);
   });

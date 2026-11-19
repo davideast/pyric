@@ -259,9 +259,8 @@ export async function observeAdminAuthRuntimeExportsAndUserRecordShape(
 export const probe: Probe = {
   rig: 'admin-auth',
   requires: ['admin-auth'],
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'auth-admin#14',
+  rowIds: ['auth-admin#14'],
   description:
     'firebase-admin/auth runtime value exports, FirebaseAuthError and AuthClientErrorCode constructor/throw instanceof behavior, Auth/BaseAuth/UserRecord/UserMetadata/UserInfo prototype checks, and UserRecord.{passwordHash, passwordSalt, multiFactor} presence across createUser, getUser, and listUsers.',
   async observe(): Promise<Record<string, unknown>> {
