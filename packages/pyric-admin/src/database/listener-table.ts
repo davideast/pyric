@@ -15,6 +15,7 @@ export interface AdminListenerEntry {
   readonly callback: SnapshotCallback;
   readonly context: unknown;
   active: boolean;
+  initialDelivered: boolean;
   detach: () => void;
 }
 
@@ -57,6 +58,7 @@ export class AdminListenerTable {
       callback,
       context,
       active: true,
+      initialDelivered: false,
       detach: () => {},
     };
 
@@ -187,7 +189,7 @@ export class AdminListenerTable {
       }
       for (const entries of defaultEvents.values()) {
         for (const entry of entries) {
-          if (entry.active && entry !== excludeEntry) {
+          if (entry.active && entry.initialDelivered && entry !== excludeEntry) {
             return true;
           }
         }

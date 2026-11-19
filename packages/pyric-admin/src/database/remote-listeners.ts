@@ -415,6 +415,7 @@ export function attachRemoteListener(
   const handleWireDelivery = (wire: RemoteWireSnapshot): void => {
     if (!entry.active) return;
     if (differ !== null) {
+      entry.initialDelivered = true;
       const deltas = differ.consume(wire);
       for (const delta of deltas) {
         if (!entry.active) break;
@@ -438,6 +439,7 @@ export function attachRemoteListener(
         return;
       }
       hasDeliveredValue = true;
+      entry.initialDelivered = true;
       lastDeliveredValue = wireComparable;
     }
     const snap = hydrateRemoteWireSnapshot(target.refAt, target.canonical, wire);
@@ -454,6 +456,7 @@ export function attachRemoteListener(
     const cached = target.readWarmCachedValue(target.canonical);
     if (cached.found) {
       hasDeliveredValue = true;
+      entry.initialDelivered = true;
       lastDeliveredValue = [cached.stored !== null, cached.stored, cached.stored];
       const warmSnap = buildSandboxSnap(
         target.refAt,
