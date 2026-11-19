@@ -1,5 +1,11 @@
 import { defineRows, type DefineRowsConfig, type RowSeed } from './define-rows.ts';
-import type { CompatibilityRow, CompatibilityTableBlock, Surface } from './types.ts';
+import type {
+  CompatibilityDocBlock,
+  CompatibilityRow,
+  CompatibilityTableBlock,
+  MarkdownBlock,
+  Surface,
+} from './types.ts';
 
 type SeedFields = Omit<CompatibilityRow, 'id'>;
 
@@ -8,6 +14,7 @@ const ROW_FILE_PATTERN = /^[A-Za-z0-9]+(-[A-Za-z0-9]+)*\.ts$/;
 const SECTION_SLUG_PATTERN = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 const AUTHORED_ROW_BRAND = Symbol.for('pyric.conformance.authoredRowRecord');
 const SECTION_BRAND = Symbol.for('pyric.conformance.rowSection');
+const MARKDOWN_SECTION_BRAND = Symbol.for('pyric.conformance.markdownSection');
 
 export type RegistryEntryKind = 'file' | 'directory' | 'missing' | 'other';
 
@@ -54,12 +61,24 @@ export interface RowSection<D extends Partial<SeedFields>> {
   ) => AuthoredRowRecord;
 }
 
+export interface MarkdownSectionConfig {
+  order: number;
+  markdown: string;
+}
+
+export interface MarkdownSection {
+  readonly [MARKDOWN_SECTION_BRAND]: true;
+  readonly order: number;
+  readonly markdown: string;
+}
+
 export interface LoadRegistrySectionsOptions {
   readonly ignoreFiles?: ReadonlySet<string>;
 }
 
 export interface LoadedRegistrySections {
   readonly blocks: CompatibilityTableBlock[];
+  readonly contentBlocks: CompatibilityDocBlock[];
   rowsOf(sectionSlug: string): CompatibilityRow[];
 }
 
@@ -87,6 +106,11 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 function isRowSectionDescriptor(value: unknown): value is RowSection<Partial<SeedFields>> {
   if (!isPlainObject(value)) return false;
   return (value as Record<symbol, unknown>)[SECTION_BRAND] === true;
+}
+
+function isMarkdownSectionDescriptor(value: unknown): value is MarkdownSection {
+  if (!isPlainObject(value)) return false;
+  return (value as Record<symbol, unknown>)[MARKDOWN_SECTION_BRAND] === true;
 }
 
 function isAuthoredRowRecord(value: unknown): value is AuthoredRowRecord {
@@ -196,7 +220,24 @@ export function defineRowSection<const D extends Partial<SeedFields>>(
   return descriptor;
 }
 
-function extractSectionDescriptor(moduleExports: unknown, sectionFilePath: string): RowSection<Partial<SeedFields>> {
+export function defineMarkdownSection(config: MarkdownSectionConfig): MarkdownSection {
+  if (!isFiniteOrderNumber(config.order)) {
+    throw new Error("defineMarkdownSection: 'order' must be a finite number");
+  }
+  if (typeof config.markdown !== 'string' || config.markdown.trim() === '') {
+    throw new Error("defineMarkdownSection: 'markdown' must be a non-empty string");
+  }
+  return {
+    [MARKDOWN_SECTION_BRAND]: true,
+    order: config.order,
+    markdown: config.markdown,
+  };
+}
+
+function extractSectionDescriptor(
+  moduleExports: unknown,
+  sectionFilePath: string,
+): RowSection<Partial<SeedFields>> | MarkdownSection {
   if (!isPlainObject(moduleExports)) {
     throw new Error(`${sectionFilePath}: module did not evaluate to an exports object`);
   }
@@ -204,8 +245,10 @@ function extractSectionDescriptor(moduleExports: unknown, sectionFilePath: strin
   if (candidate === undefined) {
     candidate = moduleExports.default;
   }
-  if (!isRowSectionDescriptor(candidate)) {
-    throw new Error(`${sectionFilePath}: must export 'section = defineRowSection(...)'`);
+  if (!isRowSectionDescriptor(candidate) && !isMarkdownSectionDescriptor(candidate)) {
+    throw new Error(
+      `${sectionFilePath}: must export 'section = defineRowSection(...)' or 'section = defineMarkdownSection(...)'`,
+    );
   }
   return candidate;
 }
@@ -237,6 +280,7 @@ export function assembleRegistrySections(
 
   const topEntries = [...host.readDirectory(surfaceDir)].sort(compareCodePoint);
   const loadedSections: Array<{ slug: string; order: number; block: CompatibilityTableBlock }> = [];
+  const loadedContentBlocks: Array<{ slug: string; order: number; block: CompatibilityDocBlock }> = [];
   const rowsBySlug = new Map<string, CompatibilityRow[]>();
   const seenRowRefsBySurfaceAndLower = new Map<string, Map<string, string>>();
 
@@ -256,8 +300,22 @@ export function assembleRegistrySections(
       throw new Error(`${sectionFilePath}: missing required section descriptor file`);
     }
     const section = extractSectionDescriptor(host.loadModule(sectionFilePath), sectionFilePath);
-
     const sectionEntries = [...host.readDirectory(sectionDirPath)].sort(compareCodePoint);
+
+    if (isMarkdownSectionDescriptor(section)) {
+      for (const fileName of sectionEntries) {
+        if (fileName === SECTION_FILE) continue;
+        const extraPath = joinChildPath(sectionDirPath, fileName);
+        throw new Error(`${extraPath}: markdown section directory must contain only ${SECTION_FILE}`);
+      }
+      const mdBlock: MarkdownBlock = {
+        kind: 'markdown',
+        markdown: section.markdown,
+      };
+      loadedContentBlocks.push({ slug: entry, order: section.order, block: mdBlock });
+      continue;
+    }
+
     const builtRows: Array<{ order: number; row: CompatibilityRow }> = [];
 
     for (const fileName of sectionEntries) {
@@ -313,6 +371,7 @@ export function assembleRegistrySections(
     }
 
     loadedSections.push({ slug: entry, order: section.order, block });
+    loadedContentBlocks.push({ slug: entry, order: section.order, block });
     rowsBySlug.set(entry, rows);
   }
 
@@ -322,8 +381,15 @@ export function assembleRegistrySections(
     return compareCodePoint(left.slug, right.slug);
   });
 
+  loadedContentBlocks.sort((left, right) => {
+    const orderDiff = left.order - right.order;
+    if (orderDiff !== 0) return orderDiff;
+    return compareCodePoint(left.slug, right.slug);
+  });
+
   return {
     blocks: loadedSections.map((item) => item.block),
+    contentBlocks: loadedContentBlocks.map((item) => item.block),
     rowsOf(sectionSlug: string): CompatibilityRow[] {
       const rows = rowsBySlug.get(sectionSlug);
       if (rows === undefined) {
