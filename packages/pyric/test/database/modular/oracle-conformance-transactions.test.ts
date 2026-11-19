@@ -3,6 +3,7 @@ import { describe, it, expect } from 'bun:test';
 import {
   ref,
   get,
+  getDatabase,
   set,
   update,
   push,
@@ -75,7 +76,9 @@ describe('oracle conformance (rtdb-modular): transaction contracts', () => {
     expect(missingArgs[0]!.isUndefined).toBe(obs.missingFirstWasUndefined as boolean); // false
     expect(missingArgs[0]!.type).toBe('object'); // typeof null === 'object'
 
-    // Seeded path: single invocation with the actual object value.
+    // Seeded path: single-handle writer is already warm (row 160 by-design),
+    // while a fresh secondary client handle observes cold speculative null
+    // followed by the seeded object value (M37b).
     const s = setup();
     await set(ref(s.db, 'user'), { count: 7, name: 'alice' });
     const seededArgs: unknown[] = [];
@@ -84,13 +87,34 @@ describe('oracle conformance (rtdb-modular): transaction contracts', () => {
       if (current && typeof current === 'object') return { ...current, count: current.count + 1 };
       return current ?? undefined;
     });
-    // typeof the first seeded arg is 'object' in both prod and sandbox.
-    expect(typeof seededArgs[0]).toBe(obs.seededFirstShape as string); // 'object'
-    // Prod (the target): 2 speculative invocations.
+    expect(typeof seededArgs[0]).toBe(obs.seededFirstShape as string);
     expect((obs.seededArgs as unknown[]).length).toBe(2);
-    // Sandbox today: 1 invocation with the real value.
     expect(seededArgs.length).toBe(1);
     expect(seededArgs[0]).toEqual({ count: 7, name: 'alice' });
+
+    await set(ref(s.db, 'user-cold'), { count: 7, name: 'alice' });
+    const coldDb = getDatabase(s.sandbox.withAuth({ uid: 'bob' }));
+    const coldSeededArgs: Array<{ raw: unknown; type: string; isNull: boolean; isUndefined: boolean }> = [];
+    const coldResult = await runTransaction<{ count: number; name: string }>(
+      ref(coldDb, 'user-cold'),
+      (current) => {
+        coldSeededArgs.push({
+          raw: current,
+          type: typeof current,
+          isNull: current === null,
+          isUndefined: current === undefined,
+        });
+        if (current !== null && typeof current === 'object') {
+          return { ...current, count: current.count + 1 };
+        }
+        return { count: 1, name: 'speculative' };
+      },
+    );
+    expect(coldSeededArgs).toEqual(
+      obs.seededArgs as Array<{ raw: unknown; type: string; isNull: boolean; isUndefined: boolean }>,
+    );
+    expect(coldResult.committed).toBe(true);
+    expect(coldResult.snapshot.val()).toEqual({ count: 8, name: 'alice' });
   });
 
   it('rtdb-modular-runtransaction-warm-client-speculation', async () => {

@@ -73,12 +73,14 @@ describe('runTransaction on .read-denied, .write-allowed paths', () => {
     expect(inlineResult.snapshot.priority).toBe('caller-prio');
     expect(inlineResult.snapshot.exportVal()).toEqual({ '.value': 77, '.priority': 'caller-prio' });
 
-    // Readable owner transactions continue to resolve against stored value and preserve priority.
+    // Readable owner transactions on a fresh secondary handle run a cold null pass then resolve against stored value and preserve priority.
     await setWithPriority(ref(admin, 'users/u2/code'), 10, 'owner-prio');
+    const ownerSeen: unknown[] = [];
     const ownerResult = await runTransaction(ref(ownerDb, 'users/u2/code'), (current) => {
-      expect(current).toBe(10);
+      ownerSeen.push(current);
       return increment(5);
     });
+    expect(ownerSeen).toEqual([null, 10]);
     expect(ownerResult.committed).toBe(true);
     expect(ownerResult.snapshot.val()).toBe(15);
     expect(ownerResult.snapshot.priority).toBe('owner-prio');

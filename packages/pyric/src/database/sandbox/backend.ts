@@ -6,7 +6,11 @@
 import type { AuthState, Sandbox } from 'pyric/sandbox';
 import { BackendState } from './backend-state.js';
 import { ChildListeners } from './child-listeners.js';
-import { runClientTransactionAsync, type ClientTransactionOutcome } from './client-transaction.js';
+import {
+  runClientTransactionAsync,
+  type AsyncClientTransactionOptions,
+  type ClientTransactionOutcome,
+} from './client-transaction.js';
 import type { ChildListener, ValueListener, ValueListenerSnapshot } from './listener-types.js';
 import { PendingClientWrites } from './pending-client-writes.js';
 import { PersistenceState } from './persistence-state.js';
@@ -215,7 +219,7 @@ export class RtdbBackend {
     auth: AuthState,
     path: string,
     updateFn: (current: JsonValue) => JsonValue | undefined,
-    options?: { applyLocally?: boolean; admin?: boolean },
+    options?: AsyncClientTransactionOptions,
   ): Promise<ClientTransactionOutcome> {
     try {
       assertWritable(path);

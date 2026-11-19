@@ -1,4 +1,5 @@
 import { runSdkWrite } from '../sandbox/internal/sdk-write-activity.js';
+import { createClientTransactionHooks } from './client-cache-state.js';
 import { beginDatabaseActivity } from './sdk-activity.js';
 import type { JsonValue } from './sandbox/data-tree.js';
 import { authFor, isAdminFor, targetOf } from './routing.js';
@@ -93,16 +94,19 @@ export function runTransaction<T>(
     throw new TypeError('transactionUpdate must be a function');
   }
   const target = targetOf(r as unknown as object);
+  const { cold, hooks } = createClientTransactionHooks(target, r._path);
   return runSdkWrite(beginDatabaseActivity(r, 'runTransaction', 'operation'), async () => {
-    let txOptions: (TransactionOptions & { readonly admin?: boolean }) | undefined = options;
-    if (isAdminFor(target)) {
-      txOptions = { ...options, admin: true };
-    }
+    const admin = isAdminFor(target);
     const result = await target.backend.runClientTransactionAsync(
       authFor(target),
       r._path,
       transactionUpdate as (current: JsonValue) => JsonValue | undefined,
-      txOptions,
+      {
+        applyLocally: options?.applyLocally,
+        admin,
+        cold,
+        hooks,
+      },
     );
     const snap = buildSandboxSnapFromRaw(target, r, result.val, result.priorities);
     return new TransactionResult(result.committed, snap) as TransactionResult & {

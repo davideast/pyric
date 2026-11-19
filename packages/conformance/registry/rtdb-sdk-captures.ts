@@ -13,11 +13,6 @@ const CDD = 'packages/pyric/test/database/cdd';
 const SERVED = 'packages/cli/test/serve/worker/oracle-captures';
 const SECTION = 'Behavior checked against production captures';
 
-const captureRow = defineRows({
-  surface: 'rtdb-modular',
-  defaults: { section: SECTION, status: 'bug', automation: 'oracle-backed', conformanceDisposition: 'pending-fix' },
-});
-
 const matchingRow = defineRows({
   surface: 'rtdb-modular',
   defaults: { section: SECTION, status: 'conforms', automation: 'oracle-backed' },
@@ -30,23 +25,23 @@ export const rtdbSdkCaptureBlock: CompatibilityTableBlock = {
   kind: 'table',
   prefix: '## Behavior checked against production captures\n\nEach row cites a production capture from the SDK behavior hunt. A `bug` row states production\'s behavior and pyric\'s; its test holds both answers until the fix lands.\n',
   rows: [
-    captureRow({
+    matchingRow({
       rowRef: 'transaction-then-set-cold',
       featureKeys: ['runTransaction', 'set'],
       api: 'runTransaction(ref, fn) followed at once by set(ref, value)',
-      behavior: "On a cold production client the set overtakes the transaction, which rejects with Error('set'); pyric commits it. A warm client commits in both. RT-15.",
-      evidence: "`oracle:rtdb-modular-transaction-then-set` keys `cold` and `warm` (both clients were cold) and `oracle:rtdb-modular-transaction-then-set-warm`.",
+      behavior: "On a cold client across in-page and served planes, a seeded-path speculative-null transaction overtaken by set(ref, value) rejects with codeless Error('set') while the set lands; a warm client commits before the set. RT-15.",
+      evidence: "`oracle:rtdb-modular-transaction-then-set` keys `cold` and `warm` (both clients were cold) and `oracle:rtdb-modular-transaction-then-set-warm`, replayed in page and on the served SharedWorker and Node host planes.",
       risk: ['atomicity', 'error-code'],
       riskScore: 3,
       riskReasons: ['asserts transaction/batch atomicity', "asserts the Error('set') rejection"],
       oracleObservations: ['rtdb-modular-transaction-then-set', 'rtdb-modular-transaction-then-set-warm'],
-      conformanceTests: [`${CDD}/capture-transaction-then-set.test.ts`],
+      conformanceTests: [`${CDD}/capture-transaction-then-set.test.ts`, `${SERVED}/rtdb-transaction-then-set.test.ts`],
     }),
     matchingRow({
       rowRef: 'served-transaction-then-set',
       featureKeys: ['runTransaction', 'set'],
       api: 'runTransaction then set on the served planes',
-      behavior: "On the served SharedWorker and Node host planes, a client write queued behind an in-flight transaction waits for the transaction to settle and commits on top (keeping the set's 100 rather than rerunning the transaction to 101). Cold-client Error('set') rejection remains tracked in transaction-then-set-cold. RP-4.",
+      behavior: "On the served SharedWorker and Node host planes, a warm client write queued behind an in-flight transaction waits for the transaction to settle and commits on top (keeping the set's 100 rather than rerunning the transaction to 101), while a cold client's speculative-null transaction overtaken by set rejects with Error('set'). RP-4, RT-15.",
       evidence: '`oracle:rtdb-modular-transaction-then-set` and `oracle:rtdb-modular-transaction-then-set-warm`, replayed on the served SharedWorker and Node host planes and in page.',
       risk: ['atomicity'],
       riskScore: 3,

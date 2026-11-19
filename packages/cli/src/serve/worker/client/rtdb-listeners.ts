@@ -16,6 +16,7 @@ import {
   subscribeLens,
 } from './core.js';
 import type { ClientPort, ClientRtdbInstance, RtdbDataSnapshot, Unsubscribe } from './handles.js';
+import { dropWorkerClientCacheForPort, registerWorkerWarmListener } from './rtdb-client-cache.js';
 import { pageListenerOwners } from './listener-owners.js';
 import { deliverWithRegions } from './listener-delivery.js';
 import { observeInfo, servesInfoLocally } from './rtdb-info.js';
@@ -156,6 +157,7 @@ const registrations: ListenerRegistration[] = [];
 
 /** Drop client-side registration identity when the owning app port closes. */
 export function dropRtdbListenersForPort(port: ClientPort): void {
+  dropWorkerClientCacheForPort(port);
   for (const registration of [...registrations]) {
     if (registration.port === port) registration.close();
   }
@@ -199,6 +201,7 @@ function openValueSubscription(
   options: ValueListenOptions | undefined,
   activity: SdkActivityHandle,
   eventType: RtdbEventType = 'value',
+  trackWarm = true,
 ): Unsubscribe {
   const { ref, query } = targetParts(target);
   const error = typeof cancelCallbackOrOptions === 'function' ? cancelCallbackOrOptions : undefined;
@@ -209,6 +212,13 @@ function openValueSubscription(
   activity.transport(currentSubId);
   let fired = false;
   let unsubscribed = false;
+  let releaseWarm: (() => void) | undefined;
+  const stopWarm = (): void => {
+    if (releaseWarm !== undefined) {
+      releaseWarm();
+      releaseWarm = undefined;
+    }
+  };
 
   // Derived here, on the stack the caller is still on and against the page's
   // own document. The worker's attach can read neither.
@@ -255,6 +265,8 @@ function openValueSubscription(
         if (listenOptions?.onlyOnce) {
           unsubLens();
           closeSubscription(ref.port, currentSubId);
+        } else if (trackWarm && releaseWarm === undefined) {
+          releaseWarm = registerWorkerWarmListener(ref, ref.path);
         }
         next(hydrateRtdbSnapshot(ref, wire));
       };
@@ -267,6 +279,7 @@ function openValueSubscription(
     },
     error: (cause: unknown) => {
       unsubscribed = true;
+      stopWarm();
       initialGroup.leaveGroup();
       unsubLens();
       activity.fail();
@@ -305,6 +318,7 @@ function openValueSubscription(
   return () => {
     if (unsubscribed) return;
     unsubscribed = true;
+    stopWarm();
     initialGroup.leaveGroup();
     activity.close();
     unsubLens();
@@ -392,6 +406,7 @@ function onChildEvent(
   error: ((err: unknown) => void) | undefined,
   activity: SdkActivityHandle,
   reverseInitial = false,
+  trackWarm = true,
 ): Unsubscribe {
   const { ref, query } = targetParts(target);
   let initialized = false;
@@ -401,7 +416,7 @@ function onChildEvent(
     if (servesInfoLocally(ref)) {
       return observeInfo(target, deliver);
     }
-    return openValueSubscription(target, deliver, error, undefined, activity, eventType);
+    return openValueSubscription(target, deliver, error, undefined, activity, eventType, trackWarm);
   };
   return observeParent((parent) => {
     const current: RtdbWireEntry[] = [];
@@ -522,7 +537,7 @@ function subscribeChild(
         unsubscribe();
       }
     }
-  }, error, activity, kind === 'added');
+  }, error, activity, kind === 'added', false);
   unsubscribe = registerListener(target, eventType, registryCallback, rawUnsubscribe);
   return unsubscribe;
 }

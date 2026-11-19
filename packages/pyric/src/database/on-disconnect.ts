@@ -1,3 +1,4 @@
+import { markClientPathsWarm, updateTargetPaths } from './client-cache-state.js';
 import { targetOf, type Target } from './routing.js';
 import type { DatabaseReference } from './types.js';
 import { validateWritablePath } from './writable-path.js';
@@ -16,12 +17,14 @@ export class OnDisconnect {
 
   remove(): Promise<void> {
     validateWritablePath('OnDisconnect.remove', this._path);
+    markClientPathsWarm(this._repo, [this._path]);
     return this._repo.connection.register({ kind: 'remove', path: this._path });
   }
 
   set(value: unknown): Promise<void> {
     validateWritablePath('OnDisconnect.set', this._path);
     validateWrite(value, this._path, errorPrefix('OnDisconnect.set', 'value'));
+    markClientPathsWarm(this._repo, [this._path]);
     return this._repo.connection.register({ kind: 'set', path: this._path, value });
   }
 
@@ -29,12 +32,14 @@ export class OnDisconnect {
     validateWritablePath('OnDisconnect.setWithPriority', this._path);
     validateWrite(value, this._path, errorPrefix('OnDisconnect.setWithPriority', 'value'));
     validatePriorityArg('OnDisconnect.setWithPriority', priority);
+    markClientPathsWarm(this._repo, [this._path]);
     return this._repo.connection.register({ kind: 'set', path: this._path, value, priority });
   }
 
   update(values: Record<string, unknown>): Promise<void> {
     validateWritablePath('OnDisconnect.update', this._path);
     validateUpdate(values, this._path, 'OnDisconnect.update');
+    markClientPathsWarm(this._repo, updateTargetPaths(this._path, values));
     return this._repo.connection.register({ kind: 'update', path: this._path, values });
   }
 }

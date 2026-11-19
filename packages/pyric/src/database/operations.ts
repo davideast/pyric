@@ -1,4 +1,9 @@
 import { runSdkWrite } from '../sandbox/internal/sdk-write-activity.js';
+import {
+  abortColdTransactionsOnClientWrite,
+  markClientPathsWarm,
+  updateTargetPaths,
+} from './client-cache-state.js';
 import { generatePushId } from './sandbox/push-id.js';
 import { joinPath, pathSegments, type JsonValue } from './sandbox/data-tree.js';
 import { authFor, isAdminFor, targetOf } from './routing.js';
@@ -44,6 +49,7 @@ export function get(r: DatabaseReference | Query): Promise<DataSnapshot> {
         } else {
           result = target.backend.getQuery(authFor(target), query.ref._path, query._spec);
         }
+        markClientPathsWarm(target, [query.ref._path]);
         return finishSdkRead(
           activity,
           buildSandboxQuerySnap(target, query.ref, result.rows, loadsAllData(query._spec), result.val),
@@ -55,6 +61,7 @@ export function get(r: DatabaseReference | Query): Promise<DataSnapshot> {
       } else {
         val = target.backend.get(authFor(target), ref0._path);
       }
+      markClientPathsWarm(target, [ref0._path]);
       return finishSdkRead(activity, buildSandboxSnap(target, ref0, val));
     } catch (error) {
       activity.fail();
@@ -74,6 +81,8 @@ export function set(r: DatabaseReference, value: unknown): Promise<void> {
   validateWritablePath('set', r._path);
   const target = targetOf(r as unknown as object);
   validateWrite(value, r._path, errorPrefix('set', 'value'));
+  abortColdTransactionsOnClientWrite(target, [r._path]);
+  markClientPathsWarm(target, [r._path]);
   return runSdkWrite(beginDatabaseActivity(r, 'set', 'operation'), () => {
     if (isAdminFor(target)) {
       target.backend.adminSet(r._path, value as JsonValue);
@@ -90,6 +99,8 @@ export function setPriority(
   validateWritablePath('setPriority', r._path);
   const target = targetOf(r as unknown as object);
   validatePriorityArg('setPriority', priority);
+  abortColdTransactionsOnClientWrite(target, [r._path]);
+  markClientPathsWarm(target, [r._path]);
   return runSdkWrite(beginDatabaseActivity(r, 'setPriority', 'operation'), () => {
     if (isAdminFor(target)) {
       target.backend.adminSetPriority(r._path, priority);
@@ -108,6 +119,8 @@ export function setWithPriority(
   const target = targetOf(r as unknown as object);
   validateWrite(value, r._path, errorPrefix('setWithPriority', 'value'));
   validatePriorityArg('setWithPriority', priority);
+  abortColdTransactionsOnClientWrite(target, [r._path]);
+  markClientPathsWarm(target, [r._path]);
   return runSdkWrite(beginDatabaseActivity(r, 'setWithPriority', 'operation'), () => {
     if (isAdminFor(target)) {
       target.backend.adminSetWithPriority(r._path, value as JsonValue, priority);
@@ -148,6 +161,9 @@ export function update(
   }
   validateUpdatePaths(values);
   validateUpdate(values, r._path, 'update');
+  const targetPaths = updateTargetPaths(r._path, values);
+  abortColdTransactionsOnClientWrite(target, targetPaths);
+  markClientPathsWarm(target, targetPaths);
   return runSdkWrite(beginDatabaseActivity(r, 'update', 'operation'), () => {
     if (isAdminFor(target)) {
       target.backend.adminUpdate(r._path, values as Record<string, JsonValue>);
@@ -171,6 +187,8 @@ export function update(
 export function remove(r: DatabaseReference): Promise<void> {
   validateWritablePath('remove', r._path);
   const target = targetOf(r as unknown as object);
+  abortColdTransactionsOnClientWrite(target, [r._path]);
+  markClientPathsWarm(target, [r._path]);
   return runSdkWrite(beginDatabaseActivity(r, 'remove', 'operation'), () => {
     if (isAdminFor(target)) {
       target.backend.adminRemove(r._path);
@@ -218,6 +236,8 @@ export function push(r: DatabaseReference, value?: unknown): ThenableReference {
   if (value === undefined) {
     promise = Promise.resolve(pushRef);
   } else {
+    abortColdTransactionsOnClientWrite(target, [childPath]);
+    markClientPathsWarm(target, [childPath]);
     promise = runSdkWrite(beginDatabaseActivity(pushRef, 'push', 'operation'), async () => {
       if (isAdminFor(target)) {
         target.backend.adminSet(childPath, value as JsonValue);

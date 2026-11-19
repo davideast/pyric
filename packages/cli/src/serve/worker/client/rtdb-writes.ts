@@ -14,6 +14,7 @@ import { sandboxNow } from './clock.js';
 import { nextId } from './core.js';
 import { validateRtdbPriority, validateRtdbUpdateValues, validateRtdbValue } from './rtdb-value-validation.js';
 import type { RtdbRefHandle } from './handles.js';
+import { abortWorkerColdTransactionsOnWrite, markWorkerPathsWarm } from './rtdb-client-cache.js';
 import { afterActiveRtdbTransactions, makeRtdbRef, normalizeRtdbPath, rtdbRpc } from './rtdb-references.js';
 
 const RTDB_PUSH_CHARS = '-0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ_abcdefghijklmnopqrstuvwxyz';
@@ -47,6 +48,8 @@ function generateRtdbPushId(now: number): string {
 export function rtdbSet(ref: RtdbRefHandle, value: unknown): Promise<void> {
   validateWritablePath('set', ref.path);
   validateRtdbValue('set', value, ref.path);
+  abortWorkerColdTransactionsOnWrite(ref, [ref.path]);
+  markWorkerPathsWarm(ref, [ref.path]);
   const run = () =>
     afterActiveRtdbTransactions(ref, [ref.path], async () => {
       await rtdbRpc(ref, { t: 'op', id: nextId(), method: 'rtdb.set', path: ref.path, value });
@@ -57,6 +60,8 @@ export function rtdbSet(ref: RtdbRefHandle, value: unknown): Promise<void> {
 export function rtdbSetPriority(ref: RtdbRefHandle, priority: string | number | null): Promise<void> {
   validateWritablePath('setPriority', ref.path);
   validateRtdbPriority('setPriority', priority);
+  abortWorkerColdTransactionsOnWrite(ref, [ref.path]);
+  markWorkerPathsWarm(ref, [ref.path]);
   const run = () =>
     afterActiveRtdbTransactions(ref, [ref.path], async () => {
       await rtdbRpc(ref, { t: 'op', id: nextId(), method: 'rtdb.setPriority', path: ref.path, priority });
@@ -72,6 +77,8 @@ export function rtdbSetWithPriority(
   validateWritablePath('setWithPriority', ref.path);
   validateRtdbValue('setWithPriority', value, ref.path);
   validateRtdbPriority('setWithPriority', priority);
+  abortWorkerColdTransactionsOnWrite(ref, [ref.path]);
+  markWorkerPathsWarm(ref, [ref.path]);
   const run = () =>
     afterActiveRtdbTransactions(ref, [ref.path], async () => {
       await rtdbRpc(ref, {
@@ -89,6 +96,8 @@ export function rtdbUpdate(ref: RtdbRefHandle, values: Record<string, unknown>):
   if (keys.length > 0) {
     targetPaths = keys.map((key) => normalizeRtdbPath(`${ref.path}/${key}`));
   }
+  abortWorkerColdTransactionsOnWrite(ref, targetPaths);
+  markWorkerPathsWarm(ref, targetPaths);
   const run = () =>
     afterActiveRtdbTransactions(ref, targetPaths, async () => {
       await rtdbRpc(ref, { t: 'op', id: nextId(), method: 'rtdb.update', path: ref.path, values });
@@ -98,6 +107,8 @@ export function rtdbUpdate(ref: RtdbRefHandle, values: Record<string, unknown>):
 
 export function rtdbRemove(ref: RtdbRefHandle): Promise<void> {
   validateWritablePath('remove', ref.path);
+  abortWorkerColdTransactionsOnWrite(ref, [ref.path]);
+  markWorkerPathsWarm(ref, [ref.path]);
   const run = () =>
     afterActiveRtdbTransactions(ref, [ref.path], async () => {
       await rtdbRpc(ref, { t: 'op', id: nextId(), method: 'rtdb.remove', path: ref.path });
@@ -118,6 +129,8 @@ export function rtdbPush(
   if (value === undefined) {
     promise = Promise.resolve(settledRef);
   } else {
+    abortWorkerColdTransactionsOnWrite(ref, [pushed.path]);
+    markWorkerPathsWarm(ref, [pushed.path]);
     const run = () =>
       afterActiveRtdbTransactions(ref, [pushed.path], async () => {
         await rtdbRpc(ref, { t: 'op', id: nextId(), method: 'rtdb.push', path: ref.path, key, value });

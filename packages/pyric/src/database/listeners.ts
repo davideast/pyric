@@ -1,4 +1,5 @@
 import { sdkActivity, type SdkActivityHandle } from '../sandbox/internal/sdk-activity.js';
+import { scheduleClientWarmListener, withoutWarmListenerRegistration } from './client-cache-state.js';
 import { beginDatabaseActivity } from './sdk-activity.js';
 import type { AuthState } from 'pyric/sandbox';
 import { ListenerRegistry, type ListenerRegistration } from './listener-registry.js';
@@ -110,14 +111,17 @@ function registerTracked(
 ): Unsubscribe {
   let registration: ListenerRegistration | undefined;
   let unregistered = false;
+  const stopWarm = scheduleClientWarmListener(target, path);
   const unregister = (): void => {
+    stopWarm();
     unregistered = true;
     activity.close();
     if (registration !== undefined) {
       listenerRegistry.removeExact(target, path, event, registryCallback, registration, scope);
     }
   };
-  const unsubscribe = attach(unregister);
+  const rawUnsub = attach(unregister);
+  const unsubscribe = (): void => { stopWarm(); rawUnsub(); };
   if (!unregistered) {
     registration = { unsubscribe };
     listenerRegistry.add(target, path, event, registryCallback, registration, scope);
@@ -126,21 +130,11 @@ function registerTracked(
 }
 
 /**
- * `onValue(ref, cb)` — subscribe to value changes at the ref's path.
- *
- * Fires immediately on subscribe with the current value (or
- * `null` + `exists: false` for an absent path), then on every
- * subsequent write that touches the path or any descendant.
- *
- * Returns an unsubscribe function. The unsubscribe is idempotent;
- * calling it twice is a no-op.
- *
- * `options.onlyOnce` (DB-B12): when `true`, the listener auto-unsubscribes
- * after its first fire (mirrors `api/Reference_impl.ts:975-980`).
- *
- * With a cancellation callback, an initially denied listen returns normally
- * and reports the Firebase `PERMISSION_DENIED` error asynchronously. Without
- * one, the sandbox preserves its legacy synchronous throw.
+ * `onValue(ref, cb)` -- subscribe to value changes at the ref's path.
+ * Fires immediately with the current value (or `null` when absent), then on
+ * descendant writes; returns an idempotent unsubscribe. `options.onlyOnce`
+ * auto-unsubscribes after its first fire. With a cancellation callback, an
+ * initially denied listen reports `PERMISSION_DENIED` asynchronously.
  */
 export function onValue(
   r: DatabaseReference | Query,
@@ -170,11 +164,11 @@ function subscribeTrackedValue(
   activity: SdkActivityHandle,
 ): Unsubscribe {
   if (hasNonFiniteQueryLimit(spec)) {
-    return registerTracked(target, path, 'value', registryCallback, activity, scope, (unregister) => {
+    return withoutWarmListenerRegistration(() => registerTracked(target, path, 'value', registryCallback, activity, scope, (unregister) => {
       return () => {
         unregister();
       };
-    });
+    }));
   }
   return registerTracked(target, path, 'value', registryCallback, activity, scope, (unregister) => {
     if (target.admin === true) {
@@ -232,7 +226,9 @@ function onValueInternal(
       if (hasUnsubscribe) currentUnsubscribe();
       cb(snap);
     };
-    unsub = onValueInternal(r, onceCb, cancelCallback, ownerOnlyOptions(listenOptions), registryCallback, activity);
+    unsub = withoutWarmListenerRegistration(() =>
+      onValueInternal(r, onceCb, cancelCallback, ownerOnlyOptions(listenOptions), registryCallback, activity),
+    );
     // Synchronous initial fire: `onceCb` ran before `unsub` was set, so
     // remove the now-stale listener here.
     if (fired) {
@@ -393,8 +389,16 @@ function subscribeChild(
   const lifecycle = requestedOptions?.onlyOnce ? { ...activity, close: () => queueMicrotask(() => activity.close()) } : activity;
   cb = (snap, previous) => { activity.delivered(snap); registryCallback(snap, previous); };
   const attach = (next: typeof cb, cancel: ((error: Error) => void) | undefined): Unsubscribe => {
+    let wrappedCancel: ((error: Error) => void) | undefined;
+    if (cancel !== undefined) {
+      wrappedCancel = (error) => { activity.fail(); cancel(error); };
+    }
+    const runAttach = () => sdkActivity.registering(activity, () => onChildEvent(r, event, next, wrappedCancel, registryCallback, lifecycle));
     try {
-      return sdkActivity.registering(activity, () => onChildEvent(r, event, next, cancel ? (error) => { activity.fail(); cancel(error); } : undefined, registryCallback, lifecycle));
+      if (requestedOptions?.onlyOnce === true) {
+        return withoutWarmListenerRegistration(runAttach);
+      }
+      return runAttach();
     } catch (error) { activity.fail(); throw error; }
   };
   const cancelCallback = typeof cancelCallbackOrOptions === 'function'
@@ -505,11 +509,11 @@ function onChildEvent(
     );
   }
   if (hasNonFiniteQueryLimit(spec)) {
-    return registerTracked(target, baseRef._path, event, registryCallback, activity, scope, (unregister) => {
+    return withoutWarmListenerRegistration(() => registerTracked(target, baseRef._path, event, registryCallback, activity, scope, (unregister) => {
       return () => {
         unregister();
       };
-    });
+    }));
   }
   const wrapper = (raw: ChildEventSnapshot): void => {
     // Synthesize a snapshot rooted at the child path so `snap.key`
