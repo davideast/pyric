@@ -38,7 +38,7 @@ const BOUNDARY: readonly RegExp[] = [
   /^packages\/conformance\/rules-corpus\//,
   /^packages\/conformance\/rules-language\//,
   /^packages\/conformance\/observations\/[^/]+-rules\//,
-  /^packages\/conformance\/registry\/rules\.ts$/,
+  /^packages\/conformance\/registry\/rules(\.ts$|\/)/,
   /^packages\/conformance\/assurance-node-counts\/(rules|[^/]+-rules)\//,
 ];
 
