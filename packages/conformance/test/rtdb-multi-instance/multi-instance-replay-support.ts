@@ -38,6 +38,7 @@ export interface MultiInstanceObservation {
       secondHolds: string;
       secondUserPathOnDefault: null;
     };
+    sdk: Record<string, unknown>;
   };
 }
 

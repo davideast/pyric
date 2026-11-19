@@ -13,6 +13,11 @@ import { setDatabaseRules } from '../../../cli/dist/serve/worker/host/rules.js';
 import type { InboundMessage, OutboundMessage, ResMessage } from '../../../cli/dist/serve/worker/protocol.js';
 import { DATABASE_URL_INPUTS, createProbe } from '../../src/capture/rtdb-climb/database-url-instance.probe.ts';
 import {
+  MULTI_INSTANCE_OBSERVATION,
+  MULTI_INSTANCE_RULES,
+  captureMultiInstanceSdk,
+} from '../../src/run-rules-rtdb.ts';
+import {
   DEFAULT_INSTANCE,
   DEFAULT_RULES,
   LOCKED_RULES,
@@ -32,7 +37,7 @@ import {
 registerMultiInstanceCleanupHooks();
 
 describe('RTDB multi-instance and URL-instance capture replay across MI3 and MI5', () => {
-  it('keeps database-url-instance probe metadata and URL input table synced with the committed observation', () => {
+  it('keeps database-url-instance and multi-instance capture metadata synced with the committed observations', async () => {
     const probe = createProbe({
       config: { projectId: PROJECT_ID, apiKey: 'unused' },
       runId: 'sync-check',
@@ -41,6 +46,9 @@ describe('RTDB multi-instance and URL-instance capture replay across MI3 and MI5
     expect(probe.rowIds).toEqual(urlObs.rowIds);
     expect(Object.keys(urlObs.behavior.urls)).toEqual([...DATABASE_URL_INPUTS]);
     expect(urlObs.behavior.projectDefault.nameIsProjectIdDefaultRtdb).toBe(true);
+    expect(MULTI_INSTANCE_OBSERVATION).toBe('rtdb-modular-multiple-instances');
+    expect(multiObs.behavior.rules).toEqual(MULTI_INSTANCE_RULES);
+    expect(await captureMultiInstanceSdk()).toEqual(multiObs.behavior.sdk);
   });
 
   it('MI3: firebase.json database array loads captured default and named rules and replays isolation across sandbox, SharedWorker, and Node host', async () => {
