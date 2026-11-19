@@ -12,12 +12,14 @@ import {
   clearIndexedDbPersistence as workerClearIndexedDbPersistence,
   documentSnapshotFromJSON as workerDocumentSnapshotFromJSON,
   loadBundle as workerLoadBundle,
-  markWorkerPortStarted,
-  markWorkerPortTerminated,
   namedQuery as workerNamedQuery,
   onSnapshotResume as workerOnSnapshotResume,
   querySnapshotFromJSON as workerQuerySnapshotFromJSON,
 } from '../../../../src/serve/worker/client/firestore-bundles-ssr.js';
+import {
+  registerWorkerDbTeardown,
+  terminate as workerTerminate,
+} from '../../../../src/serve/worker/client/firestore-lifecycle.js';
 import { readDocumentAs, readQueryAs } from '../../../../src/serve/worker/client/firestore-reads.js';
 import { disableNetwork as workerDisableNetwork } from '../../../../src/serve/worker/client/firestore-network.js';
 import * as workerClient from '../../../../src/serve/worker/index.js';
@@ -309,7 +311,12 @@ export function makeWorkerPlaneDriver(openClientForApp: (app: FirebaseApp) => { 
     getFirestore(app: FirebaseApp, databaseId?: string) {
       const existing = byApp.get(app);
       if (existing !== undefined) { recordImplicitAppFirestoreSettings(app, databaseId, existing as object); return existing; }
-      const handle = Object.assign(openClientForApp(app), { app, type: 'firestore' as const });
+      const rawClient = openClientForApp(app);
+      const handle = { __kind: 'client-db' as const, port: rawClient.port, app, type: 'firestore' as const };
+      registerWorkerDbTeardown(handle, () => {
+        byApp.delete(app);
+        clearAppFirestoreSettings(app);
+      });
       byApp.set(app, handle);
       recordImplicitAppFirestoreSettings(app, databaseId, handle);
       return handle;
@@ -321,15 +328,10 @@ export function makeWorkerPlaneDriver(openClientForApp: (app: FirebaseApp) => { 
       return handle;
     },
     async disableNetwork(db) {
-      markWorkerPortStarted((db as { port: object }).port);
       await workerDisableNetwork(db as never);
     },
     async terminate(db) {
-      if (db !== null && typeof db === 'object' && 'port' in db) markWorkerPortTerminated((db as { port: object }).port);
-      if (db !== null && typeof db === 'object' && 'app' in db) {
-        const owner = (db as { app?: unknown }).app;
-        if (owner !== null && typeof owner === 'object') clearAppFirestoreSettings(owner);
-      }
+      await workerTerminate(db as never);
     },
     clearIndexedDbPersistence: (db) => workerClearIndexedDbPersistence(db as never),
     doc: (parent, path) => workerClient.doc(parent as never, path),

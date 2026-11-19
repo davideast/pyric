@@ -25,11 +25,16 @@ import {
   recordWorkerOnlineDoc,
   registerWorkerManagedListener,
 } from './firestore-network.js';
-import { markWorkerPortStarted } from './firestore-bundles-ssr.js';
+import {
+  assertWorkerFirestoreActive,
+  markWorkerHandleStarted,
+  registerWorkerOwnedListener,
+} from './firestore-lifecycle.js';
+import { readWorkerDocFromCache, readWorkerQueryFromCache } from './firestore-cache-reads.js';
 import { beginWorkerFirestoreActivity } from './sdk-activity.js';
 import { finishSdkRead, type UsageEvidence } from 'pyric/sandbox/internal';
 import type { RawDocResult, RawQueryResult, ClientDocSnapshot, ClientQuerySnapshot, QueryChangeBaseline } from './snapshots.js';
-import type { DocumentData, FieldPath, SnapshotMetadata } from 'pyric/firestore';
+import type { DocumentData, FieldPath } from 'pyric/firestore';
 
 // ─── Execution functions (RPC) ────────────────────────────────────────────
 
@@ -38,7 +43,11 @@ export function getDoc<T = DocumentData>(ref: DocRefHandle<T>): Promise<ClientDo
 }
 
 export async function readDocumentAs<T = DocumentData>(ref: DocRefHandle<T>, method: string): Promise<ClientDocSnapshot<T>> {
-  markWorkerPortStarted(ref.port);
+  if (method === 'getDocFromCache') {
+    return readWorkerDocFromCache(ref);
+  }
+  assertWorkerFirestoreActive(ref);
+  markWorkerHandleStarted(ref);
   const activity = beginWorkerFirestoreActivity(ref, method, 'operation');
   try {
     const offlineDoc = readWorkerOfflineDoc(ref.port, ref.descriptor.path);
@@ -56,11 +65,7 @@ export async function readDocumentAs<T = DocumentData>(ref: DocRefHandle<T>, met
       path: ref.descriptor.path,
     }) as RawDocResult;
     recordWorkerOnlineDoc(ref.port, ref.descriptor.path, result.exists, result.data);
-    let metadataOverride: SnapshotMetadata | undefined;
-    if (method === 'getDocFromCache') {
-      metadataOverride = Object.freeze({ fromCache: true, hasPendingWrites: Boolean(result.hasPendingWrites) });
-    }
-    return finishSdkRead(activity, makeDocSnapshot(result, ref.port, ref, metadataOverride));
+    return finishSdkRead(activity, makeDocSnapshot(result, ref.port, ref));
   } catch (error) { activity.fail(); throw error; }
 }
 
@@ -75,7 +80,11 @@ function assertExecutableTarget(target: DocRefHandle | CollRefHandle | QueryHand
 }
 
 export async function readQueryAs(source: CollRefHandle | QueryHandle, method: string): Promise<ClientQuerySnapshot> {
-  markWorkerPortStarted(source.port);
+  if (method === 'getDocsFromCache') {
+    return readWorkerQueryFromCache(source);
+  }
+  assertWorkerFirestoreActive(source);
+  markWorkerHandleStarted(source);
   const activity = beginWorkerFirestoreActivity(source, method, 'operation');
   try {
     assertExecutableTarget(source);
@@ -94,13 +103,9 @@ export async function readQueryAs(source: CollRefHandle | QueryHandle, method: s
         recordWorkerOnlineDoc(source.port, d.path, d.exists, d.data);
       }
     }
-    let metadataOverride: SnapshotMetadata | undefined;
-    if (method === 'getDocsFromCache') {
-      metadataOverride = Object.freeze({ fromCache: true, hasPendingWrites: Boolean(result.hasPendingWrites) });
-    }
     return finishSdkRead(
       activity,
-      makeQuerySnapshot(result, source.port, source.converter, undefined, sourceDescriptor, metadataOverride),
+      makeQuerySnapshot(result, source.port, source.converter, undefined, sourceDescriptor),
     );
   } catch (error) { activity.fail(); throw error; }
 }
@@ -134,6 +139,8 @@ export async function listSubcollections(db: ClientDb, docPath: string): Promise
 export async function getCountFromServer(
   source: CollRefHandle | QueryHandle,
 ): Promise<{ readonly type: 'AggregateQuerySnapshot'; readonly query: CollRefHandle | QueryHandle; data(): { count: number } }> {
+  assertWorkerFirestoreActive(source);
+  markWorkerHandleStarted(source);
   const activity = beginWorkerFirestoreActivity(source, 'getCountFromServer', 'operation');
   try {
     assertExecutableTarget(source);
@@ -192,6 +199,8 @@ export async function getAggregateFromServer<S extends AggregateSpecDescriptor>(
   source: CollRefHandle | QueryHandle,
   spec: S,
 ): Promise<{ readonly type: 'AggregateQuerySnapshot'; readonly query: CollRefHandle | QueryHandle; data(): { [K in keyof S]: number | null } }> {
+  assertWorkerFirestoreActive(source);
+  markWorkerHandleStarted(source);
   const activity = beginWorkerFirestoreActivity(source, 'getAggregateFromServer', 'operation');
   try {
     assertExecutableTarget(source);
@@ -305,6 +314,7 @@ export function onSnapshot(
   third?: ObserverOrNext | SnapshotErrorCallback,
   fourth?: SnapshotErrorCallback,
 ): Unsubscribe {
+  assertWorkerFirestoreActive(target);
   assertExecutableTarget(target);
   const { options: listenOptions, next: callback, error: errorCallback } = listenerArguments(second, third, fourth);
   const reportError = errorCallback ?? reportUncaughtListenError;
@@ -318,7 +328,7 @@ export function onSnapshot(
   const baseline: QueryChangeBaseline = { excludesMetadataChanges: !includeMetadataChanges };
   let currentSubId = nextSubId();
   const port = target.port;
-  markWorkerPortStarted(port);
+  markWorkerHandleStarted(target);
   const activity = beginWorkerFirestoreActivity(target, 'onSnapshot', 'subscription', owners);
   activity.transport(currentSubId);
 
@@ -387,6 +397,7 @@ export function onSnapshot(
     error: (error: unknown) => {
       if (unsubscribed || isWorkerFirestoreOffline(port)) return;
       unsubscribed = true;
+      releaseLifecycle();
       unregisterNetwork();
       unsubLens();
       activity.fail();
@@ -456,8 +467,11 @@ export function onSnapshot(
     });
   }
 
+  const releaseLifecycle = registerWorkerOwnedListener(target, stop);
+
   function stop(): void {
     unsubscribed = true;
+    releaseLifecycle();
     unregisterNetwork();
     activity.close();
     unsubLens();
@@ -486,28 +500,36 @@ export function onSnapshotsInSync(
   db: ClientDb,
   observerOrCallback: (() => void) | { next?: () => void; complete?: () => void; error?: (error: unknown) => void },
 ): Unsubscribe {
+  assertWorkerFirestoreActive(db);
   let cb: (() => void) | undefined;
   if (typeof observerOrCallback === 'function') {
     cb = observerOrCallback;
   } else if (typeof observerOrCallback.next === 'function') {
     cb = observerOrCallback.next.bind(observerOrCallback);
   }
-  if (!cb) return () => undefined;
   const port = db.port as object;
-  markWorkerPortStarted(port);
+  markWorkerHandleStarted(db);
+  if (!cb) return () => undefined;
+  const boundCb = cb;
   let observers = syncObserversByPort.get(port);
   if (!observers) {
     observers = new Set();
     syncObserversByPort.set(port, observers);
   }
-  observers.add(cb);
+  const observerSet = observers;
+  observerSet.add(boundCb);
+  const releaseLifecycle = registerWorkerOwnedListener(db, () => {
+    observerSet.delete(boundCb);
+  });
   try {
-    cb();
+    boundCb();
   } catch (error) {
-    observers.delete(cb);
+    releaseLifecycle();
+    observerSet.delete(boundCb);
     throw error;
   }
   return () => {
-    observers.delete(cb);
+    releaseLifecycle();
+    observerSet.delete(boundCb);
   };
 }

@@ -11,7 +11,7 @@ import { encodeDocValue, requireDocumentData, DOC_VALUE_ENCODING } from 'pyric/f
 import { nextId, dataRpc } from './core.js';
 import type { ClientDb, DocRefHandle, CollRefHandle } from './handles.js';
 import { makeDocSnapshot } from './snapshots.js';
-import { markWorkerPortStarted } from './firestore-bundles-ssr.js';
+import { assertWorkerFirestoreActive, markWorkerHandleStarted } from './firestore-lifecycle.js';
 import type { RawDocResult, ClientDocSnapshot } from './snapshots.js';
 import { createDocumentReference } from './firestore-reference.js';
 import {
@@ -19,6 +19,7 @@ import {
   generateWorkerAutoId,
   isWorkerFirestoreOffline,
   markWorkerCommittedWrite,
+  recordWorkerOnlineDoc,
   type WorkerOfflineMutation,
 } from './firestore-network.js';
 import type {
@@ -89,7 +90,8 @@ export async function setDoc<T = DocumentData>(
   data: PartialWithFieldValue<T> | WithFieldValue<T>,
   options?: ClientSetOptions,
 ): Promise<void> {
-  markWorkerPortStarted(ref.port);
+  assertWorkerFirestoreActive(ref);
+  markWorkerHandleStarted(ref);
   return runSdkWrite(beginWorkerFirestoreActivity(ref, 'setDoc', 'operation'), async () => {
     const capturedOptions = captureSetOptions(options);
     const payload = convertSetData(ref, data, options);
@@ -146,7 +148,12 @@ export function updateDoc(
   dataOrField: Record<string, unknown> | string | FieldPath,
   ...valueAndMoreFieldsAndValues: unknown[]
 ): Promise<void> {
-  markWorkerPortStarted(ref.port);
+  try {
+    assertWorkerFirestoreActive(ref);
+  } catch (error) {
+    return Promise.reject(error);
+  }
+  markWorkerHandleStarted(ref);
   const fields = encodeUpdate('updateDoc', ref, dataOrField, valueAndMoreFieldsAndValues);
   return runSdkWrite(beginWorkerFirestoreActivity(ref, 'updateDoc', 'operation'), async () => {
     const mutation: WorkerOfflineMutation = {
@@ -173,7 +180,8 @@ export function updateDoc(
 }
 
 export async function deleteDoc(ref: DocRefHandle): Promise<void> {
-  markWorkerPortStarted(ref.port);
+  assertWorkerFirestoreActive(ref);
+  markWorkerHandleStarted(ref);
   return runSdkWrite(beginWorkerFirestoreActivity(ref, 'deleteDoc', 'operation'), async () => {
     const mutation: WorkerOfflineMutation = { kind: 'delete', path: ref.descriptor.path };
     const sendOnline = async (): Promise<void> => {
@@ -196,7 +204,8 @@ export async function addDoc(
   coll: CollRefHandle,
   data: Record<string, unknown>,
 ): Promise<DocRefHandle> {
-  markWorkerPortStarted(coll.port);
+  assertWorkerFirestoreActive(coll);
+  markWorkerHandleStarted(coll);
   return runSdkWrite(beginWorkerFirestoreActivity(coll, 'addDoc', 'operation'), async () => {
     const payload = convertSetData(coll, data);
     const encodedData = encodeDocValue(payload);
@@ -255,7 +264,8 @@ export interface ClientWriteBatch extends ClientSetOperations {
 }
 
 export function writeBatch(db: ClientDb): ClientWriteBatch {
-  markWorkerPortStarted(db.port);
+  assertWorkerFirestoreActive(db);
+  markWorkerHandleStarted(db);
   const writes: WriteDescriptor[] = [];
   const offlineMutations: WorkerOfflineMutation[] = [];
   const port = db.port;
@@ -295,6 +305,7 @@ export function writeBatch(db: ClientDb): ClientWriteBatch {
       return batch;
     },
     async commit() {
+      assertWorkerFirestoreActive(db);
       assertNotCommitted();
       committed = true;
       const sendOnline = async (): Promise<void> => {
@@ -371,7 +382,8 @@ export async function runTransaction<R>(
   updateFn: (txn: ClientTransaction) => Promise<R> | R,
   options?: { maxAttempts?: number },
 ): Promise<R> {
-  markWorkerPortStarted(db.port);
+  assertWorkerFirestoreActive(db);
+  markWorkerHandleStarted(db);
   return runSdkWrite(beginGroupActivity(db, 'runTransaction'), async () => {
     const port = db.port;
     const maxAttempts = options?.maxAttempts ?? TXN_MAX_ATTEMPTS;
@@ -390,6 +402,7 @@ export async function runTransaction<R>(
 
       const txn: ClientTransaction = {
         async get(ref) {
+          assertWorkerFirestoreActive(ref);
           if (hasWrites) {
             const err = new FirebaseError(
               'invalid-argument',
@@ -424,6 +437,7 @@ export async function runTransaction<R>(
             readExistence.set(ref.descriptor.path, Boolean(rawResult.exists));
           }
 
+          recordWorkerOnlineDoc(ref.port, ref.descriptor.path, rawResult.exists, rawResult.data);
           return makeDocSnapshot(rawResult, ref.port, ref);
         },
         set<T = DocumentData>(
@@ -473,6 +487,17 @@ export async function runTransaction<R>(
           reads: [...reads],
           writes: [...writes],
         });
+        const committedMutations: WorkerOfflineMutation[] = [];
+        for (const w of writes) {
+          if (w.method === 'set') {
+            committedMutations.push({ kind: 'set', path: w.path, encodedData: w.data, options: w.options });
+          } else if (w.method === 'update' && w.fields !== undefined) {
+            committedMutations.push({ kind: 'update', path: w.path, fields: w.fields });
+          } else if (w.method === 'delete') {
+            committedMutations.push({ kind: 'delete', path: w.path });
+          }
+        }
+        markWorkerCommittedWrite(port, committedMutations);
         return result;
       } catch (err) {
         const isErrorObject = err !== null && typeof err === 'object';

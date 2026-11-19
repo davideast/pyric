@@ -6,12 +6,11 @@ import {
   clearIndexedDbPersistence,
   documentSnapshotFromJSON,
   loadBundle,
-  markWorkerPortStarted,
-  markWorkerPortTerminated,
   namedQuery,
   onSnapshotResume,
   querySnapshotFromJSON,
 } from '../../../../src/serve/worker/client/firestore-bundles-ssr.js';
+import { terminate } from '../../../../src/serve/worker/client/firestore-lifecycle.js';
 import { readDocumentAs, readQueryAs } from '../../../../src/serve/worker/client/firestore-reads.js';
 import { collection, doc, query, where } from '../../../../src/serve/worker/client/firestore-refs.js';
 import { setDoc } from '../../../../src/serve/worker/client/firestore-writes.js';
@@ -73,8 +72,7 @@ describe('worker client firestore-bundles-ssr', () => {
       });
       expect(resumed).toEqual({ fromCache: true, ids: ['alpha'] });
 
-      markWorkerPortStarted(consumer.port);
-      markWorkerPortTerminated(consumer.port);
+      await terminate(consumer);
       await expect(clearIndexedDbPersistence(consumer)).resolves.toBeUndefined();
     } finally {
       host.sandbox.dispose();

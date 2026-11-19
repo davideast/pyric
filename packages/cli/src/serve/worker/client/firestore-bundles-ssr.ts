@@ -9,33 +9,18 @@ import { DOC_VALUE_ENCODING, encodeDocValue } from 'pyric/firestore/internal/val
 import { serializeDocData } from '../protocol.js';
 import { nextId, rpc } from './core.js';
 import { recordWorkerOnlineDoc } from './firestore-network.js';
+import {
+  assertWorkerClientDb,
+  assertWorkerFirestoreActive,
+  isWorkerDbStartedAndRunning,
+  markWorkerHandleStarted,
+} from './firestore-lifecycle.js';
 import { onSnapshot } from './firestore-reads.js';
 import { and, collection, collectionGroup, doc, limit, limitToLast, or, orderBy, query, where, type QueryConstraintHandle } from './firestore-refs.js';
 import type { ClientDb, CollRefHandle, QueryHandle, Unsubscribe } from './handles.js';
 import { makeDocSnapshot, makeQuerySnapshot, type ClientDocSnapshot, type ClientQuerySnapshot, type RawDocResult } from './snapshots.js';
 
-const startedPorts = new WeakSet<object>();
-const terminatedPorts = new WeakSet<object>();
 const workerNamedQueries = new WeakMap<object, Map<string, CollRefHandle | QueryHandle>>();
-
-export function markWorkerPortStarted(port: object): void {
-  startedPorts.add(port);
-}
-
-export function markWorkerPortTerminated(port: object): void {
-  terminatedPorts.add(port);
-}
-
-function assertClientDb(candidate: unknown, fnName: string): asserts candidate is ClientDb {
-  if (
-    candidate === null ||
-    typeof candidate !== 'object' ||
-    (candidate as { __kind?: unknown }).__kind !== 'client-db' ||
-    !('port' in candidate)
-  ) {
-    throw new FirebaseError('invalid-argument', `Expected first argument to ${fnName}() to be a Firestore instance.`);
-  }
-}
 
 function buildWorkerFilter(spec: BundledFilterSpec): QueryConstraintHandle {
   if (spec.kind === 'where') {
@@ -72,8 +57,8 @@ function toRawDocResult(docPath: string, data: Record<string, unknown>): RawDocR
 }
 
 export function clearIndexedDbPersistence(db: ClientDb): Promise<void> {
-  assertClientDb(db, 'clearIndexedDbPersistence');
-  if (startedPorts.has(db.port) && !terminatedPorts.has(db.port)) {
+  assertWorkerClientDb(db, 'clearIndexedDbPersistence');
+  if (isWorkerDbStartedAndRunning(db)) {
     throw new FirebaseError(
       'failed-precondition',
       'Persistence can only be cleared before a Firestore instance is initialized or after it is terminated.',
@@ -86,8 +71,9 @@ export function loadBundle(
   db: ClientDb,
   bundleData: ReadableStream<Uint8Array> | ArrayBuffer | Uint8Array | string,
 ): LoadBundleTask {
-  assertClientDb(db, 'loadBundle');
-  markWorkerPortStarted(db.port);
+  assertWorkerClientDb(db, 'loadBundle');
+  assertWorkerFirestoreActive(db);
+  markWorkerHandleStarted(db);
   assertBundleInputSupported(bundleData);
   const validatedData = bundleData;
   return new LoadBundleTask(async (emit, complete, notifyError) => {
@@ -124,14 +110,16 @@ export function loadBundle(
 }
 
 export async function namedQuery(db: ClientDb, name: string): Promise<CollRefHandle | QueryHandle | null> {
-  assertClientDb(db, 'namedQuery');
-  markWorkerPortStarted(db.port);
+  assertWorkerClientDb(db, 'namedQuery');
+  assertWorkerFirestoreActive(db);
+  markWorkerHandleStarted(db);
   return workerNamedQueries.get(db.port)?.get(name) ?? null;
 }
 
 export function documentSnapshotFromJSON(db: ClientDb, json: object): ClientDocSnapshot {
-  assertClientDb(db, 'documentSnapshotFromJSON');
-  markWorkerPortStarted(db.port);
+  assertWorkerClientDb(db, 'documentSnapshotFromJSON');
+  assertWorkerFirestoreActive(db);
+  markWorkerHandleStarted(db);
   const env = parseValidatedSnapshotEnvelope(json, 'document');
   const parsed = decodeBundleBytes(new TextEncoder().encode(env.bundle));
   const first = parsed.documents[0];
@@ -142,8 +130,9 @@ export function documentSnapshotFromJSON(db: ClientDb, json: object): ClientDocS
 }
 
 export function querySnapshotFromJSON(db: ClientDb, json: object): ClientQuerySnapshot {
-  assertClientDb(db, 'querySnapshotFromJSON');
-  markWorkerPortStarted(db.port);
+  assertWorkerClientDb(db, 'querySnapshotFromJSON');
+  assertWorkerFirestoreActive(db);
+  markWorkerHandleStarted(db);
   const env = parseValidatedSnapshotEnvelope(json, 'query');
   const parsed = decodeBundleBytes(new TextEncoder().encode(env.bundle));
   const rawDocs = parsed.documents.filter((d) => d.exists && d.data !== undefined).map((d) => toRawDocResult(d.docPath, d.data as Record<string, unknown>));
@@ -153,8 +142,9 @@ export function querySnapshotFromJSON(db: ClientDb, json: object): ClientQuerySn
 }
 
 export function onSnapshotResume(db: ClientDb, snapshotJson: object, ...args: unknown[]): Unsubscribe {
-  assertClientDb(db, 'onSnapshotResume');
-  markWorkerPortStarted(db.port);
+  assertWorkerClientDb(db, 'onSnapshotResume');
+  assertWorkerFirestoreActive(db);
+  markWorkerHandleStarted(db);
   const env = parseValidatedSnapshotEnvelope(snapshotJson, 'any');
   const { wrapped, onError } = wrapInitialCachedSnapshotArgs(args);
   let cancelled = false;
