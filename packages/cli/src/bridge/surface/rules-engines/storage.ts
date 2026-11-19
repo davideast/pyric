@@ -12,6 +12,7 @@ import {
   storageBucketsWithRules,
   targetOf,
   storageFirestoreLookup,
+  type StoredMetadata,
 } from 'pyric/storage/internal';
 import { asSentence } from 'pyric/sandbox/internal';
 import { lint as lintRules, type RuleIssue } from 'pyric/rules';
@@ -178,10 +179,12 @@ export const STORAGE_RULES: RulesEngine = {
     // A named bucket is simulated on its own handle, so the stored object,
     // `{bucket}` and the match path are that bucket's (#1313).
     const object = ref(storageForBucket(ctx, request.bucket), request.path);
+    const target = targetOf(object.storage);
     const service = await getStorageService(object.storage);
-    const existing = object.fullPath
-      ? await service.backend.getMetadata(object.fullPath, object.bucket)
-      : undefined;
+    let existing: StoredMetadata | undefined;
+    if (object.fullPath !== '') {
+      existing = await service.backend.getMetadata(object.fullPath, target.bucket);
+    }
     const built = simulatedRequestResource(object, request.operation, request.data, existing);
     if (!built.ok) {
       return operationFailure(`${request.operation} ${request.path}: ${built.reason}`);
@@ -199,8 +202,8 @@ export const STORAGE_RULES: RulesEngine = {
         },
         resource: resourceFromStored(existing),
       },
-      object.bucket,
-      rulesBucketName(object.bucket, targetOf(object.storage).bucketName),
+      target.bucket,
+      rulesBucketName(target.bucket, target.bucketName),
     );
     const evaluated = evaluateStorageRules(
       parsed,
