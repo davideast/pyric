@@ -152,9 +152,13 @@ export async function observeChatSessionSendAndStream(
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: ['web-config'],
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'ai#chat-sendmessage-envelope',
+  rowIds: [
+    'ai#chat-sendmessage-envelope',
+    'ai#chat-sendmessagestream',
+    'ai#chat-stream-single-user-turn',
+    'ai#chat-history-threads',
+  ],
   description:
     'Live firebase/ai ChatSession.sendMessage(), sendMessageStream(), and getHistory() behavior on the GoogleAI backend with Admin-minted App Check token: verifies sendMessage four-key response envelope and model role, history turn threading, sendMessageStream stream/response settlement, and single-user-turn history recording.',
   async observe() {

@@ -24,6 +24,7 @@ import { guardContext, launchScenarioBrowser, scenario, type App } from '../driv
 
 declare function runWithAppCheck(): Promise<Record<string, unknown>>;
 declare function runWithoutAppCheck(): Promise<Record<string, unknown>>;
+declare function runWave2Parity(): Promise<Record<string, unknown>>;
 declare function openEgressControl(): void;
 declare function runEgressControl(url: string): Promise<string>;
 
@@ -250,6 +251,35 @@ export default scenario(async (app) => {
         generateContentStream: refusal('streamGenerateContent'),
       });
       await host.process.waitForLog(HINT, { since });
+    });
+
+    await app.step('Wave 2 parity: countTokens App Check gate, streaming aggregate, ChatSession, and function calling', async () => {
+      const wave2 = await page.evaluate(() => runWave2Parity());
+      assert.deepEqual(wave2, {
+        unauthCountTokens: refusal('countTokens'),
+        authCountTokensPositive: true,
+        streamFinishOnlyLast: true,
+        streamAggMatchesChunks: true,
+        sendRoleAndRoles: {
+          role: 'model',
+          text: 'Chat send ok.',
+          historyRoles: ['user', 'model'],
+        },
+        chatStreamSingleUserTurn: {
+          text: 'Chat stream ok.',
+          matchesChunks: true,
+          historyRoles: ['user', 'model'],
+          userTurnCount: 1,
+        },
+        fnRoundTrip: {
+          callKeys: ['args', 'id', 'name'],
+          callName: 'get_weather',
+          city: 'Paris',
+          turn1Finish: 'STOP',
+          turn2Text: 'Paris is sunny.',
+          turn2CallsUndefined: true,
+        },
+      });
     });
 
     await app.step('every request the page and its workers made went to the local machine', () => {

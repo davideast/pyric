@@ -13,6 +13,10 @@ export default defineConfig({
           script: [
             { match: "Summarise this report.", respond: { text: "The report is ready for review." } },
             { match: "Stream a short reply.", respond: { chunks: ["Requests stay ", "on this machine, ", "chunk by chunk."] } },
+            { match: "Stream chat reply.", respond: { chunks: ["Chat ", "stream ", "ok."] } },
+            { match: "Send chat reply.", respond: { text: "Chat send ok." } },
+            { match: "Call get_weather for Paris.", respond: { functionCall: { name: "get_weather", args: { city: "Paris" } } } },
+            { match: "Call get_weather for Paris.", respond: { text: "Paris is sunny." } },
           ],
         },
       },

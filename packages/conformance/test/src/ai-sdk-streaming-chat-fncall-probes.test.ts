@@ -36,36 +36,70 @@ const AI_SDK_WAVE2_STREAMING_CHAT_FNCALL_PROBE_IDS = [
   'ai-sdk-streaming-chunks-and-aggregate',
 ] as const;
 
+const AI_SDK_WAVE2_STAGED_PROBE_IDS: readonly string[] = [];
+
 describe('AI Wave 2 live client SDK probes (streaming, ChatSession, function-calling, App Check)', () => {
-  test('registers all 4 staged sdk-probes with pendingRowLink and web-config requirement', async () => {
+  test('links all 4 captured sdk-probes to registry rows without pendingRowLink', async () => {
     const loaded = await loadModularProbes('sdk-probes');
     const loadedIds = loaded.map((entry) => entry.id);
     for (const id of AI_SDK_WAVE2_STREAMING_CHAT_FNCALL_PROBE_IDS) {
       expect(loadedIds).toContain(id);
     }
 
-    const stagedProbes = [
+    const linkedProbes = [
       appCheckStreamCountProbe,
       chatSessionProbe,
       functionCallingProbe,
       streamingProbe,
     ];
-    for (const probeRecord of stagedProbes) {
+    for (const probeRecord of linkedProbes) {
       expect(probeRecord.rig).toBe('sdk-probes');
       expect(probeRecord.requires).toEqual(['web-config']);
-      expect(probeRecord.pendingRowLink).toBe(true);
-      expect(probeRecord.matrixRow).toBe('');
-      expect(probeRecord.rowIds).toEqual([]);
+      expect(probeRecord.pendingRowLink).toBeUndefined();
       expect(probeRecord.description.length).toBeGreaterThan(20);
     }
+
+    expect(streamingProbe.matrixRow).toBe('ai#stream-async-iterable');
+    expect(streamingProbe.rowIds).toEqual([
+      'ai#stream-async-iterable',
+      'ai#stream-chunk-envelope',
+      'ai#stream-finish-last-chunk',
+      'ai#stream-usage-every-chunk',
+      'ai#stream-response-aggregate',
+      'ai#stream-aggregate-final-meta',
+    ]);
+
+    expect(chatSessionProbe.matrixRow).toBe('ai#chat-sendmessage-envelope');
+    expect(chatSessionProbe.rowIds).toEqual([
+      'ai#chat-sendmessage-envelope',
+      'ai#chat-sendmessagestream',
+      'ai#chat-stream-single-user-turn',
+      'ai#chat-history-threads',
+    ]);
+
+    expect(functionCallingProbe.matrixRow).toBe('ai#fncall-round-trip');
+    expect(functionCallingProbe.rowIds).toEqual([
+      'ai#fncall-part-shape',
+      'ai#fncall-mode-any',
+      'ai#fncall-id-present',
+      'ai#fncall-round-trip',
+    ]);
+
+    expect(appCheckStreamCountProbe.matrixRow).toBe('ai#sandbox-app-check-stream-and-count-tokens');
+    expect(appCheckStreamCountProbe.rowIds).toEqual([
+      'ai#sandbox-app-check-stream-and-count-tokens',
+    ]);
 
     const unfilteredIds = new Set(
       selectModularProbes(loaded, [], 'sdk-probes', {
         includeUncapturedStaged: false,
       }).map((entry) => entry.id),
     );
+    for (const id of AI_SDK_WAVE2_STREAMING_CHAT_FNCALL_PROBE_IDS) {
+      expect(unfilteredIds.has(id)).toBe(true);
+    }
 
-    expectStagedUntilCaptured(AI_SDK_WAVE2_STREAMING_CHAT_FNCALL_PROBE_IDS, {
+    expectStagedUntilCaptured(AI_SDK_WAVE2_STAGED_PROBE_IDS, {
       rig: 'sdk-probes',
       filterFlag: '--probe',
       filterValueFor: (name) => name,
@@ -85,9 +119,9 @@ describe('AI Wave 2 live client SDK probes (streaming, ChatSession, function-cal
       log: (line) => previewLines.push(line),
     });
     for (const id of AI_SDK_WAVE2_STREAMING_CHAT_FNCALL_PROBE_IDS) {
-      expect(previewLines.some((line) => line.includes(`${id}`) && line.includes('[pendingRowLink]'))).toBe(
-        true,
-      );
+      expect(
+        previewLines.some((line) => line.includes(`${id}`) && !line.includes('[pendingRowLink]')),
+      ).toBe(true);
     }
   });
 
