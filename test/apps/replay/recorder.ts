@@ -40,9 +40,10 @@ const RELAYED_RESPONSE_HEADERS = ['content-type', 'x-http-session-id'];
 export async function startRecorder(options: RecorderOptions): Promise<Recorder> {
   const transcript = new Transcript(options.project, options.source);
   const streams = new Map<string, RecordedStream>();
+  const lastArray = new Map<string, number>();
   const upstream = options.upstream ?? ((host: string) => `https://${host}`);
   const server = createServer((request, response) => {
-    void relay({ transcript, streams, lastArray: new Map(), upstream }, request, response).catch((error: unknown) => {
+    void relay({ transcript, streams, lastArray, upstream }, request, response).catch((error: unknown) => {
       if (!response.headersSent) response.writeHead(502, { 'content-type': 'text/plain' });
       response.end(`pyric recorder: ${error instanceof Error ? error.message : String(error)}`);
     });
@@ -97,9 +98,9 @@ async function relay(context: RelayContext, request: IncomingMessage, response: 
   if (answer.body) {
     try {
       for await (const part of answer.body) {
-        response.write(part);
         text += decoder.decode(part, { stream: true });
         text = observe.part(text, answer.status);
+        response.write(part);
       }
     } catch (error) {
       if (!abort.signal.aborted) throw error;
@@ -148,7 +149,8 @@ function channelObserver(context: RelayContext, route: Route, request: IncomingM
   const batch = request.method === 'POST' ? parseForwardBody(body) : null;
   if (!rpc) return { part: () => '', end: () => {} };
   if (isForward && sid) for (const { message } of batch!.messages) context.streams.get(sid)?.fromClient(message);
-  let stream: RecordedStream | undefined = sid ? context.streams.get(sid) : undefined;
+  let sessionId: string | null = isHandshake ? null : sid;
+  let stream: RecordedStream | undefined = sessionId ? context.streams.get(sessionId) : undefined;
   const take = (text: string): string => {
     const { payloads, rest } = splitChunks(text);
     for (const payload of payloads) {
@@ -159,14 +161,15 @@ function channelObserver(context: RelayContext, route: Route, request: IncomingM
         if (isHandshakeArray) {
           const as = uidOfBearer(batch!.headers.authorization);
           stream = rpc === 'Listen' ? context.transcript.listenStream(as) : context.transcript.writeStream(as);
-          context.streams.set(String(data[1]), stream);
-          context.lastArray.set(String(data[1]), arrayId);
+          sessionId = String(data[1]);
+          context.streams.set(sessionId, stream);
+          context.lastArray.set(sessionId, arrayId);
           for (const { message } of batch!.messages) stream.fromClient(message);
           continue;
         }
-        const isResent = sid !== null && arrayId <= (context.lastArray.get(sid) ?? -1);
+        const isResent = sessionId !== null && arrayId <= (context.lastArray.get(sessionId) ?? -1);
         if (isResent) continue;
-        if (sid !== null) context.lastArray.set(sid, arrayId);
+        if (sessionId !== null) context.lastArray.set(sessionId, arrayId);
         const isMessage = typeof first === 'object' && first !== null;
         if (isMessage) stream?.fromServer(first as JsonObject);
       }

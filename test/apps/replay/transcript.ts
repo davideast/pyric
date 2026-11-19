@@ -72,7 +72,7 @@ interface WriteRef {
 interface FollowedTarget {
   exchange: ListenExchange;
   removed: boolean;
-  /** Whether the last batch ended at a global target change, so the next message opens a batch. */
+  /** Whether the last non-empty batch ended at a global target change, so the next message opens a batch. */
   batchClosed: boolean;
 }
 
@@ -210,7 +210,10 @@ export class RecordedListen {
     const targetIds = targetIdsOf(message);
     const isGlobal = change !== undefined && targetIds.length === 0;
     if (isGlobal) {
-      for (const target of this.targets.values()) target.batchClosed = true;
+      for (const target of this.targets.values()) {
+        const current = target.exchange.batches[target.exchange.batches.length - 1]!;
+        if (current.messages.length > 0) target.batchClosed = true;
+      }
       return;
     }
     for (const targetId of targetIds) {
