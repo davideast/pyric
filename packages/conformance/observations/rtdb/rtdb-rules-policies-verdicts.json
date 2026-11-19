@@ -1,8 +1,9 @@
 {
   "name": "rtdb-rules-policies-verdicts",
-  "matrixRow": "rtdb#85",
+  "matrixRow": "rtdb#85, rtdb#66",
   "rowIds": [
-    "rtdb#85"
+    "rtdb#85",
+    "rtdb#66"
   ],
   "description": "Live RTDB Security Rules verdicts for rulesets compiled from all 7 composite policies helpers (pathOwnerOnly, fieldOwnerOnly, ownerOrNew, hasRole, isMember, required with single keys and nested slash paths, and transition).",
   "observedAt": "2026-11-19T01:46:23.571Z",
