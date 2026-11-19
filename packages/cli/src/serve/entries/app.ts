@@ -20,6 +20,24 @@ export function initializeApp(
   return initializeRegistryApp(options, rawSettings);
 }
 
-export * from 'pyric/app';
+export {
+  deleteApp,
+  FirebaseError,
+  getApp,
+  getApps,
+  onLog,
+  registerVersion,
+  SDK_VERSION,
+  setLogLevel,
+} from 'pyric/app';
+export type {
+  FirebaseApp,
+  FirebaseAppSettings,
+  FirebaseOptions,
+  LogCallback,
+  LogEntry,
+  LogLevel,
+  LogOptions,
+} from 'pyric/app';
 
 export * from './unsupported/app.js';
