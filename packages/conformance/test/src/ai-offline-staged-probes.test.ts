@@ -15,16 +15,21 @@ const AI_OFFLINE_SLICE12_PROBE_IDS = [
   'ai-offline-schema-builders-and-guards',
 ] as const;
 
-describe('AI offline zero-network client SDK staged probes (sdk-probes)', () => {
-  test('registers all 3 offline AI probes on sdk-probes with pendingRowLink and empty requires', async () => {
+const AI_OFFLINE_STAGED_PROBE_IDS = [
+  'ai-offline-chat-roles-errors-and-abort',
+  'ai-offline-init-backends-and-model-guards',
+] as const;
+
+describe('AI offline zero-network client SDK probes (sdk-probes)', () => {
+  test('registers staged offline AI probes with pendingRowLink and links ai-offline-schema-builders-and-guards', async () => {
     const loaded = await loadModularProbes('sdk-probes');
     const loadedIds = loaded.map((entry) => entry.id);
     for (const id of AI_OFFLINE_SLICE12_PROBE_IDS) {
       expect(loadedIds).toContain(id);
     }
 
-    const probes = [initBackendsProbe, chatErrorsAbortProbe, schemaBuildersProbe];
-    for (const probeRecord of probes) {
+    const stagedProbes = [initBackendsProbe, chatErrorsAbortProbe];
+    for (const probeRecord of stagedProbes) {
       expect(probeRecord.rig).toBe('sdk-probes');
       expect(probeRecord.requires).toEqual([]);
       expect(probeRecord.pendingRowLink).toBe(true);
@@ -33,13 +38,26 @@ describe('AI offline zero-network client SDK staged probes (sdk-probes)', () => 
       expect(probeRecord.description.length).toBeGreaterThan(20);
     }
 
+    expect(schemaBuildersProbe.rig).toBe('sdk-probes');
+    expect(schemaBuildersProbe.requires).toEqual([]);
+    expect(schemaBuildersProbe.pendingRowLink).toBeUndefined();
+    expect(schemaBuildersProbe.matrixRow).toBe('ai#schema-object-tojson');
+    expect(schemaBuildersProbe.rowIds).toEqual([
+      'ai#schema-object-tojson',
+      'ai#schema-string-enum',
+      'ai#schema-primitives',
+      'ai#schema-anyof',
+    ]);
+    expect(schemaBuildersProbe.description.length).toBeGreaterThan(20);
+
     const unfilteredIds = new Set(
       selectModularProbes(loaded, [], 'sdk-probes', {
         includeUncapturedStaged: false,
       }).map((entry) => entry.id),
     );
+    expect(unfilteredIds.has('ai-offline-schema-builders-and-guards')).toBe(true);
 
-    expectStagedUntilCaptured(AI_OFFLINE_SLICE12_PROBE_IDS, {
+    expectStagedUntilCaptured(AI_OFFLINE_STAGED_PROBE_IDS, {
       rig: 'sdk-probes',
       filterFlag: '--probe',
       filterValueFor: (name) => name,

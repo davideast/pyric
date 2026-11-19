@@ -1,7 +1,12 @@
 {
   "name": "ai-offline-schema-builders-and-guards",
-  "matrixRow": "",
-  "rowIds": [],
+  "matrixRow": "ai#schema-object-tojson",
+  "rowIds": [
+    "ai#schema-object-tojson",
+    "ai#schema-string-enum",
+    "ai#schema-primitives",
+    "ai#schema-anyof"
+  ],
   "description": "Pure offline firebase/ai Schema.object, primitive/array/enumString builders, and Schema.anyOf serialization and empty-anyOf AIError guard with zero network calls.",
   "observedAt": "2026-11-18T21:55:02.001Z",
   "fbSdkVersion": "12.19.0",
