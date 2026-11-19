@@ -13,9 +13,11 @@ import type { ValueListeners } from './value-listeners.js';
 import type { WritePlane } from './write-plane.js';
 
 interface PendingWriteEntry {
+  requestTime: number;
+  withProvenance: <T>(fn: () => T) => T;
   paths: string[];
   cancelled: boolean;
-  applyOptimistic: (state: BackendState) => string[];
+  applyOptimistic: (state: BackendState, now: number) => string[];
   commitServer: (writes: WritePlane) => void;
 }
 
@@ -41,8 +43,8 @@ function applyOptimisticSet(
   value: JsonValue,
   priority: Priority,
   prioritySupplied: boolean,
+  now: number,
 ): string[] {
-  const now = state.clock.now();
   const resolvedInput = resolveSentinels(value, now, state.rulesSnapshotAt(path));
   let normPath = path;
   if (path === '/') {
@@ -54,8 +56,6 @@ function applyOptimisticSet(
   let basePrio: Priority = null;
   if (prioritySupplied) {
     basePrio = resolvedArgPriority;
-  } else {
-    basePrio = null;
   }
   const written = writePriority(resolvedInput, basePrio);
   validatePriority(written.priority);
@@ -74,12 +74,12 @@ function applyOptimisticUpdate(
   state: BackendState,
   path: string,
   patch: Record<string, JsonValue>,
+  now: number,
 ): string[] {
   const keys = Object.keys(patch);
   if (keys.length === 0) {
     return [];
   }
-  const now = state.clock.now();
   const multiPath = keys.some((key) => key.includes('/'));
   const dataExpanded: Record<string, JsonValue> = {};
   const priorityUpdates: Array<{ nodePath: string; priority: Priority }> = [];
@@ -163,8 +163,8 @@ function applyOptimisticSetPriority(
   state: BackendState,
   path: string,
   priority: Priority,
+  now: number,
 ): string[] {
-  const now = state.clock.now();
   const resolved = resolveSentinels(priority, now, state.priorities.get(path)) as Priority;
   validatePriority(resolved);
   if (state.tree.read(path) === null) {
@@ -174,73 +174,30 @@ function applyOptimisticSetPriority(
   return [path];
 }
 
-/**
- * Deliver optimistic updates only to listeners whose `.read` rules remain
- * permitted on the optimistic tree, while leaving denied listeners registered
- * in exact insertion order so server commit (`WritePlane.changed`) performs
- * canonical revocation (`listen ... deny` + `cancelCallback`) without first
- * leaking post-revocation data (#M75a) or prematurely revoking on a denied
- * write (#M15).
- */
-function fanOutOptimisticPermitted(
+function withFilteredListeners(
   state: BackendState,
-  children: ChildListeners,
-  values: ValueListeners,
-  paths: string[],
-  priors: ReturnType<ChildListeners['snapshotParents']>,
+  keepValue: (listener: ValueListener) => boolean,
+  keepChild: (listener: ChildListener) => boolean,
+  run: () => void,
 ): void {
-  if (
-    state.activeRules === null ||
-    (state.valueListeners.size === 0 && state.childListeners.size === 0)
-  ) {
-    fanOutAllListeners(state, children, values, paths, priors);
-    return;
-  }
-  const canonicalChanged = paths.map((p) => joinPath(pathSegments(p)));
-  if (canonicalChanged.length === 0) {
-    fanOutAllListeners(state, children, values, paths, priors);
-    return;
-  }
-  const rulesRoot = state.activeRules.rules;
-  const candidateValues = [...state.valueListeners].filter(
-    (l) => !l.admin && listenerReadDependsOnPaths(rulesRoot, l.path, canonicalChanged),
-  );
-  const candidateChildren = [...state.childListeners].filter(
-    (l) => !l.admin && listenerReadDependsOnPaths(rulesRoot, l.path, canonicalChanged),
-  );
-  if (candidateValues.length === 0 && candidateChildren.length === 0) {
-    fanOutAllListeners(state, children, values, paths, priors);
-    return;
-  }
-  const mockData = state.rulesSnapshot();
+  const priorValues = [...state.valueListeners];
+  const priorChildren = [...state.childListeners];
   const suppressedValues = new Set<ValueListener>();
-  for (const listener of candidateValues) {
-    const evaluation = state.rules.evaluate('read', listener.path, {
-      auth: listener.auth,
-      mockData,
-      querySpec: listener.query,
-    });
-    if (evaluation.check !== 'allow') {
+  for (const listener of priorValues) {
+    if (!keepValue(listener)) {
       suppressedValues.add(listener);
     }
   }
   const suppressedChildren = new Set<ChildListener>();
-  for (const listener of candidateChildren) {
-    const evaluation = state.rules.evaluate('read', listener.path, {
-      auth: listener.auth,
-      mockData,
-      querySpec: listener.spec,
-    });
-    if (evaluation.check !== 'allow') {
+  for (const listener of priorChildren) {
+    if (!keepChild(listener)) {
       suppressedChildren.add(listener);
     }
   }
   if (suppressedValues.size === 0 && suppressedChildren.size === 0) {
-    fanOutAllListeners(state, children, values, paths, priors);
+    run();
     return;
   }
-  const priorValues = [...state.valueListeners];
-  const priorChildren = [...state.childListeners];
   for (const listener of suppressedValues) {
     state.valueListeners.delete(listener);
   }
@@ -248,7 +205,7 @@ function fanOutOptimisticPermitted(
     state.childListeners.delete(listener);
   }
   try {
-    fanOutAllListeners(state, children, values, paths, priors);
+    run();
   } finally {
     const remainingValues = new Set(state.valueListeners);
     state.valueListeners.clear();
@@ -277,14 +234,87 @@ function fanOutOptimisticPermitted(
   }
 }
 
+function fanOutAdminListenersOnly(
+  state: BackendState,
+  children: ChildListeners,
+  values: ValueListeners,
+  paths: string[],
+  priorsServer: ReturnType<ChildListeners['snapshotParents']>,
+): void {
+  const hasAdminValue = [...state.valueListeners].some((l) => l.admin);
+  const hasAdminChild = [...state.childListeners].some((l) => l.admin);
+  if (!hasAdminValue && !hasAdminChild) {
+    return;
+  }
+  withFilteredListeners(
+    state,
+    (l) => l.admin === true,
+    (l) => l.admin === true,
+    () => fanOutAllListeners(state, children, values, paths, priorsServer),
+  );
+}
+
 /**
- * Two-phase client write queue mirroring Firebase `SyncTree` + wire server puts:
- * 1. Applies optimistic local state synchronously so caller listeners observe
- *    writes in call order before the Promise returns (RT-1 / M16b).
- * 2. Commits against server state across a FIFO microtask so concurrent client
- *    increments and transactions interleave before settling (#157, #M37h, #161),
- *    rolling back optimistic listener state if server rules deny the write (#M15).
+ * Deliver optimistic updates only to non-admin client listeners whose `.read`
+ * rules remain permitted on the optimistic tree. Admin listeners observe
+ * committed server state only, and read-denied client listeners stay registered
+ * in exact insertion order so server commit (`WritePlane.changed`) performs
+ * canonical revocation (`listen ... deny` + `cancelCallback`, #M75a) without
+ * prematurely revoking on a denied write (#M15).
  */
+function fanOutClientListenersOptimistic(
+  state: BackendState,
+  children: ChildListeners,
+  values: ValueListeners,
+  paths: string[],
+  priorsOptimistic: ReturnType<ChildListeners['snapshotParents']>,
+): void {
+  if (state.valueListeners.size === 0 && state.childListeners.size === 0) {
+    return;
+  }
+  const deniedValues = new Set<ValueListener>();
+  const deniedChildren = new Set<ChildListener>();
+  if (state.activeRules !== null && paths.length > 0) {
+    const canonicalChanged = paths.map((p) => joinPath(pathSegments(p)));
+    const rulesRoot = state.activeRules.rules;
+    const candidateValues = [...state.valueListeners].filter(
+      (l) => !l.admin && listenerReadDependsOnPaths(rulesRoot, l.path, canonicalChanged),
+    );
+    const candidateChildren = [...state.childListeners].filter(
+      (l) => !l.admin && listenerReadDependsOnPaths(rulesRoot, l.path, canonicalChanged),
+    );
+    if (candidateValues.length > 0 || candidateChildren.length > 0) {
+      const mockData = state.rulesSnapshot();
+      for (const listener of candidateValues) {
+        const evaluation = state.rules.evaluate('read', listener.path, {
+          auth: listener.auth,
+          mockData,
+          querySpec: listener.query,
+        });
+        if (evaluation.check !== 'allow') {
+          deniedValues.add(listener);
+        }
+      }
+      for (const listener of candidateChildren) {
+        const evaluation = state.rules.evaluate('read', listener.path, {
+          auth: listener.auth,
+          mockData,
+          querySpec: listener.spec,
+        });
+        if (evaluation.check !== 'allow') {
+          deniedChildren.add(listener);
+        }
+      }
+    }
+  }
+  withFilteredListeners(
+    state,
+    (l) => !l.admin && !deniedValues.has(l),
+    (l) => !l.admin && !deniedChildren.has(l),
+    () => fanOutAllListeners(state, children, values, paths, priorsOptimistic),
+  );
+}
+
 export class PendingClientWrites {
   private readonly pending: PendingWriteEntry[] = [];
   private baseRoot: JsonValue | null = null;
@@ -330,12 +360,13 @@ export class PendingClientWrites {
     if (this.pending.length === 0 || this.basePriorities === null) {
       return fn();
     }
-    const priorsBefore = this.children.snapshotParents();
+    const priorsOptimistic = this.children.snapshotParents();
     const savedBaseRoot = this.baseRoot;
     const savedBasePriorities = this.basePriorities;
     this.state.deferListenerFanOut = true;
     this.state.tree.restoreFrozenRoot(savedBaseRoot);
     this.state.priorities.restoreMapSilently(savedBasePriorities);
+    const priorsServer = this.children.snapshotParents();
     const touched = [...paths];
     let outcome: T | undefined;
     let caught: unknown;
@@ -350,17 +381,26 @@ export class PendingClientWrites {
       this.state.tree.restoreFrozenRoot(savedBaseRoot);
       this.state.priorities.restoreMapSilently(savedBasePriorities);
     }
-    for (const rest of this.pending) {
-      touched.push(...rest.applyOptimistic(this.state));
-    }
     this.state.deferListenerFanOut = false;
+    if (!hasError && paths.length > 0) {
+      fanOutAdminListenersOnly(
+        this.state,
+        this.children,
+        this.values,
+        Array.from(new Set(paths)),
+        priorsServer,
+      );
+    }
+    for (const rest of this.pending) {
+      touched.push(...rest.applyOptimistic(this.state, rest.requestTime));
+    }
     if (touched.length > 0) {
-      fanOutOptimisticPermitted(
+      fanOutClientListenersOptimistic(
         this.state,
         this.children,
         this.values,
         Array.from(new Set(touched)),
-        priorsBefore,
+        priorsOptimistic,
       );
     }
     if (hasError) {
@@ -371,9 +411,11 @@ export class PendingClientWrites {
 
   enqueueSet(auth: AuthState, path: string, value: JsonValue): Promise<void> {
     return this.enqueue({
+      requestTime: this.state.clock.now(),
+      withProvenance: this.state.events.captureProvenanceWindow(),
       paths: [path],
       cancelled: false,
-      applyOptimistic: (st) => applyOptimisticSet(st, path, value, null, false),
+      applyOptimistic: (st, now) => applyOptimisticSet(st, path, value, null, false, now),
       commitServer: (w) => w.set(auth, path, value),
     });
   }
@@ -385,36 +427,44 @@ export class PendingClientWrites {
     priority: Priority,
   ): Promise<void> {
     return this.enqueue({
+      requestTime: this.state.clock.now(),
+      withProvenance: this.state.events.captureProvenanceWindow(),
       paths: [path],
       cancelled: false,
-      applyOptimistic: (st) => applyOptimisticSet(st, path, value, priority, true),
+      applyOptimistic: (st, now) => applyOptimisticSet(st, path, value, priority, true, now),
       commitServer: (w) => w.setWithPriority(auth, path, value, priority),
     });
   }
 
   enqueueRemove(auth: AuthState, path: string): Promise<void> {
     return this.enqueue({
+      requestTime: this.state.clock.now(),
+      withProvenance: this.state.events.captureProvenanceWindow(),
       paths: [path],
       cancelled: false,
-      applyOptimistic: (st) => applyOptimisticSet(st, path, null, null, false),
+      applyOptimistic: (st, now) => applyOptimisticSet(st, path, null, null, false, now),
       commitServer: (w) => w.remove(auth, path),
     });
   }
 
   enqueueUpdate(auth: AuthState, path: string, patch: Record<string, JsonValue>): Promise<void> {
     return this.enqueue({
+      requestTime: this.state.clock.now(),
+      withProvenance: this.state.events.captureProvenanceWindow(),
       paths: [path],
       cancelled: false,
-      applyOptimistic: (st) => applyOptimisticUpdate(st, path, patch),
+      applyOptimistic: (st, now) => applyOptimisticUpdate(st, path, patch, now),
       commitServer: (w) => w.update(auth, path, patch),
     });
   }
 
   enqueueSetPriority(auth: AuthState, path: string, priority: Priority): Promise<void> {
     return this.enqueue({
+      requestTime: this.state.clock.now(),
+      withProvenance: this.state.events.captureProvenanceWindow(),
       paths: [path],
       cancelled: false,
-      applyOptimistic: (st) => applyOptimisticSetPriority(st, path, priority),
+      applyOptimistic: (st, now) => applyOptimisticSetPriority(st, path, priority, now),
       commitServer: (w) => w.setPriority(auth, path, priority),
     });
   }
@@ -430,7 +480,7 @@ export class PendingClientWrites {
     const priors = this.children.snapshotParents();
     let touchedPaths: string[];
     try {
-      touchedPaths = entry.applyOptimistic(this.state);
+      touchedPaths = entry.applyOptimistic(this.state, entry.requestTime);
     } catch (err) {
       this.state.tree.restoreFrozenRoot(beforeRoot);
       this.state.priorities.restoreMapSilently(beforePriorities);
@@ -443,7 +493,7 @@ export class PendingClientWrites {
     entry.paths = touchedPaths;
     this.pending.push(entry);
     if (touchedPaths.length > 0) {
-      fanOutOptimisticPermitted(this.state, this.children, this.values, touchedPaths, priors);
+      fanOutClientListenersOptimistic(this.state, this.children, this.values, touchedPaths, priors);
     }
     return Promise.resolve().then(() => this.commitEntry(entry));
   }
@@ -459,17 +509,19 @@ export class PendingClientWrites {
     if (this.basePriorities === null) {
       return;
     }
-    const priorsBefore = this.children.snapshotParents();
+    const priorsOptimistic = this.children.snapshotParents();
     const savedBaseRoot = this.baseRoot;
     const savedBasePriorities = this.basePriorities;
     this.state.deferListenerFanOut = true;
     this.state.tree.restoreFrozenRoot(savedBaseRoot);
     this.state.priorities.restoreMapSilently(savedBasePriorities);
+    const priorsServer = this.children.snapshotParents();
 
     let commitError: unknown;
     let hasError = false;
+    this.state.pinnedNow = entry.requestTime;
     try {
-      entry.commitServer(this.writes);
+      entry.withProvenance(() => entry.commitServer(this.writes));
       this.baseRoot = this.state.tree.peekRoot();
       this.basePriorities = this.state.priorities.snapshotMap();
     } catch (err) {
@@ -477,25 +529,37 @@ export class PendingClientWrites {
       hasError = true;
       this.state.tree.restoreFrozenRoot(savedBaseRoot);
       this.state.priorities.restoreMapSilently(savedBasePriorities);
+    } finally {
+      this.state.pinnedNow = null;
+      this.state.deferListenerFanOut = false;
+    }
+
+    if (!hasError && entry.paths.length > 0) {
+      fanOutAdminListenersOnly(
+        this.state,
+        this.children,
+        this.values,
+        Array.from(new Set(entry.paths)),
+        priorsServer,
+      );
     }
 
     const touched = [...entry.paths];
     if (this.pending.length > 0) {
       for (const rest of this.pending) {
-        touched.push(...rest.applyOptimistic(this.state));
+        touched.push(...rest.applyOptimistic(this.state, rest.requestTime));
       }
     } else {
       this.baseRoot = null;
       this.basePriorities = null;
     }
-    this.state.deferListenerFanOut = false;
     if (touched.length > 0) {
-      fanOutOptimisticPermitted(
+      fanOutClientListenersOptimistic(
         this.state,
         this.children,
         this.values,
         Array.from(new Set(touched)),
-        priorsBefore,
+        priorsOptimistic,
       );
     }
     if (hasError) {

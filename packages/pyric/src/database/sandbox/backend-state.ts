@@ -76,6 +76,7 @@ export class BackendState {
   readonly writeSubscribers = new Set<() => void>();
   resetGeneration = 0;
   deferListenerFanOut = false;
+  pinnedNow: number | null = null;
   private cachedRulesTreeGen = -1;
   private cachedRulesPriorityGen = -1;
   private hasCachedRulesView = false;
@@ -89,7 +90,29 @@ export class BackendState {
 
   constructor(sandbox?: Sandbox, instance?: string) {
     this.events = new OperationEvents(sandbox, instance);
-    this.clock = sandbox ? getClock(sandbox) : new SandboxClock();
+    let baseClock: SandboxClock;
+    if (sandbox !== undefined) {
+      baseClock = getClock(sandbox);
+    } else {
+      baseClock = new SandboxClock();
+    }
+    this.clock = new Proxy(baseClock, {
+      get: (target, prop, receiver) => {
+        if (prop === 'now') {
+          return () => {
+            if (this.pinnedNow !== null) {
+              return this.pinnedNow;
+            }
+            return target.now();
+          };
+        }
+        const val = Reflect.get(target, prop, receiver);
+        if (typeof val === 'function') {
+          return val.bind(target);
+        }
+        return val;
+      },
+    });
     this.rules = new RulesEvaluator(this.clock);
   }
 
