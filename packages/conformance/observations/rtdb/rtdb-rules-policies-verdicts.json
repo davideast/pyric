@@ -1,0 +1,129 @@
+{
+  "name": "rtdb-rules-policies-verdicts",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "Live RTDB Security Rules verdicts for rulesets compiled from all 7 composite policies helpers (pathOwnerOnly, fieldOwnerOnly, ownerOrNew, hasRole, isMember, required with single keys and nested slash paths, and transition).",
+  "observedAt": "2026-11-19T01:46:23.571Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "pathOwnerOnly": {
+      "unauthedWriteDenied": {
+        "allowed": false,
+        "permissionDenied": true
+      },
+      "ownerWriteAllowed": {
+        "allowed": true,
+        "permissionDenied": false
+      },
+      "otherUserWriteDenied": {
+        "allowed": false,
+        "permissionDenied": true
+      },
+      "ownerReadAllowed": {
+        "allowed": true,
+        "permissionDenied": false
+      }
+    },
+    "fieldOwnerOnly": {
+      "unauthedReadDenied": {
+        "allowed": false,
+        "permissionDenied": true
+      },
+      "ownerUpdateAllowed": {
+        "allowed": true,
+        "permissionDenied": false
+      },
+      "otherUserUpdateDenied": {
+        "allowed": false,
+        "permissionDenied": true
+      },
+      "freshCreateWithoutExistingOwnerDenied": {
+        "allowed": false,
+        "permissionDenied": true
+      }
+    },
+    "ownerOrNew": {
+      "unauthedCreateDenied": {
+        "allowed": false,
+        "permissionDenied": true
+      },
+      "authedCreateNewAllowed": {
+        "allowed": true,
+        "permissionDenied": false
+      },
+      "otherUserEditExistingDenied": {
+        "allowed": false,
+        "permissionDenied": true
+      },
+      "fieldOwnerEditExistingAllowed": {
+        "allowed": true,
+        "permissionDenied": false
+      }
+    },
+    "hasRole": {
+      "moderatorWriteAllowed": {
+        "allowed": true,
+        "permissionDenied": false
+      },
+      "guestWriteDenied": {
+        "allowed": false,
+        "permissionDenied": true
+      },
+      "unauthedWriteDenied": {
+        "allowed": false,
+        "permissionDenied": true
+      }
+    },
+    "isMember": {
+      "memberReadAllowed": {
+        "allowed": true,
+        "permissionDenied": false
+      },
+      "nonMemberReadDenied": {
+        "allowed": false,
+        "permissionDenied": true
+      },
+      "memberWriteAllowed": {
+        "allowed": true,
+        "permissionDenied": false
+      },
+      "nonMemberWriteDenied": {
+        "allowed": false,
+        "permissionDenied": true
+      }
+    },
+    "required": {
+      "allRequiredPresentAllowed": {
+        "allowed": true,
+        "permissionDenied": false
+      },
+      "missingTopLevelKeyDenied": {
+        "allowed": false,
+        "permissionDenied": true
+      },
+      "missingNestedSlashPathDenied": {
+        "allowed": false,
+        "permissionDenied": true
+      }
+    },
+    "transition": {
+      "unlistedOpenToFinishedDenied": {
+        "allowed": false,
+        "permissionDenied": true
+      },
+      "allowedOpenToPlayingAllowed": {
+        "allowed": true,
+        "permissionDenied": false
+      },
+      "reversePlayingToOpenDenied": {
+        "allowed": false,
+        "permissionDenied": true
+      },
+      "allowedPlayingToFinishedAllowed": {
+        "allowed": true,
+        "permissionDenied": false
+      }
+    }
+  }
+}

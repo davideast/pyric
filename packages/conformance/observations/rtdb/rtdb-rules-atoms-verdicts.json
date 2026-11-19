@@ -1,0 +1,161 @@
+{
+  "name": "rtdb-rules-atoms-verdicts",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "Live RTDB Security Rules verdicts for rulesets compiled from all 14 constraint atoms predicates (authenticated, ownPath, ownField, isNew, hasChildren, hasChild, fieldIsString/Number/Boolean, fieldEnum, immutable, immutableSelf, rootExists, rootEquals).",
+  "observedAt": "2026-11-19T01:46:12.234Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "authenticated": {
+      "authedReadAllowed": {
+        "allowed": true,
+        "permissionDenied": false
+      },
+      "unauthedReadDenied": {
+        "allowed": false,
+        "permissionDenied": true
+      },
+      "authedWriteAllowed": {
+        "allowed": true,
+        "permissionDenied": false
+      },
+      "unauthedWriteDenied": {
+        "allowed": false,
+        "permissionDenied": true
+      }
+    },
+    "ownPath": {
+      "ownUidWriteAllowed": {
+        "allowed": true,
+        "permissionDenied": false
+      },
+      "otherUidWriteDenied": {
+        "allowed": false,
+        "permissionDenied": true
+      },
+      "ownUidReadAllowed": {
+        "allowed": true,
+        "permissionDenied": false
+      },
+      "otherUidReadDenied": {
+        "allowed": false,
+        "permissionDenied": true
+      }
+    },
+    "ownField": {
+      "ownerReadAllowed": {
+        "allowed": true,
+        "permissionDenied": false
+      },
+      "nonOwnerReadDenied": {
+        "allowed": false,
+        "permissionDenied": true
+      },
+      "ownerOverwriteAllowed": {
+        "allowed": true,
+        "permissionDenied": false
+      },
+      "nonOwnerOverwriteDenied": {
+        "allowed": false,
+        "permissionDenied": true
+      }
+    },
+    "isNew": {
+      "initialCreateAllowed": {
+        "allowed": true,
+        "permissionDenied": false
+      },
+      "secondWriteDenied": {
+        "allowed": false,
+        "permissionDenied": true
+      },
+      "deleteExistingDenied": {
+        "allowed": false,
+        "permissionDenied": true
+      }
+    },
+    "schemaPredicates": {
+      "validObjectAllowed": {
+        "allowed": true,
+        "permissionDenied": false
+      },
+      "primitiveLeafDenied": {
+        "allowed": false,
+        "permissionDenied": true
+      },
+      "missingNestedHasChildDenied": {
+        "allowed": false,
+        "permissionDenied": true
+      },
+      "nonStringTitleDenied": {
+        "allowed": false,
+        "permissionDenied": true
+      },
+      "nonNumberCountDenied": {
+        "allowed": false,
+        "permissionDenied": true
+      },
+      "nonBooleanActiveDenied": {
+        "allowed": false,
+        "permissionDenied": true
+      },
+      "invalidEnumKindDenied": {
+        "allowed": false,
+        "permissionDenied": true
+      }
+    },
+    "immutability": {
+      "createImmutableFieldAllowed": {
+        "allowed": true,
+        "permissionDenied": false
+      },
+      "updateKeepingImmutableFieldAllowed": {
+        "allowed": true,
+        "permissionDenied": false
+      },
+      "mutateImmutableFieldDenied": {
+        "allowed": false,
+        "permissionDenied": true
+      },
+      "createImmutableSelfAllowed": {
+        "allowed": true,
+        "permissionDenied": false
+      },
+      "repeatSameImmutableSelfAllowed": {
+        "allowed": true,
+        "permissionDenied": false
+      },
+      "changeImmutableSelfDenied": {
+        "allowed": false,
+        "permissionDenied": true
+      }
+    },
+    "crossPathRootLookups": {
+      "rootExistsPathVarPresentAllowed": {
+        "allowed": true,
+        "permissionDenied": false
+      },
+      "rootExistsPathVarMissingDenied": {
+        "allowed": false,
+        "permissionDenied": true
+      },
+      "rootExistsCallerListedAllowed": {
+        "allowed": true,
+        "permissionDenied": false
+      },
+      "rootExistsCallerUnlistedDenied": {
+        "allowed": false,
+        "permissionDenied": true
+      },
+      "rootEqualsMatchingRoleAllowed": {
+        "allowed": true,
+        "permissionDenied": false
+      },
+      "rootEqualsMismatchedRoleDenied": {
+        "allowed": false,
+        "permissionDenied": true
+      }
+    }
+  }
+}
