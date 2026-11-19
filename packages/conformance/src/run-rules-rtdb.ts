@@ -1044,7 +1044,7 @@ async function captureMultiInstance(): Promise<void> {
   const observation: Observation = {
     name: MULTI_INSTANCE_OBSERVATION,
     matrixRow: 'rtdb-modular#MI1',
-    rowIds: ['rtdb-modular#MI1', 'rtdb-modular#MI2'],
+    rowIds: ['rtdb-modular#MI1', 'rtdb-modular#MI2', 'rtdb-modular#MI3', 'rtdb-modular#MI5', 'rtdb-modular#MI6', 'rtdb-modular#MI7'],
     description: 'Two RTDB instances of one project, the default instance and a second one, each with a different ruleset deployed under a run-scoped key: client writes signed out and as one custom-token user, the value each instance holds afterwards read with an admin token, and the SDK\'s behavior for an instance URL that names no instance. Captured by deploy-observe-restore on both instances; rules restored and read back, run data and the run user deleted.',
     observedAt: new Date().toISOString(),
     fbSdkVersion,
