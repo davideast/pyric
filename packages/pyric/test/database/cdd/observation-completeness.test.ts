@@ -17,6 +17,8 @@ const NOT_APPLICABLE: Readonly<Record<string, string>> = {
     'Pure `rtdb-admin` capture (`rtdb-admin#5`, `firebase-admin/database` `Query` ordering, bounds, limits, context binding, scoped `off()`, and windowed `child_*` events); replayed across all four admin planes in `packages/pyric-admin/test/database/capture-admin-query-bounds-listeners-and-context.test.ts` and `packages/cli/test/serve/worker/oracle-captures/rtdb-admin-query-bounds-listeners-and-context.test.ts`.',
   'rtdb-modular-admin-ref-navigation-and-url-errors':
     'Pure `rtdb-admin` capture (`rtdb-admin#2`, `firebase-admin/database` `Database#ref`, `refFromURL`, and `Reference` navigation); replayed across all four admin planes in `packages/pyric-admin/test/database/capture-admin-database-and-priorities.test.ts` and `packages/cli/test/serve/worker/oracle-captures/rtdb-admin-database-and-priorities.test.ts`.',
+  'rtdb-modular-admin-use-emulator-validation':
+    'Pure `rtdb-admin` capture (`rtdb-admin#9`, `firebase-admin/database` `Database#useEmulator(host, port)` pre-start URL rebinding, custom-host `refFromURL`, post-start idempotency, and fatal guards); replayed across all four admin planes in `packages/pyric-admin/test/database/capture-admin-use-emulator.test.ts` and `packages/cli/test/serve/worker/oracle-captures/rtdb-admin-use-emulator.test.ts`.',
   'rtdb-modular-admin-writes-sentinels-and-validation':
     'Pure `rtdb-admin` capture (`rtdb-admin#3`, `firebase-admin/database` `Reference` writes, `ServerValue`, and synchronous validation); replayed across all four admin planes in `packages/pyric-admin/test/database/capture-admin-database-and-priorities.test.ts` and `packages/cli/test/serve/worker/oracle-captures/rtdb-admin-database-and-priorities.test.ts`.',
 };

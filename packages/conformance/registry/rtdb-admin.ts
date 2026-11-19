@@ -217,17 +217,20 @@ const rtdbAdminRows: CompatibilityRow[] = [
     featureKeys: ['Database.useEmulator'],
     api: 'db.useEmulator(host, port)',
     behavior:
-      'Checks that the `Database` handle has not been deleted and otherwise acts as a no-op because the sandbox handle already targets the local backend; host/port argument validation and post-connection re-pointing errors are not modeled.',
-    status: 'diverged-documented',
-    statusNote:
-      'no-op on active sandbox handles (already local); host/port validation and post-connection re-pointing are not modeled',
-    automation: 'unit-backed',
-    conformanceTests: ['packages/pyric-admin/test/surface/admin-surface.test.ts'],
+      'Rebinds reference and `refFromURL` URLs to `http://${host}:${port}/...` when called before the `Database` instance starts (allowing pre-start `(host, port)` overwrite and custom-host `refFromURL` resolution while routing sandbox and remote data operations locally), treats repeat `useEmulator` calls with the identical `(host, port)` and options after start as an idempotent no-op, and throws `FIREBASE FATAL ERROR` on post-start initialization or alteration, Admin `mockUserToken` options, or deleted databases.',
+    status: 'conforms',
+    automation: 'oracle-backed',
+    oracleObservations: ['rtdb-modular-admin-use-emulator-validation'],
+    conformanceTests: [
+      'packages/pyric-admin/test/surface/admin-surface.test.ts',
+      'packages/pyric-admin/test/database/capture-admin-use-emulator.test.ts',
+      'packages/cli/test/serve/worker/oracle-captures/rtdb-admin-use-emulator.test.ts',
+    ],
     evidence:
-      'Surface presence verified on both local and remote arms in `packages/pyric-admin/test/surface/admin-surface.test.ts`.',
-    risk: ['stateful'],
-    riskScore: 2,
-    riskReasons: ['asserts sandbox no-op vs upstream emulator host/port routing'],
+      'Production capture `rtdb-modular-admin-use-emulator-validation` records pre-start `http://${host}:${port}` URL rebinding and overwrite, `refFromURL` custom-host acceptance, host/port boundary interpolation, idempotent post-start repeat calls, and fatal errors on post-start alteration, `mockUserToken`, and deleted databases; replayed verbatim across in-process, remote SharedWorker, served SharedWorker, and Node host planes.',
+    risk: ['error-code', 'stateful'],
+    riskScore: 3,
+    riskReasons: ['asserts pre-start URL rebinding, post-start fatal guards, and 4-plane admin data routing'],
   }),
   adminRow({
     rowRef: '10',

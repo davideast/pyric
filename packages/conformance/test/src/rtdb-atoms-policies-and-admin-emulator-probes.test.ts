@@ -28,10 +28,9 @@ import {
 } from '../../src/sdk-probes.ts';
 import { expectStagedUntilCaptured } from './staged-capture-assertions.ts';
 
-const STAGED_PROBE_IDS = [
+const STAGED_RULES_PROBE_IDS = [
   'rtdb-rules-atoms-verdicts',
   'rtdb-rules-policies-verdicts',
-  'rtdb-modular-admin-use-emulator-validation',
 ] as const;
 
 const ALLOWED: ConstraintRuleVerdict = { allowed: true, permissionDenied: false };
@@ -80,8 +79,8 @@ function createConstraintRulesHarness(scopedRules: Record<string, unknown>) {
   };
 }
 
-describe('RTDB constraint atoms, policies, and admin useEmulator staged probes (sdk-probes)', () => {
-  test('registers all 3 staged probes on sdk-probes with pendingRowLink and clean authMode audit', async () => {
+describe('RTDB constraint atoms/policies staged probes and linked admin useEmulator probe (sdk-probes)', () => {
+  test('registers staged rules probes and linked admin useEmulator probe with clean authMode audit', async () => {
     const loaded = await loadModularProbes('sdk-probes');
     const byId = new Map(loaded.map((entry) => [entry.id, entry]));
 
@@ -100,9 +99,9 @@ describe('RTDB constraint atoms, policies, and admin useEmulator staged probes (
 
     expect(adminUseEmulatorProbe.rig).toBe('sdk-probes');
     expect(adminUseEmulatorProbe.requires).toEqual([]);
-    expect(adminUseEmulatorProbe.pendingRowLink).toBe(true);
-    expect(adminUseEmulatorProbe.matrixRow).toBe('');
-    expect(adminUseEmulatorProbe.rowIds).toEqual([]);
+    expect(adminUseEmulatorProbe.pendingRowLink).toBeUndefined();
+    expect(adminUseEmulatorProbe.matrixRow).toBe('rtdb-admin#9');
+    expect(adminUseEmulatorProbe.rowIds).toEqual(['rtdb-admin#9']);
     expect(adminUseEmulatorProbe.description.length).toBeGreaterThan(20);
 
     const unfilteredIds = new Set(
@@ -110,8 +109,9 @@ describe('RTDB constraint atoms, policies, and admin useEmulator staged probes (
         includeUncapturedStaged: false,
       }).map((entry) => entry.id),
     );
+    expect(unfilteredIds.has('rtdb-modular-admin-use-emulator-validation')).toBe(true);
 
-    expectStagedUntilCaptured(STAGED_PROBE_IDS, {
+    expectStagedUntilCaptured(STAGED_RULES_PROBE_IDS, {
       rig: 'sdk-probes',
       filterFlag: '--probe',
       filterValueFor: (name) => name,
@@ -130,7 +130,7 @@ describe('RTDB constraint atoms, policies, and admin useEmulator staged probes (
       probes: loaded,
       log: (line) => previewLines.push(line),
     });
-    for (const id of STAGED_PROBE_IDS) {
+    for (const id of [...STAGED_RULES_PROBE_IDS, 'rtdb-modular-admin-use-emulator-validation']) {
       expect(previewLines.some((line) => line.includes(id))).toBe(true);
     }
 
