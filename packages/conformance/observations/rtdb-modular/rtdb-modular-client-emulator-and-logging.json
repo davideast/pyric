@@ -1,0 +1,168 @@
+{
+  "name": "rtdb-modular-client-emulator-and-logging",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "firebase/database modular enableLogging(logger?, persistent?) and connectDatabaseEmulator(db, host, port, options?): observes live callback log delivery across set/get/onValue/runTransaction and post-disable silence, plus pre-start HTTP emulator URL rebinding/overwrite, mockUserToken object and JWT options, custom-host refFromURL resolution, idempotent post-start repeats, and post-start or deleted-app fatal errors.",
+  "observedAt": "2026-11-19T11:20:13.343Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "logging": {
+      "callbackToggleReturnsUndefined": true,
+      "customLoggerPersistentThrow": {
+        "threw": true,
+        "isErrorInstance": true,
+        "mentionsCantTurnOnPersistently": true
+      },
+      "booleanEnableReturnsUndefined": true,
+      "booleanDisableReturnsUndefined": true,
+      "disableReturnsUndefined": true,
+      "readVal": {
+        "count": 1
+      },
+      "listenerValues": [
+        {
+          "count": 1
+        },
+        {
+          "count": 2
+        }
+      ],
+      "transactionCommitted": true,
+      "transactionVal": 5,
+      "receivedCallbackLogs": true,
+      "allCallbackLogsNonEmptyStrings": true,
+      "afterDisableReadVal": {
+        "quiet": true
+      },
+      "logsEmittedAfterDisable": 0
+    },
+    "emulator": {
+      "baselineHttpsOrigin": {
+        "startsWithHttps": true,
+        "endsWithTargetPath": true
+      },
+      "preStartBindingAndOverwrite": {
+        "connectReturnsUndefined": true,
+        "afterConnectRefUrl": "http://127.0.0.1:9000/items/k1",
+        "afterConnectRefJson": "http://127.0.0.1:9000/items/k1",
+        "afterConnectRootUrl": "http://127.0.0.1:9000/",
+        "overwrittenBeforeStartRefUrl": "http://127.0.0.1:9002/items/k1",
+        "ipv6LoopbackHost": {
+          "callOutcome": {
+            "threw": false,
+            "isErrorInstance": false,
+            "code": null,
+            "message": null
+          },
+          "resultingUrl": "http://[::1]:9000/items/k1"
+        }
+      },
+      "mockUserTokenOptions": {
+        "objectTokenBinding": {
+          "callOutcome": {
+            "threw": false,
+            "isErrorInstance": false,
+            "code": null,
+            "message": null
+          },
+          "resultingUrl": "http://127.0.0.1:9000/items/k1"
+        },
+        "userIdTokenBinding": {
+          "callOutcome": {
+            "threw": false,
+            "isErrorInstance": false,
+            "code": null,
+            "message": null
+          },
+          "resultingUrl": "http://127.0.0.1:9000/items/k1"
+        },
+        "stringTokenBinding": {
+          "callOutcome": {
+            "threw": false,
+            "isErrorInstance": false,
+            "code": null,
+            "message": null
+          },
+          "resultingUrl": "http://127.0.0.1:9000/items/k1"
+        },
+        "emptyMockTokenThrow": {
+          "threw": true,
+          "isErrorInstance": true,
+          "code": null,
+          "message": "mockUserToken must contain 'sub' or 'user_id' field!"
+        },
+        "sameMockTokenRepeatAfterStart": {
+          "threw": false,
+          "isErrorInstance": false,
+          "code": null,
+          "message": null
+        },
+        "differentMockTokenAfterStart": {
+          "threw": true,
+          "isErrorInstance": true,
+          "code": null,
+          "message": "FIREBASE FATAL ERROR: connectDatabaseEmulator() cannot initialize or alter the emulator configuration after the database instance has started. "
+        }
+      },
+      "refFromUrlAfterConnectEmulator": {
+        "matchingEmulatorOrigin": {
+          "callOutcome": {
+            "threw": false,
+            "isErrorInstance": false,
+            "code": null,
+            "message": null
+          },
+          "resultingUrl": "http://127.0.0.1:9000/items/k2"
+        },
+        "otherHttpsNamespaceOrigin": {
+          "callOutcome": {
+            "threw": false,
+            "isErrorInstance": false,
+            "code": null,
+            "message": null
+          },
+          "resultingUrl": "http://127.0.0.1:9000/items/k2"
+        }
+      },
+      "lifecycleAndPostStartGuards": {
+        "sameHostPortRepeatAfterRef": {
+          "threw": false,
+          "isErrorInstance": false,
+          "code": null,
+          "message": null
+        },
+        "differentPortAfterRef": {
+          "threw": true,
+          "isErrorInstance": true,
+          "code": null,
+          "message": "FIREBASE FATAL ERROR: connectDatabaseEmulator() cannot initialize or alter the emulator configuration after the database instance has started. "
+        },
+        "differentHostAfterRef": {
+          "threw": true,
+          "isErrorInstance": true,
+          "code": null,
+          "message": "FIREBASE FATAL ERROR: connectDatabaseEmulator() cannot initialize or alter the emulator configuration after the database instance has started. "
+        },
+        "firstCallAfterRef": {
+          "threw": true,
+          "isErrorInstance": true,
+          "code": null,
+          "message": "FIREBASE FATAL ERROR: connectDatabaseEmulator() cannot initialize or alter the emulator configuration after the database instance has started. "
+        },
+        "firstCallAfterGoOffline": {
+          "threw": true,
+          "isErrorInstance": true,
+          "code": null,
+          "message": "FIREBASE FATAL ERROR: connectDatabaseEmulator() cannot initialize or alter the emulator configuration after the database instance has started. "
+        },
+        "callOnDeletedDatabase": {
+          "threw": true,
+          "isErrorInstance": true,
+          "code": null,
+          "message": "FIREBASE FATAL ERROR: Cannot call useEmulator on a deleted database. "
+        }
+      }
+    }
+  }
+}
