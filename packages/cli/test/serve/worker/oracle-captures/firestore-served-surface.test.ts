@@ -106,7 +106,7 @@ describe('served firestore surface', () => {
     expect(infAdmin.data()).toEqual({ s: Infinity, a: Infinity, n: 2 });
   });
 
-  describe('FP-9: network controls conform while cache/persistence remain accepted on served planes', () => {
+  describe('FP-9: network, cache, persistence, and termination lifecycle conform across served planes', () => {
     const lifecycle = load('firestore-browser-lifecycle');
 
     it('a write after disableNetwork stays pending with local cache metadata until enableNetwork across planes', async () => {
@@ -143,21 +143,27 @@ describe('served firestore surface', () => {
       }
     });
 
-    it('getDocFromCache on a doc never read resolves; production rejects unavailable', async () => {
-      // Over the worker, the surface's getDocFromCache is this read of the host's store.
+    it('getDocFromCache on a doc never read rejects unavailable as production does', async () => {
       const host = await makeHostCtx();
       setRules(host.sandbox, OPEN_RULES);
-      const { db } = connectClientToHost(host, `worker://served-cache-${Math.random()}`);
-      expect([lifecycle.coldCacheThrew, lifecycle.coldCacheCode]).toEqual([true, 'unavailable']);
-      const snapshot = await readDocumentAs(client.doc(db, 'lifecycle/cache'), 'getDocFromCache');
-      expect(snapshot.exists()).toBe(false);
+      try {
+        const { db } = connectClientToHost(host, `worker://served-cache-${Math.random()}`);
+        expect([lifecycle.coldCacheThrew, lifecycle.coldCacheCode]).toEqual([true, 'unavailable']);
+        await expect(
+          readDocumentAs(client.doc(db, 'lifecycle/cache'), 'getDocFromCache'),
+        ).rejects.toMatchObject({ code: lifecycle.coldCacheCode });
+      } finally {
+        host.sandbox.dispose();
+      }
     });
 
-    it('enableIndexedDbPersistence after first use resolves; production fails failed-precondition', async () => {
+    it('enableIndexedDbPersistence after first use rejects failed-precondition as production does', async () => {
       const db = inPageDb();
       await ip.getDoc(ip.doc(db, 'lifecycle/precondition'));
       expect([lifecycle.persistenceAfterUseThrew, lifecycle.persistenceAfterUseCode]).toEqual([true, 'failed-precondition']);
-      await expect(surface.enableIndexedDbPersistence(db)).resolves.toBeUndefined();
+      await expect(surface.enableIndexedDbPersistence(db)).rejects.toMatchObject({
+        code: lifecycle.persistenceAfterUseCode,
+      });
     });
   });
 });

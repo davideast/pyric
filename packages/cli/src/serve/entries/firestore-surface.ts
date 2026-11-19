@@ -20,7 +20,6 @@ import {
   applySettingsCacheMode,
   assertAndRecordAppFirestoreSettings,
   clearAppFirestoreSettings,
-  markHandlePersistentCache,
   readDocumentAs,
   readQueryAs,
   recordImplicitAppFirestoreSettings,
@@ -39,12 +38,17 @@ import {
   clearIndexedDbPersistence as workerClearIndexedDbPersistence,
   documentSnapshotFromJSON as workerDocumentSnapshotFromJSON,
   loadBundle as workerLoadBundle,
-  markWorkerPortStarted,
-  markWorkerPortTerminated,
   namedQuery as workerNamedQuery,
   onSnapshotResume as workerOnSnapshotResume,
   querySnapshotFromJSON as workerQuerySnapshotFromJSON,
 } from '../worker/client/firestore-bundles-ssr.js';
+import {
+  enableIndexedDbPersistence as workerEnableIndexedDbPersistence,
+  enableMultiTabIndexedDbPersistence as workerEnableMultiTabIndexedDbPersistence,
+  markWorkerPortStarted,
+  registerWorkerDbTeardown,
+  terminate as workerTerminate,
+} from '../worker/client/firestore-lifecycle.js';
 import { getFirestore as pyricGetFirestore } from 'pyric/firestore';
 import { markServiceUsed } from './service-use.js';
 import * as wcRaw from '../worker/client.js';
@@ -127,10 +131,16 @@ export const getFirestore = ((app?: FirebaseApp, databaseId?: string) => {
     return existing;
   }
   const client = workerClientForApp(resolved);
-  const handle = Object.assign(client, {
+  const handle = {
+    __kind: 'client-db' as const,
+    port: client.port,
     app: resolved,
     type: 'firestore' as const,
-  }) as unknown as ReturnType<typeof pyricGetFirestore>;
+  } as unknown as ReturnType<typeof pyricGetFirestore>;
+  registerWorkerDbTeardown(handle as object, () => {
+    workerFirestoreByApp.delete(resolved);
+    clearAppFirestoreSettings(resolved);
+  });
   workerFirestoreByApp.set(resolved, handle);
   recordImplicitAppFirestoreSettings(resolved, databaseId, handle);
   return handle;
@@ -190,22 +200,38 @@ export const disablePersistentCacheIndexAutoCreation = ip.disablePersistentCache
 export const deleteAllPersistentCacheIndexes = ip.deleteAllPersistentCacheIndexes;
 export const setIndexConfiguration = ip.setIndexConfiguration;
 
-export async function enableIndexedDbPersistence(db?: unknown): Promise<void> {
+export function enableIndexedDbPersistence(
+  db?: unknown,
+  persistenceSettings?: ip.PersistenceSettings,
+): Promise<void> {
   acceptedNoOp('enableIndexedDbPersistence');
-  if (db !== null && typeof db === 'object') {
-    markHandlePersistentCache(db);
+  if (db !== null && typeof db === 'object' && 'port' in db) {
+    return workerEnableIndexedDbPersistence(
+      db as Parameters<typeof workerEnableIndexedDbPersistence>[0],
+      persistenceSettings,
+    );
   }
+  if (db !== null && typeof db === 'object' && ip.TARGET_SYMBOL in db) {
+    return ip.enableIndexedDbPersistence(db as ip.Firestore, persistenceSettings);
+  }
+  return Promise.reject(
+    new FirebaseError('invalid-argument', 'Expected first argument to enableIndexedDbPersistence() to be a Firestore instance.'),
+  );
 }
 
-/** No-op success, same rationale as `enableIndexedDbPersistence` -- the
- *  SharedWorker path already IS the one store every tab reads/writes, so
- *  there's no separate multi-tab mode to opt into over the worker; the
- *  in-page fallback has no multi-tab story to begin with. */
-export async function enableMultiTabIndexedDbPersistence(db?: unknown): Promise<void> {
+export function enableMultiTabIndexedDbPersistence(db?: unknown): Promise<void> {
   acceptedNoOp('enableMultiTabIndexedDbPersistence');
-  if (db !== null && typeof db === 'object') {
-    markHandlePersistentCache(db);
+  if (db !== null && typeof db === 'object' && 'port' in db) {
+    return workerEnableMultiTabIndexedDbPersistence(
+      db as Parameters<typeof workerEnableMultiTabIndexedDbPersistence>[0],
+    );
   }
+  if (db !== null && typeof db === 'object' && ip.TARGET_SYMBOL in db) {
+    return ip.enableMultiTabIndexedDbPersistence(db as ip.Firestore);
+  }
+  return Promise.reject(
+    new FirebaseError('invalid-argument', 'Expected first argument to enableMultiTabIndexedDbPersistence() to be a Firestore instance.'),
+  );
 }
 
 const startedSurfaceHandles = new WeakSet<object>();
@@ -276,21 +302,8 @@ export async function enableNetwork(db?: unknown): Promise<void> {
  * settles without tearing anything down.
  */
 export async function terminate(db?: unknown): Promise<void> {
-  if (useWorker) {
-    if (db !== null && typeof db === 'object' && 'port' in db) {
-      markWorkerPortTerminated((db as { port: object }).port);
-    }
-    if (db !== null && typeof db === 'object' && 'app' in db) {
-      const ownerApp = (db as { app?: unknown }).app;
-      if (ownerApp !== null && typeof ownerApp === 'object') {
-        clearAppFirestoreSettings(ownerApp);
-      }
-    }
-    console.info(
-      '[pyric sandbox] terminate(): the SharedWorker-hosted sandbox is shared across every tab; ' +
-        'it is not torn down by a single tab calling terminate().',
-    );
-    return;
+  if (db !== null && typeof db === 'object' && 'port' in db) {
+    return workerTerminate(db as Parameters<typeof workerTerminate>[0]);
   }
   if (db !== null && typeof db === 'object') {
     terminatedSurfaceHandles.add(db);
@@ -318,8 +331,22 @@ const documentRead = useWorker ? workerDocumentRead as unknown as typeof readDoc
 const queryRead = useWorker ? workerQueryRead as unknown as typeof readQueryAs : readQueryAs;
 export const getDocFromServer: typeof ip.getDoc = ref => documentRead(ref, 'getDocFromServer');
 export const getDocsFromServer: typeof ip.getDocs = query => queryRead(query, 'getDocsFromServer');
-export const getDocFromCache: typeof ip.getDoc = ref => documentRead(ref, 'getDocFromCache');
-export const getDocsFromCache: typeof ip.getDocs = query => queryRead(query, 'getDocsFromCache');
+export const getDocFromCache: typeof ip.getDoc = <T = ip.DocumentData>(
+  ref: ip.DocumentReference<T>,
+): Promise<ip.DocumentSnapshot<T>> => {
+  if (ref !== null && typeof ref === 'object' && 'port' in ref) {
+    return workerDocumentRead(ref as unknown as Parameters<typeof workerDocumentRead>[0], 'getDocFromCache') as unknown as Promise<ip.DocumentSnapshot<T>>;
+  }
+  return ip.getDocFromCache(ref);
+};
+export const getDocsFromCache: typeof ip.getDocs = <T = ip.DocumentData>(
+  query: ip.Query<T>,
+): Promise<ip.QuerySnapshot<T>> => {
+  if (query !== null && typeof query === 'object' && 'port' in query) {
+    return workerQueryRead(query as unknown as Parameters<typeof workerQueryRead>[0], 'getDocsFromCache') as unknown as Promise<ip.QuerySnapshot<T>>;
+  }
+  return ip.getDocsFromCache(query);
+};
 
 /**
  * Local no-op reimplementation rather than delegating to `ip.onSnapshotsInSync`:

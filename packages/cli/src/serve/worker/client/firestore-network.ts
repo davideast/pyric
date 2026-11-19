@@ -12,6 +12,13 @@ import {
   targetMatchesPath,
   type WorkerOfflineMutation,
 } from './firestore-offline-projection.js';
+import {
+  assertWorkerFirestoreActive,
+  markWorkerHandleStarted,
+  markWorkerPathCached,
+  registerPortTerminationReset,
+  unmarkWorkerPathCached,
+} from './firestore-lifecycle.js';
 
 export type { WorkerOfflineMutation };
 
@@ -39,6 +46,10 @@ interface PortFirestoreState {
 }
 
 const portStates = new WeakMap<ClientPort, PortFirestoreState>();
+
+registerPortTerminationReset((port) => {
+  portStates.delete(port);
+});
 
 function stateForPort(port: ClientPort): PortFirestoreState {
   let state = portStates.get(port);
@@ -68,6 +79,7 @@ export function recordWorkerOnlineDoc(
   data: SerializedDocData | undefined,
 ): void {
   const state = stateForPort(port);
+  markWorkerPathCached(port, path);
   if (exists && data !== undefined) {
     state.baseDocs.set(path, data);
     state.warmExistingPaths.add(path);
@@ -86,14 +98,24 @@ export function markWorkerCommittedWrite(
     if (m.kind === 'delete') {
       state.baseDocs.set(m.path, null);
       state.warmExistingPaths.delete(m.path);
+      unmarkWorkerPathCached(port, m.path);
     } else {
       const projected = projectWorkerOfflineDoc(m.path, state.baseDocs.get(m.path), [{ mutations: [m] }]);
       if (projected.result.exists && projected.result.data !== undefined) {
         state.baseDocs.set(m.path, projected.result.data);
       }
       state.warmExistingPaths.add(m.path);
+      markWorkerPathCached(port, m.path);
     }
   }
+}
+
+export function readWorkerCachedDocProjection(
+  port: ClientPort,
+  path: string,
+): { readonly known: boolean; readonly result: RawDocResult } {
+  const state = stateForPort(port);
+  return projectWorkerOfflineDoc(path, state.baseDocs.get(path), state.staged);
 }
 
 export function isWorkerTargetWarm(port: ClientPort, target: TargetDescriptor): boolean {
@@ -141,6 +163,13 @@ export function enqueueWorkerOfflineWrite<T>(
   sendOnline: () => Promise<T>,
 ): Promise<T> {
   const state = stateForPort(port);
+  for (const m of mutations) {
+    if (m.kind === 'delete') {
+      unmarkWorkerPathCached(port, m.path);
+    } else {
+      markWorkerPathCached(port, m.path);
+    }
+  }
   const stageId = state.nextStageId;
   state.nextStageId += 1;
   state.staged.push({ id: stageId, mutations });
@@ -199,9 +228,11 @@ export function generateWorkerAutoId(): string {
   return out;
 }
 
-export function disableNetwork(db: ClientDb): Promise<void> {
+export async function disableNetwork(db: ClientDb): Promise<void> {
+  assertWorkerFirestoreActive(db);
+  markWorkerHandleStarted(db);
   const state = stateForPort(db.port);
-  if (!state.networkEnabled) return Promise.resolve();
+  if (!state.networkEnabled) return;
   state.networkEnabled = false;
   for (const listener of [...state.listeners]) {
     listener.suspendFromHost();
@@ -213,10 +244,11 @@ export function disableNetwork(db: ClientDb): Promise<void> {
       });
     }
   }
-  return Promise.resolve();
 }
 
 export async function enableNetwork(db: ClientDb): Promise<void> {
+  assertWorkerFirestoreActive(db);
+  markWorkerHandleStarted(db);
   const state = stateForPort(db.port);
   const wasOffline = !state.networkEnabled;
   state.networkEnabled = true;
@@ -230,8 +262,10 @@ export async function enableNetwork(db: ClientDb): Promise<void> {
   }
 }
 
-export function waitForPendingWrites(db: ClientDb): Promise<void> {
+export async function waitForPendingWrites(db: ClientDb): Promise<void> {
+  assertWorkerFirestoreActive(db);
+  markWorkerHandleStarted(db);
   const state = stateForPort(db.port);
   const snapshot = [...state.pendingWrites].map((w) => w.promise);
-  return Promise.allSettled(snapshot).then(() => undefined);
+  await Promise.allSettled(snapshot);
 }

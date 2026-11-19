@@ -16,6 +16,7 @@ import type {
 } from '../protocol.js';
 import type { ClientDb, DocRefHandle, CollRefHandle, QueryHandle } from './handles.js';
 import { createCollectionReference, createDocumentReference } from './firestore-reference.js';
+import { bindWorkerHandleOwner, resolveWorkerParentOwner } from './firestore-lifecycle.js';
 import { FirebaseError } from 'pyric/app';
 import { encodeDocValue, DOC_VALUE_ENCODING } from 'pyric/firestore/internal/value-codec';
 import { normalizeQueryOrders } from 'pyric/firestore/internal/implicit-order';
@@ -86,6 +87,7 @@ export function doc<T = DocumentData>(
       'Expected first argument to doc() to be a Firestore, a CollectionReference or a DocumentReference',
     );
   }
+  const owner = resolveWorkerParentOwner(parent);
   const port = parent.port;
   let path: string;
   let converter: FirestoreDataConverter<unknown> | null = null;
@@ -93,10 +95,7 @@ export function doc<T = DocumentData>(
   const hasPath = pathSegments.length > 0;
   if (parent.__kind === 'client-db' || parent.__kind === 'doc-ref') {
     if (!hasPath) {
-      throw new FirebaseError(
-        'invalid-argument',
-        'Function doc() cannot be called with an empty path.',
-      );
+      throw new FirebaseError('invalid-argument', 'Function doc() cannot be called with an empty path.');
     }
     const relSegments = parseClientPathSegments('doc', pathSegments);
     let baseSegments: string[] = [];
@@ -130,7 +129,7 @@ export function doc<T = DocumentData>(
     }
   }
 
-  return createDocumentReference<T>(port, path, converter);
+  return createDocumentReference<T>(port, path, converter, owner);
 }
 
 /**
@@ -149,12 +148,10 @@ export function collection(
       'Expected first argument to collection() to be a Firestore, a CollectionReference or a DocumentReference',
     );
   }
+  const owner = resolveWorkerParentOwner(parent);
   const port = parent.port;
   if (pathSegments.length === 0) {
-    throw new FirebaseError(
-      'invalid-argument',
-      'Function collection() cannot be called with an empty path.',
-    );
+    throw new FirebaseError('invalid-argument', 'Function collection() cannot be called with an empty path.');
   }
 
   const relSegments = parseClientPathSegments('collection', pathSegments);
@@ -171,7 +168,7 @@ export function collection(
   }
   const path = allSegments.join('/');
 
-  return createCollectionReference(port, path, null);
+  return createCollectionReference(port, path, null, owner);
 }
 
 /** Query handles are rebuilt per view so each carries its own converter. */
@@ -180,11 +177,12 @@ function createQueryHandle<T = DocumentData>(
   descriptor: QueryDescriptor,
   converter: FirestoreDataConverter<unknown> | null,
   items?: readonly RawConstraintItem[],
+  owner?: object,
 ): QueryHandle<T> {
   function withConverter<A, D extends DocumentData = DocumentData>(next: FirestoreDataConverter<A, D>): QueryHandle<A>;
   function withConverter(next: null): QueryHandle;
   function withConverter(next: FirestoreDataConverter<unknown> | null): QueryHandle<unknown> {
-    return createQueryHandle(port, descriptor, next, rawQueryItems.get(handle));
+    return createQueryHandle(port, descriptor, next, rawQueryItems.get(handle), owner);
   }
   const handle: QueryHandle<T> = {
     __kind: 'query',
@@ -195,7 +193,7 @@ function createQueryHandle<T = DocumentData>(
     withConverter,
   };
   if (items !== undefined) rawQueryItems.set(handle, items);
-  return handle;
+  return bindWorkerHandleOwner(handle, owner);
 }
 
 /**
@@ -208,6 +206,7 @@ export function collectionGroup(db: ClientDb, collectionId: string): QueryHandle
       'Expected first argument to collectionGroup() to be a Firestore instance.',
     );
   }
+  const owner = resolveWorkerParentOwner(db);
   if (typeof collectionId !== 'string' || collectionId.length === 0 || collectionId.includes('/')) {
     throw new FirebaseError(
       'invalid-argument',
@@ -219,7 +218,7 @@ export function collectionGroup(db: ClientDb, collectionId: string): QueryHandle
     source: { __ref: 'group', collectionId },
     constraints: [],
   };
-  return createQueryHandle(db.port, descriptor, null);
+  return createQueryHandle(db.port, descriptor, null, undefined, owner);
 }
 
 // ─── Query constraint factories (client-side) ─────────────────────────────
@@ -535,6 +534,7 @@ export function query(
   source: CollRefHandle | QueryHandle,
   ...constraints: QueryConstraintHandle[]
 ): QueryHandle {
+  const owner = resolveWorkerParentOwner(source);
   assertWorkerTopLevelCompositeFilterMixing(constraints);
   const sourceDescriptor: TargetDescriptor =
     source.__kind === 'coll-ref'
@@ -558,7 +558,7 @@ export function query(
       : (sourceDescriptor as DocRef | CollRef | GroupRef),
     constraints: resolveQueryConstraints(allItems),
   };
-  return createQueryHandle(source.port, descriptor, source.converter, allItems);
+  return createQueryHandle(source.port, descriptor, source.converter, allItems, owner);
 }
 
 // ─── Sentinel factories (client-side markers) ────────────────────────────

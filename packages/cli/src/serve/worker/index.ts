@@ -206,6 +206,11 @@ export {
   enableNetwork,
   waitForPendingWrites,
 } from './client/firestore-network.js';
+export {
+  enableIndexedDbPersistence,
+  enableMultiTabIndexedDbPersistence,
+  terminate,
+} from './client/firestore-lifecycle.js';
 
 // RTDB bridge families are exported directly from their owning modules. This
 // public package index is the sole aggregation point for the worker surface.

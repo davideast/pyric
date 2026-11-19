@@ -25,7 +25,8 @@ const EXPECTED_VALUE_EXPORTS: readonly string[] = [
   'browserLocalPersistence', 'browserSessionPersistence', 'callTool', 'collection',
   'collectionGroup', 'connectAuthEmulator', 'count', 'createUserWithEmailAndPassword',
   'createWorkerReplacement', 'deleteDoc', 'deleteField', 'deleteObject',
-  'deleteWorkerCheckpoint', 'disableNetwork', 'disconnectClient', 'disconnectPort', 'doc', 'enableNetwork', 'endAt',
+  'deleteWorkerCheckpoint', 'disableNetwork', 'disconnectClient', 'disconnectPort', 'doc',
+  'enableIndexedDbPersistence', 'enableMultiTabIndexedDbPersistence', 'enableNetwork', 'endAt',
   'endBefore', 'eventHistory', 'exportWorkerState', 'getActiveRules',
   'getAggregateFromServer', 'getAuth', 'getBlob', 'getBytes', 'getCountFromServer',
   'getDoc', 'getDocs', 'getDownloadURL', 'getFirestore', 'getHostedFirestore', 'getIdToken', 'getIdTokenResult', 'getLens',
@@ -48,7 +49,7 @@ const EXPECTED_VALUE_EXPORTS: readonly string[] = [
   'setProviderConfig', 'setRules', 'signInAnonymously',
   'signInWithEmailAndPassword', 'signOut', 'startAfter', 'startAt', 'startPresence',
   'subscribeEvents', 'subscribeLens', 'subscribePresence',
-  'takeAuthMail',
+  'takeAuthMail', 'terminate',
   'sum', 'restoreWorkerCheckpoint', 'updateDoc', 'uploadBytes', 'uploadString', 'uploadBytesResumable', 'waitForPendingWrites', 'where', 'wirePort', 'workerNameForEpoch',
   'writeBatch',
 ];
