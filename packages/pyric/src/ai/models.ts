@@ -261,6 +261,15 @@ export class ChatSession extends ChatSessionBase {
       validateChatHistory(params.history);
       this._history = structuredClone(params.history);
     }
+    if (this.params !== undefined && this.params.systemInstruction != null) {
+      const formattedSystemInstruction = formatSystemInstruction(
+        this.params.systemInstruction as string | ContentShape,
+      );
+      this.params = {
+        ...this.params,
+        systemInstruction: formattedSystemInstruction,
+      };
+    }
   }
 
   /** Format one turn into a full request over the current history. */

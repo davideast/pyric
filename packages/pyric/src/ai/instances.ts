@@ -110,7 +110,7 @@ function sandboxAI(sandbox: Sandbox, options?: AIOptions, app?: FirebaseApp): AI
 
   let broker = brokersBySandbox.get(sandbox);
   if (!broker) {
-    broker = new AiBroker({ engine: options?.engine, sandbox });
+    broker = new AiBroker({ engine: options?.engine, sandbox, validateModels: true });
     brokersBySandbox.set(sandbox, broker);
     brokerEngineBySandbox.set(sandbox, options?.engine);
   }
@@ -129,7 +129,7 @@ export function createConfiguredSandboxAI(sandbox: Sandbox, options: AIOptions):
   const engine = supplied && !isCustomEngine(supplied) && supplied.kind === 'openai'
     ? { ...supplied, modelMap: { ...supplied.modelMap } }
     : supplied;
-  return sandboxHandle(sandbox, new AiBroker({ sandbox, engine }), { ...options, engine });
+  return sandboxHandle(sandbox, new AiBroker({ sandbox, engine, validateModels: true }), { ...options, engine });
 }
 
 function sandboxHandle(sandbox: Sandbox, broker: AiBroker, options?: AIOptions, app?: FirebaseApp): AI {
