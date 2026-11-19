@@ -1,0 +1,182 @@
+{
+  "name": "rtdb-modular-admin-transaction-rules-and-logging",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "firebase-admin/database Reference.transaction, Database.getRules/getRulesJSON/setRules, and enableLogging: observes commit/abort/onComplete/defensive-clone/priority/increment/contention/validation transactions, string/object/Buffer rules round-trips with comment preservation and invalid-source rejections, and custom callback logging toggle.",
+  "observedAt": "2026-11-19T08:15:09.363Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "transaction": {
+      "commitAndOnComplete": {
+        "resultCommitted": true,
+        "resultVal": {
+          "count": 15
+        },
+        "callbackInvoked": true,
+        "callbackErrorIsNull": true,
+        "callbackCommitted": true,
+        "callbackVal": {
+          "count": 15
+        },
+        "persistedVal": {
+          "count": 15
+        }
+      },
+      "abortUndefinedAndDefensiveClone": {
+        "resultCommitted": false,
+        "resultVal": {
+          "nested": {
+            "keep": 7
+          }
+        },
+        "callbackInvoked": true,
+        "callbackErrorIsNull": true,
+        "callbackCommitted": false,
+        "callbackVal": {
+          "nested": {
+            "keep": 7
+          }
+        },
+        "persistedVal": {
+          "nested": {
+            "keep": 7
+          }
+        },
+        "spuriousListenerFires": 0
+      },
+      "priorityAndIncrement": {
+        "resultCommitted": true,
+        "resultVal": {
+          "score": 25
+        },
+        "resultPriority": "rank-b",
+        "exportVal": {
+          "score": 25,
+          ".priority": "rank-b"
+        }
+      },
+      "twoClientContention": {
+        "bothCommitted": true,
+        "finalVal": 1
+      },
+      "syncValidation": {
+        "nonFunctionUpdate": {
+          "timing": "synchronous-throw",
+          "isErrorInstance": true,
+          "name": "Error",
+          "message": "Reference.transaction failed: transactionUpdate argument must be a valid function."
+        },
+        "nonFunctionOnComplete": {
+          "timing": "synchronous-throw",
+          "isErrorInstance": true,
+          "name": "Error",
+          "message": "Reference.transaction failed: onComplete argument must be a valid function."
+        },
+        "nonBooleanApplyLocally": {
+          "timing": "synchronous-throw",
+          "isErrorInstance": true,
+          "name": "Error",
+          "message": "Reference.transaction failed: applyLocally argument must be a boolean."
+        },
+        "undefinedPropertyThrowsSync": {
+          "timing": "synchronous-throw",
+          "isErrorInstance": true,
+          "name": "Error",
+          "mentionsUndefinedBadProp": false
+        }
+      }
+    },
+    "rulesManagement": {
+      "setObjectSource": {
+        "rawIsString": true,
+        "jsonProbeMarker": {
+          ".read": "auth != null",
+          ".indexOn": [
+            "byObj"
+          ]
+        }
+      },
+      "setCommentedStringSource": {
+        "rawPreservesComment": true,
+        "jsonProbeMarker": {
+          ".read": "auth != null",
+          ".indexOn": [
+            "byStr"
+          ]
+        },
+        "jsonExcludesCommentText": true
+      },
+      "setBufferSource": {
+        "rawPreservesBufferComment": true,
+        "jsonProbeMarker": {
+          ".read": "auth != null",
+          ".indexOn": [
+            "byBuf"
+          ]
+        }
+      },
+      "invalidArguments": {
+        "nullSource": {
+          "rejected": true,
+          "isErrorInstance": true,
+          "name": "Error",
+          "code": "database/invalid-argument",
+          "hasExpectedMessagePrefix": true
+        },
+        "undefinedSource": {
+          "rejected": true,
+          "isErrorInstance": true,
+          "name": "Error",
+          "code": "database/invalid-argument",
+          "hasExpectedMessagePrefix": true
+        },
+        "emptyStringSource": {
+          "rejected": true,
+          "isErrorInstance": true,
+          "name": "Error",
+          "code": "database/invalid-argument",
+          "hasExpectedMessagePrefix": true
+        },
+        "numberSource": {
+          "rejected": true,
+          "isErrorInstance": true,
+          "name": "Error",
+          "code": "database/invalid-argument",
+          "hasExpectedMessagePrefix": true
+        },
+        "arraySource": {
+          "rejected": true,
+          "isErrorInstance": true,
+          "name": "Error",
+          "code": "database/invalid-argument",
+          "hasExpectedMessagePrefix": true
+        }
+      },
+      "serverRejectionsPreservePriorRules": {
+        "malformedJson": {
+          "rejected": true,
+          "isErrorInstance": true,
+          "name": "Error",
+          "code": "database/internal-error",
+          "hasExpectedMessagePrefix": true
+        },
+        "invalidExpression": {
+          "rejected": true,
+          "isErrorInstance": true,
+          "name": "Error",
+          "code": "database/internal-error",
+          "hasExpectedMessagePrefix": true
+        },
+        "priorBufferRulesStillIntact": true
+      }
+    },
+    "logging": {
+      "enableCallbackReturnUndefined": true,
+      "disableReturnUndefined": true,
+      "callbackInvokedWhileEnabled": true,
+      "allMessagesNonEmptyStrings": true,
+      "silentAfterDisable": true
+    }
+  }
+}
