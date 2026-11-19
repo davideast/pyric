@@ -1,0 +1,45 @@
+{
+  "name": "firestore-rules-write-and-cross-doc-verdicts",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "Firestore security-rules write and cross-document evaluation via the client SDK: request.auth == null when unauthenticated, cross-document exists()/get() and get(path).id/__name__ with missing-doc error denial, request.resource.data create validation and undefined-field denial, resource.data existing-doc checks, custom token claims on request.auth.token, and updateDoc merged request.resource.data.",
+  "observedAt": "2026-11-19T22:59:48.951Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "anonOnly": {
+      "unauthedRead": "allowed",
+      "signedInRead": "error:permission-denied"
+    },
+    "crossDoc": {
+      "enabledAclRead": "allowed",
+      "disabledAclRead": "error:permission-denied",
+      "existsGuardMissingAclRead": "error:permission-denied",
+      "crossDocIdRead": "allowed",
+      "crossDocIdNotEqZzzRead": "allowed",
+      "crossDocNameRead": "error:permission-denied",
+      "unguardedMissingGetRead": "error:permission-denied"
+    },
+    "requestResourceValidation": {
+      "validCreate": "allowed",
+      "emptyTitleCreate": "error:permission-denied",
+      "nonStringTitleCreate": "error:permission-denied",
+      "missingTitleFieldCreate": "error:permission-denied"
+    },
+    "existingResourceField": {
+      "ownerMatchUpdate": "allowed",
+      "ownerChangeAttempt": "error:permission-denied",
+      "ownerMismatchUpdate": "error:permission-denied",
+      "missingOwnerFieldOnExistingDoc": "error:permission-denied"
+    },
+    "customClaims": {
+      "claimedWrite": "allowed",
+      "plainSignedInWrite": "error:permission-denied",
+      "unauthedWrite": "error:permission-denied"
+    },
+    "updateMergedRequestResource": {
+      "sparseUpdatePreservingKeep": "error:permission-denied",
+      "fullSetDroppingKeep": "error:permission-denied"
+    }
+  }
+}

@@ -1,0 +1,80 @@
+{
+  "name": "firestore-query-proof-and-read-rules",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "Query-proof and security-rules read enforcement on getDocs, getCountFromServer, and onSnapshot: deny-all and auth-gated queries reject with permission-denied, doc-data-dependent list rules require provable where() equalities rather than filtering results, allow get: false does not block provable list queries, and request.query.limit bounds list authorization.",
+  "observedAt": "2026-11-19T22:58:38.065Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "denyAllGetDocs": {
+      "ok": false,
+      "code": "permission-denied"
+    },
+    "denyAllCount": {
+      "ok": false,
+      "code": "permission-denied"
+    },
+    "unauthedGetDocs": {
+      "ok": false,
+      "code": "permission-denied"
+    },
+    "authedGetDocs": {
+      "ok": true,
+      "ids": [
+        "a"
+      ]
+    },
+    "unfilteredVisibilityList": {
+      "ok": false,
+      "code": "permission-denied"
+    },
+    "provablePublicList": {
+      "ok": true,
+      "ids": [
+        "pub1",
+        "pub2"
+      ]
+    },
+    "perDocGetOnPublicItem": "error:permission-denied",
+    "provablePublicCount": {
+      "ok": true,
+      "count": 2
+    },
+    "unfilteredVisibilityCount": {
+      "ok": false,
+      "code": "permission-denied"
+    },
+    "provableOwnerList": {
+      "ok": true,
+      "ids": [
+        "mine"
+      ]
+    },
+    "provableSnapshot": {
+      "ok": true,
+      "ids": [
+        "pub1",
+        "pub2"
+      ]
+    },
+    "unprovableSnapshot": {
+      "ok": true,
+      "ids": [
+        "mine",
+        "pub1",
+        "pub2"
+      ]
+    },
+    "limitTwoOk": true,
+    "limitTwoCount": 2,
+    "limitThree": {
+      "ok": false,
+      "code": "permission-denied"
+    },
+    "unlimitedList": {
+      "ok": false,
+      "code": "permission-denied"
+    }
+  }
+}
