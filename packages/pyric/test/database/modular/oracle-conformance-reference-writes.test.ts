@@ -1,5 +1,6 @@
 /** Focused real-Firebase oracle replay: reference and write contracts. */
 import { describe, it, expect } from 'bun:test';
+import { createAppForSandbox } from '../../../src/app/internal.js';
 import {
   ref,
   child,
@@ -16,15 +17,14 @@ import {
   orderByValue,
   startAt,
   endAt,
+  sandbox as rtdbSandbox,
+  getAdminDatabase,
+  getDatabase,
+  type DataSnapshot,
 } from '../../../src/database/index.js';
-import { sandbox as rtdbSandbox, getAdminDatabase, getDatabase, type DataSnapshot } from '../../../src/database/index.js';
 import {
-  load,
-  setup,
-  referenceStringShape,
-  invocationShape,
-  synchronousInvocationShape,
-  snapKeys,
+  load, setup, referenceStringShape, invocationShape,
+  synchronousInvocationShape, snapKeys,
 } from './oracle-conformance.support.js';
 
 describe('oracle conformance (rtdb-modular): reference and write contracts', () => {
@@ -90,7 +90,7 @@ describe('oracle conformance (rtdb-modular): reference and write contracts', () 
       expect(actual).toEqual({ timing: expected.timing, name: expected.name });
     });
 
-    it('rtdb-modular#M93 pins conforming equality and divergent URL serialization', () => {
+    it('rtdb-modular#M40 and #M93 pin conforming equality and HTTPS URL serialization', () => {
       const obs = load('rtdb-modular-reference-shape-url.json');
       const expected = obs.queryIdentity as Record<string, unknown>;
       const {
@@ -131,14 +131,43 @@ describe('oracle conformance (rtdb-modular): reference and write contracts', () 
       }
       expect(productionQueryToJSON).toEqual(productionReferenceToJSON);
       expect(sandboxReferenceToJSON).toEqual({
-        protocol: 'sandbox:',
-        hostname: 'rtdb',
+        protocol: 'https:',
+        hostname: 'demo-pyric-default-rtdb.firebaseio.com',
         pathMatches: true,
       });
       expect(sandboxQueryToJSON).toEqual(sandboxReferenceToJSON);
-      expect(sandboxReferenceToJSON).not.toEqual(productionReferenceToJSON);
+      expect(ref(first.db).toString()).toBe('https://demo-pyric-default-rtdb.firebaseio.com/');
+      expect(ref(first.db, 'a b/c').toString()).toBe(
+        'https://demo-pyric-default-rtdb.firebaseio.com/a%20b/c',
+      );
       expect(target.toJSON()).toBe(target.toString());
       expect(constrained.toJSON()).toBe(constrained.toString());
+
+      const scopedApp = createAppForSandbox(
+        first.sandbox,
+        { projectId: 'digame-mas' },
+        `m93-scoped-${Math.random()}`,
+      );
+      const scopedDb = getDatabase(scopedApp);
+      const scopedRefUrl = new URL(ref(scopedDb, 'parent/child').toJSON());
+      expect({
+        protocol: scopedRefUrl.protocol,
+        hostIsProjectScoped: scopedRefUrl.hostname.startsWith('digame-mas-'),
+        endsWithFirebaseio: scopedRefUrl.hostname.endsWith('.firebaseio.com'),
+        pathMatches: scopedRefUrl.pathname === '/parent/child',
+      }).toEqual(prodRefShape);
+
+      const scopedAdminDb = getAdminDatabase(scopedApp);
+      expect(ref(scopedAdminDb, 'parent/child').toString()).toBe(
+        'https://digame-mas-default-rtdb.firebaseio.com/parent/child',
+      );
+      expect(refFromURL(scopedAdminDb, 'https://other-host.firebaseio.com/a/b').toString()).toBe(
+        'https://digame-mas-default-rtdb.firebaseio.com/a/b',
+      );
+
+      const customPortDb = getDatabase(first.sandbox, 'http://127.0.0.1:9000/?ns=custom-ns');
+      expect(ref(customPortDb).toString()).toBe('http://127.0.0.1:9000/');
+      expect(ref(customPortDb, 'x/y').toJSON()).toBe('http://127.0.0.1:9000/x/y');
     });
 
     it('rtdb-modular#111 set resolves undefined', async () => {

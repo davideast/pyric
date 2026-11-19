@@ -28,7 +28,7 @@ export type { QueryConstraintType } from './query-constraint.js';
  * `null` for the root ref. `parent` is the ref one segment up
  * (`null` at root). `root` is always the root ref.
  *
- * `toString()` returns a stable `sandbox://` URL.
+ * `toString()` returns the database's HTTPS URL with URL-encoded path segments.
  */
 export interface Query {
   readonly ref: DatabaseReference;

@@ -326,7 +326,7 @@ describe('query chaining + introspection', () => {
   it('Query.toString() returns the ref URL', () => {
     const { db } = setup();
     const q = query(ref(db, 'list'), orderByKey());
-    expect(q.toString()).toBe('sandbox://rtdb/list');
+    expect(q.toString()).toBe('https://demo-pyric-default-rtdb.firebaseio.com/list');
   });
 });
 
