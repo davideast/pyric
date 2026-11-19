@@ -12,6 +12,7 @@ import { AUTH_SESSION_SCOPE, FOLLOWS_CURRENT_USER } from 'pyric/firestore/intern
 import { FirebaseError } from '../sandbox/internal/firebase-error.js';
 import { toFirestoreFirebaseError } from './errors.js';
 import { clientStateFor } from './client-state.js';
+import { attachClientManagedListener } from './sandbox/client-listener-bridge.js';
 import { beginFirestoreActivity } from './sdk-activity.js';
 import { sdkActivity, type SdkActivityHandle } from '../sandbox/internal/sdk-activity.js';
 import type {
@@ -74,9 +75,13 @@ export function onSnapshot(
   arg4?: (error: unknown) => void,
 ): Unsubscribe {
   const target = targetOf(ref);
-  clientStateFor(target).markStarted();
+  const clientState = clientStateFor(target);
+  clientState.markStarted();
   const r = resolveSandboxListenable(target, ref);
-  const attribution = typeof arg2 === 'object' && arg2 !== null && !isPartialObserver(arg2) ? arg2 as SnapshotListenOptions : undefined;
+  let attribution: SnapshotListenOptions | undefined;
+  if (typeof arg2 === 'object' && arg2 !== null && !isPartialObserver(arg2)) {
+    attribution = arg2 as SnapshotListenOptions;
+  }
   const activity = beginFirestoreActivity(target, ref, 'onSnapshot', 'subscription', attribution);
   let stopped = false;
   let errored = false;
@@ -88,14 +93,34 @@ export function onSnapshot(
       errored = true;
     },
   };
-  const wrappedArgs = tagSandboxSnapshotArgs(arg2, arg3, arg4, target, ref as object, activity, hooks);
-  const finalArgs = markSandboxLiveSnapshotArgs(wrappedArgs, target);
+  const parsed = extractConsumerHandlers(arg2, arg3, arg4, target, ref as object, activity, hooks);
+  if (!parsed.hasAnyHandler) {
+    activity.fail();
+    throw new TypeError(
+      'onSnapshot: missing handler. Provide a callback, or an observer with a `next` and/or `error` method.',
+    );
+  }
+
   let unsubscribe: Unsubscribe;
   try {
-    unsubscribe = sdkActivity.registering(activity, () => {
-      if (finalArgs.length === 3) return r.onSnapshot(finalArgs[0], finalArgs[1], finalArgs[2]);
-      if (finalArgs.length === 2) return r.onSnapshot(finalArgs[0], finalArgs[1]);
-      return r.onSnapshot(finalArgs[0]);
+    unsubscribe = attachClientManagedListener({
+      clientState,
+      ref: ref as { type?: string; path?: string },
+      underlying: underlyingOf(ref),
+      includeMetadataChanges: attribution?.includeMetadataChanges === true,
+      attachBackend: (onSnap, onError) => {
+        let baseArgs: unknown[] = [onSnap, onError];
+        if (attribution !== undefined) {
+          baseArgs = [attribution, onSnap, onError];
+        }
+        const finalArgs = markSandboxLiveSnapshotArgs(baseArgs, target);
+        return sdkActivity.registering(activity, () => {
+          if (finalArgs.length === 3) return r.onSnapshot(finalArgs[0], finalArgs[1], finalArgs[2]);
+          return r.onSnapshot(finalArgs[0], finalArgs[1]);
+        });
+      },
+      deliverSnap: parsed.deliverNext,
+      deliverError: parsed.deliverError,
     });
   } catch (error) { activity.fail(); throw error; }
   if (!target.own) return () => { activity.close(); unsubscribe(); };
@@ -113,7 +138,7 @@ export function onSnapshot(
     }
     activity.fail();
     stop();
-    snapshotErrorHandler(finalArgs)?.(
+    parsed.abortErrorHandler?.(
       new FirebaseError('aborted', 'The operation was aborted.'),
     );
   };
@@ -122,19 +147,6 @@ export function onSnapshot(
     release();
     stop();
   };
-}
-
-/** Recover the normalized listener error handler for app-deletion aborts. */
-function snapshotErrorHandler(args: unknown[]): ((error: unknown) => void) | undefined {
-  const last = args.at(-1);
-  if (typeof last === 'function' && args.length >= 3) {
-    return last as (error: unknown) => void;
-  }
-  if (last && typeof last === 'object') {
-    const error = (last as SnapshotObserver<unknown>).error;
-    if (typeof error === 'function') return error;
-  }
-  return undefined;
 }
 
 /**
@@ -194,7 +206,7 @@ interface ListenerHooks {
   onError: () => void;
 }
 
-function tagSandboxSnapshotArgs(
+function extractConsumerHandlers(
   arg2: SnapshotListenOptions | SnapshotObserver<unknown> | ((snap: unknown) => void),
   arg3:
     | SnapshotObserver<unknown>
@@ -206,38 +218,63 @@ function tagSandboxSnapshotArgs(
   source: object,
   activity: SdkActivityHandle,
   hooks: ListenerHooks,
-): unknown[] {
-  // Detect whether arg2 is the SnapshotListenOptions form. FS-B14 — an
-  // observer is any object carrying at least one of `next` / `error` /
-  // `complete` as a function (mirrors `isPartialObserver` in
-  // `clones/.../api/observer.ts`). The old `!('next' in arg2)` test
-  // misrouted an `{ error: fn }` observer as options, dropping it and
-  // surfacing "missing next handler". A SnapshotListenOptions object has
-  // none of those function-valued keys.
-  const isOptions =
-    typeof arg2 === 'object' && arg2 !== null && !isPartialObserver(arg2);
+): {
+  readonly hasAnyHandler: boolean;
+  readonly deliverNext: (snap: unknown) => void;
+  readonly deliverError: (error: unknown) => void;
+  readonly abortErrorHandler: ((error: unknown) => void) | undefined;
+} {
+  const isOptions = typeof arg2 === 'object' && arg2 !== null && !isPartialObserver(arg2);
+  let handlerSlot: unknown = arg2;
+  let trailingErrorSlot: ((error: unknown) => void) | undefined;
   if (isOptions) {
-    // (options, next | observer, error?)
-    const next = arg3;
-    if (typeof next === 'function') {
-      return [arg2, wrapNext(next as (snap: unknown) => void, target, source, activity, hooks.onNext), wrapError(arg4 ?? defaultSnapshotErrorHandler, activity, hooks.onError)];
+    handlerSlot = arg3;
+    trailingErrorSlot = arg4;
+  } else if (typeof arg3 === 'function') {
+    trailingErrorSlot = arg3 as (error: unknown) => void;
+  }
+
+  if (typeof handlerSlot === 'function') {
+    const nextFn = handlerSlot as (snap: unknown) => void;
+    let errFn: (error: unknown) => void = defaultSnapshotErrorHandler;
+    if (typeof trailingErrorSlot === 'function') {
+      errFn = trailingErrorSlot;
     }
-    if (next && typeof next === 'object') {
-      return [arg2, wrapObserver(next as SnapshotObserver<unknown>, target, source, activity, hooks)];
+    const wrappedErr = wrapError(errFn, activity, hooks.onError);
+    return {
+      hasAnyHandler: true,
+      deliverNext: wrapNext(nextFn, target, source, activity, hooks.onNext),
+      deliverError: wrappedErr,
+      abortErrorHandler: wrappedErr,
+    };
+  }
+
+  if (handlerSlot !== null && typeof handlerSlot === 'object' && isPartialObserver(handlerSlot)) {
+    const obs = handlerSlot as SnapshotObserver<unknown>;
+    let nextDelivery: (snap: unknown) => void = (snap) => {
+      hooks.onNext();
+      const value = finalizeSandboxSnapshot(tagSnapshotRefs(snap, target), target, source);
+      activity.delivered(value);
+      clientStateFor(target).notifySnapshotDelivered();
+    };
+    if (typeof obs.next === 'function') {
+      nextDelivery = wrapNext(obs.next.bind(obs), target, source, activity, hooks.onNext);
     }
-    return [arg2];
+    const wrappedObsError = wrapError(resolveObserverErrorCallback(obs), activity, hooks.onError);
+    return {
+      hasAnyHandler: true,
+      deliverNext: nextDelivery,
+      deliverError: wrappedObsError,
+      abortErrorHandler: wrappedObsError,
+    };
   }
-  // (next | observer, error?)
-  if (typeof arg2 === 'function') {
-    return [
-      wrapNext(arg2 as (snap: unknown) => void, target, source, activity, hooks.onNext),
-      wrapError((arg3 as ((error: unknown) => void) | undefined) ?? defaultSnapshotErrorHandler, activity, hooks.onError),
-    ];
-  }
-  if (arg2 && typeof arg2 === 'object') {
-    return [wrapObserver(arg2 as SnapshotObserver<unknown>, target, source, activity, hooks)];
-  }
-  return [arg2];
+
+  return {
+    hasAnyHandler: false,
+    deliverNext: () => {},
+    deliverError: () => {},
+    abortErrorHandler: undefined,
+  };
 }
 
 /**
@@ -335,35 +372,6 @@ function wrapNext(
     activity.delivered(value);
     next(value);
     clientStateFor(target).notifySnapshotDelivered();
-  };
-}
-
-function wrapObserver(
-  obs: SnapshotObserver<unknown>,
-  target: Target,
-  source: object,
-  activity: SdkActivityHandle,
-  hooks: ListenerHooks,
-): SnapshotObserver<unknown> {
-  let next: ((snap: unknown) => void) | undefined;
-  if (typeof obs.next === 'function') {
-    next = (snap) => {
-      hooks.onNext();
-      const value = finalizeSandboxSnapshot(tagSnapshotRefs(snap, target), target, source);
-      activity.delivered(value);
-      obs.next!(value);
-      clientStateFor(target).notifySnapshotDelivered();
-    };
-  }
-  return {
-    ...obs,
-    next,
-    // Surface an unobserved listener error instead of swallowing it.
-    error: wrapError(
-      resolveObserverErrorCallback(obs),
-      activity,
-      hooks.onError,
-    ),
   };
 }
 

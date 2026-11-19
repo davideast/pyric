@@ -296,8 +296,8 @@ function createSnapshotReferenceDecoder(target: Target): ReferenceDecoder {
 
 export function wrapSandboxDocSnap<T>(snap: object, target?: Target): DocumentSnapshot<T> & { exists(): boolean } {
   const s = snap as {
-    data: () => DocumentData | undefined;
-    get?: (fieldPath: SnapshotFieldPath) => unknown;
+    data: (options?: SnapshotOptions) => DocumentData | undefined;
+    get?: (fieldPath: SnapshotFieldPath, options?: SnapshotOptions) => unknown;
     ref?: { path?: string };
     exists?: boolean | (() => boolean);
   };
@@ -309,12 +309,13 @@ export function wrapSandboxDocSnap<T>(snap: object, target?: Target): DocumentSn
     references = createSnapshotReferenceDecoder(target);
   }
   Object.defineProperty(s, 'data', {
-    value: () => finalizeSandboxData(original(), references),
+    value: (options?: SnapshotOptions) => finalizeSandboxData(original(options), references),
     configurable: true,
     writable: true,
   });
   Object.defineProperty(s, 'get', {
-    value: (fieldPath: SnapshotFieldPath) => readSnapshotField(original(), fieldPath, references),
+    value: (fieldPath: SnapshotFieldPath, options?: SnapshotOptions) =>
+      readSnapshotField(original(options), fieldPath, references),
     configurable: true,
     writable: true,
   });
@@ -406,24 +407,25 @@ export function applyConverterToDeliveredSnap(
     id: string;
     ref?: { path?: string };
     exists?: boolean | (() => boolean);
-    data: () => DocumentData | undefined;
-    get?: (fieldPath: SnapshotFieldPath) => unknown;
+    data: (options?: SnapshotOptions) => DocumentData | undefined;
+    get?: (fieldPath: SnapshotFieldPath, options?: SnapshotOptions) => unknown;
   };
   const path = s.ref?.path ?? '';
   const readRaw = s.data.bind(snapshot);
   const rawReference = doc({ [TARGET_SYMBOL]: target }, path);
   const references = createSnapshotReferenceDecoder(target);
-  let readRawField: (fieldPath: SnapshotFieldPath) => unknown;
+  let readRawField: (fieldPath: SnapshotFieldPath, options?: SnapshotOptions) => unknown;
   if (typeof s.get === 'function') {
     readRawField = s.get.bind(snapshot);
   } else {
-    readRawField = (fieldPath: SnapshotFieldPath) => readSnapshotField(readRaw(), fieldPath, references);
+    readRawField = (fieldPath: SnapshotFieldPath, options?: SnapshotOptions) =>
+      readSnapshotField(readRaw(options), fieldPath, references);
   }
   const converted = rawReference.withConverter(conv as FirestoreDataConverter<unknown, DocumentData>);
   Object.defineProperty(s, 'ref', { value: converted, configurable: true, writable: true });
   Object.defineProperty(s, 'data', {
     value: (options?: SnapshotOptions) => {
-      const raw = readRaw();
+      const raw = readRaw(options);
       const isMissing = raw === undefined;
       if (isMissing) return undefined;
       const mergedMeta = mergedSnapshotMetadata(s, target, path);
@@ -432,7 +434,7 @@ export function applyConverterToDeliveredSnap(
         ref: rawReference,
         exists: () => true,
         metadata: mergedMeta,
-        data: () => readRaw() as DocumentData,
+        data: (innerOptions?: SnapshotOptions) => readRaw(innerOptions) as DocumentData,
         get: readRawField,
       };
       const resolvedOptions: SnapshotOptions = options ?? {};

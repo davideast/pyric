@@ -42,15 +42,20 @@ export interface RawDocResult {
   data?: SerializedDocData;
   /** Query listener frames only: this document's own `metadata.hasPendingWrites`. */
   hasPendingWrites?: boolean;
+  fromCache?: boolean;
+  serverTimestampVariants?: {
+    readonly none: SerializedDocData;
+    readonly previous: SerializedDocData;
+  };
 }
 
 const SETTLED_METADATA: SnapshotMetadata = Object.freeze({ fromCache: false, hasPendingWrites: false });
-const PENDING_METADATA: SnapshotMetadata = Object.freeze({ fromCache: false, hasPendingWrites: true });
 
-/** The snapshot frame's `hasPendingWrites` as Firestore `SnapshotMetadata`.
- * The sandbox has no offline cache, so `fromCache` is always `false`. */
-function frameMetadata(raw: { hasPendingWrites?: unknown }): SnapshotMetadata {
-  return raw.hasPendingWrites === true ? PENDING_METADATA : SETTLED_METADATA;
+function frameMetadata(raw: { hasPendingWrites?: unknown; fromCache?: unknown }): SnapshotMetadata {
+  const fromCache = raw.fromCache === true;
+  const hasPendingWrites = raw.hasPendingWrites === true;
+  if (!fromCache && !hasPendingWrites) return SETTLED_METADATA;
+  return Object.freeze({ fromCache, hasPendingWrites });
 }
 
 export interface RawCursorSnapshot {
@@ -81,13 +86,25 @@ export function makeDocSnapshot<T = DocumentData>(
   // cursor bounds only and is never handed out.
   const freshData = (): Record<string, unknown> | undefined => {
     const hasData = raw.exists && serialized !== undefined;
-    return hasData ? rehydrateDocData(serialized, port) : undefined;
+    if (hasData) return rehydrateDocData(serialized, port);
+    return undefined;
+  };
+  const freshVariantData = (options?: SnapshotOptions): Record<string, unknown> | undefined => {
+    const hasData = raw.exists && serialized !== undefined;
+    if (!hasData) return undefined;
+    const variants = raw.serverTimestampVariants;
+    if (variants !== undefined && metadata.hasPendingWrites) {
+      if (options?.serverTimestamps === 'estimate') return rehydrateDocData(serialized, port);
+      if (options?.serverTimestamps === 'previous') return rehydrateDocData(variants.previous, port);
+      return rehydrateDocData(variants.none, port);
+    }
+    return rehydrateDocData(serialized, port);
   };
   const data = freshData();
   const path = raw.path ?? raw.id;
   const ref = reference ?? createDocumentReference<T>(port, path);
   const read = (options?: SnapshotOptions): T | undefined => {
-    const document = freshData();
+    const document = freshVariantData(options);
     const isMissing = document === undefined;
     if (isMissing) return undefined;
     const converter = ref.converter;
@@ -98,8 +115,9 @@ export function makeDocSnapshot<T = DocumentData>(
         ref: createDocumentReference(port, path),
         exists: () => true,
         metadata,
-        data: () => document,
-        get: (fieldPath) => readField(document, fieldPath),
+        data: (innerOptions?: SnapshotOptions) => freshVariantData(innerOptions) as DocumentData,
+        get: (fieldPath, innerOptions?: SnapshotOptions) =>
+          readField(freshVariantData(innerOptions), fieldPath),
       };
       const resolvedOptions: SnapshotOptions = options ?? {};
       return (converter as FirestoreDataConverter<T>).fromFirestore(snapshot, resolvedOptions);
@@ -109,14 +127,11 @@ export function makeDocSnapshot<T = DocumentData>(
   const docSnapshot: ClientDocSnapshot<T> = {
     id: raw.id,
     path,
-    // Query snapshot refs are real worker handles, not path-only lookalikes:
-    // Firebase callers may pass `snapshot.ref` straight into deleteDoc/setDoc.
     ref,
     exists: () => raw.exists,
     metadata,
     data: read,
-    // Production reads the stored field without the converter, as the in-page snapshot does.
-    get: (fieldPath) => readField(freshData(), fieldPath),
+    get: (fieldPath, options) => readField(freshVariantData(options), fieldPath),
   };
   rawCursorSnapshots.set(docSnapshot, { id: raw.id, path, exists: raw.exists, data });
   return docSnapshot;
@@ -139,6 +154,7 @@ export interface RawQueryResult {
   docs: RawDocResult[];
   /** Listener frames only: the sandbox snapshot's `metadata.hasPendingWrites`. */
   hasPendingWrites?: boolean;
+  fromCache?: boolean;
 }
 
 /**
@@ -153,10 +169,15 @@ export interface QueryChangeBaseline {
   previous?: RawDocResult[];
   previousDocument?: RawDocResult;
   previousHasPendingWrites?: boolean;
+  previousFromCache?: boolean;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function isSerializedData(value: unknown): boolean {
+  return isRecord(value) && typeof value.json === 'string';
 }
 
 function isDocumentResult(value: unknown): value is RawDocResult {
@@ -164,19 +185,24 @@ function isDocumentResult(value: unknown): value is RawDocResult {
   const isInvalidObject = !isObject;
   if (isInvalidObject) return false;
   const data = value.data;
-  const hasValidData = data === undefined || (isRecord(data) && typeof data.json === 'string');
+  const hasValidData = data === undefined || isSerializedData(data);
+  const variants = value.serverTimestampVariants;
+  const hasValidVariants = variants === undefined
+    || (isRecord(variants) && isSerializedData(variants.none) && isSerializedData(variants.previous));
   const hasValidPath = value.path === undefined || typeof value.path === 'string';
   return typeof value.id === 'string' && typeof value.exists === 'boolean' && hasValidPath && hasValidData
-    && hasValidPendingWrites(value);
+    && hasValidVariants && hasValidMetadataFlags(value);
 }
 
-function hasValidPendingWrites(value: Record<string, unknown>): boolean {
-  return value.hasPendingWrites === undefined || typeof value.hasPendingWrites === 'boolean';
+function hasValidMetadataFlags(value: Record<string, unknown>): boolean {
+  const validPending = value.hasPendingWrites === undefined || typeof value.hasPendingWrites === 'boolean';
+  const validCache = value.fromCache === undefined || typeof value.fromCache === 'boolean';
+  return validPending && validCache;
 }
 
 function isQueryResult(value: unknown): value is RawQueryResult {
   return isRecord(value) && Array.isArray(value.docs) && value.docs.every(isDocumentResult)
-    && hasValidPendingWrites(value);
+    && hasValidMetadataFlags(value);
 }
 
 /**
@@ -245,28 +271,32 @@ export function makeSnapshot(
   const isQuery = isQueryResult(raw);
   if (isQuery) {
     const snapshot = makeQuerySnapshot(raw, port, converter, baseline);
+    const sameMetadata = snapshot.metadata.hasPendingWrites === baseline.previousHasPendingWrites
+      && snapshot.metadata.fromCache === baseline.previousFromCache;
     const isUnchanged = baseline.previous !== undefined
       && snapshot.docChanges().length === 0
-      && (baseline.excludesMetadataChanges
-        || snapshot.metadata.hasPendingWrites === baseline.previousHasPendingWrites);
+      && (baseline.excludesMetadataChanges || sameMetadata);
     if (isUnchanged) return null;
     baseline.previous = raw.docs;
     baseline.previousHasPendingWrites = snapshot.metadata.hasPendingWrites;
+    baseline.previousFromCache = snapshot.metadata.fromCache;
     return snapshot;
   }
   const isDocument = isDocumentResult(raw);
   if (isDocument) {
-    const metadata = frameMetadata(raw as { hasPendingWrites?: unknown });
+    const metadata = frameMetadata(raw as { hasPendingWrites?: unknown; fromCache?: unknown });
     const previous = baseline.previousDocument;
     const isSameDocument = previous !== undefined
       && previous.exists === raw.exists
       && (!raw.exists || serializedDocDataEqual(previous.data, raw.data));
+    const sameMetadata = metadata.hasPendingWrites === baseline.previousHasPendingWrites
+      && metadata.fromCache === baseline.previousFromCache;
     const isUnchanged = isSameDocument
-      && (baseline.excludesMetadataChanges
-        || metadata.hasPendingWrites === baseline.previousHasPendingWrites);
+      && (baseline.excludesMetadataChanges || sameMetadata);
     if (isUnchanged) return null;
     baseline.previousDocument = raw;
     baseline.previousHasPendingWrites = metadata.hasPendingWrites;
+    baseline.previousFromCache = metadata.fromCache;
     return makeDocSnapshot(
       raw,
       port,
@@ -297,7 +327,10 @@ export function makeQuerySnapshot(
     doc,
     port,
     createDocumentReference(port, doc.path ?? doc.id, converter),
-    frameMetadata(doc),
+    Object.freeze({
+      fromCache: doc.fromCache === true || metadata.fromCache,
+      hasPendingWrites: doc.hasPendingWrites === true,
+    }),
   );
   const docs = raw.docs.map(snapshotOf);
   const rows = raw.docs.map((doc) => ({ path: doc.path ?? doc.id, doc }));
@@ -317,7 +350,8 @@ export function makeQuerySnapshot(
       docs,
       (before, after) =>
         serializedDocDataEqual(before.doc.data, after.doc.data)
-        && Boolean(before.doc.hasPendingWrites) === Boolean(after.doc.hasPendingWrites),
+        && Boolean(before.doc.hasPendingWrites) === Boolean(after.doc.hasPendingWrites)
+        && Boolean(before.doc.fromCache) === Boolean(after.doc.fromCache),
       (row) => snapshotOf(row.doc),
     );
   }
@@ -342,7 +376,7 @@ export interface ClientDocSnapshot<T = DocumentData> {
   exists(): boolean;
   data(options?: SnapshotOptions): T | undefined;
   /** Production's `DocumentSnapshot.get`: the stored field at `fieldPath`, or `undefined`. */
-  get(fieldPath: SnapshotFieldPath): unknown;
+  get(fieldPath: SnapshotFieldPath, options?: SnapshotOptions): unknown;
 }
 
 export interface ClientQuerySnapshot {

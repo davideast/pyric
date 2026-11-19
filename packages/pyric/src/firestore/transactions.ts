@@ -26,6 +26,12 @@ import { applyConverterToDocSnap, tagSnapshotRefs, wrapSandboxDocSnap } from './
 import { requireDocumentData } from './internal/document-data.js';
 import { registerAtomicWriterCreate } from './internal/atomic-create.js';
 import { parseChainUpdate } from './chain-update.js';
+import type { OfflineMutation } from './sandbox/client-offline-overlay.js';
+import {
+  normalizeMergeFields,
+  parseUpdateArguments,
+  updateFieldsData,
+} from './sandbox/update-fields.js';
 import { markUserWriteValue } from './sandbox/unescaped-map.js';
 import type { SetOptions } from './writes.js';
 import type {
@@ -187,6 +193,7 @@ export function writeBatch(db: Firestore): WriteBatch {
   const database = sandboxDb(target);
   const backing = database.batch();
   const touchedPaths = new Set<string>();
+  const offlineMutations: OfflineMutation[] = [];
   let writes = 0;
   let deletes = 0;
   function withBatchError<R>(fn: () => R): R {
@@ -204,19 +211,37 @@ export function writeBatch(db: Firestore): WriteBatch {
     ) {
       const payload = convertSetData(ref, data, options);
       withBatchError(() => backing.set(database.doc(ref.path), payload, options));
+      let mergeFields: string[] | undefined;
+      if (options?.mergeFields !== undefined && options.merge !== true) {
+        mergeFields = normalizeMergeFields(options.mergeFields);
+      }
+      offlineMutations.push({
+        kind: 'set',
+        path: ref.path,
+        data: payload,
+        merge: options?.merge === true,
+        mergeFields,
+      });
       touchedPaths.add(ref.path);
       writes++;
       return batch;
     },
     update(ref, dataOrField: unknown, ...rest: unknown[]) {
+      const parsed = parseUpdateArguments('WriteBatch.update', ref.path, dataOrField, rest);
       const args = parseChainUpdate('WriteBatch.update', ref.path, dataOrField, rest);
       withBatchError(() => backing.update(database.doc(ref.path), ...args));
+      offlineMutations.push({
+        kind: 'update',
+        path: ref.path,
+        data: updateFieldsData(parsed.map((f) => ({ path: f.path, value: markUserWriteValue(f.value) }))),
+      });
       touchedPaths.add(ref.path);
       writes++;
       return batch;
     },
     delete(ref) {
       withBatchError(() => backing.delete(database.doc(ref.path)));
+      offlineMutations.push({ kind: 'delete', path: ref.path });
       touchedPaths.add(ref.path);
       deletes++;
       return batch;
@@ -227,6 +252,7 @@ export function writeBatch(db: Firestore): WriteBatch {
         () => client.runWrite(
           () => withFirestoreFirebaseError(() => backing.commit(options)),
           touchedPaths,
+          offlineMutations,
         ),
         () => ({ documentWrites: writes, documentDeletes: deletes }),
       );
@@ -235,6 +261,7 @@ export function writeBatch(db: Firestore): WriteBatch {
   registerAtomicWriterCreate(batch, (ref, data) => {
     const payload = convertSetData(ref, data);
     withBatchError(() => backing.create(database.doc(ref.path), payload));
+    offlineMutations.push({ kind: 'set', path: ref.path, data: payload });
     touchedPaths.add(ref.path);
     writes++;
   });

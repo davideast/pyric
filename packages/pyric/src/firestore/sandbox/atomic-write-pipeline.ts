@@ -11,6 +11,10 @@ import type { Operation } from './writes.js';
 import type { EventProvenance } from '../../sandbox/types/events.js';
 import type { EmitRequestInput } from './request-events.js';
 import { walkForSentinels } from './sentinel-capture.js';
+import {
+  capturePendingServerTimestamps,
+  recordPendingServerTimestamps,
+} from './pending-server-timestamps.js';
 import { publicWritePayload } from './update-fields.js';
 import { applyMerge } from './field-merge.js';
 import { WriteRuntime } from './write-runtime.js';
@@ -51,7 +55,7 @@ export interface AtomicPreparationFailure {
   request: EmitRequestInput;
 }
 
-export interface AtomicWriteOutcome {
+interface AtomicWriteOutcome {
   path: string;
   method: AtomicRuleMethod;
   allowed: boolean;
@@ -350,6 +354,17 @@ export class AtomicWritePipeline {
     // their subscribers, so a write issued from a subscriber enqueues its
     // deliveries behind this call's.
     if (decision.allowed) {
+      for (const input of inputs) {
+        const priorForPending = context.snapshot[input.path] ?? null;
+        const storedAfterBatch = this.runtime.state.get(input.path);
+        recordPendingServerTimestamps(
+          storedAfterBatch,
+          capturePendingServerTimestamps(
+            { method: input.method, data: input.preData, merge: input.merge },
+            priorForPending,
+          ),
+        );
+      }
       this.runtime.notify(context.origin, inputs.map((input) => input.path));
     }
     for (const [index, outcome] of outcomes.entries()) {

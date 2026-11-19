@@ -25,7 +25,7 @@ const EXPECTED_VALUE_EXPORTS: readonly string[] = [
   'browserLocalPersistence', 'browserSessionPersistence', 'callTool', 'collection',
   'collectionGroup', 'connectAuthEmulator', 'count', 'createUserWithEmailAndPassword',
   'createWorkerReplacement', 'deleteDoc', 'deleteField', 'deleteObject',
-  'deleteWorkerCheckpoint', 'disconnectClient', 'disconnectPort', 'doc', 'endAt',
+  'deleteWorkerCheckpoint', 'disableNetwork', 'disconnectClient', 'disconnectPort', 'doc', 'enableNetwork', 'endAt',
   'endBefore', 'eventHistory', 'exportWorkerState', 'getActiveRules',
   'getAggregateFromServer', 'getAuth', 'getBlob', 'getBytes', 'getCountFromServer',
   'getDoc', 'getDocs', 'getDownloadURL', 'getFirestore', 'getHostedFirestore', 'getIdToken', 'getIdTokenResult', 'getLens',
@@ -49,7 +49,7 @@ const EXPECTED_VALUE_EXPORTS: readonly string[] = [
   'signInWithEmailAndPassword', 'signOut', 'startAfter', 'startAt', 'startPresence',
   'subscribeEvents', 'subscribeLens', 'subscribePresence',
   'takeAuthMail',
-  'sum', 'restoreWorkerCheckpoint', 'updateDoc', 'uploadBytes', 'uploadString', 'uploadBytesResumable', 'where', 'wirePort', 'workerNameForEpoch',
+  'sum', 'restoreWorkerCheckpoint', 'updateDoc', 'uploadBytes', 'uploadString', 'uploadBytesResumable', 'waitForPendingWrites', 'where', 'wirePort', 'workerNameForEpoch',
   'writeBatch',
 ];
 

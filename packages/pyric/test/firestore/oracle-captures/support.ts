@@ -18,7 +18,7 @@ import type {
   FirestoreSdk,
 } from '../../../../conformance/src/capture/sdk-scenarios/scenario-types.ts';
 
-export { CACHED_INITIAL_SNAPSHOT, withoutMessages, type Pin } from '../../../../conformance/src/capture/sdk-scenarios/replay-comparison.ts';
+export { withoutMessages, type Pin } from '../../../../conformance/src/capture/sdk-scenarios/replay-comparison.ts';
 
 const OBS_DIR = join(import.meta.dir, '..', '..', '..', '..', 'conformance', 'observations', 'firestore');
 

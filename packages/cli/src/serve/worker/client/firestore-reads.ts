@@ -17,6 +17,14 @@ import { assertExecutableQueryDescriptor } from './firestore-query-validation.js
 import { pageListenerOwners } from './listener-owners.js';
 import { deliverWithRegions } from './listener-delivery.js';
 import { makeDocSnapshot, makeQuerySnapshot, makeSnapshot } from './snapshots.js';
+import {
+  buildWorkerOfflineWire,
+  isWorkerFirestoreOffline,
+  isWorkerTargetWarm,
+  readWorkerOfflineDoc,
+  recordWorkerOnlineDoc,
+  registerWorkerManagedListener,
+} from './firestore-network.js';
 import { beginWorkerFirestoreActivity } from './sdk-activity.js';
 import { finishSdkRead, type UsageEvidence } from 'pyric/sandbox/internal';
 import type { RawDocResult, RawQueryResult, ClientDocSnapshot, ClientQuerySnapshot, QueryChangeBaseline } from './snapshots.js';
@@ -31,12 +39,21 @@ export function getDoc<T = DocumentData>(ref: DocRefHandle<T>): Promise<ClientDo
 export async function readDocumentAs<T = DocumentData>(ref: DocRefHandle<T>, method: string): Promise<ClientDocSnapshot<T>> {
   const activity = beginWorkerFirestoreActivity(ref, method, 'operation');
   try {
+    const offlineDoc = readWorkerOfflineDoc(ref.port, ref.descriptor.path);
+    if (offlineDoc !== undefined) {
+      const offlineMeta = Object.freeze({
+        fromCache: true,
+        hasPendingWrites: offlineDoc.hasPendingWrites === true,
+      });
+      return finishSdkRead(activity, makeDocSnapshot(offlineDoc, ref.port, ref, offlineMeta));
+    }
     const result = await dataRpc(ref.port, {
       t: 'op',
       id: nextId(),
       method: 'getDoc',
       path: ref.descriptor.path,
     }) as RawDocResult;
+    recordWorkerOnlineDoc(ref.port, ref.descriptor.path, result.exists, result.data);
     return finishSdkRead(activity, makeDocSnapshot(result, ref.port, ref));
   } catch (error) { activity.fail(); throw error; }
 }
@@ -55,14 +72,21 @@ export async function readQueryAs(source: CollRefHandle | QueryHandle, method: s
   const activity = beginWorkerFirestoreActivity(source, method, 'operation');
   try {
     assertExecutableTarget(source);
+    let targetSource: TargetDescriptor = (source as QueryHandle).descriptor;
+    if (source.__kind === 'coll-ref') {
+      targetSource = (source as CollRefHandle).descriptor;
+    }
     const result = await dataRpc(source.port, {
       t: 'op',
       id: nextId(),
       method: 'getDocs',
-      source: source.__kind === 'coll-ref'
-        ? (source as CollRefHandle).descriptor
-        : (source as QueryHandle).descriptor,
+      source: targetSource,
     }) as RawQueryResult;
+    for (const d of result.docs) {
+      if (d.path !== undefined) {
+        recordWorkerOnlineDoc(source.port, d.path, d.exists, d.data);
+      }
+    }
     return finishSdkRead(activity, makeQuerySnapshot(result, source.port, source.converter));
   } catch (error) { activity.fail(); throw error; }
 }
@@ -285,33 +309,70 @@ export function onSnapshot(
 
   let unsubscribed = false;
   let unsubLens: () => void = () => {};
+  let unregisterNetwork: () => void = () => {};
+  let deliveredCount = 0;
+  let isOpenOnHost = false;
+  const descriptor = target.descriptor;
+  const wasWarmAtSubscribe = includeMetadataChanges
+    && !isWorkerFirestoreOffline(port)
+    && isWorkerTargetWarm(port, descriptor);
+
+  const deliverRawFrame = (raw: unknown): void => {
+    let decoded: ClientDocSnapshot | ClientQuerySnapshot | null;
+    try {
+      decoded = makeSnapshot(raw, port, target.converter, baseline);
+    } catch (error) {
+      stop();
+      reportError(error);
+      return;
+    }
+    if (decoded === null) return;
+    const rawRec = raw as { fromCache?: boolean; docs?: RawDocResult[]; path?: string; exists?: boolean; data?: RawDocResult['data'] };
+    if (rawRec.fromCache !== true) {
+      if (Array.isArray(rawRec.docs)) {
+        for (const d of rawRec.docs) {
+          if (d.path !== undefined) recordWorkerOnlineDoc(port, d.path, d.exists, d.data);
+        }
+      } else if (typeof rawRec.path === 'string' && typeof rawRec.exists === 'boolean') {
+        recordWorkerOnlineDoc(port, rawRec.path, rawRec.exists, rawRec.data);
+      }
+    }
+    const snapshot = decoded;
+    const result = raw as { usage?: UsageEvidence };
+    activity.delivered(snapshot, result.usage);
+    const deliver = callback;
+    const hasNext = deliver !== undefined;
+    if (hasNext) deliverWithRegions(activity.id, () => deliver(snapshot));
+    notifyWorkerSnapshotDelivered(port);
+  };
 
   const subscription = {
     port,
     service: 'firestore' as const,
     next: (raw: unknown) => {
-      let decoded: ClientDocSnapshot | ClientQuerySnapshot | null;
-      try {
-        decoded = makeSnapshot(raw, port, target.converter, baseline);
-      } catch (error) {
-        stop();
-        reportError(error);
-        return;
+      if (unsubscribed || isWorkerFirestoreOffline(port)) return;
+      if (deliveredCount === 0 && wasWarmAtSubscribe && raw !== null && typeof raw === 'object') {
+        const frame = raw as { hasPendingWrites?: boolean; docs?: unknown[]; exists?: boolean };
+        const hasCachedContent = (Array.isArray(frame.docs) && frame.docs.length > 0) || frame.exists === true;
+        if (hasCachedContent && frame.hasPendingWrites !== true) {
+          const baseFrame = raw as Record<string, unknown>;
+          deliveredCount += 1;
+          deliverRawFrame({ ...baseFrame, fromCache: true });
+          queueMicrotask(() => {
+            if (unsubscribed || isWorkerFirestoreOffline(port)) return;
+            deliveredCount += 1;
+            deliverRawFrame({ ...baseFrame, fromCache: false });
+          });
+          return;
+        }
       }
-      // An unchanged re-established listener delivers nothing.
-      if (decoded === null) return;
-      const snapshot = decoded;
-      // Reported on the subscription id the sandbox also records as the
-      // listener id, immediately before the application's callback runs.
-      const result = raw as { usage?: UsageEvidence };
-      activity.delivered(snapshot, result.usage);
-      const deliver = callback;
-      const hasNext = deliver !== undefined;
-      if (hasNext) deliverWithRegions(activity.id, () => deliver(snapshot));
-      notifyWorkerSnapshotDelivered(port);
+      deliveredCount += 1;
+      deliverRawFrame(raw);
     },
     error: (error: unknown) => {
+      if (unsubscribed || isWorkerFirestoreOffline(port)) return;
       unsubscribed = true;
+      unregisterNetwork();
       unsubLens();
       activity.fail();
       reportError(error);
@@ -319,7 +380,6 @@ export function onSnapshot(
     close: () => activity.close(),
   };
 
-  const descriptor = target.descriptor;
   function subscribe(): boolean {
     const message: InboundMessage = { t: 'sub', subId: currentSubId, target: descriptor };
     const hasLens = _defaultLens !== undefined;
@@ -328,18 +388,53 @@ export function onSnapshot(
     if (hasOwners) message.owners = owners;
     if (includeMetadataChanges) message.includeMetadataChanges = true;
     const opened = openSnapshotSubscription(port, currentSubId, subscription, stampIssuer(message));
+    isOpenOnHost = opened;
     const failedToOpen = !opened;
     if (failedToOpen) activity.fail();
     const reportsDeletedApp = !opened && errorCallback !== undefined;
     if (reportsDeletedApp) queueMicrotask(() => errorCallback(new Error('Firebase App was deleted')));
     return opened;
   }
-  subscribe();
+
+  unregisterNetwork = registerWorkerManagedListener(port, {
+    target: descriptor,
+    hasDelivered: () => deliveredCount > 0,
+    suspendFromHost: () => {
+      if (!isOpenOnHost) return;
+      isOpenOnHost = false;
+      closeSubscription(port, currentSubId);
+    },
+    resumeOnHost: () => {
+      if (unsubscribed || isOpenOnHost) return;
+      currentSubId = nextSubId();
+      activity.transport(currentSubId);
+      subscribe();
+    },
+    deliverOfflineWire: (wire) => {
+      if (unsubscribed || !isWorkerFirestoreOffline(port)) return;
+      deliveredCount += 1;
+      deliverRawFrame(wire);
+    },
+  });
+
+  if (!isWorkerFirestoreOffline(port)) {
+    subscribe();
+  } else {
+    queueMicrotask(() => {
+      if (!unsubscribed && isWorkerFirestoreOffline(port)) {
+        deliveredCount += 1;
+        deliverRawFrame(buildWorkerOfflineWire(port, descriptor));
+      }
+    });
+  }
 
   if (!unsubscribed) {
     unsubLens = subscribeLens(() => {
-      if (unsubscribed) return;
-      closeSubscription(port, currentSubId);
+      if (unsubscribed || isWorkerFirestoreOffline(port)) return;
+      if (isOpenOnHost) {
+        isOpenOnHost = false;
+        closeSubscription(port, currentSubId);
+      }
       currentSubId = nextSubId();
       activity.transport(currentSubId);
       subscribe();
@@ -348,9 +443,13 @@ export function onSnapshot(
 
   function stop(): void {
     unsubscribed = true;
+    unregisterNetwork();
     activity.close();
     unsubLens();
-    closeSubscription(port, currentSubId);
+    if (isOpenOnHost) {
+      isOpenOnHost = false;
+      closeSubscription(port, currentSubId);
+    }
   }
   return stop;
 }
