@@ -1,0 +1,42 @@
+{
+  "name": "ai-sdk-response-helpers-inlinedataparts",
+  "matrixRow": "",
+  "rowIds": [],
+  "description": "Live firebase/ai client SDK EnhancedGenerateContentResponse.inlineDataParts() helper shape on plain-text vs multimodal image output with App Check and graceful backend fallback.",
+  "observedAt": "2026-11-19T21:33:29.076Z",
+  "fbSdkVersion": "12.19.0",
+  "projectId": "digame-mas",
+  "behavior": {
+    "plainTextControl": {
+      "httpStatus": 200,
+      "helperTextIsNonEmptyString": true,
+      "helperInlineDataPartsIsUndefined": true
+    },
+    "multimodalAttempt": {
+      "supported": false,
+      "backendUsed": null,
+      "outboundResponseModalities": null,
+      "attempts": [
+        {
+          "backend": "google-ai",
+          "outcome": "ai-error",
+          "errorCode": "fetch-error",
+          "httpStatus": 403
+        },
+        {
+          "backend": "vertex-ai-us-central1",
+          "outcome": "ai-error",
+          "errorCode": "fetch-error",
+          "httpStatus": 403
+        },
+        {
+          "backend": "vertex-ai-global",
+          "outcome": "ai-error",
+          "errorCode": "fetch-error",
+          "httpStatus": 403
+        }
+      ]
+    },
+    "helperInlineDataParts": null
+  }
+}
