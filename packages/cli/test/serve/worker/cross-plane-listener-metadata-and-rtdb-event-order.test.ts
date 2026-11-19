@@ -51,6 +51,7 @@ describe('Cross-plane Firestore listener metadata and RTDB event ordering', () =
     const served = await multiDocPendingWritesScenario.run(await servedFirestoreContext());
     const expected = [
       { pw: false, docs: [['a', false]] },
+      { pw: false, docs: [['a', false]] },
       { pw: true, docs: [['a', false], ['z', true]] },
       { pw: false, docs: [['a', false], ['z', false]] },
     ];

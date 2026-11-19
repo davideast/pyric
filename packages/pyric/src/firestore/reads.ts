@@ -55,6 +55,23 @@ export async function readDocument<T = DocumentData>(ref: DocumentReference<T>, 
   client.markStarted();
   try {
     const conv = converterOf(ref);
+    if (!client.isNetworkEnabled()) {
+      const projected = client.overlay.projectDoc(ref.path);
+      if (projected.known) {
+        const offlineSnap = client.overlay.buildOfflineDocSnapshot(ref.path);
+        client.cachePath(ref.path);
+        if (conv) {
+          return finishSdkRead(activity, applyConverterToDocSnap(
+            offlineSnap as unknown as ChainDocSnap,
+            conv as FirestoreDataConverter<T>,
+            target,
+            'document',
+          ));
+        }
+        tagSnapshotRefs(offlineSnap, target);
+        return finishSdkRead(activity, wrapSandboxDocSnap<T>(offlineSnap as object, target));
+      }
+    }
     const snap = await withFirestoreFirebaseError(() => chainDocFor(target, ref).get());
     client.cachePath(ref.path);
     if (conv) {

@@ -13,6 +13,13 @@ import type { ClientDb, DocRefHandle, CollRefHandle } from './handles.js';
 import { makeDocSnapshot } from './snapshots.js';
 import type { RawDocResult, ClientDocSnapshot } from './snapshots.js';
 import { createDocumentReference } from './firestore-reference.js';
+import {
+  enqueueWorkerOfflineWrite,
+  generateWorkerAutoId,
+  isWorkerFirestoreOffline,
+  markWorkerCommittedWrite,
+  type WorkerOfflineMutation,
+} from './firestore-network.js';
 import type {
   DocumentData,
   FieldPath,
@@ -84,15 +91,29 @@ export async function setDoc<T = DocumentData>(
   return runSdkWrite(beginWorkerFirestoreActivity(ref, 'setDoc', 'operation'), async () => {
     const capturedOptions = captureSetOptions(options);
     const payload = convertSetData(ref, data, options);
-    await dataRpc(ref.port, {
-      t: 'op',
-      id: nextId(),
-      method: 'setDoc',
+    const encodedData = encodeDocValue(payload);
+    const mutation: WorkerOfflineMutation = {
+      kind: 'set',
       path: ref.descriptor.path,
-      data: encodeDocValue(payload),
-      valueEncoding: DOC_VALUE_ENCODING,
+      encodedData,
       options: capturedOptions,
-    });
+    };
+    const sendOnline = async (): Promise<void> => {
+      await dataRpc(ref.port, {
+        t: 'op',
+        id: nextId(),
+        method: 'setDoc',
+        path: ref.descriptor.path,
+        data: encodedData,
+        valueEncoding: DOC_VALUE_ENCODING,
+        options: capturedOptions,
+      });
+    };
+    if (isWorkerFirestoreOffline(ref.port)) {
+      return enqueueWorkerOfflineWrite(ref.port, [mutation], sendOnline);
+    }
+    await sendOnline();
+    markWorkerCommittedWrite(ref.port, [mutation]);
   });
 }
 
@@ -125,25 +146,45 @@ export function updateDoc(
 ): Promise<void> {
   const fields = encodeUpdate('updateDoc', ref, dataOrField, valueAndMoreFieldsAndValues);
   return runSdkWrite(beginWorkerFirestoreActivity(ref, 'updateDoc', 'operation'), async () => {
-    await dataRpc(ref.port, {
-      t: 'op',
-      id: nextId(),
-      method: 'updateDoc',
+    const mutation: WorkerOfflineMutation = {
+      kind: 'update',
       path: ref.descriptor.path,
       fields,
-      valueEncoding: DOC_VALUE_ENCODING,
-    });
+    };
+    const sendOnline = async (): Promise<void> => {
+      await dataRpc(ref.port, {
+        t: 'op',
+        id: nextId(),
+        method: 'updateDoc',
+        path: ref.descriptor.path,
+        fields,
+        valueEncoding: DOC_VALUE_ENCODING,
+      });
+    };
+    if (isWorkerFirestoreOffline(ref.port)) {
+      return enqueueWorkerOfflineWrite(ref.port, [mutation], sendOnline);
+    }
+    await sendOnline();
+    markWorkerCommittedWrite(ref.port, [mutation]);
   });
 }
 
 export async function deleteDoc(ref: DocRefHandle): Promise<void> {
   return runSdkWrite(beginWorkerFirestoreActivity(ref, 'deleteDoc', 'operation'), async () => {
-    await dataRpc(ref.port, {
-      t: 'op',
-      id: nextId(),
-      method: 'deleteDoc',
-      path: ref.descriptor.path,
-    });
+    const mutation: WorkerOfflineMutation = { kind: 'delete', path: ref.descriptor.path };
+    const sendOnline = async (): Promise<void> => {
+      await dataRpc(ref.port, {
+        t: 'op',
+        id: nextId(),
+        method: 'deleteDoc',
+        path: ref.descriptor.path,
+      });
+    };
+    if (isWorkerFirestoreOffline(ref.port)) {
+      return enqueueWorkerOfflineWrite(ref.port, [mutation], sendOnline);
+    }
+    await sendOnline();
+    markWorkerCommittedWrite(ref.port, [mutation]);
   });
 }
 
@@ -153,15 +194,32 @@ export async function addDoc(
 ): Promise<DocRefHandle> {
   return runSdkWrite(beginWorkerFirestoreActivity(coll, 'addDoc', 'operation'), async () => {
     const payload = convertSetData(coll, data);
+    const encodedData = encodeDocValue(payload);
+    if (isWorkerFirestoreOffline(coll.port)) {
+      const mintedId = generateWorkerAutoId();
+      const mintedPath = `${coll.descriptor.path}/${mintedId}`;
+      const mutation: WorkerOfflineMutation = { kind: 'set', path: mintedPath, encodedData };
+      await enqueueWorkerOfflineWrite(coll.port, [mutation], async () => {
+        await dataRpc(coll.port, {
+          t: 'op',
+          id: nextId(),
+          method: 'setDoc',
+          path: mintedPath,
+          data: encodedData,
+          valueEncoding: DOC_VALUE_ENCODING,
+        });
+      });
+      return createDocumentReference(coll.port, mintedPath, coll.converter);
+    }
     const result = await dataRpc(coll.port, {
       t: 'op',
       id: nextId(),
       method: 'addDoc',
       collectionPath: coll.descriptor.path,
-      data: encodeDocValue(payload),
+      data: encodedData,
       valueEncoding: DOC_VALUE_ENCODING,
     }) as { id: string; path: string };
-
+    markWorkerCommittedWrite(coll.port, [{ kind: 'set', path: result.path, encodedData }]);
     return createDocumentReference(coll.port, result.path, coll.converter);
   });
 }
@@ -193,6 +251,7 @@ export interface ClientWriteBatch extends ClientSetOperations {
 
 export function writeBatch(db: ClientDb): ClientWriteBatch {
   const writes: WriteDescriptor[] = [];
+  const offlineMutations: WorkerOfflineMutation[] = [];
   const port = db.port;
   let committed = false;
 
@@ -211,32 +270,50 @@ export function writeBatch(db: ClientDb): ClientWriteBatch {
       assertNotCommitted();
       const capturedOptions = captureSetOptions(options);
       const payload = convertSetData(ref, data, options);
-      writes.push({ method: 'set', path: ref.descriptor.path, data: encodeDocValue(payload), valueEncoding: DOC_VALUE_ENCODING, options: capturedOptions });
+      const encodedData = encodeDocValue(payload);
+      writes.push({ method: 'set', path: ref.descriptor.path, data: encodedData, valueEncoding: DOC_VALUE_ENCODING, options: capturedOptions });
+      offlineMutations.push({ kind: 'set', path: ref.descriptor.path, encodedData, options: capturedOptions });
       return batch;
     },
     update(ref: DocRefHandle, dataOrField: unknown, ...rest: unknown[]) {
       assertNotCommitted();
       const fields = encodeUpdate('WriteBatch.update', ref, dataOrField, rest);
       writes.push({ method: 'update', path: ref.descriptor.path, fields, valueEncoding: DOC_VALUE_ENCODING });
+      offlineMutations.push({ kind: 'update', path: ref.descriptor.path, fields });
       return batch;
     },
     delete(ref) {
       assertNotCommitted();
       writes.push({ method: 'delete', path: ref.descriptor.path });
+      offlineMutations.push({ kind: 'delete', path: ref.descriptor.path });
       return batch;
     },
     async commit() {
       assertNotCommitted();
       committed = true;
-      await runSdkWrite(beginGroupActivity(db, 'writeBatch.commit'), () => dataRpc(port, {
-        t: 'op',
-        id: nextId(),
-        method: 'batchCommit',
-        writes: [...writes],
-      }), () => ({
-        documentWrites: writes.filter(write => write.method !== 'delete').length,
-        documentDeletes: writes.filter(write => write.method === 'delete').length,
-      }));
+      const sendOnline = async (): Promise<void> => {
+        await dataRpc(port, {
+          t: 'op',
+          id: nextId(),
+          method: 'batchCommit',
+          writes: [...writes],
+        });
+      };
+      await runSdkWrite(
+        beginGroupActivity(db, 'writeBatch.commit'),
+        async () => {
+          if (isWorkerFirestoreOffline(port)) {
+            await enqueueWorkerOfflineWrite(port, offlineMutations, sendOnline);
+            return;
+          }
+          await sendOnline();
+          markWorkerCommittedWrite(port, offlineMutations);
+        },
+        () => ({
+          documentWrites: writes.filter((write) => write.method !== 'delete').length,
+          documentDeletes: writes.filter((write) => write.method === 'delete').length,
+        }),
+      );
     },
   };
   return batch;

@@ -28,6 +28,10 @@ import { FirestoreCompatError } from '../../firestore/sandbox/firestore-compat-e
 import { getSnapshotField } from '../../firestore/sandbox/admin-compat/field-path.js';
 import { cloneSnapshotValue } from '../../firestore/sandbox/admin-compat/read-translation.js';
 import { forEachDocument } from '../../firestore/sandbox/for-each-document.js';
+import {
+  recordSnapshotPendingServerTimestamps,
+  snapshotPendingServerTimestamps,
+} from '../../firestore/sandbox/pending-server-timestamps.js';
 
 import { SandboxError, type SandboxContext } from 'pyric/sandbox';
 import type {
@@ -499,12 +503,19 @@ function wrapLiveSnapshotForImmutability(snapshot: unknown): unknown {
     ): import('pyric/sandbox/admin-compat').LiveQueryDocumentSnapshot => {
       const cached = wrappedByRaw.get(rawDoc);
       if (cached !== undefined) return cached;
-      const baseData = cloneSnapshotValue(rawDoc.data());
+      const readRawDoc = rawDoc as {
+        data(options?: { serverTimestamps?: 'estimate' | 'previous' | 'none' }): Record<string, unknown>;
+      };
       const wrapped: import('pyric/sandbox/admin-compat').LiveQueryDocumentSnapshot = {
         ...rawDoc,
-        data: () => cloneSnapshotValue(baseData),
-        get: (fieldPath) => cloneSnapshotValue(getSnapshotField(baseData, fieldPath)),
+        data: (options?: { serverTimestamps?: 'estimate' | 'previous' | 'none' }) =>
+          cloneSnapshotValue(readRawDoc.data(options)),
+        get: (
+          fieldPath: import('pyric/sandbox/admin-compat').SnapshotFieldPath,
+          options?: { serverTimestamps?: 'estimate' | 'previous' | 'none' },
+        ) => cloneSnapshotValue(getSnapshotField(readRawDoc.data(options), fieldPath)),
       };
+      recordSnapshotPendingServerTimestamps(wrapped, snapshotPendingServerTimestamps(rawDoc));
       wrappedByRaw.set(rawDoc, wrapped);
       return wrapped;
     };
@@ -523,14 +534,24 @@ function wrapLiveSnapshotForImmutability(snapshot: unknown): unknown {
     };
   }
   if (typeof candidate.data === 'function') {
-    const rawDoc = snapshot as import('pyric/sandbox/admin-compat').LiveDocumentSnapshot;
-    const baseData = cloneSnapshotValue(rawDoc.data());
-    return {
-      ...rawDoc,
-      data: () => (baseData !== undefined ? cloneSnapshotValue(baseData) : undefined),
-      get: (fieldPath: import('pyric/sandbox/admin-compat').SnapshotFieldPath) =>
-        cloneSnapshotValue(getSnapshotField(baseData, fieldPath)),
+    const rawDoc = snapshot as import('pyric/sandbox/admin-compat').LiveDocumentSnapshot & {
+      data(options?: { serverTimestamps?: 'estimate' | 'previous' | 'none' }): Record<string, unknown> | undefined;
     };
+    const readCloned = (options?: { serverTimestamps?: 'estimate' | 'previous' | 'none' }) => {
+      const value = rawDoc.data(options);
+      if (value === undefined) return undefined;
+      return cloneSnapshotValue(value);
+    };
+    const wrappedDoc = {
+      ...rawDoc,
+      data: readCloned,
+      get: (
+        fieldPath: import('pyric/sandbox/admin-compat').SnapshotFieldPath,
+        options?: { serverTimestamps?: 'estimate' | 'previous' | 'none' },
+      ) => cloneSnapshotValue(getSnapshotField(readCloned(options), fieldPath)),
+    };
+    recordSnapshotPendingServerTimestamps(wrappedDoc, snapshotPendingServerTimestamps(rawDoc));
+    return wrappedDoc;
   }
   return snapshot;
 }

@@ -102,7 +102,7 @@ const servedTiming = { ...replayTiming, wait: () => sleep(150) };
 const OPEN_FIRESTORE_RULES = `rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    match /{document=**} { allow read, write: if true; }
+    match /{collection}/{doc=**} { allow read, write: if collection != 'pyric_oracle_denied_replay'; }
   }
 }`;
 

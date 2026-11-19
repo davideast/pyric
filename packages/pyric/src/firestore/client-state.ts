@@ -1,13 +1,18 @@
 import { FirebaseError } from '../sandbox/internal/firebase-error.js';
 import type { Target } from './state.js';
+import { ClientOfflineOverlay, type OfflineMutation } from './sandbox/client-offline-overlay.js';
 
 interface PendingWrite<T = unknown> {
   readonly paths: ReadonlySet<string>;
   readonly promise: Promise<T>;
-  localDone: boolean;
-  value?: T;
-  resolve(value: T): void;
-  reject(error: unknown): void;
+  flush(): Promise<void>;
+}
+
+export interface ClientManagedListener {
+  hasDelivered(): boolean;
+  suspendBackend(): void;
+  resumeBackend(): void;
+  deliverOffline(changedPaths?: ReadonlySet<string>): void;
 }
 
 /** Per-Firestore-service client lifecycle layered over the shared sandbox store. */
@@ -19,10 +24,25 @@ export class FirestoreClientState {
   private readonly cachedPaths = new Set<string>();
   private readonly cachedQueries = new WeakSet<object>();
   private readonly syncObservers = new Set<() => void>();
+  private readonly managedListeners = new Set<ClientManagedListener>();
   private syncScheduled = false;
+  readonly overlay = new ClientOfflineOverlay();
+
+  constructor(private readonly readAdminDoc?: (path: string) => Record<string, unknown> | null) {}
 
   markStarted(): void {
     this.started = true;
+  }
+
+  isNetworkEnabled(): boolean {
+    return this.networkEnabled;
+  }
+
+  registerListener(listener: ClientManagedListener): () => void {
+    this.managedListeners.add(listener);
+    return () => {
+      this.managedListeners.delete(listener);
+    };
   }
 
   enablePersistence(mode: 'single' | 'multiple'): void {
@@ -38,19 +58,40 @@ export class FirestoreClientState {
 
   disableNetwork(): void {
     this.started = true;
+    if (!this.networkEnabled) return;
     this.networkEnabled = false;
+    for (const listener of [...this.managedListeners]) {
+      listener.suspendBackend();
+      if (!listener.hasDelivered()) {
+        queueMicrotask(() => {
+          if (!this.networkEnabled && this.managedListeners.has(listener) && !listener.hasDelivered()) {
+            listener.deliverOffline();
+          }
+        });
+      }
+    }
   }
 
   async enableNetwork(): Promise<void> {
     this.started = true;
+    const wasOffline = !this.networkEnabled;
     this.networkEnabled = true;
-    for (const write of this.pending) {
-      if (write.localDone) write.resolve(write.value);
+    const queued = [...this.pending];
+    for (const write of queued) {
+      await write.flush();
     }
-    await Promise.all([...this.pending].map((write) => write.promise));
+    if (wasOffline) {
+      for (const listener of [...this.managedListeners]) {
+        listener.resumeBackend();
+      }
+    }
   }
 
-  runWrite<T>(operation: () => Promise<T>, pathOrPaths?: string | Iterable<string>): Promise<T> {
+  runWrite<T>(
+    operation: () => Promise<T>,
+    pathOrPaths?: string | Iterable<string>,
+    offlineMutations?: readonly OfflineMutation[],
+  ): Promise<T> {
     this.started = true;
     const paths = new Set<string>();
     if (typeof pathOrPaths === 'string') {
@@ -58,47 +99,83 @@ export class FirestoreClientState {
     } else if (pathOrPaths !== undefined) {
       for (const entry of pathOrPaths) paths.add(entry);
     }
-    for (const p of paths) this.cachedPaths.add(p);
-    if (this.networkEnabled) return operation();
 
-    let resolve!: (value: T) => void;
-    let reject!: (error: unknown) => void;
+    const recordCommittedCache = (): void => {
+      for (const p of paths) {
+        const deleted = offlineMutations?.some((m) => m.path === p && m.kind === 'delete') === true;
+        if (deleted) {
+          this.cachedPaths.delete(p);
+          this.overlay.markDeletedPath(p);
+        } else {
+          this.cachedPaths.add(p);
+          this.overlay.markWarmPath(p, this.readAdminDoc);
+        }
+      }
+    };
+
+    if (this.networkEnabled) {
+      return operation().then((value) => {
+        recordCommittedCache();
+        return value;
+      });
+    }
+
+    for (const p of paths) {
+      const deleted = offlineMutations?.some((m) => m.path === p && m.kind === 'delete') === true;
+      if (!deleted) this.cachedPaths.add(p);
+    }
+    const overlayId = this.overlay.stageMutations(offlineMutations ?? []);
+    if (paths.size > 0) {
+      queueMicrotask(() => {
+        if (this.networkEnabled) return;
+        for (const listener of [...this.managedListeners]) {
+          listener.deliverOffline(paths);
+        }
+      });
+    }
+
+    let resolvePromise: ((value: T) => void) | undefined;
+    let rejectPromise: ((error: unknown) => void) | undefined;
     const promise = new Promise<T>((res, rej) => {
-      resolve = res;
-      reject = rej;
+      resolvePromise = res;
+      rejectPromise = rej;
     });
+    let flushed = false;
     const pending: PendingWrite<T> = {
       paths,
       promise,
-      localDone: false,
-      resolve,
-      reject,
+      flush: async () => {
+        if (flushed) return;
+        flushed = true;
+        try {
+          const value = await operation();
+          this.overlay.clearMutations(overlayId);
+          recordCommittedCache();
+          this.pending.delete(pending as PendingWrite);
+          resolvePromise?.(value);
+        } catch (error) {
+          this.overlay.clearMutations(overlayId);
+          this.pending.delete(pending as PendingWrite);
+          rejectPromise?.(error);
+        }
+      },
     };
     this.pending.add(pending as PendingWrite);
-    void operation().then(
-      (value) => {
-        pending.localDone = true;
-        pending.value = value;
-        if (this.networkEnabled) pending.resolve(value);
-      },
-      (error) => pending.reject(error),
-    );
-    void promise.then(
-      () => this.pending.delete(pending as PendingWrite),
-      () => this.pending.delete(pending as PendingWrite),
-    );
     return promise;
   }
 
   waitForPendingWrites(): Promise<void> {
     this.started = true;
     const snapshot = [...this.pending].map((write) => write.promise);
-    return Promise.all(snapshot).then(() => undefined);
+    return Promise.allSettled(snapshot).then(() => undefined);
   }
 
   cachePath(path: string): void {
     this.started = true;
     this.cachedPaths.add(path);
+    if (this.networkEnabled) {
+      this.overlay.markWarmPath(path, this.readAdminDoc);
+    }
   }
 
   assertPathCached(path: string): void {
@@ -167,7 +244,17 @@ const clientStates = new WeakMap<object, FirestoreClientState>();
 export function clientStateFor(target: Target): FirestoreClientState {
   let state = clientStates.get(target as object);
   if (!state) {
-    state = new FirestoreClientState();
+    const readAdminDoc = (path: string): Record<string, unknown> | null => {
+      const admin = (
+        target.sandbox as { admin?: { getDocument?: (docPath: string) => Record<string, unknown> | null | undefined } }
+      ).admin;
+      if (admin && typeof admin.getDocument === 'function') {
+        const doc = admin.getDocument(path);
+        if (doc !== undefined && doc !== null) return doc;
+      }
+      return null;
+    };
+    state = new FirestoreClientState(readAdminDoc);
     clientStates.set(target as object, state);
   }
   return state;

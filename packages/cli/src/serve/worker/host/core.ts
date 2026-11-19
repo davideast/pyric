@@ -180,21 +180,65 @@ export function serializeDocSnap(
     path?: string;
     ref?: { path?: string };
     exists: boolean | (() => boolean);
-    data(): Record<string, unknown> | undefined;
+    metadata?: { hasPendingWrites?: boolean };
+    data(options?: { serverTimestamps?: 'estimate' | 'previous' | 'none' }): Record<string, unknown> | undefined;
   },
   encoding?: ResponseDocValueEncoding,
-): { id: string; path?: string; exists: boolean; data?: SerializedDocData } {
-  const existsBool = typeof snap.exists === 'function' ? snap.exists() : snap.exists;
-  const data = existsBool ? snap.data() : undefined;
-  return {
+): {
+  id: string;
+  path?: string;
+  exists: boolean;
+  data?: SerializedDocData;
+  serverTimestampVariants?: { none: SerializedDocData; previous: SerializedDocData };
+} {
+  let existsBool = snap.exists === true;
+  if (typeof snap.exists === 'function') {
+    existsBool = snap.exists();
+  }
+  let serializedData: SerializedDocData | undefined;
+  let serverTimestampVariants: { none: SerializedDocData; previous: SerializedDocData } | undefined;
+  if (existsBool) {
+    if (snap.metadata?.hasPendingWrites === true) {
+      const estimateDoc = snap.data({ serverTimestamps: 'estimate' });
+      const noneDoc = snap.data({ serverTimestamps: 'none' });
+      if (estimateDoc !== undefined) {
+        const serializedEstimate = serializeDocData(estimateDoc, encoding);
+        serializedData = serializedEstimate;
+        if (noneDoc !== undefined) {
+          const serializedNone = serializeDocData(noneDoc, encoding);
+          if (serializedEstimate.json !== serializedNone.json) {
+            let prevDoc = snap.data({ serverTimestamps: 'previous' });
+            if (prevDoc === undefined) prevDoc = noneDoc;
+            serverTimestampVariants = {
+              none: serializedNone,
+              previous: serializeDocData(prevDoc, encoding),
+            };
+          }
+        }
+      }
+    } else {
+      const data = snap.data();
+      if (data !== undefined) {
+        serializedData = serializeDocData(data, encoding);
+      }
+    }
+  }
+  const serialized: {
+    id: string;
+    path?: string;
+    exists: boolean;
+    data?: SerializedDocData;
+    serverTimestampVariants?: { none: SerializedDocData; previous: SerializedDocData };
+  } = {
     id: snap.id,
-    // Doc snapshots carry a top-level `path`; QUERY doc snapshots carry it on
-    // `.ref.path`. Read both so query rows serialize their FULL path (Studio's
-    // browse resolves the document detail from it).
     path: snap.path ?? snap.ref?.path,
     exists: existsBool,
-    data: data ? serializeDocData(data, encoding) : undefined,
+    data: serializedData,
   };
+  if (serverTimestampVariants !== undefined) {
+    serialized.serverTimestampVariants = serverTimestampVariants;
+  }
+  return serialized;
 }
 
 // ─── Auth lens (Pyric Studio) ─────────────────────────────────────────────

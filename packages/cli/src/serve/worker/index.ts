@@ -201,6 +201,12 @@ export {
   resetAll,
 } from './client.js';
 
+export {
+  disableNetwork,
+  enableNetwork,
+  waitForPendingWrites,
+} from './client/firestore-network.js';
+
 // RTDB bridge families are exported directly from their owning modules. This
 // public package index is the sole aggregation point for the worker surface.
 export { rtdbGetDatabase, rtdbRef, rtdbChild } from './client/rtdb-references.js';

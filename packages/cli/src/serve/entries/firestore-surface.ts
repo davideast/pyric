@@ -30,6 +30,11 @@ import {
   readQueryAs as workerQueryRead,
   onSnapshotsInSync as workerOnSnapshotsInSync,
 } from '../worker/client/firestore-reads.js';
+import {
+  disableNetwork as workerDisableNetwork,
+  enableNetwork as workerEnableNetwork,
+  waitForPendingWrites as workerWaitForPendingWrites,
+} from '../worker/client/firestore-network.js';
 import { getFirestore as pyricGetFirestore } from 'pyric/firestore';
 import { markServiceUsed } from './service-use.js';
 import * as wcRaw from '../worker/client.js';
@@ -197,22 +202,31 @@ export async function clearIndexedDbPersistence(_db?: unknown): Promise<void> {
   acceptedNoOp('clearIndexedDbPersistence');
 }
 
-/** Resolves immediately — sandbox writes apply synchronously in-page; over the
- *  worker the RPC ack already settled (judgment zone 4, recorded). */
-export async function waitForPendingWrites(_db?: unknown): Promise<void> {}
-
-// ── network toggles — no-op (accepted, unused). No network exists in the
-//    sandbox (in-page OR worker): every op is a local call, never a request
-//    that could be offline. Writes issued after `disableNetwork()` still
-//    commit immediately — no offline queue is simulated, because the sandbox
-//    cannot honestly deliver "queued until reconnected" with no connection to
-//    lose in the first place. ───────────────────────────────────────────────
-export async function disableNetwork(_db?: unknown): Promise<void> {
-  acceptedNoOp('disableNetwork');
+export async function waitForPendingWrites(db?: unknown): Promise<void> {
+  if (db !== null && typeof db === 'object' && 'port' in db) {
+    return workerWaitForPendingWrites(db as Parameters<typeof workerWaitForPendingWrites>[0]);
+  }
+  if (db !== null && typeof db === 'object' && ip.TARGET_SYMBOL in db) {
+    return ip.waitForPendingWrites(db as ip.Firestore);
+  }
 }
 
-export async function enableNetwork(_db?: unknown): Promise<void> {
-  acceptedNoOp('enableNetwork');
+export async function disableNetwork(db?: unknown): Promise<void> {
+  if (db !== null && typeof db === 'object' && 'port' in db) {
+    return workerDisableNetwork(db as Parameters<typeof workerDisableNetwork>[0]);
+  }
+  if (db !== null && typeof db === 'object' && ip.TARGET_SYMBOL in db) {
+    return ip.disableNetwork(db as ip.Firestore);
+  }
+}
+
+export async function enableNetwork(db?: unknown): Promise<void> {
+  if (db !== null && typeof db === 'object' && 'port' in db) {
+    return workerEnableNetwork(db as Parameters<typeof workerEnableNetwork>[0]);
+  }
+  if (db !== null && typeof db === 'object' && ip.TARGET_SYMBOL in db) {
+    return ip.enableNetwork(db as ip.Firestore);
+  }
 }
 
 /**

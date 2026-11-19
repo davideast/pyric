@@ -29,6 +29,10 @@ import { TriggerScope, type TriggeringOps } from './trigger-scope.js';
 import { assertNoNestedDeleteField } from './field-merge.js';
 import { generateAutoId } from './auto-id.js';
 import { walkForSentinels } from './sentinel-capture.js';
+import {
+  capturePendingServerTimestamps,
+  recordPendingServerTimestamps,
+} from './pending-server-timestamps.js';
 import { publicWritePayload } from './update-fields.js';
 import type {
   Transaction,
@@ -356,6 +360,12 @@ export class WriteEngine {
     // unchanged. TriggerScope.run saves/restores (not clear-on-finally)
     // because a listener callback may itself call execute().
     if (isAllowed) {
+      const priorForPending = snapshot[path] ?? null;
+      const storedAfterWrite = this.runtime.state.get(path);
+      recordPendingServerTimestamps(
+        storedAfterWrite,
+        capturePendingServerTimestamps(operation, priorForPending),
+      );
       this.runtime.notify(method, [path]);
     }
     // Issue #307 — emit the request event; listener-origin events spawned by

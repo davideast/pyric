@@ -106,18 +106,41 @@ describe('served firestore surface', () => {
     expect(infAdmin.data()).toEqual({ s: Infinity, a: Infinity, n: 2 });
   });
 
-  describe('FP-9: network and persistence calls are accepted no-ops', () => {
+  describe('FP-9: network controls conform while cache/persistence remain accepted on served planes', () => {
     const lifecycle = load('firestore-browser-lifecycle');
 
-    it('a write after disableNetwork commits at once; production keeps it pending', async () => {
+    it('a write after disableNetwork stays pending with local cache metadata until enableNetwork across planes', async () => {
       const db = inPageDb();
       await surface.disableNetwork(db);
       let settled = false;
       const write = ip.setDoc(ip.doc(db, 'lifecycle/network'), { value: 'offline' }).then(() => { settled = true; });
       await new Promise((resolve) => setTimeout(resolve, 10));
-      expect(lifecycle.offlineWritePending).toBe(true);
-      expect(!settled).toBe(false);
+      expect(!settled).toBe(lifecycle.offlineWritePending as boolean);
+      const local = await ip.getDoc(ip.doc(db, 'lifecycle/network'));
+      expect(local.data()?.value).toBe(lifecycle.offlineLocalValue as string);
+      expect(local.metadata.fromCache).toBe(lifecycle.offlineSnapshotFromCache as boolean);
+      expect(local.metadata.hasPendingWrites).toBe(lifecycle.offlineSnapshotHasPendingWrites as boolean);
+      await surface.enableNetwork(db);
       await write;
+      expect((await ip.getDoc(ip.doc(db, 'lifecycle/network'))).data()?.value).toBe(
+        lifecycle.reconnectedServerValue as string,
+      );
+
+      for (const ctx of [await servedFirestoreContext(), await hostedFirestoreContext()]) {
+        const ref = ctx.fs.doc(ctx.db, `${ctx.base}/lifecycle/network`);
+        await ctx.fs.disableNetwork(ctx.db);
+        let planeSettled = false;
+        const planeWrite = ctx.fs.setDoc(ref, { value: 'offline' }).then(() => { planeSettled = true; });
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        expect(!planeSettled).toBe(lifecycle.offlineWritePending as boolean);
+        const planeLocal = await ctx.fs.getDoc(ref);
+        expect(planeLocal.data()?.value).toBe(lifecycle.offlineLocalValue as string);
+        expect(planeLocal.metadata.fromCache).toBe(lifecycle.offlineSnapshotFromCache as boolean);
+        expect(planeLocal.metadata.hasPendingWrites).toBe(lifecycle.offlineSnapshotHasPendingWrites as boolean);
+        await ctx.fs.enableNetwork(ctx.db);
+        await planeWrite;
+        expect((await ctx.fs.getDoc(ref)).data()?.value).toBe(lifecycle.reconnectedServerValue as string);
+      }
     });
 
     it('getDocFromCache on a doc never read resolves; production rejects unavailable', async () => {

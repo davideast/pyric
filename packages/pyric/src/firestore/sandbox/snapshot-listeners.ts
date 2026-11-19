@@ -31,6 +31,11 @@ import {
   getSnapshotField,
   type SnapshotFieldPath,
 } from './admin-compat/field-path.js';
+import {
+  pendingServerTimestampsFor,
+  projectPendingServerTimestamps,
+  recordSnapshotPendingServerTimestamps,
+} from './pending-server-timestamps.js';
 
 /**
  * A query's `where` / `orderBy` / cursor / `limit` constraints as a
@@ -229,7 +234,11 @@ export interface ListenerRecord {
  */
 export interface SnapshotMetadata {
   readonly hasPendingWrites: boolean;
-  readonly fromCache: false;
+  readonly fromCache: boolean;
+}
+
+export interface SnapshotDataOptions {
+  readonly serverTimestamps?: 'estimate' | 'previous' | 'none';
 }
 
 /**
@@ -259,13 +268,13 @@ export interface DocumentSnapshot {
   readonly ref: SnapshotDocRef;
   readonly metadata: SnapshotMetadata;
   exists(): boolean;
-  data(): DocumentData | undefined;
+  data(options?: SnapshotDataOptions): DocumentData | undefined;
   /**
    * Field accessor mirroring `firebase/firestore`'s `DocumentSnapshot.get(fieldPath)`.
    * Dotted paths supported. Missing intermediate keys yield `undefined`
    * — production behavior; agents commonly chain optional reads.
    */
-  get(fieldPath: SnapshotFieldPath): unknown;
+  get(fieldPath: SnapshotFieldPath, options?: SnapshotDataOptions): unknown;
 }
 
 /**
@@ -274,7 +283,7 @@ export interface DocumentSnapshot {
  * the items inside a `QuerySnapshot.docs` array.
  */
 export interface QueryDocumentSnapshot extends DocumentSnapshot {
-  data(): DocumentData;
+  data(options?: SnapshotDataOptions): DocumentData;
 }
 
 export interface DocumentChange<S = QueryDocumentSnapshot> {
@@ -350,18 +359,26 @@ export function buildDocumentSnapshot(
 ): DocumentSnapshot {
   const ref: SnapshotDocRef = { id: lastSegment(path), path };
   const exists = data !== null;
-  // FS-B10 — translate to the same compat shape `getDoc` returns, so a
-  // listener's `snap.data().createdAt` is a `{seconds, nanoseconds}`
-  // Timestamp, not the rules-internal `{seconds, nanos}` wrapper.
-  const translated = exists ? translateReadData(data as DocumentData) : undefined;
-  return {
+  let translated: DocumentData | undefined;
+  if (exists) {
+    translated = translateReadData(data);
+  }
+  let pendingEntries: ReturnType<typeof pendingServerTimestampsFor>;
+  if (exists && metadata.hasPendingWrites) {
+    pendingEntries = pendingServerTimestampsFor(data);
+  }
+  const readData = (options?: SnapshotDataOptions): DocumentData | undefined =>
+    projectPendingServerTimestamps(translated, pendingEntries, options?.serverTimestamps);
+  const built: DocumentSnapshot = {
     id: ref.id,
     ref,
     metadata,
     exists: () => exists,
-    data: () => translated,
-    get: (fieldPath) => getSnapshotField(translated, fieldPath),
+    data: readData,
+    get: (fieldPath, options) => getSnapshotField(readData(options), fieldPath),
   };
+  recordSnapshotPendingServerTimestamps(built, pendingEntries);
+  return built;
 }
 
 function buildQueryDocumentSnapshot(
@@ -370,16 +387,23 @@ function buildQueryDocumentSnapshot(
   metadata: SnapshotMetadata = SANDBOX_METADATA,
 ): QueryDocumentSnapshot {
   const ref: SnapshotDocRef = { id: lastSegment(path), path };
-  // FS-B10 — same read-path translation as the single-doc + getDocs paths.
   const translated = translateReadData(data);
-  return {
+  let pendingEntries: ReturnType<typeof pendingServerTimestampsFor>;
+  if (metadata.hasPendingWrites) {
+    pendingEntries = pendingServerTimestampsFor(data);
+  }
+  const readData = (options?: SnapshotDataOptions): DocumentData =>
+    projectPendingServerTimestamps(translated, pendingEntries, options?.serverTimestamps) as DocumentData;
+  const built: QueryDocumentSnapshot = {
     id: ref.id,
     ref,
     metadata,
     exists: () => true,
-    data: () => translated,
-    get: (fieldPath) => getSnapshotField(translated, fieldPath),
+    data: readData,
+    get: (fieldPath, options) => getSnapshotField(readData(options), fieldPath),
   };
+  recordSnapshotPendingServerTimestamps(built, pendingEntries);
+  return built;
 }
 
 /**
@@ -407,8 +431,10 @@ export function buildQuerySnapshot(
 ): QuerySnapshot {
   const docMetaFor = (path: string): SnapshotMetadata => {
     if (docPendingPaths === undefined) return metadata;
-    if (docPendingPaths.has(path)) return SANDBOX_METADATA_PENDING;
-    return SANDBOX_METADATA;
+    return Object.freeze({
+      fromCache: metadata.fromCache,
+      hasPendingWrites: docPendingPaths.has(path),
+    });
   };
   const docs = docList.map((d) => buildQueryDocumentSnapshot(d.path, d.data, docMetaFor(d.path)));
   const changes = computeDocumentChanges(

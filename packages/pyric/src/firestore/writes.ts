@@ -13,6 +13,14 @@ import type {
 } from 'pyric/sandbox/admin-firestore';
 import { parseChainUpdate } from './chain-update.js';
 import type { FieldPath } from './field-values.js';
+import { requireDocumentData } from './internal/document-data.js';
+import { generateAutoId } from './sandbox/auto-id.js';
+import type { OfflineMutation } from './sandbox/client-offline-overlay.js';
+import {
+  normalizeMergeFields,
+  parseUpdateArguments,
+  updateFieldsData,
+} from './sandbox/update-fields.js';
 
 import {
   targetOf,
@@ -98,12 +106,24 @@ export async function setDoc<T = DocumentData>(
   return runSdkWrite(beginFirestoreActivity(target, ref, 'setDoc', 'operation'), async () => {
     const conv = converterOf(ref) as FirestoreDataConverter<T> | null | undefined;
     const rawPayload = applySetConverter(conv, data, options);
-    const payload = markUserWriteValue(rawPayload) as DocumentData;
+    const payload = markUserWriteValue(requireDocumentData(rawPayload)) as DocumentData;
+    let mergeFields: string[] | undefined;
+    if (options?.mergeFields !== undefined && options.merge !== true) {
+      mergeFields = normalizeMergeFields(options.mergeFields);
+    }
+    const mutation: OfflineMutation = {
+      kind: 'set',
+      path: ref.path,
+      data: payload,
+      merge: options?.merge === true,
+      mergeFields,
+    };
     return clientStateFor(target).runWrite(
       () => withFirestoreFirebaseError(() =>
         chainDocFor(target, ref).set(payload, options as ChainSetOptions | undefined),
       ),
       ref.path,
+      [mutation],
     );
   });
 }
@@ -134,11 +154,16 @@ export function updateDoc(
   ...valueAndMoreFieldsAndValues: unknown[]
 ): Promise<void> {
   const target = targetOf(ref);
+  const parsedFields = parseUpdateArguments('updateDoc', ref.path, dataOrField, valueAndMoreFieldsAndValues);
   const args = parseChainUpdate('updateDoc', ref.path, dataOrField, valueAndMoreFieldsAndValues);
+  const offlineData = updateFieldsData(
+    parsedFields.map((field) => ({ path: field.path, value: markUserWriteValue(field.value) })),
+  );
   return runSdkWrite(beginFirestoreActivity(target, ref, 'updateDoc', 'operation'), async () => {
     return clientStateFor(target).runWrite(
       () => withFirestoreFirebaseError(() => chainDocFor(target, ref).update(...args)),
       ref.path,
+      [{ kind: 'update', path: ref.path, data: offlineData }],
     );
   });
 }
@@ -149,6 +174,7 @@ export async function deleteDoc(ref: DocumentReference): Promise<void> {
     return clientStateFor(target).runWrite(
       () => withFirestoreFirebaseError(() => chainDocFor(target, ref).delete()),
       ref.path,
+      [{ kind: 'delete', path: ref.path }],
     );
   });
 }
@@ -164,12 +190,28 @@ export async function addDoc<T = DocumentData>(
     if (conv !== undefined && conv !== null) {
       rawPayload = (conv as FirestoreDataConverter<T>).toFirestore(data);
     }
-    const payload = markUserWriteValue(rawPayload) as DocumentData;
-    const ref = await clientStateFor(target).runWrite(async () => {
-      const created = await withFirestoreFirebaseError(() => chainCollFor(target, coll).add(payload));
-      clientStateFor(target).cachePath(created.path);
-      return created;
-    });
+    const payload = markUserWriteValue(requireDocumentData(rawPayload)) as DocumentData;
+    const clientState = clientStateFor(target);
+    let ref: { id: string; path: string };
+    if (!clientState.isNetworkEnabled()) {
+      const mintedId = generateAutoId();
+      const mintedPath = `${coll.path}/${mintedId}`;
+      ref = await clientState.runWrite(
+        async () => {
+          await withFirestoreFirebaseError(() => chainCollFor(target, coll).doc(mintedId).create(payload));
+          return { id: mintedId, path: mintedPath };
+        },
+        mintedPath,
+        [{ kind: 'set', path: mintedPath, data: payload }],
+      );
+    } else {
+      const created = await clientState.runWrite(async () => {
+        const docRef = await withFirestoreFirebaseError(() => chainCollFor(target, coll).add(payload));
+        clientState.cachePath(docRef.path);
+        return docRef;
+      });
+      ref = created as unknown as { id: string; path: string };
+    }
     const createdRef = ref as unknown as { id: string; path: string };
     const absPath = createdRef.path;
     const tagged = tagSandboxRef(
