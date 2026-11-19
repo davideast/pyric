@@ -3,7 +3,7 @@
   "matrixRow": "",
   "rowIds": [],
   "description": "Firestore security-rules write and cross-document evaluation via the client SDK: request.auth == null when unauthenticated, cross-document exists()/get() and get(path).id/__name__ with missing-doc error denial, request.resource.data create validation and undefined-field denial, resource.data existing-doc checks, custom token claims on request.auth.token, and updateDoc merged request.resource.data.",
-  "observedAt": "2026-11-19T22:59:48.951Z",
+  "observedAt": "2026-11-19T23:23:24.093Z",
   "fbSdkVersion": "12.19.0",
   "projectId": "digame-mas",
   "behavior": {
@@ -17,7 +17,7 @@
       "existsGuardMissingAclRead": "error:permission-denied",
       "crossDocIdRead": "allowed",
       "crossDocIdNotEqZzzRead": "allowed",
-      "crossDocNameRead": "error:permission-denied",
+      "crossDocNameRead": "allowed",
       "unguardedMissingGetRead": "error:permission-denied"
     },
     "requestResourceValidation": {
@@ -38,7 +38,7 @@
       "unauthedWrite": "error:permission-denied"
     },
     "updateMergedRequestResource": {
-      "sparseUpdatePreservingKeep": "error:permission-denied",
+      "sparseUpdatePreservingKeep": "allowed",
       "fullSetDroppingKeep": "error:permission-denied"
     }
   }
