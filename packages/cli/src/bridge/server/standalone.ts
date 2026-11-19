@@ -41,6 +41,7 @@ import {
   NO_BROWSER_PEER_CLOSE_REASON,
 } from '../protocol.js';
 import { cliVersion } from '../../pkg-version.js';
+import { configureLocalHttpKeepAlive } from '../../serve/http-keepalive.js';
 import {
   isAllowedHost,
   isAllowedLoopbackRequest,
@@ -397,6 +398,7 @@ export async function startServer(
       }
     });
   });
+  configureLocalHttpKeepAlive(http);
 
   // ── /sandbox: refused with a reason ─────────────────────────────
   // A browser cannot read an HTTP refusal of an upgrade, so the socket is

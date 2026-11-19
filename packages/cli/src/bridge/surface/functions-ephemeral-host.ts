@@ -18,6 +18,7 @@ import { WebSocketServer, type WebSocket } from 'ws';
 import { cliVersion } from '../../pkg-version.js';
 import { BEACON_TOKEN_HEADER } from '../../register/beacon.js';
 import { BEACON_BODY_LIMIT_BYTES } from '../../serve/beacon-route.js';
+import { configureLocalHttpKeepAlive } from '../../serve/http-keepalive.js';
 import {
   getHeader,
   isAllowedLoopbackRequest,
@@ -242,6 +243,7 @@ export async function startEphemeralFunctionsHost(
       else res.end();
     });
   });
+  configureLocalHttpKeepAlive(server);
   const wss = new WebSocketServer({ noServer: true, maxPayload: MAX_BRIDGE_FRAME_BYTES });
 
   server.on('upgrade', (req, socket, head) => {

@@ -17,6 +17,7 @@ import { pipeline } from 'node:stream';
 import { extname, join, normalize, resolve, sep } from 'node:path';
 import { formatUrlHost, stripHostBrackets } from './advertised-host.js';
 import { isHostingIgnoredPathname, isHostingIgnoredRealFile } from './hosting-ignore.js';
+import { configureLocalHttpKeepAlive } from './http-keepalive.js';
 import { registerLocalSessionToken } from './local-session-token.js';
 import {
   appendSetCookieHeader,
@@ -393,6 +394,7 @@ export async function startStaticServer(opts: StaticServerOptions): Promise<Serv
         res.end('internal error');
       });
     });
+    configureLocalHttpKeepAlive(s);
     s.on('connection', (socket) => {
       sockets.add(socket);
       socket.on('close', () => sockets.delete(socket));
