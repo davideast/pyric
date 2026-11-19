@@ -1,7 +1,9 @@
 {
   "name": "rtdb-modular-admin-use-emulator-validation",
-  "matrixRow": "",
-  "rowIds": [],
+  "matrixRow": "rtdb-admin#9",
+  "rowIds": [
+    "rtdb-admin#9"
+  ],
   "description": "Pure offline firebase-admin/database Database#useEmulator(host, port) contract: pre-start HTTP host:port URL rebinding and overwrite, refFromURL custom-host resolution, host/port boundary interpolation, idempotent same-endpoint repeat after start, and fatal errors on post-start initialization/alteration, mockUserToken, and deleted databases.",
   "observedAt": "2026-11-19T01:46:00.247Z",
   "fbSdkVersion": "12.19.0",

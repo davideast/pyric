@@ -22,6 +22,7 @@ export function isAdminReference(candidate: unknown): candidate is Reference {
 export interface Database {
   ref(path?: string | Reference): Reference;
   refFromURL(url: string): Reference;
+  useEmulator(host: string, port: number, options?: { mockUserToken?: unknown }): void;
   goOffline(): void;
   goOnline(): void;
   getRules(): Promise<string>;

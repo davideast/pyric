@@ -246,9 +246,8 @@ let offlineRunCounter = 0;
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: [],
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'rtdb-admin#9',
+  rowIds: ['rtdb-admin#9'],
   description:
     'Pure offline firebase-admin/database Database#useEmulator(host, port) contract: pre-start HTTP host:port URL rebinding and overwrite, refFromURL custom-host resolution, host/port boundary interpolation, idempotent same-endpoint repeat after start, and fatal errors on post-start initialization/alteration, mockUserToken, and deleted databases.',
   async observe() {
