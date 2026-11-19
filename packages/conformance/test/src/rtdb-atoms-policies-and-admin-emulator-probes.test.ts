@@ -26,11 +26,11 @@ import {
   printModularProbePreview,
   selectModularProbes,
 } from '../../src/sdk-probes.ts';
-import { expectStagedUntilCaptured } from './staged-capture-assertions.ts';
 
-const STAGED_RULES_PROBE_IDS = [
+const LINKED_PROBE_IDS = [
   'rtdb-rules-atoms-verdicts',
   'rtdb-rules-policies-verdicts',
+  'rtdb-modular-admin-use-emulator-validation',
 ] as const;
 
 const ALLOWED: ConstraintRuleVerdict = { allowed: true, permissionDenied: false };
@@ -79,8 +79,8 @@ function createConstraintRulesHarness(scopedRules: Record<string, unknown>) {
   };
 }
 
-describe('RTDB constraint atoms/policies staged probes and linked admin useEmulator probe (sdk-probes)', () => {
-  test('registers staged rules probes and linked admin useEmulator probe with clean authMode audit', async () => {
+describe('RTDB constraint atoms/policies and admin useEmulator linked probes (sdk-probes)', () => {
+  test('registers linked rules and admin useEmulator probes with clean authMode audit', async () => {
     const loaded = await loadModularProbes('sdk-probes');
     const byId = new Map(loaded.map((entry) => [entry.id, entry]));
 
@@ -88,14 +88,19 @@ describe('RTDB constraint atoms/policies staged probes and linked admin useEmula
     expect(byId.get('rtdb-rules-policies-verdicts')?.surfaceDir).toBe('rtdb');
     expect(byId.get('rtdb-modular-admin-use-emulator-validation')?.surfaceDir).toBe('rtdb-modular');
 
-    for (const liveRulesProbe of [atomsProbe, policiesProbe]) {
-      expect(liveRulesProbe.rig).toBe('sdk-probes');
-      expect(liveRulesProbe.requires).toEqual(['web-config', 'dedicated-rtdb']);
-      expect(liveRulesProbe.pendingRowLink).toBe(true);
-      expect(liveRulesProbe.matrixRow).toBe('');
-      expect(liveRulesProbe.rowIds).toEqual([]);
-      expect(liveRulesProbe.description.length).toBeGreaterThan(20);
-    }
+    expect(atomsProbe.rig).toBe('sdk-probes');
+    expect(atomsProbe.requires).toEqual(['web-config', 'dedicated-rtdb']);
+    expect(atomsProbe.pendingRowLink).toBeUndefined();
+    expect(atomsProbe.matrixRow).toBe('rtdb#84');
+    expect(atomsProbe.rowIds).toEqual(['rtdb#84']);
+    expect(atomsProbe.description.length).toBeGreaterThan(20);
+
+    expect(policiesProbe.rig).toBe('sdk-probes');
+    expect(policiesProbe.requires).toEqual(['web-config', 'dedicated-rtdb']);
+    expect(policiesProbe.pendingRowLink).toBeUndefined();
+    expect(policiesProbe.matrixRow).toBe('rtdb#85');
+    expect(policiesProbe.rowIds).toEqual(['rtdb#85']);
+    expect(policiesProbe.description.length).toBeGreaterThan(20);
 
     expect(adminUseEmulatorProbe.rig).toBe('sdk-probes');
     expect(adminUseEmulatorProbe.requires).toEqual([]);
@@ -109,19 +114,9 @@ describe('RTDB constraint atoms/policies staged probes and linked admin useEmula
         includeUncapturedStaged: false,
       }).map((entry) => entry.id),
     );
-    expect(unfilteredIds.has('rtdb-modular-admin-use-emulator-validation')).toBe(true);
-
-    expectStagedUntilCaptured(STAGED_RULES_PROBE_IDS, {
-      rig: 'sdk-probes',
-      filterFlag: '--probe',
-      filterValueFor: (name) => name,
-      whenUncaptured(name) {
-        expect(unfilteredIds.has(name)).toBe(false);
-      },
-      whenCaptured(name) {
-        expect(unfilteredIds.has(name)).toBe(true);
-      },
-    });
+    for (const id of LINKED_PROBE_IDS) {
+      expect(unfilteredIds.has(id)).toBe(true);
+    }
 
     const previewLines: string[] = [];
     printModularProbePreview({
@@ -130,7 +125,7 @@ describe('RTDB constraint atoms/policies staged probes and linked admin useEmula
       probes: loaded,
       log: (line) => previewLines.push(line),
     });
-    for (const id of [...STAGED_RULES_PROBE_IDS, 'rtdb-modular-admin-use-emulator-validation']) {
+    for (const id of LINKED_PROBE_IDS) {
       expect(previewLines.some((line) => line.includes(id))).toBe(true);
     }
 

@@ -1,7 +1,9 @@
 {
   "name": "rtdb-rules-atoms-verdicts",
-  "matrixRow": "",
-  "rowIds": [],
+  "matrixRow": "rtdb#84",
+  "rowIds": [
+    "rtdb#84"
+  ],
   "description": "Live RTDB Security Rules verdicts for rulesets compiled from all 14 constraint atoms predicates (authenticated, ownPath, ownField, isNew, hasChildren, hasChild, fieldIsString/Number/Boolean, fieldEnum, immutable, immutableSelf, rootExists, rootEquals).",
   "observedAt": "2026-11-19T01:46:12.234Z",
   "fbSdkVersion": "12.19.0",

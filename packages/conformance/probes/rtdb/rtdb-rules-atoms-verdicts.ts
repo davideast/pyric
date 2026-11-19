@@ -374,9 +374,8 @@ export async function observeRulesAtomsVerdicts(
 export const probe: Probe = {
   rig: 'sdk-probes',
   requires: ['web-config', 'dedicated-rtdb'],
-  pendingRowLink: true,
-  matrixRow: '',
-  rowIds: [],
+  matrixRow: 'rtdb#84',
+  rowIds: ['rtdb#84'],
   description:
     'Live RTDB Security Rules verdicts for rulesets compiled from all 14 constraint atoms predicates (authenticated, ownPath, ownField, isNew, hasChildren, hasChild, fieldIsString/Number/Boolean, fieldEnum, immutable, immutableSelf, rootExists, rootEquals).',
   async observe() {

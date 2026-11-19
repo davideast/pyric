@@ -28,6 +28,7 @@ const cddLifecycleTests = ["packages/pyric/test/database/cdd/lifecycle-and-ident
 const cddPublicOperationTests = ["packages/pyric/test/database/cdd/public-operations.test.ts"];
 const updatesCaptureTests = ["packages/pyric/test/database/cdd/capture-updates-sentinels-and-validate.test.ts", "packages/cli/test/serve/worker/oracle-captures/rtdb-updates-sentinels-and-validate.test.ts"];
 const listenersCaptureTests = ["packages/pyric/test/database/cdd/capture-listeners-and-unsubscribe.test.ts", "packages/cli/test/serve/worker/oracle-captures/rtdb-listeners-and-unsubscribe.test.ts"];
+const atomsPoliciesCaptureTests = ["packages/pyric/test/database/oracle-conformance.test.ts", "packages/cli/test/serve/worker/oracle-captures/rtdb-rules-atoms-and-policies.test.ts"];
 
 const row1 = defineRows({
   surface: "rtdb",
@@ -55,7 +56,7 @@ const row3 = defineRows({
     section: "Constraint authoring surface (`atoms` / `policies` / `compose` / `ruleset`)",
     api: "Constraint authoring surface (`atoms` / `policies` / `compose` / `ruleset`)",
     status: "conforms",
-    automation: "unit-backed",
+    automation: "oracle-backed",
   },
 });
 
@@ -567,22 +568,22 @@ export const rtdbRegistry = {
           rowRef: "84",
           featureKeys: ["atoms"],
           behavior: "`atoms` exports the documented set of primitive predicates (`authenticated`, `ownPath`, `ownField`, `isNew`, `hasChildren`, `hasChild`, `fieldIsString/Number/Boolean`, `fieldEnum`, `immutable`, `immutableSelf`, `rootExists`, `rootEquals`) — each returns an `Expr`",
-          evidence: "`unit:constraints/atoms.test.ts`",
-          conformanceTests: ["packages/rules/test/rtdb/constraints/atoms.test.ts"],
+          evidence: "Oracle `rtdb-rules-atoms-verdicts` (34/34 live Firebase 12.19.0 verdicts across all 14 `atoms` predicates) replayed across `simulateRtdbRules`, sandbox, SharedWorker, and Node host; `unit:constraints/atoms.test.ts`.",
+          oracleObservations: ["rtdb-rules-atoms-verdicts"], conformanceTests: ["packages/rules/test/rtdb/constraints/atoms.test.ts", ...atomsPoliciesCaptureTests],
         }),
         row3({
           rowRef: "85",
           featureKeys: ["atoms","policies","compose"],
           behavior: "`policies` exports composite predicates that compose atoms: `pathOwnerOnly`, `fieldOwnerOnly`, `ownerOrNew`, `hasRole`, `isMember`, `required` (single keys in one `newData.hasChildren([...])`, each nested path such as `puck/x` in its own `newData.hasChild(...)`, joined with `&&`; every key segment must be a valid RTDB key), `transition`",
-          evidence: "`unit:constraints/policies.test.ts`",
-          conformanceTests: ["packages/rules/test/rtdb/constraints/policies.test.ts"],
+          evidence: "Oracle `rtdb-rules-policies-verdicts` (26/26 live Firebase 12.19.0 verdicts across all 7 `policies` helpers) replayed across `simulateRtdbRules`, sandbox, SharedWorker, and Node host; `unit:constraints/policies.test.ts`.",
+          oracleObservations: ["rtdb-rules-policies-verdicts"], conformanceTests: ["packages/rules/test/rtdb/constraints/policies.test.ts", ...atomsPoliciesCaptureTests],
         }),
         row3({
           rowRef: "86",
           featureKeys: ["compose"],
           behavior: "`compose` exports the boolean combinators `all`, `any`, `not`, `deny`, `always`, the raw `expr` constructor, and `lit`, the single-quoted rule literal every builder writes; `all` and `any` add only the parentheses an operand needs (an `||` or ternary under `&&`, an `&&` or ternary under `||`), and the RTDB standard library composes its builders from these. `all` or `any` with no non-empty operand throws, and `lit` throws on a string with a newline or another control character; its quote and backslash escapes match the Pyric simulator",
           evidence: "`unit:constraints/compose.test.ts` pins the grouping, including an `||` inside parentheses, quotes or a regex literal left ungrouped, that a composition still parses, the empty `all`/`any` errors, the `lit` control-character refusal, and that each escaped literal reads back as its value in the simulator. These errors are Pyric authoring checks with no production counterpart. The RTDB standard library captures `rules-rtdb-r27-stdlib-core-patterns`, `rules-rtdb-r28-stdlib-presence-timing` and `rules-rtdb-r34-stdlib-auth-membership-quota` were recaptured after the standard library moved onto these combinators, with every verdict unchanged, and replayed across simulator, sandbox, SharedWorker, and Node host.",
-          automation: "oracle-backed", oracleObservations: ["rules-rtdb-r27-stdlib-core-patterns", "rules-rtdb-r28-stdlib-presence-timing", "rules-rtdb-r34-stdlib-auth-membership-quota"],
+          oracleObservations: ["rules-rtdb-r27-stdlib-core-patterns", "rules-rtdb-r28-stdlib-presence-timing", "rules-rtdb-r34-stdlib-auth-membership-quota"],
           conformanceTests: ["packages/rules/test/rtdb/constraints/compose.test.ts", "packages/conformance/test/rtdb-rules/capture-stdlib-and-deploy-refusals.test.ts", "packages/conformance/test/rtdb-rules/served-stdlib-and-deploy-refusals.test.ts"],
         }),
         row3({
@@ -590,11 +591,11 @@ export const rtdbRegistry = {
           featureKeys: ["ruleset"],
           behavior: "`ruleset(...)` builds an environment-independent compiled RTDB rules tree from path definitions + expression objects. Each `.read`, `.write`, and `.validate` expression in the tree carries its parse, validation, and lint findings, and `rtdbRules(definition).lint()` reports each one with the rule it belongs to and its origin: `parse` for an expression that does not parse or a definition that does not compile, `validate` for a validator finding, `lint` for a linter warning. HARDCODED_TRUE and HARDCODED_FALSE report a `.read` or `.write` whose whole expression is a boolean literal or a comparison between two literals, such as `1 == 1`; a literal operand such as `data.child('open').val() == false`, and any `.validate` literal, is not reported. CONSTANT_COMPARISON reports any other comparison between two literals, which has one value whatever the request; it is evaluated without type conversion, so `1 == '1'` is always false. `rtdbRules(definition)` compiles the definition once, on first use, and `lint`, `simulate`, `explain`, and `toJSON` reuse that tree, so a `simulate` call with many cases costs one compile; its verdicts equal those of `rtdbRules(json)` on the JSON the definition generates",
           evidence: "`unit:constraints/ruleset.test.ts`; `unit:rules/rtdb/lint-issues.test.ts` pins the origin and rule of each issue kind on a TypeScript definition; `unit:rules/rtdb/grammar/linter-literals.test.ts` pins that only a whole-expression literal on `.read` or `.write` is reported, and that a JSON boolean and the string of it lint the same; `unit:rules/rtdb/grammar/regex-literals-and-constant-comparisons.test.ts` pins the constant-comparison findings; `unit:rules/public-api.test.ts` (\"a definition handle compiles the definition once across lint, simulate, explain, and toJSON\", \"a definition handle and the JSON handle made from it return the same simulate verdicts\") pins one compile per handle and verdicts equal to the JSON handle's. Production accepts boolean literals as rules (`oracle:rules-rtdb-r5-cascade-root-grant`, `oracle:rules-rtdb-r6-deny-everything`), validates rule expressions (`oracle:rtdb-rules-deploy-refusals`, `oracle:rtdb-rules-type-check`), and enforces compiled `defineRtdbRules` trees across `rules-rtdb-r27-stdlib-core-patterns`, `rules-rtdb-r28-stdlib-presence-timing`, and `rules-rtdb-r34-stdlib-auth-membership-quota` on simulator, sandbox, SharedWorker, and Node host.",
-          automation: "oracle-backed", oracleObservations: ["rtdb-rules-deploy-refusals", "rtdb-rules-type-check", "rules-rtdb-r27-stdlib-core-patterns", "rules-rtdb-r28-stdlib-presence-timing", "rules-rtdb-r34-stdlib-auth-membership-quota"],
+          oracleObservations: ["rtdb-rules-deploy-refusals", "rtdb-rules-type-check", "rules-rtdb-r27-stdlib-core-patterns", "rules-rtdb-r28-stdlib-presence-timing", "rules-rtdb-r34-stdlib-auth-membership-quota"],
           conformanceTests: [
-            "packages/rules/test/rtdb/constraints/ruleset.test.ts", "packages/rules/test/rtdb/lint-issues.test.ts",
+            "packages/rules/test/rtdb/constraints/ruleset.test.ts", "packages/rules/test/rtdb/lint-issues.test.ts", "packages/rules/test/public-api.test.ts",
             "packages/rules/test/rtdb/grammar/linter-literals.test.ts", "packages/rules/test/rtdb/grammar/regex-literals-and-constant-comparisons.test.ts",
-            "packages/rules/test/public-api.test.ts", "packages/conformance/test/rtdb-rules/capture-stdlib-and-deploy-refusals.test.ts", "packages/conformance/test/rtdb-rules/served-stdlib-and-deploy-refusals.test.ts",
+            "packages/conformance/test/rtdb-rules/capture-stdlib-and-deploy-refusals.test.ts", "packages/conformance/test/rtdb-rules/served-stdlib-and-deploy-refusals.test.ts",
           ],
         }),
         row3({
@@ -602,16 +603,14 @@ export const rtdbRegistry = {
           featureKeys: ["compose"],
           behavior: "Game-domain helpers (`turnGuard`, `flip`, `winCheckHelper`) and the `rtdbStdlib` standard library modules (`validation`, `lifecycle`, `lobby`, `turns`, `results`, `counters`, `presence`, `timing`, `collections`, `auth`, `membership`) compose into legal rule expressions, and `simulate` and the sandbox decide each documented allow and deny case alike",
           evidence: "`unit:constraints/game.test.ts`. Extended 2026-10-07: each `rtdbStdlib` module's test pins its builders' output and runs allow and deny cases for set, update and delete through `rtdbRules(...).simulate` and through the sandbox's deployed rules with the client SDK; both must give each case's expected verdict. `unit:rules/rtdb/stdlib/catalog.test.ts` keeps the catalog the `rules_stdlib_list` and `rules_stdlib_get` tools return for `service: 'database'` in one-to-one agreement with the exports, with every compiled example parsing. The compiled output of the main patterns is deployed to production in the `rules-rtdb-r27-stdlib-core-patterns` capture, recorded on the RTDB rules engine rows for `.validate` scope and literal and wildcard siblings, and the presence, timing and collections patterns in `rules-rtdb-r28-stdlib-presence-timing`, recorded on the row for `now`. The auth, membership and windowed-quota patterns are deployed in `rules-rtdb-r34-stdlib-auth-membership-quota`, recorded on the same row, and replayed across simulator, sandbox, SharedWorker, and Node host. A presence case registers its offline value with onDisconnect and checks that the value lands when the connection drops.",
-          automation: "oracle-backed", oracleObservations: ["rules-rtdb-r27-stdlib-core-patterns", "rules-rtdb-r28-stdlib-presence-timing", "rules-rtdb-r34-stdlib-auth-membership-quota"],
+          oracleObservations: ["rules-rtdb-r27-stdlib-core-patterns", "rules-rtdb-r28-stdlib-presence-timing", "rules-rtdb-r34-stdlib-auth-membership-quota"],
           conformanceTests: [
-            "packages/rules/test/rtdb/constraints/game.test.ts", "packages/pyric/test/rules/rtdb/stdlib/validation.test.ts",
-            "packages/pyric/test/rules/rtdb/stdlib/lifecycle.test.ts", "packages/pyric/test/rules/rtdb/stdlib/lobby.test.ts",
-            "packages/pyric/test/rules/rtdb/stdlib/turns.test.ts", "packages/pyric/test/rules/rtdb/stdlib/results.test.ts",
-            "packages/pyric/test/rules/rtdb/stdlib/counters.test.ts", "packages/pyric/test/rules/rtdb/stdlib/presence.test.ts",
-            "packages/pyric/test/rules/rtdb/stdlib/timing.test.ts", "packages/pyric/test/rules/rtdb/stdlib/collections.test.ts",
-            "packages/pyric/test/rules/rtdb/stdlib/auth.test.ts", "packages/pyric/test/rules/rtdb/stdlib/membership.test.ts",
-            "packages/pyric/test/rules/rtdb/stdlib/quota.test.ts", "packages/pyric/test/rules/rtdb/stdlib/catalog.test.ts",
-            "packages/pyric/test/rules/rtdb/stdlib/corpus-lock.test.ts", "packages/conformance/test/rtdb-rules/capture-stdlib-and-deploy-refusals.test.ts", "packages/conformance/test/rtdb-rules/served-stdlib-and-deploy-refusals.test.ts",
+            "packages/rules/test/rtdb/constraints/game.test.ts", "packages/pyric/test/rules/rtdb/stdlib/validation.test.ts", "packages/pyric/test/rules/rtdb/stdlib/lifecycle.test.ts",
+            "packages/pyric/test/rules/rtdb/stdlib/lobby.test.ts", "packages/pyric/test/rules/rtdb/stdlib/turns.test.ts", "packages/pyric/test/rules/rtdb/stdlib/results.test.ts",
+            "packages/pyric/test/rules/rtdb/stdlib/counters.test.ts", "packages/pyric/test/rules/rtdb/stdlib/presence.test.ts", "packages/pyric/test/rules/rtdb/stdlib/timing.test.ts",
+            "packages/pyric/test/rules/rtdb/stdlib/collections.test.ts", "packages/pyric/test/rules/rtdb/stdlib/auth.test.ts", "packages/pyric/test/rules/rtdb/stdlib/membership.test.ts",
+            "packages/pyric/test/rules/rtdb/stdlib/quota.test.ts", "packages/pyric/test/rules/rtdb/stdlib/catalog.test.ts", "packages/pyric/test/rules/rtdb/stdlib/corpus-lock.test.ts",
+            "packages/conformance/test/rtdb-rules/capture-stdlib-and-deploy-refusals.test.ts", "packages/conformance/test/rtdb-rules/served-stdlib-and-deploy-refusals.test.ts",
           ],
         }),
       ],
