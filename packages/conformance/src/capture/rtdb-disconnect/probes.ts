@@ -322,8 +322,8 @@ export function createRtdbDisconnectProbes(ctx: RtdbDisconnectContext): OraclePr
     ),
     probe(
       'rtdb-modular-ondisconnect-operations-cancel',
-      'rtdb-modular#M80, rtdb-modular#M83',
-      ['rtdb-modular#M80', 'rtdb-modular#M83'],
+      'rtdb-modular#M80, rtdb-modular#M83, rtdb-modular#VR3',
+      ['rtdb-modular#M80', 'rtdb-modular#M83', 'rtdb-modular#VR3'],
       'Queued set, update, remove, setWithPriority, cancellation scope, and overlapping parent/child registrations.',
       () => repeatStable(2, async (index) => {
         const rootPath = scenarioPath(ctx, 'operations-cancel', index);
@@ -397,8 +397,8 @@ export function createRtdbDisconnectProbes(ctx: RtdbDisconnectContext): OraclePr
     ),
     probe(
       'rtdb-modular-ondisconnect-rules',
-      'rtdb-modular#M81',
-      ['rtdb-modular#M81'],
+      'rtdb-modular#M81, rtdb-modular#VR3',
+      ['rtdb-modular#M81', 'rtdb-modular#VR3'],
       'Registration denial and execution-time rules re-evaluation, each paired with a successful normal-write control.',
       () => repeatStable(2, async (index) => {
         const rootPath = scenarioPath(ctx, 'rules', index);

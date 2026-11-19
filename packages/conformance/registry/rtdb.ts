@@ -95,7 +95,7 @@ const verifyReplayRow = defineRows({
   defaults: {
     section: "Verifying a captured session",
     status: "conforms",
-    automation: "unit-backed",
+    automation: "oracle-backed",
   },
 });
 
@@ -2416,13 +2416,9 @@ export const rtdbRegistry = {
           queryable: false,
           api: "pyric verify (RTDB reads and listener attaches)",
           behavior: "Every `get` and every listener attach (`onValue`, `onChildAdded`, `onChildChanged`, `onChildRemoved`, `onChildMoved`) an application user made and the rules allowed is decided again under the candidate rules, by its `.read` rules and the `query.*` expressions of the query it carried, against the replay tree at its point in the session. The read is not run, so a listener on a query with no `.indexOn`, which only warns, is not refused for its index. A read the candidate rules deny is a `now-denied` divergence with method `get` or `listen`. An admin read is not checked. A listener's attach and denial events carry its query (`request.query`) for value and child listeners alike.",
-          evidence: "`packages/pyric/test/database/replay.test.ts` (\"captured reads without a query\", \"captured listener attaches\", \"captured query reads\", \"replaying under the rules a session was captured with\") replays a plain `get`, an `onValue`, and an `onChildAdded` with and without a query and asserts `now-denied` under rules that drop `.read` and none under rules that keep it, including a query listener on a path with no index. `packages/cli/test/verify/verify.test.ts` (\"RTDB reads and denials\") runs `verifyFixture` on a JSON round-tripped capture. App scenario `test/apps/rtdb-verify-reads-and-denials` runs the installed `pyric verify` on the `.pyric/last-session.json` the Node host wrote while Chromium read and listened to its own profile, and asserts `now-denied: get` and `now-denied: listen` under rules without `.read`; on main (756d23efa) it reported the session clean. CDD assertion `rtdb-modular#VR1` pins the sandbox side.",
-          conformanceTests: [
-            "packages/pyric/test/database/replay.test.ts",
-            "packages/cli/test/verify/verify.test.ts",
-            "test/apps/rtdb-verify-reads-and-denials/scenario.ts",
-            "packages/pyric/test/database/cdd/lifecycle-and-identity.test.ts",
-          ],
+          evidence: "Oracles `rtdb-rules-cascade-bindings-and-auth-context`, `rules-rtdb-r30-query-rules` and `rtdb-modular-query-index-enforcement` are replayed through `packages/conformance/test/rtdb-verify/session-verify-reads-and-denials-replay.test.ts` across in-process session capture (`buildLiveSessionCaptureFixture` + `verifyFixture`), `SharedWorker` capture delivery (`applyServeInit`), and Node host `.pyric/last-session.json` (`runVerify`), checking allowed `get` and all five listener kinds (`onValue`, `onChildAdded`, `onChildChanged`, `onChildRemoved`, `onChildMoved`) with `query.*` constraints, unindexed query listeners, admin-read skipping, and `now-denied` divergences. `packages/pyric/test/database/replay.test.ts`, `packages/cli/test/verify/verify.test.ts`, `test/apps/rtdb-verify-reads-and-denials` and CDD assertion `rtdb-modular#VR1` pin the unit and browser scenarios.",
+          oracleObservations: ["rtdb-rules-cascade-bindings-and-auth-context", "rules-rtdb-r30-query-rules", "rtdb-modular-query-index-enforcement"],
+          conformanceTests: ["packages/conformance/test/rtdb-verify/session-verify-reads-and-denials-replay.test.ts", "packages/pyric/test/database/replay.test.ts", "packages/cli/test/verify/verify.test.ts", "test/apps/rtdb-verify-reads-and-denials/scenario.ts", "packages/pyric/test/database/cdd/lifecycle-and-identity.test.ts"],
         }),
         verifyReplayRow({
           rowRef: "VR2",
@@ -2431,14 +2427,10 @@ export const rtdbRegistry = {
           api: "pyric verify (RTDB denied operations)",
           behavior: "Every `set` (with the priority it would have written), `remove`, `update`, `setPriority`, `runTransaction`, `get` and listener attach an application user made and the rules denied is decided under the candidate rules against the tree as it stood at that point in the session, through the backend's non-mutating checks: nothing is written and no event is emitted. A denied `update` is decided as one request with every path written with it: its denial records the whole patch (`detail.patch`, with `detail.rootPath`). Still denied is no divergence; allowed is a `now-allowed` divergence. A `now-allowed` fails `pyric verify` (exit 1), as `now-denied` does. A listener the rules revoke after it attached, because of a write or a rules change, is recorded with `detail.revoked` and is not checked: it follows from the write or rules change, and its attach was checked as an allowed read.",
           statusNote: "a denied transaction is checked without the node's existing priority; the capture does not record the priority of a node the session never wrote",
-          evidence: "`packages/pyric/test/database/replay.test.ts` (\"captured denials\") asserts `now-allowed` for a denied set, remove, transaction, setPriority, get, onValue and query read under open rules; none under the rules that denied them; a create-only rule (`!data.exists()`) judged against the data at the moment of the denial, not the end state after an admin removed it; and a denied two-path update that stays denied when the candidate rules open only one of its paths. \"replaying under the rules a session was captured with\" replays a listener a later write revoked, a listener a rules change revoked, a denied child listener with a query and a denied `setWithPriority` under their own capture rules and asserts no divergence. `packages/cli/test/verify/verify.test.ts` asserts `ok: false` and the `now-allowed` divergence through `verifyFixture`. App scenario `test/apps/rtdb-verify-reads-and-denials` asserts `pyric verify --rules rtdb=open.rules.json` exits 1 with `now-allowed: set /profiles/someone-else/name` for the write Chromium was denied; on main (756d23efa) it printed `all selected services replay cleanly` and exited 0. CDD assertion `rtdb-modular#VR2` pins the sandbox side.",
+          evidence: "Oracles `rtdb-rules-data-newdata-and-snapshot-methods`, `rtdb-rules-default-deny-and-runtime-errors` and `rtdb-modular-multipath-update-and-write-order` are replayed through `packages/conformance/test/rtdb-verify/session-verify-reads-and-denials-replay.test.ts` across in-process session capture, `SharedWorker` capture delivery, and Node host `.pyric/last-session.json` (`runVerify`), checking denied `set`, `setWithPriority`, `remove`, atomic multi-path `update` (`detail.patch` + `detail.rootPath`), `setPriority`, `runTransaction`, `get`, and listener attaches against point-in-time state before later admin deletes while skipping `detail.revoked` post-attach revocations. `packages/pyric/test/database/replay.test.ts`, `packages/cli/test/verify/verify.test.ts`, `test/apps/rtdb-verify-reads-and-denials` and CDD assertion `rtdb-modular#VR2` pin the unit and browser scenarios.",
           notes: "A denied update in a capture recorded before denials carried their patch is reported as an `unsupported` divergence, since its other paths are not in the capture.",
-          conformanceTests: [
-            "packages/pyric/test/database/replay.test.ts",
-            "packages/cli/test/verify/verify.test.ts",
-            "test/apps/rtdb-verify-reads-and-denials/scenario.ts",
-            "packages/pyric/test/database/cdd/lifecycle-and-identity.test.ts",
-          ],
+          oracleObservations: ["rtdb-rules-data-newdata-and-snapshot-methods", "rtdb-rules-default-deny-and-runtime-errors", "rtdb-modular-multipath-update-and-write-order"],
+          conformanceTests: ["packages/conformance/test/rtdb-verify/session-verify-reads-and-denials-replay.test.ts", "packages/pyric/test/database/replay.test.ts", "packages/cli/test/verify/verify.test.ts", "test/apps/rtdb-verify-reads-and-denials/scenario.ts", "packages/pyric/test/database/cdd/lifecycle-and-identity.test.ts"],
         }),
         verifyReplayRow({
           rowRef: "VR3",
@@ -2446,12 +2438,9 @@ export const rtdbRegistry = {
           queryable: false,
           api: "pyric verify (RTDB onDisconnect registrations)",
           behavior: "An `onDisconnect().set()`, `.setWithPriority()`, `.update()` or `.remove()` registration by an application user is decided under the rules when it is registered, as production decides it, and recorded as an `onDisconnect.set` (with its priority for `.setWithPriority()`), `onDisconnect.update` or `onDisconnect.remove` operation, allowed or denied, once per registration. The in-page sandbox records it in `RtdbConnectionLifecycle.register`; the SharedWorker host and the Node host run the same host module (`packages/cli/src/serve/worker/host.ts`), which validates a registration through that same path. `pyric verify` decides each recorded registration again under the candidate rules at its point in the session: an allowed registration they deny is `now-denied`, a denied one they allow is `now-allowed`. The write a registration makes when the connection ends is a captured write like any other.",
-          evidence: "`packages/pyric/test/database/replay.test.ts` (\"captured onDisconnect registrations\") asserts the four recorded operations for set, update, remove and a denied set, `now-denied` for set and update registrations under rules that drop `.write`, a `setWithPriority` registration decided with its priority, and `now-allowed` for a denied registration under open rules. App scenario `test/apps/rtdb-verify-reads-and-denials` runs the Node host: the `.pyric/last-session.json` it writes while Chromium registers presence holds exactly one `onDisconnect.set` operation, and the installed `pyric verify` reports it `now-denied` under rules that lock presence. The SharedWorker host is covered by sharing that host module, not by its own test. CDD assertion `rtdb-modular#VR3` pins the sandbox side: a registration records one `onDisconnect.set` operation and replay decides it at registration.",
-          conformanceTests: [
-            "packages/pyric/test/database/replay.test.ts",
-            "test/apps/rtdb-verify-reads-and-denials/scenario.ts",
-            "packages/pyric/test/database/cdd/lifecycle-and-identity.test.ts",
-          ],
+          evidence: "Oracles `rtdb-modular-ondisconnect-rules`, `rtdb-modular-ondisconnect-operations-cancel` and `rules-rtdb-r28-stdlib-presence-timing` are replayed through `packages/conformance/test/rtdb-verify/session-verify-ondisconnect-replay.test.ts` across in-process session capture, `SharedWorker` (`applyServeInit` + `rtdb.onDisconnect*`), and Node host `.pyric/last-session.json` (`runVerify`), asserting registration-time allow/deny recording across `set`, `setWithPriority`, `update` and `remove` and `now-denied` / `now-allowed` candidate rule verdicts. `packages/pyric/test/database/replay.test.ts`, `test/apps/rtdb-verify-reads-and-denials` and CDD assertion `rtdb-modular#VR3` pin the unit and browser scenarios.",
+          oracleObservations: ["rtdb-modular-ondisconnect-rules", "rtdb-modular-ondisconnect-operations-cancel", "rules-rtdb-r28-stdlib-presence-timing"],
+          conformanceTests: ["packages/conformance/test/rtdb-verify/session-verify-ondisconnect-replay.test.ts", "packages/pyric/test/database/replay.test.ts", "test/apps/rtdb-verify-reads-and-denials/scenario.ts", "packages/pyric/test/database/cdd/lifecycle-and-identity.test.ts"],
         }),
         verifyReplayRow({
           rowRef: "VR4",
@@ -2462,13 +2451,7 @@ export const rtdbRegistry = {
           statusNote: "an `onDisconnect` registration is decided as the write it registers, at registration; the capture does not record the priority of a node the session never wrote",
           evidence: "Oracle `rtdb-modular-staging-auth-override` (captured by `packages/conformance/src/capture-rtdb-staging-auth-override.ts` on a dedicated instance) writes to eight rule-gated paths through the REST override and through firebase-admin `databaseAuthVariableOverride` as matching, mismatching and signed-out identities, then as the matching identity with one claim changed at a time: every case matched its expectation, and each changed claim denied only its own field, so production reads `auth.uid`, `auth.provider`, `auth.token.firebase.sign_in_provider`, `auth.token.firebase.tenant`, `auth.token.email`, `auth.token.email_verified` and a custom claim from the override. `packages/cli/test/verify/staging/staging-live.test.ts` runs the built `pyric verify --engine sandbox --engine staging` as a process against an enrolled instance (skipped without `PYRIC_STAGING_LIVE`) and asserts a clean replay, `now-allowed` and `now-denied` from both engines with no `engine-drift`, a rule on `auth.token.firebase.sign_in_provider` deciding the password user's writes, production's missing-index answer reported as `unsupported`, and the instance left enrolled and empty. `packages/cli/test/verify/staging/staging-engine.test.ts` drives the engine and the CLI against a REST double backed by a pyric sandbox: request shapes and query parameters, `engine-drift`, a refused deploy, the refusals (not enrolled, holding data, another project, an app instance), a failed restore failing loudly, enrollment, and credentials falling back to a fresh CLI token. `packages/pyric/test/database/modular/oracle-conformance-staging-auth.test.ts` replays the observation through the sandbox's rules simulator, which decides all 78 compared cases as production did; the `provider` field of the two identities whose `provider` is not their sign-in claim's is not compared, because the engine derives `provider` from that claim and never sends such an override. CDD assertion `rtdb-modular#VR4` pins the sandbox side.",
           oracleObservations: ["rtdb-modular-staging-auth-override"],
-          automation: "oracle-backed",
-          conformanceTests: [
-            "packages/cli/test/verify/staging/staging-engine.test.ts",
-            "packages/cli/test/verify/staging/staging-live.test.ts",
-            "packages/pyric/test/database/modular/oracle-conformance-staging-auth.test.ts",
-            "packages/pyric/test/database/cdd/lifecycle-and-identity.test.ts",
-          ],
+          conformanceTests: ["packages/cli/test/verify/staging/staging-engine.test.ts", "packages/cli/test/verify/staging/staging-live.test.ts", "packages/pyric/test/database/modular/oracle-conformance-staging-auth.test.ts", "packages/pyric/test/database/cdd/lifecycle-and-identity.test.ts"],
         }),
       ],
     },

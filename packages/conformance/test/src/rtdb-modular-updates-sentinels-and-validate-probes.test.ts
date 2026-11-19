@@ -93,6 +93,7 @@ describe('RTDB modular updates, sentinels, and .validate probes (sdk-probes)', (
           'rtdb-modular#M15',
           'rtdb-modular#M16',
           'rtdb-modular#M16b',
+          'rtdb-modular#VR2',
         ],
       ],
       [

@@ -1,9 +1,10 @@
 {
   "name": "rtdb-modular-ondisconnect-operations-cancel",
-  "matrixRow": "rtdb-modular#M80, rtdb-modular#M83",
+  "matrixRow": "rtdb-modular#M80, rtdb-modular#M83, rtdb-modular#VR3",
   "rowIds": [
     "rtdb-modular#M80",
-    "rtdb-modular#M83"
+    "rtdb-modular#M83",
+    "rtdb-modular#VR3"
   ],
   "description": "Queued set, update, remove, setWithPriority, cancellation scope, and overlapping parent/child registrations.",
   "observedAt": "2026-10-30T10:44:58.659Z",

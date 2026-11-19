@@ -230,6 +230,7 @@ export const probe: Probe = {
     'rtdb-modular#M15',
     'rtdb-modular#M16',
     'rtdb-modular#M16b',
+    'rtdb-modular#VR2',
   ],
   observe() {
     return withRtdbProbeSession(

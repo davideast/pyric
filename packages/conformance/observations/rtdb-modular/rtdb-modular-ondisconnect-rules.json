@@ -1,8 +1,9 @@
 {
   "name": "rtdb-modular-ondisconnect-rules",
-  "matrixRow": "rtdb-modular#M81",
+  "matrixRow": "rtdb-modular#M81, rtdb-modular#VR3",
   "rowIds": [
-    "rtdb-modular#M81"
+    "rtdb-modular#M81",
+    "rtdb-modular#VR3"
   ],
   "description": "Registration denial and execution-time rules re-evaluation, each paired with a successful normal-write control.",
   "observedAt": "2026-10-30T10:45:33.701Z",
