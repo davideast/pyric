@@ -1,0 +1,15 @@
+import { cddLifecycleTests } from '../defaults.ts';
+import { row } from './section.ts';
+
+export default row({
+  order: 20,
+  featureKeys: ["set", "get", "onDisconnect", "runTransaction"],
+  api: "Calls in flight at a hosted connection drop (Node remote client)",
+  behavior: "When the socket of the Node remote client's lazy handle (`remoteSandbox()`, which `@pyric/cli/register` installs) drops after it has attached, an RTDB write (`set`, `update`, `remove`, `setPriority`, `setWithPriority`, or a `push` that carries its key, as `pyric-admin` sends it) or `get` the socket had taken is sent again once the client reconnects, after its listeners are restored and ahead of any call issued later, under the new connection's request id, and resolves on the new reply with no deadline. A write sent again may apply twice. An `onDisconnect` registration or `cancel()` sent over the raw channel never settles and is not sent again. A transaction commit sent over the raw channel rejects with `Error('disconnect')`, which has no code, and is not retried. A `push` without a key fails once with `unavailable`, since sending it again would add a second child.",
+  evidence: "Oracle `rtdb-modular-socket-drop-in-flight-fates` (`firebase/database` 12.19.0 RTDB v5 wire capture) records per-method drop fates (`resend` with preserved `push` key, non-resent unsettled `onDisconnect`, and codeless `Error('disconnect')` on `runTransaction`), replayed against `remoteSandbox()` and `rtdbFateAtDrop` in `packages/cli/test/serve/worker/oracle-captures/rtdb-socket-drop-in-flight-fates.test.ts` and `packages/pyric/test/database/cdd/capture-socket-drop-in-flight-fates.test.ts`. Also covered by `packages/cli/test/remote/reconnect.test.ts`, `loop-hold.test.ts`, app scenario `test/apps/node-client-host-restart` (#1107), and CDD assertion `rtdb-modular#HD2`.",
+  notes: "A call issued while the connection is lost, and never sent, is held for at most 10 seconds from its issue and then fails with `unavailable` saying it was not sent, where the SDK queues it with no deadline, as on the web hosted client (row HD1). In the SDK's `restoreState_`, post-drop queued writes and `onDisconnect`s flush ahead of `outstandingGets_`, whereas `held-calls.ts` flushes all re-held in-flight `resend` calls (`writes` and `get`, in issue order) ahead of calls issued while disconnected. Before the handle's first attach, a failed connect fails the call at once, as before. A call sent again still fails with `deadline-exceeded` after 35 seconds without a reply once it is sent, where the SDK has no deadline. The eager `connectRemoteSandbox()` handle does not reconnect and fails calls in flight with `unavailable`. The Node client has no `.info/connected`, so the presence sample behind #1088 cannot run on it.",
+  conformanceTests: [
+    "packages/cli/test/serve/worker/oracle-captures/rtdb-socket-drop-in-flight-fates.test.ts", "packages/pyric/test/database/cdd/capture-socket-drop-in-flight-fates.test.ts",
+    "packages/cli/test/remote/reconnect.test.ts", "test/apps/node-client-host-restart/scenario.ts", ...cddLifecycleTests,
+  ],
+});
